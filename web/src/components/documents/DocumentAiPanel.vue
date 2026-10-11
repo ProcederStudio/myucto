@@ -10,6 +10,7 @@ import { formatDateTime } from '@/composables/useFormat'
 import { ICONS, btnOutline, btnOutlineSm, btnFilled } from '@/components/ui/buttonStyles'
 import AiMarkdown from '@/components/ai/AiMarkdown.vue'
 import AiJournalProposal from '@/components/ai/AiJournalProposal.vue'
+import AiOtherItemProposal from '@/components/ai/AiOtherItemProposal.vue'
 
 const props = defineProps<{ doc: DocItem }>()
 const emit = defineEmits<{ posted: [entryId: number] }>()
@@ -174,6 +175,10 @@ onMounted(async () => {
         <ul v-if="analysis.warnings?.length" class="space-y-1">
           <li v-for="(w, i) in analysis.warnings" :key="i" class="text-xs text-warning-700 bg-warning-50 rounded px-2 py-1">{{ w }}</li>
         </ul>
+        <div v-if="(analysis.other_items ?? []).length" class="space-y-2">
+          <h4 class="text-xs font-semibold uppercase tracking-wide text-neutral-500">{{ t('accounting.ai_assistant.other_item.heading') }}</h4>
+          <AiOtherItemProposal v-for="(oi, i) in analysis.other_items ?? []" :key="i" :item="oi" :link-document-ids="[doc.id]" @created="id => emit('posted', id)" />
+        </div>
         <div v-if="analysis.journal_entries?.length" class="space-y-2">
           <AiJournalProposal v-for="(je, i) in analysis.journal_entries" :key="i" :entry="je" :link-document-ids="[doc.id]" @posted="id => emit('posted', id)" />
         </div>

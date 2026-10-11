@@ -93,7 +93,8 @@ final class AccountingAssistantServiceTest extends TestCase
     {
         return new Response(200, [], json_encode([
             'model' => 'claude-sonnet-5',
-            'content' => [['type' => 'tool_use', 'input' => $input]],
+            'content' => [['type' => 'text', 'text' => json_encode($input)]],
+            'stop_reason' => 'end_turn',
             'usage' => ['input_tokens' => 120, 'output_tokens' => 40],
         ]));
     }
@@ -215,6 +216,32 @@ final class AccountingAssistantServiceTest extends TestCase
         } finally {
             @unlink($path);
         }
+    }
+
+    /** Splátkový kalendář patří do Ostatních pohledávek a závazků: návrh se vrátí jako other_items. */
+    public function testAskReturnsOtherItemProposalWithInstallments(): void
+    {
+        $service = $this->service([self::toolResponse([
+            'answer' => 'Založte závazek z úvěru.', 'journal_entries' => [], 'document_suggestions' => [], 'warnings' => [],
+            'other_items' => [[
+                'side' => 'payable', 'kind' => 'loan', 'title' => 'Úvěr', 'partner_name' => 'Banka Test', 'partner_ico' => '',
+                'amount' => 2000, 'issued_on' => '2026-01-01', 'due_on' => '2026-03-01', 'variable_symbol' => '',
+                'account_code' => '', 'counter_account_code' => '', 'note' => '',
+                'installments' => [['due_on' => '2026-02-01', 'amount' => 1000], ['due_on' => '2026-03-01', 'amount' => 1000]],
+            ]],
+        ])]);
+
+        $out = $service->ask($this->supplierId, DocumentViewerContext::admin(), 'Mám splátkový kalendář úvěru.', [], [], [], false);
+
+        self::assertStringContainsString('`other_items`', $this->sentPayload()['system']);
+        $payload = $this->sentPayload();
+        self::assertArrayNotHasKey('tool_choice', $payload, 'dlouhá odpověď jde přes structured outputs, ne vynucený tool_use');
+        self::assertSame('json_schema', $payload['output_config']['format']['type']);
+        self::assertArrayHasKey('other_items', $payload['output_config']['format']['schema']['properties']);
+        self::assertCount(1, $out['other_items']);
+        self::assertSame('loan', $out['other_items'][0]['kind']);
+        self::assertCount(2, $out['other_items'][0]['installments']);
+        self::assertTrue($out['other_items'][0]['installments_valid']);
     }
 
     /** Dokument jiného uživatele (scope=user) nesmí jít přes document_ids do promptu. */

@@ -149,6 +149,7 @@ final class AccountingAssistantService
 
         return [
             'answer' => $answer,
+            'other_items' => $this->normalizeOtherItems($supplierId, $data['other_items'] ?? [], $firm['today']),
             'journal_entries' => $entries,
             'document_suggestions' => $this->documentSuggestions($data['document_suggestions'] ?? [], count($files), $ids, $folderPaths),
             'warnings' => array_values(array_merge($warnings, $this->stringList($data['warnings'] ?? []))),
@@ -180,10 +181,10 @@ final class AccountingAssistantService
             : 'Proveď PODROBNÉ vytěžení dokladu: druh a účel dokladu, všechny strany s identifikací, data, položky, částky po sazbách DPH, platební údaje, podmínky, lhůty a cokoli podstatného pro účetní. Odpověď v `answer` strukturuj nadpisy a odrážkami.';
         if ($accounting) {
             $task .= $withEntries
-                ? ' Doplň účetní a daňové dopady (zařazení nákladu/výnosu či majetku, DPH, období) a navrhni zaúčtování do `journal_entries` s konkrétními částkami z dokladu.'
-                : ' Doplň daňové dopady pro daňovou evidenci (příjem/výdaj, daňová uznatelnost, DPH, období); `journal_entries` nech prázdné, firma nevede účetní deník.';
+                ? ' Doplň účetní a daňové dopady (zařazení nákladu/výnosu či majetku, DPH, období). Patří-li doklad do evidence ostatních pohledávek a závazků (smlouva o půjčce či úvěru, splátkový kalendář, nájemní smlouva, kauce, pojistná smlouva, upsání vkladu…), navrhni ji v `other_items` včetně splátek; jinak navrhni zaúčtování do `journal_entries` s konkrétními částkami z dokladu.'
+                : ' Doplň daňové dopady pro daňovou evidenci (příjem/výdaj, daňová uznatelnost, DPH, období). Patří-li doklad do evidence ostatních pohledávek a závazků (půjčka, splátkový kalendář, nájem, kauce, pojištění…), navrhni ji v `other_items` včetně splátek; `journal_entries` nech prázdné, firma nevede účetní deník.';
         } else {
-            $task .= ' Účetní dopady ani návrh zaúčtování nepřidávej; `journal_entries` nech prázdné.';
+            $task .= ' Účetní dopady ani návrh zaúčtování nepřidávej; `other_items` a `journal_entries` nech prázdné.';
         }
 
         $user = $this->contextBlock($firm)
@@ -212,6 +213,7 @@ final class AccountingAssistantService
             'accounting' => $accounting,
             'answer' => trim((string) ($data['answer'] ?? '')),
             'fields' => $fields,
+            'other_items' => $accounting ? $this->normalizeOtherItems($supplierId, $data['other_items'] ?? [], $firm['today']) : [],
             'journal_entries' => $entries,
             'warnings' => array_values(array_merge($warnings, $this->stringList($data['warnings'] ?? []))),
             'provider' => (string) $result['provider'],
@@ -536,15 +538,26 @@ final class AccountingAssistantService
             . "  - Účetnictví → Ostatní pohledávky a závazky: pohledávky a závazky mimo faktury (např. pohledávka za upsaný základní kapitál vůči společníkovi, půjčky, nájem, jistiny, pojištění, poplatky). "
             . "Položka má protistranu, částku, splatnost, účet a protiúčet, po zaúčtování sleduje úhrady (párování s bankou a pokladnou), umí splátkový kalendář a opakování. "
             . "Pro pohledávku, u které se bude sledovat splacení, ji doporuč přednostně před holým zápisem v deníku.\n"
+            . "  - Krok, který podle tvé rady zaúčtuje jiná agenda (ostatní pohledávka či závazek, pokladní doklad, bankovní výpis, faktura), do `journal_entries` NEDÁVEJ: "
+            . "uživatel by ho zaúčtoval dvakrát. Místo toho v `answer` popiš, co do té agendy vyplnit (účet, protiúčet, částka, datum). "
+            . "`journal_entries` vrať jen pro kroky, které se mají zaúčtovat přímo v deníku.\n"
             . "  - Peníze → Pokladna (pokladní doklady) a Peníze → Bankovní účty (výpisy a párování úhrad).\n"
             . "  - Dokumenty: úložiště souborů ve složkách; dokument se dá propojit s účetním zápisem nebo položkou.\n";
+        $otherItems = "- `other_items`: když věc patří do evidence Ostatní pohledávky a závazky (půjčka nebo úvěr a jejich splátkový kalendář, nájem, kauce, pojištění, "
+            . "poplatek, nárok na náhradu, pohledávka za upsaný základní kapitál vůči každému společníkovi zvlášť…), navrhni ji TADY a ne v `journal_entries`; "
+            . "evidence zaúčtuje vznik i sleduje úhrady sama. side: receivable = pohledávka (dluží nám), payable = závazek (dlužíme my). "
+            . "kind: loan = půjčka, úvěr nebo splátky; rent = nájem; deposit = kauce či jistina; insurance = pojištění; fee = poplatek; claim = nárok na náhradu; other = ostatní. "
+            . "amount = celá částka v CZK (cizoměnové položky nenavrhuj, jen je popiš v `answer`). issued_on = datum vzniku, due_on = splatnost (u splátek poslední splátka). "
+            . "Má-li dokument splátkový kalendář, vyplň `installments` (vzestupné termíny, součet přesně = amount); jinak prázdné pole. "
+            . "account_code = účet pohledávky či závazku, counter_account_code = protiúčet (u daňové evidence prázdné řetězce). "
+            . "Prázdné řetězce pro neznámé partner_name, partner_ico, variable_symbol, note. title = krátký popis položky.\n";
         return match ($mode) {
-            'assistant' => $base . $entries . $app
+            'assistant' => $base . $entries . $otherItems . $app
                 . "- `document_suggestions`: jen pro přiložené SOUBORY (attachment_kind \"file\", attachment_index = číslo souboru) navrhni složku v Dokumentech. "
                 . "folder_id vybírej výhradně ze seznamu složek (id); pokud žádná nesedí, folder_id = 0 a do new_folder_name napiš název nové složky. "
                 . "Pro dokumenty už uložené v Dokumentech návrh nevracej. document_id = 0, title = navržený název dokumentu nebo prázdný řetězec.\n"
                 . "- `warnings`: krátká upozornění (rizika, chybějící údaje); jinak prázdné pole.\n",
-            'analysis' => $base . $entries
+            'analysis' => $base . $entries . $otherItems
                 . "- `fields`: vytěžené údaje jako dvojice label/value (např. Dodavatel, IČO, Datum vystavení, Základ 21 %, DPH 21 %, Celkem).\n"
                 . "- `warnings`: krátká upozornění (nečitelné části, nesrovnalosti v součtech); jinak prázdné pole.\n",
             default => $base . "- Do pole `summary` napiš požadované shrnutí dokumentu.\n",
@@ -584,13 +597,73 @@ final class AccountingAssistantService
     }
 
     /** @return array<string,mixed> */
+    private function otherItemsSchema(): array
+    {
+        return [
+            'type' => 'array',
+            'items' => [
+                'type' => 'object', 'additionalProperties' => false,
+                'required' => ['side', 'kind', 'title', 'partner_name', 'partner_ico', 'amount', 'issued_on', 'due_on',
+                    'variable_symbol', 'account_code', 'counter_account_code', 'note', 'installments'],
+                'properties' => [
+                    'side' => ['type' => 'string', 'enum' => ['receivable', 'payable']],
+                    'kind' => ['type' => 'string', 'enum' => ['other', 'rent', 'loan', 'deposit', 'insurance', 'fee', 'claim']],
+                    'title' => ['type' => 'string'],
+                    'partner_name' => ['type' => 'string'],
+                    'partner_ico' => ['type' => 'string'],
+                    'amount' => ['type' => 'number'],
+                    'issued_on' => ['type' => 'string'],
+                    'due_on' => ['type' => 'string'],
+                    'variable_symbol' => ['type' => 'string'],
+                    'account_code' => ['type' => 'string'],
+                    'counter_account_code' => ['type' => 'string'],
+                    'note' => ['type' => 'string'],
+                    'installments' => [
+                        'type' => 'array',
+                        'items' => [
+                            'type' => 'object', 'additionalProperties' => false,
+                            'required' => ['due_on', 'amount'],
+                            'properties' => ['due_on' => ['type' => 'string'], 'amount' => ['type' => 'number']],
+                        ],
+                    ],
+                ],
+            ],
+        ];
+    }
+
+    /**
+     * @return list<array<string,mixed>>
+     */
+    private function normalizeOtherItems(int $supplierId, mixed $raw, string $today): array
+    {
+        $icos = [];
+        foreach (is_array($raw) ? $raw : [] as $item) {
+            $ico = is_array($item) ? (preg_replace('/\D+/', '', (string) ($item['partner_ico'] ?? '')) ?? '') : '';
+            if ($ico !== '') {
+                $icos[$ico] = $ico;
+            }
+        }
+        $partners = [];
+        if ($icos !== []) {
+            $stmt = $this->db->pdo()->prepare('SELECT id, company_name, ic FROM clients WHERE supplier_id = ? AND ic IN ('
+                . implode(',', array_fill(0, count($icos), '?')) . ') ORDER BY id');
+            $stmt->execute([$supplierId, ...array_values($icos)]);
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $c) {
+                $partners[(string) $c['ic']] ??= ['id' => (int) $c['id'], 'name' => (string) $c['company_name']];
+            }
+        }
+        return AiOtherItemNormalizer::normalize($raw, $this->chartNames($supplierId), $today, $partners);
+    }
+
+    /** @return array<string,mixed> */
     public function askSchema(): array
     {
         return [
             'type' => 'object', 'additionalProperties' => false,
-            'required' => ['answer', 'journal_entries', 'document_suggestions', 'warnings'],
+            'required' => ['answer', 'other_items', 'journal_entries', 'document_suggestions', 'warnings'],
             'properties' => [
                 'answer' => ['type' => 'string'],
+                'other_items' => $this->otherItemsSchema(),
                 'journal_entries' => $this->entriesSchema(),
                 'document_suggestions' => [
                     'type' => 'array',
@@ -617,7 +690,7 @@ final class AccountingAssistantService
     {
         return [
             'type' => 'object', 'additionalProperties' => false,
-            'required' => ['answer', 'fields', 'journal_entries', 'warnings'],
+            'required' => ['answer', 'fields', 'other_items', 'journal_entries', 'warnings'],
             'properties' => [
                 'answer' => ['type' => 'string'],
                 'fields' => [
@@ -628,6 +701,7 @@ final class AccountingAssistantService
                         'properties' => ['label' => ['type' => 'string'], 'value' => ['type' => 'string']],
                     ],
                 ],
+                'other_items' => $this->otherItemsSchema(),
                 'journal_entries' => $this->entriesSchema(),
                 'warnings' => ['type' => 'array', 'items' => ['type' => 'string']],
             ],
@@ -680,6 +754,7 @@ final class AccountingAssistantService
             $this->ai->strongModelOverride($supplierId),
             $maxTokens,
             $binary,
+            true,
         );
         if (($result['ok'] ?? false) !== true || !is_array($result['data'] ?? null)) {
             $code = (string) ($result['error'] ?? 'provider_error');

@@ -25,6 +25,31 @@ export interface AiJournalEntry {
   unknown_accounts: string[]
 }
 
+export type AiOtherItemKind = 'other' | 'rent' | 'loan' | 'deposit' | 'insurance' | 'fee' | 'claim'
+
+/** Návrh ostatní pohledávky / závazku — zakládá se jen jako koncept. */
+export interface AiOtherItem {
+  side: 'receivable' | 'payable'
+  kind: AiOtherItemKind
+  title: string
+  partner_id: number | null
+  partner_name: string | null
+  partner_ico: string | null
+  amount: number
+  currency: string
+  issued_on: string
+  due_on: string
+  variable_symbol: string | null
+  account_code: string | null
+  account_name: string | null
+  counter_account_code: string | null
+  counter_account_name: string | null
+  note: string | null
+  installments: { due_on: string; amount: number }[]
+  installments_valid: boolean
+  unknown_accounts: string[]
+}
+
 export type AiAttachmentRef = { kind: 'file'; index: number } | { kind: 'document'; id: number }
 
 export interface AiDocumentSuggestion {
@@ -43,6 +68,7 @@ export interface AiHistoryTurn {
 export interface AiAskResponse {
   answer: string
   journal_entries: AiJournalEntry[]
+  other_items?: AiOtherItem[]
   document_suggestions: AiDocumentSuggestion[]
   warnings: string[]
   provider: string
@@ -79,6 +105,7 @@ export interface AiDocumentAnalysis {
   answer: string
   fields: { label: string; value: string }[]
   journal_entries: AiJournalEntry[]
+  other_items?: AiOtherItem[]
   warnings: string[]
   provider: string | null
   model: string | null

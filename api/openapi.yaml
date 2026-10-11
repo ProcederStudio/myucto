@@ -33634,11 +33634,41 @@ components:
             properties:
               label: { type: string }
               value: { type: string }
+        other_items: { type: array, items: { $ref: '#/components/schemas/AiOtherItemProposal' } }
         journal_entries: { type: array, items: { $ref: '#/components/schemas/AiJournalEntryProposal' } }
         warnings: { type: array, items: { type: string } }
         provider: { type: string }
         model: { type: string }
         created_at: { type: string }
+    AiOtherItemProposal:
+      type: object
+      description: Návrh ostatní pohledávky nebo závazku od AI; koncept založí až uživatel přes POST /api/accounting/other-items.
+      properties:
+        side: { type: string, enum: [receivable, payable] }
+        kind: { type: string, enum: [other, rent, loan, deposit, insurance, fee, claim] }
+        title: { type: string }
+        partner_id: { type: [integer, "null"], description: "Klient firmy dohledaný podle IČO" }
+        partner_name: { type: [string, "null"] }
+        partner_ico: { type: [string, "null"] }
+        amount: { type: number }
+        currency: { type: string, enum: [CZK] }
+        issued_on: { type: string, format: date }
+        due_on: { type: string, format: date }
+        variable_symbol: { type: [string, "null"] }
+        account_code: { type: [string, "null"] }
+        account_name: { type: [string, "null"] }
+        counter_account_code: { type: [string, "null"] }
+        counter_account_name: { type: [string, "null"] }
+        note: { type: [string, "null"] }
+        installments:
+          type: array
+          items:
+            type: object
+            properties:
+              due_on: { type: string, format: date }
+              amount: { type: number }
+        installments_valid: { type: boolean, description: "Termíny vzestupné od vzniku a součet splátek = částka" }
+        unknown_accounts: { type: array, items: { type: string } }
     TaxEvidenceTaxEstimateVariant:
       type: object
       properties:

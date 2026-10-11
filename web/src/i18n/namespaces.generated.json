@@ -478,7 +478,8 @@
       "attachment_check"
     ],
     "document-detail": [
-      "documents"
+      "documents",
+      "other_items"
     ],
     "other-items": [
       "other_items"
@@ -609,6 +610,9 @@
     ],
     "accounting-journal-new": [
       "dimensions"
+    ],
+    "accounting-ai-assistant": [
+      "other_items"
     ],
     "accounting-setup-assistant": [
       "dimensions",

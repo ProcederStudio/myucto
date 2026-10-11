@@ -57,6 +57,22 @@ final class AiProviderHttpClientAttachmentsTest extends TestCase
         self::assertSame(AiProviderHttpClient::LONG_REQUEST_TIMEOUT, $history[0]['options']['timeout']);
     }
 
+    /** Claude 5 vrací na `temperature` HTTP 400 (zjištěno ostrým voláním); starší modely ho dostávají dál. */
+    public function testTemperatureIsSentOnlyToModelsThatAcceptIt(): void
+    {
+        $history = [];
+        $client = FakeAiProviderHttpClientFactory::create($this, 'anthropic', [self::anthropicOk(), self::anthropicOk()], $history);
+
+        $client->completeJson(1, 'SYS', 'DOTAZ', ['type' => 'object'], 'claude-haiku-4-5', 300);
+        $client->completeJson(1, 'SYS', 'DOTAZ', ['type' => 'object'], AiProviderHttpClient::BANK_ESCALATION_MODEL, 300);
+
+        self::assertSame(0, self::sentJson($history, 0)['temperature']);
+        self::assertArrayNotHasKey('temperature', self::sentJson($history, 1));
+        self::assertTrue(AiProviderHttpClient::anthropicAcceptsTemperature('claude-3-5-sonnet-20241022'));
+        self::assertTrue(AiProviderHttpClient::anthropicAcceptsTemperature('claude-sonnet-4-5'));
+        self::assertFalse(AiProviderHttpClient::anthropicAcceptsTemperature('claude-opus-5-5'));
+    }
+
     /** Stávající volající (bez příloh) posílají požadavek beze změny. */
     public function testWithoutAttachmentsRequestIsUnchanged(): void
     {

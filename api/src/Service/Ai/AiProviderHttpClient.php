@@ -52,6 +52,7 @@ final class AiProviderHttpClient
         ?string $modelOverride = null,
         int $maxOutputTokens = 500,
         array $attachments = [],
+        bool $structuredOutput = false,
     ): array
     {
         try {
@@ -67,6 +68,7 @@ final class AiProviderHttpClient
                 $schema,
                 max(100, min(self::MAX_OUTPUT_TOKENS, $maxOutputTokens)),
                 array_values($attachments),
+                $structuredOutput,
             );
         } catch (AiDpaException $e) {
             return ['ok' => false, 'error' => $e->errorCode];
@@ -248,7 +250,7 @@ final class AiProviderHttpClient
      * @param list<array{name:string, mime:string, bytes:string}> $attachments
      * @return array<string,mixed>
      */
-    private function completeForProvider(array $ctx, string $system, string $user, array $schema, int $maxOutputTokens, array $attachments = []): array
+    private function completeForProvider(array $ctx, string $system, string $user, array $schema, int $maxOutputTokens, array $attachments = [], bool $structuredOutput = false): array
     {
         $provider = $ctx['provider'];
         $creds = $ctx['credentials'];
@@ -267,16 +269,25 @@ final class AiProviderHttpClient
                 }
                 $userContent[] = ['type' => 'text', 'text' => $user];
             }
+            // Modely od generace 5 parametr temperature odmítají (HTTP 400), posílá se jen starším.
             $payload = [
-                'model' => $ctx['model'], 'max_tokens' => $maxOutputTokens, 'temperature' => 0,
+                'model' => $ctx['model'], 'max_tokens' => $maxOutputTokens,
+                ...(self::anthropicAcceptsTemperature($ctx['model']) ? ['temperature' => 0] : []),
                 'system' => $system,
                 'messages' => [['role' => 'user', 'content' => $userContent]],
-                'tools' => [[
+            ];
+            // Dlouhé odpovědi (AI asistent) jdou přes structured outputs: vynucený tool_use
+            // s dlouhým markdownem model občas „vylije" do jediného pole a novější modely
+            // vynucený tool_choice odmítají. Krátká klasifikace zůstává beze změny.
+            if ($structuredOutput) {
+                $payload['output_config'] = ['format' => ['type' => 'json_schema', 'schema' => $schema]];
+            } else {
+                $payload['tools'] = [[
                     'name' => 'posting_suggestion', 'description' => 'Vrátí návrh kontace.',
                     'input_schema' => $schema,
-                ]],
-                'tool_choice' => ['type' => 'tool', 'name' => 'posting_suggestion'],
-            ];
+                ]];
+                $payload['tool_choice'] = ['type' => 'tool', 'name' => 'posting_suggestion'];
+            }
             $response = $this->http->post('https://api.anthropic.com/v1/messages', [
                 'headers' => ['x-api-key' => $creds['api_key'], 'anthropic-version' => '2023-06-01', 'content-type' => 'application/json'],
                 'json' => $payload,
@@ -287,10 +298,17 @@ final class AiProviderHttpClient
             }
             $data = null;
             foreach (($body['content'] ?? []) as $part) {
-                if (($part['type'] ?? null) === 'tool_use' && is_array($part['input'] ?? null)) {
+                if (!$structuredOutput && ($part['type'] ?? null) === 'tool_use' && is_array($part['input'] ?? null)) {
                     $data = $part['input'];
                     break;
                 }
+                if ($structuredOutput && ($part['type'] ?? null) === 'text' && is_string($part['text'] ?? null)) {
+                    $data = json_decode($part['text'], true);
+                    break;
+                }
+            }
+            if ($structuredOutput && ($body['stop_reason'] ?? '') === 'max_tokens') {
+                return ['ok' => false, 'error' => 'max_tokens'];
             }
             $usage = ['input_tokens' => (int) ($body['usage']['input_tokens'] ?? 0), 'output_tokens' => (int) ($body['usage']['output_tokens'] ?? 0)];
             $model = (string) ($body['model'] ?? $ctx['model']);
@@ -379,6 +397,11 @@ final class AiProviderHttpClient
             return ['ok' => false, 'error' => 'invalid_json'];
         }
         return ['ok' => true, 'data' => $data, 'provider' => $provider, 'region' => $ctx['region'], 'model' => $model, 'usage' => $usage];
+    }
+
+    public static function anthropicAcceptsTemperature(string $model): bool
+    {
+        return preg_match('/^claude-(3|[a-z]+-4)/', $model) === 1;
     }
 
     /** @param array<string,mixed> $schema @return array<string,mixed> */

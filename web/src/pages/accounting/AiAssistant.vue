@@ -13,6 +13,7 @@ import { ICONS, btnFilled, btnOutline, btnOutlineSm, btnIconSm } from '@/compone
 import { formatBytes } from '@/components/documents/docFormat'
 import AiMarkdown from '@/components/ai/AiMarkdown.vue'
 import AiJournalProposal from '@/components/ai/AiJournalProposal.vue'
+import AiOtherItemProposal from '@/components/ai/AiOtherItemProposal.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -421,6 +422,16 @@ onMounted(async () => {
               <ul v-if="m.response?.warnings?.length" class="space-y-1">
                 <li v-for="(w, wi) in m.response.warnings" :key="wi" class="text-xs text-warning-700 bg-warning-50 rounded px-2 py-1">{{ w }}</li>
               </ul>
+
+              <div v-if="(m.response?.other_items ?? []).length" class="space-y-2">
+                <h4 class="text-xs font-semibold uppercase tracking-wide text-neutral-500">{{ t('accounting.ai_assistant.other_item.heading') }}</h4>
+                <AiOtherItemProposal
+                  v-for="(oi, oii) in m.response?.other_items ?? []"
+                  :key="oii"
+                  :item="oi"
+                  :link-document-ids="linkIdsFor(m)"
+                />
+              </div>
 
               <div v-if="m.response?.journal_entries?.length" class="space-y-2">
                 <AiJournalProposal
