@@ -118,10 +118,10 @@ async function create() {
         <dt class="text-neutral-400 text-xs">{{ t('accounting.ai_assistant.other_item.accounts') }}</dt>
         <dd class="text-neutral-800 break-words">
           <span class="font-mono" :class="item.account_code && unknown.includes(item.account_code) ? 'text-danger-600 font-semibold' : ''">{{ item.account_code || '—' }}</span>
-          <span v-if="item.account_name" class="text-neutral-600"> {{ item.account_name }}</span>
+          <span v-if="item.account_name" class="text-neutral-600">&nbsp;{{ item.account_name }}</span>
           <span class="text-neutral-400"> → </span>
           <span class="font-mono" :class="item.counter_account_code && unknown.includes(item.counter_account_code) ? 'text-danger-600 font-semibold' : ''">{{ item.counter_account_code || '—' }}</span>
-          <span v-if="item.counter_account_name" class="text-neutral-600"> {{ item.counter_account_name }}</span>
+          <span v-if="item.counter_account_name" class="text-neutral-600">&nbsp;{{ item.counter_account_name }}</span>
         </dd>
       </div>
       <div v-if="item.variable_symbol">
