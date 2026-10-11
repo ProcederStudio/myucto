@@ -1,22 +1,25 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import {
-  aiAssistantApi, aiErrorMessage,
-  type AiAskResponse, type AiAssistantStatus, type AiDocumentSuggestion, type AiHistoryTurn,
+  aiAssistantApi, aiErrorMessage, appliedId,
+  type AiApplied, type AiAppliedKind, type AiAssistantStatus, type AiConversationSummary,
+  type AiDocumentSuggestion, type AiHistoryTurn, type AiStoredMessage,
 } from '@/api/aiAssistant'
 import { documentsApi, type DocFolder, type DocItem } from '@/api/documents'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
 import { ICONS, btnFilled, btnOutline, btnOutlineSm, btnIconSm } from '@/components/ui/buttonStyles'
 import { formatBytes } from '@/components/documents/docFormat'
+import { formatDate } from '@/composables/useFormat'
 import AiMarkdown from '@/components/ai/AiMarkdown.vue'
 import AiJournalProposal from '@/components/ai/AiJournalProposal.vue'
 import AiOtherItemProposal from '@/components/ai/AiOtherItemProposal.vue'
 
 const { t } = useI18n()
 const route = useRoute()
+const router = useRouter()
 const auth = useAuthStore()
 const toast = useToast()
 
@@ -112,17 +115,24 @@ function pickDoc(d: DocItem) {
 }
 
 // ── Konverzace ───────────────────────────────────────────────────────────────
+type ChatResponse = NonNullable<AiStoredMessage['response']>
 interface ChatMessage {
   id: number
   role: 'user' | 'assistant'
   content: string
   fileNames?: string[]
-  docTitles?: string[]
-  response?: AiAskResponse
+  /** Přiložené dokumenty; title null = zpráva z historie (jen id). */
+  docRefs?: { id: number; title: string | null }[]
+  response?: ChatResponse
   /** Soubory odeslané s tímto dotazem — index v document_suggestions míří sem. */
   sentFiles?: File[]
+  /** Názvy souborů dotazu z historie — samotné bajty už v prohlížeči nejsou. */
+  historicFileNames?: string[]
   /** Dokumenty přiložené k tomuto dotazu (navážou se na zaúčtovaný zápis). */
   sentDocIds?: number[]
+  /** Id uložené odpovědi na serveru (značky použitých návrhů). */
+  serverId?: number | null
+  applied?: Record<string, Record<string, number>>
 }
 const messages = ref<ChatMessage[]>([])
 const question = ref('')
@@ -136,12 +146,155 @@ const uploadedDocs = reactive(new Map<File, number>())
 function linkIdsFor(m: ChatMessage): number[] {
   const ids = new Set<number>(m.sentDocIds ?? [])
   for (const id of uploadedDocs.values()) ids.add(id)
+  // Dokumenty nahrané z návrhů dříve v téže konverzaci (i z historie).
+  for (const msg of messages.value) {
+    for (const id of Object.values(msg.applied?.document ?? {})) ids.add(id)
+  }
   return [...ids]
+}
+
+/** Značky ze serveru mohou dorazit jako pole (PHP list) — sjednotit na {index: id}. */
+function normalizeApplied(raw: AiApplied | null | undefined): Record<string, Record<string, number>> {
+  const out: Record<string, Record<string, number>> = {}
+  if (!raw || Array.isArray(raw)) return out
+  for (const [kind, bucket] of Object.entries(raw)) {
+    if (!bucket) continue
+    const map: Record<string, number> = {}
+    for (const [idx, id] of Object.entries(bucket)) {
+      const n = Number(id)
+      if (Number.isInteger(n) && n > 0) map[idx] = n
+    }
+    out[kind] = map
+  }
+  return out
+}
+
+function appliedFor(m: ChatMessage, kind: AiAppliedKind, index: number): number | null {
+  return appliedId(m.applied, kind, index)
+}
+
+/** Návrh byl použit — zapsat lokálně a na server (selhání značky nic neblokuje). */
+async function markApplied(m: ChatMessage, kind: AiAppliedKind, index: number, targetId: number) {
+  const applied = m.applied ?? (m.applied = {})
+  applied[kind] = { ...(applied[kind] ?? {}), [String(index)]: targetId }
+  if (!m.serverId) return
+  try {
+    m.applied = normalizeApplied(await aiAssistantApi.markApplied(m.serverId, kind, index, targetId))
+  } catch (e) {
+    console.warn('AI assistant: applied marker not saved', e)
+  }
+}
+
+// ── Historie dotazů ─────────────────────────────────────────────────────────
+const conversationId = ref<number | null>(null)
+const conversations = ref<AiConversationSummary[]>([])
+const historyLoading = ref(false)
+const historyOpen = ref(false)
+const loadingConversation = ref(false)
+
+async function loadConversations() {
+  historyLoading.value = true
+  try {
+    conversations.value = await aiAssistantApi.conversations()
+  } catch {
+    conversations.value = []
+  } finally {
+    historyLoading.value = false
+  }
+}
+
+function setConversationQuery(id: number | null) {
+  const query = { ...route.query }
+  if (id) query.c = String(id)
+  else delete query.c
+  void router.replace({ query })
+}
+
+function resetChat() {
+  messages.value = []
+  for (const k of Object.keys(suggestionState)) delete suggestionState[k]
+}
+
+async function loadConversation(id: number) {
+  if (sending.value || loadingConversation.value) return
+  loadingConversation.value = true
+  try {
+    const conv = await aiAssistantApi.conversation(id)
+    resetChat()
+    let lastUser: ChatMessage | null = null
+    for (const sm of conv.messages ?? []) {
+      const atts = sm.attachments ?? []
+      if (sm.role === 'user') {
+        const fileNames: string[] = []
+        const docRefs: { id: number; title: string | null }[] = []
+        for (const a of atts) {
+          if (a.kind === 'file') fileNames.push(a.name)
+          else if (a.kind === 'document') docRefs.push({ id: a.id, title: null })
+        }
+        lastUser = { id: ++msgSeq, role: 'user', content: sm.content, fileNames, docRefs }
+        messages.value.push(lastUser)
+      } else {
+        const msg: ChatMessage = {
+          id: ++msgSeq,
+          role: 'assistant',
+          content: sm.content,
+          response: sm.response ?? undefined,
+          historicFileNames: lastUser?.fileNames ?? [],
+          sentDocIds: (lastUser?.docRefs ?? []).map(d => d.id),
+          serverId: sm.id,
+          applied: normalizeApplied(sm.applied),
+        }
+        messages.value.push(msg)
+        initSuggestions(msg)
+      }
+    }
+    conversationId.value = conv.id
+    setConversationQuery(conv.id)
+    historyOpen.value = false
+    void scrollToEnd()
+  } catch (e) {
+    toast.error(aiErrorMessage(e, t('accounting.ai_assistant.history.load_failed')))
+    if (Number(route.query.c) === id) setConversationQuery(conversationId.value)
+  } finally {
+    loadingConversation.value = false
+  }
+}
+
+function newConversation() {
+  if (sending.value) return
+  if (messages.value.length && !conversationId.value && !window.confirm(t('accounting.ai_assistant.clear_confirm'))) return
+  resetChat()
+  conversationId.value = null
+  setConversationQuery(null)
+  historyOpen.value = false
+}
+
+async function deleteConversation(c: AiConversationSummary) {
+  if (!window.confirm(t('accounting.ai_assistant.history.delete_confirm', { title: c.title }))) return
+  try {
+    await aiAssistantApi.deleteConversation(c.id)
+    conversations.value = conversations.value.filter(x => x.id !== c.id)
+    if (conversationId.value === c.id) {
+      resetChat()
+      conversationId.value = null
+      setConversationQuery(null)
+    }
+    toast.success(t('accounting.ai_assistant.history.deleted'))
+  } catch (e) {
+    toast.error(aiErrorMessage(e, t('accounting.ai_assistant.history.delete_failed')))
+  }
+}
+
+function shortDate(iso: string): string {
+  if (!iso) return ''
+  const now = new Date()
+  const ymd = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  return iso.slice(0, 10) === ymd ? iso.slice(11, 16) : formatDate(iso.slice(0, 10))
 }
 
 function buildHistory(): AiHistoryTurn[] {
   return messages.value
-    .map(m => ({ role: m.role, content: m.role === 'assistant' ? (m.response?.answer ?? m.content) : m.content }))
+    .map(m => ({ role: m.role, content: m.content }))
     .filter(m => m.content.trim() !== '')
     .map(m => ({ role: m.role, content: m.content.slice(0, MAX_QUESTION) }))
     .slice(-10)
@@ -166,7 +319,7 @@ async function send() {
     role: 'user',
     content: q,
     fileNames: sentFiles.map(f => f.name),
-    docTitles: sentDocs.map(d => d.title),
+    docRefs: sentDocs.map(d => ({ id: d.id, title: d.title })),
   }
   messages.value.push(userMsg)
   question.value = ''
@@ -179,6 +332,7 @@ async function send() {
       files: sentFiles,
       documentIds: sentDocs.map(d => d.id),
       includeChart: includeChart.value,
+      conversationId: conversationId.value,
     })
     const msg: ChatMessage = {
       id: ++msgSeq,
@@ -187,9 +341,16 @@ async function send() {
       response: res,
       sentFiles,
       sentDocIds: sentDocs.map(d => d.id),
+      serverId: res.message_id ?? null,
+      applied: {},
     }
     messages.value.push(msg)
     initSuggestions(msg)
+    if (res.conversation_id && res.conversation_id !== conversationId.value) {
+      conversationId.value = res.conversation_id
+      setConversationQuery(res.conversation_id)
+    }
+    void loadConversations()
     void scrollToEnd()
   } catch (e) {
     messages.value = messages.value.filter(m => m.id !== userMsg.id)
@@ -205,11 +366,6 @@ function onKeydown(e: KeyboardEvent) {
     e.preventDefault()
     void send()
   }
-}
-
-function clearConversation() {
-  if (messages.value.length && !window.confirm(t('accounting.ai_assistant.clear_confirm'))) return
-  messages.value = []
 }
 
 // ── Návrhy zařazení souborů do Dokumentů ─────────────────────────────────────
@@ -230,12 +386,16 @@ const suggestionState = reactive<Record<string, SuggestionState>>({})
 
 function suggestionKey(m: ChatMessage, i: number): string { return `${m.id}:${i}` }
 
-function fileSuggestions(m: ChatMessage): { s: AiDocumentSuggestion; i: number; file: File }[] {
-  const out: { s: AiDocumentSuggestion; i: number; file: File }[] = []
+interface FileSuggestion { s: AiDocumentSuggestion; i: number; fileIndex: number; file: File | null; name: string }
+
+function fileSuggestions(m: ChatMessage): FileSuggestion[] {
+  const out: FileSuggestion[] = []
   ;(m.response?.document_suggestions ?? []).forEach((s, i) => {
     if (s.attachment.kind !== 'file') return
-    const file = m.sentFiles?.[s.attachment.index]
-    if (file) out.push({ s, i, file })
+    const fileIndex = s.attachment.index
+    const file = m.sentFiles?.[fileIndex] ?? null
+    const name = file?.name ?? m.historicFileNames?.[fileIndex]
+    if (name) out.push({ s, i, fileIndex, file, name })
   })
   return out
 }
@@ -243,8 +403,8 @@ function fileSuggestions(m: ChatMessage): { s: AiDocumentSuggestion; i: number; 
 function initSuggestions(m: ChatMessage) {
   const list = fileSuggestions(m)
   if (!list.length) return
-  for (const { s, i, file } of list) {
-    const existing = uploadedDocs.get(file) ?? null
+  for (const { s, i, file, fileIndex } of list) {
+    const existing = (file ? uploadedDocs.get(file) : null) ?? appliedFor(m, 'document', fileIndex)
     suggestionState[suggestionKey(m, i)] = {
       target: s.new_folder_name ? NEW_FOLDER : s.folder_id,
       newFolderName: s.new_folder_name ?? '',
@@ -254,7 +414,7 @@ function initSuggestions(m: ChatMessage) {
       documentId: existing,
     }
   }
-  void loadFolders()
+  if (list.some(x => x.file)) void loadFolders()
 }
 
 async function loadFolders() {
@@ -286,7 +446,7 @@ function folderLabel(id: number | null): string {
   return folderOptions.value.find(o => o.id === id)?.label ?? `#${id}`
 }
 
-async function uploadSuggestion(m: ChatMessage, i: number, file: File) {
+async function uploadSuggestion(m: ChatMessage, i: number, fileIndex: number, file: File) {
   const st = suggestionState[suggestionKey(m, i)]
   if (!st || st.uploading || st.documentId) return
   st.uploading = true
@@ -317,6 +477,7 @@ async function uploadSuggestion(m: ChatMessage, i: number, file: File) {
     }
     st.documentId = rootId
     uploadedDocs.set(file, rootId)
+    void markApplied(m, 'document', fileIndex, rootId)
     // Další dotazy už posílají uložený dokument místo opětovného nahrání souboru.
     const idx = files.value.indexOf(file)
     if (idx >= 0) {
@@ -327,7 +488,10 @@ async function uploadSuggestion(m: ChatMessage, i: number, file: File) {
     for (const msg of messages.value) {
       for (const fs of fileSuggestions(msg)) {
         const other = suggestionState[suggestionKey(msg, fs.i)]
-        if (fs.file === file && other && !other.documentId) other.documentId = rootId
+        if (fs.file === file && other && !other.documentId) {
+          other.documentId = rootId
+          if (msg !== m) void markApplied(msg, 'document', fs.fileIndex, rootId)
+        }
       }
     }
     toast.success(t('accounting.ai_assistant.suggestion.uploaded'))
@@ -348,6 +512,11 @@ onMounted(async () => {
   } finally {
     statusLoading.value = false
   }
+  if (available.value) {
+    void loadConversations()
+    const c = Number(route.query.c || 0)
+    if (Number.isInteger(c) && c > 0) await loadConversation(c)
+  }
   const docId = Number(route.query.document_id || 0)
   if (Number.isInteger(docId) && docId > 0) {
     try {
@@ -361,7 +530,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="max-w-4xl space-y-4">
+  <div class="max-w-6xl space-y-4">
     <div class="flex flex-wrap items-start justify-between gap-3">
       <div class="min-w-0">
         <h1 class="text-2xl font-semibold">{{ t('accounting.ai_assistant.title') }}</h1>
@@ -371,9 +540,9 @@ onMounted(async () => {
         <span v-if="status?.available && status.model" class="text-xs text-neutral-400 whitespace-nowrap">
           {{ status.provider }} · {{ status.model }}
         </span>
-        <button v-if="messages.length" type="button" :class="btnOutline('neutral')" :disabled="sending" @click="clearConversation">
-          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.cycle" /></svg>
-          {{ t('accounting.ai_assistant.new_conversation') }}
+        <button v-if="available" type="button" :class="btnOutline('primary')" :disabled="sending" data-test="ai-assistant-new" @click="newConversation">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.plus" /></svg>
+          {{ t('accounting.ai_assistant.history.new') }}
         </button>
       </div>
     </div>
@@ -391,7 +560,62 @@ onMounted(async () => {
       </RouterLink>
     </div>
 
-    <template v-else>
+    <div v-else class="grid grid-cols-1 lg:grid-cols-[16rem_minmax(0,1fr)] gap-4 items-start">
+      <!-- Historie dotazů -->
+      <aside class="bg-surface border border-neutral-200 rounded-lg shadow-sm lg:sticky lg:top-4" data-test="ai-assistant-history">
+        <button
+          type="button"
+          class="cursor-pointer w-full flex items-center justify-between gap-2 px-3 py-2 text-sm font-medium text-neutral-700 lg:cursor-default"
+          :aria-expanded="historyOpen"
+          @click="historyOpen = !historyOpen"
+        >
+          <span class="inline-flex items-center gap-1.5">
+            <svg class="w-4 h-4 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" /></svg>
+            {{ t('accounting.ai_assistant.history.title') }}
+            <span v-if="conversations.length" class="text-xs text-neutral-400 font-normal">({{ conversations.length }})</span>
+          </span>
+          <svg class="w-4 h-4 text-neutral-400 transition-transform lg:hidden" :class="historyOpen ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.chevron" /></svg>
+        </button>
+        <div :class="historyOpen ? 'block' : 'hidden lg:block'" class="border-t border-neutral-100">
+          <p v-if="historyLoading && !conversations.length" class="px-3 py-3 text-xs text-neutral-400">{{ t('common.loading') }}</p>
+          <p v-else-if="!conversations.length" class="px-3 py-3 text-xs text-neutral-400">{{ t('accounting.ai_assistant.history.empty') }}</p>
+          <ul v-else class="max-h-[60vh] overflow-y-auto py-1">
+            <li
+              v-for="c in conversations"
+              :key="c.id"
+              class="group flex items-start gap-1 px-1"
+            >
+              <button
+                type="button"
+                class="cursor-pointer min-w-0 flex-1 text-left rounded-md px-2 py-1.5 hover:bg-neutral-50"
+                :class="c.id === conversationId ? 'bg-primary-50 text-primary-800' : 'text-neutral-700'"
+                :aria-current="c.id === conversationId ? 'true' : undefined"
+                :disabled="loadingConversation || sending"
+                @click="loadConversation(c.id)"
+              >
+                <span class="block text-sm line-clamp-2 break-words" :class="c.id === conversationId ? 'font-medium' : ''">{{ c.title }}</span>
+                <span class="block text-xs text-neutral-400 whitespace-nowrap">
+                  {{ shortDate(c.updated_at) }} · {{ t('accounting.ai_assistant.history.questions', c.question_count) }}
+                </span>
+              </button>
+              <button
+                type="button"
+                class="mt-1"
+                :class="btnIconSm('danger')"
+                :title="t('accounting.ai_assistant.history.delete')"
+                :aria-label="t('accounting.ai_assistant.history.delete')"
+                :disabled="sending"
+                @click="deleteConversation(c)"
+              >
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.trash" /></svg>
+              </button>
+            </li>
+          </ul>
+        </div>
+      </aside>
+
+      <div class="min-w-0 space-y-4">
+      <div v-if="loadingConversation" class="text-sm text-neutral-400">{{ t('common.loading') }}</div>
       <!-- Přepis konverzace -->
       <div class="space-y-3" data-test="ai-assistant-transcript">
         <div v-if="!messages.length" class="bg-primary-50 border border-primary-200 rounded-lg p-4 text-sm text-neutral-700">
@@ -404,13 +628,13 @@ onMounted(async () => {
           <div v-if="m.role === 'user'" class="flex justify-end">
             <div class="max-w-[85%] rounded-lg rounded-br-sm bg-primary-600 text-white px-3 py-2 text-sm shadow-sm">
               <p class="whitespace-pre-wrap break-words">{{ m.content }}</p>
-              <div v-if="(m.fileNames?.length ?? 0) + (m.docTitles?.length ?? 0) > 0" class="mt-1.5 flex flex-wrap gap-1">
-                <span v-for="n in m.fileNames" :key="'f' + n" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/15 text-xs">
-                  <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.upload" /></svg>{{ n }}
+              <div v-if="(m.fileNames?.length ?? 0) + (m.docRefs?.length ?? 0) > 0" class="mt-1.5 flex flex-wrap gap-1">
+                <span v-for="(n, ni) in m.fileNames" :key="'f' + ni" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/15 text-xs break-all">
+                  <svg class="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.upload" /></svg>{{ n }}
                 </span>
-                <span v-for="n in m.docTitles" :key="'d' + n" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/15 text-xs">
-                  <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.doc" /></svg>{{ n }}
-                </span>
+                <RouterLink v-for="d in m.docRefs" :key="'d' + d.id" :to="`/documents/${d.id}`" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/15 hover:bg-white/25 text-xs underline-offset-2 hover:underline">
+                  <svg class="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.doc" /></svg>{{ d.title ?? t('accounting.ai_assistant.history.document_label', { id: d.id }) }}
+                </RouterLink>
               </div>
             </div>
           </div>
@@ -430,6 +654,8 @@ onMounted(async () => {
                   :key="oii"
                   :item="oi"
                   :link-document-ids="linkIdsFor(m)"
+                  :applied-id="appliedFor(m, 'other_item', oii)"
+                  @created="id => markApplied(m, 'other_item', oii, id)"
                 />
               </div>
 
@@ -439,6 +665,8 @@ onMounted(async () => {
                   :key="ji"
                   :entry="je"
                   :link-document-ids="linkIdsFor(m)"
+                  :applied-id="appliedFor(m, 'journal_entry', ji)"
+                  @posted="id => markApplied(m, 'journal_entry', ji, id)"
                 />
               </div>
 
@@ -452,7 +680,7 @@ onMounted(async () => {
                 >
                   <div class="flex flex-wrap items-center gap-2 text-sm">
                     <svg class="w-4 h-4 text-primary-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.folderOpen" /></svg>
-                    <span class="font-medium text-neutral-800 break-all">{{ fs.file.name }}</span>
+                    <span class="font-medium text-neutral-800 break-all">{{ fs.name }}</span>
                     <span v-if="fs.s.folder_path" class="text-xs text-neutral-500">{{ t('accounting.ai_assistant.suggestion.proposed', { path: fs.s.folder_path }) }}</span>
                   </div>
                   <template v-if="suggestionState[suggestionKey(m, fs.i)]?.documentId">
@@ -467,6 +695,11 @@ onMounted(async () => {
                       </RouterLink>
                     </div>
                   </template>
+                  <p v-else-if="!fs.file" class="text-xs text-neutral-500">
+                    <template v-if="fs.s.new_folder_name">{{ t('accounting.ai_assistant.suggestion.new_folder_option', { name: fs.s.new_folder_name, parent: fs.s.folder_path || t('accounting.ai_assistant.suggestion.root') }) }}<br></template>
+                    <template v-if="fs.s.title">{{ t('accounting.ai_assistant.suggestion.title') }}: {{ fs.s.title }}<br></template>
+                    <span class="text-warning-700">{{ t('accounting.ai_assistant.suggestion.file_unavailable') }}</span>
+                  </p>
                   <template v-else-if="canUpload && suggestionState[suggestionKey(m, fs.i)]">
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <label class="block">
@@ -483,11 +716,11 @@ onMounted(async () => {
                       </label>
                       <label class="block sm:col-span-2">
                         <span class="block text-xs text-neutral-500 mb-1">{{ t('accounting.ai_assistant.suggestion.title') }}</span>
-                        <input v-model="suggestionState[suggestionKey(m, fs.i)]!.title" type="text" maxlength="255" :placeholder="fs.file.name" class="w-full px-2 py-1.5 text-sm border border-neutral-300 rounded-md bg-surface" />
+                        <input v-model="suggestionState[suggestionKey(m, fs.i)]!.title" type="text" maxlength="255" :placeholder="fs.name" class="w-full px-2 py-1.5 text-sm border border-neutral-300 rounded-md bg-surface" />
                       </label>
                     </div>
                     <div class="flex flex-wrap gap-2">
-                      <button type="button" :class="btnOutline('primary')" :disabled="suggestionState[suggestionKey(m, fs.i)]!.uploading" @click="uploadSuggestion(m, fs.i, fs.file)">
+                      <button type="button" :class="btnOutline('primary')" :disabled="suggestionState[suggestionKey(m, fs.i)]!.uploading" @click="fs.file && uploadSuggestion(m, fs.i, fs.fileIndex, fs.file)">
                         <svg v-if="suggestionState[suggestionKey(m, fs.i)]!.uploading" class="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" /><path d="M22 12a10 10 0 0 0-10-10" stroke="currentColor" stroke-width="3" stroke-linecap="round" /></svg>
                         <svg v-else class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.upload" /></svg>
                         {{ t('accounting.ai_assistant.suggestion.upload') }}
@@ -608,6 +841,7 @@ onMounted(async () => {
         </div>
         <p class="text-xs text-neutral-400">{{ t('accounting.ai_assistant.disclaimer') }}</p>
       </div>
-    </template>
+      </div>
+    </div>
   </div>
 </template>

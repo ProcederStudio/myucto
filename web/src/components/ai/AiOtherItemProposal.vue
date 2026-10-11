@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { otherItemsApi } from '@/api/otherItems'
 import { otherItemPlansApi } from '@/api/otherItemPlans'
@@ -18,7 +18,9 @@ import { ICONS, btnFilled, btnOutline, disabledTitle, BTN_DISABLED_NOTE } from '
 const props = withDefaults(defineProps<{
   item: AiOtherItem
   linkDocumentIds?: number[]
-}>(), { linkDocumentIds: () => [] })
+  /** Návrh už byl použit dřív (historie konverzace) — id vzniklého záznamu. */
+  appliedId?: number | null
+}>(), { linkDocumentIds: () => [], appliedId: null })
 
 const emit = defineEmits<{ created: [itemId: number] }>()
 
@@ -28,7 +30,8 @@ const toast = useToast()
 const { blockDemoMutation } = useDemoMode()
 
 const creating = ref(false)
-const createdId = ref<number | null>(null)
+const createdId = ref<number | null>(props.appliedId ?? null)
+watch(() => props.appliedId, v => { if (v) createdId.value = v })
 
 const unknown = computed(() => props.item.unknown_accounts ?? [])
 const installments = computed(() => props.item.installments ?? [])

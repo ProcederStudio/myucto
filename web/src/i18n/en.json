@@ -15666,7 +15666,6 @@
     "ai_assistant": {
       "title": "AI assistant",
       "subtitle": "Ask about bookkeeping, attach documents and get proposed journal entries.",
-      "new_conversation": "New conversation",
       "clear_confirm": "Discard the whole conversation? Attached files and documents stay attached.",
       "unavailable_title": "The AI assistant is not available",
       "open_settings": "Open AI settings",
@@ -15746,7 +15745,20 @@
         "link_failed": "The item was created, but some documents could not be linked to it.",
         "no_permission": "Creating requires permission to write to Other receivables and payables."
       },
+      "history": {
+        "title": "Question history",
+        "new": "New question",
+        "empty": "No questions yet.",
+        "questions": "no questions | {count} question | {count} questions",
+        "delete": "Delete conversation",
+        "delete_confirm": "Delete conversation \"{title}\"? Posted entries, items and uploaded documents are not deleted.",
+        "deleted": "The conversation has been deleted.",
+        "delete_failed": "The conversation could not be deleted.",
+        "load_failed": "The conversation could not be loaded.",
+        "document_label": "Document #{id}"
+      },
       "suggestion": {
+        "file_unavailable": "The file is no longer available in the browser – upload it manually in Documents.",
         "proposed": "Suggested: {path}",
         "folder": "Folder in Documents",
         "root": "Documents root",

@@ -74,6 +74,55 @@ export interface AiAskResponse {
   provider: string
   model: string
   usage: { input_tokens: number; output_tokens: number }
+  /** Uložená konverzace a id uložené odpovědi (chybí, když server historii neukládá). */
+  conversation_id?: number
+  message_id?: number
+}
+
+export type AiAppliedKind = 'journal_entry' | 'other_item' | 'document'
+/** Použité návrhy zprávy: {kind: {index: id}}. Ze serveru může dorazit i jako pole. */
+export type AiApplied = Partial<Record<AiAppliedKind, Record<string, number> | number[]>>
+
+export function appliedId(applied: AiApplied | null | undefined, kind: AiAppliedKind, index: number): number | null {
+  const bucket = applied?.[kind] as Record<string, number> | number[] | undefined
+  if (!bucket) return null
+  const v = Array.isArray(bucket) ? bucket[index] : bucket[String(index)]
+  const n = Number(v)
+  return Number.isInteger(n) && n > 0 ? n : null
+}
+
+export interface AiConversationSummary {
+  id: number
+  title: string
+  created_at: string
+  updated_at: string
+  question_count: number
+}
+
+export type AiStoredAttachment = { kind: 'file'; name: string } | { kind: 'document'; id: number }
+
+export interface AiStoredMessage {
+  id: number
+  role: 'user' | 'assistant'
+  content: string
+  attachments: AiStoredAttachment[] | null
+  response: {
+    other_items?: AiOtherItem[]
+    journal_entries?: AiJournalEntry[]
+    document_suggestions?: AiDocumentSuggestion[]
+    warnings?: string[]
+  } | null
+  applied: AiApplied | null
+  model: string | null
+  created_at: string
+}
+
+export interface AiConversation {
+  id: number
+  title: string
+  created_at: string
+  updated_at: string
+  messages: AiStoredMessage[]
 }
 
 /** Koncept pro ruční zápis (history.state.aiDraft) — jen JSON-klonovatelná data. */
@@ -91,6 +140,8 @@ export interface AiAskInput {
   files: File[]
   documentIds: number[]
   includeChart: boolean
+  /** Navazující dotaz v uložené konverzaci — kontext si server vezme sám. */
+  conversationId?: number | null
 }
 
 export interface AiDocumentSummary {
@@ -115,7 +166,8 @@ export interface AiDocumentAnalysis {
 export function buildAskForm(input: AiAskInput): FormData {
   const fd = new FormData()
   fd.append('question', input.question)
-  fd.append('history', JSON.stringify(input.history.slice(-10)))
+  if (input.conversationId) fd.append('conversation_id', String(input.conversationId))
+  else fd.append('history', JSON.stringify(input.history.slice(-10)))
   for (const f of input.files) fd.append('files[]', f, f.name)
   for (const id of input.documentIds) fd.append('document_ids[]', String(id))
   fd.append('include_chart', input.includeChart ? '1' : '0')
@@ -129,6 +181,16 @@ export const aiAssistantApi = {
     api.post<AiAskResponse>('/accounting/ai-assistant/ask', buildAskForm(input), {
       headers: { 'Content-Type': 'multipart/form-data' },
     }).then(r => r.data),
+
+  conversations: () =>
+    api.get<{ items: AiConversationSummary[] }>('/accounting/ai-assistant/conversations').then(r => r.data.items ?? []),
+  conversation: (id: number) =>
+    api.get<AiConversation>(`/accounting/ai-assistant/conversations/${id}`).then(r => r.data),
+  deleteConversation: (id: number) =>
+    api.delete<{ deleted: boolean }>(`/accounting/ai-assistant/conversations/${id}`).then(r => r.data),
+  markApplied: (messageId: number, kind: AiAppliedKind, index: number, targetId: number) =>
+    api.post<{ applied: AiApplied }>(`/accounting/ai-assistant/messages/${messageId}/applied`, { kind, index, target_id: targetId })
+      .then(r => r.data.applied),
 
   documentSummary: (id: number, length: 'short' | 'long') =>
     api.post<AiDocumentSummary>(`/documents/${id}/ai/summary`, { length }).then(r => r.data),

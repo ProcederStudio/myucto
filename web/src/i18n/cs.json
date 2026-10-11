@@ -15666,7 +15666,6 @@
     "ai_assistant": {
       "title": "AI asistent",
       "subtitle": "Zeptejte se na zaúčtování, přiložte doklady a nechte si navrhnout zápisy do deníku.",
-      "new_conversation": "Nová konverzace",
       "clear_confirm": "Zahodit celou konverzaci? Přiložené soubory a dokumenty zůstanou přiložené.",
       "unavailable_title": "AI asistent není k dispozici",
       "open_settings": "Otevřít nastavení AI",
@@ -15746,7 +15745,20 @@
         "link_failed": "Položka je založená, ale některý dokument se na ni nepodařilo navázat.",
         "no_permission": "K založení potřebujete právo zapisovat do Ostatních pohledávek a závazků."
       },
+      "history": {
+        "title": "Historie dotazů",
+        "new": "Nový dotaz",
+        "empty": "Zatím tu nejsou žádné dotazy.",
+        "questions": "žádný dotaz | {count} dotaz | {count} dotazy | {count} dotazů",
+        "delete": "Smazat konverzaci",
+        "delete_confirm": "Smazat konverzaci „{title}\"? Zaúčtované zápisy, položky ani nahrané dokumenty se tím nesmažou.",
+        "deleted": "Konverzace je smazaná.",
+        "delete_failed": "Konverzaci se nepodařilo smazat.",
+        "load_failed": "Konverzaci se nepodařilo načíst.",
+        "document_label": "Dokument č. {id}"
+      },
       "suggestion": {
+        "file_unavailable": "Soubor už není v prohlížeči k dispozici – nahrajte ho v Dokumentech ručně.",
         "proposed": "Návrh: {path}",
         "folder": "Složka v Dokumentech",
         "root": "Kořen Dokumentů",

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { accountingApi } from '@/api/accounting'
@@ -19,7 +19,9 @@ import { ICONS, btnFilled, btnOutline, disabledTitle, BTN_DISABLED_NOTE } from '
 const props = withDefaults(defineProps<{
   entry: AiJournalEntry
   linkDocumentIds?: number[]
-}>(), { linkDocumentIds: () => [] })
+  /** Návrh už byl použit dřív (historie konverzace) — id vzniklého záznamu. */
+  appliedId?: number | null
+}>(), { linkDocumentIds: () => [], appliedId: null })
 
 const emit = defineEmits<{ posted: [entryId: number] }>()
 
@@ -30,7 +32,8 @@ const toast = useToast()
 const { blockDemoMutation } = useDemoMode()
 
 const posting = ref(false)
-const postedId = ref<number | null>(null)
+const postedId = ref<number | null>(props.appliedId ?? null)
+watch(() => props.appliedId, v => { if (v) postedId.value = v })
 
 const canWrite = computed(() => auth.canWrite('accounting.journal.write'))
 const totalDebit = computed(() => props.entry.lines.filter(l => l.side === 'debit').reduce((s, l) => s + Number(l.amount || 0), 0))
