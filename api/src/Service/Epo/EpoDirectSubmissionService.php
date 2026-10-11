@@ -190,6 +190,7 @@ final class EpoDirectSubmissionService
         int $supplierId,
         int $userId,
         int $attemptId,
+        bool $supersedeHandoff = false,
     ): array {
         $attempt = $this->direct->findAttempt($attemptId, $submissionId, $supplierId);
         if (
@@ -205,11 +206,15 @@ final class EpoDirectSubmissionService
         }
         $environment = (string) ($attempt['epo_environment'] ?? 'production');
         $this->assertCurrentEnvironment($environment);
+        // Otevřený odkaz do EPO (asistované předání) podání blokuje. Uživatel ho smí
+        // vědomě přebít — UI ho varuje, že podání odeslané i přes odkaz by bylo dvojí.
+        // Rozpracovaný nebo nejistý PŘÍMÝ pokus blokuje dál bez výjimky.
         $submission = $this->validatedSubmission(
             $submissionId,
             $supplierId,
             false,
             $environment,
+            $supersedeHandoff,
         );
         if (!hash_equals((string) $attempt['request_sha256'], (string) $submission['xml_sha256'])) {
             throw new EpoSubmissionException(
@@ -224,18 +229,44 @@ final class EpoDirectSubmissionService
             $userId,
             $supplierId,
         );
-        if (!$this->direct->claimTestPassedAttempt(
-            $attemptId,
-            $submissionId,
-            $supplierId,
-            $userId,
-            (string) $submission['xml_sha256'],
-            $environment,
-        )) {
+        $pdo = $this->db->pdo();
+        $pdo->beginTransaction();
+        try {
+            $superseded = $supersedeHandoff
+                ? $this->direct->cancelOpenAssistedAttempts($submissionId, $supplierId, $environment)
+                : [];
+            $claimed = $this->direct->claimTestPassedAttempt(
+                $attemptId,
+                $submissionId,
+                $supplierId,
+                $userId,
+                (string) $submission['xml_sha256'],
+                $environment,
+            );
+            $claimed ? $pdo->commit() : $pdo->rollBack();
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
+        if (!$claimed) {
             throw new EpoSubmissionException(
                 'successful_test_required',
                 'Úspěšný test už byl použit nebo je starší než 30 minut. Proveďte nový test EPO.',
                 409,
+            );
+        }
+        foreach ($superseded as $assistedId) {
+            $this->event(
+                $supplierId,
+                $submissionId,
+                $assistedId,
+                'handoff_superseded',
+                'cancelled',
+                null,
+                ['direct_attempt_id' => $attemptId],
+                $userId,
             );
         }
         $this->event(

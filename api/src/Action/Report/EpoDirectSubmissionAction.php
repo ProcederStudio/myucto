@@ -229,6 +229,7 @@ final class EpoDirectSubmissionAction
                 $supplierId,
                 $userId,
                 (int) ($body['attempt_id'] ?? 0),
+                ($body['supersede_handoff'] ?? false) === true,
             );
             $this->audit(
                 $request,
@@ -238,6 +239,7 @@ final class EpoDirectSubmissionAction
                 $submissionId,
                 [
                     'attempt_id' => $result['attempt_id'] ?? null,
+                    'supersede_handoff' => ($body['supersede_handoff'] ?? false) === true,
                     'status' => $result['status'] ?? null,
                     'reference' => $result['reference'] ?? null,
                     'environment' => $result['environment'] ?? null,

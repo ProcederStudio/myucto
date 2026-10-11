@@ -413,8 +413,10 @@ export const epoSubmissionsApi = {
     id: number,
     attemptId: number,
     proof: EpoStepUpProof,
+    supersedeHandoff = false,
   ) => api.post<EpoDirectResult>(`/reports/submissions/${id}/epo-submit`, {
     attempt_id: attemptId,
+    ...(supersedeHandoff ? { supersede_handoff: true } : {}),
     ...stepUpProofBody(proof),
   }).then(r => r.data),
 

@@ -91,6 +91,9 @@ const directMessages = ref<Record<number, EpoMessage[]>>({})
 const submitModalOpen = ref(false)
 const submitMode = ref<'test' | 'submit'>('submit')
 const submitAttemptId = ref<number | null>(null)
+// Otevřený odkaz do EPO, který podání certifikátem vědomě přebíjí (zruší ho).
+const submitBlockingHandoff = ref<EpoAttempt | null>(null)
+const submitSupersedeConfirmed = ref(false)
 const submitPassword = ref('')
 const submitTotpCode = ref('')
 const recoveryModalOpen = ref(false)
@@ -534,10 +537,14 @@ function canResolveDirectAttempt(attempt: EpoAttempt | null): boolean {
   return new Date(attempt.updated_at).getTime() + 15 * 60_000 <= Date.now()
 }
 
+/**
+ * Otevřený odkaz do EPO (asistované předání) tlačítko nezašedí: uživatel smí
+ * podat certifikátem přes něj, dialog podání ho ale varuje a vyžaduje potvrzení
+ * (`submitBlockingHandoff`). Backend odkaz při podání zruší.
+ */
 function canDirectSubmit(item: TaxSubmission): boolean {
   return canOfferDirectActions(item)
     && latestDirectAttempt(item)?.status === 'test_passed'
-    && !blockingAssistedAttempt(item)
     && !directBusy.value
 }
 
@@ -565,13 +572,6 @@ function directSubmitDisabledReason(item: TaxSubmission): string | undefined {
   if (!direct) return t('reports.submissions.direct_reason_test_missing')
   if (direct.status !== 'test_passed') {
     return t('reports.submissions.direct_reason_test_required', { status: lifecycleLabel(direct.status) })
-  }
-  const blocking = blockingAssistedAttempt(item)
-  if (blocking) {
-    return t('reports.submissions.direct_reason_handoff_active', {
-      status: lifecycleLabel(blocking.status),
-      until: formatDate(blocking.handoff_expires_at),
-    })
   }
   return t('reports.submissions.direct_hint_unknown')
 }
@@ -1072,6 +1072,8 @@ function openSubmitModal(item: TaxSubmission) {
   expandedId.value = item.id
   submitMode.value = 'submit'
   submitAttemptId.value = attempt.id
+  submitBlockingHandoff.value = blockingAssistedAttempt(item)
+  submitSupersedeConfirmed.value = false
   submitPassword.value = ''
   submitTotpCode.value = ''
   submitPasskeyToken.value = ''
@@ -1087,6 +1089,7 @@ async function submitDirect() {
       item.id,
       submitAttemptId.value,
       submitProof(),
+      submitBlockingHandoff.value !== null && submitSupersedeConfirmed.value,
     )
     submitModalOpen.value = false
     submitPassword.value = ''
@@ -2351,6 +2354,17 @@ onMounted(async () => {
           >
             {{ t(submitEnvironment === 'test' ? 'reports.submissions.submit_direct_sandbox_warning' : 'reports.submissions.submit_direct_legal_warning') }}
           </div>
+          <div v-if="submitMode === 'submit' && submitBlockingHandoff"
+            class="rounded-lg border border-warning-500/30 bg-warning-50 p-3 text-sm text-warning-800 space-y-2">
+            <p>{{ t('reports.submissions.supersede_handoff_warning', {
+              status: lifecycleLabel(submitBlockingHandoff.status),
+              until: formatDate(submitBlockingHandoff.handoff_expires_at),
+            }) }}</p>
+            <label class="flex items-start gap-2 font-medium">
+              <input v-model="submitSupersedeConfirmed" type="checkbox" class="mt-0.5">
+              <span>{{ t('reports.submissions.supersede_handoff_confirm') }}</span>
+            </label>
+          </div>
           <div v-else class="rounded-lg border border-primary-500/30 bg-primary-50 p-3 text-sm text-primary-800">
             {{ t('reports.submissions.direct_test_signature_warning') }}
           </div>
@@ -2388,7 +2402,7 @@ onMounted(async () => {
           <button
             type="button"
             :class="btnFilled(submitMode === 'test' || submitEnvironment === 'test' ? 'primary' : 'danger')"
-            :disabled="directBusy || !submitStepUpReady"
+            :disabled="directBusy || !submitStepUpReady || (submitMode === 'submit' && !!submitBlockingHandoff && !submitSupersedeConfirmed)"
             @click="confirmDirectOperation"
           >
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">

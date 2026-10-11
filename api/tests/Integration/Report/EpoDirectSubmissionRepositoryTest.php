@@ -616,6 +616,96 @@ final class EpoDirectSubmissionRepositoryTest extends TestCase
         self::assertSame($submissionId, (int) $validated['id']);
     }
 
+    /**
+     * Odkaz do EPO založený po úspěšném testu podání blokuje. Vědomé přebití ho
+     * zruší (jen otevřené předání, uzavřené pokusy nechá být) a claim pak projde.
+     */
+    public function testOpenHandoffCanBeSupersededByDirectSubmission(): void
+    {
+        $pdo = $this->db->pdo();
+        $xml = '<Pisemnost><DPHDP3/></Pisemnost>';
+        $sha256 = hash('sha256', $xml);
+        $submissionId = $this->submissions->archive(
+            $this->supplierId,
+            'dphdp3',
+            2026,
+            11,
+            null,
+            $xml,
+            [],
+            'passed',
+            [],
+            $this->userId,
+            'B',
+            'downloaded',
+        );
+        $fingerprint = hash('sha256', 'synthetic-supersede-credential-' . random_bytes(8));
+        $credentialId = $this->credentials->create($this->userId, [
+            'label' => 'Syntetický přímý EPO certifikát',
+            'pfx_ciphertext' => 'enc:v1:synthetic',
+            'passphrase_ciphertext' => 'enc:v1:synthetic',
+            'fingerprint_sha256' => $fingerprint,
+            'subject_dn' => 'CN=Synthetic Direct EPO Signer',
+            'issuer_dn' => 'CN=Synthetic Test CA',
+            'serial_hex' => '03',
+            'valid_from' => '2026-01-01 00:00:00',
+            'valid_to' => '2027-01-01 00:00:00',
+            'ik_mpsv_present' => false,
+        ]);
+        $attemptId = $this->direct->createAttempt(
+            $this->supplierId,
+            $submissionId,
+            $credentialId,
+            $fingerprint,
+            $sha256,
+            $this->userId,
+            'production',
+        );
+        $this->direct->recordTest($attemptId, true, [], 200);
+        $pdo->prepare('UPDATE tax_submission_attempts SET requested_at = CURRENT_TIMESTAMP - INTERVAL 2 MINUTE WHERE id = ?')
+            ->execute([$attemptId]);
+
+        $insertAssisted = $pdo->prepare(
+            "INSERT INTO tax_submission_attempts
+                (supplier_id, tax_submission_id, channel, status, idempotency_key,
+                 request_sha256, requested_by, handoff_expires_at)
+             VALUES (?, ?, 'epo_assisted', ?, ?, ?, ?, CURRENT_TIMESTAMP + INTERVAL 20 MINUTE)"
+        );
+        $insertAssisted->execute([$this->supplierId, $submissionId, 'handoff_created', bin2hex(random_bytes(16)), $sha256, $this->userId]);
+        $openId = (int) $pdo->lastInsertId();
+        $insertAssisted->execute([$this->supplierId, $submissionId, 'expired', bin2hex(random_bytes(16)), $sha256, $this->userId]);
+        $expiredId = (int) $pdo->lastInsertId();
+
+        self::assertFalse($this->direct->claimTestPassedAttempt(
+            $attemptId,
+            $submissionId,
+            $this->supplierId,
+            $this->userId,
+            $sha256,
+            'production',
+        ));
+
+        self::assertSame([$openId], $this->direct->cancelOpenAssistedAttempts(
+            $submissionId,
+            $this->supplierId,
+            'production',
+        ));
+        self::assertTrue($this->direct->claimTestPassedAttempt(
+            $attemptId,
+            $submissionId,
+            $this->supplierId,
+            $this->userId,
+            $sha256,
+            'production',
+        ));
+
+        $status = $pdo->prepare('SELECT status, error_code FROM tax_submission_attempts WHERE id = ?');
+        $status->execute([$openId]);
+        self::assertSame(['status' => 'cancelled', 'error_code' => 'superseded_by_direct'], $status->fetch(\PDO::FETCH_ASSOC));
+        $status->execute([$expiredId]);
+        self::assertSame('expired', $status->fetch(\PDO::FETCH_ASSOC)['status']);
+    }
+
     public function testPollQueueContainsOnlyDueAttemptsWithStatusCredentials(): void
     {
         $xml = '<Pisemnost><DPHDP3/></Pisemnost>';

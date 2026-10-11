@@ -69,8 +69,8 @@ Přímý režim vytvoří uznávaný elektronický podpis ZAREP, provede test of
 3. Vyberte certifikát a klikněte na **Zkontrolovat na EPO**.
 4. Aplikace vytvoří připojený podpis PKCS#7 v DER, odešle ho s příznakem testu a zobrazí všechny zprávy EPO. Test kontroluje podpis, strukturu i věcná pravidla, ale daňové podání nevytvoří.
 5. Chyby typu struktura, kritická chyba nebo systémová výjimka odstraňte v datech a vygenerujte nový snapshot. Propustná upozornění jsou zobrazena, ale úspěšný test neblokují.
-6. Po úspěšném testu klikněte na **Podepsat a podat**. Akce je viditelná stále, ale odemkne se až po úspěšném testu a po skončení případné asistované relace.
-7. Znovu se ověřte (přístupovým klíčem, nebo heslem a případným kódem TOTP) a potvrďte právně účinné odeslání.
+6. Po úspěšném testu klikněte na **Podepsat a podat**. Akce je viditelná stále, ale odemkne se až po úspěšném testu.
+7. Znovu se ověřte (přístupovým klíčem, nebo heslem a případným kódem TOTP) a potvrďte právně účinné odeslání. Je-li k podání otevřený odkaz do EPO (například jste si přes **Vytvořit nový odkaz EPO** formulář jen prohlédli), dialog na to upozorní. Podat jde až po zaškrtnutí, že jste formulář přes odkaz neodeslali. Odkaz se tím zruší. Pokud jste ho na portálu odeslali, vzniklo by dvojí podání.
 8. Je-li podání rozsáhlé, EPO nejdřív vrátí identifikátor předání. Potvrzení vyzvednete později tlačítkem **Obnovit stav EPO**.
 
 **Jak poznáte, že je hotovo:** U pokusu je podací číslo a čas převzatý z ověřeného potvrzení a v Dokumentech je uložené zdrojové XML, odchozí podepsaný balíček, testovací protokol a potvrzení P7S.

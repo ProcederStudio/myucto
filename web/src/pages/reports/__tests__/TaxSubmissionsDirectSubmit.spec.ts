@@ -15,6 +15,7 @@ const m = vi.hoisted(() => ({
   list: vi.fn(),
   credentials: vi.fn(),
   settings: vi.fn(),
+  submitDirect: vi.fn(),
   canWrite: true,
 }))
 
@@ -26,6 +27,7 @@ vi.mock('@/api/epoSubmissions', async (importOriginal) => {
       list: m.list,
       credentials: m.credentials,
       settings: m.settings,
+      submitDirect: m.submitDirect,
       xmlUrl: (id: number) => `/api/reports/submissions/${id}/xml`,
       artifactDownloadUrl: (id: number) => `/api/documents/${id}`,
     },
@@ -39,7 +41,7 @@ vi.mock('@/security/webauthn', () => ({
   isWebAuthnAvailable: () => false,
 }))
 vi.mock('@/composables/useToast', () => ({
-  useToast: () => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }),
+  useToast: () => ({ success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() }),
 }))
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
@@ -143,6 +145,11 @@ async function mountWith(attempts: EpoAttempt[]) {
   const vm = wrapper.vm as unknown as {
     canDirectSubmit: (item: TaxSubmission) => boolean
     directSubmitDisabledReason: (item: TaxSubmission) => string | undefined
+    openSubmitModal: (item: TaxSubmission) => void
+    submitDirect: () => Promise<void>
+    submitBlockingHandoff: EpoAttempt | null
+    submitSupersedeConfirmed: boolean
+    submitPassword: string
   }
   return { wrapper, vm, item: submission(attempts) }
 }
@@ -165,6 +172,7 @@ describe('TaxSubmissions.vue — dostupnost „Podepsat a podat"', () => {
     m.list.mockReset()
     m.credentials.mockReset()
     m.settings.mockReset()
+    m.submitDirect.mockReset()
     m.credentials.mockResolvedValue([{
       id: 7,
       label: 'ZAREP',
@@ -224,7 +232,7 @@ describe('TaxSubmissions.vue — dostupnost „Podepsat a podat"', () => {
     expect(vm.canDirectSubmit(item)).toBe(true)
   })
 
-  it('(c) asistované předání založené AŽ PO testu tlačítko zašedí a řekne proč', async () => {
+  it('(c) předání založené AŽ PO testu podání nezašedí, dialog ale vyžaduje vědomé potvrzení', async () => {
     const { vm, item } = await mountWith([
       attempt({
         id: 16,
@@ -237,9 +245,32 @@ describe('TaxSubmissions.vue — dostupnost „Podepsat a podat"', () => {
       passedProductionTest(),
     ])
 
-    expect(vm.canDirectSubmit(item)).toBe(false)
-    expect(vm.directSubmitDisabledReason(item))
-      .toContain('reports.submissions.direct_reason_handoff_active')
+    expect(vm.canDirectSubmit(item)).toBe(true)
+    expect(vm.directSubmitDisabledReason(item)).toBeUndefined()
+
+    vm.openSubmitModal(item)
+    await flushPromises()
+    expect(vm.submitBlockingHandoff?.id).toBe(16)
+    expect(vm.submitSupersedeConfirmed).toBe(false)
+
+    m.submitDirect.mockResolvedValue({ status: 'submitted', environment: 'production' })
+    vm.submitSupersedeConfirmed = true
+    vm.submitPassword = 'heslo'
+    await vm.submitDirect()
+    expect(m.submitDirect).toHaveBeenCalledWith(1103, 15, expect.anything(), true)
+  })
+
+  it('(c2) bez otevřeného předání se podání neposílá jako přebití odkazu', async () => {
+    const { vm, item } = await mountWith([passedProductionTest()])
+
+    vm.openSubmitModal(item)
+    await flushPromises()
+    expect(vm.submitBlockingHandoff).toBeNull()
+
+    m.submitDirect.mockResolvedValue({ status: 'submitted', environment: 'production' })
+    vm.submitPassword = 'heslo'
+    await vm.submitDirect()
+    expect(m.submitDirect).toHaveBeenCalledWith(1103, 15, expect.anything(), false)
   })
 
   it('(d) potvrzené produkční přímé podání zůstává zašedlé s vlastním důvodem', async () => {

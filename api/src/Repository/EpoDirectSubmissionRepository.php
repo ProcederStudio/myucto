@@ -173,6 +173,45 @@ final class EpoDirectSubmissionRepository
     }
 
     /**
+     * Zruší otevřená asistovaná předání snapshotu, když uživatel vědomě podává
+     * certifikátem přes ně. Volá se ve stejné transakci jako
+     * {@see self::claimTestPassedAttempt()}, aby mezi zrušením a claimem nevzniklo
+     * nové předání.
+     *
+     * @return list<int> zrušené pokusy
+     */
+    public function cancelOpenAssistedAttempts(int $submissionId, int $supplierId, string $environment): array
+    {
+        $environment = $this->normalizeEnvironment($environment);
+        $pdo = $this->db->pdo();
+        if (!$pdo->inTransaction()) {
+            throw new \LogicException('cancelOpenAssistedAttempts vyžaduje transakci.');
+        }
+        $pdo->prepare('SELECT id FROM tax_submissions WHERE id = ? AND supplier_id = ? FOR UPDATE')
+            ->execute([$submissionId, $supplierId]);
+        $select = $pdo->prepare(
+            "SELECT id FROM tax_submission_attempts
+              WHERE tax_submission_id = ? AND supplier_id = ?
+                AND channel = 'epo_assisted'
+                AND status IN ('prepared','handoff_created','awaiting_confirmation')
+                AND (epo_environment = 'production' OR epo_environment = ?)
+              FOR UPDATE"
+        );
+        $select->execute([$submissionId, $supplierId, $environment]);
+        $ids = array_map('intval', $select->fetchAll(\PDO::FETCH_COLUMN));
+        if ($ids !== []) {
+            $marks = implode(',', array_fill(0, count($ids), '?'));
+            $pdo->prepare(
+                "UPDATE tax_submission_attempts
+                    SET status = 'cancelled', error_code = 'superseded_by_direct',
+                        error_message = 'Nahrazeno podáním certifikátem.'
+                  WHERE id IN ($marks)"
+            )->execute($ids);
+        }
+        return $ids;
+    }
+
+    /**
      * Běží na tomtéž snapshotu něco, co ještě může skončit podáním?
      *
      * Asistované předání (odkaz do EPO) blokuje jen dokud reálně žije:
