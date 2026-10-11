@@ -19,6 +19,12 @@ final class AiProviderHttpClient
 {
     public const BANK_ESCALATION_MODEL = 'claude-sonnet-5';
 
+    /** Strop výstupu pro dlouhé odpovědi (AI asistent, vytěžení dokumentu). */
+    public const MAX_OUTPUT_TOKENS = 16000;
+
+    /** Timeout dotazu s přílohami nebo dlouhým výstupem (s). Běžné dotazy drží výchozích 60 s klienta. */
+    public const LONG_REQUEST_TIMEOUT = 180;
+
     private Client $http;
 
     public function __construct(
@@ -32,7 +38,12 @@ final class AiProviderHttpClient
         $this->http = $http ?? new Client(['timeout' => 60, 'http_errors' => false]);
     }
 
-    /** @param array<string,mixed> $schema @return array<string,mixed> */
+    /**
+     * @param array<string,mixed> $schema
+     * @param list<array{name:string, mime:string, bytes:string}> $attachments binární přílohy (PDF, obrázky)
+     *        vložené před text dotazu; textové přílohy patří do $user
+     * @return array<string,mixed>
+     */
     public function completeJson(
         int $supplierId,
         string $system,
@@ -40,6 +51,8 @@ final class AiProviderHttpClient
         array $schema,
         ?string $modelOverride = null,
         int $maxOutputTokens = 500,
+        array $attachments = [],
+        bool $structuredOutput = false,
     ): array
     {
         try {
@@ -53,7 +66,9 @@ final class AiProviderHttpClient
                 $system,
                 $user,
                 $schema,
-                max(100, min(4000, $maxOutputTokens)),
+                max(100, min(self::MAX_OUTPUT_TOKENS, $maxOutputTokens)),
+                array_values($attachments),
+                $structuredOutput,
             );
         } catch (AiDpaException $e) {
             return ['ok' => false, 'error' => $e->errorCode];
@@ -142,6 +157,16 @@ final class AiProviderHttpClient
      */
     public function bankEscalationModel(int $supplierId): ?string
     {
+        return $this->strongModelOverride($supplierId);
+    }
+
+    /**
+     * Silnější model pro náročné jednorázové dotazy (AI asistent, vytěžení dokumentu):
+     * tenant na anthropic haiku dostane {@see self::BANK_ESCALATION_MODEL}, jinak null
+     * = výchozí model tenanta.
+     */
+    public function strongModelOverride(int $supplierId): ?string
+    {
         try {
             $ctx = $this->context($supplierId);
         } catch (\Throwable) {
@@ -151,6 +176,36 @@ final class AiProviderHttpClient
             return null;
         }
         return self::BANK_ESCALATION_MODEL;
+    }
+
+    /**
+     * Dostupnost AI pro interaktivní dotazy: poskytovatel, model a důvod nedostupnosti
+     * (provider_not_configured, residency_conflict, dpa_not_confirmed).
+     *
+     * @return array{available:bool, reason:?string, provider:?string, model:?string, supports_files:bool}
+     */
+    public function status(int $supplierId): array
+    {
+        try {
+            $ctx = $this->context($supplierId);
+        } catch (ResidencyViolationException) {
+            return ['available' => false, 'reason' => 'residency_conflict', 'provider' => null, 'model' => null, 'supports_files' => false];
+        } catch (\Throwable) {
+            return ['available' => false, 'reason' => 'provider_not_configured', 'provider' => null, 'model' => null, 'supports_files' => false];
+        }
+        $provider = $ctx['provider'];
+        try {
+            $confirmed = $this->dpa->isConfirmed($supplierId, $provider);
+        } catch (\Throwable) {
+            $confirmed = false;
+        }
+        return [
+            'available' => $confirmed,
+            'reason' => $confirmed ? null : 'dpa_not_confirmed',
+            'provider' => $provider,
+            'model' => $this->strongModelOverride($supplierId) ?? $ctx['model'],
+            'supports_files' => $provider !== 'ollama',
+        ];
     }
 
     public function isClassificationAvailable(int $supplierId): bool
@@ -189,43 +244,89 @@ final class AiProviderHttpClient
         ];
     }
 
-    /** @param array{provider:string,region:string,model:string,credentials:array<string,mixed>,supplier_id:int} $ctx @param array<string,mixed> $schema @return array<string,mixed> */
-    private function completeForProvider(array $ctx, string $system, string $user, array $schema, int $maxOutputTokens): array
+    /**
+     * @param array{provider:string,region:string,model:string,credentials:array<string,mixed>,supplier_id:int} $ctx
+     * @param array<string,mixed> $schema
+     * @param list<array{name:string, mime:string, bytes:string}> $attachments
+     * @return array<string,mixed>
+     */
+    private function completeForProvider(array $ctx, string $system, string $user, array $schema, int $maxOutputTokens, array $attachments = [], bool $structuredOutput = false): array
     {
         $provider = $ctx['provider'];
         $creds = $ctx['credentials'];
+        // Dlouhý dotaz (přílohy, velký výstup) dostane delší timeout; běžné volání posílá
+        // požadavek beze změny s výchozím timeoutem klienta.
+        $extra = ($attachments !== [] || $maxOutputTokens > 4000) ? ['timeout' => self::LONG_REQUEST_TIMEOUT] : [];
         if ($provider === 'anthropic') {
+            $userContent = $user;
+            if ($attachments !== []) {
+                $userContent = [];
+                foreach ($attachments as $a) {
+                    $source = ['type' => 'base64', 'media_type' => $a['mime'], 'data' => base64_encode($a['bytes'])];
+                    $userContent[] = $a['mime'] === 'application/pdf'
+                        ? ['type' => 'document', 'source' => $source, 'title' => $a['name']]
+                        : ['type' => 'image', 'source' => $source];
+                }
+                $userContent[] = ['type' => 'text', 'text' => $user];
+            }
+            // Modely od generace 5 parametr temperature odmítají (HTTP 400), posílá se jen starším.
             $payload = [
-                'model' => $ctx['model'], 'max_tokens' => $maxOutputTokens, 'temperature' => 0,
+                'model' => $ctx['model'], 'max_tokens' => $maxOutputTokens,
+                ...(self::anthropicAcceptsTemperature($ctx['model']) ? ['temperature' => 0] : []),
                 'system' => $system,
-                'messages' => [['role' => 'user', 'content' => $user]],
-                'tools' => [[
+                'messages' => [['role' => 'user', 'content' => $userContent]],
+            ];
+            // Dlouhé odpovědi (AI asistent) jdou přes structured outputs: vynucený tool_use
+            // s dlouhým markdownem model občas „vylije" do jediného pole a novější modely
+            // vynucený tool_choice odmítají. Krátká klasifikace zůstává beze změny.
+            if ($structuredOutput) {
+                $payload['output_config'] = ['format' => ['type' => 'json_schema', 'schema' => $schema]];
+            } else {
+                $payload['tools'] = [[
                     'name' => 'posting_suggestion', 'description' => 'Vrátí návrh kontace.',
                     'input_schema' => $schema,
-                ]],
-                'tool_choice' => ['type' => 'tool', 'name' => 'posting_suggestion'],
-            ];
+                ]];
+                $payload['tool_choice'] = ['type' => 'tool', 'name' => 'posting_suggestion'];
+            }
             $response = $this->http->post('https://api.anthropic.com/v1/messages', [
                 'headers' => ['x-api-key' => $creds['api_key'], 'anthropic-version' => '2023-06-01', 'content-type' => 'application/json'],
                 'json' => $payload,
-            ]);
+            ] + $extra);
             $body = json_decode((string) $response->getBody(), true);
             if ($response->getStatusCode() !== 200) {
                 return ['ok' => false, 'error' => $this->httpError($response->getStatusCode(), $body)];
             }
             $data = null;
             foreach (($body['content'] ?? []) as $part) {
-                if (($part['type'] ?? null) === 'tool_use' && is_array($part['input'] ?? null)) {
+                if (!$structuredOutput && ($part['type'] ?? null) === 'tool_use' && is_array($part['input'] ?? null)) {
                     $data = $part['input'];
                     break;
                 }
+                if ($structuredOutput && ($part['type'] ?? null) === 'text' && is_string($part['text'] ?? null)) {
+                    $data = json_decode($part['text'], true);
+                    break;
+                }
+            }
+            if ($structuredOutput && ($body['stop_reason'] ?? '') === 'max_tokens') {
+                return ['ok' => false, 'error' => 'max_tokens'];
             }
             $usage = ['input_tokens' => (int) ($body['usage']['input_tokens'] ?? 0), 'output_tokens' => (int) ($body['usage']['output_tokens'] ?? 0)];
             $model = (string) ($body['model'] ?? $ctx['model']);
         } elseif (in_array($provider, ['openai', 'azure_openai'], true)) {
+            $userContent = $user;
+            if ($attachments !== []) {
+                $userContent = [];
+                foreach ($attachments as $a) {
+                    $dataUrl = 'data:' . $a['mime'] . ';base64,' . base64_encode($a['bytes']);
+                    $userContent[] = $a['mime'] === 'application/pdf'
+                        ? ['type' => 'file', 'file' => ['filename' => $a['name'], 'file_data' => $dataUrl]]
+                        : ['type' => 'image_url', 'image_url' => ['url' => $dataUrl]];
+                }
+                $userContent[] = ['type' => 'text', 'text' => $user];
+            }
             $payload = [
                 'model' => $ctx['model'], 'max_completion_tokens' => $maxOutputTokens,
-                'messages' => [['role' => 'system', 'content' => $system], ['role' => 'user', 'content' => $user]],
+                'messages' => [['role' => 'system', 'content' => $system], ['role' => 'user', 'content' => $userContent]],
                 'response_format' => ['type' => 'json_schema', 'json_schema' => [
                     'name' => 'posting_suggestion', 'strict' => true, 'schema' => $schema,
                 ]],
@@ -239,7 +340,7 @@ final class AiProviderHttpClient
                     . '/chat/completions?api-version=' . rawurlencode((string) $creds['api_version']);
                 $headers = ['api-key' => $creds['api_key']];
             }
-            $response = $this->http->post($url, ['headers' => $headers + ['content-type' => 'application/json'], 'json' => $payload]);
+            $response = $this->http->post($url, ['headers' => $headers + ['content-type' => 'application/json'], 'json' => $payload] + $extra);
             $body = json_decode((string) $response->getBody(), true);
             if ($response->getStatusCode() !== 200) {
                 return ['ok' => false, 'error' => $this->httpError($response->getStatusCode(), $body)];
@@ -249,9 +350,14 @@ final class AiProviderHttpClient
             $usage = ['input_tokens' => (int) ($body['usage']['prompt_tokens'] ?? 0), 'output_tokens' => (int) ($body['usage']['completion_tokens'] ?? 0)];
             $model = (string) ($body['model'] ?? $ctx['model']);
         } elseif ($provider === 'gemini') {
+            $parts = [];
+            foreach ($attachments as $a) {
+                $parts[] = ['inline_data' => ['mime_type' => $a['mime'], 'data' => base64_encode($a['bytes'])]];
+            }
+            $parts[] = ['text' => $user];
             $payload = [
                 'systemInstruction' => ['parts' => [['text' => $system]]],
-                'contents' => [['parts' => [['text' => $user]]]],
+                'contents' => [['parts' => $parts]],
                 'generationConfig' => [
                     'temperature' => 0, 'maxOutputTokens' => $maxOutputTokens,
                     'responseMimeType' => 'application/json', 'responseSchema' => $this->geminiSchema($schema),
@@ -260,7 +366,7 @@ final class AiProviderHttpClient
             $url = 'https://generativelanguage.googleapis.com/v1beta/models/' . rawurlencode($ctx['model']) . ':generateContent';
             $response = $this->http->post($url, [
                 'headers' => ['x-goog-api-key' => $creds['api_key'], 'content-type' => 'application/json'], 'json' => $payload,
-            ]);
+            ] + $extra);
             $body = json_decode((string) $response->getBody(), true);
             if ($response->getStatusCode() !== 200) {
                 return ['ok' => false, 'error' => $this->httpError($response->getStatusCode(), $body)];
@@ -270,6 +376,9 @@ final class AiProviderHttpClient
             $usage = ['input_tokens' => (int) ($body['usageMetadata']['promptTokenCount'] ?? 0), 'output_tokens' => (int) ($body['usageMetadata']['candidatesTokenCount'] ?? 0)];
             $model = $ctx['model'];
         } elseif ($provider === 'ollama') {
+            if ($attachments !== []) {
+                return ['ok' => false, 'error' => 'attachments_unsupported'];
+            }
             $client = $this->registry->resolve('ollama');
             if (!$client instanceof OllamaClient) {
                 return ['ok' => false, 'error' => 'provider_not_configured'];
@@ -288,6 +397,11 @@ final class AiProviderHttpClient
             return ['ok' => false, 'error' => 'invalid_json'];
         }
         return ['ok' => true, 'data' => $data, 'provider' => $provider, 'region' => $ctx['region'], 'model' => $model, 'usage' => $usage];
+    }
+
+    public static function anthropicAcceptsTemperature(string $model): bool
+    {
+        return preg_match('/^claude-(3|[a-z]+-4)/', $model) === 1;
     }
 
     /** @param array<string,mixed> $schema @return array<string,mixed> */

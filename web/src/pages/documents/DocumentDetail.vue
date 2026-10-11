@@ -10,6 +10,7 @@ import { canPreviewDocument, documentPreviewKind } from '@/components/documents/
 import EntityLinkPicker from '@/components/documents/EntityLinkPicker.vue'
 import TagInput from '@/components/documents/TagInput.vue'
 import DocumentFilesPanel from '@/components/documents/DocumentFilesPanel.vue'
+import DocumentAiPanel from '@/components/documents/DocumentAiPanel.vue'
 import TextDocumentPreview from '@/components/documents/TextDocumentPreview.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import { ICONS, btnFilled, btnOutline } from '@/components/ui/buttonStyles'
@@ -79,6 +80,15 @@ async function onLink(r: LinkSearchResult) {
   if (!doc.value) return
   const links = await documentsApi.addLink(doc.value.id, r.entity_type, r.entity_id)
   doc.value.links = links
+}
+// Zápis zaúčtovaný z AI vytěžení se na dokument navázal — obnovit jen vazby,
+// rozepsaná metadata zůstávají.
+async function refreshLinks() {
+  if (!doc.value) return
+  try {
+    const d = await documentsApi.get(doc.value.id)
+    doc.value.links = d.links
+  } catch { /* vazby se ukážou po dalším načtení */ }
 }
 async function onUnlink(entityType: EntityType, entityId: number) {
   if (!doc.value) return
@@ -302,6 +312,9 @@ watch(id, () => {
             {{ t('documents.save') }}
           </button>
         </div>
+
+        <!-- AI shrnutí a vytěžení dokladu -->
+        <DocumentAiPanel :doc="doc" @posted="refreshLinks" />
 
         <!-- Multi-file panel (primary + přílohy) — Epic F7 -->
         <DocumentFilesPanel :document-id="doc.id" />

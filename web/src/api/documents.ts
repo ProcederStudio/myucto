@@ -1,4 +1,5 @@
 import { api } from './client'
+import type { AiDocumentAnalysis } from './aiAssistant'
 
 export type DocType = 'pdf' | 'docx' | 'xlsx' | 'xml' | 'zfo' | 'p7s' | 'zip' | 'image' | 'other'
 export type EntityType = 'client' | 'invoice' | 'purchase_invoice' | 'project' | 'journal_entry' | 'bank_transaction' | 'cash_document' | 'other_item' | 'invoice_payment'
@@ -82,6 +83,11 @@ export interface DocItem {
   owner_name?: string | null
   // jen ve výsledcích hledání: cesta ke složce („Smlouvy / Pojištění")
   folder_path?: string | null
+  // AI shrnutí (výpis, hledání i detail) a AI vytěžení (jen detail)
+  ai_summary_short?: string | null
+  ai_summary_long?: string | null
+  ai_summary_at?: string | null
+  ai_analysis?: AiDocumentAnalysis | null
   // detail-only
   tags?: string[]
   links?: DocLink[]

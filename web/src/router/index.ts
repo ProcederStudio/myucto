@@ -113,7 +113,7 @@ const routePermissions: Record<string, [PermissionKey, AccessLevel?]> = {
   'other-items': ['other_items'], 'other-item-new': ['other_items', 'write'], 'other-item-detail': ['other_items'], 'other-item-edit': ['other_items', 'write'],
   'scan-attach': ['documents.upload', 'write'],
   'accounting-accounts': ['accounting'], 'accounting-account-detail': ['accounting'],
-  'accounting-journal': ['accounting'], 'accounting-journal-new': ['accounting.journal.write', 'write'],
+  'accounting-journal': ['accounting'], 'accounting-journal-new': ['accounting.journal.write', 'write'], 'accounting-ai-assistant': ['accounting'],
   // Čtení = zobrazení rozpadu mzdy; samotné zaúčtování hlídá server (accounting.journal.post).
   // Bez záznamu v téhle mapě guard route zahodí na homepage (deny-by-default, :327).
   'accounting-payroll': ['accounting'],

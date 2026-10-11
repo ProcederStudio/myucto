@@ -227,6 +227,8 @@ export function createWorkspaceRoutes(): RouteRecordRaw[] {
       { path: 'accounting/periods',       name: 'accounting-periods',       component: () => import('@/pages/accounting/Periods.vue'), meta: { requiresDoubleEntry: true } },
       { path: 'accounting/journal',       name: 'accounting-journal',       component: () => import('@/pages/accounting/Journal.vue'),         meta: { requiresDoubleEntry: true } },
       { path: 'accounting/journal/new',   name: 'accounting-journal-new',   component: () => import('@/pages/accounting/ManualEntry.vue'),     meta: { requiresDoubleEntry: true, requiresSupplier: true } },
+      // AI asistent k účtování — chat s přílohami, návrhy zápisů a zařazení do Dokumentů.
+      { path: 'accounting/ai-assistant', name: 'accounting-ai-assistant', component: () => import('@/pages/accounting/AiAssistant.vue'), meta: { requiresDoubleEntry: true, requiresSupplier: true } },
       { path: 'accounting/payroll',       name: 'accounting-payroll',       component: () => import('@/pages/accounting/PayrollRecap.vue'),    meta: { requiresDoubleEntry: true, requiresSupplier: true } },
       // Doúčtování nezaúčtovaných dokladů. Automatika účtování je háček na VZNIK dokladu,
       // takže doklady, které v systému už leží (typicky naimportované), jí neprojdou —

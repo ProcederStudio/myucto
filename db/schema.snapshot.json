@@ -975,7 +975,8 @@
         "1991_gopay_tax_evidence_settings.sql",
         "1992_payroll_takeover_old_age_savings.sql",
         "1993_cash_journal_notes.sql",
-        "1994_document_links_invoice_payment.sql"
+        "1994_document_links_invoice_payment.sql",
+        "1996_document_ai.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -4620,6 +4621,11 @@
             "engine": "InnoDB",
             "collation": "utf8mb4_unicode_ci",
             "columns": {
+                "ai_analysis_at": "datetime NULL DEFAULT NULL",
+                "ai_analysis_json": "longtext NULL DEFAULT NULL",
+                "ai_summary_at": "datetime NULL DEFAULT NULL",
+                "ai_summary_long": "mediumtext NULL DEFAULT NULL",
+                "ai_summary_short": "text NULL DEFAULT NULL",
                 "content_text": "mediumtext NULL DEFAULT NULL",
                 "created_at": "timestamp NOT NULL DEFAULT current_timestamp()",
                 "deleted_at": "timestamp NULL DEFAULT NULL",
@@ -4653,6 +4659,7 @@
                 "fk_doc_user": "BTREE (uploaded_by)",
                 "ft_doc_content": "FULLTEXT (content_text)",
                 "ft_doc_meta": "FULLTEXT (title, description)",
+                "ft_documents_ai_summary": "FULLTEXT (ai_summary_short, ai_summary_long)",
                 "idx_doc_parent": "BTREE (parent_document_id)",
                 "idx_doc_scope": "BTREE (supplier_id, scope, owner_user_id)",
                 "idx_doc_sha": "BTREE (supplier_id, sha256)",

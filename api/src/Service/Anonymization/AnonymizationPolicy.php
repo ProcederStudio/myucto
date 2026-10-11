@@ -205,7 +205,7 @@ final class AnonymizationPolicy
         'document_folders' => ['name' => 'text'],
         'document_requests' => ['description' => 'text'],
         'document_tags' => ['name' => 'text'],
-        'documents' => ['content_text' => 'wipe', 'description' => 'text', 'filename' => 'file_path', 'mime_type' => 'keep', 'original_name' => 'file_name', 'sha256' => 'keep', 'thumb_path' => 'file_path', 'title' => 'text'],
+        'documents' => ['ai_analysis_json' => 'wipe', 'ai_summary_long' => 'wipe', 'ai_summary_short' => 'wipe', 'content_text' => 'wipe','description' => 'text', 'filename' => 'file_path', 'mime_type' => 'keep', 'original_name' => 'file_name', 'sha256' => 'keep', 'thumb_path' => 'file_path', 'title' => 'text'],
         'ecb_exchange_rates' => ['currency_code' => 'keep'],
         'email_profiles' => ['code' => 'keep', 'dkim_domain' => 'host', 'dkim_selector' => 'keep', 'from_email' => 'email', 'from_name' => 'party_name', 'imap_folder' => 'keep', 'imap_host' => 'host', 'imap_password_enc' => 'wipe', 'imap_username' => 'login', 'name' => 'text', 'reply_to_email' => 'email', 'reply_to_name' => 'party_name', 'sendmail_command' => 'keep', 'smtp_host' => 'host', 'smtp_password_enc' => 'wipe', 'smtp_username' => 'login'],
         'email_templates' => ['body_html' => 'text', 'body_text' => 'text', 'code' => 'keep', 'locale' => 'keep', 'subject' => 'text'],

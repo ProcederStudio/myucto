@@ -19,7 +19,7 @@ final class DocumentRepository
     private const COLS = 'id, supplier_id, folder_id, title, description, original_name,
         filename, sha256, mime_type, size_bytes, doc_type, source, parent_document_id,
         signature_for_id, text_status, thumb_path, thumb_status, uploaded_by,
-        scope, owner_user_id, deleted_at, created_at';
+        scope, owner_user_id, deleted_at, created_at, ai_summary_short';
 
     /**
      * Per-user scope guard (Epic F7, §4.2 — bezpečnostní jádro). Vrací SQL fragment
@@ -84,7 +84,53 @@ final class DocumentRepository
         $stmt = $this->db->pdo()->prepare($sql);
         $stmt->execute(array_merge([$id, $supplierId], $scopeParams));
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        return $row !== false ? $this->hydrate($row) : null;
+        if ($row === false) {
+            return null;
+        }
+        $analysis = is_string($row['ai_analysis_json'] ?? null) ? json_decode($row['ai_analysis_json'], true) : null;
+        return $this->hydrate($row) + [
+            'ai_summary_long' => isset($row['ai_summary_long']) ? (string) $row['ai_summary_long'] : null,
+            'ai_summary_at'   => isset($row['ai_summary_at']) ? (string) $row['ai_summary_at'] : null,
+            'ai_analysis'     => is_array($analysis) ? $analysis : null,
+        ];
+    }
+
+    /**
+     * Uloží AI shrnutí; null u délky, která se negenerovala, ponechá původní text.
+     *
+     * @return array{ai_summary_short:?string, ai_summary_long:?string, ai_summary_at:?string}
+     */
+    public function saveAiSummary(int $id, int $supplierId, ?string $short, ?string $long): array
+    {
+        $this->db->pdo()->prepare(
+            'UPDATE documents
+                SET ai_summary_short = COALESCE(?, ai_summary_short),
+                    ai_summary_long = COALESCE(?, ai_summary_long),
+                    ai_summary_at = NOW()
+              WHERE id = ? AND supplier_id = ?'
+        )->execute([$short, $long, $id, $supplierId]);
+        $stmt = $this->db->pdo()->prepare(
+            'SELECT ai_summary_short, ai_summary_long, ai_summary_at FROM documents WHERE id = ? AND supplier_id = ?'
+        );
+        $stmt->execute([$id, $supplierId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        return [
+            'ai_summary_short' => isset($row['ai_summary_short']) ? (string) $row['ai_summary_short'] : null,
+            'ai_summary_long'  => isset($row['ai_summary_long']) ? (string) $row['ai_summary_long'] : null,
+            'ai_summary_at'    => isset($row['ai_summary_at']) ? (string) $row['ai_summary_at'] : null,
+        ];
+    }
+
+    /** @param array<string,mixed> $analysis */
+    public function saveAiAnalysis(int $id, int $supplierId, array $analysis): void
+    {
+        $this->db->pdo()->prepare(
+            'UPDATE documents SET ai_analysis_json = ?, ai_analysis_at = NOW() WHERE id = ? AND supplier_id = ?'
+        )->execute([
+            json_encode($analysis, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+            $id,
+            $supplierId,
+        ]);
     }
 
     /** @return array{text_status:string,total_chars:int,content_text:?string}|null */
@@ -361,18 +407,21 @@ final class DocumentRepository
         $like = '%' . addcslashes($q, '%_\\') . '%';
 
         if (mb_strlen($q) >= 3) {
+            // AI shrnutí má vlastní FULLTEXT index (ft_documents_ai_summary) — váží jako obsah.
             $sql = 'SELECT ' . self::COLS . ',
                        (MATCH(title, description) AGAINST (? IN NATURAL LANGUAGE MODE) * 2
-                        + MATCH(content_text) AGAINST (? IN NATURAL LANGUAGE MODE)) AS score
+                        + MATCH(content_text) AGAINST (? IN NATURAL LANGUAGE MODE)
+                        + MATCH(ai_summary_short, ai_summary_long) AGAINST (? IN NATURAL LANGUAGE MODE)) AS score
                       FROM documents
                      WHERE supplier_id = ? AND deleted_at IS NULL
                        AND (MATCH(title, description) AGAINST (? IN NATURAL LANGUAGE MODE)
                             OR MATCH(content_text) AGAINST (? IN NATURAL LANGUAGE MODE)
+                            OR MATCH(ai_summary_short, ai_summary_long) AGAINST (? IN NATURAL LANGUAGE MODE)
                             OR title LIKE ? OR original_name LIKE ?)'
                      . $scopeSql . '
                      ORDER BY score DESC, created_at DESC
                      LIMIT ' . $lim;
-            $params = array_merge([$q, $q, $supplierId, $q, $q, $like, $like], $scopeParams);
+            $params = array_merge([$q, $q, $q, $supplierId, $q, $q, $q, $like, $like], $scopeParams);
         } else {
             $sql = 'SELECT ' . self::COLS . ', 0 AS score FROM documents
                      WHERE supplier_id = ? AND deleted_at IS NULL
@@ -706,6 +755,7 @@ final class DocumentRepository
             'owner_user_id'      => isset($r['owner_user_id']) && $r['owner_user_id'] !== null ? (int) $r['owner_user_id'] : null,
             'deleted_at'         => $r['deleted_at'] !== null ? (string) $r['deleted_at'] : null,
             'created_at'         => (string) $r['created_at'],
+            'ai_summary_short'   => isset($r['ai_summary_short']) ? (string) $r['ai_summary_short'] : null,
         ];
     }
 }

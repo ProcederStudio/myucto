@@ -576,6 +576,7 @@ const navSections = computed<NavSection[]>(() => {
       items: [
         { to: '/accounting/journal',        label: t('nav.accounting_journal'),  icon: ICONS.accounting, newTo: '/accounting/journal/new' },
         { to: '/automation',                label: t('nav.automation'),          icon: ICONS.ai, badge: automationStore.actionable, permission: 'accounting' },
+        { to: '/accounting/ai-assistant',   label: t('nav.ai_assistant'),        icon: ICONS.ai, permission: 'accounting' },
         { to: '/accounting/manual-posting-queue', label: t('nav.manual_posting_queue'), icon: ICONS.approvals, permission: 'accounting' },
         // Doúčtování nezaúčtovaných dokladů — po importu historie je to jediná cesta,
         // jak je dostat do deníku. Automatika účtování je háček na vznik dokladu, ne
