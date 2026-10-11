@@ -8,6 +8,7 @@ use MyInvoice\Bootstrap;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Repository\JournalEntryRepository;
+use MyInvoice\Repository\PostingRuleRepository;
 use MyInvoice\Service\Accounting\Cash\CashDocumentService;
 use MyInvoice\Service\Accounting\Cash\CashException;
 use MyInvoice\Service\Accounting\Closing\ClosingException;
@@ -125,6 +126,94 @@ final class CashDocumentServiceTest extends TestCase
         self::assertEqualsWithDelta(1000.00, $byAcc['501']['debit'], 0.001);
         self::assertEqualsWithDelta(210.00, $byAcc['343.100']['debit'], 0.001);
         self::assertEqualsWithDelta(1210.00, $byAcc['211']['credit'], 0.001);
+    }
+
+    public function testPurchasePostsExplicitExpenseAnalyticWithoutChangingVat(): void
+    {
+        $reg = $this->makeRegister();
+        $this->makeExpenseAccount('518.200');
+        $purchase = $this->service->create($this->supplierId, $this->doc([
+            'purpose' => 'purchase', 'doc_type' => 'out', 'total_amount' => 1210.00, 'vat_mode' => 'vat',
+            'counter_account_code' => '518.200',
+            'vat_lines' => [['vat_rate' => 21, 'base_amount' => 1000.00, 'vat_amount' => 210.00]],
+        ], $reg), $this->userId);
+
+        self::assertSame([
+            '518.200' => ['debit' => 1000.0, 'credit' => 0.0],
+            '343.100' => ['debit' => 210.0, 'credit' => 0.0],
+            '211' => ['debit' => 0.0, 'credit' => 1210.0],
+        ], $this->linesByAccountCode($purchase['journal_entry_id']));
+    }
+
+    public function testPurchaseWithoutExpenseOverrideKeepsDefaultAndAllowsExplicitSynthetic(): void
+    {
+        $reg = $this->makeRegister();
+        foreach ([[], ['counter_account_code' => null], ['counter_account_code' => '501']] as $override) {
+            $purchase = $this->service->create($this->supplierId, $this->doc(array_merge([
+                'purpose' => 'purchase', 'doc_type' => 'out', 'total_amount' => 100.00,
+            ], $override), $reg), $this->userId);
+            self::assertSame([
+                '501' => ['debit' => 100.0, 'credit' => 0.0],
+                '211' => ['debit' => 0.0, 'credit' => 100.0],
+            ], $this->linesByAccountCode($purchase['journal_entry_id']));
+        }
+    }
+
+    public function testPurchaseWithoutExpenseOverrideKeepsConfiguredPurchaseRule(): void
+    {
+        $reg = $this->makeRegister();
+        $this->makeExpenseAccount('518.100');
+        (new PostingRuleRepository($this->db))->upsertOverride($this->supplierId, 'cash.purchase', '518.100', '211', 'Výchozí nákup');
+        foreach ([[], ['counter_account_code' => null]] as $override) {
+            $purchase = $this->service->create($this->supplierId, $this->doc(array_merge([
+                'purpose' => 'purchase', 'doc_type' => 'out', 'total_amount' => 100.00,
+            ], $override), $reg), $this->userId);
+            self::assertSame([
+                '518.100' => ['debit' => 100.0, 'credit' => 0.0],
+                '211' => ['debit' => 0.0, 'credit' => 100.0],
+            ], $this->linesByAccountCode($purchase['journal_entry_id']));
+        }
+    }
+
+    public function testPurchaseRejectsForeignInactiveAndNonExpenseAccounts(): void
+    {
+        $reg = $this->makeRegister();
+        $foreignSupplier = $this->createIsolatedSupplier($this->db->pdo(), $this->supplierId);
+        $this->makeExpenseAccount('518.987', true, $foreignSupplier);
+        $this->makeExpenseAccount('518.299', false);
+        $this->makeExpenseAccount('518.298', true, null, 'asset');
+
+        foreach (['518.987', '518.299', '518.298', '321', '602'] as $code) {
+            try {
+                $this->service->create($this->supplierId, $this->doc([
+                    'purpose' => 'purchase', 'doc_type' => 'out', 'total_amount' => 100.00,
+                    'counter_account_code' => $code,
+                ], $reg), $this->userId);
+                self::fail('Neplatný nákladový účet ' . $code . ' musí selhat.');
+            } catch (CashException $e) {
+                self::assertSame('counter_account_invalid', $e->errorCode);
+            }
+            self::assertSame(0, $this->countDocuments($reg));
+        }
+    }
+
+    public function testPurchaseDraftRetainsExpenseOverrideWhenOmittedAndClearsExplicitNull(): void
+    {
+        $reg = $this->makeRegister();
+        $this->makeExpenseAccount('518.200');
+        foreach ([[], ['counter_account_code' => null]] as $update) {
+            $draft = $this->service->create($this->supplierId, $this->doc([
+                'purpose' => 'purchase', 'doc_type' => 'out', 'total_amount' => 100.00,
+                'counter_account_code' => '518.200', 'post' => false,
+            ], $reg), $this->userId);
+            $this->service->updateDraft($this->supplierId, $draft['id'], $update + ['description' => 'Upravený nákup']);
+            $posted = $this->service->post($this->supplierId, $draft['id'], $this->userId);
+            $expense = $update === [] ? '518.200' : '501';
+            self::assertSame([
+                $expense => ['debit' => 100.0, 'credit' => 0.0],
+                '211' => ['debit' => 0.0, 'credit' => 100.0],
+            ], $this->linesByAccountCode($posted['journal_entry_id']));
+        }
     }
 
     public function testPdfPostingSerializesRedStornoAmountsWithTheirAccountingSign(): void
@@ -435,6 +524,7 @@ final class CashDocumentServiceTest extends TestCase
         // Plná výše → 321/211 + status paid.
         $res = $this->service->create($this->supplierId, $this->doc([
             'purpose' => 'purchase_payment', 'doc_type' => 'out', 'total_amount' => 3000.00, 'purchase_invoice_id' => $pfId,
+            'counter_account_code' => '518.200',
         ], $reg), $this->userId);
         $byAcc = $this->linesByAccountCode($res['journal_entry_id']);
         self::assertEqualsWithDelta(3000.00, $byAcc['321']['debit'], 0.001);
@@ -1363,6 +1453,14 @@ final class CashDocumentServiceTest extends TestCase
             'purpose' => 'purchase_payment', 'doc_type' => 'in', 'total_amount' => 5001.0,
             'purchase_invoice_id' => $pf, 'issue_date' => self::YEAR . '-06-25',
         ], $reg), $this->userId);
+    }
+
+    private function makeExpenseAccount(string $code, bool $active = true, ?int $supplierId = null, string $type = 'expense'): void
+    {
+        $this->db->pdo()->prepare(
+            "INSERT INTO chart_of_accounts (supplier_id, account_code, name, account_type, normal_side, is_synthetic, is_active)
+             VALUES (?, ?, 'Nákladový účet', ?, 'debit', 0, ?)"
+        )->execute([$supplierId ?? $this->supplierId, $code, $type, $active ? 1 : 0]);
     }
 
     private function makeCashAnalytic(string $code): string

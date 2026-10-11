@@ -143,6 +143,12 @@ const counterAccountOptions = computed(() =>
   counterAccounts.value.map(a => ({ value: a.account_code, label: `${a.account_code} - ${a.name}` })),
 )
 
+const expenseAccountOptions = computed(() =>
+  counterAccounts.value
+    .filter(a => a.account_code.startsWith('5') && a.account_type === 'expense')
+    .map(a => ({ value: a.account_code, label: `${a.account_code} - ${a.name}` })),
+)
+
 // ── Předvolby „co to je" pro purpose=other ─────────────────────────────────
 // Server nabízí kontace s nohou na 211 (a bez vlastního purpose). Volba předvolby
 // posílá `rule_key`, ne protiúčet — doklad si tak zachová vazbu na kontaci včetně
@@ -454,7 +460,7 @@ const previewLines = computed<PreviewLine[]>(() => {
       if (vat) for (const l of vatLines.value) push('343', 'credit', l.vat_amount)
       break
     case 'purchase':
-      push(ruleAccount('cash.purchase', 'debit', '501'), 'debit', baseSum)
+      push(form.counter_account_code || ruleAccount('cash.purchase', 'debit', '501'), 'debit', baseSum)
       if (vat) for (const l of vatLines.value) push('343', 'debit', l.vat_amount)
       push(cash, 'credit', total)
       break
@@ -571,7 +577,7 @@ async function save(post = true) {
     vat_lines: withVat ? vatLines.value : [],
     invoice_id: form.purpose === 'invoice_payment' && form.invoice_id ? form.invoice_id : null,
     purchase_invoice_id: form.purpose === 'purchase_payment' && form.purchase_invoice_id ? form.purchase_invoice_id : null,
-    counter_account_code: isOther.value && form.counter_account_code ? form.counter_account_code : null,
+    counter_account_code: (isOther.value || (form.purpose === 'purchase' && !isTaxEvidence.value)) && form.counter_account_code ? form.counter_account_code : null,
     rule_key: isOther.value && !form.counter_account_code && form.rule_key ? form.rule_key : null,
     post,
   }
@@ -685,6 +691,13 @@ async function save(post = true) {
               <label class="block text-sm font-medium text-neutral-700 mb-1">{{ t('cash.form.partner_dic') }}</label>
               <input v-model="form.partner_dic" type="text" class="w-full h-10 px-3 border border-neutral-300 rounded-md text-sm" />
             </div>
+          </div>
+          <div v-if="form.purpose === 'purchase' && !isTaxEvidence">
+            <label :for="`${pageId}-cash-expense-account`" class="block text-sm font-medium text-neutral-700 mb-1">{{ t('cash.form.expense_account') }}</label>
+            <SearchableSelect :model-value="form.counter_account_code || null" :options="expenseAccountOptions"
+              data-testid="cash-expense-account" :input-id="`${pageId}-cash-expense-account`"
+              :placeholder="t('cash.form.expense_account_default', { account: ruleAccount('cash.purchase', 'debit', '501') })"
+              @update:model-value="pickCounterAccount(($event as string | null) ?? '')" />
           </div>
           <p v-if="form.purpose === 'sale'" class="text-xs text-neutral-500 bg-neutral-50 border border-neutral-200 rounded-md px-3 py-2">
             {{ t('cash.form.duplicate_vat_hint') }}

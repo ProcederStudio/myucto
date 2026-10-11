@@ -64,6 +64,8 @@ Takto vystavíte prodej za hotové (PPD) nebo nákup za hotové (VPD).
 5. Potřebujete-li DPH, přepněte na **S DPH** (viz [§ 32.5](#325-krok-za-krokem-doklad-s-dph)).
 6. Klikněte na **Vystavit**. Chcete-li doklad jen rozepsat, klikněte na **Uložit jako koncept**.
 
+U samostatného **Nákupu** v podvojném účetnictví můžete v poli **Nákladový účet** zvolit aktivní účet třídy 5 nebo jeho analytiku, například `518.200`. Náhled zaúčtování se hned změní. Prázdná volba použije výchozí účet z kontace nákupu (obvykle `501`). Při úhradě už zaevidované přijaté faktury použijte **Úhrada přijaté faktury**; náklad se účtuje na faktuře a pokladní úhrada vyrovná závazek `321/211`.
+
 **Jak poznáte, že je hotovo:** Zobrazí se číslo přiděleného dokladu a doklad je v seznamu se stavem **Vystaven**. Číslo se přiděluje až při vystavení. Případná varování (například záporný zůstatek pokladny) se zobrazí hned.
 
 Rozepsaný doklad (**Rozpracován**) nemá číslo ani zaúčtování. Vystavíte ho ikonou **Vystavit** u řádku, upravíte ikonou **Upravit**, případně smažete ikonou **Trvale smazat doklad** (po rozpracovaném dokladu nezůstane stopa a v číselné řadě nevznikne díra).

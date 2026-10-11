@@ -1084,7 +1084,7 @@ final class CashDocumentService
      */
     private function buildPurchase(int $supplierId, array $doc, string $cashAccount, float $total, float $baseSum, array $vatLines): array
     {
-        $expense = $this->ruleAccount($supplierId, 'cash.purchase', 'debit', '501');
+        $expense = $doc['counter_account_code'] ?? $this->ruleAccount($supplierId, 'cash.purchase', 'debit', '501');
         $lines = [$this->line($expense, 'debit', $baseSum)];
         // Analytika daně na VSTUPU (343.100) — zrcadlo buildSale, viz komentář tamtéž.
         $inputVat = $this->vatAccount($supplierId, 'invoice.vat.input', 'debit', PostingService::INPUT_VAT_ACCOUNT);
@@ -1378,6 +1378,13 @@ final class CashDocumentService
         // purpose=other: právě jedno z rule_key / counter_account_code, protiúčet platný.
         if ($purpose === 'other') {
             $this->validateOther($supplierId, $doc, $register);
+        }
+        if ($purpose === 'purchase' && $doc['counter_account_code'] !== null) {
+            $account = $this->accounts->findByCode($supplierId, $doc['counter_account_code']);
+            if ($account === null || empty($account['is_active'])
+                || !str_starts_with($doc['counter_account_code'], '5') || $account['account_type'] !== 'expense') {
+                throw new CashException('counter_account_invalid', 'Nákladový účet musí být aktivní účet třídy 5 v osnově firmy.');
+            }
         }
     }
 

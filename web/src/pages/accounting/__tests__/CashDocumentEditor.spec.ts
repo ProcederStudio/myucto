@@ -3,6 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 import type { CashRegister } from '@/api/cash'
 
 const m = vi.hoisted(() => ({
+  accountingMode: 'double_entry',
   routeParams: {} as Record<string, string>,
   listRegisters: vi.fn(),
   listRulePresets: vi.fn(),
@@ -43,7 +44,7 @@ vi.mock('@/composables/useToast', () => ({
 }))
 vi.mock('@/composables/useFormat', () => ({ formatMoney: (v: number) => String(v) }))
 vi.mock('@/stores/supplier', () => ({
-  useSupplierStore: () => ({ currentSupplier: { accounting_mode: 'double_entry' } }),
+  useSupplierStore: () => ({ currentSupplier: { accounting_mode: m.accountingMode } }),
 }))
 // Dimenze jsou u firmy vypnuté (currentSupplier bez dimensions_enabled) — editor nesmí nic načítat.
 vi.mock('@/stores/auth', () => ({
@@ -92,6 +93,7 @@ async function mountEditor() {
 describe('CashDocumentEditor.vue', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    m.accountingMode = 'double_entry'
     for (const key of Object.keys(m.routeParams)) delete m.routeParams[key]
     m.listRegisters.mockResolvedValue([register()])
     m.listRulePresets.mockResolvedValue([])
@@ -101,6 +103,106 @@ describe('CashDocumentEditor.vue', () => {
     m.clientsList.mockResolvedValue({ data: [] })
     m.createDocument.mockResolvedValue({ id: 1, doc_number: 'PPD-1', journal_entry_id: 1, status: 'posted', warnings: [] })
     m.searchUnpaid.mockResolvedValue({ items: [], truncated: false })
+  })
+
+  it('nákup nabídne aktivní nákladové účty a zvolenou analytiku promítne do náhledu i payloadu', async () => {
+    m.listAccounts.mockResolvedValue([
+      { account_code: '518.200', name: 'Hosting', account_type: 'expense', is_active: true },
+      { account_code: '501', name: 'Materiál', account_type: 'expense', is_active: true },
+      { account_code: '518.299', name: 'Neaktivní', account_type: 'expense', is_active: false },
+      { account_code: '518.298', name: 'Chybný druh', account_type: 'asset', is_active: true },
+      { account_code: '321', name: 'Dodavatelé', account_type: 'liability', is_active: true },
+    ])
+    const wrapper = await mountEditor()
+    const vm = wrapper.vm as any
+    vm.form.doc_type = 'out'
+    vm.form.purpose = 'purchase'
+    vm.form.total_amount = 100
+    vm.form.description = 'Hosting za hotové'
+    await flushPromises()
+
+    const picker = wrapper.findComponent({ name: 'SearchableSelect' })
+    expect(picker.exists()).toBe(true)
+    expect(picker.props('options')).toEqual([
+      { value: '501', label: '501 - Materiál' },
+      { value: '518.200', label: '518.200 - Hosting' },
+    ])
+    expect(picker.props('modelValue')).toBeNull()
+    expect(vm.previewLines[0]).toMatchObject({ account_code: '501', side: 'debit', amount: 100 })
+    picker.vm.$emit('update:modelValue', '518.200')
+    await flushPromises()
+    expect(vm.previewLines[0]).toMatchObject({ account_code: '518.200', side: 'debit', amount: 100 })
+    await vm.save(false)
+    expect(m.createDocument).toHaveBeenCalledWith(expect.objectContaining({ counter_account_code: '518.200', rule_key: null }))
+
+    picker.vm.$emit('update:modelValue', null)
+    await flushPromises()
+    expect(vm.previewLines[0].account_code).toBe('501')
+    await vm.save(false)
+    expect(m.createDocument.mock.calls[1][0].counter_account_code).toBeNull()
+    vm.form.counter_account_code = '518.200'
+    vm.form.purpose = 'purchase_payment'
+    await flushPromises()
+    expect(wrapper.find('[data-testid="cash-expense-account"]').exists()).toBe(false)
+    expect(vm.form.counter_account_code).toBe('')
+    expect(vm.previewLines[0].account_code).toBe('321')
+  })
+
+  it('prázdná volba nákupu zachová výchozí kontaci a nevybere první analytiku', async () => {
+    m.listAccounts.mockResolvedValue([
+      { account_code: '518.200', name: 'Hosting', account_type: 'expense', is_active: true },
+    ])
+    m.listPostingRules.mockResolvedValue({ 'cash.purchase': { debit_account_code: '501.100' } })
+    const wrapper = await mountEditor()
+    const vm = wrapper.vm as any
+    vm.form.doc_type = 'out'
+    vm.form.purpose = 'purchase'
+    vm.form.total_amount = 100
+    vm.form.description = 'Nákup'
+    await flushPromises()
+    const picker = wrapper.findComponent({ name: 'SearchableSelect' })
+    expect(picker.props('modelValue')).toBeNull()
+    expect(picker.props('placeholder')).toContain('501.100')
+    expect(vm.previewLines[0].account_code).toBe('501.100')
+    await vm.save(false)
+    expect(m.createDocument.mock.calls[0][0].counter_account_code).toBeNull()
+  })
+
+  it('daňová evidence nenabízí nákladové účty ani je neposílá', async () => {
+    m.accountingMode = 'tax_evidence'
+    const wrapper = await mountEditor()
+    const vm = wrapper.vm as any
+    vm.form.doc_type = 'out'
+    vm.form.purpose = 'purchase'
+    vm.form.total_amount = 100
+    vm.form.description = 'Nákup'
+    await flushPromises()
+    expect(wrapper.find('[data-testid="cash-expense-account"]').exists()).toBe(false)
+    expect(m.listAccounts).not.toHaveBeenCalled()
+    vm.form.counter_account_code = '518.200'
+    await vm.save(false)
+    expect(m.createDocument.mock.calls[0][0].counter_account_code).toBeNull()
+  })
+
+  it('nákladový účet draftu nákupu přežije načtení a uložení', async () => {
+    m.routeParams.id = '42'
+    m.listAccounts.mockResolvedValue([
+      { account_code: '518.200', name: 'Hosting', account_type: 'expense', is_active: true },
+    ])
+    m.getDocument.mockResolvedValue({
+      id: 42, register_id: 1, doc_type: 'out', purpose: 'purchase', doc_number: null,
+      issue_date: '2093-03-01', tax_date: null, partner_name: 'Dodavatel', partner_ic: null, partner_dic: null,
+      description: 'Hosting', total_amount: 100, currency_code: 'CZK', vat_mode: 'none', vat_lines: [],
+      invoice_id: null, purchase_invoice_id: null, rule_key: null, counter_account_code: '518.200',
+      status: 'draft', journal_entry_id: null, reversal_entry_id: null, created_by: null, created_at: '2093-03-01',
+    })
+    m.updateDocument.mockResolvedValue({})
+    const wrapper = await mountEditor()
+    const vm = wrapper.vm as any
+    expect(vm.form.counter_account_code).toBe('518.200')
+    expect(vm.previewLines[0].account_code).toBe('518.200')
+    await vm.save(false)
+    expect(m.updateDocument).toHaveBeenCalledWith(42, expect.objectContaining({ counter_account_code: '518.200', post: false }))
   })
 
   // ── H-9: kurz valutového dokladu ──────────────────────────────────────────
