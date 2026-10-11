@@ -496,9 +496,13 @@ async function saveAiCredentials() {
       payload.only_unconfigured = bulkOnlyUnconfigured.value
     }
     const r = await integrationsApi.setAiCredentials(payload)
-    credTestMsg.value = r.test_ok
-      ? { ok: true, text: t('aiGateway.test_ok', { model: r.model || '' }) }
-      : { ok: false, text: r.test_error || t('aiGateway.test_failed') }
+    if (r.tested === false || r.test_ok === null) {
+      credTestMsg.value = { ok: true, text: t('common.saved') }
+    } else {
+      credTestMsg.value = r.test_ok
+        ? { ok: true, text: t('aiGateway.test_ok', { model: r.model || '' }) }
+        : { ok: false, text: r.test_error || t('aiGateway.test_failed') }
+    }
     credForm.api_key = ''
     // Vybraný poskytovatel = aktivní poskytovatel: „Uložit" ukládá i volbu brány.
     // Jinak by uživatel uložil klíč a extrakce by dál běžela přes jiného poskytovatele

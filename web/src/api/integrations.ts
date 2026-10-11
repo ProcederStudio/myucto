@@ -224,9 +224,10 @@ export interface AiBulkResult {
 
 export interface AiCredentialsUpdateResult {
   saved: boolean
-  test_ok: boolean
+  tested?: boolean
+  test_ok: boolean | null
   test_error: string | null
-  model: string | null
+  model?: string | null
   bulk?: AiBulkResult
 }
 
