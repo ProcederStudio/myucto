@@ -83,6 +83,15 @@ final class OtherItemScheduleAction
         });
     }
 
+    public function delete(Request $request, Response $response, array $args): Response
+    {
+        if (!$this->requirePermission($request, $response, 'other_items', AccessLevel::WRITE, $err)) return $err;
+        return $this->run($response, function () use ($request, $args) {
+            $this->service->delete($this->currentSupplierId($request), (int) $args['id']);
+            return ['deleted' => true];
+        });
+    }
+
     public function installments(Request $request, Response $response, array $args): Response
     {
         if (!$this->requirePermission($request, $response, 'other_items', AccessLevel::READ, $err)) return $err;

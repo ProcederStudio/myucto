@@ -166,6 +166,7 @@ final class ApiScopeMiddlewareTest extends TestCase
             ['POST', '/api/accounting/other-items/schedules'],
             ['POST', '/api/accounting/other-items/schedules/3/status'],
             ['PUT', '/api/accounting/other-items/schedules/3'],
+            ['DELETE', '/api/accounting/other-items/schedules/3'],
             ['POST', '/api/accounting/other-items-extra'],
             ['PUT', '/api/accounting/other-items/12/installments/extra'],
             ['POST', '/api/accounting/journal'],

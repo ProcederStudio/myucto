@@ -132,6 +132,17 @@ final class OtherItemScheduleService
         return $this->get($supplierId, $id);
     }
 
+    /**
+     * Zruší rozvrh opakování. Už vytvořené položky zůstávají jako samostatné
+     * doklady (vazby výskytů smaže cascade), zdrojový doklad jde pak smazat.
+     */
+    public function delete(int $supplierId, int $id): void
+    {
+        $this->sourceId($supplierId, $id);
+        $this->db->pdo()->prepare('DELETE FROM other_item_schedules WHERE supplier_id = ? AND id = ?')
+            ->execute([$supplierId, $id]);
+    }
+
     public function generate(int $supplierId, int $id, string $through, ?int $userId, bool $allowAutoPost = true): array
     {
         self::date($through);

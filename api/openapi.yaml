@@ -14679,6 +14679,17 @@ paths:
       responses:
         '200': { description: Rozvrh, content: { application/json: { schema: { $ref: '#/components/schemas/OtherItemSchedule' } } } }
         '403': { $ref: '#/components/responses/Forbidden' }
+    delete:
+      tags: [Accounting]
+      summary: Zruší opakování
+      description: Už vytvořené položky zůstávají jako samostatné doklady. Přes API token nedostupné (403 token_write_forbidden).
+      parameters:
+        - { $ref: '#/components/parameters/SupplierIdHeader' }
+        - { in: path, name: id, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: Smazáno, content: { application/json: { schema: { type: object, properties: { deleted: { type: boolean } } } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /api/v1/accounting/other-items/schedules/{id}/generate:
     post:

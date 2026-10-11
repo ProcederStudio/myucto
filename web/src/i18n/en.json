@@ -179,7 +179,18 @@
       "clear_installments": "Remove schedule",
       "confirm_clear": "Remove the installment schedule?",
       "installments_cleared": "Installment schedule removed.",
-      "paid_locked": "The schedule cannot be changed after a payment is allocated."
+      "paid_locked": "The schedule cannot be changed after a payment is allocated.",
+      "delete_schedule": "Remove recurrence",
+      "confirm_delete_schedule": "Remove the recurrence? Items already created remain as separate documents.",
+      "schedule_deleted": "Recurrence removed.",
+      "split_count": "Number of installments",
+      "split_first_due": "First due date",
+      "split_every": "Every",
+      "split_month": "month",
+      "split_quarter": "quarter",
+      "split_year": "year",
+      "split": "Split",
+      "split_hint": "Splits the document amount evenly; the rounding remainder goes to the last installment. Save the schedule afterwards."
     }
   },
   "invoice_default_note": {

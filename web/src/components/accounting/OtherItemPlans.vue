@@ -34,6 +34,7 @@ const canEditInstallments = computed(() => canWrite.value && ['draft', 'posted',
 
 async function load() {
   loading.value = true
+  splitFirstDue.value = addMonths(props.item.issued_on || appIsoDate(), 1)
   try {
     const id = Number(props.item.id)
     const [all, rows] = await Promise.all([otherItemPlansApi.schedules(), otherItemPlansApi.installments(id)])
@@ -104,8 +105,49 @@ async function toggleAutoPost() {
   }
 }
 
+async function deleteSchedule() {
+  if (!schedule.value || busy.value || !window.confirm(t('other_items.plans.confirm_delete_schedule'))) return
+  busy.value = true
+  try {
+    await otherItemPlansApi.deleteSchedule(schedule.value.id)
+    schedule.value = null
+    toast.success(t('other_items.plans.schedule_deleted'))
+  } catch (error: any) {
+    toast.error(error?.response?.data?.error?.message || t('common.error'))
+  } finally {
+    busy.value = false
+  }
+}
+
+function addMonths(iso: string, months: number): string {
+  const [year, month, day] = iso.split('-').map(Number)
+  const index = month - 1 + months
+  const y = year + Math.floor(index / 12)
+  const m = index % 12
+  const last = new Date(Date.UTC(y, m + 1, 0)).getUTCDate()
+  return `${y}-${String(m + 1).padStart(2, '0')}-${String(Math.min(day, last)).padStart(2, '0')}`
+}
+
+const splitCount = ref(12)
+const splitStep = ref(1)
+const splitFirstDue = ref(addMonths(props.item.issued_on || appIsoDate(), 1))
+const canSplit = computed(() => Number.isInteger(splitCount.value) && splitCount.value >= 2 && splitCount.value <= 120
+  && /^\d{4}-\d{2}-\d{2}$/.test(splitFirstDue.value))
+
+function splitInstallments() {
+  if (!canSplit.value) return
+  const count = splitCount.value
+  const cents = Math.round(Number(props.item.amount) * 100)
+  const base = Math.floor(cents / count)
+  installments.value = Array.from({ length: count }, (_, index) => ({
+    due_on: addMonths(splitFirstDue.value, index * splitStep.value),
+    amount: (index === count - 1 ? cents - base * (count - 1) : base) / 100,
+  }))
+}
+
 function addInstallment() {
-  installments.value = [...installments.value, { due_on: props.item.due_on || appIsoDate(), amount: 0 }]
+  const last = installments.value[installments.value.length - 1]
+  installments.value = [...installments.value, { due_on: last ? addMonths(last.due_on, 1) : props.item.due_on || appIsoDate(), amount: 0 }]
 }
 
 async function saveInstallments() {
@@ -153,17 +195,23 @@ watch(() => props.item.id, () => void load(), { immediate: true })
         <p v-else-if="schedule.auto_post" class="mt-3 text-sm font-medium text-success-700">{{ t('other_items.plans.auto_post') }}</p>
         <p class="mt-1 text-xs text-neutral-500">{{ t(canAutoPost ? 'other_items.plans.auto_post_hint' : 'other_items.plans.auto_post_source') }}</p>
         <p v-if="!sourceActive" class="mt-2 text-sm text-neutral-500">{{ t('other_items.plans.source_inactive') }}</p>
-        <div v-if="canWrite && sourceActive" class="mt-3 flex flex-wrap items-end gap-2">
-          <label class="text-sm font-medium">{{ t('other_items.plans.generate_through') }}
-            <DateInput v-model="through" class="mt-1 block h-9 rounded-md border border-neutral-300 px-2" />
-          </label>
-          <button type="button" :disabled="busy || schedule.status !== 'active' || (schedule.auto_post && !canPost)" :class="btnOutline('success')" @click="generate">
-            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.plus" /></svg>
-            {{ t('other_items.plans.generate') }}
-          </button>
-          <button type="button" :disabled="busy || (schedule.status !== 'active' && schedule.auto_post && !canPost)" :class="btnOutline('warning')" @click="toggleSchedule">
-            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="schedule.status === 'active' ? ICONS.pause : ICONS.play" /></svg>
-            {{ t(schedule.status === 'active' ? 'other_items.plans.pause' : 'other_items.plans.resume') }}
+        <div v-if="canWrite" class="mt-3 flex flex-wrap items-end gap-2">
+          <template v-if="sourceActive">
+            <label class="text-sm font-medium">{{ t('other_items.plans.generate_through') }}
+              <DateInput v-model="through" class="mt-1 block h-9 rounded-md border border-neutral-300 px-2" />
+            </label>
+            <button type="button" :disabled="busy || schedule.status !== 'active' || (schedule.auto_post && !canPost)" :class="[btnOutline('success'), 'whitespace-nowrap']" @click="generate">
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.plus" /></svg>
+              {{ t('other_items.plans.generate') }}
+            </button>
+            <button type="button" :disabled="busy || (schedule.status !== 'active' && schedule.auto_post && !canPost)" :class="[btnOutline('warning'), 'whitespace-nowrap']" @click="toggleSchedule">
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="schedule.status === 'active' ? ICONS.pause : ICONS.play" /></svg>
+              {{ t(schedule.status === 'active' ? 'other_items.plans.pause' : 'other_items.plans.resume') }}
+            </button>
+          </template>
+          <button type="button" :disabled="busy" :class="[btnOutline('danger'), 'whitespace-nowrap']" @click="deleteSchedule">
+            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.trash" /></svg>
+            {{ t('other_items.plans.delete_schedule') }}
           </button>
         </div>
         <ul v-if="generatedOccurrences.length" class="mt-3 space-y-1 text-sm">
@@ -203,6 +251,28 @@ watch(() => props.item.id, () => void load(), { immediate: true })
       <p class="mt-1 text-sm text-neutral-500">{{ t('other_items.plans.installments_hint') }}</p>
       <p v-if="loading" class="mt-3 text-sm text-neutral-500">{{ t('common.loading') }}</p>
       <template v-else>
+        <div v-if="canEditInstallments" class="mt-3 rounded-md border border-neutral-200 p-3">
+          <div class="flex flex-wrap items-end gap-2">
+            <label class="text-sm font-medium">{{ t('other_items.plans.split_count') }}
+              <input v-model.number="splitCount" type="number" min="2" max="120" step="1" class="mt-1 block h-9 w-24 rounded-md border border-neutral-300 bg-surface px-2 text-right" />
+            </label>
+            <label class="text-sm font-medium">{{ t('other_items.plans.split_every') }}
+              <select v-model.number="splitStep" class="mt-1 block h-9 rounded-md border border-neutral-300 bg-surface px-2">
+                <option :value="1">{{ t('other_items.plans.split_month') }}</option>
+                <option :value="3">{{ t('other_items.plans.split_quarter') }}</option>
+                <option :value="12">{{ t('other_items.plans.split_year') }}</option>
+              </select>
+            </label>
+            <label class="text-sm font-medium">{{ t('other_items.plans.split_first_due') }}
+              <DateInput v-model="splitFirstDue" class="mt-1 block h-9 rounded-md border border-neutral-300 px-2" />
+            </label>
+            <button type="button" :disabled="!canSplit" :class="[btnOutline('primary'), 'whitespace-nowrap']" @click="splitInstallments">
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.calendar" /></svg>
+              {{ t('other_items.plans.split') }}
+            </button>
+          </div>
+          <p class="mt-2 text-xs text-neutral-500">{{ t('other_items.plans.split_hint') }}</p>
+        </div>
         <div v-for="(row, index) in installments" :key="row.id || index" class="mt-3 flex flex-wrap items-end gap-2">
           <label class="text-sm font-medium">{{ t('other_items.plans.due_number', { number: index + 1 }) }}
             <DateInput v-model="row.due_on" :disabled="!canEditInstallments" class="mt-1 block h-9 rounded-md border border-neutral-300 px-2" />

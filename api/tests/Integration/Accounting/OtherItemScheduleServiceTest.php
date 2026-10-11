@@ -382,6 +382,25 @@ final class OtherItemScheduleServiceTest extends TestCase
         self::assertSame([], $this->schedules->generate($this->supplierId, (int) $schedule['id'], '2099-02-28', null)['created_ids']);
     }
 
+    public function testDeletedScheduleKeepsGeneratedItemsAndReleasesSource(): void
+    {
+        $first = $this->items->create($this->supplierId, $this->input(), null);
+        $schedule = $this->schedules->create($this->supplierId, (int) $first['id'], ['frequency' => 'monthly'], null);
+        $created = $this->schedules->generate($this->supplierId, (int) $schedule['id'], '2099-02-28', null)['created_ids'];
+        try {
+            $this->schedules->delete($this->supplierId + 100000, (int) $schedule['id']);
+            self::fail('Cizí rozvrh nesmí jít smazat.');
+        } catch (OtherItemException $e) {
+            self::assertSame('schedule_not_found', $e->errorCode);
+        }
+        $this->schedules->delete($this->supplierId, (int) $schedule['id']);
+        self::assertSame([], $this->schedules->list($this->supplierId));
+        self::assertSame('draft', $this->items->get($this->supplierId, $created[0])['status']);
+        $this->items->deleteDraft($this->supplierId, (int) $first['id']);
+        $again = $this->schedules->create($this->supplierId, $created[0], ['frequency' => 'monthly'], null);
+        self::assertCount(1, $again['occurrences']);
+    }
+
     public function testPaidAmountSettlesOldestInstallmentFirst(): void
     {
         $first = $this->items->create($this->supplierId, $this->input(), null);

@@ -30,6 +30,7 @@ export const otherItemPlansApi = {
     api.post<{ created_ids: number[]; posted_ids: number[]; schedule: OtherItemSchedule }>(`/accounting/other-items/schedules/${id}/generate`, { through }).then(r => r.data),
   setStatus: (id: number, status: OtherItemSchedule['status'], auto_post?: boolean) =>
     api.put<OtherItemSchedule>(`/accounting/other-items/schedules/${id}/status`, { status, ...(auto_post === undefined ? {} : { auto_post }) }).then(r => r.data),
+  deleteSchedule: (id: number) => api.delete(`/accounting/other-items/schedules/${id}`).then(() => undefined),
   installments: (itemId: number) => api.get<{ items: OtherItemInstallment[] }>(`/accounting/other-items/${itemId}/installments`).then(r => r.data.items),
   setInstallments: (itemId: number, items: OtherItemInstallment[]) =>
     api.put<{ items: OtherItemInstallment[] }>(`/accounting/other-items/${itemId}/installments`, { items }).then(r => r.data.items),
