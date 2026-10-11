@@ -57,6 +57,8 @@ export default defineConfig(({ mode }) => {
       emptyOutDir: true,
       sourcemap: false,
       target: 'es2022',
+      // Největší chunky jsou překlady a stránky mezd, načítané až v sekci Mzdy.
+      chunkSizeWarningLimit: 1000,
       rollupOptions: {
         // /styles/ je mimo web/, servíruje IIS/Apache z repo rootu — neřešit při bundle
         external: [/^\/styles\//],

@@ -206,6 +206,10 @@ function addSurvivor(): void {
   })
 }
 
+function removeSurvivor(survivorId: number): void {
+  void mutate(() => payrollApi.removeTerminationSurvivor(props.employmentId, survivorId), 'payroll.people.termination.death.survivor_removed')
+}
+
 function saveTaxAssessment(): void {
   const record = data.value?.termination
   if (!record || taxAssessment.value.trim() === '') return
@@ -539,7 +543,7 @@ onMounted(() => void load())
               type="button"
               :class="btnOutlineSm('danger')"
               :disabled="busy"
-              @click="mutate(() => payrollApi.removeTerminationSurvivor(employmentId, survivor.id), 'payroll.people.termination.death.survivor_removed')"
+              @click="removeSurvivor(survivor.id)"
             >
               <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path :d="ICONS.trash" /></svg>
               {{ t('common.remove') }}
