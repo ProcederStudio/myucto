@@ -5,8 +5,18 @@ declare(strict_types=1);
 namespace MyInvoice\Tests\Integration\PurchaseInvoice;
 
 use MyInvoice\Bootstrap;
+use MyInvoice\Infrastructure\Config\Config;
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Repository\AccountingModeRepository;
 use MyInvoice\Repository\PurchaseInvoiceRepository;
+use MyInvoice\Repository\TaxConstantsRepository;
+use MyInvoice\Service\Invoice\NumberSeriesGapGuard;
+use MyInvoice\Service\Invoice\OverduePolicy;
+use MyInvoice\Service\License\CommercialFeatureAccess;
+use MyInvoice\Service\License\LicenseClient;
+use MyInvoice\Service\License\LicenseService;
+use MyInvoice\Service\License\LicenseTokenVerifier;
+use MyInvoice\Tests\Support\LicenseTokenTrait;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 
@@ -16,26 +26,34 @@ use PHPUnit\Framework\TestCase;
  * a ruční „Uhrazeno" je jediný způsob, jak úhradu zaznamenat — banner by tam hlásil
  * závadu, která nemůže nastat (issue #43).
  *
+ * Totéž platí pro podvojnou firmu bez licence (issue #146): právnická osoba dostane
+ * podvojný režim už při založení, ale bez licence se doklady neúčtují a deník
+ * neotevře. Varování by ji posílalo do modulu, který nemá.
+ *
  * Režim se bere k ROKU DOKLADU, ne k dnešku: po přechodu na podvojné účetnictví musí
  * starší doklady zůstat tiché a novější dál hlásit.
  *
  * Izolováno v roce 2097; historie režimu se vrací na původní hodnotu už od 2098-01-01,
- * aby testy pracující s pozdějšími roky nic nepocítily. Vše uklizeno v tearDown.
+ * aby testy pracující s pozdějšími roky nic nepocítily. Řádek licence se vrací v tearDown.
  * Soft-skip pokud chybí cfg.php (CI runner bez DB).
  */
 #[Group('integration')]
 final class MarkPaidUnpostedByAccountingModeTest extends TestCase
 {
+    use LicenseTokenTrait;
+
     private const YEAR = 2097;
 
     private Connection $db;
-    private PurchaseInvoiceRepository $repo;
+    private \Psr\Container\ContainerInterface $container;
 
     private int $supplierId = 0;
     private int $currencyId = 0;
     private int $userId = 0;
     private int $czId = 0;
     private string $originalMode = 'tax_evidence';
+    /** @var array<string,mixed>|null */
+    private ?array $originalLicense = null;
 
     /** @var int[] */
     private array $vendorIds = [];
@@ -49,11 +67,13 @@ final class MarkPaidUnpostedByAccountingModeTest extends TestCase
             $this->markTestSkipped('cfg.php neexistuje — test vyžaduje DB connection.');
         }
         try {
-            $container  = Bootstrap::buildContainer();
-            $this->db   = $container->get(Connection::class);
-            $this->repo = $container->get(PurchaseInvoiceRepository::class);
+            $this->container = Bootstrap::buildContainer();
+            $this->db        = $this->container->get(Connection::class);
         } catch (\Throwable $e) {
             $this->markTestSkipped('DI nedostupné: ' . $e->getMessage());
+        }
+        if (!$this->db->hasTable('license')) {
+            $this->markTestSkipped('Migrace 1139 (license) neproběhla.');
         }
 
         $pdo = $this->db->pdo();
@@ -69,6 +89,13 @@ final class MarkPaidUnpostedByAccountingModeTest extends TestCase
         $stmt = $pdo->prepare('SELECT accounting_mode FROM supplier WHERE id = ?');
         $stmt->execute([$this->supplierId]);
         $this->originalMode = (string) ($stmt->fetchColumn() ?: 'tax_evidence');
+
+        $row = $pdo->query('SELECT license_key, token, token_payload, trial_started_at FROM license WHERE id = 1')
+            ->fetch(\PDO::FETCH_ASSOC);
+        $this->originalLicense = is_array($row) ? $row : null;
+        if ($this->originalLicense === null) {
+            $this->markTestSkipped('Chybí řádek licence.');
+        }
     }
 
     protected function tearDown(): void
@@ -85,6 +112,16 @@ final class MarkPaidUnpostedByAccountingModeTest extends TestCase
         $pdo->prepare(
             'DELETE FROM supplier_accounting_modes WHERE supplier_id = ? AND effective_from IN (?, ?)'
         )->execute([$this->supplierId, self::YEAR . '-01-01', (self::YEAR + 1) . '-01-01']);
+        if ($this->originalLicense !== null) {
+            $pdo->prepare(
+                'UPDATE license SET license_key = ?, token = ?, token_payload = ?, trial_started_at = ? WHERE id = 1'
+            )->execute([
+                $this->originalLicense['license_key'],
+                $this->originalLicense['token'],
+                $this->originalLicense['token_payload'],
+                $this->originalLicense['trial_started_at'],
+            ]);
+        }
         $this->db->close();
     }
 
@@ -94,7 +131,7 @@ final class MarkPaidUnpostedByAccountingModeTest extends TestCase
         $id = $this->paidPurchase('Dodavatel PU', 'CZ10970001', 'FAK-PU');
 
         self::assertTrue(
-            $this->repo->find($id, $this->supplierId)['mark_paid_unposted'],
+            $this->repo(true)->find($id, $this->supplierId)['mark_paid_unposted'],
             'V podvojném účetnictví ruční úhrada bez zápisu v deníku hlásí otevřený 321.',
         );
     }
@@ -105,8 +142,48 @@ final class MarkPaidUnpostedByAccountingModeTest extends TestCase
         $id = $this->paidPurchase('Dodavatel DE', 'CZ10970002', 'FAK-DE');
 
         self::assertFalse(
-            $this->repo->find($id, $this->supplierId)['mark_paid_unposted'],
+            $this->repo(true)->find($id, $this->supplierId)['mark_paid_unposted'],
             'V daňové evidenci / paušálu žádný účet 321 neexistuje — varování nemá co hlásit.',
+        );
+    }
+
+    public function testDoubleEntryWithoutLicenseStaysSilent(): void
+    {
+        $this->modeForTestYear('double_entry');
+        $id = $this->paidPurchase('Dodavatel BL', 'CZ10970003', 'FAK-BL');
+
+        self::assertFalse(
+            $this->repo(false)->find($id, $this->supplierId)['mark_paid_unposted'],
+            'Bez licence se deník nevede, podvojná firma nemá kde mít otevřený 321.',
+        );
+    }
+
+    /**
+     * Repozitář s licencí v požadovaném stavu: bez klíče rozhoduje jen trial,
+     * čerstvý trial má komerční moduly, trial starší 60 dní ne.
+     */
+    private function repo(bool $commercial): PurchaseInvoiceRepository
+    {
+        $this->db->pdo()->prepare(
+            'UPDATE license SET license_key = NULL, token = NULL, token_payload = NULL, trial_started_at = ? WHERE id = 1'
+        )->execute([date('Y-m-d H:i:s', $commercial ? time() : time() - 90 * 86400)]);
+
+        $license = new LicenseService(
+            $this->db,
+            new Config(['license' => ['public_key' => $this->licensePublicKeyBase64()]]),
+            new LicenseTokenVerifier(),
+            $this->createStub(LicenseClient::class),
+        );
+        $access = new CommercialFeatureAccess($license);
+        self::assertSame($commercial, $access->isAvailable(), 'Stav licence se nepodařilo nastavit.');
+
+        return new PurchaseInvoiceRepository(
+            $this->db,
+            $this->container->get(TaxConstantsRepository::class),
+            $this->container->get(AccountingModeRepository::class),
+            $this->container->get(OverduePolicy::class),
+            $this->container->get(NumberSeriesGapGuard::class),
+            $access,
         );
     }
 

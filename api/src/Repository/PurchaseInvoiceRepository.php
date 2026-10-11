@@ -9,6 +9,7 @@ use MyInvoice\Service\Accounting\Expense\ExpenseKind;
 use MyInvoice\Service\Vat\VatStatusService;
 use MyInvoice\Service\Invoice\OverduePolicy;
 use MyInvoice\Service\Invoice\TimeBilling;
+use MyInvoice\Service\License\CommercialFeatureAccess;
 use MyInvoice\Service\PurchaseInvoice\ExtractionReviewSync;
 use MyInvoice\Support\ExchangeRateSources;
 use MyInvoice\Support\PaymentMethods;
@@ -42,6 +43,7 @@ final class PurchaseInvoiceRepository
         private readonly AccountingModeRepository $accountingModes,
         private readonly OverduePolicy $overduePolicy,
         private readonly \MyInvoice\Service\Invoice\NumberSeriesGapGuard $gapGuard,
+        private readonly CommercialFeatureAccess $commercialFeatures,
     ) {}
 
     /** @var array<int,bool> currency_id → je to CZK; viz isCzkCurrency() */
@@ -195,7 +197,13 @@ final class PurchaseInvoiceRepository
         // Režim účetnictví K ROKU DOKLADU (ne k dnešku) — rozhoduje o obou hláškách níž.
         // Po přechodu z daňové evidence na podvojné účetnictví musí starší doklady mluvit
         // jazykem evidence a novější jazykem deníku. Jedno čtení pro celý find().
-        $isDoubleEntry = $this->accountingModes->forYear($supplierId, $this->documentYear($row)) === 'double_entry';
+        //
+        // Bez licence se deník nevede, i když je firma v podvojném režimu (právnická
+        // osoba ho dostane už při založení, viz SupplierInitializer). Doklady se
+        // nezaúčtují, takže hlášky o otevřeném 321/314 by mluvily o knize, kterou
+        // uživatel nemá a ani neotevře (issue #146).
+        $isDoubleEntry = $this->commercialFeatures->isAvailable()
+            && $this->accountingModes->forYear($supplierId, $this->documentYear($row)) === 'double_entry';
 
         // Upozornění na dokladu se zálohou/DDKP, který zůstává NESPÁROVANÝ, i když k němu
         // pravděpodobně patří konkrétní nespárovaná faktura téhož dodavatele: dnes se rozdíl

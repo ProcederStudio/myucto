@@ -14,6 +14,7 @@ use MyInvoice\Service\Invoice\ProformaPaymentDocuments;
 use MyInvoice\Service\Invoice\OverduePolicy;
 use MyInvoice\Service\Report\CzechWorkingDays;
 use MyInvoice\Service\Accounting\UnbookedDocumentsCounter;
+use MyInvoice\Service\License\CommercialFeatureAccess;
 use MyInvoice\Service\License\LicenseService;
 use MyInvoice\Service\License\LicenseState;
 use MyInvoice\Service\Tax\Return\TaxRepresentationService;
@@ -1473,7 +1474,8 @@ final class CrmAggregationService
         $modeStmt = $pdo->prepare('SELECT accounting_mode, taxpayer_type FROM supplier WHERE id = ?');
         $modeStmt->execute([$supplierId]);
         $supplierModeRow = $modeStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
-        $isDoubleEntry = (string) ($supplierModeRow['accounting_mode'] ?? '') === 'double_entry';
+        $isDoubleEntry = (string) ($supplierModeRow['accounting_mode'] ?? '') === 'double_entry'
+            && $this->keepsJournal();
         $taxpayerType = (string) ($supplierModeRow['taxpayer_type'] ?? '');
         if ($isDoubleEntry && !$this->isFullyDismissed($dismissals, 'unbooked_documents')) {
             // Rozsah i prokliky drží UnbookedDocumentsCounter — jeden zdroj pro tuhle kartu
@@ -1890,6 +1892,17 @@ final class CrmAggregationService
     }
 
     /**
+     * Vede firma deník doopravdy? Podvojný režim sám nestačí: bez licence se doklady
+     * nezaúčtují a karty „Zaúčtuj doklady", integrita deníku či doplatek DPPO by
+     * vybízely k práci v modulu, který je zamčený (issue #146). Bez LicenseService
+     * (ruční konstrukce v testech) platí totéž co v CommercialFeatureAccess: otevřeno.
+     */
+    private function keepsJournal(): bool
+    {
+        return $this->license === null || (new CommercialFeatureAccess($this->license))->isAvailable();
+    }
+
+    /**
      * Čistý překlad stavu licence na položku seznamu — bez DB a bez času „teď" z okolí,
      * aby šel otestovat na hraničních dnech (poslední den trialu, propadlý deadline).
      *
@@ -2209,7 +2222,8 @@ final class CrmAggregationService
         $modeStmt = $this->db->pdo()->prepare('SELECT accounting_mode, taxpayer_type FROM supplier WHERE id = ?');
         $modeStmt->execute([$supplierId]);
         $row = $modeStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
-        if ((string) ($row['accounting_mode'] ?? '') !== 'double_entry' || (string) ($row['taxpayer_type'] ?? '') !== 'po') {
+        if ((string) ($row['accounting_mode'] ?? '') !== 'double_entry' || (string) ($row['taxpayer_type'] ?? '') !== 'po'
+            || !$this->keepsJournal()) {
             return null;
         }
         if ($this->isFullyDismissed($this->loadDismissals($supplierId, $userId), 'dppo_balance_due')) {

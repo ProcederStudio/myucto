@@ -5,8 +5,14 @@ declare(strict_types=1);
 namespace MyInvoice\Tests\Integration\Crm;
 
 use MyInvoice\Bootstrap;
+use MyInvoice\Infrastructure\Cache\EntityCache;
+use MyInvoice\Infrastructure\Config\Config;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Service\Crm\CrmAggregationService;
+use MyInvoice\Service\License\LicenseClient;
+use MyInvoice\Service\License\LicenseService;
+use MyInvoice\Service\License\LicenseTokenVerifier;
+use MyInvoice\Tests\Support\LicenseTokenTrait;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 
@@ -24,6 +30,8 @@ use PHPUnit\Framework\TestCase;
 #[Group('integration')]
 final class CrmUnbookedDocumentsTest extends TestCase
 {
+    use LicenseTokenTrait;
+
     private Connection $db;
     private CrmAggregationService $crm;
     private int $supplierId = 0;
@@ -409,5 +417,43 @@ final class CrmUnbookedDocumentsTest extends TestCase
         $this->insertPurchase('received', null);
 
         self::assertNull($this->unbookedItem(), 'V daňové evidenci se unbooked_documents nezobrazuje.');
+    }
+
+    /**
+     * Issue #146: právnická osoba je v podvojném režimu od založení, ale bez licence
+     * se doklady neúčtují a Účetnictví je zamčené. Karta by vybízela k práci, kterou
+     * uživatel udělat nemůže, a skrytí na týden ji jen odložilo.
+     */
+    public function testBezLicenceNezobrazuje(): void
+    {
+        $this->setMode('double_entry');
+        $this->insertInvoice('invoice', 'issued', null);
+        $this->insertPurchase('received', null);
+
+        $pdo = $this->db->pdo();
+        $original = $pdo->query('SELECT license_key, token, token_payload, trial_started_at FROM license WHERE id = 1')
+            ->fetch(\PDO::FETCH_ASSOC);
+        if (!is_array($original)) {
+            self::markTestSkipped('Chybí řádek licence.');
+        }
+        try {
+            $pdo->prepare(
+                'UPDATE license SET license_key = NULL, token = NULL, token_payload = NULL, trial_started_at = ? WHERE id = 1'
+            )->execute([date('Y-m-d H:i:s', time() - 90 * 86400)]);
+            $license = new LicenseService(
+                $this->db,
+                new Config(['license' => ['public_key' => $this->licensePublicKeyBase64()]]),
+                new LicenseTokenVerifier(),
+                $this->createStub(LicenseClient::class),
+            );
+            self::assertFalse($license->current()->hasCommercialFeatures(), 'Licenci se nepodařilo vypnout.');
+            $this->crm = new CrmAggregationService($this->db, license: $license, cache: EntityCache::disabled());
+
+            self::assertNull($this->unbookedItem(), 'Bez licence se unbooked_documents nezobrazuje.');
+        } finally {
+            $pdo->prepare(
+                'UPDATE license SET license_key = ?, token = ?, token_payload = ?, trial_started_at = ? WHERE id = 1'
+            )->execute([$original['license_key'], $original['token'], $original['token_payload'], $original['trial_started_at']]);
+        }
     }
 }
