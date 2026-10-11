@@ -446,6 +446,10 @@ final class SampleDataPurgeTest extends TestCase
     public function testNonVatSoleTraderKeepsTaxEvidenceAndStockDisabled(): void
     {
         $pdo = $this->db->pdo();
+        $pdo->prepare('INSERT INTO payroll_module_state (supplier_id, status) VALUES (?, "disabled")')->execute([$this->supplierId]);
+        $module = $pdo->prepare('SELECT * FROM payroll_module_state WHERE supplier_id = ?');
+        $module->execute([$this->supplierId]);
+        $beforeModule = $module->fetch(PDO::FETCH_ASSOC);
         $pdo->prepare(
             "UPDATE supplier
                 SET taxpayer_type='fo', is_vat_payer=0, accounting_mode='tax_evidence', stock_enabled=0
@@ -475,6 +479,8 @@ final class SampleDataPurgeTest extends TestCase
         self::assertSame(7, $deleted['cash_documents']);
         self::assertSame(1, $deleted['cash_registers']);
         self::assertFalse($this->service->hasSampleData($this->supplierId));
+        $module->execute([$this->supplierId]);
+        self::assertSame($beforeModule, $module->fetch(PDO::FETCH_ASSOC));
     }
 
     public function testCliOffersOldSamplesAndKeepsUntrackedData(): void

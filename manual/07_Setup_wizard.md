@@ -150,6 +150,11 @@ navazují také na zaúčtované mzdové dávky a připravené závazky k výpla
 Aktuální měsíc zůstává rozpracovaný. Ukázkové závazky nejsou skutečně odeslané
 platby a vzorky nejsou určené pro podání úřadům.
 
+Existující nastavení zaměstnavatele, účtárny a mzdové politiky zůstávají zachované.
+Chybějící politiky generátor doplní bez překryvu. Pokud má firma vlastní účty
+institucí, historické ukázkové mzdy skončí zaúčtováním bez přípravy plateb.
+U firmy s vlastními zaměstnanci nebo mzdovými běhy se generování zastaví.
+
 ### 7.6.1 Odebrání ukázkových dat
 
 Chcete-li začít načisto jen s vlastními daty:
@@ -166,6 +171,8 @@ navázali vlastní data, která odebrání blokují, celá operace se vrátí.
 Součástí odebrání jsou i evidované mzdové osoby, docházka, výpočty, závazky
 a mzdové účetní zápisy. Ochrana schválené mzdové historie připouští odebrání
 jen přesně evidovaných ukázkových řádků.
+Původní stav a počáteční období mzdového modulu se obnoví. Jestliže jste jeho
+nastavení po generování změnili, odebrání se zastaví, aby změny nepřepsalo.
 
 Odeberou se také nové ukázkové hodnoty dimenzí, jejich přiřazení a výchozí
 hodnoty zakázky. Předchozí typy a hodnoty zůstanou zachované a zapnutí dimenzí

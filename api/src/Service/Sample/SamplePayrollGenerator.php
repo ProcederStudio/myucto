@@ -16,6 +16,7 @@ use MyInvoice\Repository\Payroll\PayrollPersonStatutoryEvidenceRepository;
 use MyInvoice\Repository\Payroll\PayrollStatutoryAccumulatorRepository;
 use MyInvoice\Service\Payroll\Net\PayrollPayoutRuleInput;
 use MyInvoice\Service\Payroll\Net\PayrollPayoutRuleService;
+use MyInvoice\Service\Payroll\Payment\PayrollPaydayResolver;
 use MyInvoice\Service\Payroll\PayrollPersonCreateService;
 use MyInvoice\Service\Payroll\PayrollAbsenceValidator;
 use MyInvoice\Service\Payroll\Absence\PayrollWageProrationService;
@@ -42,6 +43,7 @@ final class SamplePayrollGenerator
         private readonly PayrollAbsenceRepository $absences,
         private readonly PayrollAbsenceValidator $absenceValidator,
         private readonly PayrollWageProrationService $wageProration,
+        private readonly PayrollPaydayResolver $paydays,
     ) {}
 
     public function generate(int $supplierId, int $userId, DateTimeImmutable $today, bool $advanced, callable $track): array
@@ -51,9 +53,9 @@ final class SamplePayrollGenerator
             throw new \LogicException('Ukázkové mzdy vyžadují transakci generátoru.');
         }
         $before = SamplePayrollPurger::snapshot($pdo, $supplierId);
-        foreach (['payroll_module_state', 'payroll_employer_settings', 'payroll_employer_policies'] as $table) {
+        foreach (['payroll_employees', 'payroll_employments', 'payroll_runs', 'payroll_period_ownership'] as $table) {
             if (($before[$table] ?? []) !== []) {
-                throw new \DomainException('Ukázkové mzdy vyžadují firmu bez existujícího nastavení mezd.');
+                throw new \DomainException('Ukázkové mzdy vyžadují firmu bez existujících zaměstnanců a mzdových běhů.');
             }
         }
         $enabled = $pdo->prepare('SELECT payroll_enabled FROM supplier WHERE id = ?');
@@ -63,25 +65,41 @@ final class SamplePayrollGenerator
         $first = $current->modify('-3 months');
         $start = $first->format('Y-m-d');
         $this->execute('UPDATE supplier SET payroll_enabled = 1 WHERE id = ?', [$supplierId]);
-        $this->execute('INSERT INTO payroll_module_state (supplier_id, status, start_period, activated_by, activated_at) VALUES (?, "setup", ?, ?, NOW())', [$supplierId, $start, $userId]);
-        $track('payroll_module_state', $supplierId);
-        $this->execute('INSERT INTO payroll_offices (supplier_id, code, name, social_security_variable_symbol, is_active) VALUES (?, "SKOLENI", "Ukázková mzdová účtárna", "1101234563", 1)', [$supplierId]);
+        SamplePayrollModuleState::prepare($pdo, $supplierId, $userId, $start, $track);
+        $officeCode = 'SKOLENI';
+        $existingOffice = $pdo->prepare('SELECT COUNT(*) FROM payroll_offices WHERE supplier_id = ? AND code = ?');
+        for ($suffix = 2; ; $suffix++) {
+            $existingOffice->execute([$supplierId, $officeCode]);
+            if ((int) $existingOffice->fetchColumn() === 0) break;
+            $officeCode = 'SKOLENI-' . $suffix;
+        }
+        $this->execute('INSERT INTO payroll_offices (supplier_id, code, name, social_security_variable_symbol, is_active) VALUES (?, ?, "Ukázková mzdová účtárna", "1101234563", 1)', [$supplierId, $officeCode]);
         $officeId = (int) $pdo->lastInsertId();
         $track('payroll_office', $officeId);
         $this->execute('INSERT INTO payroll_office_registration_versions (supplier_id, office_id, effective_from, social_security_variable_symbol, source_reference) VALUES (?, ?, ?, "1101234563", "sample:skoleni")', [$supplierId, $officeId, $start]);
-        $this->execute('INSERT INTO payroll_employer_settings (supplier_id, default_office_id, social_security_office_code) VALUES (?, ?, "P")', [$supplierId, $officeId]);
-        $policy = $this->policies->create($supplierId, [
-            'valid_from' => $start, 'valid_to' => null,
-            'payday_day' => 10, 'payday_month_offset' => 1,
-            'payday_business_day_rule' => 'previous_business_day',
-            'balance_rounding_mode' => 'exact_minor_units',
-            'home_office_policy' => 'not_used', 'travel_expense_policy' => 'not_used',
-            'leave_entitlement_weeks' => 5, 'automatic_posting_enabled' => false,
-            'delivery_channel' => 'disabled', 'delivery_verified_on' => null,
-            'source_kind' => 'manual', 'source_reference' => 'sample:skoleni',
-        ], $userId);
-        $track('payroll_employer_policy', (int) $policy['id']);
-        foreach ([['social_security', 'P', 'Ukázková správa sociálního zabezpečení'], ['health_insurer', '111', 'Ukázková zdravotní pojišťovna'], ['tax_office', 'advance_tax', 'Ukázkový finanční úřad'], ['tax_office', 'withholding_tax', 'Ukázkový finanční úřad']] as [$kind, $code, $name]) {
+        if (($before['payroll_employer_settings'] ?? []) === []) {
+            $this->execute('INSERT INTO payroll_employer_settings (supplier_id, default_office_id, social_security_office_code) VALUES (?, ?, "P")', [$supplierId, $officeId]);
+        }
+        $existingPolicies = $pdo->prepare('SELECT valid_from, valid_to FROM payroll_employer_policies WHERE supplier_id = ? ORDER BY valid_from');
+        $existingPolicies->execute([$supplierId]);
+        foreach ($this->policyGaps($existingPolicies->fetchAll(PDO::FETCH_ASSOC), $start, $current->format('Y-m-t')) as [$from, $to]) {
+            $policy = $this->policies->create($supplierId, [
+                'valid_from' => $from, 'valid_to' => $to,
+                'payday_day' => 10, 'payday_month_offset' => 1,
+                'payday_business_day_rule' => 'previous_business_day',
+                'balance_rounding_mode' => 'exact_minor_units',
+                'home_office_policy' => 'not_used', 'travel_expense_policy' => 'not_used',
+                'leave_entitlement_weeks' => 5, 'automatic_posting_enabled' => false,
+                'delivery_channel' => 'disabled', 'delivery_verified_on' => null,
+                'source_kind' => 'manual', 'source_reference' => 'sample:skoleni',
+            ], $userId);
+            $track('payroll_employer_policy', (int) $policy['id']);
+        }
+        $preparePayments = ($before['payroll_institution_accounts'] ?? []) === [];
+        $settings = $pdo->prepare('SELECT social_security_office_code FROM payroll_employer_settings WHERE supplier_id = ?');
+        $settings->execute([$supplierId]);
+        $socialCode = trim((string) $settings->fetchColumn()) ?: 'P';
+        foreach ($preparePayments ? [['social_security', $socialCode, 'Ukázková správa sociálního zabezpečení'], ['health_insurer', '111', 'Ukázková zdravotní pojišťovna'], ['tax_office', 'advance_tax', 'Ukázkový finanční úřad'], ['tax_office', 'withholding_tax', 'Ukázkový finanční úřad']] : [] as [$kind, $code, $name]) {
             $account = $this->institutionAccounts->create($supplierId, [
                 'institution_type' => $kind, 'institution_code' => $code,
                 'institution_name' => $name, 'bank_account' => '1000000005/0100',
@@ -141,6 +159,7 @@ final class SamplePayrollGenerator
             $staff[] = compact('employeeId', 'employmentId', 'gross', 'daily', 'weekdays');
         }
         $journalEntryIds = [];
+        $generatedRunIds = [];
         for ($offset = 0; $offset < 4; $offset++) {
             $month = $first->modify("+$offset months");
             $period = $month->format('Y-m');
@@ -187,10 +206,9 @@ final class SamplePayrollGenerator
                     $track('payroll_input', (int) $bonus['id']);
                 }
             }
-            $payday = $month->modify('+1 month')->setDate((int) $month->modify('+1 month')->format('Y'), (int) $month->modify('+1 month')->format('m'), 10);
-            while ((int) $payday->format('N') > 5 || isset((new CzechHolidayCalendar())->forYear((int) $payday->format('Y'))[$payday->format('Y-m-d')])) $payday = $payday->modify('-1 day');
-            $run = $this->runs->createRun($supplierId, $periodStart, $payday->format('Y-m-d'), null, $userId);
+            $run = $this->runs->createRun($supplierId, $periodStart, $this->paydays->suggest($supplierId, $periodStart), null, $userId);
             $runId = (int) $run['id'];
+            $generatedRunIds[] = $runId;
             $track('payroll_run', $runId);
             if ($offset === 3) continue;
             $calculated = $this->runs->lockAndCalculate($supplierId, $runId, (int) $run['row_version'], "sample-$supplierId-$period-calculate", $userId);
@@ -201,11 +219,12 @@ final class SamplePayrollGenerator
             $approved = $this->runs->approve($supplierId, $runId, (int) $calculated->run['row_version'], "sample-$supplierId-$period-approve", $userId);
             if ($advanced) {
                 $posted = $this->runs->post($supplierId, $runId, (int) $approved->run['row_version'], "sample-$supplierId-$period-post", $userId);
-                $this->runs->preparePayments($supplierId, $runId, (int) $posted->run['row_version'], "sample-$supplierId-$period-payments", $userId);
+                if ($preparePayments) $this->runs->preparePayments($supplierId, $runId, (int) $posted->run['row_version'], "sample-$supplierId-$period-payments", $userId);
             }
         }
-        $stmt = $pdo->prepare('SELECT id, journal_entry_id FROM payroll_posting_batches WHERE supplier_id = ?');
-        $stmt->execute([$supplierId]);
+        $place = implode(',', array_fill(0, count($generatedRunIds), '?'));
+        $stmt = $pdo->prepare("SELECT id, journal_entry_id FROM payroll_posting_batches WHERE supplier_id = ? AND run_id IN ($place)");
+        $stmt->execute([$supplierId, ...$generatedRunIds]);
         $batches = $stmt->fetchAll(PDO::FETCH_ASSOC);
         foreach ($batches as $batch) {
             $track('payroll_posting_batch', (int) $batch['id']);
@@ -214,12 +233,30 @@ final class SamplePayrollGenerator
                 $track('journal_entry', (int) $batch['journal_entry_id']);
             }
         }
+        SamplePayrollModuleState::trackGenerated($pdo, $supplierId, $track);
         foreach (SamplePayrollPurger::snapshot($pdo, $supplierId) as $table => $ids) {
             foreach (array_diff($ids, $before[$table] ?? []) as $id) {
                 $track(SamplePayrollPurger::ownershipType($table), (int) $id);
             }
         }
         return ['payroll_persons' => count($staff), 'payroll_employments' => count($staff), 'payroll_runs' => 4, 'payroll_results' => 12, 'payroll_absences' => 1, 'payroll_posting_batches' => count($batches), 'journal_entry_ids' => $journalEntryIds];
+    }
+
+    private function policyGaps(array $policies, string $start, string $end): array
+    {
+        $gaps = [];
+        $cursor = $start;
+        foreach ($policies as $policy) {
+            if ($policy['valid_to'] !== null && $policy['valid_to'] < $cursor) continue;
+            if ($policy['valid_from'] > $cursor) {
+                $gaps[] = [$cursor, min($end, (new DateTimeImmutable($policy['valid_from']))->modify('-1 day')->format('Y-m-d'))];
+            }
+            if ($policy['valid_to'] === null) return $gaps;
+            $cursor = max($cursor, (new DateTimeImmutable($policy['valid_to']))->modify('+1 day')->format('Y-m-d'));
+            if ($cursor > $end) return $gaps;
+        }
+        if ($cursor <= $end) $gaps[] = [$cursor, $end];
+        return $gaps;
     }
 
     private function seedEvidence(int $supplierId, int $employeeId, DateTimeImmutable $first, DateTimeImmutable $current, int $userId, bool $signed): void

@@ -56,6 +56,7 @@ final class SamplePayrollPurger
         if ($owned === []) return [];
         $fks = $this->foreignKeys($pdo);
         $this->assertOwnedDependants($pdo, $supplierId, $tables, $owned, $fks);
+        SamplePayrollModuleState::restore($pdo, $supplierId);
         $pdo->prepare('SET @payroll_sample_purge_supplier_id = ?')->execute([$supplierId]);
         try {
             $deleted = [];
