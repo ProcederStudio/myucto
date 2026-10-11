@@ -294,7 +294,7 @@ export const integrationsApi = {
   // Anthropic Claude
   getAnthropicCreds: () =>
     api.get<AnthropicCredentialsStatus>('/admin/imports/anthropic/credentials').then(r => r.data),
-  setAnthropicCreds: (apiKey: string, defaultModel = 'claude-haiku-4-5') =>
+  setAnthropicCreds: (apiKey: string, defaultModel = 'claude-haiku-5-5') =>
     api.put<AnthropicCredentialsUpdateResult>('/admin/imports/anthropic/credentials', {
       api_key: apiKey, default_model: defaultModel,
     }).then(r => r.data),

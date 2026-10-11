@@ -13,13 +13,10 @@ use Psr\Log\LoggerInterface;
  * Anthropic Claude API client pro AI extraction z PDF faktur.
  *
  * BYOK — per-tenant API klíč (uživatel platí sám). Default model:
- * claude-haiku-4-5 (~$0.001/faktura), pro lepší kvalitu lze přepnout
- * na Sonnet 4.6 (~$0.005/faktura).
- *
- * Cena za extrakci PDF s ~5 řádkami:
- *   Haiku 4.5:  ~3000 input tokens (PDF base64) + ~500 output tokens
- *               = $0.0006 input + $0.0025 output = ~$0.003
- *   Sonnet 4.6: ~$0.012 (4× dráž)
+ * claude-haiku-5-5 ($0.10 / $0.50 za MTok do 100k tokenů vstupu, desetina ceny
+ * Haiku 4.5); pro těžké doklady lze přepnout na Sonnet nebo eskalovat.
+ * Generace 5 přemýšlí i bez vyžádání a odmítá temperature — pravidla drží
+ * {@see LlmProviderCapabilities}.
  *
  * Strict JSON output přes structured response — anti-hallucination.
  */
@@ -651,7 +648,7 @@ EOT . "\n\n" . InvoiceExtractionPrompt::accrualFieldRules() . "\n\n" . InvoiceEx
             }
 
             // Parse Claude's text response
-            $text = (string) ($body['content'][0]['text'] ?? '');
+            $text = self::responseText($body);
             if ($text === '') {
                 return ['ok' => false, 'error' => 'Prázdná odpověď od Claude'];
             }
@@ -752,7 +749,7 @@ EOT;
                 $msg = is_array($body) ? ($body['error']['message'] ?? 'HTTP ' . $code) : 'HTTP ' . $code;
                 return ['ok' => false, 'error' => $msg];
             }
-            $text = (string) ($body['content'][0]['text'] ?? '');
+            $text = self::responseText($body);
             if ($text === '') return ['ok' => false, 'error' => 'Prázdná odpověď od Claude'];
             $text = preg_replace('/^```(?:json)?\s*|\s*```\s*$/m', '', $text);
             $data = json_decode((string) $text, true);
@@ -846,7 +843,7 @@ EOT;
                 return ['ok' => false, 'error' => $msg];
             }
 
-            $text = (string) ($body['content'][0]['text'] ?? '');
+            $text = self::responseText($body);
             $text = preg_replace('/^```(?:json)?\s*|\s*```\s*$/m', '', $text) ?? $text;
             $data = json_decode(trim($text), true);
             if (!is_array($data) || !array_key_exists('total_with_vat', $data)) {
@@ -940,7 +937,7 @@ EOT;
                 return ['ok' => false, 'error' => $msg];
             }
 
-            $text = (string) ($body['content'][0]['text'] ?? '');
+            $text = self::responseText($body);
             $text = preg_replace('/^```(?:json)?\s*|\s*```\s*$/m', '', $text) ?? $text;
             $data = json_decode(trim($text), true);
             if (!is_array($data)) {
@@ -1062,9 +1059,15 @@ EOT;
      */
     private function postWithRetry(array $payload, string $apiKey, ?int $supplierId = null): array
     {
+        $model = (string) ($payload['model'] ?? '');
         if ($supplierId !== null) {
-            $payload += LlmProviderCapabilities::anthropic()
-                ->effortPayload((string) ($payload['model'] ?? ''), $this->tenantEffort($supplierId));
+            $payload += LlmProviderCapabilities::anthropic()->effortPayload($model, $this->tenantEffort($supplierId));
+        }
+        // Generace 5 přemýšlí i bez vyžádání a přemýšlení se počítá do max_tokens: krátké
+        // dotazy (test spojení, součet, účet) by skončily na limitu dřív, než napíší odpověď.
+        if (LlmProviderCapabilities::anthropicThinksByDefault($model) && (int) ($payload['max_tokens'] ?? 0) < 4000) {
+            $payload['max_tokens'] = 4000;
+            $payload['output_config']['effort'] ??= 'low';
         }
         $this->applyThrottle();
         $attempt = 0;
@@ -1077,6 +1080,9 @@ EOT;
             $body = json_decode((string) $resp->getBody(), true);
             $this->captureRateLimit($resp);
 
+            if ($code === 200 && is_array($body) && ($body['stop_reason'] ?? null) === 'refusal') {
+                return ['code' => 422, 'body' => ['error' => ['message' => 'Claude požadavek odmítl (bezpečnostní filtr poskytovatele).']]];
+            }
             if ($code !== 429 || $attempt >= self::MAX_RETRIES) {
                 return ['code' => $code, 'body' => is_array($body) ? $body : null];
             }
@@ -1089,6 +1095,22 @@ EOT;
             sleep($sleep);
             $attempt++;
         }
+    }
+
+    /**
+     * Text odpovědi. Generace 5 může začít blokem `thinking`, proto se bere první
+     * textový blok, ne `content[0]`.
+     *
+     * @param array<string,mixed>|null $body
+     */
+    private static function responseText(?array $body): string
+    {
+        foreach (($body['content'] ?? []) as $part) {
+            if (($part['type'] ?? null) === 'text' && is_string($part['text'] ?? null)) {
+                return $part['text'];
+            }
+        }
+        return '';
     }
 
     /**

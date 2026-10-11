@@ -275,13 +275,13 @@ final class AiProviderContractTest extends TestCase
     {
         $caps = LlmProviderCapabilities::anthropic();
 
-        self::assertSame('claude-sonnet-5', $caps->strongerModel('claude-haiku-4-5'));
-        self::assertSame('claude-opus-5', $caps->strongerModel('claude-sonnet-5'));
-        self::assertSame('claude-opus-5', $caps->strongerModel('claude-sonnet-4-6'));
-        self::assertSame('claude-fable-5', $caps->strongerModel('claude-opus-5'));
-        self::assertSame('claude-fable-5', $caps->strongerModel('claude-opus-4-7'));
+        self::assertSame('claude-sonnet-5-5', $caps->strongerModel('claude-haiku-4-5'));
+        self::assertSame('claude-opus-5-5', $caps->strongerModel('claude-sonnet-5'));
+        self::assertSame('claude-opus-5-5', $caps->strongerModel('claude-sonnet-4-6'));
+        self::assertSame('claude-fable-5-1', $caps->strongerModel('claude-opus-5'));
+        self::assertSame('claude-fable-5-1', $caps->strongerModel('claude-opus-4-7'));
         // Vrchol žebříčku — dál už není kam.
-        self::assertNull($caps->strongerModel('claude-fable-5'));
+        self::assertNull($caps->strongerModel('claude-fable-5-1'));
         self::assertNull($caps->strongerModel(null));
 
         // Celý řetěz z defaultu doběhne na vrchol a nezacyklí se.
@@ -294,7 +294,7 @@ final class AiProviderContractTest extends TestCase
             $model  = $caps->strongerModel($model);
         }
         self::assertSame(
-            ['claude-haiku-4-5', 'claude-sonnet-5', 'claude-opus-5', 'claude-fable-5'],
+            ['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5', 'claude-fable-5-1'],
             $seen,
         );
     }
@@ -322,7 +322,7 @@ final class AiProviderContractTest extends TestCase
 
         $gemini = LlmProviderCapabilities::gemini(null);
         // flash-lite nesmí spadnout do tieru flash — jinak by eskaloval sám na sebe.
-        self::assertSame('gemini-3.7-flash', $gemini->strongerModel('gemini-3.5-flash-lite'));
+        self::assertSame('gemini-3.8-flash', $gemini->strongerModel('gemini-3.5-flash-lite'));
         foreach (['gemini-3.7-flash', 'gemini-3.5-flash'] as $weak) {
             $up = $gemini->strongerModel($weak);
             self::assertNotNull($up, "gemini $weak neeskaluje");

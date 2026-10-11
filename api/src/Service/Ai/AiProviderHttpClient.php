@@ -9,6 +9,7 @@ use GuzzleHttp\Exception\GuzzleException;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Service\Import\AzureOpenAiClient;
 use MyInvoice\Service\Import\GeminiClient;
+use MyInvoice\Service\Import\LlmProviderCapabilities;
 use MyInvoice\Service\Import\LlmProviderRegistry;
 use MyInvoice\Service\Import\OllamaClient;
 use MyInvoice\Service\Import\ResidencyPolicy;
@@ -269,18 +270,26 @@ final class AiProviderHttpClient
                 }
                 $userContent[] = ['type' => 'text', 'text' => $user];
             }
+            $model = $ctx['model'];
+            // Dlouhé odpovědi (AI asistent) jdou přes structured outputs: vynucený tool_use
+            // s dlouhým markdownem model občas „vylije" do jediného pole. Modely, které vynucený
+            // tool_choice odmítají, jdou přes structured outputs vždy; jinak klasifikace beze změny.
+            $structuredOutput = $structuredOutput || LlmProviderCapabilities::anthropicRejectsForcedToolChoice($model);
             // Modely od generace 5 parametr temperature odmítají (HTTP 400), posílá se jen starším.
             $payload = [
-                'model' => $ctx['model'], 'max_tokens' => $maxOutputTokens,
-                ...(self::anthropicAcceptsTemperature($ctx['model']) ? ['temperature' => 0] : []),
+                'model' => $model, 'max_tokens' => $maxOutputTokens,
+                ...(LlmProviderCapabilities::anthropicAcceptsTemperature($model) ? ['temperature' => 0] : []),
                 'system' => $system,
                 'messages' => [['role' => 'user', 'content' => $userContent]],
             ];
-            // Dlouhé odpovědi (AI asistent) jdou přes structured outputs: vynucený tool_use
-            // s dlouhým markdownem model občas „vylije" do jediného pole a novější modely
-            // vynucený tool_choice odmítají. Krátká klasifikace zůstává beze změny.
             if ($structuredOutput) {
                 $payload['output_config'] = ['format' => ['type' => 'json_schema', 'schema' => $schema]];
+                // Přemýšlení se počítá do max_tokens: krátká odpověď potřebuje rezervu
+                // a nízké úsilí, jinak model skončí na limitu dřív, než JSON napíše.
+                if (LlmProviderCapabilities::anthropicThinksByDefault($model) && $maxOutputTokens < 4000) {
+                    $payload['max_tokens'] = 4000;
+                    $payload['output_config']['effort'] = 'low';
+                }
             } else {
                 $payload['tools'] = [[
                     'name' => 'posting_suggestion', 'description' => 'Vrátí návrh kontace.',
@@ -306,6 +315,9 @@ final class AiProviderHttpClient
                     $data = json_decode($part['text'], true);
                     break;
                 }
+            }
+            if (($body['stop_reason'] ?? '') === 'refusal') {
+                return ['ok' => false, 'error' => 'refusal'];
             }
             if ($structuredOutput && ($body['stop_reason'] ?? '') === 'max_tokens') {
                 return ['ok' => false, 'error' => 'max_tokens'];
@@ -363,6 +375,13 @@ final class AiProviderHttpClient
                     'responseMimeType' => 'application/json', 'responseSchema' => $this->geminiSchema($schema),
                 ],
             ];
+            // Gemini 3.x přemýšlí a myšlenky se počítají do maxOutputTokens: krátká
+            // klasifikace by skončila uprostřed JSON. Stejně jako v GeminiClient nízké
+            // přemýšlení a rezerva výstupu.
+            if (preg_match('/^gemini-3(?:[.-]|$)/', $ctx['model']) === 1) {
+                $payload['generationConfig']['thinkingConfig'] = ['thinkingLevel' => 'low'];
+                $payload['generationConfig']['maxOutputTokens'] = max($maxOutputTokens, 4000);
+            }
             $url = 'https://generativelanguage.googleapis.com/v1beta/models/' . rawurlencode($ctx['model']) . ':generateContent';
             $response = $this->http->post($url, [
                 'headers' => ['x-goog-api-key' => $creds['api_key'], 'content-type' => 'application/json'], 'json' => $payload,
@@ -397,11 +416,6 @@ final class AiProviderHttpClient
             return ['ok' => false, 'error' => 'invalid_json'];
         }
         return ['ok' => true, 'data' => $data, 'provider' => $provider, 'region' => $ctx['region'], 'model' => $model, 'usage' => $usage];
-    }
-
-    public static function anthropicAcceptsTemperature(string $model): bool
-    {
-        return preg_match('/^claude-(3|[a-z]+-4)/', $model) === 1;
     }
 
     /** @param array<string,mixed> $schema @return array<string,mixed> */

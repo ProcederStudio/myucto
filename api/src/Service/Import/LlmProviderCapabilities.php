@@ -22,14 +22,18 @@ final readonly class LlmProviderCapabilities
      * Ověřeno proti reálným katalogům providerů 2026-08-26
      * (private/scripts/probe_llm_models.php + probe_llm_models_call.php).
      */
-    public const ANTHROPIC_DEFAULT_MODEL = 'claude-haiku-4-5';
+    public const ANTHROPIC_DEFAULT_MODEL = 'claude-haiku-5-5';
     public const ANTHROPIC_MODELS = [
+        'claude-haiku-5-5',
         'claude-haiku-4-5',
+        'claude-sonnet-5-5',
         'claude-sonnet-5',
         'claude-sonnet-4-6',
+        'claude-opus-5-5',
         'claude-opus-5',
         'claude-opus-4-8',
         'claude-opus-4-7',
+        'claude-fable-5-1',
         'claude-fable-5',
     ];
 
@@ -38,6 +42,12 @@ final readonly class LlmProviderCapabilities
         'gpt-5.6-sol',
         'gpt-5.6-terra',
         'gpt-5.6-luna',
+        // Řada gpt-6 ověřena živě 2026-10-11; za 5.6, aby eskalace z mini zůstala
+        // na ceníkově známém gpt-5.6-sol, dokud se 6 nezměří na dokladech.
+        'gpt-6.1-sol',
+        'gpt-6-sol',
+        'gpt-6-astra',
+        'gpt-6-luna',
         'gpt-5.5',
         'gpt-5.4',
         'gpt-5.1',
@@ -78,13 +88,16 @@ final readonly class LlmProviderCapabilities
         'gemini'       => ['lite', 'flash', 'pro'],
     ];
 
-    /** gemini-2.5-flash vyřazen — provider ho novým účtům vrací 404 s odkazem na 3.6-flash. */
-    public const GEMINI_DEFAULT_MODEL = 'gemini-3.7-flash';
+    /**
+     * gemini-2.5-flash vyřazen — provider ho novým účtům vrací 404 s odkazem na 3.6-flash.
+     * gemini-3.5-flash a 3.5-flash-lite z katalogu zmizely (2026-10-11); tenant s nimi
+     * uloženými dostane výchozí model (viz gemini()).
+     */
+    public const GEMINI_DEFAULT_MODEL = 'gemini-3.8-flash';
     public const GEMINI_MODELS = [
+        'gemini-3.8-flash',
         'gemini-3.7-flash',
         'gemini-3.6-flash',
-        'gemini-3.5-flash',
-        'gemini-3.5-flash-lite',
         'gemini-3.1-flash-lite',
         'gemini-3.1-pro-preview',
         'gemini-2.5-pro',
@@ -273,9 +286,9 @@ final readonly class LlmProviderCapabilities
         $accurate = $effort === self::EFFORT_ACCURATE;
 
         return match ($this->id) {
-            'anthropic' => str_contains($model, 'haiku')
-                ? []
-                : ['output_config' => ['effort' => $accurate ? 'high' : 'low']],
+            'anthropic' => self::anthropicSupportsEffort($model)
+                ? ['output_config' => ['effort' => $accurate ? 'high' : 'low']]
+                : [],
             'openai' => self::openaiSupportsReasoningEffort($model)
                 ? ['reasoning_effort' => $accurate ? 'high' : 'low']
                 : [],
@@ -289,6 +302,66 @@ final readonly class LlmProviderCapabilities
             'ollama' => ['think' => $accurate],
             default => [],
         };
+    }
+
+    /**
+     * Rozdíly generací Claude, které mění tvar požadavku (dokumentace Anthropic, ověřeno
+     * živě 2026-10-11). Model se rozpozná z rodiny a verze v id (`claude-haiku-5-5`).
+     *
+     * - `output_config.effort`: neumí Haiku 4.x a starší řada claude-3.
+     * - `temperature`: generace 5 ho odmítá (HTTP 400), posílá se jen claude-3 a 4.x.
+     * - Přemýšlení zapnuté bez vyžádání: celá generace 5. Odpověď pak může začínat
+     *   blokem `thinking` a přemýšlení se počítá do `max_tokens`.
+     * - Vynucený `tool_choice` (any/tool) odmítají Opus a Sonnet od 5.5 a Fable/Mythos
+     *   od 5.1 — strukturovaný výstup u nich musí jít přes `output_config.format`.
+     * - Structured outputs (`output_config.format`) neumí Sonnet 4.6, Opus 4.7/4.6 a starší.
+     */
+    public static function anthropicSupportsEffort(string $model): bool
+    {
+        return !str_starts_with($model, 'claude-haiku-4') && !str_starts_with($model, 'claude-3');
+    }
+
+    public static function anthropicAcceptsTemperature(string $model): bool
+    {
+        return preg_match('/^claude-(3|[a-z]+-4)/', $model) === 1;
+    }
+
+    public static function anthropicThinksByDefault(string $model): bool
+    {
+        [$family, $version] = self::anthropicVersion($model);
+        return $family !== null && $version >= 5.0;
+    }
+
+    public static function anthropicRejectsForcedToolChoice(string $model): bool
+    {
+        [$family, $version] = self::anthropicVersion($model);
+        return match ($family) {
+            'opus', 'sonnet' => $version >= 5.5,
+            'fable', 'mythos' => $version >= 5.1,
+            'haiku' => $version >= 6.0,
+            default => false,
+        };
+    }
+
+    public static function anthropicSupportsStructuredOutputs(string $model): bool
+    {
+        [$family, $version] = self::anthropicVersion($model);
+        return match ($family) {
+            'haiku' => $version >= 4.5,
+            'sonnet' => $version >= 5.0,
+            'opus' => $version >= 4.8,
+            'fable', 'mythos' => true,
+            default => false,
+        };
+    }
+
+    /** @return array{0:?string, 1:float} rodina a verze (`claude-opus-4-8` → ['opus', 4.8]) */
+    private static function anthropicVersion(string $model): array
+    {
+        if (preg_match('/^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/', $model, $m) !== 1) {
+            return [null, 0.0];
+        }
+        return [$m[1], (float) ($m[2] . '.' . ($m[3] ?? '0'))];
     }
 
     /**

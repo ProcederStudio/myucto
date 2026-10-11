@@ -6,6 +6,7 @@ namespace MyInvoice\Tests\Unit\Service\Ai;
 
 use GuzzleHttp\Psr7\Response;
 use MyInvoice\Service\Ai\AiProviderHttpClient;
+use MyInvoice\Service\Import\LlmProviderCapabilities;
 use MyInvoice\Tests\Support\FakeAiProviderHttpClientFactory;
 use PHPUnit\Framework\TestCase;
 
@@ -68,9 +69,65 @@ final class AiProviderHttpClientAttachmentsTest extends TestCase
 
         self::assertSame(0, self::sentJson($history, 0)['temperature']);
         self::assertArrayNotHasKey('temperature', self::sentJson($history, 1));
-        self::assertTrue(AiProviderHttpClient::anthropicAcceptsTemperature('claude-3-5-sonnet-20241022'));
-        self::assertTrue(AiProviderHttpClient::anthropicAcceptsTemperature('claude-sonnet-4-5'));
-        self::assertFalse(AiProviderHttpClient::anthropicAcceptsTemperature('claude-opus-5-5'));
+        self::assertTrue(LlmProviderCapabilities::anthropicAcceptsTemperature('claude-3-5-sonnet-20241022'));
+        self::assertTrue(LlmProviderCapabilities::anthropicAcceptsTemperature('claude-sonnet-4-5'));
+        self::assertFalse(LlmProviderCapabilities::anthropicAcceptsTemperature('claude-opus-5-5'));
+    }
+
+    /**
+     * Sonnet 5.5 / Opus 5.5 / Fable 5.1 odmítají vynucený tool_choice: i krátká klasifikace
+     * u nich jde přes structured outputs, s rezervou tokenů na přemýšlení. Haiku 4.5 beze změny.
+     */
+    public function testModelsRejectingForcedToolChoiceUseStructuredOutputs(): void
+    {
+        $history = [];
+        $json = new Response(200, [], json_encode([
+            'model' => 'claude-sonnet-5-5', 'stop_reason' => 'end_turn',
+            'content' => [['type' => 'thinking', 'thinking' => '', 'signature' => 'x'], ['type' => 'text', 'text' => '{"answer":"ok"}']],
+            'usage' => ['input_tokens' => 10, 'output_tokens' => 2],
+        ]));
+        $client = FakeAiProviderHttpClientFactory::create($this, 'anthropic', [$json, self::anthropicOk()], $history);
+
+        $r = $client->completeJson(1, 'SYS', 'DOTAZ', ['type' => 'object'], 'claude-sonnet-5-5', 300);
+        $client->completeJson(1, 'SYS', 'DOTAZ', ['type' => 'object'], 'claude-haiku-4-5', 300);
+
+        self::assertTrue($r['ok'], (string) ($r['error'] ?? ''));
+        self::assertSame(['answer' => 'ok'], $r['data'], 'JSON se čte z textového bloku, ne z prvního (thinking)');
+        $sent = self::sentJson($history, 0);
+        self::assertArrayNotHasKey('tool_choice', $sent);
+        self::assertSame('json_schema', $sent['output_config']['format']['type']);
+        self::assertSame(4000, $sent['max_tokens'], 'rezerva na přemýšlení');
+        self::assertSame('low', $sent['output_config']['effort']);
+        self::assertSame('posting_suggestion', self::sentJson($history, 1)['tool_choice']['name']);
+        self::assertSame(300, self::sentJson($history, 1)['max_tokens']);
+    }
+
+    public function testRefusalIsReportedAsError(): void
+    {
+        $history = [];
+        $refusal = new Response(200, [], json_encode(['model' => 'claude-haiku-5-5', 'stop_reason' => 'refusal', 'content' => []]));
+        $client = FakeAiProviderHttpClientFactory::create($this, 'anthropic', [$refusal], $history);
+
+        self::assertSame(['ok' => false, 'error' => 'refusal'], $client->completeJson(1, 'SYS', 'DOTAZ', ['type' => 'object'], 'claude-haiku-5-5', 300));
+    }
+
+    public function testAnthropicGenerationRules(): void
+    {
+        self::assertTrue(LlmProviderCapabilities::anthropicSupportsEffort('claude-haiku-5-5'));
+        self::assertFalse(LlmProviderCapabilities::anthropicSupportsEffort('claude-haiku-4-5'));
+        self::assertTrue(LlmProviderCapabilities::anthropicThinksByDefault('claude-haiku-5-5'));
+        self::assertTrue(LlmProviderCapabilities::anthropicThinksByDefault('claude-sonnet-5'));
+        self::assertFalse(LlmProviderCapabilities::anthropicThinksByDefault('claude-opus-4-8'));
+        self::assertFalse(LlmProviderCapabilities::anthropicThinksByDefault('claude-haiku-4-5-20251001'));
+        foreach (['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-fable-5-1'] as $m) {
+            self::assertTrue(LlmProviderCapabilities::anthropicRejectsForcedToolChoice($m), $m);
+        }
+        foreach (['claude-haiku-5-5', 'claude-haiku-4-5', 'claude-sonnet-5', 'claude-opus-5', 'claude-fable-5', 'claude-opus-4-8'] as $m) {
+            self::assertFalse(LlmProviderCapabilities::anthropicRejectsForcedToolChoice($m), $m);
+        }
+        self::assertSame(['output_config' => ['effort' => 'low']], LlmProviderCapabilities::anthropic()->effortPayload('claude-haiku-5-5', 'fast'));
+        self::assertSame([], LlmProviderCapabilities::anthropic()->effortPayload('claude-haiku-4-5', 'fast'));
+        self::assertContains(LlmProviderCapabilities::ANTHROPIC_DEFAULT_MODEL, LlmProviderCapabilities::ANTHROPIC_MODELS);
     }
 
     /** Stávající volající (bez příloh) posílají požadavek beze změny. */
