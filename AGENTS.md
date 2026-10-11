@@ -5,8 +5,10 @@ Platí pro celý repozitář. Obecný popis projektu je v [README.md](README.md)
 
 ## O projektu
 
-MyUcto.cz — český self-hosted fakturační a účetní systém (vystavené + přijaté
-faktury, multi-supplier, DPH/KH/SH výkazy, EPO XML, CRM, REST API).
+MyÚčto.cz — český self-hosted účetní systém: fakturace (vystavené i přijaté
+doklady, multi-supplier), daňová evidence i podvojné účetnictví s uzávěrkami,
+DPH/KH/SH a EPO podání, banka, majetek, sklad a e-shop, mzdy a jejich podání,
+CRM, AI vytěžení dokladů, REST API a MCP server.
 Backend PHP 8.5 + Slim 4, frontend Vue 3 + TypeScript + Vite + Tailwind,
 databáze MariaDB 11.8+.
 
@@ -14,41 +16,34 @@ databáze MariaDB 11.8+.
 
 - `api/` — PHP backend (Slim, autowired actions, services, repositories); `api/bin/` = CLI skripty, `api/tests/` = PHPUnit
 - `web/` — Vue 3 + TS frontend; zdrojáky ve `web/src/`, lokalizace ve `web/src/i18n/`
-- `web/dist/` — produkční build frontendu; **gitignorovaný**, staví se lokálně (`pnpm build`) a v CI do release bundlu
-- `db/migrations/` — SQL migrace (číslované, idempotentní)
+- `web/dist/` — produkční build frontendu; **gitignorovaný**, staví se lokálně (`npm run build`) a v CI do release bundlu
+- `MCP/` — MCP server nad veřejným REST API (Node, vlastní `package.json`; `MCP/dist/` je gitignorovaný)
+- `db/migrations/` — SQL migrace (číslované, idempotentní); `db/schema.snapshot.json` = otisk struktury
 - `manual/` — uživatelský manuál (Markdown, česky); `manual/generated/` = vyrenderované HTML, taky gitignorované
-- `tools/` — pomocné skripty (generování manuálu, převody obrázků)
-- `cmd/` — cron/deploy wrappery (`.sh` + `.cmd`/`.ps1`)
+- `tools/` — pomocné skripty (generování manuálu, normy mzdových podání, release guard)
+- `cmd/` — cron/deploy/kontrolní wrappery (`.sh` + `.cmd`/`.ps1`)
+- `docker/` — konfigurace pro Docker image (včetně `docker/nginx.conf`)
+- `.github/release-notes/` — poznámky k vydání, CI je přebírá do textu GitHub release
 
-## Fork MyÚčto.cz — pravidla portování
+Do repa patří jen to, co je v gitu. Lokální adresáře mimo něj (gitignorované pracovní
+podklady, data, konfigurace) v kódu, testech ani dokumentaci neodkazuj.
 
-- Upstream: `git@github.com:radekhulan/myinvoice.git` (remote `upstream`, VEŘEJNÉ) —
-  merguj `upstream/master` pravidelně.
-- Repozitáře:
-  - **`radekhulan/myucto`** — veřejné, **tady běží vývoj i PR přispěvatelů**.
-    Jeho historie začíná veřejnou historií MyInvoice po `7dd51638` (4.51.0) a nad
-    ní je jeden commit s celým stromem MyÚčta. Díky tomu **sdílí merge base
-    s upstreamem**, takže `git merge upstream/master` jde spustit přímo tady.
-  - **`radekhulan/myucto-dev`** — privátní ARCHIV původní historie (1600+ commitů,
-    reálná data zákazníků). Vývoj proti němu neběží, nepushuje se do něj.
-- Proč to takhle: MyInvoice je velmi živý (~1000 commitů/90 dnů), takže ztráta
-  merge base by znamenala ruční portování stovek commitů. Squash vlastní historie
-  do jednoho commitu skryje interní data, ale předka s upstreamem zachová.
-- Kód piš **aditivně**: nové moduly do nových souborů; sdílené soubory jen doplňuj
-  malými lokalizovanými změnami, ať zůstane merge z upstreamu levný.
-- MyÚčto-specifické migrace čísluj od `1000_` — range `0125`–`0999` je rezervovaný
-  pro upstream.
+## Identifikátory a platforma
+
+- Vývoj i PR přispěvatelů běží v repozitáři **`radekhulan/myucto`**.
 - Namespace `MyInvoice\` a interní identifikátory (env vary, cookie/localStorage/Redis
-  klíče) se **NEpřejmenovávají** — mění se jen user-visible branding (UI texty,
-  e-maily, dokumentace, loga).
+  klíče) se **NEpřejmenovávají**: změna by rozbila běžící instalace. Branding
+  „MyÚčto" patří jen do textů viditelných uživateli (UI, e-maily, dokumentace, loga).
 - DB baseline a minimální podporovaná verze je **MariaDB 11.8 LTS**.
 
 ## Příkazy
 
 ```bash
 # Frontend — build (NUTNÉ po každé změně web/src; web/dist/ se necommituje, ale bez buildu neuvidíš změnu v aplikaci)
-cd web && pnpm build            # = kontroly + typy aplikace (type-check:app, bez testů) + vite build (npm run build funguje též)
-cd web && pnpm type-check       # typová kontrola aplikace i testů (CI); halda pro vue-tsc je nastavená ve skriptu
+cd web && npm run build         # = kontroly i18n/rout/manuálu + typy aplikace (type-check:app) + vite build
+cd web && npm run type-check    # typová kontrola aplikace i testů (CI); halda pro vue-tsc je nastavená ve skriptu
+# Závislosti instaluj přes pnpm (pnpm-lock.yaml). Build ale spouštěj přes npm run:
+# `pnpm build` při existujícím worktree s junctionem na node_modules rozbije sdílené závislosti.
 
 # PHP testy (PHPUnit 13)
 php api/bin/test-parallel.php                     # vše, izolované DB pro workery
@@ -93,7 +88,7 @@ php tools/generateManualHtml.php
 ### Multiplatformnost (Windows / Linux / Docker)
 - Veškerý kód musí být spustitelný a testovatelný na **Windows (IIS), Linuxu i v Dockeru** — žádná platformně specifická zkratka, která jinde rozbije běh.
 - Proto jsou pomocné skripty záměrně **„zdvojené"**: ke každému `.sh` existuje ekvivalentní `.ps1`/`.cmd` (typicky v `cmd/`). Při změně jednoho udržuj v synchronizaci i druhý; nový skript přidávej rovnou v obou variantách.
-- Webserver konfigurace existuje paralelně pro **Apache (`.htaccess`) i IIS (`web.config`)** — změny rewrite pravidel, hlaviček apod. promítej do obou.
+- Webserver konfigurace existuje paralelně pro **Apache (`.htaccess`), IIS (`web.config`) i nginx v Dockeru (`docker/nginx.conf`)**. Změny rewrite pravidel, hlaviček, MIME typů a blokovaných cest promítej do všech tří.
 - V PHP nepředpokládej konkrétní oddělovač cest ani casing souborového systému (viz guardy níže); rozdíly platforem řeš v kódu, ne podmínkou „jen na Windows".
 
 ### Runtime cesty a bezpečnost
@@ -102,14 +97,17 @@ php tools/generateManualHtml.php
 - Citlivé údaje (hesla, API klíče, connection stringy) nikdy do kódu, testů ani dokumentace.
 
 ### Frontend
-- Po každé změně ve `web/src` spusť `pnpm build` — aplikace běží z `web/dist/`, takže bez buildu změnu neuvidíš ani neotestuješ; samotný `vue-tsc` nestačí. Do commitu `web/dist/` nepatří (je gitignorovaný), staví ho CI.
+- Po každé změně ve `web/src` spusť `npm run build` — aplikace běží z `web/dist/`, takže bez buildu změnu neuvidíš ani neotestuješ; samotný `vue-tsc` nestačí. Do commitu `web/dist/` nepatří (je gitignorovaný), staví ho CI.
 - Drž se existujícího design language (sjednocené boxy, status badges, mobile cards) — před vymýšlením nového vzoru se podívej, jak to dělají sousední stránky.
 - **Akční tlačítka — jednotný koncept** (vzor detail faktury): každá akce má **ikonu + sémantickou barvu** dle smyslu (`primary` = hlavní krok, `success` = potvrzení/úhrada, `warning` = upomínka/admin zásah, `danger` = destrukce, `neutral` = utility). Na detailních stránkách přes sdílený `ActionBar`/`ActionItem` (`web/src/components/ui/ActionBar.vue`: 1 plná primární akce dle stavu, sekundární outline, utility/destrukce v „…"). Samostatná tlačítka mimo ActionBar přebírají stejné FILLED/OUTLINE styly a ikony — žádná ad-hoc tlačítka bez ikony a sémantické barvy. Platí i pro sekci Účetnictví a všechny nové stránky.
 - Toolbary a skupiny tlačítek vždy s `flex-wrap` (+ `whitespace-nowrap` na tlačítkách) — obsah se při zúžení nesmí mačkat ani přetékat.
 
 ## Testy
 
-- PHPUnit 13, testy v `api/tests/{Unit,Integration,Architecture,Invariants}`. Nové chování pokrývej testem; PR nesmí rozbít existující testy.
+- PHPUnit 13, testy v `api/tests/{Unit,Integration,Architecture,Invariants}` (sdílené helpery v `Support/`, data ve `Fixtures/`). Nové chování pokrývej testem; PR nesmí rozbít existující testy.
+- Integrační testy běží proti `<db>_test` (vynucuje `api/tests/bootstrap.php`), nikdy proti pracovní databázi.
+- CI běží se striktním `sql_mode`. INSERT bez povinného sloupce, který lokálně projde, tam spadne; testy s vlastním PDO zapínají `STRICT_ALL_TABLES`.
+- Výsledek testů posuzuj podle souhrnu PHPUnit, ne jen podle exit kódu.
 - **Pouze syntetická testovací data** — repo je veřejné. Žádné reálné doklady, výpisy, IBANy, čísla dokladů ani identifikátory skutečných protistran.
 - České bankovní účty v testech musí projít mod-11 validací; ověřený placeholder: `1000000005 / 0100`.
 - ISDOC export se validuje proti oficiálnímu XSD (`api/xsd/isdoc-invoice-6.0.2.xsd`).
@@ -138,7 +136,8 @@ Praktické důsledky:
   se okopíruje rychleji, než kdyby neexistovalo — vytváří totiž dojem, že existuje.
 - **Před commitem do účetní/daňové vrstvy pusť auditní bránu:**
   `pwsh -File cmd/audit-gate.ps1` (Linux: `cmd/audit-gate.sh`). Kroky nad daty jsou
-  read-only, takže je lze pustit i proti produkci; `-SkipData` je vynechá.
+  read-only, takže je lze pustit i proti produkci; `-SkipData` je vynechá. Volitelné
+  kroky, jejichž skripty v repu nejsou, brána sama přeskočí.
 - **Ne každá odlišnost je drift.** `formatAmount` v EPO výkazech a § 46 vs § 74b jsou
   záměr — guard je má chránit před „sjednocením", ne je slučovat.
 - **Oprava sdílené daňové/účetní vrstvy nepatří do PR jiné funkce.** Když při práci na
@@ -163,7 +162,8 @@ Praktické důsledky:
 - V novém checkoutu aktivuj kontrolu tagů přes `git config core.hooksPath .githooks`. Hook kontroluje i atomický push `master` s tagem.
 - GitHub ruleset `MyUcto release series` povoluje vytváření a změny pouze tagů `v6.*.*`, bez bypassu. Před přechodem na další major verzi aktualizuj ruleset i `tools/release-guard.mjs`.
 - Ruční Docker build spouštěj z aktuálního `master` pouze s tagem `edge`, `test` nebo jejich prefixem (`edge-*`, `test-*`). Produkční tagy a `latest` vznikají vydáním.
-
+- Vydání = commit `release: …`, tag a GitHub release. Text release přebírá CI doslova z `.github/release-notes/vX.Y.Z.md`, takže tam patří jen obsah pro uživatele: žádné interní poznámky, HTML komentáře ani odkazy na lokální nástroje.
+- Docker tag `latest` dostane ta publikace, která doběhne poslední. Při vydání více verzí naráz pushuj nejvyšší verzi až jako poslední.
 - Drž se stylu okolního kódu (pojmenování, idiomy, hustota komentářů). Nepřidávej komentáře, které kód jen opakují.
 - Commit messages česky, conventional-commits styl: `feat(scope): …`, `fix(scope): …`, `release: X.Y.Z — …` (viz `git log`).
 - `VERSION` a poznámky k vydání (`.github/release-notes/vX.Y.Z.md`) mění maintainer při release — v běžném PR na ně nesahej.
