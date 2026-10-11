@@ -490,9 +490,38 @@ final class PurchaseMatchActivityLogTest extends TestCase
         )->fetchColumn());
     }
 
+    public function testOutgoingPaymentMatchesPurchaseMarkedPaidWithoutPayment(): void
+    {
+        // Faktura ručně označená jako uhrazená v den příkazu, výpis dorazí druhý den.
+        $this->seed(2500.00, 'paid', self::TEST_VS);
+        $pdo = $this->db->pdo();
+        $pdo->prepare('UPDATE purchase_invoices SET paid_at = ? WHERE id = ?')->execute(['2099-06-14', $this->purchaseId]);
+
+        $res = $this->matcher->match($this->transactionId);
+
+        self::assertSame('auto_exact', $res['status'] ?? null);
+        self::assertSame($this->purchaseId, $res['purchase_invoice_id'] ?? null);
+        self::assertSame(1, (int) $pdo->query(
+            "SELECT COUNT(*) FROM payment_matches WHERE bank_transaction_id = {$this->transactionId} AND purchase_invoice_id = {$this->purchaseId}"
+        )->fetchColumn());
+        self::assertSame(['paid', '2099-06-14'], array_values($pdo->query(
+            "SELECT status, DATE_FORMAT(paid_at, '%Y-%m-%d') FROM purchase_invoices WHERE id = {$this->purchaseId}"
+        )->fetch(PDO::FETCH_NUM)));
+    }
+
     public function testOutgoingPaymentToAlreadyPaidPurchaseRequiresReview(): void
     {
         $this->seed(2500.00, 'paid', self::TEST_VS);
+        $pdo = $this->db->pdo();
+        $pdo->prepare(
+            "INSERT INTO bank_transactions (statement_id, posted_at, amount, currency, variable_symbol)
+             VALUES (?, '2099-06-10', -2500, 'CZK', ?)"
+        )->execute([$this->statementId, self::TEST_VS]);
+        $firstPaymentId = (int) $pdo->lastInsertId();
+        $pdo->prepare(
+            "INSERT INTO payment_matches (supplier_id, bank_transaction_id, purchase_invoice_id, amount, match_type, match_confidence)
+             VALUES (?, ?, ?, 2500, 'auto', 95)"
+        )->execute([$this->supplierId, $firstPaymentId, $this->purchaseId]);
 
         $res = $this->matcher->match($this->transactionId);
 

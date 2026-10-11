@@ -379,6 +379,8 @@ U CZK platby cizoměnové faktury, která odpovídá celému zbytku v devizové 
 
 U odchozí platby bez VS může druhý průchod automaticky potvrdit jednu běžnou přijatou fakturu, pokud přesně sedí částka i měna, datum vystavení nebo splatnosti je nejvýše 14 dní od platby a na výpisu není jiný volný pohyb stejné částky. Doklad nesmí být uhrazen bankou, hotovostí ani zápočtem. U faktury už označené jako uhrazená musí navíc přesně sedět datum úhrady a název obchodníka musí mít společný významný token s názvem dodavatele. Jakákoli nejednoznačnost zůstane k ruční kontrole.
 
+Přijatou fakturu, kterou jste při zadání příkazu ručně označili jako uhrazenou, spáruje odchozí platba s přesně stejným VS, částkou i měnou automaticky. Datum úhrady na faktuře zůstane, jak jste ho zadali. K ruční kontrole zůstane jen platba faktury, kterou už nějaká úhrada kryje (bankou, hotovostí nebo zápočtem), protože může jít o dvojí platbu.
+
 ### 29.13.9 Sloučená úhrada
 
 Když klient zaplatí **víc vystavených faktur jednou platbou** (součet sedí, ale variabilní symbol odpovídá jen jedné faktuře, nebo žádné), nabídne okno pod vyhledávačem sekci **Sloučená úhrada**. MyÚčto samo hledá **kombinace faktur téhož klienta**, jejichž **součet odpovídá částce platby**, ve výchozím okně **±7 dní** kolem data platby. Klient se jménem podobným protistraně se nabízí první.

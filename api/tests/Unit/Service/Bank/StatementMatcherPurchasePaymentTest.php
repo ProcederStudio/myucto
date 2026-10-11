@@ -102,13 +102,25 @@ final class StatementMatcherPurchasePaymentTest extends TestCase
         self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM payment_matches')->fetchColumn());
     }
 
-    public function testAlreadyPaidInvoiceRequiresReview(): void
+    public function testInvoiceMarkedPaidWithoutPaymentMatchesExactPayment(): void
     {
-        $this->pdo->exec("INSERT INTO purchase_invoices (id, payment_variable_symbol, status, rounding) VALUES (1, '20990261', 'paid', -0.24);");
+        $this->pdo->exec("INSERT INTO purchase_invoices (id, payment_variable_symbol, status, rounding, paid_at)
+            VALUES (1, '20990261', 'paid', -0.24, '2099-06-14');");
+        $result = $this->match('20990261', 2499.76);
+        self::assertSame('auto_exact', $result['status']);
+        self::assertSame(1, $result['purchase_invoice_id']);
+        self::assertSame('2099-06-14', $this->pdo->query('SELECT paid_at FROM purchase_invoices WHERE id = 1')->fetchColumn());
+        self::assertEqualsWithDelta(2499.76, (float) $this->pdo->query('SELECT amount FROM payment_matches WHERE bank_transaction_id = 1')->fetchColumn(), 0.001);
+    }
+
+    public function testAlreadySettledPaidInvoiceRequiresReview(): void
+    {
+        $this->pdo->exec("INSERT INTO purchase_invoices (id, payment_variable_symbol, status, rounding) VALUES (1, '20990261', 'paid', -0.24);
+            INSERT INTO payment_matches (supplier_id, bank_transaction_id, purchase_invoice_id, amount) VALUES (1, 2, 1, 2499.76);");
         $result = $this->match('20990261', 2499.76);
         self::assertSame('already_paid_verify', $result['reason']);
         self::assertTrue($result['requires_review']);
-        self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM payment_matches')->fetchColumn());
+        self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM payment_matches WHERE bank_transaction_id = 1')->fetchColumn());
     }
 
     public function testUnroundedPaymentRemainsPartial(): void

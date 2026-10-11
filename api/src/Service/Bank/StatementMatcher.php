@@ -1110,7 +1110,10 @@ final class StatementMatcher
 
         $diff = abs($absAmount - $m['expected']);
         if ($diff <= $m['exact']) {
-            if ($alreadyPaid) {
+            // Uhrazená jen evidenčně (ručně „Označit jako uhrazené", žádná úhrada bankou,
+            // pokladnou ani zápočtem): přesná shoda VS i částky je právě ta úhrada. Ke kontrole
+            // jde až faktura, kterou už nějaká úhrada kryje — tam hrozí dvojí platba.
+            if ($alreadyPaid && abs($settledAmount) >= 0.005) {
                 return [
                     'status' => 'unmatched',
                     'reason' => 'already_paid_verify',
@@ -1124,9 +1127,11 @@ final class StatementMatcher
                     $this->rollBack($pdo);
                     return ['status' => 'unmatched', 'reason' => 'transaction_not_free'];
                 }
-                $pdo->prepare(
-                    "UPDATE purchase_invoices SET status = 'paid', paid_at = ? WHERE id = ?"
-                )->execute([$postedAt, $pi['id']]);
+                if (!$alreadyPaid) {
+                    $pdo->prepare(
+                        "UPDATE purchase_invoices SET status = 'paid', paid_at = ? WHERE id = ?"
+                    )->execute([$postedAt, $pi['id']]);
+                }
                 // Pohyb z auto_partial už řádek pro tuto dvojici má — přesná shoda ho povýší.
                 PurchasePaymentMatchWriter::record($pdo, $supplierId, $transactionId, (int) $pi['id'], $absAmount, 'auto', 95);
                 $pdo->prepare(
