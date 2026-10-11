@@ -2454,6 +2454,10 @@ final class Routes
             // AI asistent účetní — odpověď a návrhy zápisů, nic se tu nezaúčtuje
             $g->get   ('/ai-assistant/status', [\MyInvoice\Action\Accounting\AiAssistantAction::class, 'status']);
             $g->post  ('/ai-assistant/ask',    [\MyInvoice\Action\Accounting\AiAssistantAction::class, 'ask']);
+            $g->get   ('/ai-assistant/conversations', [\MyInvoice\Action\Accounting\AiAssistantAction::class, 'conversations']);
+            $g->get   ('/ai-assistant/conversations/{id:[0-9]+}', [\MyInvoice\Action\Accounting\AiAssistantAction::class, 'conversation']);
+            $g->delete('/ai-assistant/conversations/{id:[0-9]+}', [\MyInvoice\Action\Accounting\AiAssistantAction::class, 'deleteConversation']);
+            $g->post  ('/ai-assistant/messages/{id:[0-9]+}/applied', [\MyInvoice\Action\Accounting\AiAssistantAction::class, 'markApplied']);
             // Účtová osnova
             $g->get   ('/accounts',             [ChartOfAccountsAction::class, 'list']);
             $g->post  ('/accounts',             [ChartOfAccountsAction::class, 'create']);

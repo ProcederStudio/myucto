@@ -650,6 +650,10 @@ final class RoutePermissionMap
         // AI asistent nic nezapisuje (zaúčtování jde přes /journal s vlastním právem) → stačí čtení.
         ['GET', '#^/api/accounting/ai-assistant/status$#', 'accounting', AccessLevel::READ],
         ['POST', '#^/api/accounting/ai-assistant/ask$#', 'accounting', AccessLevel::READ],
+        // Historie dotazů je osobní (jen autor), nemění účetní data → také čtení.
+        ['GET', '#^/api/accounting/ai-assistant/conversations(/[0-9]+)?$#', 'accounting', AccessLevel::READ],
+        ['DELETE', '#^/api/accounting/ai-assistant/conversations/[0-9]+$#', 'accounting', AccessLevel::READ],
+        ['POST', '#^/api/accounting/ai-assistant/messages/[0-9]+/applied$#', 'accounting', AccessLevel::READ],
         ['GET', '#^/api/accounting/periods(/|$)#', 'accounting', AccessLevel::READ],
         ['*', '#^/api/accounting/periods/[0-9]+/(closing|close|open-next|revert)(/|$)#', 'accounting.periods.close', AccessLevel::WRITE],
         ['*', '#^/api/accounting/periods(/|$)#', 'accounting.periods.manage', AccessLevel::WRITE],

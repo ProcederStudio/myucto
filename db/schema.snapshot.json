@@ -976,7 +976,8 @@
         "1992_payroll_takeover_old_age_savings.sql",
         "1993_cash_journal_notes.sql",
         "1994_document_links_invoice_payment.sql",
-        "1996_document_ai.sql"
+        "1996_document_ai.sql",
+        "1997_ai_assistant_history.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -1627,6 +1628,58 @@
             "checks": {
                 "chk_alch_singleton": "`id` = 1"
             }
+        },
+        "ai_assistant_conversations": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "created_at": "timestamp NOT NULL DEFAULT current_timestamp()",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "title": "varchar(255) NOT NULL",
+                "updated_at": "timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE CURRENT_TIMESTAMP()",
+                "user_id": "bigint(20) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_ai_conv_user": "BTREE (user_id)",
+                "idx_ai_conv_owner": "BTREE (supplier_id, user_id, updated_at)"
+            },
+            "foreign_keys": {
+                "fk_ai_conv_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE",
+                "fk_ai_conv_user": "(user_id) -> users (id) ON UPDATE RESTRICT ON DELETE CASCADE"
+            },
+            "checks": []
+        },
+        "ai_assistant_messages": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "applied_json": "longtext NULL DEFAULT NULL",
+                "attachments_json": "longtext NULL DEFAULT NULL",
+                "content": "mediumtext NOT NULL",
+                "conversation_id": "bigint(20) unsigned NOT NULL",
+                "created_at": "timestamp NOT NULL DEFAULT current_timestamp()",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "input_tokens": "int(10) unsigned NOT NULL DEFAULT 0",
+                "model": "varchar(100) NULL DEFAULT NULL",
+                "output_tokens": "int(10) unsigned NOT NULL DEFAULT 0",
+                "response_json": "longtext NULL DEFAULT NULL",
+                "role": "enum('user','assistant') NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "idx_ai_msg_conv": "BTREE (conversation_id, id)",
+                "idx_ai_msg_supplier": "BTREE (supplier_id)"
+            },
+            "foreign_keys": {
+                "fk_ai_msg_conv": "(conversation_id) -> ai_assistant_conversations (id) ON UPDATE RESTRICT ON DELETE CASCADE",
+                "fk_ai_msg_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE"
+            },
+            "checks": []
         },
         "ai_daily_usage": {
             "type": "BASE TABLE",

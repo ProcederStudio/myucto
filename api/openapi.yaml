@@ -10423,6 +10423,67 @@ paths:
         '409': { description: version_conflict — období mezitím změněno, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/v1/accounting/ai-assistant/conversations:
+    get:
+      tags: [Accounting]
+      summary: Historie dotazů AI asistenta (vlastní konverzace přihlášeného uživatele, nejnovější nahoře, max. 100)
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      responses:
+        '200':
+          description: Konverzace
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: integer }
+                        title: { type: string }
+                        created_at: { type: string }
+                        updated_at: { type: string }
+                        question_count: { type: integer }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/v1/accounting/ai-assistant/conversations/{id}:
+    get:
+      tags: [Accounting]
+      summary: Konverzace AI asistenta se zprávami; cizí konverzace vrací 404
+      description: Zpráva asistenta nese v `response` strukturovanou odpověď (other_items, journal_entries, document_suggestions, warnings) a v `applied` značky použitých návrhů {druh -> {index -> id}}.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - { in: path, name: id, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: Konverzace
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: integer }
+                  title: { type: string }
+                  created_at: { type: string }
+                  updated_at: { type: string }
+                  messages:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: integer }
+                        role: { type: string, enum: [user, assistant] }
+                        content: { type: string, description: "Dotaz, nebo odpověď v markdownu" }
+                        attachments: { type: array, items: { type: object, additionalProperties: true } }
+                        response: { type: [object, 'null'], additionalProperties: true }
+                        applied: { type: object, additionalProperties: true }
+                        model: { type: [string, 'null'] }
+                        created_at: { type: string }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/v1/accounting/ai-assistant/status:
     get:
       tags: [Accounting]
