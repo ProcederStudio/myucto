@@ -209,6 +209,17 @@ final class AiProviderHttpClient
         ];
     }
 
+    public function availableModels(int $supplierId): array
+    {
+        try {
+            $ctx = $this->context($supplierId);
+            $models = $this->registry->resolve($ctx['provider'])->capabilities($supplierId)->models;
+            return array_values(array_unique([$ctx['model'], ...$models]));
+        } catch (\Throwable) {
+            return [];
+        }
+    }
+
     public function isClassificationAvailable(int $supplierId): bool
     {
         try {

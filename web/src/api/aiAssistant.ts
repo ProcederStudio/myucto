@@ -6,6 +6,7 @@ export interface AiAssistantStatus {
   provider: string | null
   model: string | null
   supports_files: boolean
+  models?: string[]
 }
 
 export interface AiJournalLine {
@@ -140,6 +141,7 @@ export interface AiAskInput {
   files: File[]
   documentIds: number[]
   includeChart: boolean
+  model?: string
   /** Navazující dotaz v uložené konverzaci — kontext si server vezme sám. */
   conversationId?: number | null
 }
@@ -166,6 +168,7 @@ export interface AiDocumentAnalysis {
 export function buildAskForm(input: AiAskInput): FormData {
   const fd = new FormData()
   fd.append('question', input.question)
+  if (input.model) fd.append('model', input.model)
   if (input.conversationId) fd.append('conversation_id', String(input.conversationId))
   else fd.append('history', JSON.stringify(input.history.slice(-10)))
   for (const f of input.files) fd.append('files[]', f, f.name)

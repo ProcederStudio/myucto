@@ -10488,7 +10488,7 @@ paths:
     get:
       tags: [Accounting]
       summary: Dostupnost AI asistenta účetní (poskytovatel, model, podpora PDF a obrázků)
-      description: Dotaz na asistenta (POST /api/accounting/ai-assistant/ask) je jen pro přihlášeného uživatele v aplikaci, API tokenem nejde.
+      description: Dotaz na asistenta (POST /api/accounting/ai-assistant/ask) je jen pro přihlášeného uživatele v aplikaci, API tokenem nejde. Volitelné multipart pole model vybere pro dotaz jednu hodnotu z models bez změny nastavení firmy.
       parameters:
       - $ref: '#/components/parameters/SupplierIdHeader'
       responses:
@@ -10497,13 +10497,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  available: { type: boolean }
-                  reason: { type: [string, 'null'], enum: [provider_not_configured, dpa_not_confirmed, residency_conflict, null] }
-                  provider: { type: [string, 'null'] }
-                  model: { type: [string, 'null'] }
-                  supports_files: { type: boolean, description: 'false = poskytovatel neumí PDF ani obrázky (Ollama); textové přílohy jdou' }
+                $ref: '#/components/schemas/AiAssistantStatus'
   /api/v1/accounting/journal:
     get:
       tags:
@@ -29208,6 +29202,19 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
 
   schemas:
+    AiAssistantStatus:
+      type: object
+      required: [available, reason, provider, model, supports_files, models]
+      properties:
+        available: { type: boolean }
+        reason: { type: [string, 'null'], enum: [provider_not_configured, dpa_not_confirmed, residency_conflict, null] }
+        provider: { type: [string, 'null'] }
+        model: { type: [string, 'null'], description: Výchozí model pro dotaz bez explicitní volby }
+        supports_files: { type: boolean, description: 'false = poskytovatel neumí PDF ani obrázky (Ollama); textové přílohy jdou' }
+        models:
+          type: array
+          items: { type: string }
+          description: Povolené modely aktivního poskytovatele pro jednorázový dotaz
     OpenItemLine:
       type: object
       properties:

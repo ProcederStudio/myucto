@@ -66,10 +66,12 @@ final class AccountingAssistantService
         private readonly VatStatusService $vat,
     ) {}
 
-    /** @return array{available:bool, reason:?string, provider:?string, model:?string, supports_files:bool} */
+    /** @return array{available:bool, reason:?string, provider:?string, model:?string, supports_files:bool, models:list<string>} */
     public function status(int $supplierId): array
     {
-        return $this->ai->status($supplierId);
+        $status = $this->ai->status($supplierId);
+        $status['models'] = $status['available'] ? $this->ai->availableModels($supplierId) : [];
+        return $status;
     }
 
     /**
@@ -86,6 +88,7 @@ final class AccountingAssistantService
         array $files,
         array $documentIds,
         bool $includeChart,
+        ?string $modelOverride = null,
     ): array {
         $question = trim($question);
         if ($question === '' || mb_strlen($question) > self::MAX_QUESTION_CHARS) {
@@ -112,6 +115,10 @@ final class AccountingAssistantService
         }
 
         $status = $this->assertAvailable($supplierId);
+        $modelOverride = trim($modelOverride ?? '') ?: null;
+        if ($modelOverride !== null && !in_array($modelOverride, $this->ai->availableModels($supplierId), true)) {
+            throw AccountingAssistantException::invalid('Neplatný model pro aktivního AI poskytovatele.');
+        }
 
         $attachments = [];
         foreach (array_values($files) as $i => $file) {
@@ -134,7 +141,7 @@ final class AccountingAssistantService
             . $this->historyBlock($history)
             . "## Dotaz\n" . $question . "\n";
 
-        $result = $this->complete($supplierId, $this->systemPrompt('assistant'), $user, $this->askSchema(), 8000, $binary);
+        $result = $this->complete($supplierId, $this->systemPrompt('assistant'), $user, $this->askSchema(), 8000, $binary, $modelOverride);
         $data = $result['data'];
 
         $entries = AiJournalEntryNormalizer::normalize($data['journal_entries'] ?? [], $chartNames, $firm['today']);
@@ -796,14 +803,14 @@ final class AccountingAssistantService
      * @param list<array{name:string,mime:string,bytes:string}> $binary
      * @return array{data:array<string,mixed>, provider:string, model:string, usage:array<string,int>}
      */
-    private function complete(int $supplierId, string $system, string $user, array $schema, int $maxTokens, array $binary): array
+    private function complete(int $supplierId, string $system, string $user, array $schema, int $maxTokens, array $binary, ?string $modelOverride = null): array
     {
         $result = $this->ai->completeJson(
             $supplierId,
             $system,
             $user,
             $schema,
-            $this->ai->strongModelOverride($supplierId),
+            $modelOverride ?? $this->ai->strongModelOverride($supplierId),
             $maxTokens,
             $binary,
             true,

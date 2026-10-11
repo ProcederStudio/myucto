@@ -60,6 +60,9 @@ final class AiAssistantAction
                 $history = $this->history->contextHistory($supplierId, $userId, $conversationId);
             }
             $question = is_string($body['question'] ?? null) ? $body['question'] : '';
+            if (isset($body['model']) && !is_string($body['model'])) {
+                throw AccountingAssistantException::invalid('Neplatný model.');
+            }
             $files = $this->uploadedFiles($request);
 
             $result = $this->assistant->ask(
@@ -70,6 +73,7 @@ final class AiAssistantAction
                 $files,
                 $documentIds,
                 in_array($body['include_chart'] ?? '0', ['1', 1, true, 'true'], true),
+                $body['model'] ?? null,
             );
             if ($userId !== null) {
                 $attachments = [

@@ -33,6 +33,7 @@ const ACCEPT = '.pdf,.png,.jpg,.jpeg,.webp,.gif,.txt,.csv,.xml,.isdoc,.json,.doc
 const status = ref<AiAssistantStatus | null>(null)
 const statusLoading = ref(true)
 const available = computed(() => status.value?.available === true)
+const selectedModel = ref('')
 const reasonText = computed(() => {
   const code = status.value?.reason
   if (!code) return t('accounting.ai_assistant.reason.unknown')
@@ -120,6 +121,7 @@ interface ChatMessage {
   id: number
   role: 'user' | 'assistant'
   content: string
+  model?: string | null
   fileNames?: string[]
   /** Přiložené dokumenty; title null = zpráva z historie (jen id). */
   docRefs?: { id: number; title: string | null }[]
@@ -238,6 +240,7 @@ async function loadConversation(id: number) {
           id: ++msgSeq,
           role: 'assistant',
           content: sm.content,
+          model: sm.model,
           response: sm.response ?? undefined,
           historicFileNames: lastUser?.fileNames ?? [],
           sentDocIds: (lastUser?.docRefs ?? []).map(d => d.id),
@@ -332,12 +335,14 @@ async function send() {
       files: sentFiles,
       documentIds: sentDocs.map(d => d.id),
       includeChart: includeChart.value,
+      model: selectedModel.value || undefined,
       conversationId: conversationId.value,
     })
     const msg: ChatMessage = {
       id: ++msgSeq,
       role: 'assistant',
       content: res.answer,
+      model: res.model,
       response: res,
       sentFiles,
       sentDocIds: sentDocs.map(d => d.id),
@@ -538,7 +543,7 @@ onMounted(async () => {
       </div>
       <div class="flex flex-wrap items-center gap-2">
         <span v-if="status?.available && status.model" class="text-xs text-neutral-400 whitespace-nowrap">
-          {{ status.provider }} · {{ status.model }}
+          {{ status.provider }} · {{ selectedModel || status.model }}
         </span>
         <button v-if="available" type="button" :class="btnOutline('primary')" :disabled="sending" data-test="ai-assistant-new" @click="newConversation">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.plus" /></svg>
@@ -642,6 +647,7 @@ onMounted(async () => {
           <div v-else class="flex justify-start">
             <div class="w-full max-w-[95%] rounded-lg rounded-bl-sm bg-surface border border-neutral-200 px-4 py-3 shadow-sm space-y-3">
               <AiMarkdown :text="m.content" />
+              <p v-if="m.model" class="text-xs text-neutral-400">{{ t('accounting.ai_assistant.model') }}: {{ m.model }}</p>
 
               <ul v-if="m.response?.warnings?.length" class="space-y-1">
                 <li v-for="(w, wi) in m.response.warnings" :key="wi" class="text-xs text-warning-700 bg-warning-50 rounded px-2 py-1">{{ w }}</li>
@@ -815,6 +821,16 @@ onMounted(async () => {
               </button>
             </li>
           </ul>
+        </div>
+
+        <div v-if="status?.models?.length" class="flex flex-wrap items-center gap-2">
+          <label for="assistant-model" class="text-sm text-neutral-700">{{ t('accounting.ai_assistant.model') }}</label>
+          <select id="assistant-model" v-model="selectedModel" :disabled="sending" data-test="ai-assistant-model"
+                  class="max-w-full px-3 py-1.5 text-sm border border-neutral-300 rounded-md bg-surface">
+            <option value="">{{ t('accounting.ai_assistant.default_model', { model: status.model }) }}</option>
+            <option v-for="model in status.models" :key="model" :value="model">{{ model }}</option>
+          </select>
+          <span class="text-xs text-neutral-400">{{ t('accounting.ai_assistant.model_hint') }}</span>
         </div>
 
         <div class="flex flex-wrap items-center gap-2">

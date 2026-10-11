@@ -62,6 +62,9 @@ Volitelné kroky:
   [§ 25.9.13](#25913-poskytovatele-ai-a-jejich-nastaveni).
 - **Ladění extrakce.** Pod formulářem nastavíte **Míru uvažování AI** a **Poznámky k extrakci**, uložíte tlačítkem
   **Uložit ladění** (viz [§ 25.9.16](#25916-ladeni-extrakce-poznamky-a-mira-uvazovani)).
+- **Model pro dotaz účetnímu asistentovi.** V `Účetnictví → AI asistent` vyberete u vstupu dotazu **Model** aktivního
+  poskytovatele, například `gpt-5.5` místo `gpt-5.4-mini`. Volba platí pro další odesílané dotazy na této stránce a nemění
+  výchozí model firmy. U každé odpovědi je uveden použitý model, také při otevření uložené konverzace.
 - **Smazání klíče.** Tlačítko **koš** u poskytovatele smaže jeho uložené přihlašovací údaje (po potvrzení). Pokud byl aktivní,
   extrakce přestane fungovat, dokud nenastavíte jiného poskytovatele nebo klíč nevložíte znovu.
 
