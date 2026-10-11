@@ -11,6 +11,7 @@ use MyInvoice\Repository\ChartOfAccountsRepository;
 use MyInvoice\Repository\DocumentFolderRepository;
 use MyInvoice\Repository\DocumentRepository;
 use MyInvoice\Repository\DocumentViewerContext;
+use MyInvoice\Service\Accounting\ChartOfAccountsSeeder;
 use MyInvoice\Service\Ai\AccountingAssistantException;
 use MyInvoice\Service\Ai\AccountingAssistantService;
 use MyInvoice\Service\Document\DocumentStorage;
@@ -65,6 +66,9 @@ final class AccountingAssistantServiceTest extends TestCase
 
     protected function tearDown(): void
     {
+        if (isset($this->pdo) && $this->pdo->inTransaction()) {
+            $this->pdo->rollBack();
+        }
         foreach ($this->createdDocs as $id) {
             $this->pdo->prepare('DELETE FROM documents WHERE id = ?')->execute([$id]);
         }
@@ -132,6 +136,9 @@ final class AccountingAssistantServiceTest extends TestCase
 
     public function testAskSendsFilesAndDocumentsAndNormalizesSuggestions(): void
     {
+        $this->pdo->beginTransaction();
+        (new ChartOfAccountsSeeder($this->conn))->seedForSupplier($this->supplierId);
+        (new DocumentFolderRepository($this->conn))->create($this->supplierId, null, 'ZZAIASSISTFOLDER', null);
         $docId = $this->insertDoc('Pokladní doklad PD-SYNT', 'Příjmový pokladní doklad ZZAIASSISTMARKER vklad 50 000 Kč');
         $service = $this->service([self::toolResponse([
             'answer' => '## Postup' . "\n" . 'Upsání 353/411.',
@@ -170,6 +177,7 @@ final class AccountingAssistantServiceTest extends TestCase
         self::assertStringContainsString('Dokument id=' . $docId, $user);
         self::assertStringContainsString('## Předchozí konverzace', $user);
         self::assertStringContainsString('## Složky v Dokumentech', $user);
+        self::assertStringContainsString('ZZAIASSISTFOLDER', $user);
         self::assertStringContainsString('## Účtový rozvrh firmy', $user);
         self::assertStringContainsString('ignoruj', $payload['system'], 'ochrana proti pokynům v přílohách');
 
