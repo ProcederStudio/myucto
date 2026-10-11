@@ -147,9 +147,12 @@ final class AccountingAssistantService
             throw new AccountingAssistantException('ai_assistant.provider_error', 'AI nevrátila žádnou odpověď.', 502);
         }
 
+        $otherItems = $this->normalizeOtherItems($supplierId, $data['other_items'] ?? [], $firm['today']);
+        $warnings = array_merge($warnings, $this->syntheticAccountWarnings($supplierId, $entries, $otherItems));
+
         return [
             'answer' => $answer,
-            'other_items' => $this->normalizeOtherItems($supplierId, $data['other_items'] ?? [], $firm['today']),
+            'other_items' => $otherItems,
             'journal_entries' => $entries,
             'document_suggestions' => $this->documentSuggestions($data['document_suggestions'] ?? [], count($files), $ids, $folderPaths),
             'warnings' => array_values(array_merge($warnings, $this->stringList($data['warnings'] ?? []))),
@@ -208,12 +211,14 @@ final class AccountingAssistantService
                 $fields[] = ['label' => mb_substr($label, 0, 200), 'value' => mb_substr($value, 0, 2000)];
             }
         }
+        $otherItems = $accounting ? $this->normalizeOtherItems($supplierId, $data['other_items'] ?? [], $firm['today']) : [];
+        $warnings = array_merge($warnings, $this->syntheticAccountWarnings($supplierId, $entries, $otherItems));
         $analysis = [
             'detail' => $detail,
             'accounting' => $accounting,
             'answer' => trim((string) ($data['answer'] ?? '')),
             'fields' => $fields,
-            'other_items' => $accounting ? $this->normalizeOtherItems($supplierId, $data['other_items'] ?? [], $firm['today']) : [],
+            'other_items' => $otherItems,
             'journal_entries' => $entries,
             'warnings' => array_values(array_merge($warnings, $this->stringList($data['warnings'] ?? []))),
             'provider' => (string) $result['provider'],
@@ -427,14 +432,61 @@ final class AccountingAssistantService
 
     private function chartBlock(int $supplierId): string
     {
+        $accounts = $this->chart->listForTenant($supplierId);
+        $withAnalytics = $this->accountsWithAnalytics($accounts);
         $lines = [];
-        foreach (array_slice($this->chart->listForTenant($supplierId), 0, self::MAX_CHART_ACCOUNTS) as $a) {
-            $lines[] = $a['account_code'] . ' – ' . $a['name'];
+        foreach (array_slice($accounts, 0, self::MAX_CHART_ACCOUNTS) as $a) {
+            $lines[] = $a['account_code'] . ' – ' . $a['name']
+                . (isset($withAnalytics[(string) $a['account_code']]) ? ' [má analytiky]' : '');
         }
         if ($lines === []) {
             return "## Účtová osnova firmy\nFirma nemá založenou účtovou osnovu; použij směrnou účtovou osnovu.\n\n";
         }
-        return "## Účtová osnova firmy (aktivní účty: kód – název)\n" . implode("\n", $lines) . "\n\n";
+        return "## Účtový rozvrh firmy (aktivní účty: kód – název)\n"
+            . "Účet označený [má analytiky] nepoužívej, účtuj na jeho nejvhodnější analytický účet z rozvrhu. "
+            . "V odpovědi i v návrzích uváděj konkrétní analytické účty (např. 221.001), ne jen syntetické.\n"
+            . implode("\n", $lines) . "\n\n";
+    }
+
+    /**
+     * Účty, pod kterými jsou aktivní analytiky: AI má účtovat na analytiku, ne na ně.
+     *
+     * @param list<array<string,mixed>> $accounts
+     * @return array<string,true>
+     */
+    private function accountsWithAnalytics(array $accounts): array
+    {
+        $codeById = array_column($accounts, 'account_code', 'id');
+        $out = [];
+        foreach ($accounts as $a) {
+            if ($a['parent_id'] !== null && isset($codeById[$a['parent_id']])) {
+                $out[(string) $codeById[$a['parent_id']]] = true;
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * @param list<array<string,mixed>> $entries
+     * @param list<array<string,mixed>> $otherItems
+     * @return list<string>
+     */
+    private function syntheticAccountWarnings(int $supplierId, array $entries, array $otherItems): array
+    {
+        $used = [];
+        foreach ($entries as $e) {
+            foreach ($e['lines'] as $l) {
+                $used[] = (string) $l['account_code'];
+            }
+        }
+        foreach ($otherItems as $i) {
+            $used[] = (string) $i['account_code'];
+            $used[] = (string) $i['counter_account_code'];
+        }
+        $withAnalytics = $this->accountsWithAnalytics($this->chart->listForTenant($supplierId));
+        $hits = array_values(array_unique(array_filter($used, static fn (string $c): bool => isset($withAnalytics[$c]))));
+        return $hits === [] ? [] : ['Návrh používá syntetický účet ' . implode(', ', $hits)
+            . ', pod kterým máte v rozvrhu analytiky. Před zaúčtováním zvolte konkrétní analytiku.'];
     }
 
     /** @return array<string,string> kód => název, vč. neaktivních účtů */
@@ -532,7 +584,7 @@ final class AccountingAssistantService
         $entries = "- Zápisy do `journal_entries` navrhuj jen tehdy, když jsou z dotazu nebo příloh známé konkrétní částky a data. "
             . "Každý zápis musí být vyrovnaný (součet debit = součet credit). side: \"debit\" = Má dáti (MD), \"credit\" = Dal (D). "
             . "entry_date ve formátu YYYY-MM-DD; document_no prázdný řetězec, pokud není známé; note prázdný řetězec, pokud není potřeba.\n"
-            . "- Používej účty z přiložené účtové osnovy firmy; když osnova přiložená není, použij českou směrnou účtovou osnovu (syntetické účty).\n";
+            . "- Používej účty z přiloženého účtového rozvrhu firmy, a to co nejpodrobnější analytiky; když rozvrh přiložený není, použij českou směrnou účtovou osnovu (syntetické účty) a upozorni, že analytiky si má uživatel doplnit podle svého rozvrhu.\n";
         $app = "- Když radíš postup v aplikaci MyÚčto, odkazuj jen na tyto části menu:\n"
             . "  - Účetnictví → Účetní deník → Nový zápis: interní doklad s libovolnými řádky MD/D. Tvůj návrh v `journal_entries` uživatel zaúčtuje jedním tlačítkem nebo otevře k úpravě.\n"
             . "  - Účetnictví → Ostatní pohledávky a závazky: pohledávky a závazky mimo faktury (např. pohledávka za upsaný základní kapitál vůči společníkovi, půjčky, nájem, jistiny, pojištění, poplatky). "

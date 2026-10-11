@@ -15690,7 +15690,7 @@
       "ask_failed": "Dotaz se nepodařilo zpracovat.",
       "attach_files": "Přiložit soubory",
       "attach_documents": "Přiložit z Dokumentů",
-      "include_chart": "Přiložit účtovou osnovu",
+      "include_chart": "Přiložit účtový rozvrh firmy včetně analytik",
       "remove_attachment": "Odebrat přílohu",
       "too_many_files": "Přiložit lze nejvýše {max} souborů.",
       "too_many_docs": "Přiložit lze nejvýše {max} dokumentů.",

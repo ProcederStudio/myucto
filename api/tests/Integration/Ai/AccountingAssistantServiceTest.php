@@ -170,7 +170,7 @@ final class AccountingAssistantServiceTest extends TestCase
         self::assertStringContainsString('Dokument id=' . $docId, $user);
         self::assertStringContainsString('## Předchozí konverzace', $user);
         self::assertStringContainsString('## Složky v Dokumentech', $user);
-        self::assertStringContainsString('## Účtová osnova firmy', $user);
+        self::assertStringContainsString('## Účtový rozvrh firmy', $user);
         self::assertStringContainsString('ignoruj', $payload['system'], 'ochrana proti pokynům v přílohách');
 
         self::assertSame('## Postup' . "\n" . 'Upsání 353/411.', $out['answer']);
@@ -242,6 +242,41 @@ final class AccountingAssistantServiceTest extends TestCase
         self::assertSame('loan', $out['other_items'][0]['kind']);
         self::assertCount(2, $out['other_items'][0]['installments']);
         self::assertTrue($out['other_items'][0]['installments_valid']);
+    }
+
+    /** Rozvrh označí účty s analytikami a návrh na takovou syntetiku dostane upozornění. */
+    public function testChartMarksAnalyticsAndWarnsOnSyntheticAccount(): void
+    {
+        $this->pdo->beginTransaction();
+        try {
+            $insert = $this->pdo->prepare("INSERT INTO chart_of_accounts
+                (supplier_id, account_code, name, account_type, normal_side, is_synthetic, parent_id, is_active)
+                VALUES (?, ?, ?, 'asset', 'debit', ?, ?, 1)");
+            $insert->execute([$this->supplierId, 'ZZ9', 'Syntetický testovací účet', 1, null]);
+            $parent = (int) $this->pdo->lastInsertId();
+            $insert->execute([$this->supplierId, 'ZZ9.001', 'Analytika testovacího účtu', 0, $parent]);
+
+            $service = $this->service([self::toolResponse([
+                'answer' => 'Návrh.', 'other_items' => [], 'document_suggestions' => [], 'warnings' => [],
+                'journal_entries' => [[
+                    'entry_date' => '2026-03-01', 'description' => 'Test', 'document_no' => '',
+                    'lines' => [
+                        ['account_code' => 'ZZ9', 'side' => 'debit', 'amount' => 100, 'note' => ''],
+                        ['account_code' => 'ZZ9.001', 'side' => 'credit', 'amount' => 100, 'note' => ''],
+                    ],
+                ]],
+            ])]);
+            $out = $service->ask($this->supplierId, DocumentViewerContext::admin(), 'Jak zaúčtovat?', [], [], [], true);
+
+            $user = $this->sentUserText();
+            self::assertStringContainsString('ZZ9 – Syntetický testovací účet [má analytiky]', $user);
+            self::assertStringContainsString("ZZ9.001 – Analytika testovacího účtu\n", $user);
+            if ($this->doubleEntry) {
+                self::assertNotEmpty(array_filter($out['warnings'], static fn (string $w): bool => str_contains($w, 'syntetický účet ZZ9,')));
+            }
+        } finally {
+            $this->pdo->rollBack();
+        }
     }
 
     /** Dokument jiného uživatele (scope=user) nesmí jít přes document_ids do promptu. */

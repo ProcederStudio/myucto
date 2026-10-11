@@ -15690,7 +15690,7 @@
       "ask_failed": "The question could not be processed.",
       "attach_files": "Attach files",
       "attach_documents": "Attach from Documents",
-      "include_chart": "Attach chart of accounts",
+      "include_chart": "Attach the company chart of accounts incl. analytical accounts",
       "remove_attachment": "Remove attachment",
       "too_many_files": "You can attach at most {max} files.",
       "too_many_docs": "You can attach at most {max} documents.",
