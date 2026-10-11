@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
-import { integrationsApi, type AiIssuedExtractResult, type AiCredentialsResponse, type AiProvider } from '@/api/integrations'
+import { integrationsApi, type AiIssuedExtractResult, type AiExtractionStatus, type AiProvider } from '@/api/integrations'
 import { useToast } from '@/composables/useToast'
 import { apiErrorCode, apiErrorMessage } from '@/api/errors'
 import AiNotConfiguredNotice from '@/components/purchase/AiNotConfiguredNotice.vue'
@@ -15,7 +15,7 @@ const router = useRouter()
 // ── AI import VYDANÉ faktury — prodejní zrcadlo /purchase-invoices/ai-import.
 // Nastavení AI brány (provideři, klíče, DPA) zůstává v adminu; tady je jen denní
 // operativa: nahrát doklad → extrakce → draft vydané faktury k revizi v editoru.
-const aiCreds = ref<AiCredentialsResponse | null>(null)
+const aiCreds = ref<AiExtractionStatus | null>(null)
 const providerInfo = computed(() => aiCreds.value?.providers?.[aiCreds.value.ai_provider])
 const models = computed(() => providerInfo.value?.models ?? [])
 const aiConfigured = computed(() => !!providerInfo.value?.configured)
@@ -26,7 +26,7 @@ function providerLabel(p: AiProvider): string { return t(`aiGateway.provider.${p
 
 async function loadAiCreds() {
   try {
-    aiCreds.value = await integrationsApi.getAiCredentials()
+    aiCreds.value = await integrationsApi.getAiExtractionStatus('issued')
   } catch {
     aiCreds.value = null
   } finally {

@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
-import { integrationsApi, type AiExtractResult, type AiCredentialsResponse, type AiProvider } from '@/api/integrations'
+import { integrationsApi, type AiExtractResult, type AiExtractionStatus, type AiProvider } from '@/api/integrations'
 import { purchaseInvoicesApi, type ImportBatch, type PurchaseDocumentKind } from '@/api/purchaseInvoices'
 import { useToast } from '@/composables/useToast'
 import { formatDate } from '@/composables/useFormat'
@@ -19,7 +19,7 @@ const router = useRouter()
 // Integrations (?tab=ai). Nastavení brány (provideři, klíče, DPA) zůstává
 // v adminu; tady je jen denní operativa účetní: nahrát doklad → extrakce →
 // draft přijaté faktury.
-const aiCreds = ref<AiCredentialsResponse | null>(null)
+const aiCreds = ref<AiExtractionStatus | null>(null)
 const providerInfo = computed(() => aiCreds.value?.providers?.[aiCreds.value.ai_provider])
 const models = computed(() => providerInfo.value?.models ?? [])
 const aiConfigured = computed(() => !!providerInfo.value?.configured)
@@ -30,7 +30,7 @@ function providerLabel(p: AiProvider): string { return t(`aiGateway.provider.${p
 
 async function loadAiCreds() {
   try {
-    aiCreds.value = await integrationsApi.getAiCredentials()
+    aiCreds.value = await integrationsApi.getAiExtractionStatus('purchase')
   } catch {
     // Bez oprávnění / brána nenasazená — degradujeme defenzivně (zobrazí se "není nakonfigurováno").
     aiCreds.value = null

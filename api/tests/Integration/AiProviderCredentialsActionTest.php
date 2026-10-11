@@ -105,6 +105,20 @@ final class AiProviderCredentialsActionTest extends TestCase
         self::assertTrue($providers['azure_openai']['eu_capable']);
     }
 
+    /** AI nastavuje firma; vytěžovat přes něj smí i účetní, ne jen superadmin. */
+    public function testExtractionStatusIsAvailableToAccountantWithoutConfig(): void
+    {
+        $res = $this->call('extractionStatus', 'GET', 'accountant');
+        self::assertSame(200, $res['status']);
+        $provider = $res['body']['ai_provider'] ?? null;
+        self::assertIsString($provider);
+        self::assertSame([$provider], array_keys($res['body']['providers'] ?? []));
+        self::assertSame(['configured', 'default_model', 'models', 'allowed_models'], array_keys($res['body']['providers'][$provider]));
+        self::assertSame(['ai_provider', 'providers'], array_keys($res['body']));
+
+        self::assertSame(403, $this->call('extractionStatus', 'GET', 'readonly')['status']);
+    }
+
     public function testTestRouteAdminOnly(): void
     {
         // Non-admin → 403.

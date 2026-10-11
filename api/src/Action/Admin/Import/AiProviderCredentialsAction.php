@@ -78,6 +78,38 @@ final class AiProviderCredentialsAction
         private readonly AiCredentialsBulkApplier $bulkApplier,
     ) {}
 
+    /**
+     * GET /api/admin/imports/ai-extract-pdf{,-issued}/status — stav AI pro stránky
+     * vytěžení. Jen aktivní poskytovatel a jeho modely, bez klíčů a konfigurace;
+     * AI nastavuje firma, používat ho smí každý s právem vytěžovat doklady.
+     */
+    public function extractionStatus(Request $request, Response $response): Response
+    {
+        if (!RequestAuthorization::allows($request, 'purchase_invoices.scan', AccessLevel::WRITE)
+            && !RequestAuthorization::allows($request, 'invoices.create', AccessLevel::WRITE)) {
+            return Json::error($response, 'forbidden', 'Nemáte oprávnění.', 403);
+        }
+        $supplierId = SupplierGuard::currentId($request);
+        $provider = $this->selection($supplierId)['ai_provider'];
+        $providers = [];
+        if (in_array($provider, self::PROVIDERS, true)) {
+            $client = $this->clientFor($provider);
+            $caps   = $client->capabilities($supplierId);
+            $creds  = $client->getCredentials($supplierId);
+            $providers[$provider] = [
+                'configured'     => $creds !== null,
+                'default_model'  => $creds['default_model'] ?? $caps->defaultModel,
+                'models'         => $caps->models,
+                'allowed_models' => $caps->models,
+            ];
+        }
+
+        return Json::ok($response, [
+            'ai_provider' => $provider,
+            'providers'   => $providers,
+        ]);
+    }
+
     public function status(Request $request, Response $response): Response
     {
         if (!$this->isAdmin($request)) return Json::error($response, 'forbidden', 'Pouze admin.', 403);

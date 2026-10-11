@@ -170,6 +170,11 @@ export interface AiCredentialsResponse {
   providers: Record<AiProvider, AiProviderInfo>
 }
 
+export interface AiExtractionStatus {
+  ai_provider: AiProvider
+  providers: Partial<Record<AiProvider, Pick<AiProviderInfo, 'configured' | 'default_model' | 'models'>>>
+}
+
 export interface AiTuningPayload {
   ai_extraction_notes?: string
   ai_effort?: AiEffort
@@ -305,6 +310,9 @@ export const integrationsApi = {
   // AI provider brána (Epic F7) — per-provider credentials, admin-only, klíč write-only
   getAiCredentials: () =>
     api.get<AiCredentialsResponse>('/admin/imports/ai/credentials').then(r => r.data),
+  // Stav AI pro stránky vytěžení (bez klíčů) — smí každý s právem vytěžovat doklady.
+  getAiExtractionStatus: (side: 'purchase' | 'issued') =>
+    api.get<AiExtractionStatus>(side === 'issued' ? '/admin/imports/ai-extract-pdf-issued/status' : '/admin/imports/ai-extract-pdf/status').then(r => r.data),
   setAiCredentials: (payload: AiCredentialsPayload) =>
     api.put<AiCredentialsUpdateResult>('/admin/imports/ai/credentials', payload).then(r => r.data),
   deleteAiCredentials: (provider: AiProvider) =>

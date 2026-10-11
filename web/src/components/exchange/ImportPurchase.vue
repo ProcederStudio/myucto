@@ -8,7 +8,7 @@ import ExtractionReviewModal from '@/components/purchase/ExtractionReviewModal.v
 import AiNotConfiguredNotice from '@/components/purchase/AiNotConfiguredNotice.vue'
 import { useFileImportJob } from '@/composables/useFileImportJob'
 import { purchaseInvoicesApi, type InboxScanResult } from '@/api/purchaseInvoices'
-import { integrationsApi, type AnthropicCredentialsStatus } from '@/api/integrations'
+import { integrationsApi, type AiProviderInfo } from '@/api/integrations'
 import { useToast } from '@/composables/useToast'
 import { apiErrorMessage } from '@/api/errors'
 import { useAuthStore } from '@/stores/auth'
@@ -77,12 +77,13 @@ const notImportedItems = computed(() => {
 
 // AI integration status — load při mount aby uživatel věděl, zda PDF bez ISDOC
 // bude zpracováno (AI fallback) nebo skipnuté (no AI config)
-const aiStatus = ref<AnthropicCredentialsStatus | null>(null)
+const aiStatus = ref<Pick<AiProviderInfo, 'configured' | 'default_model'> | null>(null)
 async function loadAiStatus() {
   try {
-    aiStatus.value = await integrationsApi.getAnthropicCreds()
+    const s = await integrationsApi.getAiExtractionStatus('purchase')
+    aiStatus.value = s.providers[s.ai_provider] ?? { configured: false, default_model: null }
   } catch {
-    aiStatus.value = { configured: false } as AnthropicCredentialsStatus
+    aiStatus.value = { configured: false, default_model: null }
   }
 }
 onMounted(loadAiStatus)

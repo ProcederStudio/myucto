@@ -293,6 +293,21 @@ final class RoutePermissionMapTest extends TestCase
         }
     }
 
+    /** Stav AI pro vytěžení má stejné právo jako samotné vytěžení dané strany dokladů. */
+    public function testAiExtractionStatusUsesExtractionPermission(): void
+    {
+        $map = new RoutePermissionMap();
+        foreach ([
+            '/api/admin/imports/ai-extract-pdf/status' => 'purchase_invoices.scan',
+            '/api/admin/imports/ai-extract-pdf-issued/status' => 'invoices.create',
+        ] as $path => $key) {
+            $rule = $map->match('GET', $path);
+            self::assertSame(RoutePermissionMap::PERMISSION, $rule?->kind, $path);
+            self::assertSame($key, $rule->key, $path);
+            self::assertSame(AccessLevel::WRITE, $rule->minimum, $path);
+        }
+    }
+
     /**
      * Výjimka je úzká a fail-closed: cokoli mimo vyjmenované importní routy zůstává
      * superadmin-only. Hlídá hlavně to, aby regex na `/imports/…` neuklouzl na

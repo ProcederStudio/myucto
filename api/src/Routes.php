@@ -3072,6 +3072,8 @@ final class Routes
         $app->post   ('/api/admin/imports/ai-extract-pdf',        AiExtractPdfAction::class);
         // Prodejní zrcadlo — AI import vydané faktury (ISDOC priorita, AI fallback → draft vydané faktury).
         $app->post   ('/api/admin/imports/ai-extract-pdf-issued', AiExtractPdfIssuedAction::class);
+        $app->get    ('/api/admin/imports/ai-extract-pdf/status',        [AiProviderCredentialsAction::class, 'extractionStatus']);
+        $app->get    ('/api/admin/imports/ai-extract-pdf-issued/status', [AiProviderCredentialsAction::class, 'extractionStatus']);
 
         // CRM dashboard (fáze 5)
         $app->get    ('/api/crm/overview',     [CrmDashboardAction::class, 'overview']);
