@@ -80,6 +80,9 @@ final class InvoiceCreationStatsRecomputeCoverageTest extends TestCase
      * @var array<string, array<string, string>>
      */
     private const ALLOWED_WITHOUT_RECOMPUTE = [
+        'Service/Sample/SampleWorkflowGenerator.php' => [
+            'generate' => 'Vytváří pouze čtyři koncepty; dávkové statistiky celé sady přepočítá SampleDataGenerator po dokončení.',
+        ],
         'Action/Stock/SalesOrderAction.php' => [
             'invoice' => 'Vytváří pouze koncept z objednávky; standardní vystavení zajišťuje přepočet statistik.',
         ],

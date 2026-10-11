@@ -122,6 +122,34 @@ nepřeskakujete.
 **Jak poznáte, že je hotovo:** v závěrečném kroku wizard vypíše, kolik klientů,
 dodavatelů, zakázek, faktur a dalších dokladů vzniklo.
 
+Sada představuje fiktivní firmu dodávající technické vybavení a IT služby.
+Obsahuje 24 odběratelů, 12 dodavatelů, 36 zakázek, 120 vydaných a 120 přijatých
+faktur, dobropisy, pravidelnou fakturaci a knihu jízd. U právnické osoby nebo
+plátce DPH zahrnuje také sklad, majetek, banku a podvojné účetnictví.
+Skladové příjmy předcházejí výdejům, úhrady odkazují na skutečné ukázkové
+protistrany. Z vydaných faktur zůstávají čtyři neuhrazené a jedna částečně
+uhrazená, z přijatých čtyři neuhrazené. Dobropisy jsou započtené s původními
+fakturami. Čtyři další koncepty se zobrazují na Přehledu pro doplnění výkazů práce.
+V Šablonách jsou čtyři pravidla nákladů pro nájem, cloud, materiál a majetek
+a tři pravidla účtování pro bankovní poplatky, úroky a přímou platbu nájmu ze smlouvy.
+Pravidla mají režim návrhu a umožňují procvičit rozpoznání i schválení.
+
+Zapnuté jsou také dimenze s výchozími typy Středisko, Projekt, Vozidlo, Lokalita
+a Obchodní případ. Tři ukázkové hodnoty představují provozní středisko, jednu
+zakázku a firemní vozidlo. Středisko je přiřazené k ukázkovým dokladům a nákladovým
+i výnosovým řádkům deníku. Projekt odpovídá skutečné zakázce dokladu, vozidlo
+navazuje na servis automobilu. U zakázky jsou nastavené výchozí dimenze pro další doklady.
+
+V **Dokumentech** najdete tři fiktivní PDF faktury. Jejich položky a součty
+odpovídají evidenci a vazby vedou na fakturu, partnera, zakázku a případně deník
+a bankovní pohyb. PDF jsou označena jako školící doklady.
+
+Mzdy obsahují čtyři fiktivní osoby: plný a zkrácený pracovní poměr, DPP a DPČ.
+Tři předchozí měsíce mají docházku a schválené výpočty. V podvojném účetnictví
+navazují také na zaúčtované mzdové dávky a připravené závazky k výplatě.
+Aktuální měsíc zůstává rozpracovaný. Ukázkové závazky nejsou skutečně odeslané
+platby a vzorky nejsou určené pro podání úřadům.
+
 ### 7.6.1 Odebrání ukázkových dat
 
 Chcete-li začít načisto jen s vlastními daty:
@@ -130,10 +158,40 @@ Chcete-li začít načisto jen s vlastními daty:
    **Ukázková data**. Zobrazí se jen tehdy, když nějaká ukázková data existují.
 2. Klikněte na **Odebrat ukázková data** a potvrďte **Ano, odebrat**.
 
-Smaže se přesně vygenerovaná sada, vaše vlastní záznamy zůstanou.
+Smaže se přesně vygenerovaná sada včetně ukázkových dokumentů. Soubory sdílené
+s vašimi vlastními dokumenty zůstanou zachované. Účetní zápisy vytvořené pozdějším
+schválením ukázkových bankovních návrhů se odeberou také. Pokud jste na ukázky
+navázali vlastní data, která odebrání blokují, celá operace se vrátí.
+
+Součástí odebrání jsou i evidované mzdové osoby, docházka, výpočty, závazky
+a mzdové účetní zápisy. Ochrana schválené mzdové historie připouští odebrání
+jen přesně evidovaných ukázkových řádků.
+
+Odeberou se také nové ukázkové hodnoty dimenzí, jejich přiřazení a výchozí
+hodnoty zakázky. Předchozí typy a hodnoty zůstanou zachované a zapnutí dimenzí
+se vrátí do původního stavu. Použití ukázkové hodnoty na vlastním dokladu
+odebrání zablokuje.
 
 Alternativně z příkazové řádky `php api/bin/reset.php --keep-users-supplier`
 smaže všechna byznys data, ale ponechá přihlášení a nastaveného dodavatele.
+
+Skript `php api/bin/sample.php --supplier=123` rozpozná dříve evidované ukázky
+a před novým generováním nabídne jejich odebrání. Po odmítnutí nic nezmění.
+Vlastní a neevidovaná data zůstávají zachovaná; pokud firma po odebrání ukázek
+není prázdná, nové generování se zastaví. Přepínač `--yes` samotný odebrání
+nepotvrzuje. Pro vědomou neinteraktivní náhradu slouží
+`php api/bin/sample.php --supplier=123 --replace --yes`.
+
+### 7.6.2 Tříhodinové procvičení
+
+| Čas | Oblast | Co na ukázkách sledovat |
+|---|---|---|
+| 15 minut | Přehled a partneři | Odběratelé, dodavatelé, zakázky a otevřené pohledávky. |
+| 35 minut | Prodej | Faktura, skladová položka, výdejka, PDF v Dokumentech a účetní zápis. |
+| 30 minut | Nákup a majetek | Přijatá faktura, příjemka, karta majetku a odpisy. |
+| 25 minut | Banka a pokladna | Úplná i částečná úhrada, schválení návrhu a převod hotovosti. |
+| 45 minut | Mzdy | Osoba, pracovní vztah, docházka, vstupy, výpočet, závazky a zaúčtování. |
+| 30 minut | Kontroly a výkazy | Dohledání dokladu z deníku, hlavní kniha, banka, evidence DPH a výsledky po dimenzích. |
 
 ## 7.7 Krok za krokem: dokončení setupu
 
@@ -191,7 +249,8 @@ Pro **s.r.o. nebo plátce DPH** generátor navíc automaticky zapne podvojné
 účetnictví a skladovou evidenci. Založí účtový rozvrh a účetní období, sklad s
 položkami a 120 příjemkami/výdejkami, dva majetky v odpisových skupinách 1 a 2,
 trojici e-shopových kategorií a výrobců přiřazených skladovým kartám, šest
-bankovních výpisů se 120 pohyby a všechny doklady zaúčtuje do účetního deníku.
+bankovních výpisů se 233 pohyby a navazující účetní zápisy. Část bankovních
+návrhů čeká na schválení, aby šlo procvičit jejich zpracování.
 Část faktur spáruje s bankovními úhradami, takže lze vyzkoušet také saldokonto
 a párování plateb.
 

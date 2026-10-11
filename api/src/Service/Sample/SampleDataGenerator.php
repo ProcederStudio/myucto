@@ -36,7 +36,7 @@ use PDO;
  * Základ tvoří 24 klientů, 36 zakázek, 120 vydaných faktur, 12 dobropisů,
  * 12 dodavatelů a 120 přijatých faktur. Pro právnickou osobu nebo plátce DPH
  * navíc zapne podvojné účetnictví a sklad, vytvoří 120 skladových dokladů,
- * 2 karty dlouhodobého a 4 karty drobného majetku, 6 bankovních výpisů se 120 pohyby, e-shopové číselníky
+ * 2 karty dlouhodobého a 4 karty drobného majetku, 6 bankovních výpisů s 233 pohyby, e-shopové číselníky
  * a vše zaúčtuje. Pro každou firmu navíc vytvoří pokladnu se sedmi doklady.
  * Sdílená logika pro `bin/sample.php` (CLI) i `SetupSampleAction` (HTTP wizard).
  *
@@ -46,6 +46,14 @@ use PDO;
  */
 final class SampleDataGenerator
 {
+    private const STOCK_NAMES = [
+        'Síťový router', 'Wi-Fi access point', 'SSD disk 2 TB', 'Operační paměť 32 GB',
+        'Dokovací stanice USB-C', 'Business notebook', 'LCD monitor 27 palců',
+        'Mechanická klávesnice', 'Bezdrátová myš', 'Webkamera Full HD',
+        'Headset pro videohovory', 'Záložní napájecí zdroj',
+    ];
+    private const STOCK_COSTS = [1450, 1950, 2100, 1650, 2400, 18400, 3900, 1250, 420, 1100, 1350, 3100];
+    private const STOCK_PRICES = [2190, 2890, 2990, 2390, 3490, 24900, 5490, 1790, 690, 1590, 1990, 4490];
     private const CLIENT_COUNT = 24;
     private const PROJECT_COUNT = 36;
     private const INVOICE_COUNT = 120;
@@ -77,6 +85,11 @@ final class SampleDataGenerator
         private readonly AssetService $assetService,
         private readonly DepreciationPostingService $depreciation,
         private readonly SmallAssetService $smallAssets,
+        private readonly SampleDocumentGenerator $sampleDocuments,
+        private readonly SamplePayrollGenerator $samplePayroll,
+        private readonly SampleWorkflowGenerator $sampleWorkflow,
+        private readonly SampleRuleGenerator $sampleRules,
+        private readonly SampleDimensionGenerator $sampleDimensions,
     ) {}
 
     /**
@@ -93,9 +106,13 @@ final class SampleDataGenerator
         $guard = $pdo->prepare(
             'SELECT (SELECT COUNT(*) FROM clients          WHERE supplier_id = ?)
                   + (SELECT COUNT(*) FROM invoices         WHERE supplier_id = ?)
-                  + (SELECT COUNT(*) FROM purchase_invoices WHERE supplier_id = ?)'
+                  + (SELECT COUNT(*) FROM purchase_invoices WHERE supplier_id = ?)
+                  + (SELECT COUNT(*) FROM payroll_employees WHERE supplier_id = ?)
+                  + (SELECT COUNT(*) FROM cash_documents WHERE supplier_id = ?)
+                  + (SELECT COUNT(*) FROM bank_statements WHERE supplier_id = ?)
+                  + (SELECT COUNT(*) FROM journal_entries WHERE supplier_id = ?)'
         );
-        $guard->execute([$supplierId, $supplierId, $supplierId]);
+        $guard->execute(array_fill(0, 7, $supplierId));
         if ((int) $guard->fetchColumn() > 0) {
             throw new \RuntimeException(
                 'Ukázková data nelze vygenerovat — pro tohoto dodavatele už existují klienti nebo doklady. '
@@ -107,7 +124,7 @@ final class SampleDataGenerator
         // sample_data_entries, ať je lze později přesně odebrat (issue #162).
         $tracked = [];
         $track = static function (string $type, int $id) use (&$tracked): void {
-            if ($id > 0) $tracked[] = [$type, $id];
+            if ($id > 0) $tracked[$type . ':' . $id] = [$type, $id];
         };
 
         $resolveCurrency = function (string $code) use ($pdo, $supplierId): int {
@@ -147,14 +164,14 @@ final class SampleDataGenerator
         // (tuzemský RC §92a na IT služby neexistuje), EU klienti s DIČ (SK, DE)
         // S reverse charge — poskytnutí služby do JČS (ř.21 DPHDP3, kód 22, SHV).
         $customerNames = [
-            'Alfa Demo Systems s.r.o.', 'Beta Ukázka Studio s.r.o.', 'Gama Cloud a.s.',
-            'Delta Projekt s.r.o.', 'Epsilon Media s.r.o.', 'Zeta Commerce s.r.o.',
-            'Eta Consulting s.r.o.', 'Theta Design s.r.o.', 'Iota Works s.r.o.',
-            'Kappa Digital s.r.o.', 'Lambda Office s.r.o.', 'Mí Demo Market s.r.o.',
-            'Ný Sample Labs s.r.o.', 'Ksý Data s.r.o.', 'Omikron Servis s.r.o.',
-            'Pí Creative s.r.o.', 'Ró Technology s.r.o.', 'Sigma Solutions s.r.o.',
-            'Tau Development s.r.o.', 'Ypsilon Agency s.r.o.', 'Demo Bratislava s.r.o.',
-            'Ukážka Košice s.r.o.', 'Beispiel Nord GmbH', 'Muster Süd GmbH',
+            'Demo Lípový ateliér s.r.o.', 'Demo Modrá dílna s.r.o.', 'Demo Hvězdná výroba a.s.',
+            'Demo Javorová projekce s.r.o.', 'Demo Papírový svět s.r.o.', 'Demo Zelený obchod s.r.o.',
+            'Demo Severní poradna s.r.o.', 'Demo Barevný interiér s.r.o.', 'Demo Měděná továrna s.r.o.',
+            'Demo Digitální most s.r.o.', 'Demo Kancelář na kopci s.r.o.', 'Demo Malý trh s.r.o.',
+            'Demo Výzkumná louka s.r.o.', 'Demo Datový sad s.r.o.', 'Demo Rychlý servis s.r.o.',
+            'Demo Tvůrčí hnízdo s.r.o.', 'Demo Technický přístav s.r.o.', 'Demo Chytrá řešení s.r.o.',
+            'Demo Vývojová zahrada s.r.o.', 'Demo Sluneční agentura s.r.o.', 'Demo Bratislava s.r.o.',
+            'Demo Ukážka Košice s.r.o.', 'Demo Beispiel Nord GmbH', 'Demo Muster Süd GmbH',
         ];
         $cityProfiles = [
             ['Praha', '11000', 'CZ'], ['Brno', '60200', 'CZ'], ['Ostrava', '70200', 'CZ'],
@@ -306,15 +323,18 @@ final class SampleDataGenerator
                 'id' => $invId, 'vs' => $vs, 'currency' => $clientCurrency,
                 'currency_id' => $clientCurrencyId, 'rc' => $clientReverseCharge,
                 'issue_date' => $issueDate, 'client_idx' => $clientIdx,
+                'company' => $clients[$clientIdx][0],
             ];
 
-            $stocked = $advanced && $clientCurrency === 'CZK' && count($stockIssueCandidates) < 60;
+            $stocked = $advanced && $clientCurrency === 'CZK'
+                && count(array_filter($stockIssueCandidates, static fn (array $item): bool => substr($item['date'], 0, 7) === $month)) < 5;
             $itemCount = $stocked ? 1 : 1 + ($i % 3);
             $totalBase = 0; $totalVat = 0;
             for ($k = 0; $k < $itemCount; $k++) {
+                $stockIndex = $stocked ? count($stockIssueCandidates) % count($advancedData['stock_item_ids']) : null;
                 $quantity = $stocked ? 5 : 4 + (($i * 7 + $k * 3) % 37);
                 $rate = $stocked
-                    ? 1850 + (($i % 8) * 175)
+                    ? self::STOCK_PRICES[$stockIndex]
                     : ($clientCurrency === 'EUR' ? 70 + (($i + $k) % 5) * 8 : 1250 + (($i + $k) % 7) * 125);
                 $base = $quantity * $rate;
                 $vatAmt = round($base * $vatPct / 100, 2); // RC má vatPct 0 → daň 0
@@ -322,12 +342,11 @@ final class SampleDataGenerator
                 $totalVat  += $vatAmt;
 
                 $itemMonth = (new \DateTimeImmutable($issueDate))->format('n/Y');
-                $stockIndex = $stocked ? count($stockIssueCandidates) % count($advancedData['stock_item_ids']) : null;
                 $description = $stocked
-                    ? 'Dodávka technického vybavení ' . ($stockIndex + 1)
+                    ? self::STOCK_NAMES[$stockIndex]
                     : match ($k) {
                         0 => "Konzultace a analýza $itemMonth",
-                        1 => "Vývoj — sprint $itemMonth",
+                        1 => "Vývoj aplikace, sprint $itemMonth",
                         default => "Provozní podpora $itemMonth",
                     };
                 $itemStmt = $pdo->prepare(
@@ -363,7 +382,11 @@ final class SampleDataGenerator
         }
 
         // Dobropisy k nejstarším fakturám zůstávají mimo bankovní úhrady.
-        $creditTargets = array_slice($invoices, 0, self::CREDIT_NOTE_COUNT);
+        $stockInvoiceIds = array_column($stockIssueCandidates, 'invoice_id');
+        $creditTargets = array_slice(array_values(array_filter(
+            $invoices,
+            static fn (array $invoice): bool => !in_array($invoice['id'], $stockInvoiceIds, true),
+        )), 0, self::CREDIT_NOTE_COUNT);
         $creditNotes = [];
         foreach ($creditTargets as $index => $parent) {
             $issueDate = min(
@@ -448,7 +471,17 @@ final class SampleDataGenerator
                 'rc' => $foreign,
                 'items' => $foreign
                     ? [['Cloudové služby', 21, '24'], ['Vývojářské licence', 21, '24']]
-                    : [['Provozní služby', 21, '40'], ['Kancelářský materiál', 21, '40'], ['Odborná publikace', 12, '41']],
+                    : [match ($i) {
+                        0 => ['Síťové příslušenství', 21, '40'],
+                        1 => ['Servis firemního automobilu', 21, '40'],
+                        2 => ['Kancelářský a obalový materiál', 21, '40'],
+                        3 => ['Dodávka elektrické energie', 21, '40'],
+                        4 => ['Mobilní a internetové služby', 21, '40'],
+                        5 => ['Nájem kanceláře a skladu', 21, '40'],
+                        6 => ['Údržba technického vybavení', 21, '40'],
+                        7 => ['Přeprava zásilek zákazníkům', 21, '40'],
+                        default => ['Správa reklamní kampaně', 21, '40'],
+                    }],
             ];
         }
         $vendorIds = [];
@@ -488,11 +521,7 @@ final class SampleDataGenerator
             $receivedAt = $issueDt->modify('+2 days')->format('Y-m-d');
 
             $v = $vendorMeta[$i % count($vendorMeta)];
-            $period = $issueDt->format('Ym');
-            $vs = $this->nextPurchaseVarsymbol($pdo, $supplierId, $period);
-
             $status = 'received';
-            $vendorInvoiceNumber = sprintf('DOD-%s-%04d', substr($period, 2), $i + 100);
             $vendorSnapshot = json_encode([
                 'company_name' => $v['company'],
                 'ic' => $v['ic'], 'dic' => $v['dic'],
@@ -513,6 +542,29 @@ final class SampleDataGenerator
                 default => null,
             } : null;
             $isSmallAsset = $smallAssetSpec !== null;
+            $stocked = $advanced && !$isFixedAsset && !$isSmallAsset && $v['currency'] === 'CZK'
+                && count($stockReceiptCandidates) < 60;
+            if ($isFixedAsset || $isSmallAsset || $stocked) {
+                $v = $vendorMeta[$i === 1 ? 1 : 0];
+                $pool = $vendorItemPools[$v['company']];
+                $isRc = false;
+                $exchangeRate = null;
+                if ($stocked) {
+                    $issueDt = (new \DateTimeImmutable($stockIssueCandidates[count($stockReceiptCandidates)]['date']))->modify('-2 days');
+                    $issueDate = $taxDate = $issueDt->format('Y-m-d');
+                    $dueDate = $issueDt->modify('+14 days')->format('Y-m-d');
+                    $receivedAt = $issueDate;
+                }
+                $vendorSnapshot = json_encode([
+                    'company_name' => $v['company'], 'ic' => $v['ic'], 'dic' => $v['dic'],
+                    'street' => $v['street'], 'city' => $v['city'], 'zip' => $v['zip'],
+                    'country_iso2' => $v['iso2'],
+                ], JSON_UNESCAPED_UNICODE);
+            }
+            $receivedAt = min($receivedAt, $today->format('Y-m-d'));
+            $period = $issueDt->format('Ym');
+            $vs = $this->nextPurchaseVarsymbol($pdo, $supplierId, $period);
+            $vendorInvoiceNumber = sprintf('DOD-%s-%04d', substr($period, 2), $i + 100);
             $stmt = $pdo->prepare(
                 'INSERT INTO purchase_invoices
                     (supplier_id, vendor_id, varsymbol, vendor_invoice_number, document_kind,
@@ -534,8 +586,6 @@ final class SampleDataGenerator
             $piId = (int) $pdo->lastInsertId();
             $track('purchase_invoice', $piId);
 
-            $stocked = $advanced && !$isFixedAsset && !$isSmallAsset && $v['currency'] === 'CZK'
-                && count($stockReceiptCandidates) < 60;
             $itemCount = ($isFixedAsset || $isSmallAsset || $stocked) ? 1 : 1 + ($i % 2);
             $totalBase = 0; $totalVat = 0;
             for ($k = 0; $k < $itemCount; $k++) {
@@ -550,9 +600,9 @@ final class SampleDataGenerator
                     $clsCode = '40';
                 } elseif ($stocked) {
                     $stockIndex = count($stockReceiptCandidates) % count($advancedData['stock_item_ids']);
-                    $description = 'Nákup technického vybavení ' . ($stockIndex + 1);
+                    $description = self::STOCK_NAMES[$stockIndex];
                     $qty = 20;
-                    $rate = 900 + ($stockIndex * 85);
+                    $rate = self::STOCK_COSTS[$stockIndex];
                 } else {
                     $qty = 1 + (($i + $k) % 5);
                     $rate = $v['currency'] === 'CZK' ? 650 + (($i + $k) % 12) * 375 : 35 + (($i + $k) % 8) * 20;
@@ -600,6 +650,7 @@ final class SampleDataGenerator
                 'vs' => $vs,
                 'issue_date' => $issueDate,
                 'currency' => $v['currency'],
+                'company' => $v['company'],
                 'total' => $totalWithVat,
                 'total_without_vat_czk' => round($totalBase * ($exchangeRate ?? 1.0), 2),
             ];
@@ -635,7 +686,7 @@ final class SampleDataGenerator
                 ],
             ],
             [
-                'client_idx' => 4, 'project_idx' => 7, 'currency_id' => $eurId,
+                'client_idx' => 20, 'project_idx' => 20, 'currency_id' => $eurId,
                 'name' => 'Quarterly support retainer', 'frequency' => 'quarterly',
                 'language' => 'en', 'rc' => 1, 'vat' => $rcVat,
                 'items' => [
@@ -684,7 +735,7 @@ final class SampleDataGenerator
         $track('car', $carId);
 
         $cashResult = $this->seedCash($supplierId, $adminUserId, $today, $isVatPayer);
-        $track('cash_register', $cashResult['register_id']);
+        if ($cashResult['register_created']) $track('cash_register', $cashResult['register_id']);
         foreach ($cashResult['document_ids'] as $id) $track('cash_document', $id);
 
         $stockDocumentCount = 0;
@@ -746,9 +797,18 @@ final class SampleDataGenerator
             $journalIds = array_merge($journalIds, $bankResult['journal_entry_ids']);
 
         }
+        $workflowResult = $this->sampleWorkflow->generate($supplierId, $adminUserId, $today, $advanced, $track);
+        $bankTransactionCount += $workflowResult['transaction_count'];
+        $bankResult['automation_auto'] += $workflowResult['transaction_count'];
+        $journalIds = array_merge($journalIds, $workflowResult['journal_entry_ids']);
+        $payrollResult = $this->samplePayroll->generate($supplierId, $adminUserId, $today, $advanced, $track);
+        $journalIds = array_merge($journalIds, $payrollResult['journal_entry_ids']);
+        unset($payrollResult['journal_entry_ids']);
         foreach (array_values(array_unique(array_map('intval', $journalIds))) as $id) {
             $track('journal_entry', $id);
         }
+
+        $documentCount = $this->sampleDocuments->generate($supplierId, $adminUserId, $track);
 
         // Zapiš evidenci sample entit — řídí „Odebrat ukázková data" (přesné smazání)
         // i zobrazení tlačítka v UI (issue #162).
@@ -761,9 +821,17 @@ final class SampleDataGenerator
             }
         }
 
+        $ruleCounts = $this->sampleRules->generate($supplierId, $adminUserId, $advanced, static function (string $type, int $id) use ($ins, $supplierId): void {
+            $ins->execute([$supplierId, $type, $id]);
+        });
+        $dimensionCounts = $this->sampleDimensions->generate($supplierId, static function (string $type, int $id) use ($ins, $supplierId): void {
+            $ins->execute([$supplierId, $type, $id]);
+        });
+
         $pdo->commit();
         } catch (\Throwable $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();
+            $this->sampleDocuments->cleanupAfterRollback($supplierId);
             throw $e;
         }
 
@@ -779,9 +847,13 @@ final class SampleDataGenerator
         }
 
         return [
+            ...$dimensionCounts,
+            ...$ruleCounts,
+            ...$payrollResult,
             'clients'           => count($clientIds),
             'projects'          => count($projectIds),
             'invoices'          => count($invoices),
+            'drafts'            => $workflowResult['drafts'],
             'credit_notes'      => count($creditNotes),
             'vendors'           => count($vendorIds),
             'purchase_invoices' => $purchaseCount,
@@ -805,6 +877,7 @@ final class SampleDataGenerator
             'automation_needs_input' => $bankResult['automation_needs_input'],
             'automation_approved' => $bankResult['automation_approved'],
             'journal_entries'   => count(array_unique($journalIds)),
+            'documents'         => $documentCount,
             'warnings'          => $warnings,
         ];
     }
@@ -813,7 +886,7 @@ final class SampleDataGenerator
     {
         $monthIndex = min(11, intdiv($index * 12, max(1, $count)));
         $monthsBack = 11 - $monthIndex;
-        $month = $today->modify("-{$monthsBack} months")->modify('first day of this month');
+        $month = $today->modify('first day of this month')->modify("-{$monthsBack} months");
         $day = 1 + (($index * 7 + 3) % min(25, (int) $month->format('t')));
         $date = $month->modify('+' . ($day - 1) . ' days')->format('Y-m-d');
         return min($date, $today->format('Y-m-d'));
@@ -863,14 +936,9 @@ final class SampleDataGenerator
                 'is_active' => true,
                 'note' => 'Syntetická skladová evidence vytvořená sample generátorem.',
             ]);
-        $track('warehouse', $warehouseId);
+        if ($existing === null) $track('warehouse', $warehouseId);
 
-        $names = [
-            'Síťový router', 'Wi-Fi access point', 'SSD disk 2 TB', 'Operační paměť 32 GB',
-            'Dokovací stanice USB-C', 'Business notebook', 'LCD monitor 27 palců',
-            'Mechanická klávesnice', 'Bezdrátová myš', 'Webkamera Full HD',
-            'Headset pro videohovory', 'Záložní napájecí zdroj',
-        ];
+        $names = self::STOCK_NAMES;
         $ids = [];
         foreach ($names as $i => $name) {
             $id = $this->stockItems->insert($supplierId, [
@@ -880,7 +948,7 @@ final class SampleDataGenerator
                 'unit' => 'ks',
                 'ean' => sprintf('8599000%06d', $i + 1),
                 'vat_rate_id' => $vatRateId,
-                'sale_price_without_vat' => (string) (1850 + $i * 175),
+                'sale_price_without_vat' => (string) self::STOCK_PRICES[$i],
                 'min_qty' => '5',
                 'is_active' => true,
                 'note' => 'Syntetická ukázková skladová karta.',
@@ -979,6 +1047,7 @@ final class SampleDataGenerator
         );
         $findRegister->execute([$supplierId, 'Hlavní pokladna', '211']);
         $registerId = (int) ($findRegister->fetchColumn() ?: 0);
+        $registerCreated = $registerId === 0;
         if ($registerId === 0) {
             $registerId = $this->cashRegisters->create($supplierId, [
                 'name' => 'Hlavní pokladna',
@@ -1030,6 +1099,7 @@ final class SampleDataGenerator
 
         return [
             'register_id' => $registerId,
+            'register_created' => $registerCreated,
             'document_ids' => $documentIds,
             'journal_entry_ids' => $journalEntryIds,
         ];
@@ -1054,14 +1124,13 @@ final class SampleDataGenerator
         for ($i = 0; $i < 60; $i++) {
             $receipt = $receipts[$i];
             $issue = $issues[$i];
-            $docDate = max((string) $receipt['date'], (string) $issue['date']);
 
             $draft = $this->stockDocuments->create($supplierId, [
                 'doc_type' => 'receipt',
                 'origin' => 'purchase_invoice',
                 'warehouse_id' => $warehouseId,
                 'purchase_invoice_id' => $receipt['purchase_invoice_id'],
-                'doc_date' => $docDate,
+                'doc_date' => $receipt['date'],
                 'description' => 'Příjem z ' . $receipt['description'],
                 'lines' => [[
                     'stock_item_id' => $receipt['stock_item_id'],
@@ -1080,7 +1149,7 @@ final class SampleDataGenerator
                 'origin' => 'invoice',
                 'warehouse_id' => $warehouseId,
                 'invoice_id' => $issue['invoice_id'],
-                'doc_date' => $docDate,
+                'doc_date' => $issue['date'],
                 'description' => 'Výdej k ' . $issue['description'],
                 'lines' => [[
                     'stock_item_id' => $issue['stock_item_id'],
@@ -1228,7 +1297,7 @@ final class SampleDataGenerator
             // nevyskytuje v žádném testu: 1000000005 i 2000000010 používají testy detekce
             // vlastních převodů jako „cizí" účty, takže shoda s ukázkovými daty by z nich
             // udělala past (vlastní účet vs. protistrana).
-            $accountNumber = '9900112233';
+            $accountNumber = '9900112236';
             $bankCode = '0800';
         }
         if ($bankCode === '') $bankCode = '0100';
@@ -1273,8 +1342,6 @@ final class SampleDataGenerator
             $purchases,
             static fn (array $i): bool => $i['currency'] === 'CZK',
         ));
-        $invoicePool = array_slice($invoicePool, 0, 60);
-        $purchasePool = array_slice($purchasePool, 2, 48);
         if (count($invoicePool) < 60 || count($purchasePool) < 48) {
             throw new \RuntimeException('Pro bankovní výpisy nevznikl dostatek CZK dokladů.');
         }
@@ -1283,6 +1350,15 @@ final class SampleDataGenerator
         $journalIds = [];
         $transactionCount = 0;
         $balance = 850000.0;
+        $openingDate = $today->modify('first day of this month')->modify('-5 months')->format('Y-m-d');
+        $journalIds[] = $this->posting->postDocument($supplierId, 'manual', null, [
+            ['account_code' => '221', 'side' => 'debit', 'amount' => $balance],
+            ['account_code' => '411', 'side' => 'credit', 'amount' => $balance],
+        ], [
+            'entry_date' => $openingDate, 'document_date' => $openingDate,
+            'document_no' => 'PS-SAMPLE-BANK', 'description' => 'Vložený kapitál, počáteční stav ukázkového bankovního účtu',
+            'posted' => true, 'user_id' => $userId, 'posted_by' => $userId,
+        ]);
         for ($s = 0; $s < self::BANK_STATEMENT_COUNT; $s++) {
             // Ukotvit na první den měsíce PŘED odečtem, ne po něm. `modify('-N months')`
             // nad 29.–31. dnem přeteče do dalšího měsíce (29. 7. − 5 měsíců = 29. 2.,
@@ -1292,6 +1368,19 @@ final class SampleDataGenerator
             // spolehlivě vždy 29.–31. dne v měsíci.
             $month = $today->modify('first day of this month')->modify('-' . (5 - $s) . ' months');
             $statementDate = min($month->modify('last day of this month')->format('Y-m-d'), $today->format('Y-m-d'));
+            $selectDocuments = static function (array &$pool, int $count) use ($statementDate): array {
+                $eligible = array_values(array_filter($pool, static fn (array $doc): bool => $doc['issue_date'] <= $statementDate));
+                usort($eligible, static fn (array $a, array $b): int => [$b['issue_date'], $b['id']] <=> [$a['issue_date'], $a['id']]);
+                $selected = array_slice($eligible, 0, $count);
+                if (count($selected) !== $count) {
+                    throw new \RuntimeException('Pro ukázkový výpis chybí dostatek již vystavených dokladů.');
+                }
+                $selectedIds = array_column($selected, 'id');
+                $pool = array_values(array_filter($pool, static fn (array $doc): bool => !in_array($doc['id'], $selectedIds, true)));
+                return $selected;
+            };
+            $monthInvoices = $selectDocuments($invoicePool, 10);
+            $monthPurchases = $selectDocuments($purchasePool, 8);
             $fileName = sprintf('demo-vypis-%s.gpc', $month->format('Y-m'));
             $pdo->prepare(
                 'INSERT INTO bank_statements
@@ -1310,18 +1399,19 @@ final class SampleDataGenerator
             $debitTotal = 0.0;
 
             for ($j = 0; $j < 10; $j++) {
-                $doc = $invoicePool[$s * 10 + $j];
+                $doc = $monthInvoices[$j];
                 $postedAt = $month->modify('+' . min(24, 2 + $j * 2) . ' days')->format('Y-m-d');
                 $postedAt = min($statementDate, max($postedAt, (string) $doc['issue_date']));
-                $amount = round((float) $doc['total'], 2);
+                $isPartial = $s === self::BANK_STATEMENT_COUNT - 1 && $j === 9;
+                $amount = round((float) $doc['total'] * ($isPartial ? 0.4 : 1.0), 2);
                 $txId = $this->insertBankTransaction($pdo, $statementId, $postedAt, $amount, [
                     'variable_symbol' => $doc['vs'],
-                    'counterparty_account' => sprintf('200000%04d', $s * 10 + $j + 1),
+                    'counterparty_account' => '1000000005',
                     'counterparty_bank' => '0800',
-                    'counterparty_name' => 'Syntetický odběratel ' . ($s * 10 + $j + 1),
+                    'counterparty_name' => $doc['company'],
                     'description' => 'Úhrada vydané faktury ' . $doc['vs'],
                     'matched_invoice_id' => $doc['id'],
-                    'match_status' => 'auto_exact',
+                    'match_status' => $isPartial ? 'auto_partial' : 'auto_exact',
                 ]);
                 $this->invoicePayments->recordPayment((int) $doc['id'], $amount, $postedAt, [
                     'source' => 'bank',
@@ -1356,15 +1446,15 @@ final class SampleDataGenerator
             }
 
             for ($j = 0; $j < 8; $j++) {
-                $doc = $purchasePool[$s * 8 + $j];
+                $doc = $monthPurchases[$j];
                 $postedAt = $month->modify('+' . min(25, 3 + $j * 3) . ' days')->format('Y-m-d');
                 $postedAt = min($statementDate, max($postedAt, (string) $doc['issue_date']));
                 $amount = round((float) $doc['total'], 2);
                 $txId = $this->insertBankTransaction($pdo, $statementId, $postedAt, -$amount, [
                     'variable_symbol' => $doc['vs'],
-                    'counterparty_account' => sprintf('300000%04d', $s * 8 + $j + 1),
+                    'counterparty_account' => '1000000005',
                     'counterparty_bank' => '0300',
-                    'counterparty_name' => 'Syntetický dodavatel ' . ($s * 8 + $j + 1),
+                    'counterparty_name' => $doc['company'],
                     'description' => 'Úhrada přijaté faktury ' . $doc['vs'],
                 ]);
                 $pdo->prepare(
@@ -1495,12 +1585,29 @@ final class SampleDataGenerator
                 $transactionCount++;
             }
 
+            $transferDate = $today->modify('-42 days')->format('Y-m-d');
+            $hasCashTransfer = substr($transferDate, 0, 7) === $month->format('Y-m');
+            if ($hasCashTransfer) {
+                $txId = $this->insertBankTransaction($pdo, $statementId, $transferDate, -25000.0, [
+                    'counterparty_name' => 'Hlavní pokladna',
+                    'description' => 'Výběr hotovosti do hlavní pokladny',
+                ]);
+                $manual = $this->bankPosting->postManual($supplierId, $txId, [
+                    'debit_account_code' => '261', 'credit_account_code' => '221',
+                    'description' => 'Výběr hotovosti do hlavní pokladny',
+                ], ['user_id' => $userId, 'posted_by' => $userId]);
+                $journalIds[] = (int) $manual['entry_id'];
+                $balance -= 25000.0;
+                $debitTotal += 25000.0;
+                $transactionCount++;
+            }
+
             $pdo->prepare(
                 'UPDATE bank_statements
                     SET curr_balance = ?, credit_total = ?, debit_total = ?,
-                        transaction_count = 20, matched_count = 18
+                        transaction_count = ?, matched_count = 18
                   WHERE id = ?'
-            )->execute([round($balance, 2), round($creditTotal, 2), round($debitTotal, 2), $statementId]);
+            )->execute([round($balance, 2), round($creditTotal, 2), round($debitTotal, 2), 20 + (int) $hasCashTransfer, $statementId]);
         }
 
         $automationCounts = ['auto_posted' => 0, 'pending' => 0, 'needs_input' => 0, 'approved' => 0];
@@ -1602,7 +1709,7 @@ final class SampleDataGenerator
         // ── 15 jízd (chronologicky; odometer se řetězí spojitě) ──
         // [dní zpět, čas od, čas do, odkud, kam, účel, km, soukromá?]
         $tripDefs = [
-            [68, '08:15', '11:40', 'Praha', 'Brno',            'Schůzka s klientem BlueWave Digital', 205, false],
+            [68, '08:15', '11:40', 'Praha', 'Brno',            'Schůzka s klientem Demo Modrá dílna', 205, false],
             [66, '15:00', '18:20', 'Brno', 'Praha',            'Návrat z jednání',                    205, false],
             [60, '09:00', '10:35', 'Praha', 'Plzeň',           'Instalace u zákazníka',                95, false],
             [60, '16:10', '17:45', 'Plzeň', 'Praha',           'Návrat z instalace',                   95, false],
@@ -1643,12 +1750,12 @@ final class SampleDataGenerator
         // ── 6 tankování (nafta; odometer ve stejném rozsahu km jako jízdy) ──
         // [dní zpět, čas, stanice, litry, cena/l vč. DPH, odometer]
         $fuelDefs = [
-            [67, '07:55', 'Praha-Zličín / Shell',       48.62, 35.90, 85200],
-            [58, '08:30', 'Plzeň, Borská / OMV',        45.18, 36.40, 85560],
-            [46, '12:05', 'Praha, Strašnice / EuroOil', 50.07, 35.50, 85930],
-            [36, '07:40', 'Liberec / Benzina',          47.83, 37.10, 86250],
-            [22, '09:15', 'Pardubice / MOL',            49.34, 36.80, 86560],
-            [5,  '13:20', 'Praha-Zličín / Shell',       44.57, 38.20, 86790],
+            [67, '07:55', 'Praha-Zličín / Demo Palivo',       48.62, 35.90, 85200],
+            [58, '08:30', 'Plzeň, Borská / Demo Palivo',      45.18, 36.40, 85560],
+            [46, '12:05', 'Praha, Strašnice / Demo Palivo',   50.07, 35.50, 85930],
+            [36, '07:40', 'Liberec / Demo Palivo',           47.83, 37.10, 86250],
+            [22, '09:15', 'Pardubice / Demo Palivo',         49.34, 36.80, 86560],
+            [5,  '13:20', 'Praha-Zličín / Demo Palivo',      44.57, 38.20, 86790],
         ];
 
         $fuelStmt = $pdo->prepare(

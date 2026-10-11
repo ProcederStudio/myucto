@@ -9,6 +9,7 @@ declare(strict_types=1);
  *   php api/bin/sample.php --yes           # bez ptaní
  *   php api/bin/sample.php --supplier=7    # konkrétní firma
  *   php api/bin/sample.php --list          # výpis firem a jestli už mají data
+ *   php api/bin/sample.php --supplier=7 --replace --yes # nahradí evidované ukázky
  *
  * Bez `--supplier` se vezme jediná firma v databázi. Jakmile je jich víc, skript
  * nehádá — vypíše je i s tím, která je prázdná, a čeká na explicitní volbu. Dřív
@@ -20,7 +21,7 @@ declare(strict_types=1);
  *   - 12 dodavatelů a 120 přijatých faktur
  *   - 1 pokladna a 7 příjmových/výdajových pokladních dokladů
  *   - pro s.r.o./PO nebo plátce DPH také podvojné účetnictví, sklad,
- *     120 skladových dokladů, 2 majetky, 6 bankovních výpisů / 120 pohybů
+ *     120 skladových dokladů, 2 majetky, 6 bankovních výpisů / 233 pohybů
  *     3 e-shopové kategorie, 3 výrobci, zaúčtovaný účetní deník a ukázkové
  *     případy ve všech frontách sekce Automatizace
  *   - kniha jízd: 1 firemní auto, 15 jízd, 6 tankování
@@ -47,9 +48,11 @@ require __DIR__ . '/../vendor/autoload.php';
 use MyInvoice\Bootstrap;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Service\Sample\SampleDataGenerator;
+use MyInvoice\Service\Sample\SampleDataService;
 
 $autoYes = in_array('--yes', $argv, true) || in_array('-y', $argv, true);
 $listOnly = in_array('--list', $argv, true);
+$replace = in_array('--replace', $argv, true);
 
 // `--supplier=7` i `--supplier 7`; prázdná nebo nečíselná hodnota je chyba, ne tichý pád na null.
 $wantedSupplier = null;
@@ -79,19 +82,25 @@ $adminId = (int) $pdo->query(
 
 // Obsazenost počítáme stejnou trojicí jako guard v SampleDataGeneratoru, aby
 // výpis nikdy netvrdil „prázdná" o firmě, kterou generátor vzápětí odmítne.
-$suppliers = $pdo->query(
+$supplierQuery =
     'SELECT s.id, s.company_name,
             (SELECT COUNT(*) FROM clients           c WHERE c.supplier_id = s.id)
           + (SELECT COUNT(*) FROM invoices          i WHERE i.supplier_id = s.id)
-          + (SELECT COUNT(*) FROM purchase_invoices p WHERE p.supplier_id = s.id) AS records
-       FROM supplier s ORDER BY s.id'
-)->fetchAll(\PDO::FETCH_ASSOC);
+          + (SELECT COUNT(*) FROM purchase_invoices p WHERE p.supplier_id = s.id)
+          + (SELECT COUNT(*) FROM payroll_employees e WHERE e.supplier_id = s.id)
+          + (SELECT COUNT(*) FROM cash_documents d WHERE d.supplier_id = s.id)
+          + (SELECT COUNT(*) FROM bank_statements b WHERE b.supplier_id = s.id)
+          + (SELECT COUNT(*) FROM journal_entries j WHERE j.supplier_id = s.id) AS records
+          , (SELECT COUNT(*) FROM sample_data_entries e WHERE e.supplier_id = s.id) AS sample_records
+       FROM supplier s ORDER BY s.id';
+$suppliers = $pdo->query($supplierQuery)->fetchAll(\PDO::FETCH_ASSOC);
 
 $printSuppliers = static function (array $rows): void {
     foreach ($rows as $row) {
         $state = (int) $row['records'] > 0
             ? sprintf('má data (%d klientů/dokladů)', (int) $row['records'])
             : 'prázdná — lze generovat';
+        if ((int) $row['sample_records'] > 0) $state .= sprintf(', evidovaná sample data: %d', (int) $row['sample_records']);
         fwrite(STDERR, sprintf("           --supplier=%-4d %-40s %s\n", (int) $row['id'], (string) $row['company_name'], $state));
     }
 };
@@ -142,6 +151,26 @@ if ($wantedSupplierId !== null) {
 $supplierId = (int) $supplier['id'];
 $supplierName = (string) $supplier['company_name'];
 
+$sampleService = $container->get(SampleDataService::class);
+if ($sampleService->hasSampleData($supplierId)) {
+    echo "[sample] Firma #$supplierId ($supplierName) obsahuje dříve vygenerovaná ukázková data.\n";
+    echo "         Odeberou se pouze evidované ukázky této firmy včetně jejich návazností.\n";
+    if (!$replace || !$autoYes) {
+        echo "Smazat původní ukázková data před novým generováním? (ANO): ";
+        if (trim((string) fgets(STDIN)) !== 'ANO') { echo "Zrušeno. Původní data zůstala zachována.\n"; exit(0); }
+    }
+    try {
+        $sampleService->purge($supplierId);
+    } catch (\Throwable $e) {
+        fwrite(STDERR, "[sample] Odebrání selhalo: " . $e->getMessage() . "\n");
+        exit(1);
+    }
+    echo "[sample] Původní ukázková data byla odebrána.\n";
+    foreach ($pdo->query($supplierQuery)->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+        if ((int) $row['id'] === $supplierId) $supplier = $row;
+    }
+}
+
 // Guard: sample data se generují JEN do prázdné firmy (stejně jako HTTP setup wizard).
 // Bez něj druhý běh duplikoval klienty/doklady a padal na UNIQUE (cars.registration).
 if ((int) $supplier['records'] > 0) {
@@ -152,10 +181,7 @@ if ((int) $supplier['records'] > 0) {
         fwrite(STDERR, "         Prázdné firmy, do kterých generovat lze:\n");
         $printSuppliers($empty);
     }
-    fwrite(STDERR, "         Nebo tuhle nejdřív vyprázdni:\n");
-    fwrite(STDERR, "           php api/bin/reset.php --keep-users-supplier   (smaže jen byznys data)\n");
-    fwrite(STDERR, "           php api/bin/reset.php                         (úplný reset)\n");
-    fwrite(STDERR, "         nebo v aplikaci: Nastavení → Odebrat ukázková data.\n");
+    fwrite(STDERR, "         Vlastní ani neevidovaná data se automaticky nemažou.\n");
     exit(1);
 }
 
@@ -166,6 +192,7 @@ echo "  Supplier:   #$supplierId ($supplierName)\n";
 echo "  Admin:      #$adminId\n";
 echo "  Vygeneruje: 24 klientů, 12 dodavatelů, 120 vydaných + 120 přijatých faktur,\n";
 echo "              pokladnu se 7 doklady, sklad, e-shopové číselníky, majetek, banku a deník.\n";
+echo "              Čtyři mzdové osoby, tři uzavřené měsíce, aktuální koncept a tři PDF.\n";
 echo "  Období:     posledních 12 měsíců\n";
 echo "================================================\n\n";
 
@@ -189,5 +216,9 @@ printf("          Pokladna: %d / %d dokladů. E-shop: %d kategorie / %d výrobci
 printf("          Účetní deník: %d zaúčtovaných zápisů. Podvojné účetnictví: %s.\n", $r['journal_entries'], $r['accounting_enabled'] ? 'ano' : 'ne');
 printf("          Automatizace: %d samo / %d ke schválení / %d potřebuje mě / %d potvrzeno.\n", $r['automation_auto'], $r['automation_pending'], $r['automation_needs_input'], $r['automation_approved']);
 printf("          Kniha jízd: %d auto, %d jízd, %d tankování.\n", $r['cars'], $r['trips'], $r['fuelings']);
+printf("          Mzdy: %d osob, %d běhy, %d výsledků, %d zaúčtované dávky. Dokumenty: %d PDF.\n", $r['payroll_persons'], $r['payroll_runs'], $r['payroll_results'], $r['payroll_posting_batches'], $r['documents']);
+printf("          Rozpracované výkazy práce: %d koncepty.\n", $r['drafts']);
+printf("          Šablony: %d pravidla nákladů, %d pravidla účtování banky.\n", $r['expense_rules'], $r['bank_posting_rules']);
+printf("          Dimenze: zapnuté, %d nové typy, %d hodnoty, %d propojené doklady.\n", $r['dimension_types'], $r['dimension_values'], $r['dimension_documents']);
 foreach ($r['warnings'] as $warning) fwrite(STDERR, "[sample] Upozornění: {$warning}\n");
 echo "================================================\n";

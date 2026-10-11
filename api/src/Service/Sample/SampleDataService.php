@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Sample;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Repository\DocumentRepository;
+use MyInvoice\Service\Document\DocumentStorage;
 use PDO;
 
 /**
@@ -25,6 +27,10 @@ final class SampleDataService
 {
     public function __construct(
         private readonly Connection $db,
+        private readonly DocumentRepository $documents,
+        private readonly DocumentStorage $documentStorage,
+        private readonly SamplePayrollPurger $payrollPurger,
+        private readonly SampleDimensionPurger $dimensionPurger,
     ) {}
 
     /** Existují pro daného dodavatele evidovaná sample data? (řídí zobrazení tlačítka v UI) */
@@ -102,6 +108,39 @@ final class SampleDataService
         $cashRegisterIds = $idsOf(['cash_register']);
         $manufacturerIds = $idsOf(['manufacturer']);
         $stockCategoryIds = $idsOf(['stock_category']);
+        $documentIds = $idsOf(['document']);
+        $offsetIds = $idsOf(['credit_note_offset']);
+        $expenseRuleIds = $idsOf(['expense_rule']);
+        $bankRuleIds = $idsOf(['bank_posting_rule']);
+        $stmt = $pdo->prepare(
+            "SELECT DISTINCT je.id FROM journal_entries je JOIN sample_data_entries sde
+               ON sde.supplier_id=je.supplier_id AND sde.entity_id=je.source_id
+              AND (sde.entity_type=je.source_type OR (sde.entity_type='credit_note' AND je.source_type='invoice'))
+              WHERE je.supplier_id=?"
+        );
+        $stmt->execute([$supplierId]);
+        $journalIds = array_merge($journalIds, array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN)));
+        if ($statementIds !== []) {
+            $place = implode(',', array_fill(0, count($statementIds), '?'));
+            $stmt = $pdo->prepare(
+                "SELECT je.id FROM journal_entries je JOIN bank_transactions bt ON bt.id=je.source_id
+                   JOIN bank_statements bs ON bs.id=bt.statement_id
+                  WHERE je.supplier_id=? AND je.source_type='bank' AND bs.supplier_id=? AND bs.id IN ($place)"
+            );
+            $stmt->execute([$supplierId, $supplierId, ...$statementIds]);
+            $journalIds = array_merge($journalIds, array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN)));
+        }
+        $journalIds = array_values(array_unique($journalIds));
+        $documentFiles = [];
+        if ($documentIds !== []) {
+            $place = implode(',', array_fill(0, count($documentIds), '?'));
+            $stmt = $pdo->prepare("SELECT sha256,filename,thumb_path FROM documents WHERE supplier_id=? AND id IN ($place)");
+            $stmt->execute([$supplierId, ...$documentIds]);
+            $documentFiles = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $stmt = $pdo->prepare("SELECT sha256,filename,NULL AS thumb_path FROM document_files WHERE supplier_id=? AND document_id IN ($place)");
+            $stmt->execute([$supplierId, ...$documentIds]);
+            $documentFiles = array_merge($documentFiles, $stmt->fetchAll(PDO::FETCH_ASSOC));
+        }
 
         // Smaže rodičovské řádky podle id seznamu; děti padají kaskádou (viz třídní docblock).
         // $hasSupplierCol=false pro tabulky bez supplier_id (projects se váže přes client_id);
@@ -129,10 +168,42 @@ final class SampleDataService
             'cash_registers' => 0, 'manufacturers' => 0, 'eshop_categories' => 0,
             'ai_jobs' => 0, 'accounting_corrections' => 0,
             'invoice_counters' => 0, 'purchase_invoice_counters' => 0,
+            'documents' => 0, 'document_links' => 0,
         ];
 
         $pdo->beginTransaction();
         try {
+            $stmt = $pdo->prepare(
+                "DELETE al FROM activity_log al JOIN sample_data_entries sde
+                   ON sde.supplier_id=al.supplier_id AND sde.entity_id=al.entity_id
+                  AND (sde.entity_type=al.entity_type OR (sde.entity_type='payroll_person' AND al.entity_type='payroll_employee'))
+                  WHERE al.supplier_id=?"
+            );
+            $stmt->execute([$supplierId]);
+            $result['activity_logs'] += $stmt->rowCount();
+            $result = array_merge($result, $this->dimensionPurger->purge($supplierId, $journalIds));
+            $result = array_merge($result, $this->payrollPurger->purge($supplierId));
+            $result['credit_note_offsets'] = $deleteByIds('credit_note_offsets', $offsetIds);
+            $result['expense_rules'] = $deleteByIds('expense_classification_rules', $expenseRuleIds);
+            $result['bank_posting_rules'] = $deleteByIds('bank_posting_rules', $bankRuleIds);
+            $result['documents'] = $deleteByIds('documents', $documentIds);
+            $stmt = $pdo->prepare(
+                "DELETE dl FROM document_links dl JOIN sample_data_entries sde
+                   ON sde.supplier_id=dl.supplier_id AND sde.entity_type=dl.entity_type AND sde.entity_id=dl.entity_id
+                  WHERE dl.supplier_id=?"
+            );
+            $stmt->execute([$supplierId]);
+            $result['document_links'] = $stmt->rowCount();
+            if ($statementIds !== []) {
+                $place = implode(',', array_fill(0, count($statementIds), '?'));
+                $stmt = $pdo->prepare(
+                    "DELETE dl FROM document_links dl JOIN bank_transactions bt ON bt.id=dl.entity_id
+                       JOIN bank_statements bs ON bs.id=bt.statement_id
+                      WHERE dl.supplier_id=? AND dl.entity_type='bank_transaction' AND bs.supplier_id=? AND bs.id IN ($place)"
+                );
+                $stmt->execute([$supplierId, $supplierId, ...$statementIds]);
+                $result['document_links'] += $stmt->rowCount();
+            }
             // Auditní log nemá FK na polymorfní entity. Odstraň jen záznamy, které
             // prokazatelně vznikly nad sledovanými sample zápisy a bankovními pohyby.
             if ($journalIds !== []) {
@@ -297,6 +368,12 @@ final class SampleDataService
                 . '(`php api/bin/reset.php --keep-users-supplier`). Detail: ' . $e->getMessage(),
                 0,
                 $e
+            );
+        }
+
+        foreach ($documentFiles as $file) {
+            $this->documentStorage->deleteIfOrphan(
+                $supplierId, $file['sha256'], $file['filename'], $file['thumb_path'], $this->documents, [],
             );
         }
 

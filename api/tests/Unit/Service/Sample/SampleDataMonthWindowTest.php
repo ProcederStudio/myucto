@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Tests\Unit\Service\Sample;
 
 use DateTimeImmutable;
+use MyInvoice\Service\Sample\SampleDataGenerator;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -24,6 +25,26 @@ use PHPUnit\Framework\TestCase;
 final class SampleDataMonthWindowTest extends TestCase
 {
     private const STATEMENT_COUNT = 6;
+
+    #[DataProvider('riskyDays')]
+    public function testBusinessDocumentsCoverTwelveActualMonths(string $today): void
+    {
+        $reflection = new \ReflectionClass(SampleDataGenerator::class);
+        $generator = $reflection->newInstanceWithoutConstructor();
+        $dateMethod = $reflection->getMethod('documentDate');
+        $anchor = new DateTimeImmutable($today);
+        $months = [];
+        for ($index = 0; $index < 120; $index++) {
+            $date = $dateMethod->invoke($generator, $anchor, $index, 120);
+            self::assertLessThanOrEqual($today, $date);
+            $months[] = substr($date, 0, 7);
+        }
+        $expected = [];
+        for ($offset = 11; $offset >= 0; $offset--) {
+            $expected[] = $anchor->modify('first day of this month')->modify("-$offset months")->format('Y-m');
+        }
+        self::assertSame($expected, array_values(array_unique($months)));
+    }
 
     /** @return list<string> měsíce okna ve tvaru RRRR-MM */
     private static function window(DateTimeImmutable $today): array
