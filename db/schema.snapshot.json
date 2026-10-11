@@ -976,7 +976,7 @@
         "1992_payroll_takeover_old_age_savings.sql",
         "1993_cash_journal_notes.sql",
         "1994_document_links_invoice_payment.sql",
-        "1995_document_ai.sql"
+        "1996_document_ai.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
