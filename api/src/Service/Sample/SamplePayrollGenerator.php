@@ -58,6 +58,8 @@ final class SamplePayrollGenerator
                 throw new \DomainException('Ukázkové mzdy vyžadují firmu bez existujících zaměstnanců a mzdových běhů.');
             }
         }
+        $originalIdentity = $this->prepareEmployerIdentity($supplierId);
+        try {
         $enabled = $pdo->prepare('SELECT payroll_enabled FROM supplier WHERE id = ?');
         $enabled->execute([$supplierId]);
         $track('payroll_restore_enabled', (int) $enabled->fetchColumn() + 1);
@@ -240,6 +242,26 @@ final class SamplePayrollGenerator
             }
         }
         return ['payroll_persons' => count($staff), 'payroll_employments' => count($staff), 'payroll_runs' => 4, 'payroll_results' => 12, 'payroll_absences' => 1, 'payroll_posting_batches' => count($batches), 'journal_entry_ids' => $journalEntryIds];
+        } finally {
+            if ($originalIdentity !== null && $pdo->inTransaction()) {
+                $this->execute('UPDATE supplier SET display_name = ?, ic = ? WHERE id = ?', [$originalIdentity['display_name'], $originalIdentity['ic'], $supplierId]);
+            }
+        }
+    }
+
+    private function prepareEmployerIdentity(int $supplierId): ?array
+    {
+        $stmt = $this->db->pdo()->prepare('SELECT company_name, display_name, ic FROM supplier WHERE id = ? FOR UPDATE');
+        $stmt->execute([$supplierId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row === false) throw new \OutOfBoundsException('Firma nebyla nalezena.');
+        $name = $row['display_name'] !== null && $row['display_name'] !== '' ? $row['display_name'] : $row['company_name'];
+        $missingName = trim((string) $name) === '';
+        $missingIc = trim((string) $row['ic']) === '';
+        if (!$missingName && !$missingIc) return null;
+        $displayName = $missingName ? (trim((string) $row['company_name']) ?: 'Ukázkový zaměstnavatel s.r.o.') : $row['display_name'];
+        $this->execute('UPDATE supplier SET display_name = ?, ic = ? WHERE id = ?', [$displayName, $missingIc ? '00000019' : $row['ic'], $supplierId]);
+        return $row;
     }
 
     private function policyGaps(array $policies, string $start, string $end): array

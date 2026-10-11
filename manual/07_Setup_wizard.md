@@ -154,6 +154,8 @@ Existující nastavení zaměstnavatele, účtárny a mzdové politiky zůstáva
 Chybějící politiky generátor doplní bez překryvu. Pokud má firma vlastní účty
 institucí, historické ukázkové mzdy skončí zaúčtováním bez přípravy plateb.
 U firmy s vlastními zaměstnanci nebo mzdovými běhy se generování zastaví.
+Chybějící název nebo IČO zaměstnavatele doplní pro ukázkové mzdy fiktivní
+identita; původní údaje firmy se po generování obnoví.
 
 ### 7.6.1 Odebrání ukázkových dat
 
