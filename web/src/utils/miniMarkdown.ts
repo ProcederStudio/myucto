@@ -27,9 +27,16 @@ export function renderMarkdown(md: string): string {
   let listType: 'ul' | 'ol' | null = null
   let para: string[] = []
   let li: string[] | null = null
+  let liIndent = 0
   let inFence = false
   let fenceBuf: string[] = []
   let quote: string[] = []
+
+  // Dvě a víc mezer na konci řádku = tvrdé zalomení (<br>) jako v CommonMarku.
+  // Značka \u0000 přežije escapování v inline() a nahradí se až po něm.
+  const joinLines = (ls: string[]) =>
+    inline(ls.map((l, idx) => l.trim() + (idx < ls.length - 1 && /\S {2,}$/.test(l) ? '\u0000' : '')).join(' '))
+      .replace(/\u0000 /g, '<br>')
 
   const flushQuote = () => {
     if (quote.length) {
@@ -39,15 +46,18 @@ export function renderMarkdown(md: string): string {
   }
   const flushPara = () => {
     if (para.length) {
-      out.push('<p>' + inline(para.join(' ')) + '</p>')
+      out.push('<p>' + joinLines(para) + '</p>')
       para = []
     }
   }
   // Odrážka se sbírá po řádcích: pokračovací řádky (zalomený text odstavce
   // pod `- `) patří pořád do téže položky, ne do samostatného odstavce.
+  // Položka s prázdným řádkem nebo vnořeným seznamem je blok a vykreslí se rekurzivně.
   const flushLi = () => {
     if (li) {
-      out.push('<li>' + inline(li.join(' ')) + '</li>')
+      while (li.length > 1 && li[li.length - 1].trim() === '') li.pop()
+      const block = li.slice(1).some(l => l.trim() === '' || /^\s*([-*]|\d+\.)\s+/.test(l))
+      out.push('<li>' + (block ? renderMarkdown(li.join('\n')) : joinLines(li)) + '</li>')
       li = null
     }
   }
@@ -58,10 +68,12 @@ export function renderMarkdown(md: string): string {
       listType = null
     }
   }
-  const ensureList = (t: 'ul' | 'ol') => {
+  // Číslovaný seznam přerušený odstavcem (typicky AI: „1. krok", pod ním blok
+  // se zápisem, pak „2. krok") se otevře znovu; bez `start` by každý začal od 1.
+  const ensureList = (t: 'ul' | 'ol', start = 1) => {
     if (listType !== t) {
       closeList()
-      out.push(`<${t}>`)
+      out.push(t === 'ol' && start !== 1 ? `<ol start="${start}">` : `<${t}>`)
       listType = t
     }
   }
@@ -107,6 +119,21 @@ export function renderMarkdown(md: string): string {
     }
 
     const trim = line.trim()
+    const indent = line.length - line.trimStart().length
+    // V položce seznamu prázdný ani odsazený řádek seznam neukončí: odsazený
+    // obsah (další odstavec, vnořená odrážka) patří do téže položky. Neodsazený
+    // řádek po prázdném seznam zavře, ledaže jde o další položku téhož typu.
+    if (li) {
+      if (trim === '') {
+        li.push('')
+        continue
+      }
+      if (indent >= 2) {
+        li.push(line.slice(Math.min(indent, liIndent)))
+        continue
+      }
+      if (li[li.length - 1] === '' && !(listType === 'ol' ? /^\d+\.\s+/ : /^[-*]\s+/).test(trim)) closeList()
+    }
     if (trim === '') {
       flushPara()
       flushQuote()
@@ -163,26 +190,30 @@ export function renderMarkdown(md: string): string {
       out.push(`<h${lvl}>${inline(heading[2])}</h${lvl}>`)
       continue
     }
-    if (/^[-*]\s+/.test(trim)) {
+    const ulItem = trim.match(/^[-*]\s+/)
+    if (ulItem) {
       flushPara()
       flushLi()
       ensureList('ul')
-      li = [trim.replace(/^[-*]\s+/, '')]
+      li = [line.trimStart().slice(ulItem[0].length)]
+      liIndent = indent + ulItem[0].length
       continue
     }
-    if (/^\d+\.\s+/.test(trim)) {
+    const olItem = trim.match(/^(\d+)\.\s+/)
+    if (olItem) {
       flushPara()
       flushLi()
-      ensureList('ol')
-      li = [trim.replace(/^\d+\.\s+/, '')]
+      ensureList('ol', Number(olItem[1]))
+      li = [line.trimStart().slice(olItem[0].length)]
+      liIndent = indent + olItem[0].length
       continue
     }
     if (li) {
-      li.push(trim)
+      li.push(line)
       continue
     }
     closeList()
-    para.push(trim)
+    para.push(line)
   }
   flushPara()
   flushQuote()
