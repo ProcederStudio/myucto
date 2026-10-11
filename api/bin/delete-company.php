@@ -119,6 +119,38 @@ function companyTables(PDO $pdo, string $schema): array
 }
 
 /**
+ * Podřízené tabulky bez `supplier_id`, které na řádky firmy odkazují vazbou bez
+ * `ON DELETE CASCADE` (např. položky platebního příkazu na fakturu). Databáze je
+ * sama nesmaže a mazání rodiče zablokují, proto se mažou předem podle rodiče.
+ *
+ * @param list<string> $tables
+ * @return list<array{table:string,column:string,parent:string,parent_column:string}>
+ */
+function restrictedChildren(PDO $pdo, string $schema, array $tables): array
+{
+    $stmt = $pdo->prepare(
+        "SELECT k.TABLE_NAME, k.COLUMN_NAME, k.REFERENCED_TABLE_NAME, k.REFERENCED_COLUMN_NAME
+           FROM information_schema.KEY_COLUMN_USAGE k
+           JOIN information_schema.REFERENTIAL_CONSTRAINTS r
+             ON r.CONSTRAINT_SCHEMA = k.CONSTRAINT_SCHEMA AND r.CONSTRAINT_NAME = k.CONSTRAINT_NAME AND r.TABLE_NAME = k.TABLE_NAME
+          WHERE k.TABLE_SCHEMA = ? AND k.REFERENCED_TABLE_SCHEMA = ? AND r.DELETE_RULE IN ('RESTRICT', 'NO ACTION')
+            AND NOT EXISTS (SELECT 1 FROM information_schema.COLUMNS c
+                             WHERE c.TABLE_SCHEMA = k.TABLE_SCHEMA AND c.TABLE_NAME = k.TABLE_NAME AND c.COLUMN_NAME = 'supplier_id')
+          ORDER BY k.TABLE_NAME, k.COLUMN_NAME"
+    );
+    $stmt->execute([$schema, $schema]);
+    $company = array_fill_keys($tables, true);
+    $out = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        if (isset($company[$r['REFERENCED_TABLE_NAME']]) && $r['TABLE_NAME'] !== 'supplier') {
+            $out[] = ['table' => $r['TABLE_NAME'], 'column' => $r['COLUMN_NAME'],
+                'parent' => $r['REFERENCED_TABLE_NAME'], 'parent_column' => $r['REFERENCED_COLUMN_NAME']];
+        }
+    }
+    return $out;
+}
+
+/**
  * Zbytek, který se navzájem drží v cyklu vazeb (řádek firmy odkazuje na svou výchozí
  * měnu, měna na firmu). Tabulky firmy se smažou s vypnutou kontrolou cizích klíčů,
  * řádek firmy až po jejím zapnutí - vazby cizích tabulek na firmu (uživatel s firmou
@@ -181,10 +213,21 @@ try {
 
     $where = static fn (string $table): string => $table === 'supplier' ? '`id` = ' . $supplierId : '`supplier_id` = ' . $supplierId;
     $counts = [];
-    foreach (companyTables($pdo, $schema) as $table) {
+    $allTables = companyTables($pdo, $schema);
+    foreach ($allTables as $table) {
         $n = (int) $pdo->query("SELECT COUNT(*) FROM `{$table}` WHERE {$where($table)}")->fetchColumn();
         if ($n > 0) {
             $counts[$table] = $n;
+        }
+    }
+    $children = [];
+    foreach (restrictedChildren($pdo, $schema, $allTables) as $child) {
+        $childWhere = sprintf('`%s` IN (SELECT `%s` FROM `%s` WHERE %s)',
+            $child['column'], $child['parent_column'], $child['parent'], $where($child['parent']));
+        $n = (int) $pdo->query("SELECT COUNT(*) FROM `{$child['table']}` WHERE {$childWhere}")->fetchColumn();
+        if ($n > 0) {
+            $children[] = ['table' => $child['table'], 'where' => $childWhere, 'via' => $child['parent']];
+            echo sprintf("  %-48s %8d  (podřízené řádky přes %s)\n", $child['table'], $n, $child['parent']);
         }
     }
     $listed = $counts;
@@ -254,6 +297,9 @@ try {
         $pdo->beginTransaction();
         try {
             $deleted = 0;
+            foreach ($children as $child) {
+                $deleted += (int) $pdo->exec("DELETE FROM `{$child['table']}` WHERE {$child['where']}");
+            }
             $pending = array_keys($counts);
             // Řádek, na který ještě odkazuje jiný řádek firmy vazbou RESTRICT, se smaže
             // v dalším průchodu; selhaný příkaz InnoDB vrátí sám, transakce běží dál.
