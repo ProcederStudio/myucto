@@ -516,8 +516,9 @@ je**, výsledný nákladový nebo majetkový účet je osa **kam se účtuje**. 
 ale pravidlo může navrhnout účet 548 místo obecného 518. Výslednou kontaci vždy zkontrolujte při zaúčtování dokladu nebo
 v Automatu.
 
-V editoru i v okně kontroly vytěžení lze u každé položky vybrat **Nákladový účet** z aktivního rozvrhu firmy,
-například 518.100 pro grafické služby a 518.200 pro hosting. Bez vlastního účtu se účet odvodí z druhu nákladu.
+V editoru i v okně kontroly vytěžení lze u každé položky vybrat **Nákladový účet** z aktivních účtů třídy 5,
+například 518.100 pro grafické služby a 518.200 pro hosting. U dlouhodobého majetku se nabízejí účty třídy 0.
+Dříve uložený účet zůstává zachovaný. Bez vlastního účtu se účet odvodí z druhu nákladu.
 Má-li syntetický účet více způsobilých analytik, aplikace z nich sama první nevybere. Konkrétní analytiku určí účet
 položky nebo pravidlo; jediná způsobilá analytika se může doplnit automaticky. Již uložený konkrétní účet se zachová.
 Pravidlo v režimu **Jen navrhovat** nabídne také analytický účet, i když se druh nákladu nemění.

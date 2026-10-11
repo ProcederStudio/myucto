@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import Modal from '@/components/ui/Modal.vue'
 import ExtractionWarningText from '@/components/purchase/ExtractionWarningText.vue'
 import ChartAccountSelect from '@/components/accounting/ChartAccountSelect.vue'
+import { purchaseExpenseAccountOptions } from '@/utils/chartAccountOptions'
 import { accountingApi, type ChartAccount } from '@/api/accounting'
 import { btnFilled, btnFilledSm, btnOutline, btnOutlineSm, disabledTitle, BTN_DISABLED_NOTE } from '@/components/ui/buttonStyles'
 import {
@@ -75,8 +76,9 @@ const saving = ref(false)
 const kinds = reactive<Record<number, ExpenseKind | null>>({})
 const accounts = reactive<Record<number, string | null>>({})
 const accountingAccounts = ref<ChartAccount[]>([])
-const expenseAccounts = computed(() => accountingAccounts.value.filter(account => account.is_active
-  && !/^(?:311|321|314|324|325|33|34|221|211)/.test(account.account_code)))
+const expenseAccounts = computed(() => purchaseExpenseAccountOptions(accountingAccounts.value))
+const assetAccounts = computed(() => purchaseExpenseAccountOptions(accountingAccounts.value, 'fixed_asset'))
+const accountsForExpenseKind = (kind?: ExpenseKind | null) => kind === 'fixed_asset' ? assetAccounts.value : expenseAccounts.value
 const expenseSuggestions = ref<Record<string, ExpenseKindSuggestion>>({})
 let expenseSeq = 0
 
@@ -518,8 +520,8 @@ onMounted(async () => {
               <option :value="null">{{ t('purchase_invoice.extraction_review.kind_unset') }}</option>
               <option v-for="k in EXPENSE_KINDS" :key="k" :value="k">{{ t(`purchase_invoice.expense_kind.${k}`) }}</option>
             </select>
-            <ChartAccountSelect v-if="expenseAccounts.length && !auth.isClientRole" v-model="accounts[it.id as number]"
-              class="w-full sm:w-56 shrink-0" compact :accounts="expenseAccounts" :disabled="!!readOnlyReason"
+            <ChartAccountSelect v-if="accountsForExpenseKind(kinds[it.id as number]).length && !auth.isClientRole" v-model="accounts[it.id as number]"
+              class="w-full sm:w-56 shrink-0" compact :accounts="accountsForExpenseKind(kinds[it.id as number])" :disabled="!!readOnlyReason"
               :aria-label="t('purchase_invoice.items.expense_account')" />
             <ItemDimensionsToggle v-if="dimsShown" class="self-end sm:self-auto"
               :open="openItemDims.has(it.id as number)" :filled="Object.values(itemDims(it.id)).some(v => !!v)"

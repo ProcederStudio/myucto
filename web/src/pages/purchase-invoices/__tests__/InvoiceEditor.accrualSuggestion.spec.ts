@@ -45,6 +45,10 @@ vi.mock('@/api/invoices', () => ({ PAYMENT_METHODS: ['bank_transfer', 'cash', 'c
 vi.mock('@/api/accounting', () => ({ accountingApi: { listAccounts: vi.fn().mockResolvedValue([
   { id: 1, account_code: '518.100', name: 'Grafické služby', is_active: true },
   { id: 2, account_code: '518.200', name: 'Hosting', is_active: true },
+  { id: 3, account_code: '042', name: 'Pořízení majetku', is_active: true },
+  { id: 4, account_code: '378', name: 'Jiné pohledávky', is_active: true },
+  { id: 5, account_code: '602', name: 'Tržby', is_active: true },
+  { id: 6, account_code: '518.900', name: 'Neaktivní náklad', is_active: false },
 ]) } }))
 vi.mock('@/api/codebooks', () => ({
   codebooksApi: {
@@ -202,6 +206,26 @@ describe('InvoiceEditor.vue — návrh časového rozlišení z textu položky',
     await wrapper.find('form').trigger('submit')
     await flushPromises()
     expect(m.update.mock.calls[0][1].items.map((row: PurchaseInvoiceItem) => row.expense_account_code)).toEqual(['518.100', '518.200'])
+  })
+
+  it('nabízí pro službu pouze aktivní náklady na desktopu i mobilu', async () => {
+    const wrapper = await mountEditor([{ ...item(1, 'Hosting'), expense_kind: 'service' }])
+    const selects = wrapper.findAll('select[aria-label="purchase_invoice.items.expense_account"]')
+    expect(selects).toHaveLength(2)
+    for (const select of selects) {
+      expect(select.findAll('option').slice(1).map(option => option.attributes('value'))).toEqual(['518.100', '518.200'])
+    }
+  })
+
+  it('nabízí účty pořízení dlouhodobého majetku a zachová dříve zvolený účet', async () => {
+    const wrapper = await mountEditor([
+      { ...item(1, 'Server'), expense_kind: 'fixed_asset', expense_account_code: '042' },
+      { ...item(2, 'Starší kontace'), expense_kind: 'service', expense_account_code: '131' },
+    ])
+    const selects = wrapper.findAll('select[aria-label="purchase_invoice.items.expense_account"]')
+    expect(selects[0].findAll('option').slice(1).map(option => option.attributes('value'))).toEqual(['042'])
+    expect(selects[1].findAll('option').slice(1).map(option => option.attributes('value'))).toEqual(['131', '518.100', '518.200'])
+    expect((selects[1].element as HTMLSelectElement).value).toBe('131')
   })
 
   it('nabídne období jen u položky s rozpoznaným obdobím a bez vyplněného rozlišení', async () => {

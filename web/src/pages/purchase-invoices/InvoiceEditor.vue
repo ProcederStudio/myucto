@@ -45,6 +45,7 @@ import { useDemoMode } from '@/composables/useDemoMode'
 import { apiErrorMessage } from '@/api/errors'
 import StockDescriptionField from '@/components/ui/StockDescriptionField.vue'
 import { rowKey } from '@/utils/rowKey'
+import { purchaseExpenseAccountOptions } from '@/utils/chartAccountOptions'
 import ExpenseKindSuggestionHint from '@/components/purchase/ExpenseKindSuggestionHint.vue'
 import AccrualSuggestionHint from '@/components/accounting/AccrualSuggestionHint.vue'
 import { detectAccrualPeriod, type AccrualPeriod } from '@/utils/accrualPeriod'
@@ -231,8 +232,9 @@ const expenseSuggestions = ref<Record<number, ExpenseKindSuggestion>>({})
 const dismissedSuggestions = ref<Set<number>>(new Set())
 const vatClassifications = ref<VatClassification[]>([])
 const accountingAccounts = ref<ChartAccount[]>([])
-const expenseAccounts = computed(() => accountingAccounts.value.filter(a => a.is_active
-  && !/^(?:311|321|314|324|325|33|34|221|211)/.test(a.account_code)))
+const expenseAccounts = computed(() => purchaseExpenseAccountOptions(accountingAccounts.value))
+const assetAccounts = computed(() => purchaseExpenseAccountOptions(accountingAccounts.value, 'fixed_asset'))
+const accountsForExpenseKind = (kind?: ExpenseKind | null) => kind === 'fixed_asset' ? assetAccounts.value : expenseAccounts.value
 
 // Uložený stav data přijetí (issue #9). Backend překlápí `received_at_source` na 'manual'
 // jen při SKUTEČNÉ změně pole — bez těchhle dvou hodnot by editor neuměl předpovědět,
@@ -2084,9 +2086,9 @@ function fieldErr(key: string): string | null {
                   v-model="it.expense_account_code" :aria-label="t('purchase_invoice.items.expense_account')"
                   class="mt-1 w-full h-9 px-1 border border-neutral-300 rounded bg-surface text-sm">
                   <option :value="null">{{ t('purchase_invoice.items.expense_account_default') }}</option>
-                  <option v-if="it.expense_account_code && !expenseAccounts.some(a => a.account_code === it.expense_account_code)"
+                  <option v-if="it.expense_account_code && !accountsForExpenseKind(it.expense_kind).some(a => a.account_code === it.expense_account_code)"
                     :value="it.expense_account_code">{{ it.expense_account_code }}</option>
-                  <option v-for="a in expenseAccounts" :key="a.id" :value="a.account_code">{{ a.account_code }} {{ a.name }}</option>
+                  <option v-for="a in accountsForExpenseKind(it.expense_kind)" :key="a.id" :value="a.account_code">{{ a.account_code }} {{ a.name }}</option>
                 </select>
                 <template v-if="showAccrual">
                   <button
@@ -2217,9 +2219,9 @@ function fieldErr(key: string): string | null {
                 <select v-model="it.expense_account_code" :aria-label="t('purchase_invoice.items.expense_account')"
                   class="mt-1 w-full h-10 px-2 border border-neutral-300 rounded bg-surface text-sm">
                   <option :value="null">{{ t('purchase_invoice.items.expense_account_default') }}</option>
-                  <option v-if="it.expense_account_code && !expenseAccounts.some(a => a.account_code === it.expense_account_code)"
+                  <option v-if="it.expense_account_code && !accountsForExpenseKind(it.expense_kind).some(a => a.account_code === it.expense_account_code)"
                     :value="it.expense_account_code">{{ it.expense_account_code }}</option>
-                  <option v-for="a in expenseAccounts" :key="a.id" :value="a.account_code">{{ a.account_code }} {{ a.name }}</option>
+                  <option v-for="a in accountsForExpenseKind(it.expense_kind)" :key="a.id" :value="a.account_code">{{ a.account_code }} {{ a.name }}</option>
                 </select>
               </label>
               <template v-if="showAccrual">

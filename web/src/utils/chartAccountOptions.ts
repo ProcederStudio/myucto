@@ -52,3 +52,12 @@ export function accountPickerOptions(
   for (const a of active) emit(a)
   return out
 }
+
+export function purchaseExpenseAccountOptions(
+  accounts: readonly ChartAccount[],
+  expenseKind?: string | null,
+): ChartAccount[] {
+  return accountPickerOptions(accounts, account =>
+    expenseKind === 'fixed_asset' ? account.account_code.startsWith('0') : account.account_code.startsWith('5'),
+  )
+}

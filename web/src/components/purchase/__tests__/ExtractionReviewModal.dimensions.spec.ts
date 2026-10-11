@@ -172,6 +172,9 @@ describe('ExtractionReviewModal — dimenze', () => {
   it('ruční vymazání analytiky uloží explicitní null', async () => {
     m.listAccounts.mockResolvedValue([
       { id: 9, account_code: '518.200', name: 'Hosting', is_active: true, parent_id: null },
+      { id: 14, account_code: '602', name: 'Tržby', is_active: true, parent_id: null },
+      { id: 15, account_code: '378', name: 'Pohledávky', is_active: true, parent_id: null },
+      { id: 16, account_code: '042', name: 'Pořízení majetku', is_active: true, parent_id: null },
       { id: 10, account_code: '518.300', name: 'Inactive', is_active: false, parent_id: null },
       { id: 11, account_code: '321.100', name: 'Payable', is_active: true, parent_id: null },
       { id: 12, account_code: '343.100', name: 'VAT', is_active: true, parent_id: null },
