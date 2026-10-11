@@ -7,6 +7,8 @@ const m = vi.hoisted(() => ({
   prefill: vi.fn(),
   saveDocument: vi.fn(),
   setExpenseKinds: vi.fn(),
+  expenseSuggestions: vi.fn(),
+  listAccounts: vi.fn(),
   dismiss: vi.fn(),
   toastWarning: vi.fn(),
   requiresApproval: false,
@@ -36,9 +38,11 @@ vi.mock('@/api/purchaseInvoices', () => ({
   purchaseInvoicesApi: {
     get: (id: number) => Promise.resolve(m.invoices[id]),
     setExpenseKinds: (...args: unknown[]) => m.setExpenseKinds(...args),
+    expenseSuggestions: (...args: unknown[]) => m.expenseSuggestions(...args),
     dismissExtractionWarning: (...args: unknown[]) => m.dismiss(...args),
   },
 }))
+vi.mock('@/api/accounting', () => ({ accountingApi: { listAccounts: () => m.listAccounts() } }))
 vi.mock('@/api/dimensions', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/api/dimensions')>()),
   dimensionsApi: {
@@ -83,8 +87,8 @@ const missingCenter = {
   details: { missing_required_dimension: { missing_dimensions: [{ type_id: 1, type_name: 'Středisko', account_codes: ['518'] }] } },
 }
 
-async function mountModal(ids: number[]) {
-  const wrapper = mount(ExtractionReviewModal, { props: { invoiceIds: ids } })
+async function mountModal(ids: number[], onlyFlagged = true) {
+  const wrapper = mount(ExtractionReviewModal, { props: { invoiceIds: ids, onlyFlagged } })
   await flushPromises()
   return wrapper
 }
@@ -100,9 +104,36 @@ describe('ExtractionReviewModal — dimenze', () => {
     m.prefill.mockReset().mockResolvedValue({ header: { 1: 7 }, sources: { 1: 'history' } })
     m.saveDocument.mockReset().mockResolvedValue({ header: { 1: 7 }, items: {}, restamp: { lines: 0, needs_repost: false } })
     m.setExpenseKinds.mockReset()
+    m.expenseSuggestions.mockReset().mockResolvedValue({ items: {} })
+    m.listAccounts.mockReset().mockResolvedValue([])
     m.dismiss.mockReset().mockImplementation((id: number) => Promise.resolve({ ...m.invoices[id], extraction_warning: null }))
     m.toastWarning.mockReset()
     m.requiresApproval = false
+  })
+
+  it('nabídne a uloží účet šablony i při stejném druhu nákladu až po potvrzení', async () => {
+    m.invoices = { 2: invoice(2, {
+      extraction_warning: 'Rozdíl součtů',
+      review: { reasons: ['extraction_warning'], details: {} },
+      items: [{ id: 102, order_index: 0, description: 'Hosting', quantity: 1, unit_price_without_vat: 4000, expense_kind: 'service', expense_account_code: null }],
+    }) }
+    m.expenseSuggestions.mockResolvedValue({ items: { 102: {
+      expense_kind: 'service', expense_account_code: '518.200', confidence: 1,
+      reason: 'Pravidlo hosting', source: 'rule', auto: false, current_expense_kind: 'service',
+    } } })
+    m.setExpenseKinds.mockResolvedValue(m.invoices[2])
+    const wrapper = await mountModal([2])
+
+    expect(m.expenseSuggestions).toHaveBeenCalledWith(2)
+    expect(m.setExpenseKinds).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('518.200')
+    const apply = wrapper.findAll('button').find(b => b.text() === 'purchase_invoice.extraction_review.apply')!
+    await apply.trigger('click')
+    expect(m.setExpenseKinds).not.toHaveBeenCalled()
+    await saveButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(m.setExpenseKinds).toHaveBeenCalledWith(2, [{ id: 102, expense_kind: 'service', expense_account_code: '518.200' }])
   })
 
   it('schvalování dimenze kontrolu nevynucuje: koncept bez hlášení a bez střediska se nepřidá', async () => {
@@ -112,6 +143,51 @@ describe('ExtractionReviewModal — dimenze', () => {
 
     expect(wrapper.text()).not.toContain('FV-1')
     expect(wrapper.find('[data-test="review-approval-missing"]').exists()).toBe(false)
+  })
+
+  it('ruční kontrola otevře doklad bez hlášení a uloží změnu analytiky', async () => {
+    m.getDocument.mockResolvedValue({ header: { 1: 7 }, items: {} })
+    m.listAccounts.mockResolvedValue([
+      { id: 9, account_code: '518.100', name: 'Služby', is_active: true, parent_id: null },
+      { id: 10, account_code: '518.200', name: 'Hosting', is_active: true, parent_id: null },
+    ])
+    m.invoices = { 2: invoice(2, {
+      items: [{ id: 102, order_index: 0, description: 'Hosting', quantity: 1, unit_price_without_vat: 4000, expense_kind: 'service', expense_account_code: '518.100' }],
+    }) }
+    m.setExpenseKinds.mockResolvedValue(m.invoices[2])
+    const wrapper = await mountModal([2], false)
+
+    expect(wrapper.text()).toContain('FV-2')
+    expect(wrapper.emitted('close')).toBeUndefined()
+    expect(m.expenseSuggestions).toHaveBeenCalledWith(2)
+    await wrapper.get('input[aria-label="purchase_invoice.items.expense_account"]').setValue('518.200')
+    await saveButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(m.setExpenseKinds).toHaveBeenCalledWith(2, [{ id: 102, expense_kind: 'service', expense_account_code: '518.200' }])
+    expect(m.dismiss).not.toHaveBeenCalled()
+    expect(wrapper.emitted('close')).toHaveLength(1)
+  })
+
+  it('ruční vymazání analytiky uloží explicitní null', async () => {
+    m.listAccounts.mockResolvedValue([
+      { id: 9, account_code: '518.200', name: 'Hosting', is_active: true, parent_id: null },
+      { id: 10, account_code: '518.300', name: 'Inactive', is_active: false, parent_id: null },
+      { id: 11, account_code: '321.100', name: 'Payable', is_active: true, parent_id: null },
+      { id: 12, account_code: '343.100', name: 'VAT', is_active: true, parent_id: null },
+      { id: 13, account_code: '221.100', name: 'Bank', is_active: true, parent_id: null },
+    ])
+    m.invoices = { 2: invoice(2, {
+      review: missingCenter,
+      items: [{ id: 102, order_index: 0, description: 'Hosting', quantity: 1, unit_price_without_vat: 4000, expense_kind: 'service', expense_account_code: '518.200' }],
+    }) }
+    m.setExpenseKinds.mockResolvedValue(m.invoices[2])
+    const wrapper = await mountModal([2])
+    expect(wrapper.findAll('datalist option').map(option => option.attributes('value'))).toEqual(['518.200'])
+    await wrapper.get('input[aria-label="purchase_invoice.items.expense_account"]').setValue('')
+    await saveButton(wrapper).trigger('click')
+    await flushPromises()
+    expect(m.setExpenseKinds).toHaveBeenCalledWith(2, [{ id: 102, expense_kind: 'service', expense_account_code: null }])
   })
 
   it('otevře doklad bez hlášení vytěžení, kterému chybí povinná dimenze, a přeskočí doklad v pořádku', async () => {

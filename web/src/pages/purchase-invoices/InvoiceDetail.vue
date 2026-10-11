@@ -23,7 +23,7 @@ import { useSupplierStore } from '@/stores/supplier'
 import { canSaveToCompanyFolder, pdfFileName, savePdfToCompanyFolder } from '@/composables/useCompanyPdfSave'
 import { apiErrorMessage } from '@/api/errors'
 import ActionBar, { type ActionItem } from '@/components/ui/ActionBar.vue'
-import { ICONS, btnFilledSm, btnOutline } from '@/components/ui/buttonStyles'
+import { ICONS, btnFilledSm, btnOutline, btnOutlineSm } from '@/components/ui/buttonStyles'
 import LockedBadge from '@/components/ui/LockedBadge.vue'
 import PostingBadge from '@/components/ui/PostingBadge.vue'
 import PostingPreviewModal from '@/components/accounting/PostingPreviewModal.vue'
@@ -954,7 +954,7 @@ const purchaseActions = computed<ActionItem[]>(() => {
           {{ t('purchase_invoice.extraction_review.open') }}
         </button>
       </div>
-      <ExtractionReviewModal v-if="reviewOpen" :invoice-ids="[invoice.id]" @updated="onReviewUpdated" @close="onReviewClose" />
+      <ExtractionReviewModal v-if="reviewOpen" :invoice-ids="[invoice.id]" :only-flagged="false" @updated="onReviewUpdated" @close="onReviewClose" />
 
       <!-- ═══ Hlavička: varsymbol + status + akce ═══ -->
       <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3 md:gap-4">
@@ -1392,6 +1392,12 @@ const purchaseActions = computed<ActionItem[]>(() => {
       <DocumentPostingPanel ref="postingPanelRef" source="purchase-invoices" :doc-id="invoice.id" always-visible
         :advance="invoice.document_kind === 'advance' && isDoubleEntry"
         :doc-label="invoice.vendor_invoice_number || invoice.varsymbol" @reposted="onReposted">
+        <div v-if="auth.canWrite('purchase_invoices') && !auth.isClientRole" class="flex flex-wrap justify-end gap-2">
+          <button type="button" :class="btnOutlineSm('warning')" @click="reviewOpen = true">
+            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            {{ t('purchase_invoice.extraction_review.open') }}
+          </button>
+        </div>
         <!-- Účetní údaje dokladu jako dvousloupcová tabulka: popisek vlevo, hodnota hned
              vedle, ať se nemusí hledat přes celou šířku sekce. -->
         <div class="border border-neutral-200 rounded-md overflow-hidden">

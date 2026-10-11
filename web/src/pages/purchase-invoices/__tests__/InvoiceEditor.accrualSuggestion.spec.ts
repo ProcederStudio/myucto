@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
-import type { PurchaseInvoice } from '@/api/purchaseInvoices'
+import type { PurchaseInvoice, PurchaseInvoiceItem } from '@/api/purchaseInvoices'
 
 // Časové rozlišení z textu položky: editor období rozpoznané z popisu jen NABÍDNE,
 // zapíše ho až na klik „Použít" a odmítnutí u téhož textu drží.
@@ -8,6 +8,7 @@ import type { PurchaseInvoice } from '@/api/purchaseInvoices'
 const m = vi.hoisted(() => ({
   get: vi.fn(),
   update: vi.fn(),
+  expenseSuggestions: vi.fn().mockResolvedValue({ items: {} }),
 }))
 
 vi.mock('vue-router', () => ({
@@ -28,7 +29,7 @@ vi.mock('@/api/purchaseInvoices', () => ({
     uploadPdf: vi.fn(),
     deletePdf: vi.fn(),
     pdfUrl: () => '',
-    expenseSuggestions: vi.fn().mockResolvedValue({ items: {} }),
+    expenseSuggestions: m.expenseSuggestions,
     dismissExtractionWarning: vi.fn(),
     acceptAiPostingSuggestion: vi.fn(),
     rejectAiPostingSuggestion: vi.fn(),
@@ -41,10 +42,13 @@ vi.mock('@/api/dimensions', () => ({
   compactDimensions: () => ({}),
 }))
 vi.mock('@/api/invoices', () => ({ PAYMENT_METHODS: ['bank_transfer', 'cash', 'card', 'direct_debit'] }))
-vi.mock('@/api/accounting', () => ({ accountingApi: { listAccounts: vi.fn().mockResolvedValue([]) } }))
+vi.mock('@/api/accounting', () => ({ accountingApi: { listAccounts: vi.fn().mockResolvedValue([
+  { id: 1, account_code: '518.100', name: 'Grafické služby', is_active: true },
+  { id: 2, account_code: '518.200', name: 'Hosting', is_active: true },
+]) } }))
 vi.mock('@/api/codebooks', () => ({
   codebooksApi: {
-    vatRates: vi.fn().mockResolvedValue([{ id: 1, rate_percent: 21, is_default: true }]),
+    vatRates: vi.fn().mockResolvedValue([{ id: 1, rate_percent: 21, is_default: true }, { id: 3, rate_percent: 0 }]),
     currencies: vi.fn().mockResolvedValue([{ id: 1, code: 'CZK', label: 'Kč' }]),
     units: vi.fn().mockResolvedValue([]),
   },
@@ -86,7 +90,7 @@ vi.mock('@/stores/supplier', () => ({
 
 import InvoiceEditor from '@/pages/purchase-invoices/InvoiceEditor.vue'
 
-function item(id: number, description: string, accrual: [string | null, string | null] = [null, null]) {
+function item(id: number, description: string, accrual: [string | null, string | null] = [null, null]): PurchaseInvoiceItem {
   return {
     id,
     description,
@@ -157,6 +161,47 @@ async function mountEditor(items: ReturnType<typeof item>[]) {
 describe('InvoiceEditor.vue — návrh časového rozlišení z textu položky', () => {
   beforeEach(() => {
     m.update.mockReset().mockResolvedValue({ ...makeInvoice([]), _warnings: [] })
+    m.expenseSuggestions.mockReset().mockResolvedValue({ items: {} })
+  })
+
+  it('nabídne a uloží analytický účet ze šablony i při stejném druhu nákladu', async () => {
+    m.expenseSuggestions.mockResolvedValue({ items: {
+      1: { expense_kind: 'service', expense_account_code: '518.200', expense_rule_id: 5,
+        confidence: 0.6, reason: 'Hosting', source: 'rule', auto: false, current_expense_kind: 'service' },
+    } })
+    const wrapper = await mountEditor([{ ...item(1, 'Hosting'), expense_kind: 'service', expense_account_code: null }])
+    const hints = wrapper.findAllComponents({ name: 'ExpenseKindSuggestionHint' })
+    expect(hints).toHaveLength(2)
+    hints[0].vm.$emit('apply')
+    await flushPromises()
+    expect(wrapper.findAllComponents({ name: 'ExpenseKindSuggestionHint' })).toHaveLength(0)
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(m.update.mock.calls[0][1].items[0].expense_account_code).toBe('518.200')
+  })
+
+  it('přepnutí dodavatele na neplátce ponechá částky dokladu a zakáže odpočet', async () => {
+    const wrapper = await mountEditor([item(1, 'Hosting')])
+    const checkbox = wrapper.findAll('input[type="checkbox"]').find(input =>
+      input.element.parentElement?.textContent?.includes('purchase_invoice.fields.vendor_is_vat_payer'))!
+    await checkbox.setValue(false)
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    const payload = m.update.mock.calls[0][1]
+    expect(payload.vendor_is_vat_payer).toBe(false)
+    expect(payload.vat_deduction).toBe('none')
+    expect(payload.items[0].vat_rate_id).toBe(1)
+  })
+
+  it('uloží ručně vybranou analytiku a zachová účet ostatních položek', async () => {
+    const wrapper = await mountEditor([
+      { ...item(1, 'Grafické podklady'), expense_kind: 'service', expense_account_code: null },
+      { ...item(2, 'Hosting'), expense_kind: 'service', expense_account_code: '518.200' },
+    ])
+    await wrapper.findAll('select[aria-label="purchase_invoice.items.expense_account"]')[0].setValue('518.100')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(m.update.mock.calls[0][1].items.map((row: PurchaseInvoiceItem) => row.expense_account_code)).toEqual(['518.100', '518.200'])
   })
 
   it('nabídne období jen u položky s rozpoznaným obdobím a bez vyplněného rozlišení', async () => {

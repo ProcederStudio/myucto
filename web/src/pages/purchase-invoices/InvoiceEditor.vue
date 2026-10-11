@@ -231,6 +231,8 @@ const expenseSuggestions = ref<Record<number, ExpenseKindSuggestion>>({})
 const dismissedSuggestions = ref<Set<number>>(new Set())
 const vatClassifications = ref<VatClassification[]>([])
 const accountingAccounts = ref<ChartAccount[]>([])
+const expenseAccounts = computed(() => accountingAccounts.value.filter(a => a.is_active
+  && !/^(?:311|321|314|324|325|33|34|221|211)/.test(a.account_code)))
 
 // Uložený stav data přijetí (issue #9). Backend překlápí `received_at_source` na 'manual'
 // jen při SKUTEČNÉ změně pole — bez těchhle dvou hodnot by editor neuměl předpovědět,
@@ -475,28 +477,22 @@ function onVendorSelected(v: any) {
     }
   }
   // Změna dodavatele → online ověř plátcovství DPH (ARES/VIES) a u neplátce vynuť
-  // vat_deduction='none' + vynuluj sazby (žádný nárok na odpočet).
+  // vat_deduction='none'.
   if (v && v.id) fetchVendorVatStatus(Number(v.id), true)
 }
 
 // === Plátcovství DPH dodavatele (online ARES/VIES) ===
 const vendorVatStatusLoading = ref(false)
 
-function zeroAllItemRates() {
-  const zero = vatRates.value.find(r => Number(r.rate_percent) === 0 && !r.is_reverse_charge)
-  if (zero) form.value.items.forEach(it => { it.vat_rate_id = zero.id })
-}
-
 /**
  * enforce=true (změna dodavatele / ruční přepnutí checkboxu) → u neplátce vynutí
- * vat_deduction='none' + vynuluje sazby. enforce=false (načtení existující faktury) →
+ * vat_deduction='none'. enforce=false (načtení existující faktury) →
  * jen nastaví příznak pro checkbox, NEpřepisuje uloženou volbu.
  */
 function applyVendorVatStatus(isVatPayer: boolean, enforce: boolean) {
   form.value.vendor_is_vat_payer = isVatPayer
   if (enforce && !isVatPayer) {
     form.value.vat_deduction = 'none'
-    zeroAllItemRates()
   }
 }
 
@@ -516,7 +512,6 @@ async function fetchVendorVatStatus(vendorId: number, enforce: boolean) {
 function onVendorVatPayerToggle() {
   if (!form.value.vendor_is_vat_payer) {
     form.value.vat_deduction = 'none'
-    zeroAllItemRates()
   }
 }
 
@@ -752,7 +747,8 @@ async function loadExpenseSuggestions(id: number) {
 function suggestionFor(it: PurchaseInvoiceItem): ExpenseKindSuggestion | null {
   if (it.id == null || dismissedSuggestions.value.has(it.id)) return null
   const s = expenseSuggestions.value[it.id]
-  if (!s || s.expense_kind === it.expense_kind) return null
+  if (!s || (s.expense_kind === it.expense_kind
+    && (!s.expense_account_code || s.expense_account_code === it.expense_account_code))) return null
   return s
 }
 
@@ -761,6 +757,7 @@ function applySuggestion(it: PurchaseInvoiceItem) {
   const s = suggestionFor(it)
   if (!s) return
   it.expense_kind = s.expense_kind
+  it.expense_account_code = s.expense_account_code ?? null
 }
 
 function dismissSuggestion(it: PurchaseInvoiceItem) {
@@ -1452,6 +1449,7 @@ async function submit() {
         order_index: i,
         vat_classification_code: it.vat_classification_code,
         expense_kind: it.expense_kind ?? null,
+        expense_account_code: it.expense_account_code?.trim() || null,
         accrual_from: it.accrual_from ?? null,
         accrual_to: it.accrual_to ?? null,
         stock_item_id: it.stock_item_id ?? null,
@@ -2082,6 +2080,14 @@ function fieldErr(key: string): string | null {
                   @apply="applySuggestion(it)"
                   @dismiss="dismissSuggestion(it)"
                 />
+                <select v-if="!auth.isClientRole && supplierStore.currentSupplier?.accounting_mode === 'double_entry'"
+                  v-model="it.expense_account_code" :aria-label="t('purchase_invoice.items.expense_account')"
+                  class="mt-1 w-full h-9 px-1 border border-neutral-300 rounded bg-surface text-sm">
+                  <option :value="null">{{ t('purchase_invoice.items.expense_account_default') }}</option>
+                  <option v-if="it.expense_account_code && !expenseAccounts.some(a => a.account_code === it.expense_account_code)"
+                    :value="it.expense_account_code">{{ it.expense_account_code }}</option>
+                  <option v-for="a in expenseAccounts" :key="a.id" :value="a.account_code">{{ a.account_code }} {{ a.name }}</option>
+                </select>
                 <template v-if="showAccrual">
                   <button
                     type="button"
@@ -2205,6 +2211,17 @@ function fieldErr(key: string): string | null {
                 @apply="applySuggestion(it)"
                 @dismiss="dismissSuggestion(it)"
               />
+              <label v-if="!auth.isClientRole && supplierStore.currentSupplier?.accounting_mode === 'double_entry'"
+                class="mt-2 block text-xs text-neutral-600">
+                {{ t('purchase_invoice.items.expense_account') }}
+                <select v-model="it.expense_account_code" :aria-label="t('purchase_invoice.items.expense_account')"
+                  class="mt-1 w-full h-10 px-2 border border-neutral-300 rounded bg-surface text-sm">
+                  <option :value="null">{{ t('purchase_invoice.items.expense_account_default') }}</option>
+                  <option v-if="it.expense_account_code && !expenseAccounts.some(a => a.account_code === it.expense_account_code)"
+                    :value="it.expense_account_code">{{ it.expense_account_code }}</option>
+                  <option v-for="a in expenseAccounts" :key="a.id" :value="a.account_code">{{ a.account_code }} {{ a.name }}</option>
+                </select>
+              </label>
               <template v-if="showAccrual">
                 <button
                   type="button"

@@ -97,10 +97,11 @@ final class ExpenseClassificationService
      * Klasifikátor zná jen účty ČÚS (511 u oprav, 548 u pojištění), osnova firmy je ale
      * často vede analyticky. Zápis na syntetiku, která analytiky má, pak v hlavní knize
      * visí vedle svých dětí (reálně: faktura za údržbu softwaru skončila na holém 511
-     * vedle 511.100 a 511.900). Jedinou analytiku přesměruje už
-     * PostingService::singleAnalyticMap(); tady se řeší i víc analytik: přednost má ta,
-     * kterou firma používá v předkontacích, jinak první daňová analytika v pořadí osnovy.
-     * Nedaňová analytika se nevybírá nikdy, tu přiřazuje až daňový příznak dokladu.
+     * vedle 511.100 a 511.900). Stejně jako PostingService::singleAnalyticMap() smí
+     * přesměr vybrat jen jediného způsobilého potomka. Více analytik vyžaduje konkrétní
+     * účet položky nebo pravidla; použití v jiné předkontaci jejich význam neurčuje.
+     * Zde se posuzují jen daňové nákladové analytiky, nedaňovou větev přiřazuje až
+     * příznak dokladu. Obecný přesměr v PostingService řeší navíc rozvahové účty.
      *
      * Účet, který syntetikou není nebo analytiky nemá, se vrací beze změny.
      */
@@ -114,20 +115,15 @@ final class ExpenseClassificationService
             return $this->analyticCache[$key];
         }
         $stmt = $this->db->pdo()->prepare(
-            "SELECT c.account_code
+            "SELECT MIN(c.account_code)
                FROM chart_of_accounts p
                JOIN chart_of_accounts c ON c.supplier_id = p.supplier_id AND c.parent_id = p.id
               WHERE p.supplier_id = ? AND p.account_code = ?
                 AND c.is_active = 1
                 AND c.tax_deductibility = 'deductible'
                 AND c.account_code REGEXP '^[0-9]{3}[.][0-9]{1,6}$'
-              ORDER BY EXISTS (
-                        SELECT 1 FROM posting_rules r
-                         WHERE r.supplier_id = c.supplier_id AND r.is_active = 1
-                           AND (r.debit_account_code = c.account_code OR r.credit_account_code = c.account_code)
-                       ) DESC,
-                       c.account_code ASC
-              LIMIT 1"
+              GROUP BY p.id
+             HAVING COUNT(*) = 1"
         );
         $stmt->execute([$supplierId, $code]);
         $analytic = $stmt->fetchColumn();

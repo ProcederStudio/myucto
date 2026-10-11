@@ -11,6 +11,7 @@ use MyInvoice\Http\SupplierGuard;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Repository\PurchaseInvoiceRepository;
+use MyInvoice\Repository\ChartOfAccountsRepository;
 use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Service\Accounting\DocumentJournalSync;
 use MyInvoice\Service\Accounting\DocumentLockService;
@@ -27,7 +28,7 @@ use Psr\Http\Message\ServerRequestInterface as Request;
 /**
  * PUT /api/purchase-invoices/{id}/expense-kinds — druh nákladu po položkách.
  *
- * Body: { items: [{ id: number, expense_kind: string|null }] }
+ * Body: { items: [{ id: number, expense_kind: string|null, expense_account_code?: string|null }] }
  *
  * Kontrolní okno po AI importu potvrzuje návrhy druhu nákladu faktura po faktuře.
  * Plný PUT by musel poslat celý doklad (a u zaplaceného dokladu z importu je navíc
@@ -59,6 +60,7 @@ final class SetPurchaseInvoiceExpenseKindsAction
         private readonly ActivityLogger $logger,
         private readonly IpMatcher $ipMatcher,
         private readonly ExtractionReviewSync $reviewSync,
+        private readonly ChartOfAccountsRepository $accounts,
     ) {}
 
     public function __invoke(Request $request, Response $response, array $args): Response
@@ -112,14 +114,37 @@ final class SetPurchaseInvoiceExpenseKindsAction
         foreach ((array) ($existing['items'] ?? []) as $item) {
             $current[(int) $item['id']] = $item;
         }
+        $sources = $this->db->pdo()->prepare(
+            'SELECT id, expense_classification_source FROM purchase_invoice_items WHERE purchase_invoice_id = ?'
+        );
+        $sources->execute([$id]);
+        foreach ($sources->fetchAll(\PDO::FETCH_ASSOC) as $item) {
+            if (isset($current[(int) $item['id']])) {
+                $current[(int) $item['id']]['expense_classification_source'] = $item['expense_classification_source'];
+            }
+        }
         $changes = [];
-        foreach ($requested as $itemId => $kind) {
+        foreach ($requested as $itemId => $classification) {
             if (!isset($current[$itemId])) {
                 return Json::error($response, 'invalid_reference', 'Položka nepatří k tomuto dokladu.', 400);
             }
             $from = ($current[$itemId]['expense_kind'] ?? null) ?: null;
-            if ($from !== $kind) {
-                $changes[$itemId] = ['from' => $from, 'to' => $kind];
+            $kind = $classification['expense_kind'];
+            $accountFrom = ($current[$itemId]['expense_account_code'] ?? null) ?: null;
+            $explicitAccount = array_key_exists('expense_account_code', $classification);
+            $account = $explicitAccount ? $classification['expense_account_code']
+                : (($current[$itemId]['expense_classification_source'] ?? null) === null || $from === $kind ? $accountFrom : null);
+            if ($explicitAccount && $account !== null) {
+                // Stejné omezení jako pravidla; výběr konkrétní analytiky až při účtování zůstává v PostingService.
+                $record = $this->accounts->findByCode($supplierId, $account);
+                if (preg_match('/^(?:311|321|314|324|325|33|34|221|211)/', $account) === 1
+                    || $record === null || !($record['is_active'] ?? false)) {
+                    return Json::error($response, 'invalid_target_account', 'Účet není aktivním nákladovým účtem firmy.', 400);
+                }
+            }
+            if ($from !== $kind || $accountFrom !== $account
+                || ($explicitAccount && ($current[$itemId]['expense_classification_source'] ?? null) !== null)) {
+                $changes[$itemId] = ['from' => $from, 'to' => $kind, 'account_from' => $accountFrom, 'account_to' => $account];
             }
         }
         if ($changes === []) {
@@ -138,13 +163,14 @@ final class SetPurchaseInvoiceExpenseKindsAction
                 'UPDATE purchase_invoice_items
                     SET expense_kind = ?,
                         is_fixed_asset = ?,
-                        expense_account_code = IF(expense_classification_source IS NULL, expense_account_code, NULL),
+                        expense_account_code = ?,
                         expense_rule_id = NULL,
                         expense_classification_source = NULL
                   WHERE id = ? AND purchase_invoice_id = ?'
             );
             foreach ($changes as $itemId => $change) {
-                $stmt->execute([$change['to'], $change['to'] === ExpenseKind::FixedAsset->value ? 1 : 0, $itemId, $id]);
+                $stmt->execute([$change['to'], $change['to'] === ExpenseKind::FixedAsset->value ? 1 : 0,
+                    $change['account_to'], $itemId, $id]);
             }
             // Odrážky hlášení u řádků, které teď druh mají, zmizí (týž háček jako replaceItems).
             $this->reviewSync->afterItemsChanged($supplierId, $id);
@@ -197,7 +223,7 @@ final class SetPurchaseInvoiceExpenseKindsAction
         return Json::ok($response, $invoice);
     }
 
-    /** @return array<int, ?string>|null item id => druh (null = neurčeno), null při neplatném vstupu */
+    /** @return array<int, array{expense_kind:?string, expense_account_code?:?string}>|null */
     private static function parseItems(mixed $items): ?array
     {
         if (!is_array($items) || $items === []) {
@@ -215,7 +241,15 @@ final class SetPurchaseInvoiceExpenseKindsAction
             if ($raw !== null && $raw !== '' && $kind === null) {
                 return null;
             }
-            $out[(int) $item['id']] = $kind?->value;
+            $classification = ['expense_kind' => $kind?->value];
+            if (array_key_exists('expense_account_code', $item)) {
+                $account = $item['expense_account_code'];
+                if ($account !== null && !is_string($account)) {
+                    return null;
+                }
+                $classification['expense_account_code'] = $account === null ? null : (trim($account) ?: null);
+            }
+            $out[(int) $item['id']] = $classification;
         }
         return $out;
     }

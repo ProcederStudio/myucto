@@ -4,10 +4,13 @@ import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import Modal from '@/components/ui/Modal.vue'
 import ExtractionWarningText from '@/components/purchase/ExtractionWarningText.vue'
+import ChartAccountSelect from '@/components/accounting/ChartAccountSelect.vue'
+import { accountingApi, type ChartAccount } from '@/api/accounting'
 import { btnFilled, btnFilledSm, btnOutline, btnOutlineSm, disabledTitle, BTN_DISABLED_NOTE } from '@/components/ui/buttonStyles'
 import {
   purchaseInvoicesApi,
   type ExpenseKind,
+  type ExpenseKindSuggestion,
   type ExtractionExpenseKindProposal,
   type PurchaseInvoice,
 } from '@/api/purchaseInvoices'
@@ -70,20 +73,33 @@ const index = ref(0)
 const loading = ref(true)
 const saving = ref(false)
 const kinds = reactive<Record<number, ExpenseKind | null>>({})
+const accounts = reactive<Record<number, string | null>>({})
+const accountingAccounts = ref<ChartAccount[]>([])
+const expenseAccounts = computed(() => accountingAccounts.value.filter(account => account.is_active
+  && !/^(?:311|321|314|324|325|33|34|221|211)/.test(account.account_code)))
+const expenseSuggestions = ref<Record<string, ExpenseKindSuggestion>>({})
+let expenseSeq = 0
 
 const invoice = computed<PurchaseInvoice | null>(() => queue.value[index.value] ?? null)
 const isLast = computed(() => index.value >= queue.value.length - 1)
 
 const proposals = computed(() => {
-  const map = new Map<number, ExtractionExpenseKindProposal>()
+  const map = new Map<number, ExtractionExpenseKindProposal & { expense_account_code?: string | null }>()
   for (const p of invoice.value?.extraction_review?.expense_kinds ?? []) map.set(p.order_index, p)
+  for (const it of items.value) {
+    const suggestion = expenseSuggestions.value[String(it.id)]
+    if (suggestion && (suggestion.source === 'rule' || !map.has(it.order_index))) {
+      map.set(it.order_index, { order_index: it.order_index, kind: suggestion.expense_kind,
+        confidence: suggestion.confidence, reason: suggestion.reason, expense_account_code: suggestion.expense_account_code })
+    }
+  }
   return map
 })
 
 const items = computed(() => (invoice.value?.items ?? []).filter((it) => it.id !== undefined))
 const otherWarning = computed(() => withoutExpenseKindSection(invoice.value?.extraction_warning))
 
-function proposalFor(orderIndex: number): ExtractionExpenseKindProposal | undefined {
+function proposalFor(orderIndex: number) {
   return proposals.value.get(orderIndex)
 }
 function needsAttention(it: { id?: number; order_index: number }): boolean {
@@ -91,8 +107,13 @@ function needsAttention(it: { id?: number; order_index: number }): boolean {
 }
 const pendingProposals = computed(() => items.value.filter((it) => {
   const p = proposalFor(it.order_index)
-  return p && kinds[it.id as number] !== p.kind
+  return p && proposalDiffers(it)
 }))
+function proposalDiffers(it: { id?: number; order_index: number }): boolean {
+  const p = proposalFor(it.order_index)
+  return !!p && (kinds[it.id as number] !== p.kind
+    || (!!p.expense_account_code && accounts[it.id as number] !== p.expense_account_code))
+}
 const attentionCount = computed(() => items.value.filter(needsAttention).length)
 
 const readOnlyReason = computed<string | null>(() => {
@@ -109,12 +130,19 @@ const readOnlyReason = computed<string | null>(() => {
 
 function resetKinds(): void {
   for (const k of Object.keys(kinds)) delete kinds[Number(k)]
-  for (const it of items.value) kinds[it.id as number] = it.expense_kind ?? null
+  for (const k of Object.keys(accounts)) delete accounts[Number(k)]
+  for (const it of items.value) {
+    kinds[it.id as number] = it.expense_kind ?? null
+    accounts[it.id as number] = it.expense_account_code ?? null
+  }
 }
 
 function applyProposal(it: { id?: number; order_index: number }): void {
   const p = proposalFor(it.order_index)
-  if (p) kinds[it.id as number] = p.kind
+  if (p) {
+    kinds[it.id as number] = p.kind
+    if (p.expense_account_code) accounts[it.id as number] = p.expense_account_code
+  }
 }
 function applyAll(): void {
   for (const it of pendingProposals.value) applyProposal(it)
@@ -124,7 +152,21 @@ function goTo(i: number): void {
   index.value = i
   resetKinds()
   const inv = invoice.value
-  if (inv) void loadDimensions(inv)
+  if (inv) {
+    void loadDimensions(inv)
+    void loadExpenseSuggestions(inv)
+  }
+}
+
+async function loadExpenseSuggestions(inv: PurchaseInvoice): Promise<void> {
+  const seq = ++expenseSeq
+  expenseSuggestions.value = {}
+  try {
+    const result = await purchaseInvoicesApi.expenseSuggestions(inv.id)
+    if (seq === expenseSeq) expenseSuggestions.value = result.items
+  } catch {
+    if (seq === expenseSeq) expenseSuggestions.value = {}
+  }
 }
 
 // ── Dimenze dokladu ─────────────────────────────────────────────────────────
@@ -272,8 +314,12 @@ async function save(): Promise<void> {
   try {
     let updated: PurchaseInvoice = inv
     const changed = items.value
-      .filter((it) => (it.expense_kind ?? null) !== kinds[it.id as number])
-      .map((it) => ({ id: it.id as number, expense_kind: kinds[it.id as number] ?? null }))
+      .filter((it) => (it.expense_kind ?? null) !== kinds[it.id as number]
+        || (it.expense_account_code ?? null) !== (accounts[it.id as number]?.trim() || null))
+      .map((it) => ({ id: it.id as number, expense_kind: kinds[it.id as number] ?? null,
+        ...((it.expense_account_code ?? null) !== (accounts[it.id as number]?.trim() || null)
+          ? { expense_account_code: accounts[it.id as number]?.trim() || null } : {}),
+      }))
     // Odrážky hlášení u řádků, které teď druh mají, odebere backend sám.
     if (changed.length && !readOnlyReason.value) {
       const res = await purchaseInvoicesApi.setExpenseKinds(inv.id, changed)
@@ -355,6 +401,9 @@ function next(): void {
 }
 
 onMounted(async () => {
+  if (!auth.isClientRole) {
+    void accountingApi.listAccounts().then(result => { accountingAccounts.value = result }).catch(() => {})
+  }
   try {
     const loaded = (await Promise.all(props.invoiceIds.map((id) => purchaseInvoicesApi.get(id).catch(() => null))))
       .filter((inv): inv is PurchaseInvoice => inv !== null)
@@ -454,9 +503,10 @@ onMounted(async () => {
                     kind: t(`purchase_invoice.expense_kind.${proposalFor(it.order_index)!.kind}`),
                     pct: Math.round(proposalFor(it.order_index)!.confidence * 100),
                   }) }}
+                  <span v-if="proposalFor(it.order_index)!.expense_account_code" class="font-mono"> · {{ proposalFor(it.order_index)!.expense_account_code }}</span>
                   <span class="text-neutral-400">— {{ proposalFor(it.order_index)!.reason }}</span>
                 </span>
-                <button v-if="kinds[it.id as number] !== proposalFor(it.order_index)!.kind && !readOnlyReason" type="button"
+                <button v-if="proposalDiffers(it) && !readOnlyReason" type="button"
                   :class="btnOutlineSm('primary')" @click="applyProposal(it)">
                   {{ t('purchase_invoice.extraction_review.apply') }}
                 </button>
@@ -468,6 +518,9 @@ onMounted(async () => {
               <option :value="null">{{ t('purchase_invoice.extraction_review.kind_unset') }}</option>
               <option v-for="k in EXPENSE_KINDS" :key="k" :value="k">{{ t(`purchase_invoice.expense_kind.${k}`) }}</option>
             </select>
+            <ChartAccountSelect v-if="expenseAccounts.length && !auth.isClientRole" v-model="accounts[it.id as number]"
+              class="w-full sm:w-56 shrink-0" compact :accounts="expenseAccounts" :disabled="!!readOnlyReason"
+              :aria-label="t('purchase_invoice.items.expense_account')" />
             <ItemDimensionsToggle v-if="dimsShown" class="self-end sm:self-auto"
               :open="openItemDims.has(it.id as number)" :filled="Object.values(itemDims(it.id)).some(v => !!v)"
               :disabled="!dimsEditable" @toggle="toggleItemDims(it.id)" />

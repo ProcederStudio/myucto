@@ -14863,7 +14863,7 @@ paths:
         - $ref: '#/components/parameters/SupplierIdHeader'
       requestBody:
         required: true
-        content: { application/json: { schema: { type: object, required: [register_id, doc_type, purpose, issue_date, description, total_amount], properties: { register_id: { type: integer }, doc_type: { type: string, enum: [in, out] }, purpose: { type: string, enum: [sale, purchase, invoice_payment, purchase_payment, transfer, other] }, issue_date: { type: string, format: date }, tax_date: { type: string, format: date }, partner_name: { type: string }, partner_ic: { type: string }, partner_dic: { type: string }, description: { type: string }, vat_mode: { type: string, enum: [none, vat] }, total_amount: { type: number }, amount_foreign: { type: number, nullable: true, description: "Částka v měně pokladny u valutové pokladny (§11); CZK ekvivalent do total_amount dopočítá server" }, fx_rate: { type: number, description: "Ruční kurz; vynechte, ať se použije kurz ČNB k datu vystavení" }, vat_lines: { type: array, items: { type: object, properties: { vat_rate: { type: number }, base_amount: { type: number }, vat_amount: { type: number }, vat_deduction: { type: string, enum: [full, none, proportional, reduced], default: full, description: "Rozsah nároku na odpočet DPH řádku (§ 75/76)" }, vat_deduction_percent: { type: number, default: 100, description: "Poměrný / skutečný roční koeficient odpočtu v procentech (0–100)" }, tax_treatment: { type: string, enum: [deductible, non_deductible, not_expense], default: deductible, description: "Uznatelnost řádku pro daň z příjmů (§ 24/25), nezávislá na DPH" }, is_fixed_asset: { type: boolean, default: false, description: "Pořízení dlouhodobého majetku (§ 4 odst. 4) — hodnota se v přiznání uvede navíc na ř. 47. Uplatní se jen u výdajového dokladu (doc_type=out); u příjmového se ignoruje." } } } }, invoice_id: { type: integer }, purchase_invoice_id: { type: integer }, rule_key: { type: string }, counter_account_code: { type: string }, post: { type: boolean, default: true } } } } }
+        content: { application/json: { schema: { type: object, required: [register_id, doc_type, purpose, issue_date, description, total_amount], properties: { register_id: { type: integer }, doc_type: { type: string, enum: [in, out] }, purpose: { type: string, enum: [sale, purchase, invoice_payment, purchase_payment, transfer, other] }, issue_date: { type: string, format: date }, tax_date: { type: string, format: date }, partner_name: { type: string }, partner_ic: { type: string }, partner_dic: { type: string }, description: { type: string }, vat_mode: { type: string, enum: [none, vat] }, total_amount: { type: number }, amount_foreign: { type: number, nullable: true, description: "Částka v měně pokladny u valutové pokladny (§11); CZK ekvivalent do total_amount dopočítá server" }, fx_rate: { type: number, description: "Ruční kurz; vynechte, ať se použije kurz ČNB k datu vystavení" }, vat_lines: { type: array, items: { type: object, properties: { vat_rate: { type: number }, base_amount: { type: number }, vat_amount: { type: number }, vat_deduction: { type: string, enum: [full, none, proportional, reduced], default: full, description: "Rozsah nároku na odpočet DPH řádku (§ 75/76)" }, vat_deduction_percent: { type: number, default: 100, description: "Poměrný / skutečný roční koeficient odpočtu v procentech (0–100)" }, tax_treatment: { type: string, enum: [deductible, non_deductible, not_expense], default: deductible, description: "Uznatelnost řádku pro daň z příjmů (§ 24/25), nezávislá na DPH" }, is_fixed_asset: { type: boolean, default: false, description: "Pořízení dlouhodobého majetku (§ 4 odst. 4) — hodnota se v přiznání uvede navíc na ř. 47. Uplatní se jen u výdajového dokladu (doc_type=out); u příjmového se ignoruje." } } } }, invoice_id: { type: integer }, purchase_invoice_id: { type: integer }, rule_key: { type: string }, counter_account_code: { $ref: '#/components/schemas/CashDocumentCounterAccountCode' }, post: { type: boolean, default: true } } } } }
       responses:
         '201': { description: Vytvořeno, content: { application/json: { schema: { type: object } } } }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -14929,7 +14929,7 @@ paths:
         - { in: path, name: id, required: true, schema: { type: integer } }
       requestBody:
         required: true
-        content: { application/json: { schema: { type: object } } }
+        content: { application/json: { schema: { type: object, properties: { counter_account_code: { $ref: '#/components/schemas/CashDocumentCounterAccountCode' } } } } }
       responses:
         '200': { description: OK, content: { application/json: { schema: { type: object } } } }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -26032,6 +26032,8 @@ paths:
 
         V každém prvku `items[]` je klíč `expense_kind` povinný (hodnota může být `null`). Chybí-li,
         vrací 400 `validation_failed`.
+        Volitelný `expense_account_code` nastaví aktivní nákladový účet firmy, včetně analytiky.
+        Explicitní `null` účet smaže; při vynechání se uplatní pravidla změny druhu nákladu.
       requestBody:
         required: true
         content:
@@ -37173,6 +37175,9 @@ components:
             Autoritativní vůči `is_fixed_asset`, který se z něj odvozuje.
             Návrhy vrací `GET /accounting/purchase-invoices/{id}/expense-suggestions`;
             zapisuje je vždy až uživatel, nikdy klasifikátor ani AI import.
+        expense_account_code:
+          type: [string, "null"]
+          description: "Nákladový účet položky, včetně analytiky. NULL odvodí účet z druhu nákladu."
         accrual_from: { type: [string, "null"], format: date, description: "Časové rozlišení nákladu (381): začátek období, do kterého náklad řádku patří. NULL = bez rozlišení." }
         accrual_to: { type: [string, "null"], format: date, description: "Konec období nákladu řádku. Část nákladu za koncem účetního období odloží uzávěrka na 381." }
         is_fixed_asset:
@@ -37209,6 +37214,8 @@ components:
         order_index: { type: integer }
         vat_classification_code: { type: [string, "null"] }
         is_fixed_asset: { type: boolean, default: false }
+        expense_kind: { type: [string, "null"], enum: [service, material, small_asset, small_intangible, fixed_asset, null] }
+        expense_account_code: { type: [string, "null"], description: "Vlastní nákladový účet položky; NULL odvodí účet z druhu nákladu." }
         accrual_from: { type: [string, "null"], format: date, description: "Časové rozlišení nákladu (381) — začátek období. Jen spolu s `accrual_to`; neplatná dvojice se uloží jako bez rozlišení." }
         accrual_to: { type: [string, "null"], format: date, description: "Časové rozlišení nákladu (381) — konec období (včetně)." }
         stock_item_id:
@@ -41080,6 +41087,14 @@ components:
         ends_on:
           type: string
           format: date
+    CashDocumentCounterAccountCode:
+      type: [string, "null"]
+      description: |
+        U účelu purchase volitelný aktivní nákladový účet třídy 5 z osnovy dané firmy,
+        včetně analytiky (například 518.200). Prázdná nebo null hodnota použije účet
+        z kontace cash.purchase (výchozí 501). Při PUT vynechání zachová uloženou
+        volbu, explicitní null ji vymaže. U účelu other jde o ruční protiúčet,
+        který se vzájemně vylučuje s rule_key. U úhrad faktur se toto pole ignoruje.
     CashFlowBreakdownRow:
       type: object
       required:
@@ -45468,6 +45483,9 @@ components:
             - id
             - expense_kind
             properties:
+              expense_account_code:
+                type: [string, "null"]
+                description: "Aktivní nákladový účet firmy; NULL odstraní vlastní účet položky."
               id:
                 type: integer
                 minimum: 1

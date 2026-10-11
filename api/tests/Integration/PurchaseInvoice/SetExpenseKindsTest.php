@@ -13,6 +13,9 @@ use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Middleware\SupplierScopeMiddleware;
 use MyInvoice\Repository\PurchaseInvoiceRepository;
 use MyInvoice\Service\Import\AiExpenseKindProposal;
+use MyInvoice\Service\Accounting\ChartOfAccountsSeeder;
+use MyInvoice\Service\Accounting\PostingService;
+use MyInvoice\Repository\AccountingPeriodRepository;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Slim\Psr7\Factory\ServerRequestFactory;
@@ -129,6 +132,97 @@ final class SetExpenseKindsTest extends TestCase
         $res = $this->put($id, ['items' => [['id' => $item, 'expense_kind' => null]]]);
         self::assertSame(200, $res['status']);
         self::assertNull($this->items($id)[$item]['expense_kind']);
+    }
+
+    public function testExplicitAccountIsSavedWithUnchangedKindAndCleared(): void
+    {
+        [$id, $item] = $this->createInvoice();
+        $pdo = $this->db->pdo();
+        $pdo->prepare("INSERT INTO chart_of_accounts (supplier_id, account_code, name, account_type, normal_side, is_synthetic, is_active)
+            VALUES (?, '518.987651', 'TEST hosting analytic', 'expense', 'debit', 0, 1)
+            ON DUPLICATE KEY UPDATE is_active = 1")->execute([$this->supplierId]);
+        $pdo->prepare("UPDATE purchase_invoice_items SET expense_kind = 'service', expense_classification_source = 'keyword' WHERE id = ?")->execute([$item]);
+
+        $res = $this->put($id, ['items' => [['id' => $item, 'expense_kind' => 'service', 'expense_account_code' => '518.987651']]]);
+        self::assertSame(200, $res['status'], json_encode($res['body'], JSON_UNESCAPED_UNICODE));
+        self::assertSame('518.987651', $this->items($id)[$item]['expense_account_code']);
+        self::assertNull($this->items($id)[$item]['expense_classification_source']);
+
+        $res = $this->put($id, ['items' => [['id' => $item, 'expense_kind' => 'service', 'expense_account_code' => null]]]);
+        self::assertSame(200, $res['status']);
+        self::assertNull($this->items($id)[$item]['expense_account_code']);
+    }
+
+    public function testRejectsInvalidExpenseAccountWithoutChangingKind(): void
+    {
+        [$id, $item] = $this->createInvoice();
+        $this->db->pdo()->prepare("INSERT INTO chart_of_accounts (supplier_id, account_code, name, account_type, normal_side, is_synthetic, is_active)
+            VALUES (?, '518.987652', 'TEST inactive analytic', 'expense', 'debit', 0, 0)
+            ON DUPLICATE KEY UPDATE is_active = 0")->execute([$this->supplierId]);
+        foreach (['518.987652', '518.987653', '321', ['518.987651']] as $account) {
+            $res = $this->put($id, ['items' => [['id' => $item, 'expense_kind' => 'service', 'expense_account_code' => $account]]]);
+            self::assertSame(400, $res['status'], json_encode($res['body'], JSON_UNESCAPED_UNICODE));
+            self::assertNull($this->items($id)[$item]['expense_kind']);
+        }
+    }
+
+    public function testRejectsAccountBelongingOnlyToAnotherTenant(): void
+    {
+        [$id, $item] = $this->createInvoice();
+        $pdo = $this->db->pdo();
+        $pdo->prepare('INSERT INTO supplier (company_name, street, city, zip, country_id, email, default_currency_id, default_vat_rate_id)
+            SELECT "TEST foreign account tenant", "Testovací", "Praha", "11000", country_id,
+                "foreign-expense-account@example.test", default_currency_id, default_vat_rate_id FROM supplier WHERE id = ?')
+            ->execute([$this->supplierId]);
+        $foreignSupplierId = (int) $pdo->lastInsertId();
+        $pdo->prepare("INSERT INTO chart_of_accounts (supplier_id, account_code, name, account_type, normal_side, is_synthetic, is_active)
+            VALUES (?, '518.987654', 'TEST foreign analytic', 'expense', 'debit', 0, 1)")->execute([$foreignSupplierId]);
+
+        $res = $this->put($id, ['items' => [['id' => $item, 'expense_kind' => 'service', 'expense_account_code' => '518.987654']]]);
+        self::assertSame(400, $res['status']);
+        self::assertNull($this->items($id)[$item]['expense_account_code']);
+        self::assertNull($this->items($id)[$item]['expense_kind']);
+    }
+
+    public function testAccountOnlyChangeRepostsExistingJournalWithAnalytic(): void
+    {
+        [$id, $item] = $this->createInvoice();
+        $pdo = $this->db->pdo();
+        $container = Bootstrap::buildContainer();
+        $pdo->prepare("UPDATE supplier SET accounting_mode = 'double_entry', accounting_enabled = 1 WHERE id = ?")
+            ->execute([$this->supplierId]);
+        $container->get(ChartOfAccountsSeeder::class)->seedForSupplier($this->supplierId);
+        $periods = $container->get(AccountingPeriodRepository::class);
+        if ($periods->findForDate($this->supplierId, self::ISSUE_DATE) === null) {
+            $periods->create($this->supplierId, 2096, '2096-01-01', '2096-12-31');
+        }
+        $pdo->prepare("INSERT INTO chart_of_accounts (supplier_id, account_code, name, account_type, normal_side, is_synthetic, is_active)
+            VALUES (?, '518.987650', 'TEST original analytic', 'expense', 'debit', 0, 1),
+                   (?, '518.987651', 'TEST hosting analytic', 'expense', 'debit', 0, 1)
+            ON DUPLICATE KEY UPDATE is_active = 1")->execute([$this->supplierId, $this->supplierId]);
+        $pdo->prepare("UPDATE purchase_invoice_items SET expense_kind = 'service', expense_account_code = '518.987650'
+            WHERE purchase_invoice_id = ?")->execute([$id]);
+        $pdo->prepare("UPDATE purchase_invoices SET status = 'received' WHERE id = ?")->execute([$id]);
+        $posting = $container->get(PostingService::class);
+        $entryId = $posting->postDocument($this->supplierId, 'purchase_invoice', $id,
+            $posting->buildFromPurchaseInvoice($this->supplierId, $id), [
+                'entry_date' => self::ISSUE_DATE, 'posted' => true, 'posted_by' => $this->userId,
+            ]);
+        $request = $this->request('PUT', ['items' => [[
+            'id' => $item, 'expense_kind' => 'service', 'expense_account_code' => '518.987651',
+        ]]])->withAttribute(AuthMiddleware::ATTR_METHOD, 'session');
+        $res = self::decode(($this->setKinds)($request, new Psr7Response(), ['id' => (string) $id]));
+
+        self::assertSame(200, $res['status'], json_encode($res['body'], JSON_UNESCAPED_UNICODE));
+        self::assertSame($entryId, $res['body']['_repost']['entry_id'] ?? null);
+        self::assertSame('service', $this->items($id)[$item]['expense_kind']);
+        $stmt = $pdo->prepare('SELECT coa.account_code, SUM(jel.amount) AS amount
+            FROM journal_entry_lines jel JOIN chart_of_accounts coa ON coa.id = jel.account_id AND coa.supplier_id = jel.supplier_id
+            WHERE jel.entry_id = ? AND jel.supplier_id = ? AND jel.side = "debit" GROUP BY coa.account_code');
+        $stmt->execute([$entryId, $this->supplierId]);
+        $amounts = $stmt->fetchAll(\PDO::FETCH_KEY_PAIR);
+        self::assertSame(1000.0, (float) ($amounts['518.987651'] ?? 0));
+        self::assertSame(250.0, (float) ($amounts['518.987650'] ?? 0));
     }
 
     public function testRejectsInvalidKindAndForeignItem(): void

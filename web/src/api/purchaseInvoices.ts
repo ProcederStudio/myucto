@@ -88,6 +88,7 @@ export type ExpenseKindSuggestionSource = 'rule' | 'keyword' | 'threshold' | 'ai
  */
 export interface ExpenseKindSuggestion {
   expense_kind: ExpenseKind
+  expense_account_code?: string | null
   /** 0..1. */
   confidence: number
   /** Lidský důvod, např. „text obsahuje „tablet" ⇒ drobný majetek". */
@@ -148,6 +149,7 @@ export interface PurchaseInvoiceItem {
   vat_label_en?: string
   /** §DM — druh nákladu. Autoritativní klasifikace, BE z ní odvozuje `is_fixed_asset`. */
   expense_kind?: ExpenseKind | null
+  expense_account_code?: string | null
   /** §DČR — časové rozlišení nákladu (381): období od–do, do kterého náklad věcně patří. NULL = bez rozlišení. */
   accrual_from?: string | null
   accrual_to?: string | null
@@ -901,7 +903,7 @@ export const purchaseInvoicesApi = {
       .then(r => r.data),
 
   /** Druh nákladu po položkách — kontrolní okno po AI importu, i u zaplaceného dokladu. */
-  setExpenseKinds: (id: number, items: { id: number; expense_kind: ExpenseKind | null }[]) =>
+  setExpenseKinds: (id: number, items: { id: number; expense_kind: ExpenseKind | null; expense_account_code?: string | null }[]) =>
     api.put<PurchaseInvoice & { _repost?: { entry_id: number } }>(`/purchase-invoices/${id}/expense-kinds`, { items })
       .then(r => r.data),
 

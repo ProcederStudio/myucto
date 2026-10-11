@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace MyInvoice\Tests\Integration\Accounting;
 
+use MyInvoice\Service\Accounting\ChartOfAccountsSeeder;
+use MyInvoice\Service\Accounting\Expense\ExpenseClassificationService;
 use MyInvoice\Tests\Integration\Accounting\Bank\BankPostingTestCase;
 use PHPUnit\Framework\Attributes\Group;
 
@@ -400,6 +402,68 @@ final class ExpenseKindPostingTest extends BankPostingTestCase
 
         $this->expectException(\MyInvoice\Service\Accounting\PostingException::class);
         $this->posting->buildFromPurchaseInvoice($this->supplierId, $pf);
+    }
+
+    public function testAmbiguousServiceAnalyticsKeepSyntheticFallback(): void
+    {
+        $this->isolatedServiceAnalytics();
+        $invoiceId = $this->purchaseWithItems('PF-AMBIGUOUS-SERVICE', [
+            ['Obecná služba bez účtu', 1000.0, 210.0, 'service'],
+            ['Obecná služba se syntetikou', 500.0, 105.0, 'service', '518'],
+        ]);
+        $lines = $this->postAndGetLines($invoiceId);
+
+        self::assertEqualsWithDelta(1500.0, $lines['518']['debit'] ?? 0, 0.001);
+        self::assertArrayNotHasKey('518.100', $lines);
+        self::assertArrayNotHasKey('518.200', $lines);
+        self::assertSame('518', $this->container->get(ExpenseClassificationService::class)
+            ->analyticForExpenseAccount($this->supplierId, '518'));
+    }
+
+    public function testExplicitServiceAnalyticsRemainDistinctWithMultipleChildren(): void
+    {
+        $this->isolatedServiceAnalytics();
+        $invoiceId = $this->purchaseWithItems('PF-EXPLICIT-SERVICE', [
+            ['Služba první analytiky', 1000.0, 210.0, 'service', '518.100'],
+            ['Služba druhé analytiky', 500.0, 105.0, 'service', '518.200'],
+        ]);
+        $lines = $this->postAndGetLines($invoiceId);
+
+        self::assertEqualsWithDelta(1000.0, $lines['518.100']['debit'] ?? 0, 0.001);
+        self::assertEqualsWithDelta(500.0, $lines['518.200']['debit'] ?? 0, 0.001);
+        self::assertArrayNotHasKey('518', $lines);
+    }
+
+    public function testOnlyActiveDeductibleServiceAnalyticStillRedirects(): void
+    {
+        $this->isolatedServiceAnalytics();
+        $this->db->pdo()->prepare("UPDATE chart_of_accounts SET is_active = 0 WHERE supplier_id = ? AND account_code = '518.200'")
+            ->execute([$this->supplierId]);
+        $invoiceId = $this->purchaseWithItems('PF-SOLE-SERVICE', [
+            ['Obecná služba se syntetikou', 1000.0, 210.0, 'service', '518'],
+        ]);
+        $lines = $this->postAndGetLines($invoiceId);
+
+        self::assertEqualsWithDelta(1000.0, $lines['518.100']['debit'] ?? 0, 0.001);
+        self::assertArrayNotHasKey('518', $lines);
+        self::assertSame('518.100', $this->container->get(ExpenseClassificationService::class)
+            ->analyticForExpenseAccount($this->supplierId, '518'));
+    }
+
+    private function isolatedServiceAnalytics(): void
+    {
+        $this->supplierId = $this->cloneSupplier('double_entry');
+        $this->currencyId = $this->currencyRow($this->supplierId, 'CZK');
+        $this->container->get(ChartOfAccountsSeeder::class)->seedForSupplier($this->supplierId);
+        $this->periods->create($this->supplierId, self::YEAR, self::YEAR . '-01-01', self::YEAR . '-12-31');
+        $parent = $this->accounts->findByCode($this->supplierId, '518');
+        self::assertNotNull($parent);
+        foreach (['518.100', '518.200'] as $code) {
+            $this->accounts->insert($this->supplierId, [
+                'account_code' => $code, 'name' => 'TEST service analytic', 'account_type' => 'expense',
+                'normal_side' => 'debit', 'is_synthetic' => false, 'parent_id' => $parent['id'], 'is_active' => true,
+            ]);
+        }
     }
 
     // ── fixtury ──────────────────────────────────────────────────────────────

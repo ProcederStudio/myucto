@@ -25,6 +25,7 @@ const sourceLabel = computed(() => t(`purchase_invoice.expense_suggestion.source
   <div class="mt-1 rounded border border-warning-200 bg-warning-50/60 px-2 py-1.5 text-xs">
     <div class="flex flex-wrap items-center gap-x-1.5 gap-y-1">
       <span class="font-medium text-neutral-800">{{ t('purchase_invoice.expense_suggestion.proposes', { kind: kindLabel }) }}</span>
+      <span v-if="suggestion.expense_account_code" class="font-mono text-neutral-800">{{ suggestion.expense_account_code }}</span>
       <span class="text-neutral-500">·</span>
       <span class="text-neutral-600">{{ sourceLabel }}</span>
       <ConfidenceLabel :confidence="suggestion.confidence" />

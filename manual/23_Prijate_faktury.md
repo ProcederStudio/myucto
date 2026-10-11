@@ -516,7 +516,13 @@ je**, výsledný nákladový nebo majetkový účet je osa **kam se účtuje**. 
 ale pravidlo může navrhnout účet 548 místo obecného 518. Výslednou kontaci vždy zkontrolujte při zaúčtování dokladu nebo
 v Automatu.
 
-U uložených řádků může aplikace zobrazit návrh se zdrojem, jistotou a stručným důvodem. Návrh se do řádku zapíše až
+V editoru i v okně kontroly vytěžení lze u každé položky vybrat **Nákladový účet** z aktivního rozvrhu firmy,
+například 518.100 pro grafické služby a 518.200 pro hosting. Bez vlastního účtu se účet odvodí z druhu nákladu.
+Má-li syntetický účet více způsobilých analytik, aplikace z nich sama první nevybere. Konkrétní analytiku určí účet
+položky nebo pravidlo; jediná způsobilá analytika se může doplnit automaticky. Již uložený konkrétní účet se zachová.
+Pravidlo v režimu **Jen navrhovat** nabídne také analytický účet, i když se druh nákladu nemění.
+
+U uložených řádků může aplikace zobrazit návrh se zdrojem, jistotou a stručným důvodem. Druh i účet se do řádku zapíšou až
 po kliknutí na **Použít**, nejasný nebo rozporný návrh se sám neaplikuje. Ruční volba má přednost a u dobropisu se zachová
 věcný druh původního výdaje, při zaúčtování se pouze obrátí strany.
 
@@ -616,7 +622,7 @@ dostupné u dokladů s reverse charge.
 
 #### Dodavatel neplátce DPH znamená bez nároku na odpočet
 
-Pokud je dodavatel **neplátce DPH**, na jeho dokladu žádná DPH není a **není co odpočítat**. Uplatnit odpočet by byla
+Pokud je dodavatel **neplátce DPH**, aplikace nastaví **Bez nároku na odpočet**. Uplatnit odpočet by byla
 daňová chyba (neoprávněný odpočet v ř. 40 přiznání nebo v sekci B kontrolního hlášení). MyÚčto proto plátcovství dodavatele
 **sleduje a vynucuje**:
 
@@ -625,8 +631,8 @@ daňová chyba (neoprávněný odpočet v ř. 40 přiznání nebo v sekci B kont
 - **Volba v editoru** - pod zaškrtávátkem **Reverse charge** je přepínač **Dodavatel je plátce DPH**. Nastaví se
   automaticky podle ARES a VIES, ale můžete ho vědomě přepsat.
 - **Vynucení u neplátce** - když je dodavatel neplátce, faktura se automaticky nastaví na **Nárok na odpočet = Bez nároku**,
-  sazby řádků se vynulují na 0 % a zobrazí se varování. Doklad pak do evidence DPH nevstupuje (je to jen účetní náklad).
-  Přepsání je možné.
+  sazby a částky již uvedené na dokladu zůstávají ke kontrole. Vyčíslená daň bez odpočtu je součástí nákladu,
+  celkový závazek se nezmění. Samotné zjištění neplátcovství nepřepisuje částky dodavatelského dokladu.
 - **AI import** - extraktor plátcovství ověří a u neplátce (signál „DIČ: Neplátce DPH", nebo žádné DIČ a žádná DPH na
   řádcích, případně ARES) odpočet automaticky zakáže a doplní varování (viz [AI extrakce](25_AI_extrakce.md)).
 
