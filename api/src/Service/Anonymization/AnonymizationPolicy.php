@@ -43,6 +43,8 @@ final class AnonymizationPolicy
      */
     public const TRUNCATE = [
         'abra_flexi_connections' => 'šifrované připojení ke zdrojové účetní firmě',
+        'ai_assistant_conversations' => 'osobní historie dotazů AI asistenta (názvy z dotazů)',
+        'ai_assistant_messages' => 'dotazy a odpovědi AI asistenta nad skutečnými doklady',
         'ai_embeddings' => 'vektory z textů skutečných dokladů; naučí se znovu',
         'api_request_log' => 'IP adresy a dotazy klientů API',
         'api_token_ips' => 'patří k API tokenům',

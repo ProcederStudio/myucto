@@ -308,6 +308,7 @@ final class GlobalSeedTables
         'accounting_reclassification_items', 'accounting_setup_proposals', 'accounting_setup_rule_bundles',
         'accounting_setup_runs',
         'activity_log', 'activity_log_chain_head',
+        'ai_assistant_conversations', 'ai_assistant_messages',
         'ai_daily_usage', 'ai_embeddings', 'ai_jobs', 'ai_metrics', 'ai_suggestions',
         'api_request_log',
         'asset_improvements',
