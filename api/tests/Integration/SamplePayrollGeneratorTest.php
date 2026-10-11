@@ -11,6 +11,7 @@ use MyInvoice\Repository\Payroll\PayrollComponentRepository;
 use MyInvoice\Repository\Payroll\PayrollEmployerPolicyRepository;
 use MyInvoice\Repository\Payroll\PayrollInstitutionAccountRepository;
 use MyInvoice\Repository\Payroll\PayrollModuleStateRepository;
+use MyInvoice\Repository\Payroll\PayrollQuickInputRepository;
 use MyInvoice\Service\Accounting\ChartOfAccountsSeeder;
 use MyInvoice\Service\Sample\SamplePayrollGenerator;
 use MyInvoice\Service\Sample\SamplePayrollPurger;
@@ -78,6 +79,25 @@ final class SamplePayrollGeneratorTest extends TestCase
         self::assertSame(0, (int) $this->scalar('SELECT payroll_enabled FROM supplier WHERE id = ?', [$this->supplierId]));
         self::assertNull($this->scalar('SELECT @payroll_sample_purge_supplier_id', []));
         self::assertSame(3, (int) $this->scalar('SELECT COUNT(*) FROM journal_entries WHERE supplier_id = ? AND source_type = "payroll"', [$this->supplierId]));
+    }
+
+    public function testSampleEmploymentLifecycleMakesStaffVisibleInQuickInputs(): void
+    {
+        $this->generate(false);
+        $quickInputs = $this->container->get(PayrollQuickInputRepository::class);
+        foreach (['2026-07', '2026-09', '2026-10'] as $period) {
+            $month = $quickInputs->month($this->supplierId, $period);
+            self::assertCount(4, $month['items'], $period);
+        }
+        self::assertSame(4, (int) $this->scalar(
+            'SELECT COUNT(*) FROM payroll_employment_events WHERE supplier_id = ? AND event_type = "status_changed" AND from_status = "planned" AND to_status = "active" AND effective_on = "2026-07-01"',
+            [$this->supplierId],
+        ));
+        self::assertSame(4, (int) $this->scalar(
+            'SELECT COUNT(*) FROM payroll_employments WHERE supplier_id = ? AND status = "active" AND actual_start_date = "2026-07-01"',
+            [$this->supplierId],
+        ));
+        self::assertSame([], $quickInputs->month($this->supplierId, '2026-06')['items']);
     }
 
     public function testImmutableGuardRequiresExactOwnershipAndSupplier(): void

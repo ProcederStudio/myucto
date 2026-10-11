@@ -10,6 +10,7 @@ use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\Payroll\PayrollComponentRepository;
 use MyInvoice\Repository\Payroll\PayrollAbsenceRepository;
 use MyInvoice\Repository\Payroll\PayrollEmployerPolicyRepository;
+use MyInvoice\Repository\Payroll\PayrollEmploymentRepository;
 use MyInvoice\Repository\Payroll\PayrollInputRepository;
 use MyInvoice\Repository\Payroll\PayrollInstitutionAccountRepository;
 use MyInvoice\Repository\Payroll\PayrollPersonStatutoryEvidenceRepository;
@@ -31,6 +32,7 @@ final class SamplePayrollGenerator
     public function __construct(
         private readonly Connection $db,
         private readonly PayrollPersonCreateService $people,
+        private readonly PayrollEmploymentRepository $employments,
         private readonly PayrollPersonStatutoryEvidenceRepository $evidence,
         private readonly PayrollStatutoryAccumulatorRepository $accumulators,
         private readonly PayrollEmployerPolicyRepository $policies,
@@ -136,12 +138,13 @@ final class SamplePayrollGenerator
                 'jmhz_temporary_assignment_status' => 'no',
             ], $userId, null, 'sample-generator');
             $employeeId = (int) $person['id'];
-            $stmt = $pdo->prepare('SELECT id FROM payroll_employments WHERE supplier_id = ? AND employee_id = ?');
+            $stmt = $pdo->prepare('SELECT id, row_version FROM payroll_employments WHERE supplier_id = ? AND employee_id = ?');
             $stmt->execute([$supplierId, $employeeId]);
-            $employmentId = (int) $stmt->fetchColumn();
+            $employment = $stmt->fetch(PDO::FETCH_ASSOC);
+            $employmentId = (int) $employment['id'];
             $track('payroll_person', $employeeId);
             $track('payroll_employment', $employmentId);
-            $this->execute('UPDATE payroll_employments SET status = "active", actual_start_date = ? WHERE supplier_id = ? AND id = ?', [$start, $supplierId, $employmentId]);
+            $this->employments->transition($supplierId, $employmentId, 'active', (int) $employment['row_version'], $start, null, $userId, null, 'sample-generator');
             $this->execute('UPDATE payroll_employment_terms SET actual_start_on = ?, work_place = "Praha", regular_workplace = "Praha", jmhz_workplace_municipality_code = "554782", jmhz_workplace_country_code = "CZ" WHERE supplier_id = ? AND employment_id = ?', [$start, $supplierId, $employmentId]);
             $this->execute('UPDATE payroll_employment_checklist_items SET status = "completed", note = "Syntetická registrace pro školení", completed_at = NOW(), completed_by = ? WHERE supplier_id = ? AND employment_id = ?', [$userId, $supplierId, $employmentId]);
             $this->execute('UPDATE payroll_employee_profiles SET profile_status = "ready", payout_method = "cash" WHERE supplier_id = ? AND employee_id = ?', [$supplierId, $employeeId]);
