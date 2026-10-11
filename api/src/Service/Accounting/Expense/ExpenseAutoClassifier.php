@@ -64,6 +64,8 @@ final class ExpenseAutoClassifier
      *                                (prokazatelné PHM z knihy tankování)
      * @param list<string>|null $limitToAccounts když je zadané, uloží se jen návrhy mířící
      *                                na tyto účty (back-fill omezený na analytiky auta)
+     * @param bool $rulesOnly jen návrhy z pravidel firmy (AI import: katalog a klíčová slova
+     *                        zůstanou návrhem ke kontrole)
      * @return list<array{item_id:int, description:string, from_kind:?string, from_account:?string,
      *                    to_kind:string, to_account:?string, reason:string}> co se změnilo
      */
@@ -73,6 +75,7 @@ final class ExpenseAutoClassifier
         array $forceItemIds = [],
         ?int $userId = null,
         ?array $limitToAccounts = null,
+        bool $rulesOnly = false,
     ): array {
         $suggestions = $this->suggestions->suggestForInvoice($supplierId, $purchaseInvoiceId);
         if ($suggestions === []) {
@@ -84,6 +87,9 @@ final class ExpenseAutoClassifier
         $changes = [];
         foreach ($suggestions as $itemId => $s) {
             if (!isset($current[$itemId]) || empty($s['auto'])) {
+                continue;
+            }
+            if ($rulesOnly && ($s['source'] ?? null) !== 'rule') {
                 continue;
             }
             $row = $current[$itemId];

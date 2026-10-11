@@ -54,8 +54,8 @@ final class AiPdfExtractor
         private readonly \MyInvoice\Repository\TaxConstantsRepository $taxConstants,
         private readonly PurchaseInvoicePdfArchiver $pdfArchiver,
         // §DM: deterministická vrstva klasifikace druhu výdaje. Pure (bez DB), pravidla
-        // tenanta se sem záměrně netahají — ta se vyhodnotí až v editoru nad uloženým
-        // dokladem (endpoint expense-suggestions), kde je uživatel potvrzuje.
+        // tenanta se sem záměrně netahají — automatické zapíše po uložení dokladu
+        // $expenseAutoClassifier, ostatní nabídne editor (endpoint expense-suggestions).
         private readonly ExpenseKindClassifier $expenseClassifier,
         // Jen kvůli párování sazby (`resolveDomesticRate`) — přijatá strana OSS nemá.
         private readonly \MyInvoice\Service\Oss\OssItemPlanner $planner,
@@ -65,6 +65,9 @@ final class AiPdfExtractor
         // Účtenka zaplacená kartou: po založení dokladu ho spáruje s pohybem karty
         // a zaúčtuje vypořádání. Nullable jen kvůli unit testům čistých helperů.
         private readonly ?\MyInvoice\Service\Accounting\Card\CardPaymentAutomation $cardAutomation,
+        // Pravidlo nákladů v režimu „Použít automaticky" se na řádek zapíše hned po importu,
+        // ne až při zaúčtování. Nullable jen kvůli unit testům čistých helperů.
+        private readonly ?\MyInvoice\Service\Accounting\Expense\ExpenseAutoClassifier $expenseAutoClassifier,
         ?LoggerInterface $logger = null,
     ) {
         $this->logger = $logger ?? new NullLogger();
@@ -1175,6 +1178,18 @@ final class AiPdfExtractor
             try {
                 $this->repo->setExtractionReview($id, $supplierId, $review);
             } catch (\Throwable) {
+            }
+        }
+        // Pravidlo firmy je vědomé rozhodnutí účetní, takže automatické pravidlo se na řádek
+        // zapíše rovnou (návrh AI pro řádek tím odpadne). Pravidlo „Jen navrhovat", katalog
+        // i AI zůstávají návrhem ke kontrole.
+        if ($this->expenseAutoClassifier !== null) {
+            try {
+                if ($this->expenseAutoClassifier->applyToInvoice($supplierId, $id, [], $userId, null, true) !== []) {
+                    (new \MyInvoice\Service\PurchaseInvoice\ExtractionReviewSync($this->db))->afterItemsChanged($supplierId, $id);
+                }
+            } catch (\Throwable $e) {
+                $this->logger->warning('AI import: automatické pravidlo nákladů selhalo', ['purchase_invoice_id' => $id, 'error' => $e->getMessage()]);
             }
         }
         return $id;

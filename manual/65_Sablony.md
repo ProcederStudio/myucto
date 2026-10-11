@@ -99,6 +99,10 @@ Seznam pravidel lze filtrovat podle druhu nákladu a stavu. Ve sloupci **Použit
 **Jak poznáte, že je hotovo:** Při příštím importu nebo ručním zadání přijaté faktury s odpovídajícím
 dodavatelem či textem se na řádku nabídne zvolený druh nákladu a účet.
 
+Pravidlo v režimu **Použít automaticky** zapíše druh nákladu i účet na řádky rovnou při AI vytěžení, takže je
+kontrola vytěžení už nenabízí jako návrh AI. Pravidlo v režimu **Jen navrhovat** zůstane návrhem, který převezmete
+tlačítkem **Použít**. Pokud u řádku sami zvolíte jiný druh nákladu nebo účet, pravidlo ho už nepřepíše.
+
 > [!TIP]
 > Automatizaci nasazujte postupně: nejdřív pravidlo otestujte, několik návrhů ručně
 > schvalte a teprve podle skutečných zásahů zvažte automatický režim. Pravidla vytvořená asistentem

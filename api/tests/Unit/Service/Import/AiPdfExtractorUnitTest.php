@@ -96,6 +96,7 @@ final class AiPdfExtractorUnitTest extends TestCase
             $planner,
             null, // uložení vytěžení importu — helpery ho nepotřebují
             null, // automatika plateb kartou — helpery ji nepotřebují
+            null, // automatické pravidlo nákladů — helpery ho nepotřebují
             new NullLogger(),
         );
     }
