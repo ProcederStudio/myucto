@@ -16263,6 +16263,7 @@
       "deleted": "Zápis byl smazán a doklad odúčtován.",
       "delete_manual_confirm": "Opravdu smazat ruční zápis #{id}? Nevytvoří se protizápis.",
       "manual_deleted": "Ruční zápis byl smazán.",
+      "delete_other_item_confirm": "Opravdu smazat zápis #{id}? Nevytvoří se protizápis, ostatní pohledávka nebo závazek se vrátí do konceptu a případné opakování se pozastaví. Spárované úhrady je nutné nejprve odpojit.",
       "delete_bank_confirm": "Opravdu smazat bankovní zápis #{id}? Nevytvoří se protizápis a pohyb se vrátí mezi nezaúčtované.",
       "bank_deleted": "Bankovní zápis byl smazán a pohyb vrácen mezi nezaúčtované.",
       "delete_depreciation_confirm": "Opravdu smazat zápis odpisu #{id}? Nevytvoří se protizápis; smaže se účetní odpis a odpovídající potvrzený daňový odpis nejnovějšího roku.",

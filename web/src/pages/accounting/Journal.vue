@@ -624,13 +624,16 @@ const lockedAck = useLockedPeriodAck()
 
 function canDeleteEntry(entry: JournalEntryDetail): boolean {
   if (entry.reversed_by || entry.reverses_entry_id) return false
-  if (!['manual', 'invoice', 'purchase_invoice', 'bank', 'depreciation', 'vat_clearing'].includes(entry.source_type)) return false
+  if (!['manual', 'invoice', 'purchase_invoice', 'bank', 'depreciation', 'vat_clearing', 'other_item'].includes(entry.source_type)) return false
+  if (entry.source_type === 'other_item' && (!auth.canWrite('other_items') || !auth.canWrite('accounting.journal.post'))) return false
   if (entry.source_type !== 'manual' && !entry.source_id) return false
   return periods.value.find(period => period.id === entry.period_id)?.status === 'open'
 }
 
 async function deleteEntry(entry: JournalEntryDetail) {
-  const confirmKey = entry.source_type === 'depreciation'
+  const confirmKey = entry.source_type === 'other_item'
+    ? 'accounting.journal.delete_other_item_confirm'
+    : entry.source_type === 'depreciation'
     ? 'accounting.journal.delete_depreciation_confirm'
     : entry.source_type === 'bank'
       ? 'accounting.journal.delete_bank_confirm'

@@ -16,6 +16,7 @@ use MyInvoice\Repository\InvoiceListDetailsRepository;
 use MyInvoice\Repository\DimensionListSummaryRepository;
 use MyInvoice\Repository\JournalEntryAttachmentRepository;
 use MyInvoice\Repository\JournalEntryDocumentLinkRepository;
+use MyInvoice\Security\AccessLevel;
 use MyInvoice\Service\Accounting\Closing\DocumentSeriesService;
 use MyInvoice\Service\Accounting\Dimension\DimensionException;
 use MyInvoice\Service\Accounting\Dimension\DimensionService;
@@ -29,6 +30,8 @@ use MyInvoice\Service\Accounting\JournalHistoryService;
 use MyInvoice\Service\Accounting\JournalIntegrityService;
 use MyInvoice\Service\Accounting\JournalLinkService;
 use MyInvoice\Service\Accounting\JournalLineAmount;
+use MyInvoice\Service\Accounting\OtherItemException;
+use MyInvoice\Service\Accounting\OtherItemService;
 use MyInvoice\Service\Accounting\PostingOriginService;
 use MyInvoice\Service\Accounting\PostingException;
 use MyInvoice\Service\Accounting\PostingService;
@@ -109,6 +112,7 @@ final class JournalAction
         private readonly DimensionService $dimensions,
         private readonly DimensionListSummaryRepository $dimensionSummaries,
         private readonly JournalListExtras $listExtras,
+        private readonly OtherItemService $otherItems,
     ) {}
 
     public function list(Request $request, Response $response): Response
@@ -1402,6 +1406,24 @@ final class JournalAction
             $attachmentRows = $this->attachments->list($id, $supplierId);
             $deletedLines = $this->journal->linesForEntry($id, $supplierId);
 
+            $statusFrom = null;
+            $statusTo = null;
+            if ($sourceType === 'other_item') {
+                if (!$this->requirePermission($request, $response, 'other_items', AccessLevel::WRITE, $err)
+                    || !$this->requirePermission($request, $response, 'accounting.journal.post', AccessLevel::WRITE, $err)) {
+                    if ($ownTx) $pdo->rollBack();
+                    return $err;
+                }
+                try {
+                    $this->otherItems->prepareEntryDeletion($supplierId, (int) $sourceId, $id, $this->userId($request));
+                } catch (OtherItemException $e) {
+                    if ($ownTx) $pdo->rollBack();
+                    return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus);
+                }
+                $statusFrom = 'posted';
+                $statusTo = 'draft';
+            }
+
             if ($sourceType === 'bank') {
                 $this->bankPosting->prepareEntryDeletion(
                     $supplierId,
@@ -1417,8 +1439,6 @@ final class JournalAction
                 throw new \RuntimeException('Účetní zápis se nepodařilo smazat.');
             }
 
-            $statusFrom = null;
-            $statusTo = null;
             if ($sourceType === 'depreciation') {
                 $deleteDepreciation = $pdo->prepare(
                     "DELETE FROM depreciation_entries

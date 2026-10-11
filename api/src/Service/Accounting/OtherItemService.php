@@ -198,6 +198,32 @@ final class OtherItemService
         return $this->get($supplierId, $id);
     }
 
+    public function prepareEntryDeletion(int $supplierId, int $id, int $entryId, ?int $userId): void
+    {
+        $pdo = $this->db->pdo();
+        if (!$pdo->inTransaction()) {
+            throw new \LogicException('OtherItemService::prepareEntryDeletion vyžaduje transakci.');
+        }
+        $item = $this->items->find($supplierId, $id, true)
+            ?? throw new OtherItemException('not_found', 'Zdrojový doklad nebyl nalezen.', 404);
+        if ($item['status'] !== 'posted' || (int) $item['journal_entry_id'] !== $entryId) {
+            throw new OtherItemException('not_posted', 'Zápis není aktuálním zaúčtováním této položky.', 409);
+        }
+        $payments = $pdo->prepare('SELECT id FROM other_item_allocations
+            WHERE supplier_id = ? AND other_item_id = ? AND reversed_on IS NULL FOR UPDATE');
+        $payments->execute([$supplierId, $id]);
+        if ($payments->fetchColumn() !== false) {
+            throw new OtherItemException('has_payments', 'Doklad má spárované úhrady. Nejprve je odpojte.', 409);
+        }
+        $pdo->prepare("UPDATE other_item_schedules s SET status = 'paused'
+            WHERE s.supplier_id = ? AND s.status = 'active'
+              AND (s.source_item_id = ? OR EXISTS (
+                  SELECT 1 FROM other_item_schedule_occurrences o
+                  WHERE o.supplier_id = s.supplier_id AND o.schedule_id = s.id AND o.item_id = ?
+              ))")->execute([$supplierId, $id, $id]);
+        $this->items->setUnposted($supplierId, $id, $userId);
+    }
+
     public function reverse(int $supplierId, int $id, string $reason, ?int $userId, ?string $entryDate = null): array
     {
         $reason = trim($reason);

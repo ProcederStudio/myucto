@@ -20,10 +20,12 @@ final class JournalEntryDeletionRules
      * na místě a nikdy nestornuje ({@see Vat\VatClearingService}) — ruční smazání je tedy
      * táž operace, jakou dělá sama, a zápis se při dalším podání či ručním spuštění založí znovu.
      */
-    public const SINGLE_SOURCE_TYPES = ['manual', 'invoice', 'purchase_invoice', 'bank', 'depreciation', 'vat_clearing'];
+    public const SINGLE_SOURCE_TYPES = ['manual', 'invoice', 'purchase_invoice', 'bank', 'depreciation', 'vat_clearing', 'other_item'];
 
     /**
-     * Storno dvojice: shodné s mazáním jednoho zápisu, bez odpisů. U nich se maže i řádek
+     * Storno dvojice: shodné s mazáním jednoho zápisu, bez odpisů a ostatních položek.
+     * U ostatních položek se stav zdroje obnovuje jen při smazání jeho aktivního zápisu.
+     * U odpisů se maže i řádek
      * v `depreciation_entries` a dvojice po stornu odpisu vzniká jinou cestou.
      */
     public const PAIR_SOURCE_TYPES   = ['manual', 'invoice', 'purchase_invoice', 'bank', 'vat_clearing'];

@@ -10785,10 +10785,13 @@ paths:
       summary: Smaže podporovaný účetní zápis z otevřeného období bez protizápisu
       description: >-
         Účetní/admin. Fyzicky odstraní ruční zápis, zápis vydané nebo přijaté
-        faktury, bankovního pohybu nebo posledního odpisu bez protizápisu. Fakturu
+        faktury, bankovního pohybu, ostatní položky nebo posledního odpisu bez protizápisu. Fakturu
         odemkne; bankovní pohyb vrátí do fronty nezaúčtovaných. U odpisu odstraní
         zápis i účetní a nepřerušený daňový řádek stejného roku; existující
         přerušení zachová. Odpisy lze mazat pouze odzadu a u nevyřazeného majetku.
+        Ostatní pohledávku nebo závazek vrátí do konceptu a pozastaví související opakování;
+        dokumenty a splátkový kalendář zachová. Vyžaduje navíc zápisová oprávnění
+        other_items a accounting.journal.post. Spárované úhrady vrátí 409 has_payments.
         Vždy jen pro otevřené období, mimo uzamčené datum a u zápisu bez storna.
       parameters:
         - $ref: '#/components/parameters/SupplierIdHeader'

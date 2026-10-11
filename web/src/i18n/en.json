@@ -16263,6 +16263,7 @@
       "deleted": "The entry was deleted and the document was unposted.",
       "delete_manual_confirm": "Really delete manual entry #{id}? No reversing entry will be created.",
       "manual_deleted": "The manual entry was deleted.",
+      "delete_other_item_confirm": "Really delete entry #{id}? No reversal will be created, the other receivable or payable will return to draft and any recurrence will be paused. Unlink matched payments first.",
       "delete_bank_confirm": "Really delete bank entry #{id}? No reversing entry will be created and the transaction will return to the unposted queue.",
       "bank_deleted": "The bank entry was deleted and the transaction returned to the unposted queue.",
       "delete_depreciation_confirm": "Really delete depreciation entry #{id}? No reversal will be created; the accounting depreciation and the matching confirmed tax depreciation for the latest year will be deleted.",

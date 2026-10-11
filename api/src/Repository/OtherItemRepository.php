@@ -173,6 +173,15 @@ final class OtherItemRepository
         $stmt->execute([$status, $number, $entryId, $id, $supplierId]);
     }
 
+    public function setUnposted(int $supplierId, int $id, ?int $userId): void
+    {
+        $this->db->pdo()->prepare(
+            "UPDATE other_items SET status = 'draft', journal_entry_id = NULL, reversal_entry_id = NULL,
+                    posted_at = NULL, updated_by = ?, row_version = row_version + 1
+              WHERE id = ? AND supplier_id = ? AND status = 'posted' AND deleted_at IS NULL"
+        )->execute([$userId, $id, $supplierId]);
+    }
+
     public function setReversed(int $supplierId, int $id, string $status, ?int $entryId): void
     {
         $stmt = $this->db->pdo()->prepare(

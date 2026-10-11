@@ -108,6 +108,11 @@ Postup závisí na tom, odkud zápis vznikl a v jakém je období.
 5. Zápis, který v účetnictví nikdy neměl vzniknout, a jeho storno lze v otevřeném období smazat najednou tlačítkem **Smazat zápis i storno** ([§ 52.14.9.4](#521494-smazani-cele-storno-dvojice)).
 6. Chcete-li opravit jen popis ručního zápisu, klikněte u popisu na ikonu tužky.
 
+U aktivního zápisu ostatní pohledávky nebo závazku lze v otevřeném období použít **Smazat**.
+Zdrojová položka se vrátí do konceptu, její dokumenty a splátkový kalendář zůstanou připojené.
+Případné opakování se pozastaví. Spárované úhrady je nutné před smazáním odpojit.
+Akce vyžaduje oprávnění k zápisu do deníku, ostatním položkám a jejich účtování.
+
 **Jak poznáte, že je hotovo:** Původní zápis má badge **Stornováno** a odkaz na stornující zápis, nebo je nahrazený opraveným zápisem. Doklad lze opět zaúčtovat.
 
 > [!WARNING]
