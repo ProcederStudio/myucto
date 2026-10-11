@@ -1,0 +1,602 @@
+<script setup lang="ts">
+import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
+import {
+  aiAssistantApi, aiErrorMessage,
+  type AiAskResponse, type AiAssistantStatus, type AiDocumentSuggestion, type AiHistoryTurn,
+} from '@/api/aiAssistant'
+import { documentsApi, type DocFolder, type DocItem } from '@/api/documents'
+import { useAuthStore } from '@/stores/auth'
+import { useToast } from '@/composables/useToast'
+import { ICONS, btnFilled, btnOutline, btnOutlineSm, btnIconSm } from '@/components/ui/buttonStyles'
+import { formatBytes } from '@/components/documents/docFormat'
+import AiMarkdown from '@/components/ai/AiMarkdown.vue'
+import AiJournalProposal from '@/components/ai/AiJournalProposal.vue'
+
+const { t } = useI18n()
+const route = useRoute()
+const auth = useAuthStore()
+const toast = useToast()
+
+const MAX_FILES = 5
+const MAX_DOCS = 5
+const MAX_FILE_BYTES = 15 * 1024 * 1024
+const MAX_QUESTION = 8000
+const ACCEPT = '.pdf,.png,.jpg,.jpeg,.webp,.gif,.txt,.csv,.xml,.isdoc,.json,.docx,.xlsx,.odt'
+
+// ── Stav AI ──────────────────────────────────────────────────────────────────
+const status = ref<AiAssistantStatus | null>(null)
+const statusLoading = ref(true)
+const available = computed(() => status.value?.available === true)
+const reasonText = computed(() => {
+  const code = status.value?.reason
+  if (!code) return t('accounting.ai_assistant.reason.unknown')
+  const key = `accounting.ai_assistant.reason.${code}`
+  const v = t(key)
+  return v === key ? t('accounting.ai_assistant.reason.unknown') : v
+})
+
+// ── Přílohy (zůstávají přiložené pro další dotazy, dokud je uživatel neodebere) ──
+interface AttachedDoc { id: number; title: string }
+const files = ref<File[]>([])
+const docs = ref<AttachedDoc[]>([])
+const includeChart = ref(true)
+const dragOver = ref(false)
+const fileInput = ref<HTMLInputElement | null>(null)
+
+function addFiles(list: FileList | File[] | null | undefined) {
+  if (!list) return
+  for (const f of Array.from(list)) {
+    if (files.value.length >= MAX_FILES) {
+      toast.warning(t('accounting.ai_assistant.too_many_files', { max: MAX_FILES }))
+      break
+    }
+    if (f.size > MAX_FILE_BYTES) {
+      toast.warning(t('accounting.ai_assistant.file_too_large', { name: f.name, max: formatBytes(MAX_FILE_BYTES) }))
+      continue
+    }
+    if (files.value.some(x => x.name === f.name && x.size === f.size && x.lastModified === f.lastModified)) continue
+    files.value.push(f)
+  }
+}
+function onFilePick(e: Event) {
+  const input = e.target as HTMLInputElement
+  addFiles(input.files)
+  input.value = ''
+}
+function onDrop(e: DragEvent) {
+  dragOver.value = false
+  addFiles(e.dataTransfer?.files)
+}
+function removeFile(i: number) { files.value.splice(i, 1) }
+
+function addDoc(d: AttachedDoc) {
+  if (docs.value.some(x => x.id === d.id)) return
+  if (docs.value.length >= MAX_DOCS) {
+    toast.warning(t('accounting.ai_assistant.too_many_docs', { max: MAX_DOCS }))
+    return
+  }
+  docs.value.push(d)
+}
+function removeDoc(i: number) { docs.value.splice(i, 1) }
+
+// ── Výběr z Dokumentů ────────────────────────────────────────────────────────
+const pickerOpen = ref(false)
+const pickerQuery = ref('')
+const pickerResults = ref<DocItem[]>([])
+const pickerLoading = ref(false)
+let pickerTimer: ReturnType<typeof setTimeout> | null = null
+let pickerSeq = 0
+
+function onPickerInput() {
+  if (pickerTimer) clearTimeout(pickerTimer)
+  const q = pickerQuery.value.trim()
+  if (q.length < 2) { pickerResults.value = []; return }
+  pickerTimer = setTimeout(async () => {
+    const seq = ++pickerSeq
+    pickerLoading.value = true
+    try {
+      const res = await documentsApi.search(q)
+      if (seq === pickerSeq) pickerResults.value = res
+    } catch {
+      if (seq === pickerSeq) pickerResults.value = []
+    } finally {
+      if (seq === pickerSeq) pickerLoading.value = false
+    }
+  }, 300)
+}
+function pickDoc(d: DocItem) {
+  addDoc({ id: d.id, title: d.title })
+}
+
+// ── Konverzace ───────────────────────────────────────────────────────────────
+interface ChatMessage {
+  id: number
+  role: 'user' | 'assistant'
+  content: string
+  fileNames?: string[]
+  docTitles?: string[]
+  response?: AiAskResponse
+  /** Soubory odeslané s tímto dotazem — index v document_suggestions míří sem. */
+  sentFiles?: File[]
+  /** Dokumenty přiložené k tomuto dotazu (navážou se na zaúčtovaný zápis). */
+  sentDocIds?: number[]
+}
+const messages = ref<ChatMessage[]>([])
+const question = ref('')
+const sending = ref(false)
+const transcriptEnd = ref<HTMLElement | null>(null)
+let msgSeq = 0
+
+/** Dokumenty nahrané z této konverzace (soubor → id dokumentu). */
+const uploadedDocs = reactive(new Map<File, number>())
+
+function linkIdsFor(m: ChatMessage): number[] {
+  const ids = new Set<number>(m.sentDocIds ?? [])
+  for (const id of uploadedDocs.values()) ids.add(id)
+  return [...ids]
+}
+
+function buildHistory(): AiHistoryTurn[] {
+  return messages.value
+    .map(m => ({ role: m.role, content: m.role === 'assistant' ? (m.response?.answer ?? m.content) : m.content }))
+    .filter(m => m.content.trim() !== '')
+    .map(m => ({ role: m.role, content: m.content.slice(0, MAX_QUESTION) }))
+    .slice(-10)
+}
+
+async function scrollToEnd() {
+  await nextTick()
+  transcriptEnd.value?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+}
+
+const canSend = computed(() =>
+  available.value && !sending.value && question.value.trim() !== '' && question.value.length <= MAX_QUESTION)
+
+async function send() {
+  if (!canSend.value) return
+  const q = question.value.trim()
+  const sentFiles = [...files.value]
+  const sentDocs = [...docs.value]
+  const history = buildHistory()
+  const userMsg: ChatMessage = {
+    id: ++msgSeq,
+    role: 'user',
+    content: q,
+    fileNames: sentFiles.map(f => f.name),
+    docTitles: sentDocs.map(d => d.title),
+  }
+  messages.value.push(userMsg)
+  question.value = ''
+  sending.value = true
+  void scrollToEnd()
+  try {
+    const res = await aiAssistantApi.ask({
+      question: q,
+      history,
+      files: sentFiles,
+      documentIds: sentDocs.map(d => d.id),
+      includeChart: includeChart.value,
+    })
+    const msg: ChatMessage = {
+      id: ++msgSeq,
+      role: 'assistant',
+      content: res.answer,
+      response: res,
+      sentFiles,
+      sentDocIds: sentDocs.map(d => d.id),
+    }
+    messages.value.push(msg)
+    initSuggestions(msg)
+    void scrollToEnd()
+  } catch (e) {
+    messages.value = messages.value.filter(m => m.id !== userMsg.id)
+    if (question.value.trim() === '') question.value = q
+    toast.error(aiErrorMessage(e, t('accounting.ai_assistant.ask_failed')))
+  } finally {
+    sending.value = false
+  }
+}
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault()
+    void send()
+  }
+}
+
+function clearConversation() {
+  if (messages.value.length && !window.confirm(t('accounting.ai_assistant.clear_confirm'))) return
+  messages.value = []
+}
+
+// ── Návrhy zařazení souborů do Dokumentů ─────────────────────────────────────
+const canUpload = computed(() => auth.canWrite('documents.upload'))
+const folders = ref<DocFolder[]>([])
+const foldersLoaded = ref(false)
+const NEW_FOLDER = -1
+
+interface SuggestionState {
+  target: number | null
+  newFolderName: string
+  newFolderParent: number | null
+  title: string
+  uploading: boolean
+  documentId: number | null
+}
+const suggestionState = reactive<Record<string, SuggestionState>>({})
+
+function suggestionKey(m: ChatMessage, i: number): string { return `${m.id}:${i}` }
+
+function fileSuggestions(m: ChatMessage): { s: AiDocumentSuggestion; i: number; file: File }[] {
+  const out: { s: AiDocumentSuggestion; i: number; file: File }[] = []
+  ;(m.response?.document_suggestions ?? []).forEach((s, i) => {
+    if (s.attachment.kind !== 'file') return
+    const file = m.sentFiles?.[s.attachment.index]
+    if (file) out.push({ s, i, file })
+  })
+  return out
+}
+
+function initSuggestions(m: ChatMessage) {
+  const list = fileSuggestions(m)
+  if (!list.length) return
+  for (const { s, i, file } of list) {
+    const existing = uploadedDocs.get(file) ?? null
+    suggestionState[suggestionKey(m, i)] = {
+      target: s.new_folder_name ? NEW_FOLDER : s.folder_id,
+      newFolderName: s.new_folder_name ?? '',
+      newFolderParent: s.new_folder_name ? s.folder_id : null,
+      title: s.title ?? '',
+      uploading: false,
+      documentId: existing,
+    }
+  }
+  void loadFolders()
+}
+
+async function loadFolders() {
+  if (foldersLoaded.value || !canUpload.value) return
+  try {
+    folders.value = await documentsApi.allFolders()
+    foldersLoaded.value = true
+  } catch { /* bez složek lze nahrát do kořene */ }
+}
+
+const folderOptions = computed(() => {
+  const byId = new Map(folders.value.map(f => [f.id, f]))
+  const pathOf = (f: DocFolder): string => {
+    const parts: string[] = [f.name]
+    let p = f.parent_id
+    let guard = 0
+    while (p != null && guard++ < 20) {
+      const parent = byId.get(p)
+      if (!parent) break
+      parts.unshift(parent.name)
+      p = parent.parent_id
+    }
+    return parts.join(' / ')
+  }
+  return folders.value.map(f => ({ id: f.id, label: pathOf(f) })).sort((a, b) => a.label.localeCompare(b.label))
+})
+function folderLabel(id: number | null): string {
+  if (id == null) return t('accounting.ai_assistant.suggestion.root')
+  return folderOptions.value.find(o => o.id === id)?.label ?? `#${id}`
+}
+
+async function uploadSuggestion(m: ChatMessage, i: number, file: File) {
+  const st = suggestionState[suggestionKey(m, i)]
+  if (!st || st.uploading || st.documentId) return
+  st.uploading = true
+  try {
+    let folderId: number | null = st.target
+    if (st.target === NEW_FOLDER) {
+      const name = st.newFolderName.trim()
+      if (!name) {
+        toast.warning(t('accounting.ai_assistant.suggestion.folder_name_required'))
+        return
+      }
+      const created = await documentsApi.createFolder(name, st.newFolderParent)
+      folderId = created.id
+      foldersLoaded.value = false
+      void loadFolders()
+      st.target = created.id
+    }
+    const res = await documentsApi.upload([file], { folderId })
+    const rootId = res.root_ids?.[0]
+    if (!rootId) {
+      const reason = [...(res.errors ?? []), ...(res.skipped ?? [])].map(x => x.reason).join(', ')
+      toast.error(t('accounting.ai_assistant.suggestion.upload_failed') + (reason ? ` (${reason})` : ''))
+      return
+    }
+    const title = st.title.trim()
+    if (title) {
+      try { await documentsApi.update(rootId, { title }) } catch { /* název lze upravit v Dokumentech */ }
+    }
+    st.documentId = rootId
+    uploadedDocs.set(file, rootId)
+    // Další dotazy už posílají uložený dokument místo opětovného nahrání souboru.
+    const idx = files.value.indexOf(file)
+    if (idx >= 0) {
+      files.value.splice(idx, 1)
+      addDoc({ id: rootId, title: title || file.name })
+    }
+    // Stejný soubor může mít návrh i v jiných odpovědích — označit jako nahraný.
+    for (const msg of messages.value) {
+      for (const fs of fileSuggestions(msg)) {
+        const other = suggestionState[suggestionKey(msg, fs.i)]
+        if (fs.file === file && other && !other.documentId) other.documentId = rootId
+      }
+    }
+    toast.success(t('accounting.ai_assistant.suggestion.uploaded'))
+  } catch (e) {
+    toast.error(aiErrorMessage(e, t('accounting.ai_assistant.suggestion.upload_failed')))
+  } finally {
+    st.uploading = false
+  }
+}
+
+// ── Start ────────────────────────────────────────────────────────────────────
+onMounted(async () => {
+  try {
+    status.value = await aiAssistantApi.status()
+  } catch (e) {
+    status.value = { available: false, reason: null, provider: null, model: null, supports_files: false }
+    toast.error(aiErrorMessage(e, t('accounting.ai_assistant.status_failed')))
+  } finally {
+    statusLoading.value = false
+  }
+  const docId = Number(route.query.document_id || 0)
+  if (Number.isInteger(docId) && docId > 0) {
+    try {
+      const d = await documentsApi.get(docId)
+      addDoc({ id: d.id, title: d.title })
+    } catch {
+      toast.warning(t('accounting.ai_assistant.document_not_found'))
+    }
+  }
+})
+</script>
+
+<template>
+  <div class="max-w-4xl space-y-4">
+    <div class="flex flex-wrap items-start justify-between gap-3">
+      <div class="min-w-0">
+        <h1 class="text-2xl font-semibold">{{ t('accounting.ai_assistant.title') }}</h1>
+        <p class="text-sm text-neutral-500 mt-0.5">{{ t('accounting.ai_assistant.subtitle') }}</p>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <span v-if="status?.available && status.model" class="text-xs text-neutral-400 whitespace-nowrap">
+          {{ status.provider }} · {{ status.model }}
+        </span>
+        <button v-if="messages.length" type="button" :class="btnOutline('neutral')" :disabled="sending" @click="clearConversation">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.cycle" /></svg>
+          {{ t('accounting.ai_assistant.new_conversation') }}
+        </button>
+      </div>
+    </div>
+
+    <div v-if="statusLoading" class="bg-surface border border-neutral-200 rounded-lg shadow-sm p-8 text-center text-neutral-400">
+      {{ t('common.loading') }}
+    </div>
+
+    <div v-else-if="!available" class="bg-warning-50 border border-warning-500/40 rounded-lg p-4 text-sm text-neutral-700 space-y-2" data-test="ai-assistant-unavailable">
+      <p class="font-medium text-warning-700">{{ t('accounting.ai_assistant.unavailable_title') }}</p>
+      <p>{{ reasonText }}</p>
+      <RouterLink to="/admin/integrations?tab=ai" :class="btnOutline('primary')">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.link" /></svg>
+        {{ t('accounting.ai_assistant.open_settings') }}
+      </RouterLink>
+    </div>
+
+    <template v-else>
+      <!-- Přepis konverzace -->
+      <div class="space-y-3" data-test="ai-assistant-transcript">
+        <div v-if="!messages.length" class="bg-primary-50 border border-primary-200 rounded-lg p-4 text-sm text-neutral-700">
+          <p class="font-medium text-primary-800 mb-1">{{ t('accounting.ai_assistant.intro_title') }}</p>
+          <p>{{ t('accounting.ai_assistant.intro_body') }}</p>
+          <p class="mt-2 text-neutral-500 italic">{{ t('accounting.ai_assistant.intro_example') }}</p>
+        </div>
+
+        <template v-for="m in messages" :key="m.id">
+          <div v-if="m.role === 'user'" class="flex justify-end">
+            <div class="max-w-[85%] rounded-lg rounded-br-sm bg-primary-600 text-white px-3 py-2 text-sm shadow-sm">
+              <p class="whitespace-pre-wrap break-words">{{ m.content }}</p>
+              <div v-if="(m.fileNames?.length ?? 0) + (m.docTitles?.length ?? 0) > 0" class="mt-1.5 flex flex-wrap gap-1">
+                <span v-for="n in m.fileNames" :key="'f' + n" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/15 text-xs">
+                  <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.upload" /></svg>{{ n }}
+                </span>
+                <span v-for="n in m.docTitles" :key="'d' + n" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/15 text-xs">
+                  <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.doc" /></svg>{{ n }}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div v-else class="flex justify-start">
+            <div class="w-full max-w-[95%] rounded-lg rounded-bl-sm bg-surface border border-neutral-200 px-4 py-3 shadow-sm space-y-3">
+              <AiMarkdown :text="m.content" />
+
+              <ul v-if="m.response?.warnings?.length" class="space-y-1">
+                <li v-for="(w, wi) in m.response.warnings" :key="wi" class="text-xs text-warning-700 bg-warning-50 rounded px-2 py-1">{{ w }}</li>
+              </ul>
+
+              <div v-if="m.response?.journal_entries?.length" class="space-y-2">
+                <AiJournalProposal
+                  v-for="(je, ji) in m.response.journal_entries"
+                  :key="ji"
+                  :entry="je"
+                  :link-document-ids="linkIdsFor(m)"
+                />
+              </div>
+
+              <!-- Návrhy zařazení přiložených souborů do Dokumentů -->
+              <div v-if="fileSuggestions(m).length" class="space-y-2">
+                <div
+                  v-for="fs in fileSuggestions(m)"
+                  :key="fs.i"
+                  class="border border-neutral-200 rounded-lg p-3 space-y-2 bg-neutral-50"
+                  data-test="ai-document-suggestion"
+                >
+                  <div class="flex flex-wrap items-center gap-2 text-sm">
+                    <svg class="w-4 h-4 text-primary-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.folderOpen" /></svg>
+                    <span class="font-medium text-neutral-800 break-all">{{ fs.file.name }}</span>
+                    <span v-if="fs.s.folder_path" class="text-xs text-neutral-500">{{ t('accounting.ai_assistant.suggestion.proposed', { path: fs.s.folder_path }) }}</span>
+                  </div>
+                  <template v-if="suggestionState[suggestionKey(m, fs.i)]?.documentId">
+                    <div class="flex flex-wrap items-center gap-2 text-sm">
+                      <span class="inline-flex items-center gap-1.5 text-success-700">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.checkCircle" /></svg>
+                        {{ t('accounting.ai_assistant.suggestion.uploaded') }}
+                      </span>
+                      <RouterLink :to="{ name: 'document-detail', params: { id: suggestionState[suggestionKey(m, fs.i)]!.documentId! } }" :class="btnOutlineSm('primary')">
+                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.eye" /></svg>
+                        {{ t('accounting.ai_assistant.suggestion.open_document') }}
+                      </RouterLink>
+                    </div>
+                  </template>
+                  <template v-else-if="canUpload && suggestionState[suggestionKey(m, fs.i)]">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <label class="block">
+                        <span class="block text-xs text-neutral-500 mb-1">{{ t('accounting.ai_assistant.suggestion.folder') }}</span>
+                        <select v-model="suggestionState[suggestionKey(m, fs.i)]!.target" class="w-full px-2 py-1.5 text-sm border border-neutral-300 rounded-md bg-surface">
+                          <option v-if="fs.s.new_folder_name" :value="NEW_FOLDER">{{ t('accounting.ai_assistant.suggestion.new_folder_option', { name: suggestionState[suggestionKey(m, fs.i)]!.newFolderName || fs.s.new_folder_name, parent: folderLabel(suggestionState[suggestionKey(m, fs.i)]!.newFolderParent) }) }}</option>
+                          <option :value="null">{{ t('accounting.ai_assistant.suggestion.root') }}</option>
+                          <option v-for="o in folderOptions" :key="o.id" :value="o.id">{{ o.label }}</option>
+                        </select>
+                      </label>
+                      <label v-if="suggestionState[suggestionKey(m, fs.i)]!.target === NEW_FOLDER" class="block">
+                        <span class="block text-xs text-neutral-500 mb-1">{{ t('accounting.ai_assistant.suggestion.new_folder_name') }}</span>
+                        <input v-model="suggestionState[suggestionKey(m, fs.i)]!.newFolderName" type="text" maxlength="255" class="w-full px-2 py-1.5 text-sm border border-neutral-300 rounded-md bg-surface" />
+                      </label>
+                      <label class="block sm:col-span-2">
+                        <span class="block text-xs text-neutral-500 mb-1">{{ t('accounting.ai_assistant.suggestion.title') }}</span>
+                        <input v-model="suggestionState[suggestionKey(m, fs.i)]!.title" type="text" maxlength="255" :placeholder="fs.file.name" class="w-full px-2 py-1.5 text-sm border border-neutral-300 rounded-md bg-surface" />
+                      </label>
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                      <button type="button" :class="btnOutline('primary')" :disabled="suggestionState[suggestionKey(m, fs.i)]!.uploading" @click="uploadSuggestion(m, fs.i, fs.file)">
+                        <svg v-if="suggestionState[suggestionKey(m, fs.i)]!.uploading" class="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" /><path d="M22 12a10 10 0 0 0-10-10" stroke="currentColor" stroke-width="3" stroke-linecap="round" /></svg>
+                        <svg v-else class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.upload" /></svg>
+                        {{ t('accounting.ai_assistant.suggestion.upload') }}
+                      </button>
+                    </div>
+                  </template>
+                  <p v-else-if="!canUpload" class="text-xs text-neutral-500">{{ t('accounting.ai_assistant.suggestion.no_permission') }}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <div v-if="sending" class="flex justify-start" role="status" aria-live="polite">
+          <div class="inline-flex items-center gap-2 rounded-lg bg-surface border border-neutral-200 px-4 py-3 text-sm text-neutral-500 shadow-sm">
+            <svg class="w-4 h-4 animate-spin text-primary-600" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle class="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" /><path d="M22 12a10 10 0 0 0-10-10" stroke="currentColor" stroke-width="3" stroke-linecap="round" /></svg>
+            {{ t('accounting.ai_assistant.thinking') }}
+          </div>
+        </div>
+        <div ref="transcriptEnd"></div>
+      </div>
+
+      <!-- Vstup -->
+      <div
+        class="bg-surface border rounded-lg shadow-sm p-3 space-y-3 transition-colors"
+        :class="dragOver ? 'border-primary-400 bg-primary-50' : 'border-neutral-200'"
+        data-test="ai-assistant-composer"
+        @dragover.prevent="dragOver = true"
+        @dragleave.prevent="dragOver = false"
+        @drop.prevent="onDrop"
+      >
+        <textarea
+          v-model="question"
+          rows="4"
+          :maxlength="MAX_QUESTION"
+          :placeholder="t('accounting.ai_assistant.placeholder')"
+          class="w-full px-3 py-2 text-sm border border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-200 outline-none resize-y"
+          :disabled="sending"
+          @keydown="onKeydown"
+        ></textarea>
+
+        <!-- Přiložené soubory a dokumenty -->
+        <div v-if="files.length || docs.length" class="flex flex-wrap gap-1.5">
+          <span v-for="(f, i) in files" :key="'f' + i + f.name" class="inline-flex items-center gap-1 pl-2 pr-1 h-7 rounded-full bg-neutral-100 text-neutral-700 text-xs max-w-full">
+            <svg class="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.upload" /></svg>
+            <span class="truncate">{{ f.name }}</span>
+            <span class="text-neutral-400 whitespace-nowrap">{{ formatBytes(f.size) }}</span>
+            <button type="button" class="cursor-pointer w-5 h-5 inline-flex items-center justify-center rounded-full hover:bg-neutral-200" :title="t('accounting.ai_assistant.remove_attachment')" :aria-label="t('accounting.ai_assistant.remove_attachment')" @click="removeFile(i)">
+              <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.x" /></svg>
+            </button>
+          </span>
+          <span v-for="(d, i) in docs" :key="'d' + d.id" class="inline-flex items-center gap-1 pl-2 pr-1 h-7 rounded-full bg-primary-50 text-primary-700 text-xs max-w-full">
+            <svg class="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.doc" /></svg>
+            <RouterLink :to="{ name: 'document-detail', params: { id: d.id } }" class="truncate hover:underline">{{ d.title }}</RouterLink>
+            <button type="button" class="cursor-pointer w-5 h-5 inline-flex items-center justify-center rounded-full hover:bg-primary-100" :title="t('accounting.ai_assistant.remove_attachment')" :aria-label="t('accounting.ai_assistant.remove_attachment')" @click="removeDoc(i)">
+              <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.x" /></svg>
+            </button>
+          </span>
+        </div>
+
+        <p v-if="status && !status.supports_files" class="text-xs text-warning-700">{{ t('accounting.ai_assistant.no_binary_files') }}</p>
+
+        <!-- Výběr z Dokumentů -->
+        <div v-if="pickerOpen" class="border border-neutral-200 rounded-lg p-2 space-y-2">
+          <div class="flex items-center gap-2">
+            <input
+              v-model="pickerQuery"
+              type="search"
+              class="flex-1 min-w-0 px-3 py-1.5 text-sm border border-neutral-300 rounded-md focus:ring-2 focus:ring-primary-200 outline-none"
+              :placeholder="t('accounting.ai_assistant.picker_placeholder')"
+              @input="onPickerInput"
+            />
+            <button type="button" :class="btnIconSm('neutral')" :title="t('common.close')" :aria-label="t('common.close')" @click="pickerOpen = false">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.x" /></svg>
+            </button>
+          </div>
+          <p v-if="pickerLoading" class="text-xs text-neutral-400 px-1">{{ t('common.loading') }}</p>
+          <p v-else-if="pickerQuery.trim().length >= 2 && !pickerResults.length" class="text-xs text-neutral-400 px-1">{{ t('accounting.ai_assistant.picker_empty') }}</p>
+          <ul v-if="pickerResults.length" class="max-h-60 overflow-y-auto divide-y divide-neutral-100">
+            <li v-for="d in pickerResults" :key="d.id">
+              <button
+                type="button"
+                class="cursor-pointer w-full text-left px-2 py-1.5 text-sm hover:bg-neutral-50 disabled:opacity-50 disabled:cursor-default"
+                :disabled="docs.some(x => x.id === d.id)"
+                @click="pickDoc(d)"
+              >
+                <span class="block truncate text-neutral-800">{{ d.title }}</span>
+                <span class="block text-xs text-neutral-400 truncate">
+                  <template v-if="d.folder_path">{{ d.folder_path }} · </template>{{ d.created_at.slice(0, 10) }}
+                </span>
+                <span v-if="d.ai_summary_short" class="block text-xs text-neutral-500 line-clamp-2">{{ d.ai_summary_short }}</span>
+              </button>
+            </li>
+          </ul>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <input ref="fileInput" type="file" multiple :accept="ACCEPT" class="hidden" @change="onFilePick" />
+          <button type="button" :class="btnOutline('neutral')" :disabled="sending" @click="fileInput?.click()">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.upload" /></svg>
+            {{ t('accounting.ai_assistant.attach_files') }}
+          </button>
+          <button type="button" :class="btnOutline('neutral')" :disabled="sending" @click="pickerOpen = !pickerOpen">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.folderOpen" /></svg>
+            {{ t('accounting.ai_assistant.attach_documents') }}
+          </button>
+          <label class="inline-flex items-center gap-2 text-sm text-neutral-700 whitespace-nowrap cursor-pointer">
+            <input v-model="includeChart" type="checkbox" class="rounded border-neutral-300" />
+            {{ t('accounting.ai_assistant.include_chart') }}
+          </label>
+          <span class="flex-1"></span>
+          <span class="text-xs text-neutral-400 whitespace-nowrap hidden sm:inline">{{ t('accounting.ai_assistant.send_hint') }}</span>
+          <button type="button" :class="btnFilled('primary')" :disabled="!canSend" data-test="ai-assistant-send" @click="send">
+            <svg v-if="sending" class="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" /><path d="M22 12a10 10 0 0 0-10-10" stroke="currentColor" stroke-width="3" stroke-linecap="round" /></svg>
+            <svg v-else class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M13 6l6 6-6 6" /></svg>
+            {{ t('accounting.ai_assistant.send') }}
+          </button>
+        </div>
+        <p class="text-xs text-neutral-400">{{ t('accounting.ai_assistant.disclaimer') }}</p>
+      </div>
+    </template>
+  </div>
+</template>

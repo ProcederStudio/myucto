@@ -638,6 +638,8 @@ final class RoutePermissionMap
         ['*', '#^/api/attachment-checks(/|$)#', 'documents.upload', AccessLevel::WRITE],
         ['GET', '#^/api/document-requests(/|$)#', 'documents.requests', AccessLevel::READ],
         ['*', '#^/api/document-requests(/|$)#', 'documents.requests', AccessLevel::WRITE],
+        // AI shrnutí a vytěžení mění jen metadata dokumentu (ne soubor) → obecné `documents` WRITE.
+        ['POST', '#^/api/documents/[0-9]+/ai/(summary|analysis)$#', 'documents', AccessLevel::WRITE],
         ['*', '#^/api/documents/[0-9]+/(move|links)(/|$)#', 'documents.move', AccessLevel::WRITE],
         ['DELETE', '#^/api/(documents|document-folders)(/|$)#', 'documents.delete', AccessLevel::WRITE],
         ['POST', '#^/api/documents/[0-9]+/restore$#', 'documents.restore', AccessLevel::WRITE],
@@ -645,6 +647,9 @@ final class RoutePermissionMap
         ['GET', '#^/api/(documents|document-folders)(/|$)#', 'documents', AccessLevel::READ],
         ['*', '#^/api/(documents|document-folders)(/|$)#', 'documents', AccessLevel::WRITE],
 
+        // AI asistent nic nezapisuje (zaúčtování jde přes /journal s vlastním právem) → stačí čtení.
+        ['GET', '#^/api/accounting/ai-assistant/status$#', 'accounting', AccessLevel::READ],
+        ['POST', '#^/api/accounting/ai-assistant/ask$#', 'accounting', AccessLevel::READ],
         ['GET', '#^/api/accounting/periods(/|$)#', 'accounting', AccessLevel::READ],
         ['*', '#^/api/accounting/periods/[0-9]+/(closing|close|open-next|revert)(/|$)#', 'accounting.periods.close', AccessLevel::WRITE],
         ['*', '#^/api/accounting/periods(/|$)#', 'accounting.periods.manage', AccessLevel::WRITE],

@@ -779,7 +779,7 @@ onMounted(() => {
       <ul class="space-y-1">
         <li v-for="d in searchResults" :key="d.id" class="flex items-center gap-3 px-3 py-2 bg-surface border border-neutral-200 rounded-lg hover:border-primary-300 cursor-pointer" @click="openDoc(d)">
           <span :class="['shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold', docTypeBadge(d.doc_type).class]">{{ docTypeBadge(d.doc_type).label }}</span>
-          <span class="flex-1 min-w-0"><span class="block text-sm text-neutral-800 truncate">{{ d.title }}</span><span class="block text-xs text-neutral-400">{{ formatBytes(d.size_bytes) }} · {{ d.created_at.slice(0, 10) }}</span></span>
+          <span class="flex-1 min-w-0"><span class="block text-sm text-neutral-800 truncate">{{ d.title }}</span><span class="block text-xs text-neutral-400">{{ formatBytes(d.size_bytes) }} · {{ d.created_at.slice(0, 10) }}<template v-if="d.folder_path"> · {{ d.folder_path }}</template></span><span v-if="d.ai_summary_short" class="block text-xs text-neutral-500 line-clamp-2" data-test="document-ai-summary">{{ d.ai_summary_short }}</span></span>
         </li>
       </ul>
     </div>
@@ -930,6 +930,7 @@ onMounted(() => {
               <td class="py-2" @click.stop><input type="checkbox" :checked="selected.has(d.id)" @change="toggleSel(d.id)" /></td>
               <td class="py-2 text-neutral-700 truncate">
                 <RouterLink class="row-link" :to="{ name: 'document-detail', params: { id: d.id } }" @click.stop @auxclick.stop>{{ d.title }}</RouterLink>
+                <span v-if="d.ai_summary_short" class="block text-xs text-neutral-400 whitespace-normal line-clamp-1" :title="d.ai_summary_short">{{ d.ai_summary_short }}</span>
               </td>
               <td class="py-2"><span :class="['px-1.5 py-0.5 rounded text-[10px] font-semibold', docTypeBadge(d.doc_type).class]">{{ docTypeBadge(d.doc_type).label }}</span></td>
               <td class="py-2 text-right text-neutral-500 tabular-nums pr-8">{{ formatBytes(d.size_bytes) }}</td>

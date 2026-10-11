@@ -2451,6 +2451,9 @@ final class Routes
         // Vše tenant-scoped (ATTR_CURRENT_ID). Zápisy = účetní|admin, GET = readonly+;
         // změna stavu období = admin (PermissionMiddleware + guard v Action).
         $app->group('/api/accounting', function ($g) {
+            // AI asistent účetní — odpověď a návrhy zápisů, nic se tu nezaúčtuje
+            $g->get   ('/ai-assistant/status', [\MyInvoice\Action\Accounting\AiAssistantAction::class, 'status']);
+            $g->post  ('/ai-assistant/ask',    [\MyInvoice\Action\Accounting\AiAssistantAction::class, 'ask']);
             // Účtová osnova
             $g->get   ('/accounts',             [ChartOfAccountsAction::class, 'list']);
             $g->post  ('/accounts',             [ChartOfAccountsAction::class, 'create']);
@@ -3684,6 +3687,8 @@ final class Routes
         $app->get   ('/api/documents/{id:[0-9]+}/text',       [DocumentsAction::class, 'text']);
         $app->get   ('/api/documents/{id:[0-9]+}',            [DocumentsAction::class, 'get']);
         $app->patch ('/api/documents/{id:[0-9]+}',            [DocumentsAction::class, 'update']);
+        $app->post  ('/api/documents/{id:[0-9]+}/ai/summary',  [\MyInvoice\Action\Document\DocumentAiAction::class, 'summary']);
+        $app->post  ('/api/documents/{id:[0-9]+}/ai/analysis', [\MyInvoice\Action\Document\DocumentAiAction::class, 'analysis']);
         $app->post  ('/api/documents/{id:[0-9]+}/move',       [DocumentsAction::class, 'move']);
         $app->post  ('/api/documents/{id:[0-9]+}/restore',    [DocumentsAction::class, 'restore']);
         $app->post  ('/api/documents/{id:[0-9]+}/links',      [DocumentsAction::class, 'addLink']);

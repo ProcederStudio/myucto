@@ -10,6 +10,8 @@ import {
   type LinkCandidate, type JournalLinkPayload,
 } from '@/api/accounting'
 import { transferApi } from '@/api/closing'
+import { documentsApi } from '@/api/documents'
+import type { AiManualDraft } from '@/api/aiAssistant'
 import { useToast } from '@/composables/useToast'
 import { useDemoMode } from '@/composables/useDemoMode'
 import { formatDate, formatMoney } from '@/composables/useFormat'
@@ -55,6 +57,8 @@ const form = reactive({
   document_no: '',
 })
 const lines = ref<LineRow[]>([emptyLine('debit'), emptyLine('credit')])
+/** Dokumenty (Dokumenty → soubory), které se na zápis z AI návrhu navážou po uložení. */
+const aiDraftDocumentIds = ref<number[]>([])
 
 /**
  * Doklady, se kterými zápis souvisí (migrace 1514).
@@ -94,6 +98,22 @@ onMounted(async () => {
     accountingApi.listAccounts().then(v => { accounts.value = v }).catch(() => { accounts.value = [] }),
     accountingApi.listCostCenters().then(v => { costCenters.value = v }).catch(() => { costCenters.value = [] }),
   ])
+
+  // Návrh z AI asistenta („Upravit v ručním zápisu") jede v history.state,
+  // ne v URL — částky a popis nemají co dělat v adrese ani v historii prohlížeče.
+  const aiDraft = (window.history.state as { aiDraft?: AiManualDraft } | null)?.aiDraft
+  if (aiDraft && Array.isArray(aiDraft.lines) && aiDraft.lines.length) {
+    if (aiDraft.entry_date) form.entry_date = aiDraft.entry_date
+    form.description = aiDraft.description ?? ''
+    form.document_no = aiDraft.document_no ?? ''
+    lines.value = aiDraft.lines.map(l => ({
+      ...emptyLine(l.side === 'credit' ? 'credit' : 'debit'),
+      account_code: String(l.account_code ?? ''),
+      amount: Number(l.amount) || null,
+    }))
+    aiDraftDocumentIds.value = (aiDraft.document_ids ?? []).filter(id => Number.isInteger(id) && id > 0)
+    return
+  }
 
   // Kopie existujícího zápisu (Journal.vue akce „Kopírovat jako nový") — stejné
   // řádky/částky, dnešní datum (form.entry_date už je defaultně dnešek).
@@ -195,6 +215,12 @@ async function save(andNew = false) {
       ...(payloadLinks.length ? { links: payloadLinks } : {}),
     })
     toast.success(t('accounting.manual.saved', { id: entry.id }))
+    if (aiDraftDocumentIds.value.length) {
+      const docIds = aiDraftDocumentIds.value
+      aiDraftDocumentIds.value = []
+      const results = await Promise.allSettled(docIds.map(id => documentsApi.addLink(id, 'journal_entry', entry.id)))
+      if (results.some(r => r.status === 'rejected')) toast.warning(t('accounting.ai_assistant.proposal.link_failed'))
+    }
     for (const w of entry.dimension_warnings ?? []) {
       toast.warning(t('dimensions.rules.posting_warning', { message: w.message }))
     }

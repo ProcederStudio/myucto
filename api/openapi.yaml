@@ -10423,6 +10423,26 @@ paths:
         '409': { description: version_conflict — období mezitím změněno, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/v1/accounting/ai-assistant/status:
+    get:
+      tags: [Accounting]
+      summary: Dostupnost AI asistenta účetní (poskytovatel, model, podpora PDF a obrázků)
+      description: Dotaz na asistenta (POST /api/accounting/ai-assistant/ask) je jen pro přihlášeného uživatele v aplikaci, API tokenem nejde.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      responses:
+        '200':
+          description: Stav
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  available: { type: boolean }
+                  reason: { type: [string, 'null'], enum: [provider_not_configured, dpa_not_confirmed, residency_conflict, null] }
+                  provider: { type: [string, 'null'] }
+                  model: { type: [string, 'null'] }
+                  supports_files: { type: boolean, description: 'false = poskytovatel neumí PDF ani obrázky (Ollama); textové přílohy jdou' }
   /api/v1/accounting/journal:
     get:
       tags:
@@ -20161,6 +20181,60 @@ paths:
       responses:
         '200': { description: ok }
         '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/documents/{id}/ai/summary:
+    parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - in: path
+        name: id
+        required: true
+        schema: { type: integer }
+    post:
+      tags: [Documents]
+      summary: AI shrnutí dokumentu (uloží se k dokumentu)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                length: { type: string, enum: [short, long], default: short }
+      responses:
+        '200': { description: Uložené shrnutí, content: { application/json: { schema: { $ref: '#/components/schemas/DocumentAiSummary' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { description: 'Neplatný vstup nebo dokument bez čitelného obsahu (ai_assistant.invalid_input)' }
+        '502': { description: 'Chyba AI poskytovatele (ai_assistant.provider_error)' }
+        '503': { description: 'AI není nastavená nebo dostupná (ai_assistant.unavailable)' }
+  /api/v1/documents/{id}/ai/analysis:
+    parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - in: path
+        name: id
+        required: true
+        schema: { type: integer }
+    post:
+      tags: [Documents]
+      summary: AI vytěžení dokladu, volitelně s účetními dopady a návrhem zaúčtování
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                detail: { type: string, enum: [short, long], default: short }
+                accounting: { type: boolean, default: false }
+      responses:
+        '200':
+          description: Uložené vytěžení
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  analysis: { $ref: '#/components/schemas/DocumentAiAnalysis' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { description: 'Neplatný vstup nebo dokument bez čitelného obsahu (ai_assistant.invalid_input)' }
+        '502': { description: 'Chyba AI poskytovatele (ai_assistant.provider_error)' }
+        '503': { description: 'AI není nastavená nebo dostupná (ai_assistant.unavailable)' }
   /api/v1/documents/{id}/preview:
     parameters:
       - $ref: '#/components/parameters/SupplierIdHeader'
@@ -33478,6 +33552,7 @@ components:
         uploaded_by: { type: [integer, "null"], description: "User ID nahrávajícího" }
         created_at: { type: string }
         deleted_at: { type: [string, "null"], description: "Soft-delete (koš); NULL = aktivní" }
+        ai_summary_short: { type: [string, "null"], description: "Krátké AI shrnutí dokumentu (fulltextově prohledávatelné)" }
     DocumentLink:
       type: object
       properties:
@@ -33514,6 +33589,56 @@ components:
             links: { type: array, items: { $ref: '#/components/schemas/DocumentLink' } }
             attachments: { type: array, items: { $ref: '#/components/schemas/Document' } }
             dms_message: { $ref: '#/components/schemas/DocumentDmsMessage' }
+            ai_summary_long: { type: [string, "null"], description: "Podrobné AI shrnutí (markdown)" }
+            ai_summary_at: { type: [string, "null"], description: "Čas posledního AI shrnutí" }
+            ai_analysis:
+              description: "Poslední AI vytěžení dokladu, NULL = zatím nevytěženo"
+              oneOf:
+                - { $ref: '#/components/schemas/DocumentAiAnalysis' }
+                - { type: 'null' }
+    DocumentAiSummary:
+      type: object
+      properties:
+        ai_summary_short: { type: [string, "null"] }
+        ai_summary_long: { type: [string, "null"] }
+        ai_summary_at: { type: [string, "null"] }
+    AiJournalEntryProposal:
+      type: object
+      description: Návrh zápisu do účetního deníku od AI; nic se nezaúčtuje, dokud ho uživatel nepotvrdí.
+      properties:
+        entry_date: { type: string, format: date }
+        description: { type: string }
+        document_no: { type: [string, "null"] }
+        lines:
+          type: array
+          items:
+            type: object
+            properties:
+              account_code: { type: string }
+              account_name: { type: [string, "null"], description: "Název účtu z osnovy firmy; NULL = účet ve firmě neexistuje" }
+              side: { type: string, enum: [debit, credit] }
+              amount: { type: number }
+              note: { type: [string, "null"] }
+        balanced: { type: boolean, description: "Součet MD = součet D (počítá server v haléřích)" }
+        unknown_accounts: { type: array, items: { type: string } }
+    DocumentAiAnalysis:
+      type: object
+      properties:
+        detail: { type: string, enum: [short, long] }
+        accounting: { type: boolean }
+        answer: { type: string, description: Markdown }
+        fields:
+          type: array
+          items:
+            type: object
+            properties:
+              label: { type: string }
+              value: { type: string }
+        journal_entries: { type: array, items: { $ref: '#/components/schemas/AiJournalEntryProposal' } }
+        warnings: { type: array, items: { type: string } }
+        provider: { type: string }
+        model: { type: string }
+        created_at: { type: string }
     TaxEvidenceTaxEstimateVariant:
       type: object
       properties:
