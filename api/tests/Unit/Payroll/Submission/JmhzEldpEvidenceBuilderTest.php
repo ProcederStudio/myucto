@@ -1428,8 +1428,9 @@ final class JmhzEldpEvidenceBuilderTest extends TestCase
      * Dřív každé volání znovu ověřilo a dekódovalo oba snímky revize a znovu
      * načetlo resolver scénářů z disku, takže příprava rostla s kvadrátem
      * velikosti firmy (226 vztahů ≈ 5,5 min). Test srovnává cenu dalšího
-     * vztahu s prvním. Pětinásobný odstup ponechává rezervu pro kolísání
-     * sdíleného CI runneru a stále odhalí opakované dekódování celé revize.
+     * vztahu s prvním. Opakované dekódování celé revize dá poměr kolem 1,
+     * trojnásobný odstup proto chybu odhalí a snese kolísání sdíleného CI
+     * runneru (pětinásobný na něm padal při poměru 4,85).
      */
     public function testDerivingEveryEmploymentOfALargeRevisionDoesNotRedoTheWholeRevision(): void
     {
@@ -1449,7 +1450,7 @@ final class JmhzEldpEvidenceBuilderTest extends TestCase
         $averageNext = (hrtime(true) - $started) / ($count - 1);
 
         self::assertLessThan(
-            $first / 5,
+            $first / 3,
             $averageNext,
             sprintf(
                 'Další vztah téže revize stojí %.2f ms, první %.2f ms — builder zřejmě znovu zpracovává celou revizi.',
