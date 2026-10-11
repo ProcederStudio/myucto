@@ -576,6 +576,7 @@ final class AiPdfExtractor
         // JAK JE (s DPH) a fakturu označíme `prices_include_vat=1`. DPH pak spočítá
         // kalkulátor koeficientem shora (§37 ZDPH) → celek sedí na haléř.
         $pricesIncludeVat = self::resolvePricesIncludeVat($data, $documentKind);
+        $matchedRecapItems = $pricesIncludeVat ? null : self::recapMatchedItems($data, $isCredit);
 
         // §DM „AI import" — návrh druhu nákladu per řádek. Počítá se TEĎ, z původních
         // (nesloučených) řádků: níž je collapse může nahradit jediným součtovým řádkem,
@@ -597,7 +598,7 @@ final class AiPdfExtractor
         // Nulové řádky (předplatné rozepsané na „50 GB reserved … $0.00") do dokladu
         // nepatří — nemají vliv na základ ani DPH, jen zahlcují hlášení o druhu nákladu.
         // Doklad, který má nulové úplně všechny řádky, necháme beze změny.
-        $lines = array_values($data['items']);
+        $lines = $matchedRecapItems ?? array_values($data['items']);
         $dropZeroLines = array_filter($lines, static fn ($l): bool => !self::isZeroAmountLine($l)) !== [];
         // $idx je pozice v $items (→ order_index, $kindProposals), ne v AI poli — po
         // vyřazení nulových řádků se jinak rozejdou.
@@ -679,11 +680,14 @@ final class AiPdfExtractor
             ];
         }
 
-        // Dodavatel NEPLÁTCE DPH → na dokladu žádná DPH a NENÍ nárok na odpočet.
-        // Autoritativně z ARES (CZ IČO) / VIES (zahr. DIČ); fallback signál z dokladu.
-        // Vynulujeme sazby (kdyby AI halucinovala 21 %) a níže vynutíme vat_deduction='none'.
-        $vendorNonPayer = self::isVendorNonPayer($vendorIsVatPayer, (array) ($data['vendor'] ?? []));
-        if ($vendorNonPayer) {
+        // Dodavatel NEPLÁTCE DPH → NENÍ nárok na odpočet.
+        // Známé neplátcovství zakazuje odpočet, nikoli vyčíslenou částku závazku.
+        // Sazby bez doložené daně vynulujeme a níže vynutíme vat_deduction='none'.
+        $invoiceVendorIsVatPayer = self::resolveVendorVatPayer($vendorIsVatPayer, (array) ($data['vendor'] ?? []))
+            ?? $this->liveVendorVatPayer($vendorId);
+        $vendorNonPayer = $invoiceVendorIsVatPayer === false;
+        $preserveDocumentVat = $vendorNonPayer && self::hasExplicitDocumentVat($data);
+        if ($vendorNonPayer && !$preserveDocumentVat) {
             $zeroRateId = $this->matchVatRateId($supplierId, 0.0, $rateDate) ?? $defaultVatRateId;
             foreach ($items as &$it) {
                 $it['vat_rate_id'] = $zeroRateId;
@@ -710,15 +714,12 @@ final class AiPdfExtractor
         // tím ztrácí smysl (viz AiExpenseKindProposal::mergeForCollapsedLine()).
         $itemsCollapsed = false;
 
-        // Issue #8 — doklad, který jednotkové ceny VŮBEC NEUVÁDÍ (jen množství a řádkovou
-        // částku, případně rovnou jen souhrn), se zakládá ZE SOUHRNNÉ DAŇOVÉ REKAPITULACE:
-        // jeden řádek na sazbu, `1 ks × základ daně`. Rekonstrukce položek by tu znamenala
-        // vyrobit jednotkovou cenu, která na dokladu není — a u dokladu s předslevovými
-        // i poslevovými částkami model sáhne po těch špatných, takže se doklad rozejde
-        // s rekapitulací a uživateli nezbude než všechny částky přepsat ručně. Takhle
-        // základ i daň sedí na doklad z definice, ne shodou okolností; cenu za to
-        // (chybějící rozpad na položky) uživateli řekneme varováním u konceptu.
-        $recapOnlyRates = $vendorNonPayer ? null : self::recapOnlyRates($data, $isCredit);
+        // Issue #8: bez jednotkových cen ponecháme rozpad jen při shodě explicitních
+        // řádkových částek s rekapitulací. Jinak použijeme jeden řádek na sazbu,
+        // `1 ks × základ daně`, a chybějící spolehlivý rozpad oznámíme u konceptu.
+        $recapOnlyRates = ($vendorNonPayer && !$preserveDocumentVat) || $matchedRecapItems !== null
+            ? null
+            : self::recapOnlyRates($data, $isCredit);
         $recapOnlyWarning = null;
         if ($recapOnlyRates !== null) {
             $recapItems = [];
@@ -746,7 +747,7 @@ final class AiPdfExtractor
                 . 'takže základ daně i daň odpovídají dokladu. Zkontrolujte a případně rozepište položky ručně.';
         }
 
-        if (!$vendorNonPayer && $recapOnlyRates === null) {
+        if ((!$vendorNonPayer || $preserveDocumentVat) && $recapOnlyRates === null && $matchedRecapItems === null) {
             if (!$pricesIncludeVat && count($items) > 1 && self::linesAreGrossSingleRate($items, $data, $isCredit)) {
                 $this->logger->info('AI extractor: víceřádkové brutto ceny dle rekapitulace → režim ceny s DPH, řádky zachovány', [
                     'vendor_invoice_number' => $data['vendor_invoice_number'] ?? null,
@@ -777,7 +778,7 @@ final class AiPdfExtractor
         // gross→net × množství neround-tripuje na základ z REKAPITULACE) → sluč na 1 řádek
         // 1 ks × základ daně z rekapitulace. Tím základ/daň/celkem sedí na doklad bez
         // umělého „zaokrouhlení". V režimu shora (prices_include_vat) netřeba — celek sedí.
-        if (!$pricesIncludeVat && $recapOnlyRates === null) {
+        if (!$pricesIncludeVat && $recapOnlyRates === null && $matchedRecapItems === null) {
             $collapsed = self::collapseToSummaryBaseLine($items, $data, $isCredit);
             if ($collapsed !== null) {
                 $this->logger->info('AI extractor: sloučeno na 1 řádek dle rekapitulace DPH (haléřový drift)', [
@@ -934,14 +935,7 @@ final class AiPdfExtractor
         $aiVs = $aiPayment['variable_symbol'] ?? ($data['varsymbol'] ?? null);
 
         // Snapshot plátcovství dodavatele na dokladu (migrace 0133) — explicitně.
-        // Priorita: údaj VYTĚŽENÝ Z DOKLADU (AI vendor.is_vat_payer — doklad může být
-        // zpětně datovaný a nese stav ke svému datu) > dnešní stav z ARES/VIES >
-        // aktuální clients.is_vat_payer (stejné chování jako dřívější implicitní mrazení).
-        $docVendorPayer = array_key_exists('is_vat_payer', (array) ($data['vendor'] ?? []))
-                && $data['vendor']['is_vat_payer'] !== null
-            ? (bool) $data['vendor']['is_vat_payer']
-            : null;
-
+        // Snapshot odpovídá stavu použitému pro rozhodnutí o odpočtu výše.
         // Datum přijetí se přebírá Z DOKLADU, ne ze dne vytěžení (migrace 1848) — sdílené
         // pravidlo všech importních kanálů, viz {@see ImportedReceivedDatePolicy}. Firma si
         // může den importu vrátit přepínačem `supplier.purchase_import_received_at`.
@@ -955,9 +949,7 @@ final class AiPdfExtractor
 
         $payload = [
             'vendor_id'             => $vendorId,
-            'vendor_is_vat_payer'   => $docVendorPayer
-                ?? $vendorIsVatPayer
-                ?? $this->liveVendorVatPayer($vendorId),
+            'vendor_is_vat_payer'   => $invoiceVendorIsVatPayer,
             'vendor_invoice_number' => $this->sanitizeVendorNumber((string) $data['vendor_invoice_number']),
             'payment'               => [
                 'account_number'  => $fromAccount['account_number'] ?? null,
@@ -1092,9 +1084,11 @@ final class AiPdfExtractor
                 $this->repo->setExtractionWarning(
                     $id,
                     $supplierId,
-                    'Dodavatel je neplátce DPH — odpočet daně byl automaticky zakázán '
+                    'Dodavatel je neplátce DPH - odpočet daně byl automaticky zakázán '
                         . '(z dokladu od neplátce nelze uplatnit nárok na odpočet DPH). '
-                        . 'Sazby byly nastaveny na 0 %. V editoru lze vědomě přepsat.',
+                        . ($preserveDocumentVat
+                            ? 'DPH vyčíslená na dokladu byla zachována v částce závazku bez nároku na odpočet. Zkontrolujte doklad a plátcovství dodavatele.'
+                            : 'Sazby byly nastaveny na 0 %. V editoru lze vědomě přepsat.'),
                 );
             } catch (\Throwable) {
                 // Varování je „nice to have" — faktura už je vytvořená správně.
@@ -1251,18 +1245,66 @@ final class AiPdfExtractor
     }
 
     /**
-     * Dodavatel je neplátce DPH (→ žádný nárok na odpočet, na dokladu žádná DPH)?
-     * Autoritativní výsledek z ARES/VIES (`VendorVatPayerResolver`) má přednost; když je
-     * nezjištěný (null), použijeme explicitní signál z dokladu (AI `vendor.is_vat_payer`
-     * = false, typicky doklad s textem „DIČ: Neplátce DPH").
+     * Dodavatel je neplátce DPH (→ žádný nárok na odpočet)?
+     * Výsledek z registru má přednost před signálem z dokladu.
      *
      * @param array<string,mixed> $vendorData
      */
     public static function isVendorNonPayer(?bool $resolvedIsVatPayer, array $vendorData): bool
     {
-        if ($resolvedIsVatPayer === true)  return false;
-        if ($resolvedIsVatPayer === false) return true;
-        return array_key_exists('is_vat_payer', $vendorData) && $vendorData['is_vat_payer'] === false;
+        return self::resolveVendorVatPayer($resolvedIsVatPayer, $vendorData) === false;
+    }
+
+    public static function resolveVendorVatPayer(?bool $resolvedIsVatPayer, array $vendorData): ?bool
+    {
+        return $resolvedIsVatPayer
+            ?? (isset($vendorData['is_vat_payer']) ? (bool) $vendorData['is_vat_payer'] : null);
+    }
+
+    public static function hasExplicitDocumentVat(array $data): bool
+    {
+        if (!isset($data['total_without_vat'], $data['total_with_vat'])) {
+            return false;
+        }
+        $base = abs((float) $data['total_without_vat']);
+        $gross = abs((float) $data['total_with_vat']);
+        if ($base <= 0.0 || $gross <= $base) {
+            return false;
+        }
+        $tolerance = PurchaseVatRecapSeeder::toleranceFor((string) ($data['currency'] ?? 'CZK'));
+        $recapBase = 0.0;
+        $recapVat = 0.0;
+        foreach ((array) ($data['vat_recap'] ?? []) as $row) {
+            if (!is_array($row) || !isset($row['base'], $row['vat'], $row['rate'])) {
+                continue;
+            }
+            if (abs((float) $row['vat']) > 0.0 && (float) $row['rate'] <= 0.0) {
+                return false;
+            }
+            $recapBase += abs((float) $row['base']);
+            $recapVat += abs((float) $row['vat']);
+        }
+        if ($recapVat > 0.0 && abs($recapBase - $base) <= $tolerance && abs($recapBase + $recapVat - $gross) <= $tolerance) {
+            return true;
+        }
+        if (!empty($data['unit_prices_include_vat'])) {
+            return false;
+        }
+        $lineBase = 0.0;
+        $lineVat = 0.0;
+        foreach ((array) ($data['items'] ?? []) as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $amount = isset($row['line_total_without_vat'])
+                ? (float) $row['line_total_without_vat']
+                : round((float) ($row['quantity'] ?? 0) * (float) ($row['unit_price_without_vat'] ?? 0), 2);
+            $lineBase += $amount;
+            $lineVat += round($amount * (float) ($row['vat_rate'] ?? 0) / 100, 2);
+        }
+        return abs($lineVat) > 0.0
+            && abs(abs($lineBase) - $base) <= $tolerance
+            && abs(abs($lineVat) - ($gross - $base)) <= $tolerance;
     }
 
     /**
@@ -1620,6 +1662,60 @@ final class AiPdfExtractor
             return null; // bez rekapitulace není z čeho doklad složit → dnešní tok
         }
         return array_values($byRate);
+    }
+
+    public static function recapMatchedItems(array $data, bool $isCredit): ?array
+    {
+        $rates = self::recapOnlyRates($data, $isCredit);
+        if ($rates === null || empty($data['items']) || !empty($data['unit_prices_include_vat'])
+            || !isset($data['total_without_vat'], $data['total_with_vat'])) {
+            return null;
+        }
+        $byRate = [];
+        foreach ($rates as $rate) {
+            $byRate[number_format($rate['rate'], 2, '.', '')] = $rate;
+        }
+        foreach ($data['vat_recap'] as $row) {
+            if (is_array($row) && isset($row['rate'], $row['base'], $row['vat'])
+                && (float) $row['rate'] === 0.0 && (float) $row['base'] > 0.0) {
+                $byRate['0.00'] ??= ['rate' => 0.0, 'base' => (float) $row['base'], 'vat' => (float) $row['vat']];
+            }
+        }
+        $tolerance = PurchaseVatRecapSeeder::toleranceFor((string) ($data['currency'] ?? 'CZK'));
+        $recapBase = array_sum(array_column($byRate, 'base'));
+        $recapVat = array_sum(array_column($byRate, 'vat'));
+        if (abs($recapBase - (float) $data['total_without_vat']) > $tolerance
+            || abs($recapBase + $recapVat - (float) $data['total_with_vat']) > $tolerance) {
+            return null;
+        }
+        $lineTotals = [];
+        $items = [];
+        foreach ($data['items'] as $line) {
+            if (!is_array($line) || !isset($line['line_total_without_vat'], $line['vat_rate'])
+                || !is_numeric($line['line_total_without_vat']) || !is_numeric($line['vat_rate'])) {
+                return null;
+            }
+            $amount = (float) $line['line_total_without_vat'];
+            if ($amount === 0.0) {
+                continue;
+            }
+            $rate = (float) $line['vat_rate'];
+            $key = number_format($rate, 2, '.', '');
+            if (!isset($byRate[$key])) {
+                return null;
+            }
+            $lineTotals[$key]['base'] = ($lineTotals[$key]['base'] ?? 0.0) + $amount;
+            $lineTotals[$key]['vat'] = ($lineTotals[$key]['vat'] ?? 0.0) + round($amount * $rate / 100, 2);
+            $items[] = array_replace($line, ['quantity' => 1.0, 'unit' => 'ks', 'unit_price_without_vat' => $amount]);
+        }
+        foreach ($byRate as $key => $recap) {
+            if (!isset($lineTotals[$key])
+                || abs($lineTotals[$key]['base'] - $recap['base']) > $tolerance
+                || abs($lineTotals[$key]['vat'] - $recap['vat']) > $tolerance) {
+                return null;
+            }
+        }
+        return $items !== [] ? $items : null;
     }
 
     /**

@@ -176,7 +176,7 @@ jsou v [§ 25.9.18](#25918-lokalni-model-pres-ollamu-podrobnosti).
 | Test připojení selže hned | Špatný formát klíče (Anthropic `sk-ant-`, OpenAI `sk-`) | Zkontrolujte, že jste vložili celý klíč |
 | Extrakce větších souborů vrátí chybu | Překročen limit PDF (Anthropic 32 MB, ostatní 20 MB) | Zmenšete soubor nebo ho rozdělte |
 | Faktura obsahuje řádek **KOREKCE** s nulovými množstvími | Model nerozparsoval složitou fakturu a součet se lišil o víc než 50 % | Doplňte množství a ceny k řádkům a korekční řádek smažte (viz [§ 25.9.4](#2594-katastrofalni-mismatch-placeholder)) |
-| Doklad z paliv nebo vyúčtování nemá položky | Doklad neuvádí jednotkové ceny, založil se ze souhrnné rekapitulace | Je to záměr, potřebujete-li rozpis, doplňte řádky ručně (viz [§ 25.9.7](#2597-doklad-bez-jednotkovych-cen-zalozeni-ze-souhrnne-rekapitulace)) |
+| Doklad z paliv nebo vyúčtování nemá položky | Doklad nemá spolehlivý rozpad řádkových částek odpovídající rekapitulaci | Zkontrolujte souhrnnou rekapitulaci a potřebné řádky doplňte ručně (viz [§ 25.9.7](#2597-doklad-bez-jednotkovych-cen-zalozeni-ze-souhrnne-rekapitulace)) |
 | U dokladu chybí splatnost | Doklad ji neuvádí a AI ji neodhaduje | Doplňte splatnost v editoru |
 | Doklad od člena skupinové registrace vyšel jako od neplátce | ARES vrací zaniklou registraci | Zkontrolujte, zda doklad nese dvě DIČ (viz [§ 25.9.9](#2599-dodavatel-se-skupinovou-registraci-k-dph-dve-dic-na-dokladu)) |
 | Import Ollamou je extrémně pomalý, nebo skončí po zhruba 2 minutách | Model se nevejde do paměti grafické karty, nebo prohlížeč po 2 minutách přestane čekat | Zvolte menší model, nebo import nechte běžet přes scan inbox (viz [§ 25.9.18](#25918-lokalni-model-pres-ollamu-podrobnosti)) |
@@ -238,7 +238,8 @@ php api/bin/recheck-ai-extracted-invoices.php --threshold=0.05
 ### 25.9.6 Dodavatel neplátce DPH
 
 Při AI importu se ověří **plátcovství dodavatele** (ARES a VIES, případně signál z dokladu „DIČ: Neplátce DPH"). U neplátce
-se automaticky nastaví **Bez nároku na odpočet**, vynulují sazby a doplní varování, aby se neoprávněný odpočet nedostal do
+se automaticky nastaví **Bez nároku na odpočet** a doplní varování. Konzistentně vyčíslená DPH zůstane součástí závazku
+a nákladu, sazby se vynulují pouze bez doložené daně. Kontrola tak zachová částku dodavatele a odpočet se nedostane do
 přiznání. Detail viz [§ 23.11.7](23_Prijate_faktury.md#23117-danova-uznatelnost-a-narok-na-odpocet).
 
 ### 25.9.7 Doklad bez jednotkových cen: založení ze souhrnné rekapitulace
@@ -247,12 +248,15 @@ Souhrnné doklady za období (typicky měsíční vyúčtování palivových kar
 množství, částku za řádek a dole daňovou rekapitulaci. Když je navíc doklad uvádí ve dvou variantách, před slevou a po slevě,
 dopočítaná jednotková cena vyjde z nesprávných čísel a doklad se rozejde s rekapitulací.
 
-MyÚčto.cz proto takový doklad **neskládá z položek**, ale založí ho ze souhrnné daňové rekapitulace: **jeden řádek na sazbu
-DPH** (`1 ks × základ daně`). Základ i daň tím odpovídají dokladu přesně. Do popisu řádku se přenesou názvy plnění z dokladu,
-takže zůstane poznat, o co šlo (PHM, poplatky).
+Pokud doklad uvádí částky bez DPH za jednotlivé řádky a jejich základy i daň souhlasí s rekapitulací po sazbách,
+MyÚčto.cz **zachová jednotlivé položky** jako `1 ks × částka řádku`. Samotná absence jednotkové ceny rozpad neruší.
 
-Koncept nese **varování**, že položky nebyly vytěženy. Pokud potřebujete doklad rozepsaný, doplňte řádky ručně. Doklady, které
-jednotkové ceny uvádějí, se extrahují **beze změny** i nadále včetně rozpadu na položky.
+Když řádkové částky chybí nebo s rekapitulací nesouhlasí, založí se doklad ze souhrnné daňové rekapitulace: **jeden řádek
+na sazbu DPH** (`1 ks × základ daně`). Do popisu řádku se přenesou názvy plnění z dokladu, takže zůstane poznat, o co šlo
+(PHM, poplatky).
+
+Při souhrnném založení koncept nese **varování**, že rozpad položek nebyl spolehlivý. Pokud potřebujete doklad rozepsaný,
+doplňte řádky ručně. Doklady s uvedenými jednotkovými cenami se přebírají včetně rozpadu na položky.
 
 **Nulové řádky** se do dokladu nepřebírají. Typicky předplatné, které rozepisuje kvóty zahrnuté v ceně („50 GB reserved logs
 - 0,00"), nemění základ ani DPH. Slevy se zápornou částkou zůstávají. Pokud má doklad nulové všechny řádky, převezmou se všechny.

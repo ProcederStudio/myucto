@@ -21,6 +21,7 @@ use MyInvoice\Service\Import\PdfIsdocExtractor;
 use MyInvoice\Service\Import\PurchaseInvoicePdfArchiver;
 use MyInvoice\Service\Invoice\PurchaseInvoiceCalculator;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
 
@@ -512,15 +513,13 @@ final class AiPdfExtractorUnitTest extends TestCase
 
     // ── isVendorNonPayer (dodavatel neplátce → bez nároku na odpočet) ───────
 
-    public function testNonPayer_ares_says_payer_false(): void
+    public function testNonPayer_registry_payer_overrides_document_nonpayer(): void
     {
-        // Autoritativní ARES/VIES výsledek true → plátce → false (je nárok).
         self::assertFalse(AiPdfExtractor::isVendorNonPayer(true, ['is_vat_payer' => false]));
     }
 
-    public function testNonPayer_ares_says_nonpayer_true(): void
+    public function testNonPayer_registry_nonpayer_overrides_document_payer(): void
     {
-        // ARES/VIES říká neplátce (false) → true (bez nároku), přebije i signál z dokladu.
         self::assertTrue(AiPdfExtractor::isVendorNonPayer(false, ['is_vat_payer' => true]));
     }
 
@@ -535,6 +534,44 @@ final class AiPdfExtractorUnitTest extends TestCase
         // Nezjištěno z registru ani z dokladu → konzervativně NEpředpokládej neplátce.
         self::assertFalse(AiPdfExtractor::isVendorNonPayer(null, []));
         self::assertFalse(AiPdfExtractor::isVendorNonPayer(null, ['is_vat_payer' => true]));
+    }
+
+    #[DataProvider('vendorVatStatuses')]
+    public function testVendorVatStatusPrefersRegistry(?bool $documentStatus, ?bool $resolvedStatus): void
+    {
+        self::assertSame($resolvedStatus ?? $documentStatus, AiPdfExtractor::resolveVendorVatPayer($resolvedStatus, ['is_vat_payer' => $documentStatus]));
+        self::assertSame($resolvedStatus, AiPdfExtractor::resolveVendorVatPayer($resolvedStatus, []));
+    }
+
+    public static function vendorVatStatuses(): iterable
+    {
+        foreach ([true, false, null] as $documentStatus) {
+            foreach ([true, false, null] as $resolvedStatus) {
+                yield [$documentStatus, $resolvedStatus];
+            }
+        }
+    }
+
+    #[DataProvider('documentVatEvidence')]
+    public function testDocumentVatRequiresConsistentAmounts(array $data, bool $expected): void
+    {
+        self::assertSame($expected, AiPdfExtractor::hasExplicitDocumentVat($data));
+    }
+
+    public static function documentVatEvidence(): iterable
+    {
+        $totals = ['currency' => 'CZK', 'total_without_vat' => 10000, 'total_with_vat' => 12100];
+        $item = ['quantity' => 1, 'unit_price_without_vat' => 10000, 'vat_rate' => 21];
+        yield 'missing totals' => [['items' => [$item]], false];
+        yield 'rate without charged VAT' => [['total_without_vat' => 10000, 'total_with_vat' => 10000, 'items' => [$item]], false];
+        yield 'consistent line and totals' => [$totals + ['items' => [$item]], true];
+        yield 'inconsistent line and totals' => [$totals + ['items' => [array_replace($item, ['vat_rate' => 12])]], false];
+        yield 'gross line without recap' => [$totals + ['unit_prices_include_vat' => true, 'items' => [$item]], false];
+        yield 'consistent recap with gross prices' => [$totals + ['unit_prices_include_vat' => true, 'vat_recap' => [['rate' => 21, 'base' => 10000, 'vat' => 2100]]], true];
+        yield 'inconsistent recap' => [$totals + ['vat_recap' => [['rate' => 21, 'base' => 10000, 'vat' => 1200]]], false];
+        yield 'VAT amount without positive rate' => [$totals + ['vat_recap' => [['rate' => 0, 'base' => 10000, 'vat' => 2100]]], false];
+        yield 'rounding without VAT' => [['total_without_vat' => 10000, 'total_with_vat' => 10000.01, 'items' => [array_replace($item, ['vat_rate' => 0])]], false];
+        yield 'credit note amounts' => [['total_without_vat' => -10000, 'total_with_vat' => -12100, 'items' => [array_replace($item, ['quantity' => -1])]], true];
     }
 
     // ── collapseToSummaryBaseLine (haléřový drift → 1 ks dle rekapitulace) ──

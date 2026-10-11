@@ -71,6 +71,85 @@ final class AiPdfExtractorRecapOnlyLinesTest extends TestCase
         self::assertSame(1260.00, $rates[0]['vat']);
     }
 
+    public function testConsistentExplicitAmountsPreserveDescriptionsWithoutInventingUnitPrices(): void
+    {
+        $data = $this->fixture();
+        $data['items'][0]['quantity'] = 30;
+        $data['items'][1]['quantity'] = 150;
+        $items = AiPdfExtractor::recapMatchedItems($data, false);
+
+        self::assertIsArray($items);
+        self::assertSame(array_column($data['items'], 'description'), array_column($items, 'description'));
+        self::assertSame([1.0, 1.0], array_column($items, 'quantity'));
+        self::assertSame([1200.0, 4800.0], array_column($items, 'unit_price_without_vat'));
+    }
+
+    public function testContradictoryOrMissingAmountsUseRecapFallback(): void
+    {
+        $data = $this->fixture();
+        $data['items'][0]['line_total_without_vat'] = 1500;
+        self::assertNull(AiPdfExtractor::recapMatchedItems($data, false));
+        $data = $this->fixture();
+        unset($data['items'][0]['line_total_without_vat']);
+        self::assertNull(AiPdfExtractor::recapMatchedItems($data, false));
+        $data = $this->fixture();
+        unset($data['total_without_vat']);
+        self::assertNull(AiPdfExtractor::recapMatchedItems($data, false));
+        $data = $this->fixture();
+        $data['total_with_vat'] = 8000;
+        self::assertNull(AiPdfExtractor::recapMatchedItems($data, false));
+    }
+
+    public function testMatchingOverallBaseDoesNotHideDifferentVatRates(): void
+    {
+        $data = $this->fixture();
+        $data['items'][0]['vat_rate'] = 12;
+        self::assertNull(AiPdfExtractor::recapMatchedItems($data, false));
+    }
+
+    public function testMultipleRatesAndZeroRateKeepTheirExplicitRows(): void
+    {
+        $data = $this->fixture();
+        $data['items'][1]['vat_rate'] = 12;
+        $data['items'][] = ['description' => 'Fixture zero-rated item', 'quantity' => 1, 'unit_price_without_vat' => 500, 'line_total_without_vat' => 500, 'vat_rate' => 0];
+        $data['vat_recap'] = [
+            ['rate' => 21, 'base' => 1200, 'vat' => 252],
+            ['rate' => 12, 'base' => 4800, 'vat' => 576],
+            ['rate' => 0, 'base' => 500, 'vat' => 0],
+        ];
+        $data['total_without_vat'] = 6500;
+        $data['total_with_vat'] = 7328;
+        $items = AiPdfExtractor::recapMatchedItems($data, false);
+
+        self::assertIsArray($items);
+        self::assertCount(3, $items);
+        self::assertSame([21.0, 12, 0], array_column($items, 'vat_rate'));
+    }
+
+    public function testExplicitDiscountAndEmptyLinePreserveTheBreakdown(): void
+    {
+        $data = $this->fixture();
+        $data['items'][0]['line_total_without_vat'] = 1300;
+        $data['items'][] = ['description' => 'Fixture discount', 'quantity' => 1, 'unit_price_without_vat' => -100, 'line_total_without_vat' => -100, 'vat_rate' => 21];
+        $data['items'][] = ['description' => 'Fixture empty line', 'quantity' => 1, 'unit_price_without_vat' => 0, 'line_total_without_vat' => 0, 'vat_rate' => 0];
+        $items = AiPdfExtractor::recapMatchedItems($data, false);
+
+        self::assertIsArray($items);
+        self::assertCount(3, $items);
+        self::assertSame(-100.0, $items[2]['unit_price_without_vat']);
+    }
+
+    public function testGrossPricesCreditNotesAndStatedUnitPricesKeepExistingFlow(): void
+    {
+        $data = $this->fixture();
+        $data['unit_prices_include_vat'] = true;
+        self::assertNull(AiPdfExtractor::recapMatchedItems($data, false));
+        self::assertNull(AiPdfExtractor::recapMatchedItems($this->fixture(), true));
+        $data = $this->fixture();
+        $data['unit_prices_stated'] = true;
+        self::assertNull(AiPdfExtractor::recapMatchedItems($data, false));
+    }
+
     /** Součet řádků odvozených z rekapitulace sedí na rekapitulaci i na „celkem s DPH". */
     public function testDerivedLinesMatchTheDocumentTotals(): void
     {
