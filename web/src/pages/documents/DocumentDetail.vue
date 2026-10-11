@@ -14,6 +14,7 @@ import DocumentAiPanel from '@/components/documents/DocumentAiPanel.vue'
 import TextDocumentPreview from '@/components/documents/TextDocumentPreview.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import { ICONS, btnFilled, btnOutline } from '@/components/ui/buttonStyles'
+import { cashDocumentLink } from '@/utils/journalSourceLink'
 
 const route = useRoute()
 const router = useRouter()
@@ -145,7 +146,7 @@ function goEntity(l: { entity_type: EntityType; entity_id: number }) {
     return
   }
   if (l.entity_type === 'cash_document') {
-    router.push({ name: 'accounting-cash' })
+    router.push(cashDocumentLink(l.entity_id))
     return
   }
   if (l.entity_type === 'other_item') {

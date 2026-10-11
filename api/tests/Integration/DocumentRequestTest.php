@@ -16,11 +16,14 @@ use MyInvoice\Repository\DocumentRequestRepository;
 use MyInvoice\Repository\DocumentRepository;
 use MyInvoice\Repository\PurchaseInvoiceRepository;
 use MyInvoice\Repository\PurchaseInvoiceSubmissionRepository;
+use MyInvoice\Security\AccessLevel;
+use MyInvoice\Security\EffectiveRole;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Document\DocumentStorage;
 use MyInvoice\Service\IpMatcher;
 use MyInvoice\Service\PurchaseInvoice\PurchaseInvoiceSubmissionCompletionService;
 use MyInvoice\Service\PurchaseInvoice\PurchaseInvoiceSubmissionException;
+use MyInvoice\Service\PurchaseInvoice\PurchaseInvoiceSubmissionDeletionService;
 use MyInvoice\Service\PurchaseInvoice\PurchaseInvoiceSubmissionProcessingService;
 use MyInvoice\Service\PurchaseInvoice\PurchaseInvoiceSubmissionUploadService;
 use MyInvoice\Service\PurchaseInvoice\SubmissionDimensions;
@@ -553,6 +556,7 @@ final class DocumentRequestTest extends TestCase
             $this->activity,
             $this->ipMatcher,
             $this->submissionDimensions,
+            $this->buildDeletionService(),
         );
         $request = (new ServerRequestFactory())
             ->createServerRequest('POST', '/api/portal/purchase-invoice-submissions')
@@ -639,9 +643,8 @@ final class DocumentRequestTest extends TestCase
         $documentId = (int) $submission['document_id'];
         $this->trackSubmissionFile($submission);
 
-        // Doklad nahrála účetní sama — není komu psát, odmítnutí projde bez zprávy.
         $rejected = $action->reject(
-            $this->inboxRequest('POST', "/api/purchase-invoice-submissions/{$submissionId}/reject"),
+            $this->inboxRequest('POST', "/api/purchase-invoice-submissions/{$submissionId}/reject")->withParsedBody(['reason' => 'Nesprávný originál.']),
             $responses->createResponse(),
             ['id' => (string) $submissionId],
         );
@@ -709,6 +712,64 @@ final class DocumentRequestTest extends TestCase
         self::assertNotNull($this->submissions->find($submissionId, $this->supplierA));
     }
 
+    public function testSuperadminCanUseDocumentSubmissionPortalWithinCurrentSupplier(): void
+    {
+        $action = new PortalPurchaseInvoiceSubmissionAction($this->submissions, $this->upload, $this->activity, $this->ipMatcher, $this->submissionDimensions, $this->buildDeletionService());
+        $request = $this->inboxRequest('GET', '/api/portal/purchase-invoice-submissions')
+            ->withAttribute('auth.effective_role', new EffectiveRole(1, 'Superadmin', 'superadmin', true, [], 'superadmin'));
+        $responses = new ResponseFactory();
+        self::assertSame(200, $action->list($request, $responses->createResponse())->getStatusCode());
+        self::assertSame(200, $action->dimensions($request, $responses->createResponse())->getStatusCode());
+        self::assertSame(200, $this->buildPortalAction()->list($request, $responses->createResponse())->getStatusCode());
+
+        $bytes = "%PDF-1.4\n% synthetic superadmin submission";
+        $response = $action->upload($request->withUploadedFiles(['file' => $this->uploadedFile('superadmin.pdf', $bytes)]), $responses->createResponse());
+        self::assertSame(201, $response->getStatusCode(), (string) $response->getBody());
+        $payload = json_decode((string) $response->getBody(), true, flags: JSON_THROW_ON_ERROR);
+        $id = (int) $payload['items'][0]['id'];
+        $submission = $this->submissions->find($id, $this->supplierA);
+        $this->trackSubmissionFile($submission);
+        self::assertSame('submitted', $submission['status']);
+        self::assertNull($submission['purchase_invoice_id']);
+
+        $files = new PurchaseInvoiceSubmissionFileAction($this->submissions, $this->storage);
+        foreach (['portalPreview', 'portalDownload'] as $method) {
+            $response = $files->$method($request, $responses->createResponse(), ['id' => (string) $id]);
+            self::assertSame(200, $response->getStatusCode());
+            self::assertSame($bytes, (string) $response->getBody());
+            self::assertSame(404, $files->$method($request->withAttribute(SupplierScopeMiddleware::ATTR_CURRENT_ID, $this->supplierB), $responses->createResponse(), ['id' => (string) $id])->getStatusCode());
+        }
+
+        self::assertTrue($this->submissions->needsInformation($id, $this->supplierA, 'Nahraďte originál.'));
+        $response = $action->resubmit($request->withUploadedFiles(['file' => $this->uploadedFile('replacement.pdf', "%PDF-1.4\n% synthetic superadmin replacement")]), $responses->createResponse(), ['id' => (string) $id]);
+        self::assertSame(201, $response->getStatusCode(), (string) $response->getBody());
+        $payload = json_decode((string) $response->getBody(), true, flags: JSON_THROW_ON_ERROR);
+        $this->trackSubmissionFile($this->submissions->find((int) $payload['items'][0]['id'], $this->supplierA));
+
+        $foreign = $this->repo->create($this->supplierB, ['description' => 'Foreign synthetic request'], $this->userId);
+        self::assertSame(404, $this->buildPortalAction()->upload($request, $responses->createResponse(), ['id' => (string) $foreign])->getStatusCode());
+        $own = $this->repo->create($this->supplierA, ['description' => 'Own synthetic request'], $this->userId);
+        $response = $this->buildPortalAction()->upload($request->withUploadedFiles(['file' => $this->uploadedFile('requested.pdf', "%PDF-1.4\n% synthetic requested superadmin upload")]), $responses->createResponse(), ['id' => (string) $own]);
+        self::assertSame(201, $response->getStatusCode(), (string) $response->getBody());
+        $row = $this->repo->find($own, $this->supplierA);
+        $this->trackSubmissionFile($this->submissions->find((int) $row['submission_id'], $this->supplierA));
+    }
+
+    public function testStaffCannotUseClientDocumentPortalEvenWithSubmissionPermission(): void
+    {
+        $action = new PortalPurchaseInvoiceSubmissionAction($this->submissions, $this->upload, $this->activity, $this->ipMatcher, $this->submissionDimensions, $this->buildDeletionService());
+        $files = new PurchaseInvoiceSubmissionFileAction($this->submissions, $this->storage);
+        foreach (['admin', 'admin_plus', 'accountant', 'readonly'] as $key) {
+            $request = $this->inboxRequest('GET', '/api/portal/purchase-invoice-submissions')
+                ->withAttribute('auth.effective_role', new EffectiveRole(2, $key, 'staff', true, ['documents.submit' => AccessLevel::WRITE->value], $key));
+            $responses = new ResponseFactory();
+            self::assertSame(403, $action->list($request, $responses->createResponse())->getStatusCode(), $key);
+            self::assertSame(403, $action->upload($request, $responses->createResponse())->getStatusCode(), $key);
+            self::assertSame(403, $files->portalPreview($request, $responses->createResponse(), ['id' => '1'])->getStatusCode(), $key);
+            self::assertSame(403, $this->buildPortalAction()->list($request, $responses->createResponse())->getStatusCode(), $key);
+        }
+    }
+
     public function testPortalNeverServesInternalProcessingDiagnostics(): void
     {
         $created = $this->upload->submit(
@@ -739,6 +800,7 @@ final class DocumentRequestTest extends TestCase
             $this->activity,
             $this->ipMatcher,
             $this->submissionDimensions,
+            $this->buildDeletionService(),
         );
         $response = $action->list(
             (new ServerRequestFactory())
@@ -886,6 +948,11 @@ final class DocumentRequestTest extends TestCase
         return new PortalDocumentRequestAction($this->repo, $this->upload, $this->activity, $this->ipMatcher);
     }
 
+    private function buildDeletionService(): PurchaseInvoiceSubmissionDeletionService
+    {
+        return new PurchaseInvoiceSubmissionDeletionService($this->db, $this->submissions, $this->documents, $this->repo, $this->activity);
+    }
+
     private function buildInboxAction(): PurchaseInvoiceSubmissionAction
     {
         return new PurchaseInvoiceSubmissionAction(
@@ -897,6 +964,7 @@ final class DocumentRequestTest extends TestCase
             $this->activity,
             $this->ipMatcher,
             $this->submissionDimensions,
+            $this->buildDeletionService(),
         );
     }
 

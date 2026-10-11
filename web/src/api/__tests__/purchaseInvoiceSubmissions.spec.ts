@@ -4,6 +4,7 @@ vi.mock('@/api/client', () => ({
   api: {
     get: vi.fn(),
     post: vi.fn(),
+    delete: vi.fn(),
   },
 }))
 
@@ -11,8 +12,14 @@ import {
   portalPurchaseInvoiceSubmissionsApi,
   purchaseInvoiceSubmissionsApi,
 } from '@/api/purchaseInvoiceSubmissions'
+import { api } from '@/api/client'
 
 describe('URL originálu ve staging frontě', () => {
+  it('smazání vlastního čekajícího podání používá klientský endpoint', async () => {
+    vi.mocked(api.delete).mockResolvedValueOnce({ data: { ok: true, document_id: 9 } })
+    expect(await portalPurchaseInvoiceSubmissionsApi.remove(7)).toEqual({ ok: true, document_id: 9 })
+    expect(api.delete).toHaveBeenCalledWith('/portal/purchase-invoice-submissions/7')
+  })
   afterEach(() => {
     localStorage.removeItem('myinvoice.current_supplier_id')
   })

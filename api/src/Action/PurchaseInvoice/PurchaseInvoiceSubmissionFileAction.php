@@ -54,8 +54,7 @@ final class PurchaseInvoiceSubmissionFileAction
         bool $portal,
     ): Response {
         $allowed = $portal
-            ? RequestAuthorization::isClientType($request)
-                && RequestAuthorization::allows($request, 'documents.submit', AccessLevel::READ)
+            ? RequestAuthorization::allowsClientDocumentPortal($request, AccessLevel::READ)
             : !RequestAuthorization::isClientType($request)
                 && RequestAuthorization::allows($request, 'documents.inbox', AccessLevel::READ);
         if (!$allowed) return Json::error($response, 'forbidden', 'K souboru nemáte oprávnění.', 403);

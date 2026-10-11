@@ -114,6 +114,18 @@ describe('DocumentDetail', () => {
     expect(m.routerPush).toHaveBeenCalledWith({ name: 'other-item-detail', params: { id: 77 } })
   })
 
+  it('otevře konkrétní navázaný pokladní pohyb', async () => {
+    m.get.mockResolvedValueOnce({
+      ...document(2605, 'Syntetická účtenka'),
+      links: [{ entity_type: 'cash_document', entity_id: 91, label: 'VPD-2093-0091' }],
+    })
+    const wrapper = shallowMount(DocumentDetail)
+    await flushPromises()
+
+    await wrapper.findAll('button').find(button => button.text() === 'VPD-2093-0091')?.trigger('click')
+    expect(m.routerPush).toHaveBeenCalledWith({ name: 'accounting-cash', query: { document_id: '91' } })
+  })
+
   it('zobrazí ZFO metadata a všechny přílohy se bezpečným preview a stažením', async () => {
     m.get.mockResolvedValueOnce({
       ...document(2605, 'datova-zprava-1752953337.zfo'),

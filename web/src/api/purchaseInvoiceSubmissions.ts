@@ -44,6 +44,7 @@ export interface PurchaseInvoiceSubmission {
   /** Dimenze zvolené při nahrání (typ → hodnota), propíšou se do hlavičky vytěženého dokladu. */
   dimensions?: Record<number, number>
   duplicate?: boolean
+  can_delete?: boolean
   /**
    * Interní diagnostika zpracování — servíruje ji jen účetní fronta.
    * V odpovědi klientského portálu tyhle klíče nejsou, viz
@@ -126,6 +127,8 @@ export const portalPurchaseInvoiceSubmissionsApi = {
       uploadForm([file], note, null),
       { headers: { 'Content-Type': 'multipart/form-data' } },
     ).then(r => r.data),
+  remove: (id: number) =>
+    api.delete<{ ok: boolean; document_id: number }>(`/portal/purchase-invoice-submissions/${id}`).then(r => r.data),
   previewUrl: (id: number) => fileUrl(`/portal/purchase-invoice-submissions/${id}/preview`),
   downloadUrl: (id: number) => fileUrl(`/portal/purchase-invoice-submissions/${id}/download`),
 }

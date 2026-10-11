@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
@@ -19,6 +19,7 @@ import PdfDropzone from '@/components/purchase/PdfDropzone.vue'
 import ExtractionReviewModal from '@/components/purchase/ExtractionReviewModal.vue'
 import DimensionFields from '@/components/dimensions/DimensionFields.vue'
 import DimensionChips from '@/components/dimensions/DimensionChips.vue'
+import SubmissionPreview from '@/components/documents/SubmissionPreview.vue'
 import { useDimensions } from '@/composables/useDimensions'
 import type { DimensionMap } from '@/api/dimensions'
 
@@ -44,6 +45,8 @@ const dims = useDimensions()
 const uploading = ref(false)
 const uploadProgress = ref({ done: 0, total: 0 })
 const fileInput = ref<HTMLInputElement | null>(null)
+let context = 0
+let loadRequest = 0
 
 /** Výběr najednou; na server jde každý soubor zvlášť (limit požadavku i PHP max_file_uploads je 20). */
 const MAX_FILES = 5000
@@ -55,9 +58,13 @@ const MAX_FILE_BYTES = 50 * 1024 * 1024
 const canWrite = computed(() => auth.canWrite('documents.inbox'))
 const canCreateInvoice = computed(() => auth.canWrite('purchase_invoices.create'))
 const canDelete = computed(() => auth.canWrite('documents.inbox.delete'))
-const canPreviewInline = computed(() => selected.value?.doc_type === 'pdf' || selected.value?.doc_type === 'image')
 /** U dokladu, který si účetní nahrála sama, není komu psát „co doplnit". */
 const hasClientToInform = computed(() => selected.value !== null && selected.value.submitted_via !== 'staff')
+function canReview(item: PurchaseInvoiceSubmission): boolean {
+  return (item.status === 'submitted' || item.status === 'needs_information')
+    && item.replacement_submission_id === null && item.purchase_invoice_id === null
+}
+const canReviewSelected = computed(() => canWrite.value && selected.value !== null && canReview(selected.value))
 const canDeleteSelected = computed(() =>
   canDelete.value
   && selected.value !== null
@@ -73,11 +80,11 @@ const bulkProgress = ref<{ done: number; total: number } | null>(null)
 const checkedItems = computed(() => items.value.filter(i => checkedIds.value.has(i.id)))
 const allChecked = computed(() => items.value.length > 0 && checkedItems.value.length === items.value.length)
 const bulkCanExtract = computed(() => canWrite.value && canCreateInvoice.value && checkedItems.value.some(i => i.status === 'submitted'))
-const bulkCanReject = computed(() => canWrite.value && checkedItems.value.some(i => i.status === 'submitted'))
+const bulkCanReject = computed(() => canWrite.value && checkedItems.value.some(canReview))
 const bulkCanDelete = computed(() => canDelete.value && checkedItems.value.some(i => i.status !== 'processed' && i.status !== 'processing'))
 const bulkCanDimensions = computed(() => canWrite.value && dims.canEdit.value && dims.documentTypes.value.length > 0)
 const bulkNeedsReason = computed(() =>
-  checkedItems.value.some(i => i.status === 'submitted' && i.submitted_via !== 'staff'),
+  checkedItems.value.some(canReview),
 )
 const bulkHasDims = computed(() => Object.values(bulkDims.value).some(v => !!v))
 
@@ -153,13 +160,13 @@ async function bulkReject() {
     toast.error(t('purchase_submissions.reason_required'))
     return
   }
-  const targets = checkedItems.value.filter(i => i.status === 'submitted')
+  const targets = checkedItems.value.filter(canReview)
   const skipped = checkedItems.value.length - targets.length
   if (!confirm(t('purchase_submissions.bulk_reject_confirm', { n: targets.length }))) return
   acting.value = true
   try {
     const result = await runBulk(targets, async item => {
-      await purchaseInvoiceSubmissionsApi.reject(item.id, bulkReason.value)
+      await purchaseInvoiceSubmissionsApi.reject(item.id, bulkReason.value.trim())
     })
     reportBulk(result, skipped)
     bulkReason.value = ''
@@ -206,10 +213,13 @@ async function bulkApplyDimensions() {
 }
 
 async function load(keepSelection = true) {
+  const request = ++loadRequest
+  const currentContext = context
   loading.value = true
   error.value = ''
   try {
     const page = await purchaseInvoiceSubmissionsApi.list(status.value || undefined)
+    if (currentContext !== context || request !== loadRequest) return
     items.value = page.items
     const present = new Set(items.value.map(i => i.id))
     checkedIds.value = new Set([...checkedIds.value].filter(id => present.has(id)))
@@ -218,9 +228,9 @@ async function load(keepSelection = true) {
     }
     if (!selected.value && items.value.length) selected.value = items.value[0]
   } catch (e) {
-    error.value = apiErrorMessage(e)
+    if (currentContext === context && request === loadRequest) error.value = apiErrorMessage(e)
   } finally {
-    loading.value = false
+    if (currentContext === context && request === loadRequest) loading.value = false
   }
 }
 
@@ -371,23 +381,34 @@ async function removeSelected() {
 }
 
 async function setReviewStatus(target: 'needs_information' | 'rejected') {
-  if (!selected.value || acting.value) return
-  if (!reason.value.trim() && (hasClientToInform.value || target === 'needs_information')) {
+  const item = selected.value
+  if (!item || acting.value || !canReviewSelected.value) return
+  if (target === 'needs_information' && item.status !== 'submitted') return
+  const message = reason.value.trim()
+  if (!message) {
     toast.error(t('purchase_submissions.reason_required'))
     return
   }
+  const currentContext = context
   acting.value = true
   try {
-    selected.value = target === 'needs_information'
-      ? await purchaseInvoiceSubmissionsApi.needsInformation(selected.value.id, reason.value)
-      : await purchaseInvoiceSubmissionsApi.reject(selected.value.id, reason.value)
-    reason.value = ''
+    const fresh = target === 'needs_information'
+      ? await purchaseInvoiceSubmissionsApi.needsInformation(item.id, message)
+      : await purchaseInvoiceSubmissionsApi.reject(item.id, message)
+    if (currentContext !== context) return
+    items.value = items.value.map(current => current.id === fresh.id ? fresh : current)
+    if (selected.value?.id === item.id) {
+      selected.value = fresh
+      reason.value = ''
+    }
     toast.success(t(`purchase_submissions.${target}_success`))
     await load()
   } catch (e) {
+    if (currentContext !== context) return
     toast.error(apiErrorMessage(e))
+    await load()
   } finally {
-    acting.value = false
+    if (currentContext === context) acting.value = false
   }
 }
 
@@ -421,7 +442,16 @@ function kindLabel(item: PurchaseInvoiceSubmission): string {
 
 onMounted(() => { void load(false); void dims.load() })
 watch(status, () => { selected.value = null; checkedIds.value = new Set(); void load(false) })
-watch(() => supplierStore.currentSupplierId, () => { selected.value = null; checkedIds.value = new Set(); void load(false) })
+watch(() => selected.value?.id, () => { reason.value = '' })
+watch(() => supplierStore.currentSupplierId, () => {
+  context++
+  items.value = []
+  selected.value = null
+  acting.value = false
+  checkedIds.value = new Set()
+  void load(false)
+})
+onBeforeUnmount(() => { context++; loadRequest++ })
 </script>
 
 <template>
@@ -663,14 +693,9 @@ watch(() => supplierStore.currentSupplierId, () => { selected.value = null; chec
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v12m0 0l-4-4m4 4 4-4M5 20h14" /></svg>
               {{ t('purchase_submissions.download') }}
             </a>
-            <button v-if="canDeleteSelected" type="button" data-testid="inbox-delete" :disabled="acting"
-              :class="btnOutline('danger')" @click="removeSelected">
-              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M4 7h16M10 7V4h4v3" /></svg>
-              {{ t('purchase_submissions.delete') }}
-            </button>
           </div>
 
-          <div v-if="canWrite && selected.status === 'submitted'" class="space-y-2 pt-2 border-t border-neutral-100">
+          <div v-if="canReviewSelected" class="space-y-2 pt-2 border-t border-neutral-100">
             <label class="block text-sm text-neutral-700">
               <span class="block mb-1">
                 {{ hasClientToInform ? t('purchase_submissions.reason') : t('purchase_submissions.reason_internal') }}
@@ -681,12 +706,12 @@ watch(() => supplierStore.currentSupplierId, () => { selected.value = null; chec
                   : t('purchase_submissions.reason_internal_placeholder')" />
             </label>
             <div class="flex flex-wrap gap-2">
-              <button v-if="hasClientToInform" type="button" :disabled="acting || !reason.trim()"
+              <button v-if="hasClientToInform && selected.status === 'submitted'" type="button" :disabled="acting || !reason.trim()"
                 :class="btnOutline('warning')" @click="setReviewStatus('needs_information')">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3m0 4h.01M10.3 3.4L2.6 17a2 2 0 001.7 3h15.4a2 2 0 001.7-3L13.7 3.4a2 2 0 00-3.4 0z" /></svg>
                 {{ t('purchase_submissions.needs_information') }}
               </button>
-              <button type="button" :disabled="acting || (hasClientToInform && !reason.trim())"
+              <button type="button" :disabled="acting || !reason.trim()"
                 :class="btnOutline('danger')" @click="setReviewStatus('rejected')">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
                 {{ t('purchase_submissions.reject') }}
@@ -694,18 +719,18 @@ watch(() => supplierStore.currentSupplierId, () => { selected.value = null; chec
             </div>
             <p class="text-xs text-neutral-500">{{ t('purchase_submissions.reject_keeps_original') }}</p>
           </div>
+          <details v-if="canDeleteSelected" class="pt-2 border-t border-neutral-100 text-sm">
+            <summary class="cursor-pointer text-neutral-500">{{ t('purchase_submissions.manage_original') }}</summary>
+            <p class="text-xs text-neutral-500 my-2">{{ t('purchase_submissions.delete_hint') }}</p>
+            <button type="button" data-testid="inbox-delete" :disabled="acting" :class="btnOutline('danger')" @click="removeSelected">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M4 7h16M10 7V4h4v3" /></svg>
+              {{ t('purchase_submissions.delete') }}
+            </button>
+          </details>
         </div>
 
-        <div class="bg-neutral-50 min-h-[420px]">
-          <iframe v-if="canPreviewInline && selected.doc_type === 'pdf'" :key="selected.id"
-            :src="purchaseInvoiceSubmissionsApi.previewUrl(selected.id)" class="w-full h-[68vh] min-h-[420px]" :title="selected.original_name" />
-          <div v-else-if="canPreviewInline && selected.doc_type === 'image'" class="p-4 flex justify-center">
-            <img :src="purchaseInvoiceSubmissionsApi.previewUrl(selected.id)" :alt="selected.original_name" class="max-h-[68vh] object-contain" />
-          </div>
-          <div v-else class="min-h-[420px] flex items-center justify-center p-6 text-center text-sm text-neutral-500">
-            {{ t('purchase_submissions.no_inline_preview') }}
-          </div>
-        </div>
+        <SubmissionPreview :src="purchaseInvoiceSubmissionsApi.previewUrl(selected.id)"
+          :file-name="selected.original_name" :doc-type="selected.doc_type" />
       </section>
     </div>
     <ExtractionReviewModal v-if="reviewInvoiceId" :invoice-ids="[reviewInvoiceId]" silent-when-empty @close="onReviewClosed" />

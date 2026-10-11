@@ -9,8 +9,8 @@ import type { RouteLocationRaw } from 'vue-router'
  * ani zápočet nikam nevedly.
  *
  * Banka: `source_id` je bank_transactions.id, ale detail-stránka (`bank-detail`) čeká
- * ID VÝPISU — proto BE-obohacené `source_statement_id`. Pokladna: nemá samostatný
- * detail, jen seznam (`accounting-cash`) filtrovatelný přes `q` (prefix na doc_number).
+ * ID VÝPISU — proto BE-obohacené `source_statement_id`. Pokladna otevírá konkrétní
+ * doklad přes `document_id`, nezávisle na období a stránce seznamu.
  * Majetek: 'asset'/'asset_disposal' mají source_id = ID karty, 'depreciation' má ID
  * řádku depreciation_entries → BE dopočítá `source_asset_id`. Zápočet: source_id je
  * ID zápočtu, proklik vede na vyrovnaný doklad (`source_settlement_doc_*`).
@@ -49,6 +49,9 @@ export function journalSourceLink(entry: JournalSourceRef): RouteLocationRaw | n
   if (entry.source_type === 'gopay') {
     return { name: 'gopay' }
   }
+  if (entry.source_type === 'cash' && sourceId) {
+    return cashDocumentLink(sourceId)
+  }
   if (entry.source_type === 'cash' && entry.source_doc_number) {
     return {
       name: 'accounting-cash',
@@ -70,6 +73,10 @@ export function journalSourceLink(entry: JournalSourceRef): RouteLocationRaw | n
       : { name: 'purchase-invoice-detail', params: { id: entry.source_settlement_doc_id } }
   }
   return null
+}
+
+export function cashDocumentLink(documentId: number): RouteLocationRaw {
+  return { name: 'accounting-cash', query: { document_id: String(documentId) } }
 }
 
 /** Odkaz do deníku filtrovaného na konkrétní zápis (fallback, když prvotní doklad nemá stránku). */

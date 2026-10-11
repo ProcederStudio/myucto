@@ -40,8 +40,7 @@ final class PortalDocumentRequestAction
 
     public function list(Request $request, Response $response): Response
     {
-        if (!RequestAuthorization::isClientType($request)
-            || !RequestAuthorization::allows($request, 'documents.submit', AccessLevel::READ)) {
+        if (!RequestAuthorization::allowsClientDocumentPortal($request, AccessLevel::READ)) {
             return Json::error($response, 'forbidden', 'K požadavkům na doklady nemáte oprávnění.', 403);
         }
         $supplierId = SupplierGuard::currentId($request);
@@ -53,8 +52,7 @@ final class PortalDocumentRequestAction
 
     public function upload(Request $request, Response $response, array $args): Response
     {
-        if (!RequestAuthorization::isClientType($request)
-            || !RequestAuthorization::allows($request, 'documents.submit', AccessLevel::WRITE)) {
+        if (!RequestAuthorization::allowsClientDocumentPortal($request, AccessLevel::WRITE)) {
             return Json::error($response, 'forbidden', 'K předávání dokladů nemáte oprávnění.', 403);
         }
         $supplierId = SupplierGuard::currentId($request);

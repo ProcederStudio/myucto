@@ -6,6 +6,8 @@ import type { CashDocument, CashDocumentStatus } from '@/api/cash'
 const m = vi.hoisted(() => ({
   listRegisters: vi.fn(),
   listDocuments: vi.fn(),
+  getDocument: vi.fn(),
+  route: { query: {} as Record<string, string> },
   deleteDocument: vi.fn(),
   postDocument: vi.fn(),
   reverseDocument: vi.fn(),
@@ -19,6 +21,7 @@ vi.mock('@/api/cash', () => ({
   cashApi: {
     listRegisters: m.listRegisters,
     listDocuments: m.listDocuments,
+    getDocument: m.getDocument,
     deleteDocument: m.deleteDocument,
     postDocument: m.postDocument,
     reverseDocument: m.reverseDocument,
@@ -64,10 +67,14 @@ vi.mock('@/components/ui/buttonStyles', () => ({
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({ locale: { value: 'cs' }, t: (key: string, p?: Record<string, unknown>) => (p ? `${key}:${JSON.stringify(p)}` : key) }),
 }))
-vi.mock('vue-router', () => ({
-  RouterLink: { name: 'RouterLink', props: ['to'], template: '<a><slot /></a>' },
-  useRoute: () => ({ query: {} }),
-}))
+vi.mock('vue-router', async () => {
+  const { reactive } = await import('vue')
+  m.route = reactive(m.route)
+  return {
+    RouterLink: { name: 'RouterLink', props: ['to'], template: '<a><slot /></a>' },
+    useRoute: () => m.route,
+  }
+})
 // Sdílené UI komponenty čtou preferences API / plný tvar composable ctrl — pro tenhle
 // test jsou irelevantní, stačí prázdné stuby.
 vi.mock('@/components/ui/SavedFiltersMenu.vue', () => ({ default: { name: 'SavedFiltersMenu', props: ['ctrl'], template: '<div />' } }))
@@ -106,6 +113,7 @@ async function mountList(items: CashDocument[]) {
 describe('CashRegister.vue', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    m.route.query = {}
     m.listRegisters.mockResolvedValue([{
       id: 1, supplier_id: 1, name: 'Pokladna', currency_code: 'CZK', account_code: '211.100',
       account_id: 1, account_name: 'Pokladna', is_default: true, is_active: true,
@@ -114,6 +122,56 @@ describe('CashRegister.vue', () => {
     m.canWrite.mockImplementation((_p: string) => true)
     m.deleteDocument.mockResolvedValue({ deleted: true, warnings: [] })
     m.postDocument.mockResolvedValue({ doc_number: 'PPD-2093-0002', journal_entry_id: 5, warnings: [] })
+  })
+
+  it('zobrazí detail odkazovaného pohybu mimo stránku a období seznamu i pouze pro čtení', async () => {
+    m.canWrite.mockReturnValue(false)
+    m.route.query = { document_id: '91', from: '2094-01-01', to: '2094-12-31' }
+    const linked = { ...doc('posted', 91), doc_number: 'PPD-2093-0091', description: 'Odkazovaný pohyb' }
+    m.getDocument.mockResolvedValue(linked)
+    const wrapper = await mountList([])
+
+    expect(m.getDocument).toHaveBeenCalledWith(91)
+    const detail = wrapper.get('[data-test="cash-linked-document"]')
+    expect(detail.text()).toContain('PPD-2093-0091')
+    expect(detail.text()).toContain('2093-03-01')
+    expect(detail.text()).toContain('Odkazovaný pohyb')
+    expect(detail.findComponent({ name: 'CashDocumentDetail' }).props('doc')).toEqual(linked)
+    expect(m.listDocuments).toHaveBeenCalledWith(expect.objectContaining({ from: '2094-01-01', to: '2094-12-31' }))
+    wrapper.unmount()
+  })
+
+  it('při změně odkazu na stejné stránce ignoruje opožděnou odpověď a při zavření detail odstraní', async () => {
+    let first!: (value: CashDocument) => void
+    m.route.query = { document_id: '91' }
+    m.getDocument.mockImplementationOnce(() => new Promise<CashDocument>(resolve => { first = resolve }))
+      .mockResolvedValueOnce({ ...doc('posted', 92), description: 'Aktuální pohyb' })
+    const wrapper = await mountList([])
+
+    m.route.query = { document_id: '92' }
+    await flushPromises()
+    expect(wrapper.get('[data-test="cash-linked-document"]').text()).toContain('Aktuální pohyb')
+    first({ ...doc('posted', 91), description: 'Opožděný pohyb' })
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('Opožděný pohyb')
+    m.route.query = {}
+    await flushPromises()
+    expect(wrapper.find('[data-test="cash-linked-document"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('chybu odkazovaného dokladu zobrazí a při dalším odkazu znovu načte detail', async () => {
+    m.route.query = { document_id: '91' }
+    m.getDocument.mockRejectedValueOnce({ response: { data: { error: { message: 'Doklad nenalezen.' } } } })
+      .mockResolvedValueOnce(doc('posted', 92))
+    const wrapper = await mountList([])
+
+    expect(wrapper.get('[role="alert"]').text()).toContain('Doklad nenalezen.')
+    m.route.query = { document_id: '92' }
+    await flushPromises()
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(wrapper.findComponent({ name: 'CashDocumentDetail' }).props('doc').id).toBe(92)
+    wrapper.unmount()
   })
 
   it('vystavený doklad se maže tvrdě (force), rozpracovaný ne', async () => {

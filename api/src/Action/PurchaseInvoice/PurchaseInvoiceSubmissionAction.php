@@ -17,6 +17,7 @@ use MyInvoice\Service\Accounting\Dimension\DimensionException;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\IpMatcher;
 use MyInvoice\Service\PurchaseInvoice\PurchaseInvoiceSubmissionException;
+use MyInvoice\Service\PurchaseInvoice\PurchaseInvoiceSubmissionDeletionService;
 use MyInvoice\Service\PurchaseInvoice\PurchaseInvoiceSubmissionProcessingService;
 use MyInvoice\Service\PurchaseInvoice\PurchaseInvoiceSubmissionUploadService;
 use MyInvoice\Service\PurchaseInvoice\SubmissionDimensions;
@@ -39,6 +40,7 @@ final class PurchaseInvoiceSubmissionAction
         private readonly ActivityLogger $logger,
         private readonly IpMatcher $ipMatcher,
         private readonly SubmissionDimensions $submissionDimensions,
+        private readonly PurchaseInvoiceSubmissionDeletionService $deletion,
     ) {}
 
     /**
@@ -291,37 +293,15 @@ final class PurchaseInvoiceSubmissionAction
         $id = (int) ($args['id'] ?? 0);
         $userId = $this->userId($request);
 
-        $pdo = $this->db->pdo();
-        $ownTransaction = !$pdo->inTransaction();
-        if ($ownTransaction) $pdo->beginTransaction();
         try {
-            $deleted = $this->submissions->deleteFromQueue($id, $supplierId);
-            if ($deleted === null) {
-                if ($ownTransaction && $pdo->inTransaction()) $pdo->rollBack();
-                $current = $this->submissions->find($id, $supplierId);
-                return $current === null
-                    ? Json::error($response, 'not_found', 'Podání nebylo nalezeno.', 404)
-                    : Json::error(
-                        $response,
-                        'invalid_status',
-                        'Zpracované ani právě zpracovávané podání smazat nelze. Nejdřív smažte výslednou fakturu.',
-                        409,
-                    );
-            }
-            $this->documents->softDelete((int) $deleted['document_id'], $supplierId, $userId ?: null);
-            if ($ownTransaction) $pdo->commit();
-        } catch (\Throwable $e) {
-            if ($ownTransaction && $pdo->inTransaction()) $pdo->rollBack();
-            throw $e;
+            return Json::ok($response, $this->deletion->delete(
+                $id, $supplierId, $userId, null, false,
+                $this->ipMatcher->clientIpFromRequest($request->getServerParams()),
+                $request->getHeaderLine('User-Agent'),
+            ));
+        } catch (PurchaseInvoiceSubmissionException $e) {
+            return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus);
         }
-
-        $this->audit($request, 'purchase_invoice_submission.deleted', $id, [
-            'document_id' => (int) $deleted['document_id'],
-            'filename' => (string) $deleted['original_name'],
-            'status' => (string) $deleted['status'],
-            'via' => (string) $deleted['submitted_via'],
-        ]);
-        return Json::ok($response, ['ok' => true, 'document_id' => (int) $deleted['document_id']]);
     }
 
     private function review(Request $request, Response $response, array $args, string $status): Response
@@ -331,14 +311,11 @@ final class PurchaseInvoiceSubmissionAction
         $id = (int) ($args['id'] ?? 0);
         $body = (array) ($request->getParsedBody() ?? []);
         $reason = trim((string) ($body['reason'] ?? ''));
-        // Zprávu vyžadujeme jen tam, kde ji má kdo číst. U dokladu, který si účetní
-        // nahrála sama, ani u přílohy vytažené z e-mailu není komu psát „co doplnit" —
-        // odmítnutí je tam jen úklid fronty.
-        $existing = $this->submissions->find($id, $supplierId);
-        $hasClientToInform = $existing !== null
-            && !in_array((string) $existing['submitted_via'], ['staff', 'email'], true);
-        if ($reason === '' && ($hasClientToInform || $status === 'needs_information')) {
-            return Json::error($response, 'reason_required', 'Doplňte důvod pro klienta.', 400);
+        if ($this->submissions->find($id, $supplierId) === null) {
+            return Json::error($response, 'not_found', 'Podání nebylo nalezeno.', 404);
+        }
+        if ($reason === '') {
+            return Json::error($response, 'reason_required', 'Doplňte důvod.', 400);
         }
         $changed = $status === 'needs_information'
             ? $this->submissions->needsInformation($id, $supplierId, $reason)

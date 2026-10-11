@@ -8,6 +8,10 @@ Klientský portál je zjednodušená domovská obrazovka pro roli **client**. Kl
 se přihlašuje do stejného MyÚčto.cz jako účetní, jen vidí výrazně užší nabídku
 menu. Smí vystavovat a upravovat vlastní doklady, dokud je účetní nezaúčtuje.
 
+Superadmin má v nabídce **Dokumenty → Předat doklady účetní** také přístup
+k předávání dokladů a odpovědím na požadavky účetní v právě vybrané firmě.
+Zároveň mu zůstávají dostupné účetní funkce.
+
 ## 9.1 Kdy to potřebujete
 
 Kapitolu otevřete, když:
@@ -26,7 +30,7 @@ Kapitolu otevřete, když:
 |---|---|---|
 | Superadmin | Založí klientský účet a přiřadí mu firmy | `Systém → Uživatelé` |
 | Klient | Vystaví fakturu, nahraje přijatou fakturu, přidá kontakt | úvodní stránka **Přehled firmy**, rychlé odkazy |
-| Klient | Předá doklady účetní | `Dokumenty → Předat doklady účetní` |
+| Klient, superadmin | Předá doklady účetní | `Dokumenty → Předat doklady účetní` |
 | Klient | Odpoví na požadavek účetní | `Dokumenty → Chybějící doklady` |
 | Účetní | Vyžádá chybějící doklad | `Firma → Chybějící doklady` |
 | Účetní | Zpracuje předané doklady | `Nákup → Příchozí doklady` |
@@ -70,7 +74,9 @@ Provede klient. Hodí se pro účtenky, faktury a další doklady, které nechce
 
 Každý soubor vytvoří samostatné podání. Originál se uloží do Dokumentů a nic se neúčtuje, dokud ho účetní nezpracuje.
 
-Když účetní vyžádá čitelnější soubor, stav je **Čeká na doplnění**. U daného řádku klikněte na **Nahrát náhradu** a vyberte nový soubor.
+Tlačítko **Náhled** otevře PDF nebo obrázek na široké obrazovce vpravo vedle přehledu, na menší obrazovce v dialogu. Výběrem jiného dokladu se náhled přepne. Vlastní předání ve stavu **Předáno** můžete přes **Smazat předání** odstranit, dokud účetní nezačala zpracování. Potvrzení vyřadí podání z přehledu a přesune originál do koše Dokumentů. Pokud doklad odpovídal na požadavek účetní, požadavek se znovu otevře.
+
+Když účetní vyžádá čitelnější soubor, stav je **Čeká na doplnění**. Při odmítnutí uvidíte stav **Odmítnuto** a důvod účetní. V obou případech klikněte na **Nahrát náhradu** a vyberte nový soubor. Původní podání zůstane v historii a další náhradu už nenabízí.
 
 ### 9.4.1 Předání přímo z editoru přijaté faktury
 
@@ -118,7 +124,7 @@ Provede účetní.
 
 **Jak poznáte, že je hotovo:** originál je připojený k přijaté faktuře a podání má stav **Zpracováno**. Klient fakturu vidí, ale nemůže měnit její hlavičku, položky, přílohy ani stav.
 
-Odmítnutí originál nemaže, zůstane v Dokumentech i v auditní stopě. Na hromadné akce slouží tlačítka **Vytěžit označené**, **Odmítnout označené** a **Smazat označené z fronty**.
+Odmítnutí vždy vyžaduje důvod, který klient uvidí. Originál zůstane v Dokumentech i v auditní stopě. Odmítnout lze také podání čekající na doplnění. Samostatná akce **Správa originálu → Přesunout do koše** vyřadí nezpracované podání z fronty a přesune jeho originál do koše Dokumentů; vyžaduje oprávnění k mazání. Doklad navázaný na účetnictví ani vyřízený požadavek takto odstranit nelze. Na hromadné akce slouží tlačítka **Vytěžit označené**, **Odmítnout označené** a **Smazat označené z fronty**.
 
 ## 9.8 Krok za krokem: Nastavení firmy klientem
 

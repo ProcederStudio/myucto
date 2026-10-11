@@ -88,6 +88,10 @@ Z faktury, klienta nebo zakázky:
 **Jak poznáte, že je hotovo:** vazba je vidět na obou stranách, v detailu dokumentu
 i v panelu Dokumenty u faktury nebo klienta.
 
+Kliknutí na navázaný pokladní doklad otevře jeho detail nad seznamem pokladních
+pohybů. Detail se zobrazí i tehdy, když doklad nespadá do zvoleného období nebo
+aktuální stránky seznamu. Tlačítkem **Zavřít** se vrátíte k seznamu.
+
 > [!TIP]
 > Hromadu skenů ke stávajícím dokladům nepřipojujte po jednom. Použijte
 > `Dokumenty → Skeny k dokladům` ([kapitola 35](35_Pripojeni_skenu.md)).
@@ -258,6 +262,12 @@ v klientském portálu a nemá přístup ke správě požadavků.
 Podání od klienta se ukládá jako originál (auditní stopa), hlídají se přesné duplicity
 a účetní může vyžádat náhradní soubor, aniž by se původní verze ztratila. Celý postup
 je v [§ 9.4 Klientský portál](09_Klientsky_portal.md#94-krok-za-krokem-predani-dokladu-ucetni).
+
+Klient může vlastní čekající předání odstranit před zahájením zpracování. Originál se
+přesune do koše a související nahraný požadavek se vrátí do stavu **Vyžádáno**.
+Odmítnutí účetní s povinným důvodem naopak originál zachová a klient může nahrát
+opravenou náhradu. Doklady již použité v jiné agendě a vyřízené požadavky jsou proti
+smazání podání chráněné.
 
 Otevřený požadavek ve stavu **Vyžádáno** se promítá také do
 [fronty K doúčtování](54_Rucni_fronta_doctovani.md). U bankovního pohybu se jeho

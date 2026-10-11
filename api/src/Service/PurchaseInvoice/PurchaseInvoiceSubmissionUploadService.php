@@ -130,11 +130,12 @@ final class PurchaseInvoiceSubmissionUploadService
         if ($supersedesSubmissionId !== null) {
             $old = $this->submissions->find($supersedesSubmissionId, $supplierId);
             if ($old === null
-                || (string) $old['status'] !== 'needs_information'
+                || !in_array((string) $old['status'], ['needs_information', 'rejected'], true)
+                || !empty($old['purchase_invoice_id'])
                 || (int) ($old['replacement_submission_id'] ?? 0) > 0) {
                 throw new PurchaseInvoiceSubmissionException(
                     'invalid_replacement',
-                    'Nahrazované podání neexistuje, nečeká na doplnění nebo už bylo nahrazeno.',
+                    'Nahrazované podání neexistuje, nelze nahradit nebo už bylo nahrazeno.',
                     409,
                 );
             }

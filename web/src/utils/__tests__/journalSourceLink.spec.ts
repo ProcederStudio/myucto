@@ -2,6 +2,14 @@ import { describe, expect, it } from 'vitest'
 import { journalSourceLink } from '@/utils/journalSourceLink'
 
 describe('journalSourceLink', () => {
+  it('otevře konkrétní pokladní pohyb i bez čísla dokladu', () => {
+    expect(journalSourceLink({ source_type: 'cash', source_id: 91 })).toEqual({
+      name: 'accounting-cash', query: { document_id: '91' },
+    })
+    expect(journalSourceLink({ source_type: 'cash', source_link_id: 92, source_id: null })).toEqual({
+      name: 'accounting-cash', query: { document_id: '92' },
+    })
+  })
   it('otevře ostatní pohledávku i závazek podle ID zdrojové položky', () => {
     expect(journalSourceLink({ source_type: 'other_item', source_id: 42 })).toEqual({
       name: 'other-item-detail', params: { id: 42 },

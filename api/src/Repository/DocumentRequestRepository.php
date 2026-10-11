@@ -151,6 +151,17 @@ final class DocumentRequestRepository
         return $stmt->rowCount();
     }
 
+    public function reopenBySubmission(int $submissionId, int $supplierId): int
+    {
+        $stmt = $this->db->pdo()->prepare(
+            "UPDATE document_requests
+                SET status = 'requested', submission_id = NULL
+              WHERE submission_id = ? AND supplier_id = ? AND status = 'uploaded' AND purchase_invoice_id IS NULL"
+        );
+        $stmt->execute([$submissionId, $supplierId]);
+        return $stmt->rowCount();
+    }
+
     public function resolve(int $id, int $supplierId, ?int $resolvedBy): bool
     {
         $stmt = $this->db->pdo()->prepare(

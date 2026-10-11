@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useMediaQuery } from '@vueuse/core'
 import {
   portalPurchaseInvoiceSubmissionsApi,
   type PortalDimensionChoiceType,
@@ -11,8 +12,10 @@ import { useSupplierStore } from '@/stores/supplier'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
 import { apiErrorMessage } from '@/api/errors'
-import { btnFilled, btnOutline } from '@/components/ui/buttonStyles'
+import { ICONS, btnFilled, btnOutline } from '@/components/ui/buttonStyles'
 import EmptyState from '@/components/ui/EmptyState.vue'
+import Modal from '@/components/ui/Modal.vue'
+import SubmissionPreview from '@/components/documents/SubmissionPreview.vue'
 
 const { t } = useI18n()
 const supplierStore = useSupplierStore()
@@ -30,7 +33,14 @@ const loading = ref(true)
 const uploading = ref(false)
 const error = ref('')
 const replacingId = ref<number | null>(null)
+const deletingId = ref<number | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
+const previewId = ref<number | null>(null)
+const previewItem = computed(() => items.value.find(item => item.id === previewId.value) ?? null)
+const widePreview = useMediaQuery('(min-width: 1280px)')
+let context = 0
+let loadRequest = 0
+let dimensionRequest = 0
 
 const allowed = '.pdf,.jpg,.jpeg,.png,.isdoc,.xml,.isdocx,application/pdf,image/jpeg,image/png'
 const openItems = computed(() => items.value.filter(i =>
@@ -41,9 +51,14 @@ const closedItems = computed(() => items.value.filter(i =>
 ))
 
 async function loadDimensionChoices() {
+  const request = ++dimensionRequest
+  const currentContext = context
   try {
-    dimensionTypes.value = await portalPurchaseInvoiceSubmissionsApi.dimensions()
+    const types = await portalPurchaseInvoiceSubmissionsApi.dimensions()
+    if (currentContext !== context || request !== dimensionRequest) return
+    dimensionTypes.value = types
   } catch {
+    if (currentContext !== context || request !== dimensionRequest) return
     dimensionTypes.value = []
   }
   chosenDims.value = {}
@@ -65,14 +80,19 @@ function dimensionSummary(item: PurchaseInvoiceSubmission): string {
 }
 
 async function load() {
+  const request = ++loadRequest
+  const currentContext = context
   loading.value = true
   error.value = ''
   try {
-    items.value = (await portalPurchaseInvoiceSubmissionsApi.list()).items
+    const page = await portalPurchaseInvoiceSubmissionsApi.list()
+    if (currentContext !== context || request !== loadRequest) return
+    items.value = page.items
+    if (!items.value.some(item => item.id === previewId.value)) previewId.value = null
   } catch (e) {
-    error.value = apiErrorMessage(e)
+    if (currentContext === context && request === loadRequest) error.value = apiErrorMessage(e)
   } finally {
-    loading.value = false
+    if (currentContext === context && request === loadRequest) loading.value = false
   }
 }
 
@@ -82,9 +102,11 @@ function selectFiles(event: Event) {
 
 async function submit() {
   if (uploading.value || files.value.length === 0) return
+  const currentContext = context
   uploading.value = true
   try {
     const result = await portalPurchaseInvoiceSubmissionsApi.upload(files.value, note.value, kindHint.value, chosenDims.value)
+    if (currentContext !== context) return
     if (result.errors.length > 0) {
       toast.warning(t('purchase_submissions.uploaded_partial', {
         accepted: result.items.length,
@@ -102,26 +124,55 @@ async function submit() {
     if (fileInput.value) fileInput.value.value = ''
     await load()
   } catch (e) {
-    toast.error(apiErrorMessage(e))
+    if (currentContext === context) toast.error(apiErrorMessage(e))
   } finally {
-    uploading.value = false
+    if (currentContext === context) uploading.value = false
   }
 }
 
 async function resubmit(item: PurchaseInvoiceSubmission, event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
-  if (!file) return
+  if (!file || !canReplace(item) || replacingId.value !== null || deletingId.value !== null) return
+  const currentContext = context
   replacingId.value = item.id
   try {
     await portalPurchaseInvoiceSubmissionsApi.resubmit(item.id, file, '')
+    if (currentContext !== context) return
     toast.success(t('purchase_submissions.replacement_uploaded'))
     await load()
   } catch (e) {
-    toast.error(apiErrorMessage(e))
+    if (currentContext === context) toast.error(apiErrorMessage(e))
   } finally {
-    replacingId.value = null
+    if (currentContext === context) replacingId.value = null
     input.value = ''
+  }
+}
+
+function canReplace(item: PurchaseInvoiceSubmission): boolean {
+  return auth.canWrite('documents.submit')
+    && (item.status === 'needs_information' || item.status === 'rejected')
+    && item.replacement_submission_id === null && item.purchase_invoice_id === null
+}
+
+async function remove(item: PurchaseInvoiceSubmission) {
+  if (!auth.canWrite('documents.submit') || !item.can_delete || deletingId.value !== null || replacingId.value !== null) return
+  if (!confirm(t('purchase_submissions.portal_delete_confirm', { name: item.original_name }))) return
+  const currentContext = context
+  deletingId.value = item.id
+  try {
+    await portalPurchaseInvoiceSubmissionsApi.remove(item.id)
+    if (currentContext !== context) return
+    items.value = items.value.filter(current => current.id !== item.id)
+    if (previewId.value === item.id) previewId.value = null
+    toast.success(t('purchase_submissions.portal_delete_success'))
+    await load()
+  } catch (e) {
+    if (currentContext !== context) return
+    toast.error(apiErrorMessage(e))
+    await load()
+  } finally {
+    if (currentContext === context) deletingId.value = null
   }
 }
 
@@ -152,11 +203,27 @@ function size(bytes: number): string {
 }
 
 onMounted(() => { void load(); void loadDimensionChoices() })
-watch(() => supplierStore.currentSupplierId, () => { void load(); void loadDimensionChoices() })
+watch(() => supplierStore.currentSupplierId, () => {
+  context++
+  items.value = []
+  dimensionTypes.value = []
+  uploading.value = false
+  files.value = []
+  note.value = ''
+  kindHint.value = null
+  chosenDims.value = {}
+  if (fileInput.value) fileInput.value.value = ''
+  replacingId.value = null
+  deletingId.value = null
+  previewId.value = null
+  void load()
+  void loadDimensionChoices()
+})
+onBeforeUnmount(() => { context++; loadRequest++; dimensionRequest++ })
 </script>
 
 <template>
-  <div class="max-w-5xl space-y-5">
+  <div class="max-w-7xl space-y-5">
     <header>
       <h1 class="text-2xl font-semibold">{{ t('purchase_submissions.portal_title') }}</h1>
       <p class="text-sm text-neutral-500 mt-1">{{ t('purchase_submissions.portal_subtitle') }}</p>
@@ -225,7 +292,8 @@ watch(() => supplierStore.currentSupplierId, () => { void load(); void loadDimen
     <div v-if="error" class="rounded-md bg-danger-50 border border-danger-500/40 px-3 py-2 text-sm text-danger-600">{{ error }}</div>
     <div v-if="loading" class="text-center text-neutral-500 py-10">{{ t('common.loading') }}</div>
 
-    <template v-else>
+    <div v-else :class="previewItem && widePreview ? 'grid grid-cols-[minmax(320px,1fr)_minmax(0,1fr)] gap-4 items-start' : ''">
+      <div class="space-y-5 min-w-0">
       <section class="space-y-3">
         <h2 class="text-sm font-semibold uppercase tracking-wide text-neutral-500">{{ t('purchase_submissions.open_title') }}</h2>
         <EmptyState v-if="openItems.length === 0" boxed accent="success" icon="checkCircle" :title="t('purchase_submissions.empty')" />
@@ -244,14 +312,19 @@ watch(() => supplierStore.currentSupplierId, () => { void load(); void loadDimen
               <p v-if="item.status_reason" class="text-sm text-danger-600 mt-2">{{ item.status_reason }}</p>
             </div>
             <div class="flex flex-wrap gap-2">
-              <a :href="portalPurchaseInvoiceSubmissionsApi.previewUrl(item.id)" target="_blank" rel="noopener" :class="btnOutline('neutral')">
+              <button type="button" data-test="portal-preview" :class="btnOutline('neutral')" @click="previewId = item.id">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12zm10 3a3 3 0 100-6 3 3 0 000 6z" /></svg>
                 {{ t('purchase_submissions.preview') }}
-              </a>
-              <label v-if="item.status === 'needs_information' && auth.canWrite('documents.submit')" :class="btnFilled('primary')">
+              </button>
+              <button v-if="item.can_delete && auth.canWrite('documents.submit')" type="button" data-test="portal-delete"
+                :disabled="deletingId !== null || replacingId !== null" :class="btnOutline('danger')" @click="remove(item)">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.trash" /></svg>
+                {{ t('purchase_submissions.portal_delete') }}
+              </button>
+              <label v-if="canReplace(item)" :class="btnFilled('primary')">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 16V4m0 0L7 9m5-5 5 5M5 14v5a1 1 0 001 1h12a1 1 0 001-1v-5" /></svg>
                 {{ replacingId === item.id ? t('purchase_submissions.uploading') : t('purchase_submissions.replace') }}
-                <input type="file" :accept="allowed" class="hidden" :disabled="replacingId === item.id" @change="resubmit(item, $event)" />
+                <input type="file" :accept="allowed" class="hidden" data-test="portal-replace" :disabled="replacingId !== null || deletingId !== null" @change="resubmit(item, $event)" />
               </label>
             </div>
           </div>
@@ -262,8 +335,20 @@ watch(() => supplierStore.currentSupplierId, () => { void load(); void loadDimen
         <h2 class="text-sm font-semibold uppercase tracking-wide text-neutral-500">{{ t('purchase_submissions.closed_title') }}</h2>
         <div class="bg-surface border border-neutral-200 rounded-lg divide-y divide-neutral-100">
           <div v-for="item in closedItems" :key="item.id" class="p-3 flex flex-wrap items-center justify-between gap-2 text-sm">
-            <span class="truncate">{{ item.original_name }}</span>
-            <div class="flex items-center gap-2">
+            <div class="min-w-0">
+              <span class="break-words">{{ item.original_name }}</span>
+              <p v-if="item.status_reason" class="text-sm text-danger-600 mt-1">{{ item.status_reason }}</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <button type="button" data-test="portal-preview" :class="btnOutline('neutral')" @click="previewId = item.id">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.eye" /></svg>
+                {{ t('purchase_submissions.preview') }}
+              </button>
+              <label v-if="canReplace(item)" :class="btnOutline('primary')">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.upload" /></svg>
+                {{ replacingId === item.id ? t('purchase_submissions.uploading') : t('purchase_submissions.replace') }}
+                <input type="file" :accept="allowed" class="hidden" data-test="portal-replace" :disabled="replacingId !== null || deletingId !== null" @change="resubmit(item, $event)" />
+              </label>
               <a :href="portalPurchaseInvoiceSubmissionsApi.downloadUrl(item.id)" class="text-neutral-600 hover:underline">
                 {{ t('purchase_submissions.download') }}
               </a>
@@ -275,6 +360,23 @@ watch(() => supplierStore.currentSupplierId, () => { void load(); void loadDimen
           </div>
         </div>
       </section>
-    </template>
+      </div>
+      <aside v-if="previewItem && widePreview" data-test="portal-preview-pane"
+        class="min-w-0 bg-surface border border-neutral-200 rounded-lg shadow-sm overflow-hidden sticky top-[calc(var(--instance-alert-h,0px)+3.5rem)]">
+        <div class="flex flex-wrap items-center justify-between gap-2 p-3 border-b border-neutral-200">
+          <h2 class="font-semibold text-sm min-w-0 break-all">{{ previewItem.original_name }}</h2>
+          <button type="button" data-test="portal-preview-close" :class="btnOutline('neutral')" @click="previewId = null">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.x" /></svg>
+            {{ t('common.close') }}
+          </button>
+        </div>
+        <SubmissionPreview :src="portalPurchaseInvoiceSubmissionsApi.previewUrl(previewItem.id)"
+          :file-name="previewItem.original_name" :doc-type="previewItem.doc_type" />
+      </aside>
+    </div>
+    <Modal v-if="previewItem && !widePreview" :title="previewItem.original_name" width-class="max-w-5xl" @close="previewId = null">
+      <SubmissionPreview :src="portalPurchaseInvoiceSubmissionsApi.previewUrl(previewItem.id)"
+        :file-name="previewItem.original_name" :doc-type="previewItem.doc_type" />
+    </Modal>
   </div>
 </template>

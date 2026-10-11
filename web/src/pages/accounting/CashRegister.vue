@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, reactive, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, reactive, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute } from 'vue-router'
 import { cashApi, type CashRegister, type CashDocument, type CashDocumentStatus } from '@/api/cash'
@@ -30,6 +30,41 @@ const registers = ref<CashRegister[]>([])
 const documents = ref<CashDocument[]>([])
 const loading = ref(false)
 const managerOpen = ref(false)
+const linkedDocument = ref<CashDocument | null>(null)
+const linkedLoading = ref(false)
+const linkedError = ref('')
+let linkedRequest = 0
+
+const linkedDocumentOpen = computed(() => route.query.document_id !== undefined)
+const listLocation = computed(() => {
+  const query = { ...route.query }
+  delete query.document_id
+  return { name: 'accounting-cash', query }
+})
+
+watch(() => route.query.document_id, async value => {
+  const request = ++linkedRequest
+  linkedDocument.value = null
+  linkedError.value = ''
+  linkedLoading.value = false
+  if (value === undefined) return
+  const documentId = typeof value === 'string' && /^[1-9]\d*$/.test(value) ? Number(value) : NaN
+  if (!Number.isSafeInteger(documentId)) {
+    linkedError.value = t('common.error')
+    return
+  }
+  linkedLoading.value = true
+  try {
+    const document = await cashApi.getDocument(documentId)
+    if (request === linkedRequest) linkedDocument.value = document
+  } catch (error: any) {
+    if (request === linkedRequest) linkedError.value = cashErrorMessage(error, t)
+  } finally {
+    if (request === linkedRequest) linkedLoading.value = false
+  }
+}, { immediate: true })
+
+onBeforeUnmount(() => { linkedRequest++ })
 
 const page = ref(1)
 const total = ref(0)
@@ -358,6 +393,30 @@ async function postDraft(d: CashDocument) {
         <ActionBar :actions="headerActions" />
       </div>
     </div>
+
+    <section v-if="linkedDocumentOpen" data-test="cash-linked-document" class="bg-surface border border-primary-200 rounded-lg shadow-sm p-4 mb-4">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+        <h2 class="text-lg font-semibold font-mono">{{ linkedDocument?.doc_number || t('documents.entity.cash_document') }}</h2>
+        <RouterLink :to="listLocation" :class="btnOutline('neutral')">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.x" /></svg>
+          {{ t('common.close') }}
+        </RouterLink>
+      </div>
+      <p v-if="linkedLoading" class="text-sm text-neutral-500">{{ t('common.loading') }}</p>
+      <p v-else-if="linkedError" role="alert" class="text-sm text-danger-600">{{ linkedError }}</p>
+      <template v-else-if="linkedDocument">
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm mb-3">
+          <span>{{ formatDate(linkedDocument.issue_date) }}</span>
+          <span>{{ t(`cash.type.${linkedDocument.doc_type}_short`) }}</span>
+          <span>{{ t(`cash.status.${linkedDocument.status}`) }}</span>
+          <span class="font-mono font-semibold">{{ formatMoney(signedAmount(linkedDocument)) }}</span>
+          <span v-if="linkedDocument.partner_name">{{ linkedDocument.partner_name }}</span>
+          <RouterLink v-if="linkFor(linkedDocument)" :to="linkFor(linkedDocument)!.to" class="text-primary-600 hover:underline">{{ linkFor(linkedDocument)!.label }}</RouterLink>
+        </div>
+        <p class="text-sm mb-3 break-words">{{ linkedDocument.description }}</p>
+        <CashDocumentDetail :doc="linkedDocument" :purpose-label="purposeLabel" />
+      </template>
+    </section>
 
     <!-- Hero zůstatek -->
     <div v-if="selectedRegister" class="bg-surface border border-neutral-200 rounded-lg shadow-sm p-4 mb-4 flex flex-wrap items-center justify-between gap-3">

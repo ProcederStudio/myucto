@@ -26,6 +26,13 @@ final class PurchaseInvoiceSubmissionRepository
                (SELECT COUNT(*)
                   FROM document_requests dr
                  WHERE dr.submission_id = s.id AND dr.supplier_id = s.supplier_id) AS request_count,
+               (SELECT COUNT(*) FROM document_links dl
+                  JOIN documents linked ON linked.id = dl.document_id AND linked.supplier_id = dl.supplier_id
+                 WHERE dl.supplier_id = s.supplier_id
+                   AND (linked.id = s.document_id OR linked.parent_document_id = s.document_id)) AS document_link_count,
+               (SELECT COUNT(*) FROM document_requests resolved
+                 WHERE resolved.submission_id = s.id AND resolved.supplier_id = s.supplier_id
+                   AND resolved.status = 'resolved') AS resolved_request_count,
                (SELECT replacement.id
                   FROM purchase_invoice_submissions replacement
                  WHERE replacement.supersedes_submission_id = s.id
@@ -239,6 +246,14 @@ final class PurchaseInvoiceSubmissionRepository
         return $ids;
     }
 
+    public function findForUpdate(int $id, int $supplierId): ?array
+    {
+        $stmt = $this->db->pdo()->prepare(self::SELECT . ' WHERE s.id = ? AND s.supplier_id = ? FOR UPDATE');
+        $stmt->execute([$id, $supplierId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row !== false ? $this->hydrate($row) : null;
+    }
+
     /**
      * Vyřadí podání z fronty. Zpracované podání se nemaže — na jeho originálu
      * stojí vazba k existující faktuře; nejdřív musí zmizet ta faktura, což
@@ -247,28 +262,47 @@ final class PurchaseInvoiceSubmissionRepository
      *
      * @return array<string,mixed>|null
      */
-    public function deleteFromQueue(int $id, int $supplierId): ?array
+    public function deleteFromQueue(int $id, int $supplierId, ?int $ownerId = null, bool $pendingOnly = false): ?array
     {
         $row = $this->find($id, $supplierId);
         if ($row === null || !in_array((string) $row['status'], ['submitted', 'needs_information', 'rejected'], true)) {
             return null;
         }
-        $stmt = $this->db->pdo()->prepare(
-            "DELETE FROM purchase_invoice_submissions
-              WHERE id = ? AND supplier_id = ?
-                AND status IN ('submitted','needs_information','rejected')"
-        );
-        $stmt->execute([$id, $supplierId]);
+        $sql = "DELETE FROM purchase_invoice_submissions
+                  WHERE id = ? AND supplier_id = ? AND purchase_invoice_id IS NULL
+                    AND status IN ('submitted','needs_information','rejected')
+                    AND NOT EXISTS (
+                        SELECT 1 FROM document_links dl
+                        JOIN documents linked ON linked.id = dl.document_id AND linked.supplier_id = dl.supplier_id
+                         WHERE dl.supplier_id = purchase_invoice_submissions.supplier_id
+                           AND (linked.id = purchase_invoice_submissions.document_id OR linked.parent_document_id = purchase_invoice_submissions.document_id)
+                    )
+                    AND NOT EXISTS (
+                        SELECT 1 FROM document_requests resolved
+                         WHERE resolved.supplier_id = purchase_invoice_submissions.supplier_id
+                           AND resolved.submission_id = purchase_invoice_submissions.id AND resolved.status = 'resolved'
+                    )";
+        $params = [$id, $supplierId];
+        if ($ownerId !== null) {
+            $sql .= ' AND submitted_by = ?';
+            $params[] = $ownerId;
+        }
+        if ($pendingOnly) {
+            $sql .= " AND status = 'submitted' AND processing_started_at IS NULL AND extraction_status <> 'running'";
+        }
+        $stmt = $this->db->pdo()->prepare($sql);
+        $stmt->execute($params);
         return $stmt->rowCount() === 1 ? $row : null;
     }
 
     private function setReviewStatus(int $id, int $supplierId, string $status, string $reason): bool
     {
+        $allowedStatuses = $status === 'rejected' ? "('submitted','needs_information')" : "('submitted')";
         $stmt = $this->db->pdo()->prepare(
             "UPDATE purchase_invoice_submissions
                 SET status = ?, status_reason = ?, processing_started_at = NULL,
                     extraction_status = IF(extraction_status = 'running', 'failed', extraction_status)
-              WHERE id = ? AND supplier_id = ? AND status = 'submitted'"
+              WHERE id = ? AND supplier_id = ? AND status IN $allowedStatuses AND purchase_invoice_id IS NULL"
         );
         $stmt->execute([$status, mb_substr(trim($reason), 0, 8000), $id, $supplierId]);
         return $stmt->rowCount() === 1;

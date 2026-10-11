@@ -3151,6 +3151,7 @@ final class Routes
         $app->get    ('/api/portal/purchase-invoice-submissions', [\MyInvoice\Action\Portal\PortalPurchaseInvoiceSubmissionAction::class, 'list']);
         $app->post   ('/api/portal/purchase-invoice-submissions', [\MyInvoice\Action\Portal\PortalPurchaseInvoiceSubmissionAction::class, 'upload']);
         $app->get    ('/api/portal/purchase-invoice-submissions/dimensions', [\MyInvoice\Action\Portal\PortalPurchaseInvoiceSubmissionAction::class, 'dimensions']);
+        $app->delete ('/api/portal/purchase-invoice-submissions/{id:[0-9]+}', [\MyInvoice\Action\Portal\PortalPurchaseInvoiceSubmissionAction::class, 'delete']);
         $app->post   ('/api/portal/purchase-invoice-submissions/{id:[0-9]+}/resubmit', [\MyInvoice\Action\Portal\PortalPurchaseInvoiceSubmissionAction::class, 'resubmit']);
         $app->get    ('/api/portal/purchase-invoice-submissions/{id:[0-9]+}/preview', [\MyInvoice\Action\PurchaseInvoice\PurchaseInvoiceSubmissionFileAction::class, 'portalPreview']);
         $app->get    ('/api/portal/purchase-invoice-submissions/{id:[0-9]+}/download', [\MyInvoice\Action\PurchaseInvoice\PurchaseInvoiceSubmissionFileAction::class, 'portalDownload']);

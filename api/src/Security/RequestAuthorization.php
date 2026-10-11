@@ -109,6 +109,12 @@ final class RequestAuthorization
         return self::effectiveRole($request)->isClientType();
     }
 
+    public static function allowsClientDocumentPortal(Request $request, AccessLevel $minimum = AccessLevel::READ): bool
+    {
+        return (self::isClientType($request) || self::isSuperadmin($request))
+            && self::allows($request, 'documents.submit', $minimum);
+    }
+
     public static function allows(
         Request $request,
         string $permission,

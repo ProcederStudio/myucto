@@ -15,6 +15,7 @@ use MyInvoice\Service\Accounting\Dimension\DimensionException;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\IpMatcher;
 use MyInvoice\Service\PurchaseInvoice\PurchaseInvoiceSubmissionException;
+use MyInvoice\Service\PurchaseInvoice\PurchaseInvoiceSubmissionDeletionService;
 use MyInvoice\Service\PurchaseInvoice\PurchaseInvoiceSubmissionUploadService;
 use MyInvoice\Service\PurchaseInvoice\SubmissionDimensions;
 use Psr\Http\Message\ResponseInterface as Response;
@@ -36,6 +37,7 @@ final class PortalPurchaseInvoiceSubmissionAction
         'extraction_status', 'extraction_source', 'extraction_error',
         'document_sha256', 'document_filename', 'thumb_status',
         'processed_by', 'processed_by_name', 'processing_started_at',
+        'document_link_count', 'resolved_request_count',
     ];
 
     public function __construct(
@@ -44,6 +46,7 @@ final class PortalPurchaseInvoiceSubmissionAction
         private readonly ActivityLogger $logger,
         private readonly IpMatcher $ipMatcher,
         private readonly SubmissionDimensions $submissionDimensions,
+        private readonly PurchaseInvoiceSubmissionDeletionService $deletion,
     ) {}
 
     public function list(Request $request, Response $response): Response
@@ -56,7 +59,7 @@ final class PortalPurchaseInvoiceSubmissionAction
         $limit = max(1, min(100, (int) ($q['limit'] ?? 50)));
         $offset = max(0, (int) ($q['offset'] ?? 0));
         $page = $this->submissions->paginate($supplierId, $status, $limit, $offset);
-        $page['items'] = array_map([$this, 'portalView'], $page['items']);
+        $page['items'] = array_map(fn(array $row): array => $this->portalView($row, $request), $page['items']);
         $page['items'] = $this->submissionDimensions->attach($supplierId, $page['items']);
         return Json::ok($response, $page);
     }
@@ -77,8 +80,14 @@ final class PortalPurchaseInvoiceSubmissionAction
      * @param array<string,mixed> $submission
      * @return array<string,mixed>
      */
-    private function portalView(array $submission): array
+    private function portalView(array $submission, Request $request): array
     {
+        $user = (array) $request->getAttribute(AuthMiddleware::ATTR_USER, []);
+        $submission['can_delete'] = RequestAuthorization::allowsClientDocumentPortal($request, AccessLevel::WRITE)
+            && PurchaseInvoiceSubmissionDeletionService::canDeletePending(
+                $submission,
+                RequestAuthorization::isSuperadmin($request) ? null : (int) ($user['id'] ?? 0),
+            );
         foreach (self::INTERNAL_FIELDS as $field) {
             unset($submission[$field]);
         }
@@ -89,6 +98,23 @@ final class PortalPurchaseInvoiceSubmissionAction
     {
         if ($denied = $this->deny($request, $response, true)) return $denied;
         return $this->handleUpload($request, $response, null, 'portal');
+    }
+
+    public function delete(Request $request, Response $response, array $args): Response
+    {
+        if ($denied = $this->deny($request, $response, true)) return $denied;
+        $user = (array) $request->getAttribute(AuthMiddleware::ATTR_USER, []);
+        $userId = (int) ($user['id'] ?? 0);
+        try {
+            return Json::ok($response, $this->deletion->delete(
+                (int) ($args['id'] ?? 0), SupplierGuard::currentId($request), $userId,
+                RequestAuthorization::isSuperadmin($request) ? null : $userId,
+                true, $this->ipMatcher->clientIpFromRequest($request->getServerParams()),
+                $request->getHeaderLine('User-Agent'),
+            ));
+        } catch (PurchaseInvoiceSubmissionException $e) {
+            return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus);
+        }
     }
 
     public function resubmit(Request $request, Response $response, array $args): Response
@@ -186,7 +212,7 @@ final class PortalPurchaseInvoiceSubmissionAction
 
         $duplicates = $this->duplicateCount($items);
         return Json::ok($response, [
-            'items' => array_map(fn(array $item): array => $this->portalView($item['submission']) + [
+            'items' => array_map(fn(array $item): array => $this->portalView($item['submission'], $request) + [
                 'duplicate' => (bool) $item['duplicate'],
             ], $items),
             'created' => count($items) - $duplicates,
@@ -198,8 +224,7 @@ final class PortalPurchaseInvoiceSubmissionAction
     private function deny(Request $request, Response $response, bool $write = false): ?Response
     {
         $level = $write ? AccessLevel::WRITE : AccessLevel::READ;
-        if (!RequestAuthorization::isClientType($request)
-            || !RequestAuthorization::allows($request, 'documents.submit', $level)) {
+        if (!RequestAuthorization::allowsClientDocumentPortal($request, $level)) {
             return Json::error($response, 'forbidden', 'K předávání dokladů nemáte oprávnění.', 403);
         }
         return null;
