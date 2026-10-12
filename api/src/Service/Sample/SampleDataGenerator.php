@@ -24,6 +24,7 @@ use MyInvoice\Service\Accounting\DocumentAutoPoster;
 use MyInvoice\Service\Accounting\OperationType;
 use MyInvoice\Service\Accounting\PostingService;
 use MyInvoice\Service\Accounting\SmallAsset\SmallAssetService;
+use MyInvoice\Service\PurchaseInvoice\PurchaseNumberSeries;
 use MyInvoice\Service\Bank\AccountNumberNormalizer;
 use MyInvoice\Service\Eshop\CategoryTreeService;
 use MyInvoice\Service\Invoice\InvoicePaymentService;
@@ -1779,16 +1780,28 @@ final class SampleDataGenerator
         return ['cars' => 1, 'trips' => $tripsCount, 'fuelings' => $fuelingsCount, 'car_id' => $carId];
     }
 
+    /**
+     * Interní číslo ukázkové přijaté faktury podle šablony firmy ({@see PurchaseNumberSeries}),
+     * aby ukázková data vypadala jako doklady přijaté v aplikaci a sdílela s nimi řadu.
+     */
     private function nextPurchaseVarsymbol(PDO $pdo, int $supplierId, string $period): string
     {
-        $pdo->prepare(
-            'INSERT INTO purchase_invoice_counters (supplier_id, period, last_number) VALUES (?,?,1)
-             ON DUPLICATE KEY UPDATE last_number = last_number + 1'
-        )->execute([$supplierId, $period]);
-        $stmt = $pdo->prepare('SELECT last_number FROM purchase_invoice_counters WHERE supplier_id=? AND period=?');
-        $stmt->execute([$supplierId, $period]);
-        $num = (int) $stmt->fetchColumn();
-        return 'PF-' . $period . '-' . str_pad((string) $num, 4, '0', STR_PAD_LEFT);
+        $settings = $pdo->prepare('SELECT ' . implode(', ', PurchaseNumberSeries::supplierColumns()) . ' FROM supplier WHERE id = ?');
+        $settings->execute([$supplierId]);
+        ['key' => $key, 'template' => $template] = PurchaseNumberSeries::resolve((array) ($settings->fetch(PDO::FETCH_ASSOC) ?: []), 'invoice');
+        $counterKey = PurchaseNumberSeries::counterKey($key, $template, $period);
+        $exists = $pdo->prepare('SELECT 1 FROM purchase_invoices WHERE supplier_id = ? AND varsymbol = ?');
+        do {
+            $pdo->prepare(
+                'INSERT INTO purchase_invoice_counters (supplier_id, period, last_number) VALUES (?,?,1)
+                 ON DUPLICATE KEY UPDATE last_number = last_number + 1'
+            )->execute([$supplierId, $counterKey]);
+            $stmt = $pdo->prepare('SELECT last_number FROM purchase_invoice_counters WHERE supplier_id=? AND period=?');
+            $stmt->execute([$supplierId, $counterKey]);
+            $vs = PurchaseNumberSeries::render($template, 'PF', $period, (int) $stmt->fetchColumn());
+            $exists->execute([$supplierId, $vs]);
+        } while ($exists->fetchColumn() !== false);
+        return $vs;
     }
 
     private function nextVarsymbol(PDO $pdo, int $supplierId, string $type, string $period): string

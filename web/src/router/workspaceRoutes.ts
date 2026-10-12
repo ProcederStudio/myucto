@@ -132,6 +132,15 @@ export function createWorkspaceRoutes(): RouteRecordRaw[] {
         },
       },
       { path: 'purchase-invoices/payment-orders',  name: 'purchase-invoices-payment-orders', component: () => import('@/pages/purchase-invoices/PaymentOrders.vue') },
+      // Přečíslování přijatých dokladů podle data — interní čísla spravuje účetní, ne klient.
+      {
+        path: 'purchase-invoices/renumber', name: 'purchase-invoices-renumber',
+        component: () => import('@/pages/purchase-invoices/Renumber.vue'), meta: { requiresSupplier: true },
+        beforeEnter: () => {
+          const auth = useAuthStore()
+          return !auth.isClientRole && auth.canWrite('purchase_invoices') ? true : { path: '/purchase-invoices' }
+        },
+      },
       // AI import přijaté faktury (§12b) — extrakční flow vytažený z admin Integrations
       // (?tab=ai zůstává jen nastavení brány). Oprávnění purchase_invoices.scan zrcadlí
       // BE check v AiExtractPdfAction (účetní denní operativa, ne admin setup).

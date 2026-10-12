@@ -183,7 +183,7 @@ v konceptu ani nepřijaté rozdíly a obraty v MyÚčtu odpovídají POHODĚ.
 
 ## 107.7 Krok za krokem: navázání číselné řady
 
-1. Otevřete `Firma → Nastavení`, záložku **Fakturace**, sekci **Číslování faktur** a najděte šablonu řady.
+1. Otevřete `Firma → Nastavení`, záložku **Číslování faktur** a najděte šablonu řady.
 2. Do pole **Příští číslo** zadejte číslo, kterým má řada pokračovat.
 3. Klikněte na **Nastavit počítadlo**. Ukládá se samostatně, mimo tlačítko
    **Uložit**.
@@ -683,7 +683,7 @@ nezaúčtovanými pohyby.
 
 Převod přenáší doklady s čísly, která měly v POHODĚ, ale počítadlo nové řady
 tím sám nenastaví. Číslo, kterým má řada v MyÚčtu pokračovat, zadejte
-v `Firma → Nastavení`, záložce **Fakturace**, sekci **Číslování faktur** do pole **Příští číslo** u příslušné
+v `Firma → Nastavení`, záložce **Číslování faktur** do pole **Příští číslo** u příslušné
 šablony a potvrďte tlačítkem *Nastavit počítadlo*. Ukládá se samostatně, mimo
 tlačítko *Uložit*, a po potvrzení ukáže náhled výsledného čísla.
 

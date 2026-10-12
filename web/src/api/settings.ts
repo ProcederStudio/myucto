@@ -261,6 +261,13 @@ export interface Supplier {
   // Šablona interního čísla přijaté faktury (migrace 0095). null = vestavěný
   // default '{PP}{YY}{MM}{CCC}'. {PP} = daňový prefix (PF/PN/KU/KN/NU/NN).
   purchase_invoice_number_format: string | null
+  // Číslování přijatých dokladů (migrace 2001): jedna řada, nebo řada podle typu dokladu.
+  // Šablony typů platí jen v režimu by_kind, null = vestavěná výchozí šablona typu.
+  purchase_invoice_numbering?: 'shared' | 'by_kind'
+  purchase_receipt_number_format?: string | null
+  purchase_credit_note_number_format?: string | null
+  purchase_advance_number_format?: string | null
+  purchase_tax_document_number_format?: string | null
   invoice_number_period: 'year' | 'month' | 'none'
   // Per-supplier email branding (migrace 0016)
   email_branding_enabled: boolean

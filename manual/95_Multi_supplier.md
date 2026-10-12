@@ -113,10 +113,10 @@ a **Daně a účetnictví**. Změny ze všech záložek se ukládají společný
 
 ## 95.6 Krok za krokem: číslování faktur
 
-V nastavení firmy najdete sekci **Číslování faktur** se šablonami pro každý typ dokladu a volbou cyklu, kdy se
+V nastavení firmy najdete záložku **Číslování faktur** se šablonami pro každý typ dokladu a volbou cyklu, kdy se
 pořadové číslo resetuje.
 
-1. Otevřete `Firma → Nastavení`, záložku **Fakturace** a sekci **Číslování faktur**.
+1. Otevřete `Firma → Nastavení`, záložku **Číslování faktur**.
 2. Vyplňte šablonu pro fakturu, zálohovou fakturu a dobropis. Pod každým polem je živý náhled příštího čísla (například „Náhled: `JD2026-001`").
 3. V poli **Reset číselné řady** zvolte **Roční (1. ledna)**, **Měsíční (1. dne v měsíci)**, nebo **Bez resetu (souvislá řada)**.
 4. Uložte nastavení.

@@ -209,7 +209,7 @@ final class SampleDataPurgeTest extends TestCase
         )->fetchColumn(), 'Skladové prodeje mají pokrývat všech dvanáct měsíců.');
         self::assertSame(0, (int) $pdo->query(
             "SELECT COUNT(*) FROM purchase_invoices WHERE supplier_id={$this->supplierId}
-              AND SUBSTRING(varsymbol,4,6)<>DATE_FORMAT(issue_date,'%Y%m')"
+              AND SUBSTRING(varsymbol,3,4)<>DATE_FORMAT(issue_date,'%y%m')"
         )->fetchColumn(), 'Číselná řada nákupu musí odpovídat konečnému datu dokladu.');
 
         self::assertSame(0, (int) $pdo->query(

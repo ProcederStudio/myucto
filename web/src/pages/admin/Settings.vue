@@ -67,8 +67,8 @@ const loading = ref(true)
 const TAXPAYER_CODES = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'] as const
 const ACCOUNTING_DECREES = ['500', '501', '502', '503', '504', '325', '410'] as const
 const ENTITY_STATUSES = ['normal', 'liquidation', 'insolvency', 'transformation'] as const
-type SettingsTab = 'company' | 'documents' | 'accounting'
-const tabs: SettingsTab[] = ['company', 'documents', 'accounting']
+type SettingsTab = 'company' | 'documents' | 'numbering' | 'accounting'
+const tabs: SettingsTab[] = ['company', 'documents', 'numbering', 'accounting']
 // Na záložku se dá odkázat zvenčí (?tab=accounting) — odjinud v aplikaci sem
 // vedou rady typu „zapněte účetnictví v Nastavení", a ty musí skončit u toho
 // přepínače, ne na první záložce.
@@ -199,8 +199,27 @@ const proformaPreview       = computed(() => validateAndPreview(supplier.value?.
 const proformaFormatError   = computed(() => validateAndPreview(supplier.value?.proforma_number_format ?? null).error)
 const creditNotePreview     = computed(() => validateAndPreview(supplier.value?.credit_note_number_format ?? null).preview)
 const creditNoteFormatError = computed(() => validateAndPreview(supplier.value?.credit_note_number_format ?? null).error)
-const purchasePreview       = computed(() => validateAndPreview(supplier.value?.purchase_invoice_number_format ?? null).preview)
+// Přijaté faktury nemají cfg fallback: prázdné pole = vestavěná šablona (náhled ji ukáže).
+const purchasePreview       = computed(() => validateAndPreview(
+  (supplier.value?.purchase_invoice_number_format ?? '').trim() || supplier.value?.cfg_varsymbol_fallback?.purchase || '{PP}{YY}{MM}{CCC}',
+).preview)
 const purchaseFormatError   = computed(() => validateAndPreview(supplier.value?.purchase_invoice_number_format ?? null).error)
+
+// Řady přijatých dokladů podle typu (migrace 2001). Výchozí šablony zrcadlí
+// PurchaseNumberSeries::KIND_DEFAULT_TEMPLATES na backendu.
+const PURCHASE_SERIES_KINDS = [
+  { kind: 'receipt', field: 'purchase_receipt_number_format', fallback: 'UC{YY}{MM}{CCC}' },
+  { kind: 'credit_note', field: 'purchase_credit_note_number_format', fallback: 'DD{YY}{MM}{CCC}' },
+  { kind: 'advance', field: 'purchase_advance_number_format', fallback: 'ZD{YY}{MM}{CCC}' },
+  { kind: 'tax_document', field: 'purchase_tax_document_number_format', fallback: 'DZ{YY}{MM}{CCC}' },
+] as const
+type PurchaseSeriesField = typeof PURCHASE_SERIES_KINDS[number]['field']
+const purchaseByKind = computed(() => supplier.value?.purchase_invoice_numbering === 'by_kind')
+function purchaseSeriesCheck(field: PurchaseSeriesField, fallback: string) {
+  const own = (supplier.value?.[field] ?? '').trim()
+  const result = validateAndPreview(own === '' ? fallback : own)
+  return { error: own === '' ? '' : result.error, preview: result.preview }
+}
 
 // Navázání na rozjetou číselnou řadu (issue #74) — kdo přechází z jiného software,
 // potřebuje, aby první doklad tady dostal číslo, kterým jeho řada pokračuje. Samotné
@@ -573,6 +592,14 @@ async function saveSupplier() {
       proforma_number_format: supplier.value.proforma_number_format,
       credit_note_number_format: supplier.value.credit_note_number_format,
       purchase_invoice_number_format: supplier.value.purchase_invoice_number_format,
+      // Chybějící hodnota (nedoběhlá migrace 2001) se neposílá, aby uložení nespadlo.
+      ...(supplier.value.purchase_invoice_numbering !== undefined ? {
+        purchase_invoice_numbering: supplier.value.purchase_invoice_numbering,
+        purchase_receipt_number_format: supplier.value.purchase_receipt_number_format ?? null,
+        purchase_credit_note_number_format: supplier.value.purchase_credit_note_number_format ?? null,
+        purchase_advance_number_format: supplier.value.purchase_advance_number_format ?? null,
+        purchase_tax_document_number_format: supplier.value.purchase_tax_document_number_format ?? null,
+      } : {}),
       invoice_number_period: supplier.value.invoice_number_period,
       // Sklad (Epic SKLAD) — nezávislé na accounting_mode.
       stock_enabled: supplier.value.stock_enabled ?? false,
@@ -1295,8 +1322,8 @@ async function confirmTaxRepDelete() {
       </section>
       <SupplierDomainsSettings v-else-if="tab === 'company' && auth.domainsFeatureEnabled && auth.canRead('settings.domains')" />
 
-      <!-- Číslování faktur — samostatný box -->
-      <section v-if="tab === 'documents'" class="bg-surface border border-neutral-200 rounded-lg p-5 shadow-sm">
+      <!-- Číslování faktur — samostatná záložka -->
+      <section v-if="tab === 'numbering'" class="bg-surface border border-neutral-200 rounded-lg p-5 shadow-sm">
         <h2 class="text-sm font-semibold uppercase tracking-wide text-neutral-500 mb-4">{{ t('settings.numbering_section') }}</h2>
         <div>
           <h3 class="sr-only">{{ t('settings.numbering_section') }}</h3>
@@ -1317,6 +1344,7 @@ async function confirmTaxRepDelete() {
             </ul>
             <p class="text-xs text-warning-600 mt-1">{{ t('settings.numbering_collision_hint') }}</p>
           </div>
+          <h3 class="text-sm font-semibold text-neutral-700 mt-4 mb-2">{{ t('settings.numbering_issued_title') }}</h3>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <label class="block text-xs font-medium text-neutral-700 mb-1">{{ t('settings.invoice_number_format') }}</label>
@@ -1369,8 +1397,30 @@ async function confirmTaxRepDelete() {
               <InvoiceCounterField type="credit_note" :template="counterTemplate('credit_note')"
                 :period="supplier.invoice_number_period" />
             </div>
+          </div>
+        </div>
+
+        <!-- Přijaté doklady: jedna řada (dosavadní chování) nebo řada podle typu dokladu -->
+        <div class="mt-6 pt-5 border-t border-neutral-200" data-test="purchase-numbering">
+          <h3 class="text-sm font-semibold text-neutral-700 mb-1">{{ t('settings.purchase_numbering.title') }}</h3>
+          <p class="text-xs text-neutral-500 mb-3">{{ t('settings.purchase_numbering.intro') }}</p>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
-              <label class="block text-xs font-medium text-neutral-700 mb-1">{{ t('settings.purchase_invoice_number_format') }}</label>
+              <label class="block text-xs font-medium text-neutral-700 mb-1">{{ t('settings.purchase_numbering.mode') }}</label>
+              <select v-model="supplier.purchase_invoice_numbering" data-test="purchase-numbering-mode"
+                :disabled="supplier.purchase_invoice_numbering === undefined"
+                class="w-full h-9 px-3 border border-neutral-300 rounded-md text-sm bg-surface disabled:opacity-60">
+                <option value="shared">{{ t('settings.purchase_numbering.mode_shared') }}</option>
+                <option value="by_kind">{{ t('settings.purchase_numbering.mode_by_kind') }}</option>
+              </select>
+              <p class="text-xs text-neutral-400 mt-1">
+                {{ purchaseByKind ? t('settings.purchase_numbering.mode_by_kind_hint') : t('settings.purchase_numbering.mode_shared_hint') }}
+              </p>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-neutral-700 mb-1">
+                {{ purchaseByKind ? t('settings.purchase_numbering.kind.invoice') : t('settings.purchase_invoice_number_format') }}
+              </label>
               <input v-model="supplier.purchase_invoice_number_format" type="text"
                 :placeholder="supplier.cfg_varsymbol_fallback?.purchase || '{PP}{YY}{MM}{CCC}'" maxlength="60"
                 class="w-full h-9 px-3 border rounded-md text-sm font-mono"
@@ -1382,7 +1432,23 @@ async function confirmTaxRepDelete() {
               <p v-else class="text-xs text-neutral-400 mt-1">{{ t('settings.numbering_preview') }}: {{ t('settings.numbering_preview_fallback') }}</p>
               <p class="text-xs text-neutral-400 mt-1">{{ t('settings.purchase_invoice_number_format_hint') }}</p>
             </div>
+            <template v-if="purchaseByKind">
+              <div v-for="s in PURCHASE_SERIES_KINDS" :key="s.kind" :data-test="`purchase-series-${s.kind}`">
+                <label class="block text-xs font-medium text-neutral-700 mb-1">{{ t(`settings.purchase_numbering.kind.${s.kind}`) }}</label>
+                <input v-model="supplier[s.field]" type="text" :placeholder="s.fallback" maxlength="60"
+                  class="w-full h-9 px-3 border rounded-md text-sm font-mono"
+                  :class="purchaseSeriesCheck(s.field, s.fallback).error ? 'border-danger-500 bg-danger-50' : 'border-neutral-300'" />
+                <p v-if="purchaseSeriesCheck(s.field, s.fallback).error" class="text-xs text-danger-500 mt-1">{{ purchaseSeriesCheck(s.field, s.fallback).error }}</p>
+                <p v-else class="text-xs text-success-600 mt-1">
+                  {{ t('settings.numbering_preview') }}: <code class="font-mono font-semibold">{{ purchaseSeriesCheck(s.field, s.fallback).preview }}</code>
+                </p>
+              </div>
+            </template>
           </div>
+          <p class="text-xs text-neutral-500 mt-3">
+            {{ t('settings.purchase_numbering.renumber_hint') }}
+            <RouterLink to="/purchase-invoices/renumber" class="text-primary-600 hover:underline">{{ t('nav.purchase_renumber') }}</RouterLink>
+          </p>
         </div>
 
       </section>

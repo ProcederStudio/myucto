@@ -418,6 +418,9 @@
       "payment_order",
       "purchase_invoice"
     ],
+    "purchase-invoices-renumber": [
+      "purchase_invoice"
+    ],
     "purchase-invoice-ai-import": [
       "aiGateway",
       "dimensions",

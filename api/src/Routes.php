@@ -749,6 +749,9 @@ final class Routes
         $app->post   ('/api/purchase-invoices/import-structured',         ImportStructuredPurchaseInvoiceAction::class);
         $app->get    ('/api/purchase-invoices/export',                     ExportPurchaseInvoicesAction::class);
         $app->get    ('/api/purchase-invoices/import-batches',             PurchaseInvoiceImportBatchesAction::class);
+        // Přečíslování měsíce podle data vystavení (náhled + provedení).
+        $app->get    ('/api/purchase-invoices/renumber',                   [\MyInvoice\Action\PurchaseInvoice\RenumberPurchaseInvoicesAction::class, 'preview']);
+        $app->post   ('/api/purchase-invoices/renumber',                   [\MyInvoice\Action\PurchaseInvoice\RenumberPurchaseInvoicesAction::class, 'renumber']);
         $app->get    ('/api/purchase-invoices',                           ListPurchaseInvoicesAction::class);
         $app->post   ('/api/purchase-invoices',                           CreatePurchaseInvoiceAction::class);
         $app->get    ('/api/purchase-invoices/{id:[0-9]+}',                GetPurchaseInvoiceAction::class);

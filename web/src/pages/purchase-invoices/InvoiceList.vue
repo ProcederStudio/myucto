@@ -311,6 +311,7 @@ const COLUMNS: ColumnDef[] = [
   { key: 'vendor_ic', labelKey: 'common.ic' },
   { key: 'vendor_number', labelKey: 'purchase_invoice.col_vendor_number' },
   { key: 'kind', labelKey: 'purchase_invoice.fields.document_kind' },
+  { key: 'issue_date', labelKey: 'purchase_invoice.fields.issue_date', defaultHidden: true },
   { key: 'tax_date', labelKey: 'purchase_invoice.fields.tax_date' },
   { key: 'due_date', labelKey: 'purchase_invoice.fields.due_date' },
   { key: 'amount', labelKey: 'purchase_invoice.totals.with_vat', required: true },
@@ -830,6 +831,14 @@ const cancellableSelected = computed(() => selectedIds.value.filter(id => {
   const s = statusOf(id); return s && s !== 'cancelled'
 }))
 
+function issueOrderKey(id: number): string {
+  for (const g of groups.value) {
+    const f = g.invoices.find(i => i.id === id)
+    if (f) return `${f.issue_date ?? '9999-99-99'}#${String(id).padStart(12, '0')}`
+  }
+  return `9999-99-99#${String(id).padStart(12, '0')}`
+}
+
 async function bulkTransition(target: PurchaseInvoiceStatus, ids: number[]) {
   if (ids.length === 0 || bulkBusy.value) return
   if (target === 'cancelled' && !confirm(t('purchase_invoice.bulk.confirm_cancel', { n: ids.length }))) return
@@ -840,7 +849,10 @@ async function bulkTransition(target: PurchaseInvoiceStatus, ids: number[]) {
   let fail = 0
   let sentToApproval = 0
   let lastError: unknown = null
-  for (const id of ids) {
+  // Přijetí přiděluje interní číslo, takže se doklady přijímají v pořadí podle data
+  // vystavení, ne podle pořadí zaškrtnutí — čísla v měsíci pak jdou chronologicky.
+  const ordered = target === 'received' ? [...ids].sort((a, b) => issueOrderKey(a).localeCompare(issueOrderKey(b))) : ids
+  for (const id of ordered) {
     try {
       const res = await purchaseInvoicesApi.transition(id, target)
       done.push(id)
@@ -1422,6 +1434,7 @@ async function bulkSetKind() {
                     </div>
                   </td>
                   <td v-else-if="c.key === 'kind'" :data-custom-color="!!colors.color('kind')" :style="colors.cellStyle('kind')" class="px-3 py-2.5 text-center text-xs text-neutral-600">{{ t(`purchase_invoice.document_kind.${inv.document_kind}`) }}</td>
+                  <td v-else-if="c.key === 'issue_date'" :data-custom-color="!!colors.color('issue_date')" :style="colors.cellStyle('issue_date')" class="px-3 py-2.5 text-center text-xs text-neutral-600">{{ formatDate(inv.issue_date) }}</td>
                   <td v-else-if="c.key === 'tax_date'" :data-custom-color="!!colors.color('tax_date')" :style="colors.cellStyle('tax_date')" class="px-3 py-2.5 text-center text-xs">
                     <span :class="taxDateClass(inv.tax_date, inv.issue_date)">{{ formatDate(inv.tax_date || inv.issue_date) }}</span>
                   </td>

@@ -450,7 +450,7 @@ jako samostatná položka a promítne se do částky k úhradě, QR platby, plat
 |---|---|
 | **Dodavatel** | Vyberte ze seznamu nebo začněte psát. Vyhledávání nabídne i firmu vedenou pouze jako odběratel, po úspěšném uložení faktury se jí doplní role dodavatele. Bez hledaného textu se nabízejí jen dodavatelé. Pokud firma v adresáři chybí, klikněte na **+ Vytvořit nového dodavatele** a využijte ARES podle IČO. |
 | **Číslo dokladu dodavatele** | Tak, jak je vytištěno na originálu (například `FA-2026-001`). Maximálně 50 znaků. Jedinečné pro dvojici dodavatel a datum vystavení, stejnou fakturu nelze importovat dvakrát. |
-| **Naše číslo** | Volitelné. Pokud ho necháte prázdné, vygeneruje se automaticky podle **šablony** při přechodu na stav Přijatá. Výchozí šablona je `{PP}{YY}{MM}{CCC}` (například `PF2602001`), prefix `{PP}` odpovídá daňovému typu (viz [§ 23.11.7](#23117-danova-uznatelnost-a-narok-na-odpocet)): **PF/PN** plný nárok (uznatelný/ne), **KU/KN** krácený §75, **KR/RN** krácený §76, **NU/NN** bez nároku. Počítadlo je za měsíc (přeteče na 4 a více míst nad 999 dokladů). Šablonu změníte v `Nastavení → Číslování faktur → Šablona pro přijatou fakturu` (například `PF-{YYYY}{MM}-{CCCC}` dá `PF-202605-0001`). Při ručním zadání čísla aplikace hlídá kolize a automatický generátor obsazená čísla přeskakuje. |
+| **Naše číslo** | Volitelné. Pokud ho necháte prázdné, vygeneruje se automaticky podle **šablony** při přechodu na stav Přijatá. Výchozí šablona je `{PP}{YY}{MM}{CCC}` (například `PF2602001`), prefix `{PP}` odpovídá daňovému typu (viz [§ 23.11.7](#23117-danova-uznatelnost-a-narok-na-odpocet)): **PF/PN** plný nárok (uznatelný/ne), **KU/KN** krácený §75, **KR/RN** krácený §76, **NU/NN** bez nároku. Počítadlo je za měsíc (přeteče na 4 a více míst nad 999 dokladů). Šablonu změníte v `Nastavení`, záložce **Číslování faktur**, v části **Přijaté doklady** (například `PF-{YYYY}{MM}-{CCCC}` dá `PF-202605-0001`). Při ručním zadání čísla aplikace hlídá kolize a automatický generátor obsazená čísla přeskakuje. |
 | **Typ dokladu** | Faktura, Účtenka / paragon, Dobropis, Záloha, Daňový doklad k platbě (pro filtrování v seznamu). |
 | **Datum vystavení** | Z faktury. |
 | **DUZP** (datum uskutečnění zdanitelného plnění) | Klíčové pro období DPH. Výchozí je datum vystavení. U **reverse charge** se doklad zařazuje do období DPH právě podle DUZP (povinnost přiznat daň vzniká bez ohledu na doručení dokladu). U **pořízení zboží z EU** je DUZP dle § 25 ZDPH **15. den měsíce následujícího po dodání**, pokud doklad nebyl vystaven dříve, editor to připomene nápovědou. |
@@ -580,9 +580,33 @@ protože krácení koeficientem se jednotlivého zápisu netýká, řeší se so
 [§ 23.11.5](#23115-povinna-pole)) odpovídá těmto dvěma příznakům: **PF/PN** plný nárok (uznatelný/ne), **KU/KN** krácený
 §75, **KR/RN** krácený §76, **NU/NN** bez nároku. Když u už očíslované faktury daňové uplatnění **změníte**, přepíše se jen
 **prefix** (`PF2602001` dá `NN2602001`), číselná řada `{YYMM}{CCC}` i ručně zadaná čísla zůstanou. Počítadlo je **sdílené
-za dodavatele a měsíc napříč všemi prefixy**, takže čísla jsou v rámci měsíce souvislá bez ohledu na daňový typ. Případné
+za vaši firmu a měsíc napříč všemi prefixy**, takže čísla jsou v rámci měsíce souvislá bez ohledu na daňový typ. Případné
 mezery po smazaných konceptech jsou u interního označení neškodné (na rozdíl od vystavených faktur se u přijatých dokladů
 souvislá řada nevyžaduje).
+
+**Samostatné řady podle typu dokladu.** Ve výchozím nastavení se všechny přijaté doklady (faktury, účtenky, dobropisy,
+zálohy i daňové doklady k platbě) číslují jednou společnou řadou. V `Nastavení`, záložce **Číslování faktur**, v části
+**Přijaté doklady** můžete přepnout **Číselné řady** na **Samostatná řada pro každý typ dokladu**. Faktury pak dál
+jedou podle šablony pro faktury a ostatní typy dostanou vlastní šablonu i vlastní počítadlo. Výchozí šablony jsou
+`UC{YY}{MM}{CCC}` pro účtenky, `DD{YY}{MM}{CCC}` pro dobropisy, `ZD{YY}{MM}{CCC}` pro zálohy a `DZ{YY}{MM}{CCC}`
+pro daňové doklady k platbě. Šablony se musí lišit předponou, aby šlo číslo vždy přiřadit k jeho řadě, jinak
+aplikace nastavení neuloží. Přepnutí se týká jen nově přijatých dokladů. Už očíslované doklady srovnáte
+přečíslováním (viz níže). Změníte-li u očíslovaného dokladu typ, číslo zůstane ze staré řady, dokud měsíc
+nepřečíslujete.
+
+**Přečíslování podle data.** Interní číslo dostane doklad při přijetí, takže pořadí čísel v měsíci odpovídá pořadí,
+v jakém jste doklady přijímali, ne datu vystavení. Hromadné **Označit jako přijaté** v seznamu přijímá vybrané
+doklady v pořadí podle data vystavení. Doklady očíslované v jiném pořadí srovnáte v menu `Nákup → Přečíslování`:
+
+1. Zvolte měsíc podle data vystavení. Zobrazí se náhled se současným a novým číslem každého dokladu.
+2. Klikněte na **Přečíslovat** a potvrďte.
+
+Přečíslují se jen automaticky očíslované doklady zvoleného měsíce. Každá řada začne znovu od 1 a doklady jdou podle
+data vystavení. Ručně zadaná a cizí čísla zůstanou beze změny a nová čísla je přeskočí. Interní číslo se přepíše i
+v účetním deníku (číslo dokladu a popis zápisu, včetně storna) a v popisu příjemky. Do kontrolního hlášení jde číslo
+dodavatele, takže přečíslování na daně vliv nemá. Po uzávěrce se čísla nemění: měsíc v uzavřeném nebo právě
+uzavíraném účetním období, v roce s dokončenou roční uzávěrkou daňové evidence nebo v období uzamčeném k datu
+přečíslovat nejde. Přečíslování je vyhrazené účetní, klient ho nevidí.
 
 #### Rekapitulace DPH dle dokladu (§ 73 ZDPH)
 

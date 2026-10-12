@@ -152,6 +152,8 @@ final class ApiScopeMiddleware implements MiddlewareInterface
         '#^/api/eshop/bulk(/|$)#',
         '#^/api/accounting/payroll(/|$)#',
         '#^/api/accounting/reports/payroll-sheet$#',
+        // Přečíslování přijatých dokladů přepisuje čísla i v deníku — jen účetní v aplikaci.
+        '#^/api/purchase-invoices/renumber$#',
     ];
 
     /**

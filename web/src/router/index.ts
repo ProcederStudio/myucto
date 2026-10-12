@@ -109,6 +109,7 @@ const routePermissions: Record<string, [PermissionKey, AccessLevel?]> = {
   // AI import jede na purchase_invoices.scan (write) — stejný klíč kontroluje BE
   // AiExtractPdfAction; readonly/client roli položka nesvítí a route ji nepustí.
   'purchase-invoice-ai-import': ['purchase_invoices.scan', 'write'],
+  'purchase-invoices-renumber': ['purchase_invoices', 'write'],
   documents: ['documents'], 'document-detail': ['documents'], 'document-requests': ['documents.requests'],
   'other-items': ['other_items'], 'other-item-new': ['other_items', 'write'], 'other-item-detail': ['other_items'], 'other-item-edit': ['other_items', 'write'],
   'scan-attach': ['documents.upload', 'write'],

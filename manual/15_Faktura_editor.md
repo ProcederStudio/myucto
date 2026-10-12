@@ -24,7 +24,7 @@ nebo z detailu klienta či zakázky).
 - **Klient.** Fakturu vystavujete na klienta, který musí být založený (`Prodej → Klienti`,
   viz [18. Klienti](18_Klienti.md)). Klienta lze vybrat i při psaní přímo v editoru.
 - **Zakázka** (volitelná). Předvyplní hodinovou sazbu a splatnost, viz [19. Zakázky](19_Zakazky.md).
-- **Číslování faktur.** Šablonu čísla nastavíte v `Nastavení`, záložce **Fakturace**, sekci
+- **Číslování faktur.** Šablonu čísla nastavíte v `Nastavení`, záložce
   **Číslování faktur** (viz [§ 95.5.3](95_Multi_supplier.md#956-krok-za-krokem-cislovani-faktur)).
 - **Výchozí režim cen.** Chcete-li, aby nové faktury měly ceny včetně DPH, zapněte v
   `Nastavení`, záložce **Fakturace**, volbu **Nové faktury s cenami včetně DPH**
@@ -289,7 +289,7 @@ V hlavičce konceptu je pole **Číslo faktury** (podle typu **Číslo zálohov�
 > Po vystavení je číslo neměnné, ani úprava správcem ho neodemkne. Chcete-li číslo změnit,
 > musíte vystavit storno nebo dobropis a fakturu vystavit znovu pod jiným číslem.
 
-Šablonu pro automatické generování nastavíte v `Nastavení`, záložce **Fakturace**, sekci
+Šablonu pro automatické generování nastavíte v `Nastavení`, záložce
 **Číslování faktur** (viz [§ 95.5.3](95_Multi_supplier.md#956-krok-za-krokem-cislovani-faktur)).
 
 #### Platební variabilní symbol

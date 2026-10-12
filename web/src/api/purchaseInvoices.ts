@@ -783,6 +783,26 @@ export interface InboxScanResult {
   details: InboxScanResultDetail[]
 }
 
+export interface PurchaseRenumberRow {
+  id: number
+  varsymbol: string
+  vendor_invoice_number: string
+  vendor_name: string
+  document_kind: PurchaseDocumentKind
+  issue_date: string
+  new_varsymbol?: string
+  series?: string
+  changed?: boolean
+  reason?: 'year_closed' | 'period_closed' | 'period_closing' | 'date_locked' | 'manual_number'
+}
+
+export interface PurchaseRenumberPlan {
+  period: string
+  changes: PurchaseRenumberRow[]
+  kept: PurchaseRenumberRow[]
+  blocked: PurchaseRenumberRow[]
+}
+
 export const purchaseInvoicesApi = {
   listGrouped: (filters: PurchaseListFilters = {}) => {
     const params: Record<string, string | number> = {}
@@ -906,6 +926,14 @@ export const purchaseInvoicesApi = {
   setExpenseKinds: (id: number, items: { id: number; expense_kind: ExpenseKind | null; expense_account_code?: string | null; vat_classification_code?: string }[]) =>
     api.put<PurchaseInvoice & { _repost?: { entry_id: number } }>(`/purchase-invoices/${id}/expense-kinds`, { items })
       .then(r => r.data),
+
+  /** Náhled přečíslování měsíce podle data vystavení (period = 'RRRR-MM'). */
+  renumberPreview: (period: string) =>
+    api.get<PurchaseRenumberPlan>('/purchase-invoices/renumber', { params: { period } }).then(r => r.data),
+
+  /** Přečíslování měsíce podle data vystavení. */
+  renumber: (period: string) =>
+    api.post<PurchaseRenumberPlan & { renumbered: number }>('/purchase-invoices/renumber', { period }).then(r => r.data),
 
   /** Rychlá změna typu dokladu (#232) — oprava AI klasifikace po importu. */
   setDocumentKind: (id: number, documentKind: PurchaseDocumentKind) =>

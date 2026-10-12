@@ -25,6 +25,7 @@ use MyInvoice\Service\Mail\RecipientResolver;
 use MyInvoice\Service\Mail\SafeLogoPath;
 use MyInvoice\Service\Payroll\PayrollEmployerLegacyIdentifierCarryOver;
 use MyInvoice\Service\Pdf\InvoicePdfRenderer;
+use MyInvoice\Service\PurchaseInvoice\PurchaseNumberSeries;
 use MyInvoice\Service\Supplier\SupplierCreator;
 use MyInvoice\Service\Supplier\SupplierDirectory;
 use MyInvoice\Service\Supplier\SupplierDirectoryQuery;
@@ -462,6 +463,9 @@ final class SettingsAction
             // Per-supplier konfigurace číslování faktur (migrace 0014; přijaté 0095)
             'invoice_number_format', 'proforma_number_format', 'credit_note_number_format',
             'purchase_invoice_number_format',
+            // Číslování přijatých dokladů podle typu (migrace 2001)
+            'purchase_invoice_numbering', 'purchase_receipt_number_format', 'purchase_credit_note_number_format',
+            'purchase_advance_number_format', 'purchase_tax_document_number_format',
             'invoice_number_period',
             // Per-supplier branding emailů (migrace 0016) + PDF logo+název (migrace 0058)
             'email_branding_enabled', 'email_accent_color', 'pdf_logo_show_name', 'branding_profiles_enabled',
@@ -834,7 +838,9 @@ final class SettingsAction
         }
         // Validace per-supplier varsymbol templatů: prázdný string → NULL (= fallback na cfg);
         // jinak max 60 znaků a musí obsahovat alespoň jeden counter placeholder {C+}.
-        foreach (['invoice_number_format', 'proforma_number_format', 'credit_note_number_format', 'purchase_invoice_number_format'] as $f) {
+        foreach (['invoice_number_format', 'proforma_number_format', 'credit_note_number_format', 'purchase_invoice_number_format',
+            'purchase_receipt_number_format', 'purchase_credit_note_number_format', 'purchase_advance_number_format',
+            'purchase_tax_document_number_format'] as $f) {
             if (array_key_exists($f, $body)) {
                 $v = trim((string) ($body[$f] ?? ''));
                 if ($v === '') {
@@ -848,6 +854,29 @@ final class SettingsAction
                     }
                     $body[$f] = $v;
                 }
+            }
+        }
+        if (array_key_exists('purchase_invoice_numbering', $body)
+            && !in_array($body['purchase_invoice_numbering'], [PurchaseNumberSeries::MODE_SHARED, PurchaseNumberSeries::MODE_BY_KIND], true)
+        ) {
+            return Json::error($response, 'validation_failed', 'Neplatné purchase_invoice_numbering (shared|by_kind).', 400);
+        }
+        // Řady přijatých dokladů podle typu musí jít od sebe rozeznat, jinak by se
+        // počítadla i přečíslování pletla (číslo účtenky by prošlo vzorem faktur).
+        if (array_intersect_key($body, array_flip(PurchaseNumberSeries::supplierColumns())) !== []) {
+            $current = $this->db->pdo()->prepare(
+                'SELECT ' . implode(', ', PurchaseNumberSeries::supplierColumns()) . ' FROM supplier WHERE id = ?'
+            );
+            $current->execute([$id]);
+            $merged = array_intersect_key($body, array_flip(PurchaseNumberSeries::supplierColumns()))
+                + ((array) ($current->fetch(\PDO::FETCH_ASSOC) ?: []));
+            if ($overlaps = PurchaseNumberSeries::overlaps($merged)) {
+                $pairs = implode(', ', array_map(static fn (array $p): string => implode(' × ', array_map(
+                    static fn (string $k): string => $k === '' ? 'invoice' : $k,
+                    $p,
+                )), $overlaps));
+                return Json::error($response, 'validation_failed',
+                    "Číselné řady přijatých dokladů se překrývají ({$pairs}). Každá řada potřebuje vlastní předponu.", 400);
             }
         }
         if (array_key_exists('invoice_number_period', $body)
