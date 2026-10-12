@@ -22,6 +22,7 @@ import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 import { parseExtractionWarning, withoutExpenseKindSection } from '@/utils/extractionWarning'
 import { missingDimensions, needsReview } from '@/utils/purchaseReview'
+import { reverseChargeCodeForKind } from '@/utils/reverseChargeSupplyCode'
 import { announceApprovalRequested } from '@/utils/purchaseApproval'
 import { approvalErrorMessage } from '@/api/purchaseApprovals'
 import DimensionFields from '@/components/dimensions/DimensionFields.vue'
@@ -147,10 +148,16 @@ function resetKinds(): void {
   }
 }
 
+/** Změna druhu nákladu přepne u samovyměření kód zboží ↔ služba (23 ↔ 24e, 25 ↔ 24). */
+function setKind(id: number, kind: ExpenseKind | null): void {
+  kinds[id] = kind
+  if (showVatCodes.value) vatCodes[id] = reverseChargeCodeForKind(vatCodes[id], kind)
+}
+
 function applyProposal(it: { id?: number; order_index: number }): void {
   const p = proposalFor(it.order_index)
   if (p) {
-    kinds[it.id as number] = p.kind
+    setKind(it.id as number, p.kind)
     if (p.expense_account_code) accounts[it.id as number] = p.expense_account_code
   }
 }
@@ -436,7 +443,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <Modal v-if="!loading && invoice" :title="t('purchase_invoice.extraction_review.title')" width-class="max-w-4xl" @close="emit('close')">
+  <Modal v-if="!loading && invoice" :title="t('purchase_invoice.extraction_review.title')" width-class="max-w-5xl" @close="emit('close')">
     <div class="space-y-4">
       <!-- Hlavička dokladu -->
       <div class="flex flex-wrap items-start justify-between gap-3">
@@ -505,9 +512,9 @@ onMounted(async () => {
 
         <ul class="space-y-2">
           <li v-for="it in items" :key="it.id"
-            class="rounded-md border p-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4"
+            class="rounded-md border p-3 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] sm:gap-x-4"
             :class="needsAttention(it) ? 'border-danger-500 ring-2 ring-danger-500/30 bg-danger-50/40' : 'border-neutral-200'">
-            <div class="min-w-0 flex-1">
+            <div class="min-w-0">
               <div class="text-sm text-neutral-900 break-words">
                 <span class="text-neutral-400 font-mono mr-1">{{ it.order_index + 1 }}.</span>{{ it.description }}
               </div>
@@ -527,28 +534,33 @@ onMounted(async () => {
                 </button>
               </div>
             </div>
-            <select v-model="kinds[it.id as number]" :disabled="!!readOnlyReason"
-              class="w-full sm:w-56 shrink-0 rounded-md border px-2 py-1.5 text-sm bg-surface disabled:opacity-60"
-              :class="needsAttention(it) ? 'border-danger-500' : 'border-neutral-300'">
-              <option :value="null">{{ t('purchase_invoice.extraction_review.kind_unset') }}</option>
-              <option v-for="k in EXPENSE_KINDS" :key="k" :value="k">{{ t(`purchase_invoice.expense_kind.${k}`) }}</option>
-            </select>
-            <ChartAccountSelect v-if="accountsForExpenseKind(kinds[it.id as number]).length && !auth.isClientRole" v-model="accounts[it.id as number]"
-              class="w-full sm:w-56 shrink-0" compact :accounts="accountsForExpenseKind(kinds[it.id as number])" :disabled="!!readOnlyReason"
-              :aria-label="t('purchase_invoice.items.expense_account')" />
-            <select v-if="showVatCodes" v-model="vatCodes[it.id as number]" :disabled="!!readOnlyReason"
-              :aria-label="t('purchase_invoice.items.vat_classification')" :title="t('purchase_invoice.items.vat_classification')"
-              data-test="review-item-vat-classification"
-              class="w-full sm:w-56 shrink-0 rounded-md border border-neutral-300 px-2 py-1.5 text-sm bg-surface disabled:opacity-60">
-              <option v-if="!vatCodes[it.id as number]" :value="null" disabled>{{ t('purchase_invoice.items.vat_classification') }}</option>
-              <option v-for="vc in vatClassifications" :key="vc.id" :value="vc.code">
-                {{ vc.code }} - {{ vc.label.length > 40 ? vc.label.slice(0, 40) + '…' : vc.label }}
-              </option>
-            </select>
-            <ItemDimensionsToggle v-if="dimsShown" class="self-end sm:self-auto"
-              :open="openItemDims.has(it.id as number)" :filled="Object.values(itemDims(it.id)).some(v => !!v)"
-              :disabled="!dimsEditable" @toggle="toggleItemDims(it.id)" />
-            <div v-if="dimsShown && openItemDims.has(it.id as number)" class="w-full sm:basis-full" data-test="review-item-dimensions">
+            <div class="min-w-0 flex flex-col gap-2">
+              <div class="flex items-center gap-2">
+                <select :value="kinds[it.id as number] ?? ''" :disabled="!!readOnlyReason" data-test="review-item-expense-kind"
+                  class="min-w-0 flex-1 rounded-md border px-2 py-1.5 text-sm bg-surface disabled:opacity-60"
+                  :class="needsAttention(it) ? 'border-danger-500' : 'border-neutral-300'"
+                  @change="setKind(it.id as number, (($event.target as HTMLSelectElement).value || null) as ExpenseKind | null)">
+                  <option value="">{{ t('purchase_invoice.extraction_review.kind_unset') }}</option>
+                  <option v-for="k in EXPENSE_KINDS" :key="k" :value="k">{{ t(`purchase_invoice.expense_kind.${k}`) }}</option>
+                </select>
+                <ItemDimensionsToggle v-if="dimsShown" class="shrink-0"
+                  :open="openItemDims.has(it.id as number)" :filled="Object.values(itemDims(it.id)).some(v => !!v)"
+                  :disabled="!dimsEditable" @toggle="toggleItemDims(it.id)" />
+              </div>
+              <ChartAccountSelect v-if="accountsForExpenseKind(kinds[it.id as number]).length && !auth.isClientRole" v-model="accounts[it.id as number]"
+                class="w-full" compact :accounts="accountsForExpenseKind(kinds[it.id as number])" :disabled="!!readOnlyReason"
+                :aria-label="t('purchase_invoice.items.expense_account')" />
+              <select v-if="showVatCodes" v-model="vatCodes[it.id as number]" :disabled="!!readOnlyReason"
+                :aria-label="t('purchase_invoice.items.vat_classification')" :title="t('purchase_invoice.items.vat_classification')"
+                data-test="review-item-vat-classification"
+                class="w-full rounded-md border border-neutral-300 px-2 py-1.5 text-sm bg-surface disabled:opacity-60">
+                <option v-if="!vatCodes[it.id as number]" :value="null" disabled>{{ t('purchase_invoice.items.vat_classification') }}</option>
+                <option v-for="vc in vatClassifications" :key="vc.id" :value="vc.code">
+                  {{ vc.code }} - {{ vc.label.length > 40 ? vc.label.slice(0, 40) + '…' : vc.label }}
+                </option>
+              </select>
+            </div>
+            <div v-if="dimsShown && openItemDims.has(it.id as number)" class="sm:col-span-2" data-test="review-item-dimensions">
               <DimensionFields compact :model-value="itemDims(it.id)" :types="editableTypes(itemNoOf(it.id))" :disabled="!dimsEditable"
                 @update:model-value="setItemDims(it.id, $event)" />
             </div>

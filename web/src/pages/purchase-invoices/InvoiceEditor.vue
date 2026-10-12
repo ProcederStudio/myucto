@@ -49,6 +49,7 @@ import { purchaseExpenseAccountOptions } from '@/utils/chartAccountOptions'
 import ExpenseKindSuggestionHint from '@/components/purchase/ExpenseKindSuggestionHint.vue'
 import AccrualSuggestionHint from '@/components/accounting/AccrualSuggestionHint.vue'
 import { detectAccrualPeriod, type AccrualPeriod } from '@/utils/accrualPeriod'
+import { reverseChargeCodeForKind } from '@/utils/reverseChargeSupplyCode'
 import ExtractionWarningText from '@/components/purchase/ExtractionWarningText.vue'
 import VendorPicker from '@/components/purchase/VendorPicker.vue'
 import ClientFormModal from '@/components/modals/ClientFormModal.vue'
@@ -964,6 +965,23 @@ function applyHeaderClassificationToItems() {
   if (!code) return
   for (const it of form.value.items) it.vat_classification_code = code
 }
+
+// Změna druhu nákladu přepne u samovyměření kód zboží ↔ služba (23 ↔ 24e, 25 ↔ 24).
+// Jen u položky, jejíž druh se opravdu změnil — načtení dokladu kódy nepřepisuje.
+const lastExpenseKind = new WeakMap<PurchaseInvoiceItem, ExpenseKind | null>()
+watch(() => form.value.items.map(it => it.expense_kind ?? null), () => {
+  for (const it of form.value.items) {
+    const kind = it.expense_kind ?? null
+    const known = lastExpenseKind.has(it)
+    const previous = lastExpenseKind.get(it)
+    lastExpenseKind.set(it, kind)
+    if (known && previous !== kind && form.value.reverse_charge) {
+      const base = it.vat_classification_code ?? form.value.vat_classification_code ?? null
+      const next = reverseChargeCodeForKind(base, kind)
+      if (next !== base) it.vat_classification_code = next
+    }
+  }
+}, { immediate: true })
 
 function toggleAccrual(it: PurchaseInvoiceItem, i: number) {
   if (accrualVisible(it, i)) {

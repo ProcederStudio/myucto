@@ -162,6 +162,27 @@ describe('ExtractionReviewModal — dimenze', () => {
     expect(m.setExpenseKinds).toHaveBeenCalledWith(2, [{ id: 102, expense_kind: 'service', vat_classification_code: '24e' }])
   })
 
+  it('změna druhu nákladu u samovyměření přepne kód služby na zboží a zpět', async () => {
+    m.invoices = { 2: invoice(2, {
+      reverse_charge: true,
+      items: [{ id: 102, order_index: 0, description: 'Klávesnice', quantity: 1, unit_price_without_vat: 1000, expense_kind: 'service', vat_classification_code: '24e' }],
+    }) }
+    m.setExpenseKinds.mockResolvedValue(m.invoices[2])
+    const wrapper = await mountModal([2], false)
+
+    const kind = wrapper.get('[data-test="review-item-expense-kind"]')
+    const vat = wrapper.get('[data-test="review-item-vat-classification"]')
+    await kind.setValue('small_asset')
+    expect((vat.element as HTMLSelectElement).value).toBe('23')
+    await kind.setValue('small_intangible')
+    expect((vat.element as HTMLSelectElement).value).toBe('24e')
+    await kind.setValue('material')
+    await saveButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(m.setExpenseKinds).toHaveBeenCalledWith(2, [{ id: 102, expense_kind: 'material', vat_classification_code: '23' }])
+  })
+
   it('bez přenesené povinnosti členění DPH nenabízí', async () => {
     m.invoices = { 2: invoice(2) }
     const wrapper = await mountModal([2], false)
