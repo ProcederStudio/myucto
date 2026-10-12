@@ -35,6 +35,7 @@ const error = ref('')
 const replacingId = ref<number | null>(null)
 const deletingId = ref<number | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
+const dragOver = ref(false)
 const previewId = ref<number | null>(null)
 const previewItem = computed(() => items.value.find(item => item.id === previewId.value) ?? null)
 const widePreview = useMediaQuery('(min-width: 1280px)')
@@ -98,6 +99,23 @@ async function load() {
 
 function selectFiles(event: Event) {
   files.value = Array.from((event.target as HTMLInputElement).files ?? [])
+}
+
+const ALLOWED_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'isdoc', 'xml', 'isdocx']
+
+/** Přetažené soubory se přidají k vybraným; nepodporovaný formát se vynechá nahlas. */
+function onDrop(event: DragEvent) {
+  dragOver.value = false
+  if (uploading.value) return
+  const dropped = Array.from(event.dataTransfer?.files ?? [])
+  if (dropped.length === 0) return
+  const accepted = dropped.filter(file => ALLOWED_EXTENSIONS.includes(file.name.split('.').pop()?.toLowerCase() ?? ''))
+  const rejected = dropped.filter(file => !accepted.includes(file))
+  if (rejected.length > 0) {
+    toast.warning(t('purchase_submissions.drop_rejected', { names: rejected.map(file => file.name).join(', ') }))
+  }
+  const known = new Set(files.value.map(file => `${file.name}|${file.size}`))
+  files.value = [...files.value, ...accepted.filter(file => !known.has(`${file.name}|${file.size}`))]
 }
 
 async function submit() {
@@ -269,6 +287,16 @@ onBeforeUnmount(() => { context++; loadRequest++; dimensionRequest++ })
         </label>
       </div>
 
+      <div
+        class="flex flex-col gap-3 rounded-lg border-2 border-dashed px-4 py-4 transition"
+        :class="dragOver ? 'border-primary-500 bg-primary-50' : 'border-neutral-200'"
+        data-test="portal-dropzone"
+        @dragenter.prevent="dragOver = true"
+        @dragover.prevent="dragOver = true"
+        @dragleave.prevent="dragOver = false"
+        @drop.prevent="onDrop"
+      >
+      <p class="text-sm" :class="dragOver ? 'text-primary-700' : 'text-neutral-500'">{{ t('purchase_submissions.drop_hint') }}</p>
       <div class="flex flex-wrap items-center gap-3">
         <label :class="btnOutline('neutral')">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -286,6 +314,10 @@ onBeforeUnmount(() => { context++; loadRequest++; dimensionRequest++ })
           </svg>
           {{ uploading ? t('purchase_submissions.uploading') : t('purchase_submissions.submit_action') }}
         </button>
+      </div>
+      <ul v-if="files.length" class="flex flex-wrap gap-2 text-xs text-neutral-600" data-test="portal-selected-files">
+        <li v-for="file in files" :key="`${file.name}|${file.size}`" class="rounded bg-neutral-100 px-2 py-1">{{ file.name }}</li>
+      </ul>
       </div>
     </section>
 

@@ -72,6 +72,21 @@ describe('Předání dokladů: smazání a odmítnutí', () => {
     expect(wrapper.find('[data-test="portal-preview-pane"]').exists()).toBe(false)
   })
 
+  it('přetažené doklady přidá k výběru, nepodporovaný formát vynechá a odešle zbytek', async () => {
+    m.upload.mockResolvedValueOnce({ created: 1, duplicates: 0, errors: [] })
+    m.list.mockResolvedValue({ items: [] })
+    const wrapper = await mountPage([])
+    const pdf = new File(['%PDF'], 'faktura.pdf', { type: 'application/pdf' })
+    const exe = new File(['MZ'], 'virus.exe', { type: 'application/octet-stream' })
+    await wrapper.get('[data-test="portal-dropzone"]').trigger('drop', { dataTransfer: { files: [pdf, exe] } })
+    await wrapper.get('[data-test="portal-dropzone"]').trigger('drop', { dataTransfer: { files: [pdf] } })
+    expect(wrapper.get('[data-test="portal-selected-files"]').text()).toBe('faktura.pdf')
+    const submit = wrapper.findAll('button').find(button => button.text().includes('purchase_submissions.submit_action'))!
+    await submit.trigger('click')
+    await flushPromises()
+    expect(m.upload).toHaveBeenCalledWith([pdf], '', null, {})
+  })
+
   it('na úzkém displeji otevře náhled v dialogu a při změně firmy ho zavře', async () => {
     m.viewport.wide = false
     const wrapper = await mountPage([submission(1)])
