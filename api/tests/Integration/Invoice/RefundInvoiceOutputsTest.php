@@ -74,28 +74,32 @@ final class RefundInvoiceOutputsTest extends StockTestCase
         return $repo->find($id);
     }
 
-    public function testPaidNonRefundInvoiceEmailUsesAmountDueLabelAcrossLocales(): void
+    public function testPaidInvoiceEmailShowsPaidAmountNotZeroDueAcrossLocales(): void
     {
-        // Regrese pro commit 3c4d305c3 — dřív plně zaplacená faktura ukazovala
-        // "Uhrazeno: 0,00 Kč"/"Paid: 0.00", místo jednotného "K úhradě"/"Amount due".
+        // Zaplacená faktura ukazuje „Uhrazeno: <zaplacená částka> ✓". Dřív e-mail psal
+        // „Uhrazeno: 0,00" a pak „K úhradě: 0,00 ✓" — obojí čte klient jako „zaplaťte 0 Kč".
         $inv = $this->positiveInvoice();
         $inv['status'] = 'paid';
         $inv['paid_total'] = $inv['amount_to_pay'];
+        $paid = (float) $inv['amount_to_pay'];
 
-        // Zakázaný řetězec a přesná kontrola řádku s částkou musí sedět per formát —
-        // '>Paid<' dává smysl jen v HTML, txt má "Paid:" (nález fixpoint review, 3. kolo).
         $cases = [
-            'cs' => ['html' => ['Uhrazeno', '~K úhradě</td>\s*<td[^>]*>\s*0,00 CZK\s*✓~u'], 'txt' => ['Uhrazeno:', '~K úhradě:\s+0,00 CZK ✓~u']],
-            'en' => ['html' => ['>Paid<', '~Amount due</td>\s*<td[^>]*>\s*0\.00 CZK\s*✓~u'], 'txt' => ['Paid:', '~Amount due:\s+0\.00 CZK ✓~u']],
+            'cs' => ['html' => ['K úhradě', '~Uhrazeno</td>\s*<td[^>]*>\s*' . preg_quote(number_format($paid, 2, ',', ' '), '~') . ' CZK ✓~u'],
+                     'txt' => ['K úhradě', '~Uhrazeno:\s+' . preg_quote(number_format($paid, 2, ',', ' '), '~') . ' CZK ✓~u']],
+            'en' => ['html' => ['Amount due', '~Paid</td>\s*<td[^>]*>\s*' . preg_quote(number_format($paid, 2, '.', ','), '~') . ' CZK ✓~u'],
+                     'txt' => ['Amount due', '~Paid:\s+' . preg_quote(number_format($paid, 2, '.', ','), '~') . ' CZK ✓~u']],
         ];
         foreach ($cases as $locale => $formats) {
             $vars = $this->container->get(InvoiceEmailVarsBuilder::class)->build($inv, true, $locale);
             self::assertTrue($vars['is_paid']);
             self::assertSame(0.0, $vars['amount_to_pay']);
+            self::assertEqualsWithDelta($paid, $vars['paid_amount'], 0.001);
 
             foreach ($formats as $format => [$forbiddenLabel, $amountLineRegex]) {
                 $body = $this->renderEmail("invoice_send.{$locale}.{$format}.twig", $vars);
                 self::assertStringNotContainsString($forbiddenLabel, $body);
+                self::assertStringNotContainsString('0,00 CZK', $body);
+                self::assertStringNotContainsString('0.00 CZK', $body);
                 self::assertMatchesRegularExpression($amountLineRegex, $body);
             }
         }
@@ -114,8 +118,8 @@ final class RefundInvoiceOutputsTest extends StockTestCase
         self::assertSame(0.0, $vars['amount_to_pay']);
 
         $body = $this->renderEmail('invoice_send.cs.html.twig', $vars);
-        self::assertStringContainsString('K úhradě', $body);
-        self::assertStringContainsString('0,00 CZK', $body);
+        self::assertStringContainsString('Uhrazeno', $body);
+        self::assertStringNotContainsString('K úhradě', $body);
         self::assertStringNotContainsString('0,03', $body);
     }
 
@@ -157,7 +161,8 @@ final class RefundInvoiceOutputsTest extends StockTestCase
 
         $body = $this->renderEmail('invoice_send.cs.html.twig', $vars);
         self::assertStringContainsString('Faktura již byla uhrazena', $body);
-        self::assertMatchesRegularExpression('~K úhradě</td>\s*<td[^>]*>\s*0,00 CZK~u', $body);
+        self::assertMatchesRegularExpression('~Uhrazeno</td>\s*<td[^>]*>\s*'
+            . preg_quote(number_format((float) $inv['amount_to_pay'], 2, ',', ' '), '~') . ' CZK ✓~u', $body);
     }
 
     public function testSmallOverpaymentWithinToleranceShowsZeroNotNegative(): void

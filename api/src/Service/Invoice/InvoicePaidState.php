@@ -45,6 +45,25 @@ final class InvoicePaidState
         return self::isEffectivelyPaid($invoice) ? 0.0 : self::remaining($invoice);
     }
 
+    /**
+     * Uhrazená částka pro výstup „Uhrazeno ✓" — evidované platby, u staršího dokladu
+     * bez plateb částka k úhradě, u konečné faktury ze zaplacené zálohy (amount_to_pay 0)
+     * celková částka dokladu.
+     *
+     * @param array<string,mixed> $invoice
+     */
+    public static function paidAmount(array $invoice): float
+    {
+        foreach (['paid_total', 'amount_to_pay', 'total_with_vat'] as $key) {
+            $value = round((float) ($invoice[$key] ?? 0), 2);
+            if (abs($value) >= 0.005) {
+                return $value;
+            }
+        }
+
+        return 0.0;
+    }
+
     /** @param array<string,mixed> $invoice */
     private static function remaining(array $invoice): float
     {

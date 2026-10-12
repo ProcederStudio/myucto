@@ -128,6 +128,8 @@ final class InvoiceEmailVarsBuilder
             'invoice'        => $invoice,
             'client_name'    => $invoice['client_company_name'] ?? '',
             'amount_to_pay'  => $amount,
+            // Zaplacená faktura ukazuje „Uhrazeno" se zaplacenou částkou, ne „K úhradě 0,00".
+            'paid_amount'    => InvoicePaidState::paidAmount($invoice),
             'payment_varsymbol' => VariableSymbolNormalizer::forInvoicePayment($invoice),
             'is_test'        => $isTest,
             'subject'        => $clientSubject ?? $this->buildSubject($invoice, $isTest, $locale),
