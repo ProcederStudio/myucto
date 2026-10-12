@@ -957,6 +957,7 @@ function toggleItemDetails(it: PurchaseInvoiceItem) {
   if (itemDetailsOpen.has(it)) itemDetailsOpen.delete(it)
   else itemDetailsOpen.add(it)
 }
+const vatClassHintOpen = ref(false)
 const itemsDifferFromHeader = computed(() => form.value.items.some(itemClassDiffers))
 function applyHeaderClassificationToItems() {
   const code = form.value.vat_classification_code
@@ -2605,7 +2606,11 @@ function fieldErr(key: string): string | null {
                 {{ t('purchase_invoice.classification.apply_to_items') }}
               </button>
             </div>
-            <p class="text-xs text-neutral-500 mt-1">{{ t('purchase_invoice.classification.vat_classification_hint') }}</p>
+            <button type="button" class="mt-1 text-xs text-primary-600 hover:underline" :aria-expanded="vatClassHintOpen"
+              data-test="vat-classification-hint-toggle" @click="vatClassHintOpen = !vatClassHintOpen">
+              {{ vatClassHintOpen ? t('purchase_invoice.classification.vat_classification_less') : t('purchase_invoice.classification.vat_classification_more') }}
+            </button>
+            <p v-if="vatClassHintOpen" class="text-xs text-neutral-500 mt-1">{{ t('purchase_invoice.classification.vat_classification_hint') }}</p>
           </div>
           <div>
             <label class="block text-xs text-neutral-500 mb-1">{{ t('purchase_invoice.classification.vat_deduction') }}</label>

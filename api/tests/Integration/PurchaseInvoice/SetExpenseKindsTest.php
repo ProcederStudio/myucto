@@ -225,6 +225,35 @@ final class SetExpenseKindsTest extends TestCase
         self::assertSame(250.0, (float) ($amounts['518.987650'] ?? 0));
     }
 
+    /** Issue #150: členění DPH jedné položky bez druhu nákladu, provenience automatu zůstává. */
+    public function testChangesVatClassificationOfSingleItem(): void
+    {
+        [$id, $first, $second] = $this->createInvoice();
+        $pdo = $this->db->pdo();
+        $pdo->prepare("UPDATE purchase_invoice_items SET vat_classification_code = '23', expense_kind = 'service',
+                          expense_classification_source = 'rule' WHERE purchase_invoice_id = ?")->execute([$id]);
+
+        $res = $this->put($id, ['items' => [['id' => $first, 'vat_classification_code' => '24e']]]);
+        self::assertSame(200, $res['status'], json_encode($res['body'], JSON_UNESCAPED_UNICODE));
+
+        $rows = $this->items($id);
+        self::assertSame(['24e', 'service', 'rule'], [
+            $rows[$first]['vat_classification_code'], $rows[$first]['expense_kind'], $rows[$first]['expense_classification_source'],
+        ]);
+        self::assertSame('23', $rows[$second]['vat_classification_code'], 'Ostatní položky se nemění.');
+    }
+
+    public function testRejectsUnknownOrEmptyVatClassification(): void
+    {
+        [$id, $item] = $this->createInvoice();
+        $before = $this->items($id)[$item]['vat_classification_code'];
+        foreach (['ZZZ', '', null, 21] as $code) {
+            $res = $this->put($id, ['items' => [['id' => $item, 'vat_classification_code' => $code]]]);
+            self::assertSame(400, $res['status'], json_encode($res['body'], JSON_UNESCAPED_UNICODE));
+        }
+        self::assertSame($before, $this->items($id)[$item]['vat_classification_code']);
+    }
+
     public function testRejectsInvalidKindAndForeignItem(): void
     {
         [$id, $item] = $this->createInvoice();
@@ -415,7 +444,8 @@ final class SetExpenseKindsTest extends TestCase
     private function items(int $id): array
     {
         $stmt = $this->db->pdo()->prepare(
-            'SELECT id, expense_kind, is_fixed_asset, expense_account_code, expense_classification_source, expense_rule_id
+            'SELECT id, expense_kind, is_fixed_asset, expense_account_code, expense_classification_source, expense_rule_id,
+                    vat_classification_code
                FROM purchase_invoice_items WHERE purchase_invoice_id = ? ORDER BY order_index, id'
         );
         $stmt->execute([$id]);

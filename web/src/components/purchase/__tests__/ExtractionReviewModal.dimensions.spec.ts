@@ -9,6 +9,7 @@ const m = vi.hoisted(() => ({
   setExpenseKinds: vi.fn(),
   expenseSuggestions: vi.fn(),
   listAccounts: vi.fn(),
+  vatClassifications: vi.fn(),
   dismiss: vi.fn(),
   toastWarning: vi.fn(),
   requiresApproval: false,
@@ -43,6 +44,7 @@ vi.mock('@/api/purchaseInvoices', () => ({
   },
 }))
 vi.mock('@/api/accounting', () => ({ accountingApi: { listAccounts: () => m.listAccounts() } }))
+vi.mock('@/api/vatClassifications', () => ({ vatClassificationsApi: { list: (...args: unknown[]) => m.vatClassifications(...args) } }))
 vi.mock('@/api/dimensions', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/api/dimensions')>()),
   dimensionsApi: {
@@ -106,6 +108,10 @@ describe('ExtractionReviewModal — dimenze', () => {
     m.setExpenseKinds.mockReset()
     m.expenseSuggestions.mockReset().mockResolvedValue({ items: {} })
     m.listAccounts.mockReset().mockResolvedValue([])
+    m.vatClassifications.mockReset().mockResolvedValue([
+      { id: 1, code: '23', label: 'Pořízení zboží z EU', supplier_id: null },
+      { id: 2, code: '24e', label: 'Přijetí služby z EU', supplier_id: null },
+    ])
     m.dismiss.mockReset().mockImplementation((id: number) => Promise.resolve({ ...m.invoices[id], extraction_warning: null }))
     m.toastWarning.mockReset()
     m.requiresApproval = false
@@ -134,6 +140,32 @@ describe('ExtractionReviewModal — dimenze', () => {
     await flushPromises()
 
     expect(m.setExpenseKinds).toHaveBeenCalledWith(2, [{ id: 102, expense_kind: 'service', expense_account_code: '518.200' }])
+  })
+
+  it('u přenesené povinnosti uloží změnu členění DPH jen u změněné položky (issue #150)', async () => {
+    m.invoices = { 2: invoice(2, {
+      reverse_charge: true,
+      items: [
+        { id: 102, order_index: 0, description: 'Kampaň', quantity: 1, unit_price_without_vat: 1000, expense_kind: 'service', vat_classification_code: '23' },
+        { id: 103, order_index: 1, description: 'Krabice', quantity: 1, unit_price_without_vat: 100, expense_kind: 'material', vat_classification_code: '23' },
+      ],
+    }) }
+    m.setExpenseKinds.mockResolvedValue(m.invoices[2])
+    const wrapper = await mountModal([2], false)
+
+    const selects = wrapper.findAll('[data-test="review-item-vat-classification"]')
+    expect(selects).toHaveLength(2)
+    await selects[0].setValue('24e')
+    await saveButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(m.setExpenseKinds).toHaveBeenCalledWith(2, [{ id: 102, expense_kind: 'service', vat_classification_code: '24e' }])
+  })
+
+  it('bez přenesené povinnosti členění DPH nenabízí', async () => {
+    m.invoices = { 2: invoice(2) }
+    const wrapper = await mountModal([2], false)
+    expect(wrapper.find('[data-test="review-item-vat-classification"]').exists()).toBe(false)
   })
 
   it('schvalování dimenze kontrolu nevynucuje: koncept bez hlášení a bez střediska se nepřidá', async () => {

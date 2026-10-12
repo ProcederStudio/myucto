@@ -103,7 +103,9 @@ v sekci **Originální PDF od dodavatele**.
 3. Je-li doklad v režimu přenesené daňové povinnosti, zaškrtněte **Reverse charge** a postupujte podle
    [§ 23.11.10](#231110-reverse-charge-z-eu-porizeni-zbozi-vs-sluzba).
 4. U položek vyberte **Druh nákladu** (**Služba**, **Materiál**, **Drobný majetek**, **Drobný nehmotný majetek**,
-   **Dlouhodobý majetek**).
+   **Dlouhodobý majetek**). Šipka za druhem nákladu rozbalí podrobnosti položky: **Nákladový účet** a **Členění DPH**.
+   Do výkazů DPH jde členění položky. Liší-li se od hlavičky, je to u položky vidět a u hlavičky se nabídne
+   **Použít na všechny položky**; změna hlavičky sama položky nepřepíše.
 5. V boxu **Rekapitulace DPH** zkontrolujte základ a daň za každou sazbu. Pokud doklad dodavatele
    uvádí kvůli zaokrouhlení jiné částky, přepište je podle dokladu.
 6. V detailu klikněte na **Označit jako přijaté**.
@@ -516,7 +518,7 @@ je**, výsledný nákladový nebo majetkový účet je osa **kam se účtuje**. 
 ale pravidlo může navrhnout účet 548 místo obecného 518. Výslednou kontaci vždy zkontrolujte při zaúčtování dokladu nebo
 v Automatu.
 
-V editoru i v okně kontroly vytěžení lze u každé položky vybrat **Nákladový účet** z aktivních účtů třídy 5,
+V editoru (v podrobnostech položky za šipkou u druhu nákladu) i v okně kontroly vytěžení lze u každé položky vybrat **Nákladový účet** z aktivních účtů třídy 5,
 například 518.100 pro grafické služby a 518.200 pro hosting. U dlouhodobého majetku se nabízejí účty třídy 0.
 Dříve uložený účet zůstává zachovaný. Bez vlastního účtu se účet odvodí z druhu nákladu.
 Má-li syntetický účet více způsobilých analytik, aplikace z nich sama první nevybere. Konkrétní analytiku určí účet
@@ -708,6 +710,9 @@ Klíčové principy:
   s tím, co máte zadané, a když se rozejdou, upozorní. Prázdné datum dodání znamená, že § 25 nelze ověřit, a doklad to řekne
   nahlas místo toho, aby si datum domyslel.
 - **AI import tohle vše nastaví sám**, viz [AI extrakce](25_AI_extrakce.md).
+- **Ruční zadání a strukturované importy** odvodí kód položky z jejího druhu nákladu: skladová karta, materiál a drobný
+  hmotný majetek jsou zboží (z EU 23, ze 3. země 25), ostatní položky služba (z EU 24e, ze 3. země 24). Kód položky jde
+  vždy změnit v jejích podrobnostech v editoru.
 
 > [!WARNING]
 > U **vybraných osobních automobilů** pohlídejte limit odpočtu dle § 72 (strop základu 2 000 000 Kč a DPH 420 000 Kč).

@@ -903,7 +903,7 @@ export const purchaseInvoicesApi = {
       .then(r => r.data),
 
   /** Druh nákladu po položkách — kontrolní okno po AI importu, i u zaplaceného dokladu. */
-  setExpenseKinds: (id: number, items: { id: number; expense_kind: ExpenseKind | null; expense_account_code?: string | null }[]) =>
+  setExpenseKinds: (id: number, items: { id: number; expense_kind: ExpenseKind | null; expense_account_code?: string | null; vat_classification_code?: string }[]) =>
     api.put<PurchaseInvoice & { _repost?: { entry_id: number } }>(`/purchase-invoices/${id}/expense-kinds`, { items })
       .then(r => r.data),
 

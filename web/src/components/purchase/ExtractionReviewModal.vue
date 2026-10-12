@@ -15,6 +15,7 @@ import {
   type ExtractionExpenseKindProposal,
   type PurchaseInvoice,
 } from '@/api/purchaseInvoices'
+import { vatClassificationsApi, type VatClassification } from '@/api/vatClassifications'
 import { apiErrorMessage } from '@/api/errors'
 import { formatDate, formatMoney } from '@/composables/useFormat'
 import { useToast } from '@/composables/useToast'
@@ -75,6 +76,11 @@ const loading = ref(true)
 const saving = ref(false)
 const kinds = reactive<Record<number, ExpenseKind | null>>({})
 const accounts = reactive<Record<number, string | null>>({})
+/** Členění DPH položek (issue #150): AI určí zboží/službu jednou za doklad, u přenesené
+ * povinnosti ho tu jde opravit po položkách. */
+const vatCodes = reactive<Record<number, string | null>>({})
+const vatClassifications = ref<VatClassification[]>([])
+const showVatCodes = computed(() => !!invoice.value?.reverse_charge && vatClassifications.value.length > 0)
 const accountingAccounts = ref<ChartAccount[]>([])
 const expenseAccounts = computed(() => purchaseExpenseAccountOptions(accountingAccounts.value))
 const assetAccounts = computed(() => purchaseExpenseAccountOptions(accountingAccounts.value, 'fixed_asset'))
@@ -133,9 +139,11 @@ const readOnlyReason = computed<string | null>(() => {
 function resetKinds(): void {
   for (const k of Object.keys(kinds)) delete kinds[Number(k)]
   for (const k of Object.keys(accounts)) delete accounts[Number(k)]
+  for (const k of Object.keys(vatCodes)) delete vatCodes[Number(k)]
   for (const it of items.value) {
     kinds[it.id as number] = it.expense_kind ?? null
     accounts[it.id as number] = it.expense_account_code ?? null
+    vatCodes[it.id as number] = it.vat_classification_code ?? null
   }
 }
 
@@ -315,12 +323,16 @@ async function save(): Promise<void> {
   saving.value = true
   try {
     let updated: PurchaseInvoice = inv
+    const vatChanged = (it: { id?: number; vat_classification_code?: string | null }) =>
+      !!vatCodes[it.id as number] && (it.vat_classification_code ?? null) !== vatCodes[it.id as number]
     const changed = items.value
       .filter((it) => (it.expense_kind ?? null) !== kinds[it.id as number]
-        || (it.expense_account_code ?? null) !== (accounts[it.id as number]?.trim() || null))
+        || (it.expense_account_code ?? null) !== (accounts[it.id as number]?.trim() || null)
+        || vatChanged(it))
       .map((it) => ({ id: it.id as number, expense_kind: kinds[it.id as number] ?? null,
         ...((it.expense_account_code ?? null) !== (accounts[it.id as number]?.trim() || null)
           ? { expense_account_code: accounts[it.id as number]?.trim() || null } : {}),
+        ...(vatChanged(it) ? { vat_classification_code: vatCodes[it.id as number] as string } : {}),
       }))
     // Odrážky hlášení u řádků, které teď druh mají, odebere backend sám.
     if (changed.length && !readOnlyReason.value) {
@@ -406,6 +418,7 @@ onMounted(async () => {
   if (!auth.isClientRole) {
     void accountingApi.listAccounts().then(result => { accountingAccounts.value = result }).catch(() => {})
   }
+  void vatClassificationsApi.list('purchase').then(result => { vatClassifications.value = result }).catch(() => {})
   try {
     const loaded = (await Promise.all(props.invoiceIds.map((id) => purchaseInvoicesApi.get(id).catch(() => null))))
       .filter((inv): inv is PurchaseInvoice => inv !== null)
@@ -523,6 +536,15 @@ onMounted(async () => {
             <ChartAccountSelect v-if="accountsForExpenseKind(kinds[it.id as number]).length && !auth.isClientRole" v-model="accounts[it.id as number]"
               class="w-full sm:w-56 shrink-0" compact :accounts="accountsForExpenseKind(kinds[it.id as number])" :disabled="!!readOnlyReason"
               :aria-label="t('purchase_invoice.items.expense_account')" />
+            <select v-if="showVatCodes" v-model="vatCodes[it.id as number]" :disabled="!!readOnlyReason"
+              :aria-label="t('purchase_invoice.items.vat_classification')" :title="t('purchase_invoice.items.vat_classification')"
+              data-test="review-item-vat-classification"
+              class="w-full sm:w-56 shrink-0 rounded-md border border-neutral-300 px-2 py-1.5 text-sm bg-surface disabled:opacity-60">
+              <option v-if="!vatCodes[it.id as number]" :value="null" disabled>{{ t('purchase_invoice.items.vat_classification') }}</option>
+              <option v-for="vc in vatClassifications" :key="vc.id" :value="vc.code">
+                {{ vc.code }} - {{ vc.label.length > 40 ? vc.label.slice(0, 40) + '…' : vc.label }}
+              </option>
+            </select>
             <ItemDimensionsToggle v-if="dimsShown" class="self-end sm:self-auto"
               :open="openItemDims.has(it.id as number)" :filled="Object.values(itemDims(it.id)).some(v => !!v)"
               :disabled="!dimsEditable" @toggle="toggleItemDims(it.id)" />

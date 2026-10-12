@@ -306,6 +306,8 @@ Když extraktor detekuje **reverse charge** (zahraniční dodavatel a všechny �
   a k němu se naváže **kurz ČNB**, pozdě vystavená faktura tak spadne do správného období DPH.
 - Do dokladu se zapíše **informační varování** s rekapitulací, co se nastavilo. Zkontrolujte hlavně zboží vs. služba a případně
   změňte kód (zboží 23 nebo 25, služba 24 nebo 24e).
+- Povahu plnění AI určuje **za celý doklad**, všechny položky tedy dostanou stejný kód. U smíšeného dokladu (zboží i služba)
+  změňte kód jednotlivé položky v okně kontroly vytěžení nebo v editoru v podrobnostech položky (šipka za druhem nákladu).
 
 Detail daňové logiky viz [§ 23.11.10](23_Prijate_faktury.md#231110-reverse-charge-z-eu-porizeni-zbozi-vs-sluzba).
 
@@ -330,6 +332,8 @@ seznam vyfiltrovaný na tuto dávku. Tam lze vybraným dokladům změnit typ hro
 - Prázdné typy dimenzí v sekci **Dimenze dokladu** se předvyplní výchozími dimenzemi dodavatele a zakázky a co zbude, návrhem
   z posledního dokladu téhož dodavatele. Předvyplněná hodnota je označená **Návrh** i se zdrojem.
 - U návrhu druhu nákladu je jistota a zdůvodnění.
+- U dokladu v režimu přenesené daňové povinnosti nabízí okno u každé položky i **členění DPH** (například 24e místo 23).
+  Změna se týká jen vybrané položky, částky ani druh nákladu nemění a platí pro ni stejná pravidla jako pro druh nákladu.
 
 ### 25.9.13 Poskytovatelé AI a jejich nastavení
 

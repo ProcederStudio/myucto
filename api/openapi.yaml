@@ -26030,10 +26030,14 @@ paths:
         deník, takže je to účetní úkon: přes API token vrací 403 `token_write_forbidden`.
         Nezaúčtovaný doklad (typicky kontrola po importu) token klasifikovat smí.
 
-        V každém prvku `items[]` je klíč `expense_kind` povinný (hodnota může být `null`). Chybí-li,
-        vrací 400 `validation_failed`.
+        V každém prvku `items[]` je klíč `expense_kind` povinný (hodnota může být `null`), pokud
+        prvek nemění jen členění DPH. Chybí-li, vrací 400 `validation_failed`.
         Volitelný `expense_account_code` nastaví aktivní nákladový účet firmy, včetně analytiky.
         Explicitní `null` účet smaže; při vynechání se uplatní pravidla změny druhu nákladu.
+        Volitelný `vat_classification_code` změní členění DPH položky (kód z číselníku přijatých
+        plnění firmy, např. `24e` místo `23`). Smazat ho nejde; neznámý kód vrací 400. Druh nákladu
+        ani částky se tím nemění. Platí stejná pravidla jako pro druh nákladu: zámek období,
+        u zaúčtovaného dokladu přeúčtování a zákaz pro API token.
       requestBody:
         required: true
         content:
@@ -45481,11 +45485,15 @@ components:
             type: object
             required:
             - id
-            - expense_kind
+            description: "Klíč `expense_kind` je povinný, pokud prvek nenese jen `vat_classification_code`."
             properties:
               expense_account_code:
                 type: [string, "null"]
                 description: "Aktivní nákladový účet firmy; NULL odstraní vlastní účet položky."
+              vat_classification_code:
+                type: string
+                minLength: 1
+                description: "Členění DPH položky z číselníku přijatých plnění firmy (např. 24e)."
               id:
                 type: integer
                 minimum: 1

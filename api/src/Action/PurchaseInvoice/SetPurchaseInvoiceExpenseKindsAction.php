@@ -28,7 +28,12 @@ use Psr\Http\Message\ServerRequestInterface as Request;
 /**
  * PUT /api/purchase-invoices/{id}/expense-kinds — druh nákladu po položkách.
  *
- * Body: { items: [{ id: number, expense_kind: string|null, expense_account_code?: string|null }] }
+ * Body: { items: [{ id: number, expense_kind?: string|null, expense_account_code?: string|null,
+ *                  vat_classification_code?: string }] }
+ *
+ * `vat_classification_code` mění členění DPH položky (issue #150): AI určí povahu plnění
+ * jednou za celý doklad, smíšený doklad se zbožím i službou se opravuje tady. Prvek, který
+ * mění jen členění, nemusí nést `expense_kind`.
  *
  * Kontrolní okno po AI importu potvrzuje návrhy druhu nákladu faktura po faktuře.
  * Plný PUT by musel poslat celý doklad (a u zaplaceného dokladu z importu je navíc
@@ -124,9 +129,25 @@ final class SetPurchaseInvoiceExpenseKindsAction
             }
         }
         $changes = [];
+        $vatChanges = [];
         foreach ($requested as $itemId => $classification) {
             if (!isset($current[$itemId])) {
                 return Json::error($response, 'invalid_reference', 'Položka nepatří k tomuto dokladu.', 400);
+            }
+            if (array_key_exists('vat_classification_code', $classification)) {
+                $vatTo = $classification['vat_classification_code'];
+                if (!$this->isPurchaseClassification($supplierId, $vatTo)) {
+                    return Json::error($response, 'validation_failed', 'Neznámé členění DPH přijatého plnění.', 400, [
+                        'fields' => ['items' => "Členění DPH '{$vatTo}' není v číselníku přijatých plnění firmy."],
+                    ]);
+                }
+                $vatFrom = ($current[$itemId]['vat_classification_code'] ?? null) ?: null;
+                if ($vatFrom !== $vatTo) {
+                    $vatChanges[$itemId] = ['from' => $vatFrom, 'to' => $vatTo];
+                }
+            }
+            if (!array_key_exists('expense_kind', $classification)) {
+                continue;
             }
             $from = ($current[$itemId]['expense_kind'] ?? null) ?: null;
             $kind = $classification['expense_kind'];
@@ -147,7 +168,7 @@ final class SetPurchaseInvoiceExpenseKindsAction
                 $changes[$itemId] = ['from' => $from, 'to' => $kind, 'account_from' => $accountFrom, 'account_to' => $account];
             }
         }
-        if ($changes === []) {
+        if ($changes === [] && $vatChanges === []) {
             $this->reviewSync->afterItemsChanged($supplierId, $id);
             return Json::ok($response, $this->repo->find($id, $supplierId) ?? $existing);
         }
@@ -171,6 +192,13 @@ final class SetPurchaseInvoiceExpenseKindsAction
             foreach ($changes as $itemId => $change) {
                 $stmt->execute([$change['to'], $change['to'] === ExpenseKind::FixedAsset->value ? 1 : 0,
                     $change['account_to'], $itemId, $id]);
+            }
+            // Členění DPH je samostatná volba: provenienci druhu nákladu nemaže.
+            $vatStmt = $pdo->prepare(
+                'UPDATE purchase_invoice_items SET vat_classification_code = ? WHERE id = ? AND purchase_invoice_id = ?'
+            );
+            foreach ($vatChanges as $itemId => $change) {
+                $vatStmt->execute([$change['to'], $itemId, $id]);
             }
             // Odrážky hlášení u řádků, které teď druh mají, zmizí (týž háček jako replaceItems).
             $this->reviewSync->afterItemsChanged($supplierId, $id);
@@ -213,6 +241,7 @@ final class SetPurchaseInvoiceExpenseKindsAction
 
         $this->logger->log('purchase_invoice.expense_kinds_set', $user['id'] ?? null, 'purchase_invoice', $id, [
             'changes'          => $changes,
+            'vat_changes'      => $vatChanges,
             'reposted_entry_id' => $repostedEntryId,
         ], $ip, $request->getHeaderLine('User-Agent'));
 
@@ -223,7 +252,19 @@ final class SetPurchaseInvoiceExpenseKindsAction
         return Json::ok($response, $invoice);
     }
 
-    /** @return array<int, array{expense_kind:?string, expense_account_code?:?string}>|null */
+    private function isPurchaseClassification(int $supplierId, string $code): bool
+    {
+        $stmt = $this->db->pdo()->prepare(
+            "SELECT 1 FROM vat_classifications
+              WHERE code = ? AND archived = 0 AND direction IN ('purchase','both')
+                AND (supplier_id IS NULL OR supplier_id = ?)
+              LIMIT 1"
+        );
+        $stmt->execute([$code, $supplierId]);
+        return $stmt->fetchColumn() !== false;
+    }
+
+    /** @return array<int, array{expense_kind?:?string, expense_account_code?:?string, vat_classification_code?:string}>|null */
     private static function parseItems(mixed $items): ?array
     {
         if (!is_array($items) || $items === []) {
@@ -231,10 +272,25 @@ final class SetPurchaseInvoiceExpenseKindsAction
         }
         $out = [];
         foreach ($items as $item) {
-            // Bez klíče expense_kind by se druh tiše smazal — vymazání je explicitní null.
-            if (!is_array($item) || !isset($item['id']) || (int) $item['id'] <= 0
-                || !array_key_exists('expense_kind', $item)) {
+            if (!is_array($item) || !isset($item['id']) || (int) $item['id'] <= 0) {
                 return null;
+            }
+            // Členění DPH položky (issue #150) je volitelné; vymazat ho nejde, výkazy ho potřebují.
+            $vat = null;
+            if (array_key_exists('vat_classification_code', $item)) {
+                $vat = is_string($item['vat_classification_code']) ? trim($item['vat_classification_code']) : '';
+                if ($vat === '') {
+                    return null;
+                }
+            }
+            // Bez klíče expense_kind by se druh tiše smazal — vymazání je explicitní null.
+            // Prvek, který mění jen členění DPH, druh nákladu nese nemusí.
+            if (!array_key_exists('expense_kind', $item)) {
+                if ($vat === null) {
+                    return null;
+                }
+                $out[(int) $item['id']] = ['vat_classification_code' => $vat];
+                continue;
             }
             $raw = $item['expense_kind'] ?? null;
             $kind = ($raw === null || $raw === '') ? null : ExpenseKind::tryFrom((string) $raw);
@@ -248,6 +304,9 @@ final class SetPurchaseInvoiceExpenseKindsAction
                     return null;
                 }
                 $classification['expense_account_code'] = $account === null ? null : (trim($account) ?: null);
+            }
+            if ($vat !== null) {
+                $classification['vat_classification_code'] = $vat;
             }
             $out[(int) $item['id']] = $classification;
         }
