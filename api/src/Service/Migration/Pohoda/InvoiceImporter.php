@@ -188,7 +188,8 @@ final class InvoiceImporter
                 continue;
             }
             $taxDate = PohodaXml::date($h, 'dateTax') ?? PohodaXml::date($h, 'date');
-            if ($taxDate === null || (int) substr($taxDate, 0, 4) !== $ctx->year()) {
+            // Doklady účetního období agendy (u hospodářského roku přes přelom kalendářního roku).
+            if ($taxDate === null || $ctx->calendar->fiscalYearOfDate($taxDate) !== $ctx->year()) {
                 $p->count(self::STEP_INTERNAL, 'previous_years');
                 continue;
             }
@@ -1180,7 +1181,7 @@ final class InvoiceImporter
             return;
         }
         $earliest = max((string) ($doc['tax'] ?? $doc['issue']), (string) $doc['issue']);
-        $claim = max($claim, (string) ($ctx->period['starts_on'] ?? sprintf('%04d-01-01', $ctx->year())));
+        $claim = max($claim, $ctx->periodStart());
         if ($claim >= $earliest || substr($claim, 0, 7) === substr($earliest, 0, 7)) {
             return;
         }
@@ -1194,8 +1195,7 @@ final class InvoiceImporter
     /** @param array<string,mixed> $doc */
     private function isPreviousPeriod(PohodaContext $ctx, array $doc): bool
     {
-        $start = $ctx->period['starts_on'] ?? sprintf('%04d-01-01', $ctx->year());
-        return (string) $doc['accounting'] < $start;
+        return (string) $doc['accounting'] < $ctx->periodStart();
     }
 
     /**

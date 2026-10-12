@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MyInvoice\Service\Migration\Pohoda;
 
+use MyInvoice\Service\Accounting\FiscalCalendar;
 use MyInvoice\Service\Migration\MoneyS3\ImportProtocol;
 
 /**
@@ -109,6 +110,14 @@ final class PohodaContext
     /** @var (callable(string,int,int):void)|null */
     public $progress = null;
 
+    /**
+     * Kalendář účetního roku firmy a období agendy v něm ({@see PohodaAgendaYear}). Bez
+     * něj (kroky volané samostatně) kalendářní rok s rokem agendy ze složky exportu.
+     */
+    public FiscalCalendar $calendar;
+
+    public ?PohodaAgendaYear $agendaYear = null;
+
     public function __construct(
         public readonly int $supplierId,
         public readonly int $userId,
@@ -116,18 +125,42 @@ final class PohodaContext
         public readonly PohodaVat $vat,
         public readonly bool $dryRun,
         public readonly ImportProtocol $protocol,
-    ) {}
-
-    public function year(): int
-    {
-        return $this->export->year;
+    ) {
+        $this->calendar = FiscalCalendar::calendar();
     }
 
-    /** Datum padá do roku po roce agendy, který se nepřevádí ({@see $skippedYears}). */
+    public function useAgendaYear(PohodaAgendaYear $agendaYear): void
+    {
+        $this->agendaYear = $agendaYear;
+        $this->calendar = $agendaYear->calendar;
+    }
+
+    /** Label účetního období firmy, do kterého agenda patří (u kalendářní firmy rok agendy). */
+    public function year(): int
+    {
+        return $this->agendaYear?->label ?? $this->export->year;
+    }
+
+    /** První den období agendy. */
+    public function periodStart(): string
+    {
+        return (string) ($this->period['starts_on'] ?? $this->calendar->periodStart($this->year()));
+    }
+
+    /** Poslední den období agendy. */
+    public function periodEnd(): string
+    {
+        return (string) ($this->period['ends_on'] ?? $this->calendar->periodEnd($this->year()));
+    }
+
+    /** Datum padá do období po období agendy, které se nepřevádí ({@see $skippedYears}). */
     public function skipsDate(?string $date): bool
     {
-        $year = (int) substr($date ?? '', 0, 4);
-        return $year > $this->export->year && isset($this->skippedYears[$year]);
+        if ($this->skippedYears === [] || $date === null || preg_match('/^\d{4}-\d{2}-\d{2}/', $date) !== 1) {
+            return false;
+        }
+        $year = $this->calendar->fiscalYearOfDate(substr($date, 0, 10));
+        return $year > $this->year() && isset($this->skippedYears[$year]);
     }
 
     /** @return list<int> */

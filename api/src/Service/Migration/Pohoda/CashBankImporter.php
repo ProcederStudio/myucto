@@ -91,7 +91,7 @@ final class CashBankImporter
             'INSERT INTO cash_document_vat_lines (cash_document_id, vat_rate, base_amount, vat_amount, vat_deduction, is_fixed_asset) VALUES (?, ?, ?, ?, ?, ?)'
         );
 
-        $periodStart = (string) ($ctx->period['starts_on'] ?? sprintf('%04d-01-01', $ctx->year()));
+        $periodStart = $ctx->periodStart();
         foreach ($vouchers as $r) {
             $h = PohodaXml::get($r, 'voucherHeader');
             $number = PohodaXml::text($h, 'number/numberRequested');
@@ -226,7 +226,7 @@ final class CashBankImporter
         $byStatement = [];
         $openingDocs = [];
         $count = 0;
-        $periodStart = (string) ($ctx->period['starts_on'] ?? sprintf('%04d-01-01', $ctx->year()));
+        $periodStart = $ctx->periodStart();
         foreach ($ctx->export->records('bank', 'bank') as $r) {
             $h = PohodaXml::get($r, 'bankHeader');
             $code = PohodaXml::text($h, 'account/ids') ?: 'BANKA';
@@ -297,7 +297,7 @@ final class CashBankImporter
                 }
                 $dates = array_filter($dates);
                 sort($dates);
-                $lastDate = $dates[count($dates) - 1] ?? sprintf('%04d-12-31', $ctx->year());
+                $lastDate = $dates[count($dates) - 1] ?? $ctx->calendar->periodEnd($ctx->year());
 
                 $mapKey = 'stmt|' . $code . '|' . $ctx->year() . '|' . $statementNo;
                 $statementId = $existingStatements[$mapKey] ?? null;

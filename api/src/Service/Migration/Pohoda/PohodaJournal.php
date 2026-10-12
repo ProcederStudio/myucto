@@ -62,7 +62,9 @@ final class PohodaJournal
 
     /**
      * Rok po roce agendy, do kterého řádek deníku padá (agenda POHODY vede doklady i po
-     * 31. 12.). `null` = řádek roku agendy, počáteční stavy nebo uzávěrka.
+     * 31. 12.). `null` = řádek roku agendy, počáteční stavy nebo uzávěrka. Kalendářní rok
+     * pro náhled exportu (firma ještě není známá); převod do firmy počítá pozdější období
+     * podle jejího kalendáře ({@see PohodaAgendaYear::laterYear()}).
      */
     public static function laterYear(array $item, int $agendaYear): ?int
     {

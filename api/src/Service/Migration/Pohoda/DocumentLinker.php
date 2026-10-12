@@ -7,6 +7,7 @@ namespace MyInvoice\Service\Migration\Pohoda;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\PohodaImportRepository;
 use MyInvoice\Service\Accounting\Activation\OpeningBalanceDocuments;
+use MyInvoice\Service\Accounting\FiscalCalendar;
 use MyInvoice\Service\Migration\MoneyS3\ImportProtocol;
 use MyInvoice\Service\Migration\Shared\JournalEntryLinker;
 use PDO;
@@ -136,7 +137,7 @@ final class DocumentLinker
         $txMatches = $pdo->prepare('SELECT id FROM payment_matches WHERE supplier_id = ? AND bank_transaction_id = ?');
         // Párování, která založil převod (tento i dřívější běh) - ostatní přidal uživatel.
         $fromPohoda = array_fill_keys(array_map('intval', array_values($existing)), true);
-        $start = $ctx->period['starts_on'] ?? sprintf('%04d-01-01', $ctx->year());
+        $start = $ctx->periodStart();
         $cashLink = $pdo->prepare('SELECT invoice_id, purchase_invoice_id FROM cash_documents WHERE id = ? AND supplier_id = ?');
         $cashMulti = [];
 
@@ -305,7 +306,7 @@ final class DocumentLinker
     {
         // Jen deník téže agendy: číselná řada banky se v POHODĚ opakuje po letech a pohyb
         // zaúčtovaný v jiné agendě by jinak vypadal jako zaúčtovaný i tady.
-        $booked = $this->journalIndex($ctx->supplierId, $ctx->year())[PohodaJournal::BANK] ?? [];
+        $booked = $this->journalIndex($ctx->supplierId, $ctx->year(), $ctx->calendar)[PohodaJournal::BANK] ?? [];
         $ids = ['booked' => [], 'unbooked' => []];
         foreach ($ctx->bankTransactions as $number => $txs) {
             foreach ($txs as $tx) {
@@ -321,9 +322,10 @@ final class DocumentLinker
      *
      * @return array<string,array<string,list<array{date:string,id:int}>>>
      */
-    private function journalIndex(int $supplierId, ?int $year = null): array
+    private function journalIndex(int $supplierId, ?int $year = null, ?FiscalCalendar $calendar = null): array
     {
         $index = [];
+        $yearStart = $year !== null ? ($calendar ?? FiscalCalendar::calendar())->periodStart($year) : '';
         foreach ($this->map->all($supplierId, PohodaImportRepository::KIND_JOURNAL_ENTRY) as $key => $entryId) {
             $parts = explode('|', (string) $key);
             if (count($parts) < 4 || $parts[2] === '') {
@@ -332,7 +334,7 @@ final class DocumentLinker
             // Deník agendy vede i doklady po konci jejího roku, takže zápis roku `$year`
             // mohla přinést už agenda minulého roku.
             if ($year !== null && (int) $parts[0] !== $year
-                && !((int) $parts[0] === $year - 1 && ($parts[3] ?? '') >= sprintf('%04d-01-01', $year))) {
+                && !((int) $parts[0] === $year - 1 && ($parts[3] ?? '') >= $yearStart)) {
                 continue;
             }
             [, $source, $number, $date] = $parts;

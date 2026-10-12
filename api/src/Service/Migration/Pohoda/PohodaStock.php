@@ -164,10 +164,12 @@ final class PohodaStock
     /**
      * Den, ke kterému stav platí: den exportu, nebo poslední pohyb, je-li pozdější (doklad
      * s datem dopředu); nejpozději konec roku agendy - starší agenda vede stav ke konci roku.
+     * `$periodEnd` = konec účetního období agendy u firmy (hospodářský rok); bez něj 31. 12.
+     * roku agendy (náhled průvodce firmu nezná).
      */
-    public function stockDate(int $year): string
+    public function stockDate(int $year, ?string $periodEnd = null): string
     {
-        $end = sprintf('%04d-12-31', $year);
+        $end = $periodEnd ?? sprintf('%04d-12-31', $year);
         $date = max($this->exportedOn ?? $end, $this->lastMovement ?? '');
         return min($date, $end);
     }

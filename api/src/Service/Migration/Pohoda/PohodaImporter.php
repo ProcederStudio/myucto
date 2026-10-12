@@ -10,6 +10,7 @@ use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Repository\PohodaImportRepository;
 use MyInvoice\Service\Migration\MoneyS3\AccountingUnitSwitch;
 use MyInvoice\Service\Migration\MoneyS3\ImportProtocol;
+use MyInvoice\Service\Migration\Shared\FiscalYearMismatchException;
 use MyInvoice\Service\Migration\Shared\VatCoefficientSeeder;
 use PDO;
 
@@ -83,11 +84,13 @@ final class PohodaImporter
      * `$laterYears` = pozdější roky agendy z přehledu v `meta.json` (náhled průvodce); bez
      * nich se spočítají průchodem celým deníkem.
      *
+     * `$agendaYear` = období agendy podle kalendáře firmy; bez něj se určí z deníku.
+     *
      * @param list<int> $skipYears
      * @param list<int>|null $laterYears
      * @return list<array{level:string,code:string,message:string,context:array<string,mixed>}>
      */
-    public function preflight(int $supplierId, PohodaExport $export, array $skipYears = [], ?array $laterYears = null): array
+    public function preflight(int $supplierId, PohodaExport $export, array $skipYears = [], ?array $laterYears = null, ?PohodaAgendaYear $agendaYear = null): array
     {
         $out = $export->sourceWarnings();
         $add = static function (string $level, string $code, string $message, array $context = []) use (&$out): void {
@@ -116,13 +119,24 @@ final class PohodaImporter
                     "Soubor {$f['file']}: Pohoda vrátila stav „{$f['state']}“" . ($f['note'] !== '' ? " ({$f['note']})" : '') . '.', ['file' => $f['file']]);
             }
         }
+        // Rok agendy musí sedět na účetní rok firmy: hospodářský rok v kalendářních obdobích
+        // (nebo obráceně) by se rozdělil do dvou období a převod se zastaví s návrhem nastavení.
+        $agendaYear ??= PohodaAgendaYear::of($export, $this->periods->fiscalCalendar($supplierId));
+        try {
+            $agendaYear->assertMatchesCompany();
+        } catch (FiscalYearMismatchException $e) {
+            $add('error', 'fiscal_year_mismatch', $e->getMessage(), ['suggested_start_month' => $e->suggestedStartMonth]);
+        }
+        $agendaLabel = $agendaYear->label;
         // Agenda POHODY vede i doklady po konci roku - jejich zápisy jdou do období podle
-        // skutečného data, takže do rozjetého účetnictví se nesmí přimíchat ani tam.
-        $allLaterYears = $laterYears !== null ? array_map('intval', $laterYears) : ChartJournalImporter::laterYears($export);
+        // skutečného data, takže do rozjetého účetnictví se nesmí přimíchat ani tam. Pozdější
+        // roky z přehledu exportu jsou kalendářní (náhled firmu nezná); u hospodářského roku
+        // firmy se proto počítají znovu podle jejího kalendáře.
+        $allLaterYears = $laterYears !== null && $agendaYear->calendar->isCalendar() ? array_map('intval', $laterYears) : $agendaYear->laterYears();
         $laterYears = array_values(array_diff($allLaterYears, $skipYears));
         $skipped = array_values(array_intersect($allLaterYears, $skipYears));
         $journalMapped = $this->map->hasAny($supplierId, PohodaImportRepository::KIND_JOURNAL_ENTRY);
-        foreach (array_merge([$export->year], $laterYears) as $year) {
+        foreach (array_merge([$agendaLabel], $laterYears) as $year) {
             $period = $this->periods->findByYear($supplierId, $year);
             if ($period === null) {
                 continue;
@@ -139,7 +153,7 @@ final class PohodaImporter
         if ($laterYears !== []) {
             $add('info', 'later_periods', sprintf(
                 'Agenda %d obsahuje doklady s datem v roce %s. Jejich zápisy se převedou do účetního období podle skutečného data (chybějící období se založí otevřené); rok %d zůstane neuzavřený, uzávěrku a převod zůstatků provede účetní.',
-                $export->year, implode(', ', $laterYears), $export->year,
+                $agendaLabel, implode(', ', $laterYears), $agendaLabel,
             ), ['years' => $laterYears]);
         }
         if ($skipped !== []) {
@@ -166,8 +180,10 @@ final class PohodaImporter
      */
     public function run(int $supplierId, int $userId, PohodaExport $export, bool $dryRun, ?int $runId = null, ?callable $progress = null, ?callable $shouldCancel = null, array $skipYears = [], bool $acceptDifferences = false, ?array $stock = null): ImportProtocol
     {
+        // Tvar roku firmy se určí před prvním zápisem: převod podle něj zakládá období.
+        $agendaYear = PohodaAgendaYear::of($export, $this->periods->fiscalCalendar($supplierId));
         if ($skipYears !== []) {
-            $skipYears = array_values(array_intersect(ChartJournalImporter::laterYears($export), $skipYears));
+            $skipYears = array_values(array_intersect($agendaYear->laterYears(), $skipYears));
         }
         $protocol = new ImportProtocol($dryRun ? 'dry_run' : 'import', $acceptDifferences);
         $protocol->set('agenda', [
@@ -178,7 +194,7 @@ final class PohodaImporter
             'dir' => basename($export->dir),
             'skipped_years' => $skipYears,
         ]);
-        $preflight = $this->preflight($supplierId, $export, $skipYears);
+        $preflight = $this->preflight($supplierId, $export, $skipYears, null, $agendaYear);
         $protocol->set('preflight', $preflight);
         $protocol->begin(self::STEP_PREFLIGHT);
         foreach ($preflight as $m) {
@@ -196,6 +212,7 @@ final class PohodaImporter
         $protocol->finish(self::STEP_PREFLIGHT);
 
         $ctx = new PohodaContext($supplierId, $userId, $export, PohodaVat::fromExport($export), $dryRun, $protocol);
+        $ctx->useAgendaYear($agendaYear);
         $ctx->runId = $runId;
         $ctx->progress = $progress;
         $ctx->skippedYears = array_fill_keys($skipYears, true);
@@ -301,13 +318,41 @@ final class PohodaImporter
             StockImporter::STEP => fn () => $this->stock->import($ctx),
             VatCoefficientSeeder::STEP => fn () => $this->coefficients->seedConverted(
                 $ctx->supplierId,
-                array_keys($this->map->all($ctx->supplierId, PohodaImportRepository::KIND_PERIOD)),
-                [$ctx->year(), ...array_keys(array_filter($ctx->periods))],
+                $this->vatYears($ctx, array_keys($this->map->all($ctx->supplierId, PohodaImportRepository::KIND_PERIOD))),
+                $this->vatYears($ctx, [$ctx->year(), ...array_keys(array_filter($ctx->periods))]),
                 $ctx->userId,
                 $ctx->protocol,
             ),
             PohodaReconciler::STEP => fn () => $this->reconciler->run($ctx),
         ];
+    }
+
+    /**
+     * Koeficient § 76 je za KALENDÁŘNÍ rok (DPH), ne za účetní období: období hospodářského
+     * roku zasahuje do dvou kalendářních let. Firma s kalendářním rokem předá labely beze změny.
+     *
+     * @param list<int|string> $periodYears labely účetních období
+     * @return list<int|string>
+     */
+    private function vatYears(PohodaContext $ctx, array $periodYears): array
+    {
+        if ($ctx->calendar->isCalendar()) {
+            return $periodYears;
+        }
+        $supplierId = $ctx->supplierId;
+        $years = [];
+        foreach (array_map('intval', $periodYears) as $label) {
+            $period = $this->periods->findByYear($supplierId, $label);
+            if ($period === null) {
+                $years[$label] = true;
+                continue;
+            }
+            for ($y = (int) substr((string) $period['starts_on'], 0, 4); $y <= (int) substr((string) $period['ends_on'], 0, 4); $y++) {
+                $years[$y] = true;
+            }
+        }
+        ksort($years);
+        return array_keys($years);
     }
 
     private function switchMode(PohodaContext $ctx): void

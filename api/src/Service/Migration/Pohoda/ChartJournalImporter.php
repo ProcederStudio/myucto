@@ -290,7 +290,7 @@ final class ChartJournalImporter
             $p->info(self::STEP_JOURNAL, 'later_period', sprintf(
                 'Agenda %d obsahuje doklady roku %d: %d zápisů je v účetním období %d podle skutečného data%s. Rok %d zůstává neuzavřený - uzávěrku a převod zůstatků do roku %d provede účetní v MyÚčtu.',
                 $year, $periodYear, $later[$periodYear] ?? 0, $periodYear,
-                $stats['relocated'] > 0 ? " (z toho {$stats['relocated']} dříve převzatých zápisů přesunuto z 31. 12. {$year})" : '',
+                $stats['relocated'] > 0 ? " (z toho {$stats['relocated']} dříve převzatých zápisů přesunuto z " . self::day($period['ends_on']) . ')' : '',
                 $year, $periodYear,
             ), ['year' => $periodYear, 'period_id' => $target['id'], 'entries' => $later[$periodYear] ?? 0]);
         }
@@ -335,6 +335,9 @@ final class ChartJournalImporter
      * Roky po roce agendy, do kterých padají zápisy deníku (agenda POHODY vede doklady
      * i po 31. 12.) - převod je dá do jejich vlastního účetního období.
      *
+     * Kalendářní roky pro průvodce, který firmu nezná; samotný převod je počítá podle
+     * kalendáře firmy ({@see PohodaAgendaYear::laterYears()}).
+     *
      * @return list<int>
      */
     public static function laterYears(PohodaExport $export): array
@@ -362,15 +365,16 @@ final class ChartJournalImporter
      */
     private function laterPeriod(PohodaContext $ctx, string $date): ?array
     {
-        $year = (int) substr($date, 0, 4);
+        $year = $ctx->calendar->fiscalYearOfDate($date);
         if (!array_key_exists($year, $ctx->periods)) {
             $found = $this->periods->findForDate($ctx->supplierId, $date);
+            [$starts, $ends] = MigrationPeriods::bounds($ctx->calendar, $year);
             $foreignShape = $found !== null
                 ? (int) $found['fiscal_year'] !== $year
-                : $this->periods->overlapping($ctx->supplierId, sprintf('%04d-01-01', $year), sprintf('%04d-12-31', $year)) !== null;
+                : $this->periods->overlapping($ctx->supplierId, $starts, $ends) !== null;
             $period = $foreignShape ? null : $this->ensurePeriod($ctx, $year);
             if ($period !== null && $period['locked']) {
-                $ctx->protocol->warn(self::STEP_JOURNAL, 'later_period_closed', "Účetní období {$year} je v MyÚčtu uzavřené, zápisy roku {$year} z agendy zůstávají k 31. 12. {$ctx->year()}.", ['year' => $year]);
+                $ctx->protocol->warn(self::STEP_JOURNAL, 'later_period_closed', "Účetní období {$year} je v MyÚčtu uzavřené, zápisy roku {$year} z agendy zůstávají k " . self::day($ctx->periodEnd()) . '.', ['year' => $year]);
                 $period = null;
             }
             $ctx->periods[$year] = $period;
@@ -406,10 +410,20 @@ final class ChartJournalImporter
         return $stmt->rowCount() > 0;
     }
 
-    /** @return array{id:int,starts_on:string,ends_on:string,status:string,locked:bool} */
+    /** `2026-12-31` → `31. 12. 2026` */
+    private static function day(string $date): string
+    {
+        return sprintf('%d. %d. %s', (int) substr($date, 8, 2), (int) substr($date, 5, 2), substr($date, 0, 4));
+    }
+
+    /**
+     * Období firmy daného labelu v kalendáři účetního roku firmy ({@see PohodaAgendaYear}).
+     *
+     * @return array{id:int,starts_on:string,ends_on:string,status:string,locked:bool}
+     */
     private function ensurePeriod(PohodaContext $ctx, int $year): array
     {
-        [$starts, $ends] = MigrationPeriods::calendarYear($year);
+        [$starts, $ends] = MigrationPeriods::bounds($ctx->calendar, $year);
         return (new MigrationPeriods($this->periods))->ensure(
             $ctx->supplierId, $year, $starts, $ends, $ctx->protocol, self::STEP_JOURNAL,
             fn (int $id) => $this->map->put($ctx->supplierId, PohodaImportRepository::KIND_PERIOD, (string) $year, $id, $ctx->runId),

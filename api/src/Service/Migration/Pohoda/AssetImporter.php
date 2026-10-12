@@ -42,7 +42,7 @@ final class AssetImporter
             return;
         }
         $year = $ctx->year();
-        $periodStart = (string) ($ctx->period['starts_on'] ?? sprintf('%04d-01-01', $year));
+        $periodStart = $ctx->periodStart();
         $defaultLastBooked = date('Y-m', (int) strtotime($periodStart . ' -1 month'));
         $taxRows = self::byCard($ctx->export->records('assets', 'IModpis'));
         $ownPlan = self::byCard($ctx->export->records('assets', 'IMuodpis'));
@@ -69,7 +69,10 @@ final class AssetImporter
                 continue;
             }
             $booked = $journal['booked'][$number] ?? null;
-            $plan = PohodaAssetPlan::build($row, $taxRows[$id] ?? [], $ownPlan[$id] ?? $spreadPlan[$id] ?? [], $year, $booked['last'] ?? $defaultLastBooked, $movements[$id] ?? []);
+            // Daňové odpisy (`IModpis.Rok`) čísluje POHODA roky svých agend - zdaňovací období
+            // právnické osoby s hospodářským rokem je ten hospodářský rok - proto rok agendy
+            // z exportu, ne label období firmy.
+            $plan = PohodaAssetPlan::build($row, $taxRows[$id] ?? [], $ownPlan[$id] ?? $spreadPlan[$id] ?? [], $ctx->export->year, $booked['last'] ?? $defaultLastBooked, $movements[$id] ?? []);
             $card = $plan['card'];
             $review = $plan['review'];
             // Vyřazení v převáděných letech zaúčtoval převedený deník: karta se vyřadí bez
@@ -94,7 +97,7 @@ final class AssetImporter
                 $card['accumulated_account_code'] = $guess;
             }
             $card['acquisition_account_code'] = $this->acquisitionAccount($ctx, $card['kind'] === 'intangible' ? '041' : '042');
-            if ($booked !== null && abs($booked['amount'] - self::plannedInYear($ownPlan[$id] ?? $spreadPlan[$id] ?? [], $year, $booked['last'])) >= 1.0) {
+            if ($booked !== null && abs($booked['amount'] - self::plannedInPeriod($ownPlan[$id] ?? $spreadPlan[$id] ?? [], $ctx->calendar->periodStart($year), $ctx->calendar->periodEnd($year), $booked['last'])) >= 1.0) {
                 $review[] = 'odpisy zaúčtované v deníku roku ' . $year . ' (' . number_format($booked['amount'], 2, ',', ' ')
                     . ' Kč) nesedí s odpisovým plánem karty';
             }
@@ -230,12 +233,14 @@ final class AssetImporter
      *
      * @param list<array<string,mixed>> $rows
      */
-    private static function plannedInYear(array $rows, int $year, string $lastBooked): float
+    private static function plannedInPeriod(array $rows, string $periodStart, string $periodEnd, string $lastBooked): float
     {
         $sum = 0.0;
+        $from = substr($periodStart, 0, 7);
+        $to = substr($periodEnd, 0, 7);
         foreach ($rows as $row) {
             $month = substr((string) PohodaXml::date($row, 'Mesic'), 0, 7);
-            if (str_starts_with($month, (string) $year) && $month <= $lastBooked) {
+            if ($month !== '' && $month >= $from && $month <= $to && $month <= $lastBooked) {
                 $sum += PohodaXml::num($row, 'KcOdpis');
             }
         }

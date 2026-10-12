@@ -72,7 +72,7 @@ final class StockImporter
             return;
         }
         $stock = PohodaStock::read($path);
-        $date = $stock->stockDate($ctx->year());
+        $date = $stock->stockDate($ctx->year(), $ctx->calendar->periodEnd($ctx->year()));
         $end = $ctx->lastPeriodEnd();
         if ($end !== null && $date > $end) {
             $date = $end;
@@ -202,7 +202,8 @@ final class StockImporter
         $p = $ctx->protocol;
         $items = [];
         $tracked = 0;
-        $date = sprintf('%04d-12-31', $ctx->year());
+        // Sazba DPH platí podle data (kalendářně) - ke konci účetního období agendy.
+        $date = $ctx->calendar->periodEnd($ctx->year());
         foreach ($groups as $sku => $rows) {
             usort($rows, static fn (array $a, array $b): int => ((float) $b['card']['StavZ'] <=> (float) $a['card']['StavZ'])
                 ?: ((int) $a['card']['ID'] <=> (int) $b['card']['ID']));
@@ -214,7 +215,7 @@ final class StockImporter
                     break;
                 }
             }
-            $vat = self::vatPercent((int) $card['RelDPHp'], $ctx->year());
+            $vat = self::vatPercent((int) $card['RelDPHp'], (int) substr($date, 0, 4));
             $data = [
                 'sku' => (string) $sku,
                 'name' => mb_substr($card['Nazev'] !== '' ? $card['Nazev'] : (string) $sku, 0, 255),
@@ -511,7 +512,7 @@ final class StockImporter
         $ctx->protocol->count(self::STEP, 'vendors');
     }
 
-    /** Sazba DPH karty z pořadí sazby POHODY; snížená podle roku agendy. */
+    /** Sazba DPH karty z pořadí sazby POHODY; snížená podle kalendářního roku konce období agendy. */
     private static function vatPercent(int $slot, int $year): ?float
     {
         return match ($slot) {
