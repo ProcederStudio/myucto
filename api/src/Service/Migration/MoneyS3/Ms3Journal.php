@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace MyInvoice\Service\Migration\MoneyS3;
 
+use MyInvoice\Service\Accounting\FiscalCalendar;
+
 /**
  * Pravidla čtení účetního deníku Money (`UcDenik.DAT`) na jednom místě — používá je
  * náhled agendy, import deníku i rekonciliace. Kdyby si každý z nich určoval rok
@@ -132,28 +134,35 @@ final class Ms3Journal
     }
 
     /**
-     * Účetní rok adresáře ROK.nnn. Nejčastější rok mezi reálnými zápisy, ne první
-     * nalezený: jediný netypický řádek by jinak posunul celé období. Rok, který má jen
-     * počáteční stavy, se vezme z jejich popisu („Počáteční stav roku 2026").
+     * Účetní rok adresáře ROK.nnn (label účetního období firmy). Nejčastější rok mezi
+     * reálnými zápisy, ne první nalezený: jediný netypický řádek by jinak posunul celé
+     * období. Rok, který má jen počáteční stavy, se vezme z jejich popisu („Počáteční stav
+     * roku 2026").
      *
      * @param list<array<string,mixed>> $rows
      */
-    public static function fiscalYear(array $rows): ?int
+    public static function fiscalYear(array $rows, ?FiscalCalendar $calendar = null): ?int
     {
-        return self::summarize($rows)['fiscal_year'];
+        return self::summarize($rows, $calendar)['fiscal_year'];
     }
 
     /**
      * Souhrn deníku roku v jednom průchodu - deník se tak nemusí držet v paměti celý:
-     * počet řádků a počátečních stavů, účetní rok ({@see fiscalYear()}), kalendářní rok
-     * ({@see isCalendarYear()} pro ten rok), první a poslední datum mimo počáteční stavy
-     * a první datum zápisu v účetním roce.
+     * počet řádků a počátečních stavů, účetní rok ({@see fiscalYear()}), zda deník leží
+     * v jednom účetním roce firmy (`single_year`), data pro kontrolu tvaru roku
+     * (`source_dates`, {@see \MyInvoice\Service\Migration\Shared\MigrationPeriods::assertSourceYear()}), první a poslední datum
+     * mimo počáteční stavy a první datum zápisu v účetním roce.
+     *
+     * Rok se počítá v kalendáři účetního roku FIRMY (bez něj kalendářní rok): adresář ROK
+     * je jeden účetní rok Money a odpovídá jednomu účetnímu období firmy, jehož label je
+     * rok začátku období (agenda srpen 2024 – červenec 2025 u firmy s rokem od srpna = 2024).
      *
      * @param iterable<array<string,mixed>> $rows
-     * @return array{rows:int,opening_rows:int,fiscal_year:?int,calendar:bool,first_date:?string,last_date:?string,first_entry:?string}
+     * @return array{rows:int,opening_rows:int,fiscal_year:?int,single_year:bool,source_dates:list<string>,first_date:?string,last_date:?string,first_entry:?string}
      */
-    public static function summarize(iterable $rows): array
+    public static function summarize(iterable $rows, ?FiscalCalendar $calendar = null): array
     {
+        $calendar ??= FiscalCalendar::calendar();
         $count = 0;
         $opening = 0;
         $years = [];
@@ -162,6 +171,8 @@ final class Ms3Journal
         $dated = 0;
         $datedByYear = [];
         $minByYear = [];
+        $maxByYear = [];
+        $openingDate = null;
         $firstDate = null;
         $lastDate = null;
         foreach ($rows as $r) {
@@ -170,17 +181,22 @@ final class Ms3Journal
             $date = (string) ($r['Datum'] ?? '');
             if ($isOpening) {
                 $opening++;
+                if ($date !== '' && ($openingDate === null || $date < $openingDate)) {
+                    $openingDate = $date;
+                }
             } else {
                 if ($date !== '') {
-                    $y = (int) substr($date, 0, 4);
+                    $y = $calendar->fiscalYearOfDate($date);
                     if ($y >= 1990 && $y <= 2100) {
                         $years[$y] = ($years[$y] ?? 0) + 1;
                     }
                     $dated++;
                     $datedByYear[$y] = ($datedByYear[$y] ?? 0) + 1;
-                    $prefix = substr($date, 0, 4);
-                    if (!isset($minByYear[$prefix]) || $date < $minByYear[$prefix]) {
-                        $minByYear[$prefix] = $date;
+                    if (!isset($minByYear[$y]) || $date < $minByYear[$y]) {
+                        $minByYear[$y] = $date;
+                    }
+                    if (!isset($maxByYear[$y]) || $date > $maxByYear[$y]) {
+                        $maxByYear[$y] = $date;
                     }
                 }
                 if (($r['Datum'] ?? null) !== null) {
@@ -203,50 +219,46 @@ final class Ms3Journal
         if ($years !== []) {
             arsort($years);
             $year = (int) array_key_first($years);
+        } elseif (!$calendar->isCalendar() && $openingDate !== null) {
+            // Popis počátečních stavů nese kalendářní rok, u hospodářského roku nejednoznačně.
+            $year = $calendar->fiscalYearOfDate($openingDate);
         } elseif ($fromText !== null) {
             $year = $fromText;
         } else {
-            $year = $firstAnyDate !== null ? (int) substr($firstAnyDate, 0, 4) : null;
+            $year = $firstAnyDate !== null ? $calendar->fiscalYearOfDate($firstAnyDate) : null;
+        }
+        $single = $year === null || self::singleYearShare($dated, $dated - ($datedByYear[$year] ?? 0));
+        // Pár zápisů mimo rok je běžná chyba dokladu (faktura z 31. 12. zaúčtovaná v novém
+        // roce): převod je zaúčtuje k hranici období a ohlásí po jednom. Do kontroly tvaru
+        // roku proto jdou jen data hlavního roku; leží-li mimo něj velká část deníku, jdou
+        // všechna a kontrola rok zastaví. Datum počátečních stavů (Money je datuje prvním
+        // dnem svého účetního roku) jde do kontroly jen tehdy - zpřesní navržený měsíc,
+        // ale samo rok nezastaví (Money je někdy datuje i posledním dnem roku předchozího).
+        $sourceDates = [];
+        if ($single && $year !== null && isset($minByYear[$year])) {
+            $sourceDates = [$minByYear[$year], $maxByYear[$year]];
+        } elseif (!$single && $minByYear !== []) {
+            $opensMonth = $openingDate !== null && substr($openingDate, 8, 2) === '01';
+            $sourceDates = array_merge($opensMonth ? [$openingDate] : [], [min($minByYear), max($maxByYear)]);
         }
         return [
             'rows' => $count,
             'opening_rows' => $opening,
             'fiscal_year' => $year,
-            'calendar' => $year === null || self::calendarShare($dated, $dated - ($datedByYear[$year] ?? 0)),
+            'single_year' => $single,
+            'source_dates' => $sourceDates,
             'first_date' => $firstDate,
             'last_date' => $lastDate,
-            'first_entry' => $year !== null ? ($minByYear[(string) $year] ?? null) : null,
+            'first_entry' => $year !== null ? ($minByYear[$year] ?? null) : null,
         ];
     }
 
-    /** Podíl zápisů mimo kalendářní rok, nad kterým agenda vede hospodářský rok. */
-    private const NON_CALENDAR_SHARE = 0.1;
+    /** Podíl zápisů mimo hlavní účetní rok, nad kterým deník neleží v jednom roce firmy. */
+    private const OUTSIDE_YEAR_SHARE = 0.1;
 
-    private static function calendarShare(int $total, int $outside): bool
+    private static function singleYearShare(int $total, int $outside): bool
     {
-        return $total === 0 || $outside / $total <= self::NON_CALENDAR_SHARE;
-    }
-
-    /**
-     * Vede agenda kalendářní účetní rok? Převod jiný nezná (období jsou 1. 1. – 31. 12.).
-     * Pár zápisů mimo rok je běžná chyba dokladu a převod je ohlásí po jednom; hospodářský
-     * rok (třeba červenec–červen) má mimo kalendářní rok velkou část deníku.
-     *
-     * @param list<array<string,mixed>> $rows
-     */
-    public static function isCalendarYear(array $rows, int $year): bool
-    {
-        $total = 0;
-        $outside = 0;
-        foreach ($rows as $r) {
-            $date = (string) ($r['Datum'] ?? '');
-            if (self::isOpening($r) || $date === '') {
-                continue;
-            }
-            $total++;
-            $outside += (int) substr($date, 0, 4) !== $year ? 1 : 0;
-        }
-        return self::calendarShare($total, $outside);
+        return $total === 0 || $outside / $total <= self::OUTSIDE_YEAR_SHARE;
     }
 
     /**

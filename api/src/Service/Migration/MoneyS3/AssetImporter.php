@@ -78,7 +78,7 @@ final class AssetImporter
             return;
         }
         $existing = $this->map->all($ctx->supplierId, MoneyS3ImportRepository::KIND_ASSET);
-        $end = sprintf('%04d-12-31', max($years));
+        $end = $ctx->calendar->periodEnd(max($years));
         $evidence = [];
         $helpers = self::pairHelpers($cards, $moves);
         foreach ($cards as $no => $card) {
@@ -119,7 +119,8 @@ final class AssetImporter
                JOIN money_s3_import_map m ON m.supplier_id = a.supplier_id AND m.kind = ? AND m.target_id = a.id
               WHERE a.supplier_id = ? AND a.status IN ('in_use', 'draft')"
         );
-        $stmt->execute([$end, (int) substr($end, 0, 4), MoneyS3ImportRepository::KIND_ASSET, $ctx->supplierId]);
+        $lastYear = $ctx->calendar->fiscalYearOfDate($end);
+        $stmt->execute([$end, $lastYear, MoneyS3ImportRepository::KIND_ASSET, $ctx->supplierId]);
         $cards = [];
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $r) {
             // Po syntetických účtech: karta bez analytiky v osnově nese syntetiku a jiné karty
@@ -148,7 +149,7 @@ final class AssetImporter
         $inMoney = [];
         foreach ($cards as $code => $amount) {
             // Rok nese počáteční stavy otevíracím zápisem, zůstatek je tedy součet jen za poslední rok.
-            $balance->execute([$ctx->supplierId, $ctx->supplierId, substr($end, 0, 4) . '-01-01', $end, $code, $code]);
+            $balance->execute([$ctx->supplierId, $ctx->supplierId, $ctx->calendar->periodStart($lastYear), $end, $code, $code]);
             $ledger = round((float) $balance->fetchColumn(), 2);
             $diff = round($amount - $ledger, 2);
             if (abs($diff) < 0.01) {
@@ -181,7 +182,7 @@ final class AssetImporter
             $p->finish(self::STEP_SMALL);
             return;
         }
-        $end = sprintf('%04d-12-31', max($years));
+        $end = $ctx->calendar->periodEnd(max($years));
         $existing = $this->map->all($ctx->supplierId, MoneyS3ImportRepository::KIND_SMALL_ASSET);
         foreach ($cards as $no => $card) {
             if ((int) ($card['TypMajetku'] ?? -1) !== self::TYPE_SMALL) {
@@ -245,8 +246,11 @@ final class AssetImporter
         $no = (int) $card['Cislo'];
         $first = $years[0];
         $last = $years[count($years) - 1];
-        $start = sprintf('%04d-01-01', $first);
-        $end = sprintf('%04d-12-31', $last);
+        // Hranice účetních let firmy (hospodářský rok podle nastavení firmy). První období
+        // zkrácené dnem vzniku se tu nebere: majetek před vznikem firma mít nemůže.
+        $start = $ctx->calendar->periodStart($first);
+        $end = $ctx->calendar->periodEnd($last);
+        $beforeStart = $ctx->calendar->periodEnd($first - 1);
         $name = trim((string) ($card['Nazev'] ?? '')) ?: ('Karta ' . $no);
         $disposal = self::date($card['DatVyrazen'] ?? null) ?? self::firstDate($list, 'Y');
         $inUse = self::date($card['DatZarazen'] ?? null) ?? self::firstDate($list, 'Z')
@@ -254,7 +258,7 @@ final class AssetImporter
         // Karta bez data zařazení (typicky pozemek zadaný jen jako evidence) se vede
         // od začátku převodu, aby nechyběla v inventarizaci účtu.
         $noInUseDate = $inUse === null;
-        $inUse ??= sprintf('%04d-12-31', $first - 1);
+        $inUse ??= $beforeStart;
         if ($inUse > $end) {
             $p->count(self::STEP, 'later_years');
             return;
@@ -302,7 +306,7 @@ final class AssetImporter
         // Vstupní cena ke dni, od kterého se karta v MyÚčtu vede: u majetku zařazeného
         // před prvním převedeným rokem cena na jeho začátku, jinak cena ke dni zařazení.
         // Pozdější zvýšení ceny a technická zhodnocení jsou technická zhodnocení karty.
-        $priceDate = $inUse < $start ? sprintf('%04d-12-31', $first - 1) : $inUse;
+        $priceDate = $inUse < $start ? $beforeStart : $inUse;
         $inputPrice = self::priceAt($list, $priceDate);
         if ($inputPrice < 0.01) {
             $inputPrice = round((float) ($card['UcOdpPorC'] ?? 0), 2);
@@ -441,8 +445,8 @@ final class AssetImporter
         }
         $accMoves = self::accountingMoves($list, $disposal);
         foreach ($years as $year) {
-            $from = sprintf('%04d-01-01', $year);
-            $to = sprintf('%04d-12-31', $year);
+            $from = $ctx->calendar->periodStart($year);
+            $to = $ctx->calendar->periodEnd($year);
             if ($inUse > $to || ($disposal !== null && $disposal < $from)) {
                 continue;
             }
@@ -459,7 +463,7 @@ final class AssetImporter
                 $residual = $inYear !== [] ? round((float) end($inYear)['ZustCena'], 2) : 0.0;
                 $this->upsertMigrated($ctx, $assetId, 'tax', $year, $booked, $booked, $residual, null, false, 'confirmed');
             } elseif ($taxEqualsAccounting) {
-                $r = self::equalTaxRow($list, $inYear, $year);
+                $r = self::equalTaxRow($list, $inYear, $to);
                 if ($r !== null) {
                     $this->upsertMigrated($ctx, $assetId, 'tax', $year, $r[0], $r[0], $r[1], null, false, 'confirmed');
                 }
@@ -480,9 +484,10 @@ final class AssetImporter
      *
      * @param list<array<string,mixed>> $list
      * @param list<array<string,mixed>> $inYear účetní odpisy roku
+     * @param string $yearEnd poslední den účetního (zdaňovacího) období
      * @return array{0:float,1:float}|null [odpis, daňová zůstatková cena na konci roku]
      */
-    private static function equalTaxRow(array $list, array $inYear, int $year): ?array
+    private static function equalTaxRow(array $list, array $inYear, string $yearEnd): ?array
     {
         if ($inYear === []) {
             return null;
@@ -491,7 +496,7 @@ final class AssetImporter
         $monthly = (float) end($regular)['Castka'];
         $first = $inYear[0];
         $cap = (float) $first['ZustCena'] + (float) $first['Castka']
-            + self::priceAt($list, sprintf('%04d-12-31', $year)) - self::priceAt($list, $first['Datum']);
+            + self::priceAt($list, $yearEnd) - self::priceAt($list, $first['Datum']);
         $amount = round(max(0.0, min(self::monthCount($inYear) * $monthly, $cap)), 2);
         return [$amount, round(max(0.0, $cap - $amount), 2)];
     }
@@ -677,12 +682,15 @@ final class AssetImporter
         if (!in_array($method, ['straight', 'accelerated', 'extraordinary'], true)) {
             return [];
         }
+        // Daňové odpisy jdou po zdaňovacích obdobích; u právnické osoby s hospodářským rokem
+        // je jím hospodářský rok (§ 17a ZDP), roky proto počítá kalendář účetního roku firmy.
+        $calendar = $ctx->calendar;
         $start = $inUse;
         $taxStart = self::date($card['DatZDanOdp'] ?? null);
-        if ($taxStart !== null && substr($taxStart, 0, 4) > substr($inUse, 0, 4)) {
+        if ($taxStart !== null && $calendar->fiscalYearOfDate($taxStart) > $calendar->fiscalYearOfDate($inUse)) {
             $start = $taxStart;
         }
-        $startYear = (int) substr($start, 0, 4);
+        $startYear = $calendar->fiscalYearOfDate($start);
         $price = self::priceAt($list, $start);
         $byDate = [];
         foreach ($list as $m) {
@@ -693,7 +701,7 @@ final class AssetImporter
         $improvements = [];
         foreach ($byDate as $date => $amount) {
             $amount = round($amount, 2);
-            if ($amount < 0.0 && (int) substr($date, 0, 4) <= $startYear + 1) {
+            if ($amount < 0.0 && $calendar->fiscalYearOfDate((string) $date) <= $startYear + 1) {
                 $price = round($price + $amount, 2);
             } elseif ($amount < 0.0) {
                 $review[] = 'snížení ceny ' . self::money(-$amount) . ' z ' . $date . ' daňový plán nezahrnuje, ověřte daňovou zůstatkovou cenu';
@@ -710,7 +718,7 @@ final class AssetImporter
         if ($fromHelper) {
             foreach ($list as $m) {
                 if ($m['Typ'] === 'D') {
-                    $year = (int) substr($m['Datum'], 0, 4);
+                    $year = $calendar->fiscalYearOfDate($m['Datum']);
                     $confirmed[$year] = round(($confirmed[$year] ?? 0.0) + (float) $m['Castka'], 2);
                     $residuals[$year] = round((float) $m['ZustCena'], 2);
                 }
@@ -737,11 +745,12 @@ final class AssetImporter
             confirmedEntries: array_map(static fn (int $year, float $amount): array => [
                 'fiscal_year' => $year, 'kind' => 'tax', 'amount' => $amount, 'full_amount' => $amount, 'is_paused' => false, 'is_half' => false,
             ], array_keys($confirmed), array_values($confirmed)),
+            calendar: $calendar,
         );
         $plan = [];
         foreach ($this->calculator->plan($context, $method)['tax'] as $r) {
             $year = (int) $r['fiscal_year'];
-            if ($noDisposalYear && $disposal !== null && $year >= (int) substr($disposal, 0, 4)) {
+            if ($noDisposalYear && $disposal !== null && $year >= $calendar->fiscalYearOfDate($disposal)) {
                 continue;
             }
             if (isset($residuals[$year])) {

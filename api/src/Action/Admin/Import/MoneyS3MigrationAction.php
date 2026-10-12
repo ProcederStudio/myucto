@@ -170,7 +170,7 @@ final class MoneyS3MigrationAction extends AbstractMigrationAction
             // zavedením je nemá: dočtou se jednou a uloží.
             if (!MoneyS3Importer::journalPreviewComplete($meta['journal_preview'] ?? null) || !is_array($meta['agenda'] ?? null)) {
                 $meta['agenda'] = AgendaInfo::fromBackup($backup)->toArray();
-                $meta['journal_preview'] = $this->importer->journalPreview($backup);
+                $meta['journal_preview'] = $this->importer->journalPreview($backup, $supplierId);
                 MoneyS3Uploads::writeMeta($supplierId, $token, $meta);
             }
             $preflight = $this->importer->preflight($supplierId, $backup, AgendaInfo::fromArray((array) $meta['agenda']), new ImportOptions(),

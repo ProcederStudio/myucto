@@ -152,7 +152,7 @@ final class Ms3TableTest extends TestCase
         self::assertSame(2, $table->countRows());
     }
 
-    /** Souhrn deníku v jednom průchodu dává tentýž rok a kalendářnost jako pravidla nad polem řádků. */
+    /** Souhrn deníku v jednom průchodu: rok, zda deník leží v jednom roce, data a krajní zápisy. */
     public function testJournalSummaryMatchesRowRules(): void
     {
         $rows = [
@@ -167,8 +167,8 @@ final class Ms3TableTest extends TestCase
 
         self::assertSame(2024, $summary['fiscal_year']);
         self::assertSame(Ms3Journal::fiscalYear($rows), $summary['fiscal_year']);
-        self::assertSame(Ms3Journal::isCalendarYear($rows, 2024), $summary['calendar']);
-        self::assertFalse($summary['calendar']);
+        self::assertFalse($summary['single_year'], 'dva z pěti zápisů leží mimo rok 2024');
+        self::assertSame(['2023-12-31', '2025-01-03'], $summary['source_dates']);
         self::assertSame(6, $summary['rows']);
         self::assertSame(1, $summary['opening_rows']);
         self::assertSame('2023-12-31', $summary['first_date']);

@@ -255,12 +255,16 @@ final class CashBankImporter
 
             // Výpis za měsíc: Money čísluje výpisy (`Vypis`) typicky po dnech, jak je banka
             // posílá — pro přehled účtu i GPC se pohyby skládají do měsíčních výpisů.
+            // Měsíce jdou v pořadí účetního roku firmy (u hospodářského roku od srpna:
+            // srpen … červenec), zůstatky výpisů na sebe tak navazují; pohyb bez data jde
+            // do posledního měsíce roku.
+            $startMonth = $ctx->calendar->startMonth();
             $groups = [];
             foreach ($rows as $i => $r) {
                 $d = InvoiceImporter::date($r, ['DatPlat', 'DatUcPr']);
-                $groups[$d !== null ? (int) substr($d, 5, 2) : 12][] = $i;
+                $groups[$d !== null ? (int) substr($d, 5, 2) : ($startMonth + 10) % 12 + 1][] = $i;
             }
-            ksort($groups);
+            uksort($groups, static fn (int $a, int $b): int => ($a - $startMonth + 12) % 12 <=> ($b - $startMonth + 12) % 12);
             // Výpis z dřívějšího převodu (jeden za rok) zůstává — pohyby už jsou v něm.
             $legacyStatementId = $existingStatements[$statementKey] ?? null;
             foreach ($groups as $month => $indexes) {
@@ -272,15 +276,18 @@ final class CashBankImporter
                     }
                 }
                 sort($dates);
+                // Kalendářní rok měsíce: u hospodářského roku leží měsíce před jeho začátkem
+                // v dalším kalendářním roce (rok 2024 od srpna: leden = leden 2025).
+                $monthYear = $month < $startMonth ? $year + 1 : $year;
                 $lastDate = $dates === []
-                    ? (new \DateTimeImmutable(sprintf('%04d-%02d-01', $year, $month)))->format('Y-m-t')
+                    ? (new \DateTimeImmutable(sprintf('%04d-%02d-01', $monthYear, $month)))->format('Y-m-t')
                     : $dates[count($dates) - 1];
 
                 $mapKey = $statementKey . '|m' . $month;
                 $statementId = $legacyStatementId ?? ($existingStatements[$mapKey] ?? null);
                 if ($statementId === null) {
                     $statementId = $writer->createStatement(
-                        $ctx->supplierId, $mapKey, sprintf('%s/%d/%02d', $code, $year, $month), $meta['number'] !== '' ? $meta['number'] : $code,
+                        $ctx->supplierId, $mapKey, sprintf('%s/%d/%02d', $code, $monthYear, $month), $meta['number'] !== '' ? $meta['number'] : $code,
                         $meta['bank'], $currency, $lastDate, $ctx->userId > 0 ? $ctx->userId : null,
                     );
                     $this->map->put($ctx->supplierId, MoneyS3ImportRepository::KIND_BANK_STATEMENT, $mapKey, $statementId, $ctx->runId);
@@ -381,7 +388,7 @@ final class CashBankImporter
             $code = trim((string) ($r['Ucet'] ?? ''));
             // Roky před převáděným obdobím v mapě adresářů nejsou — rok dá datum pohybu.
             $date = InvoiceImporter::date($r, ['DatUcPr', 'DatPlat']);
-            $year = $ctx->dirYears[$r['__dir']] ?? ($date !== null ? (int) substr($date, 0, 4) : null);
+            $year = $ctx->dirYears[$r['__dir']] ?? ($date !== null ? $ctx->calendar->fiscalYearOfDate($date) : null);
             $currency = $accounts[$code]['currency'] ?? 'CZK';
             if ($currency === 'CZK' || $year === null || trim((string) ($r['Doklad'] ?? '')) === '') {
                 continue;

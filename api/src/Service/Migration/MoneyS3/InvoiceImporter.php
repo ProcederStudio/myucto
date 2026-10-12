@@ -688,8 +688,8 @@ final class InvoiceImporter
     /**
      * Doklady, jejichž odpočet Money přesunulo do pozdějšího období (§ 73 — doklad došel
      * až po podání přiznání za měsíc plnění). Money je vede v tabulce `UcPrvDPH` roku,
-     * do kterého odpočet přešel, s datem uplatnění (`DatPln`); doklad sám patří do roku
-     * data plnění (`DatumD`), bez něj do roku předchozího.
+     * do kterého odpočet přešel, s datem uplatnění (`DatPln`); doklad sám patří do účetního
+     * roku data plnění (`DatumD`, label období firmy), bez něj do roku předchozího.
      *
      * @return array<string,string> "rok|číslo dokladu" => datum uplatnění odpočtu
      */
@@ -704,7 +704,7 @@ final class InvoiceImporter
                 continue;
             }
             $docDate = self::date($r, ['DatumD']);
-            $out[($docDate !== null ? (int) substr($docDate, 0, 4) : $year - 1) . '|' . $docNo] = $claim;
+            $out[($docDate !== null ? $ctx->calendar->fiscalYearOfDate($docDate) : $year - 1) . '|' . $docNo] = $claim;
         }
         return $out;
     }

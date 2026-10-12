@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace MyInvoice\Service\Migration\MoneyS3;
 
+use MyInvoice\Service\Accounting\FiscalCalendar;
+
 /**
  * Stav jednoho běhu převodu, který si kroky předávají: cílová firma, záloha, volby,
  * protokol a mapy vzniklé v předchozích krocích (účty, období, doklady).
@@ -57,6 +59,12 @@ final class ImportContext
     /** @var (callable(string,int,int):void)|null */
     public $progress = null;
 
+    /**
+     * Kalendář účetního roku cílové firmy (nastavení „Účetní rok začíná", jinak tvar jejích
+     * období). Rok v mapách převodu je label jejího období = rok začátku období.
+     */
+    public FiscalCalendar $calendar;
+
     public function __construct(
         public readonly int $supplierId,
         public readonly int $userId,
@@ -64,7 +72,10 @@ final class ImportContext
         public readonly AgendaInfo $agenda,
         public readonly ImportOptions $options,
         public readonly ImportProtocol $protocol,
-    ) {}
+        ?FiscalCalendar $calendar = null,
+    ) {
+        $this->calendar = $calendar ?? FiscalCalendar::calendar();
+    }
 
     public function report(string $step, int $done, int $total): void
     {

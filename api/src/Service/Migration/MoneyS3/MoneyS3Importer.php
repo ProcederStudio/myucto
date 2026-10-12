@@ -8,6 +8,9 @@ use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Infrastructure\Database\TableStatistics;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Repository\MoneyS3ImportRepository;
+use MyInvoice\Service\Accounting\FiscalCalendar;
+use MyInvoice\Service\Migration\Shared\FiscalYearMismatchException;
+use MyInvoice\Service\Migration\Shared\MigrationPeriods;
 use MyInvoice\Service\Migration\Shared\RecurringSeriesTakeover;
 use PDO;
 
@@ -87,18 +90,29 @@ final class MoneyS3Importer
      * z deníku potřebuje kontrola před převodem v náhledu průvodce. Počítá ho job nahrání
      * do `meta.json`; náhled pak deníky (u velké agendy gigabajty) znovu nečte.
      *
-     * @return array{plan:list<array<string,mixed>>,chain_breaks:list<array<string,mixed>>}
+     * Rozvrh se počítá v kalendáři účetního roku firmy (`$supplierId`, bez něj kalendářní
+     * rok) a nese jeho počáteční měsíc: změní-li firma nastavení po nahrání, kontrola před
+     * převodem náhled zahodí a deník přečte znovu.
+     *
+     * @return array{plan:list<array<string,mixed>>,chain_breaks:list<array<string,mixed>>,start_month:int}
      */
-    public function journalPreview(Ms3Backup $backup): array
+    public function journalPreview(Ms3Backup $backup, ?int $supplierId = null): array
     {
         $options = new ImportOptions();
-        return ['plan' => $this->journal->plan($backup, $options), 'chain_breaks' => $this->journal->chainBreaks($backup, $options)];
+        $calendar = $supplierId !== null ? $this->periods->fiscalCalendar($supplierId) : FiscalCalendar::calendar();
+        return [
+            'plan' => $this->journal->plan($backup, $options, $calendar),
+            'chain_breaks' => $this->journal->chainBreaks($backup, $options, $calendar),
+            'start_month' => $calendar->startMonth(),
+        ];
     }
 
     /** Náhled deníku z `meta.json` je úplný (nahrání před jeho zavedením ho nemá). */
     public static function journalPreviewComplete(mixed $preview): bool
     {
-        return is_array($preview) && is_array($preview['plan'] ?? null) && is_array($preview['chain_breaks'] ?? null);
+        return is_array($preview) && is_array($preview['plan'] ?? null) && is_array($preview['chain_breaks'] ?? null)
+            && is_int($preview['start_month'] ?? null)
+            && array_all($preview['plan'], static fn (mixed $item): bool => is_array($item) && is_array($item['source_dates'] ?? null));
     }
 
     /**
@@ -112,7 +126,9 @@ final class MoneyS3Importer
      */
     public function preflight(int $supplierId, Ms3Backup $backup, AgendaInfo $agenda, ImportOptions $options, ?array $journalPreview = null): array
     {
-        if ($options->fromYear !== null || $options->firstPeriodStart !== null || !self::journalPreviewComplete($journalPreview)) {
+        $calendar = $this->periods->fiscalCalendar($supplierId);
+        if ($options->fromYear !== null || $options->firstPeriodStart !== null || !self::journalPreviewComplete($journalPreview)
+            || $journalPreview['start_month'] !== $calendar->startMonth()) {
             $journalPreview = null;
         }
         $out = [];
@@ -149,7 +165,7 @@ final class MoneyS3Importer
             $add('warning', $w['code'], $w['message']);
         }
 
-        $plan = $journalPreview['plan'] ?? $this->journal->plan($backup, $options);
+        $plan = $journalPreview['plan'] ?? $this->journal->plan($backup, $options, $calendar);
         if ($plan === [] && $options->fromYear !== null) {
             $add('error', 'from_year_empty', "Od roku {$options->fromYear} záloha nemá žádný účetní rok — není co převést.", ['from_year' => $options->fromYear]);
         } elseif ($plan === []) {
@@ -158,7 +174,7 @@ final class MoneyS3Importer
         // meta.json ukládá celé částky bez desetinné části jako celá čísla.
         $breaks = $journalPreview !== null
             ? array_map(static fn (array $b): array => ['accounts' => array_map('floatval', (array) $b['accounts'])] + $b, $journalPreview['chain_breaks'])
-            : $this->journal->chainBreaks($backup, $options);
+            : $this->journal->chainBreaks($backup, $options, $calendar);
         foreach ($breaks as $b) {
             $code = (string) array_key_first($b['accounts']);
             $add('warning', 'opening_chain_break', sprintf(
@@ -173,8 +189,13 @@ final class MoneyS3Importer
             $add('info', 'suggested_from_year', "Roky od {$suggested} v Money navazují — převod od roku {$suggested} (volba „Převést od roku“) půjde celý uzavřít. Starší roky zůstanou v archivu Money.", ['from_year' => $suggested]);
         }
         foreach ($plan as $item) {
-            if (!$item['calendar']) {
-                $add('error', 'fiscal_year_not_calendar', "Účetní rok {$item['year']} (adresář {$item['dir']}) nevede Money jako kalendářní — velká část deníku leží mimo rok {$item['year']}. Převod podporuje jen kalendářní účetní rok.", ['year' => $item['year']]);
+            // Adresář ROK = jeden účetní rok Money = jedno účetní období firmy. Tvar roku
+            // určuje nastavení firmy „Účetní rok začíná"; rok zdroje, který by se rozpadl do
+            // dvou období, převod zastaví s návrhem správného měsíce.
+            try {
+                MigrationPeriods::assertSourceYear($calendar, (array) $item['source_dates'], "{$item['year']} (adresář {$item['dir']})");
+            } catch (FiscalYearMismatchException $e) {
+                $add('error', 'fiscal_year_mismatch', $e->getMessage(), ['year' => $item['year'], 'suggested_start_month' => $e->suggestedStartMonth]);
             }
             $period = $this->periods->findByYear($supplierId, $item['year']);
             if ($period === null) {
@@ -233,7 +254,7 @@ final class MoneyS3Importer
         }
         $protocol->finish(self::STEP_PREFLIGHT);
 
-        $ctx = new ImportContext($supplierId, $userId, $backup, $agenda, $options, $protocol);
+        $ctx = new ImportContext($supplierId, $userId, $backup, $agenda, $options, $protocol, $this->periods->fiscalCalendar($supplierId));
         $ctx->runId = $runId;
         $ctx->progress = $progress;
 

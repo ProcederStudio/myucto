@@ -30,15 +30,19 @@
    převádět. Firma, která dosud vede daňovou evidenci, se převodem přepne na
    podvojné účetnictví. Má-li se skupina firem sdílet jako projekty, založte
    skupinu před převodem.
-2. **Oprávnění.** Zkoušku nanečisto spustí uživatel s oprávněním k zápisu
+2. **Účetní rok.** Vede-li firma v Money hospodářský rok, nastavte před
+   převodem v `Firma → Nastavení` na záložce **Daně a účetnictví** pole
+   **Účetní rok začíná** na měsíc, kterým rok v Money začíná. Každý účetní rok Money se převede jako jedno
+   účetní období firmy (například srpen 2024 až červenec 2025 jako období 2024).
+3. **Oprávnění.** Zkoušku nanečisto spustí uživatel s oprávněním k zápisu
    importů. Ostrý převod zapisuje účetní deník, mění nastavení firmy a
    uzavírá roky, proto vyžaduje navíc zápis do účetního deníku, do nastavení
    firmy a uzavírání období. Chybějící oprávnění průvodce ukáže a převod
    nespustí. Položka je v menu Systém, které vidí administrátor; jiný
    uživatel otevře průvodce přímým odkazem `/imports/money-s3`.
-3. **Klid ve firmě.** Zkouška nanečisto drží zámky převáděných období,
+4. **Klid ve firmě.** Zkouška nanečisto drží zámky převáděných období,
    spouštějte ji mimo běžnou práci.
-4. **Volné místo na disku** pro zálohu (až 4 GB).
+5. **Volné místo na disku** pro zálohu (až 4 GB).
 
 > [!TIP]
 > Převod je určen pro menší množství dat. Převody z jiných systémů jejich
@@ -71,7 +75,8 @@ Instalace Money se zálohou nijak nemění.
    Část **Kontrola před převodem** musí ukázat, že je záloha v pořádku.
 4. Nastavte **Volby převodu**:
    - **Převést od roku** (výchozí je rok, od kterého navazují stavy; **Všechny
-     roky zálohy** převede celou zálohu),
+     roky zálohy** převede celou zálohu; u hospodářského roku je rokem rok, ve
+     kterém účetní rok začíná),
    - **Uzavřít historické roky průvodcem uzávěrkou** (výchozí zapnuto),
    - **Začátek prvního účetního období** jen u firmy založené během prvního
      převáděného roku,
@@ -90,7 +95,9 @@ Instalace Money se zálohou nijak nemění.
 
 Kontrola před převodem zastaví převod, když záloha patří firmě s jiným IČO, účetní
 období v MyÚčtu už obsahuje zápisy, které nevznikly převodem, období je
-uzavřené, nebo agenda vede hospodářský rok odlišný od kalendářního. Chybí-li
+uzavřené, nebo by se účetní rok Money rozdělil do dvou účetních období firmy
+(agenda vede jiný účetní rok, než má firma nastavený; hlášení navrhne měsíc
+pro nastavení **Účetní rok začíná**). Chybí-li
 IČO v záloze nebo ve firmě, zkouška jen upozorní a ostrý převod se spustí až po
 výslovném potvrzení.
 
@@ -179,7 +186,7 @@ Pravidla dávky včetně příkazové řádky jsou v
 <!-- cols: 30 34 36 -->
 | Co vidíte | Proč | Co udělat |
 |---|---|---|
-| Kontrola před převodem hlásí chybu | Jiné IČO, zápisy v období, uzavřené období, nebo hospodářský rok mimo kalendářní | Opravte příčinu a nahrajte zálohu znovu; hospodářský rok převod nepodporuje |
+| Kontrola před převodem hlásí chybu | Jiné IČO, zápisy v období, uzavřené období, nebo agenda vede jiný účetní rok než firma | Opravte příčinu a nahrajte zálohu znovu; u účetního roku nastavte ve firmě měsíc z hlášení (**Účetní rok začíná**) a převod spusťte znovu |
 | Nahrávání se přerušilo | Výpadek spojení | Vyberte soubor a nahrajte ho znovu |
 | Zkouška selhala jen na rozdílech k přijetí | Doklad se nepřevedl nebo výsledek nesedí na Money | Zaškrtněte **Převést i přes rozdíly**, nebo rozdíl opravte a zkoušku zopakujte |
 | Rok se neuzavřel | Konečné stavy nesedí na počáteční stavy dalšího roku | Rok zůstává otevřený; důvod je v protokolu, rozdíl opravte a převod zopakujte |
@@ -401,7 +408,11 @@ bankovních účtech nebo ve dvou pokladnách.
    - záloha patří firmě s jiným IČO,
    - účetní období v MyÚčtu už obsahuje zápisy, které nevznikly převodem,
    - období je v MyÚčtu uzavřené,
-   - agenda vede hospodářský rok odlišný od kalendářního.
+   - účetní rok Money by se rozdělil do dvou účetních období firmy, protože
+     agenda vede jiný účetní rok, než má firma nastavený (`Firma → Nastavení`,
+     záložka **Daně a účetnictví**, pole **Účetní rok začíná**). Hlášení
+     navrhne měsíc, kterým rok v Money začíná; po jeho nastavení převod
+     spusťte znovu.
 
    Chybí-li IČO v záloze nebo ve firmě, nejde ověřit, že agenda patří této
    firmě. Zkouška nanečisto jen upozorní, ostrý převod se spustí až po
@@ -410,8 +421,10 @@ bankovních účtech nebo ve dvou pokladnách.
    Volby:
    - *Uzavřít historické roky* - viz [§ 103.10.6](#103106-uzaverka-historickych-let), ve výchozím stavu zapnuto.
    - *Začátek prvního účetního období* - jen u firmy založené během prvního
-     převáděného roku. Bez něj začíná první období 1. 1., u roku bez počátečních
-     stavů prvním zápisem deníku.
+     převáděného roku. Bez něj začíná první období prvním dnem účetního roku
+     firmy (1. 1., u hospodářského roku prvním dnem jeho prvního měsíce), u roku
+     bez počátečních stavů prvním zápisem deníku. Datum platí, jen když padne
+     do prvního převáděného účetního roku.
    - *Sestavy z Money* - ke každému roku můžete nahrát obratovou předvahu
      vyexportovanou z Money do CSV (účet v prvním sloupci, dál PS MD, PS D,
      obrat MD, obrat D, KS MD, KS D). Rekonciliace ji porovná s předvahou MyÚčta.
@@ -644,8 +657,11 @@ MyÚčto s výstupy Money nebo s novou zálohou agendy na stránce
 - Formát dat Money není veřejně dokumentovaný. Čtení je ověřené na verzi
   Money S3 26.600; u jiné verze průvodce upozorní a výsledek je o to důležitější
   porovnat se sestavami z Money.
-- Hospodářský rok odlišný od kalendářního převod nepodporuje, kontrola před
-  převodem ho zastaví.
+- Tvar účetního roku (kalendářní, nebo hospodářský) určuje nastavení firmy
+  **Účetní rok začíná**, ne záloha. Nastavuje se před převodem; agendu s jiným
+  účetním rokem kontrola před převodem zastaví s návrhem měsíce. Účetní období,
+  daňové odpisy majetku i uzávěrka historických let jdou po účetních letech
+  firmy.
 - Převod čte jen zálohu agendy, nikdy živou instalaci Money. Z archivu rozbalí
   jen datové soubory agendy s omezeným počtem i velikostí.
 - Nahraná záloha zůstává na serveru pro další běh. Po úspěšném ostrém převodu

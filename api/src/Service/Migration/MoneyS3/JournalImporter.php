@@ -8,6 +8,7 @@ use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Repository\JournalEntryRepository;
 use MyInvoice\Repository\MoneyS3ImportRepository;
+use MyInvoice\Service\Accounting\FiscalCalendar;
 use MyInvoice\Service\Accounting\JournalDescriptionBuilder;
 use MyInvoice\Service\Accounting\PostingService;
 use MyInvoice\Service\Migration\Shared\MigrationPeriods;
@@ -51,21 +52,29 @@ final class JournalImporter
      * Rozvrh období: rok a jeho hranice pro každý adresář ROK.nnn. Bez zápisu — používá
      * ho i kontrola před převodem.
      *
-     * @return list<array{dir:string,year:int,starts_on:string,ends_on:string,has_opening:bool,calendar:bool}>
+     * Adresář ROK je jeden účetní rok Money a stává se jedním účetním obdobím firmy podle
+     * KALENDÁŘE FIRMY (`$calendar`, nastavení „Účetní rok začíná"): rok = label období
+     * (rok jeho začátku), hranice = hranice období. Zda zdroj vede stejný tvar roku, ověří
+     * kontrola před převodem z `source_dates` ({@see MigrationPeriods::assertSourceYear()}).
+     * Volba „Převést od roku" (`fromYear`) je label období firmy; začátek prvního období
+     * (`firstPeriodStart`) platí, když datum padne do prvního převáděného období.
+     *
+     * @return list<array{dir:string,year:int,starts_on:string,ends_on:string,has_opening:bool,source_dates:list<string>}>
      */
-    public function plan(Ms3Backup $backup, ImportOptions $options): array
+    public function plan(Ms3Backup $backup, ImportOptions $options, ?FiscalCalendar $calendar = null): array
     {
-        $key = ($options->fromYear ?? '') . '|' . ($options->firstPeriodStart ?? '');
+        $calendar ??= FiscalCalendar::calendar();
+        $key = ($options->fromYear ?? '') . '|' . ($options->firstPeriodStart ?? '') . '|' . $calendar->startMonth();
         $cached = $this->plans[$backup] ?? [];
         if (!isset($cached[$key])) {
-            $cached[$key] = $this->buildPlan($backup, $options);
+            $cached[$key] = $this->buildPlan($backup, $options, $calendar);
             $this->plans[$backup] = $cached;
         }
         return $cached[$key];
     }
 
-    /** @return list<array{dir:string,year:int,starts_on:string,ends_on:string,has_opening:bool,calendar:bool}> */
-    private function buildPlan(Ms3Backup $backup, ImportOptions $options): array
+    /** @return list<array{dir:string,year:int,starts_on:string,ends_on:string,has_opening:bool,source_dates:list<string>}> */
+    private function buildPlan(Ms3Backup $backup, ImportOptions $options, FiscalCalendar $calendar): array
     {
         $plan = [];
         foreach ($backup->yearDirs() as $dir) {
@@ -73,18 +82,19 @@ final class JournalImporter
             if ($table === null || !$table->hasData()) {
                 continue;
             }
-            $summary = Ms3Journal::summarize($table->rows(Ms3Journal::FIELDS));
+            $summary = Ms3Journal::summarize($table->rows(Ms3Journal::FIELDS), $calendar);
             $year = $summary['fiscal_year'];
             if ($year === null) {
                 continue;
             }
+            [$startsOn, $endsOn] = MigrationPeriods::bounds($calendar, $year);
             $plan[] = [
                 'dir' => basename($dir),
                 'year' => $year,
-                'starts_on' => sprintf('%04d-01-01', $year),
-                'ends_on' => sprintf('%04d-12-31', $year),
+                'starts_on' => $startsOn,
+                'ends_on' => $endsOn,
                 'has_opening' => $summary['opening_rows'] > 0,
-                'calendar' => $summary['calendar'],
+                'source_dates' => $summary['source_dates'],
                 'first_entry' => $summary['first_entry'],
             ];
         }
@@ -93,14 +103,15 @@ final class JournalImporter
             $plan = array_values(array_filter($plan, static fn (array $p): bool => $p['year'] >= $options->fromYear));
         }
 
-        // První účetní období firmy založené během roku začíná dnem vzniku, ne 1. 1. —
-        // jinak nesedí zdaňovací období proti podanému přiznání. Money den vzniku v záloze
-        // nedrží: platí výslovně zadané datum, jinak první zápis deníku, ale JEN když rok
-        // nemá počáteční stavy (firma s PS existovala už dřív a její období začíná 1. 1.).
+        // První účetní období firmy založené během roku začíná dnem vzniku, ne prvním dnem
+        // účetního roku — jinak nesedí zdaňovací období proti podanému přiznání. Money den
+        // vzniku v záloze nedrží: platí výslovně zadané datum, jinak první zápis deníku, ale
+        // JEN když rok nemá počáteční stavy (firma s PS existovala už dřív a její období
+        // začíná prvním dnem účetního roku).
         if ($plan !== []) {
             $first = &$plan[0];
             if ($options->firstPeriodStart !== null) {
-                if (str_starts_with($options->firstPeriodStart, (string) $first['year'])) {
+                if ($calendar->fiscalYearOfDate($options->firstPeriodStart) === $first['year']) {
                     $first['starts_on'] = $options->firstPeriodStart;
                 }
             } elseif (!$first['has_opening'] && $first['first_entry'] !== null) {
@@ -114,11 +125,17 @@ final class JournalImporter
         }, $plan);
     }
 
+    /** Kalendář účetního roku firmy ({@see AccountingPeriodRepository::fiscalCalendar()}). */
+    public function companyCalendar(int $supplierId): FiscalCalendar
+    {
+        return $this->periods->fiscalCalendar($supplierId);
+    }
+
     public function run(ImportContext $ctx): void
     {
         $p = $ctx->protocol;
-        $plan = $this->plan($ctx->backup, $ctx->options);
-        if ($plan !== [] && $plan[0]['starts_on'] !== sprintf('%04d-01-01', $plan[0]['year'])) {
+        $plan = $this->plan($ctx->backup, $ctx->options, $ctx->calendar);
+        if ($plan !== [] && $plan[0]['starts_on'] !== $ctx->calendar->periodStart($plan[0]['year'])) {
             $p->info(self::STEP, 'first_period_start', 'První účetní období začíná ' . $plan[0]['starts_on']
                 . ($ctx->options->firstPeriodStart === null ? ' (podle prvního zápisu deníku — ověřte den vzniku firmy).' : '.'));
         }
@@ -394,10 +411,10 @@ final class JournalImporter
      *
      * @return list<array{year:int,next:int,next_has_opening:bool,accounts:array<string,float>}>
      */
-    public function chainBreaks(Ms3Backup $backup, ImportOptions $options): array
+    public function chainBreaks(Ms3Backup $backup, ImportOptions $options, ?FiscalCalendar $calendar = null): array
     {
         $years = [];
-        foreach ($this->plan($backup, $options) as $item) {
+        foreach ($this->plan($backup, $options, $calendar) as $item) {
             $table = $backup->table('UcDenik', $backup->dir() . DIRECTORY_SEPARATOR . $item['dir']);
             $opening = [];
             $closing = [];

@@ -114,7 +114,7 @@ final class MoneyS3BatchImporter
             }
 
             $perYear = FiledDppoFiling::latestPerYear($filings, $ico, static fn (array $e): string => (string) ($e['file'] ?? ''));
-            $fromYear = $this->fromYear($backup, $options);
+            $fromYear = $this->fromYear($backup, $options, $targetId);
             $summary['from_year_auto'] = $options->fromYear === MoneyS3BatchOptions::FROM_YEAR_AUTO;
             $summary['filings_available'] = array_keys($perYear);
 
@@ -234,10 +234,12 @@ final class MoneyS3BatchImporter
         }
     }
 
-    private function fromYear(Ms3Backup $backup, MoneyS3BatchOptions $options): ?int
+    /** Rok = label účetního období firmy; nově zakládaná firma vede kalendářní rok. */
+    private function fromYear(Ms3Backup $backup, MoneyS3BatchOptions $options, ?int $targetId): ?int
     {
         if ($options->fromYear === MoneyS3BatchOptions::FROM_YEAR_AUTO) {
-            return JournalImporter::suggestedFromYear($this->journal->chainBreaks($backup, new ImportOptions()));
+            $calendar = $targetId !== null ? $this->journal->companyCalendar($targetId) : null;
+            return JournalImporter::suggestedFromYear($this->journal->chainBreaks($backup, new ImportOptions(), $calendar));
         }
         return is_int($options->fromYear) ? $options->fromYear : null;
     }

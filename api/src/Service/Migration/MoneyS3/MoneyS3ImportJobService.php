@@ -75,7 +75,7 @@ final class MoneyS3ImportJobService extends AbstractImportJobService
         $agenda = AgendaInfo::fromBackup($extracted);
         return [
             // Náhled průvodce z toho staví kontrolu před převodem bez čtení zálohy.
-            'meta' => ['agenda' => $agenda->toArray(), 'journal_preview' => $this->importer->journalPreview($extracted)],
+            'meta' => ['agenda' => $agenda->toArray(), 'journal_preview' => $this->importer->journalPreview($extracted, $supplierId)],
             'activity' => ['agenda_ico' => $agenda->ico, 'version' => $agenda->version, 'years' => $agenda->fiscalYears()],
             'log' => 'Záloha agendy ' . $agenda->name . ' načtena.',
         ];

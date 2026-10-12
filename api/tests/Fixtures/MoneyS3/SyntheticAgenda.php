@@ -424,6 +424,47 @@ final class SyntheticAgenda
     }
 
     /**
+     * Účetnictví agendy jako hospodářský rok od srpna: deník obou let posunutý o sedm měsíců
+     * (ROK.001 = srpen 2024 – červenec 2025, ROK.002 = srpen 2025 – červenec 2026), počáteční
+     * stavy k 1. 8. Doklady, banka a pokladna v roce nejsou - jde o tvar účetních období.
+     *
+     * @param bool $withOpening2024 false = první rok bez počátečních stavů (firma vzniklá v roce)
+     * @return array<string,string>
+     */
+    public static function filesFiscalYearFromAugust(bool $withOpening2024 = true): array
+    {
+        $files = self::files();
+        $keep = ['UcOsnova.DAT', 'UcPrKont.DAT', 'SzUcPokl.DAT', 'UcDenik.DAT'];
+        foreach (array_keys($files) as $path) {
+            if (str_starts_with($path, 'ROK.') && !in_array(basename($path), $keep, true)) {
+                unset($files[$path]);
+            }
+        }
+        $shift = static function (?string $date): ?string {
+            if ($date === null || $date === '') {
+                return $date;
+            }
+            $d = new \DateTimeImmutable($date);
+            $month = (new \DateTimeImmutable($d->format('Y-m-01')))->modify('+7 months');
+            return $month->format('Y-m-') . sprintf('%02d', min((int) $d->format('d'), (int) $month->format('t')));
+        };
+        foreach (['ROK.001/UcDenik.DAT', 'ROK.002/UcDenik.DAT'] as $path) {
+            $rows = iterator_to_array(Ms3Table::fromString($files[$path], 'UCDENIK')->rows(), false);
+            $out = [];
+            foreach ($rows as $r) {
+                if (!$withOpening2024 && $path === 'ROK.001/UcDenik.DAT' && $r['Zdroj'] === 'XP') {
+                    continue;
+                }
+                $r['Datum'] = $shift($r['Datum'] ?? null);
+                $r['DatPlnDPH'] = $shift($r['DatPlnDPH'] ?? null);
+                $out[] = $r;
+            }
+            $files[$path] = Ms3FixtureWriter::table(self::JOURNAL_FIELDS, $out);
+        }
+        return $files;
+    }
+
+    /**
      * Agenda, ve které Money otevřelo rok 2025 bez uzávěrky roku 2024 (deník 2024 bez XZ).
      *
      * @return array<string,string>
