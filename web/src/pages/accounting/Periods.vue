@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, reactive } from 'vue'
+import { ref, onMounted, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute } from 'vue-router'
 import { accountingApi } from '@/api/accounting'
@@ -105,6 +105,17 @@ function defaultBounds(year: number): { fiscal_year: number, starts_on: string, 
   }
   return { fiscal_year: year, starts_on: `${year}-01-01`, ends_on: `${year}-12-31` }
 }
+
+// Označení období = účetní rok firmy, do kterého patří počátek (server to vyžaduje).
+// U zkráceného prvního období hospodářského roku (vznik 1. 3., rok od srpna) je to
+// předchozí kalendářní rok.
+watch(() => form.starts_on, (startsOn) => {
+  const m = /^(\d{4})-(\d{2})-\d{2}$/.exec(startsOn ?? '')
+  if (!m) return
+  const startMonth = supplierStore.currentSupplier?.fiscal_year_start_month ?? 1
+  const year = Number(m[1])
+  form.fiscal_year = startMonth > 1 && Number(m[2]) < startMonth ? year - 1 : year
+})
 
 async function save() {
   error.value = ''

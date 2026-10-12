@@ -1904,11 +1904,11 @@ final class AssetService
         }
     }
 
-    /** Režim firmy (kalendářní vs hospodářský rok) dle tvaru účetních období. */
+    /** Režim firmy (kalendářní vs hospodářský rok): období firmy, bez nich nastavení (AccountingPeriodRepository::fiscalCalendar). */
     private function supplierCalendar(int $supplierId): FiscalCalendar
     {
         return $this->calendarCache[$supplierId]
-            ??= FiscalCalendar::forPeriods($this->periods->listForTenant($supplierId));
+            ??= $this->periods->fiscalCalendar($supplierId);
     }
 
     /**

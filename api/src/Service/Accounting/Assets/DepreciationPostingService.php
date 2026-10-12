@@ -433,12 +433,13 @@ final class DepreciationPostingService
     private array $calendarCache = [];
 
     /**
-     * Kalendář odpisů firmy (kalendářní vs hospodářský rok) — dle TVARU období,
-     * ne jednoho kotevního data (F1). Kalendářní poplatníci = shodné s v1.
+     * Kalendář odpisů firmy (kalendářní vs hospodářský rok) — období firmy, bez nich
+     * nastavení firmy ({@see AccountingPeriodRepository::fiscalCalendar()}), ne jedno
+     * kotevní datum (F1). Kalendářní poplatníci = shodné s v1.
      */
     private function supplierCalendar(int $supplierId): FiscalCalendar
     {
         return $this->calendarCache[$supplierId]
-            ??= FiscalCalendar::forPeriods($this->periods->listForTenant($supplierId));
+            ??= $this->periods->fiscalCalendar($supplierId);
     }
 }

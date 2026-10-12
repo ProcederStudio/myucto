@@ -95,10 +95,15 @@ final class AccountingPeriodAction
         }
 
         // Konvence labelu (jednotná s F4 uzávěrkou i odpisovým enginem): fiscal_year =
-        // kalendářní rok počátku období. Zabraňuje rozjití labelu a výpočtů (HR).
-        if ($fiscalYear !== (int) substr($startsOn, 0, 4)) {
+        // účetní rok firmy, do kterého počátek období patří — u kalendářního roku i běžného
+        // hospodářského roku je to kalendářní rok počátku. Liší se jen zkrácené první
+        // období hospodářského roku (vznik 1. 3. 2099, rok od srpna → 2098): odpisový engine
+        // počítá měsíce období z labelu (FiscalCalendar::firstMonthIndex) a s labelem 2099
+        // by zkrácené období kolidovalo s následujícím 1. 8. 2099 (HR).
+        $expectedYear = $this->periods->fiscalCalendar($supplierId)->fiscalYearOfDate($startsOn);
+        if ($fiscalYear !== $expectedYear) {
             return Json::error($response, 'validation_failed',
-                'fiscal_year musí být kalendářní rok počátku období (' . substr($startsOn, 0, 4)
+                'fiscal_year musí být účetní rok firmy, do kterého patří počátek období (' . $expectedYear
                 . '). U hospodářského roku 1. 7. 2025 – 30. 6. 2026 je to 2025.', 422);
         }
 
