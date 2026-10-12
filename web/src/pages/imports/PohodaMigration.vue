@@ -36,7 +36,7 @@ const TOKEN_KEY = computed(() => `myucto.${props.system}.token`)
 // POHODY patří taky do průvodce PAMICA, je to tentýž mzdový modul STORMWARE.
 const FORCED_KIND: Record<PohodaSystem, PohodaKind> = { pohoda: 'accounting', pamica: 'payroll' }
 
-const { t, te, tm, rt } = useI18n()
+const { t, te, tm, rt, locale } = useI18n()
 const toast = useToast()
 const auth = useAuthStore()
 
@@ -189,7 +189,7 @@ const yearOptions = computed<YearOption[]>(() => {
 })
 function yearLabel(y: number): string {
   const period = yearOptions.value.find(o => o.year === y)?.period
-  return migrationYearLabel(y, period ? { period_start: period.period_start, period_end: period.period_end } : null)
+  return migrationYearLabel(y, period ? { period_start: period.period_start, period_end: period.period_end } : null, locale?.value)
 }
 // Běh jobu nese rok agendy; u hospodářského roku firmy se ukáže její účetní rok.
 function runYearLabel(agendaYear: number | null): string {

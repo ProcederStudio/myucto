@@ -18,6 +18,10 @@ vi.mock('@/stores/auth', () => ({
   useAuthStore: () => ({ canWrite: () => true, can: () => true }),
 }))
 
+vi.mock('@/stores/supplier', () => ({
+  useSupplierStore: () => ({ currentSupplier: { fiscal_year_start_month: 1 } }),
+}))
+
 vi.mock('@/composables/useToast', () => ({
   useToast: () => ({ error: vi.fn(), warning: vi.fn(), success: vi.fn() }),
 }))

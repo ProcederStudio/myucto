@@ -27,7 +27,7 @@ import { migrationYearLabel } from '@/utils/migrationYear'
  */
 const TOKEN_KEY = 'myucto.premier.token'
 
-const { t, tm, rt } = useI18n()
+const { t, tm, rt, locale } = useI18n()
 const auth = useAuthStore()
 
 function tt(key: string, params?: Record<string, unknown>): string {
@@ -76,7 +76,7 @@ function toggleYear(y: number, checked: boolean): void {
 }
 // U hospodářského roku firmy rok s hranicemi období, u kalendářního jen rok.
 function yearLabel(y: number): string {
-  return migrationYearLabel(y, agendas.value.find(a => a.ico === upload.value?.supplier_ico && a.year === y))
+  return migrationYearLabel(y, agendas.value.find(a => a.ico === upload.value?.supplier_ico && a.year === y), locale?.value)
 }
 const yearsLabel = computed(() => selectedYears.value.map(yearLabel).join(', '))
 // Kontrola před převodem po vybraných rocích vzestupně.
@@ -233,7 +233,7 @@ const actions = computed<ActionItem[]>(() => {
                   {{ a.company || '—' }}
                   <span v-if="a.ico !== upload.supplier_ico" class="ml-2 rounded-full bg-neutral-100 px-2 py-0.5 text-xs whitespace-nowrap text-neutral-600">{{ tt('other_company') }}</span>
                 </td>
-                <td class="px-3 py-2 font-medium" :data-testid="`premier-year-label-${a.year}`">{{ migrationYearLabel(a.year, a) }}</td>
+                <td class="px-3 py-2 font-medium" :data-testid="`premier-year-label-${a.year}`">{{ migrationYearLabel(a.year, a, locale) }}</td>
                 <td class="px-3 py-2 text-right">{{ a.entries }}</td>
                 <td class="px-3 py-2 whitespace-nowrap">{{ a.has_payroll ? tt('payroll_included') : '—' }}</td>
               </tr>
