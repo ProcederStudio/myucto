@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 const { t } = useI18n()
 
 const systems = [
-  { key: 'myucto', path: '/imports/myucto', name: 'MyÚčto', category: 'accounting' },
+  { key: 'myucto', path: '/imports/myucto', name: 'MyÚčto / MyInvoice', category: 'accounting' },
   { key: 'money', path: '/imports/money-s3', name: 'Money S3', category: 'accounting' },
   { key: 'pohoda', path: '/imports/pohoda', name: 'POHODA', category: 'accounting' },
   { key: 'premier', path: '/imports/premier', name: 'PREMIER', category: 'accounting' },

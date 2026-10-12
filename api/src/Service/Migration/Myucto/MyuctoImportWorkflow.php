@@ -31,7 +31,7 @@ final class MyuctoImportWorkflow
         );
     }
 
-    public function init(int $supplier, int $actor, string $fileName, mixed $size): array
+    public function init(int $supplier, int $actor, string $fileName, mixed $size, bool $legacy = false): array
     {
         $size = filter_var($size, FILTER_VALIDATE_INT);
         if (strtolower(pathinfo($fileName, PATHINFO_EXTENSION)) !== 'zip') {
@@ -41,7 +41,7 @@ final class MyuctoImportWorkflow
             throw new MyuctoImportException('upload_too_large', 'ZIP musí mít nejvýše 2 GiB.');
         }
         $this->uploads->purgeStale($supplier);
-        if (!$this->uploads->makeRoom($supplier, 3)) {
+        if (!$this->uploads->makeRoom($supplier, $legacy ? 18 : 3)) {
             throw new MyuctoImportException('too_many_uploads', 'Dokončete nejprve rozpracovaný import.', [], 429);
         }
         $token = $this->uploads->newToken();

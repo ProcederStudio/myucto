@@ -235,8 +235,12 @@ final class MyuctoExportReader
     private function content(ZipArchive $zip, string $entry, int &$bytes): string
     {
         $remaining = 67_108_864 - $bytes;
-        $content = $zip->getFromName($entry, $remaining + 1);
-        if ($content === false || strlen($content) > $remaining) {
+        $stat = $zip->statName($entry);
+        if ($stat === false || $stat['size'] > $remaining) {
+            throw new RuntimeException('Přílohy a data překračují limit převodu 64 MiB.');
+        }
+        $content = $zip->getFromName($entry, $stat['size']);
+        if ($content === false || strlen($content) !== $stat['size']) {
             throw new RuntimeException('Přílohy a data překračují limit převodu 64 MiB.');
         }
         $bytes += strlen($content);

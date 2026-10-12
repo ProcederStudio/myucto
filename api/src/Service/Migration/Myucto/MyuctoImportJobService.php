@@ -10,6 +10,7 @@ use MyInvoice\Repository\ImportJobRepository;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Auth\SecretEncryption;
 use MyInvoice\Service\BackgroundProcess;
+use MyInvoice\Service\Migration\MyInvoice\MyInvoiceBackupImportBridge;
 use MyInvoice\Service\Migration\Shared\AbstractImportJobService;
 use MyInvoice\Service\Migration\Shared\ChunkedUploadStore;
 use MyInvoice\Service\Migration\Shared\MigrationCompanyLock;
@@ -28,6 +29,7 @@ final class MyuctoImportJobService extends AbstractImportJobService
         private readonly MigrationCompanyLock $companyLock,
         ActivityLogger $logger,
         private readonly LoggerInterface $log,
+        private readonly ?MyInvoiceBackupImportBridge $legacy = null,
     ) {
         parent::__construct($jobs, null, $logger);
     }
@@ -45,6 +47,7 @@ final class MyuctoImportJobService extends AbstractImportJobService
         ?string $password,
         bool $apply,
         bool $confirmed,
+        ?array $myinvoice = null,
     ): array {
         if (!$this->companyLock->acquire(self::SOURCE, $supplier)) {
             throw new MyuctoImportException('already_running', 'Obnova této firmy právě běží.', [], 409);
@@ -61,6 +64,12 @@ final class MyuctoImportJobService extends AbstractImportJobService
             }
             $this->workflow->validateStart($supplier, $actor, $token, $source, $apply, $confirmed);
             $params = ['token' => $token, 'source_name' => $source, 'mode' => $apply ? 'import' : 'dry_run'];
+            if ($myinvoice !== null) {
+                if ($apply) {
+                    throw new MyuctoImportException('preview_required', 'Zálohu MyInvoice nejprve zkontrolujte nanečisto.');
+                }
+                $params['myinvoice'] = $this->legacyBridge()->options($supplier, $actor, $token, $myinvoice);
+            }
             if ($password !== null && $password !== '') {
                 $params['password_enc'] = $this->secrets->encryptFor($password, self::passwordContext($supplier, $token));
             }
@@ -150,11 +159,17 @@ final class MyuctoImportJobService extends AbstractImportJobService
             'id', 'status', 'total_items', 'processed', 'created_count', 'skipped_count', 'failed_count',
             'current_step', 'log_text', 'last_error', 'created_at', 'finished_at',
         ]));
-        $result['token'] = (string) ($job['params']['token'] ?? '');
+        $result['token'] = (string) ($job['report']['token'] ?? $job['params']['token'] ?? '');
         $result['source_name'] = (string) ($job['params']['source_name'] ?? '');
+        $result['format'] = isset($job['params']['myinvoice']) ? 'myinvoice' : 'myucto';
         $result['mode'] = (string) ($job['params']['mode'] ?? 'dry_run');
         $result['result'] = $job['report'] ?? null;
         return $result;
+    }
+
+    private function legacyBridge(): MyInvoiceBackupImportBridge
+    {
+        return $this->legacy ?? throw new \LogicException('MyInvoice backup bridge is unavailable.');
     }
 
     protected function uploads(): ChunkedUploadStore
@@ -204,6 +219,11 @@ final class MyuctoImportJobService extends AbstractImportJobService
             $this->jobs->removeParams($jobId, ['password_enc']);
             $this->jobs->updateProgress($jobId, ['total_items' => 1, 'processed' => 0, 'current_step' => $apply ? 'Obnova běží' : 'Kontrola exportu běží']);
             $this->jobs->appendLog($jobId, $apply ? 'Obnova do aktuální firmy.' : 'Zkouška nanečisto; data firmy se nezmění.');
+            if (isset($params['myinvoice'])) {
+                $this->jobs->updateProgress($jobId, ['current_step' => 'Převod zálohy MyInvoice']);
+                $this->jobs->appendLog($jobId, 'Výběr firmy podle IČO a převod zálohy do společného importního formátu.');
+                $token = $this->legacyBridge()->convert($supplierId, (int) $job['created_by'], $token, $params['myinvoice'], $password);
+            }
             $result = $this->workflow->run($supplierId, (int) $job['created_by'], $token, (string) ($params['source_name'] ?? ''), $password, $apply, $apply);
             $this->jobs->setReport($jobId, $result);
             $this->jobs->updateProgress($jobId, [

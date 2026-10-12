@@ -42,8 +42,9 @@ export async function uploadChunked(
   file: File,
   onProgress?: ChunkedUploadProgress,
   onStarted?: (token: string) => void,
+  initOptions?: Record<string, unknown>,
 ): Promise<{ token: string; job_id: number | null }> {
-  const init = (await api.post<{ token: string; chunk_size: number }>(`${baseUrl}/uploads/chunked`, { file_name: file.name, size: file.size })).data
+  const init = (await api.post<{ token: string; chunk_size: number }>(`${baseUrl}/uploads/chunked`, { ...initOptions, file_name: file.name, size: file.size })).data
   onStarted?.(init.token)
   let offset = 0
   onProgress?.(0, file.size)

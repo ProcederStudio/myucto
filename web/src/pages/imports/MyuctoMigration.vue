@@ -12,6 +12,12 @@ import CompanyProfileBox from '@/components/settings/CompanyProfileBox.vue'
 const { t, te } = useI18n()
 const auth = useAuthStore()
 const suppliers = useSupplierStore()
+const format = ref<'myucto' | 'myinvoice'>('myucto')
+const originals = ref<File[]>([])
+const originalTokens = ref<string[]>([])
+const profileConfirmed = ref(false)
+const converted = ref(false)
+const originalsInput = ref<HTMLInputElement | null>(null)
 const file = ref<File | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
 const source = ref('puvodni-instance')
@@ -56,19 +62,45 @@ watch(source, () => { result.value = null; confirmed.value = false; revision++ }
 watch(password, () => { if (!done.value) { result.value = null; confirmed.value = false; revision++ } }, { flush: 'sync' })
 watch(() => suppliers.currentSupplierId, async () => {
   reset(); runs.value = []; file.value = null; password.value = ''
+  originals.value = []
+  originalTokens.value = []
+  profileConfirmed.value = false
+  converted.value = false
+  if (originalsInput.value) originalsInput.value.value = ''
   if (fileInput.value) fileInput.value.value = ''
   await nextTick()
   void loadRuns()
 })
+watch(format, () => {
+  reset()
+  file.value = null
+  originals.value = []
+  originalTokens.value = []
+  profileConfirmed.value = false
+  converted.value = false
+  if (fileInput.value) fileInput.value.value = ''
+})
+function onOriginals(event: Event): void {
+  reset()
+  originals.value = Array.from((event.target as HTMLInputElement).files ?? [])
+  originalTokens.value = []
+  converted.value = false
+  if (originals.value.length > 16 || originals.value.some(f => !f.name.toLowerCase().endsWith('.zip') || !f.size || f.size > MYUCTO_IMPORT_MAX_BYTES)) {
+    originals.value = []
+    error.value = t('myucto_import.myinvoice.invalid_originals')
+  }
+}
 function onFile(event: Event): void {
   reset()
+  converted.value = false
+  originalTokens.value = []
   file.value = (event.target as HTMLInputElement).files?.[0] ?? null
   if (file.value && (!file.value.name.toLowerCase().endsWith('.zip') || file.value.size > MYUCTO_IMPORT_MAX_BYTES || file.value.size === 0)) {
     error.value = t('myucto_import.invalid_file'); file.value = null
   }
 }
 async function run(apply: boolean): Promise<void> {
-  if (busy.value || !canWrite.value || !validSource.value || (!token.value && !file.value) || (apply && (!passed.value || !confirmed.value))) return
+  if (busy.value || !canWrite.value || !validSource.value || (!token.value && !file.value) || (apply && (!passed.value || !confirmed.value)) || (format.value === 'myinvoice' && !converted.value && !profileConfirmed.value)) return
   const currentRevision = revision
   const supplierId = suppliers.currentSupplierId
   busy.value = true; error.value = ''
@@ -77,12 +109,27 @@ async function run(apply: boolean): Promise<void> {
       uploading.value = true
       const uploaded = await myuctoImportApi.upload(file.value, (sent, total) => {
         if (revision === currentRevision && suppliers.currentSupplierId === supplierId) progress.value = Math.round(sent / total * 100)
-      })
+      }, format.value === 'myinvoice')
       if (revision !== currentRevision || suppliers.currentSupplierId !== supplierId) return
       token.value = uploaded.token
       uploading.value = false
     }
-    const started = await myuctoImportApi.run(token.value, source.value, password.value, apply)
+    let legacyOptions
+    if (format.value === 'myinvoice' && !converted.value) {
+      uploading.value = true
+      for (let i = originalTokens.value.length; i < originals.value.length; i++) {
+        const uploaded = await myuctoImportApi.upload(originals.value[i]!, (sent, total) => {
+          if (revision === currentRevision) progress.value = Math.round(sent / total * 100)
+        }, true)
+        if (revision !== currentRevision || suppliers.currentSupplierId !== supplierId) return
+        originalTokens.value.push(uploaded.token)
+      }
+      uploading.value = false
+      legacyOptions = { files: originalTokens.value, profile_confirmed: profileConfirmed.value }
+    }
+    const started = legacyOptions
+      ? await myuctoImportApi.run(token.value, source.value, password.value, apply, legacyOptions)
+      : await myuctoImportApi.run(token.value, source.value, password.value, apply)
     if (revision !== currentRevision || suppliers.currentSupplierId !== supplierId) return
     await poll(started.job_id, currentRevision)
   } catch (e: unknown) {
@@ -110,6 +157,8 @@ async function poll(id: number, currentRevision: number): Promise<void> {
     confirmed.value = false
     if (state.status === 'completed' && state.result) {
       result.value = state.result
+      token.value = state.result.token
+      converted.value = true
       if (state.mode === 'import') password.value = ''
     } else {
       error.value = state.last_error ?? t('myucto_import.failed')
@@ -124,7 +173,10 @@ async function poll(id: number, currentRevision: number): Promise<void> {
 }
 async function selectRun(run: MyuctoImportRun): Promise<void> {
   if (busy.value) return
+  format.value = run.format ?? 'myucto'
+  await nextTick()
   reset()
+  converted.value = !!run.result
   source.value = run.source_name
   const currentRevision = revision
   await nextTick()
@@ -167,7 +219,7 @@ onBeforeUnmount(() => { revision++; stopPolling() })
       <RouterLink to="/imports" class="text-sm text-primary-700 hover:underline">{{ t('myucto_import.back') }}</RouterLink>
       <h1 class="mt-2 text-2xl font-semibold text-neutral-900">{{ t('myucto_import.title') }}</h1>
       <p class="mt-1 text-sm text-neutral-500">{{ t('myucto_import.intro') }}</p>
-      <p class="mt-2 text-sm text-neutral-500">{{ t('myucto_import.accounting_hint') }}</p>
+      <p class="mt-2 text-sm text-neutral-500">{{ t(format === 'myinvoice' ? 'myucto_import.myinvoice.scope_hint' : 'myucto_import.accounting_hint') }}</p>
     </div>
     <div class="rounded-xl border border-warning-500/30 bg-warning-50 p-4 text-sm text-warning-700">
       {{ t('myucto_import.requirements') }}
@@ -176,10 +228,26 @@ onBeforeUnmount(() => { revision++; stopPolling() })
     <section class="rounded-xl border border-neutral-200 bg-surface p-5 shadow-sm space-y-4">
       <h2 class="text-lg font-semibold text-neutral-900">{{ t('myucto_import.input') }}</h2>
       <div>
-        <label for="myucto-backup" class="block text-sm font-medium text-neutral-700">{{ t('myucto_import.file') }}</label>
-        <input id="myucto-backup" ref="fileInput" type="file" accept=".zip,application/zip" :disabled="busy || done || !canWrite" class="form-input mt-1 block w-full" @change="onFile">
-        <p class="mt-1 text-xs text-neutral-500">{{ t('myucto_import.file_hint') }}</p>
+        <label for="myucto-format" class="block text-sm font-medium text-neutral-700">{{ t('myucto_import.myinvoice.format') }}</label>
+        <select id="myucto-format" v-model="format" :disabled="busy || done || !canWrite" class="form-input mt-1 block w-full">
+          <option value="myucto">{{ t('myucto_import.myinvoice.native') }}</option>
+          <option value="myinvoice">{{ t('myucto_import.myinvoice.legacy') }}</option>
+        </select>
       </div>
+      <div>
+        <label for="myucto-backup" class="block text-sm font-medium text-neutral-700">{{ t(format === 'myinvoice' ? 'myucto_import.myinvoice.file' : 'myucto_import.file') }}</label>
+        <input id="myucto-backup" ref="fileInput" type="file" accept=".zip,application/zip" :disabled="busy || done || !canWrite" class="form-input mt-1 block w-full" @change="onFile">
+        <p class="mt-1 text-xs text-neutral-500">{{ t(format === 'myinvoice' ? 'myucto_import.myinvoice.file_hint' : 'myucto_import.file_hint') }}</p>
+      </div>
+      <template v-if="format === 'myinvoice'">
+        <div>
+          <label for="myinvoice-originals" class="block text-sm font-medium text-neutral-700">{{ t('myucto_import.myinvoice.originals') }}</label>
+          <input id="myinvoice-originals" ref="originalsInput" type="file" multiple accept=".zip,application/zip" :disabled="busy || done || converted || !canWrite" class="form-input mt-1 block w-full" @change="onOriginals">
+          <p class="mt-1 text-xs text-neutral-500">{{ t('myucto_import.myinvoice.originals_hint') }}</p>
+        </div>
+        <p class="text-sm text-neutral-600">{{ t('myucto_import.myinvoice.profile_hint') }} <RouterLink to="/admin/suppliers" class="text-primary-700 hover:underline">{{ t('myucto_import.myinvoice.settings') }}</RouterLink></p>
+        <label class="flex items-start gap-2 text-sm text-neutral-700"><input id="myinvoice-profile-confirmed" v-model="profileConfirmed" type="checkbox" :disabled="busy || done || converted || !canWrite" class="mt-0.5"><span>{{ t('myucto_import.myinvoice.profile_confirm') }}</span></label>
+      </template>
       <div class="grid gap-4 sm:grid-cols-2">
         <div>
           <label for="myucto-source" class="block text-sm font-medium text-neutral-700">{{ t('myucto_import.source') }}</label>
@@ -193,7 +261,7 @@ onBeforeUnmount(() => { revision++; stopPolling() })
         </div>
       </div>
       <div class="flex flex-wrap items-center gap-3">
-        <button v-if="!done" type="button" :class="passed ? btnOutline('neutral') : btnFilled('primary')" :disabled="busy || !canWrite || !validSource || (!file && !token)" @click="run(false)">
+        <button v-if="!done" type="button" :class="passed ? btnOutline('neutral') : btnFilled('primary')" :disabled="busy || !canWrite || !validSource || (!file && !token) || (format === 'myinvoice' && !converted && !profileConfirmed)" @click="run(false)">
           <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path :d="ICONS.check" /></svg>
           {{ t('myucto_import.check') }}
         </button>

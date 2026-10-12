@@ -34,6 +34,13 @@ final class MyuctoImportJobServiceTest extends TestCase
         $this->service = new MyuctoImportJobService($this->jobs, $this->workflow, $this->secrets, $this->lock, $this->createStub(ActivityLogger::class), $this->createStub(\Psr\Log\LoggerInterface::class));
     }
 
+    public function testProductionContainerProvidesLegacyBackupBridge(): void
+    {
+        $service = \MyInvoice\Bootstrap::buildContainer()->get(MyuctoImportJobService::class);
+        self::assertInstanceOf(\MyInvoice\Service\Migration\MyInvoice\MyInvoiceBackupImportBridge::class,
+            (new \ReflectionProperty($service, 'legacy'))->getValue($service));
+    }
+
     public function testQueueOnlyStoresContextBoundCiphertextAndDoesNotRunImporter(): void
     {
         $password = bin2hex(random_bytes(16));

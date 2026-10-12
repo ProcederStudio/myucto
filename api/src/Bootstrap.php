@@ -490,6 +490,8 @@ final class Bootstrap
                     is_array($testFingerprints) ? array_values($testFingerprints) : [],
                 );
             },
+            \MyInvoice\Service\Migration\Myucto\MyuctoImportJobService::class => \DI\autowire()
+                ->constructorParameter('legacy', \DI\get(\MyInvoice\Service\Migration\MyInvoice\MyInvoiceBackupImportBridge::class)),
             // DPPO podklady: ClosingService (4. arg) je konstrukčně volitelný (unit testy nad SQLite
             // ho nepředávají), ale PHP-DI autowire optional class-param nevyplní → explicitní bind,
             // aby náhled DPPO měl projekci závěrkových operací (Feature 1) i v produkci.
