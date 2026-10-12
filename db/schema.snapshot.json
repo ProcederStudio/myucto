@@ -979,7 +979,8 @@
         "1995_payroll_sample_purge.sql",
         "1996_document_ai.sql",
         "1997_ai_assistant_history.sql",
-        "1998_tax_isds_submission.sql"
+        "1998_tax_isds_submission.sql",
+        "1999_income_statement_purpose_missing_accounts.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
