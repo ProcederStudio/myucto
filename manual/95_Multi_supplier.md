@@ -97,7 +97,9 @@ a **Daně a účetnictví**. Změny ze všech záložek se ukládají společný
 4. Na záložce **Daně a účetnictví** zvolte **Režim účetnictví**:
    - **Daňová evidence**: jednoduchá evidence příjmů a výdajů, výchozí pro nově založeného dodavatele (u fyzické osoby),
    - **Podvojné účetnictví**: účetní deník, hlavní kniha, výkazy, majetek.
-5. Klikněte na tlačítko pro uložení dole.
+5. Vede-li právnická osoba hospodářský rok, nastavte na téže záložce **Účetní rok začíná** na jeho první měsíc
+   (například srpen pro rok 1. 8. až 31. 7.). Výchozí je leden, tedy kalendářní rok.
+6. Klikněte na tlačítko pro uložení dole.
 
 **Jak poznáte, že je hotovo:** Menu po přepnutí odpovídá zvolenému režimu (viz [§ 95.13.5](#95135-rezim-uctovani-per-firma)).
 
@@ -449,6 +451,11 @@ EPO a Pohoda kódy):
 |---|---|
 | **Daňová evidence** | Jednoduchá evidence příjmů a výdajů, výchozí pro nově založenou fyzickou osobu |
 | **Podvojné účetnictví** | Plnohodnotné podvojné účetnictví: účetní deník, hlavní kniha, výkazy, majetek |
+
+Pole **Účetní rok začíná** určuje tvar účetního roku firmy: podle něj se zakládají nová účetní období, počítají
+odpisy majetku a převody z jiných účetních programů rozdělují historii do let. Nastavuje se předem, před prvním
+obdobím nebo převodem. Proti existujícím obdobím jiného tvaru ho uložit nejde, protože změna účetního roku je
+samostatný úkon s přechodným obdobím. Fyzická osoba vede vždy kalendářní rok.
 
 Pole smí měnit jen admin, stejně jako ostatní údaje v detailu dodavatele. Výjimkou je zapnutí skladu, které smí
 přepnout i role účetní.

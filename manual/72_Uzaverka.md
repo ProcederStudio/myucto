@@ -37,7 +37,7 @@
 
 1. Otevřete `Nástroje → Uzávěrka`. Stránka **Účetní období** ukazuje tabulku všech roků firmy: **Účetní rok**, **Začátek**, **Konec**, **Stav** a **Akce** (na mobilu karty).
 2. Klikněte na **Nové období** (vyžaduje právo zápisu).
-3. Vyplňte **Účetní rok** (celé číslo 2000 až 2200) a **Začátek** a **Konec** období. Nemusí jít o kalendářní rok, podporovaný je i hospodářský rok.
+3. Vyplňte **Začátek** a **Konec** období a **Účetní rok** (celé číslo 2000 až 2200). Nemusí jít o kalendářní rok, podporovaný je i hospodářský rok podle nastavení firmy **Účetní rok začíná** ([§ 95.5](95_Multi_supplier.md#955-krok-za-krokem-zakladni-udaje-a-rezim-uctovani)). Účetní rok se dopočítá ze začátku: je to rok, do kterého začátek patří. U zkráceného prvního období hospodářského roku (firma vzniklá 1. 3. 2026 s rokem od srpna, období 1. 3. až 31. 7. 2026) je to 2025.
 4. Uložte.
 
 **Jak poznáte, že je hotovo:** Období je v tabulce se stavem **Otevřené**.
@@ -564,7 +564,7 @@ Chybějící období si aplikace doplní sama, takže na ně nenarazíte uprost�
 Takové období vzniká jako **Otevřené** a v tabulce má u účetního roku štítek **automaticky**; najetím myší uvidíte,
 která cesta ho založila. Období, která založíte ručně, štítek nemají.
 
-Hranice se dědí z existující řady, takže firmě s hospodářským rokem nevznikne kalendářní období. Aplikace nikdy
+Hranice se dědí z existující řady, a když řada chybí, z nastavení firmy **Účetní rok začíná**, takže firmě s hospodářským rokem nevznikne kalendářní období. Aplikace nikdy
 nemění existující období: spadá-li datum dokladu do období Uzavíraného, Uzavřeného nebo Schváleného,
 zaúčtování se odmítne (§ 35 zákona o účetnictví). Automaticky se nezakládá první období firmy, která zatím žádné
 nemá; jeho hranice a počáteční rozvahu je potřeba rozhodnout v průvodci aktivací účetnictví.
