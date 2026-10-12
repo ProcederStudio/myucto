@@ -6,6 +6,7 @@ namespace MyInvoice\Service\Migration\Pohoda;
 
 use MyInvoice\Repository\ImportJobRepository;
 use MyInvoice\Repository\PohodaImportRepository;
+use MyInvoice\Service\Accounting\FiscalCalendar;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Migration\ImportYears;
 use MyInvoice\Service\Migration\Pohoda\Payroll\PohodaPayrollImporter;
@@ -191,7 +192,8 @@ final class PohodaImportJobService extends AbstractImportJobService
             $lock = $this->acquireRunUploadLock($supplierId, $token, 'Export právě zpracovává jiný proces, nebo už byl uklizen - nahrajte ho znovu.');
             $this->closeInterruptedRuns($jobId, $supplierId);
             $meta = PohodaUploads::meta($supplierId, $token);
-            $plan = self::plan($meta, $ico, ImportYears::fromParams($params), $payroll, $supplierId, $token);
+            $plan = self::plan($meta, $ico, ImportYears::fromParams($params), $payroll, $supplierId, $token,
+                $payroll ? null : self::companyYears($meta, $ico, $this->importer->companyCalendar($supplierId), $supplierId, $token));
             $planYears = array_column($plan, 'year');
             $steps = $payroll ? PohodaPayrollImporter::stepKeys() : PohodaImporter::stepKeys();
             if ($payroll) {
@@ -291,20 +293,34 @@ final class PohodaImportJobService extends AbstractImportJobService
      * (`later`) a které se nepřevádějí (`skip`). Rok bez vlastní agendy je jen pozdější rok
      * agendy (POHODA vede doklady i po 31. 12.) - převést ho jde jen s rokem té agendy.
      *
+     * Firma s hospodářským rokem (`$companyYears`, {@see companyYears()}) vybírá účetní
+     * roky FIRMY: rok agendy se najde podle jejího účetního období a pozdější roky jsou
+     * období firmy. Položka plánu nese dál rok agendy (`year`), podle něj job agendu otevře.
+     * Mzdy jdou vždy po rocích agend.
+     *
      * @param array<string,mixed> $meta
      * @param list<int> $years
+     * @param array<int,array{year:int,later_years:list<int>}>|null $companyYears rok agendy => účetní rok firmy
      * @return list<array{year:int,skip:list<int>,later:list<int>}>
      * @throws PohodaException `invalid_year` / `invalid_kind` (kód 422)
      */
-    public static function plan(array $meta, string $ico, array $years, bool $payroll, int $supplierId, string $token): array
+    public static function plan(array $meta, string $ico, array $years, bool $payroll, int $supplierId, string $token, ?array $companyYears = null): array
     {
         if ($years === []) {
             throw new PohodaException('invalid_year', 'Vyberte aspoň jeden rok převodu.', [], 422);
         }
+        $companyYears = $payroll ? null : $companyYears;
+        $byLabel = [];
+        foreach ($companyYears ?? [] as $agendaYear => $company) {
+            $byLabel[$company['year']] ??= (int) $agendaYear;
+        }
+        $agendaOf = static fn (int $year): ?array => $companyYears === null
+            ? self::agenda($meta, $ico, $year)
+            : (isset($byLabel[$year]) ? self::agenda($meta, $ico, $byLabel[$year]) : null);
         $plan = [];
         $covered = [];
         foreach ($years as $year) {
-            $agenda = self::agenda($meta, $ico, $year);
+            $agenda = $agendaOf($year);
             if ($agenda === null) {
                 continue;
             }
@@ -313,19 +329,66 @@ final class PohodaImportJobService extends AbstractImportJobService
                     ? "Export roku {$year} neobsahuje mzdy (91_mzdy.xml)."
                     : "Export roku {$year} obsahuje jen mzdy, účetnictví v něm není.", ['year' => $year], 422);
             }
-            $later = $payroll ? [] : self::laterYears($agenda, $supplierId, $token);
-            $plan[] = ['year' => $year, 'skip' => array_values(array_diff($later, $years)), 'later' => $later];
+            $later = match (true) {
+                $payroll => [],
+                $companyYears !== null => $companyYears[$agenda['year']]['later_years'],
+                default => self::laterYears($agenda, $supplierId, $token),
+            };
+            $plan[] = ['year' => $agenda['year'], 'skip' => array_values(array_diff($later, $years)), 'later' => $later];
             foreach ($later as $y) {
                 $covered[$y] = true;
             }
         }
         foreach ($years as $year) {
-            if (self::agenda($meta, $ico, $year) === null && !isset($covered[$year])) {
+            if ($agendaOf($year) === null && !isset($covered[$year])) {
                 throw new PohodaException('invalid_year', "Export neobsahuje agendu roku {$year} s IČO této firmy a vybraná agenda předchozího roku doklady roku {$year} nevede."
                     . ' Pozdější rok agendy jde převést jen spolu s rokem agendy.', ['year' => $year], 422);
             }
         }
         return $plan;
+    }
+
+    /**
+     * Účetní roky firmy s hospodářským rokem u agend účetnictví s IČO firmy: období agendy
+     * ({@see PohodaAgendaYear}) a pozdější období, do kterých agenda vede doklady. Kalendářní
+     * firma = `null`: průvodce i plán berou rok agendy a pozdější roky z přehledu exportu.
+     *
+     * @param array<string,mixed> $meta
+     * @return array<int,array{year:int,period_start:string,period_end:string,later_years:list<int>,later_periods:list<array{year:int,period_start:string,period_end:string}>}>|null rok agendy => účetní rok firmy
+     */
+    public static function companyYears(array $meta, string $ico, FiscalCalendar $calendar, int $supplierId, string $token): ?array
+    {
+        if ($calendar->isCalendar()) {
+            return null;
+        }
+        $out = [];
+        foreach ((array) ($meta['agendas'] ?? []) as $a) {
+            if (($ico !== '' && (string) ($a['ico'] ?? '') !== $ico) || !(bool) ($a['has_accounting'] ?? true)) {
+                continue;
+            }
+            $export = PohodaExport::open(PohodaUploads::exportDir($supplierId, $token) . DIRECTORY_SEPARATOR . (string) $a['dir']);
+            $out[(int) $a['year']] = self::companyYear(PohodaAgendaYear::of($export, $calendar));
+        }
+        return $out;
+    }
+
+    /**
+     * Účetní rok firmy, do kterého agenda patří, s hranicemi období a pozdějšími obdobími.
+     *
+     * @return array{year:int,period_start:string,period_end:string,later_years:list<int>,later_periods:list<array{year:int,period_start:string,period_end:string}>}
+     */
+    public static function companyYear(PohodaAgendaYear $agendaYear): array
+    {
+        $period = static fn (int $year): array => [
+            'year' => $year,
+            'period_start' => $agendaYear->calendar->periodStart($year),
+            'period_end' => $agendaYear->calendar->periodEnd($year),
+        ];
+        $later = $agendaYear->laterYears();
+        return $period($agendaYear->label) + [
+            'later_years' => $later,
+            'later_periods' => array_map($period, $later),
+        ];
     }
 
     /**

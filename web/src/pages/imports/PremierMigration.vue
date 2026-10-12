@@ -11,6 +11,7 @@ import ImportJobProgress from '@/components/exchange/ImportJobProgress.vue'
 import CompanyProfileBox from '@/components/settings/CompanyProfileBox.vue'
 import MoneyS3Protocol from '@/components/migration/MoneyS3Protocol.vue'
 import MigrationDifferences from '@/components/migration/MigrationDifferences.vue'
+import { migrationYearLabel } from '@/utils/migrationYear'
 
 /**
  * Průvodce převodem z PREMIER: záloha dat (Správce → Záloha dat, F11) → náhled agend
@@ -73,7 +74,11 @@ function toggleYear(y: number, checked: boolean): void {
   else next.delete(y)
   selectedYears.value = [...next].sort((a, b) => a - b)
 }
-const yearsLabel = computed(() => selectedYears.value.join(', '))
+// U hospodářského roku firmy rok s hranicemi období, u kalendářního jen rok.
+function yearLabel(y: number): string {
+  return migrationYearLabel(y, agendas.value.find(a => a.ico === upload.value?.supplier_ico && a.year === y))
+}
+const yearsLabel = computed(() => selectedYears.value.map(yearLabel).join(', '))
 // Kontrola před převodem po vybraných rocích vzestupně.
 const preflightGroups = computed(() => selectedYears.value.map(y => ({ year: y, messages: upload.value?.preflight?.[String(y)] ?? [] })))
 const preflightErrors = computed(() => preflightGroups.value.flatMap(g => g.messages).filter(m => m.level === 'error'))
@@ -228,7 +233,7 @@ const actions = computed<ActionItem[]>(() => {
                   {{ a.company || '—' }}
                   <span v-if="a.ico !== upload.supplier_ico" class="ml-2 rounded-full bg-neutral-100 px-2 py-0.5 text-xs whitespace-nowrap text-neutral-600">{{ tt('other_company') }}</span>
                 </td>
-                <td class="px-3 py-2 font-medium">{{ a.year }}</td>
+                <td class="px-3 py-2 font-medium" :data-testid="`premier-year-label-${a.year}`">{{ migrationYearLabel(a.year, a) }}</td>
                 <td class="px-3 py-2 text-right">{{ a.entries }}</td>
                 <td class="px-3 py-2 whitespace-nowrap">{{ a.has_payroll ? tt('payroll_included') : '—' }}</td>
               </tr>
@@ -248,7 +253,7 @@ const actions = computed<ActionItem[]>(() => {
 
           <p v-if="!selectedYears.length" class="mb-5 rounded-lg border border-warning-500/30 bg-warning-50 px-3 py-2 text-sm text-warning-700" data-testid="premier-no-year-selected">{{ tt('choose_year_first') }}</p>
           <div v-for="g in preflightGroups" :key="g.year" class="mb-5" :data-testid="`premier-preflight-${g.year}`">
-            <h3 class="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-500">{{ tt('preflight_title', { year: g.year }) }}</h3>
+            <h3 class="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-500">{{ tt('preflight_title', { year: yearLabel(g.year) }) }}</h3>
             <ul v-if="g.messages.length" class="space-y-2">
               <li v-for="m in g.messages" :key="m.code + m.message" class="rounded-lg border px-3 py-2 text-sm"
                 :class="m.level === 'error' ? 'border-danger-500/30 bg-danger-50 text-danger-600' : m.level === 'warning' ? 'border-warning-500/30 bg-warning-50 text-warning-700' : 'border-primary-500/30 bg-primary-50 text-primary-700'">

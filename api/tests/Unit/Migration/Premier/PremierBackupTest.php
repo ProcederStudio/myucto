@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace MyInvoice\Tests\Unit\Migration\Premier;
 
+use MyInvoice\Service\Accounting\FiscalCalendar;
 use MyInvoice\Service\Migration\Premier\PremierBackup;
 use MyInvoice\Service\Migration\Premier\PremierException;
 use MyInvoice\Tests\Fixtures\Premier\CabWriter;
+use MyInvoice\Tests\Fixtures\Premier\FiscalPremierBackup;
 use MyInvoice\Tests\Fixtures\Premier\SyntheticPremierBackup;
 use PHPUnit\Framework\TestCase;
 
@@ -111,6 +113,33 @@ final class PremierBackupTest extends TestCase
             return $agenda;
         }, $overview);
         self::assertNull(PremierBackup::open($dir)->withOverview($legacy)->lastPayrollPeriod());
+    }
+
+    /**
+     * Účetní roky firmy s hospodářským rokem z přehledu nahrání: počty po měsících stačí,
+     * deník se znovu nečte (tady ho po přehledu přepíše prázdná tabulka). Firma založená
+     * v únoru 2025 má hospodářský rok 2024, který kalendářní rok zálohy nemá.
+     */
+    public function testCompanyOverviewUsesCompanyYearsFromMonthCounts(): void
+    {
+        $dir = FiscalPremierBackup::writeDir($this->tmp . '/fiscal', false, ['2025-02-10', '2025-03-15', '2025-06-20', '2025-09-01', '2026-01-15']);
+        $overview = PremierBackup::overview($dir);
+        self::assertSame([2025, 2026], array_column($overview, 'year'));
+        self::assertSame(['2025-02' => 1, '2025-03' => 1, '2025-06' => 1, '2025-09' => 1], $overview[0]['months']);
+
+        copy($dir . '/SET_GLOB.DBF', $dir . '/PUB_UCTO.DBF');
+        $backup = PremierBackup::open($dir)->withOverview($overview);
+        $fiscal = new FiscalCalendar(8);
+        self::assertSame([2024, 2025], $backup->fiscalYears($fiscal));
+        self::assertSame([
+            ['year' => 2024, 'entries' => 3, 'period_start' => '2024-08-01', 'period_end' => '2025-07-31'],
+            ['year' => 2025, 'entries' => 2, 'period_start' => '2025-08-01', 'period_end' => '2026-07-31'],
+        ], array_map(static fn (array $a): array => array_intersect_key($a, array_flip(['year', 'entries', 'period_start', 'period_end'])), $backup->companyOverview($overview, $fiscal)));
+
+        // Kalendářní firma: přehled nahrání beze změny, jen bez počtů po měsících.
+        $calendar = $backup->companyOverview($overview, FiscalCalendar::calendar());
+        self::assertSame(PremierBackup::withoutMonths($overview), $calendar);
+        self::assertArrayNotHasKey('months', $calendar[0]);
     }
 
     public function testArchiveWithoutJournalIsRejected(): void

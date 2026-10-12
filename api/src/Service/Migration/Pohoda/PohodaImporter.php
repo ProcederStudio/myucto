@@ -8,6 +8,7 @@ use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Infrastructure\Database\TableStatistics;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Repository\PohodaImportRepository;
+use MyInvoice\Service\Accounting\FiscalCalendar;
 use MyInvoice\Service\Migration\MoneyS3\AccountingUnitSwitch;
 use MyInvoice\Service\Migration\MoneyS3\ImportProtocol;
 use MyInvoice\Service\Migration\Shared\FiscalYearMismatchException;
@@ -76,6 +77,12 @@ final class PohodaImporter
             VatCoefficientSeeder::STEP,
             PohodaReconciler::STEP,
         ];
+    }
+
+    /** Kalendář účetního roku firmy - podle něj se agendy řadí do jejích účetních období. */
+    public function companyCalendar(int $supplierId): FiscalCalendar
+    {
+        return $this->periods->fiscalCalendar($supplierId);
     }
 
     /**

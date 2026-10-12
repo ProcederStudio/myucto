@@ -87,6 +87,24 @@ final class PremierImporter
     }
 
     /**
+     * Roky zálohy, jak je průvodce nabízí a převod bere: u firmy s hospodářským rokem účetní
+     * roky firmy s hranicemi období ({@see PremierBackup::companyOverview()}), jinak přehled
+     * nahrání beze změny. Zálohu otevře, jen když ji potřebuje (hospodářský rok, agenda IČO firmy).
+     *
+     * @param list<array<string,mixed>> $agendas přehled nahrání z `meta.json`
+     * @param callable():PremierBackup $backup
+     * @return list<array<string,mixed>>
+     */
+    public function companyAgendas(int $supplierId, array $agendas, string $ico, callable $backup): array
+    {
+        $calendar = (new MigrationPeriods($this->periods))->calendar($supplierId);
+        if ($calendar->isCalendar() || $ico === '' || !in_array($ico, array_map('strval', array_column($agendas, 'ico')), true)) {
+            return PremierBackup::withoutMonths($agendas);
+        }
+        return $backup()->withOverview($agendas)->companyOverview($agendas, $calendar);
+    }
+
+    /**
      * Kontrola před převodem - nic nezapisuje. Chyba převod zastaví, upozornění ne.
      *
      * @return list<array{level:string,code:string,message:string,context:array<string,mixed>}>

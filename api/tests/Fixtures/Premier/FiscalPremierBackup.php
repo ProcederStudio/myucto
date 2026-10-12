@@ -21,23 +21,27 @@ final class FiscalPremierBackup
     public const YEAR = 2024;
     public const NEXT = 2025;
 
-    /** @param bool $declared se zdaňovacím obdobím v `D_PO1` (jinak jen ROK) */
-    public static function writeDir(string $dir, bool $declared = true): string
+    /**
+     * @param bool $declared se zdaňovacím obdobím v `D_PO1` (jinak jen ROK)
+     * @param list<string>|null $dates jiná data pěti zápisů deníku (firma založená později apod.)
+     */
+    public static function writeDir(string $dir, bool $declared = true, ?array $dates = null): string
     {
         if (!is_dir($dir)) {
             mkdir($dir, 0755, true);
         }
+        $dates ??= ['2024-08-01', '2024-09-15', '2025-03-10', '2025-08-05', '2026-02-01'];
         $base = SyntheticPremierBackup::tables();
         $tables = [
             'SET_GLOB' => $base['SET_GLOB'],
             'KODY_DPH' => $base['KODY_DPH'],
             'OSNOVA' => [$base['OSNOVA'][0], self::chart()],
             'PUB_UCTO' => [$base['PUB_UCTO'][0], [
-                self::row(1, '2024-08-01', '1', 'Vklad do pokladny', 10000, '211001', '411000'),
-                self::row(2, '2024-09-15', '2', 'Služba', 1000, '518100', '211001'),
-                self::row(3, '2025-03-10', '3', 'Tržba', 3000, '211001', '602100'),
-                self::row(4, '2025-08-05', '4', 'Služba', 500, '518100', '211001'),
-                self::row(5, '2026-02-01', '5', 'Tržba', 700, '211001', '602100'),
+                self::row(1, $dates[0], '1', 'Vklad do pokladny', 10000, '211001', '411000'),
+                self::row(2, $dates[1], '2', 'Služba', 1000, '518100', '211001'),
+                self::row(3, $dates[2], '3', 'Tržba', 3000, '211001', '602100'),
+                self::row(4, $dates[3], '4', 'Služba', 500, '518100', '211001'),
+                self::row(5, $dates[4], '5', 'Tržba', 700, '211001', '602100'),
             ]],
             'D_PO1' => [
                 [['ID_CISLO', 'C', 10], ['ROK', 'N', 4], ['DNE', 'C', 10], ['FORMA', 'C', 1], ['PRIZN_OD', 'C', 10], ['PRIZN_DO', 'C', 10]],

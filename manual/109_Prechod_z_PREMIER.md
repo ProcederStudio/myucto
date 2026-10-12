@@ -50,7 +50,8 @@ ke stažení, zálohu vytvoříte přímo v PREMIERu.
 4. **Hospodářský rok.** Vede-li firma hospodářský rok, nastavte ještě před
    převodem v `Nastavení → Daně a účetnictví` měsíc, kterým **Účetní rok
    začíná**. Převod pak zakládá období podle firmy (například 1. 8. - 31. 7.),
-   rok v průvodci je rok začátku období a počáteční stavy jsou k prvnímu dni
+   rok v průvodci je rok začátku období s jeho hranicemi (například
+   2024 (1. 8. 2024 – 31. 7. 2025)) a počáteční stavy jsou k prvnímu dni
    období. Podle zdaňovacího období v podaném přiznání k DPPO převod ověří, že
    PREMIER vede rok stejně; když ne, zastaví se a navrhne správný měsíc.
 5. **Klid ve firmě** pro zkoušku nanečisto.

@@ -30300,7 +30300,7 @@
     "close_history": "Uzavřít historické roky průvodcem uzávěrkou",
     "close_history_hint": "Rok se uzavře, jen když jeho konečné stavy sedí účet po účtu na počáteční stavy dalšího roku z Money. Poslední rok zůstane otevřený.",
     "first_period_start": "Začátek prvního účetního období",
-    "first_period_start_hint": "Vyplňte jen u firmy založené během prvního převáděného roku (den vzniku). Jinak první období začíná 1. 1., u roku bez počátečních stavů prvním zápisem deníku.",
+    "first_period_start_hint": "Vyplňte jen u firmy založené během prvního převáděného roku (den vzniku). Jinak první období začíná prvním dnem účetního roku firmy (nastavení Účetní rok začíná), u roku bez počátečních stavů prvním zápisem deníku.",
     "from_year": "Převést od roku",
     "from_year_all": "Všechny roky zálohy",
     "from_year_hint": "Starší roky i s doklady se nepřevedou a zůstanou v archivu Money. Hodí se, když v Money roky nenavazují (kontrola před převodem doporučí rok, od kterého půjde všechno uzavřít).",

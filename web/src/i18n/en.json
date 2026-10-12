@@ -30300,7 +30300,7 @@
     "close_history": "Close historical years with the closing wizard",
     "close_history_hint": "A year is closed only when its closing balances match, account by account, the opening balances of the next year from Money. The last year stays open.",
     "first_period_start": "Start of the first accounting period",
-    "first_period_start_hint": "Fill in only for a company founded during the first transferred year (date of incorporation). Otherwise the first period starts on 1 January, or with the first journal entry for a year without opening balances.",
+    "first_period_start_hint": "Fill in only for a company founded during the first transferred year (date of incorporation). Otherwise the first period starts on the first day of the company accounting year (the Accounting year starts setting), or with the first journal entry for a year without opening balances.",
     "from_year": "Transfer from year",
     "from_year_all": "All years in the backup",
     "from_year_hint": "Older years and their documents are not transferred and stay in the Money archive. Useful when years in Money do not follow on (the pre-transfer check suggests the year from which everything can be closed).",

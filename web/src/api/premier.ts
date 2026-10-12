@@ -16,7 +16,11 @@ export interface PremierAgenda {
   ico: string
   dic: string
   company: string
+  /** Účetní rok firmy (label = rok začátku období). */
   year: number
+  /** Hranice období u firmy s hospodářským rokem; kalendářní firma je nedostává. */
+  period_start?: string
+  period_end?: string
   /** Počet zápisů deníku agendy roku — PREMIER na rozdíl od POHODY nevrací rozpad po dokladech. */
   entries: number
   has_accounting: boolean

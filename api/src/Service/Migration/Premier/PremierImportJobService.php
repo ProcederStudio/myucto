@@ -153,11 +153,13 @@ final class PremierImportJobService extends AbstractImportJobService
                 $mode = ($params['mode'] ?? '') === 'import' ? 'import' : 'dry_run';
                 $dryRun = $mode === 'dry_run';
                 $year = $years[$index];
-                $agenda = self::agenda($meta, (string) ($params['ico'] ?? ''), $year);
+                $ico = (string) ($params['ico'] ?? '');
+                $backup = PremierBackup::open(PremierUploads::backupDir($supplierId, $token))->withOverview((array) ($meta['agendas'] ?? []));
+                // Rok jobu = účetní rok firmy ({@see PremierImporter::companyAgendas()}).
+                $agenda = self::agenda(['agendas' => $this->importer->companyAgendas($supplierId, (array) ($meta['agendas'] ?? []), $ico, static fn (): PremierBackup => $backup)], $ico, $year);
                 if ($agenda === null) {
                     throw new PremierException('agenda_not_found', "Záloha neobsahuje účetní rok {$year} této firmy.");
                 }
-                $backup = PremierBackup::open(PremierUploads::backupDir($supplierId, $token))->withOverview((array) ($meta['agendas'] ?? []));
                 $runId = $this->runs->startRun($supplierId, $jobId, $mode, [
                     'ico' => $backup->ico,
                     'year' => $year,

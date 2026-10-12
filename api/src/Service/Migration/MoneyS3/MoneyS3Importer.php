@@ -107,6 +107,45 @@ final class MoneyS3Importer
         ];
     }
 
+    /**
+     * Náhled deníku z `meta.json` platí pro kalendář účetního roku firmy - po změně nastavení
+     * „Účetní rok začíná" se musí přečíst znovu.
+     */
+    public function journalPreviewCurrent(mixed $preview, int $supplierId): bool
+    {
+        return self::journalPreviewComplete($preview) && $preview['start_month'] === $this->periods->fiscalCalendar($supplierId)->startMonth();
+    }
+
+    /**
+     * Náhled agendy pro průvodce v účetních letech FIRMY: náhled nahrání počítá rok adresáře
+     * ROK v kalendářním roce, převod ale adresář převádí jako účetní období firmy podle
+     * rozvrhu deníku ({@see JournalImporter::plan()}). U firmy s hospodářským rokem proto rok
+     * (`fiscal_year`) nahradí label období firmy a přidá jeho hranice (`period_start`,
+     * `period_end`) - podle stejného roku se pak páruje i nahraná předvaha z Money a volba
+     * „Převést od roku". Kalendářní firma dostane náhled beze změny.
+     *
+     * @param array<string,mixed> $agenda {@see AgendaInfo::toArray()}
+     * @param array{plan:list<array<string,mixed>>,start_month:int} $journalPreview náhled deníku v kalendáři firmy ({@see journalPreview()})
+     * @return array<string,mixed>
+     */
+    public static function companyAgenda(array $agenda, array $journalPreview): array
+    {
+        if ($journalPreview['start_month'] === 1) {
+            return $agenda;
+        }
+        $plan = array_column($journalPreview['plan'], null, 'dir');
+        foreach ((array) ($agenda['years'] ?? []) as $i => $year) {
+            $item = $plan[(string) ($year['dir'] ?? '')] ?? null;
+            if ($item === null) {
+                continue;
+            }
+            $agenda['years'][$i]['fiscal_year'] = (int) $item['year'];
+            $agenda['years'][$i]['period_start'] = (string) $item['starts_on'];
+            $agenda['years'][$i]['period_end'] = (string) $item['ends_on'];
+        }
+        return $agenda;
+    }
+
     /** Náhled deníku z `meta.json` je úplný (nahrání před jeho zavedením ho nemá). */
     public static function journalPreviewComplete(mixed $preview): bool
     {

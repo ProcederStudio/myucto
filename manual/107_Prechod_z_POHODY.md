@@ -120,10 +120,13 @@ převodníku MDB, nebo `<IČO>_<rok>.zip`). Souhrn nástroje neuvádí chybu.
 3. V kroku **Náhled a volby** v tabulce **Agendy v exportu** zkontrolujte
    **IČO**, **Firma**, **Rok** a počty. Převést jde jen agendu s IČO firmy
    v MyÚčtu. Roky k převodu zaškrtněte v prvním sloupci; předvybrané jsou
-   všechny roky agend s IČO firmy.
+   všechny roky agend s IČO firmy. U firmy s hospodářským rokem je **Rok**
+   účetní rok firmy, do kterého agenda patří, s hranicemi období (například
+   2025 (1. 8. 2025 – 31. 7. 2026)).
 4. Má-li agenda doklady po konci roku, průvodce nabídne každý pozdější rok jako
-   samostatný řádek pod agendou. Pozdější rok jde převést jen spolu s rokem
-   agendy; nevybraný převod přeskočí ([§ 107.9.4](#10794-postup)).
+   samostatný řádek pod agendou (u hospodářského roku jako další účetní rok
+   firmy). Pozdější rok jde převést jen spolu s rokem agendy; nevybraný převod
+   přeskočí ([§ 107.9.4](#10794-postup)).
 5. Zkontrolujte **Kontrolu před převodem** pro každý vybraný rok. Převod se
    zastaví, když export patří firmě s jiným IČO, chybí nebo nejde přečíst deník,
    osnova nebo členění DPH, účetní období v MyÚčtu už obsahuje zápisy, které

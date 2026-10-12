@@ -48,6 +48,9 @@ final class PremierBackup
     /** @var list<int>|null */
     private ?array $years = null;
 
+    /** @var array<string,int>|null počty řádků deníku po měsících (`YYYY-MM` => počet) */
+    private ?array $monthCounts = null;
+
     /** @var array{0:?string}|null poslední měsíc mezd, obalený kvůli rozlišení „nespočítáno" a „bez mezd" */
     private ?array $lastPayrollPeriod = null;
 
@@ -114,14 +117,17 @@ final class PremierBackup
     }
 
     /**
-     * Přehled zálohy pro průvodce: firma a roky s účetními zápisy. Tvar položek je stejný
-     * jako přehled agend exportu z POHODY (rok = agenda), průvodce je tak zobrazí stejně.
+     * Přehled zálohy pro průvodce: firma a kalendářní roky s účetními zápisy. Tvar položek
+     * je stejný jako přehled agend exportu z POHODY (rok = agenda), průvodce je tak zobrazí
+     * stejně. `months` = počty zápisů roku po měsících: z nich se bez dalšího čtení deníku
+     * spočítají účetní roky firmy s hospodářským rokem ({@see companyOverview()}).
      *
-     * @return list<array{dir:string,ico:string,dic:string,company:string,year:int,entries:int,has_accounting:bool,has_payroll:bool}>
+     * @return list<array{dir:string,ico:string,dic:string,company:string,year:int,entries:int,has_accounting:bool,has_payroll:bool,payroll_last:?string,months:array<string,int>}>
      */
     public static function overview(string $dir): array
     {
         $backup = self::open($dir);
+        $months = $backup->journalCountsByMonth();
         $counts = $backup->journalCountsByYear();
         $payroll = $backup->hasRows('MZDY');
         $payrollLast = $payroll ? $backup->lastPayrollPeriod() : null;
@@ -137,9 +143,69 @@ final class PremierBackup
                 'has_accounting' => true,
                 'has_payroll' => $payroll,
                 'payroll_last' => $payrollLast,
+                'months' => array_filter($months, static fn (string $month): bool => str_starts_with($month, $year . '-'), ARRAY_FILTER_USE_KEY),
             ];
         }
         return $out;
+    }
+
+    /**
+     * Přehled zálohy, jak ho průvodce nabízí a převod bere: roky firmy s IČO zálohy jsou
+     * účetní roky FIRMY (label = rok začátku období, `period_start`/`period_end` = hranice
+     * období) s počtem zápisů deníku v nich. Kalendářní firma dostane přehled nahrání beze
+     * změny, agendy cizího IČO zůstávají kalendářní (jen informace, převést nejdou).
+     *
+     * @param list<array<string,mixed>> $agendas přehled nahrání ({@see overview()})
+     * @return list<array<string,mixed>>
+     */
+    public function companyOverview(array $agendas, FiscalCalendar $calendar): array
+    {
+        $agendas = self::withoutMonths($agendas);
+        if ($calendar->isCalendar()) {
+            return $agendas;
+        }
+        $own = null;
+        $out = [];
+        foreach ($agendas as $agenda) {
+            if ((string) ($agenda['ico'] ?? '') === $this->ico) {
+                $own ??= $agenda;
+                continue;
+            }
+            $out[] = $agenda;
+        }
+        if ($own === null) {
+            return $out;
+        }
+        $counts = [];
+        foreach ($this->journalCountsByMonth() as $month => $count) {
+            $year = $calendar->fiscalYearOfDate($month . '-01');
+            $counts[$year] = ($counts[$year] ?? 0) + $count;
+        }
+        ksort($counts);
+        foreach ($counts as $year => $count) {
+            $out[] = [
+                'year' => $year,
+                'entries' => $count,
+                'period_start' => $calendar->periodStart($year),
+                'period_end' => $calendar->periodEnd($year),
+            ] + $own;
+        }
+        usort($out, static fn (array $a, array $b): int => [(string) $a['ico'], (int) $a['year']] <=> [(string) $b['ico'], (int) $b['year']]);
+        return $out;
+    }
+
+    /**
+     * Přehled nahrání bez počtů po měsících - ty jsou jen podklad pro účetní roky firmy.
+     *
+     * @param list<array<string,mixed>> $agendas
+     * @return list<array<string,mixed>>
+     */
+    public static function withoutMonths(array $agendas): array
+    {
+        return array_map(static function (array $agenda): array {
+            unset($agenda['months']);
+            return $agenda;
+        }, array_values($agendas));
     }
 
     /**
@@ -155,11 +221,18 @@ final class PremierBackup
         $years = [];
         $known = true;
         $last = null;
+        $months = [];
         foreach ($agendas as $agenda) {
             if ((string) ($agenda['ico'] ?? '') !== $this->ico) {
                 continue;
             }
             $years[] = (int) $agenda['year'];
+            // Přehled nahraný před počty po měsících je nemá: ty se pak dočtou z deníku.
+            if ($months !== null && is_array($agenda['months'] ?? null)) {
+                $months += array_map('intval', $agenda['months']);
+            } else {
+                $months = null;
+            }
             if ((bool) ($agenda['has_payroll'] ?? false)) {
                 if (!array_key_exists('payroll_last', $agenda)) {
                     $known = false;
@@ -172,6 +245,10 @@ final class PremierBackup
         }
         sort($years);
         $this->years = array_values(array_unique($years));
+        if ($months !== null) {
+            ksort($months);
+            $this->monthCounts = $months;
+        }
         if ($known) {
             $this->lastPayrollPeriod = [$last !== null ? (string) $last : null];
         }
@@ -276,7 +353,8 @@ final class PremierBackup
 
     /**
      * Účetní roky firmy (label = rok začátku období), ve kterých má deník zápisy. Kalendářní
-     * firma dostane {@see years()} beze změny, hospodářský rok se počítá z dat deníku.
+     * firma dostane {@see years()} beze změny, hospodářský rok se počítá z měsíců deníku
+     * (hospodářský rok začíná vždy prvním dnem měsíce).
      *
      * @return list<int>
      */
@@ -286,8 +364,8 @@ final class PremierBackup
             return $this->years();
         }
         $years = [];
-        foreach ($this->journalDates() as $date) {
-            $years[$calendar->fiscalYearOfDate($date)] = true;
+        foreach (array_keys($this->journalCountsByMonth()) as $month) {
+            $years[$calendar->fiscalYearOfDate($month . '-01')] = true;
         }
         $out = array_keys($years);
         sort($out);
@@ -298,12 +376,32 @@ final class PremierBackup
     public function journalCountsByYear(): array
     {
         $counts = [];
-        foreach ($this->journalDates() as $date) {
-            $year = (int) substr($date, 0, 4);
-            $counts[$year] = ($counts[$year] ?? 0) + 1;
+        foreach ($this->journalCountsByMonth() as $month => $count) {
+            $year = (int) substr($month, 0, 4);
+            $counts[$year] = ($counts[$year] ?? 0) + $count;
         }
         ksort($counts);
         return $counts;
+    }
+
+    /**
+     * Počty řádků deníku po měsících; z přehledu nahrání ({@see withOverview()}), jinak
+     * jedním průchodem deníkem.
+     *
+     * @return array<string,int> `YYYY-MM` => počet řádků deníku
+     */
+    public function journalCountsByMonth(): array
+    {
+        if ($this->monthCounts !== null) {
+            return $this->monthCounts;
+        }
+        $counts = [];
+        foreach ($this->journalDates() as $date) {
+            $month = substr($date, 0, 7);
+            $counts[$month] = ($counts[$month] ?? 0) + 1;
+        }
+        ksort($counts);
+        return $this->monthCounts = $counts;
     }
 
     /**

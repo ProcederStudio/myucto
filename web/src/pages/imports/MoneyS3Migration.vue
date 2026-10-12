@@ -14,6 +14,7 @@ import DateInput from '@/components/ui/DateInput.vue'
 import MoneyS3Protocol from '@/components/migration/MoneyS3Protocol.vue'
 import MigrationDifferences from '@/components/migration/MigrationDifferences.vue'
 import MoneyS3BatchWizard from '@/components/migration/MoneyS3BatchWizard.vue'
+import { migrationYearLabel } from '@/utils/migrationYear'
 
 /**
  * Průvodce „Přechod z Money S3": záloha agendy → náhled a volby → zkouška nanečisto →
@@ -237,7 +238,7 @@ const actions = computed<ActionItem[]>(() => {
             </thead>
             <tbody class="divide-y divide-neutral-100">
               <tr v-for="y in agenda.years" :key="y.dir">
-                <td class="px-3 py-2 font-medium">{{ y.fiscal_year ?? y.dir }}</td>
+                <td class="px-3 py-2 font-medium" :data-testid="`money-year-${y.dir}`">{{ y.fiscal_year !== null ? migrationYearLabel(y.fiscal_year, y) : y.dir }}</td>
                 <td class="px-3 py-2 text-right">{{ y.journal_rows }}</td>
                 <td class="px-3 py-2 text-right">{{ y.opening_rows }}</td>
                 <td class="px-3 py-2 whitespace-nowrap">{{ y.first_date ?? '—' }} – {{ y.last_date ?? '—' }}</td>
@@ -272,7 +273,7 @@ const actions = computed<ActionItem[]>(() => {
         <label class="mb-1 block max-w-xs text-sm font-medium">{{ t('money_s3.from_year') }}
           <select v-model="fromYear" class="mt-1 h-10 w-full rounded-md border border-neutral-300 px-3 text-sm" data-testid="from-year">
             <option :value="null">{{ t('money_s3.from_year_all') }}</option>
-            <option v-for="y in agenda.years.filter(y => y.fiscal_year !== null)" :key="y.dir" :value="y.fiscal_year">{{ y.fiscal_year }}</option>
+            <option v-for="y in agenda.years.filter(y => y.fiscal_year !== null)" :key="y.dir" :value="y.fiscal_year">{{ migrationYearLabel(y.fiscal_year as number, y) }}</option>
           </select>
         </label>
         <p class="mb-5 text-sm text-neutral-500">{{ t('money_s3.from_year_hint') }}</p>
@@ -284,7 +285,7 @@ const actions = computed<ActionItem[]>(() => {
             class="inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm whitespace-nowrap"
             :class="upload?.reports.includes(y.fiscal_year as number) ? 'border-success-500/40 bg-success-50 text-success-600' : 'border-neutral-300 text-neutral-700 hover:bg-neutral-50'">
             <input type="file" accept=".csv,.txt" class="hidden" :disabled="reportBusy !== null" @change="attachReport(y.fiscal_year as number, $event)" />
-            {{ upload?.reports.includes(y.fiscal_year as number) ? t('money_s3.report_ready', { year: y.fiscal_year }) : t('money_s3.report_upload', { year: y.fiscal_year }) }}
+            {{ upload?.reports.includes(y.fiscal_year as number) ? t('money_s3.report_ready', { year: migrationYearLabel(y.fiscal_year as number, y) }) : t('money_s3.report_upload', { year: migrationYearLabel(y.fiscal_year as number, y) }) }}
           </label>
         </div>
       </template>

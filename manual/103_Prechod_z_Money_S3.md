@@ -72,16 +72,19 @@ Instalace Money se zálohou nijak nemění.
    nahrávání otevřenou. Průvodce ukazuje procenta a při výpadku spojení naváže.
 3. V kroku **Náhled a volby** zkontrolujte agendu (**IČO**, **DIČ**, **Sídlo**,
    **Verze Money**, **Záloha pořízena**) a tabulku **Účetní roky v záloze**.
+   Roky jsou účetní roky firmy; u hospodářského roku rok, ve kterém účetní rok
+   začíná, s hranicemi období (například 2024 (1. 8. 2024 – 31. 7. 2025)).
    Část **Kontrola před převodem** musí ukázat, že je záloha v pořádku.
 4. Nastavte **Volby převodu**:
    - **Převést od roku** (výchozí je rok, od kterého navazují stavy; **Všechny
-     roky zálohy** převede celou zálohu; u hospodářského roku je rokem rok, ve
-     kterém účetní rok začíná),
+     roky zálohy** převede celou zálohu; rokem je účetní rok firmy jako
+     v tabulce let),
    - **Uzavřít historické roky průvodcem uzávěrkou** (výchozí zapnuto),
    - **Začátek prvního účetního období** jen u firmy založené během prvního
      převáděného roku,
    - volitelně sestavy z Money v části **Sestavy z Money ke kontrole**
-     (**Nahrát předvahu {rok}**).
+     (**Nahrát předvahu {rok}**; předvaha patří k účetnímu roku firmy, se
+     kterým ji porovná rekonciliace).
 5. Klikněte na **Pokračovat**.
 6. V kroku **Zkouška nanečisto** klikněte na **Spustit zkoušku nanečisto**.
    Proběhne celý převod včetně uzávěrky a rekonciliace, na konci se ale

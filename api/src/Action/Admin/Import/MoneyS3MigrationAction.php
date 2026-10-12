@@ -164,17 +164,11 @@ final class MoneyS3MigrationAction extends AbstractMigrationAction
             }
             $meta = MoneyS3Uploads::meta($supplierId, $token);
             $backup = Ms3Backup::open(MoneyS3Uploads::agendaDir($supplierId, $token));
-            // Náhled agendy a rozvrh deníku spočítal job nahrání do `meta.json`. Znovu je
-            // číst ze zálohy znamenalo projít deník každého roku čtyřikrát (u gigabajtové
-            // agendy přes deset sekund při každém otevření průvodce). Nahrání před jejich
-            // zavedením je nemá: dočtou se jednou a uloží.
-            if (!MoneyS3Importer::journalPreviewComplete($meta['journal_preview'] ?? null) || !is_array($meta['agenda'] ?? null)) {
-                $meta['agenda'] = AgendaInfo::fromBackup($backup)->toArray();
-                $meta['journal_preview'] = $this->importer->journalPreview($backup, $supplierId);
-                MoneyS3Uploads::writeMeta($supplierId, $token, $meta);
-            }
+            $meta = $this->currentPreview($supplierId, $token, $meta, $backup);
             $preflight = $this->importer->preflight($supplierId, $backup, AgendaInfo::fromArray((array) $meta['agenda']), new ImportOptions(),
                 (array) $meta['journal_preview']);
+            // Roky průvodce (tabulka let, „Převést od roku", předvahy) = účetní roky firmy.
+            $meta['agenda'] = MoneyS3Importer::companyAgenda((array) $meta['agenda'], (array) $meta['journal_preview']);
             unset($meta['journal_preview']);
         } catch (MoneyS3Exception $e) {
             return Json::error($response, $e->errorCode, $e->getMessage(), 404);
@@ -202,7 +196,14 @@ final class MoneyS3MigrationAction extends AbstractMigrationAction
         }
         $body = (array) ($request->getParsedBody() ?? []);
         $year = (int) ($body['year'] ?? 0);
-        $years = array_map('intval', array_filter(array_column((array) ($meta['agenda']['years'] ?? []), 'fiscal_year')));
+        // Rok předvahy = účetní rok firmy, pod kterým ji rekonciliace převodu hledá.
+        try {
+            $meta = $this->currentPreview($supplierId, $token, $meta);
+        } catch (MoneyS3Exception $e) {
+            return Json::error($response, $e->errorCode, $e->getMessage(), 404);
+        }
+        $agenda = MoneyS3Importer::companyAgenda((array) $meta['agenda'], (array) $meta['journal_preview']);
+        $years = array_map('intval', array_filter(array_column((array) ($agenda['years'] ?? []), 'fiscal_year')));
         if (!in_array($year, $years, true)) {
             return Json::error($response, 'invalid_year', 'Rok sestavy musí být jeden z účetních roků zálohy.', 422);
         }
@@ -297,6 +298,29 @@ final class MoneyS3MigrationAction extends AbstractMigrationAction
             $this->ipMatcher->clientIpFromRequest($request->getServerParams()), $request->getHeaderLine('User-Agent'));
 
         return Json::ok($response, ['job_id' => $jobId, 'status' => 'queued', 'mode' => $options->mode], 201);
+    }
+
+    /**
+     * Náhled agendy a rozvrh deníku spočítal job nahrání do `meta.json`. Znovu je číst ze
+     * zálohy znamenalo projít deník každého roku čtyřikrát (u gigabajtové agendy přes deset
+     * sekund při každém otevření průvodce). Nahrání před jejich zavedením je nemá a rozvrh
+     * spočítaný v jiném kalendáři účetního roku firmy neplatí: dočtou se jednou a uloží.
+     *
+     * @param array<string,mixed> $meta
+     * @return array<string,mixed>
+     * @throws MoneyS3Exception
+     */
+    private function currentPreview(int $supplierId, string $token, array $meta, ?Ms3Backup $backup = null): array
+    {
+        if (!is_array($meta['agenda'] ?? null) || !$this->importer->journalPreviewCurrent($meta['journal_preview'] ?? null, $supplierId)) {
+            $backup ??= Ms3Backup::open(MoneyS3Uploads::agendaDir($supplierId, $token));
+            if (!is_array($meta['agenda'] ?? null) || !MoneyS3Importer::journalPreviewComplete($meta['journal_preview'] ?? null)) {
+                $meta['agenda'] = AgendaInfo::fromBackup($backup)->toArray();
+            }
+            $meta['journal_preview'] = $this->importer->journalPreview($backup, $supplierId);
+            MoneyS3Uploads::writeMeta($supplierId, $token, $meta);
+        }
+        return $meta;
     }
 
     /**

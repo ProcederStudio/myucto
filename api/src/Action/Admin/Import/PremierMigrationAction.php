@@ -104,15 +104,26 @@ final class PremierMigrationAction extends AbstractMigrationAction
         // každého roku by jinak znovu přečetla celý deník i mzdy zálohy (u zálohy o pár
         // letech desítky sekund, přes timeout webserveru).
         $backup = null;
-        foreach ((array) ($meta['agendas'] ?? []) as $agenda) {
+        $open = function () use (&$backup, $supplierId, $token, $meta): PremierBackup {
+            return $backup ??= PremierBackup::open(PremierUploads::backupDir($supplierId, $token))->withOverview((array) $meta['agendas']);
+        };
+        // Roky průvodce = účetní roky firmy (u hospodářského roku s hranicemi období).
+        try {
+            $meta['agendas'] = $this->importer->companyAgendas($supplierId, (array) ($meta['agendas'] ?? []), $supplierIco, $open);
+        } catch (\Throwable $e) {
+            if (!$e instanceof PremierException) {
+                error_log(sprintf('PREMIER: účetní roky zálohy %s firmy %d selhaly: %s', $token, $supplierId, (string) $e));
+            }
+            $meta['agendas'] = PremierBackup::withoutMonths((array) ($meta['agendas'] ?? []));
+        }
+        foreach ($meta['agendas'] as $agenda) {
             if ($supplierIco === '' || (string) $agenda['ico'] !== $supplierIco) {
                 continue;
             }
             $year = (int) $agenda['year'];
             $defaultYear = max($defaultYear ?? 0, $year);
             try {
-                $backup ??= PremierBackup::open(PremierUploads::backupDir($supplierId, $token))->withOverview((array) $meta['agendas']);
-                $preflight[(string) $year] = $this->importer->preflight($supplierId, $backup, $year);
+                $preflight[(string) $year] = $this->importer->preflight($supplierId, $open(), $year);
             } catch (\Throwable $e) {
                 if (!$e instanceof PremierException) {
                     error_log(sprintf('PREMIER: náhled zálohy %s firmy %d selhal: %s', $token, $supplierId, (string) $e));
@@ -167,8 +178,15 @@ final class PremierMigrationAction extends AbstractMigrationAction
             return Json::error($response, $e->errorCode, $e->getMessage(), 404);
         }
         $supplierIco = $this->supplierIco($supplierId);
+        try {
+            // Rok výběru = účetní rok firmy, stejně jako v náhledu průvodce a v převodu.
+            $agendas = ['agendas' => $this->importer->companyAgendas($supplierId, (array) ($meta['agendas'] ?? []), $supplierIco,
+                static fn (): PremierBackup => PremierBackup::open(PremierUploads::backupDir($supplierId, $token))->withOverview((array) $meta['agendas']))];
+        } catch (PremierException $e) {
+            return Json::error($response, $e->errorCode, $e->getMessage(), 422);
+        }
         foreach ($years as $year) {
-            if (PremierImportJobService::agenda($meta, $supplierIco, $year) === null) {
+            if (PremierImportJobService::agenda($agendas, $supplierIco, $year) === null) {
                 return Json::error($response, 'invalid_year', "Záloha neobsahuje účetní rok {$year} s IČO této firmy.", 422, ['year' => $year]);
             }
         }

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { isPohodaUploadReady, pohodaApi, type PohodaKind, type PohodaMessage, type PohodaRun, type PohodaStartParams, type PohodaStockChoice, type PohodaSystem, type PohodaToolFile, type PohodaUpload, type PohodaUploadPending } from '@/api/pohoda'
+import { isPohodaUploadReady, pohodaApi, type PohodaAgenda, type PohodaCompanyPeriod, type PohodaKind, type PohodaMessage, type PohodaRun, type PohodaStartParams, type PohodaStockChoice, type PohodaSystem, type PohodaToolFile, type PohodaUpload, type PohodaUploadPending } from '@/api/pohoda'
 import { useToast } from '@/composables/useToast'
 import { useMigrationWizard } from '@/composables/useMigrationWizard'
 import { useAuthStore } from '@/stores/auth'
@@ -14,6 +14,7 @@ import CompanyProfileBox from '@/components/settings/CompanyProfileBox.vue'
 import MoneyS3Protocol from '@/components/migration/MoneyS3Protocol.vue'
 import MigrationDifferences from '@/components/migration/MigrationDifferences.vue'
 import { formatBytes } from '@/components/documents/docFormat'
+import { migrationYearLabel } from '@/utils/migrationYear'
 
 /**
  * Průvodce převodem ze STORMWARE: export agendy → náhled a výběr roků → zkouška nanečisto
@@ -156,24 +157,45 @@ const agendas = computed(() => (upload.value?.agendas ?? []).filter(agendaHas))
 const skipped = computed(() => (upload.value?.agendas ?? []).length - agendas.value.length)
 // Převést jde jen rok agendy s IČO firmy; ostatní agendy exportu jsou jen informace.
 const ownAgendas = computed(() => agendas.value.filter(a => a.ico === upload.value?.supplier_ico))
-interface YearOption { year: number; agenda: number; own: boolean }
+interface YearOption { year: number; agenda: number; own: boolean; period: PohodaCompanyPeriod | null }
+/**
+ * Rok výběru agendy: u účetnictví firmy s hospodářským rokem účetní rok firmy, do kterého
+ * agenda patří (`company_year`), jinak rok agendy. Mzdy jdou vždy po rocích agend.
+ */
+function agendaKey(a: PohodaAgenda): number {
+  return !payrollWizard.value && a.company_year ? a.company_year.year : a.year
+}
 /**
  * Roky k výběru vzestupně: roky agend s IČO firmy a u účetnictví i pozdější roky, do kterých
  * agenda vede doklady (`agenda` = rok agendy, která je převádí). Pozdější rok bez vlastní
- * agendy (`own: false`) jde převést jen spolu s rokem své agendy.
+ * agendy (`own: false`) jde převést jen spolu s rokem své agendy. U hospodářského roku firmy
+ * jsou to účetní roky firmy s hranicemi období (`period`).
  */
 const yearOptions = computed<YearOption[]>(() => {
   const out = new Map<number, YearOption>()
-  for (const a of ownAgendas.value) out.set(a.year, { year: a.year, agenda: a.year, own: true })
+  for (const a of ownAgendas.value) {
+    const key = agendaKey(a)
+    out.set(key, { year: key, agenda: key, own: true, period: payrollWizard.value ? null : a.company_year ?? null })
+  }
   if (!payrollWizard.value) {
     for (const a of ownAgendas.value) {
-      for (const later of a.counts.later_years ?? []) {
-        if (!out.has(later)) out.set(later, { year: later, agenda: a.year, own: false })
+      const laterPeriods = a.company_year?.later_periods
+      for (const later of a.company_year?.later_years ?? a.counts.later_years ?? []) {
+        if (!out.has(later)) out.set(later, { year: later, agenda: agendaKey(a), own: false, period: laterPeriods?.find(p => p.year === later) ?? null })
       }
     }
   }
   return [...out.values()].sort((a, b) => a.year - b.year)
 })
+function yearLabel(y: number): string {
+  const period = yearOptions.value.find(o => o.year === y)?.period
+  return migrationYearLabel(y, period ? { period_start: period.period_start, period_end: period.period_end } : null)
+}
+// Běh jobu nese rok agendy; u hospodářského roku firmy se ukáže její účetní rok.
+function runYearLabel(agendaYear: number | null): string {
+  const a = agendaYear === null ? undefined : ownAgendas.value.find(x => x.year === agendaYear)
+  return a ? yearLabel(agendaKey(a)) : String(agendaYear ?? '')
+}
 const years = computed(() => yearOptions.value.map(o => o.year))
 function laterOptions(agendaYear: number): YearOption[] {
   return yearOptions.value.filter(o => !o.own && o.agenda === agendaYear)
@@ -195,10 +217,10 @@ function toggleYear(y: number, checked: boolean): void {
   }
   selectedYears.value = [...next].sort((a, b) => a - b)
 }
-const yearsLabel = computed(() => selectedYears.value.join(', '))
+const yearsLabel = computed(() => selectedYears.value.map(yearLabel).join(', '))
 // Roky, které poběží jako vlastní převod; pozdější roky agendy jdou v běhu své agendy.
 const runYears = computed(() => yearOptions.value.filter(o => o.own && isSelected(o.year)).map(o => o.year))
-const selectedAgendas = computed(() => ownAgendas.value.filter(a => runYears.value.includes(a.year)))
+const selectedAgendas = computed(() => ownAgendas.value.filter(a => runYears.value.includes(agendaKey(a))))
 /**
  * Sklad se převádí jen z nejnovější agendy účetnictví firmy: stav platí k datu exportu
  * a starší agenda by ho založila podruhé. Nabízí se, jen když je ta agenda vybraná.
@@ -206,13 +228,13 @@ const selectedAgendas = computed(() => ownAgendas.value.filter(a => runYears.val
 const stockAgenda = computed(() => {
   if (payrollWizard.value) return null
   const newest = ownAgendas.value.reduce<typeof ownAgendas.value[number] | null>((best, a) => (best === null || a.year > best.year ? a : best), null)
-  return newest && newest.stock && runYears.value.includes(newest.year) ? { year: newest.year, stock: newest.stock } : null
+  return newest && newest.stock && runYears.value.includes(agendaKey(newest)) ? { year: agendaKey(newest), stock: newest.stock } : null
 })
 watch(stockAgenda, agenda => {
   stockChoices.value = Object.fromEntries((agenda?.stock.warehouses ?? []).map(w => [w.code, stockChoices.value[w.code] ?? w.suggested]))
 }, { immediate: true })
 const START_WILL_SET = 'payroll_start_will_set'
-const noteFiles = computed(() => selectedAgendas.value.flatMap(a => a.files.filter(f => f.state !== 'ok').map(f => ({ ...f, year: a.year }))))
+const noteFiles = computed(() => selectedAgendas.value.flatMap(a => a.files.filter(f => f.state !== 'ok').map(f => ({ ...f, year: agendaKey(a) }))))
 /**
  * Kontrola před převodem po vybraných rocích vzestupně. Zpráva s rokem v kontextu (období
  * pozdějšího roku agendy) patří k tomu roku a u nevybraného roku se neukazuje ani neblokuje.
@@ -578,11 +600,11 @@ const actions = computed<ActionItem[]>(() => {
             </thead>
             <tbody class="divide-y divide-neutral-100">
               <template v-for="a in agendas" :key="`${a.ico}-${a.year}`">
-              <tr :class="a.ico === upload.supplier_ico && isSelected(a.year) ? 'bg-primary-50/60' : ''">
+              <tr :class="a.ico === upload.supplier_ico && isSelected(agendaKey(a)) ? 'bg-primary-50/60' : ''">
                 <td class="px-3 py-2">
-                  <input v-if="a.ico === upload.supplier_ico" type="checkbox" class="rounded border-neutral-300 text-primary-600" :checked="isSelected(a.year)"
-                    :aria-label="tt('select_year', { year: a.year })" :data-testid="`pohoda-year-${a.year}`"
-                    @change="toggleYear(a.year, ($event.target as HTMLInputElement).checked)" />
+                  <input v-if="a.ico === upload.supplier_ico" type="checkbox" class="rounded border-neutral-300 text-primary-600" :checked="isSelected(agendaKey(a))"
+                    :aria-label="tt('select_year', { year: yearLabel(agendaKey(a)) })" :data-testid="`pohoda-year-${agendaKey(a)}`"
+                    @change="toggleYear(agendaKey(a), ($event.target as HTMLInputElement).checked)" />
                 </td>
                 <td class="px-3 py-2 font-mono whitespace-nowrap">{{ a.ico || '—' }}</td>
                 <td class="px-3 py-2">
@@ -590,7 +612,7 @@ const actions = computed<ActionItem[]>(() => {
                   <span v-if="a.ico !== upload.supplier_ico" class="ml-2 rounded-full bg-neutral-100 px-2 py-0.5 text-xs whitespace-nowrap text-neutral-600">{{ tt('other_company') }}</span>
                   <span v-if="!payrollWizard && a.has_accounting === false" class="ml-2 rounded-full bg-primary-50 px-2 py-0.5 text-xs whitespace-nowrap text-primary-700" data-testid="pohoda-payroll-only">{{ tt('payroll_only') }}</span>
                 </td>
-                <td class="px-3 py-2 font-medium">{{ a.year }}</td>
+                <td class="px-3 py-2 font-medium" :data-testid="`pohoda-year-label-${a.ico}-${a.year}`">{{ a.ico === upload.supplier_ico ? yearLabel(agendaKey(a)) : a.year }}</td>
                 <template v-if="!payrollWizard">
                   <td class="px-3 py-2 text-right">{{ a.counts.journal }}</td>
                   <td class="px-3 py-2 text-right">{{ a.counts.opening }}</td>
@@ -604,16 +626,16 @@ const actions = computed<ActionItem[]>(() => {
                 </template>
                 <td class="px-3 py-2 whitespace-nowrap" data-testid="pohoda-payroll-cell">{{ a.payroll ? tt('payroll_cell', { employees: a.payroll.employees, months: a.payroll.months }) : '—' }}</td>
               </tr>
-              <tr v-for="o in a.ico === upload.supplier_ico ? laterOptions(a.year) : []" :key="`${a.ico}-${a.year}-${o.year}`"
+              <tr v-for="o in a.ico === upload.supplier_ico ? laterOptions(agendaKey(a)) : []" :key="`${a.ico}-${a.year}-${o.year}`"
                 :class="isSelected(o.year) ? 'bg-primary-50/60' : ''" :data-testid="`pohoda-later-year-${o.year}`">
                 <td class="px-3 py-2">
                   <input type="checkbox" class="rounded border-neutral-300 text-primary-600" :checked="isSelected(o.year)"
-                    :aria-label="tt('select_year', { year: o.year })" :data-testid="`pohoda-year-${o.year}`"
+                    :aria-label="tt('select_year', { year: yearLabel(o.year) })" :data-testid="`pohoda-year-${o.year}`"
                     @change="toggleYear(o.year, ($event.target as HTMLInputElement).checked)" />
                 </td>
                 <td class="px-3 py-2"></td>
-                <td class="px-3 py-2 text-neutral-600">↳ {{ tt('later_year_row', { year: o.year, agenda: a.year }) }}</td>
-                <td class="px-3 py-2 font-medium">{{ o.year }}</td>
+                <td class="px-3 py-2 text-neutral-600">↳ {{ tt('later_year_row', { year: o.year, agenda: agendaKey(a) }) }}</td>
+                <td class="px-3 py-2 font-medium">{{ yearLabel(o.year) }}</td>
                 <td :colspan="payrollWizard ? 1 : 10"></td>
               </tr>
               </template>
@@ -640,7 +662,7 @@ const actions = computed<ActionItem[]>(() => {
               <input v-model="stockEnabled" type="checkbox" class="mt-1 rounded border-neutral-300 text-primary-600" data-testid="pohoda-stock-enabled" />
               <span>
                 <span class="font-medium text-neutral-800">{{ tt('stock.enable', { cards: stockAgenda.stock.cards, date: stockAgenda.stock.date ?? '—' }) }}</span>
-                <span class="block text-neutral-600">{{ tt('stock.hint', { year: stockAgenda.year }) }}</span>
+                <span class="block text-neutral-600">{{ tt('stock.hint', { year: yearLabel(stockAgenda.year) }) }}</span>
               </span>
             </label>
             <div v-if="stockEnabled" class="mt-3">
@@ -713,7 +735,7 @@ const actions = computed<ActionItem[]>(() => {
 
           <p v-if="!selectedYears.length" class="mb-5 rounded-lg border border-warning-500/30 bg-warning-50 px-3 py-2 text-sm text-warning-700" data-testid="pohoda-no-year-selected">{{ tt('choose_year_first') }}</p>
           <div v-for="g in preflightGroups" :key="g.year" class="mb-5" :data-testid="`pohoda-preflight-${g.year}`">
-            <h3 class="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-500">{{ tt('preflight_title', { year: g.year }) }}</h3>
+            <h3 class="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-500">{{ tt('preflight_title', { year: yearLabel(g.year) }) }}</h3>
             <ul v-if="g.messages.length" class="space-y-2">
               <li v-for="m in g.messages" :key="m.code + m.message" class="rounded-lg border px-3 py-2 text-sm"
                 :class="m.level === 'error' ? 'border-danger-500/30 bg-danger-50 text-danger-600' : m.level === 'warning' ? 'border-warning-500/30 bg-warning-50 text-warning-700' : 'border-primary-500/30 bg-primary-50 text-primary-700'">
@@ -746,12 +768,12 @@ const actions = computed<ActionItem[]>(() => {
         <ImportJobProgress v-if="jobRunning" :job="job" :percent="null" :cancelling="false" :show-cancel="false" :show-count="false"
           counts-key="pohoda.job_counts" background-hint-key="pohoda.dry_run_background_hint" running-key="pohoda.dry_run_running" />
         <template v-if="jobRuns.length && jobRuns[0].mode === 'dry_run'">
-          <p v-if="yearsNotRun.length" class="mb-3 rounded-lg border border-danger-500/30 bg-danger-50 px-3 py-2 text-sm text-danger-600" data-testid="pohoda-years-not-run">{{ tt('years_not_run', { years: yearsNotRun.join(', ') }) }}</p>
+          <p v-if="yearsNotRun.length" class="mb-3 rounded-lg border border-danger-500/30 bg-danger-50 px-3 py-2 text-sm text-danger-600" data-testid="pohoda-years-not-run">{{ tt('years_not_run', { years: yearsNotRun.map(runYearLabel).join(', ') }) }}</p>
           <MoneyS3Protocol v-if="jobRuns.length === 1" :run="jobRuns[0]" prefix="pohoda" />
           <div v-else class="space-y-3" data-testid="pohoda-job-runs">
             <details v-for="(r, i) in jobRuns" :key="r.id" :open="r.status === 'failed' || i === jobRuns.length - 1" class="rounded-lg border border-neutral-200" :data-testid="`pohoda-job-run-${r.agenda_year}`">
               <summary class="flex cursor-pointer flex-wrap items-center justify-between gap-2 px-4 py-3">
-                <span class="font-medium">{{ tt('job_run_year', { year: r.agenda_year ?? '', n: i + 1, total: jobRuns.length }) }}<span class="ml-2 text-xs text-neutral-500">#{{ r.id }}</span></span>
+                <span class="font-medium">{{ tt('job_run_year', { year: runYearLabel(r.agenda_year), n: i + 1, total: jobRuns.length }) }}<span class="ml-2 text-xs text-neutral-500">#{{ r.id }}</span></span>
                 <span class="rounded-full px-2.5 py-1 text-xs font-medium" :class="statusClass(r.status)">{{ tt(`status.${r.status}`) }}</span>
               </summary>
               <div class="border-t border-neutral-200 p-4"><MoneyS3Protocol :run="r" prefix="pohoda" /></div>
@@ -777,12 +799,12 @@ const actions = computed<ActionItem[]>(() => {
           counts-key="pohoda.job_counts" background-hint-key="pohoda.background_hint" running-key="pohoda.import_running"
           cancel-key="pohoda.cancel" cancelling-key="pohoda.cancelling" @cancel="cancel" />
         <template v-if="jobRuns.length && jobRuns[0].mode === 'import'">
-          <p v-if="yearsNotRun.length" class="mb-3 rounded-lg border border-danger-500/30 bg-danger-50 px-3 py-2 text-sm text-danger-600" data-testid="pohoda-years-not-run">{{ tt('years_not_run', { years: yearsNotRun.join(', ') }) }}</p>
+          <p v-if="yearsNotRun.length" class="mb-3 rounded-lg border border-danger-500/30 bg-danger-50 px-3 py-2 text-sm text-danger-600" data-testid="pohoda-years-not-run">{{ tt('years_not_run', { years: yearsNotRun.map(runYearLabel).join(', ') }) }}</p>
           <MoneyS3Protocol v-if="jobRuns.length === 1" :run="jobRuns[0]" prefix="pohoda" />
           <div v-else class="space-y-3" data-testid="pohoda-job-runs">
             <details v-for="(r, i) in jobRuns" :key="r.id" :open="r.status === 'failed' || i === jobRuns.length - 1" class="rounded-lg border border-neutral-200" :data-testid="`pohoda-job-run-${r.agenda_year}`">
               <summary class="flex cursor-pointer flex-wrap items-center justify-between gap-2 px-4 py-3">
-                <span class="font-medium">{{ tt('job_run_year', { year: r.agenda_year ?? '', n: i + 1, total: jobRuns.length }) }}<span class="ml-2 text-xs text-neutral-500">#{{ r.id }}</span></span>
+                <span class="font-medium">{{ tt('job_run_year', { year: runYearLabel(r.agenda_year), n: i + 1, total: jobRuns.length }) }}<span class="ml-2 text-xs text-neutral-500">#{{ r.id }}</span></span>
                 <span class="rounded-full px-2.5 py-1 text-xs font-medium" :class="statusClass(r.status)">{{ tt(`status.${r.status}`) }}</span>
               </summary>
               <div class="border-t border-neutral-200 p-4"><MoneyS3Protocol :run="r" prefix="pohoda" /></div>

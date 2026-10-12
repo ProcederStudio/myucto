@@ -11,7 +11,11 @@ export { retryDelay } from './chunkedUpload'
 
 export interface MoneyS3YearInfo {
   dir: string
+  /** Účetní rok firmy, do kterého adresář ROK převod převede (label = rok začátku období). */
   fiscal_year: number | null
+  /** Hranice období u firmy s hospodářským rokem; kalendářní firma je nedostává. */
+  period_start?: string
+  period_end?: string
   journal_rows: number
   opening_rows: number
   first_date: string | null

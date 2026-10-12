@@ -16,6 +16,7 @@ use MyInvoice\Service\IpMatcher;
 use MyInvoice\Service\Migration\ImportYears;
 use MyInvoice\Service\Migration\Pohoda\PartnerImporter;
 use MyInvoice\Service\Migration\Pohoda\Payroll\PohodaPayrollImporter;
+use MyInvoice\Service\Migration\Pohoda\PohodaAgendaYear;
 use MyInvoice\Service\Migration\Pohoda\PohodaException;
 use MyInvoice\Service\Migration\Pohoda\PohodaExport;
 use MyInvoice\Service\Migration\Pohoda\PohodaImporter;
@@ -130,6 +131,11 @@ final class PohodaMigrationAction extends AbstractMigrationAction
         $preflight = [];
         $payrollPreflight = [];
         $defaultYear = null;
+        // Firma s hospodářským rokem vybírá účetnictví po svých účetních rocích: agenda nese
+        // `company_year` (období firmy, hranice, pozdější období) a kontrola před převodem je
+        // pod rokem firmy. Kalendářní firma dostane náhled beze změny.
+        $calendar = $this->importer->companyCalendar($supplierId);
+        $companyYears = [];
         foreach ((array) ($meta['agendas'] ?? []) as $agenda) {
             if ($supplierIco === '' || (string) $agenda['ico'] !== $supplierIco) {
                 continue;
@@ -151,7 +157,12 @@ final class PohodaMigrationAction extends AbstractMigrationAction
             }
             try {
                 $export = PohodaExport::open($agendaDir);
-                $preflight[(string) $year] = $this->importer->preflight($supplierId, $export, [], array_map('intval', (array) $agenda['counts']['later_years']));
+                $agendaYear = $calendar->isCalendar() ? null : PohodaAgendaYear::of($export, $calendar);
+                if ($agendaYear !== null) {
+                    $companyYears[$year] = PohodaImportJobService::companyYear($agendaYear);
+                }
+                $preflight[(string) ($agendaYear?->label ?? $year)] = $this->importer->preflight($supplierId, $export, [],
+                    array_map('intval', (array) $agenda['counts']['later_years']), $agendaYear);
             } catch (\Throwable $e) {
                 if (!$e instanceof PohodaException) {
                     error_log(sprintf('POHODA: náhled exportu %s firmy %d selhal: %s', $token, $supplierId, (string) $e));
@@ -159,6 +170,15 @@ final class PohodaMigrationAction extends AbstractMigrationAction
                 $preflight[(string) $year] = [['level' => 'error', 'code' => 'export_unreadable',
                     'message' => $e instanceof PohodaException ? $e->getMessage() : 'Agendu exportu nejde přečíst.', 'context' => []]];
             }
+        }
+        if ($companyYears !== []) {
+            $meta['agendas'] = array_map(static function (array $agenda) use ($companyYears, $supplierIco): array {
+                $year = (int) ($agenda['year'] ?? 0);
+                if ((string) ($agenda['ico'] ?? '') === $supplierIco && isset($companyYears[$year])) {
+                    $agenda['company_year'] = $companyYears[$year];
+                }
+                return $agenda;
+            }, (array) $meta['agendas']);
         }
         return Json::ok($response, $meta + [
             'status' => PohodaUploads::STATUS_READY,
@@ -304,8 +324,10 @@ final class PohodaMigrationAction extends AbstractMigrationAction
         }
         $supplierIco = $this->supplierIco($supplierId);
         try {
-            // Stejný plán jako job: rok s agendou IČO firmy, nebo pozdější rok vybrané agendy.
-            PohodaImportJobService::plan($meta, $supplierIco, $years, $kind === 'payroll', $supplierId, $token);
+            // Stejný plán jako job: rok s agendou IČO firmy, nebo pozdější rok vybrané agendy
+            // (u hospodářského roku firmy účetní roky firmy).
+            PohodaImportJobService::plan($meta, $supplierIco, $years, $kind === 'payroll', $supplierId, $token, $kind === 'payroll' ? null
+                : PohodaImportJobService::companyYears($meta, $supplierIco, $this->importer->companyCalendar($supplierId), $supplierId, $token));
         } catch (PohodaException $e) {
             return Json::error($response, $e->errorCode, $e->getMessage(), 422, $e->context);
         }

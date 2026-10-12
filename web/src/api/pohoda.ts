@@ -51,9 +51,26 @@ export interface PohodaStockSummary {
   date: string | null
 }
 
+/** Účetní období firmy (label = rok začátku období) s hranicemi. */
+export interface PohodaCompanyPeriod {
+  year: number
+  period_start: string
+  period_end: string
+}
+
+/**
+ * Účetní rok firmy s hospodářským rokem, do kterého agenda účetnictví patří, a pozdější
+ * období, do kterých vede doklady. Kalendářní firma ho nedostává (průvodce bere rok agendy).
+ */
+export interface PohodaCompanyYear extends PohodaCompanyPeriod {
+  later_years: number[]
+  later_periods: PohodaCompanyPeriod[]
+}
+
 export interface PohodaAgenda {
   ico: string
   year: number
+  company_year?: PohodaCompanyYear
   company: string
   program: string
   exported_at: string | null
