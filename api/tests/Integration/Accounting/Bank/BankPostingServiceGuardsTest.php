@@ -87,6 +87,21 @@ final class BankPostingServiceGuardsTest extends BankPostingTestCase
         }
     }
 
+    public function testIgnorePostedUnmatchedTransactionKeepsJournalEntry(): void
+    {
+        // Pohyb zaúčtovaný bez dokladu (např. v uzavřeném období, kde zaúčtování zrušit
+        // nejde) smí být označen jako ignorovaný — jen „nečeká na spárování", zápis zůstává.
+        $stmt = $this->statement();
+        $tx = $this->transaction($stmt, -920.00);
+        $entryId = $this->postPredpis('bank', $tx, '321', '221', 920.00);
+
+        $this->service->onIgnore($this->supplierId, $tx);
+
+        $live = $this->db->pdo()->prepare('SELECT reversed_by FROM journal_entries WHERE id = ?');
+        $live->execute([$entryId]);
+        self::assertNull($live->fetchColumn(), 'Zápis v deníku musí zůstat živý.');
+    }
+
     public function testNonDoubleEntrySupplierIsNoOp(): void
     {
         $other = $this->otherSupplierId('non');

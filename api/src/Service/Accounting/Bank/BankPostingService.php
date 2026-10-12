@@ -3248,19 +3248,39 @@ final class BankPostingService
         }
     }
 
+    private function isUnmatchedWithoutPayment(int $supplierId, int $txId): bool
+    {
+        $stmt = $this->db->pdo()->prepare(
+            "SELECT 1 FROM bank_transactions bt
+              WHERE bt.id = ? AND bt.match_status = 'unmatched' AND bt.matched_invoice_id IS NULL
+                AND NOT EXISTS (SELECT 1 FROM invoice_payments ip WHERE ip.supplier_id = ? AND ip.bank_transaction_id = bt.id)
+                AND NOT EXISTS (SELECT 1 FROM payment_matches pm WHERE pm.supplier_id = ? AND pm.bank_transaction_id = bt.id)"
+        );
+        $stmt->execute([$txId, $supplierId, $supplierId]);
+        return $stmt->fetchColumn() !== false;
+    }
+
     /**
-     * Guard pro ignore transakce (M3c): zaúčtovanou tx nelze ignorovat (409),
-     * jinak pending suggestion tx → superseded. Best-effort mimo double_entry (no-op).
+     * Guard pro ignore transakce (M3c): zaúčtovanou SPÁROVANOU tx nelze ignorovat (409),
+     * zaúčtovanou nespárovanou lze (zápis zůstává), jinak pending suggestion tx → superseded.
+     * Best-effort mimo double_entry (no-op).
      */
     public function onIgnore(int $supplierId, int $txId): void
     {
         if ($this->supplierMode($supplierId) !== 'double_entry') {
             return;
         }
+        // Ignorování říká jen „pohyb nečeká na spárování s dokladem". Zaúčtovaný pohyb
+        // (typicky v uzavřeném období, kde zaúčtování už zrušit nejde) zůstává v deníku
+        // beze změny; jeho párování převodu ani návrhy se nesmí rozvázat.
+        // Spárovaný zaúčtovaný pohyb by ignorováním přišel o vazbu na doklad → dál 409.
         $existing = $this->journal->findBySource($supplierId, 'bank', $txId);
         if ($existing !== null && ($existing['reversed_by'] ?? null) === null) {
-            throw new PostingException('posted_transaction_cannot_be_ignored',
-                'Zaúčtovanou transakci nelze ignorovat — nejdřív zrušte zaúčtování.', 409);
+            if (!$this->isUnmatchedWithoutPayment($supplierId, $txId)) {
+                throw new PostingException('posted_transaction_cannot_be_ignored',
+                    'Zaúčtovanou spárovanou transakci nelze ignorovat — nejdřív zrušte spárování.', 409);
+            }
+            return;
         }
         $this->transfers?->releasePairs($supplierId, $txId);
         $this->suggestions->supersedePendingForTx($supplierId, $txId, 'superseded');
