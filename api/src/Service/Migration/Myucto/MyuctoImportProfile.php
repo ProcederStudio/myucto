@@ -32,7 +32,7 @@ final class MyuctoImportProfile
         'posting_rules' => ['rule_key', 'priority'],
     ];
     public const OWNERS = [
-        'projects' => ['client_id', 'clients'], 'work_reports' => ['project_id', 'projects'],
+        'projects' => ['client_id', 'clients'], 'work_reports' => ['invoice_id', 'invoices'],
         'invoice_items' => ['invoice_id', 'invoices'],
         'purchase_invoice_items' => ['purchase_invoice_id', 'purchase_invoices'],
         'recurring_invoice_template_items' => ['template_id', 'recurring_invoice_templates'],

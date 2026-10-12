@@ -26,10 +26,16 @@ export interface MyuctoImportResult {
 export interface MyuctoImportRun extends FileImportJob {
   token: string
   source_name: string
+  format?: 'myucto' | 'myinvoice'
   mode: 'dry_run' | 'import'
   created_at: string
   finished_at: string | null
   result: MyuctoImportResult | null
+}
+
+export interface MyInvoiceImportOptions {
+  files: string[]
+  profile_confirmed: boolean
 }
 
 export const myuctoImportApi = {
@@ -39,10 +45,10 @@ export const myuctoImportApi = {
   async status(id: number): Promise<MyuctoImportRun> {
     return (await api.get<MyuctoImportRun>(`${BASE}/runs/${id}`)).data
   },
-  upload: (file: File, onProgress?: ChunkedUploadProgress) => uploadChunked(BASE, file, onProgress),
-  async run(token: string, source: string, password: string, apply = false): Promise<{ job_id: number; status: string }> {
+  upload: (file: File, onProgress?: ChunkedUploadProgress, legacy = false) => uploadChunked(BASE, file, onProgress, undefined, legacy ? { format: 'myinvoice' } : undefined),
+  async run(token: string, source: string, password: string, apply = false, myinvoice?: MyInvoiceImportOptions): Promise<{ job_id: number; status: string }> {
     return (await api.post<{ job_id: number; status: string }>(`${BASE}/uploads/${token}/run`, {
-      mode: apply ? 'import' : 'dry_run', source, ...(password ? { password } : {}), confirmed: apply,
+      mode: apply ? 'import' : 'dry_run', source, ...(password ? { password } : {}), confirmed: apply, ...(myinvoice ? { myinvoice } : {}),
     })).data
   },
 }

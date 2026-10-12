@@ -1474,7 +1474,7 @@
     "accounting_dimension_profit": "Výkazy po dimenzi"
   },
   "migration_overview": {
-    "myucto_hint": "Přenos jedné firmy ze stávajícího Kompletního exportu dat, včetně pravidelné fakturace.",
+    "myucto_hint": "Přenos jedné firmy z Kompletního exportu dat MyÚčta nebo databázové zálohy MyInvoice, včetně pravidelné fakturace.",
     "title": "Přechod z jiných účetních systémů",
     "intro": "Přeneste data do MyÚčta a pokračujte tam, kde jste skončili. Vyberte svůj dosavadní program; průvodce vás provede přípravou, převodem a kontrolou výsledku.",
     "systems_title": "Vyberte zdrojový systém",
@@ -33995,11 +33995,25 @@
     "concentration_window": "Koncentrace používá měsíční okno od {from}, nezávisle na zvoleném období. Podíl se hodnotí v původní měně."
   },
   "myucto_import": {
+    "myinvoice": {
+      "format": "Typ zálohy",
+      "native": "MyÚčto – Kompletní export dat",
+      "legacy": "MyInvoice – databázová záloha",
+      "file": "Databázová záloha MyInvoice (ZIP)",
+      "file_hint": "ZIP z funkce Zálohy v původním MyInvoice, nejvýše 2 GiB. Firma se vybere podle IČO cílové firmy.",
+      "originals": "Archivy originálů dokladů (volitelné)",
+      "originals_hint": "Nejvýše 16 ZIPů, každý do 2 GiB. Cesty musí začínat storage/purchase-invoices/ nebo storage/invoices-imported/ (také bez storage/). Běžná PDF záloha nemusí obsahovat originály přijatých faktur. Chybějící originál import zastaví.",
+      "invalid_originals": "Vyberte nejvýše 16 neprázdných ZIPů, každý do 2 GiB.",
+      "profile_hint": "MyInvoice neobsahuje účetní režim ani historii DPH. Převod použije účetní režim a historii DPH cílové firmy včetně procenta krácení odpočtu. Nejprve je zkontrolujte v nastavení.",
+      "settings": "Nastavení firmy",
+      "profile_confirm": "Ověřil/a jsem, že účetní režim a historie DPH cílové firmy odpovídají všem importovaným dokladům.",
+      "scope_hint": "Přenášejí se kontakty, projekty a výkazy práce, měny a bankovní účty, kategorie a střediska, ceníky, pravidelná fakturace, faktury s položkami, bankovní výpisy, úhrady a párování. Mzdy, DMS a účetní deník se nepřenášejí. Podporovaná data celé SQL zálohy: nejvýše 64 MiB / 100 000 řádků."
+    },
     "progress": "Průběh přenosu",
     "status_completed": "Dokončeno",
     "status_checked": "Ověřeno",
-    "title": "Import firmy z MyÚčta",
-    "intro": "Nahrajte Kompletní export dat a přeneste podporovaná data do aktuálně vybrané firmy.",
+    "title": "Import firmy z MyÚčta / MyInvoice",
+    "intro": "Nahrajte export MyÚčta nebo zálohu původního MyInvoice a přeneste podporovaná data do aktuálně vybrané firmy.",
     "back": "Zpět na importy",
     "requirements": "Cílová firma musí mít shodné IČO, účetní a daňové nastavení včetně historie DPH a nesmí obsahovat vlastní obchodní data. Import firmu nezakládá.",
     "rights": "Potřebujete právo zápisu pro import, účetní deník a nastavení firmy.",

@@ -29,7 +29,13 @@ final class MyuctoMigrationAction
     {
         return $this->handle($request, $response, function (int $supplier, int $actor) use ($request): array {
             $body = (array) $request->getParsedBody();
-            return $this->workflow->init($supplier, $actor, is_string($body['file_name'] ?? null) ? $body['file_name'] : '', $body['size'] ?? null);
+            return $this->workflow->init(
+                $supplier,
+                $actor,
+                is_string($body['file_name'] ?? null) ? $body['file_name'] : '',
+                $body['size'] ?? null,
+                ($body['format'] ?? '') === 'myinvoice',
+            );
         });
     }
 
@@ -65,6 +71,10 @@ final class MyuctoMigrationAction
                 || (isset($body['password']) && (!is_string($body['password']) || strlen($body['password']) > 1024))) {
                 throw new MyuctoImportException('invalid_options', 'Vyplňte zdroj a platný režim importu.');
             }
+            $legacy = $body['myinvoice'] ?? null;
+            if ($legacy !== null && (!is_array($legacy) || $mode !== 'dry_run')) {
+                throw new MyuctoImportException('invalid_options', 'Zálohu MyInvoice nejprve zkontrolujte nanečisto.');
+            }
             $started = $this->jobs->start(
                 $supplier,
                 $actor,
@@ -72,7 +82,8 @@ final class MyuctoMigrationAction
                 $body['source'],
                 $body['password'] ?? null,
                 $mode === 'import',
-                ($body['confirmed'] ?? false) === true
+                ($body['confirmed'] ?? false) === true,
+                $legacy
             );
             $this->jobs->launch((int) $started['job_id']);
             return $started;

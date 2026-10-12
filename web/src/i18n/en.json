@@ -1474,7 +1474,7 @@
     "accounting_dimension_profit": "Reports by dimension"
   },
   "migration_overview": {
-    "myucto_hint": "Transfer one company from an existing Complete data export, including recurring invoices.",
+    "myucto_hint": "Transfer one company from a MyÚčto Complete data export or a MyInvoice database backup, including recurring invoices.",
     "title": "Switch from another accounting system",
     "intro": "Move your data to MyÚčto and pick up where you left off. Choose your current system; the guide will help you prepare, transfer, and check the result.",
     "systems_title": "Choose your source system",
@@ -33995,11 +33995,25 @@
     "concentration_window": "Concentration uses a monthly window starting {from}, independently of the selected period. Shares are measured in the original currency."
   },
   "myucto_import": {
+    "myinvoice": {
+      "format": "Backup type",
+      "native": "MyÚčto – Complete data export",
+      "legacy": "MyInvoice – database backup",
+      "file": "MyInvoice database backup (ZIP)",
+      "file_hint": "ZIP from Backups in the original MyInvoice, up to 2 GiB. The company is selected by the target company registration number.",
+      "originals": "Original document archives (optional)",
+      "originals_hint": "Up to 16 ZIPs, each up to 2 GiB. Paths must start with storage/purchase-invoices/ or storage/invoices-imported/ (also without storage/). The usual PDF backup may lack purchase invoice originals. A missing original stops the import.",
+      "invalid_originals": "Select up to 16 non-empty ZIPs, each up to 2 GiB.",
+      "profile_hint": "MyInvoice does not contain the accounting mode or VAT status history. Conversion uses the target company accounting mode and VAT history, including the deduction percentage. Check these in settings first.",
+      "settings": "Company settings",
+      "profile_confirm": "I verified that the target company accounting mode and VAT history match all imported documents.",
+      "scope_hint": "Transfers contacts, projects and work reports, currencies and bank accounts, categories and cost centres, price lists, recurring invoices, invoices and items, bank statements, payments and matches. Payroll, DMS and the accounting journal are excluded. Supported data in the entire SQL backup: up to 64 MiB / 100,000 rows."
+    },
     "progress": "Transfer progress",
     "status_completed": "Completed",
     "status_checked": "Verified",
-    "title": "Import a company from MyÚčto",
-    "intro": "Upload a Complete data export and transfer supported data into the currently selected company.",
+    "title": "Import a company from MyÚčto / MyInvoice",
+    "intro": "Upload a MyÚčto export or an original MyInvoice backup to transfer supported data into the selected company.",
     "back": "Back to imports",
     "requirements": "The target company must have the same company ID, accounting and tax settings including VAT history, and no business data of its own. Import does not create a company.",
     "rights": "Write access to imports, the accounting journal and company settings is required.",

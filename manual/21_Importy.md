@@ -1032,6 +1032,89 @@ příkaz neslouží k průběžné synchronizaci. Heslo ZIPu se čte z
 `MYUCTO_IMPORT_PASSWORD`, případně z `cron.backup.password` cílové konfigurace.
 Heslo nezadávejte jako argument příkazu.
 
+### 21.9.17 Převod databázové zálohy původního MyInvoice
+
+Databázový ZIP z funkce **Zálohy** původního MyInvoice lze převést na balíček
+pro **Importy → MyÚčto / MyInvoice**. V průvodci zvolte **MyInvoice – databázová
+záloha**, nahrajte databázový ZIP a případné ZIPy s originály dokladů. Firma
+se vybere podle IČO cílové firmy; záloha musí obsahovat právě jednu shodu.
+Převod používá účetní režim a historii DPH cílové firmy. Nejprve je nastavte
+v **Nastavení → Firmy** a potvrďte, že odpovídají všem převáděným dokladům.
+Pak spusťte **Zkontrolovat nanečisto** a po úspěšné kontrole potvrďte import.
+Převod i kontrola běží na pozadí, průběh a protokol jsou ve stejném průvodci.
+
+Používá se stávající záloha; SQL ze zálohy se nikdy nespouští.
+Převod lze provést také z příkazové řádky.
+Výsledný ZIP slouží k importu firmy, nikoli k obnově celé instalace.
+
+Přenášejí se kontakty a jejich bankovní účty, projekty a výkazy práce, měny,
+bankovní účty firmy, střediska, kategorie příjmů a výdajů, ceníky, pravidelná
+fakturace, vystavené a přijaté faktury s položkami, bankovní výpisy a pohyby,
+úhrady a jejich párování. Pravidelná fakturace se přebírá pozastavená, bez
+automatického vystavování a odesílání. Uživatelé, oprávnění, přístupové klíče,
+DMS, mzdy, účetní deník a další oblasti mimo tento seznam se nepřenášejí.
+
+MyInvoice nevede historii plátcovství používanou MyÚčtem. Pro převod z příkazové
+řádky správce připraví ověřený JSON seznam změn: datum účinnosti, příznaky `is_vat_payer`
+a `is_identified` jako čísla 0/1 a `annual_deduction_percent` jako číslo nebo
+`null`. Například pro syntetickou firmu, která byla po celé převáděné období
+plátcem bez zadaného krácení:
+
+```json
+[
+  {
+    "effective_from": "1900-01-01",
+    "is_vat_payer": 1,
+    "is_identified": 0,
+    "annual_deduction_percent": null
+  }
+]
+```
+
+Použijte skutečná ověřená data firmy, ne tento příklad. Stejnou historii a
+účetní režim nastavte v cílové firmě; import jejich shodu ověří. Cílová firma
+musí splnit také ostatní podmínky [§ 21.9.16](#21916-import-firmy-z-kompletniho-exportu-dat-myucta).
+
+```bash
+php api/bin/myinvoice-backup-convert.php \
+  --backup=/cesta/databazova-zaloha.zip \
+  --company=1 \
+  --accounting-mode=tax_evidence \
+  --vat-history=/cesta/historie-dph.json \
+  --files=/cesta/originaly.zip \
+  --output=/cesta/myinvoice-import.zip
+```
+
+`--company` je ID firmy v **původní záloze**. Pro podvojné účetnictví použijte
+`--accounting-mode=double_entry`. Výstupní soubor nesmí existovat. Parametr
+`--files` lze vynechat, nejsou-li v dokladech odkazy na originály, nebo opakovat
+pro více archivů (nejvýše 16).
+
+Samotný databázový ZIP soubory neobsahuje. Běžný PDF archiv MyInvoice nemusí
+obsahovat importované vystavené PDF ani původní ISDOC/XML přijatých dokladů.
+Archivy originálů musí zachovat cesty `storage/purchase-invoices/...` a
+`storage/invoices-imported/...` (případně bez prefixu `storage/`). Chybějící
+odkazovaný originál nebo nesouhlasící kontrolní součet zastaví převod; tyto
+soubory se nedoplňují nově vygenerovaným PDF.
+
+Heslo vstupních ZIPů zadejte proměnnou prostředí `MYINVOICE_BACKUP_PASSWORD`,
+nikoli argumentem příkazu. Výstup převezme stejné heslo; samostatné heslo lze
+nastavit přes `MYINVOICE_BACKUP_OUTPUT_PASSWORD`. Výstup je citlivý jako běžná
+záloha. Databázový ZIP musí obsahovat právě jeden SQL dump ve standardní podobě
+`mariadb-dump` / `mysqldump` (`CREATE TABLE` a `INSERT INTO … VALUES` s literály).
+Libovolné SQL skripty, výrazy a jiné způsoby zápisu nejsou podporované.
+
+Limity převodu: každý vstupní ZIP do 2 GiB, rozbalený SQL dump do 512 MiB,
+podporované databázové řádky **celé zdrojové instance** do 64 MiB / 100 000
+řádků. Vybraná data firmy a její originály mají společný limit 64 MiB / 100 000
+řádků stávajícího importéru. Starší bankovní výpis bez firmy se přiřadí podle
+účtu a banky; pokud nelze v záloze určit jedinou firmu, převod skončí chybou.
+
+Výsledný ZIP nahrajte do **Importy → MyÚčto**, použijte stabilní název původní
+instance a nejprve spusťte kontrolu nanečisto. Obnova pak běží ve stávajícím
+workeru s jeho průběhem a protokoly; opakované spuštění stejného balíčku a
+názvu instance nevytváří duplicity.
+
 ## 21.10 Související kapitoly
 
 - [Export vydaných faktur](20_Exporty.md)
