@@ -6,6 +6,7 @@ namespace MyInvoice\Tests\Integration\Accounting\Bank;
 
 use MyInvoice\Repository\SaldoRepository;
 use MyInvoice\Service\Accounting\Reports\DocumentCompletenessService;
+use MyInvoice\Tests\Support\PayrollPaymentEvidenceTrait;
 use PHPUnit\Framework\Attributes\Group;
 
 /**
@@ -17,6 +18,8 @@ use PHPUnit\Framework\Attributes\Group;
 #[Group('integration')]
 final class DocumentCompletenessServiceTest extends BankPostingTestCase
 {
+    use PayrollPaymentEvidenceTrait;
+
     private DocumentCompletenessService $completeness;
 
     protected function setUp(): void
@@ -84,6 +87,30 @@ final class DocumentCompletenessServiceTest extends BankPostingTestCase
         // Obrácený směr (doklady po splatnosti) je vždy přítomný jako sekce.
         self::assertArrayHasKey('items', $result['documents_overdue_unpaid']);
         self::assertArrayHasKey('summary', $result['documents_overdue_unpaid']);
+    }
+
+    /**
+     * Platba srážkové daně, odvodu pojistného nebo čisté mzdy spárovaná se mzdami má doklad
+     * (mzdový závazek). V podvojném účetnictví se účtuje zápisem `payroll_payment`, ne
+     * bankovním, takže kontrola živého zápisu `source_type='bank'` ji sama nepokryje.
+     */
+    public function testPayrollMatchedBankTransactionHasDocumentInDoubleEntry(): void
+    {
+        $old = (new \DateTimeImmutable('-100 days'))->format('Y-m-d');
+        $stId = $this->statement();
+        $txPayroll = $this->transaction($stId, -1000.0, ['posted_at' => $old, 'counterparty_name' => 'Odvod mzdy']);
+        $txOrphan = $this->transaction($stId, -1000.0, ['posted_at' => $old, 'counterparty_name' => 'Bez dokladu']);
+
+        $pdo = $this->db->pdo();
+        $allocationId = $this->seedAllocation($pdo, $this->supplierId, 'completeness-' . $txPayroll, 'bank');
+        $this->seedBankPaymentMatch($pdo, $this->supplierId, $allocationId, $stId, $txPayroll, 'completeness-' . $txPayroll);
+
+        $result = $this->completeness->build($this->supplierId, 30, 'all');
+        self::assertSame('double_entry', $result['accounting_mode']);
+        $ids = array_column($result['bank_without_document']['items'], 'bank_transaction_id');
+
+        self::assertNotContains($txPayroll, $ids, 'Pohyb spárovaný se mzdami nesmí svítit jako „Chybí doklad".');
+        self::assertContains($txOrphan, $ids);
     }
 
     public function testFutureDocumentsCannotHideAnOverdueDocumentBehindTheGlobalCap(): void

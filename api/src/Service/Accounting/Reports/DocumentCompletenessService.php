@@ -17,7 +17,9 @@ use PDO;
  *
  *  1) bank_without_document — bankovní pohyby (source='statement'), které po prahu X dní
  *     nemají navázaný doklad: nespárované, bez matched_invoice_id, bez invoice_payments /
- *     payment_matches a bez živého bankovního zápisu v deníku. Daňová pojistka §24/1 ZDP
+ *     payment_matches, bez vazby na mzdy (payroll_payment_matches; mzdová platba se účtuje
+ *     zápisem `payroll_payment`, ne bankovním) a bez živého bankovního zápisu v deníku.
+ *     Daňová pojistka §24/1 ZDP
  *     (náklad bez dokladu není uznatelný). Scope na firmu přes shodu čísla účtu s `currencies`
  *     (bank_statements nenese supplier_id) — stejný predikát jako
  *     {@see \MyInvoice\Repository\BankPostingSuggestionRepository::unpostedWithoutSuggestion()}.
@@ -102,7 +104,6 @@ final class DocumentCompletenessService
                                  WHERE oia.supplier_id = {$supplierId} AND oia.bank_transaction_id = bt.id AND oia.reversed_on IS NULL)
                 AND NOT EXISTS (SELECT 1 FROM tax_advance_schedules tas
                                  WHERE tas.supplier_id = {$supplierId} AND tas.matched_transaction_id = bt.id)
-                AND NOT EXISTS (SELECT 1 FROM payroll_payment_matches ppm WHERE ppm.bank_transaction_id = bt.id)
                 AND NOT EXISTS (SELECT 1 FROM de_movement_classification dmc
                                  WHERE dmc.supplier_id = {$supplierId} AND dmc.source_type = 'bank'
                                    AND dmc.bank_transaction_id = bt.id AND dmc.tax_bucket IN ('private', 'transfer'))"
@@ -126,6 +127,7 @@ final class DocumentCompletenessService
                 AND " . \MyInvoice\Repository\BankStatementOwnershipResolver::sql() . "
                 AND NOT EXISTS (SELECT 1 FROM invoice_payments ip WHERE ip.supplier_id = ? AND ip.bank_transaction_id = bt.id)
                 AND NOT EXISTS (SELECT 1 FROM payment_matches pm WHERE pm.supplier_id = ? AND pm.bank_transaction_id = bt.id)
+                AND NOT EXISTS (SELECT 1 FROM payroll_payment_matches ppm WHERE ppm.supplier_id = ? AND ppm.bank_transaction_id = bt.id)
                 AND NOT EXISTS (
                     SELECT 1 FROM journal_entries je
                      WHERE je.supplier_id = ? AND je.source_type = 'bank'
@@ -133,11 +135,11 @@ final class DocumentCompletenessService
                 ){$taxEvidenceSql}
               ORDER BY bt.posted_at ASC, bt.id ASC";
         $stmt = $this->db->pdo()->prepare($sql);
-        // SEC-01: pořadí je dr.supplier_id, cutoff, resolver (2×), ip, pm, je.
+        // SEC-01: pořadí je dr.supplier_id, cutoff, resolver (2×), ip, pm, ppm, je.
         $stmt->execute(array_merge(
             [$supplierId, $cutoff],
             \MyInvoice\Repository\BankStatementOwnershipResolver::params($supplierId),
-            [$supplierId, $supplierId, $supplierId],
+            [$supplierId, $supplierId, $supplierId, $supplierId],
         ));
 
         $todayDt = new \DateTimeImmutable($today);
