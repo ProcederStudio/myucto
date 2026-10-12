@@ -27,6 +27,7 @@
     { "name": "purchase-invoices", "path_pattern": "^/purchase-invoices/?$", "kind": "permission", "permission": "purchase_invoices", "access": "read" },
     { "name": "purchase-invoices-export", "path_pattern": "^/purchase-invoices/export/?$", "kind": "permission", "permission": "purchase_invoices", "access": "read" },
     { "name": "purchase-invoices-import", "path_pattern": "^/purchase-invoices/import/?$", "kind": "client_redirect", "permission": "purchase_invoices", "access": "read", "redirect_to": "/purchase-invoices/export" },
+    { "name": "purchase-invoices-renumber", "path_pattern": "^/purchase-invoices/renumber/?$", "kind": "client_redirect", "permission": "purchase_invoices", "access": "write", "redirect_to": "/purchase-invoices" },
     { "name": "purchase-invoice-new", "path_pattern": "^/purchase-invoices/new/?$", "kind": "permission", "permission": "purchase_invoices.create", "access": "write" },
     { "name": "purchase-invoice-detail", "path_pattern": "^/purchase-invoices/[0-9]+/?$", "kind": "permission", "permission": "purchase_invoices", "access": "read" },
     { "name": "purchase-invoice-edit", "path_pattern": "^/purchase-invoices/[0-9]+/edit/?$", "kind": "permission", "permission": "purchase_invoices", "access": "write" },
