@@ -23,8 +23,12 @@ test('shared manifest persists the audited client surface and legacy aliases', (
   // přístupný taky (RoutePermissionMap). Chybělo jen UI k funkci, kterou klient
   // přes API už měl — schvalování faktur je přitom právě to, co klient na
   // vlastní doméně dělá. Přístup dál drží permission na routě i na endpointu.
-  assert.equal(manifest.routes.length, 40)
-  assert.equal(new Set(manifest.routes.map(route => route.name)).size, 40)
+  //
+  // 40 → 41: purchase-invoices-renumber. Klientskou plochu nerozšiřuje: je to
+  // client_redirect — klienta na vlastní doméně přesměruje na seznam přijatých
+  // faktur, přečíslování zůstává jen účetní (router guard i backend 403).
+  assert.equal(manifest.routes.length, 41)
+  assert.equal(new Set(manifest.routes.map(route => route.name)).size, 41)
   assert.deepEqual(
     manifest.routes.slice(-3).map(route => route.name),
     ['data-exchange', 'admin-export', 'admin-import'],
