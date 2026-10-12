@@ -1334,6 +1334,8 @@ final class AbraAccountingImporterTest extends TestCase
         $snapshot['faktura-vydana'][0]['datUcto'] = '2026-02-01';
         $snapshot['faktura-vydana'][0]['datSplat'] = '2026-02-15';
         $snapshot['banka'][0]['datUcto'] = '2026-02-02';
+        // Hospodářský rok převod přijme jen do firmy, která ho má nastavený (jinak se zastaví).
+        $this->db->pdo()->prepare('UPDATE supplier SET fiscal_year_start_month = 7 WHERE id = ?')->execute([$this->supplier]);
 
         $report = $this->transfer($snapshot);
 

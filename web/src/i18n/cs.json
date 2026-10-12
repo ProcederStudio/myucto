@@ -30166,6 +30166,8 @@
       "target_period_closed": "Cílové účetní období je uzavřené.",
       "target_date_locked": "Datum počátečního stavu spadá do uzamčeného účetního období.",
       "source_period_missing": "Ve zdroji chybí vybrané účetní období.",
+      "fiscal_year_mismatch": "Účetní období v ABRA Flexi mají jiný začátek účetního roku, než má nastavený firma. Nastavte ve firmě (Nastavení → Daně a účetnictví → Účetní rok začíná) měsíc, kterým začínají období v ABRA Flexi, a převod spusťte znovu.",
+      "source_period_label_mismatch": "Účetní období v ABRA Flexi je označené jiným rokem, než ve kterém začíná. MyÚčto označuje hospodářský rok rokem jeho začátku; takové období nelze převést.",
       "source_record_changed": "Dříve převedený záznam byl ve zdroji změněn. Vyžaduje ruční kontrolu.",
       "source_trial_balance_missing": "Chybí zdrojová předvaha pro účetní kontrolu.",
       "journal_evidence_missing": "Zdroj neposkytuje účetní deník.",

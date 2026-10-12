@@ -9,9 +9,11 @@ use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Repository\ChartOfAccountsRepository;
 use MyInvoice\Repository\JournalEntryRepository;
 use MyInvoice\Service\Accounting\ChartOfAccountsSeeder;
+use MyInvoice\Service\Accounting\FiscalCalendar;
 use MyInvoice\Service\Accounting\PostingService;
 use MyInvoice\Service\Migration\MoneyS3\ImportProtocol;
 use MyInvoice\Service\Migration\Shared\ChartAccountCreator;
+use MyInvoice\Service\Migration\Shared\FiscalYearMismatchException;
 use MyInvoice\Service\Migration\Shared\MigrationPeriods;
 use PDO;
 
@@ -37,6 +39,12 @@ final class StereoNxAccountingWriter
         private readonly StereoNxImportMap $map,
     ) {}
 
+    /** Kalendář účetního roku cílové firmy; podle něj se deník řadí do období. */
+    public function calendar(int $supplierId): FiscalCalendar
+    {
+        return (new MigrationPeriods($this->periods))->calendar($supplierId);
+    }
+
     /**
      * @return array{
      *   ok:bool,identity:array{ico:string,dic:string,name:string,vat_payer:bool},company_index:int,
@@ -46,7 +54,7 @@ final class StereoNxAccountingWriter
      *   accounting_plan:array{chart:list<array<string,mixed>>,entries:list<array<string,mixed>>}
      * }
      */
-    public function prepare(StereoNxBackup $backup): array
+    public function prepare(StereoNxBackup $backup, ?FiscalCalendar $calendar = null): array
     {
         $identity = $backup->companyIdentity();
         $chartRows = iterator_to_array($backup->rows('Lrozvrh'), false);
@@ -70,7 +78,7 @@ final class StereoNxAccountingWriter
             $errors[] = ['code' => 'opening_settings_missing'];
         }
 
-        $journalPlan = StereoNxAccountingJournalPlan::build($journalRows, $chartRows);
+        $journalPlan = StereoNxAccountingJournalPlan::build($journalRows, $chartRows, $calendar);
         array_push($errors, ...$journalPlan['blockers']);
 
         $chart = [];
@@ -141,6 +149,14 @@ final class StereoNxAccountingWriter
             ];
             $record['source_hash'] = StereoNxImportMap::fingerprint($record);
             $entries[] = $record;
+        }
+
+        if ($calendar !== null) {
+            try {
+                self::assertSourceYears($calendar, $entries);
+            } catch (FiscalYearMismatchException $e) {
+                $errors[] = ['code' => 'fiscal_year_mismatch', 'message' => $e->getMessage()];
+            }
         }
 
         $reportedErrors = self::summarizeIssues($errors, 'error');
@@ -332,9 +348,16 @@ final class StereoNxAccountingWriter
     private static function summarizeIssues(array $issues, string $level): array
     {
         $counts = array_count_values(array_map(static fn (array $issue): string => (string) ($issue['code'] ?? 'accounting_source_invalid'), $issues));
+        $firstMessage = [];
+        foreach ($issues as $issue) {
+            if (isset($issue['message']) && !isset($firstMessage[(string) ($issue['code'] ?? '')])) {
+                $firstMessage[(string) $issue['code']] = (string) $issue['message'];
+            }
+        }
         $out = [];
         foreach ($counts as $code => $count) {
             $message = match ($code) {
+                'fiscal_year_mismatch' => $firstMessage[$code] ?? 'Účetní rok zdroje neodpovídá účetnímu roku firmy.',
                 'journal_year_mismatch' => "Účetní období určeno podle data účetního případu; pomocný rok se u {$count} řádků liší.",
                 'source_not_accounting_entity' => 'Zdrojová firma není ve Stereo označena jako účetní jednotka.',
                 'accounting_company_settings_invalid' => 'Nastavení zdrojové účetní jednotky není jednoznačné.',
@@ -378,17 +401,27 @@ final class StereoNxAccountingWriter
      */
     private function preparePeriods(array $entries, int $supplierId, string $ico, int $companyIndex, array &$stats): array
     {
+        $calendar = $this->calendar($supplierId);
+        try {
+            self::assertSourceYears($calendar, $entries);
+        } catch (FiscalYearMismatchException $e) {
+            throw new StereoNxException('fiscal_year_mismatch', $e->getMessage());
+        }
         $years = [];
         foreach ($entries as $entry) {
-            $years[(int) $entry['posting_year']] = true;
+            $label = $calendar->fiscalYearOfDate((string) $entry['date']);
+            if ((int) $entry['posting_year'] !== $label) {
+                throw new StereoNxException('accounting_period_shape',
+                    'Plán převodu počítal s jiným začátkem účetního roku, než má cílová firma. Spusťte kontrolu převodu znovu.');
+            }
+            $years[$label] = true;
         }
         ksort($years);
         $out = [];
         foreach (array_keys($years) as $year) {
             $period = $this->periods->findByYear($supplierId, $year);
             if ($period === null) {
-                $starts = sprintf('%04d-01-01', $year);
-                $ends = sprintf('%04d-12-31', $year);
+                [$starts, $ends] = MigrationPeriods::bounds($calendar, $year);
                 if ($this->periods->overlapping($supplierId, $starts, $ends) !== null) {
                     throw new StereoNxException('accounting_period_overlap', "Rok {$year} se překrývá s existujícím účetním obdobím.");
                 }
@@ -435,6 +468,48 @@ final class StereoNxAccountingWriter
             }
         }
         return $out;
+    }
+
+    /**
+     * Účetní rok zdroje začíná počátečními stavy (DruhPS) a trvá do posledního zápisu
+     * před dalšími počátečními stavy; každý musí padnout do jednoho období firmy.
+     * Pomocný Rok k tomu spolehlivý není (liší se od data i v kalendářních agendách).
+     * Zápisy před prvními počátečními stavy se nekontrolují.
+     *
+     * @param list<array<string,mixed>> $entries
+     * @throws FiscalYearMismatchException
+     */
+    private static function assertSourceYears(FiscalCalendar $calendar, array $entries): void
+    {
+        $openings = [];
+        foreach ($entries as $entry) {
+            if (!empty($entry['is_opening'])) {
+                $date = (string) $entry['date'];
+                $openings[$date] ??= is_int($entry['source_year'] ?? null) ? (string) $entry['source_year'] : substr($date, 0, 4);
+            }
+        }
+        if ($openings === []) {
+            return;
+        }
+        ksort($openings, SORT_STRING);
+        $starts = array_map('strval', array_keys($openings));
+        $years = [];
+        foreach ($entries as $entry) {
+            $date = (string) $entry['date'];
+            $start = null;
+            foreach ($starts as $candidate) {
+                if ($candidate > $date) {
+                    break;
+                }
+                $start = $candidate;
+            }
+            if ($start !== null) {
+                $years[$start][] = $date;
+            }
+        }
+        foreach ($years as $start => $dates) {
+            MigrationPeriods::assertSourceYear($calendar, $dates, $openings[(string) $start]);
+        }
     }
 
     /**

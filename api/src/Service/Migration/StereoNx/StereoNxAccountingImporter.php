@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Migration\StereoNx;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Service\Accounting\FiscalCalendar;
 use MyInvoice\Service\Migration\Pohoda\PartnerImporter;
 use MyInvoice\Service\Migration\MoneyS3\AccountingUnitSwitch;
 use MyInvoice\Service\Payroll\Migration\PayrollMigrationModuleSetup;
@@ -57,8 +58,9 @@ final class StereoNxAccountingImporter
                 }
             }
             $payrollMonths = iterator_to_array($backup->rows('MMzdy'), false);
+            $calendar = $this->journal->calendar($supplierId);
             $plans = [
-                'journal' => $this->journal->prepare($backup),
+                'journal' => $this->journal->prepare($backup, $calendar),
                 'assets' => $this->assets->prepare($backup),
                 'employees' => $this->employees->prepare($backup),
                 'payroll' => StereoNxPayrollMonths::fromTables([
@@ -160,7 +162,7 @@ final class StereoNxAccountingImporter
                     || !(bool) $supplier['is_vat_payer'] || !$identity['vat_payer']) {
                     throw new StereoNxException('target_mismatch', 'Účetní převod vyžaduje shodné IČO a plátce DPH v režimu podvojného účetnictví.');
                 }
-                $this->assertDocumentPeriodsEmpty($supplierId, $report['date_bounds'], $identity['ico'], $backup->companyIndex());
+                $this->assertDocumentPeriodsEmpty($supplierId, $report['date_bounds'], $identity['ico'], $backup->companyIndex(), $calendar);
                 $this->assertDocumentDatesOpen($supplierId, $targetDates);
                 if ($lastPayroll !== null) {
                     // Stejný zápis jako při převodu; zkouška vrátí i nastavení modulu.
@@ -205,7 +207,7 @@ final class StereoNxAccountingImporter
                 }
                 if (!$dryRun && !empty($report['date_bounds']['from'])) {
                     $this->accountingUnit->switchToDoubleEntry($supplierId,
-                        substr($report['date_bounds']['from'], 0, 4) . '-01-01', true, $report['date_bounds']['to']);
+                        $calendar->periodStart($calendar->fiscalYearOfDate($report['date_bounds']['from'])), true, $report['date_bounds']['to']);
                 }
                 $report['counts']['requires_draft'] = count($report['review_documents']);
                 foreach ($report['review_documents'] as &$review) {
@@ -271,11 +273,12 @@ final class StereoNxAccountingImporter
         }
     }
 
-    private function assertDocumentPeriodsEmpty(int $supplierId, ?array $bounds, string $ico, int $companyIndex): void
+    private function assertDocumentPeriodsEmpty(int $supplierId, ?array $bounds, string $ico, int $companyIndex, FiscalCalendar $calendar): void
     {
         if ($bounds === null || empty($bounds['from']) || empty($bounds['to'])) return;
-        $from = substr($bounds['from'], 0, 4) . '-01-01';
-        $to = ((int) substr($bounds['to'], 0, 4) + 1) . '-01-01';
+        // Celá účetní období firmy (kalendářní, nebo hospodářský rok), do kterých převod zapisuje.
+        $from = $calendar->periodStart($calendar->fiscalYearOfDate($bounds['from']));
+        $to = $calendar->periodStart($calendar->fiscalYearOfDate($bounds['to']) + 1);
         foreach ([['invoices', 'issue_date', 'issued'], ['purchase_invoices', 'issue_date', 'purchase'],
             ['bank_statements', 'statement_date', 'bank_statement'], ['cash_documents', 'issue_date', 'cash']] as [$table, $column, $kind]) {
             $stmt = $this->db->pdo()->prepare("SELECT 1 FROM {$table} t

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MyInvoice\Tests\Unit\Service\Migration\StereoNx;
 
+use MyInvoice\Service\Accounting\FiscalCalendar;
 use MyInvoice\Service\Migration\StereoNx\StereoNxAccountingJournalPlan;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -86,6 +87,28 @@ final class StereoNxAccountingJournalPlanTest extends TestCase
         yield 'infinite amount' => [['Celkem' => INF], 'journal_amount_invalid'];
         yield 'out of range' => [['Celkem' => 1e14], 'journal_amount_out_of_range'];
         yield 'unknown tax decomposition' => [['DPH' => 21.0], 'journal_tax_amount_unverified'];
+    }
+
+    public function testFiscalCompanyAssignsCompanyPeriodLabelAndAcceptsMatchingSourceYear(): void
+    {
+        $plan = StereoNxAccountingJournalPlan::build([
+            self::row(['KdyUcPripad' => '2025-08-01', 'Rok' => 2025, 'Mesic' => 8]),
+            self::row(['Klic' => 2, 'KdyUcPripad' => '2026-07-31', 'Rok' => 2025, 'Mesic' => 7]),
+        ], [['Ucet' => '221test'], ['Ucet' => '321']], new FiscalCalendar(8));
+        self::assertTrue($plan['ok'], json_encode($plan['blockers']));
+        self::assertSame([], $plan['warnings']);
+        self::assertSame([2025, 2025], array_column($plan['entries'], 'posting_year'));
+    }
+
+    public function testCalendarCompanySplitsFiscalSourceByDateAndOnlyWarnsAboutSourceYear(): void
+    {
+        $plan = StereoNxAccountingJournalPlan::build([
+            self::row(['KdyUcPripad' => '2025-08-01', 'Rok' => 2025, 'Mesic' => 8]),
+            self::row(['Klic' => 2, 'KdyUcPripad' => '2026-02-03', 'Rok' => 2025, 'Mesic' => 2]),
+        ], [['Ucet' => '221test'], ['Ucet' => '321']], FiscalCalendar::calendar());
+        self::assertTrue($plan['ok'], 'shodu účetního roku zdroje kontroluje writer podle počátečních stavů');
+        self::assertSame(['journal_year_mismatch'], array_column($plan['warnings'], 'code'));
+        self::assertSame([2025, 2026], array_column($plan['entries'], 'posting_year'));
     }
 
     public function testRejectsDuplicateRowsAndChartAccounts(): void

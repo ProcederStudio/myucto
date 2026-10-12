@@ -4,19 +4,25 @@ declare(strict_types=1);
 
 namespace MyInvoice\Service\Migration\StereoNx;
 
+use MyInvoice\Service\Accounting\FiscalCalendar;
+
 /**
  * Čistá kontrola zdrojového účetního deníku před převodem.
  *
- * Kódy účtů zůstávají zdrojové. Kalendářní rok kontace určuje KdyUcPripad:
+ * Kódy účtů zůstávají zdrojové. Účetní období kontace určuje KdyUcPripad podle
+ * kalendáře účetního roku cílové firmy (kalendářní, nebo hospodářský rok):
  * porovnání deníku s předvahami Stereo potvrzuje výběr podle tohoto data,
- * nikoli podle pomocného Rok. Zdrojový Rok se zachová a rozdíl se oznámí.
- * Cílové účetní období (včetně hospodářského roku) zde ještě nevybíráme.
+ * nikoli podle pomocného Rok. Zdrojový Rok se zachová a rozdíl se oznámí. Bez
+ * kalendáře firmy (diagnostika zálohy) se období počítá kalendářně. Shodu účetního
+ * roku zdroje s rokem firmy kontroluje {@see StereoNxAccountingWriter} podle
+ * počátečních stavů (pomocný Rok k tomu spolehlivý není).
  */
 final class StereoNxAccountingJournalPlan
 {
     /** @param list<array<string,mixed>> $journal @param list<array<string,mixed>> $chart */
-    public static function build(array $journal, array $chart): array
+    public static function build(array $journal, array $chart, ?FiscalCalendar $calendar = null): array
     {
+        $calendar ??= FiscalCalendar::calendar();
         $chartCodes = [];
         $blockers = [];
         $warnings = [];
@@ -64,7 +70,7 @@ final class StereoNxAccountingJournalPlan
                 $blockers[] = ['code' => 'journal_date_invalid', 'key' => $key];
             } else {
                 $dates[] = $date;
-                if (is_int($year) && $year !== (int) substr($date, 0, 4)) {
+                if (is_int($year) && $year !== $calendar->fiscalYearOfDate($date)) {
                     $warnings[] = ['code' => 'journal_year_mismatch', 'key' => $key];
                 }
                 if (is_int($month) && $month !== (int) substr($date, 5, 2)) {
@@ -106,7 +112,7 @@ final class StereoNxAccountingJournalPlan
             $debit += $cents;
             $credit += $cents;
             $entries[] = ['source_key' => $key, 'date' => $date, 'source_year' => $year,
-                'posting_year' => self::validDate($date) ? (int) substr($date, 0, 4) : null,
+                'posting_year' => self::validDate($date) ? $calendar->fiscalYearOfDate($date) : null,
                 'debit' => $md, 'credit' => $dal, 'amount_cents' => $cents];
         }
         sort($dates);

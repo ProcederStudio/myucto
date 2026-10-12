@@ -30166,6 +30166,8 @@
       "target_period_closed": "The target accounting period is closed.",
       "target_date_locked": "The opening balance date falls in a locked accounting period.",
       "source_period_missing": "The selected accounting period is missing in the source.",
+      "fiscal_year_mismatch": "ABRA Flexi accounting periods start the accounting year in a different month than the company. Set the month in which the ABRA Flexi periods start in the company settings (Settings → Taxes and accounting → Accounting year starts) and run the transfer again.",
+      "source_period_label_mismatch": "The ABRA Flexi accounting period is labelled with a different year than the one it starts in. MyÚčto labels a fiscal year by its starting year; such a period cannot be transferred.",
       "source_record_changed": "A previously transferred record changed in the source and requires manual review.",
       "source_trial_balance_missing": "The source trial balance needed for reconciliation is missing.",
       "journal_evidence_missing": "The source does not provide an accounting journal.",

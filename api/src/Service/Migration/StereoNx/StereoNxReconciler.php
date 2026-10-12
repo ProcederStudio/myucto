@@ -20,7 +20,7 @@ final class StereoNxReconciler
     public function run(int $supplierId, array $plan): array
     {
         $years = [];
-        foreach ($plan['entries'] as $entry) $years[(int) substr($entry['date'], 0, 4)] = true;
+        foreach ($plan['entries'] as $entry) $years[(int) ($entry['posting_year'] ?? substr($entry['date'], 0, 4))] = true;
         ksort($years);
         $out = [];
         foreach (array_keys($years) as $year) {

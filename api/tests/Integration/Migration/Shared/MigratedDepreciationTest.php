@@ -80,6 +80,41 @@ final class MigratedDepreciationTest extends SharedMigrationDbTestCase
         self::assertSame([false, null], [$same['written'], $same['kept']], 'shodný řádek se nehlásí');
     }
 
+    public function testLockOfFiscalYearCountsWithPeriodEndNotCalendarYearEnd(): void
+    {
+        [$supplier, $asset, $entries] = $this->asset();
+        $pdo = $this->db->pdo();
+        $pdo->prepare('UPDATE supplier SET fiscal_year_start_month = 8 WHERE id = ?')->execute([$supplier]);
+        $lock = $pdo->prepare('INSERT INTO accounting_supplier_settings (supplier_id, locked_until) VALUES (?, ?)
+            ON DUPLICATE KEY UPDATE locked_until = VALUES(locked_until)');
+        $migrated = new MigratedDepreciation($entries, $this->db);
+
+        // Hospodářský rok 2024 = 1. 8. 2024 – 31. 7. 2025; zámek k 31. 12. 2024 ho celý nezamyká.
+        $lock->execute([$supplier, '2024-12-31']);
+        $open = $migrated->confirm($supplier, $asset, 'tax', 2024, 2000.0, 2000.0, 8000.0, false, false, null, 'PREMIER', 'confirmed', MigratedDepreciation::OVERWRITE_ALWAYS, false);
+        self::assertSame([true, null], [$open['written'], $open['kept']], 'bez období: konec roku podle kalendáře firmy');
+
+        $pdo->prepare('INSERT INTO accounting_periods (supplier_id, fiscal_year, starts_on, ends_on) VALUES (?, 2024, ?, ?)')
+            ->execute([$supplier, '2024-08-01', '2025-07-31']);
+        $again = $migrated->confirm($supplier, $asset, 'tax', 2024, 2100.0, 2100.0, 7900.0, false, false, null, 'PREMIER', 'confirmed', MigratedDepreciation::OVERWRITE_ALWAYS, false);
+        self::assertSame([true, null], [$again['written'], $again['kept']], 'existující období: konec podle jeho hranic');
+
+        $lock->execute([$supplier, '2025-07-31']);
+        $closed = $migrated->confirm($supplier, $asset, 'tax', 2024, 2200.0, 2200.0, 7800.0, false, false, null, 'PREMIER', 'confirmed', MigratedDepreciation::OVERWRITE_ALWAYS, false);
+        self::assertSame([false, MigratedDepreciation::KEPT_CLOSED], [$closed['written'], $closed['kept']]);
+        self::assertSame(2100.0, (float) $entries->findYear($asset, 'tax', 2024)['amount']);
+    }
+
+    public function testLockOfCalendarYearStillEndsOnDecember31(): void
+    {
+        [$supplier, $asset, $entries] = $this->asset();
+        $this->db->pdo()->prepare('INSERT INTO accounting_supplier_settings (supplier_id, locked_until) VALUES (?, ?)')
+            ->execute([$supplier, '2024-12-31']);
+        $result = (new MigratedDepreciation($entries, $this->db))
+            ->confirm($supplier, $asset, 'tax', 2024, 2000.0, 2000.0, 8000.0, false, false, null, 'PREMIER', 'confirmed', MigratedDepreciation::OVERWRITE_ALWAYS, false);
+        self::assertSame([false, MigratedDepreciation::KEPT_CLOSED], [$result['written'], $result['kept']]);
+    }
+
     public function testClampWritesZeroButComparesRawResidual(): void
     {
         [$supplier, $asset, $entries] = $this->asset();

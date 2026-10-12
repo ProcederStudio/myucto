@@ -7,12 +7,16 @@ namespace MyInvoice\Service\Migration\Abra;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Infrastructure\Database\TableStatistics;
 use MyInvoice\Repository\AbraImportRepository;
+use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Repository\ChartOfAccountsRepository;
 use MyInvoice\Repository\SupplierBankAccountRepository;
 use MyInvoice\Repository\BankStatementOwnershipResolver;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Migration\OssMigrationPolicy;
 use MyInvoice\Service\Migration\MoneyS3\AccountingUnitSwitch;
+use MyInvoice\Service\Migration\MoneyS3\ImportProtocol;
+use MyInvoice\Service\Migration\Shared\FiscalYearMismatchException;
+use MyInvoice\Service\Migration\Shared\MigrationPeriods;
 use MyInvoice\Service\Bank\BankTransactionPostingScope;
 use MyInvoice\Service\Migration\Shared\BankStatementImportWriter;
 use MyInvoice\Service\Migration\Shared\JournalEntryLinker;
@@ -168,11 +172,26 @@ final class AbraAccountingImporter
             }
         }
 
+        $calendar = (new MigrationPeriods(new AccountingPeriodRepository($this->db)))->calendar($supplierId);
         foreach ($periods as $period) {
             if (!empty($period['existing_only'])) {
                 if ((string) $period['status'] !== 'open' && $this->yearContainsNewJournalRows($supplierId, $journalRows, $period['starts_on'], $period['ends_on'])) {
                     $blockers[] = 'target_period_closed:' . $period['year'];
                 }
+                continue;
+            }
+            // Tvar účetního roku určuje firma: období ABRA musí padnout do jednoho období
+            // firmy (hospodářský rok ABRA do kalendářní firmy ani obráceně nejde).
+            try {
+                MigrationPeriods::assertSourceYear($calendar, [$period['starts_on'], $period['ends_on']], (string) $period['year']);
+            } catch (FiscalYearMismatchException $e) {
+                // Kód pro protokol a celá česká hláška s navrženým začátkem roku.
+                $blockers[] = 'fiscal_year_mismatch:' . $period['year'];
+                $warnings[] = $e->getMessage();
+                continue;
+            }
+            if (!$calendar->isCalendar() && $calendar->fiscalYearOfDate($period['starts_on']) !== $period['year']) {
+                $blockers[] = 'source_period_label_mismatch:' . $period['year'];
                 continue;
             }
             $existing = $this->db->pdo()->prepare('SELECT id, starts_on, ends_on, status FROM accounting_periods WHERE supplier_id = ? AND fiscal_year = ?');
@@ -519,6 +538,10 @@ final class AbraAccountingImporter
     /** @param list<array<string,mixed>> $periodPlans @param array<string,mixed> $report @return array<int,int> */
     private function writePeriods(int $supplierId, array $periodPlans, array &$report, callable $cancelled): array
     {
+        // Zakládá sdílená vrstva (důvod `import`); do mapy převodu se období zapíše níže
+        // stejně jako dřív, nově založené i převzaté existující.
+        $periodsService = new MigrationPeriods(new AccountingPeriodRepository($this->db));
+        $protocol = new ImportProtocol('import');
         $periods = [];
         foreach ($periodPlans as $plan) {
             $this->checkCancelled($cancelled);
@@ -531,16 +554,16 @@ final class AbraAccountingImporter
                 $report['blocked'] = true;
                 continue;
             }
-            $stmt = $this->db->pdo()->prepare('SELECT id, starts_on, ends_on, status FROM accounting_periods WHERE supplier_id = ? AND fiscal_year = ? FOR UPDATE');
-            $stmt->execute([$supplierId, $plan['year']]);
-            $row = $stmt->fetch(PDO::FETCH_ASSOC);
-            if ($row === false) {
-                $this->db->pdo()->prepare('INSERT INTO accounting_periods (supplier_id, fiscal_year, starts_on, ends_on, status) VALUES (?, ?, ?, ?, "open")')
-                    ->execute([$supplierId, $plan['year'], $plan['starts_on'], $plan['ends_on']]);
-                $id = (int) $this->db->pdo()->lastInsertId();
+            $created = false;
+            $ensured = $periodsService->ensure(
+                $supplierId, (int) $plan['year'], (string) $plan['starts_on'], (string) $plan['ends_on'],
+                $protocol, 'periods',
+                static function (int $id) use (&$created): void { $created = true; },
+            );
+            $id = $ensured['id'];
+            if ($created) {
                 $this->created($report, 'periods');
             } else {
-                $id = (int) $row['id'];
                 if ($mapped['state'] === 'same') {
                     $this->skipped($report, 'periods');
                 } else {

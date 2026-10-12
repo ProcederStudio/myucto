@@ -205,12 +205,72 @@ final class StereoNxAccountingWriterTest extends TestCase
         ], $stmt->fetchAll(PDO::FETCH_ASSOC));
     }
 
-    private function backup(float $ordinaryAmount = 1250.50, float $correctionAmount = 50.25): StereoNxBackup
+    public function testFiscalSourceIntoFiscalCompanyCreatesPeriodFromAugustToJuly(): void
+    {
+        $pdo = $this->db->pdo();
+        $pdo->prepare('UPDATE supplier SET fiscal_year_start_month = 8 WHERE id = ?')->execute([$this->supplierId]);
+        $calendar = $this->writer->calendar($this->supplierId);
+        $prepared = $this->writer->prepare($this->backup(tables: self::fiscalTables()), $calendar);
+        self::assertTrue($prepared['ok'], json_encode($prepared['errors'], JSON_UNESCAPED_UNICODE));
+        self::assertSame([], $prepared['warnings'], 'Rok zdroje odpovídá období firmy');
+        self::assertSame([2025], array_values(array_unique(array_column($prepared['accounting_plan']['entries'], 'posting_year'))));
+
+        $written = $this->writer->write($prepared, $this->supplierId, $this->userId);
+        self::assertSame(1, $written['periods_created']);
+        self::assertSame(4, $written['journal_entries_created']);
+        $period = $pdo->prepare('SELECT id, fiscal_year, starts_on, ends_on, created_reason FROM accounting_periods WHERE supplier_id = ?');
+        $period->execute([$this->supplierId]);
+        $rows = $period->fetchAll(PDO::FETCH_ASSOC);
+        self::assertCount(1, $rows);
+        self::assertSame(['2025', '2025-08-01', '2026-07-31', 'import'],
+            [(string) $rows[0]['fiscal_year'], $rows[0]['starts_on'], $rows[0]['ends_on'], $rows[0]['created_reason']]);
+        self::assertSame([(int) $rows[0]['id']], array_map('intval', $pdo->query(
+            'SELECT DISTINCT period_id FROM journal_entries WHERE supplier_id = ' . $this->supplierId
+        )->fetchAll(PDO::FETCH_COLUMN)));
+    }
+
+    public function testFiscalSourceIntoCalendarCompanyStopsWithSuggestedMonth(): void
+    {
+        $calendar = $this->writer->calendar($this->supplierId);
+        $prepared = $this->writer->prepare($this->backup(tables: self::fiscalTables()), $calendar);
+        self::assertFalse($prepared['ok']);
+        $mismatch = array_values(array_filter($prepared['errors'], static fn (array $e): bool => $e['code'] === 'fiscal_year_mismatch'));
+        self::assertCount(1, $mismatch);
+        self::assertStringContainsString('Účetní rok 2025 ve zdroji', $mismatch[0]['message']);
+        self::assertStringContainsString('měsíc srpen', $mismatch[0]['message']);
+
+        // Plán sestavený bez kalendáře firmy zastaví i zápis (pojistka writeru).
+        $unchecked = $this->writer->prepare($this->backup(tables: self::fiscalTables()));
+        self::assertTrue($unchecked['ok'], json_encode($unchecked['errors'], JSON_UNESCAPED_UNICODE));
+        try {
+            $this->writer->write($unchecked, $this->supplierId, $this->userId);
+            self::fail('Hospodářský rok zdroje nesmí projít do kalendářní firmy.');
+        } catch (StereoNxException $e) {
+            self::assertSame('fiscal_year_mismatch', $e->errorCode);
+        }
+        self::assertSame(0, $this->rowCount('accounting_periods'));
+    }
+
+    /** Syntetický hospodářský rok 1. 8. 2025 – 31. 7. 2026, pomocný Rok = 2025. */
+    private static function fiscalTables(): array
+    {
+        $tables = SyntheticStereoNxAccountingTables::tables();
+        $dates = ['2025-08-01', '2025-08-01', '2025-11-03', '2026-02-04'];
+        foreach ($tables['Cdenik'] as $index => &$row) {
+            $row['KdyUcPripad'] = $dates[$index];
+            $row['Rok'] = 2025;
+            $row['Mesic'] = (int) substr($dates[$index], 5, 2);
+        }
+        unset($row);
+        return $tables;
+    }
+
+    private function backup(float $ordinaryAmount = 1250.50, float $correctionAmount = 50.25, ?array $tables = null): StereoNxBackup
     {
         $path = sys_get_temp_dir() . '/stereo_accounting_' . bin2hex(random_bytes(8)) . '.zip';
         SyntheticNx1Archive::write(
             $path,
-            SyntheticStereoNxAccountingTables::tables($ordinaryAmount, $correctionAmount),
+            $tables ?? SyntheticStereoNxAccountingTables::tables($ordinaryAmount, $correctionAmount),
             SyntheticStereoNxAccountingTables::identity(),
         );
         $this->files[] = $path;

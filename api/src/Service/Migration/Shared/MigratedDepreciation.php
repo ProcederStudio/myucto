@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Migration\Shared;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Repository\DepreciationEntryRepository;
 use MyInvoice\Service\Migration\MoneyS3\ImportProtocol;
 
@@ -132,20 +133,31 @@ final class MigratedDepreciation
         ), ['document_no' => $number, 'year' => $year, 'kind' => $kind, 'reason' => $kept]);
     }
 
-    /** Účetní období roku je uzavřené, nebo je rok zamčený (`locked_until`). */
+    /**
+     * Účetní období roku je uzavřené, nebo je celé zamčené (`locked_until` dosahuje jeho
+     * posledního dne). Konec roku = konec účetního období firmy: existující období, jinak
+     * podle kalendáře účetního roku firmy (u hospodářského roku např. 31. 7. následujícího
+     * roku, u kalendářního 31. 12.).
+     */
     private function closed(int $supplierId, int $year): bool
     {
         $pdo = $this->db->pdo();
-        $period = $pdo->prepare('SELECT status FROM accounting_periods WHERE supplier_id = ? AND fiscal_year = ?');
+        $period = $pdo->prepare('SELECT status, ends_on FROM accounting_periods WHERE supplier_id = ? AND fiscal_year = ?');
         $period->execute([$supplierId, $year]);
-        $status = $period->fetchColumn();
-        if ($status !== false && $status !== 'open') {
+        $row = $period->fetch(\PDO::FETCH_ASSOC);
+        if ($row !== false && (string) $row['status'] !== 'open') {
             return true;
         }
         $lock = $pdo->prepare('SELECT locked_until FROM accounting_supplier_settings WHERE supplier_id = ?');
         $lock->execute([$supplierId]);
         $lockedUntil = $lock->fetchColumn();
-        return is_string($lockedUntil) && $lockedUntil >= sprintf('%04d-12-31', $year);
+        if (!is_string($lockedUntil) || $lockedUntil === '') {
+            return false;
+        }
+        $periodEnd = $row !== false
+            ? substr((string) $row['ends_on'], 0, 10)
+            : (new AccountingPeriodRepository($this->db))->fiscalCalendar($supplierId)->periodEnd($year);
+        return $lockedUntil >= $periodEnd;
     }
 
     /** Počet měsíců od `$from` (bez něj) do `$to` včetně, oba `Y-m` (nebo datum). */

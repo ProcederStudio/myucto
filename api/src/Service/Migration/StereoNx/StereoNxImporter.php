@@ -481,6 +481,8 @@ final class StereoNxImporter
                 }
             }
         }
+        // Daňová evidence (DPFO) vede vždy kalendářní rok; hospodářský rok firmy tady
+        // záměrně nehraje roli (na rozdíl od účetního převodu StereoNxAccountingImporter).
         $years = array_values(array_unique(array_map(static fn (string $d): int => (int) substr($d, 0, 4), $dates)));
         array_push($out, ...StereoNxTargetDates::findings($this->db, $supplierId, $dates));
         foreach ($years as $year) {
