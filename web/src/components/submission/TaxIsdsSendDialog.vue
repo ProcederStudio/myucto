@@ -3,19 +3,17 @@
  * Odeslání daňového podání datovou schránkou firmy.
  *
  * Při otevření podání zařadí do fronty datové schránky (idempotentně: pro týž
- * snapshot a příjemce vrátí už založenou zprávu) a nabídne čtyři cesty, jak
- * zprávu odeslat. Odeslání samo je teprve úkon zvolené cesty; po úspěchu backend
- * označí podání jako podané a rodič přenačte seznam.
+ * snapshot a příjemce vrátí už založenou zprávu) a nabídne sdílený výběr cest,
+ * jak zprávu odeslat. Odeslání samo je teprve úkon zvolené cesty; po úspěchu
+ * backend označí podání jako podané a rodič přenačte seznam.
  */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { apiErrorMessage } from '@/api/errors'
-import { dataBoxApi, type GatewayStart, type OutboxSubmission } from '@/api/dataBox'
+import { dataBoxApi } from '@/api/dataBox'
 import { epoSubmissionsApi, type TaxIsdsEnqueueResult } from '@/api/epoSubmissions'
-import { ICONS, btnFilled, btnOutline, btnOutlineSm } from '@/components/ui/buttonStyles'
-import MobileKeySendButton from '@/components/submission/MobileKeySendButton.vue'
-
-type Method = 'gateway' | 'mobile_key' | 'password' | 'certificate'
+import { ICONS, btnOutline, btnOutlineSm } from '@/components/ui/buttonStyles'
+import IsdsSendMethods from '@/components/submission/IsdsSendMethods.vue'
 
 const props = defineProps<{
   submissionId: number
@@ -27,27 +25,12 @@ const { t, locale } = useI18n()
 const loading = ref(true)
 const error = ref('')
 const queued = ref<TaxIsdsEnqueueResult | null>(null)
-const method = ref<Method>('gateway')
 const busy = ref(false)
-const sendError = ref('')
-/** 403 u přihlašovacích cest: chybí právo podepisování, zbývá brána nebo ruční odeslání. */
-const forbidden = ref(false)
+const cancelError = ref('')
 const sent = ref(false)
-const gateway = ref<GatewayStart | null>(null)
-const username = ref('')
-const password = ref('')
-const certificateConfirmed = ref(false)
 
-const METHODS: Method[] = ['gateway', 'mobile_key', 'password', 'certificate']
 /** Přihlášení, certifikát a Mobilní klíč se nastavují na stránce Datová schránka. */
 const ACCESS_LINK = '/admin/databox?tab=access'
-
-const recommended = computed<Method>(() => {
-  const transport = queued.value?.transport
-  if (!transport) return 'gateway'
-  if (transport.automatic || transport.channel === 'gateway') return 'gateway'
-  return 'mobile_key'
-})
 
 const outboxId = computed(() => queued.value?.outbox_id ?? 0)
 const outboxLink = computed(() => `/admin/databox?tab=outbox&outbox=${outboxId.value}`)
@@ -64,7 +47,6 @@ async function enqueue() {
   error.value = ''
   try {
     queued.value = await epoSubmissionsApi.enqueueIsds(props.submissionId)
-    method.value = recommended.value
     emit('changed')
   } catch (exception) {
     error.value = apiErrorMessage(exception, t('reports.submissions.isds.enqueue_failed'))
@@ -73,97 +55,11 @@ async function enqueue() {
   }
 }
 
-function selectMethod(next: Method) {
-  method.value = next
-  sendError.value = ''
-  forbidden.value = false
-}
-
-function isForbidden(exception: unknown): boolean {
-  return (exception as { response?: { status?: number } })?.response?.status === 403
-}
-
-function handleSendError(exception: unknown, fallback: string) {
-  forbidden.value = isForbidden(exception)
-  sendError.value = forbidden.value
-    ? t('reports.submissions.isds.signing_forbidden')
-    : apiErrorMessage(exception, fallback)
-}
-
-function finish(result: { row: OutboxSubmission; dispatched: boolean }) {
-  if (queued.value) queued.value = { ...queued.value, row: result.row }
-  if (result.dispatched) {
-    sent.value = true
-    emit('sent')
-  } else {
-    sendError.value = t('reports.submissions.isds.not_dispatched')
-    emit('changed')
-  }
-}
-
-async function startGateway() {
-  if (!queued.value || busy.value) return
-  busy.value = true
-  sendError.value = ''
-  try {
-    gateway.value = await dataBoxApi.gatewayStartTax(queued.value.outbox_id)
-  } catch (exception) {
-    handleSendError(exception, t('reports.submissions.isds.gateway_failed'))
-  } finally {
-    busy.value = false
-  }
-}
-
-function continueGateway() {
-  // Plná navigace: cíl je v perimetru ISDS a vrací se na /isds-gateway/callback.
-  if (gateway.value) window.location.assign(gateway.value.redirect_url)
-}
-
-async function sendWithPassword() {
-  if (!queued.value || busy.value) return
-  if (username.value.trim() === '' || password.value === '') {
-    sendError.value = t('reports.submissions.isds.password_required')
-    return
-  }
-  busy.value = true
-  sendError.value = ''
-  try {
-    const result = await dataBoxApi.passwordSend(
-      queued.value.outbox_id,
-      'production',
-      username.value.trim(),
-      password.value,
-    )
-    finish(result)
-  } catch (exception) {
-    handleSendError(exception, t('databox.outbox.passwordSend.failed'))
-  } finally {
-    // Heslo se nedrží ani v paměti formuláře déle, než trvá odeslání.
-    password.value = ''
-    busy.value = false
-  }
-}
-
-async function sendWithCertificate() {
-  if (!queued.value || busy.value || !certificateConfirmed.value) return
-  busy.value = true
-  sendError.value = ''
-  try {
-    const result = await dataBoxApi.certificateSend(queued.value.outbox_id, 'production')
-    finish(result)
-  } catch (exception) {
-    handleSendError(exception, t('databox.outbox.certificateSend.failed'))
-  } finally {
-    busy.value = false
-  }
-}
-
-function mobileKeySent(dispatched: boolean) {
+function onSent(dispatched: boolean) {
   if (dispatched) {
     sent.value = true
     emit('sent')
   } else {
-    sendError.value = t('reports.submissions.isds.not_dispatched')
     emit('changed')
   }
 }
@@ -172,20 +68,19 @@ async function cancelQueued() {
   if (!queued.value || busy.value) return
   if (!window.confirm(t('reports.submissions.isds.cancel_confirm'))) return
   busy.value = true
-  sendError.value = ''
+  cancelError.value = ''
   try {
     await epoSubmissionsApi.cancelIsds(props.submissionId)
     emit('changed')
     emit('close')
   } catch (exception) {
-    sendError.value = apiErrorMessage(exception, t('reports.submissions.isds.cancel_failed'))
+    cancelError.value = apiErrorMessage(exception, t('reports.submissions.isds.cancel_failed'))
   } finally {
     busy.value = false
   }
 }
 
 onMounted(() => { void enqueue() })
-onBeforeUnmount(() => { password.value = '' })
 </script>
 
 <template>
@@ -300,115 +195,15 @@ onBeforeUnmount(() => { password.value = '' })
           <template v-else>
             <div>
               <h3 class="font-medium text-sm">{{ t('reports.submissions.isds.method_title') }}</h3>
-              <div class="mt-2 grid gap-2 sm:grid-cols-2" role="radiogroup" data-test="tax-isds-methods">
-                <button
-                  v-for="option in METHODS"
-                  :key="option"
-                  type="button"
-                  role="radio"
-                  :aria-checked="method === option"
-                  class="rounded-lg border p-3 text-left transition"
-                  :class="method === option
-                    ? 'border-primary-500 bg-primary-50/60 ring-1 ring-primary-500/40'
-                    : 'border-neutral-200 hover:border-primary-400 hover:bg-neutral-50'"
-                  :data-test="`tax-isds-method-${option}`"
-                  @click="selectMethod(option)"
-                >
-                  <span class="flex flex-wrap items-center gap-2 text-sm font-medium">
-                    {{ t(`reports.submissions.isds.method_${option}`) }}
-                    <span
-                      v-if="recommended === option"
-                      class="inline-flex rounded-full border border-success-500/30 bg-success-50 px-2 py-0.5 text-[11px] font-medium text-success-700"
-                    >
-                      {{ t('reports.submissions.isds.recommended') }}
-                    </span>
-                  </span>
-                  <span class="mt-1 block text-xs text-neutral-500">{{ t(`reports.submissions.isds.method_${option}_hint`) }}</span>
-                </button>
-              </div>
+              <IsdsSendMethods
+                class="mt-2"
+                :outbox-id="outboxId"
+                environment="production"
+                :transport="queued.transport"
+                :gateway-start="dataBoxApi.gatewayStartTax"
+                @sent="onSent"
+              />
               <p v-if="queued.transport.channel === 'manual_upload'" class="mt-2 text-xs text-neutral-500" data-test="tax-isds-transport-manual">{{ t('reports.submissions.isds.transport_manual') }}</p>
-            </div>
-
-            <div class="rounded-lg border border-neutral-200 p-3" :data-test="`tax-isds-panel-${method}`">
-              <template v-if="method === 'gateway'">
-                <template v-if="gateway">
-                  <p class="text-sm text-neutral-700">{{ gateway.login_guidance }}</p>
-                  <p v-if="!gateway.login_policy_documented" class="mt-2 text-xs text-warning-800">
-                    {{ t('reports.submissions.isds.gateway_methods') }}
-                  </p>
-                  <button type="button" :class="[btnFilled('primary'), 'mt-3']" @click="continueGateway">
-                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                      <path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.send" />
-                    </svg>
-                    {{ t('reports.submissions.isds.gateway_continue') }}
-                  </button>
-                </template>
-                <template v-else>
-                  <p class="text-sm text-neutral-700">{{ t('reports.submissions.isds.gateway_intro') }}</p>
-                  <button type="button" :class="[btnFilled('primary'), 'mt-3']" :disabled="busy" data-test="tax-isds-gateway-start" @click="startGateway">
-                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                      <path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.send" />
-                    </svg>
-                    {{ busy ? t('common.loading') : t('reports.submissions.isds.gateway_start') }}
-                  </button>
-                </template>
-              </template>
-
-              <template v-else-if="method === 'mobile_key'">
-                <MobileKeySendButton :outbox-id="outboxId" environment="production" auto-open @sent="mobileKeySent" />
-              </template>
-
-              <template v-else-if="method === 'password'">
-                <p class="text-sm text-neutral-700">{{ t('databox.outbox.passwordSend.intro') }}</p>
-                <div class="mt-3 grid gap-3 sm:grid-cols-2">
-                  <label class="block text-sm">
-                    <span class="font-medium">{{ t('databox.outbox.passwordSend.username') }}</span>
-                    <input v-model="username" type="text" maxlength="128" autocomplete="off" class="form-input mt-1 w-full" data-test="tax-isds-username">
-                  </label>
-                  <label class="block text-sm">
-                    <span class="font-medium">{{ t('databox.outbox.passwordSend.password') }}</span>
-                    <input v-model="password" type="password" maxlength="512" autocomplete="off" class="form-input mt-1 w-full" data-test="tax-isds-password">
-                  </label>
-                </div>
-                <button type="button" :class="[btnFilled('primary'), 'mt-3']" :disabled="busy" data-test="tax-isds-password-send" @click="sendWithPassword">
-                  <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.lock" />
-                  </svg>
-                  {{ busy ? t('common.loading') : t('databox.outbox.passwordSend.submit') }}
-                </button>
-              </template>
-
-              <template v-else>
-                <p class="text-sm text-neutral-700">{{ t('reports.submissions.isds.certificate_intro') }}</p>
-                <label class="mt-3 flex items-start gap-2 text-sm font-medium">
-                  <input v-model="certificateConfirmed" type="checkbox" class="mt-0.5" data-test="tax-isds-certificate-confirm">
-                  <span>{{ t('reports.submissions.isds.certificate_confirm') }}</span>
-                </label>
-                <button
-                  type="button"
-                  :class="[btnFilled('primary'), 'mt-3']"
-                  :disabled="busy || !certificateConfirmed"
-                  data-test="tax-isds-certificate-send"
-                  @click="sendWithCertificate"
-                >
-                  <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.badgeCheck" />
-                  </svg>
-                  {{ busy ? t('common.loading') : t('databox.outbox.certificateSend.action') }}
-                </button>
-              </template>
-
-              <div
-                v-if="sendError"
-                class="mt-3 rounded border border-danger-500/30 bg-danger-50 px-3 py-2 text-sm text-danger-700"
-                role="alert"
-                data-test="tax-isds-send-error"
-              >
-                {{ sendError }}
-                <a v-if="forbidden" :href="outboxLink" class="mt-1 block font-medium underline">
-                  {{ t('reports.submissions.isds.open_outbox') }}
-                </a>
-              </div>
             </div>
 
             <div class="rounded-lg border border-dashed border-neutral-300 p-3 text-xs text-neutral-600">
@@ -428,6 +223,15 @@ onBeforeUnmount(() => { password.value = '' })
               </a>
             </div>
           </template>
+
+          <p
+            v-if="cancelError"
+            class="rounded border border-danger-500/30 bg-danger-50 px-3 py-2 text-sm text-danger-700"
+            role="alert"
+            data-test="tax-isds-cancel-error"
+          >
+            {{ cancelError }}
+          </p>
         </template>
       </div>
 

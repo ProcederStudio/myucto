@@ -12,6 +12,7 @@ use MyInvoice\Service\Submission\Channel\ChannelContext;
 use MyInvoice\Service\Submission\Channel\ChannelCredentials;
 use MyInvoice\Service\Submission\Channel\Isds\DirectIsdsInboxTransport;
 use MyInvoice\Service\Submission\Channel\Isds\MobileKeyIsdsAuthenticator;
+use MyInvoice\Service\Submission\Channel\Isds\SmsIsdsAuthenticator;
 use MyInvoice\Service\Submission\Channel\SensitiveValue;
 use MyInvoice\Service\Submission\IsdsMobileCredentialService;
 use MyInvoice\Service\Submission\SubmissionCredentialService;
@@ -150,6 +151,7 @@ final class OutboxMobileKeyDispatchTest extends TestCase
             $this->createStub(ActivityLogger::class),
             $authenticator,
             $this->createStub(IsdsMobileCredentialService::class),
+            (new \ReflectionClass(SmsIsdsAuthenticator::class))->newInstanceWithoutConstructor(),
         );
     }
 

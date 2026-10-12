@@ -40,7 +40,7 @@ import ActionBar, { type ActionItem } from '@/components/ui/ActionBar.vue'
 import ColumnPicker from '@/components/ui/ColumnPicker.vue'
 import DensityToggle from '@/components/ui/DensityToggle.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
-import MobileKeySendButton from '@/components/submission/MobileKeySendButton.vue'
+import IsdsSendMethods from '@/components/submission/IsdsSendMethods.vue'
 import PaginationBar from '@/components/ui/PaginationBar.vue'
 import SearchableSelect from '@/components/ui/SearchableSelect.vue'
 import { btnFilledSm, btnOutlineSm, ICONS } from '@/components/ui/buttonStyles'
@@ -518,12 +518,12 @@ function continueIsdsBulkGateway() {
   }
 }
 
-function bulkMobileKeySent() {
-  isdsBulkMobileKeySent.value = true
+function bulkMobileKeySent(dispatched: boolean) {
+  if (dispatched) isdsBulkMobileKeySent.value = true
 }
 
-function mobileKeySent() {
-  isdsMobileKeySent.value = true
+function mobileKeySent(dispatched: boolean) {
+  if (dispatched) isdsMobileKeySent.value = true
 }
 
 async function synchronizeObligations() {
@@ -1327,15 +1327,17 @@ onMounted(() => {
             <p v-if="isdsMobileKeySent" class="mt-2 font-semibold">
               {{ t('databox.outbox.mobileKey.sent') }}
             </p>
-            <MobileKeySendButton
-              v-else-if="!isdsResult.transport.automatic && isdsResult.transport.channel === 'mobile_key'"
-              class="mt-2"
+            <IsdsSendMethods
+              v-else-if="!isdsResult.transport.automatic"
+              class="mt-2 text-neutral-900"
               :outbox-id="isdsResult.outbox_id"
               :environment="environment"
+              :transport="isdsResult.transport"
+              :gateway-start="dataBoxApi.gatewayStartPayroll"
               @sent="mobileKeySent"
             />
             <a
-              v-else-if="!isdsResult.transport.automatic"
+              v-if="!isdsResult.transport.automatic && !isdsMobileKeySent"
               :href="isdsResult.outbox_url"
               class="mt-2 inline-flex font-semibold underline"
             >
@@ -1580,15 +1582,17 @@ onMounted(() => {
             <p v-if="isdsBulkMobileKeySent" class="mt-2 font-semibold">
               {{ t('databox.outbox.mobileKey.sent') }}
             </p>
-            <MobileKeySendButton
-              v-else-if="!isdsBulkResult.transport.automatic && isdsBulkResult.transport.channel === 'mobile_key'"
-              class="mt-2"
+            <IsdsSendMethods
+              v-else-if="!isdsBulkResult.transport.automatic"
+              class="mt-2 text-neutral-900"
               :outbox-id="isdsBulkResult.outbox_id"
               :environment="environment"
+              :transport="isdsBulkResult.transport"
+              :gateway-start="dataBoxApi.gatewayStartPayroll"
               @sent="bulkMobileKeySent"
             />
             <a
-              v-else-if="!isdsBulkResult.transport.automatic"
+              v-if="!isdsBulkResult.transport.automatic && !isdsBulkMobileKeySent"
               :href="isdsBulkResult.outbox_url"
               class="mt-2 inline-flex font-semibold underline"
             >

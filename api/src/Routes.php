@@ -3448,6 +3448,8 @@ final class Routes
         // requestem do ISDS a nikam se neukládá, certifikát se potvrzuje zvlášť.
         $app->post   ('/api/submissions/outbox/{id:[0-9]+}/password-send', [\MyInvoice\Action\Submission\SubmissionOutboxAction::class, 'passwordSend']);
         $app->post   ('/api/submissions/outbox/{id:[0-9]+}/certificate-send', [\MyInvoice\Action\Submission\SubmissionOutboxAction::class, 'certificateSend']);
+        $app->post   ('/api/submissions/outbox/{id:[0-9]+}/sms/start',    [\MyInvoice\Action\Submission\SubmissionOutboxAction::class, 'smsStart']);
+        $app->post   ('/api/submissions/outbox/{id:[0-9]+}/sms/complete', [\MyInvoice\Action\Submission\SubmissionOutboxAction::class, 'smsComplete']);
         $app->post   ('/api/submissions/outbox/{id:[0-9]+}/mobile-key/start',   [\MyInvoice\Action\Submission\SubmissionOutboxAction::class, 'mobileKeyStart']);
         $app->post   ('/api/submissions/outbox/{id:[0-9]+}/mobile-key/confirm', [\MyInvoice\Action\Submission\SubmissionOutboxAction::class, 'mobileKeyConfirm']);
         // Dávka: JEDNO potvrzení v mobilu pošle VÍC podání (typicky ČSSZ +

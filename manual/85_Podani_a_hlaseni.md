@@ -1001,18 +1001,20 @@ stáhněte v datové schránce a nahrajte ji k podání ručně; do té doby zů
 u podání jako neověřená.
 
 Datovou schránkou z mezd chodí přehledy a hlášení zdravotním pojišťovnám,
-měsíční hlášení zaměstnavatele ČSSZ a součinnost exekutorům. **Daňová podání
-jdou přes EPO**, ne datovkou; podání odeslané datovkou nedostane potvrzení
-s podacím číslem, jen dodejku.
+měsíční hlášení zaměstnavatele ČSSZ a součinnost exekutorům. Daňová podání
+se datovou schránkou posílají ze stránky `Daně → EPO podání a archív` (viz
+[Podání datovou schránkou](49_Archiv_podani_a_rekonciliace.md#495-krok-za-krokem-podani-datovou-schrankou));
+dostanou jen dodejku, ne potvrzení s podacím číslem jako z EPO.
 
-Vedle brány umí MyÚčto odeslat datovou zprávu i přímo. U připraveného nebo
-neúspěšného podání (když není aktivní odesílací brána) nabízí tři cesty:
+Vedle brány umí MyÚčto odeslat datovou zprávu i přímo. U zařazeného podání
+nabízí výběr **Jak zprávu odeslat**, stejný jako na stránce Datová schránka:
 
-- **Odeslat Mobilním klíčem**: odeslání potvrdíte v aplikaci Mobilní klíč
-  eGovernmentu,
-- **Odeslat jménem a heslem**: heslo k datové schránce zadáte jen pro toto
-  odeslání a aplikace ho neukládá,
-- **Odeslat certifikátem**: jen se systémovým certifikátem firmy uloženým na
+- **Odesílací brána**: jen když ji provozovatel pro prostředí zaregistroval,
+- **Mobilní klíč eGovernmentu**: odeslání potvrdíte v aplikaci Mobilní klíč,
+- **Jméno a heslo**: heslo k datové schránce zadáte jen pro toto odeslání
+  a aplikace ho neukládá,
+- **Jméno, heslo a SMS kód**: pro účty chráněné jednorázovým kódem z SMS,
+- **Systémový certifikát**: jen se systémovým certifikátem firmy uloženým na
   záložce **Přístup**, vždy s výslovným potvrzením, protože za certifikátem
   nestojí člověk.
 

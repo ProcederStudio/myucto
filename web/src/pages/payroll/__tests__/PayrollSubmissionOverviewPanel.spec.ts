@@ -299,12 +299,10 @@ describe('PayrollSubmissionOverviewPanel — odvození období', () => {
     await flushPromises()
     await confirmProductionSend()
 
-    // Kanál mobile_key nabídne přímo tlačítko na kartě, žádné přesměrování.
+    // Cesty odeslání se nabídnou přímo na kartě, žádné přesměrování;
+    // Mobilní klíč je předvybraný s otevřeným formulářem.
     expect(wrapper.find('[data-test="health-overview-send-isds"]').exists()).toBe(false)
-    const sendButton = wrapper.get('[data-test="mobile-key-send-action"]')
-
-    await sendButton.trigger('click')
-    await flushPromises()
+    expect(wrapper.find('[data-test="isds-send-method-sms"]').exists()).toBe(true)
     const form = wrapper.get('[data-test="mobile-key-send-form"]')
     await form.find('input[type="text"]').setValue('jan.novak')
     await form.find('input[type="password"]').setValue('kod123')

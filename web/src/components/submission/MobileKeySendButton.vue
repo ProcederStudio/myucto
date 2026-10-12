@@ -8,7 +8,7 @@
  * změní. Překlady jsou schválně `databox.outbox.mobileKey.*`: je to POŘÁD
  * tentýž úkon (odeslání z obecné fronty), jen spuštěný odsud.
  */
-import { onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { apiErrorMessage } from '@/api/errors'
 import { dataBoxApi, type IsdsMobileCredentialProfile } from '@/api/dataBox'
@@ -58,6 +58,10 @@ async function openPanel() {
 
 onMounted(() => {
   if (props.autoOpen) void openPanel()
+})
+onBeforeUnmount(() => {
+  clearTimer()
+  flowToken.value = ''
 })
 
 function close() {
@@ -125,7 +129,7 @@ async function poll() {
       emit('sent', dispatched)
       return
     }
-    timer = setTimeout(() => { void poll() }, 2000)
+    if (flowToken.value !== '') timer = setTimeout(() => { void poll() }, 2000)
   } catch (exception) {
     // Vypršelá nebo zamítnutá relace se NEOBNOVUJE sama — nová by nebyla ta,
     // kterou člověk schválil. Musí potvrdit znovu vědomě.

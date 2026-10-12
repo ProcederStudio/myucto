@@ -161,18 +161,39 @@ async function mountPage(openOutbox = true) {
   return wrapper
 }
 
+/** „Odeslat" rozbalí společný výběr cest odeslání u řádku podání. */
+async function openSend(wrapper: Awaited<ReturnType<typeof mountPage>>) {
+  await wrapper.get('[data-test="outbox-send"]').trigger('click')
+  await flushPromises()
+}
+
+function gatewayRadioDisabled(wrapper: Awaited<ReturnType<typeof mountPage>>): boolean {
+  return wrapper.get('[data-test="isds-send-method-gateway"] input').attributes('disabled') !== undefined
+}
+
 describe('odesílací brána na obrazovce datové schránky', () => {
-  it('nabídne přípravu v datové schránce, když je brána zapnutá', async () => {
+  it('po „Odeslat" nabídne přípravu v datové schránce, když je brána zapnutá', async () => {
     const wrapper = await mountPage()
 
+    expect(wrapper.find('[data-test="outbox-send-methods"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('databox.outbox.markSent')
+    await openSend(wrapper)
+
+    expect(wrapper.find('[data-test="outbox-send-methods"]').exists()).toBe(true)
+    expect(gatewayRadioDisabled(wrapper)).toBe(false)
+    for (const method of ['mobile_key', 'password', 'sms', 'certificate']) {
+      expect(wrapper.find(`[data-test="isds-send-method-${method}"]`).exists()).toBe(true)
+    }
     expect(wrapper.text()).toContain('databox.gateway.prepare')
   })
 
-  it('nenabídne ji, když je registrace vypnutá', async () => {
+  it('vypnutou registraci ukáže jako nedostupnou a ruční cestu nechá', async () => {
     m.gatewayCapabilities.mockResolvedValue([{ environment: 'production', available: false }])
 
     const wrapper = await mountPage()
+    await openSend(wrapper)
 
+    expect(gatewayRadioDisabled(wrapper)).toBe(true)
     expect(wrapper.text()).not.toContain('databox.gateway.prepare')
     // Ruční cesta zůstává — uživatel nesmí zůstat bez možnosti podat.
     expect(wrapper.text()).toContain('databox.outbox.markSent')
@@ -187,8 +208,9 @@ describe('odesílací brána na obrazovce datové schránky', () => {
     m.gatewayCapabilities.mockRejectedValue(new Error('403'))
 
     const wrapper = await mountPage()
+    await openSend(wrapper)
 
-    expect(wrapper.text()).not.toContain('databox.gateway.prepare')
+    expect(gatewayRadioDisabled(wrapper)).toBe(true)
     expect(m.toastError).not.toHaveBeenCalled()
   })
 
@@ -196,8 +218,20 @@ describe('odesílací brána na obrazovce datové schránky', () => {
     m.gatewayCapabilities.mockResolvedValue([{ environment: 'test', available: true }])
 
     const wrapper = await mountPage()
+    await openSend(wrapper)
 
-    expect(wrapper.text()).not.toContain('databox.gateway.prepare')
+    expect(gatewayRadioDisabled(wrapper)).toBe(true)
+  })
+
+  it('odkaz na konkrétní podání rovnou rozbalí jeho odeslání', async () => {
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { assign, search: '?tab=outbox&outbox=10', pathname: '/admin/databox' },
+    })
+
+    const wrapper = await mountPage(false)
+
+    expect(wrapper.find('[data-test="outbox-send-methods"]').exists()).toBe(true)
   })
 
   /** Instrukce a hranice přihlašovacích údajů musí být vidět před odchodem. */
@@ -212,14 +246,14 @@ describe('odesílací brána na obrazovce datové schránky', () => {
       resumed: false,
     })
     const wrapper = await mountPage()
+    await openSend(wrapper)
 
-    const button = wrapper.findAll('button').find(b => b.text().includes('databox.gateway.prepare'))
-    await button!.trigger('click')
+    await wrapper.get('[data-test="isds-send-gateway-start"]').trigger('click')
     await flushPromises()
 
     expect(m.gatewayStart).toHaveBeenCalledWith(10)
     expect(assign).not.toHaveBeenCalled()
-    expect(wrapper.get('[data-test="gateway-preflight"]').text()).toContain(
+    expect(wrapper.get('[data-test="isds-send-panel-gateway"]').text()).toContain(
       'Přihlásíte se přímo v ISDS.',
     )
     expect(wrapper.text()).toContain('databox.gateway.credentialsStayInIsds')

@@ -57,7 +57,7 @@ import { useAuthStore } from '@/stores/auth'
 import PayrollPersonSearchSelect from '@/components/payroll/PayrollPersonSearchSelect.vue'
 import SearchableSelect from '@/components/ui/SearchableSelect.vue'
 import ActionBar, { type ActionItem } from '@/components/ui/ActionBar.vue'
-import MobileKeySendButton from '@/components/submission/MobileKeySendButton.vue'
+import IsdsSendMethods from '@/components/submission/IsdsSendMethods.vue'
 import DateInput from '@/components/ui/DateInput.vue'
 import EnvironmentSwitch from '@/components/ui/EnvironmentSwitch.vue'
 import ProductionSendConfirmDialog from '@/components/payroll/ProductionSendConfirmDialog.vue'
@@ -2007,13 +2007,14 @@ onMounted(() => void load())
               <p v-if="mobileKeySent[dispatchKey(item, document)]" class="font-semibold">
                 {{ t('databox.outbox.mobileKey.sent') }}
               </p>
-              <MobileKeySendButton
-                v-else-if="!dispatched[dispatchKey(item, document)]!.transport.automatic
-                  && dispatched[dispatchKey(item, document)]!.transport.channel === 'mobile_key'"
-                class="mt-1"
+              <IsdsSendMethods
+                v-else-if="!dispatched[dispatchKey(item, document)]!.transport.automatic"
+                class="mt-1 text-neutral-900"
                 :outbox-id="dispatched[dispatchKey(item, document)]!.outbox_id"
                 :environment="environment"
-                @sent="markMobileKeySent(dispatchKey(item, document))"
+                :transport="dispatched[dispatchKey(item, document)]!.transport"
+                :gateway-start="dataBoxApi.gatewayStartPayroll"
+                @sent="(sent: boolean) => { if (sent) markMobileKeySent(dispatchKey(item, document)) }"
               />
               <button
                 v-else-if="gateways[dispatchKey(item, document)]"

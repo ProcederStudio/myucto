@@ -92,42 +92,70 @@ ke čtení schránky a po výslovném potvrzení i k odeslání podání (viz [�
 
 Podání vytvořené v MyÚčtu nejprve získá stav **Připraveno k odeslání**. Tento stav neznamená, že bylo odesláno.
 
-**Odeslání přes bránu ISDS** (pokud je pro zvolené prostředí aktivní brána):
+Na záložce **Odchozí podání** klikněte u připraveného podání (i u podání, jehož předchozí pokus selhal) na **Odeslat**.
+Rozbalí se výběr **Jak zprávu odeslat** s pěti cestami. Stejný výběr nabízí i odeslání daňového podání z Daně → EPO
+podání a archív a mzdová podání, takže zprávu odešlete stejně odkudkoli. Doporučená cesta je označená štítkem
+**Doporučeno**: odesílací brána, je-li pro zvolené prostředí zaregistrovaná, jinak Mobilní klíč.
 
-1. Na záložce **Odchozí podání** otevřete připravené podání a klikněte na **Připravit v datové schránce**.
-2. MyÚčto vytvoří krátkodobý koncept. Klikněte na **Pokračovat do ISDS** a budete přesměrováni na oficiální stránku ISDS.
+| Cesta | Kdy je k dispozici | Co uděláte |
+|---|---|---|
+| **Odesílací brána** | Provozovatel aplikace bránu pro zvolené prostředí zaregistroval a zapnul. Jinak je volba zašedlá s vysvětlením. | Přihlášení a schválení proběhne v ISDS. |
+| **Mobilní klíč eGovernmentu** | Vždy. | Potvrdíte odeslání v mobilu. |
+| **Jméno a heslo** | Vždy. | Zadáte přihlašovací údaje pro toto jedno odeslání. |
+| **Jméno, heslo a SMS kód** | Vždy; pro účty chráněné jednorázovým kódem z SMS. | Zadáte jméno a heslo, pak kód z SMS. |
+| **Systémový certifikát** | Firma má na záložce **Přístup** uložený systémový certifikát. Jinak je volba zašedlá s odkazem **Nastavit přístup**. | Odeslání výslovně potvrdíte. |
+
+**Odesílací brána:**
+
+1. Zvolte **Odesílací brána** a klikněte na **Připravit v datové schránce**.
+2. MyÚčto vytvoří krátkodobý koncept a ukáže, jak se v ISDS přihlásíte. Klikněte na **Pokračovat do ISDS** a budete
+   přesměrováni na oficiální stránku ISDS.
 3. Přihlaste se metodou, kterou vám nabídne ISDS, zkontrolujte zprávu a odeslání tam výslovně potvrďte.
 4. Po návratu do MyÚčta (stránka **Návrat z datové schránky**) zkontrolujte výsledek a identifikátor datové zprávy.
 
 Samotné přesměrování ani návrat na callback není potvrzením odeslání. Pokud je výsledek neurčitý, zprávu neposílejte
 znovu, dokud neověříte stav v datové schránce.
 
-Když brána pro zvolené prostředí aktivní není, nabídne se u připraveného podání (i u podání, jehož předchozí pokus
-selhal) přímé odeslání z aplikace. Zvolte jednu ze tří cest.
+**Mobilní klíč eGovernmentu:**
 
-**Odeslání Mobilním klíčem** (doporučeno):
-
-1. U připraveného podání klikněte na **Odeslat Mobilním klíčem**.
-2. Zadejte **Uživatelské jméno ISDS** a **Komunikační kód / heslo pro aplikaci** (nebo zvolte **Použít uložené přihlášení této firmy**).
+1. Zvolte **Mobilní klíč eGovernmentu**.
+2. Zadejte **Uživatelské jméno ISDS** a **Komunikační kód / heslo pro aplikaci** (nebo zvolte **Použít uložené přihlášení
+   této firmy**). Zaškrtnutím **Zapamatovat šifrovaně pro tuto firmu a můj uživatelský účet** si jméno a kód uložíte
+   pro příští odeslání i čtení.
 3. Klikněte na **Požádat o potvrzení v klíči** a potvrďte odeslání v mobilu.
 4. Více podání najednou odešle hromadné tlačítko (viz [Podání a hlášení](85_Podani_a_hlaseni.md)).
 
-**Odeslání jménem a heslem:**
+**Jméno a heslo:**
 
-1. U připraveného podání klikněte na **Odeslat jménem a heslem**.
+1. Zvolte **Jméno a heslo**.
 2. Zadejte **Uživatelské jméno ISDS** a **Heslo k datové schránce**.
 3. Klikněte na **Přihlásit a odeslat**.
 
 Přihlášení platí jen pro toto jedno odeslání. Heslo projde do ISDS a nikam se neukládá, proto ho zadáváte pokaždé
 znovu. Uložené heslo k odeslání použít nejde.
 
-**Odeslání systémovým certifikátem firmy** (jen když je na záložce **Přístup** uložený systémový certifikát):
+**Jméno, heslo a SMS kód:**
 
-1. U připraveného podání klikněte na **Odeslat certifikátem**.
-2. Potvrďte dotaz, zda chcete podání odeslat systémovým certifikátem firmy. Za certifikátem nestojí člověk, proto
-   odeslání potvrzujete vy a potvrzení se eviduje.
+1. Zvolte **Jméno, heslo a SMS kód**.
+2. Zadejte **Uživatelské jméno ISDS** a **Heslo k datové schránce** a klikněte na **Odeslat SMS**. ISDS pošle kód na
+   telefon registrovaný u účtu.
+3. Opište **Kód z SMS** a klikněte na **Potvrdit a odeslat**. Když kód nedorazí nebo vyprší, klikněte na **Vyžádat nový
+   SMS kód** a začněte znovu.
 
-**Ruční odeslání** (když brána není dostupná a přímé odeslání použít nechcete):
+Mezi oběma kroky drží aplikace heslo jen šifrovaně v jednorázovém přihlášení, které platí pět minut a po použití se
+zahodí. Po odeslání se aplikace z relace ISDS odhlásí.
+
+**Systémový certifikát:**
+
+1. Zvolte **Systémový certifikát**.
+2. Zaškrtněte potvrzení, že zprávu odesíláte systémovým certifikátem firmy, a klikněte na **Odeslat certifikátem**.
+   Za certifikátem nestojí člověk, proto odeslání potvrzujete vy a potvrzení se eviduje.
+
+Odesílat datovou schránkou smí jen uživatel s oprávněním k elektronickým podpisům a datové schránce. Bez něj aplikace
+při pokusu o odeslání vysvětlí, co chybí, a nabídne odkaz do odchozích podání, odkud zprávu odešle kolega s oprávněním
+nebo ji tam zapíšete jako odeslanou ručně.
+
+**Ruční odeslání** (když žádnou z cest v aplikaci použít nechcete):
 
 1. Stáhněte přílohu z připraveného podání.
 2. V klientu datové schránky ověřte správného příjemce a vložte korelační identifikátor (spisovou značku) do pole „Naše číslo jednací".
@@ -140,7 +168,7 @@ zpráva ale ještě neznamená, že instituce podání přijala bez výhrad (viz
 
 > [!WARNING]
 > Přímé odeslání vždy vyžaduje váš úkon u konkrétního podání: potvrzení relace v Mobilním klíči, zadání hesla pro
-> toto jedno odeslání, nebo výslovné potvrzení odeslání certifikátem. Samo, na pozadí ani z uloženého hesla aplikace
+> toto jedno odeslání, ověření kódem z SMS, nebo výslovné potvrzení odeslání certifikátem. Samo, na pozadí ani z uloženého hesla aplikace
 > nic neodešle. Zahájené, ale nedokončené přihlášení Mobilním klíčem se za přihlášení nepovažuje a aplikace odeslání
 > odmítne dřív, než cokoli opustí server.
 
@@ -268,9 +296,10 @@ sama žádnou odpověď neodešle. Zapište také vazbu na původní podání.
 <!-- cols: 34 32 34 -->
 | Co vidíte | Proč | Co udělat |
 |---|---|---|
-| Odesílací brána není nabízena | Provozovatel ji pro prostředí neaktivoval | Použijte Mobilní klíč nebo ruční odeslání. Správce viz [Odesílací brána ISDS](98_Odesilaci_brana_ISDS.md). |
-| Tlačítko **Odeslat certifikátem** se nenabízí | Na záložce **Přístup** není pro toto prostředí uložený systémový certifikát firmy | Uložte certifikát ([§ 97.3](#973-krok-za-krokem-nastavit-pristup)), nebo odešlete Mobilním klíčem či jménem a heslem. |
-| Přímé odeslání se nenabízí vůbec | Pro prostředí je aktivní odesílací brána | Použijte **Připravit v datové schránce**, případně ruční odeslání. |
+| Volba **Odesílací brána** je zašedlá | Provozovatel ji pro prostředí nezaregistroval nebo neaktivoval | Použijte jinou cestu nebo ruční odeslání. Správce viz [Odesílací brána ISDS](98_Odesilaci_brana_ISDS.md). |
+| Volba **Systémový certifikát** je zašedlá | Na záložce **Přístup** není pro toto prostředí uložený systémový certifikát firmy | Uložte certifikát ([§ 97.3](#973-krok-za-krokem-nastavit-pristup)), nebo odešlete jinou cestou. |
+| Odeslání skončí hláškou o chybějícím oprávnění | Účet nemá oprávnění k elektronickým podpisům a datové schránce | Požádejte správce o oprávnění, nebo zprávu zapište v odchozích podáních jako odeslanou ručně. |
+| SMS kód ISDS odmítl nebo vypršel | Kód platí krátce a přihlášení snese jen pět pokusů | Klikněte na **Vyžádat nový SMS kód** a začněte znovu. |
 | „Přihlášení k datové schránce není dokončené, takže se odesílat nesmí.“ | Přihlášení Mobilním klíčem nebylo potvrzené | Potvrďte přihlášení a odeslání spusťte znovu. |
 | Relace vypršela během odeslání | Relace Mobilního klíče žije jen pár minut | Přihlaste se znovu a akci zopakujte. Zpráva prokazatelně neodešla, duplicita nehrozí. |
 | Stav **Nevíme, jestli odešlo** | Spojení se přerušilo uprostřed odesílání | Použijte **Dohledat, jestli odešlo** ([§ 97.6](#976-krok-za-krokem-kdyz-neni-jiste-zda-zprava-odesla)). |
@@ -291,11 +320,13 @@ nezaručuje kryptografické ověření jejího podpisu.
 
 ### 97.10.2 Přímé odeslání z relace
 
-Vedle brány umí MyÚčto odeslat datovou zprávu přímo. Kontext odeslání musí nést dost na to, aby aplikace mohla
-s ISDS mluvit sama, a vždy za ním stojí váš úkon u konkrétního podání:
+Vedle brány umí MyÚčto odeslat datovou zprávu přímo. Odeslání nabízí stejné způsoby přihlášení jako čtení schránky
+a vždy za ním stojí váš úkon u konkrétního podání:
 
-- **Mobilní klíč eGovernmentu** (jméno, komunikační kód a potvrzení konkrétní relace v mobilu) nebo **SMS kód**:
-  potvrzení člověka je součástí přihlášení, takže odeslání v takové relaci není odeslání bez jeho vědomí.
+- **Mobilní klíč eGovernmentu** (jméno, komunikační kód a potvrzení konkrétní relace v mobilu) nebo **jméno, heslo
+  a SMS kód** (ISDS vydá relaci až po ověření jednorázového kódu): potvrzení člověka je součástí přihlášení, takže
+  odeslání v takové relaci není odeslání bez jeho vědomí. Relaci ověřenou SMS kódem aplikace po odeslání hned
+  ukončí odhlášením.
 - **Jméno a heslo**: heslo zadáváte pro jedno odeslání, ISDS ověří každý požadavek zvlášť a heslo se nikam neukládá.
 - **Systémový certifikát firmy**: za certifikátem nestojí člověk, proto odeslání výslovně potvrzujete v aplikaci
   (podobně jako u EPO) a potvrzení jde doložit.

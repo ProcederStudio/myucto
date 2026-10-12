@@ -28,7 +28,6 @@ import {
   type DeliveryBasis,
   type DispatchState,
   type GatewaySessionState,
-  type GatewayStart,
   type IsdsGatewayCapability,
   type IsdsMobileCredentialProfile,
   type InboxBrowseResult,
@@ -62,6 +61,7 @@ import Modal from '@/components/ui/Modal.vue'
 import SortableTh from '@/components/ui/SortableTh.vue'
 import InboxCategoryManager from '@/components/submission/InboxCategoryManager.vue'
 import InboxCategoryNav from '@/components/submission/InboxCategoryNav.vue'
+import IsdsSendMethods from '@/components/submission/IsdsSendMethods.vue'
 import { inboxCategoryLabel, inboxCategoryTone } from '@/utils/databoxInboxCategories'
 import {
   INBOX_QUERY_KEYS,
@@ -591,21 +591,19 @@ function acceptanceTone(state: AcceptanceState): string {
 /**
  * Právě jedna plná primární akce podle stavu — zbytek outline.
  *
- * U datovky závisí na tom, jestli je zapnutá odesílací brána. Je-li, primární
- * akcí je „připravit v datové schránce" — zprávu pořád odesílá člověk, ale
- * aplikace mu ji připraví jako koncept a stačí ji schválit. Není-li (nebo
- * o tom nevíme), zůstává primární „označit jako odesláno": nabízet jako hlavní
- * krok tlačítko, které skončí překážkou, by uživatele posílalo do zdi.
+ * U datovky je primární „Odeslat": rozbalí společný výběr cest odeslání
+ * (brána, Mobilní klíč, jméno a heslo, SMS kód, certifikát) — tentýž, jaký
+ * nabízí daňová a mzdová podání. Ruční zápis odeslání zůstává vedle jako
+ * outline.
  */
-function primaryAction(row: OutboxSubmission): 'gateway' | 'confirm' | 'resolve' | 'markSent' | 'uploadReceipt' | null {
+function primaryAction(row: OutboxSubmission): 'send' | 'confirm' | 'resolve' | 'uploadReceipt' | null {
   if (row.dispatch_state === 'send_uncertain' || row.dispatch_state === 'sending') return 'resolve'
-  if (canUseGateway(row)) return 'gateway'
   // `failed` nabízí totéž co `ready`: neúspěšný pokus není konec cesty. Chyby,
   // na kterých odesílání padá, nastávají před zpracováním u úřadu, takže tam nic
   // neleží a zpráva je pořád platná. Bez toho zůstala připravená zpráva viset
   // bez jediného tlačítka.
   if (row.dispatch_state === 'ready' || row.dispatch_state === 'failed') {
-    return row.channel === 'isds' ? 'markSent' : 'confirm'
+    return row.channel === 'isds' ? 'send' : 'confirm'
   }
   if (row.dispatch_state === 'sent' && row.channel === 'isds' && !row.receipt_document_id) return 'uploadReceipt'
   return null
@@ -1247,177 +1245,20 @@ async function downloadArtifact(row: OutboxSubmission) {
   }
 }
 
-// ── Odeslání datovkou Mobilním klíčem ────────────────────────────────────────
-// Až doteď u ISDS zbývalo jen „označte si to jako odeslané" a člověk musel do
-// datovky sám. Přímý transport ale odesílat umí — jen výhradně v relaci, kterou
-// účetní právě potvrdila v mobilu. Potvrzení se dá vyzvednout JEN JEDNOU, takže
-// odeslání proběhne v témže volání, které to potvrzení vyzvedne.
-/*
- * Odeslání jménem a heslem. Heslo se nikam neukládá — projde jedním
- * requestem do ISDS a zmizí s ním, proto se u každé zprávy zadává znovu.
- */
-const passwordOutboxFor = ref<number | null>(null)
-const passwordOutboxUsername = ref('')
-const passwordOutboxPassword = ref('')
+// ── Odeslání datovkou ──────────────────────────────────────────────────────
+// Rozbaluje společný výběr cest odeslání (IsdsSendMethods). Ten samý nabízí
+// i daňová a mzdová podání, takže se způsoby odeslání nerozejdou.
+const sendOpenFor = ref<number | null>(null)
 
-function openPasswordOutbox(row: OutboxSubmission) {
-  passwordOutboxFor.value = row.id
-  passwordOutboxUsername.value = ''
-  passwordOutboxPassword.value = ''
+function toggleSend(row: OutboxSubmission) {
+  sendOpenFor.value = sendOpenFor.value === row.id ? null : row.id
 }
 
-function closePasswordOutbox() {
-  passwordOutboxFor.value = null
-  passwordOutboxUsername.value = ''
-  passwordOutboxPassword.value = ''
-}
-
-async function submitPasswordOutbox(row: OutboxSubmission) {
-  if (busyId.value === row.id) return
-  if (passwordOutboxUsername.value.trim() === '' || passwordOutboxPassword.value === '') return
-  busyId.value = row.id
-  try {
-    const result = await dataBoxApi.passwordSend(
-      row.id,
-      environment.value,
-      passwordOutboxUsername.value.trim(),
-      passwordOutboxPassword.value,
-    )
-    toast[result.dispatched ? 'success' : 'warning'](
-      result.dispatched
-        ? t('databox.outbox.passwordSend.sent')
-        : t('databox.outbox.passwordSend.notSent'),
-    )
-    closePasswordOutbox()
-    await loadAll()
-  } catch (error) {
-    toast.error(apiErrorMessage(error, t('databox.outbox.passwordSend.failed')))
-  } finally {
-    busyId.value = null
-  }
-}
-
-/*
- * Certifikátem odesílá stroj, ne člověk — proto se to potvrzuje. Potvrzení
- * je vědomý krok, který jde doložit, ne formalita navíc.
- */
-async function sendWithCertificate(row: OutboxSubmission) {
-  if (busyId.value === row.id) return
-  if (!window.confirm(t('databox.outbox.certificateSend.confirm', { subject: row.subject }))) return
-  busyId.value = row.id
-  try {
-    const result = await dataBoxApi.certificateSend(row.id, environment.value)
-    toast[result.dispatched ? 'success' : 'warning'](
-      result.dispatched
-        ? t('databox.outbox.certificateSend.sent')
-        : t('databox.outbox.certificateSend.notSent'),
-    )
-    await loadAll()
-  } catch (error) {
-    toast.error(apiErrorMessage(error, t('databox.outbox.certificateSend.failed')))
-  } finally {
-    busyId.value = null
-  }
-}
-
-const mobileOutboxFor = ref<number | null>(null)
-const mobileOutboxUsername = ref('')
-const mobileOutboxCode = ref('')
-const mobileOutboxUseSaved = ref(false)
-/*
- * Zapamatované přihlášení je JEDNO, společné pro příchozí i odchozí: ukládá se
- * na firmu, uživatele a prostředí, nedělí se podle směru zprávy. Odchozím
- * podáním tenhle přepínač dosud chyběl, takže si účetní musela kód pokaždé
- * vypsat znovu, i když ho u příchozích už uložený měla.
- */
-const rememberMobileOutboxCredential = ref(false)
-const mobileOutboxFlow = ref('')
-const mobileOutboxStatus = ref('')
-let mobileOutboxTimer: ReturnType<typeof setTimeout> | null = null
-
-function clearMobileOutboxTimer() {
-  if (mobileOutboxTimer !== null) clearTimeout(mobileOutboxTimer)
-  mobileOutboxTimer = null
-}
-
-function openMobileOutbox(row: OutboxSubmission) {
-  clearMobileOutboxTimer()
-  mobileOutboxFor.value = row.id
-  mobileOutboxFlow.value = ''
-  mobileOutboxStatus.value = ''
-  mobileOutboxCode.value = ''
-  mobileOutboxUseSaved.value = savedMobileCredential.value?.saved === true
-  rememberMobileOutboxCredential.value = false
-  mobileOutboxUsername.value = savedMobileCredential.value?.username ?? ''
-}
-
-function closeMobileOutbox() {
-  clearMobileOutboxTimer()
-  mobileOutboxFor.value = null
-  mobileOutboxFlow.value = ''
-  mobileOutboxStatus.value = ''
-  mobileOutboxCode.value = ''
-}
-
-async function startMobileOutbox(row: OutboxSubmission) {
-  const useSaved = mobileOutboxUseSaved.value && mobileOutboxCode.value === ''
-  if (!useSaved && (mobileOutboxUsername.value.trim() === '' || mobileOutboxCode.value === '')) {
-    toast.error(t('databox.outbox.mobileKey.credentialsRequired'))
-    return
-  }
-  busyId.value = row.id
-  try {
-    const start = await dataBoxApi.startMobileKeyOutbox(
-      row.id,
-      environment.value,
-      useSaved ? '' : mobileOutboxUsername.value.trim(),
-      useSaved ? '' : mobileOutboxCode.value,
-      useSaved,
-    )
-    if (!useSaved && rememberMobileOutboxCredential.value) {
-      // Zapisuje se do téhož trezoru, ze kterého čtou i příchozí zprávy.
-      savedMobileCredential.value = await dataBoxApi.saveMobileKeyProfile(
-        environment.value,
-        mobileOutboxUsername.value.trim(),
-        mobileOutboxCode.value,
-      )
-    }
-    mobileOutboxFlow.value = start.flow_token
-    mobileOutboxStatus.value = start.description
-    // Kód se v paměti nedrží déle, než je potřeba k jeho odeslání.
-    mobileOutboxCode.value = ''
-    rememberMobileOutboxCredential.value = false
-    void pollMobileOutbox(row)
-  } catch (e) {
-    toast.error(apiErrorMessage(e))
-  } finally {
-    busyId.value = null
-  }
-}
-
-async function pollMobileOutbox(row: OutboxSubmission) {
-  if (mobileOutboxFlow.value === '') return
-  try {
-    const status = await dataBoxApi.mobileKeyOutboxConfirm(row.id, mobileOutboxFlow.value, environment.value)
-    mobileOutboxStatus.value = status.description
-    if (status.result) {
-      closeMobileOutbox()
-      if (status.result.dispatched) {
-        toast.success(t('databox.outbox.mobileKey.sent'))
-      } else {
-        toast.warning(t('databox.outbox.mobileKey.notDispatched'))
-      }
-      await loadAll()
-      return
-    }
-    mobileOutboxTimer = setTimeout(() => { void pollMobileOutbox(row) }, 2000)
-  } catch (e) {
-    // Vypršelá nebo zamítnutá relace se NEOBNOVUJE sama: nová relace by nebyla
-    // ta, kterou člověk schválil. Uživatel musí potvrdit znovu vědomě.
-    clearMobileOutboxTimer()
-    mobileOutboxFlow.value = ''
-    toast.error(apiErrorMessage(e))
-  }
+async function onOutboxSent(dispatched: boolean) {
+  if (!dispatched) return
+  sendOpenFor.value = null
+  toast.success(t('databox.outbox.sent'))
+  await loadAll()
 }
 
 // ── Hromadné stažení dodejek ────────────────────────────────────────────────
@@ -1739,9 +1580,7 @@ async function deleteRecipient(row: SubmissionRecipient) {
  * a ruční cesta zůstává beze změny.
  */
 const gatewayCapabilities = ref<IsdsGatewayCapability[] | null>(null)
-const gatewayBusyId = ref<number | null>(null)
 const gatewayNotice = ref<{ state: GatewaySessionState; message: string; messageId: string | null } | null>(null)
-const gatewayPreflight = ref<{ outboxId: number; start: GatewayStart } | null>(null)
 
 const gatewayAvailable = computed(() =>
   (gatewayCapabilities.value ?? []).some(r => r.environment === environment.value && r.available),
@@ -1782,30 +1621,6 @@ function resetRecipientForm() {
   recipientSource.value = ''
   recipientEditing.value = false
   recipientEditingDefault.value = false
-}
-
-/** Nabízí se jen tam, kde má smysl: připravené podání datovkou a zapnutá brána. */
-function canUseGateway(row: OutboxSubmission): boolean {
-  return gatewayAvailable.value && row.channel === 'isds' && row.dispatch_state === 'ready'
-}
-
-async function startGateway(row: OutboxSubmission) {
-  gatewayBusyId.value = row.id
-  try {
-    const start = await dataBoxApi.gatewayStart(row.id)
-    gatewayPreflight.value = { outboxId: row.id, start }
-  } catch (e) {
-    toast.error(apiErrorMessage(e))
-  } finally {
-    gatewayBusyId.value = null
-  }
-}
-
-function continueGateway() {
-  if (!gatewayPreflight.value) return
-  // Plná navigace, ne router: cíl je v perimetru ISDS a musí se z něj dát
-  // vrátit zpátky na naši návratovou adresu.
-  window.location.assign(gatewayPreflight.value.start.redirect_url)
 }
 
 /**
@@ -1878,6 +1693,10 @@ onMounted(async () => {
   // Při odchodu na schvalovací obrazovku se stránka stejně opouští — načítat
   // zbytek by bylo zbytečné volání navíc.
   if (!returning || gatewayNotice.value?.state !== 'awaiting_approval') await loadAll()
+  // Odkaz na konkrétní podání (z daní nebo mezd) vede k jeho odeslání, ne
+  // jen k řádku v seznamu.
+  const focused = outbox.value.find(row => row.id === focusOutboxId.value)
+  if (focused && primaryAction(focused) === 'send') sendOpenFor.value = focused.id
   // Bez výslovné záložky v adrese se otevřou Odchozí podání, když v nich něco
   // čeká na odeslání nebo na doručenku — to je důvod, proč sem účetní jde.
   if (!requestedTab && !returning && outboxNeedsAttention.value) tab.value = 'outbox'
@@ -2285,38 +2104,6 @@ onUnmounted(clearReceiptsTimer)
         </button>
       </div>
 
-      <!-- Přihlašovací instrukce musí uživatel vidět ještě PŘED odchodem do
-           ISDS. Server je vrací podle doložené politiky registrace; klient je
-           nesmí zahodit ani sám slibovat konkrétní metodu přihlášení. -->
-      <div
-        v-if="gatewayPreflight"
-        class="rounded-lg border border-primary-500/40 bg-primary-50 p-4 text-sm text-primary-900"
-        data-test="gateway-preflight"
-      >
-        <div class="font-medium">{{ t('databox.gateway.preflightTitle') }}</div>
-        <p class="mt-1">{{ gatewayPreflight.start.login_guidance }}</p>
-        <p class="mt-2 text-xs">
-          {{ t('databox.gateway.credentialsStayInIsds') }}
-        </p>
-        <p v-if="!gatewayPreflight.start.login_policy_documented" class="mt-2 text-xs text-warning-800 dark:text-warning-200">
-          {{ t('databox.gateway.methodsByIsds') }}
-        </p>
-        <p class="mt-2 text-xs">
-          {{ t('databox.gateway.expiresAt', { value: gatewayPreflight.start.expires_at }) }}
-        </p>
-        <div class="mt-3 flex flex-wrap gap-2">
-          <button type="button" :class="btnFilled('primary')" @click="continueGateway">
-            <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.send" />
-            </svg>
-            {{ t('databox.gateway.continueToIsds') }}
-          </button>
-          <button type="button" :class="btnOutline('neutral')" @click="gatewayPreflight = null">
-            {{ t('common.cancel') }}
-          </button>
-        </div>
-      </div>
-
       <EmptyState v-if="!loading && outbox.length === 0" icon="send" :title="t('databox.outbox.empty')" />
 
       <div
@@ -2461,115 +2248,16 @@ onUnmounted(clearReceiptsTimer)
           {{ t('databox.outbox.validationFailed') }}
         </p>
 
-        <!--
-          Odeslání Mobilním klíčem. Kód je „komunikační kód" z portálu ISDS,
-          tedy samostatný kód pro přístup aplikace — NENÍ to heslo do datovky.
-        -->
-        <!-- Přihlášení jménem a heslem pro jedno odeslání. -->
         <div
-          v-if="passwordOutboxFor === row.id"
+          v-if="sendOpenFor === row.id && primaryAction(row) === 'send'"
           class="mt-3 rounded-md border border-primary-200 bg-primary-50/40 p-3"
-          data-test="outbox-password-form"
+          data-test="outbox-send-methods"
         >
-          <p class="text-sm text-neutral-700">{{ t('databox.outbox.passwordSend.intro') }}</p>
-          <p
-            v-if="environment === 'test'"
-            class="mt-2 rounded-md border border-warning-200 bg-warning-50 p-2 text-xs text-warning-800"
-          >
-            {{ t('databox.outbox.mobileKey.testEnvironmentWarning') }}
-          </p>
-          <div class="mt-3 grid gap-3 sm:grid-cols-2">
-            <label class="block">
-              <span class="text-sm font-medium">{{ t('databox.outbox.passwordSend.username') }}</span>
-              <input v-model="passwordOutboxUsername" type="text" maxlength="128" autocomplete="off" class="form-input mt-1 w-full" />
-            </label>
-            <label class="block">
-              <span class="text-sm font-medium">{{ t('databox.outbox.passwordSend.password') }}</span>
-              <input v-model="passwordOutboxPassword" type="password" maxlength="512" autocomplete="off" class="form-input mt-1 w-full" />
-            </label>
-          </div>
-          <div class="mt-3 flex flex-wrap gap-2">
-            <button
-              type="button"
-              :class="btnFilled('primary')"
-              :disabled="busyId === row.id || passwordOutboxUsername.trim() === '' || passwordOutboxPassword === ''"
-              data-test="outbox-password-submit"
-              @click="submitPasswordOutbox(row)"
-            >
-              {{ t('databox.outbox.passwordSend.submit') }}
-            </button>
-            <button type="button" :class="btnOutline('neutral')" :disabled="busyId === row.id" @click="closePasswordOutbox">
-              {{ t('common.cancel') }}
-            </button>
-          </div>
-        </div>
-
-        <div
-          v-if="mobileOutboxFor === row.id"
-          class="mt-3 rounded-md border border-primary-200 bg-primary-50/40 p-3"
-          data-test="outbox-mobile-key-form"
-        >
-          <p class="text-sm text-neutral-700">{{ t('databox.outbox.mobileKey.intro') }}</p>
-          <!--
-            Testovací ISDS má vlastní účty. Bez tohohle upozornění vypadalo
-            odmítnutí ostrého přihlášení jako překlep v kódu a účetní ho
-            přepisovala dokola.
-          -->
-          <p
-            v-if="environment === 'test'"
-            class="mt-2 rounded-md border border-warning-200 bg-warning-50 p-2 text-xs text-warning-800"
-            data-test="outbox-mobile-key-test-warning"
-          >
-            {{ t('databox.outbox.mobileKey.testEnvironmentWarning') }}
-          </p>
-          <div v-if="mobileOutboxFlow === ''" class="mt-3 grid gap-3 sm:grid-cols-2">
-            <label class="block">
-              <span class="text-sm font-medium">{{ t('databox.outbox.mobileKey.username') }}</span>
-              <input v-model="mobileOutboxUsername" type="text" maxlength="128" autocomplete="off" class="form-input mt-1 w-full" />
-            </label>
-            <label class="block">
-              <span class="text-sm font-medium">{{ t('databox.outbox.mobileKey.code') }}</span>
-              <input v-model="mobileOutboxCode" type="password" maxlength="512" autocomplete="off" class="form-input mt-1 w-full" />
-              <span class="mt-1 block text-xs text-neutral-500">{{ t('databox.outbox.mobileKey.codeHint') }}</span>
-            </label>
-          </div>
-          <label
-            v-if="mobileOutboxFlow === '' && savedMobileCredential?.saved"
-            class="mt-3 flex items-center gap-2 text-sm"
-          >
-            <input v-model="mobileOutboxUseSaved" type="checkbox" />
-            {{ t('databox.outbox.mobileKey.useSaved') }}
-          </label>
-          <!-- Totéž zapamatování jako u příchozích zpráv: jeden trezor na firmu,
-               uživatele a prostředí, ne zvlášť pro každý směr. -->
-          <label
-            v-if="mobileOutboxFlow === '' && !mobileOutboxUseSaved"
-            class="mt-3 flex items-center gap-2 text-sm"
-          >
-            <input
-              v-model="rememberMobileOutboxCredential"
-              type="checkbox"
-              data-test="outbox-remember-credential"
-            >
-            <span>{{ t('databox.inbox.rememberMobileCredential') }}</span>
-          </label>
-          <p v-if="mobileOutboxStatus" class="mt-3 text-sm text-neutral-700" data-test="outbox-mobile-key-status">
-            {{ mobileOutboxStatus }}
-          </p>
-          <div class="mt-3 flex flex-wrap gap-2">
-            <button
-              v-if="mobileOutboxFlow === ''"
-              type="button"
-              :class="btnFilled('primary')"
-              :disabled="busyId === row.id"
-              @click="startMobileOutbox(row)"
-            >
-              {{ t('databox.outbox.mobileKey.request') }}
-            </button>
-            <button type="button" :class="btnOutline('neutral')" @click="closeMobileOutbox()">
-              {{ t('common.cancel') }}
-            </button>
-          </div>
+          <IsdsSendMethods
+            :outbox-id="row.id"
+            :environment="environment"
+            @sent="onOutboxSent"
+          />
         </div>
 
         <!-- „Odeslal jsem to" — ID zprávy je přesný identifikátor, ne formalita. -->
@@ -2603,81 +2291,28 @@ onUnmounted(clearReceiptsTimer)
         </div>
 
         <div class="mt-3 flex flex-wrap gap-2">
-          <!-- Připraví koncept v datové schránce. NEODESÍLÁ — odeslání je
-               právní úkon a potvrzuje ho uživatel přímo v ISDS. -->
           <button
-            v-if="primaryAction(row) === 'gateway'"
+            v-if="primaryAction(row) === 'send'"
             type="button"
+            class="whitespace-nowrap"
             :class="btnFilled('primary')"
-            :disabled="gatewayBusyId === row.id || busyId === row.id"
-            @click="startGateway(row)"
+            :disabled="busyId === row.id"
+            :aria-expanded="sendOpenFor === row.id"
+            data-test="outbox-send"
+            @click="toggleSend(row)"
           >
             <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.send" />
+              <path stroke-linecap="round" stroke-linejoin="round" :d="sendOpenFor === row.id ? ICONS.x : ICONS.send" />
             </svg>
-            {{ t('databox.gateway.prepare') }}
+            {{ sendOpenFor === row.id ? t('databox.outbox.sendHide') : t('databox.outbox.send') }}
           </button>
           <button
-            v-if="canUseGateway(row) && markSentFor !== row.id"
+            v-if="primaryAction(row) === 'send' && markSentFor !== row.id"
             type="button"
+            class="whitespace-nowrap"
             :class="btnOutline('neutral')"
             :disabled="busyId === row.id"
-            @click="startMarkSent(row)"
-          >
-            <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.check" />
-            </svg>
-            {{ t('databox.outbox.markSent') }}
-          </button>
-          <!--
-            Odeslat smí každá metoda, kterou umí i čtení. Dřív tu stál jen
-            Mobilní klíč, i když ISDS relaci naváže stejně jménem a heslem —
-            účetní bez Mobilního klíče zprávu připravila a odeslat nemohla.
-          -->
-          <button
-            v-if="primaryAction(row) === 'markSent' && passwordOutboxFor !== row.id && mobileOutboxFor !== row.id"
-            type="button"
-            :class="btnOutline('primary')"
-            :disabled="busyId === row.id"
-            data-test="outbox-password-send"
-            @click="openPasswordOutbox(row)"
-          >
-            <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.lock" />
-            </svg>
-            {{ t('databox.outbox.passwordSend.action') }}
-          </button>
-          <button
-            v-if="primaryAction(row) === 'markSent' && currentCredential?.auth_mode === 'certificate'"
-            type="button"
-            :class="btnOutline('primary')"
-            :disabled="busyId === row.id"
-            data-test="outbox-certificate-send"
-            @click="sendWithCertificate(row)"
-          >
-            <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.badgeCheck" />
-            </svg>
-            {{ t('databox.outbox.certificateSend.action') }}
-          </button>
-          <button
-            v-if="primaryAction(row) === 'markSent' && mobileOutboxFor !== row.id"
-            type="button"
-            :class="btnFilled('primary')"
-            :disabled="busyId === row.id"
-            data-test="outbox-mobile-key"
-            @click="openMobileOutbox(row)"
-          >
-            <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.check" />
-            </svg>
-            {{ t('databox.outbox.mobileKey.action') }}
-          </button>
-          <button
-            v-if="primaryAction(row) === 'markSent' && markSentFor !== row.id"
-            type="button"
-            :class="btnFilled('primary')"
-            :disabled="busyId === row.id"
+            data-test="outbox-mark-sent"
             @click="startMarkSent(row)"
           >
             <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">

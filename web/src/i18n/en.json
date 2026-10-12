@@ -8041,8 +8041,6 @@
         "jmhz_dispatch_failed": "JMHZ could not be frozen or handed to the selected channel.",
         "jmhz_dispatch_vrep_started": "VREP accepted attempt #{id} in status {status}. Follow its result and protocol on the Sent tab.",
         "jmhz_dispatch_isds_queued": "The message is ready for {name}, box ID {box}. It has NOT been sent yet — send it from the outbox.",
-        "jmhz_dispatch_manual": "Neither the sending gateway nor the Mobile Key is available for this company. Send the message from the outbox using your own data box, then fill in the message ID and the delivery receipt.",
-        "jmhz_dispatch_mobile_key": "The sending gateway is not active, but the filing can be sent directly from the app once you confirm the session in Mobile Key.",
         "jmhz_dispatch_open_outbox": "Open the outbox and send",
         "jmhz_gateway_title": "Before leaving for ISDS",
         "jmhz_gateway_credentials": "You enter credentials only on the ISDS page. MyÚčto neither sees nor stores them, and the message is sent only after you approve the draft.",
@@ -25149,25 +25147,6 @@
         "subject": "Message subject",
         "attachment": "Attachment",
         "method_title": "How to send the message",
-        "recommended": "Recommended",
-        "method_gateway": "Sending gateway",
-        "method_gateway_hint": "We prepare the message as a draft in your data box and you send it there yourself.",
-        "method_mobile_key": "Mobile key",
-        "method_mobile_key_hint": "You confirm the sending in the eGovernment Mobile key app.",
-        "method_password": "Username and password",
-        "method_password_hint": "The login is used for this sending only, the password is never stored.",
-        "method_certificate": "System certificate",
-        "method_certificate_hint": "Sent by the machine with the company certificate stored in the data box settings.",
-        "gateway_intro": "The app hands the message to the ISDS sending gateway. Then we redirect you to the data box where you log in and confirm the sending.",
-        "gateway_start": "Prepare in the data box",
-        "gateway_continue": "Continue to the data box",
-        "gateway_methods": "ISDS decides which login methods the gateway accepts. If the login fails, choose another way of sending.",
-        "gateway_failed": "The sending gateway could not be started.",
-        "password_required": "Fill in both the data box username and password.",
-        "certificate_intro": "No particular person stands behind the system certificate, so you confirm the sending.",
-        "certificate_confirm": "Send with the company system certificate",
-        "signing_forbidden": "Sending this way requires the signing permission. Use the sending gateway or send the message from the data box queue.",
-        "not_dispatched": "The message stayed in the queue and was not sent. Check its state in the data box queue.",
         "sent": "The submission was sent via data box and is marked as submitted.",
         "not_ready": "The message is already being processed in the queue (state: {state}). Follow it in the data box queue.",
         "manual_hint": "You can also send it manually from your own data box and record the sent message ID in the data box queue.",
@@ -29265,25 +29244,61 @@
         "credentialsRequired": "Fill in the user name and the communication code.",
         "request": "Ask for confirmation in the key",
         "sent": "The submission was sent through the data box.",
-        "notDispatched": "The session was confirmed but the submission was not sent. Check its state.",
         "testEnvironmentWarning": "You are in the test environment. The test ISDS (datovka-test.gov.cz) has its own accounts — credentials for the live data box will not work here. Switch to the live environment above to send a real filing."
       },
       "passwordSend": {
-        "action": "Send with username and password",
         "intro": "The sign-in applies to this one send only. The password goes to ISDS and is never stored.",
         "username": "ISDS username",
         "password": "Data box password",
         "submit": "Sign in and send",
-        "sent": "The message was sent.",
-        "notSent": "The message stayed in the queue — check the attempt history.",
         "failed": "The message could not be sent."
       },
       "certificateSend": {
         "action": "Send with certificate",
-        "confirm": "Send “{subject}” with the company system certificate? Nobody stands behind a certificate, so sending it is your confirmation.",
-        "sent": "The message was sent with the system certificate.",
-        "notSent": "The message stayed in the queue — check the attempt history.",
         "failed": "The message could not be sent with the certificate."
+      },
+      "send": "Send",
+      "sendHide": "Hide sending methods"
+    },
+    "send": {
+      "title": "How to send the message",
+      "recommended": "Recommended",
+      "credentialsRequired": "Enter the data box username and password.",
+      "notDispatched": "Sign-in succeeded, but the message was not sent. Check its status in the outgoing submissions.",
+      "forbidden": "Only users with the electronic signatures and data box permission can send via the data box. Ask an administrator for the permission, or send the message manually from the outgoing submissions.",
+      "openOutbox": "Open in outgoing submissions",
+      "gateway": {
+        "title": "Sending gateway",
+        "description": "The application prepares the message as a draft in your data box. You sign in and approve the sending directly in ISDS.",
+        "unavailable": "The application operator has not registered the sending gateway for this environment.",
+        "intro": "After clicking, the application sends you to the ISDS sign-in page, where you review and send the message.",
+        "failed": "Sending via the gateway could not be started."
+      },
+      "mobile_key": {
+        "title": "eGovernment Mobile Key",
+        "description": "You confirm the sending in the Mobile Key app on your phone. The sign-in can be remembered encrypted."
+      },
+      "password": {
+        "title": "Username and password",
+        "description": "Data box credentials for this single sending. The password is not stored."
+      },
+      "sms": {
+        "title": "Username, password and SMS code",
+        "description": "For accounts protected by a one-time code. ISDS sends the code to the phone registered with the account.",
+        "intro": "After you enter the username and password, ISDS sends you an SMS code. Until you enter it, the password survives only encrypted in a short one-time sign-in and is then discarded.",
+        "request": "Send SMS",
+        "code": "SMS code",
+        "codeRequired": "Enter the SMS code.",
+        "confirm": "Confirm and send",
+        "failed": "The message could not be sent with SMS code verification."
+      },
+      "certificate": {
+        "title": "System certificate",
+        "description": "The application sends the message with the certificate stored for the company, without a person signing in.",
+        "unavailable": "The company has no system certificate stored for this environment.",
+        "setUp": "Set up access",
+        "intro": "No person stands behind a system certificate, so confirm the sending deliberately.",
+        "confirm": "I confirm sending this message with the company system certificate."
       }
     },
     "manual": {

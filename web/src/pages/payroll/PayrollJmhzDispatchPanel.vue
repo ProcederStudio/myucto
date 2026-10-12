@@ -12,8 +12,8 @@ import {
   type PayrollRegzelEnvironment,
   type PayrollSubmissionOverviewItem,
 } from '@/api/payroll'
-import { btnFilled, btnOutline, ICONS } from '@/components/ui/buttonStyles'
-import MobileKeySendButton from '@/components/submission/MobileKeySendButton.vue'
+import { btnFilled, btnOutline, btnOutlineSm, ICONS } from '@/components/ui/buttonStyles'
+import IsdsSendMethods from '@/components/submission/IsdsSendMethods.vue'
 import PayrollLateDiscountConfirm from '@/components/payroll/PayrollLateDiscountConfirm.vue'
 import { useAuthStore } from '@/stores/auth'
 
@@ -531,27 +531,21 @@ function continueGateway(preview: PayrollJmhzPvpojPreview) {
             >
               {{ t('databox.outbox.mobileKey.sent') }}
             </p>
-            <template v-else-if="state(preview).isds!.transport.channel === 'mobile_key'">
-              <p class="mt-2 text-xs">
-                {{ t('payroll.submissions.overview.jmhz_dispatch_mobile_key') }}
-              </p>
-              <MobileKeySendButton
-                class="mt-3"
+            <template v-else>
+              <IsdsSendMethods
+                class="mt-3 text-neutral-900"
                 :outbox-id="state(preview).isds!.outbox_id"
                 :environment="environment"
-                @sent="mobileKeySent(preview)"
+                :transport="state(preview).isds!.transport"
+                :gateway-start="dataBoxApi.gatewayStartPayroll"
+                @sent="(dispatched: boolean) => { if (dispatched) mobileKeySent(preview) }"
               />
-            </template>
-            <template v-else>
-              <p class="mt-2 text-xs">
-                {{ t('payroll.submissions.overview.jmhz_dispatch_manual') }}
-              </p>
               <a
                 :href="`/admin/databox?tab=outbox&outbox=${state(preview).isds!.outbox_id}`"
-                :class="[btnFilled('primary'), 'mt-3 inline-flex']"
+                :class="[btnOutlineSm('neutral'), 'mt-3 inline-flex']"
                 data-test="jmhz-dispatch-open-outbox"
               >
-                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path :d="ICONS.send" /></svg>
+                <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path :d="ICONS.inbox" /></svg>
                 {{ t('payroll.submissions.overview.jmhz_dispatch_open_outbox') }}
               </a>
             </template>

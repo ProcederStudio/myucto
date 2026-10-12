@@ -823,6 +823,21 @@ export const dataBoxApi = {
       { environment, authorized: true },
     ).then(r => r.data.result),
 
+  /** Vyžádá SMS kód k odeslání; heslo přežije do druhého kroku jen v krátkém šifrovaném flow. */
+  smsSendStart: (id: number, environment: string, username: string, password: string) =>
+    api.post<SmsInboxStart>(`/submissions/outbox/${id}/sms/start`, {
+      environment,
+      username,
+      password,
+    }).then(r => r.data),
+
+  /** Ověří SMS kód a v téže relaci podání odešle. */
+  smsSendComplete: (id: number, environment: string, flowToken: string, smsCode: string) =>
+    api.post<{ result: { row: OutboxSubmission; dispatched: boolean } }>(
+      `/submissions/outbox/${id}/sms/complete`,
+      { environment, flow_token: flowToken, sms_code: smsCode },
+    ).then(r => r.data.result),
+
   resolve: (id: number, environment: string) =>
     api.post<OutboxSubmission>(`/submissions/outbox/${id}/resolve`, { environment }).then(r => r.data),
 

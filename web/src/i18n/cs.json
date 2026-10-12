@@ -8041,8 +8041,6 @@
         "jmhz_dispatch_failed": "JMHZ se nepodařilo zmrazit nebo předat zvolenému kanálu.",
         "jmhz_dispatch_vrep_started": "VREP převzal pokus č. {id} ve stavu {status}. Výsledek a protokol se zobrazí na záložce Odesláno.",
         "jmhz_dispatch_isds_queued": "Zpráva je připravená pro {name}, ID schránky {box}. Zatím NEODEŠLA - odeslat ji musíte v odchozí frontě.",
-        "jmhz_dispatch_manual": "Odesílací brána ani Mobilní klíč pro tuto firmu nejsou k dispozici. Zprávu odešlete v odchozí frontě ze své datové schránky a pak doplňte ID zprávy a doručenku.",
-        "jmhz_dispatch_mobile_key": "Odesílací brána není aktivní, ale podání jde odeslat přímo z aplikace po potvrzení relace v Mobilním klíči.",
         "jmhz_dispatch_open_outbox": "Otevřít frontu a odeslat",
         "jmhz_gateway_title": "Před odchodem do ISDS",
         "jmhz_gateway_credentials": "Přihlašovací údaje zadáváte pouze na stránce ISDS. MyÚčto je nevidí ani neukládá a zpráva odejde až po Vašem schválení konceptu.",
@@ -25149,25 +25147,6 @@
         "subject": "Věc zprávy",
         "attachment": "Příloha",
         "method_title": "Jak zprávu odeslat",
-        "recommended": "Doporučeno",
-        "method_gateway": "Odesílací brána",
-        "method_gateway_hint": "Zprávu připravíme jako koncept ve vaší datové schránce a odešlete ji tam sami.",
-        "method_mobile_key": "Mobilní klíč",
-        "method_mobile_key_hint": "Odeslání potvrdíte v aplikaci Mobilní klíč eGovernmentu.",
-        "method_password": "Jméno a heslo",
-        "method_password_hint": "Přihlášení platí jen pro toto odeslání, heslo se nikam neukládá.",
-        "method_certificate": "Systémový certifikát",
-        "method_certificate_hint": "Odešle stroj certifikátem firmy uloženým v nastavení datové schránky.",
-        "gateway_intro": "Aplikace zprávu předá odesílací bráně ISDS. Pak vás přesměrujeme do datové schránky, kde se přihlásíte a odeslání potvrdíte.",
-        "gateway_start": "Připravit v datové schránce",
-        "gateway_continue": "Pokračovat do datové schránky",
-        "gateway_methods": "Které přihlašovací metody brána přijme, určuje ISDS. Když přihlášení neprojde, zvolte jinou cestu odeslání.",
-        "gateway_failed": "Odesílací bránu se nepodařilo spustit.",
-        "password_required": "Vyplňte uživatelské jméno i heslo k datové schránce.",
-        "certificate_intro": "Za systémovým certifikátem nestojí konkrétní člověk, proto odeslání potvrzujete vy.",
-        "certificate_confirm": "Odeslat systémovým certifikátem firmy",
-        "signing_forbidden": "K odeslání touto cestou potřebujete oprávnění k podepisování. Použijte odesílací bránu, nebo zprávu odešlete z fronty datové schránky.",
-        "not_dispatched": "Zpráva zůstala ve frontě a neodešla. Zkontrolujte stav ve frontě datové schránky.",
         "sent": "Podání odešlo datovou schránkou a je označené jako podané.",
         "not_ready": "Zpráva už se ve frontě zpracovává (stav: {state}). Další postup sledujte ve frontě datové schránky.",
         "manual_hint": "Můžete ji také odeslat ručně ze své datové schránky a ID odeslané zprávy zapsat ve frontě datové schránky.",
@@ -29265,25 +29244,61 @@
         "credentialsRequired": "Vyplňte uživatelské jméno a komunikační kód.",
         "request": "Požádat o potvrzení v klíči",
         "sent": "Podání bylo odesláno datovou schránkou.",
-        "notDispatched": "Relace byla potvrzena, ale podání se neodeslalo. Zkontrolujte stav podání.",
         "testEnvironmentWarning": "Jste v testovacím prostředí. Testovací ISDS (datovka-test.gov.cz) má vlastní účty - přihlášení do ostré datové schránky tu neprojde. Pro odeslání ostrého podání přepněte nahoře na Ostré prostředí."
       },
       "passwordSend": {
-        "action": "Odeslat jménem a heslem",
         "intro": "Přihlášení platí jen pro tohle jedno odeslání. Heslo projde do ISDS a nikam se neukládá.",
         "username": "Uživatelské jméno ISDS",
         "password": "Heslo k datové schránce",
         "submit": "Přihlásit a odeslat",
-        "sent": "Zpráva byla odeslána.",
-        "notSent": "Zpráva zůstala ve frontě - zkontrolujte stav v historii pokusů.",
         "failed": "Zprávu se nepodařilo odeslat."
       },
       "certificateSend": {
         "action": "Odeslat certifikátem",
-        "confirm": "Odeslat „{subject}“ systémovým certifikátem firmy? Za certifikátem nestojí člověk, takže odesláním to potvrzujete vy.",
-        "sent": "Zpráva byla odeslána systémovým certifikátem.",
-        "notSent": "Zpráva zůstala ve frontě - zkontrolujte stav v historii pokusů.",
         "failed": "Zprávu se nepodařilo odeslat certifikátem."
+      },
+      "send": "Odeslat",
+      "sendHide": "Skrýt způsoby odeslání"
+    },
+    "send": {
+      "title": "Jak zprávu odeslat",
+      "recommended": "Doporučeno",
+      "credentialsRequired": "Vyplňte uživatelské jméno a heslo k datové schránce.",
+      "notDispatched": "Přihlášení proběhlo, ale zpráva se neodeslala. Zkontrolujte její stav v odchozích podáních.",
+      "forbidden": "Odesílat datovou schránkou smí jen uživatel s oprávněním k elektronickým podpisům a datové schránce. Požádejte správce o oprávnění, nebo zprávu odešlete ručně z odchozích podání.",
+      "openOutbox": "Otevřít v odchozích podáních",
+      "gateway": {
+        "title": "Odesílací brána",
+        "description": "Aplikace připraví zprávu jako koncept ve vaší datové schránce. Přihlásíte se a odeslání schválíte přímo v ISDS.",
+        "unavailable": "Provozovatel aplikace odesílací bránu pro toto prostředí nezaregistroval.",
+        "intro": "Po kliknutí vás aplikace pošle na přihlašovací stránku ISDS, kde zprávu zkontrolujete a odešlete.",
+        "failed": "Odeslání přes bránu se nepodařilo zahájit."
+      },
+      "mobile_key": {
+        "title": "Mobilní klíč eGovernmentu",
+        "description": "Odeslání potvrdíte v aplikaci Mobilní klíč v telefonu. Přihlášení si můžete šifrovaně zapamatovat."
+      },
+      "password": {
+        "title": "Jméno a heslo",
+        "description": "Přihlašovací údaje k datové schránce pro toto jedno odeslání. Heslo se nikam neukládá."
+      },
+      "sms": {
+        "title": "Jméno, heslo a SMS kód",
+        "description": "Pro účty chráněné jednorázovým kódem. ISDS pošle kód na telefon registrovaný u účtu.",
+        "intro": "Po zadání jména a hesla vám ISDS pošle SMS kód. Heslo do jeho zadání přežije jen šifrovaně v krátkém jednorázovém přihlášení a pak se zahodí.",
+        "request": "Odeslat SMS",
+        "code": "Kód z SMS",
+        "codeRequired": "Vyplňte kód z SMS.",
+        "confirm": "Potvrdit a odeslat",
+        "failed": "Zprávu se nepodařilo odeslat s ověřením SMS kódem."
+      },
+      "certificate": {
+        "title": "Systémový certifikát",
+        "description": "Zprávu odešle aplikace certifikátem uloženým u firmy, bez přihlášení člověka.",
+        "unavailable": "Firma nemá pro toto prostředí uložený systémový certifikát.",
+        "setUp": "Nastavit přístup",
+        "intro": "Za systémovým certifikátem nestojí člověk, proto odeslání vědomě potvrďte.",
+        "confirm": "Potvrzuji odeslání této zprávy systémovým certifikátem firmy."
       }
     },
     "manual": {

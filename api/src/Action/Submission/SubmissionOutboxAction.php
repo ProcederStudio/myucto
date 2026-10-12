@@ -13,6 +13,7 @@ use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Submission\Channel\ChannelContext;
 use MyInvoice\Service\Submission\Channel\ChannelCredentials;
 use MyInvoice\Service\Submission\Channel\Isds\MobileKeyIsdsAuthenticator;
+use MyInvoice\Service\Submission\Channel\Isds\SmsIsdsAuthenticator;
 use MyInvoice\Service\Submission\Channel\SensitiveValue;
 use MyInvoice\Service\Submission\Channel\SubmissionChannelException;
 use MyInvoice\Service\Submission\IsdsMobileCredentialService;
@@ -38,6 +39,7 @@ final class SubmissionOutboxAction
         private readonly ActivityLogger $logger,
         private readonly MobileKeyIsdsAuthenticator $mobileKey,
         private readonly IsdsMobileCredentialService $mobileCredentials,
+        private readonly SmsIsdsAuthenticator $sms,
     ) {}
 
     public function list(Request $request, Response $response): Response
@@ -209,18 +211,6 @@ final class SubmissionOutboxAction
     }
 
     /**
-     * Zahájí přihlášení Mobilním klíčem pro ODESLÁNÍ konkrétního podání.
-     *
-     * Proč vlastní cesta, a ne `confirm()` s uloženým certifikátem: přímý
-     * transport odesílá výhradně v relaci, kterou člověk právě potvrdil
-     * ({@see \MyInvoice\Service\Submission\Channel\Isds\DirectIsdsInboxTransport::hasConfirmedSession()}).
-     * Uložený certifikát ani heslo takovou relaci nepředstavují — u nich by
-     * u odeslání nestál nikdo — takže `SessionAwareIsdsTransport` sáhne po
-     * náhradní cestě a podání skončí větou „odešlete si to sami".
-     *
-     * @param array<string,string> $args
-     */
-    /**
      * Odeslání jménem a heslem k datové schránce.
      *
      * Why: čtení nabízelo čtyři způsoby přihlášení, odesílání jediný. Nebylo
@@ -338,6 +328,95 @@ final class SubmissionOutboxAction
         return Json::ok($response, ['result' => $result]);
     }
 
+    /**
+     * Vyžádá SMS kód pro ODESLÁNÍ konkrétního podání.
+     *
+     * Jméno a heslo jdou do ISDS hned (ISDS na ně pošle kód) a do druhého
+     * kroku přežijí jen šifrovaně v jednorázovém flow s pětiminutovou
+     * platností — stejně jako u čtení schránky ({@see SmsIsdsAuthenticator}).
+     *
+     * @param array<string,string> $args
+     */
+    public function smsStart(Request $request, Response $response, array $args): Response
+    {
+        if (($denied = $this->guard($request, $response, AccessLevel::WRITE)) !== null) {
+            return $denied;
+        }
+        if ((int) ($args['id'] ?? 0) <= 0) {
+            return Json::error($response, 'submission_not_found', 'Podání neexistuje.', 404);
+        }
+        $body = (array) ($request->getParsedBody() ?? []);
+        try {
+            $result = $this->sms->start(
+                SupplierGuard::currentId($request),
+                $this->userId($request),
+                (string) ($body['environment'] ?? 'production'),
+                (string) ($body['username'] ?? ''),
+                (string) ($body['password'] ?? ''),
+            );
+        } catch (SubmissionChannelException $e) {
+            return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus);
+        }
+
+        return Json::ok($response, $result);
+    }
+
+    /**
+     * Ověří SMS kód a v takto potvrzené relaci podání odešle.
+     *
+     * Relace vzniká jen pro tohle jedno odeslání, proto se po něm v `finally`
+     * odhlašuje, ať odeslání skončí jakkoli.
+     *
+     * @param array<string,string> $args
+     */
+    public function smsComplete(Request $request, Response $response, array $args): Response
+    {
+        if (($denied = $this->guard($request, $response, AccessLevel::WRITE)) !== null) {
+            return $denied;
+        }
+        $id = (int) ($args['id'] ?? 0);
+        if ($id <= 0) {
+            return Json::error($response, 'submission_not_found', 'Podání neexistuje.', 404);
+        }
+        $body = (array) ($request->getParsedBody() ?? []);
+        $flowToken = (string) ($body['flow_token'] ?? '');
+        if ($flowToken === '' || strlen($flowToken) > 8192) {
+            return Json::error($response, 'isds_sms_flow_invalid', 'Přihlášení pomocí SMS není platné. Vyžádejte nový kód.', 400);
+        }
+        $supplierId = SupplierGuard::currentId($request);
+        $userId = $this->userId($request);
+
+        try {
+            $context = $this->sms->complete(
+                $flowToken,
+                (string) ($body['sms_code'] ?? ''),
+                $supplierId,
+                $userId,
+                (string) ($body['environment'] ?? 'production'),
+            );
+        } catch (SubmissionChannelException $e) {
+            return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus);
+        }
+
+        try {
+            return $this->sendWithContext($response, $supplierId, $id, $userId, $context);
+        } finally {
+            $this->sms->logout($context);
+        }
+    }
+
+    /**
+     * Zahájí přihlášení Mobilním klíčem pro ODESLÁNÍ konkrétního podání.
+     *
+     * Proč vlastní cesta, a ne `confirm()` s uloženým certifikátem: přímý
+     * transport odesílá výhradně v relaci, kterou člověk právě potvrdil
+     * ({@see \MyInvoice\Service\Submission\Channel\Isds\DirectIsdsInboxTransport::hasConfirmedSession()}).
+     * Uložený certifikát ani heslo takovou relaci nepředstavují — u nich by
+     * u odeslání nestál nikdo — takže `SessionAwareIsdsTransport` sáhne po
+     * náhradní cestě a podání skončí větou „odešlete si to sami".
+     *
+     * @param array<string,string> $args
+     */
     public function mobileKeyStart(Request $request, Response $response, array $args): Response
     {
         if (($denied = $this->guard($request, $response, AccessLevel::WRITE)) !== null) {

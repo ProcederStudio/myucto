@@ -29,7 +29,7 @@ import { useAuthStore } from '@/stores/auth'
 import EnvironmentSwitch from '@/components/ui/EnvironmentSwitch.vue'
 import { useSubmissionEnvironment } from '@/composables/useSubmissionEnvironment'
 import PaginationBar from '@/components/ui/PaginationBar.vue'
-import MobileKeySendButton from '@/components/submission/MobileKeySendButton.vue'
+import IsdsSendMethods from '@/components/submission/IsdsSendMethods.vue'
 import MobileKeyBatchSendButton from '@/components/submission/MobileKeyBatchSendButton.vue'
 import PayrollJmhzOrdinaryEvidencePanel from './PayrollJmhzOrdinaryEvidencePanel.vue'
 import PayrollJmhzXmlDryRunPanel from './PayrollJmhzXmlDryRunPanel.vue'
@@ -627,13 +627,9 @@ async function sendHealthViaDataBox(overview: PayrollHealthPaymentOverview) {
       window.location.assign(gateway.redirect_url)
       return
     }
-    // `mobile_key` NENÍ totéž jako „ručně" — nabídne se tlačítko rovnou tady,
-    // ne jen přesměrování do fronty, kde by účetní musela hledat, co dál.
-    if (queued.transport.channel === 'mobile_key') {
-      healthQueuedByKey.value = { ...healthQueuedByKey.value, [key]: queued }
-      return
-    }
-    window.location.assign(queued.outbox_url)
+    // Způsoby odeslání se nabídnou rovnou tady, ne jen přesměrováním do fronty,
+    // kde by účetní musela hledat, co dál.
+    healthQueuedByKey.value = { ...healthQueuedByKey.value, [key]: queued }
   } catch (exception) {
     healthError.value = apiErrorMessage(
       exception,
@@ -644,8 +640,8 @@ async function sendHealthViaDataBox(overview: PayrollHealthPaymentOverview) {
   }
 }
 
-function healthMobileKeySent(overview: PayrollHealthPaymentOverview) {
-  healthMobileKeySentKey.value = healthOverviewKey(overview)
+function healthMobileKeySent(overview: PayrollHealthPaymentOverview, dispatched: boolean) {
+  if (dispatched) healthMobileKeySentKey.value = healthOverviewKey(overview)
 }
 
 function toggleHealthSelection(overview: PayrollHealthPaymentOverview) {
@@ -994,12 +990,14 @@ onMounted(load)
             >
               {{ t('databox.outbox.mobileKey.sent') }}
             </p>
-            <MobileKeySendButton
+            <IsdsSendMethods
               v-else-if="healthQueuedByKey[healthOverviewKey(overview)]"
               class="mt-3"
               :outbox-id="healthQueuedByKey[healthOverviewKey(overview)]!.outbox_id"
               environment="production"
-              @sent="healthMobileKeySent(overview)"
+              :transport="healthQueuedByKey[healthOverviewKey(overview)]!.transport"
+              :gateway-start="dataBoxApi.gatewayStartPayroll"
+              @sent="(dispatched: boolean) => healthMobileKeySent(overview, dispatched)"
             />
             <dl class="mt-4 grid grid-cols-2 gap-3 text-xs">
               <div>

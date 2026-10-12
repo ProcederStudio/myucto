@@ -66,6 +66,7 @@ import { useProductionSendConfirm } from '@/composables/useProductionSendConfirm
 import { isTestEnvironmentRejection, useSubmissionEnvironment } from '@/composables/useSubmissionEnvironment'
 import { jmhzBlockerLabel } from './jmhzBlockerRemediation'
 import JmhzProtocolErrorRemediation from './JmhzProtocolErrorRemediation.vue'
+import IsdsSendMethods from '@/components/submission/IsdsSendMethods.vue'
 
 const { t, te } = useI18n()
 const auth = useAuthStore()
@@ -1912,6 +1913,15 @@ onMounted(loadVariableSymbols)
                 </svg>
                 {{ t('payroll.submissions.transport.ready.continue_isds') }}
               </button>
+              <IsdsSendMethods
+                v-else-if="!readyIsdsResults[submission.submission_id]!.transport.automatic"
+                class="mt-3"
+                :outbox-id="readyIsdsResults[submission.submission_id]!.outbox_id"
+                :environment="requestEnvironment"
+                :transport="readyIsdsResults[submission.submission_id]!.transport"
+                :gateway-start="dataBoxApi.gatewayStartPayroll"
+                @sent="(dispatched: boolean) => { if (dispatched) void load() }"
+              />
             </div>
           </article>
         </div>

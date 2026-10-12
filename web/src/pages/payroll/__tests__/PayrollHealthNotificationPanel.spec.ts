@@ -806,12 +806,12 @@ describe('PayrollHealthNotificationPanel', () => {
     await flushPromises()
     await confirmProductionSend()
 
-    // Kanál mobile_key nabídne přímo tlačítko — ne odkaz do fronty.
-    expect(wrapper.find('a[href="/admin/databox?tab=outbox"]').exists()).toBe(false)
-    const sendButton = wrapper.get('[data-test="mobile-key-send-action"]')
-
-    await sendButton.trigger('click')
-    await flushPromises()
+    // Nabídne rovnou všechny cesty odeslání z aplikace, ne jen odkaz do fronty;
+    // Mobilní klíč je předvybraný s otevřeným formulářem.
+    const methods = wrapper.get('[data-test="health-prepare-isds-result"] [data-test="isds-send-methods"]')
+    for (const method of ['mobile_key', 'password', 'sms']) {
+      expect(methods.find(`[data-test="isds-send-method-${method}"]`).exists()).toBe(true)
+    }
     const form = wrapper.get('[data-test="mobile-key-send-form"]')
     await form.find('input[type="text"]').setValue('jan.novak')
     await form.find('input[type="password"]').setValue('kod123')
