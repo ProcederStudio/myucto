@@ -328,6 +328,9 @@ function selfCopyFallbackLabel(ct: SelfCopyType): string {
 // Audit 2026-07 (G5): stav accounting_mode při načtení — potřeba k detekci
 // přechodu tax_evidence → double_entry v saveSupplier() (confirm dialog).
 const originalAccountingMode = ref<'tax_evidence' | 'double_entry' | null>(null)
+// Začátek účetního roku se posílá jen při změně: backend změnu proti existujícím obdobím odmítne.
+const originalFiscalStartMonth = ref<number>(1)
+const FISCAL_MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const
 
 // ── CZ-NACE našeptávač nad číselníkem ČINNOSTI ─────────────────────────────
 const naceItems = ref<NaceCode[]>([])
@@ -374,6 +377,7 @@ async function load() {
     // tak vidět hned při načtení, ne až z náhledu přiznání.
     naceResolved.value = supplier.value.cz_nace_resolved ?? null
     originalAccountingMode.value = supplier.value.accounting_mode ?? 'tax_evidence'
+    originalFiscalStartMonth.value = supplier.value.fiscal_year_start_month ?? 1
   } finally { loading.value = false }
   loadSampleStatus()
   loadVatRegistrationCheck()
@@ -657,6 +661,9 @@ async function saveSupplier() {
       tax_entity_status: (supplier.value as any).tax_entity_status ?? 'normal',
       tax_entity_status_date: (supplier.value as any).tax_entity_status_date ?? null,
       tax_accounting_decree: (supplier.value as any).tax_accounting_decree ?? '500',
+      ...((supplier.value.fiscal_year_start_month ?? 1) !== originalFiscalStartMonth.value
+        ? { fiscal_year_start_month: supplier.value.fiscal_year_start_month ?? 1 }
+        : {}),
       tax_investment_incentive: (supplier.value as any).tax_investment_incentive ?? false,
       tax_atad_cfc: (supplier.value as any).tax_atad_cfc ?? false,
       tax_public_benefit: (supplier.value as any).tax_public_benefit ?? false,
@@ -666,6 +673,7 @@ async function saveSupplier() {
     syncSupplierStore(supplier.value)
     await saveReporting()
     originalAccountingMode.value = supplier.value.accounting_mode ?? 'tax_evidence'
+    originalFiscalStartMonth.value = supplier.value.fiscal_year_start_month ?? 1
     if (handOffToActivation) {
       // Uloženo je vše kromě režimu; ten přepne až průvodce po doúčtování.
       toast.info(t('activation.error.backfill_required'))
@@ -1852,6 +1860,15 @@ async function confirmTaxRepDelete() {
                     </option>
                   </select>
                   <p class="text-xs text-neutral-500 mt-1">{{ t('settings.income_tax_profile.taxpayer_code_hint') }}</p>
+                </div>
+                <div v-if="supplier.taxpayer_type !== 'fo'" data-test="fiscal-year-start">
+                  <label class="block text-xs font-medium text-neutral-700 mb-1">{{ t('settings.fiscal_year_start.label') }}</label>
+                  <select v-model.number="supplier.fiscal_year_start_month" class="w-full h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
+                    <option v-for="m in FISCAL_MONTHS" :key="m" :value="m">
+                      {{ m === 1 ? t('settings.fiscal_year_start.calendar') : t('settings.fiscal_year_start.month_' + m) }}
+                    </option>
+                  </select>
+                  <p class="text-xs text-neutral-500 mt-1">{{ t('settings.fiscal_year_start.hint') }}</p>
                 </div>
                 <div v-if="supplier.taxpayer_type !== 'fo'">
                   <label class="block text-xs font-medium text-neutral-700 mb-1">{{ t('settings.income_tax_profile.accounting_decree') }}</label>

@@ -326,6 +326,8 @@ export interface Supplier {
   tax_entity_status?: 'normal' | 'liquidation' | 'insolvency' | 'transformation'
   tax_entity_status_date?: string | null
   tax_accounting_decree?: '500' | '501' | '502' | '503' | '504' | '325' | '410'
+  /** Měsíc začátku účetního roku (1 = kalendářní rok, 2–12 = hospodářský rok; migrace 2003). */
+  fiscal_year_start_month?: number
   tax_investment_incentive?: boolean
   tax_atad_cfc?: boolean
   tax_public_benefit?: boolean

@@ -24061,6 +24061,22 @@
     "credit_note_number_format": "Šablona pro dobropis",
     "purchase_invoice_number_format": "Šablona pro přijatou fakturu",
     "purchase_invoice_number_format_hint": "Interní číslo přijatých faktur. {'{PP}'} = daňový prefix (PF/PN/KU/KN/NU/NN). Prázdné = výchozí {'{PP}'}{'{YY}'}{'{MM}'}{'{CCC}'} (např. PF2605001); legacy formát zadáte jako PF-{'{YYYY}'}{'{MM}'}-{'{CCCC}'} (např. PF-202605-0001).",
+    "fiscal_year_start": {
+      "label": "Účetní rok začíná",
+      "calendar": "Leden (kalendářní rok)",
+      "hint": "Hospodářský rok (§ 3 odst. 2 zákona o účetnictví) nastavte předem, před převodem z jiného programu nebo před založením prvního účetního období. Podle něj vzniknou období i převedená data. Jakmile firma účetní období má, změna účetního roku se řeší přechodným obdobím.",
+      "month_2": "Únor",
+      "month_3": "Březen",
+      "month_4": "Duben",
+      "month_5": "Květen",
+      "month_6": "Červen",
+      "month_7": "Červenec",
+      "month_8": "Srpen",
+      "month_9": "Září",
+      "month_10": "Říjen",
+      "month_11": "Listopad",
+      "month_12": "Prosinec"
+    },
     "numbering_issued_title": "Vydané doklady",
     "purchase_numbering": {
       "title": "Přijaté doklady",

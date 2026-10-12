@@ -478,6 +478,8 @@ final class SettingsAction
             'epo_taxpayer_code', 'tax_entity_status', 'tax_entity_status_date',
             'tax_accounting_decree', 'tax_investment_incentive', 'tax_atad_cfc',
             'tax_public_benefit', 'tax_cooperating_person', 'tax_foreign_income_credit',
+            // Začátek účetního roku (hospodářský rok, migrace 2003)
+            'fiscal_year_start_month',
             'oss_enabled', 'oss_valid_from', 'oss_valid_to', 'oss_identification_country', 'oss_return_currency',
             // Identifikátory ČSSZ/ZP pro přehled OSVČ (Epic DP v2, migrace 1032)
             'cssz_vsdp', 'cssz_ossz_code', 'health_insurance_number',
@@ -613,6 +615,31 @@ final class SettingsAction
             && !array_key_exists((string) $body['tax_accounting_decree'], TaxpayerTypeCodebook::ACCOUNTING_DECREES)
         ) {
             return Json::error($response, 'validation_failed', 'tax_accounting_decree musí být číslo účetní vyhlášky (500/501/502/503/504/325/410).', 400);
+        }
+        // Začátek účetního roku (migrace 2003). Zadává se PŘEDEM: jakmile firma má účetní
+        // období, tvar roku určují ta a změna účetního roku je samostatný zákonný úkon
+        // s přechodným obdobím (§ 3 odst. 2 ZoÚ) — přes nastavení ji tiše neprovedeme.
+        if (array_key_exists('fiscal_year_start_month', $body)) {
+            $month = filter_var($body['fiscal_year_start_month'], FILTER_VALIDATE_INT);
+            if ($month === false || $month < 1 || $month > 12) {
+                return Json::error($response, 'validation_failed', 'fiscal_year_start_month musí být měsíc 1–12.', 400);
+            }
+            $body['fiscal_year_start_month'] = $month;
+            $taxpayer = $body['taxpayer_type'] ?? $this->db->pdo()->query(
+                'SELECT taxpayer_type FROM supplier WHERE id = ' . (int) $id
+            )->fetchColumn();
+            if ($month !== 1 && $taxpayer === 'fo') {
+                return Json::error($response, 'fiscal_year_not_for_fo',
+                    'Hospodářský rok může mít jen právnická osoba. Zdaňovacím obdobím fyzické osoby je vždy kalendářní rok (§ 16b ZDP).', 400);
+            }
+            $periodsRepo = new \MyInvoice\Repository\AccountingPeriodRepository($this->db);
+            $changed = $periodsRepo->fiscalYearStartMonth((int) $id) !== $month;
+            $periods = $changed ? $periodsRepo->listForTenant((int) $id) : [];
+            if ($periods !== [] && $periodsRepo->fiscalCalendar((int) $id)->startMonth() !== $month) {
+                return Json::error($response, 'fiscal_year_conflicts_periods',
+                    'Firma už má účetní období jiného tvaru. Začátek účetního roku se nastavuje předem; '
+                        . 'změna účetního roku se řeší přechodným obdobím na stránce Účetní období.', 409);
+            }
         }
         if (array_key_exists('tax_entity_status_date', $body)) {
             $statusDate = trim((string) ($body['tax_entity_status_date'] ?? ''));

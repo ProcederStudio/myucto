@@ -983,7 +983,8 @@
         "1999_income_statement_purpose_missing_accounts.sql",
         "2000_activity_log_action_length.sql",
         "2001_purchase_numbering_by_kind.sql",
-        "2002_clients_walk_in_customer.sql"
+        "2002_clients_walk_in_customer.sql",
+        "2003_supplier_fiscal_year_start_month.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -21742,6 +21743,7 @@
                 "fakturoid_last_imported_at": "timestamp NULL DEFAULT NULL",
                 "fakturoid_slug": "varchar(64) NULL DEFAULT NULL",
                 "financial_office_code": "varchar(8) NULL DEFAULT NULL",
+                "fiscal_year_start_month": "tinyint(3) unsigned NOT NULL DEFAULT 1",
                 "flat_tax_band": "enum('none','band1','band2','band3') NOT NULL DEFAULT 'none'",
                 "gemini_api_key_enc": "varbinary(512) NULL DEFAULT NULL",
                 "gemini_default_model": "varchar(128) NULL DEFAULT NULL",
@@ -21851,6 +21853,7 @@
             "checks": {
                 "ai_dpa_confirmations": "json_valid(`ai_dpa_confirmations`)",
                 "chk_supplier_epo_taxpayer_code": "`epo_taxpayer_code` is null or `epo_taxpayer_code` regexp '^[0-9]$'",
+                "chk_supplier_fiscal_year_start_month": "`fiscal_year_start_month` between 1 and 12",
                 "chk_supplier_tax_accounting_decree": "`tax_accounting_decree` in ('500','501','502','503','504','325','410')",
                 "chk_supplier_tax_entity_status": "`tax_entity_status` in ('normal','liquidation','insolvency','transformation')",
                 "self_copy": "json_valid(`self_copy`)"

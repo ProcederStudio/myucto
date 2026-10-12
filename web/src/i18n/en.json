@@ -24061,6 +24061,22 @@
     "credit_note_number_format": "Credit note template",
     "purchase_invoice_number_format": "Received invoice template",
     "purchase_invoice_number_format_hint": "Internal number of received invoices. {'{PP}'} = tax-type prefix (PF/PN/KU/KN/NU/NN). Empty = default {'{PP}'}{'{YY}'}{'{MM}'}{'{CCC}'} (e.g. PF2605001); for the legacy format use PF-{'{YYYY}'}{'{MM}'}-{'{CCCC}'} (e.g. PF-202605-0001).",
+    "fiscal_year_start": {
+      "label": "Accounting year starts in",
+      "calendar": "January (calendar year)",
+      "hint": "Set a fiscal year in advance, before migrating from another program or creating the first accounting period. Periods and migrated data follow it. Once the company has accounting periods, changing the accounting year is done through a transitional period.",
+      "month_2": "February",
+      "month_3": "March",
+      "month_4": "April",
+      "month_5": "May",
+      "month_6": "June",
+      "month_7": "July",
+      "month_8": "August",
+      "month_9": "September",
+      "month_10": "October",
+      "month_11": "November",
+      "month_12": "December"
+    },
     "numbering_issued_title": "Issued documents",
     "purchase_numbering": {
       "title": "Received documents",

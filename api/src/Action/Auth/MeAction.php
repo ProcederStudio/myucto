@@ -95,7 +95,7 @@ final class MeAction
                                 is_vat_payer, is_identified, taxpayer_type,
                                 default_payment_due_days, default_payment_due_unit, default_prices_include_vat,
                                 allow_refund_invoices, auto_send_reminders, payment_thanks_enabled, payment_thanks_default_checked,
-                                accounting_mode, accounting_enabled, payroll_enabled, stock_enabled, dimensions_enabled, ' . $ossSelect . ',
+                                accounting_mode, accounting_enabled, payroll_enabled, stock_enabled, dimensions_enabled, fiscal_year_start_month, ' . $ossSelect . ',
                                 ai_provider, ai_data_region, ai_eu_residency_required, '
                         // Výchozí poznámka pod položkami (#79) — editor faktury ji
                         // předvyplní, a ten běží i pod rolí bez `settings.company.write`,
@@ -130,6 +130,8 @@ final class MeAction
             // Režim účetnictví (Epic F1) — 'double_entry' zpřístupní účetní UI (deník,
             // osnova, období). Nav sekce se řídí touto hodnotou přes supplier store.
             $s['accounting_mode']          = (string) ($s['accounting_mode'] ?? 'tax_evidence');
+            // Začátek účetního roku (migrace 2003): 1 = kalendářní rok; předvyplní nové období.
+            $s['fiscal_year_start_month']  = (int) ($s['fiscal_year_start_month'] ?? 1);
             // „Vést účetnictví" (migrace 1179) — vypnuté schová účetní sekce z menu stejně,
             // jako by nebyla licence. Default TRUE i pro řádky bez sloupce (starší schéma),
             // aby vypnutí bylo vždy vědomé rozhodnutí, ne důsledek chybějící migrace.

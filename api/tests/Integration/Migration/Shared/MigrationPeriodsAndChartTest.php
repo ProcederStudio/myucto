@@ -45,6 +45,45 @@ final class MigrationPeriodsAndChartTest extends SharedMigrationDbTestCase
         self::assertSame(['2025-01-01', '2025-12-31'], MigrationPeriods::calendarYear(2025));
     }
 
+    public function testFiscalYearSettingShapesMigratedPeriods(): void
+    {
+        $supplier = $this->supplier();
+        $this->db->pdo()->prepare('UPDATE supplier SET fiscal_year_start_month = 8 WHERE id = ?')->execute([$supplier]);
+        $periods = new MigrationPeriods(new AccountingPeriodRepository($this->db));
+        $p = new ImportProtocol('import');
+
+        $spring = $periods->ensureForDate($supplier, '2025-03-14', $p, 'journal', static fn (int $id) => null);
+        self::assertSame(['2024-08-01', '2025-07-31', 2024], [$spring['starts_on'], $spring['ends_on'], $spring['fiscal_year']]);
+
+        $autumn = $periods->ensureForDate($supplier, '2025-09-02', $p, 'journal', static fn (int $id) => null);
+        self::assertSame(['2025-08-01', '2026-07-31', 2025], [$autumn['starts_on'], $autumn['ends_on'], $autumn['fiscal_year']]);
+
+        $same = $periods->ensureForDate($supplier, '2024-08-01', $p, 'journal', static fn (int $id) => null);
+        self::assertSame($spring['id'], $same['id'], 'datum uvnitř existujícího období ho najde, nový řádek nevzniká');
+        self::assertSame(2, self::step($p, 'journal')['counts']['periods_created'] ?? null);
+    }
+
+    public function testCalendarSettingKeepsCalendarPeriods(): void
+    {
+        $supplier = $this->supplier();
+        $periods = new MigrationPeriods(new AccountingPeriodRepository($this->db));
+
+        $period = $periods->ensureForDate($supplier, '2025-03-14', new ImportProtocol('import'), 'journal', static fn (int $id) => null);
+
+        self::assertSame(['2025-01-01', '2025-12-31', 2025], [$period['starts_on'], $period['ends_on'], $period['fiscal_year']]);
+    }
+
+    public function testExistingFiscalPeriodsWinOverDefaultSetting(): void
+    {
+        $supplier = $this->supplier();
+        $repo = new AccountingPeriodRepository($this->db);
+        $repo->create($supplier, 2024, '2024-08-01', '2025-07-31');
+
+        self::assertSame(8, $repo->fiscalCalendar($supplier)->startMonth(), 'tvar existujících období rozhoduje i bez nastavení');
+        $next = $repo->ensureOpenPeriodFor($supplier, '2025-10-01');
+        self::assertSame(['2025-08-01', '2026-07-31'], [(string) $next['starts_on'], (string) $next['ends_on']]);
+    }
+
     public function testSyntheticTakesTypeFromSiblingAndAnalyticFromParent(): void
     {
         $supplier = $this->supplier();

@@ -36764,6 +36764,12 @@ components:
         proforma_number_format: { type: [string, "null"], maxLength: 60, example: "9{YY}{MM}{CCC}" }
         credit_note_number_format: { type: [string, "null"], maxLength: 60, example: "7{YY}{MM}{CCC}" }
         purchase_invoice_number_format: { type: [string, "null"], maxLength: 60, description: "Interní číslování přijatých faktur" }
+        purchase_invoice_numbering: { type: string, enum: [shared, by_kind], default: shared, description: "Číslování přijatých dokladů: jedna řada (shared), nebo samostatná řada pro každý typ dokladu (by_kind)." }
+        purchase_receipt_number_format: { type: [string, "null"], maxLength: 60, description: "Šablona účtenek (jen by_kind); null = výchozí UC{YY}{MM}{CCC}." }
+        purchase_credit_note_number_format: { type: [string, "null"], maxLength: 60, description: "Šablona přijatých dobropisů (jen by_kind); null = výchozí DD{YY}{MM}{CCC}." }
+        purchase_advance_number_format: { type: [string, "null"], maxLength: 60, description: "Šablona přijatých záloh (jen by_kind); null = výchozí ZD{YY}{MM}{CCC}." }
+        purchase_tax_document_number_format: { type: [string, "null"], maxLength: 60, description: "Šablona daňových dokladů k platbě (jen by_kind); null = výchozí DZ{YY}{MM}{CCC}." }
+        fiscal_year_start_month: { type: integer, minimum: 1, maximum: 12, default: 1, description: "Měsíc začátku účetního roku (1 = kalendářní rok, 2–12 = hospodářský rok jen u právnické osoby). Nastavuje se předem; změna proti existujícím účetním obdobím vrátí 409." }
         invoice_number_period:
           type: string
           enum: [year, month, none]
@@ -36879,6 +36885,12 @@ components:
         proforma_number_format: { type: [string, "null"] }
         credit_note_number_format: { type: [string, "null"] }
         purchase_invoice_number_format: { type: [string, "null"] }
+        purchase_invoice_numbering: { type: string, enum: [shared, by_kind] }
+        purchase_receipt_number_format: { type: [string, "null"] }
+        purchase_credit_note_number_format: { type: [string, "null"] }
+        purchase_advance_number_format: { type: [string, "null"] }
+        purchase_tax_document_number_format: { type: [string, "null"] }
+        fiscal_year_start_month: { type: integer, minimum: 1, maximum: 12, description: "Měsíc začátku účetního roku (1 = kalendářní rok)." }
         invoice_number_period: { type: string, enum: [year, month, none], description: "Reset counteru číselných řad" }
         taxpayer_type: { type: [string, "null"], enum: [fo, po, null], description: "Fyzická / právnická osoba (EPO výkazy)" }
         vat_period: { type: [string, "null"], enum: [monthly, quarterly, null] }

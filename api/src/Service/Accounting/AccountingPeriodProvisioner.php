@@ -32,9 +32,10 @@ use PDO;
  *  - Jen pro firmu, která podvojné účetnictví SKUTEČNĚ vede. V daňové evidenci
  *    účetní období nemá význam a zakládat ho na pozadí importu by byl tichý zásah
  *    do agendy, kterou uživatel nepoužívá.
- *  - Hranice se ODVOZUJÍ z existujících období ({@see FiscalCalendar::forPeriods}),
- *    ne natvrdo z kalendářního roku. Firma s hospodářským rokem (§21a ZDP) by jinak
- *    dostala 1. 1.–31. 12. a v řadě by vznikl překryv.
+ *  - Hranice se ODVOZUJÍ z existujících období, bez nich z nastavení firmy
+ *    ({@see AccountingPeriodRepository::fiscalCalendar()}), ne natvrdo z kalendářního
+ *    roku. Firma s hospodářským rokem (§21a ZDP) by jinak dostala 1. 1.–31. 12.
+ *    a v řadě by vznikl překryv.
  *  - Rozsah roku je stejný jako u ručního založení přes API (2000–2200). Automat
  *    nesmí být přísnější než člověk, ale ani nesmí z překlepu v datu (rok 2999)
  *    udělat period řádek.
@@ -188,13 +189,14 @@ final class AccountingPeriodProvisioner
 
     /**
      * Hranice období, do kterého datum spadá — dle TVARU existujících období
-     * (kalendářní vs. hospodářský rok). Bez období se použije kalendářní rok.
+     * (kalendářní vs. hospodářský rok), bez nich dle nastavení firmy
+     * ({@see AccountingPeriodRepository::fiscalCalendar()}).
      *
      * @return array{fiscal_year:int, starts_on:string, ends_on:string}|null
      */
     public function boundsForDate(int $supplierId, string $date): ?array
     {
-        $calendar = FiscalCalendar::forPeriods($this->periods->listForTenant($supplierId));
+        $calendar = $this->periods->fiscalCalendar($supplierId);
         $fiscalYear = $calendar->fiscalYearOfDate($date);
         if ($fiscalYear < self::MIN_FISCAL_YEAR || $fiscalYear > self::MAX_FISCAL_YEAR) {
             return null;

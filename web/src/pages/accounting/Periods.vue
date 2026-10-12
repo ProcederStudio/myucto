@@ -11,6 +11,7 @@ import {
   type AccountingClosingSettings,
 } from '@/api/closing'
 import { useAuthStore } from '@/stores/auth'
+import { useSupplierStore } from '@/stores/supplier'
 import { useToast } from '@/composables/useToast'
 import { useHotkey } from '@/composables/useHotkey'
 import { formatDate } from '@/composables/useFormat'
@@ -23,6 +24,7 @@ defineProps<{ embedded?: boolean }>()
 
 const { t } = useI18n()
 const auth = useAuthStore()
+const supplierStore = useSupplierStore()
 const toast = useToast()
 
 const periods = ref<ClosingPeriod[]>([])
@@ -92,6 +94,14 @@ function defaultBounds(year: number): { fiscal_year: number, starts_on: string, 
     if (start.getUTCFullYear() === year) {
       return { fiscal_year: year, starts_on: iso(start), ends_on: iso(end) }
     }
+  }
+  // Bez navazujícího období rozhoduje nastavení firmy „Účetní rok začíná" (1 = kalendářní).
+  const month = supplierStore.currentSupplier?.fiscal_year_start_month ?? 1
+  if (month > 1 && month <= 12) {
+    const mm = String(month).padStart(2, '0')
+    const end = new Date(Date.UTC(year + 1, month - 1, 1))
+    end.setUTCDate(end.getUTCDate() - 1)
+    return { fiscal_year: year, starts_on: `${year}-${mm}-01`, ends_on: end.toISOString().slice(0, 10) }
   }
   return { fiscal_year: year, starts_on: `${year}-01-01`, ends_on: `${year}-12-31` }
 }

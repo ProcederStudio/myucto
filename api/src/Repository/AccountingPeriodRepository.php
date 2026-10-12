@@ -299,10 +299,39 @@ final class AccountingPeriodRepository
     }
 
     /**
+     * Kalendář účetního roku firmy — JEDINÉ místo, které rozhoduje, zda firma vede
+     * kalendářní, nebo hospodářský rok (§ 3 odst. 2 ZoÚ).
+     *
+     * Má-li firma období tvaru hospodářského roku, rozhodují ta (vzniklá data jsou
+     * autoritativní). Jinak nastavení firmy `fiscal_year_start_month` — zadává se předem,
+     * aby první období (převod z jiného programu, aktivace účetnictví, automatické
+     * otevření) vzniklo hned ve správném tvaru. Bez nastavení kalendářní rok.
+     */
+    public function fiscalCalendar(int $supplierId): \MyInvoice\Service\Accounting\FiscalCalendar
+    {
+        $fromPeriods = \MyInvoice\Service\Accounting\FiscalCalendar::forPeriods($this->listForTenant($supplierId));
+        if (!$fromPeriods->isCalendar()) {
+            return $fromPeriods;
+        }
+        return new \MyInvoice\Service\Accounting\FiscalCalendar($this->fiscalYearStartMonth($supplierId));
+    }
+
+    /** Nastavení firmy „účetní rok začíná měsícem" (1 = kalendářní rok; migrace 2003). */
+    public function fiscalYearStartMonth(int $supplierId): int
+    {
+        if (!$this->db->hasColumn('supplier', 'fiscal_year_start_month')) {
+            return 1;
+        }
+        $stmt = $this->db->pdo()->prepare('SELECT fiscal_year_start_month FROM supplier WHERE id = ?');
+        $stmt->execute([$supplierId]);
+        $month = (int) $stmt->fetchColumn();
+        return $month >= 1 && $month <= 12 ? $month : 1;
+    }
+
+    /**
      * Zajistí existenci období pro dané datum. Vrátí existující (bez ohledu na stav
-     * — otevřenost řeší PostingService), jinak založí kalendářní rok data jako open.
-     * Pozn.: automaticky se zakládá jen kalendářní rok; hospodářský rok si firma
-     * vytváří explicitně přes create() s vlastními hranicemi (setup / Action).
+     * — otevřenost řeší PostingService), jinak založí období podle kalendáře účetního
+     * roku firmy ({@see fiscalCalendar()}) jako open.
      *
      * @return array<string,mixed> období obsahující $date
      */
@@ -312,8 +341,9 @@ final class AccountingPeriodRepository
         if ($existing !== null) {
             return $existing;
         }
-        $year = (int) substr($date, 0, 4);
-        $this->create($supplierId, $year, sprintf('%04d-01-01', $year), sprintf('%04d-12-31', $year));
+        $calendar = $this->fiscalCalendar($supplierId);
+        $year = $calendar->fiscalYearOfDate($date);
+        $this->create($supplierId, $year, $calendar->periodStart($year), $calendar->periodEnd($year));
         // create() může narazit na UNIQUE (supplier, year) jen když už rok existuje
         // s jinými hranicemi — pak findForDate výše vrátil null a tady dočteme znovu.
         $period = $this->findForDate($supplierId, $date);
