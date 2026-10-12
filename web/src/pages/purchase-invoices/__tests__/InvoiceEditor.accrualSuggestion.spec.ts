@@ -9,6 +9,7 @@ const m = vi.hoisted(() => ({
   get: vi.fn(),
   update: vi.fn(),
   expenseSuggestions: vi.fn().mockResolvedValue({ items: {} }),
+  vatClassifications: vi.fn().mockResolvedValue([]),
 }))
 
 vi.mock('vue-router', () => ({
@@ -61,7 +62,7 @@ vi.mock('@/api/stock', () => ({ stockApi: { searchItems: vi.fn().mockResolvedVal
 vi.mock('@/api/expenseCategories', () => ({ expenseCategoriesApi: { list: vi.fn().mockResolvedValue([]) } }))
 vi.mock('@/api/projects', () => ({ projectsApi: { list: vi.fn().mockResolvedValue({ data: [] }) } }))
 vi.mock('@/api/cash', () => ({ cashApi: { listRegisters: vi.fn().mockResolvedValue([]) } }))
-vi.mock('@/api/vatClassifications', () => ({ vatClassificationsApi: { list: vi.fn().mockResolvedValue([]) } }))
+vi.mock('@/api/vatClassifications', () => ({ vatClassificationsApi: { list: m.vatClassifications } }))
 vi.mock('@/api/settings', () => ({ settingsApi: { createCurrency: vi.fn() } }))
 vi.mock('@/api/clients', () => ({ clientsApi: { getVatStatus: vi.fn() } }))
 vi.mock('@/api/errors', () => ({ apiErrorMessage: (e: unknown) => String((e as { message?: string })?.message ?? e) }))
@@ -155,11 +156,15 @@ const stubs = {
   DocumentSidePreview: true,
 }
 
-async function mountEditor(items: ReturnType<typeof item>[]) {
-  m.get.mockReset().mockResolvedValue(makeInvoice(items))
+async function mountEditor(items: ReturnType<typeof item>[], header: Partial<PurchaseInvoice> = {}) {
+  m.get.mockReset().mockResolvedValue({ ...makeInvoice(items), ...header })
   const wrapper = mount(InvoiceEditor, { global: { stubs } })
   await flushPromises()
   return wrapper
+}
+
+async function openItemDetails(wrapper: Awaited<ReturnType<typeof mountEditor>>) {
+  for (const toggle of wrapper.findAll('[data-test="item-details-toggle"]')) await toggle.trigger('click')
 }
 
 describe('InvoiceEditor.vue — návrh časového rozlišení z textu položky', () => {
@@ -202,6 +207,8 @@ describe('InvoiceEditor.vue — návrh časového rozlišení z textu položky',
       { ...item(1, 'Grafické podklady'), expense_kind: 'service', expense_account_code: null },
       { ...item(2, 'Hosting'), expense_kind: 'service', expense_account_code: '518.200' },
     ])
+    expect(wrapper.findAll('select[aria-label="purchase_invoice.items.expense_account"]')).toHaveLength(0)
+    await openItemDetails(wrapper)
     await wrapper.findAll('select[aria-label="purchase_invoice.items.expense_account"]')[0].setValue('518.100')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
@@ -210,6 +217,7 @@ describe('InvoiceEditor.vue — návrh časového rozlišení z textu položky',
 
   it('nabízí pro službu pouze aktivní náklady na desktopu i mobilu', async () => {
     const wrapper = await mountEditor([{ ...item(1, 'Hosting'), expense_kind: 'service' }])
+    await openItemDetails(wrapper)
     const selects = wrapper.findAll('select[aria-label="purchase_invoice.items.expense_account"]')
     expect(selects).toHaveLength(2)
     for (const select of selects) {
@@ -222,10 +230,45 @@ describe('InvoiceEditor.vue — návrh časového rozlišení z textu položky',
       { ...item(1, 'Server'), expense_kind: 'fixed_asset', expense_account_code: '042' },
       { ...item(2, 'Starší kontace'), expense_kind: 'service', expense_account_code: '131' },
     ])
+    await openItemDetails(wrapper)
     const selects = wrapper.findAll('select[aria-label="purchase_invoice.items.expense_account"]')
     expect(selects[0].findAll('option').slice(1).map(option => option.attributes('value'))).toEqual(['042'])
     expect(selects[1].findAll('option').slice(1).map(option => option.attributes('value'))).toEqual(['131', '518.100', '518.200'])
     expect((selects[1].element as HTMLSelectElement).value).toBe('131')
+  })
+
+  it('změní členění DPH jen u vybrané položky (issue #150)', async () => {
+    m.vatClassifications.mockResolvedValueOnce([
+      { id: 1, code: '23', label: 'Pořízení zboží z EU', supplier_id: null, is_reverse_charge: true, dphdp3_line: 3 },
+      { id: 2, code: '24e', label: 'Přijetí služby z EU', supplier_id: null, is_reverse_charge: true, dphdp3_line: 5 },
+    ])
+    const wrapper = await mountEditor([
+      { ...item(1, 'Správa kampaně'), vat_classification_code: '23' },
+      { ...item(2, 'Krabice'), vat_classification_code: '23' },
+    ], { reverse_charge: true, vat_classification_code: '24e' } as Partial<PurchaseInvoice>)
+    expect(wrapper.findAll('[data-test="item-details-toggle"]')[0].classes()).toContain('bg-primary-50')
+    expect(wrapper.find('[data-test="items-differ-from-header"]').exists()).toBe(true)
+
+    await openItemDetails(wrapper)
+    await wrapper.findAll('[data-test="item-vat-classification"]')[0].setValue('24e')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    const payload = m.update.mock.calls[0][1]
+    expect(payload.vat_classification_code).toBe('24e')
+    expect(payload.items.map((row: PurchaseInvoiceItem) => row.vat_classification_code)).toEqual(['24e', '23'])
+    expect(payload.items.map((row: PurchaseInvoiceItem) => row.unit_price_without_vat)).toEqual([100, 100])
+  })
+
+  it('kód hlavičky přepíše položky jen na výslovnou volbu', async () => {
+    const wrapper = await mountEditor([
+      { ...item(1, 'Správa kampaně'), vat_classification_code: '23' },
+      { ...item(2, 'Licence'), vat_classification_code: '23' },
+    ], { reverse_charge: true, vat_classification_code: '24e' } as Partial<PurchaseInvoice>)
+    await wrapper.find('[data-test="items-differ-from-header"] button').trigger('click')
+    expect(wrapper.find('[data-test="items-differ-from-header"]').exists()).toBe(false)
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(m.update.mock.calls[0][1].items.map((row: PurchaseInvoiceItem) => row.vat_classification_code)).toEqual(['24e', '24e'])
   })
 
   it('nabídne období jen u položky s rozpoznaným obdobím a bez vyplněného rozlišení', async () => {

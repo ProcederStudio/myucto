@@ -942,6 +942,28 @@ const accrualOpen = reactive(new Set<number>())
 function accrualVisible(it: PurchaseInvoiceItem, i: number): boolean {
   return accrualOpen.has(i) || !!it.accrual_from || !!it.accrual_to
 }
+// Podrobnosti položky (účet, členění DPH) jsou zabalené za šipkou u druhu nákladu,
+// aby se řádek vešel na jeden řádek; rozbalené zůstávají, dokud je uživatel nezavře.
+const itemDetailsOpen = reactive(new Set<PurchaseInvoiceItem>())
+const showItemAccount = computed(() => !auth.isClientRole && supplierStore.currentSupplier?.accounting_mode === 'double_entry')
+function itemClassDiffers(it: PurchaseInvoiceItem): boolean {
+  const header = form.value.vat_classification_code
+  return !!it.vat_classification_code && !!header && it.vat_classification_code !== header
+}
+function itemDetailsFilled(it: PurchaseInvoiceItem): boolean {
+  return (showItemAccount.value && !!it.expense_account_code) || itemClassDiffers(it)
+}
+function toggleItemDetails(it: PurchaseInvoiceItem) {
+  if (itemDetailsOpen.has(it)) itemDetailsOpen.delete(it)
+  else itemDetailsOpen.add(it)
+}
+const itemsDifferFromHeader = computed(() => form.value.items.some(itemClassDiffers))
+function applyHeaderClassificationToItems() {
+  const code = form.value.vat_classification_code
+  if (!code) return
+  for (const it of form.value.items) it.vat_classification_code = code
+}
+
 function toggleAccrual(it: PurchaseInvoiceItem, i: number) {
   if (accrualVisible(it, i)) {
     accrualOpen.delete(i)
@@ -2063,15 +2085,27 @@ function fieldErr(key: string): string | null {
                 </select>
               </td>
               <td class="py-2 px-1 align-top">
-                <select
-                  v-model="it.expense_kind"
-                  :title="t('purchase_invoice.items.expense_kind_hint')"
-                  class="w-full h-9 px-1 border rounded bg-surface text-sm"
-                  :class="needsKindAttention(it) ? 'border-danger-500' : 'border-neutral-300'"
-                >
-                  <option :value="null">{{ t('purchase_invoice.items.expense_kind_unset') }}</option>
-                  <option v-for="k in EXPENSE_KINDS" :key="k" :value="k">{{ t(`purchase_invoice.expense_kind.${k}`) }}</option>
-                </select>
+                <div class="flex items-center gap-1">
+                  <select
+                    v-model="it.expense_kind"
+                    :title="t('purchase_invoice.items.expense_kind_hint')"
+                    class="min-w-0 flex-1 h-9 px-1 border rounded bg-surface text-sm"
+                    :class="needsKindAttention(it) ? 'border-danger-500' : 'border-neutral-300'"
+                  >
+                    <option :value="null">{{ t('purchase_invoice.items.expense_kind_unset') }}</option>
+                    <option v-for="k in EXPENSE_KINDS" :key="k" :value="k">{{ t(`purchase_invoice.expense_kind.${k}`) }}</option>
+                  </select>
+                  <button type="button" data-test="item-details-toggle"
+                    :title="itemDetailsOpen.has(it) ? t('purchase_invoice.items.details_close') : t('purchase_invoice.items.details_open')"
+                    :aria-expanded="itemDetailsOpen.has(it)"
+                    class="shrink-0 w-7 h-7 inline-flex items-center justify-center rounded border"
+                    :class="itemDetailsFilled(it)
+                      ? 'border-primary-300 bg-primary-50 text-primary-700'
+                      : itemDetailsOpen.has(it) ? 'border-neutral-300 bg-neutral-100 text-neutral-700' : 'border-transparent text-neutral-400 hover:text-neutral-700 hover:border-neutral-300'"
+                    @click="toggleItemDetails(it)">
+                    <svg class="w-4 h-4 transition-transform" :class="itemDetailsOpen.has(it) ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.chevron" /></svg>
+                  </button>
+                </div>
                 <div v-if="aiProposalFor(it) && it.expense_kind !== aiProposalFor(it)!.kind" class="mt-1 flex flex-wrap items-center gap-1 text-xs text-neutral-600">
                   <span :title="aiProposalFor(it)!.reason">{{ t('purchase_invoice.extraction_review.proposal', { kind: t(`purchase_invoice.expense_kind.${aiProposalFor(it)!.kind}`), pct: Math.round(aiProposalFor(it)!.confidence * 100) }) }}</span>
                   <button type="button" class="text-primary-600 hover:underline" @click="it.expense_kind = aiProposalFor(it)!.kind">{{ t('purchase_invoice.extraction_review.apply') }}</button>
@@ -2082,14 +2116,6 @@ function fieldErr(key: string): string | null {
                   @apply="applySuggestion(it)"
                   @dismiss="dismissSuggestion(it)"
                 />
-                <select v-if="!auth.isClientRole && supplierStore.currentSupplier?.accounting_mode === 'double_entry'"
-                  v-model="it.expense_account_code" :aria-label="t('purchase_invoice.items.expense_account')"
-                  class="mt-1 w-full h-9 px-1 border border-neutral-300 rounded bg-surface text-sm">
-                  <option :value="null">{{ t('purchase_invoice.items.expense_account_default') }}</option>
-                  <option v-if="it.expense_account_code && !accountsForExpenseKind(it.expense_kind).some(a => a.account_code === it.expense_account_code)"
-                    :value="it.expense_account_code">{{ it.expense_account_code }}</option>
-                  <option v-for="a in accountsForExpenseKind(it.expense_kind)" :key="a.id" :value="a.account_code">{{ a.account_code }} {{ a.name }}</option>
-                </select>
                 <template v-if="showAccrual">
                   <button
                     type="button"
@@ -2114,6 +2140,40 @@ function fieldErr(key: string): string | null {
               </td>
               <td class="py-2 px-1 pr-3 text-center">
                 <button type="button" @click="removeItem(i)" class="cursor-pointer w-8 h-8 inline-flex items-center justify-center text-neutral-400 hover:text-danger-600 hover:bg-danger-50 rounded" :title="t('purchase_invoice.items.remove')">✕</button>
+              </td>
+            </tr>
+            <tr v-if="itemDetailsOpen.has(it)" data-test="item-details-row">
+              <td colspan="8" class="pb-2 pl-5 pr-3">
+                <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+                  <label v-if="showItemAccount" class="flex items-center gap-2 text-xs text-neutral-500">
+                    <span class="shrink-0">{{ t('purchase_invoice.items.expense_account') }}</span>
+                    <select v-model="it.expense_account_code" :aria-label="t('purchase_invoice.items.expense_account')"
+                      class="w-64 h-8 px-1 border border-neutral-300 rounded bg-surface text-sm text-neutral-900">
+                      <option :value="null">{{ t('purchase_invoice.items.expense_account_default') }}</option>
+                      <option v-if="it.expense_account_code && !accountsForExpenseKind(it.expense_kind).some(a => a.account_code === it.expense_account_code)"
+                        :value="it.expense_account_code">{{ it.expense_account_code }}</option>
+                      <option v-for="a in accountsForExpenseKind(it.expense_kind)" :key="a.id" :value="a.account_code">{{ a.account_code }} {{ a.name }}</option>
+                    </select>
+                  </label>
+                  <label class="flex items-center gap-2 text-xs text-neutral-500">
+                    <span class="shrink-0">{{ t('purchase_invoice.items.vat_classification') }}</span>
+                    <select v-model="it.vat_classification_code" :aria-label="t('purchase_invoice.items.vat_classification')"
+                      data-test="item-vat-classification"
+                      class="w-72 h-8 px-1 border rounded bg-surface text-sm text-neutral-900"
+                      :class="itemClassDiffers(it) ? 'border-warning-500' : 'border-neutral-300'">
+                      <option :value="null">{{ t('purchase_invoice.items.vat_classification_auto') }}</option>
+                      <option v-for="vc in vatClassifications" :key="vc.id" :value="vc.code">
+                        {{ vc.code }} - {{ vc.label.length > 50 ? vc.label.slice(0, 50) + '…' : vc.label }}
+                      </option>
+                    </select>
+                  </label>
+                  <span v-if="itemClassDiffers(it)" class="text-xs text-warning-700">
+                    {{ t('purchase_invoice.items.vat_classification_differs', { code: form.vat_classification_code }) }}
+                  </span>
+                  <span v-else-if="it.vat_classification_code && it.vat_classification_code === form.vat_classification_code" class="text-xs text-neutral-500">
+                    {{ t('purchase_invoice.items.vat_classification_same') }}
+                  </span>
+                </div>
               </td>
             </tr>
             <tr v-if="docDims.enabled.value && docDims.isItemOpen(it)">
@@ -2194,15 +2254,27 @@ function fieldErr(key: string): string | null {
             </div>
             <div>
               <label class="block text-xs font-medium text-neutral-600 mb-1">{{ t('purchase_invoice.items.expense_kind') }}</label>
-              <select
-                v-model="it.expense_kind"
-                :title="t('purchase_invoice.items.expense_kind_hint')"
-                class="w-full h-10 px-2 border rounded bg-surface text-sm"
-                :class="needsKindAttention(it) ? 'border-danger-500' : 'border-neutral-300'"
-              >
-                <option :value="null">{{ t('purchase_invoice.items.expense_kind_unset') }}</option>
-                <option v-for="k in EXPENSE_KINDS" :key="k" :value="k">{{ t(`purchase_invoice.expense_kind.${k}`) }}</option>
-              </select>
+              <div class="flex items-center gap-2">
+                <select
+                  v-model="it.expense_kind"
+                  :title="t('purchase_invoice.items.expense_kind_hint')"
+                  class="min-w-0 flex-1 h-10 px-2 border rounded bg-surface text-sm"
+                  :class="needsKindAttention(it) ? 'border-danger-500' : 'border-neutral-300'"
+                >
+                  <option :value="null">{{ t('purchase_invoice.items.expense_kind_unset') }}</option>
+                  <option v-for="k in EXPENSE_KINDS" :key="k" :value="k">{{ t(`purchase_invoice.expense_kind.${k}`) }}</option>
+                </select>
+                <button type="button" data-test="item-details-toggle-mobile"
+                  :title="itemDetailsOpen.has(it) ? t('purchase_invoice.items.details_close') : t('purchase_invoice.items.details_open')"
+                  :aria-expanded="itemDetailsOpen.has(it)"
+                  class="shrink-0 w-10 h-10 inline-flex items-center justify-center rounded border"
+                  :class="itemDetailsFilled(it)
+                    ? 'border-primary-300 bg-primary-50 text-primary-700'
+                    : itemDetailsOpen.has(it) ? 'border-neutral-300 bg-neutral-100 text-neutral-700' : 'border-neutral-300 text-neutral-500'"
+                  @click="toggleItemDetails(it)">
+                  <svg class="w-4 h-4 transition-transform" :class="itemDetailsOpen.has(it) ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.chevron" /></svg>
+                </button>
+              </div>
               <div v-if="aiProposalFor(it) && it.expense_kind !== aiProposalFor(it)!.kind" class="mt-1 flex flex-wrap items-center gap-1 text-xs text-neutral-600">
                 <span>{{ t('purchase_invoice.extraction_review.proposal', { kind: t(`purchase_invoice.expense_kind.${aiProposalFor(it)!.kind}`), pct: Math.round(aiProposalFor(it)!.confidence * 100) }) }}</span>
                 <button type="button" class="text-primary-600 hover:underline" @click="it.expense_kind = aiProposalFor(it)!.kind">{{ t('purchase_invoice.extraction_review.apply') }}</button>
@@ -2213,17 +2285,35 @@ function fieldErr(key: string): string | null {
                 @apply="applySuggestion(it)"
                 @dismiss="dismissSuggestion(it)"
               />
-              <label v-if="!auth.isClientRole && supplierStore.currentSupplier?.accounting_mode === 'double_entry'"
-                class="mt-2 block text-xs text-neutral-600">
-                {{ t('purchase_invoice.items.expense_account') }}
-                <select v-model="it.expense_account_code" :aria-label="t('purchase_invoice.items.expense_account')"
-                  class="mt-1 w-full h-10 px-2 border border-neutral-300 rounded bg-surface text-sm">
-                  <option :value="null">{{ t('purchase_invoice.items.expense_account_default') }}</option>
-                  <option v-if="it.expense_account_code && !accountsForExpenseKind(it.expense_kind).some(a => a.account_code === it.expense_account_code)"
-                    :value="it.expense_account_code">{{ it.expense_account_code }}</option>
-                  <option v-for="a in accountsForExpenseKind(it.expense_kind)" :key="a.id" :value="a.account_code">{{ a.account_code }} {{ a.name }}</option>
-                </select>
-              </label>
+              <template v-if="itemDetailsOpen.has(it)">
+                <label v-if="showItemAccount" class="mt-2 block text-xs text-neutral-600">
+                  {{ t('purchase_invoice.items.expense_account') }}
+                  <select v-model="it.expense_account_code" :aria-label="t('purchase_invoice.items.expense_account')"
+                    class="mt-1 w-full h-10 px-2 border border-neutral-300 rounded bg-surface text-sm">
+                    <option :value="null">{{ t('purchase_invoice.items.expense_account_default') }}</option>
+                    <option v-if="it.expense_account_code && !accountsForExpenseKind(it.expense_kind).some(a => a.account_code === it.expense_account_code)"
+                      :value="it.expense_account_code">{{ it.expense_account_code }}</option>
+                    <option v-for="a in accountsForExpenseKind(it.expense_kind)" :key="a.id" :value="a.account_code">{{ a.account_code }} {{ a.name }}</option>
+                  </select>
+                </label>
+                <label class="mt-2 block text-xs text-neutral-600">
+                  {{ t('purchase_invoice.items.vat_classification') }}
+                  <select v-model="it.vat_classification_code" :aria-label="t('purchase_invoice.items.vat_classification')"
+                    class="mt-1 w-full h-10 px-2 border rounded bg-surface text-sm"
+                    :class="itemClassDiffers(it) ? 'border-warning-500' : 'border-neutral-300'">
+                    <option :value="null">{{ t('purchase_invoice.items.vat_classification_auto') }}</option>
+                    <option v-for="vc in vatClassifications" :key="vc.id" :value="vc.code">
+                      {{ vc.code }} - {{ vc.label.length > 40 ? vc.label.slice(0, 40) + '…' : vc.label }}
+                    </option>
+                  </select>
+                </label>
+                <p v-if="itemClassDiffers(it)" class="mt-1 text-xs text-warning-700">
+                  {{ t('purchase_invoice.items.vat_classification_differs', { code: form.vat_classification_code }) }}
+                </p>
+                <p v-else-if="it.vat_classification_code && it.vat_classification_code === form.vat_classification_code" class="mt-1 text-xs text-neutral-500">
+                  {{ t('purchase_invoice.items.vat_classification_same') }}
+                </p>
+              </template>
               <template v-if="showAccrual">
                 <button
                   type="button"
@@ -2507,6 +2597,14 @@ function fieldErr(key: string): string | null {
                 {{ vc.code }} - {{ vc.label.length > 60 ? vc.label.slice(0, 60) + '…' : vc.label }}
               </option>
             </select>
+            <div v-if="itemsDifferFromHeader" class="mt-1 flex flex-wrap items-center gap-2 text-xs text-warning-700" data-test="items-differ-from-header">
+              <span>{{ t('purchase_invoice.classification.items_differ') }}</span>
+              <button type="button" class="cursor-pointer px-2 h-7 inline-flex items-center gap-1 whitespace-nowrap rounded border border-warning-500 text-warning-700 hover:bg-warning-50"
+                @click="applyHeaderClassificationToItems()">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.check" /></svg>
+                {{ t('purchase_invoice.classification.apply_to_items') }}
+              </button>
+            </div>
             <p class="text-xs text-neutral-500 mt-1">{{ t('purchase_invoice.classification.vat_classification_hint') }}</p>
           </div>
           <div>
