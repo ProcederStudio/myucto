@@ -133,7 +133,23 @@ final class Bootstrap
             },
 
             ResponseFactory::class => fn () => new ResponseFactory(),
-            Connection::class      => fn (ContainerInterface $c) => new Connection($c->get(Config::class), $c->get(LoggerInterface::class)),
+            Connection::class      => fn (ContainerInterface $c) => new Connection(
+                $c->get(Config::class),
+                $c->get(LoggerInterface::class),
+                $c->get(\MyInvoice\Infrastructure\Database\SlowQueryLog::class),
+            ),
+            // Vlastní denní soubor vedle app logu (slow-query-YYYY-MM-DD.log), ne app log:
+            // ten se drží 90 dní a pomalé dotazy by v něm zapadly mezi ostatní záznamy.
+            \MyInvoice\Infrastructure\Database\SlowQueryLog::class => function () use ($config): \MyInvoice\Infrastructure\Database\SlowQueryLog {
+                $thresholdMs = (int) $config->get('logging.slow_query_ms', 1000);
+                if ($thresholdMs <= 0) {
+                    return new \MyInvoice\Infrastructure\Database\SlowQueryLog(new \Psr\Log\NullLogger(), 0);
+                }
+                $path = dirname((string) $config->get('logging.path')) . '/slow-query.log';
+                $logger = new Logger('slowquery');
+                $logger->pushHandler(new RotatingFileHandler($path, max(1, (int) $config->get('logging.slow_query_days', 14)), \Monolog\Level::Warning));
+                return new \MyInvoice\Infrastructure\Database\SlowQueryLog($logger, $thresholdMs);
+            },
             \MyInvoice\Repository\IntrastatDataSource::class => fn (ContainerInterface $c) =>
                 $c->get(\MyInvoice\Repository\IntrastatRepository::class),
             \MyInvoice\Service\Eshop\Import\CatalogMediaFetcher::class => fn (ContainerInterface $c) =>

@@ -811,7 +811,7 @@ async function submit() {
           </div>
           <div>
             <label class="block text-sm font-medium text-neutral-700 mb-1">{{ t('client.zip') }} *</label>
-            <input autocomplete="off" v-model="form.zip" required
+            <input autocomplete="off" v-model="form.zip" required maxlength="10"
               class="w-full h-10 px-3 border border-neutral-300 rounded-md focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none" />
             <p data-field-error v-if="errors.zip" class="text-xs text-danger-500 mt-1">{{ errors.zip[0] }}</p>
           </div>

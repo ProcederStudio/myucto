@@ -73,8 +73,11 @@ final class Connection
     private ?string $schemaIdentitySeen = null;
     private static array $schemaSnapshots = [];
 
-    public function __construct(private readonly Config $config, ?LoggerInterface $logger = null)
-    {
+    public function __construct(
+        private readonly Config $config,
+        ?LoggerInterface $logger = null,
+        private readonly ?SlowQueryLog $slowLog = null,
+    ) {
         $this->logger = $logger ?? new NullLogger();
         // Rozhodnutí padá při KONSTRUKCI, ne až v pdo(): kontejner se staví uvnitř
         // withoutSharedTestConnection(), ale první dotaz přijde až dlouho potom.
@@ -177,7 +180,7 @@ final class Connection
             PDO::ATTR_STRINGIFY_FETCHES  => false,
         ], $this->logger, $this->schemaPersistenceEnabled()
             ? static fn (string $database): ?string => self::schemaCachePathFor($schemaConfig, $database)
-            : null);
+            : null, $this->slowLog);
 
         // sql_mode se připíná EXPLICITNĚ, ať se dev, CI i produkce chovají stejně.
         // Bez toho rozhoduje konfigurace serveru: stroj s vypnutým STRICT_TRANS_TABLES

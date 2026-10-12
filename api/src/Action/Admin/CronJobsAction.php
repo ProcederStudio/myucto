@@ -293,7 +293,8 @@ final class CronJobsAction
         $dataDir = is_string($dataDir) && trim($dataDir) !== '' ? trim($dataDir) : null;
         // V Docker image plánuje úlohy vestavěný cron generovaný z CronCatalog
         // (DockerCrontabGenerator) — admin tam nemá co nastavovat, jen ověřit.
-        $isDocker = is_file('/.dockerenv') || is_file(DockerCrontabGenerator::WRAPPER);
+        // @: na sdíleném hostingu s open_basedir by každý dotaz mimo web vypsal warning.
+        $isDocker = @is_file('/.dockerenv') || @is_file(DockerCrontabGenerator::WRAPPER);
 
         $windows = PHP_OS_FAMILY === 'Windows';
         $sep = $windows ? '\\' : '/';
@@ -320,13 +321,16 @@ final class CronJobsAction
     {
         $binary = PHP_BINARY;
         $base = basename($binary);
-        if (!preg_match('/^php-(cgi|fpm)(\d[\d.]*)?(\.exe)?$/i', $base)) {
+        if (!preg_match('/^php-(cgi|fpm)(\d[\d.]*)?(\.exe)?$/i', $base, $m)) {
             return $binary;
         }
         $dir = dirname($binary);
-        foreach (['php.exe', 'php'] as $candidate) {
+        // Verzovaný sourozenec (php-fpm8.5 → php8.5) má přednost: na Debianu s více
+        // verzemi PHP bývá nesufixované `php` jiná (starší) verze.
+        $candidates = ($m[2] ?? '') !== '' ? ['php' . $m[2], 'php.exe', 'php'] : ['php.exe', 'php'];
+        foreach ($candidates as $candidate) {
             $path = $dir . DIRECTORY_SEPARATOR . $candidate;
-            if (is_file($path)) {
+            if (@is_file($path)) {
                 return $path;
             }
         }

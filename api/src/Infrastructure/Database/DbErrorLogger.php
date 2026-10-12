@@ -129,6 +129,20 @@ final class DbErrorLogger
         return false;
     }
 
+    public static function normalizeSql(string $sql): string
+    {
+        return self::normalize($sql);
+    }
+
+    /**
+     * @param array<array-key,mixed> $params
+     * @return array<array-key,mixed>
+     */
+    public static function redactParams(string $sql, array $params): array
+    {
+        return self::redact($sql, $params);
+    }
+
     private static function normalize(string $sql): string
     {
         return (string) preg_replace('/\s+/', ' ', trim($sql));

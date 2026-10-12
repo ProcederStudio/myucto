@@ -29,6 +29,14 @@ final class Validation
         }
         if (empty($data['zip']) || trim((string) $data['zip']) === '') {
             $err['zip'][] = 'PSČ je povinné';
+        } elseif (mb_strlen(trim((string) $data['zip'])) > 10) {
+            // Sloupec clients.zip je VARCHAR(10); bez kontroly padá uložení na chybě DB.
+            $err['zip'][] = 'PSČ může mít nejvýše 10 znaků (město patří do pole Město)';
+        }
+        foreach (['company_name' => 190, 'street' => 190, 'city' => 120] as $field => $max) {
+            if (is_string($data[$field] ?? null) && mb_strlen(trim($data[$field])) > $max) {
+                $err[$field][] = "Text je příliš dlouhý (nejvýše {$max} znaků)";
+            }
         }
         // Hlavní e-mail je nepovinný (#221) — historické doklady ho často nemají.
         // Když ale vyplněný je, musí být platný.

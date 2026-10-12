@@ -99,7 +99,11 @@ final class UserAdminAction
                     $stmt = $pdo->prepare(
                         'INSERT INTO users (email, password_hash, name, role, role_id, locale, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)'
                     );
-                    $stmt->execute([$email, $passwordHash, $name, $this->legacyRole($role), $roleId, $locale]);
+                    // Obsazený e-mail je očekávaný stav (→ 409 níž), ne chyba do logu.
+                    \MyInvoice\Infrastructure\Database\DbErrorLogger::expectingDuplicates(
+                        ['uq_users_email'],
+                        fn () => $stmt->execute([$email, $passwordHash, $name, $this->legacyRole($role), $roleId, $locale]),
+                    );
                     return (int) $pdo->lastInsertId();
                 },
             );

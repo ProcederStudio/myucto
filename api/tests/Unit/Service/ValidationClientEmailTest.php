@@ -27,6 +27,14 @@ final class ValidationClientEmailTest extends TestCase
         ], $overrides);
     }
 
+    public function testZipLongerThanColumnIsRejected(): void
+    {
+        $errors = Validation::client($this->baseClient(['zip' => 'AT-1230 Wien']));
+
+        self::assertArrayHasKey('zip', $errors);
+        self::assertArrayNotHasKey('zip', Validation::client($this->baseClient(['zip' => 'AT-1230'])));
+    }
+
     public function testMissingEmailKeyIsValid(): void
     {
         $err = Validation::client($this->baseClient());

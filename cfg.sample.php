@@ -386,6 +386,8 @@ return [
         'level'    => 'info',                        // debug | info | notice | warning | error
         'path'     => __DIR__ . '/log/app.log',
         'max_files'=> 90,                            // rotace: drž posledních N denních souborů
+        'slow_query_ms'   => 1000,                   // SQL dotazy delší než N ms → log/slow-query-YYYY-MM-DD.log (0 = vypnuto)
+        'slow_query_days' => 14,                     // kolik denních souborů slow logu držet
     ],
     'storage' => [
         'invoices_dir' => __DIR__ . '/storage/invoices',  // vygenerovaná PDF

@@ -189,8 +189,31 @@ final class ClientResolver
         ];
 
         // 4. Create
-        $id = $this->clients->create($data, $supplierId);
+        $id = $this->clients->create(self::fitColumns($data), $supplierId);
         return ['id' => $id, 'created' => true];
+    }
+
+    /**
+     * Vytěžené hodnoty z dokladu nemají zaručenou délku (AI vrátí do PSČ celý řádek
+     * „AT-1230 Wien", do DIČ i s popiskem). Bez úpravy padá import na chybě DB
+     * (Data too long). Identifikátory delší než sloupec jsou zjevně špatně vytěžené,
+     * proto se zahodí; texty se jen zkrátí.
+     *
+     * @param array<string,mixed> $data
+     * @return array<string,mixed>
+     */
+    private static function fitColumns(array $data): array
+    {
+        $dic = preg_replace('/\s+/', '', (string) ($data['dic'] ?? ''));
+        $data['dic'] = $dic !== '' && mb_strlen($dic) <= 20 ? $dic : null;
+        $zip = trim((string) ($data['zip'] ?? ''));
+        $data['zip'] = $zip !== '' && mb_strlen($zip) <= 10 ? $zip : '00000';
+        foreach (['company_name' => 190, 'street' => 190, 'city' => 120, 'phone' => 40] as $field => $max) {
+            if (is_string($data[$field] ?? null) && mb_strlen($data[$field]) > $max) {
+                $data[$field] = mb_substr($data[$field], 0, $max);
+            }
+        }
+        return $data;
     }
 
     /**

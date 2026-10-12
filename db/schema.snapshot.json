@@ -980,7 +980,8 @@
         "1996_document_ai.sql",
         "1997_ai_assistant_history.sql",
         "1998_tax_isds_submission.sql",
-        "1999_income_statement_purpose_missing_accounts.sql"
+        "1999_income_statement_purpose_missing_accounts.sql",
+        "2000_activity_log_action_length.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -1587,7 +1588,7 @@
             "engine": "InnoDB",
             "collation": "utf8mb4_unicode_ci",
             "columns": {
-                "action": "varchar(50) NOT NULL",
+                "action": "varchar(100) NOT NULL",
                 "created_at": "timestamp NOT NULL DEFAULT current_timestamp()",
                 "entity_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "entity_type": "varchar(40) NULL DEFAULT NULL",

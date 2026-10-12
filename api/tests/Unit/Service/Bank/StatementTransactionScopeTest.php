@@ -79,6 +79,28 @@ final class StatementTransactionScopeTest extends TestCase
         self::assertDoesNotMatchRegularExpression('/SCAN (?:bt|bti)\b/', $plan);
     }
 
+    #[DataProvider('conditions')]
+    public function testExistsMatchesLegacyCorrelatedScope(string $condition, int $unused): void
+    {
+        $legacy = 'SELECT bs.id FROM bank_statements bs WHERE EXISTS (SELECT 1 FROM bank_transactions tx WHERE '
+            . StatementTransactionScope::sql('bs.id', 'tx') . " AND ($condition)) ORDER BY bs.id";
+        $exists = 'SELECT bs.id FROM bank_statements bs WHERE '
+            . StatementTransactionScope::existsSql('bs.id', 'tx', $condition) . ' ORDER BY bs.id';
+        self::assertSame(
+            $this->pdo->query($legacy)->fetchAll(PDO::FETCH_COLUMN),
+            $this->pdo->query($exists)->fetchAll(PDO::FETCH_COLUMN),
+        );
+    }
+
+    public function testCorrelatedExistsUsesIndexLookupsInsteadOfTransactionScans(): void
+    {
+        $sql = 'EXPLAIN QUERY PLAN SELECT bs.id FROM bank_statements bs WHERE ' . StatementTransactionScope::existsSql('bs.id');
+        $plan = implode("\n", array_column($this->pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC), 'detail'));
+        self::assertStringContainsString('idx_statement (statement_id=?)', $plan);
+        self::assertStringContainsString('SEARCH bti USING COVERING INDEX', $plan);
+        self::assertDoesNotMatchRegularExpression('/SCAN (?:bt|bti)\b/', $plan);
+    }
+
     #[DataProvider('invalidScopes')]
     public function testInvalidScopesAreRejected(int|string $statementId, string $alias): void
     {

@@ -753,7 +753,7 @@ final class BankStatementAction
         $transactionSql = '';
         $transactionParams = [];
         if ($counterpartyAccount !== '' || $clientId !== null || $amount !== null || $postingStatus !== '') {
-            $transactionConditions = [StatementTransactionScope::sql('bs.id')];
+            $transactionConditions = [];
             if ($counterpartyAccount !== '') {
                 $transactionConditions[] = "UPPER(REGEXP_REPLACE(CONCAT(IFNULL(bt.counterparty_account, ''), IFNULL(bt.counterparty_bank, '')), '[^A-Z0-9]', ''))
                     LIKE CONCAT('%', ?, '%')";
@@ -807,8 +807,10 @@ final class BankStatementAction
                 $transactionConditions[] = "bt.source = 'statement' AND bt.match_status <> 'ignored'
                     AND NOT " . BankTransactionPostingScope::existsSql($sid, 'bt.id');
             }
-            $transactionSql = ' AND EXISTS (SELECT 1 FROM bank_transactions bt WHERE '
-                . implode(' AND ', $transactionConditions) . ')';
+            // existsSql() vloží podmínku do obou větví (přímé pohyby a importované),
+            // proto se parametry opakují dvakrát za sebou.
+            $transactionSql = ' AND ' . StatementTransactionScope::existsSql('bs.id', 'bt', implode(' AND ', $transactionConditions));
+            $transactionParams = array_merge($transactionParams, $transactionParams);
         }
         $filterSql .= $transactionSql;
         $filterParams = array_merge($filterParams, $transactionParams);
@@ -948,8 +950,7 @@ final class BankStatementAction
         $failedStmt = $this->db->pdo()->prepare(
             "SELECT COUNT(*) FROM bank_statements bs
               WHERE $scopeSql AND " . \MyInvoice\Service\Bank\BankApiMonthlyStatements::visibleSql() . "
-                AND EXISTS (SELECT 1 FROM bank_transactions bt
-                             WHERE " . StatementTransactionScope::sql('bs.id') . ' AND ' . StatementProcessingState::failedSql() . ')'
+                AND " . StatementTransactionScope::existsSql('bs.id', 'bt', StatementProcessingState::failedSql())
         );
         $failedStmt->execute($scopeParams);
 

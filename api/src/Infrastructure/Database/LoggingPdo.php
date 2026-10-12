@@ -27,16 +27,20 @@ final class LoggingPdo extends PDO
         array $options,
         private readonly LoggerInterface $logger,
         private readonly ?\Closure $schemaCachePathForDatabase = null,
+        ?SlowQueryLog $slowLog = null,
     ) {
         parent::__construct($dsn, $username, $password, $options);
         preg_match('/(?:^|;)dbname=([^;]*)/', substr($dsn, strpos($dsn, ':') + 1), $match);
         $this->databaseName = $match[1] ?? '';
+        $this->slowLog = $slowLog?->enabled() ? $slowLog : null;
         $weak = \WeakReference::create($this);
         $schemaChanged = static function (string $sql) use ($weak): void {
             $weak->get()?->noteSchemaStatement($sql);
         };
-        $this->setAttribute(PDO::ATTR_STATEMENT_CLASS, [LoggingPdoStatement::class, [$logger, $schemaChanged]]);
+        $this->setAttribute(PDO::ATTR_STATEMENT_CLASS, [LoggingPdoStatement::class, [$logger, $schemaChanged, $this->slowLog, $this->databaseName]]);
     }
+
+    private readonly ?SlowQueryLog $slowLog;
 
     public function databaseName(): string
     {
@@ -69,12 +73,14 @@ final class LoggingPdo extends PDO
 
     public function exec(string $statement): int|false
     {
+        $started = $this->slowLog !== null ? hrtime(true) : 0;
         try {
             $result = parent::exec($statement);
         } catch (PDOException $e) {
             DbErrorLogger::log($this->logger, $e, $statement, []);
             throw $e;
         }
+        $this->slowLog?->record($statement, [], $started, $this->databaseName);
         // Až PO úspěšném zápisu — neúspěšný příkaz nemá co invalidovat.
         WriteWatcher::noteStatement($statement);
         $this->noteSchemaStatement($statement);
@@ -84,12 +90,14 @@ final class LoggingPdo extends PDO
 
     public function query(string $query, ?int $fetchMode = null, mixed ...$fetchModeArgs): PDOStatement|false
     {
+        $started = $this->slowLog !== null ? hrtime(true) : 0;
         try {
             $result = parent::query($query, $fetchMode, ...$fetchModeArgs);
         } catch (PDOException $e) {
             DbErrorLogger::log($this->logger, $e, $query, []);
             throw $e;
         }
+        $this->slowLog?->record($query, [], $started, $this->databaseName);
         WriteWatcher::noteStatement($query);
         $this->noteSchemaStatement($query);
 

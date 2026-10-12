@@ -135,7 +135,11 @@ final class SavedFilterAction
                 'INSERT INTO saved_filters (user_id, supplier_id, page_key, name, payload, is_default, sort_order)
                  VALUES (?, ?, ?, ?, ?, ?, ?)'
             );
-            $ins->execute([$userId, $supplierId, $pageKey, $name, $payload, $isDefault ? 1 : 0, $sortOrder]);
+            // Duplicitní název je očekávaný stav (→ 409 níž), ne chyba do logu.
+            \MyInvoice\Infrastructure\Database\DbErrorLogger::expectingDuplicates(
+                ['uq_sf_user_supplier_page_name'],
+                fn () => $ins->execute([$userId, $supplierId, $pageKey, $name, $payload, $isDefault ? 1 : 0, $sortOrder]),
+            );
             $id = (int) $pdo->lastInsertId();
 
             if ($isDefault) {

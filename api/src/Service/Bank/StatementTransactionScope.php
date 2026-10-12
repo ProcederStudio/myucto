@@ -31,6 +31,24 @@ final class StatementTransactionScope
                      AND ($condition)))";
     }
 
+    /**
+     * EXISTS nad pohyby výpisu splňujícími $condition. Na rozdíl od EXISTS(... WHERE sql())
+     * nemá OR přes dvě tabulky, takže obě větve jdou po indexu (statement_id, resp. bti);
+     * korelovaná varianta s OR skenovala všechny pohyby pro každý výpis.
+     */
+    public static function existsSql(int|string $statementId, string $alias = 'bt', string $condition = '1=1'): string
+    {
+        self::validate($statementId, $alias);
+        return "(EXISTS (SELECT 1 FROM bank_transactions $alias
+                          WHERE $alias.statement_id = $statementId AND ($condition))
+                OR EXISTS (SELECT 1 FROM bank_transaction_imports bti
+                           JOIN bank_transactions $alias ON $alias.id = bti.bank_transaction_id
+                           " . self::ownershipJoins($alias) . "
+                           WHERE bti.statement_id = $statementId
+                             AND evidence.supplier_id = original.supplier_id
+                             AND ($condition)))";
+    }
+
     private static function ownershipJoins(string $alias): string
     {
         return "JOIN bank_statements evidence ON evidence.id = bti.statement_id

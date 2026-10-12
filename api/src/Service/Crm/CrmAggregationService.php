@@ -1843,9 +1843,8 @@ final class CrmAggregationService
                FROM bank_statements bs
               WHERE ' . \MyInvoice\Repository\BankStatementOwnershipResolver::sql() . '
                 AND ' . \MyInvoice\Service\Bank\BankApiMonthlyStatements::visibleSql() . '
-                AND EXISTS (SELECT 1 FROM bank_transactions bt
-                             WHERE ' . \MyInvoice\Service\Bank\StatementTransactionScope::sql('bs.id')
-                . ' AND ' . \MyInvoice\Service\Bank\StatementProcessingState::failedSql('bt', $now) . ')
+                AND ' . \MyInvoice\Service\Bank\StatementTransactionScope::existsSql('bs.id', 'bt',
+                    \MyInvoice\Service\Bank\StatementProcessingState::failedSql('bt', $now)) . '
            ORDER BY bs.statement_date DESC, bs.id DESC
               LIMIT 5'
         );

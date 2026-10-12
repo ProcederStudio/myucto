@@ -320,8 +320,8 @@ final class ViesClient
     {
         // Generic EU: poslední řádek "PSČ město"
         $last = end($lines);
-        // Variace: "12345 Stadt", "12345  Stadt", "L-1234 City" (Lucembursko)
-        if (preg_match('/^([A-Z]?-?\d{3,5})\s+(.+)$/u', $last, $m)) {
+        // Variace: "12345 Stadt", "12345  Stadt", "L-1234 City" (Lucembursko), "AT-1230 Wien"
+        if (preg_match('/^((?:[A-Z]{1,2}-?)?\d{3,5})\s+(.+)$/u', $last, $m)) {
             $street = $lines[0] ?? '';
             return [
                 'street' => trim($street),

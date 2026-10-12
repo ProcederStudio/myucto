@@ -15,16 +15,23 @@ use Psr\Log\LoggerInterface;
  */
 final class LoggingPdoStatement extends PDOStatement
 {
-    protected function __construct(private readonly LoggerInterface $logger, private readonly ?\Closure $schemaChanged = null) {}
+    protected function __construct(
+        private readonly LoggerInterface $logger,
+        private readonly ?\Closure $schemaChanged = null,
+        private readonly ?SlowQueryLog $slowLog = null,
+        private readonly string $database = '',
+    ) {}
 
     public function execute(?array $params = null): bool
     {
+        $started = $this->slowLog !== null ? hrtime(true) : 0;
         try {
             $ok = parent::execute($params);
         } catch (PDOException $e) {
             DbErrorLogger::log($this->logger, $e, (string) $this->queryString, $params ?? []);
             throw $e;
         }
+        $this->slowLog?->record((string) $this->queryString, $params ?? [], $started, $this->database);
 
         // Invalidace entity cache — až po úspěšném provedení. Detekce write
         // příkazu je uvnitř, čtení odfiltruje hned první regex, takže SELECTy

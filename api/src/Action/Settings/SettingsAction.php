@@ -557,6 +557,19 @@ final class SettingsAction
             $body[$column] = $text === '' ? null : $text;
         }
 
+        // default_hourly_rate je DECIMAL NOT NULL: prázdné pole z formuláře ('') by
+        // striktní MariaDB odmítla (Incorrect decimal value) a uložení firmy by spadlo.
+        if (array_key_exists('default_hourly_rate', $body)) {
+            $rate = str_replace([' ', "\u{00A0}", ','], ['', '', '.'], trim((string) $body['default_hourly_rate']));
+            if ($rate === '') {
+                $rate = '0';
+            }
+            if (!is_numeric($rate) || (float) $rate < 0) {
+                return Json::error($response, 'validation_failed', 'Výchozí hodinová sazba musí být nezáporné číslo.', 400);
+            }
+            $body['default_hourly_rate'] = $rate;
+        }
+
         // F7 — ENUM validace AI provider selection (§3.8).
         if (array_key_exists('ai_provider', $body)
             && !in_array($body['ai_provider'], \MyInvoice\Service\Import\LlmProviderRegistry::PROVIDERS, true)
@@ -1396,6 +1409,11 @@ final class SettingsAction
         if (($claimed = $this->rejectForeignBankAccount($request, $response, $sid, $body)) !== null) {
             return $claimed;
         }
+        // label je NOT NULL; prázdný název by níž spadl na chybě DB (500).
+        if (array_key_exists('label', $body) && trim((string) $body['label']) === '') {
+            return Json::error($response, 'validation_failed', 'Název účtu je povinný.', 400,
+                ['fields' => ['label' => ['Název účtu je povinný.']]]);
+        }
         $allowed = ['label', 'symbol', 'decimals', 'is_active', 'is_default', 'account_number', 'bank_code', 'bank_name', 'iban', 'bic'];
         $sets = [];
         $params = [];
@@ -1748,6 +1766,12 @@ final class SettingsAction
         $deps = (int) $stmt->fetchColumn();
         if ($deps > 0) {
             return Json::error($response, 'has_dependencies', "Měnu nelze smazat — je použita na $deps dokladech.", 409);
+        }
+        $stmt = $pdo->prepare('SELECT COUNT(*) FROM clients WHERE currency_default_id = ?');
+        $stmt->execute([$id]);
+        $clientDeps = (int) $stmt->fetchColumn();
+        if ($clientDeps > 0) {
+            return Json::error($response, 'has_dependencies', "Měnu nelze smazat — je výchozí měnou u $clientDeps klientů.", 409);
         }
         try {
             $pdo->prepare('DELETE FROM currencies WHERE id = ?')->execute([$id]);

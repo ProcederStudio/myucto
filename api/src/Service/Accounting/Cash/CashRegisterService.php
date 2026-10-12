@@ -96,6 +96,11 @@ final class CashRegisterService
             // Podvojné účetnictví, CZK: účet musí být existující aktivní analytika 211.
             // Daňová evidence (Epic DE §6): pokladna nemá journal → COA se nekontroluje.
             $this->assertAccountUsable($supplierId, $accountCode);
+        } elseif ($accountCode === '' && $this->registers->findByAccountCode($supplierId, '') !== null) {
+            // DE bez zadaného účtu: prázdný kód smí mít jen jedna pokladna (unikátní klíč
+            // supplier + account_code), druhá by spadla na duplicitě. Přidělí se volná
+            // analytika 211.xxx, která se hodí i po případném přechodu na podvojné účetnictví.
+            $accountCode = $this->nextFreeCashAnalytic($supplierId);
         }
 
         $pdo = $this->db->pdo();

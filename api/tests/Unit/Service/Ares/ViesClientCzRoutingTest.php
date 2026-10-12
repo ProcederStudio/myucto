@@ -113,4 +113,17 @@ final class ViesClientCzRoutingTest extends TestCase
         $result = $m->invoke($client, '123', 'CZ123');
         self::assertNull($result);
     }
+
+    public function testGenericAddressAcceptsTwoLetterCountryPrefixInZip(): void
+    {
+        $m = new \ReflectionMethod(ViesClient::class, 'parseAddress');
+        $client = $this->makeClient();
+
+        self::assertSame(
+            ['street' => 'Richard-Strauss-Straße 34', 'city' => 'Wien', 'zip' => 'AT-1230'],
+            $m->invoke($client, "Richard-Strauss-Straße 34\nAT-1230 Wien", 'AT'),
+        );
+        self::assertSame('L-1234', $m->invoke($client, "Rue 1\nL-1234 Luxembourg", 'LU')['zip']);
+        self::assertSame('10115', $m->invoke($client, "Straße 1\n10115 Berlin", 'DE')['zip']);
+    }
 }
