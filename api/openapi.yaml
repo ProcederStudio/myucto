@@ -1063,6 +1063,106 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /api/v1/invoices/import:
+    post:
+      tags: [Invoices]
+      summary: Převezme fakturu nebo dobropis vystavený jiným systémem
+      description: |
+        Uloží doklad, který už vystavil jiný systém (typicky e-shop), **s původním číslem,
+        položkami, daty a částkami**. Doklad vznikne rovnou ve stavu `issued`; MyÚčto ho
+        znovu nevystavuje, nepřiděluje mu číslo z řady a částky NEpřepočítává. Uložené
+        řádky jsou přesně ty, které přišly, a z nich čte evidence DPH, přiznání i kontrolní
+        hlášení.
+
+        Částky se jen ověří (jinak `422 validation_failed` s detaily v `error.fields`):
+        u každé položky `total_with_vat = total_without_vat + total_vat` na haléř a DPH
+        odpovídající sazbě ze základu s tolerancí 1,00 v měně dokladu (zaokrouhlení daně
+        po dokladu); u přenesené povinnosti nese položka DPH 0. Součet základů a DPH položek
+        musí na haléř sedět na hlavičku, součet položek s DPH plus `rounding` na
+        `total_with_vat`. Faktura má kladnou celkovou částku, dobropis zápornou (záporné
+        řádky jako u dobropisu vystaveného v aplikaci).
+
+        Platí stejné brány jako při vystavení: přenesená povinnost vyžaduje DIČ odběratele
+        (`reverse_charge_dic_missing`), neplátce k datu zdanitelného plnění nemůže převzít
+        doklad s DPH (`not_vat_payer_at_date`) a uzavřené účetní období doklad odmítne
+        (`period_closed`, u klientské role `document_locked`). Odmítne se i období, za
+        které je už podané přiznání k DPH, kontrolní hlášení nebo OSS přiznání
+        (`period_filed`).
+
+        Co import nedělá:
+        - **úhrady** — zaplacení se zaeviduje až potom přes `POST /api/v1/invoices/{id}/mark-paid`
+          nebo `POST /api/v1/invoices/{id}/payments`;
+        - **skladové pohyby** — zásobu vede e-shop, výdejka nevznikne;
+        - **OSS** — všechny položky se ukládají jako tuzemské, prodej v režimu OSS se tudy
+          nepřebírá.
+
+        Číselná řada se po importu dorovná, aby další doklad vystavený v aplikaci nedostal
+        číslo, které už má převzatý doklad. Chybějící členění plnění položky se doplní
+        stejně jako u dokladu z aplikace (podle sazby, přenesené povinnosti a země odběratele).
+      parameters:
+        - $ref: '#/components/parameters/SupplierIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InvoiceImportInput' }
+      responses:
+        '201':
+          description: Převzato — vystavený doklad
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Invoice' }
+        '400':
+          description: |
+            Odběratel neexistuje (`client_not_found`) nebo odkaz míří na cizí firmu
+            (`invalid_reference`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401':
+          description: Nepřihlášený požadavek
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '403':
+          description: |
+            Chybí oprávnění k založení a vystavení faktury (`forbidden`), API token nemá scope
+            `read_write` (`insufficient_scope`), nebo klientská role narazila na uzamčené
+            období (`document_locked`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: Firma (`X-Supplier-Id`) neexistuje nebo k ní uživatel nemá přístup
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: |
+            Doklad se stejným číslem už u firmy existuje (`varsymbol_duplicate`; `error.existing_invoice_id`
+            nese jeho id, takže opakovaný import se dá rozpoznat), doklad spadá do uzavřeného
+            účetního období (`period_closed`) nebo do už podaného období DPH (`period_filed`).
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Error'
+                  - type: object
+                    properties:
+                      error:
+                        type: object
+                        properties:
+                          existing_invoice_id: { type: [integer, "null"], description: "Id existujícího dokladu se stejným číslem (jen u `varsymbol_duplicate`)." }
+        '422':
+          description: |
+            Neplatný vstup nebo nesedící částky (`validation_failed`, detaily v `error.fields`),
+            opravovaná faktura dobropisu neexistuje (`parent_invoice_not_found`), přenesená
+            povinnost bez DIČ odběratele (`reverse_charge_dic_missing`) nebo firma k datu
+            plnění není plátcem DPH (`not_vat_payer_at_date`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   /api/v1/invoices/preview-varsymbol:
     get:
       tags: [Invoices]
@@ -35206,6 +35306,71 @@ components:
         items:
           type: array
           items: { $ref: '#/components/schemas/InvoiceItemInput' }
+
+    InvoiceImportInput:
+      type: object
+      required: [varsymbol, client_id, tax_date, prices_include_vat, total_without_vat, total_vat, total_with_vat, items]
+      description: |
+        Vstup pro POST /invoices/import — doklad vystavený jiným systémem. Částky se ukládají
+        doslova, viz popis operace. Názvy polí odpovídají `InvoiceInput`.
+      properties:
+        invoice_type: { type: string, enum: [invoice, credit_note], default: invoice }
+        varsymbol: { type: string, maxLength: 20, description: "Původní číslo dokladu (ořízne se o mezery). V rámci firmy musí být unikátní." }
+        client_id: { type: integer, description: "Musí patřit aktuálnímu supplier-ovi" }
+        issue_date: { type: string, format: date, description: "Datum vystavení. Default = tax_date." }
+        tax_date: { type: string, format: date, description: "DUZP. U dobropisu s `corrective_delivered_on` se přepíše dnem doručení." }
+        due_date: { type: string, format: date, description: "Datum splatnosti. Default = issue_date." }
+        currency_id: { type: integer, description: "FK do /settings/currencies (per-supplier). Default = výchozí měna klienta/supplier." }
+        currency:
+          type: string
+          example: CZK
+          description: "Kód měny (CZK, EUR, …) — resolvuje se na `currency_id` v rámci supplier-a, když `currency_id` chybí."
+        exchange_rate: { type: [number, "null"], format: float, description: "Kurz původního dokladu (CZK / 1 jednotka cizí měny). U cizí měny povinný, u CZK se ignoruje." }
+        prices_include_vat: { type: boolean, description: "Režim cen původního dokladu (ceny položek včetně DPH)." }
+        reverse_charge: { type: boolean, default: false, description: "Přenesená daňová povinnost — vyžaduje DIČ odběratele, položky nesou DPH 0." }
+        payment_method:
+          type: string
+          enum: [bank_transfer, direct_debit, card, cash, cash_on_delivery, offset, other]
+          default: bank_transfer
+        payment_variable_symbol:
+          type: [string, "null"]
+          pattern: "^[0-9]{1,10}$"
+          description: "Platební VS odlišný od čísla dokladu. null = odvodit z čísla dokladu."
+        note_above_items: { type: [string, "null"] }
+        note_below_items: { type: [string, "null"] }
+        vat_classification_code: { type: [string, "null"], description: "Hlavičkový kód členění plnění; prázdné = doplní se podle položek." }
+        parent_invoice_id: { type: [integer, "null"], description: "Jen dobropis: id opravované faktury (vystavená, nestornovaná, téže firmy), jinak 422 `parent_invoice_not_found`." }
+        parent_varsymbol: { type: [string, "null"], description: "Jen dobropis: číslo opravované faktury místo jejího id." }
+        corrective_delivered_on:
+          type: [string, "null"]
+          format: date
+          description: |
+            Jen dobropis: den doručení opravného dokladu (§ 42 odst. 3 ZDPH). Uloží se a stane
+            se zároveň datem zdanitelného plnění, tedy obdobím opravy.
+        rounding: { type: number, format: float, default: 0, description: "Zaokrouhlení dokladu — rozdíl celkové částky proti součtu položek s DPH." }
+        total_without_vat: { type: number, format: float, description: "Základ dokladu = součet základů položek." }
+        total_vat: { type: number, format: float, description: "DPH dokladu = součet DPH položek." }
+        total_with_vat: { type: number, format: float, description: "Celkem = součet položek s DPH + rounding. Faktura kladná, dobropis záporná." }
+        items:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/InvoiceImportItemInput' }
+
+    InvoiceImportItemInput:
+      type: object
+      required: [description, quantity, unit_price_without_vat, total_without_vat, total_vat, total_with_vat]
+      description: Položka převzatého dokladu. Sazbu DPH uveď procentem (`vat_rate`) nebo id (`vat_rate_id`).
+      properties:
+        description: { type: string }
+        quantity: { type: number, format: float, description: "U dobropisu záporné množství." }
+        unit: { type: string, default: ks }
+        unit_price_without_vat: { type: number, format: float, description: "Jednotková cena tak, jak ji nese původní doklad." }
+        vat_rate: { type: number, format: float, description: "Sazba DPH v procentech; páruje se na tuzemskou sazbu firmy k DUZP." }
+        vat_rate_id: { type: integer, description: "FK do /settings/vat-rates — musí být tuzemská sazba firmy." }
+        total_without_vat: { type: number, format: float }
+        total_vat: { type: number, format: float }
+        total_with_vat: { type: number, format: float }
+        vat_classification_code: { type: [string, "null"], description: "Kód členění plnění; prázdné = doplní se podle sazby, přenesené povinnosti a země odběratele." }
 
     ProjectBilingEmail:
       type: object

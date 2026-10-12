@@ -36,7 +36,8 @@ final class MigratedDocumentWriterTest extends TestCase
             total_without_vat NUMERIC, total_vat NUMERIC, total_with_vat NUMERIC, rounding NUMERIC,
             advance_paid_amount NUMERIC, paid_total NUMERIC, paid_at TEXT, status TEXT, booked_at TEXT,
             booked_by INT, vat_classification_code TEXT, reverse_charge INT, payment_method TEXT,
-            prices_include_vat INT, created_by INT)');
+            prices_include_vat INT, created_by INT, supplier_snapshot TEXT, bank_snapshot TEXT,
+            parent_invoice_id INT, corrective_delivered_on TEXT)');
         $this->pdo->exec('CREATE TABLE invoice_items (id INTEGER PRIMARY KEY AUTOINCREMENT,
             invoice_id INT, description TEXT, quantity NUMERIC, unit TEXT, unit_price_without_vat NUMERIC,
             vat_rate_id INT, vat_rate_snapshot NUMERIC, total_without_vat NUMERIC, total_vat NUMERIC,
@@ -103,6 +104,47 @@ final class MigratedDocumentWriterTest extends TestCase
         self::assertNull($row['booked_at']);
         self::assertNull($row['booked_by']);
         self::assertNull($row['vat_classification_code']);
+        // Sloupce, které nese jen import přes API — převod je nezná, takže zůstávají NULL.
+        self::assertNull($row['supplier_snapshot']);
+        self::assertNull($row['bank_snapshot']);
+        self::assertNull($row['parent_invoice_id']);
+        self::assertNull($row['corrective_delivered_on']);
+    }
+
+    public function testIssuedDocumentWritesApiImportColumnsWhenGiven(): void
+    {
+        $id = $this->writer->insertIssued(new MigratedIssuedDocument(
+            supplierId: 7,
+            invoiceType: 'credit_note',
+            clientId: 3,
+            varsymbol: 'D2024001',
+            issueDate: '2024-03-01',
+            taxDate: '2024-03-04',
+            dueDate: '2024-03-15',
+            currencyId: 5,
+            exchangeRate: null,
+            pricesIncludeVat: false,
+            reverseCharge: false,
+            noteAboveItems: null,
+            noteBelowItems: null,
+            clientSnapshot: '{}',
+            totalWithoutVat: -100.0,
+            totalVat: -21.0,
+            totalWithVat: -121.0,
+            rounding: 0.0,
+            status: 'issued',
+            createdBy: 9,
+            supplierSnapshot: '{"company_name":"Dodavatel"}',
+            bankSnapshot: '{"account_number":"1000000005"}',
+            parentInvoiceId: 42,
+            correctiveDeliveredOn: '2024-03-04',
+        ));
+
+        $row = $this->pdo->query("SELECT * FROM invoices WHERE id = {$id}")->fetch();
+        self::assertSame('{"company_name":"Dodavatel"}', $row['supplier_snapshot']);
+        self::assertSame('{"account_number":"1000000005"}', $row['bank_snapshot']);
+        self::assertSame(42, (int) $row['parent_invoice_id']);
+        self::assertSame('2024-03-04', $row['corrective_delivered_on']);
     }
 
     public function testIssuedItemsCarryOrderIndexFromKeysAndOssColumns(): void

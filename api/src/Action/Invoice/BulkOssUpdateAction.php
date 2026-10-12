@@ -9,7 +9,6 @@ use MyInvoice\Http\SupplierGuard;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Repository\RetentionHoldRepository;
-use MyInvoice\Repository\TaxSubmissionRepository;
 use MyInvoice\Security\AccessLevel;
 use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Service\Accounting\DocumentLockService;
@@ -17,9 +16,9 @@ use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\IpMatcher;
 use MyInvoice\Service\Oss\OssDocumentCoherence;
 use MyInvoice\Service\Oss\OssItemDeriver;
-use MyInvoice\Service\Oss\OssPeriod;
 use MyInvoice\Service\Oss\OssRateCodebook;
 use MyInvoice\Service\Pdf\InvoicePdfRenderer;
+use MyInvoice\Service\Vat\FiledVatPeriodLookup;
 use PDO;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -113,7 +112,7 @@ final class BulkOssUpdateAction
     public function __construct(
         private readonly Connection $db,
         private readonly DocumentLockService $locks,
-        private readonly TaxSubmissionRepository $submissions,
+        private readonly FiledVatPeriodLookup $filedPeriods,
         private readonly RetentionHoldRepository $holds,
         private readonly OssRateCodebook $codebook,
         private readonly OssItemDeriver $deriver,
@@ -915,13 +914,8 @@ final class BulkOssUpdateAction
     }
 
     /**
-     * Popis podaného výkazu, který dané datum plnění pokrývá, nebo `null`.
-     *
-     * Kontrolují se OBĚ periodicity DPH (firma může být měsíční i čtvrtletní plátce a
-     * v čase se to mění), kontrolní hlášení i samotné OSS podání. Za podané se považuje
-     * jen prokazatelně odevzdaný snapshot — vygenerování XML podáním není
-     * ({@see TaxSubmissionRepository::findLatestForPeriod()} filtruje na
-     * `submitted`/`accepted`).
+     * Popis podaného výkazu, který dané datum plnění pokrývá, nebo `null`
+     * ({@see FiledVatPeriodLookup}, sdílené s importem vystavených dokladů).
      */
     private function filedPeriod(int $supplierId, string $refDate): ?string
     {
@@ -930,44 +924,7 @@ final class BulkOssUpdateAction
             return $this->filedCache[$key];
         }
 
-        $year = (int) substr($refDate, 0, 4);
-        $month = (int) substr($refDate, 5, 2);
-        $quarter = (int) ceil($month / 3);
-        // Každý formulář má vlastní sadu kódů varianty. Přiznání k DPH zná
-        // B/O/D/E, kontrolní hlášení ale N (následné) místo D — se sadou od
-        // přiznání by podané NÁSLEDNÉ kontrolní hlášení neplatilo za podání
-        // a hromadná změna by prošla nad už odevzdaným obdobím.
-        $variantsByForm = [
-            'dphdp3' => ['B', 'O', 'D', 'E'],
-            'dphkh1' => ['B', 'O', 'N', 'E'],
-            'ossei1' => ['B', 'O', 'D', 'E'],
-        ];
-
-        $found = null;
-        foreach ([['dphdp3', 'přiznání k DPH'], ['dphkh1', 'kontrolní hlášení']] as [$form, $label]) {
-            $variants = $variantsByForm[$form];
-            if ($this->submissions->findLatestForPeriod($supplierId, $form, $year, $month, null, $variants) !== null) {
-                $found = sprintf('%s za %d/%d', $label, $month, $year);
-                break;
-            }
-            if ($this->submissions->findLatestForPeriod($supplierId, $form, $year, null, $quarter, $variants) !== null) {
-                $found = sprintf('%s za Q%d %d', $label, $quarter, $year);
-                break;
-            }
-        }
-        if ($found === null
-            && $this->submissions->findLatestForPeriod(
-                $supplierId,
-                'ossei1',
-                $year,
-                null,
-                $quarter,
-                $variantsByForm['ossei1'],
-            ) !== null) {
-            $found = sprintf('OSS přiznání za %s', OssPeriod::quarterCode($refDate) ?? ('Q' . $quarter . ' ' . $year));
-        }
-
-        return $this->filedCache[$key] = $found;
+        return $this->filedCache[$key] = $this->filedPeriods->describe($supplierId, $refDate);
     }
 
     private function lockLabel(\MyInvoice\Service\Accounting\DocumentLock $lock): string

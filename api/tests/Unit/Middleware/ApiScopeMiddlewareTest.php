@@ -33,6 +33,22 @@ final class ApiScopeMiddlewareTest extends TestCase
         self::assertSame(403, $this->middleware()->process($this->bearer('POST', '/api/stock/intrastat/export/other', 'read'), $this->okHandler())->getStatusCode());
     }
 
+    /**
+     * Import už vystaveného dokladu (issue #145) je zápis do veřejného API faktur:
+     * `read_write` token projde, `read` dostane 403 a nedostane se ani k akci.
+     */
+    public function testInvoiceImportNeedsReadWriteScope(): void
+    {
+        $denied = $this->middleware()->process($this->bearer('POST', '/api/invoices/import', 'read'), $this->okHandler());
+        self::assertSame(403, $denied->getStatusCode());
+        self::assertSame('insufficient_scope', $this->errorCode($denied));
+
+        self::assertSame(204, $this->middleware()->process(
+            $this->bearer('POST', '/api/invoices/import', 'read_write'),
+            $this->okHandler(),
+        )->getStatusCode());
+    }
+
     public function testBearerReadCanGetCatalogChangeFeed(): void
     {
         self::assertSame(204, $this->middleware()->process($this->bearer('GET', '/api/catalog/changes', 'read'), $this->okHandler())->getStatusCode());

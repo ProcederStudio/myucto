@@ -73,6 +73,9 @@ final class RoutePermissionMap
         ['*', '#^/api/invoices/[0-9]+/stock-documents(/|$)#', 'stock', AccessLevel::WRITE],
         ['*', '#^/api/invoices/[0-9]+/book$#', 'accounting.journal.post', AccessLevel::WRITE],
         ['POST', '#^/api/invoices/[0-9]+/issue(-final)?$#', 'invoices.issue', AccessLevel::WRITE],
+        // Import už vystaveného dokladu zakládá rovnou vystavenou fakturu: vystavení
+        // hlídá mapa, založení (`invoices.create`) dohlíží akce.
+        ['POST', '#^/api/invoices/import$#', 'invoices.issue', AccessLevel::WRITE],
         ['POST', '#^/api/invoices/[0-9]+/(send|send-test)$#', 'invoices.send', AccessLevel::WRITE],
         ['POST', '#^/api/invoices(/[0-9]+)?/(reminder|reminder-test)$#', 'invoices.reminder', AccessLevel::WRITE],
         ['POST', '#^/api/invoices/[0-9]+/(mark-paid|unmark-paid|payments|credit-note-offset)(/|$)#', 'invoices.mark_paid', AccessLevel::WRITE],

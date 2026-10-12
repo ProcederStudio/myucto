@@ -45,5 +45,12 @@ final class MigratedIssuedDocument
         public readonly ?int $bookedBy = null,
         public readonly ?string $vatClassificationCode = null,
         public readonly string $paymentMethod = 'bank_transfer',
+        // Snapshoty dodavatele a banky, vazba dobropisu na opravovaný doklad a den doručení
+        // opravného dokladu (§ 42 odst. 3). Převody je nenesou (NULL = DEFAULT sloupce),
+        // vyplňuje je import vystaveného dokladu přes API ({@see \MyInvoice\Action\Invoice\ImportIssuedInvoiceAction}).
+        public readonly ?string $supplierSnapshot = null,
+        public readonly ?string $bankSnapshot = null,
+        public readonly ?int $parentInvoiceId = null,
+        public readonly ?string $correctiveDeliveredOn = null,
     ) {}
 }

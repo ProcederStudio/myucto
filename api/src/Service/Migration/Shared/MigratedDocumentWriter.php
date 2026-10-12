@@ -9,6 +9,9 @@ use MyInvoice\Infrastructure\Database\Connection;
 /**
  * Jediný zápis převzatých dokladů z cizích účetních programů (Money S3, POHODA, PREMIER,
  * Stereo NX) do `invoices` / `invoice_items` a `purchase_invoices` / `purchase_invoice_items`.
+ * Stejnou cestou zapisuje i import už vystaveného dokladu přes API
+ * ({@see \MyInvoice\Action\Invoice\ImportIssuedInvoiceAction}): doklad z e-shopu je převzatý
+ * doklad, jen nepřichází souborem.
  *
  * Zdrojový importér jen mapuje svůj doklad na {@see MigratedIssuedDocument} /
  * {@see MigratedPurchaseDocument} a {@see MigratedDocumentItem}; o daňové povaze dokladu
@@ -35,8 +38,9 @@ final class MigratedDocumentWriter
                  currency_id, exchange_rate, note_above_items, note_below_items, client_snapshot,
                  total_without_vat, total_vat, total_with_vat, rounding, advance_paid_amount, paid_total, paid_at,
                  status, booked_at, booked_by, vat_classification_code, reverse_charge, payment_method,
-                 prices_include_vat, created_by)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')->execute([
+                 prices_include_vat, created_by, supplier_snapshot, bank_snapshot, parent_invoice_id,
+                 corrective_delivered_on)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')->execute([
             $d->supplierId,
             $d->invoiceType,
             $d->clientId,
@@ -65,6 +69,10 @@ final class MigratedDocumentWriter
             $d->paymentMethod,
             $d->pricesIncludeVat ? 1 : 0,
             $d->createdBy,
+            $d->supplierSnapshot,
+            $d->bankSnapshot,
+            $d->parentInvoiceId,
+            $d->correctiveDeliveredOn,
         ]);
         return (int) $this->db->pdo()->lastInsertId();
     }

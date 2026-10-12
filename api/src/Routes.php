@@ -661,6 +661,8 @@ final class Routes
         $app->get    ('/api/invoices/export',       ExportAction::class);
         $app->get    ('/api/invoices/preview-varsymbol', PreviewVarsymbolAction::class);
         $app->post   ('/api/invoices',              CreateInvoiceAction::class);
+        // Převzetí faktury/dobropisu už vystaveného jinde (e-shop) bez přepočtu (issue #145).
+        $app->post   ('/api/invoices/import',       \MyInvoice\Action\Invoice\ImportIssuedInvoiceAction::class);
         $app->get    ('/api/invoices/{id:[0-9]+}',  GetInvoiceAction::class);
         $app->get    ('/api/invoices/{id:[0-9]+}/items', GetInvoiceItemsAction::class);
         $app->get    ('/api/invoices/{id:[0-9]+}/activity', InvoiceActivityAction::class);
