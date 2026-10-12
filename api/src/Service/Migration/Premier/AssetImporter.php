@@ -123,7 +123,7 @@ final class AssetImporter
             return;
         }
         $key = $register['prefix'] . $inter;
-        $booked = self::bookedThrough($movements[$inter] ?? [], sprintf('%04d-12-31', $ctx->year - 1));
+        $booked = self::bookedThrough($movements[$inter] ?? [], $ctx->calendar->periodEnd($ctx->year - 1));
         $monthPlan = self::monthPlan($plan[$inter] ?? []);
         if (isset($existing[$key])) {
             $this->confirmYear($ctx, $existing[$key], $tax[$inter] ?? [], $movements[$inter] ?? [], $number);
@@ -162,7 +162,7 @@ final class AssetImporter
         $openingTax = 0.0;
         foreach ($taxRows as $t) {
             $amount = (float) ($t['O_ODPIS'] ?? 0);
-            if ((int) substr((string) ($t['O_DATUM'] ?? ''), 0, 4) < $ctx->year && abs($amount) >= 0.005) {
+            if (self::yearOf($ctx, $t['O_DATUM'] ?? null) < $ctx->year && abs($amount) >= 0.005) {
                 $openingYears++;
                 $openingTax += $amount;
             }
@@ -272,7 +272,7 @@ final class AssetImporter
         $months = [];
         foreach ($movements as $m) {
             $date = (string) ($m['DATUM'] ?? '');
-            if ((int) ($m['KOD'] ?? 0) === self::MOVEMENT_BOOKED && (int) substr($date, 0, 4) === $ctx->year) {
+            if ((int) ($m['KOD'] ?? 0) === self::MOVEMENT_BOOKED && self::yearOf($ctx, $date) === $ctx->year) {
                 $booked += (float) ($m['CASTKA'] ?? 0);
                 $months[substr($date, 0, 7)] = true;
             }
@@ -305,7 +305,7 @@ final class AssetImporter
     private function confirmTax(PremierContext $ctx, int $assetId, array $taxRows, string $number, MigratedDepreciation $depreciation): void
     {
         foreach ($taxRows as $t) {
-            if ((int) substr((string) ($t['O_DATUM'] ?? ''), 0, 4) !== $ctx->year) {
+            if (self::yearOf($ctx, $t['O_DATUM'] ?? null) !== $ctx->year) {
                 continue;
             }
             $amount = round((float) ($t['O_ODPIS'] ?? 0), 2);
@@ -400,5 +400,15 @@ final class AssetImporter
     {
         $v = (string) ($value ?? '');
         return preg_match('/^\d{4}-\d{2}-\d{2}$/', $v) === 1 ? $v : null;
+    }
+
+    /**
+     * Účetní rok firmy pohybu nebo daňového odpisu. Daňový odpis právnické osoby patří do
+     * zdaňovacího období, které je u ní shodné s účetním (hospodářský rok, § 21a ZDP).
+     */
+    private static function yearOf(PremierContext $ctx, mixed $date): int
+    {
+        $v = (string) ($date ?? '');
+        return self::date(substr($v, 0, 10)) !== null ? $ctx->calendar->fiscalYearOfDate(substr($v, 0, 10)) : (int) substr($v, 0, 4);
     }
 }

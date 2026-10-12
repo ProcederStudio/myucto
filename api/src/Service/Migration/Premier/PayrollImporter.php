@@ -1074,7 +1074,15 @@ final class PayrollImporter
     private function reconcile(PremierContext $ctx, PremierPayroll $payroll): void
     {
         $p = $ctx->protocol;
-        $months = PremierPayroll::reconcile($payroll->monthTotals($ctx->year), PremierPayroll::ledgerTotals($ctx->journal, $ctx->year));
+        // Mzdy jsou kalendářní, deník roku je období firmy: srovnávají se měsíce období.
+        $from = substr($ctx->calendar->periodStart($ctx->year), 0, 7);
+        $to = substr($ctx->calendar->periodEnd($ctx->year), 0, 7);
+        $wages = array_filter(
+            $payroll->monthTotals($ctx->year) + ($ctx->calendar->isCalendar() ? [] : $payroll->monthTotals($ctx->year + 1)),
+            static fn (string $period): bool => $period >= $from && $period <= $to,
+            ARRAY_FILTER_USE_KEY,
+        );
+        $months = PremierPayroll::reconcile($wages, PremierPayroll::ledgerTotals($ctx->journal, $ctx->year));
         if ($months === []) {
             return;
         }

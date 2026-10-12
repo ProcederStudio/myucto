@@ -430,7 +430,7 @@ final class ChartJournalImporter
     private function ensurePeriod(PremierContext $ctx): array
     {
         $year = $ctx->year;
-        [$starts, $ends] = MigrationPeriods::calendarYear($year);
+        [$starts, $ends] = MigrationPeriods::bounds($ctx->calendar, $year);
         return (new MigrationPeriods($this->periods))->ensure(
             $ctx->supplierId, $year, $starts, $ends, $ctx->protocol, self::STEP_JOURNAL,
             fn (int $id) => $this->map->put($ctx->supplierId, PremierImportRepository::KIND_PERIOD, (string) $year, $id, $ctx->runId),

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MyInvoice\Service\Migration\Premier;
 
+use MyInvoice\Service\Accounting\FiscalCalendar;
 use MyInvoice\Service\Migration\Pohoda\PartnerImporter;
 use MyInvoice\Service\Migration\Premier\Dbf\CabinetExtractor;
 use MyInvoice\Service\Migration\Premier\Dbf\DbfTable;
@@ -273,20 +274,53 @@ final class PremierBackup
         return $this->years ??= array_keys($this->journalCountsByYear());
     }
 
+    /**
+     * Účetní roky firmy (label = rok začátku období), ve kterých má deník zápisy. Kalendářní
+     * firma dostane {@see years()} beze změny, hospodářský rok se počítá z dat deníku.
+     *
+     * @return list<int>
+     */
+    public function fiscalYears(FiscalCalendar $calendar): array
+    {
+        if ($calendar->isCalendar()) {
+            return $this->years();
+        }
+        $years = [];
+        foreach ($this->journalDates() as $date) {
+            $years[$calendar->fiscalYearOfDate($date)] = true;
+        }
+        $out = array_keys($years);
+        sort($out);
+        return $out;
+    }
+
     /** @return array<int,int> rok => počet řádků deníku */
     public function journalCountsByYear(): array
     {
-        $max = (int) date('Y') + 1;
         $counts = [];
+        foreach ($this->journalDates() as $date) {
+            $year = (int) substr($date, 0, 4);
+            $counts[$year] = ($counts[$year] ?? 0) + 1;
+        }
+        ksort($counts);
+        return $counts;
+    }
+
+    /**
+     * Data zápisů deníku (`PUB_UCTO.DATUM`) v rozsahu let, které převod bere.
+     *
+     * @return \Generator<int,string>
+     */
+    public function journalDates(): \Generator
+    {
+        $max = (int) date('Y') + 1;
         foreach ($this->rows('PUB_UCTO') as $r) {
             $date = (string) ($r['DATUM'] ?? '');
             $year = (int) substr($date, 0, 4);
             if ($year >= self::MIN_YEAR && $year <= $max) {
-                $counts[$year] = ($counts[$year] ?? 0) + 1;
+                yield $date;
             }
         }
-        ksort($counts);
-        return $counts;
     }
 
     private function path(string $name): string

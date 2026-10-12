@@ -80,15 +80,19 @@ final class PremierVerifier
      */
     private function verifyKh(PremierContext $ctx): array
     {
+        // KH je kalendářní (měsíc ROK/MESIC); kontrolují se měsíce účetního období převodu.
+        $from = substr($ctx->calendar->periodStart($ctx->year), 0, 7);
+        $to = substr($ctx->calendar->periodEnd($ctx->year), 0, 7);
         $latest = [];
         foreach ($ctx->backup->rows('D_KHDPH1') as $h) {
-            if ((int) ($h['ROK'] ?? 0) !== $ctx->year || (int) ($h['MESIC'] ?? 0) < 1) {
+            $month = (int) ($h['MESIC'] ?? 0);
+            $period = sprintf('%04d-%02d', (int) ($h['ROK'] ?? 0), $month);
+            if ($month < 1 || $month > 12 || $period < $from || $period > $to) {
                 continue;
             }
-            $month = (int) $h['MESIC'];
             $filed = self::czDate((string) ($h['DNE'] ?? ''));
-            if (!isset($latest[$month]) || $filed >= $latest[$month]['filed']) {
-                $latest[$month] = ['id' => trim((string) $h['ID_CISLO']), 'filed' => $filed, 'form' => trim((string) ($h['FORMA'] ?? ''))];
+            if (!isset($latest[$period]) || $filed >= $latest[$period]['filed']) {
+                $latest[$period] = ['id' => trim((string) $h['ID_CISLO']), 'filed' => $filed, 'form' => trim((string) ($h['FORMA'] ?? ''))];
             }
         }
         if ($latest === []) {
@@ -108,10 +112,9 @@ final class PremierVerifier
         }
         ksort($latest);
         $out = [];
-        foreach ($latest as $month => $head) {
-            $period = sprintf('%04d-%02d', $ctx->year, $month);
+        foreach ($latest as $period => $head) {
             try {
-                $built = $this->kh->build($ctx->supplierId, $ctx->year, $month, 'monthly', 'radne');
+                $built = $this->kh->build($ctx->supplierId, (int) substr($period, 0, 4), (int) substr($period, 5, 2), 'monthly', 'radne');
                 $mine = self::parseKh((string) $built['xml']);
             } catch (\Throwable $e) {
                 $out[] = ['period' => $period, 'variant' => $head['form'], 'ok' => false, 'diffs' => [['section' => '-', 'field' => $e->getMessage(), 'myucto' => 0.0, 'premier' => 0.0]]];
@@ -136,12 +139,7 @@ final class PremierVerifier
     /** @return array<string,mixed>|null */
     private function verifyDppo(PremierContext $ctx): ?array
     {
-        $head = null;
-        foreach ($ctx->backup->rows('D_PO1') as $h) {
-            if ((int) ($h['ROK'] ?? 0) === $ctx->year) {
-                $head = $h;
-            }
-        }
+        $head = PremierSourceYears::taxReturnHead($ctx->backup, $ctx->year, $ctx->calendar);
         if ($head === null) {
             return null;
         }

@@ -7,6 +7,7 @@ namespace MyInvoice\Service\Migration\Premier;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Service\Accounting\AccountingPeriodStatus;
+use MyInvoice\Service\Accounting\FiscalCalendar;
 use MyInvoice\Service\Accounting\Closing\ClosingException;
 use MyInvoice\Service\Accounting\Closing\ClosingService;
 
@@ -49,7 +50,7 @@ final class ClosingImporter
             $p->finish(self::STEP);
             return;
         }
-        if (!self::closedInPremier($ctx->backup, $ctx->year)) {
+        if (!self::closedInPremier($ctx->backup, $ctx->year, $ctx->calendar)) {
             $p->info(self::STEP, 'year_open_in_premier', "Rok {$ctx->year} není v PREMIER uzavřený (chybí podané přiznání k DPPO i zamčení období), v MyÚčtu zůstává otevřený.");
             $p->finish(self::STEP);
             return;
@@ -86,14 +87,13 @@ final class ClosingImporter
 
     /**
      * Uzavřený rok podle zálohy: podané přiznání k DPPO, nebo celý rok zamčený
-     * v „Zamykání period".
+     * v „Zamykání period". `PERIODY` nesou jen ROK a MESIC PREMIER bez dat, párují se
+     * proto na rok jako dosud (u hospodářského roku rozhoduje podané přiznání).
      */
-    public static function closedInPremier(PremierBackup $backup, int $year): bool
+    public static function closedInPremier(PremierBackup $backup, int $year, ?FiscalCalendar $calendar = null): bool
     {
-        foreach ($backup->rows('D_PO1') as $h) {
-            if ((int) ($h['ROK'] ?? 0) === $year) {
-                return true;
-            }
+        if (PremierSourceYears::taxReturnHead($backup, $year, $calendar) !== null) {
+            return true;
         }
         $locked = [];
         foreach ($backup->rows('PERIODY') as $r) {

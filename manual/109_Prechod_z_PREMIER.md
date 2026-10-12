@@ -47,7 +47,13 @@ ke stažení, zálohu vytvoříte přímo v PREMIERu.
    průvodce přímým odkazem `/imports/premier`.
 3. **Pořadí let.** Převádějte od nejstaršího roku a nevynechávejte starší
    nepřevedený rok ([§ 109.8.1.2](#109812-poradi-let)).
-4. **Klid ve firmě** pro zkoušku nanečisto.
+4. **Hospodářský rok.** Vede-li firma hospodářský rok, nastavte ještě před
+   převodem v `Nastavení → Daně a účetnictví` měsíc, kterým **Účetní rok
+   začíná**. Převod pak zakládá období podle firmy (například 1. 8. - 31. 7.),
+   rok v průvodci je rok začátku období a počáteční stavy jsou k prvnímu dni
+   období. Podle zdaňovacího období v podaném přiznání k DPPO převod ověří, že
+   PREMIER vede rok stejně; když ne, zastaví se a navrhne správný měsíc.
+5. **Klid ve firmě** pro zkoušku nanečisto.
 
 > [!TIP]
 > Převod je určen pro menší množství dat. Převody z jiných systémů jejich
@@ -149,6 +155,7 @@ v konceptu ani nepřijaté rozdíly a obraty v MyÚčtu odpovídají PREMIERu.
 | **Záloha neobsahuje žádný rok s IČO firmy v MyÚčtu** | IČO v záloze se liší od IČO firmy | Zkontrolujte IČO v nastavení firmy |
 | **Firma ... nemá vyplněné IČO** | Chybí IČO v MyÚčtu | Doplňte IČO a nahrajte zálohu znovu |
 | Kontrola před převodem hlásí chybu | Jiné IČO, chybí deník/osnova/číselník kódů DPH, zápisy v období nebo uzavřené období | Opravte příčinu a nahrajte zálohu znovu |
+| **Účetní rok ... ve zdroji obsahuje zápisy od ... do ...** | PREMIER vede jiný účetní rok (kalendářní, nebo hospodářský) než firma v MyÚčtu | Nastavte v `Nastavení → Daně a účetnictví` navržený měsíc **Účetní rok začíná** a převod spusťte znovu |
 | Nahrávání se přerušilo | Výpadek spojení | Vyberte soubor a nahrajte ho znovu |
 | Zkouška selhala jen na rozdílech k přijetí | Doklad se nepřevedl, nebo výsledek nesedí na PREMIER | Zaškrtněte **Převést i přes rozdíly**, nebo opravte a zopakujte |
 | Rok se po převodu neuzavřel | Uzávěrka by musela zaúčtovat něco navíc, nebo něco nesouhlasí | Uzavřete ručně v `Nástroje → Uzávěrka` |

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MyInvoice\Service\Migration\Premier;
 
+use MyInvoice\Service\Accounting\FiscalCalendar;
 use MyInvoice\Service\Migration\MoneyS3\ImportProtocol;
 
 /**
@@ -74,6 +75,8 @@ final class PremierContext
         public readonly PremierVat $vat,
         public readonly bool $dryRun,
         public readonly ImportProtocol $protocol,
+        /** Účetní rok firmy; `$year` je label jejího období. */
+        public readonly FiscalCalendar $calendar = new FiscalCalendar(),
     ) {}
 
     public function report(string $step, int $done, int $total): void
@@ -90,11 +93,11 @@ final class PremierContext
 
     public function startsOn(): string
     {
-        return $this->period['starts_on'] ?? sprintf('%04d-01-01', $this->year);
+        return $this->period['starts_on'] ?? $this->calendar->periodStart($this->year);
     }
 
     public function endsOn(): string
     {
-        return $this->period['ends_on'] ?? sprintf('%04d-12-31', $this->year);
+        return $this->period['ends_on'] ?? $this->calendar->periodEnd($this->year);
     }
 }

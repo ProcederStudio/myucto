@@ -6,6 +6,7 @@ namespace MyInvoice\Service\Migration\Premier;
 
 use MyInvoice\Repository\PremierImportRepository;
 use MyInvoice\Repository\TaxReturnRepository;
+use MyInvoice\Service\Accounting\FiscalCalendar;
 use MyInvoice\Service\Migration\Shared\FiledDppoInputs;
 use MyInvoice\Service\Tax\Return\DppoReturnCalculator;
 use MyInvoice\Service\Tax\Return\DppoReturnDataProvider;
@@ -56,7 +57,7 @@ final class TaxReturnImporter
     public function import(PremierContext $ctx): void
     {
         $p = $ctx->protocol;
-        $values = self::premierReturn($ctx->backup, $ctx->year);
+        $values = self::premierReturn($ctx->backup, $ctx->year, $ctx->calendar);
         if ($values === null) {
             $p->finish(self::STEP);
             return;
@@ -122,14 +123,9 @@ final class TaxReturnImporter
      *
      * @return array<string,mixed>|null
      */
-    public static function premierReturn(PremierBackup $backup, int $year): ?array
+    public static function premierReturn(PremierBackup $backup, int $year, ?FiscalCalendar $calendar = null): ?array
     {
-        $head = null;
-        foreach ($backup->rows('D_PO1') as $h) {
-            if ((int) ($h['ROK'] ?? 0) === $year) {
-                $head = $h;
-            }
-        }
+        $head = PremierSourceYears::taxReturnHead($backup, $year, $calendar);
         if ($head === null) {
             return null;
         }

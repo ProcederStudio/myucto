@@ -170,7 +170,7 @@ final class PremierDocuments
             return null;
         }
         $accounting = $journal->firstLinkedDate($series, $inter) ?? self::date($h['DATUM_USK'] ?? null) ?? $issue;
-        return (int) substr($accounting, 0, 4);
+        return $journal->yearOf($accounting);
     }
 
     /**
@@ -224,7 +224,7 @@ final class PremierDocuments
     public function forYear(string $direction, int $year): array
     {
         $out = [];
-        $start = sprintf('%04d-01-01', $year);
+        $start = $this->journal->calendar()->periodStart($year);
         foreach ($direction === self::ISSUED ? $this->issued : $this->purchases as $h) {
             $doc = $this->build($direction, $h);
             if ($doc === null || (!$doc['booked'] && $doc['items'] === [])) {
@@ -275,7 +275,7 @@ final class PremierDocuments
             'issue' => $issue,
             'supply' => $supply,
             'accounting' => $accounting,
-            'year' => (int) substr($accounting, 0, 4),
+            'year' => $this->journal->yearOf($accounting),
             'due' => self::date($h['DATUM_SPL'] ?? null) ?? $issue,
             'vat_date' => self::date($h['DATUM_DPH'] ?? null),
             'kh_date' => self::date($h['DATUM_KVY'] ?? null),

@@ -11,6 +11,8 @@ use MyInvoice\Repository\PremierImportRepository;
 use MyInvoice\Service\Migration\MoneyS3\AccountingUnitSwitch;
 use MyInvoice\Service\Migration\MoneyS3\ImportProtocol;
 use MyInvoice\Service\Migration\Pohoda\PartnerImporter as PohodaPartners;
+use MyInvoice\Service\Migration\Shared\FiscalYearMismatchException;
+use MyInvoice\Service\Migration\Shared\MigrationPeriods;
 use MyInvoice\Service\Migration\Shared\VatCoefficientSeeder;
 use MyInvoice\Service\Payroll\Migration\PayrollMigrationModuleSetup;
 use PDO;
@@ -107,9 +109,18 @@ final class PremierImporter
             // Záloha cizí firmy by se jinak vmíchala do účetnictví téhle.
             $add('error', 'ico_mismatch', "Záloha je firma IČO {$backup->ico}, firma v MyÚčtu má IČO {$supplierIco}.", ['backup' => $backup->ico, 'supplier' => $supplierIco]);
         }
-        $years = $backup->years();
+        $calendar = (new MigrationPeriods($this->periods))->calendar($supplierId);
+        $years = $backup->fiscalYears($calendar);
         if (!in_array($year, $years, true)) {
-            $add('error', 'year_missing', "Záloha neobsahuje účetní zápisy roku {$year}.", ['years' => $years]);
+            $label = $calendar->isCalendar() ? (string) $year
+                : sprintf('%d (%s – %s)', $year, ...MigrationPeriods::bounds($calendar, $year));
+            $add('error', 'year_missing', "Záloha neobsahuje účetní zápisy roku {$label}.", ['years' => $years]);
+            return $out;
+        }
+        try {
+            PremierSourceYears::assertCompatible($calendar, $backup, $year, $backup->journalDates(...));
+        } catch (FiscalYearMismatchException $e) {
+            $add('error', 'fiscal_year_mismatch', $e->getMessage(), ['suggested_start_month' => $e->suggestedStartMonth]);
             return $out;
         }
         foreach (['FA_OUT', 'FA_IN', 'PARTNERY'] as $table) {
@@ -188,11 +199,12 @@ final class PremierImporter
         }
         $protocol->finish(self::STEP_PREFLIGHT);
 
-        $journal = new PremierJournal($backup, $year);
+        $calendar = (new MigrationPeriods($this->periods))->calendar($supplierId);
+        $journal = new PremierJournal($backup, $year, $calendar);
         $vat = PremierVat::fromBackup($backup);
         $documents = PremierDocuments::fromBackup($backup, $journal, $vat, $year);
         $journal->usePaymentLinks($documents->paymentLinks());
-        $ctx = new PremierContext($supplierId, $userId, $backup, $year, $journal, $vat, $dryRun, $protocol);
+        $ctx = new PremierContext($supplierId, $userId, $backup, $year, $journal, $vat, $dryRun, $protocol, $calendar);
         $ctx->runId = $runId;
         $ctx->progress = $progress;
         $ctx->smallAssets = PremierSmallAssets::fromBackup($backup);
@@ -284,6 +296,8 @@ final class PremierImporter
             AssetImporter::STEP => fn () => $this->assets->import($ctx),
             SmallAssetImporter::STEP => fn () => $this->smallAssets->import($ctx),
             PayrollImporter::STEP => fn () => $this->payroll->import($ctx),
+            // Koeficient § 76 je kalendářní. U hospodářského roku je kalendářní rok L úplný po
+            // převodu období L (srpen L - červenec L+1); vypořádá se jako dosud až s dalším rokem.
             VatCoefficientSeeder::STEP => fn () => $this->coefficients->seedConverted(
                 $ctx->supplierId,
                 array_keys($this->map->all($ctx->supplierId, PremierImportRepository::KIND_PERIOD)),

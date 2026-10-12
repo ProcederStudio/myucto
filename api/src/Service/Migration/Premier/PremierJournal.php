@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MyInvoice\Service\Migration\Premier;
 
+use MyInvoice\Service\Accounting\FiscalCalendar;
 use MyInvoice\Service\Migration\MoneyS3\AccountCode;
 
 /**
@@ -25,6 +26,9 @@ use MyInvoice\Service\Migration\MoneyS3\AccountCode;
  * převodu; řádky ostatních let jen úzký tvar (číslované pole {@see NARROW_KEYS}) - na
  * počáteční stavy, měnu účtu, vazby faktur minulých let a počáteční stav banky stačí.
  * Metody vracejí řádek ostatních let rozbalený na klíče {@see NARROW_KEYS}.
+ *
+ * **Rok** je všude účetní rok FIRMY (label období, {@see FiscalCalendar}): u hospodářského
+ * roku od srpna patří zápis z 3. 2. 2025 do roku 2024. Kalendářní firma má rok = rok data.
  */
 final class PremierJournal
 {
@@ -49,6 +53,9 @@ final class PremierJournal
     /** Rok převodu (plné řádky); null = plné řádky všech let. */
     private ?int $focusYear = null;
 
+    /** Účetní rok firmy: „rok" řádku je label období firmy, do kterého datum zápisu patří. */
+    private FiscalCalendar $calendar;
+
     /** @var list<list<mixed>> všechny řádky deníku s účinkem v úzkém tvaru, podle data */
     private array $rows = [];
 
@@ -70,10 +77,14 @@ final class PremierJournal
     /** @var array<int,array<string,list<array<string,mixed>>>> rok → zápisy ({@see documents()}) */
     private array $documentsCache = [];
 
-    /** @param int|null $year rok převodu - jen jeho řádky se drží celé */
-    public function __construct(PremierBackup $backup, ?int $year = null)
+    /**
+     * @param int|null $year rok převodu - jen jeho řádky se drží celé
+     * @param FiscalCalendar|null $calendar účetní rok firmy; null = kalendářní rok
+     */
+    public function __construct(PremierBackup $backup, ?int $year = null, ?FiscalCalendar $calendar = null)
     {
         $this->focusYear = $year;
+        $this->calendar = $calendar ?? FiscalCalendar::calendar();
         $this->load($backup->rows('PUB_UCTO'));
         $this->loadBankSeries($backup->rows('DOKL_PU'));
     }
@@ -82,13 +93,25 @@ final class PremierJournal
      * @param iterable<array<string,mixed>> $rows řádky ve tvaru `PUB_UCTO` (testy)
      * @param iterable<array<string,mixed>> $seriesRows číselník řad `DOKL_PU`
      */
-    public static function fromRows(iterable $rows, iterable $seriesRows = [], ?int $year = null): self
+    public static function fromRows(iterable $rows, iterable $seriesRows = [], ?int $year = null, ?FiscalCalendar $calendar = null): self
     {
         $self = (new \ReflectionClass(self::class))->newInstanceWithoutConstructor();
         $self->focusYear = $year;
+        $self->calendar = $calendar ?? FiscalCalendar::calendar();
         $self->load($rows);
         $self->loadBankSeries($seriesRows);
         return $self;
+    }
+
+    public function calendar(): FiscalCalendar
+    {
+        return $this->calendar;
+    }
+
+    /** Účetní rok firmy (label období), do kterého patří datum. */
+    public function yearOf(string $date): int
+    {
+        return $this->calendar->fiscalYearOfDate($date);
     }
 
     /**
@@ -142,6 +165,7 @@ final class PremierJournal
             if ($row === null) {
                 continue;
             }
+            $row['year'] = $this->calendar->fiscalYearOfDate($row['date']);
             $narrow = [
                 $row['inter'], $row['date'], $row['year'], $row['kind'], $row['md'], $row['dal'], $row['amount'],
                 $row['currency'], $row['amount_foreign'], $row['line_kind'], $row['vat_code'], $row['vat_rate'], $seq,
@@ -546,7 +570,6 @@ final class PremierJournal
         return [
             'inter' => (int) ($r['INTER'] ?? 0),
             'date' => $date,
-            'year' => (int) substr($date, 0, 4),
             'tax_date' => self::date($r['DATUM_DPH'] ?? null),
             'series' => strtoupper(trim((string) ($r['DOKLAD'] ?? ''))),
             'number' => (string) ($r['CISLO'] ?? ''),
