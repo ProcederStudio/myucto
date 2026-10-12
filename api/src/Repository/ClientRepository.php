@@ -16,6 +16,7 @@ final class ClientRepository
 {
     /** Název sběrného systémového dodavatele hotovostních účtenek (viz findOrCreateCashReceiptVendor). */
     private const CASH_RECEIPT_VENDOR_NAME = 'Hotovostní nákup (účtenka)';
+    public const WALK_IN_CUSTOMER_NAME = 'Koncový zákazník';
 
     public function __construct(private readonly Connection $db) {}
 
@@ -49,7 +50,7 @@ final class ClientRepository
         $stmt = $this->db->pdo()->prepare(
             "SELECT id, company_name, main_email, is_customer, is_vendor
                FROM clients
-              WHERE supplier_id = ? AND archived_at IS NULL
+              WHERE supplier_id = ? AND archived_at IS NULL AND is_walk_in = 0
                 AND (company_name LIKE ? OR main_email LIKE ? OR ic LIKE ? OR dic LIKE ?)
               ORDER BY company_name
               LIMIT " . (int) $limit
@@ -79,6 +80,8 @@ final class ClientRepository
         } else {
             $where[] = 'c.archived_at IS NULL';
         }
+        // Systémový koncový zákazník (§ 30) se v adresáři ani výběru klienta neukazuje.
+        $where[] = 'c.is_walk_in = 0';
         // Role filter — backend-side aby paginace + total counter byly korektní.
         // Frontend dříve filtroval client-side, ale to dávalo špatné "X z Y" (vendors 15 z 15
         // i když jich je 45) — filtroval jen načtenou stránku, ne celou tabulku.
@@ -352,7 +355,7 @@ final class ClientRepository
     private function activeIdentityRows(int $supplierId): array
     {
         $stmt = $this->db->pdo()->prepare(
-            'SELECT id, company_name, ic, dic FROM clients WHERE supplier_id = ? AND archived_at IS NULL'
+            'SELECT id, company_name, ic, dic FROM clients WHERE supplier_id = ? AND archived_at IS NULL AND is_walk_in = 0'
         );
         $stmt->execute([$supplierId]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -400,6 +403,57 @@ final class ClientRepository
             'is_vendor'    => true,
             'is_vat_payer' => false,
         ], $supplierId);
+    }
+
+    /**
+     * Systémový „koncový zákazník" firmy (migrace 2002) — odběratel zjednodušeného
+     * daňového dokladu (§ 30 ZDPH) vystaveného bez údajů o zákazníkovi. Jeden na firmu,
+     * skrytý v seznamu i vyhledávání, bez e-mailu a upomínek. Idempotentní.
+     */
+    public function findOrCreateWalkInCustomer(int $supplierId, ?int $currencyId = null): int
+    {
+        $stmt = $this->db->pdo()->prepare(
+            'SELECT id FROM clients WHERE supplier_id = ? AND is_walk_in = 1 ORDER BY id LIMIT 1'
+        );
+        $stmt->execute([$supplierId]);
+        $id = $stmt->fetchColumn();
+        if ($id !== false) {
+            return (int) $id;
+        }
+
+        // Měna klienta je jen výchozí měna nových dokladů: faktury dokladu, jinak výchozí měna firmy.
+        if ($currencyId === null) {
+            $cur = $this->db->pdo()->prepare(
+                "SELECT id FROM currencies WHERE supplier_id = ? ORDER BY is_default DESC, (code = 'CZK') DESC, id LIMIT 1"
+            );
+            $cur->execute([$supplierId]);
+            $currencyId = (int) $cur->fetchColumn() ?: null;
+        }
+
+        $id = $this->create([
+            'company_name' => self::WALK_IN_CUSTOMER_NAME,
+            'currency_default_id' => $currencyId,
+            'street'       => '',
+            'city'         => '',
+            'zip'          => '',
+            'main_email'   => '',
+            'country_iso2' => 'CZ',
+            'is_customer'  => true,
+            'is_vendor'    => false,
+            'is_vat_payer' => false,
+        ], $supplierId);
+        $this->db->pdo()->prepare(
+            'UPDATE clients SET is_walk_in = 1, auto_send_reminders = 0 WHERE id = ? AND supplier_id = ?'
+        )->execute([$id, $supplierId]);
+
+        return $id;
+    }
+
+    public function isWalkInCustomer(int $clientId): bool
+    {
+        $stmt = $this->db->pdo()->prepare('SELECT is_walk_in FROM clients WHERE id = ?');
+        $stmt->execute([$clientId]);
+        return (int) $stmt->fetchColumn() === 1;
     }
 
     /**
@@ -808,6 +862,7 @@ final class ClientRepository
         if (array_key_exists('is_vat_payer', $row)) $row['is_vat_payer'] = (bool) $row['is_vat_payer'];
         if (array_key_exists('is_customer', $row)) $row['is_customer'] = (bool) $row['is_customer'];
         if (array_key_exists('is_vendor', $row))   $row['is_vendor']   = (bool) $row['is_vendor'];
+        if (array_key_exists('is_walk_in', $row))  $row['is_walk_in']  = (bool) $row['is_walk_in'];
         if (array_key_exists('is_fuel_station', $row)) $row['is_fuel_station'] = (bool) $row['is_fuel_station'];
         // Formulář čte příznak striktně (`=== true`); bez přetypování přišla `1`, checkbox
         // zůstal prázdný a uložení karty spojenou osobu i s typem vztahu tiše smazalo.

@@ -328,6 +328,8 @@ export interface Invoice {
   client_currency_default?: string
   client_currency_default_id?: number
   client_reverse_charge?: boolean
+  /** Odběratelem je systémový koncový zákazník (zjednodušený doklad bez odběratele, § 30). */
+  client_is_walk_in?: boolean
   project_name?: string | null
   project_hourly_rate?: number | null
   project_payment_due_days?: number | null
@@ -509,7 +511,8 @@ export interface MonthGroup {
 
 export interface InvoicePayload {
   invoice_type?: InvoiceType
-  client_id: number
+  /** null jen u zjednodušeného dokladu (§ 30) — backend doplní koncového zákazníka. */
+  client_id: number | null
   project_id?: number | null
   branding_profile_id?: number | null
   issue_date?: string

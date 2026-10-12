@@ -126,7 +126,8 @@ export interface PublicInvoiceOssClause {
 export interface PublicInvoiceData {
   invoice: PublicInvoiceHeader
   supplier: PublicInvoiceParty
-  client: PublicInvoiceParty
+  /** null = zjednodušený doklad bez odběratele (§ 30 ZDPH). */
+  client: PublicInvoiceParty | null
   bank: PublicInvoiceBank | null
   qr_data_uri: string | null
   attachments: PublicInvoiceAttachment[]

@@ -34851,6 +34851,7 @@ components:
           description: "Výchozí typ plnění pro OSS. NULL = odvodit z měrné jednotky položky / CZ-NACE. Uplatní se AŽ POD jednotkou položky — jednotka je důkaz z řádku, karta jen default."
         is_customer: { type: boolean, description: "Role odběratele (vystavujeme mu faktury)" }
         is_vendor: { type: boolean, description: "Role dodavatele (evidujeme přijaté faktury)" }
+        is_walk_in: { type: boolean, description: "Systémový koncový zákazník firmy pro zjednodušené doklady bez odběratele (§ 30 ZDPH). V seznamu klientů se nevrací." }
         is_vat_payer: { type: boolean, description: "Plátce DPH — aktuální stav karty (ověřitelné online přes /clients/{id}/vat-status). Klienti historii plátcovství nevedou; doklady nesou per-doklad snapshot k datu vystavení." }
         auto_send_reminders: { type: boolean, description: "Automatické odesílání upomínek" }
         payment_due_default: { type: [integer, "null"], description: "Default splatnost pro nové faktury klienta" }
@@ -35054,6 +35055,7 @@ components:
         client_id: { type: integer }
         client_company_name: { type: string, description: "Denormalizováno z klienta pro pohodlí výpisů" }
         client_main_email: { type: [string, "null"], format: email }
+        client_is_walk_in: { type: boolean, description: "Odběratelem je systémový koncový zákazník (zjednodušený doklad bez údajů o odběrateli, § 30 ZDPH)." }
         project_id: { type: [integer, "null"] }
         project_name: { type: [string, "null"] }
         parent_invoice_id: { type: [integer, "null"], description: "Pro credit_note / cancellation / final-z-proformy odkaz na původní fakturu" }
@@ -35274,12 +35276,12 @@ components:
 
     InvoiceInput:
       type: object
-      required: [client_id, items]
+      required: [items]
       description: |
         Vstup pro POST /invoices (vytvoří draft) i PUT /invoices/{id} (úprava draftu).
         Vystavená/zaplacená/storno faktura nelze upravovat — vrátí 409.
       properties:
-        client_id: { type: integer, description: "Musí patřit aktuálnímu supplier-ovi" }
+        client_id: { type: [integer, "null"], description: "Musí patřit aktuálnímu supplier-ovi. Povinné, kromě zjednodušeného dokladu (is_simplified): bez klienta se naváže na systémového koncového zákazníka firmy." }
         project_id: { type: [integer, "null"], description: "Pokud uvedeno, musí patřit `client_id`" }
         branding_profile_id: { type: [integer, "null"], description: "Volitelný brandingový profil stejného supplier-a; bez pole se použije výchozí profil klienta." }
         parent_invoice_id: { type: [integer, "null"], description: "Jen při create (credit_note / final-z-proformy). Na UPDATE se ignoruje." }

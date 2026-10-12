@@ -82,10 +82,11 @@ Checkbox **Reverse charge** je skrytý, když je dodavatel neplátce DPH. Výjim
 ## 40.5 Krok za krokem: zjednodušený daňový doklad
 
 1. V editoru faktury zaškrtněte **Zjednodušený daňový doklad (§ 30 ZDPH)**.
-2. Vyplňte položky. Celkem včetně daně nesmí přesáhnout 10 000 Kč.
-3. Doklad vystavte.
+2. Odběratele vyberte, jen pokud ho na dokladu chcete mít. Pro prodej neznámému zákazníkovi (maloobchod, pokladní prodej) nechte pole **Klient** prázdné.
+3. Vyplňte položky. Celkem včetně daně nesmí přesáhnout 10 000 Kč.
+4. Doklad vystavte.
 
-**Jak poznáte, že je hotovo:** Doklad se vystaví bez údajů o odběrateli, základu a výši daně. Odmítne-li ho aplikace, hláška uvede důvod (viz [§ 40.8](#408-kdyz-neco-nejde)).
+**Jak poznáte, že je hotovo:** Doklad nese nadpis **Zjednodušený daňový doklad**. Bez vybraného klienta se vystaví pro systémového **koncového zákazníka** firmy, který se v adresáři klientů neukazuje a na PDF ani webové faktuře se jako odběratel netiskne. Odmítne-li aplikace doklad, hláška uvede důvod (viz [§ 40.8](#408-kdyz-neco-nejde)).
 
 ## 40.6 Krok za krokem: zahraniční fakturace a OSS
 
@@ -122,6 +123,7 @@ Pro službu klientovi mimo EU použijte sazbu `CZ-0` a do poznámky pod položka
 | Zjednodušený doklad nad limit | Doklad je nad 10 000 Kč včetně daně (§ 30 odst. 1) | Vystavte běžný daňový doklad |
 | Zjednodušený doklad při reverse chargi | Odběratel potřebuje na dokladu své DIČ (§ 30 odst. 2), jinak plnění vypadne z kontrolního hlášení | Vystavte běžný doklad |
 | Zjednodušený doklad u dodání do jiného členského státu | Bez identifikace odběratele nelze plnění vykázat v souhrnném hlášení (§ 30 odst. 2) | Vystavte běžný doklad |
+| „Doklad bez odběratele lze vystavit jen jako zjednodušený daňový doklad" | Doklad nemá vybraného klienta, ale zjednodušený doklad není zaškrtnutý; běžný daňový doklad vyžaduje odběratele (§ 29) | Vyberte odběratele, nebo zaškrtněte zjednodušený daňový doklad |
 | Import zahraničních dokladů končí chybou | U sazby členského státu zůstal stát `CZ` | Opravte pole Stát u sazby (viz [§ 40.9.6](#4096-ciselnik-sazeb-dph)) |
 | Checkbox **Reverse charge** chybí | Dodavatel je neplátce DPH | Neplátce RC vystavit nemůže |
 | Doklad s OSS řádkem nejde exportovat do Pohoda XML ani Stereo XML | Ty formáty nemají kam zapsat zemi spotřeby | Použijte jiný formát exportu, například ISDOC |
@@ -314,7 +316,11 @@ a [Editor faktury](15_Faktura_editor.md#1598-zalohova-faktura-a-danovy-doklad).
 
 Do **10 000 Kč včetně daně** lze vystavit zjednodušený daňový doklad. Nemusí
 obsahovat údaje o odběrateli, základ daně ani výši daně (§ 30a). V editoru je to
-zaškrtávátko. Aplikace ho **odmítne** ve třech případech, kde to zákon nedovolí:
+zaškrtávátko. Klient je u něj nepovinný: bez něj se doklad naváže na systémového
+koncového zákazníka firmy a odběratel se na dokladu netiskne. V kontrolním hlášení
+takový doklad patří do souhrnného oddílu A.5 (plnění do 10 000 Kč bez DIČ odběratele).
+Běžný daňový doklad pro koncového zákazníka vystavit nejde, § 29 vyžaduje jméno a adresu
+odběratele. Aplikace zjednodušený doklad **odmítne** ve třech případech, kde to zákon nedovolí:
 
 <!-- cols: 40 60 -->
 | Situace | Proč to nejde |

@@ -69,6 +69,7 @@ final class UpdateInvoiceAction
         private readonly OssItemPlanner $ossPlanner,
         private readonly CashSettlementService $cashSettlement,
         private readonly StockPriceLevelService $priceLevels,
+        private readonly \MyInvoice\Repository\ClientRepository $clients,
     ) {}
 
     /**
@@ -278,6 +279,14 @@ final class UpdateInvoiceAction
             if ($isIssued) {
                 unset($body['varsymbol']);
             }
+        }
+        // Zjednodušený doklad (§ 30 ZDPH) bez odběratele → systémový koncový zákazník firmy.
+        // Příznak se bere z těla, jinak z uloženého dokladu (částečný update ho nemusí poslat).
+        $simplified = array_key_exists('is_simplified', $body)
+            ? filter_var($body['is_simplified'], FILTER_VALIDATE_BOOLEAN)
+            : !empty($existing['is_simplified']);
+        if (array_key_exists('client_id', $body) && empty($body['client_id']) && $simplified) {
+            $body['client_id'] = $this->clients->findOrCreateWalkInCustomer(SupplierGuard::currentId($request));
         }
         // BOLA guard (security report 2026-08, R2 #1) — cizí klíče z TĚLA requestu musí
         // patřit volajícímu. Nutně PŘED defaults->resolve(): resolve() sice vynucuje

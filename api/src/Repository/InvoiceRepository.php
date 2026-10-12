@@ -162,7 +162,7 @@ final class InvoiceRepository
                     c.company_name AS client_company_name, c.main_email AS client_main_email,
                     c.ic AS client_ic, c.dic AS client_dic,
                     c.language AS client_language,
-                    c.reverse_charge AS client_reverse_charge,
+                    c.reverse_charge AS client_reverse_charge, c.is_walk_in AS client_is_walk_in,
                     u.name AS created_by_name,
                     p.name AS project_name, p.hourly_rate AS project_hourly_rate,
                     p.payment_due_days AS project_payment_due_days,
@@ -2243,6 +2243,7 @@ final class InvoiceRepository
             $row['exchange_rate'] = $row['exchange_rate'] !== null ? (float) $row['exchange_rate'] : null;
         }
         if (isset($row['client_reverse_charge'])) $row['client_reverse_charge'] = (bool) $row['client_reverse_charge'];
+        if (isset($row['client_is_walk_in'])) $row['client_is_walk_in'] = (bool) $row['client_is_walk_in'];
         if (array_key_exists('reminder_count', $row)) $row['reminder_count'] = (int) $row['reminder_count'];
         if (array_key_exists('approval_reminder_count', $row)) {
             $row['approval_reminder_count'] = (int) $row['approval_reminder_count'];

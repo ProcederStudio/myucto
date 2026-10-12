@@ -793,6 +793,11 @@ final class InvoicePdfRenderer
                 'payment_calendar' => $isVatPayer ? 'Payment calendar — Tax document' : 'Payment calendar',
             ],
         ];
+        // § 30 ZDPH: zjednodušený daňový doklad se jako takový označí, jinak by příjemce
+        // nepoznal, proč na dokladu chybí odběratel.
+        if (!empty($invoice['is_simplified']) && ($invoice['invoice_type'] ?? '') === 'invoice' && $isVatPayer) {
+            return $locale === 'en' ? 'Simplified tax document' : 'Zjednodušený daňový doklad';
+        }
         return $labels[$locale][$invoice['invoice_type']] ?? $labels['cs'][$invoice['invoice_type']] ?? '';
     }
 
@@ -805,7 +810,7 @@ final class InvoicePdfRenderer
             'cancellation' => 'Storno',
             'tax_document' => 'Daňový doklad k platbě',
             'payment_calendar' => 'Platební kalendář',
-            default        => 'Faktura',
+            default        => !empty($invoice['is_simplified']) ? 'Zjednodušený daňový doklad' : 'Faktura',
         };
         return "$t $vs";
     }

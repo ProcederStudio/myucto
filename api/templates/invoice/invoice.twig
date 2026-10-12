@@ -83,6 +83,9 @@
         {% endif %}
       </div>
     </td>
+    {# Zjednodušený doklad (§ 30) bez odběratele: systémový koncový zákazník se netiskne,
+       buňka odběratele se nevykreslí vůbec (prázdný barevný box by působil jako chyba). #}
+    {% if not client.is_walk_in|default(false) %}
     <td class="party-customer">
       <h2>{{ t('Odběratel', 'Customer') }}</h2>
       <div class="spacer-3">&nbsp;</div>
@@ -112,6 +115,7 @@
         {% endif %}
       </div>
     </td>
+    {% endif %}
   </tr>
 </table>
 

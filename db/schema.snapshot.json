@@ -982,7 +982,8 @@
         "1998_tax_isds_submission.sql",
         "1999_income_statement_purpose_missing_accounts.sql",
         "2000_activity_log_action_length.sql",
-        "2001_purchase_numbering_by_kind.sql"
+        "2001_purchase_numbering_by_kind.sql",
+        "2002_clients_walk_in_customer.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -3633,6 +3634,7 @@
                 "is_fuel_station": "tinyint(1) NOT NULL DEFAULT 0",
                 "is_vat_payer": "tinyint(1) NOT NULL DEFAULT 1",
                 "is_vendor": "tinyint(1) NOT NULL DEFAULT 0",
+                "is_walk_in": "tinyint(1) NOT NULL DEFAULT 0",
                 "language": "enum('cs','en') NOT NULL DEFAULT 'cs'",
                 "last_name": "varchar(60) NULL DEFAULT NULL",
                 "main_email": "varchar(190) NULL DEFAULT NULL",
@@ -3668,6 +3670,7 @@
                 "idx_clients_ic": "BTREE (ic)",
                 "idx_clients_supplier": "BTREE (supplier_id)",
                 "idx_clients_vendor": "BTREE (supplier_id, is_vendor)",
+                "idx_clients_walk_in": "BTREE (supplier_id, is_walk_in)",
                 "ix_clients_price_level": "BTREE (supplier_id, price_level_id)",
                 "ix_clients_related_party": "BTREE (supplier_id, related_party)",
                 "uq_clients_fakturoid": "UNIQUE BTREE (supplier_id, fakturoid_id)",

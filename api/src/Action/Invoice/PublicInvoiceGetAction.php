@@ -144,7 +144,8 @@ final class PublicInvoiceGetAction
                 'country_name_cs', 'country_name_en', 'ic', 'dic',
                 'is_vat_payer', 'commercial_register', 'email', 'web',
             ]),
-            'client'   => $pick($client, [
+            // Koncový zákazník zjednodušeného dokladu (§ 30) se nezobrazuje, stejně jako v PDF.
+            'client'   => !empty($client['is_walk_in']) ? null : $pick($client, [
                 'company_name', 'first_name', 'last_name', 'street', 'city', 'zip',
                 'country_name_cs', 'country_name_en', 'country_iso2',
                 'ic', 'dic', 'tax_number',

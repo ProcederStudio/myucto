@@ -21374,6 +21374,8 @@
     },
     "simplified_document": "Zjednodušený daňový doklad (§ 30 ZDPH)",
     "simplified_document_hint": "Do 10 000 Kč včetně daně; nemusí obsahovat údaje o odběrateli, základ ani výši daně (§ 30a).",
+    "simplified_document_walk_in_hint": "Bez odběratele: doklad se vystaví pro koncového zákazníka a odběratel se na něm netiskne.",
+    "walk_in_customer_placeholder": "Bez odběratele (koncový zákazník)",
     "simplified_blocked_limit": "Nad limit {limit} - doklad je na {total} včetně daně. Zjednodušený doklad nelze vystavit (§ 30 odst. 1 ZDPH).",
     "simplified_blocked_reverse_charge": "V režimu přenesené daňové povinnosti nelze zjednodušený doklad vystavit (§ 30 odst. 2) - odběratel na dokladu potřebuje své DIČ, jinak plnění vypadne z kontrolního hlášení.",
     "simplified_blocked_eu": "U dodání zboží do jiného členského státu nelze zjednodušený doklad vystavit (§ 30 odst. 2) - bez identifikace odběratele nelze plnění vykázat v souhrnném hlášení.",

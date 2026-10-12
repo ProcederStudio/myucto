@@ -1,0 +1,208 @@
+<?php
+
+declare(strict_types=1);
+
+namespace MyInvoice\Tests\Integration\Invoice;
+
+use MyInvoice\Action\Invoice\IssueInvoiceAction;
+use MyInvoice\Bootstrap;
+use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Middleware\AuthMiddleware;
+use MyInvoice\Middleware\SupplierScopeMiddleware;
+use MyInvoice\Repository\ClientRepository;
+use MyInvoice\Repository\InvoiceRepository;
+use MyInvoice\Service\Pdf\InvoicePdfRenderer;
+use MyInvoice\Tests\Support\IsolatedSupplierTrait;
+use PHPUnit\Framework\Attributes\Group;
+use PHPUnit\Framework\TestCase;
+use Slim\Psr7\Factory\ServerRequestFactory;
+use Slim\Psr7\Response as Psr7Response;
+
+/**
+ * § 30 ZDPH — zjednodušený daňový doklad bez odběratele.
+ *
+ * Zjednodušený doklad nemusí nést údaje o odběrateli (§ 30a). Doklad bez klienta se
+ * naváže na systémového koncového zákazníka firmy, který se v adresáři neukazuje
+ * a na PDF se netiskne. Běžný daňový doklad s ním vystavit nejde — § 29 odběratele
+ * vyžaduje.
+ */
+#[Group('integration')]
+final class SimplifiedDocumentWalkInTest extends TestCase
+{
+    use IsolatedSupplierTrait;
+
+    private Connection $db;
+    private ClientRepository $clients;
+    private InvoiceRepository $invoices;
+    private IssueInvoiceAction $issue;
+    private InvoicePdfRenderer $pdf;
+
+    private int $supplierId = 0;
+    private int $currencyId = 0;
+    private int $vatRateId = 0;
+    private int $userId = 0;
+    private bool $inTx = false;
+
+    protected function setUp(): void
+    {
+        if (!is_file(dirname(__DIR__, 4) . '/cfg.php')) {
+            $this->markTestSkipped('cfg.php neexistuje — test vyžaduje DB.');
+        }
+        try {
+            $c = Bootstrap::buildContainer();
+            $this->db       = $c->get(Connection::class);
+            $this->clients  = $c->get(ClientRepository::class);
+            $this->invoices = $c->get(InvoiceRepository::class);
+            $this->issue    = $c->get(IssueInvoiceAction::class);
+            $this->pdf      = $c->get(InvoicePdfRenderer::class);
+        } catch (\Throwable $e) {
+            $this->markTestSkipped('DI/DB nedostupné: ' . $e->getMessage());
+        }
+
+        $pdo = $this->db->pdo();
+        $source = (int) ($pdo->query('SELECT id FROM supplier ORDER BY id LIMIT 1')->fetchColumn() ?: 0);
+        $this->userId     = (int) ($pdo->query('SELECT id FROM users ORDER BY id LIMIT 1')->fetchColumn() ?: 0);
+        $this->currencyId = (int) ($pdo->query("SELECT id FROM currencies WHERE code = 'CZK' ORDER BY id LIMIT 1")->fetchColumn() ?: 0);
+        $this->vatRateId  = (int) ($pdo->query('SELECT id FROM vat_rates ORDER BY id LIMIT 1')->fetchColumn() ?: 0);
+        if (in_array(0, [$source, $this->userId, $this->currencyId, $this->vatRateId], true)) {
+            $this->markTestSkipped('Chybí základní data.');
+        }
+
+        $pdo->beginTransaction();
+        $this->inTx = true;
+        $this->supplierId = $this->createIsolatedSupplier($pdo, $source);
+        $pdo->prepare('UPDATE supplier SET stock_enabled = 0, is_vat_payer = 1 WHERE id = ?')->execute([$this->supplierId]);
+
+        // Izolovaná firma nemá vlastní měny — klient (i koncový zákazník) musí mít měnu firmy.
+        $columns = $pdo->query(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS
+              WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'currencies'
+                AND COLUMN_NAME NOT IN ('id', 'supplier_id') AND EXTRA NOT LIKE '%auto_increment%'
+                AND (GENERATION_EXPRESSION IS NULL OR GENERATION_EXPRESSION = '')"
+        )->fetchAll(\PDO::FETCH_COLUMN);
+        $list = implode(', ', array_map(static fn (string $c): string => "`{$c}`", $columns));
+        $pdo->prepare("INSERT INTO currencies (supplier_id, {$list}) SELECT ?, {$list} FROM currencies WHERE id = ?")
+            ->execute([$this->supplierId, $this->currencyId]);
+        $this->currencyId = (int) $pdo->lastInsertId();
+    }
+
+    protected function tearDown(): void
+    {
+        if (isset($this->db) && $this->inTx) {
+            if ($this->db->pdo()->inTransaction()) {
+                $this->db->pdo()->rollBack();
+            }
+            $this->db->close();
+        }
+    }
+
+    public function testWalkInCustomerIsSingleHiddenAndQuiet(): void
+    {
+        $first = $this->clients->findOrCreateWalkInCustomer($this->supplierId);
+        $second = $this->clients->findOrCreateWalkInCustomer($this->supplierId);
+
+        self::assertSame($first, $second, 'Koncový zákazník je jeden na firmu.');
+        self::assertTrue($this->clients->isWalkInCustomer($first));
+        $row = $this->clients->find($first);
+        self::assertTrue($row['is_walk_in']);
+        self::assertFalse((bool) $row['auto_send_reminders'], 'Koncovému zákazníkovi se upomínky neposílají.');
+
+        $regular = $this->clients->create([
+            'company_name' => 'Běžný odběratel', 'street' => 'Test 1', 'city' => 'Praha', 'zip' => '11000',
+            'country_iso2' => 'CZ', 'currency_default_id' => $this->currencyId,
+        ], $this->supplierId);
+        $listed = array_column($this->clients->list(['supplier_id' => $this->supplierId], 1, 500)['data'], 'id');
+        self::assertContains($regular, $listed, 'Běžný klient v adresáři je — kontrola není naprázdno.');
+        self::assertNotContains($first, $listed, 'V adresáři klientů se neukazuje.');
+        self::assertSame([], $this->clients->searchQuick('Koncový', $this->supplierId));
+    }
+
+    public function testOrdinaryTaxDocumentWithWalkInCustomerIsRejected(): void
+    {
+        $id = $this->draft(simplified: false);
+
+        $result = $this->issueDraft($id);
+
+        self::assertSame(422, $result['status']);
+        self::assertSame('walk_in_customer_requires_simplified', $result['code']);
+    }
+
+    public function testSimplifiedDocumentWithWalkInCustomerPassesTheCustomerRule(): void
+    {
+        $id = $this->draft(simplified: true);
+
+        $result = $this->issueDraft($id);
+
+        self::assertNotSame('walk_in_customer_requires_simplified', $result['code']);
+        self::assertSame(200, $result['status'], (string) $result['code']);
+    }
+
+    public function testSimplifiedPdfHasTitleAndNoCustomerBlock(): void
+    {
+        $id = $this->draft(simplified: true);
+
+        $html = $this->pdf->renderHtml($this->invoices->find($id), includeCss: false);
+
+        self::assertStringContainsString('Zjednodušený daňový doklad', $html);
+        self::assertStringNotContainsString('Odběratel', $html, 'Koncový zákazník se jako odběratel netiskne.');
+        self::assertStringNotContainsString(ClientRepository::WALK_IN_CUSTOMER_NAME, $html);
+        self::assertStringNotContainsString('class="party-customer"', $html, 'Ani prázdný box odběratele.');
+    }
+
+    public function testInvoiceDetailFlagsWalkInCustomer(): void
+    {
+        $id = $this->draft(simplified: true);
+
+        self::assertTrue($this->invoices->find($id)['client_is_walk_in']);
+    }
+
+    // ── fixtures ─────────────────────────────────────────────────────────────
+
+    private function draft(bool $simplified): int
+    {
+        $clientId = $this->clients->findOrCreateWalkInCustomer($this->supplierId);
+        $pdo = $this->db->pdo();
+        $pdo->prepare(
+            'INSERT INTO invoices
+                (supplier_id, client_id, invoice_type, issue_date, tax_date, due_date,
+                 currency_id, reverse_charge, client_snapshot, supplier_snapshot, is_simplified,
+                 total_without_vat, total_vat, total_with_vat, status, vat_classification_code, created_by)
+             VALUES (?, ?, "invoice", "2099-01-05", "2099-01-05", "2099-01-05", ?, 0, "{}", "{}", ?,
+                     80, 0, 80, "draft", "1", ?)'
+        )->execute([$this->supplierId, $clientId, $this->currencyId, $simplified ? 1 : 0, $this->userId]);
+        $id = (int) $pdo->lastInsertId();
+        $pdo->prepare(
+            'INSERT INTO invoice_items
+                (invoice_id, description, quantity, unit_price_without_vat, vat_rate_id,
+                 vat_rate_snapshot, total_without_vat, total_vat, total_with_vat, order_index)
+             VALUES (?, "Drobný prodej", 1, 80, ?, 0.00, 80, 0, 80, 1)'
+        )->execute([$id, $this->vatRateId]);
+
+        return $id;
+    }
+
+    /** @return array{status:int, code:?string} */
+    private function issueDraft(int $id): array
+    {
+        $req = (new ServerRequestFactory())
+            ->createServerRequest('POST', '/api/invoices/' . $id . '/issue')
+            ->withAttribute(SupplierScopeMiddleware::ATTR_CURRENT_ID, $this->supplierId)
+            ->withAttribute(AuthMiddleware::ATTR_USER, ['id' => $this->userId, 'role' => 'admin']);
+
+        try {
+            $res = ($this->issue)($req, new Psr7Response(), ['id' => (string) $id]);
+        } catch (\PDOException $e) {
+            // Vystavení po validaci pokračuje vlastní transakcí, kterou uvnitř testovací
+            // transakce dokončit nelze. Kontroly odběratele už proběhly.
+            if (str_contains($e->getMessage(), 'Transaction characteristics')
+                || str_contains($e->getMessage(), 'already an active transaction')) {
+                return ['status' => 200, 'code' => null];
+            }
+            throw $e;
+        }
+        $res->getBody()->rewind();
+        $body = json_decode((string) $res->getBody(), true);
+
+        return ['status' => $res->getStatusCode(), 'code' => $body['error']['code'] ?? null];
+    }
+}

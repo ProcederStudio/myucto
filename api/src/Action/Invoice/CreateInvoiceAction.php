@@ -63,6 +63,12 @@ final class CreateInvoiceAction
         // pod klíčem `note` není sloupec, takže by ho repository jinak tiše zahodila.
         $body = InvoiceNoteAlias::normalize($body);
 
+        // Zjednodušený daňový doklad (§ 30 ZDPH) nemusí nést odběratele: bez klienta se
+        // naváže na systémového koncového zákazníka firmy.
+        if (empty($body['client_id']) && filter_var($body['is_simplified'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+            $body['client_id'] = $this->clients->findOrCreateWalkInCustomer(SupplierGuard::currentId($request));
+        }
+
         // BOLA guard (security report 2026-08, R2 #4 / sweep F4) — client_id se váže níž
         // na :59, ale revenue_category_id/project_id/currency_id se dosud forwardovaly
         // do createDraft() nevázané. Guard běží PŘED defaults->resolve() ze stejného

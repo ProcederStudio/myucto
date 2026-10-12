@@ -1255,7 +1255,8 @@ onMounted(async () => {
         ? inv.invoice_type
         : 'invoice',
       parent_invoice_id: inv.parent_invoice_id,
-      client_id: inv.client_id,
+      // Koncový zákazník zjednodušeného dokladu se v editoru ukazuje jako „bez odběratele“.
+      client_id: inv.client_is_walk_in ? null : inv.client_id,
       project_id: inv.project_id,
       issue_date: inv.issue_date.slice(0, 10),
       tax_date: (inv.tax_date ?? inv.issue_date).slice(0, 10),
@@ -1294,7 +1295,7 @@ onMounted(async () => {
     loadedRate.value = (inv.exchange_rate && inv.currency !== 'CZK')
       ? { rate: inv.exchange_rate, date: (inv.exchange_rate_date ?? inv.issue_date).slice(0, 10), currency: inv.currency }
       : null
-    if (inv.client_id) {
+    if (inv.client_id && !inv.client_is_walk_in) {
       await ensureClientLoaded(inv.client_id, (inv as any).client_company_name, (inv as any).client_ic)
       await loadProjects(inv.client_id)
       await verifyClientVies(inv.client_id)
@@ -2264,7 +2265,8 @@ async function submit() {
   try {
     const payload: InvoicePayload = {
       invoice_type: form.value.invoice_type,
-      client_id: form.value.client_id!,
+      // Zjednodušený doklad bez odběratele: backend doplní koncového zákazníka firmy.
+      client_id: form.value.client_id ?? null,
       project_id: form.value.project_id,
       issue_date: form.value.issue_date,
       tax_date: form.value.invoice_type === 'proforma' ? null : form.value.tax_date,
@@ -2532,7 +2534,7 @@ async function deleteDraft() {
               </p>
             </div>
             <div>
-              <label class="block text-sm font-medium text-neutral-700 mb-1">{{ t('invoice.client') }} *</label>
+              <label class="block text-sm font-medium text-neutral-700 mb-1">{{ t('invoice.client') }}{{ form.is_simplified ? '' : ' *' }}</label>
               <div class="flex gap-2">
                 <div class="flex-1 min-w-0">
                   <SearchableSelect
@@ -2543,8 +2545,8 @@ async function deleteDraft() {
                     :options="clientOptions"
                     :selected-option="selectedClientOption"
                     @search="onClientSearch"
-                    :placeholder="t('invoice.select_client')"
-                    :clearable="false"
+                    :placeholder="form.is_simplified ? t('invoice.walk_in_customer_placeholder') : t('invoice.select_client')"
+                    :clearable="form.is_simplified"
                   />
                 </div>
                 <button type="button" @click="clientModalOpen = true"
@@ -2693,6 +2695,9 @@ async function deleteDraft() {
               </label>
               <p v-if="form.is_simplified && simplifiedBlockedReason"
                  class="text-xs text-warning-600 mt-1 ml-6">{{ simplifiedBlockedReason }}</p>
+              <p v-else-if="form.is_simplified && !form.client_id" class="text-xs text-neutral-500 mt-1 ml-6">
+                {{ t('invoice.simplified_document_walk_in_hint') }}
+              </p>
               <p v-else class="text-xs text-neutral-500 mt-1 ml-6">
                 {{ t('invoice.simplified_document_hint') }}
               </p>

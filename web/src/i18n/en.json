@@ -21374,6 +21374,8 @@
     },
     "simplified_document": "Simplified tax document (§ 30 VAT Act)",
     "simplified_document_hint": "Up to CZK 10,000 including VAT; need not state the customer, the tax base or the tax amount (§ 30a).",
+    "simplified_document_walk_in_hint": "No customer: the document is issued to an end customer and no customer is printed on it.",
+    "walk_in_customer_placeholder": "No customer (end customer)",
     "simplified_blocked_limit": "Above the {limit} limit — the document totals {total} including VAT. A simplified document cannot be issued (§ 30(1) VAT Act).",
     "simplified_blocked_reverse_charge": "A simplified document cannot be issued under the reverse charge regime (§ 30(2)) — the customer needs their VAT ID on the document, otherwise the supply drops out of the control statement.",
     "simplified_blocked_eu": "A simplified document cannot be issued for goods supplied to another member state (§ 30(2)) — without identifying the customer the supply cannot be reported in the EC sales list.",

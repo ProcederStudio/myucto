@@ -242,7 +242,8 @@ onMounted(async () => {
                 <div v-if="data.supplier.commercial_register" class="text-xs text-neutral-500">{{ data.supplier.commercial_register }}</div>
               </div>
             </div>
-            <div class="p-6">
+            <!-- Zjednodušený doklad bez odběratele (§ 30): koncový zákazník se nezobrazuje. -->
+            <div v-if="data.client" class="p-6">
               <h2 class="text-xs font-semibold uppercase tracking-wide text-neutral-500 mb-2">{{ tt('Odběratel', 'Customer') }}</h2>
               <div class="font-semibold text-neutral-900">{{ partyName(data.client) }}</div>
               <div class="text-sm text-neutral-600">
@@ -356,7 +357,7 @@ onMounted(async () => {
             </div>
 
             <div v-if="inv.reverse_charge" class="px-6 py-3 text-xs text-neutral-600 border-t border-neutral-100">
-              {{ (data.client.country_iso2 || 'CZ') === 'CZ'
+              {{ (data.client?.country_iso2 || 'CZ') === 'CZ'
                   ? tt('Daň odvede zákazník (přenesená daňová povinnost dle § 92a zákona o DPH).',
                        'Reverse charge — VAT to be accounted for by the customer.')
                   : tt('Daň odvede zákazník (přenesení daňové povinnosti dle čl. 196 směrnice 2006/112/ES).',

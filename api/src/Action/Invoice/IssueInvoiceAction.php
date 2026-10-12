@@ -203,6 +203,22 @@ final class IssueInvoiceAction
             }
         }
 
+        // Koncový zákazník bez údajů smí být odběratelem jen zjednodušeného dokladu (§ 30).
+        // Běžný daňový doklad musí nést jméno a adresu odběratele (§ 29 odst. 1 písm. c).
+        if (empty($invoice['is_simplified'])) {
+            $walkInStmt = $this->db->pdo()->prepare('SELECT is_walk_in FROM clients WHERE id = ?');
+            $walkInStmt->execute([(int) ($invoice['client_id'] ?? 0)]);
+            if ((int) $walkInStmt->fetchColumn() === 1) {
+                return Json::error(
+                    $response,
+                    'walk_in_customer_requires_simplified',
+                    'Doklad bez odběratele lze vystavit jen jako zjednodušený daňový doklad (§ 30 ZDPH). '
+                        . 'Vyberte odběratele, nebo zaškrtněte zjednodušený daňový doklad.',
+                    422,
+                );
+            }
+        }
+
         // § 30 odst. 1 a 2 ZDPH — zjednodušený daňový doklad. Blokuje se stejně jako
         // § 29 až TADY: koncept smí být rozpracovaný, vystavený doklad ne.
         //

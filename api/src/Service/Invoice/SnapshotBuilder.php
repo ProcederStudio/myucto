@@ -72,6 +72,8 @@ final class SnapshotBuilder
             // Plátcovství klienta v okamžiku vystavení — živý stav JE snapshot k datu
             // vystavení (kontakty nemají tabulku historie, jen per-doklad snapshoty).
             'is_vat_payer' => $row['is_vat_payer'] !== null ? (bool) $row['is_vat_payer'] : null,
+            // Systémový koncový zákazník (§ 30): PDF ho jako odběratele netiskne.
+            'is_walk_in'   => !empty($row['is_walk_in']),
         ];
     }
 
