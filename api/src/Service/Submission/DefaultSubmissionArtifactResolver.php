@@ -45,15 +45,39 @@ final readonly class DefaultSubmissionArtifactResolver implements SubmissionArti
         };
     }
 
-    /** @return array{filename:string,mime:string,bytes:string}|null */
+    /**
+     * @return array{
+     *   filename:string,mime:string,bytes:string,
+     *   authority:array{
+     *     kind:string,form_code:string,status:string,validation_status:string,
+     *     sha256_match:bool,epo_attempt_active:bool
+     *   }
+     * }|null
+     */
     private function taxSubmission(int $supplierId, int $id): ?array
     {
         if (!$this->db->hasTable('tax_submissions')) {
             return null;
         }
+        // `epo_attempt_active` kopíruje podmínku TaxSubmissionEpoRepository::activeAttempt()
+        // pro ostré prostředí: rozpracované asistované předání, nedořešený nebo potvrzený
+        // přímý pokus. Jeden snapshot jde ven jen jednou cestou.
         $stmt = $this->db->pdo()->prepare(
-            'SELECT form_code, period_year, period_month, period_quarter, xml_content, xml_sha256
-               FROM tax_submissions WHERE id = ? AND supplier_id = ?'
+            "SELECT s.form_code, s.period_year, s.period_month, s.period_quarter,
+                    s.xml_content, s.xml_sha256, s.status, s.validation_status,
+                    EXISTS(
+                        SELECT 1 FROM tax_submission_attempts a
+                         WHERE a.tax_submission_id = s.id AND a.supplier_id = s.supplier_id
+                           AND a.epo_environment = 'production'
+                           AND (
+                             (a.channel = 'epo_assisted'
+                               AND a.status IN ('prepared','handoff_created','awaiting_confirmation')
+                               AND (a.handoff_expires_at IS NULL OR a.handoff_expires_at > CURRENT_TIMESTAMP))
+                             OR (a.channel = 'epo_direct'
+                               AND a.status IN ('submitting','processing','uncertain','confirmed'))
+                           )
+                    ) AS epo_attempt_active
+               FROM tax_submissions s WHERE s.id = ? AND s.supplier_id = ?"
         );
         $stmt->execute([$id, $supplierId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -72,6 +96,17 @@ final readonly class DefaultSubmissionArtifactResolver implements SubmissionArti
             'filename' => strtolower((string) $row['form_code']) . '-' . $period . '.xml',
             'mime' => 'application/xml',
             'bytes' => (string) $row['xml_content'],
+            'authority' => [
+                'kind' => 'tax_submission',
+                'form_code' => (string) $row['form_code'],
+                'status' => (string) $row['status'],
+                'validation_status' => (string) $row['validation_status'],
+                'sha256_match' => hash_equals(
+                    (string) $row['xml_sha256'],
+                    hash('sha256', (string) $row['xml_content']),
+                ),
+                'epo_attempt_active' => (bool) $row['epo_attempt_active'],
+            ],
         ];
     }
 

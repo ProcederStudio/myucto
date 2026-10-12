@@ -565,6 +565,9 @@ const navSections = computed<NavSection[]>(() => {
         ...(auth.hasCommercialFeatures ? [
           { to: '/reports/submissions', label: t('nav.reports_submissions'), icon: ICONS.tax_archive },
         ] : []),
+        // Datová schránka i pro firmu bez mezd: odesílá daňová podání a přijímá
+        // doručenky a zprávy od FÚ. Ve Mzdách zůstává taky, tam patří k podáním.
+        { to: '/admin/databox', label: t('nav.databox'), icon: ICONS.documents, permission: 'settings.signing' as PermissionKey },
       ],
     },
   ]

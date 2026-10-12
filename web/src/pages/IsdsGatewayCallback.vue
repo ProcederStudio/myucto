@@ -27,13 +27,26 @@ onMounted(async () => {
     return
   }
 
+  // Relaci dokončí ta cesta, ke které má uživatel oprávnění: obecná fronta,
+  // mzdová podání, daňová podání. Dál se padá jen na 403, jiná chyba je odpověď.
+  const completions = [
+    dataBoxApi.gatewayComplete,
+    dataBoxApi.gatewayCompletePayroll,
+    dataBoxApi.gatewayCompleteTax,
+  ]
+
   try {
-    try {
-      completed.value = await dataBoxApi.gatewayComplete(appToken, sessionId)
-    } catch (exception) {
-      if (!isAxiosError(exception) || exception.response?.status !== 403) throw exception
-      completed.value = await dataBoxApi.gatewayCompletePayroll(appToken, sessionId)
+    for (const [index, complete] of completions.entries()) {
+      try {
+        completed.value = await complete(appToken, sessionId)
+        break
+      } catch (exception) {
+        const forbidden = isAxiosError(exception) && exception.response?.status === 403
+        if (!forbidden || index === completions.length - 1) throw exception
+      }
     }
+
+    if (!completed.value) return
 
     if (completed.value.redirect_url) {
       window.location.assign(completed.value.redirect_url)
@@ -83,6 +96,9 @@ onMounted(async () => {
       <div v-if="!loading" class="mt-5 flex flex-wrap gap-2">
         <RouterLink to="/payroll/submissions" :class="btnOutline('neutral')">
           {{ t('databox.gateway.callback.payroll') }}
+        </RouterLink>
+        <RouterLink to="/reports/submissions" :class="btnOutline('neutral')">
+          {{ t('databox.gateway.callback.tax') }}
         </RouterLink>
         <RouterLink to="/admin/databox?tab=outbox" :class="btnOutline('neutral')">
           {{ t('databox.gateway.callback.outbox') }}

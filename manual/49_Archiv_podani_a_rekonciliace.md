@@ -1,6 +1,6 @@
 # 49. EPO podání, archív a daňová rekonciliace
 
-> Návod, jak daňový výkaz z MyÚčta podat přes EPO, doložit podání a ověřit, že
+> Návod, jak daňový výkaz z MyÚčta podat přes EPO nebo datovou schránkou, doložit podání a ověřit, že
 > podaný stav odpovídá dnešním datům. Pro každého, kdo podává DPH, kontrolní
 > a souhrnné hlášení, daň z příjmů nebo OSS.
 
@@ -24,13 +24,14 @@ Související výpočty jsou popsány v kapitolách [Výkazy DPH](41_Vykazy_DPH.
 |---|---|---|
 | Podat výkaz s kontrolou v interaktivním formuláři | Asistované podání, [§ 49.3](#493-krok-za-krokem-asistovane-podani) | `Daně → EPO podání a archív` |
 | Podat výkaz podepsaný certifikátem přímo z aplikace | Přímé podání, [§ 49.4](#494-krok-za-krokem-prime-podani-pres-epo-api) | `Daně → EPO podání a archív` |
-| Doložit podání | Označit jako podané, [§ 49.5](#495-krok-za-krokem-dolozte-podani) | detail podání |
-| Porovnat DPPO nebo OSS s podaným stavem | Rekonciliace, [§ 49.6](#496-krok-za-krokem-rekonciliace) | `Daně → Daň z příjmů`, `Daně → OSS přiznání` |
+| Poslat výkaz datovou zprávou z datové schránky firmy | Podání datovou schránkou, [§ 49.5](#495-krok-za-krokem-podani-datovou-schrankou) | `Daně → EPO podání a archív` |
+| Doložit podání | Označit jako podané, [§ 49.6](#496-krok-za-krokem-dolozte-podani) | detail podání |
+| Porovnat DPPO nebo OSS s podaným stavem | Rekonciliace, [§ 49.7](#497-krok-za-krokem-rekonciliace) | `Daně → Daň z příjmů`, `Daně → OSS přiznání` |
 
 ## 49.2 Než začnete
 
 - **Hotová účetní nebo evidenční kontrola** daného období a vygenerované XML, které nehlásí blokující chybu.
-- **Pro přímé podání osobní kvalifikovaný certifikát** ve formátu P12/PFX se soukromým klíčem (jak ho získat, viz [§ 49.8.5](#4985-jak-ziskat-vhodny-certifikat)). Nahrajete ho v `Systém → E-maily a certifikáty`, záložka **Certifikáty a elektronické podpisy**, a v každé firmě povolíte tlačítkem **Povolit pro tuto firmu** v části **Certifikáty EPO**. Správce instalace musí mít nastavený šifrovací klíč (viz [§ 49.8.6](#4986-zabezpeceni-certifikatu)).
+- **Pro přímé podání osobní kvalifikovaný certifikát** ve formátu P12/PFX se soukromým klíčem (jak ho získat, viz [§ 49.9.5](#4995-jak-ziskat-vhodny-certifikat)). Nahrajete ho v `Systém → E-maily a certifikáty`, záložka **Certifikáty a elektronické podpisy**, a v každé firmě povolíte tlačítkem **Povolit pro tuto firmu** v části **Certifikáty EPO**. Správce instalace musí mít nastavený šifrovací klíč (viz [§ 49.9.6](#4996-zabezpeceni-certifikatu)).
 - **Oprávnění jednat za firmu.** Certifikát prokazuje totožnost podepisující osoby, ne její oprávnění jednat. Jednatel podepisuje v rozsahu svého oprávnění, účetní nebo daňový poradce potřebuje plnou moc uplatněnou u příslušného finančního úřadu každé zastupované firmy.
 - **Pro OSS** se EPO nepoužívá, viz upozornění v [§ 49.3](#493-krok-za-krokem-asistovane-podani).
 
@@ -45,12 +46,12 @@ Asistované podání předvyplní formulář na portálu MOJE daně. Odeslání 
 5. V EPO spusťte kontroly, porovnejte částky a typ podání s MyÚčtem a teprve potom podání odešlete.
 6. Z EPO stáhněte odeslané XML a potvrzení (dodejku). Přetáhněte je do vyznačené plochy detailu podání. Složka v Dokumentech se vytvoří automaticky.
 7. Aplikace z dodejky (`.p7s` nebo `.p7m`) ověří podpis, vazbu na archivovaný formulář a přečte obsah. V detailu podání ukáže podací číslo, rozhodný čas, příznak ZAREP, kontrolní součet odeslaného souboru, kód finančního úřadu a identitu pečeti. Podací číslo a čas předvyplní do formuláře **Označit jako podané**.
-8. Klikněte na **Označit jako podané** (viz [§ 49.5](#495-krok-za-krokem-dolozte-podani)).
+8. Klikněte na **Označit jako podané** (viz [§ 49.6](#496-krok-za-krokem-dolozte-podani)).
 
 **Jak poznáte, že je hotovo:** Snapshot má stav podaný, u něj je podací číslo a nahraná dodejka.
 
 > [!TIP]
-> Pro vizuální kontrolu můžete předvyplněný formulář EPO nejdřív jen otevřít a zavřít bez odeslání. Otevřená asistovaná relace ale do svého vypršení blokuje přímé ostré odeslání (viz [§ 49.8.8](#4988-zkusebni-prostredi-pro-vyvoj)).
+> Pro vizuální kontrolu můžete předvyplněný formulář EPO nejdřív jen otevřít a zavřít bez odeslání. Otevřená asistovaná relace ale do svého vypršení blokuje přímé ostré odeslání (viz [§ 49.9.8](#4998-zkusebni-prostredi-pro-vyvoj)).
 
 > [!WARNING]
 > **OSS přiznání (OSSEI1) se přes EPO podat nedá, žádnou z obou cest.** Portál písemnost rozpozná, ale odmítne ji s tím, že musíte být přihlášeni v samostatné aplikaci **MOSS/OSS**. Přímé podepsané podání míří na týž endpoint jako asistované předání, takže dopadne stejně, jen po zbytečném odemčení klíče. MyÚčto proto u OSS snapshotu nenabízí ani asistované předání, ani přímé podání (a obě cesty odmítá i přes API). Stáhněte XML a nahrajte ho v aplikaci MOSS/OSS na Daňovém portálu, viz [Kde se OSS přiznání podává](45_OSS.md#451014-kde-se-oss-priznani-podava).
@@ -80,12 +81,30 @@ Přímý režim vytvoří uznávaný elektronický podpis ZAREP, provede test of
 > [!WARNING]
 > Pokud se při ostrém odeslání přeruší spojení bez jednoznačné odpovědi, pokus se označí jako **Výsledek je nejistý**. MyÚčto jej automaticky neopakuje. Nejdřív ověřte stav u finanční správy, protože slepé opakování může vytvořit duplicitní podání. Dohledáte-li původní P7S nebo P7M, použijte **Ověřit nalezené P7S**. Systém je kryptograficky sváže s uloženým odchozím balíčkem. Jen když pokus nemá podací číslo ani stavové heslo a přímo v EPO ověříte, že podání nevzniklo, lze po 15 minutách použít **Uvolnit nepřijatý pokus**. Akce vyžaduje nové ověření identity, výslovné potvrzení a auditní poznámku.
 
-## 49.5 Krok za krokem: doložte podání
+## 49.5 Krok za krokem: podání datovou schránkou
+
+Přiznání k DPH, kontrolní hlášení, souhrnné hlášení a přiznání k dani z příjmů (DPPO, DPFO) můžete místo přes EPO poslat datovou zprávou z datové schránky firmy. Do zprávy jde přesně archivovaný XML snapshot, stejný jako pro EPO. Podpis ani ZAREP nejsou potřeba, totožnost dokládá odeslání z vaší schránky.
+
+1. Zkontrolujte, kam se podání pošle. V nastavení stránky `Daně → EPO podání a archív` je část **Datové schránky finančního úřadu** se čtyřmi řádky: DPH, kontrolní hlášení, souhrnné hlášení a DPPO/DPFO. Výchozí je schránka krajského finančního úřadu podle **Kódu finančního úřadu** v nastavení firmy, u kódu 13 Specializovaný finanční úřad. Pro kterýkoli řádek můžete vybrat jinou schránku z číselníku příjemců.
+2. U validního snapshotu (**XSD · OK**), který ještě nebyl podaný, klikněte na **Odeslat datovou schránkou**.
+3. V dialogu zkontrolujte finanční úřad a ID jeho schránky, věc zprávy a přílohu. Výchozí cíl se bere z kódu finančního úřadu zapsaného v samotném XML. Když vybraná schránka patří jinému úřadu, než kterému je XML adresované, dialog na to upozorní.
+4. Zvolte způsob přihlášení k datové schránce: **Odesílací brána**, **Mobilní klíč**, **Jméno a heslo**, nebo **Systémový certifikát**. Jednotlivé způsoby popisuje kapitola [Datová schránka](97_Datova_schranka.md). Jméno a heslo se nikam neukládá.
+5. Po odeslání se snapshot sám označí jako podaný. Čas podání je čas odeslání zprávy, místo podacího čísla se uloží ID datové zprávy (`ISDS …`). Posune se i zámek období a zúčtování DPH stejně jako po ručním označení.
+6. Doručenku (ZFO) si stáhněte ze své datové schránky a v detailu podání ji nahrajte tlačítkem **Nahrát doručenku (ZFO)**, nebo ji načtěte v `Systém → Datová schránka`. Přiloží se k podání jako důkaz dne podání.
+
+**Jak poznáte, že je hotovo:** Snapshot má stav podaný, u něj je ID datové zprávy a v detailu nahraná doručenka.
+
+> [!WARNING]
+> Datová schránka vrací jen doručenku, ne potvrzení podatelny s podacím číslem jako EPO. Doručenka dokládá den podání, ne bezvadnost. Vadu podání oznamuje finanční úřad později samostatnou zprávou. Jedno podání se posílá jen jednou cestou: snapshot zařazený k odeslání datovou schránkou nejde předat do EPO a naopak. Chcete-li přejít na EPO, zprávu ve frontě nejdřív zrušte.
+
+Zprávy, které finanční úřad k podání pošle, se po načtení datové schránky přiloží k podání samy, pokud se odvolávají na naši zprávu (spisovou značkou nebo ID odeslané zprávy). Ostatní najdete v detailu podání v části **Zprávy od finančního úřadu** a tlačítkem **Přiložit k podání** je k němu přiřadíte.
+
+## 49.6 Krok za krokem: doložte podání
 
 Použijte po asistovaném podání, po podání mimo aplikaci nebo když dodejka nedorazila automaticky.
 
 1. Otevřete `Daně → EPO podání a archív` a detail podání.
-2. Nahrajte dodejku (`.p7s`, `.p7m`) nebo PDF potvrzení přetažením do vyznačené plochy. ZFO není podporovaný typ ručního uploadu.
+2. Nahrajte dodejku (`.p7s`, `.p7m`) nebo PDF potvrzení přetažením do vyznačené plochy. ZFO se sem nenahrává. Doručenku z datové schránky nahrajete tlačítkem **Nahrát doručenku (ZFO)** u podání odeslaného datovou schránkou, viz [§ 49.5](#495-krok-za-krokem-podani-datovou-schrankou).
 3. Zkontrolujte předvyplněné **Podací číslo** a **Čas podání**.
 4. V části **Ruční doložení podání** klikněte na **Označit jako podané**.
 5. Chcete-li zjistit aktuální stav zpracování, klikněte na **Obnovit stav EPO**. Je dostupné, jakmile aplikace z dodejky převezme heslo pro dotaz na stav.
@@ -95,7 +114,7 @@ Použijte po asistovaném podání, po podání mimo aplikaci nebo když dodejka
 > [!TIP]
 > Pro každý formulář archivujte trojici **odeslané XML + potvrzení + stručné vysvětlení ručních změn**. Při kontrole nebo dalším dodatečném podání pak lze přesně doložit, z jakého stavu se vycházelo.
 
-## 49.6 Krok za krokem: rekonciliace
+## 49.7 Krok za krokem: rekonciliace
 
 Rekonciliace odpovídá na otázku: „Shoduje se dnešní výpočet MyÚčta s tím, co bylo skutečně odesláno?" Není to totéž jako kontrola, že dvě interní sestavy čerpají ze stejných dokladů.
 
@@ -120,24 +139,24 @@ Rekonciliace odpovídá na otázku: „Shoduje se dnešní výpočet MyÚčta s 
 
 **Jak poznáte, že je hotovo:** Každý rozdíl je vysvětlený. Neshodu nikdy neodstraňujte mechanickým dorovnávacím zápisem bez účetního případu.
 
-## 49.7 Když něco nejde
+## 49.8 Když něco nejde
 
 <!-- cols: 30 34 36 -->
 | Co vidíte | Proč | Co udělat |
 |---|---|---|
 | Filtr stavu (například zamítnuté) nic neukazuje, ale podání máte | Filtr a hledání pracují nad celým archivem. Podání může být dál než na první stránce, nebo je jiný výkaz či rok. | Vraťte filtry na **Všechny stavy** a **Všechny formuláře** a hledejte podle podací značky, otisku nebo roku |
-| Snapshot nejde smazat | Snapshot je označený jako podaný, má podací číslo, doručenku, nebo běží zadržení podle § 32 ZoÚ | Viz [§ 49.8.3](#4983-kdy-jde-snapshot-smazat) |
+| Snapshot nejde smazat | Snapshot je označený jako podaný, má podací číslo, doručenku, nebo běží zadržení podle § 32 ZoÚ | Viz [§ 49.9.3](#4993-kdy-jde-snapshot-smazat) |
 | Tlačítko **Pokračovat do EPO** zmizelo | Odkaz je jednorázový, byl použitý, uplynulo 20 minut, nebo se XML změnilo | Klikněte na **Vytvořit nový odkaz EPO** |
 | Nahrané XML se liší od snapshotu | Podání se v EPO upravovalo a archiv už neodpovídá tomu, co bylo podáno | Aplikace vypíše počet rozdílných údajů, případně upozorní na jiný formulář. Ověřte podané hodnoty. |
 | U tištěného PDF se nepředvyplnilo číslo | Skenované PDF bez textové vrstvy se jen archivuje | Nahrajte dodejku P7S |
 | Pokus je ve stavu **Výsledek je nejistý** | Přerušené spojení nebo dodejka nepotvrzená kryptograficky | Postup v upozornění v [§ 49.4](#494-krok-za-krokem-prime-podani-pres-epo-api) |
-| Aplikace certifikát nepřijme | Chybí šifrovací klíč, soukromý klíč v PFX, nebo jde o certifikát pro pečeť či o QSCD | Viz [§ 49.8.5](#4985-jak-ziskat-vhodny-certifikat) a [§ 49.8.6](#4986-zabezpeceni-certifikatu) |
+| Aplikace certifikát nepřijme | Chybí šifrovací klíč, soukromý klíč v PFX, nebo jde o certifikát pro pečeť či o QSCD | Viz [§ 49.9.5](#4995-jak-ziskat-vhodny-certifikat) a [§ 49.9.6](#4996-zabezpeceni-certifikatu) |
 | Upozornění, že certifikát neobsahuje IK MPSV | Certifikát nemá identifikátor klienta MPSV | Požádejte o certifikát s IK MPSV, nebo ověřte podání zkušebně |
 | Odeslání se po změně konfigurace odmítne | Pokus si pamatuje prostředí (ostré, zkušební), ve kterém vznikl | Vraťte konfiguraci na původní prostředí, nebo založte nový pokus |
 
-## 49.8 Podrobnosti a pravidla
+## 49.9 Podrobnosti a pravidla
 
-### 49.8.1 Stavy daňového výstupu
+### 49.9.1 Stavy daňového výstupu
 
 <!-- cols: 22 39 39 -->
 | Stav | Co prokazuje | Co neprokazuje |
@@ -151,7 +170,7 @@ Samostatná obrazovka `Daně → EPO podání a archív` zobrazuje vygenerované
 výsledek lokální validace, historii předání do EPO, uložené důkazní dokumenty a
 stav podání.
 
-### 49.8.2 Filtr, hledání a stránkování
+### 49.9.2 Filtr, hledání a stránkování
 
 Seznam se **stránkuje po padesáti záznamech** a filtr stavu, výběr výkazu i hledání
 pracují **nad celým archivem**, ne jen nad zobrazenou stránkou.
@@ -166,7 +185,7 @@ nejnovějšího.
 > [!TIP]
 > **Souhrnné dlaždice nahoře jsou vědomě jiné číslo než počet ve stránkování.** Počet u stránkování odpovídá tomu, co jste vyfiltrovali. Dlaždice se počítají nad celým viditelným archivem, protože slouží k navigaci. Kdyby se počítaly ze stránky, tvrdily by „2 problémy", i když jich je třicet o dvě stránky dál. Kdyby se vázaly na filtr, ztratily by smysl.
 
-### 49.8.3 Kdy jde snapshot smazat
+### 49.9.3 Kdy jde snapshot smazat
 
 Mazání blokuje jen to, co prokazatelně odešlo:
 
@@ -175,7 +194,8 @@ Mazání blokuje jen to, co prokazatelně odešlo:
 |---|---|
 | Snapshot bez předání, případně jen s testem EPO | Ano. Test se z principu nepodává, EPO na něj odpovídá, že podání nebylo přijato, protože šlo o testovací režim. |
 | Předání do EPO, jehož výsledek aplikace nezná (čeká na P7S, propadlý odkaz, nejednoznačná odpověď) | Až po vědomém uzavření. Ověřte v portálu EPO, jestli podání prošlo. Pokud ne, popište, jak jste to ověřili, a pokus se uzavře jako nepodaný. |
-| Snapshot označený jako podaný, potvrzené podání, podací číslo nebo doručenka | Ne. Je to doklad o podání pro správce daně. |
+| Snapshot zařazený k odeslání datovou schránkou, nebo jeho odeslání skončilo nejistě | Až po zrušení zprávy ve frontě, případně po ověření v datové schránce, že neodešla. |
+| Snapshot označený jako podaný, potvrzené podání, podací číslo, odeslaná datová zpráva nebo doručenka | Ne. Je to doklad o podání pro správce daně. |
 
 Nad obdobím, na kterém běží zadržení podle § 32 ZoÚ (daňová kontrola, odvolání,
 soudní spor), se snapshoty nemažou vůbec. Mazání není cesta, jak se zbavit
@@ -184,7 +204,7 @@ podkladu, který správce daně prověřuje.
 Smazání zachytí auditní log včetně toho, co spolu se snapshotem zmizelo (pokusy,
 vazby na důkazní dokumenty). Samotné dokumenty v modulu **Dokumenty** zůstávají.
 
-### 49.8.4 Co se v archivu ukládá
+### 49.9.4 Co se v archivu ukládá
 
 Při ostrém exportu se uchovává přesný XML obsah, velikost, SHA-256 otisk, typ
 formuláře, období, varianta podání a výsledek dostupné validace. Otisk umožňuje
@@ -227,7 +247,7 @@ U DPHDP3, KH a souhrnného hlášení je archivovaný soubor technickým obrazem
 vygenerovaného výkazu. Před odesláním vždy porovnejte období, typ podání,
 identifikační údaje a součty s náhledem a související kontrolní sestavou.
 
-### 49.8.5 Jak získat vhodný certifikát
+### 49.9.5 Jak získat vhodný certifikát
 
 Pro přímé EPO objednejte **kvalifikovaný certifikát pro elektronický podpis
 fyzické osoby** (případně zaměstnanecký/OSVČ profil), jehož soukromý klíč lze
@@ -283,7 +303,7 @@ s evidovanou identitou. MyÚčto na jeho nerozpoznání upozorní, ale samo nero
 o oprávnění jednat za konkrétní daňový subjekt. To musí odpovídat skutečnému
 zastoupení, funkci nebo plné moci.
 
-### 49.8.6 Zabezpečení certifikátu
+### 49.9.6 Zabezpečení certifikátu
 
 Správce instalace musí před použitím nastavit samostatný
 `app.secret_encryption_key`. Bez něj MyÚčto soukromý klíč nepřijme. P12/PFX i jeho
@@ -308,7 +328,7 @@ hesla, podpisový profil ukládá pouze vazbu na osobní trezor. Připojení vy�
 stejné ověření jako výše. Dokud certifikát používá aktivní podpisový profil, nelze
 ho z trezoru smazat ani odebrat z příslušné firmy.
 
-### 49.8.7 Ověřování dodejek
+### 49.9.7 Ověřování dodejek
 
 Dodejky se ověřují proti CA bundlu z `epo.ca_bundle_path`. Ve výchozí konfiguraci
 míří na `api/resources/epo/epo-ca-bundle.pem`, který se nasazuje spolu s aplikací
@@ -347,7 +367,7 @@ shodu SHA-256 otisku s testovacím allowlistem a vazbu na odeslaný balíček.
 Testovací dodejku přitom neprezentuje jako produkčně důvěryhodný řetězec ani jako
 právně účinné podání.
 
-### 49.8.8 Zkušební prostředí pro vývoj
+### 49.9.8 Zkušební prostředí pro vývoj
 
 Instalace může přímé podepsané EPO operace přepnout na veřejné zkušební prostředí
 Finanční správy. V `cfg.php` nastavte:
@@ -401,7 +421,7 @@ Ve Windows nastavte opakování úlohy každou minutu. Výsledek každého běhu
 v evidenci cronů a wrapper zapisuje denní log do `log/cron`; při vlastním
 `MYINVOICE_DATA_DIR` pod jeho `log/cron`.
 
-### 49.8.9 Asistované podání: odkaz a omezení
+### 49.9.9 Asistované podání: odkaz a omezení
 
 **PDF opis podání se čte jen jako nápověda.** Pokud z portálu odnesete pouze tisk,
 aplikace se z jeho textové vrstvy pokusí přečíst podací číslo a čas a předvyplní
@@ -443,7 +463,7 @@ nepodepsaného formuláře, proto jej MyÚčto v tomto režimu neposílá. Před
 provede lokální validaci XSD a další obsahové problémy zobrazí interaktivní kontroly
 formuláře EPO.
 
-### 49.8.10 Rekonciliace proti skutečně podanému XML
+### 49.9.10 Rekonciliace proti skutečně podanému XML
 
 **DPPO.** U DPPO lze importovat podané **DPPDP9 XML** a porovnat je s výpočtem
 stejného roku. Systém nejprve tvrdě ověří rok a typ formuláře. Poté zobrazí rozdíly
@@ -480,7 +500,7 @@ s aktuálním náhledem ručně. Rozdíly po podání mohou znamenat pozdě dopl
 změněnou klasifikaci, kurz, datum přijetí nebo ruční zásah provedený přímo na
 portálu.
 
-### 49.8.11 Řádné, opravné a dodatečné podání
+### 49.9.11 Řádné, opravné a dodatečné podání
 
 - **Řádné** je první tvrzení za období.
 - **Opravné** nahrazuje předchozí podání před uplynutím lhůty.
@@ -490,7 +510,7 @@ Před vytvořením další varianty vždy určujte poslední účinné podání 
 správce daně, ne podle nejnovějšího souboru v archivu. Vygenerovaný, ale
 neodeslaný soubor se poslední známou daní nestává.
 
-### 49.8.12 Co systém nenahrazuje
+### 49.9.12 Co systém nenahrazuje
 
 - podání na ePortál ČSSZ nebo portály zdravotních pojišťoven,
 - právní oprávnění podepisující osoby jednat za konkrétní daňový subjekt,
@@ -499,7 +519,7 @@ neodeslaný soubor se poslední známou daní nestává.
 - univerzální import a diff všech typů podaných XML,
 - kontrolu údajů, které uživatel po importu ručně změnil přímo na portálu.
 
-## 49.9 Související kapitoly
+## 49.10 Související kapitoly
 
 - [Výkazy DPH](41_Vykazy_DPH.md)
 - [Souhrnné hlášení](44_Souhrnne_hlaseni.md)

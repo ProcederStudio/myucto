@@ -1,4 +1,5 @@
 import { api } from './client'
+import type { OutboxSubmission } from './dataBox'
 
 export type SubmissionStatus = 'draft' | 'generated' | 'downloaded' | 'submitted' | 'accepted' | 'rejected'
 export type ValidationStatus = 'passed' | 'failed' | 'skipped'
@@ -13,6 +14,8 @@ export type ArtifactKind =
   | 'confirmation_xml' | 'epo_echo'
   | 'confirmation_signer_cert' | 'submission_signer_cert'
   | 'epo_error_xml' | 'epo_status_xml' | 'receipt_pdf' | 'other'
+  // Podání odeslané datovou schránkou: doručenka z ISDS a zpráva od finančního úřadu.
+  | 'isds_delivery_zfo' | 'isds_response_zfo'
 export type VerificationStatus = 'not_applicable' | 'pending' | 'valid' | 'warning' | 'invalid'
 
 export interface EpoMessage {
@@ -168,7 +171,99 @@ export interface TaxSubmission {
    * dostat k účetní, jinak o tom nikdo neví.
    */
   vat_clearing?: VatClearingOutcome | null
+  /** Poslední zpráva datové schránky k tomuto snapshotu, `null` = datovkou se neposílalo. */
+  isds_dispatch?: TaxIsdsDispatch | null
 }
+
+export type TaxIsdsDispatchState =
+  | 'ready' | 'sending' | 'send_uncertain' | 'sent' | 'delivered' | 'failed' | 'cancelled'
+
+export interface TaxIsdsDispatch {
+  id: number
+  dispatch_state: TaxIsdsDispatchState
+  dispatch_mode: string | null
+  recipient_id: number | null
+  recipient_box_id: string | null
+  recipient_name: string | null
+  subject: string
+  correlation_reference: string | null
+  external_message_id: string | null
+  sent_at: string | null
+  delivered_at: string | null
+  receipt_document_id: number | null
+  receipt_attached_at: string | null
+  last_error_code: string | null
+  last_error_message: string | null
+  created_at: string
+}
+
+/** Skupiny podání, pro které se dá zvlášť zvolit schránka finančního úřadu. */
+export type TaxIsdsRouteGroup = 'vat' | 'kh' | 'sh' | 'income'
+
+export interface TaxIsdsRecipient {
+  id: number
+  code: string
+  name: string
+  kind: 'tax_office' | 'other'
+  isds_box_id: string | null
+  address: string | null
+  own: boolean
+}
+
+export interface TaxIsdsRoute {
+  /** Odvozený z kódu finančního úřadu firmy. */
+  default: TaxIsdsRecipient | null
+  /** Ručně zvolený příjemce; `null` = platí výchozí. */
+  override: TaxIsdsRecipient | null
+  effective: TaxIsdsRecipient | null
+}
+
+export interface TaxIsdsRoutes {
+  office_code: string | null
+  groups: Record<TaxIsdsRouteGroup, TaxIsdsRoute>
+  recipients: TaxIsdsRecipient[]
+}
+
+export type TaxIsdsRouteInput = Partial<Record<TaxIsdsRouteGroup, number | null>>
+
+export interface TaxIsdsEnqueueResult {
+  outbox_id: number
+  created: boolean
+  row: OutboxSubmission
+  recipient: {
+    id: number
+    box_id: string
+    name: string
+    code: string
+    source: 'override' | 'office_code'
+  }
+  /** Kód FÚ (c_ufo) z hlavičky XML. */
+  xml_office_code: string | null
+  office_mismatch: boolean
+  subject: string
+  attachment: { filename: string; mime: string; sha256: string; bytes: number }
+  transport: {
+    automatic: boolean
+    channel: 'gateway' | 'mobile_key' | 'manual_upload'
+    reason: string | null
+  }
+}
+
+export interface TaxIsdsInboxItem {
+  id: number
+  external_message_id: string | null
+  sender_box_id: string | null
+  sender_name: string | null
+  subject: string | null
+  classification: 'tax_office_response' | 'unclassified'
+  delivered_at: string | null
+  matched: boolean
+}
+
+/** Výkazy, které jde poslat datovou schránkou finančního úřadu. OSS a mzdy nikdy. */
+export const TAX_ISDS_FORMS: ReadonlySet<string> = new Set([
+  'dphdp3', 'dphkh1', 'dphshv', 'dppdp9', 'dpfdp5', 'dpfdp7',
+])
 
 export interface TaxSubmissionStats {
   total: number
@@ -219,6 +314,7 @@ export type SubmissionDeleteBlocker =
   | 'submitted_snapshot'
   | 'delivered_attempt'
   | 'unresolved_attempt'
+  | 'isds_pending'
 
 export interface EpoFolder {
   id: number
@@ -503,6 +599,41 @@ export const epoSubmissionsApi = {
       `/reports/submissions/${id}`,
       notSubmittedNote ? { data: { not_submitted_note: notSubmittedNote } } : undefined,
     ).then(r => r.data),
+
+  isdsRoutes: () =>
+    api.get<TaxIsdsRoutes>('/reports/submissions/isds-routes').then(r => r.data),
+
+  /** `null` u skupiny vrací výchozí schránku podle kódu finančního úřadu. */
+  updateIsdsRoutes: (groups: TaxIsdsRouteInput) =>
+    api.put<TaxIsdsRoutes>('/reports/submissions/isds-routes', { groups }).then(r => r.data),
+
+  /**
+   * Zařadí podání do fronty datové schránky. NEODESÍLÁ: odeslání je samostatný
+   * úkon jednou ze čtyř přihlašovacích cest. Opakované volání pro týž snapshot
+   * a příjemce vrátí už založenou zprávu (`created: false`).
+   */
+  enqueueIsds: (id: number) =>
+    api.post<TaxIsdsEnqueueResult>(`/reports/submissions/${id}/isds`, {}).then(r => r.data),
+
+  /** Zruší zprávu ve frontě (jen stav `ready`, jinak 409 `isds_dispatch_not_cancellable`). */
+  cancelIsds: (id: number) =>
+    api.post<TaxSubmission>(`/reports/submissions/${id}/isds-cancel`, {}).then(r => r.data),
+
+  uploadIsdsReceipt: (id: number, file: File) => {
+    const data = new FormData()
+    data.append('file', file, file.name)
+    return api.post<TaxSubmission>(`/reports/submissions/${id}/isds-receipt`, data, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then(r => r.data)
+  },
+
+  isdsInbox: (id: number) =>
+    api.get<{ items: TaxIsdsInboxItem[] }>(`/reports/submissions/${id}/isds-inbox`)
+      .then(r => r.data.items),
+
+  attachIsdsInboxMessage: (id: number, messageId: number) =>
+    api.post<TaxSubmission>(`/reports/submissions/${id}/isds-inbox/${messageId}`, {})
+      .then(r => r.data),
 
   xmlUrl: (id: number) => {
     const params = new URLSearchParams()

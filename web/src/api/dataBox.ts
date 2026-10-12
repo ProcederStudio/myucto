@@ -882,6 +882,10 @@ export const dataBoxApi = {
   gatewayStartPayroll: (id: number) =>
     api.post<GatewayStart>(`/payroll/submissions/isds-gateway/outbox/${id}`, {}).then(r => r.data),
 
+  /** Brána pro daňové podání zařazené z Daně → Podání (oprávnění reports.submit). */
+  gatewayStartTax: (id: number) =>
+    api.post<GatewayStart>(`/reports/submissions/isds-gateway/outbox/${id}`, {}).then(r => r.data),
+
   gatewayCapabilities: () =>
     api.get<{ items: IsdsGatewayCapability[] }>('/submissions/gateway/capability')
       .then(r => r.data.items),
@@ -898,6 +902,12 @@ export const dataBoxApi = {
 
   gatewayCompletePayroll: (appToken: string, sessionId: string) =>
     api.post<GatewayComplete>('/payroll/submissions/isds-gateway/callback', {
+      app_token: appToken,
+      session_id: sessionId,
+    }).then(r => r.data),
+
+  gatewayCompleteTax: (appToken: string, sessionId: string) =>
+    api.post<GatewayComplete>('/reports/submissions/isds-gateway/callback', {
       app_token: appToken,
       session_id: sessionId,
     }).then(r => r.data),

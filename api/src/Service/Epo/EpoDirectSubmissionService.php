@@ -78,6 +78,7 @@ final class EpoDirectSubmissionService
             false,
             $environment,
             true,
+            true,
         );
         $unlocked = $this->credentials->unlockForSigning(
             $credentialId,
@@ -1637,6 +1638,7 @@ final class EpoDirectSubmissionService
         bool $allowSubmitted = false,
         string $environment = 'production',
         bool $allowActiveAssisted = false,
+        bool $epoTest = false,
     ): array {
         $submission = $this->submissions->find($submissionId, $supplierId);
         if ($submission === null) {
@@ -1686,6 +1688,19 @@ final class EpoDirectSubmissionService
             throw new EpoSubmissionException(
                 'already_submitted',
                 'Tento XML snapshot už byl podán.',
+                409,
+            );
+        }
+        // Neúčinný test `test=1` nic nepodává, takže ho fronta datové schránky neblokuje.
+        if (
+            !$allowSubmitted
+            && !$epoTest
+            && $this->epo->activeIsdsDispatch($submissionId, $supplierId) !== null
+        ) {
+            throw new EpoSubmissionException(
+                'isds_dispatch_active',
+                'Tento snapshot je zařazený k odeslání datovou schránkou nebo jí už odešel.'
+                    . ' Jedno podání se posílá jen jednou cestou — zprávu ve frontě nejdřív zrušte.',
                 409,
             );
         }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MyInvoice\Service\Submission;
 
+use MyInvoice\Service\Epo\Isds\TaxOfficeIsdsInboxProcessor;
 use MyInvoice\Service\Payroll\Submission\HealthInsurance\HealthInsuranceIsdsInboxProcessor;
 use MyInvoice\Service\Payroll\Submission\Jmhz\Transport\JmhzIsdsInboxProcessor;
 use MyInvoice\Service\Submission\Channel\InboxMessageHeader;
@@ -14,6 +15,7 @@ final readonly class CompositeSubmissionInboxMessageProcessor implements Submiss
     public function __construct(
         private JmhzIsdsInboxProcessor $jmhz,
         private HealthInsuranceIsdsInboxProcessor $healthInsurance,
+        private TaxOfficeIsdsInboxProcessor $taxOffice,
     ) {}
 
     /**
@@ -29,7 +31,7 @@ final readonly class CompositeSubmissionInboxMessageProcessor implements Submiss
         string $zfoBytes,
         ?int $actorUserId,
     ): array {
-        foreach ([$this->jmhz, $this->healthInsurance] as $processor) {
+        foreach ([$this->jmhz, $this->healthInsurance, $this->taxOffice] as $processor) {
             $result = $processor->process(
                 $supplierId,
                 $environment,

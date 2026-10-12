@@ -15,6 +15,7 @@ use MyInvoice\Service\Submission\Channel\OutboundSubmission;
 use MyInvoice\Service\Submission\Channel\SubmissionChannelException;
 use MyInvoice\Service\Submission\SubmissionArtifactResolver;
 use MyInvoice\Service\Submission\SubmissionArtifactValidator;
+use MyInvoice\Service\Epo\Isds\TaxSubmissionDispatchProjection;
 use MyInvoice\Service\Payroll\Submission\PayrollSubmissionDispatchProjection;
 use Psr\Log\LoggerInterface;
 
@@ -77,6 +78,7 @@ final readonly class IsdsGatewayDispatchService
         private SubmissionArtifactValidator $validator,
         private LoggerInterface $logger,
         private ?PayrollSubmissionDispatchProjection $payrollProjection,
+        private ?TaxSubmissionDispatchProjection $taxProjection = null,
     ) {}
 
     /**
@@ -504,6 +506,8 @@ final readonly class IsdsGatewayDispatchService
             ];
         }
 
+        $this->projectTaxSubmission($supplierId, $outboxId, $messageId);
+
         $this->logger->info('ISDS gateway dispatch recorded', [
             'supplier_id' => $supplierId,
             'outbox_id' => $outboxId,
@@ -559,6 +563,8 @@ final readonly class IsdsGatewayDispatchService
             );
         }
 
+        $this->projectTaxSubmission($supplierId, $outboxId, $messageId);
+
         return [
             'state' => 'approved',
             'outbox_id' => $outboxId,
@@ -566,6 +572,22 @@ final readonly class IsdsGatewayDispatchService
             'external_message_id' => $messageId,
             'message' => 'Podání už bylo odesláno datovou schránkou.',
         ];
+    }
+
+    /**
+     * Daňové podání se promítá až PO transakci fronty: označení „podáno" účtuje
+     * zúčtování DPH a posouvá zámek období, a to nemá viset na transakci,
+     * která zapisuje důkaz o odeslání. Projekce chyby jen loguje.
+     */
+    private function projectTaxSubmission(int $supplierId, int $outboxId, string $messageId): void
+    {
+        if ($this->taxProjection === null) {
+            return;
+        }
+        $row = $this->outbox->find($supplierId, $outboxId);
+        if ($row !== null) {
+            $this->taxProjection->project($supplierId, $row, $messageId);
+        }
     }
 
     /**

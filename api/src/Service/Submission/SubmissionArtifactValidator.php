@@ -128,6 +128,10 @@ final readonly class SubmissionArtifactValidator
         string $environment,
         string $agendaCode,
     ): void {
+        if ($artifactKind === 'tax_submission') {
+            $this->assertTaxTransportAuthority($artifact, $environment, $agendaCode);
+            return;
+        }
         if ($artifactKind !== 'payroll_submission') {
             return;
         }
@@ -203,6 +207,69 @@ final readonly class SubmissionArtifactValidator
                 'payroll_artifact_schema_unrecorded',
                 'Zmrazená datová věta mzdového podání nemá zapsanou verzi XSD,'
                     . ' takže není doložené, že prošla schématem. Zmrazte podání znovu.',
+                409,
+            );
+        }
+    }
+
+    /**
+     * Daňový snapshot smí do fronty a z ní ven jen jako dosud nepodaný, XSD validní
+     * a nezměněný výkaz, který zrovna neodchází cestou EPO. Kontroluje se při zařazení
+     * i těsně před odesláním — mezi tím mohl snapshot podat někdo jinou cestou.
+     *
+     * @param array<string,mixed> $artifact
+     */
+    private function assertTaxTransportAuthority(array $artifact, string $environment, string $agendaCode): void
+    {
+        $authority = $artifact['authority'] ?? null;
+        if (!is_array($authority) || ($authority['kind'] ?? null) !== 'tax_submission') {
+            throw new SubmissionChannelException(
+                'tax_artifact_context_missing',
+                'Daňový podklad nemá autoritativní vazbu na archivované podání.',
+                409,
+            );
+        }
+        $formCode = strtoupper(trim((string) ($authority['form_code'] ?? '')));
+        if ($environment !== 'production') {
+            throw new SubmissionChannelException(
+                'tax_isds_production_only',
+                'Daňové podání jde datovou schránkou jen v ostrém prostředí.',
+                409,
+            );
+        }
+        if ($formCode === '' || $formCode !== strtoupper(trim($agendaCode))) {
+            throw new SubmissionChannelException(
+                'tax_submission_agenda_mismatch',
+                'Agenda fronty neodpovídá výkazu archivovaného podání.',
+                409,
+            );
+        }
+        if (!in_array((string) ($authority['status'] ?? ''), ['draft', 'generated', 'downloaded'], true)) {
+            throw new SubmissionChannelException(
+                'tax_submission_already_filed',
+                'Tento snapshot už je označený jako podaný nebo vyřízený. Znovu se neodesílá.',
+                409,
+            );
+        }
+        if (($authority['validation_status'] ?? null) !== 'passed') {
+            throw new SubmissionChannelException(
+                'tax_submission_not_validated',
+                'Odeslat lze jen výkaz, který prošel kontrolou proti XSD schématu.',
+                422,
+            );
+        }
+        if (($authority['sha256_match'] ?? false) !== true) {
+            throw new SubmissionChannelException(
+                'tax_submission_snapshot_changed',
+                'Archivovaný XML snapshot neodpovídá uloženému otisku.',
+                409,
+            );
+        }
+        if (($authority['epo_attempt_active'] ?? false) === true) {
+            throw new SubmissionChannelException(
+                'tax_submission_epo_active',
+                'Tento snapshot má rozpracované nebo potvrzené podání přes EPO. Jedno podání'
+                    . ' se posílá jen jednou cestou.',
                 409,
             );
         }

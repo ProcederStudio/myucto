@@ -201,8 +201,8 @@ final class SubmissionRecipientRepository
         $row['supplier_id'] = $row['supplier_id'] !== null ? (int) $row['supplier_id'] : null;
         $row['is_active'] = (bool) $row['is_active'];
         $row['is_system'] = $row['supplier_id'] === null;
-        // Číselník bez ID schránky je legitimní stav (u finančních úřadů
-        // nemáme doklad), ale UI to musí umět rozeznat na první pohled.
+        // Číselník bez ID schránky je legitimní stav (vlastní příjemce firmy,
+        // ke kterému ID zatím nemá doklad), ale UI to musí umět rozeznat na první pohled.
         $row['has_box_id'] = $row['isds_box_id'] !== null;
         return $row;
     }

@@ -12,6 +12,7 @@ use MyInvoice\Repository\Submission\SubmissionOutboxRepository;
 use MyInvoice\Security\AccessLevel;
 use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Service\ActivityLogger;
+use MyInvoice\Service\Epo\Isds\TaxIsdsRouting;
 use MyInvoice\Service\Payroll\PayrollProductionGate;
 use MyInvoice\Service\Payroll\PayrollProductionGateException;
 use MyInvoice\Service\Payroll\Submission\Isds\PayrollIsdsAgendaCatalog;
@@ -84,6 +85,21 @@ final class IsdsGatewayAction
         );
     }
 
+    /**
+     * Odesílací brána pro daňové podání ze stránky Podání (oprávnění podávat výkazy).
+     *
+     * @param array<string,string> $args
+     */
+    public function taxStart(Request $request, Response $response, array $args): Response
+    {
+        return $this->startForPermission(
+            $request,
+            $response,
+            $args,
+            'reports.submit',
+        );
+    }
+
     /** @param array<string,string> $args */
     private function startForPermission(
         Request $request,
@@ -105,6 +121,9 @@ final class IsdsGatewayAction
                     $supplierId,
                     $environment,
                 );
+            }
+            if ($permission === 'reports.submit') {
+                $this->assertTaxOutbox($supplierId, $id);
             }
             $result = $this->dispatch->start($supplierId, $id, $userId);
         } catch (PayrollProductionGateException $e) {
@@ -145,6 +164,15 @@ final class IsdsGatewayAction
         );
     }
 
+    public function taxComplete(Request $request, Response $response): Response
+    {
+        return $this->completeForPermission(
+            $request,
+            $response,
+            'reports.submit',
+        );
+    }
+
     public function payrollComplete(Request $request, Response $response): Response
     {
         return $this->completeForPermission(
@@ -179,10 +207,12 @@ final class IsdsGatewayAction
         }
 
         try {
-            if ($permission === 'payroll.submissions') {
+            if ($permission === 'payroll.submissions' || $permission === 'reports.submit') {
                 $session = $this->sessions->findByAppToken($appToken);
                 if ($session !== null && (int) $session['supplier_id'] === $supplierId) {
-                    $this->assertPayrollOutbox($supplierId, (int) $session['outbox_id']);
+                    $permission === 'payroll.submissions'
+                        ? $this->assertPayrollOutbox($supplierId, (int) $session['outbox_id'])
+                        : $this->assertTaxOutbox($supplierId, (int) $session['outbox_id']);
                 }
             }
             $result = $this->dispatch->complete($supplierId, $userId, $appToken, $sessionId);
@@ -369,6 +399,32 @@ final class IsdsGatewayAction
         }
 
         return (string) $row['environment'];
+    }
+
+    /**
+     * Rozsah oprávnění „podávat výkazy" u brány: jen daňový snapshot zařazený
+     * ze stránky Podání, nikdy cizí zpráva fronty (mzdy, dokumenty).
+     */
+    private function assertTaxOutbox(int $supplierId, int $outboxId): void
+    {
+        $row = $this->outbox->find($supplierId, $outboxId);
+        if ($row === null) {
+            throw new SubmissionChannelException(
+                'submission_outbox_not_found',
+                'Připravené podání nebylo nalezeno.',
+                404,
+            );
+        }
+        if (trim((string) $row['artifact_kind']) !== 'tax_submission'
+            || !TaxIsdsRouting::supports(strtolower((string) $row['agenda_code']))
+        ) {
+            throw new SubmissionChannelException(
+                'tax_gateway_outbox_forbidden',
+                'Oprávnění podávat výkazy smí přes ISDS odeslat jen daňové podání'
+                    . ' (DPH, kontrolní a souhrnné hlášení, DPPO, DPFO).',
+                403,
+            );
+        }
     }
 
     private function operatorGuard(

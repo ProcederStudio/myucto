@@ -247,7 +247,7 @@ Tato část mapuje pole z `Nastavení → Daně a účetnictví`, box **Daňové
 <!-- cols: 26 14 60 -->
 | Pole v UI | XML atribut | Popis a kde zjistit |
 |---|---|---|
-| **Kód finančního úřadu** | `c_ufo` | Číselný kód územního finančního orgánu, např. `451` Praha 1, `463` Jihomoravský kraj. Najdete ho na posledním podaném přiznání nebo v EPO. |
+| **Kód finančního úřadu** | `c_ufo` | Číselný kód finančního úřadu, např. `451` Finanční úřad pro hlavní město Prahu, `461` Finanční úřad pro Jihomoravský kraj, `13` Specializovaný finanční úřad. Najdete ho na posledním podaném přiznání nebo v EPO. |
 | **Kód územního pracoviště (ÚzP)** | `c_pracufo` | Konkrétní pracoviště v rámci úřadu, např. `3203` pracoviště Brno III. Volitelné, ale EPO ho někdy vyžaduje. |
 | **CZ-NACE klasifikace** | `c_okec` | Hlavní podnikatelská činnost, např. `631000` (IT poradenství). Najdete ji na živnostenském listě nebo v ARES. Při prázdném poli se použije `631000`. Pole nabízí jen kódy platné k dnešku, číselník EPO je od 1. 1. 2026 na NACE rev. 2.1. |
 

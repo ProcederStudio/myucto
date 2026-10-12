@@ -3255,6 +3255,17 @@ final class Routes
         $app->post   ('/api/reports/submissions/epo-credentials', [\MyInvoice\Action\Report\EpoDirectSubmissionAction::class, 'uploadCredential']);
         $app->put    ('/api/reports/submissions/epo-credentials/{credentialId:[0-9]+}/supplier', [\MyInvoice\Action\Report\EpoDirectSubmissionAction::class, 'setCredentialSupplier']);
         $app->delete ('/api/reports/submissions/epo-credentials/{credentialId:[0-9]+}', [\MyInvoice\Action\Report\EpoDirectSubmissionAction::class, 'deleteCredential']);
+        // Podání datovou schránkou: směrování na schránky FÚ, zařazení do fronty,
+        // odesílací brána, doručenka a zprávy od FÚ.
+        $app->get    ('/api/reports/submissions/isds-routes',     [\MyInvoice\Action\Report\TaxSubmissionIsdsAction::class, 'routes']);
+        $app->put    ('/api/reports/submissions/isds-routes',     [\MyInvoice\Action\Report\TaxSubmissionIsdsAction::class, 'saveRoutes']);
+        $app->post   ('/api/reports/submissions/isds-gateway/outbox/{id:[0-9]+}', [\MyInvoice\Action\Submission\IsdsGatewayAction::class, 'taxStart']);
+        $app->post   ('/api/reports/submissions/isds-gateway/callback', [\MyInvoice\Action\Submission\IsdsGatewayAction::class, 'taxComplete']);
+        $app->post   ('/api/reports/submissions/{id:[0-9]+}/isds', [\MyInvoice\Action\Report\TaxSubmissionIsdsAction::class, 'enqueue']);
+        $app->post   ('/api/reports/submissions/{id:[0-9]+}/isds-cancel', [\MyInvoice\Action\Report\TaxSubmissionIsdsAction::class, 'cancel']);
+        $app->post   ('/api/reports/submissions/{id:[0-9]+}/isds-receipt', [\MyInvoice\Action\Report\TaxSubmissionIsdsAction::class, 'uploadReceipt']);
+        $app->get    ('/api/reports/submissions/{id:[0-9]+}/isds-inbox', [\MyInvoice\Action\Report\TaxSubmissionIsdsAction::class, 'inboxCandidates']);
+        $app->post   ('/api/reports/submissions/{id:[0-9]+}/isds-inbox/{messageId:[0-9]+}', [\MyInvoice\Action\Report\TaxSubmissionIsdsAction::class, 'linkInbox']);
         $app->get    ('/api/reports/submissions/{id:[0-9]+}',     [\MyInvoice\Action\Report\TaxSubmissionAction::class, 'detail']);
         $app->get    ('/api/reports/submissions/{id:[0-9]+}/xml', [\MyInvoice\Action\Report\TaxSubmissionAction::class, 'downloadXml']);
         $app->post   ('/api/reports/submissions/{id:[0-9]+}/epo-handoff', [\MyInvoice\Action\Report\TaxSubmissionEpoAction::class, 'handoff']);

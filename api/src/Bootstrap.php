@@ -171,6 +171,18 @@ final class Bootstrap
                     'categories',
                     \DI\get(\MyInvoice\Service\Submission\SubmissionInboxCategoryService::class),
                 ),
+            // Promítnutí odeslaného daňového podání do `tax_submissions` je nepovinný
+            // parametr (testy si služby staví bez něj), takže ho autowiring nedoplní.
+            \MyInvoice\Service\Submission\SubmissionOutboxService::class =>
+                \DI\autowire()->constructorParameter(
+                    'taxProjection',
+                    \DI\get(\MyInvoice\Service\Epo\Isds\TaxSubmissionDispatchProjection::class),
+                ),
+            \MyInvoice\Service\Submission\Channel\Isds\Gateway\IsdsGatewayDispatchService::class =>
+                \DI\autowire()->constructorParameter(
+                    'taxProjection',
+                    \DI\get(\MyInvoice\Service\Epo\Isds\TaxSubmissionDispatchProjection::class),
+                ),
             \MyInvoice\Service\PurchaseInvoice\Approval\PurchaseApprovalNotifier::class =>
                 \DI\get(\MyInvoice\Service\PurchaseInvoice\Approval\PurchaseApprovalMailer::class),
             // PDF přijatého dokladu pro jeho schvalovatele (F6) — nepovinné kvůli

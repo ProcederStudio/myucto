@@ -156,6 +156,7 @@ final class GlobalSeedTables
                 '1410_submission_recipients_cssz_epodani.sql',
                 '1535_health_insurer_recipient_codebook.sql',
                 '1536_vozp_payroll_submission_databox.sql',
+                '1998_tax_isds_submission.sql',
             ],
         ],
         'payroll_data_migration_markers' => [

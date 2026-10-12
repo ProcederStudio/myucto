@@ -224,13 +224,22 @@ final class SubmissionOutboxInvariantsTest extends TestCase
      */
     public function testOnlyDocumentedRecipientsAreSeeded(): void
     {
-        // Finanční úřady tu schválně NEJSOU: jejich ID nemáme doložená
-        // v repozitáři a seznam Finanční správy je z roku 2023, takže není
-        // zdrojem pravdy. Seznam se smí rozšířit jen spolu s dokladem.
+        // Finanční úřady: jen krajské FÚ a Specializovaný FÚ (migrace 1998),
+        // doložené seznamem Finanční správy a ověřené 12. 10. 2026. Územní
+        // pracoviště se neseedují — podání patří místně příslušnému FÚ.
+        // Seznam se smí rozšířit jen spolu s dokladem.
+        $taxOffices = [
+            'fu_451' => '7nyn2d9', 'fu_452' => '6sxny3p', 'fu_453' => 'scdnz6b',
+            'fu_454' => 'gf9n2e3', 'fu_455' => 'q9in2ev', 'fu_456' => 'qjfn2bj',
+            'fu_457' => 'zcqn2bf', 'fu_458' => 'fj8ny4i', 'fu_459' => '95zn2bb',
+            'fu_460' => 'tqjn2cy', 'fu_461' => 'qdhny4c', 'fu_462' => '25nnz67',
+            'fu_463' => '4hun2cu', 'fu_464' => 'n69nz5y', 'fu_13' => '7cs8cge',
+        ];
         $documented = [
             'zp_vzp_111', 'zp_vozp_201', 'zp_cpzp_205', 'zp_ozp_207',
             'zp_zpskoda_209', 'zp_zpmvcr_211', 'zp_rbp_213',
             'cssz_epodani_jmhz', 'cssz_epodani_obecna', 'cssz_epodani_test',
+            ...array_keys($taxOffices),
         ];
 
         $rows = $this->db->pdo()
@@ -255,6 +264,9 @@ final class SubmissionOutboxInvariantsTest extends TestCase
         self::assertSame('iie254d', $byCode['cssz_epodani_jmhz'] ?? null);
         self::assertSame('5ffu6xk', $byCode['cssz_epodani_obecna'] ?? null);
         self::assertSame('9tsaf6s', $byCode['cssz_epodani_test'] ?? null);
+        foreach ($taxOffices as $code => $boxId) {
+            self::assertSame($boxId, $byCode[$code] ?? null, 'Schránka ' . $code);
+        }
     }
 
     /** Historický příznak zůstává vypnutý; produkt automatický režim nenabízí. */

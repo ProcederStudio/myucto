@@ -164,6 +164,28 @@ final class SubmissionOutboxRepository
         return $row !== false ? self::normalize($row) : null;
     }
 
+    /**
+     * Zprávy fronty, které nesou dané artefakty, od nejnovější.
+     *
+     * @param list<int> $artifactIds
+     * @return list<array<string,mixed>>
+     */
+    public function listForArtifacts(int $supplierId, string $artifactKind, array $artifactIds): array
+    {
+        $ids = array_values(array_unique(array_filter($artifactIds, static fn (int $id): bool => $id > 0)));
+        if ($ids === [] || !$this->isAvailable()) {
+            return [];
+        }
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->db->pdo()->prepare(
+            'SELECT ' . self::COLUMNS . ' FROM ' . self::TABLE . "
+              WHERE supplier_id = ? AND artifact_kind = ? AND artifact_id IN ($placeholders)
+              ORDER BY id DESC"
+        );
+        $stmt->execute([$supplierId, $artifactKind, ...$ids]);
+        return array_values(array_map(self::normalize(...), $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []));
+    }
+
     /** @return list<array<string,mixed>> */
     public function listForSupplier(int $supplierId, string $environment, int $limit = 100): array
     {

@@ -130,6 +130,33 @@ final class TaxSubmissionEpoRepository
         return $row !== false ? $this->normalizeAttempt($row) : null;
     }
 
+    /**
+     * Zpráva datové schránky, která snapshot drží: zařazená, odesílaná, nejistá nebo
+     * odeslaná. Jeden snapshot = jeden kanál — dokud tahle zpráva existuje, EPO cesta
+     * snapshot nepodá a naopak. Zrušená a neúspěšná zpráva snapshot uvolňuje.
+     *
+     * @return array<string,mixed>|null
+     */
+    public function activeIsdsDispatch(int $submissionId, int $supplierId): ?array
+    {
+        if (!$this->db->hasTable('submission_outbox')) {
+            return null;
+        }
+        $stmt = $this->db->pdo()->prepare(
+            "SELECT id, dispatch_state, dispatch_mode, recipient_id, recipient_box_id,
+                    external_message_id, sent_at, delivered_at
+               FROM submission_outbox
+              WHERE supplier_id = ? AND artifact_kind = 'tax_submission' AND artifact_id = ?
+                AND channel = 'isds' AND environment = 'production'
+                AND dispatch_state IN ('ready','sending','send_uncertain','sent','delivered')
+              ORDER BY id DESC
+              LIMIT 1"
+        );
+        $stmt->execute([$supplierId, $submissionId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row !== false ? $row : null;
+    }
+
     public function insertAttempt(
         int $supplierId,
         int $submissionId,
@@ -353,7 +380,9 @@ final class TaxSubmissionEpoRepository
      * vznikají i při testu (`test=1`), na který EPO odpovídá „Podání nebylo přijato, protože
      * bylo odesláno v testovacím režimu." Právě tahle záměna zamykala testované snapshoty.
      */
-    private const EVIDENCE_ARTIFACT_KINDS = ['confirmation_p7s', 'receipt_pdf', 'epo_status_xml'];
+    private const EVIDENCE_ARTIFACT_KINDS = [
+        'confirmation_p7s', 'receipt_pdf', 'epo_status_xml', 'isds_delivery_zfo',
+    ];
 
     /** Snapshot je označený jako podaný. */
     public const BLOCK_SUBMITTED = 'submitted_snapshot';
@@ -363,6 +392,12 @@ final class TaxSubmissionEpoRepository
 
     /** Existuje pokus, u kterého nevíme, jak dopadl. Uživatel ho může vědomě uzavřít. */
     public const BLOCK_UNRESOLVED = 'unresolved_attempt';
+
+    /**
+     * Snapshot čeká ve frontě datové schránky nebo se jeho odeslání nedořešilo. Uvolní ho
+     * jen zrušení zprávy ve frontě, případně dořešení nejistého odeslání — ne mazání.
+     */
+    public const BLOCK_ISDS_PENDING = 'isds_pending';
 
     /**
      * Proč nejde snapshot smazat — `null` = nic nebrání.
@@ -433,12 +468,25 @@ final class TaxSubmissionEpoRepository
                         SELECT 1 FROM tax_submission_artifacts f
                          WHERE f.tax_submission_id = s.id AND f.supplier_id = s.supplier_id
                            AND f.artifact_kind IN ($kindIn)
+                    )
+                    OR EXISTS(
+                        SELECT 1 FROM submission_outbox o
+                         WHERE o.supplier_id = s.supplier_id
+                           AND o.artifact_kind = 'tax_submission' AND o.artifact_id = s.id
+                           AND (o.external_message_id IS NOT NULL
+                                OR o.dispatch_state IN ('sent','delivered'))
                     )) AS delivered,
                     EXISTS(
                         SELECT 1 FROM tax_submission_attempts u
                          WHERE u.tax_submission_id = s.id AND u.supplier_id = s.supplier_id
                            AND u.status IN ($unresolvedIn)
-                    ) AS unresolved
+                    ) AS unresolved,
+                    EXISTS(
+                        SELECT 1 FROM submission_outbox q
+                         WHERE q.supplier_id = s.supplier_id
+                           AND q.artifact_kind = 'tax_submission' AND q.artifact_id = s.id
+                           AND q.dispatch_state IN ('ready','sending','send_uncertain')
+                    ) AS isds_pending
                FROM tax_submissions s
               WHERE s.supplier_id = ? AND s.id IN ($idIn)"
         );
@@ -456,6 +504,7 @@ final class TaxSubmissionEpoRepository
             $out[(int) $row['id']] = match (true) {
                 (bool) $row['submitted_snapshot'] => self::BLOCK_SUBMITTED,
                 (bool) $row['delivered'] => self::BLOCK_DELIVERED,
+                (bool) $row['isds_pending'] => self::BLOCK_ISDS_PENDING,
                 (bool) $row['unresolved'] => self::BLOCK_UNRESOLVED,
                 default => null,
             };
@@ -890,10 +939,41 @@ final class TaxSubmissionEpoRepository
         // nemůže nabídnout tlačítko, které backend odmítne, ani skrýt to, co by prošlo.
         $blockers = $this->deletionBlockers($ids, $supplierId);
 
+        // Poslední zpráva datové schránky ke snapshotu (i zrušená nebo neúspěšná — UI
+        // podle ní nabídne nové zařazení). Stav drží fronta, tady se jen promítá.
+        $dispatchStmt = $this->db->pdo()->prepare(
+            "SELECT o.id, o.artifact_id, o.dispatch_state, o.dispatch_mode, o.recipient_id,
+                    o.recipient_box_id, r.name AS recipient_name, o.subject,
+                    o.correlation_reference, o.external_message_id, o.sent_at, o.delivered_at,
+                    o.receipt_document_id, o.receipt_attached_at,
+                    o.last_error_code, o.last_error_message, o.created_at
+               FROM submission_outbox o
+               LEFT JOIN submission_recipients r ON r.id = o.recipient_id
+              WHERE o.supplier_id = ? AND o.artifact_kind = 'tax_submission'
+                AND o.channel = 'isds' AND o.artifact_id IN ($placeholders)
+              ORDER BY o.id DESC"
+        );
+        $dispatchStmt->execute($params);
+        $dispatches = [];
+        foreach ($dispatchStmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $dispatch) {
+            $submissionId = (int) $dispatch['artifact_id'];
+            if (isset($dispatches[$submissionId])) {
+                continue;
+            }
+            $dispatch['id'] = (int) $dispatch['id'];
+            $dispatch['recipient_id'] = $dispatch['recipient_id'] !== null ? (int) $dispatch['recipient_id'] : null;
+            $dispatch['receipt_document_id'] = $dispatch['receipt_document_id'] !== null
+                ? (int) $dispatch['receipt_document_id']
+                : null;
+            unset($dispatch['artifact_id']);
+            $dispatches[$submissionId] = $dispatch;
+        }
+
         foreach ($rows as &$row) {
             $id = (int) $row['id'];
             $row['attempts'] = $attempts[$id] ?? [];
             $row['artifacts'] = $artifacts[$id] ?? [];
+            $row['isds_dispatch'] = $dispatches[$id] ?? null;
             $blocker = $blockers[$id] ?? null;
             $row['delete_blocker'] = $blocker;
             $row['deletable'] = $blocker === null;

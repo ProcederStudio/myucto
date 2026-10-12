@@ -335,6 +335,38 @@ final class TaxSubmissionRepository
         return $prior !== null ? (int) $prior['id'] : null;
     }
 
+    /**
+     * Posunula se od stavby dodatečného přiznání (D/E) špička řetězce „poslední známé daně"?
+     * Null = podat lze; jinak dvojice očekávané a aktuální špičky. Platí jen pro dosud
+     * nepodaný snapshot — u podaného je špičkou on sám. Jediné místo pravidla pro ruční
+     * označení podání i pro odeslání datovou schránkou.
+     *
+     * @param array<string,mixed> $submission normalizovaný řádek z {@see find()}
+     * @return array{expected:int,current:?int}|null
+     */
+    public function amendmentBaselineMoved(array $submission, int $supplierId): ?array
+    {
+        $variant = (string) ($submission['form_variant'] ?? '');
+        $alreadyFiled = in_array((string) ($submission['status'] ?? ''), ['submitted', 'accepted'], true);
+        if (!in_array($variant, ['D', 'E'], true) || $alreadyFiled) {
+            return null;
+        }
+        $expectedTip = $submission['summary']['reference_submission_id'] ?? null;
+        if ($expectedTip === null) {
+            return null;
+        }
+        $currentTip = $this->amendmentChainTipId(
+            $supplierId,
+            (string) $submission['form_code'],
+            (int) $submission['period_year'],
+            $submission['period_month'] !== null ? (int) $submission['period_month'] : null,
+            $submission['period_quarter'] !== null ? (int) $submission['period_quarter'] : null,
+        );
+        return (int) $expectedTip !== (int) $currentTip
+            ? ['expected' => (int) $expectedTip, 'current' => $currentTip]
+            : null;
+    }
+
     /** Stavy životního cyklu snapshotu — hodnoty ENUM sloupce `tax_submissions.status`. */
     public const LIST_STATUSES = ['draft', 'generated', 'downloaded', 'submitted', 'accepted', 'rejected'];
 

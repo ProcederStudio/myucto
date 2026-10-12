@@ -651,6 +651,30 @@ final class SubmissionInboxRepository
         return $stmt->rowCount() > 0;
     }
 
+    /**
+     * Příchozí zprávy, které mohou patřit k daňovému podání: od finančního úřadu
+     * nebo nerozpoznané, a dosud bez vazby (případně už navázané na tutéž zprávu).
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function listTaxOfficeCandidates(int $supplierId, ?int $outboxId, int $limit = 50): array
+    {
+        $this->assertAvailable();
+        $limit = max(1, min(200, $limit));
+        $visible = $this->supportsPrivacyLifecycle() ? ' AND hidden_at IS NULL' : '';
+        $stmt = $this->db->pdo()->prepare(
+            'SELECT ' . $this->columns() . ' FROM ' . self::TABLE . "
+              WHERE supplier_id = ? AND environment = 'production' AND channel = 'isds'
+                AND classification IN ('tax_office_response','unclassified')
+                AND (matched_outbox_id IS NULL OR matched_outbox_id = ?)"
+            . $visible . '
+              ORDER BY id DESC LIMIT ' . $limit
+        );
+        $stmt->execute([$supplierId, $outboxId ?? 0]);
+
+        return array_values(array_map(self::normalize(...), $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []));
+    }
+
     /** Ruční zařazení zprávy, kterou automat nepoznal. */
     public function reclassify(
         int $supplierId,

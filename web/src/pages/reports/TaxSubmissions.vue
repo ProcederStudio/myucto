@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { apiErrorMessage } from '@/api/errors'
 import {
   epoSubmissionsApi,
+  TAX_ISDS_FORMS,
   type ArtifactUploadResult,
   type EpoArtifact,
   type EpoAttempt,
@@ -13,10 +14,15 @@ import {
   type EpoReceiptSummary,
   type EpoSigningCredential,
   type SubmissionStatus,
+  type TaxIsdsDispatch,
+  type TaxIsdsInboxItem,
+  type TaxIsdsRouteGroup,
+  type TaxIsdsRoutes,
   type TaxSubmission,
   type TaxSubmissionScope,
   type TaxSubmissionStats,
 } from '@/api/epoSubmissions'
+import TaxIsdsSendDialog from '@/components/submission/TaxIsdsSendDialog.vue'
 import { authApi } from '@/api/auth'
 import { getCredential, isWebAuthnAvailable } from '@/security/webauthn'
 import { useToast } from '@/composables/useToast'
@@ -191,6 +197,21 @@ const folders = ref<EpoFolder[]>([])
 const vatRootFolderId = ref<number | null>(null)
 const incomeRootFolderId = ref<number | null>(null)
 const epoEnvironment = ref<'production' | 'test' | null>(null)
+
+// Datová schránka finančního úřadu: směrování skupin podání v nastavení.
+const ISDS_ROUTE_GROUPS: TaxIsdsRouteGroup[] = ['vat', 'kh', 'sh', 'income']
+const isdsRoutes = ref<TaxIsdsRoutes | null>(null)
+const isdsRoutesError = ref('')
+const isdsRouteSelection = ref<Record<TaxIsdsRouteGroup, number | null>>({ vat: null, kh: null, sh: null, income: null })
+
+// Odeslání datovou schránkou: dialog, doručenka a zprávy od finančního úřadu.
+const isdsDialogFor = ref<TaxSubmission | null>(null)
+const isdsReceiptInput = ref<HTMLInputElement | null>(null)
+const isdsReceiptBusy = ref(false)
+const isdsInbox = ref<Record<number, TaxIsdsInboxItem[]>>({})
+const isdsInboxLoading = ref(false)
+const isdsInboxError = ref('')
+const isdsAttachBusy = ref<number | null>(null)
 
 const canWrite = computed(() => auth.canWrite('reports.submit'))
 const canDelete = computed(() => canWrite.value && auth.canWrite('reports.export'))
@@ -485,9 +506,141 @@ function isMossOssForm(item: TaxSubmission): boolean {
   return item.form_code === 'ossei1'
 }
 
+/** Stavy zprávy datové schránky, při kterých backend odmítne EPO (`isds_dispatch_active`). */
+const ISDS_ACTIVE_STATES = ['ready', 'sending', 'send_uncertain', 'sent', 'delivered']
+/** Zpráva už odešla nebo odchází — nové odeslání datovkou se nenabízí. */
+const ISDS_IN_FLIGHT_STATES = ['sending', 'send_uncertain', 'sent', 'delivered']
+
+function isdsDispatch(item: TaxSubmission): TaxIsdsDispatch | null {
+  return item.isds_dispatch ?? null
+}
+
+function isdsDispatchActive(item: TaxSubmission): boolean {
+  const dispatch = isdsDispatch(item)
+  return dispatch !== null && ISDS_ACTIVE_STATES.includes(dispatch.dispatch_state)
+}
+
+/** Rozpracované EPO: živý odkaz na portál nebo nedořešené přímé podání. */
+function hasEpoAttemptActive(item: TaxSubmission): boolean {
+  return hasActiveAttempt(item)
+    || !!pendingHandoffLink(item)
+    || hasUnresolvedProductionDirectAttempt(item.attempts)
+}
+
+function canSendIsds(item: TaxSubmission): boolean {
+  const dispatch = isdsDispatch(item)
+  return canWrite.value
+    && props.scope === 'tax'
+    && TAX_ISDS_FORMS.has(item.form_code)
+    && item.validation_status === 'passed'
+    && !['submitted', 'accepted'].includes(item.status)
+    && !hasEpoAttemptActive(item)
+    && (dispatch === null || !ISDS_IN_FLIGHT_STATES.includes(dispatch.dispatch_state))
+}
+
+function isdsSendLabel(item: TaxSubmission): string {
+  return isdsDispatch(item)?.dispatch_state === 'ready'
+    ? t('reports.submissions.isds.finish_send')
+    : t('reports.submissions.isds.send')
+}
+
+function isdsStateLabel(dispatch: TaxIsdsDispatch): string {
+  if (dispatch.dispatch_state === 'sent' && dispatch.external_message_id) {
+    return t('reports.submissions.isds.state_sent_id', { id: dispatch.external_message_id })
+  }
+  return t(`reports.submissions.isds.state_${dispatch.dispatch_state}`)
+}
+
+function isdsStateClass(state: string): string {
+  if (['sent', 'delivered'].includes(state)) return 'bg-success-50 text-success-700 border-success-500/30'
+  if (state === 'failed') return 'bg-danger-50 text-danger-600 border-danger-500/30'
+  if (['ready', 'sending', 'send_uncertain'].includes(state)) return 'bg-warning-50 text-warning-700 border-warning-500/30'
+  return 'bg-neutral-100 text-neutral-600 border-neutral-200'
+}
+
+function isdsOutboxLink(dispatch: TaxIsdsDispatch): string {
+  return `/admin/databox?tab=outbox&outbox=${dispatch.id}`
+}
+
+function openIsdsDialog(item: TaxSubmission) {
+  if (!canSendIsds(item)) return
+  isdsDialogFor.value = item
+}
+
+async function onIsdsSent() {
+  toast.success(t('reports.submissions.isds.sent'))
+  await load(false)
+}
+
+async function loadIsdsInbox(item: TaxSubmission) {
+  if (!isdsDispatch(item)) return
+  isdsInboxLoading.value = true
+  isdsInboxError.value = ''
+  try {
+    const messages = await epoSubmissionsApi.isdsInbox(item.id)
+    isdsInbox.value = { ...isdsInbox.value, [item.id]: messages }
+  } catch (e) {
+    isdsInboxError.value = apiErrorMessage(e)
+  } finally {
+    isdsInboxLoading.value = false
+  }
+}
+
+async function attachIsdsMessage(item: TaxSubmission, message: TaxIsdsInboxItem) {
+  if (isdsAttachBusy.value !== null) return
+  isdsAttachBusy.value = message.id
+  try {
+    await epoSubmissionsApi.attachIsdsInboxMessage(item.id, message.id)
+    toast.success(t('reports.submissions.isds.inbox_attached'))
+    await load(false)
+    await loadIsdsInbox(item)
+  } catch (e) {
+    toast.error(apiErrorMessage(e))
+  } finally {
+    isdsAttachBusy.value = null
+  }
+}
+
+/** Zpráva čekající ve frontě drží EPO zablokované; zrušením se uvolní. */
+async function cancelIsdsDispatch(item: TaxSubmission) {
+  if (isdsDispatch(item)?.dispatch_state !== 'ready') return
+  if (!confirm(t('reports.submissions.isds.cancel_confirm'))) return
+  try {
+    await epoSubmissionsApi.cancelIsds(item.id)
+    toast.success(t('reports.submissions.isds.cancelled'))
+  } catch (e) {
+    toast.error(apiErrorMessage(e, t('reports.submissions.isds.cancel_failed')))
+  }
+  await load(false)
+}
+
+async function onIsdsReceiptChosen(event: Event) {
+  const item = selected.value
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!item || !file || isdsReceiptBusy.value) return
+  isdsReceiptBusy.value = true
+  try {
+    await epoSubmissionsApi.uploadIsdsReceipt(item.id, file)
+    toast.success(t('reports.submissions.isds.receipt_uploaded'))
+    await load(false)
+  } catch (e) {
+    toast.error(apiErrorMessage(e))
+  } finally {
+    isdsReceiptBusy.value = false
+    input.value = ''
+  }
+}
+
+watch(expandedId, () => {
+  const item = selected.value
+  if (item && isdsDispatch(item)) void loadIsdsInbox(item)
+})
+
 function canHandoff(item: TaxSubmission): boolean {
   return canWrite.value
     && !isMossOssForm(item)
+    && !isdsDispatchActive(item)
     && epoEnvironment.value !== null
     && item.validation_status === 'passed'
     && !['submitted', 'accepted'].includes(item.status)
@@ -517,6 +670,7 @@ function latestDirectAttempt(item: TaxSubmission): EpoAttempt | null {
 function canOfferDirectActions(item: TaxSubmission): boolean {
   return canWrite.value
     && !isMossOssForm(item)
+    && !isdsDispatchActive(item)
     && epoEnvironment.value !== null
     && enabledCredentials.value.length > 0
     && selectedCredentialId.value !== null
@@ -1264,16 +1418,59 @@ function deleteDisabledReason(item: TaxSubmission): string | undefined {
       return t('reports.submissions.delete_blocked_submitted')
     case 'delivered_attempt':
       return t('reports.submissions.delete_blocked_delivered')
+    case 'isds_pending':
+      return t('reports.submissions.isds.delete_blocked')
     default:
       return undefined
   }
+}
+
+function applyIsdsRoutes(routes: TaxIsdsRoutes) {
+  isdsRoutes.value = routes
+  isdsRouteSelection.value = {
+    vat: routes.groups.vat?.override?.id ?? null,
+    kh: routes.groups.kh?.override?.id ?? null,
+    sh: routes.groups.sh?.override?.id ?? null,
+    income: routes.groups.income?.override?.id ?? null,
+  }
+}
+
+/** Schránky FÚ se nastavují jen u daní; mzdová vyúčtování jdou přes EPO. */
+async function loadIsdsRoutes() {
+  isdsRoutesError.value = ''
+  isdsRoutes.value = null
+  if (props.scope !== 'tax') return
+  try {
+    applyIsdsRoutes(await epoSubmissionsApi.isdsRoutes())
+  } catch (e) {
+    isdsRoutesError.value = apiErrorMessage(e)
+  }
+}
+
+function isdsRecipientLabel(recipient: { name: string; isds_box_id: string | null }): string {
+  return recipient.isds_box_id ? `${recipient.name} (${recipient.isds_box_id})` : recipient.name
+}
+
+function isdsDefaultLabel(group: TaxIsdsRouteGroup): string {
+  const fallback = isdsRoutes.value?.groups[group]?.default ?? null
+  return fallback
+    ? t('reports.submissions.isds.route_default', { office: isdsRecipientLabel(fallback) })
+    : t('reports.submissions.isds.route_default_missing')
+}
+
+function isdsRoutesChanged(): boolean {
+  const routes = isdsRoutes.value
+  if (!routes) return false
+  return ISDS_ROUTE_GROUPS.some(group =>
+    (routes.groups[group]?.override?.id ?? null) !== isdsRouteSelection.value[group],
+  )
 }
 
 async function openSettings() {
   settingsOpen.value = true
   settingsBusy.value = true
   try {
-    const settings = await epoSubmissionsApi.settings()
+    const [settings] = await Promise.all([epoSubmissionsApi.settings(), loadIsdsRoutes()])
     vatRootFolderId.value = settings.vat_root_folder_id
     incomeRootFolderId.value = settings.income_tax_root_folder_id
     folders.value = settings.folders
@@ -1293,6 +1490,9 @@ async function saveSettings() {
       vat_root_folder_id: vatRootFolderId.value,
       income_tax_root_folder_id: incomeRootFolderId.value,
     })
+    if (isdsRoutesChanged()) {
+      applyIsdsRoutes(await epoSubmissionsApi.updateIsdsRoutes({ ...isdsRouteSelection.value }))
+    }
     settingsOpen.value = false
     toast.success(t('common.saved'))
   } catch (e) {
@@ -1358,6 +1558,24 @@ const submissionActions = computed<ActionItem[]>(() => {
       variant: 'primary',
       show: !pendingHandoffLink(s) && canHandoff(s),
       run: () => createHandoff(s),
+    },
+    {
+      // Třetí cesta vedle EPO. Rozepsanou zprávu ve frontě dokončuje tatáž akce.
+      key: 'isds_send',
+      label: isdsSendLabel(s),
+      icon: 'inbox',
+      tier: isdsDispatch(s)?.dispatch_state === 'ready' ? 'primary' : 'secondary',
+      variant: 'primary',
+      show: canSendIsds(s),
+      run: () => openIsdsDialog(s),
+    },
+    {
+      key: 'isds_outbox',
+      label: t('reports.submissions.isds.open_outbox'),
+      icon: 'link',
+      tier: 'overflow',
+      show: isdsDispatch(s) !== null,
+      to: isdsDispatch(s) ? isdsOutboxLink(isdsDispatch(s)!) : undefined,
     },
     {
       key: 'run_test',
@@ -1524,6 +1742,7 @@ onMounted(async () => {
           ) }}
         </p>
         <p class="mt-1 text-primary-700">{{ t('reports.submissions.assisted_alternative') }}</p>
+        <p v-if="scope === 'tax'" class="mt-1 text-primary-700">{{ t('reports.submissions.isds.page_hint') }}</p>
       </div>
     </div>
 
@@ -1619,6 +1838,16 @@ onMounted(async () => {
                 >
                   {{ lifecycleLabel('awaiting_confirmation') }}
                 </div>
+                <div v-if="isdsDispatch(item)" class="mt-1" :data-test="`isds-state-${item.id}`">
+                  <span :class="['inline-flex rounded-full border px-2 py-0.5 text-xs font-medium', isdsStateClass(isdsDispatch(item)!.dispatch_state)]"
+                    :title="isdsDispatch(item)!.last_error_message ?? undefined">
+                    {{ t('reports.submissions.isds.badge_prefix') }} · {{ isdsStateLabel(isdsDispatch(item)!) }}
+                  </span>
+                  <div v-if="isdsDispatch(item)!.dispatch_state === 'failed' && isdsDispatch(item)!.last_error_message"
+                    class="text-xs text-danger-600 mt-1 max-w-xs">
+                    {{ isdsDispatch(item)!.last_error_message }}
+                  </div>
+                </div>
               </td>
               <td class="px-3 py-3">
                 <span :class="['inline-flex rounded-full border px-2 py-0.5 text-xs font-medium', validationClass(item.validation_status)]">
@@ -1627,6 +1856,14 @@ onMounted(async () => {
               </td>
               <td class="px-4 py-3">
                 <div class="flex flex-wrap justify-end gap-2" @click.stop>
+                  <button v-if="canSendIsds(item)" type="button" class="whitespace-nowrap"
+                    :class="isdsDispatch(item)?.dispatch_state === 'ready' ? btnFilledSm('primary') : btnOutlineSm('primary')"
+                    :data-test="`isds-send-${item.id}`" @click="openIsdsDialog(item)">
+                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.inbox"/>
+                    </svg>
+                    {{ isdsSendLabel(item) }}
+                  </button>
                   <button v-if="pendingHandoffLink(item)" type="button" :class="btnFilledSm('warning')" @click="openPendingHandoff(item)">
                     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                       <path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.send"/>
@@ -1677,6 +1914,11 @@ onMounted(async () => {
               XSD · {{ t(`reports.submissions.status_${item.validation_status}`) }}
             </span>
             <span class="text-xs text-neutral-500">{{ item.artifacts.length }} {{ t('reports.submissions.files') }}</span>
+          </div>
+          <div v-if="isdsDispatch(item)" class="mt-2">
+            <span :class="['inline-flex rounded-full border px-2 py-0.5 text-xs font-medium', isdsStateClass(isdsDispatch(item)!.dispatch_state)]">
+              {{ t('reports.submissions.isds.badge_prefix') }} · {{ isdsStateLabel(isdsDispatch(item)!) }}
+            </span>
           </div>
         </button>
       </div>
@@ -1811,6 +2053,145 @@ onMounted(async () => {
               </svg>
               {{ t('reports.submissions.replace_epo_link') }}
             </button>
+          </div>
+
+          <div v-if="isdsDispatch(selected)" class="rounded-lg border border-neutral-200 p-4" data-test="isds-detail">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+              <div class="min-w-0">
+                <h3 class="font-medium text-sm">{{ t('reports.submissions.isds.detail_title') }}</h3>
+                <p class="text-xs text-neutral-500 mt-1">{{ t('reports.submissions.isds.receipt_note') }}</p>
+              </div>
+              <span :class="['inline-flex rounded-full border px-2 py-0.5 text-xs font-medium', isdsStateClass(isdsDispatch(selected)!.dispatch_state)]">
+                {{ isdsStateLabel(isdsDispatch(selected)!) }}
+              </span>
+            </div>
+            <dl class="mt-3 grid gap-x-4 gap-y-2 text-xs sm:grid-cols-2">
+              <div>
+                <dt class="text-neutral-500">{{ t('reports.submissions.isds.recipient') }}</dt>
+                <dd class="mt-0.5">
+                  {{ isdsDispatch(selected)!.recipient_name || '—' }}
+                  <span v-if="isdsDispatch(selected)!.recipient_box_id" class="font-mono text-neutral-500">({{ isdsDispatch(selected)!.recipient_box_id }})</span>
+                </dd>
+              </div>
+              <div>
+                <dt class="text-neutral-500">{{ t('reports.submissions.isds.message_id') }}</dt>
+                <dd class="mt-0.5 font-mono">{{ isdsDispatch(selected)!.external_message_id || '—' }}</dd>
+              </div>
+              <div class="sm:col-span-2">
+                <dt class="text-neutral-500">{{ t('reports.submissions.isds.subject') }}</dt>
+                <dd class="mt-0.5 break-words">{{ isdsDispatch(selected)!.subject }}</dd>
+              </div>
+              <div v-if="isdsDispatch(selected)!.correlation_reference">
+                <dt class="text-neutral-500">{{ t('reports.submissions.isds.correlation_reference') }}</dt>
+                <dd class="mt-0.5 font-mono break-all">{{ isdsDispatch(selected)!.correlation_reference }}</dd>
+              </div>
+              <div>
+                <dt class="text-neutral-500">{{ t('reports.submissions.isds.sent_at') }}</dt>
+                <dd class="mt-0.5">{{ formatDate(isdsDispatch(selected)!.sent_at) }}</dd>
+              </div>
+              <div>
+                <dt class="text-neutral-500">{{ t('reports.submissions.isds.delivered_at') }}</dt>
+                <dd class="mt-0.5">{{ formatDate(isdsDispatch(selected)!.delivered_at) }}</dd>
+              </div>
+              <div>
+                <dt class="text-neutral-500">{{ t('reports.submissions.isds.receipt') }}</dt>
+                <dd class="mt-0.5">
+                  {{ isdsDispatch(selected)!.receipt_attached_at
+                    ? t('reports.submissions.isds.receipt_attached', { at: formatDate(isdsDispatch(selected)!.receipt_attached_at) })
+                    : t('reports.submissions.isds.receipt_missing') }}
+                </dd>
+              </div>
+            </dl>
+            <div
+              v-if="isdsDispatch(selected)!.last_error_message"
+              class="mt-3 rounded border border-danger-500/30 bg-danger-50 px-3 py-2 text-xs text-danger-700"
+            >
+              {{ isdsDispatch(selected)!.last_error_message }}
+            </div>
+            <div
+              v-if="isdsDispatch(selected)!.dispatch_state === 'send_uncertain'"
+              class="mt-3 rounded border border-warning-500/30 bg-warning-50 px-3 py-2 text-xs text-warning-800"
+            >
+              {{ t('reports.submissions.isds.uncertain_hint') }}
+            </div>
+
+            <div class="mt-3 flex flex-wrap gap-2">
+              <button
+                v-if="canWrite && isdsDispatch(selected)!.dispatch_state === 'ready'"
+                type="button" class="whitespace-nowrap" :class="btnOutlineSm('danger')"
+                data-test="isds-cancel"
+                @click="cancelIsdsDispatch(selected)"
+              >
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.x"/>
+                </svg>
+                {{ t('reports.submissions.isds.cancel_queued') }}
+              </button>
+              <template v-if="canWrite">
+                <input ref="isdsReceiptInput" type="file" accept=".zfo" class="hidden" @change="onIsdsReceiptChosen">
+                <button
+                  type="button" class="whitespace-nowrap" :class="btnOutlineSm('success')"
+                  :disabled="isdsReceiptBusy"
+                  data-test="isds-receipt-upload"
+                  @click="isdsReceiptInput?.click()"
+                >
+                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.upload"/>
+                  </svg>
+                  {{ isdsReceiptBusy ? t('common.loading') : t('reports.submissions.isds.upload_receipt') }}
+                </button>
+              </template>
+              <RouterLink :to="isdsOutboxLink(isdsDispatch(selected)!)" class="whitespace-nowrap" :class="btnOutlineSm('neutral')">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.link"/>
+                </svg>
+                {{ t('reports.submissions.isds.open_outbox') }}
+              </RouterLink>
+            </div>
+
+            <div class="mt-4 border-t border-neutral-100 pt-3">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <h4 class="font-medium text-sm">{{ t('reports.submissions.isds.inbox_title') }}</h4>
+                <button type="button" class="whitespace-nowrap" :class="btnOutlineSm('neutral')" :disabled="isdsInboxLoading" @click="loadIsdsInbox(selected)">
+                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.cycle"/>
+                  </svg>
+                  {{ t('common.refresh') }}
+                </button>
+              </div>
+              <p class="text-xs text-neutral-500 mt-1">{{ t('reports.submissions.isds.inbox_hint') }}</p>
+              <div v-if="isdsInboxError" class="mt-2 text-xs text-danger-600">{{ isdsInboxError }}</div>
+              <div v-else-if="isdsInboxLoading && !isdsInbox[selected.id]" class="mt-2 text-xs text-neutral-500">{{ t('common.loading') }}…</div>
+              <div v-else-if="(isdsInbox[selected.id] ?? []).length === 0" class="mt-2 text-xs text-neutral-500">
+                {{ t('reports.submissions.isds.inbox_empty') }}
+              </div>
+              <ul v-else class="mt-2 divide-y divide-neutral-100 rounded-lg border border-neutral-200">
+                <li v-for="message in isdsInbox[selected.id]" :key="message.id" class="p-3 flex flex-wrap items-center justify-between gap-3">
+                  <div class="min-w-0">
+                    <div class="text-sm font-medium break-words">{{ message.subject || '—' }}</div>
+                    <div class="text-xs text-neutral-500 mt-0.5">
+                      {{ message.sender_name || message.sender_box_id || '—' }} · {{ formatDate(message.delivered_at) }}
+                      <template v-if="message.external_message_id"> · <span class="font-mono">{{ message.external_message_id }}</span></template>
+                    </div>
+                    <span v-if="message.classification === 'tax_office_response'"
+                      class="mt-1 inline-flex rounded-full border border-primary-200 bg-primary-50 px-2 py-0.5 text-[11px] text-primary-700">
+                      {{ t('reports.submissions.isds.inbox_from_office') }}
+                    </span>
+                  </div>
+                  <span v-if="message.matched"
+                    class="inline-flex rounded-full border border-success-500/30 bg-success-50 px-2 py-0.5 text-xs font-medium text-success-700">
+                    {{ t('reports.submissions.isds.inbox_matched') }}
+                  </span>
+                  <button v-else-if="canWrite" type="button" class="whitespace-nowrap" :class="btnOutlineSm('primary')"
+                    :disabled="isdsAttachBusy !== null" @click="attachIsdsMessage(selected, message)">
+                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.link"/>
+                    </svg>
+                    {{ isdsAttachBusy === message.id ? t('common.loading') : t('reports.submissions.isds.inbox_attach') }}
+                  </button>
+                </li>
+              </ul>
+            </div>
           </div>
 
           <div>
@@ -2078,6 +2459,34 @@ onMounted(async () => {
                 <option v-for="folder in folderOptions" :key="folder.id" :value="folder.id">{{ folder.label }}</option>
               </select>
             </label>
+
+            <div v-if="scope === 'tax'" class="border-t border-neutral-200 pt-4" data-test="isds-routes">
+              <h3 class="font-medium text-sm">{{ t('reports.submissions.isds.routes_title') }}</h3>
+              <p class="text-xs text-neutral-500 mt-1">{{ t('reports.submissions.isds.routes_hint') }}</p>
+              <div v-if="isdsRoutesError" class="mt-3 rounded border border-danger-500/30 bg-danger-50 px-3 py-2 text-xs text-danger-700">
+                {{ isdsRoutesError }}
+              </div>
+              <template v-else-if="isdsRoutes">
+                <p class="mt-2 text-xs text-neutral-600">
+                  {{ t('reports.submissions.isds.office_code') }}:
+                  <span class="font-mono">{{ isdsRoutes.office_code || '—' }}</span>
+                </p>
+                <div v-if="!isdsRoutes.office_code" class="mt-2 rounded border border-warning-500/30 bg-warning-50 px-3 py-2 text-xs text-warning-800">
+                  {{ t('reports.submissions.isds.office_code_missing') }}
+                </div>
+                <div class="mt-3 grid gap-3 sm:grid-cols-2">
+                  <label v-for="group in ISDS_ROUTE_GROUPS" :key="group" class="block text-sm">
+                    <span class="font-medium">{{ t(`reports.submissions.isds.route_${group}`) }}</span>
+                    <select v-model="isdsRouteSelection[group]" class="mt-1 w-full h-10 rounded-md border border-neutral-300 bg-surface px-3 text-sm">
+                      <option :value="null">{{ isdsDefaultLabel(group) }}</option>
+                      <option v-for="recipient in isdsRoutes.recipients" :key="recipient.id" :value="recipient.id">
+                        {{ isdsRecipientLabel(recipient) }}
+                      </option>
+                    </select>
+                  </label>
+                </div>
+              </template>
+            </div>
           </template>
         </div>
         <div class="px-5 py-4 border-t border-neutral-200 flex flex-wrap justify-end gap-2">
@@ -2091,6 +2500,15 @@ onMounted(async () => {
         </div>
       </div>
     </div>
+
+    <TaxIsdsSendDialog
+      v-if="isdsDialogFor"
+      :submission-id="isdsDialogFor.id"
+      :title="`${formCodeLabel(isdsDialogFor.form_code)} · ${periodLabel(isdsDialogFor)}`"
+      @close="isdsDialogFor = null"
+      @changed="load(false)"
+      @sent="onIsdsSent"
+    />
 
     <div v-if="credentialModalOpen" class="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" @click.self="credentialModalOpen = false">
       <div class="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-xl bg-surface shadow-xl border border-neutral-200">

@@ -8,6 +8,7 @@ use MyInvoice\Repository\Submission\SubmissionOutboxAttemptRepository;
 use MyInvoice\Repository\Submission\SubmissionOutboxRepository;
 use MyInvoice\Support\PeriodFilter;
 use MyInvoice\Repository\Submission\SubmissionRecipientRepository;
+use MyInvoice\Service\Epo\Isds\TaxSubmissionDispatchProjection;
 use MyInvoice\Service\Payroll\Submission\PayrollSubmissionDispatchProjection;
 use MyInvoice\Service\Submission\Channel\AcceptanceState;
 use MyInvoice\Service\Submission\Channel\AcceptanceEvidence;
@@ -73,6 +74,7 @@ final readonly class SubmissionOutboxService
         private SubmissionArtifactValidator $validator,
         private LoggerInterface $logger,
         private ?PayrollSubmissionDispatchProjection $payrollProjection,
+        private ?TaxSubmissionDispatchProjection $taxProjection = null,
     ) {}
 
     /**
@@ -80,6 +82,9 @@ final readonly class SubmissionOutboxService
      *
      * Idempotentní přes `$idempotencyKey`: opakované zařazení téhož artefaktu
      * pro téhož příjemce vrátí existující řádek.
+     *
+     * @param ?int $generation pořadí pokusu u artefaktu, který se smí po zrušení
+     *                         nebo neúspěšném odeslání zařadit znovu (daňový snapshot)
      *
      * @return array{row:array<string,mixed>,created:bool}
      */
@@ -93,6 +98,7 @@ final readonly class SubmissionOutboxService
         ?int $recipientId,
         ?string $subject,
         ?int $userId,
+        ?int $generation = null,
     ): array {
         $this->assertEnvironment($environment);
         $this->channels->get($channel); // validace kódu kanálu
@@ -154,6 +160,11 @@ final readonly class SubmissionOutboxService
             $sha,
             $recipientId ?? 0,
         ]);
+        // Volající, který smí tentýž artefakt po zrušení nebo neúspěchu zařadit
+        // znovu, předá pořadí pokusu. Jinak by idempotence vrátila uzavřenou zprávu.
+        if ($generation !== null && $generation > 0) {
+            $idempotencyKey .= '|g' . $generation;
+        }
 
         return $this->outbox->enqueue([
             'supplier_id' => $supplierId,
@@ -606,6 +617,7 @@ final readonly class SubmissionOutboxService
             (int) $row['row_version'],
         );
         $this->payrollProjection?->projectDelivery($supplierId, $attached);
+        $this->taxProjection?->projectDelivery($supplierId, $attached);
 
         return ['row' => $attached, 'attached' => true];
     }
@@ -705,6 +717,7 @@ final readonly class SubmissionOutboxService
             // Vlastní zápis až po doručení: povinnost se mění v jiné tabulce
             // a osu vyřízení tahle cesta nehýbe.
             $this->payrollProjection?->projectDelivery($supplierId, $row);
+            $this->taxProjection?->projectDelivery($supplierId, $row);
         }
 
         // 2) osa vyřízení — jen když na to kanál má
@@ -799,6 +812,7 @@ final readonly class SubmissionOutboxService
             (int) $row['artifact_id'],
             $externalMessageId,
         );
+        $this->taxProjection?->project($supplierId, $row, $externalMessageId);
     }
 
     /**

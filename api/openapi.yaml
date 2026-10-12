@@ -7240,6 +7240,24 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { description: Vybraná složka neexistuje nebo nepatří aktuální firmě }
 
+  /api/v1/reports/submissions/isds-routes:
+    parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+    get:
+      tags: [Reports]
+      summary: Datové schránky finančního úřadu pro podání DPH, KH, SH a daně z příjmů
+      description: |
+        Výchozí schránka se odvozuje z kódu finančního úřadu (krajské FÚ a Specializovaný FÚ),
+        ruční přepis platí zvlášť pro každý druh výkazu. Při odeslání rozhoduje kód FÚ
+        zapsaný v odesílaném XML (`c_ufo_cil`, jinak `c_ufo`).
+      responses:
+        '200':
+          description: Směrování podání datovou schránkou
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaxIsdsRoutes' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
   /api/v1/reports/submissions/epo-credentials:
     parameters:
       - $ref: '#/components/parameters/SupplierIdHeader'
@@ -7397,6 +7415,29 @@ paths:
         '200': { description: Deleted }
         '403': { description: Pouze admin }
         '409': { description: 'Prokazatelné podání, nedořešené předání nebo retenční hold podle § 32 ZoÚ' }
+
+  /api/v1/reports/submissions/{id}/isds-inbox:
+    parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    get:
+      tags: [Reports]
+      summary: Zprávy z datové schránky, které mohou patřit k podání
+      description: Zprávy od finančního úřadu a nerozpoznané zprávy bez vazby na jiné podání.
+      responses:
+        '200':
+          description: Kandidáti k přiřazení
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/TaxIsdsInboxCandidate' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /api/v1/reports/submissions/{id}/xml:
     get:
@@ -38364,7 +38405,9 @@ components:
           type: string
           enum:
             [source_xml, epo_xml, signed_submission_p7s, confirmation_p7s,
-             epo_error_xml, epo_status_xml, receipt_pdf, other]
+             confirmation_xml, epo_echo, confirmation_signer_cert, submission_signer_cert,
+             epo_error_xml, epo_status_xml, receipt_pdf, other,
+             isds_delivery_zfo, isds_response_zfo]
         sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
         verification_status:
           type: string
@@ -38407,14 +38450,91 @@ components:
         deletable: { type: boolean, description: Snapshot lze smazat bez dalšího potvrzení. }
         delete_blocker:
           type: [string, "null"]
-          enum: [submitted_snapshot, delivered_attempt, unresolved_attempt, null]
+          enum: [submitted_snapshot, delivered_attempt, unresolved_attempt, isds_pending, null]
           description: >-
             Proč mazání nejde. `submitted_snapshot`/`delivered_attempt` = prokazatelně podáno,
             neuvolní to ani potvrzení uživatele. `unresolved_attempt` = aplikace neví, jak
-            předání do EPO dopadlo.
+            předání do EPO dopadlo. `isds_pending` = snapshot čeká ve frontě datové schránky
+            nebo se jeho odeslání nedořešilo.
         delete_needs_acknowledgement:
           type: boolean
           description: Mazání projde až s vědomým potvrzením `not_submitted_note`.
+        isds_dispatch:
+          oneOf:
+            - { $ref: '#/components/schemas/TaxIsdsDispatch' }
+            - { type: 'null' }
+          description: Poslední zpráva datové schránky, kterou se snapshot podává (i zrušená nebo neúspěšná).
+    TaxIsdsDispatch:
+      type: object
+      required: [id, dispatch_state, recipient_box_id, correlation_reference]
+      properties:
+        id: { type: integer, format: int64 }
+        dispatch_state:
+          type: string
+          enum: [ready, sending, send_uncertain, sent, delivered, failed, cancelled]
+        dispatch_mode: { type: [string, "null"] }
+        recipient_id: { type: [integer, "null"], format: int64 }
+        recipient_box_id: { type: [string, "null"], pattern: '^[a-z0-9]{7}$' }
+        recipient_name: { type: [string, "null"] }
+        subject: { type: string, description: Věc datové zprávy }
+        correlation_reference: { type: string, description: Naše spisová značka (dmSenderIdent) }
+        external_message_id: { type: [string, "null"], description: ID odeslané datové zprávy }
+        sent_at: { type: [string, "null"], format: date-time }
+        delivered_at: { type: [string, "null"], format: date-time }
+        receipt_document_id: { type: [integer, "null"], format: int64 }
+        receipt_attached_at: { type: [string, "null"], format: date-time }
+        last_error_code: { type: [string, "null"] }
+        last_error_message: { type: [string, "null"] }
+        created_at: { type: string, format: date-time }
+    TaxIsdsRecipient:
+      type: object
+      required: [id, code, name, kind, isds_box_id, own]
+      properties:
+        id: { type: integer, format: int64 }
+        code: { type: string, description: '`fu_<c_ufo>` u finančních úřadů, jinak kód vlastního příjemce' }
+        name: { type: string }
+        kind: { type: string, enum: [tax_office, other] }
+        isds_box_id: { type: [string, "null"], pattern: '^[a-z0-9]{7}$' }
+        address: { type: [string, "null"] }
+        own: { type: boolean, description: Vlastní záznam firmy (ne systémový číselník) }
+    TaxIsdsRoute:
+      type: object
+      required: [default, override, effective]
+      properties:
+        default:
+          oneOf: [{ $ref: '#/components/schemas/TaxIsdsRecipient' }, { type: 'null' }]
+        override:
+          oneOf: [{ $ref: '#/components/schemas/TaxIsdsRecipient' }, { type: 'null' }]
+        effective:
+          oneOf: [{ $ref: '#/components/schemas/TaxIsdsRecipient' }, { type: 'null' }]
+    TaxIsdsRoutes:
+      type: object
+      required: [office_code, groups, recipients]
+      properties:
+        office_code: { type: [string, "null"], description: Kód finančního úřadu firmy (c_ufo) }
+        groups:
+          type: object
+          required: [vat, kh, sh, income]
+          properties:
+            vat: { $ref: '#/components/schemas/TaxIsdsRoute' }
+            kh: { $ref: '#/components/schemas/TaxIsdsRoute' }
+            sh: { $ref: '#/components/schemas/TaxIsdsRoute' }
+            income: { $ref: '#/components/schemas/TaxIsdsRoute' }
+        recipients:
+          type: array
+          items: { $ref: '#/components/schemas/TaxIsdsRecipient' }
+    TaxIsdsInboxCandidate:
+      type: object
+      required: [id, external_message_id, classification, matched]
+      properties:
+        id: { type: integer, format: int64 }
+        external_message_id: { type: string }
+        sender_box_id: { type: [string, "null"] }
+        sender_name: { type: [string, "null"] }
+        subject: { type: [string, "null"] }
+        classification: { type: string, enum: [tax_office_response, unclassified] }
+        delivered_at: { type: [string, "null"], format: date-time }
+        matched: { type: boolean }
     EpoHandoffResult:
       type: object
       required: [attempt_id, url, expires_at, archive_folder_id, source_document_id, environment]

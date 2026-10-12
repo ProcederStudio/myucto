@@ -1,7 +1,7 @@
 # 97. Datová schránka
 
-> Návod, jak z MyÚčta odesílat mzdová podání datovou schránkou, načítat doručené zprávy, nahrávat doručenky
-> a evidovat výzvy k odstranění vad. Pro mzdové účetní a každého, kdo za firmu pracuje s datovou schránkou.
+> Návod, jak z MyÚčta odesílat mzdová a daňová podání datovou schránkou, načítat doručené zprávy, nahrávat
+> doručenky a evidovat výzvy k odstranění vad. Pro účetní a každého, kdo za firmu pracuje s datovou schránkou.
 
 ## 97.1 Kdy to potřebujete
 
@@ -30,18 +30,19 @@ podání**. Delší vysvětlivky (doručenky, doručení fikcí, archiv a ochran
 **Vysvětlení**.
 
 > [!WARNING]
-> Datovou schránkou z MyÚčta chodí **mzdová podání**: přehledy a hlášení zdravotním pojišťovnám, měsíční hlášení
-> zaměstnavatele ČSSZ (JMHZ) a součinnost exekutorům. **Daňová podání jdou přes EPO**, ne datovkou. Přiznání k DPH,
-> kontrolní hlášení, souhrnné hlášení ani přiznání k dani z příjmů se odsud neodesílají. Odešlete-li daňové podání
-> datovkou vlastní cestou, nedostanete potvrzení s podacím číslem, jen dodejku.
+> Datovou schránkou z MyÚčta chodí **mzdová podání** (přehledy a hlášení zdravotním pojišťovnám, měsíční hlášení
+> zaměstnavatele ČSSZ, součinnost exekutorům) a volitelně i **daňová podání**: přiznání k DPH, kontrolní hlášení,
+> souhrnné hlášení a přiznání k dani z příjmů. Daňové podání se zařazuje ze stránky `Daně → EPO podání a archív`
+> (viz [Podání datovou schránkou](49_Archiv_podani_a_rekonciliace.md#495-krok-za-krokem-podani-datovou-schrankou)).
+> Datová schránka vrací jen doručenku, ne potvrzení s podacím číslem jako EPO.
 
 ## 97.2 Než začnete
 
-1. **Mzdy a oprávnění.** Stránka je dostupná firmě s mzdami a uživateli s oprávněním k podpisům a datové schránce.
+1. **Oprávnění.** Stránka je dostupná uživatelům s oprávněním k podpisům a datové schránce. Firma s mzdami ji najde v nabídce Mzdy, každá firma v nabídce Daně.
 2. **Správné prostředí.** Zvolte **Ostrý provoz**, nebo **Testovací prostředí**. Přístupy, uložené údaje i historie jsou oddělené.
 3. **Způsob přihlášení.** Zvolte, jak se k schránce přihlásíte (viz [§ 97.3](#973-krok-za-krokem-nastavit-pristup)). Technická dostupnost metody sama o sobě nepotvrzuje, že ji smíte použít pro konkrétní schránku nebo úkon. Oprávnění a interní pravidla organizace si ověřte u správce datové schránky.
-4. **Připravené podání.** Podání vzniká v `Mzdy → Podání a hlášení` (viz [Podání a hlášení](85_Podani_a_hlaseni.md)).
-5. **Příjemce s ID schránky.** Záložka **Příjemci** musí mít u cílové instituce vyplněné ID datové schránky.
+4. **Připravené podání.** Mzdové podání vzniká v `Mzdy → Podání a hlášení` (viz [Podání a hlášení](85_Podani_a_hlaseni.md)), daňové v `Daně → EPO podání a archív` (viz [EPO podání a archív](49_Archiv_podani_a_rekonciliace.md)).
+5. **Příjemce s ID schránky.** Záložka **Příjemci** musí mít u cílové instituce vyplněné ID datové schránky. Schránky krajských finančních úřadů a Specializovaného finančního úřadu jsou v číselníku předvyplněné.
 
 MyÚčto rozlišuje dvě oddělené cesty:
 

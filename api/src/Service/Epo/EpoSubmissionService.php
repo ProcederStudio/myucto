@@ -96,6 +96,14 @@ final class EpoSubmissionService
                 );
             }
 
+            if ($this->repo->activeIsdsDispatch($submissionId, $supplierId) !== null) {
+                throw new EpoSubmissionException(
+                    'isds_dispatch_active',
+                    'Tento snapshot je zařazený k odeslání datovou schránkou nebo jí už odešel.'
+                        . ' Jedno podání se posílá jen jednou cestou — zprávu ve frontě nejdřív zrušte.',
+                    409,
+                );
+            }
             $this->repo->expireAttempts($submissionId, $supplierId);
             $active = $this->repo->activeAttempt($submissionId, $supplierId, $environment);
             if ($active !== null) {

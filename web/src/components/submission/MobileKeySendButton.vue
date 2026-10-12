@@ -8,7 +8,7 @@
  * změní. Překlady jsou schválně `databox.outbox.mobileKey.*`: je to POŘÁD
  * tentýž úkon (odeslání z obecné fronty), jen spuštěný odsud.
  */
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { apiErrorMessage } from '@/api/errors'
 import { dataBoxApi, type IsdsMobileCredentialProfile } from '@/api/dataBox'
@@ -17,6 +17,8 @@ import { btnFilledSm, btnOutlineSm } from '@/components/ui/buttonStyles'
 const props = defineProps<{
   outboxId: number
   environment: 'production' | 'test'
+  /** Formulář rovnou otevřený (dialog, kde je Mobilní klíč už zvolený). */
+  autoOpen?: boolean
 }>()
 const emit = defineEmits<{ sent: [dispatched: boolean] }>()
 const { t } = useI18n()
@@ -25,6 +27,7 @@ const open = ref(false)
 const username = ref('')
 const code = ref('')
 const useSaved = ref(false)
+const remember = ref(false)
 const savedProfile = ref<IsdsMobileCredentialProfile | null>(null)
 const flowToken = ref('')
 const status = ref('')
@@ -53,9 +56,13 @@ async function openPanel() {
   }
 }
 
+onMounted(() => {
+  if (props.autoOpen) void openPanel()
+})
+
 function close() {
   clearTimer()
-  open.value = false
+  open.value = props.autoOpen === true
   flowToken.value = ''
   status.value = ''
   code.value = ''
@@ -77,6 +84,20 @@ async function start() {
       wantsSaved ? '' : code.value,
       wantsSaved,
     )
+    if (!wantsSaved && remember.value) {
+      // Týž šifrovaný trezor jako na stránce Datová schránka: příště se jméno
+      // i kód předvyplní tady i tam.
+      try {
+        savedProfile.value = await dataBoxApi.saveMobileKeyProfile(
+          props.environment,
+          username.value.trim(),
+          code.value,
+        )
+      } catch (exception) {
+        error.value = apiErrorMessage(exception, t('databox.inbox.rememberMobileCredential'))
+      }
+    }
+    remember.value = false
     flowToken.value = started.flow_token
     status.value = started.description
     // Kód se v paměti nedrží déle, než je potřeba k jeho odeslání.
@@ -162,6 +183,13 @@ async function poll() {
         <input v-model="useSaved" type="checkbox">
         {{ t('databox.outbox.mobileKey.useSaved') }}
       </label>
+      <label
+        v-if="flowToken === '' && !(useSaved && code === '')"
+        class="mt-3 flex items-center gap-2 text-sm"
+      >
+        <input v-model="remember" type="checkbox" data-test="mobile-key-send-remember">
+        {{ t('databox.inbox.rememberMobileCredential') }}
+      </label>
       <p v-if="status" class="mt-3 text-sm text-neutral-700" data-test="mobile-key-send-status">
         {{ status }}
       </p>
@@ -179,7 +207,7 @@ async function poll() {
         >
           {{ t('databox.outbox.mobileKey.request') }}
         </button>
-        <button type="button" :class="btnOutlineSm('neutral')" @click="close">
+        <button v-if="!autoOpen" type="button" :class="btnOutlineSm('neutral')" @click="close">
           {{ t('common.cancel') }}
         </button>
       </div>

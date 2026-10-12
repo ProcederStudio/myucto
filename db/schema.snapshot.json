@@ -978,7 +978,8 @@
         "1994_document_links_invoice_payment.sql",
         "1995_payroll_sample_purge.sql",
         "1996_document_ai.sql",
-        "1997_ai_assistant_history.sql"
+        "1997_ai_assistant_history.sql",
+        "1998_tax_isds_submission.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -22520,7 +22521,7 @@
             "engine": "InnoDB",
             "collation": "utf8mb4_unicode_ci",
             "columns": {
-                "artifact_kind": "enum('source_xml','epo_xml','signed_submission_p7s','confirmation_p7s','confirmation_xml','epo_echo','confirmation_signer_cert','submission_signer_cert','epo_error_xml','epo_status_xml','receipt_pdf','other') NOT NULL",
+                "artifact_kind": "enum('source_xml','epo_xml','signed_submission_p7s','confirmation_p7s','confirmation_xml','epo_echo','confirmation_signer_cert','submission_signer_cert','epo_error_xml','epo_status_xml','receipt_pdf','other','isds_delivery_zfo','isds_response_zfo') NOT NULL",
                 "attempt_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "created_at": "timestamp NOT NULL DEFAULT current_timestamp()",
                 "document_id": "bigint(20) unsigned NOT NULL",
@@ -22626,6 +22627,10 @@
             "collation": "utf8mb4_unicode_ci",
             "columns": {
                 "income_tax_root_folder_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "isds_recipient_income_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "isds_recipient_kh_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "isds_recipient_sh_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "isds_recipient_vat_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "supplier_id": "int(10) unsigned NOT NULL",
                 "updated_at": "timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE CURRENT_TIMESTAMP()",
                 "updated_by": "bigint(20) unsigned NULL DEFAULT NULL",
@@ -22634,11 +22639,19 @@
             "indexes": {
                 "PRIMARY": "UNIQUE BTREE (supplier_id)",
                 "fk_tss_income_folder": "BTREE (income_tax_root_folder_id)",
+                "fk_tss_isds_income": "BTREE (isds_recipient_income_id)",
+                "fk_tss_isds_kh": "BTREE (isds_recipient_kh_id)",
+                "fk_tss_isds_sh": "BTREE (isds_recipient_sh_id)",
+                "fk_tss_isds_vat": "BTREE (isds_recipient_vat_id)",
                 "fk_tss_user": "BTREE (updated_by)",
                 "fk_tss_vat_folder": "BTREE (vat_root_folder_id)"
             },
             "foreign_keys": {
                 "fk_tss_income_folder": "(income_tax_root_folder_id) -> document_folders (id) ON UPDATE RESTRICT ON DELETE SET NULL",
+                "fk_tss_isds_income": "(isds_recipient_income_id) -> submission_recipients (id) ON UPDATE RESTRICT ON DELETE SET NULL",
+                "fk_tss_isds_kh": "(isds_recipient_kh_id) -> submission_recipients (id) ON UPDATE RESTRICT ON DELETE SET NULL",
+                "fk_tss_isds_sh": "(isds_recipient_sh_id) -> submission_recipients (id) ON UPDATE RESTRICT ON DELETE SET NULL",
+                "fk_tss_isds_vat": "(isds_recipient_vat_id) -> submission_recipients (id) ON UPDATE RESTRICT ON DELETE SET NULL",
                 "fk_tss_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE",
                 "fk_tss_user": "(updated_by) -> users (id) ON UPDATE RESTRICT ON DELETE SET NULL",
                 "fk_tss_vat_folder": "(vat_root_folder_id) -> document_folders (id) ON UPDATE RESTRICT ON DELETE SET NULL"
