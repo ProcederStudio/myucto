@@ -247,6 +247,26 @@ final class OtherItemServiceTest extends TestCase
         }
     }
 
+    public function testPartnerNameIsFilledFromDirectoryWhenOnlyPartnerIdIsSent(): void
+    {
+        $this->pdo->prepare(
+            "INSERT INTO clients (supplier_id, company_name, street, city, zip, country_id,
+                                  main_email, currency_default_id, is_customer, is_vendor)
+             SELECT id, 'Syntetická protistrana s.r.o.', street, city, zip, country_id,
+                    'partner@example.com', default_currency_id, 1, 1
+               FROM supplier WHERE id = ?"
+        )->execute([$this->supplierId]);
+        $clientId = (int) $this->pdo->lastInsertId();
+
+        $item = $this->service->create($this->supplierId, $this->input(['partner_id' => $clientId]), null);
+        self::assertSame($clientId, (int) $item['partner_id']);
+        self::assertSame('Syntetická protistrana s.r.o.', $item['partner_name']);
+
+        $named = $this->service->create($this->supplierId,
+            $this->input(['partner_id' => $clientId, 'partner_name' => 'Vlastní název']), null);
+        self::assertSame('Vlastní název', $named['partner_name']);
+    }
+
     public function testBankAllocationTracksPartialPaymentWithoutDuplicateMatch(): void
     {
         $this->pdo->prepare("UPDATE supplier SET accounting_mode = 'tax_evidence' WHERE id = ?")

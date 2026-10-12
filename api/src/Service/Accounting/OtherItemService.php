@@ -780,10 +780,14 @@ final class OtherItemService
         }
         $rate = 1.0;
         $partnerId = isset($input['partner_id']) && $input['partner_id'] !== '' ? (int) $input['partner_id'] : null;
+        $partnerName = self::optional($input['partner_name'] ?? null, 190);
         if ($partnerId !== null) {
-            $stmt = $this->db->pdo()->prepare('SELECT 1 FROM clients WHERE id = ? AND supplier_id = ?');
+            $stmt = $this->db->pdo()->prepare('SELECT company_name FROM clients WHERE id = ? AND supplier_id = ?');
             $stmt->execute([$partnerId, $supplierId]);
-            if (!$stmt->fetchColumn()) throw new OtherItemException('invalid_partner', 'Protistrana nebyla nalezena.', 404);
+            $clientName = $stmt->fetchColumn();
+            if ($clientName === false) throw new OtherItemException('invalid_partner', 'Protistrana nebyla nalezena.', 404);
+            // API/MCP posílá často jen partner_id; editor, přehled i deník zobrazují partner_name.
+            $partnerName ??= self::optional(mb_substr((string) $clientName, 0, 190), 190);
         }
         $vs = trim((string) ($input['variable_symbol'] ?? ''));
         if ($vs !== '' && !preg_match('/^[0-9]{1,20}$/', $vs)) {
@@ -804,7 +808,7 @@ final class OtherItemService
         return [
             'side' => $side, 'kind' => $kind, 'title' => $title,
             'partner_id' => $partnerId,
-            'partner_name' => self::optional($input['partner_name'] ?? null, 190),
+            'partner_name' => $partnerName,
             'issued_on' => $issued, 'accounting_on' => $accounting, 'due_on' => $due,
             'currency' => $currency, 'amount' => round((float) $amount, 2),
             'exchange_rate' => $rate, 'amount_czk' => round((float) $amount * $rate, 2),
