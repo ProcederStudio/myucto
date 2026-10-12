@@ -2043,20 +2043,6 @@ final class PurchaseInvoiceRepository
         foreach (array_values($items) as $i => $item) {
             $vatRateId = (int) ($item['vat_rate_id'] ?? 0);
             $rate = $vatRates[$vatRateId] ?? 0.0;
-            // Auto-klasifikace pro DPH přiznání / KH — pokud caller (importer / manual create)
-            // neuvedl explicitní kód, default podle sazby + RC + country. Bez tohohle by
-            // faktura NEDORAZILA do výkazů (VatClassificationMapper SKIPNE code=NULL).
-            $code = $item['vat_classification_code'] ?? null;
-            if ($code === null) {
-                $code = self::defaultClassificationCode(
-                    $rate,
-                    $reverseCharge,
-                    $countryIso,
-                    $standardRate,
-                    PublicAuthorityFeeText::indicatesPublicAuthorityFee((string) ($item['description'] ?? '')),
-                    $tenantIsVatPayer,
-                );
-            }
             $sid = isset($item['stock_item_id']) && $item['stock_item_id'] !== null && $item['stock_item_id'] !== ''
                 ? (int) $item['stock_item_id'] : 0;
             $stockItemId = ($sid > 0 && isset($ownedStock[$sid])) ? $sid : null;
@@ -2075,6 +2061,22 @@ final class PurchaseInvoiceRepository
             $isFixedAsset = $kind !== null
                 ? ($kind === ExpenseKind::FixedAsset ? 1 : 0)
                 : ($legacyFixed ? 1 : 0);
+
+            // Auto-klasifikace pro DPH přiznání / KH — pokud caller (importer / manual create)
+            // neuvedl explicitní kód, default podle sazby + RC + country. Bez tohohle by
+            // faktura NEDORAZILA do výkazů (VatClassificationMapper SKIPNE code=NULL).
+            $code = $item['vat_classification_code'] ?? null;
+            if ($code === null) {
+                $code = self::defaultClassificationCode(
+                    $rate,
+                    $reverseCharge,
+                    $countryIso,
+                    $standardRate,
+                    PublicAuthorityFeeText::indicatesPublicAuthorityFee((string) ($item['description'] ?? '')),
+                    $tenantIsVatPayer,
+                    self::supplyIsGoods($kind, $stockItemId !== null),
+                );
+            }
 
             [$accrualFrom, $accrualTo] = self::normalizeAccrualRange($item['accrual_from'] ?? null, $item['accrual_to'] ?? null);
 
@@ -2176,7 +2178,8 @@ final class PurchaseInvoiceRepository
         }
         $marks = implode(',', array_fill(0, count(self::DOMESTIC_INPUT_CODES), '?'));
         $itemsStmt = $pdo->prepare(
-            "SELECT id, vat_rate_id, description, vat_classification_code, total_vat FROM purchase_invoice_items
+            "SELECT id, vat_rate_id, description, vat_classification_code, total_vat, expense_kind, stock_item_id
+               FROM purchase_invoice_items
               WHERE purchase_invoice_id = ? AND vat_classification_code IN ({$marks})"
         );
         $itemsStmt->execute([$purchaseInvoiceId, ...self::DOMESTIC_INPUT_CODES]);
@@ -2230,6 +2233,10 @@ final class PurchaseInvoiceRepository
                 $standardRate,
                 PublicAuthorityFeeText::indicatesPublicAuthorityFee((string) ($item['description'] ?? '')),
                 $tenantIsVatPayer,
+                self::supplyIsGoods(
+                    ExpenseKind::tryFromNullable($item['expense_kind'] !== null ? (string) $item['expense_kind'] : null),
+                    $item['stock_item_id'] !== null,
+                ),
             );
             if ($code === null || in_array($code, self::DOMESTIC_INPUT_CODES, true)) {
                 continue;
@@ -2312,8 +2319,9 @@ final class PurchaseInvoiceRepository
      *     0% → '24' (přijetí služby ze 3. země / od neusazené osoby, ř.12 — Anthropic, GitHub)
      *     jinak tuzemsko sazby
      *
-     * Pro pořízení zboží z EU ('23') či dovoz zboží ze 3. země ('25') si user
-     * změní ručně — default 0%+zahraničí mapujeme na SLUŽBY, což je častější CZ IT use case.
+     * Povahu plnění u RC + základní sazby určuje `$isGoods` ({@see supplyIsGoods()}):
+     * zboží → '23' (EU) / '25' (3. země), služba i neznámá povaha → '24e' / '24'.
+     * Default 0%+zahraničí mapujeme na SLUŽBY, což je častější CZ IT use case.
      * AI import sem u RC dokladů nespadne: nastavuje explicitní kód (23/24/25 dle
      * supply_nature) + tuzemskou sazbu 21 % už v AiPdfExtractoru (issue #116).
      */
@@ -2330,6 +2338,8 @@ final class PurchaseInvoiceRepository
         // Je TENANT plátcem DPH k datu dokladu? Neplátce ani identifikovaná osoba nemůže
         // být v tuzemském § 92a → kód '5' se jim nepřiřazuje (zahraniční samovyměření ano).
         bool $tenantIsVatPayer = true,
+        // Povaha plnění řádku: true = zboží, false = služba, null = nepoznáno.
+        ?bool $isGoods = null,
     ): ?string {
         $r = (int) round($rate);
         $std = (int) round($standardRate);
@@ -2357,16 +2367,18 @@ final class PurchaseInvoiceRepository
         if ($isForeign && $r === 0) {
             return $isEu ? '24e' : '24';
         }
-        // EU vendor + RC + 21 % → pořízení zboží z JČS (kód 23, ř. 3 + ř. 43 mirror + KH A.2).
-        // Vzácnější použití (vendor obvykle fakturuje bez DPH), ale když má 21 % sazbu
-        // (typicky reverse-charge invoice s vyčíslenou daní pro info), tohle je správně.
-        if ($isEu && $reverseCharge && $r >= $std) return '23';
-        // Dodavatel ze 3. země / neusazená osoba + RC + základní sazba → přijetí služby
-        // (kód 24, ř. 12 + KH A.2). Dřív takový doklad propadl na tuzemský § 92a ('5',
-        // ř. 10 + KH B.1), přestože přenesenou povinnost mezi plátci v tuzemsku
-        // se zahraničním dodavatelem uplatnit nelze. Dovoz ZBOŽÍ (ř. 7, kód 25) se ze
-        // sazby nepozná — ten vybírá AI dle povahy plnění nebo uživatel ručně.
-        if ($isForeign && $reverseCharge && $r >= $std) return '24';
+        // Zahraniční dodavatel + RC + základní sazba → samovyměření podle povahy plnění.
+        // Zboží (skladová karta, materiál, drobný hmotný majetek): EU → pořízení z JČS
+        // (kód 23, ř. 3 + KH A.2), 3. země → dovoz (kód 25, ř. 7). Jinak služba: EU → 24e
+        // (ř. 5), 3. země → 24 (ř. 12). Neznámá povaha padá na službu stejně jako u 0 %;
+        // dřív EU + 21 % dostalo vždy '23' a služba z EU skončila na ř. 3 (issue #150).
+        // Tuzemský § 92a ('5') se zahraničním dodavatelem uplatnit nelze.
+        if ($isForeign && $reverseCharge && $r >= $std) {
+            if ($isGoods === true) {
+                return $isEu ? '23' : '25';
+            }
+            return $isEu ? '24e' : '24';
+        }
         // CZ tuzemsko (nebo zahraniční vendor s CZ DPH, vzácné). Tuzemský § 92a jen pro
         // plátce — neplátci/identifikované osobě kód '5' nepřiřadíme (viz $tenantIsVatPayer).
         if ($reverseCharge && $tenantIsVatPayer && $r >= $std) return '5';
@@ -2378,6 +2390,25 @@ final class PurchaseInvoiceRepository
         // záměrně nemapujeme (např. německá 19 % není česká DPH → user vybere ručně).
         if ($r >= 5 && $r <= 15)          return '41';
         return null;
+    }
+
+    /**
+     * Povaha plnění řádku přijatého dokladu pro {@see defaultClassificationCode()}.
+     *
+     * Zboží = vazba na skladovou kartu, materiál nebo drobný hmotný majetek. Služba =
+     * služba nebo drobný nehmotný majetek. Dlouhodobý majetek bývá hmotný i nehmotný,
+     * takže o povaze nevypovídá, stejně jako nevyplněný druh nákladu (null).
+     */
+    public static function supplyIsGoods(?ExpenseKind $kind, bool $hasStockItem): ?bool
+    {
+        if ($hasStockItem) {
+            return true;
+        }
+        return match ($kind) {
+            ExpenseKind::Material, ExpenseKind::SmallAsset => true,
+            ExpenseKind::Service, ExpenseKind::SmallIntangible => false,
+            default => null,
+        };
     }
 
     /**

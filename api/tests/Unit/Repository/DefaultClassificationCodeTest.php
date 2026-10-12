@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Tests\Unit\Repository;
 
 use MyInvoice\Repository\PurchaseInvoiceRepository;
+use MyInvoice\Service\Accounting\Expense\ExpenseKind;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -41,13 +42,32 @@ final class DefaultClassificationCodeTest extends TestCase
         $this->assertSame('24', $f('GB'));
     }
 
-    public function testEuReverseChargeStandardRate(): void
+    public function testForeignReverseChargeStandardRateByNature(): void
     {
-        $this->assertSame(
-            '23',
-            PurchaseInvoiceRepository::defaultClassificationCode(21.0, true, 'DE'),
-            'EU vendor + RC + základní sazba → pořízení zboží z JČS'
+        $f = fn (string $iso, ?bool $goods) => PurchaseInvoiceRepository::defaultClassificationCode(
+            21.0, true, $iso, 21.0, false, true, $goods
         );
+
+        // issue #150: služba z EU s 21 % a přenesením dostávala '23' a padala na ř. 3.
+        $this->assertSame('24e', $f('DE', null), 'EU + RC + 21 %, povaha neznámá → služba z EU (ř. 5)');
+        $this->assertSame('24e', $f('DE', false), 'EU služba → ř. 5');
+        $this->assertSame('23', $f('DE', true), 'EU zboží → pořízení z JČS (ř. 3)');
+        $this->assertSame('24', $f('US', null), '3. země, povaha neznámá → služba (ř. 12)');
+        $this->assertSame('24', $f('US', false));
+        $this->assertSame('25', $f('US', true), '3. země zboží → dovoz (ř. 7)');
+        $this->assertSame('5', $f('CZ', true), 'tuzemský § 92a se povahou plnění neřídí');
+    }
+
+    public function testSupplyIsGoods(): void
+    {
+        $this->assertTrue(PurchaseInvoiceRepository::supplyIsGoods(null, true), 'skladová karta');
+        $this->assertTrue(PurchaseInvoiceRepository::supplyIsGoods(ExpenseKind::Material, false));
+        $this->assertTrue(PurchaseInvoiceRepository::supplyIsGoods(ExpenseKind::SmallAsset, false));
+        $this->assertFalse(PurchaseInvoiceRepository::supplyIsGoods(ExpenseKind::Service, false));
+        $this->assertFalse(PurchaseInvoiceRepository::supplyIsGoods(ExpenseKind::SmallIntangible, false));
+        $this->assertNull(PurchaseInvoiceRepository::supplyIsGoods(ExpenseKind::FixedAsset, false));
+        $this->assertNull(PurchaseInvoiceRepository::supplyIsGoods(null, false));
+        $this->assertTrue(PurchaseInvoiceRepository::supplyIsGoods(ExpenseKind::Service, true), 'skladová karta má přednost');
     }
 
     public function testStandardRateParameterFromTaxConstants(): void
@@ -62,7 +82,8 @@ final class DefaultClassificationCodeTest extends TestCase
         $this->assertSame('41', $f(12.0, 22.0), 'snížená beze změny');
         // RC varianty respektují tentýž parametr
         $this->assertSame('5', PurchaseInvoiceRepository::defaultClassificationCode(22.0, true, 'CZ', 22.0));
-        $this->assertSame('23', PurchaseInvoiceRepository::defaultClassificationCode(22.0, true, 'DE', 22.0));
+        $this->assertSame('24e', PurchaseInvoiceRepository::defaultClassificationCode(22.0, true, 'DE', 22.0));
+        $this->assertNull(PurchaseInvoiceRepository::defaultClassificationCode(21.0, true, 'DE', 22.0, isGoods: true), 'stará 21 už není základní');
     }
 
     public function testPublicAuthorityFeeStaysOutOfScope(): void

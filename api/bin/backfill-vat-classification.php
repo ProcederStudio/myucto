@@ -44,6 +44,7 @@ $standardRateByYear = [];
 $whereCode = $force ? "" : "AND pii.vat_classification_code IS NULL";
 $stmt = $pdo->query(
     "SELECT pii.id, pii.purchase_invoice_id, pii.vat_rate_snapshot, pii.vat_classification_code AS current_code,
+            pii.expense_kind, pii.stock_item_id,
             pi.supplier_id, pi.vendor_invoice_number, pi.status, pi.reverse_charge,
             COALESCE(pi.tax_date, pi.issue_date) AS doc_date,
             co.iso2 AS vendor_country
@@ -81,6 +82,10 @@ foreach ($items as $it) {
         (bool) $it['reverse_charge'],
         (string) $it['vendor_country'],
         $standardRateByYear[$docYear],
+        isGoods: \MyInvoice\Repository\PurchaseInvoiceRepository::supplyIsGoods(
+            \MyInvoice\Service\Accounting\Expense\ExpenseKind::tryFromNullable($it['expense_kind'] !== null ? (string) $it['expense_kind'] : null),
+            $it['stock_item_id'] !== null,
+        ),
     );
 
     // Pokud derived == current, nic neměníme (i s --force)

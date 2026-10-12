@@ -101,11 +101,20 @@ final class PurchaseClassificationSsotTest extends TestCase
         self::assertSame('5', $code, 'tuzemský reverse charge je § 92a, ne přijetí služby z EU');
     }
 
-    /** EU dodavatel + RC + základní sazba → pořízení zboží z JČS (ř. 3 + 43, KH A.2). */
-    public function testEuReverseChargeGetsAcquisitionCode(): void
+    /** EU dodavatel + RC + základní sazba, povaha neznámá → přijetí služby z EU (ř. 5), issue #150. */
+    public function testEuReverseChargeWithoutNatureGetsServiceCode(): void
     {
         $vendor = $this->vendor('EU dodavatel', $this->deId, 'DE123456789');
         $code = $this->classify($vendor, 'SSOT-2', reverseCharge: true);
+
+        self::assertSame('24e', $code);
+    }
+
+    /** EU dodavatel + RC + materiál → pořízení zboží z JČS (ř. 3 + 43, KH A.2). */
+    public function testEuReverseChargeGoodsGetsAcquisitionCode(): void
+    {
+        $vendor = $this->vendor('EU dodavatel zboží', $this->deId, 'DE123456780');
+        $code = $this->classify($vendor, 'SSOT-2G', reverseCharge: true, item: ['expense_kind' => 'material']);
 
         self::assertSame('23', $code);
     }
@@ -154,7 +163,7 @@ final class PurchaseClassificationSsotTest extends TestCase
 
         $this->repo->syncHeaderClassificationFromItems($id, $this->supplierId);
 
-        self::assertSame('23', $this->repo->find($id, $this->supplierId)['vat_classification_code']);
+        self::assertSame('24e', $this->repo->find($id, $this->supplierId)['vat_classification_code']);
     }
 
     /** Ručně zvolený kód na hlavičce sync nepřepíše. */
@@ -171,9 +180,10 @@ final class PurchaseClassificationSsotTest extends TestCase
     // ── helpers ──────────────────────────────────────────────────────────────
 
     /** Založí doklad s jedním řádkem bez kódu a vrátí kód, který SSOT derivoval. */
-    private function classify(int $vendorId, string $number, bool $reverseCharge): ?string
+    /** @param array<string,mixed> $item */
+    private function classify(int $vendorId, string $number, bool $reverseCharge, array $item = []): ?string
     {
-        $id = $this->createWithItem($vendorId, $number, $reverseCharge);
+        $id = $this->createWithItem($vendorId, $number, $reverseCharge, item: $item);
         $stmt = $this->db->pdo()->prepare(
             'SELECT vat_classification_code FROM purchase_invoice_items WHERE purchase_invoice_id = ? LIMIT 1'
         );
@@ -182,7 +192,8 @@ final class PurchaseClassificationSsotTest extends TestCase
         return $code === false || $code === null ? null : (string) $code;
     }
 
-    private function createWithItem(int $vendorId, string $number, bool $reverseCharge, ?string $headerCode = null): int
+    /** @param array<string,mixed> $item */
+    private function createWithItem(int $vendorId, string $number, bool $reverseCharge, ?string $headerCode = null, array $item = []): int
     {
         $payload = [
             'vendor_id'             => $vendorId,
@@ -201,7 +212,7 @@ final class PurchaseClassificationSsotTest extends TestCase
         $this->piIds[] = $id;
 
         // Řádek BEZ kódu — přesně tak, jak ho po opravě H-6 posílá Create/UpdateAction.
-        $this->repo->replaceItems($id, [[
+        $this->repo->replaceItems($id, [$item + [
             'description'             => 'Test položka',
             'quantity'                => 1,
             'unit'                    => 'ks',
