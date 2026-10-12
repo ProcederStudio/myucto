@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Auditní brána (cmd/audit-gate): účetní a daňové jádro, guardy a invarianty v JEDNÉ sadě.
+     Bez mzdových toků, převodů z cizích systémů a generátorů ukázkových dat — ty berou přes
+     dvě třetiny času plné sady a hlídá je plná sada a vlastní brány mezd.
+     Samostatný soubor, protože se sada překrývá s Application/Architecture/Invariants
+     a PHPUnit by u společné konfigurace hlásil každý soubor jako duplicitu.
+     Spouští ji api/bin/test-parallel.php s volbou testsuite=AuditCore. -->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="tests/bootstrap.php"
+         colors="true"
+         cacheDirectory=".phpunit.cache"
+         displayDetailsOnTestsThatTriggerWarnings="true">
+    <testsuites>
+        <testsuite name="AuditCore">
+            <directory>tests/Unit</directory>
+            <directory>tests/Integration</directory>
+            <directory>tests/Architecture</directory>
+            <directory>tests/Invariants</directory>
+            <exclude>tests/Unit/Payroll</exclude>
+            <exclude>tests/Unit/Migration</exclude>
+            <exclude>tests/Unit/Service/Migration</exclude>
+            <exclude>tests/Integration/Payroll</exclude>
+            <exclude>tests/Integration/Migration</exclude>
+            <exclude>tests/Integration/Sample</exclude>
+            <exclude>tests/Integration/SampleDimensionGeneratorTest.php</exclude>
+            <exclude>tests/Integration/SamplePayrollGeneratorTest.php</exclude>
+            <exclude>tests/Integration/SampleRuleGeneratorTest.php</exclude>
+            <exclude>tests/Integration/Anonymization</exclude>
+        </testsuite>
+    </testsuites>
+    <extensions>
+        <bootstrap class="MyInvoice\Tests\Support\SharedTestConnectionGuard"/>
+    </extensions>
+    <source>
+        <include>
+            <directory suffix=".php">src</directory>
+        </include>
+    </source>
+    <php>
+        <ini name="memory_limit" value="1G"/>
+    </php>
+</phpunit>

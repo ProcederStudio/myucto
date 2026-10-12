@@ -284,16 +284,88 @@ function junitLogPaths(mixed $path, string $invocationDirectory): array
     return ['parallel' => $parallel, 'http' => $http];
 }
 
+/**
+ * Otisk stavu kódu: HEAD + necommitnuté změny + obsah nesledovaných souborů. Stejný
+ * otisk = stejný kód, takže zelený běh plné sady nad ním platí i pro auditní bránu.
+ * Null = mimo git (otisk nejde spolehlivě určit, brána pak testy vždy spustí).
+ */
+function treeFingerprint(string $rootDir): ?string
+{
+    $git = static function (array $args) use ($rootDir): ?string {
+        $process = new Process(['git', ...$args], $rootDir);
+        $process->setTimeout(60);
+        $process->run();
+        return $process->isSuccessful() ? $process->getOutput() : null;
+    };
+    $head = $git(['rev-parse', 'HEAD']);
+    $diff = $git(['diff', 'HEAD', '--binary']);
+    $untracked = $git(['ls-files', '--others', '--exclude-standard', '-z']);
+    if ($head === null || $diff === null || $untracked === null) {
+        return null;
+    }
+    $context = hash_init('sha256');
+    hash_update($context, $head . "\0" . $diff . "\0");
+    foreach (array_filter(explode("\0", $untracked)) as $file) {
+        $path = $rootDir . DIRECTORY_SEPARATOR . $file;
+        hash_update($context, $file . "\0" . (is_file($path) ? (string) hash_file('sha256', $path) : '') . "\0");
+    }
+    return hash_final($context);
+}
+
+function greenStampPath(string $apiDir): string
+{
+    return $apiDir . '/.phpunit.cache/green-full-suite.json';
+}
+
+/**
+ * Třídy s padlým testem podle JUnit reportu (failure i error).
+ *
+ * @return list<string>
+ */
+function failedTestClasses(string $junitPath): array
+{
+    if (!is_file($junitPath)) {
+        return [];
+    }
+    $xml = simplexml_load_file($junitPath);
+    if ($xml === false) {
+        return [];
+    }
+    $classes = [];
+    foreach ($xml->xpath('//testcase[failure or error]') ?: [] as $testcase) {
+        $class = (string) ($testcase['class'] ?? $testcase['classname'] ?? '');
+        if ($class !== '') {
+            $classes[$class] = true;
+        }
+    }
+    return array_keys($classes);
+}
+
 if (defined('MYINVOICE_PARALLEL_RUNNER_FUNCTIONS_ONLY')) {
     return;
 }
 
 require_once dirname(__DIR__) . '/tests/Support/ParallelRuntime.php';
 
-$options = getopt('', ['processes::', 'source::', 'keep-databases', 'testsuite::', 'application', 'timings::', 'log-junit::']);
+$options = getopt('', ['processes::', 'source::', 'keep-databases', 'testsuite::', 'application', 'timings::', 'log-junit::', 'rerun-failures', 'green-check']);
 if (in_array('--help', $_SERVER['argv'], true) || in_array('-h', $_SERVER['argv'], true)) {
-    fwrite(STDOUT, "Použití: php api/bin/test-parallel.php [--processes=N] [--source=DB] [--keep-databases] [--timings=PATH] [--log-junit=PATH] [--testsuite=Application|Architecture|Invariants|--application]\n");
+    fwrite(STDOUT, "Použití: php api/bin/test-parallel.php [--processes=N] [--source=DB] [--keep-databases] [--timings=PATH] [--log-junit=PATH] [--rerun-failures] [--testsuite=Application|Architecture|Invariants|AuditCore|--application]\n"
+        . "        php api/bin/test-parallel.php --green-check   (exit 0 = plná sada už prošla nad stejným kódem)\n");
     exit(0);
+}
+
+// Zelený otisk: plná sada (všechny testsuity) prošla nad přesně tímhle kódem. Brána ho
+// použije, aby kompletní sadu nepouštěla podruhé hned po běhu před vydáním.
+if (array_key_exists('green-check', $options)) {
+    $stampPath = greenStampPath(dirname(__DIR__));
+    $stamp = is_file($stampPath) ? json_decode((string) file_get_contents($stampPath), true) : null;
+    $current = treeFingerprint(dirname(__DIR__, 2));
+    if ($current !== null && is_array($stamp) && ($stamp['fingerprint'] ?? null) === $current) {
+        fwrite(STDOUT, '[PARALLEL TEST] Plná sada prošla nad stejným kódem ' . (string) ($stamp['finished_at'] ?? '') . ".\n");
+        exit(0);
+    }
+    fwrite(STDOUT, "[PARALLEL TEST] Pro aktuální kód zelený běh plné sady není.\n");
+    exit(1);
 }
 
 foreach (['timings', 'log-junit'] as $reportOption) {
@@ -307,9 +379,13 @@ $application = array_key_exists('application', $options);
 if ($application && is_string($suite) && $suite !== '') {
     fail('--application a --testsuite nelze kombinovat.');
 }
-if (is_string($suite) && $suite !== '' && !in_array($suite, ['Application', 'Architecture', 'Invariants'], true)) {
-    fail('--testsuite podporuje jen Application, Architecture nebo Invariants.');
+if (is_string($suite) && $suite !== '' && !in_array($suite, ['Application', 'Architecture', 'Invariants', 'AuditCore'], true)) {
+    fail('--testsuite podporuje jen Application, Architecture, Invariants nebo AuditCore.');
 }
+$rerunFailures = array_key_exists('rerun-failures', $options);
+$fullSuite = !$application && ($suite === null || $suite === '');
+// Otisk se bere PŘED během: změna kódu během testů nesmí dostat zelené razítko.
+$fingerprint = $fullSuite ? treeFingerprint(dirname(__DIR__, 2)) : null;
 
 $timingPath = null;
 if (array_key_exists('timings', $options)) {
@@ -389,7 +465,9 @@ $parallelEnvironment = array_replace($environment, [
     'MYINVOICE_PARALLEL_DB_PREFIX' => $prefix,
     'MYINVOICE_DB_NAME' => $source,
 ]);
-$parallelConfig = $apiDir . '/phpunit-parallel.xml';
+// Sada auditní brány má vlastní konfiguraci: překrývá se s ostatními sadami a ve společném
+// souboru by PHPUnit hlásil každý test jako duplicitu (viz phpunit-audit.xml).
+$parallelConfig = $apiDir . ($suite === 'AuditCore' ? '/phpunit-audit.xml' : '/phpunit-parallel.xml');
 
 $timings = ['run_id' => $runId, 'processes' => $processes, 'phases' => []];
 $started = hrtime(true);
@@ -437,8 +515,11 @@ try {
         '--exclude-group=http-integration',
         '--colors=auto',
     ];
-    if ($junitPaths !== []) {
-        $command[] = '--log-junit=' . $junitPaths['parallel'];
+    // Zopakování padlých tříd potřebuje vědět, které padly — bez vlastního reportu
+    // si JUnit zapíše do runtime adresáře běhu.
+    $paratestJunit = $junitPaths['parallel'] ?? ($rerunFailures ? $runtimeRoot . '/paratest-junit.xml' : null);
+    if ($paratestJunit !== null) {
+        $command[] = '--log-junit=' . $paratestJunit;
     }
     if ($application) {
         $command[] = '--testsuite=Application';
@@ -447,9 +528,37 @@ try {
     }
     $exitCode = $phase('paratest', fn () => runProcess($command, $apiDir, $parallelEnvironment));
 
+    // Testy, které spouštějí podproces (CLI, cron, migrace), na Windows pod zátěží
+    // osmi workerů občas nedostanou proc_open(). Padlé třídy se proto jednou zopakují
+    // sériově nad zdrojovou DB; projdou-li, běh je zelený a flaky třídy se vypíšou.
+    if ($exitCode !== 0 && $rerunFailures && $paratestJunit !== null) {
+        $failedClasses = failedTestClasses($paratestJunit);
+        if ($failedClasses !== [] && count($failedClasses) <= 20) {
+            fwrite(STDOUT, '[PARALLEL TEST] Opakuji sériově ' . count($failedClasses) . " padlých tříd.\n");
+            $rerunEnvironment = array_replace($environment, ['MYINVOICE_DB_NAME' => $source]);
+            unset($rerunEnvironment['MYINVOICE_PARALLEL_DB_PREFIX']);
+            $filter = '/^(?:' . implode('|', array_map(
+                static fn (string $class): string => preg_quote($class, '/'),
+                $failedClasses,
+            )) . ')::/';
+            $exitCode = $phase('rerun_failures', fn () => runProcess(
+                [PHP_BINARY, $apiDir . '/vendor/phpunit/phpunit/phpunit', '--configuration=' . $parallelConfig,
+                 '--exclude-group=http-integration', '--colors=auto', '--filter=' . $filter,
+                 ...($application ? ['--testsuite=Application'] : (is_string($suite) && $suite !== '' ? ['--testsuite=' . $suite] : []))],
+                $apiDir,
+                $rerunEnvironment,
+            ));
+            if ($exitCode === 0) {
+                $timings['flaky_classes'] = $failedClasses;
+                fwrite(STDOUT, "[PARALLEL TEST] FLAKY (paralelně padly, sériově prošly):\n  - "
+                    . implode("\n  - ", $failedClasses) . "\n");
+            }
+        }
+    }
+
     // Black-box HTTP testy nelze sdílet mezi workery: běžící server má jednu DB.
     // Spouštějí se proto až po ParaTestu nad původní izolovanou testovací DB.
-    if ($exitCode === 0 && ($application || $suite === null || $suite === '' || $suite === 'Integration')) {
+    if ($exitCode === 0 && ($application || $suite === null || $suite === '' || $suite === 'Integration' || $suite === 'AuditCore')) {
         $httpEnvironment = array_replace($environment, ['MYINVOICE_DB_NAME' => $source]);
         unset($httpEnvironment['MYINVOICE_PARALLEL_DB_PREFIX']);
         $exitCode = $phase('http_tail', fn () => runProcess(
@@ -499,6 +608,17 @@ try {
     } catch (Throwable $e) {
         fwrite(STDERR, '[PARALLEL TEST] Cleanup selhal: ' . $e->getMessage() . "\n");
         $exitCode = 1;
+    }
+    $stampPath = greenStampPath($apiDir);
+    if ($fullSuite && $exitCode === 0 && $fingerprint !== null && $fingerprint === treeFingerprint($rootDir)) {
+        @mkdir(dirname($stampPath), 0770, true);
+        file_put_contents($stampPath, json_encode([
+            'fingerprint' => $fingerprint,
+            'finished_at' => date('Y-m-d H:i:s'),
+            'run_id'      => $runId,
+        ], JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR) . "\n");
+    } elseif ($fullSuite && is_file($stampPath)) {
+        @unlink($stampPath);
     }
     $timings['total_seconds'] = (hrtime(true) - $started) / 1e9;
     $timings['exit_code'] = $exitCode;

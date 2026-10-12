@@ -135,9 +135,11 @@ Praktické důsledky:
 - **SSOT musí jít ZAVOLAT.** Pravidlo schované jako `private` helper uvnitř jedné akce
   se okopíruje rychleji, než kdyby neexistovalo — vytváří totiž dojem, že existuje.
 - **Před commitem do účetní/daňové vrstvy pusť auditní bránu:**
-  `pwsh -File cmd/audit-gate.ps1` (Linux: `cmd/audit-gate.sh`). Kroky nad daty jsou
-  read-only, takže je lze pustit i proti produkci; `-SkipData` je vynechá. Volitelné
-  kroky, jejichž skripty v repu nejsou, brána sama přeskočí.
+  `pwsh -File cmd/audit-gate.ps1` (Linux: `cmd/audit-gate.sh`). Testuje jen účetní
+  a daňové jádro (sada `AuditCore`); prošla-li nad stejným kódem plná sada, testy
+  přeskočí. Kroky nad daty jsou read-only, takže je lze pustit i proti kopii produkce
+  (`-Database`); `-SkipData` je vynechá, `-Full` pustí plnou sadu. Volitelné kroky,
+  jejichž skripty v repu nejsou, brána sama přeskočí.
 - **Ne každá odlišnost je drift.** `formatAmount` v EPO výkazech a § 46 vs § 74b jsou
   záměr — guard je má chránit před „sjednocením", ne je slučovat.
 - **Oprava sdílené daňové/účetní vrstvy nepatří do PR jiné funkce.** Když při práci na
