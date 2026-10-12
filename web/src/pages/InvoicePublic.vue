@@ -36,7 +36,9 @@ const typeLabel = computed(() => {
   }
 })
 
-const isPaid = computed(() => inv.value?.status === 'paid')
+// is_paid počítá server stejně jako PDF a e-mail (InvoicePaidState) — zaplacená
+// faktura s dodatečně přidanými položkami má doplatek. Status je jen fallback.
+const isPaid = computed(() => inv.value?.is_paid ?? inv.value?.status === 'paid')
 const isCancelled = computed(() => inv.value?.status === 'cancelled')
 const remaining = computed(() => {
   if (!inv.value) return 0
@@ -51,7 +53,7 @@ const statusBadge = computed(() => {
   if (isCancelled.value) return { text: tt('Stornováno', 'Cancelled'), cls: 'bg-neutral-100 text-neutral-600' }
   if (isPaid.value)      return { text: tt('Uhrazeno', 'Paid'), cls: 'bg-success-50 text-success-600' }
   if (isOverdue.value)   return { text: tt('Po splatnosti', 'Overdue'), cls: 'bg-danger-50 text-danger-500' }
-  if (inv.value?.payment_status === 'partially_paid')
+  if (inv.value?.payment_status === 'partially_paid' || (inv.value?.paid_total ?? 0) > 0)
     return { text: tt('Částečně uhrazeno', 'Partially paid'), cls: 'bg-warning-50 text-warning-600' }
   return { text: tt('Neuhrazeno', 'Unpaid'), cls: 'bg-primary-50 text-primary-700' }
 })

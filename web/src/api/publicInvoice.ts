@@ -55,6 +55,8 @@ export interface PublicInvoiceHeader {
   note_below_items: string | null
   amount_to_pay: number
   paid_total: number
+  /** Zaplaceno pro klienta (InvoicePaidState) — status 'paid' s reálným doplatkem dává false. */
+  is_paid?: boolean
   totals: {
     without_vat: number
     vat: number

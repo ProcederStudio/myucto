@@ -456,7 +456,7 @@
         {% endif %}
         {# Částečné úhrady (#89): evidované platby snižují výzvu k platbě — znovu
            stažené PDF nesmí chtít celou částku (QR výše zní na tentýž zbytek). #}
-        {% if (invoice.paid_total ?? 0) > 0 and invoice.status != 'paid' %}
+        {% if (invoice.paid_total ?? 0) > 0 and not is_paid %}
         <tr class="advance">
           <td class="tot-label">{{ t('Uhrazeno', 'Paid to date') }}</td>
           <td class="tot-num nowrap">−{{ invoice.paid_total|number_format(2, decimal_sep, thousand_sep) }} {{ invoice.currency }}</td>

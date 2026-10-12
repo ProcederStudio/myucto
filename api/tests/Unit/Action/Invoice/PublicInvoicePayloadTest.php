@@ -145,6 +145,7 @@ final class PublicInvoicePayloadTest extends TestCase
         self::assertSame('Klient s.r.o.', $p['client']['company_name']);
         self::assertSame('1000000005', $p['bank']['account_number']);
         self::assertSame('data:image/png;base64,QR', $p['qr_data_uri']);
+        self::assertFalse($p['invoice']['is_paid']);
     }
 
     public function testDoesNotLeakInternalInvoiceFields(): void

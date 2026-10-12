@@ -7,7 +7,7 @@ namespace MyInvoice\Service\Mail;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\SupplierPaymentQrSettingsRepository;
 use MyInvoice\Service\Bank\VariableSymbolNormalizer;
-use MyInvoice\Service\Invoice\InvoicePaymentService;
+use MyInvoice\Service\Invoice\InvoicePaidState;
 use MyInvoice\Service\Invoice\InvoicePublicLinkService;
 use MyInvoice\Service\Pdf\InvoicePdfRenderer;
 use MyInvoice\Service\Qr\PaymentQrDueDate;
@@ -36,7 +36,7 @@ final class InvoiceEmailVarsBuilder
         $varsymbol = (string) ($invoice['varsymbol'] ?? '');
         $supplier = $this->resolveSupplierName($invoice, false);
         $isProforma = ($invoice['invoice_type'] ?? '') === 'proforma';
-        $isPaid = $this->isEffectivelyPaid($invoice);
+        $isPaid = InvoicePaidState::isEffectivelyPaid($invoice);
 
         if ($locale === 'en') {
             $subject = $isProforma
@@ -57,7 +57,7 @@ final class InvoiceEmailVarsBuilder
             'client_name'    => $invoice['client_company_name'] ?? '',
             // Upomínka po částečné úhradě (#89) chce jen zbývající dluh. Je-li faktura
             // "paid" (InvoicePaymentService::TOLERANCE), zůstatek do 0,05 Kč se nezobrazuje.
-            'amount_to_pay'  => $this->remainingAmount($invoice, $isPaid),
+            'amount_to_pay'  => InvoicePaidState::amountDue($invoice),
             'days_overdue'   => $daysOverdue,
             'payment_varsymbol' => VariableSymbolNormalizer::forInvoicePayment($invoice),
             'subject'        => $subject,
@@ -73,14 +73,14 @@ final class InvoiceEmailVarsBuilder
     {
         $type = (string) $invoice['invoice_type'];
         $varsymbol = (string) ($invoice['varsymbol'] ?? '');
-        // "paid" pro e-mail/QR = isEffectivelyPaid(), ne holý invoice['status'] — viz
+        // "paid" pro e-mail/QR = InvoicePaidState, ne holý invoice['status'] — viz
         // docblock tam, proč se status a skutečný zůstatek mohou rozejít.
-        $isPaid = $this->isEffectivelyPaid($invoice);
+        $isPaid = InvoicePaidState::isEffectivelyPaid($invoice);
         // Částka k úhradě v e-mailu = zbývající dluh — částečné úhrady (#89) se odečítají
         // (upomínka po částečné platbě musí chtít jen zbytek). Je-li faktura efektivně
         // zaplacená, zůstatek se nezobrazuje — e-mail by jinak vedle "Faktura již byla
         // uhrazena" žádal o doplatek.
-        $amount = $this->remainingAmount($invoice, $isPaid);
+        $amount = InvoicePaidState::amountDue($invoice);
 
         $typeLabel = match ($type) {
             'proforma'     => $locale === 'en' ? 'proforma invoice' : 'zálohovou fakturu',
@@ -147,54 +147,6 @@ final class InvoiceEmailVarsBuilder
     }
 
     /**
-     * Je-li $isPaid (= isEffectivelyPaid()) true, zbytek je podle definice nulový nebo v
-     * toleranci — e-mail ukáže 0. Jinak zbývající dluh = amount_to_pay − paid_total
-     * (částečné úhrady, #89, chtějí jen zbytek).
-     */
-    private function remainingAmount(array $invoice, bool $isPaid): float
-    {
-        if ($isPaid) {
-            return 0.0;
-        }
-
-        return round(
-            (float) ($invoice['amount_to_pay'] ?? $invoice['total_with_vat']) - (float) ($invoice['paid_total'] ?? 0),
-            2,
-        );
-    }
-
-    /**
-     * Faktura je pro e-mail a QR "efektivně zaplacená", když DB status je 'paid' A
-     * zároveň:
-     * - jde o legacy doklad bez evidovaných plateb (paid_total ~ 0 — stejná konvence
-     *   jako InvoiceRepository::remainingSql(), doklady "paid" z dob před #89), nebo
-     * - zůstatek NEPŘESAHUJE InvoicePaymentService::TOLERANCE — schválně bez abs():
-     *   záporný zůstatek je přeplatek, klient nic nedluží, takže se počítá jako
-     *   zaplaceno stejně jako nulový; řeší se to tu výlučně jako "nic k doplacení",
-     *   ne jako vratka přeplatku (to je mimo rozsah e-mailu o faktuře).
-     *
-     * Mimo tyhle případy e-mail NESMÍ tvrdit "uhrazeno" ani potlačovat QR platbu —
-     * DocumentLockService status 'paid' nezamyká, takže admin může dovybavit položky
-     * už zaplacené faktury a nechat v DB reálný kladný zůstatek; status přitom zůstane
-     * 'paid'. V tom případě se faktura v e-mailu chová jako běžná neuhrazená.
-     */
-    private function isEffectivelyPaid(array $invoice): bool
-    {
-        if (($invoice['status'] ?? '') !== 'paid') {
-            return false;
-        }
-        if (abs((float) ($invoice['paid_total'] ?? 0)) < 0.005) {
-            return true;
-        }
-        $residual = round(
-            (float) ($invoice['amount_to_pay'] ?? $invoice['total_with_vat']) - (float) ($invoice['paid_total'] ?? 0),
-            2,
-        );
-
-        return $residual <= InvoicePaymentService::TOLERANCE;
-    }
-
-    /**
      * Příloha s PDF dokladu pro e-mail klientovi. Název podle klienta (#277), jinak
      * název vygenerovaného souboru (Faktura-{VS}.pdf). Jediné místo, kde se název
      * přílohy faktury určuje — používají ho všechny e-maily s PDF faktury
@@ -223,7 +175,7 @@ final class InvoiceEmailVarsBuilder
         $remaining = round((float) ($invoice['amount_to_pay'] ?? 0) - (float) ($invoice['paid_total'] ?? 0), 2);
         if (VariableSymbolNormalizer::forInvoicePayment($invoice) === '') return null;
         if ($remaining <= 0) return null;
-        if ($this->isEffectivelyPaid($invoice)) return null;
+        if (InvoicePaidState::isEffectivelyPaid($invoice)) return null;
         if (($invoice['payment_method'] ?? 'bank_transfer') !== 'bank_transfer') return null;
 
         // Bank z snapshot (issued+) nebo live z currencies

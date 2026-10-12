@@ -125,6 +125,9 @@ final class PublicInvoiceGetAction
             'amount_to_pay', 'paid_total',
             'totals', 'vat_breakdown', 'czk_recap',
         ]);
+        // „Zaplaceno" stejně jako PDF a e-mail; holý status 'paid' by u faktury
+        // s dodatečně přidanými položkami zatajil doplatek.
+        $publicInvoice['is_paid'] = \MyInvoice\Service\Invoice\InvoicePaidState::isEffectivelyPaid($invoice);
         $publicInvoice['items'] = array_map(
             static fn (array $it): array => $pick($it, [
                 'description', 'quantity', 'duration_minutes', 'unit', 'unit_price_without_vat',

@@ -36,3 +36,29 @@ describe('public invoice time presentation', () => {
     }
   })
 })
+
+describe('public invoice paid state', () => {
+  it.each([
+    { isPaid: true, qr: false },
+    { isPaid: false, qr: true },
+  ])('status paid with server is_paid=$isPaid shows QR: $qr', async ({ isPaid, qr }) => {
+    api.get.mockResolvedValue({
+      invoice: {
+        invoice_type: 'invoice', status: 'paid', is_paid: isPaid, language: 'cs', currency: 'CZK',
+        amount_to_pay: 1100, paid_total: 1000, due_date: '2099-01-01', prices_include_vat: false,
+        payment_method: 'bank_transfer',
+        totals: { without_vat: 1100, vat: 0, with_vat: 1100, amount_to_pay: 1100 },
+        vat_breakdown: [], items: [],
+      },
+      supplier: { is_vat_payer: false }, client: {}, bank: { account_number: '1000000005', bank_code: '0100' },
+      attachments: [], oss_clause: null, qr_data_uri: 'data:image/png;base64,QR',
+    })
+    const wrapper = mount(InvoicePublic)
+    await flushPromises()
+    try {
+      expect(wrapper.find('img[alt="QR"]').exists()).toBe(qr)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+})

@@ -312,7 +312,9 @@ final class InvoicePdfRenderer
         $hasAmount = $remaining > 0;
         $isCzk = ((string) $invoice['currency']) === 'CZK';
         $hasVs = VariableSymbolNormalizer::forInvoicePayment($invoice) !== '';
-        $isPaid = ($invoice['status'] ?? '') === 'paid';
+        // Stejné „zaplaceno" jako e-mail a web faktura: zaplacená faktura s dodatečně
+        // přidanými položkami nesmí tvrdit „Neplaťte prosím znovu" a skrýt QR doplatku.
+        $isPaid = \MyInvoice\Service\Invoice\InvoicePaidState::isEffectivelyPaid($invoice);
         $paymentMethod = (string) ($invoice['payment_method'] ?? 'bank_transfer');
         $isBankTransfer = $paymentMethod === 'bank_transfer';
         // Platební kalendář QR kód nedostane. Žádná jedna platba se na něm nekoná —

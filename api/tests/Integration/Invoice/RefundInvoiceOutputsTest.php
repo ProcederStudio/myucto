@@ -228,6 +228,33 @@ final class RefundInvoiceOutputsTest extends StockTestCase
         self::assertStringNotContainsString('1000000005', $html);
     }
 
+    public function testPdfOfPaidInvoiceWithLaterBalanceAsksForRemainingAmount(): void
+    {
+        // Zaplacená faktura s dodatečně přidanými položkami: PDF musí říct totéž co
+        // e-mail (doplatek + QR), ne „UHRAZENO, neplaťte prosím znovu".
+        $inv = $this->positiveInvoice();
+        $inv['status'] = 'paid';
+        $inv['paid_total'] = round((float) $inv['amount_to_pay'] - 100.0, 2);
+
+        $html = $this->container->get(InvoicePdfRenderer::class)->renderHtml($inv);
+        self::assertStringNotContainsString('Neplaťte prosím znovu', $html);
+        self::assertStringContainsString('Zbývá uhradit', $html);
+        self::assertStringContainsString('100,00 CZK', $html);
+        self::assertStringContainsString('alt="QR"', $html);
+    }
+
+    public function testPdfOfFullyPaidInvoiceStaysPaid(): void
+    {
+        $inv = $this->positiveInvoice();
+        $inv['status'] = 'paid';
+        $inv['paid_total'] = round((float) $inv['amount_to_pay'] - 0.03, 2);
+
+        $html = $this->container->get(InvoicePdfRenderer::class)->renderHtml($inv);
+        self::assertStringContainsString('Neplaťte prosím znovu', $html);
+        self::assertStringNotContainsString('Zbývá uhradit', $html);
+        self::assertStringNotContainsString('alt="QR"', $html);
+    }
+
     public function testCashRefundIsRoundedAndSaysPaidOutWhenPaid(): void
     {
         $inv = $this->refundInvoice('cash');
