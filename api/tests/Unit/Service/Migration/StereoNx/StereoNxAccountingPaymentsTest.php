@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace MyInvoice\Tests\Unit\Service\Migration\StereoNx;
 
+use MyInvoice\Service\Accounting\FiscalCalendar;
 use MyInvoice\Service\Migration\StereoNx\StereoNxAccountingPayments;
 use MyInvoice\Service\Migration\StereoNx\StereoNxBackup;
+use MyInvoice\Service\Migration\StereoNx\StereoNxMovementJournalLinks;
 use MyInvoice\Tests\Fixtures\StereoNx\SyntheticNx1Archive;
 use MyInvoice\Tests\Fixtures\StereoNx\SyntheticStereoNxTables;
 use PHPUnit\Framework\TestCase;
@@ -174,6 +176,51 @@ final class StereoNxAccountingPaymentsTest extends TestCase
             static fn (array $warning): bool => ($warning['code'] ?? '') === 'pending_reconciliation'));
         self::assertCount(1, $pending);
         self::assertSame(1, $pending[0]['count']);
+    }
+
+    public function testFiscalYearCompanyKeysMovementsAndJournalLinksByCompanyPeriod(): void
+    {
+        $tables = self::tables();
+        $first = &$tables['CPokl'][0];
+        $first['DoklSCislo'] = '';
+        $first['ZpracovatDPH'] = false;
+        $first['TypDPH'] = '';
+        foreach (['ZaklDPHz', 'DPHz', 'ZaklDPHs', 'DPHs', 'ZaklDPHt', 'DPHt', 'BezDane'] as $field) $first[$field] = 0.0;
+        $next = $first;
+        unset($first);
+        // Stereo čísluje pokladnu v rámci účetního roku: P-1 hospodářského roku 2025/26
+        // padne do stejného kalendářního roku jako P-1 roku 2024/25.
+        $next['KdyUcPripad'] = '2025-09-10';
+        $next['KdyVystaveno'] = '2025-09-10';
+        $next['Castka'] = 30.0;
+        $next['CastkaVlastni'] = 30.0;
+        $tables['CPokl'][] = $next;
+        $path = $this->archive($tables);
+        try {
+            $module = (new \ReflectionClass(StereoNxAccountingPayments::class))->newInstanceWithoutConstructor();
+            $plan = $module->prepare(StereoNxBackup::open($path, 0), new FiscalCalendar(8));
+        } finally {
+            @unlink($path);
+        }
+        self::assertSame(2, $plan['counts']['cash_transactions']);
+        self::assertSame(['["2024","P","1"]', '["2025","P","1"]'],
+            array_column($plan['records']['cash_transactions'], 'source_key'));
+        self::assertSame('["2024","B","1"]', $plan['records']['bank_statements'][0]['source_key']);
+        self::assertSame(5, $plan['counts']['bank_transactions']);
+
+        $entry = static fn (string $klic, string $date, int $year, int $cents): array => [
+            'source_key' => json_encode(['P', 'P', '1', $klic, '0'], JSON_THROW_ON_ERROR),
+            'date' => $date, 'posting_year' => $year, 'is_opening' => false,
+            'debit' => '21110', 'credit' => '379', 'amount_cents' => $cents, 'is_red_storno' => false];
+        $journal = ['accounting_plan' => ['entries' => [
+            $entry('1', '2025-03-15', 2024, 2000), $entry('2', '2025-09-10', 2025, 3000)]]];
+        $index = StereoNxMovementJournalLinks::indexMovementEntries($journal);
+        self::assertSame(['["2024","P","1"]', '["2025","P","1"]'], array_keys($index['cash']));
+
+        $resolved = $module->resolveNonVatCash($plan, $journal);
+        self::assertFalse($resolved['records']['cash_transactions'][0]['requires_draft']);
+        self::assertFalse($resolved['records']['cash_transactions'][1]['requires_draft']);
+        self::assertSame(0, $resolved['counts']['requires_review']);
     }
 
     public function testPaymentOutsideImportedInvoiceAgendasGetsSpecificReview(): void

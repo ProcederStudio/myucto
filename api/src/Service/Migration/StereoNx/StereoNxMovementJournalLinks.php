@@ -13,7 +13,13 @@ final class StereoNxMovementJournalLinks
 {
     public function __construct(private readonly Connection $db, private readonly StereoNxImportMap $map) {}
 
-    /** @param array<string,mixed> $journalPlan @return array<string,array<string,list<array<string,mixed>>>> */
+    /**
+     * Rok klíče je účetní období kontace (posting_year podle kalendáře firmy), stejně jako
+     * rok v identitě pohybu ze {@see StereoNxAccountingPayments}. Bez posting_year
+     * (plán bez kalendáře firmy) se použije kalendářní rok data.
+     *
+     * @param array<string,mixed> $journalPlan @return array<string,array<string,list<array<string,mixed>>>>
+     */
     public static function indexMovementEntries(array $journalPlan): array
     {
         $entries = [];
@@ -22,7 +28,8 @@ final class StereoNxMovementJournalLinks
             $parts = json_decode($entry['source_key'], true, flags: JSON_THROW_ON_ERROR);
             if (!in_array($parts[0] ?? '', ['B', 'P'], true)) continue;
             $kind = $parts[0] === 'B' ? 'bank' : 'cash';
-            $key = [substr($entry['date'], 0, 4), $parts[1], $parts[2]];
+            $year = is_int($entry['posting_year'] ?? null) ? (string) $entry['posting_year'] : substr($entry['date'], 0, 4);
+            $key = [$year, $parts[1], $parts[2]];
             if ($kind === 'bank') $key[] = $parts[3];
             $entries[$kind][json_encode($key, JSON_THROW_ON_ERROR)][] = $entry;
         }

@@ -4,16 +4,25 @@ declare(strict_types=1);
 
 namespace MyInvoice\Service\Migration\StereoNx;
 
+use MyInvoice\Service\Accounting\FiscalCalendar;
 use MyInvoice\Service\Migration\Shared\BankSymbols;
 
-/** Fyzická banka a pokladna účetní firmy; účetní deník se převádí samostatně. */
+/**
+ * Fyzická banka a pokladna účetní firmy; účetní deník se převádí samostatně.
+ *
+ * Stereo čísluje výpisy a pokladní doklady v rámci účetního roku, proto rok v identitě
+ * výpisu a pohybu je účetní období firmy (kalendářní, nebo hospodářský rok). Stejný rok
+ * použije {@see StereoNxMovementJournalLinks} pro kontace deníku, jinak by se v hospodářském
+ * roce stejná čísla dokladů ze dvou období slila do jednoho pohybu.
+ */
 final class StereoNxAccountingPayments
 {
     public function __construct(private readonly StereoNxImporter $importer) {}
 
     /** @return array<string,mixed> */
-    public function prepare(StereoNxBackup $backup): array
+    public function prepare(StereoNxBackup $backup, ?FiscalCalendar $calendar = null): array
     {
+        $calendar ??= FiscalCalendar::calendar();
         $available = array_flip($backup->tableNames());
         $read = static function (string $name) use ($backup, $available): array {
             return isset($available[$name]) ? iterator_to_array($backup->rows($name), false) : [];
@@ -42,7 +51,7 @@ final class StereoNxAccountingPayments
             $series = self::required($row, 'DoklRada');
             $statementDate = self::date($row, 'KdyVystaveno');
             $sourceDates[] = $statementDate;
-            $year = substr($statementDate, 0, 4);
+            $year = (string) $calendar->fiscalYearOfDate($statementDate);
             $physical = self::key([$year, $series, self::required($row, 'DoklCislo')]);
             $key = self::key([$year, $series, self::required($row, 'DoklCislo')]);
             if (isset($statementByPhysical[$physical])) {
@@ -87,7 +96,7 @@ final class StereoNxAccountingPayments
         $skippedBankCurrency = 0;
         $skippedBankAccount = 0;
         foreach ($read('CBankap') as $row) {
-            $physical = self::key([substr(self::date($row, 'KdyUcPripad'), 0, 4),
+            $physical = self::key([(string) $calendar->fiscalYearOfDate(self::date($row, 'KdyUcPripad')),
                 self::required($row, 'DoklRada'), self::required($row, 'DoklCislo')]);
             $sourceDates[] = self::date($row, 'KdyUcPripad');
             $statementKey = $statementByPhysical[$physical] ?? null;
@@ -102,7 +111,7 @@ final class StereoNxAccountingPayments
                 $skippedBank++;
                 continue;
             }
-            $key = self::movementKey($row, true);
+            $key = self::movementKey($row, true, $calendar);
             $movement = self::movement($row, $key);
             [$movement['variable_symbol'], $movement['description']] = BankSymbols::variableSymbolAndDescription(
                 $movement['variable_symbol'], $movement['description'], false,
@@ -130,7 +139,7 @@ final class StereoNxAccountingPayments
         foreach ($read('CPokl') as $row) {
             $sourceDates[] = self::date($row, 'KdyUcPripad');
             if (self::cents($row['Castka'] ?? null) === 0) {
-                $key = self::movementKey($row, false);
+                $key = self::movementKey($row, false, $calendar);
                 $reviews['cash-zero:' . $key] = ['kind' => 'cash', 'source_key' => $key,
                     'document_no' => self::first($row, ['Doklad', 'DokladS']),
                     'review_codes' => ['zero_cash_opening'], 'target_id' => null];
@@ -138,14 +147,14 @@ final class StereoNxAccountingPayments
                 continue;
             }
             if (!self::domesticMovement($row)) {
-                $key = self::movementKey($row, false);
+                $key = self::movementKey($row, false, $calendar);
                 $reviews['cash-skipped:' . $key] = ['kind' => 'cash', 'source_key' => $key,
                     'document_no' => self::first($row, ['Doklad', 'DokladS']),
                     'review_codes' => ['cash_currency_unresolved'], 'target_id' => null];
                 $skippedCash++;
                 continue;
             }
-            $key = self::movementKey($row, false);
+            $key = self::movementKey($row, false, $calendar);
             $reviewCode = self::hasCashTaxAmounts($row) && self::optionalDocumentKey($row) === null
                 ? 'movement_vat_unverified' : 'pending_reconciliation';
             $cash[$key] = self::movement($row, $key) + [
@@ -185,6 +194,8 @@ final class StereoNxAccountingPayments
                 if ($candidate['type'] === 'cash') $cash[$candidate['key']]['review_codes'] = [$reason];
                 continue;
             }
+            // Identita dokladu pochází ze sdíleného StereoNxSourcePlan (i daňová evidence),
+            // proto zůstává kalendářní rok; musí se shodovat s klíčem převedeného dokladu.
             $docKey = self::key([substr(self::date($source, 'KdyVystaveno'), 0, 4),
                 self::required($source, 'DoklSRada'), self::required($source, 'DoklSCislo')]);
             $kind = $agenda === 'VF' ? 'issued' : 'purchase';
@@ -325,9 +336,10 @@ final class StereoNxAccountingPayments
     }
 
     /** @param array<string,mixed> $row */
-    private static function movementKey(array $row, bool $line): string
+    private static function movementKey(array $row, bool $line, FiscalCalendar $calendar): string
     {
-        $parts = [substr(self::date($row, 'KdyUcPripad'), 0, 4), self::required($row, 'DoklRada'), self::required($row, 'DoklCislo')];
+        $parts = [(string) $calendar->fiscalYearOfDate(self::date($row, 'KdyUcPripad')),
+            self::required($row, 'DoklRada'), self::required($row, 'DoklCislo')];
         if ($line) $parts[] = self::required($row, 'Klic');
         return self::key($parts);
     }

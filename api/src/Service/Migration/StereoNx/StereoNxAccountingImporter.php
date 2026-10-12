@@ -61,7 +61,7 @@ final class StereoNxAccountingImporter
             $calendar = $this->journal->calendar($supplierId);
             $plans = [
                 'journal' => $this->journal->prepare($backup, $calendar),
-                'assets' => $this->assets->prepare($backup),
+                'assets' => $this->assets->prepare($backup, $calendar),
                 'employees' => $this->employees->prepare($backup),
                 'payroll' => StereoNxPayrollMonths::fromTables([
                     'MZAMEST' => iterator_to_array($backup->rows('MZAMEST'), false),
@@ -72,7 +72,7 @@ final class StereoNxAccountingImporter
                 ], $backup->companyIdentity(), $backup->companyIndex()),
                 'inventory' => $this->inventoryWriter->prepare($backup),
                 'documents' => $this->accountingDocuments->prepare($backup, $blankCountryIsCz),
-                'payments' => $this->accountingPayments->prepare($backup),
+                'payments' => $this->accountingPayments->prepare($backup, $calendar),
             ];
             // Samostatný převod osob stále hlásí mzdy jako nepřevzaté. V účetním
             // převodu už měsíce posoudí a spočítá modul historických mezd.

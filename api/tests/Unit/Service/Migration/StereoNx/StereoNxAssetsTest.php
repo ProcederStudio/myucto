@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MyInvoice\Tests\Unit\Service\Migration\StereoNx;
 
+use MyInvoice\Service\Accounting\FiscalCalendar;
 use MyInvoice\Service\Migration\StereoNx\StereoNxAssets;
 use MyInvoice\Service\Migration\StereoNx\StereoNxException;
 use PHPUnit\Framework\TestCase;
@@ -113,6 +114,30 @@ final class StereoNxAssetsTest extends TestCase
         self::assertSame('draft', $plan['records']['assets'][0]['card']['status']);
         self::assertSame('by_tax', $plan['records']['assets'][0]['card']['acc_method']);
         self::assertContains('asset_depreciation_plan_missing', array_column($plan['warnings'], 'code'));
+    }
+
+    public function testAppliedTaxYearsFollowCompanyFiscalYear(): void
+    {
+        $fiscal = new FiscalCalendar(8);
+        foreach ([
+            'two_fiscal_years_in_one_calendar_year' => [['2025-01-31', '2025-08-31'], 2, 1],
+            'one_fiscal_year_across_two_calendar_years' => [['2024-12-31', '2025-06-30'], 1, 2],
+        ] as $case => [$dates, $fiscalYears, $calendarYears]) {
+            $tables = $this->tables();
+            $tables['JMajetek'][] = $this->asset(['DatumPorizeni' => '2024-09-01', 'DatumZarazeni' => '2024-09-01']);
+            $tables['JDanOdpisy'] = [
+                $this->depreciation('M-001', $dates[0], 10_000.0, $dates[0]),
+                $this->depreciation('M-001', $dates[1], 10_000.0, $dates[1]),
+            ];
+            $tables['JUcOdpisy'] = $tables['JDanOdpisy'];
+
+            $card = StereoNxAssets::fromTables($tables, $this->identity(), 0, $fiscal)['records']['assets'][0]['card'];
+            self::assertSame($fiscalYears, $card['opening_tax_years'], $case);
+            self::assertSame(20_000.0, $card['opening_tax_amount'], $case);
+
+            $calendar = StereoNxAssets::fromTables($tables, $this->identity(), 0)['records']['assets'][0]['card'];
+            self::assertSame($calendarYears, $calendar['opening_tax_years'], $case);
+        }
     }
 
     public function testDuplicateInventoryNumberIsFatal(): void

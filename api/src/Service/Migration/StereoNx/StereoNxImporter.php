@@ -404,6 +404,7 @@ final class StereoNxImporter
     private function seedVatCoefficients(array &$report, int $supplierId, int $userId, bool $dryRun, array $sourceDates): void
     {
         $protocol = new ImportProtocol($dryRun ? 'dry_run' : 'import');
+        // Koeficient § 76 se vypořádává za kalendářní rok i u hospodářského roku firmy.
         $years = array_map(static fn (string $d): int => (int) substr($d, 0, 4), $sourceDates);
         $this->coefficients->seedConverted($supplierId, [], $years, $userId, $protocol);
         self::appendProtocolWarnings($report, $protocol);

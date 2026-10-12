@@ -7,6 +7,7 @@ namespace MyInvoice\Service\Migration\StereoNx;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Service\Accounting\Assets\AssetException;
 use MyInvoice\Service\Accounting\Assets\AssetService;
+use MyInvoice\Service\Accounting\FiscalCalendar;
 use MyInvoice\Service\Accounting\PostingException;
 use MyInvoice\Service\Accounting\SmallAsset\SmallAssetService;
 use MyInvoice\Service\Migration\Shared\MigratedDepreciation;
@@ -16,7 +17,9 @@ use MyInvoice\Service\Migration\Shared\SmallAssetCard;
  * Karty majetku Stereo NX bez opakovaného účtování historických pohybů.
  *
  * Uplatněné odpisy přecházejí do počátečních oprávek karty. Řádky odpisů ani
- * zařazení se znovu nematerializují, protože je převádí účetní deník.
+ * zařazení se znovu nematerializují, protože je převádí účetní deník. Počet
+ * uplatněných daňových odpisů se počítá po zdaňovacích obdobích firmy
+ * (kalendářní, nebo hospodářský rok), stejně jako je čte evidence majetku.
  */
 final class StereoNxAssets
 {
@@ -31,7 +34,7 @@ final class StereoNxAssets
     ) {}
 
     /** @return array<string,mixed> */
-    public function prepare(StereoNxBackup $backup): array
+    public function prepare(StereoNxBackup $backup, ?FiscalCalendar $calendar = null): array
     {
         $tables = [];
         foreach (['JMajetek', 'JDrobMaj', 'JDanOdpisy', 'JUcOdpisy', 'JTechZhod'] as $table) {
@@ -45,7 +48,7 @@ final class StereoNxAssets
             throw new StereoNxException('asset_tables_missing', 'V záloze chybí evidence dlouhodobého nebo drobného majetku.');
         }
 
-        return self::fromTables($tables, $backup->companyIdentity(), $backup->companyIndex());
+        return self::fromTables($tables, $backup->companyIdentity(), $backup->companyIndex(), $calendar);
     }
 
     /**
@@ -55,8 +58,9 @@ final class StereoNxAssets
      * @param array{ico:string,dic?:string,name?:string,vat_payer?:bool} $identity
      * @return array<string,mixed>
      */
-    public static function fromTables(array $tables, array $identity, int $companyIndex): array
+    public static function fromTables(array $tables, array $identity, int $companyIndex, ?FiscalCalendar $calendar = null): array
     {
+        $calendar ??= FiscalCalendar::calendar();
         $ico = trim((string) ($identity['ico'] ?? ''));
         if ($ico === '' || $companyIndex < 0) {
             throw new StereoNxException('asset_source_identity_invalid', 'Majetek nemá jednoznačnou identitu zdrojové firmy.');
@@ -75,8 +79,8 @@ final class StereoNxAssets
             'technical_improvements_skipped' => count($tables['JTechZhod'] ?? []),
         ];
 
-        $tax = self::depreciationByCard($tables['JDanOdpisy'] ?? [], 'tax', $warnings, $counts);
-        $accounting = self::depreciationByCard($tables['JUcOdpisy'] ?? [], 'accounting', $warnings, $counts);
+        $tax = self::depreciationByCard($tables['JDanOdpisy'] ?? [], 'tax', $calendar, $warnings, $counts);
+        $accounting = self::depreciationByCard($tables['JUcOdpisy'] ?? [], 'accounting', $calendar, $warnings, $counts);
         $assets = [];
         $assetKeys = [];
         foreach ($tables['JMajetek'] ?? [] as $row) {
@@ -378,7 +382,7 @@ final class StereoNxAssets
     }
 
     /** @param list<array<string,mixed>> $rows @param list<array{level:string,code:string,message:string}> $warnings @param array<string,int> $counts */
-    private static function depreciationByCard(array $rows, string $kind, array &$warnings, array &$counts): array
+    private static function depreciationByCard(array $rows, string $kind, FiscalCalendar $calendar, array &$warnings, array &$counts): array
     {
         $out = [];
         foreach ($rows as $row) {
@@ -399,7 +403,7 @@ final class StereoNxAssets
             $out[$number]['last_date'] = max((string) ($out[$number]['last_date'] ?? ''), $date);
             if ($applied) {
                 $out[$number]['applied_sum'] = round((float) ($out[$number]['applied_sum'] ?? 0.0) + $amount, 2);
-                $out[$number]['applied_years'][(int) substr($date, 0, 4)] = true;
+                $out[$number]['applied_years'][$calendar->fiscalYearOfDate($date)] = true;
                 $out[$number]['last_applied'] = max((string) ($out[$number]['last_applied'] ?? ''), $date);
                 $counts[$kind . '_depreciation_applied']++;
             }
