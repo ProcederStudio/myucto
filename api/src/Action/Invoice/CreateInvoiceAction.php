@@ -150,7 +150,12 @@ final class CreateInvoiceAction
         $body['items'] = $items;
 
         try {
-            $id = $this->repo->createDraft($body, $userId);
+            // Číslo zadané volajícím (API, MCP) může už existovat — to je očekávaný stav
+            // s odpovědí 409 níž, ne chyba do logu.
+            $id = \MyInvoice\Infrastructure\Database\DbErrorLogger::expectingDuplicates(
+                ['uq_inv_supplier_varsymbol'],
+                fn () => $this->repo->createDraft($body, $userId),
+            );
         } catch (\InvalidArgumentException $e) {
             return Json::error($response, 'integrity_violation', $e->getMessage(), 400);
         } catch (\PDOException $e) {

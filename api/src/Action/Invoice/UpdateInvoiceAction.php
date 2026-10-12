@@ -399,7 +399,14 @@ final class UpdateInvoiceAction
             // Optimistický zámek (L1): pro klienta UPDATE podmíněný booked_at IS NULL —
             // účetní mohla doklad zaúčtovat mezi guard-checkem a zápisem.
             $requireUnbooked = RequestAuthorization::isClientType($request);
-            if (!$this->repo->updateDraft($id, $body, $requireUnbooked)) {
+            // Kolize čísla, které poslal volající, je očekávaná (→ 409 níž). Přečíslování
+            // generátorem zůstává ERROR — tam by kolize znamenala skutečný souběh.
+            $expectedDuplicates = trim((string) ($body['varsymbol'] ?? '')) !== '' ? ['uq_inv_supplier_varsymbol'] : [];
+            $updated = \MyInvoice\Infrastructure\Database\DbErrorLogger::expectingDuplicates(
+                $expectedDuplicates,
+                fn () => $this->repo->updateDraft($id, $body, $requireUnbooked),
+            );
+            if (!$updated) {
                 $abortRenumber();
                 return Json::error(
                     $response,
