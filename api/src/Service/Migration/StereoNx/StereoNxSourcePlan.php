@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MyInvoice\Service\Migration\StereoNx;
 
+use MyInvoice\Service\Accounting\FiscalCalendar;
 use MyInvoice\Service\Migration\Shared\ForeignCurrencyTakeover;
 use MyInvoice\Service\Migration\Shared\BankSymbols;
 
@@ -71,12 +72,18 @@ final class StereoNxSourcePlan
 
     /**
      * Čistá cesta pro syntetické testy; chybějící agendy nesmí potichu znamenat nulu.
+     *
+     * Rok v identitě dokladu, výpisu a pohybu je účetní období firmy: Stereo čísluje
+     * v rámci účetního roku. Daňová evidence (FO) je vždy kalendářní, proto bez
+     * kalendáře platí kalendářní rok; účetní převod předává kalendář firmy.
      * @param array<string,list<array<string,mixed>>> $tables
      * @param array{ico:string,dic:string,name:string,vat_payer:bool} $identity
      * @return array<string,mixed>
      */
-    public static function fromTables(array $tables, array $identity, bool $blankCountryIsCz = false, bool $documentsOnly = false): array
+    public static function fromTables(array $tables, array $identity, bool $blankCountryIsCz = false, bool $documentsOnly = false,
+        ?FiscalCalendar $calendar = null): array
     {
+        $calendar ??= FiscalCalendar::calendar();
         foreach (['LAdresy', 'LFirmaUc', 'Lsdph', 'LSloupce', 'Svfh', 'Svfp', 'SPFH',
             'Spfp', 'Cpz', 'CPZZ', 'ZAZPVDPH', 'CBanka', 'CBankap', 'CPokl', 'Cdenik'] as $name) {
             if (!array_key_exists($name, $tables)) throw new StereoNxException('source_table_missing', 'Chybí zdrojová agenda pro úplný převod.');
@@ -134,7 +141,7 @@ final class StereoNxSourcePlan
         foreach ([['Svfh', 'issued'], ['SPFH', 'purchase']] as [$table, $kind]) {
             foreach ($tables[$table] as $row) {
                 $bareKey = self::docKey($row);
-                $key = self::annualKey($row, 'DoklSRada', 'DoklSCislo', 'KdyVyhotUD');
+                $key = self::annualKey($row, 'DoklSRada', 'DoklSCislo', 'KdyVyhotUD', $calendar);
                 if (isset($documents[$key]) || isset($documentsByBareKey[$bareKey])) {
                     // Platby Stereo NX rok nenesou. Stejná řada a číslo napříč roky by byly nejednoznačné.
                     throw new StereoNxException('document_duplicate', 'Nejednoznačná identita dokladu napříč obdobími.');
@@ -306,7 +313,8 @@ final class StereoNxSourcePlan
             $bareKey = self::docKey($row);
             $key = $documentsByBareKey[$bareKey] ?? null;
             if ($key === null || !isset($documents[$key]) || isset($cpz[$key])
-                || substr(self::date($row, 'KdyVystaveno'), 0, 4) !== substr(self::date($documents[$key] === 'issued' ? $issued[$key]['header'] : $purchases[$key]['header'], 'KdyVyhotUD'), 0, 4)) {
+                || $calendar->fiscalYearOfDate(self::date($row, 'KdyVystaveno'))
+                    !== $calendar->fiscalYearOfDate(self::date($documents[$key] === 'issued' ? $issued[$key]['header'] : $purchases[$key]['header'], 'KdyVyhotUD'))) {
                 throw new StereoNxException('receivable_identity', 'Saldokonto má neznámou nebo duplicitní identitu.');
             }
             $cpz[$key] = $row;
@@ -388,7 +396,7 @@ final class StereoNxSourcePlan
         $statementsByBareKey = [];
         foreach ($tables['CBanka'] as $row) {
             $bareKey = self::physicalKey($row, false);
-            $key = self::annualKey($row, 'DoklRada', 'DoklCislo', 'KdyVystaveno');
+            $key = self::annualKey($row, 'DoklRada', 'DoklCislo', 'KdyVystaveno', $calendar);
             $series = self::nonempty($row, 'DoklRada');
             if (isset($statements[$key]) || isset($statementsByBareKey[$bareKey]) || !isset($accountBySeries[$series])) throw new StereoNxException('bank_statement_identity', 'Bankovní výpis nemá jednoznačnou řadu a účet.');
             $statements[$key] = ['source_key' => $key, 'row' => $row,
@@ -414,7 +422,7 @@ final class StereoNxSourcePlan
                 'B' => 'bank', 'P' => 'cash',
                 default => throw new StereoNxException('cashbook_agenda', 'Peněžní deník obsahuje nepodporovanou agendu.'),
             };
-            $key = self::annualPhysicalKey($row, $type === 'bank');
+            $key = self::annualPhysicalKey($row, $type === 'bank', $calendar);
             $entryKey = $type . ':' . $key;
             if (isset($journal[$entryKey])) throw new StereoNxException('cashbook_duplicate', 'Duplicitní pohyb peněžního deníku.');
             $column = self::nonempty($row, 'Sloupec');
@@ -427,7 +435,7 @@ final class StereoNxSourcePlan
         $classifications = [];
         foreach ([['CBankap', 'bank'], ['CPokl', 'cash']] as [$table, $type]) {
             foreach ($tables[$table] as $row) {
-                $key = self::annualPhysicalKey($row, $type === 'bank');
+                $key = self::annualPhysicalKey($row, $type === 'bank', $calendar);
                 $entryKey = $type . ':' . $key;
                 if (($type === 'bank' && isset($bank[$key])) || ($type === 'cash' && isset($cash[$key]))) {
                     throw new StereoNxException('movement_duplicate', 'Duplicitní identita bankovního nebo pokladního pohybu.');
@@ -655,9 +663,10 @@ final class StereoNxSourcePlan
     }
 
     /** @param array<string,mixed> $row */
-    private static function annualKey(array $row, string $series, string $number, string $date): string
+    private static function annualKey(array $row, string $series, string $number, string $date, FiscalCalendar $calendar): string
     {
-        return self::boundedKey([substr(self::date($row, $date), 0, 4), self::nonempty($row, $series), self::nonempty($row, $number)]);
+        return self::boundedKey([(string) $calendar->fiscalYearOfDate(self::date($row, $date)),
+            self::nonempty($row, $series), self::nonempty($row, $number)]);
     }
 
     /** @param array<string,mixed> $row */
@@ -679,9 +688,9 @@ final class StereoNxSourcePlan
     }
 
     /** @param array<string,mixed> $row */
-    private static function annualPhysicalKey(array $row, bool $withLine): string
+    private static function annualPhysicalKey(array $row, bool $withLine, FiscalCalendar $calendar): string
     {
-        $parts = [substr(self::date($row, 'KdyUcPripad'), 0, 4),
+        $parts = [(string) $calendar->fiscalYearOfDate(self::date($row, 'KdyUcPripad')),
             self::nonempty($row, 'DoklRada'), self::nonempty($row, 'DoklCislo')];
         if ($withLine) $parts[] = self::nonempty($row, 'Klic');
         return self::boundedKey($parts);

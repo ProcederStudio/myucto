@@ -71,7 +71,7 @@ final class StereoNxAccountingImporter
                         ? iterator_to_array($backup->rows('MOdvPar'), false) : [],
                 ], $backup->companyIdentity(), $backup->companyIndex()),
                 'inventory' => $this->inventoryWriter->prepare($backup),
-                'documents' => $this->accountingDocuments->prepare($backup, $blankCountryIsCz),
+                'documents' => $this->accountingDocuments->prepare($backup, $blankCountryIsCz, $calendar),
                 'payments' => $this->accountingPayments->prepare($backup, $calendar),
             ];
             // Samostatný převod osob stále hlásí mzdy jako nepřevzaté. V účetním

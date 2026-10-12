@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace MyInvoice\Service\Migration\StereoNx;
 
+use MyInvoice\Service\Accounting\FiscalCalendar;
+
 /** Účetní faktury Stereo NX; deník zůstává autoritativním zdrojem zaúčtování. */
 final class StereoNxAccountingDocuments
 {
@@ -13,7 +15,7 @@ final class StereoNxAccountingDocuments
     ) {}
 
     /** @return array<string,mixed> */
-    public function prepare(StereoNxBackup $backup, bool $blankCountryIsCz = false): array
+    public function prepare(StereoNxBackup $backup, bool $blankCountryIsCz = false, ?FiscalCalendar $calendar = null): array
     {
         $tables = [];
         $available = array_flip($backup->tableNames());
@@ -21,7 +23,7 @@ final class StereoNxAccountingDocuments
             'Spfp', 'Cpz', 'CPZZ', 'ZAZPVDPH', 'CBanka', 'CBankap', 'CPokl', 'Cdenik'] as $name) {
             $tables[$name] = isset($available[$name]) ? iterator_to_array($backup->rows($name), false) : [];
         }
-        $source = $this->sourcePlan->fromTables($tables, $backup->companyIdentity(), $blankCountryIsCz, true);
+        $source = $this->sourcePlan->fromTables($tables, $backup->companyIdentity(), $blankCountryIsCz, true, $calendar);
         $source['source_company_index'] = $backup->companyIndex();
         $warnings = [];
         $foreignDocuments = 0;

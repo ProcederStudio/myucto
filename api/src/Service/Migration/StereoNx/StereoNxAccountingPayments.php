@@ -194,9 +194,8 @@ final class StereoNxAccountingPayments
                 if ($candidate['type'] === 'cash') $cash[$candidate['key']]['review_codes'] = [$reason];
                 continue;
             }
-            // Identita dokladu pochází ze sdíleného StereoNxSourcePlan (i daňová evidence),
-            // proto zůstává kalendářní rok; musí se shodovat s klíčem převedeného dokladu.
-            $docKey = self::key([substr(self::date($source, 'KdyVystaveno'), 0, 4),
+            // Musí se shodovat s identitou dokladu ze StereoNxSourcePlan se stejným kalendářem.
+            $docKey = self::key([(string) $calendar->fiscalYearOfDate(self::date($source, 'KdyVystaveno')),
                 self::required($source, 'DoklSRada'), self::required($source, 'DoklSCislo')]);
             $kind = $agenda === 'VF' ? 'issued' : 'purchase';
             $payments[] = ['movement_key' => $candidate['key'], 'movement_type' => $candidate['type'],

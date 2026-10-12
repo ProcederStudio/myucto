@@ -8,6 +8,7 @@ use MyInvoice\Service\Accounting\FiscalCalendar;
 use MyInvoice\Service\Migration\StereoNx\StereoNxAccountingPayments;
 use MyInvoice\Service\Migration\StereoNx\StereoNxBackup;
 use MyInvoice\Service\Migration\StereoNx\StereoNxMovementJournalLinks;
+use MyInvoice\Service\Migration\StereoNx\StereoNxSourcePlan;
 use MyInvoice\Tests\Fixtures\StereoNx\SyntheticNx1Archive;
 use MyInvoice\Tests\Fixtures\StereoNx\SyntheticStereoNxTables;
 use PHPUnit\Framework\TestCase;
@@ -221,6 +222,25 @@ final class StereoNxAccountingPaymentsTest extends TestCase
         self::assertFalse($resolved['records']['cash_transactions'][0]['requires_draft']);
         self::assertFalse($resolved['records']['cash_transactions'][1]['requires_draft']);
         self::assertSame(0, $resolved['counts']['requires_review']);
+    }
+
+    public function testFiscalYearPaymentsPointToFiscalYearDocumentKeys(): void
+    {
+        $tables = self::tables();
+        $path = $this->archive($tables);
+        try {
+            $module = (new \ReflectionClass(StereoNxAccountingPayments::class))->newInstanceWithoutConstructor();
+            $plan = $module->prepare(StereoNxBackup::open($path, 0), new FiscalCalendar(8));
+        } finally {
+            @unlink($path);
+        }
+        $documents = StereoNxSourcePlan::fromTables($tables, SyntheticStereoNxTables::identity(), true, true, new FiscalCalendar(8));
+        $keys = [...array_column($documents['issued'], 'source_key'), ...array_column($documents['purchases'], 'source_key')];
+        self::assertCount(3, $plan['records']['payments']);
+        foreach ($plan['records']['payments'] as $payment) {
+            self::assertStringStartsWith('["2024",', $payment['document_key']);
+            self::assertContains($payment['document_key'], $keys);
+        }
     }
 
     public function testPaymentOutsideImportedInvoiceAgendasGetsSpecificReview(): void

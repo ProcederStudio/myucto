@@ -103,8 +103,10 @@ je nutná kontrola cizoměnových zůstatků.
 `StereoNxAccountingPayments` zapisuje ověřenou domácí banku, pokladnu a úhrady
 bez dalšího automatického zaúčtování. Datum každého dokladu i pohybu se
 kontroluje přes `StereoNxTargetDates`, i když leží mimo data účetního deníku.
-Rok v identitě výpisu a pohybu je účetní období firmy (kalendářní, nebo
-hospodářský rok), stejně jako u kontací deníku, se kterými se pohyb páruje.
+Rok v identitě dokladu, výpisu a pohybu je účetní období firmy (kalendářní,
+nebo hospodářský rok), stejně jako u kontací deníku, se kterými se pohyb páruje.
+Stejně číslované doklady ze dvou období se dál odmítají, protože úhrady na
+doklad odkazují jen řadou a číslem.
 Počet uplatněných daňových odpisů majetku se v účetním převodu počítá po
 zdaňovacích obdobích firmy; daňová evidence zůstává kalendářní.
 

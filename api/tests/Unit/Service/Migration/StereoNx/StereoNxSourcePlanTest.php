@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MyInvoice\Tests\Unit\Service\Migration\StereoNx;
 
+use MyInvoice\Service\Accounting\FiscalCalendar;
 use MyInvoice\Service\Migration\StereoNx\StereoNxException;
 use MyInvoice\Service\Migration\StereoNx\StereoNxSourcePlan;
 use MyInvoice\Tests\Fixtures\StereoNx\SyntheticStereoNxTables;
@@ -33,6 +34,36 @@ final class StereoNxSourcePlanTest extends TestCase
         self::assertSame(0.0, $plan['purchases'][1]['total_vat']);
         self::assertSame(100.0, $plan['payments'][2]['amount']);
         self::assertSame($plan['purchases'][1]['source_key'], $plan['payments'][2]['document_key']);
+    }
+
+    public function testDocumentKeysFollowCompanyFiscalYearAndTaxEvidenceStaysCalendar(): void
+    {
+        $tables = SyntheticStereoNxTables::tables();
+        $fiscal = StereoNxSourcePlan::fromTables($tables, SyntheticStereoNxTables::identity(), true, true, new FiscalCalendar(8));
+        self::assertSame(['["2024","VF","1"]'], array_column($fiscal['issued'], 'source_key'));
+        self::assertSame(['["2024","PF","1"]', '["2024","PF","2"]'], array_column($fiscal['purchases'], 'source_key'));
+
+        $calendar = StereoNxSourcePlan::fromTables($tables, SyntheticStereoNxTables::identity(), true, true);
+        self::assertSame(['["2025","VF","1"]'], array_column($calendar['issued'], 'source_key'));
+
+        $taxEvidence = StereoNxSourcePlan::fromTables($tables, SyntheticStereoNxTables::identity());
+        self::assertSame($taxEvidence, StereoNxSourcePlan::fromTables($tables, SyntheticStereoNxTables::identity(),
+            false, false, FiscalCalendar::calendar()));
+        self::assertSame('["2025","B","1"]', $taxEvidence['bank_statements'][0]['source_key']);
+    }
+
+    public function testSameDocumentNumberInTwoFiscalPeriodsStaysAmbiguousForPayments(): void
+    {
+        $tables = SyntheticStereoNxTables::tables();
+        $next = $tables['Svfh'][0];
+        $next['KdyVyhotUD'] = '2025-09-10';
+        $tables['Svfh'][] = $next;
+
+        // Úhrady a položky odkazují na doklad jen řadou a číslem, takže ani rok
+        // hospodářského období v klíči nesmí dva stejně číslované doklady připustit.
+        $this->expectException(StereoNxException::class);
+        $this->expectExceptionMessage('Nejednoznačná identita dokladu');
+        StereoNxSourcePlan::fromTables($tables, SyntheticStereoNxTables::identity(), true, true, new FiscalCalendar(8));
     }
 
     public function testUnknownPartnerCountryRequiresDraftUnlessSourceBlankIsExplicitlyCzech(): void
