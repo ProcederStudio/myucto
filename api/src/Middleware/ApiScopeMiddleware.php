@@ -25,8 +25,9 @@ use Slim\Psr7\Factory\ResponseFactory;
  *      GET / HEAD                 → vyžaduje `read` (každý token splňuje)
  *      POST / PUT / PATCH / DELETE → vyžaduje `read_write`
  *    Nad rámec toho je účetní a daňová vrstva ({@see self::BEARER_READ_ONLY})
- *    pro token jednosměrná — zápis odmítne i `read_write`. Jedinou výjimkou
- *    jsou koncepty ostatních pohledávek a závazků ({@see self::BEARER_WRITE_EXCEPTIONS}).
+ *    pro token jednosměrná — zápis odmítne i `read_write`. Výjimkou jsou
+ *    koncepty ostatních pohledávek a závazků a analytické účty osnovy
+ *    ({@see self::BEARER_WRITE_EXCEPTIONS}).
  *
  * Session auth (browser SPA) tímto MW není dotčen — uživatel má plná práva své role.
  *
@@ -220,6 +221,13 @@ final class ApiScopeMiddleware implements MiddlewareInterface
      * write) se dál ověřuje v PermissionMiddleware i v akci, výjimka ruší jen
      * read-only blokaci tokenu.
      *
+     * Druhou výjimkou jsou analytické účty osnovy. Integrace nebo AI asistent
+     * potřebuje analytiku (např. 378.800 pro zápůjčku) dřív, než na ni připraví
+     * koncept, a založení účtu do deníku nic nezapisuje. Validaci (rodič, tvar
+     * kódu, jedinečnost) dělá táž akce jako ve webovém rozhraní. Úprava (název,
+     * deaktivace) je jen pro analytiku; syntetiku z šablony osnovy token jen čte,
+     * což hlídá akce. Mazání účtu zůstává ve webovém rozhraní.
+     *
      * @var list<array{0:string,1:string}>
      */
     private const BEARER_WRITE_EXCEPTIONS = [
@@ -229,6 +237,8 @@ final class ApiScopeMiddleware implements MiddlewareInterface
         ['PUT', '#^/api/accounting/other-items/[0-9]+/installments$#'],
         ['POST', '#^/api/accounting/other-items/[0-9]+/schedule$#'],
         ['PUT', '#^/api/accounting/other-items/schedules/[0-9]+/status$#'],
+        ['POST', '#^/api/accounting/accounts$#'],
+        ['PATCH', '#^/api/accounting/accounts/[0-9]+$#'],
     ];
 
     public function __construct(

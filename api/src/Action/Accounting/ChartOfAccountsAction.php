@@ -8,6 +8,7 @@ use MyInvoice\Http\GuardsAccountingMode;
 use MyInvoice\Http\Json;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\ChartOfAccountsRepository;
+use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Service\Accounting\ChartAccountUsage;
 use MyInvoice\Service\Accounting\Reports\AccountDetailService;
 use MyInvoice\Service\Accounting\Reports\ReportException;
@@ -24,12 +25,18 @@ use Psr\Http\Message\ServerRequestInterface as Request;
  *   POST  /api/accounting/accounts        — nová analytika (dítě syntetiky) — účetní|admin
  *   PATCH /api/accounting/accounts/{id}   — přejmenování / deaktivace — účetní|admin
  *
+ * Založení analytiky a úprava analytiky jsou dostupné i přes API token
+ * (ApiScopeMiddleware::BEARER_WRITE_EXCEPTIONS); syntetiku token jen čte.
+ *
  * Účty se NEmažou (auditní stopa) — jen deaktivují (is_active=0).
  */
 final class ChartOfAccountsAction
 {
     use AccountingActionSupport;
     use GuardsAccountingMode;
+
+    /** Délka sloupce `chart_of_accounts.name`. */
+    private const NAME_MAX = 190;
 
     public function __construct(
         private readonly ChartOfAccountsRepository $accounts,
@@ -112,11 +119,13 @@ final class ChartOfAccountsAction
         $body = (array) ($request->getParsedBody() ?? []);
 
         $parentId = (int) ($body['parent_id'] ?? 0);
+        // Integrace a AI asistent znají rodiče podle čísla (378), ne podle interního ID.
+        $parentCode = trim((string) ($body['parent_code'] ?? ''));
         $code = trim((string) ($body['account_code'] ?? ''));
         $name = trim((string) ($body['name'] ?? ''));
 
-        if ($parentId <= 0) {
-            return Json::error($response, 'validation_failed', 'parent_id je povinné (analytika je dítě syntetického účtu).', 422);
+        if ($parentId <= 0 && $parentCode === '') {
+            return Json::error($response, 'validation_failed', 'parent_id nebo parent_code je povinné (analytika je dítě syntetického účtu).', 422);
         }
         if ($code === '' || $name === '') {
             return Json::error($response, 'validation_failed', 'account_code a name jsou povinné.', 422);
@@ -124,11 +133,17 @@ final class ChartOfAccountsAction
         if (!preg_match('/^[0-9A-Za-z.]{3,10}$/', $code)) {
             return Json::error($response, 'validation_failed', 'account_code musí mít 3–10 znaků (číslice/písmena/tečka).', 422);
         }
+        if (mb_strlen($name) > self::NAME_MAX) {
+            return Json::error($response, 'validation_failed', 'name může mít nejvýše ' . self::NAME_MAX . ' znaků.', 422);
+        }
 
-        $parent = $this->accounts->findById($supplierId, $parentId);
-        if ($parent === null) {
+        $parent = $parentId > 0
+            ? $this->accounts->findById($supplierId, $parentId)
+            : $this->accounts->findByCode($supplierId, $parentCode);
+        if ($parent === null || ($parentId > 0 && $parentCode !== '' && (string) $parent['account_code'] !== $parentCode)) {
             return Json::error($response, 'not_found', 'Rodičovský účet nenalezen.', 404);
         }
+        $parentId = (int) $parent['id'];
 
         // Tečkovaný tvar je od migrace 1322 jediný správný zápis analytiky (211.100),
         // ale ruční založení ho dosud nevynucovalo — vznikla tak 211200 vedle 211.200,
@@ -174,6 +189,12 @@ final class ChartOfAccountsAction
         if ($existing === null) {
             return Json::error($response, 'not_found', 'Účet nenalezen.', 404);
         }
+        // Syntetika je z šablony osnovy a míří na ni automatické kontace; její
+        // vypnutí přes token by zastavilo účtování dokladů celé firmy.
+        if (!empty($existing['is_synthetic']) && RequestAuthorization::isBearerAuth($request)) {
+            return Json::error($response, 'token_write_forbidden',
+                'Syntetický účet lze přes API token jen číst; přes token se upravují jen analytické účty.', 403);
+        }
 
         $body = (array) ($request->getParsedBody() ?? []);
         $data = [];
@@ -181,6 +202,9 @@ final class ChartOfAccountsAction
             $name = trim((string) $body['name']);
             if ($name === '') {
                 return Json::error($response, 'validation_failed', 'name nesmí být prázdné.', 422);
+            }
+            if (mb_strlen($name) > self::NAME_MAX) {
+                return Json::error($response, 'validation_failed', 'name může mít nejvýše ' . self::NAME_MAX . ' znaků.', 422);
             }
             $data['name'] = $name;
         }

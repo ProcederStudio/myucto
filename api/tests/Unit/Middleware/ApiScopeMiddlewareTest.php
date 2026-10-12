@@ -162,6 +162,38 @@ final class ApiScopeMiddlewareTest extends TestCase
         }
     }
 
+    /**
+     * Analytický účet osnovy (např. 378.800) potřebuje integrace dřív, než na něj
+     * připraví koncept. Token ho smí založit a upravit; syntetiku hlídá akce.
+     */
+    public function testBearerReadWriteCanCreateAndUpdateAnalyticAccounts(): void
+    {
+        foreach ([
+            ['POST', '/api/accounting/accounts'],
+            ['PATCH', '/api/accounting/accounts/12'],
+        ] as [$method, $path]) {
+            $r = $this->middleware()->process($this->bearer($method, $path, 'read_write'), $this->okHandler());
+            self::assertSame(204, $r->getStatusCode(), "bearer $method $path musí projít");
+
+            $r = $this->middleware()->process($this->bearer($method, $path, 'read'), $this->okHandler());
+            self::assertSame(403, $r->getStatusCode(), "bearer read $method $path");
+            self::assertSame('insufficient_scope', $this->errorCode($r), "bearer read $method $path");
+        }
+
+        foreach ([
+            ['DELETE', '/api/accounting/accounts/12'],
+            ['PUT', '/api/accounting/accounts/12'],
+            ['POST', '/api/accounting/accounts/12'],
+            ['PATCH', '/api/accounting/accounts'],
+            ['POST', '/api/accounting/accounts/import'],
+            ['POST', '/api/accounting/accounts-extra'],
+        ] as [$method, $path]) {
+            $r = $this->middleware()->process($this->bearer($method, $path, 'read_write'), $this->okHandler());
+            self::assertSame(403, $r->getStatusCode(), "bearer $method $path musí být odmítnuto");
+            self::assertSame('token_write_forbidden', $this->errorCode($r), "bearer $method $path");
+        }
+    }
+
     /** Zaúčtování, storno, přeúčtování, úhrady a generování opakování zůstávají zavřené. */
     public function testBearerCannotPostOrSettleOtherItems(): void
     {

@@ -166,7 +166,7 @@ chybu přihlášení. Záznamy se drží 90 dní.
 | `401 invalid_token` | Token je zrušený nebo expirovaný | Vygenerujte nový |
 | `403 token_ip_forbidden` | Token má omezení podle IP a tahle adresa mezi nimi není | Přidejte IP v omezení tokenu |
 | `403 insufficient_scope` | Token má jen rozsah čtení, operace vyžaduje zápis | Vytvořte token s rozsahem čtení a zápis |
-| `403 token_write_forbidden` | Zápis do účetnictví nebo daní přes API nejde (viz [§ 104.9.7](104_API.md#10497-scopes)) | Úkon proveďte v aplikaci; výjimkou jsou koncepty ostatních pohledávek a závazků ([§ 106.8.8.5](#106885-ostatni-pohledavky-a-zavazky)) |
+| `403 token_write_forbidden` | Zápis do účetnictví nebo daní přes API nejde (viz [§ 104.9.7](104_API.md#10497-scopes)) | Úkon proveďte v aplikaci; výjimkou jsou koncepty ostatních pohledávek a závazků a analytické účty osnovy ([§ 106.8.8.5](#106885-ostatni-pohledavky-a-zavazky)) |
 | `403 other_items.error.auto_post_session_only` | Automatické účtování opakování nebo koncept, který by se automaticky zaúčtoval | Řeší se ve webovém rozhraní |
 | `403 stock_disabled` | Skladový a e-shopový modul není pro firmu zapnutý | Zapněte ho v nastavení firmy |
 | `409` u mazání zboží, výrobce, kategorie, skladu | Záznam je někde použitý | Archivujte ho (`archived`), případně zboží či sklad jen deaktivujte |
@@ -212,7 +212,7 @@ Podstatné vlastnosti:
 | Kniha jízd | **čtení i zápis** - vozidla, jízdy a tankování; daňový souhrn jen ke čtení |
 | Pohledávky a závazky | zaplacené / nezaplacené / po splatnosti, stáří pohledávek |
 | Daně | odhad DPH za měsíc i kvartál, kontrolní a souhrnné hlášení, daň z příjmů, daňový kalendář - **jen čtení** |
-| Účetnictví | obratovka, rozvaha, výsledovka, hlavní kniha, saldo, deník: **jen čtení**; výjimkou jsou koncepty ostatních pohledávek a závazků |
+| Účetnictví | obratovka, rozvaha, výsledovka, hlavní kniha, saldo, deník: **jen čtení**; výjimkou jsou koncepty ostatních pohledávek a závazků a založení či úprava analytického účtu v osnově |
 | Ostatní pohledávky a závazky | čtení dokladů, úhrad, opakování a splátek; **zápis jen konceptů**: založení, úprava, smazání, splátkový kalendář (i vyčtený ze smlouvy) a opakování bez automatického účtování. Nic se nezaúčtuje ([§ 106.8.8.5](#106885-ostatni-pohledavky-a-zavazky)) |
 | Dimenze | typy a hodnoty, zisk, roční a měsíční vývoj, manažerské cash flow, rozvaha a výsledovka s filtrem dimenze, přiřazení na dokladech a kontrola pravidel - **jen čtení** |
 | Statistika | tržby, zisk, trendy, top odběratelé a dodavatelé, cash flow, platební morálka, koncentrace, riziko odchodu |
@@ -261,9 +261,10 @@ peněžní pohyb konkrétního projektu.
 > v aplikaci. Zákaz vynucuje server, ne jen MCP: i token s právem zápisu dostane
 > na takovou operaci `403 token_write_forbidden` (viz [§ 104.9.7](104_API.md#10497-scopes)).
 >
-> Jedinou výjimkou jsou **koncepty ostatních pohledávek a závazků**
-> ([§ 106.8.8.5](#106885-ostatni-pohledavky-a-zavazky)). Koncept nemá zápis v deníku,
-> potvrdí a zaúčtuje ho účetní v aplikaci.
+> Výjimkou jsou **koncepty ostatních pohledávek a závazků** a **analytické účty
+> účtové osnovy** ([§ 106.8.8.5](#106885-ostatni-pohledavky-a-zavazky)). Koncept
+> nemá zápis v deníku, potvrdí a zaúčtuje ho účetní v aplikaci. Založení
+> analytiky nic nezaúčtuje.
 >
 > **U mezd asistent pracuje jen s personálními údaji a připravovanými vstupy.**
 > Může změnit sjednanou mzdu od zadaného data, zadat přesčas, absenci nebo odměnu.
@@ -606,6 +607,7 @@ Podrobnosti v [§ 106.8.8.6](#106886-soubory-a-prilohy).
 - „Jaké máme otevřené závazky z úvěrů a nájmů a kdy jsou splatné?“
 - „Založ koncept závazku: nájem kanceláře na říjen, 15 000 Kč, splatnost 15. 10., protiúčet 518.“
 - „Z přiložené úvěrové smlouvy založ koncept závazku na jistinu a nastav splátkový kalendář.“
+- „Založ analytiky 378.800 Zápůjčka a 378.810 Úroky ze zápůjčky.“
 - „Opakuj ten nájem každý měsíc do konce roku.“
 - „Pozastav opakování pojistného.“
 
@@ -910,6 +912,7 @@ potvrdí a zaúčtuje ho účetní v aplikaci, kde vidí kontext a krok potvrzuj
 | Koncept | `create_other_item`, `update_other_item`, `delete_other_item` |
 | Splátkový kalendář | `set_other_item_installments`, `clear_other_item_installments` |
 | Opakování | `create_other_item_schedule`, `set_other_item_schedule_status` |
+| Analytické účty | `chart_of_accounts` (čtení), `create_analytic_account`, `update_analytic_account` |
 
 **Koncept.** Kontaci zadáte buď jedním protiúčtem, nebo několika protiřádky,
 jejichž součet musí přesně odpovídat částce dokladu. Agenda je jen v Kč. Při
@@ -938,6 +941,16 @@ opakování pozastavit nebo obnovit jen tehdy, když automatiku nemá. Koncept
 z automaticky účtovaného opakování asistent neupraví ani nesmaže: úpravu by
 aplikace zaúčtovala bez další kontroly a smazáním by zaúčtování tiše zmizelo.
 Vypnout automatiku asistent smí, účtování tím jen zastaví.
+
+**Analytické účty.** Chybí-li v účtové osnově analytika, na kterou má koncept
+mířit (třeba `378.800` Zápůjčka a `378.810` Úroky pod syntetickým účtem `378`),
+asistent ji založí nástrojem `create_analytic_account`. Syntetický účet odvodí
+z čísla před tečkou, nebo ho zadáte výslovně. Analytika převezme typ účtu
+i stranu po syntetice a číslo bez tečky se doplní (`378800` → `378.800`).
+Nástrojem `update_analytic_account` asistent analytiku přejmenuje, deaktivuje
+nebo znovu aktivuje. Číslo účtu se změnit nedá, syntetické účty asistent jen
+čte a nepoužitou analytiku smažete jen v aplikaci. Funguje to u firmy
+s podvojným účetnictvím a s oprávněním zápisu do účetnictví.
 
 Přes asistenta **nejde**: potvrdit nebo zaúčtovat doklad, stornovat ho,
 přeúčtovat, spárovat nebo odpojit úhradu ani ručně vygenerovat doklady

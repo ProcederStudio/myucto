@@ -38,7 +38,7 @@ info:
     `403 token_write_forbidden` — i tokenu se scope `read_write`. Mzdová část má
     vlastní omezený kontrakt popsaný níže.
 
-    Jedinou zápisovou výjimkou jsou **koncepty ostatních pohledávek a závazků**.
+    Zápisové výjimky jsou dvě. První jsou **koncepty ostatních pohledávek a závazků**.
     Token se scope `read_write` smí založit koncept (`POST /accounting/other-items`),
     upravit a smazat koncept (`PUT`/`DELETE /accounting/other-items/{id}`), nastavit
     splátkový kalendář (`PUT …/{item_id}/installments`), založit opakování
@@ -49,6 +49,12 @@ info:
     Potvrzení a zaúčtování (`post`), storno (`reverse`), přeúčtování (`repost`),
     párování úhrad (`allocations`) i generování opakování (`generate`) zůstávají
     jen ve webovém rozhraní. Oprávnění uživatele `other_items` (zápis) platí dál.
+
+    Druhou výjimkou jsou **analytické účty účtové osnovy**. Token se scope
+    `read_write` smí analytiku založit (`POST /accounting/accounts`) a přejmenovat,
+    deaktivovat nebo znovu aktivovat (`PATCH /accounting/accounts/{id}`).
+    Syntetický účet token jen čte (`403 token_write_forbidden`) a mazání účtu
+    zůstává ve webovém rozhraní. Oprávnění uživatele `accounting` (zápis) platí dál.
 
     Zaúčtování dokladu, storno zápisu, uzavření období, zaevidování opravy podle
     § 46 / § 74b, podání přiznání i odeslání podání na EPO jsou úkony s daňovou
@@ -10107,20 +10113,19 @@ paths:
     post:
       tags: [Accounting]
       summary: Vytvoří analytický účet (dítě syntetiky)
-      description: Účetní/admin. Typ i normální stranu dědí účet po rodiči.
+      description: |
+        Účetní/admin, jen podvojné účetnictví. Typ i normální stranu dědí účet po
+        rodiči. Rodiče určuje `parent_id` nebo `parent_code`; jsou-li zadané oba,
+        musí označovat týž účet. Číselný kód bez tečky, který začíná kódem rodiče,
+        se doplní tečkou (`378800` → `378.800`). Dostupné i přes API token se scope
+        `read_write` (zápisová výjimka z read-only účetní vrstvy).
       parameters:
         - $ref: '#/components/parameters/SupplierIdHeader'
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              required: [parent_id, account_code, name]
-              properties:
-                parent_id: { type: integer }
-                account_code: { type: string, example: "518001" }
-                name: { type: string, example: "Software — předplatné" }
+            schema: { $ref: '#/components/schemas/ChartAccountCreate' }
       responses:
         '201':
           description: Vytvořeno
@@ -10160,18 +10165,16 @@ paths:
       description: |
         Účetní/admin. Běžná cesta je deaktivace (`is_active=false`) — kód účtu visí
         jako TEXT na kontacích, pravidlech i kartách, takže se nemění. Analytiku
-        BEZ jediného použití lze i smazat (viz DELETE níž).
+        BEZ jediného použití lze i smazat (viz DELETE níž). API token se scope
+        `read_write` smí upravit jen analytiku; syntetický účet odmítne
+        `403 token_write_forbidden`.
       parameters:
         - $ref: '#/components/parameters/SupplierIdHeader'
         - { in: path, name: id, required: true, schema: { type: integer } }
       requestBody:
         content:
           application/json:
-            schema:
-              type: object
-              properties:
-                name: { type: string }
-                is_active: { type: boolean }
+            schema: { $ref: '#/components/schemas/ChartAccountUpdate' }
       responses:
         '200':
           description: OK
@@ -33223,6 +33226,22 @@ components:
           type: array
           description: Přítomno jen v režimu ?tree=1
           items: { $ref: '#/components/schemas/ChartAccount' }
+
+    ChartAccountCreate:
+      type: object
+      description: Nová analytika. Zadejte `parent_id`, nebo `parent_code`.
+      required: [account_code, name]
+      properties:
+        parent_id: { type: integer, minimum: 1, description: "ID syntetického účtu" }
+        parent_code: { type: string, maxLength: 10, example: "378", description: "Kód syntetického účtu" }
+        account_code: { type: string, pattern: '^[0-9A-Za-z.]{3,10}$', example: "378.800" }
+        name: { type: string, minLength: 1, maxLength: 190, example: "Zápůjčka" }
+
+    ChartAccountUpdate:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 190 }
+        is_active: { type: boolean }
 
     AccountBalances:
       type: object

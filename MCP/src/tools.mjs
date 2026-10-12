@@ -14,12 +14,16 @@
  * Vynucuje to i server ({@see \MyInvoice\Middleware\ApiScopeMiddleware}), takže
  * i kdyby sem někdo zápisový nástroj přidal, dostane 403.
  *
- * Jediná výjimka jsou KONCEPTY OSTATNÍCH POHLEDÁVEK A ZÁVAZKŮ
+ * Výjimkou jsou KONCEPTY OSTATNÍCH POHLEDÁVEK A ZÁVAZKŮ
  * (other-item-tools.mjs): založení, úprava a smazání konceptu, splátkový
  * kalendář a opakování bez automatického účtování. Do deníku se tím nic
  * nezapisuje. Potvrzení a zaúčtování, storno, přeúčtování, párování úhrad,
  * generování opakování ani zapnutí automatického účtování v katalogu nejsou
  * a server je tokenu odmítne (`BEARER_WRITE_EXCEPTIONS` je výčet metoda + cesta).
+ * Druhou výjimkou jsou ANALYTICKÉ ÚČTY OSNOVY (create_analytic_account,
+ * update_analytic_account): koncept potřebuje analytiku dřív, než ho účetní
+ * zaúčtuje, a založení účtu nic neúčtuje. Syntetiku a mazání účtu server
+ * tokenu odmítne.
  *
  * E-SHOP A SKLAD JSOU NAOPAK OBOUSMĚRNÉ — katalog zboží, číselníky, ceny,
  * dodavatelé, média, sklady, skladové doklady i inventury se dají přes API
@@ -57,6 +61,20 @@ const schema = (properties = {}, required = []) => ({
   required,
   additionalProperties: false,
 });
+
+const ACCOUNT_CODE_RE = /^[0-9A-Za-z.]{3,10}$/;
+
+/**
+ * Syntetický účet, pod který analytika patří: 378.800 → 378, 378800 → 378.
+ * Server bere `parent_code` doslova a neexistující rodič vrátí 404.
+ */
+function analyticParentCode(a) {
+  if (a.parent_code !== undefined) return a.parent_code;
+  const code = String(a.account_code ?? '');
+  if (code.includes('.')) return code.slice(0, code.indexOf('.'));
+  if (/^\d{4,}$/.test(code)) return code.slice(0, 3);
+  throw new Error('NEPROVEDENO: z čísla účtu nejde poznat syntetický účet; zadej `parent_code`, např. 378.');
+}
 
 const PAGING = {
   page: int('Stránka, od 1.', { minimum: 1 }),
@@ -2919,10 +2937,60 @@ export const TOOLS = [
   {
     name: 'chart_of_accounts',
     title: 'Účtová osnova',
-    description: 'Účty firmy s jejich ID a názvy — potřeba pro `account_statement`.',
+    description: 'Účty firmy s jejich ID a názvy — potřeba pro `account_statement` a `update_analytic_account`. '
+      + 'Chybí-li analytika, založ ji nástrojem `create_analytic_account`.',
     inputSchema: schema(),
     write: false,
     run: (c, _a, tool) => c.get('/accounting/accounts', null, tool),
+  },
+  {
+    name: 'create_analytic_account',
+    title: 'Založit analytický účet',
+    description:
+      'Založí analytický účet v účtové osnově pod existujícím syntetickým účtem, např. 378.800 Zápůjčka '
+      + 'nebo 378.810 Úroky pod 378. Typ účtu a stranu zdědí po syntetice. Číslo zapiš s tečkou; bez tečky '
+      + 'ji server doplní (378800 → 378.800). Číslo účtu se později změnit nedá, jen název, a založení samo '
+      + 'nic nezaúčtuje. Syntetický účet ani jiné změny osnovy přes API nejdou. Funguje jen u firmy '
+      + 's podvojným účetnictvím.',
+    inputSchema: schema({
+      account_code: str('Číslo analytiky, např. 378.800.', { pattern: '^[0-9A-Za-z.]{3,10}$' }),
+      name: str('Název účtu, např. „Zápůjčka společníka".', { minLength: 1, maxLength: 190 }),
+      parent_code: str('Syntetický účet, pod který analytika patří (např. 378). Bez zadání se vezme část '
+        + 'čísla před tečkou.', { pattern: '^[0-9A-Za-z.]{1,10}$' }),
+    }, ['account_code', 'name']),
+    write: true,
+    run: async (c, a, tool) => {
+      if (!ACCOUNT_CODE_RE.test(String(a.account_code ?? ''))) {
+        throw new Error('NEPROVEDENO: číslo účtu musí mít 3 až 10 znaků (číslice, písmena, tečka).');
+      }
+      if (!String(a.name ?? '').trim()) throw new Error('NEPROVEDENO: zadej název účtu.');
+      return c.post('/accounting/accounts', {
+        parent_code: analyticParentCode(a),
+        account_code: a.account_code,
+        name: a.name,
+      }, tool);
+    },
+  },
+  {
+    name: 'update_analytic_account',
+    title: 'Přejmenovat nebo deaktivovat analytický účet',
+    description:
+      'Změní název analytického účtu nebo ho deaktivuje (is_active=false) či znovu aktivuje. Číslo účtu se '
+      + 'nemění. Syntetické účty server přes API odmítne. Deaktivovaný účet zůstává v historii, jen ho nejde '
+      + 'použít v nových zápisech. Nic se nezaúčtuje.',
+    inputSchema: schema({
+      id: int('ID účtu — viz `chart_of_accounts`.', { minimum: 1 }),
+      name: str('Nový název.', { minLength: 1, maxLength: 190 }),
+      is_active: bool('false = deaktivovat, true = znovu aktivovat.'),
+    }, ['id']),
+    write: true,
+    run: async (c, a, tool) => {
+      const body = changed(a, ['name', 'is_active']);
+      if (Object.keys(body).length === 0) {
+        throw new Error('NEPROVEDENO: není co měnit; zadej `name` nebo `is_active`.');
+      }
+      return c.patch(`/accounting/accounts/${seg(a.id)}`, body, tool);
+    },
   },
   {
     name: 'list_journal_entries',
