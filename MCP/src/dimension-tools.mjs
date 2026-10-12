@@ -61,7 +61,7 @@ export const DIMENSION_TOOLS = [
       period_id: a.period_id, as_of: a.as_of, scope: a.scope, ...dimensionQuery(a),
     }, tool)),
   read('get_document_dimensions', 'Dimenze dokladu', 'Přiřazené dimenze na hlavičce, položkách a rozdělení dokladu.',
-    { document_type: str('Typ dokladu.', { enum: ['purchase-invoices', 'invoices', 'cash-documents', 'bank-transactions', 'journal-templates'] }), id: int('ID dokladu.') },
+    { document_type: str('Typ dokladu.', { enum: ['purchase-invoices', 'invoices', 'cash-documents', 'bank-transactions', 'journal-templates', 'other-items'] }), id: int('ID dokladu.') },
     ['document_type', 'id'], (c, a, tool) => c.get(`/accounting/dimensions/documents/${seg(a.document_type)}/${seg(a.id)}`, null, tool)),
   read('get_journal_dimensions', 'Dimenze účetního zápisu', 'Dimenze přiřazené jednotlivým řádkům účetního zápisu.',
     { id: int('ID účetního zápisu.') }, ['id'], (c, a, tool) => c.get(`/accounting/dimensions/journal/${seg(a.id)}`, null, tool)),

@@ -10,6 +10,15 @@
 const bool = (description) => ({ type: 'boolean', description });
 
 /**
+ * Typy záznamů, ke kterým jde připojit dokument. Zrcadlí
+ * `DocumentLinkRepository::ENTITY_TYPES`; server ověří, že záznam patří téže firmě.
+ */
+export const DOCUMENT_ENTITY_TYPES = [
+  'client', 'invoice', 'purchase_invoice', 'project', 'journal_entry', 'bank_transaction',
+  'cash_document', 'other_item', 'invoice_payment',
+];
+
+/**
  * Potvrzovací parametr pro mazání a další nevratné kroky.
  *
  * Zavedeno kvůli tomu, že katalog e-shopu je poprvé zapisovatelný z jazykového

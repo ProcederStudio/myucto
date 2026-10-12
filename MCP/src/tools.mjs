@@ -46,7 +46,9 @@ import {
 } from './invoice-tools.mjs';
 import { PURCHASE_TOOLS } from './purchase-tools.mjs';
 import { OTHER_ITEM_TOOLS } from './other-item-tools.mjs';
-import { CONFIRM, changed, confirmed, merged, requireConfirm, seg } from './tool-shared.mjs';
+import {
+  CONFIRM, DOCUMENT_ENTITY_TYPES, changed, confirmed, merged, requireConfirm, seg,
+} from './tool-shared.mjs';
 import { FILE_TOOLS } from './file-tools.mjs';
 
 const str = (description, extra = {}) => ({ type: 'string', description, ...extra });
@@ -2396,11 +2398,10 @@ export const TOOLS = [
     title: 'Dokumenty připojené k záznamu',
     description:
       'Vrátí dokumenty navázané na odběratele, fakturu, přijatou fakturu, zakázku, '
-      + 'účetní zápis, bankovní transakci nebo pokladní doklad.',
+      + 'účetní zápis, bankovní transakci, pokladní doklad, ostatní pohledávku či závazek '
+      + '(`other_item`) nebo úhradu faktury.',
     inputSchema: schema({
-      entity_type: str('Typ záznamu.', {
-        enum: ['client', 'invoice', 'purchase_invoice', 'project', 'journal_entry', 'bank_transaction', 'cash_document'],
-      }),
+      entity_type: str('Typ záznamu.', { enum: DOCUMENT_ENTITY_TYPES }),
       entity_id: int('ID záznamu.'),
     }, ['entity_type', 'entity_id']),
     write: false,
@@ -2425,13 +2426,11 @@ export const TOOLS = [
     name: 'link_document',
     title: 'Připojit dokument k záznamu',
     description:
-      'Přidá vazbu existujícího dokumentu na záznam stejné firmy. '
-      + 'Nevytváří ani nepřepisuje soubor.',
+      'Přidá vazbu existujícího dokumentu na záznam stejné firmy, např. smlouvu k ostatní '
+      + 'pohledávce či závazku (`other_item`). Nevytváří ani nepřepisuje soubor.',
     inputSchema: schema({
       id: int('ID dokumentu.'),
-      entity_type: str('Typ záznamu.', {
-        enum: ['client', 'invoice', 'purchase_invoice', 'project', 'journal_entry', 'bank_transaction', 'cash_document'],
-      }),
+      entity_type: str('Typ záznamu.', { enum: DOCUMENT_ENTITY_TYPES }),
       entity_id: int('ID záznamu.'),
     }, ['id', 'entity_type', 'entity_id']),
     write: true,
@@ -2448,9 +2447,7 @@ export const TOOLS = [
       + 'Bez `confirm: true` vypíše aktuální dokument k potvrzení.',
     inputSchema: schema({
       id: int('ID dokumentu.'),
-      entity_type: str('Typ záznamu.', {
-        enum: ['client', 'invoice', 'purchase_invoice', 'project', 'journal_entry', 'bank_transaction', 'cash_document'],
-      }),
+      entity_type: str('Typ záznamu.', { enum: DOCUMENT_ENTITY_TYPES }),
       entity_id: int('ID záznamu.'),
       confirm: CONFIRM,
     }, ['id', 'entity_type', 'entity_id']),

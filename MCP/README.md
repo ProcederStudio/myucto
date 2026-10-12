@@ -49,7 +49,8 @@ opravné podání, a model nemá jak doložit jejich správnost. Vynucuje to i s
 (`ApiScopeMiddleware::BEARER_READ_ONLY` → `403 token_write_forbidden`), takže
 i kdyby sem někdo takový nástroj přidal, dostane odmítnutí. Zdůvodnění je
 v hlavičce `src/tools.mjs`, při rozšiřování katalogu ho neobcházej. Výjimkou
-jsou koncepty ostatních pohledávek a závazků a analytické účty účtové osnovy
+jsou koncepty ostatních pohledávek a závazků (včetně jejich dimenzí a připojené
+smlouvy) a analytické účty účtové osnovy
 (`create_analytic_account`, `update_analytic_account`), které server povoluje
 výčtem metoda a cesta (`BEARER_WRITE_EXCEPTIONS`); do deníku nic nezapisují.
 Syntetické účty a mazání účtů zůstávají ve webovém rozhraní.

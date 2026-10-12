@@ -55,6 +55,11 @@ info:
     deaktivovat nebo znovu aktivovat (`PATCH /accounting/accounts/{id}`).
     Syntetický účet token jen čte (`403 token_write_forbidden`) a mazání účtu
     zůstává ve webovém rozhraní. Oprávnění uživatele `accounting` (zápis) platí dál.
+    Ke konceptu ostatní položky smí token zapsat i dimenze hlavičky
+    (`PUT /accounting/dimensions/documents/other-items/{id}`); u potvrzeného či
+    zaúčtovaného dokladu a u konceptu z automaticky účtovaného opakování odpoví
+    `403 token_write_forbidden`. Dokument (např. smlouvu) k ostatní položce připojíte
+    přes `POST /documents/{id}/links` s `entity_type: other_item`.
 
     Zaúčtování dokladu, storno zápisu, uzavření období, zaevidování opravy podle
     § 46 / § 74b, podání přiznání i odeslání podání na EPO jsou úkony s daňovou
@@ -24299,6 +24304,7 @@ paths:
           - bank-transactions
           - journal-templates
           - recurring-templates
+          - other-items
       - in: path
         name: id
         required: true
@@ -24308,6 +24314,44 @@ paths:
       responses:
         '200':
           description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentDimensions'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+  /api/v1/accounting/dimensions/documents/other-items/{id}:
+    put:
+      tags:
+      - Accounting
+      summary: Dimenze konceptu ostatní pohledávky nebo závazku
+      description: |
+        Nahradí dimenze hlavičky dokladu (ID typu → ID hodnoty z `GET /accounting/dimensions`).
+        Typ, který v mapě chybí, se z dokladu odebere. Firma musí mít dimenze zapnuté.
+        Přes API token jen u KONCEPTU, který nepatří do opakování s automatickým
+        účtováním; jinak `403 token_write_forbidden`. Vyžaduje oprávnění zápisu
+        `accounting` i `other_items`. Koncept nemá řádky v deníku, nic se nepřeúčtuje.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OtherItemDimensionsInput'
+      responses:
+        '200':
+          description: Uložené dimenze dokladu
           content:
             application/json:
               schema:
@@ -42818,6 +42862,13 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/DimensionSplitShare'
+    OtherItemDimensionsInput:
+      type: object
+      required:
+      - header
+      properties:
+        header:
+          $ref: '#/components/schemas/DimensionAssignmentMap'
     DimensionSplitShare:
       type: object
       required:

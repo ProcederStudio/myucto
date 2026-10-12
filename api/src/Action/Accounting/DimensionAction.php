@@ -6,6 +6,7 @@ namespace MyInvoice\Action\Accounting;
 
 use MyInvoice\Http\Json;
 use MyInvoice\Repository\DimensionRepository;
+use MyInvoice\Repository\OtherItemRepository;
 use MyInvoice\Repository\UserSupplierRepository;
 use MyInvoice\Security\AccessLevel;
 use MyInvoice\Security\RequestAuthorization;
@@ -14,6 +15,7 @@ use MyInvoice\Service\Accounting\Dimension\DimensionException;
 use MyInvoice\Service\Accounting\Dimension\DimensionRuleAudit;
 use MyInvoice\Service\Accounting\Dimension\DimensionRuleService;
 use MyInvoice\Service\Accounting\Dimension\DimensionService;
+use MyInvoice\Service\Accounting\OtherItemService;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\IpMatcher;
 use Psr\Http\Message\ResponseInterface as Response;
@@ -71,6 +73,8 @@ final class DimensionAction
         private readonly DimensionRuleService $rules,
         private readonly DimensionRuleAudit $ruleAudit,
         private readonly DimensionAccountMapService $accountMap,
+        private readonly OtherItemRepository $otherItems,
+        private readonly OtherItemService $otherItemService,
     ) {}
 
     // ── účtotvorná dimenze ──────────────────────────────────────────────────
@@ -308,6 +312,7 @@ final class DimensionAction
         return $this->run($request, $response, function (int $supplierId) use ($request, $args): array {
             $docType = self::DOCUMENTS[(string) ($args['doc'] ?? '')] ?? '';
             $docId = (int) ($args['id'] ?? 0);
+            $this->assertTokenMayTagDocument($request, $supplierId, $docType, $docId);
             $body = (array) ($request->getParsedBody() ?? []);
             $result = $this->dimensions->saveDocument(
                 $supplierId,
@@ -321,6 +326,40 @@ final class DimensionAction
             $this->logDocument($request, $docId, $docType, $result, 'document');
             return self::withSplitObject($result);
         });
+    }
+
+    /**
+     * API token smí dimenze (středisko, projekt…) zapsat jen ke KONCEPTU ostatní
+     * pohledávky nebo závazku (ApiScopeMiddleware::BEARER_WRITE_EXCEPTIONS).
+     * U zaúčtovaného dokladu by uložení přerazítkovalo řádky deníku a koncept
+     * z opakování s automatickým účtováním zaúčtuje cron bez dalšího potvrzení;
+     * obojí zůstává webovému rozhraní. Middleware pouští jen cestu other-items,
+     * tady se to hlídá znovu, aby výjimka nezávisela jen na regexu cesty.
+     */
+    private function assertTokenMayTagDocument(Request $request, int $supplierId, string $docType, int $docId): void
+    {
+        if (!RequestAuthorization::isBearerAuth($request)) {
+            return;
+        }
+        if ($docType !== 'other_item') {
+            throw new DimensionException('token_write_forbidden',
+                'Přes API token lze dimenze zapsat jen ke konceptu ostatní pohledávky nebo závazku.', 403);
+        }
+        if (!RequestAuthorization::allows($request, 'other_items', AccessLevel::WRITE)) {
+            throw new DimensionException('forbidden', 'Chybí oprávnění k ostatním položkám.', 403);
+        }
+        $item = $this->otherItems->find($supplierId, $docId);
+        if ($item === null) {
+            throw new DimensionException('not_found', 'Doklad nebyl nalezen.', 404);
+        }
+        if ((string) $item['status'] !== 'draft') {
+            throw new DimensionException('token_write_forbidden',
+                'Přes API token lze dimenze zapsat jen ke konceptu; u potvrzeného nebo zaúčtovaného dokladu je změňte ve webovém rozhraní.', 403);
+        }
+        if ($this->otherItemService->belongsToAutoPostSchedule($supplierId, $docId)) {
+            throw new DimensionException('token_write_forbidden',
+                'Koncept patří do opakování s automatickým účtováním. Dimenze mu lze změnit jen ve webovém rozhraní.', 403);
+        }
     }
 
     /**

@@ -19,7 +19,7 @@ import {
   contentTypeForFilename, extensionOf, normalizeContentType, sanitizeFilename,
 } from './client.mjs';
 import { fileResult } from './tool-result.mjs';
-import { seg } from './tool-shared.mjs';
+import { DOCUMENT_ENTITY_TYPES, seg } from './tool-shared.mjs';
 
 const str = (description, extra = {}) => ({ type: 'string', description, ...extra });
 const int = (description, extra = {}) => ({ type: 'integer', description, ...extra });
@@ -309,8 +309,8 @@ export const FILE_TOOLS = [
       title: str('Název dokumentu; bez zadání název souboru.'),
       description: str('Popis dokumentu.'),
       tags: { type: 'array', items: { type: 'string' }, description: 'Tagy dokumentu.' },
-      entity_type: str('Připojit k záznamu tohoto typu.', {
-        enum: ['client', 'invoice', 'purchase_invoice', 'project', 'journal_entry', 'bank_transaction', 'cash_document'],
+      entity_type: str('Připojit k záznamu tohoto typu; smlouvu k ostatní pohledávce či závazku přes `other_item`.', {
+        enum: DOCUMENT_ENTITY_TYPES,
       }),
       entity_id: id('ID záznamu, ke kterému se dokument připojí.'),
     }, ['content_base64', 'filename']),

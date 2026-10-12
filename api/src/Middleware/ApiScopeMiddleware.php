@@ -228,6 +228,10 @@ final class ApiScopeMiddleware implements MiddlewareInterface
      * deaktivace) je jen pro analytiku; syntetiku z šablony osnovy token jen čte,
      * což hlídá akce. Mazání účtu zůstává ve webovém rozhraní.
      *
+     * Ke konceptu ostatní položky smí token zapsat i dimenze (středisko, projekt).
+     * Koncept nemá řádky v deníku, takže se nic nepřerazítkuje; zaúčtovaný doklad
+     * a koncept z automaticky účtovaného opakování odmítne DimensionAction.
+     *
      * @var list<array{0:string,1:string}>
      */
     private const BEARER_WRITE_EXCEPTIONS = [
@@ -239,6 +243,7 @@ final class ApiScopeMiddleware implements MiddlewareInterface
         ['PUT', '#^/api/accounting/other-items/schedules/[0-9]+/status$#'],
         ['POST', '#^/api/accounting/accounts$#'],
         ['PATCH', '#^/api/accounting/accounts/[0-9]+$#'],
+        ['PUT', '#^/api/accounting/dimensions/documents/other-items/[0-9]+$#'],
     ];
 
     public function __construct(

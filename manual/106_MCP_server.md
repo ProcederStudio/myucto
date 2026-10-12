@@ -213,7 +213,7 @@ Podstatné vlastnosti:
 | Pohledávky a závazky | zaplacené / nezaplacené / po splatnosti, stáří pohledávek |
 | Daně | odhad DPH za měsíc i kvartál, kontrolní a souhrnné hlášení, daň z příjmů, daňový kalendář - **jen čtení** |
 | Účetnictví | obratovka, rozvaha, výsledovka, hlavní kniha, saldo, deník: **jen čtení**; výjimkou jsou koncepty ostatních pohledávek a závazků a založení či úprava analytického účtu v osnově |
-| Ostatní pohledávky a závazky | čtení dokladů, úhrad, opakování a splátek; **zápis jen konceptů**: založení, úprava, smazání, splátkový kalendář (i vyčtený ze smlouvy) a opakování bez automatického účtování. Nic se nezaúčtuje ([§ 106.8.8.5](#106885-ostatni-pohledavky-a-zavazky)) |
+| Ostatní pohledávky a závazky | čtení dokladů, úhrad, opakování a splátek; **zápis jen konceptů**: založení, úprava, smazání, splátkový kalendář (i vyčtený ze smlouvy), opakování bez automatického účtování, dimenze a připojení smlouvy. Nic se nezaúčtuje ([§ 106.8.8.5](#106885-ostatni-pohledavky-a-zavazky)) |
 | Dimenze | typy a hodnoty, zisk, roční a měsíční vývoj, manažerské cash flow, rozvaha a výsledovka s filtrem dimenze, přiřazení na dokladech a kontrola pravidel - **jen čtení** |
 | Statistika | tržby, zisk, trendy, top odběratelé a dodavatelé, cash flow, platební morálka, koncentrace, riziko odchodu |
 | Všechny firmy | manažerské součty přístupných firem za přesné období, měsíční vývoj, roční predikce, cashflow, zůstatky a rizika přes `group_dashboard`; původní měny i samostatný přepočet CZK |
@@ -608,6 +608,7 @@ Podrobnosti v [§ 106.8.8.6](#106886-soubory-a-prilohy).
 - „Založ koncept závazku: nájem kanceláře na říjen, 15 000 Kč, splatnost 15. 10., protiúčet 518.“
 - „Z přiložené úvěrové smlouvy založ koncept závazku na jistinu a nastav splátkový kalendář.“
 - „Založ analytiky 378.800 Zápůjčka a 378.810 Úroky ze zápůjčky.“
+- „Nahraj tuhle smlouvu o zápůjčce, založ k ní koncept pohledávky a smlouvu k němu připoj.“
 - „Opakuj ten nájem každý měsíc do konce roku.“
 - „Pozastav opakování pojistného.“
 
@@ -913,12 +914,32 @@ potvrdí a zaúčtuje ho účetní v aplikaci, kde vidí kontext a krok potvrzuj
 | Splátkový kalendář | `set_other_item_installments`, `clear_other_item_installments` |
 | Opakování | `create_other_item_schedule`, `set_other_item_schedule_status` |
 | Analytické účty | `chart_of_accounts` (čtení), `create_analytic_account`, `update_analytic_account` |
+| Smlouva a další dokumenty | `upload_document` nebo `link_document` s typem `other_item`, `list_entity_documents`, `unlink_document` |
+| Dimenze (středisko, projekt) | `list_dimensions`, `get_document_dimensions` (typ `other-items`), `set_other_item_dimensions` |
 
 **Koncept.** Kontaci zadáte buď jedním protiúčtem, nebo několika protiřádky,
 jejichž součet musí přesně odpovídat částce dokladu. Agenda je jen v Kč. Při
 úpravě asistent načte současný stav a pošle celý doklad, takže nezadaná pole se
 nezmění. Jediný protiřádek se při změně částky přepočte, u více protiřádků se
 asistent zeptá na nové rozdělení. Upravit a smazat lze jen koncept.
+
+**Smlouva u dokladu.** Analyzovaný soubor (např. PDF smlouvy o zápůjčce)
+asistent nahraje nástrojem `upload_document` a koncept založí s `document_id`,
+takže se smlouva připojí hned. Jde to i opačně: `upload_document` s typem
+`other_item` a ID už založeného dokladu, nebo `link_document` u dokumentu, který
+v aplikaci už je. Dokument i doklad musí patřit téže firmě a k připojení je
+potřeba oprávnění zápisu k ostatním položkám. Připojené soubory vypíše
+`list_entity_documents`.
+
+**Dimenze.** Středisko, projekt nebo jinou dimenzi hlavičky nastaví asistent
+nástrojem `set_other_item_dimensions`, jen u konceptu. Pošle vždy celou sadu
+(typ, který chybí, se odebere). U potvrzeného či zaúčtovaného dokladu a u
+konceptu z opakování s automatickým účtováním se dimenze mění jen v aplikaci.
+Firma musí mít dimenze zapnuté.
+
+**Úroky.** Samostatnou evidenci úroků agenda nemá. Úrok ze zápůjčky asistent
+založí jako další koncept (např. na analytice `378.810`), případně jako
+opakování, a jistinu drží ve splátkovém kalendáři původního dokladu.
 
 **Splátkový kalendář** může asistent vyčíst z dokumentu, třeba z úvěrové nebo
 leasingové smlouvy či splátkového kalendáře banky, a poslat ho jako data. Před

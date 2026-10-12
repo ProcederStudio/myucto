@@ -2,7 +2,8 @@
  * Ostatní pohledávky a závazky: nájem, půjčka, úvěr, leasing, kauce, pojistné,
  * poplatky. Jediná zapisovatelná část účetní vrstvy, a to jen v konceptech.
  *
- * Token smí založit, upravit a smazat KONCEPT, nastavit splátkový kalendář
+ * Token smí založit, upravit a smazat KONCEPT, připojit k němu dokument
+ * (smlouvu), nastavit jeho dimenze, splátkový kalendář
  * a založit nebo pozastavit opakování bez automatického účtování. Nic z toho
  * nezapisuje do deníku. Potvrzení a zaúčtování, storno, přeúčtování, párování
  * úhrad, generování opakování a zapnutí automatického účtování tu nejsou
@@ -276,14 +277,64 @@ export const OTHER_ITEM_TOOLS = [
       'Založí KONCEPT ostatní pohledávky nebo závazku, např. nájem, půjčku, úvěr, leasing, kauci nebo pojistné. '
       + `${NO_POSTING} Kontaci zadej jedním protiúčtem (\`counter_account_code\`) nebo protiřádky `
       + '(`posting_lines`, součet = `amount`). Údaje může asistent vyčíst ze smlouvy. Splátky nastav potom '
-      + 'nástrojem set_other_item_installments, opakování create_other_item_schedule.',
-    inputSchema: schema(ITEM_INPUT, ['side', 'title', 'issued_on', 'due_on', 'amount']),
+      + 'nástrojem set_other_item_installments, opakování create_other_item_schedule. Smlouvu nahranou '
+      + 'nástrojem upload_document připojíš rovnou přes `document_id`.',
+    inputSchema: schema({
+      ...ITEM_INPUT,
+      document_id: id('ID dokumentu (např. smlouvy z upload_document), který se ke konceptu připojí.'),
+    }, ['side', 'title', 'issued_on', 'due_on', 'amount']),
     write: true,
     run: async (c, a, tool) => {
       assertKontace(a);
       if (cents(a.amount) === null) throw new Error('NEPROVEDENO: částka musí být kladná a zadaná na haléře.');
       if (a.posting_lines !== undefined) assertPostingLines(a.posting_lines, a.amount);
-      return c.post(BASE, changed(a, ITEM_KEYS), tool);
+      // Dokument se ověří PŘED založením, ať po chybném ID nezůstane koncept bez smlouvy.
+      if (a.document_id !== undefined) await c.get(`/documents/${seg(a.document_id)}`, null, tool);
+      const item = await c.post(BASE, changed(a, ITEM_KEYS), tool);
+      if (a.document_id === undefined) return item;
+      const link = await c.post(`/documents/${seg(a.document_id)}/links`, {
+        entity_type: 'other_item',
+        entity_id: item?.id,
+      }, tool);
+      return { ...item, document_links: link?.links ?? link };
+    },
+  },
+  {
+    name: 'set_other_item_dimensions',
+    title: 'Nastavit dimenze konceptu ostatní položky',
+    description:
+      'Nastaví dimenze hlavičky KONCEPTU ostatní pohledávky nebo závazku (středisko, projekt, vozidlo, '
+      + 'vlastní dimenze). Hodnoty a jejich typy vrací list_dimensions; dosavadní dimenze vypíše '
+      + 'get_document_dimensions s `document_type: other-items`. Uložení NAHRADÍ celou sadu hlavičky: typ, '
+      + 'který nepošleš, se z dokladu odebere. Potvrzený či zaúčtovaný doklad a koncept z opakování '
+      + `s automatickým účtováním nástroj odmítne. ${NO_POSTING}`,
+    inputSchema: schema({
+      id: id('ID konceptu.'),
+      dimensions: {
+        type: 'array',
+        description: 'Všechny dimenze hlavičky, nejvýše jedna hodnota na typ. Prázdný seznam dimenze odebere.',
+        maxItems: 50,
+        items: schema({
+          type_id: id('ID typu dimenze z list_dimensions.'),
+          value_id: id('ID hodnoty dimenze z list_dimensions.'),
+        }, ['type_id', 'value_id']),
+      },
+    }, ['id', 'dimensions']),
+    write: true,
+    run: async (c, a, tool) => {
+      const rows = Array.isArray(a.dimensions) ? a.dimensions : [];
+      const header = {};
+      for (const [i, row] of rows.entries()) {
+        if (!Number.isInteger(row?.type_id) || !Number.isInteger(row?.value_id)) {
+          throw new Error(`NEPROVEDENO: dimenze ${i + 1} potřebuje celočíselné type_id a value_id.`);
+        }
+        if (Object.hasOwn(header, String(row.type_id))) {
+          throw new Error(`NEPROVEDENO: typ dimenze ${row.type_id} je zadaný víckrát; na typ patří jedna hodnota.`);
+        }
+        header[String(row.type_id)] = row.value_id;
+      }
+      await loadDraft(c, a.id, tool, 'nastavit dimenze');
+      return c.put(`/accounting/dimensions/documents/other-items/${seg(a.id)}`, { header }, tool);
     },
   },
   {

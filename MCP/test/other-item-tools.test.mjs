@@ -135,6 +135,59 @@ test('založení konceptu pošle jen zadaná pole a hlídá součet kontace', as
   assert.equal(bad.calls.length, 0);
 });
 
+test('založení konceptu s document_id ověří dokument předem a připojí ho', async () => {
+  const client = new FakeClient({
+    'POST /accounting/other-items': { id: 77, status: 'draft' },
+    'POST /documents/5/links': { links: [{ entity_type: 'other_item', entity_id: 77, label: 'Syntetická zápůjčka' }] },
+  });
+  const args = {
+    side: 'receivable', kind: 'loan', title: 'Syntetická zápůjčka', issued_on: '2094-01-15',
+    due_on: '2094-12-31', amount: 100000, account_code: '378.800', counter_account_code: '221', document_id: 5,
+  };
+  const result = await tool('create_other_item').run(client, args, 'create_other_item');
+  const { document_id: _omit, ...itemBody } = args;
+  assert.deepEqual(client.calls, [
+    { method: 'GET', path: '/documents/5', query: null, tool: 'create_other_item' },
+    { method: 'POST', path: '/accounting/other-items', body: itemBody, tool: 'create_other_item' },
+    { method: 'POST', path: '/documents/5/links', body: { entity_type: 'other_item', entity_id: 77 }, tool: 'create_other_item' },
+  ]);
+  assert.equal(result.id, 77);
+  assert.equal(result.document_links[0].entity_id, 77);
+
+  const missing = new FakeClient();
+  missing.get = async () => { throw new Error('404 Dokument nenalezen.'); };
+  await assert.rejects(tool('create_other_item').run(missing, args, 'x'), /Dokument nenalezen/);
+  assert.equal(missing.calls.length, 0);
+});
+
+test('dokument jde připojit i vyhledat u ostatní položky', () => {
+  for (const name of ['link_document', 'unlink_document', 'list_entity_documents', 'upload_document']) {
+    assert.ok(tool(name).inputSchema.properties.entity_type.enum.includes('other_item'), name);
+  }
+  assert.ok(tool('get_document_dimensions').inputSchema.properties.document_type.enum.includes('other-items'));
+});
+
+test('dimenze konceptu se pošlou jako celá hlavička jen ke konceptu', async () => {
+  const client = new FakeClient({ 'GET /accounting/other-items/12': draft() });
+  await tool('set_other_item_dimensions').run(client, {
+    id: 12, dimensions: [{ type_id: 3, value_id: 31 }, { type_id: 4, value_id: 40 }],
+  }, 'set_other_item_dimensions');
+  assert.deepEqual(writes(client), [{
+    method: 'PUT', path: '/accounting/dimensions/documents/other-items/12',
+    body: { header: { 3: 31, 4: 40 } }, tool: 'set_other_item_dimensions',
+  }]);
+
+  await assert.rejects(tool('set_other_item_dimensions').run(client, {
+    id: 12, dimensions: [{ type_id: 3, value_id: 31 }, { type_id: 3, value_id: 32 }],
+  }, 's'), /víckrát/);
+
+  const posted = new FakeClient({ 'GET /accounting/other-items/12': draft({ status: 'posted' }) });
+  await assert.rejects(tool('set_other_item_dimensions').run(posted, {
+    id: 12, dimensions: [{ type_id: 3, value_id: 31 }],
+  }, 's'), /jen koncept/);
+  assert.equal(writes(posted).length, 0);
+});
+
 test('úprava konceptu složí celý doklad a jediný protiřádek přepočte', async () => {
   const client = new FakeClient({ 'GET /accounting/other-items/12': draft() });
   await tool('update_other_item').run(client, { id: 12, amount: 13500.5, issued_on: '2094-02-01' }, 'update_other_item');

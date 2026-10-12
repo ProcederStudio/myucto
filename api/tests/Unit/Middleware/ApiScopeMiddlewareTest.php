@@ -194,6 +194,28 @@ final class ApiScopeMiddlewareTest extends TestCase
         }
     }
 
+    /** Dimenze smí token zapsat jen ke konceptu ostatní položky; jiné doklady a náhled ne. */
+    public function testBearerReadWriteCanTagOnlyOtherItemDimensions(): void
+    {
+        $ok = $this->middleware()->process(
+            $this->bearer('PUT', '/api/accounting/dimensions/documents/other-items/12', 'read_write'),
+            $this->okHandler(),
+        );
+        self::assertSame(204, $ok->getStatusCode());
+
+        foreach ([
+            ['PUT', '/api/accounting/dimensions/documents/purchase-invoices/12'],
+            ['PUT', '/api/accounting/dimensions/documents/assets/12'],
+            ['POST', '/api/accounting/dimensions/documents/other-items/12/preview'],
+            ['PUT', '/api/accounting/dimensions/journal/12'],
+            ['DELETE', '/api/accounting/dimensions/documents/other-items/12'],
+        ] as [$method, $path]) {
+            $r = $this->middleware()->process($this->bearer($method, $path, 'read_write'), $this->okHandler());
+            self::assertSame(403, $r->getStatusCode(), "bearer $method $path");
+            self::assertSame('token_write_forbidden', $this->errorCode($r), "bearer $method $path");
+        }
+    }
+
     /** Zaúčtování, storno, přeúčtování, úhrady a generování opakování zůstávají zavřené. */
     public function testBearerCannotPostOrSettleOtherItems(): void
     {
