@@ -2516,14 +2516,15 @@ final class CrmAggregationService
     }
 
     /**
-     * Datum posledního archivovaného podání (tax_submissions) pro dané období, nebo
-     * null pokud v systému žádné podání dané formy/období není archivováno.
-     * `tax_submissions` archivuje generování EPO XML (C7' — proxy pro "podáno",
-     * reálné podání proběhne na portálu EPO/datovkou mimo aplikaci).
+     * Datum doloženého podání (tax_submissions ve stavu submitted/accepted) pro dané
+     * období, nebo null. Vygenerovaný či stažený XML podání není (migrace 1110),
+     * stejné pravidlo drží VatStatusGuard.
      */
     private function submittedAt(int $supplierId, string $formCode, int $periodYear, ?int $periodMonth, ?int $periodQuarter): ?string
     {
-        $sql = 'SELECT generated_at FROM tax_submissions WHERE supplier_id = ? AND form_code = ? AND period_year = ?';
+        $sql = "SELECT COALESCE(submitted_at, generated_at) FROM tax_submissions
+                 WHERE supplier_id = ? AND form_code = ? AND period_year = ?
+                   AND status IN ('submitted', 'accepted')";
         $params = [$supplierId, $formCode, $periodYear];
         if ($periodMonth === null) {
             $sql .= ' AND period_month IS NULL';
@@ -2537,7 +2538,7 @@ final class CrmAggregationService
             $sql .= ' AND period_quarter = ?';
             $params[] = $periodQuarter;
         }
-        $sql .= ' ORDER BY generated_at DESC LIMIT 1';
+        $sql .= ' ORDER BY submitted_at DESC, generated_at DESC LIMIT 1';
         $stmt = $this->db->pdo()->prepare($sql);
         $stmt->execute($params);
         $v = $stmt->fetchColumn();

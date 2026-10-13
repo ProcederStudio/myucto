@@ -86,14 +86,16 @@ final class CrmTaxCalendarTest extends TestCase
         $stmt->execute([$vatPeriod, $taxpayerType, $this->supplierId]);
     }
 
-    private function archiveSubmission(string $formCode, int $year, ?int $month, ?int $quarter): void
+    private function archiveSubmission(string $formCode, int $year, ?int $month, ?int $quarter, string $status = 'submitted', string $xml = '<xml/>'): void
     {
         $stmt = $this->db->pdo()->prepare(
             "INSERT INTO tax_submissions (supplier_id, form_code, period_year, period_month, period_quarter,
-                                          xml_content, xml_size_bytes, xml_sha256, validation_status)
-             VALUES (?, ?, ?, ?, ?, '<xml/>', 6, SHA2(CONCAT(?, RAND()), 256), 'passed')"
+                                          xml_content, xml_size_bytes, xml_sha256, validation_status,
+                                          status, submitted_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, SHA2(CONCAT(?, RAND()), 256), 'passed',
+                     ?, IF(? IN ('submitted', 'accepted'), NOW(), NULL))"
         );
-        $stmt->execute([$this->supplierId, $formCode, $year, $month, $quarter, $formCode]);
+        $stmt->execute([$this->supplierId, $formCode, $year, $month, $quarter, $xml, strlen($xml), $formCode, $status, $status]);
         $this->createdSubmissions[] = (int) $this->db->pdo()->lastInsertId();
     }
 
@@ -139,6 +141,21 @@ final class CrmTaxCalendarTest extends TestCase
         $kh = $this->findByType($items, 'kh_deadline');
         self::assertNotNull($kh);
         self::assertFalse($kh['submitted']);
+    }
+
+    public function testGeneratedXmlWithoutFilingIsNotSubmitted(): void
+    {
+        $this->configure('quarterly', 'po');
+        // Vygenerovaný a stažený XML za Q3 2026, na EPO ale neodešel.
+        $this->archiveSubmission('dphdp3', 2026, null, 3, 'generated');
+        $this->archiveSubmission('dphdp3', 2026, null, 3, 'downloaded');
+
+        $items = $this->crm->taxCalendarItems($this->supplierId, new \DateTimeImmutable('2026-10-13'), 45);
+        $dph = $this->findByType($items, 'tax_deadline');
+        self::assertNotNull($dph);
+        self::assertSame('2026-10-26', $dph['deadline']);
+        self::assertFalse($dph['submitted'], 'Vygenerovaný XML není podání.');
+        self::assertNull($dph['submitted_at']);
     }
 
     public function testQuarterlyDeadlinePeriodMatchesArchivedQuarter(): void

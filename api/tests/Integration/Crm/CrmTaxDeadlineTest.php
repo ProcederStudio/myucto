@@ -74,8 +74,8 @@ final class CrmTaxDeadlineTest extends TestCase
         $this->db->pdo()->prepare(
             'INSERT INTO tax_submissions
                 (supplier_id, form_code, period_year, period_month, period_quarter,
-                 xml_content, xml_size_bytes, xml_sha256)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+                 xml_content, xml_size_bytes, xml_sha256, status, submitted_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, \'submitted\', NOW())'
         )->execute([
             $this->supplierId, $formCode, $year, $month, $quarter,
             '<x/>', 4, str_repeat('0', 64),
