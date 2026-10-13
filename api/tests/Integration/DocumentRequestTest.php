@@ -955,6 +955,7 @@ final class DocumentRequestTest extends TestCase
 
     private function buildInboxAction(): PurchaseInvoiceSubmissionAction
     {
+        $container = Bootstrap::buildContainer();
         return new PurchaseInvoiceSubmissionAction(
             $this->submissions,
             $this->processing,
@@ -965,6 +966,10 @@ final class DocumentRequestTest extends TestCase
             $this->ipMatcher,
             $this->submissionDimensions,
             $this->buildDeletionService(),
+            $container->get(\MyInvoice\Service\PurchaseInvoice\PurchaseInvoiceSubmissionTransferService::class),
+            $container->get(\MyInvoice\Security\CrossSupplierAuthorization::class),
+            $container->get(\MyInvoice\Service\Import\DocumentAddresseeResolver::class),
+            $this->storage,
         );
     }
 

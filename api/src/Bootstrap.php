@@ -785,6 +785,7 @@ final class Bootstrap
                 // z příloh nikdy nenačetly, i kdyby to účet měl zapnuté.
                 pdfInvoices: $c->get(\MyInvoice\Service\Bank\EmailNotice\EmailPdfInvoiceIngestor::class),
                 pdfStatements: $c->get(\MyInvoice\Service\Bank\EmailNotice\EmailPdfStatementIngestor::class),
+                crossSupplier: $c->get(\MyInvoice\Security\CrossSupplierAuthorization::class),
             ),
             \MyInvoice\Service\Bank\EmailNotice\EmailPdfStatementIngestor::class => fn (ContainerInterface $c) => new \MyInvoice\Service\Bank\EmailNotice\EmailPdfStatementIngestor(
                 $c->get(Connection::class),

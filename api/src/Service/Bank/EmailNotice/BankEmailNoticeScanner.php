@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Bank\EmailNotice;
 
 use MyInvoice\Repository\BankEmailNoticeRepository;
+use MyInvoice\Security\CrossSupplierAuthorization;
 use MyInvoice\Service\Bank\StatementMatcher;
 use MyInvoice\Service\Payroll\Payment\PayrollPaymentSettlementRecognizer;
 use MyInvoice\Service\Bank\EmailNotice\Parser\BankEmailNoticeProvider;
@@ -34,6 +35,11 @@ final class BankEmailNoticeScanner
          * Nepovinné ze stejného důvodu jako faktury.
          */
         private readonly ?EmailPdfStatementIngestor $pdfStatements = null,
+        /**
+         * Rozdělování schránky mezi firmy (`distribute_to_suppliers`). Bez něj skener
+         * zpracuje jen firmu schránky, i když má účet rozdělování zapnuté.
+         */
+        private readonly ?CrossSupplierAuthorization $crossSupplier = null,
     ) {}
 
     /**
@@ -65,8 +71,16 @@ final class BankEmailNoticeScanner
             'accounts' => [],
         ];
 
+        $touched = [$supplierId => true];
         foreach ($accounts as $settings) {
-            $accountSummary = $this->scanAccount($supplierId, $settings, $limitOverride);
+            $scope = $this->distributionScope($supplierId, $settings, $distributionError);
+            $accountSummary = $this->scanAccount($supplierId, $settings, $limitOverride, $scope);
+            if ($distributionError !== null) {
+                $accountSummary['distribution_error'] = $distributionError;
+            }
+            foreach ($scope?->bankSupplierIds ?? [] as $id) {
+                $touched[$id] = true;
+            }
             $summary['accounts'][] = $accountSummary;
             foreach ([
                 'fetched', 'processed', 'matched', 'known_skipped', 'old_skipped', 'security_rejected',
@@ -81,13 +95,17 @@ final class BankEmailNoticeScanner
         // často jednoznačně říká „tenhle mzdový závazek je zaplacený". Hlídač
         // termínů to má vědět hned, ne až z výpisu na konci měsíce.
         if ($summary['processed'] > 0) {
-            try {
-                $summary['payroll_settlements'] = $this->payrollSettlements
-                    ?->recognizeForSupplier($supplierId);
-            } catch (\Throwable $exception) {
-                // Rozpoznani je nadstavba — nesmi shodit sken posty.
-                $summary['postprocess_errors']++;
-                $summary['payroll_settlement_error'] = $exception->getMessage();
+            foreach (array_keys($touched) as $touchedId) {
+                try {
+                    $recognized = $this->payrollSettlements?->recognizeForSupplier($touchedId);
+                    if ($touchedId === $supplierId) {
+                        $summary['payroll_settlements'] = $recognized;
+                    }
+                } catch (\Throwable $exception) {
+                    // Rozpoznani je nadstavba — nesmi shodit sken posty.
+                    $summary['postprocess_errors']++;
+                    $summary['payroll_settlement_error'] = $exception->getMessage();
+                }
             }
         }
 
@@ -95,10 +113,32 @@ final class BankEmailNoticeScanner
     }
 
     /**
+     * Firmy, mezi které tenhle účet rozděluje. Oprávnění se čtou při každém skenu:
+     * odebraný přístup k firmě zastaví rozdělování do ní hned, ne až po úpravě účtu.
+     *
+     * @param array<string,mixed> $settings
+     */
+    private function distributionScope(int $supplierId, array $settings, ?string &$error): ?EmailDistributionScope
+    {
+        $error = null;
+        if (empty($settings['distribute_to_suppliers']) || $this->crossSupplier === null) {
+            return null;
+        }
+        $userId = (int) ($settings['distribute_user_id'] ?? 0);
+        $bank = $this->crossSupplier->suppliersAllowingForUser($userId, ['bank.import']);
+        $inbox = $this->crossSupplier->suppliersAllowingForUser($userId, ['documents.inbox']);
+        if ($bank === [] && $inbox === []) {
+            $error = 'Uživatel, který rozdělování do firem zapnul, už není aktivní nebo nemá přístup k žádné firmě. Schránka zpracovala jen vlastní firmu.';
+            return null;
+        }
+        return new EmailDistributionScope($supplierId, $bank, $inbox);
+    }
+
+    /**
      * @param array<string,mixed> $settings
      * @return array<string,mixed>
      */
-    private function scanAccount(int $supplierId, array $settings, ?int $limitOverride): array
+    private function scanAccount(int $supplierId, array $settings, ?int $limitOverride, ?EmailDistributionScope $scope = null): array
     {
         $accountId = (int) ($settings['id'] ?? 0);
         $accountName = (string) ($settings['name'] ?? ('IMAP #' . $accountId));
@@ -153,7 +193,7 @@ final class BankEmailNoticeScanner
             $messages = $this->imap->latest($settings, $limit);
             $summary['fetched'] = count($messages);
             foreach ($messages as $message) {
-                $result = $this->processMessage($supplierId, $settings, $message);
+                $result = $this->processMessage($supplierId, $settings, $message, $scope);
                 $summary['details'][] = $result;
                 $attachments = (array) ($result['attachments'] ?? []);
                 $summary['attachments_considered'] += (int) ($attachments['considered'] ?? 0);
@@ -200,7 +240,7 @@ final class BankEmailNoticeScanner
      * @param array<string,mixed> $settings
      * @return array<string,mixed>
      */
-    private function processMessage(int $supplierId, array $settings, BankEmailNoticeMessage $message): array
+    private function processMessage(int $supplierId, array $settings, BankEmailNoticeMessage $message, ?EmailDistributionScope $scope = null): array
     {
         $imapAccountId = (int) ($settings['id'] ?? 0);
         $messageId = $message->messageId;
@@ -268,8 +308,8 @@ final class BankEmailNoticeScanner
         // rozpoznávač dokladů mohl poslat do fronty přijatých faktur. Zápis do logu
         // příloh (unikátní na firmu + SHA) zároveň ingestoru faktur řekne, že je hotovo.
         $empty = ['enabled' => false, 'considered' => 0, 'imported' => 0, 'skipped' => 0, 'rejected' => 0, 'failed' => 0, 'details' => []];
-        $statements = $this->pdfStatements?->ingestFromMessage($supplierId, $settings, $message) ?? $empty;
-        $attachments = $this->pdfInvoices?->ingestFromMessage($supplierId, $settings, $message) ?? $empty;
+        $statements = $this->pdfStatements?->ingestFromMessage($supplierId, $settings, $message, $scope) ?? $empty;
+        $attachments = $this->pdfInvoices?->ingestFromMessage($supplierId, $settings, $message, $scope) ?? $empty;
         foreach (['considered', 'imported', 'skipped', 'rejected', 'failed'] as $key) {
             $attachments[$key] = (int) $attachments[$key] + (int) $statements[$key];
         }
@@ -292,6 +332,19 @@ final class BankEmailNoticeScanner
             $provider = $resolved['provider'];
             $notice = $resolved['notice'];
             $mapping = $resolved['mapping'];
+            // Avízo k účtu jiné firmy: firma schránky ho nemapuje, rozdělování najde
+            // firmu, které číslo účtu patří. Pohyb vzniká v ní a páruje se s jejími doklady.
+            $targetSupplierId = $supplierId;
+            if ($mapping === null && $scope !== null) {
+                $mapping = $this->repo->mappingForRecipientAccountInSuppliers(
+                    $scope->otherBankSupplierIds(),
+                    $notice->recipientAccount,
+                );
+                if ($mapping !== null) {
+                    $targetSupplierId = (int) $mapping['supplier_id'];
+                    $base['target_supplier_id'] = $targetSupplierId;
+                }
+            }
             if ($mapping === null) {
                 $this->repo->recordMessage($base + [
                     'provider_id' => $provider->id,
@@ -306,7 +359,7 @@ final class BankEmailNoticeScanner
             }
 
             $tx = $this->repo->createTransactionFromNotice(
-                $supplierId,
+                $targetSupplierId,
                 $notice,
                 'imap-' . $imapAccountId . ':' . ($messageId ?: $hash),
                 (float) ($mapping['amount_tolerance'] ?? 0.05),

@@ -29,7 +29,11 @@ final class BankEmailNoticeRepository
     public function imapAccounts(int $supplierId, bool $includeSecret = false): array
     {
         $stmt = $this->db->pdo()->prepare(
-            'SELECT * FROM bank_email_imap_settings WHERE supplier_id = ? ORDER BY name, id'
+            'SELECT s.*, u.name AS distribute_user_name
+               FROM bank_email_imap_settings s
+          LEFT JOIN users u ON u.id = s.distribute_user_id
+              WHERE s.supplier_id = ?
+           ORDER BY s.name, s.id'
         );
         $stmt->execute([$supplierId]);
         $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
@@ -67,11 +71,27 @@ final class BankEmailNoticeRepository
      * @param array<string,mixed> $body
      * @return array<string,mixed>
      */
-    public function saveImapAccount(int $supplierId, array $body, ?int $id = null): array
+    public function saveImapAccount(int $supplierId, array $body, ?int $id = null, ?int $distributeUserId = null): array
     {
         $current = $id !== null ? $this->imapAccountRaw($supplierId, $id) : null;
         if ($id !== null && $current === null) {
             throw new \RuntimeException('IMAP účet nebyl nalezen.');
+        }
+        // Rozdělování do dalších firem platí v rozsahu oprávnění uživatele, který ho
+        // zapnul. Ten se mění jen zapnutím: běžná úprava účtu jiným adminem rozsah
+        // firem tiše nepřesune na jeho oprávnění.
+        $distribute = array_key_exists('distribute_to_suppliers', $body)
+            ? (int) (bool) $body['distribute_to_suppliers']
+            : (int) (bool) ($current['distribute_to_suppliers'] ?? 0);
+        $wasDistributing = (bool) ($current['distribute_to_suppliers'] ?? false);
+        $distributeUser = null;
+        if ($distribute === 1) {
+            $distributeUser = !$wasDistributing || empty($current['distribute_user_id'])
+                ? $distributeUserId
+                : (int) $current['distribute_user_id'];
+            if ($distributeUser === null || $distributeUser <= 0) {
+                throw new \RuntimeException('Rozdělování do více firem potřebuje uživatele, v jehož rozsahu oprávnění poběží.');
+            }
         }
         $passwordEnc = $current['password_enc'] ?? null;
         if (array_key_exists('password', $body) && trim((string) $body['password']) !== '') {
@@ -114,6 +134,8 @@ final class BankEmailNoticeRepository
             'ingest_pdf_statements' => array_key_exists('ingest_pdf_statements', $body)
                 ? (int) (bool) $body['ingest_pdf_statements']
                 : (int) (bool) ($current['ingest_pdf_statements'] ?? 0),
+            'distribute_to_suppliers' => $distribute,
+            'distribute_user_id' => $distributeUser,
             'forwarded_from' => $this->nullable($body['forwarded_from'] ?? null),
             'email_auth_serv_id' => $this->nullable($body['email_auth_serv_id'] ?? null),
             'username' => trim((string) ($body['username'] ?? '')),
@@ -139,6 +161,8 @@ final class BankEmailNoticeRepository
                            allow_forwarded = :allow_forwarded, ingest_notices = :ingest_notices,
                            ingest_pdf_invoices = :ingest_pdf_invoices,
                            ingest_pdf_statements = :ingest_pdf_statements,
+                           distribute_to_suppliers = :distribute_to_suppliers,
+                           distribute_user_id = :distribute_user_id,
                            forwarded_from = :forwarded_from,
                            email_auth_serv_id = :email_auth_serv_id, username = :username, password_enc = :password_enc,
                            folder = :folder, max_messages_per_run = :max_messages_per_run,
@@ -153,12 +177,12 @@ final class BankEmailNoticeRepository
         }
 
         $sql = 'INSERT INTO bank_email_imap_settings
-                  (supplier_id, name, enabled, host, port, encryption, validate_cert, require_email_auth, allow_forwarded, ingest_notices, ingest_pdf_invoices, ingest_pdf_statements, forwarded_from, email_auth_serv_id,
+                  (supplier_id, name, enabled, host, port, encryption, validate_cert, require_email_auth, allow_forwarded, ingest_notices, ingest_pdf_invoices, ingest_pdf_statements, distribute_to_suppliers, distribute_user_id, forwarded_from, email_auth_serv_id,
                    username, password_enc, folder,
                    max_messages_per_run, process_from_date, success_action, success_flag, success_move_folder,
                    failure_action, failure_flag, failure_move_folder, retry_failed, max_attempts)
                 VALUES
-                  (:supplier_id, :name, :enabled, :host, :port, :encryption, :validate_cert, :require_email_auth, :allow_forwarded, :ingest_notices, :ingest_pdf_invoices, :ingest_pdf_statements, :forwarded_from, :email_auth_serv_id,
+                  (:supplier_id, :name, :enabled, :host, :port, :encryption, :validate_cert, :require_email_auth, :allow_forwarded, :ingest_notices, :ingest_pdf_invoices, :ingest_pdf_statements, :distribute_to_suppliers, :distribute_user_id, :forwarded_from, :email_auth_serv_id,
                    :username, :password_enc, :folder,
                    :max_messages_per_run, :process_from_date, :success_action, :success_flag, :success_move_folder,
                    :failure_action, :failure_flag, :failure_move_folder, :retry_failed, :max_attempts)';
@@ -394,6 +418,46 @@ final class BankEmailNoticeRepository
     }
 
     /**
+     * Cílový účet avíza mezi účty DALŠÍCH firem (rozdělování jedné schránky).
+     *
+     * Bere účet, který firma pro avíza vůbec nenastavovala, i ten, který má zapnuté
+     * mapování bez vlastní schránky. Přeskočí účet s vypnutým mapováním (firma avíza
+     * k němu výslovně nechce) a účet, jehož mapování míří na vlastní schránku firmy:
+     * tam avízo chodí samo a z obou schránek by vznikl tentýž pohyb dvakrát.
+     *
+     * Vrací řádek jen při jednoznačné shodě; stejné číslo účtu ve dvou firmách
+     * neurčuje nic.
+     *
+     * @param list<int> $supplierIds
+     * @return array<string,mixed>|null řádek mapování doplněný o `supplier_id`
+     */
+    public function mappingForRecipientAccountInSuppliers(array $supplierIds, string $recipientAccount): ?array
+    {
+        [$account, $bankCode] = $this->splitAccount($recipientAccount);
+        if ($account === '') {
+            return null;
+        }
+        $found = [];
+        foreach (array_values(array_unique($supplierIds)) as $supplierId) {
+            foreach ($this->accountMappings($supplierId) as $row) {
+                if (empty($row['account_number'])) {
+                    continue;
+                }
+                if ($row['id'] !== null && (!$row['enabled'] || $row['imap_account_id'] !== null)) {
+                    continue;
+                }
+                if ($bankCode !== null && !empty($row['bank_code']) && (string) $row['bank_code'] !== $bankCode) {
+                    continue;
+                }
+                if (AccountNumberNormalizer::equals((string) $row['account_number'], $account)) {
+                    $found[] = $row + ['supplier_id' => $supplierId];
+                }
+            }
+        }
+        return count($found) === 1 ? $found[0] : null;
+    }
+
+    /**
      * @return array<string,mixed>|null
      */
     public function knownMessage(int $supplierId, ?int $imapAccountId, ?string $messageId, string $fallbackHash): ?array
@@ -418,16 +482,18 @@ final class BankEmailNoticeRepository
     {
         $stmt = $this->db->pdo()->prepare(
             'INSERT INTO bank_email_processed_messages
-                (supplier_id, imap_account_id, imap_uid, message_id, fallback_hash, message_date, sender, subject,
+                (supplier_id, target_supplier_id, imap_account_id, imap_uid, message_id, fallback_hash, message_date, sender, subject,
                  provider_id, provider_code, status, attempts, parsed_payload, bank_statement_id,
                  bank_transaction_id, matched_invoice_id, error_message)
              VALUES
-                (:supplier_id, :imap_account_id, :imap_uid, :message_id, :fallback_hash, :message_date, :sender, :subject,
+                (:supplier_id, :target_supplier_id, :imap_account_id, :imap_uid, :message_id, :fallback_hash, :message_date, :sender, :subject,
                  :provider_id, :provider_code, :status, :attempts, :parsed_payload, :bank_statement_id,
                  :bank_transaction_id, :matched_invoice_id, :error_message)'
         );
+        $target = isset($data['target_supplier_id']) ? (int) $data['target_supplier_id'] : 0;
         $stmt->execute([
             'supplier_id' => (int) $data['supplier_id'],
+            'target_supplier_id' => $target > 0 && $target !== (int) $data['supplier_id'] ? $target : null,
             'imap_account_id' => $data['imap_account_id'] ?? null,
             'imap_uid' => $data['imap_uid'] ?? null,
             'message_id' => $this->nullable($data['message_id'] ?? null),
@@ -460,20 +526,22 @@ final class BankEmailNoticeRepository
         // (a případný link na přijatou fakturu z payment_matches). Sloupec `status`
         // zůstává věrným záznamem výsledku skenu; pro zobrazení řídí `effective_status`.
         $stmt = $this->db->pdo()->prepare(
-            'SELECT pm.*, im.name AS imap_account_name, i.varsymbol AS matched_varsymbol,
+            "SELECT pm.*, im.name AS imap_account_name, i.varsymbol AS matched_varsymbol,
                     bt.match_status AS tx_match_status,
+                    COALESCE(NULLIF(target.display_name, ''), target.company_name) AS target_supplier_name,
                     (SELECT recv.purchase_invoice_id
                        FROM payment_matches recv
                       WHERE recv.bank_transaction_id = pm.bank_transaction_id
-                        AND recv.supplier_id = pm.supplier_id
+                        AND recv.supplier_id = COALESCE(pm.target_supplier_id, pm.supplier_id)
                       ORDER BY recv.id LIMIT 1) AS matched_purchase_invoice_id
                FROM bank_email_processed_messages pm
           LEFT JOIN bank_email_imap_settings im ON im.id = pm.imap_account_id AND im.supplier_id = pm.supplier_id
-          LEFT JOIN invoices i ON i.id = pm.matched_invoice_id AND i.supplier_id = pm.supplier_id
+          LEFT JOIN invoices i ON i.id = pm.matched_invoice_id AND i.supplier_id = COALESCE(pm.target_supplier_id, pm.supplier_id)
           LEFT JOIN bank_transactions bt ON bt.id = pm.bank_transaction_id
+          LEFT JOIN supplier target ON target.id = pm.target_supplier_id
               WHERE pm.supplier_id = ?
            ORDER BY pm.processed_at DESC, pm.id DESC
-              LIMIT ? OFFSET ?'
+              LIMIT ? OFFSET ?"
         );
         $stmt->bindValue(1, $supplierId, \PDO::PARAM_INT);
         $stmt->bindValue(2, max(1, min(500, $limit)), \PDO::PARAM_INT);
@@ -483,6 +551,7 @@ final class BankEmailNoticeRepository
         foreach ($rows as &$row) {
             $row['id'] = (int) $row['id'];
             $row['supplier_id'] = (int) $row['supplier_id'];
+            $row['target_supplier_id'] = $row['target_supplier_id'] !== null ? (int) $row['target_supplier_id'] : null;
             $row['imap_account_id'] = $row['imap_account_id'] !== null ? (int) $row['imap_account_id'] : null;
             $row['imap_uid'] = $row['imap_uid'] !== null ? (int) $row['imap_uid'] : null;
             $row['provider_id'] = $row['provider_id'] !== null ? (int) $row['provider_id'] : null;
@@ -713,6 +782,9 @@ final class BankEmailNoticeRepository
             'ingest_pdf_invoices' => false,
             'ingest_notices' => true,
             'ingest_pdf_statements' => false,
+            'distribute_to_suppliers' => false,
+            'distribute_user_id' => null,
+            'distribute_user_name' => null,
             'forwarded_from' => null,
             'email_auth_serv_id' => null,
             'username' => '',
@@ -832,6 +904,9 @@ final class BankEmailNoticeRepository
         $row['ingest_pdf_invoices'] = (bool) ($row['ingest_pdf_invoices'] ?? false);
         $row['ingest_notices'] = (bool) ($row['ingest_notices'] ?? true);
         $row['ingest_pdf_statements'] = (bool) ($row['ingest_pdf_statements'] ?? false);
+        $row['distribute_to_suppliers'] = (bool) ($row['distribute_to_suppliers'] ?? false);
+        $row['distribute_user_id'] = isset($row['distribute_user_id']) ? (int) $row['distribute_user_id'] : null;
+        $row['distribute_user_name'] = isset($row['distribute_user_name']) ? (string) $row['distribute_user_name'] : null;
         $row['max_messages_per_run'] = (int) $row['max_messages_per_run'];
         $row['retry_failed'] = (bool) $row['retry_failed'];
         $row['max_attempts'] = (int) $row['max_attempts'];

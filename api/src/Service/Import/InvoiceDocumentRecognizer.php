@@ -101,6 +101,19 @@ final class InvoiceDocumentRecognizer
         );
     }
 
+    /**
+     * Jen identita, bez typu dokladu: kterou firmu text zmiňuje. Rozdělování dokladů
+     * mezi firmy se ptá na adresáta i u účtenky, která označení dokladu nemusí mít.
+     *
+     * @param array{ic?:?string,dic?:?string,name?:?string} $identity
+     * @return array{by:string,score:float}|null
+     */
+    public function identityMatch(string $text, array $identity): ?array
+    {
+        $normalized = self::normalize($text);
+        return $normalized !== '' ? $this->matchIdentity($text, $normalized, $identity) : null;
+    }
+
     private function hasDocumentKeyword(string $normalized): bool
     {
         foreach (self::DOCUMENT_KEYWORDS as $keyword) {

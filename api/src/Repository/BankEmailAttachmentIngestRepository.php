@@ -39,15 +39,17 @@ final class BankEmailAttachmentIngestRepository
         $stmt = $this->db->pdo()->prepare(
             'INSERT INTO bank_email_attachment_ingests
                 (supplier_id, imap_account_id, message_id, sender, subject, filename, sha256, size_bytes,
-                 status, reason, submission_id, bank_statement_id, matched_by, match_score)
+                 status, reason, submission_id, target_supplier_id, bank_statement_id, matched_by, match_score)
              VALUES
                 (:supplier_id, :imap_account_id, :message_id, :sender, :subject, :filename, :sha256, :size_bytes,
-                 :status, :reason, :submission_id, :bank_statement_id, :matched_by, :match_score)
+                 :status, :reason, :submission_id, :target_supplier_id, :bank_statement_id, :matched_by, :match_score)
              ON DUPLICATE KEY UPDATE
                 status = VALUES(status), reason = VALUES(reason), submission_id = VALUES(submission_id),
+                target_supplier_id = VALUES(target_supplier_id),
                 bank_statement_id = VALUES(bank_statement_id),
                 matched_by = VALUES(matched_by), match_score = VALUES(match_score)'
         );
+        $target = isset($data['target_supplier_id']) ? (int) $data['target_supplier_id'] : 0;
         $stmt->execute([
             'supplier_id' => (int) $data['supplier_id'],
             'imap_account_id' => $data['imap_account_id'] ?? null,
@@ -60,6 +62,8 @@ final class BankEmailAttachmentIngestRepository
             'status' => (string) $data['status'],
             'reason' => $this->truncate($data['reason'] ?? null, 1000),
             'submission_id' => $data['submission_id'] ?? null,
+            // Firma schránky se neukládá jako cíl: NULL znamená „zůstalo doma".
+            'target_supplier_id' => $target > 0 && $target !== (int) $data['supplier_id'] ? $target : null,
             'bank_statement_id' => $data['bank_statement_id'] ?? null,
             'matched_by' => $this->truncate($data['matched_by'] ?? null, 32),
             'match_score' => $data['match_score'] ?? null,
@@ -73,14 +77,17 @@ final class BankEmailAttachmentIngestRepository
     public function recent(int $supplierId, int $limit = 50): array
     {
         $stmt = $this->db->pdo()->prepare(
-            'SELECT a.*, im.name AS imap_account_name, s.status AS submission_status,
-                    s.purchase_invoice_id
+            "SELECT a.*, im.name AS imap_account_name, s.status AS submission_status,
+                    s.purchase_invoice_id,
+                    COALESCE(NULLIF(target.display_name, ''), target.company_name) AS target_supplier_name
                FROM bank_email_attachment_ingests a
           LEFT JOIN bank_email_imap_settings im ON im.id = a.imap_account_id AND im.supplier_id = a.supplier_id
-          LEFT JOIN purchase_invoice_submissions s ON s.id = a.submission_id AND s.supplier_id = a.supplier_id
+          LEFT JOIN purchase_invoice_submissions s
+                 ON s.id = a.submission_id AND s.supplier_id = COALESCE(a.target_supplier_id, a.supplier_id)
+          LEFT JOIN supplier target ON target.id = a.target_supplier_id
               WHERE a.supplier_id = ?
            ORDER BY a.created_at DESC, a.id DESC
-              LIMIT ?'
+              LIMIT ?"
         );
         $stmt->bindValue(1, $supplierId, \PDO::PARAM_INT);
         $stmt->bindValue(2, max(1, min(200, $limit)), \PDO::PARAM_INT);
@@ -91,12 +98,27 @@ final class BankEmailAttachmentIngestRepository
             $row['supplier_id'] = (int) $row['supplier_id'];
             $row['imap_account_id'] = $row['imap_account_id'] !== null ? (int) $row['imap_account_id'] : null;
             $row['submission_id'] = $row['submission_id'] !== null ? (int) $row['submission_id'] : null;
+            $row['target_supplier_id'] = $row['target_supplier_id'] !== null ? (int) $row['target_supplier_id'] : null;
             $row['bank_statement_id'] = $row['bank_statement_id'] !== null ? (int) $row['bank_statement_id'] : null;
             $row['purchase_invoice_id'] = $row['purchase_invoice_id'] !== null ? (int) $row['purchase_invoice_id'] : null;
             $row['size_bytes'] = (int) $row['size_bytes'];
             $row['match_score'] = $row['match_score'] !== null ? (float) $row['match_score'] : null;
         }
         return $rows;
+    }
+
+    /**
+     * Podání se přestěhovalo do jiné firmy. Log přílohy zůstává ve firmě schránky,
+     * jen ukáže, kam doklad odešel — jinak by jeho vazba po smazání starého podání
+     * spadla na NULL a uživatel by doklad v logu ztratil.
+     */
+    public function followMovedSubmission(int $oldSubmissionId, int $newSubmissionId, int $targetSupplierId): void
+    {
+        $this->db->pdo()->prepare(
+            'UPDATE bank_email_attachment_ingests
+                SET submission_id = ?, target_supplier_id = IF(supplier_id = ?, NULL, ?)
+              WHERE submission_id = ?'
+        )->execute([$newSubmissionId, $targetSupplierId, $targetSupplierId, $oldSubmissionId]);
     }
 
     private function truncate(mixed $value, int $length): ?string

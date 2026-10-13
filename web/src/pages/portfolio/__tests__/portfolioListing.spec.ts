@@ -14,6 +14,7 @@ function company(id: number, name: string, over: Partial<PortfolioCompany> = {})
     unbooked_breakdown: [],
     unmatched_bank_transactions: 0,
     purchase_drafts: 0,
+    inbox_pending: 0,
     period_status: null,
     last_bank_import_at: null,
     volume: { issued_invoices: 0, purchase_invoices: 0, bank_statements: 0, bank_transactions: 0, cash_documents: 0, journal_entries: 0 },
@@ -56,6 +57,16 @@ describe('portfolioListing', () => {
     expect(names(applyListing(rows, listingFromQuery({ sort: 'name', dir: 'desc' })))).toEqual(['Dana', 'Cyril', 'Beta', 'Alfa'])
     expect(names(applyListing(rows, listingFromQuery({ sort: 'unbooked' })))).toEqual(['Dana', 'Beta', 'Alfa', 'Cyril'])
     expect(names(applyListing(rows, listingFromQuery({ sort: 'last_invoice' })))[0]).toBe('Dana')
+  })
+
+  it('sorts by documents awaiting extraction, most first', () => {
+    const inbox = [
+      company(1, 'Alfa', { inbox_pending: 2 }),
+      company(2, 'Beta', { inbox_pending: 9 }),
+      company(3, 'Cyril'),
+    ]
+    expect(names(applyListing(inbox, listingFromQuery({ sort: 'inbox' })))).toEqual(['Beta', 'Alfa', 'Cyril'])
+    expect(names(applyListing(inbox, listingFromQuery({ sort: 'inbox', dir: 'asc' })))).toEqual(['Cyril', 'Alfa', 'Beta'])
   })
 
   it('filters by search, VAT, mode and urgency', () => {

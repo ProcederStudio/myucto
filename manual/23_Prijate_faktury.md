@@ -122,7 +122,8 @@ upravit bez administrátorského zásahu.
 1. Otevřete `Nákup → Příchozí doklady`.
 2. Doklady do fronty dostanete z klientského portálu, e-mailem nebo je nahrajete sami tlačítkem **Nahrát do fronty**.
 3. U dokladu zvolte, jak ho zpracovat: vytěžit přes ISDOC nebo AI, přepsat ručně, odmítnout, nebo klienta požádat o náhradu.
-4. Pro více dokladů najednou je zaškrtněte a použijte hromadnou akci, například **Vytěžit označené**.
+4. Patří-li doklad jiné vaší firmě, klikněte na **Přesunout do …** u navržené firmy, nebo na **Přesunout do jiné firmy** a firmu vyberte.
+5. Pro více dokladů najednou je zaškrtněte a použijte hromadnou akci, například **Vytěžit označené**.
 
 **Jak poznáte, že je hotovo:** z dokladu vznikl koncept přijaté faktury a originál se přesunul do archivu
 (složka **Příchozí doklady / Archiv / rok / měsíc**).
@@ -358,6 +359,7 @@ Do fronty vede několik cest:
 | **Uložit a předat účetní** v editoru přijaté faktury | klient, když se doklad nevytěžil sám |
 | **Nahrát do fronty** přímo na stránce Příchozí doklady, až 5000 souborů najednou, nahrávají se postupně a tlačítko ukazuje průběh | účetní u dokladů, které přišly mimo portál (e-mailem, papírově) |
 | **Nahrát účtenku** u platby kartou bez dokladu, když není AI nebo vytěžení selže | účetní, doklad je rovnou navázaný na platbu kartou |
+| Příloha e-mailu z IMAP schránky, i ze schránky jiné firmy, která rozděluje doklady mezi firmy ([§ 30.11.19](30_Bankovni_ucty.md#301119-jedna-schranka-pro-vice-firem)) | automaticky při skenu schránky |
 
 Účetní tak nemusí čekat na klienta: co dostane e-mailem nebo naskenuje, vloží do fronty sama a zpracuje to stejným
 postupem. Při zapnutých dimenzích jde při nahrání zvolit i středisko (a další dimenze), propíše se do hlavičky
@@ -387,6 +389,17 @@ U označených dokladů jsou k dispozici akce:
 Doklady, které pro akci nemají vhodný stav, se přeskočí a výsledek je uvede. Přidání dimenzí přepíše u dokladů jen zvolené
 typy, ostatní dimenze zůstanou. Zvolené hodnoty se při vytěžení propíšou do hlavičky dokladu stejně jako dimenze zadané
 při nahrání.
+
+**Přesun do jiné firmy.** Kdo vede víc firem, přesune doklad do příchozích dokladů jiné firmy přímo z fronty. Nabízí se
+jen uživateli s přístupem k víc firmám a jen do firem, kde smí zapisovat příchozí doklady. Aplikace firmu sama navrhne,
+když pozná odběratele: z ISDOC, z IČO nebo DIČ v textu PDF, nebo z vytěžení, které skončilo hláškou, že faktura patří
+jinému odběrateli. Takový doklad má v seznamu štítek **Patří firmě …** a v detailu tlačítko **Přesunout do …**. Účtenku
+bez odběratele přesunete přes **Přesunout do jiné firmy** a výběr firmy.
+
+V cílové firmě vznikne nové podání s vlastním originálem a ve zdrojové firmě jde originál do koše Dokumentů. Dimenze se
+nepřenášejí, každá firma má vlastní. Přesunout nejde zpracovaný ani právě zpracovávaný doklad, doklad od klienta z portálu
+nebo z vyžádaného požadavku, účtenku navázanou na platbu kartou, doklad, který nahrazuje jiné podání, ani originál připojený
+k jinému záznamu firmy. Důvod aplikace uvede.
 
 **Doklad, který už v systému je.** Nahrajete-li nebo vytěžíte doklad, ke kterému už existuje přijatá faktura (stejný
 dodavatel, číslo a datum vystavení), nová faktura nevznikne. Fronta to ohlásí hláškou s číslem existující přijaté faktury

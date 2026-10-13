@@ -8,6 +8,7 @@ use MyInvoice\Http\Json;
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Middleware\SupplierScopeMiddleware;
 use MyInvoice\Security\AccessLevel;
+use MyInvoice\Security\CrossSupplierAuthorization;
 use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Repository\BankEmailAttachmentIngestRepository;
 use MyInvoice\Repository\BankEmailNoticeRepository;
@@ -31,6 +32,7 @@ final class BankEmailNoticeAction
         private readonly ImapMailboxClientInterface $imap,
         private readonly ActivityLogger $logger,
         private readonly IpMatcher $ipMatcher,
+        private readonly CrossSupplierAuthorization $crossSupplier,
     ) {}
 
     public function overview(Request $request, Response $response): Response
@@ -40,15 +42,18 @@ final class BankEmailNoticeAction
         try {
             return Json::ok($response, [
                 'imap' => $this->repo->imapSettings($sid),
-                'imap_accounts' => $this->repo->imapAccounts($sid),
+                'imap_accounts' => $this->withDistributionReach($this->repo->imapAccounts($sid)),
+                // Kolik firem by rozdělování zapnuté tímhle uživatelem pokrylo. Pod dvě
+                // firmy UI přepínač vůbec nenabízí.
+                'distribution_supplier_count' => count($this->distributionSuppliers($request)),
                 'providers' => array_map(
                     fn (BankEmailNoticeProvider $provider): array => $this->providerPayload($provider),
                     $this->parsers->providers(null, $sid, false),
                 ),
                 'mappings' => $this->repo->accountMappings($sid),
-                'messages' => $this->repo->processedMessages($sid, 50, 0),
+                'messages' => $this->withVisibleTargets($request, $this->repo->processedMessages($sid, 50, 0)),
                 'messages_total' => $this->repo->countProcessedMessages($sid),
-                'attachments' => $this->attachments->recent($sid, 50),
+                'attachments' => $this->withVisibleTargets($request, $this->attachments->recent($sid, 50)),
             ]);
         } catch (\PDOException $e) {
             if (str_starts_with((string) $e->getCode(), '42S02')) {
@@ -67,22 +72,39 @@ final class BankEmailNoticeAction
     {
         if (!$this->admin($request, $response, $err)) return $err;
         $sid = $this->supplierId($request);
-        $settings = $this->repo->saveImapSettings($sid, (array) ($request->getParsedBody() ?? []));
-        $this->audit($request, 'bank_email.imap_updated', ['supplier_id' => $sid]);
-        return Json::ok($response, $settings);
+        $body = (array) ($request->getParsedBody() ?? []);
+        $current = $this->repo->imapSettings($sid);
+        if ($denied = $this->distributionDenied($request, $response, $body, $current)) return $denied;
+        try {
+            $settings = $this->repo->saveImapAccount(
+                $sid,
+                $body,
+                isset($current['id']) ? (int) $current['id'] : null,
+                $this->userId($request),
+            );
+        } catch (\Throwable $e) {
+            return Json::error($response, 'validation_failed', $e->getMessage(), 400);
+        }
+        $this->audit($request, 'bank_email.imap_updated', ['supplier_id' => $sid] + $this->distributionAudit($current, $settings));
+        return Json::ok($response, $this->withDistributionReach([$settings])[0]);
     }
 
     public function createImapAccount(Request $request, Response $response): Response
     {
         if (!$this->admin($request, $response, $err)) return $err;
         $sid = $this->supplierId($request);
+        $body = (array) ($request->getParsedBody() ?? []);
+        if ($denied = $this->distributionDenied($request, $response, $body, null)) return $denied;
         try {
-            $settings = $this->repo->saveImapAccount($sid, (array) ($request->getParsedBody() ?? []));
+            $settings = $this->repo->saveImapAccount($sid, $body, null, $this->userId($request));
         } catch (\Throwable $e) {
             return Json::error($response, 'validation_failed', $e->getMessage(), 400);
         }
-        $this->audit($request, 'bank_email.imap_account_created', ['supplier_id' => $sid, 'imap_account_id' => $settings['id'] ?? null]);
-        return Json::ok($response, $settings, 201);
+        $this->audit($request, 'bank_email.imap_account_created', [
+            'supplier_id' => $sid,
+            'imap_account_id' => $settings['id'] ?? null,
+        ] + $this->distributionAudit(null, $settings));
+        return Json::ok($response, $this->withDistributionReach([$settings])[0], 201);
     }
 
     public function updateImapAccount(Request $request, Response $response, array $args): Response
@@ -90,13 +112,116 @@ final class BankEmailNoticeAction
         if (!$this->admin($request, $response, $err)) return $err;
         $sid = $this->supplierId($request);
         $id = (int) ($args['id'] ?? 0);
+        $body = (array) ($request->getParsedBody() ?? []);
+        $current = $this->repo->imapAccount($sid, $id);
+        if ($denied = $this->distributionDenied($request, $response, $body, $current)) return $denied;
         try {
-            $settings = $this->repo->saveImapAccount($sid, (array) ($request->getParsedBody() ?? []), $id);
+            $settings = $this->repo->saveImapAccount($sid, $body, $id, $this->userId($request));
         } catch (\Throwable $e) {
             return Json::error($response, 'validation_failed', $e->getMessage(), 400);
         }
-        $this->audit($request, 'bank_email.imap_account_updated', ['supplier_id' => $sid, 'imap_account_id' => $id]);
-        return Json::ok($response, $settings);
+        $this->audit($request, 'bank_email.imap_account_updated', [
+            'supplier_id' => $sid,
+            'imap_account_id' => $id,
+        ] + $this->distributionAudit($current, $settings));
+        return Json::ok($response, $this->withDistributionReach([$settings])[0]);
+    }
+
+    /**
+     * Zapnout rozdělování smí jen uživatel, který sám zapisuje aspoň do dvou firem;
+     * rozsah se pak počítá z jeho oprávnění. Úprava účtu, který už rozděluje, se
+     * nekontroluje: vlastník rozdělování se jí nemění (viz repozitář).
+     *
+     * @param array<string,mixed> $body
+     * @param array<string,mixed>|null $current
+     */
+    private function distributionDenied(Request $request, Response $response, array $body, ?array $current): ?Response
+    {
+        $turningOn = !empty($body['distribute_to_suppliers']) && empty($current['distribute_to_suppliers']);
+        if (!$turningOn || count($this->distributionSuppliers($request)) >= 2) {
+            return null;
+        }
+        return Json::error(
+            $response,
+            'distribution_unavailable',
+            'Rozdělování do více firem jde zapnout jen s přístupem k importu banky nebo příchozím dokladům aspoň ve dvou firmách.',
+            422,
+        );
+    }
+
+    /** @return list<int> firmy, do kterých smí aktuální uživatel z e-mailu cokoli zapsat */
+    private function distributionSuppliers(Request $request): array
+    {
+        return array_values(array_unique([
+            ...$this->crossSupplier->suppliersAllowing($request, ['bank.import']),
+            ...$this->crossSupplier->suppliersAllowing($request, ['documents.inbox']),
+        ]));
+    }
+
+    /**
+     * Počet firem, do kterých účet právě rozděluje. Jen počet: správce schránky
+     * nemusí mít přístup do firem vlastníka rozdělování a jejich jména mu nepatří.
+     *
+     * @param list<array<string,mixed>> $accounts
+     * @return list<array<string,mixed>>
+     */
+    private function withDistributionReach(array $accounts): array
+    {
+        foreach ($accounts as &$account) {
+            $userId = (int) ($account['distribute_user_id'] ?? 0);
+            $account['distribute_supplier_count'] = !empty($account['distribute_to_suppliers']) && $userId > 0
+                ? count(array_unique([
+                    ...$this->crossSupplier->suppliersAllowingForUser($userId, ['bank.import']),
+                    ...$this->crossSupplier->suppliersAllowingForUser($userId, ['documents.inbox']),
+                ]))
+                : 0;
+        }
+        return $accounts;
+    }
+
+    /**
+     * Název firmy, do které položka ze schránky odešla, vidí jen ten, kdo do té
+     * firmy sám má přístup. Ostatní správci schránky vidí jen to, že odešla jinam.
+     *
+     * @param list<array<string,mixed>> $rows
+     * @return list<array<string,mixed>>
+     */
+    private function withVisibleTargets(Request $request, array $rows): array
+    {
+        $targets = array_filter(array_map(static fn (array $row): int => (int) ($row['target_supplier_id'] ?? 0), $rows));
+        if ($targets === []) {
+            return $rows;
+        }
+        $visible = array_flip($this->crossSupplier->suppliersAllowing($request, [], AccessLevel::READ));
+        foreach ($rows as &$row) {
+            $target = (int) ($row['target_supplier_id'] ?? 0);
+            if ($target > 0 && !isset($visible[$target])) {
+                $row['target_supplier_name'] = null;
+                $row['target_hidden'] = true;
+            }
+        }
+        return $rows;
+    }
+
+    /**
+     * @param array<string,mixed>|null $before
+     * @param array<string,mixed> $after
+     * @return array<string,mixed>
+     */
+    private function distributionAudit(?array $before, array $after): array
+    {
+        $was = !empty($before['distribute_to_suppliers']);
+        $is = !empty($after['distribute_to_suppliers']);
+        if ($was === $is) {
+            return [];
+        }
+        return ['distribute_to_suppliers' => $is, 'distribute_user_id' => $after['distribute_user_id'] ?? null];
+    }
+
+    private function userId(Request $request): int
+    {
+        $user = (array) $request->getAttribute(AuthMiddleware::ATTR_USER, []);
+        return (int) ($user['id'] ?? 0);
     }
 
     public function deleteImapAccount(Request $request, Response $response, array $args): Response
@@ -270,7 +395,7 @@ final class BankEmailNoticeAction
         $limit = 50;
         $page = max(1, (int) ($q['page'] ?? 1));
         return Json::ok($response, [
-            'items' => $this->repo->processedMessages($sid, $limit, ($page - 1) * $limit),
+            'items' => $this->withVisibleTargets($request, $this->repo->processedMessages($sid, $limit, ($page - 1) * $limit)),
             'total' => $this->repo->countProcessedMessages($sid),
             'page' => $page,
             'limit' => $limit,

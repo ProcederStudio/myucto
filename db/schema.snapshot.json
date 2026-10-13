@@ -985,7 +985,8 @@
         "2001_purchase_numbering_by_kind.sql",
         "2002_clients_walk_in_customer.sql",
         "2003_supplier_fiscal_year_start_month.sql",
-        "2004_payment_order_tax_items.sql"
+        "2004_payment_order_tax_items.sql",
+        "2005_email_distribution_across_suppliers.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -2410,7 +2411,8 @@
                 "status": "enum('imported','skipped_duplicate','skipped_not_invoice','rejected','failed','imported_statement','skipped_not_statement') NOT NULL",
                 "subject": "varchar(500) NULL DEFAULT NULL",
                 "submission_id": "bigint(20) unsigned NULL DEFAULT NULL",
-                "supplier_id": "int(10) unsigned NOT NULL"
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "target_supplier_id": "int(10) unsigned NULL DEFAULT NULL"
             },
             "indexes": {
                 "PRIMARY": "UNIQUE BTREE (id)",
@@ -2418,13 +2420,15 @@
                 "idx_beai_account": "BTREE (imap_account_id)",
                 "idx_beai_submission": "BTREE (submission_id)",
                 "idx_beai_supplier_created": "BTREE (supplier_id, created_at)",
+                "idx_beai_target_supplier": "BTREE (target_supplier_id)",
                 "uq_beai_supplier_sha": "UNIQUE BTREE (supplier_id, sha256)"
             },
             "foreign_keys": {
                 "fk_beai_account": "(imap_account_id) -> bank_email_imap_settings (id) ON UPDATE RESTRICT ON DELETE SET NULL",
                 "fk_beai_statement": "(bank_statement_id) -> bank_statements (id) ON UPDATE RESTRICT ON DELETE SET NULL",
                 "fk_beai_submission": "(submission_id) -> purchase_invoice_submissions (id) ON UPDATE RESTRICT ON DELETE SET NULL",
-                "fk_beai_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE"
+                "fk_beai_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE",
+                "fk_beai_target_supplier": "(target_supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE SET NULL"
             },
             "checks": []
         },
@@ -2435,6 +2439,8 @@
             "columns": {
                 "allow_forwarded": "tinyint(1) NOT NULL DEFAULT 0",
                 "created_at": "timestamp NOT NULL DEFAULT current_timestamp()",
+                "distribute_to_suppliers": "tinyint(1) NOT NULL DEFAULT 0",
+                "distribute_user_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "email_auth_serv_id": "varchar(190) NULL DEFAULT NULL",
                 "enabled": "tinyint(1) NOT NULL DEFAULT 0",
                 "encryption": "enum('ssl','tls','none') NOT NULL DEFAULT 'ssl'",
@@ -2469,10 +2475,12 @@
             },
             "indexes": {
                 "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_beis_distribute_user": "BTREE (distribute_user_id)",
                 "idx_bei_supplier": "BTREE (supplier_id, enabled)"
             },
             "foreign_keys": {
-                "fk_bei_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE"
+                "fk_bei_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE",
+                "fk_beis_distribute_user": "(distribute_user_id) -> users (id) ON UPDATE RESTRICT ON DELETE SET NULL"
             },
             "checks": []
         },
@@ -2555,6 +2563,7 @@
                 "status": "enum('processed_success','duplicate','parse_failed','security_rejected','match_failed','postprocess_failed','skipped_old','skipped_known','attachment_imported') NOT NULL",
                 "subject": "varchar(500) NULL DEFAULT NULL",
                 "supplier_id": "int(10) unsigned NOT NULL",
+                "target_supplier_id": "int(10) unsigned NULL DEFAULT NULL",
                 "updated_at": "timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE CURRENT_TIMESTAMP()"
             },
             "indexes": {
@@ -2564,6 +2573,7 @@
                 "idx_bepm_imap_account": "BTREE (imap_account_id)",
                 "idx_bepm_provider": "BTREE (provider_id)",
                 "idx_bepm_supplier_status": "BTREE (supplier_id, status, processed_at)",
+                "idx_bepm_target_supplier": "BTREE (target_supplier_id)",
                 "idx_bepm_transaction": "BTREE (bank_transaction_id)",
                 "uq_bepm_account_hash": "UNIQUE BTREE (imap_account_id, fallback_hash)",
                 "uq_bepm_account_message_id": "UNIQUE BTREE (imap_account_id, message_id)"
@@ -2574,6 +2584,7 @@
                 "fk_bepm_provider": "(provider_id) -> bank_email_notice_providers (id) ON UPDATE RESTRICT ON DELETE SET NULL",
                 "fk_bepm_statement": "(bank_statement_id) -> bank_statements (id) ON UPDATE RESTRICT ON DELETE SET NULL",
                 "fk_bepm_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE",
+                "fk_bepm_target_supplier": "(target_supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE SET NULL",
                 "fk_bepm_transaction": "(bank_transaction_id) -> bank_transactions (id) ON UPDATE RESTRICT ON DELETE SET NULL"
             },
             "checks": {
@@ -18330,6 +18341,8 @@
             "columns": {
                 "bank_transaction_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "created_at": "timestamp NOT NULL DEFAULT current_timestamp()",
+                "detected_buyer_dic": "varchar(20) NULL DEFAULT NULL",
+                "detected_buyer_ic": "varchar(20) NULL DEFAULT NULL",
                 "document_id": "bigint(20) unsigned NOT NULL",
                 "document_kind_hint": "enum('invoice','receipt','credit_note','advance','tax_document','other') NULL DEFAULT NULL",
                 "document_sha256": "char(64) NOT NULL",

@@ -115,7 +115,7 @@ function countClass(n: number): string {
 function accentClass(c: PortfolioCompany): string {
   const days = c.next_deadline?.days
   if (days !== undefined && days <= 2) return 'bg-danger-500'
-  const pending = c.unbooked_documents + c.unmatched_bank_transactions + c.purchase_drafts
+  const pending = c.unbooked_documents + c.unmatched_bank_transactions + c.purchase_drafts + (c.inbox_pending ?? 0)
   if ((days !== undefined && days <= 7) || pending > 0) return 'bg-warning-500'
   return 'bg-success-500'
 }
@@ -276,6 +276,7 @@ function periodBadgeClass(status: string): string {
           <option value="deadline">{{ t('portfolio.sort_deadline') }}</option>
           <option value="unbooked">{{ t('portfolio.sort_unbooked') }}</option>
           <option value="bank">{{ t('portfolio.sort_bank') }}</option>
+          <option value="inbox">{{ t('portfolio.sort_inbox') }}</option>
           <option value="overdue">{{ t('supplier.listing.sort_overdue') }}</option>
           <option value="last_invoice">{{ t('supplier.listing.sort_last_invoice') }}</option>
           <option value="last_activity">{{ t('supplier.listing.sort_last_activity') }}</option>
@@ -367,7 +368,7 @@ function periodBadgeClass(status: string): string {
           </div>
 
           <!-- Co je potřeba udělat -->
-          <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 pl-6 pr-5 pb-5">
+          <div class="grid grid-cols-2 lg:grid-cols-6 gap-3 pl-6 pr-5 pb-5">
             <div class="col-span-2 lg:col-span-1 rounded-lg bg-neutral-50 border border-neutral-100 px-3 py-2.5">
               <div class="text-[11px] uppercase tracking-wide text-neutral-500">{{ t('portfolio.col_deadline') }}</div>
               <button v-if="c.next_deadline" type="button" class="cursor-pointer text-left mt-0.5 font-semibold"
@@ -397,6 +398,10 @@ function periodBadgeClass(status: string): string {
             <button type="button" class="cursor-pointer text-left rounded-lg bg-neutral-50 border border-neutral-100 hover:border-primary-200 px-3 py-2.5" @click="switchTo(c.supplier_id, '/purchase-invoices?status=draft')">
               <div class="text-[11px] uppercase tracking-wide text-neutral-500">{{ t('portfolio.col_purchase_drafts') }}</div>
               <div class="text-2xl font-semibold tabular-nums leading-tight" :class="countClass(c.purchase_drafts)">{{ c.purchase_drafts }}</div>
+            </button>
+            <button type="button" data-testid="inbox-pending" class="cursor-pointer text-left rounded-lg bg-neutral-50 border border-neutral-100 hover:border-primary-200 px-3 py-2.5" @click="switchTo(c.supplier_id, '/purchase-invoices/incoming')">
+              <div class="text-[11px] uppercase tracking-wide text-neutral-500">{{ t('portfolio.col_inbox_pending') }}</div>
+              <div class="text-2xl font-semibold tabular-nums leading-tight" :class="countClass(c.inbox_pending ?? 0)">{{ c.inbox_pending ?? 0 }}</div>
             </button>
             <div class="col-span-2 lg:col-span-1 rounded-lg bg-neutral-50 border border-neutral-100 px-3 py-2.5">
               <div class="text-[11px] uppercase tracking-wide text-neutral-500">{{ t('portfolio.col_last_bank_import') }}</div>

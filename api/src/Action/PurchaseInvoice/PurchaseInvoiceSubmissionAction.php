@@ -12,9 +12,13 @@ use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Repository\DocumentRepository;
 use MyInvoice\Repository\PurchaseInvoiceSubmissionRepository;
 use MyInvoice\Security\AccessLevel;
+use MyInvoice\Security\CrossSupplierAuthorization;
 use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Service\Accounting\Dimension\DimensionException;
 use MyInvoice\Service\ActivityLogger;
+use MyInvoice\Service\Document\DocumentStorage;
+use MyInvoice\Service\Import\DocumentAddresseeResolver;
+use MyInvoice\Service\PurchaseInvoice\PurchaseInvoiceSubmissionTransferService;
 use MyInvoice\Service\IpMatcher;
 use MyInvoice\Service\PurchaseInvoice\PurchaseInvoiceSubmissionException;
 use MyInvoice\Service\PurchaseInvoice\PurchaseInvoiceSubmissionDeletionService;
@@ -41,7 +45,140 @@ final class PurchaseInvoiceSubmissionAction
         private readonly IpMatcher $ipMatcher,
         private readonly SubmissionDimensions $submissionDimensions,
         private readonly PurchaseInvoiceSubmissionDeletionService $deletion,
+        private readonly PurchaseInvoiceSubmissionTransferService $transfer,
+        private readonly CrossSupplierAuthorization $crossSupplier,
+        private readonly DocumentAddresseeResolver $addressees,
+        private readonly DocumentStorage $storage,
     ) {}
+
+    /**
+     * Firmy, do kterých jde doklad přesunout, a návrh té, které podle odběratele
+     * patří. Návrh vychází z odběratele přečteného vytěžením, jinak z ISDOC nebo
+     * textu PDF. Účtenka bez identity návrh nedostane a vybírá se ručně.
+     */
+    public function moveTargets(Request $request, Response $response, array $args): Response
+    {
+        if ($denied = $this->deny($request, $response, true)) return $denied;
+        $supplierId = SupplierGuard::currentId($request);
+        $row = $this->submissions->find((int) ($args['id'] ?? 0), $supplierId);
+        if ($row === null) return Json::error($response, 'not_found', 'Podání nebylo nalezeno.', 404);
+
+        $targets = $this->moveTargetIds($request, $supplierId);
+        $blocked = PurchaseInvoiceSubmissionTransferService::blockReason($row);
+        $suggestion = null;
+        if ($targets !== [] && $blocked === null) {
+            $candidates = [$supplierId, ...$targets];
+            if (!empty($row['detected_buyer_ic']) || !empty($row['detected_buyer_dic'])) {
+                $match = $this->addressees->byBuyer(
+                    isset($row['detected_buyer_ic']) ? (string) $row['detected_buyer_ic'] : null,
+                    isset($row['detected_buyer_dic']) ? (string) $row['detected_buyer_dic'] : null,
+                    $candidates,
+                );
+            } else {
+                $match = $this->addresseeFromFile($row, $candidates);
+            }
+            if ($match['supplier_id'] !== null && $match['supplier_id'] !== $supplierId) {
+                $suggestion = ['supplier_id' => (int) $match['supplier_id'], 'matched_by' => $match['matched_by']];
+            }
+        }
+
+        return Json::ok($response, [
+            'targets' => $this->crossSupplier->describe($targets),
+            'suggestion' => $suggestion,
+            'blocked_reason' => $blocked,
+        ]);
+    }
+
+    public function move(Request $request, Response $response, array $args): Response
+    {
+        if ($denied = $this->deny($request, $response, true)) return $denied;
+        $supplierId = SupplierGuard::currentId($request);
+        $body = (array) ($request->getParsedBody() ?? []);
+        $targetId = (int) ($body['target_supplier_id'] ?? 0);
+        if ($targetId === $supplierId || !$this->crossSupplier->allowsIn($request, $targetId, ['documents.inbox'])) {
+            return Json::error($response, 'forbidden', 'Do vybrané firmy nemáte oprávnění zapisovat příchozí doklady.', 403);
+        }
+        try {
+            $result = $this->transfer->move(
+                (int) ($args['id'] ?? 0),
+                $supplierId,
+                $targetId,
+                $this->userId($request),
+                $this->ipMatcher->clientIpFromRequest($request->getServerParams()),
+                $request->getHeaderLine('User-Agent'),
+            );
+        } catch (PurchaseInvoiceSubmissionException $e) {
+            return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus);
+        }
+        return Json::ok($response, [
+            'target_supplier_id' => $targetId,
+            'submission_id' => (int) $result['submission']['id'],
+            'duplicate' => $result['duplicate'],
+        ]);
+    }
+
+    /** @return list<int> */
+    private function moveTargetIds(Request $request, int $supplierId): array
+    {
+        return array_values(array_filter(
+            $this->crossSupplier->suppliersAllowing($request, ['documents.inbox']),
+            static fn (int $id): bool => $id !== $supplierId,
+        ));
+    }
+
+    /**
+     * @param array<string,mixed> $row
+     * @param list<int> $candidates
+     * @return array{supplier_id:?int,matched_by:?string}
+     */
+    private function addresseeFromFile(array $row, array $candidates): array
+    {
+        $path = $this->storage->pathFor((int) $row['supplier_id'], (string) $row['document_sha256'], (string) $row['document_filename']);
+        $bytes = is_file($path) ? @file_get_contents($path) : false;
+        if (!is_string($bytes) || $bytes === '') {
+            return ['supplier_id' => null, 'matched_by' => null];
+        }
+        $extension = strtolower(pathinfo((string) ($row['original_name'] ?? ''), PATHINFO_EXTENSION));
+        try {
+            return $this->addressees->resolve($bytes, $extension !== '' ? $extension : null, $candidates);
+        } catch (\Throwable) {
+            return ['supplier_id' => null, 'matched_by' => null];
+        }
+    }
+
+    /**
+     * Návrh přesunu do seznamu: jen podle odběratele, kterého už vytěžení přečetlo,
+     * aby výpis fronty nečetl soubory.
+     *
+     * @param list<array<string,mixed>> $items
+     * @return list<array<string,mixed>>
+     */
+    private function withMoveSuggestions(Request $request, int $supplierId, array $items): array
+    {
+        $flagged = array_filter($items, static fn (array $item): bool => !empty($item['detected_buyer_ic']) || !empty($item['detected_buyer_dic']));
+        $targets = $flagged !== [] ? $this->moveTargetIds($request, $supplierId) : [];
+        $names = [];
+        foreach ($this->crossSupplier->describe($targets) as $firm) {
+            $names[$firm['id']] = $firm['name'];
+        }
+        foreach ($items as &$item) {
+            $item['move_suggestion'] = null;
+            if ($targets === [] || (empty($item['detected_buyer_ic']) && empty($item['detected_buyer_dic']))
+                || PurchaseInvoiceSubmissionTransferService::blockReason($item) !== null) {
+                continue;
+            }
+            $match = $this->addressees->byBuyer(
+                isset($item['detected_buyer_ic']) ? (string) $item['detected_buyer_ic'] : null,
+                isset($item['detected_buyer_dic']) ? (string) $item['detected_buyer_dic'] : null,
+                [$supplierId, ...$targets],
+            );
+            $target = $match['supplier_id'];
+            if ($target !== null && $target !== $supplierId && isset($names[$target])) {
+                $item['move_suggestion'] = ['supplier_id' => $target, 'supplier_name' => $names[$target]];
+            }
+        }
+        return $items;
+    }
 
     /**
      * Doklad, který přišel mimo portál — e-mailem, papírově, nebo si ho účetní
@@ -144,15 +281,17 @@ final class PurchaseInvoiceSubmissionAction
             (int) ($q['offset'] ?? 0),
         );
         $page['items'] = $this->submissionDimensions->attach($supplierId, $page['items']);
+        $page['items'] = $this->withMoveSuggestions($request, $supplierId, $page['items']);
         return Json::ok($response, $page);
     }
 
     public function get(Request $request, Response $response, array $args): Response
     {
         if ($denied = $this->deny($request, $response)) return $denied;
-        $item = $this->findWithDimensions((int) ($args['id'] ?? 0), SupplierGuard::currentId($request));
+        $supplierId = SupplierGuard::currentId($request);
+        $item = $this->findWithDimensions((int) ($args['id'] ?? 0), $supplierId);
         return $item !== null
-            ? Json::ok($response, $item)
+            ? Json::ok($response, $this->withMoveSuggestions($request, $supplierId, [$item])[0])
             : Json::error($response, 'not_found', 'Podání nebylo nalezeno.', 404);
     }
 

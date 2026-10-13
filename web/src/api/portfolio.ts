@@ -42,6 +42,8 @@ export interface PortfolioCompany {
   unbooked_breakdown: PortfolioUnbookedPart[]
   unmatched_bank_transactions: number
   purchase_drafts: number
+  /** Doklady v příchozích dokladech čekající na vytěžení. */
+  inbox_pending: number
   period_status: PortfolioPeriodStatus | null
   last_bank_import_at: string | null
   volume: PortfolioVolume

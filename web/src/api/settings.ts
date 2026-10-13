@@ -480,6 +480,12 @@ export interface BankEmailImapSettings {
   ingest_notices: boolean
   ingest_pdf_invoices: boolean
   ingest_pdf_statements: boolean
+  /** Výpisy, avíza a PDF doklady se rozdělují mezi všechny firmy vlastníka rozdělování. */
+  distribute_to_suppliers: boolean
+  distribute_user_id?: number | null
+  distribute_user_name?: string | null
+  /** Do kolika firem účet právě rozděluje (počet, jména se správci schránky neposílají). */
+  distribute_supplier_count?: number
   forwarded_from: string | null
   email_auth_serv_id: string | null
   username: string
@@ -557,6 +563,11 @@ export interface BankEmailProcessedMessage {
   matched_invoice_id: number | null
   matched_purchase_invoice_id?: number | null
   matched_varsymbol?: string | null
+  /** Firma, do které avízo odešlo při rozdělování schránky (null = firma schránky). */
+  target_supplier_id?: number | null
+  target_supplier_name?: string | null
+  /** Odešlo do firmy, do které přihlášený uživatel nemá přístup; název se nepošle. */
+  target_hidden?: boolean
   error_message: string | null
   processed_at: string
 }
@@ -576,6 +587,10 @@ export interface BankEmailAttachmentIngest {
     | 'imported_statement' | 'skipped_not_statement'
   reason: string | null
   submission_id: number | null
+  /** Firma, do které příloha odešla při rozdělování schránky (null = firma schránky). */
+  target_supplier_id?: number | null
+  target_supplier_name?: string | null
+  target_hidden?: boolean
   bank_statement_id: number | null
   submission_status?: string | null
   purchase_invoice_id: number | null
@@ -592,6 +607,8 @@ export interface BankEmailOverview {
   messages: BankEmailProcessedMessage[]
   messages_total: number
   attachments?: BankEmailAttachmentIngest[]
+  /** Do kolika firem smí přihlášený uživatel z e-mailu zapisovat; pod 2 se rozdělování nenabízí. */
+  distribution_supplier_count?: number
 }
 
 export interface BankEmailMessagePage {

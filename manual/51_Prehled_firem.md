@@ -65,6 +65,7 @@ Položka se v menu zobrazí jen tehdy, když máte k dispozici více firem. Str�
 | **Nezaúčtováno** | Součet nezaúčtovaných vydaných dokladů podporovaných pro zaúčtování, nezaúčtovaných přijatých dokladů kromě zálohových výzev a skutečných bankovních pohybů bez aktivního zápisu. U firmy v daňové evidenci je vždy nula. | Přepne firmu a otevře vydané faktury s filtrem nezaúčtovaných. |
 | **Nespárováno (banka)** | Nespárované příchozí pohyby za posledních 90 dní. Vlastnictví se ověřuje podle bankovního účtu firmy, nikoli jen podle hlavičky výpisu. | Přepne firmu a otevře Banku. |
 | **Koncepty PF** | Přijaté faktury ve stavu koncept. | Přepne firmu a otevře filtrovaný seznam přijatých faktur. |
+| **Čeká na vytěžení** | Doklady v příchozích dokladech, které čekají na vytěžení, včetně těch, jejichž vytěžení se nepovedlo. Nepočítají se doklady čekající na doplnění od klienta. | Přepne firmu a otevře příchozí doklady. |
 | **Účetní období** | Nejnovější založené účetní období a jeho stav **otevřené**, **uzavírá se** nebo **uzavřené**. Firma bez období má pomlčku. | Jen informace. |
 | **Poslední import banky** | Nejnovější čas importu výpisu, který podle bankovních účtů náleží dané firmě. | Jen informace. |
 | **Objem dat** | Počty vydaných a přijatých faktur, bankovních výpisů a pohybů, pokladních dokladů a zápisů v deníku (jen u podvojného účetnictví). | Kliknutí otevře příslušnou agendu. |
@@ -94,6 +95,7 @@ Nad kartami je hledání podle názvu nebo IČO, volba řazení s přepínačem 
 | **Nejbližší termín** | Termíny po splatnosti nahoře, firmy bez termínu na konci. |
 | **Nejvíc k doúčtování** | Podle ukazatele **Nezaúčtováno**. |
 | **Nejvíc nespárovaných plateb** | Podle ukazatele **Nespárováno (banka)**. |
+| **Nejvíc dokladů k vytěžení** | Podle ukazatele **Čeká na vytěžení**. |
 | **Nejvíc faktur po splatnosti** | Podle počtu vystavených faktur po splatnosti. |
 | **Poslední vystavená faktura**, **Poslední aktivita** | Nejčerstvější nahoře, firmy bez faktury nebo aktivity na konci. |
 

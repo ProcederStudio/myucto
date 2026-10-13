@@ -6,6 +6,8 @@ namespace MyInvoice\Service\Bank\EmailNotice;
 
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\BankEmailAttachmentIngestRepository;
+use MyInvoice\Repository\PurchaseInvoiceSubmissionRepository;
+use MyInvoice\Service\Import\DocumentAddresseeResolver;
 use MyInvoice\Service\Import\InvoiceDocumentRecognizer;
 use MyInvoice\Service\Import\PdfIsdocExtractor;
 use MyInvoice\Service\Import\PdfTotalExtractor;
@@ -31,6 +33,11 @@ use MyInvoice\Service\PurchaseInvoice\PurchaseInvoiceSubmissionUploadService;
  * Extrakce dat z dokladu se tu ZÁMĚRNĚ nespouští: podání zůstane ve frontě a účetní
  * ho pustí ručně (nebo automatikou fronty). Tím se z e-mailu nikdy nestane výdaj
  * bez lidského oka a nespotřebuje se AI call na dosud neschválenou přílohu.
+ *
+ * Rozděluje-li schránka doklady mezi firmy ({@see EmailDistributionScope}), krok 5
+ * odpadá: do příchozích dokladů jde KAŽDÉ PDF, které není výpisem, protože účtenka
+ * označení dokladu ani adresáta mít nemusí. Firmu určí {@see DocumentAddresseeResolver};
+ * co nepřiřadí jednoznačně, zůstane ve firmě schránky a přesune se ručně.
  */
 final class EmailPdfInvoiceIngestor
 {
@@ -47,13 +54,15 @@ final class EmailPdfInvoiceIngestor
         private readonly PdfTotalExtractor $pdfText,
         private readonly PdfIsdocExtractor $pdfIsdoc,
         private readonly PurchaseInvoiceSubmissionUploadService $submissions,
+        private readonly DocumentAddresseeResolver $addressees,
+        private readonly PurchaseInvoiceSubmissionRepository $submissionRows,
     ) {}
 
     /**
      * @param array<string,mixed> $settings IMAP účet
      * @return array{enabled:bool,considered:int,imported:int,skipped:int,rejected:int,failed:int,details:list<array<string,mixed>>}
      */
-    public function ingestFromMessage(int $supplierId, array $settings, BankEmailNoticeMessage $message): array
+    public function ingestFromMessage(int $supplierId, array $settings, BankEmailNoticeMessage $message, ?EmailDistributionScope $scope = null): array
     {
         $summary = [
             'enabled' => !empty($settings['ingest_pdf_invoices']),
@@ -80,7 +89,7 @@ final class EmailPdfInvoiceIngestor
                 break;
             }
             $summary['considered']++;
-            $detail = $this->ingestAttachment($supplierId, $imapAccountId, $message, $attachment, $identity);
+            $detail = $this->ingestAttachment($supplierId, $imapAccountId, $message, $attachment, $identity, $scope);
             $summary['details'][] = $detail;
             $bucket = match ((string) $detail['status']) {
                 'imported' => 'imported',
@@ -104,6 +113,7 @@ final class EmailPdfInvoiceIngestor
         BankEmailNoticeMessage $message,
         EmailAttachment $attachment,
         array $identity,
+        ?EmailDistributionScope $scope = null,
     ): array {
         $base = [
             'supplier_id' => $supplierId,
@@ -126,7 +136,10 @@ final class EmailPdfInvoiceIngestor
         // Posuzovali jsme tenhle obsah už dřív? Pak ani neextrahujeme text —
         // rozhodnutí (i to zamítavé) drží log a nemá se měnit sám od sebe.
         $known = $this->log->findBySha($supplierId, $base['sha256']);
-        if ($known !== null) {
+        // Výjimka z pravidla: „není doklad naší firmy" mohlo padnout dřív, než schránka
+        // začala rozdělovat. S rozdělováním jde do fronty každé PDF, tak se posoudí znovu.
+        $reconsider = $scope !== null && $known !== null && (string) $known['status'] === 'skipped_not_invoice';
+        if ($known !== null && !$reconsider) {
             return $this->record(
                 $base,
                 'skipped_duplicate',
@@ -134,6 +147,10 @@ final class EmailPdfInvoiceIngestor
                 submissionId: isset($known['submission_id']) ? (int) $known['submission_id'] : null,
                 persist: false,
             ) + ['known_id' => (int) $known['id']];
+        }
+
+        if ($scope !== null) {
+            return $this->distributeAttachment($supplierId, $base, $message, $attachment, $scope);
         }
 
         try {
@@ -185,6 +202,71 @@ final class EmailPdfInvoiceIngestor
             submissionId: $submissionId > 0 ? $submissionId : null,
             matchedBy: $matchedBy,
             matchScore: $matchScore,
+        );
+    }
+
+    /**
+     * Příloha ze schránky, která rozděluje mezi firmy: bez filtru na typ dokladu,
+     * do firmy, které doklad podle odběratele patří.
+     *
+     * @param array<string,mixed> $base
+     * @return array<string,mixed>
+     */
+    private function distributeAttachment(
+        int $mailboxSupplierId,
+        array $base,
+        BankEmailNoticeMessage $message,
+        EmailAttachment $attachment,
+        EmailDistributionScope $scope,
+    ): array {
+        try {
+            $addressee = $this->addressees->resolve($attachment->content, 'pdf', $scope->inboxSupplierIds);
+        } catch (\Throwable) {
+            $addressee = ['supplier_id' => null, 'matched_by' => null, 'buyer_ic' => null, 'buyer_dic' => null, 'ambiguous' => false];
+        }
+        $targetId = $addressee['supplier_id'] ?? $mailboxSupplierId;
+
+        try {
+            $result = $this->submissions->submitBytes(
+                $attachment->content,
+                $this->safeFilename($attachment->filename),
+                $targetId,
+                null,
+                'email',
+                'Automaticky převzato z e-mailu od ' . $message->sender
+                    . ($message->subject !== '' ? ' — ' . $message->subject : ''),
+            );
+        } catch (\Throwable $e) {
+            return $this->record($base, 'failed', 'Založení podání selhalo: ' . $e->getMessage());
+        }
+
+        $submissionId = (int) ($result['submission']['id'] ?? 0);
+        // Odběratel ze strojových dat zůstane u podání: nepřiřazený doklad pak fronta
+        // umí nabídnout k přesunu, aniž by se musel znovu číst.
+        if ($submissionId > 0 && empty($result['duplicate']) && ($addressee['buyer_ic'] !== null || $addressee['buyer_dic'] !== null)) {
+            $this->submissionRows->recordDetectedBuyer($submissionId, $targetId, $addressee['buyer_ic'], $addressee['buyer_dic']);
+        }
+
+        if (!empty($result['duplicate'])) {
+            $reason = 'Doklad už ve frontě příchozích dokladů je.';
+        } elseif ($targetId !== $mailboxSupplierId) {
+            // Název cílové firmy do důvodu nepatří: log čtou i správci schránky bez
+            // přístupu do ní. Název ukazuje sloupec cílové firmy podle oprávnění.
+            $reason = sprintf('Přiřazeno jiné firmě podle odběratele (shoda: %s).', (string) $addressee['matched_by']);
+        } elseif ($addressee['supplier_id'] !== null) {
+            $reason = sprintf('Doklad patří firmě schránky (shoda: %s).', (string) $addressee['matched_by']);
+        } elseif ($addressee['ambiguous']) {
+            $reason = 'Doklad zmiňuje víc firem. Zůstal ve firmě schránky, přesuňte ho v příchozích dokladech.';
+        } else {
+            $reason = 'Adresát nerozpoznán. Doklad zůstal ve firmě schránky, případně ho přesuňte v příchozích dokladech.';
+        }
+
+        return $this->record(
+            $base + ['target_supplier_id' => $targetId],
+            !empty($result['duplicate']) ? 'skipped_duplicate' : 'imported',
+            $reason,
+            submissionId: $submissionId > 0 ? $submissionId : null,
+            matchedBy: $addressee['matched_by'] !== null ? (string) $addressee['matched_by'] : null,
         );
     }
 

@@ -198,6 +198,7 @@ final class PortfolioMembershipTest extends TestCase
         self::assertArrayHasKey('unbooked_breakdown', $row);
         self::assertArrayHasKey('unmatched_bank_transactions', $row);
         self::assertArrayHasKey('purchase_drafts', $row);
+        self::assertArrayHasKey('inbox_pending', $row);
         self::assertArrayHasKey('period_status', $row);
         self::assertArrayHasKey('last_bank_import_at', $row);
         self::assertSame($res['total'], count($res['companies']));

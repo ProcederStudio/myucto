@@ -135,7 +135,8 @@ U každého IMAP účtu zapnete dvě samostatné větve zpracování příloh.
 1. U IMAP účtu zapněte **Načítat PDF faktury z příloh** (výchozí je vypnuto). Doklady adresované vaší firmě se založí do `Nákup → Příchozí doklady`.
 2. Případně zapněte **Načítat PDF výpisy z příloh** (výchozí je vypnuto). Výpis banky, kterou aplikace umí číst a který patří k účtu vaší firmy, se naimportuje včetně párování plateb s fakturami.
 3. Chodí-li vám od banky avízo i PDF výpis na tentýž pohyb, vypněte **Načítat bankovní avíza**, ať se pohyby nezdvojí.
-4. Výsledek každé přílohy najdete v tabulce **PDF doklady z příloh** pod přehledem zpracovaných zpráv.
+4. Vedete-li víc firem a chodí-li jejich doklady do jedné schránky, zapněte **Načítat pro všechny firmy**. Výpisy, avíza i doklady se pak rozdělí mezi firmy, do kterých smíte zapisovat (viz [§ 30.11.19](#301119-jedna-schranka-pro-vice-firem)).
+5. Výsledek každé přílohy najdete v tabulce **PDF doklady z příloh** pod přehledem zpracovaných zpráv.
 
 **Jak poznáte, že je hotovo:** U příloh je výsledek **Přidáno do příchozích dokladů** (faktura) nebo **Naimportován bankovní výpis** (výpis). Příloha mimo vás skončí jako **Není doklad pro nás** nebo **Výpis k cizímu účtu** a nic se nezaloží.
 
@@ -381,6 +382,7 @@ Každá firma může mít více IMAP účtů, typicky jeden pro každou banku.
 | **E-mail přeposílatele (volitelně)** | Volitelné omezení, od koho smí přeposlaná avíza chodit - adresa (`jan@firma.cz`) nebo doména (`firma.cz`); prázdné = libovolný |
 | **Načítat PDF faktury z příloh** | Vedle avíz se z každé zprávy posoudí i PDF přílohy a doklady adresované vaší firmě se založí do Nákup → Příchozí doklady; **vypnuto** |
 | **Načítat PDF výpisy z příloh** | Vedle avíz se z každé zprávy posoudí i PDF přílohy a bankovní výpis k některému z účtů vaší firmy se rovnou naimportuje včetně párování plateb; **vypnuto** |
+| **Načítat pro všechny firmy** | Výpisy, avíza a PDF doklady se rozdělí mezi všechny firmy, do kterých smíte zapisovat, a do příchozích dokladů jde každé PDF kromě výpisů. Nabízí se jen při přístupu aspoň do dvou firem (viz [§ 30.11.19](#301119-jedna-schranka-pro-vice-firem)); **vypnuto** |
 | **Po úspěchu** | Co udělat se zpracovanou zprávou: **Neměnit zprávu**, **Přidat flag**, **Přesunout**, **Označit jako přečtené** |
 
 Pokud do schránky chodí avíza **přeposlaná** (například z firemní schránky na sběrnou adresu), zapněte **Přijímat přeposlaná (FW) avíza**. U přímého avíza se banka pozná podle odesílatele, ale přeposláním se odesílatelem stáváte vy, proto se pak banka hledá i z těla e-mailu. Volitelně omezte **E-mail přeposílatele**, ať se zpracují jen avíza od vaší adresy.
@@ -641,6 +643,22 @@ Skript spustí `php api/bin/cron-bank-email-notices.php`, projde aktivní IMAP �
 Bankovní výpis ([Banka](29_Banka.md)) i e-mailové avízo řeší jen **párování na faktury**. Transakce, které s fakturou nesouvisí - bankovní poplatky, úroky, odvody sociálního a zdravotního pojištění, splátky leasingu, převody mezi vlastními účty - potřebují vlastní **účetní zápis** (MD/D dle [Předkontace](73_Ucetni_nastroje.md#73113-predkontace-kurzy-a-repo-sazba)). O to se stará fronta **K zaúčtování** na téže stránce a pravidla účtování, která se spravují v `Nástroje → Šablony účtování` na záložce **Pravidla účtování**. Viditelné jsou jen firmě s **podvojným účetnictvím**.
 
 Kompletní popis (pravidla, režim **Návrh** a **Automaticky**, schvalování návrhů, založení pravidla přímo z platby) je v kapitole Banka, [§ 29.13.14 Pravidla účtování opakovaných plateb](29_Banka.md#291314-pravidla-uctovani-opakovanych-plateb) a [§ 29.13.14.1 Schvalování návrhů](29_Banka.md#2913141-schvalovani-navrhu).
+
+### 30.11.19 Jedna schránka pro více firem
+
+Účetní, která vede víc firem, může mít jednu sběrnou schránku pro všechny. Přepínač **Načítat pro všechny firmy** u IMAP účtu rozděluje výpisy, avíza a doklady mezi firmy, do kterých smíte zapisovat. Nabízí se jen tomu, kdo má oprávnění k importu banky nebo k příchozím dokladům aspoň ve dvou firmách. Uživatel s jedinou firmou ho neuvidí. Výchozí stav je vypnuto.
+
+| Co přijde | Kam patří |
+|---|---|
+| PDF výpis (přepínač **Načítat PDF výpisy z příloh**) | Firmě, které patří číslo účtu a měna výpisu. Odpovídá-li víc účtům, nenaimportuje se nikam. |
+| Avízo v těle e-mailu | Nejdřív mapování firmy, které schránka patří. Bez něj firmě, které patří cílový účet avíza. Účet s vypnutým mapováním a účet namapovaný na vlastní schránku jiné firmy se přeskočí, aby se pohyb nezdvojil. |
+| Ostatní PDF (přepínač **Načítat PDF faktury z příloh**) | Do příchozích dokladů jde každé PDF ze složky kromě výpisů, i účtenka bez označení dokladu. Firma se určí podle odběratele: ze strojového ISDOC, jinak podle IČO nebo DIČ v textu, a teprve bez nich podle názvu firmy. |
+
+Doklad, u kterého se odběratel nenajde nebo odpovídá víc firmám, zůstane v příchozích dokladech firmy, které schránka patří. Odtud ho přesunete ručně ([§ 23.11.3](23_Prijate_faktury.md#23113-prichozi-doklady)). V tabulce **PDF doklady z příloh** i v přehledu zpracovaných zpráv je u každé položky, která odešla do jiné firmy, uvedena cílová firma. Správce schránky bez přístupu do té firmy vidí jen „jiná firma“.
+
+Rozsah firem se řídí oprávněními uživatele, který rozdělování zapnul. Jméno uživatele i počet firem jsou u IMAP účtu vidět. Oprávnění se ověřují při každém skenu, takže odebraný přístup k firmě rozdělování do ní hned zastaví. Je-li uživatel deaktivovaný, schránka zpracuje jen vlastní firmu a sken to ohlásí. Úprava účtu jiným správcem rozsah nemění. Změní ho jen vypnutí a nové zapnutí.
+
+Cron prochází jen firmy, kterým schránka patří. Rozdělování proto funguje bez toho, že by cron musel skenovat všechny firmy instalace.
 
 ## 30.12 Související kapitoly
 

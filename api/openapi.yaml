@@ -31319,7 +31319,7 @@ components:
     PortfolioCompany:
       type: object
       required: [supplier_id, company_name, ic, is_vat_payer, accounting_mode, next_deadline, unbooked_documents,
-                 unbooked_breakdown, unmatched_bank_transactions, purchase_drafts, period_status, last_bank_import_at, volume,
+                 unbooked_breakdown, unmatched_bank_transactions, purchase_drafts, inbox_pending, period_status, last_bank_import_at, volume,
                  urgency, last_invoice_date, last_activity_at]
       properties:
         supplier_id: { type: integer }
@@ -31345,6 +31345,9 @@ components:
               link: { type: string }
         unmatched_bank_transactions: { type: integer }
         purchase_drafts: { type: integer }
+        inbox_pending:
+          type: integer
+          description: Doklady v příchozích dokladech, které čekají na vytěžení (včetně neúspěšného pokusu).
         period_status:
           type: [object, 'null']
           properties:

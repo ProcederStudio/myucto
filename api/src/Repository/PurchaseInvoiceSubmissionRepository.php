@@ -164,6 +164,21 @@ final class PurchaseInvoiceSubmissionRepository
         $stmt->execute([$source, mb_substr($error, 0, 8000), $id, $supplierId]);
     }
 
+    /** Odběratel, kterého na dokladu našel ISDOC nebo AI; podle něj fronta nabízí přesun. */
+    public function recordDetectedBuyer(int $id, int $supplierId, ?string $ic, ?string $dic): void
+    {
+        $this->db->pdo()->prepare(
+            'UPDATE purchase_invoice_submissions
+                SET detected_buyer_ic = ?, detected_buyer_dic = ?
+              WHERE id = ? AND supplier_id = ?'
+        )->execute([
+            $ic !== null && $ic !== '' ? mb_substr($ic, 0, 20) : null,
+            $dic !== null && $dic !== '' ? mb_substr($dic, 0, 20) : null,
+            $id,
+            $supplierId,
+        ]);
+    }
+
     public function complete(
         int $id,
         int $supplierId,

@@ -63,7 +63,7 @@ final class EmailPdfStatementIngestor
      * @param array<string,mixed> $settings IMAP účet
      * @return array{enabled:bool,considered:int,imported:int,skipped:int,rejected:int,failed:int,details:list<array<string,mixed>>}
      */
-    public function ingestFromMessage(int $supplierId, array $settings, BankEmailNoticeMessage $message): array
+    public function ingestFromMessage(int $supplierId, array $settings, BankEmailNoticeMessage $message, ?EmailDistributionScope $scope = null): array
     {
         $summary = [
             'enabled' => !empty($settings['ingest_pdf_statements']),
@@ -87,7 +87,7 @@ final class EmailPdfStatementIngestor
             if (++$seen > self::MAX_ATTACHMENTS_PER_MESSAGE) {
                 break;
             }
-            $detail = $this->ingestAttachment($supplierId, $imapAccountId, $message, $attachment);
+            $detail = $this->ingestAttachment($supplierId, $imapAccountId, $message, $attachment, $scope);
             if ($detail === null) {
                 continue; // není bankovní výpis — přílohu posoudí ingestor faktur
             }
@@ -113,10 +113,13 @@ final class EmailPdfStatementIngestor
         ?int $imapAccountId,
         BankEmailNoticeMessage $message,
         EmailAttachment $attachment,
+        ?EmailDistributionScope $scope = null,
     ): ?array {
         if (!$attachment->isPdf() || $attachment->size() > self::MAX_ATTACHMENT_BYTES) {
             return null;
         }
+        // Firmy, jejichž účtům smí výpis patřit. Bez rozdělování jen firma schránky.
+        $supplierIds = $scope?->bankSupplierIds ?? [$supplierId];
 
         $base = [
             'supplier_id' => $supplierId,
@@ -184,15 +187,19 @@ final class EmailPdfStatementIngestor
 
         $accountNumber = (string) ($parsed['header']['account_number'] ?? '');
         if (\MyInvoice\Service\Bank\CreditCard\CreditCardStatementImportService::isCreditCardStatement($parsed)) {
-            return $this->ingestCreditCard($supplierId, $base, $parsed, $attachment->content, $this->safeFilename($attachment->filename), $takenByInvoiceQueue);
+            return $this->ingestCreditCard($supplierIds, $base, $parsed, $attachment->content, $this->safeFilename($attachment->filename), $takenByInvoiceQueue);
         }
-        $currencyId = $this->resolveCurrencyAccount($supplierId, $accountNumber, $parsed);
-        if ($currencyId === null) {
+        $account = $this->resolveCurrencyAccount($supplierIds, $accountNumber, $parsed);
+        if ($account === null) {
             return $takenByInvoiceQueue ? null : $this->record($base, 'skipped_not_statement', sprintf(
-                'Výpis k účtu %s: tenhle účet není mezi bankovními účty firmy, nebo mu odpovídá víc účtů. Doplňte ho v nastavení a spusťte sken znovu.',
+                count($supplierIds) > 1
+                    ? 'Výpis k účtu %s: tenhle účet nepatří žádné z firem, do kterých schránka rozděluje, nebo mu odpovídá víc účtů. Doplňte ho v nastavení firmy a spusťte sken znovu.'
+                    : 'Výpis k účtu %s: tenhle účet není mezi bankovními účty firmy, nebo mu odpovídá víc účtů. Doplňte ho v nastavení a spusťte sken znovu.',
                 $accountNumber !== '' ? $accountNumber : 'neuveden',
             ));
         }
+        $currencyId = $account['currency_id'];
+        $base['target_supplier_id'] = $account['supplier_id'];
 
         try {
             $result = $this->importer->importParsedPdf(
@@ -237,25 +244,30 @@ final class EmailPdfStatementIngestor
     }
 
     /**
-     * Měnový účet firmy, kterému výpis patří (`currencies.id`). NULL = žádný nebo víc
-     * než jeden; obojí je důvod výpis NEimportovat. Tohle je hranice tenantů: bez ní
-     * by stačilo poslat do schránky cizí výpis a stal by se dokladem naší firmy.
+     * Měnový účet, kterému výpis patří (`currencies.id`), a jeho firma. NULL = žádný
+     * nebo víc než jeden; obojí je důvod výpis NEimportovat. Tohle je hranice
+     * tenantů: bez ní by stačilo poslat do schránky cizí výpis a stal by se dokladem
+     * naší firmy. Při rozdělování se hledá mezi účty všech povolených firem a
+     * jednoznačnost platí přes všechny dohromady.
      *
+     * @param list<int> $supplierIds
      * @param array{header:array<string,mixed>,transactions:list<array<string,mixed>>} $parsed
+     * @return array{currency_id:int,supplier_id:int}|null
      */
-    private function resolveCurrencyAccount(int $supplierId, string $accountNumber, array $parsed): ?int
+    private function resolveCurrencyAccount(array $supplierIds, string $accountNumber, array $parsed): ?array
     {
-        if ($accountNumber === '') {
+        if ($accountNumber === '' || $supplierIds === []) {
             return null;
         }
         $currency = $parsed['header']['account_currency'] ?? ($parsed['transactions'][0]['currency'] ?? null);
         $currency = is_string($currency) && $currency !== '' ? strtoupper($currency) : null;
 
+        $in = implode(',', array_fill(0, count($supplierIds), '?'));
         $query = $this->db->pdo()->prepare(
-            'SELECT id, code, account_number, iban FROM currencies
-              WHERE supplier_id = ? AND is_active = 1 AND (account_number IS NOT NULL OR iban IS NOT NULL)'
+            "SELECT id, supplier_id, code, account_number, iban FROM currencies
+              WHERE supplier_id IN ($in) AND is_active = 1 AND (account_number IS NOT NULL OR iban IS NOT NULL)"
         );
-        $query->execute([$supplierId]);
+        $query->execute($supplierIds);
         $matches = [];
         foreach ($query->fetchAll(\PDO::FETCH_ASSOC) as $row) {
             if (!AccountNumberNormalizer::matchesAny($accountNumber, $row['account_number'] ?? null, $row['iban'] ?? null)) {
@@ -266,7 +278,7 @@ final class EmailPdfStatementIngestor
             if ($currency !== null && strtoupper((string) $row['code']) !== $currency) {
                 continue;
             }
-            $matches[] = (int) $row['id'];
+            $matches[] = ['currency_id' => (int) $row['id'], 'supplier_id' => (int) $row['supplier_id']];
         }
         return count($matches) === 1 ? $matches[0] : null;
     }
@@ -303,21 +315,30 @@ final class EmailPdfStatementIngestor
     /**
      * Výpis kreditní karty: import jen k úvěrovému účtu, který firma už eviduje.
      *
+     * @param list<int> $supplierIds
      * @param array<string,mixed> $base
      * @param array{header:array<string,mixed>, transactions:list<array<string,mixed>>} $parsed
      * @return array<string,mixed>|null
      */
-    private function ingestCreditCard(int $supplierId, array $base, array $parsed, string $content, string $filename, bool $takenByInvoiceQueue): ?array
+    private function ingestCreditCard(array $supplierIds, array $base, array $parsed, string $content, string $filename, bool $takenByInvoiceQueue): ?array
     {
         $accountNumber = (string) ($parsed['header']['account_number'] ?? '');
         $bankCode = isset($parsed['header']['bank_code']) ? (string) $parsed['header']['bank_code'] : null;
-        $registry = $this->creditCardAccounts?->findRegistryRow($supplierId, $accountNumber, $bankCode);
-        if ($this->creditCards === null || $registry === null || (string) $registry['kind'] !== 'credit_card') {
+        $owners = [];
+        foreach ($supplierIds as $candidate) {
+            $row = $this->creditCardAccounts?->findRegistryRow($candidate, $accountNumber, $bankCode);
+            if ($row !== null && (string) $row['kind'] === 'credit_card') {
+                $owners[] = $candidate;
+            }
+        }
+        $supplierId = count($owners) === 1 ? $owners[0] : null;
+        if ($this->creditCards === null || $supplierId === null) {
             return $takenByInvoiceQueue ? null : $this->record($base, 'skipped_not_statement', sprintf(
                 'Výpis kreditní karty k účtu %s: tenhle úvěrový účet firma neeviduje. První výpis načtěte ručně v sekci Kreditní karty.',
                 $accountNumber !== '' ? $accountNumber : 'neuveden',
             ));
         }
+        $base['target_supplier_id'] = $supplierId;
         try {
             $result = $this->creditCards->importParsed($supplierId, $parsed, $content, $filename, null);
         } catch (\Throwable $e) {

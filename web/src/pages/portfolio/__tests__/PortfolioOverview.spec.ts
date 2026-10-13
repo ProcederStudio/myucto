@@ -61,6 +61,7 @@ function company(over: Partial<PortfolioCompany> = {}): PortfolioCompany {
     unbooked_breakdown: [],
     unmatched_bank_transactions: 0,
     purchase_drafts: 0,
+    inbox_pending: 0,
     period_status: null,
     last_bank_import_at: null,
     volume: {

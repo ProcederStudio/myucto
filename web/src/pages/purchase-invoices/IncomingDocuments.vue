@@ -7,6 +7,7 @@ import {
   type PurchaseInvoiceSubmission,
   type PurchaseInvoiceSubmissionKindHint,
   type PurchaseInvoiceSubmissionStatus,
+  type SubmissionMoveTargets,
   type SubmissionUploadResult,
 } from '@/api/purchaseInvoiceSubmissions'
 import { useSupplierStore } from '@/stores/supplier'
@@ -59,7 +60,68 @@ const canWrite = computed(() => auth.canWrite('documents.inbox'))
 const canCreateInvoice = computed(() => auth.canWrite('purchase_invoices.create'))
 const canDelete = computed(() => auth.canWrite('documents.inbox.delete'))
 /** U dokladu, který si účetní nahrála sama, není komu psát „co doplnit". */
-const hasClientToInform = computed(() => selected.value !== null && selected.value.submitted_via !== 'staff')
+const hasClientToInform = computed(() => selected.value !== null
+  && selected.value.submitted_via !== 'staff' && selected.value.submitted_via !== 'email')
+
+// ── Přesun do jiné firmy ────────────────────────────────────────────────────
+// Nabízí se jen uživateli s víc firmami. Cílové firmy a návrh podle odběratele
+// počítá server (oprávnění v cílové firmě, ISDOC, text PDF, vytěžený odběratel).
+const hasOtherCompanies = computed(() => supplierStore.availableSuppliers.length > 1)
+function canMove(item: PurchaseInvoiceSubmission): boolean {
+  return canWrite.value && hasOtherCompanies.value
+    && ['submitted', 'needs_information', 'rejected'].includes(item.status)
+    && item.purchase_invoice_id === null
+    && (item.submitted_via === 'staff' || item.submitted_via === 'email')
+}
+const moveOpen = ref(false)
+const moveLoading = ref(false)
+const moveTargets = ref<SubmissionMoveTargets | null>(null)
+const moveTargetId = ref<number | null>(null)
+
+async function openMove() {
+  const item = selected.value
+  if (!item || moveLoading.value) return
+  moveOpen.value = true
+  moveLoading.value = true
+  moveTargets.value = null
+  moveTargetId.value = item.move_suggestion?.supplier_id ?? null
+  try {
+    const result = await purchaseInvoiceSubmissionsApi.moveTargets(item.id)
+    if (selected.value?.id !== item.id) return
+    moveTargets.value = result
+    moveTargetId.value = result.suggestion?.supplier_id ?? moveTargetId.value ?? result.targets[0]?.id ?? null
+  } catch (e) {
+    toast.error(apiErrorMessage(e))
+    moveOpen.value = false
+  } finally {
+    moveLoading.value = false
+  }
+}
+
+function moveTargetName(id: number | null): string {
+  return moveTargets.value?.targets.find(f => f.id === id)?.name
+    ?? (selected.value?.move_suggestion?.supplier_id === id ? selected.value?.move_suggestion?.supplier_name ?? '' : '')
+}
+
+async function moveSelected(targetId: number | null) {
+  const item = selected.value
+  if (!item || acting.value || targetId === null) return
+  if (!confirm(t('purchase_submissions.move_confirm', { name: item.original_name, company: moveTargetName(targetId) }))) return
+  acting.value = true
+  try {
+    const result = await purchaseInvoiceSubmissionsApi.move(item.id, targetId)
+    toast.success(result.duplicate
+      ? t('purchase_submissions.move_success_duplicate', { company: moveTargetName(targetId) })
+      : t('purchase_submissions.move_success', { company: moveTargetName(targetId) }))
+    moveOpen.value = false
+    selected.value = null
+    await load(false)
+  } catch (e) {
+    toast.error(apiErrorMessage(e))
+  } finally {
+    acting.value = false
+  }
+}
 function canReview(item: PurchaseInvoiceSubmission): boolean {
   return (item.status === 'submitted' || item.status === 'needs_information')
     && item.replacement_submission_id === null && item.purchase_invoice_id === null
@@ -442,7 +504,7 @@ function kindLabel(item: PurchaseInvoiceSubmission): string {
 
 onMounted(() => { void load(false); void dims.load() })
 watch(status, () => { selected.value = null; checkedIds.value = new Set(); void load(false) })
-watch(() => selected.value?.id, () => { reason.value = '' })
+watch(() => selected.value?.id, () => { reason.value = ''; moveOpen.value = false; moveTargets.value = null })
 watch(() => supplierStore.currentSupplierId, () => {
   context++
   items.value = []
@@ -633,6 +695,9 @@ onBeforeUnmount(() => { context++; loadRequest++ })
           </div>
           <p class="text-xs text-neutral-500 mt-1">{{ item.submitted_by_name || '—' }} · {{ size(item.size_bytes) }}</p>
           <p v-if="item.note" class="text-xs text-neutral-600 mt-2 line-clamp-2">{{ item.note }}</p>
+          <p v-if="item.move_suggestion" class="mt-2 inline-flex items-center px-2 py-0.5 rounded-full bg-primary-50 text-primary-700 text-[11px] font-medium">
+            {{ t('purchase_submissions.belongs_to', { company: item.move_suggestion.supplier_name }) }}
+          </p>
           <DimensionChips v-if="item.dimensions && Object.keys(item.dimensions).length" :dimensions="item.dimensions" class="mt-2" />
           </button>
         </div>
@@ -693,6 +758,47 @@ onBeforeUnmount(() => { context++; loadRequest++ })
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v12m0 0l-4-4m4 4 4-4M5 20h14" /></svg>
               {{ t('purchase_submissions.download') }}
             </a>
+          </div>
+
+          <div v-if="canMove(selected)" class="space-y-2 pt-2 border-t border-neutral-100" data-testid="inbox-move">
+            <p v-if="selected.move_suggestion" class="text-sm text-neutral-700">
+              {{ t('purchase_submissions.move_suggestion_hint', { company: selected.move_suggestion.supplier_name }) }}
+            </p>
+            <div class="flex flex-wrap gap-2">
+              <button v-if="selected.move_suggestion" type="button" :disabled="acting" :class="btnFilled('primary')"
+                class="whitespace-nowrap" data-testid="inbox-move-suggested" @click="moveSelected(selected.move_suggestion.supplier_id)">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
+                {{ t('purchase_submissions.move_to', { company: selected.move_suggestion.supplier_name }) }}
+              </button>
+              <button v-if="!moveOpen" type="button" :disabled="acting || moveLoading" :class="btnOutline('neutral')"
+                class="whitespace-nowrap" data-testid="inbox-move-open" @click="openMove">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
+                {{ t('purchase_submissions.move_other') }}
+              </button>
+            </div>
+            <div v-if="moveOpen" class="space-y-2">
+              <p v-if="moveLoading" class="text-sm text-neutral-500">{{ t('common.loading') }}</p>
+              <template v-else-if="moveTargets">
+                <p v-if="moveTargets.blocked_reason" class="text-sm text-warning-700">{{ moveTargets.blocked_reason }}</p>
+                <p v-else-if="moveTargets.targets.length === 0" class="text-sm text-neutral-500">{{ t('purchase_submissions.move_no_targets') }}</p>
+                <div v-else class="flex flex-wrap items-center gap-2">
+                  <select v-model="moveTargetId" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm min-w-[14rem]" data-testid="inbox-move-target">
+                    <option v-for="firm in moveTargets.targets" :key="firm.id" :value="firm.id">
+                      {{ firm.name }}<template v-if="firm.ic"> · {{ firm.ic }}</template><template v-if="moveTargets.suggestion?.supplier_id === firm.id"> ({{ t('purchase_submissions.move_suggested') }})</template>
+                    </option>
+                  </select>
+                  <button type="button" :disabled="acting || moveTargetId === null" :class="btnFilled('primary')"
+                    class="whitespace-nowrap" data-testid="inbox-move-confirm" @click="moveSelected(moveTargetId)">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
+                    {{ t('purchase_submissions.move_confirm_button') }}
+                  </button>
+                  <button type="button" :class="btnOutline('neutral')" class="whitespace-nowrap" @click="moveOpen = false">
+                    {{ t('common.cancel') }}
+                  </button>
+                </div>
+              </template>
+              <p class="text-xs text-neutral-500">{{ t('purchase_submissions.move_hint') }}</p>
+            </div>
           </div>
 
           <div v-if="canReviewSelected" class="space-y-2 pt-2 border-t border-neutral-100">

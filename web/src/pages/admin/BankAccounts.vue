@@ -130,6 +130,12 @@ const providers = ref<BankEmailProvider[]>([])
 const imapAccounts = ref<BankEmailImapSettings[]>([])
 const messages = ref<BankEmailProcessedMessage[]>([])
 const attachmentIngests = ref<BankEmailAttachmentIngest[]>([])
+/**
+ * Rozdělování do firem nabízíme jen tomu, kdo zapisuje aspoň do dvou firem.
+ * Účet, který už rozděluje, ukazuje přepínač vždy, aby šel vypnout.
+ */
+const distributionSupplierCount = ref(0)
+const distributionAvailable = computed(() => distributionSupplierCount.value >= 2 || !!imapDraft.distribute_to_suppliers)
 /** Sekci s přílohami ukazujeme, jen když ji aspoň jeden účet má zapnutou. */
 const pdfIngestEnabled = computed(() => imapAccounts.value.some(a => a.ingest_pdf_invoices || a.ingest_pdf_statements))
 function attachmentStatusClass(status: BankEmailAttachmentIngest['status']): string {
@@ -226,6 +232,7 @@ function defaultImapDraft(): Partial<BankEmailImapSettings> & { password?: strin
     ingest_notices: true,
     ingest_pdf_invoices: false,
     ingest_pdf_statements: false,
+    distribute_to_suppliers: false,
     forwarded_from: '',
     email_auth_serv_id: '',
     username: '',
@@ -284,6 +291,7 @@ async function loadEmailOverview() {
     messagesTotal.value = overview.messages_total ?? overview.messages.length
     messagesPage.value = 1
     attachmentIngests.value = overview.attachments ?? []
+    distributionSupplierCount.value = overview.distribution_supplier_count ?? 0
     bankEmailLoaded.value = true
   } catch (e) {
     if (generation !== bankEmailGeneration) return
@@ -1196,6 +1204,9 @@ async function deleteMessage(m: BankEmailProcessedMessage) {
                 <td class="px-3 py-2">
                   <div class="font-medium">{{ account.name }}</div>
                   <div class="text-xs text-neutral-500">{{ account.username || t('bank_accounts.no_username') }}</div>
+                  <span v-if="account.distribute_to_suppliers" class="inline-flex items-center mt-1 px-2 py-0.5 rounded-full bg-primary-50 text-primary-700 text-xs whitespace-nowrap">
+                    {{ t('bank_accounts.distribute_badge', { n: account.distribute_supplier_count ?? 0 }) }}
+                  </span>
                 </td>
                 <td class="px-3 py-2 font-mono text-xs">{{ account.host || '—' }}<span v-if="account.port">:{{ account.port }}</span></td>
                 <td class="px-3 py-2">{{ account.folder || 'INBOX' }}</td>
@@ -1332,6 +1343,16 @@ async function deleteMessage(m: BankEmailProcessedMessage) {
               <span>
                 {{ t('bank_accounts.ingest_pdf_statements') }}
                 <span class="block text-xs text-neutral-500">{{ t('bank_accounts.ingest_pdf_statements_hint') }}</span>
+              </span>
+            </label>
+            <label v-if="distributionAvailable" class="flex items-start gap-2 text-sm md:col-span-3" data-testid="imap-distribute">
+              <input v-model="imapDraft.distribute_to_suppliers" type="checkbox" class="mt-0.5 rounded border-neutral-300 text-primary-600" />
+              <span>
+                {{ t('bank_accounts.distribute_to_suppliers') }}
+                <span class="block text-xs text-neutral-500">{{ t('bank_accounts.distribute_to_suppliers_hint') }}</span>
+                <span v-if="imapDraft.distribute_to_suppliers && imapDraft.distribute_user_name" class="block text-xs text-neutral-500 mt-0.5">
+                  {{ t('bank_accounts.distribute_owner', { name: imapDraft.distribute_user_name, n: imapDraft.distribute_supplier_count ?? 0 }) }}
+                </span>
               </span>
             </label>
             <div>
@@ -1536,6 +1557,7 @@ async function deleteMessage(m: BankEmailProcessedMessage) {
                   <span v-if="m.bank_transaction_id">#{{ m.bank_transaction_id }}</span>
                   <span v-else>—</span>
                   <div v-if="m.matched_varsymbol" class="text-xs text-success-600">{{ t('bank_accounts.matched_invoice', { vs: m.matched_varsymbol }) }}</div>
+                  <div v-if="m.target_supplier_name || m.target_hidden" class="text-xs text-primary-700">→ {{ m.target_supplier_name || t('bank_accounts.target_other_company') }}</div>
                 </td>
                 <td class="px-3 py-2 text-right">
                   <button type="button" @click="deleteMessage(m)" class="cursor-pointer text-danger-600 hover:text-danger-700 text-xs">{{ t('bank_accounts.delete_message') }}</button>
@@ -1589,6 +1611,7 @@ async function deleteMessage(m: BankEmailProcessedMessage) {
                 </td>
                 <td class="px-3 py-2 whitespace-nowrap">
                   <span :class="attachmentStatusClass(a.status)">{{ t(`bank_accounts.attachments_status_${a.status}`) }}</span>
+                  <div v-if="a.target_supplier_name || a.target_hidden" class="text-xs text-primary-700">→ {{ a.target_supplier_name || t('bank_accounts.target_other_company') }}</div>
                 </td>
                 <td class="px-3 py-2 text-xs whitespace-nowrap">
                   <template v-if="a.matched_by">{{ a.matched_by }}<template v-if="a.match_score !== null"> · {{ a.match_score }} %</template></template>

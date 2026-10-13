@@ -10,6 +10,7 @@ use MyInvoice\Service\Document\DocumentStorage;
 use MyInvoice\Service\Import\AiPdfExtractor;
 use MyInvoice\Service\Import\InvoiceExtractionRouter;
 use MyInvoice\Service\Import\InvoiceImportService;
+use MyInvoice\Support\CompanyIdNormalizer;
 
 /** ISDOC-first zpracování staging originálu; při chybě se originál ani fronta neztratí. */
 final class PurchaseInvoiceSubmissionProcessingService
@@ -47,6 +48,7 @@ final class PurchaseInvoiceSubmissionProcessingService
         }
 
         $source = 'unknown';
+        $buyer = null;
         try {
             $submission = $this->submissions->find($id, $supplierId);
             if ($submission === null) throw new \RuntimeException('Převzaté podání nebylo nalezeno.');
@@ -77,6 +79,7 @@ final class PurchaseInvoiceSubmissionProcessingService
                         422,
                     );
                 }
+                $buyer = (array) ($invoices[0]['client'] ?? []);
                 $report = $this->importer->importBundle(
                     [['name' => $name, 'content' => $bytes]],
                     $supplierId,
@@ -119,6 +122,7 @@ final class PurchaseInvoiceSubmissionProcessingService
                     );
                 }
                 $result = $this->ai->extractAndCreate($supplierId, $userId, $bytes, null, $name);
+                $buyer = (array) (($result['ai_data'] ?? [])['customer'] ?? []);
                 if (!$result['ok'] || (int) ($result['purchase_invoice_id'] ?? 0) <= 0) {
                     throw new PurchaseInvoiceSubmissionException(
                         'extraction_failed',
@@ -155,6 +159,13 @@ final class PurchaseInvoiceSubmissionProcessingService
             ];
         } catch (\Throwable $e) {
             $this->submissions->extractionFailed($id, $supplierId, $source, $e->getMessage());
+            // Doklad jiné firmy poznáme až z vytěžených dat. Odběratel zůstane u podání,
+            // aby fronta nabídla přesun do firmy, které doklad patří.
+            $buyerIc = CompanyIdNormalizer::ic(isset($buyer['ic']) ? (string) $buyer['ic'] : null);
+            $buyerDic = CompanyIdNormalizer::dic(isset($buyer['dic']) ? (string) $buyer['dic'] : null);
+            if ($buyerIc !== null || $buyerDic !== null) {
+                $this->submissions->recordDetectedBuyer($id, $supplierId, $buyerIc, $buyerDic);
+            }
             if ($e instanceof PurchaseInvoiceSubmissionException) throw $e;
             throw new PurchaseInvoiceSubmissionException(
                 'extraction_failed',

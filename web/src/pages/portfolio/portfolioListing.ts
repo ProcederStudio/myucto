@@ -7,14 +7,14 @@ import type { LocationQuery } from 'vue-router'
 import type { PortfolioCompany } from '@/api/portfolio'
 
 export type PortfolioSort =
-  | 'urgency' | 'name' | 'deadline' | 'unbooked' | 'bank' | 'overdue' | 'last_invoice' | 'last_activity'
+  | 'urgency' | 'name' | 'deadline' | 'unbooked' | 'bank' | 'inbox' | 'overdue' | 'last_invoice' | 'last_activity'
 
 export const PORTFOLIO_SORTS: PortfolioSort[] = [
-  'urgency', 'name', 'deadline', 'unbooked', 'bank', 'overdue', 'last_invoice', 'last_activity',
+  'urgency', 'name', 'deadline', 'unbooked', 'bank', 'inbox', 'overdue', 'last_invoice', 'last_activity',
 ]
 
 export const DEFAULT_DIR: Record<PortfolioSort, 'asc' | 'desc'> = {
-  urgency: 'desc', name: 'asc', deadline: 'asc', unbooked: 'desc', bank: 'desc',
+  urgency: 'desc', name: 'asc', deadline: 'asc', unbooked: 'desc', bank: 'desc', inbox: 'desc',
   overdue: 'desc', last_invoice: 'desc', last_activity: 'desc',
 }
 
@@ -74,6 +74,7 @@ const KEYS: Record<Exclude<PortfolioSort, 'name'>, (c: PortfolioCompany) => numb
   deadline: c => c.next_deadline?.days ?? null,
   unbooked: c => c.unbooked_documents,
   bank: c => c.unmatched_bank_transactions,
+  inbox: c => c.inbox_pending ?? 0,
   overdue: c => c.urgency?.overdue_receivables ?? 0,
   last_invoice: c => c.last_invoice_date,
   last_activity: c => c.last_activity_at,

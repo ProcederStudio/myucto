@@ -148,6 +148,7 @@ final class PortfolioAggregationService
             'unbooked_breakdown'          => $unbookedBreakdown,
             'unmatched_bank_transactions' => $this->unmatchedBankCount($supplierId, $now),
             'purchase_drafts'             => $this->purchaseDraftsCount($supplierId),
+            'inbox_pending'               => $this->inboxPendingCount($supplierId),
             'period_status'      => $this->periodStatus($supplierId),
             'last_bank_import_at' => $this->lastBankImportAt($supplierId),
             'volume'             => $volume,
@@ -181,6 +182,19 @@ final class PortfolioAggregationService
     {
         $stmt = $this->db->pdo()->prepare(
             "SELECT COUNT(*) FROM purchase_invoices WHERE supplier_id = ? AND status = 'draft'"
+        );
+        $stmt->execute([$supplierId]);
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * Doklady v příchozích dokladech, které čekají na vytěžení. Patří sem i podání,
+     * jehož vytěžení selhalo: vrací se do stavu `submitted` a čeká na další pokus.
+     */
+    private function inboxPendingCount(int $supplierId): int
+    {
+        $stmt = $this->db->pdo()->prepare(
+            "SELECT COUNT(*) FROM purchase_invoice_submissions WHERE supplier_id = ? AND status = 'submitted'"
         );
         $stmt->execute([$supplierId]);
         return (int) $stmt->fetchColumn();

@@ -23,7 +23,7 @@ export interface PurchaseInvoiceSubmission {
   supersedes_submission_id: number | null
   replacement_submission_id: number | null
   submitted_by: number | null
-  submitted_via: 'portal' | 'document_request' | 'staff'
+  submitted_via: 'portal' | 'document_request' | 'staff' | 'email'
   note: string | null
   document_kind_hint: PurchaseInvoiceSubmissionKindHint | null
   status: PurchaseInvoiceSubmissionStatus
@@ -58,6 +58,18 @@ export interface PurchaseInvoiceSubmission {
   processed_by?: number | null
   processed_by_name?: string | null
   processing_started_at?: string | null
+  /** Odběratel přečtený vytěžením (ISDOC/AI); podle něj fronta navrhuje přesun. */
+  detected_buyer_ic?: string | null
+  detected_buyer_dic?: string | null
+  /** Firma, které doklad podle odběratele patří a do které ho uživatel smí přesunout. */
+  move_suggestion?: { supplier_id: number; supplier_name: string } | null
+}
+
+export interface SubmissionMoveTargets {
+  targets: Array<{ id: number; name: string; ic: string | null; dic: string | null }>
+  suggestion: { supplier_id: number; matched_by: string | null } | null
+  /** Proč doklad přesunout nejde; null = jde. */
+  blocked_reason: string | null
 }
 
 export interface PurchaseInvoiceSubmissionPage {
@@ -159,6 +171,15 @@ export const purchaseInvoiceSubmissionsApi = {
   /** Vyřadí podání z fronty a originál pošle do koše Dokumentů (documents.inbox.delete). */
   remove: (id: number) =>
     api.delete<{ ok: boolean; document_id: number }>(`/purchase-invoice-submissions/${id}`).then(r => r.data),
+  /** Firmy, do kterých jde doklad přesunout, a návrh podle odběratele. */
+  moveTargets: (id: number) =>
+    api.get<SubmissionMoveTargets>(`/purchase-invoice-submissions/${id}/move-targets`).then(r => r.data),
+  /** Přesune doklad do příchozích dokladů jiné firmy; ve zdrojové firmě jde originál do koše. */
+  move: (id: number, targetSupplierId: number) =>
+    api.post<{ target_supplier_id: number; submission_id: number; duplicate: boolean }>(
+      `/purchase-invoice-submissions/${id}/move`,
+      { target_supplier_id: targetSupplierId },
+    ).then(r => r.data),
   previewUrl: (id: number) => fileUrl(`/purchase-invoice-submissions/${id}/preview`),
   downloadUrl: (id: number) => fileUrl(`/purchase-invoice-submissions/${id}/download`),
 }

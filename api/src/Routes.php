@@ -743,6 +743,8 @@ final class Routes
         $app->post   ('/api/purchase-invoice-submissions/{id:[0-9]+}/extract', [\MyInvoice\Action\PurchaseInvoice\PurchaseInvoiceSubmissionAction::class, 'extract']);
         $app->post   ('/api/purchase-invoice-submissions/{id:[0-9]+}/needs-information', [\MyInvoice\Action\PurchaseInvoice\PurchaseInvoiceSubmissionAction::class, 'needsInformation']);
         $app->post   ('/api/purchase-invoice-submissions/{id:[0-9]+}/reject', [\MyInvoice\Action\PurchaseInvoice\PurchaseInvoiceSubmissionAction::class, 'reject']);
+        $app->get    ('/api/purchase-invoice-submissions/{id:[0-9]+}/move-targets', [\MyInvoice\Action\PurchaseInvoice\PurchaseInvoiceSubmissionAction::class, 'moveTargets']);
+        $app->post   ('/api/purchase-invoice-submissions/{id:[0-9]+}/move', [\MyInvoice\Action\PurchaseInvoice\PurchaseInvoiceSubmissionAction::class, 'move']);
         $app->delete ('/api/purchase-invoice-submissions/{id:[0-9]+}', [\MyInvoice\Action\PurchaseInvoice\PurchaseInvoiceSubmissionAction::class, 'delete']);
 
         $app->post   ('/api/purchase-invoices/scan-inbox',                ScanInboxAction::class);
