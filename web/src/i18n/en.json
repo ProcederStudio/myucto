@@ -29777,6 +29777,8 @@
   "mcp_server_page": {
     "subtitle": "Connect an AI assistant to your company's invoicing, projects, documents, logbook, statistics and e-shop.",
     "log_title": "Call log",
+    "all_users": "All users",
+    "user_column": "User",
     "connection": {
       "tabs_label": "MCP connection method",
       "remote_tab": "Connect online",
@@ -29808,6 +29810,9 @@
       "grant_expires": "Valid until:",
       "grant_revoke": "Revoke access",
       "grant_revoke_confirm": "Revoke access for “{name}”? The current token and its refresh will stop working.",
+      "grants_intro_all": "Access approved through OAuth by all users of this instance. Revoking it immediately stops access and token refresh and is written to the audit log.",
+      "grant_owner": "User:",
+      "grant_revoke_other_confirm": "Revoke access for “{name}” granted by {user}? The current token and its refresh will stop working.",
       "grant_revoked": "Access revoked.",
       "remote_title": "This installation's MCP server",
       "remote_intro": "Once enabled, the MCP server runs on this installation's domain. Add the address to your AI assistant as a custom remote connector. You do not need to download an .mjs file or install Node.js on your computer or phone; Node.js must be available on the MyÚčto server.",

@@ -29777,6 +29777,8 @@
   "mcp_server_page": {
     "subtitle": "Napojení AI asistenta na fakturaci, zakázky, dokumenty, knihu jízd, statistiku a e-shop vaší firmy.",
     "log_title": "Log volání",
+    "all_users": "Všichni uživatelé",
+    "user_column": "Uživatel",
     "connection": {
       "tabs_label": "Způsob připojení MCP",
       "remote_tab": "Připojit online",
@@ -29808,6 +29810,9 @@
       "grant_expires": "Platí do:",
       "grant_revoke": "Odvolat přístup",
       "grant_revoke_confirm": "Opravdu odvolat přístup aplikace „{name}“? Přestane fungovat i obnova tokenu.",
+      "grants_intro_all": "Přístupy povolené přes OAuth všemi uživateli instance. Odvolání okamžitě zastaví přístup i obnovu tokenu a zapíše se do auditního logu.",
+      "grant_owner": "Uživatel:",
+      "grant_revoke_other_confirm": "Opravdu odvolat přístup aplikace „{name}“ uživateli {user}? Přestane fungovat i obnova tokenu.",
       "grant_revoked": "Přístup byl odvolán.",
       "remote_title": "MCP server této instalace",
       "remote_intro": "Po zapnutí běží MCP server na doméně této instalace. Adresu vložte do AI asistenta jako vlastní vzdálený konektor. Na počítači ani v telefonu nemusíte stahovat soubor .mjs nebo instalovat Node.js; ten musí být dostupný na serveru MyÚčta.",

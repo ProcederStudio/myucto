@@ -80,8 +80,27 @@ final class ApiRequestLogger
      */
     public function listForUser(int $userId, array $filter = [], int $limit = 50, int $offset = 0): array
     {
-        $where  = ['l.user_id = :uid'];
-        $params = [':uid' => $userId];
+        return $this->listEntries($userId, $filter, $limit, $offset);
+    }
+
+    /**
+     * Výpis logu všech uživatelů instance i se jménem uživatele (volitelně filtr
+     * `user_id`). Jen pro superadmina, bránu drží volající akce.
+     *
+     * @param array{user_id?:int,token_id?:int,method?:string,route?:string,client?:string,only_errors?:bool} $filter
+     * @return array{rows: list<array<string,mixed>>, total: int}
+     */
+    public function listAll(array $filter = [], int $limit = 50, int $offset = 0): array
+    {
+        $userId = (int) ($filter['user_id'] ?? 0);
+        return $this->listEntries($userId > 0 ? $userId : null, $filter, $limit, $offset);
+    }
+
+    /** @return array{rows: list<array<string,mixed>>, total: int} */
+    private function listEntries(?int $userId, array $filter, int $limit, int $offset): array
+    {
+        $where  = $userId !== null ? ['l.user_id = :uid'] : ['1 = 1'];
+        $params = $userId !== null ? [':uid' => $userId] : [];
 
         if (!empty($filter['token_id'])) {
             $where[] = 'l.token_id = :tid';
@@ -116,9 +135,14 @@ final class ApiRequestLogger
         $stmt = $pdo->prepare(
             'SELECT l.id, l.token_id, t.name AS token_name, l.supplier_id, l.ts, l.ip,
                     l.method, l.route, l.query, l.status, l.duration_ms, l.scope_used,
-                    l.client, l.client_version, l.tool, l.error_code
+                    l.client, l.client_version, l.tool, l.error_code,
+                    l.user_id, u.name AS user_name, u.email AS user_email,
+                    (g.id IS NOT NULL) AS via_oauth, c.client_name AS oauth_client
                FROM api_request_log l
-               LEFT JOIN api_tokens t ON t.id = l.token_id'
+               LEFT JOIN api_tokens t ON t.id = l.token_id
+               LEFT JOIN users u ON u.id = l.user_id
+               LEFT JOIN mcp_oauth_grants g ON g.access_token_id = l.token_id
+               LEFT JOIN mcp_oauth_clients c ON c.client_id = g.client_id'
             . $sqlWhere .
             ' ORDER BY l.id DESC LIMIT ' . $limit . ' OFFSET ' . $offset
         );
@@ -128,6 +152,8 @@ final class ApiRequestLogger
         foreach ($rows as &$r) {
             $r['id']          = (int) $r['id'];
             $r['token_id']    = $r['token_id'] !== null ? (int) $r['token_id'] : null;
+            $r['user_id']     = $r['user_id'] !== null ? (int) $r['user_id'] : null;
+            $r['via_oauth']   = (bool) $r['via_oauth'];
             $r['supplier_id'] = $r['supplier_id'] !== null ? (int) $r['supplier_id'] : null;
             $r['status']      = (int) $r['status'];
             $r['duration_ms'] = (int) $r['duration_ms'];

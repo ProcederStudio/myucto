@@ -271,6 +271,85 @@ final class McpOAuthGrantTest extends TestCase
         }
     }
 
+    public function testSuperadminSeesAndRevokesOtherUsersConnectionsWithNames(): void
+    {
+        $config = Config::load(dirname(__DIR__, 3));
+        $base = rtrim((string) $config->get('app.url'), '/');
+        $resource = $base . '/mcp';
+        $pdo = $this->db->pdo();
+        $readonlyRole = (int) $pdo->query("SELECT id FROM roles WHERE system_key = 'readonly' AND is_active = 1 LIMIT 1")->fetchColumn();
+        $pdo->prepare('INSERT INTO users (email, password_hash, name, role_id, is_active) VALUES (?, ?, ?, ?, 1)')->execute([
+            'mcp-other-' . bin2hex(random_bytes(8)) . '@example.test',
+            (new PasswordHasher($config))->hash('synthetic-test-password'),
+            'Jana Syntetická', $readonlyRole,
+        ]);
+        $otherId = (int) $pdo->lastInsertId();
+
+        $client = $this->oauth->register('Synthetic other assistant', ['https://client.example.test/callback']);
+        $this->clientIds[] = $client;
+        $verifier = str_repeat('c', 64);
+        $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
+        $code = $this->oauth->createCode($client, $otherId, $this->supplierId, 'https://client.example.test/callback', $challenge, 'read', $resource);
+        $grant = $this->oauth->exchange($code, $client, 'https://client.example.test/callback', $verifier, $resource);
+        self::assertIsArray($grant);
+        $tokenId = (int) $this->tokens->validate($grant['access_token'])['id'];
+        $pdo->prepare(
+            "INSERT INTO api_request_log (token_id, user_id, supplier_id, method, route, status, duration_ms, client)
+             VALUES (?, ?, ?, 'POST', '/mcp', 200, 5, 'mcp')"
+        )->execute([$tokenId, $otherId, $this->supplierId]);
+
+        $sessions = new SessionManager($this->db, $config, new DatabaseSecurityClock());
+        $admin = $sessions->create($this->userId, '127.0.0.1', 'synthetic-mcp-test');
+        $other = $sessions->create($otherId, '127.0.0.1', 'synthetic-mcp-test');
+        $cookie = (string) $config->get('session.cookie_name', '__Host-myinvoice_session');
+        $get = static fn (string $path, array $session) => (new ServerRequestFactory())
+            ->createServerRequest('GET', $base . $path, ['REMOTE_ADDR' => '127.0.0.1'])
+            ->withCookieParams([$cookie => $session['token']]);
+        try {
+            $app = Bootstrap::buildApp();
+
+            self::assertSame(403, $app->handle($get('/api/mcp/grants?all=1', $other))->getStatusCode());
+            self::assertSame(403, $app->handle($get('/api/auth/api-log?all=1', $other))->getStatusCode());
+            $own = json_decode((string) $app->handle($get('/api/mcp/grants', $admin))->getBody(), true, 512, JSON_THROW_ON_ERROR)['grants'];
+            self::assertNotContains($otherId, array_column($own, 'user_id'), 'Bez all=1 vidí i superadmin jen svá připojení.');
+
+            $listed = $app->handle($get('/api/mcp/grants?all=1', $admin));
+            self::assertSame(200, $listed->getStatusCode(), (string) $listed->getBody());
+            $rows = array_values(array_filter(
+                json_decode((string) $listed->getBody(), true, 512, JSON_THROW_ON_ERROR)['grants'],
+                static fn (array $row): bool => $row['user_id'] === $otherId,
+            ));
+            self::assertCount(1, $rows);
+            self::assertSame('Jana Syntetická', $rows[0]['user_name']);
+            self::assertStringStartsWith('mcp-other-', $rows[0]['user_email']);
+
+            $log = $app->handle($get('/api/auth/api-log?all=1&user_id=' . $otherId, $admin));
+            self::assertSame(200, $log->getStatusCode(), (string) $log->getBody());
+            $entries = json_decode((string) $log->getBody(), true, 512, JSON_THROW_ON_ERROR)['entries'];
+            self::assertCount(1, $entries);
+            self::assertSame('Jana Syntetická', $entries[0]['user_name']);
+            self::assertTrue($entries[0]['via_oauth']);
+            self::assertSame('Synthetic other assistant', $entries[0]['oauth_client']);
+
+            $revoked = $app->handle($get('/api/mcp/grants/' . $rows[0]['id'], $admin)->withMethod('DELETE')
+                ->withHeader('Origin', $base)
+                ->withHeader('X-CSRF-Token', $admin['csrf_token']));
+            self::assertSame(200, $revoked->getStatusCode(), (string) $revoked->getBody());
+            self::assertNull($this->tokens->validate($grant['access_token']));
+            $audit = $pdo->prepare("SELECT user_id FROM activity_log WHERE action = 'mcp_grant.revoked_by_admin' AND entity_id = ?");
+            $audit->execute([$rows[0]['id']]);
+            self::assertSame($this->userId, (int) $audit->fetchColumn());
+        } finally {
+            $sessions->destroy($admin['token']);
+            $sessions->destroy($other['token']);
+            $pdo->prepare("DELETE FROM activity_log WHERE action = 'mcp_grant.revoked_by_admin' AND user_id = ?")->execute([$this->userId]);
+            $pdo->prepare('DELETE FROM api_request_log WHERE user_id = ?')->execute([$otherId]);
+            $pdo->prepare('DELETE FROM mcp_oauth_grants WHERE user_id = ?')->execute([$otherId]);
+            $pdo->prepare('DELETE FROM api_tokens WHERE user_id = ?')->execute([$otherId]);
+            $pdo->prepare('DELETE FROM users WHERE id = ?')->execute([$otherId]);
+        }
+    }
+
     public function testDiscoveryRegistrationAndMcpChallengePassFullMiddleware(): void
     {
         $previous = getenv('MYINVOICE_MCP_ENABLED');

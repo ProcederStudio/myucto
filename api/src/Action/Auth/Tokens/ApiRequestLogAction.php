@@ -6,6 +6,7 @@ namespace MyInvoice\Action\Auth\Tokens;
 
 use MyInvoice\Http\Json;
 use MyInvoice\Middleware\AuthMiddleware;
+use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Service\ApiRequestLogger;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -15,9 +16,10 @@ use Psr\Http\Message\ServerRequestInterface as Request;
  *
  * Session-only (není v `ApiScopeMiddleware::BEARER_ALLOWED`) — kdo si čte log,
  * má být přihlášený člověk, ne integrace. Uživatel vidí výhradně řádky svých
- * vlastních tokenů, filtr `user_id` je v repository napevno.
+ * vlastních tokenů, filtr `user_id` je v repository napevno. Superadmin s `all=1`
+ * vidí log všech uživatelů instance i se jménem uživatele (volitelně `user_id`).
  *
- * Query: token_id, method, route, client, only_errors, limit (1–200), offset
+ * Query: all, user_id, token_id, method, route, client, only_errors, limit (1–200), offset
  */
 final class ApiRequestLogAction
 {
@@ -53,7 +55,13 @@ final class ApiRequestLogAction
         $limit  = (int) ($q['limit'] ?? 50);
         $offset = (int) ($q['offset'] ?? 0);
 
-        $result = $this->log->listForUser($userId, $filter, $limit, $offset);
+        $all = filter_var($q['all'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        if ($all && !RequestAuthorization::isSuperadmin($request)) {
+            return Json::error($response, 'forbidden', 'Log všech uživatelů vidí jen správce instance.', 403);
+        }
+        $result = $all
+            ? $this->log->listAll($filter + ['user_id' => (int) ($q['user_id'] ?? 0)], $limit, $offset)
+            : $this->log->listForUser($userId, $filter, $limit, $offset);
 
         return Json::ok($response, [
             'entries' => $result['rows'],

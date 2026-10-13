@@ -178,21 +178,38 @@ final class McpOAuth
 
     public function listForUser(int $userId): array
     {
+        return $this->listGrants($userId);
+    }
+
+    /**
+     * Připojení všech uživatelů instance i se jménem uživatele. Jen pro superadmina,
+     * bránu drží volající akce.
+     */
+    public function listAll(): array
+    {
+        return $this->listGrants(null);
+    }
+
+    private function listGrants(?int $userId): array
+    {
         $stmt = $this->db->pdo()->prepare(
             'SELECT g.id, c.client_name, g.supplier_id, s.display_name AS supplier_name,
                     s.company_name AS supplier_company, g.scope, g.created_at, g.expires_at,
-                    g.revoked_at, t.revoked_at AS token_revoked_at, t.last_used_at
+                    g.revoked_at, t.revoked_at AS token_revoked_at, t.last_used_at,
+                    g.user_id, u.name AS user_name, u.email AS user_email
                FROM mcp_oauth_grants g
                JOIN mcp_oauth_clients c ON c.client_id = g.client_id
                LEFT JOIN supplier s ON s.id = g.supplier_id
                JOIN api_tokens t ON t.id = g.access_token_id
-              WHERE g.user_id = ?
-              ORDER BY g.revoked_at IS NOT NULL, g.created_at DESC, g.id DESC'
+               LEFT JOIN users u ON u.id = g.user_id'
+            . ($userId !== null ? ' WHERE g.user_id = ?' : '')
+            . ' ORDER BY g.revoked_at IS NOT NULL, g.created_at DESC, g.id DESC'
         );
-        $stmt->execute([$userId]);
+        $stmt->execute($userId !== null ? [$userId] : []);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
         foreach ($rows as &$row) {
             $row['id'] = (int) $row['id'];
+            $row['user_id'] = (int) $row['user_id'];
             $row['supplier_id'] = $row['supplier_id'] !== null ? (int) $row['supplier_id'] : null;
             $row['is_active'] = $row['revoked_at'] === null
                 && $row['token_revoked_at'] === null
@@ -204,24 +221,39 @@ final class McpOAuth
 
     public function revokeForUser(int $grantId, int $userId): bool
     {
+        return $this->revokeGrant($grantId, $userId) !== null;
+    }
+
+    /**
+     * Odebrání připojení libovolného uživatele superadminem. Vrací vlastníka
+     * připojení kvůli auditnímu záznamu, null když připojení neexistuje.
+     */
+    public function revokeAny(int $grantId): ?int
+    {
+        return $this->revokeGrant($grantId, null);
+    }
+
+    private function revokeGrant(int $grantId, ?int $userId): ?int
+    {
         $pdo = $this->db->pdo();
         $pdo->beginTransaction();
         try {
             $stmt = $pdo->prepare(
-                'SELECT access_token_id FROM mcp_oauth_grants WHERE id = ? AND user_id = ? FOR UPDATE'
+                'SELECT access_token_id, user_id FROM mcp_oauth_grants WHERE id = ?'
+                . ($userId !== null ? ' AND user_id = ?' : '') . ' FOR UPDATE'
             );
-            $stmt->execute([$grantId, $userId]);
-            $tokenId = $stmt->fetchColumn();
-            if ($tokenId === false) {
+            $stmt->execute($userId !== null ? [$grantId, $userId] : [$grantId]);
+            $grant = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($grant === false) {
                 $pdo->rollBack();
-                return false;
+                return null;
             }
             $pdo->prepare('UPDATE mcp_oauth_grants SET revoked_at = COALESCE(revoked_at, NOW()) WHERE id = ?')
                 ->execute([$grantId]);
             $pdo->prepare('UPDATE api_tokens SET revoked_at = COALESCE(revoked_at, NOW()) WHERE id = ?')
-                ->execute([$tokenId]);
+                ->execute([$grant['access_token_id']]);
             $pdo->commit();
-            return true;
+            return (int) $grant['user_id'];
         } catch (\Throwable $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();
             throw $e;

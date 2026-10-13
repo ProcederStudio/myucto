@@ -441,6 +441,9 @@ zvolené firmě, rozsah a oprávnění účtu. Odebrání firmy nebo práv se pr
 dalším volání. Aktivní povolení se zobrazují ve stejné záložce pod
 stavem serveru. Tlačítko **Odvolat přístup** okamžitě zneplatní přístupový token
 i možnost jeho obnovy. Konektor můžete navíc odebrat v nastavení asistenta.
+Superadmin (správce instance) může zaškrtnout **Všichni uživatelé** a uvidí povolení
+všech uživatelů instance i se jménem a e-mailem uživatele, který je udělil. Odvolat
+může i cizí povolení, odvolání se zapíše do auditního logu včetně vlastníka povolení.
 Uživatel s rolí pouze pro čtení může připojení povolit jen pro čtení. Pro sdílení
 samotných statistik mu nastavte roli s přístupem pouze k příslušným přehledům
 a právem číst správu vlastních API tokenů.
@@ -1221,8 +1224,11 @@ Stránka **Firma → MCP server** má dole **Log volání** - každé volání v
 tokenů včetně zamítnutých. U volání z MCP serveru je vidět i **název nástroje**,
 takže poznáte, co asistent dělal, ne jen jaké URL zavolal.
 
-Filtruje se podle tokenu, metody, cesty, zdroje a na samotné chyby. Podrobnosti
-jsou v [§ 104.9.9](104_API.md#10499-log-volani-api).
+Filtruje se podle tokenu, metody, cesty, zdroje a na samotné chyby. Volání přes
+online připojení nese štítek **OAuth** a místo technického názvu tokenu název
+aplikace, které přístup patří. Superadmin může zaškrtnout **Všichni uživatelé**:
+log pak ukazuje volání všech uživatelů instance se sloupcem **Uživatel** (jméno
+a e-mail). Podrobnosti jsou v [§ 104.9.9](104_API.md#10499-log-volani-api).
 
 ### 106.8.11 Bezpečnost
 

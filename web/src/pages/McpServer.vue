@@ -42,6 +42,9 @@ const connectionMode = ref<ConnectionMode>('local')
 interface RemoteGrant {
   id: number
   client_name: string
+  user_id: number
+  user_name: string | null
+  user_email: string | null
   supplier_id: number | null
   supplier_name: string | null
   supplier_company: string | null
@@ -57,6 +60,9 @@ const activeGrants = computed(() => grants.value.filter((grant) => grant.is_acti
 const grantsLoading = ref(false)
 const grantsError = ref('')
 const revokingGrantId = ref<number | null>(null)
+// Superadmin vidí připojení i log všech uživatelů instance (server to vynucuje sám).
+const isSuperadmin = computed(() => auth.isSuperadmin)
+const grantsAll = ref(false)
 const diagnosticsLoading = ref(false)
 const diagnosticsCount = ref<number | null>(null)
 const diagnosticsError = ref('')
@@ -65,7 +71,9 @@ async function loadGrants() {
   grantsLoading.value = true
   grantsError.value = ''
   try {
-    const { data } = await api.get<{ grants: RemoteGrant[] }>('/mcp/grants')
+    const { data } = await api.get<{ grants: RemoteGrant[] }>('/mcp/grants', {
+      params: grantsAll.value ? { all: 1 } : undefined,
+    })
     grants.value = data.grants
   } catch (e: any) {
     grantsError.value = e?.response?.data?.error?.message || t('mcp_server_page.connection.grants_load_error')
@@ -74,8 +82,15 @@ async function loadGrants() {
   }
 }
 
+function grantOwner(grant: { user_name?: string | null; user_email?: string | null }): string {
+  return grant.user_name || grant.user_email || '—'
+}
+
 async function revokeGrant(grant: RemoteGrant) {
-  if (revokingGrantId.value !== null || !confirm(t('mcp_server_page.connection.grant_revoke_confirm', { name: grant.client_name }))) return
+  const confirmText = grantsAll.value && grant.user_id !== auth.user?.id
+    ? t('mcp_server_page.connection.grant_revoke_other_confirm', { name: grant.client_name, user: grantOwner(grant) })
+    : t('mcp_server_page.connection.grant_revoke_confirm', { name: grant.client_name })
+  if (revokingGrantId.value !== null || !confirm(confirmText)) return
   revokingGrantId.value = grant.id
   try {
     await api.delete(`/mcp/grants/${grant.id}`)
@@ -316,6 +331,13 @@ const error = ref('')
 const PER_PAGE = 40
 const page = ref(1)
 const filter = ref({ token_id: 0, method: '', route: '', client: '', only_errors: false })
+const logAll = ref(false)
+
+/** Seznam tokenů pro filtr je jen vlastní, v logu všech uživatelů by mátl. */
+function onLogAllChange() {
+  filter.value.token_id = 0
+  applyFilter()
+}
 
 const pages = computed(() => Math.max(1, Math.ceil(total.value / PER_PAGE)))
 const hasFilter = computed(() =>
@@ -334,6 +356,7 @@ async function loadLog() {
   error.value = ''
   try {
     const res = await tokensApi.log({
+      all: logAll.value || undefined,
       token_id: filter.value.token_id || undefined,
       method: filter.value.method || undefined,
       route: filter.value.route || undefined,
@@ -971,7 +994,11 @@ npm install</pre>
       </div>
 
       <div class="px-5 pb-3 flex flex-wrap items-end gap-2 text-sm">
-        <label class="block">
+        <label v-if="isSuperadmin" class="flex items-center gap-1.5 h-9 whitespace-nowrap">
+          <input type="checkbox" v-model="logAll" @change="onLogAllChange" />
+          <span>{{ t('mcp_server_page.all_users') }}</span>
+        </label>
+        <label v-if="!logAll" class="block">
           <span class="text-xs text-neutral-500">Token</span>
           <select v-model.number="filter.token_id" @change="applyFilter"
             class="mt-0.5 block h-9 px-2 border border-neutral-300 rounded-md bg-surface text-sm">
@@ -1023,6 +1050,7 @@ npm install</pre>
           <thead class="bg-neutral-50 text-neutral-600 text-xs uppercase">
             <tr>
               <th class="text-left px-3 py-2 whitespace-nowrap">Čas</th>
+              <th v-if="logAll" class="text-left px-3 py-2">{{ t('mcp_server_page.user_column') }}</th>
               <th class="text-left px-3 py-2">Token</th>
               <th class="text-left px-3 py-2">Nástroj</th>
               <th class="text-left px-3 py-2">Metoda</th>
@@ -1034,16 +1062,26 @@ npm install</pre>
           </thead>
           <tbody>
             <!-- Texty natvrdo česky ze stejného důvodu jako zbytek stránky (viz docblock). -->
-            <EmptyState v-if="!loading && entries.length === 0 && hasFilter" dense :colspan="8" variant="filtered"
+            <EmptyState v-if="!loading && entries.length === 0 && hasFilter" dense :colspan="logAll ? 9 : 8" variant="filtered"
               title="Žádné záznamy neodpovídají filtru"
               message="Zkuste jiné období, jiný token nebo filtr zrušte."
               cta="Zrušit filtr" @action="resetFilter" />
-            <EmptyState v-else-if="!loading && entries.length === 0" dense :colspan="8" accent="neutral" icon="link"
+            <EmptyState v-else-if="!loading && entries.length === 0" dense :colspan="logAll ? 9 : 8" accent="neutral" icon="link"
               title="Zatím žádné volání API"
               message="Jakmile se přes MCP server ozve první klient, objeví se tu záznam o každém volání." />
             <tr v-for="e in entries" :key="e.id" class="border-t border-neutral-200 align-top">
               <td class="px-3 py-2 text-neutral-500 whitespace-nowrap font-mono text-xs">{{ fmtTime(e.ts) }}</td>
-              <td class="px-3 py-2 text-neutral-600">{{ e.token_name || '—' }}</td>
+              <td v-if="logAll" class="px-3 py-2">
+                <div class="text-neutral-800">{{ grantOwner(e) }}</div>
+                <div v-if="e.user_name && e.user_email" class="text-[11px] text-neutral-500">{{ e.user_email }}</div>
+              </td>
+              <td class="px-3 py-2 text-neutral-600">
+                <template v-if="e.via_oauth">
+                  <span class="px-1.5 py-0.5 rounded bg-neutral-100 text-neutral-600 text-[10px] font-medium uppercase">OAuth</span>
+                  {{ e.oauth_client || e.token_name || '—' }}
+                </template>
+                <template v-else>{{ e.token_name || '—' }}</template>
+              </td>
               <td class="px-3 py-2">
                 <code v-if="e.tool" class="text-xs font-mono">{{ e.tool }}</code>
                 <span v-else class="text-neutral-400">—</span>
@@ -1122,8 +1160,14 @@ npm install</pre>
         </div>
       </div>
       <div class="bg-surface border border-neutral-200 rounded-lg shadow-sm p-5 mb-4">
-        <h2 class="text-lg font-semibold mb-1">{{ t('mcp_server_page.connection.grants_title') }}</h2>
-        <p class="text-sm text-neutral-600 mb-4">{{ t('mcp_server_page.connection.grants_intro') }}</p>
+        <div class="flex flex-wrap items-start justify-between gap-3 mb-1">
+          <h2 class="text-lg font-semibold">{{ t('mcp_server_page.connection.grants_title') }}</h2>
+          <label v-if="isSuperadmin" class="flex items-center gap-1.5 text-sm whitespace-nowrap">
+            <input type="checkbox" v-model="grantsAll" @change="loadGrants" />
+            <span>{{ t('mcp_server_page.all_users') }}</span>
+          </label>
+        </div>
+        <p class="text-sm text-neutral-600 mb-4">{{ t(grantsAll ? 'mcp_server_page.connection.grants_intro_all' : 'mcp_server_page.connection.grants_intro') }}</p>
         <p v-if="grantsLoading" class="text-sm text-neutral-500">{{ t('mcp_server_page.connection.grants_loading') }}</p>
         <p v-else-if="grantsError" role="alert" class="text-sm text-danger-600">{{ grantsError }}</p>
         <p v-else-if="activeGrants.length === 0" class="text-sm text-neutral-500">{{ t('mcp_server_page.connection.grants_empty') }}</p>
@@ -1131,6 +1175,9 @@ npm install</pre>
           <div v-for="grant in activeGrants" :key="grant.id" class="flex flex-wrap items-center justify-between gap-3 p-3">
             <div class="min-w-0">
               <div class="font-medium text-sm">{{ grant.client_name }}</div>
+              <div v-if="grantsAll" class="text-xs text-neutral-700">
+                {{ t('mcp_server_page.connection.grant_owner') }} {{ grantOwner(grant) }}<span v-if="grant.user_name && grant.user_email" class="text-neutral-500"> · {{ grant.user_email }}</span>
+              </div>
               <div class="text-xs text-neutral-500">{{ grant.supplier_id === null ? t('mcp_server_page.connection.all_accessible_companies') : (grant.supplier_name || grant.supplier_company) }} · {{ t(grant.scope === 'read' ? 'mcp_server_page.connection.scope_read' : 'mcp_server_page.connection.scope_write') }}</div>
               <div class="text-xs text-neutral-500">{{ t('mcp_server_page.connection.grant_created') }} {{ fmtTime(grant.created_at) }} · {{ t('mcp_server_page.connection.grant_expires') }} {{ fmtTime(grant.expires_at) }}</div>
             </div>

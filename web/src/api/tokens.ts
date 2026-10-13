@@ -48,9 +48,19 @@ export interface ApiLogEntry {
   /** Název MCP nástroje, který volání vyvolal. */
   tool: string
   error_code: string
+  /** Vlastník tokenu; jméno a e-mail plní server (u vlastního logu jde o přihlášeného). */
+  user_id?: number | null
+  user_name?: string | null
+  user_email?: string | null
+  /** Volání přes připojení OAuth (vzdálený MCP) a název klienta, který ho založil. */
+  via_oauth?: boolean
+  oauth_client?: string | null
 }
 
 export interface ApiLogFilter {
+  /** Log všech uživatelů instance, jen pro superadmina. */
+  all?: boolean
+  user_id?: number
   token_id?: number
   method?: string
   route?: string
