@@ -63,6 +63,17 @@ final class TakenOverRecord
         ],
     ];
 
+    /**
+     * Mapa převodu => `kind` účetního období, které převod založil (smazání převodu ho
+     * uklízí). Stereo NX období do mapy nezapisuje.
+     */
+    private const PERIOD_KINDS = [
+        'abra_flexi_import_map' => 'ucetni-obdobi',
+        'money_s3_import_map'   => 'period',
+        'pohoda_import_map'     => 'period',
+        'premier_import_map'    => 'period',
+    ];
+
     private const REFERENCE = '/^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)?$/D';
 
     public function __construct(private readonly Connection $db) {}
@@ -159,6 +170,22 @@ final class TakenOverRecord
         );
         $stmt->execute([$supplierId, $docType, $documentId]);
         return $stmt->fetchColumn() !== false;
+    }
+
+    /** Účetní období založil převod z jiného programu a eviduje ho ve své mapě. */
+    public function isAccountingPeriod(int $supplierId, int $periodId): bool
+    {
+        foreach (self::PERIOD_KINDS as $map => $kind) {
+            if (!$this->db->hasTable($map)) {
+                continue;
+            }
+            $stmt = $this->db->pdo()->prepare("SELECT 1 FROM {$map} WHERE supplier_id = ? AND kind = ? AND target_id = ? LIMIT 1");
+            $stmt->execute([$supplierId, $kind, $periodId]);
+            if ($stmt->fetchColumn() !== false) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public function hasLiveBankEntry(int $supplierId, int $txId): bool

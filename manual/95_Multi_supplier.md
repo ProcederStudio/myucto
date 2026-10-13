@@ -454,8 +454,10 @@ EPO a Pohoda kódy):
 
 Pole **Účetní rok začíná** určuje tvar účetního roku firmy: podle něj se zakládají nová účetní období, počítají
 odpisy majetku a převody z jiných účetních programů rozdělují historii do let. Nastavuje se předem, před prvním
-obdobím nebo převodem. Proti existujícím obdobím jiného tvaru ho uložit nejde, protože změna účetního roku je
-samostatný úkon s přechodným obdobím. Fyzická osoba vede vždy kalendářní rok.
+zaúčtováním nebo převodem. Období, ve kterých ještě nic není (typicky kalendářní rok otevřený při založení firmy),
+se po uložení smažou a aplikace založí období pro dnešní datum už v novém tvaru. Jakmile je v některém období
+zápis v deníku, uzávěrka nebo ho založil převod, uložit pole nejde, protože změna účetního roku je samostatný
+úkon s přechodným obdobím. Fyzická osoba vede vždy kalendářní rok.
 
 Pole smí měnit jen admin, stejně jako ostatní údaje v detailu dodavatele. Výjimkou je zapnutí skladu, které smí
 přepnout i role účetní.

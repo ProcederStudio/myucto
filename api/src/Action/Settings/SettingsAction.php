@@ -86,6 +86,7 @@ final class SettingsAction
         private readonly SupplierPaymentQrSettingsRepository $paymentQrSettings,
         private readonly SupplierCreator $supplierCreator,
         private readonly SupplierDirectory $supplierDirectory,
+        private readonly \MyInvoice\Service\Accounting\FiscalYearStartChanger $fiscalYearStart,
     ) {}
 
     /**
@@ -616,9 +617,11 @@ final class SettingsAction
         ) {
             return Json::error($response, 'validation_failed', 'tax_accounting_decree musí být číslo účetní vyhlášky (500/501/502/503/504/325/410).', 400);
         }
-        // Začátek účetního roku (migrace 2003). Zadává se PŘEDEM: jakmile firma má účetní
-        // období, tvar roku určují ta a změna účetního roku je samostatný zákonný úkon
+        // Začátek účetního roku (migrace 2003). Zadává se PŘEDEM: jakmile firma má použitá
+        // účetní období, tvar roku určují ta a změna účetního roku je samostatný zákonný úkon
         // s přechodným obdobím (§ 3 odst. 2 ZoÚ) — přes nastavení ji tiše neprovedeme.
+        // Období jen otevřená při založení firmy (nic v nich není) se nahradí novým tvarem.
+        $replaceUnusedPeriods = false;
         if (array_key_exists('fiscal_year_start_month', $body)) {
             $month = filter_var($body['fiscal_year_start_month'], FILTER_VALIDATE_INT);
             if ($month === false || $month < 1 || $month > 12) {
@@ -636,9 +639,12 @@ final class SettingsAction
             $changed = $periodsRepo->fiscalYearStartMonth((int) $id) !== $month;
             $periods = $changed ? $periodsRepo->listForTenant((int) $id) : [];
             if ($periods !== [] && $periodsRepo->fiscalCalendar((int) $id)->startMonth() !== $month) {
-                return Json::error($response, 'fiscal_year_conflicts_periods',
-                    'Firma už má účetní období jiného tvaru. Začátek účetního roku se nastavuje předem; '
-                        . 'změna účetního roku se řeší přechodným obdobím na stránce Účetní období.', 409);
+                if ($this->fiscalYearStart->blockingPeriods((int) $id) !== []) {
+                    return Json::error($response, 'fiscal_year_conflicts_periods',
+                        'Firma už má použitá účetní období jiného tvaru. Začátek účetního roku se nastavuje předem; '
+                            . 'změna účetního roku se řeší přechodným obdobím na stránce Účetní období.', 409);
+                }
+                $replaceUnusedPeriods = true;
             }
         }
         if (array_key_exists('tax_entity_status_date', $body)) {
@@ -983,6 +989,19 @@ final class SettingsAction
             }
         }
 
+        if ($replaceUnusedPeriods) {
+            try {
+                $this->fiscalYearStart->replaceUnusedPeriods(
+                    $id,
+                    (int) $body['fiscal_year_start_month'],
+                    (int) (((array) $request->getAttribute(AuthMiddleware::ATTR_USER, []))['id'] ?? 0) ?: null,
+                );
+            } catch (\DomainException) {
+                return Json::error($response, 'fiscal_year_conflicts_periods',
+                    'Firma už má použitá účetní období jiného tvaru. Začátek účetního roku se nastavuje předem; '
+                        . 'změna účetního roku se řeší přechodným obdobím na stránce Účetní období.', 409);
+            }
+        }
         if (!empty($sets)) {
             $params[] = $id;
             $sql = 'UPDATE supplier SET ' . implode(', ', $sets) . ' WHERE id = ?';
