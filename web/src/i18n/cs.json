@@ -25158,6 +25158,22 @@
       "continue_epo": "Pokračovat do EPO",
       "snapshot": "XML snapshot",
       "snapshot_details": "Podrobnosti snapshotu",
+      "vat_payment": {
+        "title": "Platba daně",
+        "paid": "Zaplaceno",
+        "unpaid": "Nezaplaceno",
+        "amount": "Částka",
+        "account": "Účet",
+        "variable_symbol": "Variabilní symbol",
+        "due_date": "Splatnost",
+        "due_amendment": "ve lhůtě pro dodatečné přiznání",
+        "office": "Správce daně",
+        "paid_at": "Uhrazeno",
+        "qr_alt": "QR platba DPH",
+        "unknown_office": "Kód finančního úřadu v XML neznáme, účet doplňte podle seznamu Finanční správy.",
+        "refund": "Nadměrný odpočet {amount} vrátí finanční úřad, nic se neplatí.",
+        "nothing": "Vlastní daňová povinnost je nulová, nic se neplatí."
+      },
       "preflight_failed": "XML nelze předat do EPO, dokud neprojde XSD validací",
       "files": "souborů",
       "upload_title": "Nahrát výstupy z EPO",
@@ -26325,7 +26341,11 @@
       "submitted": "Podáno",
       "not_submitted": "Nepodáno",
       "paid": "Zaplaceno",
-      "due": "Splatné"
+      "due": "Splatné",
+      "to_pay": "K úhradě",
+      "pay_to": "Zaplatit {amount} na {account}",
+      "vs": "VS {vs}",
+      "refund": "Nadměrný odpočet {amount}"
     },
     "cash_flow": {
       "title": "Cash flow prognóza",

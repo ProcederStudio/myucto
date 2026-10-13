@@ -143,6 +143,49 @@ final class CrmTaxCalendarTest extends TestCase
         self::assertFalse($kh['submitted']);
     }
 
+    public function testSubmittedVatReturnShowsPaymentUntilBankStatementCoversIt(): void
+    {
+        $this->configure('quarterly', 'po');
+        $xml = '<Pisemnost><DPHDP3><VetaD dapdph_forma="B" rok="2026" ctvrt="3"/>'
+            . '<VetaP c_ufo="454" dic="24681357"/>'
+            . '<Veta6 dan_zocelk="1500" odp_zocelk="500" dano_da="1000"/></DPHDP3></Pisemnost>';
+        $this->archiveSubmission('dphdp3', 2026, null, 3, 'submitted', $xml);
+        $now = new \DateTimeImmutable('2026-10-13');
+
+        $dph = $this->findByType($this->crm->taxCalendarItems($this->supplierId, $now, 45), 'tax_deadline');
+        self::assertNotNull($dph);
+        self::assertSame(1000.0, $dph['payment']['payable']);
+        self::assertSame('705-77627311/0710', $dph['payment']['account']);
+        self::assertSame('24681357', $dph['payment']['variable_symbol']);
+        self::assertSame('2026-10-26', $dph['payment']['due_date']);
+        self::assertFalse($dph['payment']['paid']);
+
+        $items = $this->crm->vatPaymentItems($this->supplierId, $now);
+        self::assertCount(1, $items);
+        self::assertSame('vat_payment', $items[0]['type']);
+        self::assertStringContainsString('705-77627311/0710', $items[0]['hint']);
+
+        // Úhrada na účet jiné daně (713) se stejným VS DPH nezaplatí.
+        $pdo = $this->db->pdo();
+        $pdo->prepare(
+            "INSERT INTO bank_statements (supplier_id, file_name, file_hash, account_number, bank_code, currency, statement_date)
+             VALUES (?, '__test_vat_payment.gpc', SHA2(RAND(), 256), '1000000005', '0100', 'CZK', '2026-10-20')"
+        )->execute([$this->supplierId]);
+        $statementId = (int) $pdo->lastInsertId();
+        $tx = $pdo->prepare(
+            "INSERT INTO bank_transactions (statement_id, posted_at, amount, currency, counterparty_account, counterparty_bank, variable_symbol)
+             VALUES (?, '2026-10-20', ?, 'CZK', ?, '0710', '24681357')"
+        );
+        $tx->execute([$statementId, -1000, '713-77627311']);
+        self::assertCount(1, $this->crm->vatPaymentItems($this->supplierId, $now));
+
+        $tx->execute([$statementId, -1000, '0007050077627311']);
+        self::assertSame([], $this->crm->vatPaymentItems($this->supplierId, $now));
+        $dph = $this->findByType($this->crm->taxCalendarItems($this->supplierId, $now, 45), 'tax_deadline');
+        self::assertTrue($dph['payment']['paid']);
+        self::assertSame('2026-10-20', $dph['payment']['paid_at']);
+    }
+
     public function testGeneratedXmlWithoutFilingIsNotSubmitted(): void
     {
         $this->configure('quarterly', 'po');

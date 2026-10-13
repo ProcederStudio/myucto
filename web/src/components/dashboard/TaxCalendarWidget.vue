@@ -58,10 +58,24 @@ function statusClass(item: TaxCalendarItem): string {
               {{ item.deadline }}
               <span v-if="item.amount !== undefined" class="ml-1 text-neutral-500">· {{ formatMoney(item.amount, 'CZK') }}</span>
             </div>
+            <div v-if="item.payment && item.payment.payable > 0" class="text-xs mt-0.5 text-neutral-600">
+              {{ t('crm.tax_calendar.pay_to', { amount: formatMoney(item.payment.payable, 'CZK'), account: item.payment.account ?? '—' }) }}
+              <span v-if="item.payment.variable_symbol" class="text-neutral-500">· {{ t('crm.tax_calendar.vs', { vs: item.payment.variable_symbol }) }}</span>
+            </div>
+            <div v-else-if="item.payment && item.payment.refund > 0" class="text-xs mt-0.5 text-neutral-600">
+              {{ t('crm.tax_calendar.refund', { amount: formatMoney(item.payment.refund, 'CZK') }) }}
+            </div>
           </div>
-          <span class="shrink-0 px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap" :class="statusClass(item)">
-            {{ statusLabel(item) }}
-          </span>
+          <div class="shrink-0 flex flex-col items-end gap-1">
+            <span class="px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap" :class="statusClass(item)">
+              {{ statusLabel(item) }}
+            </span>
+            <span
+              v-if="item.payment && item.payment.payable > 0"
+              class="px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap"
+              :class="item.payment.paid ? 'bg-success-50 text-success-600' : 'bg-warning-50 text-warning-700'"
+            >{{ item.payment.paid ? t('crm.tax_calendar.paid') : t('crm.tax_calendar.to_pay') }}</span>
+          </div>
         </RouterLink>
       </li>
     </ul>

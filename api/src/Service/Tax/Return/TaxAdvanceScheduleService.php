@@ -99,8 +99,8 @@ final class TaxAdvanceScheduleService
      * (DPFO). Ostatní (705 DPH, 7720 srážková, 713 závislá činnost) nesou stejný VS = DIČ,
      * ale na zálohu na daň z příjmů NEpatří — předčíslí je odfiltruje.
      */
-    private const FU_PREFIX_DPPO = '7704';
-    private const FU_PREFIX_DPFO = '721';
+    private const FU_PREFIX_DPPO = \MyInvoice\Service\Tax\TaxOfficeBankAccounts::PREFIX_DPPO;
+    private const FU_PREFIX_DPFO = \MyInvoice\Service\Tax\TaxOfficeBankAccounts::PREFIX_DPFO;
 
     /**
      * Vygeneruje předpisy záloh z finalizovaného přiznání za rok $year na období $year+1.

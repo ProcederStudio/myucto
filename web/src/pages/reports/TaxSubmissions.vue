@@ -21,6 +21,7 @@ import {
   type TaxSubmission,
   type TaxSubmissionScope,
   type TaxSubmissionStats,
+  type VatPaymentInstruction,
 } from '@/api/epoSubmissions'
 import TaxIsdsSendDialog from '@/components/submission/TaxIsdsSendDialog.vue'
 import { authApi } from '@/api/auth'
@@ -392,6 +393,15 @@ function formatDate(value: string | null): string {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString(locale.value)
 }
 
+function formatCzk(amount: number): string {
+  return new Intl.NumberFormat(locale.value, { style: 'currency', currency: 'CZK' }).format(amount)
+}
+
+function formatDay(value: string): string {
+  const date = new Date(`${value.slice(0, 10)}T00:00:00`)
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString(locale.value)
+}
+
 function toLocalInput(value: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
@@ -632,9 +642,22 @@ async function onIsdsReceiptChosen(event: Event) {
   }
 }
 
+const vatPayment = ref<VatPaymentInstruction | null>(null)
+
+async function loadVatPayment(item: TaxSubmission) {
+  vatPayment.value = null
+  if (item.form_code !== 'dphdp3') return
+  try {
+    const result = await epoSubmissionsApi.vatPayment(item.id)
+    if (expandedId.value === item.id && result.supported) vatPayment.value = result
+  } catch { /* platební údaje jsou doplněk detailu, chyba detail neblokuje */ }
+}
+
 watch(expandedId, () => {
   const item = selected.value
   if (item && isdsDispatch(item)) void loadIsdsInbox(item)
+  if (item) void loadVatPayment(item)
+  else vatPayment.value = null
 })
 
 function canHandoff(item: TaxSubmission): boolean {
@@ -2279,6 +2302,41 @@ onMounted(async () => {
         </div>
 
         <aside class="space-y-4">
+          <div v-if="vatPayment" class="rounded-lg border border-neutral-200 p-3" data-testid="vat-payment">
+            <div class="flex items-center justify-between gap-2">
+              <h3 class="font-medium text-sm">{{ t('reports.submissions.vat_payment.title') }}</h3>
+              <span
+                v-if="(vatPayment.payable ?? 0) > 0 && vatPayment.payment"
+                class="rounded-full border px-2 py-0.5 text-[11px] font-medium whitespace-nowrap"
+                :class="vatPayment.payment.paid
+                  ? 'border-success-500/30 bg-success-50 text-success-700'
+                  : 'border-warning-500/30 bg-warning-50 text-warning-700'"
+              >{{ vatPayment.payment.paid ? t('reports.submissions.vat_payment.paid') : t('reports.submissions.vat_payment.unpaid') }}</span>
+            </div>
+            <template v-if="(vatPayment.payable ?? 0) > 0">
+              <dl class="mt-3 space-y-2 text-xs">
+                <div class="flex justify-between gap-3"><dt class="text-neutral-500">{{ t('reports.submissions.vat_payment.amount') }}</dt><dd class="text-right font-semibold">{{ formatCzk(vatPayment.payable ?? 0) }}</dd></div>
+                <div class="flex justify-between gap-3"><dt class="text-neutral-500">{{ t('reports.submissions.vat_payment.account') }}</dt><dd class="text-right font-mono select-all">{{ vatPayment.account?.account ?? '—' }}</dd></div>
+                <div class="flex justify-between gap-3"><dt class="text-neutral-500">IBAN</dt><dd class="text-right font-mono select-all break-all">{{ vatPayment.account?.iban ?? '—' }}</dd></div>
+                <div class="flex justify-between gap-3"><dt class="text-neutral-500">{{ t('reports.submissions.vat_payment.variable_symbol') }}</dt><dd class="text-right font-mono select-all">{{ vatPayment.variable_symbol ?? '—' }}</dd></div>
+                <div class="flex justify-between gap-3"><dt class="text-neutral-500">{{ t('reports.submissions.vat_payment.due_date') }}</dt><dd class="text-right">{{ vatPayment.due_date ? formatDay(vatPayment.due_date) : t('reports.submissions.vat_payment.due_amendment') }}</dd></div>
+                <div v-if="vatPayment.account" class="flex justify-between gap-3"><dt class="text-neutral-500">{{ t('reports.submissions.vat_payment.office') }}</dt><dd class="text-right">{{ vatPayment.account.office_name }}</dd></div>
+                <div v-if="vatPayment.payment?.paid_at" class="flex justify-between gap-3"><dt class="text-neutral-500">{{ t('reports.submissions.vat_payment.paid_at') }}</dt><dd class="text-right">{{ formatDay(vatPayment.payment.paid_at) }} · {{ formatCzk(vatPayment.payment.paid_amount) }}</dd></div>
+              </dl>
+              <img
+                v-if="vatPayment.qr_data_uri && !vatPayment.payment?.paid"
+                :src="vatPayment.qr_data_uri"
+                :alt="t('reports.submissions.vat_payment.qr_alt')"
+                class="mt-3 mx-auto w-40 h-40"
+              >
+              <p v-if="!vatPayment.account" class="mt-3 text-xs text-warning-700">{{ t('reports.submissions.vat_payment.unknown_office') }}</p>
+            </template>
+            <p v-else-if="(vatPayment.refund ?? 0) > 0" class="mt-2 text-xs text-neutral-600">
+              {{ t('reports.submissions.vat_payment.refund', { amount: formatCzk(vatPayment.refund ?? 0) }) }}
+            </p>
+            <p v-else class="mt-2 text-xs text-neutral-600">{{ t('reports.submissions.vat_payment.nothing') }}</p>
+          </div>
+
           <div class="rounded-lg border border-neutral-200 p-3">
             <h3 class="font-medium text-sm">{{ t('reports.submissions.snapshot_details') }}</h3>
             <dl class="mt-3 space-y-2 text-xs">

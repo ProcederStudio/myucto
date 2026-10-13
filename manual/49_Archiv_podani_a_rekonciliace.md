@@ -109,7 +109,7 @@ Použijte po asistovaném podání, po podání mimo aplikaci nebo když dodejka
 4. V části **Ruční doložení podání** klikněte na **Označit jako podané**.
 5. Chcete-li zjistit aktuální stav zpracování, klikněte na **Obnovit stav EPO**. Je dostupné, jakmile aplikace z dodejky převezme heslo pro dotaz na stav.
 
-**Jak poznáte, že je hotovo:** Snapshot je označený jako podaný a obsahuje podací číslo. Až potvrzené podání používejte jako poslední známý stav pro další opravné nebo dodatečné tvrzení.
+**Jak poznáte, že je hotovo:** Snapshot je označený jako podaný a obsahuje podací číslo. Až potvrzené podání používejte jako poslední známý stav pro další opravné nebo dodatečné tvrzení. U přiznání k DPH najdete v detailu i účet, variabilní symbol a částku k úhradě, viz [§ 49.9.13](#49913-platba-dph).
 
 > [!TIP]
 > Pro každý formulář archivujte trojici **odeslané XML + potvrzení + stručné vysvětlení ručních změn**. Při kontrole nebo dalším dodatečném podání pak lze přesně doložit, z jakého stavu se vycházelo.
@@ -518,6 +518,23 @@ neodeslaný soubor se poslední známou daní nestává.
 - odborné rozhodnutí, zda podat opravné nebo dodatečné tvrzení,
 - univerzální import a diff všech typů podaných XML,
 - kontrolu údajů, které uživatel po importu ručně změnil přímo na portálu.
+
+### 49.9.13 Platba DPH
+
+Detail přiznání k DPH ukazuje v pravém sloupci kartu **Platba daně**. Všechny údaje se čtou z archivovaného XML, tedy přesně z toho, co se podává:
+
+- **Účet** - předčíslí 705 (daň z přidané hodnoty) a číslo finančního úřadu, kterému je přiznání adresované (kód FÚ ve větě P). Čísla účtů odpovídají seznamu Finanční správy *Bankovní účty finančních úřadů*. Vedle národního čísla je i IBAN.
+- **Variabilní symbol** - DIČ bez předpony CZ.
+- **Částka** - vlastní daňová povinnost (ř. 64). U nadměrného odpočtu (ř. 65) karta jen oznámí, že vrací finanční úřad. U dodatečného přiznání se hradí rozdíl proti poslední známé dani (ř. 66).
+- **Splatnost** - u řádného i opravného přiznání shodná s lhůtou pro podání: 25. den po skončení období, posunutý na pracovní den. Dodatečně tvrzená daň je splatná ve lhůtě pro podání dodatečného přiznání, kterou aplikace nedopočítává.
+- **QR platba** - pro mobilní bankovnictví, zobrazí se, dokud daň není uhrazená.
+
+Úhradu aplikace pozná z importovaných bankovních výpisů firmy: odchozí platba na účet s předčíslím 705 se stejným variabilním symbolem nebo na účet stejného finančního úřadu, připsaná po skončení období. Karta pak ukáže **Zaplaceno** s datem úhrady.
+
+Po doložení podání se částka k úhradě objeví i na přehledu: ve widgetu **Daňový kalendář** u položky DPH přiznání a jako úkol **Zaplaťte DPH** v **Akcích pro vás**. Úkol zmizí, jakmile výpis platbu pokryje, nejpozději 60 dní po splatnosti.
+
+> [!WARNING]
+> DPH ve zvláštním režimu jednoho správního místa (OSS) se na účet s předčíslím 705 platit nesmí. Pro OSS platí vlastní účet, viz [OSS](45_OSS.md).
 
 ## 49.10 Související kapitoly
 

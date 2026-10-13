@@ -19,6 +19,7 @@ use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Payroll\TaxStatement\TaxStatementService;
 use MyInvoice\Service\Report\TaxSubmissionArchiver;
 use MyInvoice\Service\Report\TaxSubmissionFilename;
+use MyInvoice\Service\Tax\VatPaymentInstruction;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
@@ -28,6 +29,7 @@ use Psr\Http\Message\ServerRequestInterface as Request;
  *   GET    /api/reports/submissions             → list (`scope=payroll|tax` odliší mzdová vyúčtování)
  *   GET    /api/reports/submissions/{id}        → detail (s XML obsahem)
  *   GET    /api/reports/submissions/{id}/xml    → XML download
+ *   GET    /api/reports/submissions/{id}/payment → platební údaje přiznání k DPH
  *   POST   /api/reports/submissions/{id}/submit → označit jako prokazatelně PODANÉ (§2.4)
  *   DELETE /api/reports/submissions/{id}        → smazat archiv (admin)
  *
@@ -46,6 +48,7 @@ final class TaxSubmissionAction
         private readonly Connection $db,
         private readonly RetentionHoldRepository $holds,
         private readonly CommercialFeatureAccess $commercial,
+        private readonly VatPaymentInstruction $vatPayment,
     ) {}
 
     public function list(Request $request, Response $response): Response
@@ -146,6 +149,19 @@ final class TaxSubmissionAction
         if (($denied = $this->deniedByLicense($row, $response)) !== null) return $denied;
         $row = $this->epo->enrich([$row], $supplierId)[0];
         return Json::ok($response, $row);
+    }
+
+    /** Platební údaje k přiznání k DPH: účet FÚ, VS, částka, splatnost a QR. */
+    public function payment(Request $request, Response $response, array $args): Response
+    {
+        if (!RequestAuthorization::allows($request, 'reports', AccessLevel::READ)) {
+            return Json::error($response, 'forbidden', 'Nemáš oprávnění.', 403);
+        }
+        $supplierId = SupplierGuard::currentId($request);
+        $row = $this->repo->find((int) ($args['id'] ?? 0), $supplierId);
+        if ($row === null) return Json::error($response, 'not_found', 'Záznam nenalezen.', 404);
+        if (($denied = $this->deniedByLicense($row, $response)) !== null) return $denied;
+        return Json::ok($response, $this->vatPayment->forSubmission($row, $this->db->pdo()));
     }
 
     public function downloadXml(Request $request, Response $response, array $args): Response

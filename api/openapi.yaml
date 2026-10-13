@@ -7464,6 +7464,26 @@ paths:
           content:
             application/xml: {}
 
+  /api/v1/reports/submissions/{id}/payment:
+    get:
+      tags: [Reports]
+      summary: Platební údaje přiznání k DPH
+      description: >-
+        Účet finančního úřadu (předčíslí 705 a matrika podle kódu FÚ z XML snapshotu), variabilní
+        symbol z DIČ, částka z rekapitulace přiznání, splatnost a QR platba. Úhradu dohledá
+        v bankovních výpisech firmy. U jiných výkazů vrací `supported: false`.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer } }
+        - $ref: '#/components/parameters/SupplierIdHeader'
+      responses:
+        '200':
+          description: Platební údaje
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VatPaymentInstruction' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/v1/reports/submissions/{id}/kh-evidence:
     get:
       tags: [Reports]
@@ -38600,6 +38620,37 @@ components:
         recipients:
           type: array
           items: { $ref: '#/components/schemas/TaxIsdsRecipient' }
+    VatPaymentInstruction:
+      type: object
+      required: [supported]
+      properties:
+        supported: { type: boolean, description: 'false u jiných výkazů než přiznání k DPH (ostatní pole chybí)' }
+        amendment: { type: boolean, description: Dodatečné přiznání (hradí se rozdíl ř. 66) }
+        payable: { type: number, description: Daň k úhradě v Kč }
+        refund: { type: number, description: Nadměrný odpočet nebo snížení daně v Kč }
+        due_date: { type: string, format: date, nullable: true, description: 'Splatnost; u dodatečného přiznání null' }
+        variable_symbol: { type: string, nullable: true }
+        office_code: { type: string, nullable: true, description: Kód FÚ z XML (c_ufo_cil / c_ufo) }
+        account:
+          type: object
+          nullable: true
+          properties:
+            office_code: { type: string }
+            office_name: { type: string }
+            prefix: { type: string, example: '705' }
+            number: { type: string }
+            bank_code: { type: string, example: '0710' }
+            account: { type: string, example: '705-77628031/0710' }
+            iban: { type: string }
+        payment:
+          type: object
+          nullable: true
+          description: Úhrada podle bankovních výpisů firmy; null, když není co hradit
+          properties:
+            paid: { type: boolean }
+            paid_amount: { type: number }
+            paid_at: { type: string, format: date, nullable: true }
+        qr_data_uri: { type: string, nullable: true, description: QR platba jako data URI (PNG) }
     TaxIsdsInboxCandidate:
       type: object
       required: [id, external_message_id, classification, matched]

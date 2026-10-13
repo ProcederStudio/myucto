@@ -295,6 +295,19 @@ export interface TaxCalendarItem {
   /** jen tax_advance */
   amount?: number
   status?: 'planned' | 'paid'
+  /** jen podané přiznání k DPH s daní k úhradě nebo nadměrným odpočtem */
+  payment?: {
+    submission_id: number
+    payable: number
+    refund: number
+    due_date: string | null
+    account: string | null
+    office_name: string | null
+    variable_symbol: string | null
+    paid: boolean
+    paid_amount: number
+    paid_at: string | null
+  }
 }
 export interface TaxCalendarResult {
   items: TaxCalendarItem[]

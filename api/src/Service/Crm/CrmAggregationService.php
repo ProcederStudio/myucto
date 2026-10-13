@@ -19,6 +19,7 @@ use MyInvoice\Service\License\LicenseService;
 use MyInvoice\Service\License\LicenseState;
 use MyInvoice\Service\Tax\Return\TaxRepresentationService;
 use MyInvoice\Service\Tax\Return\TaxReturnService;
+use MyInvoice\Service\Tax\VatPaymentInstruction;
 use MyInvoice\Service\Vat\VatStatusService;
 use MyInvoice\Support\Sql\PayablePredicate;
 
@@ -1633,6 +1634,11 @@ final class CrmAggregationService
                 $items[] = $taxItem;
             }
         }
+        if (!$this->isFullyDismissed($dismissals, 'vat_payment')) {
+            foreach ($this->vatPaymentItems($supplierId, $nowDt) as $paymentItem) {
+                $items[] = $paymentItem;
+            }
+        }
 
         // 4b. Souhrnné hlášení (SH) — také se podává 25. následujícího měsíce, ale JEN
         // pokud za uplynulý měsíc existují EU B2B plnění (dodání zboží/služeb do JČS
@@ -2546,6 +2552,111 @@ final class CrmAggregationService
     }
 
     /**
+     * Platební údaje z podaného přiznání k DPH za období a stav úhrady podle výpisů.
+     * Bere poslední podané řádné/opravné přiznání: dodatečné tvrdí jen rozdíl a jeho
+     * úhradu od úhrady původní daně podle výpisu spolehlivě odlišit nejde.
+     *
+     * @param array{year:int,month:?int,quarter:?int} $p
+     * @return array<string,mixed>|null null = nic se nehradí ani nevrací
+     */
+    private function vatPaymentForPeriod(int $supplierId, array $p): ?array
+    {
+        $sql = "SELECT id, supplier_id, form_code, period_year, period_month, period_quarter, xml_content
+                  FROM tax_submissions
+                 WHERE supplier_id = ? AND form_code = 'dphdp3' AND period_year = ?
+                   AND status IN ('submitted', 'accepted')";
+        $params = [$supplierId, $p['year']];
+        $sql .= $p['month'] === null ? ' AND period_month IS NULL' : ' AND period_month = ?';
+        if ($p['month'] !== null) {
+            $params[] = $p['month'];
+        }
+        $sql .= $p['quarter'] === null ? ' AND period_quarter IS NULL' : ' AND period_quarter = ?';
+        if ($p['quarter'] !== null) {
+            $params[] = $p['quarter'];
+        }
+        $stmt = $this->db->pdo()->prepare($sql . ' ORDER BY submitted_at DESC, id DESC');
+        $stmt->execute($params);
+
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $described = VatPaymentInstruction::describe($row);
+            if ($described['amendment'] ?? false) {
+                continue;
+            }
+            if ($described['payable'] <= 0 && $described['refund'] <= 0) {
+                return null;
+            }
+            $paid = VatPaymentInstruction::findPayment($this->db->pdo(), $supplierId, $described, $row);
+            return [
+                'submission_id'   => (int) $row['id'],
+                'payable'         => $described['payable'],
+                'refund'          => $described['refund'],
+                'due_date'        => $described['due_date'],
+                'account'         => $described['account']['account'] ?? null,
+                'office_name'     => $described['account']['office_name'] ?? null,
+                'variable_symbol' => $described['variable_symbol'],
+                'paid'            => $paid['paid'] ?? false,
+                'paid_amount'     => $paid['paid_amount'] ?? 0.0,
+                'paid_at'         => $paid['paid_at'] ?? null,
+            ];
+        }
+        return null;
+    }
+
+    /**
+     * „Zaplaťte DPH": podané přiznání s daní k úhradě, kterou výpisy ještě nepokrývají.
+     * Drží se i po lhůtě podání (nezaplacená daň je po splatnosti), nejdéle 60 dní.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function vatPaymentItems(int $supplierId, \DateTimeImmutable $now): array
+    {
+        $stmt = $this->db->pdo()->prepare(
+            "SELECT DISTINCT period_year, period_month, period_quarter
+               FROM tax_submissions
+              WHERE supplier_id = ? AND form_code = 'dphdp3' AND status IN ('submitted', 'accepted')
+                AND COALESCE(submitted_at, generated_at) >= ?"
+        );
+        $stmt->execute([$supplierId, $now->modify('-150 days')->format('Y-m-d')]);
+
+        $items = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $p = [
+                'year'    => (int) $row['period_year'],
+                'month'   => $row['period_month'] !== null ? (int) $row['period_month'] : null,
+                'quarter' => $row['period_quarter'] !== null ? (int) $row['period_quarter'] : null,
+            ];
+            $payment = $this->vatPaymentForPeriod($supplierId, $p);
+            if ($payment === null || $payment['payable'] <= 0 || $payment['paid'] || $payment['due_date'] === null) {
+                continue;
+            }
+            $days = (int) $now->diff(new \DateTimeImmutable($payment['due_date']))->format('%r%a');
+            if ($days < -60) {
+                continue;
+            }
+            $period = $p['quarter'] !== null
+                ? sprintf('%d. čtvrtletí %d', $p['quarter'], $p['year'])
+                : sprintf('%d/%d', (int) $p['month'], $p['year']);
+            $amount = number_format((float) $payment['payable'] - (float) $payment['paid_amount'], 0, ',', ' ');
+            $items[] = [
+                'type'     => 'vat_payment',
+                'severity' => $days <= 3 ? 'high' : 'medium',
+                'title'    => 'Zaplaťte DPH za ' . $period,
+                'hint'     => sprintf(
+                    '%s Kč na účet %s, VS %s, %s %s',
+                    $amount,
+                    (string) ($payment['account'] ?? '?'),
+                    (string) ($payment['variable_symbol'] ?? '?'),
+                    $days < 0 ? 'splatnost byla' : 'splatnost',
+                    $payment['due_date'],
+                ),
+                'link'     => '/reports/submissions',
+                'days'     => $days,
+            ];
+        }
+        return $items;
+    }
+
+    /**
      * Rozšířený daňový kalendář pro dashboard widget (Fáze F, audit 2026-07, P2/S):
      * DPH/KH/SH (širší okno než actionItems) + nadcházející zálohy na daň/pojistné
      * (E9, tax_advance_schedules) + roční termín DPFO/DPPO. Každá položka nese
@@ -2601,15 +2712,17 @@ final class CrmAggregationService
                     : self::payerForPeriod($pdo, $supplierId, $p);
                 if ($dphDue) {
                     $sub = $this->submittedAt($supplierId, 'dphdp3', $p['year'], $p['month'], $p['quarter']);
-                    $items[] = [
+                    $payment = $sub !== null ? $this->vatPaymentForPeriod($supplierId, $p) : null;
+                    $items[] = array_filter([
                         'type'         => 'tax_deadline',
                         'title'        => 'DPH přiznání',
                         'deadline'     => $dphDate,
                         'days'         => $dphDays,
-                        'link'         => '/reports/dph',
+                        'link'         => $payment !== null ? '/reports/submissions' : '/reports/dph',
                         'submitted'    => $sub !== null,
                         'submitted_at' => $sub,
-                    ];
+                        'payment'      => $payment,
+                    ], static fn (mixed $v, string $k): bool => $k !== 'payment' || $v !== null, ARRAY_FILTER_USE_BOTH);
                 }
             }
 

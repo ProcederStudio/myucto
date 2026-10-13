@@ -25158,6 +25158,22 @@
       "continue_epo": "Continue to EPO",
       "snapshot": "XML snapshot",
       "snapshot_details": "Snapshot details",
+      "vat_payment": {
+        "title": "Tax payment",
+        "paid": "Paid",
+        "unpaid": "Unpaid",
+        "amount": "Amount",
+        "account": "Account",
+        "variable_symbol": "Variable symbol",
+        "due_date": "Due date",
+        "due_amendment": "within the deadline for the supplementary return",
+        "office": "Tax office",
+        "paid_at": "Paid on",
+        "qr_alt": "VAT payment QR code",
+        "unknown_office": "The tax office code in the XML is unknown; take the account from the Financial Administration list.",
+        "refund": "The tax office refunds the excess deduction of {amount}; nothing to pay.",
+        "nothing": "The tax liability is zero; nothing to pay."
+      },
       "preflight_failed": "The XML cannot be handed to EPO until it passes XSD validation",
       "files": "files",
       "upload_title": "Upload EPO outputs",
@@ -26325,7 +26341,11 @@
       "submitted": "Filed",
       "not_submitted": "Not filed",
       "paid": "Paid",
-      "due": "Due"
+      "due": "Due",
+      "to_pay": "To pay",
+      "pay_to": "Pay {amount} to {account}",
+      "vs": "VS {vs}",
+      "refund": "Excess deduction {amount}"
     },
     "cash_flow": {
       "title": "Cash flow forecast",

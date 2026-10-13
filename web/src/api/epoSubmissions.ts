@@ -249,6 +249,28 @@ export interface TaxIsdsEnqueueResult {
   }
 }
 
+/** Platební údaje přiznání k DPH (účet FÚ podle `c_ufo` z XML snapshotu). */
+export interface VatPaymentInstruction {
+  supported: boolean
+  amendment?: boolean
+  payable?: number
+  refund?: number
+  due_date?: string | null
+  variable_symbol?: string | null
+  office_code?: string | null
+  account?: {
+    office_code: string
+    office_name: string
+    prefix: string
+    number: string
+    bank_code: string
+    account: string
+    iban: string
+  } | null
+  payment?: { paid: boolean; paid_amount: number; paid_at: string | null } | null
+  qr_data_uri?: string | null
+}
+
 export interface TaxIsdsInboxItem {
   id: number
   external_message_id: string | null
@@ -634,6 +656,9 @@ export const epoSubmissionsApi = {
   attachIsdsInboxMessage: (id: number, messageId: number) =>
     api.post<TaxSubmission>(`/reports/submissions/${id}/isds-inbox/${messageId}`, {})
       .then(r => r.data),
+
+  vatPayment: (id: number) =>
+    api.get<VatPaymentInstruction>(`/reports/submissions/${id}/payment`).then(r => r.data),
 
   xmlUrl: (id: number) => {
     const params = new URLSearchParams()
