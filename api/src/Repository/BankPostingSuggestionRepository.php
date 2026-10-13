@@ -696,22 +696,7 @@ final class BankPostingSuggestionRepository
     public function paginateUnposted(int $supplierId, int $limit, int $offset, array $filters = []): array
     {
         $unpostedOnly = ($filters['scope'] ?? 'unposted') !== 'all';
-        $scopeSql = "bt.source = 'statement'
-            " . ($unpostedOnly ? "AND bt.match_status <> 'ignored'
-            AND NOT " . BankTransactionPostingScope::existsSql($supplierId, 'bt.id') : '') . "
-            AND (
-                " . BankStatementOwnershipResolver::sql() . "
-                OR EXISTS (SELECT 1 FROM invoice_payments ip
-                            WHERE ip.supplier_id = ? AND ip.bank_transaction_id = bt.id)
-                OR EXISTS (SELECT 1 FROM payment_matches pm
-                            WHERE pm.supplier_id = ? AND pm.bank_transaction_id = bt.id)
-                OR EXISTS (SELECT 1 FROM invoices i
-                            WHERE i.supplier_id = ? AND i.id = bt.matched_invoice_id)
-            )";
-        // SEC-01: vlastnictví výpisu rozhoduje bs.supplier_id (legacy NULL jen při
-        // jednoznačném vlastníkovi účtu), ne pouhá shoda čísla účtu.
-        $scopeParams = BankStatementOwnershipResolver::params($supplierId);
-        array_push($scopeParams, $supplierId, $supplierId, $supplierId);
+        [$scopeSql, $scopeParams] = $this->transactionScope($supplierId, $unpostedOnly);
 
         $status = $unpostedOnly ? null : ($filters['status'] ?? null);
         if (in_array($status, ['unmatched', 'auto_exact', 'auto_partial', 'manual', 'ignored'], true)) {
@@ -908,9 +893,69 @@ final class BankPostingSuggestionRepository
         return ['items' => $items, 'total' => $total];
     }
 
+    /**
+     * Počet pohybů fronty „K zaúčtování" — týž rozsah jako {@see paginateUnposted()}.
+     *
+     * Rozsah firmy je OR přes vlastnictví výpisu a tři vazby na faktury a platby. Takový
+     * OR index nepoužije, takže jediný COUNT prošel všechny pohyby instance — přehled
+     * firem ho volá za každou firmu, u 54 firem to byly skoro dvě sekundy. Proto se
+     * kandidáti berou po větvích, každá jde po indexu, a na každou se uplatní celý
+     * původní rozsah. Větve dohromady pokryjí každý řádek rozsahu, UNION odstraní
+     * duplicity, výsledek je tedy stejný jako u paginateUnposted().
+     */
     public function unpostedCount(int $supplierId): int
     {
-        return $this->paginateUnposted($supplierId, 0, 0)['total'];
+        [$scopeSql, $scopeParams] = $this->transactionScope($supplierId, true);
+        $drivers = [
+            ['bs.supplier_id = ?', [$supplierId]],
+            ['bs.supplier_id IS NULL', []],
+            ['bt.id IN (SELECT dip.bank_transaction_id FROM invoice_payments dip WHERE dip.supplier_id = ?)', [$supplierId]],
+            ['bt.id IN (SELECT dpm.bank_transaction_id FROM payment_matches dpm WHERE dpm.supplier_id = ?)', [$supplierId]],
+            ['bt.matched_invoice_id IN (SELECT di.id FROM invoices di WHERE di.supplier_id = ?)', [$supplierId]],
+        ];
+        $branches = [];
+        $params = [];
+        foreach ($drivers as [$driverSql, $driverParams]) {
+            $branches[] = "SELECT bt.id
+                             FROM bank_transactions bt
+                             JOIN bank_statements bs ON bs.id = bt.statement_id
+                            WHERE {$driverSql} AND {$scopeSql}";
+            array_push($params, ...$driverParams, ...$scopeParams);
+        }
+
+        $stmt = $this->db->pdo()->prepare(
+            'SELECT COUNT(*) FROM (' . implode("\n UNION \n", $branches) . ') unposted'
+        );
+        $stmt->execute($params);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * Rozsah pohybů firmy pro frontu „K zaúčtování" i „Všechny pohyby".
+     *
+     * @return array{0:string, 1:list<mixed>}
+     */
+    private function transactionScope(int $supplierId, bool $unpostedOnly): array
+    {
+        $scopeSql = "bt.source = 'statement'
+            " . ($unpostedOnly ? "AND bt.match_status <> 'ignored'
+            AND NOT " . BankTransactionPostingScope::existsSql($supplierId, 'bt.id') : '') . "
+            AND (
+                " . BankStatementOwnershipResolver::sql() . "
+                OR EXISTS (SELECT 1 FROM invoice_payments ip
+                            WHERE ip.supplier_id = ? AND ip.bank_transaction_id = bt.id)
+                OR EXISTS (SELECT 1 FROM payment_matches pm
+                            WHERE pm.supplier_id = ? AND pm.bank_transaction_id = bt.id)
+                OR EXISTS (SELECT 1 FROM invoices i
+                            WHERE i.supplier_id = ? AND i.id = bt.matched_invoice_id)
+            )";
+        // SEC-01: vlastnictví výpisu rozhoduje bs.supplier_id (legacy NULL jen při
+        // jednoznačném vlastníkovi účtu), ne pouhá shoda čísla účtu.
+        $scopeParams = BankStatementOwnershipResolver::params($supplierId);
+        array_push($scopeParams, $supplierId, $supplierId, $supplierId);
+
+        return [$scopeSql, $scopeParams];
     }
 
     /**

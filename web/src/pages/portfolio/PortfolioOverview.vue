@@ -139,7 +139,7 @@ function unbookedLink(c: PortfolioCompany): string {
 // Dotahuje se AŽ PO přehledu a po firmách: kontroly jsou o řád dražší než zbytek
 // karty a tabulka by na ně čekala celá. Souběh je omezený, ať padesát firem
 // nepošle padesát dotazů naráz.
-const CHECK_CONCURRENCY = 3
+const CHECK_CONCURRENCY = 6
 
 type CheckState =
   | { status: 'loading' }
