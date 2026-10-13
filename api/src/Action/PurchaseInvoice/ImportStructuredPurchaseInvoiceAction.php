@@ -44,6 +44,8 @@ final class ImportStructuredPurchaseInvoiceAction
         private readonly DocumentLockService $locks,
         private readonly ActivityLogger $logger,
         private readonly IpMatcher $ipMatcher,
+        private readonly \MyInvoice\Security\CrossSupplierAuthorization $crossSupplier,
+        private readonly \MyInvoice\Service\Import\DocumentAddresseeResolver $addressees,
     ) {}
 
     public function __invoke(Request $request, Response $response): Response
@@ -120,6 +122,27 @@ final class ImportStructuredPurchaseInvoiceAction
                     : 'Soubor neobsahuje platný ISDOC.',
                 422,
             );
+        }
+
+        // ISDOC s odběratelem jiné firmy uživatele se naimportuje do ní (jen do firmy,
+        // kde smí přijaté faktury zakládat). Odběratel je ve strojových datech, nic se neodhaduje.
+        $current = $supplierId;
+        $client = (array) (((($decision->parsed ?? [])['invoices'] ?? [])[0] ?? [])['client'] ?? []);
+        $others = ($client['ic'] ?? $client['dic'] ?? null) !== null
+            ? array_values(array_filter(
+                $this->crossSupplier->suppliersAllowing($request, ['purchase_invoices.create']),
+                static fn (int $id): bool => $id !== $current,
+            ))
+            : [];
+        if ($others !== []) {
+            $routed = $this->addressees->byBuyer(
+                isset($client['ic']) ? (string) $client['ic'] : null,
+                isset($client['dic']) ? (string) $client['dic'] : null,
+                [$current, ...$others],
+            )['supplier_id'];
+            if ($routed !== null) {
+                $supplierId = $routed;
+            }
         }
 
         // Stejný zámek jako u ručně vytvořeného dokladu. Administrátorský dávkový
@@ -215,16 +238,22 @@ final class ImportStructuredPurchaseInvoiceAction
                 'filename' => $originalName,
                 'purchase_invoice_ids' => $ids,
                 'duplicate' => $duplicate,
-            ],
+            ] + ($supplierId !== $current ? ['uploaded_in_supplier_id' => $current] : []),
             $ip,
             $request->getHeaderLine('User-Agent'),
+            $supplierId,
         );
 
+        $target = [];
+        if ($supplierId !== $current) {
+            $firm = $this->crossSupplier->describe([$supplierId])[0] ?? null;
+            $target = ['target_supplier_id' => $supplierId, 'target_supplier_name' => $firm['name'] ?? null];
+        }
         return Json::ok($response, [
             'purchase_invoice_id' => $ids[0],
             'purchase_invoice_ids' => $ids,
             'source' => $decision->source,
             'duplicate' => $duplicate,
-        ], $duplicate ? 200 : 201);
+        ] + $target, $duplicate ? 200 : 201);
     }
 }

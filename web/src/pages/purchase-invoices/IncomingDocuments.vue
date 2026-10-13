@@ -73,6 +73,8 @@ function canMove(item: PurchaseInvoiceSubmission): boolean {
     && item.purchase_invoice_id === null
     && (item.submitted_via === 'staff' || item.submitted_via === 'email')
 }
+/** Nahrání dávky za víc firem: každý soubor do firmy podle odběratele. */
+const distributeUpload = ref(false)
 const moveOpen = ref(false)
 const moveLoading = ref(false)
 const moveTargets = ref<SubmissionMoveTargets | null>(null)
@@ -330,7 +332,8 @@ async function upload() {
     const result: SubmissionUploadResult = { items: [], created: 0, duplicates: 0, errors: [] }
     for (const file of files.value) {
       try {
-        const part = await purchaseInvoiceSubmissionsApi.upload([file], note.value, kindHint.value, dims.canEdit.value ? uploadDims.value : {})
+        const part = await purchaseInvoiceSubmissionsApi.upload([file], note.value, kindHint.value, dims.canEdit.value ? uploadDims.value : {},
+          hasOtherCompanies.value && distributeUpload.value)
         result.items.push(...part.items)
         result.created += part.created
         result.duplicates += part.duplicates
@@ -355,6 +358,11 @@ async function upload() {
             duplicates: result.duplicates,
           })
         : t('purchase_submissions.inbox_uploaded', { n: result.created }))
+    }
+    const elsewhere = result.items.filter(item => item.supplier_id !== supplierStore.currentSupplierId)
+    if (elsewhere.length > 0) {
+      const companies = [...new Set(elsewhere.map(item => item.target_supplier_name).filter(Boolean))].join(', ')
+      toast.info(t('purchase_submissions.distributed_upload', { n: elsewhere.length, companies }))
     }
     // Soubor, který už prošel zpracováním, ve frontě nečeká — bez hlášky by nebylo
     // poznat, kam se poděl.
@@ -574,6 +582,14 @@ onBeforeUnmount(() => { context++; loadRequest++ })
         <DimensionFields v-model="uploadDims" compact />
         <p class="text-xs text-neutral-500">{{ t('purchase_submissions.dimensions_hint') }}</p>
       </div>
+
+      <label v-if="hasOtherCompanies" class="flex items-start gap-2 text-sm text-neutral-700" data-testid="inbox-distribute">
+        <input v-model="distributeUpload" type="checkbox" class="mt-0.5 rounded border-neutral-300 text-primary-600" />
+        <span>
+          {{ t('purchase_submissions.distribute_upload') }}
+          <span class="block text-xs text-neutral-500">{{ t('purchase_submissions.distribute_upload_hint') }}</span>
+        </span>
+      </label>
 
       <PdfDropzone
         multiple

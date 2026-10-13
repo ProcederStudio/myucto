@@ -390,6 +390,18 @@ Doklady, které pro akci nemají vhodný stav, se přeskočí a výsledek je uve
 typy, ostatní dimenze zůstanou. Zvolené hodnoty se při vytěžení propíšou do hlavičky dokladu stejně jako dimenze zadané
 při nahrání.
 
+**Nahrání za víc firem najednou.** S přístupem k víc firmám je u nahrávání volba **Rozdělit do firem podle
+odběratele**. Každý soubor se pak uloží do příchozích dokladů firmy, které patří IČO nebo DIČ odběratele (ze strojového
+ISDOC, jinak z textu PDF). Doklad bez rozpoznaného odběratele, třeba účtenka, zůstane v aktivní firmě. Cílem je jen firma,
+kde smíte zapisovat příchozí doklady. Dimenze zvolené při nahrání dostanou jen doklady aktivní firmy. Aplikace po nahrání
+ohlásí, kolik dokladů odešlo do jiných firem.
+
+**Import ISDOC a AI import za jinou firmu.** ISDOC nahraný do editoru nové přijaté faktury, jehož odběratelem je jiná vaše
+firma, se naimportuje do ní a aplikace se do ní přepne. AI import určí firmu ještě před voláním AI (ze strojového ISDOC nebo
+z IČO a DIČ v textu PDF) a vytěží doklad rovnou v ní, s jejím nastavením AI. Když odběratele jiné firmy pozná až AI, druhé
+volání se nedělá: doklad se uloží do příchozích dokladů té firmy i s odběratelem a vytěžíte ho tam. V obou případech se
+počítají jen firmy, kde máte oprávnění doklad založit.
+
 **Přesun do jiné firmy.** Kdo vede víc firem, přesune doklad do příchozích dokladů jiné firmy přímo z fronty. Nabízí se
 jen uživateli s přístupem k víc firmám a jen do firem, kde smí zapisovat příchozí doklady. Aplikace firmu sama navrhne,
 když pozná odběratele: z ISDOC, z IČO nebo DIČ v textu PDF, nebo z vytěžení, které skončilo hláškou, že faktura patří

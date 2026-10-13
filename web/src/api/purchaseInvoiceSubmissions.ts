@@ -63,6 +63,8 @@ export interface PurchaseInvoiceSubmission {
   detected_buyer_dic?: string | null
   /** Firma, které doklad podle odběratele patří a do které ho uživatel smí přesunout. */
   move_suggestion?: { supplier_id: number; supplier_name: string } | null
+  /** Při rozděleném nahrání: název firmy, kam doklad odešel (null = aktivní firma). */
+  target_supplier_name?: string | null
 }
 
 export interface SubmissionMoveTargets {
@@ -102,9 +104,11 @@ function uploadForm(
   note: string,
   documentKindHint: PurchaseInvoiceSubmissionKindHint | null,
   dimensions: Record<number, number | null> = {},
+  distribute = false,
 ): FormData {
   const fd = new FormData()
   for (const file of files) fd.append('file[]', file, file.name)
+  if (distribute) fd.append('distribute', '1')
   if (note.trim()) fd.append('note', note.trim())
   if (documentKindHint) fd.append('document_kind_hint', documentKindHint)
   for (const [typeId, valueId] of Object.entries(dimensions)) {
@@ -150,11 +154,14 @@ export const purchaseInvoiceSubmissionsApi = {
     api.get<PurchaseInvoiceSubmissionPage>('/purchase-invoice-submissions', {
       params: status ? { status } : undefined,
     }).then(r => r.data),
-  /** Doklad, který přišel mimo portál (e-mailem, papírově) — účetní ho vloží do fronty sama. */
-  upload: (files: File[], note: string, documentKindHint: PurchaseInvoiceSubmissionKindHint | null, dimensions: Record<number, number | null> = {}) =>
+  /**
+   * Doklad, který přišel mimo portál (e-mailem, papírově) — účetní ho vloží do fronty sama.
+   * `distribute` pošle každý soubor do firmy podle odběratele (jen firmy s právem na příchozí doklady).
+   */
+  upload: (files: File[], note: string, documentKindHint: PurchaseInvoiceSubmissionKindHint | null, dimensions: Record<number, number | null> = {}, distribute = false) =>
     api.post<SubmissionUploadResult>(
       '/purchase-invoice-submissions',
-      uploadForm(files, note, documentKindHint, dimensions),
+      uploadForm(files, note, documentKindHint, dimensions, distribute),
       { headers: { 'Content-Type': 'multipart/form-data' } },
     ).then(r => r.data),
   get: (id: number) =>

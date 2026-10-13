@@ -244,9 +244,14 @@ export interface AiExtractResult {
   document_kind?: 'invoice' | 'receipt' | 'credit_note' | 'advance' | 'tax_document'
   total_with_vat?: number | null
   currency?: string
-  source: 'isdocx' | 'isdoc_embedded' | 'ai' | 'duplicate' | 'ai_failed' | 'ai_invalid' | 'wrong_tenant' | 'no_vendor' | 'create_failed'
+  source: 'isdocx' | 'isdoc_embedded' | 'ai' | 'duplicate' | 'ai_failed' | 'ai_invalid' | 'wrong_tenant' | 'no_vendor' | 'create_failed' | 'handed_to_inbox'
   duplicate?: boolean
   message?: string
+  /** Doklad patřil jiné firmě uživatele: faktura (nebo příchozí doklad) vznikla v ní. */
+  target_supplier_id?: number
+  target_supplier_name?: string | null
+  /** `handed_to_inbox`: podání v příchozích dokladech cílové firmy. */
+  submission_id?: number
   // provenance (Epic F7)
   provider?: AiProvider
   region?: AiDataRegion

@@ -7,10 +7,15 @@ namespace MyInvoice\Action\Admin\Import;
 use MyInvoice\Http\Json;
 use MyInvoice\Http\SupplierGuard;
 use MyInvoice\Middleware\AuthMiddleware;
+use MyInvoice\Repository\PurchaseInvoiceSubmissionRepository;
 use MyInvoice\Security\AccessLevel;
+use MyInvoice\Security\CrossSupplierAuthorization;
 use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Import\AiPdfExtractor;
+use MyInvoice\Service\Import\DocumentAddresseeResolver;
+use MyInvoice\Service\PurchaseInvoice\PurchaseInvoiceSubmissionUploadService;
+use MyInvoice\Support\CompanyIdNormalizer;
 use MyInvoice\Service\IpMatcher;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -35,6 +40,10 @@ final class AiExtractPdfAction
         private readonly AiPdfExtractor $extractor,
         private readonly ActivityLogger $logger,
         private readonly IpMatcher $ipMatcher,
+        private readonly CrossSupplierAuthorization $crossSupplier,
+        private readonly DocumentAddresseeResolver $addressees,
+        private readonly PurchaseInvoiceSubmissionUploadService $submissions,
+        private readonly PurchaseInvoiceSubmissionRepository $submissionRows,
     ) {}
 
     public function __invoke(Request $request, Response $response): Response
@@ -58,6 +67,27 @@ final class AiExtractPdfAction
             return Json::error($response, 'file_too_large', 'PDF musí být <= ' . self::MAX_PDF_BYTES . ' B.', 413);
         }
         $bytes = (string) $file->getStream()->getContents();
+        $originalName = $file->getClientFilename() ?: null;
+        $current = $supplierId;
+
+        // Doklad jiné firmy uživatele se vytěží rovnou v ní. Firma se určí bez AI
+        // (strojový ISDOC, IČO/DIČ v textu PDF) a jen mezi firmami, kde smí uživatel
+        // vytěžovat; AI pak běží s nastavením té firmy.
+        $others = array_values(array_filter(
+            $this->crossSupplier->suppliersAllowing($request, ['purchase_invoices.scan']),
+            static fn (int $id): bool => $id !== $current,
+        ));
+        if ($others !== []) {
+            $extension = strtolower(pathinfo((string) $originalName, PATHINFO_EXTENSION));
+            try {
+                $routed = $this->addressees->resolve($bytes, $extension !== '' ? $extension : null, [$current, ...$others])['supplier_id'];
+            } catch (\Throwable) {
+                $routed = null;
+            }
+            if ($routed !== null) {
+                $supplierId = $routed;
+            }
+        }
 
         // ?model override — validuj proti whitelistu aktivního providera (jinak by
         // libovolný string protekl do klienta). Neznámý model → 400.
@@ -76,7 +106,6 @@ final class AiExtractPdfAction
         $importBatchId = ($importBatchId !== '') ? substr($importBatchId, 0, 32) : null;
 
         $userId = (int) ($user['id'] ?? 0);
-        $originalName = $file->getClientFilename() ?: null;
         $result = $this->extractor->extractAndCreate($supplierId, $userId, $bytes, $modelOverride, $originalName, $importBatchId);
 
         // Provenance (F7 §3.7): data_residency_ok=false jen když router odmítl kvůli
@@ -96,9 +125,21 @@ final class AiExtractPdfAction
                 'usage'             => $result['usage'] ?? null,
                 'pdf_size'          => $size,
                 'pdf_name'          => $file->getClientFilename(),
-            ],
-            $ip, $request->getHeaderLine('User-Agent'),
+            ] + ($supplierId !== $current ? ['uploaded_in_supplier_id' => $current] : []),
+            $ip, $request->getHeaderLine('User-Agent'), $supplierId,
         );
+
+        // AI přečetla odběratele jiné firmy uživatele. Druhé AI volání se nedělá:
+        // doklad jde do příchozích dokladů té firmy i s odběratelem a vytěží se tam.
+        if (!$result['ok'] && ($result['source'] ?? null) === 'wrong_tenant') {
+            $handed = $this->handToOwnerInbox($request, $supplierId, $bytes, (string) ($originalName ?? 'doklad.pdf'), (array) ($result['ai_data'] ?? []), $userId);
+            if ($handed !== null) {
+                return Json::ok($response, $handed);
+            }
+        }
+        if ($result['ok'] && $supplierId !== $current) {
+            $result += $this->targetInfo($supplierId);
+        }
 
         if (!$result['ok'] && ($result['source'] ?? null) === 'ai_not_configured') {
             return Json::error($response, 'ai_not_configured',
@@ -115,5 +156,49 @@ final class AiExtractPdfAction
             );
         }
         return Json::ok($response, $result, 201);
+    }
+
+    /**
+     * @param array<string,mixed> $aiData
+     * @return array<string,mixed>|null NULL = odběratel není jednoznačně jiná firma uživatele
+     */
+    private function handToOwnerInbox(Request $request, int $supplierId, string $bytes, string $name, array $aiData, int $userId): ?array
+    {
+        $customer = (array) ($aiData['customer'] ?? []);
+        $ic = CompanyIdNormalizer::ic(isset($customer['ic']) ? (string) $customer['ic'] : null);
+        $dic = CompanyIdNormalizer::dic(isset($customer['dic']) ? (string) $customer['dic'] : null);
+        if ($ic === null && $dic === null) {
+            return null;
+        }
+        $inbox = array_values(array_filter(
+            $this->crossSupplier->suppliersAllowing($request, ['documents.inbox']),
+            static fn (int $id): bool => $id !== $supplierId,
+        ));
+        $target = $inbox !== [] ? $this->addressees->byBuyer($ic, $dic, $inbox)['supplier_id'] : null;
+        if ($target === null) {
+            return null;
+        }
+        try {
+            $created = $this->submissions->submitBytes($bytes, $name, $target, $userId > 0 ? $userId : null, 'staff');
+        } catch (\Throwable) {
+            return null;
+        }
+        $submissionId = (int) $created['submission']['id'];
+        if (empty($created['duplicate'])) {
+            $this->submissionRows->recordDetectedBuyer($submissionId, $target, $ic, $dic);
+        }
+        return [
+            'ok' => true,
+            'source' => 'handed_to_inbox',
+            'submission_id' => $submissionId,
+            'duplicate' => !empty($created['duplicate']),
+        ] + $this->targetInfo($target);
+    }
+
+    /** @return array{target_supplier_id:int,target_supplier_name:?string} */
+    private function targetInfo(int $supplierId): array
+    {
+        $firm = $this->crossSupplier->describe([$supplierId])[0] ?? null;
+        return ['target_supplier_id' => $supplierId, 'target_supplier_name' => $firm['name'] ?? null];
     }
 }

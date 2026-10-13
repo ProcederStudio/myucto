@@ -362,6 +362,9 @@ export interface ImportResult {
   warnings?: ImportWarning[]
   /** Pohyby jsou uložené, ale jejich zpracování selhalo (viz `warnings`). */
   processing_failed?: boolean
+  /** Účet výpisu patří jiné firmě uživatele: výpis se naimportoval do ní. */
+  target_supplier_id?: number
+  target_supplier_name?: string | null
 }
 
 /** Kandidát účtu při shodném čísle ve více měnách nebo bankách (#167/#206). */

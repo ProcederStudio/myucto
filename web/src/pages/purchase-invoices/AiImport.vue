@@ -127,7 +127,7 @@ async function runAiBatch() {
 // okno samo přeskočí doklady bez hlášení (a když žádný nezbude, jen to oznámí).
 const reviewIds = ref<number[] | null>(null)
 const batchInvoiceIds = computed(() => aiBatchQueue.value
-  .filter(x => x.status === 'ok' && x.result?.purchase_invoice_id && !x.result?.duplicate)
+  .filter(x => x.status === 'ok' && x.result?.purchase_invoice_id && !x.result?.duplicate && !x.result?.target_supplier_id)
   .map(x => x.result.purchase_invoice_id as number))
 function openReview(ids: number[]) {
   if (ids.length) reviewIds.value = ids
@@ -198,7 +198,7 @@ async function runAiExtract() {
     if (aiResult.value.ok) {
       toast.success(t('integrations.ai.extract_success'))
       await Promise.all([loadAiCreds(), loadLastBatch()])
-      if (aiResult.value.purchase_invoice_id && !aiResult.value.duplicate) openReview([aiResult.value.purchase_invoice_id])
+      if (aiResult.value.purchase_invoice_id && !aiResult.value.duplicate && !aiResult.value.target_supplier_id) openReview([aiResult.value.purchase_invoice_id])
     }
   } catch (e: any) {
     if (apiErrorCode(e) === 'ai_not_configured') {
@@ -216,6 +216,14 @@ async function runAiExtract() {
   } finally {
     aiExtracting.value = false
   }
+}
+
+/** Doklad jiné firmy: kde skončil (faktura v ní, nebo její příchozí doklady). */
+function targetLabel(result: AiExtractResult): string {
+  const company = result.target_supplier_name ?? ''
+  return result.source === 'handed_to_inbox'
+    ? t('integrations.ai.handed_to_inbox', { company })
+    : t('integrations.ai.created_in_company', { company })
 }
 
 function gotoInvoice(id: number) {
@@ -332,7 +340,7 @@ onMounted(() => {
                   <template v-else>—</template>
                 </td>
                 <td class="px-2 py-1.5">
-                  <select v-if="item.status === 'ok' && item.result?.purchase_invoice_id && item.result?.document_kind !== 'advance'"
+                  <select v-if="item.status === 'ok' && item.result?.purchase_invoice_id && !item.result?.target_supplier_id && item.result?.document_kind !== 'advance'"
                     :value="item.result.document_kind"
                     :disabled="kindBusyKey === `b${idx}`"
                     @change="changeKind(item.result, `b${idx}`, ($event.target as HTMLSelectElement).value as PurchaseDocumentKind)"
@@ -348,7 +356,10 @@ onMounted(() => {
                   <span v-else class="text-neutral-300">—</span>
                 </td>
                 <td class="px-2 py-1.5 text-right">
-                  <RouterLink v-if="item.status === 'ok' && item.result?.purchase_invoice_id"
+                  <span v-if="item.status === 'ok' && item.result?.target_supplier_id" class="text-[11px] text-primary-700 whitespace-nowrap">
+                    {{ targetLabel(item.result) }}
+                  </span>
+                  <RouterLink v-else-if="item.status === 'ok' && item.result?.purchase_invoice_id"
                     :to="`/purchase-invoices/${item.result.purchase_invoice_id}`"
                     class="text-primary-600 hover:underline whitespace-nowrap">
                     {{ t('integrations.ai.open') }} #{{ item.result.purchase_invoice_id }}
@@ -391,16 +402,17 @@ onMounted(() => {
       <div v-if="aiResult" class="mt-4 pt-4 border-t border-neutral-100">
         <div v-if="aiResult.ok" class="rounded-md bg-success-50 border border-success-500/40 px-3 py-2 text-sm text-success-600">
           <strong>✓ {{ t('integrations.ai.extract_success') }}</strong>
-          <button v-if="aiResult.purchase_invoice_id" type="button" @click="gotoInvoice(aiResult.purchase_invoice_id!)"
+          <span v-if="aiResult.target_supplier_id" class="ml-3">{{ targetLabel(aiResult) }}</span>
+          <button v-if="aiResult.purchase_invoice_id && !aiResult.target_supplier_id" type="button" @click="gotoInvoice(aiResult.purchase_invoice_id!)"
                   class="ml-3 cursor-pointer underline hover:text-success-700">
             {{ t('integrations.ai.go_to_invoice') }} #{{ aiResult.purchase_invoice_id }}
           </button>
-          <button v-if="aiResult.purchase_invoice_id && !aiResult.duplicate" type="button"
+          <button v-if="aiResult.purchase_invoice_id && !aiResult.duplicate && !aiResult.target_supplier_id" type="button"
                   @click="openReview([aiResult.purchase_invoice_id!])"
                   class="ml-3 cursor-pointer underline hover:text-success-700">
             {{ t('purchase_invoice.extraction_review.open') }}
           </button>
-          <div v-if="aiResult.purchase_invoice_id && aiResult.document_kind && aiResult.document_kind !== 'advance'"
+          <div v-if="aiResult.purchase_invoice_id && !aiResult.target_supplier_id && aiResult.document_kind && aiResult.document_kind !== 'advance'"
                class="mt-2 flex items-center gap-2 flex-wrap text-neutral-700">
             <label class="text-xs">{{ t('integrations.ai.col_kind') }}</label>
             <select :value="aiResult.document_kind"

@@ -1285,6 +1285,13 @@ async function onPdfDropped(file: File) {
     pdfUploading.value = true
     try {
       const imported = await purchaseInvoicesApi.importStructured(file)
+      // Faktura patřila jiné firmě uživatele a vznikla v ní: přepni do ní a otevři ji.
+      if (imported.target_supplier_id) {
+        toast.success(t('purchase_invoice.extraction.isdoc_other_company', { company: imported.target_supplier_name ?? '' }))
+        supplierStore.setSupplier(imported.target_supplier_id)
+        window.location.href = `/purchase-invoices/${imported.purchase_invoice_id}/edit`
+        return
+      }
       toast.success(t(imported.duplicate
         ? 'purchase_invoice.extraction.isdoc_duplicate'
         : 'purchase_invoice.extraction.isdoc_found'))

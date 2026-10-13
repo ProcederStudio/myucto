@@ -49,9 +49,41 @@ final class CreditCardStatementImportService
     }
 
     /**
-     * @return array<string,mixed> výsledek importu + credit_card_account_id
+     * Firma, které výpis patří: aktivní, pokud úvěrový účet eviduje nebo ho neeviduje
+     * nikdo; jinak ta JEDINÁ z dalších firem uživatele, která ho eviduje. Nový úvěrový
+     * účet se tak dál zakládá v aktivní firmě a existující se najde i odjinud.
+     *
+     * @param array{header:array<string,mixed>} $parsed
+     * @param list<int> $otherSupplierIds firmy, kam smí uživatel importovat banku
      */
-    public function importPdf(int $supplierId, string $pdfBytes, string $fileName, ?int $userId, ?int $expectedAccountId = null): array
+    public function ownerAmong(array $parsed, int $currentSupplierId, array $otherSupplierIds): int
+    {
+        $accountNumber = trim((string) ($parsed['header']['account_number'] ?? ''));
+        $bankCode = isset($parsed['header']['bank_code']) && (string) $parsed['header']['bank_code'] !== ''
+            ? (string) $parsed['header']['bank_code'] : null;
+        if ($accountNumber === '' || $otherSupplierIds === []) {
+            return $currentSupplierId;
+        }
+        $owns = function (int $supplierId) use ($accountNumber, $bankCode): bool {
+            $row = $this->accounts->findRegistryRow($supplierId, $accountNumber, $bankCode);
+            return $row !== null && (string) $row['kind'] === 'credit_card';
+        };
+        if ($owns($currentSupplierId)) {
+            return $currentSupplierId;
+        }
+        $owners = array_values(array_filter(
+            array_unique($otherSupplierIds),
+            static fn (int $id): bool => $id !== $currentSupplierId,
+        ));
+        $owners = array_values(array_filter($owners, $owns));
+        return count($owners) === 1 ? $owners[0] : $currentSupplierId;
+    }
+
+    /**
+     * @param list<int> $otherSupplierIds další firmy, kam smí výpis odejít (viz {@see ownerAmong()})
+     * @return array<string,mixed> výsledek importu + credit_card_account_id + supplier_id
+     */
+    public function importPdf(int $supplierId, string $pdfBytes, string $fileName, ?int $userId, ?int $expectedAccountId = null, array $otherSupplierIds = []): array
     {
         try {
             $parsed = $this->parsers->parse($pdfBytes);
@@ -65,7 +97,10 @@ final class CreditCardStatementImportService
                 422,
             );
         }
-        return $this->importParsed($supplierId, $parsed, $pdfBytes, $fileName, $userId, $expectedAccountId);
+        $owner = $this->ownerAmong($parsed, $supplierId, $otherSupplierIds);
+        // Očekávaný účet zvolila obrazovka aktivní firmy, v jiné firmě nic neznamená.
+        return $this->importParsed($owner, $parsed, $pdfBytes, $fileName, $userId, $owner === $supplierId ? $expectedAccountId : null)
+            + ['supplier_id' => $owner];
     }
 
     /**

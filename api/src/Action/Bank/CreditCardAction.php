@@ -54,6 +54,7 @@ final class CreditCardAction
         private readonly \MyInvoice\Service\Accounting\CreditCard\CreditCardPostingService $postingActions,
         private readonly ActivityLogger $logger,
         private readonly IpMatcher $ipMatcher,
+        private readonly \MyInvoice\Security\CrossSupplierAuthorization $crossSupplier,
     ) {}
 
     public function list(Request $request, Response $response): Response
@@ -231,10 +232,30 @@ final class CreditCardAction
         $body = (array) ($request->getParsedBody() ?? []);
         $expected = isset($body['credit_card_account_id']) && (int) $body['credit_card_account_id'] > 0
             ? (int) $body['credit_card_account_id'] : null;
+        $current = $this->currentSupplierId($request);
+        // Výpis úvěrového účtu, který eviduje jiná firma uživatele, se naimportuje tam.
+        $others = array_values(array_filter(
+            $this->crossSupplier->suppliersAllowing($request, ['bank.import']),
+            static fn (int $id): bool => $id !== $current,
+        ));
         try {
-            $result = $this->importer->importPdf($this->currentSupplierId($request), $bytes, $name, $this->userId($request), $expected);
+            $result = $this->importer->importPdf($current, $bytes, $name, $this->userId($request), $expected, $others);
         } catch (\Throwable $e) {
             return $this->mapPostingError($response, $e);
+        }
+        $owner = (int) ($result['supplier_id'] ?? $current);
+        unset($result['supplier_id']);
+        if ($owner !== $current) {
+            $firm = $this->crossSupplier->describe([$owner])[0] ?? null;
+            $result += ['target_supplier_id' => $owner, 'target_supplier_name' => $firm['name'] ?? null];
+            $this->logger->log('credit_card.statement_imported', $this->userId($request) ?: null, 'credit_card_account',
+                (int) ($result['credit_card_account_id'] ?? 0), [
+                    'statement_id' => $result['statement_id'] ?? null,
+                    'transactions' => $result['transactions'] ?? 0,
+                    'duplicate'    => $result['duplicate'] ?? false,
+                    'uploaded_in_supplier_id' => $current,
+                ], $this->ipMatcher->clientIpFromRequest($request->getServerParams()), $request->getHeaderLine('User-Agent'), $owner);
+            return Json::ok($response, $result);
         }
         $this->log($request, 'credit_card.statement_imported', (int) ($result['credit_card_account_id'] ?? 0), [
             'statement_id' => $result['statement_id'] ?? null,

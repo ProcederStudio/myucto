@@ -15,6 +15,9 @@ export interface StructuredPurchaseImportResult {
   purchase_invoice_ids: number[]
   source: StructuredPurchaseImportSource
   duplicate: boolean
+  /** Odběratel z ISDOC je jiná firma uživatele: faktura vznikla v ní. */
+  target_supplier_id?: number
+  target_supplier_name?: string | null
 }
 
 /**

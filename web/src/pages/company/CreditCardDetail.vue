@@ -225,7 +225,8 @@ async function onFile(ev: Event) {
   importing.value = true
   try {
     const { result } = await importCreditCardStatement(file, accountId.value, msg => window.confirm(msg))
-    toast.success(result.duplicate ? t('credit_cards.imported_duplicate') : t('credit_cards.imported', { n: result.transactions }))
+    if (result.target_supplier_id) toast.info(t('credit_cards.imported_other_company', { company: result.target_supplier_name ?? '' }))
+    else toast.success(result.duplicate ? t('credit_cards.imported_duplicate') : t('credit_cards.imported', { n: result.transactions }))
     await load()
   } catch (e) {
     toast.error(apiErrorMessage(e, t('credit_cards.import_failed')))

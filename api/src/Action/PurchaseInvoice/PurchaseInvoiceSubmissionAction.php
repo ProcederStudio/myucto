@@ -212,14 +212,27 @@ final class PurchaseInvoiceSubmissionAction
             }
         }
         $userId = $this->userId($request);
-        $batch = $this->submitOriginals(
-            $files,
-            $supplierId,
-            $userId > 0 ? $userId : null,
-            'staff',
-            isset($body['note']) ? (string) $body['note'] : null,
-            isset($body['document_kind_hint']) ? (string) $body['document_kind_hint'] : null,
-        );
+        // Rozdělení dávky mezi firmy podle odběratele. Cílem smí být jen firma, kde
+        // uživatel zapisuje příchozí doklady; s jedinou takovou se nahrává postaru.
+        $candidates = !empty($body['distribute'])
+            ? [$supplierId, ...$this->moveTargetIds($request, $supplierId)]
+            : [];
+        $batch = count($candidates) > 1
+            ? $this->submitDistributed(
+                $files,
+                $candidates,
+                $userId > 0 ? $userId : null,
+                isset($body['note']) ? (string) $body['note'] : null,
+                isset($body['document_kind_hint']) ? (string) $body['document_kind_hint'] : null,
+            )
+            : $this->submitOriginals(
+                $files,
+                $supplierId,
+                $userId > 0 ? $userId : null,
+                'staff',
+                isset($body['note']) ? (string) $body['note'] : null,
+                isset($body['document_kind_hint']) ? (string) $body['document_kind_hint'] : null,
+            );
         $items = $batch['items'];
         $errors = $batch['errors'];
         if ($items === [] && $batch['first_error'] instanceof PurchaseInvoiceSubmissionException) {
@@ -233,15 +246,28 @@ final class PurchaseInvoiceSubmissionAction
             );
         }
 
+        // Dimenze patří firmě, ve které se nahrávalo; doklad odeslaný jinam je nedostane.
+        $isHere = static fn (array $item): bool => (int) $item['submission']['supplier_id'] === $supplierId;
         foreach ($items as $item) {
-            if ($dims !== [] && empty($item['duplicate'])) {
+            if ($dims !== [] && empty($item['duplicate']) && $isHere($item)) {
                 $this->submissionDimensions->save($supplierId, (int) $item['submission']['id'], $dims);
             }
         }
-        $items = $this->withDimensions($supplierId, $items);
+        $here = array_values(array_filter($items, $isHere));
+        $elsewhere = array_values(array_filter($items, static fn (array $item): bool => !$isHere($item)));
+        $items = [...$this->withDimensions($supplierId, $here), ...$elsewhere];
+
+        $names = [];
+        foreach ($this->crossSupplier->describe(array_values(array_unique(array_map(
+            static fn (array $item): int => (int) $item['submission']['supplier_id'],
+            $elsewhere,
+        )))) as $firm) {
+            $names[$firm['id']] = $firm['name'];
+        }
 
         foreach ($items as $item) {
             $submission = $item['submission'];
+            $target = (int) $submission['supplier_id'];
             $this->audit(
                 $request,
                 !empty($item['duplicate'])
@@ -252,7 +278,9 @@ final class PurchaseInvoiceSubmissionAction
                     'document_id' => (int) $submission['document_id'],
                     'filename' => (string) $submission['original_name'],
                     'via' => 'staff',
-                ] + ($dims !== [] && empty($item['duplicate']) ? ['dimensions' => $dims] : []),
+                ] + ($dims !== [] && empty($item['duplicate']) && $target === $supplierId ? ['dimensions' => $dims] : [])
+                  + ($target !== $supplierId ? ['uploaded_in_supplier_id' => $supplierId] : []),
+                $target,
             );
         }
 
@@ -260,6 +288,7 @@ final class PurchaseInvoiceSubmissionAction
         return Json::ok($response, [
             'items' => array_map(static fn(array $item): array => $item['submission'] + [
                 'duplicate' => (bool) $item['duplicate'],
+                'target_supplier_name' => $names[(int) $item['submission']['supplier_id']] ?? null,
             ], $items),
             'created' => count($items) - $duplicates,
             'duplicates' => $duplicates,
@@ -480,8 +509,48 @@ final class PurchaseInvoiceSubmissionAction
         return max(0, (int) ($user['id'] ?? 0));
     }
 
+    /**
+     * Dávka rozdělená mezi firmy: každý soubor se posoudí dřív, než se uloží, a jde
+     * rovnou do firmy podle odběratele. Nepřiřazený zůstane v aktivní firmě (první
+     * kandidát). Tvar výsledku je stejný jako u {@see submitOriginals()}.
+     *
+     * @param list<\Psr\Http\Message\UploadedFileInterface> $files
+     * @param list<int> $candidates aktivní firma první, pak firmy s právem na příchozí doklady
+     * @return array{
+     *   items:list<array{submission:array<string,mixed>,duplicate:bool}>,
+     *   errors:list<array{filename:string,code:string,message:string}>,
+     *   first_error:?PurchaseInvoiceSubmissionException
+     * }
+     */
+    private function submitDistributed(array $files, array $candidates, ?int $userId, ?string $note, ?string $kindHint): array
+    {
+        $items = [];
+        $errors = [];
+        $firstError = null;
+        foreach ($files as $file) {
+            $name = basename(str_replace('\\', '/', (string) $file->getClientFilename()));
+            try {
+                if ($file->getError() !== UPLOAD_ERR_OK) {
+                    throw new PurchaseInvoiceSubmissionException('upload_failed', 'Nahrání souboru selhalo.', 400);
+                }
+                $bytes = (string) $file->getStream();
+                $extension = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+                try {
+                    $target = $this->addressees->resolve($bytes, $extension !== '' ? $extension : null, $candidates)['supplier_id'];
+                } catch (\Throwable) {
+                    $target = null;
+                }
+                $items[] = $this->upload->submitBytes($bytes, $name, $target ?? $candidates[0], $userId, 'staff', $note, $kindHint);
+            } catch (PurchaseInvoiceSubmissionException $e) {
+                $firstError ??= $e;
+                $errors[] = ['filename' => $name, 'code' => $e->errorCode, 'message' => $e->getMessage()];
+            }
+        }
+        return ['items' => $items, 'errors' => $errors, 'first_error' => $firstError];
+    }
+
     /** @param array<string,mixed> $context */
-    private function audit(Request $request, string $event, int $id, array $context): void
+    private function audit(Request $request, string $event, int $id, array $context, ?int $supplierId = null): void
     {
         $this->logger->log(
             $event,
@@ -491,7 +560,7 @@ final class PurchaseInvoiceSubmissionAction
             $context,
             $this->ipMatcher->clientIpFromRequest($request->getServerParams()),
             $request->getHeaderLine('User-Agent'),
-            SupplierGuard::currentId($request),
+            $supplierId ?? SupplierGuard::currentId($request),
         );
     }
 }

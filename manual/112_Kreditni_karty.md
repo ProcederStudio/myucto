@@ -122,7 +122,8 @@ Režim pro jednotlivý úvěrový účet změníte v jeho detailu v oddílu **Ú
 |---|---|---|
 | Výpis se nenačte, hláška o součtu pohybů | Součet pohybů nesedí na rozdíl zůstatků | Stáhněte výpis z banky znovu. Neúplný výpis aplikace odmítne. |
 | „Tenhle výpis už je načtený.“ | Stejný soubor jste nahráli podruhé | Nic neděláte. |
-| Úvěrový účet nejde načíst | Účet eviduje jiná firma, nebo je v cizí měně | Načtěte výpis ve správné firmě. Cizoměnový kreditní účet aplikace neumí. |
+| Úvěrový účet nejde načíst | Účet eviduje jiná firma, do které nemáte přístup k importu banky, nebo je v cizí měně | Načtěte výpis ve správné firmě. Cizoměnový kreditní účet aplikace neumí. |
+| Výpis se načetl do jiné firmy | Úvěrový účet eviduje jiná vaše firma | Výpis kreditní karty, kterou aktivní firma neeviduje, ale eviduje ji právě jedna jiná firma, kde smíte importovat banku, se načte do ní. Aplikace to ohlásí. Nový úvěrový účet se zakládá vždy v aktivní firmě. |
 | Výpis kreditní karty nejde načíst v daňové evidenci | Kreditní karty jsou jen pro podvojné účetnictví | Nákupy evidujte přes doklady (viz [§ 112.9.5](#11295-danova-evidence)). |
 | Účet je ve stavu **Ke kontrole** | Založil ho import výpisu | V detailu zkontrolujte údaje a klikněte na **Uložit a potvrdit**. |
 | U účtu vidíte **Rozdíl proti výpisu** | Část pohybů není zaúčtovaná, nebo je režim bez mezičlenu | Zpracujte pohyby (viz [§ 112.4](#1124-krok-za-krokem-mesicni-odsouhlaseni)), případně **Zaúčtovat čekající pohyby**. |

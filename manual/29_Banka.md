@@ -220,6 +220,7 @@ Pro vybrané banky umí MyÚčto stahovat pohyby přes bankovní API, aniž byst
 | Po nahrání je výpis označený **Nezpracováno** | Párování nebo zaúčtování selhalo | Klikněte na **Přepárovat výpis** ([§ 29.10](#2910-krok-za-krokem-vypis-s-nezpracovanymi-pohyby)). |
 | Import odmítl soubor jako duplicitu | Stejný soubor (SHA-256) už je nahraný | Nic neděláte. Překrývající se pohyby z jiných výpisů se přeskočí automaticky. |
 | Číslo účtu z hlavičky výpisu není u firmy | Účet není mezi bankovními účty firmy | Přidejte účet v `Peníze → Bankovní účty`, záložka **Měny a účty**. |
+| Výpis se naimportoval do jiné firmy | Účet výpisu patří jiné vaší firmě | Výpis GPC i PDF k účtu, který aktivní firma nemá, se naimportuje do firmy, které účet patří, pokud v ní smíte importovat banku a účet má jen ona. Aplikace to po nahrání ohlásí. Platí i pro dávku výpisů za víc firem. |
 | PDF výpis se nenaimportuje | Součet pohybů nesedí na rozdíl zůstatků, nebo banka není podporovaná | Použijte GPC/ABO, nebo PDF jiného formátu výpisu. |
 | Platba zůstala **Nespárováno**, důvod „Chybí variabilní symbol“ | Platba nemá VS | Spárujte ručně ([§ 29.4](#294-krok-za-krokem-parovani-plateb-s-fakturami)). |
 | Důvod „Žádná vydaná faktura s tímto VS“ | Platba přišla dřív, než faktura vznikla | Počkejte na fakturu a použijte **Přepárovat výpis**, nebo spárujte ručně. |

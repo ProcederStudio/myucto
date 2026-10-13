@@ -596,6 +596,12 @@ async function onFileSelected(e: Event) {
 
   const transferred = results.reduce((sum, r) => sum + (r.ignored_transferred ?? 0), 0)
   if (transferred > 0) toast.success(t('bank.ignore_transfer.done', { count: transferred }))
+  // Výpisy k účtům jiných firem uživatele se naimportovaly do nich, v tomto seznamu nejsou.
+  const elsewhere = results.filter(r => r.target_supplier_id)
+  if (elsewhere.length > 0) {
+    const companies = [...new Set(elsewhere.map(r => r.target_supplier_name).filter(Boolean))].join(', ')
+    toast.info(t('bank.imported_to_other_company', { n: elsewhere.length, companies }))
+  }
   await load()
 
   // Single-file mode: zachovat původní UX (redirect na detail nové faktury)

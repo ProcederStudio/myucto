@@ -122,6 +122,8 @@ final class BankStatementAction
         private readonly BankTransactionReleaseService $release,
         // Výpis kreditní karty z „Nahrát PDF" jde importem kreditních karet (úvěr 231.x).
         private readonly \MyInvoice\Service\Bank\CreditCard\CreditCardStatementImportService $creditCards,
+        // Výpis k účtu jiné firmy, kam smí uživatel importovat banku, se naimportuje tam.
+        private readonly \MyInvoice\Security\CrossSupplierAuthorization $crossSupplier,
         private readonly ?SubsetSumSolver $subsetSolver = null,
     ) {}
 
@@ -296,9 +298,9 @@ final class BankStatementAction
         }
 
         $ip = $this->ipMatcher->clientIpFromRequest($request->getServerParams());
-        $this->logger->log('bank.statement_imported', $user['id'] ?? null, 'bank_statement', $r['statement_id'], $r + ['reconciliation_confirmation_count' => count($reconciliationConfirmations)], $ip, $request->getHeaderLine('User-Agent'));
+        $this->logger->log('bank.statement_imported', $user['id'] ?? null, 'bank_statement', $r['statement_id'], $r + ['reconciliation_confirmation_count' => count($reconciliationConfirmations)], $ip, $request->getHeaderLine('User-Agent'), $resolved['supplier_id']);
 
-        return Json::ok($response, $r);
+        return Json::ok($response, $this->withTargetSupplier($request, $r, $resolved['supplier_id']));
     }
 
     /**
@@ -351,13 +353,18 @@ final class BankStatementAction
         // Kreditní karta není bankovní účet: úvěrový účet se zaeviduje firmě a účtuje se
         // na 231.x. Měnový účet (currency_id) se tu nevolí, kreditka v `currencies` není.
         if (\MyInvoice\Service\Bank\CreditCard\CreditCardStatementImportService::isCreditCardStatement($parsed)) {
+            $current = SupplierGuard::currentId($request);
+            $owner = $this->creditCards->ownerAmong($parsed, $current, array_values(array_filter(
+                $this->crossSupplier->suppliersAllowing($request, ['bank.import']),
+                static fn (int $id): bool => $id !== $current,
+            )));
             try {
-                $r = $this->creditCards->importParsed(SupplierGuard::currentId($request), $parsed, $pdfBytes, $name, (int) ($user['id'] ?? 0));
+                $r = $this->creditCards->importParsed($owner, $parsed, $pdfBytes, $name, (int) ($user['id'] ?? 0));
             } catch (\MyInvoice\Service\Accounting\PostingException $e) {
                 return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus, $e->context);
             }
-            $this->logger->log('bank.statement_pdf_imported', $user['id'] ?? null, 'bank_statement', $r['statement_id'], $r + ['parser' => $parsed['parser'] ?? null], $this->ipMatcher->clientIpFromRequest($request->getServerParams()), $request->getHeaderLine('User-Agent'));
-            return Json::ok($response, $r);
+            $this->logger->log('bank.statement_pdf_imported', $user['id'] ?? null, 'bank_statement', $r['statement_id'], $r + ['parser' => $parsed['parser'] ?? null], $this->ipMatcher->clientIpFromRequest($request->getServerParams()), $request->getHeaderLine('User-Agent'), $owner);
+            return Json::ok($response, $this->withTargetSupplier($request, $r, $owner));
         }
 
         $accountNumber = (string) ($parsed['header']['account_number'] ?? '');
@@ -366,7 +373,8 @@ final class BankStatementAction
             return $resolved['error']($response);
         }
 
-        $sid = SupplierGuard::currentId($request);
+        // Firma, které účet výpisu patří — aktivní, nebo jiná, kam smí uživatel importovat.
+        $sid = $resolved['supplier_id'];
         $ip = $this->ipMatcher->clientIpFromRequest($request->getServerParams());
         $pdfHash = hash('sha256', $pdfBytes);
 
@@ -374,12 +382,12 @@ final class BankStatementAction
         // idempotentně vrať původní výpis místo druhé kopie.
         $existingPdfId = $this->statementWithPdfHash($pdfHash, $sid);
         if ($existingPdfId !== null) {
-            return Json::ok($response, [
+            return Json::ok($response, $this->withTargetSupplier($request, [
                 'statement_id' => $existingPdfId,
                 'transactions' => 0,
                 'matched'      => 0,
                 'duplicate'    => true,
-            ]);
+            ], $sid));
         }
 
         // Týž výpis už je v systému z GPC/ABO — PDF je jen jeho oficiální podoba,
@@ -401,29 +409,29 @@ final class BankStatementAction
                 'pdf_name' => $name,
                 'size'     => strlen($pdfBytes),
                 'parser'   => $parsed['parser'] ?? null,
-            ], $ip, $request->getHeaderLine('User-Agent'));
+            ], $ip, $request->getHeaderLine('User-Agent'), $sid);
 
-            return Json::ok($response, [
+            return Json::ok($response, $this->withTargetSupplier($request, [
                 'statement_id'         => $target,
                 'transactions'         => 0,
                 'matched'              => 0,
                 'duplicate'            => false,
                 'attached_to_existing' => true,
                 'pdf_name'             => $name,
-            ]);
+            ], $sid));
         }
 
         try {
-            $r = $this->importer->importParsedPdf($parsed, $pdfBytes, $name, (int) ($user['id'] ?? 0), $resolved['currency_id'], SupplierGuard::currentId($request), $this->ignoreDecision($request));
+            $r = $this->importer->importParsedPdf($parsed, $pdfBytes, $name, (int) ($user['id'] ?? 0), $resolved['currency_id'], $sid, $this->ignoreDecision($request));
         } catch (\MyInvoice\Service\Bank\IgnoreNoticeConfirmationRequired $e) {
             return Json::error($response, 'ignored_notices_confirmation', $e->getMessage(), 409, $e->preview);
         } catch (\Throwable $e) {
             return Json::error($response, 'parse_failed', 'Nelze parsovat: ' . $e->getMessage(), 400);
         }
 
-        $this->logger->log('bank.statement_pdf_imported', $user['id'] ?? null, 'bank_statement', $r['statement_id'], $r + ['parser' => $parsed['parser'] ?? null], $ip, $request->getHeaderLine('User-Agent'));
+        $this->logger->log('bank.statement_pdf_imported', $user['id'] ?? null, 'bank_statement', $r['statement_id'], $r + ['parser' => $parsed['parser'] ?? null], $ip, $request->getHeaderLine('User-Agent'), $sid);
 
-        return Json::ok($response, $r);
+        return Json::ok($response, $this->withTargetSupplier($request, $r, $sid));
     }
 
     /**
@@ -603,28 +611,34 @@ final class BankStatementAction
      * CZK/EUR/USD = jedno číslo) nelze měnu z výpisu odvodit → vyžádej `account_id`.
      * Sdíleno mezi GPC (`upload`) a PDF (`importPdf`) uploadem.
      *
-     * @return array{currency_id: ?int, error: null|(callable(Response): Response)}
+     * Patří-li účet jiné firmě, do které smí uživatel importovat banku, výpis se
+     * směruje tam (`supplier_id` ve výsledku). Rozhoduje jen jednoznačná shoda:
+     * stejné číslo účtu ve dvou dalších firmách nesměruje nikam.
+     *
+     * @return array{currency_id: ?int, supplier_id: int, error: null|(callable(Response): Response)}
      */
     private function resolveTargetCurrency(Request $request, string $accountNumber): array
     {
+        $sid = SupplierGuard::currentId($request);
         if ($accountNumber === '') {
-            return ['currency_id' => null, 'error' => null];
+            return ['currency_id' => null, 'supplier_id' => $sid, 'error' => null];
         }
 
-        $sid = SupplierGuard::currentId($request);
-        $stmt = $this->db->pdo()->prepare(
-            'SELECT id, code, label, account_number, bank_code, iban FROM currencies WHERE supplier_id = ?'
-        );
-        $stmt->execute([$sid]);
-        $matches = [];
-        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $iban = isset($row['iban']) && is_string($row['iban']) ? $row['iban'] : null;
-            if (\MyInvoice\Service\Bank\AccountNumberNormalizer::matchesAny($accountNumber, $row['account_number'] ?? null, $iban)) {
-                $matches[] = $row;
+        $matches = $this->accountMatches([$sid], $accountNumber);
+        if ($matches === []) {
+            $others = array_values(array_filter(
+                $this->crossSupplier->suppliersAllowing($request, ['bank.import']),
+                static fn (int $id): bool => $id !== $sid,
+            ));
+            $elsewhere = $others !== [] ? $this->accountMatches($others, $accountNumber) : [];
+            $owners = array_values(array_unique(array_map(static fn (array $m): int => (int) $m['supplier_id'], $elsewhere)));
+            if (count($owners) === 1) {
+                $sid = $owners[0];
+                $matches = $elsewhere;
             }
         }
         if ($matches === []) {
-            return ['currency_id' => null, 'error' => fn (Response $response) => Json::error(
+            return ['currency_id' => null, 'supplier_id' => $sid, 'error' => fn (Response $response) => Json::error(
                 $response,
                 'wrong_supplier_account',
                 "Bankovní účet $accountNumber není registrovaný u aktuálního supplier (Settings → měny → bankovní spojení).",
@@ -643,14 +657,14 @@ final class BankStatementAction
                 if ((int) $m['id'] === $accId) { $chosen = $m; break; }
             }
             if ($chosen === null) {
-                return ['currency_id' => null, 'error' => fn (Response $response) => Json::error(
+                return ['currency_id' => null, 'supplier_id' => $sid, 'error' => fn (Response $response) => Json::error(
                     $response,
                     'invalid_account',
                     'Zvolený měnový účet neodpovídá číslu účtu ve výpisu nebo nepatří aktuálnímu dodavateli.',
                     422
                 )];
             }
-            return ['currency_id' => $accId, 'error' => null];
+            return ['currency_id' => $accId, 'supplier_id' => $sid, 'error' => null];
         }
 
         // GPC/ABO neobsahuje kód banky vlastního účtu. Více shod stejného čísla je
@@ -663,7 +677,7 @@ final class BankStatementAction
                 'account_number' => (string) ($m['account_number'] ?? ''),
                 'label'          => $this->accountCandidateLabel($m),
             ], $matches);
-            return ['currency_id' => null, 'error' => fn (Response $response) => Json::error(
+            return ['currency_id' => null, 'supplier_id' => $sid, 'error' => fn (Response $response) => Json::error(
                 $response,
                 'ambiguous_account_currency',
                 'Tomuto číslu účtu odpovídá více bankovních účtů — zvolte cílový účet.',
@@ -673,7 +687,48 @@ final class BankStatementAction
         }
         // Jednoznačný účet: použij konkrétní supplier-scoped řádek (autoritativní
         // měna i kód banky, tenant-safe — na rozdíl od tenant-less lookupu v importeru).
-        return ['currency_id' => (int) $matches[0]['id'], 'error' => null];
+        return ['currency_id' => (int) $matches[0]['id'], 'supplier_id' => $sid, 'error' => null];
+    }
+
+    /**
+     * Měnové účty daných firem, kterým odpovídá číslo účtu (nebo IBAN) z výpisu.
+     *
+     * @param list<int> $supplierIds
+     * @return list<array<string,mixed>>
+     */
+    private function accountMatches(array $supplierIds, string $accountNumber): array
+    {
+        if ($supplierIds === []) {
+            return [];
+        }
+        $in = implode(',', array_fill(0, count($supplierIds), '?'));
+        $stmt = $this->db->pdo()->prepare(
+            "SELECT id, supplier_id, code, label, account_number, bank_code, iban FROM currencies WHERE supplier_id IN ($in)"
+        );
+        $stmt->execute($supplierIds);
+        $matches = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $iban = isset($row['iban']) && is_string($row['iban']) ? $row['iban'] : null;
+            if (\MyInvoice\Service\Bank\AccountNumberNormalizer::matchesAny($accountNumber, $row['account_number'] ?? null, $iban)) {
+                $matches[] = $row;
+            }
+        }
+        return $matches;
+    }
+
+    /**
+     * Výpis odešel do jiné firmy než aktivní: odpověď to řekne, ať UI ukáže kam.
+     *
+     * @param array<string,mixed> $result
+     * @return array<string,mixed>
+     */
+    private function withTargetSupplier(Request $request, array $result, int $targetSupplierId): array
+    {
+        if ($targetSupplierId === SupplierGuard::currentId($request)) {
+            return $result;
+        }
+        $firm = $this->crossSupplier->describe([$targetSupplierId])[0] ?? null;
+        return $result + ['target_supplier_id' => $targetSupplierId, 'target_supplier_name' => $firm['name'] ?? null];
     }
 
     /** @param array<string,mixed> $account */

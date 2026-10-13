@@ -194,6 +194,9 @@ export interface CreditCardImportResult {
   duplicate: boolean
   credit_card_account_id: number | null
   skipped_duplicates?: number
+  /** Úvěrový účet eviduje jiná firma uživatele: výpis se naimportoval do ní. */
+  target_supplier_id?: number
+  target_supplier_name?: string | null
 }
 
 export const creditCardsApi = {

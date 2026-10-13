@@ -155,7 +155,11 @@ final class ImportStructuredPurchaseInvoiceActionTest extends TestCase
         $logger = $this->createStub(ActivityLogger::class);
         $ipMatcher = $this->createStub(IpMatcher::class);
         $ipMatcher->method('clientIpFromRequest')->willReturn('127.0.0.1');
-        return new ImportStructuredPurchaseInvoiceAction($router, $importer, $locks, $logger, $ipMatcher);
+        // ISDOC v testech neuvádí odběratele, takže se jiné firmy nehledají
+        // a služby pro ně se nezavolají.
+        $crossSupplier = (new \ReflectionClass(\MyInvoice\Security\CrossSupplierAuthorization::class))->newInstanceWithoutConstructor();
+        $addressees = (new \ReflectionClass(\MyInvoice\Service\Import\DocumentAddresseeResolver::class))->newInstanceWithoutConstructor();
+        return new ImportStructuredPurchaseInvoiceAction($router, $importer, $locks, $logger, $ipMatcher, $crossSupplier, $addressees);
     }
 
     private function request(string $content, string $name): \Psr\Http\Message\ServerRequestInterface

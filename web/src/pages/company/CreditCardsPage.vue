@@ -53,6 +53,10 @@ async function onFile(ev: Event) {
   try {
     const { result, reposted } = await importCreditCardStatement(file, null, msg => window.confirm(msg))
     if (reposted !== null) toast.success(t('credit_cards.converted', { n: reposted }))
+    if (result.target_supplier_id) {
+      toast.info(t('credit_cards.imported_other_company', { company: result.target_supplier_name ?? '' }))
+      return
+    }
     toast.success(result.duplicate ? t('credit_cards.imported_duplicate') : t('credit_cards.imported', { n: result.transactions }))
     if (result.credit_card_account_id) {
       void router.push({ name: 'credit-card-detail', params: { id: result.credit_card_account_id } })
