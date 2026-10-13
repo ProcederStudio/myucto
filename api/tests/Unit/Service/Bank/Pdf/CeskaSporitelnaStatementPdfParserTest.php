@@ -169,6 +169,38 @@ final class CeskaSporitelnaStatementPdfParserTest extends TestCase
         self::assertSame('777', $tx['specific_symbol']);
     }
 
+    /**
+     * Výpis ERSTE: poplatková položka má částku až pod názvem služby a záhlaví na další
+     * straně má o řádek víc. Ani jedno nesmí přilepit text k sousednímu pohybu.
+     */
+    public function testFeeItemWithAmountBelowDateAndTallerHeader(): void
+    {
+        $firstPage = self::chunks([
+            [self::X_DATE, 450.6, '25.09.2099'],
+            [self::X_ITEM, 450.6, 'Inkaso'],
+            [self::X_ACCOUNT, 450.6, '123456789/0300'],
+            [self::X_SYMBOL, 450.6, '70066417'],
+            [self::X_AMOUNT, 450.6, '-1 330.00'],
+            [self::X_ITEM, 430.0, 'Číslo instrukce: 12'],
+        ], '670.00');
+        $firstPage = array_values(array_filter($firstPage, static fn (array $c): bool => $c['text'] !== 'Konečný zůstatek:' || $c['y'] > 400));
+        $secondPage = array_map(static fn (array $c): array => ['page' => 1] + $c, self::chunks([
+            [self::X_ITEM, 468.3, 'Popis'],
+            [self::X_DATE, 450.6, '30.09.2099'],
+            [self::X_ITEM, 450.6, 'Ceny za služby'],
+            [self::X_ITEM, 438.4, 'Cena za návštěvu salonku'],
+            [530.3, 438.4, '0.00'],
+            [self::X_ITEM, 425.7, 'datum návštěvy: 7.9.2099'],
+        ], '670.00'));
+        $text = str_replace("Počet položek na výpise\t0\t0\n", '', self::text('2 000.00', '670.00', '0.00', '-1 330.00', 0, 0));
+
+        $txs = (new CeskaSporitelnaStatementPdfParser())->parseChunks([...$firstPage, ...$secondPage], $text)['transactions'];
+
+        self::assertCount(1, $txs, 'Nulová položka „Ceny za služby" se do pohybů nepřenáší.');
+        self::assertSame(-1330.0, $txs[0]['amount']);
+        self::assertSame('Inkaso | Číslo instrukce: 12', $txs[0]['description']);
+    }
+
     public function testRejectsWhenItemCountDiffers(): void
     {
         $text = self::text('1 000.00', '8 000.00', '10 000.00', '-3 000.00', 2, 3);

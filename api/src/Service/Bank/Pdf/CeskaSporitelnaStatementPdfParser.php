@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Bank\Pdf;
 
 use MyInvoice\Service\Bank\Card\CardNumberMask;
-use Smalot\PdfParser\Parser as PdfTextParser;
 
 /**
  * Parser PDF „Výpis z účtu" České spořitelny (běžný a podnikatelský účet, George).
@@ -56,7 +55,7 @@ final class CeskaSporitelnaStatementPdfParser implements BankStatementPdfParserI
 
     public function parse(string $pdfBytes, string $text): array
     {
-        return $this->parseChunks($this->chunks($pdfBytes), $text);
+        return $this->parseChunks(PdfPositionedText::fromBytes($pdfBytes), $text);
     }
 
     /**
@@ -165,19 +164,12 @@ final class CeskaSporitelnaStatementPdfParser implements BankStatementPdfParserI
             $cells = $this->tableCells($page, $columns);
             usort($cells, static fn (array $a, array $b): int => [$b['y'], $a['x']] <=> [$a['y'], $b['x']]);
 
-            $starts = [];
-            foreach ($cells as $cell) {
-                if ($cell['x'] < $columns['item'] - self::COLUMN_SLACK
-                    && preg_match(self::DATE, $cell['text'])
-                    && $this->amountAt($cells, $columns, $cell['y']) !== null) {
-                    $starts[] = $cell['y'];
-                }
-            }
+            $starts = $this->starts($cells, $columns);
             $pageBlocks = array_fill_keys(array_keys($starts), []);
             foreach ($cells as $cell) {
                 $owner = null;
-                foreach ($starts as $index => $y) {
-                    if ($y >= $cell['y'] - self::SAME_ROW) $owner = $index;
+                foreach ($starts as $index => $start) {
+                    if ($start['y'] >= $cell['y'] - self::SAME_ROW) $owner = $index;
                 }
                 if ($owner !== null) {
                     $pageBlocks[$owner][] = $cell;
@@ -186,15 +178,62 @@ final class CeskaSporitelnaStatementPdfParser implements BankStatementPdfParserI
                     $blocks[array_key_last($blocks)]['cells'][] = $cell + ['continued' => true];
                 }
             }
-            foreach ($starts as $index => $y) {
-                $blocks[] = ['y' => $y, 'columns' => $columns, 'cells' => $pageBlocks[$index]];
+            foreach ($starts as $index => $start) {
+                $blocks[] = $start + ['columns' => $columns, 'cells' => $pageBlocks[$index]];
             }
         }
 
         return array_map(fn (array $block): array => $this->row($block), $blocks);
     }
 
-    /** @param array{y:float,columns:array<string,float>,cells:list<array<string,mixed>>} $block */
+    /**
+     * Začátky pohybů: datum zaúčtování a řádek s částkou. Částka stojí obvykle na řádku
+     * data; u poplatkových položek („Ceny za služby") až o řádek níž, pod názvem služby
+     * (s větší mezerou, než je výška řádku v záhlaví).
+     *
+     * @param list<array{x:float,y:float,text:string}> $cells Seřazené shora dolů.
+     * @param array<string,float> $columns
+     * @return list<array{y:float,amount_y:float}>
+     */
+    private function starts(array $cells, array $columns): array
+    {
+        $dates = [];
+        $amounts = [];
+        foreach ($cells as $cell) {
+            if ($cell['x'] < $columns['item'] - self::COLUMN_SLACK && preg_match(self::DATE, $cell['text'])) {
+                $dates[] = $cell['y'];
+            } elseif ($cell['x'] >= $columns['symbol'] - self::COLUMN_SLACK && preg_match('/^' . self::MONEY . '$/', $cell['text'])) {
+                $amounts[] = $cell['y'];
+            }
+        }
+
+        $starts = [];
+        $unclaimed = [];
+        foreach ($amounts as $amountY) {
+            $date = null;
+            foreach ($dates as $y) {
+                if (abs($y - $amountY) <= self::SAME_ROW) $date = $y;
+            }
+            if ($date !== null) {
+                $starts[(string) $date] = ['y' => $date, 'amount_y' => $amountY];
+            } else {
+                $unclaimed[] = $amountY;
+            }
+        }
+        foreach ($unclaimed as $amountY) {
+            foreach ($dates as $y) {
+                if ($y > $amountY && $y - $amountY <= 2 * $columns['row_step'] && !isset($starts[(string) $y])) {
+                    $starts[(string) $y] = ['y' => $y, 'amount_y' => $amountY];
+                    break;
+                }
+            }
+        }
+        usort($starts, static fn (array $a, array $b): int => $b['y'] <=> $a['y']);
+
+        return $starts;
+    }
+
+    /** @param array{y:float,amount_y:float,columns:array<string,float>,cells:list<array<string,mixed>>} $block */
     private function row(array $block): array
     {
         $columns = $block['columns'];
@@ -219,7 +258,7 @@ final class CeskaSporitelnaStatementPdfParser implements BankStatementPdfParserI
                 continue;
             }
             if ($x < $columns['counterparty'] - self::COLUMN_SLACK) {
-                if (!preg_match(self::DATE, $text)) $parts[] = $text;
+                if (!preg_match(self::DATE, $text) && preg_match('/[\p{L}\p{N}]/u', $text)) $parts[] = $text;
                 continue;
             }
             if ($x < $columns['symbol'] - self::COLUMN_SLACK) {
@@ -230,12 +269,13 @@ final class CeskaSporitelnaStatementPdfParser implements BankStatementPdfParserI
                     $account = str_replace(' ', '', $text);
                 } elseif ($name === null && abs($x - $columns['counterparty']) <= self::COLUMN_SLACK) {
                     $name = $text;
-                } else {
+                } elseif (preg_match('/[\p{L}\p{N}]/u', $text)) {
                     $extra[] = $text;
                 }
                 continue;
             }
-            if ($amount === null && $sameRow && preg_match('/^' . self::MONEY . '$/', $text)) {
+            if ($amount === null && empty($cell['continued']) && abs($cell['y'] - $block['amount_y']) <= self::SAME_ROW
+                && preg_match('/^' . self::MONEY . '$/', $text)) {
                 $amount = $this->num($text);
                 continue;
             }
@@ -288,13 +328,22 @@ final class CeskaSporitelnaStatementPdfParser implements BankStatementPdfParserI
             return null;
         }
         $step = $vs['y'] - $ks['y'];
+        // Záhlaví má podle stránky tři i čtyři řádky; konec určí nejnižší popisek záhlaví.
+        $top = min($ss['y'], $ks['y'], $vs['y']);
+        foreach (['Provedeno', 'Částka obratu cizí měny', 'Popis', 'Název protiúčtu', 'Kurz měny obratu / Kurz měny účtu'] as $label) {
+            foreach ($page as $chunk) {
+                if ($chunk['text'] === $label && $chunk['y'] < $date['y'] && $date['y'] - $chunk['y'] <= 4 * max($step, 10.0)) {
+                    $top = min($top, $chunk['y']);
+                }
+            }
+        }
 
         return [
             'date'         => $date['x'],
             'item'         => $item['x'],
             'counterparty' => $counterparty['x'],
             'symbol'       => $vs['x'],
-            'top'          => min($ss['y'], $ks['y'], $vs['y']),
+            'top'          => $top,
             'row_step'     => $step > 1.0 ? $step : 10.0,
         ];
     }
@@ -324,39 +373,6 @@ final class CeskaSporitelnaStatementPdfParser implements BankStatementPdfParserI
             $page,
             static fn (array $c): bool => $c['y'] < $top && ($bottom === null || $c['y'] > $bottom + 0.5),
         ));
-    }
-
-    /**
-     * @param list<array{x:float,y:float,text:string}> $cells
-     * @param array<string,float> $columns
-     */
-    private function amountAt(array $cells, array $columns, float $y): ?string
-    {
-        foreach ($cells as $cell) {
-            if ($cell['x'] >= $columns['symbol'] - self::COLUMN_SLACK
-                && abs($cell['y'] - $y) <= self::SAME_ROW
-                && preg_match('/^' . self::MONEY . '$/', $cell['text'])) {
-                return $cell['text'];
-            }
-        }
-        return null;
-    }
-
-    /** @return list<array{page:int,x:float,y:float,text:string}> */
-    private function chunks(string $pdfBytes): array
-    {
-        try {
-            $pages = (new PdfTextParser())->parseContent($pdfBytes)->getPages();
-        } catch (\Throwable $e) {
-            throw new \RuntimeException('Česká spořitelna PDF: nelze přečíst rozložení stránek: ' . $e->getMessage(), 0, $e);
-        }
-        $out = [];
-        foreach (array_values($pages) as $index => $page) {
-            foreach ($page->getDataTm() as $data) {
-                $out[] = ['page' => $index, 'x' => (float) $data[0][4], 'y' => (float) $data[0][5], 'text' => (string) $data[1]];
-            }
-        }
-        return $out;
     }
 
     private function amountAfter(string $text, string $label): float
