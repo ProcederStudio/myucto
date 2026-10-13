@@ -5,7 +5,7 @@ import type { PurchaseInvoiceSubmission } from '@/api/purchaseInvoiceSubmissions
 const m = vi.hoisted(() => ({
   list: vi.fn(), reject: vi.fn(), needsInformation: vi.fn(), remove: vi.fn(),
   success: vi.fn(), error: vi.fn(), canWrite: vi.fn((_permission: string) => true),
-  supplier: { currentSupplierId: 1 },
+  supplier: { currentSupplierId: 1, availableSuppliers: [] as Array<{ id: number }> },
 }))
 vi.mock('@/api/purchaseInvoiceSubmissions', () => ({
   purchaseInvoiceSubmissionsApi: {
