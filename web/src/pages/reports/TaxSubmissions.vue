@@ -1609,7 +1609,7 @@ const submissionActions = computed<ActionItem[]>(() => {
       label: t('reports.submissions.refresh_epo_status'),
       icon: 'cycle',
       tier: 'overflow',
-      show: attempt?.refresh_available,
+      show: attempt?.refresh_available === true,
       disabled: directBusy.value,
       run: () => refreshDirectStatus(s),
     },
@@ -1631,7 +1631,7 @@ const submissionActions = computed<ActionItem[]>(() => {
       icon: 'upload',
       tier: 'overflow',
       variant: 'warning',
-      show: attempt?.confirmation_recovery_available
+      show: attempt?.confirmation_recovery_available === true
         && ['submitting', 'processing', 'confirmed', 'uncertain'].includes(attempt?.status ?? ''),
       disabled: directBusy.value,
       run: () => openRecoveryModal(s, 'confirmation'),

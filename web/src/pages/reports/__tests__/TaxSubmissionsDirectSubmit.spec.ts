@@ -305,4 +305,30 @@ describe('TaxSubmissions.vue — dostupnost „Podepsat a podat"', () => {
     expect(vm.directSubmitDisabledReason(item))
       .toContain('reports.submissions.direct_reason_test_required')
   })
+
+  it('(f) asistované podání s dodejkou nabízí obnovu stavu jen jednou a bez přímého pokusu nic dalšího', async () => {
+    const { wrapper, item } = await mountWith([
+      attempt({
+        id: 27,
+        channel: 'epo_assisted',
+        status: 'confirmed',
+        status_query_available: true,
+        remote_submission_ref: '568763535',
+        confirmed_at: iso(1),
+      }),
+    ])
+    const vm = wrapper.vm as unknown as {
+      toggleDetail: (item: TaxSubmission) => void
+      submissionActions: Array<{ key: string; show?: unknown }>
+    }
+    vm.toggleDetail(item)
+    await flushPromises()
+
+    const visible = vm.submissionActions
+      .filter(a => a.show === undefined || !!a.show)
+      .map(a => a.key)
+    expect(visible).toContain('refresh_status_assisted')
+    expect(visible).not.toContain('refresh_status')
+    expect(visible).not.toContain('recover_confirmation')
+  })
 })
