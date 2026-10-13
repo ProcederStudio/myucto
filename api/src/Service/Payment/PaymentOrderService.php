@@ -66,6 +66,7 @@ final class PaymentOrderService
         private readonly RefundPaymentRepository $refunds,
         private readonly ClientBankAccountRepository $clientAccounts,
         private readonly CzechBankAccountValidator $czechAccounts,
+        private readonly TaxPaymentCandidates $taxes,
     ) {}
 
     /**
@@ -136,6 +137,9 @@ final class PaymentOrderService
         }
 
         $result = ['payer_accounts' => $payerAccounts, 'candidates' => $candidates, 'total' => $total];
+        $result['tax_candidates'] = $currency === null || strtoupper($currency) === 'CZK'
+            ? $this->taxes->list($supplierId)
+            : [];
         if (RefundDocument::enabledForSupplier($this->db->pdo(), $supplierId)) {
             $result['refund_candidates'] = $currency === null || strtoupper($currency) === 'CZK'
                 ? $this->refundCandidates($supplierId)
@@ -314,10 +318,12 @@ final class PaymentOrderService
     {
         $ids = array_values(array_unique(array_map('intval', (array) ($input['invoice_ids'] ?? []))));
         $refundIds = array_values(array_unique(array_map('intval', (array) ($input['refund_invoice_ids'] ?? []))));
-        if ($ids === [] && $refundIds === []) {
+        $taxVatIds = array_values(array_unique(array_map('intval', (array) ($input['tax_submission_ids'] ?? []))));
+        $taxAdvanceIds = array_values(array_unique(array_map('intval', (array) ($input['tax_advance_ids'] ?? []))));
+        if ($ids === [] && $refundIds === [] && $taxVatIds === [] && $taxAdvanceIds === []) {
             throw new \InvalidArgumentException('Není vybrána žádná faktura.');
         }
-        if (count($ids) + count($refundIds) > 500) {
+        if (count($ids) + count($refundIds) + count($taxVatIds) + count($taxAdvanceIds) > 500) {
             throw new \InvalidArgumentException('Najednou lze zařadit maximálně 500 faktur.');
         }
 
@@ -414,6 +420,12 @@ final class PaymentOrderService
             );
             array_push($items, ...$refundItems);
             array_push($skipped, ...$refundSkipped);
+        }
+
+        if ($taxVatIds !== [] || $taxAdvanceIds !== []) {
+            [$taxItems, $taxSkipped] = $this->taxes->items($supplierId, $taxVatIds, $taxAdvanceIds, $orderCurrency, $batchKs);
+            array_push($items, ...$taxItems);
+            array_push($skipped, ...$taxSkipped);
         }
 
         if ($items === []) {
@@ -573,8 +585,10 @@ final class PaymentOrderService
                 'message'             => $it['message'],
                 'account_verified'    => $it['account_verified'],
             ];
-            if (($it['invoice_id'] ?? null) !== null) {
-                $item['invoice_id'] = $it['invoice_id'];
+            foreach (['invoice_id', 'tax_submission_id', 'tax_advance_schedule_id'] as $target) {
+                if (($it[$target] ?? null) !== null) {
+                    $item[$target] = $it[$target];
+                }
             }
             $items[] = $item;
         }

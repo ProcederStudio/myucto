@@ -145,6 +145,55 @@ final class VatPaymentInstruction
     }
 
     /**
+     * Podaná přiznání k DPH s daní, kterou bankovní výpisy ještě nepokrývají. Za každé
+     * období poslední podané řádné nebo opravné přiznání; dodatečné tvrdí jen rozdíl
+     * a jeho úhradu od úhrady původní daně podle výpisu spolehlivě odlišit nejde.
+     *
+     * @return list<array<string,mixed>> výstup {@see describe()} + submission_id, period_*, payment, period_label
+     */
+    public static function unpaidReturns(\PDO $pdo, int $supplierId, string $submittedSince): array
+    {
+        $stmt = $pdo->prepare(
+            "SELECT id, supplier_id, form_code, period_year, period_month, period_quarter, xml_content
+               FROM tax_submissions
+              WHERE supplier_id = ? AND form_code = 'dphdp3' AND status IN ('submitted', 'accepted')
+                AND COALESCE(submitted_at, generated_at) >= ?
+              ORDER BY period_year, period_quarter, period_month, submitted_at DESC, id DESC"
+        );
+        $stmt->execute([$supplierId, $submittedSince]);
+
+        $out = [];
+        $seen = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $period = $row['period_year'] . '-' . ($row['period_month'] ?? '') . '-' . ($row['period_quarter'] ?? '');
+            if (isset($seen[$period])) {
+                continue;
+            }
+            $described = self::describe($row);
+            if ($described['amendment'] ?? false) {
+                continue;
+            }
+            $seen[$period] = true;
+            if ($described['payable'] <= 0) {
+                continue;
+            }
+            $payment = self::findPayment($pdo, $supplierId, $described, $row);
+            if ($payment !== null && $payment['paid']) {
+                continue;
+            }
+            $out[] = $described + [
+                'submission_id' => (int) $row['id'],
+                'period_year' => (int) $row['period_year'],
+                'period_month' => $row['period_month'] !== null ? (int) $row['period_month'] : null,
+                'period_quarter' => $row['period_quarter'] !== null ? (int) $row['period_quarter'] : null,
+                'period_label' => self::periodLabel($row),
+                'payment' => $payment,
+            ];
+        }
+        return $out;
+    }
+
+    /**
      * @return array{office_code:?string,variable_symbol:?string,amendment:bool,payable:float,refund:float}
      */
     public static function parse(string $xml): array
@@ -219,7 +268,7 @@ final class VatPaymentInstruction
         return $year > 0 && $lastMonth !== null && $lastMonth >= 1 && $lastMonth <= 12 ? $lastMonth : null;
     }
 
-    private static function periodLabel(array $submission): string
+    public static function periodLabel(array $submission): string
     {
         $year = (int) ($submission['period_year'] ?? 0);
         if (($submission['period_quarter'] ?? null) !== null) {

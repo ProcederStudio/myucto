@@ -110,6 +110,7 @@ final class PaymentOrderAction
         if (array_key_exists('refund_candidates', $result)) {
             $envelope['refund_candidates'] = $result['refund_candidates'];
         }
+        $envelope['tax_candidates'] = $result['tax_candidates'] ?? [];
         return Json::ok($response, $envelope);
     }
 
@@ -127,6 +128,8 @@ final class PaymentOrderAction
             $result = $this->service->create($supplierId, [
                 'invoice_ids'        => (array) ($body['invoice_ids'] ?? []),
                 'refund_invoice_ids' => (array) ($body['refund_invoice_ids'] ?? []),
+                'tax_submission_ids' => (array) ($body['tax_submission_ids'] ?? []),
+                'tax_advance_ids'    => (array) ($body['tax_advance_ids'] ?? []),
                 'payer_currency_id'  => (int) ($body['payer_currency_id'] ?? 0),
                 'payment_date'       => (string) ($body['payment_date'] ?? ''),
                 'constant_symbol'    => $body['constant_symbol'] ?? null,

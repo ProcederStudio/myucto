@@ -984,7 +984,8 @@
         "2000_activity_log_action_length.sql",
         "2001_purchase_numbering_by_kind.sql",
         "2002_clients_walk_in_customer.sql",
-        "2003_supplier_fiscal_year_start_month.sql"
+        "2003_supplier_fiscal_year_start_month.sql",
+        "2004_payment_order_tax_items.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -7768,19 +7769,24 @@
                 "payment_order_id": "bigint(20) unsigned NOT NULL",
                 "purchase_invoice_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "specific_symbol": "varchar(10) NULL DEFAULT NULL",
+                "tax_advance_schedule_id": "int(10) unsigned NULL DEFAULT NULL",
+                "tax_submission_id": "int(10) unsigned NULL DEFAULT NULL",
                 "variable_symbol": "varchar(10) NULL DEFAULT NULL"
             },
             "indexes": {
                 "PRIMARY": "UNIQUE BTREE (id)",
                 "idx_poi_invoice": "BTREE (purchase_invoice_id)",
                 "idx_poi_issued_invoice": "BTREE (invoice_id)",
-                "idx_poi_order": "BTREE (payment_order_id)"
+                "idx_poi_order": "BTREE (payment_order_id)",
+                "idx_poi_tax_advance": "BTREE (tax_advance_schedule_id)",
+                "idx_poi_tax_submission": "BTREE (tax_submission_id)"
             },
             "foreign_keys": {
-                "fk_poi_invoice": "(invoice_id) -> invoices (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+                "fk_poi_invoice": "(invoice_id) -> invoices (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_poi_tax_submission": "(tax_submission_id) -> tax_submissions (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
             },
             "checks": {
-                "chk_poi_single_target": "`purchase_invoice_id` is null <> (`invoice_id` is null)"
+                "chk_poi_single_target": "(`purchase_invoice_id` is not null) + (`invoice_id` is not null) + (`tax_submission_id` is not null) + (`tax_advance_schedule_id` is not null) = 1"
             }
         },
         "payment_orders": {

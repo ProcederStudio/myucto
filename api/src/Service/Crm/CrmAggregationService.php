@@ -2610,33 +2610,24 @@ final class CrmAggregationService
      */
     public function vatPaymentItems(int $supplierId, \DateTimeImmutable $now): array
     {
-        $stmt = $this->db->pdo()->prepare(
-            "SELECT DISTINCT period_year, period_month, period_quarter
-               FROM tax_submissions
-              WHERE supplier_id = ? AND form_code = 'dphdp3' AND status IN ('submitted', 'accepted')
-                AND COALESCE(submitted_at, generated_at) >= ?"
-        );
-        $stmt->execute([$supplierId, $now->modify('-150 days')->format('Y-m-d')]);
-
         $items = [];
-        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $p = [
-                'year'    => (int) $row['period_year'],
-                'month'   => $row['period_month'] !== null ? (int) $row['period_month'] : null,
-                'quarter' => $row['period_quarter'] !== null ? (int) $row['period_quarter'] : null,
-            ];
-            $payment = $this->vatPaymentForPeriod($supplierId, $p);
-            if ($payment === null || $payment['payable'] <= 0 || $payment['paid'] || $payment['due_date'] === null) {
+        $unpaid = VatPaymentInstruction::unpaidReturns(
+            $this->db->pdo(),
+            $supplierId,
+            $now->modify('-150 days')->format('Y-m-d'),
+        );
+        foreach ($unpaid as $payment) {
+            if ($payment['due_date'] === null) {
                 continue;
             }
             $days = (int) $now->diff(new \DateTimeImmutable($payment['due_date']))->format('%r%a');
             if ($days < -60) {
                 continue;
             }
-            $period = $p['quarter'] !== null
-                ? sprintf('%d. čtvrtletí %d', $p['quarter'], $p['year'])
-                : sprintf('%d/%d', (int) $p['month'], $p['year']);
-            $amount = number_format((float) $payment['payable'] - (float) $payment['paid_amount'], 0, ',', ' ');
+            $period = $payment['period_quarter'] !== null
+                ? sprintf('%d. čtvrtletí %d', $payment['period_quarter'], $payment['period_year'])
+                : sprintf('%d/%d', (int) $payment['period_month'], $payment['period_year']);
+            $amount = number_format((float) $payment['payable'] - (float) ($payment['payment']['paid_amount'] ?? 0), 0, ',', ' ');
             $items[] = [
                 'type'     => 'vat_payment',
                 'severity' => $days <= 3 ? 'high' : 'medium',
@@ -2644,12 +2635,12 @@ final class CrmAggregationService
                 'hint'     => sprintf(
                     '%s Kč na účet %s, VS %s, %s %s',
                     $amount,
-                    (string) ($payment['account'] ?? '?'),
+                    (string) ($payment['account']['account'] ?? '?'),
                     (string) ($payment['variable_symbol'] ?? '?'),
                     $days < 0 ? 'splatnost byla' : 'splatnost',
                     $payment['due_date'],
                 ),
-                'link'     => '/reports/submissions',
+                'link'     => '/purchase-invoices/payment-orders',
                 'days'     => $days,
             ];
         }

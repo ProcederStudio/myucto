@@ -528,10 +528,11 @@ Detail přiznání k DPH ukazuje v pravém sloupci kartu **Platba daně**. Všec
 - **Částka** - vlastní daňová povinnost (ř. 64). U nadměrného odpočtu (ř. 65) karta jen oznámí, že vrací finanční úřad. U dodatečného přiznání se hradí rozdíl proti poslední známé dani (ř. 66).
 - **Splatnost** - u řádného i opravného přiznání shodná s lhůtou pro podání: 25. den po skončení období, posunutý na pracovní den. Dodatečně tvrzená daň je splatná ve lhůtě pro podání dodatečného přiznání, kterou aplikace nedopočítává.
 - **QR platba** - pro mobilní bankovnictví, zobrazí se, dokud daň není uhrazená.
+- **Do platebního příkazu** - otevře platební příkazy, kde je daň v tabulce **Daně finančnímu úřadu** připravená k zařazení do dávky (ABO nebo odeslání do banky), viz [Platební příkazy](26_Platebni_prikazy.md#26811-dane-financnimu-uradu).
 
 Úhradu aplikace pozná z importovaných bankovních výpisů firmy: odchozí platba na účet s předčíslím 705 se stejným variabilním symbolem nebo na účet stejného finančního úřadu, připsaná po skončení období. Karta pak ukáže **Zaplaceno** s datem úhrady.
 
-Po doložení podání se částka k úhradě objeví i na přehledu: ve widgetu **Daňový kalendář** u položky DPH přiznání a jako úkol **Zaplaťte DPH** v **Akcích pro vás**. Úkol zmizí, jakmile výpis platbu pokryje, nejpozději 60 dní po splatnosti.
+Po doložení podání se částka k úhradě objeví i na přehledu: ve widgetu **Daňový kalendář** u položky DPH přiznání a jako úkol **Zaplaťte DPH** v **Akcích pro vás**, který vede do platebních příkazů. Úkol zmizí, jakmile výpis platbu pokryje, nejpozději 60 dní po splatnosti.
 
 > [!WARNING]
 > DPH ve zvláštním režimu jednoho správního místa (OSS) se na účet s předčíslím 705 platit nesmí. Pro OSS platí vlastní účet, viz [OSS](45_OSS.md).

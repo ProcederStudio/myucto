@@ -118,6 +118,25 @@ export interface PaymentOrderCandidatesResponse {
   meta: PageMeta
   /** Jen se zapnutým vyplácením přeplatků u firmy. */
   refund_candidates?: RefundCandidate[]
+  /** Daně firmy finančnímu úřadu (DPH z podaných přiznání, zálohy na daň z příjmů). */
+  tax_candidates?: TaxPaymentCandidate[]
+}
+
+/** Daň k úhradě FÚ. Účet, VS i částku určuje server, do příkazu se posílá jen ID. */
+export interface TaxPaymentCandidate {
+  key: string
+  kind: 'vat' | 'advance'
+  id: number
+  label: string
+  amount: number
+  due_date: string | null
+  office_name: string | null
+  account_number: string | null
+  bank_code: string | null
+  iban: string | null
+  account: string | null
+  variable_symbol: string | null
+  ordered_at: string | null
 }
 
 /** Položka uloženého platebního příkazu (detail) — kanonický pohled z backendu. */
@@ -125,6 +144,8 @@ export interface PaymentOrderItem {
   /** `null` u vratky odběrateli, ta nese `invoice_id`. */
   purchase_invoice_id: number | null
   invoice_id?: number
+  tax_submission_id?: number
+  tax_advance_schedule_id?: number
   payee_name: string | null
   account_number: string | null
   bank_code: string | null
@@ -183,6 +204,10 @@ export interface CreatePaymentOrderPayload {
   invoice_ids: number[]
   /** Vratky odběratelům (vystavené doklady k vyplacení). */
   refund_invoice_ids?: number[]
+  /** DPH z podaných přiznání (tax_submissions.id). */
+  tax_submission_ids?: number[]
+  /** Zálohy na daň z příjmů (tax_advance_schedules.id). */
+  tax_advance_ids?: number[]
   payer_currency_id: number
   payment_date: string
   constant_symbol?: string

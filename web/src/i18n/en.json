@@ -19408,6 +19408,12 @@
       "invalid_account": "invalid payee account"
     },
     "refund_title": "Refunds to customers",
+    "tax_title": "Taxes to the tax office",
+    "tax_hint": "VAT from filed returns and income tax advances. The app sets the tax office account, variable symbol and amount from the return and the advance schedule; the bank statement then matches the payment.",
+    "tax_col_tax": "Tax",
+    "tax_col_amount": "To pay",
+    "tax_no_office": "Tax office code is missing in company settings",
+    "tax_mark_only_unsupported": "A tax can only be marked by creating an order.",
     "refund_hint": "Issued invoices and credit notes where you owe money to the customer. The variable symbol is the document number, so the outgoing payment is matched automatically after the statement import.",
     "refund_col_client": "Customer",
     "refund_col_amount": "To refund",
@@ -25170,6 +25176,7 @@
         "office": "Tax office",
         "paid_at": "Paid on",
         "qr_alt": "VAT payment QR code",
+        "to_payment_order": "Add to payment order",
         "unknown_office": "The tax office code in the XML is unknown; take the account from the Financial Administration list.",
         "refund": "The tax office refunds the excess deduction of {amount}; nothing to pay.",
         "nothing": "The tax liability is zero; nothing to pay."

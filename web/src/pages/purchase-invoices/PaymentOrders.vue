@@ -11,6 +11,7 @@ import {
   type PaymentAccountVerified,
   type PaymentOrderFormat,
   type RefundCandidate,
+  type TaxPaymentCandidate,
 } from '@/api/paymentOrders'
 import {
   purchaseInvoicesApi,
@@ -41,7 +42,11 @@ const selectedIds = ref<number[]>([])
 // Vratky odběratelům: chodí jen se zapnutým vyplácením přeplatků u firmy.
 const refundCandidates = ref<RefundCandidate[]>([])
 const selectedRefundIds = ref<number[]>([])
-const selectedCount = computed(() => selectedIds.value.length + selectedRefundIds.value.length)
+// Daně finančnímu úřadu (DPH, zálohy na daň z příjmů); klíč `vat:ID` / `advance:ID`.
+const taxCandidates = ref<TaxPaymentCandidate[]>([])
+const selectedTaxKeys = ref<string[]>([])
+const selectedCount = computed(() =>
+  selectedIds.value.length + selectedRefundIds.value.length + selectedTaxKeys.value.length)
 const selectedPayerId = ref<number | ''>('')
 
 const loading = ref(true)
@@ -150,7 +155,10 @@ async function loadCandidates(reset = true) {
     candidates.value = reset ? res.data : [...candidates.value, ...res.data]
     candTotal.value = res.meta.total
     candPages.value = res.meta.pages
-    if (reset) refundCandidates.value = res.refund_candidates ?? []
+    if (reset) {
+      refundCandidates.value = res.refund_candidates ?? []
+      taxCandidates.value = res.tax_candidates ?? []
+    }
     if (payerAccounts.value.length === 0) {
       payerAccounts.value = res.payer_accounts
       selectedPayerId.value = pickDefaultPayer(res.payer_accounts)
@@ -179,6 +187,10 @@ function onPayerChange() {
   selectedRefundIds.value = selectedRefundIds.value.filter(id => {
     const r = refundCandidates.value.find(x => x.id === id)
     return r ? isRefundSelectable(r) : false
+  })
+  selectedTaxKeys.value = selectedTaxKeys.value.filter(key => {
+    const c = taxCandidates.value.find(x => x.key === key)
+    return c ? isTaxSelectable(c) : false
   })
 }
 
@@ -304,9 +316,44 @@ function toggleAllRefunds() {
     : Array.from(new Set([...selectedRefundIds.value, ...ids]))
 }
 
+/** Daň jde jen z korunového účtu a jen se známým účtem FÚ a VS. */
+function isTaxSelectable(c: TaxPaymentCandidate): boolean {
+  return isCzk.value && c.amount > 0 && !!c.account_number && !!c.variable_symbol
+}
+
+const visibleTaxes = computed(() =>
+  hideOrdered.value ? taxCandidates.value.filter(c => !c.ordered_at) : taxCandidates.value,
+)
+
+function toggleTax(c: TaxPaymentCandidate) {
+  if (!isTaxSelectable(c)) return
+  const idx = selectedTaxKeys.value.indexOf(c.key)
+  if (idx >= 0) selectedTaxKeys.value.splice(idx, 1)
+  else selectedTaxKeys.value.push(c.key)
+}
+
+const taxesAllSelected = computed(() => {
+  const keys = visibleTaxes.value.filter(isTaxSelectable).map(c => c.key)
+  return keys.length > 0 && keys.every(key => selectedTaxKeys.value.includes(key))
+})
+
+function toggleAllTaxes() {
+  const keys = visibleTaxes.value.filter(isTaxSelectable).map(c => c.key)
+  selectedTaxKeys.value = taxesAllSelected.value
+    ? selectedTaxKeys.value.filter(key => !keys.includes(key))
+    : Array.from(new Set([...selectedTaxKeys.value, ...keys]))
+}
+
+function selectedTaxIds(kind: TaxPaymentCandidate['kind']): number[] {
+  return taxCandidates.value
+    .filter(c => c.kind === kind && selectedTaxKeys.value.includes(c.key))
+    .map(c => c.id)
+}
+
 function clearSelection() {
   selectedIds.value = []
   selectedRefundIds.value = []
+  selectedTaxKeys.value = []
 }
 
 const selectedTotal = computed(() =>
@@ -315,7 +362,10 @@ const selectedTotal = computed(() =>
     .reduce((sum, c) => sum + (c.amount_to_pay || 0), 0)
   + refundCandidates.value
     .filter(r => selectedRefundIds.value.includes(r.id))
-    .reduce((sum, r) => sum + (r.amount_to_pay || 0), 0),
+    .reduce((sum, r) => sum + (r.amount_to_pay || 0), 0)
+  + taxCandidates.value
+    .filter(c => selectedTaxKeys.value.includes(c.key))
+    .reduce((sum, c) => sum + (c.amount || 0), 0),
 )
 
 const refundSourceKey = (s: RefundCandidate['payment_account_source']): string =>
@@ -432,6 +482,9 @@ async function refreshCandidatesKeepSelection() {
     refundCandidates.value = res.refund_candidates ?? []
     const refundsSelectable = new Set(refundCandidates.value.filter(isRefundSelectable).map(r => r.id))
     selectedRefundIds.value = selectedRefundIds.value.filter(id => refundsSelectable.has(id))
+    taxCandidates.value = res.tax_candidates ?? []
+    const taxesSelectable = new Set(taxCandidates.value.filter(isTaxSelectable).map(c => c.key))
+    selectedTaxKeys.value = selectedTaxKeys.value.filter(key => taxesSelectable.has(key))
   } catch {
     // ponech stávající stav
   }
@@ -524,8 +577,9 @@ async function verifyAccountRow(c: PaymentCandidate) {
 // ── Jen označit (bez exportu) ─────────────────────────────────────────
 async function markOnly() {
   if (!auth.canWrite('purchase_invoices.payment_orders') || creating.value) return
-  if (selectedCount.value === 0) {
-    toast.error(t('payment_order.no_selection'))
+  // Daň razítko „zařazeno" nemá, zařadí ji jen skutečný příkaz.
+  if (selectedIds.value.length + selectedRefundIds.value.length === 0) {
+    toast.error(t(selectedTaxKeys.value.length ? 'payment_order.tax_mark_only_unsupported' : 'payment_order.no_selection'))
     return
   }
   creating.value = true
@@ -577,6 +631,8 @@ async function createAndDownload(format: PaymentOrderFormat | 'bank') {
     const res = await paymentOrdersApi.create({
       invoice_ids: selectedIds.value,
       ...(selectedRefundIds.value.length ? { refund_invoice_ids: selectedRefundIds.value } : {}),
+      ...(selectedTaxIds('vat').length ? { tax_submission_ids: selectedTaxIds('vat') } : {}),
+      ...(selectedTaxIds('advance').length ? { tax_advance_ids: selectedTaxIds('advance') } : {}),
       payer_currency_id: selectedPayer.value!.id,
       payment_date: paymentDate.value,
       constant_symbol: constantSymbol.value || undefined,
@@ -1220,6 +1276,116 @@ function payerAccountDisplay(item: PaymentOrderListItem): string {
                     class="cursor-pointer text-[11px] px-2 py-1 border border-neutral-300 rounded hover:bg-neutral-100 text-neutral-600">
                     {{ t('payment_order.detail') }}
                   </RouterLink>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </template>
+    </section>
+
+    <!-- ═══ Daně finančnímu úřadu (DPH z podaných přiznání, zálohy na daň z příjmů) ═══ -->
+    <section v-if="!loading && taxCandidates.length" class="mt-6">
+      <div class="flex items-center gap-2 mb-2 flex-wrap">
+        <h3 class="text-sm font-semibold text-neutral-800">{{ t('payment_order.tax_title') }}</h3>
+        <span class="text-[11px] px-2 py-0.5 rounded font-medium bg-primary-50 text-primary-700 border border-primary-500/30">
+          {{ t('payment_order.group_czk_via') }}
+        </span>
+        <span class="text-xs text-neutral-500">{{ t('payment_order.candidates_count', { n: visibleTaxes.length }) }}</span>
+      </div>
+      <p class="text-xs text-neutral-500 mb-2">{{ t('payment_order.tax_hint') }}</p>
+
+      <div v-if="visibleTaxes.length === 0" class="bg-surface border border-neutral-200 rounded-lg shadow-sm">
+        <EmptyState dense accent="neutral" :title="t('payment_order.empty')" />
+      </div>
+      <template v-else>
+        <!-- Desktop: tabulka -->
+        <div class="hidden md:block bg-surface border border-primary-500/30 rounded-lg overflow-hidden shadow-sm">
+          <table class="w-full text-sm table-fixed">
+            <colgroup>
+              <col class="w-10" />
+              <col class="w-56" />
+              <col class="w-28" />
+              <col class="w-80" />
+              <col class="w-28" />
+              <col class="w-32" />
+              <col />
+            </colgroup>
+            <thead class="bg-neutral-50 text-neutral-500 text-xs uppercase tracking-wide">
+              <tr>
+                <th class="px-2 py-2 text-center">
+                  <input type="checkbox" :checked="taxesAllSelected" @change="toggleAllTaxes"
+                    :title="t('common.select_all')"
+                    class="w-4 h-4 cursor-pointer rounded border-neutral-300 text-primary-600 focus:ring-2 focus:ring-primary-500/30" />
+                </th>
+                <th class="text-left px-4 py-2 font-medium">{{ t('payment_order.tax_col_tax') }}</th>
+                <th class="text-center px-2 py-2 font-medium">{{ t('payment_order.col_due_date') }}</th>
+                <th class="text-left px-4 py-2 font-medium">{{ t('payment_order.col_account') }}</th>
+                <th class="text-left px-2 py-2 font-medium">{{ t('payment_order.col_vs') }}</th>
+                <th class="text-right px-3 py-2 font-medium">{{ t('payment_order.tax_col_amount') }}</th>
+                <th class="text-center px-2 py-2 font-medium">{{ t('payment_order.col_actions') }}</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-neutral-100">
+              <tr v-for="c in visibleTaxes" :key="c.key" class="transition"
+                :class="!c.account_number ? 'bg-warning-50/50' : 'hover:bg-neutral-50'">
+                <td class="px-2 py-2.5 text-center align-top">
+                  <input type="checkbox" :checked="selectedTaxKeys.includes(c.key)" :disabled="!isTaxSelectable(c)"
+                    @change="toggleTax(c)"
+                    :title="!c.account_number ? t('payment_order.tax_no_office') : (!isCzk ? t('payment_order.currency_mismatch') : '')"
+                    class="w-5 h-5 mt-0.5 cursor-pointer rounded border-neutral-300 text-primary-600 focus:ring-2 focus:ring-primary-500/30 disabled:opacity-40 disabled:cursor-not-allowed" />
+                </td>
+                <td class="px-4 py-2.5 align-top">
+                  <div class="font-medium text-neutral-900 truncate">{{ c.label }}</div>
+                  <div class="text-xs text-neutral-500 truncate">{{ c.office_name || '—' }}</div>
+                </td>
+                <td class="px-3 py-2.5 text-center text-xs text-neutral-600 align-top">
+                  <div>{{ c.due_date ? formatDate(c.due_date) : '—' }}</div>
+                  <span v-if="c.ordered_at"
+                    class="inline-flex items-center gap-0.5 mt-1 text-[10px] px-1.5 py-0.5 rounded bg-teal-50 text-teal-600 border border-teal-500/30 whitespace-nowrap"
+                    :title="t('payment_order.ordered_badge_tooltip', { date: formatDate(c.ordered_at) })">
+                    {{ t('payment_order.ordered_badge') }}
+                  </span>
+                </td>
+                <td class="px-4 py-2.5 text-xs align-top">
+                  <div v-if="c.account" class="font-mono text-neutral-700 whitespace-nowrap overflow-hidden text-ellipsis">{{ c.account }}</div>
+                  <span v-else class="text-warning-600">{{ t('payment_order.tax_no_office') }}</span>
+                </td>
+                <td class="px-2 py-2.5 font-mono text-xs text-neutral-600 align-top">{{ c.variable_symbol || '—' }}</td>
+                <td class="px-3 py-2.5 text-right font-mono align-top whitespace-nowrap">{{ formatMoney(c.amount, 'CZK') }}</td>
+                <td class="px-3 py-2.5 text-center align-top">
+                  <RouterLink :to="c.kind === 'vat' ? '/reports/submissions' : '/reports/income-tax'" target="_blank"
+                    class="cursor-pointer text-[11px] px-2 py-1 border border-neutral-300 rounded hover:bg-neutral-100 text-neutral-600 whitespace-nowrap">
+                    {{ t('payment_order.detail') }}
+                  </RouterLink>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Mobile: karty -->
+        <div class="md:hidden bg-surface border border-primary-500/30 rounded-lg divide-y divide-neutral-100 overflow-hidden shadow-sm">
+          <div v-for="c in visibleTaxes" :key="`m-${c.key}`" class="px-3 py-3"
+            :class="!c.account_number ? 'bg-warning-50/50' : ''">
+            <div class="flex items-start gap-3">
+              <input type="checkbox" :checked="selectedTaxKeys.includes(c.key)" :disabled="!isTaxSelectable(c)"
+                @change="toggleTax(c)"
+                class="w-5 h-5 mt-0.5 cursor-pointer rounded border-neutral-300 text-primary-600 focus:ring-2 focus:ring-primary-500/30 disabled:opacity-40" />
+              <div class="flex-1 min-w-0">
+                <div class="flex items-baseline justify-between gap-2">
+                  <div class="font-medium text-neutral-900 truncate">{{ c.label }}</div>
+                  <div class="font-mono text-sm whitespace-nowrap">{{ formatMoney(c.amount, 'CZK') }}</div>
+                </div>
+                <div class="text-xs text-neutral-500 mt-0.5">
+                  <span>{{ c.office_name || '—' }}</span>
+                  <span class="text-neutral-400"> · </span>
+                  <span>{{ t('payment_order.col_due_date') }}: {{ c.due_date ? formatDate(c.due_date) : '—' }}</span>
+                </div>
+                <div class="text-xs mt-1">
+                  <span v-if="c.account" class="font-mono text-neutral-700">{{ c.account }}</span>
+                  <span v-else class="text-warning-600">{{ t('payment_order.tax_no_office') }}</span>
+                  <span v-if="c.variable_symbol" class="text-neutral-500"> · VS <span class="font-mono">{{ c.variable_symbol }}</span></span>
                 </div>
               </div>
             </div>

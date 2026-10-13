@@ -2,7 +2,7 @@
 
 > Návod, jak zaplatit více přijatých faktur najednou: vybrané faktury
 > vyexportujete do souboru pro internetové bankovnictví nebo je pošlete rovnou
-> do banky. Platí i pro vratky peněz odběratelům. Pro každého, kdo v bance
+> do banky. Platí i pro vratky peněz odběratelům a daně finančnímu úřadu. Pro každého, kdo v bance
 > zadává hromadné platby.
 
 ## 26.1 Kdy to potřebujete
@@ -306,6 +306,29 @@ když ho v detailu dokladu v nabídce **…** označíte volbou **Označit jako 
 Volba **Označit při exportu faktury rovnou jako zaplacené** se na vratky nevztahuje.
 Smazáním příkazu se u vratky zruší i označení „předáno k vyplacení“, pokud doklad
 není v jiném příkazu.
+
+### 26.8.11 Daně finančnímu úřadu
+
+Tabulka **Daně finančnímu úřadu** nabízí daně firmy, které se platí finančnímu úřadu:
+
+- **DPH z podaných přiznání** - za každé období poslední doložené řádné nebo opravné
+  přiznání, dokud bankovní výpis daň nepokryje, viz [Platba DPH](49_Archiv_podani_a_rekonciliace.md#49913-platba-dph),
+- **zálohy na daň z příjmů** z předpisů záloh (splatné do 120 dní nebo nezaplacené po
+  splatnosti), viz [Daň z příjmů](43_Dan_z_prijmu.md).
+
+Účet, variabilní symbol i částku určuje aplikace, ručně se nezadávají:
+
+- **účet** je předčíslí podle druhu daně (705 DPH, 7704 daň z příjmů právnických osob,
+  721 fyzických osob) a číslo finančního úřadu. U DPH se úřad bere z podaného přiznání,
+  u záloh z **kódu finančního úřadu** v nastavení firmy. Bez něj záloha vybrat nejde,
+- **variabilní symbol** je DIČ bez předpony CZ,
+- **částka** je daň k úhradě, u částečně uhrazené DPH zbývající část.
+
+Daně se platí jen z účtu v **CZK** a jdou do stejné dávky jako faktury a vratky,
+včetně ABO a odeslání do banky. Volba **Jen označit** se na daně nevztahuje, daň
+zařadí jen skutečný příkaz. Zařazená daň nese štítek **Zařazeno k úhradě**, zaplacená
+je až po spárování odchozí platby z výpisu. Daň ze závislé činnosti, srážková daň
+a pojistné se platí mzdovými dávkami v **Mzdy → Platby**, ne tady.
 
 ## 26.9 Související kapitoly
 

@@ -144,16 +144,18 @@ final class PaymentOrderRepository
 
             $itemStmt = $pdo->prepare(
                 'INSERT INTO payment_order_items
-                   (payment_order_id, purchase_invoice_id, invoice_id, payee_name, payee_account_number,
-                    payee_bank_code, payee_iban, payee_bic, amount, currency,
+                   (payment_order_id, purchase_invoice_id, invoice_id, tax_submission_id, tax_advance_schedule_id,
+                    payee_name, payee_account_number, payee_bank_code, payee_iban, payee_bic, amount, currency,
                     variable_symbol, constant_symbol, specific_symbol, message, account_verified)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
             );
             foreach ($items as $it) {
                 $itemStmt->execute([
                     $orderId,
                     isset($it['purchase_invoice_id']) ? (int) $it['purchase_invoice_id'] : null,
                     isset($it['invoice_id']) ? (int) $it['invoice_id'] : null,
+                    isset($it['tax_submission_id']) ? (int) $it['tax_submission_id'] : null,
+                    isset($it['tax_advance_schedule_id']) ? (int) $it['tax_advance_schedule_id'] : null,
                     $it['payee_name'] ?? null,
                     $it['payee_account_number'] ?? null,
                     $it['payee_bank_code'] ?? null,
@@ -239,6 +241,11 @@ final class PaymentOrderRepository
                                   AND inv.payment_method <> 'cash'
                                   AND icur.code = ?
                                   AND -inv.amount_to_pay + 0.005 >= poi.amount
+                             THEN 1
+                             -- Daň FÚ: zda už ji výpis uhradil, ověřuje seznam kandidátů; tady
+                             -- stačí, že jde o korunový příkaz (daně se platí jen v CZK).
+                             WHEN (poi.tax_submission_id IS NOT NULL OR poi.tax_advance_schedule_id IS NOT NULL)
+                                  AND ? = 'CZK'
                              THEN 1 ELSE 0 END) AS payable_count
                FROM payment_order_items poi
           LEFT JOIN purchase_invoices pi
@@ -249,7 +256,7 @@ final class PaymentOrderRepository
           LEFT JOIN currencies icur ON icur.id = inv.currency_id AND icur.supplier_id = inv.supplier_id
               WHERE poi.payment_order_id = ?"
         );
-        $stmt->execute([strtoupper($currency), strtoupper($currency), $supplierId, $supplierId, $orderId]);
+        $stmt->execute([strtoupper($currency), strtoupper($currency), strtoupper($currency), $supplierId, $supplierId, $orderId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
         $total = (int) ($row['total_count'] ?? 0);
         return $total > 0 && $total === (int) ($row['payable_count'] ?? 0);
@@ -268,6 +275,8 @@ final class PaymentOrderRepository
             $r['payment_order_id']    = (int) $r['payment_order_id'];
             $r['purchase_invoice_id'] = $r['purchase_invoice_id'] !== null ? (int) $r['purchase_invoice_id'] : null;
             $r['invoice_id']          = isset($r['invoice_id']) ? (int) $r['invoice_id'] : null;
+            $r['tax_submission_id']   = isset($r['tax_submission_id']) ? (int) $r['tax_submission_id'] : null;
+            $r['tax_advance_schedule_id'] = isset($r['tax_advance_schedule_id']) ? (int) $r['tax_advance_schedule_id'] : null;
             $r['amount']              = (float) $r['amount'];
         }
         return $rows;

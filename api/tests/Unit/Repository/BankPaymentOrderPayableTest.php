@@ -17,7 +17,7 @@ final class BankPaymentOrderPayableTest extends TestCase
         $pdo->createFunction('GREATEST', static fn (...$values) => max($values));
         $pdo->exec('CREATE TABLE currencies (id INTEGER, supplier_id INTEGER, code TEXT)');
         $pdo->exec('CREATE TABLE purchase_invoices (id INTEGER, supplier_id INTEGER, currency_id INTEGER, status TEXT, document_kind TEXT, payment_method TEXT, amount_to_pay NUMERIC, rounding NUMERIC, exchange_rate NUMERIC)');
-        $pdo->exec('CREATE TABLE payment_order_items (payment_order_id INTEGER, purchase_invoice_id INTEGER, amount NUMERIC, invoice_id INTEGER)');
+        $pdo->exec('CREATE TABLE payment_order_items (payment_order_id INTEGER, purchase_invoice_id INTEGER, amount NUMERIC, invoice_id INTEGER, tax_submission_id INTEGER, tax_advance_schedule_id INTEGER)');
         $pdo->exec('CREATE TABLE invoices (id INTEGER, supplier_id INTEGER, currency_id INTEGER, invoice_type TEXT, status TEXT, payment_method TEXT, amount_to_pay NUMERIC, parent_invoice_id INTEGER)');
         $pdo->exec('CREATE TABLE payment_matches (supplier_id INTEGER, purchase_invoice_id INTEGER, amount NUMERIC, bank_transaction_id INTEGER)');
         $pdo->exec('CREATE TABLE bank_transactions (id INTEGER, statement_id INTEGER, currency TEXT, amount NUMERIC)');
@@ -29,7 +29,7 @@ final class BankPaymentOrderPayableTest extends TestCase
         $pdo->exec('CREATE TABLE credit_note_offsets (id INTEGER, supplier_id INTEGER, doc_type TEXT, invoice_id INTEGER, credit_note_id INTEGER, amount NUMERIC, offset_on TEXT)');
         $pdo->exec("INSERT INTO currencies VALUES (11, 1, 'CZK')");
         $pdo->exec("INSERT INTO purchase_invoices VALUES (101, 1, 11, 'received', 'invoice', 'bank_transfer', 100, 0, NULL)");
-        $pdo->exec('INSERT INTO payment_order_items VALUES (501, 101, 100, NULL)');
+        $pdo->exec('INSERT INTO payment_order_items (payment_order_id, purchase_invoice_id, amount, invoice_id) VALUES (501, 101, 100, NULL)');
         $db = $this->createStub(Connection::class);
         $db->method('pdo')->willReturn($pdo);
         $repository = new PaymentOrderRepository($db);
@@ -60,7 +60,7 @@ final class BankPaymentOrderPayableTest extends TestCase
         $pdo->createFunction('GREATEST', static fn (...$values) => max($values));
         $pdo->exec('CREATE TABLE currencies (id INTEGER, supplier_id INTEGER, code TEXT)');
         $pdo->exec('CREATE TABLE purchase_invoices (id INTEGER, supplier_id INTEGER, currency_id INTEGER, status TEXT, document_kind TEXT, payment_method TEXT, amount_to_pay NUMERIC, rounding NUMERIC, exchange_rate NUMERIC)');
-        $pdo->exec('CREATE TABLE payment_order_items (payment_order_id INTEGER, purchase_invoice_id INTEGER, amount NUMERIC, invoice_id INTEGER)');
+        $pdo->exec('CREATE TABLE payment_order_items (payment_order_id INTEGER, purchase_invoice_id INTEGER, amount NUMERIC, invoice_id INTEGER, tax_submission_id INTEGER, tax_advance_schedule_id INTEGER)');
         $pdo->exec('CREATE TABLE invoices (id INTEGER, supplier_id INTEGER, currency_id INTEGER, invoice_type TEXT, status TEXT, payment_method TEXT, amount_to_pay NUMERIC, parent_invoice_id INTEGER)');
         $pdo->exec('CREATE TABLE payment_matches (supplier_id INTEGER, purchase_invoice_id INTEGER, amount NUMERIC, bank_transaction_id INTEGER)');
         $pdo->exec('CREATE TABLE bank_transactions (id INTEGER, statement_id INTEGER, currency TEXT, amount NUMERIC)');
@@ -72,7 +72,7 @@ final class BankPaymentOrderPayableTest extends TestCase
         $pdo->exec('CREATE TABLE credit_note_offsets (id INTEGER, supplier_id INTEGER, doc_type TEXT, invoice_id INTEGER, credit_note_id INTEGER, amount NUMERIC, offset_on TEXT)');
         $pdo->exec("INSERT INTO currencies VALUES (11, 1, 'CZK')");
         $pdo->exec("INSERT INTO invoices VALUES (301, 1, 11, 'invoice', 'issued', 'bank_transfer', -608, NULL)");
-        $pdo->exec('INSERT INTO payment_order_items VALUES (601, NULL, 608, 301)');
+        $pdo->exec('INSERT INTO payment_order_items (payment_order_id, purchase_invoice_id, amount, invoice_id) VALUES (601, NULL, 608, 301)');
         $db = $this->createStub(Connection::class);
         $db->method('pdo')->willReturn($pdo);
         $repository = new PaymentOrderRepository($db);

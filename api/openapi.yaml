@@ -5739,6 +5739,25 @@ paths:
                     type: array
                     items: { type: object }
                     description: "Vratky odběratelům (vystavené faktury a dobropisy s částkou k vyplacení, jen CZK, ne hotově). Klíč je v odpovědi jen se zapnutým `supplier.allow_refund_invoices`."
+                  tax_candidates:
+                    type: array
+                    description: "Daně firmy k úhradě finančnímu úřadu, jen CZK: DPH z podaných přiznání (`kind: vat`, `id` = tax_submissions.id) a zálohy na daň z příjmů (`kind: advance`, `id` = tax_advance_schedules.id). Účet FÚ a VS odvozuje server, mzdové odvody sem nepatří."
+                    items:
+                      type: object
+                      properties:
+                        key: { type: string, example: 'vat:1112' }
+                        kind: { type: string, enum: [vat, advance] }
+                        id: { type: integer }
+                        label: { type: string }
+                        amount: { type: number }
+                        due_date: { type: [string, "null"], format: date }
+                        office_name: { type: [string, "null"] }
+                        account_number: { type: [string, "null"], example: '705-77628031' }
+                        bank_code: { type: [string, "null"], example: '0710' }
+                        iban: { type: [string, "null"] }
+                        account: { type: [string, "null"] }
+                        variable_symbol: { type: [string, "null"] }
+                        ordered_at: { type: [string, "null"], description: "Kdy byla daň naposledy zařazena do (nearchivovaného) příkazu." }
 
   /api/v1/purchase-invoices/payment-orders/verify-account:
     parameters:
@@ -5798,6 +5817,14 @@ paths:
                   type: array
                   items: { type: integer, format: int64 }
                   description: "Vystavené doklady k vyplacení (vratky odběratelům). Jen se zapnutým `supplier.allow_refund_invoices`, jinak se přeskočí s důvodem `refund_disabled`. `mark_paid` se na ně nevztahuje."
+                tax_submission_ids:
+                  type: array
+                  items: { type: integer }
+                  description: "DPH z podaných přiznání (id z `tax_candidates`). Zaplacené nebo neznámé se přeskočí s důvodem `nothing_to_pay`."
+                tax_advance_ids:
+                  type: array
+                  items: { type: integer }
+                  description: "Předpisy záloh na daň z příjmů (id z `tax_candidates`). Bez kódu finančního úřadu u firmy se přeskočí s důvodem `no_account`."
                 payer_currency_id:
                   type: integer
                   format: int64
@@ -45500,6 +45527,12 @@ components:
           - type: 'null'
         invoice_id:
           type: integer
+        tax_submission_id:
+          type: integer
+          description: Položka platí DPH z podaného přiznání.
+        tax_advance_schedule_id:
+          type: integer
+          description: Položka platí zálohu na daň z příjmů.
         payee_name:
           anyOf:
           - type: string

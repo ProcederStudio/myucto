@@ -19408,6 +19408,12 @@
       "invalid_account": "neplatný účet příjemce"
     },
     "refund_title": "Vratky odběratelům",
+    "tax_title": "Daně finančnímu úřadu",
+    "tax_hint": "DPH z podaných přiznání a zálohy na daň z příjmů. Účet finančního úřadu, variabilní symbol i částku určuje aplikace podle přiznání a předpisu záloh, úhradu pak spáruje výpis.",
+    "tax_col_tax": "Daň",
+    "tax_col_amount": "K úhradě",
+    "tax_no_office": "Chybí kód finančního úřadu ve firmě",
+    "tax_mark_only_unsupported": "Daň jde označit jen vytvořením příkazu.",
     "refund_hint": "Vystavené faktury a dobropisy, u kterých dlužíte peníze odběrateli. Variabilní symbol je číslo dokladu, odchozí platba se po importu výpisu spáruje sama.",
     "refund_col_client": "Odběratel",
     "refund_col_amount": "K vrácení",
@@ -25170,6 +25176,7 @@
         "office": "Správce daně",
         "paid_at": "Uhrazeno",
         "qr_alt": "QR platba DPH",
+        "to_payment_order": "Do platebního příkazu",
         "unknown_office": "Kód finančního úřadu v XML neznáme, účet doplňte podle seznamu Finanční správy.",
         "refund": "Nadměrný odpočet {amount} vrátí finanční úřad, nic se neplatí.",
         "nothing": "Vlastní daňová povinnost je nulová, nic se neplatí."

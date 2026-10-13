@@ -2330,6 +2330,16 @@ onMounted(async () => {
                 class="mt-3 mx-auto w-40 h-40"
               >
               <p v-if="!vatPayment.account" class="mt-3 text-xs text-warning-700">{{ t('reports.submissions.vat_payment.unknown_office') }}</p>
+              <RouterLink
+                v-if="vatPayment.account && !vatPayment.payment?.paid"
+                to="/purchase-invoices/payment-orders"
+                :class="[btnOutlineSm('success'), 'mt-3 w-full justify-center whitespace-nowrap']"
+              >
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.coin" />
+                </svg>
+                {{ t('reports.submissions.vat_payment.to_payment_order') }}
+              </RouterLink>
             </template>
             <p v-else-if="(vatPayment.refund ?? 0) > 0" class="mt-2 text-xs text-neutral-600">
               {{ t('reports.submissions.vat_payment.refund', { amount: formatCzk(vatPayment.refund ?? 0) }) }}
