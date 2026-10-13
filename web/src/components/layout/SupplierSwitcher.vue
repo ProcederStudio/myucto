@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, nextTick, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSupplierStore } from '@/stores/supplier'
 import { useSupplierSwitch } from '@/composables/useSupplierSwitch'
@@ -20,9 +20,20 @@ const props = withDefaults(defineProps<{
 })
 
 const open = ref(false)
+const panel = ref<HTMLElement | null>(null)
+
+// Dlouhý seznam firem se v panelu posouvá; po otevření ukaž aktuální firmu.
+watch(open, async (isOpen) => {
+  if (!isOpen) return
+  await nextTick()
+  panel.value?.querySelector<HTMLElement>('[data-current]')?.scrollIntoView?.({ block: 'nearest' })
+})
 
 const current = computed(() => supplierStore.currentSupplier)
-const list = computed(() => supplierStore.availableSuppliers)
+// Server vrací firmy podle id; v přepínači se hledají podle názvu.
+const list = computed(() => [...supplierStore.availableSuppliers].sort(
+  (a, b) => (a.company_name ?? '').localeCompare(b.company_name ?? '', 'cs', { sensitivity: 'base', numeric: true }),
+))
 
 async function pick(id: number) {
   open.value = false
@@ -52,7 +63,8 @@ async function pick(id: number) {
     >
       <div
         v-if="open"
-        class="absolute bg-surface border border-neutral-200 rounded-lg shadow-lg py-1 z-40"
+        ref="panel"
+        class="absolute bg-surface border border-neutral-200 rounded-lg shadow-lg py-1 z-40 max-h-[calc(100dvh-6rem)] overflow-y-auto overscroll-contain"
         :class="[
           props.placement === 'above' ? 'bottom-full mb-1' : 'top-full mt-1',
           props.fullWidth
@@ -64,6 +76,7 @@ async function pick(id: number) {
         ]"
       >
         <button v-for="s in list" :key="s.id" type="button" :disabled="switching" @click="pick(s.id)"
+          :data-current="s.id === supplierStore.currentSupplierId ? 'true' : undefined"
           class="cursor-pointer w-full text-left px-3 py-2 text-sm hover:bg-neutral-50 flex items-start gap-2"
           :class="s.id === supplierStore.currentSupplierId ? 'bg-primary-50' : ''">
           <svg v-if="s.id === supplierStore.currentSupplierId" class="w-4 h-4 mt-0.5 text-primary-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>

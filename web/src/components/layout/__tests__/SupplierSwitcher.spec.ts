@@ -12,7 +12,13 @@ const m = vi.hoisted(() => ({
   clearPermissions: vi.fn(),
   isDemo: false,
   currentSupplierId: 1,
+  suppliers: [] as Array<{ id: number, company_name: string, ic: string | null }>,
 }))
+
+const DEFAULT_SUPPLIERS = [
+  { id: 1, company_name: 'První s.r.o.', ic: '12345678' },
+  { id: 2, company_name: 'Druhá s.r.o.', ic: '87654321' },
+]
 
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 
@@ -23,10 +29,7 @@ vi.mock('@/stores/supplier', () => ({
     get currentSupplierId() { return m.currentSupplierId },
     hasMultiple: true,
     currentSupplier: { id: 1, company_name: 'První s.r.o.', ic: '12345678' },
-    availableSuppliers: [
-      { id: 1, company_name: 'První s.r.o.', ic: '12345678' },
-      { id: 2, company_name: 'Druhá s.r.o.', ic: '87654321' },
-    ],
+    get availableSuppliers() { return m.suppliers },
     setSupplier: m.setSupplier,
   }),
 }))
@@ -62,6 +65,7 @@ describe('SupplierSwitcher — výchozí firma účtu', () => {
     resetSupplierSwitchForTests()
     m.calls = []
     m.isDemo = false
+    m.suppliers = DEFAULT_SUPPLIERS
     m.setDefaultSupplier.mockImplementation(async () => { m.calls.push('default') })
     m.refresh.mockImplementation(async () => { m.calls.push('refresh'); return true })
     Object.defineProperty(window, 'location', {
@@ -95,5 +99,33 @@ describe('SupplierSwitcher — výchozí firma účtu', () => {
 
     expect(m.setDefaultSupplier).not.toHaveBeenCalled()
     expect(reload).toHaveBeenCalled()
+  })
+})
+
+describe('SupplierSwitcher — pořadí firem', () => {
+  it('řadí firmy abecedně podle češtiny, ne podle id', async () => {
+    resetSupplierSwitchForTests()
+    m.suppliers = [
+      { id: 98, company_name: 'Domy a byty s.r.o.', ic: null },
+      { id: 102, company_name: 'ZENERGO a.s.', ic: null },
+      { id: 103, company_name: 'ZENERGO Moravia s.r.o.', ic: null },
+      { id: 105, company_name: '2DB s.r.o.', ic: null },
+      { id: 106, company_name: 'Čtvrtá s.r.o.', ic: null },
+      { id: 107, company_name: 'AGROVOLTAIKA Milotice s.r.o.', ic: null },
+      { id: 108, company_name: 'ZENERGO Agro s.r.o.', ic: null },
+    ]
+    const w = mount(SupplierSwitcher)
+    await w.find('button').trigger('click')
+    const names = w.findAll('button').slice(1).map(b => b.find('.font-medium').text())
+
+    expect(names).toEqual([
+      '2DB s.r.o.',
+      'AGROVOLTAIKA Milotice s.r.o.',
+      'Čtvrtá s.r.o.',
+      'Domy a byty s.r.o.',
+      'ZENERGO a.s.',
+      'ZENERGO Agro s.r.o.',
+      'ZENERGO Moravia s.r.o.',
+    ])
   })
 })
