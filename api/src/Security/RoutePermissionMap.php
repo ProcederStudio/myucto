@@ -498,6 +498,7 @@ final class RoutePermissionMap
         ['GET', '#^/api/payroll/setup-check$#', 'payroll.settings', AccessLevel::READ],
         ['GET', '#^/api/payroll/documents$#', 'payroll.documents', AccessLevel::READ],
         ['GET', '#^/api/payroll/documents/annual$#', 'payroll.documents', AccessLevel::READ],
+        ['GET', '#^/api/payroll/documents/monthly-overview$#', 'payroll.documents', AccessLevel::READ],
         ['POST', '#^/api/payroll/people/[0-9]+/documents/payroll-sheet/[0-9]{4}$#', 'payroll.documents', AccessLevel::WRITE],
         ['POST', '#^/api/payroll/people/[0-9]+/documents/tax-certificate/(advance|withholding)/[0-9]{4}$#', 'payroll.documents', AccessLevel::WRITE],
         ['POST', '#^/api/payroll/runs/[0-9]+/revisions/[0-9]+/documents/monthly-bundle$#', 'payroll.documents', AccessLevel::WRITE],

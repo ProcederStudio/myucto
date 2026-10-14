@@ -4174,6 +4174,12 @@
       "batch_bundle_download": "Download the monthly ZIP",
       "batch_bundle_downloading": "Downloading…",
       "batch_bundle_failed": "The monthly ZIP could not be downloaded.",
+      "monthly_overview": {
+        "run": "Payroll overview",
+        "running": "Preparing the overview…",
+        "hint": "PDF with all employees for the selected month and a summary of personnel costs. Uses approved payroll, or payroll taken over from the previous system for migrated months.",
+        "failed": "The payroll overview could not be created."
+      },
       "batch_attempts": "attempts: {count}",
       "batch_retry": "Retry",
       "batch_retry_queued": "The item has been queued again.",

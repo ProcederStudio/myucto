@@ -1311,6 +1311,12 @@ final class Routes
             );
             $g->get('/documents', [PayrollDocumentAction::class, 'list']);
             $g->get('/documents/annual', [PayrollDocumentAction::class, 'listAnnual']);
+            // Přehled mezd za měsíc (všichni zaměstnanci) — pracovní sestava
+            // účetní, nearchivuje se.
+            $g->get(
+                '/documents/monthly-overview',
+                [\MyInvoice\Action\Payroll\PayrollMonthlyOverviewAction::class, 'pdf'],
+            );
             // Skrytí nahrazené verze ze seznamu. DELETE proto, že se tak chová
             // z pohledu uživatele; dokument se ale nemaže - tabulka je
             // neměnná, viz PayrollDocumentRepository::hide().

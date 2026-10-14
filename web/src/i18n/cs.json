@@ -4174,6 +4174,12 @@
       "batch_bundle_download": "Stáhnout měsíční ZIP",
       "batch_bundle_downloading": "Stahuji…",
       "batch_bundle_failed": "Měsíční ZIP se nepodařilo stáhnout.",
+      "monthly_overview": {
+        "run": "Přehled mezd",
+        "running": "Připravuji přehled…",
+        "hint": "PDF se všemi zaměstnanci za zvolený měsíc a souhrnem osobních nákladů. Bere schválené mzdy, u převzatých měsíců mzdy z předchozího programu.",
+        "failed": "Přehled mezd se nepodařilo vytvořit."
+      },
       "batch_attempts": "pokusů: {count}",
       "batch_retry": "Opakovat",
       "batch_retry_queued": "Položka je znovu zařazená do fronty.",

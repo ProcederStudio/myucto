@@ -86,6 +86,7 @@ const downloadingId = ref<number | null>(null)
 const hidingDocumentId = ref<number | null>(null)
 const downloadingBundle = ref(false)
 const bundleError = ref('')
+const downloadingOverview = ref(false)
 const exportingScope = ref<PayrollPeriodExportScope | null>(null)
 const exportJob = ref<PayrollPeriodExportJob | null>(null)
 const rerunningExportJob = ref(false)
@@ -919,6 +920,22 @@ async function downloadBundle(): Promise<void> {
   }
 }
 
+/**
+ * Přehled mezd za měsíc všech zaměstnanců. Server ho skládá ze schválených
+ * revizí, a není-li žádná, z převzatých mezd předchozího programu.
+ */
+async function downloadMonthlyOverview(): Promise<void> {
+  if (downloadingOverview.value || !period.value) return
+  downloadingOverview.value = true
+  try {
+    await payrollApi.downloadMonthlyOverview(period.value)
+  } catch (error) {
+    toast.error(apiErrorMessage(error, t('payroll.documents.monthly_overview.failed')))
+  } finally {
+    downloadingOverview.value = false
+  }
+}
+
 async function download(item: PayrollDocument): Promise<void> {
   if (downloadingId.value !== null) return
   downloadingId.value = item.id
@@ -1083,6 +1100,22 @@ onBeforeUnmount(() => {
           {{ t('payroll.documents.reload') }}
         </button>
         <template v-if="activeTab === 'monthly'">
+          <button
+            type="button"
+            data-test="download-monthly-overview"
+            :class="btnOutline('neutral')"
+            class="whitespace-nowrap"
+            :title="t('payroll.documents.monthly_overview.hint')"
+            :disabled="downloadingOverview || !period"
+            @click="downloadMonthlyOverview()"
+          >
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path :d="ICONS.download" />
+            </svg>
+            {{ t(downloadingOverview
+              ? 'payroll.documents.monthly_overview.running'
+              : 'payroll.documents.monthly_overview.run') }}
+          </button>
           <button
             v-for="revision in canGenerate ? data?.revisions ?? [] : []"
             :key="`batch-${revision.revision_id}`"
