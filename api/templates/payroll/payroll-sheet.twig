@@ -22,6 +22,11 @@ table.book th { background: #FAF1F6; color: #5F515A; border: 0.25pt solid #DEC8D
 table.book td { border: 0.2pt solid #EADDE4; padding: 0.65mm 0.6mm; text-align: right; font-family: geistmono, dejavusans, sans-serif; white-space: nowrap; }
 table.book th.first, table.book td.first { text-align: left; font-family: montserrat, dejavusans, sans-serif; }
 table.book tfoot td { background: #F8F5F7; border-top: 0.6pt solid #98466F; font-weight: bold; }
+table.matrix { margin-top: 2mm; table-layout: fixed; }
+table.matrix th.label-col { color: #98466F; font-size: 6.6pt; text-transform: uppercase; width: 51mm; }
+table.matrix td { font-size: 6.2pt; }
+table.matrix td.sum { background: #F8F5F7; font-weight: bold; }
+table.matrix tr.strong td { font-weight: bold; color: #351C2B; }
 .note { margin-top: 2mm; border: 0.3pt solid #DEC8D4; background: #F8F5F7; padding: 1.5mm; color: #5F515A; line-height: 1.35; }
 .audit { margin-top: 1.5mm; font-size: 5.9pt; color: #7D6E78; }
 .mono { font-family: geistmono, dejavusans, sans-serif; }
@@ -33,7 +38,7 @@ table.book tfoot td { background: #F8F5F7; border-top: 0.6pt solid #98466F; font
   <tr>
     <td>
       <div class="title">Mzdový list</div>
-      <div class="sub">Roční evidence ze schválených a neměnných mzdových revizí</div>
+      <div class="sub">{{ employer.name }} · IČ {{ employer.identification_number }} · Období {{ period_label }}</div>
     </td>
     <td><div class="year">{{ tax_year }}</div></td>
   </tr>
@@ -49,7 +54,7 @@ table.book tfoot td { background: #F8F5F7; border-top: 0.6pt solid #98466F; font
     <td style="width:34%">
       <div class="label">Zaměstnanec</div>
       <div class="value">{{ employee.name }}</div>
-      <div class="meta">{{ employee.identifier_label }}: {{ employee.identifier_value }}<br>{{ employee.address }}</div>
+      <div class="meta">{{ employee.identifier_label }}: {{ employee.identifier_value }}{% if employee_extras.birth_date %} · narození {{ employee_extras.birth_date }}{% endif %}<br>{{ employee.address }}{% if employee_extras.health_insurer %}<br>Zdravotní pojišťovna: {{ employee_extras.health_insurer }}{% endif %}</div>
     </td>
     <td style="width:33%">
       <div class="label">Dřívější jména v evidenci</div>
@@ -90,117 +95,34 @@ table.book tfoot td { background: #F8F5F7; border-top: 0.6pt solid #98466F; font
   </tbody>
 </table>
 
-<div class="section">Příjmy, pojistné a čistá mzda</div>
-<table class="book">
+{% set names = ['Leden','Únor','Březen','Duben','Květen','Červen','Červenec','Srpen','Září','Říjen','Listopad','Prosinec'] %}
+{% for section in matrix %}
+<table class="book matrix">
   <thead>
     <tr>
-      <th class="first">Měsíc</th>
-      <th>Hrubý<br>příjem</th>
-      <th>Peněžní<br>příjem</th>
-      <th>Nepeněžní<br>příjem</th>
-      <th>Osvobozeno<br>od daně</th>
-      <th>Základ<br>SP</th>
-      <th>SP<br>zaměstnanec</th>
-      <th>SP<br>zaměstnavatel</th>
-      <th>Základ<br>ZP</th>
-      <th>ZP<br>zaměstnanec</th>
-      <th>Doplatek<br>ZP</th>
-      <th>ZP<br>zaměstnavatel</th>
-      <th>Ostatní<br>srážky</th>
-      <th>K výplatě</th>
+      <th class="first label-col">{{ section.title }}</th>
+      {% for m in 1..12 %}<th style="width:17mm">{{ m }}{% if m in taken_over_month_numbers %}*{% endif %}</th>{% endfor %}
+      <th style="width:20mm">Celkem</th>
     </tr>
   </thead>
   <tbody>
-  {% set names = ['Leden','Únor','Březen','Duben','Květen','Červen','Červenec','Srpen','Září','Říjen','Listopad','Prosinec'] %}
-  {% for month in months %}
-    <tr>
-      <td class="first">{{ names[month.month - 1] }}{% if month.source_revision_count > 1 %} ({{ month.source_revision_count }} rev.){% endif %}</td>
-      <td>{{ month.gross_minor_units|minor_money }}</td>
-      <td>{{ month.cash_income_minor_units|minor_money }}</td>
-      <td>{{ month.non_cash_income_minor_units|minor_money }}</td>
-      <td>{{ month.tax_detail_status == 'recorded' ? month.tax_exempt_income_minor_units|minor_money : 'neevidováno' }}</td>
-      <td>{{ month.social_assessment_base_minor_units|minor_money }}</td>
-      <td>{{ month.employee_social_minor_units|minor_money }}</td>
-      <td>{{ month.employer_social_minor_units|minor_money }}</td>
-      <td>{{ month.health_assessment_base_minor_units|minor_money }}</td>
-      <td>{{ month.employee_health_minor_units|minor_money }}</td>
-      <td>{{ month.health_minimum_top_up_minor_units|minor_money }}</td>
-      <td>{{ month.employer_health_minor_units|minor_money }}</td>
-      <td>{{ month.other_deductions_minor_units|minor_money }}</td>
-      <td>{{ month.net_payable_minor_units|minor_money }}</td>
+  {% for row in section.rows %}
+    <tr{% if row.strong %} class="strong"{% endif %}>
+      <td class="first">{{ row.label }}</td>
+      {% for cell in row.cells %}<td>{{ cell }}</td>{% endfor %}
+      <td class="sum">{{ row.total }}</td>
     </tr>
   {% endfor %}
   </tbody>
-  <tfoot>
-    <tr>
-      <td class="first">Celkem</td>
-      <td>{{ totals.gross_minor_units|minor_money }}</td>
-      <td>{{ totals.cash_income_minor_units|minor_money }}</td>
-      <td>{{ totals.non_cash_income_minor_units|minor_money }}</td>
-      <td>{{ tax_detail_complete ? totals.tax_exempt_income_minor_units|minor_money : 'neúplné' }}</td>
-      <td>{{ totals.social_assessment_base_minor_units|minor_money }}</td>
-      <td>{{ totals.employee_social_minor_units|minor_money }}</td>
-      <td>{{ totals.employer_social_minor_units|minor_money }}</td>
-      <td>{{ totals.health_assessment_base_minor_units|minor_money }}</td>
-      <td>{{ totals.employee_health_minor_units|minor_money }}</td>
-      <td>{{ totals.health_minimum_top_up_minor_units|minor_money }}</td>
-      <td>{{ totals.employer_health_minor_units|minor_money }}</td>
-      <td>{{ totals.other_deductions_minor_units|minor_money }}</td>
-      <td>{{ totals.net_payable_minor_units|minor_money }}</td>
-    </tr>
-  </tfoot>
 </table>
-
-<div class="section">Daň z příjmů</div>
-<table class="book">
-  <thead>
-    <tr>
-      <th class="first">Měsíc</th>
-      <th>Zálohový<br>základ</th>
-      <th>Daň před<br>slevami</th>
-      <th>Uplatněná sleva<br>§ 35ba</th>
-      <th>Nárok na<br>zvýhodnění</th>
-      <th>Uplatněná sleva<br>§ 35c</th>
-      <th>Sražená<br>záloha</th>
-      <th>Daňový<br>bonus</th>
-      <th>Základ<br>srážkové daně</th>
-      <th>Srážková<br>daň</th>
-      <th>Doplatek<br>ze zúčtování</th>
-    </tr>
-  </thead>
-  <tbody>
-  {% for month in months %}
-    <tr>
-      <td class="first">{{ names[month.month - 1] }}</td>
-      <td>{{ month.advance_tax_base_minor_units|minor_money }}</td>
-      <td>{{ month.advance_tax_before_credits_minor_units|minor_money }}</td>
-      <td>{{ month.non_refundable_credits_minor_units|minor_money }}{{ month.credit_detail_status == 'applied' ? '' : '*' }}</td>
-      <td>{{ month.child_detail_status == 'recorded' ? month.child_entitlement_minor_units|minor_money : 'neevidováno' }}</td>
-      <td>{{ month.child_credit_minor_units|minor_money }}</td>
-      <td>{{ month.advance_tax_minor_units|minor_money }}</td>
-      <td>{{ month.tax_bonus_minor_units|minor_money }}</td>
-      <td>{{ month.tax_detail_status == 'recorded' ? month.withholding_tax_base_minor_units|minor_money : 'neevidováno' }}</td>
-      <td>{{ month.withholding_tax_minor_units|minor_money }}</td>
-      <td>{{ month.annual_settlement_minor_units|minor_money }}</td>
-    </tr>
-  {% endfor %}
-  </tbody>
-  <tfoot>
-    <tr>
-      <td class="first">Celkem</td>
-      <td>{{ totals.advance_tax_base_minor_units|minor_money }}</td>
-      <td>{{ totals.advance_tax_before_credits_minor_units|minor_money }}</td>
-      <td>{{ totals.non_refundable_credits_minor_units|minor_money }}{{ credit_detail_complete ? '' : '*' }}</td>
-      <td>{{ child_detail_complete ? totals.child_entitlement_minor_units|minor_money : 'neúplné' }}</td>
-      <td>{{ totals.child_credit_minor_units|minor_money }}</td>
-      <td>{{ totals.advance_tax_minor_units|minor_money }}</td>
-      <td>{{ totals.tax_bonus_minor_units|minor_money }}</td>
-      <td>{{ tax_detail_complete ? totals.withholding_tax_base_minor_units|minor_money : 'neúplné' }}</td>
-      <td>{{ totals.withholding_tax_minor_units|minor_money }}</td>
-      <td>{{ totals.annual_settlement_minor_units|minor_money }}</td>
-    </tr>
-  </tfoot>
-</table>
+{% endfor %}
+{% if taken_over_month_numbers is not empty %}
+<div class="note">
+Měsíce označené hvězdičkou zpracoval předchozí mzdový program. Jejich údaje jsou převzaté úhrny
+mezd tak, jak je předchozí program vykázal; MyÚčto je nepřepočítávalo. Údaj, který převzatý
+zdroj nenese, je ponechán prázdný.
+</div>
+{% endif %}
 
 {% if carried_over %}
 <div class="section">Převzaté období {{ carried_over.months_label }} — nepočítalo MyÚčto</div>
@@ -233,10 +155,10 @@ table.book tfoot td { background: #F8F5F7; border-top: 0.6pt solid #98466F; font
 <div class="note">
 Měsíce {{ carried_over.months_label }} zpracoval předchozí mzdový program, ne MyÚčto. Údaje výše
 jsou převzaté z počátečních stavů mzdových kumulací, které plátce zadal{% if carried_over.source_reference %} (zdroj: {{ carried_over.source_reference }}){% endif %}; MyÚčto je nepočítalo ani nepřepočítávalo
-a nese je v nezměněné podobě. Počáteční stav eviduje jen vyměřovací základy a daňové položky,
-proto tahle část neuvádí hrubý ani čistý příjem, pojistné zaměstnance a zaměstnavatele
-ani srážky — a tabulky výše, které je uvádějí, jsou proto jen za měsíce vlastního výpočtu.
-Podklady za převzaté období musí plátce doložit sestavou z předchozího programu.
+a nese je v nezměněné podobě. Počáteční stav eviduje jen vyměřovací základy a daňové položky.
+{% if taken_over_month_numbers is not empty %}Hrubý a čistý příjem, pojistné a srážky převzatých měsíců uvádějí sloupce označené hvězdičkou výše.
+{% else %}Hrubý ani čistý příjem, pojistné a srážky za převzaté měsíce v evidenci nejsou, tabulky výše je proto uvádějí jen za měsíce vlastního výpočtu.
+Podklady za převzaté období musí plátce doložit sestavou z předchozího programu.{% endif %}
 </div>
 {% elseif not carried_over_assessed %}
 <div class="note">
@@ -310,13 +232,13 @@ nemá rozšířenou identitu podle písm. b). Prázdné místo v těchto údají
 </div>
 <div class="note">
 Částky jsou uvedeny v Kč a vznikly součtem schválených měsíčních výsledků. Více účtáren nebo
-doplatek po skončení se v jednom měsíci sčítají; počet zahrnutých revizí je uveden u názvu měsíce.
+doplatek po skončení se v jednom měsíci sčítají.
 Roční zúčtování se v tomto dokumentu nedopočítává — hodnoty jsou převzaté ze samostatně
-schválené roční revize, na kterou doklad odkazuje otiskem. Sloupec „nárok na zvýhodnění" je
-měsíční daňové zvýhodnění podle § 35c odst. 1; sleva a bonus vedle něj jsou jeho části podle
-§ 35c odst. 2 a 3, ne další nárok. Sloupec „uplatněná sleva § 35ba" je sleva poskytnutá podle
+schválené roční revize, na kterou doklad odkazuje otiskem. Řádek „daňové zvýhodnění na děti" je
+měsíční daňové zvýhodnění podle § 35c odst. 1; sleva a bonus jsou jeho části podle
+§ 35c odst. 2 a 3, ne další nárok. Řádek „sleva na dani § 35ba" je sleva poskytnutá podle
 § 35d odst. 3 věty první, tedy nejvýše do výše zálohy; nárok, který se do zálohy nevešel,
-zákon nikam nepřevádí a bod 5 ho nežádá. Sloupec „osvobozeno od daně" je podmnožina hrubého
+zákon nikam nepřevádí a bod 5 ho nežádá. Řádek „osvobozeno od daně" je podmnožina hrubého
 příjmu, ne samostatné plnění — do čisté mzdy se nepřičítá. Údaj „neevidováno" znamená, že revize
 vznikla před mapováním, které daný údaj zaznamenává; není to nula. Týká se osvobozených částek
 a základu srážkové daně, a u revizí vydaných před mapováním v3 také nároku na daňové zvýhodnění

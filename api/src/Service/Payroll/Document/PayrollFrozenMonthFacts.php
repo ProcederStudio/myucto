@@ -224,6 +224,33 @@ final readonly class PayrollFrozenMonthFacts
         return 'other';
     }
 
+    /**
+     * Sloučí údaje více revizí téhož měsíce (více účtáren, doplatek po
+     * skončení). Hodiny a částky se sčítají, kalendářní dny se berou nejvyšší.
+     */
+    public static function merge(self $left, self $right): self
+    {
+        $time = [];
+        foreach (self::TIME_KEYS as $key) {
+            $a = $left->time[$key];
+            $b = $right->time[$key];
+            $time[$key] = match (true) {
+                $a === null => $b,
+                $b === null => $a,
+                $key === 'calendar_days' => max($a, $b),
+                default => $a + $b,
+            };
+        }
+
+        return new self(
+            $time,
+            $left->averageHourlyMinorUnits ?? $right->averageHourlyMinorUnits,
+            [...$left->components, ...$right->components],
+            array_values(array_unique([...$left->employmentCodes, ...$right->employmentCodes])),
+            $left->payoutAccountMasked ?? $right->payoutAccountMasked,
+        );
+    }
+
     public function hasTime(): bool
     {
         return $this->time['worked_millihours'] !== null || $this->time['calendar_days'] !== null;
