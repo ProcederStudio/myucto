@@ -359,6 +359,80 @@ final class OwnTransferDetectionTest extends BankPostingTestCase
         self::assertNotNull($this->journal->findBySource($this->supplierId, 'bank', $inTx));
     }
 
+    /**
+     * Účet faktoringu je kvůli fakturám v registru vlastních účtů. Pravidlo s prioritou
+     * pod 50 musí mít přednost před vlastním převodem i při schválení návrhu, nejen při importu.
+     */
+    public function testPriorityRuleSuggestionIsApprovedByRuleNotReplacedByTransfer(): void
+    {
+        $this->registerAccount(self::SECOND_ACCOUNT, self::SECOND_BANK, 'CZK');
+        $ruleId = $this->priorityFactoringRule();
+        $tx = $this->transaction($this->statement(), 8712.00, $this->factoringTx());
+
+        $result = $this->service->handleTransaction($tx, $this->userId);
+        self::assertSame('suggested', $result['action']);
+        $sug = $this->suggestionRow((int) $result['suggestion_id']);
+        self::assertSame(['rule', $ruleId], [$sug['source'], (int) $sug['rule_id']]);
+
+        $entryId = $this->service->approveSuggestion($this->supplierId, (int) $result['suggestion_id'], $this->meta());
+        $lines = $this->linesByAccountCode($entryId);
+        self::assertEqualsWithDelta(8712.00, $lines['379']['credit'], 0.001);
+        self::assertArrayNotHasKey('261', $lines);
+    }
+
+    public function testPriorityRuleBackfillSuggestsRuleInsteadOfTransfer(): void
+    {
+        $this->registerAccount(self::SECOND_ACCOUNT, self::SECOND_BANK, 'CZK');
+        $ruleId = $this->priorityFactoringRule();
+        $tx = $this->transaction($this->statement(), 5445.00, $this->factoringTx());
+
+        $result = $this->service->suggestRuleForBackfill($this->supplierId, $tx, $ruleId, $this->userId);
+
+        self::assertSame('suggested', $result['action']);
+        $sug = $this->suggestionRow((int) $result['suggestion_id']);
+        self::assertSame(['rule', $ruleId], [$sug['source'], (int) $sug['rule_id']]);
+    }
+
+    public function testOffTransferPolicyDoesNotReplaceRuleSuggestionOnApproval(): void
+    {
+        $this->registerAccount(self::SECOND_ACCOUNT, self::SECOND_BANK, 'CZK');
+        $this->db->pdo()->prepare(
+            "UPDATE auto_posting_policy SET level = 'off' WHERE supplier_id = ? AND operation_type = 'detector.own_transfer'"
+        )->execute([$this->supplierId]);
+        $ruleId = $this->priorityFactoringRule(100);
+        $tx = $this->transaction($this->statement(), 76.06, $this->factoringTx());
+
+        $result = $this->service->handleTransaction($tx, $this->userId);
+        $sug = $this->suggestionRow((int) $result['suggestion_id']);
+        self::assertSame(['rule', $ruleId], [$sug['source'], (int) $sug['rule_id']]);
+
+        $entryId = $this->service->approveSuggestion($this->supplierId, (int) $result['suggestion_id'], $this->meta());
+        self::assertEqualsWithDelta(76.06, $this->linesByAccountCode($entryId)['379']['credit'], 0.001);
+    }
+
+    private function priorityFactoringRule(int $priority = 10): int
+    {
+        return $this->rule([
+            'name' => 'Faktoring - záloha',
+            'direction' => 'incoming',
+            'counterparty_account' => self::SECOND_ACCOUNT,
+            'counterparty_bank' => self::SECOND_BANK,
+            'debit_account_code' => '221',
+            'credit_account_code' => '379',
+            'priority' => $priority,
+        ]);
+    }
+
+    /** @return array<string,string> */
+    private function factoringTx(): array
+    {
+        return [
+            'counterparty_account' => self::SECOND_ACCOUNT,
+            'counterparty_bank' => self::SECOND_BANK,
+            'description' => 'Platba zalohy:6209100058',
+        ];
+    }
+
     private function registerAccount(string $number, string $bank, ?string $currency): void
     {
         $this->db->pdo()->prepare(

@@ -29,7 +29,7 @@ final class BankDetectorChain
         $direction = (float) ($tx['amount'] ?? 0) > 0 ? 'incoming' : 'outgoing';
         $currency = strtoupper((string) ($tx['currency'] ?? $tx['statement_currency'] ?? 'CZK'));
         foreach ($this->rules->findActive($supplierId, $direction) as $rule) {
-            if ((int) ($rule['priority'] ?? 100) >= 50) {
+            if (!BankRuleMatcher::overridesDetectors($rule)) {
                 continue;
             }
             if (strtoupper((string) ($rule['applies_currency'] ?? 'CZK')) !== $currency) {

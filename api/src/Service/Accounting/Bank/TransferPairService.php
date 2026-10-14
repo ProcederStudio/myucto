@@ -168,6 +168,26 @@ final class TransferPairService
         return $tx === null ? null : $this->detector->detect($supplierId, $tx);
     }
 
+    /**
+     * Rozpoznání převodu pro cesty, které účtují podle pravidla nebo naučené kontace
+     * (schválení návrhu, použití pravidla na existující pohyby). Platí stejná přednost
+     * jako při importu ({@see \MyInvoice\Service\Accounting\Bank\Detect\BankDetectorChain}):
+     * vypnutá detekce ani pravidlo s prioritou pod
+     * {@see BankRuleMatcher::DETECTOR_OVERRIDE_PRIORITY} převod nevynutí. Typicky účet
+     * faktoringu uvedený na fakturách, ze kterého chodí zálohy na postoupené pohledávky.
+     *
+     * @param array<string,mixed>|null $rule pravidlo návrhu; null = naučená kontace
+     * @return array{account:array<string,mixed>,direction:'out'|'in',cross_currency:bool}|null
+     */
+    public function detectUnlessOverridden(int $supplierId, int $txId, ?array $rule): ?array
+    {
+        if ($this->policy->level($supplierId) === 'off'
+            || ($rule !== null && BankRuleMatcher::overridesDetectors($rule))) {
+            return null;
+        }
+        return $this->detectTransaction($supplierId, $txId);
+    }
+
     /** @param array<string,mixed> $suggestion @param array<string,mixed> $meta */
     public function approveLeg(int $supplierId, array $suggestion, array $meta): int
     {

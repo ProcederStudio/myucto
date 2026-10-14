@@ -20,6 +20,15 @@ use MyInvoice\Service\Bank\VariableSymbolNormalizer;
  */
 final class BankRuleMatcher
 {
+    /** Pravidlo s prioritou pod touto hranicí má přednost před detektory (vlastní převod, odvody, karta). */
+    public const DETECTOR_OVERRIDE_PRIORITY = 50;
+
+    /** @param array<string,mixed> $rule řádek bank_posting_rules */
+    public static function overridesDetectors(array $rule): bool
+    {
+        return (int) ($rule['priority'] ?? 100) < self::DETECTOR_OVERRIDE_PRIORITY;
+    }
+
     /**
      * @param array<string,mixed> $rule řádek bank_posting_rules
      * @param array{amount:float|int|string, variable_symbol?:?string,

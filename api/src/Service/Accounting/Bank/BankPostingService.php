@@ -2181,7 +2181,7 @@ final class BankPostingService
         if (!$this->ruleMatcher->matching($rule, $this->matchTxArray($tx))) {
             return ['action' => 'skipped', 'reason' => 'rule_not_matched'];
         }
-        if ($this->transfers !== null && $this->transfers->detectTransaction($supplierId, $txId) !== null) {
+        if ($this->transfers !== null && $this->transfers->detectUnlessOverridden($supplierId, $txId, $rule) !== null) {
             return $this->transfers->handle($supplierId, $tx, $userId, true)
                 ?? ['action' => 'skipped', 'reason' => 'rule_not_matched'];
         }
@@ -2497,6 +2497,16 @@ final class BankPostingService
     }
 
     /**
+     * @param array<string,mixed> $sug
+     * @return array<string,mixed>|null
+     */
+    private function suggestionRule(int $supplierId, array $sug): ?array
+    {
+        return (string) $sug['source'] === 'rule' && $sug['rule_id'] !== null
+            ? $this->rules->find($supplierId, (int) $sug['rule_id']) : null;
+    }
+
+    /**
      * @param array<string,mixed> $tx
      * @param array<string,mixed> $rule
      * @return array{action:string, reason:string, suggestion_id:int, created:bool}
@@ -2642,7 +2652,7 @@ final class BankPostingService
         }
 
         if (in_array($source, ['rule', 'learned'], true) && $this->transfers !== null) {
-            $transfer = $this->transfers->detectTransaction($supplierId, $txId);
+            $transfer = $this->transfers->detectUnlessOverridden($supplierId, $txId, $this->suggestionRule($supplierId, $sug));
             if ($transfer !== null && $transfer['cross_currency']) {
                 throw new PostingException('cross_currency_manual_only', 'Převod mezi měnami se účtuje ručně.', 409);
             }
@@ -2745,7 +2755,11 @@ final class BankPostingService
             ($this->payrollEvidence ?? new PayrollBankEvidenceGuard($this->db))
                 ->assertAvailableForBankPosting((int) $sug['bank_transaction_id']);
             if (in_array((string) $sug['source'], ['rule', 'learned'], true) && $this->transfers !== null) {
-                $transfer = $this->transfers->detectTransaction($supplierId, (int) $sug['bank_transaction_id']);
+                $transfer = $this->transfers->detectUnlessOverridden(
+                    $supplierId,
+                    (int) $sug['bank_transaction_id'],
+                    $this->suggestionRule($supplierId, $sug),
+                );
                 if ($transfer !== null) {
                     if ($transfer['cross_currency']) {
                         throw new PostingException('cross_currency_manual_only', 'Převod mezi měnami se účtuje ručně.', 409);
