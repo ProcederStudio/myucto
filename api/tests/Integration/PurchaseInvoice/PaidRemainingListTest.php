@@ -142,6 +142,28 @@ final class PaidRemainingListTest extends TestCase
         self::assertTrue($rows[$refunded]['paid_shortfall']);
     }
 
+    /**
+     * Doklad se zaokrouhlením (12 467,80 + 0,20): dokud není uhrazený celý, zbývá částka,
+     * kterou chce dodavatel zaplatit. Plná úhrada srovnaná na nominál zůstává nulou.
+     */
+    public function testRemainingIncludesRoundingUntilFullySettled(): void
+    {
+        $open = $this->purchase('PF-2099-921', 12467.80, 'received');
+        $partial = $this->purchase('PF-2099-922', 12467.80, 'received');
+        $settled = $this->purchase('PF-2099-923', 12467.80, 'paid');
+        $this->db->pdo()->prepare('UPDATE purchase_invoices SET rounding = 0.20 WHERE id IN (?, ?, ?)')
+            ->execute([$open, $partial, $settled]);
+        $this->settle($partial, 5000.00);
+        $this->settle($settled, 12467.80);
+
+        $rows = $this->purchaseRows([]);
+
+        self::assertEqualsWithDelta(12468.00, $rows[$open]['remaining_amount'], 0.001);
+        self::assertEqualsWithDelta(7468.00, $rows[$partial]['remaining_amount'], 0.001);
+        self::assertEqualsWithDelta(0.00, $rows[$settled]['remaining_amount'], 0.001);
+        self::assertFalse($rows[$settled]['paid_shortfall']);
+    }
+
     public function testIssuedListReturnsRemaining(): void
     {
         $partial = $this->invoice('FV-2099-901', 1000.00, 250.00, 'sent');

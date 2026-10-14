@@ -262,12 +262,23 @@ final class PurchaseSettledExpr
                      ELSE {$settled} END";
     }
 
-    /** Zbývá uhradit podle {@see paidAmount()} — v měně dokladu. */
+    /**
+     * Zbývá uhradit podle {@see paidAmount()} — v měně dokladu, jak ho platí dodavatel.
+     *
+     * `amount_to_pay` je nominál bez zaokrouhlení, dodavatel ale chce zaplatit částku po
+     * zaokrouhlení (12 467,80 + 0,20 = 12 468). Otevřený zbytek proto zaokrouhlení nese.
+     * Plná úhrada se při párování srovná na nominál a rozdíl jde na 548/648
+     * ({@see \MyInvoice\Service\Accounting\Bank\BankPostingService::normalizeRoundingFullPurchase()}),
+     * takže nulový zbytek zůstává nulou. Doklad bez zaokrouhlení CASE zkratuje a výraz
+     * se pro něj nemění.
+     */
     public static function remainingAmount(string $alias = 'pi'): string
     {
         $a = $alias === '' ? '' : $alias . '.';
+        $nominal = "{$a}amount_to_pay - (" . self::paidAmount($alias) . ')';
 
-        return "{$a}amount_to_pay - (" . self::paidAmount($alias) . ')';
+        return "CASE WHEN COALESCE({$a}rounding, 0) = 0 OR ABS({$nominal}) < 0.005 THEN {$nominal}
+                     ELSE {$nominal} + {$a}rounding END";
     }
 
     /**
