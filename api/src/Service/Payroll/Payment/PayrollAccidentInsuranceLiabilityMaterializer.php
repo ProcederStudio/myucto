@@ -483,7 +483,18 @@ final class PayrollAccidentInsuranceLiabilityMaterializer
         ) {
             throw new \DomainException('Otisk výsledku sociálního pojištění nesouhlasí.');
         }
-        return $this->sumLiabilityRelationships($root, $monthStart);
+        // Osoby a vztahy výpočet neukládá do hlavičky výsledku, ale jako samostatné
+        // řádky výsledku ({@see PayrollStatutoryResultRepository::find()}); výsledek
+        // vztahu je jeho `result_snapshot`.
+        $people = [];
+        foreach ((array) ($result['people'] ?? []) as $person) {
+            $people[] = ['relationships' => array_map(
+                static fn (array $relationship): mixed => $relationship['result_snapshot'] ?? null,
+                array_values(array_filter((array) ($person['relationships'] ?? []), 'is_array')),
+            )];
+        }
+
+        return $this->sumLiabilityRelationships(['people' => $people], $monthStart);
     }
 
     /**

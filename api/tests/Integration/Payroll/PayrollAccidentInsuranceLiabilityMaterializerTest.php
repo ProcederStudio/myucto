@@ -689,33 +689,17 @@ final class PayrollAccidentInsuranceLiabilityMaterializerTest extends TestCase
             'part_time_discount_assessment_base_minor_units' => 0,
             'part_time_discount_minor_units' => 0,
             'employer_contribution_minor_units' => 0,
-            'people' => [[
-                'person_id' => 'p1',
-                'relationships' => [[
-                    'relationship_id' => 'r-employment',
-                    'kind' => 'employment',
-                    'participation' => ['status' => 'participates'],
-                    'assessment_base_minor_units' => $participatingAssessmentBaseMinor,
-                    'capped_assessment_base_minor_units' => $participatingAssessmentBaseMinor,
-                ]],
-            ]],
             'issues' => [],
             'ruleset_id' => 'cz-social-2026',
             'ruleset_hash' => str_repeat('b', 64),
         ];
-        (new PayrollStatutoryResultRepository($this->db))->store(
-            $this->supplierId,
-            $revisionId,
-            'social_insurance',
-            'payroll-social-result.v1',
-            'calculated',
-            'cz-social-2026',
-            str_repeat('b', 64),
-            json_decode($input, true, flags: JSON_THROW_ON_ERROR),
-            $socialResult,
-            [],
-            $this->actorId,
-        );
+        $this->storeSocialResult($revisionId, $periodStart, $input, $socialResult, [[
+            'relationship_id' => 'r-employment',
+            'kind' => 'employment',
+            'participation' => ['status' => 'participates'],
+            'assessment_base_minor_units' => $participatingAssessmentBaseMinor,
+            'capped_assessment_base_minor_units' => $participatingAssessmentBaseMinor,
+        ]]);
 
         return $revisionId;
     }
@@ -840,32 +824,89 @@ final class PayrollAccidentInsuranceLiabilityMaterializerTest extends TestCase
             'part_time_discount_assessment_base_minor_units' => 0,
             'part_time_discount_minor_units' => 0,
             'employer_contribution_minor_units' => 0,
-            // Materializér nesmí brát celofiremní součty výše — sčítá si vztahy
-            // sám, aby mohl vynechat corporate_body. Proto tu musí být obojí
-            // a odměna orgánu je ZÁMĚRNĚ započtená i v celofiremních číslech.
-            'people' => [[
-                'person_id' => 'p1',
-                'relationships' => [
-                    ...($withEmployment ? [[
-                        'relationship_id' => 'r-employment',
-                        'kind' => 'employment',
-                        'participation' => ['status' => 'participates'],
-                        'assessment_base_minor_units' => $participatingAssessmentBaseMinor,
-                        'capped_assessment_base_minor_units' => $cappedAssessmentBaseMinor,
-                    ]] : []),
-                    ...($corporateBodyAssessmentBaseMinor > 0 ? [[
-                        'relationship_id' => 'r-corporate-body',
-                        'kind' => 'corporate_body',
-                        'participation' => ['status' => 'participates'],
-                        'assessment_base_minor_units' => $corporateBodyAssessmentBaseMinor,
-                        'capped_assessment_base_minor_units' => $corporateBodyAssessmentBaseMinor,
-                    ]] : []),
-                ],
-            ]],
             'issues' => [],
             'ruleset_id' => 'cz-social-2026',
             'ruleset_hash' => str_repeat('b', 64),
         ];
+        // Materializér nesmí brát celofiremní součty výše — sčítá si vztahy
+        // sám, aby mohl vynechat corporate_body. Proto tu musí být obojí
+        // a odměna orgánu je ZÁMĚRNĚ započtená i v celofiremních číslech.
+        $this->storeSocialResult($revisionId, $periodStart, $input, $socialResult, [
+            ...($withEmployment ? [[
+                'relationship_id' => 'r-employment',
+                'kind' => 'employment',
+                'participation' => ['status' => 'participates'],
+                'assessment_base_minor_units' => $participatingAssessmentBaseMinor,
+                'capped_assessment_base_minor_units' => $cappedAssessmentBaseMinor,
+            ]] : []),
+            ...($corporateBodyAssessmentBaseMinor > 0 ? [[
+                'relationship_id' => 'r-corporate-body',
+                'kind' => 'corporate_body',
+                'participation' => ['status' => 'participates'],
+                'assessment_base_minor_units' => $corporateBodyAssessmentBaseMinor,
+                'capped_assessment_base_minor_units' => $corporateBodyAssessmentBaseMinor,
+            ]] : []),
+        ]);
+
+        return $revisionId;
+    }
+
+    /**
+     * Výsledek sociálního pojištění tak, jak ho ukládá výpočet běhu: celofiremní
+     * součty v hlavičce, osoby a vztahy jako samostatné řádky výsledku (každý vztah
+     * vlastní osoba a vlastní pracovní vztah revize). Dřívější tvar s osobami
+     * přímo v hlavičce výpočet nikdy nevyráběl a materializér na něm svítil zeleně.
+     *
+     * @param array<string,mixed> $socialResult
+     * @param list<array<string,mixed>> $relationships
+     */
+    private function storeSocialResult(int $revisionId, string $periodStart, string $input, array $socialResult, array $relationships): void
+    {
+        $pdo = $this->db->pdo();
+        $people = [];
+        foreach ($relationships as $index => $relationship) {
+            $pdo->prepare(
+                'INSERT INTO payroll_employees
+                    (supplier_id, full_name, taxpayer_type, employment_type,
+                     tax_declaration_signed, tax_credit_taxpayer, child_count,
+                     monthly_gross, auto_post, is_active)
+                 VALUES (?, "Syntetická osoba výsledku", "employee", "hpp", 1, 1, 0, 10000, 0, 1)',
+            )->execute([$this->supplierId]);
+            $employeeId = (int) $pdo->lastInsertId();
+            $pdo->prepare(
+                'INSERT INTO payroll_employments
+                    (supplier_id, employee_id, code, relation_type, status, start_date)
+                 VALUES (?, ?, ?, ?, "active", ?)',
+            )->execute([
+                $this->supplierId,
+                $employeeId,
+                'result-' . $revisionId . '-' . $index,
+                $relationship['kind'] === 'corporate_body' ? 'statutory_body' : 'employment',
+                $periodStart,
+            ]);
+            $employmentId = (int) $pdo->lastInsertId();
+            $pdo->prepare(
+                'INSERT INTO payroll_run_persons (supplier_id, revision_id, period_start, employee_id)
+                 VALUES (?, ?, ?, ?)',
+            )->execute([$this->supplierId, $revisionId, $periodStart, $employeeId]);
+            $pdo->prepare(
+                'INSERT INTO payroll_run_employments
+                    (supplier_id, revision_id, period_start, employee_id, employment_id, input_json, input_hash)
+                 VALUES (?, ?, ?, ?, ?, "{}", ?)',
+            )->execute([$this->supplierId, $revisionId, $periodStart, $employeeId, $employmentId, hash('sha256', '{}')]);
+            $people[] = [
+                'employee_id' => $employeeId,
+                'result_status' => 'calculated',
+                'input_snapshot' => [],
+                'result_snapshot' => [],
+                'relationships' => [[
+                    'employment_id' => $employmentId,
+                    'result_status' => 'calculated',
+                    'input_snapshot' => [],
+                    'result_snapshot' => $relationship,
+                ]],
+            ];
+        }
         (new PayrollStatutoryResultRepository($this->db))->store(
             $this->supplierId,
             $revisionId,
@@ -876,11 +917,9 @@ final class PayrollAccidentInsuranceLiabilityMaterializerTest extends TestCase
             str_repeat('b', 64),
             json_decode($input, true, flags: JSON_THROW_ON_ERROR),
             $socialResult,
-            [],
+            $people,
             $this->actorId,
         );
-
-        return $revisionId;
     }
 
     private function setStartPeriod(string $startPeriod): void
