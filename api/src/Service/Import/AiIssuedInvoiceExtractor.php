@@ -241,7 +241,9 @@ final class AiIssuedInvoiceExtractor
         // k záloze. Pravidlo je společné s importem ({@see ImportedIssuedDocumentPolicy}).
         $total = $this->db->pdo()->prepare('SELECT total_with_vat FROM invoices WHERE id = ?');
         $total->execute([$invoiceId]);
-        $assessment = ImportedIssuedDocumentPolicy::assess($inv, (float) $total->fetchColumn());
+        $linesTotal = (float) $total->fetchColumn();
+        $assessment = ImportedIssuedDocumentPolicy::assess($inv, $linesTotal);
+        ImportedIssuedDocumentPolicy::applyPayableRounding($this->db->pdo(), $invoiceId, $inv, $linesTotal);
 
         return [
             'ok' => true,

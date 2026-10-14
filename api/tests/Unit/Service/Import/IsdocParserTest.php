@@ -300,6 +300,7 @@ XML;
         $xml = str_replace('</Invoice>', $monetary . '</Invoice>', $this->minimalIsdoc());
         $inv = $this->parser->parse($xml)['invoices'][0];
         self::assertSame(1000.0, $inv['payable_amount'], 'payable_amount = PayableAmount (k úhradě po zaokrouhlení)');
+        self::assertSame(0.01, $inv['monetary']['rounding'], 'zaokrouhlení pro převzetí vydaného dokladu (#289)');
     }
 
     public function testPaymentAccountAbsentWhenOnlyDueDate(): void

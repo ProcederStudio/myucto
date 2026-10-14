@@ -259,6 +259,7 @@ final class IsdocParser
                 'payable'         => $this->monetaryAmount($xpath, $root, 'PayableAmount', $hasForeignCurrency),
                 'paid_deposits'   => $this->monetaryAmount($xpath, $root, 'PaidDepositsAmount', $hasForeignCurrency),
                 'already_claimed' => $this->monetaryAmount($xpath, $root, 'AlreadyClaimedTaxInclusiveAmount', $hasForeignCurrency),
+                'rounding'        => $this->monetaryAmount($xpath, $root, 'PayableRoundingAmount', $hasForeignCurrency),
             ],
             // Zdaněné zálohy, které doklad odečítá (ISDOC `TaxedDeposits/TaxedDeposit`).
             'taxed_deposits' => $this->parseTaxedDeposits($xpath, $root),

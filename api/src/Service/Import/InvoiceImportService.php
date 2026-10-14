@@ -1436,7 +1436,9 @@ final class InvoiceImportService
         // a importem dokladů Shoptetu ({@see ImportedIssuedDocumentPolicy}).
         $totalStmt = $pdo->prepare('SELECT total_with_vat FROM invoices WHERE id = ?');
         $totalStmt->execute([$invoiceId]);
-        $assessment = ImportedIssuedDocumentPolicy::assess($inv, (float) $totalStmt->fetchColumn());
+        $linesTotal = (float) $totalStmt->fetchColumn();
+        $assessment = ImportedIssuedDocumentPolicy::assess($inv, $linesTotal);
+        ImportedIssuedDocumentPolicy::applyPayableRounding($pdo, $invoiceId, $inv, $linesTotal);
         $notes = array_merge($notes, $assessment['notes']);
         if ($assessment['review'] !== []) {
             $warnings = array_merge($warnings, $assessment['review']);

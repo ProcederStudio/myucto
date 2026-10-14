@@ -33,6 +33,7 @@ final class ImportedIssuedDocumentPolicyTest extends TestCase
 
         self::assertSame([], $out['review']);
         self::assertCount(1, $out['notes']);
+        self::assertStringContainsString('zaokrouhlení dokladu 0,40', $out['notes'][0]);
     }
 
     public function testPaidDepositsForceDraft(): void
@@ -74,6 +75,66 @@ final class ImportedIssuedDocumentPolicyTest extends TestCase
         $out = ImportedIssuedDocumentPolicy::assess(self::inv('credit_note', ['total' => 363.0, 'payable' => 363.0]), -363.0);
 
         self::assertSame([], $out['review']);
+    }
+
+    /** #289: Fakturovač vyplní PayableAmount nulou a zaokrouhlení nese v PayableRoundingAmount. */
+    public function testZeroPayableWithoutDepositIsUnspecified(): void
+    {
+        $inv = self::inv('invoice', ['total' => 430.0, 'payable' => 0.0, 'paid_deposits' => 0.0, 'rounding' => -0.1]);
+        $out = ImportedIssuedDocumentPolicy::assess($inv, 430.1);
+
+        self::assertSame([], $out['review']);
+        self::assertSame(-0.1, ImportedIssuedDocumentPolicy::payableRounding($inv, 430.1));
+    }
+
+    public function testRoundingDerivedFromPayableWhenElementMissing(): void
+    {
+        $inv = self::inv('invoice', ['total' => 1008.6, 'payable' => 1009.0]);
+
+        self::assertSame(0.4, ImportedIssuedDocumentPolicy::payableRounding($inv, 1008.6));
+    }
+
+    public function testCreditNoteRoundingFromPositiveFileIsNegated(): void
+    {
+        // Soubor vede dobropis kladně, MyÚčto zápornými řádky.
+        $inv = self::inv('credit_note', ['total' => 300.1, 'payable' => 300.0, 'rounding' => -0.1]);
+
+        self::assertSame(0.1, ImportedIssuedDocumentPolicy::payableRounding($inv, -300.1));
+        self::assertSame([], ImportedIssuedDocumentPolicy::assess($inv, -300.1)['review']);
+    }
+
+    public function testCreditNoteRoundingFromNegativeFileKeepsSign(): void
+    {
+        // Náš vlastní export ISDOC vede dobropis zápornými částkami.
+        $inv = self::inv('credit_note', ['total' => -300.1, 'payable' => -300.0, 'rounding' => 0.1]);
+
+        self::assertSame(0.1, ImportedIssuedDocumentPolicy::payableRounding($inv, -300.1));
+    }
+
+    public function testCreditNoteRoundingDerivedFromPayable(): void
+    {
+        $inv = self::inv('credit_note', ['total' => 300.1, 'payable' => 300.0]);
+
+        self::assertSame(0.1, ImportedIssuedDocumentPolicy::payableRounding($inv, -300.1));
+    }
+
+    public function testRoundingOfWholeUnitOrMoreIsNotTaken(): void
+    {
+        self::assertSame(0.0, ImportedIssuedDocumentPolicy::payableRounding(self::inv('invoice', ['payable' => 1010.0]), 1008.6));
+        self::assertSame(0.0, ImportedIssuedDocumentPolicy::payableRounding(self::inv('invoice', ['rounding' => -1.5]), 1008.6));
+    }
+
+    public function testDepositDifferenceIsNotRounding(): void
+    {
+        $inv = self::inv('invoice', ['total' => 484.0, 'payable' => 483.6, 'paid_deposits' => 0.4]);
+
+        self::assertSame(0.0, ImportedIssuedDocumentPolicy::payableRounding($inv, 484.0));
+    }
+
+    public function testTaxDocumentAndProformaGetNoRounding(): void
+    {
+        self::assertSame(0.0, ImportedIssuedDocumentPolicy::payableRounding(self::inv('tax_document', ['payable' => 0.0, 'rounding' => -0.1]), 484.1));
+        self::assertSame(0.0, ImportedIssuedDocumentPolicy::payableRounding(self::inv('proforma', ['payable' => 484.0]), 484.1));
     }
 
     public function testParserWithoutMonetaryDataIsNotJudged(): void
