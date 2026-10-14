@@ -555,6 +555,7 @@ async function load(): Promise<void> {
         data.value = loaded
         total.value = loaded.total
         void loadSecureLinksFor(loaded.items)
+        void showOpenBatch(loaded.revisions)
       }
     } else if (requestedTab === 'annual') {
       const [loaded] = await Promise.all([
@@ -831,6 +832,25 @@ async function loadAllBatchItems(batchId: number): Promise<void> {
     if (page.items.length === 0) break
   }
   if (documentBatch.value?.id === batchId) documentBatchItems.value = items
+}
+
+/*
+ * Dávku výplatních pásek zakládá už schválení běhu a zpracuje ji fronta. Dokud
+ * neproběhne, stránka nesmí tvrdit „žádné dokumenty“: ukáže průběh dávky, a když
+ * fronta stojí, i tlačítko, kterým ji jde spustit.
+ */
+async function showOpenBatch(revisions: PayrollDocumentList['revisions']): Promise<void> {
+  if (documentBatch.value !== null) return
+  const batchId = revisions.find(revision => (revision.open_batch_id ?? null) !== null)?.open_batch_id
+  if (!batchId) return
+  try {
+    const batch = await payrollApi.documentBatch(batchId)
+    if (documentBatch.value !== null) return
+    documentBatch.value = batch
+    await loadDocumentBatch(true)
+  } catch {
+    // Průběh dávky je doplněk seznamu; jeho výpadek seznam nezastaví.
+  }
 }
 
 async function loadDocumentBatch(loadItems = false): Promise<void> {

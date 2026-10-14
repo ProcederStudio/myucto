@@ -5605,6 +5605,8 @@ export interface PayrollDocumentRevision {
   status: 'approved' | 'superseded'
   office_id: number | null
   office_name: string | null
+  /** Dávka dokumentů revize, která ještě běží nebo čeká ve frontě. */
+  open_batch_id?: number | null
 }
 
 export interface PayrollDocumentList {

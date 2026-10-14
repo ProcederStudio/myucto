@@ -343,7 +343,14 @@ final class PayrollDocumentRepository
                     office.name AS office_name,
                     revision.id AS revision_id,
                     revision.revision_no,
-                    revision.status
+                    revision.status,
+                    (SELECT batch.id
+                       FROM payroll_document_batches batch
+                      WHERE batch.supplier_id = revision.supplier_id
+                        AND batch.revision_id = revision.id
+                        AND batch.status IN ("queued", "running", "retry_wait")
+                      ORDER BY batch.id DESC
+                      LIMIT 1) AS open_batch_id
                FROM payroll_runs run
                JOIN payroll_run_revisions revision
                 ON revision.supplier_id = run.supplier_id
@@ -375,6 +382,9 @@ final class PayrollDocumentRepository
             $row['office_id'] = $row['office_id'] === null
                 ? null
                 : (int) $row['office_id'];
+            $row['open_batch_id'] = $row['open_batch_id'] === null
+                ? null
+                : (int) $row['open_batch_id'];
         }
         unset($row);
         return array_values($rows);

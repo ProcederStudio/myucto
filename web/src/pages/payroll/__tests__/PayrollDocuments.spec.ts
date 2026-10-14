@@ -430,6 +430,32 @@ describe('PayrollDocuments', () => {
     )
   })
 
+  it('shows the batch queued by run approval instead of an empty list, with a way to start a stalled queue', async () => {
+    const list = await m.listDocuments()
+    m.listDocuments.mockResolvedValue({
+      ...list,
+      items: [],
+      total: 0,
+      revisions: list.revisions.map((revision: Record<string, unknown>) => ({ ...revision, open_batch_id: 81 })),
+    })
+    m.documentBatch.mockResolvedValue({
+      ...(await m.documentBatch()),
+      status: 'queued',
+      succeeded_count: 0,
+      failed_count: 0,
+      worker_stalled: true,
+    })
+    m.documentBatch.mockClear()
+
+    const wrapper = mount(PayrollDocuments)
+    await flushPromises()
+
+    expect(m.documentBatch).toHaveBeenCalledWith(81)
+    expect(wrapper.find('[data-test="document-batch-report"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="document-batch-start-worker"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
   it('polls asynchronous progress and retries one failed person', async () => {
     const wrapper = mount(PayrollDocuments)
     await flushPromises()
