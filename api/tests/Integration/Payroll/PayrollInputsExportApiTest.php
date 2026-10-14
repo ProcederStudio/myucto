@@ -290,7 +290,8 @@ final class PayrollInputsExportApiTest extends TestCase
             $this->service->context($this->supplierId, $filter),
             $this->service->rows($this->supplierId, $filter, PayrollInputExportService::PDF_MAX_ROWS),
         );
-        self::assertSame(['Syntetická Alfa', 'Syntetický Beta'], array_column($data['groups'], 'name'));
+        // Jako přehled mezd: příjmení napřed, podle české abecedy.
+        self::assertSame(['Alfa Syntetická', 'Beta Syntetický'], array_column($data['groups'], 'name'));
         self::assertSame(['400,00', '50,00'], array_column($data['groups'], 'amount'));
         self::assertSame(
             [['SYN_EXP_A', 3, '250,00'], ['SYN_EXP_B', 1, '200,00']],
@@ -299,9 +300,9 @@ final class PayrollInputsExportApiTest extends TestCase
         self::assertSame('450,00', $data['total']);
 
         $html = $this->renderer->renderHtml($data);
-        self::assertStringContainsString('Mezisoučet Syntetická Alfa', $html);
+        self::assertStringContainsString('Alfa Syntetická', $html);
         self::assertStringContainsString('Rekapitulace podle složky', $html);
-        self::assertStringContainsString('Stav:</td><td>Koncept', $html);
+        self::assertStringContainsString('Stav: Koncept', $html);
 
         $stmt = $this->db->pdo()->prepare(
             'SELECT COUNT(*) FROM activity_log

@@ -32,6 +32,19 @@ final class PayrollMonthlyOverviewTest extends TestCase
         self::assertSame(3_290_800, $row['payable_minor']);
     }
 
+    public function testRowsShowSurnameFirstInCzechAlphabeticalOrder(): void
+    {
+        $rows = PayrollMonthlyOverviewService::ordered(array_map(
+            static fn (string $name): array => ['name' => $name, 'personal_number' => ''],
+            ['Ing. Adéla Králová', 'Jan Šimek', 'Petr Dluhoš', 'Eva Dlábková', 'Karel Chudý', 'Iva Horká', 'Ota Čermák', 'Ivo Cibulka'],
+        ));
+
+        self::assertSame(
+            ['Cibulka Ivo', 'Čermák Ota', 'Dlábková Eva', 'Dluhoš Petr', 'Horká Iva', 'Chudý Karel', 'Králová Adéla Ing.', 'Šimek Jan'],
+            array_column($rows, 'name'),
+        );
+    }
+
     public function testTotalsSkipUnknownValuesInsteadOfCountingZero(): void
     {
         $totals = PayrollMonthlyOverviewService::totals([

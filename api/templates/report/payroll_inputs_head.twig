@@ -1,47 +1,53 @@
 <style>
-    body { font-family: montserrat, dejavusans, sans-serif; font-size: 7.5pt; color: #15131D; }
-    .header-table { width: 100%; border-collapse: collapse; margin-bottom: 3mm; }
-    .header-table td { vertical-align: top; }
-    .header-meta { font-size: 8pt; color: #555; }
-    .header-title { font-size: 13pt; font-weight: bold; text-align: center; }
-    .header-period { text-align: center; font-size: 10pt; margin-top: 1mm; }
-    .filter-table { border-collapse: collapse; margin-bottom: 3mm; }
-    .filter-table td { padding: 0.4mm 2mm 0.4mm 0; font-size: 7.5pt; vertical-align: top; }
-    .filter-label { color: #555; }
-    table.inputs { width: 100%; border-collapse: collapse; margin-bottom: 2mm; }
-    table.inputs th { font-size: 6.5pt; font-weight: normal; color: #555; text-align: left; padding: 0.8mm 1.2mm; border-bottom: 0.3pt solid #bbb; }
-    table.inputs td { font-size: 7.5pt; padding: 0.6mm 1.2mm; border-bottom: 0.2pt solid #eee; vertical-align: top; }
-    table.inputs .num { text-align: right; }
-    .group-head td { font-weight: bold; background-color: #f4f4f5; font-size: 8pt; }
-    .group-total td { font-weight: bold; border-top: 0.3pt solid #bbb; }
-    .recap-title { font-size: 10pt; font-weight: bold; margin-top: 4mm; margin-bottom: 1mm; }
-    .grand-total td { font-weight: bold; font-size: 8.5pt; border-top: 0.6pt solid #555; }
+    body { font-family: montserrat, dejavusans, sans-serif; font-size: 7pt; color: #211923; }
+    .accent { height: 1.6mm; background: #98466F; margin-bottom: 2.5mm; }
+    .head { width: 100%; border-collapse: collapse; margin-bottom: 1.5mm; }
+    .head td { vertical-align: bottom; padding: 0; }
+    .title { font-size: 16pt; font-weight: bold; color: #351C2B; }
+    .sub { color: #5F515A; margin-top: 0.6mm; }
+    .period { font-size: 14pt; font-weight: bold; color: #98466F; text-align: right; }
+    .meta { color: #5F515A; text-align: right; margin-top: 0.6mm; }
+    .filter { color: #5F515A; font-size: 6.6pt; margin-bottom: 2mm; }
+    table.inputs { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    table.inputs th { background: #FAF1F6; color: #5F515A; border: 0.25pt solid #DEC8D4; padding: 0.7mm 0.8mm; font-size: 6.2pt; font-weight: bold; text-align: left; }
+    table.inputs td { border-bottom: 0.2pt solid #EADDE4; padding: 0.45mm 0.8mm; font-size: 6.6pt; white-space: nowrap; overflow: hidden; }
+    table.inputs .num { text-align: right; font-family: geistmono, dejavusans, sans-serif; }
+    table.inputs th.num { font-family: montserrat, dejavusans, sans-serif; }
+    .group-head td { font-weight: bold; color: #351C2B; background: #F8F5F7; border-top: 0.4pt solid #DEC8D4; padding-top: 0.7mm; }
+    .muted { color: #8A7A84; }
+    .recap-title { color: #98466F; font-size: 8pt; font-weight: bold; margin: 3mm 0 1mm; text-transform: uppercase; }
+    .grand-total td { font-weight: bold; background: #F8F5F7; border-top: 0.6pt solid #98466F; }
     .empty { text-align: center; color: #888; padding: 8mm 0; }
 </style>
 
-<table class="header-table">
+<div class="accent"></div>
+<table class="head">
     <tr>
-        <td style="width:32%;">
-            <div class="header-meta">{{ entity.name }}{% if entity.ico %}, IČO: {{ entity.ico }}{% endif %}</div>
-            <div class="header-meta">{{ entity.address }}</div>
+        <td>
+            <div class="title">Mzdové vstupy</div>
+            <div class="sub">{{ entity.name }}{% if entity.ico %} · IČ {{ entity.ico }}{% endif %} · sestaveno {{ exported_at }}</div>
         </td>
-        <td style="width:36%;">
-            <div class="header-title">Mzdové vstupy</div>
-            <div class="header-period">období {{ period_label }}</div>
-        </td>
-        <td style="width:32%; text-align:right;">
-            <div class="header-meta">Sestaveno: {{ exported_at }}</div>
-            <div class="header-meta">{{ row_count }} vstupů, celkem {{ total }} Kč</div>
+        <td>
+            <div class="period">{{ period_label }}</div>
+            <div class="meta">{{ row_count }} vstupů · celkem {{ total }} Kč</div>
         </td>
     </tr>
 </table>
-
-<table class="filter-table">
-    {% for line in filter_lines %}
-        <tr><td class="filter-label">{{ line.label }}:</td><td>{{ line.value }}</td></tr>
-    {% endfor %}
-</table>
+<div class="filter">{% for line in filter_lines %}{{ line.label }}: {{ line.value }}{% if not loop.last %} · {% endif %}{% endfor %}</div>
 
 {% if groups is empty %}
     <p class="empty">Filtru neodpovídá žádný mzdový vstup.</p>
+{% else %}
+<table class="inputs">
+    <thead>
+        <tr>
+            <th style="width:46%;">Složka</th>
+            <th class="num" style="width:8%;">Množství</th>
+            <th class="num" style="width:8%;">Sazba</th>
+            <th class="num" style="width:11%;">Částka Kč</th>
+            <th style="width:12%;">Stav</th>
+            <th style="width:15%;">Zdroj</th>
+        </tr>
+    </thead>
+</table>
 {% endif %}

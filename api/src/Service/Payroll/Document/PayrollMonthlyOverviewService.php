@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Payroll\Document;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Service\Payroll\PayrollPersonDisplayName;
 use PDO;
 
 /**
@@ -63,10 +64,7 @@ final class PayrollMonthlyOverviewService
                 'Za zvolené období není schválený mzdový běh ani převzatá mzda z předchozího programu.',
             );
         }
-        usort($rows, static fn (array $a, array $b): int => strcmp(
-            self::sortKey($a['name']),
-            self::sortKey($b['name']),
-        ));
+        $rows = self::ordered($rows);
 
         return [
             'period' => $period,
@@ -422,13 +420,23 @@ final class PayrollMonthlyOverviewService
         ];
     }
 
-    /** Příjmení napřed, jako v PAMICA: řadí se podle posledního slova jména. */
-    private static function sortKey(string $name): string
+    /**
+     * Jako přehled PAMICA: „Příjmení Jméno Titul“, řazené podle české abecedy
+     * (Č za C, Ch za H, Ř za R, Š za S); shodná jména podle osobního čísla.
+     *
+     * @param list<array<string,mixed>> $rows
+     * @return list<array<string,mixed>>
+     */
+    public static function ordered(array $rows): array
     {
-        $parts = preg_split('/\s+/u', trim($name)) ?: [];
-        $last = (string) array_pop($parts);
+        foreach ($rows as &$row) {
+            $row['name'] = PayrollPersonDisplayName::surnameFirst((string) $row['name']);
+        }
+        unset($row);
+        usort($rows, static fn (array $a, array $b): int => PayrollPersonDisplayName::compare($a['name'], $b['name'])
+            ?: strcmp((string) ($a['personal_number'] ?? ''), (string) ($b['personal_number'] ?? '')));
 
-        return mb_strtolower($last . ' ' . implode(' ', $parts));
+        return $rows;
     }
 
     /** @param array<string,mixed> $row */

@@ -7,6 +7,7 @@ namespace MyInvoice\Service\Payroll\Export;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\Payroll\PayrollInputFilter;
 use MyInvoice\Repository\Payroll\PayrollInputRepository;
+use MyInvoice\Service\Payroll\PayrollPersonDisplayName;
 use MyInvoice\Service\Pdf\PayrollInputsPdfRenderer;
 use PDO;
 
@@ -201,6 +202,13 @@ final class PayrollInputExportService
         if ($current !== null) {
             $groups[] = self::closeGroup($current);
         }
+        // Zaměstnanci jako v přehledu mezd: „Příjmení Jméno“ podle české abecedy.
+        foreach ($groups as &$group) {
+            $group['name'] = PayrollPersonDisplayName::surnameFirst((string) $group['name']);
+        }
+        unset($group);
+        usort($groups, static fn (array $a, array $b): int => PayrollPersonDisplayName::compare($a['name'], $b['name'])
+            ?: strcmp((string) $a['personal_numbers'], (string) $b['personal_numbers']));
         ksort($recap, SORT_STRING);
 
         return [

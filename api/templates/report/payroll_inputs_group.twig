@@ -1,39 +1,22 @@
 <table class="inputs">
-    <thead>
-        <tr class="group-head">
-            <td colspan="6">{{ group.name }}{% if group.personal_numbers %} · {{ group.personal_numbers }}{% endif %}</td>
-            <td colspan="4" class="num">{{ group.count }} vstupů</td>
-        </tr>
-        <tr>
-            <th style="width:11%;">Osobní číslo</th>
-            <th style="width:10%;">Kód složky</th>
-            <th style="width:22%;">Název složky</th>
-            <th class="num" style="width:7%;">Množství</th>
-            <th class="num" style="width:8%;">Sazba</th>
-            <th class="num" style="width:10%;">Částka Kč</th>
-            <th style="width:9%;">Stav</th>
-            <th style="width:10%;">Zdroj</th>
-            <th style="width:13%;" colspan="2">Dávka importu</th>
-        </tr>
-    </thead>
     <tbody>
+        <tr class="group-head">
+            <td style="width:46%;">{{ group.name }}{% if group.personal_numbers %} <span class="muted">· {{ group.personal_numbers }}</span>{% endif %}</td>
+            <td style="width:8%;"></td>
+            <td style="width:8%;" class="num muted">{{ group.count }}×</td>
+            <td style="width:11%;" class="num">{{ group.amount }}</td>
+            <td style="width:12%;"></td>
+            <td style="width:15%;"></td>
+        </tr>
         {% for row in group.rows %}
             <tr>
-                <td>{{ row.personal_number }}</td>
-                <td>{{ row.component_code }}</td>
-                <td>{{ row.component_name }}</td>
+                <td>{{ row.component_name }}{% if row.personal_number != group.personal_numbers %} <span class="muted">· {{ row.personal_number }}</span>{% endif %}</td>
                 <td class="num">{{ row.quantity }}</td>
                 <td class="num">{{ row.rate }}</td>
                 <td class="num">{{ row.amount }}</td>
                 <td>{{ row.status }}</td>
-                <td>{{ row.source }}</td>
-                <td colspan="2">{{ row.import }}</td>
+                <td>{{ row.source }}{% if row.import %} <span class="muted">{{ row.import }}</span>{% endif %}</td>
             </tr>
         {% endfor %}
-        <tr class="group-total">
-            <td colspan="5">Mezisoučet {{ group.name }}</td>
-            <td class="num">{{ group.amount }}</td>
-            <td colspan="4"></td>
-        </tr>
     </tbody>
 </table>
