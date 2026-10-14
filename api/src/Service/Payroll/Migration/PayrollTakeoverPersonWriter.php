@@ -10,6 +10,7 @@ use MyInvoice\Repository\Payroll\PayrollPersonStatutoryEvidenceRepository;
 use MyInvoice\Repository\Payroll\PayrollRegistrationIdentityRepository;
 use MyInvoice\Service\Payroll\CzechBirthNumber;
 use MyInvoice\Service\Payroll\IncomeTax\ChildCreditClaimWindow;
+use MyInvoice\Service\Payroll\Net\PayrollPayoutRuleDefaultsService;
 use MyInvoice\Service\Payroll\Payment\PayrollPersonAccountVerificationService;
 use MyInvoice\Service\Payroll\PayrollDependantValidator;
 use MyInvoice\Service\Payroll\PayrollOpeningBalanceService;
@@ -44,6 +45,7 @@ final class PayrollTakeoverPersonWriter
         private readonly PayrollDependantRepository $dependants,
         private readonly PayrollDependantValidator $dependantValidator,
         private readonly PayrollPersonAccountVerificationService $accountVerification,
+        private readonly PayrollPayoutRuleDefaultsService $payoutDefaults,
     ) {}
 
     /**
@@ -613,7 +615,8 @@ final class PayrollTakeoverPersonWriter
         // to potkalo instalace, kde účty založil starší běh, který ověřovat ještě neuměl.
         if ($current['accounts'] !== []) {
             $this->repairCashShare($supplierId, $employeeId, $current, $userId, $state);
-            return $policy->verifyPayoutAccounts ? $this->verifyAccounts($supplierId, $employeeId, $paidOn, $userId, $state) : [];
+            return ($policy->verifyPayoutAccounts ? $this->verifyAccounts($supplierId, $employeeId, $paidOn, $userId, $state) : [])
+                + $this->payoutRule($supplierId, $employeeId);
         }
         $from = min(is_string($start) ? $start : $today, $today);
         $label = $policy->label;
@@ -657,7 +660,25 @@ final class PayrollTakeoverPersonWriter
             return ['payout_accounts_to_verify' => count($rows)];
         }
         return ['payout_accounts' => count($rows)]
-            + $this->verifyAccounts($supplierId, $employeeId, $paidOn, $userId, $state);
+            + $this->verifyAccounts($supplierId, $employeeId, $paidOn, $userId, $state)
+            + $this->payoutRule($supplierId, $employeeId);
+    }
+
+    /**
+     * Výplatní pravidlo z karty, plyne-li z ní jednoznačně (výplata bankou na jediný
+     * ověřený účet, nebo hotově). Bez něj se příprava plateb po zaúčtování mezd zastaví
+     * u každého zaměstnance; rozdělenou výplatu nebo neověřený účet služba nechá ručně.
+     *
+     * @return array<string,int>
+     */
+    private function payoutRule(int $supplierId, int $employeeId): array
+    {
+        try {
+            return $this->payoutDefaults->applyDefaults($supplierId, $employeeId) !== [] ? ['payout_rule' => 1] : [];
+        } catch (\DomainException|\InvalidArgumentException|\RuntimeException) {
+            // Pravidlo už osoba má, nebo z karty neplyne jednoznačně.
+            return [];
+        }
     }
 
     /**

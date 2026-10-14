@@ -164,6 +164,10 @@ final class SyntheticPohodaPayroll
         // Starší odhláška ČSSZ (ONZ) Petrova vztahu, odeslaná.
         $row('ONZ', ['ID' => 1, 'RelStavDP' => 7, 'DatPod' => '2026-03-05', 'ElOdeslano' => 1]);
         $row('ONZpol', ['ID' => 1, 'RefAg' => 1, 'RefPomer' => 2, 'RelTyp' => 2, 'DatVstup' => '2026-01-01', 'DatOdch' => self::PETR_END]);
+        // Závazky odvodů: záloha na daň odešla na stejný účet dvakrát, srážková daň jednou.
+        $row('Doklady', ['ID' => 1, 'Cislo' => 'MZ0001', 'RelTpDokl' => 1, 'Ucet' => '713-1000000005', 'KodBanky' => '0710', 'VarSym' => '12345678']);
+        $row('Doklady', ['ID' => 2, 'Cislo' => 'MZ0002', 'RelTpDokl' => 1, 'Ucet' => '713-1000000005', 'KodBanky' => '0710', 'VarSym' => '12345678']);
+        $row('Doklady', ['ID' => 3, 'Cislo' => 'MZ0003', 'RelTpDokl' => 1, 'Ucet' => '7720-1000000005', 'KodBanky' => '0710', 'VarSym' => '12345678']);
         if ($reports) {
             $x .= self::reports();
         }

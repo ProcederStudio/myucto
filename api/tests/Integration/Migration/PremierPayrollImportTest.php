@@ -540,10 +540,18 @@ final class PremierPayrollImportTest extends TestCase
         self::assertSame([['executor'], ['beneficiary']], $this->fetch('SELECT party_role FROM payroll_enforcement_case_parties
             WHERE supplier_id = ? AND source_document_id IS NOT NULL ORDER BY party_role', $supplierId));
         self::assertSame(1, $this->scalar('SELECT COUNT(*) FROM payroll_enforcement_recipient_instructions WHERE supplier_id = ?', $supplierId));
+        // Účet příjemce zahajovaného případu stojí na dokladu převzetí, platby ho použijí.
+        self::assertSame([['user_verified']], $this->fetch("SELECT a.source_kind FROM payroll_institution_accounts a
+            JOIN payroll_institutions i ON i.id = a.institution_id WHERE a.supplier_id = ? AND i.institution_type = 'other_recipient'", $supplierId));
 
+        // Neověřený účet příjemce z dřívějšího převodu opakovaný převod ověří.
+        $this->db->pdo()->prepare("UPDATE payroll_institution_accounts a JOIN payroll_institutions i ON i.id = a.institution_id
+            SET a.source_kind = 'imported', a.row_version = a.row_version + 1 WHERE a.supplier_id = ? AND i.institution_type = 'other_recipient'")->execute([$supplierId]);
         $again = $this->importer->run($supplierId, $this->userId, $backup, SyntheticPremierBackup::YEAR2, false);
         self::assertFalse($again->hasErrors(), $this->explain($again));
         self::assertSame(2, self::stepCounts($again, 'payroll')['deductions_existing'] ?? 0, 'Opakovaný převod srážky nezdvojí.');
+        self::assertSame([['user_verified']], $this->fetch("SELECT a.source_kind FROM payroll_institution_accounts a
+            JOIN payroll_institutions i ON i.id = a.institution_id WHERE a.supplier_id = ? AND i.institution_type = 'other_recipient'", $supplierId));
     }
 
     /**

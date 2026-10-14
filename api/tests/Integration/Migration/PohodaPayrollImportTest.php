@@ -229,6 +229,12 @@ final class PohodaPayrollImportTest extends TestCase
         // Rodičovská dovolená z PAMICA (H08) se přenese jako absence, i když hodiny nenese.
         self::assertSame(1, $this->scalar("SELECT COUNT(*) FROM payroll_absences WHERE supplier_id = ? AND employment_id = ? AND absence_type = 'parental' AND date_from = '2026-02-01' AND date_to = '2026-02-28'", [$supplierId, $petr['id']]), $this->explain($protocol));
         self::assertSame(1, $this->scalar("SELECT COUNT(*) FROM payroll_institution_accounts a JOIN payroll_institutions i ON i.id = a.institution_id WHERE a.supplier_id = ? AND i.institution_type = 'health_insurer' AND i.institution_code = '111' AND a.variable_symbol = '12345678'", [$supplierId]), $this->explain($protocol));
+        // Výplatní pravidlo z karty: celá výplata na jediný ověřený účet, jinak by stála příprava plateb.
+        self::assertSame(1, $this->scalar("SELECT COUNT(*) FROM payroll_payout_rules WHERE supplier_id = ? AND employee_id = ? AND destination_kind = 'bank' AND allocation_kind = 'remainder' AND is_active = 1", [$supplierId, $jana['employee_id']]), $this->explain($protocol));
+        // Účet, na který PAMICA odvod opakovaně posílala, je ověřený platbami; jediný doklad ne.
+        $levies = $pdo->prepare("SELECT i.institution_code, a.source_kind FROM payroll_institution_accounts a JOIN payroll_institutions i ON i.id = a.institution_id WHERE a.supplier_id = ? AND i.institution_type = 'tax_office' ORDER BY i.institution_code");
+        $levies->execute([$supplierId]);
+        self::assertSame(['ADVANCE_TAX' => 'user_verified', 'WITHHOLDING_TAX' => 'imported'], $levies->fetchAll(\PDO::FETCH_KEY_PAIR), $this->explain($protocol));
 
         // Dítě s daňovým zvýhodněním na 1. dítě; sleva na poplatníka (kód 36) dítětem není.
         self::assertSame(1, $this->scalar('SELECT COUNT(*) FROM payroll_dependants WHERE supplier_id = ? AND employee_id = ?', [$supplierId, $jana['employee_id']]));

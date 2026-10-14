@@ -89,6 +89,10 @@ final class PayrollTakeoverInstitutionWriter
                 continue;
             }
             $notice = $type === 'health_insurer';
+            // Účet, na který předchozí program opakovaně odváděl (víc platebních dokladů),
+            // je ověřený skutečnými platbami stejně jako výplatní účet zaměstnance.
+            $source = PayrollTakeoverFormat::text($institution['source'] ?? null) ?? '';
+            $paidRepeatedly = !$notice && preg_match('/\((\d+) doklad/u', $source, $paid) === 1 && (int) $paid[1] >= 2;
             // Variabilní symbol u finančního úřadu je kmenová část DIČ plátce, ne symbol
             // z dokladu: doklad může nést symbol opravný nebo cizí.
             $variableSymbol = $type === 'tax_office'
@@ -111,16 +115,16 @@ final class PayrollTakeoverInstitutionWriter
                 'constant_symbol' => null,
                 'valid_from' => sprintf('%04d-01-01', $year),
                 'valid_to' => null,
-                'source_kind' => $notice ? 'institution_notice' : 'imported',
+                'source_kind' => $notice ? 'institution_notice' : ($paidRepeatedly ? 'user_verified' : 'imported'),
                 'source_reference' => $notice
                     ? 'Převzato z registru ' . $policy->label . (($institution['data_box'] ?? null) !== null ? ', datová schránka ' . $institution['data_box'] : '')
                     : mb_substr('Odvozeno z ' . (PayrollTakeoverFormat::text($institution['source'] ?? null) ?? 'dokladů ' . $policy->label)
-                        . '; nepotvrzeno účetní', 0, 500),
+                        . ($paidRepeatedly ? '; ověřeno platbami, které na účet odcházely' : '; nepotvrzeno účetní'), 0, 500),
                 'verified_on' => date('Y-m-d'),
             ], $userId);
             $known[$key] = true;
             $written++;
-            if (!$notice) {
+            if (!$notice && !$paidRepeatedly) {
                 $state->institutionsToConfirm++;
             }
         }

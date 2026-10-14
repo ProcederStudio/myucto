@@ -556,7 +556,10 @@ zařadí podle číselníku srážek PAMICA, ne podle čísla složky:
 
 Den doručení plátci (`DatPoradi`) určuje pořadí pohledávky, počet vyživovaných
 osob zakládá vyživované osoby pro nezabavitelnou částku a příjemce srážky
-(firma, účet, variabilní symbol) vznikne jako příjemce odvodu. Srážka bez data
+(firma, účet, variabilní symbol) vznikne jako příjemce odvodu. Účet příjemce, na
+který PAMICA srážky skutečně odváděla, je ověřený těmi platbami. Účet příjemce
+případu, který převod zahajuje, stojí na dokladu *Převzetí exekuce* (viz níže).
+K potvrzení zůstane jen účet příjemce, jehož případy všechny skončily. Srážka bez data
 doručení se nepřevede, protože bez něj nejde určit pořadí; protokol jmenuje
 osobu. Srážku, kterou už nese měsíční sešit (typicky obědy), převod nezaloží
 podruhé.
@@ -573,10 +576,11 @@ a z něj doloží strany případu, instrukci příjemce i ověření pohledáve
 - za první měsíc vedení mezd vyplní měsíční exekuční evidenci osob se zahájenými
   případy (úplný rejstřík pohledávek, vyživované osoby podle PAMICA).
 
-*Přijato* zůstane jen případ bez použitelného účtu příjemce a běžící insolvence:
-schválené oddlužení s platbou insolvenčnímu správci vyžaduje rozhodnutí soudu,
-které převod nevyrobí. Převzatou insolvenci vede jako upozornění. Opakovaný
-převod dovede do stavu ze zdroje i případy, které dřívější převod nechal *přijato*.
+Běžící insolvenci převod doloží stejně, ale odloží ji bez srážení: srážky
+v oddlužení vede měsíční insolvenční evidence, ne exekuční případ, a převod ji
+vede jako upozornění. *Přijato* zůstane jen případ bez použitelného účtu
+příjemce. Opakovaný převod dovede do stavu ze zdroje i případy, které dřívější
+převod nechal *přijato*.
 
 Nepřevezme se rozpad nezabavitelné částky z PAMICA (MyÚčto ho počítá vlastní
 sadou pravidel, dvojí zdroj by se rozešel), vazba dvou srážek na jeden příkaz,
@@ -591,9 +595,11 @@ předčíslí účtu u ČNB: `21012` je OSSZ, `713` záloha daně ze závislé �
 `7720` srážková daň. Variabilní symbol finančního úřadu je kmenová část DIČ
 firmy v MyÚčtu.
 
-Odvozený účet se zakládá jako **nepotvrzený**: platební dávka ho odmítne,
-dokud ho nepotvrdíte v Nastavení mezd. Protokol vypíše, kolik účtů čeká na
-potvrzení. Když závazek pod daným předčíslím v exportu není, nebo jsou pod ním
+Účet, na který PAMICA odvod posílala opakovaně (aspoň dva závazky), je
+ověřený skutečnými platbami stejně jako výplatní účet zaměstnance a platební
+dávka ho použije. Účet doložený jediným závazkem se zakládá jako
+**nepotvrzený**: platební dávka ho odmítne, dokud ho nepotvrdíte v Nastavení
+mezd. Protokol vypíše, kolik účtů čeká na potvrzení. Když závazek pod daným předčíslím v exportu není, nebo jsou pod ním
 dva různé účty, převod mezi nimi nevybírá a účet nezaloží; protokol řekne,
 co doplnit.
 

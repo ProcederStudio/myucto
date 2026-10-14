@@ -37,6 +37,7 @@ final class PayrollTakeoverEnforcementActivation
     public const ACTIVATED = 'activated';
     public const STOPPED = 'stopped';
     public const PENDING = 'pending';
+    public const DEFERRED = 'deferred';
 
     public function __construct(
         private readonly Connection $db,
@@ -71,6 +72,8 @@ final class PayrollTakeoverEnforcementActivation
     /**
      * @param array<string,mixed> $record
      * @param ?int $paymentAccountId účet příjemce v katalogu institucí, `null` = příjemce bez účtu
+     * @param bool $insolvency běžící insolvence: doloží se jako exekuce, ale odloží se bez srážení,
+     *        protože srážky v oddlužení vede měsíční insolvenční evidence, ne exekuční případ
      */
     public function apply(
         int $supplierId,
@@ -79,6 +82,7 @@ final class PayrollTakeoverEnforcementActivation
         ?int $paymentAccountId,
         ?int $userId,
         PayrollTakeoverPolicy $policy,
+        bool $insolvency = false,
     ): string {
         if ($userId === null) {
             return self::PENDING;
@@ -115,6 +119,13 @@ final class PayrollTakeoverEnforcementActivation
             (int) $this->version($supplierId, $caseId), $userId);
         $case = $this->enforcement->transition($supplierId, $caseId, EnforcementCaseCommand::MarkFinal,
             (int) $case['row_version'], null, $reference, $userId, $this->lifecycle);
+        if ($insolvency) {
+            $this->enforcement->transition($supplierId, $caseId, EnforcementCaseCommand::DeferNoWithholding,
+                (int) $case['row_version'], $policy->note('insolvence; srážky v oddlužení vede insolvenční evidence měsíce, ne exekuční případ.'),
+                $reference, $userId, $this->lifecycle);
+
+            return self::DEFERRED;
+        }
         $this->enforcement->transition($supplierId, $caseId, EnforcementCaseCommand::AuthorizeRemittance,
             (int) $case['row_version'], null, $reference, $userId, $this->lifecycle);
 

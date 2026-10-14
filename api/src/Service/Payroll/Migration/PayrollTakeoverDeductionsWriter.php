@@ -114,6 +114,13 @@ final class PayrollTakeoverDeductionsWriter
                     $this->part($protocol, $step, (string) $number, "Exekuční případ „{$title}“",
                         fn (): array => $this->settle($supplierId, (int) $done[$reference], $record, $this->caseAccount($supplierId, (int) $done[$reference]), $userId, $policy));
                 }
+                if ($record['target'] !== 'voluntary' && is_array($record['recipient'])) {
+                    $account = $this->caseAccount($supplierId, (int) $done[$reference]);
+                    [$verified, $note] = $this->recipientVerification($supplierId, $record, $policy);
+                    if ($account !== null && $verified) {
+                        $this->verifyRecipient($supplierId, $account, $note, $userId);
+                    }
+                }
                 continue;
             }
             $employment = $this->employmentFor($supplierId, (array) $record['personal_numbers']);
@@ -163,8 +170,8 @@ final class PayrollTakeoverDeductionsWriter
         }
         if ($this->pendingEvidence > 0) {
             $protocol->warn($step, 'deductions_evidence_pending', sprintf(
-                'Exekučních případů zůstává ve stavu „přijato“: %d. Jsou to běžící insolvence (oddlužení '
-                . 'vyžaduje rozhodnutí soudu) a případy bez použitelného účtu příjemce; do mzdového běhu '
+                'Exekučních případů zůstává ve stavu „přijato“: %d. Jsou to případy bez použitelného účtu '
+                . 'příjemce; do mzdového běhu '
                 . 'nevstoupí, dokud je v Mzdy → Exekuce a insolvence nedoložíte a neaktivujete.',
                 $this->pendingEvidence,
             ));
@@ -273,17 +280,16 @@ final class PayrollTakeoverDeductionsWriter
 
     /**
      * Stav případu podle zdroje ({@see PayrollTakeoverEnforcementActivation}). Běžící
-     * insolvence se nezahajuje (viz insolvencyAlerts()), skončenou ale převod zastaví.
+     * insolvence se doloží a odloží bez srážení: srážky v oddlužení vede měsíční
+     * insolvenční evidence (viz insolvencyAlerts()), skončenou převod zastaví.
      *
      * @param array<string,mixed> $record
      * @return array<string,int>
      */
     private function settle(int $supplierId, int $caseId, array $record, ?int $paymentAccountId, ?int $userId, PayrollTakeoverPolicy $policy): array
     {
-        $state = $record['target'] === 'insolvency'
-            && PayrollTakeoverEnforcementActivation::decide($record, $this->activation->startPeriod($supplierId))['action'] === 'activate'
-            ? PayrollTakeoverEnforcementActivation::PENDING
-            : $this->activation->apply($supplierId, $caseId, $record, $paymentAccountId, $userId, $policy);
+        $state = $this->activation->apply($supplierId, $caseId, $record, $paymentAccountId, $userId, $policy,
+            $record['target'] === 'insolvency');
         if ($state === PayrollTakeoverEnforcementActivation::PENDING) {
             $this->pendingEvidence++;
             return [];
@@ -349,6 +355,48 @@ final class PayrollTakeoverDeductionsWriter
     }
 
     /** Účet příjemce připnutého k případu (katalog institucí), nebo `null`. */
+    /**
+     * Je účet příjemce ověřený? Ano, když na něj zdroj srážky skutečně odváděl, nebo když
+     * převod případ zahajuje (doklad Převzetí exekuce). Vrací i popis původu ověření.
+     *
+     * @param array<string,mixed> $record
+     * @return array{0:bool,1:string}
+     */
+    private function recipientVerification(int $supplierId, array $record, PayrollTakeoverPolicy $policy): array
+    {
+        $withheld = (array) ($record['withheld_periods'] ?? []) !== [];
+        $verified = $withheld
+            || PayrollTakeoverEnforcementActivation::decide($record, $this->activation->startPeriod($supplierId))['action'] === 'activate';
+        $decision = is_array($record['recipient']) && is_string($record['recipient']['reference'] ?? null)
+            ? ', rozhodnutí ' . $record['recipient']['reference']
+            : '';
+
+        return [$verified, mb_substr($policy->note('příjemce srážky' . $decision . match (true) {
+            $withheld => '; ověřeno srážkami, které na účet odcházely',
+            $verified => '; ověřeno dokladem Převzetí exekuce',
+            default => '',
+        }), 0, 500)];
+    }
+
+    /** Neověřený účet příjemce z dřívějšího převodu ověří; ověřený nechá být. */
+    private function verifyRecipient(int $supplierId, int $accountId, string $reference, ?int $userId): void
+    {
+        $account = $this->institutions->find($supplierId, $accountId);
+        if ($account === null || ($account['source_kind'] ?? null) !== 'imported') {
+            return;
+        }
+        $this->institutions->update($supplierId, $accountId, [
+            'institution_name' => (string) $account['institution_name'],
+            'variable_symbol' => $account['variable_symbol'],
+            'specific_symbol' => $account['specific_symbol'],
+            'constant_symbol' => $account['constant_symbol'],
+            'valid_to' => $account['valid_to'],
+            'source_kind' => 'user_verified',
+            'source_reference' => $reference,
+            'verified_on' => date('Y-m-d'),
+        ], (int) $account['row_version'], $userId);
+    }
+
     private function caseAccount(int $supplierId, int $caseId): ?int
     {
         $stmt = $this->db->pdo()->prepare(
@@ -400,8 +448,9 @@ final class PayrollTakeoverDeductionsWriter
 
     /**
      * Příjemce srážky: záznam v katalogu platebních účtů institucí typu „ostatní příjemce“
-     * připnutý k případu. Účet se zakládá jako `imported` a ověření příjemce na případu
-     * zůstává nevyplněné - platební cesta ho tím pádem sama nepoužije.
+     * připnutý k případu. Ověřený je účet, na který zdroj srážky skutečně odváděl, a účet
+     * případu, který převod zahajuje: ten stojí na dokladu Převzetí exekuce stejně jako
+     * strany a instrukce příjemce. Účet jen skončených případů zůstane `imported`.
      *
      * @param array<string,mixed> $record
      * @return array{0:array<string,int>,1:?int} počty a účet příjemce v katalogu institucí
@@ -418,12 +467,17 @@ final class PayrollTakeoverDeductionsWriter
         $code = is_string($recipient['ico'])
             ? 'ico:' . $recipient['ico']
             : $policy->sourceKey . ':' . substr(hash('sha256', $recipient['name'] . '|' . $recipient['account'] . '/' . $recipient['bank_code']), 0, 24);
+        [$verified, $reference] = $this->recipientVerification($supplierId, $record, $policy);
         $institutionId = null;
         $accountId = null;
         foreach ($this->institutions->list($supplierId) as $account) {
             if (($account['institution_type'] ?? null) === 'other_recipient' && ($account['institution_code'] ?? null) === $code) {
                 $institutionId = (int) $account['institution_id'];
                 $accountId = (int) $account['id'];
+                // Účet založený u skončeného případu ověří až případ, který převod zahajuje.
+                if ($verified) {
+                    $this->verifyRecipient($supplierId, $accountId, $reference, $userId);
+                }
                 break;
             }
         }
@@ -440,9 +494,8 @@ final class PayrollTakeoverDeductionsWriter
                 'constant_symbol' => $recipient['constant_symbol'],
                 'valid_from' => $from,
                 'valid_to' => null,
-                'source_kind' => 'imported',
-                'source_reference' => mb_substr($policy->note('příjemce srážky'
-                    . (is_string($recipient['reference']) ? ', rozhodnutí ' . $recipient['reference'] : '')), 0, 500),
+                'source_kind' => $verified ? 'user_verified' : 'imported',
+                'source_reference' => $reference,
                 'verified_on' => date('Y-m-d'),
             ], $userId);
             $institutionId = (int) $created['institution_id'];
