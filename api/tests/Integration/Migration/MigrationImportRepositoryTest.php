@@ -141,6 +141,26 @@ final class MigrationImportRepositoryTest extends TestCase
         self::assertSame(21, $repo->get($this->supplierId, 'period', 'shared-repo-test|1'));
     }
 
+    /**
+     * Běžící převod mezd protokol ještě nemá. Druh nese úloha; bez ní by se běh vypsal jako
+     * účetnictví a průvodce PAMICA by běžící zkoušku nanečisto vůbec neukázal.
+     */
+    public function testRunningPayrollRunIsListedAsPayroll(): void
+    {
+        $this->pdo->prepare("INSERT INTO import_jobs (supplier_id, source, status, params, created_by) VALUES (?, 'pohoda_import', 'running', ?, (SELECT MIN(id) FROM users))")
+            ->execute([$this->supplierId, json_encode(['mode' => 'dry_run', 'kind' => 'payroll'])]);
+        $jobId = (int) $this->pdo->lastInsertId();
+        $repo = new PohodaImportRepository($this->db);
+        try {
+            $id = $repo->startRun($this->supplierId, $jobId, 'dry_run', ['ico' => '12345678', 'year' => '2026', 'program' => 'POHODA Mzdy', 'sha256' => null], null);
+            $this->createdRuns[] = ['pohoda_imports', $id];
+            $listed = array_values(array_filter($repo->listRuns($this->supplierId, 100), static fn (array $r): bool => $r['id'] === $id))[0];
+            self::assertSame('payroll', $listed['kind']);
+        } finally {
+            $this->pdo->prepare('DELETE FROM import_jobs WHERE id = ?')->execute([$jobId]);
+        }
+    }
+
     public function testLocksAreSeparatePerSourceAndHeldByConnection(): void
     {
         $money = new MoneyS3ImportRepository($this->db);

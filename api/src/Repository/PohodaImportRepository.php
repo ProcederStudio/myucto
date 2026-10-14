@@ -84,10 +84,17 @@ final class PohodaImportRepository extends AbstractMigrationImportRepository
         ];
     }
 
-    /** Druh převodu z protokolu; běh bez něj (starší nebo ještě běžící) je účetnictví. */
+    /**
+     * Druh převodu z protokolu. Běžící běh protokol ještě nemá, druh nese jeho úloha;
+     * jinak by se běžící převod mezd ukázal v průvodci účetnictví a v průvodci PAMICA chyběl.
+     * Běh bez obojího (z doby před podporou mezd) je účetnictví.
+     */
     protected function listExtraColumns(): string
     {
-        return ",\n                    COALESCE(JSON_UNQUOTE(JSON_EXTRACT(protocol, '$.kind')), 'accounting') AS kind";
+        return ",\n                    COALESCE(JSON_UNQUOTE(JSON_EXTRACT(protocol, '$.kind')),
+                        (SELECT JSON_UNQUOTE(JSON_EXTRACT(j.params, '$.kind')) FROM import_jobs j
+                          WHERE j.id = pohoda_imports.job_id AND j.supplier_id = pohoda_imports.supplier_id),
+                        'accounting') AS kind";
     }
 
     protected function nullableIntColumns(): array
