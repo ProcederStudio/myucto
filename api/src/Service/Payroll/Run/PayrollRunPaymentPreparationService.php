@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MyInvoice\Service\Payroll\Run;
 
+use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Service\Payroll\Payment\PayrollEnforcementLiabilityMaterializer;
 use MyInvoice\Service\Payroll\Payment\PayrollHealthInsuranceLiabilityMaterializer;
 use MyInvoice\Service\Payroll\Payment\PayrollIncomeTaxLiabilityMaterializer;
@@ -45,6 +46,7 @@ final class PayrollRunPaymentPreparationService
         private readonly PayrollEnforcementLiabilityMaterializer $enforcement,
         private readonly PayrollRiskySavingsLiabilityMaterializer $riskySavings,
         private readonly PayrollProductionGate $productionGate,
+        private readonly Connection $db,
     ) {}
 
     /**
@@ -63,7 +65,7 @@ final class PayrollRunPaymentPreparationService
             );
         }
         $this->productionGate->assertActive($supplierId);
-        $this->assertPayoutRules($inputSnapshot);
+        $this->assertPayoutRules($inputSnapshot, $this->withoutPayout($supplierId, $revisionId));
 
         $liabilityIds = [];
         $createdCount = 0;
@@ -135,7 +137,29 @@ final class PayrollRunPaymentPreparationService
      *
      * @param array<string,mixed> $inputSnapshot
      */
-    private function assertPayoutRules(array $inputSnapshot): void
+    /**
+     * Osoby revize, kterým se nic nevyplácí (výplata po exekucích nulová nebo záporná):
+     * závazek čisté mzdy jim nevzniká, takže výplatní pravidlo nepotřebují
+     * ({@see PayrollNetWageLiabilityMaterializer}).
+     *
+     * @return array<int,true>
+     */
+    private function withoutPayout(int $supplierId, int $revisionId): array
+    {
+        $stmt = $this->db->pdo()->prepare(
+            "SELECT employee_id FROM payroll_run_persons
+              WHERE supplier_id = ? AND revision_id = ? AND status = 'calculated'
+                AND CAST(JSON_VALUE(result_json, '$.payable_after_enforcement_minor') AS SIGNED) <= 0"
+        );
+        $stmt->execute([$supplierId, $revisionId]);
+
+        return array_fill_keys(array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN)), true);
+    }
+
+    /**
+     * @param array<int,true> $withoutPayout osoby, kterým se nic nevyplácí
+     */
+    private function assertPayoutRules(array $inputSnapshot, array $withoutPayout = []): void
     {
         $people = $inputSnapshot['people'] ?? null;
         if (!is_array($people)) {
@@ -155,7 +179,7 @@ final class PayrollRunPaymentPreparationService
                 continue;
             }
             $rules = $person['payout_rules'] ?? null;
-            if (is_array($rules) && $rules !== []) {
+            if ((is_array($rules) && $rules !== []) || isset($withoutPayout[$employeeId])) {
                 continue;
             }
             $name = $employee['full_name'] ?? null;

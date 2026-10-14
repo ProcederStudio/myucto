@@ -496,6 +496,11 @@ final class PayrollNetWageLiabilityMaterializer
             // závazků čisté mzdy dál sedí na to, co se skutečně materializuje.
             return [];
         }
+        if ($payable === 0) {
+            // Nulová výplata (celý měsíc mateřská, rodičovská nebo nemoc): není co
+            // poslat, závazek nevzniká a výplatní pravidlo ani účet nejsou potřeba.
+            return [];
+        }
         if (!array_key_exists('payout_accounts', $personSnapshot)) {
             throw new \DomainException(
                 "Revize osoby {$employeeId} neobsahuje zmrazené výplatní účty. "

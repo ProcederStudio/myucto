@@ -35,14 +35,14 @@ final class PayrollNetWageLiabilityOverdrawnPersonTest extends TestCase
         );
     }
 
-    public function testZeroPayableStillReachesTheAllocationRules(): void
+    public function testZeroPayableCreatesNoPaymentTargetEvenWithoutPayoutAccounts(): void
     {
-        // Kontrolní protipól: nula NENÍ přeplatek a musí projít dál, kde ji
-        // zastaví až chybějící zmrazené výplatní účty.
-        $this->expectException(\DomainException::class);
-        $this->expectExceptionMessage('zmrazené výplatní účty');
-
-        $this->personTargets(['payable_after_enforcement_minor' => 0]);
+        // Nulová výplata (celý měsíc mateřská nebo nemoc) nemá co poslat:
+        // závazek nevzniká a chybějící výplatní účty ji nesmí zastavit.
+        self::assertSame(
+            [],
+            $this->personTargets(['payable_after_enforcement_minor' => 0]),
+        );
     }
 
     public function testStillFailsClosedForANonIntegerPayable(): void

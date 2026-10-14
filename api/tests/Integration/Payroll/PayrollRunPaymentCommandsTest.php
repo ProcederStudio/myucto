@@ -734,6 +734,7 @@ final class PayrollRunPaymentCommandsTest extends TestCase
                 PayrollRiskySavingsLiabilityMaterializer::class,
             ),
             $this->container->get(PayrollProductionGate::class),
+            $this->container->get(\MyInvoice\Infrastructure\Database\Connection::class),
         );
     }
 
