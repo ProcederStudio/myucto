@@ -377,7 +377,11 @@ final class PohodaPayrollSickness
             return null;
         }
         $returned = self::bool(PohodaXml::text($row, 'NavratDoPrace'));
-        $shift = PohodaXml::num($row, 'PracovniDobaPoslDenPD');
+        $hours = PohodaXml::num($row, 'PocetOdpracHodinPoslDenPD');
+        // PAMICA vyplňuje pracovní dobu posledního dne i u zaměstnance, který ten den
+        // nepracoval. ČSSZ hlášení s pracovní dobou a nulou odpracovaných hodin zamítne;
+        // kdo nepracoval, má obojí 0.
+        $shift = $hours > 0 ? PohodaXml::num($row, 'PracovniDobaPoslDenPD') : 0.0;
 
         return [
             'header' => PohodaXml::text($row, 'RefAg'),
@@ -387,8 +391,8 @@ final class PohodaPayrollSickness
                 'issued_on' => self::realDate(PohodaXml::date($row, 'DatumVystaveni')),
                 'returned_to_work' => $returned,
                 'returned_on' => $returned ? self::realDate(PohodaXml::date($row, 'DatumNavratuDoPrace')) : null,
-                'hours_worked_last_day' => PohodaXml::num($row, 'PocetOdpracHodinPoslDenPD'),
-                'shift_hours_last_day' => $shift > 0 ? $shift : null,
+                'hours_worked_last_day' => $hours,
+                'shift_hours_last_day' => $shift,
             ], static fn (mixed $value): bool => $value !== null),
         ];
     }

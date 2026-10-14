@@ -73,7 +73,7 @@ final class PohodaPayrollSicknessTest extends TestCase
                 'returned_to_work' => true,
                 'returned_on' => '2026-08-06',
                 'hours_worked_last_day' => 0.0,
-                'shift_hours_last_day' => 8.0,
+                'shift_hours_last_day' => 0.0,
             ],
             'sent' => true,
             'accepted_on' => '2026-08-06',
@@ -220,6 +220,7 @@ final class PohodaPayrollSicknessTest extends TestCase
         $row('HZUPN', ['ID' => 4, 'RefStavDP' => 12, 'DatPrij' => '2026-08-06T09:00:00', 'ElOdeslano' => 1]);
         $row('HZUPNpol', ['ID' => 7, 'RefAg' => 4, 'RefNeprit' => 2, 'RokMZ' => 2026, 'MesicMZ' => 8,
             'CisloPotvrzeni' => '900000000000000003', 'DatumVystaveni' => '2026-08-06', 'NavratDoPrace' => 1,
+            // PAMICA vyplní pracovní dobu i u zaměstnance, který poslední den nepracoval.
             'DatumNavratuDoPrace' => '2026-08-06', 'PocetOdpracHodinPoslDenPD' => 0, 'PracovniDobaPoslDenPD' => 8]);
 
         // `MZnahr` ani `MZdavky` v souboru ZÁMĚRNĚ nejsou — přesně jako v reálném exportu.
