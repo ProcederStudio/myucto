@@ -9,11 +9,15 @@ use MyInvoice\Repository\Payroll\PayrollAbsenceOverlapException;
 use MyInvoice\Repository\Payroll\PayrollAbsenceRepository;
 use MyInvoice\Repository\Payroll\PayrollAverageEarningRepository;
 use MyInvoice\Repository\Payroll\PayrollModuleStateRepository;
+use MyInvoice\Repository\Payroll\PayrollSicknessCaseRepository;
 use MyInvoice\Service\Migration\MoneyS3\ImportProtocol;
 use MyInvoice\Service\Payroll\Absence\AbsenceRuleset;
 use MyInvoice\Service\Payroll\PayrollAbsenceValidator;
 use MyInvoice\Service\Payroll\Ruleset\PayrollRulesetProvider;
 use MyInvoice\Service\Payroll\Submission\Sickness\SicknessCaseFromAbsenceService;
+use MyInvoice\Service\Payroll\Submission\Sickness\SicknessCaseService;
+use MyInvoice\Service\Payroll\Submission\Sickness\SicknessDocumentKind;
+use MyInvoice\Service\Payroll\Submission\Sickness\SicknessException;
 
 /**
  * Zápis rozpracovaných případů nemocenské z PAMICA ({@see PohodaPayrollSickness}).
@@ -62,6 +66,8 @@ final class PohodaPayrollSicknessWriter
         private readonly PayrollRulesetProvider $rulesets,
         private readonly PayrollAverageEarningRepository $averages,
         private readonly SicknessCaseFromAbsenceService $sicknessCases,
+        private readonly PayrollSicknessCaseRepository $caseRows,
+        private readonly SicknessCaseService $caseService,
     ) {}
 
     /** První měsíc vedení mezd, podle kterého se pozná rozpracovaný případ. */
@@ -140,6 +146,91 @@ final class PohodaPayrollSicknessWriter
             ));
         }
         $this->summary($protocol, $step, $result);
+    }
+
+    /**
+     * Případ dávky téže události, i když se dohledaná nepřítomnost (část z převzatých
+     * měsíců) k případu nevrací: případ nese celou událost od skutečného dne vzniku.
+     */
+    private function caseOf(int $supplierId, int $employmentId, string $type, string $from, string $to): ?int
+    {
+        $kind = SicknessCaseFromAbsenceService::benefitKindFor($type);
+        if ($kind === null) {
+            return null;
+        }
+        $cases = $this->caseRows->overlappingForEmployment(
+            $supplierId,
+            SicknessCaseFromAbsenceService::ENVIRONMENT,
+            $employmentId,
+            $kind->value,
+            $from,
+            $to,
+        );
+
+        return count($cases) === 1 ? (int) $cases[0]['id'] : null;
+    }
+
+    /**
+     * Údaje z podání, která k případu sestavila PAMICA: z přílohy NEMPRI číslo rozhodnutí
+     * lékaře, rozhodné období po měsících (i měsíce před převáděným rokem, které převod
+     * jinak nemá) a u ošetřovného ošetřovanou osobu a péči, z hlášení HZUPN den vystavení
+     * a návrat do práce. Doplňuje jen prázdné, ručně zadané údaje nepřepisuje. Podání,
+     * které PAMICA odeslala za měsíc před začátkem vedení mezd v MyÚčtu, vede jako podané
+     * předchozím programem; pozdější podá MyÚčto samo z převzatých údajů.
+     *
+     * @param array<string,mixed>|null $claim příloha NEMPRI
+     * @param array<string,mixed>|null $report hlášení HZUPN
+     * @return array<string,int>
+     */
+    private function submissions(int $supplierId, int $caseId, ?array $claim, ?array $report, string $startPeriod): array
+    {
+        $environment = SicknessCaseFromAbsenceService::ENVIRONMENT;
+        $row = $this->caseRows->find($supplierId, $environment, $caseId);
+        if ($row === null || (int) ($row['cancelled'] ?? 0) === 1) {
+            return [];
+        }
+        $counts = [];
+        $input = [];
+        $decision = $claim['decision_number'] ?? $report['decision_number'] ?? null;
+        if (is_string($decision) && trim((string) ($row['decision_number'] ?? '')) === '') {
+            $input['decision_number'] = $decision;
+        }
+        foreach ([...($claim['fields'] ?? []), ...($report['fields'] ?? [])] as $field => $value) {
+            $current = $row[$field] ?? null;
+            if (str_starts_with($field, 'action_') || $current === null || $current === '') {
+                $input[$field] = $value;
+            }
+        }
+        if ($input !== []) {
+            try {
+                $this->caseService->update($supplierId, $environment, $caseId, (int) $row['row_version'], $input);
+                $counts['sickness_case_details'] = 1;
+            } catch (SicknessException|\InvalidArgumentException|\DomainException) {
+                // Údaje, které případ nepřijme, doplní účetní; podání to při přípravě řekne.
+            }
+        }
+        if (($claim['decisive_months'] ?? []) !== []
+            && $this->caseRows->decisiveMonths($supplierId, $environment, $caseId) === []) {
+            $this->caseRows->replaceDecisiveMonths($supplierId, $environment, $caseId, $claim['decisive_months']);
+            $counts['sickness_decisive_months'] = 1;
+        }
+        $start = substr($startPeriod, 0, 7);
+        foreach ([[SicknessDocumentKind::Nempri, 'nempri_status', $claim], [SicknessDocumentKind::Hzupn, 'hzupn_status', $report]]
+            as [$document, $status, $submission]) {
+            if (!is_array($submission) || $submission['sent'] !== true || $submission['period'] >= $start
+                || ($row[$status] ?? null) !== 'pending') {
+                continue;
+            }
+            try {
+                $this->caseService->recordReceipt($supplierId, $environment, $caseId, $document,
+                    'predecessor', $submission['accepted_on'], null);
+                $counts['sickness_' . $document->value . '_predecessor'] = 1;
+            } catch (SicknessException) {
+                // Stav podání převod nerozhodne; zůstane k vyřízení v případu dávky.
+            }
+        }
+
+        return $counts;
     }
 
     /**
@@ -222,6 +313,11 @@ final class PohodaPayrollSicknessWriter
             $from,
             'pamica:' . ($case['personal_number'] ?? $case['person_key']) . ':' . $type . ':' . $from,
         );
+        $caseId = $sicknessCase['case_id'] ?? $this->caseOf($supplierId, $employmentId, $type, $from, $to);
+        if ($caseId !== null && (is_array($case['benefit_claim'] ?? null) || is_array($case['end_report'] ?? null))) {
+            $counts += $this->submissions($supplierId, (int) $caseId, $case['benefit_claim'] ?? null,
+                $case['end_report'] ?? null, $startPeriod);
+        }
         if ($sicknessCase !== null) {
             if ($sicknessCase['outcome'] === 'created') {
                 $counts['sickness_benefit_cases'] = 1;
@@ -350,11 +446,11 @@ final class PohodaPayrollSicknessWriter
             ));
         }
         if ($result['benefit_claims'] > 0) {
-            $protocol->warn($step, 'sickness_claims_skipped', sprintf(
-                'Příloh k žádosti o dávku (`NEMPRIpol`): %d. Nepřevádějí se: rozhodné období '
-                . 'a vyloučené dny z nich MyÚčto v případu dávky nevede a odvozovat je z jiných '
-                . 'čísel by byl dopočet cizího výpočtu. Rozpracovaná podání zadejte v '
-                . 'Mzdy → Podání → Případy dávek nemocenského pojištění.',
+            $protocol->info($step, 'sickness_claims', sprintf(
+                'Příloh k žádosti o dávku (`NEMPRIpol`): %d. K případům dávek, které pokračují '
+                . 'do MyÚčta, převod převzal číslo rozhodnutí a rozhodné období po měsících, '
+                . 'jak je PAMICA podala. Přílohu odeslanou před začátkem vedení mezd vede jako '
+                . 'podanou předchozím programem.',
                 $result['benefit_claims'],
             ));
         }

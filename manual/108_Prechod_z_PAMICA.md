@@ -627,10 +627,6 @@ se zůstatek nepřevede a protokol na to upozorní.
   u nepřítomnosti jako poznámku, ale nepoužije ji: náhradu si MyÚčto počítá
   z průměrného výdělku a rozvržených směn. Vnucená cizí částka by ten výpočet
   obešla.
-- **Přílohy k žádosti o dávku (`NEMPRIpol`).** Rozhodné období a vyloučené dny
-  z nich MyÚčto v případu dávky nevede. Převzaté měsíce nenesou vyloučené dny
-  podle § 18 odst. 7 zákona č. 187/2006 Sb.; měsíc bez příjmu proto NEMPRI
-  vyžádá zadat u případu ručně (viz [Podání a hlášení](85_Podani_a_hlaseni.md)).
 - **Zaúčtování mezd (`MZzauct`).** Účetní zápisy se nepřenášejí: mzdy se do
   účetnictví zaúčtují až v MyÚčtu, podle jeho vlastního nastavení. Převzaté
   zápisy by proti převedeným dokladům vyrobily duplicitu. Z převzatého
@@ -662,6 +658,15 @@ NEMPRI vedené jako její ve skutečnosti nepodala, vraťte ho tlačítkem
 **Předchozí program NEMPRI nepodal**; MyÚčto ho pak připraví a lhůtu hlídá.
 Hlášení HZUPN k návratu do práce podává už MyÚčto a hlídač termínů ho hlídá.
 Opakovaný převod případ nezdvojí.
+
+Podání, která k události sestavila PAMICA (přílohy NEMPRI a hlášení HZUPN),
+převod promítne do případu, aby šlo podání z MyÚčta připravit bez opisování:
+číslo rozhodnutí lékaře, rozhodné období po měsících včetně vyloučených dnů
+(i měsíce před převáděným rokem), u ošetřovného ošetřovanou osobu, důvod
+a okolnosti péče a dny péče, u HZUPN den vystavení a návrat do práce. Doplňuje
+jen prázdné údaje, ručně zadané nepřepíše. Podání, které PAMICA odeslala za
+měsíc před prvním měsícem vedeným v MyÚčtu, vede jako podané předchozím
+programem.
 
 ### 108.9.8 Přechod uprostřed roku
 

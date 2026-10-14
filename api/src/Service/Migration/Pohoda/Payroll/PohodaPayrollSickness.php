@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Migration\Pohoda\Payroll;
 
 use MyInvoice\Service\Migration\Pohoda\PohodaXml;
+use MyInvoice\Service\Payroll\Submission\Sickness\NempriCodebook;
 
 /**
  * Případy dávek nemocenského pojištění a náhrady mzdy z `91_mzdy.xml` (POHODA Mzdy / PAMICA).
@@ -36,6 +37,9 @@ final class PohodaPayrollSickness
 {
     /** Tabulky, které se čtou celé do paměti (jednotky až stovky řádků). */
     private const TABLES = ['ZAM', 'ZAMpomer', 'sMZneprit'];
+
+    /** Podání dávek z PAMICA: hlavičky, přílohy NEMPRI a hlášení HZUPN. */
+    private const SUBMISSION_TABLES = ['NEMPRI', 'NEMPRIpol', 'NEMPRIpecovalDny', 'HZUPN', 'HZUPNpol'];
 
     /**
      * Druh nepřítomnosti MyÚčta podle ČÍSLA složky `sMZneprit` - jen nemocenská oblast.
@@ -86,11 +90,36 @@ final class PohodaPayrollSickness
         $benefitClaims = 0;
         // Číselníky, karty, mzdy a podání dávek jedním průchodem souborem, řádky ke mzdám
         // (náhrady, dávky, nepřítomnosti) druhým - potřebují už znát mzdy roku.
-        foreach (PohodaXml::scan($file, [...self::TABLES, 'MZ', 'NEMPRIpol']) as $table => $row) {
+        /** @var array<string,list<array<string,mixed>>> $claimRows nepřítomnost (`MZneprit.ID`) => řádky `NEMPRIpol` */
+        $claimRows = [];
+        /** @var array<string,list<array<string,mixed>>> $reportRows nepřítomnost => řádky `HZUPNpol` */
+        $reportRows = [];
+        /** @var array<string,array<string,array<string,mixed>>> $headers tabulka podání => ID => hlavička */
+        $headers = [];
+        /** @var array<string,list<array{from:string,to:string}>> $careDays `NEMPRIpol.ID` => dny péče */
+        $careDays = [];
+        foreach (PohodaXml::scan($file, [...self::TABLES, 'MZ', ...self::SUBMISSION_TABLES]) as $table => $row) {
+            if ($table === 'NEMPRI' || $table === 'HZUPN') {
+                $headers[$table][PohodaXml::text($row, 'ID')] = $row;
+                continue;
+            }
+            if ($table === 'NEMPRIpecovalDny') {
+                $from = self::realDate(PohodaXml::date($row, 'PecovalOd'));
+                $to = self::realDate(PohodaXml::date($row, 'PecovalDo'));
+                if ($from !== null && $to !== null && $to >= $from) {
+                    $careDays[PohodaXml::text($row, 'RefPol')][] = ['from' => $from, 'to' => $to];
+                }
+                continue;
+            }
+            if ($table === 'HZUPNpol') {
+                $reportRows[PohodaXml::text($row, 'RefNeprit')][] = $row;
+                continue;
+            }
             if ($table === 'NEMPRIpol') {
                 if ((int) PohodaXml::text($row, 'RokMZ') === $year) {
                     $benefitClaims++;
                 }
+                $claimRows[PohodaXml::text($row, 'RefNeprit')][] = $row;
                 continue;
             }
             if ($table !== 'MZ') {
@@ -106,6 +135,24 @@ final class PohodaPayrollSickness
                 'relation' => PohodaXml::text($row, 'RefPomer'),
                 'period' => sprintf('%04d-%02d', $year, $month),
             ];
+        }
+        $claims = [];
+        foreach ($claimRows as $absence => $rows) {
+            foreach ($rows as $row) {
+                $claim = self::claim($row, $careDays[PohodaXml::text($row, 'ID')] ?? []);
+                if ($claim !== null) {
+                    $claims[$absence][] = $claim + self::sent($headers['NEMPRI'][$claim['header']] ?? []);
+                }
+            }
+        }
+        $reports = [];
+        foreach ($reportRows as $absence => $rows) {
+            foreach ($rows as $row) {
+                $report = self::report($row);
+                if ($report !== null) {
+                    $reports[$absence][] = $report + self::sent($headers['HZUPN'][$report['header']] ?? []);
+                }
+            }
         }
         $relationCount = [];
         foreach ($byId['ZAMpomer'] ?? [] as $relation) {
@@ -192,7 +239,10 @@ final class PohodaPayrollSickness
                     $relationId,
                     $compensations,
                     $boundary,
-                );
+                ) + [
+                    'benefit_claim' => self::latest($case['evidence'], $claims),
+                    'end_report' => self::latest($case['evidence'], $reports),
+                ];
             }
         }
         usort($cases, static fn (array $a, array $b): int
@@ -234,6 +284,166 @@ final class PohodaPayrollSickness
         }
 
         return $windowCalendarDays === null ? $used : min($used, $windowCalendarDays);
+    }
+
+    /**
+     * Příloha k žádosti o dávku (`NEMPRIpol`), jak ji PAMICA sestavila: číslo rozhodnutí
+     * lékaře, rozhodné období po měsících a u ošetřovného údaje o ošetřované osobě a péči.
+     * MyÚčto z ní umí podání připravit samo, i když měsíce před převáděným rokem nemá.
+     *
+     * `fields` jsou hodnoty sloupců případu dávky ve tvaru, který přijímá jeho editace.
+     *
+     * @param array<string,mixed> $row
+     * @param list<array{from:string,to:string}> $careDays
+     * @return array<string,mixed>|null
+     */
+    private static function claim(array $row, array $careDays): ?array
+    {
+        $period = self::submissionPeriod($row);
+        if ($period === null) {
+            return null;
+        }
+        $months = [];
+        for ($i = 1; $i <= 12; $i++) {
+            $from = self::realDate(PohodaXml::date($row, 'DatR' . $i));
+            if ($from === null) {
+                continue;
+            }
+            $months[substr($from, 0, 7)] = [
+                'income_minor' => max(0, self::minor(PohodaXml::num($row, 'KcPrijR' . $i))),
+                'excluded_days' => max(0, min(31, (int) round(PohodaXml::num($row, 'VyldnyR' . $i)))),
+            ];
+        }
+        ksort($months);
+        $fields = [];
+        $kind = strtoupper(trim(PohodaXml::text($row, 'DruhDavky')));
+        if (in_array($kind, ['OSE', 'DLO'], true)) {
+            $actions = [
+                'action_start' => self::bool(PohodaXml::text($row, 'Vznik')),
+                'action_continuation' => self::bool(PohodaXml::text($row, 'Trvani')),
+                'action_end' => self::bool(PohodaXml::text($row, 'Ukonceni')),
+            ];
+            if (in_array(true, $actions, true)) {
+                $fields += $actions;
+            }
+            $fields['application_from'] = self::realDate(PohodaXml::date($row, 'OdeDne'));
+            $fields['application_to'] = self::realDate(PohodaXml::date($row, 'DoDne'));
+            $fields['cared_first_name'] = self::textOrNull(PohodaXml::text($row, 'OsetrOsJmeno'));
+            $fields['cared_last_name'] = self::textOrNull(PohodaXml::text($row, 'OsetrOsPrij'));
+            $fields['cared_birth_date'] = self::realDate(PohodaXml::date($row, 'OsetrOsDatNar'));
+            $fields['care_reason'] = match (true) {
+                self::bool(PohodaXml::text($row, 'Onemocnela')) => 'ill',
+                self::bool(PohodaXml::text($row, 'NarizenKaran')) => 'quarantine',
+                self::bool(PohodaXml::text($row, 'NemuzePecovat')) => 'cannot_care',
+                self::bool(PohodaXml::text($row, 'ZarizeniUzavreno')) => 'school_closed',
+                default => null,
+            };
+            $fields['shared_household'] = self::bool(PohodaXml::text($row, 'SpolecDoma'));
+            $fields['lone_caregiver'] = self::bool(PohodaXml::text($row, 'JeOsamely'));
+            $fields['child_under_16'] = self::bool(PohodaXml::text($row, 'DiteDo16Let'));
+            $fields['cared_personally'] = self::bool(PohodaXml::text($row, 'PecovalOsobne'));
+            // Kód vztahu ukládá PAMICA jako pořadí v číselníku ČSSZ (1 = první položka).
+            $order = $kind === 'OSE'
+                ? (int) PohodaXml::text($row, 'RelKodRodVztah')
+                : (int) PohodaXml::text($row, 'RelKodVztah');
+            $codes = $kind === 'OSE' ? NempriCodebook::FAMILY_RELATIONSHIPS : NempriCodebook::CARE_RELATIONSHIPS;
+            $fields['relationship_code'] = $codes[$order - 1] ?? null;
+            $fields['care_days'] = $careDays === [] ? null : $careDays;
+            $fields['worked_last_day'] = self::bool(PohodaXml::text($row, 'PracovalPoslDenPD'));
+            $fields['planned_shifts'] = self::bool(PohodaXml::text($row, 'PlanovSmeny'));
+            $fields['planned_shifts_worked'] = self::bool(PohodaXml::text($row, 'PlanovSmenyOdprac'));
+        }
+
+        return [
+            'header' => PohodaXml::text($row, 'RefAg'),
+            'period' => $period,
+            'decision_number' => self::textOrNull(PohodaXml::text($row, 'CisPotvrz')),
+            'decisive_months' => $months,
+            'fields' => array_filter($fields, static fn (mixed $value): bool => $value !== null),
+        ];
+    }
+
+    /**
+     * Hlášení při ukončení pracovní neschopnosti (`HZUPNpol`): den vystavení, návrat
+     * do práce a hodiny posledního dne, jak je PAMICA podala.
+     *
+     * @param array<string,mixed> $row
+     * @return array<string,mixed>|null
+     */
+    private static function report(array $row): ?array
+    {
+        $period = self::submissionPeriod($row);
+        if ($period === null) {
+            return null;
+        }
+        $returned = self::bool(PohodaXml::text($row, 'NavratDoPrace'));
+        $shift = PohodaXml::num($row, 'PracovniDobaPoslDenPD');
+
+        return [
+            'header' => PohodaXml::text($row, 'RefAg'),
+            'period' => $period,
+            'decision_number' => self::textOrNull(PohodaXml::text($row, 'CisloPotvrzeni')),
+            'fields' => array_filter([
+                'issued_on' => self::realDate(PohodaXml::date($row, 'DatumVystaveni')),
+                'returned_to_work' => $returned,
+                'returned_on' => $returned ? self::realDate(PohodaXml::date($row, 'DatumNavratuDoPrace')) : null,
+                'hours_worked_last_day' => PohodaXml::num($row, 'PocetOdpracHodinPoslDenPD'),
+                'shift_hours_last_day' => $shift > 0 ? $shift : null,
+            ], static fn (mixed $value): bool => $value !== null),
+        ];
+    }
+
+    /** @param array<string,mixed> $row */
+    private static function submissionPeriod(array $row): ?string
+    {
+        $year = (int) PohodaXml::text($row, 'RokMZ');
+        $month = (int) PohodaXml::text($row, 'MesicMZ');
+
+        return $year < 2000 || $month < 1 || $month > 12 ? null : sprintf('%04d-%02d', $year, $month);
+    }
+
+    private static function textOrNull(string $text): ?string
+    {
+        $value = trim((string) preg_replace('/\s+/', ' ', $text));
+
+        return $value === '' ? null : $value;
+    }
+
+    /**
+     * Zda PAMICA podání odeslala a kdy ho ČSSZ přijala (hlavička `NEMPRI`/`HZUPN`).
+     *
+     * @param array<string,mixed> $header
+     * @return array{sent:bool,accepted_on:?string}
+     */
+    private static function sent(array $header): array
+    {
+        return [
+            'sent' => $header !== [] && self::bool(PohodaXml::text($header, 'ElOdeslano')),
+            'accepted_on' => $header === [] ? null : self::realDate(PohodaXml::date($header, 'DatPrij')),
+        ];
+    }
+
+    /**
+     * Poslední podání k případu podle nepřítomností, ze kterých případ vznikl.
+     *
+     * @param list<string> $evidence
+     * @param array<string,list<array<string,mixed>>> $byAbsence
+     * @return array<string,mixed>|null
+     */
+    private static function latest(array $evidence, array $byAbsence): ?array
+    {
+        $found = [];
+        foreach ($evidence as $reference) {
+            if (str_starts_with($reference, 'MZneprit:')) {
+                $found = [...$found, ...($byAbsence[substr($reference, 9)] ?? [])];
+            }
+        }
+        if ($found === []) {
+            return null;
+        }
+        usort($found, static fn (array $a, array $b): int => $b['period'] <=> $a['period']);
+
+        return $found[0];
     }
 
     /**

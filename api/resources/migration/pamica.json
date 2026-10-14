@@ -617,30 +617,52 @@
         },
         "HZUPN": {
             "rows_seen": 29,
-            "status": "ignored",
-            "reason": "Hlavička podání HZUPN; pracoviště se čte z HZUPNpol, stav podání MyÚčto nepřebírá (podání převzatých měsíců už proběhla)."
+            "status": "mapped",
+            "target": "stav odeslání hlášení HZUPN k případu dávky (PohodaPayrollSickness)",
+            "readers": [
+                "PohodaPayrollSickness"
+            ],
+            "ignored_columns_reason": "Převod sloupec nečte: hodnotu MyÚčto pro převzaté měsíce nepotřebuje (úhrny nese MZ, podání uložená hlášení) nebo ji při výpočtu odvozuje samo.",
+            "columns": {
+                "DatPrij": {
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
+                },
+                "ElOdeslano": {
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
+                },
+                "ID": {
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
+                }
+            }
         },
         "HZUPNpol": {
             "rows_seen": 29,
             "status": "mapped",
             "target": "pracoviště OSSZ z podání (PohodaPayrollPeople::OSSZ_COLUMNS)",
             "readers": [
-                "PohodaPayrollPeople"
+                "PohodaPayrollPeople",
+                "PohodaPayrollSickness"
             ],
             "ignored_columns_reason": "Převod sloupec nečte: hodnotu MyÚčto pro převzaté měsíce nepotřebuje (úhrny nese MZ, podání uložená hlášení) nebo ji při výpočtu odvozuje samo.",
             "columns": {
                 "CisloPotvrzeni": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "DatNar": {
                     "status": "mapped",
                     "target": "PohodaPayrollPeople"
                 },
                 "DatumNavratuDoPrace": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "DatumVystaveni": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "DuvodNavratuDoPrace": {
                     "status": "ignored"
@@ -664,10 +686,12 @@
                     "target": "PohodaPayrollPeople"
                 },
                 "MesicMZ": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "NavratDoPrace": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "NazevOSSZ": {
                     "status": "mapped",
@@ -677,13 +701,15 @@
                     "status": "ignored"
                 },
                 "PocetOdpracHodinPoslDenPD": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "PoradCis": {
                     "status": "ignored"
                 },
                 "PracovniDobaPoslDenPD": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "Prijmeni": {
                     "status": "mapped",
@@ -691,13 +717,14 @@
                 },
                 "RefAg": {
                     "status": "mapped",
-                    "target": "PohodaPayrollPeople"
+                    "target": "PohodaPayrollPeople, PohodaPayrollSickness"
                 },
                 "RefMZ": {
                     "status": "ignored"
                 },
                 "RefNeprit": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "RefStavDP": {
                     "status": "ignored"
@@ -710,7 +737,8 @@
                     "target": "PohodaPayrollPeople"
                 },
                 "RokMZ": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "Titul": {
                     "status": "mapped",
@@ -2661,8 +2689,26 @@
         },
         "NEMPRI": {
             "rows_seen": 86,
-            "status": "ignored",
-            "reason": "Hlavička podání NEMPRI; podklady k dávkám převzatých měsíců už jsou podané, pracoviště se čte z NEMPRIpol."
+            "status": "mapped",
+            "target": "stav odeslání přílohy NEMPRI k případu dávky (PohodaPayrollSickness)",
+            "readers": [
+                "PohodaPayrollSickness"
+            ],
+            "ignored_columns_reason": "Převod sloupec nečte: hodnotu MyÚčto pro převzaté měsíce nepotřebuje (úhrny nese MZ, podání uložená hlášení) nebo ji při výpočtu odvozuje samo.",
+            "columns": {
+                "DatPrij": {
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
+                },
+                "ElOdeslano": {
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
+                },
+                "ID": {
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
+                }
+            }
         },
         "NEMPRIdeti": {
             "rows_seen": 2,
@@ -2671,8 +2717,26 @@
         },
         "NEMPRIpecovalDny": {
             "rows_seen": 31,
-            "status": "ignored",
-            "reason": "Dny péče v podkladech NEMPRI: historické podání."
+            "status": "mapped",
+            "target": "dny péče u případu ošetřovného (PohodaPayrollSickness)",
+            "readers": [
+                "PohodaPayrollSickness"
+            ],
+            "ignored_columns_reason": "Převod sloupec nečte: hodnotu MyÚčto pro převzaté měsíce nepotřebuje (úhrny nese MZ, podání uložená hlášení) nebo ji při výpočtu odvozuje samo.",
+            "columns": {
+                "PecovalDo": {
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
+                },
+                "PecovalOd": {
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
+                },
+                "RefPol": {
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
+                }
+            }
         },
         "NEMPRIpol": {
             "rows_seen": 89,
@@ -2685,52 +2749,68 @@
             "ignored_columns_reason": "Převod sloupec nečte: hodnotu MyÚčto pro převzaté měsíce nepotřebuje (úhrny nese MZ, podání uložená hlášení) nebo ji při výpočtu odvozuje samo.",
             "columns": {
                 "CisPotvrz": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "DatR1": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "DatR10": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "DatR11": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "DatR12": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "DatR2": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "DatR3": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "DatR4": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "DatR5": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "DatR6": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "DatR7": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "DatR8": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "DatR9": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "DiteDo16Let": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "DoDne": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "DruhDavky": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "ICZam": {
                     "status": "ignored"
@@ -2746,7 +2826,8 @@
                     "status": "ignored"
                 },
                 "JeOsamely": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "JeStridani": {
                     "status": "ignored"
@@ -2765,40 +2846,52 @@
                     "target": "PohodaPayrollPeople"
                 },
                 "KcPrijR1": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "KcPrijR10": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "KcPrijR11": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "KcPrijR12": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "KcPrijR2": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "KcPrijR3": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "KcPrijR4": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "KcPrijR5": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "KcPrijR6": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "KcPrijR7": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "KcPrijR8": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "KcPrijR9": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "KodBankyCR": {
                     "status": "ignored"
@@ -2820,7 +2913,8 @@
                     "status": "ignored"
                 },
                 "MesicMZ": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "MistPod": {
                     "status": "ignored"
@@ -2841,7 +2935,8 @@
                     "status": "ignored"
                 },
                 "NarizenKaran": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "NarokPPM": {
                     "status": "ignored"
@@ -2857,37 +2952,46 @@
                     "target": "PohodaPayrollPeople"
                 },
                 "NemuzePecovat": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "NerDVZPPM": {
                     "status": "ignored"
                 },
                 "OdeDne": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "Onemocnela": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "OsetrOsDatNar": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "OsetrOsJmeno": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "OsetrOsPrij": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "OsetrOsRodCis": {
                     "status": "ignored"
                 },
                 "PecovalOsobne": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "PlanovSmeny": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "PlanovSmenyOdprac": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "PobiraDuch": {
                     "status": "ignored"
@@ -2917,7 +3021,8 @@
                     "status": "ignored"
                 },
                 "PracovalPoslDenPD": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "PravVysPrij": {
                     "status": "ignored"
@@ -2934,7 +3039,8 @@
                     "status": "ignored"
                 },
                 "RefNeprit": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "RefStavDP": {
                     "status": "ignored"
@@ -2952,10 +3058,12 @@
                     "status": "ignored"
                 },
                 "RelKodRodVztah": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "RelKodVztah": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "RodCisl": {
                     "status": "mapped",
@@ -2978,19 +3086,22 @@
                     "status": "ignored"
                 },
                 "SpolecDoma": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "Srazka": {
                     "status": "ignored"
                 },
                 "Trvani": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "UcetCR": {
                     "status": "ignored"
                 },
                 "Ukonceni": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "VSZam": {
                     "status": "ignored"
@@ -3008,43 +3119,56 @@
                     "status": "ignored"
                 },
                 "VyldnyR1": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "VyldnyR10": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "VyldnyR11": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "VyldnyR12": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "VyldnyR2": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "VyldnyR3": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "VyldnyR4": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "VyldnyR5": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "VyldnyR6": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "VyldnyR7": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "VyldnyR8": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "VyldnyR9": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "Vznik": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 },
                 "Zahranici": {
                     "status": "ignored"
@@ -3056,7 +3180,8 @@
                     "status": "ignored"
                 },
                 "ZarizeniUzavreno": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollSickness"
                 }
             }
         },

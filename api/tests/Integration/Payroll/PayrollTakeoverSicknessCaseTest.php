@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace MyInvoice\Tests\Integration\Payroll;
 
+use MyInvoice\Repository\Payroll\PayrollAbsenceRepository;
+use MyInvoice\Repository\Payroll\PayrollSicknessCaseRepository;
 use MyInvoice\Service\Migration\MoneyS3\ImportProtocol;
 use MyInvoice\Service\Migration\Pohoda\Payroll\PohodaPayrollSicknessWriter;
 use MyInvoice\Service\Payroll\Deadline\PayrollDeadlineOverviewService;
@@ -11,6 +13,7 @@ use MyInvoice\Service\Payroll\Migration\PayrollTakeoverAbsenceWriter;
 use MyInvoice\Service\Payroll\Migration\PayrollTakeoverEmployment;
 use MyInvoice\Service\Payroll\Migration\PayrollTakeoverPolicy;
 use MyInvoice\Service\Payroll\Migration\PayrollTakeoverRunState;
+use MyInvoice\Service\Payroll\PayrollAbsenceValidator;
 use MyInvoice\Service\Payroll\Submission\Sickness\SicknessCaseService;
 use MyInvoice\Service\Payroll\Submission\Sickness\SicknessDocumentKind;
 use MyInvoice\Service\Payroll\Submission\Sickness\SicknessException;
@@ -110,6 +113,122 @@ final class PayrollTakeoverSicknessCaseTest extends TestCase
         } catch (SicknessException $exception) {
             self::assertSame('sickness_document_handled_by_predecessor', $exception->validationCode);
         }
+    }
+
+    /**
+     * Příloha NEMPRI, kterou k případu sestavila PAMICA, nese číslo rozhodnutí
+     * a rozhodné období včetně měsíců před převáděným rokem. Převod je případu
+     * předá, aby MyÚčto podání připravilo samo; ručně zadané údaje nepřepíše.
+     * Přílohu odeslanou za měsíc vedený už MyÚčtem jako podanou nevede.
+     */
+    public function testPamicaClaimCarriesDecisionAndDecisivePeriod(): void
+    {
+        $person = $this->createEmployment($this->officeId, 'Klára Příloha', 22, 'hpp', 'employment', 40, 10_000);
+        $months = [];
+        foreach (['2025-10', '2025-11', '2025-12', '2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09'] as $period) {
+            $months[$period] = ['income_minor' => 4_200_000, 'excluded_days' => $period === '2025-12' ? 3 : 0];
+        }
+        $claim = ['period' => '2026-10', 'decision_number' => '900000000000000001', 'decisive_months' => $months,
+            'sent' => true, 'accepted_on' => '2026-10-08'];
+        $writer = $this->writer(PohodaPayrollSicknessWriter::class);
+        $writer->write($this->supplierId, $this->actors[0], $this->pamicaResult('FLOW-22', '2026-09-17', '2026-10-14', $claim),
+            new ImportProtocol('import'), 'payroll_sickness');
+
+        $cases = $this->casesOf($person['employment_id']);
+        self::assertCount(1, $cases);
+        self::assertSame('900000000000000001', $cases[0]['decision_number']);
+        self::assertSame('pending', $cases[0]['nempri_status'], 'Příloha za měsíc vedený MyÚčtem patří MyÚčtu.');
+        $repository = $this->container->get(PayrollSicknessCaseRepository::class);
+        $stored = $repository->decisiveMonths($this->supplierId, self::ENVIRONMENT, (int) $cases[0]['id']);
+        self::assertSame($months, $stored);
+
+        // Ruční úprava účetní má přednost před opakovaným převodem.
+        $repository->replaceDecisiveMonths($this->supplierId, self::ENVIRONMENT, (int) $cases[0]['id'],
+            ['2026-09' => ['income_minor' => 1, 'excluded_days' => 0]]);
+        $writer->write($this->supplierId, $this->actors[0], $this->pamicaResult('FLOW-22', '2026-09-17', '2026-10-14', $claim),
+            new ImportProtocol('import'), 'payroll_sickness');
+        self::assertSame(['2026-09' => ['income_minor' => 1, 'excluded_days' => 0]],
+            $repository->decisiveMonths($this->supplierId, self::ENVIRONMENT, (int) $cases[0]['id']));
+    }
+
+    /**
+     * Ošetřovné za měsíc vedený MyÚčtem: ošetřovaná osoba, důvod a okolnosti péče
+     * z přílohy PAMICA přejdou do případu, aby šlo NEMPRI připravit bez opisování.
+     */
+    public function testPamicaClaimCarriesCaredPersonOfCareBenefit(): void
+    {
+        $person = $this->createEmployment($this->officeId, 'Olga Pečující', 24, 'hpp', 'employment', 40, 10_000);
+        $claim = ['period' => '2026-10', 'decision_number' => '90000000000000004N', 'decisive_months' => [],
+            'fields' => ['action_start' => true, 'action_continuation' => false, 'action_end' => true,
+                'application_from' => '2026-10-05', 'application_to' => '2026-10-07',
+                'cared_first_name' => 'Tomáš', 'cared_last_name' => 'Pečující', 'cared_birth_date' => '2018-03-04',
+                'care_reason' => 'ill', 'shared_household' => true, 'lone_caregiver' => false,
+                'child_under_16' => true, 'cared_personally' => true, 'relationship_code' => 'PL'],
+            'sent' => false, 'accepted_on' => null];
+        $this->writer(PohodaPayrollSicknessWriter::class)->write($this->supplierId, $this->actors[0],
+            $this->pamicaResult('FLOW-24', '2026-10-05', '2026-10-07', $claim, 'ocr'), new ImportProtocol('import'), 'payroll_sickness');
+
+        $cases = $this->casesOf($person['employment_id']);
+        self::assertCount(1, $cases);
+        self::assertSame(['Tomáš', 'Pečující', '2018-03-04', 'ill', 'PL', '90000000000000004N'], [
+            $cases[0]['cared_first_name'], $cases[0]['cared_last_name'], $cases[0]['cared_birth_date'],
+            $cases[0]['care_reason'], $cases[0]['relationship_code'], $cases[0]['decision_number'],
+        ]);
+    }
+
+    /** Hlášení HZUPN z PAMICA dá případu den vystavení a návrat do práce. */
+    public function testPamicaEndReportCarriesIssueDateAndReturn(): void
+    {
+        $person = $this->createEmployment($this->officeId, 'Iva Vrácená', 25, 'hpp', 'employment', 40, 10_000);
+        $report = ['period' => '2026-10', 'decision_number' => null, 'sent' => false, 'accepted_on' => null,
+            'fields' => ['issued_on' => '2026-10-14', 'returned_to_work' => true, 'returned_on' => '2026-10-15']];
+        $this->writer(PohodaPayrollSicknessWriter::class)->write($this->supplierId, $this->actors[0],
+            $this->pamicaResult('FLOW-25', '2026-09-17', '2026-10-14', null, 'dpn', $report), new ImportProtocol('import'), 'payroll_sickness');
+
+        $cases = $this->casesOf($person['employment_id']);
+        self::assertSame(['2026-10-14', '2026-10-15', 'pending'],
+            [$cases[0]['issued_on'], $cases[0]['returned_on'], $cases[0]['hzupn_status']]);
+    }
+
+    /**
+     * Neschopnost přes začátek vedení mezd má v MyÚčtu i část z převzatého měsíce. Převod
+     * pak dohledá tuhle starší část, ke které se případ dávky nevrací; údaje z podání PAMICA
+     * musí dojít do případu i tak.
+     */
+    public function testEndReportReachesCaseWhenTakenOverPartPrecedesStart(): void
+    {
+        $person = $this->createEmployment($this->officeId, 'Ema Přelomová', 26, 'hpp', 'employment', 40, 10_000);
+        $writer = $this->writer(PohodaPayrollSicknessWriter::class);
+        $writer->write($this->supplierId, $this->actors[0], $this->pamicaResult('FLOW-26', '2026-09-17', '2026-10-14'),
+            new ImportProtocol('import'), 'payroll_sickness');
+        $this->container->get(PayrollAbsenceRepository::class)->create($this->supplierId,
+            $this->container->get(PayrollAbsenceValidator::class)->absence([
+                'employment_id' => $person['employment_id'], 'absence_type' => 'dpn',
+                'date_from' => '2026-09-17', 'date_to' => '2026-09-30', 'note' => 'Převzatý měsíc',
+            ]), $this->actors[0]);
+
+        $report = ['period' => '2026-10', 'decision_number' => null, 'sent' => false, 'accepted_on' => null,
+            'fields' => ['issued_on' => '2026-10-14', 'returned_to_work' => true, 'returned_on' => '2026-10-15']];
+        $writer->write($this->supplierId, $this->actors[0], $this->pamicaResult('FLOW-26', '2026-09-17', '2026-10-14', null, 'dpn', $report),
+            new ImportProtocol('import'), 'payroll_sickness');
+
+        $cases = $this->casesOf($person['employment_id']);
+        self::assertCount(1, $cases);
+        self::assertSame('2026-10-14', $cases[0]['issued_on']);
+    }
+
+    /** Příloha, kterou PAMICA odeslala ještě před začátkem vedení mezd, je podaná předchozím programem. */
+    public function testPamicaClaimSentBeforeStartIsFiledByPredecessor(): void
+    {
+        $person = $this->createEmployment($this->officeId, 'Lenka Odeslaná', 23, 'hpp', 'employment', 40, 10_000);
+        $claim = ['period' => '2026-09', 'decision_number' => '900000000000000002', 'decisive_months' => [],
+            'sent' => true, 'accepted_on' => '2026-09-30'];
+        $this->writer(PohodaPayrollSicknessWriter::class)->write($this->supplierId, $this->actors[0],
+            $this->pamicaResult('FLOW-23', '2026-09-17', '2026-10-14', $claim), new ImportProtocol('import'), 'payroll_sickness');
+
+        $cases = $this->casesOf($person['employment_id']);
+        self::assertSame('predecessor', $cases[0]['nempri_status']);
+        self::assertSame('pending', $cases[0]['hzupn_status']);
     }
 
     /**
@@ -323,7 +442,12 @@ final class PayrollTakeoverSicknessCaseTest extends TestCase
     }
 
     /** @return array<string,mixed> */
-    private function pamicaResult(string $personalNumber, string $from, string $to): array
+    /**
+     * @param array<string,mixed>|null $claim příloha NEMPRI z PAMICA
+     * @param array<string,mixed>|null $report hlášení HZUPN z PAMICA
+     */
+    private function pamicaResult(string $personalNumber, string $from, string $to, ?array $claim = null,
+        string $type = 'dpn', ?array $report = null): array
     {
         return [
             'start_period' => '2026-10',
@@ -331,12 +455,14 @@ final class PayrollTakeoverSicknessCaseTest extends TestCase
                 'in_progress' => true,
                 'personal_number' => $personalNumber,
                 'person_key' => $personalNumber,
-                'type' => 'dpn',
+                'type' => $type,
                 'date_from' => $from,
                 'date_to' => $to,
                 'childbirth' => null,
                 'compensation_minor' => null,
                 'compensation_source' => null,
+                'benefit_claim' => $claim,
+                'end_report' => $report,
             ]],
             'wage_compensation_rows' => 0,
             'benefit_rows' => 0,

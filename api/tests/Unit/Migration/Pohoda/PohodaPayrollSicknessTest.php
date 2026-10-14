@@ -52,6 +52,32 @@ final class PohodaPayrollSicknessTest extends TestCase
         self::assertSame(17, $case['calendar_days']);
         self::assertSame(12.0, $case['work_days']);
         self::assertSame(['MZneprit:1', 'MZneprit:2'], $case['evidence']);
+        self::assertSame([
+            'header' => '1',
+            'period' => '2026-08',
+            'decision_number' => '900000000000000003',
+            'decisive_months' => [
+                '2025-11' => ['income_minor' => 4_200_050, 'excluded_days' => 0],
+                '2025-12' => ['income_minor' => 3_000_000, 'excluded_days' => 4],
+            ],
+            'fields' => [],
+            'sent' => true,
+            'accepted_on' => '2026-08-12',
+        ], $case['benefit_claim']);
+        self::assertSame([
+            'header' => '4',
+            'period' => '2026-08',
+            'decision_number' => '900000000000000003',
+            'fields' => [
+                'issued_on' => '2026-08-06',
+                'returned_to_work' => true,
+                'returned_on' => '2026-08-06',
+                'hours_worked_last_day' => 0.0,
+                'shift_hours_last_day' => 8.0,
+            ],
+            'sent' => true,
+            'accepted_on' => '2026-08-06',
+        ], $case['end_report']);
     }
 
     /**
@@ -183,9 +209,18 @@ final class PohodaPayrollSicknessTest extends TestCase
         $row('MZneprit', ['ID' => 6, 'RefAg' => 31, 'RefSlozka' => 1, 'DatZac' => '2025-12-01', 'DatKon' => '2025-12-20',
             'DnyKal' => 20, 'DnyPrac' => 14, 'HodPrac' => 112, 'KcNahr' => 9000]);
 
-        // Příloha k žádosti o dávku: převést ji nejde, jen se spočítá.
+        // Příloha k žádosti o dávku: číslo rozhodnutí a rozhodné období (první dva měsíce
+        // ještě z předchozího roku), odeslaná a přijatá.
+        $row('NEMPRI', ['ID' => 1, 'RefStavDP' => 7, 'DatPrij' => '2026-08-12T10:00:00', 'ElOdeslano' => 1]);
         $row('NEMPRIpol', ['ID' => 1, 'RefAg' => 1, 'RokMZ' => 2026, 'MesicMZ' => 8, 'RefNeprit' => 2,
-            'DruhDavky' => 'NEM', 'KodOSSZ' => '101']);
+            'DruhDavky' => 'NEM', 'KodOSSZ' => '101', 'CisPotvrz' => '900000000000000003',
+            'DatR1' => '2025-11-01', 'KcPrijR1' => 42000.5, 'VyldnyR1' => 0,
+            'DatR2' => '2025-12-01', 'KcPrijR2' => 30000, 'VyldnyR2' => 4]);
+        // Hlášení při ukončení neschopnosti, odeslané.
+        $row('HZUPN', ['ID' => 4, 'RefStavDP' => 12, 'DatPrij' => '2026-08-06T09:00:00', 'ElOdeslano' => 1]);
+        $row('HZUPNpol', ['ID' => 7, 'RefAg' => 4, 'RefNeprit' => 2, 'RokMZ' => 2026, 'MesicMZ' => 8,
+            'CisloPotvrzeni' => '900000000000000003', 'DatumVystaveni' => '2026-08-06', 'NavratDoPrace' => 1,
+            'DatumNavratuDoPrace' => '2026-08-06', 'PocetOdpracHodinPoslDenPD' => 0, 'PracovniDobaPoslDenPD' => 8]);
 
         // `MZnahr` ani `MZdavky` v souboru ZÁMĚRNĚ nejsou — přesně jako v reálném exportu.
 
