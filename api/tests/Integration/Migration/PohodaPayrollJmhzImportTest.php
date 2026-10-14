@@ -86,6 +86,15 @@ final class PohodaPayrollJmhzImportTest extends TestCase
         $jana = $this->employment($supplierId, '1001');
         $petr = $this->employment($supplierId, '1002');
 
+        // Zařazení odměny do JMHZ podle odeslaných hlášení, ne podle četnosti (ta by dala 10330).
+        self::assertSame(10331, $this->scalar(
+            "SELECT CAST(m.target_attribute_id AS UNSIGNED) FROM payroll_component_jmhz_mappings m
+               JOIN payroll_component_definitions c ON c.id = m.component_definition_id
+              WHERE m.supplier_id = ? AND c.code = 'PAM_O01' AND m.is_active = 1",
+            [$supplierId],
+        ), $this->explain($protocol));
+        self::assertArrayHasKey('components_jmhz_from_reports', self::stepCounts($protocol, PohodaPayrollImporter::STEP_MONTHS), $this->explain($protocol));
+
         // Historie podání: tři odeslaná hlášení, březen neodeslaný, formuláře spárované se vztahy.
         self::assertSame([
             ['period' => '2026-01', 'submission_type' => 'R', 'status' => 'sent', 'form_count' => 2],

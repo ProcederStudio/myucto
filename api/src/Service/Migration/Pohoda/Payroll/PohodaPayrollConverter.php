@@ -149,6 +149,37 @@ final class PohodaPayrollConverter
         return $self;
     }
 
+    /**
+     * Položky každé zpracované mzdy v celých korunách, klíčem `ID vztahu|Y-m`. Složka nese
+     * kód, pod kterým ji převod zakládá; položka, která do sešitu jako složka nejde (srážka
+     * za obědy, ignorovaná, neznámá), nese `null`, ale v součtech zůstává. Podklad pro
+     * {@see PohodaPayrollJmhzTargets}: co z položek mzdy PAMICA sečetla do které kolonky
+     * odeslaného hlášení.
+     *
+     * @return array<string,list<array{code:?string,amount:int}>>
+     */
+    public function itemAmounts(): array
+    {
+        $out = [];
+        foreach ($this->mz as $period => $rows) {
+            foreach ($rows as $mz) {
+                $key = PohodaXml::text($mz, 'RefPomer') . '|' . $period;
+                foreach ($this->items['MZslozky'][PohodaXml::text($mz, 'ID')] ?? [] as $item) {
+                    $amount = (int) round(PohodaXml::num($item, 'KcMzda'));
+                    if ($amount === 0) {
+                        continue;
+                    }
+                    $catalog = $this->byId['sMZslozky'][PohodaXml::text($item, 'RefSlozka')] ?? [];
+                    $number = strtoupper(PohodaXml::text($catalog, 'Cislo'));
+                    $class = PohodaPayrollCatalog::component($number, PohodaXml::text($catalog, 'Nazev'), ($this->numberUse[$number] ?? 0) > 1, $catalog);
+                    $out[$key][] = ['code' => $class['meaning'] === 'component' ? $class['code'] : null, 'amount' => $amount];
+                }
+            }
+        }
+
+        return $out;
+    }
+
     /** @return list<string> období `Y-m`, pro která jsou v exportu mzdy (i rozpracované) */
     public function periods(?int $year = null): array
     {

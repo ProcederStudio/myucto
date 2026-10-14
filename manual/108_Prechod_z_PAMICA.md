@@ -518,10 +518,12 @@ ni: zdanitelná část stravování na *Zdanitelná část stravování*, odměn
 kontejnery na *Odměna za kontejnery*, příplatek za noční práci na *Příplatek
 za noční práci*. Druhá složka pro totéž plnění by rozdělila úhrn v hlášení.
 Ostatním složkám doplní aplikace zařazení podle druhu už při jejich založení
-(časová a úkolová mzda, příplatky, náhrady). U prémií a odměn převod
-nepozná, zda je PAMICA zúčtovávala pravidelně každý měsíc (10330), nebo
-nepravidelně (10331), a u nově založené složky zařazení nechá na vás; protokol
-je vypíše. Mzda za odpracovaný
+(časová a úkolová mzda, příplatky, náhrady). Složku, jejíž zařazení z druhu
+neplyne (vlastní prémie, odměny, příspěvky), zařadí převod tak, jak ji PAMICA
+vykázala v odeslaných hlášeních JMHZ: číselník složek PAMICA zařazení nenese,
+ale v hlášení je vidět, do které kolonky rozpadu příjmu (10329 až 10343) částku
+složky započetla. Co nerozhodnou ani hlášení, převod nehádá a protokol to
+vypíše. Mzda za odpracovaný
 přesčas, doplatek, dorovnání i placená doba školení jsou mzda za práci, ne
 příplatek ani odměna, takže jdou mezi tarifní mzdy. Kde obsah plnění z názvu
 složky neplyne, například u příspěvku, převod nic nehádá: složku založí bez
@@ -867,9 +869,10 @@ mzdovým během bez ručních kroků:
 - pokračování nemoci z předchozího měsíce zapíše jako navazující nepřítomnost
   a schválí ji i bez průměru, když okno náhrady mzdy vyčerpal předchozí plátce.
 
-Odměny bez zařazení do JMHZ převod zařadí podle četnosti ve mzdách PAMICA:
-složka vyplácená aspoň ve třech čtvrtinách převáděných měsíců je pravidelná
-(10330), ostatní nepravidelné (10331). Výjimku z minima zdravotního pojištění
+Odměny bez zařazení do JMHZ, které nerozhodla ani odeslaná hlášení, převod
+zařadí podle četnosti ve mzdách PAMICA: složka vyplácená aspoň ve třech
+čtvrtinách převáděných měsíců je pravidelná (10330), ostatní nepravidelné
+(10331). Výjimku z minima zdravotního pojištění
 (příznak *Nedoplácet ZP do minima*) převezme jen za měsíce, kdy byl vyměřovací
 základ pod minimem; nad minimem nemá na pojistné vliv.
 

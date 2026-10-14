@@ -537,11 +537,14 @@ final class PohodaPayrollImporter
             $protocol->count(self::STEP_PROFILE, 'rules', count($profile['rules']));
             $protocol->count(self::STEP_PROFILE, 'components', count($profile['components']));
             // Složka bez zařazení do JMHZ zastaví zmrazení měsíčního hlášení. Zařazení, které
-            // plyne z druhu složky, doplní aplikace sama při jejím založení; co z druhu neplyne
-            // (přesčas, doplatky), převod nehádá a předá účetní se seznamem kódů a počty vstupů.
+            // plyne z druhu složky, doplní aplikace sama při jejím založení; co z druhu neplyne,
+            // převezme převod z hlášení, která PAMICA odeslala. Co nerozhodnou ani ta, převod
+            // nehádá a předá účetní se seznamem kódů a počty vstupů.
             $unclassified = [];
-            /** @var array<string,string> $bonusTargets kód odměny => zařazení do JMHZ podle četnosti */
+            /** @var array<string,string> $bonusTargets kód složky => zařazení do JMHZ (z hlášení PAMICA nebo podle četnosti) */
             $bonusTargets = [];
+            /** @var array<string,array{component_kind:string,frequency_kind:string,tax_treatment:string,jmhz_treatment:string}> $needsTarget */
+            $needsTarget = [];
             foreach ($profile['components'] as $component) {
                 // Složku výchozího číselníku zakládá číselník se svou klasifikací; druh
                 // v profilu je jen náhradní. Osvobozený benefit zařazení do rozpadu nepotřebuje.
@@ -552,15 +555,30 @@ final class PohodaPayrollImporter
                     continue;
                 }
                 if (PayrollComponentJmhzMappingDefaults::targetFor($component['code'], $default['component_kind'], $default['frequency_kind'], $default['tax_treatment']) === null) {
-                    // Prémie a odměny: pravidelnost z druhu neplyne, ale převod ji zná ze mzd
-                    // PAMICA. Složka, kterou vztahy dostávaly skoro každý měsíc, je pravidelně
-                    // měsíčně zúčtovaná (10330), jinak nepravidelná (10331).
-                    if ($default['component_kind'] === 'bonus' && isset($componentMonths[$component['code']])) {
-                        $bonusTargets[$component['code']] = self::bonusTarget($componentMonths[$component['code']], count($periods));
-                        continue;
-                    }
-                    $unclassified[$component['code']] = 0;
+                    $needsTarget[$component['code']] = $default;
                 }
+            }
+            // Zařazení, které z druhu neplyne, PAMICA použila v odeslaných hlášeních: kolonka,
+            // do které částku složky započetla, je její zařazení ({@see PohodaPayrollJmhzTargets}).
+            $reported = $needsTarget === [] ? [] : PohodaPayrollJmhzTargets::infer(
+                $converter->itemAmounts(),
+                PohodaPayrollJmhzTargets::reports($file, $year),
+                array_map('strval', array_keys($needsTarget)),
+            );
+            foreach ($needsTarget as $code => $default) {
+                $code = (string) $code;
+                if (isset($reported[$code])) {
+                    $bonusTargets[$code] = $reported[$code];
+                    continue;
+                }
+                // Prémie a odměny, které hlášení nerozhodla: pravidelnost z druhu neplyne,
+                // ale převod ji zná ze mzd PAMICA. Složka, kterou vztahy dostávaly skoro
+                // každý měsíc, je pravidelně měsíčně zúčtovaná (10330), jinak nepravidelná (10331).
+                if ($default['component_kind'] === 'bonus' && isset($componentMonths[$code])) {
+                    $bonusTargets[$code] = self::bonusTarget($componentMonths[$code], count($periods));
+                    continue;
+                }
+                $unclassified[$code] = 0;
             }
             foreach ($unclassified as $code => $inputs) {
                 $unclassified[$code] = $componentInputs[(string) $code] ?? 0;
@@ -815,7 +833,7 @@ final class PohodaPayrollImporter
                 }
             }
             // Složky odměn zakládá teprve zápis měsíců; zařazení do JMHZ až po něm.
-            $this->classifyBonuses($supplierId, $userOrNull, $bonusTargets, $protocol);
+            $this->classifyBonuses($supplierId, $userOrNull, $bonusTargets, $reported, $protocol);
             $protocol->finish(self::STEP_MONTHS);
             // Mzdy a položky roku už nikdo nečte, stačí den exportu.
             $exportedOn = $converter->exportedOn;
@@ -1206,13 +1224,15 @@ final class PohodaPayrollImporter
     }
 
     /**
-     * Zařazení odměn do JMHZ podle četnosti ({@see self::bonusTarget()}). Složku založí
-     * číselník při prvním použití, takže chybějící se založí tady; zařazení, které už
-     * složka má (zadala ho účetní), převod nemění.
+     * Zařazení složek do JMHZ, které z druhu neplyne: podle odeslaných hlášení PAMICA
+     * ({@see PohodaPayrollJmhzTargets}), u odměn, které hlášení nerozhodla, podle četnosti
+     * ({@see self::bonusTarget()}). Složku založí číselník při prvním použití, takže
+     * chybějící se založí tady; zařazení, které už složka má (zadala ho účetní), převod nemění.
      *
      * @param array<string,string> $targets kód složky => atribut JMHZ
+     * @param array<string,string> $reported zařazení převzatá z hlášení
      */
-    private function classifyBonuses(int $supplierId, ?int $userId, array $targets, ImportProtocol $protocol): void
+    private function classifyBonuses(int $supplierId, ?int $userId, array $targets, array $reported, ImportProtocol $protocol): void
     {
         if ($targets === []) {
             return;
@@ -1220,7 +1240,7 @@ final class PohodaPayrollImporter
         $find = $this->db->pdo()->prepare(
             'SELECT id FROM payroll_component_definitions WHERE supplier_id = ? AND code = ? ORDER BY valid_from DESC, id DESC LIMIT 1'
         );
-        $done = [];
+        $done = ['reports' => [], 'frequency' => []];
         foreach ($targets as $code => $target) {
             $find->execute([$supplierId, $code]);
             $componentId = $find->fetchColumn();
@@ -1231,16 +1251,23 @@ final class PohodaPayrollImporter
                 if ($this->jmhzMappings->find($supplierId, (int) $componentId) === null) {
                     $this->jmhzMappings->put($supplierId, (int) $componentId, $target, null, $userId);
                 }
-                $done[] = $code . ' → ' . $target;
+                $done[isset($reported[$code]) ? 'reports' : 'frequency'][] = $code . ' → ' . $target;
             } catch (\InvalidArgumentException|\DomainException|\OutOfBoundsException $e) {
                 $protocol->warn(self::STEP_MONTHS, 'component_jmhz_failed', "{$code}: zařazení do JMHZ se nepodařilo zapsat - " . $e->getMessage());
             }
         }
-        if ($done !== []) {
-            $protocol->count(self::STEP_MONTHS, 'components_jmhz_by_frequency', count($done));
+        if ($done['reports'] !== []) {
+            $protocol->count(self::STEP_MONTHS, 'components_jmhz_from_reports', count($done['reports']));
+            $protocol->info(self::STEP_MONTHS, 'components_jmhz_from_reports', sprintf(
+                'Složky zařazené do JMHZ tak, jak je PAMICA vykázala v odeslaných hlášeních: %s.',
+                implode(', ', $done['reports']),
+            ));
+        }
+        if ($done['frequency'] !== []) {
+            $protocol->count(self::STEP_MONTHS, 'components_jmhz_by_frequency', count($done['frequency']));
             $protocol->info(self::STEP_MONTHS, 'components_jmhz_by_frequency', sprintf(
                 'Odměny zařazené do JMHZ podle četnosti ve mzdách PAMICA (10330 pravidelné, 10331 nepravidelné): %s.',
-                implode(', ', $done),
+                implode(', ', $done['frequency']),
             ));
         }
     }
