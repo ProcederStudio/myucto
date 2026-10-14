@@ -19,6 +19,7 @@ use MyInvoice\Service\Payroll\Document\PayrollDocumentKind;
 use MyInvoice\Service\Payroll\Document\PayrollDocumentService;
 use MyInvoice\Service\Payroll\Document\PayrollDocumentStorage;
 use MyInvoice\Service\Payroll\Document\PayrollSheetDocumentData;
+use MyInvoice\Service\Payroll\Document\PayrollSheetMatrix;
 use MyInvoice\Service\Payroll\Document\PayrollSheetMonth;
 use MyInvoice\Service\Payroll\Document\PayrollSheetPdfRenderer;
 use MyInvoice\Service\Payroll\Document\PayrollSheetSnapshotBuilder;
@@ -770,6 +771,105 @@ final class PayrollSheetDocumentLifecycleTest extends TestCase
             'Stav ročního zúčtování není evidován',
             $legacyHtml,
         );
+    }
+
+    /**
+     * Měsíce zpracované předchozím programem se na mzdovém listu objeví ve
+     * sloupcích po měsících vedle vlastních měsíců; co zdroj nenese, zůstane
+     * prázdné.
+     */
+    public function testTakenOverMonthsFillTheirOwnColumns(): void
+    {
+        foreach ([1, 2, 3, 4] as $month) {
+            $this->seedTakenOverMonth(self::YEAR, $month, 3_000_000);
+        }
+        $document = $this->buildSheet()['document'];
+
+        self::assertSame([1, 2, 3, 4], array_map(
+            static fn (array $row): int => (int) $row['month'],
+            $document->takenOverMonths,
+        ));
+        self::assertSame([5, 6], array_keys($document->monthDetails));
+        $gross = $this->matrixRow($document, 'Hrubý příjem (úhrn zúčtovaných mezd)');
+        self::assertSame('30 000', $gross['cells'][0]);
+        self::assertSame('', $gross['cells'][6]);
+        self::assertNotSame('', $gross['cells'][4]);
+        // Údaj, který převzatý zdroj nenese, zůstane prázdný, ne nula.
+        self::assertSame('', $this->matrixRow($document, 'Daň před slevami')['cells'][0]);
+        self::assertSame('20', $this->matrixRow($document, 'Odpracovaná doba (dny)')['cells'][0]);
+
+        $html = $this->renderer->renderHtml($document);
+        self::assertStringContainsString('1*', $html);
+        self::assertStringContainsString('zpracoval předchozí mzdový program', $html);
+        self::assertStringContainsString('01/2026 - 06/2026', $html);
+    }
+
+    /**
+     * Rok přechodu, ve kterém MyÚčto ještě nic nespočítalo: mzdový list jde
+     * vystavit jen z převzatých měsíců. Bez nich i bez vlastní revize zůstává
+     * odmítnutí.
+     */
+    public function testSheetCanBeBuiltFromTakenOverMonthsOnly(): void
+    {
+        $year = self::YEAR + 1;
+        foreach ([1, 2, 3] as $month) {
+            $this->seedTakenOverMonth($year, $month, 2_500_000);
+        }
+        $built = $this->sheets->build($this->supplierId, $this->employeeId, $year, $this->actorId);
+        $document = $built['document'];
+
+        self::assertSame([], $document->months);
+        self::assertCount(3, $document->takenOverMonths);
+        self::assertSame('75 000', $this->matrixRow($document, 'Hrubý příjem (úhrn zúčtovaných mezd)')['total']);
+        self::assertStringStartsWith('%PDF-', $this->renderer->render($document)->bytes);
+
+        $this->expectException(\DomainException::class);
+        $this->expectExceptionMessage('bez schváleného výsledku');
+        $this->sheets->build($this->supplierId, $this->employeeId, self::YEAR + 2, $this->actorId);
+    }
+
+    private function seedTakenOverMonth(int $year, int $month, int $grossMinor): void
+    {
+        $this->db->pdo()->prepare(
+            'INSERT INTO payroll_migration_reference_totals
+                (supplier_id, source, period_start, external_person_ref,
+                 external_relationship_ref, employee_id, employment_id,
+                 insurance_days, worked_days_hundredths, worked_minutes,
+                 gross_minor, net_minor, deductions_minor, net_payable_minor,
+                 social_base_minor, health_base_minor, employee_social_minor,
+                 employee_health_minor, employer_social_minor, employer_health_minor,
+                 advance_tax_minor, withholding_tax_minor, tax_bonus_minor)
+             VALUES (?, "pamica", ?, "SYN-Z1", "SYN-P1", ?, ?, 30, 2000, 9600,
+                     ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)'
+        )->execute([
+            $this->supplierId,
+            sprintf('%04d-%02d-01', $year, $month),
+            $this->employeeId,
+            $this->employmentId,
+            $grossMinor,
+            intdiv($grossMinor * 80, 100),
+            intdiv($grossMinor * 80, 100),
+            $grossMinor,
+            $grossMinor,
+            intdiv($grossMinor * 71, 1000),
+            intdiv($grossMinor * 45, 1000),
+            intdiv($grossMinor * 248, 1000),
+            intdiv($grossMinor * 90, 1000),
+            intdiv($grossMinor * 15, 100),
+        ]);
+    }
+
+    /** @return array{label:string,cells:list<string>,total:string,strong:bool} */
+    private function matrixRow(PayrollSheetDocumentData $document, string $label): array
+    {
+        foreach (PayrollSheetMatrix::build($document) as $section) {
+            foreach ($section['rows'] as $row) {
+                if ($row['label'] === $label) {
+                    return $row;
+                }
+            }
+        }
+        self::fail("Mzdový list nemá řádek {$label}.");
     }
 
     /** @return array{revision:array<string,mixed>,document:PayrollSheetDocumentData} */

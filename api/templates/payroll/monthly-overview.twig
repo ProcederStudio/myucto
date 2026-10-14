@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<title>Přehled mezd</title>
+<style>
+body { font-family: montserrat, dejavusans, sans-serif; font-size: 7pt; color: #211923; }
+.accent { height: 1.6mm; background: #98466F; margin-bottom: 2.5mm; }
+.head { width: 100%; border-collapse: collapse; margin-bottom: 2.5mm; }
+.head td { vertical-align: bottom; padding: 0; }
+.title { font-size: 16pt; font-weight: bold; color: #351C2B; }
+.sub { color: #5F515A; margin-top: 0.6mm; }
+.period { font-size: 14pt; font-weight: bold; color: #98466F; text-align: right; }
+table.list { width: 100%; border-collapse: collapse; table-layout: fixed; }
+table.list th { background: #FAF1F6; color: #5F515A; border: 0.25pt solid #DEC8D4; padding: 0.8mm 0.7mm; font-size: 6.2pt; font-weight: bold; text-align: right; vertical-align: bottom; }
+table.list td { border: 0.2pt solid #EADDE4; padding: 0.7mm 0.7mm; text-align: right; font-family: geistmono, dejavusans, sans-serif; white-space: nowrap; font-size: 6.6pt; }
+table.list th.l, table.list td.l { text-align: left; font-family: montserrat, dejavusans, sans-serif; }
+table.list tfoot td { background: #F8F5F7; border-top: 0.6pt solid #98466F; font-weight: bold; }
+.section { color: #98466F; font-size: 8pt; font-weight: bold; margin: 2mm 0 1mm; text-transform: uppercase; }
+table.summary { width: 100%; border-collapse: collapse; }
+table.summary td.col { width: 33.3%; vertical-align: top; padding-right: 3mm; }
+table.kv { width: 100%; border-collapse: collapse; }
+table.kv td { padding: 0.75mm 1mm; border-bottom: 0.2pt solid #EEE3E9; }
+table.kv td.v { text-align: right; font-family: geistmono, dejavusans, sans-serif; white-space: nowrap; }
+table.kv tr.h td { color: #98466F; font-weight: bold; border-bottom: 0.4pt solid #DEC8D4; }
+table.kv tr.sub td.k { padding-left: 4mm; color: #5F515A; }
+table.kv tr.total td { font-weight: bold; border-top: 0.6pt solid #98466F; }
+.note { margin-top: 2mm; color: #5F515A; font-size: 6.6pt; }
+</style>
+</head>
+<body>
+<div class="accent"></div>
+<table class="head">
+  <tr>
+    <td>
+      <div class="title">Přehled mezd</div>
+      <div class="sub">{{ employer.name }}{% if employer.identification_number %} · IČ {{ employer.identification_number }}{% endif %} · vytvořeno {{ generated_on }}</div>
+    </td>
+    <td><div class="period">{{ period_label }}</div></td>
+  </tr>
+</table>
+
+<table class="list">
+  <thead>
+    <tr>
+      <th class="l" style="width:13mm">Období</th>
+      <th class="l" style="width:44mm">Jméno</th>
+      <th class="l" style="width:16mm">Os. číslo</th>
+      <th style="width:10mm">Na BÚ</th>
+      <th style="width:13mm">Hodin</th>
+      <th style="width:12mm">Přesčas h</th>
+      <th style="width:18mm">Hrubá</th>
+      <th style="width:16mm">Sociální</th>
+      <th style="width:14mm">Sleva<br>důchodce</th>
+      <th style="width:16mm">Zdravotní</th>
+      <th style="width:16mm">Daň</th>
+      <th style="width:16mm">Nezd.<br>náhrady</th>
+      <th style="width:15mm">Srážky</th>
+      <th style="width:14mm">Záloha</th>
+      <th style="width:15mm">Strav.<br>paušál</th>
+      <th style="width:19mm">Vyúčtování</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for row in rows %}
+    <tr>
+      <td class="l">{{ period_label }}</td>
+      <td class="l">{{ row.name }}</td>
+      <td class="l">{{ row.personal_number }}</td>
+      <td>{{ row.to_account is null ? '' : (row.to_account ? 'Ano' : 'Ne') }}</td>
+      <td>{{ row.worked_millihours|hours }}</td>
+      <td>{{ row.overtime_millihours|hours }}</td>
+      <td>{{ row.gross_minor|money }}</td>
+      <td>{{ row.employee_social_minor|money }}</td>
+      <td>{{ row.pensioner_discount_minor|money }}</td>
+      <td>{{ row.employee_health_minor|money }}</td>
+      <td>{{ row.tax_minor|money }}</td>
+      <td>{{ row.reimbursements_minor|money }}</td>
+      <td>{{ row.deductions_minor|money }}</td>
+      <td>{{ row.wage_advance_minor|money }}</td>
+      <td>{{ row.meal_allowance_minor|money }}</td>
+      <td>{{ row.payable_minor|money }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+  <tfoot>
+    <tr>
+      <td class="l" colspan="4">Celkem ({{ rows|length }})</td>
+      <td>{{ totals.worked_millihours|hours }}</td>
+      <td>{{ totals.overtime_millihours|hours }}</td>
+      <td>{{ totals.gross_minor|money }}</td>
+      <td>{{ totals.employee_social_minor|money }}</td>
+      <td>{{ totals.pensioner_discount_minor|money }}</td>
+      <td>{{ totals.employee_health_minor|money }}</td>
+      <td>{{ totals.tax_minor|money }}</td>
+      <td>{{ totals.reimbursements_minor|money }}</td>
+      <td>{{ totals.deductions_minor|money }}</td>
+      <td>{{ totals.wage_advance_minor|money }}</td>
+      <td>{{ totals.meal_allowance_minor|money }}</td>
+      <td>{{ totals.payable_minor|money }}</td>
+    </tr>
+  </tfoot>
+</table>
+{% if source == 'taken_over' %}
+<div class="note">Období zpracoval předchozí mzdový program. Částky jsou převzaté úhrny mezd; údaj, který převzatý zdroj nenese, je prázdný.</div>
+{% endif %}
+
+<pagebreak />
+<div class="section">Osobní náklady za období {{ period_label }}</div>
+{% set s = summary %}
+<table class="summary">
+  <tr>
+    <td class="col">
+      <table class="kv">
+        <tr class="h"><td colspan="2">Sociální pojištění</td></tr>
+        <tr class="sub"><td class="k">základ</td><td class="v">{{ s.social_base_minor|money }}</td></tr>
+        <tr class="sub"><td class="k">za zaměstnance</td><td class="v">{{ s.social_employee_minor|money }}</td></tr>
+        <tr class="sub"><td class="k">sleva SP důchodce</td><td class="v">{{ s.social_pensioner_discount_minor|money }}</td></tr>
+        <tr class="sub"><td class="k">za zaměstnavatele</td><td class="v">{{ s.social_employer_minor|money }}</td></tr>
+        <tr class="sub total"><td class="k">odvod celkem</td><td class="v">{{ (s.social_employee_minor is null and s.social_employer_minor is null) ? '' : ((s.social_employee_minor ?? 0) + (s.social_employer_minor ?? 0))|money }}</td></tr>
+        <tr class="h"><td colspan="2">Zdravotní pojištění</td></tr>
+        <tr class="sub"><td class="k">základ</td><td class="v">{{ s.health_base_minor|money }}</td></tr>
+        <tr class="sub"><td class="k">za zaměstnance</td><td class="v">{{ s.health_employee_minor|money }}</td></tr>
+        <tr class="sub"><td class="k">za zaměstnavatele</td><td class="v">{{ s.health_employer_minor|money }}</td></tr>
+        <tr class="sub total"><td class="k">odvod celkem</td><td class="v">{{ (s.health_employee_minor is null and s.health_employer_minor is null) ? '' : ((s.health_employee_minor ?? 0) + (s.health_employer_minor ?? 0))|money }}</td></tr>
+      </table>
+    </td>
+    <td class="col">
+      <table class="kv">
+        <tr class="h"><td colspan="2">Daň z příjmů</td></tr>
+        <tr class="sub"><td class="k">zdanitelný příjem</td><td class="v">{{ s.taxable_income_minor|money }}</td></tr>
+        <tr class="sub"><td class="k">základ daně</td><td class="v">{{ s.tax_base_minor|money }}</td></tr>
+        <tr class="sub"><td class="k">záloha před slevou</td><td class="v">{{ s.tax_before_credits_minor|money }}</td></tr>
+        <tr class="sub"><td class="k">uplatněné slevy</td><td class="v">{{ s.tax_credits_applied_minor|money }}</td></tr>
+        <tr class="sub"><td class="k">zvýhodnění na děti</td><td class="v">{{ s.child_credit_minor|money }}</td></tr>
+        <tr class="sub"><td class="k">záloha na daň</td><td class="v">{{ s.advance_tax_minor|money }}</td></tr>
+        <tr class="sub"><td class="k">daňový bonus</td><td class="v">{{ s.tax_bonus_minor|money }}</td></tr>
+        <tr class="sub"><td class="k">základ srážkové daně (DPP)</td><td class="v">{{ s.withholding_base_minor|money }}</td></tr>
+        <tr class="sub"><td class="k">srážková daň (DPP)</td><td class="v">{{ s.withholding_tax_minor|money }}</td></tr>
+      </table>
+    </td>
+    <td class="col">
+      <table class="kv">
+        <tr class="h"><td colspan="2">Výplaty a náhrady</td></tr>
+        <tr class="sub"><td class="k">hrubé mzdy</td><td class="v">{{ s.gross_minor|money }}</td></tr>
+        <tr class="sub"><td class="k">nezdanitelné náhrady</td><td class="v">{{ s.reimbursements_minor|money }}</td></tr>
+        <tr class="sub"><td class="k">stravenkový paušál</td><td class="v">{{ s.meal_allowance_minor|money }}</td></tr>
+        <tr class="sub"><td class="k">srážky ze mzdy</td><td class="v">{{ s.deductions_minor|money }}</td></tr>
+        <tr class="sub"><td class="k">doplatky mezd na účet</td><td class="v">{{ s.payout_account_minor|money }}</td></tr>
+        <tr class="sub"><td class="k">doplatky mezd v hotovosti</td><td class="v">{{ s.payout_cash_minor|money }}</td></tr>
+        <tr class="total"><td>Osobní náklady celkem</td><td class="v">{{ s.personal_costs_minor|money }}</td></tr>
+      </table>
+    </td>
+  </tr>
+</table>
+<div class="note">Osobní náklady = hrubé mzdy a pojistné placené zaměstnavatelem. Částky v Kč.</div>
+</body>
+</html>

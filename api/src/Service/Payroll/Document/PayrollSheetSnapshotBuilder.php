@@ -7,6 +7,7 @@ namespace MyInvoice\Service\Payroll\Document;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\Payroll\PayrollAnnualDocumentRepository;
 use MyInvoice\Service\Auth\SecretEncryption;
+use MyInvoice\Service\Codebook\HealthInsurers;
 use MyInvoice\Service\Payroll\Component\PayrollExemptIncomeSplit;
 use MyInvoice\Service\Payroll\Ruleset\CanonicalJson;
 use MyInvoice\Service\Payroll\Security\PayrollRevealPurpose;
@@ -16,7 +17,7 @@ use PDO;
 
 final class PayrollSheetSnapshotBuilder
 {
-    public const SCHEMA_VERSION = 'payroll-sheet-document.v5';
+    public const SCHEMA_VERSION = 'payroll-sheet-document.v6';
     public const PURPOSE = 'payroll_sheet';
 
     /**
@@ -56,12 +57,19 @@ final class PayrollSheetSnapshotBuilder
      * výpočtu a nemají většinu údajů, které měsíční řádek žádá; doklad je nese
      * v samostatné části s uvedením zdroje.
      *
+     * Mapování v7 přidává měsíční časové údaje a rozpad složek ze zmrazených
+     * vstupů ({@see PayrollFrozenMonthFacts}) a převzaté měsíce po jednotlivých
+     * měsících z převzatých úhrnů předchozího programu
+     * ({@see PayrollSheetTakenOverMonthsReader}). Mzdový list jde vystavit
+     * i za rok, ve kterém MyÚčto zatím nic nespočítalo a všechny měsíce jsou
+     * převzaté.
+     *
      * Verze je součástí zdrojového manifestu, takže se pro tytéž zdrojové revize
      * NENAJDE dřívější revize a doklad se vydá jako DALŠÍ revize v řetězu.
      * Existující revize ani její archivované PDF se tím nemění — což je jediná
      * přípustná cesta, protože roční revize jsou append-only a kotvené otiskem.
      */
-    public const MAPPING_VERSION = 'payroll-sheet-mapping.v6';
+    public const MAPPING_VERSION = 'payroll-sheet-mapping.v7';
 
     /**
      * Snapshoty vydané pod starším mapováním zůstávají čitelné. Nedopočítávají
@@ -73,12 +81,14 @@ final class PayrollSheetSnapshotBuilder
     private const SCHEMA_VERSION_V2 = 'payroll-sheet-document.v2';
     private const SCHEMA_VERSION_V3 = 'payroll-sheet-document.v3';
     private const SCHEMA_VERSION_V4 = 'payroll-sheet-document.v4';
+    private const SCHEMA_VERSION_V5 = 'payroll-sheet-document.v5';
 
     private const SUPPORTED_SCHEMA_VERSIONS = [
         self::SCHEMA_VERSION_V1,
         self::SCHEMA_VERSION_V2,
         self::SCHEMA_VERSION_V3,
         self::SCHEMA_VERSION_V4,
+        self::SCHEMA_VERSION_V5,
         self::SCHEMA_VERSION,
     ];
 
@@ -99,6 +109,7 @@ final class PayrollSheetSnapshotBuilder
         private readonly PayrollSensitiveData $sensitiveData,
         private readonly SecretEncryption $encryption,
         private readonly PayrollCarriedOverPeriodReader $carriedOverPeriods,
+        private readonly PayrollSheetTakenOverMonthsReader $takenOverMonths,
     ) {}
 
     /**
@@ -122,24 +133,51 @@ final class PayrollSheetSnapshotBuilder
             $employeeId,
             $taxYear,
         );
-        if ($sources === []) {
+        $takenOver = $this->takenOverMonths->read($supplierId, $employeeId, $taxYear);
+        if ($sources === [] && $takenOver === []) {
             throw new \DomainException(
                 'Mzdový list nelze vytvořit bez schváleného výsledku zaměstnance v daném roce.',
             );
         }
         $profile = $this->profileSnapshot($supplierId, $employeeId, $taxYear);
         $employer = $this->employerSnapshot($supplierId);
-        [$months, $manifestSources, $employments] = $this->months($sources, $employeeId);
+        if ($sources === []) {
+            // Rok přechodu, ve kterém MyÚčto zatím nic nespočítalo: doklad
+            // stojí jen na převzatých měsících a vztahy bere z evidence.
+            $months = [];
+            $manifestSources = [];
+            $details = [];
+            $employments = $this->currentEmployments($supplierId, $employeeId);
+        } else {
+            [$months, $manifestSources, $employments, $details] = $this->months($sources, $employeeId);
+        }
+        $ownMonths = array_map(static fn (PayrollSheetMonth $month): int => $month->month, $months);
+        // Měsíc, který MyÚčto spočítalo, má přednost před převzatým úhrnem —
+        // jinak by se týž měsíc započetl dvakrát.
+        $takenOver = array_values(array_filter(
+            $takenOver,
+            static fn (array $row): bool => !in_array($row['month'], $ownMonths, true),
+        ));
         // Druhý zdroj: měsíce roku před prvním obdobím zpracovaným v MyÚčtu.
         // Bez nich je mzdový list za rok přechodu z jiného programu neúplný.
         // Chybí-li za ně počáteční stav, čtečka doklad odmítne — neúplný
         // mzdový list se nevydává, viz PayrollCarriedOverPeriod::fromOpenings().
-        $carried = $this->carriedOverPeriods->read(
-            $supplierId,
-            $employeeId,
-            $taxYear,
-            (int) substr($this->text($sources[0], 'period_start'), 5, 2),
-        );
+        // Bez vlastních měsíců ale nese úplný rok právě převzatý rozpis po
+        // měsících, takže chybějící počáteční stav doklad nezastaví.
+        if ($sources === []) {
+            try {
+                $carried = $this->carriedOverPeriods->read($supplierId, $employeeId, $taxYear, 1);
+            } catch (\DomainException) {
+                $carried = null;
+            }
+        } else {
+            $carried = $this->carriedOverPeriods->read(
+                $supplierId,
+                $employeeId,
+                $taxYear,
+                (int) substr($this->text($sources[0], 'period_start'), 5, 2),
+            );
+        }
 
         $profileHash = $this->sensitiveData->keyedFingerprint(
             CanonicalJson::encode($profile),
@@ -177,6 +215,9 @@ final class PayrollSheetSnapshotBuilder
             // Otisk verze počátečního stavu: oprava převzatých čísel musí
             // vydat DALŠÍ revizi, ne vrátit původní se starými úhrny.
             'carried_over' => $carried?->manifestAnchor(),
+            // Oprava převzatých úhrnů musí vydat další revizi, ne vrátit
+            // původní se starými čísly.
+            'taken_over_months_hash' => hash('sha256', CanonicalJson::encode($takenOver)),
         ];
         $manifestJson = CanonicalJson::encode($manifest);
         $manifestHash = hash('sha256', $manifestJson);
@@ -196,6 +237,15 @@ final class PayrollSheetSnapshotBuilder
             'annual_settlement' => $settlement,
             'annual_settlement_evidence' => $settlementEvidence,
             'carried_over' => $carried?->toSnapshot(),
+            'month_details' => array_values(array_map(
+                static fn (int $month, PayrollFrozenMonthFacts $facts): array => [
+                    'month' => $month,
+                    ...$facts->toSnapshot(),
+                ],
+                array_keys($details),
+                $details,
+            )),
+            'taken_over_months' => $takenOver,
         ];
         $snapshotJson = CanonicalJson::encode($snapshot);
         $snapshotHash = $this->snapshotFingerprint($snapshotJson, $supplierId);
@@ -261,7 +311,8 @@ final class PayrollSheetSnapshotBuilder
      * @return array{
      *     0:list<PayrollSheetMonth>,
      *     1:list<array<string,mixed>>,
-     *     2:list<array<string,mixed>>
+     *     2:list<array<string,mixed>>,
+     *     3:array<int,PayrollFrozenMonthFacts>
      * }
      */
     private function months(array $sources, int $employeeId): array
@@ -269,6 +320,7 @@ final class PayrollSheetSnapshotBuilder
         $months = [];
         $manifest = [];
         $employments = [];
+        $details = [];
         foreach ($sources as $source) {
             $inputJson = $this->text($source, 'input_snapshot_json');
             $resultJson = $this->text($source, 'result_snapshot_json');
@@ -306,11 +358,19 @@ final class PayrollSheetSnapshotBuilder
                 throw new \DomainException('Zdroj mzdového listu má neplatné období.');
             }
             $monthNumber = (int) substr($periodStart, 5, 2);
+            $inputRoot = $this->decodeObject($inputJson, 'Vstup schválené revize');
             $frozenInputs = $this->frozenPersonInputs(
-                $this->decodeObject($inputJson, 'Vstup schválené revize'),
+                $inputRoot,
                 $employeeId,
                 $employments,
             );
+            $facts = PayrollFrozenMonthFacts::fromFrozen(
+                $this->frozenInputPerson($inputRoot, $employeeId),
+                $storedPerson,
+            );
+            $details[$monthNumber] = isset($details[$monthNumber])
+                ? PayrollFrozenMonthFacts::merge($details[$monthNumber], $facts)
+                : $facts;
             $amounts = $this->personAmounts($storedPerson);
             $amounts['tax_exempt_income_minor_units'] = $this->taxExemptIncome(
                 $storedPerson,
@@ -382,7 +442,58 @@ final class PayrollSheetSnapshotBuilder
                 [$left['start_date'], $left['code']]
                 <=> [$right['start_date'], $right['code']],
         );
-        return [$result, $manifest, array_values($employments)];
+        ksort($details, SORT_NUMERIC);
+        return [$result, $manifest, array_values($employments), $details];
+    }
+
+    /**
+     * Osoba ze zmrazeného vstupu revize, nebo prázdné pole, když ve vstupu
+     * není (pak měsíc nemá časové údaje ani rozpad, ne chybu).
+     *
+     * @param array<string,mixed> $inputRoot
+     * @return array<string,mixed>
+     */
+    private function frozenInputPerson(array $inputRoot, int $employeeId): array
+    {
+        foreach (is_array($inputRoot['people'] ?? null) ? $inputRoot['people'] : [] as $candidate) {
+            if (is_array($candidate)
+                && is_array($candidate['employee'] ?? null)
+                && ($candidate['employee']['id'] ?? null) === $employeeId
+            ) {
+                return $candidate;
+            }
+        }
+
+        return [];
+    }
+
+    /**
+     * Pracovní vztahy z evidence pro doklad, který nemá žádnou vlastní revizi
+     * (všechny měsíce roku jsou převzaté).
+     *
+     * @return list<array<string,mixed>>
+     */
+    private function currentEmployments(int $supplierId, int $employeeId): array
+    {
+        $statement = $this->db->pdo()->prepare(
+            'SELECT code, relation_type, start_date, actual_start_date, end_date
+               FROM payroll_employments
+              WHERE supplier_id = ? AND employee_id = ?
+              ORDER BY start_date, code'
+        );
+        $statement->execute([$supplierId, $employeeId]);
+        $rows = [];
+        foreach ($statement->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $rows[] = [
+                'code' => (string) $row['code'],
+                'relation_type' => (string) $row['relation_type'],
+                'start_date' => (string) $row['start_date'],
+                'actual_start_date' => $row['actual_start_date'] === null ? null : (string) $row['actual_start_date'],
+                'end_date' => $row['end_date'] === null ? null : (string) $row['end_date'],
+            ];
+        }
+
+        return $rows;
     }
 
     /**
@@ -697,8 +808,27 @@ final class PayrollSheetSnapshotBuilder
             throw new \DomainException('Pro mzdový list chybí rodné číslo i datum narození.');
         }
 
+        $coverage = $this->db->pdo()->prepare(
+            'SELECT insurer_code
+               FROM payroll_person_health_coverage_history
+              WHERE supplier_id = ? AND employee_id = ?
+                AND effective_from <= ?
+                AND (effective_to IS NULL OR effective_to >= ?)
+              ORDER BY effective_from DESC, id DESC
+              LIMIT 1'
+        );
+        $coverage->execute([$supplierId, $employeeId, $to, $from]);
+        $insurerCode = $coverage->fetchColumn();
+        $insurer = is_string($insurerCode) && $insurerCode !== ''
+            ? (HealthInsurers::name($insurerCode) ?? $insurerCode)
+            : null;
+
         return [
             'name' => (string) $currentIdentity['full_name'],
+            'birth_date' => is_string($employeeRow['birth_date'] ?? null)
+                ? (new \DateTimeImmutable((string) $employeeRow['birth_date']))->format('d.m.Y')
+                : null,
+            'health_insurer' => $insurer,
             'previous_names' => array_keys($names),
             'identifier_label' => $identifierLabel,
             'identifier_value' => $identifierValue,
@@ -781,6 +911,7 @@ final class PayrollSheetSnapshotBuilder
             [
                 self::SCHEMA_VERSION_V3,
                 self::SCHEMA_VERSION_V4,
+                self::SCHEMA_VERSION_V5,
                 self::SCHEMA_VERSION,
             ],
             true,
@@ -793,11 +924,13 @@ final class PayrollSheetSnapshotBuilder
         // vydané revize a rozdíl v něm už není z čeho dopočítat.
         $creditDetail = in_array(
             $schemaVersion,
-            [self::SCHEMA_VERSION_V4, self::SCHEMA_VERSION],
+            [self::SCHEMA_VERSION_V4, self::SCHEMA_VERSION_V5, self::SCHEMA_VERSION],
             true,
         )
             ? PayrollSheetMonth::CREDIT_DETAIL_APPLIED
             : PayrollSheetMonth::CREDIT_DETAIL_CLAIMED;
+        $sinceV5 = in_array($schemaVersion, [self::SCHEMA_VERSION_V5, self::SCHEMA_VERSION], true);
+        $sinceV6 = $schemaVersion === self::SCHEMA_VERSION;
         $employer = $this->object($snapshot['employer'] ?? null, 'employer');
         $employee = $this->object($snapshot['employee'] ?? null, 'employee');
         $months = [];
@@ -894,13 +1027,34 @@ final class PayrollSheetSnapshotBuilder
             // Převzatá část roku je až ve v5. Ve starším snapshotu ji nemá cenu
             // hledat: revize o počátečních stavech nevěděla, takže její
             // nepřítomnost neznamená, že převzatá část neexistuje.
-            $schemaVersion === self::SCHEMA_VERSION
+            $sinceV5
                 ? PayrollCarriedOverPeriod::fromSnapshot(
                     $snapshot['carried_over'] ?? null,
                 )
                 : null,
-            $schemaVersion === self::SCHEMA_VERSION,
+            $sinceV5,
+            // Měsíční údaje a převzaté měsíce jsou až ve v6; starší revize je
+            // nemají a doklad je pak nevypisuje (prázdno, ne nula).
+            $sinceV6 ? $this->monthDetails($snapshot['month_details'] ?? []) : [],
+            $sinceV6 ? PayrollSheetTakenOverMonthsReader::fromSnapshot($snapshot['taken_over_months'] ?? null) : [],
+            [
+                'birth_date' => is_string($employee['birth_date'] ?? null) ? $employee['birth_date'] : null,
+                'health_insurer' => is_string($employee['health_insurer'] ?? null) ? $employee['health_insurer'] : null,
+            ],
         );
+    }
+
+    /** @return array<int,PayrollFrozenMonthFacts> */
+    private function monthDetails(mixed $value): array
+    {
+        $result = [];
+        foreach ($this->list($value, 'month_details') as $row) {
+            $row = $this->object($row, 'month_details[]');
+            $result[$this->positiveInt($row, 'month')] = PayrollFrozenMonthFacts::fromSnapshot($row);
+        }
+        ksort($result, SORT_NUMERIC);
+
+        return $result;
     }
 
     /**

@@ -57,6 +57,28 @@ Výplatní pásky vznikají samy při schválení mzdového běhu.
 **Jak poznáte, že je hotovo:** Pro každou osobu běhu je v seznamu výplatní
 páska ke schválené revizi. Stažení PDF ale není doklad o předání.
 
+**Co je na výplatní pásce.** Páska se vejde na jednu stranu A4. Nese
+docházku (kalendářní dny, fond, odpracované dny a hodiny, svátky, dovolenou
+v hodinách i v Kč, zbývající dovolenou, placené překážky, nemoc a OČR,
+neplacené volno, přesčasy, použitý průměr), mzdu podle druhu, jednotlivé
+složky mzdy, pojistné zaměstnance i zaměstnavatele, osobní náklady,
+zdanitelný příjem, základ daně, slevy, zvýhodnění na děti, zálohu na daň,
+čistou mzdu, srážky a částku k výplatě s účtem. Docházka se bere ze
+schválené docházky měsíce a zbývající dovolená z knihy dovolené k poslednímu
+dni období; bez nich páska tyto údaje vynechá.
+
+**Přehled mezd za měsíc.** Na záložce **Měsíční výstupy** zvolte období
+a klikněte na **Přehled mezd**. Stáhne se PDF se všemi zaměstnanci
+v jedné tabulce (hodiny, přesčasy, hrubá mzda, sociální a zdravotní
+pojištění, daň, nezdanitelné náhrady, srážky, stravenkový paušál a částka
+k výplatě, se součtovým řádkem) a se souhrnem **Osobní náklady za období**
+(základy a odvody pojistného za zaměstnance i zaměstnavatele, údaje o dani,
+výplaty a osobní náklady celkem). Přehled se skládá ze schválených mzdových
+běhů období. Měsíc, za který MyÚčto žádný schválený běh nemá a který
+zpracoval předchozí mzdový program, se vezme z převzatých mezd; údaj, který
+převzatý zdroj nenese, zůstane prázdný. Přehled je pracovní sestava, do
+archivu dokumentů se neukládá.
+
 ## 83.4 Krok za krokem: rozeslat výplatní pásky
 
 1. Ověřte jednou nastavení: v `Mzdy → Nastavení mezd`, záložce **Politiky
@@ -186,7 +208,8 @@ stáhne.
 <!-- cols: 30 34 36 -->
 | Co vidíte | Proč | Co udělat |
 |---|---|---|
-| Mzdový list nebo potvrzení se nevytvoří | Chybí schválený výsledek, historická identifikace nebo jiný povinný podklad | Doplňte podklad podle vypsaného důvodu. |
+| Mzdový list nebo potvrzení se nevytvoří | Za rok není schválený výsledek ani převzatá mzda, nebo chybí historická identifikace či jiný povinný podklad | Doplňte podklad podle vypsaného důvodu. |
+| Přehled mezd se nestáhne | Za období není schválený mzdový běh ani převzatá mzda z předchozího programu | Schvalte mzdový běh období. |
 | Daňové potvrzení blokované kvůli úhradě | Platební evidence nedokládá úplnou výplatu všech čistých mezd do 31. ledna následujícího roku | Doložte úhrady v [Mzdových příkazech a úhradách](82_Platby_a_uhrady.md). |
 | Potvrzení odmítnuto kvůli neúplným polím | Nedoložený nárok, nerezident bez částky pojistného, produkt spoření bez mapování, nepeněžní příjem nebo doplatek za minulý rok | Údaj se nikdy nedopočítá; doplňte podklad, nebo potvrzení vystavte mimo aplikaci. |
 | Srážkové potvrzení odmítnuto kvůli rezidenci | Tiskopis 25 5460/A je jen pro českého rezidenta nebo nerezidenta EU/EHP | Vystavte potvrzení mimo aplikaci. |
@@ -224,9 +247,32 @@ revize balíčku; opakované vytvoření nad stejnou sadou vrátí stejný výsl
 
 ### 83.11.2 Mzdový list
 
-Mzdový list vzniká jen z posledních schválených revizí všech mzdových
+Mzdový list vzniká z posledních schválených revizí všech mzdových
 účtáren v daném roce. Zahrne i více souběžných revizí v jednom měsíci,
-například doplatek po skončení vztahu. Roční dokument má vlastní neměnnou
+například doplatek po skončení vztahu.
+
+Mzdový list je rozvržený po měsících 1 až 12 se sloupcem **Celkem**.
+V hlavičce je zaměstnavatel, IČ, rok, období, jméno, rodné číslo, datum
+narození, bydliště a zdravotní pojišťovna, pod ní pracovní vztahy s dnem
+nástupu a skončení. Následují sekce **Časové údaje** (odpracované dny
+a hodiny, čerpání dovolené, svátky, nemoc, neodpracovaná doba, dny poměru),
+**Mzdové údaje – složky mezd** (průměrný výdělek, základní mzda, prémie
+a odměny, přesčasy, náhrady, stravenkový paušál, nezdanitelné náhrady
+a jednotlivé složky mzdy), **Příjmy**, **Pojistné** (vyměřovací základy
+a pojistné zaměstnance i zaměstnavatele), **Údaje o dani z příjmů**
+(základ, záloha, slevy, zvýhodnění, bonus, srážková daň, doplatek ze
+zúčtování) a **Vyplacené částky**. Časové údaje se berou ze schválené
+docházky; měsíc bez docházky je nechá prázdné.
+
+Firma, která přešla z jiného mzdového programu, má měsíce před začátkem
+vedení mezd v MyÚčtu na mzdovém listu ve stejných sloupcích jako měsíce
+spočítané MyÚčtem, označené hvězdičkou. Čísla se berou z převzatých mezd
+předchozího programu (hrubá a čistá mzda, vyměřovací základy, pojistné,
+záloha na daň, srážková daň, bonus, srážky, odpracované dny a hodiny); co
+převzatý zdroj nenese, zůstane prázdné. Mzdový list jde vytvořit i za rok,
+ve kterém MyÚčto zatím nic nespočítalo a všechny měsíce jsou převzaté.
+
+Roční dokument má vlastní neměnnou
 revizi a není připojený k prosincové mzdě. Pozdější oprava mzdy vytvoří další
 revizi mzdového listu a původní soubor zůstane dohledatelný. Roční zúčtování
 se v mzdovém listu nedopočítává a bez samostatně schváleného ročního výsledku

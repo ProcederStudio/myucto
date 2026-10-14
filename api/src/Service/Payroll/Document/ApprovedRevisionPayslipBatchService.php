@@ -27,6 +27,7 @@ final class ApprovedRevisionPayslipBatchService
         private readonly ApprovedRevisionPayslipRepository $sources,
         private readonly PayslipDocumentSnapshotHydrator $hydrator,
         private readonly PayrollDocumentService $documents,
+        private readonly PayslipSupplementReader $supplements,
     ) {}
 
     /**
@@ -62,12 +63,18 @@ final class ApprovedRevisionPayslipBatchService
             );
         }
         $prepared = $this->prepareAll($source, $revisionId);
+        $supplements = $this->supplementsFor($supplierId, $revisionId, $source);
         $items = [];
         foreach ($prepared as $item) {
             $items[] = [
                 'employee_id' => $item['employee_id'],
                 'source_hash' => $item['source_hash'],
-                'artifact' => $this->documents->renderPayslip($item['document']),
+                'artifact' => $this->documents->renderPayslip(
+                    self::withSupplement(
+                        $item['document'],
+                        $supplements[$item['employee_id']] ?? null,
+                    ),
+                ),
             ];
         }
 
@@ -100,7 +107,10 @@ final class ApprovedRevisionPayslipBatchService
             );
         }
         $prepared = $this->preparedEmployee($source, $revisionId, $employeeId);
-        $artifact = $this->documents->renderPayslip($prepared['document']);
+        $artifact = $this->documents->renderPayslip(self::withSupplement(
+            $prepared['document'],
+            $this->supplementsFor($supplierId, $revisionId, $source)[$employeeId] ?? null,
+        ));
         $scope = $this->beginStorageScope();
         $pdo = $this->db->pdo();
         $ownsTransaction = !$pdo->inTransaction();
@@ -483,6 +493,42 @@ final class ApprovedRevisionPayslipBatchService
         throw new \OutOfBoundsException(
             'Zaměstnanec do schválené revize nepatří.',
         );
+    }
+
+    /**
+     * @param array{period_start:string,result_snapshot_json:string} $source
+     * @return array<int,PayslipSupplement>
+     */
+    private function supplementsFor(int $supplierId, int $revisionId, array $source): array
+    {
+        $revision = json_decode($source['result_snapshot_json'], true, flags: JSON_THROW_ON_ERROR);
+        $people = [];
+        foreach (is_array($revision['people'] ?? null) ? $revision['people'] : [] as $person) {
+            if (is_array($person) && is_int($person['employee_id'] ?? null)) {
+                $people[$person['employee_id']] = $person;
+            }
+        }
+
+        return $this->supplements->forRevision(
+            $supplierId,
+            $revisionId,
+            $source['period_start'],
+            $people,
+        );
+    }
+
+    private static function withSupplement(
+        PayslipDocumentData $document,
+        ?PayslipSupplement $supplement,
+    ): PayslipDocumentData {
+        if ($supplement === null) {
+            return $document;
+        }
+
+        return new PayslipDocumentData(...[
+            ...get_object_vars($document),
+            'supplement' => $supplement,
+        ]);
     }
 
     private function idempotencyKey(

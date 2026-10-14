@@ -14,7 +14,8 @@ use Twig\Loader\FilesystemLoader;
 
 final class PayrollSheetPdfRenderer
 {
-    public const VERSION = 'mz-16-payroll-sheet-v4';
+    /** v5: sloupce po měsících 1–12 a Celkem, časové údaje, složky mezd a převzaté měsíce. */
+    public const VERSION = 'mz-16-payroll-sheet-v5';
 
     private ?Environment $twig = null;
 

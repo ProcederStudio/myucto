@@ -129,6 +129,21 @@ final readonly class PayrollSheetDocumentData
          * neptal". Stejný důvod jako u ANNUAL_SETTLEMENT_NOT_RECORDED.
          */
         public bool $carriedOverAssessed = false,
+        /**
+         * Docházka a rozpad složek vlastních měsíců (klíč = měsíc).
+         *
+         * @var array<int,PayrollFrozenMonthFacts>
+         */
+        public array $monthDetails = [],
+        /**
+         * Měsíce zpracované předchozím programem, po měsících; údaj, který
+         * zdroj nenese, je `null`.
+         *
+         * @var list<array<string,int|string|null>>
+         */
+        public array $takenOverMonths = [],
+        /** @var array{birth_date:?string,health_insurer:?string}|array{} */
+        public array $employeeExtras = [],
     ) {
         if (preg_match('/^[a-f0-9]{64}$/D', $sourceSnapshotSha256) !== 1) {
             throw new \InvalidArgumentException('Zdrojový otisk mzdového listu není platný.');
@@ -157,8 +172,8 @@ final readonly class PayrollSheetDocumentData
                 throw new \InvalidArgumentException('Dřívější jméno není platné.');
             }
         }
-        if ($months === []) {
-            throw new \InvalidArgumentException('Mzdový list nemá žádný schválený měsíc.');
+        if ($months === [] && $takenOverMonths === []) {
+            throw new \InvalidArgumentException('Mzdový list nemá žádný schválený ani převzatý měsíc.');
         }
         $seen = [];
         foreach ($months as $month) {
@@ -166,6 +181,21 @@ final readonly class PayrollSheetDocumentData
                 throw new \InvalidArgumentException('Měsíce mzdového listu nejsou jednoznačné.');
             }
             $seen[$month->month] = true;
+        }
+        $takenSeen = [];
+        foreach ($takenOverMonths as $row) {
+            $month = $row['month'] ?? null;
+            if (!is_int($month) || $month < 1 || $month > 12 || isset($seen[$month]) || isset($takenSeen[$month])) {
+                // Převzatý měsíc, který MyÚčto zároveň spočítalo, by se
+                // započetl dvakrát.
+                throw new \InvalidArgumentException('Převzatý měsíc mzdového listu není jednoznačný.');
+            }
+            $takenSeen[$month] = true;
+        }
+        foreach ($monthDetails as $month => $facts) {
+            if (!isset($seen[$month]) || !$facts instanceof PayrollFrozenMonthFacts) {
+                throw new \InvalidArgumentException('Měsíční údaje patří jen k vlastním měsícům.');
+            }
         }
         if (!in_array($annualSettlementStatus, [
             self::ANNUAL_SETTLEMENT_NOT_RECORDED,
@@ -342,7 +372,31 @@ final readonly class PayrollSheetDocumentData
             'tax_detail_complete' => $this->taxDetailComplete(),
             'carried_over' => $this->carriedOverTemplate(),
             'carried_over_assessed' => $this->carriedOverAssessed,
+            'employee_extras' => [
+                'birth_date' => $this->employeeExtras['birth_date'] ?? null,
+                'health_insurer' => $this->employeeExtras['health_insurer'] ?? null,
+            ],
+            'period_label' => $this->periodLabel(),
+            'taken_over_month_numbers' => array_map(
+                static fn (array $row): int => (int) $row['month'],
+                $this->takenOverMonths,
+            ),
+            'matrix' => PayrollSheetMatrix::build($this),
         ];
+    }
+
+    /** Období dokladu „01/2026 - 09/2026" přes vlastní i převzaté měsíce. */
+    public function periodLabel(): string
+    {
+        $all = [
+            ...array_map(static fn (PayrollSheetMonth $month): int => $month->month, $this->months),
+            ...array_map(static fn (array $row): int => (int) $row['month'], $this->takenOverMonths),
+        ];
+        if ($all === []) {
+            return '';
+        }
+
+        return sprintf('%02d/%d - %02d/%d', min($all), $this->taxYear, max($all), $this->taxYear);
     }
 
     /**

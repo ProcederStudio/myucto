@@ -9411,6 +9411,24 @@ export const payrollApi = {
       {},
       { headers: { 'Idempotency-Key': idempotencyKey } },
     ).then(response => response.data),
+  /** Přehled mezd za měsíc (všichni zaměstnanci) jako PDF; nearchivuje se. */
+  downloadMonthlyOverview: async (period: string): Promise<void> => {
+    const response = await api.get<Blob>('/payroll/documents/monthly-overview', {
+      params: { period },
+      responseType: 'blob',
+    })
+    const objectUrl = URL.createObjectURL(response.data)
+    try {
+      const anchor = document.createElement('a')
+      anchor.href = objectUrl
+      anchor.download = `prehled-mezd-${period}.pdf`
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+    } finally {
+      URL.revokeObjectURL(objectUrl)
+    }
+  },
   startPeriodExport,
   periodExportJob,
   downloadPeriodExportFile,
