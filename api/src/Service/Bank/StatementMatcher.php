@@ -589,14 +589,23 @@ final class StatementMatcher
                 ? (string) $row['card_last4']
                 : null;
             if ($cardLast4 !== null) {
-                $card = $this->matchPurchaseByCard($pdo, $supplierId, $cardLast4, abs($amount), (string) $row['posted_at'], $transactionId, $txCurrency);
+                $card = $this->matchPurchaseByCard(
+                    $pdo,
+                    $supplierId,
+                    $cardLast4,
+                    abs($amount),
+                    (string) $row['posted_at'],
+                    $transactionId,
+                    $txCurrency,
+                    \MyInvoice\Service\Bank\Card\CardPaymentCandidates::merchantNames($row['counterparty_name'] ?? null, $row['description'] ?? null),
+                );
                 if (($card['status'] ?? 'unmatched') !== 'unmatched' || !empty($card['requires_review'])) {
                     return $card;
                 }
             }
             // 3) karetní platby (bez VS) / VS bez shody → fuzzy dle částky + podobného
             //    názvu protistrany (u karet je název obchodníka odlišný od jména dodavatele).
-            $res = $this->matchPurchaseFuzzy($pdo, $supplierId, abs($amount), (string) ($row['counterparty_name'] ?? ''), (string) $row['posted_at'], $transactionId, $txCurrency, $cardLast4);
+            $res = $this->matchPurchaseFuzzy($pdo, $supplierId, abs($amount), (string) ($row['counterparty_name'] ?? ''), (string) $row['posted_at'], $transactionId, $txCurrency, $cardLast4, $row['description'] ?? null);
             $fuzzyReview = !empty($res['requires_review']) ? $res : null;
             if (($res['status'] ?? 'unmatched') !== 'unmatched'
                 || ($fuzzyReview !== null && (!$allowAmountDateFallback || !empty($vs)))) {
@@ -1201,8 +1210,11 @@ final class StatementMatcher
      * právě jeden takový — jinak je shoda nejednoznačná a necháme unmatched (radši ručně
      * než špatně). Confidence 60 + auto_partial = příznak ke kontrole.
      */
-    private function matchPurchaseFuzzy(\PDO $pdo, int $supplierId, float $absAmount, string $cpName, string $postedAt, int $transactionId, ?string $txCurrency, ?string $cardLast4 = null): array
+    private function matchPurchaseFuzzy(\PDO $pdo, int $supplierId, float $absAmount, string $cpName, string $postedAt, int $transactionId, ?string $txCurrency, ?string $cardLast4 = null, ?string $description = null): array
     {
+        $names = $cardLast4 !== null
+            ? \MyInvoice\Service\Bank\Card\CardPaymentCandidates::merchantNames($cpName, $description)
+            : [$cpName];
         // Měnu nefiltrujeme v SQL — částku porovnáváme přes expectedMatch (cizoměnová
         // faktura placená kartou z CZK účtu se přepočte kurzem faktury).
         $settled = PurchaseSettledExpr::settled('pi');
@@ -1231,8 +1243,11 @@ final class StatementMatcher
             if ($m === null || abs($absAmount - $m['expected']) > $m['exact']) {
                 continue; // částka (po přepočtu) musí sedět
             }
-            if ($this->nameSimilarity($cpName, (string) $r['vendor_name']) > 0.0) {
-                $similar[] = $r;
+            foreach ($names as $name) {
+                if ($this->nameSimilarity($name, (string) $r['vendor_name']) > 0.0) {
+                    $similar[] = $r;
+                    break;
+                }
             }
         }
         if (count($similar) !== 1) {
@@ -1329,7 +1344,8 @@ final class StatementMatcher
      * pouze tehdy, když si ho nemůže nárokovat pohyb jiné karty se stejnou částkou.
      * Doklad s jinou koncovkou kandidátem není nikdy (viz CardPaymentCandidates).
      */
-    private function matchPurchaseByCard(\PDO $pdo, int $supplierId, string $last4, float $absAmount, string $postedAt, int $transactionId, ?string $txCurrency): array
+    /** @param list<string> $merchantNames */
+    private function matchPurchaseByCard(\PDO $pdo, int $supplierId, string $last4, float $absAmount, string $postedAt, int $transactionId, ?string $txCurrency, array $merchantNames = []): array
     {
         $cards = $this->cardCandidates();
         $strong = [];
@@ -1400,7 +1416,78 @@ final class StatementMatcher
                 'card_last4' => $last4,
             ];
         }
+        if ($weak === []) {
+            $named = $this->matchPurchaseByCardMerchant($pdo, $supplierId, $last4, $absAmount, $postedAt, $transactionId, $txCurrency, $merchantNames);
+            if ($named !== null) {
+                return $named;
+            }
+        }
         return ['status' => 'unmatched', 'reason' => $weak === [] ? 'no_card_match' : 'ambiguous_card_match'];
+    }
+
+    /**
+     * Pohyb kartou → doklad bez koncovky karty, jehož dodavatel je obchodník z pohybu.
+     *
+     * Doklad, na kterém karta nestojí (Google Pay přečtený jako jiný způsob úhrady), se
+     * spáruje automaticky, jen když sedí všechno ostatní: název dodavatele sdílí významné
+     * slovo s obchodníkem, částka včetně zaokrouhlení sedí na haléř, datum je v okně karty
+     * a takový doklad je jediný. Stejnou částku si navíc nesmí nárokovat žádný jiný volný
+     * pohyb kartou (téže ani jiné karty), jinak by shoda podle jména párovala křížem.
+     *
+     * @param list<string> $merchantNames
+     * @return array<string,mixed>|null null = žádný jednoznačný doklad
+     */
+    private function matchPurchaseByCardMerchant(\PDO $pdo, int $supplierId, string $last4, float $absAmount, string $postedAt, int $transactionId, ?string $txCurrency, array $merchantNames): ?array
+    {
+        if ($merchantNames === []) {
+            return null;
+        }
+        $cards = $this->cardCandidates();
+        $named = [];
+        foreach ($cards->merchantDocuments($supplierId, $postedAt) as $r) {
+            $remaining = round((float) $r['amount_to_pay'] - (float) ($r['settled_amount'] ?? 0.0), 2);
+            if ($remaining <= 0.005) {
+                continue;
+            }
+            $m = $this->expectedMatch($remaining, (string) ($r['currency'] ?? self::LOCAL_CURRENCY), (float) ($r['exchange_rate'] ?: 0), $txCurrency);
+            if ($m === null || abs($absAmount - $m['expected']) > $m['exact']) {
+                continue;
+            }
+            $similar = false;
+            foreach ($merchantNames as $name) {
+                $similar = $similar || $this->nameSimilarity($name, (string) $r['vendor_name']) > 0.0;
+            }
+            if (!$similar || $this->isAdvancePaymentForFinal($supplierId, (int) $r['id'], $absAmount)) {
+                continue;
+            }
+            $named[] = $r;
+        }
+        if (count($named) !== 1
+            || $cards->competingTransactions($supplierId, $transactionId, $last4, $absAmount, $postedAt, true) > 0
+            || $cards->competingTransactions($supplierId, $transactionId, $last4, $absAmount, $postedAt, false) > 0) {
+            return null;
+        }
+        $pi = $named[0];
+        $this->begin($pdo);
+        try {
+            if (!$this->claimTransaction($pdo, $transactionId, ['unmatched'])) {
+                $this->rollBack($pdo);
+                return ['status' => 'unmatched', 'reason' => 'transaction_not_free'];
+            }
+            $pdo->prepare("UPDATE purchase_invoices SET status = 'paid', paid_at = ? WHERE id = ? AND supplier_id = ?")
+                ->execute([$postedAt, $pi['id'], $supplierId]);
+            PurchasePaymentMatchWriter::record($pdo, $supplierId, $transactionId, (int) $pi['id'], $absAmount, 'auto', 80);
+            $pdo->prepare(
+                "UPDATE bank_transactions SET match_status = 'auto_exact', matched_at = NOW()
+                  WHERE id = ? AND match_status = 'unmatched'"
+            )->execute([$transactionId]);
+            $this->commit($pdo);
+        } catch (\Throwable $e) {
+            $this->rollBackIfOpen($pdo);
+            throw $e;
+        }
+        $this->logPaymentMatch('purchase_invoice', (int) $pi['id'], $supplierId, 'auto_exact', $absAmount, '', $transactionId);
+        return ['status' => 'auto_exact', 'purchase_invoice_id' => (int) $pi['id'], 'card_last4' => $last4];
     }
 
     /**

@@ -64,6 +64,58 @@ final class CardPaymentCandidates
     }
 
     /**
+     * Otevřené doklady bez koncovky karty, které mohly být zaplacené kartou, i když to na
+     * nich nestojí (AI import přečte „Google Pay" jako jiný způsob, e-shop nechá převod).
+     * Kandidátem se stanou až shodou dodavatele s obchodníkem na pohybu
+     * ({@see \MyInvoice\Service\Bank\StatementMatcher}). Hotovost, dobírka, zápočet
+     * a inkaso kartou zaplacené nejsou.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function merchantDocuments(int $supplierId, string $postedAt): array
+    {
+        $settled = PurchaseSettledExpr::settled('pi');
+        $stmt = $this->db->pdo()->prepare(
+            "SELECT pi.id, pi.card_last4, pi.payment_method,
+                    COALESCE(pi.amount_to_pay, pi.total_with_vat, 0) + COALESCE(pi.rounding, 0) AS amount_to_pay,
+                    ({$settled}) AS settled_amount,
+                    pi.exchange_rate, cur.code AS currency, c.company_name AS vendor_name
+               FROM purchase_invoices pi
+               JOIN clients c ON c.id = pi.vendor_id AND c.supplier_id = pi.supplier_id
+          LEFT JOIN currencies cur ON cur.id = pi.currency_id
+              WHERE pi.supplier_id = ?
+                AND pi.status IN ('received','booked')
+                AND pi.document_kind <> 'tax_document'
+                AND pi.cash_register_id IS NULL
+                AND pi.card_last4 IS NULL
+                AND pi.payment_method IN ('card','other','bank_transfer')
+                AND DATEDIFF(?, COALESCE(pi.tax_date, pi.issue_date)) BETWEEN ? AND ?
+              ORDER BY pi.id"
+        );
+        $stmt->execute([$supplierId, $postedAt, -self::DAYS_AFTER_POSTING, self::DAYS_BEFORE_POSTING]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /**
+     * Obchodník z pohybu kartou. Banky ho dávají buď do jména protistrany, nebo (Creditas)
+     * do prvního řádku popisu, zatímco jménem protistrany je banka sama.
+     *
+     * @return list<string>
+     */
+    public static function merchantNames(?string $counterpartyName, ?string $description): array
+    {
+        $names = [];
+        if (trim((string) $counterpartyName) !== '') {
+            $names[] = trim((string) $counterpartyName);
+        }
+        $firstLine = trim((string) strtok((string) $description, "\r\n"));
+        if ($firstLine !== '') {
+            $names[] = $firstLine;
+        }
+        return $names;
+    }
+
+    /**
      * Počet JINÝCH dosud nespárovaných odchozích pohybů kartou téže firmy se stejnou
      * částkou v okně kolem data. $sameCard = true počítá pohyby téže karty (dvě stejné
      * platby), false pohyby jiných karet (kdo další si může doklad nárokovat).
