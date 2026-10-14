@@ -64,8 +64,17 @@ final class SyntheticPohodaPayroll
         return self::write($root, true, true);
     }
 
+    /**
+     * Totéž jako {@see self::writeWithReports()}, ale položka O01 je příplatek: druh `premium`
+     * by ji zařadil do 10332, hlášení PAMICA ji ale vykázala v 10331.
+     */
+    public static function writeWithPremiumReports(string $root): string
+    {
+        return self::write($root, true, false, 'Příplatek BOZP');
+    }
+
     /** Zapíše složku mezd `<IČO>_<rok>` s `91_mzdy.xml` do `$root` a vrátí cestu k souboru. */
-    public static function write(string $root, bool $reports = false, bool $registrations = false): string
+    public static function write(string $root, bool $reports = false, bool $registrations = false, string $o01Name = 'Odměna'): string
     {
         $dir = rtrim($root, '/\\') . '/' . self::ICO . '_' . self::YEAR;
         if (!is_dir($dir)) {
@@ -79,7 +88,7 @@ final class SyntheticPohodaPayroll
             }
             $x .= "</{$table}>";
         };
-        foreach ([[1, 'M01', 'Základní mzda měsíční'], [2, 'O01', 'Odměna'], [3, 'J03', 'Obědy'], [4, 'P01', 'Příplatek za přesčas'], [5, 'C01', 'Časová mzda']] as [$id, $cislo, $nazev]) {
+        foreach ([[1, 'M01', 'Základní mzda měsíční'], [2, 'O01', $o01Name], [3, 'J03', 'Obědy'], [4, 'P01', 'Příplatek za přesčas'], [5, 'C01', 'Časová mzda']] as [$id, $cislo, $nazev]) {
             $row('sMZslozky', ['ID' => $id, 'Cislo' => $cislo, 'Nazev' => $nazev]);
         }
         $row('sMZneprit', ['ID' => 1, 'Cislo' => 'V01', 'Nazev' => 'Dovolená']);

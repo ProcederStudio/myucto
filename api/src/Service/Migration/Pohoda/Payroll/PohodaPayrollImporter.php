@@ -547,6 +547,8 @@ final class PohodaPayrollImporter
             $bonusTargets = [];
             /** @var array<string,array{component_kind:string,frequency_kind:string,tax_treatment:string,jmhz_treatment:string}> $needsTarget */
             $needsTarget = [];
+            /** @var array<string,string> $kindTargets vlastní složka PAMICA => zařazení odhadnuté z druhu */
+            $kindTargets = [];
             foreach ($profile['components'] as $component) {
                 // Složku výchozího číselníku zakládá číselník se svou klasifikací; druh
                 // v profilu je jen náhradní. Osvobozený benefit zařazení do rozpadu nepotřebuje.
@@ -556,17 +558,33 @@ final class PohodaPayrollImporter
                 if (JmhzComponentSourceRule::issueCode($default['jmhz_treatment'], null, $default['tax_treatment'], $default['component_kind']) === null) {
                     continue;
                 }
-                if (PayrollComponentJmhzMappingDefaults::targetFor($component['code'], $default['component_kind'], $default['frequency_kind'], $default['tax_treatment']) === null) {
+                $kindTarget = PayrollComponentJmhzMappingDefaults::targetFor($component['code'], $default['component_kind'], $default['frequency_kind'], $default['tax_treatment']);
+                if ($kindTarget === null) {
                     $needsTarget[$component['code']] = $default;
+                } elseif (str_starts_with($component['code'], 'PAM_')
+                    && PayrollComponentJmhzMappingDefaults::targetForCode($component['code']) === null
+                ) {
+                    $kindTargets[$component['code']] = $kindTarget;
                 }
             }
             // Zařazení, které z druhu neplyne, PAMICA použila v odeslaných hlášeních: kolonka,
             // do které částku složky započetla, je její zařazení ({@see PohodaPayrollJmhzTargets}).
-            $reported = $needsTarget === [] ? [] : PohodaPayrollJmhzTargets::infer(
+            // U vlastních složek PAMICA je druh jen odhad z názvu položky, takže hlášení, která
+            // PAMICA za ně odeslala, mají přednost i před zařazením podle druhu.
+            $reported = $needsTarget === [] && $kindTargets === [] ? [] : PohodaPayrollJmhzTargets::infer(
                 $converter->itemAmounts(),
                 PohodaPayrollJmhzTargets::reports($file, $year),
-                array_map('strval', array_keys($needsTarget)),
+                array_map('strval', [...array_keys($needsTarget), ...array_keys($kindTargets)]),
             );
+            /** @var array<string,string> $replaceKindTargets kód => zařazení podle druhu, které hlášení PAMICA vyvrátila */
+            $replaceKindTargets = [];
+            foreach ($kindTargets as $code => $kindTarget) {
+                $code = (string) $code;
+                if (isset($reported[$code]) && $reported[$code] !== $kindTarget) {
+                    $bonusTargets[$code] = $reported[$code];
+                    $replaceKindTargets[$code] = $kindTarget;
+                }
+            }
             foreach ($needsTarget as $code => $default) {
                 $code = (string) $code;
                 if (isset($reported[$code])) {
@@ -835,7 +853,7 @@ final class PohodaPayrollImporter
                 }
             }
             // Složky odměn zakládá teprve zápis měsíců; zařazení do JMHZ až po něm.
-            $this->classifyBonuses($supplierId, $userOrNull, $bonusTargets, $reported, $protocol);
+            $this->classifyBonuses($supplierId, $userOrNull, $bonusTargets, $reported, $replaceKindTargets, $protocol);
             $protocol->finish(self::STEP_MONTHS);
             // Mzdy a položky roku už nikdo nečte, stačí den exportu.
             $exportedOn = $converter->exportedOn;
@@ -1262,17 +1280,24 @@ final class PohodaPayrollImporter
      * ({@see PohodaPayrollJmhzTargets}), u odměn, které hlášení nerozhodla, podle četnosti
      * ({@see self::bonusTarget()}). Složku založí číselník při prvním použití, takže
      * chybějící se založí tady; zařazení, které už složka má (zadala ho účetní), převod nemění.
+     * Výjimkou je zařazení, které aplikace sama odhadla z druhu vlastní složky PAMICA a které
+     * hlášení PAMICA vyvrátila: to účetní nezadala, takže ho převod opraví.
      *
      * @param array<string,string> $targets kód složky => atribut JMHZ
      * @param array<string,string> $reported zařazení převzatá z hlášení
+     * @param array<string,string> $replaceKindTargets kód složky => zařazení podle druhu, které se nahradí
      */
-    private function classifyBonuses(int $supplierId, ?int $userId, array $targets, array $reported, ImportProtocol $protocol): void
+    private function classifyBonuses(int $supplierId, ?int $userId, array $targets, array $reported, array $replaceKindTargets, ImportProtocol $protocol): void
     {
         if ($targets === []) {
             return;
         }
         $find = $this->db->pdo()->prepare(
             'SELECT id FROM payroll_component_definitions WHERE supplier_id = ? AND code = ? ORDER BY valid_from DESC, id DESC LIMIT 1'
+        );
+        $setByApplication = $this->db->pdo()->prepare(
+            'SELECT 1 FROM payroll_component_jmhz_mappings
+              WHERE supplier_id = ? AND id = ? AND created_by IS NULL AND updated_by IS NULL'
         );
         $done = ['reports' => [], 'frequency' => []];
         foreach ($targets as $code => $target) {
@@ -1282,8 +1307,21 @@ final class PohodaPayrollImporter
                 continue;
             }
             try {
-                if ($this->jmhzMappings->find($supplierId, (int) $componentId) === null) {
+                $mapping = $this->jmhzMappings->find($supplierId, (int) $componentId);
+                if ($mapping === null) {
                     $this->jmhzMappings->put($supplierId, (int) $componentId, $target, null, $userId);
+                } elseif (isset($replaceKindTargets[$code])
+                    && (bool) $mapping['is_active']
+                    && ($mapping['is_current_package'] ?? false) === true
+                    && (string) $mapping['target_attribute_id'] === $replaceKindTargets[$code]
+                ) {
+                    $setByApplication->execute([$supplierId, (int) $mapping['id']]);
+                    if ($setByApplication->fetchColumn() === false) {
+                        continue;
+                    }
+                    $this->jmhzMappings->put($supplierId, (int) $componentId, $target, (int) $mapping['row_version'], $userId);
+                } elseif ((string) $mapping['target_attribute_id'] !== $target) {
+                    continue;
                 }
                 $done[isset($reported[$code]) ? 'reports' : 'frequency'][] = $code . ' → ' . $target;
             } catch (\InvalidArgumentException|\DomainException|\OutOfBoundsException $e) {

@@ -147,6 +147,35 @@ final class PohodaPayrollJmhzImportTest extends TestCase
         self::assertSame(1, $this->scalar("SELECT COUNT(*) FROM payroll_employment_external_ids WHERE supplier_id = ? AND employment_id = ? AND identifier_type = 'id_ppv'", [$supplierId, $petr['id']]));
     }
 
+    /**
+     * Vlastní složka PAMICA, jejíž druh plyne jen z názvu položky: zařazení podle druhu
+     * (příplatek → 10332) nahradí to, co PAMICA vykázala v odeslaných hlášeních.
+     */
+    public function testReportsOverrideKindGuessForOwnPamicaComponent(): void
+    {
+        $supplierId = $this->payrollSupplier();
+        $file = SyntheticPohodaPayroll::writeWithPremiumReports($this->tmp);
+
+        $protocol = $this->importer->run($supplierId, $this->userId, $file, SyntheticPohodaPayroll::YEAR, false, null, null, null, true, startDecision: PohodaPayrollImporter::START_KEEP);
+        self::assertFalse($protocol->hasErrors(), $this->explain($protocol));
+        $target = "SELECT CAST(m.target_attribute_id AS UNSIGNED) FROM payroll_component_jmhz_mappings m
+                     JOIN payroll_component_definitions c ON c.id = m.component_definition_id
+                    WHERE m.supplier_id = ? AND c.code = 'PAM_O01' AND m.is_active = 1";
+        self::assertSame(10331, $this->scalar($target, [$supplierId]), $this->explain($protocol));
+        self::assertStringContainsString('PAM_O01 → 10331', self::messages($protocol, PohodaPayrollImporter::STEP_MONTHS)['components_jmhz_from_reports'] ?? '');
+
+        // Zařazení, které zadala účetní, opakovaný převod nepřepíše.
+        $this->db->pdo()->prepare(
+            "UPDATE payroll_component_jmhz_mappings m
+               JOIN payroll_component_definitions c ON c.id = m.component_definition_id
+                SET m.target_attribute_id = '10332', m.updated_by = ?
+              WHERE m.supplier_id = ? AND c.code = 'PAM_O01'",
+        )->execute([$this->userId, $supplierId]);
+        $again = $this->importer->run($supplierId, $this->userId, $file, SyntheticPohodaPayroll::YEAR, false, null, null, null, true, startDecision: PohodaPayrollImporter::START_KEEP);
+        self::assertFalse($again->hasErrors(), $this->explain($again));
+        self::assertSame(10332, $this->scalar($target, [$supplierId]));
+    }
+
     public function testIdentifiersFromReportsNeedConfirmation(): void
     {
         $supplierId = $this->payrollSupplier();
