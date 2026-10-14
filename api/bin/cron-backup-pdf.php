@@ -76,7 +76,7 @@ $sources = [
     ],
     // Originální PDF faktur převzatých z iDokladu a Fakturoidu. Znovu vyrobit nejdou,
     // aplikace je jen zobrazuje; bez nich po obnově zůstane u faktury prázdný odkaz.
-    [\MyInvoice\Infrastructure\Config\RuntimePaths::storage('invoices-imported'), null, 'storage/invoices-imported'],
+    [(string) ($config->get('invoice.import_archive_storage', '') ?: \MyInvoice\Infrastructure\Config\RuntimePaths::storage('invoices-imported')), null, 'storage/invoices-imported'],
     [\MyInvoice\Infrastructure\Config\RuntimePaths::storage('work-reports'), ['pdf'], 'storage/work-reports'],
     // Přijaté faktury — archive PDF od dodavatelů (fáze 1 integrace forku) + sources/
     // se strojovými originály. Default storage/purchase-invoices; pokud user nastaví
