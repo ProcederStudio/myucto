@@ -2050,6 +2050,17 @@ final class AttendanceImportService
     }
 
     /**
+     * Znovu schválí převzaté měsíce dávky, jejichž pracovní souhrn zastaral
+     * ({@see \MyInvoice\Service\Payroll\Time\PayrollTimeImportApprovalService::refreshStale()}).
+     *
+     * @return array{refreshed:int,exceptions:list<array{employment_id:int,code:string,message:string}>}
+     */
+    public function refreshTakenOverBatch(int $supplierId, int $importId, ?int $userId): array
+    {
+        return $this->timeApprovals->refreshStale($supplierId, $importId, $userId);
+    }
+
+    /**
      * @param array<string,mixed> $batch
      * @param list<array<string,mixed>> $skipped
      * @param array{adopted:int,conflicts:list<array<string,mixed>>,runs_needing_refresh:list<array<string,mixed>>} $wages

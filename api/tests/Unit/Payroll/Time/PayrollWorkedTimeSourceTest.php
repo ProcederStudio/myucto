@@ -91,6 +91,31 @@ final class PayrollWorkedTimeSourceTest extends TestCase
         self::assertNull($suggestions['dpn_with_employer_compensation_hours']);
     }
 
+    /**
+     * Nemoc a ošetřovné převod zapisuje s daty, souhrn importu je nenese; jejich hodiny
+     * z kalendáře se přidají k dovolené ze souhrnu, jinak by ELDP nemělo z čeho vzniknout.
+     */
+    public function testDatedAbsenceHoursJoinTheImportSummary(): void
+    {
+        $suggestions = Builder::importConditionalSuggestions(
+            ['worked_hours' => 120_000, 'vacation_hours' => 8_000],
+            ['dpn_with_employer_compensation' => 960, 'dpn_without_employer_compensation' => 480, 'care' => 450],
+        );
+
+        self::assertSame('8', $suggestions['vacation_hours']);
+        self::assertSame('16', $suggestions['dpn_with_employer_compensation_hours']);
+        self::assertSame('8', $suggestions['dpn_without_employer_compensation_hours']);
+        self::assertSame('7.5', $suggestions['care_hours']);
+        self::assertSame('39.5', $suggestions['unworked_total_hours']);
+        // Placené: dovolená a nemoc v okně náhrady, ne nemoc za oknem ani ošetřovné.
+        self::assertSame('24', $suggestions['unworked_paid_hours']);
+        self::assertTrue($suggestions['unworked_hours_occurred']);
+        self::assertFalse($suggestions['work_obstacles_occurred']);
+
+        self::assertNull(Builder::importConditionalSuggestions(['vacation_hours' => 8_000], null)['vacation_hours'],
+            'Nepřítomnost, kterou nejde spolehlivě odvodit, nenavrhuje nic.');
+    }
+
     public function testHoursNeedingAbsenceDatesSuggestNothing(): void
     {
         $values = ['worked_hours' => 150_000, 'vacation_hours' => 8_000, 'sick_hours' => 16_000];

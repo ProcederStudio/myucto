@@ -945,6 +945,14 @@ final class PohodaPayrollImporter
                     $this->recurringWages($supplierId, $userOrNull, (string) $period, $approveTakenOver, $protocol);
                     $this->zeroInputs($supplierId, $userOrNull, (string) $period, $protocol);
                 }
+                // Pracovní měsíce schválené dřív, než převod zapsal nemoci, ošetřovné nebo
+                // neomluvené absence, mají souhrn bez jejich hodin a evidenční list by měsíční
+                // hlášení zastavil. Schválí se znovu z aktuálních zdrojů.
+                if ($approveTakenOver) {
+                    foreach ($compensationBatches as $period => $batchId) {
+                        $this->refreshWorkSummaries($supplierId, $userOrNull, (string) $period, (int) $batchId, $protocol);
+                    }
+                }
                 $protocol->finish(self::STEP_SICKNESS);
             }
 
@@ -1133,6 +1141,29 @@ final class PohodaPayrollImporter
         }
         $this->reportTimeApproval($period, $result['time'] ?? null, $protocol);
         $this->approveTakenOverInputs($supplierId, $userId, $period, (int) $result['input_import_id'], $protocol);
+    }
+
+    private function refreshWorkSummaries(int $supplierId, ?int $userId, string $period, int $batchId, ImportProtocol $protocol): void
+    {
+        if ($batchId <= 0) {
+            return;
+        }
+        try {
+            $result = $this->attendance->refreshTakenOverBatch($supplierId, $batchId, $userId);
+        } catch (\InvalidArgumentException|\DomainException|\RuntimeException $e) {
+            $protocol->warn(self::STEP_SICKNESS, 'work_summary_refresh_failed', "{$period}: " . $e->getMessage(), ['period' => $period]);
+            return;
+        }
+        if ($result['refreshed'] > 0) {
+            $protocol->count(self::STEP_SICKNESS, 'time_months_refreshed', $result['refreshed']);
+        }
+        if ($result['exceptions'] !== []) {
+            $protocol->warn(self::STEP_SICKNESS, 'work_summary_refresh_failed', sprintf(
+                '%s: pracovní souhrn %d vztahů se po doplnění nepřítomností nepodařilo schválit znovu (první: %s). '
+                . 'Měsíční hlášení u nich zastaví evidenční list; měsíc otevřete a schvalte v Mzdy → Pracovní doba.',
+                $period, count($result['exceptions']), $result['exceptions'][0]['message'],
+            ), ['period' => $period]);
+        }
     }
 
     /**

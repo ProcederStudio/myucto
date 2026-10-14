@@ -117,9 +117,13 @@ final class AttendanceTimeSummaryTest extends TestCase
         self::assertSame(13 * 240, $result['fund_minutes']);
         self::assertSame('2026-07-15', $this->time->calendar($this->supplierId, $employmentId, '2026-07-15')['valid_from'] ?? null);
         self::assertNull($this->provisioner->fundCheck($this->supplierId, $employmentId, self::JULY, 52_000));
-        $mismatch = $this->provisioner->fundCheck($this->supplierId, $employmentId, self::JULY, 88_000);
+        self::assertNull(
+            $this->provisioner->fundCheck($this->supplierId, $employmentId, self::JULY, 88_000),
+            'Fond celého měsíce (22 dnů po 4 h) je týž rozvrh, jen bez omezení na dny trvání vztahu.',
+        );
+        $mismatch = $this->provisioner->fundCheck($this->supplierId, $employmentId, self::JULY, 70_000);
         self::assertSame('import_fund_mismatch', $mismatch['code'] ?? null);
-        self::assertStringContainsString('88.00 h', (string) $mismatch['message']);
+        self::assertStringContainsString('70.00 h', (string) $mismatch['message']);
         self::assertStringContainsString('52.00 h', (string) $mismatch['message']);
     }
 

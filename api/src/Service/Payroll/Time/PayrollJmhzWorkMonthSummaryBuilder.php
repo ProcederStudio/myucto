@@ -558,7 +558,10 @@ final class PayrollJmhzWorkMonthSummaryBuilder
             ]]
             : [];
         $values = is_array($summary['values'] ?? null) ? $summary['values'] : [];
-        $conditional = self::importConditionalSuggestions($values);
+        $conditional = self::importConditionalSuggestions(
+            $values,
+            $this->datedAbsenceMinutes($supplierId, $employmentId, $periodStart, $periodEnd->format('Y-m-d'), $absences, $calendars),
+        );
         $source = [
             'schema_version' => self::IMPORT_SUMMARY_DERIVATION_VERSION,
             'specification' => self::specification(),
@@ -670,6 +673,64 @@ final class PayrollJmhzWorkMonthSummaryBuilder
     }
 
     /**
+     * Minuty nepřítomností, které souhrn importu docházky nenese, z pracovního
+     * kalendáře vztahu ({@see PayrollJmhzAbsenceHoursDeriver::deriveFromCalendar()}):
+     * měsíc z importu směny nepublikuje a náhradu mzdy v něm počítá kalendářní cesta.
+     * Dovolenou a překážky v práci nese souhrn importu sám, ty se tu nepočítají, aby
+     * se hodiny nesečetly dvakrát.
+     *
+     * @param list<array<string,mixed>> $absences
+     * @param list<array<string,mixed>> $calendars
+     * @return array<string,int>|null kbelík → minuty; `null` = nejdou spolehlivě odvodit
+     */
+    private function datedAbsenceMinutes(int $supplierId, int $employmentId, string $periodStart, string $periodEnd, array $absences, array $calendars): ?array
+    {
+        $summaryCarried = ['vacation', 'employee_obstacle', 'employer_obstacle'];
+        $dated = array_values(array_filter(
+            $absences,
+            static fn (array $absence): bool => !in_array($absence['absence_type'] ?? null, $summaryCarried, true),
+        ));
+        if ($dated === []) {
+            return [];
+        }
+        // Plánované minuty dne z kalendáře vztahu; svátek jen tam, kde se počítá (nemoc).
+        $dayMinutes = static function (string $iso, bool $holidays) use ($calendars): int {
+            $matching = array_values(array_filter(
+                $calendars,
+                static fn (array $calendar): bool => $calendar['valid_from'] <= $iso
+                    && ($calendar['valid_to'] === null || $calendar['valid_to'] >= $iso),
+            ));
+            if (count($matching) !== 1) {
+                throw new \UnexpectedValueException("Datum {$iso} není pokryto právě jedním pracovním kalendářem.");
+            }
+            $weekday = (new \DateTimeImmutable($iso))->format('N');
+            $planned = (int) ($matching[0]['week_pattern'][$weekday] ?? $matching[0]['week_pattern'][(int) $weekday] ?? 0);
+            foreach ($matching[0]['days'] as $day) {
+                if ($day['day_date'] !== $iso) {
+                    continue;
+                }
+                if ($day['day_kind'] === 'holiday') {
+                    return $holidays ? $planned : 0;
+                }
+
+                return (int) $day['planned_minutes'];
+            }
+
+            return $planned;
+        };
+        try {
+            $derived = $this->absenceHours->deriveFromCalendar($supplierId, $employmentId, $periodStart, $periodEnd, $dated, $dayMinutes);
+        } catch (\UnexpectedValueException) {
+            return null;
+        }
+        if (!$derived['supported']) {
+            return null;
+        }
+
+        return array_diff_key($derived['minutes'], array_flip(['vacation', 'employee_obstacle_paid', 'employer_obstacle']));
+    }
+
+    /**
      * Návrh podmíněných bloků ze souhrnu importu docházky.
      *
      * Převezme jen hodiny, ke kterým hlášení data nepřítomnosti nepotřebuje
@@ -678,10 +739,18 @@ final class PayrollJmhzWorkMonthSummaryBuilder
      * částečný návrh by v úhrnu 10275 tiše chyběl, stejně jako u
      * {@see conditionalSuggestions()}.
      *
+     * Nepřítomnosti, které souhrn importu nenese a převod je zapsal s daty (nemoc,
+     * ošetřovné, mateřská, otcovská, rodičovská, neplacené volno, neomluvená absence),
+     * přidá z `$datedMinutes`: hodiny odvozené z publikovaných směn stejně jako
+     * u měsíce z docházky ({@see datedAbsenceMinutes()}). Bez nich by ELDP k těmto
+     * nepřítomnostem nemělo hodiny a měsíční hlášení by se zastavilo.
+     *
      * @param array<string,mixed> $values význam → millihodiny
+     * @param array<string,int>|null $datedMinutes kbelík → minuty datovaných
+     *        nepřítomností; `null` = nejdou spolehlivě odvodit, nenavrhuje se nic
      * @return array<string,string|bool|null>
      */
-    public static function importConditionalSuggestions(array $values): array
+    public static function importConditionalSuggestions(array $values, ?array $datedMinutes = []): array
     {
         $buckets = [
             'unworked_total_hours' => 0,
@@ -699,7 +768,7 @@ final class PayrollJmhzWorkMonthSummaryBuilder
             'unexcused_hours' => 0,
             'compensatory_time_off_hours' => 0,
         ];
-        if (self::importHoursRequiringDates($values) !== []) {
+        if (self::importHoursRequiringDates($values) !== [] || $datedMinutes === null) {
             return array_map(static fn (): null => null, $buckets) + [
                 'unworked_hours_occurred' => null,
                 'work_obstacles_occurred' => null,
@@ -709,9 +778,22 @@ final class PayrollJmhzWorkMonthSummaryBuilder
             $millihours = $values[$meaning] ?? 0;
             $buckets[$block . '_hours'] += is_int($millihours) && $millihours > 0 ? $millihours : 0;
         }
+        $dated = 0;
+        foreach ($datedMinutes as $bucket => $minutes) {
+            // Minuty, které se na celé millihodiny nepřevedou, by úhrn 10275 tiše zkreslily.
+            if ($minutes <= 0) {
+                continue;
+            }
+            if (($minutes * 1000) % 60 !== 0 || !array_key_exists($bucket . '_hours', $buckets)) {
+                return self::importConditionalSuggestions([], null);
+            }
+            $buckets[$bucket . '_hours'] += intdiv($minutes * 1000, 60);
+            $dated += intdiv($minutes * 1000, 60);
+        }
         $obstacles = $buckets['employee_obstacle_paid_hours'] + $buckets['employer_obstacle_hours'];
-        $buckets['unworked_paid_hours'] = $buckets['vacation_hours'] + $obstacles;
-        $buckets['unworked_total_hours'] = $buckets['unworked_paid_hours'];
+        $buckets['unworked_paid_hours'] = $buckets['vacation_hours'] + $obstacles
+            + $buckets['dpn_with_employer_compensation_hours'];
+        $buckets['unworked_total_hours'] = $buckets['vacation_hours'] + $obstacles + $dated;
 
         return array_map(
             static fn (int $millihours): ?string => $millihours === 0 ? null : self::millihoursSuggestion($millihours),

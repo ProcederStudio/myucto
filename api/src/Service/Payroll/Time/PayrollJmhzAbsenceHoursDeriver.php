@@ -236,6 +236,76 @@ final class PayrollJmhzAbsenceHoursDeriver
     }
 
     /**
+     * Týž rozpad jako {@see derive()}, ale z pracovního kalendáře vztahu místo
+     * publikovaných směn. Pro měsíc s docházkou ze souhrnu importu: směny se v něm
+     * nepublikují a náhrada mzdy se počítá kalendářní cestou, takže hodiny
+     * nepřítomností musí vzniknout ze stejného fondu. Hranice nepřítomnosti a okno
+     * náhrady při nemoci (§ 192 ZP) bere z {@see PayrollAbsenceRepository::absenceBounds()},
+     * jedné pravdy pro náhradu, krácení i hlášení.
+     *
+     * @param list<array<string,mixed>> $absences
+     * @param callable(string,bool):int $dayMinutes plánované minuty dne podle kalendáře;
+     *        druhý argument říká, zda se počítá i svátek (u nemoci ano, § 192 odst. 1 ZP)
+     * @return array{supported:bool,minutes:array<string,int>,total:int,paid:int}
+     */
+    public function deriveFromCalendar(
+        int $supplierId,
+        int $employmentId,
+        string $periodStart,
+        string $periodEnd,
+        array $absences,
+        callable $dayMinutes,
+    ): array {
+        $lastDay = (new \DateTimeImmutable($periodEnd))->modify('-1 day')->format('Y-m-d');
+        $buckets = self::EMPTY_BUCKETS;
+        $sum = static function (\DateTimeImmutable $from, \DateTimeImmutable $to, bool $holidays) use ($periodStart, $lastDay, $dayMinutes): int {
+            $minutes = 0;
+            for ($day = $from; $day <= $to; $day = $day->modify('+1 day')) {
+                $iso = $day->format('Y-m-d');
+                if ($iso >= $periodStart && $iso <= $lastDay) {
+                    $minutes += $dayMinutes($iso, $holidays);
+                }
+            }
+
+            return $minutes;
+        };
+        foreach ($absences as $absence) {
+            $type = $absence['absence_type'] ?? null;
+            $bucket = is_string($type) ? (self::TYPE_BUCKETS[$type] ?? null) : null;
+            if ($bucket === null
+                || ($absence['status'] ?? null) !== 'approved'
+                || ($absence['correction_pending'] ?? false) === true
+            ) {
+                return self::unsupported();
+            }
+            $row = $absence + ['supplier_id' => $supplierId, 'employment_id' => $employmentId];
+            if ($bucket !== 'sickness') {
+                $bounds = $this->absences->absenceBounds($row, false);
+                $buckets[$bucket] += $sum($bounds['from'], $bounds['to'], false);
+                continue;
+            }
+            // Navazující část dlouhé nemoci (pokračování z předchozího měsíce) vlastní
+            // událost nemá. Za oknem náhrady na nároku ani na prvním dni nezáleží, takže
+            // jde odvodit; zasahuje-li do měsíce okno, bez události se nehádá.
+            $event = $this->sicknessEvent($supplierId, $absence);
+            $bounds = $this->absences->absenceBounds($row, $event['first_day_fully_worked'] ?? false);
+            $window = $sum($bounds['from'], $bounds['window_to'], true);
+            if ($event === null && $window > 0) {
+                return self::unsupported();
+            }
+            $windowBucket = ($event['eligible'] ?? false) ? 'dpn_with_employer_compensation' : 'dpn_without_employer_compensation';
+            $buckets[$windowBucket] += $window;
+            $buckets['dpn_without_employer_compensation'] += $sum(
+                max($bounds['from'], $bounds['window_to']->modify('+1 day')),
+                $bounds['to'],
+                true,
+            );
+        }
+
+        return self::result($buckets);
+    }
+
+    /**
      * @param list<array{shift_id:?int,local_date:string,planned_minutes:int,eligible_minutes:int}> $segments
      */
     private function minutesInMonth(array $segments, string $from, string $to): int

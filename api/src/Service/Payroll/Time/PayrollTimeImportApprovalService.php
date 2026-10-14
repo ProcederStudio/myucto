@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MyInvoice\Service\Payroll\Time;
 
+use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\Payroll\PayrollAttendanceImportRepository;
 use MyInvoice\Repository\Payroll\PayrollTimeConflictException;
 use MyInvoice\Repository\Payroll\PayrollTimeLockedException;
@@ -69,6 +70,7 @@ final class PayrollTimeImportApprovalService
     ];
 
     public function __construct(
+        private readonly Connection $db,
         private readonly PayrollAttendanceImportRepository $imports,
         private readonly PayrollTimeRepository $time,
         private readonly PayrollTimeImportSummaryWriter $summaries,
@@ -219,6 +221,73 @@ final class PayrollTimeImportApprovalService
                         . 'nepovinný údaj 10267 nevyplněný.',
                 );
             }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Znovu schválí měsíce dávky, jejichž pracovní souhrn po schválení zastaral: převod
+     * zapisuje datované nepřítomnosti (nemoc, ošetřovné, neomluvená absence) až po
+     * schválení docházky, a souhrn bez jejich hodin by zastavil evidenční list v měsíčním
+     * hlášení. Měsíc se auditovaně otevře a schválí z aktuálního náhledu; měsíc, který
+     * už drží mzdový běh nebo jehož náhled nejde čistě schválit, zůstane, jak je.
+     *
+     * @return array{refreshed:int,exceptions:list<array{employment_id:int,code:string,message:string}>}
+     */
+    public function refreshStale(int $supplierId, int $importId, ?int $userId): array
+    {
+        $batch = $this->batch($supplierId, $importId);
+        $periodStart = $batch['period'] . '-01';
+        $employments = [];
+        foreach ($this->imports->batchRows($supplierId, $importId) as $row) {
+            if (in_array((string) $row['meaning'], AttendanceMeaning::HOURS, true) && $row['employment_id'] !== null) {
+                $employments[(int) $row['employment_id']] = true;
+            }
+        }
+        $result = ['refreshed' => 0, 'exceptions' => []];
+        foreach (array_keys($employments) as $employmentId) {
+            $month = $this->time->monthState($supplierId, $employmentId, $periodStart);
+            $summary = $this->time->importSummary($supplierId, $employmentId, $periodStart);
+            if (($month['status'] ?? null) !== 'approved' || ($month['work_source'] ?? null) !== 'import_summary'
+                || ($summary['attendance_import_id'] ?? null) !== $importId) {
+                continue;
+            }
+            $preview = $this->workSummary->preview($supplierId, $employmentId, $periodStart);
+            $approved = $this->time->approvedWorkSummarySha($supplierId, $employmentId, $periodStart);
+            if ($approved === null || hash_equals($approved, (string) $preview['source_snapshot_sha256'])) {
+                continue;
+            }
+            [$code, $message] = self::previewRefusal($preview);
+            if ($code !== null) {
+                $result['exceptions'][] = ['employment_id' => $employmentId, 'code' => $code, 'message' => (string) $message];
+                continue;
+            }
+            // Otevření a nové schválení jako jeden krok: když schválení neprojde, měsíc
+            // zůstane schválený s dosavadním souhrnem, ne otevřený.
+            $pdo = $this->db->pdo();
+            $outer = $pdo->inTransaction();
+            $savepoint = 'work_summary_refresh_' . bin2hex(random_bytes(4));
+            $outer ? $pdo->exec("SAVEPOINT {$savepoint}") : $pdo->beginTransaction();
+            try {
+                $this->time->reopenMonth($supplierId, $employmentId, $periodStart, (int) $month['row_version'],
+                    'Převod doplnil nepřítomnosti, pracovní souhrn se schvaluje znovu.', $userId);
+                // Nová revize otevřeného měsíce souhrn importu nemá; zápis dávky je idempotentní
+                // a schválené měsíce ostatních vztahů nechá být.
+                $this->summaries->writeFromBatch($supplierId, $importId, $userId);
+                $month = $this->time->monthState($supplierId, $employmentId, $periodStart);
+                $preview = $this->workSummary->preview($supplierId, $employmentId, $periodStart);
+                $this->time->approveMonth($supplierId, $employmentId, $periodStart, (int) ($month['row_version'] ?? 0),
+                    self::confirmationInput($preview, $importId), $userId, PayrollJmhzWorkMonthSummaryBuilder::IMPORT_BULK_CONFIRMATION);
+                $outer ? $pdo->exec("RELEASE SAVEPOINT {$savepoint}") : $pdo->commit();
+            } catch (PayrollTimeLockedException|PayrollTimeConflictException|PayrollJmhzWorkSummaryConflictException|\InvalidArgumentException|\DomainException $e) {
+                $outer ? $pdo->exec("ROLLBACK TO SAVEPOINT {$savepoint}") : $pdo->rollBack();
+                $issues = array_column((array) ($preview['issues'] ?? []), 'message');
+                $result['exceptions'][] = ['employment_id' => $employmentId, 'code' => 'refresh_failed',
+                    'message' => trim($e->getMessage() . ' ' . implode(' ', $issues))];
+                continue;
+            }
+            ++$result['refreshed'];
         }
 
         return $result;

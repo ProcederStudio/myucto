@@ -1111,6 +1111,22 @@ final class PayrollTimeRepository
             ?? throw new \RuntimeException('Otevřený měsíc se nepodařilo načíst.');
     }
 
+    /** Otisk zdrojů posledního schváleného pracovního souhrnu měsíce pro JMHZ, `null` bez souhrnu. */
+    public function approvedWorkSummarySha(int $supplierId, int $employmentId, string $periodStart): ?string
+    {
+        $stmt = $this->db->pdo()->prepare(
+            'SELECT source_snapshot_sha256
+               FROM payroll_jmhz_work_month_revisions
+              WHERE supplier_id = ? AND employment_id = ? AND period_start = ?
+              ORDER BY id DESC
+              LIMIT 1'
+        );
+        $stmt->execute([$supplierId, $employmentId, $periodStart]);
+        $sha = $stmt->fetchColumn();
+
+        return is_string($sha) && $sha !== '' ? $sha : null;
+    }
+
     /** @return array<string,mixed>|null */
     public function monthState(
         int $supplierId,
