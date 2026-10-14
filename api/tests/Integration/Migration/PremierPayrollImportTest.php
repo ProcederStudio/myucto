@@ -544,13 +544,19 @@ final class PremierPayrollImportTest extends TestCase
         self::assertSame([['user_verified']], $this->fetch("SELECT a.source_kind FROM payroll_institution_accounts a
             JOIN payroll_institutions i ON i.id = a.institution_id WHERE a.supplier_id = ? AND i.institution_type = 'other_recipient'", $supplierId));
 
-        // Neověřený účet příjemce z dřívějšího převodu opakovaný převod ověří.
+        // Kód příjemce jde do platební reference, která připustí jen [A-Z0-9._-].
+        $code = (string) $this->fetch("SELECT institution_code FROM payroll_institutions WHERE supplier_id = ? AND institution_type = 'other_recipient'", $supplierId)[0][0];
+        self::assertMatchesRegularExpression('/^[A-Z0-9][A-Z0-9._-]{0,31}$/D', $code);
+
+        // Neověřený účet a kód s dvojtečkou z dřívějšího převodu opakovaný převod napraví.
         $this->db->pdo()->prepare("UPDATE payroll_institution_accounts a JOIN payroll_institutions i ON i.id = a.institution_id
             SET a.source_kind = 'imported', a.row_version = a.row_version + 1 WHERE a.supplier_id = ? AND i.institution_type = 'other_recipient'")->execute([$supplierId]);
+        $this->db->pdo()->prepare("UPDATE payroll_institutions SET institution_code = ? WHERE supplier_id = ? AND institution_type = 'other_recipient'")
+            ->execute([str_starts_with($code, 'ICO-') ? 'ico:' . substr($code, 4) : 'premier:' . strtolower(substr($code, strpos($code, '-') + 1)), $supplierId]);
         $again = $this->importer->run($supplierId, $this->userId, $backup, SyntheticPremierBackup::YEAR2, false);
         self::assertFalse($again->hasErrors(), $this->explain($again));
         self::assertSame(2, self::stepCounts($again, 'payroll')['deductions_existing'] ?? 0, 'Opakovaný převod srážky nezdvojí.');
-        self::assertSame([['user_verified']], $this->fetch("SELECT a.source_kind FROM payroll_institution_accounts a
+        self::assertSame([['user_verified', $code]], $this->fetch("SELECT a.source_kind, i.institution_code FROM payroll_institution_accounts a
             JOIN payroll_institutions i ON i.id = a.institution_id WHERE a.supplier_id = ? AND i.institution_type = 'other_recipient'", $supplierId));
     }
 

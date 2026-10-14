@@ -115,6 +115,8 @@ final class PayrollTakeoverDeductionsWriter
                         fn (): array => $this->settle($supplierId, (int) $done[$reference], $record, $this->caseAccount($supplierId, (int) $done[$reference]), $userId, $policy));
                 }
                 if ($record['target'] !== 'voluntary' && is_array($record['recipient'])) {
+                    [$code, $legacy] = self::recipientCodes($record['recipient'], $policy);
+                    $this->renameCaseRecipient($supplierId, (int) $done[$reference], $legacy, $code);
                     $account = $this->caseAccount($supplierId, (int) $done[$reference]);
                     [$verified, $note] = $this->recipientVerification($supplierId, $record, $policy);
                     if ($account !== null && $verified) {
@@ -378,6 +380,44 @@ final class PayrollTakeoverDeductionsWriter
         }), 0, 500)];
     }
 
+    /**
+     * Kód příjemce v katalogu institucí: IČO, kde ho zdroj má, jinak stabilní otisk jména
+     * a účtu. Kód jde do platební reference, která připustí jen `[A-Z0-9._-]` do 32 znaků.
+     * Druhý prvek je kód, který zakládal dřívější převod (s dvojtečkou, platby ho odmítnou).
+     *
+     * @param array<string,mixed> $recipient
+     * @return array{0:string,1:string}
+     */
+    private static function recipientCodes(array $recipient, PayrollTakeoverPolicy $policy): array
+    {
+        $hash = substr(hash('sha256', $recipient['name'] . '|' . $recipient['account'] . '/' . $recipient['bank_code']), 0, 24);
+        $ico = is_string($recipient['ico'] ?? null) ? (string) preg_replace('/[^0-9A-Za-z]/', '', $recipient['ico']) : '';
+        $source = strtoupper(substr((string) preg_replace('/[^0-9A-Za-z]/', '', $policy->sourceKey), 0, 7));
+
+        return [
+            $ico !== '' ? 'ICO-' . strtoupper($ico) : $source . '-' . strtoupper($hash),
+            is_string($recipient['ico'] ?? null) ? 'ico:' . $recipient['ico'] : $policy->sourceKey . ':' . $hash,
+        ];
+    }
+
+    private function renameRecipient(int $supplierId, int $institutionId, string $legacy, string $code): void
+    {
+        $this->db->pdo()->prepare(
+            "UPDATE payroll_institutions SET institution_code = ?
+              WHERE supplier_id = ? AND id = ? AND institution_type = 'other_recipient' AND institution_code = ?"
+        )->execute([$code, $supplierId, $institutionId, $legacy]);
+    }
+
+    private function renameCaseRecipient(int $supplierId, int $caseId, string $legacy, string $code): void
+    {
+        $stmt = $this->db->pdo()->prepare('SELECT recipient_institution_id FROM payroll_enforcement_cases WHERE supplier_id = ? AND id = ?');
+        $stmt->execute([$supplierId, $caseId]);
+        $institutionId = $stmt->fetchColumn();
+        if ($institutionId !== false && $institutionId !== null) {
+            $this->renameRecipient($supplierId, (int) $institutionId, $legacy, $code);
+        }
+    }
+
     /** Neověřený účet příjemce z dřívějšího převodu ověří; ověřený nechá být. */
     private function verifyRecipient(int $supplierId, int $accountId, string $reference, ?int $userId): void
     {
@@ -464,16 +504,18 @@ final class PayrollTakeoverDeductionsWriter
         }
         // Identita instituce: IČO, kde ho zdroj má, jinak stabilní otisk jména a účtu.
         // Na jednom exekutorském úřadu visí víc případů a katalog má mít jeden záznam.
-        $code = is_string($recipient['ico'])
-            ? 'ico:' . $recipient['ico']
-            : $policy->sourceKey . ':' . substr(hash('sha256', $recipient['name'] . '|' . $recipient['account'] . '/' . $recipient['bank_code']), 0, 24);
+        [$code, $legacy] = self::recipientCodes($recipient, $policy);
         [$verified, $reference] = $this->recipientVerification($supplierId, $record, $policy);
         $institutionId = null;
         $accountId = null;
         foreach ($this->institutions->list($supplierId) as $account) {
-            if (($account['institution_type'] ?? null) === 'other_recipient' && ($account['institution_code'] ?? null) === $code) {
+            if (($account['institution_type'] ?? null) === 'other_recipient'
+                && in_array($account['institution_code'] ?? null, [$code, $legacy], true)) {
                 $institutionId = (int) $account['institution_id'];
                 $accountId = (int) $account['id'];
+                if ($account['institution_code'] !== $code) {
+                    $this->renameRecipient($supplierId, $institutionId, $legacy, $code);
+                }
                 // Účet založený u skončeného případu ověří až případ, který převod zahajuje.
                 if ($verified) {
                     $this->verifyRecipient($supplierId, $accountId, $reference, $userId);
