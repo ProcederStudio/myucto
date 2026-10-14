@@ -117,7 +117,7 @@ final class PohodaPayrollCatalog
         }
         // Mzda za odpracovaný přesčas, ne příplatek za něj: ten vede PAMICA zvlášť pod P01.
         // Druh složky proto nese tarifní mzdu, ze které plyne zařazení do JMHZ 10329.
-        if (in_array($number, ['M02', 'C08'], true)) {
+        if (in_array($number, ['M02', 'M03', 'C08'], true)) {
             return $component('hourly_wage');
         }
         if ($number === 'U05') {
@@ -141,6 +141,12 @@ final class PohodaPayrollCatalog
         if (str_starts_with($number, 'O')) {
             // Plnění, která už v číselníku svou složku mají, jdou na ni: jedna složka
             // pro jedno plnění, a se zařazením do JMHZ rovnou od založení.
+            // „Daně z obědů" je peněžní částka, kterou zaměstnavatel doplácí na daň ze
+            // zdanitelné části stravování: PAMICA ji má v čisté mzdě i ve výplatě. Zdanitelná
+            // část stravování sama (nepeněžní plnění) je „nadlimit obědy" a podobně.
+            if (preg_match('/\bdan[eiy]?\b.*obed/', $normalized) === 1) {
+                return $component('bonus');
+            }
             if (preg_match('/obed|strav/', $normalized) === 1) {
                 return ['meaning' => 'component', 'kind' => 'other', 'code' => self::TAXABLE_MEAL, 'header' => 'Zdanitelná část stravování (Kč)'];
             }

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Payroll\Migration;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Repository\Payroll\PayrollEmployerPolicyRepository;
 use MyInvoice\Repository\Payroll\PayrollEmployerSettingsRepository;
 use MyInvoice\Repository\Payroll\PayrollModuleStateRepository;
 use MyInvoice\Repository\Payroll\PayrollOfficeRegistrationRepository;
@@ -32,7 +33,9 @@ use PDO;
  *  3. když firma nastavení zaměstnavatele nemá, založí ho s výchozí mzdovou účtárnou
  *     a výchozími předkontacemi ({@see PayrollEmployerSettingsRepository::save()}),
  *  4. převezme z Nastavení firmy VS ČSSZ, kód OSSZ a číslo plátce zdravotního
- *     pojištění do prázdných míst v Mzdách ({@see PayrollEmployerLegacyIdentifierCarryOver}).
+ *     pojištění do prázdných míst v Mzdách ({@see PayrollEmployerLegacyIdentifierCarryOver}),
+ *  5. když k začátku vedení mezd neplatí žádná zaměstnavatelská mzdová politika, založí
+ *     výchozí (výplatní termín, zaokrouhlení, zákonné příplatky); bez ní mzdový běh nejde.
  *
  * ── Co se nikdy nepřepisuje ─────────────────────────────────────────────────
  * Zapnutý modul, existující stav modulu (i vědomě vypnutý) a jeho začátek, ani
@@ -87,6 +90,7 @@ final class PayrollMigrationModuleSetup
         private readonly SupportMatrix $support,
         private readonly PayrollEmployerLegacyIdentifierCarryOver $identifiers,
         private readonly PayrollOfficeRegistrationRepository $registrations,
+        private readonly PayrollEmployerPolicyRepository $policies,
     ) {}
 
     /**
@@ -154,6 +158,7 @@ final class PayrollMigrationModuleSetup
             'last_period' => $plan['last_period'],
             'carried' => [],
             'registration_from' => null,
+            'policy_created' => false,
             'todo' => [],
         ];
         if ($plan['outcome'] !== self::OUTCOME_READY) {
@@ -185,9 +190,10 @@ final class PayrollMigrationModuleSetup
         $result['start_period'] = $this->state->get($supplierId)['start_period'];
         $result['carried'] = $this->identifiers->settle($supplierId, $userId)['carried'];
         $result['registration_from'] = $this->ensureOfficeRegistration($supplierId, $userId, self::REGISTRATION_SOURCE);
+        $result['policy_created'] = $this->ensurePolicy($supplierId, $userId, $result['start_period']);
 
         if ($result['enabled_now'] || $result['office_created'] || $result['start_set'] || $result['carried'] !== []
-            || $result['registration_from'] !== null
+            || $result['registration_from'] !== null || $result['policy_created']
         ) {
             $result['todo'] = $this->todo($supplierId, $result['start_period']);
         }
@@ -259,6 +265,14 @@ final class PayrollMigrationModuleSetup
             $done[] = 'založil registraci mzdové účtárny u ČSSZ s účinností od ' . self::dateLabel((string) $result['registration_from'])
                 . ' (začátek vedení mezd v MyÚčtu; skutečné datum registrace u ČSSZ zkontrolujte v Mzdy → Nastavení)';
         }
+        if (($result['policy_created'] ?? false) === true) {
+            $protocol->info($step, 'payroll_policy_created', sprintf(
+                'Firma nemá zaměstnavatelskou mzdovou politiku, bez které mzdový běh nejde. Převod založil výchozí od %s: '
+                . 'výplatní termín 10. den následujícího měsíce, doplatek zaokrouhlený na celé koruny, zákonné příplatky. '
+                . 'Upravit ji jde v Mzdy → Nastavení zaměstnavatele → Mzdové politiky.',
+                self::monthLabel((string) $result['start_period']),
+            ));
+        }
         if ($done !== []) {
             $protocol->count($step, 'payroll_module_setup');
             $protocol->info($step, 'payroll_module_enabled', sprintf(
@@ -292,6 +306,41 @@ final class PayrollMigrationModuleSetup
                 implode('; ', array_map(static fn (string $code): string => $labels[$code] ?? $code, $todo)),
             ), ['todo' => $todo]);
         }
+    }
+
+    /**
+     * Výchozí zaměstnavatelská politika od začátku vedení mezd, když tam žádná neplatí.
+     * Hodnoty odpovídají výchozímu formuláři politiky; sazby příplatků zůstávají prázdné,
+     * takže platí zákonné minimum.
+     */
+    private function ensurePolicy(int $supplierId, ?int $userId, ?string $startPeriod): bool
+    {
+        if ($startPeriod === null || $startPeriod === '' || !$this->db->hasTable('payroll_employer_policies')) {
+            return false;
+        }
+        $from = substr($startPeriod, 0, 7) . '-01';
+        if ($this->policies->findEffective($supplierId, $from) !== null || $this->policies->list($supplierId, 1)['total'] > 0) {
+            return false;
+        }
+        $this->policies->create($supplierId, [
+            'valid_from' => $from,
+            'valid_to' => null,
+            'payday_day' => 10,
+            'payday_month_offset' => 1,
+            'payday_business_day_rule' => 'previous_business_day',
+            // Předchozí programy vyplácejí celé koruny (PAMICA zaokrouhluje doplatek).
+            'balance_rounding_mode' => 'nearest_crown',
+            'home_office_policy' => 'not_used',
+            'travel_expense_policy' => 'not_used',
+            'leave_entitlement_weeks' => 4,
+            'automatic_posting_enabled' => false,
+            'delivery_channel' => 'disabled',
+            'delivery_verified_on' => null,
+            'source_kind' => 'migration',
+            'source_reference' => 'Převod mezd z jiného programu',
+        ], $userId);
+
+        return true;
     }
 
     /**

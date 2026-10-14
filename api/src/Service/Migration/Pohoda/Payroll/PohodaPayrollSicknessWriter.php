@@ -189,7 +189,12 @@ final class PohodaPayrollSicknessWriter
             $quarter = (int) ceil(((int) substr((string) $existing['date_from'], 5, 2)) / 3);
             $year = (int) substr((string) $existing['date_from'], 0, 4);
             $needsAverage = in_array($type, PayrollAbsenceValidator::TYPES_REQUIRING_AVERAGE, true);
-            if (!$needsAverage || $this->averages->findApproved($supplierId, $employmentId, $year, $quarter) !== null) {
+            // Průměr potřebuje jen náhrada mzdy. Vyčerpal-li okno náhrady předchozí plátce,
+            // MyÚčto za nepřítomnost nic nepočítá a průměr čtvrtletí, ve kterém osoba celou
+            // dobu nepracovala (a PAMICA ho proto nevede), schválení nebrání.
+            if (!$needsAverage || $this->windowExhausted($case, (string) $existing['date_from'])
+                || $this->averages->findApproved($supplierId, $employmentId, $year, $quarter) !== null
+            ) {
                 try {
                     $this->absences->decide($supplierId, (int) $existing['id'], (int) $existing['row_version'], 'approved', $userId);
                     $existing = $this->absences->find($supplierId, (int) $existing['id']) ?? $existing;
@@ -242,6 +247,15 @@ final class PohodaPayrollSicknessWriter
      *
      * @param array<string,mixed> $case
      */
+    /** @param array<string,mixed> $case */
+    private function windowExhausted(array $case, string $absenceFrom): bool
+    {
+        $carried = $this->carriedDays($case, $absenceFrom);
+
+        return $carried !== null
+            && $carried >= AbsenceRuleset::forDate($this->rulesets, (string) $case['date_from'])->sicknessWindowCalendarDays();
+    }
+
     private function carriedDays(array $case, string $absenceFrom): ?int
     {
         if (!in_array((string) $case['type'], PohodaPayrollSickness::WAGE_COMPENSATION_TYPES, true)) {

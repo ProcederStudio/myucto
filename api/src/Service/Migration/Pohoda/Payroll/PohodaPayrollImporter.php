@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Migration\Pohoda\Payroll;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Repository\Payroll\PayrollComponentJmhzMappingRepository;
 use MyInvoice\Repository\Payroll\PayrollImportProfileRepository;
 use MyInvoice\Repository\Payroll\PayrollInputFilter;
 use MyInvoice\Repository\Payroll\PayrollInputRepository;
@@ -27,6 +28,7 @@ use MyInvoice\Service\Payroll\Import\Attendance\AttendanceMeaning;
 use MyInvoice\Service\Payroll\Import\Attendance\AttendanceProfileComponents;
 use MyInvoice\Service\Payroll\Import\Attendance\AttendanceRules;
 use MyInvoice\Service\Payroll\Component\PayrollComponentDefaults;
+use MyInvoice\Service\Payroll\Component\PayrollRecurringMaterializer;
 use MyInvoice\Service\Payroll\Component\PayrollComponentJmhzMappingDefaults;
 use MyInvoice\Service\Payroll\Submission\Jmhz\JmhzComponentSourceRule;
 
@@ -92,6 +94,8 @@ final class PohodaPayrollImporter
         private readonly PohodaPayrollRegistrations $registrations,
         private readonly PohodaPayrollRelations $relations,
         private readonly PayrollTakeoverInvariants $invariants,
+        private readonly PayrollRecurringMaterializer $recurring,
+        private readonly PayrollComponentJmhzMappingRepository $jmhzMappings,
     ) {}
 
     /**
@@ -211,6 +215,29 @@ final class PohodaPayrollImporter
     private static function countedByModule(string $period, ?string $moduleStart): bool
     {
         return $moduleStart === null || $moduleStart === '' || $period >= substr($moduleStart, 0, 7);
+    }
+
+    /**
+     * Nepřítomnosti z mezd měsíců mimo rozsah převodu se nezapisují: měsíc po konci rozsahu
+     * počítá MyÚčto a jeho nepřítomnosti přijdou z docházky toho měsíce. Převzaté z dřívějška
+     * by se s ní potkaly a doba by se krátila dvakrát.
+     *
+     * @param list<array<string,mixed>> $records {@see PohodaPayrollPeople::read()}
+     * @return list<array<string,mixed>>
+     */
+    public static function recordsInRange(array $records, PohodaPayrollPeriodRange $range): array
+    {
+        if (!$range->limited()) {
+            return $records;
+        }
+        foreach ($records as $index => $record) {
+            $records[$index]['absences'] = array_values(array_filter(
+                (array) ($record['absences'] ?? []),
+                static fn (array $absence): bool => $range->contains((string) $absence['from']),
+            ));
+        }
+
+        return $records;
     }
 
     private static function periodRangeMessage(PohodaPayrollPeriodRange $range): string
@@ -448,6 +475,8 @@ final class PohodaPayrollImporter
             $months = [];
             /** @var array<string,int> $componentInputs kód složky => vstupy s částkou */
             $componentInputs = [];
+            /** @var array<string,array<string,int>> $componentMonths kód složky => osobní číslo => měsíce s částkou */
+            $componentMonths = [];
             foreach ($periods as $period) {
                 $month = $converter->month($period);
                 foreach ($month['columns'] as $header => $meta) {
@@ -459,6 +488,8 @@ final class PohodaPayrollImporter
                         $value = $row[$header] ?? null;
                         if (is_numeric($value) && abs((float) $value) > 0.0) {
                             $componentInputs[$code] = ($componentInputs[$code] ?? 0) + 1;
+                            $number = (string) ($row['Osobní číslo'] ?? '');
+                            $componentMonths[$code][$number] = ($componentMonths[$code][$number] ?? 0) + 1;
                         }
                     }
                 }
@@ -474,7 +505,7 @@ final class PohodaPayrollImporter
             }
             // Údaje osob a vztahů se čtou jednou: krok měsíců z nich zapisuje pracoviště
             // průběžně a krok osob pak zbytek.
-            $records = PohodaPayrollPeople::read($file, $year);
+            $records = self::recordsInRange(PohodaPayrollPeople::read($file, $year), $range);
             // Podání z PAMICA (hlášení JMHZ, registrace) se čtou taky jednou: podmínky
             // vztahů z nich se doplňují po měsících, zbytek po údajích osob.
             $jmhz = PohodaPayrollJmhzWriter::read($file, $year);
@@ -509,6 +540,8 @@ final class PohodaPayrollImporter
             // plyne z druhu složky, doplní aplikace sama při jejím založení; co z druhu neplyne
             // (přesčas, doplatky), převod nehádá a předá účetní se seznamem kódů a počty vstupů.
             $unclassified = [];
+            /** @var array<string,string> $bonusTargets kód odměny => zařazení do JMHZ podle četnosti */
+            $bonusTargets = [];
             foreach ($profile['components'] as $component) {
                 // Složku výchozího číselníku zakládá číselník se svou klasifikací; druh
                 // v profilu je jen náhradní. Osvobozený benefit zařazení do rozpadu nepotřebuje.
@@ -519,6 +552,13 @@ final class PohodaPayrollImporter
                     continue;
                 }
                 if (PayrollComponentJmhzMappingDefaults::targetFor($component['code'], $default['component_kind'], $default['frequency_kind'], $default['tax_treatment']) === null) {
+                    // Prémie a odměny: pravidelnost z druhu neplyne, ale převod ji zná ze mzd
+                    // PAMICA. Složka, kterou vztahy dostávaly skoro každý měsíc, je pravidelně
+                    // měsíčně zúčtovaná (10330), jinak nepravidelná (10331).
+                    if ($default['component_kind'] === 'bonus' && isset($componentMonths[$component['code']])) {
+                        $bonusTargets[$component['code']] = self::bonusTarget($componentMonths[$component['code']], count($periods));
+                        continue;
+                    }
                     $unclassified[$component['code']] = 0;
                 }
             }
@@ -774,6 +814,8 @@ final class PohodaPayrollImporter
                     $protocol->difference(self::STEP_MONTHS, 'payroll_month_failed', "{$period}: " . $e->getMessage(), ['period' => $period]);
                 }
             }
+            // Složky odměn zakládá teprve zápis měsíců; zařazení do JMHZ až po něm.
+            $this->classifyBonuses($supplierId, $userOrNull, $bonusTargets, $protocol);
             $protocol->finish(self::STEP_MONTHS);
             // Mzdy a položky roku už nikdo nečte, stačí den exportu.
             $exportedOn = $converter->exportedOn;
@@ -788,6 +830,19 @@ final class PohodaPayrollImporter
                 }
                 // Slevu pracujícího důchodce nese podané hlášení, ne karta.
                 $records = PohodaPayrollPeople::withSubmittedDiscounts($records, $jmhz['effective'], $year);
+                // Dny pracovní neschopnosti, karantény a ošetřování v měsících, které počítá MyÚčto,
+                // naopak snižují minimum s doloženým důvodem: data má PAMICA, jen je měsíční sešit
+                // nese jako hodiny, ze kterých výpočet dny snížení neodvodí.
+                foreach ($records as $index => $record) {
+                    $records[$index]['health_minimum_sickness'] = array_values(array_map(
+                        static fn (array $absence): array => ['from' => (string) $absence['from'], 'to' => (string) $absence['to']],
+                        array_filter(
+                            (array) ($record['absences'] ?? []),
+                            static fn (array $absence): bool => in_array($absence['type'], ['dpn', 'quarantine', 'ocr', 'long_term_care'], true)
+                                && $moduleStart !== null && self::countedByModule(substr((string) $absence['from'], 0, 7), $moduleStart),
+                        ),
+                    ));
+                }
                 $this->people->write($supplierId, $userOrNull, $records, $year, $confirmIdentifiers, $protocol, self::STEP_PEOPLE,
                     PohodaPayrollPeople::institutions($file));
                 [$sourceTotals, $sourceSkipped] = $this->storeReferenceTotals($supplierId, $file, $year, $protocol, $exportedOn, $range);
@@ -861,6 +916,13 @@ final class PohodaPayrollImporter
                 if ($sicknessStart !== null) {
                     $this->sicknessCompensation->compensate($supplierId, $sicknessStart, $userOrNull,
                         PohodaPayrollTakeover::policy(), $protocol, self::STEP_SICKNESS);
+                }
+                // Předpisy mzdy až po náhradách při nemoci: poměrnou část měsíční mzdy krácené
+                // za nemoc jde doložit teprve nad zmrazeným výpočtem náhrady. Výslovné nuly až
+                // po předpisech, ať nevzniknou tam, kde předpis mzdu doplnil.
+                foreach (array_keys($compensationBatches) as $period) {
+                    $this->recurringWages($supplierId, $userOrNull, (string) $period, $approveTakenOver, $protocol);
+                    $this->zeroInputs($supplierId, $userOrNull, (string) $period, $protocol);
                 }
                 $protocol->finish(self::STEP_SICKNESS);
             }
@@ -1085,6 +1147,158 @@ final class PohodaPayrollImporter
             implode('; ', $names),
             count($exceptions) > 5 ? '; …' : '',
         ), ['period' => $period]);
+    }
+
+    /**
+     * Předpisy mzdy (měsíční mzda a opakované složky) za měsíc, který počítá MyÚčto. Zapsal
+     * je teprve krok osob, takže bez tohoto kroku by běh převedeného měsíce neměl základní
+     * mzdu a účetní by předpisy musela vygenerovat a schválit ručně. Počítá se stejně jako
+     * z obrazovky vstupů ({@see PayrollRecurringMaterializer}), poměrná část za nepřítomnost
+     * z docházky převedeného měsíce.
+     */
+    private function recurringWages(int $supplierId, ?int $userId, string $period, bool $approve, ImportProtocol $protocol): void
+    {
+        try {
+            $report = $this->recurring->materialize($supplierId, $period, $userId);
+        } catch (\InvalidArgumentException|\DomainException $e) {
+            $protocol->warn(self::STEP_SICKNESS, 'recurring_wages_failed',
+                "{$period}: předpisy mzdy se nepodařilo vygenerovat - " . $e->getMessage(), ['period' => $period]);
+            return;
+        }
+        $protocol->count(self::STEP_SICKNESS, 'recurring_inputs', (int) $report['created_count']);
+        if ((int) $report['manual_review_count'] > 0) {
+            $protocol->warn(self::STEP_SICKNESS, 'recurring_inputs_manual_review', sprintf(
+                '%s: předpis mzdy %d vztahů nešlo spočítat (%s). Zkontrolujte je v Mzdy → Vstupy → Opakované složky.',
+                $period,
+                (int) $report['manual_review_count'],
+                implode('; ', array_slice(array_map(
+                    static fn (array $row): string => trim((string) ($row['full_name'] ?? '')) . ': ' . (string) $row['reason'],
+                    $report['manual_review'],
+                ), 0, 5)),
+            ), ['period' => $period]);
+        }
+        if (!$approve) {
+            return;
+        }
+        $ids = array_map(static fn (array $item): int => (int) $item['input_id'], [...$report['created'], ...$report['replayed']]);
+        $approved = 0;
+        foreach (array_chunk($ids, PayrollInputRepository::APPROVE_BATCH_MAX) as $chunk) {
+            $approved += count($this->inputs->approveBatch($supplierId, $chunk, $userId)['approved']);
+        }
+        $protocol->count(self::STEP_SICKNESS, 'recurring_inputs_approved', $approved);
+    }
+
+    /**
+     * Zařazení odměny do JMHZ podle četnosti ve mzdách PAMICA: průměrný podíl měsíců
+     * s částkou u vztahů, které ji dostaly, aspoň tři čtvrtiny převáděných měsíců znamená
+     * pravidelně měsíčně zúčtovanou odměnu (10330), jinak nepravidelnou (10331).
+     *
+     * @param array<string,int> $monthsByRelation osobní číslo => měsíce s částkou
+     */
+    public static function bonusTarget(array $monthsByRelation, int $periods): string
+    {
+        if ($monthsByRelation === [] || $periods <= 0) {
+            return '10331';
+        }
+        $ratio = array_sum($monthsByRelation) / count($monthsByRelation) / $periods;
+
+        return $ratio >= 0.75 ? '10330' : '10331';
+    }
+
+    /**
+     * Zařazení odměn do JMHZ podle četnosti ({@see self::bonusTarget()}). Složku založí
+     * číselník při prvním použití, takže chybějící se založí tady; zařazení, které už
+     * složka má (zadala ho účetní), převod nemění.
+     *
+     * @param array<string,string> $targets kód složky => atribut JMHZ
+     */
+    private function classifyBonuses(int $supplierId, ?int $userId, array $targets, ImportProtocol $protocol): void
+    {
+        if ($targets === []) {
+            return;
+        }
+        $find = $this->db->pdo()->prepare(
+            'SELECT id FROM payroll_component_definitions WHERE supplier_id = ? AND code = ? ORDER BY valid_from DESC, id DESC LIMIT 1'
+        );
+        $done = [];
+        foreach ($targets as $code => $target) {
+            $find->execute([$supplierId, $code]);
+            $componentId = $find->fetchColumn();
+            if ($componentId === false) {
+                continue;
+            }
+            try {
+                if ($this->jmhzMappings->find($supplierId, (int) $componentId) === null) {
+                    $this->jmhzMappings->put($supplierId, (int) $componentId, $target, null, $userId);
+                }
+                $done[] = $code . ' → ' . $target;
+            } catch (\InvalidArgumentException|\DomainException|\OutOfBoundsException $e) {
+                $protocol->warn(self::STEP_MONTHS, 'component_jmhz_failed', "{$code}: zařazení do JMHZ se nepodařilo zapsat - " . $e->getMessage());
+            }
+        }
+        if ($done !== []) {
+            $protocol->count(self::STEP_MONTHS, 'components_jmhz_by_frequency', count($done));
+            $protocol->info(self::STEP_MONTHS, 'components_jmhz_by_frequency', sprintf(
+                'Odměny zařazené do JMHZ podle četnosti ve mzdách PAMICA (10330 pravidelné, 10331 nepravidelné): %s.',
+                implode(', ', $done),
+            ));
+        }
+    }
+
+    /**
+     * Výslovná nula u vztahu, kterému PAMICA za měsíc zpracovala mzdu bez příjmu (celý
+     * měsíc nemoc, mateřská, neplacené volno) a v MyÚčtu mu žádný vstup nevznikl. Mzdový
+     * běh trvající vztah bez vstupu odmítne, protože nulové hlášení JMHZ má vzniknout
+     * z výslovně zadané nuly, ne z mlčení; podkladem nuly je tady zpracovaná mzda zdroje.
+     */
+    private function zeroInputs(int $supplierId, ?int $userId, string $period, ImportProtocol $protocol): void
+    {
+        $pdo = $this->db->pdo();
+        $component = $pdo->prepare(
+            "SELECT id FROM payroll_component_definitions
+              WHERE supplier_id = ? AND code = 'MZDA_MESICNI' AND valid_from <= ? AND (valid_to IS NULL OR valid_to >= ?)
+              ORDER BY valid_from DESC LIMIT 1"
+        );
+        $component->execute([$supplierId, $period . '-01', $period . '-01']);
+        $componentId = $component->fetchColumn();
+        if ($componentId === false) {
+            return;
+        }
+        $missing = $pdo->prepare(
+            "SELECT DISTINCT ref.employee_id, ref.employment_id
+               FROM payroll_migration_reference_totals ref
+               JOIN payroll_employments e ON e.supplier_id = ref.supplier_id AND e.id = ref.employment_id
+              WHERE ref.supplier_id = ? AND ref.source = ? AND ref.period_start = ? AND ref.employment_id IS NOT NULL
+                AND NOT EXISTS (SELECT 1 FROM payroll_inputs i
+                                 WHERE i.supplier_id = ref.supplier_id AND i.employment_id = ref.employment_id
+                                   AND i.period_start = ref.period_start AND i.status <> 'cancelled')"
+        );
+        $missing->execute([$supplierId, self::SOURCE, $period . '-01']);
+        $created = 0;
+        foreach ($missing->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            try {
+                $this->inputs->createApproved($supplierId, [
+                    'employee_id' => (int) $row['employee_id'],
+                    'employment_id' => (int) $row['employment_id'],
+                    'component_id' => (int) $componentId,
+                    'period_start' => $period . '-01',
+                    'source_period_start' => $period . '-01',
+                    'amount_minor' => 0,
+                    'quantity_milliunits' => null,
+                    // Ruční vstup (dávkový `import` musí mít dávku importu); `external_id` drží
+                    // idempotenci opakovaného převodu.
+                    'source_kind' => 'manual',
+                    'external_id' => 'pamica-zero:' . $period . ':' . $row['employment_id'],
+                ], $userId);
+                $created++;
+            } catch (\InvalidArgumentException|\DomainException $e) {
+                $protocol->warn(self::STEP_SICKNESS, 'zero_input_failed',
+                    "{$period}: nulový vstup vztahu {$row['employment_id']} se nepodařilo založit - " . $e->getMessage(), ['period' => $period]);
+            }
+        }
+        if ($created > 0) {
+            $protocol->count(self::STEP_SICKNESS, 'zero_inputs', $created);
+        }
     }
 
     /**

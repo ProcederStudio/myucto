@@ -429,6 +429,9 @@ firmy, převezme do Mezd a k variabilnímu symbolu založí registraci účtárn
 s účinností od začátku vedení mezd
 (viz [§ 90.14.1](90_Nastaveni_mezd.md#90141-mzdove-uctarny-a-registrace-u-cssz));
 co chybí, včetně účtů institucí, vypíše protokol k doplnění v Mzdy → Nastavení.
+Když k začátku vedení mezd neplatí žádná zaměstnavatelská mzdová politika,
+založí převod výchozí (výplatní termín 10. den následujícího měsíce, doplatek
+zaokrouhlený na celé koruny, zákonné příplatky); bez ní mzdový běh nejde.
 Zapnutý modul, jeho začátek ani existující nastavení převod nemění. Počáteční
 stavy kumulací převod zapíše jen tehdy, když má firma začátek vedení mezd
 nastavený; jiný než navržený začátek nastavte ještě před převodem.
@@ -558,19 +561,22 @@ doručení se nepřevede, protože bez něj nejde určit pořadí; protokol jmen
 osobu. Srážku, kterou už nese měsíční sešit (typicky obědy), převod nezaloží
 podruhé.
 
-**Případy zůstanou nedoložené.** Doklady, kterými se exekuce dokládá (exekuční
-příkaz, rozhodnutí o oddlužení), export nenese, a MyÚčto je bez nich vyžaduje.
-Převzatý případ proto zůstane ve stavu *přijato*, do mzdového běhu nevstoupí
-a protokol spočítá, kolik případů čeká na doložení. Doložíte je v kartě případu.
+**Případy převezme ve stavu, ve kterém je vedla PAMICA.** Doklady exekuce (exekuční
+příkaz, usnesení) export nenese. Převod proto ke každému případu s příjemcem uloží
+do Dokumentů (složka Mzdy / Exekuce) doklad *Převzetí exekuce* s údaji z PAMICA
+a z něj doloží strany případu, instrukci příjemce i ověření pohledávek:
 
-Protokol případy rozdělí podle toho, jestli je PAMICA opravdu srážela. Exekuce
-s kladnou srážkou v některém ze tří posledních zpracovaných měsíců, která
-neskončila a není doplacená, vypíše zvlášť s měsícem poslední srážky: srážet
-se má dál, takže ji doložte a aktivujte ještě před prvním mzdovým během, jinak
-ji běh vynechá. Aktivace potřebuje exekuční příkaz, soud nebo exekutora,
-oprávněného a příjemce; oprávněného export z PAMICA nenese. Ostatní případy
-(nový příkaz, odklad, doplacená pohledávka) vypíše protokol jako informaci
-k ověření proti spisu.
+- případ, jehož platnost trvá ke dni začátku vedení mezd a pohledávka není
+  doplacená, převod zahájí (srážení a odesílání příjemci),
+- případ, který v PAMICA skončil (platnost do dne před začátkem vedení mezd) nebo
+  je doplacený, zastaví s důvodem ze zdroje,
+- za první měsíc vedení mezd vyplní měsíční exekuční evidenci osob se zahájenými
+  případy (úplný rejstřík pohledávek, vyživované osoby podle PAMICA).
+
+*Přijato* zůstane jen případ bez použitelného účtu příjemce a běžící insolvence:
+schválené oddlužení s platbou insolvenčnímu správci vyžaduje rozhodnutí soudu,
+které převod nevyrobí. Převzatou insolvenci vede jako upozornění. Opakovaný
+převod dovede do stavu ze zdroje i případy, které dřívější převod nechal *přijato*.
 
 Nepřevezme se rozpad nezabavitelné částky z PAMICA (MyÚčto ho počítá vlastní
 sadou pravidel, dvojí zdroj by se rozešel), vazba dvou srážek na jeden příkaz,
@@ -834,6 +840,27 @@ jako podání jiného zaměstnavatele.
 Prohlášení poplatníka, slevy na dani a sleva pracujícího důchodce se z hlášení
 nepřebírají: nesou je už zpracované mzdy. Údaje, pro které evidence nemá místo,
 zůstávají v obsahu uloženém v historii podání.
+
+### 108.9.13 Měsíc, který už počítá MyÚčto
+
+Převádí-li se i měsíc od začátku vedení mezd (export nese měsíc, který PAMICA
+uzavřela, a začátek vedení mezd jste ponechali), převod ho připraví k výpočtu
+mzdovým během bez ručních kroků:
+
+- vygeneruje a schválí předpisy měsíční mzdy (krácené za nepřítomnost z docházky
+  měsíce), a to až po náhradách mzdy při nemoci,
+- vztahu, kterému PAMICA za měsíc zpracovala mzdu bez příjmu (celý měsíc nemoc,
+  mateřská), založí výslovný vstup 0 Kč,
+- dny pracovní neschopnosti, karantény a ošetřování z mezd PAMICA zapíše jako
+  doložené snížení minima zdravotního pojištění,
+- pokračování nemoci z předchozího měsíce zapíše jako navazující nepřítomnost
+  a schválí ji i bez průměru, když okno náhrady mzdy vyčerpal předchozí plátce.
+
+Odměny bez zařazení do JMHZ převod zařadí podle četnosti ve mzdách PAMICA:
+složka vyplácená aspoň ve třech čtvrtinách převáděných měsíců je pravidelná
+(10330), ostatní nepravidelné (10331). Výjimku z minima zdravotního pojištění
+(příznak *Nedoplácet ZP do minima*) převezme jen za měsíce, kdy byl vyměřovací
+základ pod minimem; nad minimem nemá na pojistné vliv.
 
 ## 108.10 Související kapitoly
 

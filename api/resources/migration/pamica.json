@@ -1420,7 +1420,8 @@
                     "status": "ignored"
                 },
                 "KcZdrZak": {
-                    "status": "ignored"
+                    "status": "mapped",
+                    "target": "PohodaPayrollPeople"
                 },
                 "KcZdrZakLimt": {
                     "status": "ignored"
@@ -5515,8 +5516,8 @@
                     "target": "component hourly_wage PAM_M02"
                 },
                 "M03": {
-                    "status": "warned",
-                    "reason": "Převod složku nezná; měsíc s částkou ji hlásí v protokolu k ručnímu doplnění."
+                    "status": "mapped",
+                    "target": "component hourly_wage PAM_M03"
                 },
                 "M04": {
                     "status": "warned",

@@ -103,6 +103,10 @@ final class PayrollTakeoverAbsenceWriter
         $sicknessCases = [];
         $loneCarer = 0;
         foreach (self::splitAtQuarters(self::mergedAbsences($absences, $overlaps)) as $absence) {
+            // Pokračování nepřítomnosti, jejíž začátek zapsal dřívější převod (nemoc ze
+            // srpna, kterou září prodloužilo): zapíše se jen dosud nezapsaná část. Celá by
+            // se se zapsaným začátkem překryla a vypadla.
+            $absence = $this->withoutRecordedStart($supplierId, $employmentId, $absence);
             if ($this->recorded($supplierId, $employmentId, $absence)) {
                 $already++;
                 $loneCarer += $this->repairLoneCarer($supplierId, $employmentId, $absence, $policy);
@@ -162,7 +166,12 @@ final class PayrollTakeoverAbsenceWriter
             $historical = $this->absenceValidator->predatesRulesets((string) $absence['to']);
             $hasAverage = !$historical
                 && $this->averages->findApproved($supplierId, $employmentId, (int) substr((string) $absence['from'], 0, 4), $quarter) !== null;
-            if ($historical || !in_array($absence['type'], PayrollAbsenceValidator::TYPES_REQUIRING_AVERAGE, true) || $hasAverage) {
+            // Průměr potřebuje jen náhrada mzdy. Pokračování nemoci, jejíž okno náhrady
+            // vyčerpal předchozí plátce, MyÚčto nenahrazuje, takže průměr čtvrtletí
+            // (které osoba celé proležela a zdroj ho proto nevede) schválení nebrání.
+            $windowExhausted = $carried > 0
+                && $carried >= AbsenceRuleset::forSicknessWindow($this->rulesets, (string) $absence['from'])->sicknessWindowCalendarDays();
+            if ($historical || $windowExhausted || !in_array($absence['type'], PayrollAbsenceValidator::TYPES_REQUIRING_AVERAGE, true) || $hasAverage) {
                 try {
                     $this->absences->decide($supplierId, (int) $created['id'], (int) $created['row_version'], 'approved', $userId);
                     $approved++;
@@ -315,6 +324,31 @@ final class PayrollTakeoverAbsenceWriter
      *
      * @param array<string,mixed> $absence
      */
+    /**
+     * Nepřítomnost bez začátku, který už je zapsaný stejným druhem: zapsaná končí uvnitř
+     * nové a začíná nejpozději s ní. Jinak beze změny.
+     *
+     * @param array<string,mixed> $absence
+     * @return array<string,mixed>
+     */
+    private function withoutRecordedStart(int $supplierId, int $employmentId, array $absence): array
+    {
+        $stmt = $this->db->pdo()->prepare(
+            "SELECT MAX(date_to) FROM payroll_absences
+              WHERE supplier_id = ? AND employment_id = ? AND absence_type = ?
+                AND date_from <= ? AND date_to >= ? AND date_to < ?
+                AND status NOT IN ('cancelled', 'rejected')"
+        );
+        $stmt->execute([$supplierId, $employmentId, (string) $absence['type'], (string) $absence['from'], (string) $absence['from'], (string) $absence['to']]);
+        $recordedTo = $stmt->fetchColumn();
+        if (!is_string($recordedTo) || $recordedTo === '') {
+            return $absence;
+        }
+        $absence['from'] = (new \DateTimeImmutable($recordedTo))->modify('+1 day')->format('Y-m-d');
+
+        return $absence;
+    }
+
     private function recorded(int $supplierId, int $employmentId, array $absence): bool
     {
         $stmt = $this->db->pdo()->prepare(

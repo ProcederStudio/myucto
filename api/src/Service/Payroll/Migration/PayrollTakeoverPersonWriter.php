@@ -403,11 +403,53 @@ final class PayrollTakeoverPersonWriter
         $today = date('Y-m-d');
         $view = $this->dependants->overview($supplierId, $employeeId, $today)
             ?? throw new \DomainException('zaměstnanec nebyl nalezen.');
-        if ($view['dependants'] !== []) {
-            return $counts + ['children_existing' => 1];
+        // Osobě s vyživovanými osobami se doplní jen dítě, které mezi nimi chybí (typicky
+        // narozené nebo nově uplatněné v posledním převáděném měsíci). Pozná se podle data
+        // narození; přehled rodná čísla nevrací.
+        $knownBirthDates = array_map(static fn (array $dependant): string => (string) ($dependant['birth_date'] ?? ''), $view['dependants']);
+        $existingDependants = $view['dependants'] !== [];
+        // Totéž dítě může mít ve zdroji víc řádků (období nároku s jiným pořadím, když
+        // starší sourozenec nárok ztratí). Vyživovaná osoba vznikne jednou na celé období,
+        // nároky po řádcích.
+        /** @var array<string,array{from:?string,to:?string,open:bool}> $span rodné číslo => období řádků */
+        $span = [];
+        foreach ($children as $child) {
+            if (!is_string($child['birth_number'])) {
+                continue;
+            }
+            try {
+                $key = CzechBirthNumber::normalize($child['birth_number']);
+            } catch (\InvalidArgumentException) {
+                // Neplatné rodné číslo ohlásí až zápis dítěte níž, tady se jen seskupuje.
+                continue;
+            }
+            $span[$key] ??= ['from' => null, 'to' => null, 'open' => false];
+            if (is_string($child['from']) && ($span[$key]['from'] === null || $child['from'] < $span[$key]['from'])) {
+                $span[$key]['from'] = $child['from'];
+            }
+            if (!is_string($child['to'])) {
+                $span[$key]['open'] = true;
+            } elseif ($span[$key]['to'] === null || $child['to'] > $span[$key]['to']) {
+                $span[$key]['to'] = $child['to'];
+            }
         }
+        /** @var array<string,int> $createdDependants rodné číslo => vyživovaná osoba založená tímto převodem */
+        $createdDependants = [];
         $created = 0;
         foreach ($children as $child) {
+            if ($existingDependants) {
+                try {
+                    $birth = is_string($child['birth_number'])
+                        ? (string) CzechBirthNumber::birthDate(CzechBirthNumber::normalize($child['birth_number']))
+                        : null;
+                } catch (\InvalidArgumentException|\DomainException) {
+                    $birth = null;
+                }
+                // Dítě, které už osoba má, nebo které nejde poznat, se k existujícím nedoplňuje.
+                if ($birth === null || in_array($birth, $knownBirthDates, true)) {
+                    continue;
+                }
+            }
             if (!is_string($child['birth_number'])) {
                 throw new \DomainException("dítě s daňovým zvýhodněním nemá v {$policy->label} rodné číslo, doplňte ho ručně.");
             }
@@ -426,28 +468,15 @@ final class PayrollTakeoverPersonWriter
                 continue;
             }
             $name = trim(($child['given_name'] ?? '') . ' ' . ($child['family_name'] ?? ''));
-            $known = array_column($view['dependants'], 'id');
-            $view = $this->dependants->createDependant($supplierId, $employeeId, $this->dependantValidator->validateDependant([
-                'relation' => 'child_own',
-                'full_name' => $name !== '' ? $name : 'Dítě',
-                'given_name' => $child['given_name'],
-                'family_name' => $child['family_name'],
-                'birth_date' => $birthDate,
-                'birth_number' => $birthNumber,
-                'ztp_p' => false,
-                'student' => false,
-                'existence_from' => $existenceFrom,
-                'existence_to' => $until,
-                'note' => $policy->note("dítě s daňovým zvýhodněním; vztah k dítěti {$policy->label} nevede, zapsáno jako vlastní dítě."),
-            ]), $today, $userId, null, null);
-            $dependantId = null;
-            foreach ($view['dependants'] as $dependant) {
-                if (!in_array($dependant['id'], $known, true)) {
-                    $dependantId = (int) $dependant['id'];
-                }
-            }
+            $dependantId = $createdDependants[$birthNumber] ?? null;
             if ($dependantId === null) {
-                throw new \DomainException('vyživovanou osobu se nepodařilo založit.');
+                // Vyživování na celé období všech řádků dítěte.
+                $whole = $span[$birthNumber];
+                $wholeFrom = is_string($whole['from']) && $whole['from'] > $birthDate ? $whole['from'] : $birthDate;
+                $existenceFrom = max($birthDate, min($wholeFrom, max(substr($wholeFrom, 0, 7) . '-01', $declaredFrom)));
+                $existenceTo = $whole['open'] || $whole['to'] === null ? null : $this->dependantValidator->monthEnd($whole['to']);
+                $dependantId = $this->createChild($supplierId, $employeeId, $child, $name, $birthDate, $birthNumber, $existenceFrom, $existenceTo, $today, $userId, $policy);
+                $createdDependants[$birthNumber] = $dependantId;
             }
             $view = $this->dependants->createClaim($supplierId, $employeeId, $dependantId, $this->dependantValidator->validateClaim([
                 'child_order' => $child['order'],
@@ -464,7 +493,43 @@ final class PayrollTakeoverPersonWriter
             ]), $today, $userId, null, null);
             $created++;
         }
+        if ($created === 0 && $existingDependants) {
+            return $counts + ['children_existing' => 1];
+        }
         return $counts + ['children' => $created];
+    }
+
+    /**
+     * Vyživované dítě (vlastní, bez ZTP/P a studia) a jeho id.
+     *
+     * @param array<string,mixed> $child
+     */
+    private function createChild(int $supplierId, int $employeeId, array $child, string $name, string $birthDate, string $birthNumber,
+        string $existenceFrom, ?string $existenceTo, string $today, ?int $userId, PayrollTakeoverPolicy $policy): int
+    {
+        $before = $this->dependants->overview($supplierId, $employeeId, $today)
+            ?? throw new \DomainException('zaměstnanec nebyl nalezen.');
+        $known = array_column($before['dependants'], 'id');
+        $view = $this->dependants->createDependant($supplierId, $employeeId, $this->dependantValidator->validateDependant([
+            'relation' => 'child_own',
+            'full_name' => $name !== '' ? $name : 'Dítě',
+            'given_name' => $child['given_name'],
+            'family_name' => $child['family_name'],
+            'birth_date' => $birthDate,
+            'birth_number' => $birthNumber,
+            'ztp_p' => false,
+            'student' => false,
+            'existence_from' => $existenceFrom,
+            'existence_to' => $existenceTo,
+            'note' => $policy->note("dítě s daňovým zvýhodněním; vztah k dítěti {$policy->label} nevede, zapsáno jako vlastní dítě."),
+        ]), $today, $userId, null, null);
+        foreach ($view['dependants'] as $dependant) {
+            if (!in_array($dependant['id'], $known, true)) {
+                return (int) $dependant['id'];
+            }
+        }
+
+        throw new \DomainException('vyživovanou osobu se nepodařilo založit.');
     }
 
     /**

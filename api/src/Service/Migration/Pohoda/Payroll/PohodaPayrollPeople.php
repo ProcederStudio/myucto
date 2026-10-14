@@ -6,6 +6,8 @@ namespace MyInvoice\Service\Migration\Pohoda\Payroll;
 
 use MyInvoice\Service\Migration\Pohoda\PohodaXml;
 use MyInvoice\Service\Payroll\Migration\PayrollTakeoverInstitutionWriter;
+use MyInvoice\Service\Payroll\Ruleset\CzechPayrollRulesets;
+use MyInvoice\Service\Payroll\Ruleset\PayrollRulesetDomain;
 
 /**
  * Údaje osob a pracovních vztahů z `91_mzdy.xml` (POHODA Mzdy / PAMICA), které
@@ -224,8 +226,13 @@ final class PohodaPayrollPeople
             $personMonths[$person][$month] = $sums;
             // „Nedoplácet ZP do minima": PAMICA v měsíci nedoplatila pojistné do minimálního
             // vyměřovacího základu (výjimka podle § 3 odst. 8 zák. č. 592/1992 Sb.).
+            // Příznak má smysl jen pod minimem: s vyměřovacím základem nad ním PAMICA nic
+            // nedoplácela tak jako tak a neověřená výjimka bez důvodu by jen zastavila běh.
             if (self::bool(PohodaXml::text($mz, 'NeDopZdr'))) {
-                $healthMinimumExempt[$person][$month] = true;
+                $minimum = self::healthMinimumMinor(sprintf('%04d-%02d-01', $year, $month));
+                if ($minimum === null || self::minor(PohodaXml::num($mz, 'KcZdrZak')) < $minimum) {
+                    $healthMinimumExempt[$person][$month] = true;
+                }
             }
         }
         /** @var array<string,true> $discountKnown osoby, jejichž mzdy roku nesou příznak slevy důchodce v `MZ2` */
@@ -572,6 +579,27 @@ final class PohodaPayrollPeople
      * Druh nepřítomnosti, který převod zapisuje s daty do evidence nepřítomností, nebo
      * null, když ji evidence nezná. Bez čísla v číselníku rozhoduje den porodu (PPM).
      */
+    /**
+     * Minimální vyměřovací základ zdravotního pojištění zaměstnance (minimální mzda,
+     * § 3 odst. 6 zák. č. 592/1992 Sb.) v haléřích, nebo `null`, když ho ruleset nevede.
+     */
+    private static function healthMinimumMinor(string $date): ?int
+    {
+        static $cache = [];
+        if (!array_key_exists($date, $cache)) {
+            try {
+                $value = CzechPayrollRulesets::provider()
+                    ->forDate(PayrollRulesetDomain::EmploymentThresholds, $date)
+                    ->parameter('minimum_wage.monthly_40h_week');
+                $cache[$date] = is_int($value->value) ? $value->value : null;
+            } catch (\Throwable) {
+                $cache[$date] = null;
+            }
+        }
+
+        return $cache[$date];
+    }
+
     public static function absenceType(string $number, ?string $childbirth): ?string
     {
         $type = self::ABSENCE_CODES[strtoupper(trim($number))] ?? null;

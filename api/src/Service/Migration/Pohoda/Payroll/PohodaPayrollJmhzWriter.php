@@ -240,6 +240,7 @@ final class PohodaPayrollJmhzWriter
         foreach ($byPerson as $employeeId => $person) {
             $children = self::children($person['months']);
             $record = $person['record'];
+            $children['children'] = self::withCardEnds($children['children'], (array) ($record['children'] ?? []));
             if ($children['children'] !== []) {
                 $takeover = new PayrollTakeoverPerson(
                     key: (string) $record['person_key'],
@@ -502,6 +503,35 @@ final class PohodaPayrollJmhzWriter
         }
 
         return $answer;
+    }
+
+    /**
+     * Konec nároku z karty dítěte v PAMICA (`ZAMpDet.DatDo`) u dítěte, které hlášení uvádí
+     * až do posledního převáděného měsíce: hlášení o konci nároku po tomto měsíci nic neví,
+     * karta ano. Bez toho by nárok běžel dál a MyÚčto by v prvním vlastním měsíci uplatnilo
+     * zvýhodnění, které PAMICA už neuplatňuje.
+     *
+     * @param list<array<string,mixed>> $children {@see self::children()}
+     * @param list<array<string,mixed>> $cardChildren děti z karty ({@see PohodaPayrollPeople::read()})
+     * @return list<array<string,mixed>>
+     */
+    public static function withCardEnds(array $children, array $cardChildren): array
+    {
+        $ends = [];
+        foreach ($cardChildren as $card) {
+            $number = preg_replace('/\D/', '', (string) ($card['birth_number'] ?? '')) ?? '';
+            if ($number !== '' && is_string($card['to'] ?? null)) {
+                $ends[$number] = max($ends[$number] ?? '', (string) $card['to']);
+            }
+        }
+        foreach ($children as $index => $child) {
+            $number = preg_replace('/\D/', '', (string) ($child['birth_number'] ?? '')) ?? '';
+            if ($child['to'] === null && isset($ends[$number])) {
+                $children[$index]['to'] = (new \DateTimeImmutable($ends[$number]))->format('Y-m-t');
+            }
+        }
+
+        return $children;
     }
 
     /**

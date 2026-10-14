@@ -153,8 +153,30 @@ final class PohodaPayrollTakeover
             childrenWithoutCredit: (int) $record['children_without_credit'],
             firstSignedPeriod: is_string($record['first_signed_period']) ? $record['first_signed_period'] : null,
             openingMonths: $openings,
-            healthMinimumExemptions: self::healthMinimumExemptions((array) ($record['health_minimum_exempt_periods'] ?? [])),
+            healthMinimumExemptions: [
+                ...self::healthMinimumExemptions((array) ($record['health_minimum_exempt_periods'] ?? [])),
+                ...self::sicknessExemptions((array) ($record['health_minimum_sickness'] ?? [])),
+            ],
         );
+    }
+
+    /**
+     * Dny pracovní neschopnosti, karantény a ošetřování z mezd PAMICA jako doložené snížení
+     * minima zdravotního pojištění (§ 3 odst. 8 zák. č. 592/1992 Sb.); importér je posílá jen
+     * za měsíce, které počítá MyÚčto.
+     *
+     * @param list<array{from:string,to:string}> $periods
+     * @return list<PayrollTakeoverEvidencePeriod>
+     */
+    private static function sicknessExemptions(array $periods): array
+    {
+        return array_map(static fn (array $period): PayrollTakeoverEvidencePeriod => new PayrollTakeoverEvidencePeriod(
+            'sickness_care_or_quarantine',
+            $period['from'],
+            $period['to'],
+            'pamica:mzneprit:' . $period['from'],
+            self::NOTE . 'pracovní neschopnost, karanténa nebo ošetřování podle zpracované mzdy (' . $period['from'] . ' až ' . $period['to'] . ').',
+        ), $periods);
     }
 
     /**

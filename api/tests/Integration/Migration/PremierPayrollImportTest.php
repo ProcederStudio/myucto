@@ -509,7 +509,7 @@ final class PremierPayrollImportTest extends TestCase
     }
 
     /**
-     * Trvalé srážky z PREMIER: exekuce jako nedoložený exekuční případ se zbývající
+     * Trvalé srážky z PREMIER: exekuce jako zahájený exekuční případ se zbývající
      * pohledávkou, odbory jako dohoda o srážkách, skončené spoření jen v počtu. Zakládají se
      * až v běhu roku posledních zpracovaných mezd.
      */
@@ -531,7 +531,15 @@ final class PremierPayrollImportTest extends TestCase
             JOIN payroll_enforcement_cases k ON k.id = c.case_id WHERE k.supplier_id = ?', $supplierId));
         self::assertSame([['contribution', '15000', 'active']], $this->fetch('SELECT deduction_kind, requested_minor, status FROM payroll_deduction_agreements
             WHERE supplier_id = ?', $supplierId));
-        self::assertContains('deductions_evidence_pending', $this->messageCodes($next));
+        // Běžící exekuci s příjemcem převod doloží převzatou evidencí a zahájí: srážky
+        // pokračují bez ručního ověřování, strany i instrukce příjemce stojí na dokladu převzetí.
+        self::assertNotContains('deductions_evidence_pending', $this->messageCodes($next));
+        self::assertSame(1, $counts['enforcement_activated'] ?? 0, $this->explain($next));
+        self::assertSame([['remit', '1', '1']], $this->fetch('SELECT status, evidence_complete, recipient_verified
+            FROM payroll_enforcement_cases WHERE supplier_id = ?', $supplierId));
+        self::assertSame([['executor'], ['beneficiary']], $this->fetch('SELECT party_role FROM payroll_enforcement_case_parties
+            WHERE supplier_id = ? AND source_document_id IS NOT NULL ORDER BY party_role', $supplierId));
+        self::assertSame(1, $this->scalar('SELECT COUNT(*) FROM payroll_enforcement_recipient_instructions WHERE supplier_id = ?', $supplierId));
 
         $again = $this->importer->run($supplierId, $this->userId, $backup, SyntheticPremierBackup::YEAR2, false);
         self::assertFalse($again->hasErrors(), $this->explain($again));
