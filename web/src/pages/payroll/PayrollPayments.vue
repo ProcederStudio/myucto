@@ -112,6 +112,12 @@ const generatingFormat = ref<PayrollPaymentExportFormat | null>(null)
 const downloadingExportId = ref<number | null>(null)
 const hidingExportId = ref<number | null>(null)
 const items = ref<PayrollPaymentLiability[]>([])
+/*
+ * Závazky celého období pro výběr do dávky. Tabulka stránkuje po 50, ale mzdový
+ * příkaz má nést všechny platby se stejnou splatností, ne jen tu padesátku, která
+ * je zrovna vidět.
+ */
+const selectionPool = ref<PayrollPaymentLiability[]>([])
 const periodTotals = ref({ amount_minor: 0, allocated_minor: 0, settled_minor: 0 })
 const runs = ref<PayrollRun[]>([])
 const payerOptions = ref<PayrollPayerOption[]>([])
@@ -191,6 +197,8 @@ const COLUMNS: ColumnDef[] = [
 const tbl = useTablePrefs('payroll-payments', COLUMNS)
 
 const pageSize = 50
+// Strop stránky API závazků (PayrollPaymentQueryService::LIST_MAX_LIMIT).
+const POOL_PAGE_SIZE = 200
 const total = ref(0)
 const offset = ref(0)
 const currentPage = computed(() => Math.floor(offset.value / pageSize) + 1)
@@ -256,7 +264,9 @@ const totals = computed(() => ({
 }))
 const selectedItems = computed(() => {
   const ids = new Set(selectedIds.value)
-  return items.value.filter(item => ids.has(item.id))
+  const known = new Map(selectionPool.value.map(item => [item.id, item]))
+  for (const item of items.value) known.set(item.id, item)
+  return [...known.values()].filter(item => ids.has(item.id))
 })
 const selectionAnchor = computed(() => selectedItems.value[0] ?? null)
 const selectedTotalMinor = computed(() => selectedItems.value.reduce(
@@ -615,7 +625,10 @@ function selectionBlockedReason(item: PayrollPaymentLiability): string | null {
  * (další běh, oprava, částečná úhrada), sloupec se vrátí sám.
  */
 const hasSelectableItems = computed(
-  () => items.value.some(item => isSelected(item.id) || isSelectable(item)),
+  () => items.value.some(item => isSelected(item.id) || isSelectable(item))
+    // Nezařazené platby mohou ležet na jiné straně; „vybrat vše“ je posbírá ze všech.
+    || (total.value > items.value.length
+      && periodTotals.value.amount_minor > periodTotals.value.allocated_minor),
 )
 
 /** Proč není co vybírat - stejné důvody jako u jednotlivého řádku. */
@@ -656,16 +669,30 @@ function toggleSelection(item: PayrollPaymentLiability): void {
     : [...selectedIds.value, item.id]
 }
 
-function toggleAll(): void {
+/** Všechny závazky období, po stránkách v rozsahu, který API dovolí. */
+async function periodLiabilities(requestedPeriod: string): Promise<PayrollPaymentLiability[]> {
+  const all: PayrollPaymentLiability[] = []
+  for (let pageOffset = 0; ; pageOffset += POOL_PAGE_SIZE) {
+    const page = await payrollPaymentsApi.liabilities(requestedPeriod, { limit: POOL_PAGE_SIZE, offset: pageOffset })
+    all.push(...page.items)
+    if (page.items.length < POOL_PAGE_SIZE || all.length >= page.total) return all
+  }
+}
+
+/** Zaškrtne všechny závazky období, které se hodí do jedné dávky s prvním z nich. */
+async function toggleAll(): Promise<void> {
   if (selectedIds.value.length > 0) {
     selectedIds.value = []
     return
   }
-  const first = items.value.find(item => isSelectable(item))
+  const requestedPeriod = period.value
+  const pool = await periodLiabilities(requestedPeriod)
+  if (requestedPeriod !== period.value) return
+  selectionPool.value = pool
+  const first = items.value.find(item => isOpenBatchable(item)) ?? pool.find(item => isOpenBatchable(item))
   if (!first) return
-  selectedIds.value = [first.id]
-  selectedIds.value = items.value
-    .filter(item => isSelectable(item))
+  selectedIds.value = pool
+    .filter(item => isOpenBatchable(item) && (item.id === first.id || isSameBatchGroup(first, item)))
     .map(item => item.id)
 }
 
@@ -993,11 +1020,19 @@ async function load(): Promise<void> {
         selectedIncomingLiabilityId.value = null
         pickedIncomingLiability.value = null
       }
+      const crossPage = selectedIds.value.some(id => !liabilityList.items.some(item => item.id === id))
+      if ((runShortcutRequested && !runShortcutApplied.value) || crossPage) {
+        const pool = await periodLiabilities(requestedPeriod)
+        if (sequence !== loadSequence || requestedPeriod !== period.value) return
+        selectionPool.value = pool
+      } else {
+        selectionPool.value = []
+      }
       selectedIds.value = selectedIds.value.filter(id =>
-        liabilityList.items.some(item => item.id === id),
+        [...liabilityList.items, ...selectionPool.value].some(item => item.id === id && isOpenBatchable(item)),
       )
       if (runShortcutRequested && !runShortcutApplied.value) {
-        const candidates = liabilityList.items.filter(item =>
+        const candidates = selectionPool.value.filter(item =>
           item.run_id === requestedRunId && isOpenBatchable(item),
         )
         const anchor = candidates[0]
@@ -1123,6 +1158,8 @@ async function createBatch(): Promise<void> {
     ))
     selectedIds.value = []
     activeTab.value = 'batches'
+    // Další skupina plateb běhu (jiná splatnost, typicky odvody) se předvybere hned.
+    if (runShortcutRequested) runShortcutApplied.value = false
     await load()
     /*
      * Dávka bez souboru pro banku je půl kroku. Účetní ji zakládá právě proto,

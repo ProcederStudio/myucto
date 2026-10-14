@@ -2397,9 +2397,9 @@
         "loading": "Otevíráte platby z mzdového běhu",
         "loading_hint": "Načítáme závazky ze správného mzdového období.",
         "ready": "Závazky běhu jsou připravené k vytvoření příkazu",
-        "ready_hint": "Předvybrali jsme {count} navzájem kompatibilních plateb. Zkontrolujte součet a účet plátce, potom vytvořte mzdový příkaz.",
-        "empty": "Pro tento běh už není na zobrazené stránce co zařadit",
-        "empty_hint": "Platby už mohou být v dřívějším příkazu, mohou mít jinou splatnost nebo leží na další stránce. Zkontrolujte záložku Mzdové příkazy a další strany seznamu."
+        "ready_hint": "Předvybrali jsme {count} navzájem kompatibilních plateb ze všech stran seznamu. Zkontrolujte součet a účet plátce, potom vytvořte mzdový příkaz. Platby s jinou splatností (odvody) předvybereme hned po něm.",
+        "empty": "Všechny platby běhu jsou v mzdových příkazech",
+        "empty_hint": "Z tohoto běhu už není co zařadit. Soubory pro banku najdete v záložce Mzdové příkazy."
       },
       "total_liabilities": "Celkem k úhradě",
       "total_batched": "Zařazeno do dávek",

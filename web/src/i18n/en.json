@@ -2397,9 +2397,9 @@
         "loading": "Opening payments from a payroll run",
         "loading_hint": "Loading liabilities from the correct payroll period.",
         "ready": "The run liabilities are ready for a payment order",
-        "ready_hint": "We preselected {count} mutually compatible payments. Check the total and payer account, then create the payroll payment order.",
-        "empty": "There is nothing from this run to add on the displayed page",
-        "empty_hint": "The payments may already be in an earlier order, have a different due date, or be on another page. Check Payroll payment orders and the remaining list pages."
+        "ready_hint": "We preselected {count} mutually compatible payments from every page of the list. Check the total and payer account, then create the payroll payment order. Payments with another due date (levies) are preselected right after it.",
+        "empty": "All payments of the run are in payroll payment orders",
+        "empty_hint": "There is nothing left to add from this run. The bank files are on the Payroll payment orders tab."
       },
       "total_liabilities": "Total due",
       "total_batched": "Included in batches",

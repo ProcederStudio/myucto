@@ -396,6 +396,33 @@ describe('PayrollPayments', () => {
       .toContain('"count":2')
   })
 
+  it('preselects the compatible liabilities of the run across every page, not only the visible one', async () => {
+    m.routeQuery = {
+      period: '2026-08',
+      run: '11',
+      focus: 'bank-order',
+    }
+    const base = (await m.liabilities()).items[0]
+    const all = Array.from({ length: 120 }, (_, index) => ({
+      ...base,
+      id: 1000 + index,
+      employee_id: 2000 + index,
+      employee_name: `Osoba ${index}`,
+    }))
+    m.liabilities.mockImplementation(async (_period: string, page: { limit: number, offset: number }) => ({
+      ...liabilityList(all.slice(page.offset, page.offset + page.limit)),
+      total: all.length,
+      limit: page.limit,
+      offset: page.offset,
+    }))
+
+    const wrapper = mount(PayrollPayments)
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="batch-selection-summary"]').text())
+      .toContain('"count":120')
+  })
+
   /*
    * Dva různé scénáře na téže obrazovce, které dřív vypadaly stejně:
    * „nenačetlo se" vs. „za období opravdu nic není". První musí nabídnout
