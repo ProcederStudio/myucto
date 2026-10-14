@@ -300,6 +300,14 @@ final class PayrollComponentRepository
      */
     public function ensureDefaults(int $supplierId): void
     {
+        $versions = $this->defaults->versions();
+        // Firma, která má všechny výchozí verze, nepotřebuje desítky INSERT IGNORE na každé
+        // čtení číselníku (převod mezd ho čte u každé osoby a měsíce). Jediný dotaz to ověří;
+        // chybí-li cokoli, proběhne doplnění celé jako dřív.
+        if ($this->defaultsPresent($supplierId, $versions)) {
+            $this->seedDefaultJmhzMappings($supplierId);
+            return;
+        }
         $insert = $this->db->pdo()->prepare(
             'INSERT IGNORE INTO payroll_component_definitions
                 (supplier_id, code, name, component_kind, value_kind,
@@ -318,7 +326,7 @@ final class PayrollComponentRepository
               WHERE supplier_id = ? AND code = ?
                 AND valid_from < ? AND valid_to IS NULL'
         );
-        foreach ($this->defaults->versions() as $index => $version) {
+        foreach ($versions as $index => $version) {
             foreach ($version['rows'] as $row) {
                 if ($index > 0) {
                     $closePrevious->execute([
@@ -335,6 +343,34 @@ final class PayrollComponentRepository
         // zařazení — jinak kontrola před během hlásila „nemá zařazení" u složek,
         // které aplikace založila sama.
         $this->seedDefaultJmhzMappings($supplierId);
+    }
+
+    /**
+     * Má firma každou výchozí verzi složky (kód + účinnost)?
+     *
+     * @param list<array{valid_from:string,rows:list<array<string,mixed>>}> $versions
+     */
+    private function defaultsPresent(int $supplierId, array $versions): bool
+    {
+        $pairs = [];
+        $params = [$supplierId];
+        foreach ($versions as $version) {
+            foreach ($version['rows'] as $row) {
+                $pairs[] = '(?, ?)';
+                $params[] = $row['code'];
+                $params[] = $version['valid_from'];
+            }
+        }
+        if ($pairs === []) {
+            return true;
+        }
+        $stmt = $this->db->pdo()->prepare(
+            'SELECT COUNT(*) FROM payroll_component_definitions
+              WHERE supplier_id = ? AND (code, valid_from) IN (' . implode(', ', $pairs) . ')'
+        );
+        $stmt->execute($params);
+
+        return (int) $stmt->fetchColumn() === count($pairs);
     }
 
     /**

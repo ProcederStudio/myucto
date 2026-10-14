@@ -11,7 +11,7 @@ use PHPUnit\Framework\TestCase;
 
 final class JmhzScenarioSelectorResolverTest extends TestCase
 {
-    public function testSelectorsShareOneValidatedCatalogWithinEachLoad(): void
+    public function testSelectorsShareOneValidatedCatalog(): void
     {
         $resolver = JmhzScenarioSelectorResolver::load();
         $scenarios = new \ReflectionProperty($resolver, 'scenarios');
@@ -19,7 +19,8 @@ final class JmhzScenarioSelectorResolverTest extends TestCase
         $nestedScenarios = new \ReflectionProperty($scenarioOne, 'scenarios');
 
         self::assertSame($scenarios->getValue($resolver), $nestedScenarios->getValue($scenarioOne));
-        self::assertNotSame(
+        // Katalog z přibalených zdrojů se ověří jednou za proces a další načtení ho sdílí.
+        self::assertSame(
             $scenarios->getValue($resolver),
             $scenarios->getValue(JmhzScenarioSelectorResolver::load()),
         );

@@ -12,6 +12,8 @@ use MyInvoice\Service\Payroll\Submission\Jmhz\JmhzOrdinaryEvidenceBuilder;
 use MyInvoice\Service\Payroll\Submission\Jmhz\JmhzOrdinaryEvidenceException;
 use MyInvoice\Service\Payroll\Submission\Jmhz\JmhzOrdinaryEvidenceApplicability;
 use MyInvoice\Service\Payroll\Submission\Jmhz\JmhzOrdinaryEvidenceApplicabilityException;
+use MyInvoice\Service\Payroll\Submission\Jmhz\JmhzScenarioRequirementSourceCatalog;
+use MyInvoice\Service\Payroll\Submission\Jmhz\JmhzSpecPackageCatalog;
 use PHPUnit\Framework\TestCase;
 
 final class JmhzOrdinaryEvidenceBuilderTest extends TestCase
@@ -435,6 +437,10 @@ final class JmhzOrdinaryEvidenceBuilderTest extends TestCase
         $input = json_decode($source['revision']['input_snapshot_json'], true, flags: JSON_THROW_ON_ERROR);
         $term = $input['people'][0]['employments'][0]['term'];
         $applicability = new JmhzOrdinaryEvidenceApplicability();
+        // Přibalené katalogy drží proces ověřené; první kontrola je má načíst za studena.
+        (new \ReflectionProperty(JmhzScenarioRequirementSourceCatalog::class, 'bundled'))->setValue(null, null);
+        (new \ReflectionProperty(JmhzSpecPackageCatalog::class, 'bundled'))->setValue(null, []);
+        (new \ReflectionProperty(JmhzSpecPackageCatalog::class, 'validated'))->setValue(null, []);
 
         $started = hrtime(true);
         $applicability->assertApplicable($evidence, 7, $source['revision'], 11, 101, $term);

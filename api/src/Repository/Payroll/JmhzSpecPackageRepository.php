@@ -11,6 +11,9 @@ use PDO;
 
 final class JmhzSpecPackageRepository
 {
+    /** @var array<string, true> balík|hash, jehož uložené řádky už prošly {@see self::verifyStoredRows()} */
+    private array $verified = [];
+
     public function __construct(private readonly Connection $db) {}
 
     public function isAvailable(): bool
@@ -57,7 +60,13 @@ final class JmhzSpecPackageRepository
                     );
                 }
                 $packageId = (int) $row['id'];
-                $this->verifyStoredRows($packageId, $payload);
+                // Uložené řádky balíku stačí porovnat s manifestem jednou za spojení:
+                // instalace se volá u každého schváleného pracovního měsíce.
+                $verifiedKey = $packageId . '|' . $manifestHash;
+                if (!isset($this->verified[$verifiedKey])) {
+                    $this->verifyStoredRows($packageId, $payload);
+                    $this->verified[$verifiedKey] = true;
+                }
                 if ($ownsTransaction) {
                     $pdo->commit();
                 }

@@ -17,11 +17,33 @@ final class JmhzSpecPackageCatalog
         self::DEFAULT_PACKAGE_KEY => 'dictionary-1.4.1.6',
     ];
 
+    /**
+     * Manifesty přibalených balíků ověřené v tomto procesu (klíč balíku => manifest).
+     *
+     * @var array<string, array{manifest_sha256:string,payload:array<string, mixed>}>
+     */
+    private static array $bundled = [];
+
+    /**
+     * Payloady, jejichž hash a obsah už {@see self::validateManifest()} v tomto procesu
+     * ověřila (hash manifestu => payload).
+     *
+     * @var array<string, array<string, mixed>>
+     */
+    private static array $validated = [];
+
     public function __construct(private readonly ?string $resourceRoot = null) {}
 
     /** @return array{manifest_sha256:string,payload:array<string, mixed>} */
     public function load(string $packageKey, ?string $expectedManifestHash = null): array
     {
+        if ($this->resourceRoot === null && isset(self::$bundled[$packageKey])) {
+            $manifest = self::$bundled[$packageKey];
+            if ($expectedManifestHash !== null && !hash_equals($expectedManifestHash, $manifest['manifest_sha256'])) {
+                throw new \UnexpectedValueException('Balík JMHZ neodpovídá požadovanému SHA-256.');
+            }
+            return $manifest;
+        }
         $directory = self::PACKAGE_DIRECTORIES[$packageKey] ?? null;
         if ($directory === null) {
             throw new \OutOfBoundsException("Neznámý balík specifikace JMHZ {$packageKey}.");
@@ -49,18 +71,28 @@ final class JmhzSpecPackageCatalog
             throw new \UnexpectedValueException('Balík JMHZ neodpovídá požadovanému SHA-256.');
         }
         $this->verifySources($packageDirectory, $payload);
+        $manifest = ['manifest_sha256' => $actualHash, 'payload' => $payload];
+        if ($this->resourceRoot === null) {
+            self::$bundled[$packageKey] = $manifest;
+        }
 
-        return ['manifest_sha256' => $actualHash, 'payload' => $payload];
+        return $manifest;
     }
 
     /** @param array{manifest_sha256:string,payload:array<string, mixed>} $manifest */
     public static function validateManifest(array $manifest): void
     {
+        // Tentýž payload pod týmž hashem už prošel; porovnání polí je řádově levnější
+        // než kanonický JSON a hash celého balíku.
+        if ((self::$validated[$manifest['manifest_sha256']] ?? null) === $manifest['payload']) {
+            return;
+        }
         $actualHash = hash('sha256', CanonicalJson::encode($manifest['payload']));
         if (!hash_equals($manifest['manifest_sha256'], $actualHash)) {
             throw new \UnexpectedValueException('Manifest balíku JMHZ neodpovídá svému SHA-256.');
         }
         self::verifyContent($manifest['payload']);
+        self::$validated[$manifest['manifest_sha256']] = $manifest['payload'];
     }
 
     /** @param array<string, mixed> $payload */

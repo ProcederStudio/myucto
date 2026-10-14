@@ -56,6 +56,13 @@ final class JmhzScenarioRequirementSourceCatalog
     private array $evidenceAxes = [];
 
     /**
+     * Katalog z přibalených zdrojů, ověřený jednou za proces. Zdroje mají připnutý hash
+     * a za běhu se nemění; plné ověření stojí desítky milisekund a volá se u každého
+     * schválení pracovního měsíce (převod 250 lidí × 8 měsíců).
+     */
+    private static ?self $bundled = null;
+
+    /**
      * @param array{manifest_sha256:string,payload:array<string, mixed>} $manifest
      * @param array{manifest_sha256:string,payload:array<string, mixed>} $specManifest
      */
@@ -135,6 +142,9 @@ final class JmhzScenarioRequirementSourceCatalog
 
     public static function load(?string $resourceRoot = null): self
     {
+        if ($resourceRoot === null && self::$bundled !== null) {
+            return self::$bundled;
+        }
         $root = $resourceRoot ?? dirname(__DIR__, 5) . '/resources/payroll/jmhz';
         $directory = $root . DIRECTORY_SEPARATOR . 'dictionary-1.4.1.6';
         $manifest = self::decode(
@@ -169,6 +179,9 @@ final class JmhzScenarioRequirementSourceCatalog
                     "Scénář JMHZ {$scenario->key} odkazuje na neznámé XSD.",
                 );
             }
+        }
+        if ($resourceRoot === null) {
+            self::$bundled = $catalog;
         }
 
         return $catalog;
