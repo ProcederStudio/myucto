@@ -68,6 +68,8 @@ final class PohodaPayrollImporter
     public const START_KEEP = 'keep';
     /** Kód kontroly: firma bez začátku vedení mezd ho převodem dostane (kontext `start_period`). */
     public const START_WILL_SET = 'payroll_start_will_set';
+    /** Kód kontroly: převod je omezený na rozsah měsíců (kontext `period_from`, `period_to`). */
+    public const PERIOD_RANGE = 'payroll_period_range';
     private const PERSON_CHUNK = 100;
     private const MESSAGE_LIMIT = 20;
 
@@ -211,6 +213,15 @@ final class PohodaPayrollImporter
         return $moduleStart === null || $moduleStart === '' || $period >= substr($moduleStart, 0, 7);
     }
 
+    private static function periodRangeMessage(PohodaPayrollPeriodRange $range): string
+    {
+        return sprintf(
+            'Převedou se jen měsíce %s. Mzdy, srovnávací úhrny a podaná hlášení za ostatní měsíce exportu se nepřebírají; '
+            . 'měsíce po konci rozsahu spočítá MyÚčto samo od začátku vedení mezd.',
+            $range->label(),
+        );
+    }
+
     /** Věta o rozpracovaných měsících exportu pro kontrolu před převodem i protokol. */
     private static function openPeriodsMessage(array $open, ?string $exportedOn): string
     {
@@ -245,11 +256,15 @@ final class PohodaPayrollImporter
      * začátek vedení mezd, který převod firmě bez začátku nastaví, se počítá od něj, ne od
      * posledního měsíce převáděného roku ({@see self::setupLastPeriod()}).
      *
+     * Rozsah měsíců (`$range`) omezí poslední zpracovaný měsíc na svou horní mez
+     * ({@see PohodaPayrollPeriodRange::capLast()}).
+     *
      * @param array<string,mixed>|null $summary
      * @return list<array{level:string,code:string,message:string,context:array<string,mixed>}>
      */
-    public function preflight(int $supplierId, string $file, int $year, ?array $summary = null, ?string $jobLastPeriod = null): array
+    public function preflight(int $supplierId, string $file, int $year, ?array $summary = null, ?string $jobLastPeriod = null, ?PohodaPayrollPeriodRange $range = null): array
     {
+        $range ??= PohodaPayrollPeriodRange::all();
         $out = [];
         $add = static function (string $level, string $code, string $message, array $context = []) use (&$out): void {
             $out[] = ['level' => $level, 'code' => $code, 'message' => $message, 'context' => $context];
@@ -266,7 +281,7 @@ final class PohodaPayrollImporter
         $pdo = $this->db->pdo();
         // Chybějící nastavení mezd převod doplní sám ({@see PayrollMigrationModuleSetup});
         // chybou zůstává jen to, co doplnit nejde (licence).
-        $last = isset($summary['last_overall']) ? (string) $summary['last_overall'] : null;
+        $last = $range->capLast(isset($summary['last_overall']) ? (string) $summary['last_overall'] : null);
         $setupLast = self::setupLastPeriod($last, $jobLastPeriod);
         $plan = $setupLast === null ? null : $this->moduleSetup->plan($supplierId, $setupLast);
         $willSetUp = ($plan['outcome'] ?? null) === PayrollMigrationModuleSetup::OUTCOME_READY;
@@ -322,6 +337,9 @@ final class PohodaPayrollImporter
             $add('info', 'payroll_summary', sprintf('Mzdy za %d měsíců (%s až %s), zaměstnanců v exportu %d.',
                 $months, (string) $summary['first'], (string) $summary['last'], (int) $summary['employees']), ['months' => $months]);
         }
+        if ($range->limited()) {
+            $add('info', self::PERIOD_RANGE, self::periodRangeMessage($range), $range->toParams());
+        }
         if ($summary !== null && is_array($summary['open'] ?? null) && $summary['open'] !== []) {
             $add('warning', 'payroll_open_months', self::openPeriodsMessage($summary['open'], $summary['exported_on'] ?? null),
                 ['open' => $summary['open']]);
@@ -339,12 +357,17 @@ final class PohodaPayrollImporter
      * @param bool $acceptDifferences ostrý převod přijme měsíce, které se nepřevedly ({@see ImportProtocol::difference()})
      * @param ?string $jobLastPeriod poslední uzavřený měsíc přes všechny roky úlohy (`YYYY-MM`); firmě bez
      *        začátku vedení mezd ho převod nastaví až za něj ({@see self::setupLastPeriod()})
+     * @param ?PohodaPayrollPeriodRange $range převáděné měsíce, `null` = všechny uzavřené
      */
-    public function run(int $supplierId, int $userId, string $file, int $year, bool $dryRun, ?int $runId = null, ?callable $progress = null, ?callable $shouldCancel = null, bool $confirmIdentifiers = false, bool $approveTakenOver = false, ?string $startDecision = null, bool $acceptDifferences = false, ?string $jobLastPeriod = null): ImportProtocol
+    public function run(int $supplierId, int $userId, string $file, int $year, bool $dryRun, ?int $runId = null, ?callable $progress = null, ?callable $shouldCancel = null, bool $confirmIdentifiers = false, bool $approveTakenOver = false, ?string $startDecision = null, bool $acceptDifferences = false, ?string $jobLastPeriod = null, ?PohodaPayrollPeriodRange $range = null): ImportProtocol
     {
+        $range ??= PohodaPayrollPeriodRange::all();
         $protocol = new ImportProtocol($dryRun ? 'dry_run' : 'import', $acceptDifferences);
         $protocol->set('kind', 'payroll');
-        $preflight = $this->preflight($supplierId, $file, $year, null, $jobLastPeriod);
+        if ($range->limited()) {
+            $protocol->set('period_range', $range->toParams());
+        }
+        $preflight = $this->preflight($supplierId, $file, $year, null, $jobLastPeriod, $range);
         $protocol->set('preflight', $preflight);
         $protocol->begin(self::STEP_PREFLIGHT);
         foreach ($preflight as $m) {
@@ -381,7 +404,7 @@ final class PohodaPayrollImporter
         }
         try {
             // Nastavení mezd, které firma nemá, doplní převod dřív, než založí první osobu.
-            $last = self::lastPeriod($converter);
+            $last = $range->capLast(self::lastPeriod($converter));
             if ($last !== null) {
                 PayrollMigrationModuleSetup::report($protocol, self::STEP_PREFLIGHT,
                     $this->moduleSetup->ensure($supplierId, $userOrNull, (string) self::setupLastPeriod($last, $jobLastPeriod)), 'PAMICA');
@@ -413,7 +436,15 @@ final class PohodaPayrollImporter
             // hotový a MyÚčto by ho už nespočítalo.
             // Sešity měsíců se tady projdou jen kvůli souhrnům (sloupce profilu, vynechané údaje,
             // srážky bez druhu); řádky si nedrží, měsíc se znovu složí až při převodu.
-            $periods = $converter->closedPeriods($year);
+            $periods = array_values(array_filter($converter->closedPeriods($year), $range->contains(...)));
+            $outside = array_values(array_diff($converter->closedPeriods($year), $periods));
+            if ($outside !== []) {
+                $protocol->count(self::STEP_PREFLIGHT, 'months_outside_range', count($outside));
+                $protocol->info(self::STEP_PREFLIGHT, 'payroll_months_outside_range', sprintf(
+                    'Mimo rozsah převodu %s zůstaly měsíce exportu: %s.',
+                    $range->label(), implode(', ', array_map(self::monthLabel(...), $outside)),
+                ), ['periods' => $outside] + $range->toParams());
+            }
             $months = [];
             /** @var array<string,int> $componentInputs kód složky => vstupy s částkou */
             $componentInputs = [];
@@ -447,6 +478,13 @@ final class PohodaPayrollImporter
             // Podání z PAMICA (hlášení JMHZ, registrace) se čtou taky jednou: podmínky
             // vztahů z nich se doplňují po měsících, zbytek po údajích osob.
             $jmhz = PohodaPayrollJmhzWriter::read($file, $year);
+            // Hlášení za měsíc mimo rozsah podává MyÚčto (po horní mezi), nebo patří k měsíci,
+            // který se tímto převodem nepřebírá.
+            if ($range->limited()) {
+                $jmhz['reports'] = array_values(array_filter($jmhz['reports'],
+                    static fn (array $report): bool => $range->contains((string) $report['period'])));
+                $jmhz['effective'] = PohodaPayrollJmhzReports::effective($jmhz['reports']);
+            }
 
             $protocol->begin(self::STEP_PROFILE);
             $profile = PohodaPayrollConverter::profile($months);
@@ -752,7 +790,7 @@ final class PohodaPayrollImporter
                 $records = PohodaPayrollPeople::withSubmittedDiscounts($records, $jmhz['effective'], $year);
                 $this->people->write($supplierId, $userOrNull, $records, $year, $confirmIdentifiers, $protocol, self::STEP_PEOPLE,
                     PohodaPayrollPeople::institutions($file));
-                [$sourceTotals, $sourceSkipped] = $this->storeReferenceTotals($supplierId, $file, $year, $protocol, $exportedOn);
+                [$sourceTotals, $sourceSkipped] = $this->storeReferenceTotals($supplierId, $file, $year, $protocol, $exportedOn, $range);
                 // Náhrady mzdy z hodin docházky až po osobách: stojí na průměrném výdělku,
                 // který zapisuje teprve tenhle krok.
                 // Souhrn měsíce nese dávku, která ho zapsala naposledy se změnou. Opakovaný
@@ -1164,7 +1202,7 @@ final class PohodaPayrollImporter
      * po ruce nemá, a přesně tehdy se historický měsíc přepočítává.
      */
     /** @return array{0:list<PayrollMigrationReferenceTotals>,1:int} úhrny ze zdroje a mzdy, které se do nich nedostaly */
-    private function storeReferenceTotals(int $supplierId, string $file, int $year, ImportProtocol $protocol, ?string $exportedOn): array
+    private function storeReferenceTotals(int $supplierId, string $file, int $year, ImportProtocol $protocol, ?string $exportedOn, PohodaPayrollPeriodRange $range): array
     {
         $matched = $this->people->matchedRelations();
         $totals = [];
@@ -1182,7 +1220,8 @@ final class PohodaPayrollImporter
             }
             // Rozpracovaný měsíc se nepřebírá, takže nemá ani srovnávací úhrny:
             // počítá ho MyÚčto a pár mezd z předchozího programu by srovnání mátlo.
-            if (PohodaPayrollConverter::openPeriod(sprintf('%04d-%02d', $year, (int) PohodaXml::text($mz, 'RelMes')), $exportedOn)) {
+            $period = sprintf('%04d-%02d', $year, (int) PohodaXml::text($mz, 'RelMes'));
+            if (PohodaPayrollConverter::openPeriod($period, $exportedOn) || !$range->contains($period)) {
                 continue;
             }
             $pair = $matched[PohodaXml::text($mz, 'RefPomer')] ?? null;

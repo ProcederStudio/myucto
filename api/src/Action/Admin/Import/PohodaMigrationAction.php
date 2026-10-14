@@ -16,6 +16,7 @@ use MyInvoice\Service\IpMatcher;
 use MyInvoice\Service\Migration\ImportYears;
 use MyInvoice\Service\Migration\Pohoda\PartnerImporter;
 use MyInvoice\Service\Migration\Pohoda\Payroll\PohodaPayrollImporter;
+use MyInvoice\Service\Migration\Pohoda\Payroll\PohodaPayrollPeriodRange;
 use MyInvoice\Service\Migration\Pohoda\PohodaAgendaYear;
 use MyInvoice\Service\Migration\Pohoda\PohodaException;
 use MyInvoice\Service\Migration\Pohoda\PohodaExport;
@@ -299,6 +300,11 @@ final class PohodaMigrationAction extends AbstractMigrationAction
         if ($startDecision !== null && !in_array($startDecision, [PohodaPayrollImporter::START_ADVANCE, PohodaPayrollImporter::START_KEEP], true)) {
             return Json::error($response, 'invalid_start_decision', 'Neznámé rozhodnutí k začátku vedení mezd.', 422);
         }
+        try {
+            $periodRange = $kind === 'payroll' ? PohodaPayrollPeriodRange::fromParams($body) : PohodaPayrollPeriodRange::all();
+        } catch (\InvalidArgumentException $e) {
+            return Json::error($response, 'invalid_period_range', $e->getMessage(), 422);
+        }
         $stock = $kind === 'accounting' ? self::stockChoice($body['stock'] ?? null) : null;
         if ($stock === false) {
             return Json::error($response, 'invalid_stock', 'Volba převodu skladu je neplatná.', 422);
@@ -355,6 +361,8 @@ final class PohodaMigrationAction extends AbstractMigrationAction
             // Začátek vedení mezd před měsíci zpracovanými PAMICA: posunout a převést, nebo vědomě ponechat.
             // Bez rozhodnutí ostrý převod skončí chybou ({@see PohodaPayrollImporter::run()}).
             'start_decision' => $startDecision,
+            // Převáděné měsíce mezd (`YYYY-MM`, obě meze včetně); bez nich všechny uzavřené měsíce exportu.
+            ...$periodRange->toParams(),
             // Ostrý převod přijme rozdíly, na kterých selhala zkouška nanečisto.
             'accept_differences' => $acceptDifferences,
             // Sklad z nejnovější agendy: volba po skladech pro karty bez druhu zásoby, `null` = nepřevádí se.

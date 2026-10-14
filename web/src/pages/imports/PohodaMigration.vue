@@ -86,6 +86,20 @@ const confirmIdentifiers = ref(false)
 // Mzdy: převzatá docházka a vstupy se rovnou schválí. Zapnuté proto, že měsíce z PAMICA
 // už reálně proběhly a byly podané; jako koncepty by mzdový běh nad nimi vůbec nešel spustit.
 const approveTakenOver = ref(true)
+// Mzdy: převáděné měsíce `YYYY-MM`; prázdná mez = bez omezení. Měsíce po konci rozsahu
+// spočítá MyÚčto samo (export ze září nese i září, které už počítat má).
+const periodFrom = ref('')
+const periodTo = ref('')
+const periodRangeInvalid = computed(() => periodFrom.value !== '' && periodTo.value !== '' && periodFrom.value > periodTo.value)
+function nextMonth(period: string): string {
+  const year = Number(period.slice(0, 4))
+  const month = Number(period.slice(5, 7))
+  return month === 12 ? `${year + 1}-01` : `${year}-${String(month + 1).padStart(2, '0')}`
+}
+/** Poslední měsíc zpracovaný předchozím programem, jak ho vidí převod: nejvýš konec rozsahu. */
+function capLast(last: string): string {
+  return periodTo.value !== '' && last.slice(0, 7) > periodTo.value ? periodTo.value : last
+}
 // Sklad: převést stav z nejnovější agendy a volba po skladech pro karty bez druhu zásoby.
 const stockEnabled = ref(true)
 const stockChoices = ref<Record<string, PohodaStockChoice>>({})
@@ -262,7 +276,11 @@ const startBehind = computed(() => {
   const m = preflightGroups.value.flatMap(g => g.messages).find(x => x.code === 'payroll_start_behind_takeover')
   const c = m?.context
   if (!c || typeof c.from !== 'string' || typeof c.to !== 'string' || typeof c.last !== 'string') return null
-  return { from: monthLabel(c.from), to: monthLabel(c.to), last: monthLabel(c.last) }
+  // Náhled nezná rozsah měsíců: s koncem rozsahu se poslední převzatý měsíc i cílový začátek posunou.
+  const last = capLast(c.last)
+  if (last === c.last) return { from: monthLabel(c.from), to: monthLabel(c.to), last: monthLabel(c.last) }
+  if (c.from.slice(0, 7) > last) return null
+  return { from: monthLabel(c.from), to: monthLabel(nextMonth(last)), last: monthLabel(last) }
 })
 /**
  * Firma bez začátku vedení mezd: úloha ho nastaví za poslední zpracovaný měsíc
@@ -279,6 +297,7 @@ const startWillSet = computed(() => {
       if (best === null || c.start_period > best.start) best = { start: c.start_period, last: c.last }
     }
   }
+  if (best !== null && capLast(best.last) !== best.last) best = { start: nextMonth(capLast(best.last)), last: capLast(best.last) }
   return best && { period: monthLabel(best.start), last: monthLabel(best.last) }
 })
 const startDecision = ref<'advance' | 'keep'>('advance')
@@ -298,12 +317,13 @@ const missingRights = computed(() => {
 const rightsMessage = computed(() => tt(kind.value === 'payroll' ? 'payroll_rights_missing' : 'rights_missing', { rights: missingRights.value.join(', ') }))
 const payrollRightsBlocked = computed(() => kind.value === 'payroll' && missingRights.value.length > 0)
 const blocked = computed(() => selectedYears.value.length === 0 || preflightErrors.value.length > 0 || payrollRightsBlocked.value
-  || startDecisionBlocked.value)
+  || startDecisionBlocked.value || (payrollWizard.value && periodRangeInvalid.value))
 // Tlačítko je zakázané i během běžící úlohy; důvodem pak není kontrola před převodem.
 const blockedReason = computed(() => jobRunning.value && !blocked.value
   ? tt(jobMode.value === 'import' ? 'import_running' : 'dry_run_running')
   : selectedYears.value.length === 0 ? tt('choose_year_first')
     : payrollRightsBlocked.value ? rightsMessage.value
+      : payrollWizard.value && periodRangeInvalid.value ? tt('payroll_period_range.invalid')
       : startDecisionBlocked.value && preflightErrors.value.length === 0 ? tt('payroll_start.keep_confirm_first') : tt('preflight_blocked'))
 const importDone = computed(() => jobMode.value === 'import' && !jobRunning.value && jobSucceeded.value
   && jobRuns.value.length > 0 && jobRuns.value.every(r => r.mode === 'import'))
@@ -329,7 +349,7 @@ watch(kind, () => {
   confirmed.value = false
 })
 // Zkouška nanečisto platí jen pro zvolené rozhodnutí o začátku vedení mezd a volbu skladu.
-watch([startDecision, keepStartConfirmed, stockEnabled, stockChoices], () => {
+watch([startDecision, keepStartConfirmed, stockEnabled, stockChoices, periodFrom, periodTo], () => {
   dryRunPassed.value = false
   clearDifferences()
   confirmed.value = false
@@ -373,6 +393,8 @@ async function start(mode: 'dry_run' | 'import'): Promise<void> {
     years: [...selectedYears.value],
     kind: kind.value,
     ...(kind.value === 'payroll' ? { confirm_identifiers: confirmIdentifiers.value, approve_taken_over: approveTakenOver.value } : {}),
+    ...(kind.value === 'payroll' && periodFrom.value !== '' ? { period_from: periodFrom.value } : {}),
+    ...(kind.value === 'payroll' && periodTo.value !== '' ? { period_to: periodTo.value } : {}),
     ...(startBehind.value !== null ? { start_decision: startDecision.value } : {}),
     ...(stockAgenda.value && stockEnabled.value ? { stock: { warehouses: { ...stockChoices.value } } } : {}),
   })
@@ -698,6 +720,20 @@ const actions = computed<ActionItem[]>(() => {
             </div>
           </fieldset>
 
+          <fieldset v-if="kind === 'payroll'" class="mb-3 rounded-lg border border-neutral-200 p-3 text-sm" data-testid="pohoda-period-range">
+            <legend class="sr-only">{{ tt('payroll_period_range.title') }}</legend>
+            <p class="font-medium text-neutral-800">{{ tt('payroll_period_range.title') }}</p>
+            <div class="mt-2 flex flex-wrap items-end gap-3">
+              <label class="text-neutral-600">{{ tt('payroll_period_range.from') }}
+                <input v-model="periodFrom" type="month" class="mt-1 block h-9 rounded-md border border-neutral-300 bg-surface px-2 text-sm" data-testid="pohoda-period-from" />
+              </label>
+              <label class="text-neutral-600">{{ tt('payroll_period_range.to') }}
+                <input v-model="periodTo" type="month" class="mt-1 block h-9 rounded-md border border-neutral-300 bg-surface px-2 text-sm" data-testid="pohoda-period-to" />
+              </label>
+            </div>
+            <p class="mt-2 text-neutral-500">{{ tt('payroll_period_range.hint') }}</p>
+            <p v-if="periodRangeInvalid" class="mt-2 text-danger-600" role="alert" data-testid="pohoda-period-range-invalid">{{ tt('payroll_period_range.invalid') }}</p>
+          </fieldset>
           <label v-if="kind === 'payroll'" class="mb-3 flex cursor-pointer items-start gap-3 rounded-lg border border-neutral-200 p-3">
             <input v-model="confirmIdentifiers" type="checkbox" class="mt-1 rounded border-neutral-300 text-primary-600" data-testid="pohoda-confirm-identifiers" />
             <span class="text-sm text-neutral-700">{{ tt('payroll_identifiers_confirm') }}</span>

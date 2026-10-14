@@ -10,6 +10,7 @@ use MyInvoice\Service\Accounting\FiscalCalendar;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Migration\ImportYears;
 use MyInvoice\Service\Migration\Pohoda\Payroll\PohodaPayrollImporter;
+use MyInvoice\Service\Migration\Pohoda\Payroll\PohodaPayrollPeriodRange;
 use MyInvoice\Service\Migration\Shared\AbstractImportJobService;
 use MyInvoice\Service\Migration\Shared\ChunkedUploadStore;
 use MyInvoice\Service\Migration\Shared\ImportWorkerMemory;
@@ -200,7 +201,9 @@ final class PohodaImportJobService extends AbstractImportJobService
                 // Začátek vedení mezd firmě bez začátku nastaví úloha až za poslední měsíc
                 // posledního vybraného roku. Začátek, který firma neměla před úlohou, nastavila
                 // úloha sama: pozdější rok ho proto posune bez dotazu na rozhodnutí uživatele.
-                $params['job_last_period'] = self::payrollLastPeriod($meta, $ico, $planYears, $supplierId, $token);
+                // Rozsah měsíců převodu: začátek vedení mezd jde nejvýš za jeho horní mez.
+                $params['job_last_period'] = PohodaPayrollPeriodRange::fromParams($params)
+                    ->capLast(self::payrollLastPeriod($meta, $ico, $planYears, $supplierId, $token));
                 if (!isset($params['start_decision']) && $this->payroll->startPeriod($supplierId) === null) {
                     $params['start_decision'] = PohodaPayrollImporter::START_ADVANCE;
                 }
@@ -278,7 +281,8 @@ final class PohodaImportJobService extends AbstractImportJobService
                         ? $this->payroll->run($supplierId, $userId, $agendaDir . DIRECTORY_SEPARATOR . PohodaExport::FILES['payroll'], (int) $agenda['year'], $dryRun, $runId, $progress, $cancel,
                             (bool) ($params['confirm_identifiers'] ?? false), (bool) ($params['approve_taken_over'] ?? false),
                             isset($params['start_decision']) ? (string) $params['start_decision'] : null, (bool) ($params['accept_differences'] ?? false),
-                            isset($params['job_last_period']) ? (string) $params['job_last_period'] : null)
+                            isset($params['job_last_period']) ? (string) $params['job_last_period'] : null,
+                            PohodaPayrollPeriodRange::fromParams($params))
                         : $this->importer->run($supplierId, $userId, $export, $dryRun, $runId, $progress, $cancel, $item['skip'], (bool) ($params['accept_differences'] ?? false),
                             self::stockFor($meta, (string) ($params['ico'] ?? ''), $year, $params['stock'] ?? null)),
                     'journal' => static fn (array $byStep): array => $payroll

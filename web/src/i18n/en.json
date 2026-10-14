@@ -31240,6 +31240,13 @@
     },
     "other_wizard_hint": "The export contains further agendas this wizard does not migrate (count: {n}). Migrate accounting under Migration from POHODA and payroll under Migration from PAMICA.",
     "payroll_approve_taken_over": "Approve the taken-over attendance and payroll inputs right away. PAMICA months have already been processed and filed; as unapproved drafts they would block starting and closing a payroll run. Note: a started run recalculates the month with its own rule set, so the result may not match what was already filed to the last crown. Leave it unchecked to review and approve them manually under Payroll → Inputs and Payroll → Attendance.",
+    "payroll_period_range": {
+      "title": "Months to take over",
+      "from": "From month",
+      "to": "To month",
+      "hint": "Leave empty to take over every month PAMICA has closed. Fill it in to limit the takeover, e.g. to 1-8/2026 even if the export also contains September: payroll, reference totals and filed reports of other months are not taken over and payroll start is set no later than the month after the range ends.",
+      "invalid": "The start of the month range is after its end."
+    },
     "payroll_start": {
       "title": "Payroll in MyÚčto starts in {from}, but PAMICA has processed payroll up to {last}.",
       "hint": "Without moving the start, the transfer would treat {from} to {last} as months calculated by MyÚčto: absence compensation inputs from attendance and deduction agreements would be created in them, although the previous program already processed and filed them.",

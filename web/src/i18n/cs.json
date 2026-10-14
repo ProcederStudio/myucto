@@ -31240,6 +31240,13 @@
     },
     "other_wizard_hint": "Export obsahuje ještě další agendy, které tenhle průvodce nepřevádí (počet: {n}). Účetnictví převeďte v sekci Přechod z POHODA, mzdy v sekci Přechod z PAMICA.",
     "payroll_approve_taken_over": "Převzatou docházku a mzdové vstupy rovnou schválit. Měsíce z PAMICA už proběhly a jsou podané; jako neschválené koncepty by nad nimi mzdový běh nešel spustit ani uzavřít. Pozor: spuštěný běh si měsíc spočítá znovu podle vlastní legislativní sady, takže výsledek se nemusí do koruny trefit do toho, co už bylo podané. Bez zaškrtnutí zůstanou podklady ke kontrole a schválíte je ručně v Mzdy → Mzdové složky a vstupy a Mzdy → Docházka a směny.",
+    "payroll_period_range": {
+      "title": "Převáděné měsíce",
+      "from": "Od měsíce",
+      "to": "Do měsíce",
+      "hint": "Bez vyplnění se převedou všechny měsíce, které PAMICA uzavřela. Vyplněním omezíte převod třeba na 1-8/2026, i když export nese i září: mzdy, srovnávací úhrny a podaná hlášení ostatních měsíců se nepřevezmou a začátek vedení mezd se nastaví nejvýš na měsíc po konci rozsahu.",
+      "invalid": "Začátek rozsahu převáděných měsíců leží po jeho konci."
+    },
     "payroll_start": {
       "title": "Začátek vedení mezd v MyÚčtu je {from}, PAMICA ale zpracovala mzdy až do {last}.",
       "hint": "Bez posunu začátku by převod vzal měsíce {from} až {last} jako měsíce, které počítá MyÚčto: vznikly by v nich vstupy náhrad za nepřítomnost z docházky a dohody o srážkách, přestože je předchozí program už zpracoval a podal.",

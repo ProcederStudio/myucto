@@ -9,6 +9,7 @@ use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\PohodaImportRepository;
 use MyInvoice\Service\Migration\MoneyS3\ImportProtocol;
 use MyInvoice\Service\Migration\Pohoda\Payroll\PohodaPayrollImporter;
+use MyInvoice\Service\Migration\Pohoda\Payroll\PohodaPayrollPeriodRange;
 use MyInvoice\Service\Payroll\PayrollPredecessorObligationScope;
 use MyInvoice\Service\Payroll\Time\PayrollJmhzWorkMonthSummaryBuilder;
 use MyInvoice\Tests\Fixtures\Pohoda\SyntheticPohodaPayroll;
@@ -1033,6 +1034,50 @@ final class PohodaPayrollImportTest extends TestCase
             "SELECT COUNT(*) FROM payroll_migration_reference_totals WHERE supplier_id = ? AND period_start = '2026-02-01'",
             [$supplierId],
         ));
+        $start = $this->db->pdo()->prepare('SELECT start_period FROM payroll_module_state WHERE supplier_id = ?');
+        $start->execute([$supplierId]);
+        self::assertSame('2026-02-01', (string) $start->fetchColumn());
+    }
+
+    /**
+     * Rozsah měsíců omezí převod jako rozpracovaný měsíc: export nese leden i únor, převede
+     * se jen leden (mzdy, srovnávací úhrny i podané hlášení) a začátek vedení mezd nové firmy
+     * padne na únor, který spočítá MyÚčto.
+     */
+    public function testPeriodRangeLeavesLaterMonthsToMyUcto(): void
+    {
+        $supplierId = $this->createIsolatedSupplier($this->db->pdo(), $this->sourceSupplierId);
+        $this->db->pdo()->prepare('UPDATE supplier SET payroll_enabled = 0 WHERE id = ?')->execute([$supplierId]);
+        $file = SyntheticPohodaPayroll::writeWithReports($this->tmp);
+        $range = PohodaPayrollPeriodRange::fromParams(['period_to' => '2026-01']);
+
+        $preflight = $this->importer->preflight($supplierId, $file, SyntheticPohodaPayroll::YEAR, null, null, $range);
+        self::assertContains(PohodaPayrollImporter::PERIOD_RANGE, array_column($preflight, 'code'));
+        $willSet = array_values(array_filter($preflight, static fn (array $m): bool => $m['code'] === PohodaPayrollImporter::START_WILL_SET));
+        self::assertSame('2026-02', substr((string) ($willSet[0]['context']['start_period'] ?? ''), 0, 7));
+
+        $protocol = $this->importer->run($supplierId, $this->userId, $file, SyntheticPohodaPayroll::YEAR, false,
+            startDecision: PohodaPayrollImporter::START_KEEP, range: $range);
+        self::assertFalse($protocol->hasErrors(), $this->explain($protocol));
+        self::assertSame(1, self::stepCounts($protocol, PohodaPayrollImporter::STEP_MONTHS)['months'] ?? 0, $this->explain($protocol));
+        self::assertSame(1, self::stepCounts($protocol, PohodaPayrollImporter::STEP_PREFLIGHT)['months_outside_range'] ?? 0, $this->explain($protocol));
+        self::assertSame(1, $this->rows('payroll_attendance_imports', $supplierId));
+        self::assertSame(0, $this->scalar(
+            "SELECT COUNT(*) FROM payroll_migration_reference_totals WHERE supplier_id = ? AND period_start >= '2026-02-01'",
+            [$supplierId],
+        ));
+        self::assertGreaterThan(0, $this->scalar(
+            "SELECT COUNT(*) FROM payroll_migration_reference_totals WHERE supplier_id = ? AND period_start = '2026-01-01'",
+            [$supplierId],
+        ));
+        self::assertSame(0, $this->scalar(
+            "SELECT COUNT(*) FROM payroll_external_jmhz_submissions WHERE supplier_id = ? AND document_kind = 'monthly' AND period > '2026-01'",
+            [$supplierId],
+        ), $this->explain($protocol));
+        self::assertGreaterThan(0, $this->scalar(
+            "SELECT COUNT(*) FROM payroll_external_jmhz_submissions WHERE supplier_id = ? AND document_kind = 'monthly' AND period = '2026-01'",
+            [$supplierId],
+        ), $this->explain($protocol));
         $start = $this->db->pdo()->prepare('SELECT start_period FROM payroll_module_state WHERE supplier_id = ?');
         $start->execute([$supplierId]);
         self::assertSame('2026-02-01', (string) $start->fetchColumn());

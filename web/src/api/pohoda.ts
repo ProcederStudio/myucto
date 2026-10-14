@@ -190,6 +190,9 @@ export interface PohodaStartParams {
    * Ostrý převod bez rozhodnutí backend odmítne.
    */
   start_decision?: 'advance' | 'keep'
+  /** Mzdy: převáděné měsíce `YYYY-MM` (obě meze včetně); bez nich všechny uzavřené měsíce exportu. */
+  period_from?: string
+  period_to?: string
   /** Ostrý převod přijme rozdíly, na kterých selhala zkouška nanečisto. */
   accept_differences?: boolean
   /** Převod skladu z nejnovější agendy: volba po skladech (kód skladu => volba). Bez ní se sklad nepřevádí. */

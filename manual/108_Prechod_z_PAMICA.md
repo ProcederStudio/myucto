@@ -114,6 +114,7 @@ nehlásí chybu. Parametry a konfigurace jsou v
 3. V kroku **Náhled a volby** zkontrolujte u agendy sloupec **Mzdy**
    (počet zaměstnanců a měsíců) a IČO firmy.
 4. Nastavte volby:
+   - **Převáděné měsíce** (od - do, prázdné = všechny uzavřené měsíce exportu),
    - **Převzatou docházku a mzdové vstupy rovnou schválit** (výchozí zapnuto),
    - potvrzení původu OIČ a ID PPV z protokolů ČSSZ (jen pokud tomu tak je),
    - u začátku vedení mezd před zpracovanými měsíci volbu **Posunout začátek na
@@ -431,6 +432,15 @@ co chybí, včetně účtů institucí, vypíše protokol k doplnění v Mzdy �
 Zapnutý modul, jeho začátek ani existující nastavení převod nemění. Počáteční
 stavy kumulací převod zapíše jen tehdy, když má firma začátek vedení mezd
 nastavený; jiný než navržený začátek nastavte ještě před převodem.
+
+**Převáděné měsíce.** V kroku *Náhled a volby* jde převod omezit na rozsah
+měsíců **Od měsíce** - **Do měsíce** (obě meze včetně). Bez vyplnění se převedou
+všechny měsíce, které PAMICA uzavřela. Rozsah se hodí, když export nese i měsíc,
+který už má počítat MyÚčto: s rozsahem 1/2026 až 8/2026 se ze zářijového exportu
+převede jen leden až srpen. Za měsíce mimo rozsah se nepřevezmou mzdy, srovnávací
+úhrny ani podaná hlášení JMHZ, a začátek vedení mezd se počítá nejvýš od měsíce
+po konci rozsahu (tady 9/2026). Osoby, vztahy a údaje z karet zaměstnanců se
+převedou celé. Protokol vypíše, které měsíce exportu zůstaly mimo rozsah.
 
 **Začátek vedení mezd před zpracovanými měsíci.** Firma, která už v MyÚčtu
 je (například po dřívějším převodu nebo resetu dat s ponecháním nastavení
