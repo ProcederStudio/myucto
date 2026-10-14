@@ -112,7 +112,7 @@ final class PayrollTakeoverInstitutionWriter
                 'currency_code' => 'CZK',
                 'variable_symbol' => $variableSymbol,
                 'specific_symbol' => null,
-                'constant_symbol' => null,
+                'constant_symbol' => PayrollTakeoverFormat::text($institution['constant_symbol'] ?? null),
                 'valid_from' => sprintf('%04d-01-01', $year),
                 'valid_to' => null,
                 'source_kind' => $notice ? 'institution_notice' : ($paidRepeatedly ? 'user_verified' : 'imported'),

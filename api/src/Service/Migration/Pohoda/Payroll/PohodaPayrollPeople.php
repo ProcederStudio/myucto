@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Migration\Pohoda\Payroll;
 
 use MyInvoice\Service\Migration\Pohoda\PohodaXml;
+use MyInvoice\Service\Payroll\Import\Attendance\AttendanceText;
 use MyInvoice\Service\Payroll\Migration\PayrollTakeoverInstitutionWriter;
 use MyInvoice\Service\Payroll\Ruleset\CzechPayrollRulesets;
 use MyInvoice\Service\Payroll\Ruleset\PayrollRulesetDomain;
@@ -706,7 +707,113 @@ final class PohodaPayrollPeople
         foreach (self::levyInstitutions($documents, self::socialSecurityOffice($offices)) as $row) {
             $out[] = $row;
         }
+        $insurer = self::statutoryInsurer($documents);
+        if ($insurer !== null) {
+            $out[] = $insurer;
+        }
         return $out;
+    }
+
+    /**
+     * Platby zákonného pojištění odpovědnosti zaměstnavatele (Kooperativa, Generali
+     * Česká pojišťovna) z vystavených závazků: den splatnosti, částka a pojišťovna.
+     * Číselník pojišťovny ani sazbu PAMICA v exportu nevede, platby ano.
+     *
+     * @return list<array{code:string,name:string,due_on:string,amount_minor:int}>
+     */
+    public static function statutoryInsurancePayments(string $file): array
+    {
+        $out = [];
+        foreach (PohodaXml::scan($file, ['Doklady']) as $row) {
+            $payment = self::statutoryInsurancePayment($row);
+            if ($payment !== null) {
+                $out[] = $payment;
+            }
+        }
+        usort($out, static fn (array $a, array $b): int => $a['due_on'] <=> $b['due_on']);
+
+        return $out;
+    }
+
+    /**
+     * Pojišťovna zákonného pojištění jako příjemce odvodu: účet a symboly, na kterých
+     * se shodnou všechny závazky. Víc různých účtů = převod nevybírá.
+     *
+     * @param list<array<string,mixed>> $documents řádky `Doklady`
+     * @return array<string,mixed>|null
+     */
+    private static function statutoryInsurer(array $documents): ?array
+    {
+        $found = null;
+        foreach ($documents as $document) {
+            $payment = self::statutoryInsurancePayment($document);
+            $account = PohodaXml::text($document, 'Ucet');
+            $bank = PohodaXml::text($document, 'KodBanky');
+            if ($payment === null || $account === '' || preg_match('/^[0-9]{4}$/D', $bank) !== 1) {
+                continue;
+            }
+            $found ??= ['code' => $payment['code'], 'name' => $payment['name'], 'accounts' => [], 'variables' => [],
+                'constants' => [], 'document' => PohodaXml::text($document, 'Cislo'), 'count' => 0];
+            $found['accounts'][$account . '/' . $bank] = true;
+            $variable = (string) preg_replace('/\D/', '', PohodaXml::text($document, 'VarSym'));
+            if ($variable !== '' && strlen($variable) <= 10) {
+                $found['variables'][$variable] = true;
+            }
+            $constant = (string) preg_replace('/\D/', '', PohodaXml::text($document, 'KonstSym'));
+            if ($constant !== '' && strlen($constant) <= 10) {
+                $found['constants'][$constant] = true;
+            }
+            $found['count']++;
+        }
+        if ($found === null || count($found['accounts']) !== 1) {
+            return null;
+        }
+        [$account, $bank] = explode('/', (string) array_key_first($found['accounts']), 2);
+
+        return [
+            'type' => 'statutory_insurance',
+            'code' => $found['code'],
+            'name' => $found['name'],
+            'account' => $account,
+            'bank_code' => $bank,
+            'variable_symbol' => count($found['variables']) === 1 ? (string) array_key_first($found['variables']) : null,
+            'constant_symbol' => count($found['constants']) === 1 ? (string) array_key_first($found['constants']) : null,
+            'data_box' => null,
+            'source' => sprintf('PAMICA, tabulka Doklady, závazek %s (%d dokladů zákonného pojištění)', $found['document'], $found['count']),
+            'issue' => null,
+            'candidates' => 1,
+        ];
+    }
+
+    /**
+     * Vystavený závazek zákonného pojištění odpovědnosti, nebo `null`.
+     *
+     * @param array<string,mixed> $row řádek `Doklady`
+     * @return array{code:string,name:string,due_on:string,amount_minor:int}|null
+     */
+    private static function statutoryInsurancePayment(array $row): ?array
+    {
+        if (PohodaXml::text($row, 'RelTpDokl') !== '1') {
+            return null;
+        }
+        $text = AttendanceText::normalize(PohodaXml::text($row, 'SText') . ' ' . PohodaXml::text($row, 'SOperace'));
+        if (preg_match('/zakonn\w* pojisten\w*|pojisten\w* odpovednost\w*|urazov\w* pojisten\w*/', $text) !== 1) {
+            return null;
+        }
+        $company = AttendanceText::normalize(PohodaXml::text($row, 'Firma'));
+        [$code, $name] = match (true) {
+            str_contains($company, 'kooperativ') => ['KOOPERATIVA', 'Kooperativa pojišťovna, a.s.'],
+            str_contains($company, 'generali') || str_contains($company, 'ceska pojistovna')
+                => ['GENERALI', 'Generali Česká pojišťovna a.s.'],
+            default => ['ZAKONNE_POJISTENI', 'Zákonné pojištění odpovědnosti zaměstnavatele'],
+        };
+        $due = PohodaXml::date($row, 'DatSplat') ?? PohodaXml::date($row, 'Datum');
+        $amount = (int) round(PohodaXml::num($row, 'KcCelkem') * 100);
+        if ($due === null || $amount <= 0) {
+            return null;
+        }
+
+        return ['code' => $code, 'name' => $name, 'due_on' => substr($due, 0, 10), 'amount_minor' => $amount];
     }
 
     /**

@@ -168,6 +168,12 @@ final class SyntheticPohodaPayroll
         $row('Doklady', ['ID' => 1, 'Cislo' => 'MZ0001', 'RelTpDokl' => 1, 'Ucet' => '713-1000000005', 'KodBanky' => '0710', 'VarSym' => '12345678']);
         $row('Doklady', ['ID' => 2, 'Cislo' => 'MZ0002', 'RelTpDokl' => 1, 'Ucet' => '713-1000000005', 'KodBanky' => '0710', 'VarSym' => '12345678']);
         $row('Doklady', ['ID' => 3, 'Cislo' => 'MZ0003', 'RelTpDokl' => 1, 'Ucet' => '7720-1000000005', 'KodBanky' => '0710', 'VarSym' => '12345678']);
+        // Zákonné pojištění odpovědnosti: dvě čtvrtletní platby pojišťovně.
+        foreach ([[4, '2026-04-30'], [5, '2026-07-31']] as [$id, $due]) {
+            $row('Doklady', ['ID' => $id, 'Cislo' => 'OZ000' . $id, 'RelTpDokl' => 1, 'SText' => 'Zákonné pojištění odpovědnosti při prac. úrazu',
+                'Firma' => 'Kooperativa, pojišťovna, a.s.', 'Ucet' => '1000000005', 'KodBanky' => '0100', 'VarSym' => '12345678',
+                'KonstSym' => '3558', 'DatSplat' => $due, 'KcCelkem' => 500]);
+        }
         if ($reports) {
             $x .= self::reports();
         }

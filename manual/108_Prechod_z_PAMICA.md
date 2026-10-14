@@ -597,6 +597,13 @@ předčíslí účtu u ČNB: `21012` je OSSZ, `713` záloha daně ze závislé �
 `7720` srážková daň. Variabilní symbol finančního úřadu je kmenová část DIČ
 firmy v MyÚčtu.
 
+Zákonné pojištění odpovědnosti zaměstnavatele převod pozná podle závazků
+pojišťovně (Kooperativa, Generali Česká pojišťovna): založí její účet
+s variabilním i konstantním symbolem a ze čtvrtletních plateb a převzatých
+vyměřovacích základů předchozího čtvrtletí dopočítá sazbu. Zapíše ji jen tehdy,
+když všechny platby vyjdou na tutéž sazbu přílohy vyhlášky č. 125/1993 Sb.
+a firma sazbu ještě nemá; protokol ji uvede a v Nastavení mezd jde upravit.
+
 Účet, na který PAMICA odvod posílala opakovaně (aspoň dva závazky), je
 ověřený skutečnými platbami stejně jako výplatní účet zaměstnance a platební
 dávka ho použije. Účet doložený jediným závazkem se zakládá jako

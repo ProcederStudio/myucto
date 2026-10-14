@@ -20,6 +20,7 @@ use MyInvoice\Service\Payroll\Migration\PayrollMigrationModuleSetup;
 use MyInvoice\Service\Payroll\Migration\PayrollMigrationReferenceTotals;
 use MyInvoice\Service\Payroll\Migration\PayrollMigrationReferenceTotalsWriter;
 use MyInvoice\Service\Payroll\Migration\PayrollPostingMapProposalService;
+use MyInvoice\Service\Payroll\Migration\PayrollTakeoverAccidentInsuranceRate;
 use MyInvoice\Service\Payroll\Migration\PayrollTakeoverInvariants;
 use MyInvoice\Service\Payroll\Migration\PayrollTakeoverRepeatedMonth;
 use MyInvoice\Service\Payroll\Migration\PayrollTakeoverSicknessCompensation;
@@ -96,6 +97,7 @@ final class PohodaPayrollImporter
         private readonly PayrollTakeoverInvariants $invariants,
         private readonly PayrollRecurringMaterializer $recurring,
         private readonly PayrollComponentJmhzMappingRepository $jmhzMappings,
+        private readonly PayrollTakeoverAccidentInsuranceRate $accidentRate,
     ) {}
 
     /**
@@ -864,6 +866,7 @@ final class PohodaPayrollImporter
                 $this->people->write($supplierId, $userOrNull, $records, $year, $confirmIdentifiers, $protocol, self::STEP_PEOPLE,
                     PohodaPayrollPeople::institutions($file));
                 [$sourceTotals, $sourceSkipped] = $this->storeReferenceTotals($supplierId, $file, $year, $protocol, $exportedOn, $range);
+                $this->accidentInsuranceRate($supplierId, $file, $year, $userOrNull, $protocol);
                 // Náhrady mzdy z hodin docházky až po osobách: stojí na průměrném výdělku,
                 // který zapisuje teprve tenhle krok.
                 // Souhrn měsíce nese dávku, která ho zapsala naposledy se změnou. Opakovaný
@@ -1443,6 +1446,28 @@ final class PohodaPayrollImporter
      * po ruce nemá, a přesně tehdy se historický měsíc přepočítává.
      */
     /** @return array{0:list<PayrollMigrationReferenceTotals>,1:int} úhrny ze zdroje a mzdy, které se do nich nedostaly */
+    /**
+     * Sazba zákonného pojištění odpovědnosti z plateb pojišťovně a převzatých základů
+     * ({@see PayrollTakeoverAccidentInsuranceRate}). Bez ní by příprava plateb za
+     * čtvrtletí, které už počítá MyÚčto, stála na chybějící sazbě.
+     */
+    private function accidentInsuranceRate(int $supplierId, string $file, int $year, ?int $userId, ImportProtocol $protocol): void
+    {
+        $payments = array_values(array_filter(
+            PohodaPayrollPeople::statutoryInsurancePayments($file),
+            static fn (array $payment): bool => (int) substr($payment['due_on'], 0, 4) === $year,
+        ));
+        $written = $this->accidentRate->apply($supplierId, $payments, $year, self::SOURCE, $userId);
+        if ($written !== null) {
+            $protocol->count(self::STEP_PEOPLE, 'accident_insurance_rate');
+            $protocol->info(self::STEP_PEOPLE, 'accident_insurance_rate', sprintf(
+                'Sazba zákonného pojištění odpovědnosti %s ‰ (%s) odvozená z %d plateb pojišťovně a převzatých '
+                . 'vyměřovacích základů; platí od 1. 1. %d. Odpovídá-li jiná sazba výměru, upravte ji v Nastavení mezd.',
+                str_replace('.', ',', $written['rate']), $written['code'], $written['payments'], $year,
+            ));
+        }
+    }
+
     private function storeReferenceTotals(int $supplierId, string $file, int $year, ImportProtocol $protocol, ?string $exportedOn, PohodaPayrollPeriodRange $range): array
     {
         $matched = $this->people->matchedRelations();

@@ -235,6 +235,12 @@ final class PohodaPayrollImportTest extends TestCase
         $levies = $pdo->prepare("SELECT i.institution_code, a.source_kind FROM payroll_institution_accounts a JOIN payroll_institutions i ON i.id = a.institution_id WHERE a.supplier_id = ? AND i.institution_type = 'tax_office' ORDER BY i.institution_code");
         $levies->execute([$supplierId]);
         self::assertSame(['ADVANCE_TAX' => 'user_verified', 'WITHHOLDING_TAX' => 'imported'], $levies->fetchAll(\PDO::FETCH_KEY_PAIR), $this->explain($protocol));
+        // Pojišťovna zákonného pojištění z plateb: účet ověřený platbami, i s konstantním symbolem.
+        $insurer = $pdo->prepare("SELECT i.institution_code, a.source_kind, a.variable_symbol, a.constant_symbol FROM payroll_institution_accounts a
+            JOIN payroll_institutions i ON i.id = a.institution_id WHERE a.supplier_id = ? AND i.institution_type = 'statutory_insurance'");
+        $insurer->execute([$supplierId]);
+        self::assertSame([['institution_code' => 'KOOPERATIVA', 'source_kind' => 'user_verified', 'variable_symbol' => '12345678', 'constant_symbol' => '3558']],
+            $insurer->fetchAll(\PDO::FETCH_ASSOC), $this->explain($protocol));
 
         // Dítě s daňovým zvýhodněním na 1. dítě; sleva na poplatníka (kód 36) dítětem není.
         self::assertSame(1, $this->scalar('SELECT COUNT(*) FROM payroll_dependants WHERE supplier_id = ? AND employee_id = ?', [$supplierId, $jana['employee_id']]));
