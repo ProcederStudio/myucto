@@ -71,6 +71,41 @@ final class PayrollMonthlyFundService
         return $computed === null ? null : $computed['fund'] + $computed['holidays'];
     }
 
+    /**
+     * Fond celého kalendářního měsíce podle týdenního vzoru vztahu, bez ohledu na to, od
+     * kdy kalendář platí: tak ho u nástupu nebo skončení v průběhu měsíce uvádějí jiné
+     * mzdové programy (PAMICA krátí mzdu na odpracované hodiny z fondu celého měsíce).
+     * Vzor je ten poslední účinný v měsíci; výjimky konkrétních dnů se nepočítají.
+     * `null` = vztah nemá pro období pracovní kalendář.
+     *
+     * @return array{fund:int,holidays:int}|null
+     */
+    public function fullMonthMinutes(int $supplierId, int $employmentId, string $period): ?array
+    {
+        $start = \DateTimeImmutable::createFromFormat('!Y-m-d', $period . '-01');
+        if ($start === false || $start->format('Y-m') !== $period) {
+            throw new \InvalidArgumentException('period musí být ve formátu YYYY-MM.');
+        }
+        $periodStart = $start->format('Y-m-d');
+        $periodEnd = $start->modify('first day of next month')->format('Y-m-d');
+        $versions = $this->calendars($supplierId, $employmentId, $periodStart, $periodEnd);
+        if ($versions === []) {
+            return null;
+        }
+        $version = $versions[array_key_last($versions)];
+        $month = $this->fund->month($period, $version['week_pattern'], []);
+        $fund = 0;
+        $holidays = 0;
+        foreach ($month['days'] as $day) {
+            $fund += PayrollTimeValue::int($day['planned_minutes'] ?? null, 'planned_minutes');
+            if (($day['is_holiday'] ?? false) === true) {
+                $holidays += max(0, (int) ($version['week_pattern'][(int) $day['weekday']] ?? 0));
+            }
+        }
+
+        return ['fund' => $fund, 'holidays' => $holidays];
+    }
+
     /** @return array{fund:int,holidays:int}|null */
     private function compute(int $supplierId, int $employmentId, string $period): ?array
     {

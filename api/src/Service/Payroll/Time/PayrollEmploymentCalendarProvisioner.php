@@ -209,6 +209,17 @@ final class PayrollEmploymentCalendarProvisioner
         if ($holidayMinutes > 0 && abs($importedMillihours * 60 - ($calendarMinutes + $holidayMinutes) * 1000) < 1000) {
             return null;
         }
+        // Při nástupu nebo skončení v průběhu měsíce uvádějí jiné programy fond celého
+        // měsíce (PAMICA z něj krátí mzdu na odpracované hodiny). Je to týž rozvrh,
+        // jen neomezený dny trvání vztahu.
+        $full = $this->monthlyFund->fullMonthMinutes($supplierId, $employmentId, self::period($periodStart));
+        if ($full !== null && $full['fund'] !== $calendarMinutes) {
+            foreach ([$full['fund'], $full['fund'] + $full['holidays']] as $fullMinutes) {
+                if (abs($importedMillihours * 60 - $fullMinutes * 1000) < 1000) {
+                    return null;
+                }
+            }
+        }
 
         return [
             'code' => self::ISSUE_FUND_MISMATCH,
