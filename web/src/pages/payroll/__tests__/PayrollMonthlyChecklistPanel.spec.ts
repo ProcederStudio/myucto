@@ -5,6 +5,7 @@ const m = vi.hoisted(() => ({
   monthlyChecklist: vi.fn(),
   prepareItem: vi.fn(),
   dispatchBatch: vi.fn(),
+  prepareSickness: vi.fn(),
   push: vi.fn(),
 }))
 
@@ -22,6 +23,9 @@ vi.mock('@/api/dataBox', () => ({
     gatewayStartPayroll: vi.fn(),
     mobileKeyProfile: vi.fn().mockResolvedValue({ saved: true, username: 'x', environment: 'production' }),
   },
+}))
+vi.mock('@/api/payrollSicknessCases', () => ({
+  payrollSicknessCasesApi: { prepare: m.prepareSickness },
 }))
 vi.mock('vue-router', () => ({ useRouter: () => ({ push: m.push }) }))
 vi.mock('vue-i18n', async (importOriginal) => ({
@@ -515,6 +519,40 @@ describe('PayrollMonthlyChecklistPanel', () => {
     expect(button.element.tagName).toBe('BUTTON')
     expect(button.text()).toContain('prepare_only')
     expect(wrapper.get('tbody [data-test="monthly-checklist-prepare-send"]').text()).toContain('prepare_and_send')
+  })
+
+  it('„Jen připravit vše" připraví i nemocenská podání a nic neodešle', async () => {
+    const sickness = {
+      ...agendaDutyItem(),
+      key: 'sickness_case:payroll_sickness_case:7',
+      source: 'sickness_case',
+      agenda_code: 'NEMPRI',
+      agenda_label: 'NEMPRI',
+      action: {
+        kind: 'generate',
+        label: 'Připravit v Nemocenských případech',
+        path: '/payroll/submissions/sickness',
+        reason: null,
+        prepare: null,
+        sickness: { case_id: 7, document: 'nempri' },
+      },
+    }
+    m.monthlyChecklist.mockResolvedValue(baseResponse({
+      summary: { total: 2, send: 0, generate: 2, manual: 0, done: 0 },
+      items: [agendaDutyItem(), sickness],
+    }))
+    m.prepareItem.mockResolvedValue({ prepared: 1, submission_ids: [42] })
+    m.prepareSickness.mockResolvedValue({})
+
+    const wrapper = mountPanel()
+    await flushPromises()
+    await wrapper.get('[data-test="monthly-checklist-prepare-all"]').trigger('click')
+    await flushPromises()
+
+    expect(m.prepareItem).toHaveBeenCalledTimes(1)
+    expect(m.prepareSickness).toHaveBeenCalledWith('production', 7, 'nempri')
+    expect(m.dispatchBatch).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-test="monthly-checklist-prepare-all-summary"]').text()).toContain('2 0')
   })
 
   it('„Jen připravit" připraví právě tu agendu, období a pojišťovnu a zůstane v přehledu', async () => {

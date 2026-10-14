@@ -7388,6 +7388,8 @@
           "send": "Odeslat",
           "open": "Otevřít",
           "all": "Připravit a odeslat vše ({count})",
+          "prepare_all": "Jen připravit vše ({count})",
+          "prepare_all_summary": "Připraveno podání: {prepared}. Nepovedlo se: {failed}. Nic se neodeslalo.",
           "working": "Připravuji a odesílám…",
           "bar_hint": "Za tento měsíc čeká na odeslání {count} podání. Nepřipravená se připraví ze schválené revize mzdového běhu, pak jedním potvrzením odejdou: JMHZ přes VREP ČSSZ, přehledy pojišťovnám do datových schránek.",
           "bar_nothing": "Všechno připravené už odešlo.",

@@ -3384,6 +3384,8 @@ export interface PayrollMonthlyChecklistAction {
   reason: string | null
   /** `null` = položka se připravuje jinde, tlačítko je jen odkaz. */
   prepare: PayrollMonthlyChecklistPreparation | null
+  /** Nepřipravené podání případu dávky nemocenského pojištění. */
+  sickness?: { case_id: number, document: 'nempri' | 'nempri_transfer' | 'hzupn' } | null
 }
 
 /**

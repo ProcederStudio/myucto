@@ -179,6 +179,8 @@ final class PayrollMonthlyChecklistServiceTest extends TestCase
         $item = $this->onlyItem($service, 'sickness_case');
         self::assertSame('generate', $item['action']['kind']);
         self::assertSame('/payroll/submissions/sickness', $item['action']['path']);
+        // Přehled umí podání připravit i hromadně: nese případ a druh podání.
+        self::assertSame(['case_id' => 1, 'document' => 'nempri'], $item['action']['sickness']);
     }
 
     /**

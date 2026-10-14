@@ -16,6 +16,7 @@ import {
   type MobileKeyReceiptSession,
   type ReceiptBatchResult,
 } from '@/api/dataBox'
+import { payrollSicknessCasesApi } from '@/api/payrollSicknessCases'
 import EnvironmentSwitch from '@/components/ui/EnvironmentSwitch.vue'
 import { useSubmissionEnvironment } from '@/composables/useSubmissionEnvironment'
 import MobileKeyBatchSendButton from '@/components/submission/MobileKeyBatchSendButton.vue'
@@ -163,6 +164,15 @@ function isDispatchable(item: PayrollMonthlyChecklistItem): boolean {
 
 /** Řádky, které „Připravit a odeslat vše" pokryje. */
 const bulkItems = computed(() => items.value.filter(item => isPreparable(item) || isDispatchable(item)))
+
+/** Nepřipravené podání případu dávky; připraví se stejně jako v Nemocenských případech. */
+function isSicknessPreparable(item: PayrollMonthlyChecklistItem): boolean {
+  return !item.done && item.status === 'not_prepared' && (item.action.sickness ?? null) !== null
+}
+
+/** Řádky, které „Jen připravit vše" pokryje: nic se neodesílá. */
+const prepareAllItems = computed(() => items.value.filter(item => isPreparable(item) || isSicknessPreparable(item)))
+const prepareAllSummary = ref('')
 
 function phaseClass(phase: string): string {
   if (phase === 'fulfilled') return 'bg-success-50 text-success-700'
@@ -327,6 +337,47 @@ async function prepareOne(
     return null
   } finally {
     preparing.value = ''
+  }
+}
+
+/**
+ * „Jen připravit vše": připraví každé nepřipravené podání měsíce včetně
+ * nemocenských (NEMPRI, HZUPN) a nic neodešle. Chyba jedné položky dávku
+ * nezastaví; zůstane u řádku jako u samostatné přípravy.
+ */
+async function prepareAll() {
+  if (flowBusy.value) return
+  flowBusy.value = true
+  prepareAllSummary.value = ''
+  let prepared = 0
+  let failed = 0
+  try {
+    for (const item of [...prepareAllItems.value]) {
+      const sickness = item.action.sickness ?? null
+      if (sickness === null) {
+        if ((await prepareOne(item)) === null) failed++
+        else prepared++
+        continue
+      }
+      preparing.value = item.key
+      prepareError.value = { ...prepareError.value, [item.key]: '' }
+      try {
+        await payrollSicknessCasesApi.prepare(props.environment, sickness.case_id, sickness.document)
+        prepared++
+      } catch (exception) {
+        failed++
+        prepareError.value = {
+          ...prepareError.value,
+          [item.key]: apiErrorMessage(exception, t('payroll.submissions.monthly_checklist.prepare_failed')),
+        }
+      } finally {
+        preparing.value = ''
+      }
+    }
+    prepareAllSummary.value = t('payroll.submissions.monthly_checklist.send.prepare_all_summary', { prepared, failed })
+    await load(true)
+  } finally {
+    flowBusy.value = false
   }
 }
 
@@ -616,7 +667,7 @@ onMounted(() => { void load() })
 
     <template v-else-if="response">
       <div
-        v-if="bulkItems.length || mobileKeyOutboxIds.length || gatewayOutboxIds.length || manualOutboxCount || sendSummary || followUpActive || receiptStats.pending"
+        v-if="bulkItems.length || prepareAllItems.length || prepareAllSummary || mobileKeyOutboxIds.length || gatewayOutboxIds.length || manualOutboxCount || sendSummary || followUpActive || receiptStats.pending"
         class="rounded-xl border border-primary-500/30 bg-primary-50 p-4 text-sm shadow-sm"
         data-test="monthly-checklist-send-bar"
       >
@@ -641,7 +692,23 @@ onMounted(() => { void load() })
               ? t('payroll.submissions.monthly_checklist.send.working')
               : t('payroll.submissions.monthly_checklist.send.all', { count: bulkItems.length }) }}
           </button>
+          <button
+            v-if="prepareAllItems.length"
+            type="button"
+            :class="[btnOutlineSm('primary'), 'whitespace-nowrap']"
+            :disabled="flowBusy"
+            data-test="monthly-checklist-prepare-all"
+            @click="prepareAll()"
+          >
+            <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path :d="ICONS.doc" />
+            </svg>
+            {{ t('payroll.submissions.monthly_checklist.send.prepare_all', { count: prepareAllItems.length }) }}
+          </button>
         </div>
+        <p v-if="prepareAllSummary" class="mt-2 text-neutral-800" data-test="monthly-checklist-prepare-all-summary">
+          {{ prepareAllSummary }}
+        </p>
         <p v-if="sendSummary" class="mt-2 text-neutral-800" data-test="monthly-checklist-send-summary">
           {{ sendSummary }}
         </p>

@@ -1102,6 +1102,12 @@ final readonly class PayrollMonthlyChecklistService
                 'label' => 'Připravit v Nemocenských případech',
                 'path' => '/payroll/submissions/sickness',
                 'reason' => null,
+                // Případ a podání, aby přehled uměl podání připravit i hromadně
+                // (táž cesta jako tlačítko Připravit v případu dávky).
+                'sickness' => [
+                    'case_id' => (int) $item['case_id'],
+                    'document' => (string) $item['document_kind'],
+                ],
             ],
         ];
     }

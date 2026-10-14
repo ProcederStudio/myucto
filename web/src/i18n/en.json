@@ -7388,6 +7388,8 @@
           "send": "Send",
           "open": "Open",
           "all": "Prepare and send all ({count})",
+          "prepare_all": "Prepare all only ({count})",
+          "prepare_all_summary": "Submissions prepared: {prepared}. Failed: {failed}. Nothing was sent.",
           "working": "Preparing and sending…",
           "bar_hint": "{count} submissions are waiting to be sent for this month. Unprepared ones are prepared from the approved payroll run revision, then sent with one confirmation: JMHZ via the CSSA VREP, insurer overviews to data boxes.",
           "bar_nothing": "Everything prepared has been sent.",
