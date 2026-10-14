@@ -155,6 +155,57 @@ onMounted(async () => {
   }
 })
 
+/**
+ * Přílohy a poznámka se nahrají až po zaúčtování, stejnou cestou jako v detailu
+ * zápisu (přílohy §33a, poznámky). Selhání zápis nevrací — ten už v deníku je.
+ */
+const NOTE_MAX_LENGTH = 5000
+const pendingFiles = ref<File[]>([])
+const note = ref('')
+const fileInput = ref<HTMLInputElement | null>(null)
+const dragOver = ref(false)
+
+function addFiles(files: File[]) {
+  for (const f of files) {
+    if (!pendingFiles.value.some(p => p.name === f.name && p.size === f.size)) pendingFiles.value.push(f)
+  }
+}
+function onPickFiles(e: Event) {
+  const input = e.target as HTMLInputElement
+  addFiles(input.files ? Array.from(input.files) : [])
+  input.value = ''
+}
+function onDropFiles(e: DragEvent) {
+  e.preventDefault()
+  dragOver.value = false
+  addFiles(Array.from(e.dataTransfer?.files ?? []))
+}
+function removeFile(i: number) { pendingFiles.value.splice(i, 1) }
+function fmtBytes(n: number): string {
+  return n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} kB` : `${(n / 1024 / 1024).toFixed(1)} MB`
+}
+
+async function saveExtras(entryId: number) {
+  const files = pendingFiles.value
+  const body = note.value.trim()
+  if (files.length) {
+    try {
+      await accountingApi.uploadJournalAttachments(entryId, files)
+    } catch {
+      toast.warning(t('accounting.manual.attachments_failed'))
+    }
+  }
+  if (body) {
+    try {
+      await accountingApi.createJournalNote(entryId, body)
+    } catch {
+      toast.warning(t('accounting.manual.note_failed'))
+    }
+  }
+  pendingFiles.value = []
+  note.value = ''
+}
+
 function addLine() { lines.value.push(emptyLine()) }
 function removeLine(i: number) { if (lines.value.length > 1) lines.value.splice(i, 1) }
 const linesHaveAccounts = computed(() =>
@@ -215,6 +266,7 @@ async function save(andNew = false) {
       ...(payloadLinks.length ? { links: payloadLinks } : {}),
     })
     toast.success(t('accounting.manual.saved', { id: entry.id }))
+    await saveExtras(entry.id)
     if (aiDraftDocumentIds.value.length) {
       const docIds = aiDraftDocumentIds.value
       aiDraftDocumentIds.value = []
@@ -601,6 +653,48 @@ async function submitTransfer(force = false) {
             :class="balanced ? 'bg-success-50 text-success-600' : 'bg-warning-50 text-warning-600'">
             {{ balanced ? t('accounting.manual.balanced') : t('accounting.manual.unbalanced', { diff: formatMoney(diff) }) }}
           </span>
+        </div>
+      </div>
+
+      <!-- Přílohy a poznámka — nahrají se k zápisu hned po zaúčtování. -->
+      <div class="border-t border-neutral-200 pt-4">
+        <label class="block text-sm font-medium text-neutral-700 mb-1">{{ t('accounting.journal.extras_title') }}</label>
+        <p class="text-xs text-neutral-500 mb-2">{{ t('accounting.manual.extras_hint') }}</p>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          <div>
+            <div class="flex flex-wrap items-center justify-between gap-2 mb-1">
+              <span class="text-xs font-medium text-neutral-600">{{ t('accounting.journal.attachments') }}</span>
+              <button type="button" :class="[btnOutlineSm('primary'), 'whitespace-nowrap']" @click="fileInput?.click()">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.upload" /></svg>
+                {{ t('accounting.journal.att_add') }}
+              </button>
+              <input ref="fileInput" type="file" multiple class="hidden" @change="onPickFiles" />
+            </div>
+            <div class="border-2 border-dashed rounded-lg px-3 py-3 text-center text-xs transition cursor-pointer"
+              :class="dragOver ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-neutral-200 text-neutral-400'"
+              @click="fileInput?.click()"
+              @dragenter.prevent="dragOver = true" @dragover.prevent="dragOver = true"
+              @dragleave.prevent="dragOver = false" @drop="onDropFiles">
+              {{ t('accounting.journal.att_drop') }}
+            </div>
+            <ul v-if="pendingFiles.length" class="mt-2 space-y-1">
+              <li v-for="(f, i) in pendingFiles" :key="`${f.name}:${f.size}`"
+                class="flex items-center justify-between gap-3 px-2 py-1 rounded bg-neutral-50 text-sm">
+                <span class="min-w-0 truncate">{{ f.name }}</span>
+                <span class="flex shrink-0 items-center gap-2">
+                  <span class="text-xs text-neutral-500 font-mono">{{ fmtBytes(f.size) }}</span>
+                  <button type="button" class="cursor-pointer text-danger-500 hover:text-danger-600"
+                    :title="t('accounting.manual.file_remove')" @click="removeFile(i)">✕</button>
+                </span>
+              </li>
+            </ul>
+          </div>
+          <div>
+            <span class="block text-xs font-medium text-neutral-600 mb-1">{{ t('accounting.journal.notes.title') }}</span>
+            <textarea v-model="note" rows="3" :maxlength="NOTE_MAX_LENGTH"
+              :placeholder="t('accounting.journal.notes.placeholder')"
+              class="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"></textarea>
+          </div>
         </div>
       </div>
 

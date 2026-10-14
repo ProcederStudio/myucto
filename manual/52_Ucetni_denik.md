@@ -65,8 +65,9 @@ Deník je dostupný jen firmám v podvojném účetnictví. Firmy na [daňové e
 5. Další řádek přidáte tlačítkem **+ Přidat řádek**, řádek odeberete křížkem.
 6. Podívejte se pod tabulku. Badge **Vyrovnáno** znamená, že Σ MD = Σ Dal. Badge **Rozdíl X** znamená, že zápis není vyrovnaný.
 7. Volitelně připojte sekci **Vazba na doklad**, pokud zápis souvisí s konkrétním dokladem ([§ 52.14.7.4](#521474-vazba-na-doklad)).
-8. Klikněte na **Zaúčtovat**. Zápis se rovnou zaúčtuje a vrátíte se do seznamu.
-9. Zapisujete-li víc podobných zápisů za sebou, klikněte místo toho na **Uložit a nový**. Řádky se vyčistí, datum a popis zůstanou.
+8. Volitelně v sekci **Poznámky a doklady** přidejte soubory (tlačítkem **Přidat přílohu** nebo přetažením) a napište poznámku. Po zaúčtování se soubory nahrají jako přílohy zápisu ([§ 52.14.7.2](#521472-prilohy-zapisu)) a poznámka se uloží k zápisu ([§ 52.14.7.3](#521473-poznamky-k-zapisu)).
+9. Klikněte na **Zaúčtovat**. Zápis se rovnou zaúčtuje a vrátíte se do seznamu.
+10. Zapisujete-li víc podobných zápisů za sebou, klikněte místo toho na **Uložit a nový**. Řádky se vyčistí, datum a popis zůstanou.
 
 **Jak poznáte, že je hotovo:** Zápis je v seznamu deníku se stavem **Zaúčtováno**. Tlačítko **Zaúčtovat** je aktivní, až když je zápis vyrovnaný a žádný řádek nemá prázdný účet nebo nekladnou částku.
 

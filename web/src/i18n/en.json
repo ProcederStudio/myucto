@@ -16398,6 +16398,10 @@
       "saved": "Entry #{id} was posted.",
       "post": "Post",
       "save_and_new": "Save and new",
+      "extras_hint": "After posting, the files are uploaded as entry attachments and the note is saved with the entry. You will find both in the entry detail.",
+      "file_remove": "Remove file",
+      "attachments_failed": "The entry was posted, but the attachments could not be uploaded. Add them in the entry detail.",
+      "note_failed": "The entry was posted, but the note could not be saved. Add it in the entry detail.",
       "template": {
         "save_as": "Save as template",
         "save_hint": "Saves the currently drafted lines (account, side, optionally amounts) for future use.",

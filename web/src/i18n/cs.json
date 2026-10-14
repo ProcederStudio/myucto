@@ -16398,6 +16398,10 @@
       "saved": "Zápis #{id} byl zaúčtován.",
       "post": "Zaúčtovat",
       "save_and_new": "Uložit a nový",
+      "extras_hint": "Soubory se po zaúčtování nahrají jako přílohy zápisu, poznámka se uloží k zápisu. Obojí pak najdete v detailu zápisu.",
+      "file_remove": "Odebrat soubor",
+      "attachments_failed": "Zápis je zaúčtovaný, ale přílohy se nepodařilo nahrát. Přidejte je v detailu zápisu.",
+      "note_failed": "Zápis je zaúčtovaný, ale poznámku se nepodařilo uložit. Přidejte ji v detailu zápisu.",
       "template": {
         "save_as": "Uložit jako šablonu",
         "save_hint": "Uloží aktuálně rozepsané řádky (účet, strana, volitelně i částky) pro příští použití.",
