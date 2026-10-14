@@ -32,16 +32,19 @@ final class PayslipPdfRenderer
      * v3: patička a auditní řádek tisknou číslo revize běhu (revize č. 2),
      * ne ID řádku databáze. Pásky archivované ve v2 se vydávají dál ze
      * souboru beze změny.
+     *
+     * v4: hutná sazba na jednu stranu A4 podle toho, co zaměstnance zajímá —
+     * docházka, dovolená, rozpad mzdy, pojistné, daň a výplata. Účetní
+     * a výpočtová stopa (kontace, otisky) z pásky zmizela; revize zůstává
+     * v patičce, otisky v metadatech PDF.
      */
-    public const VERSION = 'mz-16-payslip-v3';
+    public const VERSION = 'mz-16-payslip-v4';
 
     private ?Environment $twig = null;
 
     public function render(PayslipDocumentData $data): RenderedPayslipDocument
     {
-        $templateData = $data->toTemplateData();
-        $templateData['renderer_version'] = self::VERSION;
-        $body = $this->twig()->render('payslip.twig', $templateData);
+        $body = $this->renderHtml($data);
 
         $tmpDir = RuntimePaths::storage('cache/mpdf');
         if (!is_dir($tmpDir)) {
@@ -52,10 +55,10 @@ final class PayslipPdfRenderer
             'mode' => 'utf-8',
             'format' => 'A4',
             'orientation' => 'P',
-            'margin_left' => 13,
-            'margin_right' => 13,
-            'margin_top' => 12,
-            'margin_bottom' => 15,
+            'margin_left' => 11,
+            'margin_right' => 11,
+            'margin_top' => 10,
+            'margin_bottom' => 13,
             'tempDir' => $tmpDir,
             'autoPageBreak' => true,
             ...MpdfFontConfig::options(),
@@ -93,6 +96,29 @@ final class PayslipPdfRenderer
             . '<td style="padding-top:1.5mm; text-align:right;">MyÚčto.cz</td></tr></table>';
     }
 
+    /**
+     * Vysázené tělo pásky před tiskem do PDF — aby šlo v testu ověřit, co na
+     * dokladu stojí (z PDF to kvůli podsazeným fontům spolehlivě nejde).
+     */
+    public function renderHtml(PayslipDocumentData $data): string
+    {
+        $templateData = $data->toTemplateData();
+        $templateData['renderer_version'] = self::VERSION;
+
+        return $this->twig()->render('payslip.twig', $templateData);
+    }
+
+    /** Tisíciny hodiny jako hodiny s nejvýš dvěma desetinnými místy („7,5"). */
+    public static function formatMillihours(?int $millihours): string
+    {
+        if ($millihours === null) {
+            return '—';
+        }
+        $formatted = number_format($millihours / 1000, 2, ',', ' ');
+
+        return rtrim(rtrim($formatted, '0'), ',');
+    }
+
     private function twig(): Environment
     {
         if ($this->twig === null) {
@@ -103,6 +129,16 @@ final class PayslipPdfRenderer
                     'strict_variables' => true,
                 ] + TwigCache::options('payroll'),
             );
+            $this->twig->addFilter(new \Twig\TwigFilter(
+                'hours',
+                static fn (?int $millihours): string => self::formatMillihours($millihours),
+            ));
+            $this->twig->addFilter(new \Twig\TwigFilter(
+                'minutes_hours',
+                static fn (?int $minutes): string => self::formatMillihours(
+                    $minutes === null ? null : (int) round($minutes * 1000 / 60),
+                ),
+            ));
             $this->twig->addFilter(new \Twig\TwigFilter(
                 'minor_money',
                 static function (int $minorUnits): string {

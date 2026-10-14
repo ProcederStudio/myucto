@@ -65,6 +65,12 @@ final readonly class PayslipDocumentData
          * identitou dokladu; náhled výpočtu číslo revize ještě nemá.
          */
         public ?int $revisionNumber = null,
+        /**
+         * Docházka, dovolená, rozpad složek a další údaje pro zaměstnance.
+         * Náhled výpočtu ani starší pásky ho nemají; šablona pak tyto bloky
+         * vynechá, nevypisuje nuly.
+         */
+        public ?PayslipSupplement $supplement = null,
     ) {
         $this->assertText($revisionId, 'Revision ID');
         if ($revisionNumber !== null && $revisionNumber <= 0) {
@@ -286,6 +292,23 @@ final readonly class PayslipDocumentData
         ]);
     }
 
+    /**
+     * Čistá mzda před ostatními srážkami: hrubá mzda po pojistném zaměstnance
+     * a dani, včetně daňového bonusu. K výplatě se od ní dostane odečtením
+     * srážek a připočtením zaokrouhlení a doplatku ze zúčtování.
+     */
+    public function netWageMinorUnits(): int
+    {
+        return $this->sumExactly([
+            $this->grossMinorUnits,
+            -$this->employeeSocialMinorUnits,
+            -$this->employeeHealthMinorUnits,
+            -$this->healthMinimumTopUpMinorUnits,
+            -$this->taxAfterCreditsMinorUnits,
+            $this->taxBonusMinorUnits,
+        ]);
+    }
+
     public function totalEmployerCostMinorUnits(): int
     {
         return $this->sumExactly([
@@ -377,6 +400,8 @@ final readonly class PayslipDocumentData
             'employer_health_minor_units' => $this->employerHealthMinorUnits,
             'total_employer_insurance_minor_units' => $this->totalEmployerInsuranceMinorUnits(),
             'total_employer_cost_minor_units' => $this->totalEmployerCostMinorUnits(),
+            'net_wage_minor_units' => $this->netWageMinorUnits(),
+            'supplement' => $this->supplement?->toTemplateData(),
             'accounting' => [
                 'gross' => $this->grossExpenseAccount . '/' . $this->grossLiabilityAccount,
                 'employer_insurance' => $this->insuranceExpenseAccount . '/' . $this->insuranceLiabilityAccount,

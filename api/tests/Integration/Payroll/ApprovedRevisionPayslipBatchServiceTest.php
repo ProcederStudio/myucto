@@ -18,6 +18,7 @@ use MyInvoice\Service\Payroll\Document\PayrollDocumentStorageScope;
 use MyInvoice\Service\Payroll\Document\PayslipDocumentData;
 use MyInvoice\Service\Payroll\Document\PayslipDocumentSnapshotHydrator;
 use MyInvoice\Service\Payroll\Document\PayslipPdfRenderer;
+use MyInvoice\Service\Payroll\Document\PayslipSupplementReader;
 use MyInvoice\Service\Payroll\Ruleset\CanonicalJson;
 use MyInvoice\Tests\Fixtures\Payroll\SyntheticPayslipFixture;
 use MyInvoice\Tests\Support\IsolatedSupplierTrait;
@@ -125,6 +126,7 @@ final class ApprovedRevisionPayslipBatchServiceTest extends TestCase
             new ApprovedRevisionPayslipRepository($this->db),
             new PayslipDocumentSnapshotHydrator(),
             $documents,
+            new PayslipSupplementReader($this->db),
         );
 
         $result = $service->generate(
@@ -154,6 +156,7 @@ final class ApprovedRevisionPayslipBatchServiceTest extends TestCase
             new ApprovedRevisionPayslipRepository($this->db),
             new PayslipDocumentSnapshotHydrator(),
             $documents,
+            new PayslipSupplementReader($this->db),
         );
 
         $service->generate($this->supplierId, $this->runId, $this->revisionId, null);
@@ -167,7 +170,7 @@ final class ApprovedRevisionPayslipBatchServiceTest extends TestCase
             self::assertSame('revision-' . $this->revisionId, $data->revisionId);
             self::assertSame('č. 3', $data->toTemplateData()['revision_label']);
         }
-        self::assertSame('mz-16-payslip-v3', PayslipPdfRenderer::VERSION);
+        self::assertSame('mz-16-payslip-v4', PayslipPdfRenderer::VERSION);
     }
 
     public function testSourceChangedDuringRenderingFailsBeforeArchiveWrite(): void
@@ -192,6 +195,7 @@ final class ApprovedRevisionPayslipBatchServiceTest extends TestCase
             new ApprovedRevisionPayslipRepository($this->db),
             new PayslipDocumentSnapshotHydrator(),
             $documents,
+            new PayslipSupplementReader($this->db),
         );
 
         try {
