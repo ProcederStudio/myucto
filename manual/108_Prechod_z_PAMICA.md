@@ -523,7 +523,7 @@ neplyne (vlastní prémie, odměny, příspěvky), zařadí převod tak, jak ji 
 vykázala v odeslaných hlášeních JMHZ: číselník složek PAMICA zařazení nenese,
 ale v hlášení je vidět, do které kolonky rozpadu příjmu (10329 až 10343) částku
 složky započetla. Co nerozhodnou ani hlášení, převod nehádá a protokol to
-vypíše. U vlastních složek PAMICA je i druh jen odhad z názvu položky (například
+vypíše. U vlastních příplatků PAMICA je i druh jen odhad z názvu položky (například
 „příplatek BOZP"), proto hlášení mají přednost i před zařazením podle druhu.
 Zařazení, které jste u složky zadali sami, převod nemění. Mzda za odpracovaný
 přesčas, doplatek, dorovnání i placená doba školení jsou mzda za práci, ne

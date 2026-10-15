@@ -562,6 +562,7 @@ final class PohodaPayrollImporter
                 if ($kindTarget === null) {
                     $needsTarget[$component['code']] = $default;
                 } elseif (str_starts_with($component['code'], 'PAM_')
+                    && $default['component_kind'] === 'premium'
                     && PayrollComponentJmhzMappingDefaults::targetForCode($component['code']) === null
                 ) {
                     $kindTargets[$component['code']] = $kindTarget;
@@ -569,8 +570,9 @@ final class PohodaPayrollImporter
             }
             // Zařazení, které z druhu neplyne, PAMICA použila v odeslaných hlášeních: kolonka,
             // do které částku složky započetla, je její zařazení ({@see PohodaPayrollJmhzTargets}).
-            // U vlastních složek PAMICA je druh jen odhad z názvu položky, takže hlášení, která
-            // PAMICA za ně odeslala, mají přednost i před zařazením podle druhu.
+            // U vlastních příplatků PAMICA je druh jen odhad z názvu položky, takže hlášení, která
+            // PAMICA za ně odeslala, mají přednost i před zařazením podle druhu. Doplatek,
+            // dorovnání a školení jsou mzda za práci záměrně, ty hlášení nepřeřadí.
             $reported = $needsTarget === [] && $kindTargets === [] ? [] : PohodaPayrollJmhzTargets::infer(
                 $converter->itemAmounts(),
                 PohodaPayrollJmhzTargets::reports($file, $year),
