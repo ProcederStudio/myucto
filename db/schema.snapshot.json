@@ -988,7 +988,8 @@
         "2004_payment_order_tax_items.sql",
         "2005_email_distribution_across_suppliers.sql",
         "2006_payroll_wage_rounding.sql",
-        "2007_supplier_standalone_isdoc.sql"
+        "2007_supplier_standalone_isdoc.sql",
+        "2008_client_email_isdoc_override.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -3635,6 +3636,7 @@
                 "default_payment_method": "enum('bank_transfer','direct_debit','card','cash','cash_on_delivery','offset','other') NULL DEFAULT NULL",
                 "default_revenue_category_id": "int(10) unsigned NULL DEFAULT NULL",
                 "dic": "varchar(20) NULL DEFAULT NULL",
+                "email_attach_isdoc": "tinyint(1) NULL DEFAULT NULL",
                 "email_attachment_name_format": "varchar(120) NULL DEFAULT NULL",
                 "email_subject_format": "varchar(200) NULL DEFAULT NULL",
                 "fakturoid_id": "bigint(20) unsigned NULL DEFAULT NULL",

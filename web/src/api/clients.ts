@@ -99,6 +99,8 @@ export interface Client {
   email_subject_format?: string | null
   /** Název přiloženého PDF bez přípony se zástupnými znaky; null = výchozí. */
   email_attachment_name_format?: string | null
+  /** Samostatný ISDOC v e-mailu; null = zdědit nastavení dodavatele. */
+  email_attach_isdoc?: boolean | null
   archived_at?: string | null
   active_projects_count?: number
   invoices_count?: number
@@ -284,6 +286,8 @@ export interface ClientPayload {
   email_subject_format?: string | null
   /** Název přiloženého PDF bez přípony se zástupnými znaky; null = výchozí. */
   email_attachment_name_format?: string | null
+  /** Samostatný ISDOC v e-mailu; null = zdědit nastavení dodavatele. */
+  email_attach_isdoc?: boolean | null
   /** Replace-all (#86): pošli kompletní pole; vynech klíč, pokud kontakty neměníš. */
   email_contacts?: ClientEmailContact[]
 }

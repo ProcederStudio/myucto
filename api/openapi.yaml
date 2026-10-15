@@ -34916,6 +34916,7 @@ components:
         default_branding_profile_id: { type: [integer, "null"], description: "Výchozí brandingový profil pro nové vydané faktury klienta." }
         email_subject_format: { type: [string, "null"], maxLength: 200, description: "Předmět e-mailu s fakturou pro tohoto klienta. Zástupné znaky: {VS} {TYP} {KLIENT} {DODAVATEL} {MM} {YYYY} {YY} {DUZP_MM} {DUZP_YYYY} {DUZP_YY} (MM/YYYY/YY z data vystavení, DUZP_* z data plnění). NULL = předmět podle e-mailové šablony." }
         email_attachment_name_format: { type: [string, "null"], maxLength: 120, description: "Název přiloženého PDF bez přípony `.pdf`, stejné zástupné znaky jako u předmětu. Platí pro všechny e-maily s PDF faktury (odeslání, upomínky, poděkování za úhradu). NULL = výchozí název podle druhu dokladu (Faktura-{VS}.pdf, Proforma-{VS}.pdf, Dobropis-{VS}.pdf…)." }
+        email_attach_isdoc: { type: [boolean, "null"], default: null, description: "Samostatný ISDOC v e-mailech s PDF faktury. null = podle nastavení firmy, true = přikládat, false = nepřikládat. Při částečné aktualizaci vynechání zachová uloženou hodnotu, explicitní null obnoví dědění. Nemění vložení ISDOC do PDF ani web fakturu." }
         price_level_id: { type: [integer, "null"], description: "Cenová hladina odběratele (skladový modul). NULL = bez hladiny (v UI „Default“) — skladové položky se naceňují standardní cenou." }
         price_level_name: { type: [string, "null"], readOnly: true, description: "Název přiřazené cenové hladiny (jen čtení)." }
         archived_at: { type: [string, "null"], format: date-time, description: "NULL = aktivní; vyplněno = archivováno" }
@@ -35077,6 +35078,7 @@ components:
         default_branding_profile_id: { type: [integer, "null"], description: "Volitelný výchozí brandingový profil; musí patřit aktuálnímu supplier-ovi." }
         email_subject_format: { type: [string, "null"], maxLength: 200, description: "Předmět e-mailu s fakturou; zástupné znaky {VS} {TYP} {KLIENT} {DODAVATEL} {MM} {YYYY} {YY} {DUZP_MM} {DUZP_YYYY} {DUZP_YY}. Neznámý znak nebo víc řádků = 400 `validation_failed`. Prázdné / null = výchozí." }
         email_attachment_name_format: { type: [string, "null"], maxLength: 120, description: "Název přiloženého PDF bez přípony; stejné zástupné znaky; znaky zakázané v názvech souborů (lomítka, dvojtečka, `* ? < > |`, uvozovky) = 400 `validation_failed`. Prázdné / null = výchozí." }
+        email_attach_isdoc: { type: [boolean, "null"], default: null, description: "Samostatný ISDOC v e-mailech s PDF faktury. null = podle nastavení firmy, true = přikládat, false = nepřikládat. Při částečné aktualizaci vynechání zachová uloženou hodnotu, explicitní null obnoví dědění. Nemění vložení ISDOC do PDF ani web fakturu." }
         price_level_id: { type: [integer, "null"], description: "Cenová hladina odběratele; musí patřit firmě a být aktivní (jinak 422 `invalid_price_level`). `null` = bez hladiny. Klíč vynech, pokud hladinu neměníš — bez něj zůstane beze změny." }
         email_contacts:
           type: array
@@ -36769,7 +36771,7 @@ components:
         a `signature_path` přes tento endpoint změnit NELZE (bezpečnost).
       properties:
         public_isdoc_enabled: { type: boolean, default: false, description: "Nabízet samostatný ISDOC na web faktuře. Nezávislé na vložení ISDOC do PDF." }
-        email_attach_isdoc: { type: boolean, default: false, description: "Přikládat samostatný ISDOC vedle PDF v e-mailech faktur, včetně automatického odesílání, upomínek a poděkování s PDF." }
+        email_attach_isdoc: { type: boolean, default: false, description: "Přikládat samostatný ISDOC vedle PDF v e-mailech faktur, včetně automatického odesílání, upomínek a poděkování s PDF. Výslovná volba odběratele email_attach_isdoc má přednost." }
         company_name: { type: string }
         purchase_import_received_at: { type: string, enum: [issue_date, import_date], default: issue_date, description: "Datum přijetí u importovaných přijatých dokladů (migrace 1848). issue_date = datum z dokladu (datum vystavení, jinak DUZP), import_date = den importu. Platí pro všechny formáty importu — AI z PDF, ISDOC/ISDOCX/PDF/A-3, Pohoda XML, iDoklad, Fakturoid i scan inbox. Na období nároku na odpočet vliv nemá: importovaný doklad si drží received_at_source='import'." }
         display_name: { type: [string, "null"], description: "Obchodní/značkové jméno v hlavičce PDF a e-mailů (fallback = company_name)" }
@@ -36857,7 +36859,7 @@ components:
         sloupce mimo tento výčet — branding, integrace, payment-thanks ap.)
       properties:
         public_isdoc_enabled: { type: boolean, default: false, description: "Nabízet samostatný ISDOC na web faktuře. Nezávislé na vložení ISDOC do PDF." }
-        email_attach_isdoc: { type: boolean, default: false, description: "Přikládat samostatný ISDOC vedle PDF v e-mailech faktur, včetně automatického odesílání, upomínek a poděkování s PDF." }
+        email_attach_isdoc: { type: boolean, default: false, description: "Přikládat samostatný ISDOC vedle PDF v e-mailech faktur, včetně automatického odesílání, upomínek a poděkování s PDF. Výslovná volba odběratele email_attach_isdoc má přednost." }
         id: { type: integer }
         company_name: { type: string }
         purchase_import_received_at: { type: string, enum: [issue_date, import_date], description: "Datum přijetí u importovaných přijatých dokladů (migrace 1848). issue_date = datum z dokladu (datum vystavení, jinak DUZP) — výchozí; import_date = den importu." }

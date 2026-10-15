@@ -23,6 +23,7 @@ trait StandaloneIsdocTestTrait
         $this->pdo = new \PDO('sqlite::memory:');
         $this->pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
         $this->pdo->exec('CREATE TABLE supplier (id INTEGER PRIMARY KEY, country_id INTEGER, public_isdoc_enabled INTEGER, email_attach_isdoc INTEGER)');
+        $this->pdo->exec('CREATE TABLE clients (id INTEGER PRIMARY KEY, supplier_id INTEGER, country_id INTEGER, email_attach_isdoc INTEGER NULL)');
         $this->pdo->exec('CREATE TABLE countries (id INTEGER PRIMARY KEY, iso2 TEXT, name_cs TEXT, name_en TEXT)');
         $this->pdo->exec("INSERT INTO countries VALUES (1, 'CZ', 'Česko', 'Czechia')");
         $this->pdo->exec('INSERT INTO supplier VALUES (41, 1, 0, 0), (42, 1, 0, 0)');

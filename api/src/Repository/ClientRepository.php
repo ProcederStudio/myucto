@@ -8,6 +8,7 @@ use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Service\Client\VendorDuplicateFinder;
 use MyInvoice\Service\Invoice\InvoiceNumberFormat;
 use MyInvoice\Service\Mail\ClientEmailFormat;
+use MyInvoice\Service\Mail\ClientIsdocPreference;
 use MyInvoice\Service\Oss\OssClientContext;
 use MyInvoice\Support\PaymentMethods;
 use PDO;
@@ -247,6 +248,7 @@ final class ClientRepository
 
     public function create(array $data, int $supplierId): int
     {
+        $emailAttachIsdoc = ClientIsdocPreference::toDatabase($data['email_attach_isdoc'] ?? null);
         $countryId = $this->countryIdFromIso2((string) ($data['country_iso2'] ?? 'CZ'));
         $currencyId = $this->resolveCurrencyId($data, $supplierId);
 
@@ -270,8 +272,8 @@ final class ClientRepository
              auto_send_reminders, payment_due_default, payment_due_unit, default_payment_method, hourly_rate, note,
              default_expense_category_id, default_revenue_category_id,
              invoice_number_format, proforma_number_format, credit_note_number_format, invoice_number_period,
-             default_branding_profile_id, email_subject_format, email_attachment_name_format)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+             default_branding_profile_id, email_subject_format, email_attachment_name_format, email_attach_isdoc)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
         $stmt = $this->db->pdo()->prepare($sql);
         $stmt->execute([
             $supplierId,
@@ -318,6 +320,7 @@ final class ClientRepository
             $this->resolveBrandingProfileId($data['default_branding_profile_id'] ?? null, $supplierId),
             ClientEmailFormat::normalize($data['email_subject_format'] ?? null),
             ClientEmailFormat::normalize($data['email_attachment_name_format'] ?? null),
+            $emailAttachIsdoc,
         ]);
         return (int) $this->db->pdo()->lastInsertId();
     }
@@ -492,7 +495,7 @@ final class ClientRepository
             'payment_due_default', 'payment_due_unit', 'default_payment_method', 'hourly_rate', 'note',
             'invoice_number_format', 'proforma_number_format', 'credit_note_number_format',
             'invoice_number_period', 'related_party_type', 'related_party_note',
-            'email_subject_format', 'email_attachment_name_format',
+            'email_subject_format', 'email_attachment_name_format', 'email_attach_isdoc',
         ] as $key) {
             if (!array_key_exists($key, $data) && array_key_exists($key, $current)) {
                 $data[$key] = $current[$key];
@@ -518,6 +521,8 @@ final class ClientRepository
         if ($stored !== null) {
             $data = $this->mergeWithStored($stored, $data);
         }
+
+        $emailAttachIsdoc = ClientIsdocPreference::toDatabase($data['email_attach_isdoc'] ?? null);
 
         // Klient nemůže měnit supplier — odvodíme z aktuálního DB záznamu pro currency lookup
         $stmt = $pdo->prepare('SELECT supplier_id, is_customer, is_vendor, default_expense_category_id, default_revenue_category_id, default_branding_profile_id FROM clients WHERE id = ?');
@@ -599,7 +604,7 @@ final class ClientRepository
                 hourly_rate = ?, note = ?, default_expense_category_id = ?, default_revenue_category_id = ?,
                 invoice_number_format = ?, proforma_number_format = ?,
                 credit_note_number_format = ?, invoice_number_period = ?, default_branding_profile_id = ?,
-                email_subject_format = ?, email_attachment_name_format = ?,
+                email_subject_format = ?, email_attachment_name_format = ?, email_attach_isdoc = ?,
                 -- § 36a ZDPH / § 23/7 ZDP: COALESCE jako u is_vat_payer — částečný update
                 -- (klient bez těchhle klíčů v payloadu) nesmí příznak spojené osoby shodit.
                 -- Typ a doložení doplňuje mergeWithStored(), explicitní null je smaže.
@@ -649,6 +654,7 @@ final class ClientRepository
             $newDefaultBrandingProfileId,
             ClientEmailFormat::normalize($data['email_subject_format'] ?? null),
             ClientEmailFormat::normalize($data['email_attachment_name_format'] ?? null),
+            $emailAttachIsdoc,
             array_key_exists('related_party', $data) ? (int) (bool) $data['related_party'] : null,
             $this->nullable($data, 'related_party_type'),
             $this->nullable($data, 'related_party_note'),
@@ -854,6 +860,9 @@ final class ClientRepository
         }
         if (array_key_exists('price_level_id', $row)) {
             $row['price_level_id'] = $row['price_level_id'] !== null ? (int) $row['price_level_id'] : null;
+        }
+        if (array_key_exists('email_attach_isdoc', $row)) {
+            $row['email_attach_isdoc'] = $row['email_attach_isdoc'] === null ? null : (bool) $row['email_attach_isdoc'];
         }
         $row['reverse_charge']        = (bool) ($row['reverse_charge'] ?? 0);
         // EU členství země klienta — editor podle něj u identifikované osoby (#94)

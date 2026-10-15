@@ -160,4 +160,69 @@ describe('ClientForm — e-mail s fakturou podle klienta', () => {
     expect(details.open).toBe(true)
     expect(details.textContent).toContain('Neznámý zástupný znak {CISLO}.')
   })
+
+  it.each([null, true, false])('nový klient uloží tříhodnotovou volbu ISDOC %s', async choice => {
+    m.create.mockResolvedValue({ id: 9 })
+    const wrapper = await mountForm()
+    const select = wrapper.find('#client-email-attach-isdoc')
+    expect((select.element as HTMLSelectElement).selectedIndex).toBe(0)
+    const optionIndex = choice === null ? 0 : choice ? 1 : 2
+    await select.setValue((select.findAll('option')[optionIndex]!.element as HTMLOptionElement).value)
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(m.create).toHaveBeenCalledWith(expect.objectContaining({ email_attach_isdoc: choice }))
+  })
+
+  it.each([
+    { name: 'zděděná volba', choice: null, index: 0 },
+    { name: 'zapnuto', choice: true, index: 1 },
+    { name: 'vypnuto', choice: false, index: 2 },
+    { name: 'starší odpověď bez pole', choice: undefined, index: 0 },
+  ])('editace načte a zachová ISDOC: $name', async ({ choice, index }) => {
+    m.params = { id: '5' }
+    m.get.mockResolvedValue(existingClient(choice === undefined ? {} : { email_attach_isdoc: choice }))
+    m.update.mockResolvedValue(existingClient({ email_attach_isdoc: choice ?? null }))
+    const wrapper = await mountForm(false)
+    const select = wrapper.find('#client-email-attach-isdoc')
+    expect((select.element as HTMLSelectElement).selectedIndex).toBe(index)
+    expect(select.element.closest('details')!.open).toBe(choice != null)
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(m.update).toHaveBeenCalledWith(5, expect.objectContaining({ email_attach_isdoc: choice ?? null }))
+  })
+
+  it.each([
+    { initial: null, choice: true, index: 1 },
+    { initial: true, choice: false, index: 2 },
+    { initial: false, choice: null, index: 0 },
+  ])('editace a opětovné načtení zachová změnu ISDOC $initial → $choice', async ({ initial, choice, index }) => {
+    m.params = { id: '5' }
+    m.get.mockResolvedValue(existingClient({ email_attach_isdoc: initial }))
+    m.update.mockImplementation(async (_id, payload) => existingClient(payload))
+    const wrapper = await mountForm(false)
+    const select = wrapper.find('#client-email-attach-isdoc')
+    await select.setValue((select.findAll('option')[index]!.element as HTMLOptionElement).value)
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(m.update).toHaveBeenCalledWith(5, expect.objectContaining({ email_attach_isdoc: choice }))
+    const saved = await m.update.mock.results[0]!.value
+    wrapper.unmount()
+    m.get.mockResolvedValue(saved)
+    const reloaded = await mountForm(false)
+    expect((reloaded.find('#client-email-attach-isdoc').element as HTMLSelectElement).selectedIndex).toBe(index)
+  })
+
+  it('serverovou chybu ISDOC ukáže u volby a otevře sekci', async () => {
+    m.create.mockRejectedValue({ response: { data: { error: {
+      code: 'validation_failed', message: 'Validace selhala',
+      fields: { email_attach_isdoc: ['Neplatná volba ISDOC.'] },
+    } } } })
+    const wrapper = await mountForm()
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    const details = wrapper.find('#client-email-attach-isdoc').element.closest('details')!
+    expect(details.open).toBe(true)
+    expect(details.textContent).toContain('Neplatná volba ISDOC.')
+  })
+
 })
