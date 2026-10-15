@@ -213,7 +213,7 @@ zaměstnanců.
 
 ### 77.9.2 Bezpečnost a limity XLSX
 
-Soubor smí mít nejvýše 5 MB, 10 000 datových řádků a 24 sloupců. U XLSX se
+Soubor smí mít nejvýše 5 MB, 10 000 datových řádků a 32 sloupců. U XLSX se
 zpracuje jen první list. Aplikace přijímá jen statické hodnoty: vzorec,
 makro, vložený soubor, externí propojení nebo neobvykle rozbalený archiv
 odmítne ještě před náhledem a nic nezapíše. Kontrola omezuje i počet částí

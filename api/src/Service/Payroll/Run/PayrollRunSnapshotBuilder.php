@@ -2463,6 +2463,8 @@ final class PayrollRunSnapshotBuilder
                     ? null
                     : (int) $row['total_limit_minor'],
                 'withheld_total_minor' => (int) $row['withheld_total_minor'],
+                // Část limitu sražená předchozím mzdovým programem (mimo ledger).
+                'taken_over_withheld_minor' => (int) ($row['taken_over_withheld_minor'] ?? 0),
                 'valid_from' => (string) $row['valid_from'],
                 'valid_to' => $row['valid_to'],
                 // Den doručení dohody plátci mzdy (§ 2045 odst. 2 OZ). Ve
