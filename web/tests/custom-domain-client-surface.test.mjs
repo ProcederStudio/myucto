@@ -27,8 +27,11 @@ test('shared manifest persists the audited client surface and legacy aliases', (
   // 40 → 41: purchase-invoices-renumber. Klientskou plochu nerozšiřuje: je to
   // client_redirect — klienta na vlastní doméně přesměruje na seznam přijatých
   // faktur, přečíslování zůstává jen účetní (router guard i backend 403).
-  assert.equal(manifest.routes.length, 41)
-  assert.equal(new Set(manifest.routes.map(route => route.name)).size, 41)
+  //
+  // 41 → 43: bank-statements a bank-detail (#160). Čtení banky je pro klienta
+  // volitelné; obě routy i jejich API vyžadují přidělené bankovní oprávnění.
+  assert.equal(manifest.routes.length, 43)
+  assert.equal(new Set(manifest.routes.map(route => route.name)).size, 43)
   assert.deepEqual(
     manifest.routes.slice(-3).map(route => route.name),
     ['data-exchange', 'admin-export', 'admin-import'],
