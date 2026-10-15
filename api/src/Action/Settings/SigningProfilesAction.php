@@ -103,6 +103,13 @@ final class SigningProfilesAction
             if ($linked->fetchColumn() !== false) {
                 return Json::error($response, 'profile_in_use', 'Nejdřív odpoj podpisový profil z e-mailových profilů.', 409);
             }
+            $output = $this->db->pdo()->prepare(
+                'SELECT 1 FROM pdf_signature_output_settings WHERE supplier_id = ? AND default_profile_id = ? LIMIT 1'
+            );
+            $output->execute([$supplierId, (int) $args['id']]);
+            if ($output->fetchColumn() !== false) {
+                return Json::error($response, 'profile_in_use', 'Nejdřív odpoj podpisový profil z nastavení podpisu výstupů.', 409);
+            }
         }
         $body = (array) ($request->getParsedBody() ?? []);
         if (in_array($operation, ['createProfile', 'updateProfile'], true)) {

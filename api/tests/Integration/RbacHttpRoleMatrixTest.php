@@ -468,6 +468,9 @@ final class RbacHttpRoleMatrixTest extends TestCase
             self::assertSame($status, $this->request('PUT', $settingsPath, $session, $settingsBody)->getStatusCode());
         }
         self::assertSame($before, $this->json($this->request('GET', '/api/settings/client/pdf-signing', $session)));
+        $inUse = $this->request('DELETE', "/api/settings/client/signing/profiles/{$id}", $session);
+        self::assertSame(409, $inUse->getStatusCode(), (string) $inUse->getBody());
+        self::assertSame(200, $this->request('GET', "/api/settings/client/signing/profiles/{$id}", $session)->getStatusCode());
         self::assertSame(200, $this->request('DELETE', $path, $session)->getStatusCode());
         self::assertFileDoesNotExist(RuntimePaths::storage("signing/profiles/supplier-{$this->supplierId}/profile-{$id}/profile.p12"));
     }
