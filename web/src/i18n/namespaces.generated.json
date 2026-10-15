@@ -161,6 +161,7 @@
     ],
     "setup-mfa": [
       "app",
+      "domain_login",
       "mfa_setup",
       "recovery_codes"
     ],

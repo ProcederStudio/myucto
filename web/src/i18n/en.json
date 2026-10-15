@@ -29776,6 +29776,8 @@
     }
   },
   "domain_login": {
+    "cleanup_failed": "Portal sign-in is waiting for the temporary session on the main address to end. Check your connection and try again. If you signed in in another tab in the meantime, start a new sign-in from the portal.",
+    "logged_out": "You have been signed out. Use the Sign in button to sign in again.",
     "title": "Secure sign-in",
     "finishing": "Finishing sign-in on the company domain…",
     "start_failed": "Sign-in through the company domain could not be started.",

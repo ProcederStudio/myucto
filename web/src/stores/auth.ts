@@ -3,6 +3,8 @@ import { ref, computed } from 'vue'
 import { authApi, type User, type SetupStatus, type SessionState, type DomainContext } from '@/api/auth'
 import type { LicenseSummary } from '@/api/license'
 import { setCsrfToken, setDomainSupplierLock } from '@/api/client'
+import { markPortalLoggedOut } from '@/security/portalLogout'
+import { clearTargetDomainLogin, recordCanonicalDomainLoginSession } from '@/security/domainLogin'
 import { broadcastSessionEvent } from '@/security/sessionChannel'
 import { rememberTotpEnrollment } from '@/security/totpEnrollment'
 import { setOverdueIncludesToday } from '@/utils/invoiceOverdue'
@@ -192,6 +194,7 @@ export const useAuthStore = defineStore('auth', () => {
         resend_otp: opts?.resendOtp || undefined,
         cf_turnstile_response: captchaToken,
       })
+      recordCanonicalDomainLoginSession(data.csrf_token)
       user.value = data.user
       setSessionCsrfToken(data.csrf_token)
       setMfaPolicy(data.require_mfa, data.allowed_mfa_methods)
@@ -227,6 +230,10 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       await authApi.logout()
       logoutRetryCsrfToken = ''
+      if (domainContext.value?.locked) {
+        markPortalLoggedOut()
+        clearTargetDomainLogin()
+      }
       broadcastSessionEvent('logout')
     } catch (error) {
       logoutRetryCsrfToken = requestCsrfToken

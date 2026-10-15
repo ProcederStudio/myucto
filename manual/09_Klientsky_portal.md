@@ -312,6 +312,10 @@ Neznámý, neověřený, deaktivovaný nebo účelově nekompatibilní hostname 
 
 Přihlášení se dokončuje na canonical adrese z `app.url`, kde jsou zaregistrované passkeys a WebAuthn RP ID. Po heslu, TOTP nebo passkey se prohlížeč vrátí na přesnou původně otevřenou stránku vlastní domény jednorázovým krátkodobým kódem svázaným s PKCE. Session token se v URL nepřenáší, cílová doména dostane novou host-only cookie, kterou jiná doména nemůže číst.
 
+Přihlášení zahájené na vlastní doméně přihlásí uživatele do portálu. Pokud kvůli ověření vznikne dočasná relace na hlavní adrese, při předání do portálu se ukončí. Samostatné přihlášení na hlavní adrese, které existovalo už před otevřením portálu, zůstává zachované.
+
+Po odhlášení portál zobrazí přihlašovací obrazovku a zůstane odhlášený i po obnovení stránky. Další přihlášení zahájí až tlačítko **Přihlásit se**. Pokud je uživatel stále samostatně přihlášený na hlavní adrese, může se toto přihlášení při návratu do portálu použít bez dalšího zadávání hesla.
+
 Na canonical adrese probíhá také **správa přístupových klíčů** a vynucené první nastavení MFA. WebAuthn klíče jsou svázané s RP ID a originem z `app.url`, takže vlastní doména tyto obrazovky neotevře s nefunkčním bezpečnostním dialogem. Místo toho zahájí jednorázový přechod na canonical adresu a po dokončení se vrátí na předchozí bezpečnou stránku vlastní domény. Cílová firma i hostname jsou po celou dobu svázané se serverovým požadavkem a nelze je změnit parametrem návratové URL.
 
 Při zamčení session server na vlastní doméně odmítne přímé WebAuthn options i verify. Zamykací obrazovka zahájí nové ověření na canonical originu a po jednorázovém PKCE návratu vytvoří novou host-only session, přičemž zachová aktuální klientskou stránku. Vlastní doména je originem celého klientského rozhraní, ne druhým originem interních agend účetní a správce. Povolení se neurčuje podle prefixu `/portal`, ale podle stejného katalogu klientských oprávnění, který řídí menu, router i API. Staré adresy `/exchange`, `/admin/export` a `/admin/import` se nejprve převedou na skutečný klientský cíl, prefix `/admin` jim tedy přístup ani nedává, ani nebere.

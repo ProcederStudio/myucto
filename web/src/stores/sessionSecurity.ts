@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { advanceCanonicalDomainLoginSession, canonicalDomainLoginSessionCsrf } from '@/security/domainLogin'
 import { authApi, type SessionState } from '@/api/auth'
 import { cancelActiveWebAuthnCeremony, getCredential } from '@/security/webauthn'
 import { useAuthStore } from './auth'
@@ -158,7 +159,9 @@ export const useSessionSecurityStore = defineStore('session-security', () => {
     try {
       const flow = await authApi.sessionUnlockOptions()
       const credential = await getCredential(flow.public_key)
-      const unlocked = await authApi.sessionUnlockVerify(flow.flow_token, credential)
+      const previousCsrf = canonicalDomainLoginSessionCsrf()
+      const unlocked = await authApi.sessionUnlockVerify(flow.flow_token, credential, previousCsrf ?? undefined)
+      if (previousCsrf) advanceCanonicalDomainLoginSession(previousCsrf, unlocked.csrf_token)
       const auth = useAuthStore()
       auth.setSessionCsrfToken(unlocked.csrf_token)
       if (!await auth.refresh() || !auth.profileHydrated) {

@@ -6,6 +6,8 @@ import { useI18n } from 'vue-i18n'
 import { clearLoginBounces, loginRedirectLoopDetected } from '@/router'
 
 const { t } = useI18n()
+import { BTN_BASE, FILLED, ICONS } from '@/components/ui/buttonStyles'
+import { isPortalLoggedOut } from '@/security/portalLogout'
 import AppShell from '@/components/layout/AppShell.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useTurnstile } from '@/composables/useTurnstile'
@@ -21,7 +23,10 @@ import {
   beginDomainLogin,
   captureCanonicalDomainLogin,
   hasPendingCanonicalDomainLogin,
+  hasPendingCanonicalDomainLoginCleanup,
   pendingCanonicalDomainLoginHandoff,
+  recordCanonicalDomainLoginSession,
+  reconcileCanonicalDomainLoginSession,
 } from '@/security/domainLogin'
 import {
   clientDomainCanonicalHandoffPath,
@@ -58,6 +63,9 @@ const passkeyBusy = ref(false)
 const passwordlessBusy = ref(false)
 const passkeySupported = isWebAuthnAvailable()
 const error = ref<string>('')
+const domainLoginBusy = ref(false)
+const domainCleanupPending = ref(false)
+const portalLoggedOut = ref(isPortalLoggedOut())
 const captchaRequired = ref(false)
 const captchaSiteKey = ref('')
 const captchaScriptUrl = ref('')
@@ -132,14 +140,14 @@ onMounted(async () => {
       route.query.state,
       route.query.domain_login_handoff,
     )
+    if (hasPendingCanonicalDomainLoginCleanup()) {
+      await completeCanonicalDomainLogin()
+      return
+    }
   }
   const domainHandoff = requestedDomainHandoffPath()
-  if (auth.domainContext?.locked && domainHandoff !== null) {
-    try {
-      await beginDomainLogin(requestedDomainReturnPath(), domainHandoff)
-    } catch (e: any) {
-      error.value = e?.response?.data?.error?.message || t('domain_login.start_failed')
-    }
+  if (auth.domainContext?.locked && domainHandoff !== null && !portalLoggedOut.value) {
+    await startPortalLogin()
     return
   }
   // Rozhoduje `isAuthenticated`, NE návratová hodnota refresh() — router guard
@@ -147,6 +155,7 @@ onMounted(async () => {
   // je nekonečná smyčka `/` ↔ `/login`: guard by nás poslal sem, my zpátky na `/`.
   await auth.refresh()
   if (auth.isAuthenticated) {
+    reconcileCanonicalDomainLoginSession(auth.csrfToken)
     if (await finishDomainLoginIfNeeded()) return
     router.replace(postLoginTarget(auth.domainContext?.locked
       ? requestedDomainReturnPath()
@@ -154,16 +163,13 @@ onMounted(async () => {
     return
   }
   if (auth.domainContext?.locked) {
-    try {
-      await beginDomainLogin(requestedDomainReturnPath())
-    } catch (e: any) {
-      error.value = e?.response?.data?.error?.message || t('domain_login.start_failed')
-    }
+    if (!portalLoggedOut.value) await startPortalLogin()
     return
   }
   if (demo?.auto_login && demo.email && demo.password && demoLoginCanRun()) {
     try {
       await auth.login(demo.email, demo.password)
+      if (await finishDomainLoginIfNeeded()) return
       // I demo musí doručit na adresu, na kterou člověk klikl — jinak je
       // odkaz do dema k ničemu právě tam, kde se ukazuje konkrétní obrazovka.
       router.replace(postLoginTarget(requestedReturnPath('/')))
@@ -198,6 +204,19 @@ function postLoginTarget(fallback: string): string {
   if (auth.mustSetupMfa || auth.mustSetupTotp) return '/setup-mfa'
   if (auth.domainContext?.locked) return fallback
   return auth.shouldOfferMfa ? '/setup-mfa' : fallback
+}
+
+async function startPortalLogin(): Promise<void> {
+  if (domainLoginBusy.value) return
+  domainLoginBusy.value = true
+  error.value = ''
+  try {
+    await beginDomainLogin(requestedDomainReturnPath(), requestedDomainHandoffPath() ?? undefined)
+  } catch (e: any) {
+    error.value = e?.response?.data?.error?.message || t('domain_login.start_failed')
+  } finally {
+    domainLoginBusy.value = false
+  }
 }
 
 function requestedDomainReturnPath(): string {
@@ -247,12 +266,24 @@ async function finishDomainLoginIfNeeded(): Promise<boolean> {
     await router.replace(handoffPath)
     return true
   }
+  await completeCanonicalDomainLogin()
+  return true
+}
+
+async function completeCanonicalDomainLogin(): Promise<void> {
+  if (domainLoginBusy.value) return
+  domainLoginBusy.value = true
+  domainCleanupPending.value = hasPendingCanonicalDomainLoginCleanup()
+  error.value = ''
   try {
     await authorizePendingDomainLogin()
-    return true
   } catch (e: any) {
-    error.value = e?.response?.data?.error?.message || t('domain_login.authorize_failed')
-    return true
+    domainCleanupPending.value = hasPendingCanonicalDomainLoginCleanup()
+    error.value = domainCleanupPending.value
+      ? t('domain_login.cleanup_failed')
+      : e?.response?.data?.error?.message || t('domain_login.authorize_failed')
+  } finally {
+    domainLoginBusy.value = false
   }
 }
 
@@ -354,7 +385,8 @@ async function loginWithPasskey() {
   try {
     const flow = await authApi.passkeyLoginOptions(turnstile.token.value || undefined)
     const credential = await getCredential(flow.public_key)
-    await authApi.passkeyLoginVerify(flow.flow_token, credential)
+    const result = await authApi.passkeyLoginVerify(flow.flow_token, credential)
+    recordCanonicalDomainLoginSession(result.csrf_token)
     await auth.refresh()
     if (await finishDomainLoginIfNeeded()) return
     router.push(postLoginTarget(requestedReturnPath('/')))
@@ -381,7 +413,8 @@ async function verifyPasskey() {
   error.value = ''
   try {
     const credential = await getCredential(flow.publicKey)
-    await authApi.passkeyLoginVerify(flow.flowToken, credential)
+    const result = await authApi.passkeyLoginVerify(flow.flowToken, credential)
+    recordCanonicalDomainLoginSession(result.csrf_token)
     await auth.refresh()
     if (await finishDomainLoginIfNeeded()) return
     router.push(postLoginTarget(requestedReturnPath('/')))
@@ -460,7 +493,26 @@ async function resendCode() {
           {{ t('auth.demo_login_hint') }}
         </div>
 
-        <form @submit.prevent="submit" class="space-y-4">
+        <div v-if="auth.domainContext?.locked" class="space-y-4">
+          <p v-if="portalLoggedOut" role="status" class="text-sm text-neutral-600">{{ t('domain_login.logged_out') }}</p>
+          <div v-if="error" role="alert" class="rounded-md bg-danger-50 border border-danger-500/40 px-3 py-2 text-sm text-danger-500">{{ error }}</div>
+          <div class="flex flex-wrap">
+            <button type="button" :class="[BTN_BASE, FILLED.primary]" :disabled="domainLoginBusy" @click="startPortalLogin">
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M10 17l5-5-5-5M15 12H3M12 3h7a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-7" /></svg>
+              {{ t('auth.login') }}
+            </button>
+          </div>
+        </div>
+        <div v-else-if="domainCleanupPending" class="space-y-4">
+          <p role="alert" class="text-sm text-danger-600">{{ error }}</p>
+          <div class="flex flex-wrap">
+            <button type="button" :class="[BTN_BASE, FILLED.primary]" :disabled="domainLoginBusy" @click="completeCanonicalDomainLogin">
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path :d="ICONS.cycle" /></svg>
+              {{ t('common.retry') }}
+            </button>
+          </div>
+        </div>
+        <form v-else @submit.prevent="submit" class="space-y-4">
           <div v-if="auth.setupStatus?.passwordless_login_enabled && !secondFactorPending" class="space-y-3">
             <button
               v-if="passkeySupported"

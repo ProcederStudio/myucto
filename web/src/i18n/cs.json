@@ -29776,6 +29776,8 @@
     }
   },
   "domain_login": {
+    "cleanup_failed": "Přihlášení do portálu čeká na ukončení dočasné relace na hlavní adrese. Zkontrolujte připojení a zkuste to znovu. Pokud jste se mezitím přihlásili v jiné záložce, zahajte nové přihlášení z portálu.",
+    "logged_out": "Byli jste odhlášeni. Pro přihlášení pokračujte tlačítkem Přihlásit se.",
     "title": "Bezpečné přihlášení",
     "finishing": "Dokončuji přihlášení na firemní doméně…",
     "start_failed": "Přihlášení přes firemní doménu se nepodařilo zahájit.",

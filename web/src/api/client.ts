@@ -37,7 +37,8 @@ export function setForbiddenPermissionHandler(handler: () => void | Promise<void
 }
 
 api.interceptors.request.use((config) => {
-  if (csrfToken && config.method && config.method.toUpperCase() !== 'GET') {
+  if (csrfToken && config.method && config.method.toUpperCase() !== 'GET'
+      && !config.headers.has('X-CSRF-Token')) {
     config.headers.set('X-CSRF-Token', csrfToken)
   }
   // Pošli aktuální UI locale, aby backend hlášky chodily ve správném jazyce.

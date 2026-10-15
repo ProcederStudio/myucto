@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useAuthStore } from '@/stores/auth'
 import { rememberTotpEnrollment, takeTotpEnrollment } from '@/security/totpEnrollment'
+import { captureCanonicalDomainLogin, canonicalDomainLoginSessionCsrf } from '@/security/domainLogin'
 
 const mocks = vi.hoisted(() => ({
   me: vi.fn(),
@@ -45,6 +46,7 @@ function session() {
 describe('obnova oprávnění v auth store', () => {
   beforeEach(() => {
     localStorage.clear()
+    sessionStorage.clear()
     rememberTotpEnrollment(null)
     setActivePinia(createPinia())
     mocks.me.mockReset()
@@ -86,6 +88,17 @@ describe('obnova oprávnění v auth store', () => {
 
     store.user = { ...session().user, role: { ...session().user.role, system_key: 'admin' } }
     expect(store.isAdminPlusRole).toBe(false)
+  })
+
+  it('vlastnictví přihlášení do portálu vezme z loginu, nikoli z následného refresh', async () => {
+    captureCanonicalDomainLogin('a'.repeat(43), 'b'.repeat(43))
+    mocks.login.mockResolvedValue({ ...session(), csrf_token: 'issued-for-portal' })
+    mocks.me.mockImplementation(async () => {
+      expect(canonicalDomainLoginSessionCsrf()).toBe('issued-for-portal')
+      return { ...session(), csrf_token: 'different-refreshed-session' }
+    })
+    await useAuthStore().login('synthetic@example.test', 'synthetic-password')
+    expect(canonicalDomainLoginSessionCsrf()).toBe('issued-for-portal')
   })
 
   it('přenese oprávnění pouze z právě dokončeného přihlášení, nikoli z /me', async () => {

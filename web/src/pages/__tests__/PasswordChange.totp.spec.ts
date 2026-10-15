@@ -11,6 +11,9 @@ const m = vi.hoisted(() => ({
   totpStatus: vi.fn(),
   totpSetup: vi.fn(),
   totpEnable: vi.fn(),
+  ownedCsrf: vi.fn<() => string | null>(() => null),
+  advanceSession: vi.fn(),
+  setSessionCsrfToken: vi.fn(),
   changePassword: vi.fn(),
   refresh: vi.fn(),
   replace: vi.fn(),
@@ -30,7 +33,7 @@ vi.mock('@/api/auth', () => ({
   },
 }))
 vi.mock('@/stores/auth', () => ({
-  useAuthStore: () => ({ ...m.store, refresh: m.refresh }),
+  useAuthStore: () => ({ ...m.store, refresh: m.refresh, setSessionCsrfToken: m.setSessionCsrfToken }),
 }))
 vi.mock('@/stores/sessionSecurity', () => ({
   useSessionSecurityStore: () => ({ refresh: vi.fn(), clear: vi.fn() }),
@@ -43,6 +46,8 @@ vi.mock('@/security/webauthn', () => ({
   webAuthnErrorKey: () => null,
 }))
 vi.mock('@/security/domainLogin', () => ({
+  canonicalDomainLoginSessionCsrf: m.ownedCsrf,
+  advanceCanonicalDomainLoginSession: m.advanceSession,
   hasPendingCanonicalDomainLogin: () => false,
   authorizePendingDomainLogin: vi.fn(),
 }))
@@ -89,6 +94,7 @@ async function activate(wrapper: ReturnType<typeof mountPage>) {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  m.ownedCsrf.mockReturnValue(null)
   m.routeQuery.tab = 'totp'
   m.store.user = { totp_enabled: false, mfa_methods: [], passkey_count: 0 }
   m.totpStatus.mockResolvedValue({ enabled: false })
@@ -198,5 +204,21 @@ describe('PasswordChange — záložní kódy po aktivaci TOTP', () => {
     expect(m.changePassword).toHaveBeenCalledTimes(1)
     expect(wrapper.find('[data-test="totp-code"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="totp-current-password"]').exists()).toBe(true)
+  })
+})
+
+
+describe('PasswordChange — owned portal session rotation', () => {
+  it('binds TOTP completion to the owned session and advances ownership before refresh', async () => {
+    m.ownedCsrf.mockReturnValue('owned')
+    m.totpEnable.mockResolvedValue({ enabled: true, csrf_token: 'rotated' })
+    const wrapper = mountPage()
+    await flushPromises()
+    await activate(wrapper)
+    expect(m.totpEnable).toHaveBeenCalledWith('123456', 'owned')
+    expect(m.advanceSession).toHaveBeenCalledWith('owned', 'rotated')
+    expect(m.setSessionCsrfToken).toHaveBeenCalledWith('rotated')
+    expect(m.advanceSession.mock.invocationCallOrder[0]).toBeLessThan(m.refresh.mock.invocationCallOrder[0]!)
+    wrapper.unmount()
   })
 })
