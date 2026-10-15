@@ -1329,6 +1329,13 @@ final class PohodaPayrollImporter
                         continue;
                     }
                     $this->jmhzMappings->put($supplierId, (int) $componentId, $target, (int) $mapping['row_version'], $userId);
+                } elseif (isset($reported[$code])
+                    && self::isFrequencyGuess($code, $mapping)
+                    && (string) $mapping['target_attribute_id'] !== $target
+                ) {
+                    // Četnost odhadl dřívější převod roku bez odeslaných hlášení; hlášení
+                    // PAMICA, která přišla s pozdějším rokem, jsou skutečné zařazení.
+                    $this->jmhzMappings->put($supplierId, (int) $componentId, $target, (int) $mapping['row_version'], $userId);
                 } elseif ((string) $mapping['target_attribute_id'] !== $target) {
                     continue;
                 }
@@ -1351,6 +1358,21 @@ final class PohodaPayrollImporter
                 implode(', ', $done['frequency']),
             ));
         }
+    }
+
+    /**
+     * Zařazení vlastní odměny PAMICA podle četnosti, jak ho založil převod: 10330/10331
+     * a od založení nezměněné. Účetní, která ho upravila, zvýšila verzi řádku.
+     *
+     * @param array<string,mixed> $mapping
+     */
+    public static function isFrequencyGuess(string $code, array $mapping): bool
+    {
+        return str_starts_with($code, 'PAM_')
+            && (bool) ($mapping['is_active'] ?? false)
+            && ($mapping['is_current_package'] ?? false) === true
+            && (int) ($mapping['row_version'] ?? 0) === 1
+            && in_array((string) ($mapping['target_attribute_id'] ?? ''), ['10330', '10331'], true);
     }
 
     /**
