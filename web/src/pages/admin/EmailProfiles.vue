@@ -230,7 +230,7 @@ async function load() {
   try {
     const [profileRows, signingRows] = await Promise.all([
       settingsApi.listEmailProfiles(props.clientScoped),
-      props.clientScoped ? Promise.resolve([] as SigningProfile[]) : settingsApi.listSigningProfiles(),
+      settingsApi.listSigningProfiles(props.clientScoped),
     ])
     profiles.value = profileRows
     signingProfiles.value = signingRows
@@ -394,7 +394,6 @@ function payload(): EmailProfilePayload {
     is_active: draft.is_active,
   }
   if (props.clientScoped) {
-    delete data.signing_profile_id
     delete data.sendmail_command
   }
   return data
@@ -742,7 +741,7 @@ function certificateCommonName(subject: string | null | undefined): string | nul
           {{ t('settings.email_profile_from_name') }}
           <input v-model="draft.from_name" class="mt-1 w-full rounded-md border border-neutral-300 bg-surface px-3 py-2 text-sm" />
         </label>
-        <label v-if="!props.clientScoped" class="block text-xs font-medium text-neutral-600">
+        <label class="block text-xs font-medium text-neutral-600">
           {{ t('settings.email_profile_signing_profile') }}
           <select v-model="draft.signing_profile_id" class="mt-1 w-full rounded-md border border-neutral-300 bg-surface px-3 py-2 text-sm">
             <option :value="null">{{ t('settings.email_profile_signing_none') }}</option>
@@ -1059,7 +1058,7 @@ function certificateCommonName(subject: string | null | undefined): string | nul
               <th class="px-3 py-2 text-left font-medium">{{ t('settings.email_profile_name') }}</th>
               <th class="px-3 py-2 text-left font-medium">{{ t('settings.email_profile_from') }}</th>
               <th class="px-3 py-2 text-left font-medium">{{ t('settings.email_profile_reply_to') }}</th>
-              <th v-if="!props.clientScoped" class="px-3 py-2 text-left font-medium">{{ t('settings.email_profile_signing_profile') }}</th>
+              <th class="px-3 py-2 text-left font-medium">{{ t('settings.email_profile_signing_profile') }}</th>
               <th class="px-3 py-2 text-left font-medium">{{ t('settings.email_profile_dkim') }}</th>
               <th class="px-3 py-2 text-left font-medium">{{ t('settings.email_profile_transport') }}</th>
               <th class="px-3 py-2 text-left font-medium">{{ t('settings.email_profile_imap_sent') }}</th>
@@ -1084,7 +1083,7 @@ function certificateCommonName(subject: string | null | undefined): string | nul
                 </template>
                 <span v-else class="text-neutral-400">{{ t('settings.email_profile_reply_to_disabled') }}</span>
               </td>
-              <td v-if="!props.clientScoped" class="px-3 py-2">{{ signingProfileLabel(profile) }}</td>
+              <td class="px-3 py-2">{{ signingProfileLabel(profile) }}</td>
               <td class="px-3 py-2">
                 <template v-if="profile.dkim_enabled">
                   <div>{{ profile.dkim_domain }}</div>
