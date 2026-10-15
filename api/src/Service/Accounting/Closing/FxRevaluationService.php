@@ -8,6 +8,7 @@ use DateTimeImmutable;
 use MyInvoice\Repository\ChartOfAccountsRepository;
 use MyInvoice\Repository\ClosingRepository;
 use MyInvoice\Repository\PostingRuleRepository;
+use MyInvoice\Service\Accounting\ForeignCurrencyAccountPolicy;
 use MyInvoice\Service\Accounting\JournalLineAmount;
 use MyInvoice\Service\Currency\CnbExchangeRateClient;
 
@@ -20,6 +21,9 @@ use MyInvoice\Service\Currency\CnbExchangeRateClient;
  * (b) Banka/valutová pokladna — poloautomat: uživatelem potvrzené devizové
  *     zůstatky {account_code, currency_code, foreign_balance}; rozdíl proti
  *     účetnímu Kč zůstatku účtu z deníku.
+ * (c) Peněžní účty 378/379 ({@see ForeignCurrencyAccountPolicy}) — automaticky
+ *     z deníku: cizoměnový zůstatek řádků s měnou × kurz ČNB proti jejich Kč
+ *     hodnotě; zapisuje se do slotu (b).
  *
  * Agregace: JEDEN pár řádků zápisu per (účet, měna, směr); rozpad per doklad
  * jde do payload kroku (audit + tisk podkladu). Strany (R10): zisk → MD účet /
@@ -200,6 +204,15 @@ final class FxRevaluationService
                         . 'každý bankovní/valutový účet smí být přeceněn právě jednou.',
                 );
             }
+            // 378/379 se přeceňují sami z deníku (část c) — v bank_rows by se přecenili
+            // podruhé a navíc z celého Kč zůstatku včetně korunových pohybů.
+            if (ForeignCurrencyAccountPolicy::isLedgerRevalued($accountCode)) {
+                throw new ClosingException(
+                    'fx_ledger_account_in_bank_rows',
+                    'Účet ' . $accountCode . ' se přeceňuje automaticky z deníku; do devizových zůstatků '
+                        . 'banky a pokladny nepatří.',
+                );
+            }
             $seenBankAccounts[$accountCode] = true;
             $foreignBalance = round((float) $row['foreign_balance'], 2);
             $rateCnb = $this->rateFor($currency, $endsOn, $rates);
@@ -228,12 +241,36 @@ final class FxRevaluationService
             ];
         }
 
+        // (c) peněžní účty 378/379 — automaticky z deníku: cizoměnový zůstatek × kurz ČNB
+        // proti Kč hodnotě řádků v téže měně. Zápis jde do slotu banky (stejná metoda:
+        // přecenění zůstatku bez storna v novém roce), vlastní zápis slotu se z Kč hodnoty
+        // vynechá kvůli re-runu.
+        $ledgerLines = [];
+        foreach ($this->repo->ledgerFxBalances($supplierId, $endsOn, ClosingSourceId::fxBank((int) $period['id'])) as $row) {
+            $currency = (string) $row['currency_code'];
+            $rateCnb = $this->rateFor($currency, $endsOn, $rates);
+            $newCzk = round((float) $row['foreign_balance'] * $rateCnb, 2);
+            $diff = round($newCzk - (float) $row['czk_balance'], 2);
+            $ledgerLines[] = [
+                'account_code'    => (string) $row['account_code'],
+                'label'           => (string) $row['label'],
+                'currency_code'   => $currency,
+                'foreign_balance' => (float) $row['foreign_balance'],
+                'rate_cnb'        => $rateCnb,
+                'ledger_czk'      => (float) $row['czk_balance'],
+                'new_czk'         => $newCzk,
+                'diff'            => $diff,
+                // Zůstatky jsou MD-kladné (pohledávka i závazek): diff > 0 = MD účtu = zisk.
+                'direction'       => self::cents($diff) === 0 ? null : ($diff > 0 ? 'gain' : 'loss'),
+            ];
+        }
+
         $loss = 0.0;
         $gain = 0.0;
         foreach ($groups as $g) {
             $g['direction'] === 'gain' ? $gain += $g['amount'] : $loss += $g['amount'];
         }
-        foreach ($bankLines as $b) {
+        foreach ([...$bankLines, ...$ledgerLines] as $b) {
             if ($b['direction'] === 'gain') {
                 $gain += abs($b['diff']);
             } elseif ($b['direction'] === 'loss') {
@@ -245,6 +282,7 @@ final class FxRevaluationService
             'rate_info' => array_values($rates),
             'saldo'     => ['lines' => array_values($groups), 'detail' => $detail],
             'bank'      => ['lines' => $bankLines],
+            'ledger'    => ['lines' => $ledgerLines],
             'totals'    => ['loss' => round($loss, 2), 'gain' => round($gain, 2)],
             'warnings'  => $warnings,
         ];
@@ -284,7 +322,7 @@ final class FxRevaluationService
         }
 
         $bank = [];
-        foreach ($preview['bank']['lines'] as $b) {
+        foreach ([...$preview['bank']['lines'], ...($preview['ledger']['lines'] ?? [])] as $b) {
             $amount = round(abs((float) $b['diff']), 2);
             if (self::cents($amount) === 0) {
                 continue;

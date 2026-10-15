@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Accounting\Bank;
 
 use MyInvoice\Repository\ChartOfAccountsRepository;
+use MyInvoice\Service\Accounting\ForeignCurrencyAccountPolicy;
 use MyInvoice\Service\Accounting\OperationType;
 use MyInvoice\Service\Accounting\PostingException;
 use MyInvoice\Service\Bank\AccountNumberNormalizer;
@@ -111,15 +112,12 @@ final class BankPostingRuleValidator
             throw self::err('invalid_currency', 'Neplatný kód měny.');
         }
         $nonBank = $direction === 'incoming' ? $credit : $debit;
-        // 221* = vlastní účet/analytika (běžný účet → termínovaný vklad): převod mezi vlastními
-        // cizoměnovými účty, ne výsledková operace. Cizoměnová pozice na 221* nezůstává viset —
-        // uzávěrka ji přeceňuje. Musí souhlasit s BankPostingService::assertFxResultAccounts(),
-        // jinak by UI pustilo pravidlo, které engine při účtování odmítne.
-        if (str_starts_with($nonBank, '221')) {
-            return;
-        }
-        if (!str_starts_with($nonBank, '5') && !str_starts_with($nonBank, '6')) {
-            throw self::err('fx_rule_account_forbidden', 'Cizoměnové pravidlo smí účtovat jen na výsledkový účet 5xx/6xx nebo vlastní účet 221.');
+        if (!ForeignCurrencyAccountPolicy::allowsRuleCounterAccount($nonBank)) {
+            throw self::err(
+                'fx_rule_account_forbidden',
+                'Cizoměnové pravidlo smí účtovat jen na výsledkový účet 5xx/6xx, vlastní účet 221 '
+                    . 'nebo jiné pohledávky a závazky 378/379.',
+            );
         }
     }
 

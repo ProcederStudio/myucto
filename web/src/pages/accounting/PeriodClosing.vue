@@ -1042,6 +1042,40 @@ const canOpenNextStage = computed(() => ['closed', 'reviewed', 'approved'].inclu
                 </div>
               </div>
 
+              <!-- Jiné pohledávky a závazky 378/379 — automaticky z deníku -->
+              <div v-if="fxPreview.ledger?.lines?.length">
+                <h3 class="text-sm font-medium text-neutral-700">{{ t('accounting.closing.fx.ledger_section') }}</h3>
+                <p class="text-xs text-neutral-500 mb-2">{{ t('accounting.closing.fx.ledger_hint') }}</p>
+                <div class="overflow-x-auto">
+                  <table class="w-full text-sm">
+                    <thead class="bg-neutral-50 text-xs text-neutral-500 uppercase tracking-wide">
+                      <tr>
+                        <th class="px-3 py-2 text-left font-medium">{{ t('accounting.closing.fx.account') }}</th>
+                        <th class="px-3 py-2 text-left font-medium w-20">{{ t('accounting.closing.fx.col_currency') }}</th>
+                        <th class="px-3 py-2 text-right font-medium w-32">{{ t('accounting.closing.fx.foreign_balance') }}</th>
+                        <th class="px-3 py-2 text-right font-medium w-28">{{ t('accounting.closing.fx.col_cnb_rate') }}</th>
+                        <th class="px-3 py-2 text-right font-medium w-32">{{ t('accounting.closing.fx.col_ledger_czk') }}</th>
+                        <th class="px-3 py-2 text-right font-medium w-32">{{ t('accounting.closing.fx.col_new_czk') }}</th>
+                        <th class="px-3 py-2 text-right font-medium w-32">{{ t('accounting.closing.fx.col_diff') }}</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-neutral-100">
+                      <tr v-for="(l, i) in fxPreview.ledger.lines" :key="i">
+                        <td class="px-3 py-1.5"><span class="font-mono">{{ l.account_code }}</span> {{ l.label }}</td>
+                        <td class="px-3 py-1.5">{{ l.currency_code }}</td>
+                        <td class="px-3 py-1.5 text-right font-mono">{{ formatMoney(l.foreign_balance, l.currency_code) }}</td>
+                        <td class="px-3 py-1.5 text-right font-mono">{{ l.rate_cnb }}</td>
+                        <td class="px-3 py-1.5 text-right font-mono">{{ formatMoney(l.ledger_czk) }}</td>
+                        <td class="px-3 py-1.5 text-right font-mono">{{ formatMoney(l.new_czk) }}</td>
+                        <td class="px-3 py-1.5 text-right font-mono" :class="l.direction === 'gain' ? 'text-success-600' : 'text-danger-500'">
+                          {{ formatMoney(l.diff) }}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
               <!-- Součty + akce -->
               <div class="flex flex-wrap items-center justify-between gap-3 border-t border-neutral-200 pt-3">
                 <div class="flex items-center gap-4 text-sm">

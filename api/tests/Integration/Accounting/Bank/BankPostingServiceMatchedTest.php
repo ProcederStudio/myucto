@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace MyInvoice\Tests\Integration\Accounting\Bank;
 
+use MyInvoice\Service\Accounting\Bank\BankPostingRuleValidator;
 use MyInvoice\Service\Accounting\Bank\StaleSuggestionSweep;
+use MyInvoice\Service\Accounting\PostingException;
 use MyInvoice\Service\Import\ImportedPaidInvoicePayment;
 use PHPUnit\Framework\Attributes\Group;
 
@@ -371,5 +373,74 @@ final class BankPostingServiceMatchedTest extends BankPostingTestCase
               AND currency_code='EUR' AND fx_rate=25 AND amount_foreign=100"
         )->fetchColumn();
         self::assertSame(2, (int) $trace);
+    }
+
+    /**
+     * Eurový faktoring: záloha od faktora MD 221 / D 379 v EUR. Pravidlo se uloží
+     * i zaúčtuje a obě nohy nesou FX stopu, aby závěrka zůstatek 379 přecenila.
+     */
+    public function testForeignRuleMayPostToOtherLiabilities379WithFxTrace(): void
+    {
+        $validator = $this->container->get(BankPostingRuleValidator::class);
+        $normalized = $validator->normalizeRule($this->supplierId, [
+            'name' => 'Faktoring EUR',
+            'direction' => 'incoming',
+            'counterparty_account' => '55502',
+            'debit_account_code' => '221',
+            'credit_account_code' => '379',
+            'applies_currency' => 'EUR',
+        ]);
+        self::assertSame('379', $normalized['credit_account_code']);
+        self::assertSame('EUR', $normalized['applies_currency']);
+
+        $this->db->pdo()->prepare(
+            'INSERT INTO exchange_rates (rate_date, currency_code, rate) VALUES (?, "EUR", 25.00)
+             ON DUPLICATE KEY UPDATE rate = VALUES(rate)'
+        )->execute([self::YEAR . '-06-15']);
+        $this->rule([
+            'name' => 'Faktoring EUR',
+            'direction' => 'incoming',
+            'counterparty_account' => '55502',
+            'debit_account_code' => '221',
+            'credit_account_code' => '379',
+            'mode' => 'suggest',
+            'applies_currency' => 'EUR',
+        ]);
+        $tx = $this->transaction($this->statement(), 400.00, [
+            'currency' => 'EUR',
+            'counterparty_account' => '55502',
+        ]);
+
+        $result = $this->service->handleTransaction($tx, $this->userId);
+        self::assertSame('suggested', $result['action']);
+        $entryId = $this->service->approveSuggestion($this->supplierId, (int) $result['suggestion_id'], $this->meta());
+        $byAcc = $this->linesByAccountCode($entryId);
+        self::assertEqualsWithDelta(10000.00, $byAcc['221']['debit'], 0.001);
+        self::assertEqualsWithDelta(10000.00, $byAcc['379']['credit'], 0.001);
+        $trace = $this->db->pdo()->query(
+            "SELECT COUNT(*) FROM journal_entry_lines WHERE entry_id={$entryId}
+              AND currency_code='EUR' AND fx_rate=25 AND amount_foreign=400"
+        )->fetchColumn();
+        self::assertSame(2, (int) $trace);
+    }
+
+    /** Saldokonto se dál páruje a nepeněžní/rozvahové účty mimo seznam přecenění zůstávají zakázané. */
+    public function testForeignRuleStillRejectsOpenItemAndUnrevaluedBalanceAccounts(): void
+    {
+        $validator = $this->container->get(BankPostingRuleValidator::class);
+        foreach (['311' => 'rule_saldo_forbidden', '324' => 'rule_saldo_forbidden', '411' => 'fx_rule_account_forbidden'] as $code => $error) {
+            try {
+                $validator->normalizeRule($this->supplierId, [
+                    'direction' => 'incoming',
+                    'counterparty_account' => '55503',
+                    'debit_account_code' => '221',
+                    'credit_account_code' => $code,
+                    'applies_currency' => 'EUR',
+                ]);
+                self::fail("Účet {$code} nesmí projít cizoměnovým pravidlem.");
+            } catch (PostingException $e) {
+                self::assertSame($error, $e->errorCode, "Účet {$code}");
+            }
+        }
     }
 }
