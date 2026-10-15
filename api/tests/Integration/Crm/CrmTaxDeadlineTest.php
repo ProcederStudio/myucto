@@ -109,6 +109,7 @@ final class CrmTaxDeadlineTest extends TestCase
         $items = $this->taxItems('2026-06-19');
         self::assertArrayHasKey('tax_deadline', $items, 'Měsíční plátce dostane výzvu DPH+KH.');
         self::assertSame('DPH + KH za uplynulý měsíc', $items['tax_deadline']['title']);
+        self::assertSame('/reports/dph?year=2026&month=5&period=monthly', $items['tax_deadline']['link']);
         self::assertArrayNotHasKey('kh_deadline', $items, 'Měsíčně je KH sloučené s DPH, ne samostatně.');
     }
 
@@ -126,6 +127,7 @@ final class CrmTaxDeadlineTest extends TestCase
         $items = $this->taxItems('2026-07-20'); // 5 dní do 25. 7.
         self::assertArrayHasKey('tax_deadline', $items, 'Čtvrtletní FO dostane výzvu po skončení Q2.');
         self::assertSame('DPH + KH za 2. čtvrtletí 2026', $items['tax_deadline']['title']);
+        self::assertSame('/reports/dph?year=2026&month=4&period=quarterly', $items['tax_deadline']['link']);
         self::assertArrayNotHasKey('kh_deadline', $items, 'FO má KH sloučené s DPH (čtvrtletně).');
     }
 
@@ -144,6 +146,8 @@ final class CrmTaxDeadlineTest extends TestCase
         self::assertArrayHasKey('kh_deadline', $july, 'KH za červen.');
         self::assertArrayHasKey('tax_deadline', $july, 'DPH za Q2.');
         self::assertSame('DPH za 2. čtvrtletí 2026', $july['tax_deadline']['title']);
+        self::assertSame('/reports/dph?year=2026&month=4&period=quarterly', $july['tax_deadline']['link']);
+        self::assertSame('/reports/kh?year=2026&month=6&period=monthly', $july['kh_deadline']['link']);
     }
 
     public function testQuarterlyPoSkryjeUzPodaneKhIDph(): void

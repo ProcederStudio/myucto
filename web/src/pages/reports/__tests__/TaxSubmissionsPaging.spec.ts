@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
-import { nextTick } from 'vue'
+import { nextTick, reactive } from 'vue'
+import { routeLocationKey, routerKey, type LocationQuery } from 'vue-router'
 import type { TaxSubmission } from '@/api/epoSubmissions'
 
 /**
@@ -97,9 +98,14 @@ function respond(rows: TaxSubmission[], total: number) {
   }
 }
 
-async function mountPage() {
-  m.list.mockResolvedValue(respond([submission(1, 'downloaded')], 412))
-  const wrapper = mount(TaxSubmissions)
+const route = reactive({ query: {} as LocationQuery })
+const router = { replace: vi.fn(async ({ query }: { query: LocationQuery }) => { route.query = query }) }
+const provide = { [routeLocationKey as symbol]: route, [routerKey as symbol]: router }
+
+async function mountPage(query: LocationQuery = {}, rows = [submission(1, 'downloaded')]) {
+  route.query = query
+  m.list.mockResolvedValue(respond(rows, 412))
+  const wrapper = mount(TaxSubmissions, { global: { provide, stubs: { RouterLink: true } } })
   await flushPromises()
   return wrapper
 }
@@ -107,6 +113,8 @@ async function mountPage() {
 describe('TaxSubmissions.vue — serverový filtr a stránkování', () => {
   beforeEach(() => {
     vi.useFakeTimers()
+    route.query = {}
+    router.replace.mockClear()
     m.list.mockReset()
     m.credentials.mockReset()
     m.settings.mockReset()
@@ -116,6 +124,49 @@ describe('TaxSubmissions.vue — serverový filtr a stránkování', () => {
 
   afterEach(() => {
     vi.useRealTimers()
+  })
+
+  it('otevře konkrétní podání z kalendáře i mimo první stránku archivu', async () => {
+    const wrapper = await mountPage({ submission_id: '990' }, [submission(990, 'downloaded')])
+    expect((wrapper.vm as unknown as { expandedId: number }).expandedId).toBe(990)
+    expect(wrapper.find('input[type=search]').exists()).toBe(false)
+    expect(m.list).toHaveBeenLastCalledWith(expect.objectContaining({ submission_id: 990, offset: 0 }))
+    m.list.mockResolvedValue(respond([submission(991, 'submitted')], 1))
+    route.query = { submission_id: '991' }
+    await flushPromises()
+    const vm = wrapper.vm as unknown as { expandedId: number; selected: TaxSubmission }
+    expect(m.list).toHaveBeenLastCalledWith(expect.objectContaining({ submission_id: 991, offset: 0 }))
+    expect(vm.expandedId).toBe(991)
+    expect(vm.selected.id).toBe(991)
+    wrapper.unmount()
+  })
+
+  it('z cíleného podání umožní zobrazit celý archiv', async () => {
+    const wrapper = await mountPage({ submission_id: '990', keep: 'value' })
+    const showAll = wrapper.findAll('button').find(button => button.text() === 'reports.submissions.show_all')
+    expect(showAll).toBeDefined()
+    await showAll!.trigger('click')
+    await flushPromises()
+    expect(route.query).toEqual({ keep: 'value' })
+    expect(m.list).toHaveBeenLastCalledWith(expect.objectContaining({ submission_id: undefined }))
+    wrapper.unmount()
+  })
+
+  it('nepřenáší query cíleného daňového podání do vloženého mzdového archivu', async () => {
+    route.query = { submission_id: '990' }
+    m.list.mockResolvedValue(respond([], 0))
+    const wrapper = mount(TaxSubmissions, { props: { embedded: true, scope: 'payroll' }, global: { provide, stubs: { RouterLink: true } } })
+    await flushPromises()
+    expect(m.list).toHaveBeenLastCalledWith(expect.objectContaining({ scope: 'payroll' }))
+    expect(m.list.mock.lastCall?.[0].submission_id).toBeUndefined()
+    expect(wrapper.findAll('button').some(button => button.text() === 'reports.submissions.show_all')).toBe(false)
+    wrapper.unmount()
+  })
+
+  it.each(['0', '-1', '2oops', '1.2', ['1', '2'], '9007199254740992'])('ignoruje neplatné id podání %j', async id => {
+    const wrapper = await mountPage({ submission_id: id })
+    expect(m.list.mock.lastCall?.[0].submission_id).toBeUndefined()
+    wrapper.unmount()
   })
 
   it('Daně → Podání neukazují mzdová vyúčtování, záložka pod Mzdami jen je', async () => {

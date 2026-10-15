@@ -6,6 +6,7 @@ import { reportsApi, type ShvVariant } from '@/api/reports'
 import { apiErrorMessage } from '@/api/errors'
 import { formatMoney } from '@/composables/useFormat'
 import { useYearOptions } from '@/composables/useYearOptions'
+import { useReportPeriodQuery } from '@/composables/useReportPeriodQuery'
 import { ICONS, btnOutline } from '@/components/ui/buttonStyles'
 import { useAuthStore } from '@/stores/auth'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -16,11 +17,8 @@ const { t, locale } = useI18n()
 const router = useRouter()
 const auth = useAuthStore()
 
-const now = new Date()
-const year = ref(now.getFullYear())
-const month = ref(now.getMonth() + 1)
+const { year, month, periodOverride } = useReportPeriodQuery()
 
-const periodOverride = ref<'monthly' | 'quarterly' | ''>('')
 const effectivePeriod = computed<'monthly' | 'quarterly'>(() => periodOverride.value || 'monthly')
 const currentQuarter = computed(() => Math.ceil(month.value / 3))
 
@@ -38,18 +36,21 @@ const preview = ref<Awaited<ReturnType<typeof reportsApi.shvPreview>> | null>(nu
 const loading = ref(false)
 const error = ref('')
 
+let previewSeq = 0
 async function loadPreview() {
+  const seq = ++previewSeq
   loading.value = true
   error.value = ''
   try {
-    preview.value = await reportsApi.shvPreview(
+    const result = await reportsApi.shvPreview(
       year.value, month.value, effectivePeriod.value,
       variant.value, isFollowUp.value ? dZjist.value : undefined,
     )
+    if (seq === previewSeq) preview.value = result
   } catch (e) {
-    error.value = apiErrorMessage(e)
+    if (seq === previewSeq) error.value = apiErrorMessage(e)
   } finally {
-    loading.value = false
+    if (seq === previewSeq) loading.value = false
   }
 }
 

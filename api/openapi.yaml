@@ -7237,12 +7237,17 @@ paths:
             `payroll` vrátí jen mzdová vyúčtování daně (DPZVD6, DPSVD2), `tax` všechno
             ostatní. Bez parametru celý archiv. Omezuje i souhrnné počty a nabídku kódů výkazů.
           schema: { type: string, enum: [payroll, tax] }
+        - name: submission_id
+          in: query
+          description: Přesné ID archivovaného podání; stále platí omezení firmy, licence a ostatní filtry.
+          schema: { type: integer, minimum: 1 }
       responses:
         '200':
-          description: List archived submissions
+          description: Stránka archivovaných podání s počtem a souhrnem viditelného archivu
           content:
             application/json:
-              schema: { type: array, items: { $ref: '#/components/schemas/TaxSubmission' } }
+              schema: { $ref: '#/components/schemas/TaxSubmissionList' }
+        '422': { description: Neplatný filtr podání }
 
   /api/v1/reports/submissions/settings:
     parameters:
@@ -8459,7 +8464,17 @@ paths:
       parameters:
         - $ref: '#/components/parameters/SupplierIdHeader'
         - { in: query, name: max_days_ahead, schema: { type: integer, default: 90, minimum: 1, maximum: 365 } }
-      responses: { '200': { description: 'items[] + total' } }
+      responses:
+        '200':
+          description: Položky s obdobím výkazu a odkazem, který ho zachová; podaná DPH s platebními údaji odkazuje na konkrétní archivované podání.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/CrmTaxCalendarItem' } }
+                  total: { type: integer }
 
   # ─────────────────────────────── Portfolio ───────────────────────────────
   /api/v1/portfolio/overview:
@@ -31285,6 +31300,43 @@ components:
           computed_calculation_mode: { type: [string, 'null'], enum: [fixed, markup, target_margin, null] }
           computed_percentage: { type: [string, 'null'] }
           computed_context: { type: [object, 'null'], additionalProperties: true, description: Snapshot pravidla a použitých nákladových a kurzových vstupů. }
+    TaxReportPeriod:
+      type: object
+      required: [year, month, quarter]
+      description: Měsíční výkaz vyplní month, čtvrtletní quarter; roční pouze year.
+      properties:
+        year: { type: integer }
+        month: { type: [integer, 'null'], minimum: 1, maximum: 12 }
+        quarter: { type: [integer, 'null'], minimum: 1, maximum: 4 }
+    CrmTaxCalendarItem:
+      type: object
+      required: [type, title, deadline, days, link, submitted]
+      properties:
+        type: { type: string, enum: [tax_deadline, kh_deadline, shv_deadline, tax_advance, income_tax_deadline, vat_registration_deadline] }
+        title: { type: string }
+        deadline: { type: string, format: date }
+        days: { type: integer }
+        link:
+          type: string
+          description: Odkaz výkazu obsahuje year, month a period=monthly|quarterly; čtvrtletí používá první měsíc. Roční výkaz obsahuje year; archiv submission_id.
+        period: { $ref: '#/components/schemas/TaxReportPeriod' }
+        submitted: { type: [boolean, 'null'] }
+        submitted_at: { type: [string, 'null'], format: date-time }
+        amount: { type: number }
+        status: { type: string, enum: [planned, paid] }
+        payment:
+          type: object
+          properties:
+            submission_id: { type: integer }
+            payable: { type: number }
+            refund: { type: number }
+            due_date: { type: [string, 'null'], format: date }
+            account: { type: [string, 'null'] }
+            office_name: { type: [string, 'null'] }
+            variable_symbol: { type: [string, 'null'] }
+            paid: { type: boolean }
+            paid_amount: { type: number }
+            paid_at: { type: [string, 'null'], format: date }
     CrmActionItem:
       type: object
       required: [type, severity, title, hint, link]
@@ -38546,6 +38598,20 @@ components:
         doc_type: { type: string }
         folder_id: { type: [integer, "null"], format: int64 }
         created_at: { type: string, format: date-time }
+    TaxSubmissionList:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/TaxSubmission' } }
+        meta:
+          type: object
+          required: [total, limit, offset, stats, form_codes]
+          properties:
+            total: { type: integer, description: Počet podání odpovídajících všem filtrům. }
+            limit: { type: integer }
+            offset: { type: integer }
+            stats: { type: object, description: Souhrn celého viditelného archivu v rozsahu firmy a licence; nezúžený uživatelskými filtry., additionalProperties: { type: integer } }
+            form_codes: { type: array, items: { type: string } }
     TaxSubmission:
       type: object
       required:
