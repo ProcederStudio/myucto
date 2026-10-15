@@ -88,6 +88,14 @@ final class RoutePermissionMapTest extends TestCase
             // Klientsky delegovatelná provozní nastavení mají vlastní přesný allowlist.
             // Nikdy nesmí propadnout na široké settings.company.write, které otevírá
             // i daňové, účetní a právně významné údaje dodavatele.
+            ['GET', '/api/settings/client/signing', 'settings.company', AccessLevel::WRITE],
+            ['POST', '/api/settings/client/signing/profiles', 'settings.company', AccessLevel::WRITE],
+            ['GET', '/api/settings/client/signing/profiles/7/credentials/certificate', 'settings.company', AccessLevel::WRITE],
+            ['PUT', '/api/settings/client/signing/profiles/7/credentials/certificate', 'settings.company', AccessLevel::WRITE],
+            ['DELETE', '/api/settings/client/signing/profiles/7', 'settings.company', AccessLevel::WRITE],
+            ['GET', '/api/settings/client/pdf-signing', 'settings.company', AccessLevel::WRITE],
+            ['PUT', '/api/settings/client/pdf-signing/output-settings', 'settings.company', AccessLevel::WRITE],
+            ['POST', '/api/settings/client/pdf-signing/test', 'settings.company', AccessLevel::WRITE],
             ['GET', '/api/settings/client/email-profiles', 'settings.company', AccessLevel::WRITE],
             ['POST', '/api/settings/client/email-profiles', 'settings.company', AccessLevel::WRITE],
             ['POST', '/api/settings/client/email-profiles/7/imap-test', 'settings.company', AccessLevel::WRITE],

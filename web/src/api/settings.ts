@@ -1222,22 +1222,23 @@ export const settingsApi = {
     api.get<SigningSettings>('/settings/signing').then(r => r.data),
   updateSigningSettings: (payload: Pick<SigningSettings, 'accountant_profiles_enabled'>) =>
     api.put<SigningSettings>('/settings/signing', payload).then(r => r.data),
-  listSigningProfiles: () =>
-    api.get<SigningProfile[]>('/settings/signing/profiles').then(r => r.data),
-  createSigningProfile: (payload: SigningProfilePayload) =>
-    api.post<SigningProfile>('/settings/signing/profiles', payload).then(r => r.data),
-  updateSigningProfile: (id: number, payload: Partial<SigningProfilePayload>) =>
-    api.put<SigningProfile>(`/settings/signing/profiles/${id}`, payload).then(r => r.data),
-  deleteSigningProfile: (id: number) =>
-    api.delete<{ deleted: boolean }>(`/settings/signing/profiles/${id}`).then(r => r.data),
-  getSigningProfileCredential: (id: number) =>
-    api.get<SigningProfileCredentialMeta>(`/settings/signing/profiles/${id}/credentials/certificate`).then(r => r.data),
+  listSigningProfiles: (clientScoped = false) =>
+    api.get<SigningProfile[]>(`/settings/${clientScoped ? 'client/' : ''}signing/profiles`).then(r => r.data),
+  createSigningProfile: (payload: SigningProfilePayload, clientScoped = false) =>
+    api.post<SigningProfile>(`/settings/${clientScoped ? 'client/' : ''}signing/profiles`, payload).then(r => r.data),
+  updateSigningProfile: (id: number, payload: Partial<SigningProfilePayload>, clientScoped = false) =>
+    api.put<SigningProfile>(`/settings/${clientScoped ? 'client/' : ''}signing/profiles/${id}`, payload).then(r => r.data),
+  deleteSigningProfile: (id: number, clientScoped = false) =>
+    api.delete<{ deleted: boolean }>(`/settings/${clientScoped ? 'client/' : ''}signing/profiles/${id}`).then(r => r.data),
+  getSigningProfileCredential: (id: number, clientScoped = false) =>
+    api.get<SigningProfileCredentialMeta>(`/settings/${clientScoped ? 'client/' : ''}signing/profiles/${id}/credentials/certificate`).then(r => r.data),
   uploadSigningProfileCredential: (
     id: number,
     file: File,
     password: string,
     passphrasePolicy: SigningCredentialPassphrasePolicy,
     passphraseProfileId: string | null,
+    clientScoped = false,
   ) => {
     const fd = new FormData()
     fd.append('file', file)
@@ -1245,7 +1246,7 @@ export const settingsApi = {
     fd.append('passphrase_policy', passphrasePolicy)
     if (passphraseProfileId) fd.append('passphrase_profile_id', passphraseProfileId)
     return api.post<SigningProfileCredentialMeta>(
-      `/settings/signing/profiles/${id}/credentials/certificate`,
+      `/settings/${clientScoped ? 'client/' : ''}signing/profiles/${id}/credentials/certificate`,
       fd,
       { headers: { 'Content-Type': 'multipart/form-data' } },
     ).then(r => r.data)
@@ -1253,13 +1254,14 @@ export const settingsApi = {
   updateSigningProfileCredentialPassphrase: (
     id: number,
     payload: SigningProfileCredentialPassphrasePayload,
+    clientScoped = false,
   ) =>
     api.put<SigningProfileCredentialMeta>(
-      `/settings/signing/profiles/${id}/credentials/certificate`,
+      `/settings/${clientScoped ? 'client/' : ''}signing/profiles/${id}/credentials/certificate`,
       payload,
     ).then(r => r.data),
-  deleteSigningProfileCredential: (id: number) =>
-    api.delete<SigningProfileCredentialMeta>(`/settings/signing/profiles/${id}/credentials/certificate`).then(r => r.data),
+  deleteSigningProfileCredential: (id: number, clientScoped = false) =>
+    api.delete<SigningProfileCredentialMeta>(`/settings/${clientScoped ? 'client/' : ''}signing/profiles/${id}/credentials/certificate`).then(r => r.data),
   listPersonalSigningCertificates: () =>
     api.get<EpoSigningCredential[]>('/settings/signing/personal-certificates').then(r => r.data),
   linkPersonalSigningCertificate: (
@@ -1274,14 +1276,14 @@ export const settingsApi = {
       ...stepUpProofBody(proof),
     },
   ).then(r => r.data),
-  getPdfSigningSettings: () =>
-    api.get<PdfSignatureSettings>('/settings/pdf-signing').then(r => r.data),
-  testPdfSigning: (outputType: string) =>
-    api.post<PdfSignatureTestResult>('/settings/pdf-signing/test', { output_type: outputType }).then(r => r.data),
-  updatePdfSignatureOutputSetting: (outputType: string, payload: PdfSignatureOutputSettingPayload) =>
-    api.put<PdfSignatureOutputSetting>(`/settings/pdf-signing/output-settings/${outputType}`, payload).then(r => r.data),
-  updatePdfSignatureOutputSettings: (settings: Array<PdfSignatureOutputSettingPayload & { output_type: string }>) =>
-    api.put<PdfSignatureOutputSettingsBatchResult>('/settings/pdf-signing/output-settings', { settings }).then(r => r.data),
+  getPdfSigningSettings: (clientScoped = false) =>
+    api.get<PdfSignatureSettings>(`/settings/${clientScoped ? 'client/' : ''}pdf-signing`).then(r => r.data),
+  testPdfSigning: (outputType: string, clientScoped = false) =>
+    api.post<PdfSignatureTestResult>(`/settings/${clientScoped ? 'client/' : ''}pdf-signing/test`, { output_type: outputType }).then(r => r.data),
+  updatePdfSignatureOutputSetting: (outputType: string, payload: PdfSignatureOutputSettingPayload, clientScoped = false) =>
+    api.put<PdfSignatureOutputSetting>(`/settings/${clientScoped ? 'client/' : ''}pdf-signing/output-settings/${outputType}`, payload).then(r => r.data),
+  updatePdfSignatureOutputSettings: (settings: Array<PdfSignatureOutputSettingPayload & { output_type: string }>, clientScoped = false) =>
+    api.put<PdfSignatureOutputSettingsBatchResult>(`/settings/${clientScoped ? 'client/' : ''}pdf-signing/output-settings`, { settings }).then(r => r.data),
   getPdfSigningUserDefaults: () =>
     api.get<PdfSignatureUserDefaults>('/settings/pdf-signing/user-defaults').then(r => r.data),
   updatePdfSigningUserDefault: (outputType: string, profileId: number | null) =>

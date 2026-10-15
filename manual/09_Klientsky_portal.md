@@ -132,7 +132,7 @@ Provede superadmin a potom klient. Samostatná role Client Admin není potřeba.
 
 1. Superadmin vytvoří nebo duplikuje běžnou roli typu **client** a u položky **Nastavení firmy** zvolí **Zápis**.
 2. Roli přiřadí klientovi. Lze ji přiřadit jako přepis jen u jedné firmy: ve firmě A může mít klient roli se zápisem, ve firmě B zůstane u běžné klientské role.
-3. Klient otevře `Firma → Nastavení firmy` a upraví povolené oblasti.
+3. Klient otevře `Firma → Nastavení firmy` a upraví povolené oblasti. Firemní podpisové profily jsou dostupné v samostatné části této stránky; lze v ní nastavit podpis PDF a propojit profil s odesílacím profilem pro podepisování e-mailů.
 
 **Jak poznáte, že je hotovo:** klientovi se v menu objeví sekce **Nastavení firmy**. Při úrovni **Pouze čtení** se nezobrazí vůbec. Po přepnutí firmy se menu i oprávnění ihned přepočítají.
 
@@ -200,10 +200,11 @@ Citlivější podsekce zůstávají klientovi nedostupné: platební příkazy (
 Klient s úrovní **Zápis** u položky **Nastavení firmy** spravuje jen výslovně povolené provozní oblasti aktuální firmy:
 
 - odesílací profily, odesílatele, Reply-To, DKIM a SMTP/IMAP nastavení firmy,
+- firemní podpisové profily s podporovaným nativním backendem a šifrovaně uloženým heslem k certifikátu; klientský správce může nahrát P12/PFX, nastavit použití pro PDF a vybrat profil v odesílacím profilu pro S/MIME e-mail,
 - branding komunikace, logo, barvy, patičky a brandingové profily,
 - dvě samostatné volby, zda do nově generovaných platebních QR kódů vystavených a přijatých dokladů zahrnout datum splatnosti.
 
-Zápis neotevře původní administrátorskou stránku nastavení ani obecné nastavení dodavatele. Klient proto nemůže měnit obchodní jméno, IČ, DIČ, bankovní účty, číslování dokladů, DPH, účetní režim, integrace, přístupové údaje AI, uživatele ani role. Systémový `sendmail` a profily s kryptografickým S/MIME podpisem zůstávají ve správě administrátora.
+Zápis neotevře původní administrátorskou stránku nastavení ani obecné nastavení dodavatele. Klient proto nemůže měnit obchodní jméno, IČ, DIČ, bankovní účty, číslování dokladů, DPH, účetní režim, integrace, přístupové údaje AI, uživatele ani role. Osobní podpisové profily, osobní trezor certifikátů, nepodporované backendy a systémový `sendmail` zůstávají ve správě administrátora.
 
 SMTP a IMAP hesla se po uložení nikdy nevracejí do prohlížeče, rozhraní ukáže jen informaci, zda je heslo nastavené. Změny i testovací odeslání se zapisují do historie akcí bez tajných hodnot a požadavky podléhají stejnému rate limitu jako ostatní mutace. Všechny operace používají firmu z ověřeného kontextu, ID firmy zaslané v těle požadavku rozsah nerozšíří.
 

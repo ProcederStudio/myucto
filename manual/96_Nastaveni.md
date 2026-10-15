@@ -14,6 +14,7 @@
 | Chcete si změnit heslo, zapnout 2FA nebo passkey | Upravit Můj profil | [§ 96.5](#965-krok-za-krokem-muj-profil) |
 | Chcete změnit text e-mailu klientům | Upravit e-mailovou šablonu | [§ 96.6](#966-krok-za-krokem-e-mailove-sablony) |
 | Posíláte e-maily z jiné adresy nebo přes jiný server | Nastavit odesílací profil | [§ 96.7](#967-krok-za-krokem-odesilaci-e-mailove-profily) |
+| Klientský správce chce nastavit firemní podpis PDF nebo e-mailů | Přidělit zápis do nastavení firmy a založit firemní podpisový profil | [§ 96.16.4](#96164-role-a-opravneni), [99. Elektronické podpisy](99_Elektronicke_podpisy.md) |
 | E-mail nedorazil klientovi | Zkontrolovat Odeslané e-maily a SMTP log | [§ 96.14](#9614-krok-za-krokem-diagnostika-odeslanych-e-mailu-a-activity-log) |
 | Často používáte stejný filtr seznamu | Uložit filtr a nastavit sloupce | [§ 96.8](#968-krok-za-krokem-ulozene-filtry-a-zobrazeni-tabulek) |
 | Chcete, aby se faktury účtovaly samy | Zapnout automatické účtování | [§ 96.9](#969-krok-za-krokem-automaticke-uctovani) |
@@ -596,8 +597,12 @@ smazat ani upravit jejich matici:
 | **Admin Plus** | Má práva role Admin a navíc může v `Systém → Firmy` založit novou firmu. K nové firmě automaticky získá práva Admin. |
 
 U klientské role má položka **Nastavení firmy** záměrně užší význam než interní právo **Měnit nastavení firmy**. Úroveň
-**Zápis** otevře v klientském menu pouze odesílací profily firmy, branding a dvě volby data splatnosti v QR
-vystavených a přijatých dokladů; neotevře právní, daňové ani účetní údaje dodavatele. Díky přepisu role u konkrétní
+**Zápis** otevře v klientském menu odesílací profily firmy, firemní podpisové profily, branding a dvě volby data
+splatnosti v QR vystavených a přijatých dokladů; neotevře právní, daňové ani účetní údaje dodavatele. Klientský správce
+může pro firmu nahrát certifikát P12/PFX, nastavit jeho použití pro PDF výstupy a propojit podpisový profil s e-mailovým
+odesílacím profilem. Správa se týká firemních profilů s podporovaným nativním backendem a šifrovaným uložením hesla;
+osobní profily a osobní trezor certifikátů zůstávají součástí interní správy. Podrobnosti a omezení jsou v [kapitole
+99](99_Elektronicke_podpisy.md). Díky přepisu role u konkrétní
 firmy lze stejného uživatele nechat spravovat provozní nastavení firmy A a ve firmě B mu ponechat běžný klientský
 přístup. Podrobný rozsah popisuje [§ 9.11.2 Delegované nastavení firmy](09_Klientsky_portal.md#9112-delegovane-nastaveni-firmy).
 
