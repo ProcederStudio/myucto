@@ -987,7 +987,8 @@
         "2003_supplier_fiscal_year_start_month.sql",
         "2004_payment_order_tax_items.sql",
         "2005_email_distribution_across_suppliers.sql",
-        "2006_payroll_wage_rounding.sql"
+        "2006_payroll_wage_rounding.sql",
+        "2007_client_ai_extraction.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -21729,6 +21730,7 @@
                 "azure_openai_endpoint": "varchar(255) NULL DEFAULT NULL",
                 "branding_profiles_enabled": "tinyint(1) NOT NULL DEFAULT 0",
                 "city": "varchar(120) NOT NULL",
+                "client_ai_extraction_enabled": "tinyint(1) NOT NULL DEFAULT 0",
                 "commercial_register": "varchar(255) NULL DEFAULT NULL",
                 "company_name": "varchar(190) NOT NULL",
                 "country_id": "smallint(5) unsigned NOT NULL",
