@@ -182,6 +182,26 @@ final class PayrollHealthInsuranceSubmissionTest extends TestCase
         self::assertSame('12', $identification['house_number']);
     }
 
+    public function testHouseNumberOnlyInAddressLineIsSplitOff(): void
+    {
+        // Firma bez čísla v samostatných polích: přehled pojišťovně dřív padal na
+        // chybějícím čísle popisném, ačkoli je v adresním řádku.
+        $pdo = $this->db->pdo();
+        $pdo->prepare(
+            'UPDATE supplier
+                SET street = "Zkušební 3070", street_number_pop = NULL,
+                    street_number_orient = NULL
+              WHERE id = ?',
+        )->execute([$this->supplierId]);
+
+        $identification = (new PayrollHealthNotificationRepository($this->db, null))
+            ->findEmployerIdentification($this->supplierId);
+
+        self::assertIsArray($identification);
+        self::assertSame('Zkušební', $identification['street']);
+        self::assertSame('3070', $identification['house_number']);
+    }
+
     public function testCapabilityNamesWhatIsPinnedAndWhatIsNot(): void
     {
         $capability = $this->service->capability($this->supplierId);

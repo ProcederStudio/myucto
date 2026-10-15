@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Repository\Payroll;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Service\Report\EpoSupplierBlockBuilder;
 use MyInvoice\Service\Payroll\HealthInsurance\PayrollExpectedHealthParticipation;
 use MyInvoice\Service\Payroll\Ruleset\PayrollRulesetProvider;
 use PDO;
@@ -53,15 +54,26 @@ final readonly class PayrollHealthNotificationRepository
             $this->nullableString($row['street_number_pop']),
             $this->nullableString($row['street_number_orient']),
         );
+        $street = self::streetWithoutHouseNumber(
+            $this->nullableString($row['street']),
+            $houseNumber,
+            $this->nullableString($row['street_number_pop']),
+        );
+        // Firma bez čísel v samostatných polích má číslo jen v adresním řádku
+        // („Plzeňská 3070"). Rozdělí ho stejné pravidlo jako u ostatních podání.
+        if ($houseNumber === null && $street !== null) {
+            [$parsedStreet, $popisne, $orientacni] = EpoSupplierBlockBuilder::parseStreet(['street' => $street]);
+            $parsedNumber = EpoSupplierBlockBuilder::houseNumber($popisne, $orientacni);
+            if ($parsedNumber !== '') {
+                $houseNumber = $parsedNumber;
+                $street = $parsedStreet;
+            }
+        }
 
         return [
             'business_id' => $this->nullableString($row['ic']),
             'name' => (string) $row['company_name'],
-            'street' => self::streetWithoutHouseNumber(
-                $this->nullableString($row['street']),
-                $houseNumber,
-                $this->nullableString($row['street_number_pop']),
-            ),
+            'street' => $street,
             'house_number' => $houseNumber,
             'postal_code' => $this->normalizePostalCode(
                 $this->nullableString($row['zip']),
