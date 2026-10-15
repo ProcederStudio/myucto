@@ -295,6 +295,7 @@ export interface TaxSubmissionStats {
 }
 
 export interface TaxSubmissionListParams {
+  submission_id?: number
   status?: SubmissionStatus | 'all'
   form_code?: string
   q?: string
@@ -465,6 +466,7 @@ export const epoSubmissionsApi = {
   list: (params: TaxSubmissionListParams = {}) =>
     api.get<TaxSubmissionListResponse>('/reports/submissions', {
       params: {
+        submission_id: params.submission_id,
         status: params.status && params.status !== 'all' ? params.status : undefined,
         form_code: params.form_code && params.form_code !== 'all' ? params.form_code : undefined,
         q: params.q?.trim() || undefined,

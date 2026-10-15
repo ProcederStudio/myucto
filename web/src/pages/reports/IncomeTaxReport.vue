@@ -6,6 +6,7 @@ import { taxReturnApi, type TaxpayerType, type TaxReturnVariant, type TaxReturnS
 import { apiErrorMessage } from '@/api/errors'
 import { formatMoney, formatDate } from '@/composables/useFormat'
 import { useYearOptions } from '@/composables/useYearOptions'
+import { reportYearFromQuery } from '@/composables/useReportPeriodQuery'
 import { accountingApi, type AccountingPeriod } from '@/api/accounting'
 import { useSupplierStore } from '@/stores/supplier'
 import ActionBar, { type ActionItem } from '@/components/ui/ActionBar.vue'
@@ -25,13 +26,11 @@ const supplierStore = useSupplierStore()
 const auth = useAuthStore()
 
 const now = new Date()
-function yearFromQuery(value: unknown): number | null {
-  return typeof value === 'string' && /^(20|21)\d{2}$/.test(value) ? Number(value) : null
-}
-const year = ref(yearFromQuery(route.query.year) ?? now.getFullYear() - 1)
+const year = ref(reportYearFromQuery(route.query.year) ?? now.getFullYear() - 1)
 watch(() => route.query.year, requested => {
-  const selected = yearFromQuery(requested)
+  const selected = reportYearFromQuery(requested)
   if (selected !== null) year.value = selected
+  else if (requested === undefined) year.value = new Date().getFullYear() - 1
 })
 const yearOptions = useYearOptions('combined', year)
 
@@ -48,9 +47,14 @@ function periodLabel(p: AccountingPeriod): string {
 }
 const yearSelectOptions = computed<{ value: number; label: string }[]>(() => {
   if (type.value === 'po' && periods.value.length > 0) {
-    return [...periods.value]
+    const options = [...periods.value]
       .sort((a, b) => b.fiscal_year - a.fiscal_year)
       .map(p => ({ value: p.fiscal_year, label: periodLabel(p) }))
+    const requestedYear = reportYearFromQuery(route.query.year)
+    if (requestedYear !== null && !options.some(option => option.value === requestedYear)) {
+      options.push({ value: requestedYear, label: String(requestedYear) })
+    }
+    return options
   }
   return yearOptions.value.map(y => ({ value: y, label: String(y) }))
 })

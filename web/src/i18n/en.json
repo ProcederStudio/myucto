@@ -25117,6 +25117,7 @@
     },
     "submissions": {
       "title": "EPO filing & archive",
+      "show_all": "Show all submissions",
       "subtitle": "Hand generated XML over to the EPO form, complete the filing on the Financial Administration portal, and store the confirmation and readable copy in an evidence archive.",
       "empty": "No records match the filter. The first XML appears here after a tax report is generated.",
       "form": "Form",
@@ -26385,6 +26386,12 @@
     },
     "tax_calendar": {
       "title": "Tax calendar",
+      "period_month": "{month} {year}",
+      "period_quarter": "Q{quarter} {year}",
+      "period_year": "{year}",
+      "filing_deadline": "Filing deadline",
+      "due_date": "Due date",
+      "deadline": "Deadline",
       "submitted": "Filed",
       "not_submitted": "Not filed",
       "paid": "Paid",

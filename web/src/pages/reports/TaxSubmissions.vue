@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, inject, onMounted, ref, watch } from 'vue'
+import { routeLocationKey, routerKey } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { apiErrorMessage } from '@/api/errors'
 import {
@@ -58,6 +59,23 @@ const { t, locale } = useI18n()
 const toast = useToast()
 const auth = useAuthStore()
 const supplier = useSupplierStore()
+// Vložený mzdový archiv má vlastní kontext; query patří jen samostatné daňové stránce.
+const route = inject(routeLocationKey, null)
+const router = inject(routerKey, null)
+const targetSubmissionId = computed<number | null>(() => {
+  if (props.embedded || props.scope !== 'tax') return null
+  const value = route?.query.submission_id
+  if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value)) return null
+  const id = Number(value)
+  return Number.isSafeInteger(id) ? id : null
+})
+
+function showAllSubmissions() {
+  if (!route || !router) return
+  const query = { ...route.query }
+  delete query.submission_id
+  void router.replace({ query })
+}
 
 const items = ref<TaxSubmission[]>([])
 const loading = ref(false)
@@ -273,9 +291,10 @@ async function load(showLoader = true) {
   const seq = ++loadSeq
   try {
     const result = await epoSubmissionsApi.list({
-      status: statusFilter.value,
-      form_code: formFilter.value,
-      q: search.value,
+      submission_id: targetSubmissionId.value ?? undefined,
+      status: targetSubmissionId.value ? 'all' : statusFilter.value,
+      form_code: targetSubmissionId.value ? 'all' : formFilter.value,
+      q: targetSubmissionId.value ? '' : search.value,
       limit: perPage,
       offset: (page.value - 1) * perPage,
       scope: props.scope,
@@ -292,6 +311,8 @@ async function load(showLoader = true) {
       return
     }
     reconcileHandoffLinks()
+    const target = items.value.find(item => item.id === targetSubmissionId.value)
+    if (target && expandedId.value !== target.id) toggleDetail(target)
   } catch (e) {
     if (seq !== loadSeq) return
     error.value = apiErrorMessage(e)
@@ -299,6 +320,12 @@ async function load(showLoader = true) {
     if (seq === loadSeq) loading.value = false
   }
 }
+
+watch(targetSubmissionId, () => {
+  expandedId.value = null
+  if (page.value !== 1) page.value = 1
+  else void load(false)
+})
 
 /** Změna filtru vždy vrací na první stránku — jinak by uživatel skončil za koncem výpisu. */
 watch([statusFilter, formFilter], () => {
@@ -1789,20 +1816,28 @@ onMounted(async () => {
     </div>
 
     <div class="flex flex-wrap gap-2">
-      <input v-model="search" type="search"
-        class="h-9 min-w-56 flex-1 rounded-md border border-neutral-300 bg-surface px-3 text-sm"
-        :placeholder="t('reports.submissions.search_placeholder')">
-      <select v-model="statusFilter" class="h-9 rounded-md border border-neutral-300 bg-surface px-3 text-sm">
-        <option value="all">{{ t('reports.submissions.filter_all_statuses') }}</option>
-        <option value="downloaded">{{ lifecycleLabel('downloaded') }}</option>
-        <option value="submitted">{{ lifecycleLabel('submitted') }}</option>
-        <option value="accepted">{{ lifecycleLabel('accepted') }}</option>
-        <option value="rejected">{{ lifecycleLabel('rejected') }}</option>
-      </select>
-      <select v-model="formFilter" class="h-9 rounded-md border border-neutral-300 bg-surface px-3 text-sm">
-        <option value="all">{{ t('reports.submissions.filter_all_forms') }}</option>
-        <option v-for="option in formOptions" :key="option.code" :value="option.code">{{ option.label }}</option>
-      </select>
+      <button v-if="targetSubmissionId" type="button" :class="btnOutline('neutral')" @click="showAllSubmissions">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.archive" />
+        </svg>
+        {{ t('reports.submissions.show_all') }}
+      </button>
+      <template v-else>
+        <input v-model="search" type="search"
+          class="h-9 min-w-56 flex-1 rounded-md border border-neutral-300 bg-surface px-3 text-sm"
+          :placeholder="t('reports.submissions.search_placeholder')">
+        <select v-model="statusFilter" class="h-9 rounded-md border border-neutral-300 bg-surface px-3 text-sm">
+          <option value="all">{{ t('reports.submissions.filter_all_statuses') }}</option>
+          <option value="downloaded">{{ lifecycleLabel('downloaded') }}</option>
+          <option value="submitted">{{ lifecycleLabel('submitted') }}</option>
+          <option value="accepted">{{ lifecycleLabel('accepted') }}</option>
+          <option value="rejected">{{ lifecycleLabel('rejected') }}</option>
+        </select>
+        <select v-model="formFilter" class="h-9 rounded-md border border-neutral-300 bg-surface px-3 text-sm">
+          <option value="all">{{ t('reports.submissions.filter_all_forms') }}</option>
+          <option v-for="option in formOptions" :key="option.code" :value="option.code">{{ option.label }}</option>
+        </select>
+      </template>
     </div>
 
     <div v-if="loading" class="bg-surface border border-neutral-200 rounded-lg p-10 text-center text-sm text-neutral-500">

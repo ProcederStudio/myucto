@@ -245,9 +245,9 @@ Widget **Daňový kalendář** (pod dlaždicemi, vedle nadcházejících záloh)
 - **Zálohy na daň a pojistné** - z [Daně z příjmů, část Zálohy na daň a pojistné](43_Dan_z_prijmu.md#435-krok-za-krokem-zalohy-na-dan-a-pojistne), s částkou a stavem naplánováno nebo zaplaceno.
 - **Roční přiznání DPFO/DPPO** - standardní termíny (papírově 1. 4., elektronicky začátkem května, posunuto z 1. 5. na nejbližší pracovní den). OSVČ v paušálním režimu se nezobrazuje (nepodává DPFO).
 
-Každá položka nese odznak **Podáno** nebo **Nepodáno**. Podáno je období, jehož podání je v `Daně → EPO podání a archív` doložené (přímé podání, nahraná dodejka nebo ruční označení jako podané). Samotné vygenerování nebo stažení XML podání není. U záloh odznak místo toho ukazuje **Zaplaceno** nebo **Splatné**. Klik na položku otevře příslušný výkaz.
+U přiznání a hlášení vidíte období, kterého se týkají, odděleně od termínu podání. Klik na položku otevře výkaz pro zobrazené období. Při přímém otevření výkazu přes menu se použije jeho obvyklé výchozí období. Odznak **Podáno** nebo **Nepodáno** vychází z toho, zda je podání doložené v `Daně → EPO podání a archív` (přímé podání, nahraná dodejka nebo ruční označení jako podané). Samotné vygenerování nebo stažení XML podání není. U záloh vidíte splatnost a odznak **Zaplaceno** nebo **Splatné**.
 
-U podaného přiznání k DPH položka navíc ukazuje částku k úhradě, účet finančního úřadu a variabilní symbol a druhý odznak **K úhradě** nebo **Zaplaceno** podle importovaných výpisů. Klik pak otevře archiv podání, kde je i QR platba, viz [Platba DPH](49_Archiv_podani_a_rekonciliace.md#49913-platba-dph).
+U podaného přiznání k DPH položka navíc ukazuje částku k úhradě, účet finančního úřadu a variabilní symbol a druhý odznak **K úhradě** nebo **Zaplaceno** podle importovaných výpisů. Klik na položku s platebními údaji otevře konkrétní podání v archivu, kde je i QR platba, viz [Platba DPH](49_Archiv_podani_a_rekonciliace.md#49913-platba-dph). Tlačítkem **Zobrazit všechna podání** přejdete zpět na celý archiv.
 
 ### 10.10.8 Navigace a rozložení menu
 

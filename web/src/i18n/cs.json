@@ -25117,6 +25117,7 @@
     },
     "submissions": {
       "title": "EPO podání a archív",
+      "show_all": "Zobrazit všechna podání",
       "subtitle": "Předejte vygenerované XML do formuláře EPO, dokončete podání na portálu Finanční správy a uložte potvrzení i opis zpět do průkazného archivu.",
       "empty": "Žádné záznamy neodpovídají filtru. První XML se zde objeví po vygenerování daňového výkazu.",
       "form": "Formulář",
@@ -26385,6 +26386,12 @@
     },
     "tax_calendar": {
       "title": "Daňový kalendář",
+      "period_month": "{month} {year}",
+      "period_quarter": "{quarter}. čtvrtletí {year}",
+      "period_year": "{year}",
+      "filing_deadline": "Termín podání",
+      "due_date": "Splatnost",
+      "deadline": "Termín",
       "submitted": "Podáno",
       "not_submitted": "Nepodáno",
       "paid": "Zaplaceno",

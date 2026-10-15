@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router'
 import { reportsApi, type DphSettings, type KhVariant } from '@/api/reports'
 import { apiErrorMessage } from '@/api/errors'
 import { useYearOptions } from '@/composables/useYearOptions'
+import { useReportPeriodQuery } from '@/composables/useReportPeriodQuery'
 import { ICONS, btnOutline } from '@/components/ui/buttonStyles'
 import { useAuthStore } from '@/stores/auth'
 import { downloadApiFile } from '@/utils/downloadFile'
@@ -15,12 +16,9 @@ const { t, locale } = useI18n()
 const router = useRouter()
 const auth = useAuthStore()
 
-const now = new Date()
-const year = ref(now.getFullYear())
-const month = ref(now.getMonth() + 1)
+const { year, month, periodOverride } = useReportPeriodQuery()
 
 const settings = ref<DphSettings | null>(null)
-const periodOverride = ref<'monthly' | 'quarterly' | ''>('')
 
 // PO musí vždy měsíčně (§ 101e/1); FO může kvartálně (§ 101e/2)
 const isLegalEntity = computed(() => settings.value?.taxpayer_type === 'po')
@@ -68,20 +66,24 @@ const isFollowUp = computed(() => variant.value === 'nasledne' || variant.value 
 const isVyzvaOdpoved = computed(() => variant.value === 'vyzva_nulove' || variant.value === 'vyzva_potvrzeni')
 const needsVyzvaRef = computed(() => isFollowUp.value || isVyzvaOdpoved.value)
 
+let previewSeq = 0
+let initialized = false
 async function loadPreview() {
+  const seq = ++previewSeq
   loading.value = true
   error.value = ''
   try {
-    preview.value = await reportsApi.khPreview(
+    const result = await reportsApi.khPreview(
       year.value, month.value, effectivePeriod.value,
       variant.value,
       isFollowUp.value ? dZjist.value : undefined,
       needsVyzvaRef.value ? cJedVyzvy.value : undefined,
     )
+    if (seq === previewSeq) preview.value = result
   } catch (e) {
-    error.value = apiErrorMessage(e)
+    if (seq === previewSeq) error.value = apiErrorMessage(e)
   } finally {
-    loading.value = false
+    if (seq === previewSeq) loading.value = false
   }
 }
 
@@ -123,10 +125,13 @@ const daysToDeadline = computed(() => {
   return Math.ceil((d.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
 })
 
-watch([year, month, effectivePeriod, variant, dZjist, cJedVyzvy], loadPreview)
+watch([year, month, effectivePeriod, variant, dZjist, cJedVyzvy], () => {
+  if (initialized) void loadPreview()
+})
 onMounted(async () => {
   try { settings.value = await reportsApi.dphSettings() } catch {}
-  loadPreview()
+  initialized = true
+  void loadPreview()
 })
 </script>
 
