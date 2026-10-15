@@ -12,6 +12,7 @@ use MyInvoice\Repository\Payroll\PayrollEmploymentTerminationRepository;
 use MyInvoice\Repository\Payroll\PayrollInputRepository;
 use MyInvoice\Repository\Payroll\PayrollLeaveRepository;
 use MyInvoice\Service\Payroll\Absence\LeaveCompensationCalculator;
+use MyInvoice\Service\Payroll\Calculation\PayrollWageRoundingPolicy;
 use MyInvoice\Service\Payroll\Document\AverageEarningsMonthlyConverter;
 use MyInvoice\Service\Payroll\Document\EmploymentExitReadinessException;
 use MyInvoice\Service\Payroll\Garnishment\SeveranceMultiple;
@@ -761,7 +762,12 @@ final class PayrollEmploymentTerminationService
 
             return $result;
         }
-        $amount = LeaveCompensationCalculator::calculateMinutes($hourly, abs($balance));
+        $amount = LeaveCompensationCalculator::calculateMinutes(
+            $hourly,
+            abs($balance),
+            100,
+            PayrollWageRoundingPolicy::forSupplier($this->db, $supplierId),
+        );
         if ($balance > 0) {
             $result['state'] = 'payout';
             $result['minutes'] = $balance;

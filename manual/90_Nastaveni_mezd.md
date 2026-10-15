@@ -74,8 +74,15 @@ Ostatní záložky mají vlastní tlačítka u každého záznamu.
    první účtárnu**). Vyplňte **Název**, **Kód** se předvyplní sám.
 4. Vyberte **Výchozí mzdová účtárna** (musí být aktivní).
 5. Vyplňte **Kontakt pro mzdy** (jméno, e-mail, telefon).
-6. Klikněte na **Uložit**.
-7. Teprve u uložené účtárny zadejte variabilní symbol ČSSZ
+6. V **Zaokrouhlení mzdy** nechte **Nahoru na celé koruny** (§ 142 odst. 2
+   zákoníku práce). **Matematicky, jako předchozí mzdový program** zvolte jen
+   tehdy, když chcete, aby navazující měsíce seděly s programem, ze kterého
+   firma přešla. Volba platí pro krácenou měsíční mzdu a náhrady mzdy za
+   dovolenou a překážky. Náhrada mzdy při nemoci, pojistné a daň se
+   zaokrouhlují vždy podle zákona. Převod z PAMICA tuto volbu zapne sám, dokud firma nemá vlastní
+   spočítaný mzdový běh.
+7. Klikněte na **Uložit**.
+8. Teprve u uložené účtárny zadejte variabilní symbol ČSSZ
    ([§ 90.4](#904-krok-za-krokem-variabilni-symbol-cssz-uctarny)).
 
 **Jak poznáte, že je hotovo:** Aplikace hlásí „Nastavení zaměstnavatele bylo

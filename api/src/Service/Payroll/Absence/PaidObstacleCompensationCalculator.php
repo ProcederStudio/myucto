@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Payroll\Absence;
 
 use InvalidArgumentException;
-use MyInvoice\Service\Payroll\Calculation\RoundingMode;
+use MyInvoice\Service\Payroll\Calculation\PayrollWageRounding;
 
 /**
  * Náhrada mzdy za placenou překážku v práci (§ 199, § 203, § 205, § 207 až
@@ -37,6 +37,7 @@ final class PaidObstacleCompensationCalculator
         int $rateBasisPoints,
         array $segments,
         array $holidays,
+        PayrollWageRounding $rounding = PayrollWageRounding::Ceil,
     ): array {
         if ($averageHourlyMinor <= 0) {
             throw new InvalidArgumentException('Náhrada mzdy za překážku vyžaduje kladný hodinový průměr.');
@@ -62,16 +63,20 @@ final class PaidObstacleCompensationCalculator
         $amounts = [];
         $fullRate = [];
         foreach ($minutesByPeriod as $period => $minutes) {
-            $amounts[$period] = self::amount($averageHourlyMinor, $minutes, $rateBasisPoints);
-            $fullRate[$period] = self::amount($averageHourlyMinor, $minutes, PayrollObstacleKind::FULL_RATE_BASIS_POINTS);
+            $amounts[$period] = self::amount($averageHourlyMinor, $minutes, $rateBasisPoints, $rounding);
+            $fullRate[$period] = self::amount($averageHourlyMinor, $minutes, PayrollObstacleKind::FULL_RATE_BASIS_POINTS, $rounding);
         }
 
         return ['minutes' => $minutesByPeriod, 'amounts' => $amounts, 'full_rate_amounts' => $fullRate];
     }
 
-    public static function amount(int $averageHourlyMinor, int $minutes, int $rateBasisPoints): int
-    {
-        return RoundingMode::Ceil->roundFraction(
+    public static function amount(
+        int $averageHourlyMinor,
+        int $minutes,
+        int $rateBasisPoints,
+        PayrollWageRounding $rounding = PayrollWageRounding::Ceil,
+    ): int {
+        return $rounding->mode()->roundFraction(
             $averageHourlyMinor * $minutes * $rateBasisPoints,
             60 * PayrollObstacleKind::FULL_RATE_BASIS_POINTS * 100,
         ) * 100;

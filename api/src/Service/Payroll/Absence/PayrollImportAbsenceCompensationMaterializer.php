@@ -13,6 +13,7 @@ use MyInvoice\Repository\Payroll\PayrollInputConflictException;
 use MyInvoice\Repository\Payroll\PayrollInputRepository;
 use MyInvoice\Repository\Payroll\PayrollTimeRepository;
 use MyInvoice\Repository\Payroll\PayrollTimeValue;
+use MyInvoice\Service\Payroll\Calculation\PayrollWageRoundingPolicy;
 use MyInvoice\Service\Payroll\Import\Attendance\AttendanceMeaning;
 use MyInvoice\Service\Payroll\Ruleset\CanonicalJson;
 use PDO;
@@ -284,7 +285,12 @@ final class PayrollImportAbsenceCompensationMaterializer
             $percent = isset(self::HOLIDAY[$meaning]) || isset(self::PAID_EMPLOYEE_OBSTACLE[$meaning])
                 ? self::HOLIDAY_PERCENT
                 : $rates->percentFor($meaning);
-            $amount = LeaveCompensationCalculator::calculateMinutes($average['average_hourly_minor'], $minutes, $percent);
+            $amount = LeaveCompensationCalculator::calculateMinutes(
+                $average['average_hourly_minor'],
+                $minutes,
+                $percent,
+                $rounding ??= PayrollWageRoundingPolicy::forSupplier($this->db, $supplierId),
+            );
             $componentId = $this->componentId($supplierId, $code, $periodStart);
             if ($existing !== null) {
                 $trace = self::decodedTrace($existing['source_snapshot_json'] ?? null);
@@ -321,8 +327,8 @@ final class PayrollImportAbsenceCompensationMaterializer
                 'average_snapshot_id' => $average['id'],
                 'rate_percent' => $percent,
                 'amount_minor' => $amount,
-                'rounding' => 'ceil-to-czk-on-period-total',
-                'rounding_basis' => 'zp-142-2-via-144',
+                'rounding' => $rounding->traceLabel(),
+                'rounding_basis' => $rounding->basisLabel(),
                 'entitlement_basis' => self::ENTITLEMENT_BASIS[$meaning],
             ]);
             $employeeId ??= $this->employeeId($supplierId, $employmentId);

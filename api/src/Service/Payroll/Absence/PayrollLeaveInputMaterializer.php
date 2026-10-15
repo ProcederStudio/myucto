@@ -9,6 +9,7 @@ use MyInvoice\Repository\Payroll\PayrollAbsenceRepository;
 use MyInvoice\Repository\Payroll\PayrollComponentRepository;
 use MyInvoice\Repository\Payroll\PayrollInputRepository;
 use MyInvoice\Repository\Payroll\PayrollTimeValue;
+use MyInvoice\Service\Payroll\Calculation\PayrollWageRoundingPolicy;
 use MyInvoice\Service\Payroll\Ruleset\CanonicalJson;
 use PDO;
 use PDOException;
@@ -97,7 +98,11 @@ final class PayrollLeaveInputMaterializer
         if ($segments === []) {
             return ['absence_id' => $absenceId, 'created' => [], 'replayed' => []];
         }
-        $result = LeaveCompensationCalculator::calculate($averageHourly, $segments);
+        $result = LeaveCompensationCalculator::calculate(
+            $averageHourly,
+            $segments,
+            PayrollWageRoundingPolicy::forSupplier($this->db, $supplierId),
+        );
 
         $created = [];
         $replayed = [];

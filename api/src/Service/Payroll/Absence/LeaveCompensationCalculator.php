@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Payroll\Absence;
 
 use InvalidArgumentException;
-use MyInvoice\Service\Payroll\Calculation\RoundingMode;
+use MyInvoice\Service\Payroll\Calculation\PayrollWageRounding;
 
 /**
  * Náhrada mzdy za dobu čerpání dovolené (§ 222 odst. 1 ZP).
@@ -21,7 +21,8 @@ use MyInvoice\Service\Payroll\Calculation\RoundingMode;
  *
  * Zaokrouhlení kopíruje {@see SicknessCompensationCalculator}: mezikroky
  * přesným zlomkem, výsledek na celé koruny nahoru za KALENDÁŘNÍ MĚSÍC
- * (§ 142 odst. 2 ZP použitý na náhradu mzdy přes § 144). Měsíc je výplatní
+ * (§ 142 odst. 2 ZP použitý na náhradu mzdy přes § 144), u firmy s volbou
+ * matematického zaokrouhlení matematicky. Měsíc je výplatní
  * období a zároveň hranice mzdového vstupu, takže rozdělovat jinak by dalo
  * jinou částku, než jaká se zúčtuje.
  */
@@ -30,8 +31,11 @@ final class LeaveCompensationCalculator
     /**
      * @param list<array{shift_id:?int,local_date:string,planned_minutes:int,eligible_minutes:int}> $segments
      */
-    public static function calculate(int $averageHourlyMinor, array $segments): LeaveCompensationResult
-    {
+    public static function calculate(
+        int $averageHourlyMinor,
+        array $segments,
+        PayrollWageRounding $rounding = PayrollWageRounding::Ceil,
+    ): LeaveCompensationResult {
         if ($averageHourlyMinor <= 0) {
             throw new InvalidArgumentException('Náhrada za dovolenou vyžaduje kladný hodinový průměr.');
         }
@@ -52,13 +56,14 @@ final class LeaveCompensationCalculator
 
         $amountsByPeriod = [];
         foreach ($minutesByPeriod as $period => $minutes) {
-            $amountsByPeriod[$period] = self::calculateMinutes($averageHourlyMinor, $minutes);
+            $amountsByPeriod[$period] = self::calculateMinutes($averageHourlyMinor, $minutes, 100, $rounding);
         }
 
         return new LeaveCompensationResult(
             $averageHourlyMinor,
             $minutesByPeriod,
             $amountsByPeriod,
+            $rounding,
         );
     }
 
@@ -71,6 +76,7 @@ final class LeaveCompensationCalculator
         int $averageHourlyMinor,
         int $minutes,
         int $ratePercent = 100,
+        PayrollWageRounding $rounding = PayrollWageRounding::Ceil,
     ): int {
         if ($averageHourlyMinor <= 0) {
             throw new InvalidArgumentException('Náhrada mzdy vyžaduje kladný hodinový průměr.');
@@ -82,7 +88,7 @@ final class LeaveCompensationCalculator
             throw new InvalidArgumentException('Sazba náhrady mzdy musí být 1 až 100 % průměru.');
         }
 
-        return RoundingMode::Ceil->roundFraction(
+        return $rounding->mode()->roundFraction(
             $averageHourlyMinor * $minutes * $ratePercent,
             60 * 100 * 100,
         ) * 100;

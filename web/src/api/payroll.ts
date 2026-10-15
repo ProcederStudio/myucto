@@ -2923,6 +2923,7 @@ export interface PayrollEmployerSettings {
   payroll_contact_name: string | null
   payroll_contact_email: string | null
   payroll_contact_phone: string | null
+  wage_rounding: PayrollWageRounding
   default_office_code: string | null
   accounts: PayrollEmployerAccounts
   offices: PayrollOffice[]
@@ -2951,9 +2952,12 @@ export interface PayrollEmployerSettingsPayload {
   payroll_contact_name: string | null
   payroll_contact_email: string | null
   payroll_contact_phone: string | null
+  wage_rounding: PayrollWageRounding
   accounts: PayrollEmployerAccounts
   offices: PayrollOfficePayload[]
 }
+
+export type PayrollWageRounding = 'ceil' | 'half_up'
 
 export type PayrollRegzelEnvironment = 'production' | 'test'
 

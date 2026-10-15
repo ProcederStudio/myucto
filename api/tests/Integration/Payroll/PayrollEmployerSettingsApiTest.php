@@ -12,6 +12,8 @@ use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Middleware\SupplierScopeMiddleware;
 use MyInvoice\Repository\Payroll\PayrollEmployerSettingsRepository;
 use MyInvoice\Service\Accounting\ChartOfAccountsSeeder;
+use MyInvoice\Service\Payroll\Calculation\PayrollWageRounding;
+use MyInvoice\Service\Payroll\Calculation\PayrollWageRoundingPolicy;
 use MyInvoice\Service\Payroll\PayrollAccountingDefaults;
 use MyInvoice\Tests\Support\IsolatedSupplierTrait;
 use PHPUnit\Framework\Attributes\Group;
@@ -187,6 +189,35 @@ final class PayrollEmployerSettingsApiTest extends TestCase
         );
         $count->execute([$this->otherSupplierId]);
         self::assertSame(0, (int) $count->fetchColumn());
+    }
+
+    public function testWageRoundingIsSavedKeptWhenOmittedAndValidated(): void
+    {
+        $payload = $this->payload('VZOROV', 'Vzorová účtárna');
+        $first = $this->json($this->put($this->supplierId, $payload))['settings'];
+        self::assertSame('ceil', $first['wage_rounding']);
+        self::assertSame(
+            PayrollWageRounding::Ceil,
+            PayrollWageRoundingPolicy::forSupplier($this->db, $this->supplierId),
+        );
+
+        $payload['row_version'] = 1;
+        $payload['wage_rounding'] = 'half_up';
+        $second = $this->json($this->put($this->supplierId, $payload))['settings'];
+        self::assertSame('half_up', $second['wage_rounding']);
+        self::assertSame(
+            PayrollWageRounding::HalfUp,
+            PayrollWageRoundingPolicy::forSupplier($this->db, $this->supplierId),
+        );
+
+        // Klient, který volbu nezná, ji uložením jiných údajů nepřepíše.
+        unset($payload['wage_rounding']);
+        $payload['row_version'] = 2;
+        self::assertSame('half_up', $this->json($this->put($this->supplierId, $payload))['settings']['wage_rounding']);
+
+        $payload['row_version'] = 3;
+        $payload['wage_rounding'] = 'down';
+        self::assertSame(422, $this->put($this->supplierId, $payload)->getStatusCode());
     }
 
     public function testLegacyOfficeVariableSymbolCannotBeOverwrittenByBulkSettings(): void

@@ -54,7 +54,9 @@ use InvalidArgumentException;
  *
  * ── Zaokrouhlení ────────────────────────────────────────────────────────────
  *
- * Jednou, až na konci, na celé koruny nahoru (§ 142 odst. 2 ZP). Mezikroky se
+ * Jednou, až na konci, na celé koruny nahoru (§ 142 odst. 2 ZP), u firmy
+ * s volbou matematického zaokrouhlení ({@see PayrollWageRounding}) matematicky.
+ * Mezikroky se
  * počítají přesným zlomkem — zaokrouhlený hodinový výdělek vynásobený hodinami
  * by ukrojil haléře, o kterých zákon nemluví.
  */
@@ -69,6 +71,7 @@ final class MonthlyWageProration
         int $monthlyGrossMinor,
         int $fundMinutes,
         array $replacedMinutesByTitle,
+        PayrollWageRounding $rounding = PayrollWageRounding::Ceil,
     ): MonthlyWageProrationResult {
         if ($monthlyGrossMinor < 0) {
             throw new InvalidArgumentException('Měsíční mzda nesmí být záporná.');
@@ -95,7 +98,7 @@ final class MonthlyWageProration
         // zlomkem by u ní byl jen příležitost k haléřovému posunu.
         $amount = $retained === $fundMinutes
             ? $monthlyGrossMinor
-            : RoundingMode::Ceil->roundFraction(
+            : $rounding->mode()->roundFraction(
                 $monthlyGrossMinor * $retained,
                 $fundMinutes * 100,
             ) * 100;

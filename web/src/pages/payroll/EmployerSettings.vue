@@ -139,6 +139,7 @@ const form = reactive<EmployerSettingsForm>({
   payroll_contact_name: null,
   payroll_contact_email: null,
   payroll_contact_phone: null,
+  wage_rounding: 'ceil',
   accounts: { ...defaultAccounts },
 })
 const formOffices = ref<FormOffice[]>([])
@@ -261,6 +262,7 @@ function fillForm(value: PayrollEmployerSettings) {
   form.payroll_contact_name = value.payroll_contact_name
   form.payroll_contact_email = value.payroll_contact_email
   form.payroll_contact_phone = value.payroll_contact_phone
+  form.wage_rounding = value.wage_rounding ?? 'ceil'
   // Sloučení, ne náhrada: server, který novou předkontaci ještě nezná (starší
   // API proti novějšímu klientovi, nedoběhlá migrace), by jinak nechal klíč
   // `undefined` a stránka by spadla na prvním našeptávači účtu.
@@ -304,6 +306,7 @@ async function save() {
       payroll_contact_name: nullable(form.payroll_contact_name),
       payroll_contact_email: nullable(form.payroll_contact_email),
       payroll_contact_phone: nullable(form.payroll_contact_phone),
+      wage_rounding: form.wage_rounding,
       accounts: normalizedAccounts(),
       offices: formOffices.value.map(office => ({
         code: office.code.trim().toUpperCase(),
@@ -804,6 +807,23 @@ onMounted(async () => {
             <input v-model="form.payroll_contact_phone" type="tel" maxlength="40" autocomplete="tel" :disabled="!canWrite" class="h-10 w-full rounded-md border border-neutral-300 bg-surface px-3 text-sm text-neutral-900 outline-none focus:border-payroll-500 focus:ring-2 focus:ring-payroll-500/20 disabled:bg-neutral-50 disabled:text-neutral-500">
           </label>
         </div>
+      </section>
+
+      <section
+        v-if="activeTab === 'employer'"
+        class="rounded-xl border border-neutral-200 bg-surface p-4 shadow-sm sm:p-6"
+      >
+        <div class="mb-5">
+          <h2 class="text-lg font-semibold text-neutral-900">{{ t('payroll.employer.rounding_title') }}</h2>
+          <p class="mt-1 text-sm text-neutral-500">{{ t('payroll.employer.rounding_hint') }}</p>
+        </div>
+        <label class="block max-w-xl">
+          <span class="mb-1 block text-sm font-medium text-neutral-700">{{ t('payroll.employer.rounding_label') }}</span>
+          <select v-model="form.wage_rounding" data-testid="wage-rounding" :disabled="!canWrite" class="h-10 w-full rounded-md border border-neutral-300 bg-surface px-3 text-sm text-neutral-900 outline-none focus:border-payroll-500 focus:ring-2 focus:ring-payroll-500/20 disabled:bg-neutral-50 disabled:text-neutral-500">
+            <option value="ceil">{{ t('payroll.employer.rounding_ceil') }}</option>
+            <option value="half_up">{{ t('payroll.employer.rounding_half_up') }}</option>
+          </select>
+        </label>
       </section>
 
       <section

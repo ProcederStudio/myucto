@@ -9,6 +9,7 @@ use MyInvoice\Repository\Payroll\PayrollAbsenceRepository;
 use MyInvoice\Repository\Payroll\PayrollComponentRepository;
 use MyInvoice\Repository\Payroll\PayrollInputRepository;
 use MyInvoice\Repository\Payroll\PayrollTimeValue;
+use MyInvoice\Service\Payroll\Calculation\PayrollWageRoundingPolicy;
 use MyInvoice\Service\Payroll\Ruleset\CanonicalJson;
 use MyInvoice\Service\Payroll\Time\CzechHolidayCalendar;
 use MyInvoice\Service\Payroll\Time\PayrollWorkCalendarSchedule;
@@ -86,7 +87,13 @@ final class PayrollObstacleInputMaterializer
             (string) $absence['date_from'],
             (string) $absence['date_to'],
         );
-        $result = PaidObstacleCompensationCalculator::calculate($averageHourly, $rate, $segments, $holidays);
+        $result = PaidObstacleCompensationCalculator::calculate(
+            $averageHourly,
+            $rate,
+            $segments,
+            $holidays,
+            $rounding = PayrollWageRoundingPolicy::forSupplier($this->db, $supplierId),
+        );
         if ($result['minutes'] === []) {
             // Bez rozvržené směny nevznikne ani krácení mzdy (měří se týmiž
             // směnami), takže tu není co nahrazovat. Volající to ale musí
@@ -123,8 +130,8 @@ final class PayrollObstacleInputMaterializer
                 'amount_minor' => $amount,
                 'full_rate_amount_minor' => $result['full_rate_amounts'][$period],
                 'holidays_excluded' => 'zp-115-3',
-                'rounding' => 'ceil-to-czk-on-period-total',
-                'rounding_basis' => 'zp-142-2-via-144',
+                'rounding' => $rounding->traceLabel(),
+                'rounding_basis' => $rounding->basisLabel(),
                 'entitlement_basis' => $kind->statutoryBasis(),
             ]);
             $employeeId ??= $this->employeeId($supplierId, $employmentId);

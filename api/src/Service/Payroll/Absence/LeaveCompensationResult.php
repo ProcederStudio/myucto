@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace MyInvoice\Service\Payroll\Absence;
 
+use MyInvoice\Service\Payroll\Calculation\PayrollWageRounding;
+
 final readonly class LeaveCompensationResult
 {
     /**
@@ -14,6 +16,7 @@ final readonly class LeaveCompensationResult
         public int $averageHourlyMinor,
         public array $minutesByPeriod,
         public array $amountsByPeriod,
+        public PayrollWageRounding $rounding = PayrollWageRounding::Ceil,
     ) {}
 
     public function totalMinor(): int
@@ -38,8 +41,8 @@ final readonly class LeaveCompensationResult
             'average_hourly_minor' => $this->averageHourlyMinor,
             'average_snapshot_id' => $averageSnapshotId,
             'amount_minor' => $this->amountsByPeriod[$period] ?? 0,
-            'rounding' => 'ceil-to-czk-on-period-total',
-            'rounding_basis' => 'zp-142-2-via-144',
+            'rounding' => $this->rounding->traceLabel(),
+            'rounding_basis' => $this->rounding->basisLabel(),
             'entitlement_basis' => 'zp-222-1',
         ];
     }

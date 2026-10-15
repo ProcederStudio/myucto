@@ -7,6 +7,8 @@ namespace MyInvoice\Tests\Integration\Payroll\Migration;
 use MyInvoice\Bootstrap;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Service\Migration\MoneyS3\ImportProtocol;
+use MyInvoice\Service\Payroll\Calculation\PayrollWageRounding;
+use MyInvoice\Service\Payroll\Calculation\PayrollWageRoundingPolicy;
 use MyInvoice\Service\Payroll\Migration\PayrollMigrationModuleSetup;
 use MyInvoice\Service\Payroll\PayrollModuleAccess;
 use MyInvoice\Tests\Support\IsolatedSupplierTrait;
@@ -175,6 +177,29 @@ final class PayrollMigrationModuleSetupCarryOverTest extends TestCase
      * nemění; posun je vědomý krok a jde jen za měsíce, které předchozí program
      * zpracoval a MyÚčto nespočítalo.
      */
+    public function testWageRoundingFollowsPreviousProgramUntilOwnRun(): void
+    {
+        $result = $this->setup->ensure($this->supplierId, $this->userId, '2026-08');
+        if ($result['outcome'] !== PayrollMigrationModuleSetup::OUTCOME_READY) {
+            $this->markTestSkipped('Mzdy nejde v testovací instalaci zapnout: ' . $result['outcome']);
+        }
+        self::assertSame(PayrollWageRounding::Ceil, PayrollWageRoundingPolicy::forSupplier($this->db, $this->supplierId));
+
+        self::assertTrue($this->setup->adoptWageRounding($this->supplierId, PayrollWageRounding::HalfUp));
+        self::assertFalse($this->setup->adoptWageRounding($this->supplierId, PayrollWageRounding::HalfUp));
+        self::assertSame(PayrollWageRounding::HalfUp, PayrollWageRoundingPolicy::forSupplier($this->db, $this->supplierId));
+
+        // Po vlastním běhu je volba věcí účetní a převod ji nemění.
+        $pdo = $this->db->pdo();
+        $pdo->prepare('UPDATE payroll_employer_settings SET wage_rounding = "ceil" WHERE supplier_id = ?')
+            ->execute([$this->supplierId]);
+        $pdo->prepare(
+            'INSERT INTO payroll_runs (supplier_id, period_start, payment_date, run_kind) VALUES (?, "2026-09-01", "2026-10-15", "calculated")'
+        )->execute([$this->supplierId]);
+        self::assertFalse($this->setup->adoptWageRounding($this->supplierId, PayrollWageRounding::HalfUp));
+        self::assertSame(PayrollWageRounding::Ceil, PayrollWageRoundingPolicy::forSupplier($this->db, $this->supplierId));
+    }
+
     public function testStartAdvancesOnlyOverMonthsProcessedByPreviousProgram(): void
     {
         $pdo = $this->db->pdo();

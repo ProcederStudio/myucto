@@ -6,6 +6,7 @@ namespace MyInvoice\Service\Payroll;
 
 use MyInvoice\Repository\ChartOfAccountsRepository;
 use MyInvoice\Service\Codebook\HealthInsurers;
+use MyInvoice\Service\Payroll\Calculation\PayrollWageRounding;
 use MyInvoice\Service\Payroll\Posting\PayrollPostingAccountPolicy;
 use MyInvoice\Service\Payroll\Submission\CsszEmployerVariableSymbol;
 use MyInvoice\Service\Payroll\Submission\Registration\PayrollCsszDistrictCodebook;
@@ -78,6 +79,7 @@ final class PayrollEmployerSettingsValidator
      *   payroll_contact_name:?string,
      *   payroll_contact_email:?string,
      *   payroll_contact_phone:?string,
+     *   wage_rounding:?string,
      *   accounts:array<string,string>,
      *   offices:list<array{
      *     code:string,
@@ -120,6 +122,13 @@ final class PayrollEmployerSettingsValidator
                 HealthInsurers::invalidCodeMessage($normalized['default_health_insurer_code']),
             );
         }
+
+        // Chybějící volba nemění uloženou: starší klient ji neposílá.
+        $rounding = $input['wage_rounding'] ?? null;
+        if ($rounding !== null && PayrollWageRounding::tryFrom((string) $rounding) === null) {
+            throw new \InvalidArgumentException('Zaokrouhlení mzdy musí být ceil nebo half_up.');
+        }
+        $normalized['wage_rounding'] = $rounding === null ? null : (string) $rounding;
 
         $offices = $this->offices($input['offices'] ?? null);
         $defaultOfficeCode = strtoupper(trim((string) ($input['default_office_code'] ?? '')));

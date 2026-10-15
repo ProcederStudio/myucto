@@ -986,7 +986,8 @@
         "2002_clients_walk_in_customer.sql",
         "2003_supplier_fiscal_year_start_month.sql",
         "2004_payment_order_tax_items.sql",
-        "2005_email_distribution_across_suppliers.sql"
+        "2005_email_distribution_across_suppliers.sql",
+        "2006_payroll_wage_rounding.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -9718,6 +9719,7 @@
                 "supplier_id": "int(10) unsigned NOT NULL",
                 "travel_expense_debit_account": "varchar(16) NOT NULL DEFAULT '512'",
                 "updated_at": "timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE CURRENT_TIMESTAMP()",
+                "wage_rounding": "varchar(16) NOT NULL DEFAULT 'ceil'",
                 "withholding_tax_credit_account": "varchar(16) NOT NULL DEFAULT '342'"
             },
             "indexes": {
@@ -9728,7 +9730,9 @@
                 "fk_payroll_employer_default_office": "(supplier_id, default_office_id) -> payroll_offices (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
                 "fk_payroll_employer_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE"
             },
-            "checks": []
+            "checks": {
+                "chk_payroll_employer_wage_rounding": "`wage_rounding` in ('ceil','half_up')"
+            }
         },
         "payroll_employment_checklist_items": {
             "type": "BASE TABLE",

@@ -154,6 +154,7 @@ function settings(accounts: PayrollEmployerAccounts = defaultAccounts): PayrollE
     payroll_contact_name: 'Testovací účetní',
     payroll_contact_email: 'payroll@example.test',
     payroll_contact_phone: '+420 000 000 000',
+    wage_rounding: 'ceil',
     default_office_code: 'MAIN',
     accounts,
     offices: [{

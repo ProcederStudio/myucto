@@ -16,6 +16,7 @@ use MyInvoice\Service\Migration\Pohoda\PohodaExport;
 use MyInvoice\Service\Migration\Pohoda\PohodaXml;
 use MyInvoice\Service\Payroll\Absence\ImportAbsenceCompensationRates;
 use MyInvoice\Service\Payroll\Absence\PayrollImportAbsenceCompensationMaterializer;
+use MyInvoice\Service\Payroll\Calculation\PayrollWageRounding;
 use MyInvoice\Service\Payroll\Migration\PayrollMigrationModuleSetup;
 use MyInvoice\Service\Payroll\Migration\PayrollMigrationReferenceTotals;
 use MyInvoice\Service\Payroll\Migration\PayrollMigrationReferenceTotalsWriter;
@@ -437,6 +438,12 @@ final class PohodaPayrollImporter
             if ($last !== null) {
                 PayrollMigrationModuleSetup::report($protocol, self::STEP_PREFLIGHT,
                     $this->moduleSetup->ensure($supplierId, $userOrNull, (string) self::setupLastPeriod($last, $jobLastPeriod)), 'PAMICA');
+                // PAMICA zaokrouhluje krácenou mzdu a náhrady matematicky; navazující měsíce
+                // v MyÚčtu tak sedí s převzatými, dokud firma nepočítá vlastní běhy.
+                if ($this->moduleSetup->adoptWageRounding($supplierId, PayrollWageRounding::HalfUp)) {
+                    $protocol->info(self::STEP_PREFLIGHT, 'payroll_wage_rounding_adopted',
+                        'Krácená mzda a náhrady mzdy se zaokrouhlují matematicky jako v PAMICA. Zákonné zaokrouhlení nahoru (§ 142 odst. 2 ZP) zapnete v Mzdy → Nastavení.');
+                }
                 if ($startDecision === self::START_ADVANCE) {
                     try {
                         $moved = $this->moduleSetup->advanceStartBeforeTakeover($supplierId, $userOrNull, $last);

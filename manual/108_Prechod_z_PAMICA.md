@@ -885,6 +885,14 @@ zařadí podle četnosti ve mzdách PAMICA: složka vyplácená aspoň ve třech
 (příznak *Nedoplácet ZP do minima*) převezme jen za měsíce, kdy byl vyměřovací
 základ pod minimem; nad minimem nemá na pojistné vliv.
 
+PAMICA zaokrouhluje krácenou mzdu a náhrady mzdy za dovolenou a překážky
+matematicky (náhradu při nemoci nahoru). Aby navazující
+měsíce seděly s převzatými, převod přepne **Zaokrouhlení mzdy** v Nastavení
+mezd na **Matematicky, jako předchozí mzdový program**, dokud firma nemá vlastní
+spočítaný mzdový běh. Potom převod volbu nemění. Zákonné zaokrouhlení nahoru
+(§ 142 odst. 2 zákoníku práce) zapnete v Nastavení mezd
+([§ 90.3](90_Nastaveni_mezd.md#903-krok-za-krokem-zamestnavatel-a-mzdove-uctarny)).
+
 ## 108.10 Související kapitoly
 
 - [Přechod z POHODY](107_Prechod_z_POHODY.md)

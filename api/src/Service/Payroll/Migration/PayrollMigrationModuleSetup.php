@@ -14,6 +14,7 @@ use MyInvoice\Service\License\LicenseCapacityGate;
 use MyInvoice\Service\License\LicensePayrollLimitExceeded;
 use MyInvoice\Service\License\LicenseSeatLimitExceeded;
 use MyInvoice\Service\Migration\MoneyS3\ImportProtocol;
+use MyInvoice\Service\Payroll\Calculation\PayrollWageRounding;
 use MyInvoice\Service\Payroll\PayrollEmployerLegacyIdentifierCarryOver;
 use MyInvoice\Service\Payroll\PayrollModuleAccess;
 use MyInvoice\Service\Payroll\SupportMatrix;
@@ -637,6 +638,30 @@ final class PayrollMigrationModuleSetup
             ->modify('-' . self::ENDED_AFTER_MONTHS . ' months')->format('Y-m');
 
         return self::period($lastPayrollPeriod) < $limit;
+    }
+
+    /**
+     * Zaokrouhlení mzdy podle předchozího programu, dokud firma nemá vlastní spočítaný
+     * běh. Po prvním vlastním běhu je volba věcí účetní a převod ji už nemění.
+     */
+    public function adoptWageRounding(int $supplierId, PayrollWageRounding $rounding): bool
+    {
+        if (!$this->schemaAvailable() || !$this->hasSettings($supplierId)) {
+            return false;
+        }
+        $update = $this->db->pdo()->prepare(
+            'UPDATE payroll_employer_settings
+                SET wage_rounding = ?, row_version = row_version + 1
+              WHERE supplier_id = ?
+                AND wage_rounding <> ?
+                AND NOT EXISTS (
+                    SELECT 1 FROM payroll_runs
+                     WHERE supplier_id = ? AND run_kind <> "takeover" AND status <> "cancelled"
+                )'
+        );
+        $update->execute([$rounding->value, $supplierId, $rounding->value, $supplierId]);
+
+        return $update->rowCount() === 1;
     }
 
     private function createSettings(int $supplierId): void

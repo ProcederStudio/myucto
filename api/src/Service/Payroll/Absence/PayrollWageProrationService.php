@@ -9,6 +9,7 @@ use MyInvoice\Repository\Payroll\PayrollAbsenceRepository;
 use MyInvoice\Repository\Payroll\PayrollTimeRepository;
 use MyInvoice\Repository\Payroll\PayrollTimeValue;
 use MyInvoice\Service\Payroll\Calculation\MonthlyWageProration;
+use MyInvoice\Service\Payroll\Calculation\PayrollWageRoundingPolicy;
 use MyInvoice\Service\Payroll\Time\CzechHolidayCalendar;
 use MyInvoice\Service\Payroll\Time\PayrollEmploymentCalendarProvisioner;
 use MyInvoice\Service\Payroll\Time\PayrollMonthlyFundService;
@@ -693,7 +694,12 @@ final class PayrollWageProrationService
         // stejně jako dosažená mzda za přesčas a fond v měsíčním hlášení.
         $wageFundMinutes = $fundMinutes
             + ($this->fund->holidayMinutes($supplierId, $employmentId, $period) ?? 0);
-        $result = MonthlyWageProration::calculate($monthlyGrossMinor, $wageFundMinutes, $byTitle);
+        $result = MonthlyWageProration::calculate(
+            $monthlyGrossMinor,
+            $wageFundMinutes,
+            $byTitle,
+            PayrollWageRoundingPolicy::forSupplier($this->db, $supplierId),
+        );
 
         return [
             'supported' => true,
