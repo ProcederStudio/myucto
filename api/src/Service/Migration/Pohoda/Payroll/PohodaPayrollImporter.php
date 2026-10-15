@@ -6,6 +6,7 @@ namespace MyInvoice\Service\Migration\Pohoda\Payroll;
 
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\Payroll\PayrollComponentJmhzMappingRepository;
+use MyInvoice\Repository\Payroll\PayrollDeferredIncomeRepository;
 use MyInvoice\Repository\Payroll\PayrollImportProfileRepository;
 use MyInvoice\Repository\Payroll\PayrollInputFilter;
 use MyInvoice\Repository\Payroll\PayrollInputRepository;
@@ -99,6 +100,7 @@ final class PohodaPayrollImporter
         private readonly PayrollRecurringMaterializer $recurring,
         private readonly PayrollComponentJmhzMappingRepository $jmhzMappings,
         private readonly PayrollTakeoverAccidentInsuranceRate $accidentRate,
+        private readonly PayrollDeferredIncomeRepository $deferredIncomes,
     ) {}
 
     /**
@@ -741,7 +743,7 @@ final class PohodaPayrollImporter
                     // převzatých podkladů si uživatel mohl vyžádat až teď, takže se dodatečně
                     // dožene nad hotovou dávkou. Jinak by volba u dříve převedené firmy
                     // neudělala nic a běh by pořád stál na blokujících kontrolách.
-                    if ($approveTakenOver) {
+                    if ($approveTakenOver && !self::countedByModule($period, $moduleStart)) {
                         $this->approveTakenOverBatch($supplierId, $userOrNull, $period, $done[$key], $protocol);
                     }
                     if (self::countedByModule($period, $moduleStart)) {
@@ -844,8 +846,11 @@ final class PohodaPayrollImporter
                     $this->jmhz->monthTerms($supplierId, $userOrNull, $records, $jmhz, $period, $protocol, self::STEP_MONTHS);
                     // Schválení až po podmínkách z hlášení téhož měsíce: schválený pracovní měsíc
                     // si úvazek a fond zmrazí, a dřív by u prvního měsíce zůstal úvazek dosazený
-                    // ze 40 h místo podaného (oprava by přišla až po schválení).
-                    if ($approveTakenOver) {
+                    // ze 40 h místo podaného (oprava by přišla až po schválení). Měsíc, který
+                    // počítá MyÚčto, se schvaluje až po náhradách při nemoci (krok nemocí):
+                    // souhrn s nemocí bez zmrazené náhrady nejde zařadit a měsíc by zůstal
+                    // neschválený (nástup v měsíci, kdy převod ještě neměl kalendář vztahu).
+                    if ($approveTakenOver && !self::countedByModule($period, $moduleStart)) {
                         $this->approveTakenOverBatch($supplierId, $userOrNull, $period, (int) ($applied['batch']['id'] ?? $applied['import_id'] ?? 0), $protocol);
                     }
                     $protocol->count(self::STEP_MONTHS, 'months');
@@ -965,12 +970,19 @@ final class PohodaPayrollImporter
                     $this->sicknessCompensation->compensate($supplierId, $sicknessStart, $userOrNull,
                         PohodaPayrollTakeover::policy(), $protocol, self::STEP_SICKNESS);
                 }
+                // Docházka a vstupy měsíce, který počítá MyÚčto: až nad zmrazenými náhradami.
+                if ($approveTakenOver) {
+                    foreach ($compensationBatches as $period => $batchId) {
+                        $this->approveTakenOverBatch($supplierId, $userOrNull, (string) $period, (int) $batchId, $protocol);
+                    }
+                }
                 // Předpisy mzdy až po náhradách při nemoci: poměrnou část měsíční mzdy krácené
                 // za nemoc jde doložit teprve nad zmrazeným výpočtem náhrady. Výslovné nuly až
                 // po předpisech, ať nevzniknou tam, kde předpis mzdu doplnil.
                 foreach (array_keys($compensationBatches) as $period) {
                     $this->recurringWages($supplierId, $userOrNull, (string) $period, $approveTakenOver, $protocol);
                     $this->zeroInputs($supplierId, $userOrNull, (string) $period, $protocol);
+                    $this->deferredIncomes($supplierId, $userOrNull, (string) $period, $protocol);
                 }
                 // Pracovní měsíce schválené dřív, než převod zapsal nemoci, ošetřovné nebo
                 // neomluvené absence, mají souhrn bez jejich hodin a evidenční list by měsíční
@@ -1376,6 +1388,42 @@ final class PohodaPayrollImporter
     }
 
     /**
+     * Doplatek po skončení vztahu, který PAMICA zúčtovala v měsíci počítaném MyÚčtem:
+     * převod potvrdí odložený příjem typu 1 (příjem po skončení zaměstnání), stejně jako
+     * by ho potvrdila účetní na kartě vztahu. Bez potvrzení běh příjem odmítne
+     * (`post_termination_income_attribution_unverified`), přestože ho předchozí program
+     * zúčtoval a hlásil.
+     */
+    private function deferredIncomes(int $supplierId, ?int $userId, string $period, ImportProtocol $protocol): void
+    {
+        $statement = $this->db->pdo()->prepare(
+            "SELECT DISTINCT e.id
+               FROM payroll_employments e
+               JOIN payroll_inputs i ON i.supplier_id = e.supplier_id AND i.employment_id = e.id
+              WHERE e.supplier_id = ? AND e.end_date IS NOT NULL AND e.end_date < ?
+                AND i.period_start = ? AND i.status <> 'cancelled' AND i.amount_minor <> 0
+                AND NOT EXISTS (SELECT 1 FROM payroll_employment_deferred_incomes d
+                                 WHERE d.supplier_id = e.supplier_id AND d.employment_id = e.id
+                                   AND d.period_start = i.period_start)"
+        );
+        $statement->execute([$supplierId, $period . '-01', $period . '-01']);
+        $confirmed = 0;
+        foreach ($statement->fetchAll(\PDO::FETCH_COLUMN) as $employmentId) {
+            try {
+                $this->deferredIncomes->save($supplierId, (int) $employmentId, $period . '-01', '1',
+                    'Převzato z PAMICA: příjem zúčtovaný po skončení zaměstnání.', $userId);
+                $confirmed++;
+            } catch (\InvalidArgumentException|\DomainException $e) {
+                $protocol->warn(self::STEP_SICKNESS, 'deferred_income_failed',
+                    "{$period}: odložený příjem vztahu {$employmentId} se nepodařilo potvrdit - " . $e->getMessage(), ['period' => $period]);
+            }
+        }
+        if ($confirmed > 0) {
+            $protocol->count(self::STEP_SICKNESS, 'deferred_incomes', $confirmed);
+        }
+    }
+
+    /**
      * Výslovná nula u vztahu, kterému PAMICA za měsíc zpracovala mzdu bez příjmu (celý
      * měsíc nemoc, mateřská, neplacené volno) a v MyÚčtu mu žádný vstup nevznikl. Mzdový
      * běh trvající vztah bez vstupu odmítne, protože nulové hlášení JMHZ má vzniknout
@@ -1399,6 +1447,9 @@ final class PohodaPayrollImporter
                FROM payroll_migration_reference_totals ref
                JOIN payroll_employments e ON e.supplier_id = ref.supplier_id AND e.id = ref.employment_id
               WHERE ref.supplier_id = ? AND ref.source = ? AND ref.period_start = ? AND ref.employment_id IS NOT NULL
+                -- Vztah skončený před měsícem nulu nepotřebuje: PAMICA mu zpracovala jen
+                -- doplatek ze zúčtování, ne mzdu, a nula by z něj dělala příjem po skončení.
+                AND (e.end_date IS NULL OR e.end_date >= ref.period_start)
                 AND NOT EXISTS (SELECT 1 FROM payroll_inputs i
                                  WHERE i.supplier_id = ref.supplier_id AND i.employment_id = ref.employment_id
                                    AND i.period_start = ref.period_start AND i.status <> 'cancelled')"
