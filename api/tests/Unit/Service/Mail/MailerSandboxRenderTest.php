@@ -10,7 +10,7 @@ use PHPUnit\Framework\TestCase;
 /**
  * Regression for issue #25 — Mailer::sandboxedTwig() must allow `extends`,
  * `block` a `use` tags. DB-uložené šablony dědí z `_layout.html.twig`
- * (viz `EmailTemplateAction::loadDefaults` který vrací celé tělo včetně
+ * (viz `EmailTemplateCatalog::defaults` který vrací celé tělo včetně
  * `{% extends %}{% block content %}`). Před fixem sandbox házel
  * `Tag "block" is not allowed in "_layout.html.twig" at line 63.` po každé
  * editaci šablony v adminu.
@@ -93,7 +93,7 @@ final class MailerSandboxRenderTest extends TestCase
     public function testValidateUserTemplateAcceptsDefaults(): void
     {
         // Issue #25 follow-up — `validateUserTemplate` musí pustit default šablonu,
-        // kterou loadDefaults() vrátí, jinak by uživatel nemohl ani jen kliknout Uložit.
+        // kterou EmailTemplateCatalog::defaults() vrátí, jinak by uživatel nemohl ani jen kliknout Uložit.
         $mailer = (new \ReflectionClass(Mailer::class))->newInstanceWithoutConstructor();
         $defaultHtml = (string) file_get_contents(dirname(__DIR__, 4) . '/templates/email/invoice_send.cs.html.twig');
         $defaultText = (string) file_get_contents(dirname(__DIR__, 4) . '/templates/email/invoice_send.cs.txt.twig');

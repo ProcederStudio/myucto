@@ -73,6 +73,7 @@ final class PurchaseApprovalMailer implements PurchaseApprovalNotifier
                 'approval_url' => $this->tenantUrls->urlFor($supplierId, 'public_links', '/purchase-approval/' . $token),
                 'inbox_url' => rtrim($this->tenantUrls->canonicalBaseUrl(), '/') . '/purchase-approvals',
             ],
+            templateSupplierId: $supplierId,
         );
     }
 }

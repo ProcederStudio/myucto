@@ -94,7 +94,7 @@ final class PaymentThanksMailer
         }
 
         try {
-            $smtp = $this->mailer->sendTemplate('invoice_payment_thanks', $locale, $to, $vars, null, $cc, $bcc, $attachments, $userId);
+            $smtp = $this->mailer->sendTemplate('invoice_payment_thanks', $locale, $to, $vars, null, $cc, $bcc, $attachments, $userId, templateSupplierId: (int) $invoice['supplier_id']);
         } catch (\Throwable $e) {
             $this->logger->log('invoice.payment_thanks_failed', $userId, 'invoice', $invoiceId, [
                 'varsymbol' => $invoice['varsymbol'] ?? null,

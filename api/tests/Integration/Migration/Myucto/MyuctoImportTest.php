@@ -500,6 +500,63 @@ final class MyuctoImportTest extends TestCase
         $this->importer->import($package, $this->target, $this->actor, 'synthetic-instance', false);
     }
 
+    public function testCompanyEmailTemplatesRoundTripPreservesContentAndRemapsAuthor(): void
+    {
+        $insert = $this->pdo->prepare(
+            'INSERT INTO supplier_email_templates (supplier_id, code, locale, subject, body_html, body_text, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        );
+        $insert->execute([$this->source, 'invoice_send', 'cs', 'Syntetický předmět {{ invoice.varsymbol }}', '<p>Syntetický obsah</p>', 'Syntetický obsah', $this->actor]);
+        $insert->execute([$this->source, 'invoice_send', 'en', 'Synthetic subject', '<p>Synthetic content</p>', 'Synthetic content', null]);
+        $this->archive = $this->makeArchive();
+        $package = (new MyuctoExportReader())->read($this->archive);
+        self::assertCount(2, $package['tables']['supplier_email_templates']);
+        // Autor z jiné instalace nesmí být použit jako lokální ID uživatele.
+        foreach ($package['tables']['supplier_email_templates'] as &$row) {
+            self::assertSame($this->source, (int) $row['supplier_id']);
+            if ($row['updated_by'] !== null) $row['updated_by'] = 987654321;
+        }
+        unset($row);
+
+        $dry = $this->importer->import($package, $this->target, $this->actor, 'synthetic-email-templates');
+        self::assertSame(2, $dry['created']['supplier_email_templates']);
+        self::assertSame(0, $this->targetCount('supplier_email_templates'));
+        $this->importer->import($package, $this->target, $this->actor, 'synthetic-email-templates', false);
+        $rows = $this->pdo->query('SELECT * FROM supplier_email_templates WHERE supplier_id = ' . $this->target . ' ORDER BY locale')->fetchAll(PDO::FETCH_ASSOC);
+        self::assertCount(2, $rows);
+        foreach (array_values($package['tables']['supplier_email_templates']) as $source) {
+            $actual = array_values(array_filter($rows, static fn (array $r): bool => $r['locale'] === $source['locale']))[0];
+            foreach (['code', 'locale', 'subject', 'body_html', 'body_text', 'updated_at'] as $field) {
+                self::assertSame($source[$field], $actual[$field], $field);
+            }
+            self::assertSame($source['updated_by'] === null ? null : $this->actor, $actual['updated_by'] === null ? null : (int) $actual['updated_by']);
+            self::assertSame($this->target, (int) $actual['supplier_id']);
+            self::assertNotSame((int) $source['id'], (int) $actual['id']);
+        }
+        $repeat = $this->importer->import($package, $this->target, $this->actor, 'synthetic-email-templates', false);
+        self::assertSame([], $repeat['created']);
+        self::assertSame(2, $this->targetCount('supplier_email_templates'));
+    }
+
+    public function testCompanyEmailTemplateConflictPreservesTargetAndRollsBack(): void
+    {
+        $insert = $this->pdo->prepare(
+            "INSERT INTO supplier_email_templates (supplier_id, code, locale, subject, body_html, body_text) VALUES (?, 'invoice_send', 'cs', ?, '<p>Test</p>', 'Test')"
+        );
+        $insert->execute([$this->source, 'Synthetic source']);
+        $insert->execute([$this->target, 'Synthetic existing target']);
+        $this->archive = $this->makeArchive();
+        $package = (new MyuctoExportReader())->read($this->archive);
+        try {
+            $this->importer->import($package, $this->target, $this->actor, 'synthetic-email-conflict', false);
+            self::fail('Existující firemní šablona se nesmí přepsat importem.');
+        } catch (\RuntimeException $e) {
+            self::assertStringContainsString('supplier_email_templates', $e->getMessage());
+        }
+        self::assertSame('Synthetic existing target', $this->pdo->query('SELECT subject FROM supplier_email_templates WHERE supplier_id = ' . $this->target)->fetchColumn());
+        self::assertSame(0, $this->targetCount('invoices'));
+        self::assertSame(0, $this->targetCount('external_entity_map'));
+    }
+
     private function makeArchive(): string
     {
         $path = $this->root . '/synthetic-export.zip'; $zip = new ZipArchive(); self::assertTrue($zip->open($path, ZipArchive::CREATE));

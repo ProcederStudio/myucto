@@ -66,6 +66,7 @@ use MyInvoice\Action\Settings\BrandingProfilesAction;
 use MyInvoice\Action\Settings\ClientBrandingSettingsAction;
 use MyInvoice\Action\Settings\ClientPaymentQrSettingsAction;
 use MyInvoice\Action\Settings\EmailProfilesAction;
+use MyInvoice\Action\Settings\SupplierEmailTemplateAction;
 use MyInvoice\Action\Settings\PdfSigningDiagnosticsAction;
 use MyInvoice\Action\Settings\SettingsAction;
 use MyInvoice\Action\Settings\BankConnectionAction;
@@ -3369,6 +3370,17 @@ final class Routes
         $app->get ('/api/settings/accounting-activation/jobs/{id:[0-9]+}', [AccountingActivationAction::class, 'job']);
         $app->post('/api/settings/accounting-activation/jobs/{id:[0-9]+}/cancel', [AccountingActivationAction::class, 'cancel']);
         $app->put ('/api/settings/supplier/invoice-counter', SupplierInvoiceCounterAction::class);
+        $app->get('/api/settings/email-templates', [SupplierEmailTemplateAction::class, 'list']);
+        $app->get('/api/settings/email-templates/{code:[a-z_]+}/{locale:cs|en}', [SupplierEmailTemplateAction::class, 'get']);
+        $app->put('/api/settings/email-templates/{code:[a-z_]+}/{locale:cs|en}', [SupplierEmailTemplateAction::class, 'put']);
+        $app->delete('/api/settings/email-templates/{code:[a-z_]+}/{locale:cs|en}', [SupplierEmailTemplateAction::class, 'delete']);
+        $app->post('/api/settings/email-templates/{code:[a-z_]+}/{locale:cs|en}/preview', [SupplierEmailTemplateAction::class, 'preview']);
+        $app->get('/api/settings/client/email-templates', [SupplierEmailTemplateAction::class, 'list']);
+        $app->get('/api/settings/client/email-templates/{code:[a-z_]+}/{locale:cs|en}', [SupplierEmailTemplateAction::class, 'get']);
+        $app->put('/api/settings/client/email-templates/{code:[a-z_]+}/{locale:cs|en}', [SupplierEmailTemplateAction::class, 'put']);
+        $app->delete('/api/settings/client/email-templates/{code:[a-z_]+}/{locale:cs|en}', [SupplierEmailTemplateAction::class, 'delete']);
+        $app->post('/api/settings/client/email-templates/{code:[a-z_]+}/{locale:cs|en}/preview', [SupplierEmailTemplateAction::class, 'preview']);
+
         $app->get    ('/api/settings/email-profiles',       [EmailProfilesAction::class, 'list']);
         $app->post   ('/api/settings/email-profiles',       [EmailProfilesAction::class, 'create']);
         $app->post   ('/api/settings/email-profiles/test',  [EmailProfilesAction::class, 'testDraft']);

@@ -36,6 +36,7 @@ final class RbacHttpRoleMatrixTest extends TestCase
     private array $emailProfileIds = [];
     /** @var list<string> */
     private array $sessionTokens = [];
+    private array $templateBackups = [];
 
     protected function setUp(): void
     {
@@ -58,6 +59,15 @@ final class RbacHttpRoleMatrixTest extends TestCase
     {
         if (!isset($this->db)) return;
         $pdo = $this->db->pdo();
+        foreach ($this->templateBackups as [$table, $keys, $row]) {
+            $where = implode(' AND ', array_map(static fn ($key) => "$key = ?", array_keys($keys)));
+            $pdo->prepare("DELETE FROM $table WHERE $where")->execute(array_values($keys));
+            if ($row !== false) {
+                $columns = implode(',', array_keys($row));
+                $values = implode(',', array_fill(0, count($row), '?'));
+                $pdo->prepare("INSERT INTO $table ($columns) VALUES ($values)")->execute(array_values($row));
+            }
+        }
         foreach ($this->sessionTokens as $token) {
             try { $this->sessions->destroy($token); } catch (\Throwable) {}
         }
@@ -556,6 +566,100 @@ final class RbacHttpRoleMatrixTest extends TestCase
         return $id;
     }
 
+    #[DataProvider('roleMatrix')]
+    public function testCompanyEmailTemplateOperationsUseEffectivePermissions(string $variant, string $roleType, int $level, bool $hasSupplier): void
+    {
+        $session = $this->createSession($this->createUser($variant, $roleType, $level, $hasSupplier));
+        $this->backupTemplate('supplier_email_templates', ['supplier_id' => $this->supplierId, 'code' => 'invoice_send', 'locale' => 'cs']);
+        $template = ['subject' => 'Synthetic {{ invoice.varsymbol }}', 'body_html' => '<p>Synthetic {{ invoice.varsymbol }}</p>', 'body_text' => 'Synthetic {{ invoice.varsymbol }}'];
+        foreach (['/api/settings/email-templates', '/api/settings/client/email-templates'] as $prefix) {
+            $allowed = ($variant === 'superadmin') || ($hasSupplier && $level === 2 && ($roleType === 'staff' || str_contains($prefix, '/client/')));
+            foreach ([['GET', '', null], ['GET', '/invoice_send/cs', null], ['POST', '/invoice_send/cs/preview', $template], ['PUT', '/invoice_send/cs', $template], ['DELETE', '/invoice_send/cs', null]] as [$method, $suffix, $body]) {
+                $response = $this->request($method, $prefix . $suffix, $session, $body);
+                self::assertSame($allowed ? 200 : 403, $response->getStatusCode(), "$variant $method $prefix$suffix: " . $response->getBody());
+            }
+        }
+        if ($variant === 'superadmin' || ($hasSupplier && $level === 2)) {
+            $prefix = $roleType === 'client' ? '/api/settings/client/email-templates' : '/api/settings/email-templates';
+            foreach (['GET', 'PUT', 'DELETE', 'POST'] as $method) {
+                $suffix = $method === 'POST' ? '/preview' : '';
+                self::assertSame(404, $this->request($method, $prefix . '/password_reset/cs' . $suffix, $session, $template)->getStatusCode());
+            }
+        }
+    }
+
+    public function testCompanyEmailTemplateIsolationResetPreviewAndInvalidSave(): void
+    {
+        $suppliers = array_map('intval', $this->db->pdo()->query('SELECT id FROM supplier ORDER BY id LIMIT 2')->fetchAll(\PDO::FETCH_COLUMN));
+        self::assertCount(2, $suppliers, 'Integration fixtures must include two synthetic companies.');
+        [$supplierA, $supplierB] = $suppliers;
+        foreach ($suppliers as $sid) $this->backupTemplate('supplier_email_templates', ['supplier_id' => $sid, 'code' => 'invoice_send', 'locale' => 'cs']);
+        $this->backupTemplate('email_templates', ['code' => 'invoice_send', 'locale' => 'cs']);
+        $session = $this->createSession($this->createUser('superadmin', 'superadmin', 2, true));
+        $path = '/api/settings/email-templates/invoice_send/cs';
+        $a = ['subject' => 'Company A', 'body_html' => '<p>A {{ invoice.varsymbol }}</p>', 'body_text' => 'A {{ invoice.varsymbol }}'];
+        $b = array_replace($a, ['subject' => 'Company B']);
+        self::assertSame(200, $this->request('PUT', $path, $session, $a, $supplierA)->getStatusCode());
+        self::assertSame(200, $this->request('PUT', $path, $session, $b, $supplierB)->getStatusCode());
+        self::assertSame('Company A', $this->json($this->request('GET', $path, $session, null, $supplierA))['subject']);
+        self::assertSame('Company B', $this->json($this->request('GET', $path, $session, null, $supplierB))['subject']);
+        $invalid = array_replace($a, ['subject' => '{% include "_layout.html.twig" %}']);
+        self::assertSame(400, $this->request('PUT', $path, $session, $invalid, $supplierA)->getStatusCode());
+        self::assertSame('Company A', $this->json($this->request('GET', $path, $session, null, $supplierA))['subject']);
+        $preview = $this->json($this->request('POST', $path . '/preview', $session, array_replace($a, ['subject' => 'Unsaved preview']), $supplierA));
+        self::assertSame('Unsaved preview', $preview['subject']);
+        self::assertStringContainsString('20260001', $preview['body_html']);
+        self::assertSame('Company A', $this->json($this->request('GET', $path, $session, null, $supplierA))['subject']);
+        $global = new \MyInvoice\Repository\EmailTemplateRepository($this->db);
+        $global->save('invoice_send', 'cs', 'Global replacement', '<p>Shared</p>', 'Shared', null);
+        self::assertSame(200, $this->request('DELETE', $path, $session, null, $supplierA)->getStatusCode());
+        $inherited = $this->json($this->request('GET', $path, $session, null, $supplierA));
+        self::assertSame('global', $inherited['source']);
+        self::assertSame('Global replacement', $inherited['subject']);
+        self::assertFalse($inherited['has_override']);
+        self::assertSame('Company B', $this->json($this->request('GET', $path, $session, null, $supplierB))['subject']);
+        self::assertSame('Global replacement', $global->find('invoice_send', 'cs')['subject']);
+        $audit = $this->db->pdo()->prepare("SELECT COUNT(*) FROM activity_log WHERE user_id = ? AND supplier_id = ? AND action IN ('supplier_email_template.saved', 'supplier_email_template.reset')");
+        $audit->execute([$this->userIds[0], $supplierA]);
+        self::assertSame(2, (int) $audit->fetchColumn());
+    }
+
+    public function testCompanyEmailTemplatesRejectForeignAndStaleSupplierForEveryOperation(): void
+    {
+        $session = $this->createSession($this->createUser('client_write', 'client', 2, true));
+        $foreign = (int) $this->db->pdo()->query('SELECT id FROM supplier WHERE id <> ' . $this->supplierId . ' ORDER BY id LIMIT 1')->fetchColumn();
+        self::assertGreaterThan(0, $foreign);
+        $template = ['subject' => 'Unsafe stale draft', 'body_html' => '<p>Example</p>', 'body_text' => 'Example'];
+        foreach ([$foreign, 4294967295] as $sid) {
+            foreach ([['GET', ''], ['GET', '/invoice_send/cs'], ['PUT', '/invoice_send/cs'], ['DELETE', '/invoice_send/cs'], ['POST', '/invoice_send/cs/preview']] as [$method, $suffix]) {
+                self::assertSame(403, $this->request($method, '/api/settings/client/email-templates' . $suffix, $session, $method === 'GET' ? null : $template, $sid)->getStatusCode());
+            }
+        }
+    }
+
+    public function testCompanyTemplateStaffSupplierRoleOverrideIsAuthoritative(): void
+    {
+        $writer = $this->createUser('writer', 'staff', 2, true);
+        $reader = $this->createUser('reader', 'staff', 1, true);
+        $writerRole = (int) $this->db->pdo()->query('SELECT role_id FROM users WHERE id = ' . $writer)->fetchColumn();
+        $readerRole = (int) $this->db->pdo()->query('SELECT role_id FROM users WHERE id = ' . $reader)->fetchColumn();
+        $stmt = $this->db->pdo()->prepare('UPDATE user_suppliers SET role_id = ? WHERE user_id = ? AND supplier_id = ?');
+        $stmt->execute([$writerRole, $reader, $this->supplierId]);
+        $stmt->execute([$readerRole, $writer, $this->supplierId]);
+        $readerSession = $this->createSession($reader);
+        $writerSession = $this->createSession($writer);
+        self::assertSame(200, $this->request('GET', '/api/settings/email-templates', $readerSession)->getStatusCode());
+        self::assertSame(403, $this->request('GET', '/api/settings/email-templates', $writerSession)->getStatusCode());
+    }
+
+    private function backupTemplate(string $table, array $keys): void
+    {
+        $where = implode(' AND ', array_map(static fn ($key) => "$key = ?", array_keys($keys)));
+        $stmt = $this->db->pdo()->prepare("SELECT * FROM $table WHERE $where");
+        $stmt->execute(array_values($keys));
+        $this->templateBackups[] = [$table, $keys, $stmt->fetch(\PDO::FETCH_ASSOC)];
+    }
+
     private function createUser(string $variant, string $roleType, int $level, bool $hasSupplier): int
     {
         if ($variant === 'superadmin') {
@@ -607,7 +711,7 @@ final class RbacHttpRoleMatrixTest extends TestCase
         return ['token' => (string) $session['token'], 'csrf_token' => (string) $session['csrf_token']];
     }
 
-    private function request(string $method, string $path, array $session, ?array $body = null): ResponseInterface
+    private function request(string $method, string $path, array $session, ?array $body = null, ?int $supplierId = null): ResponseInterface
     {
         $cookieName = (string) $this->config->get('session.cookie_name', '__Host-myinvoice_session');
         $request = (new ServerRequestFactory())
@@ -616,7 +720,7 @@ final class RbacHttpRoleMatrixTest extends TestCase
             ->withHeader('Accept', 'application/json')
             ->withHeader('Origin', rtrim((string) $this->config->get('app.url', ''), '/'))
             ->withHeader('X-CSRF-Token', $session['csrf_token'])
-            ->withHeader('X-Supplier-Id', (string) $this->supplierId);
+            ->withHeader('X-Supplier-Id', (string) ($supplierId ?? $this->supplierId));
         if ($body !== null) {
             $request = $request->withHeader('Content-Type', 'application/json')->withBody(
                 (new StreamFactory())->createStream(json_encode($body, JSON_THROW_ON_ERROR)),

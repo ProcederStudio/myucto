@@ -987,7 +987,8 @@
         "2003_supplier_fiscal_year_start_month.sql",
         "2004_payment_order_tax_items.sql",
         "2005_email_distribution_across_suppliers.sql",
-        "2006_payroll_wage_rounding.sql"
+        "2006_payroll_wage_rounding.sql",
+        "2007_supplier_email_templates.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -22031,6 +22032,32 @@
                 "chk_supplier_domains_primary_portal": "`is_primary_portal` in (0,1) and (`is_primary_portal` = 0 or `purpose` in ('portal','all'))",
                 "chk_supplier_domains_primary_public": "`is_primary_public` in (0,1) and (`is_primary_public` = 0 or `purpose` in ('public_links','all'))"
             }
+        },
+        "supplier_email_templates": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "body_html": "mediumtext NOT NULL",
+                "body_text": "mediumtext NOT NULL",
+                "code": "varchar(64) NOT NULL",
+                "id": "int(10) unsigned NOT NULL AUTO_INCREMENT",
+                "locale": "char(2) NOT NULL",
+                "subject": "varchar(255) NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "updated_at": "timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE CURRENT_TIMESTAMP()",
+                "updated_by": "bigint(20) unsigned NULL DEFAULT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_supplier_email_template_user": "BTREE (updated_by)",
+                "uq_supplier_email_template": "UNIQUE BTREE (supplier_id, code, locale)"
+            },
+            "foreign_keys": {
+                "fk_supplier_email_template_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE",
+                "fk_supplier_email_template_user": "(updated_by) -> users (id) ON UPDATE RESTRICT ON DELETE SET NULL"
+            },
+            "checks": []
         },
         "supplier_groups": {
             "type": "BASE TABLE",
