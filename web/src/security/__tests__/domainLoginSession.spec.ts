@@ -202,6 +202,17 @@ describe('portal-only canonical session ownership', () => {
     expect(authApi.domainLoginAuthorize).toHaveBeenCalledOnce()
     expect(authApi.logout).toHaveBeenCalledOnce()
   })
+  it('never navigates to a tampered stored redirect', async () => {
+    recordCanonicalDomainLoginSession('owned')
+    vi.mocked(authApi.logout).mockRejectedValueOnce(new Error('offline'))
+    await expect(authorizePendingDomainLogin()).rejects.toThrow('offline')
+    const stored = JSON.parse(sessionStorage.getItem('myinvoice.domain_login.canonical') || '{}')
+    sessionStorage.setItem('myinvoice.domain_login.canonical', JSON.stringify({ ...stored, redirectUrl: 'https://attacker.example.test/phish' }))
+    vi.mocked(authApi.domainLoginAuthorize).mockResolvedValueOnce({ redirect_url: 'javascript:alert(1)' })
+    await expect(authorizePendingDomainLogin()).rejects.toThrow('Invalid domain login redirect')
+    expect(replace).not.toHaveBeenCalled()
+    expect(hasPendingCanonicalDomainLogin()).toBe(false)
+  })
   it('does nothing without a pending request', async () => {
     sessionStorage.clear()
     expect(await authorizePendingDomainLogin()).toBe(false)

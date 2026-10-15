@@ -195,7 +195,11 @@ async function authorizeAndCleanup(): Promise<boolean> {
     clearCanonicalDomainLogin()
     throw { response: { status: pending.terminalError.status, data: { error: pending.terminalError } } }
   }
-  window.location.replace(pending.redirectUrl!)
+  if (!isDomainLoginCallbackUrl(pending.redirectUrl)) {
+    clearCanonicalDomainLogin()
+    throw new Error('Invalid domain login redirect')
+  }
+  window.location.replace(pending.redirectUrl)
   clearCanonicalDomainLogin()
   return true
 }
@@ -250,9 +254,20 @@ function readCanonical(): CanonicalState | null {
       ...(value.terminalError && TERMINAL_AUTHORIZATION_ERRORS.includes(value.terminalError.code)
         && typeof value.terminalError.message === 'string' && typeof value.terminalError.status === 'number'
         ? { terminalError: value.terminalError } : {}),
-      ...(typeof value.redirectUrl === 'string' && value.redirectUrl ? { redirectUrl: value.redirectUrl } : {}),
+      ...(isDomainLoginCallbackUrl(value.redirectUrl) ? { redirectUrl: value.redirectUrl } : {}),
     }
   } catch {
     return null
+  }
+}
+
+function isDomainLoginCallbackUrl(value: unknown): value is string {
+  if (typeof value !== 'string' || !value) return false
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' && url.pathname === '/domain-login/callback'
+      && !url.username && !url.password
+  } catch {
+    return false
   }
 }
