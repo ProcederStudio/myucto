@@ -446,6 +446,18 @@ final class RbacHttpRoleMatrixTest extends TestCase
         ]]);
         self::assertSame(403, $invalidBatch->getStatusCode());
         self::assertSame($before, $this->json($this->request('GET', '/api/settings/client/pdf-signing', $session)));
+        foreach ([
+            ['/api/settings/client/pdf-signing/output-settings', ['settings' => []], 400],
+            ['/api/settings/client/pdf-signing/output-settings', ['settings' => [null]], 400],
+            ['/api/settings/client/pdf-signing/output-settings', ['settings' => [['output_type' => 'unknown']]], 404],
+            ['/api/settings/client/pdf-signing/output-settings/unknown', [], 404],
+            ['/api/settings/client/pdf-signing/output-settings', ['settings' => [
+                ['output_type' => 'invoice'] + $data, ['output_type' => 'invoice'] + $data,
+            ]], 400],
+        ] as [$settingsPath, $settingsBody, $status]) {
+            self::assertSame($status, $this->request('PUT', $settingsPath, $session, $settingsBody)->getStatusCode());
+        }
+        self::assertSame($before, $this->json($this->request('GET', '/api/settings/client/pdf-signing', $session)));
         self::assertSame(200, $this->request('DELETE', $path, $session)->getStatusCode());
         self::assertFileDoesNotExist(RuntimePaths::storage("signing/profiles/supplier-{$this->supplierId}/profile-{$id}/profile.p12"));
     }

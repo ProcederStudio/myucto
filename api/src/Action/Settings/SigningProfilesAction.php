@@ -124,40 +124,6 @@ final class SigningProfilesAction
                 return $this->clientRestricted($response);
             }
         }
-        if (in_array($operation, ['updatePdfOutputSetting', 'updatePdfOutputSettings'], true)) {
-            $items = $operation === 'updatePdfOutputSettings' ? ($body['settings'] ?? []) : [$body];
-            if (!is_array($items)) return $this->clientRestricted($response);
-            foreach ($items as $index => $item) {
-                if (!is_array($item)) return $this->clientRestricted($response);
-                $outputType = $operation === 'updatePdfOutputSetting'
-                    ? (string) ($args['output_type'] ?? '')
-                    : (string) ($item['output_type'] ?? '');
-                if ($operation === 'updatePdfOutputSetting' && isset($item['output_type'])
-                    && $item['output_type'] !== $outputType
-                ) {
-                    return $this->clientRestricted($response);
-                }
-                $usage = $this->usageForOutputType($outputType);
-                $existing = $this->profiles->outputSetting($supplierId, $outputType, $usage);
-                if (($item['selection_source'] ?? 'admin_profile_settings') !== 'admin_profile_settings'
-                    || ($item['backend'] ?? ($usage === 'pdf' ? 'native' : 'smime')) !== ($usage === 'pdf' ? 'native' : 'smime')
-                    || ($item['user_profile_fallback'] ?? 'fallback_unsigned') !== 'fallback_unsigned'
-                    || (array_key_exists('signature_config', $item)
-                        && $item['signature_config'] != ($existing['signature_config'] ?? []))
-                ) {
-                    return $this->clientRestricted($response);
-                }
-                $profileId = $this->nullableInt($item['default_profile_id'] ?? null);
-                if ($profileId !== null && !$this->clientAccess->canReference($supplierId, $profileId, $usage)) {
-                    return $this->clientRestricted($response);
-                }
-                // Klient nastavuje výběr firemního profilu, ne politiku identity
-                // spravovanou instalací. Zachovej ji i při částečném požadavku.
-                $items[$index]['signature_config'] = $existing['signature_config'] ?? [];
-            }
-            $body = $operation === 'updatePdfOutputSettings' ? ['settings' => $items] : $items[0];
-            $request = $request->withParsedBody($body);
-        }
         if ($operation === 'testPdfSigning') {
             $outputType = (string) ($body['output_type'] ?? 'invoice');
             $setting = $this->profiles->outputSetting($supplierId, $outputType, 'pdf');
@@ -477,7 +443,8 @@ final class SigningProfilesAction
         $usage = $this->usageForOutputType($outputType);
         $before = $this->profiles->outputSetting($supplierId, $outputType, $usage);
         $body = (array) ($request->getParsedBody() ?? []);
-        $data = $this->outputSettingData($body, $usage);
+        $data = $this->outputSettingData($request, $body, $usage, $before);
+        if ($data === null) return $this->clientRestricted($response);
 
         try {
             $this->profiles->upsertOutputSetting($supplierId, $outputType, $data, $usage);
@@ -535,10 +502,12 @@ final class SigningProfilesAction
             $seen[$outputType] = true;
             $usage = $this->usageForOutputType($outputType);
             $before[$outputType] = $this->profiles->outputSetting($supplierId, $outputType, $usage);
+            $data = $this->outputSettingData($request, $item, $usage, $before[$outputType]);
+            if ($data === null) return $this->clientRestricted($response);
             $prepared[] = [
                 'output_type' => $outputType,
                 'usage' => $usage,
-                'data' => $this->outputSettingData($item, $usage),
+                'data' => $data,
             ];
         }
 
@@ -1215,9 +1184,10 @@ final class SigningProfilesAction
 
     /**
      * @param array<string,mixed> $body
-     * @return array<string,mixed>
+     * @param array<string,mixed> $before
+     * @return array<string,mixed>|null Null = nastavení mimo klientskou delegaci.
      */
-    private function outputSettingData(array $body, string $usage): array
+    private function outputSettingData(Request $request, array $body, string $usage, array $before): ?array
     {
         $data = [];
         foreach (['enabled', 'backend', 'selection_source', 'user_profile_fallback', 'failure_policy'] as $field) {
@@ -1227,6 +1197,21 @@ final class SigningProfilesAction
         }
         if (array_key_exists('default_profile_id', $body)) {
             $data['default_profile_id'] = $this->nullableInt($body['default_profile_id']);
+        }
+        if ($request->getAttribute(self::ATTR_CLIENT_MANAGEMENT) === true) {
+            if ((isset($body['output_type']) && $body['output_type'] !== $before['output_type'])
+                || ($data['selection_source'] ?? 'admin_profile_settings') !== 'admin_profile_settings'
+                || ($data['backend'] ?? ($usage === 'pdf' ? 'native' : 'smime')) !== ($usage === 'pdf' ? 'native' : 'smime')
+                || ($data['user_profile_fallback'] ?? 'fallback_unsigned') !== 'fallback_unsigned'
+                || (array_key_exists('signature_config', $body)
+                    && $body['signature_config'] != ($before['signature_config'] ?? []))
+                || (($data['default_profile_id'] ?? null) !== null
+                    && !$this->clientAccess->canReference($this->supplierId($request), $data['default_profile_id'], $usage))
+            ) {
+                return null;
+            }
+            // Výběr firemního profilu nemění instalační politiku S/MIME identity.
+            $body['signature_config'] = $before['signature_config'] ?? [];
         }
         if (array_key_exists('signature_config', $body)) {
             $data['signature_config'] = $this->normalizeSignatureConfig($body['signature_config'], $usage);
