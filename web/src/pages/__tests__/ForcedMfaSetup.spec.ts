@@ -9,8 +9,13 @@ import { flushPromises, mount } from '@vue/test-utils'
  */
 const m = vi.hoisted(() => ({
   dismissMfaOffer: vi.fn(),
+  pendingDomainLogin: vi.fn(() => false),
+  authorizeDomainLogin: vi.fn(),
   totpSetup: vi.fn(),
   totpEnable: vi.fn(),
+  ownedCsrf: vi.fn<() => string | null>(() => null),
+  advanceSession: vi.fn(),
+  setSessionCsrfToken: vi.fn(),
   passkeyStepUpOptions: vi.fn(),
   passkeyStepUpVerify: vi.fn(),
   getCredential: vi.fn(),
@@ -48,7 +53,7 @@ vi.mock('@/stores/auth', () => ({
     ...m.store,
     refresh: m.refresh,
     logout: m.logout,
-    setSessionCsrfToken: vi.fn(),
+    setSessionCsrfToken: m.setSessionCsrfToken,
   }),
 }))
 vi.mock('@/stores/sessionSecurity', () => ({
@@ -61,8 +66,10 @@ vi.mock('@/security/webauthn', () => ({
   webAuthnErrorKey: () => null,
 }))
 vi.mock('@/security/domainLogin', () => ({
-  hasPendingCanonicalDomainLogin: () => false,
-  authorizePendingDomainLogin: vi.fn(),
+  canonicalDomainLoginSessionCsrf: m.ownedCsrf,
+  advanceCanonicalDomainLoginSession: m.advanceSession,
+  hasPendingCanonicalDomainLogin: m.pendingDomainLogin,
+  authorizePendingDomainLogin: m.authorizeDomainLogin,
 }))
 vi.mock('vue-router', () => ({
   useRoute: () => ({ query: {} }),
@@ -81,6 +88,8 @@ const mountPage = () => mount(ForcedMfaSetup)
 beforeEach(() => {
   rememberTotpEnrollment(null)
   vi.clearAllMocks()
+  m.ownedCsrf.mockReturnValue(null)
+  m.pendingDomainLogin.mockReturnValue(false)
   m.store.user = { totp_enabled: false }
   m.store.allowedMfaMethods = ['totp']
   m.store.mustSetupMfa = false
@@ -270,5 +279,55 @@ describe('ForcedMfaSetup — TOTP vyžaduje čerstvé ověření', () => {
     expect(wrapper.text()).toContain('mfa_setup.already_enabled_relogin')
     expect(wrapper.find('[data-test="mfa-logout"]').exists()).toBe(true)
     expect(m.replace).not.toHaveBeenCalledWith('/')
+  })
+})
+
+
+describe('ForcedMfaSetup — owned portal session rotation', () => {
+  it('binds TOTP completion to the owned session and advances ownership before refresh', async () => {
+    m.ownedCsrf.mockReturnValue('owned')
+    m.totpEnable.mockResolvedValue({ enabled: true, csrf_token: 'rotated' })
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.get('[data-test="totp-current-password"]').setValue('Synthetic-test-password-42')
+    await wrapper.get('[data-test="totp-start"]').trigger('click')
+    await flushPromises()
+    const input = wrapper.get('input[autocomplete="one-time-code"]')
+    await input.setValue('123456')
+    await input.trigger('keydown.enter')
+    await flushPromises()
+    expect(m.totpEnable).toHaveBeenCalledWith('123456', 'owned')
+    expect(m.advanceSession).toHaveBeenCalledWith('owned', 'rotated')
+    expect(m.setSessionCsrfToken).toHaveBeenCalledWith('rotated')
+    expect(m.advanceSession.mock.invocationCallOrder[0]).toBeLessThan(m.refresh.mock.invocationCallOrder.at(-1)!)
+    wrapper.unmount()
+  })
+})
+
+
+describe('ForcedMfaSetup — portal return after saving recovery codes', () => {
+  it('shows cleanup failure and allows another confirmation without repeating enrollment', async () => {
+    m.refresh.mockResolvedValue(true)
+    m.totpEnable.mockResolvedValue({ enabled: true, recovery_codes: ['AAAA-BBBB'] })
+    m.authorizeDomainLogin.mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce(true)
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.get('[data-test="totp-current-password"]').setValue('Synthetic-test-password-42')
+    await wrapper.get('[data-test="totp-start"]').trigger('click')
+    await flushPromises()
+    const input = wrapper.get('input[autocomplete="one-time-code"]')
+    await input.setValue('123456')
+    await input.trigger('keydown.enter')
+    await flushPromises()
+    m.pendingDomainLogin.mockReturnValue(true)
+    await wrapper.get('[data-recovery-once-confirm]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('domain_login.authorize_failed')
+    expect(wrapper.get('[data-recovery-once-confirm]').attributes('disabled')).toBeUndefined()
+    await wrapper.get('[data-recovery-once-confirm]').trigger('click')
+    await flushPromises()
+    expect(m.authorizeDomainLogin).toHaveBeenCalledTimes(2)
+    expect(m.totpEnable).toHaveBeenCalledOnce()
+    wrapper.unmount()
   })
 })

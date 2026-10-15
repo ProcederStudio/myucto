@@ -6,6 +6,7 @@ import {
   type RouteRecordRaw,
 } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { hasPendingCanonicalDomainLoginCleanup, pendingCanonicalDomainLoginQuery } from '@/security/domainLogin'
 import type { DomainContext } from '@/api/auth'
 import { useSupplierStore } from '@/stores/supplier'
 import { useSessionSecurityStore } from '@/stores/sessionSecurity'
@@ -396,6 +397,10 @@ export async function authorizationGuard(
   }
 
   const requiresAuth = to.matched.some((r) => r.meta.requiresAuth)
+  if (requiresAuth && auth.domainContext?.mode === 'canonical' && hasPendingCanonicalDomainLoginCleanup()) {
+    // Obnovení stránky po MFA nesmí pustit dočasnou relaci do hlavní aplikace.
+    return { name: 'login', query: pendingCanonicalDomainLoginQuery() ?? {} }
+  }
   if (requiresAuth && auth.domainContext?.locked) {
     const redirect = clientDomainRedirect(to.name)
     if (redirect !== null) return { path: redirect }
@@ -480,6 +485,8 @@ export async function authorizationGuard(
   // bez politiky a odmítnutí by muselo dorazit dřív než další navigace — přesně
   // ta závislost vyrobila smyčku home → setup-mfa → home (#5).
   if (auth.isAuthenticated && !mustSetupMfa && !auth.shouldOfferMfa && mfaSetupRoute) {
+    const domainLoginQuery = auth.domainContext?.mode === 'canonical' ? pendingCanonicalDomainLoginQuery() : null
+    if (domainLoginQuery) return { name: 'login', query: domainLoginQuery }
     return { name: 'home' }
   }
 

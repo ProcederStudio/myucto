@@ -76,6 +76,7 @@ function signIn(overrides: Record<string, unknown> = {}) {
 describe('router guard vynuceného nastavení MFA', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    sessionStorage.clear()
   })
 
   it('pustí účet s must_setup_mfa na setup-mfa a nevrátí ho domů', async () => {
@@ -85,6 +86,23 @@ describe('router guard vynuceného nastavení MFA', () => {
 
     expect(final).toBe('setup-mfa')
     expect(path).toEqual(['home', 'setup-mfa'])
+  })
+
+  it.each([false, true])('obnovení dokončeného MFA vrátí portálový tok na přihlášení (cleanup=%s)', async (cleanup) => {
+    const auth = signIn()
+    auth.domainContext = {
+      mode: 'canonical', hostname: 'app.example.test', origin: 'https://app.example.test',
+      locked: false, supplier_id: null, purpose: null,
+    }
+    const requestToken = 'a'.repeat(43)
+    const state = 'b'.repeat(43)
+    sessionStorage.setItem('myinvoice.domain_login.canonical', JSON.stringify({
+      requestToken, state, handoffPath: '/setup-mfa', ownedCsrf: 'portal-created-csrf',
+      ...(cleanup ? { redirectUrl: 'https://portal.example.test/domain-login/callback' } : {}),
+    }))
+    expect(await authorizationGuard(resolveTarget({ name: 'setup-mfa' }))).toEqual({
+      name: 'login', query: { domain_login_request: requestToken, state, domain_login_handoff: '/setup-mfa' },
+    })
   })
 
   it('nechá na setup-mfa i účet, který na ni přijde přímo z URL', async () => {

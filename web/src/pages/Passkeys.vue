@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { advanceCanonicalDomainLoginSession, canonicalDomainLoginSessionCsrf } from '@/security/domainLogin'
 import { authApi, type PasskeyCredential } from '@/api/auth'
 import { createCredential, getCredential, isWebAuthnAvailable, webAuthnErrorKey } from '@/security/webauthn'
 import { useAuthStore } from '@/stores/auth'
@@ -90,8 +91,10 @@ async function add() {
     }
     const flow = await authApi.passkeyRegisterOptions(authorization)
     const credential = await createCredential(flow.public_key)
-    const registered = await authApi.passkeyRegisterVerify(flow.flow_token, credential, label.value.trim())
+    const previousCsrf = canonicalDomainLoginSessionCsrf()
+    const registered = await authApi.passkeyRegisterVerify(flow.flow_token, credential, label.value.trim(), previousCsrf ?? undefined)
     if (registered.csrf_token) {
+      if (previousCsrf) advanceCanonicalDomainLoginSession(previousCsrf, registered.csrf_token)
       auth.setSessionCsrfToken(registered.csrf_token)
     }
     await auth.refresh()
