@@ -12454,6 +12454,8 @@ paths:
         - { in: query, name: partner_id, schema: { type: integer } }
         - { in: query, name: format, required: true, schema: { type: string, enum: [pdf, xlsx] } }
         - { in: query, name: view, description: "Jen pro format=xlsx: grouped (default, per partner) nebo flat (plochý seznam dokladů). PDF je vždy grouped.", schema: { type: string, enum: [grouped, flat], default: grouped } }
+        - { in: query, name: aging, description: "Jen pro format=pdf: hranice dní po splatnosti oddělené čárkou (1–6 celých čísel 1–3650, např. 30,60,120). PDF pak začíná členěním otevřených položek po partnerech do pásem do splatnosti, 1–30, 31–60, 61–120 a nad 120 dní.", schema: { type: string, example: '30,60,120' } }
+        - { in: query, name: detail, description: "Jen s aging: 0 = PDF obsahuje jen členění bez rozpisu dokladů.", schema: { type: string, enum: ['0', '1'], default: '1' } }
       responses:
         '200': { description: Soubor sestavy, content: { application/octet-stream: { schema: { type: string, format: binary } } } }
         '404': { $ref: '#/components/responses/NotFound' }

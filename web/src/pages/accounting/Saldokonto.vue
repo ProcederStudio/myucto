@@ -11,6 +11,8 @@ import {
 } from '@/api/accounting'
 import type { SortPref } from '@/api/preferences'
 import { useToast } from '@/composables/useToast'
+import { useTablePrefs } from '@/composables/useTablePrefs'
+import { ensurePrefsLoaded } from '@/composables/useUserPrefs'
 import { formatMoney, formatDate } from '@/composables/useFormat'
 import { ICONS, btnOutline, btnFilled, btnOutlineSm } from '@/components/ui/buttonStyles'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -237,16 +239,58 @@ function docLink(it: SaldoItem) {
     : { name: 'invoice-detail', params: { id: it.doc_id } }
 }
 
+// ── Podklad pro banky: PDF s členěním podle doby po splatnosti ───────────────
+// Volba i hranice se pamatují per uživatel (každá banka chce jiné rozmezí, ale účetní
+// je nastaví jednou). Hranice validuje i server, tady jen kvůli okamžité odezvě.
+const tbl = useTablePrefs('saldo', [])
+const AGING_DEFAULT = [30, 60, 120]
+const AGING_MAX = 6
+interface AgingPref { enabled: boolean; boundaries: number[]; detail: boolean }
+const aging = reactive<AgingPref>({ enabled: false, boundaries: [...AGING_DEFAULT], detail: true })
+const agingText = ref(AGING_DEFAULT.join(', '))
+let agingLoaded = false
+
+const agingBoundaries = computed<number[] | null>(() => {
+  const parts = agingText.value.split(/[,;\s]+/).filter(p => p !== '')
+  if (parts.length === 0 || parts.length > AGING_MAX || parts.some(p => !/^\d{1,4}$/.test(p))) return null
+  const days = [...new Set(parts.map(Number))].sort((a, b) => a - b)
+  return days.every(d => d >= 1 && d <= 3650) ? days : null
+})
+
+watch([() => aging.enabled, () => aging.detail, agingBoundaries], () => {
+  if (!agingLoaded) return
+  if (agingBoundaries.value) aging.boundaries = agingBoundaries.value
+  tbl.setOption('pdf_aging', { enabled: aging.enabled, boundaries: aging.boundaries, detail: aging.detail })
+})
+
+function restoreAging() {
+  const saved = tbl.option<Partial<AgingPref> | null>('pdf_aging', null)
+  if (saved) {
+    aging.enabled = saved.enabled === true
+    aging.detail = saved.detail !== false
+    if (Array.isArray(saved.boundaries) && saved.boundaries.length > 0) aging.boundaries = saved.boundaries.map(Number)
+  }
+  agingText.value = aging.boundaries.join(', ')
+  agingLoaded = true
+}
+
 const exporting = ref(false)
 async function exportFile(format: 'pdf' | 'xlsx') {
   if (!filters.period_id || !report.value) return
+  if (format === 'pdf' && aging.enabled && !agingBoundaries.value) {
+    toast.error(t('accounting.saldo.pdf_aging_invalid'))
+    return
+  }
   exporting.value = true
   try {
     // Task #2: PDF zůstává vždy grouped (zákonný inventarizační protokol) —
     // view ovlivňuje jen pracovní XLSX export dle aktuálního přepínače.
     const view = viewMode.value === 'flat' ? 'flat' : 'grouped'
-    const r = await accountingApi.exportReport('/accounting/reports/saldo/export', { ...queryParams(), format, view })
-    const suffix = format === 'xlsx' && view === 'flat' ? '-doklady' : ''
+    const agingParams: Record<string, string> = format === 'pdf' && aging.enabled && agingBoundaries.value
+      ? { aging: agingBoundaries.value.join(','), detail: aging.detail ? '1' : '0' }
+      : {}
+    const r = await accountingApi.exportReport('/accounting/reports/saldo/export', { ...queryParams(), format, view, ...agingParams })
+    const suffix = format === 'xlsx' && view === 'flat' ? '-doklady' : (agingParams.aging ? '-po-splatnosti' : '')
     downloadBlob(r.data as unknown as Blob, `saldokonto${suffix}-${report.value.as_of}.${format}`)
   } catch (e: any) {
     toast.error(e?.response?.data?.error?.message || t('common.error'))
@@ -289,6 +333,7 @@ function applyQuery(): { periodId: number | null } {
 }
 
 onMounted(async () => {
+  void ensurePrefsLoaded().then(restoreAging)
   try { periods.value = await accountingApi.listPeriods() } catch { periods.value = [] }
   const { periodId } = applyQuery()
   const open = periods.value.filter(p => p.status === 'open')
@@ -373,6 +418,27 @@ onMounted(async () => {
           <input v-model="flatFilters.min_overdue_days" type="number" min="0" placeholder="0"
             class="w-full h-9 px-2 border border-neutral-300 rounded-md text-sm" />
         </div>
+      </div>
+      <div class="mt-3 pt-3 border-t border-neutral-100 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+        <label class="inline-flex items-center gap-2 cursor-pointer">
+          <input v-model="aging.enabled" type="checkbox" class="rounded border-neutral-300" data-testid="saldo-pdf-aging" />
+          <span>{{ t('accounting.saldo.pdf_aging_label') }}</span>
+        </label>
+        <template v-if="aging.enabled">
+          <label class="inline-flex items-center gap-2">
+            <span class="text-xs text-neutral-500 whitespace-nowrap">{{ t('accounting.saldo.pdf_aging_boundaries') }}</span>
+            <input v-model="agingText" type="text" inputmode="numeric" data-testid="saldo-pdf-aging-boundaries"
+              class="w-36 h-8 px-2 border rounded-md text-sm"
+              :class="agingBoundaries ? 'border-neutral-300' : 'border-danger-500'" />
+          </label>
+          <label class="inline-flex items-center gap-2 cursor-pointer">
+            <input v-model="aging.detail" type="checkbox" class="rounded border-neutral-300" />
+            <span>{{ t('accounting.saldo.pdf_aging_detail') }}</span>
+          </label>
+          <span class="text-xs" :class="agingBoundaries ? 'text-neutral-500' : 'text-danger-600'">
+            {{ agingBoundaries ? t('accounting.saldo.pdf_aging_hint') : t('accounting.saldo.pdf_aging_invalid') }}
+          </span>
+        </template>
       </div>
       <div v-if="asOfPeriodNote" class="mt-3 flex flex-wrap items-center gap-2 text-xs px-3 py-2 rounded-md bg-warning-50 text-warning-700 border border-warning-500/30">
         <span v-if="asOfPeriodNote.kind === 'different'">
