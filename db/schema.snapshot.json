@@ -987,7 +987,8 @@
         "2003_supplier_fiscal_year_start_month.sql",
         "2004_payment_order_tax_items.sql",
         "2005_email_distribution_across_suppliers.sql",
-        "2006_payroll_wage_rounding.sql"
+        "2006_payroll_wage_rounding.sql",
+        "2007_supplier_standalone_isdoc.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -21754,6 +21755,7 @@
                 "display_name": "varchar(190) NULL DEFAULT NULL",
                 "email": "varchar(190) NOT NULL",
                 "email_accent_color": "varchar(7) NOT NULL DEFAULT '#3B2D83'",
+                "email_attach_isdoc": "tinyint(1) NOT NULL DEFAULT 0",
                 "email_branding_enabled": "tinyint(1) NOT NULL DEFAULT 1",
                 "embed_isdoc": "tinyint(1) NOT NULL DEFAULT 1",
                 "epo_taxpayer_code": "varchar(1) NULL DEFAULT NULL",
@@ -21819,6 +21821,7 @@
                 "pohoda_contract_code": "varchar(20) NULL DEFAULT NULL",
                 "proforma_number_format": "varchar(60) NULL DEFAULT NULL",
                 "proforma_payment_document": "enum('final_on_full_payment','always_tax_document','manual') NOT NULL DEFAULT 'always_tax_document'",
+                "public_isdoc_enabled": "tinyint(1) NOT NULL DEFAULT 0",
                 "purchase_advance_number_format": "varchar(60) NULL DEFAULT NULL",
                 "purchase_credit_note_number_format": "varchar(60) NULL DEFAULT NULL",
                 "purchase_import_received_at": "enum('issue_date','import_date') NOT NULL DEFAULT 'issue_date'",

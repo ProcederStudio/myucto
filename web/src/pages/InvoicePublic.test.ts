@@ -1,10 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import InvoicePublic from './InvoicePublic.vue'
+import { createI18n } from 'vue-i18n'
+import cs from '@/i18n/cs.json'
+import en from '@/i18n/en.json'
 
 const api = vi.hoisted(() => ({ get: vi.fn() }))
+vi.mock('@/i18n', () => ({ ensureLocaleLoaded: vi.fn().mockResolvedValue(undefined) }))
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: { token: 'synthetic' } }) }))
-vi.mock('@/api/publicInvoice', () => ({ publicInvoiceApi: { get: api.get, pdfUrl: () => '', attachmentUrl: () => '' } }))
+vi.mock('@/api/publicInvoice', () => ({ publicInvoiceApi: { get: api.get, pdfUrl: (token: string) => `/api/public/invoice/${token}/pdf?download=1`, isdocUrl: (token: string) => `/api/public/invoice/${token}/isdoc`, attachmentUrl: () => '' } }))
 
 describe('public invoice time presentation', () => {
   it.each([
@@ -25,7 +29,7 @@ describe('public invoice time presentation', () => {
       },
       supplier: { is_vat_payer: false }, client: {}, bank: null, attachments: [], oss_clause: null,
     })
-    const wrapper = mount(InvoicePublic)
+    const wrapper = mount(InvoicePublic, { global: { plugins: [createI18n({ legacy: false, locale: 'cs', messages: { cs, en } })] } })
     await flushPromises()
     try {
       const cells = wrapper.find('tbody tr').findAll('td')
@@ -53,10 +57,45 @@ describe('public invoice paid state', () => {
       supplier: { is_vat_payer: false }, client: {}, bank: { account_number: '1000000005', bank_code: '0100' },
       attachments: [], oss_clause: null, qr_data_uri: 'data:image/png;base64,QR',
     })
-    const wrapper = mount(InvoicePublic)
+    const wrapper = mount(InvoicePublic, { global: { plugins: [createI18n({ legacy: false, locale: 'cs', messages: { cs, en } })] } })
     await flushPromises()
     try {
       expect(wrapper.find('img[alt="QR"]').exists()).toBe(qr)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+})
+
+
+describe('public invoice ISDOC download', () => {
+  it.each([
+    { available: true, language: 'cs', label: 'Stáhnout ISDOC' },
+    { available: true, language: 'en', label: 'Download ISDOC' },
+    { available: false, language: 'cs', label: '' },
+    { available: undefined, language: 'cs', label: '' },
+  ])('availability=$available in $language', async ({ available, language, label }) => {
+    api.get.mockResolvedValue({
+      isdoc_available: available,
+      invoice: {
+        invoice_type: 'invoice', status: 'issued', language, currency: 'CZK',
+        amount_to_pay: 100, paid_total: 0, due_date: '2099-01-01',
+        totals: { without_vat: 100, vat: 0, with_vat: 100, amount_to_pay: 100 },
+        vat_breakdown: [], items: [],
+      },
+      supplier: {}, client: null, bank: null, attachments: [], oss_clause: null,
+    })
+    const wrapper = mount(InvoicePublic, { global: { plugins: [createI18n({ legacy: false, locale: 'cs', messages: { cs, en } })] } })
+    await flushPromises()
+    try {
+      const download = wrapper.find('a[href="/api/public/invoice/synthetic/isdoc"]')
+      expect(download.exists()).toBe(available === true)
+      if (available) {
+        expect(download.text()).toBe(label)
+        expect(download.find('svg').exists()).toBe(true)
+        expect(download.classes()).toContain('border-neutral-300')
+      }
+      expect(wrapper.find('a[href="/api/public/invoice/synthetic/pdf?download=1"]').exists()).toBe(true)
     } finally {
       wrapper.unmount()
     }

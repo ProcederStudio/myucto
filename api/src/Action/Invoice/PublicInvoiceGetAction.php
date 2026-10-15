@@ -12,6 +12,7 @@ use MyInvoice\Repository\InvoiceRepository;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Approval\ApprovalTokenValidator;
 use MyInvoice\Service\Invoice\InvoicePublicLinkFeature;
+use MyInvoice\Service\Invoice\InvoiceIsdocDeliverySettings;
 use MyInvoice\Service\IpMatcher;
 use MyInvoice\Service\Mail\InvoiceEmailVarsBuilder;
 use MyInvoice\Service\Pdf\InvoicePdfRenderer;
@@ -46,6 +47,7 @@ final class PublicInvoiceGetAction
         private readonly IpMatcher $ipMatcher,
         private readonly PublicTenantGuard $tenantGuard,
         private readonly InvoicePublicLinkFeature $feature,
+        private readonly InvoiceIsdocDeliverySettings $isdocSettings,
     ) {}
 
     public function __invoke(Request $request, Response $response, array $args): Response
@@ -88,6 +90,7 @@ final class PublicInvoiceGetAction
             $this->emailVars->paymentQrDataUri($invoice),
             $this->attachments->listForInvoice((int) $invoice['id']),
             $this->renderer->ossClause($invoice),
+            $this->isdocSettings->publicEnabled($invoice),
         ));
     }
 
@@ -112,6 +115,7 @@ final class PublicInvoiceGetAction
         ?string $qrDataUri,
         array $attachments = [],
         ?array $ossClause = null,
+        bool $isdocAvailable = false,
     ): array {
         $pick = static fn (array $src, array $keys): array =>
             array_intersect_key($src, array_flip($keys));
@@ -138,6 +142,7 @@ final class PublicInvoiceGetAction
 
         return [
             'invoice'  => $publicInvoice,
+            'isdoc_available' => $isdocAvailable,
             // Podmnožina polí, která tiskne PDF šablona (api/templates/invoice/invoice.twig)
             'supplier' => $pick($supplier, [
                 'company_name', 'street', 'city', 'zip',

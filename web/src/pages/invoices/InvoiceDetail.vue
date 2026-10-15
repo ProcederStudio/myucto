@@ -735,6 +735,7 @@ function actionLabel(a: string): string {
     'invoice.public_link_regenerated': 'invoice.actions.public_link_regenerated',
     'invoice.public_viewed':           'invoice.actions.public_viewed',
     'invoice.public_pdf_downloaded':   'invoice.actions.public_pdf_downloaded',
+    'invoice.public_isdoc_downloaded': 'invoice.actions.public_isdoc_downloaded',
     'invoice.public_attachment_downloaded': 'invoice.actions.public_attachment_downloaded',
     'proforma.final_issued':          'invoice.actions.proforma_final_issued',
   }

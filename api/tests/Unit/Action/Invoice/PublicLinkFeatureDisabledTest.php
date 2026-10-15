@@ -9,12 +9,14 @@ use MyInvoice\Action\Invoice\PublicInvoiceGetAction;
 use MyInvoice\Action\Invoice\PublicInvoicePdfAction;
 use MyInvoice\Action\Invoice\PublicLinkAction;
 use MyInvoice\Infrastructure\Config\Config;
+use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Middleware\SupplierScopeMiddleware;
 use MyInvoice\Repository\InvoiceAttachmentRepository;
 use MyInvoice\Repository\InvoiceRepository;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Invoice\InvoicePublicLinkFeature;
+use MyInvoice\Service\Invoice\InvoiceIsdocDeliverySettings;
 use MyInvoice\Service\Invoice\InvoicePublicLinkService;
 use MyInvoice\Service\IpMatcher;
 use MyInvoice\Service\Mail\InvoiceEmailVarsBuilder;
@@ -128,13 +130,14 @@ final class PublicLinkFeatureDisabledTest extends TestCase
         $renderer = $this->createStub(InvoicePdfRenderer::class);
         $attachments = (new \ReflectionClass(InvoiceAttachmentRepository::class))->newInstanceWithoutConstructor();
         $emailVars = (new \ReflectionClass(InvoiceEmailVarsBuilder::class))->newInstanceWithoutConstructor();
+        $isdocSettings = new InvoiceIsdocDeliverySettings($this->createStub(Connection::class));
 
         $request = (new ServerRequestFactory())->createServerRequest('GET', '/api/public/invoice/' . self::TOKEN);
         $response = (new ResponseFactory())->createResponse();
         $args = ['token' => self::TOKEN, 'attId' => 3];
 
         return match ($endpoint) {
-            'get' => (new PublicInvoiceGetAction($repo, $attachments, $renderer, $emailVars, $logger, $ip, $guard, $feature))
+            'get' => (new PublicInvoiceGetAction($repo, $attachments, $renderer, $emailVars, $logger, $ip, $guard, $feature, $isdocSettings))
                 ($request, $response, $args),
             'pdf' => (new PublicInvoicePdfAction($renderer, $repo, $logger, $ip, $guard, $feature))
                 ($request, $response, $args),

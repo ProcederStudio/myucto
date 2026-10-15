@@ -217,11 +217,13 @@ final class SessionLockMiddlewareTest extends TestCase
             }
         };
 
-        $response = $this->middleware($locks)->process(
-            $this->sessionRequest('/api/public/invoice/' . str_repeat('a', 32)),
-            $handler,
-        );
-        self::assertSame(204, $response->getStatusCode());
+        foreach (['', '/pdf', '/isdoc'] as $suffix) {
+            $response = $this->middleware($locks)->process(
+                $this->sessionRequest('/api/public/invoice/' . str_repeat('a', 32) . $suffix),
+                $handler,
+            );
+            self::assertSame(204, $response->getStatusCode());
+        }
     }
 
     public function testLockedPublicRequestRequiresExactKnownRouteAndMethod(): void

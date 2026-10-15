@@ -19,7 +19,7 @@ use Throwable;
  *   - přerenderování při odeslání použije aktuální šablonu a aktuální
  *     podpisový profil, což je u zprávy odložené o hodiny to, co chceme.
  *
- * Cena: příloha se do fronty ukládá jako CESTA. Když soubor mezitím zmizí,
+ * Soubory se do fronty ukládají jako CESTA; generované ISDOC jako UTF-8 obsah. Když soubor mezitím zmizí,
  * odeslání selže a řádek skončí ve `failed` s chybou — což je vidět, na
  * rozdíl od tiché ztráty.
  *

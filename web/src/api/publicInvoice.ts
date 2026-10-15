@@ -124,6 +124,7 @@ export interface PublicInvoiceOssClause {
 }
 
 export interface PublicInvoiceData {
+  isdoc_available: boolean
   invoice: PublicInvoiceHeader
   supplier: PublicInvoiceParty
   /** null = zjednodušený doklad bez odběratele (§ 30 ZDPH). */
@@ -140,6 +141,9 @@ export const publicInvoiceApi = {
 
   pdfUrl: (token: string, download: boolean = false) =>
     `/api/public/invoice/${token}/pdf${download ? '?download=1' : ''}`,
+
+  isdocUrl: (token: string) =>
+    `/api/public/invoice/${token}/isdoc`,
 
   attachmentUrl: (token: string, attId: number) =>
     `/api/public/invoice/${token}/attachment/${attId}`,

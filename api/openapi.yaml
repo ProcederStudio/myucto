@@ -36768,6 +36768,8 @@ components:
         subset (fakturační údaje, defaulty, číslování, branding). `logo_path`
         a `signature_path` přes tento endpoint změnit NELZE (bezpečnost).
       properties:
+        public_isdoc_enabled: { type: boolean, default: false, description: "Nabízet samostatný ISDOC na web faktuře. Nezávislé na vložení ISDOC do PDF." }
+        email_attach_isdoc: { type: boolean, default: false, description: "Přikládat samostatný ISDOC vedle PDF v e-mailech faktur, včetně automatického odesílání, upomínek a poděkování s PDF." }
         company_name: { type: string }
         purchase_import_received_at: { type: string, enum: [issue_date, import_date], default: issue_date, description: "Datum přijetí u importovaných přijatých dokladů (migrace 1848). issue_date = datum z dokladu (datum vystavení, jinak DUZP), import_date = den importu. Platí pro všechny formáty importu — AI z PDF, ISDOC/ISDOCX/PDF/A-3, Pohoda XML, iDoklad, Fakturoid i scan inbox. Na období nároku na odpočet vliv nemá: importovaný doklad si drží received_at_source='import'." }
         display_name: { type: [string, "null"], description: "Obchodní/značkové jméno v hlavičce PDF a e-mailů (fallback = company_name)" }
@@ -36854,6 +36856,8 @@ components:
         na `GET /api/settings/currencies`. (Pozn.: response obsahuje i další
         sloupce mimo tento výčet — branding, integrace, payment-thanks ap.)
       properties:
+        public_isdoc_enabled: { type: boolean, default: false, description: "Nabízet samostatný ISDOC na web faktuře. Nezávislé na vložení ISDOC do PDF." }
+        email_attach_isdoc: { type: boolean, default: false, description: "Přikládat samostatný ISDOC vedle PDF v e-mailech faktur, včetně automatického odesílání, upomínek a poděkování s PDF." }
         id: { type: integer }
         company_name: { type: string }
         purchase_import_received_at: { type: string, enum: [issue_date, import_date], description: "Datum přijetí u importovaných přijatých dokladů (migrace 1848). issue_date = datum z dokladu (datum vystavení, jinak DUZP) — výchozí; import_date = den importu." }
