@@ -24,9 +24,9 @@ final class ClientRoutePolicyTest extends TestCase
         $names = array_column($routes, 'name');
         $patterns = array_column($routes, 'path_pattern');
 
-        self::assertCount(41, $routes);
-        self::assertCount(41, array_unique($names));
-        self::assertCount(41, array_unique($patterns));
+        self::assertCount(43, $routes);
+        self::assertCount(43, array_unique($names));
+        self::assertCount(43, array_unique($patterns));
         self::assertContains('data-exchange', $names);
         self::assertContains('admin-export', $names);
         self::assertContains('admin-import', $names);
@@ -56,6 +56,8 @@ final class ClientRoutePolicyTest extends TestCase
         foreach ([
             '/',
             '/portal',
+            '/bank',
+            '/bank/42',
             '/portal/document-requests',
             '/portal/purchase-invoice-submissions',
             '/portal/settings',
@@ -110,7 +112,7 @@ final class ClientRoutePolicyTest extends TestCase
             '/purchase-invoices/payment-orders',
             '/purchase-invoices/ai-import',
             '/documents',
-            '/bank',
+            '/bank/42/edit',
             '/accounting/journal',
             '/admin/settings',
             '/profile/api-tokens',
@@ -206,6 +208,9 @@ final class ClientRoutePolicyTest extends TestCase
             ['POST', '/api/invoices/7/issue'],
             ['POST', '/api/purchase-invoices/7/transition'],
             ['POST', '/api/recurring/7/run'],
+            ['GET', '/api/bank-statements'],
+            ['POST', '/api/bank-statements/upload'],
+            ['POST', '/api/bank-transactions/7/unignore'],
             ['GET', '/api/settings'],
             ['GET', '/api/settings/client/email-profiles'],
             ['POST', '/api/settings/client/email-profiles'],
@@ -230,7 +235,7 @@ final class ClientRoutePolicyTest extends TestCase
             ['GET', '/api/projects'],
             ['GET', '/api/purchase-invoices/payment-orders'],
             ['POST', '/api/purchase-invoices/scan-inbox'],
-            ['GET', '/api/bank-statements'],
+            ['POST', '/api/bank-statements/scan'],
             ['GET', '/api/admin/users'],
             ['GET', '/api/admin/export'],
             ['POST', '/api/admin/import'],

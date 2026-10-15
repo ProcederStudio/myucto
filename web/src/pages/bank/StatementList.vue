@@ -34,7 +34,7 @@ const toast = useToast()
 const authStore = useAuthStore()
 const supplierStore = useSupplierStore()
 const isAdmin = computed(() => authStore.isCompanyAdminRole)
-const isDoubleEntry = computed(() => authStore.hasCommercialFeatures && supplierStore.currentSupplier?.accounting_mode === 'double_entry')
+const isDoubleEntry = computed(() => !authStore.isClientRole && authStore.hasCommercialFeatures && supplierStore.currentSupplier?.accounting_mode === 'double_entry')
 
 const router = useRouter()
 const route = useRoute()
@@ -648,8 +648,8 @@ async function onFileSelected(e: Event) {
         <h1 class="text-2xl font-semibold">{{ t('bank.title') }}</h1>
         <p class="text-sm text-neutral-500 mt-0.5">{{ t('bank.subtitle') }}</p>
       </div>
-      <div class="flex items-center gap-2 ml-auto">
-        <button v-if="authStore.canWrite('bank.import') && scanConfigured" @click="onScan" :disabled="scanning"
+      <div class="flex flex-wrap items-center gap-2 ml-auto">
+        <button v-if="!authStore.isClientRole && authStore.canWrite('bank.import') && scanConfigured" @click="onScan" :disabled="scanning"
           :class="btnOutline('neutral')">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.cycle" /></svg>
           {{ scanning ? '…' : t('bank.scan_folder') }}
@@ -739,6 +739,7 @@ async function onFileSelected(e: Event) {
         >{{ accountLabel(a) }}</option>
       </select>
       <SearchableSelect
+        v-if="!authStore.isClientRole || authStore.canRead('clients')"
         v-model="counterpartySelection"
         class="w-64 max-w-full"
         remote

@@ -3797,7 +3797,34 @@ paths:
         '422':
           description: Poznámka není text nebo přesahuje 1000 znaků.
         '409':
-          description: Zaúčtovanou transakci nelze ignorovat (posted_transaction_cannot_be_ignored)
+          description: Zaúčtovanou transakci nelze ignorovat (posted_transaction_cannot_be_ignored); klient smí ignorovat pouze nespárovaný pohyb.
+
+  /api/v1/bank-transactions/{id}/unignore:
+    parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - in: path
+        name: id
+        required: true
+        schema: { type: integer, format: int64 }
+    post:
+      tags: [Bank]
+      summary: Zruší ruční ignorování bankovního pohybu
+      description: |
+        Vyžaduje čtení banky a oprávnění bank.ignore k zápisu. Obnoví pouze ručně
+        ignorovaný pohyb; systémově potlačené duplicity ani přenesená ignorování
+        tímto endpointem obnovit nelze.
+      responses:
+        '200':
+          description: Pohyb vrácen mezi nespárované.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BankUnignoreResult' }
+        '403':
+          description: Chybí oprávnění.
+        '404':
+          description: Pohyb neexistuje nebo patří jiné firmě.
+        '409':
+          description: Pohyb nelze obnovit z aktuálního stavu.
 
   /api/v1/bank-transactions/{id}/post:
     parameters:
@@ -36643,9 +36670,28 @@ components:
               type: array
               items: { $ref: '#/components/schemas/BankTransaction' }
 
-    BankTransaction:
+    BankUnignoreResult:
       type: object
       properties:
+        unmatched: { type: boolean, const: true }
+
+    BankTransaction:
+      type: object
+      description: |
+        Klientská role vidí pouze vazby na doklady z agend, ke kterým má právo čtení.
+        Ostatní vazby jsou prázdné nebo null; účetní detaily, dimenze a interní údaje
+        o platebních kartách se klientům neposkytují.
+      properties:
+        resolution:
+          type: [string, "null"]
+          enum: [payroll, transfer, outside_saldo, null]
+          description: Bezpečné označení jiného vypořádání pohybu pro klientské zobrazení bez účetních detailů.
+        match_available:
+          type: boolean
+          description: Dostupnost párování pohybu pro klienta; samotná akce navíc vyžaduje odpovídající oprávnění.
+        ignore_available:
+          type: boolean
+          description: Dostupnost ignorování pohybu pro klienta; samotná akce navíc vyžaduje bank.ignore k zápisu.
         ignore_origin: { type: [string, "null"], enum: [manual, notice_transfer, null], description: Původ ignorování }
         id: { type: integer, format: int64 }
         source: { type: string, enum: [statement, email_notice, idoklad] }

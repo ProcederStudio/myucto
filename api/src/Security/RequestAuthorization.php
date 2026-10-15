@@ -121,6 +121,9 @@ final class RequestAuthorization
         AccessLevel $minimum = AccessLevel::READ,
     ): bool {
         $role = self::effectiveRole($request);
+        if ($permission === 'bank' || str_starts_with($permission, 'bank.')) {
+            return (new PermissionChecker(new PermissionCatalog()))->allows($role, $permission, $minimum);
+        }
         return $role->isSuperadmin() || ($role->isActive && $role->level($permission)->allows($minimum));
     }
 }

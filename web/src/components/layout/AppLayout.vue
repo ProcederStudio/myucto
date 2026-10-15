@@ -335,6 +335,9 @@ const navSections = computed<NavSection[]>(() => {
           { to: '/purchase-invoices', label: t('nav.purchase_invoices'), icon: ICONS.purchase, newTo: '/purchase-invoices/new' },
         ],
       },
+      { key: 'bank_cash', title: t('nav.section_bank_cash'), accent: 'success', items: [
+        { to: '/bank', label: t('nav.bank_accounts'), icon: ICONS.bank, permission: 'bank' as PermissionKey },
+      ] },
       {
         key: 'contacts',
         title: t('nav.section_contacts'),

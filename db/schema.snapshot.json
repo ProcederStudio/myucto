@@ -987,7 +987,8 @@
         "2003_supplier_fiscal_year_start_month.sql",
         "2004_payment_order_tax_items.sql",
         "2005_email_distribution_across_suppliers.sql",
-        "2006_payroll_wage_rounding.sql"
+        "2006_payroll_wage_rounding.sql",
+        "2007_client_bank_permissions.sql"
     ],
     "tables": {
         "abra_flexi_connections": {

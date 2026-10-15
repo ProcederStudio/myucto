@@ -21,7 +21,7 @@ const { t } = useI18n()
 const auth = useAuthStore()
 const supplier = useSupplierStore()
 const supplierId = supplier.currentSupplierId
-const canMatch = computed(() => auth.canRead('bank') && auth.canWrite('bank.match'))
+const canMatch = computed(() => !auth.isClientRole && auth.canRead('bank') && auth.canWrite('bank.match'))
 const search = ref('')
 const searchInput = ref<HTMLInputElement | null>(null)
 const candidates = ref<BankPaymentCandidate[]>([])

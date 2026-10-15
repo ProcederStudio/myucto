@@ -697,6 +697,13 @@ final class BankPostingSuggestionRepository
     {
         $unpostedOnly = ($filters['scope'] ?? 'unposted') !== 'all';
         [$scopeSql, $scopeParams] = $this->transactionScope($supplierId, $unpostedOnly);
+        // Klientský bankovní přehled vyžaduje vlastnictví výpisu i při poškozené
+        // vazbě na vlastní doklad. Účetní fronta si ponechává rozsah pro opravy vazeb.
+        if (!empty($filters['strict_ownership'])) {
+            $scopeSql .= ' AND ' . BankStatementOwnershipResolver::sql();
+            array_push($scopeParams, ...BankStatementOwnershipResolver::params($supplierId));
+        }
+
 
         $status = $unpostedOnly ? null : ($filters['status'] ?? null);
         if (in_array($status, ['unmatched', 'auto_exact', 'auto_partial', 'manual', 'ignored'], true)) {
@@ -769,7 +776,7 @@ final class BankPostingSuggestionRepository
                     COALESCE(bt.currency, bs.currency, 'CZK') AS currency,
                     bt.variable_symbol, bt.constant_symbol, bt.specific_symbol,
                     bt.counterparty_account, bt.counterparty_bank, bt.counterparty_name,
-                    bt.description, bt.bank_ref, bt.match_status, bt.ignore_note, bt.matched_invoice_id, bt.matched_at,
+                    bt.description, bt.bank_ref, bt.match_status, bt.ignore_note, bt.ignore_origin, i.id AS matched_invoice_id, bt.matched_at,
                     bs.account_number,
                     COALESCE(
                       (SELECT cur.bank_code FROM currencies cur
@@ -801,19 +808,19 @@ final class BankPostingSuggestionRepository
                     ) AS period_closed,
                     i.varsymbol AS matched_varsymbol, i.amount_to_pay AS matched_invoice_amount,
                     c.company_name AS matched_client_name,
-                    pm.purchase_invoice_id AS matched_purchase_invoice_id,
+                    p.id AS matched_purchase_invoice_id,
                     COALESCE(NULLIF(p.vendor_invoice_number, ''), p.varsymbol) AS matched_purchase_ref,
                     vc.company_name AS matched_vendor_name
                FROM bank_transactions bt
                JOIN bank_statements bs ON bs.id = bt.statement_id
-          LEFT JOIN invoices i ON i.id = bt.matched_invoice_id
-          LEFT JOIN clients c ON c.id = i.client_id
+          LEFT JOIN invoices i ON i.id = bt.matched_invoice_id AND i.supplier_id = {$supplierId}
+          LEFT JOIN clients c ON c.id = i.client_id AND c.supplier_id = i.supplier_id
           LEFT JOIN (SELECT bank_transaction_id, MIN(id) AS min_id
                        FROM payment_matches GROUP BY bank_transaction_id) pmx
                  ON pmx.bank_transaction_id = bt.id
           LEFT JOIN payment_matches pm ON pm.id = pmx.min_id
-          LEFT JOIN purchase_invoices p ON p.id = pm.purchase_invoice_id
-          LEFT JOIN clients vc ON vc.id = p.vendor_id
+          LEFT JOIN purchase_invoices p ON p.id = pm.purchase_invoice_id AND p.supplier_id = {$supplierId}
+          LEFT JOIN clients vc ON vc.id = p.vendor_id AND vc.supplier_id = p.supplier_id
               WHERE {$scopeSql}
               ORDER BY {$orderBy}
               LIMIT {$limit} OFFSET {$offset}"
@@ -835,8 +842,8 @@ final class BankPostingSuggestionRepository
                         i.varsymbol, i.invoice_type, c.company_name AS client_name
                    FROM invoice_payments p
                    JOIN invoices i ON i.id = p.invoice_id
-              LEFT JOIN clients c ON c.id = i.client_id
-                  WHERE p.bank_transaction_id IN ({$ph})
+              LEFT JOIN clients c ON c.id = i.client_id AND c.supplier_id = i.supplier_id
+                  WHERE i.supplier_id = {$supplierId} AND p.bank_transaction_id IN ({$ph})
                ORDER BY p.id"
             );
             $mp->execute($txIds);
@@ -879,6 +886,7 @@ final class BankPostingSuggestionRepository
                 'matched_purchase_invoices' => $matchedPurchasesByTx[(int) $row['id']] ?? [],
                 'match_status' => (string) $row['match_status'],
                 'ignore_note' => $row['ignore_note'] === null ? null : (string) $row['ignore_note'],
+                'ignore_origin' => $row['ignore_origin'] === null ? null : (string) $row['ignore_origin'],
                 'matched_at' => $row['matched_at'] === null ? null : (string) $row['matched_at'],
                 'account_number' => (string) $row['account_number'],
                 'bank_code' => $row['bank_code'] === null ? null : (string) $row['bank_code'],

@@ -7,6 +7,7 @@ import { defineComponent } from 'vue'
 // endpointy a v řádku nemá stav zaúčtování ani kontace.
 
 const m = vi.hoisted(() => ({
+  client: false,
   state: { mode: 'tax_evidence' as string, commercial: true },
   listMovements: vi.fn(), listUnposted: vi.fn(), unpostedCount: vi.fn(), suggestions: vi.fn(),
 }))
@@ -22,6 +23,7 @@ vi.mock('vue-i18n', async importOriginal => ({
 vi.mock('@/stores/auth', () => ({
   useAuthStore: () => ({
     get hasCommercialFeatures() { return m.state.commercial },
+    get isClientRole() { return m.client },
     isCompanyAdminRole: false, isDemo: false, canRead: () => false, canWrite: () => false,
   }),
 }))
@@ -63,6 +65,7 @@ function tabs(wrapper: ReturnType<typeof mount>): string[] {
 describe('Bankovní účty: záložka „Všechny pohyby" (#136)', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    m.client = false
     sessionStorage.clear()
     m.listMovements.mockResolvedValue(page)
     m.listUnposted.mockResolvedValue(page)
@@ -95,6 +98,15 @@ describe('Bankovní účty: záložka „Všechny pohyby" (#136)', () => {
     await flushPromises()
     expect(tabs(wrapper).slice(0, 4)).toEqual(['bank.title', 'bank.posting.tab_all', 'bank.posting.tab_suggestions', 'bank.analytics.tab'])
     expect(m.unpostedCount).toHaveBeenCalled()
+  })
+
+  it('klient v podvojném účetnictví vidí jen výpisy, pohyby a zůstatky', async () => {
+    m.state = { mode: 'double_entry', commercial: true }
+    m.client = true
+    const wrapper = mount(BankPage, { global: { stubs } })
+    await flushPromises()
+    expect(tabs(wrapper)).toEqual(['bank.title', 'bank.posting.tab_all', 'bank_accounts.tab_balances'])
+    expect(m.unpostedCount).not.toHaveBeenCalled()
   })
 
   it('daňová evidence čte bankovní endpoint a nevidí zaúčtování ani kontace', async () => {

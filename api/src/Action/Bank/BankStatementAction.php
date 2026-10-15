@@ -124,6 +124,7 @@ final class BankStatementAction
         private readonly \MyInvoice\Service\Bank\CreditCard\CreditCardStatementImportService $creditCards,
         // Výpis k účtu jiné firmy, kam smí uživatel importovat banku, se naimportuje tam.
         private readonly \MyInvoice\Security\CrossSupplierAuthorization $crossSupplier,
+        private readonly ClientBankAccess $clientAccess,
         private readonly ?SubsetSumSolver $subsetSolver = null,
     ) {}
 
@@ -353,6 +354,9 @@ final class BankStatementAction
         // Kreditní karta není bankovní účet: úvěrový účet se zaeviduje firmě a účtuje se
         // na 231.x. Měnový účet (currency_id) se tu nevolí, kreditka v `currencies` není.
         if (\MyInvoice\Service\Bank\CreditCard\CreditCardStatementImportService::isCreditCardStatement($parsed)) {
+            if (RequestAuthorization::isClientType($request)) {
+                return Json::error($response, 'forbidden', 'Import kreditních karet vyžaduje účetní.', 403);
+            }
             $current = SupplierGuard::currentId($request);
             $owner = $this->creditCards->ownerAmong($parsed, $current, array_values(array_filter(
                 $this->crossSupplier->suppliersAllowing($request, ['bank.import']),
@@ -620,12 +624,15 @@ final class BankStatementAction
     private function resolveTargetCurrency(Request $request, string $accountNumber): array
     {
         $sid = SupplierGuard::currentId($request);
+        if ($accountNumber === '' && RequestAuthorization::isClientType($request)) {
+            return ['currency_id' => null, 'supplier_id' => $sid, 'error' => fn (Response $response) => Json::error($response, 'wrong_supplier_account', 'Výpis musí obsahovat registrovaný bankovní účet firmy.', 409)];
+        }
         if ($accountNumber === '') {
             return ['currency_id' => null, 'supplier_id' => $sid, 'error' => null];
         }
 
         $matches = $this->accountMatches([$sid], $accountNumber);
-        if ($matches === []) {
+        if ($matches === [] && !RequestAuthorization::isClientType($request)) {
             $others = array_values(array_filter(
                 $this->crossSupplier->suppliersAllowing($request, ['bank.import']),
                 static fn (int $id): bool => $id !== $sid,
@@ -1774,20 +1781,20 @@ final class BankStatementAction
         // LIMIT/OFFSET inlinujeme jako validované inty (vzor StockItemRepository::list) —
         // native prepared statements neumí LIMIT/OFFSET s parametrem typu string.
         $txStmt = $this->db->pdo()->prepare(
-            'SELECT bt.*, i.varsymbol AS matched_varsymbol, i.amount_to_pay AS matched_invoice_amount,
+            'SELECT bt.*, i.id AS matched_invoice_id, i.varsymbol AS matched_varsymbol, i.amount_to_pay AS matched_invoice_amount,
                     i.client_id, c.company_name AS matched_client_name,
-                    pm.purchase_invoice_id AS matched_purchase_invoice_id,
+                    p.id AS matched_purchase_invoice_id,
                     COALESCE(NULLIF(p.vendor_invoice_number, \'\'), p.varsymbol) AS matched_purchase_ref,
                     vc.company_name AS matched_vendor_name
                FROM bank_transactions bt
-          LEFT JOIN invoices i ON i.id = bt.matched_invoice_id
-          LEFT JOIN clients c ON c.id = i.client_id
+          LEFT JOIN invoices i ON i.id = bt.matched_invoice_id AND i.supplier_id = ' . $sid . '
+          LEFT JOIN clients c ON c.id = i.client_id AND c.supplier_id = i.supplier_id
           LEFT JOIN (SELECT bank_transaction_id, MIN(id) AS min_id
                        FROM payment_matches GROUP BY bank_transaction_id) pmx
                  ON pmx.bank_transaction_id = bt.id
           LEFT JOIN payment_matches pm ON pm.id = pmx.min_id
-          LEFT JOIN purchase_invoices p ON p.id = pm.purchase_invoice_id
-          LEFT JOIN clients vc ON vc.id = p.vendor_id
+          LEFT JOIN purchase_invoices p ON p.id = pm.purchase_invoice_id AND p.supplier_id = ' . $sid . '
+          LEFT JOIN clients vc ON vc.id = p.vendor_id AND vc.supplier_id = p.supplier_id
               WHERE ' . $txWhere . '
            ORDER BY ' . $orderBy . '
               LIMIT ' . $p['per_page'] . ' OFFSET ' . $p['offset']
@@ -1809,8 +1816,8 @@ final class BankStatementAction
                         i.varsymbol, i.invoice_type, c.company_name AS client_name
                    FROM invoice_payments p
                    JOIN invoices i ON i.id = p.invoice_id
-              LEFT JOIN clients c ON c.id = i.client_id
-                  WHERE p.bank_transaction_id IN ($ph)
+              LEFT JOIN clients c ON c.id = i.client_id AND c.supplier_id = i.supplier_id
+                  WHERE i.supplier_id = $sid AND p.bank_transaction_id IN ($ph)
                ORDER BY p.id"
             );
             $mp->execute($txIds);
@@ -1862,7 +1869,7 @@ final class BankStatementAction
         $s['evidence_pdfs'] = $monthlyEvidence->evidencePdfs($id, $sid);
         $s['evidence_statements'] = $monthlyEvidence->evidenceStatements($id, $sid);
         $s['api_evidence'] = $monthlyEvidence->isEvidence($id);
-        $s['transactions'] = $transactions;
+        $s['transactions'] = $this->clientAccess->redactTransactions($request, $transactions);
         $summary = $this->db->pdo()->query(
             "SELECT COUNT(*) AS total, SUM(bt.match_status IN ('auto_exact', 'auto_partial', 'manual')) AS matched
              FROM bank_transactions bt WHERE " . StatementTransactionScope::sql($id)
@@ -2165,6 +2172,31 @@ final class BankStatementAction
         return $all ? [(int) $all[0]['id'], (string) $all[0]['code']] : [0, 'CZK'];
     }
 
+    private function lockOwnedTransaction(Request $request, int $txId): array
+    {
+        $stmt = $this->db->pdo()->prepare('SELECT * FROM bank_transactions WHERE id = ? FOR UPDATE');
+        $stmt->execute([$txId]);
+        $tx = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$tx || !$this->txBelongsToCurrentSupplier($request, $txId)) throw new \DomainException('Transakce nenalezena.', 404);
+        return $tx;
+    }
+
+    private function assertUnallocated(array $tx): void
+    {
+        $stmt = $this->db->pdo()->prepare('SELECT
+            EXISTS (SELECT 1 FROM invoice_payments WHERE bank_transaction_id = ?) OR
+            EXISTS (SELECT 1 FROM payment_matches WHERE bank_transaction_id = ?) OR
+            EXISTS (SELECT 1 FROM payroll_payment_matches WHERE bank_transaction_id = ?) OR
+            EXISTS (SELECT 1 FROM other_item_allocations WHERE bank_transaction_id = ?) OR
+            EXISTS (SELECT 1 FROM tax_advance_schedules WHERE matched_transaction_id = ?) OR
+            EXISTS (SELECT 1 FROM bank_transfer_matches WHERE in_transaction_id = ? OR out_transaction_id = ?) OR
+            EXISTS (SELECT 1 FROM gopay_clearings WHERE bank_transaction_id = ? OR payout_match_transaction_id = ?)');
+        $stmt->execute(array_fill(0, 9, $tx['id']));
+        if ($tx['matched_invoice_id'] !== null || (bool) $stmt->fetchColumn()) {
+            throw new \DomainException('Pohyb má navázanou úhradu. Nejprve zrušte párování.', 409);
+        }
+    }
+
     /**
      * Ověří, že bank_transaction patří aktuálnímu supplier-i (vlastnictví se dědí
      * z hlavičky výpisu). Vrací true / false; nevyhazuje výjimku, caller pak vrátí 404.
@@ -2188,7 +2220,13 @@ final class BankStatementAction
         }
 
         try {
-            return Json::ok($response, ['suggestions' => $this->matchV2->listForStatement($statementId, $supplierId)]);
+            $suggestions = $this->matchV2->listForStatement($statementId, $supplierId);
+            if (RequestAuthorization::isClientType($request)) {
+                $suggestions = array_values(array_filter($suggestions, static fn (array $suggestion): bool =>
+                    $suggestion['candidates'] !== [] && array_all($suggestion['candidates'], static fn (array $candidate): bool =>
+                        ClientBankAccess::canRead($request, (string) ($candidate['type'] ?? '')))));
+            }
+            return Json::ok($response, ['suggestions' => $suggestions]);
         } catch (\Throwable) {
             return Json::error($response, 'match_suggestions_failed', 'Návrhy párování se nepodařilo načíst.', 500);
         }
@@ -2205,13 +2243,16 @@ final class BankStatementAction
         $candidateIndex = (int) ($body['candidate_index'] ?? 0);
 
         try {
-            $result = $this->matchV2->accept((int) ($args['id'] ?? 0), $supplierId, $userId, $candidateIndex);
+            $result = $this->matchV2->accept((int) ($args['id'] ?? 0), $supplierId, $userId, $candidateIndex,
+                RequestAuthorization::isClientType($request) ? fn (array $candidate, array $transaction) => $this->clientAccess->assertAvailableCandidate($request, $candidate, $transaction) : null);
             $transactionId = (int) ($result['bank_transaction_id'] ?? 0);
             $posting = $transactionId > 0
                 ? $this->postingSummary($this->bankPosting->handleTransaction($transactionId, $userId ?: null))
                 : null;
-            $result['posting'] = $posting;
+            $result['posting'] = RequestAuthorization::isClientType($request) ? null : $posting;
             return Json::ok($response, $result);
+        } catch (\DomainException $e) {
+            return Json::error($response, 'forbidden_document', $e->getMessage(), $e->getCode());
         } catch (MatchSuggestionException $e) {
             return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus);
         } catch (\Throwable) {
@@ -2230,8 +2271,11 @@ final class BankStatementAction
         $reason = isset($body['reason']) ? (string) $body['reason'] : null;
 
         try {
-            $this->matchV2->reject((int) ($args['id'] ?? 0), $supplierId, $userId, $reason);
+            $this->matchV2->reject((int) ($args['id'] ?? 0), $supplierId, $userId, $reason,
+                RequestAuthorization::isClientType($request) ? fn (array $candidate) => $this->clientAccess->assertCandidate($request, $candidate) : null);
             return Json::ok($response, ['rejected' => true]);
+        } catch (\DomainException $e) {
+            return Json::error($response, 'forbidden_document', $e->getMessage(), $e->getCode());
         } catch (MatchSuggestionException $e) {
             return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus);
         } catch (\Throwable) {
@@ -2297,12 +2341,14 @@ final class BankStatementAction
         }
 
         $candidates = $this->searchMatchCandidates($sid, $posted, $txAmount, $txCcy, self::CANDIDATE_DAY_WINDOW, false);
+        $candidates = array_values(array_filter($candidates, static fn (array $candidate): bool => ClientBankAccess::canRead($request, (string) $candidate['type'])));
         $fallback = false;
         if ($candidates === []) {
             $fallback = true;
             $candidates = $this->searchMatchCandidates($sid, $posted, $txAmount, $txCcy, self::CANDIDATE_FALLBACK_DAY_WINDOW, true);
         }
 
+        $candidates = array_values(array_filter($candidates, static fn (array $candidate): bool => ClientBankAccess::canRead($request, (string) $candidate['type'])));
         return Json::ok($response, ['candidates' => $candidates, 'fallback' => $fallback]);
     }
 
@@ -2472,6 +2518,9 @@ final class BankStatementAction
         $stmt->execute([$txId]);
         $tx = $stmt->fetch(\PDO::FETCH_ASSOC) ?: [];
         $txAmount = round((float) ($tx['amount'] ?? 0), 2);
+        if (!ClientBankAccess::canRead($request, $txAmount < 0 ? 'purchase_invoice' : 'invoice')) {
+            return Json::ok($response, ['suggestions' => [], 'window' => $window, 'max' => $maxInv]);
+        }
         if ($txAmount < 0.0) {
             return Json::ok($response, [
                 'suggestions' => $this->purchaseSplitSuggestions(
@@ -3028,6 +3077,39 @@ final class BankStatementAction
 
     public function manualMatch(Request $request, Response $response, array $args): Response
     {
+        if (!RequestAuthorization::isClientType($request)) return $this->performManualMatch($request, $response, $args);
+        if (!RequestAuthorization::allows($request, 'bank.match', AccessLevel::WRITE)) {
+            return Json::error($response, 'forbidden', 'Chybí oprávnění pro párování banky.', 403);
+        }
+        $pdo = $this->db->pdo();
+        $own = self::beginAtomic($pdo, 'client_bank_match');
+        try {
+            $tx = $this->lockOwnedTransaction($request, (int) ($args['id'] ?? 0));
+            if ($tx['match_status'] === 'ignored') throw new \DomainException('Nejdříve zrušte ruční ignorování pohybu.', 409);
+            if ($tx['match_status'] !== 'unmatched') $this->clientAccess->assertTransactionDocuments($request, $tx);
+            else {
+                $this->assertUnallocated($tx);
+                $this->clientAccess->assertAvailable($request, (int) $tx['id']);
+            }
+            $result = $this->performManualMatch($request, $response, $args);
+            if ($result->getStatusCode() < 400) {
+                $payload = json_decode((string) $result->getBody(), true, flags: JSON_THROW_ON_ERROR);
+                if (array_key_exists('posting', $payload)) $payload['posting'] = null;
+                $stream = (new \Slim\Psr7\Factory\StreamFactory())->createStream(json_encode($payload, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE));
+                $result = $result->withBody($stream);
+            }
+            if ($result->getStatusCode() >= 400) self::rollbackAtomic($pdo, $own, 'client_bank_match');
+            else self::commitAtomic($pdo, $own, 'client_bank_match');
+            return $result;
+        } catch (\Throwable $e) {
+            self::rollbackAtomic($pdo, $own, 'client_bank_match');
+            if ($e instanceof \DomainException) return Json::error($response, 'payment_unavailable', $e->getMessage(), $e->getCode());
+            throw $e;
+        }
+    }
+
+    private function performManualMatch(Request $request, Response $response, array $args): Response
+    {
         $txId = (int) ($args['id'] ?? 0);
         if (!$this->txBelongsToCurrentSupplier($request, $txId)) {
             return Json::error($response, 'not_found', 'Transakce nenalezena.', 404);
@@ -3075,11 +3157,12 @@ final class BankStatementAction
         if ($invoiceId <= 0 && $varsymbol !== '') {
             $sid = SupplierGuard::currentId($request);
             $stmt = $this->db->pdo()->prepare(
-                'SELECT id FROM invoices WHERE supplier_id = ? AND varsymbol = ? LIMIT 1'
+                'SELECT id FROM invoices WHERE supplier_id = ? AND varsymbol = ?'
+                . (RequestAuthorization::isClientType($request) && !ClientBankAccess::canRead($request, 'invoice') ? ' AND 1=0' : '') . ' LIMIT 1'
             );
             $stmt->execute([$sid, $varsymbol]);
             $invoiceId = (int) $stmt->fetchColumn();
-            if ($invoiceId <= 0) {
+            if ($invoiceId <= 0 && (!RequestAuthorization::isClientType($request) || ClientBankAccess::canRead($request, 'invoice'))) {
                 // Samostatný platební VS vydané faktury (#249) — není unikátní, proto jen
                 // mezi nezaplacenými doklady a jen když je shoda jediná.
                 $paymentVs = VariableSymbolNormalizer::forPayment($varsymbol);
@@ -3101,6 +3184,9 @@ final class BankStatementAction
                 }
             }
             if ($invoiceId <= 0) {
+                if (RequestAuthorization::isClientType($request) && !ClientBankAccess::canRead($request, 'purchase_invoice')) {
+                    return Json::error($response, 'invoice_not_found', 'Doklad nebyl nalezen.', 404);
+                }
                 // Fallback: purchase_invoice match (přijatá faktura, my platíme dodavateli)
                 $stmt = $this->db->pdo()->prepare(
                     // OR na vendor_invoice_number — viz StatementMatcher::matchPurchase
@@ -3129,6 +3215,7 @@ final class BankStatementAction
         if (!SupplierGuard::owns($request, $invoice)) {
             return Json::error($response, 'invoice_not_found', 'Faktura nenalezena.', 404);
         }
+        $this->clientAccess->assertDocuments($request, 'invoice', [$invoiceId]);
         $refundDocument = RefundDocument::isRefundDocument($invoice);
         if (
             in_array($invoice['status'], ['issued', 'sent', 'reminded'], true)
@@ -3483,6 +3570,7 @@ final class BankStatementAction
      */
     private function manualMatchSplit(Request $request, Response $response, int $txId, array $invoiceIds): Response
     {
+        $this->clientAccess->assertDocuments($request, 'invoice', $invoiceIds);
         $sid = SupplierGuard::currentId($request);
         $pdo = $this->db->pdo();
         $userId = (int) (((array) $request->getAttribute(AuthMiddleware::ATTR_USER, []))['id'] ?? 0);
@@ -3762,6 +3850,7 @@ final class BankStatementAction
         int $txId,
         array $purchaseInvoiceIds,
     ): Response {
+        $this->clientAccess->assertDocuments($request, 'purchase_invoice', $purchaseInvoiceIds);
         if (count($purchaseInvoiceIds) > self::SPLIT_MAX_INVOICES) {
             return Json::error($response, 'too_many_invoices', 'Najednou lze spárovat nejvýše 6 přijatých faktur.', 422);
         }
@@ -4062,6 +4151,7 @@ final class BankStatementAction
      */
     private function manualMatchPurchase(Request $request, Response $response, int $txId, int $purchaseInvoiceId): Response
     {
+        $this->clientAccess->assertDocuments($request, 'purchase_invoice', [$purchaseInvoiceId]);
         $supplierId = SupplierGuard::currentId($request);
         $pdo = $this->db->pdo();
 
@@ -4222,6 +4312,27 @@ final class BankStatementAction
 
     public function unmatch(Request $request, Response $response, array $args): Response
     {
+        if (!RequestAuthorization::isClientType($request)) return $this->performUnmatch($request, $response, $args);
+        if (!RequestAuthorization::allows($request, 'bank.match', AccessLevel::WRITE)) return Json::error($response, 'forbidden', 'Chybí oprávnění pro párování banky.', 403);
+        $pdo = $this->db->pdo();
+        $own = self::beginAtomic($pdo, 'client_bank_unmatch');
+        try {
+            $tx = $this->lockOwnedTransaction($request, (int) ($args['id'] ?? 0));
+            if (!in_array($tx['match_status'], ['manual', 'auto_exact', 'auto_partial'], true)) throw new \DomainException('Pohyb nemá párování, které lze zrušit.', 409);
+            $this->clientAccess->assertTransactionDocuments($request, $tx);
+            $result = $this->performUnmatch($request, $response, $args);
+            if ($result->getStatusCode() >= 400) self::rollbackAtomic($pdo, $own, 'client_bank_unmatch');
+            else self::commitAtomic($pdo, $own, 'client_bank_unmatch');
+            return $result;
+        } catch (\Throwable $e) {
+            self::rollbackAtomic($pdo, $own, 'client_bank_unmatch');
+            if ($e instanceof \DomainException) return Json::error($response, 'payment_unavailable', $e->getMessage(), $e->getCode());
+            throw $e;
+        }
+    }
+
+    private function performUnmatch(Request $request, Response $response, array $args): Response
+    {
         $txId = (int) ($args['id'] ?? 0);
         if (!$this->txBelongsToCurrentSupplier($request, $txId)) {
             return Json::error($response, 'not_found', 'Transakce nenalezena.', 404);
@@ -4296,79 +4407,67 @@ final class BankStatementAction
 
     public function ignore(Request $request, Response $response, array $args): Response
     {
-        $txId = (int) ($args['id'] ?? 0);
-        if (!$this->txBelongsToCurrentSupplier($request, $txId)) {
-            return Json::error($response, 'not_found', 'Transakce nenalezena.', 404);
-        }
-
+        if (!RequestAuthorization::allows($request, 'bank.ignore', AccessLevel::WRITE)) return Json::error($response, 'forbidden', 'Chybí oprávnění pro ignorování plateb.', 403);
         $body = (array) $request->getParsedBody();
-        $noteSent = array_key_exists('note', $body);
         $note = $body['note'] ?? null;
         if ($note !== null && (!is_string($note) || mb_strlen($note) > 1000)) {
             return Json::error($response, 'validation_error', 'Poznámka musí být text o nejvýše 1000 znacích.', 422);
         }
-        $note = $note !== null ? trim($note) : null;
-        $note = $note === '' ? null : $note;
-
+        $txId = (int) ($args['id'] ?? 0);
         $pdo = $this->db->pdo();
-        // Načti previous state pro audit log (před UPDATE)
-        $prev = $pdo->prepare(
-            'SELECT statement_id, match_status, matched_invoice_id, ignore_note FROM bank_transactions WHERE id = ?'
-        );
-        $prev->execute([$txId]);
-        $prevRow = $prev->fetch(\PDO::FETCH_ASSOC) ?: [];
-        if (!$noteSent) {
-            // Vynechaný klíč = ponechat uloženou poznámku; smaže ji jen explicitní null / "".
-            $note = isset($prevRow['ignore_note']) && $prevRow['ignore_note'] !== '' ? (string) $prevRow['ignore_note'] : null;
-        }
-        $statementId = (int) ($prevRow['statement_id'] ?? 0);
-        $previousStatus = (string) ($prevRow['match_status'] ?? '');
-        $previousInvoiceId = $prevRow['matched_invoice_id'] !== null ? (int) $prevRow['matched_invoice_id'] : null;
-
-        // Automatizace: zaúčtovanou tx nelze ignorovat (409); pending návrh → superseded (M3c).
-        // V jedné transakci s UPDATE — jinak by selhaný UPDATE nechal návrhy superseded bez ignore.
-        $pdo->beginTransaction();
+        $own = self::beginAtomic($pdo, 'bank_tx_ignore');
         try {
-            if ($this->bankPosting !== null) {
-                try {
-                    $this->bankPosting->onIgnore(SupplierGuard::currentId($request), $txId);
-                } catch (\MyInvoice\Service\Accounting\PostingException $pe) {
-                    $pdo->rollBack();
-                    return Json::error($response, $pe->errorCode, $pe->getMessage(), $pe->httpStatus);
-                }
+            $tx = $this->lockOwnedTransaction($request, $txId);
+            if ($tx['match_status'] !== 'unmatched' && !($tx['match_status'] === 'ignored' && $tx['ignore_origin'] === 'manual')) {
+                throw new \DomainException('Ignorovat lze pouze nespárovaný pohyb.', 409);
             }
+            $this->assertUnallocated($tx);
+            if (RequestAuthorization::isClientType($request) && $tx['match_status'] === 'unmatched') {
+                $this->clientAccess->assertAvailable($request, $txId);
+            }
+            $note = array_key_exists('note', $body) ? ($note !== null ? trim($note) : null) : $tx['ignore_note'];
+            $note = $note === '' ? null : $note;
+            $this->bankPosting->onIgnore(SupplierGuard::currentId($request), $txId);
             $pdo->prepare("UPDATE bank_transactions SET match_status = 'ignored', ignore_origin = 'manual', ignore_note = ? WHERE id = ?")->execute([$note, $txId]);
-            $pdo->commit();
+            $this->logIgnoreChange($request, $txId, 'bank.tx_ignore', ['note' => $note, 'previous_status' => $tx['match_status'], 'previous_invoice_id' => $tx['matched_invoice_id']]);
+            self::commitAtomic($pdo, $own, 'bank_tx_ignore');
+            return Json::ok($response, ['ignored' => true, 'ignore_note' => $note]);
         } catch (\Throwable $e) {
-            if ($pdo->inTransaction()) {
-                $pdo->rollBack();
-            }
+            self::rollbackAtomic($pdo, $own, 'bank_tx_ignore');
+            if ($e instanceof \MyInvoice\Service\Accounting\PostingException) return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus);
+            if ($e instanceof \DomainException) return Json::error($response, 'payment_unavailable', $e->getMessage(), $e->getCode());
             throw $e;
         }
+    }
 
-        // Pokud byla transakce dříve matched (auto/manual), recompute count na výpisu
-        if ($statementId > 0) {
-            $pdo->prepare(
-                "UPDATE bank_statements
-                    SET matched_count = (
-                        SELECT COUNT(*) FROM bank_transactions
-                         WHERE statement_id = ?
-                           AND match_status IN ('auto_exact', 'auto_partial', 'manual')
-                    )
-                  WHERE id = ?"
-            )->execute([$statementId, $statementId]);
+    public function unignore(Request $request, Response $response, array $args): Response
+    {
+        if (!RequestAuthorization::allows($request, 'bank.ignore', AccessLevel::WRITE)) return Json::error($response, 'forbidden', 'Chybí oprávnění pro ignorování plateb.', 403);
+        $txId = (int) ($args['id'] ?? 0);
+        $pdo = $this->db->pdo();
+        $own = self::beginAtomic($pdo, 'bank_tx_unignore');
+        try {
+            $tx = $this->lockOwnedTransaction($request, $txId);
+            if ($tx['match_status'] !== 'ignored' || $tx['ignore_origin'] !== 'manual') {
+                throw new \DomainException('Zrušit lze pouze ruční ignorování pohybu.', 409);
+            }
+            $this->assertUnallocated($tx);
+            $pdo->prepare("UPDATE bank_transactions SET match_status = 'unmatched', ignore_origin = NULL, ignore_note = NULL WHERE id = ?")->execute([$txId]);
+            $this->logIgnoreChange($request, $txId, 'bank.tx_unignore', ['previous_note' => $tx['ignore_note'], 'previous_status' => $tx['match_status']]);
+            self::commitAtomic($pdo, $own, 'bank_tx_unignore');
+            return Json::ok($response, ['unmatched' => true]);
+        } catch (\Throwable $e) {
+            self::rollbackAtomic($pdo, $own, 'bank_tx_unignore');
+            if ($e instanceof \DomainException) return Json::error($response, 'payment_unavailable', $e->getMessage(), $e->getCode());
+            throw $e;
         }
+    }
 
-        // Audit log — destructive op musí být dohledatelná (forensic integrity).
+    private function logIgnoreChange(Request $request, int $txId, string $event, array $context): void
+    {
         $userId = (int) (((array) $request->getAttribute(AuthMiddleware::ATTR_USER, []))['id'] ?? 0);
-        $ip = $this->ipMatcher->clientIpFromRequest($request->getServerParams());
-        $this->logger->log('bank.tx_ignore', $userId ?: null, 'bank_transaction', $txId, [
-            'note'                => $note,
-            'previous_status'     => $previousStatus,
-            'previous_invoice_id' => $previousInvoiceId,
-        ], $ip, $request->getHeaderLine('User-Agent'), SupplierGuard::currentId($request));
-
-        return Json::ok($response, ['ignored' => true, 'ignore_note' => $note]);
+        $this->logger->log($event, $userId ?: null, 'bank_transaction', $txId, $context,
+            $this->ipMatcher->clientIpFromRequest($request->getServerParams()), $request->getHeaderLine('User-Agent'), SupplierGuard::currentId($request));
     }
 
     /**

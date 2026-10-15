@@ -48,7 +48,7 @@ final class EmailDistributionAcrossSuppliersTest extends TestCase
         $this->pdo = $this->container->get(Connection::class)->pdo();
         $this->pdo->beginTransaction();
 
-        $this->inboxRole = $this->role(['documents.inbox', 'bank.import']);
+        $this->inboxRole = $this->role(['documents.inbox', 'bank', 'bank.import']);
         $this->pdo->prepare("INSERT INTO users (email, password_hash, name, role_id, locale, is_active)
                              VALUES (?, 'disabled-test-password', 'Synthetic distribution user', ?, 'cs', 1)")
             ->execute(['distribution-' . bin2hex(random_bytes(6)) . '@example.invalid', $this->inboxRole]);
@@ -97,7 +97,7 @@ final class EmailDistributionAcrossSuppliersTest extends TestCase
     public function testCompanyWithoutInboxPermissionIsNeverATarget(): void
     {
         $this->assign($this->mailbox, null);
-        $this->assign($this->other, $this->role(['bank.import']));
+        $this->assign($this->other, $this->role(['bank', 'bank.import']));
 
         $scope = $this->scope();
         self::assertSame([$this->mailbox], $scope->inboxSupplierIds);

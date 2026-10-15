@@ -53,15 +53,23 @@ export function useBankTransactionActions(opts: { reload: () => Promise<void> | 
   let disposed = false
 
   function canRunDetailAction(tx: BankTransaction, action: BankDetailAction): boolean {
-    if (tx.posting?.payroll_matched) return false
+    if (tx.resolution === 'payroll' || tx.posting?.payroll_matched) return false
     const auth = useAuthStore()
     const status = tx.match_status
-    if (action === 'create') return auth.canWrite('purchase_invoices.create') && tx.amount < 0 && status === 'unmatched'
-    if (action === 'request') return auth.canWrite('documents.requests') && ['unmatched', 'auto_partial'].includes(status)
+    if (action === 'create') return !auth.isClientRole && auth.canWrite('purchase_invoices.create') && tx.amount < 0 && status === 'unmatched'
+    if (action === 'request') return !auth.isClientRole && auth.canWrite('documents.requests') && ['unmatched', 'auto_partial'].includes(status)
+    if (!auth.canRead('bank')) return false
+    if (action === 'ignore') return tx.ignore_available !== false && auth.canWrite('bank.ignore') && status === 'unmatched'
+    if (action === 'unmatch' && status === 'ignored') return auth.canWrite('bank.ignore') && tx.ignore_origin === 'manual'
     if (!auth.canWrite('bank.match')) return false
-    if (action === 'match') return ['unmatched', 'auto_partial'].includes(status)
-    if (action === 'ignore') return status === 'unmatched'
-    return ['auto_exact', 'auto_partial', 'manual', 'ignored'].includes(status)
+    if (action === 'match') return tx.match_available !== false && ['unmatched', 'auto_partial'].includes(status)
+      && (!auth.isClientRole || auth.canRead('invoices') || auth.canRead('purchase_invoices'))
+    if (auth.isClientRole) {
+      const invoices = !!tx.matched_invoice_id || !!tx.matched_invoices?.length
+      const purchases = !!tx.matched_purchase_invoice_id || !!tx.matched_purchase_invoices?.length
+      if ((!invoices && !purchases) || (invoices && !auth.canRead('invoices')) || (purchases && !auth.canRead('purchase_invoices'))) return false
+    }
+    return ['auto_exact', 'auto_partial', 'manual'].includes(status)
   }
 
   async function runDetailAction(action: BankDetailAction) {
@@ -126,7 +134,7 @@ export function useBankTransactionActions(opts: { reload: () => Promise<void> | 
   const matchError = ref('')
 
   async function acceptSuggestion(suggestion: MatchSuggestion, candidate: number) {
-    if (matchBusy.value) return
+    if (matchBusy.value || !useAuthStore().canWrite('bank.match') || !useAuthStore().canRead('bank')) return
     reviewingSuggestion.value = suggestion.id
     matchError.value = ''
     try {
@@ -146,7 +154,7 @@ export function useBankTransactionActions(opts: { reload: () => Promise<void> | 
   }
 
   async function rejectSuggestion(suggestion: MatchSuggestion) {
-    if (matchBusy.value) return
+    if (matchBusy.value || !useAuthStore().canWrite('bank.match') || !useAuthStore().canRead('bank')) return
     reviewingSuggestion.value = suggestion.id
     matchError.value = ''
     try {
@@ -246,6 +254,7 @@ export function useBankTransactionActions(opts: { reload: () => Promise<void> | 
   })
 
   function startMatch(tx: BankTransaction) {
+    if (!canRunDetailAction(tx, 'match')) return
     if (anchorSearchTimer) clearTimeout(anchorSearchTimer)
     anchorSearchVersion++
     anchorLoading.value = false
@@ -256,7 +265,7 @@ export function useBankTransactionActions(opts: { reload: () => Promise<void> | 
     matchError.value = ''
     matchCandidates.value = []
     gopayCandidate.value = null
-    loadingGoPayCandidate.value = tx.amount > 0 && tx.source !== 'idoklad'
+    loadingGoPayCandidate.value = !useAuthStore().isClientRole && tx.amount > 0 && tx.source !== 'idoklad'
     if (loadingGoPayCandidate.value) {
       gopayApi.payoutCandidate(tx.id)
         .then(candidate => {
@@ -274,7 +283,7 @@ export function useBankTransactionActions(opts: { reload: () => Promise<void> | 
     anchorInvoiceId.value = null
     anchorOptions.value = []
     anchorSelected.value = null
-    if (tx.amount !== 0) loadSplitSuggestions(tx, 7)
+    if (tx.amount !== 0 && (!useAuthStore().isClientRole || useAuthStore().canRead(tx.amount > 0 ? 'invoices' : 'purchase_invoices'))) loadSplitSuggestions(tx, 7)
   }
 
   function loadSplitSuggestions(tx: BankTransaction, window: number, anchorId?: number | null) {
@@ -313,7 +322,7 @@ export function useBankTransactionActions(opts: { reload: () => Promise<void> | 
     const version = ++anchorSearchVersion
     const tx = matchCtx.value
     const query = q.trim()
-    if (query.length < 2 || !tx) { anchorOptions.value = []; anchorLoading.value = false; return }
+    if (query.length < 2 || !tx || (useAuthStore().isClientRole && !useAuthStore().canRead(tx.amount < 0 ? 'purchase_invoices' : 'invoices'))) { anchorOptions.value = []; anchorLoading.value = false; return }
     anchorLoading.value = true
     anchorSearchTimer = setTimeout(async () => {
       try {
@@ -375,7 +384,7 @@ export function useBankTransactionActions(opts: { reload: () => Promise<void> | 
   }
 
   async function confirmGoPayCandidate() {
-    if (!matchingTx.value || !gopayCandidate.value || matchBusy.value) return
+    if (!matchingTx.value || !gopayCandidate.value || matchBusy.value || useAuthStore().isClientRole) return
     matchingGoPay.value = true
     matchError.value = ''
     try {
@@ -428,7 +437,7 @@ export function useBankTransactionActions(opts: { reload: () => Promise<void> | 
     // Zápočet proti účtu je jen v podvojném účetnictví a jen s právem na účetnictví,
     // jinde zbývá oznámit, že doklad zůstal částečně uhrazený.
     const auth = useAuthStore()
-    const canSettle = auth.hasCommercialFeatures && auth.canWrite('accounting')
+    const canSettle = !auth.isClientRole && auth.hasCommercialFeatures && auth.canWrite('accounting')
       && useSupplierStore().currentSupplier?.accounting_mode === 'double_entry'
     if (!canSettle) {
       toast.info(t('bank.purchase_shortfall.partial_info', { amount: formatMoney(r.remaining ?? 0, r.currency || 'CZK') }))
@@ -450,7 +459,8 @@ export function useBankTransactionActions(opts: { reload: () => Promise<void> | 
   }
 
   async function matchCandidate(txId: number, c: Pick<MatchCandidate, 'id' | 'type' | 'ref'>, fromDocument = false): Promise<boolean> {
-    if (matchBusy.value || !useAuthStore().canWrite('bank.match')) return false
+    if (matchBusy.value || !useAuthStore().canWrite('bank.match') || !useAuthStore().canRead('bank')) return false
+    if (useAuthStore().isClientRole && (fromDocument || !useAuthStore().canRead(c.type === 'invoice' ? 'invoices' : 'purchase_invoices'))) return false
     matchingCandidate.value = true
     const supplierId = matchSupplier.currentSupplierId
     matchError.value = ''
@@ -594,6 +604,7 @@ export function useBankTransactionActions(opts: { reload: () => Promise<void> | 
   const ignoreError = ref('')
 
   function ignoreTx(tx: BankTransaction) {
+    if (!canRunDetailAction(tx, 'ignore')) return
     ignoreTarget.value = tx
     ignoreNote.value = tx.ignore_note ?? ''
     ignoreError.value = ''
@@ -607,12 +618,13 @@ export function useBankTransactionActions(opts: { reload: () => Promise<void> | 
 
   async function confirmIgnore() {
     const tx = ignoreTarget.value
-    if (!tx || ignoring.value) return
+    if (!tx || ignoring.value || !canRunDetailAction(tx, 'ignore')) return
     ignoring.value = true
     ignoreError.value = ''
     try {
       const result = await bankApi.ignore(tx.id, ignoreNote.value.trim() || null)
       tx.match_status = 'ignored'
+      tx.ignore_origin = 'manual'
       tx.ignore_note = result.ignore_note
       detailReturnTarget.value = null
       ignoreTarget.value = null
@@ -629,6 +641,7 @@ export function useBankTransactionActions(opts: { reload: () => Promise<void> | 
   const unmatchError = ref('')
 
   function unmatchTx(tx: BankTransaction) {
+    if (!canRunDetailAction(tx, 'unmatch')) return
     unmatchTarget.value = tx
     unmatchError.value = ''
   }
@@ -641,13 +654,14 @@ export function useBankTransactionActions(opts: { reload: () => Promise<void> | 
 
   async function confirmUnmatch() {
     const tx = unmatchTarget.value
-    if (!tx || unmatching.value) return
+    if (!tx || unmatching.value || !canRunDetailAction(tx, 'unmatch')) return
     unmatching.value = true
     unmatchError.value = ''
     try {
-      await bankApi.unmatch(tx.id)
+      if (tx.match_status === 'ignored') await bankApi.unignore(tx.id)
+      else await bankApi.unmatch(tx.id)
       Object.assign(tx, {
-        match_status: 'unmatched', ignore_note: null, matched_invoice_id: null, matched_purchase_invoice_id: null,
+        match_status: 'unmatched', ignore_origin: null, ignore_note: null, matched_invoice_id: null, matched_purchase_invoice_id: null,
         matched_varsymbol: null, matched_invoice_amount: null, matched_client_name: null,
         matched_purchase_ref: null, matched_vendor_name: null, matched_invoices: [], matched_at: null,
       })

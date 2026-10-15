@@ -82,7 +82,7 @@ async function sendUnmatchedToClient() {
     sendingUnmatched.value = false
   }
 }
-const isDoubleEntry = computed(() => auth.hasCommercialFeatures && supplierStore.currentSupplier?.accounting_mode === 'double_entry')
+const isDoubleEntry = computed(() => !auth.isClientRole && auth.hasCommercialFeatures && supplierStore.currentSupplier?.accounting_mode === 'double_entry')
 
 // Počet transakcí s návrhem zaúčtování (pro chip v headeru) — počítá backend přes
 // VŠECHNY transakce výpisu, ne jen aktuálně načtenou stránku (viz transactions_meta).
@@ -406,12 +406,13 @@ const statementActions = computed<ActionItem[]>(() => {
       icon: 'cycle',
       tier: 'primary',
       variant: 'primary',
-      show: auth.canWrite('bank.match'),
+      show: !auth.isClientRole && auth.canWrite('bank.match'),
       disabled: rematching.value,
       run: () => { void rematchStatement() },
     },
     {
       key: 'unmatched_export',
+      show: !auth.isClientRole,
       label: t('bank.unmatched_export.download'),
       icon: 'download',
       tier: 'secondary',
@@ -423,7 +424,7 @@ const statementActions = computed<ActionItem[]>(() => {
       icon: 'send',
       tier: 'secondary',
       variant: 'primary',
-      show: auth.canWrite('bank'),
+      show: !auth.isClientRole && auth.canWrite('bank'),
       loading: sendingUnmatched.value,
       disabled: sendingUnmatched.value,
       run: () => { void sendUnmatchedToClient() },
@@ -467,7 +468,7 @@ const statementActions = computed<ActionItem[]>(() => {
       label: t('bank.pdf_upload'),
       icon: 'upload',
       tier: 'secondary',
-      show: auth.canWrite('bank.import') && !s.has_pdf && !isVirtual.value,
+      show: !auth.isClientRole && auth.canWrite('bank.import') && !s.has_pdf && !isVirtual.value,
       title: t('bank.pdf_upload_hint'),
       loading: uploadingPdf.value,
       run: () => pdfInput.value?.click(),
@@ -478,7 +479,7 @@ const statementActions = computed<ActionItem[]>(() => {
       icon: 'trash',
       tier: 'overflow',
       variant: 'danger',
-      show: auth.canWrite('bank.import') && s.has_pdf,
+      show: !auth.isClientRole && auth.canWrite('bank.import') && s.has_pdf,
       run: () => { void onDeletePdf() },
     },
     {
@@ -487,7 +488,7 @@ const statementActions = computed<ActionItem[]>(() => {
       icon: 'trash',
       tier: 'advanced',
       variant: 'danger',
-      show: auth.isCompanyAdminRole && (s.api_evidence === true || (isVirtual.value && s.matched_count === 0)),
+      show: !auth.isClientRole && auth.isCompanyAdminRole && (s.api_evidence === true || (isVirtual.value && s.matched_count === 0)),
       title: t(s.api_evidence ? 'bank.statement_delete_evidence_hint' : 'bank.statement_delete_hint'),
       disabled: deletingStatement.value,
       loading: deletingStatement.value,
@@ -534,7 +535,7 @@ const statementActions = computed<ActionItem[]>(() => {
         <p class="text-neutral-700 mt-0.5">{{ t('bank.processing_failed_text', { count: statement.unprocessed_count ?? 0 }) }}</p>
         <p v-if="statement.processing_error" class="text-xs text-neutral-500 mt-1 break-words">{{ t('bank.processing_failed_error', { error: statement.processing_error }) }}</p>
       </div>
-      <button v-if="auth.canWrite('bank.match')" type="button" data-testid="statement-processing-rematch"
+      <button v-if="!auth.isClientRole && auth.canWrite('bank.match')" type="button" data-testid="statement-processing-rematch"
         :class="btnFilled('warning')" class="whitespace-nowrap" :disabled="rematching" @click="rematchStatement">
         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.cycle" /></svg>
         {{ rematching ? t('bank.rematch_running') : t('bank.rematch') }}

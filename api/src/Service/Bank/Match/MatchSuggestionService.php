@@ -143,7 +143,7 @@ final class MatchSuggestionService
     }
 
     /** @return array<string,mixed> */
-    public function accept(int $suggestionId, int $supplierId, int $userId, int $candidateIndex): array
+    public function accept(int $suggestionId, int $supplierId, int $userId, int $candidateIndex, ?callable $authorizeCandidate = null): array
     {
         $pdo = $this->db->pdo();
         $pdo->beginTransaction();
@@ -174,6 +174,7 @@ final class MatchSuggestionService
                 throw new MatchSuggestionException('already_reviewed', 'Bankovní pohyb už použila mzdová platba.', 409);
             }
             $candidate = $candidates[$candidateIndex];
+            if ($authorizeCandidate !== null) $authorizeCandidate($candidate, $tx);
             $result = $this->applyCandidate($supplierId, $tx, $candidate, $userId, true);
             $pdo->prepare(
                 "UPDATE bank_match_suggestions SET status = 'accepted', accepted_candidate = ?,
@@ -196,7 +197,7 @@ final class MatchSuggestionService
         }
     }
 
-    public function reject(int $suggestionId, int $supplierId, int $userId, ?string $reason): void
+    public function reject(int $suggestionId, int $supplierId, int $userId, ?string $reason, ?callable $authorizeCandidate = null): void
     {
         $pdo = $this->db->pdo();
         $pdo->beginTransaction();
@@ -211,6 +212,9 @@ final class MatchSuggestionService
                   WHERE id = ? AND supplier_id = ? AND status = 'pending'"
             )->execute([$userId ?: null, $suggestionId, $supplierId]);
             $candidates = json_decode((string) $suggestion['candidates_json'], true, 512, JSON_THROW_ON_ERROR);
+            if ($authorizeCandidate !== null) {
+                foreach ($candidates as $candidate) $authorizeCandidate($candidate);
+            }
             $top = is_array($candidates[0] ?? null) ? $candidates[0] : [];
             if ($reason !== null && trim($reason) !== '') $top['signals']['reject_reason'] = mb_substr(trim($reason), 0, 190);
             $this->audit($supplierId, (int) $suggestion['bank_transaction_id'], 'reject', $top,

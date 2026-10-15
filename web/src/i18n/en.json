@@ -24658,6 +24658,13 @@
     "is_default_account_hint": "Default account for this currency (only one per code)"
   },
   "roles": {
+    "bank_permissions": {
+      "bank": "View bank",
+      "bank_import": "Upload statements",
+      "bank_match": "Match payments",
+      "bank_ignore": "Ignore payments"
+    },
+    "client_bank_hint": "Client bank permissions are optional. Importing, matching and ignoring require bank read access. Matching and importing can trigger automatic payment processing and journal entries according to company settings.",
     "title": "Roles and permissions",
     "subtitle": "Control access to modules and significant actions.",
     "new": "New role",

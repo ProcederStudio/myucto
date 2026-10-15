@@ -12,6 +12,25 @@ use PHPUnit\Framework\TestCase;
 
 final class PermissionCatalogTest extends TestCase
 {
+    public function testClientBankPermissionsAreOptInAndActionChecksRequireRead(): void
+    {
+        $catalog = new PermissionCatalog();
+        $checker = new PermissionChecker($catalog);
+        foreach (['bank', 'bank.import', 'bank.match', 'bank.ignore'] as $key) {
+            self::assertTrue($catalog->allowsRoleType($key, 'client'));
+            self::assertArrayNotHasKey($key, $catalog->legacyPreset('client'));
+        }
+        foreach (['bank.import', 'bank.match', 'bank.ignore'] as $key) {
+            foreach (['staff', 'client'] as $type) {
+                $role = new EffectiveRole(9, 'Synthetic role', $type, true, [$key => 2]);
+                self::assertFalse($checker->allows($role, $key, AccessLevel::WRITE));
+                $request = (new \Slim\Psr7\Factory\ServerRequestFactory())->createServerRequest('POST', '/')
+                    ->withAttribute('auth.effective_role', $role);
+                self::assertFalse(\MyInvoice\Security\RequestAuthorization::allows($request, $key, AccessLevel::WRITE));
+            }
+        }
+    }
+
     public function testDefinitionsAreUniqueAndInternallyValid(): void
     {
         $catalog = new PermissionCatalog();

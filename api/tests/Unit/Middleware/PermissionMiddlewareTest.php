@@ -23,6 +23,74 @@ use Slim\Psr7\Factory\ServerRequestFactory;
 
 final class PermissionMiddlewareTest extends TestCase
 {
+    public function testClientBankActionsAreIndependentAndRequireBankRead(): void
+    {
+        $operations = [
+            ['bank.import', '/api/bank-statements/upload'],
+            ['bank.import', '/api/bank-statements/upload-pdf'],
+            ['bank.match', '/api/bank-transactions/7/match'],
+            ['bank.match', '/api/bank-transactions/7/unmatch'],
+            ['bank.match', '/api/bank-match-suggestions/7/accept'],
+            ['bank.match', '/api/bank-match-suggestions/7/reject'],
+            ['bank.ignore', '/api/bank-transactions/7/ignore'],
+            ['bank.ignore', '/api/bank-transactions/7/unignore'],
+        ];
+        foreach ([null, 'bank.import', 'bank.match', 'bank.ignore'] as $granted) {
+            foreach ([0, 1] as $read) {
+                $permissions = ['bank' => $read];
+                if ($granted !== null) $permissions[$granted] = 2;
+                $role = new EffectiveRole(8, 'Synthetic bank client', 'client', true, $permissions);
+                $middleware = $this->middleware($role, new SupplierAccess(1, false, null));
+                foreach ($operations as [$required, $path]) {
+                    $expected = $read === 1 && $granted === $required ? 204 : 403;
+                    self::assertSame($expected, $middleware->process($this->request('POST', $path), $this->handler())->getStatusCode(), "$granted / bank=$read / $path");
+                }
+                self::assertSame($read === 1 ? 204 : 403, $middleware->process($this->request('GET', '/api/bank-statements'), $this->handler())->getStatusCode());
+            }
+        }
+    }
+
+    public function testClientBroadBankWriteCannotOpenStaffOperationsOnEitherHost(): void
+    {
+        $permissions = ['bank' => 2, 'bank.import' => 2, 'bank.match' => 2, 'bank.ignore' => 2];
+        $middleware = $this->middleware(new EffectiveRole(8, 'Synthetic bank client', 'client', true, $permissions), new SupplierAccess(1, false, null));
+        $domainPolicy = new \MyInvoice\Service\Tenant\ClientRoutePolicy();
+        foreach ([
+            ['POST', '/api/bank-statements/scan'],
+            ['DELETE', '/api/bank-statements/7'],
+            ['POST', '/api/bank-statements/7/pdf'],
+            ['DELETE', '/api/bank-statements/7/pdf'],
+            ['POST', '/api/bank-statements/7/rematch'],
+            ['GET', '/api/bank-statements/7/unmatched-recipients'],
+            ['POST', '/api/bank-statements/7/send-unmatched'],
+            ['GET', '/api/bank-statements/export-unmatched'],
+            ['POST', '/api/bank-transactions/7/match-document'],
+            ['GET', '/api/bank-transactions/payment-candidates'],
+            ['POST', '/api/bank-transactions/7/create-purchase-invoice'],
+            ['POST', '/api/bank-transactions/7/document-request'],
+            ['POST', '/api/bank-transactions/7/post'],
+            ['POST', '/api/bank-transactions/7/unpost'],
+            ['GET', '/api/accounting/gopay/clearings'],
+            ['POST', '/api/accounting/gopay/clearings/import'],
+            ['GET', '/api/credit-cards'],
+            ['POST', '/api/credit-cards/import'],
+            ['POST', '/api/payment-cards/unmatched-payments/7/rematch'],
+        ] as [$method, $path]) {
+            self::assertSame(403, $middleware->process($this->request($method, $path), $this->handler())->getStatusCode(), "$method $path");
+            self::assertFalse($domainPolicy->allowsApiRequest($method, $path), "$method $path");
+        }
+        foreach ([
+            '/api/bank-statements', '/api/bank-statements/account-balances',
+            '/api/bank-statements/7', '/api/bank-statements/7/pdf', '/api/bank-statements/7/download',
+            '/api/bank-statements/7/export-gpc', '/api/bank-statements/7/match-suggestions',
+            '/api/bank-transactions', '/api/bank-transactions/7/match-candidates',
+            '/api/bank-transactions/7/split-suggestions',
+        ] as $path) {
+            self::assertSame(204, $middleware->process($this->request('GET', $path), $this->handler())->getStatusCode(), $path);
+            self::assertTrue($domainPolicy->allowsApiRequest('GET', $path), $path);
+        }
+    }
+
     public function testUnknownRouteFailsClosed(): void
     {
         $response = $this->middleware(new EffectiveRole(2, 'Staff', 'staff', true), new SupplierAccess(1, false, null))

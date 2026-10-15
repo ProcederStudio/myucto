@@ -22,6 +22,7 @@ import { useChartColors } from '@/composables/useTheme'
 import BalanceTrendChart from '@/components/charts/BalanceTrendChart.vue'
 import { ICONS, btnFilled, btnOutline } from '@/components/ui/buttonStyles'
 import { useDemoMode } from '@/composables/useDemoMode'
+import { useAuthStore } from '@/stores/auth'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import DateInput from '@/components/ui/DateInput.vue'
 import BankConnectionsPanel from '@/components/bank/BankConnectionsPanel.vue'
@@ -35,6 +36,7 @@ const props = withDefaults(defineProps<{ embedded?: boolean; canManageAccounts?:
 
 const { t } = useI18n()
 const toast = useToast()
+const auth = useAuthStore()
 const { blockDemoMutation } = useDemoMode()
 
 /** Důvod, proč automat pohyb z avíza nespároval (#46); neznámý kód se nezobrazí. */
@@ -330,7 +332,10 @@ async function load() {
     loading.value = false
   }
 }
-onMounted(load)
+onMounted(() => {
+  if (!auth.isClientRole) void load()
+  else loading.value = false
+})
 
 async function loadMessagesPage(p: number) {
   const np = Math.min(Math.max(1, p), messagesTotalPages.value)

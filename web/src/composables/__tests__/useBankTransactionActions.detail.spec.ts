@@ -7,14 +7,14 @@ import type { BankTransaction } from '@/api/bank'
 
 const mocks = vi.hoisted(() => ({
   bank: { matchCandidates: vi.fn(), splitSuggestions: vi.fn(), matchManual: vi.fn(), matchMultiple: vi.fn(),
-    matchMultiplePurchases: vi.fn(), ignore: vi.fn(), unmatch: vi.fn(), createPurchaseInvoice: vi.fn(),
+    matchMultiplePurchases: vi.fn(), ignore: vi.fn(), unmatch: vi.fn(), unignore: vi.fn(), createPurchaseInvoice: vi.fn(),
     acceptMatchSuggestion: vi.fn(), rejectMatchSuggestion: vi.fn() },
-  request: vi.fn(), toast: vi.fn(), push: vi.fn(), canWrite: vi.fn(),
+  isClientRole: false, request: vi.fn(), toast: vi.fn(), push: vi.fn(), canWrite: vi.fn(),
   escape: null as null | (() => void),
 }))
 const supplier = reactive({ currentSupplierId: 1 })
 vi.mock('@/stores/supplier', () => ({ useSupplierStore: () => supplier }))
-vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ canWrite: mocks.canWrite }) }))
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ canRead: () => true, isClientRole: mocks.isClientRole, canWrite: mocks.canWrite }) }))
 vi.mock('@/api/bank', () => ({ bankApi: mocks.bank }))
 vi.mock('@/api/invoices', () => ({ invoicesApi: {} }))
 vi.mock('@/api/purchaseInvoices', () => ({ purchaseInvoicesApi: {} }))
@@ -34,7 +34,7 @@ function setup() {
   return actions
 }
 function row(status: BankTransaction['match_status'] = 'unmatched') {
-  return reactive({ id: 7, amount: -25, posted_at: '2099-01-01', currency: 'CZK', match_status: status } as BankTransaction)
+  return reactive({ id: 7, amount: -25, posted_at: '2099-01-01', currency: 'CZK', match_status: status, ignore_origin: status === 'ignored' ? 'manual' : null } as BankTransaction)
 }
 function close(actions: BankTransactionActions, action: BankDetailAction) {
   const handlers = { match: actions.closeMatch, create: actions.closeCreate, request: actions.closeRequestDoc, ignore: actions.closeIgnore, unmatch: actions.closeUnmatch }
@@ -43,6 +43,7 @@ function close(actions: BankTransactionActions, action: BankDetailAction) {
 beforeEach(() => {
   vi.resetAllMocks()
   supplier.currentSupplierId = 1
+  mocks.isClientRole = false
   mocks.canWrite.mockReturnValue(true)
   mocks.bank.matchCandidates.mockResolvedValue({ candidates: [], fallback: false })
   mocks.bank.splitSuggestions.mockResolvedValue({ suggestions: [], window: 7 })
@@ -96,6 +97,36 @@ describe('actions opened from bank transaction detail', () => {
     for (const action of ['match', 'create', 'request', 'ignore', 'unmatch'] as BankDetailAction[]) {
       expect(actions.canRunDetailAction(tx, action)).toBe(false)
     }
+  })
+
+  it('keeps client ignoring independent of matching and protects system ignores', async () => {
+    mocks.isClientRole = true
+    mocks.canWrite.mockImplementation(permission => permission === 'bank.ignore')
+    const actions = setup(), tx = row()
+    expect(actions.canRunDetailAction(tx, 'ignore')).toBe(true)
+    expect(actions.canRunDetailAction(tx, 'match')).toBe(false)
+    expect(actions.canRunDetailAction(tx, 'create')).toBe(false)
+    tx.match_status = 'ignored'
+    tx.ignore_origin = 'rule'
+    expect(actions.canRunDetailAction(tx, 'unmatch')).toBe(false)
+    tx.ignore_origin = 'manual'
+    expect(actions.canRunDetailAction(tx, 'unmatch')).toBe(true)
+    mocks.bank.unignore.mockResolvedValue({ unignored: true })
+    actions.unmatchTx(tx)
+    await actions.confirmUnmatch()
+    expect(mocks.bank.unignore).toHaveBeenCalledWith(tx.id)
+    expect(mocks.bank.unmatch).not.toHaveBeenCalled()
+  })
+
+  it.each(['payroll', 'transfer', 'outside_saldo'] as const)('hides client actions for %s with accounting data redacted', resolution => {
+    mocks.isClientRole = true
+    const actions = setup(), tx = row()
+    tx.posting = null
+    tx.resolution = resolution
+    tx.match_available = false
+    tx.ignore_available = false
+    expect(actions.canRunDetailAction(tx, 'match')).toBe(false)
+    expect(actions.canRunDetailAction(tx, 'ignore')).toBe(false)
   })
 
   it('renders the detail action bar and dispatches its match action', async () => {

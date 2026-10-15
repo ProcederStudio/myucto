@@ -7,6 +7,7 @@ namespace MyInvoice\Action\Bank;
 use MyInvoice\Http\Json;
 use MyInvoice\Http\SupplierGuard;
 use MyInvoice\Service\Bank\BankMovementListService;
+use MyInvoice\Security\RequestAuthorization;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
@@ -18,7 +19,7 @@ use Psr\Http\Message\ServerRequestInterface as Request;
  */
 final class BankTransactionListAction
 {
-    public function __construct(private readonly BankMovementListService $movements) {}
+    public function __construct(private readonly BankMovementListService $movements, private readonly ClientBankAccess $clientAccess) {}
 
     public function __invoke(Request $request, Response $response): Response
     {
@@ -26,6 +27,8 @@ final class BankTransactionListAction
         if ($supplierId <= 0) {
             return Json::error($response, 'no_supplier', 'Není zvolen dodavatel.', 400);
         }
-        return Json::ok($response, $this->movements->list($supplierId, $request->getQueryParams(), 'all'));
+        $result = $this->movements->list($supplierId, $request->getQueryParams(), 'all', RequestAuthorization::isClientType($request));
+        $result['items'] = $this->clientAccess->redactTransactions($request, $result['items']);
+        return Json::ok($response, $result);
     }
 }

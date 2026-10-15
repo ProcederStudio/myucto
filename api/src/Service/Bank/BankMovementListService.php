@@ -34,7 +34,7 @@ final class BankMovementListService
      * @param 'all'|'unposted'    $scope
      * @return array<string,mixed>
      */
-    public function list(int $supplierId, array $query, string $scope): array
+    public function list(int $supplierId, array $query, string $scope, bool $strictOwnership = false): array
     {
         $page = max(1, (int) ($query['page'] ?? 1));
         $perPage = max(1, min(self::MAX_PER_PAGE, (int) ($query['per_page'] ?? 50)));
@@ -46,6 +46,7 @@ final class BankMovementListService
             ($page - 1) * $perPage,
             [
                 'scope' => $scope,
+                'strict_ownership' => $strictOwnership,
                 'status' => $matchStatus,
                 // Filtr i řazení podle zápisu v deníku dávají smysl jen v podvojném účetnictví.
                 'posting_status' => $doubleEntry ? ($query['posting_status'] ?? null) : null,

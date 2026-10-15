@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { useAuthStore } from '@/stores/auth'
 import ActionBar, { type ActionItem } from '@/components/ui/ActionBar.vue'
 import Modal from '@/components/ui/Modal.vue'
 import { formatMoney, formatDate } from '@/composables/useFormat'
@@ -11,6 +12,7 @@ import type { BankTransactionActions, BankDetailAction } from '@/composables/use
 import type { BankTransaction } from '@/api/bank'
 const props = defineProps<{ actions: BankTransactionActions; fallbackCurrency?: string | null; ownAccount?: string | null; ownBankCode?: string | null }>()
 const { t } = useI18n()
+const auth = useAuthStore()
 const { textDetail, ignoreTarget, ignoreNote, ignoring, ignoreError, closeIgnore, confirmIgnore,
   unmatchTarget, unmatching, unmatchError, closeUnmatch, confirmUnmatch } = props.actions
 const detailActions = computed<ActionItem[]>(() => {
@@ -70,7 +72,7 @@ const transactionDetailFields = computed(() => {
         <div v-if="textDetail.matched_invoices?.length || textDetail.matched_purchase_invoices?.length || textDetail.matched_invoice_id || textDetail.matched_purchase_invoice_id">
           <dt class="font-medium mb-1">{{ t('bank.invoice') }}</dt>
           <dd class="space-y-1 break-words">
-            <template v-if="textDetail.matched_invoices?.length">
+            <template v-if="textDetail.matched_invoices?.length && auth.canRead('invoices')">
               <div v-for="invoice in textDetail.matched_invoices" :key="invoice.invoice_id">
                 <RouterLink :to="`/invoices/${invoice.invoice_id}`" class="text-primary-600 hover:underline">
                   {{ invoice.varsymbol || `#${invoice.invoice_id}` }}
@@ -78,13 +80,13 @@ const transactionDetailFields = computed(() => {
                 <span v-if="invoice.client_name" class="text-neutral-500"> · {{ invoice.client_name }}</span>
               </div>
             </template>
-            <div v-else-if="textDetail.matched_invoice_id">
+            <div v-else-if="textDetail.matched_invoice_id && auth.canRead('invoices')">
               <RouterLink :to="`/invoices/${textDetail.matched_invoice_id}`" class="text-primary-600 hover:underline">
                 {{ textDetail.matched_varsymbol || `#${textDetail.matched_invoice_id}` }}
               </RouterLink>
               <span v-if="textDetail.matched_client_name" class="text-neutral-500"> · {{ textDetail.matched_client_name }}</span>
             </div>
-            <template v-if="textDetail.matched_purchase_invoices?.length">
+            <template v-if="textDetail.matched_purchase_invoices?.length && auth.canRead('purchase_invoices')">
               <div v-for="invoice in textDetail.matched_purchase_invoices" :key="invoice.purchase_invoice_id">
                 <RouterLink :to="`/purchase-invoices/${invoice.purchase_invoice_id}`" class="text-primary-600 hover:underline">
                   {{ invoice.ref || `#${invoice.purchase_invoice_id}` }}
@@ -92,7 +94,7 @@ const transactionDetailFields = computed(() => {
                 <span v-if="invoice.vendor_name" class="text-neutral-500"> · {{ invoice.vendor_name }}</span>
               </div>
             </template>
-            <div v-else-if="textDetail.matched_purchase_invoice_id">
+            <div v-else-if="textDetail.matched_purchase_invoice_id && auth.canRead('purchase_invoices')">
               <RouterLink :to="`/purchase-invoices/${textDetail.matched_purchase_invoice_id}`" class="text-primary-600 hover:underline">
                 {{ textDetail.matched_purchase_ref || `#${textDetail.matched_purchase_invoice_id}` }}
               </RouterLink>
