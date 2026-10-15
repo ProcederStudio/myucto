@@ -176,6 +176,29 @@ final class PurchaseVendorVatPayerSnapshotTest extends TestCase
             'legacy NULL + živý flag=0 → false');
     }
 
+    /**
+     * Import bez režimu odpočtu (ISDOC, Pohoda XML) od neplátce → bez nároku. Reverse
+     * charge, plátce a výslovná volba volajícího zůstávají beze změny.
+     */
+    public function testNonPayerWithoutDeductionDefaultsToNone(): void
+    {
+        $nonPayer = $this->vendor('Dodavatel neplátce import', 'CZ29000007', isVatPayer: false);
+        $payer    = $this->vendor('Dodavatel plátce import', 'CZ29000008', isVatPayer: true);
+
+        $cases = [
+            'PVVP-6a' => [$nonPayer, [], 'none'],
+            'PVVP-6b' => [$nonPayer, ['reverse_charge' => true], 'full'],
+            'PVVP-6c' => [$nonPayer, ['vat_deduction' => 'full'], 'full'],
+            'PVVP-6d' => [$payer, [], 'full'],
+            'PVVP-6e' => [$payer, ['vendor_is_vat_payer' => false], 'none'],
+        ];
+        foreach ($cases as $number => [$vendor, $extra, $expected]) {
+            $id = $this->repo->createDraft($this->payload($vendor, $number) + $extra, $this->userId, $this->supplierId);
+            $this->piIds[] = $id;
+            self::assertSame($expected, $this->repo->find($id, $this->supplierId)['vat_deduction'], $number);
+        }
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────
 
     private function setLiveFlag(int $vendorId, bool $isPayer): void

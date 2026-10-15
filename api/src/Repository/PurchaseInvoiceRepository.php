@@ -12,6 +12,7 @@ use MyInvoice\Service\Invoice\TimeBilling;
 use MyInvoice\Service\License\CommercialFeatureAccess;
 use MyInvoice\Service\PurchaseInvoice\ExtractionReviewSync;
 use MyInvoice\Service\PurchaseInvoice\PurchaseNumberSeries;
+use MyInvoice\Service\Validation\PurchaseInvoiceValidation;
 use MyInvoice\Support\ExchangeRateSources;
 use MyInvoice\Support\PaymentMethods;
 use MyInvoice\Support\PublicAuthorityFeeText;
@@ -1221,6 +1222,12 @@ final class PurchaseInvoiceRepository
                 ? ((bool) $vendorRow['is_vat_payer'] ? 1 : 0)
                 : null);
 
+        // Režim odpočtu neurčil volající (ISDOC, Pohoda XML a další importy) → od neplátce
+        // bez nároku. Editor i AI import ho posílají vždy, ty tahle větev nemění.
+        $vatDeduction = array_key_exists('vat_deduction', $data)
+            ? (in_array($data['vat_deduction'], ['full', 'none', 'proportional', 'reduced'], true) ? (string) $data['vat_deduction'] : 'full')
+            : PurchaseInvoiceValidation::defaultVatDeduction($vendorIsVatPayer === null ? null : $vendorIsVatPayer === 1, $data);
+
         // Výchozí kategorie nákladu dodavatele — aplikuje se, pokud volající kategorii
         // explicitně neurčil. Platí pro manuální zadání i pro všechny importy
         // (AI, ISDOC/ZIP, iDoklad, Fakturoid, bankovní párování), které jdou tudy.
@@ -1339,7 +1346,7 @@ final class PurchaseInvoiceRepository
             $paymentMethodSource,
             $initialStatus,
             isset($data['vat_classification_code']) ? (string) $data['vat_classification_code'] : null,
-            in_array($data['vat_deduction'] ?? 'full', ['full', 'none', 'proportional', 'reduced'], true) ? (string) ($data['vat_deduction'] ?? 'full') : 'full',
+            $vatDeduction,
             max(0.0, min(100.0, (float) ($data['vat_deduction_percent'] ?? 100))),
             (array_key_exists('tax_deductible', $data) && !$data['tax_deductible']) ? 0 : 1,
             !empty($data['is_fixed_asset']) ? 1 : 0,

@@ -245,7 +245,7 @@ final class UpdatePurchaseInvoiceAction
         };
         $vendorNonPayer = !$vendorIsPayer;
         if ($vendorNonPayer && !array_key_exists('vat_deduction', $sent) && $vendorChanged) {
-            $body['vat_deduction'] = 'none';
+            $body['vat_deduction'] = PurchaseInvoiceValidation::defaultVatDeduction(false, $body);
         }
 
         // Auto-default VAT klasifikace pokud uživatel nezadal — na header i items (s multi-tenant scope).
