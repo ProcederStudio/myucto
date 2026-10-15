@@ -785,6 +785,8 @@ real_ip_recursive on;
 
 ### 101.11.5 RBAC (role-based access)
 
+Klientské role mohou mít samostatná oprávnění **Prohlížet banku**, **Nahrávat výpisy**, **Párovat platby** a **Ignorovat platby**. Administrátor je přiděluje jednotlivě, ve výchozím stavu jsou vypnutá. Zapnutí akčního oprávnění zároveň zapne čtení banky; odebrání čtení odebere i bankovní akce. Pro párování musí mít klient také čtení příslušných vydaných či přijatých faktur. Párování a import mohou spustit automatické účetní zpracování podle nastavení firmy.
+
 Role se spravují v `Systém → Role a oprávnění`. Každý modul a významná akce mají jednu
 ze tří úrovní: **neviditelné**, **pouze čtení** nebo **zápis**. Zápis zahrnuje
 čtení; chybějící nebo neznámé oprávnění znamená zákaz.

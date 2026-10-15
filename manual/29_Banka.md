@@ -10,6 +10,10 @@ Systém pohyby deduplikuje, nabídne jejich párování s doklady a v podvojném
 
 Výpisy najdete v `Peníze → Bankovní účty`, záložka **Bankovní výpisy**. Konfigurace bankovních účtů, IMAP schránek a parserů má vlastní kapitolu [Bankovní účty a e-mailová avíza (IMAP)](30_Bankovni_ucty.md) a leží na dalších záložkách téže stránky. Vedle výpisů umí systém zpracovávat i bankovní e-mailová avíza z IMAP schránky; hodí se, když banka posílá oznámení o příchozí platbě rychleji než pravidelný výpis.
 
+Administrátor může uživateli typu **Klient** přidělit bankovní oprávnění prostřednictvím klientské role v `Systém → Role a oprávnění`. Banka je pro klienta ve výchozím stavu vypnutá. Oprávnění **Prohlížet banku** zpřístupní výpisy, avíza, všechny pohyby, zůstatky a stažení podkladů jeho firmy. Samostatně lze povolit **Nahrávat výpisy**, **Párovat platby** a **Ignorovat platby**; každá z těchto akcí vyžaduje čtení banky.
+
+Klient páruje jen s vydanými a přijatými fakturami, ke kterým má právo čtení. Výpis může nahrát pouze k již založenému bankovnímu účtu své firmy; neznámý účet nebo účet jiné firmy musí vyřešit účetní. Ignorovat lze nespárovaný pohyb s volitelnou poznámkou; vrátit lze pouze ruční ignorování. Potlačené duplicity a pohyby ignorované pravidlem zůstávají chráněné. Zrušení párování respektuje účetní blokace. Import a párování mohou podle nastavení firmy automaticky vytvořit úhrady a účetní zápisy; klient přitom nezískává ruční účtování, správu účtů, napojení, pravidel ani mazání výpisů.
+
 ## 29.1 Kdy to potřebujete
 
 - Banka vám poslala nebo si stahujete výpis a chcete, aby se faktury samy označily jako zaplacené.

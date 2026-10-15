@@ -8,6 +8,8 @@ Klientský portál je zjednodušená domovská obrazovka pro roli **client**. Kl
 se přihlašuje do stejného MyÚčto.cz jako účetní, jen vidí výrazně užší nabídku
 menu. Smí vystavovat a upravovat vlastní doklady, dokud je účetní nezaúčtuje.
 
+Administrátor může klientské roli zpřístupnit také **Peníze → Bankovní účty**. Čtení banky, nahrávání výpisů, párování a ignorování plateb jsou volitelná oprávnění; klient bez jejich přidělení banku neuvidí. Přístup se týká pouze jeho firmy, včetně přihlášení na klientské doméně. Podrobnosti popisuje kapitola [Banka](29_Banka.md).
+
 Superadmin má v nabídce **Dokumenty → Předat doklady účetní** také přístup
 k předávání dokladů a odpovědím na požadavky účetní v právě vybrané firmě.
 Zároveň mu zůstávají dostupné účetní funkce.
