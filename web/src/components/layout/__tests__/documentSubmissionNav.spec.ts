@@ -4,6 +4,7 @@ import { computed, defineComponent, h, ref, type ComputedRef } from 'vue'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import ts from 'typescript'
+import { canUsePurchaseAiExtraction } from '@/security/purchaseAiExtraction'
 
 type NavSection = { key: string; items: { to: string; label: string }[] }
 type Role = 'superadmin' | 'admin' | 'accountant' | 'client'
@@ -17,7 +18,7 @@ const profiles = {
 
 const layout = readFileSync(resolve(process.cwd(), 'src/components/layout/AppLayout.vue'), 'utf8')
 const source = ts.createSourceFile('AppLayout.ts', layout.slice(layout.indexOf('>') + 1, layout.indexOf('</script>')), ts.ScriptTarget.Latest, true)
-const required = new Set(['navSections', 'accountantFirst', 'navPermission', 'filterNavigation'])
+const required = new Set(['navSections', 'accountantFirst', 'navPermission', 'filterNavigation', 'canExtractPurchase'])
 const declarations = source.statements.filter(statement => {
   if (ts.isFunctionDeclaration(statement)) return required.has(statement.name?.text ?? '')
   return ts.isVariableStatement(statement) && statement.declarationList.declarations.some(declaration =>
@@ -37,10 +38,10 @@ function renderNavigation(role: Role) {
     isManagedInstallation: false, isDemo: false, can, canRead: can, canWrite: can,
   }
   const evaluate = new Function('computed', 'auth', 'supplierStore', 'clientExperience', 't', 'ICONS',
-    'approvalCount', 'accountantSigningProfilesEnabled', 'hostingAttention', 'automationStore', `${navigationCode}\nreturn navSections;`)
+    'approvalCount', 'accountantSigningProfilesEnabled', 'hostingAttention', 'automationStore', 'canUsePurchaseAiExtraction', `${navigationCode}\nreturn navSections;`)
   const sections = evaluate(computed, auth, { currentSupplier: { accounting_mode: 'double_entry', accounting_enabled: true } },
     ref(auth.isClientRole), (key: string) => key, new Proxy({}, { get: (_, key) => String(key) }),
-    { pending: ref(0) }, ref(false), ref(null), { actionable: 0 }) as ComputedRef<NavSection[]>
+    { pending: ref(0) }, ref(false), ref(null), { actionable: 0 }, canUsePurchaseAiExtraction) as ComputedRef<NavSection[]>
   return mount(defineComponent({
     setup: () => () => h('nav', sections.value.map(section => h('section', { 'data-section': section.key },
       section.items.map(item => h('a', { href: item.to }, item.label))))),
