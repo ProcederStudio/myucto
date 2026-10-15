@@ -2417,6 +2417,41 @@ final class PayrollRunPersistenceTest extends TestCase
     }
 
     /**
+     * Vztah má jiný vstup, ale pravidelná složka (měsíční mzda) za měsíc vstup
+     * nemá, protože předpis skončil v ručním posouzení. Dřív to běh nehlásil
+     * a mzda se tiše nevyplatila; teď to chce výjimku s důvodem.
+     */
+    public function testPendingRecurringComponentBesideOtherInputsRequiresOverride(): void
+    {
+        $pdo = $this->db->pdo();
+        $componentId = (int) $pdo->query(
+            'SELECT component_id FROM payroll_inputs WHERE id = ' . $this->inputId
+        )->fetchColumn();
+        $pdo->prepare(
+            'INSERT INTO payroll_recurring_components
+                (supplier_id, employment_id, component_id, calculation_kind,
+                 amount_minor, valid_from, allocation_rule, is_active)
+             VALUES (?, ?, ?, "fixed_amount", 120000, "2026-01-01", "full_month", 1)'
+        )->execute([$this->supplierId, $this->employmentId, $componentId]);
+
+        $run = $this->createRun();
+        $locked = $this->service->lockInputs(
+            $this->supplierId,
+            (int) $run['id'],
+            (int) $run['row_version'],
+            'lock-pending-recurring-beside',
+            $this->actors[0],
+        );
+        $validations = array_values(array_filter(
+            $this->runs->validations($this->supplierId, (int) $locked->revision['id']),
+            static fn (array $row): bool => $row['code'] === 'recurring_component_without_input',
+        ));
+
+        self::assertCount(1, $validations);
+        self::assertTrue((bool) $validations[0]['requires_override']);
+    }
+
+    /**
      * Díra mezi začátkem vedení mezd a zvoleným obdobím: měsíce bez jakéhokoli
      * nezrušeného běhu. Seznam běhů je ukazuje, aby běh nevznikl nad dírou.
      */

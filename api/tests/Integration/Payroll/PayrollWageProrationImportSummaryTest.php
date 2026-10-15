@@ -310,11 +310,11 @@ final class PayrollWageProrationImportSummaryTest extends TestCase
     }
 
     /**
-     * Poslední záchrana: nepřítomnost o víkendu nemá rozvrženou dobu ani ve
-     * směnách, ani v kalendáři. Krátit pak jen podle hodin souhrnu by ji tiše
-     * nechalo zaplacenou, takže se měsíc pošle k ruce.
+     * Nepřítomnost jen o víkendu nemá v měsíci žádnou plánovanou práci, takže
+     * nic nekrátí: měsíc se krátí jen podle souhrnu. Dřív skončila v ručním
+     * posouzení a předpis měsíční mzdy tiše nevznikl.
      */
-    public function testDatedAbsenceWithoutAnyScheduledTimeFailsClosed(): void
+    public function testDatedAbsenceOnlyOnDaysWithoutPlannedWorkCutsNothing(): void
     {
         $this->importSummaryMonth(['fund_hours' => 176_000, 'vacation_hours' => 48_000, 'worked_hours' => 112_000]);
         $this->datedAbsence('unpaid_leave', '2026-06-20', '2026-06-21');
@@ -326,8 +326,51 @@ final class PayrollWageProrationImportSummaryTest extends TestCase
             self::GROSS_MINOR,
         );
 
-        self::assertFalse($result['supported']);
-        self::assertSame('dated_absence_without_shift_time', $result['reason']);
+        self::assertTrue($result['supported'], (string) $result['reason']);
+        self::assertSame(['vacation' => 2_880], $result['replaced_minutes_by_title']);
+    }
+
+    /**
+     * Dovolená 29. 6. až 3. 7. převzatá z červnové mzdy pokračuje do července,
+     * jehož souhrn tytéž 3 dny (1 440 minut) už nese. Datovaný záznam se proto
+     * nezapočte podruhé; dřív měsíc skončil v ručním posouzení a mzda chyběla.
+     */
+    public function testAbsenceCarriedFromPreviousMonthIsCountedOnlyFromSummary(): void
+    {
+        $this->importSummaryMonth(['fund_hours' => 184_000, 'vacation_hours' => 24_000, 'worked_hours' => 160_000], '2026-07-01');
+        $this->datedAbsence('vacation', '2026-06-29', '2026-07-03');
+
+        $result = $this->proration->forImportSummary(
+            $this->supplierId,
+            $this->employmentId,
+            '2026-07',
+            self::GROSS_MINOR,
+        );
+
+        self::assertTrue($result['supported'], (string) $result['reason']);
+        self::assertSame(['vacation' => 1_440], $result['replaced_minutes_by_title']);
+    }
+
+    /**
+     * Nástup 15. 6. 2026: 10 pracovních dnů před nástupem (4 800 minut) se krátí
+     * z fondu celého měsíce 10 560 minut, stejně jako v předchozím programu.
+     * 40 000 x 5 760/10 560 = 21 818,18 → nahoru 21 819 Kč.
+     */
+    public function testPartialMonthIsProratedByFundHoursOutsideEmployment(): void
+    {
+        $this->importSummaryMonth(['fund_hours' => 96_000, 'worked_hours' => 96_000]);
+
+        $result = $this->proration->forImportSummary(
+            $this->supplierId,
+            $this->employmentId,
+            self::PERIOD,
+            self::GROSS_MINOR,
+            ['from' => '2026-06-15', 'to' => '2026-06-30'],
+        );
+
+        self::assertTrue($result['supported'], (string) $result['reason']);
+        self::assertSame(['unpaid' => 4_800], $result['replaced_minutes_by_title']);
+        self::assertSame(2_181_900, $result['amount_minor']);
     }
 
     /** Nerozhodnutá nepřítomnost blokuje i měsíc ze souhrnu. */
