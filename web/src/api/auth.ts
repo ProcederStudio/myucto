@@ -32,6 +32,8 @@ export interface RoleSummary {
 }
 
 export interface SupplierBrief {
+  client_ai_extraction_enabled?: boolean
+  client_ai_extraction_available?: boolean
   id: number
   company_name: string
   ic: string | null

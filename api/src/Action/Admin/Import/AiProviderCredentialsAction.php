@@ -13,6 +13,7 @@ use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Ai\OllamaEndpointException;
 use MyInvoice\Service\Import\AiCredentialsBulkApplier;
+use MyInvoice\Service\Import\ClientAiExtractionPolicy;
 use MyInvoice\Service\Import\AnthropicClient;
 use MyInvoice\Service\Import\AzureOpenAiClient;
 use MyInvoice\Service\Import\GeminiClient;
@@ -85,8 +86,10 @@ final class AiProviderCredentialsAction
      */
     public function extractionStatus(Request $request, Response $response): Response
     {
-        if (!RequestAuthorization::allows($request, 'purchase_invoices.scan', AccessLevel::WRITE)
-            && !RequestAuthorization::allows($request, 'invoices.create', AccessLevel::WRITE)) {
+        $issued = str_ends_with($request->getUri()->getPath(), '/ai-extract-pdf-issued/status');
+        if ($issued
+            ? !RequestAuthorization::allows($request, 'invoices.create', AccessLevel::WRITE)
+            : !ClientAiExtractionPolicy::hasDocumentPermissions($request)) {
             return Json::error($response, 'forbidden', 'Nemáte oprávnění.', 403);
         }
         $supplierId = SupplierGuard::currentId($request);
@@ -105,9 +108,17 @@ final class AiProviderCredentialsAction
         }
 
         return Json::ok($response, [
+            'client_ai_extraction_enabled' => $this->clientExtractionEnabled($supplierId),
             'ai_provider' => $provider,
             'providers'   => $providers,
         ]);
+    }
+
+    private function clientExtractionEnabled(int $supplierId): bool
+    {
+        $stmt = $this->db->pdo()->prepare('SELECT client_ai_extraction_enabled FROM supplier WHERE id = ?');
+        $stmt->execute([$supplierId]);
+        return (bool) $stmt->fetchColumn();
     }
 
     public function status(Request $request, Response $response): Response
@@ -153,6 +164,7 @@ final class AiProviderCredentialsAction
         $tuning = $this->tuning($supplierId);
 
         return Json::ok($response, [
+            'client_ai_extraction_enabled' => $this->clientExtractionEnabled($supplierId),
             'ai_provider'              => $sel['ai_provider'],
             'ai_data_region'           => $sel['ai_data_region'],
             'ai_eu_residency_required' => $sel['ai_eu_residency_required'],

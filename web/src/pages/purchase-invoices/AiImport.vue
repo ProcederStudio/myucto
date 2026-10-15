@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { integrationsApi, type AiExtractResult, type AiExtractionStatus, type AiProvider } from '@/api/integrations'
@@ -8,12 +8,19 @@ import { useToast } from '@/composables/useToast'
 import { formatDate } from '@/composables/useFormat'
 import { apiErrorCode, apiErrorMessage } from '@/api/errors'
 import AiNotConfiguredNotice from '@/components/purchase/AiNotConfiguredNotice.vue'
-import { ICONS, btnOutlineSm } from '@/components/ui/buttonStyles'
+import { useAuthStore } from '@/stores/auth'
+import { useSupplierStore } from '@/stores/supplier'
+import { canUsePurchaseAiExtraction } from '@/security/purchaseAiExtraction'
+import { ICONS, btnFilled, btnOutlineSm } from '@/components/ui/buttonStyles'
 import ExtractionReviewModal from '@/components/purchase/ExtractionReviewModal.vue'
 
 const { t } = useI18n()
 const toast = useToast()
 const router = useRouter()
+const auth = useAuthStore()
+const suppliers = useSupplierStore()
+let contextVersion = 0
+onBeforeUnmount(() => { contextVersion++ })
 
 // ── AI import přijaté faktury (§12b) — extrakční flow vytažený z admin
 // Integrations (?tab=ai). Nastavení brány (provideři, klíče, DPA) zůstává
@@ -23,19 +30,26 @@ const aiCreds = ref<AiExtractionStatus | null>(null)
 const providerInfo = computed(() => aiCreds.value?.providers?.[aiCreds.value.ai_provider])
 const models = computed(() => providerInfo.value?.models ?? [])
 const aiConfigured = computed(() => !!providerInfo.value?.configured)
+const canExtract = computed(() => canUsePurchaseAiExtraction(auth, {
+  client_ai_extraction_available: aiCreds.value?.client_ai_extraction_enabled === true && aiConfigured.value,
+}))
+const canEditKind = computed(() => auth.canWrite('purchase_invoices'))
 const aiDefaultModel = computed(() => providerInfo.value?.default_model ?? '')
 const credsLoaded = ref(false)
 
 function providerLabel(p: AiProvider): string { return t(`aiGateway.provider.${p}`) }
 
 async function loadAiCreds() {
+  const version = contextVersion
   try {
-    aiCreds.value = await integrationsApi.getAiExtractionStatus('purchase')
+    const status = await integrationsApi.getAiExtractionStatus('purchase')
+    if (version !== contextVersion) return
+    aiCreds.value = status
   } catch {
     // Bez oprávnění / brána nenasazená — degradujeme defenzivně (zobrazí se "není nakonfigurováno").
-    aiCreds.value = null
+    if (version === contextVersion) aiCreds.value = null
   } finally {
-    credsLoaded.value = true
+    if (version === contextVersion) credsLoaded.value = true
   }
 }
 
@@ -46,7 +60,7 @@ const aiPerRequestModel = ref('')  // empty = použít default
 
 // Přijme 1..N souborů z file-pickeru i drag&drop: 1 = single-file flow, více = dávka.
 function acceptAiFiles(files: File[]) {
-  if (files.length === 0) return
+  if (!canExtract.value || aiExtracting.value || aiBatchRunning.value || files.length === 0) return
   const pdfs = files.filter(f =>
     f.type === 'application/pdf' || f.type.startsWith('image/') ||
     /\.(pdf|jpe?g|png|webp|heic|heif|gif|bmp|isdoc|isdocx)$/i.test(f.name))
@@ -98,28 +112,33 @@ function newBatchId(): string {
 }
 
 async function runAiBatch() {
-  if (aiBatchRunning.value || aiBatchQueue.value.length === 0) return
+  if (!canExtract.value || aiExtracting.value || aiBatchRunning.value || aiBatchQueue.value.length === 0) return
+  const version = contextVersion
   if (!aiBatchId.value) aiBatchId.value = newBatchId()
   aiBatchRunning.value = true
   try {
     for (const item of aiBatchQueue.value) {
+      if (version !== contextVersion || !canExtract.value) return
       if (item.status === 'ok') continue // skip already done (idempotent re-run)
       item.status = 'processing'
       try {
         const model = aiPerRequestModel.value || undefined
         const r = await integrationsApi.extractPdfAi(item.file, model, aiBatchId.value)
+        if (version !== contextVersion) return
         item.result = r
         item.status = r.ok ? 'ok' : 'failed'
       } catch (e: any) {
+        if (version !== contextVersion) return
         item.result = e?.response?.data ?? { error: { message: apiErrorMessage(e) } }
         item.status = 'failed'
       }
     }
     await Promise.all([loadAiCreds(), loadLastBatch()])
+    if (version !== contextVersion) return
     toast.success(t('integrations.ai.batch_done', { n: aiBatchQueue.value.filter(x => x.status === 'ok').length }))
     openReview(batchInvoiceIds.value)
   } finally {
-    aiBatchRunning.value = false
+    if (version === contextVersion) aiBatchRunning.value = false
   }
 }
 
@@ -142,16 +161,18 @@ const batchDone = computed(() =>
 // „Účtenka / paragon", účetní ji přehodí na „Faktura" bez otevírání detailu.
 async function changeKind(result: { purchase_invoice_id?: number; document_kind?: string } | null, key: string, kind: PurchaseDocumentKind) {
   const id = result?.purchase_invoice_id
-  if (!result || !id) return
+  if (!result || !id || !canEditKind.value) return
+  const version = contextVersion
   kindBusyKey.value = key
   try {
     await purchaseInvoicesApi.setDocumentKind(id, kind)
+    if (version !== contextVersion) return
     result.document_kind = kind
     toast.success(t('integrations.ai.kind_changed'))
   } catch (e) {
     toast.error(apiErrorMessage(e))
   } finally {
-    kindBusyKey.value = null
+    if (version === contextVersion) kindBusyKey.value = null
   }
 }
 
@@ -162,10 +183,12 @@ function batchListLink(batchId: string) {
 // Poslední import — zůstane dohledatelný i po odchodu ze stránky.
 const lastBatch = ref<ImportBatch | null>(null)
 async function loadLastBatch() {
+  const version = contextVersion
   try {
-    lastBatch.value = (await purchaseInvoicesApi.listImportBatches(1))[0] ?? null
+    const batches = await purchaseInvoicesApi.listImportBatches(1)
+    if (version === contextVersion) lastBatch.value = batches[0] ?? null
   } catch {
-    lastBatch.value = null
+    if (version === contextVersion) lastBatch.value = null
   }
 }
 
@@ -188,19 +211,24 @@ function onAiDrop(e: DragEvent) {
 }
 
 async function runAiExtract() {
-  if (!aiPdfFile.value || aiExtracting.value) return
+  if (!canExtract.value || !aiPdfFile.value || aiExtracting.value || aiBatchRunning.value) return
+  const version = contextVersion
   aiExtracting.value = true
   aiResult.value = null
   try {
     const model = aiPerRequestModel.value || undefined
     // I jednotlivý doklad je dávka (o jednom kusu) — jinak by ho „Poslední import" neukázal.
-    aiResult.value = await integrationsApi.extractPdfAi(aiPdfFile.value, model, newBatchId())
+    const result = await integrationsApi.extractPdfAi(aiPdfFile.value, model, newBatchId())
+    if (version !== contextVersion) return
+    aiResult.value = result
     if (aiResult.value.ok) {
       toast.success(t('integrations.ai.extract_success'))
       await Promise.all([loadAiCreds(), loadLastBatch()])
-      if (aiResult.value.purchase_invoice_id && !aiResult.value.duplicate && !aiResult.value.target_supplier_id) openReview([aiResult.value.purchase_invoice_id])
+      if (version !== contextVersion) return
+      if (aiResult.value?.purchase_invoice_id && !aiResult.value.duplicate && !aiResult.value.target_supplier_id) openReview([aiResult.value.purchase_invoice_id])
     }
   } catch (e: any) {
+    if (version !== contextVersion) return
     if (apiErrorCode(e) === 'ai_not_configured') {
       toast.error(apiErrorMessage(e))
       await loadAiCreds()
@@ -214,7 +242,7 @@ async function runAiExtract() {
       toast.error(apiErrorMessage(e))
     }
   } finally {
-    aiExtracting.value = false
+    if (version === contextVersion) aiExtracting.value = false
   }
 }
 
@@ -230,10 +258,23 @@ function gotoInvoice(id: number) {
   router.push(`/purchase-invoices/${id}`)
 }
 
-onMounted(() => {
-  loadAiCreds()
-  loadLastBatch()
-})
+watch(() => suppliers.currentSupplierId, () => {
+  contextVersion++
+  aiCreds.value = null
+  credsLoaded.value = false
+  aiPdfFile.value = null
+  aiResult.value = null
+  aiPerRequestModel.value = ''
+  aiBatchQueue.value = []
+  aiBatchId.value = ''
+  aiBatchRunning.value = false
+  aiExtracting.value = false
+  kindBusyKey.value = null
+  reviewIds.value = null
+  lastBatch.value = null
+  void loadAiCreds()
+  void loadLastBatch()
+}, { immediate: true })
 </script>
 
 <template>
@@ -254,10 +295,14 @@ onMounted(() => {
     </div>
 
     <!-- Aktivní provider není nakonfigurován — odkaz na admin nastavení (jen kdo smí) -->
-    <AiNotConfiguredNotice v-if="credsLoaded && !aiConfigured" />
+    <p v-if="credsLoaded && auth.isClientRole && !canExtract" data-test="client-ai-unavailable"
+       class="rounded-md bg-warning-50 border border-warning-500/40 px-4 py-3 text-sm text-warning-700">
+      {{ t('aiGateway.client_extraction_unavailable') }}
+    </p>
+    <AiNotConfiguredNotice v-else-if="credsLoaded && !aiConfigured" />
 
     <!-- AI PDF extract (primární akce — jen když je aktivní provider nakonfigurován) -->
-    <div v-if="aiConfigured" class="bg-surface border border-neutral-200 rounded-lg p-5 shadow-sm">
+    <div v-if="canExtract && aiConfigured" data-test="ai-extraction-upload" class="bg-surface border border-neutral-200 rounded-lg p-5 shadow-sm">
       <h2 class="text-sm font-medium text-neutral-700 mb-2">{{ t('integrations.ai.extract_title') }}</h2>
       <p class="text-xs text-neutral-500 mb-4">{{ t('integrations.ai.extract_hint') }}</p>
 
@@ -277,7 +322,7 @@ onMounted(() => {
           <div v-if="aiPdfFile" class="text-xs text-neutral-500 mt-1">{{ Math.round(aiPdfFile.size / 1024) }} kB</div>
         </label>
 
-        <div class="flex items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2">
           <label class="text-sm text-neutral-700">{{ t('integrations.ai.model_override') }}</label>
           <select v-model="aiPerRequestModel" class="h-9 px-2 border border-neutral-300 rounded-md bg-surface text-sm">
             <option value="">{{ t('integrations.ai.use_default') }} ({{ aiDefaultModel }})</option>
@@ -285,20 +330,22 @@ onMounted(() => {
           </select>
         </div>
 
-        <button type="button" @click="runAiExtract" :disabled="!aiPdfFile || aiExtracting"
-                class="cursor-pointer w-full h-10 bg-primary-600 hover:bg-primary-700 disabled:bg-neutral-300 text-white text-sm font-medium rounded-md">
+        <button type="button" @click="runAiExtract" :disabled="!aiPdfFile || aiExtracting || aiBatchRunning"
+                :class="[btnFilled('primary'), 'w-full whitespace-nowrap']">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path :d="ICONS.upload" /></svg>
           {{ aiExtracting ? t('integrations.ai.extracting') : t('integrations.ai.run_extract') }}
         </button>
       </div>
 
       <!-- Batch queue (multi-file drop) — processed serial -->
       <div v-if="aiBatchQueue.length > 0" class="mt-4 pt-4 border-t border-neutral-100">
-        <div class="flex items-center justify-between mb-2">
+        <div class="flex flex-wrap gap-2 items-center justify-between mb-2">
           <h3 class="text-sm font-medium text-neutral-700">
             {{ t('integrations.ai.batch_title', { n: aiBatchQueue.length }) }}
           </h3>
           <button type="button" @click="clearBatch" :disabled="aiBatchRunning"
-                  class="cursor-pointer text-xs text-neutral-500 hover:text-danger-500">
+                  :class="[btnOutlineSm('neutral'), 'whitespace-nowrap']">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path :d="ICONS.x" /></svg>
             {{ t('common.cancel') }}
           </button>
         </div>
@@ -340,7 +387,7 @@ onMounted(() => {
                   <template v-else>—</template>
                 </td>
                 <td class="px-2 py-1.5">
-                  <select v-if="item.status === 'ok' && item.result?.purchase_invoice_id && !item.result?.target_supplier_id && item.result?.document_kind !== 'advance'"
+                  <select v-if="canEditKind && item.status === 'ok' && item.result?.purchase_invoice_id && !item.result?.target_supplier_id && item.result?.document_kind !== 'advance'"
                     :value="item.result.document_kind"
                     :disabled="kindBusyKey === `b${idx}`"
                     @change="changeKind(item.result, `b${idx}`, ($event.target as HTMLSelectElement).value as PurchaseDocumentKind)"
@@ -373,8 +420,9 @@ onMounted(() => {
             </tbody>
           </table>
         </div>
-        <button type="button" @click="runAiBatch" :disabled="aiBatchRunning"
-                class="mt-3 cursor-pointer w-full h-10 bg-primary-600 hover:bg-primary-700 disabled:bg-neutral-300 text-white text-sm font-medium rounded-md">
+        <button type="button" @click="runAiBatch" :disabled="aiBatchRunning || aiExtracting"
+                :class="[btnFilled('primary'), 'mt-3 w-full whitespace-nowrap']">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path :d="ICONS.upload" /></svg>
           {{ aiBatchRunning ? t('integrations.ai.batch_running') : t('integrations.ai.batch_run') }}
         </button>
 
@@ -412,7 +460,7 @@ onMounted(() => {
                   class="ml-3 cursor-pointer underline hover:text-success-700">
             {{ t('purchase_invoice.extraction_review.open') }}
           </button>
-          <div v-if="aiResult.purchase_invoice_id && !aiResult.target_supplier_id && aiResult.document_kind && aiResult.document_kind !== 'advance'"
+          <div v-if="canEditKind && aiResult.purchase_invoice_id && !aiResult.target_supplier_id && aiResult.document_kind && aiResult.document_kind !== 'advance'"
                class="mt-2 flex items-center gap-2 flex-wrap text-neutral-700">
             <label class="text-xs">{{ t('integrations.ai.col_kind') }}</label>
             <select :value="aiResult.document_kind"
@@ -453,6 +501,6 @@ onMounted(() => {
         </details>
       </div>
     </div>
-    <ExtractionReviewModal v-if="reviewIds" :invoice-ids="reviewIds" @close="reviewIds = null" />
+    <ExtractionReviewModal v-if="reviewIds" :invoice-ids="reviewIds" :only-flagged="!auth.isClientRole" @close="reviewIds = null" />
   </div>
 </template>

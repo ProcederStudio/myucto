@@ -26724,6 +26724,10 @@
     }
   },
   "aiGateway": {
+    "client_extraction_enabled": "Povolit klientům AI vytěžování",
+    "client_extraction_hint": "Klienti s oprávněním vytěžovat a zadávat přijaté faktury mohou použít AI této firmy. Aktivní poskytovatel musí být nakonfigurovaný. Vznikne koncept, který klient zkontroluje a označí jako přijatý stejně jako při ručním zadání.",
+    "client_extraction_unavailable": "AI vytěžování pro tuto firmu není dostupné nebo k němu nemáte oprávnění. Požádejte účetní o povolení a nastavení AI.",
+
     "effort": "Míra uvažování AI",
     "effort_default": "Výchozí (podle modelu)",
     "effort_fast": "Rychle a levně",

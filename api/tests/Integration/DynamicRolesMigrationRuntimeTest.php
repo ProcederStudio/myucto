@@ -104,6 +104,8 @@ final class DynamicRolesMigrationRuntimeTest extends TestCase
         self::assertSame($this->supplierA, (int) $limited[0]['supplier_id']);
         self::assertSame((int) $roles['readonly'], (int) $limited[0]['role_id']);
 
+        self::assertSame(0, (int) $db->query('SELECT client_ai_extraction_enabled FROM supplier WHERE id = ' . $this->supplierA)->fetchColumn());
+        $db->exec('UPDATE supplier SET client_ai_extraction_enabled = 1 WHERE id = ' . $this->supplierA);
         $db->exec("UPDATE roles SET name = 'Upravená účetní' WHERE system_key = 'accountant'");
         $permissionCount = (int) $db->query(
             'SELECT COUNT(*) FROM role_permissions WHERE role_id = ' . (int) $roles['accountant']
@@ -112,7 +114,8 @@ final class DynamicRolesMigrationRuntimeTest extends TestCase
             "DELETE FROM migrations WHERE filename IN (
                 '1074_dynamic_roles_permissions.sql',
                 '1747_predefined_admin_roles.sql',
-                '1748_bank_rule_templates_tenant_scope.sql'
+                '1748_bank_rule_templates_tenant_scope.sql',
+                '2007_client_ai_extraction.sql'
             )"
         );
         $this->runMigrator();
@@ -124,6 +127,7 @@ final class DynamicRolesMigrationRuntimeTest extends TestCase
             'SELECT COUNT(*) FROM role_permissions WHERE role_id = ' . (int) $roles['accountant']
         )->fetchColumn());
         self::assertSame(6, (int) $db->query('SELECT COUNT(*) FROM roles')->fetchColumn());
+        self::assertSame(1, (int) $db->query('SELECT client_ai_extraction_enabled FROM supplier WHERE id = ' . $this->supplierA)->fetchColumn());
     }
 
     private function createLegacyParentTables(PDO $db): void
@@ -141,6 +145,7 @@ final class DynamicRolesMigrationRuntimeTest extends TestCase
                 city VARCHAR(120) NOT NULL, zip VARCHAR(10) NOT NULL,
                 country_id SMALLINT UNSIGNED NOT NULL, email VARCHAR(190) NOT NULL,
                 default_currency_id INT UNSIGNED NOT NULL, default_vat_rate_id INT UNSIGNED NOT NULL,
+                ai_eu_residency_required TINYINT(1) NOT NULL DEFAULT 0,
                 CONSTRAINT fk_sup_country FOREIGN KEY (country_id) REFERENCES countries(id),
                 CONSTRAINT fk_sup_vat FOREIGN KEY (default_vat_rate_id) REFERENCES vat_rates(id),
                 CONSTRAINT fk_sup_currency FOREIGN KEY (default_currency_id) REFERENCES currencies(id)",
@@ -276,6 +281,7 @@ final class DynamicRolesMigrationRuntimeTest extends TestCase
                 '1888_other_items_role_permissions.sql',
                 '1959_purchase_invoice_approvals.sql',
                 '1962_payroll_personnel_file.sql',
+                '2007_client_ai_extraction.sql',
             ]),
         ];
         $env = getenv();

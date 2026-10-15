@@ -3,6 +3,7 @@ import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { RouterView, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
+import { canUsePurchaseAiExtraction } from '@/security/purchaseAiExtraction'
 import { useSupplierStore } from '@/stores/supplier'
 import { useAutomationStore } from '@/stores/automation'
 import { updateApi, type PublicVersion } from '@/api/update'
@@ -52,6 +53,7 @@ const paletteShortcutLabel = formatShortcut('ctrl+k')
 const workspace = useWorkspaceStore()
 const workspaceNavigation = useWorkspaceNavigation()
 const activeRoute = computed(() => router.resolve(workspace.activeFullPath))
+const canExtractPurchase = computed(() => canUsePurchaseAiExtraction(auth, supplierStore.currentSupplier))
 const clientExperience = computed(() => usesClientNavigation(auth.isClientRole, auth.domainContext))
 const desktopSearchRef = ref<InstanceType<typeof GlobalSearch> | null>(null)
 const mobileSearchRef = ref<InstanceType<typeof GlobalSearch> | null>(null)
@@ -333,6 +335,7 @@ const navSections = computed<NavSection[]>(() => {
         accent: 'warning',
         items: [
           { to: '/purchase-invoices', label: t('nav.purchase_invoices'), icon: ICONS.purchase, newTo: '/purchase-invoices/new' },
+          ...(canExtractPurchase.value ? [{ to: '/purchase-invoices/ai-import', label: t('nav.ai_import'), icon: ICONS.ai }] : []),
         ],
       },
       {
@@ -451,8 +454,8 @@ const navSections = computed<NavSection[]>(() => {
         ...(dimensionsEnabled ? [{ to: '/purchase-approvals', label: t('nav.purchase_approvals'), icon: ICONS.approvals, badge: approvalCount.pending.value, permission: 'purchase_invoices.approve' as PermissionKey }] : []),
         // AI import přijaté faktury (§12b) — denní operativa účetní (nahrát PDF → draft PF);
         // nastavení AI brány (klíče, DPA) zůstává v adminu (Firma → AI nastavení).
-        // Explicitní permission: scan zrcadlí BE check AiExtractPdfAction; readonly ji nevidí.
-        { to: '/purchase-invoices/ai-import', label: t('nav.ai_import'),         icon: ICONS.ai, permission: 'purchase_invoices.scan' },
+        // Samostatné oprávnění extrakce zrcadlí backend; readonly ji nevidí.
+        { to: '/purchase-invoices/ai-import', label: t('nav.ai_import'),         icon: ICONS.ai, permission: 'purchase_invoices.extract', access: 'write' },
         { to: '/clients?role=vendors',       label: t('nav.vendors'),            icon: ICONS.suppliers, newTo: '/clients/new?role=vendor' },
         { to: '/purchase-invoices/payment-orders', label: t('nav.payment_orders'), icon: ICONS.payment_orders },
         // Přečíslování podle data — jen účetní (klient interní čísla nespravuje).
@@ -1145,9 +1148,8 @@ const quickActions = computed(() => {
   // AI import přijaté faktury patří do rychlého „+" hned za Přijatou fakturu —
   // je to druhá nejčastější cesta, jak doklad do systému dostat (nahraju PDF,
   // AI z něj udělá draft). Nejde o zakládací route, takže `canCreate` by ji
-  // vyhodila; gate je stejný jako u položky v menu — právo `purchase_invoices.scan`
-  // (zrcadlí BE check v AiExtractPdfAction, readonly ji nevidí).
-  if (!clientExperience.value && auth.canWrite('purchase_invoices.scan')) {
+  // vyhodila; gate sdílí s menu a importní stránkou.
+  if (canExtractPurchase.value) {
     const purchaseIdx = actions.findIndex(a => a.to === '/purchase-invoices/new')
     const aiImport = { to: '/purchase-invoices/ai-import', label: t('nav.ai_import'), icon: ICONS.ai }
     if (purchaseIdx === -1) actions.push(aiImport)

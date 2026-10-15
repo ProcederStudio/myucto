@@ -4972,6 +4972,7 @@ paths:
       description: |
         Vrátí kompletní data supplier-a v jehož scope token operuje — adresa,
         IČO/DIČ, bankovní účty, číslování faktur, default platební podmínky.
+        Pole `client_ai_extraction_enabled` informuje, zda správce firmě povolil klientské AI vytěžování.
       responses:
         '200':
           description: OK
@@ -36866,6 +36867,11 @@ components:
         ic: { type: [string, "null"] }
         dic: { type: [string, "null"] }
         is_vat_payer: { type: boolean, description: "Aktuální stav plátcovství DPH (derivovaná cache dneška); historie změn v `vat_status_history` (tabulka supplier_vat_status_history). Pro rozhodování k datu dokladu/období vždy použij historii, ne tento flag." }
+        client_ai_extraction_enabled:
+          type: boolean
+          default: false
+          readOnly: true
+          description: "Správce povolil klientské AI vytěžování pro tuto firmu. Samotná dostupnost vyžaduje také oprávnění uživatele a nakonfigurovaného aktivního AI poskytovatele firmy."
         dimensions_enabled: { type: boolean, description: "Uložený příznak dimenzí. Dostupnost funkce navíc závisí na platné licenci účetnictví." }
         vat_status_history:
           type: array

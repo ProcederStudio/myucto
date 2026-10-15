@@ -13,6 +13,7 @@ const m = vi.hoisted(() => ({
   dismiss: vi.fn(),
   toastWarning: vi.fn(),
   requiresApproval: false,
+  canTransition: true,
   types: () => [{ id: 1, name: 'Středisko', is_active: true, show_on_documents: true, requires_approval: m.requiresApproval }],
 }))
 
@@ -22,7 +23,7 @@ vi.mock('@/composables/useFormat', () => ({ formatDate: (v: string) => v, format
 vi.mock('@/composables/useToast', () => ({
   useToast: () => ({ success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: m.toastWarning }),
 }))
-vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ isClientRole: false }) }))
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ isClientRole: false, canWrite: () => m.canTransition }) }))
 vi.mock('@/composables/useDimensions', () => ({
   useDimensions: () => ({
     enabled: { value: true },
@@ -115,6 +116,19 @@ describe('ExtractionReviewModal — dimenze', () => {
     m.dismiss.mockReset().mockImplementation((id: number) => Promise.resolve({ ...m.invoices[id], extraction_warning: null }))
     m.toastWarning.mockReset()
     m.requiresApproval = false
+    m.canTransition = true
+  })
+
+  it('potvrzení úhrady nabídne jen s právem ke změně stavu', async () => {
+    m.canTransition = false
+    m.invoices = { 1: invoice(1, { extraction_warning: 'Doklad je uhrazený', extraction_review: { paid_per_document: true } }) }
+    const wrapper = await mountModal([1], false)
+    expect(wrapper.findAll('button').some(b => b.text().includes('purchase_invoice.extraction_review.confirm_paid'))).toBe(false)
+    wrapper.unmount()
+    m.canTransition = true
+    const allowed = await mountModal([1], false)
+    expect(allowed.findAll('button').some(b => b.text().includes('purchase_invoice.extraction_review.confirm_paid'))).toBe(true)
+    allowed.unmount()
   })
 
   it('nabídne a uloží účet šablony i při stejném druhu nákladu až po potvrzení', async () => {

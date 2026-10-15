@@ -142,7 +142,7 @@ export function createWorkspaceRoutes(): RouteRecordRaw[] {
         },
       },
       // AI import přijaté faktury (§12b) — extrakční flow vytažený z admin Integrations
-      // (?tab=ai zůstává jen nastavení brány). Oprávnění purchase_invoices.scan zrcadlí
+      // (?tab=ai zůstává jen nastavení brány). Oprávnění purchase_invoices.extract zrcadlí
       // BE check v AiExtractPdfAction (účetní denní operativa, ne admin setup).
       { path: 'purchase-invoices/ai-import',       name: 'purchase-invoice-ai-import', component: () => import('@/pages/purchase-invoices/AiImport.vue'), meta: { requiresSupplier: true } },
       { path: 'purchase-invoices/new',             name: 'purchase-invoice-new',     component: () => import('@/pages/purchase-invoices/InvoiceEditor.vue'), meta: { requiresSupplier: true } },

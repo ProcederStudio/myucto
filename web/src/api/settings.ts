@@ -356,6 +356,7 @@ export interface Supplier {
   cssz_ossz_code?: string | null
   health_insurance_number?: string | null
   // AI extrakční brána (Epic F7) — non-secret volby (secrety jen přes /ai/credentials).
+  client_ai_extraction_enabled?: boolean
   ai_provider?: 'anthropic' | 'azure_openai' | 'openai' | 'gemini' | 'ollama'
   ai_data_region?: 'eu' | 'us'
   ai_eu_residency_required?: boolean

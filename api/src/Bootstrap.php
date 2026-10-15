@@ -867,6 +867,7 @@ final class Bootstrap
                 $c->get(\MyInvoice\Service\Auth\SessionLockPolicy::class),
                 $c->get(ClockInterface::class),
                 $c->get(\MyInvoice\Infrastructure\Cache\EntityCache::class),
+                $c->get(\MyInvoice\Service\Import\ClientAiExtractionPolicy::class),
             ),
 
             // ⚠️ `?InstanceHealthProbe $probe = null` v HealthAction je test seam

@@ -1,4 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AiCredentialsResponse, AiProvider } from '@/api/integrations'
 
@@ -85,6 +86,7 @@ describe('aiProviderBadge', () => {
 
 describe('Externí integrace → AI extrakce', () => {
   beforeEach(() => {
+    setActivePinia(createPinia())
     m.getAiCredentials.mockReset()
     m.setAiCredentials.mockReset()
     m.updateSupplier.mockReset().mockResolvedValue({})
@@ -156,5 +158,31 @@ describe('Externí integrace → AI extrakce', () => {
     expect(payload).not.toHaveProperty('apply_to_all_companies')
     expect(payload).not.toHaveProperty('only_unconfigured')
     expect(w.find('[data-test="bulk-result"]').exists()).toBe(false)
+  })
+})
+
+
+describe('povolení klientského vytěžování', () => {
+  it('načte uložené povolení i u firmy bez aktivního klíče', async () => {
+    setActivePinia(createPinia())
+    m.getAiCredentials.mockResolvedValue({ ...creds('anthropic', {}), client_ai_extraction_enabled: true })
+    const w = await mountPage()
+    expect((w.get('[data-test="client-ai-extraction"]').element as HTMLInputElement).checked).toBe(true)
+    expect(w.get('[data-test="save-client-ai-extraction"]').attributes('disabled')).toBeDefined()
+    w.unmount()
+  })
+
+  it('uloží přepínač samostatně bez změny vybraného poskytovatele', async () => {
+    setActivePinia(createPinia())
+    m.getAiCredentials.mockResolvedValue(creds('anthropic', { anthropic: true }))
+    m.updateSupplier.mockReset().mockResolvedValue({ client_ai_extraction_enabled: true })
+    const w = await mountPage()
+    expect((w.get('[data-test="client-ai-extraction"]').element as HTMLInputElement).checked).toBe(false)
+    expect(w.get('[data-test="save-client-ai-extraction"]').attributes('disabled')).toBeDefined()
+    await w.get('[data-test="client-ai-extraction"]').setValue(true)
+    await w.get('[data-test="save-client-ai-extraction"]').trigger('click')
+    await flushPromises()
+    expect(m.updateSupplier).toHaveBeenCalledExactlyOnceWith({ client_ai_extraction_enabled: true })
+    w.unmount()
   })
 })

@@ -286,8 +286,8 @@ function clientRouteParityErrors(manifestRoutes: readonly ManifestRoute[]): stri
 
 describe('sdílená klientská plocha vlastní domény', () => {
   it('obsahuje auditovanou klientskou plochu včetně nastavení firmy a legacy aliasů', () => {
-    expect(clientDomainRoutes).toHaveLength(41)
-    expect(new Set(clientDomainRoutes.map(route => route.name)).size).toBe(41)
+    expect(clientDomainRoutes).toHaveLength(42)
+    expect(new Set(clientDomainRoutes.map(route => route.name)).size).toBe(42)
     expect(clientDomainRoutes.slice(-3).map(route => route.name))
       .toEqual(['data-exchange', 'admin-export', 'admin-import'])
   })
@@ -309,7 +309,7 @@ describe('sdílená klientská plocha vlastní domény', () => {
       if (route!.path.includes(':')) parameterized.push(definition.name)
     }
 
-    expect(rendered).toHaveLength(33)
+    expect(rendered).toHaveLength(34)
     expect(redirects).toEqual([
       'profile-totp',
       'profile-shortcuts',
@@ -337,7 +337,7 @@ describe('sdílená klientská plocha vlastní domény', () => {
     }
     expect(Object.fromEntries(kindCounts)).toEqual({
       client_redirect: 4,
-      permission: 26,
+      permission: 27,
       router_redirect: 8,
       self_service: 3,
     })
@@ -447,7 +447,7 @@ describe('sdílená klientská plocha vlastní domény', () => {
 
   it('pokrývá každý literální cíl klientské navigace manifestem a routerem', () => {
     const paths = [...new Set(clientNavigationPaths())]
-    expect(paths).toHaveLength(14)
+    expect(paths).toHaveLength(15)
 
     const routeNames = new Set(clientDomainRoutes.map(route => route.name))
     for (const path of paths) {
@@ -466,6 +466,7 @@ describe('sdílená klientská plocha vlastní domény', () => {
       'portal-company-settings',
       'portal-document-requests',
       'portal-purchase-invoice-submissions',
+      'purchase-invoice-ai-import',
       'purchase-invoice-new',
       'purchase-invoices',
       'recurring',

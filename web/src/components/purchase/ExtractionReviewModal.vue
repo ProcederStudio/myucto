@@ -369,12 +369,12 @@ async function save(): Promise<void> {
 
 // Podle PDF zaplacený doklad zůstal po importu konceptem (aby šel upravit) — úhradu
 // potvrdí uživatel: koncept → přijato → uhrazeno přes běžné přechody stavu.
-const canConfirmPaid = computed(() => invoice.value?.status === 'draft'
+const canConfirmPaid = computed(() => auth.canWrite('purchase_invoices.transition') && invoice.value?.status === 'draft'
   && !!invoice.value?.extraction_review?.paid_per_document && !readOnlyReason.value)
 const confirmingPaid = ref(false)
 async function confirmPaid(): Promise<void> {
   const inv = invoice.value
-  if (!inv || confirmingPaid.value) return
+  if (!inv || !canConfirmPaid.value || confirmingPaid.value) return
   confirmingPaid.value = true
   try {
     const received = await purchaseInvoicesApi.transition(inv.id, 'received')

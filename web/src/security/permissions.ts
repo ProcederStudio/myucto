@@ -6,7 +6,7 @@ export const PERMISSION_KEYS = [
   'invoices.reminder', 'invoices.mark_paid', 'invoices.cancel', 'invoices.clone',
   'invoices.delete', 'invoices.approval',
   'purchase_invoices', 'purchase_invoices.create', 'purchase_invoices.transition',
-  'purchase_invoices.scan', 'purchase_invoices.payment_orders', 'purchase_invoices.delete',
+  'purchase_invoices.scan', 'purchase_invoices.extract', 'purchase_invoices.payment_orders', 'purchase_invoices.delete',
   'purchase_invoices.approve',
   'recurring', 'recurring.create', 'recurring.run', 'recurring.pause', 'recurring.delete',
   'bank', 'bank.import', 'bank.match', 'bank.post', 'bank.unpost', 'bank.rules',
@@ -47,7 +47,7 @@ export const CLIENT_PERMISSION_KEYS = [
   'invoices.reminder', 'invoices.mark_paid', 'invoices.cancel', 'invoices.clone',
   'invoices.delete', 'invoices.approval',
   'purchase_invoices', 'purchase_invoices.create', 'purchase_invoices.transition',
-  'purchase_invoices.delete',
+  'purchase_invoices.delete', 'purchase_invoices.extract',
   'recurring', 'recurring.create', 'recurring.run', 'recurring.pause', 'recurring.delete',
   'documents.submit', 'settings.company', 'profile',
 ] as const satisfies readonly PermissionKey[]

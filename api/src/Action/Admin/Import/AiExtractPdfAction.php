@@ -8,11 +8,11 @@ use MyInvoice\Http\Json;
 use MyInvoice\Http\SupplierGuard;
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Repository\PurchaseInvoiceSubmissionRepository;
-use MyInvoice\Security\AccessLevel;
 use MyInvoice\Security\CrossSupplierAuthorization;
 use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Import\AiPdfExtractor;
+use MyInvoice\Service\Import\ClientAiExtractionPolicy;
 use MyInvoice\Service\Import\DocumentAddresseeResolver;
 use MyInvoice\Service\PurchaseInvoice\PurchaseInvoiceSubmissionUploadService;
 use MyInvoice\Support\CompanyIdNormalizer;
@@ -44,17 +44,29 @@ final class AiExtractPdfAction
         private readonly DocumentAddresseeResolver $addressees,
         private readonly PurchaseInvoiceSubmissionUploadService $submissions,
         private readonly PurchaseInvoiceSubmissionRepository $submissionRows,
+        private readonly ClientAiExtractionPolicy $clientPolicy,
     ) {}
 
     public function __invoke(Request $request, Response $response): Response
     {
         $user = (array) $request->getAttribute(AuthMiddleware::ATTR_USER, []);
-        if (!RequestAuthorization::allows($request, 'purchase_invoices.scan', AccessLevel::WRITE)) {
-            return Json::error($response, 'forbidden', 'Pouze admin nebo účetní.', 403);
+        if (!ClientAiExtractionPolicy::hasDocumentPermissions($request)) {
+            return Json::error($response, 'forbidden', 'Nemáte oprávnění vytěžovat doklady.', 403);
         }
         $supplierId = SupplierGuard::currentId($request);
         if ($supplierId === 0) {
             return Json::error($response, 'no_supplier', 'Chybí supplier kontext.', 400);
+        }
+
+        $client = RequestAuthorization::isClientType($request);
+        if ($client) {
+            $state = $this->clientPolicy->supplierState($supplierId);
+            if (!$state['client_ai_extraction_enabled']) {
+                return Json::error($response, 'client_ai_extraction_disabled', 'AI vytěžení pro klienty není povoleno.', 403);
+            }
+            if (!$state['client_ai_extraction_available']) {
+                return Json::error($response, 'ai_not_configured', 'Firma nemá nastaveného AI poskytovatele.', 422);
+            }
         }
 
         $uploads = $request->getUploadedFiles();
@@ -73,10 +85,10 @@ final class AiExtractPdfAction
         // Doklad jiné firmy uživatele se vytěží rovnou v ní. Firma se určí bez AI
         // (strojový ISDOC, IČO/DIČ v textu PDF) a jen mezi firmami, kde smí uživatel
         // vytěžovat; AI pak běží s nastavením té firmy.
-        $others = array_values(array_filter(
-            $this->crossSupplier->suppliersAllowing($request, ['purchase_invoices.scan']),
+        $others = ClientAiExtractionPolicy::canRouteAcrossSuppliers($request) ? array_values(array_filter(
+            $this->crossSupplier->suppliersAllowing($request, ['purchase_invoices.extract']),
             static fn (int $id): bool => $id !== $current,
-        ));
+        )) : [];
         if ($others !== []) {
             $extension = strtolower(pathinfo((string) $originalName, PATHINFO_EXTENSION));
             try {
@@ -106,7 +118,7 @@ final class AiExtractPdfAction
         $importBatchId = ($importBatchId !== '') ? substr($importBatchId, 0, 32) : null;
 
         $userId = (int) ($user['id'] ?? 0);
-        $result = $this->extractor->extractAndCreate($supplierId, $userId, $bytes, $modelOverride, $originalName, $importBatchId);
+        $result = $this->extractor->extractAndCreate($supplierId, $userId, $bytes, $modelOverride, $originalName, $importBatchId, requireReview: $client);
 
         // Provenance (F7 §3.7): data_residency_ok=false jen když router odmítl kvůli
         // EU rezidenci (residency_conflict); ISDOC i úspěšná AI cesta = true.
@@ -131,7 +143,7 @@ final class AiExtractPdfAction
 
         // AI přečetla odběratele jiné firmy uživatele. Druhé AI volání se nedělá:
         // doklad jde do příchozích dokladů té firmy i s odběratelem a vytěží se tam.
-        if (!$result['ok'] && ($result['source'] ?? null) === 'wrong_tenant') {
+        if (!$result['ok'] && ($result['source'] ?? null) === 'wrong_tenant' && ClientAiExtractionPolicy::canRouteAcrossSuppliers($request)) {
             $handed = $this->handToOwnerInbox($request, $supplierId, $bytes, (string) ($originalName ?? 'doklad.pdf'), (array) ($result['ai_data'] ?? []), $userId);
             if ($handed !== null) {
                 return Json::ok($response, $handed);

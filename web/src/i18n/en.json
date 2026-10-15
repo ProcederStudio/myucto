@@ -26724,6 +26724,10 @@
     }
   },
   "aiGateway": {
+    "client_extraction_enabled": "Allow clients to extract documents with AI",
+    "client_extraction_hint": "Clients with permission to extract and enter purchase invoices can use this company’s AI. The active provider must be configured. Extraction creates a draft for the client to review and mark as received, just like manual entry.",
+    "client_extraction_unavailable": "AI extraction is unavailable for this company or you do not have permission. Ask your accountant to enable and configure AI.",
+
     "effort": "AI reasoning effort",
     "effort_default": "Default (per model)",
     "effort_fast": "Fast and cheap",

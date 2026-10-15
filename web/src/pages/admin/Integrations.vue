@@ -8,6 +8,7 @@ import { integrationsApi,
   type AiEffort, type AiBulkResult } from '@/api/integrations'
 import { aiProviderBadge } from './aiProviderBadge'
 import { settingsApi, type AiAssistSettings, type AiAssistScope } from '@/api/settings'
+import { useSupplierStore } from '@/stores/supplier'
 import { useRoute } from 'vue-router'
 import { useToast } from '@/composables/useToast'
 import { apiErrorMessage } from '@/api/errors'
@@ -18,6 +19,7 @@ import ImportJobReport from '@/components/admin/ImportJobReport.vue'
 
 const { t } = useI18n()
 const toast = useToast()
+const suppliers = useSupplierStore()
 
 type Tab = 'idoklad' | 'fakturoid' | 'ai'
 // Tab z ?tab=... query (default idoklad). Watch pro proklik mezi sidebar položkami
@@ -290,6 +292,8 @@ const aiProvider = ref<AiProvider>('anthropic')   // aktivní provider tenanta (
 const aiRegion = ref<AiDataRegion>('us')
 const aiEuRequired = ref(false)
 const aiSavingSelection = ref(false)
+const clientAiEnabled = ref(false)
+const clientAiSaving = ref(false)
 const aiAssist = ref<AiAssistSettings | null>(null)
 const aiAssistEnabled = ref(false)
 const aiAssistScopes = ref<AiAssistScope[]>([])
@@ -348,9 +352,17 @@ function syncCredForm() {
 // keepProvider: po uložení/smazání klíče zůstane vybraná záložka, kterou uživatel
 // právě upravuje — jinak by skočila zpět na aktivního poskytovatele brány.
 async function loadAiCreds(keepProvider = false) {
+  const supplierId = suppliers.currentSupplierId
   try {
     const testMsg = credTestMsg.value
-    aiCreds.value = await integrationsApi.getAiCredentials()
+    const credentials = await integrationsApi.getAiCredentials()
+    if (supplierId !== suppliers.currentSupplierId) return
+    aiCreds.value = credentials
+    clientAiEnabled.value = credentials.client_ai_extraction_enabled === true
+    suppliers.patchSupplier(supplierId, {
+      client_ai_extraction_enabled: clientAiEnabled.value,
+      client_ai_extraction_available: clientAiEnabled.value && !!credentials.providers[credentials.ai_provider]?.configured,
+    })
     if (!keepProvider) aiProvider.value = aiCreds.value.ai_provider
     aiRegion.value = aiCreds.value.ai_data_region
     aiEuRequired.value = aiCreds.value.ai_eu_residency_required
@@ -435,6 +447,23 @@ function selectProvider(p: AiProvider) {
   if (aiProvider.value === p) return
   aiProvider.value = p
   syncCredForm()
+}
+
+async function saveClientAiExtraction() {
+  if (clientAiSaving.value) return
+  const supplierId = suppliers.currentSupplierId
+  const enabled = clientAiEnabled.value
+  clientAiSaving.value = true
+  try {
+    await settingsApi.updateSupplier({ client_ai_extraction_enabled: enabled })
+    if (supplierId !== suppliers.currentSupplierId) return
+    await loadAiCreds(true)
+    toast.success(t('common.saved'))
+  } catch (e) {
+    if (supplierId === suppliers.currentSupplierId) toast.error(apiErrorMessage(e))
+  } finally {
+    clientAiSaving.value = false
+  }
 }
 
 async function saveAiSelection() {
@@ -1001,6 +1030,21 @@ onMounted(() => {
               <strong>{{ t('integrations.ai.privacy_title') }}</strong>
               <p class="text-xs leading-relaxed">{{ t('aiGateway.privacy_body') }}</p>
             </div>
+          </div>
+        </div>
+
+        <div v-if="aiCreds" class="bg-surface border border-neutral-200 rounded-lg p-4 space-y-3">
+          <label class="flex items-center gap-2 text-sm font-medium text-neutral-700">
+            <input v-model="clientAiEnabled" type="checkbox" data-test="client-ai-extraction" :disabled="clientAiSaving" />
+            {{ t('aiGateway.client_extraction_enabled') }}
+          </label>
+          <p class="text-xs text-neutral-500">{{ t('aiGateway.client_extraction_hint') }}</p>
+          <div class="flex flex-wrap gap-2">
+            <button type="button" data-test="save-client-ai-extraction" :class="btnFilled('primary')"
+                    :disabled="clientAiSaving || clientAiEnabled === !!aiCreds.client_ai_extraction_enabled" @click="saveClientAiExtraction">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path :d="ICONS.check" /></svg>
+              {{ clientAiSaving ? t('common.saving') : t('common.save') }}
+            </button>
           </div>
         </div>
 
