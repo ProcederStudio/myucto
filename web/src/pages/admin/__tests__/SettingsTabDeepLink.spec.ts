@@ -65,6 +65,8 @@ vi.mock('@/components/settings/SupplierDomainsSettings.vue', () => ({ default: {
 vi.mock('@/components/ui/SearchableSelect.vue', () => ({ default: { template: '<div />' } }))
 vi.mock('@/components/ui/EmptyState.vue', () => ({ default: { template: '<div />' } }))
 
+vi.mock('@/components/settings/CompanyEmailTemplates.vue', () => ({ default: { template: '<div data-test="company-email-templates" />' } }))
+
 import Settings from '../Settings.vue'
 
 const SUPPLIER = {
@@ -120,4 +122,12 @@ describe('Nastavení — adresovatelné záložky', () => {
 
     expect(activeTabLabel(wrapper)).toBe('settings.tab_accounting')
   })
+  it('email template deep link opens the company editor without the company save button', async () => {
+    const wrapper = await mountSettings('email-templates')
+    expect(activeTabLabel(wrapper)).toBe('settings.tab_email-templates')
+    expect(wrapper.find('[data-test="company-email-templates"]').exists()).toBe(true)
+    expect(wrapper.findAll('button').some(button => button.text().includes('settings.save_supplier'))).toBe(false)
+    wrapper.unmount()
+  })
+
 })

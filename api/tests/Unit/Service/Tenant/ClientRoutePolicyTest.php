@@ -212,6 +212,11 @@ final class ClientRoutePolicyTest extends TestCase
             ['PUT', '/api/settings/client/pdf-signing/output-settings'],
             ['GET', '/api/settings/client/email-profiles'],
             ['POST', '/api/settings/client/email-profiles'],
+            ['GET', '/api/settings/client/email-templates'],
+            ['GET', '/api/settings/client/email-templates/invoice_send/cs'],
+            ['PUT', '/api/settings/client/email-templates/invoice_send/en'],
+            ['DELETE', '/api/settings/client/email-templates/invoice_send/cs'],
+            ['POST', '/api/settings/client/email-templates/invoice_send/cs/preview'],
             ['PUT', '/api/settings/client/branding'],
             ['POST', '/api/settings/client/branding/profiles/7/logo'],
             ['GET', '/api/settings/client/payment-qr'],
@@ -241,6 +246,8 @@ final class ClientRoutePolicyTest extends TestCase
             ['POST', '/api/settings'],
             ['PUT', '/api/settings/supplier'],
             ['POST', '/api/settings/email-profiles'],
+            ['GET', '/api/settings/email-templates'],
+            ['PUT', '/api/admin/email-templates/invoice_send/cs'],
             ['POST', '/api/settings/email-branding/logo'],
         ] as [$method, $path]) {
             self::assertFalse($this->policy->allowsApiRequest($method, $path), "$method $path");

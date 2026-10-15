@@ -68,7 +68,7 @@ final class RecurringDraftReminder
         ];
 
         try {
-            $this->mailer->sendTemplate('recurring_draft_reminder', $locale, [$recipient], $vars);
+            $this->mailer->sendTemplate('recurring_draft_reminder', $locale, [$recipient], $vars, templateSupplierId: $supplierId);
         } catch (\Throwable $e) {
             // Selhání interní připomínky zalogujeme do přehledu e-mailů a propustíme dál
             // (cron-generate-recurring-invoices ho započítá do errors).

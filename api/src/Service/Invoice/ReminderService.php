@@ -135,6 +135,7 @@ final class ReminderService
                 $bcc,
                 [$this->varsBuilder->pdfAttachment($invoice, $pdfPath)],
                 $userId,
+                templateSupplierId: (int) $invoice['supplier_id'],
             );
         } catch (\Throwable $e) {
             $this->logger->log('invoice.reminder_failed', $userId, 'invoice', $invoiceId, [

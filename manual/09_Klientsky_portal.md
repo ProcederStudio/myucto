@@ -201,8 +201,11 @@ Klient s úrovní **Zápis** u položky **Nastavení firmy** spravuje jen výslo
 
 - odesílací profily, odesílatele, Reply-To, DKIM a SMTP/IMAP nastavení firmy,
 - firemní podpisové profily s podporovaným nativním backendem a šifrovaně uloženým heslem k certifikátu; klientský správce může nahrát P12/PFX, nastavit použití pro PDF a vybrat profil v odesílacím profilu pro S/MIME e-mail,
+- obsah e-mailových šablon firmy v češtině a angličtině,
 - branding komunikace, logo, barvy, patičky a brandingové profily,
 - dvě samostatné volby, zda do nově generovaných platebních QR kódů vystavených a přijatých dokladů zahrnout datum splatnosti.
+
+Firemní šablony otevřete na záložce **E-mailové šablony** v `Nastavení firmy`. U každého typu zprávy a jazyka vidíte, zda se používá vlastní firemní, společná nebo výchozí šablona. Úprava uloží vlastní kopii firmy; volba **Používat společnou šablonu** ji odstraní. Editor nabízí přehled proměnných a náhled na syntetických datech. Seznam typů a pravidla dědění popisuje [§ 96.6](96_Nastaveni.md#966-krok-za-krokem-e-mailove-sablony).
 
 Zápis neotevře původní administrátorskou stránku nastavení ani obecné nastavení dodavatele. Klient proto nemůže měnit obchodní jméno, IČ, DIČ, bankovní účty, číslování dokladů, DPH, účetní režim, integrace, přístupové údaje AI, uživatele ani role. Osobní podpisové profily, osobní trezor certifikátů, nepodporované backendy a systémový `sendmail` zůstávají ve správě administrátora.
 

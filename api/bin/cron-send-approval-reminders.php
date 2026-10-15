@@ -157,6 +157,7 @@ foreach ($candidates as $inv) {
             $cc,
             $bcc,
             [['path' => $pdfPath, 'name' => basename($pdfPath), 'contentType' => 'application/pdf']],
+            templateSupplierId: (int) $inv['supplier_id'],
         );
 
         // Archivuj odeslaný výkaz — viz RequestApprovalAction.

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace MyInvoice\Tests\Architecture;
 
-use MyInvoice\Action\Admin\EmailTemplateAction;
+use MyInvoice\Service\Mail\EmailTemplateCatalog;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 
@@ -13,13 +13,13 @@ final class EmailTemplateLabelsI18nTest extends TestCase
 {
     /**
      * Seznam e-mailových šablon v administraci se skládá z kódů, které vrátí API
-     * ({@see EmailTemplateAction} `KNOWN`), a popisek hledá dynamicky sestaveným
+     * ({@see EmailTemplateCatalog} `CODES`), a popisek hledá dynamicky sestaveným
      * klíčem `users.et_known_codes.${code}`. Chybějící překlad se vypíše jako syrový
      * klíč a statická i18n brána ho nevidí.
      */
     public function testEveryKnownTemplateHasCzechAndEnglishLabel(): void
     {
-        $codes = (new \ReflectionClassConstant(EmailTemplateAction::class, 'KNOWN'))->getValue();
+        $codes = EmailTemplateCatalog::CODES;
         self::assertIsArray($codes);
         self::assertNotEmpty($codes);
 

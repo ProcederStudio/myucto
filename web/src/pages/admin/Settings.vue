@@ -16,6 +16,7 @@ import { renderVarsymbolTemplate, hasCounterPlaceholder, templatesCollide } from
 import { DEFAULT_NOTE_MAX_LENGTH } from '@/pages/invoices/invoiceDefaultNote'
 import { ICONS, btnFilled, btnOutline, btnOutlineSm } from '@/components/ui/buttonStyles'
 import AutomationPolicyBox from '@/components/settings/AutomationPolicyBox.vue'
+import CompanyEmailTemplates from '@/components/settings/CompanyEmailTemplates.vue'
 import CompanyProfileBox from '@/components/settings/CompanyProfileBox.vue'
 import SearchableSelect from '@/components/ui/SearchableSelect.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -67,8 +68,8 @@ const loading = ref(true)
 const TAXPAYER_CODES = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'] as const
 const ACCOUNTING_DECREES = ['500', '501', '502', '503', '504', '325', '410'] as const
 const ENTITY_STATUSES = ['normal', 'liquidation', 'insolvency', 'transformation'] as const
-type SettingsTab = 'company' | 'documents' | 'numbering' | 'accounting'
-const tabs: SettingsTab[] = ['company', 'documents', 'numbering', 'accounting']
+type SettingsTab = 'company' | 'documents' | 'numbering' | 'accounting' | 'email-templates'
+const tabs: SettingsTab[] = ['company', 'documents', 'numbering', 'accounting', 'email-templates']
 // Na záložku se dá odkázat zvenčí (?tab=accounting) — odjinud v aplikaci sem
 // vedou rady typu „zapněte účetnictví v Nastavení", a ty musí skončit u toho
 // přepínače, ne na první záložce.
@@ -1018,7 +1019,7 @@ async function confirmTaxRepDelete() {
         <h1 class="text-2xl font-semibold">{{ t('settings.title') }}</h1>
         <p class="text-sm text-neutral-500 mt-0.5">{{ t('settings.subtitle') }}</p>
       </div>
-      <button v-if="!loading && supplier" type="button" @click="saveSupplier" :class="btnFilled('primary')">
+      <button v-if="!loading && supplier && tab !== 'email-templates'" type="button" @click="saveSupplier" :class="btnFilled('primary')">
         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.check" /></svg>
         {{ t('settings.save_supplier') }}
       </button>
@@ -1042,6 +1043,7 @@ async function confirmTaxRepDelete() {
     <div v-if="loading" class="text-center text-neutral-500 py-12 text-sm">{{ t('common.loading') }}</div>
 
     <div v-else-if="supplier" class="space-y-6">
+      <CompanyEmailTemplates v-if="tab === 'email-templates'" />
       <!-- Supplier -->
       <section v-if="tab === 'company' || tab === 'documents'" class="bg-surface border border-neutral-200 rounded-lg p-5 shadow-sm">
         <h2 class="text-sm font-semibold uppercase tracking-wide text-neutral-500 mb-4">
@@ -2362,7 +2364,7 @@ async function confirmTaxRepDelete() {
         </button>
       </section>
 
-      <div class="flex justify-end border-t border-neutral-200 pt-4">
+      <div v-if="tab !== 'email-templates'" class="flex flex-wrap justify-end border-t border-neutral-200 pt-4">
         <button type="button" @click="saveSupplier" :class="btnFilled('primary')">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.check" /></svg>
           {{ t('settings.save_supplier') }}
