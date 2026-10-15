@@ -16,8 +16,6 @@ use MyInvoice\Repository\Payroll\PayrollTimeValue;
 use MyInvoice\Service\Payroll\Calculation\PayrollWageRoundingPolicy;
 use MyInvoice\Service\Payroll\Import\Attendance\AttendanceMeaning;
 use MyInvoice\Service\Payroll\Ruleset\CanonicalJson;
-use MyInvoice\Service\Payroll\Time\CzechHolidayCalendar;
-use MyInvoice\Service\Payroll\Time\PayrollWorkCalendarSchedule;
 use PDO;
 
 /**
@@ -177,39 +175,6 @@ final class PayrollImportAbsenceCompensationMaterializer
         return $report;
     }
 
-    /**
-     * Plánované minuty svátků měsíce, které leží uvnitř schválené pracovní
-     * neschopnosti nebo karantény vztahu.
-     */
-    private function holidayMinutesInSickness(int $supplierId, int $employmentId, string $periodStart): int
-    {
-        $periodEnd = (new \DateTimeImmutable($periodStart))->modify('last day of this month')->format('Y-m-d');
-        $holidays = PayrollWorkCalendarSchedule::holidaysBetween(new CzechHolidayCalendar(), $periodStart, $periodEnd);
-        if ($holidays === []) {
-            return 0;
-        }
-        $stmt = $this->db->pdo()->prepare(
-            'SELECT date_from, date_to FROM payroll_absences
-              WHERE supplier_id = ? AND employment_id = ? AND status = "approved"
-                AND absence_type IN ("dpn", "quarantine")
-                AND date_from <= ? AND date_to >= ?'
-        );
-        $stmt->execute([$supplierId, $employmentId, $periodEnd, $periodStart]);
-        $dates = [];
-        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            foreach (array_keys($holidays) as $date) {
-                if ($date >= (string) $row['date_from'] && $date <= (string) $row['date_to']) {
-                    $dates[$date] = true;
-                }
-            }
-        }
-        if ($dates === []) {
-            return 0;
-        }
-
-        return array_sum((new PayrollWorkCalendarSchedule($this->db))->plannedMinutes($supplierId, $employmentId, array_keys($dates)));
-    }
-
     public static function externalId(string $period, int $employmentId, string $meaning): string
     {
         return self::EXTERNAL_ID_PREFIX . "{$period}:{$employmentId}:{$meaning}";
@@ -283,16 +248,6 @@ final class PayrollImportAbsenceCompensationMaterializer
             $externalId = self::externalId($period, $employmentId, $meaning);
             $existing = $this->existingInput($supplierId, $employmentId, $periodStart, $externalId);
             $minutes = self::minutes($millihours);
-            if ($meaning === 'holiday_hours' && $minutes > 0) {
-                // Svátek uvnitř pracovní neschopnosti kryje náhrada při DPN nebo
-                // dávka, ne náhrada za svátek (§ 115 odst. 3 ZP jen za svátek,
-                // kdy by jinak pracoval). Souhrn ho mezi hodinami svátku nese.
-                $sick = $this->holidayMinutesInSickness($supplierId, $employmentId, $periodStart);
-                if ($sick > 0) {
-                    $minutes = max(0, $minutes - $sick);
-                    $millihours = intdiv($minutes * 1000, 60);
-                }
-            }
             if ($minutes <= 0) {
                 if ($existing === null) {
                     continue;

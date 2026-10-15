@@ -323,27 +323,6 @@ final class AttendanceAbsenceCompensationTest extends TestCase
     }
 
     /**
-     * Svátek 6. 7. uvnitř pracovní neschopnosti kryje náhrada při DPN nebo dávka,
-     * náhrada za svátek se za něj neplatí. Dřív se proplatil podruhé.
-     */
-    public function testHolidayInsideSicknessIsNotCompensatedAgain(): void
-    {
-        $hourly = $this->employment('NAH-SV3');
-        $this->approvedAverage($hourly);
-        $importId = $this->writtenBatch($hourly, ['worked_hours' => 104_000, 'fund_hours' => 184_000, 'holiday_hours' => 8_000, 'sick_hours' => 64_000]);
-        $this->db->pdo()->prepare(
-            'INSERT INTO payroll_absences
-                (supplier_id, employment_id, absence_type, date_from, date_to,
-                 timezone_name, compensation_policy, support_status, status, requested_by)
-             VALUES (?, ?, "dpn", "2026-07-01", "2026-07-10", "Europe/Prague", "none", "supported", "approved", ?)'
-        )->execute([$this->supplierId, $hourly, $this->userId]);
-
-        $this->materializer->materializeFromBatch($this->supplierId, $importId, $this->userId, holidayWithoutMonthlyWage: true);
-
-        self::assertArrayNotHasKey('holiday_hours', $this->inputs($hourly));
-    }
-
-    /**
      * Placené volno (§ 199 ZP) jen na výslovnou žádost volajícího, jehož zdroj hodiny vede
      * jako placené: 6 h × 250 Kč × 100 %. Bez ní zůstává mezi hodinami bez náhrady.
      */
