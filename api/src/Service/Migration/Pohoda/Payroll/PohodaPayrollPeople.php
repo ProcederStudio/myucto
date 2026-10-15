@@ -313,6 +313,7 @@ final class PohodaPayrollPeople
                     'to' => $dates['to'],
                     'childbirth' => $childbirth,
                     'hours' => PohodaXml::num($row, 'HodPrac'),
+                    'payslip_month' => $payslip['month'],
                     // Osamělý zaměstnanec má podpůrčí dobu ošetřovného 16 dnů místo 9
                     // (§ 40 odst. 1 písm. b) zák. č. 187/2006 Sb.); ELDP z ní odvozuje vyloučené dny.
                     'lone_carer' => $type === 'ocr' && in_array(strtoupper(trim($number)), self::LONE_CARER_ABSENCES, true),
@@ -354,6 +355,9 @@ final class PohodaPayrollPeople
             }
             $label = trim($code . ' ' . $name);
             $benefitMonths[$payslip['relation']][$label] = ($benefitMonths[$payslip['relation']][$label] ?? 0) + 1;
+        }
+        foreach ($absences as $relationKey => $rows) {
+            $absences[$relationKey] = self::interruptedAbsences($rows, $year);
         }
 
         /** @var array<string,list<array{account:string,bank_code:string,active:bool}>> $accounts osoba => výplatní účty */
@@ -632,6 +636,41 @@ final class PohodaPayrollPeople
         $to = min($to, sprintf('%04d-12-31', $year));
 
         return $from > $to ? null : ['from' => $from, 'to' => $to];
+    }
+
+    /**
+     * Nepřítomnost přerušená na přelomu měsíce.
+     *
+     * Řádek nepřítomnosti ve mzdě nese začátek oříznutý na měsíc mzdy a konec celého
+     * případu, takže pokračování v dalším měsíci začíná prvním dnem. Začíná-li řádek
+     * téhož případu (stejný druh a konec) v dalším měsíci až později, zaměstnanec mezi
+     * tím pracoval: dřívější řádek proto končí posledním dnem svého měsíce. Bez řádku
+     * v dalším měsíci se konec nemění, pokračování pak mzda PAMICA nenese vůbec.
+     *
+     * @param list<array<string,mixed>> $rows
+     * @return list<array<string,mixed>>
+     */
+    public static function interruptedAbsences(array $rows, int $year): array
+    {
+        $resumed = [];
+        foreach ($rows as $row) {
+            $start = sprintf('%04d-%02d-01', $year, (int) $row['payslip_month']);
+            if ((string) $row['from'] > $start) {
+                $resumed[$row['type'] . '|' . $row['to'] . '|' . $row['payslip_month']] = true;
+            }
+        }
+        $out = [];
+        foreach ($rows as $row) {
+            $month = (int) $row['payslip_month'];
+            unset($row['payslip_month']);
+            $monthEnd = (new \DateTimeImmutable(sprintf('%04d-%02d-01', $year, $month)))->modify('last day of this month')->format('Y-m-d');
+            if ((string) $row['to'] > $monthEnd && isset($resumed[$row['type'] . '|' . $row['to'] . '|' . ($month + 1)])) {
+                $row['to'] = $monthEnd;
+            }
+            $out[] = $row;
+        }
+
+        return $out;
     }
 
     /**
