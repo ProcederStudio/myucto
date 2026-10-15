@@ -16,6 +16,7 @@ import { btnFilled, btnOutline, btnOutlineSm, ICONS } from '@/components/ui/butt
 import IsdsSendMethods from '@/components/submission/IsdsSendMethods.vue'
 import PayrollLateDiscountConfirm from '@/components/payroll/PayrollLateDiscountConfirm.vue'
 import { useAuthStore } from '@/stores/auth'
+import { navigateFullPage } from '@/workspace/fullPageNavigation'
 
 const props = defineProps<{
   environment: PayrollRegzelEnvironment
@@ -318,7 +319,7 @@ async function dispatch(
 
 function continueGateway(preview: PayrollJmhzPvpojPreview) {
   const gateway = state(preview).gateway
-  if (gateway) window.location.assign(gateway.redirect_url)
+  if (gateway) navigateFullPage(gateway.redirect_url)
 }
 </script>
 

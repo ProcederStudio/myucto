@@ -2,6 +2,8 @@
 import { computed, ref, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { RouterLink, type RouteLocationRaw } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import WorkspaceTeleport from '@/components/workspace/WorkspaceTeleport.vue'
+import { usePaneActivity } from '@/workspace/paneActivity'
 import { BTN_SM_BASE, OUTLINE, FILLED, MENU_ICON, ICONS, type ActionVariant, type ActionIcon } from './buttonStyles'
 
 /**
@@ -57,6 +59,7 @@ const props = withDefaults(defineProps<{
 })
 
 const { t } = useI18n()
+const paneActive = usePaneActivity()
 
 const DOTS = 'M6.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0zM12.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0zM18.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0z'
 
@@ -168,7 +171,7 @@ function onMenuKey(e: KeyboardEvent) {
   else if (e.key === 'Tab') close(true)
 }
 
-function onKey(e: KeyboardEvent) { if (e.key === 'Escape') close(true) }
+function onKey(e: KeyboardEvent) { if (paneActive.value && e.key === 'Escape') close(true) }
 // Posluchač musí být TÁŽ funkce při přidání i odebrání; `close` sama bere
 // argument, takže by jí prohlížeč jako „vrať ohnisko" podstrčil Event.
 function closeOnViewportChange() { close() }
@@ -203,7 +206,7 @@ onBeforeUnmount(() => {
       <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path :d="DOTS" /></svg>
     </button>
 
-    <Teleport to="body">
+    <WorkspaceTeleport>
       <template v-if="open">
         <div class="fixed inset-0 z-[60]" @click="close()" @contextmenu.prevent="close()" aria-hidden="true"></div>
         <div ref="menuRef" role="menu" :aria-label="triggerLabel" @keydown="onMenuKey"
@@ -233,6 +236,6 @@ onBeforeUnmount(() => {
           </component>
         </div>
       </template>
-    </Teleport>
+    </WorkspaceTeleport>
   </div>
 </template>

@@ -8,6 +8,7 @@ import { clearTargetDomainLogin, recordCanonicalDomainLoginSession } from '@/sec
 import { broadcastSessionEvent } from '@/security/sessionChannel'
 import { rememberTotpEnrollment } from '@/security/totpEnrollment'
 import { setOverdueIncludesToday } from '@/utils/invoiceOverdue'
+import { getWindowSupplierScope } from '@/workspace/supplierContext'
 import { useSupplierStore } from './supplier'
 import { accessLevelValue, type AccessLevel, type PermissionKey, type PermissionValue } from '@/security/permissions'
 
@@ -200,7 +201,7 @@ export const useAuthStore = defineStore('auth', () => {
       setMfaPolicy(data.require_mfa, data.allowed_mfa_methods)
       lockedSession.value = null
       profileHydrated.value = false
-      if (isDemo.value) localStorage.removeItem('myinvoice.current_supplier_id')
+      if (isDemo.value && !getWindowSupplierScope()) localStorage.removeItem('myinvoice.current_supplier_id')
       // Po loginu načti suppliery (login response je nemá, /me je vrátí)
       await refresh()
       rememberTotpEnrollment(data.totp_enrollment_token, user.value?.id)

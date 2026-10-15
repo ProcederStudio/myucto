@@ -1,3 +1,4 @@
+import { requestSupplierId } from '@/workspace/supplierContext'
 import { useAuthStore } from '@/stores/auth'
 
 /**
@@ -16,7 +17,7 @@ export function usePerUserFlag(name: string) {
       userId = '0'
     }
     try {
-      supplierId = localStorage.getItem('myinvoice.current_supplier_id') ?? '0'
+      supplierId = requestSupplierId() ?? '0'
     } catch {
       supplierId = '0'
     }

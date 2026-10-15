@@ -5,21 +5,26 @@ import { useI18n } from 'vue-i18n'
 import { apiErrorMessage } from '@/api/errors'
 import { dataBoxApi, type GatewayComplete } from '@/api/dataBox'
 import { btnOutline } from '@/components/ui/buttonStyles'
+import { navigateFullPage } from '@/workspace/fullPageNavigation'
+import { useRoute, useRouter } from 'vue-router'
+import { pageLocation, replacePageLocation } from '@/workspace/pageLocation'
 
 const { t } = useI18n()
 const loading = ref(true)
 const error = ref('')
 const completed = ref<GatewayComplete | null>(null)
+const route = useRoute()
+const router = useRouter()
 
 onMounted(async () => {
-  const params = new URLSearchParams(window.location.search)
+  const url = pageLocation(route)
+  const params = url.searchParams
   const appToken = params.get('appToken') ?? ''
   const sessionId = params.get('sessionId') ?? ''
 
   params.delete('appToken')
   params.delete('sessionId')
-  const query = params.toString()
-  window.history.replaceState({}, '', window.location.pathname + (query === '' ? '' : `?${query}`))
+  replacePageLocation(router, url)
 
   if (appToken === '' || sessionId === '') {
     error.value = t('databox.gateway.callback.invalid')
@@ -49,7 +54,7 @@ onMounted(async () => {
     if (!completed.value) return
 
     if (completed.value.redirect_url) {
-      window.location.assign(completed.value.redirect_url)
+      navigateFullPage(completed.value.redirect_url)
       return
     }
   } catch (exception) {

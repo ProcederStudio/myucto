@@ -5,6 +5,7 @@ import { useRoute } from 'vue-router'
 import { api } from '@/api/client'
 import { useDemoMode } from '@/composables/useDemoMode'
 import { ICONS, btnFilled } from '@/components/ui/buttonStyles'
+import { navigateFullPage } from '@/workspace/fullPageNavigation'
 
 const props = defineProps<{ currencyId: number; canWrite: boolean }>()
 const { t } = useI18n()
@@ -41,7 +42,7 @@ async function start() {
     const expectedOrigin = sandbox.value ? 'https://webapi.developers.erstegroup.com' : 'https://bezpecnost.csas.cz'
     const expectedPath = sandbox.value ? '/api/csas/sandbox/v1/sandbox-idp/auth' : '/api/psd2/fl/oidc/v1/auth'
     if (url.origin !== expectedOrigin || url.pathname !== expectedPath || url.username || url.password || url.hash) throw new Error()
-    window.location.assign(url.href)
+    navigateFullPage(url)
   } catch { if (!disposed) error.value = true }
   finally { if (!disposed) busy.value = false }
 }

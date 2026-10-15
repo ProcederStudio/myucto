@@ -15,6 +15,9 @@ import type { DataBoxCredential, OutboxSubmission } from '@/api/dataBox'
  */
 
 const m = vi.hoisted(() => ({
+  frame: false,
+  route: { fullPath: '/admin/databox', query: {} },
+  replace: vi.fn(),
   credentials: vi.fn(),
   recipients: vi.fn(),
   outbox: vi.fn(),
@@ -49,8 +52,12 @@ vi.mock('@/api/dataBox', () => ({
 
 vi.mock('vue-router', async (importOriginal) => ({
   ...(await importOriginal<typeof import('vue-router')>()),
-  useRoute: () => ({ query: {} }),
-  useRouter: () => ({ replace: vi.fn() }),
+  useRoute: () => m.route,
+  useRouter: () => ({ replace: m.replace }),
+}))
+vi.mock('@/workspace/supplierContext', async importOriginal => ({
+  ...await importOriginal<typeof import('@/workspace/supplierContext')>(),
+  getWindowSupplierScope: () => m.frame ? { windowId: 'window-test', supplierId: 1 } : null,
 }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ locale: { value: 'cs' }, t: (key: string) => key }) }))
 vi.mock('@/composables/useFormat', () => ({ formatUtcDateTime: (value: string) => value }))
@@ -122,6 +129,8 @@ let replaceState: ReturnType<typeof vi.fn>
 
 beforeEach(() => {
   vi.clearAllMocks()
+  m.frame = false
+  m.route = { fullPath: '/admin/databox', query: {} }
   m.credentials.mockResolvedValue([credential])
   m.recipients.mockResolvedValue([])
   m.outbox.mockResolvedValue({ items: [submission()], total: [submission()].length })
@@ -268,6 +277,22 @@ describe('odesílací brána na obrazovce datové schránky', () => {
 })
 
 describe('návrat z datové schránky', () => {
+  it('pracovní okno čte callback i vybrané podání z paměťové routy a čistí pouze tuto routu', async () => {
+    m.frame = true
+    m.route = { fullPath: '/admin/databox?tab=outbox&outbox=10&appToken=synthetic&sessionId=S-test#details', query: { tab: 'outbox' } }
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { assign, search: '?__myucto_window=window-test&__myucto_supplier=1', pathname: '/' },
+    })
+    m.gatewayComplete.mockResolvedValue({ state: 'approved', outbox_id: 10, redirect_url: null, external_message_id: 'DM-test', message: 'OK' })
+    const wrapper = await mountPage(false)
+    expect(m.gatewayComplete).toHaveBeenCalledWith('synthetic', 'S-test')
+    expect(m.replace).toHaveBeenCalledWith('/admin/databox?tab=outbox&outbox=10#details')
+    expect(replaceState).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-test="outbox-send-methods"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
   beforeEach(() => {
     Object.defineProperty(window, 'location', {
       configurable: true,

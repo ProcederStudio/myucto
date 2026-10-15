@@ -15,6 +15,7 @@ import CollapsibleSection from '@/components/ui/CollapsibleSection.vue'
 import JournalLineDimensionsEditor from '@/components/dimensions/JournalLineDimensionsEditor.vue'
 import OtherItemSourceContext from './OtherItemSourceContext.vue'
 import RepostModal from './RepostModal.vue'
+import WorkspaceTeleport from '@/components/workspace/WorkspaceTeleport.vue'
 import type { JournalPostingSource } from '@/api/accounting'
 
 /**
@@ -140,12 +141,12 @@ function onLineDimensionsSaved(byLine: Record<number, Record<number, number>>, s
         </button>
       </div>
     </div>
-    <Teleport to="body">
+    <WorkspaceTeleport>
       <RepostModal v-if="repostOpen && repostSource" :open="repostOpen" :source="repostSource"
         :doc-id="Number(detail.source_id)" :doc-label="detail.document_no || null"
         @close="repostOpen = false"
         @reposted="repostOpen = false; emit('reposted', detail.id)"
         @dimensions-saved="emit('reposted', detail.id)" />
-    </Teleport>
+    </WorkspaceTeleport>
   </div>
 </template>

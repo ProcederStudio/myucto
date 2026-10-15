@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { requestSupplierId } from '@/workspace/supplierContext'
 import { ref, computed, onMounted, reactive, watch, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, RouterLink, type RouteLocationRaw } from 'vue-router'
@@ -228,7 +229,7 @@ function checkValue(value: unknown): string {
  */
 function checkExportUrl(key: string): string | undefined {
   if (!periodId) return undefined
-  const sid = localStorage.getItem('myinvoice.current_supplier_id')
+  const sid = requestSupplierId()
   const q = sid ? `?supplier_id=${encodeURIComponent(sid)}` : ''
   return `/api/accounting/periods/${periodId}/checks/${key}/export${q}`
 }

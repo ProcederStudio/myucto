@@ -15,6 +15,44 @@ html {
   scrollbar-gutter: stable;
 }
 
+html.workspace-shell {
+  scrollbar-gutter: auto;
+}
+
+main.workspace-main-single {
+  padding-bottom: 0;
+}
+
+main.workspace-main-single:has(> .workspace-host:only-child) {
+  padding-top: 0;
+}
+
+main.workspace-main-single > .workspace-host {
+  margin-inline: -1.25rem;
+}
+
+@container workspace (width >= 40rem) {
+  main.workspace-main-single > .workspace-host {
+    margin-inline: -2rem;
+  }
+}
+
+html.workspace-window-frame {
+  scrollbar-gutter: auto;
+  scrollbar-color: var(--color-neutral-300) var(--color-neutral-50);
+  scrollbar-width: thin;
+}
+
+@media (width >= 48rem) {
+  html.workspace-window-frame:has(.overflow-auto.scrollbar-slim > table) {
+    scrollbar-width: none;
+  }
+
+  html.workspace-window-frame:has(.overflow-auto.scrollbar-slim > table)::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 body {
   container-name: workspace;
   container-type: inline-size;
@@ -367,6 +405,31 @@ body::after {
 }
 /* Vlastní obsah aplikace musí ležet nad atmosférou. */
 #app { position: relative; z-index: 1; }
+
+body.workspace-window-frame::before,
+body.workspace-window-frame::after {
+  display: none;
+}
+
+body.workspace-window-frame #app {
+  padding-bottom: 1rem;
+}
+
+body.workspace-window-single #app {
+  padding-top: 0;
+  padding-bottom: 1.5rem;
+  padding-inline: 1.25rem;
+}
+
+@media (width >= 40rem) {
+  body.workspace-window-single #app {
+    padding-inline: 2rem;
+  }
+}
+
+body.workspace-window-single-padded #app {
+  padding-top: 1.5rem;
+}
 
 @media (prefers-reduced-transparency: reduce) {
   body::after { display: none; }

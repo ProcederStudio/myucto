@@ -10,6 +10,7 @@ import JournalRelatedPanel from '@/components/accounting/JournalRelatedPanel.vue
 import JournalEntryNotes from '@/components/accounting/JournalEntryNotes.vue'
 import PostingOriginRow from '@/components/accounting/PostingOriginRow.vue'
 import RepostModal from '@/components/accounting/RepostModal.vue'
+import WorkspaceTeleport from '@/components/workspace/WorkspaceTeleport.vue'
 import { btnOutlineSm } from '@/components/ui/buttonStyles'
 import { journalEntryLink } from '@/utils/journalSourceLink'
 
@@ -177,9 +178,9 @@ defineExpose({ reload: () => load(props.docId) })
     </div>
 
     <!-- Teleport: kořen sekce má overflow-hidden (zaoblené rohy boxu), dialog by se v něm ořízl. -->
-    <Teleport to="body">
+    <WorkspaceTeleport>
       <RepostModal v-if="repostOpen" :open="repostOpen" :source="source" :doc-id="docId" :doc-label="docLabel"
         @close="repostOpen = false" @reposted="onReposted" @dimensions-saved="onReposted" />
-    </Teleport>
+    </WorkspaceTeleport>
   </div>
 </template>

@@ -29,6 +29,7 @@
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { navigateFullPage } from '@/workspace/fullPageNavigation'
 import { personalNumberLabel } from './employmentLifecycleUi'
 import { usePayrollServerMessage } from './payrollServerMessage'
 import { apiErrorCode } from '@/api/errors'
@@ -754,7 +755,7 @@ async function dispatch(
 
 function continueGateway(key: string): void {
   const gateway = gateways.value[key]
-  if (gateway) window.location.assign(gateway.redirect_url)
+  if (gateway) navigateFullPage(gateway.redirect_url)
 }
 
 function markMobileKeySent(key: string): void {

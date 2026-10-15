@@ -1,8 +1,9 @@
+import { requestSupplierId } from '@/workspace/supplierContext'
 import { api } from './client'
 
 /** `supplier_id` aktivní firmy pro odkazy otevírané mimo axios (prefix `?` nebo `&`). */
 function supplierQuery(prefix: '?' | '&'): string {
-  const sid = localStorage.getItem('myinvoice.current_supplier_id')
+  const sid = requestSupplierId()
   return sid && /^\d+$/.test(sid) ? `${prefix}supplier_id=${sid}` : ''
 }
 

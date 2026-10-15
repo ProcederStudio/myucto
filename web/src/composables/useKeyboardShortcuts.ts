@@ -2,6 +2,8 @@ import { computed, readonly, ref } from 'vue'
 import { preferencesApi } from '@/api/preferences'
 import { useAuthStore } from '@/stores/auth'
 import { isApplePlatform } from '@/utils/clientPlatform'
+import { getWindowSupplierScope } from '@/workspace/supplierContext'
+import { postWindowFrameMessage } from '@/workspace/frameProtocol'
 
 export type ShortcutGroup = 'general' | 'menu' | 'create'
 
@@ -30,6 +32,10 @@ const PREFERENCE_KEY = 'keyboard.shortcuts'
  */
 const DEFAULT_SHORTCUTS: Record<string, string> = {
   'search.global': 'alt+q',
+  'windows.switcher': 'alt+w',
+  'windows.previous': 'alt+pageup',
+  'windows.next': 'alt+pagedown',
+  'windows.recent': 'alt+shift+w',
   'new:/invoices/new': 'alt+1',
   'new:/purchase-invoices/new': 'alt+2',
   'new:/clients/new': 'alt+3',
@@ -134,6 +140,8 @@ export function formatShortcut(combo: string, apple = isApplePlatform()): string
     shift: 'Shift',
     escape: 'Esc',
     space: 'Space',
+    pageup: 'PageUp',
+    pagedown: 'PageDown',
   }
   return normalizeShortcut(combo)
     .split('+')
@@ -205,6 +213,8 @@ export function useKeyboardShortcuts() {
     overrides.value = nextOverrides
     loadedUserId.value = Number(auth.user?.id ?? 0)
     loaded.value = true
+    const frame = getWindowSupplierScope()
+    if (frame) postWindowFrameMessage({ type: 'myucto-window-shortcuts-changed', id: frame.windowId })
   }
 
   async function reset(): Promise<void> {
@@ -216,6 +226,8 @@ export function useKeyboardShortcuts() {
     overrides.value = {}
     loadedUserId.value = Number(auth.user?.id ?? 0)
     loaded.value = true
+    const frame = getWindowSupplierScope()
+    if (frame) postWindowFrameMessage({ type: 'myucto-window-shortcuts-changed', id: frame.windowId })
   }
 
   function actionForEvent(event: KeyboardEvent): ShortcutAction | undefined {

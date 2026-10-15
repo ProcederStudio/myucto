@@ -2,6 +2,7 @@
 import { onMounted, onBeforeUnmount, watch } from 'vue'
 import { usePaneActivity, usePaneId } from '@/workspace/paneActivity'
 import { lockBodyScroll, unlockBodyScroll } from '@/utils/bodyScrollLock'
+import WorkspaceTeleport from '@/components/workspace/WorkspaceTeleport.vue'
 
 /**
  * Generic right-anchored drawer — sourozenec Modal.vue se stejným kontraktem
@@ -55,7 +56,7 @@ void props
 </script>
 
 <template>
-  <Teleport to="body">
+  <WorkspaceTeleport>
     <div v-show="paneActive" class="fixed inset-0 z-50 bg-neutral-900/45 backdrop-blur-[3px]"
       :aria-hidden="paneActive ? undefined : true" :data-workspace-pane="paneId ?? undefined" @click.self="emit('close')">
       <!-- Vjezd spring křivkou (--ease-spring): panel dojede a nepatrně dosedne,
@@ -100,5 +101,5 @@ void props
         </aside>
       </transition>
     </div>
-  </Teleport>
+  </WorkspaceTeleport>
 </template>

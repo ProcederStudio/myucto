@@ -160,7 +160,7 @@ describe('obnova zrušeného předplatného', () => {
     const original = Object.getOwnPropertyDescriptor(window, 'location')
     Object.defineProperty(window, 'location', {
       configurable: true,
-      value: { ...window.location, set href(url: string) { assign(url) } },
+      value: { ...window.location, assign, set href(url: string) { assign(url) } },
     })
 
     try {

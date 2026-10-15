@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useWindowTitle } from '@/composables/useWindowTitle'
 import { ref, computed, nextTick, onMounted, watch } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -570,6 +571,12 @@ async function submit() {
   } finally {
     submitting.value = false
   }
+}
+if (!props.embedded) {
+  useWindowTitle(
+    () => form.value.company_name.trim() || (isEdit.value ? t('client.edit_title') : t(form.value.is_vendor && !form.value.is_customer ? 'purchase_invoice.new_vendor' : 'client.new_title')),
+    () => [form.value.is_customer ? t('client.is_customer_label') : null, form.value.is_vendor ? t('client.is_vendor_label') : null].filter(Boolean).join(', '),
+  )
 }
 </script>
 

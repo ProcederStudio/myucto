@@ -1,4 +1,6 @@
 import { useRouter, type RouteLocationRaw } from 'vue-router'
+import { inject } from 'vue'
+import { windowContextKey } from '@/workspace/windowContext'
 
 /**
  * Navigace „klikatelných" řádků v seznamech tak, aby fungoval Ctrl/⌘+klik a klik
@@ -22,6 +24,7 @@ import { useRouter, type RouteLocationRaw } from 'vue-router'
  */
 export function useRowLink() {
   const router = useRouter()
+  const windowContext = inject(windowContextKey, null)
 
   return function navigate(to: RouteLocationRaw, e?: MouseEvent): void {
     const newTab = !!e && (e.metaKey || e.ctrlKey || e.button === 1)
@@ -32,6 +35,7 @@ export function useRowLink() {
     }
     // Aux/pravé tlačítko (button != 0) bez modifikátoru — nenaviguj (nechováme se jako odkaz)
     if (e && e.button !== undefined && e.button !== 0) return
-    router.push(to)
+    if (windowContext?.navigate) void windowContext.navigate(to)
+    else void router.push(to)
   }
 }

@@ -1,3 +1,4 @@
+import { requestSupplierId } from '@/workspace/supplierContext'
 import { api } from './client'
 import type { OutboxSubmission } from './dataBox'
 
@@ -458,7 +459,7 @@ export function appendStepUpProof(data: FormData, proof: EpoStepUpProof): void {
 }
 
 function sid(): string {
-  const value = localStorage.getItem('myinvoice.current_supplier_id')
+  const value = requestSupplierId()
   return value && /^\d+$/.test(value) ? value : ''
 }
 

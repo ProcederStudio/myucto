@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useToast } from '@/composables/useToast'
+import WorkspaceTeleport from '@/components/workspace/WorkspaceTeleport.vue'
 const { toasts, dismiss } = useToast()
 
 function bgClass(type: string): string {
@@ -13,7 +14,7 @@ function bgClass(type: string): string {
 </script>
 
 <template>
-  <teleport to="body">
+  <WorkspaceTeleport>
     <div class="fixed top-4 right-4 z-[100] flex flex-col gap-2 max-w-sm">
       <transition-group
         enter-active-class="transition ease-out duration-200"
@@ -34,5 +35,5 @@ function bgClass(type: string): string {
         </div>
       </transition-group>
     </div>
-  </teleport>
+  </WorkspaceTeleport>
 </template>
