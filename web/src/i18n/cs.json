@@ -2886,7 +2886,8 @@
       "codes": {
         "tax_declaration_not_signed_summary": "Nepodepsané prohlášení poplatníka k dani",
         "time_month_missing": "Chybí schválená pracovní doba",
-        "employment_without_inputs": "Pracovní vztah bez mzdových vstupů"
+        "employment_without_inputs": "Pracovní vztah bez mzdových vstupů",
+        "recurring_component_without_input": "Pravidelná mzdová složka bez vstupu"
       }
     },
     "runs": {

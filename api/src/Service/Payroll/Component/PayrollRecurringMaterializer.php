@@ -83,13 +83,21 @@ final class PayrollRecurringMaterializer
                     $manualReview[] = $this->blocked($row, 'Mzdová složka není aktivní.');
                     continue;
                 }
-                $calculation = $this->calculate($row, $periodStart);
+                // Základní mzda vztahu, který trvá jen část měsíce, se počítá
+                // z celé měsíční částky a krátí hodinami fondu mimo trvání vztahu,
+                // stejně jako nepřítomnost — ne kalendářními dny.
+                $window = self::prorated($row) ? self::employmentWindow($row, $periodStart) : null;
+                $calculation = $this->calculate(
+                    $window === null ? $row : ['employment_start' => $periodStart, 'employment_end' => null] + $row,
+                    $periodStart,
+                );
                 if ($calculation['status'] === 'supported') {
                     $calculation = $this->prorateForAbsences(
                         $supplierId,
                         $periodStart,
                         $row,
                         $calculation,
+                        $window,
                     );
                 }
                 if ($calculation['status'] !== 'supported') {
@@ -181,6 +189,38 @@ final class PayrollRecurringMaterializer
     }
 
     /**
+     * Krátí se JEN základní mzda a předpis „odpracované hodiny". Druh složky,
+     * ne kód — kód si firma může přejmenovat, druh je vlastnost číselníku.
+     *
+     * @param array<string,mixed> $row
+     */
+    private static function prorated(array $row): bool
+    {
+        return ($row['component_kind'] ?? null) === 'base_wage' || self::byWorkedTime($row);
+    }
+
+    /**
+     * Trvání vztahu v měsíci, když vztah začíná nebo končí v jeho průběhu;
+     * `null` = vztah trvá celý měsíc.
+     *
+     * @param array<string,mixed> $row
+     * @return array{from:string,to:string}|null
+     */
+    private static function employmentWindow(array $row, string $periodStart): ?array
+    {
+        $periodEnd = (new \DateTimeImmutable($periodStart))->modify('last day of this month')->format('Y-m-d');
+        $start = is_string($row['employment_start'] ?? null) ? $row['employment_start'] : $periodStart;
+        $end = is_string($row['employment_end'] ?? null) ? $row['employment_end'] : $periodEnd;
+        $from = max($start, $periodStart);
+        $to = min($end, $periodEnd);
+        if (($from === $periodStart && $to === $periodEnd) || $from > $to) {
+            return null;
+        }
+
+        return ['from' => $from, 'to' => $to];
+    }
+
+    /**
      * Zkrácení spočítané částky o dobu, kterou v měsíci kryje jiný titul.
      *
      * Vstupem krácení je částka, kterou vrátil kalkulátor, ne sjednaná měsíční
@@ -196,10 +236,9 @@ final class PayrollRecurringMaterializer
         string $periodStart,
         array $row,
         array $calculation,
+        ?array $window = null,
     ): array {
-        // Krátí se JEN základní mzda a předpis „odpracované hodiny". Druh složky,
-        // ne kód — kód si firma může přejmenovat, druh je vlastnost číselníku.
-        if (($row['component_kind'] ?? null) !== 'base_wage' && !self::byWorkedTime($row)) {
+        if (!self::prorated($row)) {
             return $calculation;
         }
         $amount = $calculation['amount_minor'];
@@ -215,8 +254,8 @@ final class PayrollRecurringMaterializer
         // Měsíc ze souhrnu importu nemá směny, takže se nepřítomnost měří
         // měsíčními součty hodin; měsíc se směnami se měří rozvrhem.
         $proration = ($row['time_work_source'] ?? null) === 'import_summary'
-            ? $this->wageProration->forImportSummary($supplierId, $employmentId, $period, $amount)
-            : $this->wageProration->forMonth($supplierId, $employmentId, $period, $amount);
+            ? $this->wageProration->forImportSummary($supplierId, $employmentId, $period, $amount, $window)
+            : $this->wageProration->forMonth($supplierId, $employmentId, $period, $amount, $window);
 
         if ($proration['supported'] === false) {
             return [

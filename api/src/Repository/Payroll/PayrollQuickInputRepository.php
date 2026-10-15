@@ -1848,9 +1848,11 @@ final class PayrollQuickInputRepository
         // Měsíc ze souhrnu importu docházky nemá směny, takže nepřítomnost
         // v něm nese jen měsíční součet hodin — krátí se podle něj.
         $importSummaryMonth = ($employment['time_work_source'] ?? null) === 'import_summary';
+        // Nástup nebo skončení v průběhu měsíce se krátí stejně jako předpis
+        // ({@see \MyInvoice\Service\Payroll\Component\PayrollRecurringMaterializer}):
+        // hodinami fondu mimo trvání vztahu, spolu s nepřítomnostmi.
         $proration = null;
-        if (($awayInMonth || $importSummaryMonth)
-            && !$partialMonth
+        if (($awayInMonth || $importSummaryMonth || $partialMonth)
             && !$suspendedInMonth
             && !$managed['base']
             && $employment['monthly_gross_minor'] !== null
@@ -1865,31 +1867,12 @@ final class PayrollQuickInputRepository
                     $employment['monthly_gross_minor'],
                     'monthly_gross_minor',
                 ),
+                $partialMonth
+                    ? ['from' => max((string) $effectiveStart, $periodStart), 'to' => min((string) $effectiveEnd, $periodEnd)]
+                    : null,
             );
         }
-        // Nástup nebo skončení v průběhu měsíce bez dalších nepřítomností se
-        // krátí rozvrhem kalendáře; souběh s absencí dál zadává účetní ručně.
-        $partialProrated = false;
-        if ($partialMonth
-            && !$awayInMonth
-            && !$importSummaryMonth
-            && !$suspendedInMonth
-            && !$managed['base']
-            && $employment['monthly_gross_minor'] !== null
-        ) {
-            $proration = $this->wageProration->forPartialMonth(
-                $supplierId,
-                PayrollTimeValue::int($employment['employment_id'] ?? null, 'employment_id'),
-                $period,
-                PayrollTimeValue::int(
-                    $employment['monthly_gross_minor'],
-                    'monthly_gross_minor',
-                ),
-                max((string) $effectiveStart, $periodStart),
-                min((string) $effectiveEnd, $periodEnd),
-            );
-            $partialProrated = $proration['supported'] === true;
-        }
+        $partialProrated = $partialMonth && $proration !== null && $proration['supported'] === true;
         $prorationUnsupported = $proration !== null && $proration['supported'] === false;
 
         $baseRequiresEntry = (($partialMonth && !$partialProrated) || $suspendedInMonth || $prorationUnsupported)
