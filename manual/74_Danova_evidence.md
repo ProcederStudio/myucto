@@ -246,6 +246,13 @@ příjem či výdaj daného období místo aby se počítaly zvlášť.
 Jeden bankovní pohyb, kterým jste jednou platbou uhradili víc faktur najednou (sloučená úhrada), se v deníku zobrazí jako **jeden
 řádek** se souhrnným rozpadem daňový základ / osvobozeno / DPH za všechny spárované doklady.
 
+Částka bankovního řádku je vždy skutečná částka pohybu z banky. Spárované doklady určují jen to, jak se pohyb rozdělí do kbelíků.
+Platbu cizoměnové faktury z korunového účtu deník vykáže v korunách, které na účet skutečně přišly nebo z něj odešly.
+
+E-mailové avízo a pohyb z iDokladu jsou předběžné zprávy o platbě. Do deníku vstupují jen za dny, které ještě nepokrývá importovaný
+bankovní výpis téhož účtu. Jakmile výpis za dané období naimportujete, platí jen pohyby z výpisu a avíza z téhož období deník
+vynechá. Avízo, které je ignorované, v deníku není nikdy.
+
 Bankovní výpis se přiřadí dodavateli přednostně uloženým vlastníkem. U starších výpisů bez této vazby se použije normalizované číslo
 účtu nebo IBAN a výpis se přijme jen tehdy, má-li právě jednoho možného vlastníka. Shodné číslo účtu u více dodavatelů se záměrně
 nezařadí automaticky. U cizoměnového pohybu ověřte kurz uložený na dokladu, chybějící kurz může zablokovat výpočet a nesmí se
@@ -272,6 +279,13 @@ Druhou výjimkou je bankovní pohyb, který je **celý** přiřazený v `Daňov�
 se zařadí jako nedaňový příjem nebo výdaj. Příchozí platba k **poskytnuté půjčce nebo splátce** zůstává nezařazená, protože splátka
 prodeje je daňovým příjmem. Stejně tak pohyb přiřazený jen zčásti (splátka i s úrokem) nebo k jinému druhu (nájem, pojištění,
 poplatek, náhrada): o zařazení rozhodnete sami.
+
+Nesoulad mezi bankovním pohybem a spárovanými doklady deník hlásí samostatně:
+
+- **Spárované úhrady převyšují částku pohybu** (pohyb je nejspíš spárovaný vícekrát): v deníku je jen skutečná částka pohybu
+  a daňové složky se poměrně sníží. Upozornění je blokující, dokud párování v bance neopravíte.
+- **Pohyb je spárovaný jen částečně**: nespárovaný zbytek zůstane v deníku a v souhrnu ho uvidíte jako **Nezařazeno**. Dopárujte
+  ho v bance k dalšímu dokladu.
 
 Pokud v žádném spárovaném bankovním výpisu nefiguruje část historie účtu (typicky po změně čísla účtu v nastavení), zobrazí se
 navíc samostatné blokující upozornění na **počet bankovních úhrad mimo spárované výpisy**. Bez opravy by tato část historie v
