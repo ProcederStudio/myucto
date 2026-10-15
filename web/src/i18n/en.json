@@ -14118,7 +14118,6 @@
       "toast_skipped": "{count} lines were not ordered (missing vendor or quantity): {items}"
     },
     "settings": {
-    "tab_email-templates": "Email templates",
       "enable_label": "Track stock",
       "enable_hint": "Enables stock items, documents, stock takes and automatic goods issue on invoice posting.",
       "auto_issue_label": "Automatic goods issue on invoice posting",
@@ -23591,6 +23590,7 @@
     "tab_documents": "Invoicing",
     "tab_numbering": "Invoice numbering",
     "tab_accounting": "Tax and accounting",
+    "tab_email-templates": "Email templates",
     "documents_section": "Invoicing and emails",
     "supplier": "Supplier",
     "currencies_banks": "Currencies + bank accounts",

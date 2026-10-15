@@ -14118,7 +14118,6 @@
       "toast_skipped": "{count} položek se neobjednalo (chybí dodavatel nebo množství): {items}"
     },
     "settings": {
-    "tab_email-templates": "E-mailové šablony",
       "enable_label": "Vést skladovou evidenci",
       "enable_hint": "Zpřístupní skladové karty, doklady, inventury a automatickou výdejku při vystavení faktury.",
       "auto_issue_label": "Automatická výdejka při vystavení faktury",
@@ -23591,6 +23590,7 @@
     "tab_documents": "Fakturace",
     "tab_numbering": "Číslování faktur",
     "tab_accounting": "Daně a účetnictví",
+    "tab_email-templates": "E-mailové šablony",
     "documents_section": "Fakturace a e-maily",
     "supplier": "Dodavatel",
     "currencies_banks": "Měny + bankovní účty",
