@@ -88,7 +88,7 @@ final class PayrollRecurringMaterializer
                 // stejně jako nepřítomnost — ne kalendářními dny.
                 $window = self::prorated($row) ? self::employmentWindow($row, $periodStart) : null;
                 $calculation = $this->calculate(
-                    $window === null ? $row : ['employment_start' => $periodStart, 'employment_end' => null] + $row,
+                    $window === null ? $row : self::wholeMonthRow($row, $periodStart, $window),
                     $periodStart,
                 );
                 if ($calculation['status'] === 'supported') {
@@ -218,6 +218,30 @@ final class PayrollRecurringMaterializer
         }
 
         return ['from' => $from, 'to' => $to];
+    }
+
+    /**
+     * Předpis přepočtený na celý měsíc: trvání vztahu i platnost předpisu, která
+     * začíná nástupem nebo končí skončením vztahu, se roztáhne na celý měsíc —
+     * krátí je pak hodiny fondu. Změna předpisu v průběhu trvajícího vztahu
+     * (platnost uvnitř okna) zůstává kalendářními dny.
+     *
+     * @param array<string,mixed> $row
+     * @param array{from:string,to:string} $window
+     * @return array<string,mixed>
+     */
+    private static function wholeMonthRow(array $row, string $periodStart, array $window): array
+    {
+        $row['employment_start'] = $periodStart;
+        $row['employment_end'] = null;
+        if (is_string($row['valid_from'] ?? null) && $row['valid_from'] <= $window['from']) {
+            $row['valid_from'] = min($row['valid_from'], $periodStart);
+        }
+        if (is_string($row['valid_to'] ?? null) && $row['valid_to'] >= $window['to']) {
+            $row['valid_to'] = null;
+        }
+
+        return $row;
     }
 
     /**
