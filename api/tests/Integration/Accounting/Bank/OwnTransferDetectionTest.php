@@ -429,7 +429,7 @@ final class OwnTransferDetectionTest extends BankPostingTestCase
         return [
             'counterparty_account' => self::SECOND_ACCOUNT,
             'counterparty_bank' => self::SECOND_BANK,
-            'description' => 'Platba zalohy:6209100058',
+            'description' => 'Platba zalohy:1234567890',
         ];
     }
 
