@@ -149,7 +149,13 @@ final class PayrollQuickSurchargeInputsApiTest extends TestCase
         self::assertSame(200, $three->getStatusCode(), (string) $three->getBody());
 
         $updated = $this->quickInput('PRIPLATEK_ZTIZENE_PROSTREDI');
-        self::assertSame($single * 3, (int) $updated['amount_minor']);
+        // Zaokrouhluje se jednou, celý měsíční příplatek na celé koruny, takže
+        // trojnásobek se od 3 × zaokrouhleného jednonásobku smí lišit o haléře.
+        $tripled = (int) $updated['amount_minor'];
+        self::assertSame(0, $single % 100);
+        self::assertSame(0, $tripled % 100);
+        self::assertLessThanOrEqual($single * 3, $tripled);
+        self::assertGreaterThan($single * 3 - 300, $tripled);
         // Oprava přepisuje TÝŽ řádek, nezakládá druhý — jinak by se příplatek
         // vyplatil dvakrát.
         self::assertSame((int) $stored['id'], (int) $updated['id']);

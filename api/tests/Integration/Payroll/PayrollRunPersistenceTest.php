@@ -2947,8 +2947,9 @@ final class PayrollRunPersistenceTest extends TestCase
             (int) $refreshed->revision['id'],
             (int) $stale['superseded_by_revision_id'],
         );
+        // Opravná revize vstupy nezamyká, ať je jde opravit; zámek přijde se schválením.
         self::assertSame(
-            'locked',
+            'approved',
             (string) $this->scalar(
                 'SELECT status FROM payroll_inputs WHERE supplier_id = ? AND id = ?',
                 [$this->supplierId, $lateInputId],
@@ -2993,6 +2994,13 @@ final class PayrollRunPersistenceTest extends TestCase
             $this->runs->revision($this->supplierId, (int) $approvedCorrection->revision['id'])['status'],
         );
         self::assertNull($this->listedRun($runId)['source_drift']);
+        self::assertSame(
+            'locked',
+            (string) $this->scalar(
+                'SELECT status FROM payroll_inputs WHERE supplier_id = ? AND id = ?',
+                [$this->supplierId, $lateInputId],
+            ),
+        );
 
         $refreshEvents = array_values(array_filter(
             $this->runs->events($this->supplierId, $runId),

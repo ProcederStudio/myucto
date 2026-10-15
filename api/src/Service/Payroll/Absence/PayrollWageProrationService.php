@@ -234,6 +234,69 @@ final class PayrollWageProrationService
     }
 
     /**
+     * Krácení měsíční mzdy za nástup nebo skončení v průběhu měsíce.
+     *
+     * Dny měsíce mimo trvání vztahu jsou neodpracovaná doba bez náhrady: jejich
+     * minuty podle rozvrhu kalendáře se odečtou z fondu, který měsíční mzda
+     * pokrývá (včetně svátků, § 115 odst. 3 ZP). Absence uvnitř vztahu tahle
+     * cesta neřeší; ty má volající nechat na ručním zadání.
+     *
+     * @return array{
+     *   supported:bool,
+     *   reason:?string,
+     *   fund_minutes:?int,
+     *   replaced_minutes:int,
+     *   replaced_minutes_by_title:array<string,int>,
+     *   amount_minor:?int,
+     *   trace:?array<string,mixed>
+     * }
+     */
+    public function forPartialMonth(
+        int $supplierId,
+        int $employmentId,
+        string $period,
+        int $monthlyGrossMinor,
+        string $effectiveStart,
+        string $effectiveEnd,
+    ): array {
+        $start = \DateTimeImmutable::createFromFormat('!Y-m-d', $period . '-01');
+        if ($start === false || $start->format('Y-m') !== $period) {
+            throw new \InvalidArgumentException('period musí být ve formátu YYYY-MM.');
+        }
+        $periodEnd = $start->modify('last day of this month');
+        if ($effectiveStart > $periodEnd->format('Y-m-d') || $effectiveEnd < $start->format('Y-m-d')) {
+            return self::unsupported('employment_outside_month');
+        }
+        $fundMinutes = $this->fund->minutes($supplierId, $employmentId, $period);
+        if ($fundMinutes === null) {
+            return self::unsupported('missing_work_calendar');
+        }
+        if ($fundMinutes <= 0) {
+            return self::unsupported('empty_work_fund');
+        }
+        $outside = [];
+        for ($day = $start; $day <= $periodEnd; $day = $day->modify('+1 day')) {
+            $date = $day->format('Y-m-d');
+            if ($date < $effectiveStart || $date > $effectiveEnd) {
+                $outside[] = $date;
+            }
+        }
+        $minutes = array_sum($this->schedule->plannedMinutes($supplierId, $employmentId, $outside));
+        if ($minutes <= 0) {
+            return self::none();
+        }
+
+        return $this->prorated(
+            $supplierId,
+            $employmentId,
+            $period,
+            $monthlyGrossMinor,
+            $fundMinutes,
+            [PayrollWageReplacementTitle::Unpaid->value => $minutes],
+        );
+    }
+
+    /**
      * @return array{
      *   supported:bool,
      *   reason:?string,

@@ -11,7 +11,7 @@ use MyInvoice\Repository\Payroll\PayrollComponentRepository;
 use MyInvoice\Repository\Payroll\PayrollInputRepository;
 use MyInvoice\Repository\Payroll\PayrollSurchargeRepository;
 use MyInvoice\Repository\Payroll\PayrollTimeValue;
-use MyInvoice\Service\Payroll\Calculation\RoundingMode;
+use MyInvoice\Service\Payroll\Calculation\PayrollWageRoundingPolicy;
 use MyInvoice\Service\Payroll\Ruleset\PayrollRulesetProvider;
 use PDO;
 
@@ -128,10 +128,9 @@ final class PayrollStandbyInputMaterializer
             'rate_basis_points' => $rate,
             'rate_source' => $source,
             'average_hourly_minor' => $average,
-            'amount_minor' => RoundingMode::HalfUp->roundFraction(
-                $minutes * $average * $rate,
-                60 * 10_000,
-            ),
+            'amount_minor' => PayrollWageRoundingPolicy::forSupplier($this->db, $supplierId)
+                ->mode()
+                ->roundFraction($minutes * $average * $rate, 60 * 10_000 * 100) * 100,
         ];
     }
 

@@ -2193,6 +2193,16 @@ final class PayrollInputRepository
                 AND run.id = revision.run_id
               WHERE revision.supplier_id = ?
                 AND run.period_start = ?
+                AND revision.status <> "abandoned"
+                AND NOT EXISTS (
+                    SELECT 1
+                      FROM payroll_run_revisions open_correction
+                     WHERE open_correction.supplier_id = run.supplier_id
+                       AND open_correction.run_id = run.id
+                       AND open_correction.revision_no = run.current_revision_no
+                       AND open_correction.revision_kind = "correction"
+                       AND open_correction.status IN ("snapshot", "calculated", "reviewed")
+                )
                 AND JSON_CONTAINS(
                         COALESCE(
                             JSON_EXTRACT(

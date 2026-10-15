@@ -9,6 +9,8 @@ use MyInvoice\Repository\Payroll\PayrollComponentRepository;
 use MyInvoice\Repository\Payroll\PayrollInputRepository;
 use MyInvoice\Repository\Payroll\PayrollSurchargeClaimRepository;
 use MyInvoice\Repository\Payroll\PayrollTimeValue;
+use MyInvoice\Service\Payroll\Calculation\PayrollWageRounding;
+use MyInvoice\Service\Payroll\Calculation\PayrollWageRoundingPolicy;
 use MyInvoice\Service\Payroll\Ruleset\CanonicalJson;
 use PDO;
 use PDOException;
@@ -195,8 +197,9 @@ final class PayrollSurchargeInputMaterializer
         ?int $userId,
     ): ?array {
         $line = $result->lineFor($kind);
-        $desired = $line?->amountMinor ?? 0;
-        $evidenceHash = $this->evidenceHash($kind, $line, $result);
+        $rounding = PayrollWageRoundingPolicy::forSupplier($this->db, $supplierId);
+        $desired = $line === null ? 0 : self::wholeCzk($line->amountMinor, $rounding);
+        $evidenceHash = $this->evidenceHash($kind, $line, $result, $rounding);
 
         if ($previous === null) {
             if ($desired === 0) {
@@ -380,6 +383,7 @@ final class PayrollSurchargeInputMaterializer
         PayrollSurchargeKind $kind,
         ?PayrollSurchargeLine $line,
         PayrollSurchargeResult $result,
+        PayrollWageRounding $rounding,
     ): string {
         return hash('sha256', CanonicalJson::encode([
             'kind' => 'payroll_surcharge_evidence.v1',
@@ -388,7 +392,17 @@ final class PayrollSurchargeInputMaterializer
             'ruleset_id' => $result->rulesetId,
             'ruleset_content_hash' => $result->rulesetContentHash,
             'line' => $line?->jsonSerialize(),
+            'wage_rounding' => $rounding->value,
         ]), true);
+    }
+
+    /**
+     * Měsíční příplatek se vyplácí i hlásí v JMHZ v celých korunách; zaokrouhluje
+     * se jednou, za měsíc a druh, podle volby zaokrouhlení mzdy firmy.
+     */
+    public static function wholeCzk(int $amountMinor, PayrollWageRounding $rounding): int
+    {
+        return $rounding->mode()->roundFraction($amountMinor, 100) * 100;
     }
 
     /**
