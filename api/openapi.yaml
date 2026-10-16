@@ -26065,6 +26065,8 @@ paths:
 
         Jednohodnotová akce: klíč `project_id` je povinný. Chybí-li v těle, vrací 400
         `validation_failed` (`fields.project_id`); `null` zakázku odebere.
+        Skutečná změna zakázky na zápisu uzavřeného období vrací 409 `period_not_open`.
+        Uložení stejné hodnoty je povoleno; datumový zámek otevřeného období změně analytiky nebrání.
       requestBody:
         required: true
         content:
@@ -26340,6 +26342,8 @@ paths:
 
         Jednohodnotová akce: klíč `project_id` je povinný (může být `null`, což zakázku odebere).
         Chybí-li v těle, vrací 400 `validation_failed`.
+        Skutečná změna zakázky na zápisu uzavřeného období vrací 409 `period_not_open`.
+        Uložení stejné hodnoty je povoleno; datumový zámek otevřeného období změně analytiky nebrání.
       requestBody:
         required: true
         content:
