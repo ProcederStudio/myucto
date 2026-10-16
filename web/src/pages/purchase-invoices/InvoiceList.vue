@@ -1700,7 +1700,8 @@ useWindowRefresh(['purchase-invoices', 'clients', 'bank', 'bank-transactions', '
         </div>
       </section>
 
-      <div v-if="page < pages" ref="loadMoreTarget" class="text-center text-sm text-neutral-500 pointer-fine-hidden">
+      <!-- Po měsících nemá desktop vlastní scroll seznamu, další stránku spouští jen tento cíl. -->
+      <div v-if="page < pages" ref="loadMoreTarget" class="text-center text-sm text-neutral-500" :class="groupByMonth ? '' : 'pointer-fine-hidden'">
       </div>
     </div>
     <ListLoadingSpinner :show="loading || loadingMore" />
