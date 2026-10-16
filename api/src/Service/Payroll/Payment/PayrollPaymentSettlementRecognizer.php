@@ -7,6 +7,7 @@ namespace MyInvoice\Service\Payroll\Payment;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\Payroll\PayrollPaymentSettlementSignalRepository;
 use MyInvoice\Service\Bank\VariableSymbolNormalizer;
+use MyInvoice\Service\Bank\BankNoticeLifecycle;
 use PDO;
 use Psr\Log\LoggerInterface;
 
@@ -479,6 +480,7 @@ final class PayrollPaymentSettlementRecognizer
                 AND bank_transaction.posted_at <= ?
                 AND bank_transaction.matched_invoice_id IS NULL
                 AND bank_transaction.match_status = "unmatched"
+                AND ' . BankNoticeLifecycle::activeSql('bank_transaction') . '
                 AND bank_transaction.variable_symbol IS NOT NULL
                 AND bank_transaction.variable_symbol <> ""
                 AND NOT EXISTS (

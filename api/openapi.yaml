@@ -36700,7 +36700,7 @@ components:
     BankTransaction:
       type: object
       properties:
-        ignore_origin: { type: [string, "null"], enum: [manual, notice_transfer, null], description: Původ ignorování }
+        ignore_origin: { type: [string, "null"], enum: [manual, notice_transfer, superseded, null], description: Původ ignorování nebo převzetí avíza výpisem }
         id: { type: integer, format: int64 }
         source: { type: string, enum: [statement, email_notice, idoklad] }
         statement_id: { type: integer, format: int64, description: ID původního výpisu pohybu. U pohybu sdíleného mezi API a GPC se může lišit od ID právě zobrazeného výpisu. }

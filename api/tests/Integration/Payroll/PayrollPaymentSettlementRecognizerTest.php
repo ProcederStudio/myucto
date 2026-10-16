@@ -130,6 +130,21 @@ final class PayrollPaymentSettlementRecognizerTest extends TestCase
         );
     }
 
+    /** Převzaté avízo není znovu použitelný signál ani po odstranění původního výpisu. */
+    public function testSupersededUnmatchedNoticeCannotHideAnUnpaidLevyDeadline(): void
+    {
+        $transactionId = $this->insertBankTransaction('2026-02-10', '-3024.00', 'retired-notice', 'email_notice');
+        $this->pdo->prepare("UPDATE bank_transactions SET ignore_origin = 'superseded' WHERE id = ?")
+            ->execute([$transactionId]);
+
+        self::assertSame(
+            ['matched' => 0, 'signalled' => 0, 'ambiguous' => 0],
+            $this->recognizer->recognizeForSupplier($this->supplierId),
+        );
+        self::assertSame(0, $this->signalCount());
+        self::assertCount(1, $this->openLevyDeadlines(), 'Nahrazené avízo nesmí zhasnout nezaplacený odvod 3 024 Kč.');
+    }
+
     /** Opakovaný běh nesmí založit druhý signál na tentýž pohyb. */
     public function testRecognitionIsIdempotent(): void
     {
