@@ -372,7 +372,7 @@ final class InvoicePdfRenderer
         }
 
         $invoice['items'] = TimeBillingPdfPresenter::invoiceItems(
-            self::withTrackingLines($this->withBaseQuantity($invoice), (string) $locale),
+            $this->withTrackingLines($this->withBaseQuantity($invoice), (int) ($invoice['supplier_id'] ?? 0), (string) $locale),
             !empty($invoice['prices_include_vat']),
         );
         $workReport = $includeWorkReport
@@ -715,18 +715,31 @@ final class InvoicePdfRenderer
      * Tiskne se vždy, když řádek výběr má: VIN na faktuře za vozidlo potřebuje
      * kupující k registraci, šarže slouží k dohledání při stažení zboží.
      *
+     * Množství šarže je vždy v základní jednotce karty, i když řádek fakturuje balení
+     * a firma rozpis balení na PDF netiskne (`base_unit` z withBaseQuantity pak chybí).
+     *
      * @param array<int|string,mixed> $items
      * @return array<int|string,mixed>
      */
-    private static function withTrackingLines(array $items, string $locale): array
+    private function withTrackingLines(array $items, int $supplierId, string $locale): array
     {
         $en = $locale === 'en';
+        $lotLines = [];
+        foreach ($items as $i => $item) {
+            if (is_array($item) && !empty($item['stock_item_id']) && is_array($item['tracking_allocations'] ?? null)
+                && array_filter($item['tracking_allocations'], static fn ($a): bool => is_array($a) && !empty($a['lot_code'])) !== []) {
+                $lotLines[$i] = ['stock_item_id' => (int) $item['stock_item_id'], 'unit' => (string) ($item['unit'] ?? '')];
+            }
+        }
+        $baseUnits = $lotLines !== [] && $supplierId > 0
+            ? array_map(static fn (array $ratio): string => $ratio['base_unit'], (new \MyInvoice\Service\Stock\StockUnitConverter($this->db))->ratios($supplierId, $lotLines))
+            : [];
         foreach ($items as $i => $item) {
             $allocations = is_array($item) ? ($item['tracking_allocations'] ?? []) : [];
             if (!is_array($allocations) || $allocations === []) {
                 continue;
             }
-            $unit = (string) ($item['base_unit'] ?? $item['unit'] ?? '');
+            $unit = (string) ($baseUnits[$i] ?? $item['base_unit'] ?? $item['unit'] ?? '');
             $serials = [];
             $lots = [];
             foreach ($allocations as $a) {

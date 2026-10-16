@@ -583,6 +583,23 @@ final class InvoiceItemTrackingTest extends StockTestCase
         self::assertSame(1, substr_count($html, 'Výr. č.:'), 'Řádek bez výběru nic nevypisuje.');
     }
 
+    public function testPdfLotQuantityUsesBaseUnitEvenWithoutPackagingBreakdown(): void
+    {
+        $sid = $this->createSupplier();
+        $wh = $this->warehouse($sid);
+        $oil = $this->trackedItem($sid, 'OIL-PDF-KT', 'lot');
+        $this->db->pdo()->prepare('INSERT INTO stock_item_units (supplier_id, stock_item_id, unit_code, numerator, denominator, is_sales_unit) VALUES (?, ?, ?, 8, 1, 1)')
+            ->execute([$sid, $oil, 'KT']);
+        $this->db->pdo()->prepare('UPDATE supplier SET invoice_pdf_show_base_qty = 0 WHERE id = ?')->execute([$sid]);
+        $carton = $this->line($oil, $wh, '1', [['quantity' => '8', 'lot_code' => 'L-KT']]);
+        $carton['unit'] = 'KT';
+        $invoiceId = $this->createInvoice($sid, [$carton]);
+
+        $html = $this->pdfHtml($invoiceId);
+        self::assertStringContainsString('Šarže: L-KT: 8 ks', $html, 'Množství šarže je v základní jednotce karty, ne v kartonech.');
+        self::assertStringNotContainsString('L-KT: 8 KT', $html);
+    }
+
     public function testPdfInEnglishUsesEnglishLabels(): void
     {
         $sid = $this->createSupplier();
