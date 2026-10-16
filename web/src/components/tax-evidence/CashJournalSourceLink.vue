@@ -6,7 +6,7 @@ import type { CashJournalRow } from '@/api/taxEvidence'
 import { useAuthStore } from '@/stores/auth'
 import { useWorkspaceNavigation } from '@/composables/useWorkspaceNavigation'
 import { useToast } from '@/composables/useToast'
-import { ICONS, btnOutlineSm } from '@/components/ui/buttonStyles'
+import { ICONS, btnIconSm } from '@/components/ui/buttonStyles'
 
 const props = defineProps<{ row: CashJournalRow }>()
 const { t } = useI18n()
@@ -51,12 +51,12 @@ async function open(event: MouseEvent) {
 </script>
 
 <template>
-  <a v-if="target" :href="router.resolve(target).href" :class="btnOutlineSm('neutral')"
-     :title="t('tax_evidence.cash_journal.open_source_beside')"
+  <a v-if="target" :href="router.resolve(target).href" :class="btnIconSm('primary')"
+     :title="t('tax_evidence.cash_journal.open_source')"
+     :aria-label="t('tax_evidence.cash_journal.open_source')"
      data-workspace-open="beside" data-test="cash-journal-source" @click="open">
     <svg class="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-      <path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.link" />
+      <path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.eye" />
     </svg>
-    {{ t('tax_evidence.cash_journal.open_source') }}
   </a>
 </template>

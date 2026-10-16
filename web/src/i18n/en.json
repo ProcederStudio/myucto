@@ -26433,8 +26433,8 @@
       "form_active": "Active"
     },
     "cash_journal": {
+      "col_actions": "Actions",
       "open_source": "Go to details",
-      "open_source_beside": "With multiple panels, details open beside the journal.",
       "all_classifications": "All classifications",
       "show_unclassified": "Show unclassified",
       "rows_shown": "Showing {shown} of {total} movements",

@@ -255,6 +255,7 @@ const COLUMNS: ColumnDef[] = [
   { key: 'base', labelKey: 'tax_evidence.cash_journal.col_base', defaultHidden: true },
   { key: 'vat', labelKey: 'tax_evidence.cash_journal.col_vat', defaultHidden: true },
   { key: 'notes', labelKey: 'tax_evidence.cash_journal.col_notes' },
+  { key: 'actions', labelKey: 'tax_evidence.cash_journal.col_actions', required: true },
 ]
 const tbl = useTablePrefs('cash_journal', COLUMNS)
 
@@ -461,6 +462,7 @@ function onNotesChanged(notes: CashJournalNote[]) {
               <th v-if="tbl.isVisible('base')" class="px-3 py-2 text-right font-medium">{{ t('tax_evidence.cash_journal.col_base') }}</th>
               <th v-if="tbl.isVisible('vat')" class="px-3 py-2 text-right font-medium">{{ t('tax_evidence.cash_journal.col_vat') }}</th>
               <th v-if="tbl.isVisible('notes')" class="px-3 py-2 text-left font-medium">{{ t('tax_evidence.cash_journal.col_notes') }}</th>
+              <th v-if="tbl.isVisible('actions')" scope="col" :aria-label="t('tax_evidence.cash_journal.col_actions')" class="px-3 py-2 w-8"></th>
             </tr>
           </thead>
           <tbody class="divide-y divide-neutral-100">
@@ -473,7 +475,6 @@ function onNotesChanged(notes: CashJournalNote[]) {
                   {{ row.doc_no || '—' }}
                 </RouterLink>
                 <span v-else class="font-mono text-neutral-600">{{ row.doc_no || '—' }}</span>
-                <div class="mt-1 flex flex-wrap gap-1"><CashJournalSourceLink :row="row" /></div>
               </td>
               <td v-if="tbl.isVisible('partner')" class="px-3 py-2">{{ row.partner || '—' }}</td>
               <td v-if="tbl.isVisible('desc')" class="px-3 py-2 text-neutral-600">{{ row.description || '—' }}</td>
@@ -507,6 +508,9 @@ function onNotesChanged(notes: CashJournalNote[]) {
                   </button>
                   <span v-if="row.notes?.length" class="text-xs text-neutral-600 line-clamp-2 max-w-xs whitespace-pre-wrap break-words">{{ row.notes[0]!.body }}</span>
                 </div>
+              </td>
+              <td v-if="tbl.isVisible('actions')" class="px-3 py-2 text-right whitespace-nowrap">
+                <div class="flex flex-wrap items-center justify-end gap-1"><CashJournalSourceLink :row="row" /></div>
               </td>
             </tr>
           </tbody>

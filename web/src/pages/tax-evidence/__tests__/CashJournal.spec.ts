@@ -31,7 +31,7 @@ async function setup(query = '?year=2026') {
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/tax-evidence/cash-journal', component: CashJournal }] })
   await router.push('/tax-evidence/cash-journal' + query)
   await router.isReady()
-  const wrapper = mount(CashJournal, { global: { plugins: [router], directives: { 'column-labels': {} }, stubs: { ColumnPicker: true, DensityToggle: true, CashJournalMovementModal: true } } })
+  const wrapper = mount(CashJournal, { global: { plugins: [router], directives: { 'column-labels': {} }, stubs: { ColumnPicker: true, DensityToggle: true, CashJournalMovementModal: true, CashJournalSourceLink: true } } })
   await flushPromises()
   return { wrapper, router }
 }
@@ -53,6 +53,16 @@ beforeEach(() => {
 })
 
 describe('cash journal classification filter', () => {
+  it('places the source detail action in the final actions column, separately from the document', async () => {
+    const { wrapper } = await setup()
+    expect(wrapper.findAll('thead th').at(-1)?.text()).toBe('')
+    expect(wrapper.findAll('thead th').at(-1)?.attributes('aria-label')).toBe('tax_evidence.cash_journal.col_actions')
+    const cells = wrapper.get('tbody tr').findAll('td')
+    expect(cells.at(-1)?.find('cash-journal-source-link-stub').exists()).toBe(true)
+    expect(cells[1]?.text()).toContain('SYNTH-1')
+    expect(cells[1]?.find('cash-journal-source-link-stub').exists()).toBe(false)
+  })
+
   it('loads URL classification and dates once, preserving period when its chip is removed', async () => {
     const { wrapper, router } = await setup('?year=2025&from=2025-02-01&to=2025-03-01&classification=expense_taxable&other=keep')
     expect(api.cashJournal).toHaveBeenCalledTimes(1)

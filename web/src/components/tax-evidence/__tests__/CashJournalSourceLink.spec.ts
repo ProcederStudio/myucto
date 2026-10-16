@@ -23,7 +23,10 @@ beforeEach(() => {
 describe('zdrojový záznam peněžního deníku', () => {
   it('bankovní řádek otevře konkrétní transakci ve výpisu i když je spárovaný s fakturou', async () => {
     const wrapper = show()
-    expect(wrapper.get('a').attributes('title')).toBe('tax_evidence.cash_journal.open_source_beside')
+    expect(wrapper.get('a').attributes('title')).toBe('tax_evidence.cash_journal.open_source')
+    expect(wrapper.get('a').attributes('aria-label')).toBe('tax_evidence.cash_journal.open_source')
+    expect(wrapper.get('a').text()).toBe('')
+    expect(wrapper.get('a svg').exists()).toBe(true)
     await wrapper.get('a').trigger('click', { button: 0 })
     expect(m.openBeside).toHaveBeenCalledExactlyOnceWith({ name: 'bank-detail', params: { id: 7 }, query: { tx: '42', detail: '1' } })
   })
