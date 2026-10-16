@@ -1223,12 +1223,15 @@ function viewPdf() {
 }
 
 // Tisk stejného PDF jako „Zobrazit PDF" bez odbočky do nové záložky (usePrintPdf).
+// Selhání (stažení, načtení, tisk) nabídne v toastu běžné zobrazení PDF: nové okno
+// se otevře až kliknutím, po asynchronním čekání by ho zastavil blokátor oken.
 async function printInvoicePdf() {
   if (!invoice.value) return
+  const id = invoice.value.id
   try {
-    await printPdf(invoicesApi.pdfUrl(invoice.value.id, false))
+    await printPdf(`/invoices/${id}/pdf`, invoicesApi.pdfUrl(id, false))
   } catch {
-    toast.error(t('invoice.print_failed'))
+    toast.error(t('invoice.print_failed'), { label: t('invoice.view_pdf'), handler: viewPdf })
   }
 }
 

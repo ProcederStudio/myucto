@@ -2,14 +2,17 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
-const auth = vi.hoisted(() => ({ canWriteDocuments: true }))
+const auth = vi.hoisted(() => ({ canWriteDocuments: true, canReadStock: true }))
 
 vi.mock('vue-i18n', async importOriginal => ({
   ...await importOriginal<typeof import('vue-i18n')>(),
   useI18n: () => ({ t: (key: string) => key }),
 }))
 vi.mock('@/stores/auth', () => ({
-  useAuthStore: () => ({ canWrite: (perm: string) => perm === 'stock.documents.write' && auth.canWriteDocuments }),
+  useAuthStore: () => ({
+    canWrite: (perm: string) => perm === 'stock.documents.write' && auth.canWriteDocuments,
+    canRead: (perm: string) => perm === 'stock' && auth.canReadStock,
+  }),
 }))
 
 import InsufficientStockDialog from '../InsufficientStockDialog.vue'
@@ -26,6 +29,7 @@ afterEach(() => {
   wrapper = null
   document.body.replaceChildren()
   auth.canWriteDocuments = true
+  auth.canReadStock = true
 })
 
 async function mountDialog() {
@@ -95,6 +99,13 @@ describe('InsufficientStockDialog', () => {
     const hrefs = Array.from(document.body.querySelectorAll('a')).map(a => a.getAttribute('href'))
     expect(hrefs.some(h => h?.startsWith('/stock/documents/new'))).toBe(false)
     expect(hrefs).toContain('/stock/items/7')
+  })
+
+  it('bez práva číst sklad odkaz na kartu nenabízí', async () => {
+    auth.canReadStock = false
+    await mountDialog()
+    const hrefs = Array.from(document.body.querySelectorAll('a')).map(a => a.getAttribute('href'))
+    expect(hrefs.some(h => h?.startsWith('/stock/items/'))).toBe(false)
   })
 
   it('Zavřít i Escape okno zavřou', async () => {

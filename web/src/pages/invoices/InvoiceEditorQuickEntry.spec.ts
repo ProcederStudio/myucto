@@ -89,6 +89,37 @@ describe('InvoiceEditor rychlé zadávání', () => {
     wrapper.unmount()
   })
 
+  it('Enter v množství prázdného posledního řádku další prázdný řádek nepřidá', async () => {
+    const { wrapper, vm } = await mountEditor()
+    vm.form.items[1].description = '  '
+    const e = enter()
+    vm.onQtyEnter(e, 1)
+    expect(e.defaultPrevented).toBe(true)
+    expect(vm.form.items).toHaveLength(2)
+    expect(m.focusLastRow).not.toHaveBeenCalled()
+
+    // Řádek s kartou bez popisu prázdný není.
+    vm.form.items[1].stock_item_id = 77
+    vm.onQtyEnter(enter(), 1)
+    expect(vm.form.items).toHaveLength(3)
+    wrapper.unmount()
+  })
+
+  it('neplatná doba v množství: Enter ukáže upozornění a fokus nechá', async () => {
+    const { wrapper, vm } = await mountEditor()
+    const input = document.createElement('input')
+    input.setCustomValidity('Neplatná doba')
+    const report = vi.spyOn(input, 'reportValidity')
+    input.addEventListener('keydown', ev => vm.onQtyEnter(ev as KeyboardEvent, 0))
+    const e = new KeyboardEvent('keydown', { key: 'Enter', cancelable: true })
+    input.dispatchEvent(e)
+    expect(e.defaultPrevented).toBe(true)
+    expect(report).toHaveBeenCalled()
+    expect(m.focusRowField).not.toHaveBeenCalled()
+    expect(vm.form.items).toHaveLength(2)
+    wrapper.unmount()
+  })
+
   it('výběr karty přesune fokus na množství téhož řádku, odpojení ne', async () => {
     const { wrapper, vm } = await mountEditor()
     vm.onStockSelect(1, 77)

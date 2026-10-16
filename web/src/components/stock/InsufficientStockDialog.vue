@@ -18,6 +18,7 @@ const props = defineProps<{ items: InsufficientStockItem[] }>()
 const emit = defineEmits<{ close: [] }>()
 const { t } = useI18n()
 const auth = useAuthStore()
+const canOpenItem = auth.canRead('stock')
 const canReceive = auth.canWrite('stock.documents.write')
 
 const closeButton = ref<HTMLButtonElement | null>(null)
@@ -74,10 +75,10 @@ void props
             <td class="px-3 py-2 text-right font-mono font-semibold text-danger-600">{{ missing(item) }}</td>
             <td class="px-3 py-2">{{ item.unit || '' }}</td>
             <td class="px-3 py-2 text-right whitespace-nowrap">
-              <RouterLink :to="`/stock/items/${item.stock_item_id}`" class="text-primary-600 hover:text-primary-700 hover:underline" @click="emit('close')">
+              <RouterLink v-if="canOpenItem" :to="`/stock/items/${item.stock_item_id}`" class="text-primary-600 hover:text-primary-700 hover:underline" @click="emit('close')">
                 {{ t('stock.insufficient.open_item') }}
               </RouterLink>
-              <RouterLink v-if="canReceive" :to="receiptLink(item)" class="ml-3 text-primary-600 hover:text-primary-700 hover:underline" @click="emit('close')">
+              <RouterLink v-if="canReceive" :to="receiptLink(item)" :class="canOpenItem ? 'ml-3' : ''" class="text-primary-600 hover:text-primary-700 hover:underline" @click="emit('close')">
                 {{ t('stock.insufficient.new_receipt') }}
               </RouterLink>
             </td>
@@ -108,7 +109,7 @@ void props
           </div>
         </dl>
         <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-          <RouterLink :to="`/stock/items/${item.stock_item_id}`" class="inline-flex items-center min-h-9 text-primary-600 hover:text-primary-700" @click="emit('close')">
+          <RouterLink v-if="canOpenItem" :to="`/stock/items/${item.stock_item_id}`" class="inline-flex items-center min-h-9 text-primary-600 hover:text-primary-700" @click="emit('close')">
             {{ t('stock.insufficient.open_item') }}
           </RouterLink>
           <RouterLink v-if="canReceive" :to="receiptLink(item)" class="inline-flex items-center min-h-9 text-primary-600 hover:text-primary-700" @click="emit('close')">

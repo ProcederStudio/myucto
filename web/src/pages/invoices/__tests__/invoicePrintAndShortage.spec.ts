@@ -99,16 +99,22 @@ describe('InvoiceDetail: tisk', () => {
 
     m.printPdf.mockResolvedValue('printed')
     await print!.run!()
-    expect(m.printPdf).toHaveBeenCalledWith('/api/invoices/9/pdf')
+    expect(m.printPdf).toHaveBeenCalledWith('/invoices/9/pdf', '/api/invoices/9/pdf')
     wrapper.unmount()
   })
 
-  it('chybu tisku oznámí toastem', async () => {
+  it('chybu tisku oznámí toastem s odkazem na zobrazení PDF (nové okno až po kliknutí)', async () => {
     const wrapper = await mountDetail(baseInvoice())
-    m.printPdf.mockRejectedValue(new Error('PDF download failed (500)'))
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+    m.printPdf.mockRejectedValue(new Error('print frame timeout'))
     await (wrapper.vm as unknown as DetailVm).invoiceActions.find(a => a.key === 'print')!.run!()
     await flushPromises()
-    expect(m.toast.error).toHaveBeenCalledWith('invoice.print_failed')
+    expect(open).not.toHaveBeenCalled()
+    expect(m.toast.error).toHaveBeenCalledWith('invoice.print_failed', expect.objectContaining({ label: 'invoice.view_pdf' }))
+    const action = m.toast.error.mock.calls[0][1] as { handler: () => void }
+    action.handler()
+    expect(open).toHaveBeenCalledWith('/api/invoices/9/pdf', '_blank', 'noopener')
+    open.mockRestore()
     wrapper.unmount()
   })
 })

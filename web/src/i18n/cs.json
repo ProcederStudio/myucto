@@ -14116,7 +14116,7 @@
     },
     "insufficient": {
       "title": "Nedostatek zásob",
-      "intro": "Na skladě chybí zboží, doklad zůstal beze změny. Doplňte zásobu příjemkou, nebo upravte množství či sklad položky.",
+      "intro": "Na skladě chybí zboží, a proto se akce neprovedla: doklad se nevystavil, nezaúčtoval ani nestornoval. Doplňte zásobu příjemkou, nebo upravte množství či sklad položky.",
       "col_sku": "Kód",
       "col_name": "Název",
       "col_warehouse": "Sklad",

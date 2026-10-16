@@ -67,7 +67,8 @@ e-mailu** na detailu, viz [§ 16.10.9](#16109-prilohy-e-mailu).
    na **Tisk** nebo na **Stáhnout PDF**.
    **Tisk** otevře rovnou tiskový dialog prohlížeče s PDF faktury, bez odbočky do nové
    záložky. Prohlížeč bez vestavěného prohlížeče PDF (typicky v mobilu) otevře PDF
-   v nové záložce a vytisknete ho odtud.
+   v nové záložce a vytisknete ho odtud. Když se tisk nepodaří připravit, aplikace
+   to oznámí a v hlášce nabídne **Zobrazit PDF**.
 3. V Chrome a Edge se u **Stáhnout PDF** otevře dialog Uložit jako. Poprvé zvolte
    složku, kam PDF dané firmy ukládáte. Prohlížeč si složku pamatuje zvlášť pro
    každou firmu a příště dialog otevře rovnou v ní.

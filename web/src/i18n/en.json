@@ -14116,7 +14116,7 @@
     },
     "insufficient": {
       "title": "Insufficient stock",
-      "intro": "Some goods are missing in stock; the document was left unchanged. Add stock with a receipt, or change the item quantity or warehouse.",
+      "intro": "Some goods are missing in stock, so the action was not carried out: the document was not issued, posted or cancelled. Add stock with a receipt, or change the item quantity or warehouse.",
       "col_sku": "Code",
       "col_name": "Name",
       "col_warehouse": "Warehouse",

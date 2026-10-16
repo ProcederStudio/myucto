@@ -343,10 +343,14 @@ async function post() {
     }
     await loadDocument()
   } catch (e: any) {
-    error.value = mapError(e)
+    // Nedostatek ukáže jen okno s výčtem, bez chybového pruhu a toastu.
     const shortage = insufficientStockItems(e)
-    if (shortage) insufficientStock.value = shortage
-    else toast.error(error.value)
+    if (shortage) {
+      insufficientStock.value = shortage
+    } else {
+      error.value = mapError(e)
+      toast.error(error.value)
+    }
   } finally {
     posting.value = false
   }

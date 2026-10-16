@@ -1618,11 +1618,20 @@ function addItem() {
 function onQtyEnter(e: KeyboardEvent, rowIndex: number) {
   if (e.isComposing) return
   e.preventDefault()
+  // Neplatná doba (DurationInput): stejné upozornění jako při uložení, fokus zůstává.
+  const target = e.target
+  if (target instanceof HTMLInputElement && !target.checkValidity()) {
+    target.reportValidity()
+    return
+  }
   if (rowIndex < form.value.items.length - 1) {
     void focusRowField('[data-row-input="inv-item"]', rowIndex + 1, paneDom.root())
-  } else {
-    addItem()
+    return
   }
+  // Za prázdným posledním řádkem (bez popisu i bez karty) další prázdný nepřidávat.
+  const last = form.value.items[rowIndex]
+  if (last && (last.description || '').trim() === '' && last.stock_item_id == null) return
+  addItem()
 }
 
 async function addPriceListItem() {
