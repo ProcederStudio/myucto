@@ -15,6 +15,7 @@ use MyInvoice\Service\Stock\StockException;
 use MyInvoice\Service\Stock\StockReportService;
 use MyInvoice\Service\Stock\StockSalesReportService;
 use MyInvoice\Service\Stock\StockReportXlsxExporter;
+use MyInvoice\Service\Stock\StockValuationCategoryGroups;
 use MyInvoice\Service\Stock\StockValuationJobService;
 use MyInvoice\Service\Eshop\CatalogJobService;
 use Psr\Http\Message\ResponseInterface as Response;
@@ -23,8 +24,10 @@ use Psr\Http\Message\ServerRequestInterface as Request;
 /**
  * Skladové sestavy (Epic SKLAD §6, §8.1) — Stav zásob · Ocenění k datu · Prodeje.
  *
- *   GET /api/stock/reports/status              — data (filtry warehouse_id, item_type, below_min, active, q)
- *   GET /api/stock/reports/valuation?date=      — data k historickému datu (B8 limit-guard)
+ *   GET /api/stock/reports/status              — data (filtry warehouse_id, item_type, below_min, active, q,
+ *                                                 category_id; volitelné sloupce columns, attribute_id)
+ *   GET /api/stock/reports/valuation?date=      — data k historickému datu (B8 limit-guard),
+ *                                                 group_by=category[&group_parent_id] přidá souhrn podle kategorií
  *   GET /api/stock/reports/sales                — prodeje karet z řádků FV a dobropisů (právo i na vydané faktury)
  *   GET /api/stock/reports/{name}/export        — PDF/XLSX (?format=pdf|xlsx), name = status|valuation; sales jen XLSX
  */
@@ -46,6 +49,7 @@ final class StockReportAction
         private readonly StockValuationJobService $valuationJobs,
         private readonly CatalogJobService $jobs,
         private readonly StockSalesReportService $sales,
+        private readonly StockValuationCategoryGroups $categoryGroups,
     ) {}
 
     public function status(Request $request, Response $response): Response
@@ -74,7 +78,12 @@ final class StockReportAction
             $filters['warehouse_id'] = (int) $q['warehouse_id'];
         }
         try {
-            return Json::ok($response, $this->service->valuation($supplierId, $date, $filters));
+            $grouping = StockValuationCategoryGroups::normalize($q);
+            $data = $this->service->valuation($supplierId, $date, $filters);
+            if ($grouping !== null) {
+                $data['category_groups'] = $this->categoryGroups->summarize($supplierId, $grouping['parent_id'], $data['items']);
+            }
+            return Json::ok($response, $data);
         } catch (\Throwable $e) {
             return $this->mapStockError($response, $e);
         }
@@ -144,7 +153,12 @@ final class StockReportAction
             return Json::error($response, 'validation_failed', 'Neplatné stránkování.', 422);
         }
         try {
-            return Json::ok($response, $this->valuationJobs->result($supplierId, (int) $args['id'], $page, $limit));
+            $grouping = StockValuationCategoryGroups::normalize($query);
+            $data = $this->valuationJobs->result($supplierId, (int) $args['id'], $page, $limit);
+            if ($grouping !== null) {
+                $data['category_groups'] = $this->valuationJobs->categoryGroups($supplierId, (int) $args['id'], $grouping['parent_id']);
+            }
+            return Json::ok($response, $data);
         } catch (\Throwable $e) {
             return $this->mapStockError($response, $e);
         }
@@ -220,6 +234,7 @@ final class StockReportAction
                 $q = $request->getQueryParams();
                 $date = trim((string) ($q['date'] ?? (new \DateTimeImmutable())->format('Y-m-d')));
                 $filters = !empty($q['warehouse_id']) ? ['warehouse_id' => (int) $q['warehouse_id']] : [];
+                $grouping = StockValuationCategoryGroups::normalize($q);
                 if (isset($q['job_id'])) {
                     $jobId = filter_var($q['job_id'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
                     if ($jobId === false) {
@@ -232,8 +247,14 @@ final class StockReportAction
                         $next = $this->valuationJobs->result($supplierId, $jobId, $page, 500);
                         array_push($data['items'], ...$next['items']);
                     }
+                    if ($grouping !== null) {
+                        $data['category_groups'] = $this->valuationJobs->categoryGroups($supplierId, $jobId, $grouping['parent_id']);
+                    }
                 } else {
                     $data = $this->service->valuation($supplierId, $date, $filters);
+                    if ($grouping !== null) {
+                        $data['category_groups'] = $this->categoryGroups->summarize($supplierId, $grouping['parent_id'], $data['items']);
+                    }
                 }
                 $out = $format === 'pdf'
                     ? ['bytes' => $this->valuationPdf->render($data), 'filename' => 'oceneni-zasob-' . $date . '.pdf', 'mime' => 'application/pdf']

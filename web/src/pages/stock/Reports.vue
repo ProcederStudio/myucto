@@ -16,7 +16,7 @@ import { ICONS, btnOutline } from '@/components/ui/buttonStyles'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import { appIsoDate } from '@/utils/date'
 import DateInput from '@/components/ui/DateInput.vue'
-import { catalogJobsApi, type CatalogJob, type ValuationJobResult } from '@/api/catalogJobs'
+import { catalogJobsApi, type CatalogJob, type ValuationJobResult, type ValuationGroupParams } from '@/api/catalogJobs'
 import CatalogJobProgress from '@/components/stock/CatalogJobProgress.vue'
 
 const { t } = useI18n()
@@ -179,6 +179,23 @@ const valuationPage = ref(1)
 const cancellingValuation = ref(false)
 let valuationTimer: ReturnType<typeof setTimeout> | undefined
 let valuationGeneration = 0
+// Seskupení ocenění: '' = žádné, 'top' = kategorie nejvyšší úrovně, číslo = přímé podkategorie.
+const valuationGroup = ref<'' | 'top' | number>('')
+function valuationGroupParams(): ValuationGroupParams {
+  if (valuationGroup.value === '') return {}
+  return valuationGroup.value === 'top' ? { group_by: 'category' } : { group_by: 'category', group_parent_id: valuationGroup.value }
+}
+const valuationGroups = computed(() => valuationResult.value?.category_groups ?? null)
+function valuationGroupLabel(group: NonNullable<ValuationJobResult['category_groups']>['groups'][number]): string {
+  const parent = valuationGroups.value?.parent
+  if (group.kind === 'parent') return t('stock.reports.group_parent', { name: parent?.name ?? '' })
+  if (group.kind === 'uncategorized') return parent ? t('stock.reports.group_outside', { name: parent.name }) : t('stock.reports.group_none')
+  return group.name
+}
+/** Hotové ocenění se jen znovu načte se souhrnem, výpočet se neopakuje. */
+function onValuationGroupChange() {
+  if (valuationJob.value?.status === 'completed') void loadValuationPage(1)
+}
 
 async function load() {
   loading.value = true
@@ -231,7 +248,7 @@ async function loadValuationPage(page = valuationPage.value) {
   if (!valuationJob.value) return
   const generation = valuationGeneration
   try {
-    const result = await catalogJobsApi.getValuation(valuationJob.value.id, { page, limit: 50 })
+    const result = await catalogJobsApi.getValuation(valuationJob.value.id, { page, limit: 50, ...valuationGroupParams() })
     if (generation !== valuationGeneration) return
     valuationPage.value = page
     valuationResult.value = result
@@ -260,6 +277,7 @@ async function exportFile(format: 'pdf' | 'xlsx') {
     warehouse_id: filters.warehouse_id || undefined,
     date: filters.date,
     job_id: valuationResult.value?.job_id,
+    ...valuationGroupParams(),
   })
   window.open(url, '_blank', 'noopener')
 }
@@ -336,6 +354,14 @@ onBeforeUnmount(() => { clearValuationTimer(); ++valuationGeneration; if (salesS
         <div v-if="tab === 'valuation'">
           <label class="block text-xs font-medium text-neutral-500 mb-1">{{ t('stock.reports.filter_date') }}</label>
           <DateInput v-model="filters.date" @change="load" class="h-9 px-2 border border-neutral-300 rounded-md text-sm" />
+        </div>
+        <div v-if="tab === 'valuation' && categories.length">
+          <label class="block text-xs font-medium text-neutral-500 mb-1">{{ t('stock.reports.filter_group') }}</label>
+          <select v-model="valuationGroup" data-test="valuation-group" @change="onValuationGroupChange" class="h-9 px-2 border border-neutral-300 rounded-md text-sm bg-surface min-w-[12rem]">
+            <option value="">{{ t('stock.reports.group_off') }}</option>
+            <option value="top">{{ t('stock.reports.group_top') }}</option>
+            <option v-for="c in categories" :key="c.id" :value="c.id">{{ indentedCategoryLabel(c) }}</option>
+          </select>
         </div>
         <template v-if="tab === 'status'">
           <div v-if="categories.length">
@@ -596,7 +622,36 @@ onBeforeUnmount(() => { clearValuationTimer(); ++valuationGeneration; if (salesS
     <!-- Ocenění -->
     <template v-else>
       <CatalogJobProgress v-if="valuationJob && ['queued', 'running'].includes(valuationJob.status)" class="mb-4" :job="valuationJob" :cancelling="cancellingValuation" :can-cancel="auth.canWrite('stock')" @cancel="cancelValuation" />
-      <p v-if="valuationJob?.status === 'failed' || valuationJob?.status === 'cancelled'" class="text-sm text-danger-600 mb-3">{{ t('stock.reports.valuation_failed') }}</p><EmptyState v-if="valuationJob?.status === 'completed' && valuationRows.length === 0" boxed accent="neutral" icon="coin"
+      <p v-if="valuationJob?.status === 'failed' || valuationJob?.status === 'cancelled'" class="text-sm text-danger-600 mb-3">{{ t('stock.reports.valuation_failed') }}</p>
+      <!-- Souhrn podle kategorií za celé ocenění (ne jen stránku); součet = celkové ocenění. -->
+      <div v-if="valuationGroups" class="bg-surface border border-neutral-200 rounded-lg shadow-sm overflow-hidden mb-4">
+        <div class="overflow-x-auto">
+          <table class="min-w-[28rem] w-full text-sm">
+            <thead class="bg-neutral-50 text-xs text-neutral-500 uppercase tracking-wide">
+              <tr>
+                <th class="px-3 py-2 text-left font-medium">{{ valuationGroups.parent ? `${t('stock.reports.col_category')}: ${valuationGroups.parent.name}` : t('stock.reports.col_category') }}</th>
+                <th class="px-3 py-2 text-right font-medium whitespace-nowrap">{{ t('stock.reports.col_rows') }}</th>
+                <th class="px-3 py-2 text-right font-medium whitespace-nowrap">{{ t('stock.reports.col_value') }}</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-neutral-100">
+              <tr v-for="g in valuationGroups.groups" :key="`${g.kind}-${g.category_id ?? ''}`">
+                <td class="px-3 py-2" :class="g.kind === 'category' ? '' : 'text-neutral-600'">{{ valuationGroupLabel(g) }}</td>
+                <td class="px-3 py-2 text-right font-mono">{{ g.count }}</td>
+                <td class="px-3 py-2 text-right font-mono whitespace-nowrap">{{ formatMoney(Number(g.value_total)) }}</td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr class="border-t-2 border-neutral-300 font-semibold bg-neutral-50">
+                <td class="px-3 py-2">{{ t('stock.reports.totals') }}</td>
+                <td class="px-3 py-2 text-right font-mono">{{ valuationGroups.count }}</td>
+                <td class="px-3 py-2 text-right font-mono whitespace-nowrap">{{ formatMoney(Number(valuationGroups.value_total)) }}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <p class="px-3 py-2 text-xs text-neutral-500 border-t border-neutral-100">{{ t('stock.reports.group_note') }}</p>
+      </div><EmptyState v-if="valuationJob?.status === 'completed' && valuationRows.length === 0" boxed accent="neutral" icon="coin"
         :title="t('stock.reports.empty_title')" :message="t('stock.reports.empty_hint')" />
       <div v-else-if="valuationRows.length > 0" class="bg-surface border border-neutral-200 rounded-lg shadow-sm overflow-hidden">
         <div class="overflow-x-auto">

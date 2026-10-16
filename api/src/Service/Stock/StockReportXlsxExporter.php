@@ -105,7 +105,63 @@ final class StockReportXlsxExporter
 
         $this->finishTable($sheet, $head, $r, $cols, 5);
 
+        if (is_array($data['category_groups'] ?? null)) {
+            $this->valuationCategorySheet($ss, $data['category_groups'], $date);
+            $ss->setActiveSheetIndex(0);
+        }
+
         return $this->out($ss, 'oceneni-zasob-' . $date . '.xlsx');
+    }
+
+    /**
+     * List „Podle kategorií“: skupiny ocenění (StockValuationCategoryGroups),
+     * součtový řádek = celkové ocenění a poznámka o dnešním zařazení karet.
+     *
+     * @param array<string,mixed> $grouping
+     */
+    private function valuationCategorySheet(Spreadsheet $ss, array $grouping, string $date): void
+    {
+        $sheet = $ss->createSheet();
+        $sheet->setTitle('Podle kategorií');
+        $parent = $grouping['parent'] ?? null;
+        $sheet->setCellValue('A1', 'Ocenění zásob k ' . $this->czDate($date) . ' podle kategorií'
+            . (is_array($parent) ? ': ' . $parent['name'] : ''));
+        $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
+
+        $head = 3;
+        $this->headerRow($sheet, $head, ['Kategorie', 'Položek', 'Hodnota']);
+        $r = $head + 1;
+        foreach ($grouping['groups'] ?? [] as $group) {
+            $sheet->setCellValueExplicit([1, $r], self::valuationGroupLabel($group, $parent), DataType::TYPE_STRING);
+            $sheet->setCellValue([2, $r], (int) $group['count']);
+            $sheet->setCellValue([3, $r], (float) $group['value_total']);
+            $r++;
+        }
+        $sheet->setCellValue([1, $r], 'CELKEM');
+        $sheet->setCellValue([2, $r], (int) ($grouping['count'] ?? 0));
+        $sheet->setCellValue([3, $r], (float) ($grouping['value_total'] ?? 0));
+        $this->boldRow($sheet, $r, 3);
+        $this->finishTable($sheet, $head, $r, 3, 2);
+        $sheet->setCellValue([1, $r + 2], self::VALUATION_GROUPS_NOTE);
+    }
+
+    /** Poznámka k seskupení ocenění (stejný text v PDF). */
+    public const VALUATION_GROUPS_NOTE = 'Karty jsou zařazené podle dnešních kategorií, ne podle kategorií k datu ocenění. '
+        . 'Karta ve více kategoriích se počítá jen jednou (primární kategorie, jinak první v pořadí karty).';
+
+    /**
+     * Popisek skupiny ocenění pro export.
+     *
+     * @param array<string,mixed> $group
+     * @param array<string,mixed>|null $parent
+     */
+    public static function valuationGroupLabel(array $group, ?array $parent): string
+    {
+        return match ($group['kind'] ?? '') {
+            'parent' => 'Přímo v kategorii ' . (string) ($parent['name'] ?? ''),
+            'uncategorized' => is_array($parent) ? 'Mimo kategorii ' . (string) $parent['name'] : 'Bez kategorie',
+            default => (string) ($group['name'] ?? ''),
+        };
     }
 
     /**

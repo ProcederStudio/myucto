@@ -22,6 +22,27 @@ export interface CatalogJob {
   currencies?: string[]
 }
 
+/** Souhrn ocenění podle kategorií (jen s group_by=category); součet skupin = celkové ocenění. */
+export interface ValuationCategoryGroups {
+  parent: { id: number; code: string; name: string } | null
+  groups: Array<{
+    /** category = přímá podkategorie, parent = přímo ve zvolené kategorii, uncategorized = bez kategorie / mimo strom */
+    kind: 'category' | 'parent' | 'uncategorized'
+    category_id: number | null
+    code: string
+    name: string
+    count: number
+    value_total: string
+  }>
+  count: number
+  value_total: string
+}
+
+export interface ValuationGroupParams {
+  group_by?: 'category'
+  group_parent_id?: number
+}
+
 export interface ValuationJobResult {
   job_id: number
   date: string
@@ -29,6 +50,7 @@ export interface ValuationJobResult {
   totals: { value_total: string; count: number }
   pagination: { page: number; limit: number; total: number; pages: number }
   source_versions: Record<string, number>
+  category_groups?: ValuationCategoryGroups
 }
 
 export const catalogJobsApi = {
@@ -38,7 +60,7 @@ export const catalogJobsApi = {
   cancel: (id: number, signal?: AbortSignal) => api.post<CatalogJob>(`/eshop/jobs/${id}/cancel`, undefined, { signal }).then(r => r.data),
   recomputePrices: () => api.post<CatalogJob>('/eshop/jobs/prices-recompute').then(r => r.data),
   createValuation: (payload: { date: string; warehouse_id?: number }) => api.post<CatalogJob>('/stock/reports/valuation-jobs', payload).then(r => r.data),
-  getValuation: (id: number, params: { page?: number; limit?: number } = {}) => api.get<ValuationJobResult>(`/stock/reports/valuation-jobs/${id}`, { params }).then(r => r.data),
+  getValuation: (id: number, params: { page?: number; limit?: number } & ValuationGroupParams = {}) => api.get<ValuationJobResult>(`/stock/reports/valuation-jobs/${id}`, { params }).then(r => r.data),
   getValuationStatus: (id: number) => api.get<CatalogJob>(`/stock/reports/valuation-jobs/${id}/status`).then(r => r.data),
   cancelValuation: (id: number) => api.post<CatalogJob>(`/stock/reports/valuation-jobs/${id}/cancel`).then(r => r.data),
   cancelTakePreparation: (id: number) => api.post(`/stock/takes/${id}/cancel-preparation`).then(r => r.data),

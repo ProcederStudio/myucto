@@ -19824,6 +19824,16 @@ paths:
         - in: query
           name: warehouse_id
           schema: { type: integer }
+        - in: query
+          name: group_by
+          schema: { type: string, enum: [none, category] }
+          description: |
+            `category` přidá `category_groups` = souhrn ocenění podle kategorií
+            (schéma StockValuationCategoryGroups). Bez parametru je odpověď beze změny.
+        - in: query
+          name: group_parent_id
+          schema: { type: integer, minimum: 1 }
+          description: Skupiny tvoří přímé podkategorie této kategorie; bez něj kategorie nejvyšší úrovně.
       responses:
         '200': { description: OK }
   /api/v1/stock/reports/sales:
@@ -19969,6 +19979,21 @@ paths:
         schema:
           type: integer
           minimum: 1
+      - in: query
+        name: group_by
+        schema:
+          type: string
+          enum:
+          - none
+          - category
+        description: Jen u sestavy valuation. `category` přidá do XLSX list „Podle kategorií“
+          a do PDF souhrnnou tabulku.
+      - in: query
+        name: group_parent_id
+        schema:
+          type: integer
+          minimum: 1
+        description: Jen u sestavy valuation. Kategorie, jejíž přímé podkategorie tvoří skupiny.
       responses:
         '200':
           description: Soubor (PDF nebo XLSX dle `format`).
@@ -24232,6 +24257,20 @@ paths:
       - Stock
       summary: Stránka dokončeného ocenění
       parameters:
+      - in: query
+        name: group_by
+        schema:
+          type: string
+          enum:
+          - none
+          - category
+        description: '`category` přidá `category_groups` za celou úlohu (ne jen stránku).'
+      - in: query
+        name: group_parent_id
+        schema:
+          type: integer
+          minimum: 1
+        description: Skupiny tvoří přímé podkategorie této kategorie; bez něj kategorie nejvyšší úrovně.
       - in: query
         name: page
         schema:
@@ -30333,6 +30372,36 @@ components:
           type: array
           items:
             type: object
+    StockValuationCategoryGroups:
+      type: object
+      description: |
+        Souhrn ocenění podle kategorií (jen s `group_by=category`). Skupiny jsou přímé
+        podkategorie `parent` (bez něj kategorie nejvyšší úrovně), `parent` = karty přímo
+        ve zvolené kategorii, `uncategorized` = karty bez kategorie nebo jen mimo zvolený
+        strom. Karta ve více kategoriích patří do jediné skupiny (primární kategorie,
+        jinak první v pořadí karty, vždy jen ze zvoleného stromu). Součet skupin se rovná
+        celkovému ocenění. Zařazení podle dnešních kategorií karet.
+      properties:
+        parent:
+          type: object
+          nullable: true
+          properties:
+            id: { type: integer }
+            code: { type: string }
+            name: { type: string }
+        groups:
+          type: array
+          items:
+            type: object
+            properties:
+              kind: { type: string, enum: [category, parent, uncategorized] }
+              category_id: { type: integer, nullable: true }
+              code: { type: string }
+              name: { type: string }
+              count: { type: integer, description: Počet řádků ocenění (sklad × karta). }
+              value_total: { type: string }
+        count: { type: integer }
+        value_total: { type: string }
     StockValuationJobResult:
       type: object
       properties:
@@ -30371,6 +30440,8 @@ components:
               type: integer
             value_total:
               type: string
+        category_groups:
+          $ref: '#/components/schemas/StockValuationCategoryGroups'
         pagination:
           type: object
           properties:
