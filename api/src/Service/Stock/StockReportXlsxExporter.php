@@ -32,30 +32,39 @@ final class StockReportXlsxExporter
         $sheet->setCellValue('A1', 'Stav zásob k ' . (new \DateTimeImmutable())->format('d.m.Y'));
         $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
 
-        $headers = ['Sklad', 'SKU', 'Název', 'Typ', 'MJ', 'Množství', 'Prům. cena', 'Hodnota'];
+        // Sloupce podle výběru v sestavě; bez výběru původních osm (StockStatusColumns).
+        $layout = StockStatusColumns::layout($data);
+        $headers = array_column($layout, 'label');
         $cols = count($headers);
         $head = 3;
         $this->headerRow($sheet, $head, $headers);
 
         $r = $head + 1;
         foreach ($data['items'] ?? [] as $row) {
-            $sheet->setCellValueExplicit([1, $r], (string) $row['warehouse_code'], DataType::TYPE_STRING);
-            $sheet->setCellValueExplicit([2, $r], (string) $row['sku'], DataType::TYPE_STRING);
-            $sheet->setCellValueExplicit([3, $r], (string) $row['name'], DataType::TYPE_STRING);
-            $sheet->setCellValueExplicit([4, $r], (string) $row['item_type'], DataType::TYPE_STRING);
-            $sheet->setCellValueExplicit([5, $r], (string) $row['unit'], DataType::TYPE_STRING);
-            $sheet->setCellValue([6, $r], (float) $row['qty']);
-            $sheet->setCellValue([7, $r], (float) $row['avg_unit_cost']);
-            $sheet->setCellValue([8, $r], (float) $row['value_total']);
+            foreach ($layout as $i => $column) {
+                $value = $row[$column['key']] ?? null;
+                if ($value === null) {
+                    continue;
+                }
+                if ($column['numeric']) {
+                    $sheet->setCellValue([$i + 1, $r], (float) $value);
+                } else {
+                    $sheet->setCellValueExplicit([$i + 1, $r], (string) $value, DataType::TYPE_STRING);
+                }
+            }
             $r++;
         }
 
         $t = $data['totals'] ?? [];
         $sheet->setCellValue([1, $r], 'CELKEM (' . (int) ($t['count'] ?? 0) . ' položek)');
-        $sheet->setCellValue([8, $r], (float) ($t['value_total'] ?? 0));
+        $valueCol = array_search('value_total', array_column($layout, 'key'), true);
+        if ($valueCol !== false) {
+            $sheet->setCellValue([$valueCol + 1, $r], (float) ($t['value_total'] ?? 0));
+        }
         $this->boldRow($sheet, $r, $cols);
 
-        $this->finishTable($sheet, $head, $r, $cols, 6);
+        $numeric = array_keys(array_filter($layout, static fn (array $c): bool => $c['numeric']));
+        $this->finishTable($sheet, $head, $r, $cols, min($numeric) + 1, max($numeric) + 1);
 
         return $this->out($ss, 'stav-zasob-' . (new \DateTimeImmutable())->format('Y-m-d') . '.xlsx');
     }
@@ -241,7 +250,8 @@ final class StockReportXlsxExporter
         $sheet->getStyle("A{$row}:{$last}{$row}")->getFont()->setBold(true);
     }
 
-    private function finishTable(Worksheet $sheet, int $headRow, int $lastRow, int $cols, int $firstNumCol): void
+    /** Čísla zarovná doprava od `$firstNumCol` do `$lastNumCol` (výchozí poslední sloupec). */
+    private function finishTable(Worksheet $sheet, int $headRow, int $lastRow, int $cols, int $firstNumCol, ?int $lastNumCol = null): void
     {
         if ($lastRow < $headRow) {
             $lastRow = $headRow;
@@ -249,7 +259,8 @@ final class StockReportXlsxExporter
         $last = Coordinate::stringFromColumnIndex($cols);
         $sheet->getStyle("A{$headRow}:{$last}{$lastRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN);
         $numFirst = Coordinate::stringFromColumnIndex($firstNumCol);
-        $sheet->getStyle("{$numFirst}{$headRow}:{$last}{$lastRow}")->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT);
+        $numLast = Coordinate::stringFromColumnIndex($lastNumCol ?? $cols);
+        $sheet->getStyle("{$numFirst}{$headRow}:{$numLast}{$lastRow}")->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT);
         for ($i = 1; $i <= $cols; $i++) {
             $sheet->getColumnDimension(Coordinate::stringFromColumnIndex($i))->setAutoSize(true);
         }

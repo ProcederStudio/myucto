@@ -332,7 +332,9 @@ a doplnění zásob ho začne navrhovat znovu. Zavřenou objednávku vrátíte t
 
 1. Otevřete `Sklad → Sestavy`.
 2. Záložka **Stav zásob k datu** ukazuje množství, průměrnou cenu a hodnotu po
-   kartách a skladech.
+   kartách a skladech. Sestavu zúžíte na **kategorii** (včetně podkategorií),
+   tlačítkem sloupců přidáte prodejní cenu nebo poznámku karty a v poli
+   **Parametr** vyberete parametr karty, který se zobrazí jako další sloupec.
 3. Záložka **Ocenění k datu** spočítá stav k historickému datu. Výpočet běží na
    pozadí, průběh je vidět na stránce.
 4. Záložka **Prodeje** ukáže, kolik kusů, komu a za kolik jste prodali (filtry
@@ -1006,7 +1008,17 @@ nalezenou na skladu**).
 
 - **Stav zásob k datu** ukazuje aktuální množství, průměrnou cenu a hodnotu po
   jednotlivých kartách a skladech k okamžiku zobrazení. Řádky pod nastaveným minimem
-  se zvýrazní. Filtr je jen na sklad.
+  se zvýrazní.
+  - **Filtry:** sklad a kategorie. Kategorie zahrnuje i všechny své podkategorie,
+    karta zařazená do více kategorií se v sestavě objeví jen jednou.
+  - **Sloupce:** průměrnou cenu a hodnotu můžete skrýt, prodejní cenu bez DPH
+    a poznámku karty přidat. Volba se pamatuje pro vašeho uživatele.
+  - **Parametr:** vybraný parametr karty (například VIN nebo umístění) přidá sloupec
+    s jeho hodnotou. Má-li karta hodnot víc, jsou oddělené čárkou, u výběrového
+    parametru se ukáže popisek volby, u parametru ano/ne slovo „ano“ nebo „ne“.
+  - Export PDF i XLSX má stejné sloupce jako obrazovka (navíc sklad, typ a MJ).
+    PDF je vždy na šířku. Skrytá hodnota z exportu zmizí i se součtem, počet
+    položek zůstane.
 - **Ocenění k datu** poskytne přehled **k historickému datu**. Výpočet běží jako úloha
   na pozadí a zobrazuje průběh. Hotové výsledky lze stránkovat. Opakovaný výpočet
   využívá uložené snapshoty, změna skladových pohybů dotčené snapshoty zneplatní.

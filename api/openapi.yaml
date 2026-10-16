@@ -19768,6 +19768,13 @@ paths:
     get:
       tags: [Stock]
       summary: Sestava — stav zásob
+      description: |
+        Aktuální stav zásob po kartách a skladech. Bez `columns` a `attribute_id`
+        má odpověď jen `items` a `totals` jako dřív. S nimi navíc `columns`
+        (zobrazené volitelné sloupce, vybraný parametr jako `attribute`) a `attribute`
+        (id, code, name, unit, data_type), řádky pak nesou jen vyžádané údaje karty:
+        `sale_price` (prodejní cena bez DPH), `note` a `attribute_value` (hodnoty
+        parametru karty spojené čárkou, u volby popisek, u ano/ne `ano`/`ne`).
       parameters:
         - in: query
           name: warehouse_id
@@ -19784,8 +19791,24 @@ paths:
         - in: query
           name: q
           schema: { type: string }
+        - in: query
+          name: category_id
+          schema: { type: integer, minimum: 1 }
+          description: Kategorie karty včetně podkategorií.
+        - in: query
+          name: columns
+          schema: { type: string }
+          description: |
+            Volitelné sloupce oddělené čárkou: `avg_unit_cost`, `value_total`,
+            `sale_price`, `note`. Bez parametru se zobrazí `avg_unit_cost,value_total`,
+            `none` (nebo prázdná hodnota) skryje všechny. Platí i pro export.
+        - in: query
+          name: attribute_id
+          schema: { type: integer, minimum: 1 }
+          description: Přidá sloupec s hodnotami vybraného parametru karty.
       responses:
         '200': { description: OK }
+        '422': { description: Neplatný filtr, sloupec nebo parametr. }
   /api/v1/stock/reports/valuation:
     parameters:
       - $ref: '#/components/parameters/SupplierIdHeader'
@@ -19916,6 +19939,24 @@ paths:
         schema:
           type: string
         description: Jen u sestavy status.
+      - in: query
+        name: category_id
+        schema:
+          type: integer
+          minimum: 1
+        description: Jen u sestavy status. Kategorie karty včetně podkategorií.
+      - in: query
+        name: columns
+        schema:
+          type: string
+        description: Jen u sestavy status. Volitelné sloupce jako u dat sestavy, hlavička
+          exportu se jim přizpůsobí.
+      - in: query
+        name: attribute_id
+        schema:
+          type: integer
+          minimum: 1
+        description: Jen u sestavy status. Sloupec s hodnotami vybraného parametru karty.
       - in: query
         name: date
         schema:

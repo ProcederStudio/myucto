@@ -259,24 +259,7 @@ final class StockReportAction
     /** @return array<string,mixed> */
     private function statusFilters(Request $request): array
     {
-        $q = $request->getQueryParams();
-        $filters = [];
-        if (!empty($q['warehouse_id'])) {
-            $filters['warehouse_id'] = (int) $q['warehouse_id'];
-        }
-        if (!empty($q['item_type'])) {
-            $filters['item_type'] = (string) $q['item_type'];
-        }
-        if (!empty($q['below_min'])) {
-            $filters['below_min'] = true;
-        }
-        if (array_key_exists('active', $q) && $q['active'] !== '') {
-            $filters['active'] = (bool) (int) $q['active'];
-        }
-        if (!empty($q['q'])) {
-            $filters['q'] = (string) $q['q'];
-        }
-        return $filters;
+        return StockReportService::normalizeStatusFilters($request->getQueryParams());
     }
 
     private function mapStockError(Response $response, \Throwable $e): Response

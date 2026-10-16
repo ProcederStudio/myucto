@@ -789,9 +789,30 @@ export interface StockTake {
   issue_document?: StockDocument | null
 }
 
+/** Volitelný sloupec sestavy Stav zásob (parametr karty se vybírá přes attribute_id). */
+export type StockStatusColumn = 'avg_unit_cost' | 'value_total' | 'sale_price' | 'note'
+
+export interface StockStatusFilters extends StockLevelFilters {
+  /** Kategorie karty včetně podkategorií. */
+  category_id?: number
+  /** Volitelné sloupce oddělené čárkou, 'none' = žádný; bez parametru průměrná cena a hodnota. */
+  columns?: string
+  attribute_id?: number
+}
+
+export interface StockStatusRow extends StockLevelRow {
+  /** Jen když byl sloupec vyžádán. */
+  sale_price?: string | null
+  note?: string | null
+  attribute_value?: string | null
+}
+
 export interface StockStatusReport {
-  items: StockLevelRow[]
+  items: StockStatusRow[]
   totals: { value_total: string; count: number }
+  /** Jen při výběru sloupců: zobrazené volitelné sloupce, parametr jako 'attribute'. */
+  columns?: Array<StockStatusColumn | 'attribute'>
+  attribute?: { id: number; code: string; name: string; unit: string | null; data_type: string } | null
 }
 
 export interface StockSalesFilters {
@@ -1203,7 +1224,7 @@ export const stockApi = {
   closeCycleCount: (id: number) => api.post<StockCycleCount>(`/stock/cycle-counts/${id}/close`).then(r => r.data),
 
   // ── Sestavy ─────────────────────────────────────────────────────────────
-  reportStatus: (filters: StockLevelFilters = {}) =>
+  reportStatus: (filters: StockStatusFilters = {}) =>
     api.get<StockStatusReport>('/stock/reports/status', { params: toParams(filters) }).then(r => r.data),
   reportValuation: (filters: { date?: string; warehouse_id?: number } = {}) =>
     api.get<StockValuationReport>('/stock/reports/valuation', { params: toParams(filters) }).then(r => r.data),
