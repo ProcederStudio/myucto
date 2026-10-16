@@ -195,4 +195,20 @@ final class PurchaseInvoiceValidationTest extends TestCase
         $invoice = ['document_kind' => 'invoice', 'total_without_vat' => 1000.0];
         self::assertSame([], PurchaseInvoiceValidation::warnings($invoice));
     }
+    /**
+     * Přijatá faktura textový řádek nezná a uloží ho jako běžnou položku. item_kind
+     * 'text' proto nesmí obejít kontroly položky (tady zákaz záporného množství
+     * i ceny zároveň), ani v SetPurchaseInvoiceItemsAction, která volá totéž pravidlo.
+     */
+    public function testTextKindDoesNotBypassItemRules(): void
+    {
+        $data = $this->validBase();
+        $data['items'][] = ['item_kind' => 'text', 'description' => 'Obejití', 'quantity' => -5,
+            'unit_price_without_vat' => -100, 'vat_rate_id' => 1];
+
+        $err = PurchaseInvoiceValidation::invoice($data, [1 => 21.0]);
+
+        self::assertArrayHasKey('items.1.quantity', $err);
+        self::assertArrayHasKey('items.1.unit_price_without_vat', $err);
+    }
 }

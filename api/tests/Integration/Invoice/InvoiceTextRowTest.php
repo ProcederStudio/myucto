@@ -213,6 +213,22 @@ final class InvoiceTextRowTest extends TestCase
         self::assertSame([21.0], array_column($recap[0]['rows'], 'vat_rate'));
     }
 
+    /** Popis zápisu v deníku bere text první skutečné položky, ne textového řádku. */
+    public function testJournalDescriptionSkipsTextRow(): void
+    {
+        $id = $this->draft([
+            ['item_kind' => 'text', 'description' => 'Oddíl A'],
+            $this->line('Licence', 1000.00, $this->rate21),
+        ]);
+        $this->markIssued($id, 'FV-TXT-DESC');
+
+        $text = $this->container->get(\MyInvoice\Service\Accounting\JournalDescriptionBuilder::class)
+            ->forInvoice($this->supplierId, $id);
+
+        self::assertStringContainsString('Licence', (string) $text);
+        self::assertStringNotContainsString('Oddíl A', (string) $text);
+    }
+
     public function testAccrualCannotBeSetOnTextRow(): void
     {
         $id = $this->draft([

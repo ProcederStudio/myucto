@@ -672,13 +672,14 @@ final class RecurringTemplateAction
         // ale ne reminder; reminder cron už non-bank přeskakuje.
 
         $items = $data['items'] ?? [];
-        if (!is_array($items) || count($items) === 0) {
+        // Textové řádky nejsou plnění: šablona jen z nich by při každém běhu spadla.
+        if (!is_array($items) || !\MyInvoice\Service\Invoice\InvoiceItemKind::hasAmountLine($items)) {
             $err['items'][] = 'Šablona musí mít alespoň jednu položku';
         } else {
             $knownCodes = null;
             foreach (array_values($items) as $i => $item) {
                 if (!is_array($item)) { $err["items.{$i}"][] = 'Neplatná položka'; continue; }
-                $err = array_merge($err, InvoiceAmountPolicy::validateItem($item, $i));
+                $err = array_merge($err, InvoiceAmountPolicy::validateItem($item, $i, allowText: true));
                 // Klasifikace DPH na řádku šablony (migrace 1783) se přenáší na každou
                 // vygenerovanou fakturu, takže překlep by tiše posílal roky plnění na
                 // špatný řádek přiznání. Číselník se načte jen když ho někdo použil.

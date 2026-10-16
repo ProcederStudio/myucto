@@ -210,18 +210,21 @@ final class InvoiceAmountPolicy
     }
 
     /**
-     * Sdílená per-item validace (volaná z InvoiceValidation i RecurringTemplateAction).
+     * Sdílená per-item validace (volaná z InvoiceValidation, RecurringTemplateAction
+     * a přijatých faktur). `$allowText` povoluje textový řádek (jen vydaná strana).
      * Caller odpovídá za is_array($item) check.
      *
      * @return array<string, string[]> err keyed by "items.{$index}.{field}"
      */
-    public static function validateItem(array $item, int $index): array
+    public static function validateItem(array $item, int $index, bool $allowText = false): array
     {
         $err = [];
 
         // Textový řádek (InvoiceItemKind::TEXT) nese jen popis: množství, cenu ani sazbu
-        // nemá, zápis je stejně vynuluje.
-        if (InvoiceItemKind::isText($item)) {
+        // nemá, zápis je stejně vynuluje. Jen tam, kde ho zápis zná ($allowText: vydaná
+        // faktura a šablona pravidelné fakturace). Přijatá faktura item_kind nezná
+        // a uloží řádek jako běžnou položku, takže se tam kontroluje celý.
+        if ($allowText && InvoiceItemKind::isText($item)) {
             if (trim((string) ($item['description'] ?? '')) === '') {
                 $err["items.{$index}.description"][] = 'Textový řádek potřebuje text';
             }

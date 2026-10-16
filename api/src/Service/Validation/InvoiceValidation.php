@@ -94,7 +94,7 @@ final class InvoiceValidation
                     $err["items.{$i}"][] = 'Neplatná položka';
                     continue;
                 }
-                $err = array_merge($err, InvoiceAmountPolicy::validateItem($item, $i));
+                $err = array_merge($err, InvoiceAmountPolicy::validateItem($item, $i, allowText: true));
                 // Textový řádek nic nevykazuje: sazba, OSS ani časové rozlišení se na něm
                 // nekontrolují, zápis je vynuluje ({@see InvoiceItemKind::normalize()}).
                 if (InvoiceItemKind::isText($item)) {
