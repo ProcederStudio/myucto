@@ -90,9 +90,10 @@ final class ClientResolver
         $companyName = trim((string) ($parsed['company_name'] ?? ''));
 
         // Víc karet se stejným IČO/DIČ (pobočky, provozovny, nová karta vedle staré) je
-        // legitimní stav. Přednost má karta se shodným názvem, jinak nejstarší karta:
-        // dřív `LIMIT 1` bez řazení přiřadil doklad libovolné z nich.
-        $preferName = ' ORDER BY company_name = ? DESC, id LIMIT 1';
+        // legitimní stav. Přednost má aktivní karta, v ní karta se shodným názvem, jinak
+        // nejstarší karta: dřív `LIMIT 1` bez řazení přiřadil doklad libovolné z nich.
+        // Archivovaná karta zůstává poslední možností, ať se nezakládá duplicita.
+        $preferName = ' ORDER BY archived_at IS NULL DESC, company_name = ? DESC, id LIMIT 1';
 
         // 1a. Lookup podle (supplier_id, ic) — primární klíč pro CZ entity. Uložené
         // IČO normalizujeme stejně jako vstup (LPAD na 8 míst) — starší karty

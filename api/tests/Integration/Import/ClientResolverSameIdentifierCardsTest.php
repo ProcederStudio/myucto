@@ -116,6 +116,22 @@ final class ClientResolverSameIdentifierCardsTest extends TestCase
         self::assertSame($oldest, $result['id']);
     }
 
+    public function testActiveCardWinsOverArchivedCardWithMatchingName(): void
+    {
+        $archived = $this->card('Testovací firma A s.r.o.', ic: '27082440');
+        $active = $this->card('Testovací firma A s.r.o. (nová karta)', ic: '27082440');
+        $this->db->pdo()->prepare('UPDATE clients SET archived_at = NOW() WHERE id = ?')->execute([$archived]);
+
+        $result = $this->resolver->resolve(['company_name' => 'Testovací firma A s.r.o.', 'ic' => '27082440'], $this->supplierId);
+        self::assertFalse($result['created']);
+        self::assertSame($active, $result['id'], 'Archivovaná karta nesmí dostat nový doklad, když existuje aktivní.');
+
+        $this->db->pdo()->prepare('UPDATE clients SET archived_at = NOW() WHERE id = ?')->execute([$active]);
+        $result = $this->resolver->resolve(['company_name' => 'Testovací firma A s.r.o.', 'ic' => '27082440'], $this->supplierId);
+        self::assertFalse($result['created'], 'Bez aktivní karty se dál použije archivovaná, nezakládá se nová.');
+        self::assertSame($archived, $result['id']);
+    }
+
     public function testSameDicPrefersCardWithMatchingName(): void
     {
         $this->card('Test Lieferant GmbH', dic: 'DE123456789');
