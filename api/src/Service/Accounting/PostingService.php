@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Accounting;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Repository\ChartOfAccountsRepository;
 use MyInvoice\Repository\JournalEntryRepository;
@@ -532,6 +533,8 @@ final class PostingService
             $pdo->beginTransaction();
         }
         try {
+            $periodStatuses = (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+            $lockedUntil = $this->lockedUntilForUpdate($supplierId);
             $entry = $this->journal->findActiveBySourceForUpdate($supplierId, $sourceType, $sourceId);
             if ($entry === null || ($entry['posted_at'] ?? null) === null) {
                 throw new PostingException('entry_not_found', 'Doklad nemá živý zaúčtovaný zápis.', 404);
@@ -540,12 +543,10 @@ final class PostingService
             if ((int) ($entry['row_version'] ?? -1) !== $expectedRowVersion) {
                 throw new PostingException('version_conflict', 'Zápis #' . $entryId . ' se mezitím změnil — načtěte aktuální stav.', 409);
             }
-            $period = $this->periods->findById($supplierId, (int) $entry['period_id']);
-            if ($period === null || (string) $period['status'] !== 'open') {
+            if (($periodStatuses[(int) $entry['period_id']] ?? null) !== 'open') {
                 throw new PostingException('period_not_open', 'Zápis #' . $entryId . ' je v období, které není otevřené (§35 ZoÚ).');
             }
             $entryDate = (string) $entry['entry_date'];
-            $lockedUntil = $this->lockedUntilForUpdate($supplierId);
             if ($lockedUntil !== null && $entryDate <= $lockedUntil) {
                 throw new PostingException('date_locked', 'Zápis #' . $entryId . ' má datum ' . $entryDate . ' v zamčeném období (zámek k ' . $lockedUntil . ').');
             }
@@ -611,7 +612,7 @@ final class PostingService
             }
             return $entryId;
         } catch (\Throwable $e) {
-            if ($ownTx && $pdo->inTransaction()) {
+            if (!TransactionFailure::rollbackIfAborted($pdo, $e) && $ownTx && $pdo->inTransaction()) {
                 $pdo->rollBack();
             }
             throw $e;
