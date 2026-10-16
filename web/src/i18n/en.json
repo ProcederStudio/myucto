@@ -26325,6 +26325,7 @@
       "direction_incoming": "Incoming only",
       "direction_outgoing": "Outgoing only",
       "form_account": "Counter account",
+      "form_account_hint": "Enter account and bank (1000000005/5050), bank only (*/5050), or account only (1000000005). Bank codes have 4 digits.",
       "form_vs": "Variable symbol",
       "form_text": "Text in the message or counterparty name",
       "form_amount": "Amount from - to",

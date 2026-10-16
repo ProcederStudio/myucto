@@ -525,6 +525,9 @@ pravidlo.
 
 - **Podmínky:** směr (příchozí, odchozí), protiúčet, variabilní symbol, text ve zprávě nebo názvu protistrany a rozpětí
   částky. Vyplnit je potřeba aspoň protiúčet, variabilní symbol nebo text, platit musí všechny vyplněné.
+  Protiúčet zadejte ve tvaru `1000000005/5050`, pokud má odpovídat účet i banka. `*/5050` vybere libovolný účet
+  s kódem banky `5050`; `1000000005` vybere tento účet bez ohledu na banku. Kód banky má čtyři číslice;
+  pohyby bez známého kódu banky neodpovídají podmínce, která kód banky obsahuje.
 - **Akce:** **Ignorovat** (pohyb se nepáruje s doklady a nenabízí se k párování) a **Zařazení v peněžním deníku**
   (stejné volby jako ruční zařazení). Výdaj zařazený jako daňový nebo nedaňový určuje daňovou uznatelnost stejně jako
   pravidla nákladů (§ 74.9.15).
