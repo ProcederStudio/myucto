@@ -1,9 +1,25 @@
 import { describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { installFrameNavigation } from '../frameNavigation'
+import { installFrameNavigation, internalAnchorNavigation } from '../frameNavigation'
 
 describe('navigace uvnitř pracovního okna', () => {
+  it('označený odkaz otevře vedle i z posledního panelu; Ctrl klik ponechá původní chování', () => {
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/:pathMatch(.*)*', component: { render: () => null } }] })
+    const anchor = document.createElement('a')
+    anchor.href = '/bank/7?tx=42&detail=1'
+    anchor.dataset.workspaceOpen = 'beside'
+    function click(ctrlKey = false) {
+      const event = new MouseEvent('click', { button: 0, ctrlKey })
+      Object.defineProperty(event, 'target', { value: anchor })
+      return event
+    }
+    expect(internalAnchorNavigation(router, click(), false)).toEqual({ to: '/bank/7?tx=42&detail=1', placement: 'beside' })
+    expect(internalAnchorNavigation(router, click(true), true)).toEqual({ to: '/bank/7?tx=42&detail=1', newPane: true })
+    expect(internalAnchorNavigation(router, click(true), false)).toBeNull()
+    delete anchor.dataset.workspaceOpen
+    expect(internalAnchorNavigation(router, click(), true)).toEqual({ to: '/bank/7?tx=42&detail=1' })
+  })
   it('na začátku a konci místní historie předá Zpět a Vpřed správci oken', async () => {
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/:pathMatch(.*)*', component: { render: () => null } }] })
     await router.push('/projects/new')

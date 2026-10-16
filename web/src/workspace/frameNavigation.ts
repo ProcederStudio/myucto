@@ -1,5 +1,6 @@
 import { nextTick } from 'vue'
-import type { Router } from 'vue-router'
+import type { Router, RouteLocationRaw } from 'vue-router'
+import { internalRouteFromElement } from './panelLinks'
 
 export function installFrameNavigation(router: Router, traverse: (direction: -1 | 1) => void, resetScroll: () => void): void {
   const history = router.options.history
@@ -25,4 +26,24 @@ export function installFrameNavigation(router: Router, traverse: (direction: -1 
   router.afterEach((to, from, failure) => {
     if (!failure && to.path !== from.path) void nextTick(resetScroll)
   })
+}
+
+export function internalAnchorNavigation(
+  router: Router,
+  event: MouseEvent,
+  canOpenRight: boolean,
+): { to: RouteLocationRaw; newPane?: boolean; placement?: 'beside' } | null {
+  if (event.defaultPrevented || event.button !== 0 || event.altKey || event.metaKey || event.shiftKey) return null
+  const newPane = event.ctrlKey
+  if (newPane && !canOpenRight) return null
+  const to = event.target instanceof Element ? internalRouteFromElement(event.target) : null
+  if (!to) return null
+  try {
+    const beside = !newPane && event.target instanceof Element
+      && event.target.closest('a[data-workspace-open="beside"]') !== null
+    return router.resolve(to).matched.length
+      ? { to, ...(newPane ? { newPane: true } : {}), ...(beside ? { placement: 'beside' as const } : {}) } : null
+  } catch {
+    return null
+  }
 }
