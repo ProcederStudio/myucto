@@ -21443,6 +21443,11 @@
       "source_price_level_generic": "cenová hladina",
       "source_hint": "Cena doplněná automaticky podle zákazníka, měny a data dokladu. Ručně přepsaná cena se při změně zákazníka nemění."
     },
+    "line_discount": {
+      "hint_discount": "Ceník {price} · sleva {pct} %",
+      "hint_markup": "Ceník {price} · přirážka {pct} %",
+      "title": "Ceníková cena karty před slevou. Ruční změna ceny ji zachová a sleva se přepočítá. Na PDF ji rozepíše volba v Nastavení."
+    },
     "price_list_requires_context": "Před vložením z ceníku vyberte zákazníka a měnu dokladu.",
     "asset_sale": {
       "toggle": "Prodej majetku",
@@ -23874,6 +23879,8 @@
     "default_due_month_hint": "Kalendářní měsíc - 1. 2. → 1. 3., 31. 1. → 28. 2. (ne pevných 30 dnů).",
     "default_prices_include_vat": "Nové faktury s cenami včetně DPH",
     "default_prices_include_vat_hint": "Předvyplní u nových faktur režim „Ceny položek včetně DPH“ (B2C/účtenky). Lze přepsat per faktura.",
+    "invoice_pdf_line_discount": "Na PDF faktury rozepsat slevu z ceníkové ceny",
+    "invoice_pdf_line_discount_hint": "U položky se slevou vytiskne sloupce Cena/j před slevou, Sleva a Cena/j po slevě. Jen když má faktura aspoň jednu takovou položku, přirážka se nerozepisuje. Ceníkovou cenu doplní nacenění skladové karty.",
     "default_hourly_rate": "Výchozí hodinová sazba",
     "auto_send_reminders": "Posílat automatické upomínky",
     "auto_send_reminders_hint": "Když je vypnuto, cron nebude posílat automatické upomínky pro tohoto dodavatele. Ruční odeslání (jednotlivé i hromadné) funguje vždy.",

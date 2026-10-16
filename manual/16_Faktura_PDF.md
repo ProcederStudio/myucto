@@ -321,6 +321,12 @@ Vygenerované PDF obsahuje:
 6. **Položky** - tabulka (Popis, Množství, Cena, DPH, Celkem). U položky s vybranými
    kusy skladové karty se pod popisem vypíšou sériová čísla („Výr. č.: …“, například VIN)
    nebo šarže s expirací a množstvím („Šarže: …“), viz [§ 37.5.1](37_Sklad.md#3751-vydej-fakturou).
+   Se zapnutou volbou **Na PDF faktury rozepsat slevu z ceníkové ceny** (`Nastavení → Doklady`,
+   výchozí vypnuto) má tabulka místo sloupce Cena/j sloupce **Cena/j před slevou**, **Sleva**
+   a **Cena/j po slevě**, pokud má faktura aspoň jednu položku se slevou z ceníkové ceny.
+   Položka bez ceníkové ceny nebo s přirážkou ukáže jen výslednou cenu. U faktury s cenami
+   včetně DPH jsou obě ceny bez DPH. Ceníková cena nemění částky dokladu ani export ISDOC
+   a POHODA.
 7. **Sumář** - mezisoučet, sleva, rozpis DPH, **CELKEM**.
 8. **Přepočet do CZK** (EUR a cizí měna) - u českého odběratele kurz ČNB a tabulka
    základů a DPH v CZK; u zahraničního odběratele pouze česká DPH v CZK, pokud na

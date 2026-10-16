@@ -269,6 +269,11 @@ ceny. Při vystavení faktury tomuto odběrateli se použije jako základ
 3. Hladinu přiřaďte odběrateli na jeho kartě (viz [Klienti](18_Klienti.md#1872-pole-formulare)).
 4. Jednorázově ji můžete zvolit i na faktuře ve výběru **Cenová hladina dokladu**.
 
+**Jak poznáte, že je hotovo:** řádek faktury nacení cenou podle hladiny a pod cenou ukáže
+ceníkovou cenu a slevu („Ceník 1 000,00 · sleva 10 %“). Zákazníkovi ji na PDF rozepíšete
+volbou **Na PDF faktury rozepsat slevu z ceníkové ceny**, viz
+[§ 16.10.4](16_Faktura_PDF.md#16104-pdf-struktura). Přirážka hladiny se na PDF nerozepisuje.
+
 Podrobnosti viz [§ 38.11.18](#381118-cenove-hladiny).
 
 ## 38.9 Krok za krokem: napojit externí e-shop

@@ -452,6 +452,14 @@ nepřecení. Správa ceníku je popsána v [§ 96.1.5](96_Nastaveni.md#96161-cis
 | Celkem | Automaticky: množství × cena/j |
 | Celkem s DPH | Cena řádku včetně DPH. Zadání respektuje aktuální režim: v režimu bez DPH se z brutto zpětně dopočte cena bez DPH, v režimu s DPH se uloží brutto |
 
+**Ceníková cena a sleva.** Nacení-li se řádek ze skladové karty, uloží se k němu i ceníková
+cena karty (standardní cena před individuální cenou, cenovou hladinou i akcí). Liší-li se od
+ceny řádku, ukáže se pod cenou „Ceník 1 000,00 · sleva 10 %“, u vyšší ceny „přirážka“. Ruční
+změna ceny ceníkovou cenu zachová a procento se přepočítá, jiná karta ji nahradí. Je to jen
+informace: částky faktury počítá dál cena řádku. Na PDF ji rozepíše volba z
+[§ 16.10.4](16_Faktura_PDF.md#16104-pdf-struktura). Se [slevou z celé faktury](#sleva-z-cele-faktury)
+se nesčítá.
+
 **Pořadí.** Levým úchytem (☰) přetáhněte položky pro změnu pořadí. Pořadí se zachová v PDF.
 
 **Smazání položky.** Křížkem vpravo. Pokud je položka propojená s výkazem víceprací (viz
