@@ -499,6 +499,24 @@ final class SyntheticAgenda
         return $files;
     }
 
+    public static function filesWithChangedDimensions(int $year = 2024): array
+    {
+        $files = self::files();
+        $path = $year === 2024 ? 'ROK.001/UcDenik.DAT' : 'ROK.002/UcDenik.DAT';
+        $rows = iterator_to_array(Ms3Table::fromString($files[$path], 'UCDENIK')->rows(), false);
+        foreach ($rows as &$row) {
+            if ($row['Stred'] === 'REZIE') {
+                $row['Stred'] = 'NOVE1';
+            }
+            if ($row['Zakazka'] === 'ZAK01') {
+                $row['Zakazka'] = 'ZAK99';
+            }
+        }
+        unset($row);
+        $files[$path] = Ms3FixtureWriter::table(self::JOURNAL_FIELDS, $rows);
+        return $files;
+    }
+
     /**
      * Agenda, ve které roky v Money nenavazují: počáteční stavy 2025 přesouvají 100 Kč
      * z pokladny na účet (ruční přepis PS v Money), konečné stavy 2024 zůstávají.

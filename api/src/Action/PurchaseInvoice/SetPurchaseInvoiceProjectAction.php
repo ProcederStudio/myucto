@@ -7,9 +7,12 @@ namespace MyInvoice\Action\PurchaseInvoice;
 use MyInvoice\Http\Json;
 use MyInvoice\Http\SupplierGuard;
 use MyInvoice\Http\TenantReferenceGuard;
+use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Repository\PurchaseInvoiceRepository;
 use MyInvoice\Service\Accounting\PostingService;
+use MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard;
+use MyInvoice\Service\Accounting\Dimension\DimensionException;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\IpMatcher;
 use Psr\Http\Message\ResponseInterface as Response;
@@ -27,14 +30,9 @@ use Psr\Http\Message\ServerRequestInterface as Request;
  * dostupný jen adminovi s `?force=1` (§35 — doklad × deník se nesmí rozejít), takže
  * přes něj by ekonomika akcí v praxi nikdy nevznikla.
  *
- * Zakázka je přitom čistě ANALYTICKÁ dimenze — nemění účet, stranu, částku, období
- * ani DPH. Zápis v deníku proto zůstává co do účetního obsahu identický a §35 se
- * neporušuje; jen se stejnou hodnotou přerazítkují jeho řádky
- * ({@see PostingService::restampProjectDimension}), aby sestava a doklad říkaly totéž.
- *
- * Z téhož důvodu tu NENÍ zámek období (`GuardsDocumentLock`): dimenze nemá vliv na
- * žádný uzavřený výkaz — zakázku lze doplnit i u dokladu v uzamčeném období.
- * Stornovaný doklad se ale k akci nepřiřazuje (nic už nenese).
+ * Zakázka se promítá do dimenzovaných závěrkových a počátečních zůstatků.
+ * V uzavřeném období se proto změna odmítne; zámek data otevřeného období ji dovoluje.
+ * Stornovaný doklad se k akci nepřiřazuje.
  */
 final class SetPurchaseInvoiceProjectAction
 {
@@ -44,6 +42,7 @@ final class SetPurchaseInvoiceProjectAction
         private readonly TenantReferenceGuard $tenantRefs,
         private readonly ActivityLogger $logger,
         private readonly IpMatcher $ipMatcher,
+        private readonly Connection $db,
     ) {}
 
     public function __invoke(Request $request, Response $response, array $args): Response
@@ -85,8 +84,15 @@ final class SetPurchaseInvoiceProjectAction
             return Json::ok($response, $this->repo->find($id, $supplierId));
         }
 
-        $this->repo->updateProject($id, $supplierId, $projectId);
-        $restamped = $this->posting->restampProjectDimension($supplierId, 'purchase_invoice', $id, $projectId);
+        try {
+            $restamped = (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $id, $projectId): int {
+                $updated = $this->posting->restampProjectDimension($supplierId, 'purchase_invoice', $id, $projectId);
+                $this->repo->updateProject($id, $supplierId, $projectId);
+                return $updated;
+            });
+        } catch (DimensionException $e) {
+            return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus);
+        }
 
         $user = (array) $request->getAttribute(AuthMiddleware::ATTR_USER, []);
         $ip = $this->ipMatcher->clientIpFromRequest($request->getServerParams());

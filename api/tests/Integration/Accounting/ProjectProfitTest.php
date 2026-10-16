@@ -202,6 +202,40 @@ final class ProjectProfitTest extends TestCase
         self::assertEqualsWithDelta(7_000.00, $this->profit->detail($this->supplierId, $toId)['cost'], 0.01);
     }
 
+    public function testProjectActionsPreserveClosedHeaderAndJournal(): void
+    {
+        $client = $this->client('Syntetický klient', true, true);
+        $a = $this->project($client, 'Projekt A', 'CLOSED-A');
+        $b = $this->project($client, 'Projekt B', 'CLOSED-B');
+        $sale = $this->sale('CLOSED-SALE', $client, 1000.00, 210.00, $a);
+        $purchase = $this->purchase('CLOSED-PURCHASE', $client, 1000.00, 210.00, $a);
+        $saleEntry = $this->postSale($sale);
+        $purchaseEntry = $this->postPurchase($purchase);
+        $this->db->pdo()->prepare("UPDATE accounting_periods SET status = 'closed' WHERE supplier_id = ? AND fiscal_year = ?")
+            ->execute([$this->supplierId, self::YEAR]);
+        foreach ([
+            ['invoices', $sale, $saleEntry, \MyInvoice\Action\Invoice\SetInvoiceProjectAction::class, 'invoice'],
+            ['purchase_invoices', $purchase, $purchaseEntry, \MyInvoice\Action\PurchaseInvoice\SetPurchaseInvoiceProjectAction::class, 'purchase_invoice'],
+        ] as [$table, $id, $entry, $class, $source]) {
+            $before = $this->journal->find($entry, $this->supplierId)['lines'];
+            $action = Bootstrap::buildContainer()->get($class);
+            $request = (new \Slim\Psr7\Factory\ServerRequestFactory())->createServerRequest('POST', '/api/project')
+                ->withAttribute(\MyInvoice\Middleware\SupplierScopeMiddleware::ATTR_CURRENT_ID, $this->supplierId)
+                ->withAttribute(\MyInvoice\Middleware\AuthMiddleware::ATTR_USER, ['id' => $this->userId, 'role' => 'accountant']);
+            foreach ([$b, null] as $project) {
+                $response = $action($request->withParsedBody(['project_id' => $project]), new \Slim\Psr7\Response(), ['id' => (string) $id]);
+                self::assertSame(409, $response->getStatusCode());
+                self::assertSame('period_not_open', json_decode((string) $response->getBody(), true)['error']['code']);
+                $header = $this->db->pdo()->prepare("SELECT project_id FROM {$table} WHERE id = ? AND supplier_id = ?");
+                $header->execute([$id, $this->supplierId]);
+                self::assertSame($a, (int) $header->fetchColumn());
+                self::assertSame($before, $this->journal->find($entry, $this->supplierId)['lines']);
+            }
+            self::assertSame(0, $this->posting->restampProjectDimension($this->supplierId, $source, $id, $a));
+            self::assertSame(200, $action($request->withParsedBody(['project_id' => $a]), new \Slim\Psr7\Response(), ['id' => (string) $id])->getStatusCode());
+        }
+    }
+
     /** Zakázka cizího tenanta není vidět ani přes přímé ID (BOLA). */
     public function testForeignProjectIsNotVisible(): void
     {

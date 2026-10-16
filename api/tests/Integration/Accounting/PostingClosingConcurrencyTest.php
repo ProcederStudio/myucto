@@ -43,10 +43,12 @@ final class PostingClosingConcurrencyTest extends TestCase
     private Connection $dbB;
     private AccountingPeriodRepository $periodsA;
     private PostingService $postingB;
+    private \MyInvoice\Service\Accounting\Dimension\DimensionService $dimensionsB;
 
     private int $supplierId = 0;
     private int $userId = 0;
     private int $periodId = 0;
+    private ?int $snapshotIsolation = null;
 
     protected function setUp(): void
     {
@@ -78,6 +80,7 @@ final class PostingClosingConcurrencyTest extends TestCase
             $this->dbB       = $containerB->get(Connection::class);
             $this->periodsA  = $containerA->get(AccountingPeriodRepository::class);
             $this->postingB  = $containerB->get(PostingService::class);
+            $this->dimensionsB = $containerB->get(\MyInvoice\Service\Accounting\Dimension\DimensionService::class);
             $seederA         = $containerA->get(ChartOfAccountsSeeder::class);
         } catch (\Throwable $e) {
             $this->markTestSkipped('DI nedostupné: ' . $e->getMessage());
@@ -118,7 +121,13 @@ final class PostingClosingConcurrencyTest extends TestCase
             if ($pdoA->inTransaction()) {
                 $pdoA->rollBack();
             }
+            if ($this->snapshotIsolation !== null) {
+                $pdoA->exec('SET SESSION innodb_snapshot_isolation = ' . $this->snapshotIsolation);
+            }
             $pdoA->prepare('DELETE FROM activity_log WHERE supplier_id = ?')->execute([$this->supplierId]);
+            $pdoA->prepare('DELETE FROM journal_entries WHERE supplier_id = ?')->execute([$this->supplierId]);
+            $pdoA->prepare('DELETE FROM document_dimensions WHERE supplier_id = ?')->execute([$this->supplierId]);
+            $pdoA->prepare('DELETE FROM document_dimension_splits WHERE supplier_id = ?')->execute([$this->supplierId]);
             $pdoA->prepare('DELETE FROM supplier WHERE id = ?')->execute([$this->supplierId]);
             $this->dbA->close();
         }
@@ -175,6 +184,127 @@ final class PostingClosingConcurrencyTest extends TestCase
         );
         $stmt->execute([$this->supplierId]);
         self::assertSame(0, (int) $stmt->fetchColumn(), 'Žádný zápis B se do uzavíraného období nepropsal.');
+    }
+
+    public function testDimensionChangeSerializesWithClosingAndPreservesSnapshot(): void
+    {
+        $pdoA = $this->dbA->pdo();
+        $pdoB = $this->dbB->pdo();
+        self::assertNotSame($pdoA->query('SELECT CONNECTION_ID()')->fetchColumn(), $pdoB->query('SELECT CONNECTION_ID()')->fetchColumn());
+        $this->dimensionsB->setEnabled($this->supplierId, true);
+        $type = $this->dimensionsB->ensureDefaultTypes($this->supplierId, ['projekt'])['project'];
+        $a = (int) $this->dimensionsB->createValue($this->supplierId, $type, ['code' => 'RACE-A', 'name' => 'Projekt A'])['id'];
+        $b = (int) $this->dimensionsB->createValue($this->supplierId, $type, ['code' => 'RACE-B', 'name' => 'Projekt B'])['id'];
+        $entry = $this->postingB->postDocument($this->supplierId, 'manual', null, [
+            ['account_code' => '221', 'side' => 'debit', 'amount' => 100.00, 'dimensions' => [$type => $a]],
+            ['account_code' => '411', 'side' => 'credit', 'amount' => 100.00, 'dimensions' => [$type => $a]],
+        ], ['entry_date' => self::ENDS_ON, 'posted_by' => $this->userId]);
+        $assignments = new \MyInvoice\Repository\DimensionAssignmentRepository($this->dbB);
+        $before = $assignments->entryLineDimensions($this->supplierId, $entry);
+        $line = (int) array_key_first($before);
+        $pdoA->beginTransaction();
+        self::assertNotNull($this->periodsA->findForUpdate($this->periodId, $this->supplierId));
+        $this->periodsA->setStatus($this->periodId, $this->supplierId, 'closed');
+        $pdoB->exec('SET SESSION innodb_lock_wait_timeout = 1');
+        try {
+            $this->dimensionsB->saveEntryLines($this->supplierId, $entry, [$line => [$type => $b]]);
+            self::fail('Editor musí čekat na zámek právě uzavíraného období.');
+        } catch (\PDOException $e) {
+            self::assertSame(1205, (int) ($e->errorInfo[1] ?? 0));
+        }
+        self::assertFalse($pdoB->inTransaction());
+        self::assertSame($before, $assignments->entryLineDimensions($this->supplierId, $entry));
+        $pdoA->commit();
+        try {
+            $this->dimensionsB->saveEntryLines($this->supplierId, $entry, [$line => [$type => $b]]);
+            self::fail('Po commitu uzávěrky editor musí vidět nový stav.');
+        } catch (\MyInvoice\Service\Accounting\Dimension\DimensionException $e) {
+            self::assertSame('period_not_open', $e->errorCode);
+        }
+        self::assertSame($before, $assignments->entryLineDimensions($this->supplierId, $entry));
+        self::assertSame(0, $this->dimensionsB->saveEntryLines($this->supplierId, $entry, [$line => [$type => $a]]));
+    }
+
+    public function testOldSnapshotCannotRetagSourcePostedAndClosedByAnotherConnection(): void
+    {
+        [$type, $a, $b, $source] = $this->snapshotSource();
+        $pdoA = $this->dbA->pdo();
+        $pdoA->beginTransaction();
+        self::assertSame(0, (int) $pdoA->query('SELECT COUNT(*) FROM journal_entries WHERE supplier_id = ' . $this->supplierId)->fetchColumn());
+        $entry = $this->postSnapshotSource($source, $type, $b, true);
+        $dimensions = Bootstrap::buildContainer()->get(\MyInvoice\Service\Accounting\Dimension\DimensionService::class);
+        try {
+            $dimensions->saveDocument($this->supplierId, 'other_item', $source, [$type => $a], null);
+            self::fail('Starší snapshot nesmí přehlédnout nový zápis uzavřeného období.');
+        } catch (\MyInvoice\Service\Accounting\Dimension\DimensionException $e) {
+            self::assertSame('period_not_open', $e->errorCode);
+        }
+        $pdoA->rollBack();
+        $assignments = new \MyInvoice\Repository\DimensionAssignmentRepository($this->dbA);
+        self::assertSame([$type => $b], $assignments->documentDimensions($this->supplierId, 'other_item', $source)['header']);
+        foreach ($assignments->entryLineDimensions($this->supplierId, $entry) as $dims) {
+            self::assertSame([$type => $b], $dims);
+        }
+    }
+
+    public function testOldSnapshotAllowsCurrentClosedNoOp(): void
+    {
+        $this->assertOldSnapshotEdit(true);
+    }
+
+    public function testOldSnapshotAllowsNewOpenEntryChange(): void
+    {
+        $this->assertOldSnapshotEdit(false);
+    }
+
+    private function assertOldSnapshotEdit(bool $closed): void
+    {
+        [$type, $a, $b, $source] = $this->snapshotSource();
+        $pdoA = $this->dbA->pdo();
+        $pdoA->beginTransaction();
+        $pdoA->query('SELECT COUNT(*) FROM journal_entries')->fetchColumn();
+        $entry = $this->postSnapshotSource($source, $type, $b, $closed);
+        $lines = (new \MyInvoice\Repository\DimensionAssignmentRepository($this->dbB))->entryLineDimensions($this->supplierId, $entry);
+        $line = (int) array_key_first($lines);
+        $dimensions = Bootstrap::buildContainer()->get(\MyInvoice\Service\Accounting\Dimension\DimensionService::class);
+        self::assertSame($closed ? 0 : 1, $dimensions->saveEntryLines($this->supplierId, $entry, [$line => [$type => $closed ? $b : $a]]));
+        if ($closed) {
+            self::assertSame(0, Bootstrap::buildContainer()->get(PostingService::class)->restampDimensions($this->supplierId, 'other_item', $source)['lines']);
+            self::assertSame(0, $dimensions->saveDocument($this->supplierId, 'other_item', $source, [$type => $b], null)['restamp']['lines']);
+        }
+        $pdoA->rollBack();
+    }
+
+    private function snapshotSource(): array
+    {
+        if ($this->snapshotIsolation === null) {
+            $this->snapshotIsolation = (int) $this->dbA->pdo()->query('SELECT @@innodb_snapshot_isolation')->fetchColumn();
+            $this->dbA->pdo()->exec('SET SESSION innodb_snapshot_isolation = 0');
+        }
+        $this->dimensionsB->setEnabled($this->supplierId, true);
+        $type = $this->dimensionsB->ensureDefaultTypes($this->supplierId, ['projekt'])['project'];
+        $suffix = uniqid();
+        $a = (int) $this->dimensionsB->createValue($this->supplierId, $type, ['code' => 'SNAP-A-' . $suffix, 'name' => 'Projekt A'])['id'];
+        $b = (int) $this->dimensionsB->createValue($this->supplierId, $type, ['code' => 'SNAP-B-' . $suffix, 'name' => 'Projekt B'])['id'];
+        $this->dbB->pdo()->prepare('INSERT INTO other_items (supplier_id, side, title, issued_on, due_on, amount)
+            VALUES (?, "payable", "Syntetický souběh dimenzí", ?, ?, 100)')->execute([$this->supplierId, self::ENDS_ON, self::ENDS_ON]);
+        $source = (int) $this->dbB->pdo()->lastInsertId();
+        $this->dimensionsB->saveDocument($this->supplierId, 'other_item', $source, [$type => $a], null);
+        return [$type, $a, $b, $source];
+    }
+
+    private function postSnapshotSource(int $source, int $type, int $value, bool $closed): int
+    {
+        $this->dimensionsB->saveDocument($this->supplierId, 'other_item', $source, [$type => $value], null);
+        $entry = $this->postingB->postDocument($this->supplierId, 'other_item', $source, [
+            ['account_code' => '221', 'side' => 'debit', 'amount' => 100.00],
+            ['account_code' => '411', 'side' => 'credit', 'amount' => 100.00],
+        ], ['entry_date' => self::ENDS_ON, 'posted_by' => $this->userId]);
+        if ($closed) {
+            $this->dbB->pdo()->prepare("UPDATE accounting_periods SET status = 'closed' WHERE supplier_id = ? AND id = ?")
+                ->execute([$this->supplierId, $this->periodId]);
+        }
+        return $entry;
     }
 
     private function postDocumentB(): void

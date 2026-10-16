@@ -26,10 +26,8 @@ use Slim\Psr7\Response as Psr7Response;
  * Změna dimenzí zaúčtovaného dokladu v uzavřeném / zamčeném období a v dialogu
  * Přeúčtovat (Firma → Dimenze).
  *
- * Dimenze jsou jen analytika: jejich změna smí projít i tam, kam se jinak zapsat
- * nedá, a nesmí přitom sáhnout na zápis (účet, strana, částka, datum) ani vytvořit
- * storno. Rozdělení řádku podle položek částky mění — v uzavřeném období se proto
- * odmítne celé a nic nezůstane napůl uložené.
+ * Uzavřené knihy chrání i analytické zůstatky. Zámek data otevřeného období
+ * dál dovoluje změnu analytiky bez změny účtu a částky.
  * Vše v jedné transakci, tearDown rollbackne.
  */
 #[Group('integration')]
@@ -87,6 +85,12 @@ final class DimensionLockedPeriodTest extends TestCase
         $pdo->beginTransaction();
         $this->inTx = true;
 
+        $pdo->prepare(
+            'INSERT INTO supplier (company_name, street, city, zip, country_id, email, default_currency_id, default_vat_rate_id, accounting_mode)
+             VALUES ("Dimenze uzavřeného období", "Testovací 1", "Praha", "11000", ?, ?, ?, ?, "double_entry")'
+        )->execute([$this->czId, 'closed-dimensions-' . uniqid() . '@example.invalid', $this->currencyId, $this->vatRateId]);
+        $this->supplierId = (int) $pdo->lastInsertId();
+
         $seeder->seedForSupplier($this->supplierId);
         $this->periodId = $this->periods->create($this->supplierId, self::YEAR, self::YEAR . '-01-01', self::YEAR . '-12-31');
         $pdo->prepare("UPDATE supplier SET accounting_mode = 'double_entry', supplier_group_id = NULL WHERE id = ?")
@@ -109,7 +113,7 @@ final class DimensionLockedPeriodTest extends TestCase
         }
     }
 
-    public function testDimensionChangeInClosedPeriodTouchesOnlyDimensionRows(): void
+    public function testDimensionChangeInClosedPeriodIsRefusedAtomically(): void
     {
         $from = $this->value($this->projectType, 'L-FROM');
         $to = $this->value($this->projectType, 'L-TO');
@@ -117,26 +121,25 @@ final class DimensionLockedPeriodTest extends TestCase
         $this->dimensions->saveDocument($this->supplierId, 'purchase_invoice', $purchase, [$this->projectType => $from], []);
         $entryId = $this->postPurchase($purchase);
         $this->periods->setStatus($this->periodId, $this->supplierId, 'closed');
+        $before = $this->assignments->entryLineDimensions($this->supplierId, $entryId);
+        $document = $this->assignments->documentDimensions($this->supplierId, 'purchase_invoice', $purchase);
 
-        $entriesBefore = $this->entriesOf($purchase);
-        $linesBefore = $this->linesOf($entryId);
-
-        $result = $this->dimensions->saveDocument($this->supplierId, 'purchase_invoice', $purchase, [$this->projectType => $to], null);
-
-        self::assertTrue($result['restamp']['locked'], 'Zápis leží v uzavřeném období.');
-        self::assertGreaterThan(0, $result['restamp']['lines']);
-        self::assertSame($entriesBefore, $this->entriesOf($purchase), 'Žádné storno ani nový zápis, hlavička zápisu beze změny.');
-        self::assertSame($linesBefore, $this->linesOf($entryId), 'Účet, strana ani částka řádků se nemění.');
-        foreach ($this->assignments->entryLineDimensions($this->supplierId, $entryId) as $dims) {
-            self::assertSame([$this->projectType => $to], $dims, 'Každý řádek nese novou dimenzi.');
+        foreach ([[$this->projectType => $to], []] as $header) {
+            try {
+                $this->dimensions->saveDocument($this->supplierId, 'purchase_invoice', $purchase, $header, [1 => [$this->projectType => $to]]);
+                self::fail('Dimenze uzavřeného období se nesmí změnit.');
+            } catch (DimensionException $e) {
+                self::assertSame('period_not_open', $e->errorCode);
+                self::assertSame(409, $e->httpStatus);
+            }
+            self::assertSame($before, $this->assignments->entryLineDimensions($this->supplierId, $entryId));
+            self::assertSame($document, $this->assignments->documentDimensions($this->supplierId, 'purchase_invoice', $purchase));
         }
-        self::assertSame(
-            ['header' => [$this->projectType => $to], 'items' => []],
-            $this->assignments->documentDimensions($this->supplierId, 'purchase_invoice', $purchase),
-        );
+        $result = $this->dimensions->saveDocument($this->supplierId, 'purchase_invoice', $purchase, [$this->projectType => $from], null);
+        self::assertSame(0, $result['restamp']['lines']);
     }
 
-    public function testLineDimensionEditorWorksInClosedPeriod(): void
+    public function testLineDimensionEditorRefusesClosedPeriod(): void
     {
         $center = $this->value($this->centerType, 'L-CC');
         $purchase = $this->purchase('LOCK-LINE', [[800.00, 168.00]]);
@@ -144,20 +147,141 @@ final class DimensionLockedPeriodTest extends TestCase
         $this->periods->setStatus($this->periodId, $this->supplierId, 'closed');
         $linesBefore = $this->linesOf($entryId);
         $lineId = (int) array_key_first($linesBefore);
-
-        self::assertSame(1, $this->dimensions->saveEntryLines($this->supplierId, $entryId, [$lineId => [$this->centerType => $center]]));
+        try {
+            $this->dimensions->saveEntryLines($this->supplierId, $entryId, [$lineId => [$this->centerType => $center]]);
+            self::fail('Editor nesmí změnit dimenze uzavřeného období.');
+        } catch (DimensionException $e) {
+            self::assertSame('period_not_open', $e->errorCode);
+            self::assertSame(409, $e->httpStatus);
+        }
         self::assertSame($linesBefore, $this->linesOf($entryId));
-        self::assertSame([$this->centerType => $center], $this->assignments->entryLineDimensions($this->supplierId, $entryId)[$lineId]);
+        self::assertSame([], $this->assignments->entryLineDimensions($this->supplierId, $entryId));
+        self::assertSame(0, $this->dimensions->saveEntryLines($this->supplierId, $entryId, [$lineId => []]));
     }
 
-    public function testSplitInClosedPeriodIsRefusedAndNothingIsSaved(): void
+    public function testClosedStatusesPreserveSplitsAndAllowNoOp(): void
+    {
+        $a = $this->value($this->projectType, 'S-A');
+        $b = $this->value($this->projectType, 'S-B');
+        $purchase = $this->purchase('SPLIT-CLOSED', [[1_000.00, 210.00]]);
+        $shares = [$this->projectType => [['value_id' => $a, 'share' => 0.6], ['value_id' => $b, 'share' => 0.4]]];
+        $this->dimensions->saveDocument($this->supplierId, 'purchase_invoice', $purchase, [], [], false, [0 => $shares]);
+        $entryId = $this->postPurchase($purchase);
+        $lineId = (int) array_key_first($this->linesOf($entryId));
+        $before = $this->assignments->entryLineSplits($this->supplierId, $entryId);
+        $changed = [$this->projectType => [['value_id' => $a, 'share' => 0.5], ['value_id' => $b, 'share' => 0.5]]];
+        foreach (['closed', 'reviewed', 'approved'] as $status) {
+            $this->periods->setStatus($this->periodId, $this->supplierId, $status);
+            self::assertSame(0, $this->dimensions->saveEntryLines($this->supplierId, $entryId, [], [$lineId => $shares]));
+            self::assertSame(0, $this->dimensions->saveDocument($this->supplierId, 'purchase_invoice', $purchase, [], null, false, [0 => $shares])['restamp']['lines']);
+            foreach ([
+                fn () => $this->dimensions->saveEntryLines($this->supplierId, $entryId, [], [$lineId => $changed]),
+                fn () => $this->dimensions->saveDocument($this->supplierId, 'purchase_invoice', $purchase, [], null, false, [0 => $changed]),
+            ] as $change) {
+                try {
+                    $change();
+                    self::fail('Změna podílů uzavřeného období nesmí projít.');
+                } catch (DimensionException $e) {
+                    self::assertSame('period_not_open', $e->errorCode);
+                }
+                self::assertSame($before, $this->assignments->entryLineSplits($this->supplierId, $entryId));
+                self::assertSame([0 => [$this->projectType => [$a => 0.6, $b => 0.4]]], $this->assignments->documentSplits($this->supplierId, 'purchase_invoice', $purchase));
+            }
+        }
+    }
+
+    public function testClosingBeforeCloseAndLockedOpenPeriodStillAllowAnalyticalChanges(): void
+    {
+        $a = $this->value($this->projectType, 'OPEN-A');
+        $b = $this->value($this->projectType, 'OPEN-B');
+        $purchase = $this->purchase('OPEN-LOCKED', [[100.00, 21.00]]);
+        $entryId = $this->postPurchase($purchase);
+        $lineId = (int) array_key_first($this->linesOf($entryId));
+        $this->lockUntil(self::YEAR . '-12-31');
+        self::assertGreaterThan(0, $this->dimensions->saveDocument($this->supplierId, 'purchase_invoice', $purchase, [$this->projectType => $a], null)['restamp']['lines']);
+        self::assertSame(1, $this->dimensions->saveEntryLines($this->supplierId, $entryId, [$lineId => [$this->projectType => $b]]));
+        $this->periods->setStatus($this->periodId, $this->supplierId, 'closing');
+        self::assertGreaterThan(0, $this->dimensions->saveDocument($this->supplierId, 'purchase_invoice', $purchase, [$this->projectType => $b], null)['restamp']['lines']);
+        self::assertSame(1, $this->dimensions->saveEntryLines($this->supplierId, $entryId, [$lineId => [$this->projectType => $a]]));
+    }
+
+    public function testClosedSourceDimensionsStayContinuousWithClosingAndOpening(): void
+    {
+        $a = $this->value($this->projectType, 'CONT-A');
+        $b = $this->value($this->projectType, 'CONT-B');
+        $purchase = $this->purchase('CONTINUITY', [[1_000.00, 210.00]]);
+        $this->dimensions->saveDocument($this->supplierId, 'purchase_invoice', $purchase, [$this->projectType => $a], []);
+        $entryId = $this->postPurchase($purchase);
+        $closing = Bootstrap::buildContainer()->get(\MyInvoice\Service\Accounting\Closing\ClosingService::class);
+        $rv = fn (): int => (int) $this->periods->findById($this->supplierId, $this->periodId)['row_version'];
+        $meta = ['user_id' => $this->userId, 'posted_by' => $this->userId];
+        $closing->start($this->supplierId, $this->periodId, $rv(), $meta);
+        $inventory = [];
+        foreach ($closing->inventoryPreview($this->supplierId, $this->periodId)['rows'] as $row) {
+            $inventory[(int) $row['account_id']] = ['counted_balance' => (float) $row['book_balance'], 'resolution' => 'resolved', 'note' => null];
+        }
+        $closing->saveInventory($this->supplierId, $this->periodId, $rv(), ['complete' => true], $inventory, $meta);
+        $closing->runPrecheck($this->supplierId, $this->periodId, $rv(), $meta);
+        $closing->confirmStep($this->supplierId, $this->periodId, 'depreciation', 'skipped', null, $rv(), $meta);
+        $closing->runFxRevaluation($this->supplierId, $this->periodId, [], $rv(), $meta);
+        foreach (['estimates', 'deferrals', 'provisions', 'income_tax'] as $step) {
+            $closing->confirmStep($this->supplierId, $this->periodId, $step, 'skipped', null, $rv(), $meta);
+        }
+        $closed = $closing->closeBooks($this->supplierId, $this->periodId, $rv(), $meta);
+        $opened = $closing->openNext($this->supplierId, $this->periodId, $rv(), $meta);
+        $closingId = (int) $closed['entry_id'];
+        $openingId = (int) $opened['entry_id'];
+        self::assertGreaterThan(0, $openingId);
+        $source = $this->assignments->entryLineDimensions($this->supplierId, $entryId);
+        $frozenClosing = $this->assignments->entryLineDimensions($this->supplierId, $closingId);
+        $frozenOpening = $this->assignments->entryLineDimensions($this->supplierId, $openingId);
+        self::assertContains([$this->projectType => $a], $frozenClosing);
+        self::assertContains([$this->projectType => $a], $frozenOpening);
+        $lineId = (int) array_key_first($source);
+        foreach ([
+            fn () => $this->dimensions->saveEntryLines($this->supplierId, $entryId, [$lineId => [$this->projectType => $b]]),
+            fn () => $this->dimensions->saveDocument($this->supplierId, 'purchase_invoice', $purchase, [$this->projectType => $b], null),
+            fn () => $this->dimensions->saveDocument($this->supplierId, 'purchase_invoice', $purchase, [$this->projectType => $a], [1 => [$this->projectType => $b]]),
+            fn () => $this->dimensions->saveEntryLines($this->supplierId, $entryId, [], [$lineId => [$this->projectType => [['value_id' => $a, 'share' => 0.5], ['value_id' => $b, 'share' => 0.5]]]]),
+        ] as $change) {
+            try {
+                $change();
+                self::fail('Změna zdrojové dimenze po uzavření poruší návaznost.');
+            } catch (DimensionException $e) {
+                self::assertSame('period_not_open', $e->errorCode);
+            }
+            self::assertSame($source, $this->assignments->entryLineDimensions($this->supplierId, $entryId));
+            self::assertSame($frozenClosing, $this->assignments->entryLineDimensions($this->supplierId, $closingId));
+            self::assertSame($frozenOpening, $this->assignments->entryLineDimensions($this->supplierId, $openingId));
+            $balance = $this->db->pdo()->prepare(
+                "SELECT SUM(CASE WHEN l.side = 'debit' THEN l.amount ELSE -l.amount END)
+                   FROM journal_entry_lines l JOIN chart_of_accounts a ON a.id = l.account_id
+                   JOIN journal_entry_line_dimensions d ON d.line_id = l.id
+                  WHERE l.supplier_id = ? AND l.entry_id = ? AND a.account_code = '321'
+                    AND d.dimension_type_id = ? AND d.dimension_value_id = ?"
+            );
+            foreach ([$entryId => -1210.0, $closingId => 1210.0, $openingId => -1210.0] as $id => $expected) {
+                $balance->execute([$this->supplierId, $id, $this->projectType, $a]);
+                self::assertSame($expected, (float) $balance->fetchColumn());
+            }
+        }
+        $this->periods->setStatus($this->periodId, $this->supplierId, 'closing');
+        try {
+            $this->dimensions->saveEntryLines($this->supplierId, $entryId, [$lineId => [$this->projectType => $b]]);
+            self::fail('Existující závěrkový zápis musí chránit zdrojové zůstatky i ve stavu closing.');
+        } catch (DimensionException $e) {
+            self::assertSame('period_not_open', $e->errorCode);
+        }
+    }
+
+    public function testSplitOnLockedDateIsRefusedAtomically(): void
     {
         $a = $this->value($this->projectType, 'L-A');
         $b = $this->value($this->projectType, 'L-B');
         $purchase = $this->purchase('LOCK-SPLIT', [[600.00, 126.00], [400.00, 84.00]]);
         $this->dimensions->saveDocument($this->supplierId, 'purchase_invoice', $purchase, [$this->projectType => $a], []);
         $entryId = $this->postPurchase($purchase);
-        $this->periods->setStatus($this->periodId, $this->supplierId, 'closed');
+        $this->lockUntil(self::YEAR . '-06-30');
         $dimsBefore = $this->assignments->entryLineDimensions($this->supplierId, $entryId);
 
         try {
@@ -165,7 +289,7 @@ final class DimensionLockedPeriodTest extends TestCase
                 1 => [$this->projectType => $a],
                 2 => [$this->projectType => $b],
             ]);
-            self::fail('Rozdělení řádku v uzavřeném období musí být odmítnuto.');
+            self::fail('Rozdělení řádku v zamčeném datu musí být odmítnuto.');
         } catch (DimensionException $e) {
             self::assertSame('split_in_locked_period', $e->errorCode);
             self::assertSame(409, $e->httpStatus);
@@ -215,7 +339,7 @@ final class DimensionLockedPeriodTest extends TestCase
         $this->dimensions->saveDocument($this->supplierId, 'purchase_invoice', $purchase, [$this->projectType => $from], []);
         $entryId = $this->postPurchase($purchase);
         $this->db->pdo()->prepare('UPDATE journal_entry_lines SET is_red_storno = 1 WHERE entry_id = ? AND supplier_id = ?')->execute([$entryId, $this->supplierId]);
-        $this->periods->setStatus($this->periodId, $this->supplierId, 'closed');
+        $this->lockUntil(self::YEAR . '-06-30');
         $dimsBefore = $this->assignments->entryLineDimensions($this->supplierId, $entryId);
 
         $preview = $this->dimensions->previewDocument($this->supplierId, 'purchase_invoice', $purchase, [$this->projectType => $to], null);
@@ -249,7 +373,7 @@ final class DimensionLockedPeriodTest extends TestCase
         $purchase = $this->purchase('HDR-ONLY', [[900.00, 189.00]]);
         $this->dimensions->saveDocument($this->supplierId, 'purchase_invoice', $purchase, [], [1 => [$this->projectType => $a]]);
         $this->postPurchase($purchase);
-        $this->periods->setStatus($this->periodId, $this->supplierId, 'closed');
+        $this->lockUntil(self::YEAR . '-06-30');
 
         $res = $this->call($this->dimensionAction, 'saveDocument', 'PUT',
             ['doc' => 'purchase-invoices', 'id' => (string) $purchase],
@@ -305,15 +429,15 @@ final class DimensionLockedPeriodTest extends TestCase
         $delete = $this->call($this->journalAction, 'delete', 'DELETE', ['id' => (string) $entryId]);
         self::assertSame(409, $delete['status'], 'Smazat zápis v uzavřeném období dál nejde.');
 
-        // Samotná změna dimenzí ale projde.
+        // Uzavřené období chrání i samotné dimenze.
         $dimsOnly = $this->call($this->dimensionAction, 'saveDocument', 'PUT',
             ['doc' => 'purchase-invoices', 'id' => (string) $purchase],
             ['header' => [$this->projectType => $to]]);
-        self::assertSame(200, $dimsOnly['status']);
+        self::assertSame(409, $dimsOnly['status']);
         self::assertSame($linesBefore, $this->linesOf($entryId));
     }
 
-    public function testAmountChangeInClosedPeriodIsRefusedWhileDimensionOnlyPasses(): void
+    public function testAmountAndDimensionChangesInClosedPeriodAreRefused(): void
     {
         $from = $this->value($this->projectType, 'A-FROM');
         $to = $this->value($this->projectType, 'A-TO');
@@ -345,11 +469,11 @@ final class DimensionLockedPeriodTest extends TestCase
         $dimsOnly = $this->call($this->dimensionAction, 'saveDocument', 'PUT',
             ['doc' => 'purchase-invoices', 'id' => (string) $purchase],
             ['header' => [$this->projectType => $to]]);
-        self::assertSame(200, $dimsOnly['status'], json_encode($dimsOnly['body'], JSON_THROW_ON_ERROR));
+        self::assertSame(409, $dimsOnly['status'], json_encode($dimsOnly['body'], JSON_THROW_ON_ERROR));
         self::assertSame($linesBefore, $this->linesOf($entryId), 'Samotné dimenze nemění účet, stranu ani částku.');
         self::assertSame($entriesBefore, $this->entriesOf($purchase), 'Ani storno, ani nový zápis.');
         foreach ($this->assignments->entryLineDimensions($this->supplierId, $entryId) as $dims) {
-            self::assertSame([$this->projectType => $to], $dims);
+            self::assertSame([$this->projectType => $from], $dims);
         }
     }
 
