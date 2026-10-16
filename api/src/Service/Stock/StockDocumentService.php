@@ -571,7 +571,7 @@ final class StockDocumentService
             }
         }
         if ($shortages !== []) {
-            throw new StockException('insufficient_stock', 'Nedostatek zásob pro výdej.', 409, $shortages);
+            throw new StockException('insufficient_stock', 'Nedostatek zásob pro výdej.', 409, StockShortageDetails::enrich($this->db->pdo(), $supplierId, $sourceWarehouseId, $shortages));
         }
     }
 
