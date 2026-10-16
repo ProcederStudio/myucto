@@ -64,7 +64,8 @@ pro uživatele). Sloupce **Zdroj**, **Základ** a **DPH** jsou ve výchozím zob
 rozpočítalo u pohybů s vazbou na plátcovskou fakturu.
 
 Po převzetí úhrady z avíza do bankovního výpisu nese peněžní tok pouze pohyb výpisu. Převzaté avízo se do peněžního deníku
-znovu nezapočítá ani při rozdílném datu přes hranici roku nebo po pozdějším odstranění výpisu.
+znovu nezapočítá ani při rozdílném datu přes hranici roku nebo po pozdějším odstranění výpisu. Pokud avízo po odstranění
+výpisu znovu spárujete s dokladem, nese úhradu opět avízo a do peněžního deníku se započítá.
 
 ## 74.4 Krok za krokem: zařadit nezařazený pohyb
 

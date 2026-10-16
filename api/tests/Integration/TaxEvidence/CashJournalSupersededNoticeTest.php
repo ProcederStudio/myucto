@@ -51,6 +51,34 @@ final class CashJournalSupersededNoticeTest extends CashJournalTestCase
         self::assertSame([], $this->repo->movements($this->supplierId, '2099-12-31', '2099-12-31'));
     }
 
+    public function testRematchedNoticeAfterStatementDeletionIsCashMovementAgain(): void
+    {
+        [$noticeStatement, $officialStatement] = $this->statements('email_notice');
+        $invoiceId = $this->saleInvoice($this->supplierId, ['with' => 12100, 'without' => 10000]);
+        $notice = $this->bankTx($noticeStatement, 12100, [
+            'posted_at' => '2099-12-31',
+            'variable_symbol' => '157123102',
+            'matched_invoice_id' => $invoiceId,
+            'match_status' => 'manual',
+        ]);
+        $this->db->pdo()->prepare("UPDATE bank_transactions SET source = 'email_notice' WHERE id = ?")->execute([$notice]);
+        $official = $this->bankTx($officialStatement, 12100, ['posted_at' => '2100-01-02', 'variable_symbol' => '157123102']);
+        $paymentId = $this->invoicePayment($this->supplierId, $invoiceId, 12100, 'bank', $notice, '2099-12-31');
+        self::assertNotNull($this->container->get(EmailNoticeReconciler::class)->takeOverFromEmailNotice($official));
+
+        // Smazání výpisu uvolní úhradu a uživatel pak avízo spáruje znovu ručně.
+        $pdo = $this->db->pdo();
+        $pdo->prepare('DELETE FROM invoice_payments WHERE id = ?')->execute([$paymentId]);
+        $pdo->prepare('DELETE FROM bank_transactions WHERE id = ?')->execute([$official]);
+        $pdo->prepare("UPDATE bank_transactions SET match_status = 'manual', matched_invoice_id = ? WHERE id = ?")->execute([$invoiceId, $notice]);
+        $this->invoicePayment($this->supplierId, $invoiceId, 12100, 'bank', $notice, '2099-12-31');
+
+        $rows = $this->repo->movements($this->supplierId, '2099-12-31', '2099-12-31');
+        self::assertCount(1, $rows, 'Uhrazená faktura musí mít příjem v peněžním deníku.');
+        self::assertSame($notice, $rows[0]['source_id']);
+        self::assertEqualsWithDelta(12100, $rows[0]['amount'], 0.01);
+    }
+
     public function testRetiredNoticeDoesNotRequestExchangeRateButLiveNoticeStillDoes(): void
     {
         [$statement] = $this->statements('email_notice');
