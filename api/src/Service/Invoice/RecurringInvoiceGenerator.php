@@ -97,7 +97,9 @@ final class RecurringInvoiceGenerator
         $issueDate = $forcedIssueDate ?? (string) $template['next_run_date'];
 
         // Cron volá s $userId=null — fallback na autora šablony, aby invoices.created_by
-        // (NOT NULL) i activity_log měly konzistentní audit.
+        // (NOT NULL) i activity_log měly konzistentní audit. Vystavitelem dokladu ale
+        // autor šablony není: automat vystavuje bez vystavitele ({@see InvoiceIssuer}).
+        $issuerId = $userId;
         $userId ??= (int) $template['created_by'];
 
         // Validate state — paused/expired by neměl cron volat, ale RunNow může
@@ -119,7 +121,7 @@ final class RecurringInvoiceGenerator
         } else {
             try {
                 ['issued' => $issued, 'sent_to' => $sentTo, 'varsymbol' => $varsymbol] =
-                    $this->performIssue($invoiceId, $template, $userId, $ip, $ua);
+                    $this->performIssue($invoiceId, $template, $userId, $issuerId, $ip, $ua);
             } catch (StockException $e) {
                 $this->failIssueOnStock($e, $templateId, $template, $issueDate, $advanceSchedule);
             }
@@ -237,6 +239,7 @@ final class RecurringInvoiceGenerator
         }
 
         $issueDate = (string) $template['next_run_date'];
+        $issuerId = $userId;
         $userId ??= (int) $template['created_by'];
 
         $existing = $this->templates->findPeriodInvoice($templateId, $issueDate);
@@ -263,7 +266,7 @@ final class RecurringInvoiceGenerator
 
             try {
                 ['issued' => $issued, 'sent_to' => $sentTo, 'varsymbol' => $varsymbol] =
-                    $this->performIssue($invoiceId, $template, $userId, $ip, $ua);
+                    $this->performIssue($invoiceId, $template, $userId, $issuerId, $ip, $ua);
             } catch (StockException $e) {
                 $this->failIssueOnStock($e, $templateId, $template, $issueDate);
             }
@@ -306,19 +309,20 @@ final class RecurringInvoiceGenerator
 
     /**
      * Vystaví fakturu dle per-šablona flagů auto_issue / auto_send_email.
+     * `$issuerId` = uživatel, který běh spustil ručně; null u cronu (doklad bez vystavitele).
      *
      * @return array{issued:bool, sent_to:list<string>, varsymbol:?string}
      */
-    private function performIssue(int $invoiceId, array $template, ?int $userId, string $ip, string $ua): array
+    private function performIssue(int $invoiceId, array $template, ?int $userId, ?int $issuerId, string $ip, string $ua): array
     {
         if (!$template['auto_issue']) {
             return ['issued' => false, 'sent_to' => [], 'varsymbol' => null];
         }
         if ($template['auto_send_email']) {
-            $r = $this->issueAndSend->run($invoiceId, $userId, $ip, $ua);
+            $r = $this->issueAndSend->run($invoiceId, $userId, $ip, $ua, userIsIssuer: $issuerId !== null);
             return ['issued' => $r['issued'], 'sent_to' => $r['sent_to'], 'varsymbol' => $r['varsymbol']];
         }
-        $varsymbol = $this->issueOnlyWithoutSend($invoiceId, $userId, $ip, $ua);
+        $varsymbol = $this->issueOnlyWithoutSend($invoiceId, $userId, $issuerId, $ip, $ua);
         return ['issued' => true, 'sent_to' => [], 'varsymbol' => $varsymbol];
     }
 
@@ -721,7 +725,7 @@ final class RecurringInvoiceGenerator
      * Issue draft bez odeslání — vystaví VS + snapshoty + status='issued',
      * invaliduje cached PDF, recompute stats. Vrací varsymbol.
      */
-    private function issueOnlyWithoutSend(int $invoiceId, ?int $userId, string $ip, string $ua): string
+    private function issueOnlyWithoutSend(int $invoiceId, ?int $userId, ?int $issuerId, string $ip, string $ua): string
     {
         $invoice = $this->invoices->find($invoiceId);
         if ($invoice === null) {
@@ -776,7 +780,7 @@ final class RecurringInvoiceGenerator
             if ($issue->rowCount() === 0) {
                 throw new \RuntimeException('Faktura byla mezitím změněna.');
             }
-            InvoiceIssuer::record($pdo, $invoiceId, $userId);
+            InvoiceIssuer::record($pdo, $invoiceId, $issuerId);
             if ($stockEnabled) $this->stockIssue->issueForInvoice(
                 $supplierId,
                 array_merge($invoice, ['varsymbol' => $varsymbol]),

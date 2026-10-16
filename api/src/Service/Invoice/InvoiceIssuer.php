@@ -8,7 +8,7 @@ namespace MyInvoice\Service\Invoice;
  * Zápis vystavitele dokladu (`invoices.issued_by` + snapshot jména `issued_by_name`,
  * migrace 2017). Volá ho každá cesta, která doklad vystavuje jménem uživatele:
  * {@see \MyInvoice\Action\Invoice\IssueInvoiceAction}, {@see AutoIssueAndSendService},
- * {@see RecurringInvoiceGenerator} a interní storno v
+ * ručně spuštěný {@see RecurringInvoiceGenerator} a interní storno v
  * {@see \MyInvoice\Action\Invoice\CancelInvoiceAction}.
  *
  * Statické a nad PDO schválně: volá se uvnitř transakce vystavení a generátor
@@ -17,8 +17,8 @@ namespace MyInvoice\Service\Invoice;
 final class InvoiceIssuer
 {
     /**
-     * Bez uživatele (schválení výkazu klientem přes veřejný odkaz, systémová akce)
-     * nechá vystavitele prázdného; PDF a exporty pak berou autora dokladu.
+     * Bez uživatele (schválení výkazu klientem přes veřejný odkaz, cron, systémová akce)
+     * nechá vystavitele prázdného; PDF pak bere autora dokladu.
      */
     public static function record(\PDO $pdo, int $invoiceId, ?int $userId): void
     {

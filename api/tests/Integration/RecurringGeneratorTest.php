@@ -1557,8 +1557,11 @@ final class RecurringGeneratorTest extends TestCase
         $this->assertSame('2026-10-31', $tpl['next_run_date'], 'Po vystavení se posune na další konec měsíce');
     }
 
-    /** Vystavení cronem zapíše jako vystavitele autora šablony (stejně jako created_by). */
-    public function testIssuedRecurringInvoiceRecordsIssuer(): void
+    /**
+     * Doklad vystavený cronem nemá vystavitele (issued_by NULL, PDF pak ukáže autora
+     * dokladu). Autor šablony se dosazuje jen do created_by a audit logu.
+     */
+    public function testCronIssuedRecurringInvoiceHasNoIssuer(): void
     {
         $tplId = $this->createPeriodTemplate('2026-04-30', ['end_of_month' => true]);
 
@@ -1566,14 +1569,44 @@ final class RecurringGeneratorTest extends TestCase
         $this->createdInvoiceIds[] = $res['invoice_id'];
 
         $this->assertTrue($res['issued']);
-        $stmt = $this->db->pdo()->prepare(
-            'SELECT i.issued_by, i.issued_by_name, u.name AS user_name
-               FROM invoices i JOIN users u ON u.id = ? WHERE i.id = ?'
-        );
-        $stmt->execute([$this->userId, $res['invoice_id']]);
+        $this->assertSame([null, null], $this->issuer($res['invoice_id']));
+    }
+
+    public function testCronIssuePeriodHasNoIssuer(): void
+    {
+        $tplId = $this->createPeriodTemplate('2026-03-31', ['end_of_month' => true]);
+
+        $res = $this->generator->issuePeriod($tplId, null, '127.0.0.1', 'phpunit');
+        $this->createdInvoiceIds[] = $res['invoice_id'];
+
+        $this->assertTrue($res['issued']);
+        $this->assertSame([null, null], $this->issuer($res['invoice_id']));
+    }
+
+    /** Ruční „Vygenerovat a vystavit" uživatelem zapíše jeho jako vystavitele. */
+    public function testManuallyIssuedRecurringInvoiceRecordsUser(): void
+    {
+        $tplId = $this->createPeriodTemplate('2026-02-28', ['end_of_month' => true]);
+
+        $res = $this->generator->generate($tplId, null, $this->userId, '127.0.0.1', 'phpunit');
+        $this->createdInvoiceIds[] = $res['invoice_id'];
+
+        $this->assertTrue($res['issued']);
+        $name = $this->db->pdo()->prepare('SELECT name FROM users WHERE id = ?');
+        $name->execute([$this->userId]);
+        $this->assertSame([$this->userId, (string) $name->fetchColumn()], $this->issuer($res['invoice_id']));
+    }
+
+    /** @return array{0:?int,1:?string} */
+    private function issuer(int $invoiceId): array
+    {
+        $stmt = $this->db->pdo()->prepare('SELECT issued_by, issued_by_name FROM invoices WHERE id = ?');
+        $stmt->execute([$invoiceId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        $this->assertSame($this->userId, (int) $row['issued_by']);
-        $this->assertSame($row['user_name'], $row['issued_by_name']);
+        return [
+            $row['issued_by'] === null ? null : (int) $row['issued_by'],
+            $row['issued_by_name'] === null ? null : (string) $row['issued_by_name'],
+        ];
     }
 
     public function testIssuePeriodDispatchesSendWhenAutoSendEmail(): void

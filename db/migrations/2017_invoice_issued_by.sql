@@ -4,9 +4,10 @@
 -- (dotazy odběratele, interní kontrola). Autor konceptu (`created_by`) to není:
 -- koncept často připraví jiný člověk, než kdo ho vystaví.
 --
--- `issued_by` = uživatel, který doklad vystavil (vystavení z detailu, automatické
--- vystavení po schválení výkazu, pravidelná fakturace, interní storno). Ostatní cesty
--- (import, převod, koncepty) ho nechávají NULL a PDF pak tiskne autora dokladu.
+-- `issued_by` = uživatel, který doklad vystavil (vystavení z detailu, vystavení po
+-- schválení výkazu uživatelem, ručně spuštěná pravidelná fakturace, interní storno).
+-- Automat (cron, schválení klientem přes odkaz), import, převod a koncepty ho nechávají
+-- NULL a PDF pak tiskne autora dokladu.
 -- `issued_by_name` = jméno v okamžiku vystavení. Snapshot proto, aby pozdější
 -- přejmenování nebo smazání uživatele nezměnilo už vystavený doklad.
 -- `supplier.invoice_pdf_show_issued_by` = tisknout řádek „Vystavil" na PDF (výchozí

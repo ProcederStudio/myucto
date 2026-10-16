@@ -240,7 +240,7 @@ navázat na doklad k vyplacení. Bez volby se nic z toho nenabízí a editor dá
 
 PDF faktury pak v hlavičce s daty tiskne řádek **Vystavil** se jménem uživatele, který doklad
 vystavil (viz [§ 16.10.4](16_Faktura_PDF.md#16104-pdf-struktura)). Náhledy konceptů se
-přegenerují hned. PDF vystavených faktur, která už vznikla, se zpětně nemění.
+přegenerují hned. U už vystavených faktur se řádek objeví až po přegenerování jejich PDF.
 
 **Jak poznáte, že je hotovo:** Volby jsou uloženy a při dalším odeslání dokladu nebo zaplacení faktury se chovají podle nastavení.
 

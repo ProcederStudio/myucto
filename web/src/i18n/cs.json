@@ -23876,7 +23876,7 @@
     "default_prices_include_vat": "Nové faktury s cenami včetně DPH",
     "default_prices_include_vat_hint": "Předvyplní u nových faktur režim „Ceny položek včetně DPH“ (B2C/účtenky). Lze přepsat per faktura.",
     "invoice_pdf_show_issued_by": "Tisknout na faktuře, kdo ji vystavil",
-    "invoice_pdf_show_issued_by_hint": "Na PDF přibude řádek „Vystavil“ se jménem uživatele, který doklad vystavil. Starší doklady bez tohoto údaje ukážou autora dokladu.",
+    "invoice_pdf_show_issued_by_hint": "Na PDF přibude řádek „Vystavil“ se jménem uživatele, který doklad vystavil. Starší doklady bez tohoto údaje ukážou autora dokladu. U už vystavených dokladů se řádek objeví až po přegenerování PDF.",
     "default_hourly_rate": "Výchozí hodinová sazba",
     "auto_send_reminders": "Posílat automatické upomínky",
     "auto_send_reminders_hint": "Když je vypnuto, cron nebude posílat automatické upomínky pro tohoto dodavatele. Ruční odeslání (jednotlivé i hromadné) funguje vždy.",

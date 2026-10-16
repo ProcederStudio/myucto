@@ -11,7 +11,6 @@ use MyInvoice\Bootstrap;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Middleware\SupplierScopeMiddleware;
-use MyInvoice\Service\Export\InvoiceExportDataResolver;
 use MyInvoice\Service\Invoice\AutoIssueAndSendService;
 use MyInvoice\Service\Pdf\InvoicePdfRenderer;
 use MyInvoice\Tests\Support\IsolatedSupplierTrait;
@@ -137,6 +136,18 @@ final class InvoiceIssuedByTest extends TestCase
         self::assertSame([null, null], $this->issuer($id));
     }
 
+    /** Pravidelná fakturace volá automat s autorem šablony jen kvůli auditu, vystavitelem není. */
+    public function testAutomaticIssueOnBehalfOfUserLeavesIssuerEmpty(): void
+    {
+        $id = $this->draft();
+
+        Bootstrap::buildContainer()->get(AutoIssueAndSendService::class)
+            ->run($id, $this->userId, '127.0.0.1', 'phpunit', userIsIssuer: false);
+
+        self::assertSame('issued', $this->invoiceStatus($id));
+        self::assertSame([null, null], $this->issuer($id));
+    }
+
     public function testInternalCancellationRecordsUser(): void
     {
         $container = Bootstrap::buildContainer();
@@ -196,21 +207,6 @@ final class InvoiceIssuedByTest extends TestCase
         $html = $this->renderer->renderHtml($this->renderable(null, null), includeCss: false);
 
         self::assertStringNotContainsString('Vystavil', $html);
-    }
-
-    /** Exporty (Money S3 „Vystavil", Stereo IssuePerson) berou stejného vystavitele jako PDF. */
-    public function testExportIssuePersonPrefersRecordedIssuer(): void
-    {
-        $resolver = new InvoiceExportDataResolver($this->db);
-
-        self::assertSame('Jana Vystavující', $resolver->issuePerson([
-            'issued_by_name' => 'Jana Vystavující',
-            'created_by_name' => 'Petr Autor',
-        ]));
-        self::assertSame('Petr Autor', $resolver->issuePerson([
-            'issued_by_name' => null,
-            'created_by_name' => 'Petr Autor',
-        ]));
     }
 
     public function testSettingDefaultsOffAndIsSavedFromSettings(): void

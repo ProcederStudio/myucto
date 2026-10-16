@@ -23876,7 +23876,7 @@
     "default_prices_include_vat": "New invoices use prices incl. VAT",
     "default_prices_include_vat_hint": "Pre-checks the “Item prices include VAT” mode on new invoices (B2C/receipts). Can be overridden per invoice.",
     "invoice_pdf_show_issued_by": "Print who issued the invoice",
-    "invoice_pdf_show_issued_by_hint": "The PDF gets an “Issued by” line with the name of the user who issued the document. Older documents without this record show the document's author.",
+    "invoice_pdf_show_issued_by_hint": "The PDF gets an “Issued by” line with the name of the user who issued the document. Older documents without this record show the document's author. On already issued documents the line appears only after their PDF is regenerated.",
     "default_hourly_rate": "Default hourly rate",
     "auto_send_reminders": "Send automatic reminders",
     "auto_send_reminders_hint": "When off, the cron will not send automatic reminders for this supplier. Manual send (single + bulk) always works.",
