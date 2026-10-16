@@ -41,7 +41,7 @@ Kapitolu otevřete, když:
 ## 9.2 Než začnete
 
 1. **Účet superadmina.** Klientské uživatele zakládá jen superadmin v `Systém → Uživatelé`.
-2. **Aktivní role typu client.** Role se vybírá při zakládání uživatele. Role typu **readonly** je něco jiného: je to interní pracovník, který smí jen číst. Klient je externí osoba, která smí vystavovat a upravovat vlastní doklady, ale nevidí účetnictví, banku, reporty ani nastavení systému (viz [§ 96.2.2 Role](96_Nastaveni.md#96164-role-a-opravneni)).
+2. **Aktivní role typu client.** Role se vybírá při zakládání uživatele. Role typu **readonly** je něco jiného: je to interní pracovník, který smí jen číst. Klient je externí osoba, která smí vystavovat a upravovat vlastní doklady, ale nevidí účetnictví, reporty ani nastavení systému; banku vidí jen s výslovně přidělenými bankovními oprávněními (viz [§ 96.2.2 Role](96_Nastaveni.md#96164-role-a-opravneni)).
 3. **Firma, ke které klient patří.** Bez přiřazené firmy klient po přihlášení uvidí jen prázdný stav. Přístup je záměrně zamčený: žádná firma mu není vidět, dokud ji superadmin nepřiřadí.
 4. **Pro klientské nastavení firmy** musí mít jeho role u položky **Nastavení firmy** úroveň **Zápis**.
 5. **Pro vlastní doménu** musí správce serveru zapnout funkci v konfiguraci (viz [§ 9.11.11](#91111-vlastni-domena-pravidla)).
@@ -162,7 +162,8 @@ Postup ověření a aktivace popisuje [§ 96.16 Vlastní domény](96_Nastaveni.m
 | „Váš účet zatím není propojen s žádnou firmou. Kontaktujte svou účetní." | Klient nemá přiřazenou firmu | Superadmin přidá firmu v `Systém → Uživatelé` (viz [§ 9.3](#93-krok-za-krokem-zalozeni-klientskeho-uctu)) |
 | Zatím tu nejsou žádná data | Nová firma bez dokladů | Vystavte první fakturu nebo nahrajte přijatou, přehled se začne plnit |
 | Badge **Zaúčtováno**, chybí úprava, storno a mazání | Doklad je zaúčtovaný nebo spadá do uzavřeného období | Změnu a storno vyřídí účetní (viz [§ 9.11.5](#9115-zamek-zauctovanych-dokladu)) |
-| Klient nevidí Banku, Sklad, Reporty ani Nastavení | Role client je záměrně omezená | Je to správně; přímý odkaz klienta přesměruje na portál |
+| Klient nevidí Banku | Bankovní oprávnění jsou ve výchozím stavu vypnutá | Administrátor může v klientské roli povolit prohlížení banky a jednotlivé bankovní akce |
+| Klient nevidí Sklad, Reporty ani Nastavení | Role client je záměrně omezená | Je to správně; přímý odkaz klienta přesměruje na portál |
 | Klient nevidí **Nastavení firmy** | Role nemá u této položky úroveň **Zápis** | Superadmin upraví roli (viz [§ 9.8](#98-krok-za-krokem-nastaveni-firmy-klientem)) |
 | „Nově předáno: X, již evidováno: Y" | Stejný soubor už byl předán | Nic, shodný soubor se nerozmnoží |
 | Soubor nejde nahrát jako náhrada | Shodný soubor nelze vydávat za opravený | Nahrajte opravený (jiný) soubor |
@@ -327,6 +328,14 @@ Na canonical adrese probíhá také **správa přístupových klíčů** a vynuc
 Při zamčení session server na vlastní doméně odmítne přímé WebAuthn options i verify. Zamykací obrazovka zahájí nové ověření na canonical originu a po jednorázovém PKCE návratu vytvoří novou host-only session, přičemž zachová aktuální klientskou stránku. Vlastní doména je originem celého klientského rozhraní, ne druhým originem interních agend účetní a správce. Povolení se neurčuje podle prefixu `/portal`, ale podle stejného katalogu klientských oprávnění, který řídí menu, router i API. Staré adresy `/exchange`, `/admin/export` a `/admin/import` se nejprve převedou na skutečný klientský cíl, prefix `/admin` jim tedy přístup ani nedává, ani nebere.
 
 Postup ověření a aktivace popisuje [§ 96.16 Vlastní domény](96_Nastaveni.md#9612-krok-za-krokem-vlastni-domeny-klientskeho-rozhrani).
+
+### 9.11.13 Banka a úhrady dokladů
+
+Administrátor může klientské roli v `Systém → Role a oprávnění` samostatně přidělit **Prohlížet banku**, **Nahrávat výpisy**, **Párovat platby** a **Ignorovat platby**. Ve výchozím stavu jsou vypnutá. Bankovní akce vyžadují také prohlížení banky. Klient pak vidí výpisy, avíza, pohyby a zůstatky vlastní firmy i na její klientské doméně.
+
+Párování vytvoří úhradu faktury, zrušení párování ji odstraní. Klient proto potřebuje čtení všech dotčených faktur a zápis do **Změnit úhradu** (`invoices.mark_paid`) u vydaných, případně **Změnit stav přijaté faktury** (`purchase_invoices.transition`) u přijatých. U sloučené úhrady se kontrolují všechny doklady. Import a párování zachovávají automatické zpracování podle nastavení firmy; mohou vytvořit úhrady a účetní zápisy pod přihlášeným klientským uživatelem.
+
+Výpis lze nahrát jen k již založenému účtu vlastní firmy. Klient může s oprávněním ignorování odložit nespárovanou platbu s poznámkou a vrátit ruční ignorování. Obnova systémově potlačených pohybů, ruční účtování, správa bankovních účtů, napojení a pravidel i mazání výpisů zůstávají interním pracovníkům. Podrobný postup popisuje [Banka](29_Banka.md).
 
 ## 9.12 Související kapitoly
 

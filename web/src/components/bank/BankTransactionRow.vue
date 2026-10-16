@@ -443,7 +443,7 @@ function candidateReject() {
     <tr v-if="!payrollMatched && expandedSuggestions.has(tx.id) && suggestionFor(tx.id)">
       <td :colspan="colspan" class="bg-warning-50/40 px-4 py-3">
         <MatchSuggestionPanel variant="panel" :suggestion="suggestionFor(tx.id)!" :reviewing="reviewingSuggestion"
-          :can-review="auth.canWrite('bank.match')" @accept="candidateAccept" @reject="candidateReject" />
+          :can-review="actions.canReviewSuggestion(suggestionFor(tx.id)!)" :can-accept-candidate="actions.canAcceptCandidate" @accept="candidateAccept" @reject="candidateReject" />
       </td>
     </tr>
     <tr v-if="expandedDocs.has(tx.id)">
@@ -568,7 +568,7 @@ function candidateReject() {
     </div>
     <MatchSuggestionPanel v-if="!payrollMatched && expandedSuggestions.has(tx.id) && suggestionFor(tx.id)" variant="inline"
       :suggestion="suggestionFor(tx.id)!" :reviewing="reviewingSuggestion"
-      :can-review="auth.canWrite('bank.match')" @accept="candidateAccept" @reject="candidateReject" />
+      :can-review="actions.canReviewSuggestion(suggestionFor(tx.id)!)" :can-accept-candidate="actions.canAcceptCandidate" @accept="candidateAccept" @reject="candidateReject" />
     <div v-if="expandedDocs.has(tx.id)" class="pt-1">
       <LinkedDocumentsPanel entity-type="bank_transaction" :entity-id="tx.id" />
     </div>

@@ -50,6 +50,23 @@ final class PermissionMiddlewareTest extends TestCase
         }
     }
 
+    public function testStaffCustomBankRolesKeepIndependentActionsAndOriginalUnmatchPermission(): void
+    {
+        foreach (['bank.import' => '/api/bank-statements/upload', 'bank.match' => '/api/bank-transactions/7/match', 'bank.ignore' => '/api/bank-transactions/7/ignore'] as $key => $path) {
+            $role = new EffectiveRole(8, 'Synthetic custom staff', 'staff', true, [$key => 2]);
+            $middleware = $this->middleware($role, new SupplierAccess(1, false, null));
+            self::assertSame(204, $middleware->process($this->request('POST', $path), $this->handler())->getStatusCode(), $key);
+            self::assertSame(403, $middleware->process($this->request('GET', '/api/bank-statements'), $this->handler())->getStatusCode());
+        }
+        foreach ([['bank' => 2], ['bank.match' => 2]] as $permissions) {
+            $role = new EffectiveRole(8, 'Synthetic custom staff', 'staff', true, $permissions);
+            $middleware = $this->middleware($role, new SupplierAccess(1, false, null));
+            self::assertSame(isset($permissions['bank']) ? 204 : 403,
+                $middleware->process($this->request('POST', '/api/bank-transactions/7/unmatch'), $this->handler())->getStatusCode());
+        }
+        self::assertSame('bank', (new RoutePermissionMap())->match('POST', '/api/bank-transactions/7/unmatch')->key);
+    }
+
     public function testClientBroadBankWriteCannotOpenStaffOperationsOnEitherHost(): void
     {
         $permissions = ['bank' => 2, 'bank.import' => 2, 'bank.match' => 2, 'bank.ignore' => 2];

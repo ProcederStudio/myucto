@@ -153,7 +153,7 @@ final class ClientBankAccessTest extends TestCase
 
     public function testSystemAndRuleIgnoredTransactionsCannotBeReactivatedOrRelabelled(): void
     {
-        $permissions = ['bank' => 1, 'bank.ignore' => 2, 'bank.match' => 2, 'invoices' => 1];
+        $permissions = ['bank' => 1, 'bank.ignore' => 2, 'bank.match' => 2, 'invoices' => 1, 'invoices.mark_paid' => 2];
         foreach (['rule', 'system', null] as $origin) {
             $this->pdo->prepare("UPDATE bank_transactions SET match_status = 'ignored', ignore_origin = ? WHERE id = ?")->execute([$origin, $this->tx]);
             foreach (['ignore', 'unignore', 'unmatch', 'manualMatch'] as $method) {
@@ -163,32 +163,50 @@ final class ClientBankAccessTest extends TestCase
         }
     }
 
-    public function testIssuedPairingOnlyNeedsBankMatchAndDocumentRead(): void
+    public function testIssuedPairingRequiresDocumentReadAndPaymentWrite(): void
     {
-        // Obsah zaúčtovaného dokladu klient needituje; párování úhrady má vlastní právo.
+        // Párování nemění obsah dokladu; změna úhrady vyžaduje samostatné oprávnění.
         $this->pdo->prepare("UPDATE invoices SET booked_at = '2099-06-15 10:00:00' WHERE id = ?")->execute([$this->invoice]);
         self::assertSame(403, $this->call('manualMatch', ['bank' => 1, 'bank.match' => 2], ['invoice_id' => $this->invoice])[0]);
         self::assertSame('unmatched', $this->state()['match_status']);
-        [$status, $body] = $this->call('manualMatch', ['bank' => 1, 'bank.match' => 2, 'invoices' => 1], ['invoice_id' => $this->invoice]);
+        $readOnly = ['bank' => 1, 'bank.match' => 2, 'invoices' => 1];
+        $before = $this->state();
+        self::assertSame(403, $this->call('manualMatch', $readOnly, ['invoice_id' => $this->invoice])[0]);
+        self::assertSame($before, $this->state());
+        self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM invoice_payments WHERE bank_transaction_id = ' . $this->tx)->fetchColumn());
+        [$status, $body] = $this->call('manualMatch', ['bank' => 1, 'bank.match' => 2, 'invoices' => 1, 'invoices.mark_paid' => 2], ['invoice_id' => $this->invoice]);
         self::assertSame(200, $status, json_encode($body));
         self::assertSame('manual', $this->state()['match_status']);
         self::assertSame('paid', $this->pdo->query('SELECT status FROM invoices WHERE id = ' . $this->invoice)->fetchColumn());
         self::assertSame(409, $this->call('ignore', ['bank' => 1, 'bank.ignore' => 2])[0]);
         self::assertSame(403, $this->call('unmatch', ['bank' => 1, 'bank.match' => 2])[0]);
-        self::assertSame(200, $this->call('unmatch', ['bank' => 1, 'bank.match' => 2, 'invoices' => 1])[0]);
+        $before = $this->state();
+        $payments = $this->pdo->query('SELECT * FROM invoice_payments WHERE bank_transaction_id = ' . $this->tx)->fetchAll(PDO::FETCH_ASSOC);
+        self::assertSame(403, $this->call('unmatch', $readOnly)[0]);
+        self::assertSame($before, $this->state());
+        self::assertSame($payments, $this->pdo->query('SELECT * FROM invoice_payments WHERE bank_transaction_id = ' . $this->tx)->fetchAll(PDO::FETCH_ASSOC));
+        self::assertSame(200, $this->call('unmatch', ['bank' => 1, 'bank.match' => 2, 'invoices' => 1, 'invoices.mark_paid' => 2])[0]);
         self::assertSame('issued', $this->pdo->query('SELECT status FROM invoices WHERE id = ' . $this->invoice)->fetchColumn());
     }
 
-    public function testPurchasePairingAndUnmatchRespectPurchaseRead(): void
+    public function testPurchasePairingAndUnmatchRequireReadAndTransitionWrite(): void
     {
         $this->pdo->prepare('UPDATE bank_transactions SET amount = -1000 WHERE id = ?')->execute([$this->tx]);
-        self::assertSame(403, $this->call('manualMatch', ['bank' => 1, 'bank.match' => 2, 'invoices' => 1], ['purchase_invoice_id' => $this->purchase])[0]);
-        $permissions = ['bank' => 1, 'bank.match' => 2, 'purchase_invoices' => 1];
+        self::assertSame(403, $this->call('manualMatch', ['bank' => 1, 'bank.match' => 2, 'invoices' => 1, 'invoices.mark_paid' => 2], ['purchase_invoice_id' => $this->purchase])[0]);
+        $readOnly = ['bank' => 1, 'bank.match' => 2, 'purchase_invoices' => 1];
+        self::assertSame(403, $this->call('manualMatch', $readOnly, ['purchase_invoice_id' => $this->purchase])[0]);
+        self::assertSame('unmatched', $this->state()['match_status']);
+        $permissions = ['bank' => 1, 'bank.match' => 2, 'purchase_invoices' => 1, 'purchase_invoices.transition' => 2];
         [$status, $body] = $this->call('manualMatch', $permissions, ['purchase_invoice_id' => $this->purchase]);
         self::assertSame(200, $status, json_encode($body));
         self::assertNull($this->state()['matched_invoice_id']);
-        self::assertSame(403, $this->call('unmatch', ['bank' => 1, 'bank.match' => 2, 'invoices' => 1])[0]);
+        self::assertSame(403, $this->call('unmatch', ['bank' => 1, 'bank.match' => 2, 'invoices' => 1, 'invoices.mark_paid' => 2])[0]);
         self::assertSame('manual', $this->state()['match_status']);
+        $before = $this->state();
+        $payments = $this->pdo->query('SELECT * FROM payment_matches WHERE bank_transaction_id = ' . $this->tx)->fetchAll(PDO::FETCH_ASSOC);
+        self::assertSame(403, $this->call('unmatch', $readOnly)[0]);
+        self::assertSame($before, $this->state());
+        self::assertSame($payments, $this->pdo->query('SELECT * FROM payment_matches WHERE bank_transaction_id = ' . $this->tx)->fetchAll(PDO::FETCH_ASSOC));
         self::assertSame(200, $this->call('unmatch', $permissions)[0]);
     }
 
@@ -197,15 +215,90 @@ final class ClientBankAccessTest extends TestCase
         $other = $this->invoice('1600002', 500);
         $this->pdo->prepare('UPDATE invoices SET supplier_id = ? WHERE id = ?')->execute([$this->otherSupplier, $other]);
         $this->pdo->prepare('UPDATE bank_transactions SET amount = 1500 WHERE id = ?')->execute([$this->tx]);
-        [$status] = $this->call('manualMatch', ['bank' => 1, 'bank.match' => 2, 'invoices' => 1], ['invoice_ids' => [$this->invoice, $other]]);
+        [$status] = $this->call('manualMatch', ['bank' => 1, 'bank.match' => 2, 'invoices' => 1, 'invoices.mark_paid' => 2], ['invoice_ids' => [$this->invoice, $other]]);
         self::assertSame(404, $status);
         self::assertSame('unmatched', $this->state()['match_status']);
         self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM invoice_payments WHERE bank_transaction_id = ' . $this->tx)->fetchColumn());
     }
 
+    public function testManualSplitsWithoutPaymentPermissionCannotChangeAnyDocument(): void
+    {
+        $other = $this->invoice('1600002', 500);
+        $this->pdo->prepare('UPDATE bank_transactions SET amount = 1500 WHERE id = ?')->execute([$this->tx]);
+        $before = $this->state();
+        self::assertSame(403, $this->call('manualMatch', ['bank' => 1, 'bank.match' => 2, 'invoices' => 1], ['invoice_ids' => [$this->invoice, $other]])[0]);
+        self::assertSame($before, $this->state());
+        self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM invoice_payments WHERE bank_transaction_id = ' . $this->tx)->fetchColumn());
+        $this->pdo->prepare("INSERT INTO purchase_invoices (supplier_id, vendor_id, vendor_invoice_number, vendor_snapshot, document_kind, vat_deduction, issue_date, tax_date, due_date, received_at, currency_id, total_without_vat, total_with_vat, status, created_by)
+            SELECT supplier_id, vendor_id, 'SYNTH-160-P2', vendor_snapshot, document_kind, vat_deduction, issue_date, tax_date, due_date, received_at, currency_id, total_without_vat, total_with_vat, status, created_by FROM purchase_invoices WHERE id = ?")->execute([$this->purchase]);
+        $otherPurchase = (int) $this->pdo->lastInsertId();
+        $this->pdo->prepare('UPDATE bank_transactions SET amount = -2000 WHERE id = ?')->execute([$this->tx]);
+        self::assertSame(403, $this->call('manualMatch', ['bank' => 1, 'bank.match' => 2, 'purchase_invoices' => 1], ['purchase_invoice_ids' => [$this->purchase, $otherPurchase]])[0]);
+        self::assertSame($before, $this->state());
+        self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM payment_matches WHERE bank_transaction_id = ' . $this->tx)->fetchColumn());
+    }
+
+    private function staffRequest(array $permissions, array $body = []): ServerRequestInterface
+    {
+        return $this->request([], $body)->withAttribute('auth.effective_role', new EffectiveRole(9, 'Synthetic custom staff', 'staff', true, $permissions));
+    }
+
+    public function testStaffCanIgnoreMatchedOccupiedPaymentAndRestoreNoticeTransfer(): void
+    {
+        $this->pdo->prepare("UPDATE bank_transactions SET match_status = 'manual', matched_invoice_id = ? WHERE id = ?")->execute([$this->invoice, $this->tx]);
+        $this->pdo->prepare("INSERT INTO invoice_payments (supplier_id, invoice_id, bank_transaction_id, amount, paid_on, currency) VALUES (?, ?, ?, 1000, ?, 'CZK')")->execute([$this->supplier, $this->invoice, $this->tx, '2099-06-15']);
+        $this->pdo->prepare('UPDATE bank_statements SET matched_count = 1 WHERE id = ?')->execute([$this->statement]);
+        $response = $this->bank->ignore($this->staffRequest(['bank.ignore' => 2]), new Response(), ['id' => $this->tx]);
+        self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        self::assertSame('ignored', $this->state()['match_status']);
+        self::assertSame(0, (int) $this->pdo->query('SELECT matched_count FROM bank_statements WHERE id = ' . $this->statement)->fetchColumn());
+        self::assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM invoice_payments WHERE bank_transaction_id = ' . $this->tx)->fetchColumn());
+        $this->pdo->prepare('DELETE FROM invoice_payments WHERE bank_transaction_id = ?')->execute([$this->tx]);
+        $this->pdo->prepare("UPDATE bank_transactions SET match_status = 'ignored', matched_invoice_id = NULL, ignore_origin = 'notice_transfer' WHERE id = ?")->execute([$this->tx]);
+        $response = $this->bank->unmatch($this->staffRequest(['bank' => 2]), new Response(), ['id' => $this->tx]);
+        self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        self::assertSame('unmatched', $this->state()['match_status']);
+        self::assertNull($this->state()['ignore_origin']);
+    }
+
+    public function testStaffAutomaticCandidatesAndSplitsKeepAgendasWithoutDocumentPermissions(): void
+    {
+        $response = $this->bank->matchCandidates($this->staffRequest(['bank.match' => 2]), new Response(), ['id' => $this->tx]);
+        self::assertSame(200, $response->getStatusCode());
+        $body = json_decode((string) $response->getBody(), true, flags: JSON_THROW_ON_ERROR);
+        self::assertContains('invoice', array_column($body['candidates'], 'type'));
+        self::assertContains('purchase_invoice', array_column($body['candidates'], 'type'));
+        $this->invoice('1600002', 500);
+        $this->pdo->prepare('UPDATE bank_transactions SET amount = 1500 WHERE id = ?')->execute([$this->tx]);
+        $response = $this->bank->splitSuggestions($this->staffRequest(['bank.match' => 2]), new Response(), ['id' => $this->tx]);
+        self::assertSame(200, $response->getStatusCode());
+        $body = json_decode((string) $response->getBody(), true, flags: JSON_THROW_ON_ERROR);
+        self::assertNotEmpty($body['suggestions']);
+    }
+
+    public function testStaffFullTextCandidatesKeepDocumentReadPermissionRequirement(): void
+    {
+        foreach (['invoice' => 'invoices', 'purchase_invoice' => 'purchase_invoices'] as $type => $permission) {
+            $this->pdo->prepare('UPDATE bank_transactions SET amount = ? WHERE id = ?')
+                ->execute([$type === 'invoice' ? 1000 : -1000, $this->tx]);
+            foreach ([false, true] as $canRead) {
+                $permissions = ['bank.match' => 2];
+                if ($canRead) $permissions[$permission] = 1;
+                $response = $this->bank->matchCandidates($this->staffRequest($permissions)->withQueryParams(['search' => 'Synthetic']), new Response(), ['id' => $this->tx]);
+                self::assertSame(200, $response->getStatusCode());
+                $body = json_decode((string) $response->getBody(), true, flags: JSON_THROW_ON_ERROR);
+                if ($canRead) {
+                    self::assertSame([$type], array_values(array_unique(array_column($body['candidates'], 'type'))));
+                } else {
+                    self::assertSame([], $body['candidates']);
+                }
+            }
+        }
+    }
+
     public function testForeignMovementsRemainInvisibleForEveryMutationAndDetail(): void
     {
-        $permissions = ['bank' => 1, 'bank.ignore' => 2, 'bank.match' => 2, 'invoices' => 1, 'purchase_invoices' => 1];
+        $permissions = ['bank' => 1, 'bank.ignore' => 2, 'bank.match' => 2, 'invoices' => 1, 'invoices.mark_paid' => 2, 'purchase_invoices' => 1];
         foreach (['ignore', 'unignore', 'unmatch', 'manualMatch', 'detail', 'matchCandidates', 'splitSuggestions'] as $method) {
             self::assertSame(404, $this->call($method, $permissions, ['invoice_id' => $this->invoice], [], $this->otherSupplier)[0], $method);
         }
@@ -280,16 +373,22 @@ final class ClientBankAccessTest extends TestCase
         ];
         $id = $this->suggestion($candidates);
         self::assertSame([], $this->call('matchSuggestions', ['bank' => 1, 'invoices' => 1])[1]['suggestions']);
-        $all = ['bank' => 1, 'bank.match' => 2, 'invoices' => 1, 'purchase_invoices' => 1];
+        $all = ['bank' => 1, 'bank.match' => 2, 'invoices' => 1, 'invoices.mark_paid' => 2, 'purchase_invoices' => 1];
         self::assertSame($candidates, $this->call('matchSuggestions', $all)[1]['suggestions'][0]['candidates']);
         $this->pdo->commit();
         $this->committed = true;
         // Při odebrání práva po načtení návrhu nesmí potvrzení propašovat PF.
-        $request = $this->request(['bank' => 1, 'bank.match' => 2, 'invoices' => 1], ['candidate_index' => 0]);
+        $request = $this->request(['bank' => 1, 'bank.match' => 2, 'invoices' => 1, 'invoices.mark_paid' => 2], ['candidate_index' => 0]);
         $response = $this->bank->acceptMatchSuggestion($request, new Response(), ['id' => $id]);
         self::assertSame(403, $response->getStatusCode(), (string) $response->getBody());
         self::assertSame('unmatched', $this->state()['match_status']);
         self::assertSame('pending', $this->pdo->query('SELECT status FROM bank_match_suggestions WHERE id = ' . $id)->fetchColumn());
+        $readOnlyRequest = $this->request(['bank' => 1, 'bank.match' => 2, 'invoices' => 1], ['candidate_index' => 1]);
+        $response = $this->bank->acceptMatchSuggestion($readOnlyRequest, new Response(), ['id' => $id]);
+        self::assertSame(403, $response->getStatusCode(), (string) $response->getBody());
+        self::assertSame('unmatched', $this->state()['match_status']);
+        self::assertSame('pending', $this->pdo->query('SELECT status FROM bank_match_suggestions WHERE id = ' . $id)->fetchColumn());
+        self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM invoice_payments WHERE bank_transaction_id = ' . $this->tx)->fetchColumn());
         // Index 1 stále označuje vydanou fakturu; filtr ho nepřesunul na index 0.
         $response = $this->bank->acceptMatchSuggestion($request->withParsedBody(['candidate_index' => 1]), new Response(), ['id' => $id]);
         self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
@@ -297,6 +396,31 @@ final class ClientBankAccessTest extends TestCase
         self::assertSame($this->invoice, $body['invoice_id']);
         self::assertNull($body['posting']);
         self::assertSame('manual', $this->state()['match_status']);
+    }
+
+    public function testSuggestionAcceptWithoutPaymentWriteCannotChangeAnyAgenda(): void
+    {
+        $other = $this->invoice('1600002', 500);
+        $this->pdo->commit();
+        $this->committed = true;
+        foreach ([
+            ['type' => 'invoice', 'invoice_id' => $this->invoice],
+            ['type' => 'purchase_invoice', 'purchase_invoice_id' => $this->purchase],
+            ['type' => 'split', 'invoice_ids' => [$this->invoice, $other]],
+        ] as $candidate) {
+            $id = $this->suggestion([$candidate + ['score' => 0.9]]);
+            $request = $this->request(['bank' => 1, 'bank.match' => 2, 'invoices' => 1, 'purchase_invoices' => 1]);
+            $response = $this->bank->acceptMatchSuggestion($request, new Response(), ['id' => $id]);
+            self::assertSame(403, $response->getStatusCode(), (string) $response->getBody());
+            self::assertSame('unmatched', $this->state()['match_status']);
+            self::assertSame('issued', $this->pdo->query('SELECT status FROM invoices WHERE id = ' . $this->invoice)->fetchColumn());
+            self::assertSame('received', $this->pdo->query('SELECT status FROM purchase_invoices WHERE id = ' . $this->purchase)->fetchColumn());
+            self::assertSame('pending', $this->pdo->query('SELECT status FROM bank_match_suggestions WHERE id = ' . $id)->fetchColumn());
+            self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM invoice_payments WHERE bank_transaction_id = ' . $this->tx)->fetchColumn());
+            self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM payment_matches WHERE bank_transaction_id = ' . $this->tx)->fetchColumn());
+            self::assertSame(0, (int) $this->pdo->query("SELECT COUNT(*) FROM bank_match_audit WHERE supplier_id = " . $this->supplier . " AND decision = 'accept'")->fetchColumn());
+            $this->pdo->prepare('DELETE FROM bank_match_suggestions WHERE id = ?')->execute([$id]);
+        }
     }
 
     public function testClientCanUploadExistingOwnAccountAndRepeatedUploadIsDuplicate(): void
@@ -430,7 +554,7 @@ final class ClientBankAccessTest extends TestCase
 
     public function testClientUnmatchWithTaxDocumentRollsBackAllChanges(): void
     {
-        $permissions = ['bank' => 1, 'bank.match' => 2, 'invoices' => 1];
+        $permissions = ['bank' => 1, 'bank.match' => 2, 'invoices' => 1, 'invoices.mark_paid' => 2];
         self::assertSame(200, $this->call('manualMatch', $permissions, ['invoice_id' => $this->invoice])[0]);
         $taxDocument = $this->invoice('1600009', 1000);
         $this->pdo->prepare("UPDATE invoices SET invoice_type = 'tax_document', parent_invoice_id = ? WHERE id = ?")->execute([$this->invoice, $taxDocument]);
@@ -451,7 +575,7 @@ final class ClientBankAccessTest extends TestCase
 
     public function testClientUnmatchInClosedPeriodRollsBackAllChanges(): void
     {
-        $permissions = ['bank' => 1, 'bank.match' => 2, 'invoices' => 1];
+        $permissions = ['bank' => 1, 'bank.match' => 2, 'invoices' => 1, 'invoices.mark_paid' => 2];
         self::assertSame(200, $this->call('manualMatch', $permissions, ['invoice_id' => $this->invoice])[0]);
         $this->pdo->prepare("UPDATE supplier SET accounting_mode = 'double_entry' WHERE id = ?")->execute([$this->supplier]);
         $this->container->get(\MyInvoice\Service\Accounting\ChartOfAccountsSeeder::class)->seedForSupplier($this->supplier);
@@ -482,7 +606,7 @@ final class ClientBankAccessTest extends TestCase
         $entry = $this->container->get(\MyInvoice\Service\Accounting\PostingService::class)->postDocument($this->supplier, 'bank', $this->tx,
             [['account_code' => '221', 'side' => 'debit', 'amount' => 1000], ['account_code' => '648', 'side' => 'credit', 'amount' => 1000]],
             ['entry_date' => '2099-06-15', 'description' => 'Synthetic non-saldo payment', 'user_id' => $this->user]);
-        $permissions = ['bank' => 1, 'bank.match' => 2, 'invoices' => 1];
+        $permissions = ['bank' => 1, 'bank.match' => 2, 'invoices' => 1, 'invoices.mark_paid' => 2];
         self::assertSame(409, $this->call('manualMatch', $permissions, ['invoice_id' => $this->invoice])[0]);
         $this->pdo->commit();
         $this->committed = true;

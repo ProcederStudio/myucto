@@ -3604,6 +3604,12 @@ paths:
       tags: [Bank]
       summary: Ručně přiřadí transakci k faktuře a zaeviduje úhradu
       description: |
+        Klient potřebuje čtení banky, `bank.match` k zápisu a čtení každého cílového
+        dokladu. Pro vydané faktury navíc potřebuje `invoices.mark_paid` k zápisu,
+        pro přijaté `purchase_invoices.transition` k zápisu. Stejné podmínky platí
+        pro všechny doklady sloučené úhrady. Automatické účetní zpracování podle
+        nastavení firmy probíhá pod uživatelem, který párování provedl.
+
         Použij když automatický matching nezachytil platbu (variabilní symbol
         chybí nebo neodpovídá). Zaeviduje platbu v měně faktury; plné pokrytí
         ji označí jako `paid` s `paid_at = transaction.posted_at`, nižší platba
@@ -3710,6 +3716,8 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+        '403':
+          description: Chybí oprávnění k párování nebo změně úhrady dokladu.
         '404':
           description: |
             Transakce nenalezena (`not_found`), faktura nenalezena nebo patří jiné
@@ -3747,6 +3755,12 @@ paths:
       tags: [Bank]
       summary: Odpojí transakci od faktury a zruší platbu vzniklou párováním
       description: |
+        Interní role potřebuje zápis do banky. Klient potřebuje čtení banky,
+        `bank.match` k zápisu a u všech navázaných dokladů čtení i právo změnit úhradu
+        (`invoices.mark_paid`, u přijatých faktur `purchase_invoices.transition`).
+        Interní role může tímto endpointem obnovit také ignorované pohyby;
+        klient k obnovení ručního ignorování používá samostatný endpoint `unignore`.
+
         Vrátí transakci do stavu unmatched a odstraní případnou poznámku k ignorování.
         Platba vzniklá párováním se z faktury odebere a stav faktury se přepočte ze
         zbývajících plateb — fakturu, kterou kryje jiná platba, nechá zaplacenou.
@@ -3754,6 +3768,8 @@ paths:
       responses:
         '200':
           description: OK
+        '403':
+          description: Chybí oprávnění k párování nebo změně úhrady dokladu.
         '409':
           description: |
             Zrušení párování odmítnuto — zápis leží v uzavřeném nebo zamčeném období
@@ -3810,7 +3826,7 @@ paths:
       tags: [Bank]
       summary: Zruší ruční ignorování bankovního pohybu
       description: |
-        Vyžaduje čtení banky a oprávnění bank.ignore k zápisu. Obnoví pouze ručně
+        Vyžaduje oprávnění bank.ignore k zápisu, u klienta také čtení banky. Obnoví pouze ručně
         ignorovaný pohyb; systémově potlačené duplicity ani přenesená ignorování
         tímto endpointem obnovit nelze.
       responses:
@@ -5695,6 +5711,11 @@ paths:
     post:
       tags: [Bank]
       summary: Potvrdí vybraného kandidáta návrhu párování
+      description: |
+        Klient potřebuje čtení banky, `bank.match` k zápisu a u každého dokladu
+        kandidáta čtení i právo změnit úhradu (`invoices.mark_paid`, u přijatých
+        faktur `purchase_invoices.transition`). Práva a dostupnost pohybu se
+        kontrolují znovu při potvrzení návrhu.
       requestBody:
         required: false
         content:
@@ -5705,6 +5726,7 @@ paths:
                 candidate_index: { type: integer, minimum: 0, default: 0 }
       responses:
         '200': { description: Transakce byla spárována }
+        '403': { description: Chybí oprávnění k párování nebo změně úhrady dokladu }
         '404': { description: Návrh nebyl nalezen v aktuální firmě }
         '409': { description: Návrh už byl vyřízen }
         '422': { description: Index kandidáta je mimo rozsah }

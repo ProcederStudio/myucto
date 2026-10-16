@@ -8,6 +8,9 @@ use Psr\Http\Message\ServerRequestInterface as Request;
 
 final class RequestAuthorization
 {
+    private static ?PermissionCatalog $catalog = null;
+    private static ?PermissionChecker $checker = null;
+
     /**
      * Je požadavek z přihlášené browserové relace?
      *
@@ -78,7 +81,7 @@ final class RequestAuthorization
         if (!in_array($legacy, ['accountant', 'readonly', 'client'], true)) {
             return EffectiveRole::denied();
         }
-        $catalog = new PermissionCatalog();
+        $catalog = self::$catalog ??= new PermissionCatalog();
         return new EffectiveRole(
             0,
             $legacy,
@@ -122,7 +125,9 @@ final class RequestAuthorization
     ): bool {
         $role = self::effectiveRole($request);
         if ($permission === 'bank' || str_starts_with($permission, 'bank.')) {
-            return (new PermissionChecker(new PermissionCatalog()))->allows($role, $permission, $minimum);
+            self::$catalog ??= new PermissionCatalog();
+            self::$checker ??= new PermissionChecker(self::$catalog);
+            return self::$checker->allows($role, $permission, $minimum);
         }
         return $role->isSuperadmin() || ($role->isActive && $role->level($permission)->allows($minimum));
     }

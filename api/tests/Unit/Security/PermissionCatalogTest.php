@@ -23,10 +23,10 @@ final class PermissionCatalogTest extends TestCase
         foreach (['bank.import', 'bank.match', 'bank.ignore'] as $key) {
             foreach (['staff', 'client'] as $type) {
                 $role = new EffectiveRole(9, 'Synthetic role', $type, true, [$key => 2]);
-                self::assertFalse($checker->allows($role, $key, AccessLevel::WRITE));
+                self::assertSame($type === 'staff', $checker->allows($role, $key, AccessLevel::WRITE));
                 $request = (new \Slim\Psr7\Factory\ServerRequestFactory())->createServerRequest('POST', '/')
                     ->withAttribute('auth.effective_role', $role);
-                self::assertFalse(\MyInvoice\Security\RequestAuthorization::allows($request, $key, AccessLevel::WRITE));
+                self::assertSame($type === 'staff', \MyInvoice\Security\RequestAuthorization::allows($request, $key, AccessLevel::WRITE));
             }
         }
     }

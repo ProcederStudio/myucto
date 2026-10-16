@@ -26,10 +26,14 @@ final class ClientBankAccess
     }
 
     /** Ověřuje každý doklad splitu; volající drží zámek pohybu v otevřené transakci. */
-    public function assertDocuments(Request $request, string $type, array $ids): void
+    public function assertDocuments(Request $request, string $type, array $ids, bool $changesPayment = true): void
     {
         if (!RequestAuthorization::isClientType($request)) return;
         if (!self::canRead($request, $type)) throw new \DomainException('Chybí oprávnění pro čtení dokladu.', 403);
+        $paymentPermission = $type === 'purchase_invoice' ? 'purchase_invoices.transition' : 'invoices.mark_paid';
+        if ($changesPayment && !RequestAuthorization::allows($request, $paymentPermission, AccessLevel::WRITE)) {
+            throw new \DomainException('Chybí oprávnění pro změnu úhrady dokladu.', 403);
+        }
         $table = $type === 'purchase_invoice' ? 'purchase_invoices' : 'invoices';
         $stmt = $this->db->pdo()->prepare("SELECT * FROM $table WHERE id = ? AND supplier_id = ? FOR UPDATE");
         foreach (array_unique(array_map('intval', $ids)) as $id) {
@@ -54,16 +58,16 @@ final class ClientBankAccess
     public function assertAvailableCandidate(Request $request, array $candidate, array $transaction): void
     {
         $this->assertAvailable($request, (int) $transaction['id']);
-        $this->assertCandidate($request, $candidate);
+        $this->assertCandidate($request, $candidate, true);
     }
 
-    public function assertCandidate(Request $request, array $candidate): void
+    public function assertCandidate(Request $request, array $candidate, bool $changesPayment = false): void
     {
         $type = (string) ($candidate['type'] ?? '');
         $ids = $type === 'purchase_invoice' ? [(int) ($candidate['purchase_invoice_id'] ?? 0)]
             : ($type === 'split' ? (array) ($candidate['invoice_ids'] ?? []) : [(int) ($candidate['invoice_id'] ?? 0)]);
         if ($ids === [] || min(array_map('intval', $ids)) <= 0) throw new \DomainException('Neplatný doklad návrhu.', 409);
-        $this->assertDocuments($request, $type, $ids);
+        $this->assertDocuments($request, $type, $ids, $changesPayment);
     }
 
     /** Žádná vazba mimo klientovy agendy se nesmí při zrušení párování změnit. */

@@ -3,7 +3,7 @@ import { reactive } from 'vue'
 import { mount } from '@vue/test-utils'
 import { useBankTransactionActions } from '../useBankTransactionActions'
 
-vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ canRead: () => true, canWrite: () => true }) }))
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ isClientRole: true, canRead: () => true, canWrite: () => true }) }))
 vi.mock('@/stores/supplier', () => ({ useSupplierStore: () => ({ currentSupplierId: 1 }) }))
 import BankTransactionDialogs from '@/components/bank/BankTransactionDialogs.vue'
 import type { BankTransaction } from '@/api/bank'

@@ -2252,7 +2252,7 @@ final class BankStatementAction
             $result['posting'] = RequestAuthorization::isClientType($request) ? null : $posting;
             return Json::ok($response, $result);
         } catch (\DomainException $e) {
-            return Json::error($response, 'forbidden_document', $e->getMessage(), $e->getCode());
+            return Json::error($response, 'forbidden_document', $e->getMessage(), self::domainHttpStatus($e));
         } catch (MatchSuggestionException $e) {
             return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus);
         } catch (\Throwable) {
@@ -2275,7 +2275,7 @@ final class BankStatementAction
                 RequestAuthorization::isClientType($request) ? fn (array $candidate) => $this->clientAccess->assertCandidate($request, $candidate) : null);
             return Json::ok($response, ['rejected' => true]);
         } catch (\DomainException $e) {
-            return Json::error($response, 'forbidden_document', $e->getMessage(), $e->getCode());
+            return Json::error($response, 'forbidden_document', $e->getMessage(), self::domainHttpStatus($e));
         } catch (MatchSuggestionException $e) {
             return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus);
         } catch (\Throwable) {
@@ -2341,14 +2341,18 @@ final class BankStatementAction
         }
 
         $candidates = $this->searchMatchCandidates($sid, $posted, $txAmount, $txCcy, self::CANDIDATE_DAY_WINDOW, false);
-        $candidates = array_values(array_filter($candidates, static fn (array $candidate): bool => ClientBankAccess::canRead($request, (string) $candidate['type'])));
+        if (RequestAuthorization::isClientType($request)) {
+            $candidates = array_values(array_filter($candidates, static fn (array $candidate): bool => ClientBankAccess::canRead($request, (string) $candidate['type'])));
+        }
         $fallback = false;
         if ($candidates === []) {
             $fallback = true;
             $candidates = $this->searchMatchCandidates($sid, $posted, $txAmount, $txCcy, self::CANDIDATE_FALLBACK_DAY_WINDOW, true);
         }
 
-        $candidates = array_values(array_filter($candidates, static fn (array $candidate): bool => ClientBankAccess::canRead($request, (string) $candidate['type'])));
+        if (RequestAuthorization::isClientType($request)) {
+            $candidates = array_values(array_filter($candidates, static fn (array $candidate): bool => ClientBankAccess::canRead($request, (string) $candidate['type'])));
+        }
         return Json::ok($response, ['candidates' => $candidates, 'fallback' => $fallback]);
     }
 
@@ -2518,7 +2522,7 @@ final class BankStatementAction
         $stmt->execute([$txId]);
         $tx = $stmt->fetch(\PDO::FETCH_ASSOC) ?: [];
         $txAmount = round((float) ($tx['amount'] ?? 0), 2);
-        if (!ClientBankAccess::canRead($request, $txAmount < 0 ? 'purchase_invoice' : 'invoice')) {
+        if (RequestAuthorization::isClientType($request) && !ClientBankAccess::canRead($request, $txAmount < 0 ? 'purchase_invoice' : 'invoice')) {
             return Json::ok($response, ['suggestions' => [], 'window' => $window, 'max' => $maxInv]);
         }
         if ($txAmount < 0.0) {
@@ -3103,7 +3107,7 @@ final class BankStatementAction
             return $result;
         } catch (\Throwable $e) {
             self::rollbackAtomic($pdo, $own, 'client_bank_match');
-            if ($e instanceof \DomainException) return Json::error($response, 'payment_unavailable', $e->getMessage(), $e->getCode());
+            if ($e instanceof \DomainException) return Json::error($response, 'payment_unavailable', $e->getMessage(), self::domainHttpStatus($e));
             throw $e;
         }
     }
@@ -4326,7 +4330,7 @@ final class BankStatementAction
             return $result;
         } catch (\Throwable $e) {
             self::rollbackAtomic($pdo, $own, 'client_bank_unmatch');
-            if ($e instanceof \DomainException) return Json::error($response, 'payment_unavailable', $e->getMessage(), $e->getCode());
+            if ($e instanceof \DomainException) return Json::error($response, 'payment_unavailable', $e->getMessage(), self::domainHttpStatus($e));
             throw $e;
         }
     }
@@ -4418,10 +4422,10 @@ final class BankStatementAction
         $own = self::beginAtomic($pdo, 'bank_tx_ignore');
         try {
             $tx = $this->lockOwnedTransaction($request, $txId);
-            if ($tx['match_status'] !== 'unmatched' && !($tx['match_status'] === 'ignored' && $tx['ignore_origin'] === 'manual')) {
+            if (RequestAuthorization::isClientType($request) && $tx['match_status'] !== 'unmatched' && !($tx['match_status'] === 'ignored' && $tx['ignore_origin'] === 'manual')) {
                 throw new \DomainException('Ignorovat lze pouze nespárovaný pohyb.', 409);
             }
-            $this->assertUnallocated($tx);
+            if (RequestAuthorization::isClientType($request)) $this->assertUnallocated($tx);
             if (RequestAuthorization::isClientType($request) && $tx['match_status'] === 'unmatched') {
                 $this->clientAccess->assertAvailable($request, $txId);
             }
@@ -4429,13 +4433,15 @@ final class BankStatementAction
             $note = $note === '' ? null : $note;
             $this->bankPosting->onIgnore(SupplierGuard::currentId($request), $txId);
             $pdo->prepare("UPDATE bank_transactions SET match_status = 'ignored', ignore_origin = 'manual', ignore_note = ? WHERE id = ?")->execute([$note, $txId]);
+            $pdo->prepare("UPDATE bank_statements SET matched_count = (SELECT COUNT(*) FROM bank_transactions WHERE statement_id = ? AND match_status IN ('auto_exact', 'auto_partial', 'manual')) WHERE id = ?")
+                ->execute([(int) $tx['statement_id'], (int) $tx['statement_id']]);
             $this->logIgnoreChange($request, $txId, 'bank.tx_ignore', ['note' => $note, 'previous_status' => $tx['match_status'], 'previous_invoice_id' => $tx['matched_invoice_id']]);
             self::commitAtomic($pdo, $own, 'bank_tx_ignore');
             return Json::ok($response, ['ignored' => true, 'ignore_note' => $note]);
         } catch (\Throwable $e) {
             self::rollbackAtomic($pdo, $own, 'bank_tx_ignore');
             if ($e instanceof \MyInvoice\Service\Accounting\PostingException) return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus);
-            if ($e instanceof \DomainException) return Json::error($response, 'payment_unavailable', $e->getMessage(), $e->getCode());
+            if ($e instanceof \DomainException) return Json::error($response, 'payment_unavailable', $e->getMessage(), self::domainHttpStatus($e));
             throw $e;
         }
     }
@@ -4458,9 +4464,15 @@ final class BankStatementAction
             return Json::ok($response, ['unmatched' => true]);
         } catch (\Throwable $e) {
             self::rollbackAtomic($pdo, $own, 'bank_tx_unignore');
-            if ($e instanceof \DomainException) return Json::error($response, 'payment_unavailable', $e->getMessage(), $e->getCode());
+            if ($e instanceof \DomainException) return Json::error($response, 'payment_unavailable', $e->getMessage(), self::domainHttpStatus($e));
             throw $e;
         }
+    }
+
+    private static function domainHttpStatus(\DomainException $exception): int
+    {
+        $code = $exception->getCode();
+        return is_int($code) && $code >= 400 && $code <= 599 ? $code : 409;
     }
 
     private function logIgnoreChange(Request $request, int $txId, string $event, array $context): void

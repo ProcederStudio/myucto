@@ -24809,7 +24809,7 @@
       "bank_match": "Párovat platby",
       "bank_ignore": "Ignorovat platby"
     },
-    "client_bank_hint": "Bankovní oprávnění klienta jsou volitelná. Import, párování a ignorování vyžadují čtení banky. Párování a import mohou spustit automatické zpracování úhrad a účetních zápisů podle nastavení firmy.",
+    "client_bank_hint": "Bankovní oprávnění klienta jsou volitelná. Import, párování a ignorování vyžadují čtení banky. Párování a jeho zrušení navíc vyžadují čtení dokladů a právo měnit jejich úhrady. Párování a import mohou spustit automatické zpracování úhrad a účetních zápisů podle nastavení firmy.",
     "title": "Role a oprávnění",
     "subtitle": "Nastavení přístupu k modulům a významným akcím.",
     "new": "Nová role",

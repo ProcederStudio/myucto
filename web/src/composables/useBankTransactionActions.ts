@@ -12,6 +12,7 @@ import {
   type BankTransaction,
   type MatchCandidate,
   type MatchSuggestion,
+  type MatchSuggestionCandidate,
   type SplitSuggestion,
   type MatchPostingResult,
 } from '@/api/bank'
@@ -52,22 +53,58 @@ export function useBankTransactionActions(opts: { reload: () => Promise<void> | 
   const detailReturnTarget = ref<BankTransaction | null>(null)
   let disposed = false
 
+  function canMatchBank(): boolean {
+    const auth = useAuthStore()
+    return auth.canWrite('bank.match') && (!auth.isClientRole || auth.canRead('bank'))
+  }
+
+  function canMatchDocument(type: MatchCandidate['type']): boolean {
+    const auth = useAuthStore()
+    return canMatchBank() && (!auth.isClientRole || (type === 'invoice'
+      ? auth.canRead('invoices') && auth.canWrite('invoices.mark_paid')
+      : auth.canRead('purchase_invoices') && auth.canWrite('purchase_invoices.transition')))
+  }
+
+  function canMatchAnyDocument(): boolean {
+    return canMatchDocument('invoice') || canMatchDocument('purchase_invoice')
+  }
+
+  function canAcceptCandidate(candidate: MatchSuggestionCandidate): boolean {
+    return canMatchDocument(candidate.type === 'purchase_invoice' ? 'purchase_invoice' : 'invoice')
+  }
+
+  function canReviewSuggestion(suggestion: MatchSuggestion): boolean {
+    const auth = useAuthStore()
+    return canMatchBank() && (!auth.isClientRole || suggestion.candidates.every(candidate =>
+      auth.canRead(candidate.type === 'purchase_invoice' ? 'purchase_invoices' : 'invoices')))
+  }
+
+  function canMatchCurrentDocument(): boolean {
+    return !!matchCtx.value && canMatchDocument(matchCtx.value.amount < 0 ? 'purchase_invoice' : 'invoice')
+  }
+
   function canRunDetailAction(tx: BankTransaction, action: BankDetailAction): boolean {
     if (tx.resolution === 'payroll' || tx.posting?.payroll_matched) return false
     const auth = useAuthStore()
     const status = tx.match_status
     if (action === 'create') return !auth.isClientRole && auth.canWrite('purchase_invoices.create') && tx.amount < 0 && status === 'unmatched'
     if (action === 'request') return !auth.isClientRole && auth.canWrite('documents.requests') && ['unmatched', 'auto_partial'].includes(status)
+    if (!auth.isClientRole) {
+      if (!auth.canWrite('bank.match')) return false
+      if (action === 'ignore') return status === 'unmatched'
+      if (action === 'match') return ['unmatched', 'auto_partial'].includes(status)
+      return ['auto_exact', 'auto_partial', 'manual', 'ignored'].includes(status)
+    }
     if (!auth.canRead('bank')) return false
     if (action === 'ignore') return tx.ignore_available !== false && auth.canWrite('bank.ignore') && status === 'unmatched'
     if (action === 'unmatch' && status === 'ignored') return auth.canWrite('bank.ignore') && tx.ignore_origin === 'manual'
     if (!auth.canWrite('bank.match')) return false
     if (action === 'match') return tx.match_available !== false && ['unmatched', 'auto_partial'].includes(status)
-      && (!auth.isClientRole || auth.canRead('invoices') || auth.canRead('purchase_invoices'))
+      && canMatchAnyDocument()
     if (auth.isClientRole) {
       const invoices = !!tx.matched_invoice_id || !!tx.matched_invoices?.length
       const purchases = !!tx.matched_purchase_invoice_id || !!tx.matched_purchase_invoices?.length
-      if ((!invoices && !purchases) || (invoices && !auth.canRead('invoices')) || (purchases && !auth.canRead('purchase_invoices'))) return false
+      if ((!invoices && !purchases) || (invoices && !canMatchDocument('invoice')) || (purchases && !canMatchDocument('purchase_invoice'))) return false
     }
     return ['auto_exact', 'auto_partial', 'manual'].includes(status)
   }
@@ -134,7 +171,8 @@ export function useBankTransactionActions(opts: { reload: () => Promise<void> | 
   const matchError = ref('')
 
   async function acceptSuggestion(suggestion: MatchSuggestion, candidate: number) {
-    if (matchBusy.value || !useAuthStore().canWrite('bank.match') || !useAuthStore().canRead('bank')) return
+    const selected = suggestion.candidates[candidate]
+    if (matchBusy.value || !selected || !canReviewSuggestion(suggestion) || !canAcceptCandidate(selected)) return
     reviewingSuggestion.value = suggestion.id
     matchError.value = ''
     try {
@@ -154,7 +192,7 @@ export function useBankTransactionActions(opts: { reload: () => Promise<void> | 
   }
 
   async function rejectSuggestion(suggestion: MatchSuggestion) {
-    if (matchBusy.value || !useAuthStore().canWrite('bank.match') || !useAuthStore().canRead('bank')) return
+    if (matchBusy.value || !canReviewSuggestion(suggestion)) return
     reviewingSuggestion.value = suggestion.id
     matchError.value = ''
     try {
@@ -403,7 +441,7 @@ export function useBankTransactionActions(opts: { reload: () => Promise<void> | 
   }
 
   async function confirmSuggestion(s: SplitSuggestion) {
-    if (!matchingTx.value || matchBusy.value) return
+    if (!matchingTx.value || matchBusy.value || !canMatchCurrentDocument()) return
     matchingManual.value = true
     matchError.value = ''
     try {
@@ -459,8 +497,8 @@ export function useBankTransactionActions(opts: { reload: () => Promise<void> | 
   }
 
   async function matchCandidate(txId: number, c: Pick<MatchCandidate, 'id' | 'type' | 'ref'>, fromDocument = false): Promise<boolean> {
-    if (matchBusy.value || !useAuthStore().canWrite('bank.match') || !useAuthStore().canRead('bank')) return false
-    if (useAuthStore().isClientRole && (fromDocument || !useAuthStore().canRead(c.type === 'invoice' ? 'invoices' : 'purchase_invoices'))) return false
+    if (matchBusy.value || !canMatchDocument(c.type)) return false
+    if (useAuthStore().isClientRole && fromDocument) return false
     matchingCandidate.value = true
     const supplierId = matchSupplier.currentSupplierId
     matchError.value = ''
@@ -503,7 +541,7 @@ export function useBankTransactionActions(opts: { reload: () => Promise<void> | 
   }
 
   async function confirmMatch() {
-    if (!matchingTx.value || !matchVarsymbol.value.trim() || matchBusy.value) return
+    if (!matchingTx.value || !matchVarsymbol.value.trim() || matchBusy.value || !canMatchAnyDocument()) return
     matchingManual.value = true
     matchError.value = ''
     try {
@@ -658,7 +696,7 @@ export function useBankTransactionActions(opts: { reload: () => Promise<void> | 
     unmatching.value = true
     unmatchError.value = ''
     try {
-      if (tx.match_status === 'ignored') await bankApi.unignore(tx.id)
+      if (useAuthStore().isClientRole && tx.match_status === 'ignored') await bankApi.unignore(tx.id)
       else await bankApi.unmatch(tx.id)
       Object.assign(tx, {
         match_status: 'unmatched', ignore_origin: null, ignore_note: null, matched_invoice_id: null, matched_purchase_invoice_id: null,
@@ -682,6 +720,7 @@ export function useBankTransactionActions(opts: { reload: () => Promise<void> | 
 
   return {
     toastPosting, canRunDetailAction, runDetailAction, matchBusy,
+    canMatchDocument, canMatchAnyDocument, canAcceptCandidate, canReviewSuggestion, canMatchCurrentDocument,
     // match v2
     matchSuggestions, expandedSuggestions, setSuggestions, suggestionFor, toggleSuggestion,
     reviewingSuggestion, matchError, acceptTxSuggestion, rejectTxSuggestion,
