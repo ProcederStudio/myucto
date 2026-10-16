@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { settingsApi, type AccountingFramework, type AccountingFrameworkState } from '@/api/settings'
 import { apiErrorMessage } from '@/api/errors'
 import { useDemoMode } from '@/composables/useDemoMode'
+import { useAuthStore } from '@/stores/auth'
 import { formatDate } from '@/composables/useFormat'
 import { ICONS, btnOutline } from '@/components/ui/buttonStyles'
 import DateInput from '@/components/ui/DateInput.vue'
@@ -12,6 +13,7 @@ const props = defineProps<{ supplier: AccountingFrameworkState; canChange: boole
 const emit = defineEmits<{ updated: [state: AccountingFrameworkState] }>()
 const { t } = useI18n()
 const { blockDemoMutation } = useDemoMode()
+const auth = useAuthStore()
 const framework = ref<AccountingFramework>('cz_500')
 const effectiveFrom = ref('')
 const saving = ref(false)
@@ -35,6 +37,7 @@ async function save() {
   saved.value = false
   try {
     const state = await settingsApi.updateAccountingFramework(supplierId, framework.value, effectiveFrom.value)
+    await auth.refresh()
     if (props.supplier.id !== supplierId) return
     emit('updated', {
       id: supplierId,
@@ -58,16 +61,16 @@ async function save() {
     <p class="text-sm mb-2">{{ t('settings.accounting_framework.current') }}: {{ t(`settings.accounting_framework.${supplier.accounting_framework ?? 'cz_500'}`) }}</p>
     <p class="text-xs text-neutral-500 mb-4">{{ t('settings.accounting_framework.hint') }}</p>
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-xl">
-      <label class="text-xs font-medium text-neutral-700">
+      <label class="block min-w-0 text-xs font-medium text-neutral-700">
         {{ t('settings.accounting_framework.title') }}
-        <select v-model="framework" :disabled="saving || !canChange" class="mt-1 w-full h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm disabled:opacity-60">
+        <select v-model="framework" :disabled="saving || !canChange" class="mt-1 w-full h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 disabled:opacity-60">
           <option value="cz_500">{{ t('settings.accounting_framework.cz_500') }}</option>
           <option value="cz_504" disabled>{{ t('settings.accounting_framework.cz_504_unavailable') }}</option>
         </select>
       </label>
-      <label class="text-xs font-medium text-neutral-700">
+      <label class="block min-w-0 text-xs font-medium text-neutral-700">
         {{ t('settings.accounting_framework.effective_from') }}
-        <DateInput v-model="effectiveFrom" :disabled="saving || !canChange" class="mt-1 w-full" :aria-label="t('settings.accounting_framework.effective_from')" />
+        <DateInput v-model="effectiveFrom" :disabled="saving || !canChange" class="mt-1 w-full h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm disabled:opacity-60" :aria-label="t('settings.accounting_framework.effective_from')" />
       </label>
     </div>
     <div class="flex flex-wrap items-center gap-3 mt-3">

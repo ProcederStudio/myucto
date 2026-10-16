@@ -16104,6 +16104,22 @@
     "accounts": {
       "title": "Účtový rozvrh",
       "subtitle": "Účtová osnova firmy - syntetické účty a vlastní analytiky.",
+      "subtitle_504": "Účtová osnova nevýdělečné organizace podle vyhlášky 504/2002 Sb. - syntetické účty a vlastní analytiky.",
+      "class_504": {
+        "0": "Třída 0 - Dlouhodobý majetek",
+        "1": "Třída 1 - Zásoby",
+        "2": "Třída 2 - Finanční účty",
+        "3": "Třída 3 - Zúčtovací vztahy",
+        "4": "Třída 4 - Volná účtová třída",
+        "5": "Třída 5 - Náklady",
+        "6": "Třída 6 - Výnosy",
+        "7": "Třída 7 - Volná účtová třída",
+        "8": "Třída 8 - Volná účtová třída",
+        "9": "Třída 9 - Vlastní jmění, fondy, výsledek hospodaření, rezervy, dlouhodobé úvěry a závazky, závěrkové a podrozvahové účty",
+        "offbalance": "Podrozvahové účty",
+        "closing": "Závěrkové účty",
+        "other": "Ostatní"
+      },
       "empty": "Účtová osnova je prázdná.",
       "new": "Nová analytika",
       "new_title": "Nový analytický účet",

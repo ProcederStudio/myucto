@@ -29,6 +29,18 @@ final class AccountingFrameworkService
         return $this->frameworks->forDate($supplierId, $date) ?? self::CZ_500;
     }
 
+    /** @param list<int> $supplierIds @return array<int,self::CZ_*> */
+    public function forDateForSuppliers(array $supplierIds, string $date): array
+    {
+        $this->assertDate($date);
+        $supplierIds = array_values(array_unique(array_filter(array_map('intval', $supplierIds), static fn (int $id): bool => $id > 0)));
+        if ($supplierIds === []) return [];
+        return array_replace(
+            array_fill_keys($supplierIds, self::CZ_500),
+            $this->frameworks->forDateForSuppliers($supplierIds, $date),
+        );
+    }
+
     /** @return list<array{id:int,effective_from:string,accounting_framework:string,created_at:string,created_by:?int}> */
     public function history(int $supplierId): array
     {

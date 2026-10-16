@@ -34583,6 +34583,11 @@ components:
           type: string
           enum: [tax_evidence, double_entry]
           description: "Režim účetnictví firmy (Epic F0): daňová evidence vs podvojné účetnictví"
+        accounting_framework:
+          type: string
+          enum: [cz_500, cz_504]
+          readOnly: true
+          description: "Účetní rámec účinný k dnešnímu dni. Doplňuje přehled firem v session endpointu /api/auth/me po načtení cachovaného seznamu; neodvozuje se z ruční vyhlášky."
 
     UserSupplierAssignment:
       type: object

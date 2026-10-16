@@ -19,6 +19,7 @@ final class AccountingFrameworkSsotGuardTest extends TestCase
     private const ALLOWED_SYMBOLS = [
         'Repository/AccountingFrameworkRepository.php' => [
             'forDate',
+            'forDateForSuppliers',
             'listForTenant',
             'forDateForUpdate',
             'nextChangeForUpdate',

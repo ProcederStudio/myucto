@@ -27,6 +27,27 @@ final class AccountingFrameworkRepository
         return is_string($framework) && $framework !== '' ? $framework : null;
     }
 
+    /** @param list<int> $supplierIds @return array<int,string> */
+    public function forDateForSuppliers(array $supplierIds, string $date): array
+    {
+        if ($supplierIds === []) return [];
+        $marks = implode(',', array_fill(0, count($supplierIds), '?'));
+        $stmt = $this->db->pdo()->prepare(
+            "SELECT supplier_id, accounting_framework FROM (
+                SELECT supplier_id, accounting_framework,
+                       ROW_NUMBER() OVER (PARTITION BY supplier_id ORDER BY effective_from DESC, id DESC) AS position
+                  FROM supplier_accounting_frameworks
+                 WHERE supplier_id IN ({$marks}) AND effective_from <= ?
+            ) ranked WHERE position = 1"
+        );
+        $stmt->execute([...$supplierIds, $date]);
+        $frameworks = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $frameworks[(int) $row['supplier_id']] = (string) $row['accounting_framework'];
+        }
+        return $frameworks;
+    }
+
     /** @return list<array{id:int,supplier_id:int,effective_from:string,accounting_framework:string,created_at:string,created_by:?int}> */
     public function listForTenant(int $supplierId): array
     {

@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace MyInvoice\Action\Auth;
 
 use MyInvoice\Http\Json;
+use MyInvoice\Repository\AccountingFrameworkRepository;
+use MyInvoice\Service\Accounting\AccountingFrameworkService;
 use MyInvoice\Infrastructure\Config\Config;
 use MyInvoice\Infrastructure\Cache\EntityCache;
 use MyInvoice\Infrastructure\Database\Connection;
@@ -118,8 +120,11 @@ final class MeAction
             ));
         }
 
+        $frameworks = new AccountingFrameworkService($this->db, new AccountingFrameworkRepository($this->db));
+        $effectiveFrameworks = $frameworks->forDateForSuppliers(array_map(static fn (array $supplier): int => (int) $supplier['id'], $suppliers), date('Y-m-d'));
         foreach ($suppliers as &$s) {
             $s['id']                       = (int) $s['id'];
+            $s['accounting_framework']     = $effectiveFrameworks[$s['id']];
             $s['is_vat_payer']             = (bool) $s['is_vat_payer'];
             // Identifikace firmy pro hlavičku dashboardu. `??` drží kompatibilitu
             // se záznamy, které mohou ještě viset v entity cache z doby před

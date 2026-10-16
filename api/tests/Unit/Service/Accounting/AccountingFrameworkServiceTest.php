@@ -88,4 +88,22 @@ final class AccountingFrameworkServiceTest extends TestCase
             self::assertSame('invalid_accounting_framework_date', $e->errorCode);
         }
     }
+
+    public function testBatchExplicitlyFallsBackForMissingRequestedHistory(): void
+    {
+        $repository = $this->createMock(AccountingFrameworkRepository::class);
+        $repository->expects(self::once())->method('forDateForSuppliers')->with([11, 22], '2098-01-01')->willReturn([11 => 'cz_504']);
+        $service = new AccountingFrameworkService($this->createStub(Connection::class), $repository);
+        self::assertSame([11 => 'cz_504', 22 => 'cz_500'], $service->forDateForSuppliers([11, 22, 11, 0], '2098-01-01'));
+    }
+
+    public function testBatchValidatesDateBeforeReadingHistory(): void
+    {
+        $repository = $this->createMock(AccountingFrameworkRepository::class);
+        $repository->expects(self::never())->method('forDateForSuppliers');
+        $service = new AccountingFrameworkService($this->createStub(Connection::class), $repository);
+        $this->expectException(AccountingFrameworkException::class);
+        $service->forDateForSuppliers([11], '2098-02-30');
+    }
+
 }

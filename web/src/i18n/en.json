@@ -16104,6 +16104,22 @@
     "accounts": {
       "title": "Chart of accounts",
       "subtitle": "Company chart of accounts — synthetic accounts and custom analytics.",
+      "subtitle_504": "Nonprofit chart of accounts under Decree 504/2002 - synthetic accounts and custom analytical accounts.",
+      "class_504": {
+        "0": "Class 0 - Fixed assets",
+        "1": "Class 1 - Inventories",
+        "2": "Class 2 - Financial accounts",
+        "3": "Class 3 - Settlement accounts",
+        "4": "Class 4 - Unassigned account class",
+        "5": "Class 5 - Expenses",
+        "6": "Class 6 - Revenues",
+        "7": "Class 7 - Unassigned account class",
+        "8": "Class 8 - Unassigned account class",
+        "9": "Class 9 - Equity, funds, profit or loss, provisions, long-term loans and liabilities, closing and off-balance-sheet accounts",
+        "offbalance": "Off-balance-sheet accounts",
+        "closing": "Closing accounts",
+        "other": "Other"
+      },
       "empty": "The chart of accounts is empty.",
       "new": "New analytic account",
       "new_title": "New analytic account",

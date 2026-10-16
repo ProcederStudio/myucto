@@ -2,10 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import type { AccountingFrameworkState } from '@/api/settings'
 
-const m = vi.hoisted(() => ({ save: vi.fn(), blockDemoMutation: vi.fn() }))
+const m = vi.hoisted(() => ({ save: vi.fn(), refresh: vi.fn(), blockDemoMutation: vi.fn() }))
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ refresh: m.refresh }) }))
 vi.mock('@/api/settings', () => ({ settingsApi: { updateAccountingFramework: m.save } }))
 vi.mock('@/composables/useDemoMode', () => ({ useDemoMode: () => ({ blockDemoMutation: m.blockDemoMutation }) }))
-vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
+vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key, locale: { value: 'cs' } }) }))
 vi.mock('@/composables/useFormat', () => ({ formatDate: (date: string) => date }))
 
 import AccountingFrameworkSettings from '../AccountingFrameworkSettings.vue'
@@ -21,10 +22,10 @@ const state: AccountingFrameworkState = {
   }],
 }
 
-function render(canChange = true) {
+function render(canChange = true, realDateInput = false) {
   return mount(AccountingFrameworkSettings, {
     props: { supplier: structuredClone(state), canChange },
-    global: { stubs: { DateInput: {
+    global: { stubs: realDateInput ? {} : { DateInput: {
       props: ['modelValue', 'disabled'],
       emits: ['update:modelValue'],
       template: '<input type="date" :value="modelValue" :disabled="disabled" @input="$emit(\'update:modelValue\', $event.target.value)" />',
@@ -35,6 +36,7 @@ function render(canChange = true) {
 beforeEach(() => {
   vi.clearAllMocks()
   m.blockDemoMutation.mockReturnValue(false)
+  m.refresh.mockResolvedValue(true)
   m.save.mockResolvedValue(structuredClone(state))
 })
 
@@ -53,6 +55,7 @@ describe('AccountingFrameworkSettings', () => {
     await wrapper.get('[data-test="save-framework"]').trigger('click')
     await flushPromises()
     expect(m.save).toHaveBeenCalledExactlyOnceWith(42, 'cz_500', '2027-07-01')
+    expect(m.refresh).toHaveBeenCalledOnce()
     expect(wrapper.emitted('updated')).toEqual([[state]])
   })
 
@@ -91,4 +94,23 @@ describe('AccountingFrameworkSettings', () => {
     await wrapper.get('[data-test="save-framework"]').trigger('click')
     expect(m.save).not.toHaveBeenCalled()
   })
+
+  it('passes the standard field size and styling to the actual DateInput text input', async () => {
+    const wrapper = render(true, true)
+    const input = wrapper.get('input[type="text"]')
+    const select = wrapper.get('select')
+    for (const token of ['w-full', 'h-9', 'px-3', 'border', 'border-neutral-300', 'rounded-md', 'bg-surface', 'text-sm']) {
+      expect(input.classes()).toContain(token)
+      expect(select.classes()).toContain(token)
+    }
+    expect(select.classes()).toContain('focus:ring-2')
+    expect(select.classes()).toContain('focus:border-primary-500')
+    expect(input.classes()).toContain('focus:ring-2')
+    expect(input.classes()).toContain('focus:border-primary-500')
+    expect(wrapper.get('[data-test="save-framework"]').element.parentElement?.classList.contains('flex-wrap')).toBe(true)
+    await wrapper.setProps({ canChange: false })
+    expect(input.attributes('disabled')).toBeDefined()
+    expect(select.attributes('disabled')).toBeDefined()
+  })
+
 })
