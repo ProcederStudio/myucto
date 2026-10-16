@@ -14,6 +14,7 @@ use MyInvoice\Repository\PostingRuleRepository;
 use MyInvoice\Repository\TaxAdvanceScheduleRepository;
 use MyInvoice\Service\Accounting\AdvanceSettlementSync;
 use MyInvoice\Service\Accounting\AutoPostingPolicyService;
+use MyInvoice\Service\Accounting\ForeignCurrencyAccountPolicy;
 use MyInvoice\Service\Accounting\JournalLineAmount;
 use MyInvoice\Service\Accounting\OperationType;
 use MyInvoice\Service\Accounting\PolicyInput;
@@ -3784,20 +3785,10 @@ final class BankPostingService
     }
 
     /**
-     * Cizoměnové pravidlo smí na protistranu účtovat:
-     *   a) výsledkový účet 5xx/6xx — náklad/výnos se spotřebuje kurzem dne a už se nikdy
-     *      nepřeceňuje, takže cizoměnová pozice nikde nezůstane viset;
-     *   b) 221* — vlastní bankovní účet/analytiku.
-     *
-     * Smysl guardu je „nenech cizoměnovou pozici na účtu, který nikdo nepřeceňuje". Účty 221*
-     * jsou ale právě ty, které uzávěrka přeceňuje (FxRevaluationService bere bankovní zůstatky
-     * jako {account_code, currency_code, foreign_balance}), takže pozice na nich viset nezůstane.
-     *
-     * Případ b) je převod mezi vlastními cizoměnovými účty (běžný účet → termínovaný vklad):
-     * obě nohy nesou stopu téhož kurzu dne, zápis je v CZK triviálně vyrovnaný a kurzový rozdíl
-     * nevzniká — jen se přesune, co se přeceňuje. Bez téhle větve nešel EUR termínovaný vklad
-     * zaúčtovat pravidlem vůbec, přestože CZK varianta téhož pravidla (221100/221) existuje
-     * a je v pořádku — guard tedy blokoval už posvěcený vzorec jen kvůli měně.
+     * Protistrana cizoměnového pravidla podle {@see ForeignCurrencyAccountPolicy} — stejné
+     * pravidlo jako při uložení pravidla, aby engine neodmítl pravidlo, které UI pustilo.
+     * Obě nohy zápisu nesou FX stopu (měna, kurz dne, cizí částka), takže cizoměnový
+     * zůstatek 378/379 jde k rozvahovému dni přecenit z deníku.
      *
      * Saldokonta (311/321/…) zůstávají zakázaná zvlášť přes SALDO_BLACKLIST — ta se párují,
      * ne účtují pravidlem.
@@ -3805,11 +3796,11 @@ final class BankPostingService
     private function assertFxResultAccounts(float $amount, string $debit, string $credit): void
     {
         $counter = $amount > 0 ? $credit : $debit;
-        if (str_starts_with($counter, '221')) {
-            return;
-        }
-        if (!in_array(substr($counter, 0, 1), ['5', '6'], true)) {
-            throw new PostingException('rule_account_forbidden', 'Cizoměnové pravidlo smí účtovat jen výsledkový účet nebo vlastní účet 221.');
+        if (!ForeignCurrencyAccountPolicy::allowsRuleCounterAccount($counter)) {
+            throw new PostingException(
+                'rule_account_forbidden',
+                'Cizoměnové pravidlo smí účtovat jen výsledkový účet, vlastní účet 221 nebo jiné pohledávky a závazky 378/379.',
+            );
         }
     }
 

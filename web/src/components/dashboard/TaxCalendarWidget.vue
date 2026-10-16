@@ -8,9 +8,9 @@ import { ref, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { crmApi, type TaxCalendarItem } from '@/api/crm'
-import { formatMoney } from '@/composables/useFormat'
+import { formatDate, formatMoney } from '@/composables/useFormat'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const items = ref<TaxCalendarItem[]>([])
 
 onMounted(async () => {
@@ -40,6 +40,26 @@ function statusClass(item: TaxCalendarItem): string {
   }
   return item.submitted ? 'bg-success-50 text-success-600' : 'bg-neutral-100 text-neutral-500'
 }
+
+function periodLabel(item: TaxCalendarItem): string | null {
+  if (!item.period) return null
+  const { year, month, quarter } = item.period
+  if (month !== null) {
+    const monthName = new Intl.DateTimeFormat(locale.value === 'en' ? 'en-US' : 'cs-CZ', {
+      month: 'long',
+      timeZone: 'UTC',
+    }).format(new Date(Date.UTC(year, month - 1, 1)))
+    return t('crm.tax_calendar.period_month', { month: monthName, year })
+  }
+  if (quarter !== null) return t('crm.tax_calendar.period_quarter', { quarter, year })
+  return t('crm.tax_calendar.period_year', { year })
+}
+
+function deadlineLabel(item: TaxCalendarItem): string {
+  if (item.type === 'tax_advance') return t('crm.tax_calendar.due_date')
+  if (item.type === 'vat_registration_deadline') return t('crm.tax_calendar.deadline')
+  return t('crm.tax_calendar.filing_deadline')
+}
 </script>
 
 <template>
@@ -53,9 +73,12 @@ function statusClass(item: TaxCalendarItem): string {
       <li v-for="(item, idx) in items" :key="idx" class="px-5 py-3">
         <RouterLink :to="item.link" class="flex items-center justify-between gap-3">
           <div class="min-w-0">
-            <div class="text-sm font-medium text-neutral-700">{{ item.title }}</div>
+            <div class="flex flex-wrap items-baseline gap-x-1 text-sm font-medium text-neutral-700">
+              <span>{{ item.title }}</span>
+              <span v-if="periodLabel(item)" class="text-neutral-500">· {{ periodLabel(item) }}</span>
+            </div>
             <div class="text-xs mt-0.5" :class="daysClass(item.days)">
-              {{ item.deadline }}
+              {{ deadlineLabel(item) }}: {{ formatDate(item.deadline) }}
               <span v-if="item.amount !== undefined" class="ml-1 text-neutral-500">· {{ formatMoney(item.amount, 'CZK') }}</span>
             </div>
             <div v-if="item.payment && item.payment.payable > 0" class="text-xs mt-0.5 text-neutral-600">

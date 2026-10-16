@@ -319,6 +319,70 @@ final class PayrollDeductionAgreementLifecycleTest extends TestCase
         );
     }
 
+    /**
+     * Firma začíná vést mzdy v průběhu trvání dohody: část limitu už srazil předchozí
+     * program. Ta čerpá limit vedle ledgeru vlastních běhů, jinak by MyÚčto srazilo
+     * celý limit znovu.
+     */
+    public function testWithheldByPreviousProgramConsumesAgreementLimit(): void
+    {
+        $agreement = $this->repository->create(
+            $this->supplierId,
+            $this->employeeId,
+            DeductionAgreementTerms::fromRequest([
+                'title' => 'Záloha',
+                'deduction_kind' => 'advance',
+                'priority_no' => 100,
+                'requested_minor' => 30_000,
+                'total_limit_minor' => 100_000,
+                'taken_over_withheld_minor' => 60_000,
+                'valid_from' => '2026-06-01',
+            ]),
+            DeductionAgreementStatus::Active,
+            null,
+        );
+        $agreementId = (int) $agreement['id'];
+        self::assertSame(60_000, $agreement['taken_over_withheld_minor']);
+        self::assertSame(40_000, $agreement['remaining_limit_minor']);
+
+        // Úprava bez údaje ponechá převzatou částku.
+        $updated = $this->repository->update(
+            $this->supplierId,
+            $agreementId,
+            DeductionAgreementTerms::fromRequest([
+                'agreement_reference' => $agreement['agreement_reference'],
+                'title' => 'Záloha na cestu',
+                'deduction_kind' => 'advance',
+                'priority_no' => 100,
+                'requested_minor' => 30_000,
+                'total_limit_minor' => 100_000,
+                'valid_from' => '2026-06-01',
+            ]),
+            (int) $agreement['row_version'],
+            null,
+            null,
+            null,
+        );
+        self::assertSame(40_000, $updated['remaining_limit_minor']);
+
+        $revisionId = $this->approveRevision([
+            $this->personFixture($this->employeeId, 'Synteticka Osoba A', $updated, 30_000, 7),
+        ]);
+        $this->expectException(\DomainException::class);
+        $this->net->appendLedgerMovement(
+            $this->supplierId,
+            $agreementId,
+            $revisionId,
+            $this->employeeId,
+            'withheld',
+            50_000,
+            "test-taken-over:{$revisionId}:{$agreementId}",
+            null,
+            ['source' => 'test'],
+            null,
+        );
+    }
+
     public function testStaleRowVersionIsRejectedInsteadOfLastWriteWins(): void
     {
         $agreement = $this->createAgreement('Příspěvek', 10_000);

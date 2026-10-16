@@ -7,9 +7,12 @@ namespace MyInvoice\Tests\Integration;
 use MyInvoice\Bootstrap;
 use MyInvoice\Infrastructure\Cache\RedisFactory;
 use MyInvoice\Infrastructure\Config\Config;
+use MyInvoice\Infrastructure\Config\RuntimePaths;
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Repository\SigningProfileRepository;
 use MyInvoice\Service\Auth\DatabaseSecurityClock;
 use MyInvoice\Service\Auth\SessionManager;
+use MyInvoice\Service\Mail\Mailer;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
@@ -36,6 +39,12 @@ final class RbacHttpRoleMatrixTest extends TestCase
     private array $emailProfileIds = [];
     /** @var list<string> */
     private array $sessionTokens = [];
+    /** @var list<int> */
+    private array $signingProfileIds = [];
+    /** @var list<int> */
+    private array $supplierIds = [];
+    private ?array $originalSigningOutputs = null;
+    private array $templateBackups = [];
 
     protected function setUp(): void
     {
@@ -58,12 +67,41 @@ final class RbacHttpRoleMatrixTest extends TestCase
     {
         if (!isset($this->db)) return;
         $pdo = $this->db->pdo();
+        foreach ($this->templateBackups as [$table, $keys, $row]) {
+            $where = implode(' AND ', array_map(static fn ($key) => "$key = ?", array_keys($keys)));
+            $pdo->prepare("DELETE FROM $table WHERE $where")->execute(array_values($keys));
+            if ($row !== false) {
+                $columns = implode(',', array_keys($row));
+                $values = implode(',', array_fill(0, count($row), '?'));
+                $pdo->prepare("INSERT INTO $table ($columns) VALUES ($values)")->execute(array_values($row));
+            }
+        }
         foreach ($this->sessionTokens as $token) {
             try { $this->sessions->destroy($token); } catch (\Throwable) {}
         }
         if ($this->emailProfileIds !== []) {
             $placeholders = implode(',', array_fill(0, count($this->emailProfileIds), '?'));
             $pdo->prepare("DELETE FROM email_profiles WHERE id IN ({$placeholders})")->execute($this->emailProfileIds);
+        }
+        if ($this->originalSigningOutputs !== null) {
+            $pdo->prepare('DELETE FROM pdf_signature_output_settings WHERE supplier_id = ?')
+                ->execute([$this->supplierId]);
+            foreach ($this->originalSigningOutputs as $row) {
+                $columns = implode(',', array_map(static fn (string $key): string => '`' . $key . '`', array_keys($row)));
+                $values = implode(',', array_fill(0, count($row), '?'));
+                $pdo->prepare("INSERT INTO pdf_signature_output_settings ({$columns}) VALUES ({$values})")->execute(array_values($row));
+            }
+        }
+        foreach ($this->signingProfileIds as $id) {
+            $statement = $pdo->prepare('SELECT supplier_id FROM signing_profiles WHERE id = ?');
+            $statement->execute([$id]);
+            $supplierId = (int) $statement->fetchColumn();
+            $path = RuntimePaths::storage("signing/profiles/supplier-{$supplierId}/profile-{$id}/profile.p12");
+            if (is_file($path)) unlink($path);
+            $pdo->prepare('DELETE FROM signing_profiles WHERE id = ?')->execute([$id]);
+        }
+        foreach ($this->supplierIds as $id) {
+            $pdo->prepare('DELETE FROM supplier WHERE id = ?')->execute([$id]);
         }
         if ($this->clientIds !== []) {
             $placeholders = implode(',', array_fill(0, count($this->clientIds), '?'));
@@ -179,7 +217,7 @@ final class RbacHttpRoleMatrixTest extends TestCase
         $this->emailProfileIds[] = $profileId;
         self::assertArrayNotHasKey('smtp_password', $createdBody);
         self::assertArrayNotHasKey('imap_password', $createdBody);
-        self::assertArrayNotHasKey('signing_profile_id', $createdBody);
+        self::assertNull($createdBody['signing_profile_id'] ?? null);
         self::assertTrue($createdBody['client_manageable'] ?? false);
 
         $audit = $this->db->pdo()->prepare(
@@ -266,6 +304,223 @@ final class RbacHttpRoleMatrixTest extends TestCase
                 $this->supplierId,
             ]);
         }
+    }
+
+    public function testClientAdministratorManagesCompanySigningAndEmailLinkWithoutStaffAccess(): void
+    {
+        $reader = $this->createSession($this->createUser('signing_reader', 'client', 1, true));
+        self::assertSame(403, $this->request('GET', '/api/settings/client/signing/profiles', $reader)->getStatusCode());
+        $userId = $this->createUser('signing_admin', 'client', 2, true);
+        $session = $this->createSession($userId);
+        $created = $this->request('POST', '/api/settings/client/signing/profiles', $session, [
+            'name' => '__TEST company signing', 'code' => 'client-signing-' . bin2hex(random_bytes(5)),
+            'allowed_usages' => ['pdf', 'email_smime'], 'default_backend' => 'native', 'owner_user_id' => null,
+        ]);
+        self::assertSame(201, $created->getStatusCode(), (string) $created->getBody());
+        $profile = $this->json($created);
+        $id = (int) $profile['id'];
+        $this->signingProfileIds[] = $id;
+        self::assertNull($profile['owner_user_id']);
+
+        $updated = $this->request('PUT', "/api/settings/client/signing/profiles/{$id}", $session, ['name' => '__TEST updated signing']);
+        self::assertSame(200, $updated->getStatusCode(), (string) $updated->getBody());
+        self::assertSame('__TEST updated signing', $this->json($updated)['name']);
+        $list = $this->json($this->request('GET', '/api/settings/client/signing/profiles', $session));
+        self::assertContains($id, array_column($list, 'id'));
+
+        $email = $this->request('POST', '/api/settings/client/email-profiles', $session, [
+            'name' => '__TEST signed company email', 'code' => 'client-smime-' . bin2hex(random_bytes(5)),
+            'from_email' => 'signing@example.test', 'transport_type' => 'global',
+            'signing_profile_id' => $id, 'is_default' => false,
+        ]);
+        self::assertSame(201, $email->getStatusCode(), (string) $email->getBody());
+        $emailId = (int) $this->json($email)['id'];
+        $this->emailProfileIds[] = $emailId;
+        self::assertSame($id, $this->json($email)['signing_profile_id']);
+        self::assertTrue($this->json($email)['client_manageable']);
+        self::assertSame(200, $this->request('PUT', "/api/settings/client/email-profiles/{$emailId}", $session, ['name' => '__TEST changed signed email'])->getStatusCode());
+        self::assertSame(409, $this->request('DELETE', "/api/settings/client/signing/profiles/{$id}", $session)->getStatusCode());
+        foreach ([['is_active' => false], ['allowed_usages' => ['pdf']]] as $change) {
+            self::assertSame(200, $this->request('PUT', "/api/settings/client/signing/profiles/{$id}", $session, $change)->getStatusCode());
+            $detached = $this->request('PUT', "/api/settings/client/email-profiles/{$emailId}", $session, ['signing_profile_id' => null]);
+            self::assertSame(200, $detached->getStatusCode(), (string) $detached->getBody());
+            self::assertSame(403, $this->request('PUT', "/api/settings/client/email-profiles/{$emailId}", $session, ['signing_profile_id' => $id])->getStatusCode());
+            self::assertSame(200, $this->request('PUT', "/api/settings/client/signing/profiles/{$id}", $session, ['is_active' => true, 'allowed_usages' => ['pdf', 'email_smime']])->getStatusCode());
+            self::assertSame(200, $this->request('PUT', "/api/settings/client/email-profiles/{$emailId}", $session, ['signing_profile_id' => $id])->getStatusCode());
+        }
+
+        foreach (['/api/settings/signing/profiles', '/api/settings/certificates', '/api/settings/pdf-signing/diagnostics'] as $path) {
+            self::assertSame(403, $this->request('GET', $path, $session)->getStatusCode(), $path);
+        }
+        self::assertSame(403, $this->request('PUT', '/api/settings/signing', $session, ['accountant_profiles_enabled' => true])->getStatusCode());
+        self::assertSame(200, $this->request('DELETE', "/api/settings/client/email-profiles/{$emailId}", $session)->getStatusCode());
+        self::assertSame(200, $this->request('DELETE', "/api/settings/client/signing/profiles/{$id}", $session)->getStatusCode());
+        self::assertSame(404, $this->request('GET', "/api/settings/client/signing/profiles/{$id}", $session)->getStatusCode());
+    }
+
+    public function testClientSigningRejectsPersonalProtectedAndForeignProfilesAndUnsafeFields(): void
+    {
+        $userId = $this->createUser('signing_isolation', 'client', 2, true);
+        $session = $this->createSession($userId);
+        $foreign = $this->db->pdo()->prepare(
+            "INSERT INTO supplier (company_name, street, city, zip, country_id, email, default_currency_id, default_vat_rate_id)
+             SELECT '__TEST isolated signing supplier', street, city, zip, country_id, email, default_currency_id, default_vat_rate_id
+             FROM supplier WHERE id = ?"
+        );
+        $foreign->execute([$this->supplierId]);
+        $foreignId = (int) $this->db->pdo()->lastInsertId();
+        $this->supplierIds[] = $foreignId;
+        $protected = [
+            $this->createSigningProfile($this->supplierId, $userId),
+            $this->createSigningProfile($this->supplierId, null, 'java'),
+            $this->createSigningProfile($foreignId),
+        ];
+        $list = $this->json($this->request('GET', '/api/settings/client/signing/profiles', $session));
+        foreach ($protected as $id) {
+            self::assertNotContains($id, array_column($list, 'id'));
+            foreach (['GET', 'PUT', 'DELETE'] as $method) {
+                self::assertSame(404, $this->request($method, "/api/settings/client/signing/profiles/{$id}", $session, $method === 'PUT' ? ['name' => '__TEST forbidden'] : null)->getStatusCode());
+            }
+            foreach (['GET', 'POST', 'PUT', 'DELETE'] as $method) {
+                self::assertSame(404, $this->request($method, "/api/settings/client/signing/profiles/{$id}/credentials/certificate", $session, $method === 'PUT' ? ['password' => '__TEST'] : null)->getStatusCode());
+            }
+            $email = $this->request('POST', '/api/settings/client/email-profiles', $session, [
+                'name' => '__TEST forbidden identity', 'code' => 'blocked-' . bin2hex(random_bytes(5)),
+                'from_email' => 'signing@example.test', 'signing_profile_id' => $id,
+            ]);
+            self::assertSame(403, $email->getStatusCode());
+        }
+        foreach ([['owner_user_id' => $userId], ['default_backend' => 'java'], ['allowed_usages' => ['epo']], ['certificate_path' => '/tmp/private.p12']] as $fields) {
+            $response = $this->request('POST', '/api/settings/client/signing/profiles', $session,
+                $fields + ['name' => '__TEST forbidden fields', 'code' => 'blocked-' . bin2hex(random_bytes(5))]);
+            self::assertSame(403, $response->getStatusCode());
+        }
+    }
+
+    public function testClientSigningUploadsEncryptedCertificateAndConfiguresPdfAtomically(): void
+    {
+        $userId = $this->createUser('signing_certificate', 'client', 2, true);
+        $session = $this->createSession($userId);
+        $id = $this->createSigningProfile($this->supplierId);
+        $path = "/api/settings/client/signing/profiles/{$id}/credentials/certificate";
+        self::assertSame(403, $this->request('PUT', $path, $session, ['passphrase_policy' => 'passphrase_file', 'passphrase_profile_id' => 'private'])->getStatusCode());
+        $password = '__TEST_PFX_' . bin2hex(random_bytes(8));
+        $key = openssl_pkey_new(['private_key_bits' => 2048]);
+        self::assertNotFalse($key);
+        $csr = openssl_csr_new(['commonName' => 'Synthetic company', 'emailAddress' => 'signing@example.test'], $key);
+        self::assertNotFalse($csr);
+        $certificate = openssl_csr_sign($csr, null, $key, 2);
+        self::assertNotFalse($certificate);
+        self::assertTrue(openssl_pkcs12_export($certificate, $pfx, $key, $password));
+        $upload = new \Slim\Psr7\UploadedFile((new StreamFactory())->createStream($pfx), 'synthetic.pfx', 'application/x-pkcs12', strlen($pfx));
+        $uploaded = $this->request('POST', $path, $session, ['password' => $password, 'passphrase_policy' => 'encrypted_store'], ['file' => $upload]);
+        self::assertSame(201, $uploaded->getStatusCode(), (string) $uploaded->getBody());
+        self::assertStringNotContainsString($password, (string) $uploaded->getBody());
+        $credential = $this->db->pdo()->prepare('SELECT encrypted_passphrase, passphrase_policy FROM signing_credentials WHERE profile_id = ?');
+        $credential->execute([$id]);
+        $stored = $credential->fetch(\PDO::FETCH_ASSOC);
+        self::assertSame('encrypted_store', $stored['passphrase_policy']);
+        self::assertNotSame($password, $stored['encrypted_passphrase']);
+        self::assertNotEmpty($stored['encrypted_passphrase']);
+
+        $outputs = $this->db->pdo()->prepare('SELECT * FROM pdf_signature_output_settings WHERE supplier_id = ?');
+        $outputs->execute([$this->supplierId]);
+        $this->originalSigningOutputs = $outputs->fetchAll(\PDO::FETCH_ASSOC);
+        $data = ['enabled' => true, 'backend' => 'native', 'selection_source' => 'admin_profile_settings', 'default_profile_id' => $id, 'failure_policy' => 'fail_closed'];
+        $saved = $this->request('PUT', '/api/settings/client/pdf-signing/output-settings', $session, ['settings' => [
+            ['output_type' => 'invoice'] + $data, ['output_type' => 'work_report'] + $data,
+        ]]);
+        self::assertSame(200, $saved->getStatusCode(), (string) $saved->getBody());
+        self::assertCount(2, $this->json($saved)['output_settings']);
+        $test = $this->request('POST', '/api/settings/client/pdf-signing/test', $session, ['output_type' => 'invoice']);
+        self::assertSame(200, $test->getStatusCode(), (string) $test->getBody());
+        self::assertSame('signed', $this->json($test)['status'] ?? null, (string) $test->getBody());
+        self::assertSame('Synthetic company', $this->json($test)['certificate_cn'] ?? null);
+
+        $profiles = new SigningProfileRepository($this->db);
+        $profiles->upsertOutputSetting($this->supplierId, 'email_invoice_send', [
+            'backend' => 'smime', 'default_profile_id' => $id,
+            'signature_config' => ['smime_identity_policy' => 'strict_match'],
+        ], 'email_smime');
+        $emailPath = '/api/settings/client/pdf-signing/output-settings/email_invoice_send';
+        $mismatch = $this->request('PUT', $emailPath, $session, ['output_type' => 'invoice', 'enabled' => true]);
+        self::assertSame(403, $mismatch->getStatusCode());
+        self::assertSame(['smime_identity_policy' => 'strict_match'], $profiles->outputSetting($this->supplierId, 'email_invoice_send', 'email_smime')['signature_config']);
+        $roundtrip = $this->request('PUT', $emailPath, $session, ['enabled' => true, 'default_profile_id' => $id]);
+        self::assertSame(200, $roundtrip->getStatusCode(), (string) $roundtrip->getBody());
+        self::assertSame(['smime_identity_policy' => 'strict_match'], $this->json($roundtrip)['signature_config']);
+        $before = $this->json($this->request('GET', '/api/settings/client/pdf-signing', $session));
+        $invalidBatch = $this->request('PUT', '/api/settings/client/pdf-signing/output-settings', $session, ['settings' => [
+            ['output_type' => 'invoice', 'enabled' => false, 'default_profile_id' => $id],
+            ['output_type' => 'work_report', 'default_profile_id' => 2147483647],
+        ]]);
+        self::assertSame(403, $invalidBatch->getStatusCode());
+        self::assertSame($before, $this->json($this->request('GET', '/api/settings/client/pdf-signing', $session)));
+        foreach ([
+            ['/api/settings/client/pdf-signing/output-settings', ['settings' => []], 400],
+            ['/api/settings/client/pdf-signing/output-settings', ['settings' => [null]], 400],
+            ['/api/settings/client/pdf-signing/output-settings', ['settings' => [['output_type' => 'unknown']]], 404],
+            ['/api/settings/client/pdf-signing/output-settings/unknown', [], 404],
+            ['/api/settings/client/pdf-signing/output-settings', ['settings' => [
+                ['output_type' => 'invoice'] + $data, ['output_type' => 'invoice'] + $data,
+            ]], 400],
+        ] as [$settingsPath, $settingsBody, $status]) {
+            self::assertSame($status, $this->request('PUT', $settingsPath, $session, $settingsBody)->getStatusCode());
+        }
+        self::assertSame($before, $this->json($this->request('GET', '/api/settings/client/pdf-signing', $session)));
+        $inUse = $this->request('DELETE', "/api/settings/client/signing/profiles/{$id}", $session);
+        self::assertSame(409, $inUse->getStatusCode(), (string) $inUse->getBody());
+        self::assertSame(200, $this->request('GET', "/api/settings/client/signing/profiles/{$id}", $session)->getStatusCode());
+        self::assertSame(200, $this->request('DELETE', $path, $session)->getStatusCode());
+        self::assertFileDoesNotExist(RuntimePaths::storage("signing/profiles/supplier-{$this->supplierId}/profile-{$id}/profile.p12"));
+    }
+
+    public function testClientEmailTestCannotInvokeProtectedGlobalSigningFallback(): void
+    {
+        $session = $this->createSession($this->createUser('email_signing_fallback', 'client', 2, true));
+        $this->app = Bootstrap::buildApp();
+        $mailer = $this->createMock(Mailer::class);
+        $mailer->expects(self::never())->method('sendTemplateDetailed');
+        $this->app->getContainer()->set(Mailer::class, $mailer);
+        $outputs = $this->db->pdo()->prepare('SELECT * FROM pdf_signature_output_settings WHERE supplier_id = ?');
+        $outputs->execute([$this->supplierId]);
+        $this->originalSigningOutputs = $outputs->fetchAll(\PDO::FETCH_ASSOC);
+        $protectedId = $this->createSigningProfile($this->supplierId, null, 'java');
+        $profiles = new SigningProfileRepository($this->db);
+        $profiles->upsertOutputSetting($this->supplierId, 'email_invoice_send', [
+            'enabled' => true, 'default_profile_id' => $protectedId, 'backend' => 'smime',
+        ], 'email_smime');
+        $created = $this->request('POST', '/api/settings/client/email-profiles', $session, [
+            'name' => '__TEST plain email', 'code' => 'fallback-' . bin2hex(random_bytes(5)),
+            'from_email' => 'signing@example.test', 'transport_type' => 'global', 'is_default' => false,
+        ]);
+        self::assertSame(201, $created->getStatusCode(), (string) $created->getBody());
+        $id = (int) $this->json($created)['id'];
+        $this->emailProfileIds[] = $id;
+        foreach ([
+            ["/api/settings/client/email-profiles/{$id}/test", []],
+            ['/api/settings/client/email-profiles/test', ['id' => $id, 'profile' => ['name' => '__TEST draft']]],
+        ] as [$path, $body]) {
+            $tested = $this->request('POST', $path, $session, $body);
+            self::assertSame(403, $tested->getStatusCode(), (string) $tested->getBody());
+            self::assertSame('profile_not_delegable', $this->json($tested)['error']['code'] ?? null);
+        }
+        $profiles->upsertOutputSetting($this->supplierId, 'email_invoice_send', [
+            'enabled' => true, 'selection_source' => 'logged_in_user', 'backend' => 'smime',
+        ], 'email_smime');
+        self::assertSame(403, $this->request('POST', "/api/settings/client/email-profiles/{$id}/test", $session, [])->getStatusCode());
+    }
+
+    private function createSigningProfile(int $supplierId, ?int $ownerUserId = null, string $backend = 'native'): int
+    {
+        $insert = $this->db->pdo()->prepare(
+            'INSERT INTO signing_profiles (supplier_id, owner_user_id, name, code, allowed_usages_json, default_backend, is_active)
+             VALUES (?, ?, ?, ?, ?, ?, 1)'
+        );
+        $insert->execute([$supplierId, $ownerUserId, '__TEST company signing', 'test-' . bin2hex(random_bytes(5)), '["pdf","email_smime"]', $backend]);
+        $id = (int) $this->db->pdo()->lastInsertId();
+        $this->signingProfileIds[] = $id;
+        return $id;
     }
 
     public function testStaffMayUpdatePaymentQrSettingsThroughSupplierSettings(): void
@@ -402,7 +657,17 @@ final class RbacHttpRoleMatrixTest extends TestCase
         $userId = $this->createUser('client_default_takeover', 'client', 2, true);
         $session = $this->createSession($userId);
 
-        $this->createStaffOnlyDefaultProfile();
+        $protectedId = $this->createStaffOnlyDefaultProfile();
+        $this->app = Bootstrap::buildApp();
+        $mailer = $this->createMock(Mailer::class);
+        $mailer->expects(self::never())->method('sendTemplateDetailed');
+        $this->app->getContainer()->set(Mailer::class, $mailer);
+        $draft = $this->request('POST', '/api/settings/client/email-profiles/test', $session, [
+            'id' => $protectedId,
+            'profile' => ['signing_profile_id' => null, 'transport_type' => 'global'],
+        ]);
+        self::assertSame(403, $draft->getStatusCode());
+        self::assertSame('profile_not_delegable', $this->json($draft)['error']['code'] ?? null);
 
         $takeover = $this->request('POST', '/api/settings/client/email-profiles', $session, [
             'name' => '__TEST client takeover',
@@ -455,7 +720,7 @@ final class RbacHttpRoleMatrixTest extends TestCase
             'code' => 'client-signing-' . bin2hex(random_bytes(5)),
             'from_email' => 'signing@example.test',
             'transport_type' => 'global',
-            'signing_profile_id' => 1,
+            'signing_profile_id' => 2147483647,
         ]);
         self::assertSame(403, $withValue->getStatusCode());
         self::assertSame('field_not_delegable', $this->json($withValue)['error']['code'] ?? null);
@@ -532,7 +797,7 @@ final class RbacHttpRoleMatrixTest extends TestCase
     private function createStaffOnlyDefaultProfile(): int
     {
         $pdo = $this->db->pdo();
-        $signing = $pdo->prepare('SELECT id FROM signing_profiles WHERE supplier_id = ? LIMIT 1');
+        $signing = $pdo->prepare("SELECT id FROM signing_profiles WHERE supplier_id = ? AND (owner_user_id IS NOT NULL OR default_backend <> 'native') LIMIT 1");
         $signing->execute([$this->supplierId]);
         $signingId = $signing->fetchColumn();
 
@@ -554,6 +819,100 @@ final class RbacHttpRoleMatrixTest extends TestCase
         $id = (int) $pdo->lastInsertId();
         $this->emailProfileIds[] = $id;
         return $id;
+    }
+
+    #[DataProvider('roleMatrix')]
+    public function testCompanyEmailTemplateOperationsUseEffectivePermissions(string $variant, string $roleType, int $level, bool $hasSupplier): void
+    {
+        $session = $this->createSession($this->createUser($variant, $roleType, $level, $hasSupplier));
+        $this->backupTemplate('supplier_email_templates', ['supplier_id' => $this->supplierId, 'code' => 'invoice_send', 'locale' => 'cs']);
+        $template = ['subject' => 'Synthetic {{ invoice.varsymbol }}', 'body_html' => '<p>Synthetic {{ invoice.varsymbol }}</p>', 'body_text' => 'Synthetic {{ invoice.varsymbol }}'];
+        foreach (['/api/settings/email-templates', '/api/settings/client/email-templates'] as $prefix) {
+            $allowed = ($variant === 'superadmin') || ($hasSupplier && $level === 2 && ($roleType === 'staff' || str_contains($prefix, '/client/')));
+            foreach ([['GET', '', null], ['GET', '/invoice_send/cs', null], ['POST', '/invoice_send/cs/preview', $template], ['PUT', '/invoice_send/cs', $template], ['DELETE', '/invoice_send/cs', null]] as [$method, $suffix, $body]) {
+                $response = $this->request($method, $prefix . $suffix, $session, $body);
+                self::assertSame($allowed ? 200 : 403, $response->getStatusCode(), "$variant $method $prefix$suffix: " . $response->getBody());
+            }
+        }
+        if ($variant === 'superadmin' || ($hasSupplier && $level === 2)) {
+            $prefix = $roleType === 'client' ? '/api/settings/client/email-templates' : '/api/settings/email-templates';
+            foreach (['GET', 'PUT', 'DELETE', 'POST'] as $method) {
+                $suffix = $method === 'POST' ? '/preview' : '';
+                self::assertSame(404, $this->request($method, $prefix . '/password_reset/cs' . $suffix, $session, $template)->getStatusCode());
+            }
+        }
+    }
+
+    public function testCompanyEmailTemplateIsolationResetPreviewAndInvalidSave(): void
+    {
+        $suppliers = array_map('intval', $this->db->pdo()->query('SELECT id FROM supplier ORDER BY id LIMIT 2')->fetchAll(\PDO::FETCH_COLUMN));
+        self::assertCount(2, $suppliers, 'Integration fixtures must include two synthetic companies.');
+        [$supplierA, $supplierB] = $suppliers;
+        foreach ($suppliers as $sid) $this->backupTemplate('supplier_email_templates', ['supplier_id' => $sid, 'code' => 'invoice_send', 'locale' => 'cs']);
+        $this->backupTemplate('email_templates', ['code' => 'invoice_send', 'locale' => 'cs']);
+        $session = $this->createSession($this->createUser('superadmin', 'superadmin', 2, true));
+        $path = '/api/settings/email-templates/invoice_send/cs';
+        $a = ['subject' => 'Company A', 'body_html' => '<p>A {{ invoice.varsymbol }}</p>', 'body_text' => 'A {{ invoice.varsymbol }}'];
+        $b = array_replace($a, ['subject' => 'Company B']);
+        self::assertSame(200, $this->request('PUT', $path, $session, $a, supplierId: $supplierA)->getStatusCode());
+        self::assertSame(200, $this->request('PUT', $path, $session, $b, supplierId: $supplierB)->getStatusCode());
+        self::assertSame('Company A', $this->json($this->request('GET', $path, $session, null, supplierId: $supplierA))['subject']);
+        self::assertSame('Company B', $this->json($this->request('GET', $path, $session, null, supplierId: $supplierB))['subject']);
+        $invalid = array_replace($a, ['subject' => '{% include "_layout.html.twig" %}']);
+        self::assertSame(400, $this->request('PUT', $path, $session, $invalid, supplierId: $supplierA)->getStatusCode());
+        self::assertSame('Company A', $this->json($this->request('GET', $path, $session, null, supplierId: $supplierA))['subject']);
+        $preview = $this->json($this->request('POST', $path . '/preview', $session, array_replace($a, ['subject' => 'Unsaved preview']), supplierId: $supplierA));
+        self::assertSame('Unsaved preview', $preview['subject']);
+        self::assertStringContainsString('20260001', $preview['body_html']);
+        self::assertSame('Company A', $this->json($this->request('GET', $path, $session, null, supplierId: $supplierA))['subject']);
+        $global = new \MyInvoice\Repository\EmailTemplateRepository($this->db);
+        $global->save('invoice_send', 'cs', 'Global replacement', '<p>Shared</p>', 'Shared', null);
+        self::assertSame(200, $this->request('DELETE', $path, $session, null, supplierId: $supplierA)->getStatusCode());
+        $inherited = $this->json($this->request('GET', $path, $session, null, supplierId: $supplierA));
+        self::assertSame('global', $inherited['source']);
+        self::assertSame('Global replacement', $inherited['subject']);
+        self::assertFalse($inherited['has_override']);
+        self::assertSame('Company B', $this->json($this->request('GET', $path, $session, null, supplierId: $supplierB))['subject']);
+        self::assertSame('Global replacement', $global->find('invoice_send', 'cs')['subject']);
+        $audit = $this->db->pdo()->prepare("SELECT COUNT(*) FROM activity_log WHERE user_id = ? AND supplier_id = ? AND action IN ('supplier_email_template.saved', 'supplier_email_template.reset')");
+        $audit->execute([$this->userIds[0], $supplierA]);
+        self::assertSame(2, (int) $audit->fetchColumn());
+    }
+
+    public function testCompanyEmailTemplatesRejectForeignAndStaleSupplierForEveryOperation(): void
+    {
+        $session = $this->createSession($this->createUser('client_write', 'client', 2, true));
+        $foreign = (int) $this->db->pdo()->query('SELECT id FROM supplier WHERE id <> ' . $this->supplierId . ' ORDER BY id LIMIT 1')->fetchColumn();
+        self::assertGreaterThan(0, $foreign);
+        $template = ['subject' => 'Unsafe stale draft', 'body_html' => '<p>Example</p>', 'body_text' => 'Example'];
+        foreach ([$foreign, 4294967295] as $sid) {
+            foreach ([['GET', ''], ['GET', '/invoice_send/cs'], ['PUT', '/invoice_send/cs'], ['DELETE', '/invoice_send/cs'], ['POST', '/invoice_send/cs/preview']] as [$method, $suffix]) {
+                self::assertSame(403, $this->request($method, '/api/settings/client/email-templates' . $suffix, $session, $method === 'GET' ? null : $template, supplierId: $sid)->getStatusCode());
+            }
+        }
+    }
+
+    public function testCompanyTemplateStaffSupplierRoleOverrideIsAuthoritative(): void
+    {
+        $writer = $this->createUser('writer', 'staff', 2, true);
+        $reader = $this->createUser('reader', 'staff', 1, true);
+        $writerRole = (int) $this->db->pdo()->query('SELECT role_id FROM users WHERE id = ' . $writer)->fetchColumn();
+        $readerRole = (int) $this->db->pdo()->query('SELECT role_id FROM users WHERE id = ' . $reader)->fetchColumn();
+        $stmt = $this->db->pdo()->prepare('UPDATE user_suppliers SET role_id = ? WHERE user_id = ? AND supplier_id = ?');
+        $stmt->execute([$writerRole, $reader, $this->supplierId]);
+        $stmt->execute([$readerRole, $writer, $this->supplierId]);
+        $readerSession = $this->createSession($reader);
+        $writerSession = $this->createSession($writer);
+        self::assertSame(200, $this->request('GET', '/api/settings/email-templates', $readerSession)->getStatusCode());
+        self::assertSame(403, $this->request('GET', '/api/settings/email-templates', $writerSession)->getStatusCode());
+    }
+
+    private function backupTemplate(string $table, array $keys): void
+    {
+        $where = implode(' AND ', array_map(static fn ($key) => "$key = ?", array_keys($keys)));
+        $stmt = $this->db->pdo()->prepare("SELECT * FROM $table WHERE $where");
+        $stmt->execute(array_values($keys));
+        $this->templateBackups[] = [$table, $keys, $stmt->fetch(\PDO::FETCH_ASSOC)];
     }
 
     private function createUser(string $variant, string $roleType, int $level, bool $hasSupplier): int
@@ -607,7 +966,7 @@ final class RbacHttpRoleMatrixTest extends TestCase
         return ['token' => (string) $session['token'], 'csrf_token' => (string) $session['csrf_token']];
     }
 
-    private function request(string $method, string $path, array $session, ?array $body = null): ResponseInterface
+    private function request(string $method, string $path, array $session, ?array $body = null, array $uploads = [], ?int $supplierId = null): ResponseInterface
     {
         $cookieName = (string) $this->config->get('session.cookie_name', '__Host-myinvoice_session');
         $request = (new ServerRequestFactory())
@@ -616,8 +975,10 @@ final class RbacHttpRoleMatrixTest extends TestCase
             ->withHeader('Accept', 'application/json')
             ->withHeader('Origin', rtrim((string) $this->config->get('app.url', ''), '/'))
             ->withHeader('X-CSRF-Token', $session['csrf_token'])
-            ->withHeader('X-Supplier-Id', (string) $this->supplierId);
-        if ($body !== null) {
+            ->withHeader('X-Supplier-Id', (string) ($supplierId ?? $this->supplierId));
+        if ($uploads !== []) {
+            $request = $request->withUploadedFiles($uploads)->withParsedBody($body ?? []);
+        } elseif ($body !== null) {
             $request = $request->withHeader('Content-Type', 'application/json')->withBody(
                 (new StreamFactory())->createStream(json_encode($body, JSON_THROW_ON_ERROR)),
             );

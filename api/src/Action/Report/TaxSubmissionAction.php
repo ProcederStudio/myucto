@@ -59,6 +59,14 @@ final class TaxSubmissionAction
         $supplierId = SupplierGuard::currentId($request);
         $query = $request->getQueryParams();
 
+        $submissionId = null;
+        if (array_key_exists('submission_id', $query)) {
+            $submissionId = filter_var($query['submission_id'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+            if ($submissionId === false) {
+                return Json::error($response, 'validation_failed', 'Neplatné ID podání (submission_id).', 422);
+            }
+        }
+
         $status = trim((string) ($query['status'] ?? ''));
         // Neznámý stav je chyba klienta, ne důvod k tichému vypsání všeho:
         // uživatel by dostal plný seznam v domnění, že se filtruje.
@@ -90,6 +98,7 @@ final class TaxSubmissionAction
         // než ho neukázat. Omezení jde do SQL, ne nad načtenou stránku:
         // filtrovat až v PHP by dávalo krátké stránky a špatný celkový počet.
         $filters = [
+            'submission_id' => $submissionId,
             'status'    => $status === 'all' ? '' : $status,
             'form_code' => $formCode === 'all' ? '' : $formCode,
             'q'         => trim((string) ($query['q'] ?? '')),

@@ -20,7 +20,9 @@ import KeyboardShortcuts from '@/pages/KeyboardShortcuts.vue'
 import { getCredential, webAuthnErrorKey } from '@/security/webauthn'
 import RecoveryCodesOnce from '@/components/security/RecoveryCodesOnce.vue'
 import {
+  advanceCanonicalDomainLoginSession,
   authorizePendingDomainLogin,
+  canonicalDomainLoginSessionCsrf,
   hasPendingCanonicalDomainLogin,
 } from '@/security/domainLogin'
 
@@ -41,7 +43,7 @@ async function returnToClientDomain() {
   try {
     await authorizePendingDomainLogin()
   } catch (e: any) {
-    domainReturnPending.value = false
+    domainReturnPending.value = hasPendingCanonicalDomainLogin()
     domainReturnError.value = e?.response?.data?.error?.message || t('domain_login.authorize_failed')
   } finally {
     domainReturnBusy.value = false
@@ -184,7 +186,12 @@ async function activateTotp() {
   totpBusy.value = true
   totpError.value = ''
   try {
-    const result = await authApi.totpEnable(totpCode.value)
+    const previousCsrf = canonicalDomainLoginSessionCsrf()
+    const result = await authApi.totpEnable(totpCode.value, previousCsrf ?? undefined)
+    if (result.csrf_token) {
+      if (previousCsrf) advanceCanonicalDomainLoginSession(previousCsrf, result.csrf_token)
+      auth.setSessionCsrfToken(result.csrf_token)
+    }
     totpSetup.value = null
     totpCode.value = ''
     if (result.recovery_codes?.length) {

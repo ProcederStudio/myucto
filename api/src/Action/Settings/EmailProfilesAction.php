@@ -11,6 +11,7 @@ use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Middleware\SupplierScopeMiddleware;
 use MyInvoice\Repository\EmailProfileRepository;
 use MyInvoice\Security\OperationalSettingsAccess;
+use MyInvoice\Security\ClientSigningProfileAccess;
 use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Branding\AccentColor;
@@ -35,6 +36,7 @@ final class EmailProfilesAction
         // H-02: ve spravované instalaci píše SMTP účet hosting a obálku určuje
         // jeho MTA — na ní stojí SPF. Vlastní transport by prošel jen napůl.
         private readonly ManagedModeGuard $managed,
+        private readonly ClientSigningProfileAccess $clientSigning,
     ) {}
 
     /**
@@ -208,6 +210,17 @@ final class EmailProfilesAction
         if ($profileId === null && isset($body['profile_id']) && (int) $body['profile_id'] > 0) {
             $profileId = (int) $body['profile_id'];
         }
+        // Chráněný uložený profil se nesmí stát delegovatelným až překrytím
+        // konceptem: jinak by test převzal jeho uložená SMTP/IMAP tajemství.
+        if (RequestAuthorization::isClientType($request) && $profileId !== null) {
+            $current = $this->profiles->findProfile($supplierId, $profileId);
+            if ($current === null) {
+                return Json::error($response, 'not_found', 'E-mailový profil nenalezen.', 404);
+            }
+            if (($restricted = $this->denyClientRestrictedProfile($request, $response, $current)) !== null) {
+                return $restricted;
+            }
+        }
 
         $profileData = isset($body['profile']) && is_array($body['profile'])
             ? (array) $body['profile']
@@ -350,6 +363,12 @@ final class EmailProfilesAction
     private function sendProfileTest(Request $request, Response $response, array $profile, ?int $profileId, bool $draft): Response
     {
         $supplierId = $this->supplierId($request);
+        if (RequestAuthorization::isClientType($request)
+            && $this->config->get('email_signing.enabled', true)
+            && !$this->clientSigning->canTestEmail($supplierId, isset($profile['signing_profile_id']) ? (int) $profile['signing_profile_id'] : null)
+        ) {
+            return Json::error($response, 'profile_not_delegable', 'Podpis testovacího e-mailu spravuje správce instalace.', 403);
+        }
         $supplier = $this->supplierForEmail($supplierId);
         $recipient = $this->testRecipient($request, $supplier);
         if ($recipient === null) {
@@ -460,12 +479,13 @@ final class EmailProfilesAction
 
     private function canManage(Request $request): bool
     {
-        return OperationalSettingsAccess::emailProfiles($request);
+        return OperationalSettingsAccess::emailProfiles($request)
+            && (!RequestAuthorization::isClientType($request) || RequestAuthorization::isSessionAuth($request));
     }
 
     /**
-     * Elektronické podpisy a lokální sendmail nejsou součástí klientsky
-     * delegovaného nastavení. Kontrola je v akci, ne jen ve formuláři.
+     * Klient může připojit jen delegovatelný firemní S/MIME profil; lokální
+     * sendmail zůstává ve správě instalace. Kontrola platí i pro test konceptu.
      *
      * @param array<string,mixed> $body
      */
@@ -473,16 +493,10 @@ final class EmailProfilesAction
     {
         if (!RequestAuthorization::isClientType($request)) return null;
 
-        // Jen NENULOVÁ hodnota je pokus o delegaci podpisu. Prázdné pole v
-        // round-tripu celého profilu (integrace, budoucí formulář) nesmí
-        // skončit matoucím 403 — klient stejně žádný podpis nastavit nemůže.
         if (($body['signing_profile_id'] ?? null) !== null && (string) $body['signing_profile_id'] !== '') {
-            return Json::error(
-                $response,
-                'field_not_delegable',
-                'Elektronické podepisování není součástí delegovaného nastavení firmy.',
-                403,
-            );
+            if (!$this->clientSigning->canReference($this->supplierId($request), (int) $body['signing_profile_id'], 'email_smime')) {
+                return Json::error($response, 'field_not_delegable', 'Vyber firemní S/MIME profil dostupný pro tuto firmu.', 403);
+            }
         }
         if (array_key_exists('sendmail_command', $body)
             || strtolower(trim((string) ($body['transport_type'] ?? ''))) === 'sendmail'
@@ -498,7 +512,7 @@ final class EmailProfilesAction
     }
 
     /**
-     * Zákaz editace podepisujícího profilu by nic neznamenal, kdyby ho klient
+     * Zákaz editace chráněného profilu by nic neznamenal, kdyby ho klient
      * mohl obejít zvenčí: založí si vlastní profil s `is_default`, staff profil
      * tím spadne z výchozí pozice a firemní pošta začne odcházet nepodepsaná.
      *
@@ -531,12 +545,13 @@ final class EmailProfilesAction
     /** @param array<string,mixed> $profile */
     private function clientManageableProfile(array $profile): bool
     {
-        return ($profile['signing_profile_id'] ?? null) === null
-            && strtolower((string) ($profile['transport_type'] ?? 'global')) !== 'sendmail';
+        if (strtolower((string) ($profile['transport_type'] ?? 'global')) === 'sendmail') return false;
+        if (($profile['signing_profile_id'] ?? null) === null) return true;
+        return $this->clientSigning->canManageLinkedProfile((int) $profile['supplier_id'], (int) $profile['signing_profile_id']);
     }
 
     /**
-     * Profily napojené na systémový sendmail nebo kryptografické S/MIME identity
+     * Profily napojené na systémový sendmail nebo chráněné podpisové identity
      * zůstávají ve správě staff role. Klient je vidí v seznamu, ale nemůže je
      * testovat, měnit ani smazat.
      *
@@ -566,12 +581,10 @@ final class EmailProfilesAction
         if ($profile === null || !RequestAuthorization::isClientType($request)) return $profile;
 
         $profile['client_manageable'] = $this->clientManageableProfile($profile);
-        unset(
-            $profile['signing_profile_id'],
-            $profile['signing_profile_name'],
-            $profile['signing_profile_code'],
-            $profile['sendmail_command'],
-        );
+        unset($profile['sendmail_command']);
+        if (!$profile['client_manageable']) {
+            unset($profile['signing_profile_id'], $profile['signing_profile_name'], $profile['signing_profile_code']);
+        }
         return $profile;
     }
 

@@ -408,6 +408,10 @@ final class ApiScopeMiddlewareTest extends TestCase
             '/api/auth/webauthn/register/options',
             '/api/settings/signing',
             '/api/settings/signing/profiles/1/credentials/certificate',
+            '/api/settings/client/signing/profiles',
+            '/api/settings/client/signing/profiles/1/credentials/certificate',
+            '/api/settings/client/pdf-signing',
+            '/api/settings/client/email-profiles',
             '/api/settings/bank-email-notices',
             '/api/settings/email-branding/preview',
         ] as $path) {

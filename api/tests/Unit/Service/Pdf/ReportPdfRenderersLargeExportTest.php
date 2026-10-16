@@ -49,6 +49,7 @@ final class ReportPdfRenderersLargeExportTest extends TestCase
         yield 'peněžní deník' => [$base($r, 'cash_journal.twig', self::cashJournal()), fn () => $r->render(self::cashJournal())];
         $r = new SaldoPdfRenderer();
         yield 'saldokonto' => [$base($r, 'saldo.twig', self::saldo()), fn () => $r->render(self::saldo())];
+        yield 'saldokonto, členění po splatnosti' => [$base($r, 'saldo.twig', self::saldoAging()), fn () => $r->render(self::saldoAging())];
         $d = new DphBookPdfRenderer();
         yield 'kniha DPH' => [
             fn () => (string) (new \ReflectionMethod($d, 'twig'))->invoke($d)->render('dph_book.twig', self::dphBook()),
@@ -137,6 +138,21 @@ final class ReportPdfRenderersLargeExportTest extends TestCase
             'as_of' => '2024-12-31', 'period' => ['fiscal_year' => 2024],
             'accounts' => [['account' => ['code' => '311', 'name' => 'Odběratelé'], 'note' => null, 'gl_balance' => 1.0,
                 'open_items_total' => 1.0, 'matches' => true, 'difference' => 0.0, 'partners' => $partners]]];
+    }
+
+    /** Členění bez rozpisu: dlouhá je tu tabulka partnerů, ne dokladů. @return array<string,mixed> */
+    private static function saldoAging(): array
+    {
+        $data = self::saldo();
+        $partners = [];
+        for ($p = 1; $p <= self::ROWS; $p++) {
+            $partners[] = ['partner_name' => 'Syntetický odběratel ' . $p, 'total_remaining' => 1000.0,
+                'items' => [['days_overdue' => $p % 200, 'remaining_czk' => 1000.0]]];
+        }
+        $data['accounts'][0]['partners'] = $partners;
+        $data['aging'] = \MyInvoice\Service\Accounting\Reports\SaldoAgingBuckets::build($data, [30, 60, 120]);
+        $data['show_detail'] = false;
+        return $data;
     }
 
     /** @return array<string,mixed> */

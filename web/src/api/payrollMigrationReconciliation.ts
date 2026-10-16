@@ -217,6 +217,10 @@ export interface PayrollTakeoverManualRow {
   applied_credits_minor: number
   applied_child_credit_minor: number
   tax_bonus_minor: number
+  /** Čerpání ročních košů benefitů (§ 6 odst. 9 písm. d) a m) ZDP) v převzatém měsíci. */
+  old_age_savings_minor: number
+  non_cash_health_benefit_minor: number
+  non_cash_leisure_benefit_minor: number
   insurance_days: number
   excluded_days: number
   worked_days_hundredths: number

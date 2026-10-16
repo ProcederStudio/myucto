@@ -2,6 +2,7 @@
 import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { usePaneActivity, usePaneId } from '@/workspace/paneActivity'
 import { lockBodyScroll, unlockBodyScroll } from '@/utils/bodyScrollLock'
+import WorkspaceTeleport from '@/components/workspace/WorkspaceTeleport.vue'
 
 /**
  * Generic modal — backdrop, ESC close, click-outside close, sticky header/footer.
@@ -66,7 +67,7 @@ void props
 </script>
 
 <template>
-  <Teleport to="body">
+  <WorkspaceTeleport>
     <!--
       Backdrop rozostřuje pozadí a je o odstín hlubší: modál je modální, obsah
       pod ním má ustoupit. Panel přijíždí spring křivkou (.rise-in) — naskočení
@@ -93,5 +94,5 @@ void props
         </footer>
       </div>
     </div>
-  </Teleport>
+  </WorkspaceTeleport>
 </template>

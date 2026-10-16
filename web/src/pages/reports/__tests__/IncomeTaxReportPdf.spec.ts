@@ -1,10 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
+import { reactive } from 'vue'
 
 // Tlačítko „PDF sestava" na stránce přiznání: vidí ho jen uživatel s exportem výkazů
 // a stáhne pracovní PDF sestavu pro aktuální typ, rok a druh přiznání. ActionBar drží
 // v hlavičce nejvýš 3 akce, u rozpracovaného přiznání je proto sestava v „…".
 const m = vi.hoisted(() => ({
+  route: { query: {} as Record<string, unknown> },
+  listPeriods: vi.fn(),
   canRead: true,
   taxpayerType: 'po' as 'po' | 'fo',
   get: vi.fn(),
@@ -23,7 +26,7 @@ vi.mock('@/api/taxReturn', () => ({
     insurance: vi.fn().mockResolvedValue(null),
   },
 }))
-vi.mock('@/api/accounting', () => ({ accountingApi: { listPeriods: vi.fn().mockResolvedValue([]) } }))
+vi.mock('@/api/accounting', () => ({ accountingApi: { listPeriods: m.listPeriods } }))
 vi.mock('@/api/tax', () => ({ taxApi: { saveProfile: vi.fn() } }))
 vi.mock('@/api/taxEvidence', () => ({ taxEvidenceApi: { closing: vi.fn().mockResolvedValue(null) } }))
 vi.mock('@/api/errors', () => ({
@@ -37,13 +40,13 @@ vi.mock('@/stores/auth', () => ({
   useAuthStore: () => ({ canRead: () => m.canRead, canWrite: () => true }),
 }))
 vi.mock('vue-router', () => ({
-  useRoute: () => ({ query: {} }),
+  useRoute: () => m.route,
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
   RouterLink: { name: 'RouterLink', props: ['to'], template: '<a><slot /></a>' },
 }))
 vi.mock('@/composables/useYearOptions', async () => {
   const { computed } = await import('vue')
-  return { useYearOptions: () => computed(() => [2026, 2025]) }
+  return { useYearOptions: (_source: string, year: { value: number }) => computed(() => [...new Set([2026, 2025, year.value])]) }
 })
 // Částečný mock: `createI18n` potřebuje useFormat, `t` vrací klíč.
 vi.mock('vue-i18n', async (importOriginal) => {
@@ -117,6 +120,8 @@ async function mountPage(state: ReturnType<typeof makeState>) {
 
 describe('IncomeTaxReport.vue: PDF sestava', () => {
   beforeEach(() => {
+    m.route = reactive({ query: {} })
+    m.listPeriods.mockReset().mockResolvedValue([])
     m.canRead = true
     m.taxpayerType = 'po'
     m.get.mockReset()
@@ -129,6 +134,30 @@ describe('IncomeTaxReport.vue: PDF sestava', () => {
     wrapper?.unmount()
     wrapper = null
     document.body.innerHTML = ''
+    vi.useRealTimers()
+  })
+
+  it('odkaz na roční přiznání zachová rok i mimo nabídku účetních období', async () => {
+    m.route.query = { year: '2024' }
+    m.listPeriods.mockResolvedValue([{ fiscal_year: 2026, starts_on: '2026-01-01', ends_on: '2026-12-31' }])
+    const page = await mountPage(makeState('po'))
+    expect(m.get).toHaveBeenCalled()
+    expect(m.get.mock.calls.every(call => call[1] === 2024)).toBe(true)
+    expect((page.vm as unknown as { yearSelectOptions: Array<{ value: number }> }).yearSelectOptions.map(option => option.value)).toContain(2024)
+  })
+
+  it('roční přiznání reaguje na jiný rok v URL a běžné menu obnoví výchozí rok', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-15T12:00:00+02:00'))
+    m.route.query = { year: '2024' }
+    await mountPage(makeState('po'))
+    expect(m.get).toHaveBeenLastCalledWith('po', 2024, 'radne', undefined)
+    m.route.query = { year: '2023' }
+    await flushPromises()
+    expect(m.get).toHaveBeenLastCalledWith('po', 2023, 'radne', undefined)
+    m.route.query = {}
+    await flushPromises()
+    expect(m.get).toHaveBeenLastCalledWith('po', 2025, 'radne', undefined)
   })
 
   it('u rozpracovaného DPPO je sestava v „…" a stáhne PDF pro aktuální rok a druh', async () => {

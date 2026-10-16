@@ -103,7 +103,7 @@ Použijte pro přesun peněz mezi dvěma účty firemní osnovy (bankovní účt
 Postup závisí na tom, odkud zápis vznikl a v jakém je období.
 
 1. Určete příčinu. Je-li špatně zdrojový doklad (faktura, platba), opravte doklad. U ještě nezastornovaného zápisu v otevřeném období se zápis při novém zaúčtování přepíše na místě a historii drží auditní stopa.
-2. Je-li špatně jen kontace, použijte **Přeúčtovat** přímo na dokladu ([§ 52.8](#528-krok-za-krokem-preuctovani-z-dokladu)).
+2. Je-li špatně jen kontace, použijte **Přeúčtovat** přímo na dokladu, nebo v rozbaleném zápisu v deníku ([§ 52.8](#528-krok-za-krokem-preuctovani-z-dokladu)).
 3. Má-li vzniknout protizápis, rozbalte zápis v deníku a klikněte na **Stornovat**. Vznikne zrcadlový zápis s prohozenými stranami MD a Dal k aktuálnímu datu v otevřeném období.
 4. Opravte chybný údaj a doklad zaúčtujte znovu. U vydané nebo přijaté faktury storno odemkne zdrojový doklad.
 5. Zápis, který v účetnictví nikdy neměl vzniknout, a jeho storno lze v otevřeném období smazat najednou tlačítkem **Smazat zápis i storno** ([§ 52.14.9.4](#521494-smazani-cele-storno-dvojice)).
@@ -124,7 +124,7 @@ Akce vyžaduje oprávnění k zápisu do deníku, ostatním položkám a jejich 
 Přeúčtování změní jen kontaci. DPH se jím nemění, daňový režim se opravuje editací dokladu.
 
 1. Otevřete detail [vydané faktury](14_Faktury.md), [přijaté faktury](23_Prijate_faktury.md) nebo zaúčtovaného [bankovního pohybu](30_Bankovni_ucty.md).
-2. V sekci **Zaúčtování** klikněte u živého zápisu na **Přeúčtovat**.
+2. V sekci **Zaúčtování** klikněte u živého zápisu na **Přeúčtovat**. Stejné tlačítko má i rozbalený zápis faktury, přijaté faktury nebo bankovního pohybu v účetním deníku.
 3. V dialogu upravte, smažte nebo doplňte řádky. Zápis musí zůstat vyrovnaný.
 4. Přečtěte si, co se po potvrzení stane (závisí na stavu období, viz tabulka v [§ 52.14.9.2](#521492-preuctovani-z-dokladu-sekce-zauctovani)). Vyžádá-li si dialog potvrzení posunu data, zkontrolujte ho.
 5. Potvrďte. Chcete-li změnit jen poznámku, klikněte na **Uložit poznámku**.
@@ -1044,7 +1044,8 @@ vedle odkazu **Otevřít v deníku** tlačítko **Přeúčtovat** (admin/účetn
 - detailu [vydané faktury](14_Faktury.md),
 - detailu [přijaté faktury](23_Prijate_faktury.md),
 - u zaúčtovaného [bankovního pohybu](30_Bankovni_ucty.md) (tam je tlačítko v řádku
-  pohybu vedle **Zrušit zaúčtování**).
+  pohybu vedle **Zrušit zaúčtování**),
+- v účetním deníku v rozbaleném zápisu kteréhokoli z těchto dokladů, vedle **Stornovat**.
 
 Dialog ukáže **řádky zápisu, který v deníku opravdu je** - ne nový návrh - a nechá je
 změnit, smazat i doplnit. Zápis musí zůstat vyrovnaný (Σ MD = Σ Dal). Co se stane po

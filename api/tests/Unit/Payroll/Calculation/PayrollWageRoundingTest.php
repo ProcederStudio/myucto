@@ -8,6 +8,7 @@ use MyInvoice\Service\Payroll\Absence\LeaveCompensationCalculator;
 use MyInvoice\Service\Payroll\Absence\PaidObstacleCompensationCalculator;
 use MyInvoice\Service\Payroll\Calculation\MonthlyWageProration;
 use MyInvoice\Service\Payroll\Calculation\PayrollWageRounding;
+use MyInvoice\Service\Payroll\Time\Surcharge\PayrollSurchargeInputMaterializer;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -48,5 +49,15 @@ final class PayrollWageRoundingTest extends TestCase
     {
         self::assertSame(20_100, PaidObstacleCompensationCalculator::amount(20_010, 60, 10_000));
         self::assertSame(20_000, PaidObstacleCompensationCalculator::amount(20_010, 60, 10_000, PayrollWageRounding::HalfUp));
+    }
+
+    /** Příplatek 453,73 Kč jde do mzdy i JMHZ v celých korunách: nahoru 454, matematicky 454; 492,46 Kč matematicky 492. */
+    public function testSurchargeIsRoundedToWholeCrowns(): void
+    {
+        self::assertSame(45_400, PayrollSurchargeInputMaterializer::wholeCzk(45_373, PayrollWageRounding::Ceil));
+        self::assertSame(45_400, PayrollSurchargeInputMaterializer::wholeCzk(45_373, PayrollWageRounding::HalfUp));
+        self::assertSame(49_300, PayrollSurchargeInputMaterializer::wholeCzk(49_246, PayrollWageRounding::Ceil));
+        self::assertSame(49_200, PayrollSurchargeInputMaterializer::wholeCzk(49_246, PayrollWageRounding::HalfUp));
+        self::assertSame(50_000, PayrollSurchargeInputMaterializer::wholeCzk(50_000, PayrollWageRounding::Ceil));
     }
 }

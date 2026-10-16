@@ -34,17 +34,20 @@ Kde funkci najdete, závisí na roli:
 
 - **admin**: správu podpisů najdete jako záložku **Certifikáty a elektronické podpisy** uvnitř stránky `Systém → E-maily a certifikáty` (vedle záložek **Odeslané e-maily**, **E-mail šablony**, **Odesílací profily** a **SMTP log analýza**).
 - **accountant** (účetní): pokud admin zapnul přepínač **Povolit uživatelům správu vlastních podpisových profilů**, objeví se účetnímu v postranním menu samostatná položka `Systém → Certifikáty a elektronické podpisy`. Bez zapnutého přepínače účetní tuto položku v menu nevidí a přímý přístup na adresu ho přesměruje na úvodní stránku.
+- **Klientský správce**: uživatel s klientskou rolí, který má pro danou firmu **Nastavení firmy – Zápis**, spravuje firemní podpisové profily v nastavení firmy na klientském portálu. Tato cesta je určená pro provozní správu podpisu dané firmy; osobní profily ani certifikáty v osobním trezoru zde nejsou dostupné.
 
 <!-- cols: 22 78 -->
 | Role | Co může |
 |---|---|
 | **admin** | Spravuje profily dodavatele, může spravovat i profily uživatelů, nastavuje konfiguraci podpisů a povoluje uživatelské profily. |
 | **accountant** | Po povolení adminem může spravovat pouze vlastní podpisové profily a vlastní výchozí mapování, na samostatné stránce. V detailu dokladu může změnit výběr profilu, ale konkrétní profil dodavatele může vybrat jen admin. |
+| **Klientský správce** | Se zápisem do nastavení firmy může spravovat firemní profily, jejich certifikáty a použití pro PDF; podpis e-mailu zapojí přes firemní odesílací profil. Nemůže spravovat osobní profily, trezor ani jiné backendy. |
 | **readonly** | Může číst a stahovat doklady podle běžných oprávnění, ale nemůže měnit podpisové profily, mapování ani výběr podpisu na dokladu. Přímý přístup na stránku elektronických podpisů ho přesměruje pryč. |
 
 Admin povolí uživatelské profily přepínačem **Povolit uživatelům správu vlastních podpisových profilů** (na záložce
-Certifikáty a elektronické podpisy v `Systém → E-maily a certifikáty`). Uživatelé pak smějí upravovat pouze profily,
-které vlastní.
+Certifikáty a elektronické podpisy v `Systém → E-maily a certifikáty`). Tím zpřístupní účetním jejich vlastní profily.
+Klientský správce toto povolení nepotřebuje; rozhoduje jeho klientská role a přístup **Nastavení firmy – Zápis** pro
+aktuální firmu.
 
 Základní pojmy:
 
@@ -127,6 +130,27 @@ Nový soubor PFX pak nahrajte do trezoru stejným postupem.
 9. Klikněte na **Vytvořit profil** (u existujícího **Uložit profil**).
 
 **Jak poznáte, že je hotovo:** Profil je v sekci Podpisové profily s metadaty certifikátu.
+
+### 99.4.1 Firemní podpisový profil v klientském portálu
+
+Tento postup je pro klientského správce s přístupem **Nastavení firmy – Zápis**. Otevřete `Firma → Nastavení firmy`
+a záložku **Podpisové profily**.
+
+1. Zvolte **Vytvořit profil**, vyplňte **Název** a **Kód**, vyberte použití **PDF** a/nebo **S/MIME e-mail** a profil uložte.
+2. U nového profilu připojte certifikát PFX/P12 včetně soukromého klíče a zadejte heslo certifikátu. Klikněte na
+   **Nahrát certifikát**. Certifikát musí být chráněný heslem, které se ukládá šifrovaně.
+3. V části **Konfigurace podpisů** vyberte pro PDF výstup profil, zapněte **Podepisovat** a nastavte **Při chybě**.
+   Změny uložte a pak spusťte test PDF. PDF výstup může mít také důvod podpisu a TSA časového razítka.
+4. Pro e-mail otevřete záložku **E-mailové profily** a u příslušného firemního profilu vyberte **Podpisový profil**.
+   Ověřte, že certifikát obsahuje adresu odpovídající odesílateli; test S/MIME proveďte testovacím e-mailem z profilu.
+
+Klientský portál nabízí pouze firemní profily s nativním backendem a politikou šifrovaně uloženého hesla. Použít lze
+také existující firemní profil vytvořený interním administrátorem, pokud splňuje tyto podmínky. Osobní profily,
+certifikáty z osobního trezoru, jiné backendy ani `sendmail` tato správa nenabízí.
+
+Před smazáním podpisového profilu jej nejprve odpojte od e-mailových profilů, které jej používají.
+Pokud podpisový profil deaktivujete nebo mu odeberete použití pro e-mail, můžete jej v e-mailovém profilu
+odpojit a vybrat jiný dostupný podpis.
 
 ## 99.5 Krok za krokem: připojit certifikát k profilu
 

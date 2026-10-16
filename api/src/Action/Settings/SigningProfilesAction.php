@@ -11,6 +11,8 @@ use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Middleware\SupplierScopeMiddleware;
 use MyInvoice\Repository\SigningProfileRepository;
 use MyInvoice\Security\AccessLevel;
+use MyInvoice\Security\ClientSigningProfileAccess;
+use MyInvoice\Security\OperationalSettingsAccess;
 use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Auth\SecretEncryption;
@@ -46,6 +48,7 @@ final class SigningProfilesAction
     private const PASSPHRASE_POLICIES = ['encrypted_store', 'passphrase_file', 'prompt_on_use'];
     private const SMIME_IDENTITY_POLICIES = ['strict_match', 'warning_only', 'same_domain_override', 'allowlist_override'];
     private const MAX_CERT_SIZE = 128 * 1024;
+    private const ATTR_CLIENT_MANAGEMENT = 'signing.client_management';
 
     public function __construct(
         private readonly Connection $db,
@@ -60,7 +63,93 @@ final class SigningProfilesAction
         // POVINNÝ parametr: optional class-param by PHP-DI autowiring nevyplnil
         // a default instance by neměla Config → allowlist trvale prázdný (SEC-04).
         private readonly TsaUrlPolicy $tsaPolicy,
+        private readonly ClientSigningProfileAccess $clientAccess,
     ) {}
+
+    /**
+     * Úzký vstup klientské správy; operaci přidává route, nikdy tělo požadavku.
+     * Sdílí zápis, audit i invalidaci PDF se staff správou, ale ne její pravomoci.
+     */
+    public function client(Request $request, Response $response, array $args): Response
+    {
+        if (!RequestAuthorization::isSessionAuth($request)
+            || !OperationalSettingsAccess::clientCompanyWrite($request)
+            || $this->supplierId($request) <= 0
+        ) {
+            return Json::error($response, 'forbidden', 'Pro tuto akci nemáš oprávnění.', 403);
+        }
+        $operation = (string) ($args['operation'] ?? '');
+        if (!in_array($operation, [
+            'settings', 'listProfiles', 'getProfile', 'createProfile', 'updateProfile', 'deleteProfile',
+            'credentialCertificate', 'uploadCredentialCertificate', 'updateCredentialCertificate',
+            'deleteCredentialCertificate', 'pdfSettings', 'updatePdfOutputSettings',
+            'updatePdfOutputSetting', 'testPdfSigning',
+        ], true)) {
+            return Json::error($response, 'not_found', 'Akce nenalezena.', 404);
+        }
+
+        $supplierId = $this->supplierId($request);
+        if (isset($args['id'])) {
+            $profile = $this->profiles->findProfile($supplierId, (int) $args['id']);
+            if ($profile === null || !$this->clientAccess->canManage($profile)) {
+                return Json::error($response, 'not_found', 'Podpisový profil nenalezen.', 404);
+            }
+        }
+        if ($operation === 'deleteProfile') {
+            $linked = $this->db->pdo()->prepare(
+                'SELECT 1 FROM email_profiles WHERE supplier_id = ? AND signing_profile_id = ? AND deleted_at IS NULL LIMIT 1'
+            );
+            $linked->execute([$supplierId, (int) $args['id']]);
+            if ($linked->fetchColumn() !== false) {
+                return Json::error($response, 'profile_in_use', 'Nejdřív odpoj podpisový profil z e-mailových profilů.', 409);
+            }
+            $output = $this->db->pdo()->prepare(
+                'SELECT 1 FROM pdf_signature_output_settings WHERE supplier_id = ? AND default_profile_id = ? LIMIT 1'
+            );
+            $output->execute([$supplierId, (int) $args['id']]);
+            if ($output->fetchColumn() !== false) {
+                return Json::error($response, 'profile_in_use', 'Nejdřív odpoj podpisový profil z nastavení podpisu výstupů.', 409);
+            }
+        }
+        $body = (array) ($request->getParsedBody() ?? []);
+        if (in_array($operation, ['createProfile', 'updateProfile'], true)) {
+            $allowed = ['name', 'code', 'owner_user_id', 'default_backend', 'allowed_usages', 'is_active',
+                'pdf_tsa_enabled', 'pdf_tsa_url', 'pdf_tsa_username', 'pdf_tsa_password', 'pdf_reason'];
+            if (array_diff(array_keys($body), $allowed) !== []
+                || ($body['owner_user_id'] ?? null) !== null
+                || ($body['default_backend'] ?? 'native') !== 'native'
+                || (isset($body['allowed_usages']) && (!is_array($body['allowed_usages'])
+                    || array_diff($body['allowed_usages'], ['pdf', 'email_smime']) !== []))
+            ) {
+                return $this->clientRestricted($response);
+            }
+        }
+        if (in_array($operation, ['uploadCredentialCertificate', 'updateCredentialCertificate'], true)) {
+            if (array_diff(array_keys($body), ['password', 'passphrase_policy']) !== []
+                || ($body['passphrase_policy'] ?? 'encrypted_store') !== 'encrypted_store'
+            ) {
+                return $this->clientRestricted($response);
+            }
+        }
+        if ($operation === 'testPdfSigning') {
+            $outputType = (string) ($body['output_type'] ?? 'invoice');
+            $setting = $this->profiles->outputSetting($supplierId, $outputType, 'pdf');
+            if (($setting['backend'] ?? 'native') !== 'native'
+                || ($setting['selection_source'] ?? '') !== 'admin_profile_settings'
+                || (($setting['default_profile_id'] ?? null) !== null
+                    && !$this->clientAccess->canReference($supplierId, (int) $setting['default_profile_id'], 'pdf'))
+            ) {
+                return $this->clientRestricted($response);
+            }
+        }
+
+        return $this->{$operation}($request->withAttribute(self::ATTR_CLIENT_MANAGEMENT, true), $response, $args);
+    }
+
+    private function clientRestricted(Response $response): Response
+    {
+        return Json::error($response, 'field_not_delegable', 'Nastavení není součástí klientské správy firemních podpisů.', 403);
+    }
 
     /**
      * SEC-04: TSA URL smí být jen veřejná HTTPS adresa (a když je nakonfigurovaný
@@ -115,6 +204,12 @@ final class SigningProfilesAction
         $settings = $this->profiles->settings($supplierId);
 
         if ($this->isAdmin($request)) {
+            if ($request->getAttribute(self::ATTR_CLIENT_MANAGEMENT) === true) {
+                return Json::ok($response, array_values(array_filter(
+                    $this->profiles->listProfilesForOwner($supplierId, null),
+                    $this->clientAccess->canManage(...),
+                )));
+            }
             return Json::ok($response, $this->profiles->listProfiles($supplierId));
         }
 
@@ -355,7 +450,8 @@ final class SigningProfilesAction
         $usage = $this->usageForOutputType($outputType);
         $before = $this->profiles->outputSetting($supplierId, $outputType, $usage);
         $body = (array) ($request->getParsedBody() ?? []);
-        $data = $this->outputSettingData($body, $usage);
+        $data = $this->outputSettingData($request, $body, $usage, $before);
+        if ($data === null) return $this->clientRestricted($response);
 
         try {
             $this->profiles->upsertOutputSetting($supplierId, $outputType, $data, $usage);
@@ -413,10 +509,12 @@ final class SigningProfilesAction
             $seen[$outputType] = true;
             $usage = $this->usageForOutputType($outputType);
             $before[$outputType] = $this->profiles->outputSetting($supplierId, $outputType, $usage);
+            $data = $this->outputSettingData($request, $item, $usage, $before[$outputType]);
+            if ($data === null) return $this->clientRestricted($response);
             $prepared[] = [
                 'output_type' => $outputType,
                 'usage' => $usage,
-                'data' => $this->outputSettingData($item, $usage),
+                'data' => $data,
             ];
         }
 
@@ -1031,7 +1129,10 @@ final class SigningProfilesAction
 
     private function isAdmin(Request $request): bool
     {
-        return RequestAuthorization::isCompanyAdmin($request);
+        return RequestAuthorization::isCompanyAdmin($request)
+            || ($request->getAttribute(self::ATTR_CLIENT_MANAGEMENT) === true
+                && RequestAuthorization::isSessionAuth($request)
+                && OperationalSettingsAccess::clientCompanyWrite($request));
     }
 
     private function isAccountant(Request $request): bool
@@ -1090,9 +1191,10 @@ final class SigningProfilesAction
 
     /**
      * @param array<string,mixed> $body
-     * @return array<string,mixed>
+     * @param array<string,mixed> $before
+     * @return array<string,mixed>|null Null = nastavení mimo klientskou delegaci.
      */
-    private function outputSettingData(array $body, string $usage): array
+    private function outputSettingData(Request $request, array $body, string $usage, array $before): ?array
     {
         $data = [];
         foreach (['enabled', 'backend', 'selection_source', 'user_profile_fallback', 'failure_policy'] as $field) {
@@ -1102,6 +1204,21 @@ final class SigningProfilesAction
         }
         if (array_key_exists('default_profile_id', $body)) {
             $data['default_profile_id'] = $this->nullableInt($body['default_profile_id']);
+        }
+        if ($request->getAttribute(self::ATTR_CLIENT_MANAGEMENT) === true) {
+            if ((isset($body['output_type']) && $body['output_type'] !== $before['output_type'])
+                || ($data['selection_source'] ?? 'admin_profile_settings') !== 'admin_profile_settings'
+                || ($data['backend'] ?? ($usage === 'pdf' ? 'native' : 'smime')) !== ($usage === 'pdf' ? 'native' : 'smime')
+                || ($data['user_profile_fallback'] ?? 'fallback_unsigned') !== 'fallback_unsigned'
+                || (array_key_exists('signature_config', $body)
+                    && $body['signature_config'] != ($before['signature_config'] ?? []))
+                || (($data['default_profile_id'] ?? null) !== null
+                    && !$this->clientAccess->canReference($this->supplierId($request), $data['default_profile_id'], $usage))
+            ) {
+                return null;
+            }
+            // Výběr firemního profilu nemění instalační politiku S/MIME identity.
+            $body['signature_config'] = $before['signature_config'] ?? [];
         }
         if (array_key_exists('signature_config', $body)) {
             $data['signature_config'] = $this->normalizeSignatureConfig($body['signature_config'], $usage);

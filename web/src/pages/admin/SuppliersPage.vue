@@ -18,6 +18,7 @@ import { formatDate, formatDateTime } from '@/composables/useFormat'
 import { ICONS, btnFilled, btnOutline, btnOutlineSm } from '@/components/ui/buttonStyles'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import SupplierUrgency from '@/components/supplier/SupplierUrgency.vue'
+import { useSupplierSwitch } from '@/composables/useSupplierSwitch'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -25,6 +26,7 @@ const router = useRouter()
 const toast = useToast()
 const supplierStore = useSupplierStore()
 const auth = useAuthStore()
+const { switchTo } = useSupplierSwitch()
 
 const suppliers = ref<SupplierDirectoryItem[]>([])
 const loading = ref(false)
@@ -273,17 +275,16 @@ async function removeSupplier(s: SupplierListItem) {
     await auth.refresh()
     if (supplierStore.currentSupplierId === s.id) {
       const first = suppliers.value[0]
-      if (first) supplierStore.setSupplier(first.id)
+      if (first) await switchTo(first.id)
     }
   } catch (e: any) {
     toast.error(e?.response?.data?.error?.message || t('common.error'))
   }
 }
 
-function switchSupplier(id: number) {
+async function switchSupplier(id: number) {
   if (id === supplierStore.currentSupplierId) return
-  supplierStore.setSupplier(id)
-  window.location.reload()
+  await switchTo(id)
 }
 </script>
 

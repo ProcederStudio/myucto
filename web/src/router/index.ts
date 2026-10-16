@@ -6,12 +6,15 @@ import {
   type RouteRecordRaw,
 } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { getWindowManager } from '@/workspace/windowRegistry'
+import { hasPendingCanonicalDomainLoginCleanup, pendingCanonicalDomainLoginQuery } from '@/security/domainLogin'
 import type { DomainContext } from '@/api/auth'
 import { useSupplierStore } from '@/stores/supplier'
 import { useSessionSecurityStore } from '@/stores/sessionSecurity'
 import type { AccessLevel, PermissionKey } from '@/security/permissions'
 import { ensureNamespaces, namespacesForRoute } from '@/i18n'
 import { createWorkspaceRoutes } from './workspaceRoutes'
+import { workspaceShellRoutes } from './workspaceShellRoutes'
 import { switchSupplierForDeepLink } from './supplierDeepLink'
 import { payrollStartPeriodGuard } from './payrollStartPeriodGuard'
 import {
@@ -51,7 +54,7 @@ const routes: RouteRecordRaw[] = [
     path: '/',
     component: () => import('@/components/layout/AppLayout.vue'),
     meta: { requiresAuth: true },
-    children: createWorkspaceRoutes(),
+    children: workspaceShellRoutes(createWorkspaceRoutes()),
   },
   { path: '/login',  name: 'login',  component: () => import('@/pages/Login.vue'),          meta: { public: true } },
   { path: '/oauth/continue', name: 'mcp-oauth-continue', component: () => import('@/pages/McpOAuthContinue.vue'), meta: { requiresAuth: true } },
@@ -279,6 +282,7 @@ export const router = createRouter({
   routes,
   // Scroll-to-top při navigaci sidebar linky; respektuj #hash a back/forward
   scrollBehavior(_to, _from, savedPosition) {
+    if (getWindowManager()) return false
     if (savedPosition) return savedPosition
     if (_to.hash) return { el: _to.hash, behavior: 'smooth' }
     /*
@@ -396,6 +400,10 @@ export async function authorizationGuard(
   }
 
   const requiresAuth = to.matched.some((r) => r.meta.requiresAuth)
+  if (requiresAuth && auth.domainContext?.mode === 'canonical' && hasPendingCanonicalDomainLoginCleanup()) {
+    // Obnovení stránky po MFA nesmí pustit dočasnou relaci do hlavní aplikace.
+    return { name: 'login', query: pendingCanonicalDomainLoginQuery() ?? {} }
+  }
   if (requiresAuth && auth.domainContext?.locked) {
     const redirect = clientDomainRedirect(to.name)
     if (redirect !== null) return { path: redirect }
@@ -480,6 +488,8 @@ export async function authorizationGuard(
   // bez politiky a odmítnutí by muselo dorazit dřív než další navigace — přesně
   // ta závislost vyrobila smyčku home → setup-mfa → home (#5).
   if (auth.isAuthenticated && !mustSetupMfa && !auth.shouldOfferMfa && mfaSetupRoute) {
+    const domainLoginQuery = auth.domainContext?.mode === 'canonical' ? pendingCanonicalDomainLoginQuery() : null
+    if (domainLoginQuery) return { name: 'login', query: domainLoginQuery }
     return { name: 'home' }
   }
 

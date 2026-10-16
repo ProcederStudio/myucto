@@ -49,7 +49,14 @@ const MONEY = [
   'advance_base_minor', 'advance_tax_minor', 'withholding_base_minor', 'withholding_tax_minor',
   'applied_credits_minor', 'applied_child_credit_minor', 'tax_bonus_minor',
 ] as const
-type MoneyField = typeof MONEY[number]
+/**
+ * Čerpání ročních košů benefitů. Nejsou to příjmy měsíce, takže nerozhodují
+ * o tom, jestli je měsíc prázdný.
+ */
+const BENEFITS = ['old_age_savings_minor', 'non_cash_health_benefit_minor', 'non_cash_leisure_benefit_minor'] as const
+const AMOUNTS = [...MONEY, ...BENEFITS] as const
+type MoneyField = typeof AMOUNTS[number]
+type IncomeField = typeof MONEY[number]
 
 /** Skupiny nad hlavičkou, ať se základ SP a ZP nepletou se základem daně. */
 const GROUPS: { key: string; fields: MoneyField[] }[] = [
@@ -68,6 +75,7 @@ const GROUPS: { key: string; fields: MoneyField[] }[] = [
       'applied_credits_minor', 'applied_child_credit_minor', 'tax_bonus_minor',
     ],
   },
+  { key: 'benefits', fields: [...BENEFITS] },
 ]
 
 interface DraftRow {
@@ -101,8 +109,8 @@ const employmentCodes = computed(() => {
 
 function toDraft(row: PayrollTakeoverManualRow): DraftRow {
   const money = {} as Record<MoneyField, string>
-  for (const field of MONEY) money[field] = minorToCrowns(row[field])
-  const empty = MONEY.every(field => row[field] === 0)
+  for (const field of AMOUNTS) money[field] = minorToCrowns(row[field] ?? 0)
+  const empty = MONEY.every((field: IncomeField) => row[field] === 0)
   return {
     employment_id: row.employment_id,
     month: row.month,
@@ -159,7 +167,7 @@ function payload(): PayrollTakeoverManualRow[] | null {
   const rows: PayrollTakeoverManualRow[] = []
   for (const draft of drafts.value) {
     const values = {} as Record<MoneyField, number>
-    for (const field of MONEY) {
+    for (const field of AMOUNTS) {
       const minor = crownsToMinor(draft.money[field])
       if (minor === null) {
         error.value = t('payroll.takeover_manual.amount_invalid', {

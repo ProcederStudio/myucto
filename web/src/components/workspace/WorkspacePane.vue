@@ -1,18 +1,12 @@
 <script setup lang="ts">
-import { computed, createApp, nextTick, onBeforeUnmount, onMounted, ref, type App } from 'vue'
-import { getActivePinia } from 'pinia'
-import { isNavigationFailure, NavigationFailureType, type RouteLocationRaw, type Router } from 'vue-router'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import type { Router } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { i18n } from '@/i18n'
-import { authorizationGuard, applyAuthorizationMeta } from '@/router'
-import { createPaneRouter } from '@/router/createPaneRouter'
-import { vMath } from '@/directives/vMath'
 import { useWorkspaceNavigation } from '@/composables/useWorkspaceNavigation'
 import { useWorkspaceStore, type PaneId } from '@/stores/workspace'
-import { paneIdKey } from '@/workspace/paneActivity'
 import { paneForCtrlClick, internalRouteFromAnchor, internalRouteFromElement } from '@/workspace/panelLinks'
 import { getPaneRuntime, registerPaneRuntime } from '@/workspace/runtimeRegistry'
-import PaneRoot from './PaneRoot.vue'
+import { getWindowManager } from '@/workspace/windowRegistry'
 
 const props = defineProps<{
   paneId: PaneId
@@ -22,211 +16,45 @@ const props = defineProps<{
   showHeader: boolean
   single?: boolean
 }>()
-
 const { t } = useI18n()
 const workspace = useWorkspaceStore()
 const navigation = useWorkspaceNavigation()
 const paneElement = ref<HTMLElement | null>(null)
 const mountTarget = ref<HTMLElement | null>(null)
-const loadError = ref(false)
 const dragOver = ref(false)
-const pinia = getActivePinia()
-let childApp: App<Element> | null = null
-let paneRouter: Router | null = props.primaryRouter ?? null
-let unregisterRuntime: (() => void) | null = null
-let removeAfterEach: (() => void) | null = null
-let destroyed = false
-const paneHistory: string[] = []
-// Poslední zbývající panel zavřít nejde — není kam posunout obsah, takže
-// se jen vyprázdní. Popisek to musí říct dřív, než na tlačítko někdo klikne.
-const closeLabel = computed(() => (workspace.panes.length > 1
-  ? t('workspace.close_panel')
-  : t('workspace.close_content')))
-
+const closeLabel = computed(() => t(workspace.panes.length > 1 ? 'workspace.close_panel' : 'workspace.close_content'))
 const workspaceRouteMime = 'application/x-myucto-route'
-let paneHistoryIndex = -1
-let pendingTraversal: 'back' | 'forward' | null = null
-let lastTarget: RouteLocationRaw | null = null
+let unregisterRuntime: (() => void) | null = null
+let detach: (() => void) | undefined
 
 function paneState() {
   return workspace.panes.find(pane => pane.id === props.paneId)
 }
 
-function updateFromRouter(router: Router): void {
-  const route = router.currentRoute.value
-  const state = router.options.history.state
-  if (!props.primaryRouter) {
-    if (pendingTraversal === 'back') paneHistoryIndex = Math.max(0, paneHistoryIndex - 1)
-    else if (pendingTraversal === 'forward') paneHistoryIndex = Math.min(paneHistory.length - 1, paneHistoryIndex + 1)
-    else if (paneHistory[paneHistoryIndex] !== route.fullPath) {
-      paneHistory.splice(paneHistoryIndex + 1)
-      paneHistory.push(route.fullPath)
-      paneHistoryIndex = paneHistory.length - 1
-    }
-    pendingTraversal = null
-  }
-  workspace.updatePane(props.paneId, {
-    fullPath: route.fullPath,
-    loading: false,
-    canGoBack: props.primaryRouter ? state.back != null : paneHistoryIndex > 0,
-    canGoForward: props.primaryRouter ? state.forward != null : paneHistoryIndex < paneHistory.length - 1,
-  })
+async function navigate(to: Parameters<Router['push']>[0]): Promise<void> {
+  const manager = getWindowManager()
+  if (manager) await manager.open(to, props.paneId)
+  else await props.globalRouter.push(to)
 }
 
-function back(): void {
-  const router = ensureRouter()
-  if (props.primaryRouter) {
-    router.back()
-    return
-  }
-  if (paneHistoryIndex <= 0) return
-  pendingTraversal = 'back'
-  router.back()
-}
-
-function forward(): void {
-  const router = ensureRouter()
-  if (props.primaryRouter) {
-    router.forward()
-    return
-  }
-  if (paneHistoryIndex >= paneHistory.length - 1) return
-  pendingTraversal = 'forward'
-  router.forward()
-}
-
-function requestGlobalNavigation(to: RouteLocationRaw): void {
-  if (typeof to === 'string' && /^https?:\/\//i.test(to)) window.location.replace(to)
-  else void props.globalRouter.push(to)
-}
-
-function ensureRouter(): Router {
-  if (paneRouter) return paneRouter
-  paneRouter = createPaneRouter({
-    prepareRoutes: applyAuthorizationMeta,
-    guard: (to, from) => authorizationGuard(to, from, {
-      allowGlobalSideEffects: false,
-      onGlobalNavigation: requestGlobalNavigation,
-    }),
-    onGlobalNavigation: requestGlobalNavigation,
-  })
-  removeAfterEach = paneRouter.afterEach((_to, _from, failure) => {
-    if (!failure) updateFromRouter(paneRouter!)
-    else {
-      pendingTraversal = null
-      workspace.updatePane(props.paneId, { loading: false })
-    }
-  })
-  return paneRouter
-}
-
-async function mountSecondary(to: RouteLocationRaw): Promise<void> {
-  const router = ensureRouter()
-  lastTarget = to
-  loadError.value = false
-  workspace.updatePane(props.paneId, { fullPath: router.resolve(to).fullPath, loading: true })
-  let failure
-  try {
-    failure = await router.push(to)
-  } catch {
-    loadError.value = true
-    workspace.updatePane(props.paneId, { loading: false })
-    return
-  }
-  if (isNavigationFailure(failure) && !isNavigationFailure(failure, NavigationFailureType.duplicated)) {
-    workspace.updatePane(props.paneId, { loading: false })
-    return
-  }
-  await router.isReady()
-  await nextTick()
-  if (destroyed || childApp || !mountTarget.value || !pinia) return
-  childApp = createApp(PaneRoot)
-  childApp.config.idPrefix = `${props.paneId}-`
-  childApp.use(pinia)
-  childApp.use(router)
-  childApp.use(i18n)
-  childApp.directive('math', vMath)
-  childApp.provide(paneIdKey, props.paneId)
-  childApp.mount(mountTarget.value)
-  updateFromRouter(router)
-}
-
-async function navigate(to: RouteLocationRaw): Promise<void> {
-  if (props.primaryRouter) {
-    await props.primaryRouter.push(to)
-    updateFromRouter(props.primaryRouter)
-    return
-  }
-  if (!childApp) {
-    await mountSecondary(to)
-    return
-  }
-  const router = ensureRouter()
-  lastTarget = to
-  loadError.value = false
-  workspace.updatePane(props.paneId, { loading: true })
-  try {
-    await router.push(to)
-  } catch {
-    loadError.value = true
-    workspace.updatePane(props.paneId, { loading: false })
-  }
-}
-
-function retry(): void {
-  if (lastTarget) void navigate(lastTarget)
-}
-
-function clear(): void {
-  if (props.primaryRouter) {
-    void navigate('/')
-    return
-  }
-  childApp?.unmount()
-  childApp = null
-  if (mountTarget.value) mountTarget.value.replaceChildren()
-  paneHistory.splice(0)
-  paneHistoryIndex = -1
-  pendingTraversal = null
-  lastTarget = null
-  loadError.value = false
-  workspace.updatePane(props.paneId, {
-    title: null,
-    fullPath: null,
-    loading: false,
-    canGoBack: false,
-    canGoForward: false,
-  })
-}
-
-function openInRightPane(event: MouseEvent): void {
-  if (!event.ctrlKey || event.button !== 0 || event.metaKey || event.shiftKey || event.altKey) return
+function openLink(event: MouseEvent): void {
+  if (event.button !== 0 || event.metaKey || event.shiftKey || event.altKey) return
   if (!(event.target instanceof Element)) return
-
   const target = internalRouteFromElement(event.target)
-  if (!target) return
-
-  const rightPaneId = paneForCtrlClick(props.paneId, workspace.panes)
+  if (!target || !props.globalRouter.resolve(target).matched.some(record => record.meta.requiresAuth)) return
+  const rightPaneId = event.ctrlKey ? paneForCtrlClick(props.paneId, workspace.panes) : props.paneId
   if (!rightPaneId) return
-  const runtime = getPaneRuntime(rightPaneId)
-  if (!runtime) return
-
   event.preventDefault()
   event.stopPropagation()
-  workspace.activatePane(rightPaneId)
-  void runtime.navigate(target)
+  navigation.activatePane(rightPaneId)
+  void getPaneRuntime(rightPaneId)?.navigate(target)
 }
 
 function onPanePointerDown(event: PointerEvent): void {
   navigation.activatePane(props.paneId)
   if (!event.ctrlKey || event.button !== 0 || event.metaKey || event.shiftKey || event.altKey) return
-  if (!(event.target instanceof Element)) return
-
-  if (!internalRouteFromElement(event.target)) return
-  const rightPaneId = paneForCtrlClick(props.paneId, workspace.panes)
-  if (!rightPaneId || !getPaneRuntime(rightPaneId)) return
-
-  event.preventDefault()
+  if (!(event.target instanceof Element) || !internalRouteFromElement(event.target)) return
+  if (paneForCtrlClick(props.paneId, workspace.panes)) event.preventDefault()
 }
 
 function hasLinkDrag(event: DragEvent): boolean {
@@ -274,52 +102,36 @@ function onDrop(event: DragEvent): void {
   void navigate(target)
 }
 
-function destroy(): void {
-  if (destroyed) return
-  destroyed = true
-  removeAfterEach?.()
-  removeAfterEach = null
-  childApp?.unmount()
-  childApp = null
-  if (mountTarget.value) mountTarget.value.replaceChildren()
-}
-
 onMounted(() => {
-  const router = ensureRouter()
   if (!paneElement.value) return
-  if (props.primaryRouter) {
-    removeAfterEach = router.afterEach((_to, _from, failure) => {
-      if (!failure) updateFromRouter(router)
-      else {
-        pendingTraversal = null
-        workspace.updatePane(props.paneId, { loading: false })
-      }
-    })
-    updateFromRouter(router)
-  }
+  const manager = getWindowManager()
+  if (mountTarget.value) detach = manager?.attach(props.paneId, mountTarget.value)
   unregisterRuntime = registerPaneRuntime({
     id: props.paneId,
     root: paneElement.value,
-    router,
+    get router() { return manager?.routerFor(props.paneId) ?? props.globalRouter },
     navigate,
-    back,
-    forward,
-    clear,
-    destroy,
+    focus: () => manager?.focusPane(props.paneId),
+    back: () => { void manager?.previous() },
+    forward: () => { void manager?.next() },
+    clear: () => {
+      manager?.parkPane(props.paneId)
+      workspace.updatePane(props.paneId, { fullPath: null, title: null, canGoBack: false, canGoForward: false })
+    },
+    destroy: () => { detach?.(); detach = undefined },
   })
 })
 
 onBeforeUnmount(() => {
   unregisterRuntime?.()
-  unregisterRuntime = null
-  destroy()
+  detach?.()
 })
 </script>
 
 <template>
   <section
     ref="paneElement"
-    class="workspace-pane min-w-0 min-h-0 focus:outline-none"
+    class="workspace-pane h-full min-w-0 min-h-0 focus:outline-none"
     :class="single
       ? ''
       : [
@@ -328,9 +140,9 @@ onBeforeUnmount(() => {
           dragOver ? 'workspace-pane-drag-over' : '',
         ]"
     :aria-label="t('workspace.panel_number', { number: index })"
-    :tabindex="single ? undefined : 0"
+    :tabindex="0"
     @pointerdown.capture="onPanePointerDown"
-    @click.capture="openInRightPane"
+    @click.capture="openLink"
     @dragstart.capture="onDragStart"
     @dragover.capture="onDragOver"
     @dragleave="onDragLeave"
@@ -380,21 +192,14 @@ onBeforeUnmount(() => {
     </div>
     <div
       class="workspace-pane-scroll min-h-0"
-      :class="single ? '' : ['overflow-auto', showHeader ? 'h-[calc(100%-2.5rem)]' : 'h-full']"
+      :class="showHeader ? 'h-[calc(100%-2.5rem)]' : 'h-full'"
     >
-      <div v-if="primaryRouter && paneState()?.fullPath" :class="single ? '' : 'min-h-full p-4 sm:p-5'">
+      <div ref="mountTarget" v-show="paneState()?.fullPath" class="h-full min-h-0" :class="single ? '' : 'p-4 sm:p-5'">
         <slot />
       </div>
-      <div v-else-if="loadError" class="flex h-full min-h-48 flex-col items-center justify-center gap-3 p-6 text-center text-sm text-danger-700">
-        <span>{{ t('workspace.load_error') }}</span>
-        <button type="button" class="rounded-md border border-danger-300 px-3 py-1.5 hover:bg-danger-50" @click="retry">
-          {{ t('workspace.retry') }}
-        </button>
-      </div>
-      <div v-else-if="!paneState()?.fullPath" class="flex h-full min-h-48 items-center justify-center p-6 text-center text-sm text-neutral-500">
+      <div v-if="!paneState()?.fullPath" class="flex h-full min-h-48 items-center justify-center p-6 text-center text-sm text-neutral-500">
         {{ t('workspace.choose_menu_item') }}
       </div>
-      <div v-else ref="mountTarget" class="min-h-full p-4 sm:p-5" />
     </div>
   </section>
 </template>

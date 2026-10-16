@@ -43,6 +43,18 @@ final class PurchaseInvoiceValidation
     }
 
     /**
+     * Režim odpočtu, když ho volající neurčil. Od neplátce DPH nárok na odpočet není
+     * (§ 72/1) — výjimkou je reverse charge, kde si příjemce daň samovyměří a odečte.
+     * Neznámé plátcovství (null) se nehádá, zůstává plný nárok.
+     *
+     * @param array<string,mixed> $invoice
+     */
+    public static function defaultVatDeduction(?bool $vendorIsVatPayer, array $invoice): string
+    {
+        return $vendorIsVatPayer === false && !self::isReverseCharge($invoice) ? 'none' : 'full';
+    }
+
+    /**
      * @param array<int, float>|null $vatRates
      * @return array<string, string[]>
      */

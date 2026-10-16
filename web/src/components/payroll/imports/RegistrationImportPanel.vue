@@ -821,6 +821,7 @@ function historyRows(history: RegistrationHistory): { key: string; label: string
           <div>
             <h4 class="text-sm font-medium text-neutral-800">{{ t('payroll_imports.registration.takeover.wages_title') }}</h4>
             <p class="mt-1 max-w-3xl text-xs text-neutral-500">{{ t('payroll_imports.registration.takeover.wages_hint') }}</p>
+            <p class="mt-2 max-w-3xl rounded-md bg-warning-50 px-3 py-2 text-xs text-warning-800" data-testid="registration-takeover-missing">{{ t('payroll_imports.registration.takeover.missing_data_hint') }}</p>
             <p v-if="takeover?.start_period" class="mt-1 text-xs text-neutral-600">{{ t('payroll_imports.registration.takeover.start_period', { period: formatPeriod(takeover.start_period) }) }}</p>
             <p v-else class="mt-1 text-xs font-medium text-warning-700">{{ t('payroll_imports.registration.takeover.no_start_period') }}</p>
           </div>

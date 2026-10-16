@@ -12,7 +12,7 @@ final class PayrollInputTabularParser
 {
     private const MAX_BYTES = 5_000_000;
     private const MAX_ROWS = 10_000;
-    private const MAX_COLUMNS = 24;
+    private const MAX_COLUMNS = 32;
     private const MAX_XLSX_FILES = 200;
     private const MAX_XLSX_UNCOMPRESSED_BYTES = 25_000_000;
     private const DEFAULT_REQUIRED = [
@@ -173,7 +173,7 @@ final class PayrollInputTabularParser
                 }
                 if ($highestColumnIndex > self::MAX_COLUMNS) {
                     throw new \InvalidArgumentException(
-                        'Import smí obsahovat nejvýše 24 sloupců.'
+                        'Import smí obsahovat nejvýše 32 sloupců.'
                     );
                 }
                 $header = [];
@@ -265,7 +265,7 @@ final class PayrollInputTabularParser
     private function assertHeader(array $header, array $required): void
     {
         if (count($header) > self::MAX_COLUMNS) {
-            throw new \InvalidArgumentException('Import smí obsahovat nejvýše 24 sloupců.');
+            throw new \InvalidArgumentException('Import smí obsahovat nejvýše 32 sloupců.');
         }
         if (count($header) !== count(array_unique($header))) {
             throw new \InvalidArgumentException('Hlavička obsahuje duplicitní názvy sloupců.');

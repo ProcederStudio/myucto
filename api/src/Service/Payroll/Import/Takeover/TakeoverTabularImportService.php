@@ -93,11 +93,21 @@ final class TakeoverTabularImportService
     /**
      * Sloupce, které soubor mít nemusí.
      *
-     * Parser má strop 24 sloupců (ochrana proti rozjetému exportu), takže jich
-     * smí přibýt nejvýš tolik, kolik do stropu zbývá — vzorový soubor je proto
-     * vypisuje všechny a je přesně na stropu.
+     * Parser má strop 32 sloupců (ochrana proti rozjetému exportu), takže jich
+     * smí přibýt nejvýš tolik, kolik do stropu zbývá; vzorový soubor je
+     * vypisuje všechny.
      */
     private const OPTIONAL_COLUMNS = ['worked_hours', 'activity_code', 'external_relationship_ref'];
+
+    /**
+     * Nepovinné čerpání ročních košů benefitů (§ 6 odst. 9 písm. d) a m) ZDP) v převzatém
+     * měsíci; chybějící sloupec = zdroj údaj nenese (NULL), ne nula.
+     */
+    private const BENEFIT_COLUMNS = [
+        'old_age_savings_minor',
+        'non_cash_health_benefit_minor',
+        'non_cash_leisure_benefit_minor',
+    ];
 
     public function __construct(
         private readonly PayrollInputTabularParser $parser,
@@ -128,6 +138,7 @@ final class TakeoverTabularImportService
             ...array_map(self::crownColumn(...), self::AMOUNT_COLUMNS),
             'payout_date',
             ...self::OPTIONAL_COLUMNS,
+            ...array_map(self::crownColumn(...), self::BENEFIT_COLUMNS),
         ];
     }
 
@@ -396,6 +407,9 @@ final class TakeoverTabularImportService
             deductionsMinor: self::amount($raw, 'deductions_minor'),
             netPayableMinor: self::amount($raw, 'net_payable_minor'),
             payoutDate: self::optionalDate($raw, 'payout_date'),
+            oldAgeSavingsContributionMinor: self::optionalAmount($raw, 'old_age_savings_minor'),
+            nonCashHealthBenefitMinor: self::optionalAmount($raw, 'non_cash_health_benefit_minor'),
+            nonCashLeisureBenefitMinor: self::optionalAmount($raw, 'non_cash_leisure_benefit_minor'),
         );
 
         $relationshipRef = self::optionalText($raw, 'external_relationship_ref')
@@ -477,6 +491,24 @@ final class TakeoverTabularImportService
         }
 
         return $matches[0];
+    }
+
+    /**
+     * Nepovinná částka: bez sloupce (v korunách ani haléřích) `null`.
+     *
+     * @param array<string,string|int> $raw
+     */
+    private static function optionalAmount(array $raw, string $column): ?int
+    {
+        if (!array_key_exists(self::crownColumn($column), $raw) && !array_key_exists($column, $raw)) {
+            return null;
+        }
+        $value = self::amount($raw, $column);
+        if ($value < 0) {
+            throw new \InvalidArgumentException(sprintf('Sloupec „%s“ nesmí být záporný.', self::crownColumn($column)));
+        }
+
+        return $value;
     }
 
     /**

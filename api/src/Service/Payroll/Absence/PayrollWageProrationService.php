@@ -116,6 +116,7 @@ final class PayrollWageProrationService
         int $employmentId,
         string $period,
         int $monthlyGrossMinor,
+        ?array $employment = null,
     ): array {
         $start = \DateTimeImmutable::createFromFormat('!Y-m-d', $period . '-01');
         if ($start === false || $start->format('Y-m') !== $period) {
@@ -135,11 +136,22 @@ final class PayrollWageProrationService
         } catch (\InvalidArgumentException) {
             return self::unsupported('import_summary_inconsistent');
         }
+        $window = $this->employmentWindow($supplierId, $employmentId, $period, $employment);
+        if (isset($window['reason'])) {
+            return self::unsupported($window['reason']);
+        }
 
-        $rows = $this->absencesInMonth($supplierId, $employmentId, $periodStart, $periodEnd);
+        // Nepřítomnost, která pokračuje z předchozího měsíce, nese souhrn tohoto
+        // měsíce už sám (souhrn jsou hodiny celého měsíce). Datovaný záznam téhož
+        // druhu by tutéž dobu krátil podruhé.
+        $rows = array_values(array_filter(
+            $this->absencesInMonth($supplierId, $employmentId, $periodStart, $periodEnd),
+            static fn (array $row): bool => !((string) ($row['date_from'] ?? '') < $periodStart
+                && array_intersect_key(array_flip(self::titlesOfAbsence($row)), $summaryTitles) !== []),
+        ));
         $datedTitles = [];
         $holidayMinutes = 0;
-        $fundMinutes = null;
+        $fundMinutes = $window['fund'] ?? null;
         if ($rows !== []) {
             $pending = self::pendingDecisionReason($rows);
             if ($pending !== null) {
@@ -147,7 +159,7 @@ final class PayrollWageProrationService
             }
             // Pořadí jako ve forMonth(): chybějící kalendář je bližší příčina
             // než cokoliv, co se z absencí dopočítá.
-            $fundMinutes = $this->fund->minutes($supplierId, $employmentId, $period);
+            $fundMinutes ??= $this->fund->minutes($supplierId, $employmentId, $period);
             if ($fundMinutes === null) {
                 return self::unsupported('missing_work_calendar');
             }
@@ -172,7 +184,10 @@ final class PayrollWageProrationService
             // Poslední záchrana: doba se nedala změřit ani směnami, ani
             // rozvrhem. Krátit pak jen podle souhrnu by datovanou nepřítomnost
             // tiše nechalo zaplacenou, a to je horší než nenavrhnout nic.
-            if ($datedTitles === []) {
+            // Nepřítomnost, která v měsíci leží jen na dnech bez plánované
+            // práce (nemoc přes víkend), ale nemá co krátit — to není díra
+            // v evidenci, ale nula.
+            if ($datedTitles === [] && $this->plannedMinutesOfAbsences($supplierId, $employmentId, $rows, $periodStart, $periodEnd) > 0) {
                 return self::unsupported('dated_absence_without_shift_time');
             }
             if (array_intersect_key($datedTitles, $summaryTitles) !== []) {
@@ -186,6 +201,11 @@ final class PayrollWageProrationService
         foreach ($datedTitles as $title => $minutes) {
             $byTitle[$title] = ($byTitle[$title] ?? 0) + $minutes;
         }
+        if ($window !== null) {
+            $unpaid = PayrollWageReplacementTitle::Unpaid->value;
+            $byTitle[$unpaid] = ($byTitle[$unpaid] ?? 0) + $window['outside'];
+            $holidayMinutes += $window['outside_holidays'];
+        }
         if ($byTitle === []) {
             return self::none();
         }
@@ -197,7 +217,9 @@ final class PayrollWageProrationService
         if ($fundMinutes <= 0) {
             return self::unsupported('empty_work_fund');
         }
-        if (isset($summary['values']['fund_hours'])
+        // Fond z podkladů u nástupu či skončení v průběhu měsíce je jen jeho
+        // odpracovávaná část; s rozvrhem celého měsíce se proto neporovnává.
+        if ($window === null && isset($summary['values']['fund_hours'])
             && $this->calendars->fundCheck($supplierId, $employmentId, $periodStart, $summary['values']['fund_hours']) !== null
         ) {
             return self::unsupported('import_fund_mismatch');
@@ -209,7 +231,59 @@ final class PayrollWageProrationService
             return self::unsupported('absence_exceeds_work_fund');
         }
 
-        return $this->prorated($supplierId, $employmentId, $period, $monthlyGrossMinor, $fundMinutes, $byTitle);
+        return $this->prorated(
+            $supplierId,
+            $employmentId,
+            $period,
+            $monthlyGrossMinor,
+            $fundMinutes,
+            $byTitle,
+            $window === null ? null : $window['fund'] + $window['holidays'],
+        );
+    }
+
+    /**
+     * Tituly, kterými může nepřítomnost krátit mzdu (nemoc podle okna § 192 dva).
+     *
+     * @param array<string,mixed> $row
+     * @return list<string>
+     */
+    private static function titlesOfAbsence(array $row): array
+    {
+        $type = (string) ($row['absence_type'] ?? '');
+        if ($type === 'dpn' || $type === 'quarantine') {
+            return [
+                PayrollWageReplacementTitle::SicknessCompensation->value,
+                PayrollWageReplacementTitle::StateBenefit->value,
+            ];
+        }
+        $title = PayrollWageReplacementTitle::forAbsenceType($type);
+
+        return $title === null ? [] : [$title->value];
+    }
+
+    /**
+     * Plánované minuty podle rozvrhu kalendáře ve dnech nepřítomností v měsíci.
+     *
+     * @param list<array<string,mixed>> $rows
+     */
+    private function plannedMinutesOfAbsences(
+        int $supplierId,
+        int $employmentId,
+        array $rows,
+        string $periodStart,
+        string $periodEnd,
+    ): int {
+        $dates = [];
+        foreach ($rows as $row) {
+            $from = max((string) ($row['date_from'] ?? ''), $periodStart);
+            $to = min((string) ($row['date_to'] ?? ''), $periodEnd);
+            for ($day = new \DateTimeImmutable($from); $day->format('Y-m-d') <= $to; $day = $day->modify('+1 day')) {
+                $dates[$day->format('Y-m-d')] = true;
+            }
+        }
+
+        return array_sum($this->schedule->plannedMinutes($supplierId, $employmentId, array_keys($dates)));
     }
 
     /**
@@ -234,6 +308,13 @@ final class PayrollWageProrationService
     }
 
     /**
+     * `$employment` je trvání vztahu v měsíci (nástup nebo skončení v jeho
+     * průběhu). Dny mimo něj jsou neodpracovaná doba bez náhrady a krátí se
+     * stejně jako nepřítomnost — z fondu celého měsíce podle rozvrhu vztahu
+     * ({@see employmentWindow()}), tak jako u předchozích mzdových programů,
+     * a to jedinou cestou pro předpis i rychlé zadání.
+     *
+     * @param array{from:string,to:string}|null $employment
      * @return array{
      *   supported:bool,
      *   reason:?string,
@@ -249,6 +330,7 @@ final class PayrollWageProrationService
         int $employmentId,
         string $period,
         int $monthlyGrossMinor,
+        ?array $employment = null,
     ): array {
         $start = \DateTimeImmutable::createFromFormat('!Y-m-d', $period . '-01');
         if ($start === false || $start->format('Y-m') !== $period) {
@@ -257,8 +339,12 @@ final class PayrollWageProrationService
         $periodStart = $start->format('Y-m-d');
         $periodEnd = $start->modify('last day of this month')->format('Y-m-d');
 
+        $window = $this->employmentWindow($supplierId, $employmentId, $period, $employment);
+        if (isset($window['reason'])) {
+            return self::unsupported($window['reason']);
+        }
         $rows = $this->absencesInMonth($supplierId, $employmentId, $periodStart, $periodEnd);
-        if ($rows === []) {
+        if ($rows === [] && $window === null) {
             return self::none();
         }
         $pending = self::pendingDecisionReason($rows);
@@ -266,14 +352,16 @@ final class PayrollWageProrationService
             return self::unsupported($pending);
         }
 
-        $fundMinutes = $this->fund->minutes($supplierId, $employmentId, $period);
+        $fundMinutes = $window['fund'] ?? $this->fund->minutes($supplierId, $employmentId, $period);
         if ($fundMinutes === null) {
             return self::unsupported('missing_work_calendar');
         }
 
         // Měsíc se směnami se měří směnami. Kalendářní náhrada patří jen měsíci
         // ze souhrnu importu, kde rozvrh směn z principu nevznikne.
-        $dated = $this->datedReplacedMinutes($supplierId, $rows, $periodStart, $periodEnd);
+        $dated = $rows === []
+            ? ['by_title' => [], 'holiday_minutes' => 0, 'reason' => null]
+            : $this->datedReplacedMinutes($supplierId, $rows, $periodStart, $periodEnd);
         if ($dated['reason'] !== null) {
             return self::unsupported($dated['reason']);
         }
@@ -282,6 +370,12 @@ final class PayrollWageProrationService
             $dated['by_title'],
             static fn (int $minutes): bool => $minutes > 0,
         );
+        $holidayMinutes = $dated['holiday_minutes'];
+        if ($window !== null && $window['outside'] > 0) {
+            $unpaid = PayrollWageReplacementTitle::Unpaid->value;
+            $byTitle[$unpaid] = ($byTitle[$unpaid] ?? 0) + $window['outside'];
+            $holidayMinutes += $window['outside_holidays'];
+        }
         if ($byTitle === []) {
             return self::none();
         }
@@ -291,11 +385,54 @@ final class PayrollWageProrationService
         // Fond svátky nezná, ale mezi nahrazenými minutami jsou — o tolik smí
         // absence fond přesáhnout. Cokoli nad to znamená, že si evidence
         // odporuje (třeba směna publikovaná mimo rozvrh) a číslo by lhalo.
-        if (array_sum($byTitle) - $dated['holiday_minutes'] > $fundMinutes) {
+        if (array_sum($byTitle) - $holidayMinutes > $fundMinutes) {
             return self::unsupported('absence_exceeds_work_fund');
         }
 
-        return $this->prorated($supplierId, $employmentId, $period, $monthlyGrossMinor, $fundMinutes, $byTitle);
+        return $this->prorated(
+            $supplierId,
+            $employmentId,
+            $period,
+            $monthlyGrossMinor,
+            $fundMinutes,
+            $byTitle,
+            $window === null ? null : $window['fund'] + $window['holidays'],
+        );
+    }
+
+    /**
+     * Trvání vztahu jen v části měsíce: fond celého měsíce podle posledního
+     * účinného rozvrhu vztahu a minuty dnů mimo trvání vztahu. Celý fond se bere
+     * i tehdy, když kalendář platí až od nástupu — jinak by se nástup v průběhu
+     * měsíce nekrátil vůbec. `null` = vztah trvá celý měsíc (nebo nebyl zadán).
+     *
+     * @param array{from:string,to:string}|null $employment
+     * @return array{fund:int,holidays:int,outside:int,outside_holidays:int}|array{reason:string}|null
+     */
+    private function employmentWindow(int $supplierId, int $employmentId, string $period, ?array $employment): ?array
+    {
+        if ($employment === null) {
+            return null;
+        }
+        $plan = $this->fund->fullMonthPlan($supplierId, $employmentId, $period);
+        if ($plan === null) {
+            return ['reason' => 'missing_work_calendar'];
+        }
+        $dates = array_keys($plan);
+        if ($employment['from'] > end($dates) || $employment['to'] < $dates[0]) {
+            return ['reason' => 'employment_outside_month'];
+        }
+        $window = ['fund' => 0, 'holidays' => 0, 'outside' => 0, 'outside_holidays' => 0];
+        foreach ($plan as $date => $day) {
+            $window['fund'] += $day['planned'];
+            $window['holidays'] += $day['holiday'];
+            if ($date < $employment['from'] || $date > $employment['to']) {
+                $window['outside'] += $day['planned'] + $day['holiday'];
+                $window['outside_holidays'] += $day['holiday'];
+            }
+        }
+
+        return $window['outside'] === 0 ? null : $window;
     }
 
     /**
@@ -688,11 +825,12 @@ final class PayrollWageProrationService
         int $monthlyGrossMinor,
         int $fundMinutes,
         array $byTitle,
+        ?int $wageFundMinutes = null,
     ): array {
         // Kontroly výše stojí na odpracovávaném fondu (bez svátků), krácení na
         // fondu, který měsíční mzda pokrývá — včetně svátků (§ 115 odst. 3 ZP),
         // stejně jako dosažená mzda za přesčas a fond v měsíčním hlášení.
-        $wageFundMinutes = $fundMinutes
+        $wageFundMinutes ??= $fundMinutes
             + ($this->fund->holidayMinutes($supplierId, $employmentId, $period) ?? 0);
         $result = MonthlyWageProration::calculate(
             $monthlyGrossMinor,

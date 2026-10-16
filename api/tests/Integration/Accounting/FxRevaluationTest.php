@@ -12,6 +12,7 @@ use MyInvoice\Repository\ChartOfAccountsRepository;
 use MyInvoice\Repository\ClosingRepository;
 use MyInvoice\Repository\JournalEntryRepository;
 use MyInvoice\Service\Accounting\ChartOfAccountsSeeder;
+use MyInvoice\Service\Accounting\Closing\ClosingException;
 use MyInvoice\Service\Accounting\Closing\ClosingService;
 use MyInvoice\Service\Accounting\Closing\ClosingSourceId;
 use MyInvoice\Service\Accounting\PostingService;
@@ -343,7 +344,9 @@ final class FxRevaluationTest extends TestCase
     public function testM8ClearsPriorUnreversedAdjustmentWhenItemIsNoLongerOpen(): void
     {
         $invoiceId = $this->postEurInvoice(1000.00, 24.50);
-        $this->posting->postDocument($this->supplierId, 'fx_revaluation', 987654322, [
+        // Syntetické source_id ve slotu saldokonta (period_id * 10 + 1) — slot banky
+        // (…2) saldokonto záměrně nezapočítává.
+        $this->posting->postDocument($this->supplierId, 'fx_revaluation', 987654331, [
             [
                 'account_code' => '311',
                 'side' => 'debit',
@@ -401,6 +404,89 @@ final class FxRevaluationTest extends TestCase
               AND source_type = 'fx_revaluation'"
         )->fetchColumn();
         self::assertSame(1, $count, 'Jediný FX zápis — žádný duplikát.');
+    }
+
+    // ── (c) peněžní účet 379 v EUR — přecenění z deníku ─────────────────────
+
+    /**
+     * Eurový faktoring: záloha od faktora 1 000 EUR kurzem 24,50 (MD 221 / D 379, obě
+     * nohy s FX stopou) a vedle ní korunový faktoring na tomtéž 379. K 31. 12. při kurzu
+     * 25,10 se závazek 379 v EUR zvýší o 600 Kč (ztráta), korunový pohyb se nepřeceňuje.
+     * Re-run kroku zapíše totéž (in-place) a saldokonto přecenění banky ani 379 neotáčí.
+     */
+    public function testOtherLiability379InEurIsRevaluedFromJournalAndRerunIsIdempotent(): void
+    {
+        $this->posting->postDocument($this->supplierId, 'manual', null, [
+            ['account_code' => '221', 'side' => 'debit', 'amount' => 24500.00,
+             'currency_code' => 'EUR', 'fx_rate' => 24.50, 'amount_foreign' => 1000.00],
+            ['account_code' => '379', 'side' => 'credit', 'amount' => 24500.00,
+             'currency_code' => 'EUR', 'fx_rate' => 24.50, 'amount_foreign' => 1000.00],
+        ], ['entry_date' => self::YEAR . '-05-10', 'posted_by' => $this->userId]);
+        $this->manual([
+            self::l('221', 'debit', 10000.00),
+            self::l('379', 'credit', 10000.00),
+        ], self::YEAR . '-05-11');
+
+        $this->closing->start($this->supplierId, $this->periodId, $this->rv(), $this->meta());
+        $preview = $this->closing->fxPreview($this->supplierId, $this->periodId);
+        self::assertCount(1, $preview['ledger']['lines']);
+        $line = $preview['ledger']['lines'][0];
+        self::assertSame('379', $line['account_code']);
+        self::assertSame(self::cents(-1000.00), self::cents($line['foreign_balance']));
+        self::assertSame(self::cents(-600.00), self::cents($line['diff']));
+        self::assertSame('loss', $line['direction']);
+
+        foreach ([1, 2] as $run) {
+            $this->closing->runFxRevaluation($this->supplierId, $this->periodId, [], $this->rv(), $this->meta());
+            $slot2 = $this->journal->findBySource($this->supplierId, 'fx_revaluation', ClosingSourceId::fxBank($this->periodId));
+            self::assertNotNull($slot2, "Běh {$run}: přecenění 379 jde do slotu banky.");
+            $byCode = $this->linesByAccountCode((int) $slot2['id']);
+            self::assertSame(self::cents(600.00), self::cents($byCode['379']['credit']), "Běh {$run}: D 379 600.");
+            self::assertSame(self::cents(600.00), self::cents($byCode['563']['debit']), "Běh {$run}: MD 563 600.");
+            self::assertNull(
+                $this->journal->findBySource($this->supplierId, 'fx_revaluation', ClosingSourceId::fxSaldo($this->periodId)),
+                "Běh {$run}: saldokonto přecenění 379 neprotiúčtuje.",
+            );
+        }
+    }
+
+    /** Účet přeceňovaný z deníku nesmí přijít i v bank_rows — přecenil by se dvakrát. */
+    public function testLedgerRevaluedAccountInBankRowsIsRejected(): void
+    {
+        $this->closing->start($this->supplierId, $this->periodId, $this->rv(), $this->meta());
+        try {
+            $this->closing->fxPreview(
+                $this->supplierId,
+                $this->periodId,
+                [['account_code' => '379', 'currency_code' => 'EUR', 'foreign_balance' => -1000.00]],
+            );
+            self::fail('379 v bank_rows musí být odmítnut.');
+        } catch (ClosingException $e) {
+            self::assertSame('fx_ledger_account_in_bank_rows', $e->errorCode);
+        }
+    }
+
+    /**
+     * Přecenění banky ze slotu 2 se v saldokontu nesmí objevit jako „už zaúčtovaná úprava":
+     * re-run kroku by jinak bankovní přecenění 221 protiúčtoval ve slotu saldokonta.
+     */
+    public function testRerunDoesNotCounterBookBankRevaluationInSaldoSlot(): void
+    {
+        $this->postForeignAccountMovement('221', 'debit', 2000.00, 50000.00, 25.00, self::YEAR . '-01-15');
+        $bankRows = [['account_code' => '221', 'currency_code' => 'EUR', 'foreign_balance' => 2000.00]];
+
+        $this->closing->start($this->supplierId, $this->periodId, $this->rv(), $this->meta());
+        $this->closing->runFxRevaluation($this->supplierId, $this->periodId, $bankRows, $this->rv(), $this->meta());
+        $this->closing->runFxRevaluation($this->supplierId, $this->periodId, $bankRows, $this->rv(), $this->meta());
+
+        self::assertNull(
+            $this->journal->findBySource($this->supplierId, 'fx_revaluation', ClosingSourceId::fxSaldo($this->periodId)),
+            'Bez otevřených dokladů nevzniká zápis saldokonta ani při re-runu.',
+        );
+        $slot2 = $this->journal->findBySource($this->supplierId, 'fx_revaluation', ClosingSourceId::fxBank($this->periodId));
+        self::assertNotNull($slot2);
+        $byCode = $this->linesByAccountCode((int) $slot2['id']);
+        self::assertSame(self::cents(200.00), self::cents($byCode['221']['debit']), '2 000 × 25,10 − 50 000.');
     }
 
     // ── R10b: bankProposals z deníku (oprava bugu s bank_statements per měnu) ──

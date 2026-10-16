@@ -1,3 +1,4 @@
+import { requestSupplierId } from '@/workspace/supplierContext'
 import { api } from './client'
 import type { OutboxSubmission } from './dataBox'
 
@@ -295,6 +296,7 @@ export interface TaxSubmissionStats {
 }
 
 export interface TaxSubmissionListParams {
+  submission_id?: number
   status?: SubmissionStatus | 'all'
   form_code?: string
   q?: string
@@ -457,7 +459,7 @@ export function appendStepUpProof(data: FormData, proof: EpoStepUpProof): void {
 }
 
 function sid(): string {
-  const value = localStorage.getItem('myinvoice.current_supplier_id')
+  const value = requestSupplierId()
   return value && /^\d+$/.test(value) ? value : ''
 }
 
@@ -465,6 +467,7 @@ export const epoSubmissionsApi = {
   list: (params: TaxSubmissionListParams = {}) =>
     api.get<TaxSubmissionListResponse>('/reports/submissions', {
       params: {
+        submission_id: params.submission_id,
         status: params.status && params.status !== 'all' ? params.status : undefined,
         form_code: params.form_code && params.form_code !== 'all' ? params.form_code : undefined,
         q: params.q?.trim() || undefined,

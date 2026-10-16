@@ -488,6 +488,24 @@ final class PayrollRunSnapshotBuilder
                             . '&employment=' . $employmentId,
                     false,
                 );
+            } elseif (($pendingRecurringCounts[$employmentId] ?? 0) > 0) {
+                // Vztah má jiné vstupy (náhradu, příplatek), ale pravidelná složka
+                // — typicky měsíční mzda — za měsíc vstup nemá: předpis skončil
+                // v ručním posouzení. Bez téhle kontroly se mzda tiše nevyplatila.
+                $validations[] = new PayrollRunValidation(
+                    'warning',
+                    'recurring_component_without_input',
+                    'employment',
+                    $employmentId,
+                    sprintf(
+                        '%s: pravidelná mzdová složka (typicky měsíční mzda) za období nemá vstup, '
+                        . 'protože její částku nešlo automaticky určit. V Rychlém zadání mezd zadejte '
+                        . 'částku ručně nebo odstraňte příčinu z hlášení předpisu a obnovte podklady běhu.',
+                        (string) $row['full_name'],
+                    ),
+                    '/payroll/quick-inputs?period=' . substr($periodStart, 0, 7) . '&employment=' . $employmentId,
+                    true,
+                );
             }
             foreach ($this->discountValidations(
                 $row,
@@ -2463,6 +2481,8 @@ final class PayrollRunSnapshotBuilder
                     ? null
                     : (int) $row['total_limit_minor'],
                 'withheld_total_minor' => (int) $row['withheld_total_minor'],
+                // Část limitu sražená předchozím mzdovým programem (mimo ledger).
+                'taken_over_withheld_minor' => (int) ($row['taken_over_withheld_minor'] ?? 0),
                 'valid_from' => (string) $row['valid_from'],
                 'valid_to' => $row['valid_to'],
                 // Den doručení dohody plátci mzdy (§ 2045 odst. 2 OZ). Ve

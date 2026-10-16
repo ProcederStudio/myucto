@@ -2,6 +2,8 @@ import axios from 'axios'
 import { readStorageQuotaHeaders } from '@/api/storageQuota'
 import { isClientDomainAuthenticatedPath } from '@/security/clientRoutePolicy'
 import { safeReturnPath } from '@/utils/returnPath'
+import { getWindowSupplierScope, requestSupplierId } from '@/workspace/supplierContext'
+import { postWindowFrameMessage } from '@/workspace/frameProtocol'
 
 export const api = axios.create({
   baseURL: '/api',
@@ -30,14 +32,15 @@ export function setCsrfToken(token: string | null) {
 }
 export function setDomainSupplierLock(supplierId: number | null) {
   domainSupplierLock = supplierId && supplierId > 0 ? supplierId : null
-  if (domainSupplierLock !== null) localStorage.removeItem('myinvoice.current_supplier_id')
+  if (domainSupplierLock !== null && !getWindowSupplierScope()) localStorage.removeItem('myinvoice.current_supplier_id')
 }
 export function setForbiddenPermissionHandler(handler: () => void | Promise<void>) {
   forbiddenPermissionHandler = handler
 }
 
 api.interceptors.request.use((config) => {
-  if (csrfToken && config.method && config.method.toUpperCase() !== 'GET') {
+  if (csrfToken && config.method && config.method.toUpperCase() !== 'GET'
+      && !config.headers.has('X-CSRF-Token')) {
     config.headers.set('X-CSRF-Token', csrfToken)
   }
   // Pošli aktuální UI locale, aby backend hlášky chodily ve správném jazyce.
@@ -47,11 +50,12 @@ api.interceptors.request.use((config) => {
 
   // Multi-supplier — aktuální supplier z localStorage (Pinia persist).
   // Když chybí/neplatný, server použije výchozí firmu účtu (users.default_supplier_id).
-  if (domainSupplierLock !== null) {
+  const windowScope = getWindowSupplierScope()
+  if (domainSupplierLock !== null && !windowScope) {
     config.headers.delete('X-Supplier-Id')
   } else {
-    const sid = localStorage.getItem('myinvoice.current_supplier_id')
-    if (sid && /^\d+$/.test(sid) && !config.headers.has('X-Supplier-Id')) {
+    const sid = requestSupplierId()
+    if (sid && (windowScope || !config.headers.has('X-Supplier-Id'))) {
       config.headers.set('X-Supplier-Id', sid)
     }
   }
@@ -64,6 +68,11 @@ api.interceptors.response.use(
     // H-10: stav diskové kvóty jede v hlavičkách každé odpovědi, ať se admin
     // o blížícím se zámku dozví dřív, než mu přestane jít uložit doklad.
     readStorageQuotaHeaders(response.headers)
+    const scope = getWindowSupplierScope()
+    if (scope && !['get', 'head', 'options'].includes(response.config.method?.toLowerCase() ?? 'get')) {
+      const resource = new URL(response.config.url ?? '', window.location.origin).pathname.replace(/^\/api\//, '/').split('/')[1]
+      if (resource && /^[a-z0-9-]+$/.test(resource)) postWindowFrameMessage({ type: 'myucto-window-mutation', id: scope.windowId, resource })
+    }
     return response
   },
   (error) => {
@@ -83,6 +92,11 @@ api.interceptors.response.use(
       'invalid_token',
       'mfa_reauthentication_required',
     ].includes(code)) {
+      const windowScope = getWindowSupplierScope()
+      if (windowScope) {
+        postWindowFrameMessage({ type: 'myucto-window-global', id: windowScope.windowId, to: '/login' })
+        return Promise.reject(error)
+      }
       const path = window.location.pathname
       if (!path.startsWith('/login') && !path.startsWith('/setup')) {
         /*
@@ -111,10 +125,14 @@ api.interceptors.response.use(
       }
     }
     if (status === 423 && code === 'session_locked') {
+      const frame = getWindowSupplierScope()
+      if (frame) postWindowFrameMessage({ type: 'myucto-window-locked', id: frame.windowId })
       window.dispatchEvent(new CustomEvent('myinvoice:session-locked'))
     }
     if (status === 423 && code === 'setup_required') {
-      window.location.href = '/setup'
+      const windowScope = getWindowSupplierScope()
+      if (windowScope) postWindowFrameMessage({ type: 'myucto-window-global', id: windowScope.windowId, to: '/setup' })
+      else window.location.href = '/setup'
     }
     // 403 totp_setup_required = require_totp=true a uživatel nemá aktivní TOTP.
     // Backend takhle blokuje všechno mimo whitelist (/me, /logout, /totp/*).
@@ -123,12 +141,18 @@ api.interceptors.response.use(
     // /login NEVYJÍMÁME — když máš stale session a otevřeš /login, redirect
     // na /setup-totp je správný.
     if (status === 403 && code === 'totp_setup_required') {
-      if (window.location.pathname !== '/setup-mfa') {
+      const windowScope = getWindowSupplierScope()
+      if (windowScope) {
+        postWindowFrameMessage({ type: 'myucto-window-global', id: windowScope.windowId, to: '/setup-mfa?method=totp' })
+      } else if (window.location.pathname !== '/setup-mfa') {
         window.location.href = '/setup-mfa?method=totp'
       }
     }
     if (status === 403 && code === 'mfa_setup_required') {
-      if (window.location.pathname !== '/setup-mfa') {
+      const windowScope = getWindowSupplierScope()
+      if (windowScope) {
+        postWindowFrameMessage({ type: 'myucto-window-global', id: windowScope.windowId, to: '/setup-mfa' })
+      } else if (window.location.pathname !== '/setup-mfa') {
         window.location.href = '/setup-mfa'
       }
     }
@@ -139,7 +163,10 @@ api.interceptors.response.use(
     // Smaž stale výběr a reloadni — server bez hlavičky fallbackne na první přiřazenou
     // firmu. Reload jen když klíč existoval → žádná smyčka.
     if (status === 403 && code === 'forbidden_supplier') {
-      if (localStorage.getItem('myinvoice.current_supplier_id') !== null) {
+      const windowScope = getWindowSupplierScope()
+      if (windowScope) {
+        postWindowFrameMessage({ type: 'myucto-window-error', id: windowScope.windowId, code: 'access-revoked' })
+      } else if (localStorage.getItem('myinvoice.current_supplier_id') !== null) {
         localStorage.removeItem('myinvoice.current_supplier_id')
         window.location.reload()
       }
@@ -158,6 +185,8 @@ api.interceptors.response.use(
     // ho do KAŽDÉHO testu, který se dotkne API klienta — a ty vue-i18n mockují
     // částečně, takže se rozbilo 36 testových souborů hned při načtení modulu.
     if (status === 403 && code === 'demo_read_only') {
+      const scope = getWindowSupplierScope()
+      if (scope) postWindowFrameMessage({ type: 'myucto-window-demo-read-only', id: scope.windowId })
       window.dispatchEvent(new CustomEvent('myinvoice:demo-read-only'))
     }
 

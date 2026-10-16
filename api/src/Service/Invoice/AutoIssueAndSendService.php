@@ -154,6 +154,7 @@ final class AutoIssueAndSendService
                 $bcc,
                 [$this->varsBuilder->pdfAttachment($invoice, $pdfPath)],
                 $userId,
+                templateSupplierId: (int) $invoice['supplier_id'],
             );
         } catch (\Throwable $e) {
             // Auto-send po schválení výkazu — selhání zalogujeme do přehledu e-mailů

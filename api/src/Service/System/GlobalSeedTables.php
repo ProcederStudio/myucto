@@ -207,6 +207,7 @@ final class GlobalSeedTables
         'submission_inbox_categories', 'submission_inbox_category_rules',
         // E-mail / bankovní avíza (konfigurace, NE zpracované zprávy).
         'bank_email_imap_settings', 'bank_email_account_mappings', 'email_templates', 'email_profiles',
+        'supplier_email_templates',
         'bank_email_notice_providers', 'bank_email_notice_provider_overrides',
         // Vlastní bankovní účty, karty a napojení bank. Bez účtů by
         // bank_email_account_mappings ukazovalo na neexistující účty a firma by neměla

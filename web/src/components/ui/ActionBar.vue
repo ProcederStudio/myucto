@@ -2,6 +2,8 @@
 import { computed, ref, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { RouterLink, type RouteLocationRaw } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import WorkspaceTeleport from '@/components/workspace/WorkspaceTeleport.vue'
+import { usePaneActivity } from '@/workspace/paneActivity'
 
 /**
  * Sdílená lišta akcí pro detailní stránky (faktura / přijatá faktura / klient …).
@@ -61,6 +63,7 @@ const props = defineProps<{
 }>()
 
 const { t } = useI18n()
+const paneActive = usePaneActivity()
 
 // Ikony a barevné varianty (FILLED/OUTLINE/MENU_ICON) žijí v buttonStyles.ts —
 // sdílené s tlačítky mimo ActionBar (jednotný koncept UI, AGENTS.md §Frontend).
@@ -159,7 +162,7 @@ function runItem(a: ActionItem) {
   if (a.run) a.run()
 }
 
-function onKey(e: KeyboardEvent) { if (e.key === 'Escape') close() }
+function onKey(e: KeyboardEvent) { if (paneActive.value && e.key === 'Escape') close() }
 onMounted(() => {
   window.addEventListener('keydown', onKey)
   window.addEventListener('scroll', close, true)
@@ -218,7 +221,7 @@ onBeforeUnmount(() => {
       <svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path :d="DOTS" /></svg>
     </button>
 
-    <Teleport to="body">
+    <WorkspaceTeleport>
       <template v-if="open">
         <div class="fixed inset-0 z-[60]" @click="close" @contextmenu.prevent="close" aria-hidden="true"></div>
         <div ref="menuRef" class="fixed z-[61] w-60 max-w-[calc(100vw-16px)] bg-surface border border-neutral-200 rounded-lg shadow-xl py-1 text-sm"
@@ -303,7 +306,7 @@ onBeforeUnmount(() => {
           </template>
         </div>
       </template>
-    </Teleport>
+    </WorkspaceTeleport>
   </div>
 
     <!--

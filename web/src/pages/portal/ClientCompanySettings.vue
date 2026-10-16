@@ -4,14 +4,16 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import EmailProfiles from '@/pages/admin/EmailProfiles.vue'
 import Branding from '@/pages/admin/Branding.vue'
+import ClientSigningProfiles from '@/components/settings/ClientSigningProfiles.vue'
+import CompanyEmailTemplates from '@/components/settings/CompanyEmailTemplates.vue'
 import ClientPaymentQrSettings from '@/components/settings/ClientPaymentQrSettings.vue'
 
-type SettingsTab = 'email-profiles' | 'branding' | 'payment-qr'
+type SettingsTab = 'email-profiles' | 'branding' | 'payment-qr' | 'signing-profiles' | 'email-templates'
 
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
-const tabs: SettingsTab[] = ['email-profiles', 'branding', 'payment-qr']
+const tabs: SettingsTab[] = ['email-profiles', 'branding', 'payment-qr', 'signing-profiles', 'email-templates']
 
 function tabFromQuery(value: unknown): SettingsTab {
   const candidate = String(value ?? '') as SettingsTab
@@ -65,10 +67,21 @@ function switchTab(tab: SettingsTab) {
       >
         {{ t('settings.payment_qr_tab') }}
       </button>
+      <button type="button"
+        class="-mb-px cursor-pointer whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition-colors"
+        :class="activeTab === 'signing-profiles' ? 'border-primary-600 text-primary-700' : 'border-transparent text-neutral-500 hover:text-neutral-700'"
+        @click="switchTab('signing-profiles')">
+        {{ t('settings.signing_profiles_title') }}
+      </button>
+      <button type="button" class="-mb-px cursor-pointer whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition-colors"
+        :class="activeTab === 'email-templates' ? 'border-primary-600 text-primary-700' : 'border-transparent text-neutral-500 hover:text-neutral-700'"
+        @click="switchTab('email-templates')">{{ t('users.email_templates_title') }}</button>
     </nav>
 
     <EmailProfiles v-if="activeTab === 'email-profiles'" client-scoped />
     <Branding v-else-if="activeTab === 'branding'" client-scoped />
+    <ClientSigningProfiles v-else-if="activeTab === 'signing-profiles'" />
+    <CompanyEmailTemplates v-else-if="activeTab === 'email-templates'" client-scoped />
     <ClientPaymentQrSettings v-else />
   </div>
 </template>

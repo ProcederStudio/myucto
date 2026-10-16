@@ -13,6 +13,7 @@ import PostingPreviewModal from '@/components/accounting/PostingPreviewModal.vue
 import ImportJobProgress from '@/components/exchange/ImportJobProgress.vue'
 import type { AutomationRecommendationsJob } from '@/api/automationRecommendations'
 import DateInput from '@/components/ui/DateInput.vue'
+import WorkspaceTeleport from '@/components/workspace/WorkspaceTeleport.vue'
 
 const props = defineProps<{ suppliers: number[] }>()
 const { t, locale } = useI18n()
@@ -287,10 +288,10 @@ watch(page, () => { void load() })
     <ExpenseRules v-if="activeProposal?.action === 'create_expense_rule' || activeProposal?.action === 'edit_expense_rule'"
       :initial-draft="{ vendorId: activeProposal.vendor_id ?? null, vendorName: activeProposal.counterparty, rule: activeProposal.rule_payload ?? undefined, ...(activeProposal.action === 'edit_expense_rule' ? { ruleId: activeProposal.rule_id! } : {}) }"
       @close="activeProposal = null" @saved="resolved" />
-    <Teleport to="body">
+    <WorkspaceTeleport>
       <RuleFormModal v-if="activeProposal?.action === 'create_bank_rule'" :prefill="(activeProposal.rule_payload ?? undefined) as any"
         @close="activeProposal = null" @saved="resolved" />
-    </Teleport>
+    </WorkspaceTeleport>
     <PostingPreviewModal v-if="activeProposal?.action === 'post_document' && activeProposal.document_id" open
       :source="activeProposal.type === 'post_invoice' ? 'invoices' : 'purchase-invoices'" :doc-id="activeProposal.document_id" :doc-label="activeProposal.document_no"
       @close="activeProposal = null" @posted="resolved" />

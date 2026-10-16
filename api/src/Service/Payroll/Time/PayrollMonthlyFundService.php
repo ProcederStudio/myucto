@@ -82,6 +82,30 @@ final class PayrollMonthlyFundService
      */
     public function fullMonthMinutes(int $supplierId, int $employmentId, string $period): ?array
     {
+        $plan = $this->fullMonthPlan($supplierId, $employmentId, $period);
+        if ($plan === null) {
+            return null;
+        }
+        $fund = 0;
+        $holidays = 0;
+        foreach ($plan as $day) {
+            $fund += $day['planned'];
+            $holidays += $day['holiday'];
+        }
+
+        return ['fund' => $fund, 'holidays' => $holidays];
+    }
+
+    /**
+     * Plán celého kalendářního měsíce po dnech podle posledního účinného týdenního
+     * vzoru vztahu ({@see fullMonthMinutes()}): `planned` = plánované minuty dne
+     * (svátek nula), `holiday` = minuty, které by vzor naplánoval na svátek.
+     * `null` = vztah nemá pro období pracovní kalendář.
+     *
+     * @return array<string,array{planned:int,holiday:int}>|null
+     */
+    public function fullMonthPlan(int $supplierId, int $employmentId, string $period): ?array
+    {
         $start = \DateTimeImmutable::createFromFormat('!Y-m-d', $period . '-01');
         if ($start === false || $start->format('Y-m') !== $period) {
             throw new \InvalidArgumentException('period musí být ve formátu YYYY-MM.');
@@ -94,16 +118,17 @@ final class PayrollMonthlyFundService
         }
         $version = $versions[array_key_last($versions)];
         $month = $this->fund->month($period, $version['week_pattern'], []);
-        $fund = 0;
-        $holidays = 0;
+        $plan = [];
         foreach ($month['days'] as $day) {
-            $fund += PayrollTimeValue::int($day['planned_minutes'] ?? null, 'planned_minutes');
-            if (($day['is_holiday'] ?? false) === true) {
-                $holidays += max(0, (int) ($version['week_pattern'][(int) $day['weekday']] ?? 0));
-            }
+            $plan[PayrollTimeValue::string($day['date'] ?? null, 'date')] = [
+                'planned' => PayrollTimeValue::int($day['planned_minutes'] ?? null, 'planned_minutes'),
+                'holiday' => ($day['is_holiday'] ?? false) === true
+                    ? max(0, (int) ($version['week_pattern'][(int) $day['weekday']] ?? 0))
+                    : 0,
+            ];
         }
 
-        return ['fund' => $fund, 'holidays' => $holidays];
+        return $plan;
     }
 
     /** @return array{fund:int,holidays:int}|null */

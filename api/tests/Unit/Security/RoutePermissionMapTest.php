@@ -88,8 +88,22 @@ final class RoutePermissionMapTest extends TestCase
             // Klientsky delegovatelná provozní nastavení mají vlastní přesný allowlist.
             // Nikdy nesmí propadnout na široké settings.company.write, které otevírá
             // i daňové, účetní a právně významné údaje dodavatele.
+            ['GET', '/api/settings/client/signing', 'settings.company', AccessLevel::WRITE],
+            ['POST', '/api/settings/client/signing/profiles', 'settings.company', AccessLevel::WRITE],
+            ['GET', '/api/settings/client/signing/profiles/7/credentials/certificate', 'settings.company', AccessLevel::WRITE],
+            ['PUT', '/api/settings/client/signing/profiles/7/credentials/certificate', 'settings.company', AccessLevel::WRITE],
+            ['DELETE', '/api/settings/client/signing/profiles/7', 'settings.company', AccessLevel::WRITE],
+            ['GET', '/api/settings/client/pdf-signing', 'settings.company', AccessLevel::WRITE],
+            ['PUT', '/api/settings/client/pdf-signing/output-settings', 'settings.company', AccessLevel::WRITE],
+            ['POST', '/api/settings/client/pdf-signing/test', 'settings.company', AccessLevel::WRITE],
             ['GET', '/api/settings/client/email-profiles', 'settings.company', AccessLevel::WRITE],
             ['POST', '/api/settings/client/email-profiles', 'settings.company', AccessLevel::WRITE],
+            ['GET', '/api/settings/client/email-templates', 'settings.company', AccessLevel::WRITE],
+            ['PUT', '/api/settings/client/email-templates/invoice_send/cs', 'settings.company', AccessLevel::WRITE],
+            ['DELETE', '/api/settings/client/email-templates/invoice_send/en', 'settings.company', AccessLevel::WRITE],
+            ['POST', '/api/settings/client/email-templates/invoice_send/cs/preview', 'settings.company', AccessLevel::WRITE],
+            ['GET', '/api/settings/email-templates', 'settings.company.write', AccessLevel::WRITE],
+            ['POST', '/api/settings/email-templates/invoice_send/cs/preview', 'settings.company.write', AccessLevel::WRITE],
             ['POST', '/api/settings/client/email-profiles/7/imap-test', 'settings.company', AccessLevel::WRITE],
             ['GET', '/api/settings/client/branding', 'settings.company', AccessLevel::WRITE],
             ['PUT', '/api/settings/client/branding', 'settings.company', AccessLevel::WRITE],

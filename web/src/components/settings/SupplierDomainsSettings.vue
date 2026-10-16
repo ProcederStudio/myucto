@@ -8,6 +8,7 @@ import { useSupplierStore } from '@/stores/supplier'
 import { useToast } from '@/composables/useToast'
 import { getCredential, isWebAuthnAvailable, webAuthnErrorKey } from '@/security/webauthn'
 import { ICONS, btnFilled, btnOutline, btnOutlineSm } from '@/components/ui/buttonStyles'
+import { navigateFullPage } from '@/workspace/fullPageNavigation'
 
 const { t } = useI18n()
 const auth = useAuthStore()
@@ -158,7 +159,7 @@ async function disable(domain: SupplierDomain) {
     toast.success(t('domains.disabled'))
     if (window.location.hostname.toLowerCase() === domain.hostname.toLowerCase()) {
       const canonical = auth.domainContext?.canonical_login_url
-      if (canonical) window.location.assign(new URL('/admin/settings?tab=company', canonical).toString())
+      if (canonical) navigateFullPage(new URL('/admin/settings?tab=company', canonical))
     }
   } catch (e: any) {
     actionError.value = e?.response?.data?.error?.message || t('common.error')

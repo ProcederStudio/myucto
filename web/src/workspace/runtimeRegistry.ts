@@ -10,6 +10,7 @@ export interface PaneRuntime {
   forward: () => void
   clear: () => void
   destroy: () => void
+  focus?: () => void
 }
 
 const runtimes = new Map<PaneId, PaneRuntime>()

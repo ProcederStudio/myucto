@@ -138,6 +138,11 @@ final class InstanceExportIsolationTest extends TestCase
         $zip = new ZipArchive();
         self::assertTrue($zip->open($zipPath) === true, 'Archiv jde otevřít.');
 
+        $emailTemplates = $zip->getFromName('data/supplier_email_templates.jsonl');
+        self::assertIsString($emailTemplates);
+        self::assertStringContainsString(self::OWN_MARKER, $emailTemplates);
+        self::assertStringNotContainsString(self::FOREIGN_MARKER, $emailTemplates);
+
         $ownFound = false;
         $checkedTables = 0;
         for ($i = 0; $i < $zip->numFiles; $i++) {
@@ -360,6 +365,10 @@ final class InstanceExportIsolationTest extends TestCase
     private function createTenantData(int $supplierId, string $marker): void
     {
         $pdo = $this->db->pdo();
+
+        $pdo->prepare(
+            "INSERT INTO supplier_email_templates (supplier_id, code, locale, subject, body_html, body_text) VALUES (?, 'invoice_send', 'cs', ?, ?, ?)"
+        )->execute([$supplierId, $marker, '<p>' . $marker . '</p>', $marker]);
 
         $client = $pdo->prepare(
             'INSERT INTO clients (supplier_id, company_name, street, city, zip, country_id, currency_default_id, main_email)

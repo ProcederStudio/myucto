@@ -6,7 +6,9 @@ namespace MyInvoice\Tests\Integration\Payroll;
 
 use MyInvoice\Bootstrap;
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Repository\Payroll\PayrollInputRepository;
 use MyInvoice\Repository\Payroll\PayrollStatutoryAccumulatorRepository;
+use MyInvoice\Service\Payroll\Component\PayrollBenefitExemptionBasket;
 use MyInvoice\Service\Payroll\Migration\PayrollTakeoverLayerCheck;
 use MyInvoice\Service\Payroll\Migration\PayrollTakeoverManualEntryService;
 use MyInvoice\Service\Payroll\Migration\PayrollTakeoverReader;
@@ -29,6 +31,7 @@ final class PayrollTakeoverManualEntryTest extends TestCase
     private PayrollStatutoryAccumulatorRepository $accumulators;
     private PayrollTakeoverReader $reader;
     private PayrollTakeoverLayerCheck $layers;
+    private PayrollInputRepository $inputs;
     private int $supplierId;
     private int $employeeId;
     private int $mainEmploymentId;
@@ -43,6 +46,7 @@ final class PayrollTakeoverManualEntryTest extends TestCase
             $this->accumulators = $container->get(PayrollStatutoryAccumulatorRepository::class);
             $this->reader = $container->get(PayrollTakeoverReader::class);
             $this->layers = $container->get(PayrollTakeoverLayerCheck::class);
+            $this->inputs = $container->get(PayrollInputRepository::class);
         } catch (\Throwable $exception) {
             $this->markTestSkipped('DI/DB nedostupné: ' . $exception->getMessage());
         }
@@ -152,6 +156,45 @@ final class PayrollTakeoverManualEntryTest extends TestCase
         self::assertCount(1, $january, 'Ruční zadání nesmí k převzatému měsíci založit druhý řádek.');
         self::assertSame('pamica', $january[0]->source);
         self::assertSame(40_000_00, $january[0]->grossMinor);
+    }
+
+    /**
+     * Firma, která začne vést mzdy v průběhu roku, převezme i čerpání ročních košů
+     * benefitů (§ 6 odst. 9 písm. d) a m) ZDP) — jinak se limit ve zbytku roku
+     * čerpá od nuly. Úprava měsíce bez polí košů převzatou hodnotu neztratí.
+     */
+    public function testTakenOverBenefitBasketsCountTowardsAnnualLimit(): void
+    {
+        $january = $this->row($this->mainEmploymentId, 1, 40_000_00);
+        $january['non_cash_health_benefit_minor'] = 3_000_00;
+        $january['non_cash_leisure_benefit_minor'] = 2_000_00;
+        $january['old_age_savings_minor'] = 1_000_00;
+        $february = $this->row($this->mainEmploymentId, 2, 40_000_00);
+        $february['non_cash_leisure_benefit_minor'] = 500_00;
+        $rows = [
+            $january,
+            $february,
+            $this->row($this->mainEmploymentId, 3, 42_000_00),
+            $this->row($this->agreementId, 2, 5_000_00),
+            $this->zero($this->agreementId, 3),
+        ];
+        $this->service->save($this->supplierId, $this->employeeId, 2026, $rows, '', null);
+
+        $inputs = $this->inputs;
+        $total = fn (PayrollBenefitExemptionBasket $basket): int
+            => $inputs->annualBasketTotal($this->supplierId, $this->employeeId, $basket, 2026);
+        self::assertSame(3_000_00, $total(PayrollBenefitExemptionBasket::NonCashHealth));
+        self::assertSame(2_500_00, $total(PayrollBenefitExemptionBasket::NonCashLeisure));
+        self::assertSame(1_000_00, $total(PayrollBenefitExemptionBasket::OldAgeSavings));
+
+        // Klient, který pole košů neposílá, převzaté čerpání nesmaže.
+        unset($january['non_cash_health_benefit_minor'], $january['non_cash_leisure_benefit_minor'], $january['old_age_savings_minor']);
+        $rows[0] = $january;
+        $this->service->save($this->supplierId, $this->employeeId, 2026, $rows, '', null);
+        self::assertSame(3_000_00, $total(PayrollBenefitExemptionBasket::NonCashHealth));
+        self::assertSame(1_000_00, $total(PayrollBenefitExemptionBasket::OldAgeSavings));
+        $form = $this->service->form($this->supplierId, $this->employeeId, 2026);
+        self::assertSame(3_000_00, $form['rows'][0]['non_cash_health_benefit_minor']);
     }
 
     /** @return array<string,int|bool|null> */

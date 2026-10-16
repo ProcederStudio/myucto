@@ -47,12 +47,16 @@ final class ClientAiExtractionMigrationRuntimeTest extends TestCase
         $db->exec("INSERT INTO role_permissions VALUES (1, 'purchase_invoices.scan', 2), (2, 'purchase_invoices.scan', 2), (2, 'purchase_invoices.extract', 1), (4, 'purchase_invoices.scan', 0), (5, 'purchase_invoices.scan', 1)");
         $this->migrate();
         self::assertSame(0, (int) $db->query('SELECT client_ai_extraction_enabled FROM supplier WHERE id = 1')->fetchColumn());
+        self::assertSame(100, (int) $db->query('SELECT client_ai_extraction_monthly_limit FROM supplier WHERE id = 1')->fetchColumn());
         self::assertSame(1, (int) $db->query('SELECT ai_eu_residency_required FROM supplier WHERE id = 1')->fetchColumn());
         self::assertSame([2, 1, 2, 0, 1], array_map('intval', $db->query("SELECT access_level FROM role_permissions WHERE permission_key = 'purchase_invoices.extract' ORDER BY role_id")->fetchAll(PDO::FETCH_COLUMN)));
-        $db->exec('UPDATE supplier SET client_ai_extraction_enabled = 1 WHERE id = 1');
-        $db->exec("DELETE FROM migrations WHERE filename = '2007_client_ai_extraction.sql'");
+        $db->exec('UPDATE supplier SET client_ai_extraction_enabled = 1, client_ai_extraction_monthly_limit = 7 WHERE id = 1');
+        $db->exec("INSERT INTO client_ai_extraction_usage (supplier_id, period, used) VALUES (1, '2026-10', 3)");
+        $db->exec("DELETE FROM migrations WHERE filename = '2010_client_ai_extraction.sql'");
         $this->migrate();
         self::assertSame(1, (int) $db->query('SELECT client_ai_extraction_enabled FROM supplier WHERE id = 1')->fetchColumn());
+        self::assertSame(7, (int) $db->query('SELECT client_ai_extraction_monthly_limit FROM supplier WHERE id = 1')->fetchColumn());
+        self::assertSame(3, (int) $db->query("SELECT used FROM client_ai_extraction_usage WHERE supplier_id = 1 AND period = '2026-10'")->fetchColumn());
         self::assertSame([2, 1, 2, 0, 1], array_map('intval', $db->query("SELECT access_level FROM role_permissions WHERE permission_key = 'purchase_invoices.extract' ORDER BY role_id")->fetchAll(PDO::FETCH_COLUMN)));
     }
 
@@ -76,7 +80,7 @@ final class ClientAiExtractionMigrationRuntimeTest extends TestCase
         $env['MYSQL_DATABASE'] = $this->database;
         $process = proc_open([
             PHP_BINARY, $this->root . '/api/bin/migrate.php', '--no-backfills', '--no-analyze',
-            '--only=2007_client_ai_extraction.sql',
+            '--only=2010_client_ai_extraction.sql',
         ], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $this->root, $env, ['bypass_shell' => true]);
         self::assertIsResource($process);
         $output = stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);

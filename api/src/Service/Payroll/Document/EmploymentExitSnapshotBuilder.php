@@ -424,7 +424,8 @@ final class EmploymentExitSnapshotBuilder
                 beneficiary: $source['beneficiary'],
                 claimAmountMinorUnits: is_int($limit) ? $limit : null,
                 withheldAmountMinorUnits:
-                    self::nonNegativeInt($agreement, 'withheld_total_minor'),
+                    self::nonNegativeInt($agreement, 'withheld_total_minor')
+                    + (int) ($agreement['taken_over_withheld_minor'] ?? 0),
                 priorityDate: is_string($agreement['delivered_on'] ?? null) ? $agreement['delivered_on'] : null,
                 orderingAuthority: $source['ordering_authority'],
                 decisionReference: $source['decision_reference'],

@@ -1,11 +1,13 @@
 <script setup lang="ts">
+import { useWindowRefresh } from '@/composables/useWindowRefresh'
+import { useWindowTitle } from '@/composables/useWindowTitle'
 import LinkedDocumentsPanel from '@/components/documents/LinkedDocumentsPanel.vue'
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { clientsApi, TAX_NUMBER_LABELS, type Client, type ClientBankAccount, type BankLookupResult, type ViesLookupResult } from '@/api/clients'
 import { invoicesApi, type InvoiceListItem } from '@/api/invoices'
-import { purchaseInvoicesApi, type PurchaseInvoice } from '@/api/purchaseInvoices'
+import { purchaseInvoicesApi, type PurchaseInvoiceListItem } from '@/api/purchaseInvoices'
 import { recurringApi, type RecurringTemplate } from '@/api/recurring'
 import { formatMoney, formatDate, statusLabel, typeLabel, statusBadgeClass, isOverdue, invoiceRowClass, taxDateClass, paymentDueLabel } from '@/composables/useFormat'
 import { useSupplierStore } from '@/stores/supplier'
@@ -38,7 +40,7 @@ const invoicesTotal = ref(0)
 const invoicesPage = ref(1)
 const invoicesPages = ref(1)
 const recurringTemplates = ref<RecurringTemplate[]>([])
-const purchaseInvoices = ref<PurchaseInvoice[]>([])
+const purchaseInvoices = ref<PurchaseInvoiceListItem[]>([])
 const purchaseInvoicesLoading = ref(false)
 const bankAccountNumber = ref('')
 const bankCode = ref('')
@@ -342,7 +344,7 @@ async function load() {
       recurringApi.list({ client_id: id, per_page: 200 }).catch(() => ({ data: [] as RecurringTemplate[] })),
       // per_page=200 = backend max, aby v detailu klienta byly všechny přijaté faktury najednou
       // (rok 2024 + starší by jinak vypadly z první stránky při per_page=20 v cfg.php).
-      purchaseInvoicesApi.listGrouped({ vendor_id: id, per_page: 200 }).catch(() => ({ data: [] as Array<{invoices: PurchaseInvoice[]}> })),
+      purchaseInvoicesApi.listGrouped({ vendor_id: id, per_page: 200 }).catch(() => ({ data: [] as Array<{invoices: PurchaseInvoiceListItem[]}> })),
     ])
     client.value = c
     invoices.value = grouped.data.flatMap(g => g.invoices)
@@ -429,6 +431,27 @@ const clientActions = computed<ActionItem[]>(() => {
       show: canDelete.value && w, run: deleteClient },
   ]
 })
+useWindowTitle(
+  () => client.value?.company_name ?? null,
+  () => client.value ? [client.value.is_customer ? t('client.is_customer_label') : null, client.value.is_vendor ? t('client.is_vendor_label') : null].filter(Boolean).join(', ') : null,
+)
+useWindowRefresh(['clients', 'invoices', 'purchase-invoices', 'recurring', 'bank', 'bank-transactions', 'cash'], async () => {
+  const id = Number(route.params.id)
+  const [updated, grouped, rec, purchased] = await Promise.all([
+    clientsApi.get(id),
+    Promise.all(Array.from({ length: invoicesPage.value }, (_, index) => invoicesApi.listGrouped({ client_id: id, page: index + 1 }))),
+    recurringApi.list({ client_id: id, per_page: 200 }),
+    purchaseInvoicesApi.listGrouped({ vendor_id: id, per_page: 200 }),
+  ])
+  if (id !== Number(route.params.id)) return
+  client.value = updated
+  invoices.value = grouped.flatMap(result => result.data.flatMap(group => group.invoices))
+  invoicesTotal.value = grouped[0]?.meta.total ?? 0
+  invoicesPages.value = grouped[0]?.meta.pages ?? 1
+  recurringTemplates.value = rec.data
+  purchaseInvoices.value = purchased.data.flatMap(group => group.invoices)
+}, () => !loading.value && !invoicesLoadingMore.value && !bankAccountSaving.value && !bankRegistrySyncing.value
+  && !bankAccountNumber.value && !bankCode.value && !showWrLinkModal.value)
 </script>
 
 <template>

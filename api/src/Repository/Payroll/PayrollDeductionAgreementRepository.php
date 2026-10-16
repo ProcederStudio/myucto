@@ -29,6 +29,7 @@ final class PayrollDeductionAgreementRepository
         agreement.legal_basis, agreement.status, agreement.priority_no, agreement.requested_minor,
         agreement.basis_points, agreement.basis_amount_minor,
         agreement.total_limit_minor, agreement.withheld_total_minor,
+        agreement.taken_over_withheld_minor,
         agreement.valid_from, agreement.valid_to, agreement.delivered_on,
         agreement.recipient_reference,
         agreement.note, agreement.row_version, agreement.version_no,
@@ -221,8 +222,8 @@ final class PayrollDeductionAgreementRepository
                          deduction_kind, legal_basis, status, priority_no, requested_minor,
                          basis_points, basis_amount_minor, total_limit_minor,
                          valid_from, valid_to, delivered_on, recipient_reference,
-                         note, version_no, created_by, updated_by)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)'
+                         note, taken_over_withheld_minor, version_no, created_by, updated_by)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)'
                 );
                 $stmt->execute([
                     $supplierId,
@@ -242,6 +243,7 @@ final class PayrollDeductionAgreementRepository
                     $terms->deliveredOn,
                     $terms->recipientReference,
                     $terms->note,
+                    $terms->takenOverWithheldMinor ?? 0,
                     $userId,
                     $userId,
                 ]);
@@ -317,7 +319,8 @@ final class PayrollDeductionAgreementRepository
                     . 'plátci mzdy už měnit nelze.',
                 );
             }
-            if ($terms->totalLimitMinor !== null && $terms->totalLimitMinor < $withheld) {
+            $takenOver = $terms->takenOverWithheldMinor ?? (int) $current['taken_over_withheld_minor'];
+            if ($terms->totalLimitMinor !== null && $terms->totalLimitMinor < $withheld + $takenOver) {
                 throw new \DomainException(
                     'Limit dohody nesmí klesnout pod již sražené částky.',
                 );
@@ -334,7 +337,7 @@ final class PayrollDeductionAgreementRepository
                         priority_no = ?, requested_minor = ?, basis_points = ?,
                         basis_amount_minor = ?, total_limit_minor = ?,
                         valid_from = ?, valid_to = ?, delivered_on = ?,
-                        recipient_reference = ?,
+                        recipient_reference = ?, taken_over_withheld_minor = ?,
                         note = ?, row_version = row_version + 1,
                         version_no = version_no + 1, updated_by = ?
                   WHERE supplier_id = ? AND id = ? AND row_version = ?'
@@ -352,6 +355,7 @@ final class PayrollDeductionAgreementRepository
                 $terms->validTo,
                 $terms->deliveredOn,
                 $terms->recipientReference,
+                $takenOver,
                 $terms->note,
                 $userId,
                 $supplierId,
@@ -585,12 +589,12 @@ final class PayrollDeductionAgreementRepository
                 (supplier_id, agreement_id, employee_id, version_no, change_kind,
                  title, deduction_kind, legal_basis, status, priority_no, requested_minor,
                  basis_points, basis_amount_minor, total_limit_minor,
-                 withheld_total_minor, valid_from, valid_to, delivered_on,
+                 withheld_total_minor, taken_over_withheld_minor, valid_from, valid_to, delivered_on,
                  recipient_reference, note, effective_from, reason, actor_user_id)
              SELECT supplier_id, id, employee_id, version_no, ?, title,
                     deduction_kind, legal_basis, status, priority_no, requested_minor,
                     basis_points, basis_amount_minor, total_limit_minor,
-                    withheld_total_minor, valid_from, valid_to, delivered_on,
+                    withheld_total_minor, taken_over_withheld_minor, valid_from, valid_to, delivered_on,
                     recipient_reference, note, ?, ?, ?
                FROM payroll_deduction_agreements
               WHERE supplier_id = ? AND id = ?'
@@ -616,7 +620,7 @@ final class PayrollDeductionAgreementRepository
     {
         foreach ([
             'id', 'supplier_id', 'employee_id', 'priority_no', 'requested_minor',
-            'withheld_total_minor', 'row_version', 'version_no',
+            'withheld_total_minor', 'taken_over_withheld_minor', 'row_version', 'version_no',
         ] as $field) {
             $row[$field] = (int) $row[$field];
         }
@@ -625,7 +629,7 @@ final class PayrollDeductionAgreementRepository
         }
         $row['remaining_limit_minor'] = $row['total_limit_minor'] === null
             ? null
-            : max(0, $row['total_limit_minor'] - $row['withheld_total_minor']);
+            : max(0, $row['total_limit_minor'] - $row['withheld_total_minor'] - $row['taken_over_withheld_minor']);
         $row['enters_payroll_run'] = DeductionAgreementStatus::from(
             (string) $row['status'],
         )->entersPayrollRun();

@@ -115,7 +115,7 @@ final class DynamicRolesMigrationRuntimeTest extends TestCase
                 '1074_dynamic_roles_permissions.sql',
                 '1747_predefined_admin_roles.sql',
                 '1748_bank_rule_templates_tenant_scope.sql',
-                '2007_client_ai_extraction.sql'
+                '2010_client_ai_extraction.sql'
             )"
         );
         $this->runMigrator();
@@ -281,7 +281,7 @@ final class DynamicRolesMigrationRuntimeTest extends TestCase
                 '1888_other_items_role_permissions.sql',
                 '1959_purchase_invoice_approvals.sql',
                 '1962_payroll_personnel_file.sql',
-                '2007_client_ai_extraction.sql',
+                '2010_client_ai_extraction.sql',
             ]),
         ];
         $env = getenv();

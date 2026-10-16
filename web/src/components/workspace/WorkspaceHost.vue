@@ -1,25 +1,117 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { getActivePinia } from 'pinia'
 import { useI18n } from 'vue-i18n'
 import { useSupplierStore } from '@/stores/supplier'
+import { useAuthStore } from '@/stores/auth'
+import { useToast } from '@/composables/useToast'
+import { authApi } from '@/api/auth'
+import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts'
+import { useTheme } from '@/composables/useTheme'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useWorkspaceNavigation } from '@/composables/useWorkspaceNavigation'
-import { authorizationGuard } from '@/router'
-import { getPaneRuntime, listPaneRuntimes } from '@/workspace/runtimeRegistry'
+import { authorizationGuard, applyAuthorizationMeta } from '@/router'
+import { createPaneRouter } from '@/router/createPaneRouter'
+import { getPaneRuntime } from '@/workspace/runtimeRegistry'
+import { createWindowManager } from '@/workspace/windowManager'
+import { mirrorWindowLocation } from '@/workspace/windowHistory'
 import { resizePaneFractions } from '@/workspace/panelSizing'
 import { paneCountFromShortcut, panelIndexFromShortcut } from '@/workspace/panelShortcuts'
 import WorkspacePane from './WorkspacePane.vue'
 
+const props = defineProps<{ accentFor?: (fullPath: string) => string }>()
 const workspace = useWorkspaceStore()
 const { t } = useI18n()
+const { locale } = useI18n()
+const shortcuts = useKeyboardShortcuts()
+const { isDark } = useTheme()
 const navigation = useWorkspaceNavigation()
 const supplier = useSupplierStore()
+const auth = useAuthStore()
+const toast = useToast()
 const primaryRouter = useRouter()
+const frameLayer = ref<HTMLElement | null>(null)
 workspace.resetLayout(1, primaryRouter.currentRoute.value.fullPath)
+const pinia = getActivePinia()!
+function globalNavigation(to: Parameters<typeof primaryRouter.push>[0], mode?: 'assign' | 'replace'): void {
+  if (typeof to === 'string' && mode) {
+    const url = new URL(to, window.location.origin)
+    if (['http:', 'https:'].includes(url.protocol)) window.location[mode](url.href)
+  } else if (typeof to === 'string' && /^https?:\/\//i.test(to)) window.location.replace(to)
+  else void primaryRouter.push(to)
+}
+const windows = createWindowManager({
+  pinia,
+  frames: true,
+  frameContainer: () => frameLayer.value,
+  currentSupplier: () => ({ id: supplier.currentSupplierId, name: supplier.currentSupplier?.company_name ?? '' }),
+  switchSupplier: async id => {
+    if (supplier.domainLocked || !supplier.availableSuppliers.some(candidate => candidate.id === id)) return false
+    const previous = supplier.currentSupplierId
+    auth.clearPermissions()
+    supplier.setSupplier(id)
+    if (!await auth.refresh() || supplier.currentSupplierId !== id) {
+      supplier.setSupplier(previous)
+      await auth.refresh()
+      return false
+    }
+    if (!auth.isDemo) await authApi.setDefaultSupplier(id).catch(() => undefined)
+    return true
+  },
+  appearance: fullPath => ({ theme: isDark.value ? 'dark' : 'light', locale: locale.value,
+    accent: props.accentFor?.(fullPath) ?? 'primary',
+    singlePanel: workspace.paneCount === 1,
+    csrfToken: auth.csrfToken,
+    shortcutActions: shortcuts.actions.value.map(action => ({ ...action })),
+    globalShortcuts: [...Object.values(shortcuts.effectiveBindings.value).filter(Boolean), 'ctrl+k', 'ctrl+alt+1', 'ctrl+alt+2', 'ctrl+alt+3', 'alt+shift+1', 'alt+shift+2', 'alt+shift+3'] }),
+  keyboard: event => {
+    const keyboardEvent = new KeyboardEvent('keydown', { ...event, bubbles: true, cancelable: true })
+    const action = shortcuts.actionForEvent(keyboardEvent)
+    if (event.editable && action && action.id !== 'search.global' && !action.id.startsWith('windows.')) return
+    window.dispatchEvent(keyboardEvent)
+  },
+  globalNavigate: globalNavigation,
+  createRouter: () => createPaneRouter({
+    prepareRoutes: applyAuthorizationMeta,
+    guard: (to, from) => authorizationGuard(to, from, { allowGlobalSideEffects: false, onGlobalNavigation: globalNavigation }),
+    onGlobalNavigation: globalNavigation,
+  }),
+  authorize: async (router, state) => {
+    const resolved = state ? router.resolve(state.fullPath) : router.currentRoute.value
+    const route = { ...resolved, name: resolved.name ?? undefined }
+    const result = await authorizationGuard(route, route, { allowGlobalSideEffects: false, onGlobalNavigation: globalNavigation })
+    return result === true
+  },
+  confirmEviction: title => window.confirm(t('workspace.evict_window', { title })),
+  onError: () => toast.error(t('workspace.load_error')),
+})
+let syncingUrl = false
+let mirrorTask = Promise.resolve()
+let stopped = false
+const removeGlobalAfterEach = primaryRouter.afterEach((to, _from, failure) => {
+  if (!failure && !syncingUrl && to.matched.some(record => record.meta.requiresAuth)) {
+    const id = primaryRouter.options.history.state.workspaceWindowId
+    const existing = typeof id === 'string' ? workspace.windows.find(window => window.id === id && window.fullPath === to.fullPath) : undefined
+    if (existing) void windows.select(existing.id)
+    else void windows.open(to.fullPath, 'primary')
+  }
+})
+const primaryWindow = computed(() => workspace.windows.find(window => window.paneId === 'primary'))
+watch([() => workspace.panes[0]?.fullPath, () => workspace.companySwitching, () => primaryWindow.value?.id], ([fullPath, switching, id]) => {
+  if (switching) return
+  const target = fullPath ?? '/'
+  mirrorTask = mirrorTask.then(async () => {
+    if (stopped || target !== (workspace.panes[0]?.fullPath ?? '/') || id !== primaryWindow.value?.id) return
+    syncingUrl = true
+    try { await mirrorWindowLocation(primaryRouter, target, id, primaryWindow.value?.supplierId) }
+    finally { syncingUrl = false }
+  }).catch(() => toast.error(t('workspace.load_error')))
+})
 const host = ref<HTMLElement | null>(null)
 const grid = ref<HTMLElement | null>(null)
 const width = ref(0)
+const viewportHeight = ref<number | null>(null)
 const paneFractions = ref<number[]>([1])
 let observer: ResizeObserver | null = null
 let resizeIndex: number | null = null
@@ -30,6 +122,7 @@ const splitterWidth = 6
 const allowTwo = computed(() => width.value >= 1100)
 const allowThree = computed(() => width.value >= 1600)
 const gridStyle = computed(() => ({
+  height: viewportHeight.value === null ? undefined : `${viewportHeight.value}px`,
   gridTemplateColumns: paneFractions.value
     .flatMap((fraction, index) => [
       `minmax(18rem, ${fraction}fr)`,
@@ -37,6 +130,16 @@ const gridStyle = computed(() => ({
     ])
     .join(' '),
 }))
+
+function measureViewport(): void {
+  if (!host.value) return
+  width.value = host.value.clientWidth
+  const footer = document.querySelector<HTMLElement>('footer.sticky')
+  const main = host.value.closest('main')
+  const bottomPadding = workspace.paneCount === 1 && main ? parseFloat(getComputedStyle(main).paddingBottom) || 0 : 0
+  viewportHeight.value = Math.max(240, Math.floor(window.innerHeight - Math.max(0, host.value.getBoundingClientRect().top)
+    - (footer?.getBoundingClientRect().height ?? 0) - bottomPadding))
+}
 
 function resetFractions(): void {
   paneFractions.value = Array.from({ length: workspace.paneCount }, () => 1 / workspace.paneCount)
@@ -79,6 +182,8 @@ function resizeWithKeyboard(index: number, event: KeyboardEvent): void {
 }
 
 function activatePanelShortcut(event: KeyboardEvent): void {
+  if (event.repeat || event.isComposing || event.getModifierState?.('AltGraph')
+    || (event.target instanceof Element && event.target.closest('[data-shortcut-capture]'))) return
   const index = panelIndexFromShortcut(event)
   if (index !== null) {
     const pane = workspace.panes[index]
@@ -87,6 +192,7 @@ function activatePanelShortcut(event: KeyboardEvent): void {
     event.stopImmediatePropagation()
     navigation.activatePane(pane.id)
     getPaneRuntime(pane.id)?.root.focus({ preventScroll: true })
+    getPaneRuntime(pane.id)?.focus?.()
     return
   }
 
@@ -103,61 +209,60 @@ async function enforceSupportedLayout(): Promise<void> {
   }
 }
 
-async function reevaluatePanePermissions(): Promise<void> {
-  for (const runtime of listPaneRuntimes()) {
-    const current = runtime.router.currentRoute.value
-    if (!current.matched.length) continue
-    const decision = await authorizationGuard(current, current, {
-      allowGlobalSideEffects: runtime.id === 'primary',
-      onGlobalNavigation: to => {
-        if (typeof to === 'string' && /^https?:\/\//i.test(to)) window.location.replace(to)
-        else void primaryRouter.push(to)
-      },
-    })
-    if (decision && decision !== true && typeof decision !== 'boolean') await runtime.router.replace(decision)
-  }
-}
-
-watch(() => supplier.currentSupplierId, () => { void reevaluatePanePermissions() })
+watch(() => auth.user?.id, () => {
+  windows.reset()
+  workspace.resetLayout(1, primaryRouter.currentRoute.value.fullPath)
+  void windows.open(primaryRouter.currentRoute.value.fullPath, 'primary')
+}, { flush: 'sync' })
+watch([locale, isDark, shortcuts.effectiveBindings, () => auth.csrfToken], () => windows.updateFrames(), { deep: true, flush: 'sync' })
+function reloadShortcuts(): void { void shortcuts.load(true) }
+watch(() => auth.permissions, () => { void windows.reauthorize() }, { deep: true })
 watch(width, () => { void enforceSupportedLayout() })
-watch(() => workspace.paneCount, resetFractions, { immediate: true })
+watch(() => workspace.paneCount, () => { resetFractions(); void nextTick(() => { measureViewport(); windows.updateFrames() }) }, { immediate: true })
 watch([allowTwo, allowThree], () => {
   workspace.setMaximumPaneCount(allowThree.value ? 3 : allowTwo.value ? 2 : 1)
 }, { immediate: true })
 
 onMounted(() => {
+  document.documentElement.classList.add('workspace-shell')
+  window.addEventListener('myucto:shortcuts-changed', reloadShortcuts)
+  void windows.open(primaryRouter.currentRoute.value.fullPath, 'primary')
   window.addEventListener('keydown', activatePanelShortcut)
-  observer = new ResizeObserver((entries) => {
-    width.value = entries[0]?.contentRect.width ?? host.value?.clientWidth ?? 0
-  })
+  observer = new ResizeObserver(measureViewport)
   if (host.value) observer.observe(host.value)
+  for (const element of document.querySelectorAll('header.sticky, footer.sticky, main')) observer.observe(element)
+  window.addEventListener('resize', measureViewport)
   void nextTick(() => {
     width.value = host.value?.clientWidth ?? 0
+    measureViewport()
     void enforceSupportedLayout()
   })
 })
 
 onBeforeUnmount(() => {
+  document.documentElement.classList.remove('workspace-shell')
+  window.removeEventListener('myucto:shortcuts-changed', reloadShortcuts)
+  stopped = true
+  removeGlobalAfterEach()
+  windows.destroy()
   window.removeEventListener('keydown', activatePanelShortcut)
   observer?.disconnect()
+  window.removeEventListener('resize', measureViewport)
   stopResize()
 })
 </script>
 
 <template>
-  <div ref="host" class="workspace-host min-h-0 min-w-0" :class="workspace.paneCount > 1 ? 'workspace-host-multi' : ''">
-    <div ref="grid" class="workspace-grid min-h-0 min-w-0" :class="workspace.paneCount > 1 ? 'grid' : 'block'" :style="workspace.paneCount > 1 ? gridStyle : undefined">
+  <div ref="host" class="workspace-host relative min-h-0 min-w-0" :class="workspace.paneCount > 1 ? 'workspace-host-multi' : ''">
+    <div ref="grid" class="workspace-grid min-h-0 min-w-0" :inert="workspace.companySwitching" :class="workspace.paneCount > 1 ? 'grid' : 'block'" :style="gridStyle">
       <template v-for="(pane, index) in workspace.panes" :key="`${pane.id}:${workspace.layoutRevision}`">
         <WorkspacePane
           :pane-id="pane.id"
           :index="index + 1"
           :global-router="primaryRouter"
-          :primary-router="pane.kind === 'primary' ? primaryRouter : undefined"
           :show-header="workspace.paneCount > 1"
           :single="workspace.paneCount === 1"
-        >
-          <slot v-if="pane.kind === 'primary'" name="primary" :revision="workspace.layoutRevision" />
-        </WorkspacePane>
+        />
         <div
           v-if="index < workspace.panes.length - 1"
           class="workspace-splitter group relative z-10 cursor-col-resize bg-surface print:hidden"
@@ -172,12 +277,15 @@ onBeforeUnmount(() => {
         </div>
       </template>
     </div>
+    <div ref="frameLayer" class="pointer-events-none absolute inset-0 overflow-hidden" :inert="workspace.companySwitching" />
   </div>
 </template>
 
 <style scoped>
 .workspace-grid {
   min-height: 0;
+  height: calc(100dvh - 9.1rem);
+  min-height: 24rem;
 }
 
 .workspace-host-multi {

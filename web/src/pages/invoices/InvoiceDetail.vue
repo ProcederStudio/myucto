@@ -1,10 +1,11 @@
 <script setup lang="ts">
+import { useWindowRefresh } from '@/composables/useWindowRefresh'
+import { useWindowTitle } from '@/composables/useWindowTitle'
 import { eshopApi } from '@/api/eshop'
 import ClientQuickLinks from '@/components/clients/ClientQuickLinks.vue'
 import LinkedDocumentsPanel from '@/components/documents/LinkedDocumentsPanel.vue'
 import DocumentSidePreview from '@/components/documents/DocumentSidePreview.vue'
-import PaymentMethodModal from '@/components/invoices/PaymentMethodModal.vue'
-import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, watch, defineAsyncComponent } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { invoicesApi, type Invoice, type WorkReport, type ApprovalStatus, type InvoiceAttachment, type AdvanceCandidate, type InvoicePayment, type PenaltyPreview, type RelatedBankTransaction } from '@/api/invoices'
@@ -35,16 +36,19 @@ import DocumentPostingPanel from '@/components/accounting/DocumentPostingPanel.v
 import LockedPeriodAckModal from '@/components/accounting/LockedPeriodAckModal.vue'
 import { useLockedPeriodAck } from '@/composables/useLockedPeriodAck'
 import DocumentDimensionsPanel from '@/components/dimensions/DocumentDimensionsPanel.vue'
-import RuleFormModal from '@/components/bank/RuleFormModal.vue'
-import InvoiceBankMatchModal from '@/components/bank/InvoiceBankMatchModal.vue'
 import { accountingApi } from '@/api/accounting'
 import { vatClassificationsApi, type VatClassification } from '@/api/vatClassifications'
 import { useSidePreview } from '@/composables/useSidePreview'
 import { appIsoDate, overdueDays } from '@/utils/date'
 import DateInput from '@/components/ui/DateInput.vue'
 import ItemAccrualFields from '@/components/invoice/ItemAccrualFields.vue'
-import RefundPaymentDialog from '@/components/invoices/RefundPaymentDialog.vue'
 import CreditNoteOffsetNotice from '@/components/invoices/CreditNoteOffsetNotice.vue'
+import WorkspaceTeleport from '@/components/workspace/WorkspaceTeleport.vue'
+
+const PaymentMethodModal = defineAsyncComponent(() => import('@/components/invoices/PaymentMethodModal.vue'))
+const RefundPaymentDialog = defineAsyncComponent(() => import('@/components/invoices/RefundPaymentDialog.vue'))
+const RuleFormModal = defineAsyncComponent(() => import('@/components/bank/RuleFormModal.vue'))
+const InvoiceBankMatchModal = defineAsyncComponent(() => import('@/components/bank/InvoiceBankMatchModal.vue'))
 
 const { t, te, locale } = useI18n()
 const toast = useToast()
@@ -1786,6 +1790,23 @@ const invoiceActions = computed<ActionItem[]>(() => {
       disabled: b, loading: busy.value === 'delete', run: deleteInvoice },
   ]
 })
+useWindowTitle(
+  () => invoice.value ? [typeLabel(invoice.value.invoice_type), invoice.value.varsymbol].filter(Boolean).join(' ') : null,
+  () => invoice.value?.client_company_name ?? null,
+)
+useWindowRefresh(['invoices', 'clients', 'bank', 'bank-transactions', 'cash', 'accounting', 'stock'], async () => {
+  const generation = loadGeneration
+  const invoiceId = Number(route.params.id)
+  const [updated, events] = await Promise.all([invoicesApi.get(invoiceId), invoicesApi.activity(invoiceId)])
+  if (generation !== loadGeneration || invoiceId !== Number(route.params.id)) return
+  invoice.value = updated
+  activity.value = events
+  loadPayments(invoiceId, generation)
+  if (stockIntegrationVisible.value) void loadStockDocuments(invoiceId, generation)
+}, () => !loading.value && !busy.value && !accrualEditing.value && !accrualSaving.value
+  && !sendOpen.value && !reminderOpen.value && !cancelOpen.value && !partialOpen.value
+  && !markPaidOpen.value && !advanceModalOpen.value && !penaltyOpen.value
+  && !approvalStatusOpen.value && !wrModalOpen.value && !refundDialogOpen.value && !bankMatchTarget.value)
 </script>
 
 <template>
@@ -3397,15 +3418,15 @@ const invoiceActions = computed<ActionItem[]>(() => {
       :file-name="invoice.imported_pdf_original_name"
       @close="importedPdfPreview.close()"
     />
-    <Teleport to="body">
+    <WorkspaceTeleport>
       <RuleFormModal v-if="postingRuleOpen && invoice"
         :prefill="{ name: invoice.client_company_name || invoice.varsymbol || '', direction: invoice.total_with_vat < 0 ? 'outgoing' : 'incoming', applies_currency: invoice.currency, variable_symbol: invoice.payment_varsymbol || invoice.varsymbol || null }"
         @close="postingRuleOpen = false" @saved="postingRuleOpen = false" />
-    </Teleport>
+    </WorkspaceTeleport>
     <LockedPeriodAckModal :ref="(el: any) => { lockedAck.modal.value = el }" />
   </div>
-    <Teleport to="body">
+    <WorkspaceTeleport>
       <InvoiceBankMatchModal v-if="bankMatchTarget" doc-type="invoice" :doc-id="bankMatchTarget.id" :doc-ref="bankMatchTarget.ref"
         @close="bankMatchTarget = null" @done="load" />
-    </Teleport>
+    </WorkspaceTeleport>
 </template>

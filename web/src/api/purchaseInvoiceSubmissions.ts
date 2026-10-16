@@ -1,3 +1,4 @@
+import { requestSupplierId } from '@/workspace/supplierContext'
 import { api } from './client'
 
 export type PurchaseInvoiceSubmissionStatus =
@@ -92,7 +93,7 @@ export interface SubmissionUploadResult {
  * jinak server spadne na fallback MIN(supplier.id) a doklad jiné firmy nenajde.
  */
 function fileUrl(path: string): string {
-  const sid = localStorage.getItem('myinvoice.current_supplier_id')
+  const sid = requestSupplierId()
   const params = new URLSearchParams()
   if (sid && /^\d+$/.test(sid)) params.set('supplier_id', sid)
   const qs = params.toString()

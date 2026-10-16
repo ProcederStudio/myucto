@@ -14,6 +14,9 @@ import LinkedDocumentsPanel from '@/components/documents/LinkedDocumentsPanel.vu
 import CollapsibleSection from '@/components/ui/CollapsibleSection.vue'
 import JournalLineDimensionsEditor from '@/components/dimensions/JournalLineDimensionsEditor.vue'
 import OtherItemSourceContext from './OtherItemSourceContext.vue'
+import RepostModal from './RepostModal.vue'
+import WorkspaceTeleport from '@/components/workspace/WorkspaceTeleport.vue'
+import type { JournalPostingSource } from '@/api/accounting'
 
 /**
  * Obsah rozbaleného zápisu deníku (rozpad na účty, Souvisí, přílohy, akce).
@@ -43,9 +46,23 @@ const emit = defineEmits<{
   remove: [entry: JournalEntryDetail]
   'remove-pair': [entry: JournalEntryDetail]
   'open-reversal': [entryId: number]
+  reposted: [entryId: number]
 }>()
 
 const { t } = useI18n()
+
+// Přeúčtovat jde i z deníku, ne jen z detailu dokladu: účetní opravu kontace hledá
+// u zápisu, a bez tohohle tlačítka jí deník nabízel jen smazání. Jen živý zápis
+// dokladu nebo bankovního pohybu, plán i provedení rozhoduje server.
+const REPOST_SOURCES: Record<string, JournalPostingSource> = {
+  invoice: 'invoices',
+  purchase_invoice: 'purchase-invoices',
+  bank: 'bank-transactions',
+}
+const repostSource = computed(() => REPOST_SOURCES[props.detail.source_type] ?? null)
+const canRepost = computed(() => props.canWrite && repostSource.value !== null && !!props.detail.source_id
+  && !props.detail.reversed_by && !props.detail.reverses_entry_id)
+const repostOpen = ref(false)
 
 // Přílohy, poznámky, vazby, dokumenty: u drtivé většiny zápisů je pod hlavní
 // věcí prázdno, takže celá ta část stojí sbalená pod jedním řádkem. Počty
@@ -97,6 +114,10 @@ function onLineDimensionsSaved(byLine: Record<number, Record<number, number>>, s
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.doc" /></svg>
           <span class="whitespace-nowrap">{{ t('accounting.journal.copy_as_new') }}</span>
         </RouterLink>
+        <button v-if="canRepost" type="button" @click="repostOpen = true" :class="btnOutline('warning')">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.edit" /></svg>
+          <span class="whitespace-nowrap">{{ t('accounting.repost.action') }}</span>
+        </button>
         <!-- Zúčtování DPH se nestornuje, přepočítává se a maže na místě (VatClearingService). -->
         <button v-if="canWrite && !detail.reversed_by && detail.source_type !== 'vat_clearing'" @click="emit('reverse', detail)" :class="btnOutline('danger')">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.uturn" /></svg>
@@ -120,5 +141,12 @@ function onLineDimensionsSaved(byLine: Record<number, Record<number, number>>, s
         </button>
       </div>
     </div>
+    <WorkspaceTeleport>
+      <RepostModal v-if="repostOpen && repostSource" :open="repostOpen" :source="repostSource"
+        :doc-id="Number(detail.source_id)" :doc-label="detail.document_no || null"
+        @close="repostOpen = false"
+        @reposted="repostOpen = false; emit('reposted', detail.id)"
+        @dimensions-saved="emit('reposted', detail.id)" />
+    </WorkspaceTeleport>
   </div>
 </template>

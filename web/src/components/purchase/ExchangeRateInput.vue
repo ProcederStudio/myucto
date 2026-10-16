@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { requestSupplierId } from '@/workspace/supplierContext'
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -43,7 +44,7 @@ async function loadFromCnb() {
     // Backend endpoint existuje pro vystavené faktury — reuse pro purchase.
     // /api/codebooks/cnb-rate?currency=USD&date=2026-05-20
     const res = await fetch(`/api/codebooks/cnb-rate?currency=${encodeURIComponent(props.currency)}&date=${encodeURIComponent(props.rateDate)}`, {
-      headers: { 'X-Supplier-Id': localStorage.getItem('myinvoice.current_supplier_id') || '1' },
+      headers: { 'X-Supplier-Id': requestSupplierId() || '1' },
     })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const data = await res.json()

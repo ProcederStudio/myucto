@@ -44,7 +44,7 @@ final class SavedFilterAction
      */
     public const PAGE_KEYS = ['invoices', 'purchase_invoices', 'journal', 'general_ledger',
         'trial_balance', 'clients', 'assets', 'bank_statements', 'projects', 'recurring', 'documents',
-        'cash_documents', 'cash_book', 'cash_journal', 'receivables_payables',
+        'cash_documents', 'cash_book', 'cash_journal', 'receivables_payables', 'saldo',
         'bank_posting_suggestions', 'bank_posting_rules', 'automation_feed', 'automation_rules',
         'stock-items', 'stock-documents', 'stock-purchase-orders',
         'payroll-documents', 'payroll-payments', 'payroll-quick-inputs',

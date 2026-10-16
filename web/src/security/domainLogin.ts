@@ -3,6 +3,9 @@ import { canonicalDomainLoginHandoffPath } from '@/security/clientRoutePolicy'
 
 const TARGET_KEY = 'myinvoice.domain_login.target'
 const CANONICAL_KEY = 'myinvoice.domain_login.canonical'
+const TERMINAL_AUTHORIZATION_ERRORS = ['invalid_domain_login_request', 'canonical_origin_required', 'forbidden_supplier'] as const
+type TerminalAuthorizationCode = typeof TERMINAL_AUTHORIZATION_ERRORS[number]
+interface TerminalAuthorizationError { code: TerminalAuthorizationCode; message: string; status: number }
 
 interface TargetState {
   requestToken: string
@@ -15,6 +18,10 @@ interface CanonicalState {
   requestToken: string
   state: string
   handoffPath: string | null
+  ownedCsrf?: string
+  previousOwnedCsrf?: string
+  redirectUrl?: string
+  terminalError?: TerminalAuthorizationError
 }
 
 function base64Url(bytes: Uint8Array): string {
@@ -53,14 +60,18 @@ export function captureCanonicalDomainLogin(
   if (typeof requestToken !== 'string' || typeof state !== 'string'
       || !/^[A-Za-z0-9_-]{43}$/.test(requestToken)
       || !/^[A-Za-z0-9_-]{43}$/.test(state)) {
-    if (requestToken !== undefined || state !== undefined) sessionStorage.removeItem(CANONICAL_KEY)
+    sessionStorage.removeItem(CANONICAL_KEY)
     return false
   }
-  sessionStorage.setItem(CANONICAL_KEY, JSON.stringify({
+  const previous = readCanonical()
+  saveCanonical({
+    ...(previous?.requestToken === requestToken && previous.state === state
+      ? previous
+      : { previousOwnedCsrf: previous?.ownedCsrf || previous?.previousOwnedCsrf }),
     requestToken,
     state,
     handoffPath: canonicalDomainLoginHandoffPath(handoffPath),
-  } satisfies CanonicalState))
+  })
   return true
 }
 
@@ -68,22 +79,139 @@ export function hasPendingCanonicalDomainLogin(): boolean {
   return readCanonical() !== null
 }
 
+export function hasPendingCanonicalDomainLoginCleanup(): boolean {
+  const pending = readCanonical()
+  return !!(pending?.redirectUrl || pending?.terminalError)
+}
+
+export function pendingCanonicalDomainLoginQuery(): Record<string, string> | null {
+  const pending = readCanonical()
+  if (!pending) return null
+  return {
+    domain_login_request: pending.requestToken,
+    state: pending.state,
+    ...(pending.handoffPath ? { domain_login_handoff: pending.handoffPath } : {}),
+  }
+}
+
+/** A restarted portal request can reuse only a session we already owned. */
+export function reconcileCanonicalDomainLoginSession(csrf: string): void {
+  const pending = readCanonical()
+  if (!pending?.previousOwnedCsrf) return
+  saveCanonical({
+    ...pending,
+    previousOwnedCsrf: undefined,
+    ...(pending.previousOwnedCsrf === csrf ? { ownedCsrf: csrf } : {}),
+  })
+}
+
 export function pendingCanonicalDomainLoginHandoff(): string | null {
   return readCanonical()?.handoffPath ?? null
 }
 
-export async function authorizePendingDomainLogin(): Promise<boolean> {
+export function clearCanonicalDomainLogin(): void {
+  sessionStorage.removeItem(CANONICAL_KEY)
+}
+
+/** Only a login response can establish ownership; /me and session status cannot. */
+export function recordCanonicalDomainLoginSession(csrf: string): void {
   const pending = readCanonical()
-  if (!pending) return false
-  try {
-    const result = await authApi.domainLoginAuthorize(pending.requestToken, pending.state)
-    window.location.replace(result.redirect_url)
-  } finally {
-    // Neplatný nebo už spotřebovaný request nesmí po reloadu vytvořit login smyčku.
-    // Při síťové chybě uživatel zahájí čerstvý tok z cílové domény.
-    sessionStorage.removeItem(CANONICAL_KEY)
+  if (pending && !pending.redirectUrl && !pending.terminalError && csrf) saveCanonical({ ...pending, ownedCsrf: csrf, previousOwnedCsrf: undefined })
+}
+
+export function canonicalDomainLoginSessionCsrf(): string | null {
+  return readCanonical()?.ownedCsrf ?? null
+}
+
+/** A known same-tab rotation may advance existing ownership, never acquire it. */
+export function advanceCanonicalDomainLoginSession(previousCsrf: string, csrf: string): void {
+  const pending = readCanonical()
+  if (pending?.ownedCsrf === previousCsrf && previousCsrf && csrf) {
+    saveCanonical({ ...pending, ownedCsrf: csrf, previousOwnedCsrf: undefined })
   }
+}
+
+let authorization: Promise<boolean> | null = null
+
+export function authorizePendingDomainLogin(): Promise<boolean> {
+  if (authorization) return authorization
+  const attempt = authorizeAndCleanup()
+  authorization = attempt
+  void attempt.finally(() => {
+    if (authorization === attempt) authorization = null
+  }).catch(() => undefined)
+  return attempt
+}
+
+async function authorizeAndCleanup(): Promise<boolean> {
+  let pending = readCanonical()
+  if (!pending) return false
+  if (!pending.redirectUrl && !pending.terminalError) {
+    try {
+      const result = await authApi.domainLoginAuthorize(pending.requestToken, pending.state, pending.ownedCsrf)
+      pending = { ...pending, redirectUrl: result.redirect_url }
+      // Issuing a code is one-shot. Persist it before cleanup so a failed logout
+      // can be retried after a reload without authorizing the request twice.
+      saveCanonical(pending)
+    } catch (error: any) {
+      const code = error?.response?.data?.error?.code
+      if (!TERMINAL_AUTHORIZATION_ERRORS.includes(code)) throw error
+      if (!pending.ownedCsrf) {
+        clearCanonicalDomainLogin()
+        throw error
+      }
+      // A rejected/expired portal request still must not leave its temporary
+      // native login alive. Keep this phase until its bound logout succeeds.
+      pending = { ...pending, terminalError: {
+        code,
+        message: String(error.response.data.error.message || ''),
+        status: error.response.status || 400,
+      } }
+      saveCanonical(pending)
+    }
+  }
+  if (pending.ownedCsrf) {
+    // Explicit CSRF binds cleanup to the session created by this flow. A cookie
+    // replaced by another tab must fail CSRF rather than log out that session.
+    try {
+      await authApi.logout(pending.ownedCsrf)
+    } catch (error) {
+      if (!isMissingSession(error)) throw error
+      // A lost logout response may already have deleted the cookie. Only an
+      // explicit unauthenticated status confirms cleanup; a different live
+      // session, a lock, or a network failure must keep this attempt pending.
+      let ended = false
+      try {
+        await authApi.sessionStatus()
+      } catch (statusError) {
+        ended = isMissingSession(statusError)
+      }
+      if (!ended) throw error
+    }
+    pending = { ...pending, ownedCsrf: undefined }
+    saveCanonical(pending)
+  }
+  if (pending.terminalError) {
+    clearCanonicalDomainLogin()
+    throw { response: { status: pending.terminalError.status, data: { error: pending.terminalError } } }
+  }
+  if (!isDomainLoginCallbackUrl(pending.redirectUrl)) {
+    clearCanonicalDomainLogin()
+    throw new Error('Invalid domain login redirect')
+  }
+  window.location.replace(pending.redirectUrl)
+  clearCanonicalDomainLogin()
   return true
+}
+
+function isMissingSession(error: unknown): boolean {
+  const response = (error as { response?: { status?: number; data?: { error?: { code?: string } } } })?.response
+  return response?.status === 401
+    && ['unauthenticated', 'session_expired', 'invalid_token'].includes(response.data?.error?.code || '')
+}
+
+function saveCanonical(value: CanonicalState): void {
+  sessionStorage.setItem(CANONICAL_KEY, JSON.stringify(value))
 }
 
 export function readTargetDomainLogin(
@@ -120,8 +248,26 @@ function readCanonical(): CanonicalState | null {
       requestToken: value.requestToken,
       state: value.state,
       handoffPath: canonicalDomainLoginHandoffPath(value.handoffPath),
+      ...(typeof value.previousOwnedCsrf === 'string' && value.previousOwnedCsrf
+        ? { previousOwnedCsrf: value.previousOwnedCsrf } : {}),
+      ...(typeof value.ownedCsrf === 'string' && value.ownedCsrf ? { ownedCsrf: value.ownedCsrf } : {}),
+      ...(value.terminalError && TERMINAL_AUTHORIZATION_ERRORS.includes(value.terminalError.code)
+        && typeof value.terminalError.message === 'string' && typeof value.terminalError.status === 'number'
+        ? { terminalError: value.terminalError } : {}),
+      ...(isDomainLoginCallbackUrl(value.redirectUrl) ? { redirectUrl: value.redirectUrl } : {}),
     }
   } catch {
     return null
+  }
+}
+
+function isDomainLoginCallbackUrl(value: unknown): value is string {
+  if (typeof value !== 'string' || !value) return false
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' && url.pathname === '/domain-login/callback'
+      && !url.username && !url.password
+  } catch {
+    return false
   }
 }

@@ -106,7 +106,7 @@ describe('templates from source documents', () => {
 
   it.each(['invoices', 'purchase-invoices'])('connects the %s menu to the original posting rule dialog and permission', source => {
     const page = readFileSync(`src/pages/${source}/InvoiceDetail.vue`, 'utf8')
-    expect(page).toContain("import RuleFormModal from '@/components/bank/RuleFormModal.vue'")
+    expect(page).toContain("const RuleFormModal = defineAsyncComponent(() => import('@/components/bank/RuleFormModal.vue'))")
     expect(page).toMatch(/key: 'posting-rule'[\s\S]*?tier: 'overflow'[\s\S]*?auth.canWrite\('bank.rules'\)/)
     expect(page).toContain('<RuleFormModal v-if="postingRuleOpen && invoice"')
     expect(page).not.toContain('SaveJournalTemplateModal')

@@ -26,6 +26,7 @@ import DateInput from '@/components/ui/DateInput.vue'
 import PayrollSubmissionSubject from '@/components/payroll/PayrollSubmissionSubject.vue'
 import PayrollSubmissionManualAcceptance from '@/components/payroll/PayrollSubmissionManualAcceptance.vue'
 import { useAuthStore } from '@/stores/auth'
+import { navigateFullPage } from '@/workspace/fullPageNavigation'
 import EnvironmentSwitch from '@/components/ui/EnvironmentSwitch.vue'
 import { useSubmissionEnvironment } from '@/composables/useSubmissionEnvironment'
 import PaginationBar from '@/components/ui/PaginationBar.vue'
@@ -624,7 +625,7 @@ async function sendHealthViaDataBox(overview: PayrollHealthPaymentOverview) {
     )
     if (queued.transport.automatic) {
       const gateway = await dataBoxApi.gatewayStartPayroll(queued.outbox_id)
-      window.location.assign(gateway.redirect_url)
+      navigateFullPage(gateway.redirect_url)
       return
     }
     // Způsoby odeslání se nabídnou rovnou tady, ne jen přesměrováním do fronty,
@@ -688,14 +689,14 @@ async function sendSelectedHealthViaDataBox() {
     const first = queued[0]!
     if (first.transport.automatic) {
       const gateway = await dataBoxApi.gatewayStartPayroll(first.outbox_id)
-      window.location.assign(gateway.redirect_url)
+      navigateFullPage(gateway.redirect_url)
       return
     }
     if (first.transport.channel === 'mobile_key') {
       healthBatchQueuedIds.value = queued.map(item => item.outbox_id)
       return
     }
-    window.location.assign(first.outbox_url)
+    navigateFullPage(first.outbox_url)
   } catch (exception) {
     healthBatchError.value = apiErrorMessage(
       exception,

@@ -988,7 +988,10 @@
         "2004_payment_order_tax_items.sql",
         "2005_email_distribution_across_suppliers.sql",
         "2006_payroll_wage_rounding.sql",
-        "2007_client_ai_extraction.sql"
+        "2007_payroll_takeover_benefit_baskets.sql",
+        "2008_payroll_deduction_agreement_taken_over_withheld.sql",
+        "2009_supplier_email_templates.sql",
+        "2010_client_ai_extraction.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -3526,6 +3529,23 @@
             "foreign_keys": {
                 "fk_coa_parent": "(parent_id) -> chart_of_accounts (id) ON UPDATE RESTRICT ON DELETE SET NULL",
                 "fk_coa_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE"
+            },
+            "checks": []
+        },
+        "client_ai_extraction_usage": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "period": "char(7) NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "used": "int(10) unsigned NOT NULL DEFAULT 0"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (supplier_id, period)"
+            },
+            "foreign_keys": {
+                "fk_client_ai_extraction_usage_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE"
             },
             "checks": []
         },
@@ -8751,6 +8771,7 @@
                 "requested_minor": "bigint(20) unsigned NOT NULL",
                 "status": "enum('draft','active','paused','ended','cancelled') NOT NULL",
                 "supplier_id": "int(10) unsigned NOT NULL",
+                "taken_over_withheld_minor": "bigint(20) unsigned NOT NULL DEFAULT 0",
                 "title": "varchar(190) NOT NULL",
                 "total_limit_minor": "bigint(20) unsigned NULL DEFAULT NULL",
                 "valid_from": "date NOT NULL",
@@ -8797,6 +8818,7 @@
                 "row_version": "int(10) unsigned NOT NULL DEFAULT 1",
                 "status": "enum('draft','active','paused','ended','cancelled') NOT NULL DEFAULT 'draft'",
                 "supplier_id": "int(10) unsigned NOT NULL",
+                "taken_over_withheld_minor": "bigint(20) unsigned NOT NULL DEFAULT 0",
                 "title": "varchar(190) NOT NULL",
                 "total_limit_minor": "bigint(20) unsigned NULL DEFAULT NULL",
                 "updated_at": "timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE CURRENT_TIMESTAMP()",
@@ -12816,6 +12838,8 @@
                 "insurance_days": "smallint(5) unsigned NOT NULL DEFAULT 0",
                 "net_minor": "bigint(20) NOT NULL DEFAULT 0",
                 "net_payable_minor": "bigint(20) NOT NULL DEFAULT 0",
+                "non_cash_health_benefit_minor": "bigint(20) NULL DEFAULT NULL",
+                "non_cash_leisure_benefit_minor": "bigint(20) NULL DEFAULT NULL",
                 "old_age_savings_contribution_minor": "bigint(20) NULL DEFAULT NULL",
                 "payout_date": "date NULL DEFAULT NULL",
                 "pension_participation": "tinyint(1) NOT NULL DEFAULT 1",
@@ -12845,6 +12869,7 @@
                 "fk_pmrt_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE"
             },
             "checks": {
+                "chk_pmrt_non_cash_benefits": "(`non_cash_health_benefit_minor` is null or `non_cash_health_benefit_minor` >= 0) and (`non_cash_leisure_benefit_minor` is null or `non_cash_leisure_benefit_minor` >= 0)",
                 "chk_pmrt_old_age_savings": "`old_age_savings_contribution_minor` is null or `old_age_savings_contribution_minor` >= 0",
                 "chk_pmrt_period_first_day": "dayofmonth(`period_start`) = 1",
                 "chk_pmrt_sickness_excluded_days": "`sickness_excluded_days` is null or `sickness_excluded_days` <= 31",
@@ -21731,6 +21756,7 @@
                 "branding_profiles_enabled": "tinyint(1) NOT NULL DEFAULT 0",
                 "city": "varchar(120) NOT NULL",
                 "client_ai_extraction_enabled": "tinyint(1) NOT NULL DEFAULT 0",
+                "client_ai_extraction_monthly_limit": "int(10) unsigned NOT NULL DEFAULT 100",
                 "commercial_register": "varchar(255) NULL DEFAULT NULL",
                 "company_name": "varchar(190) NOT NULL",
                 "country_id": "smallint(5) unsigned NOT NULL",
@@ -22033,6 +22059,32 @@
                 "chk_supplier_domains_primary_portal": "`is_primary_portal` in (0,1) and (`is_primary_portal` = 0 or `purpose` in ('portal','all'))",
                 "chk_supplier_domains_primary_public": "`is_primary_public` in (0,1) and (`is_primary_public` = 0 or `purpose` in ('public_links','all'))"
             }
+        },
+        "supplier_email_templates": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "body_html": "mediumtext NOT NULL",
+                "body_text": "mediumtext NOT NULL",
+                "code": "varchar(64) NOT NULL",
+                "id": "int(10) unsigned NOT NULL AUTO_INCREMENT",
+                "locale": "char(2) NOT NULL",
+                "subject": "varchar(255) NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "updated_at": "timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE CURRENT_TIMESTAMP()",
+                "updated_by": "bigint(20) unsigned NULL DEFAULT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_supplier_email_template_user": "BTREE (updated_by)",
+                "uq_supplier_email_template": "UNIQUE BTREE (supplier_id, code, locale)"
+            },
+            "foreign_keys": {
+                "fk_supplier_email_template_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE",
+                "fk_supplier_email_template_user": "(updated_by) -> users (id) ON UPDATE RESTRICT ON DELETE SET NULL"
+            },
+            "checks": []
         },
         "supplier_groups": {
             "type": "BASE TABLE",

@@ -62,9 +62,10 @@ final class PayrollMigrationReferenceTotalsWriter
                   excluded_days, worked_days_hundredths, worked_minutes,
                   deductions_minor, net_payable_minor, payout_date,
                   import_reference, sickness_excluded_days, uninsured_income_minor,
-                  old_age_savings_contribution_minor)
+                  old_age_savings_contribution_minor, non_cash_health_benefit_minor,
+                  non_cash_leisure_benefit_minor)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE
                  external_person_ref = VALUES(external_person_ref),
                  employee_id = VALUES(employee_id),
@@ -95,7 +96,9 @@ final class PayrollMigrationReferenceTotalsWriter
                  import_reference = VALUES(import_reference),
                  sickness_excluded_days = VALUES(sickness_excluded_days),
                  uninsured_income_minor = VALUES(uninsured_income_minor),
-                 old_age_savings_contribution_minor = VALUES(old_age_savings_contribution_minor)',
+                 old_age_savings_contribution_minor = VALUES(old_age_savings_contribution_minor),
+                 non_cash_health_benefit_minor = VALUES(non_cash_health_benefit_minor),
+                 non_cash_leisure_benefit_minor = VALUES(non_cash_leisure_benefit_minor)',
         );
 
         $written = 0;
@@ -136,6 +139,8 @@ final class PayrollMigrationReferenceTotalsWriter
                 $facts->sicknessExcludedDays,
                 $facts->uninsuredIncomeMinor,
                 $facts->oldAgeSavingsContributionMinor,
+                $facts->nonCashHealthBenefitMinor,
+                $facts->nonCashLeisureBenefitMinor,
             ]);
             $written++;
         }

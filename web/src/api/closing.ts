@@ -275,10 +275,24 @@ export interface FxBankProposal {
   czk_balance: number
 }
 
+/** Přecenění jiných pohledávek a závazků 378/379 v cizí měně — automaticky z deníku. */
+export interface FxLedgerLine {
+  account_code: string
+  label: string
+  currency_code: string
+  foreign_balance: number
+  rate_cnb: number
+  ledger_czk: number
+  new_czk: number
+  diff: number
+  direction: 'gain' | 'loss' | null
+}
+
 export interface FxPreview {
   rate_info: FxRateInfo[]
   saldo: { lines: FxAggregateLine[]; detail: FxDetailRow[] }
   bank: { lines: FxBankRow[] }
+  ledger?: { lines: FxLedgerLine[] }
   proposals?: FxBankProposal[]
   totals: { loss: number; gain: number }
 }

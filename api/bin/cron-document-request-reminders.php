@@ -110,7 +110,7 @@ foreach ($candidates as $c) {
             'requested_days_ago' => $daysAgo,
             'portal_link'        => $tenantUrls->forSupplier($supplierId, 'portal', '/portal/document-requests'),
         ];
-        $mailer->sendTemplate('document_request_reminder', 'cs', $to, $vars);
+        $mailer->sendTemplate('document_request_reminder', 'cs', $to, $vars, templateSupplierId: $supplierId);
         $repo->bumpReminder($id);
         $logger->log('document_request.reminder_sent', null, 'document_request', $id, [
             'to' => $to, 'days_ago' => $daysAgo,

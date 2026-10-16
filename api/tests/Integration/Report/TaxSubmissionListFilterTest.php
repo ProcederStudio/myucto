@@ -316,4 +316,38 @@ final class TaxSubmissionListFilterTest extends TestCase
             self::assertArrayHasKey('artifacts', $row);
         }
     }
+    public function testExactSubmissionFilterFindsOlderRowAndPreservesTenantLicenseAndPaging(): void
+    {
+        $target = $this->seed('dphdp3', 1, 'submitted');
+        $this->db->pdo()->prepare('UPDATE tax_submissions SET generated_at = ? WHERE id = ?')
+            ->execute(['2001-01-01 00:00:00', $target]);
+        $this->seed('dphdp3', 2, 'submitted');
+        $paid = $this->seed(self::PAID_FORM, 1, 'downloaded');
+        $filters = ['submission_id' => $target];
+        $rows = $this->repo->list($this->supplierId, $filters, 1, 0);
+        self::assertSame([$target], array_column($rows, 'id'));
+        self::assertSame(1, $this->repo->countList($this->supplierId, $filters));
+        self::assertSame([], $this->repo->list($this->supplierId, $filters, 1, 1));
+        self::assertSame([], $this->repo->list($this->supplierId + 1000, $filters));
+        self::assertSame(0, $this->repo->countList($this->supplierId + 1000, $filters));
+        $restricted = ['submission_id' => $paid, 'allowed_form_codes' => TaxSubmissionAccess::freeFormCodes()];
+        self::assertSame([], $this->repo->list($this->supplierId, $restricted));
+        self::assertSame(0, $this->repo->countList($this->supplierId, $restricted));
+        [$status, $body] = $this->callList(['submission_id' => (string) $target]);
+        self::assertSame(200, $status);
+        self::assertSame([$target], array_column($body['data'], 'id'));
+        self::assertSame(1, $body['meta']['total']);
+        self::assertSame($this->repo->listStats($this->supplierId)['total'], $this->repo->listStats($this->supplierId, $filters)['total']);
+    }
+
+    public function testInvalidSubmissionIdCannotSilentlyShowEntireArchive(): void
+    {
+        foreach (['0', '-1', '1abc', '1.5', '', '999999999999999999999999', ['1']] as $id) {
+            [$status, $body] = $this->callList(['submission_id' => $id]);
+            self::assertSame(422, $status);
+            self::assertSame('validation_failed', $body['error']['code'] ?? null);
+            self::assertArrayNotHasKey('data', $body);
+        }
+    }
+
 }

@@ -104,6 +104,30 @@ final class PayrollAgreementAnnualHoursTest extends TestCase
         self::assertSame([], $validations);
     }
 
+    /**
+     * Převod zakládá pracovní souhrn i za převzaté měsíce. Tytéž hodiny se nesmí
+     * sečíst dvakrát (TOPTAX 7/2026: 550 h místo 285,5 h a falešné varování).
+     */
+    public function testTakenOverMonthIsNotCountedAgainFromOwnWorkSummary(): void
+    {
+        $hours = PayrollAgreementAnnualHours::combine(
+            [7],
+            [
+                ['employee_id' => 7, 'period_start' => '2026-05-01', 'minutes' => 40 * 60],
+                ['employee_id' => 7, 'period_start' => '2026-06-01', 'minutes' => 50 * 60],
+            ],
+            [
+                ['employee_id' => 7, 'period_start' => '2026-05-01', 'millihours' => 40_000],
+                ['employee_id' => 7, 'period_start' => '2026-06-01', 'millihours' => 50_000],
+                ['employee_id' => 7, 'period_start' => '2026-07-01', 'millihours' => 10_500],
+            ],
+        );
+
+        self::assertSame(90 * 60, $hours[7]['takeover_minutes']);
+        self::assertSame(630, $hours[7]['own_minutes']);
+        self::assertSame(90 * 60 + 630, $hours[7]['total_minutes']);
+    }
+
     private function agreement(string $code): int
     {
         $this->db->pdo()->prepare(

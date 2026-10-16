@@ -1,4 +1,6 @@
 import { computed, ref } from 'vue'
+import { getWindowSupplierScope } from '@/workspace/supplierContext'
+import { postWindowFrameMessage } from '@/workspace/frameProtocol'
 
 /**
  * Stav diskové kvóty instalace (H-10), jak ho hlásí backend v hlavičkách
@@ -62,6 +64,12 @@ function numberOrNull(value: string | null): number | null {
  */
 export function readStorageQuotaHeaders(headers: unknown, options: { trusted?: boolean } = {}): void {
   const trusted = options.trusted !== false
+  const scope = getWindowSupplierScope()
+  if (scope) {
+    const names = ['state', 'percent', 'used-bytes', 'limit-bytes'].map(name => `x-storage-quota-${name}`)
+    postWindowFrameMessage({ type: 'myucto-window-quota', id: scope.windowId, trusted,
+      headers: Object.fromEntries(names.map(name => [name, header(headers, name)])) })
+  }
   const next = header(headers, 'x-storage-quota-state')
   if (next !== 'warning' && next !== 'exhausted') {
     // Nedůvěryhodná odpověď bez hlaviček nic neříká — poslední známý stav

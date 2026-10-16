@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useWindowRefresh } from '@/composables/useWindowRefresh'
 import { ref, reactive, computed, onMounted, watch, useId } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -281,6 +282,7 @@ function resolveLink(it: PostingSuggestion) {
   }
   return null
 }
+useWindowRefresh(['bank', 'bank-statements', 'bank-transactions', 'bank-match-suggestions', 'accounting', 'invoices', 'purchase-invoices', 'clients'], () => Promise.all([load(), loadCounts()]), () => busyId.value === null && selected.size === 0)
 </script>
 
 <template>
