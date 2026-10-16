@@ -5,7 +5,7 @@ import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { invoicesApi, type Invoice, type InvoicePayload, type InvoiceItem, type WorkReportItem, type WorkReportMaterial, type InvoiceAttachment, type PaymentMethod, type InvoiceRoundingMode, type PaymentScheduleRow, type CashSettlementResult } from '@/api/invoices'
 import { useHotkey } from '@/composables/useHotkey'
 import { usePaneDom } from '@/composables/usePaneDom'
-import { focusLastRow } from '@/composables/useRowFocus'
+import { focusLastRow, focusRowField } from '@/composables/useRowFocus'
 import { useToast } from '@/composables/useToast'
 import { useDemoMode } from '@/composables/useDemoMode'
 import { useI18n } from 'vue-i18n'
@@ -60,7 +60,7 @@ import DimensionFields from '@/components/dimensions/DimensionFields.vue'
 import ItemDimensionsToggle from '@/components/dimensions/ItemDimensionsToggle.vue'
 import { useDocumentDimensions, applyPrefill } from '@/composables/useDocumentDimensions'
 import { durationTotal, isPreciseTimeItem, isTimeItem, itemAmount, itemQuantity, syncCreditNoteItemSign, timeItemTotals, validateDurationInputs, workHours, workRowTotal } from '@/utils/timeBilling'
-import { groupInvoiceStockAvailability, invoiceStockAvailabilityKey } from './invoiceStockAvailability'
+import { groupInvoiceStockAvailability, invoiceStockAvailabilityKey, stockSearchBadge } from './invoiceStockAvailability'
 import {
   availabilityQuantity,
   availabilityUnit,
@@ -422,19 +422,26 @@ async function onStockSearch(rowIndex: number, q: string) {
   stockRowQuery[rowIndex] = q
   stockRowLoading[rowIndex] = true
   try {
-    const res = await stockApi.searchItems(q, 30)
+    // Stav v nabídce se počítá pro sklad řádku (nebo výchozí), stejně jako dostupnost po výběru.
+    const row = form.value.items[rowIndex]
+    const res = await stockApi.searchItems(q, 30, row ? rowWarehouseId(row) : defaultWarehouseId.value)
     for (const r of res) {
       stockItemsCache.set(r.id, r)
       rememberPackaging(r)
     }
-    stockRowOptions[rowIndex] = res.map(r => ({
-      value: r.id,
-      label: `${r.sku} - ${r.name}`,
-      secondary: [
-        r.matched_unit ? `${r.unit} · ${r.matched_unit}` : r.unit,
-        r.search_match ? `${stockSearchMatchLabel(r.search_match, t)}: ${r.search_match.value}` : null,
-      ].filter(Boolean).join(' · '),
-    }))
+    stockRowOptions[rowIndex] = res.map(r => {
+      const badge = stockSearchBadge(r, n => formatNumber(n, { maximumFractionDigits: 3 }))
+      return {
+        value: r.id,
+        label: `${r.sku} - ${r.name}`,
+        secondary: [
+          r.matched_unit ? `${r.unit} · ${r.matched_unit}` : r.unit,
+          r.search_match ? `${stockSearchMatchLabel(r.search_match, t)}: ${r.search_match.value}` : null,
+        ].filter(Boolean).join(' · '),
+        badge: badge ? t('stock.availability.in_stock', { qty: badge.qty, unit: badge.unit }) : undefined,
+        badgeTone: badge?.tone,
+      }
+    })
   } catch {
     stockRowOptions[rowIndex] = []
   } finally {
@@ -573,6 +580,8 @@ function onStockSelect(rowIndex: number, itemId: number | null) {
   if (item.warehouse_id == null) item.warehouse_id = defaultWarehouseId.value
   void prefillFromProduct(item, itemId)
   refreshAvailability()
+  // Rychlé zadávání: po výběru karty rovnou množství (hodnota označená, číslo ji přepíše).
+  void focusRowField('[data-row-qty="inv-item"]', rowIndex, paneDom.root())
 }
 
 function onItemUnitChange(item: InvoiceItem): void {
@@ -1599,6 +1608,21 @@ async function applyProjectDefaults(projectId: number) {
 function addItem() {
   form.value.items.push(blankItem())
   focusLastRow('[data-row-input="inv-item"]', paneDom.root())
+}
+
+/**
+ * Enter v množství: popis dalšího řádku, za posledním řádkem nový řádek. Formulář
+ * se Enterem z množství neukládá (dřív implicitní submit); uložení zůstává na Ctrl+S
+ * a tlačítku. Prázdný řádek navíc uložení stejně tiše vynechá.
+ */
+function onQtyEnter(e: KeyboardEvent, rowIndex: number) {
+  if (e.isComposing) return
+  e.preventDefault()
+  if (rowIndex < form.value.items.length - 1) {
+    void focusRowField('[data-row-input="inv-item"]', rowIndex + 1, paneDom.root())
+  } else {
+    addItem()
+  }
 }
 
 async function addPriceListItem() {
@@ -3033,8 +3057,10 @@ useWindowTitle(
                 </div>
               </td>
               <td class="px-3 py-2">
-                <DurationInput v-if="isTimeItem(item)" v-model="item.quantity" v-model:duration-minutes="item.duration_minutes" :allow-negative="true" />
-                <input v-else v-model="item.quantity" v-math="2" type="text" inputmode="decimal"
+                <DurationInput v-if="isTimeItem(item)" v-model="item.quantity" v-model:duration-minutes="item.duration_minutes" :allow-negative="true"
+                  data-row-qty="inv-item" @keydown.enter="onQtyEnter($event, i)" />
+                <input v-else v-model="item.quantity" v-math="2" type="text" inputmode="decimal" enterkeyhint="next"
+                  data-row-qty="inv-item" :aria-label="t('invoice.items_table.qty')" @keydown.enter="onQtyEnter($event, i)"
                   :class="['w-full h-9 px-2 border rounded text-right font-mono text-sm', itemHasBothNegative(item) ? 'border-danger-400' : 'border-neutral-300']" />
               </td>
               <td class="px-3 py-2">
@@ -3325,8 +3351,10 @@ useWindowTitle(
             <div class="grid grid-cols-2 gap-2">
               <div>
                 <label class="block text-xs font-medium text-neutral-600 mb-1">{{ t('invoice.items_table.qty') }}</label>
-                <DurationInput v-if="isTimeItem(item)" v-model="item.quantity" v-model:duration-minutes="item.duration_minutes" :allow-negative="true" />
-                <input v-else v-model="item.quantity" v-math="2" type="text" inputmode="decimal"
+                <DurationInput v-if="isTimeItem(item)" v-model="item.quantity" v-model:duration-minutes="item.duration_minutes" :allow-negative="true"
+                  data-row-qty="inv-item" @keydown.enter="onQtyEnter($event, i)" />
+                <input v-else v-model="item.quantity" v-math="2" type="text" inputmode="decimal" enterkeyhint="next"
+                  data-row-qty="inv-item" :aria-label="t('invoice.items_table.qty')" @keydown.enter="onQtyEnter($event, i)"
                   :class="['w-full h-10 px-3 border rounded text-right font-mono text-sm', itemHasBothNegative(item) ? 'border-danger-400' : 'border-neutral-300']" />
               </div>
               <div>

@@ -436,6 +436,18 @@ a produktových údajů.
 U karty se sledováním sériových čísel nebo šarží vyberete pod řádkem konkrétní kusy
 (například VIN motocyklu), viz [§ 37.5.1](37_Sklad.md#3751-vydej-fakturou).
 
+**Stav skladu v nabídce karet.** Při zapnutém skladu ukazuje nabídka u každé skladové
+karty stav v základní jednotce (například „skladem 12 ks“) pro sklad řádku, a dokud
+sklad nevyberete, pro výchozí sklad. Karta s nulovým nebo záporným stavem má štítek
+zvýrazněný jako varování. Neskladová karta stav nemá.
+
+**Rychlé zadávání z klávesnice.** Do popisu napište kód nebo název, šipkami vyberte kartu
+a potvrďte Enterem. Kurzor skočí do **Množství** s označenou hodnotou, takže číslo rovnou
+přepíšete. Enter v množství přejde na popis dalšího řádku, za posledním řádkem přidá nový.
+Enter v množství fakturu neuloží, uložení zůstává na Ctrl+S (macOS Cmd+S) a tlačítku.
+Enter v popisu bez otevřené nabídky zalomí řádek textu, Shift+Enter ho zalomí vždy,
+i když je nabídka karet otevřená. Prázdný řádek navíc se při uložení sám vynechá.
+
 Ve výběru lze hledat podle kódu a názvu. U každé nabídky je uvedena výsledná cena a její zdroj,
 u kurzového přepočtu také datum použitého kurzovního lístku. Vložený řádek je samostatný
 snapshot. Lze jej dále upravit a pozdější změna ceníku, zákazníka nebo kurzu jej automaticky
@@ -912,6 +924,8 @@ schvalovacím e-mailu i na schvalovací stránce zákazník vidí obě části a
 ### 15.9.11 Tipy
 
 - Ctrl+S (macOS Cmd+S) kdykoli uloží rozpracovanou fakturu jako koncept.
+- Enter v množství přejde na další řádek položek (za posledním přidá nový), viz
+  [§ 15.9.3](#1593-polozky).
 - Klonování zachová položky i výkaz víceprací, datum se aktualizuje na dnešní, popis položky
   posune měsíc.
 - **Reverse charge** automaticky nastaví všechny položky na sazbu „RC“ (0 %) a v PDF přidá text

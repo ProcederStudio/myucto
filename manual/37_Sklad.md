@@ -827,7 +827,8 @@ dopravu 200 Kč).
 
 Na řádku [vydané faktury](15_Faktura_editor.md) můžete vybrat **skladovou kartu**
 a **sklad**, ze kterého se má zboží vydat. Zobrazí se náhled dostupného množství
-stejně jako v editoru skladového dokladu.
+stejně jako v editoru skladového dokladu. Stav vidíte už v nabídce karet při psaní
+popisu, pro sklad řádku (viz [§ 15.9.3](15_Faktura_editor.md#1593-polozky)).
 
 Je-li zapnutá **automatická výdejka** ([§ 37.12.1](#37121-zapnuti-modulu)), při
 vystavení běžné nebo finální faktury s takto napojenými řádky systém automaticky
