@@ -7,6 +7,7 @@ namespace MyInvoice\Tests\Unit\Service\Mail;
 use MyInvoice\Infrastructure\Config\Config;
 use MyInvoice\Repository\EmailTemplateRepository;
 use MyInvoice\Service\Mail\InvoiceIsdocAttachments;
+use MyInvoice\Service\Currency\ExchangeRateApplier;
 use MyInvoice\Service\Mail\Mailer;
 use MyInvoice\Service\Mail\RateLimit\MailRateLimiter;
 use MyInvoice\Service\Mail\RateLimit\MailSendCounterInterface;
@@ -15,6 +16,7 @@ use MyInvoice\Tests\Support\StandaloneIsdocTestTrait;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\Mailer\Envelope;
 use Symfony\Component\Mailer\SentMessage;
 use Symfony\Component\Mailer\Transport\TransportInterface;
@@ -78,15 +80,7 @@ final class InvoiceIsdocAttachmentsTest extends TestCase
     {
         $this->pdo->exec('UPDATE supplier SET email_attach_isdoc = 1 WHERE id = 41');
         $mailer = $this->mailer();
-        $transport = new class implements TransportInterface {
-            public ?Email $message = null;
-            public function send(RawMessage $message, ?Envelope $envelope = null): ?SentMessage
-            {
-                $this->message = $message instanceof Email ? $message : null;
-                return new SentMessage($message, $envelope ?? Envelope::create($message));
-            }
-            public function __toString(): string { return 'capture://'; }
-        };
+        $transport = $this->captureTransport();
         (new \ReflectionProperty(Mailer::class, 'transport'))->setValue($mailer, $transport);
         $mailer->sendTemplate('invoice_send', 'cs', ['client@example.test'], [
             'invoice' => $this->isdocInvoice(), 'supplier' => ['id' => 41],
@@ -115,9 +109,76 @@ final class InvoiceIsdocAttachmentsTest extends TestCase
         $this->assertIsdocSchema($payload['attachments'][1]['content']);
     }
 
+    public static function optionalIsdocFailures(): iterable
+    {
+        foreach (['invoice_send', 'invoice_reminder', 'proforma_reminder', 'invoice_payment_thanks'] as $code) {
+            foreach (['exchange_rate', 'signing'] as $failure) {
+                yield $code . ' / ' . $failure => [$code, $failure];
+            }
+        }
+    }
+
+    #[DataProvider('optionalIsdocFailures')]
+    public function testMailerStillSendsPdfAndOtherAttachmentsWhenOptionalIsdocFails(string $code, string $failure): void
+    {
+        $this->pdo->exec('UPDATE supplier SET email_attach_isdoc = 1 WHERE id = 41');
+        $invoice = $this->isdocInvoice();
+        if ($failure === 'exchange_rate') {
+            $invoice['currency'] = 'EUR';
+            $rates = $this->createMock(ExchangeRateApplier::class);
+            $rates->expects(self::once())->method('ensureRate')->with(91, true)
+                ->willThrowException(new \RuntimeException('synthetic private exchange-rate diagnostic'));
+            $service = $this->isdocService(rates: $rates);
+        } else {
+            $signing = $this->createMock(PdfSigningService::class);
+            $signing->expects(self::once())->method('signIsdocIfEnabled')
+                ->willThrowException(new \RuntimeException('synthetic private signing diagnostic'));
+            $service = $this->isdocService(signing: $signing);
+        }
+        $logger = $this->createMock(LoggerInterface::class);
+        $logger->expects(self::once())->method('warning')->with('mail.invoice_isdoc_attachment_failed', [
+            'template' => $code,
+            'invoice_id' => 91,
+            'supplier_id' => 41,
+            'exception_class' => \RuntimeException::class,
+        ]);
+        $mailer = $this->mailer(invoiceIsdoc: new InvoiceIsdocAttachments($this->delivery, $service, $logger));
+        $transport = $this->captureTransport();
+        (new \ReflectionProperty(Mailer::class, 'transport'))->setValue($mailer, $transport);
+        $attachments = [...$this->pdf(), [
+            'content' => 'Synthetic supplementary document', 'name' => 'appendix.txt', 'contentType' => 'text/plain',
+        ]];
+        $result = $mailer->sendTemplateDetailed($code, 'cs', ['client@example.test'], [
+            'invoice' => $invoice, 'supplier' => ['id' => 41],
+        ], attachments: $attachments);
+
+        self::assertArrayHasKey('smtp_response', $result);
+        self::assertInstanceOf(Email::class, $transport->message);
+        $parts = $transport->message->getAttachments();
+        self::assertCount(2, $parts);
+        foreach ($attachments as $index => $attachment) {
+            self::assertSame($attachment['name'], $parts[$index]->getFilename());
+            self::assertSame($attachment['content'], $parts[$index]->getBody());
+            self::assertSame($attachment['contentType'], $parts[$index]->getMediaType() . '/' . $parts[$index]->getMediaSubtype());
+        }
+    }
+
+    private function captureTransport(): TransportInterface
+    {
+        return new class implements TransportInterface {
+            public ?Email $message = null;
+            public function send(RawMessage $message, ?Envelope $envelope = null): ?SentMessage
+            {
+                $this->message = $message instanceof Email ? $message : null;
+                return new SentMessage($message, $envelope ?? Envelope::create($message));
+            }
+            public function __toString(): string { return 'capture://'; }
+        };
+    }
+
     private function attachments(?PdfSigningService $signing = null): InvoiceIsdocAttachments
     {
-        return new InvoiceIsdocAttachments($this->delivery, $this->isdocService(signing: $signing));
+        return new InvoiceIsdocAttachments($this->delivery, $this->isdocService(signing: $signing), new NullLogger());
     }
 
     private function pdf(): array
@@ -125,7 +186,7 @@ final class InvoiceIsdocAttachmentsTest extends TestCase
         return [['content' => '%PDF-test', 'name' => 'invoice.pdf', 'contentType' => 'application/pdf']];
     }
 
-    private function mailer(bool $defer = false): Mailer
+    private function mailer(bool $defer = false, ?InvoiceIsdocAttachments $invoiceIsdoc = null): Mailer
     {
         $config = new Config(['smtp' => [
             'from_email' => 'sender@example.test', 'from_name' => 'Test',
@@ -138,6 +199,6 @@ final class InvoiceIsdocAttachmentsTest extends TestCase
         $templates->method('find')->willReturn(['subject' => 'Test', 'body_html' => '<p>Test</p>', 'body_text' => 'Test']);
         return new Mailer($config, new NullLogger(), $this->db, $templates,
             rateLimiter: new MailRateLimiter($config, $counter, new NullLogger()),
-            invoiceIsdoc: $this->attachments());
+            invoiceIsdoc: $invoiceIsdoc ?? $this->attachments());
     }
 }

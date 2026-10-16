@@ -98,7 +98,9 @@ upomínky a test odeslání i test upomínky. U poděkování za úhradu se ISDO
 jen tehdy, pokud je u dodavatele zapnuté přiložení uhrazeného PDF. Nastavení
 klienta se týká jen samostatného souboru `.isdoc`; nemění ISDOC vložený do PDF
 ani stažení ISDOC na veřejné web faktuře. Soubor se přiloží, pokud jej lze pro
-daný doklad vytvořit.
+daný doklad vytvořit. Pokud se ISDOC nepodaří vytvořit nebo elektronicky
+podepsat, chyba se zaznamená do aplikačního logu a e-mail se odešle bez přílohy
+ISDOC.
 
 > [!TIP]
 > Neznámý zástupný znak formulář při uložení odmítne. Seznam znaků je

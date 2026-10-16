@@ -38,7 +38,7 @@ final class ClientIsdocPreferenceTest extends TestCase
         $invoice = $this->isdocInvoice(['client_id' => 71, 'client_snapshot' => ['email_attach_isdoc' => !$expected]]);
         self::assertSame($expected, $this->delivery->emailEnabled($invoice));
         self::assertSame($supplier, $this->delivery->publicEnabled($invoice));
-        $attachments = (new InvoiceIsdocAttachments($this->delivery, $this->isdocService()))
+        $attachments = (new InvoiceIsdocAttachments($this->delivery, $this->isdocService(), new \Psr\Log\NullLogger()))
             ->forEmail('invoice_send', ['invoice' => $invoice], [['contentType' => 'application/pdf']]);
         self::assertCount($expected ? 2 : 1, $attachments);
         if ($expected) $this->assertIsdocSchema($attachments[1]['content']);
