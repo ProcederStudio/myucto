@@ -125,8 +125,10 @@ final class PriceLevelResolver
                 'rule'         => $rule,
             ];
         }
+        // Výchozí hodnota hladiny: kladná = sleva, záporná = přirážka, nula = hladina mimo
+        // pravidla cenu nemění.
         $default = (string) $level['default_discount_pct'];
-        if (bccomp($default, '0', 3) <= 0) {
+        if (bccomp($default, '0', 3) === 0) {
             return null;
         }
         $price = EffectivePriceResolver::customerBaseline($standardPrice, [

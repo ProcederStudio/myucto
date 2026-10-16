@@ -23,6 +23,26 @@ final class StockPriceLevelService
     private const MAX_ITEM_ROWS = 200;
     private const MATCH_TYPES = ['product', 'category', 'manufacturer'];
 
+    /** Nejvyšší přirážka (rozsah sloupce DECIMAL(6,3)) a nejvyšší sleva hladiny v %. */
+    public const MIN_PCT = '-999.999';
+    public const MAX_PCT = '100';
+    public const ADJUSTMENT_MESSAGE = 'Sleva musí být nejvýše 100 %, přirážka nejvýše 999,999 % (zadává se jako záporná sleva), '
+        . 's nejvýše třemi desetinnými místy.';
+
+    /**
+     * Sleva (kladná) nebo přirážka (záporná) cenové hladiny v %, normalizovaná na tři
+     * desetinná místa; null = neplatná nebo mimo rozsah. Jediné místo s rozsahem pro
+     * výchozí hodnotu hladiny i pravidla (CHECK v migraci 2011 drží totéž).
+     */
+    public static function adjustmentPct(mixed $value): ?string
+    {
+        $pct = StockItemCustomerPriceService::signedDecimal($value, 3);
+        if ($pct === null || bccomp($pct, self::MIN_PCT, 3) < 0 || bccomp($pct, self::MAX_PCT, 3) > 0) {
+            return null;
+        }
+        return $pct;
+    }
+
     public function __construct(
         private readonly Connection $db,
         private readonly StockPriceLevelRepository $levels,
@@ -285,9 +305,9 @@ final class StockPriceLevelService
                 throw $fail('fixed_price', 'Pevná cena musí být nezáporné číslo s nejvýše dvěma desetinnými místy.');
             }
         } else {
-            $pct = StockItemCustomerPriceService::decimal($raw['discount_pct'] ?? null, 3);
-            if ($pct === null || bccomp($pct, '100', 3) > 0) {
-                throw $fail('discount_pct', 'Sleva musí být v rozsahu 0–100 % s nejvýše třemi desetinnými místy.');
+            $pct = self::adjustmentPct($raw['discount_pct'] ?? null);
+            if ($pct === null) {
+                throw $fail('discount_pct', self::ADJUSTMENT_MESSAGE);
             }
         }
         $priority = $raw['priority'] ?? 0;

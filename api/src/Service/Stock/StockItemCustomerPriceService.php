@@ -191,6 +191,23 @@ final class StockItemCustomerPriceService
         return bcadd($s, '0', $scale);
     }
 
+    /**
+     * Jako {@see decimal()}, ale připouští záporné číslo (přirážka cenové hladiny).
+     */
+    public static function signedDecimal(mixed $v, int $scale): ?string
+    {
+        if (is_int($v) || is_float($v)) {
+            $v = is_float($v) ? number_format($v, $scale, '.', '') : (string) $v;
+        }
+        $s = str_replace([',', "\u{2212}"], ['.', '-'], trim((string) $v));
+        $negative = str_starts_with($s, '-');
+        $abs = self::decimal($negative ? substr($s, 1) : $s, $scale);
+        if ($abs === null) {
+            return null;
+        }
+        return $negative && bccomp($abs, '0', $scale) !== 0 ? '-' . $abs : $abs;
+    }
+
     /** @return string|null|false null = nezadáno, false = neplatné */
     private static function date(mixed $v): string|null|false
     {

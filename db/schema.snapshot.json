@@ -991,7 +991,8 @@
         "2007_payroll_takeover_benefit_baskets.sql",
         "2008_payroll_deduction_agreement_taken_over_withheld.sql",
         "2009_supplier_email_templates.sql",
-        "2010_variable_symbol_match_keys.sql"
+        "2010_variable_symbol_match_keys.sql",
+        "2011_stock_price_level_markup.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -20852,7 +20853,7 @@
                 "fk_splr_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE"
             },
             "checks": {
-                "chk_splr_value": "`rule_type` = 'fixed' and `match_type` = 'product' and `fixed_price` is not null and `fixed_price` >= 0 and `currency_code` is not null or `rule_type` = 'discount_pct' and `discount_pct` is not null and `discount_pct` >= 0 and `discount_pct` <= 100"
+                "chk_splr_value": "`rule_type` = 'fixed' and `match_type` = 'product' and `fixed_price` is not null and `fixed_price` >= 0 and `currency_code` is not null or `rule_type` = 'discount_pct' and `discount_pct` is not null and `discount_pct` >= -999.999 and `discount_pct` <= 100"
             }
         },
         "stock_price_levels": {
@@ -20879,7 +20880,7 @@
                 "fk_spl_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE"
             },
             "checks": {
-                "chk_spl_default_discount": "`default_discount_pct` >= 0 and `default_discount_pct` <= 100"
+                "chk_spl_default_discount": "`default_discount_pct` >= -999.999 and `default_discount_pct` <= 100"
             }
         },
         "stock_pricing_exchange_rates": {
