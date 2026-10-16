@@ -12,7 +12,6 @@ use MyInvoice\Repository\StockPriceLevelRepository;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\IpMatcher;
 use MyInvoice\Service\Stock\StockException;
-use MyInvoice\Service\Stock\StockItemCustomerPriceService;
 use MyInvoice\Service\Stock\StockPriceLevelService;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -187,10 +186,10 @@ final class PriceLevelAction
             return [[], Json::error($response, 'validation_failed', 'Název cenové hladiny je povinný (max 100 znaků).', 400)];
         }
         $discount = array_key_exists('default_discount_pct', $body)
-            ? StockItemCustomerPriceService::decimal($body['default_discount_pct'] ?? '0', 3)
+            ? StockPriceLevelService::adjustmentPct($body['default_discount_pct'] ?? '0')
             : (string) ($existing['default_discount_pct'] ?? '0.000');
-        if ($discount === null || bccomp($discount, '100', 3) > 0) {
-            return [[], Json::error($response, 'validation_failed', 'Výchozí sleva musí být v rozsahu 0–100 % s nejvýše třemi desetinnými místy.', 400)];
+        if ($discount === null) {
+            return [[], Json::error($response, 'validation_failed', 'Výchozí hodnota hladiny: ' . StockPriceLevelService::ADJUSTMENT_MESSAGE, 400)];
         }
         return [[
             'code'                 => $code,

@@ -3553,8 +3553,8 @@ export const TOOLS = [
     description:
       'Cena karty v každé aktivní cenové hladině a měně: standardní cena, výsledná cena '
       + 'v hladině a odkud pochází (`source`: výjimka produktu, kategorie, výrobce nebo '
-      + 'výchozí sleva hladiny), včetně případné výjimky produktu. Počítá se dnes, '
-      + 'pro množství 1 a bez akce.',
+      + 'výchozí hodnota hladiny), včetně případné výjimky produktu. `discount_pct` je sleva v %, '
+      + 'záporná hodnota je přirážka. Počítá se dnes, pro množství 1 a bez akce.',
     inputSchema: schema({ id: int('ID zboží (skladové karty).') }, ['id']),
     write: false,
     run: (c, a, tool) => c.get(`/stock/items/${seg(a.id)}/price-levels`, null, tool),
@@ -3598,7 +3598,8 @@ export const TOOLS = [
     name: 'list_price_levels',
     title: 'Cenové hladiny odběratelů',
     description:
-      'Číselník cenových hladin (např. Bronze / Silver / Gold) s výchozí slevou, počtem '
+      'Číselník cenových hladin (např. Bronze / Silver / Gold) s výchozí slevou nebo přirážkou '
+      + '(`default_discount_pct`, záporná hodnota = přirážka), počtem '
       + 'odběratelů a počtem pravidel. Hladinu odběratele ukazuje `get_client` '
       + '(`price_level_id`, `price_level_name`); odběratel bez hladiny se naceňuje standardní cenou.',
     inputSchema: schema({ active_only: bool('Jen aktivní hladiny.') }),
@@ -3609,9 +3610,9 @@ export const TOOLS = [
     name: 'get_price_level',
     title: 'Detail cenové hladiny',
     description:
-      'Jedna cenová hladina i s pravidly: sleva v % nebo pevná cena podle produktu, kategorie '
-      + 'nebo výrobce, volitelně jen v jedné měně. Při nacenění vyhrává produkt před kategorií '
-      + 'a výrobcem, pak vyšší `priority`; bez pravidla platí výchozí sleva hladiny.',
+      'Jedna cenová hladina i s pravidly: sleva v % (záporná = přirážka) nebo pevná cena podle '
+      + 'produktu, kategorie nebo výrobce, volitelně jen v jedné měně. Při nacenění vyhrává produkt '
+      + 'před kategorií a výrobcem, pak vyšší `priority`; bez pravidla platí výchozí hodnota hladiny.',
     inputSchema: schema({
       id: int('ID cenové hladiny (z `list_price_levels`).'),
       include_rules: bool('Načíst i pravidla hladiny (výchozí ano).'),

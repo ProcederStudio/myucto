@@ -1,4 +1,5 @@
 import type { StockItemPriceLevelPayload } from '@/api/stock'
+import { invalidSignedPct, normalizePct } from '@/pages/eshop/priceAdjustment'
 
 /**
  * Výjimky skladové karty v cenových hladinách (pravidla match_type='product').
@@ -31,7 +32,7 @@ export interface ProductRuleLike {
 }
 
 export function normalizeRuleValue(value: string | number | null | undefined): string {
-  return String(value ?? '').trim().replace(/\s+/g, '').replace(',', '.')
+  return normalizePct(value)
 }
 
 /** Načtená pravidla → sada podle měny. Duplicitní klíč (nemá nastat) zachová první pravidlo. */
@@ -95,11 +96,14 @@ export function diffPriceLevelRules(
   return ids.flatMap(id => diffLevelRules(id, loaded[id] ?? {}, edited[id] ?? {}))
 }
 
-/** Neplatná hodnota pravidla: prázdná, záporná, sleva nad 100 %, pevná cena bez měny. */
+/**
+ * Neplatná hodnota pravidla: prázdná, sleva nad 100 % nebo přirážka (záporná sleva)
+ * nad 999,999 %, záporná pevná cena, pevná cena bez měny.
+ */
 export function invalidRule(key: string, rule: LevelRuleValue): boolean {
+  if (rule.rule_type === 'discount_pct') return invalidSignedPct(rule.value)
   const raw = normalizeRuleValue(rule.value)
   const value = Number(raw)
   if (raw === '' || !Number.isFinite(value) || value < 0) return true
-  if (rule.rule_type === 'discount_pct') return value > 100
   return key === ALL_CURRENCIES
 }

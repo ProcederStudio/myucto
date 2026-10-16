@@ -18,9 +18,10 @@ use MyInvoice\Repository\StockPriceLevelRepository;
  *      ({@see PricingRuleResolver}): typ shody (produkt > kategorie = výrobce),
  *      pak `priority` sestupně, pak pravidlo pro konkrétní měnu před pravidlem
  *      bez měny, pak nižší id;
- *   2. výchozí sleva hladiny, když je větší než nula.
- * Pevná cena v jiné měně se nepoužije. Sleva se počítá ze standardní ceny na
- * haléře stejně jako u zákaznické ceny; bez standardní ceny hladina nic neurčí.
+ *   2. výchozí hodnota hladiny, když je nenulová.
+ * Kladné `discount_pct` je sleva, záporné přirážka (−45 = 145 % standardní ceny).
+ * Pevná cena v jiné měně se nepoužije. Sleva i přirážka se počítá ze standardní ceny
+ * na haléře stejně jako u zákaznické ceny; bez standardní ceny hladina nic neurčí.
  */
 final class PriceLevelResolver
 {
@@ -125,8 +126,10 @@ final class PriceLevelResolver
                 'rule'         => $rule,
             ];
         }
+        // Výchozí hodnota hladiny: kladná = sleva, záporná = přirážka, nula = hladina mimo
+        // pravidla cenu nemění.
         $default = (string) $level['default_discount_pct'];
-        if (bccomp($default, '0', 3) <= 0) {
+        if (bccomp($default, '0', 3) === 0) {
             return null;
         }
         $price = EffectivePriceResolver::customerBaseline($standardPrice, [

@@ -62,7 +62,9 @@ import {
   ruleSetFrom,
   type LevelRuleSet,
   type LevelRuleType,
+  type LevelRuleValue,
 } from './itemPriceLevelRules'
+import { formatAdjustment, invalidAdjustment, joinAdjustment, splitAdjustment, type AdjustmentKind } from '@/pages/eshop/priceAdjustment'
 import type { ProductVariantContext, ProductWithMasterContext } from '@/api/productMasters'
 
 const { t, locale } = useI18n()
@@ -751,6 +753,10 @@ interface PriceLevelOverride {
   is_active: boolean
   /** Upravované výjimky karty v hladině podle měny ('' = sleva pro produkt). */
   rules: LevelRuleSet
+  /** Sleva, nebo přirážka pro produkt; drží volbu i při prázdném poli. */
+  kind: AdjustmentKind
+  /** Rozepsaná kladná hodnota slevy / přirážky pro produkt (validuje se proti `kind`). */
+  discountInput: string
 }
 const priceLevelRows = ref<StockItemPriceLevelRow[]>([])
 const priceLevelOverrides = ref<PriceLevelOverride[]>([])
@@ -786,6 +792,7 @@ function applyPriceLevels(data: ItemPriceLevelsData) {
     byLevel.set(r.price_level_id, {
       level_id: r.price_level_id, code: r.code, name: r.name, is_active: r.is_active,
       rules: cloneRuleSet(data.rules[r.price_level_id] ?? {}),
+      ...productAdjustment(data.rules[r.price_level_id]?.[ALL_CURRENCIES]),
     })
   }
   loadedPriceLevelRules.value = loaded
@@ -800,14 +807,26 @@ function priceLevelPayload(): StockItemPriceLevelPayload[] {
 }
 const priceLevelsDirty = computed(() => priceLevelsLoaded.value && priceLevelPayload().length > 0)
 
-/** Sleva pro produkt (pravidlo bez měny) — samostatné pole, platí ve všech měnách hladiny. */
+/**
+ * Sleva nebo přirážka pro produkt (pravidlo bez měny): samostatné pole, platí ve všech
+ * měnách hladiny. Pole ukazuje kladnou hodnotu, znaménko nese `o.kind`.
+ */
+function productAdjustment(rule: LevelRuleValue | undefined): { kind: AdjustmentKind; discountInput: string } {
+  const { kind, value } = splitAdjustment(rule?.rule_type === 'discount_pct' ? rule.value : '')
+  return { kind, discountInput: value }
+}
 function levelDiscount(o: PriceLevelOverride): string {
-  const rule = o.rules[ALL_CURRENCIES]
-  return rule?.rule_type === 'discount_pct' ? rule.value : ''
+  return o.discountInput
 }
 function setLevelDiscount(o: PriceLevelOverride, value: string) {
+  o.discountInput = value.trim() === '' ? '' : value
   if (value.trim() === '') delete o.rules[ALL_CURRENCIES]
-  else o.rules[ALL_CURRENCIES] = { rule_type: 'discount_pct', value }
+  else o.rules[ALL_CURRENCIES] = { rule_type: 'discount_pct', value: joinAdjustment(o.kind, value) }
+}
+function setLevelKind(o: PriceLevelOverride, kind: AdjustmentKind) {
+  const value = levelDiscount(o)
+  o.kind = kind
+  if (value !== '') setLevelDiscount(o, value)
 }
 function priceLevelMode(o: PriceLevelOverride, currency: string): PriceLevelMode {
   return o.rules[currency.toUpperCase()]?.rule_type ?? 'inherit'
@@ -837,8 +856,9 @@ function setPriceLevelRowValue(o: PriceLevelOverride, currency: string, value: s
   const rule = o.rules[currency.toUpperCase()]
   if (rule) rule.value = value
 }
+/** „−10 %“ sleva, „+45 %“ přirážka (záporná sleva). */
 function formatLevelPct(value: string | number): string {
-  return new Intl.NumberFormat(locale.value, { maximumFractionDigits: 3 }).format(Number(value))
+  return formatAdjustment(value, n => new Intl.NumberFormat(locale.value, { maximumFractionDigits: 3 }).format(n))
 }
 /**
  * Název kategorie / výrobce zdroje, pokud je k dispozici: source_label, jinak
@@ -913,6 +933,9 @@ function priceLevelPreview(o: PriceLevelOverride, r: StockItemPriceLevelRow): { 
 }
 function validatePriceLevels(): string | null {
   for (const o of priceLevelOverrides.value) {
+    if (levelDiscount(o) !== '' && invalidAdjustment(o.kind, levelDiscount(o))) {
+      return t('stock.price_levels.value_invalid', { level: o.name })
+    }
     for (const [key, rule] of Object.entries(o.rules)) {
       if (invalidRule(key, rule)) return t('stock.price_levels.value_invalid', { level: o.name })
     }
@@ -2171,6 +2194,12 @@ function onImgError(e: Event) {
                   <div>
                     <label class="block text-xs font-medium text-neutral-500 mb-1">{{ t('stock.price_levels.discount_field') }}</label>
                     <div class="flex items-center gap-1">
+                      <select :value="g.o.kind" @change="setLevelKind(g.o, ($event.target as HTMLSelectElement).value as AdjustmentKind)"
+                        data-test="price-level-kind" :aria-label="t('eshop.price_levels.adjustment_kind')"
+                        class="h-9 px-2 border border-neutral-300 rounded-md text-sm bg-surface">
+                        <option value="discount">{{ t('eshop.price_levels.adjustment_discount') }}</option>
+                        <option value="markup">{{ t('eshop.price_levels.adjustment_markup') }}</option>
+                      </select>
                       <input :value="levelDiscount(g.o)" @input="setLevelDiscount(g.o, ($event.target as HTMLInputElement).value)"
                         type="text" inputmode="decimal" :aria-label="t('stock.price_levels.discount_field')"
                         class="w-24 h-9 px-2 border border-neutral-300 rounded-md text-sm font-mono text-right" />

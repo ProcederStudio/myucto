@@ -29,6 +29,7 @@ import { codebooksApi, type VatRate, type Currency, type Unit } from '@/api/code
 import { vatClassificationsApi, type VatClassification } from '@/api/vatClassifications'
 import { revenueCategoriesApi, type RevenueCategory } from '@/api/revenueCategories'
 import { formatMoney, formatNumber, formatPercent } from '@/composables/useFormat'
+import { formatAdjustment } from '@/pages/eshop/priceAdjustment'
 import { evalMath } from '@/directives/vMath'
 import { apiErrorMessage } from '@/api/errors'
 import { useSupplierStore } from '@/stores/supplier'
@@ -648,7 +649,7 @@ function stockRowPriceBadge(item: InvoiceItem): { label: string; cls: string } |
     case 'price_level_discount':
       return {
         label: levelName && state.discountPct
-          ? t('invoice.stock_pricing.source_price_level_discount_pct', { name: levelName, pct: formatNumber(Number(state.discountPct), { maximumFractionDigits: 3 }) })
+          ? t('invoice.stock_pricing.source_price_level_discount_pct', { name: levelName, pct: formatAdjustment(state.discountPct, n => formatNumber(n, { maximumFractionDigits: 3 })) })
           : levelName ? t('invoice.stock_pricing.source_price_level', { name: levelName }) : t('invoice.stock_pricing.source_price_level_generic'),
         cls: level,
       }

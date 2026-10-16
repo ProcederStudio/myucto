@@ -15703,7 +15703,8 @@ paths:
         cíl shody musí patřit firmě (`invalid_match`); pro jeden cíl a měnu smí mít hladina
         jen jedno pravidlo (`price_level_rule_duplicate`). Výběr pravidla při nacenění:
         produkt > kategorie = výrobce, pak `priority` sestupně, pak pravidlo pro konkrétní
-        měnu před pravidlem bez měny, pak nižší id; jinak výchozí sleva hladiny.
+        měnu před pravidlem bez měny, pak nižší id; jinak výchozí hodnota hladiny.
+        `discount_pct` je sleva v %, záporná hodnota je přirážka (−45 = cena 145 % standardní ceny).
       requestBody:
         required: true
         content:
@@ -31078,7 +31079,7 @@ components:
             code: { type: string }
             name: { type: string }
         customer_price_id: { type: [integer, 'null'] }
-        discount_pct: { type: [string, 'null'], description: "Sleva zákaznické ceny nebo cenové hladiny, jen u price_source = customer_discount / price_level_discount." }
+        discount_pct: { type: [string, 'null'], description: "Sleva zákaznické ceny nebo cenové hladiny v %, jen u price_source = customer_discount / price_level_discount. Záporná hodnota u hladiny je přirážka." }
         promo:
           type: [object, 'null']
           properties:
@@ -31189,7 +31190,7 @@ components:
         id: { type: integer }
         code: { type: string, maxLength: 50 }
         name: { type: string, maxLength: 100 }
-        default_discount_pct: { type: string, description: "Výchozí sleva hladiny v % (0–100, tři desetinná místa)." }
+        default_discount_pct: { type: string, description: "Výchozí sleva hladiny v %, záporná hodnota je přirážka (−999,999 až 100, tři desetinná místa)." }
         is_active: { type: boolean }
         display_order: { type: integer }
         client_count: { type: integer, description: "Počet odběratelů s touto hladinou." }
@@ -31200,7 +31201,7 @@ components:
       properties:
         code: { type: string, maxLength: 50, description: "Bez mezer." }
         name: { type: string, maxLength: 100 }
-        default_discount_pct: { type: [string, number], default: 0, description: "0–100, nejvýš 3 desetinná místa." }
+        default_discount_pct: { type: [string, number], default: 0, description: "Sleva v %, záporná hodnota je přirážka; −999,999 až 100, nejvýš 3 desetinná místa." }
         is_active: { type: boolean, default: true }
         display_order: { type: integer, default: 0 }
     EshopPriceLevelRule:
@@ -31223,7 +31224,7 @@ components:
         match_type: { type: string, enum: [product, category, manufacturer] }
         match_id: { type: integer, minimum: 1 }
         rule_type: { type: string, enum: [discount_pct, fixed], description: "fixed jen pro product a vždy s měnou." }
-        discount_pct: { type: [string, number, 'null'], description: "Povinné pro discount_pct; 0–100, nejvýš 3 desetinná místa." }
+        discount_pct: { type: [string, number, 'null'], description: "Povinné pro discount_pct; sleva v %, záporná hodnota je přirážka; −999,999 až 100, nejvýš 3 desetinná místa." }
         fixed_price: { type: [string, number, 'null'], description: "Povinné pro fixed; ≥ 0, nejvýš 2 desetinná místa." }
         currency_code: { type: [string, 'null'], minLength: 3, maxLength: 3 }
         priority: { type: integer, default: 0 }
@@ -31258,7 +31259,7 @@ components:
         price_level_id: { type: integer, minimum: 1 }
         remove: { type: boolean, description: "true = odebrat výjimku (viz popis operace)." }
         rule_type: { type: string, enum: [discount_pct, fixed] }
-        discount_pct: { type: [string, number, 'null'] }
+        discount_pct: { type: [string, number, 'null'], description: "Sleva v %, záporná hodnota je přirážka; −999,999 až 100, nejvýš 3 desetinná místa." }
         fixed_price: { type: [string, number, 'null'] }
         currency_code: { type: [string, 'null'], minLength: 3, maxLength: 3 }
         priority: { type: integer, description: "Bez klíče zůstane priorita stávající výjimky (jinak 0)." }
