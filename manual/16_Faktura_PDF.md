@@ -619,7 +619,11 @@ Akci má admin a interní role s právem **Upravit vystavenou fakturu** (úrove�
 **Zápis**, viz [§ 96.16.4](96_Nastaveni.md#96164-role-a-opravneni)). Výchozí role
 účetní ho nemá. Stejné právo platí pro úpravu a smazání výkazu práce vystavené
 faktury. Doklad v uzavřeném účetním období upraví i s tímto právem jen admin a
-skladová omezení níže platí pro všechny.
+skladová omezení níže platí pro všechny. U zaúčtované faktury přeúčtuje změna částek,
+DPH nebo položek zápis v deníku, proto k ní role kromě tohoto práva potřebuje i
+**Zaúčtovat doklad**. Bez něj úpravu odmítne a dovolí změnit jen neúčetní údaje
+(texty, poznámky, splatnost). Úpravu ani výkaz vystavené faktury nejde vynutit
+přes API token, jen v aplikaci.
 
 Variabilní symbol je neměnný, úprava ho nezmění. Chcete-li číslo změnit, vystavte
 storno nebo dobropis a fakturu znovu pod novým číslem.

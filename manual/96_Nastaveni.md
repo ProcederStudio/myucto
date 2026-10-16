@@ -634,7 +634,8 @@ a dál z něj vycházet.
 
 **Upravit vystavenou fakturu** dovolí opravit už vystavenou fakturu a její výkaz práce (v detailu faktury akce
 **Upravit vystavenou**). Bez něj smí vystavenou fakturu upravit jen správce; výchozí role účetní ho nemá a klientským
-rolím ho přidělit nejde. Doklad v uzavřeném účetním období upraví i s tímto právem jen správce. Postup a omezení jsou
+rolím ho přidělit nejde. Doklad v uzavřeném účetním období upraví i s tímto právem jen správce. Změnu částek, DPH nebo
+položek zaúčtované faktury (přeúčtuje deník) provede jen role, která má navíc **Zaúčtovat doklad**. Postup a omezení jsou
 v [§ 16.10.14](16_Faktura_PDF.md#161014-admin-akce-nad-vystavenou-fakturou).
 
 Roli lze duplikovat jako základ nové role. Používanou roli nelze smazat; nejprve je nutné přeřadit uživatele a odstranit její

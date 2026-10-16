@@ -198,5 +198,20 @@ final class PermissionCatalogTest extends TestCase
         self::assertFalse($canEdit(new EffectiveRole(8, 'Klient', 'client', true, [
             'invoices.edit_issued' => AccessLevel::WRITE->value,
         ])), 'Klientská role právo nedostane ani poškozeným řádkem.');
+
+        // Finanční úprava zaúčtované faktury přeúčtuje deník: neadmin k ní potřebuje i právo zaúčtovat.
+        $canRepost = static fn (EffectiveRole $role): bool
+            => \MyInvoice\Security\RequestAuthorization::canRepostIssuedInvoice($request($role));
+        self::assertTrue($canRepost(new EffectiveRole(2, 'Admin', 'staff', true, [], 'admin')));
+        self::assertFalse($canRepost(new EffectiveRole(5, 'Fakturantka', 'staff', true, [
+            'invoices.edit_issued' => AccessLevel::WRITE->value,
+        ])));
+        self::assertTrue($canRepost(new EffectiveRole(9, 'Fakturantka a účetní', 'staff', true, [
+            'invoices.edit_issued' => AccessLevel::WRITE->value,
+            'accounting.journal.post' => AccessLevel::WRITE->value,
+        ])));
+        self::assertFalse($canRepost(new EffectiveRole(10, 'Jen zaúčtování', 'staff', true, [
+            'accounting.journal.post' => AccessLevel::WRITE->value,
+        ])), 'Bez práva upravit vystavenou fakturu nic nepřeúčtuje.');
     }
 }

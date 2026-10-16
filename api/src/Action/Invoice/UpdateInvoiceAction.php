@@ -231,7 +231,8 @@ final class UpdateInvoiceAction
         }
 
         // B11 (audit 2026-07): force-edit dokladu s AKTIVNÍM zaúčtovaným zápisem v UZAVŘENÉM
-        // období rozejde doklad × deník (zápis v closed období nelze přepsat). Vynucená volba:
+        // období rozejde doklad × deník (zápis v closed období nelze přepsat). Sem dojde jen
+        // správce, uzavřené období ostatním odmítne už denyIfLocked(). Vynucená volba:
         //   reconcile  → doklad se opraví a zápis se stornuje + přeúčtuje do běžného období
         //   notes_only → povolena jen neúčetní pole (poznámky/projekt/jazyk)
         $forceMode = null;
@@ -266,6 +267,19 @@ final class UpdateInvoiceAction
             && $lock->posted
             && !$lock->inClosedPeriod
             && self::financialFieldsChanged($body, $existing) !== [];
+        // Finanční změna zaúčtovaného dokladu přeúčtuje deník. Role s právem upravit vystavenou
+        // fakturu, ale bez práva zaúčtovat, ji neprovede; neúčetní změny projdou. Před
+        // přečíslováním a zápisem, ať odmítnutí nic nezmění.
+        if (($repostOpenForceEdit || $forceMode === 'reconcile')
+            && !RequestAuthorization::canRepostIssuedInvoice($request)) {
+            return Json::error(
+                $response,
+                'journal_post_forbidden',
+                'Změna částek, DPH nebo položek zaúčtované faktury přeúčtuje deník. K tomu je potřeba '
+                    . 'i oprávnění „Zaúčtovat doklad“; bez něj lze měnit jen neúčetní údaje (texty, poznámky, splatnost).',
+                403,
+            );
+        }
 
         // parent_invoice_id se nikdy nemění při update (vazba dobropisu na původní doklad).
         $body['parent_invoice_id'] = $existing['parent_invoice_id'];
@@ -278,7 +292,7 @@ final class UpdateInvoiceAction
         $isIssued      = $existing['status'] !== 'draft';
         $existingType  = (string) $existing['invoice_type'];
 
-        // Změna TYPU u VYSTAVENÉ faktury (force-edit, admin) = přečíslování.
+        // Změna TYPU u VYSTAVENÉ faktury (force-edit: správce nebo právo invoices.edit_issued) = přečíslování.
         // Každý typ má vlastní číselnou řadu, takže staré číslo uvolníme z původní
         // řady (releaseIfLatest — dekrement counteru, je-li poslední) a přidělíme nové
         // v řadě cílového typu (next()). Typické užití: vystavená zálohová faktura

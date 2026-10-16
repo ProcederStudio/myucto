@@ -6,6 +6,7 @@ namespace MyInvoice\Action\WorkReport;
 
 use MyInvoice\Http\GuardsDocumentLock;
 use MyInvoice\Http\Json;
+use MyInvoice\Http\SessionOnlyAccountingAct;
 use MyInvoice\Http\SupplierGuard;
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Repository\InvoiceRepository;
@@ -56,6 +57,11 @@ final class SaveWorkReportAction
             return $deny;
         }
 
+        // Vynucená úprava výkazu vystaveného dokladu jen z relace, stejně jako úprava faktury.
+        if ($invoice['status'] !== 'draft' && $isForce
+            && ($deny = SessionOnlyAccountingAct::deny($request, $response, 'Vynucená úprava výkazu vystavené faktury'))) {
+            return $deny;
+        }
         if ($invoice['status'] !== 'draft' && !($canEditIssued && $isForce)) {
             return Json::error($response, 'not_editable', 'Výkaz lze upravit pouze v draftu (admin: ?force=1).', 409);
         }

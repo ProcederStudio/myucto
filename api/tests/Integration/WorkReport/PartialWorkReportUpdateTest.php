@@ -197,6 +197,13 @@ final class PartialWorkReportUpdateTest extends TestCase
         $res = $this->call($this->work, ['title' => 'Bez force'], $editor);
         self::assertSame(409, $res['status'], 'Bez ?force=1 zůstává výkaz vystavené faktury zamčený.');
 
+        // Vynucená úprava výkazu vystavené faktury je účetní úkon jen z relace, ne tokenem.
+        foreach ([[$this->work, ['title' => 'Tokenem']], [$this->materials, ['material_title' => 'Tokenem']], [$this->delete, []]] as [$action, $body]) {
+            $res = $this->call($action, $body, $editor, true, 'bearer');
+            self::assertSame(403, $res['status'], json_encode($res['body'], JSON_UNESCAPED_UNICODE));
+            self::assertSame('token_write_forbidden', $res['body']['error']['code'] ?? null);
+        }
+
         $res = $this->call($this->work, ['title' => 'Opravený výkaz'], $editor, true);
         self::assertSame(200, $res['status'], json_encode($res['body'], JSON_UNESCAPED_UNICODE));
         $res = $this->call($this->materials, ['material_title' => 'Opravený materiál'], $editor, true);
@@ -236,12 +243,18 @@ final class PartialWorkReportUpdateTest extends TestCase
      * @param  array<string,mixed> $body
      * @return array{status:int, body:array<string,mixed>}
      */
-    private function call(callable $action, array $body, ?EffectiveRole $role = null, bool $force = false): array
-    {
+    private function call(
+        callable $action,
+        array $body,
+        ?EffectiveRole $role = null,
+        bool $force = false,
+        string $authMethod = 'session',
+    ): array {
         $request = (new ServerRequestFactory())
             ->createServerRequest('PUT', '/api/invoices/' . $this->invoiceId . '/work-report')
             ->withAttribute(SupplierScopeMiddleware::ATTR_CURRENT_ID, $this->supplierId)
             ->withAttribute(AuthMiddleware::ATTR_USER, ['id' => $this->userId, 'role' => 'admin'])
+            ->withAttribute(AuthMiddleware::ATTR_METHOD, $authMethod)
             ->withParsedBody($body);
         if ($role !== null) {
             $request = $request->withAttribute('auth.effective_role', $role);

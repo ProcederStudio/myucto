@@ -129,6 +129,18 @@ final class RequestAuthorization
             || (!self::isClientType($request) && self::allows($request, 'invoices.edit_issued', AccessLevel::WRITE));
     }
 
+    /**
+     * Finanční úprava zaúčtované vystavené faktury přepíše (nebo stornuje a znovu založí)
+     * zápis v deníku. Kromě práva upravit vystavenou fakturu k ní neadmin potřebuje i právo
+     * zaúčtovat (`accounting.journal.post`), jinak by úpravou faktury účtoval bez něj.
+     */
+    public static function canRepostIssuedInvoice(Request $request): bool
+    {
+        return self::isCompanyAdmin($request)
+            || (self::canEditIssuedInvoice($request)
+                && self::allows($request, 'accounting.journal.post', AccessLevel::WRITE));
+    }
+
     public static function allows(
         Request $request,
         string $permission,
