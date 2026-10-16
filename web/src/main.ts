@@ -1,6 +1,18 @@
 import './styles/main.css'
 import { parseWindowFrameBootstrap } from '@/workspace/frameProtocol'
 
+// Nasazení nové verze uklidí assety předchozích vydání a záložka se starou verzí pak
+// chunk nedotáhne. Načte se znovu (nový index.html má nové chunky), nejvýš jednou za 30 s.
+window.addEventListener('vite:preloadError', (event) => {
+  const key = 'myucto-chunk-reload-at'
+  try {
+    if (Date.now() - Number(sessionStorage.getItem(key) ?? 0) < 30_000) return
+    sessionStorage.setItem(key, String(Date.now()))
+  } catch { return }
+  event.preventDefault()
+  window.location.reload()
+})
+
 const frame = parseWindowFrameBootstrap(window.location.search, window.parent !== window)
 
 if (frame) {
