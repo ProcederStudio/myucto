@@ -96,20 +96,44 @@ final class VatLedgerService
      */
     public function rows(int $supplierId, string $start, string $end, bool $includeDrafts = false): array
     {
+        return iterator_to_array($this->iterateRows($supplierId, $start, $end, $includeDrafts), false);
+    }
+
+    /**
+     * Tytéž kanonické řádky jako {@see rows()}, ale po jednom. Normalizovaný řádek drží
+     * kolem 3 KB, takže firma s desítkami tisíc dokladů v měsíci by celou evidenci
+     * materializovanou v poli nevešla do paměti PHP. Konzument, který řádky jen sčítá
+     * nebo seskupuje, má číst tudy.
+     *
+     * `$documentIds` zúží řádky na vybrané vydané ('sale') a přijaté ('purchase') doklady;
+     * pokladní doklady pak nevrací. Hodí se tam, kde se ptáme na zařazení konkrétních
+     * dokladů (stránka seznamu), ne na celé období.
+     *
+     * @param array{sale?: list<int>, purchase?: list<int>}|null $documentIds
+     * @return \Generator<int, array<string,mixed>>
+     */
+    public function iterateRows(int $supplierId, string $start, string $end, bool $includeDrafts = false, ?array $documentIds = null): \Generator
+    {
         $map = $this->classificationMap($supplierId);
         // Práh základní/snížená sazba (per rok období) pro remapování 12% RC řádků (S3).
         $bucket = $this->taxConstants->vatBucketThreshold((int) substr($start, 0, 4));
-        $rows = [];
-        foreach ($this->fetchSales($supplierId, $start, $end, $includeDrafts) as $r) {
-            $rows[] = $this->normalize($r, 'sale', $map, $bucket);
+        $saleIds = $documentIds === null ? null : ($documentIds['sale'] ?? []);
+        $purchaseIds = $documentIds === null ? null : ($documentIds['purchase'] ?? []);
+        if ($saleIds !== []) {
+            foreach ($this->fetchSales($supplierId, $start, $end, $includeDrafts, $saleIds) as $r) {
+                yield $this->normalize($r, 'sale', $map, $bucket);
+            }
         }
-        foreach ($this->fetchPurchases($supplierId, $start, $end, $includeDrafts) as $r) {
-            $rows[] = $this->normalize($r, 'purchase', $map, $bucket);
+        if ($purchaseIds !== []) {
+            foreach ($this->fetchPurchases($supplierId, $start, $end, $includeDrafts, $purchaseIds) as $r) {
+                yield $this->normalize($r, 'purchase', $map, $bucket);
+            }
         }
-        foreach ($this->fetchCash($supplierId, $start, $end, $includeDrafts) as [$r, $direction]) {
-            $rows[] = $this->normalize($r, $direction, $map, $bucket);
+        if ($documentIds === null) {
+            foreach ($this->fetchCash($supplierId, $start, $end, $includeDrafts) as $r) {
+                yield $this->normalize($r, $r['doc_type'] === 'in' ? 'sale' : 'purchase', $map, $bucket);
+            }
         }
-        return $rows;
     }
 
     /**
@@ -125,8 +149,8 @@ final class VatLedgerService
         $map = $this->classificationMap($supplierId);
         $bucket = $this->taxConstants->vatBucketThreshold((int) substr($start, 0, 4));
         $fetched = $source === 'sale'
-            ? $this->fetchSales($supplierId, $start, $end, $includeDrafts, $invoiceId)
-            : $this->fetchPurchases($supplierId, $start, $end, $includeDrafts, $invoiceId);
+            ? $this->fetchSales($supplierId, $start, $end, $includeDrafts, [$invoiceId])
+            : $this->fetchPurchases($supplierId, $start, $end, $includeDrafts, [$invoiceId]);
         $rows = [];
         foreach ($fetched as $r) {
             $rows[] = $this->normalize($r, $source, $map, $bucket);
@@ -379,11 +403,30 @@ final class VatLedgerService
             AND {$alias}.total_with_vat > 0 THEN -1 ELSE 1 END";
     }
 
-    /** @return list<array<string,mixed>> */
-    private function fetchSales(int $supplierId, string $start, string $end, bool $includeDrafts, ?int $invoiceId = null): array
+    /**
+     * Zúžení dotazu na vybrané doklady: `AND <sloupec> IN (...)` a jeho parametry,
+     * bez zúžení (null) prázdný fragment.
+     *
+     * @param list<int>|null $ids
+     * @return array{0: string, 1: list<int>}
+     */
+    private static function idFilter(string $column, ?array $ids): array
+    {
+        if ($ids === null) {
+            return ['', []];
+        }
+        $ids = array_values(array_map('intval', $ids));
+        return ["AND {$column} IN (" . implode(',', array_fill(0, count($ids), '?')) . ')', $ids];
+    }
+
+    /**
+     * @param list<int>|null $invoiceIds zúžení na vybrané doklady (null = celé období)
+     * @return iterable<array<string,mixed>>
+     */
+    private function fetchSales(int $supplierId, string $start, string $end, bool $includeDrafts, ?array $invoiceIds = null): iterable
     {
         $statusFilter = $includeDrafts ? "i.status != 'cancelled'" : "i.status NOT IN ('draft', 'cancelled')";
-        $documentFilter = $invoiceId !== null ? 'AND i.id = ?' : '';
+        [$documentFilter, $documentParams] = self::idFilter('i.id', $invoiceIds);
         $saleSign = self::saleTaxSignExpr($this->db, 'i');
         // DIČ protistrany ze snapshotu dokladu s fallbackem na živého klienta (viz helper).
         $dicExpr = self::saleCounterpartyDicExpr($this->db, 'i', 'c');
@@ -465,12 +508,9 @@ final class VatLedgerService
                AND i.effective_tax_date BETWEEN ? AND ?
           ORDER BY i.effective_tax_date, i.id, ii.id
         ");
-        $params = [$standardRate, $supplierId];
-        if ($invoiceId !== null) {
-            $params[] = $invoiceId;
-        }
-        $stmt->execute([...$params, $start, $end]);
-        return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        $stmt->execute([$standardRate, $supplierId, ...$documentParams, $start, $end]);
+        $stmt->setFetchMode(\PDO::FETCH_ASSOC);
+        return $stmt;
     }
 
     /**
@@ -529,10 +569,22 @@ final class VatLedgerService
      */
     public function returnRows(int $supplierId, string $start, string $end, bool $includeDrafts = false): array
     {
-        return array_merge(
-            $this->rows($supplierId, $start, $end, $includeDrafts),
-            $this->ossSelectedSupplyRows($supplierId, $start, $end, $includeDrafts),
-        );
+        return iterator_to_array($this->iterateReturnRows($supplierId, $start, $end, $includeDrafts), false);
+    }
+
+    /**
+     * Řádky {@see returnRows()} po jednom (viz {@see iterateRows()}, i k `$documentIds`).
+     *
+     * @param array{sale?: list<int>, purchase?: list<int>}|null $documentIds
+     * @return \Generator<int, array<string,mixed>>
+     */
+    public function iterateReturnRows(int $supplierId, string $start, string $end, bool $includeDrafts = false, ?array $documentIds = null): \Generator
+    {
+        yield from $this->iterateRows($supplierId, $start, $end, $includeDrafts, $documentIds);
+        $saleIds = $documentIds === null ? null : ($documentIds['sale'] ?? []);
+        if ($saleIds !== []) {
+            yield from $this->iterateOssSelectedSupplyRows($supplierId, $start, $end, $includeDrafts, $saleIds);
+        }
     }
 
     /**
@@ -557,10 +609,22 @@ final class VatLedgerService
      */
     public function ossSelectedSupplyRows(int $supplierId, string $start, string $end, bool $includeDrafts = false): array
     {
+        return iterator_to_array($this->iterateOssSelectedSupplyRows($supplierId, $start, $end, $includeDrafts), false);
+    }
+
+    /**
+     * Řádky {@see ossSelectedSupplyRows()} po jednom (viz {@see iterateRows()}).
+     *
+     * @param list<int>|null $invoiceIds zúžení na vybrané doklady (null = celé období)
+     * @return \Generator<int, array<string,mixed>>
+     */
+    private function iterateOssSelectedSupplyRows(int $supplierId, string $start, string $end, bool $includeDrafts, ?array $invoiceIds = null): \Generator
+    {
         if (!$this->db->hasColumn('invoice_items', 'oss_applicable')) {
-            return [];
+            return;
         }
         $statusFilter = $includeDrafts ? "i.status != 'cancelled'" : "i.status NOT IN ('draft', 'cancelled')";
+        [$documentFilter, $documentParams] = self::idFilter('i.id', $invoiceIds);
         $saleSign = self::saleTaxSignExpr($this->db, 'i');
         $dicExpr = self::saleCounterpartyDicExpr($this->db, 'i', 'c');
         $stmt = $this->db->pdo()->prepare("
@@ -587,15 +651,27 @@ final class VatLedgerService
                AND {$statusFilter}
                AND i.invoice_type NOT IN ('proforma', 'penalty')
                AND ii.oss_applicable = 1
+               {$documentFilter}
                AND i.effective_tax_date BETWEEN ? AND ?
           ORDER BY i.effective_tax_date, i.id, ii.id
         ");
-        $stmt->execute([$supplierId, $start, $end]);
-        $raw = $stmt->fetchAll(\PDO::FETCH_ASSOC);
-        if ($raw === []) {
-            return [];
-        }
+        $stmt->execute([$supplierId, ...$documentParams, $start, $end]);
+        $stmt->setFetchMode(\PDO::FETCH_ASSOC);
 
+        $map = null;
+        $bucket = 0.0;
+        foreach ($stmt as $r) {
+            if ($map === null) {
+                $map = $this->ossClassificationMap($supplierId);
+                $bucket = $this->taxConstants->vatBucketThreshold((int) substr($start, 0, 4));
+            }
+            yield $this->normalize($r, 'sale', $map, $bucket);
+        }
+    }
+
+    /** @return array<string, array<string,mixed>> */
+    private function ossClassificationMap(int $supplierId): array
+    {
         $map = $this->classificationMap($supplierId);
         // Kód 24z je v globálním číselníku od migrace 1512; archivovaný nebo chybějící
         // kód nesmí plnění z ř. 24 tiše vypustit — řádek formuláře je daný zákonem.
@@ -612,12 +688,7 @@ final class VatLedgerService
                 'kh_bad_debt'           => null,
             ];
         }
-        $bucket = $this->taxConstants->vatBucketThreshold((int) substr($start, 0, 4));
-        $rows = [];
-        foreach ($raw as $r) {
-            $rows[] = $this->normalize($r, 'sale', $map, $bucket);
-        }
-        return $rows;
+        return $map;
     }
 
     /** Povolené rozsahy {@see manualReviewPredicate()} — sdílené s `filter[oss_review]`. */
@@ -809,13 +880,13 @@ final class VatLedgerService
      *    (ř. 52/53). Základ zůstává v témž atributu jako plná verze. Kombinace s RC
      *    samovyměřením není podporovaná (ř. 43 nemá krácený protějšek) → tvrdá chyba.
      *
-     * @return list<array<string,mixed>>
+     * @param list<int>|null $invoiceIds zúžení na vybrané doklady (null = celé období)
+     * @return iterable<array<string,mixed>>
      */
-    private function fetchPurchases(int $supplierId, string $start, string $end, bool $includeDrafts, ?int $invoiceId = null): array
+    private function fetchPurchases(int $supplierId, string $start, string $end, bool $includeDrafts, ?array $invoiceIds = null): iterable
     {
         $statusFilter = $includeDrafts ? "pi.status != 'cancelled'" : "pi.status NOT IN ('draft', 'cancelled')";
-        $ownFilter = $invoiceId !== null ? 'AND own.id = ?' : '';
-        $ownParams = $invoiceId !== null ? [$invoiceId] : [];
+        [$ownFilter, $ownParams] = self::idFilter('own.id', $invoiceIds);
         $projectionVatColumn = $this->db->hasColumn('purchase_invoice_items', 'import_projection_vat_czk')
             ? 'i.import_projection_vat_czk' : 'NULL';
         // Práh základní/snížená sazba pro fallback klasifikaci — per rok období.
@@ -1026,7 +1097,8 @@ final class VatLedgerService
             $supplierId, ...$ownParams, ...$window,
             $supplierId, $start, $end,
         ]);
-        return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        $stmt->setFetchMode(\PDO::FETCH_ASSOC);
+        return $stmt;
     }
 
     /**
@@ -1347,32 +1419,44 @@ final class VatLedgerService
      * jako CZK. Vrací DISTINCT doklady podle documentIdentity bez kurzu; akce si je při
      * stažení doplní z ČNB (MissingExchangeRateFiller), náhled je jen vypíše jako varování.
      *
-     * @param list<array<string,mixed>> $rows kanonické řádky z rows()
+     * @param iterable<array<string,mixed>> $rows kanonické řádky z rows()
      * @return list<array{invoice_id:int, source:string, currency:string, tax_date:?string, issue_date:?string, doc:string}>
      */
-    public static function missingExchangeRateRows(array $rows): array
+    public static function missingExchangeRateRows(iterable $rows): array
     {
         $out = [];
         foreach ($rows as $r) {
-            if (empty($r['exchange_rate_missing'])) {
-                continue;
-            }
-            $key = self::documentIdentity($r);
-            if (isset($out[$key])) {
-                continue;
-            }
-            $doc = (string) ($r['vendor_invoice_number'] ?? $r['doc_number'] ?? '')
-                ?: ('#' . (string) ($r['invoice_id'] ?? '?'));
-            $out[$key] = [
-                'invoice_id' => (int) ($r['invoice_id'] ?? 0),
-                'source'     => (string) ($r['source'] ?? ''),
-                'currency'   => (string) ($r['currency'] ?? ''),
-                'tax_date'   => isset($r['tax_date']) ? (string) $r['tax_date'] : null,
-                'issue_date' => isset($r['issue_date']) ? (string) $r['issue_date'] : null,
-                'doc'        => $doc,
-            ];
+            self::collectMissingExchangeRate($out, $r);
         }
         return array_values($out);
+    }
+
+    /**
+     * Jeden krok {@see missingExchangeRateRows()} pro konzumenty, kteří řádky čtou
+     * proudem jen jednou; výsledek je `array_values($out)`.
+     *
+     * @param array<string, array<string,mixed>> $out by-ref, klíč = documentIdentity
+     * @param array<string,mixed> $r
+     */
+    public static function collectMissingExchangeRate(array &$out, array $r): void
+    {
+        if (empty($r['exchange_rate_missing'])) {
+            return;
+        }
+        $key = self::documentIdentity($r);
+        if (isset($out[$key])) {
+            return;
+        }
+        $doc = (string) ($r['vendor_invoice_number'] ?? $r['doc_number'] ?? '')
+            ?: ('#' . (string) ($r['invoice_id'] ?? '?'));
+        $out[$key] = [
+            'invoice_id' => (int) ($r['invoice_id'] ?? 0),
+            'source'     => (string) ($r['source'] ?? ''),
+            'currency'   => (string) ($r['currency'] ?? ''),
+            'tax_date'   => isset($r['tax_date']) ? (string) $r['tax_date'] : null,
+            'issue_date' => isset($r['issue_date']) ? (string) $r['issue_date'] : null,
+            'doc'        => $doc,
+        ];
     }
 
     /**
@@ -1412,9 +1496,11 @@ final class VatLedgerService
      *    (varování `cash.warning.dic_not_czech` při zaúčtování), aby se do KH A.4
      *    nedostalo cizí VAT ID vydávané za české.
      *
-     * @return list<array{0: array<string,mixed>, 1: 'sale'|'purchase'}>
+     * Směr řádku určuje `doc_type` ('in' = příjem = sale, jinak purchase).
+     *
+     * @return iterable<array<string,mixed>>
      */
-    private function fetchCash(int $supplierId, string $start, string $end, bool $includeDrafts): array
+    private function fetchCash(int $supplierId, string $start, string $end, bool $includeDrafts): iterable
     {
         $bucket = $this->taxConstants->vatBucketThreshold((int) substr($start, 0, 4));
         $statusFilter = $includeDrafts ? "cd.status != 'reversed'" : "cd.status = 'posted'";
@@ -1455,12 +1541,7 @@ final class VatLedgerService
           ORDER BY COALESCE(cd.tax_date, cd.issue_date), cd.id, cl.id
         ");
         $stmt->execute([$bucket, $bucket, $supplierId, $start, $end]);
-
-        $out = [];
-        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $r) {
-            $direction = $r['doc_type'] === 'in' ? 'sale' : 'purchase';
-            $out[] = [$r, $direction];
-        }
-        return $out;
+        $stmt->setFetchMode(\PDO::FETCH_ASSOC);
+        return $stmt;
     }
 }

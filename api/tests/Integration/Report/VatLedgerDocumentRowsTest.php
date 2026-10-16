@@ -111,6 +111,34 @@ final class VatLedgerDocumentRowsTest extends TestCase
             'Přijatý doklad se pod vydanou stranou nesmí objevit.');
     }
 
+    public function testIterateRowsNarrowedToDocumentsMatchesFilteredPeriod(): void
+    {
+        $first  = $this->purchase('DOC-ROWS-A', 1000.0, 210.0);
+        $second = $this->purchase('DOC-ROWS-B', 2000.0, 420.0, withSecondItem: true);
+        $this->purchase('DOC-ROWS-C', 3000.0, 630.0);
+
+        $start = sprintf('%04d-01-01', self::YEAR);
+        $end   = sprintf('%04d-12-31', self::YEAR);
+        $wanted = [$first => true, $second => true];
+
+        $all = iterator_to_array($this->ledger->iterateRows($this->supplierId, $start, $end, true), false);
+        self::assertSame($this->ledger->rows($this->supplierId, $start, $end, true), $all, 'Proud a pole nesou tytéž řádky.');
+
+        $expected = array_values(array_filter(
+            $all,
+            static fn (array $r): bool => $r['source'] === 'purchase' && isset($wanted[(int) $r['invoice_id']]),
+        ));
+        $narrowed = iterator_to_array($this->ledger->iterateRows(
+            $this->supplierId, $start, $end, true, ['purchase' => [$first, $second]],
+        ), false);
+
+        self::assertCount(3, $expected);
+        self::assertSame($expected, $narrowed, 'Zúžení na doklady vrací přesně jejich řádky z období.');
+        self::assertSame([], iterator_to_array($this->ledger->iterateRows(
+            $this->supplierId, $start, $end, true, ['sale' => []],
+        ), false), 'Prázdné zúžení nevrací nic, ani přijaté a pokladní doklady.');
+    }
+
     private function purchase(string $number, float $base, float $vat, bool $withSecondItem = false): int
     {
         $date = sprintf('%04d-05-10', self::YEAR);

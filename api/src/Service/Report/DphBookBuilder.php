@@ -58,6 +58,10 @@ final class DphBookBuilder
     ) {}
 
     /**
+     * `$documentIds` zúží řádky dokladů na vybrané vydané a přijaté doklady (sloupec KH
+     * a DPH na stránce seznamu); součty a opravy pak nepopisují celé období.
+     *
+     * @param array{sale?: list<int>, purchase?: list<int>}|null $documentIds
      * @return array{
      *   period: array{year:int, month:int, period_type:string, quarter:int|null, start:string, end:string, label:string},
      *   supplier: array<string,mixed>,
@@ -69,7 +73,7 @@ final class DphBookBuilder
      *   }
      * }
      */
-    public function build(int $supplierId, int $year, int $month, ?string $period = null): array
+    public function build(int $supplierId, int $year, int $month, ?string $period = null, ?array $documentIds = null): array
     {
         $period = in_array($period, ['monthly', 'quarterly'], true) ? $period : 'monthly';
         // Kvartální období: $month nese (jako u DPH přiznání) libovolný měsíc kvartálu;
@@ -90,13 +94,13 @@ final class DphBookBuilder
         $vatBucket = $this->taxConstants->vatBucketThreshold($year);
 
         // Zařazení dokladů do oddílů KH za totéž období, vč. konceptů (Kniha je pracovní žurnál).
-        $khSections = $this->kontrolniHlaseni->documentSections($supplierId, $year, $month, $period, includeDrafts: true);
+        $khSections = $this->kontrolniHlaseni->documentSections($supplierId, $year, $month, $period, true, $documentIds);
 
         // Kanonické řádky ze sdílené VatLedgerService (vč. draftů — Kniha je pracovní
         // žurnál). Seskupíme per (doklad, kód, sazba) do jednoho řádku přehledu a
         // zařadíme do sekcí dle dphdp3_line (+ mirror 43, + ř.47 majetek).
         $sections = [];
-        $groups = $this->groupLedgerRows($supplierId, $start, $end);
+        $groups = $this->groupLedgerRows($supplierId, $start, $end, $documentIds);
         foreach ($groups as $g) {
             $scope = $g['source'] === 'sale' ? 'issued' : 'received';
             $line = $g['dphdp3_line'];
@@ -531,15 +535,18 @@ final class DphBookBuilder
      * Kanonické řádky ze služby seskupené per (zdroj, doklad, kód, sazba) — jeden
      * řádek přehledu Knihy DPH. Vč. draftů.
      *
+     * @param array{sale?: list<int>, purchase?: list<int>}|null $documentIds
      * @return list<array<string,mixed>>
      */
-    private function groupLedgerRows(int $supplierId, string $start, string $end): array
+    private function groupLedgerRows(int $supplierId, string $start, string $end, ?array $documentIds = null): array
     {
         $grouped = [];
-        foreach ($this->ledger->returnRows($supplierId, $start, $end, includeDrafts: true) as $r) {
+        foreach ($this->ledger->iterateReturnRows($supplierId, $start, $end, true, $documentIds) as $r) {
             $key = VatLedgerService::documentIdentity($r) . ':' . ($r['code'] ?? '') . ':' . $r['vat_rate'];
             if (!isset($grouped[$key])) {
-                $grouped[$key] = $r;
+                // Jen atributy, které build() a toBookRow() čtou: kniha firmy s desítkami
+                // tisíc dokladů by s celými řádky ledgeru nevešla do paměti PHP.
+                $grouped[$key] = array_intersect_key($r, self::GROUP_FIELDS);
                 $grouped[$key]['base_czk'] = 0.0;
                 $grouped[$key]['vat_czk'] = 0.0;
             }
@@ -548,6 +555,18 @@ final class DphBookBuilder
         }
         return array_values($grouped);
     }
+
+    /** Atributy seskupeného řádku, které čte {@see build()} a {@see toBookRow()}. */
+    private const GROUP_FIELDS = [
+        'source' => true, 'document_kind' => true, 'invoice_id' => true,
+        'doc_number' => true, 'vendor_invoice_number' => true,
+        'tax_date' => true, 'issue_date' => true, 'claim_date' => true, 'claim_basis' => true, 'received_at' => true,
+        'description' => true, 'counterparty_name' => true, 'counterparty_dic' => true,
+        'code' => true, 'label' => true, 'dphdp3_line' => true, 'dphdp3_line_secondary' => true,
+        'kh_section' => true, 'classification_reverse_charge' => true, 'vat_deduction_none' => true,
+        'vat_rate' => true, 'currency' => true, 'exchange_rate' => true,
+        'status' => true, 'is_draft' => true, 'is_fixed_asset' => true,
+    ];
 
     /**
      * Mapuje kanonický (seskupený) řádek na řádek přehledu Knihy DPH (PDF/UI shape).

@@ -73,7 +73,7 @@ final class VatCrossCheckService
         [$start, $end] = self::periodBounds($year, $month, $period);
 
         // Jediná projekce kanonických řádků — DPHDP3 strana i drill-down z ní.
-        $rows = $this->ledger->rows($supplierId, $start, $end, includeDrafts: false);
+        $rows = $this->ledgerGroups($supplierId, $start, $end);
 
         $findings = [];
 
@@ -338,9 +338,49 @@ final class VatCrossCheckService
     {
         $period = $this->resolvePeriod($supplierId, $period);
         [$start, $end] = self::periodBounds($year, $month, $period);
-        $rows = $this->ledger->rows($supplierId, $start, $end, includeDrafts: false);
+        $rows = $this->ledgerGroups($supplierId, $start, $end);
         return $this->checkAccount343($supplierId, $year, $month, $period, $start, $end, $rows);
     }
+
+    /**
+     * Pole kanonických řádků, ze kterých kontroly čtou, seskupené per doklad a per
+     * kombinaci atributů, podle kterých kontroly řádky třídí; základ a daň jsou sečtené.
+     * Kontroly řádky jen filtrují podle těchto atributů a sčítají base_czk/vat_czk,
+     * takže výsledek je stejný jako nad jednotlivými řádky. Plné řádky by u firmy
+     * s desítkami tisíc dokladů v období nevešly do paměti PHP.
+     *
+     * @return list<array<string,mixed>>
+     */
+    private function ledgerGroups(int $supplierId, string $start, string $end): array
+    {
+        $groups = [];
+        foreach ($this->ledger->iterateRows($supplierId, $start, $end, includeDrafts: false) as $r) {
+            $key = VatLedgerService::documentIdentity($r)
+                . "\0" . ($r['dphdp3_line'] ?? '')
+                . "\0" . ($r['code'] ?? '')
+                . "\0" . (empty($r['is_reverse_charge']) ? '0' : '1')
+                . (empty($r['classification_reverse_charge']) ? '0' : '1')
+                . (empty($r['rc_self_assessed_vat']) ? '0' : '1');
+            if (!isset($groups[$key])) {
+                $groups[$key] = array_intersect_key($r, self::GROUP_FIELDS);
+                $groups[$key]['base_czk'] = 0.0;
+                $groups[$key]['vat_czk'] = 0.0;
+            }
+            $groups[$key]['base_czk'] += (float) $r['base_czk'];
+            $groups[$key]['vat_czk']  += (float) $r['vat_czk'];
+        }
+        return array_values($groups);
+    }
+
+    /** Atributy řádku, které kontroly čtou (vedle sčítaných base_czk a vat_czk). */
+    private const GROUP_FIELDS = [
+        'source' => true, 'invoice_id' => true, 'document_kind' => true,
+        'doc_number' => true, 'vendor_invoice_number' => true, 'tax_date' => true,
+        'counterparty_name' => true, 'counterparty_dic' => true,
+        'country_iso2' => true, 'country_is_eu' => true,
+        'dphdp3_line' => true, 'code' => true,
+        'is_reverse_charge' => true, 'classification_reverse_charge' => true, 'rc_self_assessed_vat' => true,
+    ];
 
     /** Má aspoň jeden nález blokovat stažení (nenulový tvrdý rozdíl)? */
     public function hasBlockingMismatch(array $findings): bool

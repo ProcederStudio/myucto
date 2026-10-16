@@ -58,20 +58,22 @@ final class VatClassificationMapper
     public function predictDph(int $supplierId, int $year, int $month, string $period = 'monthly'): array
     {
         [$start, $end] = $this->periodRange($year, $month, $period);
-        $rows = $this->ledger->rows($supplierId, $start, $end, includeDrafts: true);
-        $totals = $this->dphSummaryTotals($this->projectDphLines($rows));
 
         $saleInv = []; $saleDraft = []; $purInv = []; $purDraft = [];
-        foreach ($rows as $r) {
-            $documentKey = VatLedgerService::documentIdentity($r);
-            if ($r['source'] === 'sale') {
-                $saleInv[$documentKey] = true;
-                if ($r['is_draft']) $saleDraft[$documentKey] = true;
-            } else {
-                $purInv[$documentKey] = true;
-                if ($r['is_draft']) $purDraft[$documentKey] = true;
+        $counted = (function () use ($supplierId, $start, $end, &$saleInv, &$saleDraft, &$purInv, &$purDraft): \Generator {
+            foreach ($this->ledger->iterateRows($supplierId, $start, $end, includeDrafts: true) as $r) {
+                $documentKey = VatLedgerService::documentIdentity($r);
+                if ($r['source'] === 'sale') {
+                    $saleInv[$documentKey] = true;
+                    if ($r['is_draft']) $saleDraft[$documentKey] = true;
+                } else {
+                    $purInv[$documentKey] = true;
+                    if ($r['is_draft']) $purDraft[$documentKey] = true;
+                }
+                yield $r;
             }
-        }
+        })();
+        $totals = $this->dphSummaryTotals($this->projectDphLines($counted));
         return [
             'vat_output'           => $totals['output'],
             'vat_input'            => $totals['input'],
@@ -136,7 +138,7 @@ final class VatClassificationMapper
     public function aggregateForDphPriznani(int $supplierId, int $year, int $month, string $period = 'monthly'): array
     {
         [$start, $end] = $this->periodRange($year, $month, $period);
-        return $this->projectDphLines($this->ledger->returnRows($supplierId, $start, $end, includeDrafts: false));
+        return $this->projectDphLines($this->ledger->iterateReturnRows($supplierId, $start, $end, includeDrafts: false));
     }
 
     /**
@@ -150,7 +152,7 @@ final class VatClassificationMapper
     {
         [$start, $end] = $this->periodRange($year, $month, $period);
         return VatLedgerService::missingExchangeRateRows(
-            $this->ledger->returnRows($supplierId, $start, $end, includeDrafts: false)
+            $this->ledger->iterateReturnRows($supplierId, $start, $end, includeDrafts: false)
         );
     }
 
@@ -165,7 +167,7 @@ final class VatClassificationMapper
     {
         $start = sprintf('%04d-01-01', $year);
         $end   = sprintf('%04d-12-31', $year);
-        return $this->projectDphLines($this->ledger->returnRows($supplierId, $start, $end, includeDrafts: false));
+        return $this->projectDphLines($this->ledger->iterateReturnRows($supplierId, $start, $end, includeDrafts: false));
     }
 
     /**
@@ -173,10 +175,10 @@ final class VatClassificationMapper
      * (klasifikace, CZK, RC samovyměření, rate bucket) žije ve službě; tady jen agregace
      * po dphdp3_line + mirror ř.43 (secondary) + ř.47 (majetek).
      *
-     * @param list<array<string,mixed>> $rows
+     * @param iterable<array<string,mixed>> $rows
      * @return array<string, array{base:float, vat:float, count:int, label:string}>
      */
-    public function projectDphLines(array $rows): array
+    public function projectDphLines(iterable $rows): array
     {
         $byLine = [];
         $invoiceLineSeen = []; // per document identity × line → distinct count

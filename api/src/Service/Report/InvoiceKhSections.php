@@ -40,12 +40,15 @@ final class InvoiceKhSections
         $sectionsById = [];
         $classificationsById = [];
         $linesById = [];
+        $source = $direction === 'issued' ? 'sale' : 'purchase';
         foreach ($periods as $period => $periodIds) {
-            $book = $this->book->build($supplierId, (int) substr($period, 0, 4), (int) substr($period, 5, 2));
+            // Jen doklady stránky: zařazení dokladu do KH i řádky přiznání závisí na jeho
+            // vlastních řádcích, celé období by se počítalo kvůli 50 dokladům.
+            $documentIds = [$source => array_keys($periodIds)];
+            $book = $this->book->build($supplierId, (int) substr($period, 0, 4), (int) substr($period, 5, 2), null, $documentIds);
             if ($includeVat) {
-                foreach ($this->ledger->rows($supplierId, $book['period']['start'], $book['period']['end'], true) as $row) {
+                foreach ($this->ledger->iterateRows($supplierId, $book['period']['start'], $book['period']['end'], true, $documentIds) as $row) {
                     $id = (int) ($row['invoice_id'] ?? 0);
-                    $source = $direction === 'issued' ? 'sale' : 'purchase';
                     if (!isset($periodIds[$id]) || ($row['source'] ?? '') !== $source
                         || ($row['document_kind'] ?? '') === 'cash') continue;
                     $code = (string) ($row['code'] ?? '');

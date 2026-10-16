@@ -530,7 +530,7 @@ final class SouhrnneHlaseniBuilder
         $result = [];
         $missingSeen = [];
         $missingVatSeen = [];
-        foreach ($this->ledger->rows($supplierId, $start, $end, includeDrafts: false) as $r) {
+        foreach ($this->ledger->iterateRows($supplierId, $start, $end, includeDrafts: false) as $r) {
             if ($r['source'] !== 'sale') continue;
             $code = $r['code'];
             if ($code === null || !isset(self::VAT_CODE_TO_SH_TYPE[$code])) continue;

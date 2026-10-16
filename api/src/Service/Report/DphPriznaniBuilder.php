@@ -208,11 +208,20 @@ final class DphPriznaniBuilder
 
         [$vatStart, $vatEnd] = $this->periodRange($year, $month, $period);
         // returnRows = kanonické řádky + plnění v režimu OSS na ř. 24 (§ 110b odst. 2).
-        $vatRows = $this->ledger->returnRows($supplierId, $vatStart, $vatEnd, includeDrafts: false);
-        $lines = $this->mapper->projectDphLines($vatRows);
         // #238: doklady v cizí měně bez kurzu — NEházíme chybu, vrátíme je v
         // `missing_rates` a akce je při stažení doplní z ČNB (náhled jen varuje).
-        $missingRates = VatLedgerService::missingExchangeRateRows($vatRows);
+        // Sbírají se v témž průchodu řádků jako součty (řádky se čtou proudem).
+        $missingByDoc = [];
+        $documentRefs = [];
+        $vatRows = (function () use ($supplierId, $vatStart, $vatEnd, &$missingByDoc, &$documentRefs): \Generator {
+            foreach ($this->ledger->iterateReturnRows($supplierId, $vatStart, $vatEnd, includeDrafts: false) as $r) {
+                VatLedgerService::collectMissingExchangeRate($missingByDoc, $r);
+                self::collectDocumentRef($documentRefs, $r);
+                yield $r;
+            }
+        })();
+        $lines = $this->mapper->projectDphLines($vatRows);
+        $missingRates = array_values($missingByDoc);
         if ($missingRates !== []) {
             $warnings[] = 'Chybí kurz u dokladů v cizí měně: '
                 . implode(', ', VatLedgerService::missingExchangeRateLabels($missingRates))
@@ -822,7 +831,7 @@ final class DphPriznaniBuilder
             'supplier_vat_period'     => (string) ($supplier['vat_period'] ?? ''),
             // Snapshot dokladů zahrnutých do podání. Fronta změn ho používá i po stornu
             // nebo přesunu DUZP, kdy doklad z aktuální projekce období úplně zmizí.
-            'document_refs'           => $this->documentRefs($supplierId, $vatRows),
+            'document_refs'           => $this->documentRefs($supplierId, $documentRefs),
             // § 76 krácený nárok na odpočet — informativně pro UI/summary.
             'vat_reduced_deduction'   => round($totalDanOdpKraceny, 2),   // odp_sum_kr (ř.46 krácený)
             'vat_coefficient_percent' => $provisionalPercent,             // zálohový koeficient (ř.52)
@@ -1093,42 +1102,54 @@ final class DphPriznaniBuilder
     }
 
     /**
+     * Jeden řádek evidence do snapshotu dokladů podání ({@see documentRefs()}).
+     *
+     * @param array<string, array<string,mixed>> $refs by-ref, klíč = zdroj:id
+     * @param array<string,mixed> $row
+     */
+    private static function collectDocumentRef(array &$refs, array $row): void
+    {
+        if (($row['code'] ?? null) === null || ($row['dphdp3_line'] ?? null) === null) {
+            return;
+        }
+        $source = ($row['document_kind'] ?? null) === 'cash' ? 'cash' : (string) $row['source'];
+        $key = $source . ':' . (int) $row['invoice_id'];
+        $refs[$key] = [
+            'source'        => $source,
+            'invoice_id'    => (int) $row['invoice_id'],
+            'document_kind' => $row['document_kind'] !== null ? (string) $row['document_kind'] : null,
+            'status'        => (string) $row['status'],
+            'tax_date'      => $row['tax_date'] !== null ? (string) $row['tax_date'] : null,
+            'updated_at'    => null,
+            'total'         => (float) $row['document_total'],
+        ];
+    }
+
+    /**
+     * @param array<string, array<string,mixed>> $refs posbírané {@see collectDocumentRef()}
      * @return list<array{source:string, invoice_id:int, document_kind:?string, status:string,
      *                    tax_date:?string, updated_at:?string, total:float}>
      */
-    private function documentRefs(int $supplierId, array $rows): array
+    private function documentRefs(int $supplierId, array $refs): array
     {
-        $refs = [];
-        foreach ($rows as $row) {
-            if (($row['code'] ?? null) === null || ($row['dphdp3_line'] ?? null) === null) {
-                continue;
-            }
-            $source = ($row['document_kind'] ?? null) === 'cash' ? 'cash' : (string) $row['source'];
-            $key = $source . ':' . (int) $row['invoice_id'];
-            $refs[$key] = [
-                'source'        => $source,
-                'invoice_id'    => (int) $row['invoice_id'],
-                'document_kind' => $row['document_kind'] !== null ? (string) $row['document_kind'] : null,
-                'status'        => (string) $row['status'],
-                'tax_date'      => $row['tax_date'] !== null ? (string) $row['tax_date'] : null,
-                'updated_at'    => null,
-                'total'         => (float) $row['document_total'],
-            ];
-        }
         foreach (['sale' => 'invoices', 'purchase' => 'purchase_invoices', 'cash' => 'cash_documents'] as $source => $table) {
             $keys = array_keys(array_filter($refs, static fn (array $ref): bool => $ref['source'] === $source));
             if ($keys === []) {
                 continue;
             }
             $ids = array_map(static fn (string $key): int => (int) substr($key, strpos($key, ':') + 1), $keys);
-            $ph = implode(',', array_fill(0, count($ids), '?'));
-            $stmt = $this->db->pdo()->prepare(
-                "SELECT id, updated_at FROM {$table} WHERE supplier_id = ? AND id IN ({$ph})"
-            );
-            $stmt->execute([$supplierId, ...$ids]);
-            foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-                $key = $source . ':' . (int) $row['id'];
-                $refs[$key]['updated_at'] = $row['updated_at'] !== null ? (string) $row['updated_at'] : null;
+            // Po dávkách: firma s desítkami tisíc dokladů v období by jedním IN
+            // přetekla limit 65 535 parametrů prepared statementu.
+            foreach (array_chunk($ids, 5000) as $chunk) {
+                $ph = implode(',', array_fill(0, count($chunk), '?'));
+                $stmt = $this->db->pdo()->prepare(
+                    "SELECT id, updated_at FROM {$table} WHERE supplier_id = ? AND id IN ({$ph})"
+                );
+                $stmt->execute([$supplierId, ...$chunk]);
+                foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+                    $key = $source . ':' . (int) $row['id'];
+                    $refs[$key]['updated_at'] = $row['updated_at'] !== null ? (string) $row['updated_at'] : null;
+                }
             }
         }
         ksort($refs);

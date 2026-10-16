@@ -72,7 +72,7 @@ final class VatPostFilingChangesService
         $purchaseIds = [];
         $cashIds = [];
         $snapshots = ['sale' => [], 'purchase' => [], 'cash' => []];
-        foreach ($this->ledger->returnRows($supplierId, $start, $end, includeDrafts: false) as $r) {
+        foreach ($this->ledger->iterateReturnRows($supplierId, $start, $end, includeDrafts: false) as $r) {
             if (($r['document_kind'] ?? null) === 'cash') {
                 $cashIds[(int) $r['invoice_id']] = true; // cash_documents.id
             } elseif ($r['source'] === 'sale') {
