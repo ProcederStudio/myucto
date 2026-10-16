@@ -17,7 +17,7 @@ use Psr\Http\Message\StreamInterface;
  *
  * Na rozdíl od POHODY drží záloha VŠECHNY účetní roky najednou (jde o databázi Visual
  * FoxPro), takže se po úspěšném ostrém převodu jednoho roku nemaže - uživatel v ní
- * postupně převádí rok po roku. Uklidí ji až denní úklid po týdnu bez práce s ní.
+ * postupně převádí rok po roku. Uklidí ji až denní úklid po 24 hodinách bez práce s ní.
  */
 final class PremierUploads
 {

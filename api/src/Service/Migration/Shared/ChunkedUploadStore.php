@@ -18,7 +18,8 @@ use Psr\Http\Message\StreamInterface;
  * Velký soubor přichází po částech: `upload.json` drží stav nahrávání a zpracování, části
  * se připojují do souboru části (`$partFile`) a job na pozadí z něj po dokončení rozbalí
  * data do `$dataDir` a zapíše `meta.json`. Po dobu zpracování drží job zámek `job.lock`
- * a úklid takový adresář nesmaže. Denní úklid maže adresáře po týdnu bez práce s nimi.
+ * a úklid takový adresář nesmaže. Denní úklid maže adresáře po 24 hodinách bez práce s nimi:
+ * rozbalená záloha má stovky megabajtů až gigabajty a převod z ní je otázka jednoho sezení.
  *
  * Jednotlivé zdroje (Money S3, POHODA, PREMIER) nad úložištěm drží statické fasády se svou
  * konfigurací; liší se jménem podadresáře, souboru části, adresáře rozbalených dat, třídou
@@ -31,7 +32,7 @@ final class ChunkedUploadStore
     public const STATUS_PROCESSING = 'processing';
     public const STATUS_READY = 'ready';
     public const STATUS_FAILED = 'failed';
-    public const STALE_DAYS = 7;
+    public const STALE_SECONDS = 86400;
     private const STATE_FILE = 'upload.json';
     private const META_FILE = 'meta.json';
     private const UPLOAD_LOCK_FILE = 'upload.lock';
@@ -318,7 +319,7 @@ final class ChunkedUploadStore
     /** @return int kolik nahraných souborů firmy se smazalo */
     public function purgeStale(int $supplierId): int
     {
-        $limit = time() - self::STALE_DAYS * 86400;
+        $limit = time() - self::STALE_SECONDS;
         $removed = 0;
         foreach (glob($this->base($supplierId) . '/*', GLOB_ONLYDIR) ?: [] as $dir) {
             if ($this->isValid($supplierId, basename($dir)) && $this->lastActivity($dir) < $limit && !self::isBusy($dir)) {

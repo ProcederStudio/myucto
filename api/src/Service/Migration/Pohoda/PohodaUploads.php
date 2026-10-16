@@ -14,7 +14,7 @@ use Psr\Http\Message\StreamInterface;
  * Stejné uspořádání jako u Money S3 ({@see ChunkedUploadStore}): ZIP exportu přichází po
  * částech do `export.zip.part` (stav v `upload.json`), job na pozadí ho rozbalí do
  * `export/` a zapíše `meta.json`. Po úspěšném ostrém převodu se adresář smaže, jinak ho
- * denní úklid smaže po týdnu bez práce s ním.
+ * denní úklid smaže po 24 hodinách bez práce s ním.
  */
 final class PohodaUploads
 {

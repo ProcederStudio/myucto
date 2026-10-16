@@ -269,7 +269,7 @@ na kterém kroku je. Když se náhled nepodaří načíst (výpadek spojení, ch
 serveru), průvodce to oznámí a nabídne **Zkusit znovu**. Nahraný export na
 serveru zůstává a znovu se nenahrává. Tlačítkem **Nahrát jiný export** začnete
 od prvního kroku. Nahraný soubor
-aplikace po 7 dnech bez práce s převodem sama smaže, po úspěšném ostrém
+aplikace po 24 hodinách bez práce s převodem sama smaže, po úspěšném ostrém
 převodu hned.
 
 Přechází-li firma z POHODY zároveň s účetnictvím i se mzdami z **POHODA

@@ -142,11 +142,11 @@ final class MoneyS3BatchUploads
         return true;
     }
 
-    /** Denní úklid: zálohy i podaná přiznání týden bez práce s nimi. */
+    /** Denní úklid: zálohy i podaná přiznání 24 hodin bez práce s nimi. */
     public static function purgeStaleAll(): int
     {
         $removed = self::store()->purgeStaleAll();
-        $limit = time() - ChunkedUploadStore::STALE_DAYS * 86400;
+        $limit = time() - ChunkedUploadStore::STALE_SECONDS;
         foreach (glob(RuntimePaths::storage('money-s3-batch') . '/*/filings/*.xml') ?: [] as $path) {
             if ((int) @filemtime($path) < $limit) {
                 @unlink($path);

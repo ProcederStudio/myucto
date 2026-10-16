@@ -226,8 +226,8 @@ oprávněními otevře průvodce přímým odkazem `/imports/money-s3`.
   data má. Stránku nechte během nahrávání otevřenou.
 - Elektronický archiv dokumentů z Money záloha nepřenese (Money ho ukládá
   šifrovaně). Skeny dokladů připojíte zvlášť v `Dokumenty → Skeny k dokladům`.
-- Záloha obsahuje celé účetnictví firmy. Nahraný soubor aplikace po 7 dnech bez
-  práce s převodem sama smaže.
+- Záloha obsahuje celé účetnictví firmy. Nahraný soubor aplikace po 24 hodinách
+  bez práce s převodem sama smaže.
 
 Průvodce vidí a zkoušku nanečisto spouští uživatel s oprávněním
 `utilities.import` pro zápis. Ostrý převod zapisuje účetní deník, mění nastavení
@@ -668,7 +668,7 @@ MyÚčto s výstupy Money nebo s novou zálohou agendy na stránce
 - Převod čte jen zálohu agendy, nikdy živou instalaci Money. Z archivu rozbalí
   jen datové soubory agendy s omezeným počtem i velikostí.
 - Nahraná záloha zůstává na serveru pro další běh. Po úspěšném ostrém převodu
-  se smaže, jinak ji denní úklid smaže po týdnu bez práce s ní.
+  se smaže, jinak ji denní úklid smaže po 24 hodinách bez práce s ní.
 
 ## 103.11 Související kapitoly
 

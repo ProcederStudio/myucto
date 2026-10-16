@@ -178,7 +178,7 @@ v konceptu ani nepřijaté rozdíly a obraty v MyÚčtu odpovídají PREMIERu.
   Převádí se do firmy, ve které právě pracujete; novou firmu nejdřív založte
   (kapitola [Multi supplier](95_Multi_supplier.md)).
 - Nahraná záloha zůstává na serveru pro převod dalších let. Aplikace ji smaže
-  po 7 dnech, kdy se s ní nepracovalo.
+  po 24 hodinách, kdy se s ní nepracovalo.
 - Soubor může mít až 2 GB. Průvodce ho posílá po částech a ukazuje průběh
   v procentech; při výpadku spojení část zopakuje a naváže tam, kde server
   data má. Stránku nechte během nahrávání otevřenou.

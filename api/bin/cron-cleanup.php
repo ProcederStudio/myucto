@@ -5,8 +5,9 @@ declare(strict_types=1);
 /**
  * Denní cleanup — login_attempts (>24h), expirované a staré odvolané sessions,
  * použité password_resets, login_otps + trusted_devices, WebAuthn flow/proofy,
- * expirované jednorázové granty, log files >90 dní, nahrané zálohy agend Money S3
- * po týdnu bez práce s nimi a assety frontendu z předchozích vydání.
+ * expirované jednorázové granty, log files >90 dní, soubory nahrané do převodů
+ * (Money S3, POHODA/PAMICA, PREMIER, Stereo NX, MyÚčto) a importů na pozadí po 24 hodinách
+ * bez práce s nimi a assety frontendu z předchozích vydání.
  *
  * POZN: PDF se NEMAŽE. Aktivní cache může pominout (renderer ji znovu vytvoří),
  * ale archivovaná historie (storage/invoices/sup-N/_archive) obsahuje verze
@@ -176,15 +177,20 @@ $report['monthly_export_files'] = $exportFilesDeleted;
 //    po 48 h bez známky života, skončená dávka po 7 dnech (viz ScanStagingCleaner).
 $report['scan_attach_staging'] = (new ScanStagingCleaner($connection))->purge();
 
-// 8) Nahrané zálohy agend Money S3 — rozbalené účetnictví firmy, týden bez práce s ní.
+// 8) Nahrané zálohy agend Money S3 — rozbalené účetnictví firmy, 24 hodin bez práce s ní.
+//    Platí pro proběhlé i rozpracované převody; zálohu, se kterou zrovna pracuje job, úklid nechá.
 $report['money_s3_uploads'] = \MyInvoice\Service\Migration\MoneyS3\MoneyS3Uploads::purgeStaleAll();
 // 8a) Zálohy a podaná přiznání nahraná do dávkového převodu z Money S3 - totéž.
 $report['money_s3_batch_uploads'] = \MyInvoice\Service\Migration\MoneyS3\MoneyS3BatchUploads::purgeStaleAll();
-// 8b) Nahrané exporty z POHODY - totéž, celé účetnictví firmy v XML.
+// 8b) Nahrané exporty z POHODY a PAMICA - totéž, celé účetnictví nebo mzdy firmy.
 $report['pohoda_uploads'] = \MyInvoice\Service\Migration\Pohoda\PohodaUploads::purgeStaleAll();
 // 8c) Nahrané zálohy dat z PREMIER - totéž, celá databáze firmy (všechny roky).
 $report['premier_uploads'] = \MyInvoice\Service\Migration\Premier\PremierUploads::purgeStaleAll();
-// Nativní ZIPy obnovy: stejná týdenní retence, protokoly zůstávají v import_jobs.
+// 8d) Šifrované zálohy Stereo NX - totéž.
+$report['stereo_nx_uploads'] = \MyInvoice\Service\Migration\StereoNx\StereoNxUploads::purgeStaleAll();
+// 8e) Soubory odložené pro import dokladů na pozadí, které worker po sobě neuklidil.
+$report['file_import_staging'] = \MyInvoice\Service\Import\FileImportJobService::purgeStaleStagingAll();
+// Nativní ZIPy obnovy: stejná retence, protokoly zůstávají v import_jobs.
 // Jediný úklid, který potřebuje kontejner: jeho selhání nesmí zastavit zbytek denního úklidu.
 try {
     $report['myucto_uploads'] = Bootstrap::buildContainer()

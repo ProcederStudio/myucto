@@ -30604,7 +30604,7 @@
       "Uvnitř je obyčejný ZIP s datovými soubory agendy (*.DAT) po účetních rocích a se základními údaji o agendě. Jedna záloha obsahuje všechny roky.",
       "Nahrajte ho tak, jak ho Money vytvořilo, nerozbalený. Přijímá se i stejný soubor s příponou .zip.",
       "Elektronický archiv dokumentů z Money záloha nepřenese. Skeny dokladů připojíte zvlášť v Dokumenty → Skeny k dokladům.",
-      "Záloha obsahuje celé účetnictví firmy. Nahraný soubor aplikace po 7 dnech bez práce s převodem sama smaže."
+      "Záloha obsahuje celé účetnictví firmy. Nahraný soubor aplikace po 24 hodinách bez práce s převodem sama smaže."
     ],
     "choose_file_first": "Nejdřív vyberte soubor zálohy agendy.",
     "upload": "Nahrát a načíst",
@@ -31060,7 +31060,7 @@
     "tool_download_all": "Stáhnout vše (ZIP)",
     "tool_failed": "Exportní nástroj se nepodařilo stáhnout.",
     "file_help_title": "Co je v exportu",
-    "file_help_items": ["POHODA vede každý účetní rok samostatně. Převádějí se roky, které zaškrtnete v náhledu (jeden i víc najednou).", "Majetek a mzdy XML export POHODY neobsahuje. Karty majetku a drobného majetku převezme průvodce ze souboru 90_majetek.xml, který do exportu přidá exportní nástroj (viz manuál); mzdy ze souboru 91_mzdy.xml tento průvodce nezpracuje.", "ZIP může obsahovat podsložky. Průvodce v nich najde XML soubory všech agend a k převodu nabídne ty, které podle IČO patří firmě v MyÚčtu.", "Firma musí v MyÚčtu existovat a mít stejné IČO jako v POHODĚ. Převádí se do firmy, ve které právě pracujete; novou firmu nejdřív založte.", "Export obsahuje celé účetnictví firmy. Nahraný soubor aplikace po 7 dnech bez práce s převodem sama smaže."],
+    "file_help_items": ["POHODA vede každý účetní rok samostatně. Převádějí se roky, které zaškrtnete v náhledu (jeden i víc najednou).", "Majetek a mzdy XML export POHODY neobsahuje. Karty majetku a drobného majetku převezme průvodce ze souboru 90_majetek.xml, který do exportu přidá exportní nástroj (viz manuál); mzdy ze souboru 91_mzdy.xml tento průvodce nezpracuje.", "ZIP může obsahovat podsložky. Průvodce v nich najde XML soubory všech agend a k převodu nabídne ty, které podle IČO patří firmě v MyÚčtu.", "Firma musí v MyÚčtu existovat a mít stejné IČO jako v POHODĚ. Převádí se do firmy, ve které právě pracujete; novou firmu nejdřív založte.", "Export obsahuje celé účetnictví firmy. Nahraný soubor aplikace po 24 hodinách bez práce s převodem sama smaže."],
     "choose_file": "Soubor exportu (.zip)",
     "choose_file_first": "Nejdřív vyberte soubor exportu.",
     "upload": "Nahrát a načíst",
@@ -33103,7 +33103,7 @@
       "Účetnictví v něm není. Účetní deník, faktury, pokladna a banka se převádějí samostatně v sekci Přechod z POHODA.",
       "Firma musí v MyÚčtu existovat a mít stejné IČO jako v PAMICA. Převádí se do firmy, ve které právě pracujete; novou firmu nejdřív založte.",
       "Měsíce před zahájením vedení mezd v MyÚčtu se nepřepočítávají. Jejich výsledky se uloží jako počáteční stavy ročních kumulací, aby na ně roční zúčtování a stropy navázaly.",
-      "Nahraný soubor aplikace po 7 dnech bez práce s převodem sama smaže."
+      "Nahraný soubor aplikace po 24 hodinách bez práce s převodem sama smaže."
     ],
     "no_matching_agenda": "Export neobsahuje mzdy s IČO firmy v MyÚčtu ({ico}). Zkontrolujte IČO v nastavení firmy a v PAMICA.",
     "history_title": "Protokoly převodů mezd"
@@ -33132,7 +33132,7 @@
       "Záloha obsahuje všechny účetní roky vedené v PREMIERu, ne jen jeden. Roky se ale převádějí postupně, jeden po druhém, od nejstaršího.",
       "Firma musí v MyÚčtu existovat a mít stejné IČO jako v PREMIERu. Převádí se do firmy, ve které právě pracujete; novou firmu nejdřív založte.",
       "Záloha obsahuje i mzdy. Průvodce založí zaměstnance a převezme zpracované mzdy jako evidenci předchozího systému. Firmě, která mzdy v MyÚčtu ještě nemá, zapne modul Mzdy, založí mzdovou účtárnu a nastaví začátek vedení mezd za posledním zpracovaným měsícem; VS ČSSZ a účty institucí doplníte v Mzdy → Nastavení. Účetní zápisy mezd jsou v převedeném deníku a znovu nevznikají.",
-      "Nahraný soubor aplikace po 7 dnech bez práce s převodem sama smaže."
+      "Nahraný soubor aplikace po 24 hodinách bez práce s převodem sama smaže."
     ],
     "choose_file": "Soubor zálohy (.izip nebo .icab)",
     "choose_file_first": "Nejdřív vyberte soubor zálohy.",

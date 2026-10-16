@@ -6,7 +6,7 @@
 #  Smaže: login_attempts >24h, expirované sessions, použité password_resets,
 #         ARES/VIES cache >30 dní, PDF cache >90 dní, log files nad max_files,
 #         nahrané soubory dávek skenů (opuštěné >48 h, skončené >7 dní),
-#         nahrané zálohy agend Money S3 po 7 dnech bez práce s nimi.
+#         soubory nahrané do převodů a importů na pozadí po 24 h bez práce s nimi.
 #
 #  crontab:
 #    0 3 * * *  /var/www/myucto.cz/cmd/cron-cleanup.sh

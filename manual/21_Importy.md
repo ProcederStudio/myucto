@@ -956,7 +956,7 @@ importér jako CLI. Vybraná data a přílohy mají společný limit **64 MiB / 
 řádků**. Kontrola i obnova běží na pozadí ve společném workeru importů. Stránku
 můžete zavřít: po návratu se připojí k rozpracovanému běhu. V **Historii běhů**
 uvidíte průběh, protokol i výsledek dokončených kontrol a obnov. Nahrané ZIPy
-se čistí po týdnu bez práce s nimi; protokoly zůstávají v historii.
+se čistí po 24 hodinách bez práce s nimi; protokoly zůstávají v historii.
 
 Prázdné heslo použije heslo záloh cílové instalace. Zadané heslo se pro předání
 workeru dočasně uloží zašifrované, vázané na firmu a nahraný ZIP; worker je po

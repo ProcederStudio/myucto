@@ -30604,7 +30604,7 @@
       "Inside is a plain ZIP with the agenda data files (*.DAT) split by fiscal year and basic information about the agenda. One backup contains all years.",
       "Upload it exactly as Money created it, without unpacking. The same file renamed to .zip is accepted too.",
       "The backup does not carry the Money electronic document archive. Attach document scans separately in Documents → Scans to documents.",
-      "The backup contains the company's entire accounting. The uploaded file is deleted automatically after 7 days without any work on the migration."
+      "The backup contains the company's entire accounting. The uploaded file is deleted automatically after 24 hours without any work on the migration."
     ],
     "choose_file_first": "Choose the agenda backup file first.",
     "upload": "Upload and read",
@@ -31060,7 +31060,7 @@
     "tool_download_all": "Download all (ZIP)",
     "tool_failed": "The export tool could not be downloaded.",
     "file_help_title": "What the export contains",
-    "file_help_items": ["POHODA keeps every fiscal year separately. The years you tick in the preview are transferred (one or several at once).", "The POHODA XML export does not contain assets or payroll. The wizard takes the fixed asset and small asset cards from the 90_majetek.xml file that the export tool adds to the export (see the manual); payroll from 91_mzdy.xml is not processed by this wizard.", "The ZIP may contain subfolders. The wizard finds the XML files of all agendas in them and offers for transfer those that belong to the MyÚčto company by company ID.", "The company must exist in MyÚčto with the same company ID as in POHODA. The transfer goes into the company you are working in; create a new company first.", "The export contains the company's entire accounting. The uploaded file is deleted automatically after 7 days without any work on the migration."],
+    "file_help_items": ["POHODA keeps every fiscal year separately. The years you tick in the preview are transferred (one or several at once).", "The POHODA XML export does not contain assets or payroll. The wizard takes the fixed asset and small asset cards from the 90_majetek.xml file that the export tool adds to the export (see the manual); payroll from 91_mzdy.xml is not processed by this wizard.", "The ZIP may contain subfolders. The wizard finds the XML files of all agendas in them and offers for transfer those that belong to the MyÚčto company by company ID.", "The company must exist in MyÚčto with the same company ID as in POHODA. The transfer goes into the company you are working in; create a new company first.", "The export contains the company's entire accounting. The uploaded file is deleted automatically after 24 hours without any work on the migration."],
     "choose_file": "Export file (.zip)",
     "choose_file_first": "Choose the export file first.",
     "upload": "Upload and read",
@@ -33103,7 +33103,7 @@
       "It contains no accounting. The journal, invoices, cash and bank are migrated separately under Migration from POHODA.",
       "The company must already exist in MyUcto with the same company ID as in PAMICA. Data is migrated into the company you are working in; create a new company first if needed.",
       "Months preceding the payroll start period are not recalculated. Their results are stored as opening balances of annual accumulators so that annual settlement and caps follow on.",
-      "The uploaded file is deleted automatically after 7 days of inactivity."
+      "The uploaded file is deleted automatically after 24 hours of inactivity."
     ],
     "no_matching_agenda": "The export contains no payroll for the company ID used in MyUcto ({ico}). Check the company ID in the company settings and in PAMICA.",
     "history_title": "Payroll migration protocols"
@@ -33132,7 +33132,7 @@
       "The backup contains all fiscal years kept in PREMIER, not just one. Years are still migrated one at a time, starting with the oldest.",
       "The company must already exist in MyUcto with the same company ID as in PREMIER. Data is migrated into the company you are working in; create a new company first if needed.",
       "The backup also contains payroll. The wizard creates the employees and takes over the processed payroll as records of the previous system. For a company that has no payroll in MyÚčto yet it enables the Payroll module, creates a payroll office and sets the payroll start after the last processed month; fill in the social security variable symbol and institution accounts in Payroll → Settings. Payroll entries are in the migrated journal and are not created again.",
-      "The uploaded file is deleted automatically after 7 days of inactivity."
+      "The uploaded file is deleted automatically after 24 hours of inactivity."
     ],
     "choose_file": "Backup file (.izip or .icab)",
     "choose_file_first": "Select a backup file first.",

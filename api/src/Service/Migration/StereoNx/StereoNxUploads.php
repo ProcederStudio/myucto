@@ -75,7 +75,7 @@ final class StereoNxUploads
             if (preg_match('/^[a-f0-9]{32}$/D', $token) !== 1) continue;
             $statePath = $dir . '/state.json';
             $state = is_file($statePath) ? json_decode((string) file_get_contents($statePath), true) : null;
-            if (!is_array($state) || (int) ($state['created_at'] ?? 0) < time() - 7 * 86400) {
+            if (!is_array($state) || (int) ($state['created_at'] ?? 0) < time() - ChunkedUploadStore::STALE_SECONDS) {
                 $handle = @fopen($dir . '/lock', 'c');
                 if ($handle !== false && flock($handle, LOCK_EX | LOCK_NB)) {
                     if (is_array($state)) {
@@ -94,6 +94,12 @@ final class StereoNxUploads
             }
         }
         return $active < self::MAX_ACTIVE;
+    }
+
+    /** Denní úklid záloh všech firem, se kterými 24 hodin nikdo nepracoval. */
+    public static function purgeStaleAll(): int
+    {
+        return self::store()->purgeStaleAll();
     }
 
     public static function delete(int $supplierId, string $token): void

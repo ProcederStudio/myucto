@@ -43,6 +43,39 @@ final class FileImportJobService
         return RuntimePaths::storage('import-jobs/' . $supplierId . '/' . $token);
     }
 
+    /**
+     * Denní úklid ({@see api/bin/cron-cleanup.php}): odložené soubory všech firem, se
+     * kterými se 24 hodin nic nedělo. Běžně je smaže worker po doběhnutí, tady zbývají
+     * nedokončené dávky (zavřený prohlížeč) a joby, jejichž worker nedoběhl. Worker
+     * soubory načte do paměti hned na začátku, takže úklid nemůže rozbít ani běžící job.
+     * Reporty (`reports/`) zůstávají, patří k historii jobu.
+     *
+     * @return int kolik adresářů se smazalo
+     */
+    public static function purgeStaleStagingAll(int $staleSeconds = 86400): int
+    {
+        $root = realpath(RuntimePaths::storage('import-jobs'));
+        if ($root === false) return 0;
+        $limit = time() - $staleSeconds;
+        $removed = 0;
+        foreach (glob($root . '/*/*', GLOB_ONLYDIR) ?: [] as $dir) {
+            if (preg_match('/^[1-9]\d*$/D', basename(dirname($dir))) !== 1
+                || preg_match('/^[a-f0-9]{16}$/D', basename($dir)) !== 1 || is_link($dir)) continue;
+            $latest = 0;
+            foreach (glob($dir . '/*') ?: [] as $f) {
+                $latest = max($latest, (int) @filemtime($f));
+            }
+            if (($latest > 0 ? $latest : (int) filemtime($dir)) >= $limit) continue;
+            $real = realpath($dir);
+            if ($real === false || !str_starts_with(strtolower($real), strtolower($root) . DIRECTORY_SEPARATOR)) continue;
+            foreach (glob($real . '/*') ?: [] as $f) {
+                if (is_file($f)) @unlink($f);
+            }
+            if (@rmdir($real)) $removed++;
+        }
+        return $removed;
+    }
+
     public function run(int $jobId): void
     {
         $job = $this->jobs->findById($jobId);
