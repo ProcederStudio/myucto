@@ -13,7 +13,7 @@
 #   5. smír DPH proti podaným XML a tvar nálezů kontrol (jen když skripty existují)
 #
 # Kroky 2–5 čtou reálná data a NIC NEZAPISUJÍ, lze je pustit i proti kopii produkce.
-# „Nebylo co kontrolovat" (exit 2) není zelená: brána to vypíše jako NEOVĚŘENO.
+# U datových kontrol znamená exit 2 NEOVĚŘENO; u testů je každý nenulový kód selhání.
 #
 # Použití:
 #   pwsh -File cmd/audit-gate.ps1                         (data z databáze v cfg)
@@ -42,7 +42,7 @@ $started = Get-Date
 # přepnutí nenajde konfiguraci, `--testsuite` je pro něj neznámý přepínač a vypíše
 # nápovědu s exit 1. Vypadá to jako selhání testů, přitom se žádné nespustily.
 function Invoke-Step {
-    param([string] $Name, [scriptblock] $Action)
+    param([string] $Name, [scriptblock] $Action, [switch] $AllowNoData)
 
     Write-Host ''
     Write-Host "=== $Name" -ForegroundColor Cyan
@@ -55,7 +55,7 @@ function Invoke-Step {
         Pop-Location
     }
     $seconds = [int] ((Get-Date) - $stepStart).TotalSeconds
-    if ($LASTEXITCODE -eq 2) {
+    if ($AllowNoData -and $LASTEXITCODE -eq 2) {
         $script:unverified += "$Name (nebylo co kontrolovat)"
         Write-Host "    NEOVĚŘENO — nebylo co kontrolovat (${seconds} s)" -ForegroundColor Yellow
     }
@@ -91,13 +91,13 @@ if (-not $SkipData) {
         $env:MYINVOICE_DB_NAME = $Database
     }
     try {
-        Invoke-Step 'Invarianty nad daty (read-only)' {
+        Invoke-Step -AllowNoData 'Invarianty nad daty (read-only)' {
             & $PhpBin (Join-Path $apiDir 'bin/check-invariants.php') --quiet
         }
 
         # Odsouhlasené známé rozdíly instalace (data, ne kód) — viz hlavička cross-check.php.
         $acceptedDiffs = Join-Path $repoRoot 'private/cross-check-accepted.json'
-        Invoke-Step 'Křížové kontroly (read-only)' {
+        Invoke-Step -AllowNoData 'Křížové kontroly (read-only)' {
             if (Test-Path $acceptedDiffs) {
                 & $PhpBin (Join-Path $apiDir 'bin/cross-check.php') "--accepted=$acceptedDiffs"
             }
@@ -106,13 +106,13 @@ if (-not $SkipData) {
             }
         }
 
-        Invoke-Step 'Struktura databáze proti migracím (read-only)' {
+        Invoke-Step -AllowNoData 'Struktura databáze proti migracím (read-only)' {
             & $PhpBin (Join-Path $apiDir 'bin/check-schema.php')
         }
 
         $compareDph = Join-Path $repoRoot 'private/scripts/compare_dph.php'
         if (Test-Path $compareDph) {
-            Invoke-Step 'Smír DPH proti podaným XML' { & $PhpBin $compareDph }
+            Invoke-Step -AllowNoData 'Smír DPH proti podaným XML' { & $PhpBin $compareDph }
         }
         else {
             Write-Host ''
@@ -124,7 +124,7 @@ if (-not $SkipData) {
         # s dvouřádkovými zápisy a jedním nálezem. Sweep čte, nic nezapisuje.
         $checksSweep = Join-Path $repoRoot 'private/scripts/checks_shape_sweep.php'
         if (Test-Path $checksSweep) {
-            Invoke-Step 'Tvar nálezů kontrol (počet = vypsané řádky, datum, čeština)' { & $PhpBin $checksSweep }
+            Invoke-Step -AllowNoData 'Tvar nálezů kontrol (počet = vypsané řádky, datum, čeština)' { & $PhpBin $checksSweep }
         }
         else {
             Write-Host ''
