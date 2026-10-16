@@ -266,17 +266,6 @@ final class PostingService
         $this->dimensionWarnings = $this->dimensionStamper()->rules()->check($supplierId, $sourceType, $resolved, $entryDate);
         self::assertBalanced($resolved); // v haléřích; UnbalancedEntryException při nerovnosti
 
-        // Přeúčtování ručně zadanými řádky (DocumentRepostService): dialog cizoměnovou
-        // stopu saldokontních řádků nezná, převezme se z opravovaného zápisu — i když se
-        // mezitím stornoval a oprava jde novým zápisem.
-        if (!empty($meta['inherit_line_trace_from'])) {
-            $resolved = $this->inheritLineTrace(
-                $supplierId,
-                $this->journal->linesForEntry((int) $meta['inherit_line_trace_from'], $supplierId),
-                $resolved,
-            );
-        }
-
         // R7 (Epic F4): flag allow_closing_period smí nastavit VÝHRADNĚ ClosingService —
         // závěrkové zápisy k ends_on se účtují do období ve stavu 'closing' (nikdy closed/approved).
         $allowClosing = !empty($meta['allow_closing_period']);
@@ -292,14 +281,15 @@ final class PostingService
         //   uzávěrka počká, nebo uzávěrka commitne přechod na 'closing'/'closed' a tento zápis
         //   pak POD zámkem uvidí nový stav a odmítne (period_not_open). Dřív se stav ověřoval
         //   PŘED začátkem transakce, takže zápis mohl propadnout do právě uzavíraného období.
-        //   Pořadí zámků je vždy období → řádky deníku (shodné s ClosingService::lockPeriod →
-        //   postDocument), takže nevzniká cyklus (deadlock).
+        //   Původní zápis může ležet v jiném období než nové datum. Proto se před deníkem
+        //   zamknou období firmy a pro přepis se zachovají jejich aktuální stavy.
         $pdo = $this->db->pdo();
         $ownTx = !$pdo->inTransaction();
         if ($ownTx) {
             $pdo->beginTransaction();
         }
         try {
+            $periodStatuses = (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
             if ($sourceType === 'bank' && $sourceId !== null) {
                 (new PayrollBankEvidenceGuard($this->db))->assertAvailableForBankPosting($sourceId);
             }
@@ -329,6 +319,7 @@ final class PostingService
                         . '" — do uzavřeného období nelze účtovat (§35 ZoÚ).',
                 );
             }
+            $periodStatuses[(int) $period['id']] = (string) $period['status'];
 
             // B8 (audit 2026-07): měkký zámek k datu (soft-close) — jemnější než celý rok.
             // Datum <= locked_until je zamčené (podané DPH přiznání / ruční zámek). Zámek je
@@ -349,6 +340,16 @@ final class PostingService
                     'Datum účetního případu ' . $entryDate . ' je uzamčené k ' . $lockedUntil
                         . ' (podané daňové přiznání / ruční zámek období) — do zamčeného data nelze účtovat. '
                         . 'Zámek posuň v nastavení účetnictví (jen admin).',
+                );
+            }
+
+            // Přeúčtování ručními řádky přebírá aktuální stopu i ze stornovaného zdroje.
+            // Čtení patří až za zámky období a nastavení, stejně jako ostatní čtení deníku.
+            if (!empty($meta['inherit_line_trace_from'])) {
+                $resolved = $this->inheritLineTrace(
+                    $supplierId,
+                    $this->journal->linesForEntry((int) $meta['inherit_line_trace_from'], $supplierId, true),
+                    $resolved,
                 );
             }
 
@@ -406,7 +407,7 @@ final class PostingService
                 if ($bankDocument && $this->bankDocumentNumber()->isTakenOver($supplierId, (int) $existing['id'])) {
                     $header['document_no'] = $existing['document_no'];
                 }
-                $existing['lines'] = $this->journal->linesForEntry((int) $existing['id'], $supplierId);
+                $existing['lines'] = $this->journal->linesForEntry((int) $existing['id'], $supplierId, true);
                 if ($taxNeutralRewrite) {
                     $this->assertTaxNeutralRewrite($supplierId, $existing, $entryDate, $resolved);
                     $resolved = $this->inheritLineTrace($supplierId, $existing['lines'], $resolved);
@@ -416,6 +417,8 @@ final class PostingService
                     $existing,
                     $header,
                     $resolved,
+                    $periodStatuses,
+                    $lockedUntil,
                     $allowClosing,
                     isset($meta['expected_row_version']) ? (int) $meta['expected_row_version'] : null,
                     $taxNeutralRewrite,
@@ -458,12 +461,14 @@ final class PostingService
                             'Zaúčtovaný mzdový předpis je neměnný; oprava patří do nové revize.',
                         );
                     }
-                    $raced['lines'] = $this->journal->linesForEntry((int) $raced['id'], $supplierId);
+                    $raced['lines'] = $this->journal->linesForEntry((int) $raced['id'], $supplierId, true);
                     $entryId = $this->rewriteExisting(
                         $supplierId,
                         $raced,
                         $header,
                         $resolved,
+                        $periodStatuses,
+                        $lockedUntil,
                         $allowClosing,
                         isset($meta['expected_row_version']) ? (int) $meta['expected_row_version'] : null,
                     );
@@ -492,7 +497,7 @@ final class PostingService
             }
             return $entryId;
         } catch (\Throwable $e) {
-            if ($ownTx && $pdo->inTransaction()) {
+            if (!TransactionFailure::rollbackIfAborted($pdo, $e) && $ownTx && $pdo->inTransaction()) {
                 $pdo->rollBack();
             }
             throw $e;
@@ -875,12 +880,15 @@ final class PostingService
      * @param array<string,mixed> $existing zápis z findBySource (+ načtené 'lines')
      * @param array<string,mixed> $header
      * @param list<array{account_id:int, side:'debit'|'credit', amount:float, cost_center:?string}> $resolved
+     * @param array<int,string> $periodStatuses stavy načtené pod zámkem před deníkem
      */
     private function rewriteExisting(
         int $supplierId,
         array $existing,
         array $header,
         array $resolved,
+        array $periodStatuses,
+        ?string $lockedUntil,
         bool $allowClosing = false,
         ?int $expectedRowVersion = null,
         bool $taxNeutralRewrite = false,
@@ -908,7 +916,6 @@ final class PostingService
         // hlídá se PŮVODNÍ datum zápisu (existing.entry_date). Oprava zamčeného zápisu
         // se dělá výhradně přes storno + nový zápis do otevřeného data. Výjimkou je daňově
         // neutrální přesun mezi účty, který postDocument ověřil (assertTaxNeutralRewrite).
-        $lockedUntil = $this->lockedUntil($supplierId);
         $origDate = (string) ($existing['entry_date'] ?? '');
         if (!$taxNeutralRewrite && $lockedUntil !== null && $origDate !== '' && $origDate <= $lockedUntil) {
             throw new PostingException(
@@ -921,11 +928,11 @@ final class PostingService
 
         // R7 (Epic F4): re-run závěrkového kroku přepisuje zápis v období 'closing'.
         $allowedStatuses = $allowClosing ? ['open', 'closing'] : ['open'];
-        $currentPeriod = $this->periods->findById($supplierId, (int) $existing['period_id']);
-        if ($currentPeriod !== null && !in_array($currentPeriod['status'], $allowedStatuses, true)) {
+        $currentStatus = $periodStatuses[(int) $existing['period_id']] ?? null;
+        if (!in_array($currentStatus, $allowedStatuses, true)) {
             throw new PostingException(
                 'period_not_open',
-                'Zápis #' . $entryId . ' je v období "' . $currentPeriod['status']
+                'Zápis #' . $entryId . ' je v období "' . $currentStatus
                     . '" — do uzavřeného období nelze zasahovat (§35 ZoÚ).',
             );
         }

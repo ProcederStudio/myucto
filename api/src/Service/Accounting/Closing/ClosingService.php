@@ -11,6 +11,8 @@ use MyInvoice\Service\Accounting\AccountingFrameworkService;
 use MyInvoice\Service\Accounting\AccountingRoleProfile;
 use MyInvoice\Service\Accounting\FrameworkOperationPolicy;
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
+use MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Repository\AccountingSupplierSettingsRepository;
 use MyInvoice\Repository\AssetRepository;
@@ -5615,7 +5617,7 @@ final class ClosingService
             }
             throw new ClosingException($e->errorCode, $e->getMessage(), $e->httpStatus);
         } catch (\Throwable $e) {
-            if ($ownTx && $pdo->inTransaction()) {
+            if (!TransactionFailure::rollbackIfAborted($pdo, $e) && $ownTx && $pdo->inTransaction()) {
                 $pdo->rollBack();
             }
             throw $e;
@@ -5629,6 +5631,7 @@ final class ClosingService
      */
     private function lockPeriod(int $supplierId, int $periodId, int $rowVersion): array
     {
+        (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
         $period = $this->periods->findForUpdate($periodId, $supplierId);
         if ($period === null) {
             throw new ClosingException('not_found', 'Účetní období #' . $periodId . ' neexistuje.', 404);
