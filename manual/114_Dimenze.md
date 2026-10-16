@@ -9,8 +9,11 @@ vozidlo, lokalita, obchodní případ nebo vlastní typ. Každý doklad i každ�
 deníku může nést hodnotu každého typu (nejvýš jednu za typ) a sestavy pak ukážou
 výnosy a náklady po hodnotách.
 
-Dimenze nemění účty, částky ani období. Jde jen o analytiku, proto je lze doplnit
-nebo změnit i u zaúčtovaného dokladu a v uzavřeném období.
+Dimenze lze doplnit nebo změnit i u zaúčtovaného dokladu, dokud nejsou uzavřené
+účetní knihy. V uzavřeném, zkontrolovaném nebo schváleném období se nemění ani
+hodnoty dimenzí, jejich rozpady a podíly, ani zakázka či středisko na řádcích.
+Stejné hodnoty lze uložit znovu beze změny. Pro opravu nejprve znovu otevřete knihy
+v průvodci uzávěrkou. Samotný zámek data v otevřeném období změnu analytiky dovoluje.
 
 Při uzavření knih a otevření nového roku se členění rozvahových zůstatků přenáší včetně kombinací dimenzí
 a procentních rozpadů. Počáteční stavy tak zachovávají zůstatky jednotlivých středisek a projektů,
@@ -178,7 +181,7 @@ Podrobnosti v [§ 114.11.10](#1141110-pravidla-dimenzi-podle-uctu).
 | Doklad v cizí měně se vždy schvaluje | Doklad nemá kurz, nejde ocenit a limit se neuplatní | Doplňte kurz |
 | Odkaz ke schválení nefunguje | Platí 14 dní a jen pro jedno rozhodnutí, nová připomínka vydá nový odkaz | Použijte nejnovější e-mail nebo `Nákup → Ke schválení` |
 | Zaúčtování skončilo chybou s názvem účtu produktu | Účet produktu zmizel z rozvrhu nebo se deaktivoval | Opravte účet na kartě produktu nebo ho znovu aktivujte |
-| Změna dimenze u dokladu v uzavřeném období je odmítnutá | Změna by přesunula řádek na jinou analytiku | Úprava přímo na řádku deníku, která by měnila účet, se také odmítne; doklad přeúčtujte |
+| Změna dimenze v uzavřeném období je odmítnutá | Dimenzované závěrkové a počáteční zůstatky musí navazovat | Nejprve znovu otevřete účetní knihy v průvodci uzávěrkou; ochrana platí i pro řádky deníku a podíly rozpadů |
 | Rozvaha po dimenzi nesedí | Hodnotu nenesou obě strany zápisů, například úhrada v bance bez projektu | Doplňte dimenzi na bankovní pohyb |
 
 ## 114.11 Podrobnosti a pravidla
@@ -289,7 +292,7 @@ protistranou. Dimenze se nastavují v nabídce **…** u pohybu položkou **Dime
 (nebo kliknutím na štítky), která pod pohybem otevře výběr dimenzí; tlačítko
 **Uložit dimenze** je uloží. Zaúčtování pohybu je zapíše na všechny řádky jeho
 zápisu v deníku. Změna dimenzí už zaúčtovaného pohybu se do řádků deníku promítne
-hned, i v uzavřeném období, protože mění jen analytické členění.
+hned, pokud neleží v uzavřeném období. V uzavřeném období se změna odmítne celá.
 
 #### Jak se dimenze dostanou do deníku
 
@@ -468,8 +471,8 @@ ze které vznikla: dimenze nebo rozpad její položky, jinak výchozí dimenze p
 položky, jinak hlavičku faktury. Změna dimenzí faktury se pak promítne i do zápisů
 takové karty. Karta s vlastními dimenzemi se fakturou nemění.
 
-Změna dimenzí karty se promítne do všech už zaúčtovaných zápisů majetku, i v
-uzavřeném období, protože mění jen analytické členění. Přepíší se jen typy, které
+Změna dimenzí karty se promítne do jejích už zaúčtovaných zápisů majetku. Pokud by
+změnila zápis uzavřeného období, odmítne se celé uložení karty. Přepíší se jen typy, které
 karta určuje: dimenze jiného typu zadaná ručně na řádku zápisu (například projekt
 u odpisu) zůstane. Totéž platí pro ostatní pohledávky a závazky a pro zápočty.
 Drobný majetek dimenze nese z přijaté faktury nákupu; časové rozlišení drobného

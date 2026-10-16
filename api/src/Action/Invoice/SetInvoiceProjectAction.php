@@ -11,6 +11,8 @@ use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Repository\InvoiceRepository;
 use MyInvoice\Service\Accounting\PostingService;
+use MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard;
+use MyInvoice\Service\Accounting\Dimension\DimensionException;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\IpMatcher;
 use Psr\Http\Message\ResponseInterface as Response;
@@ -75,10 +77,17 @@ final class SetInvoiceProjectAction
             return Json::ok($response, $this->repo->find($id));
         }
 
-        $this->db->pdo()
-            ->prepare('UPDATE invoices SET project_id = ? WHERE id = ? AND supplier_id = ?')
-            ->execute([$projectId, $id, $supplierId]);
-        $restamped = $this->posting->restampProjectDimension($supplierId, 'invoice', $id, $projectId);
+        try {
+            $restamped = (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $id, $projectId): int {
+                $updated = $this->posting->restampProjectDimension($supplierId, 'invoice', $id, $projectId);
+                $this->db->pdo()
+                    ->prepare('UPDATE invoices SET project_id = ? WHERE id = ? AND supplier_id = ?')
+                    ->execute([$projectId, $id, $supplierId]);
+                return $updated;
+            });
+        } catch (DimensionException $e) {
+            return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus);
+        }
 
         $user = (array) $request->getAttribute(AuthMiddleware::ATTR_USER, []);
         $ip = $this->ipMatcher->clientIpFromRequest($request->getServerParams());

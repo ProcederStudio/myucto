@@ -233,20 +233,26 @@ final class DimensionStamper
         if (!isset(self::SOURCES[$sourceType]) || !$this->enabled($supplierId)) {
             return ['lines' => 0, 'needs_repost' => false, 'account_change' => false];
         }
-        $pdo = $this->db->pdo();
-        $entries = $pdo->prepare(
-            'SELECT id, entry_date FROM journal_entries
-              WHERE supplier_id = ? AND source_type = ? AND source_id = ? AND reversed_by IS NULL'
+        return (new DimensionPeriodGuard($this->db))->transaction(
+            fn (): array => $this->restampLocked($supplierId, $sourceType, $sourceId, $keepLineTypes, $released, $singleAnalytics),
         );
-        $entries->execute([$supplierId, $sourceType, $sourceId]);
+    }
+
+    private function restampLocked(int $supplierId, string $sourceType, int $sourceId, bool $keepLineTypes, array $released, array $singleAnalytics): array
+    {
+        $pdo = $this->db->pdo();
+        $guard = new DimensionPeriodGuard($this->db);
+        $lockedEntries = $guard->lockSources($supplierId, [[$sourceType, $sourceId]]);
         $entryDates = [];
-        foreach ($entries->fetchAll(PDO::FETCH_ASSOC) as $e) {
-            $entryDates[(int) $e['id']] = (string) $e['entry_date'];
+        foreach ($lockedEntries as $entryId => $entry) {
+            if ($entry['reversed_by'] === null) {
+                $entryDates[$entryId] = (string) $entry['entry_date'];
+            }
         }
         if ($entryDates === []) {
             return ['lines' => 0, 'needs_repost' => false, 'account_change' => false];
         }
-        [$header, $items, $splits] = $this->documentContext($supplierId, $sourceType, $sourceId, null);
+        [$header, $items, $splits] = $this->documentContext($supplierId, $sourceType, $sourceId, null, true);
         $types = $this->accountTypes($supplierId);
         $assignments = new DimensionAssignmentRepository($this->db);
         $router = new DimensionAccountRouter($this->db);
@@ -256,12 +262,12 @@ final class DimensionStamper
         foreach ($entryDates as $entryId => $entryDate) {
             $stmt = $pdo->prepare(
                 'SELECT id, account_id, side, amount, currency_code FROM journal_entry_lines
-                  WHERE supplier_id = ? AND entry_id = ? ORDER BY line_no, id'
+                  WHERE supplier_id = ? AND entry_id = ? ORDER BY line_no, id FOR UPDATE'
             );
             $stmt->execute([$supplierId, $entryId]);
-            $current = $assignments->entryLineDimensions($supplierId, $entryId);
+            $current = $assignments->entryLineDimensions($supplierId, $entryId, true);
             $originalDims = $current;
-            $originalSplits = $assignments->entryLineSplits($supplierId, $entryId);
+            $originalSplits = $assignments->entryLineSplits($supplierId, $entryId, true);
             // Rozpad, který řádek už nese, se pro porovnání převede na zástupnou hodnotu
             // téhož rozpadu dokladu — řádek rozdělený při zaúčtování si ho ponechá.
             foreach ($originalSplits as $lineId => $byType) {
@@ -353,6 +359,13 @@ final class DimensionStamper
                 $lineId = (int) $line['id'];
                 $dims = $line['dimensions'] ?? [];
                 $lineSplits = $line['dimension_splits'] ?? [];
+                $before = $originalDims[$lineId] ?? [];
+                ksort($before);
+                ksort($dims);
+                if ($before === $dims && DimensionAssignmentRepository::sameSplits($originalSplits[$lineId] ?? [], $lineSplits)) {
+                    continue;
+                }
+                $guard->assertMutable($lockedEntries[$entryId]);
                 $dimsChanged = $assignments->replaceLineDimensions($supplierId, $lineId, $dims);
                 $splitsChanged = $assignments->replaceLineSplits($supplierId, $lineId, $lineSplits);
                 if ($dimsChanged || $splitsChanged) {
@@ -732,17 +745,17 @@ final class DimensionStamper
      *
      * @return array{0:array<int,int>, 1:list<array{dims:array<int,int>, weight:float, account_id:?int}>, 2:list<array<int,float>>, 3:array<int,array<int,int>>}
      */
-    private function documentContext(int $supplierId, string $sourceType, int $sourceId, ?array $itemAccounts): array
+    private function documentContext(int $supplierId, string $sourceType, int $sourceId, ?array $itemAccounts, bool $forUpdate = false): array
     {
         [$docType, $itemTable, $itemColumn] = self::SOURCES[$sourceType];
         $defaults = $this->defaults();
         $docId = $docType === 'asset' ? $defaults->assetId($supplierId, $sourceType, $sourceId) : $sourceId;
         $assignments = new DimensionAssignmentRepository($this->db);
         $dims = $docType !== null && $docId !== null
-            ? $assignments->documentDimensions($supplierId, $docType, $docId)
+            ? $assignments->documentDimensions($supplierId, $docType, $docId, $forUpdate)
             : ['header' => [], 'items' => []];
         $splits = [];
-        $docSplits = $docType !== null && $docId !== null ? $assignments->documentSplits($supplierId, $docType, $docId) : [];
+        $docSplits = $docType !== null && $docId !== null ? $assignments->documentSplits($supplierId, $docType, $docId, $forUpdate) : [];
         foreach ($docSplits as $itemNo => $byType) {
             foreach ($byType as $typeId => $shares) {
                 $splits[] = $shares;
@@ -763,7 +776,7 @@ final class DimensionStamper
             $stmt = $this->db->pdo()->prepare(
                 'SELECT id, total_without_vat, stock_item_id'
                 . ($issued ? ', item_kind, vat_rate_id, vat_classification_code, revenue_account_code' : '')
-                . " FROM {$itemTable} WHERE {$itemColumn} = ? ORDER BY order_index, id"
+                . " FROM {$itemTable} WHERE {$itemColumn} = ? ORDER BY order_index, id" . ($forUpdate ? ' FOR UPDATE' : '')
             );
             $stmt->execute([$sourceId]);
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);

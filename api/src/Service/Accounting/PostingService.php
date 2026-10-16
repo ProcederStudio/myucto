@@ -14,6 +14,7 @@ use MyInvoice\Repository\DimensionAssignmentRepository;
 use MyInvoice\Service\Accounting\Bank\BankDocumentNumber;
 use MyInvoice\Service\Accounting\Dimension\DimensionAccountRouter;
 use MyInvoice\Service\Accounting\Dimension\DimensionStamper;
+use MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard;
 use MyInvoice\Service\Accounting\Expense\ExpenseClassificationService;
 use MyInvoice\Service\Accounting\Expense\ExpenseAutoClassifier;
 use MyInvoice\Service\Accounting\Expense\ExpenseKind;
@@ -3019,11 +3020,9 @@ final class PostingService
     /**
      * Přepíše zakázku na řádcích JIŽ zaúčtovaného dokladu (issue #29).
      *
-     * Proč to smí obejít §35: `project_id` je čistě analytická dimenze — nemění účet,
-     * stranu, částku ani období, takže deník zůstává co do účetního obsahu totožný a
-     * není co opravovat protizápisem. Zařazení dokladu k akci navíc typicky přijde AŽ
-     * po zaúčtování (účetní zaúčtuje došlou fakturu, projekťák ji pak přiřadí k akci);
-     * kdyby to šlo jen přeúčtováním, výsledovka po zakázkách by v praxi zůstala prázdná.
+     * Zařazení dokladu k zakázce může přijít až po zaúčtování. Před uzavřením
+     * knih se promítne i přes zámek účetního data. Uzavřené knihy ale uchovávají
+     * dimenzované závěrkové a počáteční zůstatky, proto se jejich zakázka nemění.
      *
      * Vědomé omezení: storna (`source_id` je u nich ZÁMĚRNĚ NULL, viz reverse()) se
      * nepřerazítkují. Stornovaný doklad se k jiné zakázce nepřeřazuje — ruší se.
@@ -3036,27 +3035,34 @@ final class PostingService
         if (!isset(self::PROJECT_DIMENSION_SOURCES[$sourceType])) {
             return 0;
         }
-        $stmt = $this->db->pdo()->prepare(
-            'UPDATE journal_entry_lines jel
-               JOIN journal_entries je ON je.id = jel.entry_id
-                SET jel.project_id = ?
-              WHERE je.supplier_id = ? AND je.source_type = ? AND je.source_id = ?
-                AND jel.supplier_id = ?'
-        );
-        $stmt->execute([
-            $projectId !== null && $projectId > 0 ? $projectId : null,
-            $supplierId,
-            $sourceType,
-            $sourceId,
-            $supplierId,
-        ]);
-        return $stmt->rowCount();
+        $guard = new DimensionPeriodGuard($this->db);
+        return $guard->transaction(function () use ($guard, $supplierId, $sourceType, $sourceId, $projectId): int {
+            $projectId = $projectId !== null && $projectId > 0 ? $projectId : null;
+            $entries = $guard->lockSources($supplierId, [[$sourceType, $sourceId]]);
+            $find = $this->db->pdo()->prepare(
+                'SELECT id, project_id FROM journal_entry_lines WHERE supplier_id = ? AND entry_id = ? FOR UPDATE'
+            );
+            $update = $this->db->pdo()->prepare('UPDATE journal_entry_lines SET project_id = ? WHERE supplier_id = ? AND id = ?');
+            $changed = 0;
+            foreach ($entries as $entryId => $entry) {
+                $find->execute([$supplierId, $entryId]);
+                foreach ($find->fetchAll(PDO::FETCH_ASSOC) as $line) {
+                    $before = $line['project_id'] === null ? null : (int) $line['project_id'];
+                    if ($before === $projectId) {
+                        continue;
+                    }
+                    $guard->assertMutable($entry);
+                    $update->execute([$projectId, $supplierId, (int) $line['id']]);
+                    $changed += $update->rowCount();
+                }
+            }
+            return $changed;
+        });
     }
 
     /**
      * Promítne změněné dimenze dokladu do jeho už zaúčtovaných řádků (Firma → Dimenze).
-     * Stejná výjimka z §35 jako {@see restampProjectDimension()}: mění jen analytické
-     * členění, ne účet, stranu, částku ani období.
+     * Stejně jako {@see restampProjectDimension()} zachovává dimenze uzavřených knih.
      *
      * `$keepLineTypes` a `$released` viz {@see DimensionStamper::restamp()}.
      *
