@@ -616,21 +616,21 @@ final class JournalEntryRepository
             return null;
         }
         $entry = $this->cast($row);
-        $entry['lines'] = $this->linesForEntry($id, $supplierId);
+        $entry['lines'] = $this->linesForEntry($id, $supplierId, true);
         return $entry;
     }
 
     /**
      * @return list<array<string,mixed>>
      */
-    public function linesForEntry(int $entryId, int $supplierId): array
+    public function linesForEntry(int $entryId, int $supplierId, bool $forUpdate = false): array
     {
         $stmt = $this->db->pdo()->prepare(
             'SELECT id, entry_id, supplier_id, account_id, side, amount, is_red_storno, currency_code, fx_rate,
                     amount_foreign, cost_center, project_id, line_no
                FROM journal_entry_lines
               WHERE entry_id = ? AND supplier_id = ?
-              ORDER BY line_no ASC, id ASC'
+              ORDER BY line_no ASC, id ASC' . ($forUpdate ? ' FOR UPDATE' : '')
         );
         $stmt->execute([$entryId, $supplierId]);
         return array_map(static function (array $r): array {

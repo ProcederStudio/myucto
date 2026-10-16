@@ -384,6 +384,188 @@ final class PostingClosingConcurrencyTest extends TestCase
             'Waiting replacement must not already hold the journal lock.');
     }
 
+    #[\PHPUnit\Framework\Attributes\DataProvider('partialSnapshotModes')]
+    public function testReverseCannotUseClosedSnapshot(int $snapshotIsolation): void
+    {
+        [, $entry] = $this->partialReplacementSource();
+        $before = $this->journalB->find($entry, $this->supplierId);
+        $pdo = $this->oldReverseSnapshot($snapshotIsolation);
+        $periodsB = new AccountingPeriodRepository($this->dbB);
+        $period = $periodsB->findById($this->supplierId, $this->periodId);
+        self::assertTrue($periodsB->setStatusCas($this->periodId, $this->supplierId, 'closed', (int) $period['row_version'], $this->userId));
+        $failure = null;
+        try {
+            Bootstrap::buildContainer()->get(PostingService::class)->reverse($this->supplierId, $entry, ['entry_date' => self::ENDS_ON]);
+        } catch (\Throwable $e) {
+            $failure = $e;
+        }
+        $active = $pdo->inTransaction();
+        $count = (int) $pdo->query('SELECT COUNT(*) FROM journal_entries WHERE supplier_id = ' . $this->supplierId)->fetchColumn();
+        if ($active) $pdo->rollBack();
+        self::assertNotNull($failure, 'Reverse created a mirror in a closed period: entry count = ' . $count);
+        self::assertSame(1, $count);
+        if ($snapshotIsolation === 0) {
+            self::assertInstanceOf(PostingException::class, $failure);
+            self::assertSame('period_not_open', $failure->errorCode);
+        } else {
+            self::assertInstanceOf(\PDOException::class, $failure);
+            self::assertSame(1020, (int) $failure->errorInfo[1]);
+            self::assertFalse($active);
+        }
+        self::assertSame($before, $this->journalB->find($entry, $this->supplierId));
+    }
+
+    public function testReverseMustMirrorCurrentAmounts(): void
+    {
+        [$source, $entry] = $this->partialReplacementSource();
+        $pdo = $this->oldReverseSnapshot();
+        $this->postingB->postDocument($this->supplierId, 'other_item', $source, [
+            ['account_code' => '221', 'side' => 'debit', 'amount' => 250],
+            ['account_code' => '411', 'side' => 'credit', 'amount' => 250],
+        ], ['entry_date' => self::ENDS_ON, 'posted_by' => $this->userId]);
+        $mirror = Bootstrap::buildContainer()->get(PostingService::class)->reverse($this->supplierId, $entry, ['entry_date' => self::ENDS_ON]);
+        $amounts = $pdo->query('SELECT side, amount FROM journal_entry_lines WHERE entry_id = ' . $mirror . ' ORDER BY side')->fetchAll(\PDO::FETCH_KEY_PAIR);
+        $pdo->rollBack();
+        self::assertSame(['debit' => '250.00', 'credit' => '250.00'], $amounts);
+    }
+
+    public function testReverseMustMirrorCurrentDimensionsAndSplits(): void
+    {
+        [$type, $a, $b, $source] = $this->snapshotSource();
+        $entry = $this->postSnapshotSource($source, $type, $a, false);
+        $current = $this->journalB->find($entry, $this->supplierId);
+        $debit = (int) $current['lines'][0]['id'];
+        $credit = (int) $current['lines'][1]['id'];
+        $pdo = $this->oldReverseSnapshot();
+        $this->dimensionsB->saveEntryLines($this->supplierId, $entry, [$debit => [$type => $b], $credit => []], [
+            $credit => [$type => [['value_id' => $a, 'share' => 0.25], ['value_id' => $b, 'share' => 0.75]]],
+        ]);
+        $mirror = Bootstrap::buildContainer()->get(PostingService::class)->reverse($this->supplierId, $entry, ['entry_date' => self::ENDS_ON]);
+        $journalA = Bootstrap::buildContainer()->get(\MyInvoice\Repository\JournalEntryRepository::class);
+        $lines = $journalA->linesForEntry($mirror, $this->supplierId);
+        $assignments = new \MyInvoice\Repository\DimensionAssignmentRepository($this->dbA);
+        $dims = $assignments->lineDimensions($this->supplierId, [(int) $lines[0]['id']]);
+        $splits = $assignments->lineSplits($this->supplierId, [(int) $lines[1]['id']]);
+        $pdo->rollBack();
+        self::assertSame([$type => $b], $dims[(int) $lines[0]['id']] ?? []);
+        self::assertSame([$type => [$a => 0.25, $b => 0.75]], $splits[(int) $lines[1]['id']] ?? []);
+    }
+
+    public function testReverseMustReadCurrentDateLock(): void
+    {
+        [, $entry] = $this->partialReplacementSource();
+        $pdo = $this->oldReverseSnapshot();
+        $settings = new \MyInvoice\Repository\AccountingSupplierSettingsRepository($this->dbB);
+        $settings->setLockedUntil($this->supplierId, self::ENDS_ON);
+        self::assertSame(self::ENDS_ON, $settings->getLockedUntil($this->supplierId));
+        $failure = null;
+        try {
+            Bootstrap::buildContainer()->get(PostingService::class)->reverse($this->supplierId, $entry, ['entry_date' => self::ENDS_ON]);
+        } catch (PostingException $e) {
+            $failure = $e;
+        }
+        $pdo->rollBack();
+        self::assertNotNull($failure);
+        self::assertSame('date_locked', $failure->errorCode);
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('reversePeriodLocks')]
+    public function testReverseLocksSourceAndTargetBeforeJournal(bool $lockTarget): void
+    {
+        [, $entry] = $this->partialReplacementSource();
+        $target = $this->periodsA->create($this->supplierId, 2100, '2100-01-01', '2100-12-31');
+        $pdoA = $this->dbA->pdo();
+        $pdoB = $this->dbB->pdo();
+        $pdoA->beginTransaction();
+        $this->periodsA->findForUpdate($lockTarget ? $target : $this->periodId, $this->supplierId);
+        $pdoB->exec('SET SESSION innodb_lock_wait_timeout = 1');
+        $pdoB->beginTransaction();
+        $failure = null;
+        try {
+            $this->postingB->reverse($this->supplierId, $entry, ['entry_date' => '2100-01-01']);
+        } catch (\PDOException $e) {
+            $failure = $e;
+        }
+        self::assertNotNull($failure, 'Reverse must wait on source and target period locks.');
+        self::assertSame(1205, (int) $failure->errorInfo[1]);
+        self::assertSame($entry, (int) $pdoA->query('SELECT id FROM journal_entries WHERE id = ' . $entry . ' FOR UPDATE NOWAIT')->fetchColumn());
+    }
+
+    public static function reversePeriodLocks(): array
+    {
+        return [[false], [true]];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('reverseTargetStatuses')]
+    public function testReversePreservesAllowedTargetStatuses(string $status, bool $allowClosing, bool $allowed): void
+    {
+        [, $entry] = $this->partialReplacementSource();
+        $this->periodsA->setStatus($this->periodId, $this->supplierId, 'closed');
+        $target = $this->periodsA->create($this->supplierId, 2100, '2100-01-01', '2100-12-31');
+        $this->periodsA->setStatus($target, $this->supplierId, $status);
+        try {
+            $mirror = $this->postingB->reverse($this->supplierId, $entry, ['entry_date' => '2100-01-01', 'allow_closing_period' => $allowClosing]);
+            self::assertTrue($allowed);
+            self::assertSame($target, $this->journalB->find($mirror, $this->supplierId)['period_id']);
+        } catch (PostingException $e) {
+            self::assertFalse($allowed);
+            self::assertSame('period_not_open', $e->errorCode);
+        }
+    }
+
+    public static function reverseTargetStatuses(): array
+    {
+        return [['open', false, true], ['closing', true, true], ['closing', false, false], ['closed', true, false]];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('reverseFallbackTargets')]
+    public function testReverseFallbackUsesCurrentTargetOrCreatesMissingPeriod(bool $closeTarget): void
+    {
+        $this->periodsA->create($this->supplierId, 2020, '2020-01-01', '2020-12-31');
+        $entry = $this->postingB->postDocument($this->supplierId, 'manual', null, [
+            ['account_code' => '221', 'side' => 'debit', 'amount' => 100],
+            ['account_code' => '411', 'side' => 'credit', 'amount' => 100],
+        ], ['entry_date' => '2020-06-15']);
+        (new \MyInvoice\Repository\AccountingSupplierSettingsRepository($this->dbB))->setLockedUntil($this->supplierId, '2020-12-31');
+        $today = date('Y-m-d');
+        $target = $closeTarget ? $this->periodsA->create($this->supplierId, (int) date('Y'), date('Y') . '-01-01', date('Y') . '-12-31') : null;
+        $pdo = $this->oldReverseSnapshot();
+        if ($target !== null) {
+            (new AccountingPeriodRepository($this->dbB))->setStatus($target, $this->supplierId, 'closed');
+        }
+        $failure = null;
+        $mirror = null;
+        try {
+            $mirror = Bootstrap::buildContainer()->get(PostingService::class)->reverse($this->supplierId, $entry);
+        } catch (PostingException $e) {
+            $failure = $e;
+        }
+        $result = $mirror === null ? null : Bootstrap::buildContainer()->get(\MyInvoice\Repository\JournalEntryRepository::class)->find($mirror, $this->supplierId);
+        $pdo->rollBack();
+        if ($closeTarget) {
+            self::assertNotNull($failure);
+            self::assertSame('period_not_open', $failure->errorCode);
+        } else {
+            self::assertNull($failure);
+            self::assertSame($today, $result['entry_date']);
+        }
+    }
+
+    public static function reverseFallbackTargets(): array
+    {
+        return [[false], [true]];
+    }
+
+    private function oldReverseSnapshot(int $mode = 0): \PDO
+    {
+        $pdo = $this->dbA->pdo();
+        $this->snapshotIsolation ??= (int) $pdo->query('SELECT @@innodb_snapshot_isolation')->fetchColumn();
+        $pdo->exec('SET SESSION innodb_snapshot_isolation = ' . $mode);
+        $pdo->beginTransaction();
+        self::assertSame('open', $this->periodsA->findById($this->supplierId, $this->periodId)['status']);
+        return $pdo;
+    }
+
     private function partialReplacementSource(): array
     {
         $pdo = $this->dbB->pdo();

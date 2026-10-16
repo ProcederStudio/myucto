@@ -637,6 +637,21 @@ final class PostingService
             $pdo->beginTransaction();
         }
         try {
+        (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+        $lockedUntil = $this->lockedUntilForUpdate($supplierId);
+        $periodForDate = function (string $date) use ($supplierId, $meta): ?array {
+            $period = $this->periods->findForDateForUpdate($supplierId, $date);
+            if ($period === null) {
+                $this->provisioner()->ensureOpenPeriodForDate(
+                    $supplierId,
+                    $date,
+                    AccountingPeriodProvisioner::REASON_POSTING,
+                    isset($meta['user_id']) ? (int) $meta['user_id'] : null,
+                );
+                $period = $this->periods->findForDateForUpdate($supplierId, $date);
+            }
+            return $period;
+        };
         $original = $this->journal->findForUpdate($entryId, $supplierId);
         if ($original === null) {
             throw new PostingException('entry_not_found', 'Účetní zápis #' . $entryId . ' neexistuje.', 404);
@@ -673,18 +688,12 @@ final class PostingService
         // R7 (Epic F4): storno dohadu/čas. rozlišení z uzávěrkového průvodce ve stavu 'closing'.
         $allowedStatuses = !empty($meta['allow_closing_period']) ? ['open', 'closing'] : ['open'];
 
-        $period = $this->provisioner()->ensureOpenPeriodForDate(
-            $supplierId,
-            $reversalDate,
-            AccountingPeriodProvisioner::REASON_POSTING,
-            isset($meta['user_id']) ? (int) $meta['user_id'] : null,
-        );
+        $period = $periodForDate($reversalDate);
         if ($period === null) {
             throw self::noPeriodException($reversalDate, 'Pro datum storna ' . $reversalDate . ' neexistuje účetní období.');
         }
         $periodOpen = in_array($period['status'], $allowedStatuses, true);
 
-        $lockedUntil = $this->lockedUntil($supplierId);
         if ($periodOpen && $lockedUntil !== null && $reversalDate <= $lockedUntil) {
             if ($explicitDate !== null) {
                 throw new PostingException(
@@ -702,12 +711,7 @@ final class PostingService
                 );
             }
             $reversalDate = $today;
-            $period = $this->provisioner()->ensureOpenPeriodForDate(
-                $supplierId,
-                $reversalDate,
-                AccountingPeriodProvisioner::REASON_POSTING,
-                isset($meta['user_id']) ? (int) $meta['user_id'] : null,
-            );
+            $period = $periodForDate($reversalDate);
             if ($period === null) {
                 // Auto-posun protizápisu na dnešek, ale pro dnešní datum není založené
                 // účetní období a ani ho nelze automaticky otevřít (řada dnešek přeskakuje
@@ -733,8 +737,8 @@ final class PostingService
         // tam, kam původní řádek přičetl.
         $assignments = new DimensionAssignmentRepository($this->db);
         $origLineIds = array_map(static fn (array $l): int => (int) ($l['id'] ?? 0), $origLines);
-        $origDims = $assignments->lineDimensions($supplierId, $origLineIds);
-        $origSplits = $assignments->lineSplits($supplierId, $origLineIds);
+        $origDims = $assignments->lineDimensions($supplierId, $origLineIds, true);
+        $origSplits = $assignments->lineSplits($supplierId, $origLineIds, true);
         $mirror = [];
         foreach ($origLines as $line) {
             $reversalLine = JournalLineAmount::reversal($line);
@@ -805,7 +809,7 @@ final class PostingService
             }
             return $reversalId;
         } catch (\Throwable $e) {
-            if ($ownTx && $pdo->inTransaction()) {
+            if (!TransactionFailure::rollbackIfAborted($pdo, $e) && $ownTx && $pdo->inTransaction()) {
                 $pdo->rollBack();
             }
             throw $e;
