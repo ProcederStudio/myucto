@@ -43,6 +43,7 @@ final class PostingClosingConcurrencyTest extends TestCase
     private Connection $dbB;
     private AccountingPeriodRepository $periodsA;
     private PostingService $postingB;
+    private \MyInvoice\Repository\JournalEntryRepository $journalB;
     private \MyInvoice\Service\Accounting\Dimension\DimensionService $dimensionsB;
 
     private int $supplierId = 0;
@@ -80,6 +81,7 @@ final class PostingClosingConcurrencyTest extends TestCase
             $this->dbB       = $containerB->get(Connection::class);
             $this->periodsA  = $containerA->get(AccountingPeriodRepository::class);
             $this->postingB  = $containerB->get(PostingService::class);
+            $this->journalB = $containerB->get(\MyInvoice\Repository\JournalEntryRepository::class);
             $this->dimensionsB = $containerB->get(\MyInvoice\Service\Accounting\Dimension\DimensionService::class);
             $seederA         = $containerA->get(ChartOfAccountsSeeder::class);
         } catch (\Throwable $e) {
@@ -313,5 +315,88 @@ final class PostingClosingConcurrencyTest extends TestCase
             ['account_code' => '518', 'side' => 'debit', 'amount' => 100.00],
             ['account_code' => '321', 'side' => 'credit', 'amount' => 100.00],
         ], ['entry_date' => self::ENDS_ON, 'posted_by' => $this->userId]);
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('partialSnapshotModes')]
+    public function testPartialReplacementCannotRewriteClosedSnapshot(int $snapshotIsolation): void
+    {
+        [$source, $entry, $line, $version] = $this->partialReplacementSource();
+        $before = $this->journalB->find($entry, $this->supplierId);
+        $pdo = $this->dbA->pdo();
+        $this->snapshotIsolation = (int) $pdo->query('SELECT @@innodb_snapshot_isolation')->fetchColumn();
+        $pdo->exec('SET SESSION innodb_snapshot_isolation = ' . $snapshotIsolation);
+        $pdo->beginTransaction();
+        self::assertSame('open', $this->periodsA->findById($this->supplierId, $this->periodId)['status']);
+        $periodsB = new AccountingPeriodRepository($this->dbB);
+        self::assertTrue($periodsB->setStatusCas($this->periodId, $this->supplierId, 'closed', (int) $periodsB->findById($this->supplierId, $this->periodId)['row_version'], $this->userId));
+        $failure = null;
+        try {
+            Bootstrap::buildContainer()->get(PostingService::class)->replaceEntryLines(
+                $this->supplierId, 'other_item', $source, $version, [$line],
+                [['account_code' => '518', 'side' => 'debit', 'amount' => 100.00]],
+            );
+        } catch (\Throwable $e) {
+            $failure = $e;
+        }
+        $transactionActive = $pdo->inTransaction();
+        $changed = $pdo->query('SELECT COUNT(*) FROM journal_entry_lines l JOIN chart_of_accounts a ON a.id = l.account_id WHERE l.entry_id = ' . $entry . " AND a.account_code = '518'")->fetchColumn();
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        self::assertNotNull($failure, 'Closed snapshot was partially rewritten: new 518 debit rows = ' . $changed);
+        self::assertSame(0, (int) $changed);
+        if ($snapshotIsolation === 0) {
+            self::assertInstanceOf(PostingException::class, $failure);
+            self::assertSame('period_not_open', $failure->errorCode);
+        } else {
+            self::assertInstanceOf(\PDOException::class, $failure);
+            self::assertSame(1020, (int) $failure->errorInfo[1]);
+            self::assertFalse($transactionActive, 'Fatal snapshot conflict must end the caller transaction.');
+        }
+        self::assertSame($before, $this->journalB->find($entry, $this->supplierId));
+    }
+
+    public static function partialSnapshotModes(): array
+    {
+        return [[0], [1]];
+    }
+
+    public function testPartialReplacementLocksPeriodBeforeJournal(): void
+    {
+        [$source, $entry, $line, $version] = $this->partialReplacementSource();
+        $pdoA = $this->dbA->pdo();
+        $pdoB = $this->dbB->pdo();
+        $pdoA->beginTransaction();
+        $this->periodsA->findForUpdate($this->periodId, $this->supplierId);
+        $pdoB->exec('SET SESSION innodb_lock_wait_timeout = 1');
+        $pdoB->beginTransaction();
+        $failure = null;
+        try {
+            $this->postingB->replaceEntryLines($this->supplierId, 'other_item', $source, $version, [$line],
+                [['account_code' => '518', 'side' => 'debit', 'amount' => 100.00]]);
+        } catch (\PDOException $e) {
+            $failure = $e;
+        }
+        self::assertNotNull($failure, 'Replacement must wait on the period held by closing.');
+        self::assertSame(1205, (int) $failure->errorInfo[1]);
+        self::assertTrue($pdoB->inTransaction());
+        self::assertSame($entry, (int) $pdoA->query('SELECT id FROM journal_entries WHERE id = ' . $entry . ' FOR UPDATE NOWAIT')->fetchColumn(),
+            'Waiting replacement must not already hold the journal lock.');
+    }
+
+    private function partialReplacementSource(): array
+    {
+        $pdo = $this->dbB->pdo();
+        self::assertNotSame($this->dbA->pdo()->query('SELECT CONNECTION_ID()')->fetchColumn(), $pdo->query('SELECT CONNECTION_ID()')->fetchColumn());
+        $pdo->prepare('INSERT INTO other_items (supplier_id, side, title, issued_on, due_on, amount) VALUES (?, "payable", "Partial replacement concurrency", ?, ?, 100)')
+            ->execute([$this->supplierId, self::ENDS_ON, self::ENDS_ON]);
+        $source = (int) $pdo->lastInsertId();
+        $entry = $this->postingB->postDocument($this->supplierId, 'other_item', $source, [
+            ['account_code' => '221', 'side' => 'debit', 'amount' => 100.00],
+            ['account_code' => '411', 'side' => 'credit', 'amount' => 100.00],
+        ], ['entry_date' => self::ENDS_ON, 'posted_by' => $this->userId]);
+        $current = $this->journalB->find($entry, $this->supplierId);
+        $debit = array_values(array_filter($current['lines'], static fn (array $line): bool => $line['side'] === 'debit'))[0];
+        return [$source, $entry, (int) $debit['id'], (int) $current['row_version']];
     }
 }

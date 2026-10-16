@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Accounting\Bank;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Repository\BankPostingRuleRepository;
 use MyInvoice\Repository\BankPostingSuggestionRepository;
@@ -131,7 +132,7 @@ final class BankPostingService
     }
 
     /**
-     * Dorovná zúčtování zálohy na konečných fakturách daných záloh. Nikdy nevyhazuje.
+     * Dorovná zúčtování zálohy; chybu rušící celou transakci předá volajícímu.
      *
      * @param array{purchase?:list<int>, sale?:list<int>} $advances
      */
@@ -230,7 +231,8 @@ final class BankPostingService
     // ── hlavní hook ─────────────────────────────────────────────────────────────
 
     /**
-     * Hlavní hook po každém (re)match/importu. Nikdy nevyhazuje (best-effort, loguje).
+     * Hlavní hook po každém (re)match/importu. Běžné chyby loguje (best-effort),
+     * zrušení celé transakce předá volajícímu.
      *
      * Při výjimce vrací `reason='error'` a NAVÍC `message` s textem výjimky. Bez toho
      * je dávkový běh slepý: 14 transakcí padalo na chybějící sloupec z neaplikované
@@ -262,6 +264,9 @@ final class BankPostingService
             }
             return $result;
         } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             if ($ownTx && $pdo->inTransaction()) {
                 $pdo->rollBack();
             } elseif ($pdo->inTransaction()) {
