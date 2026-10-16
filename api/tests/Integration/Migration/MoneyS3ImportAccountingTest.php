@@ -37,6 +37,19 @@ use Slim\Psr7\Factory\ServerRequestFactory;
 #[Group('integration')]
 final class MoneyS3ImportAccountingTest extends MoneyS3ImportTestCase
 {
+    public function testOpeningWithoutDimensionsIsNotAcceptedEvenWhenAccountTotalsMatch(): void
+    {
+        $supplierId = $this->supplier();
+        SyntheticAgenda::writeLzFiles($this->tmp . '/no-opening-dimensions.lz', SyntheticAgenda::filesWithoutOpeningDimensions());
+        $backup = Ms3Backup::extract($this->tmp . '/no-opening-dimensions.lz', $this->tmp . '/no-opening-dimensions');
+        $protocol = $this->importer->run($supplierId, $this->userId, $backup, new ImportOptions(ImportOptions::MODE_IMPORT, true));
+        self::assertFalse($protocol->hasErrors(), $this->explain($protocol));
+        $closing = array_column($protocol->get('closing'), null, 'year')[2024];
+        self::assertSame('mismatch', $closing['status'], $this->explain($protocol));
+        self::assertNotEmpty($closing['diffs']);
+        self::assertSame('open', $this->container(AccountingPeriodRepository::class)->findByYear($supplierId, 2024)['status']);
+    }
+
     public function testImportedAccountingPreservesPeriodsBalancesAndClassification(): void
     {
         $supplierId = $this->supplier();
@@ -330,8 +343,7 @@ final class MoneyS3ImportAccountingTest extends MoneyS3ImportTestCase
         self::assertSame('1AB 2345 - Dodávka', $byCode['1AB 2345']['name']);
         self::assertSame('project', $byCode['ZAK01']['kind']);
         self::assertNull($byCode['ZAK01']['supplier_group_id'], 'Firma bez skupiny má projekt firemní.');
-        // Zakázky použil jen rok 2024, poslední převáděný rok je 2025.
-        self::assertSame(0, (int) $byCode['ZAK01']['is_active']);
+        self::assertSame(1, (int) $byCode['ZAK01']['is_active']);
         $projects = $pdo->prepare('SELECT COUNT(*) FROM projects p JOIN clients c ON c.id = p.client_id WHERE c.supplier_id = ?');
         $projects->execute([$supplierId]);
         self::assertSame(0, (int) $projects->fetchColumn(), 'Zakázka z Money nezakládá fakturační zakázku.');

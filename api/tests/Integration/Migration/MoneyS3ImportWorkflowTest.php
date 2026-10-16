@@ -74,7 +74,9 @@ final class MoneyS3ImportWorkflowTest extends MoneyS3ImportTestCase
 
         $protocol = $this->import($supplierId);
 
-        $messages = array_column($protocol->toArray()['steps'], null, 'key')['purchase_invoices']['messages'];
+        $steps = array_column($protocol->toArray()['steps'], null, 'key');
+        self::assertArrayHasKey('purchase_invoices', $steps, $this->explain($protocol));
+        $messages = $steps['purchase_invoices']['messages'];
         $changed = array_values(array_filter($messages, static fn (array $m): bool => $m['code'] === 'changed_in_money'));
         self::assertCount(1, $changed, $this->explain($protocol));
         self::assertSame('FP25001', $changed[0]['context']['document_no']);
