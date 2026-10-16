@@ -232,6 +232,7 @@ function onBucket(value: string) {
           <div>
             <label :for="`${pageId}-account`" class="block text-xs font-medium text-neutral-500 mb-1">{{ t('tax_evidence.bank_rules.form_account') }}</label>
             <input :id="`${pageId}-account`" v-model="form.counterparty_account" placeholder="19-123456789" class="w-full h-9 px-2 border border-neutral-300 rounded-md text-sm font-mono bg-surface" />
+            <p class="mt-1 text-xs text-neutral-500">{{ t('tax_evidence.bank_rules.form_account_hint') }}</p>
           </div>
           <div>
             <label :for="`${pageId}-vs`" class="block text-xs font-medium text-neutral-500 mb-1">{{ t('tax_evidence.bank_rules.form_vs') }}</label>

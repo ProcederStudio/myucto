@@ -6,6 +6,7 @@ namespace MyInvoice\Tests\Integration\TaxEvidence;
 
 use MyInvoice\Service\TaxEvidence\TaxEvidenceBankRules;
 use PHPUnit\Framework\Attributes\Group;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Pravidla bankovních pohybů v daňové evidenci (issue #140, migrace 1990).
@@ -61,6 +62,28 @@ final class TaxEvidenceBankRulesTest extends CashJournalTestCase
         $this->db->pdo()->prepare("UPDATE supplier SET accounting_mode = 'double_entry' WHERE id = ?")->execute([$this->supplierId]);
         $this->bankTxFrom($st, 2000.0, '', 'Druhý vklad');
         self::assertSame(0, $this->rules->apply($this->supplierId)['applied'], 'mimo daňovou evidenci nic');
+    }
+
+    public static function accountCriteria(): iterable
+    {
+        yield 'bank only' => ['*/5050'];
+        yield 'account and bank' => ['1000000005/5050'];
+    }
+
+    #[DataProvider('accountCriteria')]
+    public function testRuleUsesBankCodeFromStatement(string $criterion): void
+    {
+        $st = $this->statement($this->supplierId, $this->accountA);
+        $matching = $this->bankTxFrom($st, -100.0, '1000000005', 'Test banky');
+        $other = $this->bankTxFrom($st, -100.0, '1000000005', 'Jiná banka');
+        $update = $this->db->pdo()->prepare('UPDATE bank_transactions SET counterparty_bank = ? WHERE id = ?');
+        $update->execute(['5050', $matching]);
+        $update->execute(['0100', $other]);
+        $this->createRule(['name' => 'Banka', 'counterparty_account' => $criterion, 'action_ignore' => true]);
+
+        self::assertSame(['applied' => 1, 'ignored' => 1, 'classified' => 0], $this->rules->apply($this->supplierId));
+        self::assertSame('ignored', $this->scalar('SELECT match_status FROM bank_transactions WHERE id = ?', [$matching]));
+        self::assertSame('unmatched', $this->scalar('SELECT match_status FROM bank_transactions WHERE id = ?', [$other]));
     }
 
     public function testValidationRequiresCriterionAndAction(): void
