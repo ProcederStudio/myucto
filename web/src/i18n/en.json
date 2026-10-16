@@ -15989,6 +15989,7 @@
       "bind_vendor": "Restrict the rule to a vendor",
       "all_vendors": "No vendor restriction. The rule will match the entered text for any vendor of this company.",
       "expense_description_placeholder": "e.g. licence, hosting, phone",
+      "expense_description_pick": "Pick text from an invoice item…",
       "expense_description_hint": "Item text is always required, including when restricted to a vendor. Select a vendor when the restriction is enabled. The item description must contain the entered text.",
       "save_journal": "Create posting template",
       "journal_title": "New posting template",

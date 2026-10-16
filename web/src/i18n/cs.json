@@ -15989,6 +15989,7 @@
       "bind_vendor": "Vázat pravidlo na dodavatele",
       "all_vendors": "Bez vazby na dodavatele. Pravidlo bude hledat zadaný text u všech dodavatelů této firmy.",
       "expense_description_placeholder": "např. licence, hosting, telefon",
+      "expense_description_pick": "Vybrat text z položky faktury…",
       "expense_description_hint": "Text položky je vždy povinný, i při vazbě na dodavatele. Při zapnuté vazbě vyberte také dodavatele. Popis položky musí obsahovat zadaný text.",
       "save_journal": "Vytvořit účtovací šablonu",
       "journal_title": "Nová účtovací šablona",
