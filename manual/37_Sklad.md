@@ -244,7 +244,10 @@ Uzavřenou inventuru vytisknete jako **inventurní soupis PDF**.
 > zaúčtovat žádný jiný pohyb. Rozdělanou inventuru proto dokončete a uzavřete.
 
 Pro průběžné kontroly slouží na stejné stránce **cyklické inventury** (viz
-[§ 37.12.7](#37127-inventury)).
+[§ 37.12.7](#37127-inventury)). Cyklickou inventuru založíte výběrem **skladu**,
+případně **lokace** a **kategorie (vč. podkategorií)**, a tlačítkem **Nová cyklická
+inventura**. Výběr kategorie omezí sčítání na karty dané kategorie a všech jejích
+podkategorií. Ostatní karty skladu uzavření cyklické inventury nezmění.
 
 ## 37.7 Krok za krokem: objednat u dodavatele
 
@@ -999,6 +1002,18 @@ a sériových číslech a manko za celý sklad se odečte ze skutečných lokac�
 je šarže vedena. Cyklická inventura celého skladu zahrne jen karty, které na něm
 někdy byly. Nalezenou kartu mimo ně zapíšete běžnou inventurou (pole **Přidat kartu
 nalezenou na skladu**).
+
+Rozsah cyklické inventury lze omezit na **kategorii včetně podkategorií** (výběr
+**Kategorie (vč. podkategorií)** vedle skladu a lokace). Seznam karet se určí jednou
+při založení: karty, které jsou v okamžiku založení zařazené ve zvolené kategorii nebo
+kterékoli její podkategorii a na skladu někdy byly. Karta zařazená ve více kategoriích
+se započítá, pokud do rozsahu spadá aspoň jedna z nich. Pozdější přeřazení karty do
+jiné kategorie už rozsah založené inventury nemění. Uzavření zaúčtuje rozdíly jen
+u řádků inventury, karty mimo rozsah se nezmění. Seznam cyklických inventur i jejich
+detail zobrazuje zvolenou kategorii. Smazáním kategorie se inventura nesmaže, jen
+přestane kategorii zobrazovat. Na jednom skladu a lokaci smí současně běžet jen jedna
+cyklická inventura, i když se kategorie liší. Běžná (roční) inventura se na kategorii
+omezit nedá a vždy zahrne celý sklad.
 
 ### 37.12.8 Skladové sestavy
 
