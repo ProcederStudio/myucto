@@ -12,6 +12,10 @@ výnosy a náklady po hodnotách.
 Dimenze nemění účty, částky ani období. Jde jen o analytiku, proto je lze doplnit
 nebo změnit i u zaúčtovaného dokladu a v uzavřeném období.
 
+Při uzavření knih a otevření nového roku se členění rozvahových zůstatků přenáší včetně kombinací dimenzí
+a procentních rozpadů. Počáteční stavy tak zachovávají zůstatky jednotlivých středisek a projektů,
+i když je celý účet v součtu nulový. Podrobnosti jsou v [Uzávěrce](72_Uzaverka.md#7252-krok-10-otevreni-noveho-roku).
+
 ## 114.1 Kdy to potřebujete
 
 Kapitolu otevřete, když:

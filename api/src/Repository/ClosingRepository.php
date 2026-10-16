@@ -16,8 +16,8 @@ use PDO;
  * závěrkových zápisů při revertu (R12).
  *
  * Okna zůstatků (R9): výsledkové účty za období (BETWEEN starts_on AND ends_on),
- * rozvahové kumulativně k ends_on přes celou historii (starší closing/opening
- * páry se vzájemně nulují) — vždy s vyloučením VLASTNÍHO closing zápisu období
+ * rozvahové od posledního účetního otevření k ends_on (bez otevření kumulativně)
+ * — vždy s vyloučením VLASTNÍHO closing zápisu období
  * (idempotentní re-run). Všechny dotazy jsou tenant-scoped přes supplier_id.
  */
 final class ClosingRepository
@@ -142,8 +142,8 @@ final class ClosingRepository
     }
 
     /**
-     * Kumulativní zůstatky rozvahových účtů k ends_on (R9), per účet vč.
-     * analytik, jen nenulové, bez vlastního close_books zápisu období
+     * Zůstatky rozvahových účtů k ends_on (R9) od kotvy shodné s účetními sestavami,
+     * po účtech a dimenzích, bez vlastního close_books zápisu období
      * (source_id = period_id; slotované stock zápisy §3.4 se počítají —
      * viz plBalances).
      *
@@ -151,22 +151,86 @@ final class ClosingRepository
      */
     public function bsBalances(int $supplierId, int $periodId, string $endsOn): array
     {
+        $anchor = (new LedgerReportRepository($this->db))->openingAnchor($supplierId, $endsOn);
+        $where = "e.entry_date <= ? AND a.account_type IN ('asset','liability','equity')
+                  AND NOT (e.source_type = 'closing' AND e.period_id = ? AND e.source_id <=> ?)";
+        $params = [$endsOn, $periodId, $periodId];
+        if ($anchor !== null) {
+            $where .= ' AND e.entry_date >= ?';
+            $params[] = $anchor;
+        }
+        return $this->balancesWithDimensions(
+            $supplierId,
+            $where,
+            $params,
+        );
+    }
+
+    public function openingBalancesWithDimensionsInPeriod(int $supplierId, int $periodId): array
+    {
+        return $this->balancesWithDimensions(
+            $supplierId,
+            "e.period_id = ? AND e.source_type = 'opening'",
+            [$periodId],
+        );
+    }
+
+    private function balancesWithDimensions(int $supplierId, string $where, array $params): array
+    {
         $stmt = $this->db->pdo()->prepare(
-            "SELECT l.account_id, a.account_code, a.name,
+            "SELECT l.account_id, a.account_code, a.name, l.cost_center, l.project_id,
+                    d.dimensions, s.splits,
+                    CASE WHEN s.splits IS NULL THEN 0 ELSE l.amount END AS split_amount,
                     SUM(CASE WHEN l.side = 'debit' THEN l.signed_amount ELSE -l.signed_amount END) AS bal
                FROM journal_entry_lines l
-               JOIN journal_entries e   ON e.id = l.entry_id
-               JOIN chart_of_accounts a ON a.id = l.account_id
+               JOIN journal_entries e ON e.id = l.entry_id AND e.supplier_id = l.supplier_id
+               JOIN chart_of_accounts a ON a.id = l.account_id AND a.supplier_id = l.supplier_id
+               LEFT JOIN (
+                   SELECT line_id,
+                          JSON_ARRAYAGG(JSON_ARRAY(dimension_type_id, dimension_value_id)
+                              ORDER BY dimension_type_id) AS dimensions
+                     FROM journal_entry_line_dimensions WHERE supplier_id = ? GROUP BY line_id
+               ) d ON d.line_id = l.id
+               LEFT JOIN (
+                   SELECT line_id,
+                          JSON_ARRAYAGG(JSON_ARRAY(dimension_type_id, dimension_value_id, share)
+                              ORDER BY dimension_type_id, dimension_value_id) AS splits
+                     FROM journal_entry_line_dimension_splits WHERE supplier_id = ? GROUP BY line_id
+               ) s ON s.line_id = l.id
               WHERE l.supplier_id = ? AND e.posted_at IS NOT NULL
-                AND e.entry_date <= ?
-                AND a.account_type IN ('asset','liability','equity')
-                AND NOT (e.source_type = 'closing' AND e.period_id = ? AND e.source_id <=> ?)
-              GROUP BY l.account_id, a.account_code, a.name
+                AND {$where}
+              GROUP BY l.account_id, a.account_code, a.name, l.cost_center, l.project_id,
+                       d.dimensions, s.splits, split_amount
              HAVING bal <> 0
-              ORDER BY a.account_code"
+              ORDER BY a.account_code, l.cost_center, l.project_id, d.dimensions, s.splits, split_amount"
         );
-        $stmt->execute([$supplierId, $endsOn, $periodId, $periodId]);
-        return array_map(self::castBalance(...), $stmt->fetchAll(PDO::FETCH_ASSOC));
+        $stmt->execute([$supplierId, $supplierId, $supplierId, ...$params]);
+        $balances = [];
+        while ($record = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            $row = self::castBalance($record);
+            foreach (json_decode((string) ($record['dimensions'] ?? '[]'), true, 512, JSON_THROW_ON_ERROR) as [$typeId, $valueId]) {
+                $row['dimensions'][(int) $typeId] = (int) $valueId;
+            }
+            foreach (json_decode((string) ($record['splits'] ?? '[]'), true, 512, JSON_THROW_ON_ERROR) as [$typeId, $valueId, $share]) {
+                $row['dimension_splits'][(int) $typeId][(int) $valueId] = (float) $share;
+            }
+            if ($record['cost_center'] !== null) {
+                $row['cost_center'] = (string) $record['cost_center'];
+            }
+            if ($record['project_id'] !== null) {
+                $row['project_id'] = (int) $record['project_id'];
+            }
+            $splitCents = (int) round((float) $record['split_amount'] * 100);
+            $balanceCents = (int) round($row['bal'] * 100);
+            $count = $splitCents > 0 ? intdiv(abs($balanceCents), $splitCents) : 1;
+            if ($splitCents > 0) {
+                $row['bal'] = ($balanceCents < 0 ? -$splitCents : $splitCents) / 100;
+            }
+            for ($i = 0; $i < $count; $i++) {
+                $balances[] = $row;
+            }
+        }
+        return $balances;
     }
 
     /**

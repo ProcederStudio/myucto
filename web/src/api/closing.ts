@@ -188,6 +188,10 @@ export type OpeningTakeoverStatus = 'to_create' | 'match' | 'mismatch' | 'unavai
 
 export interface OpeningTakeoverDiffRow {
   account_code: string
+  dimension_labels?: string[]
+  cost_center?: string | null
+  project_id?: number | null
+  project_name?: string | null
   expected: number
   existing: number
   difference: number

@@ -291,6 +291,11 @@ se smažou, opět s auditní stopou).
 
 **Jak poznáte, že je hotovo:** Aplikace ohlásí **Nový rok byl otevřen**.
 
+Zůstatky rozvahových účtů se přenášejí včetně dimenzí, středisek a projektů. Zachovají se kombinace více
+dimenzí i částky procentních rozpadů po haléřích. Přenáší se také nenulová salda jednotlivých hodnot,
+i když je celý účet v součtu nulový. Následující uzávěrka vychází z počátečních stavů tohoto roku,
+stejně jako účetní sestavy.
+
 Administrátor může krok vrátit tlačítkem **Vzít zpět otevření roku**.
 
 #### Převzaté počáteční stavy
@@ -310,8 +315,9 @@ ukáže jeden ze stavů:
 
 Porovnává se účet po účtu: konečné stavy rozvahových účtů a výsledek hospodaření na účtu 431 (tak, jak by je krok
 zaúčtoval) proti součtu převzatých otevíracích zápisů. Rozvažné účty 70x se vynechávají a účet 431 se srovnává
-za syntetiku, takže nevadí, když převzaté stavy vedou výsledek hospodaření na analytice. Dokud nejsou uzavřené
-knihy, je porovnání jen předběžné.
+za syntetiku, takže nevadí, když převzaté stavy vedou výsledek hospodaření na analytice. Kontroluje se také
+členění po dimenzích, střediscích a projektech. Shodná celková částka účtu bez odpovídajícího členění
+nestačí k automatickému převzetí. Dokud nejsou uzavřené knihy, je porovnání jen předběžné.
 
 Při rozdílu máte dvě cesty. Buď rozdíl dohledáte a opravíte (v uzavíraném roce nebo v převzatém zápisu), nebo
 použijete **Nahradit převzaté stavy vypočtenými**. Náhrada vyžaduje **povinný důvod** (**Důvod náhrady**), převzaté

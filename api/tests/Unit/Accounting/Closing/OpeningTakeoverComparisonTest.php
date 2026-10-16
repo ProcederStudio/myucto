@@ -9,6 +9,193 @@ use PHPUnit\Framework\TestCase;
 
 final class OpeningTakeoverComparisonTest extends TestCase
 {
+    public function testDimensionalDifferenceShowsOriginalBalances(): void
+    {
+        $result = OpeningTakeoverComparison::compareWithDimensions(
+            [
+                ['account_code' => '378', 'side' => 'debit', 'amount' => 100.0, 'dimensions' => [1 => 11]],
+                ['account_code' => '378', 'side' => 'debit', 'amount' => 100.0, 'dimensions' => [1 => 12]],
+            ],
+            [
+                ['account_code' => '378', 'bal' => 90.0, 'dimensions' => [1 => 11]],
+                ['account_code' => '378', 'bal' => 110.0, 'dimensions' => [1 => 12]],
+            ],
+        );
+        $rows = [];
+        foreach ($result['diff'] as $row) {
+            $rows[$row['dimensions'][1]] = [$row['expected'], $row['existing'], $row['difference']];
+        }
+        self::assertEquals([11 => [100.0, 90.0, 10.0], 12 => [100.0, 110.0, -10.0]], $rows);
+    }
+
+    public function testUnresolvedProfilesDoNotDisappearWhenTheirMarginalTotalsMatch(): void
+    {
+        $result = OpeningTakeoverComparison::compareWithDimensions(
+            [
+                ['account_code' => '378', 'side' => 'debit', 'amount' => 100.0,
+                    'dimension_splits' => [1 => [11 => 0.5, 12 => 0.5], 2 => [21 => 0.5, 22 => 0.5]]],
+                ['account_code' => '378', 'side' => 'debit', 'amount' => 100.0,
+                    'dimension_splits' => [1 => [11 => 0.75, 12 => 0.25], 2 => [21 => 0.25, 22 => 0.75]]],
+            ],
+            [['account_code' => '378', 'bal' => 200.0,
+                'dimension_splits' => [1 => [11 => 0.625, 12 => 0.375], 2 => [21 => 0.375, 22 => 0.625]]]],
+        );
+        self::assertNotEmpty($result['diff']);
+    }
+
+    public function testEquivalentSplitAndMaterializedLinesMatch(): void
+    {
+        $result = OpeningTakeoverComparison::compareWithDimensions(
+            [['account_code' => '378', 'side' => 'debit', 'amount' => 100.0, 'dimension_splits' => [1 => [11 => 0.5, 12 => 0.5]]]],
+            [
+                ['account_code' => '378', 'bal' => 50.0, 'dimensions' => [1 => 11]],
+                ['account_code' => '378', 'bal' => 50.0, 'dimensions' => [1 => 12]],
+            ],
+        );
+        self::assertSame([], $result['diff']);
+    }
+
+    public function testMaterializedMultiTypeSplitMatchesItsMarginals(): void
+    {
+        $result = OpeningTakeoverComparison::compareWithDimensions(
+            [[
+                'account_code' => '378', 'side' => 'debit', 'amount' => 100.0,
+                'dimension_splits' => [1 => [11 => 0.5, 12 => 0.5], 2 => [21 => 0.75, 22 => 0.25]],
+            ]],
+            [
+                ['account_code' => '378', 'bal' => 25.0, 'dimensions' => [1 => 11, 2 => 21]],
+                ['account_code' => '378', 'bal' => 25.0, 'dimensions' => [1 => 11, 2 => 22]],
+                ['account_code' => '378', 'bal' => 50.0, 'dimensions' => [1 => 12, 2 => 21]],
+            ],
+        );
+        self::assertSame([], $result['diff']);
+    }
+
+    public function testMixedKnownCellAndMaterializedMultiTypeSplitMatch(): void
+    {
+        $result = OpeningTakeoverComparison::compareWithDimensions(
+            [
+                ['account_code' => '378', 'side' => 'debit', 'amount' => 40.0, 'dimensions' => [1 => 11, 2 => 21]],
+                [
+                    'account_code' => '378', 'side' => 'debit', 'amount' => 100.0,
+                    'dimension_splits' => [1 => [11 => 0.5, 12 => 0.5], 2 => [21 => 0.75, 22 => 0.25]],
+                ],
+            ],
+            [
+                ['account_code' => '378', 'bal' => 65.0, 'dimensions' => [1 => 11, 2 => 21]],
+                ['account_code' => '378', 'bal' => 25.0, 'dimensions' => [1 => 11, 2 => 22]],
+                ['account_code' => '378', 'bal' => 50.0, 'dimensions' => [1 => 12, 2 => 21]],
+            ],
+        );
+        self::assertSame([], $result['diff']);
+    }
+
+    public function testOneMultiTypeSplitMatchesTwoProportionalSplits(): void
+    {
+        $split = [1 => [11 => 0.5, 12 => 0.5], 2 => [21 => 0.75, 22 => 0.25]];
+        $result = OpeningTakeoverComparison::compareWithDimensions(
+            [['account_code' => '378', 'side' => 'debit', 'amount' => 100.0, 'dimension_splits' => $split]],
+            [
+                ['account_code' => '378', 'bal' => 50.0, 'dimension_splits' => $split],
+                ['account_code' => '378', 'bal' => 50.0, 'dimension_splits' => $split],
+            ],
+        );
+        self::assertSame([], $result['diff']);
+    }
+
+    public function testCreditMultiTypeSplitMatchesMaterializedCredits(): void
+    {
+        $result = OpeningTakeoverComparison::compareWithDimensions(
+            [[
+                'account_code' => '378', 'side' => 'credit', 'amount' => 100.0,
+                'dimension_splits' => [1 => [11 => 0.5, 12 => 0.5], 2 => [21 => 0.75, 22 => 0.25]],
+            ]],
+            [
+                ['account_code' => '378', 'bal' => -25.0, 'dimensions' => [1 => 11, 2 => 21]],
+                ['account_code' => '378', 'bal' => -25.0, 'dimensions' => [1 => 11, 2 => 22]],
+                ['account_code' => '378', 'bal' => -50.0, 'dimensions' => [1 => 12, 2 => 21]],
+            ],
+        );
+        self::assertSame([], $result['diff']);
+    }
+
+    public function testAmbiguousMaterializationOfSeveralUnknownProfilesDoesNotMatch(): void
+    {
+        $result = OpeningTakeoverComparison::compareWithDimensions(
+            [
+                [
+                    'account_code' => '378', 'side' => 'debit', 'amount' => 100.0,
+                    'dimension_splits' => [1 => [11 => 0.5, 12 => 0.5], 2 => [21 => 0.5, 22 => 0.5]],
+                ],
+                [
+                    'account_code' => '378', 'side' => 'debit', 'amount' => 100.0,
+                    'dimension_splits' => [1 => [11 => 0.75, 12 => 0.25], 2 => [21 => 0.25, 22 => 0.75]],
+                ],
+            ],
+            [
+                ['account_code' => '378', 'bal' => 75.0, 'dimensions' => [1 => 11, 2 => 21]],
+                ['account_code' => '378', 'bal' => 50.0, 'dimensions' => [1 => 11, 2 => 22]],
+                ['account_code' => '378', 'bal' => 75.0, 'dimensions' => [1 => 12, 2 => 22]],
+            ],
+        );
+        self::assertNotEmpty($result['diff']);
+    }
+
+    public function testMatchingSmallSplitDoesNotHideLargerSwappedKnownCells(): void
+    {
+        $split = [1 => [11 => 0.5, 12 => 0.5], 2 => [21 => 0.5, 22 => 0.5]];
+        $result = OpeningTakeoverComparison::compareWithDimensions(
+            [
+                ['account_code' => '378', 'side' => 'debit', 'amount' => 100.0, 'dimensions' => [1 => 11, 2 => 21]],
+                ['account_code' => '378', 'side' => 'debit', 'amount' => 100.0, 'dimensions' => [1 => 12, 2 => 22]],
+                ['account_code' => '378', 'side' => 'debit', 'amount' => 10.0, 'dimension_splits' => $split],
+            ],
+            [
+                ['account_code' => '378', 'bal' => 100.0, 'dimensions' => [1 => 11, 2 => 22]],
+                ['account_code' => '378', 'bal' => 100.0, 'dimensions' => [1 => 12, 2 => 21]],
+                ['account_code' => '378', 'bal' => 10.0, 'dimension_splits' => $split],
+            ],
+        );
+        self::assertNotEmpty($result['diff']);
+    }
+
+    public function testDifferentCombinedDirectCoordinatesDoNotMatch(): void
+    {
+        $result = OpeningTakeoverComparison::compareWithDimensions(
+            [
+                ['account_code' => '378', 'side' => 'debit', 'amount' => 50.0, 'dimensions' => [1 => 11, 2 => 21]],
+                ['account_code' => '378', 'side' => 'debit', 'amount' => 50.0, 'dimensions' => [1 => 12, 2 => 22]],
+            ],
+            [
+                ['account_code' => '378', 'bal' => 50.0, 'dimensions' => [1 => 11, 2 => 22]],
+                ['account_code' => '378', 'bal' => 50.0, 'dimensions' => [1 => 12, 2 => 21]],
+            ],
+        );
+        self::assertNotEmpty($result['diff']);
+    }
+
+    public function testLinkedCenterColumnsDoNotOverrideFormalDimensionComparison(): void
+    {
+        $result = OpeningTakeoverComparison::compareWithDimensions(
+            [['account_code' => '378', 'side' => 'debit', 'amount' => 100.0, 'dimension_splits' => [1 => [11 => 0.5, 12 => 0.5]]]],
+            [
+                ['account_code' => '378', 'bal' => 50.0, 'dimensions' => [1 => 11], 'cost_center' => 'A'],
+                ['account_code' => '378', 'bal' => 50.0, 'dimensions' => [1 => 12], 'cost_center' => 'B'],
+            ],
+            [1 => 'cost_center'],
+        );
+        self::assertSame([], $result['diff']);
+    }
+
+    public function testDifferentLegacyCentersDoNotMatch(): void
+    {
+        $result = OpeningTakeoverComparison::compareWithDimensions(
+            [['account_code' => '378', 'side' => 'debit', 'amount' => 100.0, 'cost_center' => 'A']],
+            [['account_code' => '378', 'bal' => 100.0, 'cost_center' => 'B']],
+        );
+        self::assertNotEmpty($result['diff']);
+    }
+
     public function testMatchingBalancesGiveNoDiff(): void
     {
         $result = OpeningTakeoverComparison::compare(

@@ -12,6 +12,8 @@ use MyInvoice\Repository\AssetRepository;
 use MyInvoice\Repository\ChartOfAccountsRepository;
 use MyInvoice\Repository\ClosingRepository;
 use MyInvoice\Repository\DimensionAccountMapRepository;
+use MyInvoice\Repository\DimensionAssignmentRepository;
+use MyInvoice\Repository\DimensionRepository;
 use MyInvoice\Repository\JournalEntryRepository;
 use MyInvoice\Repository\PostingRuleRepository;
 use MyInvoice\Repository\SmallAssetRepository;
@@ -295,9 +297,10 @@ final class ClosingService
             return ['status' => 'to_create'] + $base;
         }
         try {
-            $cmp = OpeningTakeoverComparison::compare(
+            $cmp = $this->compareOpeningBalances(
+                $supplierId,
+                (int) $next['id'],
                 $this->expectedOpeningLines($supplierId, $period, $steps),
-                $this->closing->openingBalancesInPeriod($supplierId, (int) $next['id']),
             );
         } catch (ClosingException $e) {
             // Nevyvážené zůstatky (rozbitý deník) hlásí precheck; stav průvodce kvůli
@@ -305,6 +308,50 @@ final class ClosingService
             return ['status' => 'unavailable', 'message' => $e->getMessage()] + $base;
         }
         return ['status' => $cmp['diff'] === [] ? 'match' : 'mismatch', 'diff' => $cmp['diff'], 'accounts' => $cmp['accounts']] + $base;
+    }
+
+    private function compareOpeningBalances(int $supplierId, int $nextPeriodId, array $expectedLines): array
+    {
+        $linkedTypes = [];
+        $dimensions = new DimensionRepository($this->db);
+        $types = array_column($dimensions->listTypes($supplierId), null, 'id');
+        foreach ($types as $type) {
+            if (in_array($type['kind'], ['cost_center', 'project'], true)) {
+                $linkedTypes[(int) $type['id']] = $type['kind'];
+            }
+        }
+        $comparison = OpeningTakeoverComparison::compareWithDimensions(
+            $expectedLines,
+            $this->closing->openingBalancesWithDimensionsInPeriod($supplierId, $nextPeriodId),
+            $linkedTypes,
+        );
+        if ($comparison['diff'] !== []) {
+            $values = array_column($dimensions->listValues($supplierId), null, 'id');
+            $projectName = $this->db->pdo()->prepare(
+                'SELECT p.name FROM projects p JOIN clients c ON c.id = p.client_id WHERE p.id = ? AND c.supplier_id = ?'
+            );
+            foreach ($comparison['diff'] as &$row) {
+                $row['dimension_labels'] = [];
+                $assignments = array_map(static fn (int $valueId): array => [$valueId => null], $row['dimensions'] ?? []);
+                $assignments = array_replace($assignments, $row['dimension_allocations'] ?? []);
+                foreach ($assignments as $typeId => $parts) {
+                    foreach ($parts as $valueId => $part) {
+                        if (isset($types[$typeId], $values[$valueId])) {
+                            $share = $part === null ? '' : ' ('
+                                . rtrim(rtrim(number_format(100 * $part / $row['allocation_amount'], 4, '.', ''), '0'), '.') . ' %)';
+                            $row['dimension_labels'][] = $types[$typeId]['name'] . ': '
+                                . $values[$valueId]['code'] . ' ' . $values[$valueId]['name'] . $share;
+                        }
+                    }
+                }
+                if (!empty($row['project_id'])) {
+                    $projectName->execute([(int) $row['project_id'], $supplierId]);
+                    $row['project_name'] = $projectName->fetchColumn() ?: null;
+                }
+            }
+            unset($row);
+        }
+        return $comparison;
     }
 
     /**
@@ -335,7 +382,7 @@ final class ClosingService
                     'account_code' => (string) $l['account_code'],
                     'name' => (string) ($l['account_name'] ?? ''),
                     'bal' => $l['side'] === 'credit' ? (float) $l['amount'] : -(float) $l['amount'],
-                ];
+                ] + array_intersect_key($l, ['dimensions' => true, 'dimension_splits' => true, 'cost_center' => true, 'project_id' => true]);
             }
         } else {
             $pl = $this->closing->plBalances($supplierId, $periodId, (string) $period['starts_on'], (string) $period['ends_on']);
@@ -3781,7 +3828,7 @@ final class ClosingService
             $takenOverIds = [];
             $takenOverAccounts = 0;
             if ($takenOver !== []) {
-                $cmp = OpeningTakeoverComparison::compare($lines, $this->closing->openingBalancesInPeriod($supplierId, $nextId));
+                $cmp = $this->compareOpeningBalances($supplierId, $nextId, $lines);
                 if ($replaceTakenOverReason !== null) {
                     $replacedDumps = [];
                     foreach ($takenOver as $entry) {
@@ -3806,7 +3853,7 @@ final class ClosingService
                     throw new ClosingException(
                         'opening_takeover_mismatch',
                         'Následující rok už má převzaté počáteční stavy a ' . count($cmp['diff'])
-                            . ' účtů nesouhlasí s konečnými stavy (např. ' . $cmp['diff'][0]['account_code'] . ') — '
+                            . ' zůstatků účtů nebo dimenzí nesouhlasí s konečnými stavy (např. ' . $cmp['diff'][0]['account_code'] . ') — '
                             . 'rozdíly vyřeš, nebo převzaté stavy výslovně nahraď vypočtenými.',
                     );
                 }
@@ -5863,7 +5910,7 @@ final class ClosingService
         $stmt = $this->db->pdo()->prepare(
             'SELECT l.id, l.account_id, l.side, l.amount, l.is_red_storno,
                     l.currency_code, l.fx_rate, l.amount_foreign,
-                    l.cost_center, l.line_no, a.account_code, a.name AS account_name, a.account_type
+                    l.cost_center, l.project_id, l.line_no, a.account_code, a.name AS account_name, a.account_type
                FROM journal_entry_lines l
                JOIN chart_of_accounts a ON a.id = l.account_id
               WHERE l.entry_id = ? AND l.supplier_id = ?
@@ -5879,6 +5926,18 @@ final class ClosingService
             $r['amount_foreign'] = $r['amount_foreign'] === null ? null : (float) $r['amount_foreign'];
             return $r;
         }, $stmt->fetchAll(PDO::FETCH_ASSOC));
+        $assignments = new DimensionAssignmentRepository($this->db);
+        $dimensions = $assignments->entryLineDimensions($supplierId, (int) $entry['id']);
+        $splits = $assignments->entryLineSplits($supplierId, (int) $entry['id']);
+        foreach ($entry['lines'] as &$line) {
+            if (isset($dimensions[$line['id']])) {
+                $line['dimensions'] = $dimensions[$line['id']];
+            }
+            if (isset($splits[$line['id']])) {
+                $line['dimension_splits'] = $splits[$line['id']];
+            }
+        }
+        unset($line);
         return $entry;
     }
 

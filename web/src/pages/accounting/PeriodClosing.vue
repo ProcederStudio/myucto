@@ -1759,8 +1759,13 @@ const canOpenNextStage = computed(() => ['closed', 'reviewed', 'approved'].inclu
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="row in openingTakeover.diff" :key="row.account_code" class="border-b border-neutral-100">
-                      <td class="py-1 pr-3 font-mono">{{ row.account_code }}</td>
+                    <tr v-for="(row, index) in openingTakeover.diff" :key="index" class="border-b border-neutral-100">
+                      <td class="py-1 pr-3">
+                        <span class="font-mono">{{ row.account_code }}</span>
+                        <div v-for="label in row.dimension_labels" :key="label" class="text-xs text-neutral-500">{{ label }}</div>
+                        <div v-if="row.cost_center" class="text-xs text-neutral-500">{{ t('accounting.closing.opening_takeover.cost_center') }}: {{ row.cost_center }}</div>
+                        <div v-if="row.project_name" class="text-xs text-neutral-500">{{ t('accounting.closing.opening_takeover.project') }}: {{ row.project_name }}</div>
+                      </td>
                       <td class="py-1 pr-3 font-mono text-right whitespace-nowrap">{{ formatMoney(row.expected) }}</td>
                       <td class="py-1 pr-3 font-mono text-right whitespace-nowrap">{{ formatMoney(row.existing) }}</td>
                       <td class="py-1 font-mono text-right whitespace-nowrap text-danger-600">{{ formatMoney(row.difference) }}</td>
