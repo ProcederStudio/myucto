@@ -405,6 +405,142 @@ final class InvoiceItemTrackingTest extends StockTestCase
 
         self::assertSame(200, $this->issue($sid, $invoiceId)->getStatusCode());
         self::assertSame(1000, $this->lotBalance($sid, $oil, 'L9', '2099-12-31'), 'Šarže se vydala ze dvou umístění.');
+        self::assertSame([0, 1000], [$this->locationBalance($sid, $a), $this->locationBalance($sid, $b)], 'Nejdřív se vyčerpalo umístění A-02 (řazení podle kódu umístění).');
+    }
+
+    public function testLotShortageReportsTheLotInsteadOfDuplicate(): void
+    {
+        $sid = $this->createSupplier();
+        $wh = $this->warehouse($sid);
+        $oil = $this->trackedItem($sid, 'OIL-40', 'lot');
+        $this->receiveTracked($sid, $wh, $oil, [['quantity' => '3', 'lot_code' => 'L1'], ['quantity' => '7', 'lot_code' => 'L2']]);
+        $invoiceId = $this->createInvoice($sid, [$this->line($oil, $wh, '5', [['quantity' => '5', 'lot_code' => 'L1']])]);
+
+        $res = $this->issue($sid, $invoiceId);
+        self::assertSame(409, $res->getStatusCode(), (string) $res->getBody());
+        self::assertSame('stock.error.tracking_insufficient_stock', $this->body($res)['error']['code'] ?? null);
+        self::assertStringContainsString('L1', (string) ($this->body($res)['error']['message'] ?? ''), 'Hláška jmenuje šarži.');
+        self::assertSame('draft', $this->invoiceRow($invoiceId)['status']);
+    }
+
+    public function testSameLotListedTwiceIsMerged(): void
+    {
+        $sid = $this->createSupplier();
+        $wh = $this->warehouse($sid);
+        $oil = $this->trackedItem($sid, 'OIL-41', 'lot');
+        $this->receiveTracked($sid, $wh, $oil, [['quantity' => '5', 'lot_code' => 'L1']]);
+        $invoiceId = $this->createInvoice($sid, [$this->line($oil, $wh, '5', [['quantity' => '2', 'lot_code' => 'L1'], ['quantity' => '3', 'lot_code' => 'L1']])]);
+        self::assertSame(200, $this->issue($sid, $invoiceId)->getStatusCode());
+        self::assertSame(0, $this->lotBalance($sid, $oil, 'L1', ''));
+    }
+
+    public function testTwoLinesOfSameLotShareStock(): void
+    {
+        $sid = $this->createSupplier();
+        $wh = $this->warehouse($sid);
+        $oil = $this->trackedItem($sid, 'OIL-42', 'lot');
+        $this->receiveTracked($sid, $wh, $oil, [['quantity' => '4', 'lot_code' => 'L1']]);
+        $invoiceId = $this->createInvoice($sid, [
+            $this->line($oil, $wh, '3', [['quantity' => '3', 'lot_code' => 'L1']]),
+            $this->line($oil, $wh, '2', [['quantity' => '2', 'lot_code' => 'L1']]),
+        ]);
+        $res = $this->issue($sid, $invoiceId);
+        self::assertSame(409, $res->getStatusCode(), 'Dva řádky dohromady chtějí 5 ze 4: ' . $res->getBody());
+        self::assertSame(4000, $this->lotBalance($sid, $oil, 'L1', ''));
+    }
+
+    public function testSerialMatchIgnoresLetterCase(): void
+    {
+        $sid = $this->createSupplier();
+        $wh = $this->warehouse($sid);
+        $shelf = $this->location($sid, $wh, 'C-01');
+        $moto = $this->trackedItem($sid, 'MOTO-40', 'serial');
+        $this->receiveTracked($sid, $wh, $moto, [['quantity' => '1', 'serial_number' => 'VIN-Q', 'location_id' => $shelf]]);
+        $invoiceId = $this->createInvoice($sid, [$this->line($moto, $wh, '1', [['quantity' => '1', 'serial_number' => 'vin-q']])]);
+        self::assertSame(200, $this->issue($sid, $invoiceId)->getStatusCode());
+        self::assertSame(0, $this->serialBalance($sid, $moto, 'VIN-Q'));
+    }
+
+    public function testPackagingLineNeedsSelectionInBaseUnits(): void
+    {
+        $sid = $this->createSupplier();
+        $wh = $this->warehouse($sid);
+        $oil = $this->trackedItem($sid, 'OIL-43', 'lot');
+        $this->db->pdo()->prepare('INSERT INTO stock_item_units (supplier_id, stock_item_id, unit_code, numerator, denominator, is_sales_unit) VALUES (?, ?, ?, 8, 1, 1)')
+            ->execute([$sid, $oil, 'KT']);
+        $this->receiveTracked($sid, $wh, $oil, [['quantity' => '16', 'lot_code' => 'L1']]);
+        $short = $this->line($oil, $wh, '1', [['quantity' => '1', 'lot_code' => 'L1']]);
+        $short['unit'] = 'KT';
+        $invoiceId = $this->createInvoice($sid, [$short]);
+        $this->assertError($this->issue($sid, $invoiceId), 422, 'stock.error.tracking_selection_required');
+
+        $full = $this->line($oil, $wh, '1', [['quantity' => '8', 'lot_code' => 'L1']]);
+        $full['unit'] = 'KT';
+        $invoiceId = $this->createInvoice($sid, [$full]);
+        self::assertSame(200, $this->issue($sid, $invoiceId)->getStatusCode(), '1 KT = 8 ks ze šarže L1.');
+        self::assertSame(8000, $this->lotBalance($sid, $oil, 'L1', ''));
+    }
+
+    public function testCreditNoteWithoutSelectionFailsBeforeNumbering(): void
+    {
+        $sid = $this->createSupplier();
+        $wh = $this->warehouse($sid);
+        $moto = $this->trackedItem($sid, 'MOTO-41', 'serial');
+        $this->receiveTracked($sid, $wh, $moto, [['quantity' => '1', 'serial_number' => 'VIN-R']]);
+        $invoiceId = $this->createInvoice($sid, [$this->line($moto, $wh, '1', [['quantity' => '1', 'serial_number' => 'VIN-R']])]);
+        self::assertSame(200, $this->issue($sid, $invoiceId)->getStatusCode());
+        $creditId = (int) $this->cancel($sid, $invoiceId, 'credit_note')['credit_note_id'];
+        $items = $this->storedItems($creditId);
+        $items[0]['tracking_allocations'] = [];
+        self::assertSame(200, $this->updateInvoice($sid, $creditId, ['items' => $items])->getStatusCode());
+
+        $this->assertError($this->issue($sid, $creditId), 422, 'stock.error.tracking_selection_required');
+        self::assertSame(['draft', null], [$this->invoiceRow($creditId)['status'], $this->invoiceRow($creditId)['varsymbol']]);
+    }
+
+    public function testCreditNoteCannotReturnUnitTheInvoiceDidNotIssue(): void
+    {
+        $sid = $this->createSupplier();
+        $wh = $this->warehouse($sid);
+        $moto = $this->trackedItem($sid, 'MOTO-42', 'serial');
+        $this->receiveTracked($sid, $wh, $moto, [['quantity' => '1', 'serial_number' => 'VIN-S'], ['quantity' => '1', 'serial_number' => 'VIN-T']]);
+        $a = $this->createInvoice($sid, [$this->line($moto, $wh, '1', [['quantity' => '1', 'serial_number' => 'VIN-S']])]);
+        $b = $this->createInvoice($sid, [$this->line($moto, $wh, '1', [['quantity' => '1', 'serial_number' => 'VIN-T']])]);
+        self::assertSame(200, $this->issue($sid, $a)->getStatusCode());
+        self::assertSame(200, $this->issue($sid, $b)->getStatusCode());
+
+        $creditId = (int) $this->cancel($sid, $a, 'credit_note')['credit_note_id'];
+        $items = $this->storedItems($creditId);
+        $items[0]['tracking_allocations'] = [['quantity' => '1', 'serial_number' => 'VIN-T']];
+        self::assertSame(200, $this->updateInvoice($sid, $creditId, ['items' => $items])->getStatusCode());
+
+        $this->assertError($this->issue($sid, $creditId), 422, 'stock.error.tracking_not_on_parent');
+        self::assertSame(0, $this->serialBalance($sid, $moto, 'VIN-T'), 'Kus prodaný jinou fakturou se na sklad nevrátí.');
+    }
+
+    public function testSecondCreditNoteCannotReturnTheSameUnitAgain(): void
+    {
+        $sid = $this->createSupplier();
+        $wh = $this->warehouse($sid);
+        $oil = $this->trackedItem($sid, 'OIL-44', 'lot');
+        $this->receiveTracked($sid, $wh, $oil, [['quantity' => '5', 'lot_code' => 'L1']]);
+        $invoiceId = $this->createInvoice($sid, [$this->line($oil, $wh, '3', [['quantity' => '3', 'lot_code' => 'L1']])]);
+        self::assertSame(200, $this->issue($sid, $invoiceId)->getStatusCode());
+
+        $first = (int) $this->cancel($sid, $invoiceId, 'credit_note')['credit_note_id'];
+        $items = $this->storedItems($first);
+        $items[0]['quantity'] = -2;
+        $items[0]['tracking_allocations'] = [['quantity' => '2', 'lot_code' => 'L1']];
+        self::assertSame(200, $this->updateInvoice($sid, $first, ['items' => $items])->getStatusCode());
+        self::assertSame(200, $this->issue($sid, $first)->getStatusCode(), 'Částečný dobropis 2 ze 3.');
+
+        $second = (int) $this->cancel($sid, $invoiceId, 'credit_note')['credit_note_id'];
+        $items = $this->storedItems($second);
+        $items[0]['quantity'] = -2;
+        $items[0]['tracking_allocations'] = [['quantity' => '2', 'lot_code' => 'L1']];
+        self::assertSame(200, $this->updateInvoice($sid, $second, ['items' => $items])->getStatusCode());
+        $this->assertError($this->issue($sid, $second), 422, 'stock.error.tracking_not_on_parent');
+        self::assertSame(4000, $this->lotBalance($sid, $oil, 'L1', ''), 'Vrátit jde jen 1 zbývající kus.');
     }
 
     public function testServiceIssueWithoutSelectionFailsClearly(): void
@@ -517,6 +653,16 @@ final class InvoiceItemTrackingTest extends StockTestCase
         $this->db->pdo()->prepare('INSERT INTO warehouse_locations (supplier_id, warehouse_id, code, name) VALUES (?, ?, ?, ?)')
             ->execute([$supplierId, $warehouseId, $code, 'Regál ' . $code]);
         return (int) $this->db->pdo()->lastInsertId();
+    }
+
+    private function locationBalance(int $supplierId, int $locationId): int
+    {
+        $stmt = $this->db->pdo()->prepare(
+            "SELECT COALESCE(SUM(CASE WHEN direction = 'in' THEN quantity ELSE -quantity END), 0)
+               FROM stock_tracking_allocations WHERE supplier_id = ? AND location_id = ?"
+        );
+        $stmt->execute([$supplierId, $locationId]);
+        return (int) round((float) $stmt->fetchColumn() * 1000);
     }
 
     private function trackedItem(int $supplierId, string $sku, string $mode): int

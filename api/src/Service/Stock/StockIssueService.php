@@ -66,7 +66,11 @@ final class StockIssueService
             // chybějící výběr se má ohlásit dřív, než dobropis dostane číslo.
             $parentId = (int) ($invoice['parent_invoice_id'] ?? 0);
             if ($parentId === 0 || !$this->commitments->isInvoiceStockManaged($supplierId, $parentId)) {
-                $this->assertTrackingSelection($supplierId, $this->stockItemsOfInvoice($supplierId, (int) $invoice['id']));
+                $rows = $this->stockItemsOfInvoice($supplierId, (int) $invoice['id']);
+                $this->assertTrackingSelection($supplierId, $rows);
+                if ($parentId > 0) {
+                    $this->assertReturnMatchesParent($supplierId, $parentId, (int) $invoice['id'], $rows);
+                }
             }
             return;
         }
@@ -157,10 +161,6 @@ final class StockIssueService
         if ($rows === []) {
             return;
         }
-        // I pro bezobslužné cesty (opakovaná faktura, automatické vystavení, obnovení
-        // po stornu), které předběžnou kontrolou akce vystavení neprochází.
-        $this->assertTrackingSelection($supplierId, $rows);
-
         $hasPostedIssue = false;
         $hasPostedReturn = false;
         foreach ($this->docsRepo->listByInvoice($supplierId, $invoiceId) as $existing) {
@@ -182,6 +182,14 @@ final class StockIssueService
                 $returnRows[] = $row;
             }
         }
+
+        // I pro bezobslužné cesty (opakovaná faktura, automatické vystavení, obnovení
+        // po stornu), které předběžnou kontrolou akce vystavení neprochází. Jen řádky,
+        // které se opravdu zaúčtují (už vydaný doklad se znovu nevydává).
+        $this->assertTrackingSelection($supplierId, [
+            ...($hasPostedIssue ? [] : $issueRows),
+            ...($hasPostedReturn ? [] : $returnRows),
+        ]);
 
         $number = trim((string) ($invoice['varsymbol'] ?? ''));
         $description = 'Výdej k faktuře ' . ($number !== '' ? $number : ('#' . $invoiceId));
@@ -276,6 +284,9 @@ final class StockIssueService
             return;
         }
         $this->assertTrackingSelection($supplierId, $rows);
+        if ($parentId > 0) {
+            $this->assertReturnMatchesParent($supplierId, $parentId, $creditNoteId, $rows);
+        }
 
         $costs = $parentId > 0 ? $this->parentIssueCosts($supplierId, $parentId) : [];
 
@@ -494,54 +505,150 @@ final class StockIssueService
 
     /**
      * Faktura umístění ve skladu neukládá (obnova archivu, přesuny kusů), výdejka ho ale
-     * potřebuje: vybraný kus se vydá z umístění, kde podle zásoby leží. Šarže se rozdělí
-     * po umístěních v pořadí, v jakém je vrací zásoba. Co se nenajde, zůstane bez umístění
-     * a `TrackingAllocationService::postLine` to ohlásí jako nedostatek.
+     * potřebuje: vybraný kus se vydá z umístění, kde podle zásoby leží, šarže postupně
+     * z umístění seřazených podle kódu. Stejný kus uvedený na řádku vícekrát se sečte,
+     * více řádků téže karty čerpá ze společné zásoby. Kus, který ve skladu v potřebném
+     * množství není, skončí srozumitelnou chybou se sériovým číslem nebo šarží.
      *
      * @param list<array<string,mixed>> $lines řádky výdejky jednoho skladu
      * @return list<array<string,mixed>>
+     * @throws StockException tracking_insufficient_stock (409)
      */
     private function locateTracking(int $supplierId, int $warehouseId, array $lines): array
     {
-        $inventory = [];
+        /** @var array<int,array<string,list<array{location_id:?int, qtyT:int}>>> $stock */
+        $stock = [];
         foreach ($lines as &$line) {
             $allocations = $line['tracking_allocations'] ?? [];
             if ($allocations === []) {
                 continue;
             }
             $itemId = (int) $line['stock_item_id'];
-            $inventory[$itemId] ??= array_values(array_filter(
-                $this->tracking->inventory($supplierId, $itemId),
-                static fn (array $row): bool => $row['warehouse_id'] === $warehouseId && bccomp($row['quantity'], '0', 3) > 0,
-            ));
-            $located = [];
+            $wanted = [];
             foreach ($allocations as $allocation) {
-                $remainingT = StockValuation::qtyToT((string) $allocation['quantity']);
-                foreach ($inventory[$itemId] as &$stock) {
+                $key = self::trackingKey($allocation);
+                $lower = mb_strtolower($key);
+                $wanted[$lower] ??= ['key' => $key, 'allocation' => $allocation, 'qtyT' => 0];
+                $wanted[$lower]['qtyT'] += StockValuation::qtyToT((string) $allocation['quantity']);
+            }
+            $missing = array_values(array_filter(
+                array_column($wanted, 'key'),
+                static fn (string $key): bool => !isset($stock[$itemId][mb_strtolower($key)]),
+            ));
+            foreach ($missing as $key) {
+                $stock[$itemId][mb_strtolower($key)] = [];
+            }
+            foreach ($this->tracking->stockByKeys($supplierId, $itemId, $warehouseId, $missing) as $row) {
+                $stock[$itemId][mb_strtolower($row['tracking_key'])][] = [
+                    'location_id' => $row['location_id'],
+                    'qtyT' => StockValuation::qtyToT($row['quantity']),
+                ];
+            }
+            $located = [];
+            foreach ($wanted as $lower => $want) {
+                $availableT = array_sum(array_column($stock[$itemId][$lower], 'qtyT'));
+                if ($availableT < $want['qtyT']) {
+                    $a = $want['allocation'];
+                    $label = $a['serial_number'] !== null
+                        ? 'Sériové číslo ' . $a['serial_number']
+                        : 'Šarže ' . $a['lot_code'] . ($a['expires_on'] !== null ? ' (exp. ' . $a['expires_on'] . ')' : '');
+                    throw new StockException(
+                        'tracking_insufficient_stock',
+                        $label . ' není ve skladu v potřebném množství: požadováno '
+                            . StockValuation::tToDecimal($want['qtyT']) . ', k dispozici ' . StockValuation::tToDecimal($availableT) . '.',
+                        409,
+                        [[
+                            'stock_item_id' => $itemId,
+                            'serial_number' => $a['serial_number'],
+                            'lot_code' => $a['lot_code'],
+                            'expires_on' => $a['expires_on'],
+                            'requested' => StockValuation::tToDecimal($want['qtyT']),
+                            'available' => StockValuation::tToDecimal($availableT),
+                        ]],
+                    );
+                }
+                $remainingT = $want['qtyT'];
+                foreach ($stock[$itemId][$lower] as &$slot) {
                     if ($remainingT <= 0) {
                         break;
                     }
-                    $sameUnit = $allocation['serial_number'] !== null
-                        ? $stock['serial_number'] === $allocation['serial_number']
-                        : $stock['lot_code'] === $allocation['lot_code'] && ($stock['expires_on'] ?? null) === ($allocation['expires_on'] ?? null);
-                    $availableT = StockValuation::qtyToT($stock['quantity']);
-                    if (!$sameUnit || $availableT <= 0) {
+                    $takeT = min($remainingT, $slot['qtyT']);
+                    if ($takeT <= 0) {
                         continue;
                     }
-                    $takeT = min($remainingT, $availableT);
-                    $located[] = ['quantity' => StockValuation::tToDecimal($takeT), 'location_id' => $stock['location_id']] + $allocation;
-                    $stock['quantity'] = StockValuation::tToDecimal($availableT - $takeT);
+                    $located[] = ['quantity' => StockValuation::tToDecimal($takeT), 'location_id' => $slot['location_id']] + $want['allocation'];
+                    $slot['qtyT'] -= $takeT;
                     $remainingT -= $takeT;
                 }
-                unset($stock);
-                if ($remainingT > 0) {
-                    $located[] = ['quantity' => StockValuation::tToDecimal($remainingT)] + $allocation;
-                }
+                unset($slot);
             }
             $line['tracking_allocations'] = $located;
         }
         unset($line);
         return $lines;
+    }
+
+    /**
+     * Dobropis vrací jen kusy, které původní faktura opravdu vydala, a nejvýš v množství,
+     * které ještě nevrátily jiné dobropisy. Jinak by vratka naskladnila kus prodaný jinou
+     * fakturou (VIN by byl zároveň prodaný i skladem) nebo šarži, která neodešla.
+     * Karta, kterou původní výdejka vydala bez výběru (sledování zapnuté až po prodeji),
+     * se nekontroluje: není s čím porovnat.
+     *
+     * @param list<array<string,mixed>> $rows řádky dobropisu ({@see stockItemsOfInvoice()})
+     * @throws StockException tracking_not_on_parent (422)
+     */
+    private function assertReturnMatchesParent(int $supplierId, int $parentId, int $creditNoteId, array $rows): void
+    {
+        $byItem = [];
+        foreach ($rows as $row) {
+            if (($row['tracking_mode'] ?? 'none') === 'none' || ($row['tracking'] ?? []) === []) {
+                continue;
+            }
+            foreach ($row['tracking'] as $allocation) {
+                $lower = mb_strtolower(self::trackingKey($allocation));
+                $byItem[(int) $row['stock_item_id']][$lower] = ($byItem[(int) $row['stock_item_id']][$lower] ?? 0)
+                    + StockValuation::qtyToT((string) $allocation['quantity']);
+            }
+        }
+        if ($byItem === []) {
+            return;
+        }
+        $stmt = $this->db->pdo()->prepare(
+            'SELECT id FROM invoices WHERE supplier_id = ? AND parent_invoice_id = ? AND id <> ?'
+        );
+        $stmt->execute([$supplierId, $parentId, $creditNoteId]);
+        $siblings = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+        $problems = [];
+        foreach ($byItem as $itemId => $wanted) {
+            $issued = $this->tracking->movedByInvoices($supplierId, $itemId, [$parentId], 'issue', 'out');
+            if ($issued === []) {
+                continue;
+            }
+            $returned = $this->tracking->movedByInvoices($supplierId, $itemId, $siblings, 'receipt', 'in');
+            foreach ($wanted as $lower => $qtyT) {
+                $leftT = ($issued[$lower] ?? 0) - ($returned[$lower] ?? 0);
+                if ($qtyT > $leftT) {
+                    $problems[] = substr($lower, (int) strpos($lower, ':') + 1) . ' (vrací se ' . StockValuation::tToDecimal($qtyT)
+                        . ', faktura vydala a dosud nevráceno ' . StockValuation::tToDecimal(max(0, $leftT)) . ')';
+                }
+            }
+        }
+        if ($problems !== []) {
+            throw new StockException(
+                'tracking_not_on_parent',
+                'Dobropis vrací kusy, které původní faktura nevydala nebo už se vrátily: ' . implode(', ', $problems) . '.',
+                422,
+            );
+        }
+    }
+
+    /** Klíč kusu shodný s `TrackingAllocationService::resolveUnit()`. */
+    private static function trackingKey(array $allocation): string
+    {
+        return ($allocation['serial_number'] ?? null) !== null
+            ? 'serial:' . $allocation['serial_number']
+            : 'lot:' . ($allocation['lot_code'] ?? '') . '|' . ($allocation['expires_on'] ?? '');
     }
 
     /**
