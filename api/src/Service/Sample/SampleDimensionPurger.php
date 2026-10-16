@@ -7,6 +7,7 @@ namespace MyInvoice\Service\Sample;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\CostCenterRepository;
 use MyInvoice\Repository\DimensionRepository;
+use MyInvoice\Service\Accounting\Dimension\DimensionValueHistoryGuard;
 use PDO;
 
 final class SampleDimensionPurger
@@ -21,6 +22,7 @@ final class SampleDimensionPurger
     {
         $pdo = $this->db->pdo();
         if (!$pdo->inTransaction()) throw new \LogicException('Odebrání ukázkových dimenzí vyžaduje otevřenou transakci.');
+        (new DimensionValueHistoryGuard($this->db))->lockPeriods();
         $supplier = $this->rows('SELECT id, supplier_group_id FROM supplier WHERE id=? FOR UPDATE', [$supplierId])[0] ?? null;
         if ($supplier === null) throw new \DomainException('Firma pro odebrání ukázkových dimenzí neexistuje.');
         $owned = [];

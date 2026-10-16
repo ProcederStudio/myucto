@@ -9,6 +9,7 @@ use MyInvoice\Http\Json;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\CostCenterRepository;
 use MyInvoice\Service\ActivityLogger;
+use MyInvoice\Service\Accounting\Dimension\DimensionException;
 use MyInvoice\Service\IpMatcher;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -95,9 +96,13 @@ final class CostCenterAction
         }
 
         $used = $this->costCenters->hasUsage($supplierId, (string) $existing['code']);
-        $ok = $used
-            ? $this->costCenters->deactivate($supplierId, $id)
-            : $this->costCenters->delete($supplierId, $id);
+        try {
+            $ok = $used
+                ? $this->costCenters->deactivate($supplierId, $id)
+                : $this->costCenters->delete($supplierId, $id);
+        } catch (DimensionException $e) {
+            return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus);
+        }
         if (!$ok) {
             return Json::error($response, 'not_found', 'Středisko nenalezeno.', 404);
         }

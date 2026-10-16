@@ -11688,7 +11688,7 @@ paths:
     delete:
       tags: [Accounting]
       summary: Smaže nebo deaktivuje středisko
-      description: Účetní/admin. Používané středisko se jen deaktivuje.
+      description: Účetní/admin. Používané středisko se jen deaktivuje. Smazání nesmí změnit vazbu dimenze používanou v uzavřeném období.
       parameters:
         - $ref: '#/components/parameters/SupplierIdHeader'
         - { in: path, name: id, required: true, schema: { type: integer } }
@@ -11696,6 +11696,7 @@ paths:
         '200': { description: OK, content: { application/json: { schema: { type: object, properties: { deleted: { type: boolean } } } } } }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Změna vazby dimenze v uzavřeném období není povolena (period_not_open), content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
 
   /api/v1/accounting/expense-rules:
     get:
