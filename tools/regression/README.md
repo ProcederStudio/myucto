@@ -2,13 +2,15 @@
 
 Samostatný CLI harness načítá aplikaci z explicitního `--code-root`. Stejný harness lze použít nad dvěma checkouty, včetně baseline `499eb4dd1`. Neprovádí export databáze, klonování, migrace, seedování ani odesílání podání. Finanční služby nemění.
 
-Toto je první, **neúplný manifest**. `status=ok` znamená shodu implementovaných případů, nikoli pokrytí všech účetních a daňových oblastí. `coverage.complete` zůstává `false`.
+Manifest je **neúplný**. Úspěšný capture znamená provedení vyjmenovaných případů, nikoli pokrytí všech účetních a daňových oblastí. `coverage.complete` zůstává `false`; porovnání neúplného pokrytí nemůže být finální zelenou regresní bránou.
 
 ## Vstupy a bezpečnost
 
 Capture přijímá pouze již připravenou izolovanou databázi se jménem odpovídajícím `^[a-z][a-z0-9_]*_[a-f0-9]{8,32}_test$`. Odmítne i takto pojmenovanou databázi, pokud ji aktuálně používá konfigurace checkoutu. Hesla načítá původní `Config`, nepíší se do argumentů ani manifestu. Výchozí host musí být `localhost`, `127.0.0.1` nebo `::1`. Docker vyžaduje zároveň `--docker-test-host HOST` a `MYINVOICE_REGRESSION_ALLOW_DOCKER_TEST=1`; jde výhradně o testovací host.
 
 Výstupní soubor ani pracovní adresář nesmí být uvnitř žádného Git repozitáře nebo code rootu. Kontrola používá `realpath`, tedy i junction/symlink ekvivalenty, a porovnává cesty bez ohledu na velikost písmen. Rodič výstupu musí již existovat. Existující soubor se nepřepisuje. Výstupní adresář zabezpečte oprávněními operačního systému: JSON obsahuje skutečné návratové hodnoty služeb. Nikdy jej nedávejte do fixtures, commitu, veřejného CI artefaktu nebo zprávy.
+
+`ConfigSnapshot` načte původní konfiguraci instance včetně `MYINVOICE_DATA_DIR/cfg.local.php` před přesměrováním runtime. Celá konfigurace zůstává pouze v paměti; mění se cílový testovací DB host a název, vypnutí Redis a izolované runtime cesty. Původní Bootstrap a jeho DI registrace jsou zachované instrumentací v paměti. Zdroje Bootstrapu i Config jsou připnuté SHA-256 a neznámá změna skončí chybou. Test této cesty běží v čistém fixture podprocesu, aby změny tříd prováděné BypassFinals v PHPUnit neovlivnily kontrolu zdrojů.
 
 Každý případ i preflight mají vlastní PHP proces, `MYINVOICE_DATA_DIR`, cache a tmp. Původní `Connection::pdo`, `LoggingPdo` a `LoggingPdoStatement` jsou instrumentovány pouze v paměti. Přijímají se jen ověřené SHA-256 jejich zdrojů; neznámá změna skončí chybou. Těla původních metod, nastavení PDO, SQL mode, timezone i sdílení handlů zůstávají zachována. Před každým vrácením připojení se ověří skutečné `SELECT DATABASE()`, `@@session.tx_read_only` a aktivní transakce. Nový handle dostane výchozí READ ONLY session a transakci. Výstup se dokončí až po opětovné kontrole a rollbacku.
 
@@ -31,17 +33,28 @@ Režim `compare` vyžaduje `--baseline`, `--candidate` a `--output`. Oba capture
 
 Stdout obsahuje pouze agregáty a anonymní case IDs. Výjimky se nezapisují syrovými zprávami, SQL, parametry ani trace. Sanitizovaný typ výjimky, doménový kód, zdrojový soubor/řádek warningu a sticky porušení jsou v lokálním JSON. Chybějící kurz, seed, lazy write, síťový pokus, nepotlačený warning, timeout nebo fatální chyba nejsou skip. Shodná výjimka v obou revizích není úspěch. Chyba, rozdíl, prázdný capture nebo nulové numerické pokrytí vrací exit code 2.
 
-## První manifest
+## Manifest
 
 | Oblast | Skutečná volání a filtry |
 | --- | --- |
-| Rozvaha a VZZ | `FinancialStatementService::balanceSheet`, `incomeStatement`, `incomeStatementByFunction`; každé účetní období, explicitní asOf, full/small/micro, dimension=null |
-| Předvaha | `TrialBalanceService::build`; explicitní od/do, syntetika i analytika, před i po uzavření |
-| Hlavní kniha | `GeneralLedgerService::build`; stejná období, oba analytické a uzávěrkové přepínače, explicitní prázdný filter |
-| DPPO | `TaxReturnService::previewReadOnly`, `readOnlyInputs`, `balanceDueReadOnly` a samostatný `DppoReturnDataProvider::gather` se skutečnými read-only inputs; PO a celé skončené účetní období |
-| DPH/KH/SH | `VatLedgerService::rows/returnRows`, `DphBookBuilder`, `DphPriznaniBuilder`, `KontrolniHlaseniBuilder`, `SouhrnneHlaseniBuilder`; celé kalendářní měsíce zasahující vybraná účetní období, bez draftů, měsíční řádná varianta |
+| Rozvaha a VZZ | `FinancialStatementService::balanceSheet`, `incomeStatement`, `incomeStatementByFunction`; každé účetní období, explicitní asOf, full/small/micro |
+| Budoucí zápisy | Neukončené i budoucí období navíc samostatně do `ends_on`; průběžné výkazy do asOf se nesměšují s celoročním výsledkem |
+| Předvaha a hlavní kniha | `TrialBalanceService::build`, `GeneralLedgerService::build`; syntetika i analytika, před i po uzavření |
+| Dimenze | Každá viditelná hodnota včetně neaktivních, samostatně i s potomky; rozvaha, obě VZZ a analytická předvaha. `DimensionService::filter` zachovává produkční split/legacy sémantiku |
+| Společné dimenze | `DimensionProfitService::build` za firmu i všechny členy skupiny s účty a firemním rozpadem; `DimensionCashFlowService::build` s filtrem stejné větve pro členy skupiny. Výsledovka respektuje kasovou bázi daňové evidence, dimenzovaný cashflow je účetní sestava nad deníkem |
+| Uzávěrka | `ClosingService::state`, `incomeTaxPreview` a `ClosingRepository::plBalances`, `bsBalances`, `openingBalancesInPeriod`; žádný start, dokončení kroku, zápis ani automatické otevírání roku |
+| DPPO | `TaxReturnService::previewReadOnly`, `readOnlyInputs`, `balanceDueReadOnly`, `DppoReturnDataProvider::gather` se skutečnými inputs a `ExistingObligationSourceService::dppoForecastForYear`; také průběžný rok a uložené budoucí roky |
+| DPFO a daňová evidence | Stejné čtecí přiznání pro FO, `DpfoReturnDataProvider::gather`, `CashJournalService::build` a `TaxEstimateService::estimate`; také firmy bez účetního období |
+| DPH/KH/SH | `VatLedgerService::rows/returnRows`, `DphBookBuilder`, `DphPriznaniBuilder`, `KontrolniHlaseniBuilder`, `SouhrnneHlaseniBuilder`; celé měsíce a čtvrtletí do asOf, bez draftů, řádná varianta |
+| XML | Původní XML zůstává v capture. Navíc `xml_numeric` obsahuje desetinné řetězce finančních atributů VAT/KH/SH s úplnou DOM cestou, včetně nul a opakovaných vět. Žádné float přetypování, externí entity ani DTD |
 
-Budoucí účetní období, neukončené daňové období a non-PO DPPO jsou v `coverage.not_applicable` spočteny explicitně. Nepokryté oblasti jsou vyjmenovány v `coverage.not_implemented`: DPFO, daňová evidence, dimenze, uzávěrkové náhledy, čtvrtletní VAT, samostatná numerická projekce XML a firmy bez účetního období. Výběr VAT je technický měsíční kontrolní řez, nikoli potvrzení zákonné periodicity podání konkrétní firmy. Nepodporovaný rámec nebo nedostupná služba se neobcházejí.
+Začátek kontrolních měsíců se odvozuje z nejstaršího účetního období, faktury, přijaté faktury, pokladního nebo bankovního pohybu. Firma bez těchto dat dostane aktuální rok. Uložené daňové přiznání přidává svůj rok. PO mají podle kontraktu `KontrolniHlaseniBuilder::build` pouze měsíční KH; nepoužitelné kvartální KH jsou spočtené v `not_applicable.po_quarterly_control_statement`, kvartální DPH a SH se tím nevyřazují. Výběr VAT je technický kontrolní řez, nikoli potvrzení zákonné periodicity podání konkrétní firmy. Nepodporovaný rámec, nedostupná služba nebo chybějící daňové konstanty jsou chyba, ne tichý skip.
+
+Roční DPPO/DPFO a daňové odhady používají skutečnou roční aplikační sémantiku, která může zahrnovat již zapsané budoucí pohyby. Forecast přijímá podle kontraktu služby jen roky 2020 až 2100; ostatní roky mají nadále přiznání a samostatné `not_applicable.dppo_forecast_year_outside_2020_2100`. Forecast respektuje uloženou budoucí lhůtu a skutečný `execution-date`; nativní hodiny se nemění. Syntetický test výslovně odlišuje VZZ k 30. 6. 2026 (10 000), celoroční VZZ/DPPO (19 000) a forecast doplatku (3 890).
+
+Čtecí cesty byly prověřené včetně závislostí. Peněžní deník a jeho daňové varianty mohou při chybějících kurzech zkusit síť a doplnění cache; takový pokus zůstává chybou pod společným SQL/network tripwire. Harness nic nedoseeduje a nevypíná ochranu pro náhledy. Syntetická fixture má pouze CZK. Uzávěrkový stav čte kroky a případné porovnání opening; incomeTaxPreview čte podklady a aktuální zůstatky, nic neúčtuje.
+
+V `coverage.not_implemented` zůstává úplný součin dimenzí závěrkového a otevíracího preview: baseline `499eb4dd1` nemá `plBalancesWithDimensions` ani `openingBalancesWithDimensionsInPeriod`. Společná API se volají přímo, bez fallbacku či odstraňování nových dimenzovaných polí. Dále zůstávají ostatní uzávěrkové náhledy (zásoby, FX, časové rozlišení, opravné položky a odložená daň), numerická projekce XML přiznání k dani z příjmů, opravná/dodatečná VAT podání a úplné pokrytí historických přechodů daňového typu/režimu firmy. Proto je `coverage.complete=false`. Počet období zahrnujících budoucnost a počet firem bez období jsou uvedené samostatně, nejsou vydávané za vynechané nepoužitelné případy.
 
 ## Porovnání
 

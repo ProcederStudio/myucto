@@ -42,31 +42,57 @@ final class RegressionCaptureTest extends TestCase
             self::runSetup([$root . '/api/bin/migrate.php', '--no-backfills', '--no-analyze'], $env, $workspace . '/migrate.log');
             self::runSetup([$root . '/api/bin/ci-seed.php'], $env, $workspace . '/ci-seed.log');
             self::runSetup([$root . '/api/tests/Fixtures/regression-capture-seed.php', $name], $env, $workspace . '/fixture.log');
+            $before = self::financialSnapshot($server, $name);
             $output = $workspace . '/capture.json';
             ob_start();
-            $exit = Runner::main(['regression', 'capture', '--code-root', $root, '--database', $name, '--as-of', '2025-12-31', '--execution-date', date('Y-m-d'), '--dataset-id', hash('sha256', 'synthetic-full-schema-v1'), '--output', $output]);
+            $exit = Runner::main(['regression', 'capture', '--code-root', $root, '--database', $name, '--as-of', '2026-06-30', '--execution-date', date('Y-m-d'), '--dataset-id', hash('sha256', 'synthetic-full-schema-v1'), '--output', $output]);
             $stdout = ob_get_clean();
             self::assertSame(0, $exit, 'Capture failed; local synthetic output: ' . $output . '; summary: ' . $stdout);
             $capture = json_decode((string) file_get_contents($output), true, 512, JSON_THROW_ON_ERROR);
             self::assertSame('ok', $capture['status']);
+            self::assertSame($before, self::financialSnapshot($server, $name), 'Capture must not persist drafts, dimensions, periods, closing steps or journal data.');
             $byKind = [];
+            $dataFor = static function (string $kind, callable $matches) use ($capture): array {
+                foreach ($capture['manifest'] as $id => $case) {
+                    if ($case['kind'] === $kind && $matches($case)) {
+                        return $capture['cases'][$id]['data'];
+                    }
+                }
+                self::fail('Missing real capture case: ' . $kind);
+            };
             foreach ($capture['manifest'] as $id => $case) {
                 self::assertSame('ok', $capture['cases'][$id]['status'], $case['kind']);
-                $byKind[$case['kind']] = $capture['cases'][$id]['data'];
+                $byKind[$case['kind']][] = $capture['cases'][$id]['data'];
             }
-            $expected = ['balance_sheet', 'income_statement', 'income_statement_function', 'trial_balance', 'general_ledger', 'dppo_preview', 'dppo_inputs', 'dppo_balance_due', 'dppo_data', 'vat_ledger', 'vat_return_ledger', 'vat_book', 'vat_return', 'control_statement', 'recapitulative_statement'];
+            $expected = ['balance_sheet', 'income_statement', 'income_statement_function', 'trial_balance', 'general_ledger', 'dppo_preview', 'dppo_inputs', 'dppo_balance_due', 'dppo_data', 'dppo_forecast', 'dpfo_preview', 'dpfo_inputs', 'dpfo_balance_due', 'dpfo_data', 'cash_journal', 'tax_estimate', 'dimension_profit', 'dimension_cash_flow', 'closing_state', 'closing_income_tax', 'closing_pl_balances', 'closing_bs_balances', 'opening_balances', 'vat_ledger', 'vat_return_ledger', 'vat_book', 'vat_return', 'control_statement', 'recapitulative_statement'];
             sort($expected);
             $actual = array_keys($byKind);
             sort($actual);
             self::assertSame($expected, $actual);
-            self::assertSame(30000.15, $byKind['balance_sheet']['checks']['profit_current']);
-            self::assertSame(30000.15, $byKind['income_statement']['checks']['profit_current']);
-            self::assertSame(30000.15, $byKind['dppo_data']['vh']);
-            self::assertSame(1234.56, $byKind['dppo_inputs']['inputs']['tax_paid_advances']);
-            self::assertSame(5065.0, $byKind['dppo_balance_due']['balance_due']);
-            self::assertSame((int) $byKind['dppo_inputs']['inputs']['bank_account_id'], (int) $byKind['dppo_data']['bank_account']['id']);
+            $year2025 = static fn (array $c): bool => $c['args'][1] === 2025;
+            self::assertSame(30000.15, $dataFor('dppo_data', $year2025)['vh']);
+            self::assertSame(1234.56, $dataFor('dppo_inputs', $year2025)['inputs']['tax_paid_advances']);
+            self::assertSame(5065.0, $dataFor('dppo_balance_due', $year2025)['balance_due']);
+            self::assertSame(19000.0, $dataFor('dppo_data', static fn (array $c): bool => $c['args'][1] === 2026)['vh']);
+            self::assertSame(3890.0, $dataFor('dppo_forecast', static fn (array $c): bool => $c['args'][1] === 2026)['amount']);
+            self::assertSame(10000.0, $dataFor('income_statement', static fn (array $c): bool => $c['args'][2] === '2026-06-30' && !isset($c['dimension']))['checks']['profit_current']);
+            self::assertSame(19000.0, $dataFor('income_statement', static fn (array $c): bool => $c['args'][2] === '2026-12-31' && !isset($c['dimension']))['checks']['profit_current']);
+            self::assertSame(32000.19, $dataFor('income_statement', static fn (array $c): bool => $c['args'][2] === '2025-12-31' && ($c['dimension']['value_id'] ?? 0) === 1 && $c['dimension']['descendants'])['checks']['profit_current']);
+            self::assertSame(730000.15, $dataFor('dimension_profit', static fn (array $c): bool => $c['args'][3] === '2025-12-31' && count($c['args'][4]) === 2)['totals']['result']);
+            self::assertSame(700000.0, $dataFor('cash_journal', static fn (array $c): bool => $c['args'][1] === '2025-01-01')['totals']['net']);
+            self::assertSame(-35000.25, array_column($dataFor('closing_pl_balances', static fn (array $c): bool => $c['args'][3] === '2025-12-31'), 'bal', 'account_code')['602']);
+            self::assertSame(35000.25, array_column($dataFor('closing_bs_balances', static fn (array $c): bool => $c['args'][2] === '2025-12-31'), 'bal', 'account_code')['311']);
+            self::assertSame(700000.0, $dataFor('dpfo_preview', $year2025)['result']['s7']['base']);
+            self::assertSame(74160.0, $dataFor('tax_estimate', $year2025)['variants']['actual']['tax']);
+            $quarter = $dataFor('vat_return', static fn (array $c): bool => $c['args'][0] === 1 && $c['args'][1] === 2025 && $c['args'][3] === 'quarterly');
+            self::assertNotEmpty($quarter['xml_numeric']);
+            self::assertContains('4200', array_values($quarter['xml_numeric']));
+            self::assertFalse($capture['coverage']['complete']);
+            self::assertSame(1, $capture['coverage']['suppliers_without_accounting_periods']);
             foreach ($expected as $kind) {
-                self::assertTrue(self::hasNonzeroAmount($byKind[$kind]), $kind . ' must contain an actual nonzero financial value.');
+                if (!in_array($kind, ['closing_state', 'opening_balances'], true)) {
+                    self::assertTrue(self::hasNonzeroAmount($byKind[$kind]), $kind . ' must contain an actual nonzero financial value.');
+                }
             }
             $originalData = $workspace . '/original-instance';
             mkdir($originalData, 0700);
@@ -95,6 +121,19 @@ final class RegressionCaptureTest extends TestCase
                 $server->exec('DROP DATABASE `' . $name . '`');
             }
         }
+    }
+
+    private static function financialSnapshot(\PDO $pdo, string $name): string
+    {
+        Safety::database($name, '');
+        $rows = [];
+        foreach (['income_tax_returns', 'tax_profiles', 'accounting_periods', 'accounting_closing_steps', 'journal_entries', 'journal_entry_lines', 'document_dimensions', 'journal_entry_line_dimensions', 'journal_entry_line_dimension_splits'] as $table) {
+            $data = $pdo->query('SELECT * FROM `' . $name . '`.`' . $table . '`')->fetchAll(\PDO::FETCH_ASSOC);
+            $encoded = array_map(static fn (array $row): string => json_encode($row, JSON_THROW_ON_ERROR), $data);
+            sort($encoded, SORT_STRING);
+            $rows[$table] = $encoded;
+        }
+        return hash('sha256', json_encode($rows, JSON_THROW_ON_ERROR));
     }
 
     private static function runSetup(array $arguments, array $environment, string $log): void
@@ -126,7 +165,7 @@ final class RegressionCaptureTest extends TestCase
             return false;
         }
         return !preg_match('/rate|percent|count|_id$/i', $key)
-            && preg_match('/amount|balance_due|base|vat|tax|profit|total|turnover|^vh$|^dan$|^md$|^d$|^net$|^gross$|^ps_|^ks_|zaklad|dan[0-9_]/i', $key) === 1
+            && preg_match('/amount|balance_due|base|vat|tax|profit|total|turnover|revenue|cost|result|expense|income|^bal$|^vh$|^dan$|^md$|^d$|^net$|^gross$|^ps_|^ks_|zaklad|dan[0-9_]/i', $key) === 1
             && is_numeric($value) && (float) $value !== 0.0;
     }
 }
