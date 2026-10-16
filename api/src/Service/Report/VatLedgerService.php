@@ -113,6 +113,28 @@ final class VatLedgerService
     }
 
     /**
+     * Kanonické řádky jednoho vydaného ('sale') nebo přijatého ('purchase') dokladu za
+     * období. Tytéž dotazy i normalizace jako {@see rows()}, jen zúžené na doklad —
+     * zaúčtování jednoho dokladu nesmí materializovat celou knihu DPH za rok.
+     *
+     * @param 'sale'|'purchase' $source
+     * @return list<array<string,mixed>>
+     */
+    public function documentRows(int $supplierId, string $source, int $invoiceId, string $start, string $end, bool $includeDrafts = false): array
+    {
+        $map = $this->classificationMap($supplierId);
+        $bucket = $this->taxConstants->vatBucketThreshold((int) substr($start, 0, 4));
+        $fetched = $source === 'sale'
+            ? $this->fetchSales($supplierId, $start, $end, $includeDrafts, $invoiceId)
+            : $this->fetchPurchases($supplierId, $start, $end, $includeDrafts, $invoiceId);
+        $rows = [];
+        foreach ($fetched as $r) {
+            $rows[] = $this->normalize($r, $source, $map, $bucket);
+        }
+        return $rows;
+    }
+
+    /**
      * Klasifikační mapa code → atributy (globální seed + per-tenant override).
      *
      * @return array<string, array{dphdp3_line:?string, dphdp3_line_secondary:?string,
@@ -358,9 +380,10 @@ final class VatLedgerService
     }
 
     /** @return list<array<string,mixed>> */
-    private function fetchSales(int $supplierId, string $start, string $end, bool $includeDrafts): array
+    private function fetchSales(int $supplierId, string $start, string $end, bool $includeDrafts, ?int $invoiceId = null): array
     {
         $statusFilter = $includeDrafts ? "i.status != 'cancelled'" : "i.status NOT IN ('draft', 'cancelled')";
+        $documentFilter = $invoiceId !== null ? 'AND i.id = ?' : '';
         $saleSign = self::saleTaxSignExpr($this->db, 'i');
         // DIČ protistrany ze snapshotu dokladu s fallbackem na živého klienta (viz helper).
         $dicExpr = self::saleCounterpartyDicExpr($this->db, 'i', 'c');
@@ -438,10 +461,15 @@ final class VatLedgerService
                AND {$statusFilter}
                AND i.invoice_type NOT IN ('proforma', 'penalty')
                {$ossFilter}
+               {$documentFilter}
                AND i.effective_tax_date BETWEEN ? AND ?
           ORDER BY i.effective_tax_date, i.id, ii.id
         ");
-        $stmt->execute([$standardRate, $supplierId, $start, $end]);
+        $params = [$standardRate, $supplierId];
+        if ($invoiceId !== null) {
+            $params[] = $invoiceId;
+        }
+        $stmt->execute([...$params, $start, $end]);
         return $stmt->fetchAll(\PDO::FETCH_ASSOC);
     }
 
@@ -783,9 +811,11 @@ final class VatLedgerService
      *
      * @return list<array<string,mixed>>
      */
-    private function fetchPurchases(int $supplierId, string $start, string $end, bool $includeDrafts): array
+    private function fetchPurchases(int $supplierId, string $start, string $end, bool $includeDrafts, ?int $invoiceId = null): array
     {
         $statusFilter = $includeDrafts ? "pi.status != 'cancelled'" : "pi.status NOT IN ('draft', 'cancelled')";
+        $ownFilter = $invoiceId !== null ? 'AND own.id = ?' : '';
+        $ownParams = $invoiceId !== null ? [$invoiceId] : [];
         $projectionVatColumn = $this->db->hasColumn('purchase_invoice_items', 'import_projection_vat_czk')
             ? 'i.import_projection_vat_czk' : 'NULL';
         // Práh základní/snížená sazba pro fallback klasifikaci — per rok období.
@@ -936,7 +966,7 @@ final class VatLedgerService
                       FROM purchase_invoice_items i
                       -- Omezení na firmu uvnitř odvozené tabulky: MariaDB ji materializuje
                       -- celou, bez něj tedy položky VŠECH firem instalace na každé volání.
-                      JOIN purchase_invoices own ON own.id = i.purchase_invoice_id AND own.supplier_id = ?
+                      JOIN purchase_invoices own ON own.id = i.purchase_invoice_id AND own.supplier_id = ? {$ownFilter}
                      WHERE {$claimWindow}
                        AND i.import_tax_excluded = 0
                        AND NOT EXISTS (
@@ -951,7 +981,7 @@ final class VatLedgerService
                            NULL AS import_tax_base_czk, NULL AS import_tax_vat_czk,
                            NULL AS import_projection_vat_czk
                       FROM purchase_invoice_vat_allocations a
-                      JOIN purchase_invoices own ON own.id = a.purchase_invoice_id AND own.supplier_id = ?
+                      JOIN purchase_invoices own ON own.id = a.purchase_invoice_id AND own.supplier_id = ? {$ownFilter}
                      WHERE {$claimWindow}
                    ) pii ON pii.purchase_invoice_id = pi.id
          LEFT JOIN currencies cur ON cur.id = pi.currency_id
@@ -990,7 +1020,12 @@ final class VatLedgerService
                AND {$periodExpr} BETWEEN ? AND ?
           ORDER BY {$periodExpr}, pi.id, pii.id
         ");
-        $stmt->execute([$standardRate, $supplierId, ...$window, $supplierId, ...$window, $supplierId, $start, $end]);
+        $stmt->execute([
+            $standardRate,
+            $supplierId, ...$ownParams, ...$window,
+            $supplierId, ...$ownParams, ...$window,
+            $supplierId, $start, $end,
+        ]);
         return $stmt->fetchAll(\PDO::FETCH_ASSOC);
     }
 
