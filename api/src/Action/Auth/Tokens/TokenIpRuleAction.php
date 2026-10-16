@@ -41,7 +41,12 @@ final class TokenIpRuleAction
             return Json::error($response, 'validation_failed', 'Chybí ID tokenu.', 400);
         }
 
-        return Json::ok($response, ['rules' => $this->tokens->listIpRules($tokenId, $userId)]);
+        $ip = $this->ipMatcher->clientIpFromRequest($request->getServerParams());
+        return Json::ok($response, [
+            'rules' => $this->tokens->listIpRules($tokenId, $userId),
+            'client_ip' => $ip,
+            'client_ip_private' => $this->ipMatcher->isPrivateOrLocal($ip),
+        ]);
     }
 
     public function create(Request $request, Response $response, array $args): Response

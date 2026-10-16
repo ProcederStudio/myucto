@@ -20027,6 +20027,10 @@
     "ip_note": "Poznámka",
     "ip_add": "Přidat",
     "ip_remove": "Odebrat",
+    "ip_current": "Vaše IP adresa podle aplikace:",
+    "ip_current_hint": "Jde o adresu tohoto prohlížeče. Integrace nebo MCP klient se mohou připojovat z jiné IP adresy.",
+    "ip_private_warning": "Aplikace vidí privátní, lokální nebo sdílenou IP adresu. V interní síti to může být správně. Pokud přistupujete přes internet a reverse proxy, ověřte předávání skutečné IP klienta; jinak může IP omezení rozlišovat jen proxy.",
+    "ip_proxy_docs": "Jak nastavit předávání IP za proxy a v Dockeru",
     "ip_hint": "Podporuje IPv4 i IPv6, samostatnou adresu i CIDR rozsah - např. 203.0.113.7, 192.168.1.0/24, 2001:db8::1, 2001:db8::/32."
   },
   "license": {

@@ -16,6 +16,19 @@ final class IpMatcherTest extends TestCase
         $this->m = (new \ReflectionClass(IpMatcher::class))->newInstanceWithoutConstructor();
     }
 
+    public function testPrivateOrLocalAddresses(): void
+    {
+        foreach (['10.0.0.1', '172.16.0.1', '172.31.255.255', '192.168.1.1',
+            '127.0.0.1', '169.254.1.1', '100.64.0.1', '::1', 'fd00::1', 'fe80::1',
+            '::ffff:192.168.1.1'] as $ip) {
+            self::assertTrue($this->m->isPrivateOrLocal($ip), $ip);
+        }
+        foreach (['172.15.255.255', '172.32.0.1', '100.128.0.1', '203.0.113.7',
+            '2001:db8::1', '', 'invalid'] as $ip) {
+            self::assertFalse($this->m->isPrivateOrLocal($ip), $ip);
+        }
+    }
+
     public function testIPv4ExactMatch(): void
     {
         self::assertTrue($this->m->matches('192.168.1.10', ['192.168.1.10']));

@@ -113,7 +113,7 @@ export const tokensApi = {
 
   // ── IP allowlist tokenu — prázdný seznam znamená bez omezení ──────────────
   listIps: (tokenId: number) =>
-    api.get<{ rules: TokenIpRule[] }>(`/auth/tokens/${tokenId}/ips`).then((r) => r.data.rules),
+    api.get<{ rules: TokenIpRule[]; client_ip: string; client_ip_private: boolean }>(`/auth/tokens/${tokenId}/ips`).then((r) => r.data),
 
   addIp: (tokenId: number, cidr: string, note: string) =>
     api

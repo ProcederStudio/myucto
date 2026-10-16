@@ -46,6 +46,8 @@ const form = ref({
 // tokeny jsou zamčené na síť a které ne).
 const ipToken = ref<ApiToken | null>(null)
 const ipRules = ref<TokenIpRule[]>([])
+const clientIp = ref('')
+const clientIpPrivate = ref(false)
 const ipBusy = ref(false)
 const ipError = ref('')
 const ipForm = ref({ cidr: '', note: '' })
@@ -235,11 +237,16 @@ async function purge(tk: ApiToken) {
 async function openIps(tk: ApiToken) {
   ipToken.value = tk
   ipRules.value = []
+  clientIp.value = ''
+  clientIpPrivate.value = false
   ipError.value = ''
   ipForm.value = { cidr: '', note: '' }
   ipBusy.value = true
   try {
-    ipRules.value = await tokensApi.listIps(tk.id)
+    const result = await tokensApi.listIps(tk.id)
+    ipRules.value = result.rules
+    clientIp.value = result.client_ip
+    clientIpPrivate.value = result.client_ip_private
   } catch (e: any) {
     ipError.value = e?.response?.data?.error?.message || t('common.error')
   } finally {
@@ -433,6 +440,18 @@ onMounted(load)
 
         <div class="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-700 mb-3">
           {{ t('api_tokens.ip_intro') }}
+        </div>
+
+        <div v-if="clientIp" class="rounded-md border px-3 py-2 text-sm mb-3"
+          :class="clientIpPrivate ? 'border-warning-500/40 bg-warning-50 text-warning-700' : 'border-neutral-200 bg-neutral-50 text-neutral-700'">
+          <p>{{ t('api_tokens.ip_current') }} <code class="font-mono break-all">{{ clientIp }}</code></p>
+          <p class="mt-1 text-xs">{{ t('api_tokens.ip_current_hint') }}</p>
+          <template v-if="clientIpPrivate">
+            <p class="mt-2">{{ t('api_tokens.ip_private_warning') }}</p>
+            <a href="/manual?ch=101_Bezpecnost#dodavany-docker-image" target="_blank" rel="noopener" class="mt-1 inline-block underline">
+              {{ t('api_tokens.ip_proxy_docs') }}
+            </a>
+          </template>
         </div>
 
         <EmptyState v-if="ipRules.length === 0" dense icon="lock" accent="neutral" :title="t('api_tokens.ip_empty')"/>

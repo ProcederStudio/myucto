@@ -52,6 +52,16 @@ final class IpMatcher
         return false;
     }
 
+    /** Privátní, lokální a sdílené adresy mohou za proxy znamenat chybějící předání IP. */
+    public function isPrivateOrLocal(string $ip): bool
+    {
+        return $this->matches($ip, [
+            '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16',
+            '127.0.0.0/8', '169.254.0.0/16', '100.64.0.0/10',
+            '::1', 'fc00::/7', 'fe80::/10',
+        ]);
+    }
+
     private function matchRule(string $ip, string $rule): bool
     {
         $rule = trim($rule);
