@@ -17654,6 +17654,15 @@ paths:
         schema:
           type: string
       - in: query
+        name: display_attribute_id
+        description: |
+          Volitelný sloupec: hodnota tohoto parametru karty v poli `display_attribute_value`
+          (text, popisek volby, číslo bez koncových nul, ano/ne jako `1`/`0`, víc hodnot
+          oddělených čárkou; bez hodnoty null). Nefiltruje.
+        schema:
+          type: integer
+          minimum: 1
+      - in: query
         name: sort
         schema:
           type: string

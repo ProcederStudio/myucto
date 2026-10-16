@@ -36,6 +36,25 @@ final class StockItemRepository
                      WHERE siav.supplier_id = si.supplier_id AND siav.stock_item_id = si.id
                        AND sa.data_type = \'text\' AND siav.value_text LIKE ?)';
 
+    /**
+     * Hodnota jednoho parametru karty jako text pro volitelný sloupec seznamu
+     * (jeden placeholder = id parametru). Výběr hodnot = popisek volby, číslo bez
+     * koncových nul, ano/ne jako 1/0 (formátuje klient), víc hodnot oddělených čárkou.
+     */
+    private const DISPLAY_ATTRIBUTE_SQL =
+        "(SELECT GROUP_CONCAT(
+                    CASE sa.data_type
+                        WHEN 'enum' THEN sao.label
+                        WHEN 'number' THEN TRIM(TRAILING '.' FROM TRIM(TRAILING '0' FROM CAST(siav.value_num AS CHAR)))
+                        WHEN 'bool' THEN CAST(siav.value_bool AS CHAR)
+                        ELSE siav.value_text
+                    END
+                    ORDER BY siav.display_order, sao.display_order, siav.id SEPARATOR ', ')
+            FROM stock_item_attribute_values siav
+            JOIN stock_attributes sa ON sa.id = siav.attribute_id AND sa.supplier_id = siav.supplier_id
+            LEFT JOIN stock_attribute_options sao ON sao.id = siav.option_id AND sao.supplier_id = siav.supplier_id
+           WHERE siav.supplier_id = si.supplier_id AND siav.stock_item_id = si.id AND siav.attribute_id = ?)";
+
     private const COLUMNS =
         'id, supplier_id, sku, name, item_type, manufacturer_id, unit, default_sale_unit, tracking_mode, ean, vat_rate_id,
          sale_price_without_vat, min_qty, warranty_months, delivery_days, export_eshop,
@@ -118,14 +137,16 @@ final class StockItemRepository
             static fn (string $c): string => 'si.' . trim($c),
             explode(',', self::COLUMNS)
         ));
-        $sql = 'SELECT ' . $cols . ', ' . $this->aggregateColumns()
+        $displayAttributeId = (int) ($filters['display_attribute_id'] ?? 0);
+        $displayColumn = $displayAttributeId > 0 ? ', ' . self::DISPLAY_ATTRIBUTE_SQL . ' AS display_attribute_value' : '';
+        $sql = 'SELECT ' . $cols . ', ' . $this->aggregateColumns() . $displayColumn
              . ' FROM stock_items si' . $parts['join']
              . ' WHERE ' . $parts['where']
              . ' ORDER BY ' . $this->orderBy($filters)
              . ' LIMIT ' . max(1, $perPage) . ' OFFSET ' . max(0, $offset);
 
         $stmt = $this->db->pdo()->prepare($sql);
-        $stmt->execute($parts['params']);
+        $stmt->execute($displayAttributeId > 0 ? [$displayAttributeId, ...$parts['params']] : $parts['params']);
         $rows = array_map([self::class, 'cast'], $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []);
 
         return [$rows, $total];

@@ -159,6 +159,52 @@ final class StockCatalogListTest extends StockTestCase
         self::assertSame([$incomplete], array_column($rows, 'id'));
     }
 
+    public function testListCanProjectOneAttributeAsDisplayColumn(): void
+    {
+        $sid = $this->createSupplier();
+        $numeric = $this->item($sid, 'KAT-PARAM-NUM');
+        $multi = $this->item($sid, 'KAT-PARAM-ENUM');
+        $empty = $this->item($sid, 'KAT-PARAM-NONE');
+        $numberAttribute = $this->insertAttribute($sid, 'KAT-PARAM-N');
+        $this->db->pdo()->prepare(
+            'INSERT INTO stock_attributes (supplier_id, code, name, data_type, is_multivalue)
+             VALUES (?, "KAT-PARAM-E", "Barva", "enum", 1)'
+        )->execute([$sid]);
+        $enumAttribute = (int) $this->db->pdo()->lastInsertId();
+        $options = [];
+        foreach (['Modrá' => 20, 'Bílá' => 10] as $label => $order) {
+            $this->db->pdo()->prepare(
+                'INSERT INTO stock_attribute_options (supplier_id, attribute_id, code, label, display_order) VALUES (?, ?, ?, ?, ?)'
+            )->execute([$sid, $enumAttribute, 'OPT-' . $order, $label, $order]);
+            $options[$label] = (int) $this->db->pdo()->lastInsertId();
+        }
+        $value = $this->db->pdo()->prepare(
+            'INSERT INTO stock_item_attribute_values
+                (supplier_id, stock_item_id, attribute_id, option_id, value_num, display_order)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        );
+        $value->execute([$sid, $numeric, $numberAttribute, null, '12.500000', 0]);
+        $value->execute([$sid, $multi, $enumAttribute, $options['Modrá'], null, 1]);
+        $value->execute([$sid, $multi, $enumAttribute, $options['Bílá'], null, 0]);
+
+        $byId = static fn (array $rows): array => array_column($rows, 'display_attribute_value', 'id');
+
+        [$numberRows] = $this->itemsRepo->listPaged($sid, ['display_attribute_id' => $numberAttribute], 50, 0);
+        self::assertSame('12.5', $byId($numberRows)[$numeric]);
+        self::assertNull($byId($numberRows)[$empty]);
+
+        $api = $this->callList($sid, ['display_attribute_id' => (string) $enumAttribute, 'sort' => 'sku']);
+        self::assertSame(200, $api['status']);
+        self::assertSame('Bílá, Modrá', $byId($api['body']['data'])[$multi]);
+        self::assertNull($byId($api['body']['data'])[$numeric]);
+
+        $plain = $this->callList($sid, []);
+        self::assertArrayNotHasKey('display_attribute_value', $plain['body']['data'][0]);
+
+        $invalid = $this->callList($sid, ['display_attribute_id' => 'abc']);
+        self::assertSame(400, $invalid['status']);
+    }
+
     public function testApiRejectsUnknownSortAndMalformedFilters(): void
     {
         $sid = $this->createSupplier();
