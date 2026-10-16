@@ -79,7 +79,9 @@ v **Firma → AI nastavení** zapnout **Povolit klientům AI vytěžování** a 
 Vaše role musí umožňovat vytěžování i vytváření přijatých faktur. Nahrajete doklad, zkontrolujete vytvořený koncept
 a na jeho detailu zvolíte **Označit jako přijaté**. Přijetí respektuje případné schvalování firmy. Teprve přijatý doklad
 se podle pravidel přehledu promítne do nákladů; samotný koncept se nezapočítává. Postup je stejný jako při ručním zadání,
-jen údaje přečte AI. Podrobnosti najdete v [AI extrakci](25_AI_extrakce.md#254-krok-za-krokem-importovat-prijate-faktury-z-pdf).
+jen údaje přečte AI. Před nahráním vidíte měsíční čerpání společného limitu firmy pro vytěžování přijatých dokladů. Jeden platný soubor předaný ke zpracování
+spotřebuje jeden pokus i při chybě, duplicitě nebo načtení ISDOC. Pokusy se nevracejí a čerpání se obnovuje každý měsíc.
+Po vyčerpání můžete zadávat ručně nebo požádat účetní o zvýšení limitu. Použitý model nastavuje účetní. Podrobnosti najdete v [AI extrakci](25_AI_extrakce.md#254-krok-za-krokem-importovat-prijate-faktury-z-pdf).
 
 Tlačítko **Náhled** otevře PDF nebo obrázek na široké obrazovce vpravo vedle přehledu, na menší obrazovce v dialogu. Výběrem jiného dokladu se náhled přepne. Vlastní předání ve stavu **Předáno** můžete přes **Smazat předání** odstranit, dokud účetní nezačala zpracování. Potvrzení vyřadí podání z přehledu a přesune originál do koše Dokumentů. Pokud doklad odpovídal na požadavek účetní, požadavek se znovu otevře.
 

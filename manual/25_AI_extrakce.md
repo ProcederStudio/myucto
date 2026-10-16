@@ -61,7 +61,15 @@ Volitelné kroky:
 - **Povolit klientům AI vytěžování.** V AI nastavení firmy povolíte klientům položku `Nákup → AI import`.
   Volba je standardně vypnutá a platí jen pro vybranou firmu. Klient používá jejího aktivního poskytovatele a její uložené
   přihlašovací údaje; samotný klíč se mu nezobrazuje. U vlastní klientské role povolte také vytěžování a vytváření přijatých
-  faktur. Klient si toto povolení sám změnit nemůže.
+  faktur. Klient si toto povolení ani měsíční limit sám změnit nemůže.
+- **Měsíční limit klientského vytěžování přijatých dokladů.** Výchozí hodnota je 100 pokusů, nastavit lze 0 až 100 000. Nula klientské
+  vytěžování přijatých dokladů zablokuje. Limit sdílejí všichni klienti firmy; účetní ho svým vytěžováním nečerpá. Nastavení i klientský AI import
+  přijatých faktur ukazují aktuální měsíc, počet použitých a zbývajících pokusů. Každý platný soubor předaný ke zpracování spotřebuje jeden
+  pokus, včetně chyby, duplicity a strukturovaného ISDOC/ISDOCX. Neplatný upload nebo odmítnuté oprávnění se nepočítají.
+  Pokusy se nevracejí, na začátku kalendářního měsíce se čerpání obnoví. Po vyčerpání se dávka zastaví; doklady lze zadat
+  ručně nebo účetní zvýší limit. Jde o počet pokusů, cenu volání AI určuje poskytovatel.
+  Při vytěžování přijatých dokladů klient používá uložený model firmy, nemůže pro jednotlivý import vybírat jiný a AI jej
+  automaticky nepřepíná na silnější model.
 - **Uložit nastavení do všech firem.** Zaškrtnutím **Uložit nastavení do všech firem** se stejný poskytovatel, klíč, model, region
   dat, EU rezidence a míra uvažování uloží i do ostatních firem, ve kterých smíte měnit nastavení AI. Volba **Jen do firem s
   nenastavenou AI** (výchozí zapnutá) přeskočí firmy, jejichž aktivní poskytovatel už má klíč. Detaily v

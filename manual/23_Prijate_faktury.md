@@ -42,7 +42,8 @@ Oproti vystaveným fakturám se liší takto:
   z ARES podle IČO (viz [Klienti](18_Klienti.md)).
 - **Oprávnění.** Nabídka `Nákup → Příchozí doklady` vyžaduje oprávnění k příchozím dokladům,
   **AI import** oprávnění k AI vytěžování přijatých faktur. Klientovi jej musí správce povolit také v AI nastavení firmy;
-  firma musí mít nastaveného aktivního poskytovatele AI. Podrobný postup je v [AI extrakci](25_AI_extrakce.md).
+  firma musí mít nastaveného aktivního poskytovatele AI a zbývající měsíční limit klientských pokusů o vytěžení přijatých dokladů. Čerpání vidíte před
+  nahráním; počítá se i chyba, duplicita a strukturovaný doklad, pokusy se nevracejí. Model volí účetní. Podrobný postup je v [AI extrakci](25_AI_extrakce.md).
   Zaúčtovat smí jen administrátor nebo účetní.
 - **Podvojné účetnictví.** Tlačítko **Zaúčtovat** a filtr **Zaúčtování** vidí jen firmy v režimu podvojného účetnictví.
 - **Pokladna.** Platbu hotově z editoru nabídne aplikace jen tehdy, když máte založenou korunovou pokladnu

@@ -33,6 +33,11 @@ const aiConfigured = computed(() => !!providerInfo.value?.configured)
 const canExtract = computed(() => canUsePurchaseAiExtraction(auth, {
   client_ai_extraction_available: aiCreds.value?.client_ai_extraction_enabled === true && aiConfigured.value,
 }))
+const clientUsage = computed(() => aiCreds.value?.client_ai_extraction_usage)
+const quotaRejected = ref(false)
+const quotaExhausted = computed(() => auth.isClientRole && (quotaRejected.value || (clientUsage.value?.remaining ?? 1) <= 0))
+const canStartExtraction = computed(() => canExtract.value && !quotaExhausted.value)
+const requestModel = computed(() => auth.isClientRole ? undefined : aiPerRequestModel.value || undefined)
 const canEditKind = computed(() => auth.canWrite('purchase_invoices'))
 const aiDefaultModel = computed(() => providerInfo.value?.default_model ?? '')
 const credsLoaded = ref(false)
@@ -60,7 +65,7 @@ const aiPerRequestModel = ref('')  // empty = použít default
 
 // Přijme 1..N souborů z file-pickeru i drag&drop: 1 = single-file flow, více = dávka.
 function acceptAiFiles(files: File[]) {
-  if (!canExtract.value || aiExtracting.value || aiBatchRunning.value || files.length === 0) return
+  if (!canStartExtraction.value || aiExtracting.value || aiBatchRunning.value || files.length === 0) return
   const pdfs = files.filter(f =>
     f.type === 'application/pdf' || f.type.startsWith('image/') ||
     /\.(pdf|jpe?g|png|webp|heic|heif|gif|bmp|isdoc|isdocx)$/i.test(f.name))
@@ -112,17 +117,18 @@ function newBatchId(): string {
 }
 
 async function runAiBatch() {
-  if (!canExtract.value || aiExtracting.value || aiBatchRunning.value || aiBatchQueue.value.length === 0) return
+  if (!canStartExtraction.value || aiExtracting.value || aiBatchRunning.value || aiBatchQueue.value.length === 0) return
   const version = contextVersion
   if (!aiBatchId.value) aiBatchId.value = newBatchId()
   aiBatchRunning.value = true
   try {
     for (const item of aiBatchQueue.value) {
-      if (version !== contextVersion || !canExtract.value) return
+      if (version !== contextVersion) return
+      if (!canStartExtraction.value) break
       if (item.status === 'ok') continue // skip already done (idempotent re-run)
       item.status = 'processing'
       try {
-        const model = aiPerRequestModel.value || undefined
+        const model = requestModel.value
         const r = await integrationsApi.extractPdfAi(item.file, model, aiBatchId.value)
         if (version !== contextVersion) return
         item.result = r
@@ -131,7 +137,14 @@ async function runAiBatch() {
         if (version !== contextVersion) return
         item.result = e?.response?.data ?? { error: { message: apiErrorMessage(e) } }
         item.status = 'failed'
+        if (apiErrorCode(e) === 'client_ai_extraction_limit_reached') {
+          quotaRejected.value = true
+          toast.error(t('aiGateway.client_extraction_limit_reached'))
+        }
       }
+      // Chyba i duplicita mohou spotřebovat pokus; před dalším souborem načteme skutečné čerpání.
+      if (auth.isClientRole) await loadAiCreds()
+      if (version !== contextVersion) return
     }
     await Promise.all([loadAiCreds(), loadLastBatch()])
     if (version !== contextVersion) return
@@ -211,24 +224,29 @@ function onAiDrop(e: DragEvent) {
 }
 
 async function runAiExtract() {
-  if (!canExtract.value || !aiPdfFile.value || aiExtracting.value || aiBatchRunning.value) return
+  if (!canStartExtraction.value || !aiPdfFile.value || aiExtracting.value || aiBatchRunning.value) return
   const version = contextVersion
   aiExtracting.value = true
   aiResult.value = null
   try {
-    const model = aiPerRequestModel.value || undefined
+    const model = requestModel.value
     // I jednotlivý doklad je dávka (o jednom kusu) — jinak by ho „Poslední import" neukázal.
     const result = await integrationsApi.extractPdfAi(aiPdfFile.value, model, newBatchId())
     if (version !== contextVersion) return
     aiResult.value = result
     if (aiResult.value.ok) {
       toast.success(t('integrations.ai.extract_success'))
-      await Promise.all([loadAiCreds(), loadLastBatch()])
+      await loadLastBatch()
       if (version !== contextVersion) return
       if (aiResult.value?.purchase_invoice_id && !aiResult.value.duplicate && !aiResult.value.target_supplier_id) openReview([aiResult.value.purchase_invoice_id])
     }
   } catch (e: any) {
     if (version !== contextVersion) return
+    if (apiErrorCode(e) === 'client_ai_extraction_limit_reached') {
+      quotaRejected.value = true
+      toast.error(t('aiGateway.client_extraction_limit_reached'))
+      return
+    }
     if (apiErrorCode(e) === 'ai_not_configured') {
       toast.error(apiErrorMessage(e))
       await loadAiCreds()
@@ -242,7 +260,10 @@ async function runAiExtract() {
       toast.error(apiErrorMessage(e))
     }
   } finally {
-    if (version === contextVersion) aiExtracting.value = false
+    if (version === contextVersion) {
+      await loadAiCreds()
+      if (version === contextVersion) aiExtracting.value = false
+    }
   }
 }
 
@@ -261,6 +282,7 @@ function gotoInvoice(id: number) {
 watch(() => suppliers.currentSupplierId, () => {
   contextVersion++
   aiCreds.value = null
+  quotaRejected.value = false
   credsLoaded.value = false
   aiPdfFile.value = null
   aiResult.value = null
@@ -301,6 +323,14 @@ watch(() => suppliers.currentSupplierId, () => {
     </p>
     <AiNotConfiguredNotice v-else-if="credsLoaded && !aiConfigured" />
 
+    <div v-if="auth.isClientRole && clientUsage" data-test="client-ai-usage" class="mb-4 rounded-md border border-neutral-200 bg-surface p-4 text-sm space-y-2">
+      <p>{{ t('aiGateway.client_extraction_usage', clientUsage) }}</p>
+      <p class="text-xs text-neutral-500">{{ t('aiGateway.client_extraction_usage_hint') }}</p>
+    </div>
+    <p v-if="quotaExhausted" data-test="client-ai-limit-reached" class="mb-4 rounded-md border border-warning-500/40 bg-warning-50 px-4 py-3 text-sm text-warning-700">
+      {{ t('aiGateway.client_extraction_limit_reached') }}
+    </p>
+
     <!-- AI PDF extract (primární akce — jen když je aktivní provider nakonfigurován) -->
     <div v-if="canExtract && aiConfigured" data-test="ai-extraction-upload" class="bg-surface border border-neutral-200 rounded-lg p-5 shadow-sm">
       <h2 class="text-sm font-medium text-neutral-700 mb-2">{{ t('integrations.ai.extract_title') }}</h2>
@@ -312,7 +342,7 @@ watch(() => suppliers.currentSupplierId, () => {
             ? 'border-primary-500 bg-primary-50'
             : 'border-neutral-300 hover:border-primary-400 hover:bg-primary-50/30'"
           @dragenter="onAiDragEnter" @dragover="onAiDragOver" @dragleave="onAiDragLeave" @drop="onAiDrop">
-          <input type="file" multiple accept="application/pdf,.pdf,image/*,.isdoc,.isdocx" @change="onAiPdfPick" class="hidden" />
+          <input type="file" :disabled="quotaExhausted" multiple accept="application/pdf,.pdf,image/*,.isdoc,.isdocx" @change="onAiPdfPick" class="hidden" />
           <svg class="w-8 h-8 mx-auto text-neutral-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
             <path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 0 1-.88-7.9 5 5 0 0 1 9.9-1A5.5 5.5 0 0 1 18.5 16H17m-5-4v9m0-9l-3 3m3-3l3 3" />
           </svg>
@@ -322,7 +352,7 @@ watch(() => suppliers.currentSupplierId, () => {
           <div v-if="aiPdfFile" class="text-xs text-neutral-500 mt-1">{{ Math.round(aiPdfFile.size / 1024) }} kB</div>
         </label>
 
-        <div class="flex flex-wrap items-center gap-2">
+        <div v-if="!auth.isClientRole" data-test="ai-model-override" class="flex flex-wrap items-center gap-2">
           <label class="text-sm text-neutral-700">{{ t('integrations.ai.model_override') }}</label>
           <select v-model="aiPerRequestModel" class="h-9 px-2 border border-neutral-300 rounded-md bg-surface text-sm">
             <option value="">{{ t('integrations.ai.use_default') }} ({{ aiDefaultModel }})</option>
@@ -330,7 +360,7 @@ watch(() => suppliers.currentSupplierId, () => {
           </select>
         </div>
 
-        <button type="button" @click="runAiExtract" :disabled="!aiPdfFile || aiExtracting || aiBatchRunning"
+        <button type="button" @click="runAiExtract" :disabled="!canStartExtraction || !aiPdfFile || aiExtracting || aiBatchRunning"
                 :class="[btnFilled('primary'), 'w-full whitespace-nowrap']">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path :d="ICONS.upload" /></svg>
           {{ aiExtracting ? t('integrations.ai.extracting') : t('integrations.ai.run_extract') }}
@@ -420,7 +450,7 @@ watch(() => suppliers.currentSupplierId, () => {
             </tbody>
           </table>
         </div>
-        <button type="button" @click="runAiBatch" :disabled="aiBatchRunning || aiExtracting"
+        <button type="button" @click="runAiBatch" :disabled="!canStartExtraction || aiBatchRunning || aiExtracting"
                 :class="[btnFilled('primary'), 'mt-3 w-full whitespace-nowrap']">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path :d="ICONS.upload" /></svg>
           {{ aiBatchRunning ? t('integrations.ai.batch_running') : t('integrations.ai.batch_run') }}
