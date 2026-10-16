@@ -18,7 +18,7 @@ final class StockStatusPdfRenderer extends ReportPdfRendererBase
         $layout = StockStatusColumns::layout($data);
         $nameWidth = (float) (array_column($layout, 'width', 'key')['name'] ?? 35);
         // Název se zkracuje úměrně šířce sloupce (původně 55 znaků na 35 %).
-        $body = $this->renderTemplate('stock_status.twig', $data + [
+        $body = $this->renderTemplate('stock_status.twig', ['items' => StockStatusColumns::exportItems($data)] + $data + [
             'layout' => $layout,
             'name_chars' => max(20, (int) round(55 * $nameWidth / 35)),
         ]);

@@ -40,7 +40,7 @@ final class StockReportXlsxExporter
         $this->headerRow($sheet, $head, $headers);
 
         $r = $head + 1;
-        foreach ($data['items'] ?? [] as $row) {
+        foreach (StockStatusColumns::exportItems($data) as $row) {
             foreach ($layout as $i => $column) {
                 $value = $row[$column['key']] ?? null;
                 if ($value === null) {

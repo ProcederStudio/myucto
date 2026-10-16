@@ -804,6 +804,7 @@ export interface StockStatusRow extends StockLevelRow {
   /** Jen když byl sloupec vyžádán. */
   sale_price?: string | null
   note?: string | null
+  /** Hodnoty parametru spojené čárkou; u typu ano/ne 'true'/'false' (překládá UI). */
   attribute_value?: string | null
 }
 

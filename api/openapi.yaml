@@ -19774,7 +19774,8 @@ paths:
         (zobrazené volitelné sloupce, vybraný parametr jako `attribute`) a `attribute`
         (id, code, name, unit, data_type), řádky pak nesou jen vyžádané údaje karty:
         `sale_price` (prodejní cena bez DPH), `note` a `attribute_value` (hodnoty
-        parametru karty spojené čárkou, u volby popisek, u ano/ne `ano`/`ne`).
+        parametru karty spojené čárkou, u volby popisek, u čísla bez koncových nul,
+        u ano/ne `true`/`false`).
       parameters:
         - in: query
           name: warehouse_id

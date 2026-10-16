@@ -137,7 +137,7 @@ final class StockStatusReportTest extends StockTestCase
 
         self::assertSame('ZDM1234567890', $read($text));
         self::assertSame('1100.5', $read($number));
-        self::assertSame('ano', $read($bool));
+        self::assertSame('true', $read($bool), 'API vrací neutrální hodnotu, překlad dělá UI a export.');
     }
 
     public function testColumnsCanHideCostAndValue(): void
@@ -166,6 +166,56 @@ final class StockStatusReportTest extends StockTestCase
         $foreignAttribute = $this->attribute($foreign, 'CIZI', 'text');
         $this->expectException(StockException::class);
         $this->report()->status($sid, StockReportService::normalizeStatusFilters(['attribute_id' => (string) $foreignAttribute]));
+    }
+
+    public function testAttributeOfAnotherCompanyDoesNotLeakValues(): void
+    {
+        $sid = $this->createSupplier();
+        $foreign = $this->createSupplier();
+        $wh = $this->warehouse($sid);
+        $item = $this->item($sid, 'ST-LEAK');
+        $this->levels->setLevel($sid, $wh, $item, 1_000, 1_000);
+        $foreignAttribute = $this->attribute($foreign, 'TAJNE', 'text');
+        $foreignItem = $this->item($foreign, 'ST-LEAK-FOREIGN');
+        $this->attributeValue($foreign, $foreignItem, $foreignAttribute, ['value_text' => 'CIZI-HODNOTA']);
+        // Hodnota cizí firmy zapsaná omylem u vlastní karty se nesmí ukázat ani tak.
+        $this->attributeValue($sid, $item, $foreignAttribute, ['value_text' => 'CIZI-U-MNE']);
+
+        try {
+            $this->report()->status($sid, StockReportService::normalizeStatusFilters(['attribute_id' => (string) $foreignAttribute]));
+            self::fail('Parametr jiné firmy musí být odmítnut.');
+        } catch (StockException $e) {
+            self::assertSame(422, $e->httpStatus);
+            self::assertStringNotContainsString('TAJNE', $e->getMessage());
+        }
+
+        $action = $this->container->get(\MyInvoice\Action\Stock\StockReportAction::class);
+        $request = (new \Slim\Psr7\Factory\ServerRequestFactory())->createServerRequest('GET', '/api/stock/reports/status')
+            ->withQueryParams(['attribute_id' => (string) $foreignAttribute])
+            ->withAttribute(\MyInvoice\Middleware\AuthMiddleware::ATTR_METHOD, 'session')
+            ->withAttribute(\MyInvoice\Middleware\SupplierScopeMiddleware::ATTR_CURRENT_ID, $sid)
+            ->withAttribute(\MyInvoice\Middleware\AuthMiddleware::ATTR_USER, ['id' => $this->userId, 'role' => 'admin']);
+        $response = $action->status($request, new \Slim\Psr7\Response());
+        self::assertSame(422, $response->getStatusCode());
+        self::assertStringNotContainsString('CIZI', (string) $response->getBody());
+
+        $own = $this->attribute($sid, 'VLASTNI', 'text');
+        $data = $this->report()->status($sid, StockReportService::normalizeStatusFilters(['attribute_id' => (string) $own]));
+        self::assertNull($data['items'][0]['attribute_value'], 'Hodnoty jiného parametru se do sloupce nepřimíchají.');
+    }
+
+    public function testExportTranslatesBoolParameter(): void
+    {
+        $sid = $this->createSupplier();
+        $wh = $this->warehouse($sid);
+        $bool = $this->attribute($sid, 'NOVY', 'bool');
+        $item = $this->item($sid, 'ST-BOOL');
+        $this->attributeValue($sid, $item, $bool, ['value_bool' => false]);
+        $this->levels->setLevel($sid, $wh, $item, 1_000, 1_000);
+        $data = $this->report()->status($sid, StockReportService::normalizeStatusFilters(['attribute_id' => (string) $bool]));
+        self::assertSame('false', $data['items'][0]['attribute_value']);
+        $rows = $this->sheetRows($this->container->get(StockReportXlsxExporter::class)->status($data)['bytes']);
+        self::assertSame('ne', $rows[4][3]);
     }
 
     public function testExportsUseDynamicHeader(): void

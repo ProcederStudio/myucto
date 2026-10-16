@@ -218,6 +218,31 @@ final class StockValuationCategoryGroupsTest extends StockTestCase
         self::assertSame(['Ocenění zásob', 'Podle kategorií'], $this->sheetNames((string) $export->getBody()));
     }
 
+    public function testJobOfAnotherCompanyIsNotExposed(): void
+    {
+        $f = $this->fixture();
+        $jobId = $this->completedJob($f['sid']);
+        $other = $this->createSupplier();
+        $jobs = $this->container->get(StockValuationJobService::class);
+        foreach ([fn () => $jobs->categoryGroups($other, $jobId, null), fn () => $jobs->result($other, $jobId)] as $call) {
+            try {
+                $call();
+                self::fail('Úloha jiné firmy musí být nenalezena.');
+            } catch (StockException $e) {
+                self::assertSame(404, $e->httpStatus);
+            }
+        }
+        $action = $this->container->get(StockReportAction::class);
+        $response = $action->valuationJobResult($this->request($other, ['group_by' => 'category']), new Response(), ['id' => $jobId]);
+        self::assertSame(404, $response->getStatusCode());
+        self::assertStringNotContainsString('VAL-', (string) $response->getBody());
+        $export = $action->export($this->request($other, ['format' => 'xlsx', 'job_id' => (string) $jobId, 'group_by' => 'category']), new Response(), ['name' => 'valuation']);
+        self::assertSame(404, $export->getStatusCode());
+        // Kategorie jiné firmy jako kořen seskupení vlastní úlohy: odmítnuto, ne prázdný souhrn.
+        $response = $action->valuationJobResult($this->request($other, ['group_by' => 'category', 'group_parent_id' => (string) $f['root']]), new Response(), ['id' => $jobId]);
+        self::assertSame(404, $response->getStatusCode());
+    }
+
     /** @param array<string,string> $query */
     private function request(int $supplierId, array $query = []): \Psr\Http\Message\ServerRequestInterface
     {

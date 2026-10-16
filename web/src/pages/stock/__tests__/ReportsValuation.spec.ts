@@ -16,7 +16,7 @@ vi.mock('@/api/stock', () => ({
 }))
 vi.mock('@/api/eshop', () => ({ eshopApi: { listCategories: m.listCategories, listAttributes: m.listAttributes } }))
 vi.mock('@/api/catalogJobs', () => ({ catalogJobsApi: { getValuation: m.getValuation, getValuationStatus: m.getValuationStatus } }))
-vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ canRead: () => false, canWrite: () => true }) }))
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ canRead: (key: string) => key === 'eshop', canWrite: () => true }) }))
 vi.mock('@/composables/useToast', () => ({ useToast: () => ({ error: vi.fn(), warning: vi.fn() }) }))
 vi.mock('@/composables/useFormat', () => ({
   formatMoney: (value: number) => String(value), formatDate: (value: string) => value, formatNumber: (value: number) => String(value),

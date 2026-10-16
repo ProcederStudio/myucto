@@ -9,6 +9,7 @@ const m = vi.hoisted(() => ({
   listCategories: vi.fn(),
   listAttributes: vi.fn(),
   hidden: new Set<string>(),
+  readable: new Set<string>(['eshop']),
 }))
 
 vi.mock('@/api/stock', () => ({
@@ -20,7 +21,7 @@ vi.mock('@/api/stock', () => ({
 }))
 vi.mock('@/api/eshop', () => ({ eshopApi: { listCategories: m.listCategories, listAttributes: m.listAttributes } }))
 vi.mock('@/api/catalogJobs', () => ({ catalogJobsApi: {} }))
-vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ canRead: () => false, canWrite: () => true }) }))
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ canRead: (key: string) => m.readable.has(key), canWrite: () => true }) }))
 vi.mock('@/composables/useToast', () => ({ useToast: () => ({ error: vi.fn(), warning: vi.fn() }) }))
 vi.mock('@/composables/useFormat', () => ({
   formatMoney: (value: number) => String(value), formatDate: (value: string) => value, formatNumber: (value: number) => String(value),
@@ -54,6 +55,7 @@ describe('Reports – stav zásob', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     m.hidden = new Set(['sale_price', 'note'])
+    m.readable = new Set(['eshop'])
     m.listWarehouses.mockResolvedValue([])
     m.listCategories.mockResolvedValue([{ id: 12, name: 'Motocykly', path: '/12/', depth: 0, archived: false }])
     m.listAttributes.mockResolvedValue([{ id: 14, name: 'VIN', unit: null, data_type: 'text', archived: false }])
@@ -100,6 +102,31 @@ describe('Reports – stav zásob', () => {
     }))
     expect(open).toHaveBeenCalledWith('/export', '_blank', 'noopener')
     open.mockRestore()
+  })
+
+  it('does not call catalog codebooks without eshop read permission', async () => {
+    m.readable = new Set()
+    const wrapper = mount(Reports, { global: { stubs } })
+    await flushPromises()
+    expect(m.listCategories).not.toHaveBeenCalled()
+    expect(m.listAttributes).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-test="status-category"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="status-attribute"]').exists()).toBe(false)
+  })
+
+  it('translates a yes/no parameter in the table', async () => {
+    m.reportStatus.mockResolvedValue({
+      items: [row({ attribute_value: 'true' }), row({ stock_item_id: 8, attribute_value: 'false' })],
+      totals: { value_total: '20.00', count: 2 },
+      columns: ['avg_unit_cost', 'value_total', 'attribute'],
+      attribute: { id: 15, code: 'NOVY', name: 'Nový', unit: null, data_type: 'bool' },
+    })
+    const wrapper = mount(Reports, { global: { stubs } })
+    await flushPromises()
+    const cells = wrapper.findAll('tbody td').map(td => td.text())
+    expect(cells).toContain('common.yes')
+    expect(cells).toContain('common.no')
+    expect(cells).not.toContain('true')
   })
 
   it('asks for no optional columns explicitly when all are hidden', async () => {

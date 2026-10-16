@@ -29,6 +29,31 @@ final class StockStatusColumns
     private const FLEX_WEIGHTS = ['name' => 30, 'attribute_value' => 18, 'note' => 20];
 
     /**
+     * Řádky pro export (XLSX, PDF jsou jen česky): parametr typu ano/ne vrací API
+     * neutrálně jako 'true'/'false', export ho zobrazí jako „ano“/„ne“.
+     *
+     * @param array<string,mixed> $data výstup StockReportService::status()
+     * @return list<array<string,mixed>>
+     */
+    public static function exportItems(array $data): array
+    {
+        $items = array_values((array) ($data['items'] ?? []));
+        if (($data['attribute']['data_type'] ?? null) !== 'bool') {
+            return $items;
+        }
+        foreach ($items as &$item) {
+            if (isset($item['attribute_value'])) {
+                $item['attribute_value'] = implode(', ', array_map(
+                    static fn (string $v): string => match ($v) { 'true' => 'ano', 'false' => 'ne', default => $v },
+                    explode(', ', (string) $item['attribute_value']),
+                ));
+            }
+        }
+        unset($item);
+        return $items;
+    }
+
+    /**
      * @param array<string,mixed> $data výstup StockReportService::status()
      * @return list<array{key:string,label:string,numeric:bool,width:float}>
      */
@@ -69,6 +94,8 @@ final class StockStatusColumns
             foreach ($keys as $k) {
                 $widths[$k] = isset($fixed[$k]) ? (float) $fixed[$k] : round($rest * $flex[$k] / array_sum($flex), 2);
             }
+            // Zaokrouhlovací rozdíl dorovná název, aby součet byl přesně 100.
+            $widths['name'] = round($widths['name'] + 100 - array_sum($widths), 2);
         }
         return array_map(static fn (array $c): array => [
             'key' => $c[0],

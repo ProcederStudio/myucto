@@ -73,6 +73,12 @@ function statusParams() {
     attribute_id: statusFilters.attribute_id || undefined,
   }
 }
+/** API vrací ano/ne neutrálně ('true'/'false'), překlad je až tady. */
+function statusAttributeText(value: string | null | undefined): string {
+  if (value == null) return ''
+  if (statusReport.value?.attribute?.data_type !== 'bool') return value
+  return value.split(', ').map(v => v === 'true' ? t('common.yes') : v === 'false' ? t('common.no') : v).join(', ')
+}
 const statusAttributeLabel = computed(() => {
   const a = statusReport.value?.attribute
   return a ? (a.unit ? `${a.name} [${a.unit}]` : a.name) : ''
@@ -290,9 +296,12 @@ watch(statusColumnsParam, () => { if (tab.value === 'status') void load() })
 
 onMounted(async () => {
   try { warehouses.value = await stockApi.listWarehouses(true) } catch { warehouses.value = [] }
-  // Číselníky jen pro filtry; bez práva k nim filtr zůstane skrytý.
-  eshopApi.listCategories().then(list => { categories.value = list.filter(x => !x.archived) }).catch(() => { categories.value = [] })
-  eshopApi.listAttributes().then(list => { attributes.value = list.filter(x => !x.archived) }).catch(() => { attributes.value = [] })
+  // Kategorie a parametry čte jen uživatel s právem ke katalogu (jinak by šly zbytečné 403);
+  // bez nich filtry kategorie, parametru a seskupení zůstanou skryté.
+  if (auth.canRead('eshop')) {
+    eshopApi.listCategories().then(list => { categories.value = list.filter(x => !x.archived) }).catch(() => { categories.value = [] })
+    eshopApi.listAttributes().then(list => { attributes.value = list.filter(x => !x.archived) }).catch(() => { attributes.value = [] })
+  }
   // Odkaz z detailu karty: /stock/reports?tab=sales&stock_item_id=…
   const itemId = Number(route.query.stock_item_id)
   if (route.query.tab === 'sales' && canSeeSales.value) {
@@ -473,7 +482,7 @@ onBeforeUnmount(() => { clearValuationTimer(); ++valuationGeneration; if (salesS
               <tr v-for="r in statusRows" :key="`${r.warehouse_id}-${r.stock_item_id}`" class="hover:bg-neutral-50" :class="{ 'bg-danger-50/40': r.min_qty != null && Number(r.qty) < Number(r.min_qty) }">
                 <td class="px-3 py-2 font-mono text-xs">{{ r.sku }}</td>
                 <td class="px-3 py-2">{{ r.name }}</td>
-                <td v-if="statusReport?.attribute" class="px-3 py-2">{{ r.attribute_value ?? '' }}</td>
+                <td v-if="statusReport?.attribute" class="px-3 py-2">{{ statusAttributeText(r.attribute_value) }}</td>
                 <td class="px-3 py-2">{{ r.warehouse_name }}</td>
                 <td class="px-3 py-2 text-right font-mono">{{ r.qty }}</td>
                 <td v-if="statusTbl.isVisible('avg_cost')" class="px-3 py-2 text-right font-mono">{{ formatMoney(Number(r.avg_unit_cost)) }}</td>

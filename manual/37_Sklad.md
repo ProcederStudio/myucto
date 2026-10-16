@@ -1017,6 +1017,8 @@ nalezenou na skladu**).
   - **Parametr:** vybraný parametr karty (například VIN nebo umístění) přidá sloupec
     s jeho hodnotou. Má-li karta hodnot víc, jsou oddělené čárkou, u výběrového
     parametru se ukáže popisek volby, u parametru ano/ne slovo „ano“ nebo „ne“.
+  - Filtr kategorie a výběr parametru (stejně jako seskupení ocenění) vidí uživatel
+    s právem číst katalog, protože čtou kategorie a parametry karet.
   - Export PDF i XLSX má stejné sloupce jako obrazovka (navíc sklad, typ a MJ).
     PDF je vždy na šířku. Skrytá hodnota z exportu zmizí i se součtem, počet
     položek zůstane.

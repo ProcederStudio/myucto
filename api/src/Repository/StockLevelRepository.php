@@ -90,13 +90,13 @@ final class StockLevelRepository
         return $rows;
     }
 
-    /** Zobrazitelná hodnota parametru podle typu (volba = popisek, číslo bez koncových nul). */
+    /** Hodnota parametru podle typu (volba = popisek, číslo bez koncových nul, ano/ne = 'true'/'false'). */
     private static function attributeValueSql(string $dataType): string
     {
         return match ($dataType) {
             'enum' => 'sao.label',
             'number' => "TRIM(TRAILING '.' FROM TRIM(TRAILING '0' FROM CAST(siav.value_num AS CHAR)))",
-            'bool' => "CASE siav.value_bool WHEN 1 THEN 'ano' WHEN 0 THEN 'ne' END",
+            'bool' => "CASE siav.value_bool WHEN 1 THEN 'true' WHEN 0 THEN 'false' END",
             default => 'siav.value_text',
         };
     }
