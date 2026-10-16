@@ -93,7 +93,14 @@ describe('cash journal classification filter', () => {
     expect(api.cashJournal).toHaveBeenLastCalledWith({ year: 2026, classification: 'transfer' })
   })
 
+  it('shows the row count only while a classification filter is active', async () => {
+    api.cashJournal.mockResolvedValue(report({ filtered_rows: 9 }))
+    const { wrapper } = await setup('?year=2026')
+    expect(wrapper.text()).not.toContain('tax_evidence.cash_journal.rows_shown')
+  })
+
   it('retains period summary, running balances and global warnings while filtering', async () => {
+    api.cashJournal.mockResolvedValue(report({ classification: 'private' }))
     const { wrapper } = await setup('?year=2026&classification=private')
     expect(wrapper.text()).toContain('tax_evidence.cash_journal.summary_period')
     expect(wrapper.text()).toContain('777')

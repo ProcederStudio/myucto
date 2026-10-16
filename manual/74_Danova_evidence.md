@@ -174,7 +174,7 @@ osvobozený nebo nedaňový příjem, daňový nebo nedaňový výdaj, převod, 
 
 Po změně se sestava přenačte automaticky. Aktivní klasifikaci ukazuje odstranitelný štítek; jeho zrušením zachováte
 zvolené období. Filtr je uložený v adrese stránky, takže jej zachová otevření odkazu i návrat v historii prohlížeče.
-Na mobilu lze další ovládací prvky rozbalit tlačítkem **Filtry**. Nad tabulkou vidíte počet zobrazených pohybů z celkového
+Na mobilu lze další ovládací prvky rozbalit tlačítkem **Filtry**. Při aktivní klasifikaci vidíte nad tabulkou počet zobrazených pohybů z celkového
 počtu za období. Prázdný výsledek filtru nabízí jeho zrušení.
 
 **Souhrn za celé období**, zůstatky peněžních prostředků, kontrola příjmů i varování vždy zahrnují celé zvolené období.

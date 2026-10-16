@@ -432,7 +432,7 @@ function onNotesChanged(notes: CashJournalNote[]) {
       </div>
     </div>
 
-    <p v-if="report && !loading" class="mb-3 text-sm text-neutral-500" role="status">{{ t('tax_evidence.cash_journal.rows_shown', { shown: report.filtered_rows, total: report.total_rows }) }}</p>
+    <p v-if="report && !loading && report.classification" class="mb-3 text-sm text-neutral-500" role="status">{{ t('tax_evidence.cash_journal.rows_shown', { shown: report.filtered_rows, total: report.total_rows }) }}</p>
 
     <div v-if="loading" class="text-center text-neutral-500 py-12 text-sm">{{ t('common.loading') }}</div>
 
