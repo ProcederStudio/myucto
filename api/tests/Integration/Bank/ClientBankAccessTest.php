@@ -25,6 +25,9 @@ final class ClientBankAccessTest extends TestCase
 {
     use \MyInvoice\Tests\Support\PayrollPaymentEvidenceTrait;
 
+    /** Import páruje a uhrazuje doklady, proto vyžaduje i oprávnění ke změně úhrad. */
+    private const IMPORT = ['bank' => 1, 'bank.import' => 2, 'invoices.mark_paid' => 2, 'purchase_invoices.transition' => 2];
+
     private ContainerInterface $container;
     private PDO $pdo;
     private BankStatementAction $bank;
@@ -342,6 +345,26 @@ final class ClientBankAccessTest extends TestCase
         }
     }
 
+    public function testClientImportWithoutPaymentWriteCannotBypassManualPairingCheck(): void
+    {
+        $bytes = (string) file_get_contents(dirname(__DIR__, 2) . '/Fixtures/BankIgnoreTransfer/statement.gpc');
+        $tmp = tempnam(sys_get_temp_dir(), 'bank-client-');
+        file_put_contents($tmp, $bytes);
+        try {
+            foreach ([
+                ['bank' => 1, 'bank.import' => 2],
+                ['bank' => 1, 'bank.import' => 2, 'invoices.mark_paid' => 2],
+                ['bank' => 1, 'bank.import' => 2, 'purchase_invoices.transition' => 2],
+            ] as $permissions) {
+                $request = $this->request($permissions, ['account_id' => $this->currency])
+                    ->withUploadedFiles(['file' => new UploadedFile($tmp, 'synthetic.gpc', 'text/plain', strlen($bytes))]);
+                $response = $this->bank->upload($request, new Response());
+                self::assertSame(403, $response->getStatusCode(), (string) $response->getBody());
+            }
+            self::assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM bank_statements WHERE supplier_id = ' . $this->supplier)->fetchColumn());
+        } finally { unlink($tmp); }
+    }
+
     public function testClientUploadRejectsForeignOverrideAndUnregisteredAccountBeforeImport(): void
     {
         $content = (string) file_get_contents(dirname(__DIR__, 2) . '/Fixtures/BankIgnoreTransfer/statement.gpc');
@@ -350,7 +373,7 @@ final class ClientBankAccessTest extends TestCase
             foreach ([['account_id' => $this->currency + 1000000], []] as $index => $body) {
                 $bytes = $index === 0 ? $content : str_replace('1000000005', '0000000000', $content);
                 file_put_contents($tmp, $bytes);
-                $request = $this->request(['bank' => 1, 'bank.import' => 2], $body)
+                $request = $this->request(self::IMPORT, $body)
                     ->withUploadedFiles(['file' => new UploadedFile($tmp, 'synthetic.gpc', 'text/plain', strlen($bytes))]);
                 $response = $this->bank->upload($request, new Response());
                 self::assertSame($index === 0 ? 422 : 409, $response->getStatusCode(), (string) $response->getBody());
@@ -431,7 +454,7 @@ final class ClientBankAccessTest extends TestCase
         $tmp = tempnam(sys_get_temp_dir(), 'bank-client-upload-');
         file_put_contents($tmp, $bytes);
         try {
-            $request = $this->request(['bank' => 1, 'bank.import' => 2], ['account_id' => $this->currency]);
+            $request = $this->request(self::IMPORT, ['account_id' => $this->currency]);
             $upload = fn () => $this->bank->upload($request->withUploadedFiles(['file' => new UploadedFile($tmp, 'synthetic.gpc', 'text/plain', strlen($bytes))]), new Response());
             $response = $upload();
             self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
@@ -537,13 +560,13 @@ final class ClientBankAccessTest extends TestCase
         $tmp = tempnam(sys_get_temp_dir(), 'client-bank-pdf-');
         file_put_contents($tmp, $bytes);
         try {
-            foreach ([['bank' => 1], ['bank' => 1, 'bank.import' => 2]] as $index => $permissions) {
+            foreach ([['bank' => 1], ['bank' => 1, 'bank.import' => 2], self::IMPORT] as $index => $permissions) {
                 $request = $this->request($permissions, ['account_id' => $this->currency + 1000000])
                     ->withUploadedFiles(['file' => new UploadedFile($tmp, 'synthetic.pdf', 'application/pdf', strlen($bytes))]);
                 $response = $this->bank->importPdf($request, new Response());
-                self::assertSame($index === 0 ? 403 : 422, $response->getStatusCode(), (string) $response->getBody());
+                self::assertSame($index < 2 ? 403 : 422, $response->getStatusCode(), (string) $response->getBody());
             }
-            $request = $this->request(['bank' => 1, 'bank.import' => 2], supplier: $this->otherSupplier)
+            $request = $this->request(self::IMPORT, supplier: $this->otherSupplier)
                 ->withUploadedFiles(['file' => new UploadedFile($tmp, 'synthetic.pdf', 'application/pdf', strlen($bytes))]);
             $response = $this->bank->importPdf($request, new Response());
             self::assertSame(409, $response->getStatusCode(), (string) $response->getBody());

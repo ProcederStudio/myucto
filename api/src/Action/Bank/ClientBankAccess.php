@@ -25,6 +25,17 @@ final class ClientBankAccess
         return $permission !== null && RequestAuthorization::allows($request, $permission, AccessLevel::READ);
     }
 
+    /**
+     * Import výpisu páruje a uhrazuje doklady automaticky, takže klient bez práva
+     * měnit úhrady by importem obešel kontrolu ručního párování ({@see assertDocuments()}).
+     */
+    public static function canImportStatement(Request $request): bool
+    {
+        return !RequestAuthorization::isClientType($request)
+            || (RequestAuthorization::allows($request, 'invoices.mark_paid', AccessLevel::WRITE)
+                && RequestAuthorization::allows($request, 'purchase_invoices.transition', AccessLevel::WRITE));
+    }
+
     /** Ověřuje každý doklad splitu; volající drží zámek pohybu v otevřené transakci. */
     public function assertDocuments(Request $request, string $type, array $ids, bool $changesPayment = true): void
     {

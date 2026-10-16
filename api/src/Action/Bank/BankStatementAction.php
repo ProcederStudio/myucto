@@ -206,6 +206,9 @@ final class BankStatementAction
         if (!RequestAuthorization::allows($request, 'bank.import', AccessLevel::WRITE)) {
             return Json::error($response, 'forbidden', 'Pouze admin nebo účetní.', 403);
         }
+        if (!ClientBankAccess::canImportStatement($request)) {
+            return Json::error($response, 'forbidden', 'Import výpisu vyžaduje i oprávnění měnit úhrady vydaných a přijatých faktur.', 403);
+        }
 
         try {
             $body = $request->getParsedBody();
@@ -318,6 +321,9 @@ final class BankStatementAction
         $user = (array) $request->getAttribute(AuthMiddleware::ATTR_USER, []);
         if (!RequestAuthorization::allows($request, 'bank.import', AccessLevel::WRITE)) {
             return Json::error($response, 'forbidden', 'Pouze admin nebo účetní.', 403);
+        }
+        if (!ClientBankAccess::canImportStatement($request)) {
+            return Json::error($response, 'forbidden', 'Import výpisu vyžaduje i oprávnění měnit úhrady vydaných a přijatých faktur.', 403);
         }
 
         $files = $request->getUploadedFiles();

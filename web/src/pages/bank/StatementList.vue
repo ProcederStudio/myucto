@@ -657,7 +657,7 @@ useWindowRefresh(['bank', 'bank-statements', 'bank-transactions', 'bank-match-su
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.cycle" /></svg>
           {{ scanning ? '…' : t('bank.scan_folder') }}
         </button>
-        <label v-if="authStore.canWrite('bank.import')" :class="btnFilled('primary')" :title="t('bank.upload_hint')">
+        <label v-if="authStore.canWrite('bank.import') && (!authStore.isClientRole || (authStore.canWrite('invoices.mark_paid') && authStore.canWrite('purchase_invoices.transition')))" :class="btnFilled('primary')" :title="t('bank.upload_hint')">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.upload" /></svg>
           {{ uploading ? '…' : t('bank.upload_gpc') }}
           <input type="file" accept=".gpc,.txt,.pdf,*/*" multiple :disabled="uploading" class="hidden" @change="onFileSelected" />

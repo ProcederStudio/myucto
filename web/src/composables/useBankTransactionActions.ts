@@ -90,8 +90,8 @@ export function useBankTransactionActions(opts: { reload: () => Promise<void> | 
     if (action === 'create') return !auth.isClientRole && auth.canWrite('purchase_invoices.create') && tx.amount < 0 && status === 'unmatched'
     if (action === 'request') return !auth.isClientRole && auth.canWrite('documents.requests') && ['unmatched', 'auto_partial'].includes(status)
     if (!auth.isClientRole) {
+      if (action === 'ignore') return auth.canWrite('bank.ignore') && status === 'unmatched'
       if (!auth.canWrite('bank.match')) return false
-      if (action === 'ignore') return status === 'unmatched'
       if (action === 'match') return ['unmatched', 'auto_partial'].includes(status)
       return ['auto_exact', 'auto_partial', 'manual', 'ignored'].includes(status)
     }
