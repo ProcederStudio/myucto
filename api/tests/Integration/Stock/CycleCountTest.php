@@ -328,6 +328,69 @@ final class CycleCountTest extends StockTestCase
         self::assertNull($cycles->get($supplierId, (int) $cycle['id'])['category_id'], 'Smazání kategorie inventuru neblokuje ani nesmaže.');
     }
 
+    public function testCategoryScopeDoesNotMatchSiblingWhosePathSharesTheIdPrefix(): void
+    {
+        $supplierId = $this->createSupplier();
+        $warehouseId = $this->warehouse($supplierId);
+        $root = $this->category($supplierId, 'CCP-ROOT');
+        $scope = $this->category($supplierId, 'CCP-SCOPE', $root);
+        // Sourozenec s id začínajícím stejnými číslicemi: /root/12/ nesmí pokrýt /root/123/.
+        $pdo = $this->db->pdo();
+        $prefixed = null;
+        for ($digit = 0; $digit <= 9 && $prefixed === null; $digit++) {
+            $candidate = (int) ($scope . $digit);
+            $exists = $pdo->prepare('SELECT 1 FROM stock_categories WHERE id = ?');
+            $exists->execute([$candidate]);
+            if ($exists->fetchColumn() === false) $prefixed = $candidate;
+        }
+        self::assertNotNull($prefixed);
+        $pdo->prepare('INSERT INTO stock_categories (id, supplier_id, parent_id, code, name, path, depth) VALUES (?, ?, ?, ?, ?, ?, 1)')
+            ->execute([$prefixed, $supplierId, $root, 'CCP-PREFIXED', 'Kategorie CCP-PREFIXED', '/' . $root . '/' . $prefixed . '/']);
+        $inScope = $this->item($supplierId, 'CCP-IN');
+        $inPrefixed = $this->item($supplierId, 'CCP-PREFIXED-ITEM');
+        $this->assignCategory($supplierId, $inScope, $scope);
+        $this->assignCategory($supplierId, $inPrefixed, $prefixed);
+        $this->receiveStock($supplierId, $warehouseId, $inScope, '1.000', 10.0, '2099-09-01');
+        $this->receiveStock($supplierId, $warehouseId, $inPrefixed, '1.000', 10.0, '2099-09-01');
+        $cycles = $this->container->get(CycleCountService::class);
+
+        $cycle = $cycles->create($supplierId, ['warehouse_id' => $warehouseId, 'take_date' => '2099-09-02', 'category_id' => $scope], $this->userId);
+        $cycles->tick($supplierId);
+
+        self::assertSame([$inScope], array_map(static fn (array $l): int => (int) $l['stock_item_id'], $cycles->get($supplierId, (int) $cycle['id'])['lines']),
+            'Podstrom se porovnává po celých segmentech cesty, ne podle prefixu id.');
+    }
+
+    public function testCategoryScopeSelectsTheSameItemsAsWholeWarehouseRestrictedToTheCategory(): void
+    {
+        $supplierId = $this->createSupplier();
+        $warehouseId = $this->warehouse($supplierId);
+        $otherWarehouse = $this->warehouse($supplierId, 'OTHER', false);
+        $category = $this->category($supplierId, 'CCS-ROOT');
+        $oldStock = $this->item($supplierId, 'CCS-OLD');
+        $elsewhere = $this->item($supplierId, 'CCS-ELSEWHERE');
+        $never = $this->item($supplierId, 'CCS-NEVER');
+        foreach ([$oldStock, $elsewhere, $never] as $itemId) $this->assignCategory($supplierId, $itemId, $category);
+        // Zásoba z dávného příjmu bez dalších pohybů; druhá karta má zásobu jen na jiném skladu.
+        $this->receiveStock($supplierId, $warehouseId, $oldStock, '4.000', 10.0, '2090-01-10');
+        $this->receiveStock($supplierId, $otherWarehouse, $elsewhere, '2.000', 10.0, '2099-09-01');
+        $cycles = $this->container->get(CycleCountService::class);
+
+        $whole = $cycles->create($supplierId, ['warehouse_id' => $warehouseId, 'take_date' => '2099-09-02'], $this->userId);
+        $cycles->tick($supplierId);
+        $wholeLines = $cycles->get($supplierId, (int) $whole['id'])['lines'];
+        $cycles->close($supplierId, (int) $whole['id'], $this->userId);
+
+        $scoped = $cycles->create($supplierId, ['warehouse_id' => $warehouseId, 'take_date' => '2099-09-02', 'category_id' => $category], $this->userId);
+        $cycles->tick($supplierId);
+        $scopedLines = $cycles->get($supplierId, (int) $scoped['id'])['lines'];
+
+        $project = static fn (array $lines): array => array_map(static fn (array $l): array => [(int) $l['stock_item_id'], $l['expected_qty']], $lines);
+        self::assertSame([[$oldStock, '4.000']], $project($scopedLines));
+        self::assertSame($project(array_values(array_filter($wholeLines, static fn (array $l): bool => in_array((int) $l['stock_item_id'], [$oldStock, $elsewhere, $never], true)))), $project($scopedLines),
+            'Kategorie jen zužuje výběr celého skladu, pravidla zařazení karet zůstávají stejná.');
+    }
+
     private function qty(int $supplierId, int $warehouseId, int $itemId): string
     {
         $stmt = $this->db->pdo()->prepare('SELECT qty FROM stock_levels WHERE supplier_id = ? AND warehouse_id = ? AND stock_item_id = ?');

@@ -250,7 +250,8 @@ async function closeTake() {
 
 onMounted(async () => {
   try { [warehouses.value, locations.value] = await Promise.all([stockApi.listWarehouses(true), stockApi.listLocations()]) } catch { warehouses.value = []; locations.value = [] }
-  eshopApi.listCategories().then(list => { categories.value = list.filter(c => !c.archived) }).catch(() => { categories.value = [] })
+  // Strom kategorií čte e-shop endpoint; bez práva číst e-shop výběr kategorie chybí (žádné 403).
+  if (auth.canRead('eshop')) eshopApi.listCategories().then(list => { categories.value = list.filter(c => !c.archived) }).catch(() => { categories.value = [] })
   if (id.value) await loadTake()
   else await loadList()
 })

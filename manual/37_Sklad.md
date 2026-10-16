@@ -1004,7 +1004,9 @@ někdy byly. Nalezenou kartu mimo ně zapíšete běžnou inventurou (pole **Př
 nalezenou na skladu**).
 
 Rozsah cyklické inventury lze omezit na **kategorii včetně podkategorií** (výběr
-**Kategorie (vč. podkategorií)** vedle skladu a lokace). Seznam karet se určí jednou
+**Kategorie (vč. podkategorií)** vedle skladu a lokace). Výběr se zobrazí jen
+uživateli s právem číst e-shop číselníky, protože strom kategorií patří k nim.
+Seznam karet se určí jednou
 při založení: karty, které jsou v okamžiku založení zařazené ve zvolené kategorii nebo
 kterékoli její podkategorii a na skladu někdy byly. Karta zařazená ve více kategoriích
 se započítá, pokud do rozsahu spadá aspoň jedna z nich. Pozdější přeřazení karty do
