@@ -159,7 +159,8 @@ Průběh můžete bezpečně zavřít a znovu otevřít, dokončené dávky se n
 
 > [!WARNING]
 > Karty se sledováním šarží nebo sériových čísel naskladněte ruční příjemkou,
-> kde lze vyplnit úplné alokace.
+> kde lze vyplnit úplné alokace. Prodat je pak jde přímo fakturou s výběrem kusů
+> ([§ 37.5.1](#3751-vydej-fakturou)).
 
 ## 37.5 Krok za krokem: vydat zboží
 
@@ -175,6 +176,29 @@ s původem **Vydaná faktura**. Přehled navázaných výdejek je na detailu fak
 
 Chybí-li zboží, vystavení skončí chybou „Nedostatek zásob pro výdej“ a faktura
 zůstane konceptem. Opravte množství či sklad, nebo napřed naskladněte.
+
+U karty se sledováním **sériových čísel** nebo **šarží** se pod řádkem zobrazí
+výběr kusů, které jsou ve zvoleném skladu skladem:
+
+- **Sériová čísla** zaškrtněte, každé číslo je jeden kus. Když kartu najdete
+  vyhledáním podle sériového čísla (například VIN), číslo se vybere samo.
+- **Šarže** dostanou množství, jeden řádek faktury může čerpat z více šarží.
+- Kus vybraný na jiném řádku téže karty a skladu se nabídne jen ve zbývajícím
+  množství.
+- Štítek „vybráno 1 z 2 ks“ ukazuje, kolik zbývá. Koncept jde uložit i s neúplným
+  výběrem, vystavit ale jen s výběrem v plném množství řádku (v základní jednotce
+  karty). Jinak vystavení skončí chybou se jménem karty a faktura dostane číslo až
+  po doplnění.
+- Umístění ve skladu se nevybírá, výdejka vydá kus z místa, kde podle zásoby leží.
+  Šarže uložená na více místech se vydá z nich postupně.
+- Dobropis z faktury převezme vybrané kusy a vratka je vrátí na sklad. U dobropisu
+  editor nabízí jen kusy, které původní faktura vydala a jiný dobropis ještě nevrátil
+  (částečný dobropis tak vrací jen část). Ruční dobropis bez původní faktury nebo
+  záporný řádek faktury nemá z čeho nabízet, vrácený kus zadáte ručně.
+- Interní storno vydané kusy vrátí, obnovení po stornu je vydá znovu. Kopie faktury
+  výběr nepřebírá, konkrétní kus se znovu neprodává.
+- Po vystavení se výběr nedá změnit ani administrátorskou úpravou, editor ho jen
+  ukáže. Opravu udělejte dobropisem a novou fakturou.
 
 ### 37.5.2 Ruční výdejka
 

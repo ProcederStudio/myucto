@@ -19,7 +19,7 @@ import {
 import { adminApi, type InvoiceSmtpLog } from '@/api/admin'
 import { apiErrorMessage } from '@/api/errors'
 import { stockApi, type StockDocument } from '@/api/stock'
-import { formatMoney, formatHourlyRate, formatDate, formatPercent, statusLabel, typeLabel, statusBadgeClass, displayStatus } from '@/composables/useFormat'
+import { formatMoney, formatHourlyRate, formatDate, formatNumber, formatPercent, statusLabel, typeLabel, statusBadgeClass, displayStatus } from '@/composables/useFormat'
 import { durationTotal, formatDuration, isTimeItem, itemQuantity, workRowTotal } from '@/utils/timeBilling'
 import { useAuthStore } from '@/stores/auth'
 import { useSupplierStore } from '@/stores/supplier'
@@ -897,6 +897,11 @@ async function issue() {
       const items = (e?.response?.data?.error?.items ?? []) as Array<{ sku: string; name: string; requested: string; available: string }>
       const lines = items.map(it => t('stock.documents.insufficient_stock_line', it)).join('; ')
       toast.error(`${t('invoice.insufficient_stock_toast')} ${lines}`)
+    } else if (code === 'stock.error.tracking_selection_required') {
+      const items = (e?.response?.data?.error?.items ?? []) as Array<{ sku: string | null; name: string | null; selected: string; required: string }>
+      const qty = (v: string) => formatNumber(Number(v), { maximumFractionDigits: 3 })
+      const lines = items.map(it => t('invoice.tracking.required_line', { name: [it.sku, it.name].filter(Boolean).join(' '), selected: qty(it.selected), required: qty(it.required) })).join('; ')
+      toast.error(`${t('invoice.tracking.required_toast')} ${lines}`)
     } else {
       toast.error( e?.response?.data?.error?.message || t('invoice.issue_failed'))
     }

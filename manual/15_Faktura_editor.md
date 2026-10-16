@@ -433,6 +433,8 @@ vybrat zákazníka a měnu dokladu.
 Volba se zobrazuje jen firmám bez aktivního modulu **Sklad**. Při zapnutém skladu nebo e-shopu
 se položky vybírají ze skladových karet, aby v aplikaci nevznikaly dva souběžné zdroje cen
 a produktových údajů.
+U karty se sledováním sériových čísel nebo šarží vyberete pod řádkem konkrétní kusy
+(například VIN motocyklu), viz [§ 37.5.1](37_Sklad.md#3751-vydej-fakturou).
 
 Ve výběru lze hledat podle kódu a názvu. U každé nabídky je uvedena výsledná cena a její zdroj,
 u kurzového přepočtu také datum použitého kurzovního lístku. Vložený řádek je samostatný

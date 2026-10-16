@@ -39,6 +39,61 @@ final class StockTrackingAction
         ]);
     }
 
+    /**
+     * Nabídka kusů pro výběr na řádku faktury: kusy skladem ve skladu (sečtené přes
+     * umístění, bez historie pohybů) a u dobropisu k faktuře kusy, které původní faktura
+     * vydala a jiné dobropisy ještě nevrátily (`returnable`; jinak null). Stejné pravidlo
+     * vymáhá vratka ({@see \MyInvoice\Service\Stock\StockIssueService}).
+     */
+    public function choices(Request $request, Response $response, array $args): Response
+    {
+        $supplierId = $this->currentSupplierId($request);
+        if (!$this->guardStockEnabled($this->db, $supplierId, $response, $err)) return $err;
+        $item = $this->tracking->item($supplierId, (int) $args['id']);
+        if ($item === null) return Json::error($response, 'not_found', 'Skladová karta nenalezena.', 404);
+        $query = $request->getQueryParams();
+        $warehouseId = (int) ($query['warehouse_id'] ?? 0);
+        $invoiceId = (int) ($query['invoice_id'] ?? 0);
+        return Json::ok($response, [
+            'tracking_mode' => $item['tracking_mode'],
+            'base_unit' => $item['unit'],
+            'in_stock' => $warehouseId > 0 ? $this->tracking->inStockByUnit($supplierId, (int) $item['id'], $warehouseId) : [],
+            'returnable' => $invoiceId > 0 ? $this->returnable($supplierId, (int) $item['id'], $invoiceId) : null,
+        ]);
+    }
+
+    /** @return list<array{serial_number:?string, lot_code:?string, expires_on:?string, quantity:string}>|null */
+    private function returnable(int $supplierId, int $itemId, int $invoiceId): ?array
+    {
+        $stmt = $this->db->pdo()->prepare(
+            "SELECT parent_invoice_id FROM invoices WHERE id = ? AND supplier_id = ? AND invoice_type = 'credit_note'"
+        );
+        $stmt->execute([$invoiceId, $supplierId]);
+        $parentId = (int) ($stmt->fetchColumn() ?: 0);
+        if ($parentId <= 0) {
+            return null;
+        }
+        $siblings = $this->db->pdo()->prepare('SELECT id FROM invoices WHERE supplier_id = ? AND parent_invoice_id = ? AND id <> ?');
+        $siblings->execute([$supplierId, $parentId, $invoiceId]);
+        $issued = $this->tracking->movedUnitsByInvoices($supplierId, $itemId, [$parentId], 'issue', 'out');
+        $returned = $this->tracking->movedUnitsByInvoices(
+            $supplierId, $itemId, array_map('intval', $siblings->fetchAll(\PDO::FETCH_COLUMN)), 'receipt', 'in',
+        );
+        $out = [];
+        foreach ($issued as $key => $unit) {
+            $leftT = $unit['qtyT'] - ($returned[$key]['qtyT'] ?? 0);
+            if ($leftT > 0) {
+                $out[] = [
+                    'serial_number' => $unit['serial_number'],
+                    'lot_code' => $unit['lot_code'],
+                    'expires_on' => $unit['expires_on'],
+                    'quantity' => \MyInvoice\Service\Stock\StockValuation::tToDecimal($leftT),
+                ];
+            }
+        }
+        return $out;
+    }
+
     public function replaceUnits(Request $request, Response $response, array $args): Response
     {
         if (!$this->requirePermission($request, $response, 'stock.items.write', AccessLevel::WRITE, $err)) return $err;
