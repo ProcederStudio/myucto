@@ -33946,7 +33946,7 @@
     "dry_run_running": "Zkouška nanečisto běží…",
     "import_running": "Převod běží…",
     "job_counts": "zapsáno dokladů a účetních zápisů {created}, chyb {failed}",
-    "background_hint": "Převod běží na serveru a doběhne i po zavření stránky. Výsledek se ukáže, když stránku necháte otevřenou.",
+    "background_hint": "Převod běží na serveru a doběhne i po zavření stránky. Po návratu na stránku v téže záložce průvodce naváže na průběh nebo výsledek.",
     "blank_country_is_cz": "Potvrzuji, že prázdná země u protistrany v této záloze znamená Českou republiku. Ostatní nejasné země zůstanou ke kontrole.",
     "open_payroll": "Otevřít převzaté mzdy",
     "written_title": "Nově uložené záznamy",

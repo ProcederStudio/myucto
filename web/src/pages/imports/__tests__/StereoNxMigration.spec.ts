@@ -5,10 +5,21 @@ import StereoNxMigration from '../StereoNxMigration.vue'
 const m = vi.hoisted(() => ({
   uploads: vi.fn(), upload: vi.fn(), preview: vi.fn(), run: vi.fn(), remove: vi.fn(), fillCompanyProfile: vi.fn(),
   toastError: vi.fn(), supplierStore: undefined as any,
+  // Stránka job spustí (`start`) a sleduje (`follow`); testy dál pracují s jedním `run`.
+  jobs: new Map<number, [string, number, string, boolean]>(),
 }))
 
 vi.mock('@/api/stereoNx', () => ({ stereoNxApi: {
   uploads: m.uploads, upload: m.upload, preview: m.preview, run: m.run, remove: m.remove, fillCompanyProfile: m.fillCompanyProfile,
+  start: async (token: string, company: number, mode: string, blank: boolean) => {
+    const id = m.jobs.size + 1
+    m.jobs.set(id, [token, company, mode, blank])
+    return id
+  },
+  follow: async (_token: string, id: number, onJob?: (job: object) => void) => {
+    const [token, company, mode, blank] = m.jobs.get(id)!
+    return m.run(token, company, mode, blank, onJob ?? (() => {}))
+  },
 } }))
 vi.mock('@/stores/supplier', async () => {
   const { reactive } = await import('vue')
@@ -63,6 +74,8 @@ async function reachDryRun(wrapper: Awaited<ReturnType<typeof mountPage>>) {
 
 beforeEach(() => {
   vi.resetAllMocks()
+  m.jobs.clear()
+  sessionStorage.clear()
   m.supplierStore.currentSupplierId = 1
   m.uploads.mockResolvedValue([upload])
   m.upload.mockResolvedValue({ token: upload.token })
@@ -75,6 +88,20 @@ beforeEach(() => {
 afterEach(() => vi.clearAllMocks())
 
 describe('Stereo NX migration wizard', () => {
+  it('after returning to the page resumes the dry run and allows the transfer', async () => {
+    const first = await mountPage()
+    await reachDryRun(first)
+    expect(m.run).toHaveBeenCalledTimes(1)
+    first.unmount()
+
+    const wrapper = await mountPage()
+    expect(m.run).toHaveBeenCalledTimes(2)
+    expect(m.run).toHaveBeenLastCalledWith(upload.token, 0, 'dry_run', false, expect.any(Function))
+    expect(m.jobs.size).toBe(1)
+    expect(primaryButton(wrapper, 'dry_run_again')).toBeTruthy()
+    expect(primaryButton(wrapper, 'continue').attributes('disabled')).toBeUndefined()
+  })
+
   it('links historical wages only after a committed transfer', async () => {
     const written = { historical_payroll_created: 2 }
     m.run.mockImplementation(async (_token: string, _company: number, mode: string) => mode === 'dry_run'

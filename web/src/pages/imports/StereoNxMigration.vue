@@ -40,6 +40,25 @@ const selectedProfileFields = ref<string[]>([])
 const job = ref<FileImportJob | null>(null)
 const error = ref('')
 
+/**
+ * Job spuštěný z průvodce: zkouška i převod běží na serveru dál, i když uživatel stránku
+ * opustí. Po návratu ho průvodce podle tohoto záznamu naváže, i s volbami, se kterými běžel.
+ */
+interface StoredRun { supplierId: number; token: string; jobId: number; mode: 'dry_run' | 'import'; company: number; blankCountryIsCz: boolean; deleteAfterImport: boolean }
+const RUN_KEY = 'myucto.stereo-nx.job'
+function readRun(): StoredRun | null {
+  try {
+    const stored = JSON.parse(sessionStorage.getItem(RUN_KEY) ?? 'null') as StoredRun | null
+    return stored && Number.isInteger(stored.jobId) && Number.isInteger(stored.company) && typeof stored.token === 'string' ? stored : null
+  } catch { return null }
+}
+function writeRun(stored: StoredRun | null): void {
+  try {
+    if (stored) sessionStorage.setItem(RUN_KEY, JSON.stringify(stored))
+    else sessionStorage.removeItem(RUN_KEY)
+  } catch { /* bez úložiště se průvodce po návratu vrátí na výběr zálohy */ }
+}
+
 const selectedCompany = computed(() => companies.value.find(item => item.index === selected.value))
 const modeMismatch = computed(() => !!selectedCompany.value?.identity.accounting_mode && !!target.value?.accounting_mode && selectedCompany.value.identity.accounting_mode !== target.value.accounting_mode)
 function modeLabel(mode: string | null | undefined): string {
@@ -132,11 +151,30 @@ async function refreshUploads(): Promise<void> {
   }
 }
 
-watch(() => supplier.currentSupplierId, () => {
+watch(() => supplier.currentSupplierId, async () => {
   resetSelection()
   uploads.value = []
-  void refreshUploads()
+  await refreshUploads()
+  await resumeRun()
 }, { immediate: true })
+
+/** Návrat na stránku: naváže job spuštěný z průvodce (běžící i doběhlý) nad jeho zálohou. */
+async function resumeRun(): Promise<void> {
+  const stored = readRun()
+  if (!stored || stored.supplierId !== supplier.currentSupplierId) return
+  if (!uploads.value.some(item => item.token === stored.token && item.complete)) {
+    writeRun(null)
+    return
+  }
+  token.value = stored.token
+  await preview()
+  if (token.value !== stored.token || !companies.value.some(item => item.index === stored.company)) return
+  selected.value = stored.company
+  blankCountryIsCz.value = stored.blankCountryIsCz
+  deleteAfterImport.value = stored.deleteAfterImport
+  currentStep.value = stored.mode === 'dry_run' ? 3 : 4
+  await run(stored.mode, stored.jobId)
+}
 
 function uploadDate(timestamp: number): string {
   return new Date(timestamp * 1000).toLocaleString(locale.value)
@@ -147,6 +185,7 @@ function uploadSize(bytes: number): string {
 }
 
 function onFile(event: Event): void {
+  writeRun(null)
   currentStep.value = 1
   file.value = (event.target as HTMLInputElement).files?.[0] ?? null
   token.value = null
@@ -222,6 +261,7 @@ async function openUpload(upload: StereoUpload): Promise<void> {
   reportCompany.value = null
   blankCountryIsCz.value = false
   profileFilled.value = []
+  writeRun(null)
   await preview()
 }
 
@@ -278,7 +318,7 @@ async function fillCompanyProfile(): Promise<void> {
   }
 }
 
-async function run(mode: 'dry_run' | 'import'): Promise<void> {
+async function run(mode: 'dry_run' | 'import', resumeJobId: number | null = null): Promise<void> {
   if (!token.value || selected.value === null) return
   if (mode === 'dry_run') {
     importReport.value = null
@@ -292,7 +332,9 @@ async function run(mode: 'dry_run' | 'import'): Promise<void> {
   error.value = ''
   cleanupWarning.value = ''
   try {
-    const report = await stereoNxApi.run(uploadToken, company, mode, blankCountryIsCz.value, current => {
+    const jobId = resumeJobId ?? await stereoNxApi.start(uploadToken, company, mode, blankCountryIsCz.value)
+    if (supplierId) writeRun({ supplierId, token: uploadToken, jobId, mode, company, blankCountryIsCz: blankCountryIsCz.value, deleteAfterImport: deleteAfterImport.value })
+    const report = await stereoNxApi.follow(uploadToken, jobId, current => {
       if (supplier.currentSupplierId === supplierId && token.value === uploadToken) job.value = current
     })
     if (supplier.currentSupplierId !== supplierId || token.value !== uploadToken) return
@@ -310,6 +352,7 @@ async function run(mode: 'dry_run' | 'import'): Promise<void> {
       if (report.ok && report.database_writes === true && report.partial !== true && deleteAfterImport.value) {
         try {
           await stereoNxApi.remove(uploadToken)
+          writeRun(null)
           if (supplier.currentSupplierId !== supplierId || token.value !== uploadToken) return
           token.value = null
           file.value = null
@@ -328,6 +371,11 @@ async function run(mode: 'dry_run' | 'import'): Promise<void> {
     }
   } catch (caught) {
     if (supplier.currentSupplierId !== supplierId || token.value !== uploadToken) return
+    if (resumeJobId !== null) {
+      // Job, ke kterému se průvodce vracel, skončil bez výsledku nebo už neexistuje.
+      writeRun(null)
+      currentStep.value = 2
+    }
     error.value = message(caught)
     toast.error(error.value)
   } finally {
@@ -342,6 +390,7 @@ async function removeUpload(upload: StereoUpload): Promise<void> {
   error.value = ''
   try {
     await stereoNxApi.remove(upload.token)
+    if (readRun()?.token === upload.token) writeRun(null)
     if (supplier.currentSupplierId !== supplierId) return
     if (token.value === upload.token) {
       const successfulReport = importReport.value?.ok ? importReport.value : null

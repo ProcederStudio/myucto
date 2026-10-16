@@ -86,8 +86,12 @@ export const stereoNxApi = {
    * (společné `/admin/imports/{id}`, `onJob` dostává každý stav) a po doběhnutí se stáhne
    * výsledek. Job, který skončil bez výsledku, vrátí chybu s textem jobu.
    */
-  run: async (token: string, company: number, mode: 'dry_run' | 'import', blankCountryIsCz: boolean, onJob?: (job: FileImportJob) => void): Promise<StereoReport> => {
-    const { job_id: jobId } = (await api.post<{ job_id: number }>(`${BASE}/uploads/${token}/run`, { company, mode, blank_country_is_cz: blankCountryIsCz })).data
+  run: async (token: string, company: number, mode: 'dry_run' | 'import', blankCountryIsCz: boolean, onJob?: (job: FileImportJob) => void): Promise<StereoReport> =>
+    stereoNxApi.follow(token, await stereoNxApi.start(token, company, mode, blankCountryIsCz), onJob),
+  start: async (token: string, company: number, mode: 'dry_run' | 'import', blankCountryIsCz: boolean): Promise<number> =>
+    (await api.post<{ job_id: number }>(`${BASE}/uploads/${token}/run`, { company, mode, blank_country_is_cz: blankCountryIsCz })).data.job_id,
+  /** Sleduje už založený job do konce a vrátí jeho výsledek (i job spuštěný před opuštěním stránky). */
+  follow: async (token: string, jobId: number, onJob?: (job: FileImportJob) => void): Promise<StereoReport> => {
     for (;;) {
       const job = await fetchImportJob(jobId)
       onJob?.(job)

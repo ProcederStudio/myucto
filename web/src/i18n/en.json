@@ -33946,7 +33946,7 @@
     "dry_run_running": "Dry run in progress…",
     "import_running": "Migration in progress…",
     "job_counts": "documents and journal entries written {created}, errors {failed}",
-    "background_hint": "The migration runs on the server and finishes even if you close the page. The result is shown while the page stays open.",
+    "background_hint": "The migration runs on the server and finishes even if you close the page. When you come back to the page in the same tab, the wizard picks up the progress or the result.",
     "blank_country_is_cz": "I confirm that a blank counterparty country in this backup means the Czech Republic. Other ambiguous countries will remain for review.",
     "open_payroll": "Open transferred wages",
     "written_title": "New records saved",
