@@ -997,7 +997,8 @@
         "2013_client_email_isdoc_override.sql",
         "2014_client_ai_extraction.sql",
         "2015_client_bank_permissions.sql",
-        "2016_invoice_item_tracking.sql"
+        "2016_invoice_item_tracking.sql",
+        "2023_supplier_invoice_pdf_monochrome.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -21832,6 +21833,7 @@
                 "integration_sample_seeded_at": "datetime NULL DEFAULT NULL",
                 "invoice_number_format": "varchar(60) NULL DEFAULT NULL",
                 "invoice_number_period": "enum('year','month','none') NOT NULL DEFAULT 'month'",
+                "invoice_pdf_monochrome": "tinyint(1) NOT NULL DEFAULT 0",
                 "invoice_pdf_show_base_qty": "tinyint(1) NOT NULL DEFAULT 1",
                 "invoice_qr_include_due_date": "tinyint(1) NOT NULL DEFAULT 0",
                 "is_identified": "tinyint(1) NOT NULL DEFAULT 0",

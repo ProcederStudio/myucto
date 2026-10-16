@@ -88,6 +88,7 @@ final class InvoicePdfRenderer
         // Cache je validní jen když je novější než šablona, CSS a kód renderu
         $tplMtime = max(
             @filemtime(Bootstrap::rootDir() . '/styles/invoice.css') ?: 0,
+            @filemtime(Bootstrap::rootDir() . '/' . PdfBranding::MONOCHROME_CSS) ?: 0,
             @filemtime(Bootstrap::rootDir() . '/api/templates/invoice/invoice.twig') ?: 0,
             @filemtime(__DIR__ . '/TimeBillingPdfPresenter.php') ?: 0,
             @filemtime(__FILE__) ?: 0,
@@ -272,8 +273,8 @@ final class InvoicePdfRenderer
     {
         $cssPath = Bootstrap::rootDir() . '/styles/invoice.css';
         $css = is_file($cssPath) ? (string) file_get_contents($cssPath) : '';
-        // Per-supplier branding barva — přebarví fialové akcenty na zvolený odstín.
-        $css .= $this->brandAccentCss($this->resolveSupplier($invoice));
+        // Per-supplier branding barva, nebo úsporná černobílá varianta (ta akcent nahrazuje).
+        $css .= $this->brandThemeCss($this->resolveSupplier($invoice));
         // Renderuj template BEZ inline <style> bloku — CSS pošleme do mPDF zvlášť
         $body = $this->renderHtml(
             $invoice,
@@ -340,7 +341,7 @@ final class InvoicePdfRenderer
             ? (is_file($cssPath) ? (string) file_get_contents($cssPath) : '')
             : '';
         if ($includeCss && $css !== '') {
-            $css .= $this->brandAccentCss($supplierData);
+            $css .= $this->brandThemeCss($supplierData);
         }
 
         // Locale pro `t()` — čte ho closure registrovaná v twig() (viz komentář tam).
@@ -511,10 +512,11 @@ final class InvoicePdfRenderer
      * AccentColor::tint() (mix s bílou). Šedá paleta CZK rekapitulace (bg #F2F2F2/…) je
      * záměrně neutrální, tu necháváme být — barvíme jen její fialové linky/text.
      */
-    private function brandAccentCss(array $supplier): string
+    private function brandThemeCss(array $supplier): string
     {
-        // Sdíleno s výkazem víceprací — viz PdfBranding::accentCss.
-        return PdfBranding::accentCss($supplier);
+        // Sdíleno s výkazem víceprací, viz PdfBranding::themeCss (černobílá varianta
+        // `invoice_pdf_monochrome` akcent nahrazuje) a PdfBranding::accentCss.
+        return PdfBranding::themeCss($supplier);
     }
 
     /**

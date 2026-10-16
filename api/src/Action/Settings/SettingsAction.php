@@ -482,6 +482,8 @@ final class SettingsAction
             'invoice_number_period',
             // Per-supplier branding emailů (migrace 0016) + PDF logo+název (migrace 0058)
             'email_branding_enabled', 'email_accent_color', 'pdf_logo_show_name', 'branding_profiles_enabled',
+            // Úsporná černobílá faktura (migrace 2023)
+            'invoice_pdf_monochrome',
             // Tax settings pro EPO výkazy (migrace 0038, fáze 6)
             'taxpayer_type', 'vat_period', 'financial_office_code', 'workplace_code',
             'cz_nace_code', 'data_box_type', 'data_box_id', 'flat_tax_band',
@@ -995,7 +997,7 @@ final class SettingsAction
             }
             if (array_key_exists($f, $body)) {
                 $sets[] = "$f = ?";
-                $params[] = in_array($f, ['is_vat_payer', 'is_identified', 'oss_enabled', 'auto_send_reminders', 'auto_generate_recurring', 'embed_isdoc', 'public_isdoc_enabled', 'email_attach_isdoc', 'default_prices_include_vat', 'email_branding_enabled', 'pdf_logo_show_name', 'branding_profiles_enabled', 'payment_thanks_enabled', 'payment_thanks_auto_send', 'payment_thanks_default_checked', 'payment_thanks_attach_paid_pdf', 'stock_enabled', 'stock_auto_issue', 'invoice_pdf_show_base_qty', 'dimensions_enabled', 'accounting_enabled', 'payroll_enabled', 'auto_post_invoices', 'auto_post_purchases', 'ai_eu_residency_required', 'client_ai_extraction_enabled', 'tax_investment_incentive', 'tax_atad_cfc', 'tax_public_benefit', 'tax_cooperating_person', 'tax_foreign_income_credit', 'allow_refund_invoices', DefaultInvoiceNote::ENABLED_COLUMN], true)
+                $params[] = in_array($f, ['is_vat_payer', 'is_identified', 'oss_enabled', 'auto_send_reminders', 'auto_generate_recurring', 'embed_isdoc', 'public_isdoc_enabled', 'email_attach_isdoc', 'default_prices_include_vat', 'email_branding_enabled', 'pdf_logo_show_name', 'invoice_pdf_monochrome', 'branding_profiles_enabled', 'payment_thanks_enabled', 'payment_thanks_auto_send', 'payment_thanks_default_checked', 'payment_thanks_attach_paid_pdf', 'stock_enabled', 'stock_auto_issue', 'invoice_pdf_show_base_qty', 'dimensions_enabled', 'accounting_enabled', 'payroll_enabled', 'auto_post_invoices', 'auto_post_purchases', 'ai_eu_residency_required', 'client_ai_extraction_enabled', 'tax_investment_incentive', 'tax_atad_cfc', 'tax_public_benefit', 'tax_cooperating_person', 'tax_foreign_income_credit', 'allow_refund_invoices', DefaultInvoiceNote::ENABLED_COLUMN], true)
                     ? ((int) (bool) $body[$f])
                     : $body[$f];
             }
@@ -1087,12 +1089,13 @@ final class SettingsAction
         if ($modeEffectiveFrom !== null) {
             $this->accountingModes->record($id, $modeEffectiveFrom, (string) $body['accounting_mode']);
         }
-        // Branding (barva/toggle) se v PDF renderuje živě → po změně invaliduj cached
+        // Branding (barva/toggle/černobílá varianta) se v PDF renderuje živě → po změně invaliduj cached
         // draft PDF dodavatele, ať se přegenerují s novou barvou (mtime cache je sama
         // od sebe neobnoví). Vystavené regenerují přes ?regenerate=1.
         if (array_key_exists('email_accent_color', $body)
             || array_key_exists('email_branding_enabled', $body)
             || array_key_exists('pdf_logo_show_name', $body)
+            || array_key_exists('invoice_pdf_monochrome', $body)
         ) {
             $this->pdf->invalidateDraftsBySupplier($id);
         }
@@ -1361,6 +1364,7 @@ final class SettingsAction
         $row['email_branding_enabled']   = (bool) ($row['email_branding_enabled'] ?? false);
         $row['email_accent_color']       = (string) ($row['email_accent_color'] ?? '#3B2D83');
         $row['pdf_logo_show_name']       = (bool) ($row['pdf_logo_show_name'] ?? false);
+        $row['invoice_pdf_monochrome']   = (bool) ($row['invoice_pdf_monochrome'] ?? false);
         $row['branding_profiles_enabled'] = (bool) ($row['branding_profiles_enabled'] ?? false);
         $row['default_branding_profile_id'] = $row['default_branding_profile_id'] !== null
             ? (int) $row['default_branding_profile_id']
