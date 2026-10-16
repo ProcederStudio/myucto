@@ -478,6 +478,9 @@ Pole editoru nové karty:
 - **Měrná jednotka** (výchozí „ks“), **EAN**, **sazba DPH** (výchozí do řádku
   faktury), **prodejní cena bez DPH** (výchozí do řádku faktury) a **minimální
   zásoba**. Klesne-li stav pod ni, karta se v seznamu i sestavách zvýrazní.
+  Má-li jednotka v číselníku nastavená **desetinná místa množství** (například `0`
+  u kusů), ruční skladový doklad s touto kartou přesnější množství nepřijme, viz
+  [§ 96.16.1](96_Nastaveni.md#96161-ciselniky-podrobnosti).
 - **Poznámka** a příznak **Aktivní**. Neaktivní kartu jde jen deaktivovat, ne
   smazat, aby zůstala historie pohybů.
 
@@ -789,6 +792,9 @@ se z klouzavého průměru při zaúčtování) a poznámka. U výdejky a převo
 řádku zobrazuje náhled **dostupného množství** na zvoleném skladu. Je jen
 informativní, závaznou kontrolu dělá až zaúčtování. Nesedí-li množství, zobrazí se
 u řádku hláška ve tvaru „{SKU} - {název}: požadováno {X}, skladem {Y}“.
+Množství je v jednotce karty. Má-li ta jednotka nastavená desetinná místa množství,
+editor přesnější zadání zvýrazní a doklad neuloží (nic se nezaokrouhluje), viz
+[§ 37.12.2](#37122-skladove-karty).
 
 Akce v hlavičce editoru: **Zaúčtovat** (uloží a rovnou zaúčtuje), **Uložit koncept**,
 tisk do PDF a u zaúčtovaného dokladu **Stornovat** (přes dialog s polem **Důvod storna**).

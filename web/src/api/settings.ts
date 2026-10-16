@@ -654,6 +654,8 @@ export interface Unit {
   is_default: boolean
   display_order: number
   items_count?: number
+  /** Desetinná místa množství (0 až 3), null = bez omezení. */
+  quantity_decimals?: number | null
 }
 
 export interface PdfSigningDiagnostics {

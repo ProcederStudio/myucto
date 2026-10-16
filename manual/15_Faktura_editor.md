@@ -445,7 +445,7 @@ nepřecení. Správa ceníku je popsána v [§ 96.1.5](96_Nastaveni.md#96161-cis
 | Sloupec | Význam |
 |---|---|
 | Popis | Co fakturujete. Lze víceřádkově. Je-li v popisu měsíc (`Konzultace 3/2026`), klonování faktury ho automaticky posune |
-| Množ. | Počet jednotek (kusy, hodiny, ...) |
+| Množ. | Počet jednotek (kusy, hodiny, ...). Má-li jednotka v číselníku nastavená **desetinná místa množství**, přesnější zadání editor zvýrazní a fakturu neuloží, nic se nezaokrouhluje. Viz [§ 96.16.1](96_Nastaveni.md#96161-ciselniky-podrobnosti) |
 | Jed. | Jednotka z číselníku (výchozí `h` / hodina). Číselník spravuje správce v `Systém → Sazby a číselníky`, záložce **Jednotky**, viz [§ 96.1.4](96_Nastaveni.md#96161-ciselniky-podrobnosti) |
 | Cena/j | Jednotková cena (v režimu bez DPH netto, v režimu s DPH brutto, viz [§ 15.9.2](#1592-hlavicka)) |
 | DPH | Sazba: `21 %`, `12 %`, `0 %` (osvobozeno), `RC` (reverse charge) |

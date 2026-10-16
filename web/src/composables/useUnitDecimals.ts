@@ -1,0 +1,81 @@
+import { computed, unref, type MaybeRef } from 'vue'
+
+/**
+ * Desetinná místa množství podle měrné jednotky (migrace 2018).
+ *
+ * Číselník jednotek je globální, jednotka na řádku dokladu i na skladové kartě je
+ * volný text. Párují se podle kódu bez ohledu na velikost písmen a okolní mezery,
+ * stejně jako na serveru (`UnitPrecision`). Jednotka bez nastavení a jednotka mimo
+ * číselník nejsou omezené, takže bez nastavení se v editorech nic nemění.
+ *
+ * Nic se nezaokrouhluje: editor jen upozorní a uložení zastaví, server stejný
+ * vstup odmítne 400.
+ */
+export interface UnitWithDecimals {
+  code: string
+  quantity_decimals?: number | null
+}
+
+/** Přesnost sloupce množství (DECIMAL(10,3)). */
+export const QUANTITY_STORAGE_DECIMALS = 3
+
+export function unitKey(unit: string | null | undefined): string {
+  return String(unit ?? '').trim().toLocaleLowerCase()
+}
+
+/** Počet platných desetinných míst (koncové nuly se nepočítají), nečíselné → null. */
+export function decimalPlaces(value: unknown): number | null {
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return null
+    // Devět míst odřízne šum float sčítání (0.1 + 0.2), skutečná místa nechá.
+    const fraction = Math.abs(value).toFixed(9).split('.')[1] ?? ''
+    return fraction.replace(/0+$/, '').length
+  }
+  if (typeof value !== 'string') return null
+  const s = value.trim().replace(',', '.')
+  const m = /^[+-]?\d*(?:\.(\d*))?$/.exec(s)
+  if (!m || s === '' || s === '.' || s === '+' || s === '-') return null
+  return (m[1] ?? '').replace(/0+$/, '').length
+}
+
+export function useUnitDecimals(units: MaybeRef<UnitWithDecimals[]>) {
+  const map = computed(() => {
+    const out = new Map<string, number>()
+    for (const u of unref(units) ?? []) {
+      if (u.quantity_decimals !== null && u.quantity_decimals !== undefined) {
+        out.set(unitKey(u.code), u.quantity_decimals)
+      }
+    }
+    return out
+  })
+
+  /** Nastavený počet míst jednotky, null = bez omezení. */
+  function decimalsFor(unit: string | null | undefined): number | null {
+    return map.value.get(unitKey(unit)) ?? null
+  }
+
+  /** Má množství víc míst, než jednotka dovoluje? Prázdné a nečíselné ne (to hlídá jiná validace). */
+  function tooPrecise(quantity: unknown, unit: string | null | undefined): boolean {
+    const allowed = decimalsFor(unit)
+    if (allowed === null) return false
+    const places = decimalPlaces(quantity)
+    return places !== null && places > allowed
+  }
+
+  /** Atribut `step` číselného pole množství. Bez nastavení jako dosud 0.001. */
+  function stepFor(unit: string | null | undefined): string {
+    const d = decimalsFor(unit) ?? QUANTITY_STORAGE_DECIMALS
+    return d === 0 ? '1' : (1 / 10 ** d).toFixed(d)
+  }
+
+  /**
+   * Počet míst pro kalkulačku `v-math` v poli množství. Bez nastavení 2 jako dosud.
+   * S nastavením přesnost sloupce: výsledek výrazu se nesmí potichu zaokrouhlit
+   * na povolený počet míst, nadbytečná místa ukáže upozornění.
+   */
+  function mathDecimalsFor(unit: string | null | undefined): number {
+    return decimalsFor(unit) === null ? 2 : QUANTITY_STORAGE_DECIMALS
+  }
+
+  return { decimalsFor, tooPrecise, stepFor, mathDecimalsFor }
+}

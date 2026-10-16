@@ -61,6 +61,7 @@ import ItemDimensionsToggle from '@/components/dimensions/ItemDimensionsToggle.v
 import { useDocumentDimensions, applyPrefill } from '@/composables/useDocumentDimensions'
 import { durationTotal, isPreciseTimeItem, isTimeItem, itemAmount, itemQuantity, syncCreditNoteItemSign, timeItemTotals, validateDurationInputs, workHours, workRowTotal } from '@/utils/timeBilling'
 import { groupInvoiceStockAvailability, invoiceStockAvailabilityKey } from './invoiceStockAvailability'
+import { useUnitDecimals } from '@/composables/useUnitDecimals'
 import {
   availabilityQuantity,
   availabilityUnit,
@@ -190,6 +191,12 @@ const vatClassifications = ref<VatClassification[]>([])
 const revenueCategories = ref<RevenueCategory[]>([])
 const currencies = ref<Currency[]>([])
 const units = ref<Unit[]>([])
+// Desetinná místa množství podle jednotky (2018): upozornění místo tichého zaokrouhlení.
+const { decimalsFor: unitDecimalsFor, tooPrecise: quantityTooPrecise, stepFor: quantityStepFor, mathDecimalsFor: quantityMathDecimals } = useUnitDecimals(units)
+/** Časový řádek se zadává jako doba (h:mm), množství z ní jen vychází, proto se nekontroluje. */
+function itemQtyTooPrecise(item: Parameters<typeof isTimeItem>[0]): boolean {
+  return !isTimeItem(item) && quantityTooPrecise(item.quantity, item.unit)
+}
 const priceListItems = ref<PriceListItem[]>([])
 const selectedPriceListItemId = ref<number | null>(null)
 const resolvingPriceListItem = ref(false)
@@ -2352,6 +2359,13 @@ async function submit() {
     error.value = t('invoice.amount_positive_required')
     return
   }
+  // Množství s víc desetinnými místy, než jednotka dovoluje (2018). Nezaokrouhluje se,
+  // uživatel opraví vstup sám; server by stejný doklad odmítl 400.
+  if (form.value.items.some(itemQtyTooPrecise)
+    || (matOpen.value && matItemsValid.value.some(m => quantityTooPrecise(m.quantity, m.unit)))) {
+    error.value = t('invoice.quantity_decimals_blocked')
+    return
+  }
 
   submitting.value = true
   error.value = ''
@@ -3034,8 +3048,11 @@ useWindowTitle(
               </td>
               <td class="px-3 py-2">
                 <DurationInput v-if="isTimeItem(item)" v-model="item.quantity" v-model:duration-minutes="item.duration_minutes" :allow-negative="true" />
-                <input v-else v-model="item.quantity" v-math="2" type="text" inputmode="decimal"
-                  :class="['w-full h-9 px-2 border rounded text-right font-mono text-sm', itemHasBothNegative(item) ? 'border-danger-400' : 'border-neutral-300']" />
+                <input v-else v-model="item.quantity" v-math="quantityMathDecimals(item.unit)" type="text" inputmode="decimal"
+                  :class="['w-full h-9 px-2 border rounded text-right font-mono text-sm', itemHasBothNegative(item) || itemQtyTooPrecise(item) ? 'border-danger-400' : 'border-neutral-300']" />
+                <p v-if="itemQtyTooPrecise(item)" data-test="qty-decimals-warning" class="mt-1 text-xs text-danger-600">
+                  {{ t('invoice.quantity_decimals_warning', { unit: item.unit, n: unitDecimalsFor(item.unit) }) }}
+                </p>
               </td>
               <td class="px-3 py-2">
                 <select v-if="rowUnitChoices(item)" :value="item.unit" @change="onStockUnitSelect(item, ($event.target as HTMLSelectElement).value)"
@@ -3326,8 +3343,11 @@ useWindowTitle(
               <div>
                 <label class="block text-xs font-medium text-neutral-600 mb-1">{{ t('invoice.items_table.qty') }}</label>
                 <DurationInput v-if="isTimeItem(item)" v-model="item.quantity" v-model:duration-minutes="item.duration_minutes" :allow-negative="true" />
-                <input v-else v-model="item.quantity" v-math="2" type="text" inputmode="decimal"
-                  :class="['w-full h-10 px-3 border rounded text-right font-mono text-sm', itemHasBothNegative(item) ? 'border-danger-400' : 'border-neutral-300']" />
+                <input v-else v-model="item.quantity" v-math="quantityMathDecimals(item.unit)" type="text" inputmode="decimal"
+                  :class="['w-full h-10 px-3 border rounded text-right font-mono text-sm', itemHasBothNegative(item) || itemQtyTooPrecise(item) ? 'border-danger-400' : 'border-neutral-300']" />
+                <p v-if="itemQtyTooPrecise(item)" class="mt-1 text-xs text-danger-600">
+                  {{ t('invoice.quantity_decimals_warning', { unit: item.unit, n: unitDecimalsFor(item.unit) }) }}
+                </p>
               </div>
               <div>
                 <label class="block text-xs font-medium text-neutral-600 mb-1">{{ t('invoice.items_table.unit') }}</label>
@@ -3785,7 +3805,11 @@ useWindowTitle(
                   <input v-model="m.description" type="text" data-row-input="inv-mat" class="w-full h-9 px-2 border border-neutral-300 rounded text-sm" />
                 </td>
                 <td class="px-2 py-1.5">
-                  <input v-model.number="m.quantity" type="number" step="0.001" min="0" class="w-full h-9 px-2 border border-neutral-300 rounded text-sm text-right font-mono" />
+                  <input v-model.number="m.quantity" type="number" :step="quantityStepFor(m.unit)" min="0"
+                    :class="['w-full h-9 px-2 border rounded text-sm text-right font-mono', quantityTooPrecise(m.quantity, m.unit) ? 'border-danger-400' : 'border-neutral-300']" />
+                  <p v-if="quantityTooPrecise(m.quantity, m.unit)" class="mt-1 text-xs text-danger-600">
+                    {{ t('invoice.quantity_decimals_warning', { unit: m.unit, n: unitDecimalsFor(m.unit) }) }}
+                  </p>
                 </td>
                 <td class="px-2 py-1.5">
                   <select v-model="m.unit" class="w-full h-9 px-2 border border-neutral-300 rounded text-sm bg-surface">
@@ -3848,7 +3872,11 @@ useWindowTitle(
               <div class="grid grid-cols-2 gap-2">
                 <div>
                   <label class="block text-xs font-medium text-neutral-600 mb-1">{{ t('invoice.wr_material_qty') }}</label>
-                  <input v-model.number="m.quantity" type="number" inputmode="decimal" step="0.001" min="0" class="w-full h-10 px-3 border border-neutral-300 rounded text-right font-mono text-sm bg-surface" />
+                  <input v-model.number="m.quantity" type="number" inputmode="decimal" :step="quantityStepFor(m.unit)" min="0"
+                    :class="['w-full h-10 px-3 border rounded text-right font-mono text-sm bg-surface', quantityTooPrecise(m.quantity, m.unit) ? 'border-danger-400' : 'border-neutral-300']" />
+                  <p v-if="quantityTooPrecise(m.quantity, m.unit)" class="mt-1 text-xs text-danger-600">
+                    {{ t('invoice.quantity_decimals_warning', { unit: m.unit, n: unitDecimalsFor(m.unit) }) }}
+                  </p>
                 </div>
                 <div>
                   <label class="block text-xs font-medium text-neutral-600 mb-1">{{ t('invoice.wr_material_unit') }}</label>
