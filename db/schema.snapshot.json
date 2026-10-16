@@ -997,7 +997,8 @@
         "2013_client_email_isdoc_override.sql",
         "2014_client_ai_extraction.sql",
         "2015_client_bank_permissions.sql",
-        "2016_invoice_item_tracking.sql"
+        "2016_invoice_item_tracking.sql",
+        "2024_stock_cycle_count_category.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -20137,6 +20138,7 @@
             "engine": "InnoDB",
             "collation": "utf8mb4_unicode_ci",
             "columns": {
+                "category_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "closed_at": "timestamp NULL DEFAULT NULL",
                 "closed_by": "int(10) unsigned NULL DEFAULT NULL",
                 "created_at": "timestamp NOT NULL DEFAULT current_timestamp()",
@@ -20156,11 +20158,13 @@
             "indexes": {
                 "PRIMARY": "UNIQUE BTREE (id)",
                 "fk_scc_location": "BTREE (supplier_id, warehouse_id, location_id)",
+                "ix_cycle_category": "BTREE (category_id)",
                 "ix_cycle_preparation_job": "BTREE (supplier_id, preparation_job_id)",
                 "ix_cycle_tenant_status": "BTREE (supplier_id, status, id)",
                 "uq_cycle_supplier_id": "UNIQUE BTREE (supplier_id, id)"
             },
             "foreign_keys": {
+                "fk_scc_category": "(category_id) -> stock_categories (id) ON UPDATE RESTRICT ON DELETE SET NULL",
                 "fk_scc_location": "(supplier_id, warehouse_id, location_id) -> warehouse_locations (supplier_id, warehouse_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
                 "fk_scc_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE",
                 "fk_scc_warehouse": "(supplier_id, warehouse_id) -> warehouses (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"

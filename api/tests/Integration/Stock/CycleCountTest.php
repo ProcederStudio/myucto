@@ -215,4 +215,145 @@ final class CycleCountTest extends StockTestCase
         $cycles->tick($supplierId);
         self::assertCount(1, $cycles->get($supplierId, (int) $explicit['id'])['lines'], 'Výslovně vybraná karta řádek dostane.');
     }
+
+    public function testCategoryScopeCountsSubtreeAndCloseLeavesOtherItemsUntouched(): void
+    {
+        $supplierId = $this->createSupplier();
+        $warehouseId = $this->warehouse($supplierId);
+        $root = $this->category($supplierId, 'CC-ROOT');
+        $child = $this->category($supplierId, 'CC-CHILD', $root);
+        $other = $this->category($supplierId, 'CC-OTHER');
+        $inRoot = $this->item($supplierId, 'CC-IN-ROOT');
+        $inChild = $this->item($supplierId, 'CC-IN-CHILD');
+        $inOther = $this->item($supplierId, 'CC-IN-OTHER');
+        $uncategorized = $this->item($supplierId, 'CC-NONE');
+        $this->assignCategory($supplierId, $inRoot, $root);
+        $this->assignCategory($supplierId, $inChild, $child);
+        $this->assignCategory($supplierId, $inOther, $other);
+        foreach ([$inRoot, $inChild, $inOther, $uncategorized] as $itemId) {
+            $this->receiveStock($supplierId, $warehouseId, $itemId, '5.000', 10.0, '2099-09-01');
+        }
+        $cycles = $this->container->get(CycleCountService::class);
+
+        $cycle = $cycles->create($supplierId, ['warehouse_id' => $warehouseId, 'take_date' => '2099-09-02', 'category_id' => $root], $this->userId);
+        self::assertSame($root, $cycle['category_id']);
+        self::assertSame('Kategorie CC-ROOT', $cycle['category_name']);
+        $cycles->tick($supplierId);
+        $cycle = $cycles->get($supplierId, (int) $cycle['id']);
+        self::assertSame('counting', $cycle['status']);
+        $lineItems = array_map(static fn (array $l): int => (int) $l['stock_item_id'], $cycle['lines']);
+        sort($lineItems);
+        self::assertSame([$inRoot, $inChild], $lineItems, 'Rozsah = kategorie včetně podkategorií, nic jiného.');
+        $listed = array_values(array_filter($cycles->list($supplierId), static fn (array $c): bool => $c['id'] === $cycle['id']));
+        self::assertSame($root, $listed[0]['category_id']);
+        self::assertSame('Kategorie CC-ROOT', $listed[0]['category_name']);
+
+        $cycles->updateCounts($supplierId, (int) $cycle['id'], array_map(static fn (array $l): array => [
+            'id' => $l['id'], 'counted_qty' => (int) $l['stock_item_id'] === $inRoot ? '3' : '7', 'surplus_unit_cost' => '10',
+        ], $cycle['lines']));
+        $cycles->close($supplierId, (int) $cycle['id'], $this->userId);
+
+        self::assertSame('3.000', $this->qty($supplierId, $warehouseId, $inRoot));
+        self::assertSame('7.000', $this->qty($supplierId, $warehouseId, $inChild));
+        self::assertSame('5.000', $this->qty($supplierId, $warehouseId, $inOther), 'Karta mimo rozsah se nesmí změnit.');
+        self::assertSame('5.000', $this->qty($supplierId, $warehouseId, $uncategorized), 'Karta bez kategorie se nesmí změnit.');
+        $touched = $this->db->pdo()->prepare("SELECT COUNT(*) FROM stock_document_lines l JOIN stock_documents d ON d.id = l.document_id AND d.supplier_id = l.supplier_id WHERE l.supplier_id = ? AND d.origin = 'inventory' AND l.stock_item_id IN (?, ?)");
+        $touched->execute([$supplierId, $inOther, $uncategorized]);
+        self::assertSame(0, (int) $touched->fetchColumn());
+    }
+
+    public function testCategoryScopeNarrowsExplicitItemIds(): void
+    {
+        $supplierId = $this->createSupplier();
+        $warehouseId = $this->warehouse($supplierId);
+        $root = $this->category($supplierId, 'CCX-ROOT');
+        $inside = $this->item($supplierId, 'CCX-IN');
+        $outside = $this->item($supplierId, 'CCX-OUT');
+        $this->assignCategory($supplierId, $inside, $root);
+        $cycles = $this->container->get(CycleCountService::class);
+
+        $cycle = $cycles->create($supplierId, [
+            'warehouse_id' => $warehouseId, 'take_date' => '2099-09-02', 'category_id' => $root, 'item_ids' => [$inside, $outside],
+        ], $this->userId);
+        $cycles->tick($supplierId);
+
+        self::assertSame([$inside], array_map(static fn (array $l): int => (int) $l['stock_item_id'], $cycles->get($supplierId, (int) $cycle['id'])['lines']),
+            'Výslovně vybraná karta mimo kategorii do inventury nepatří.');
+    }
+
+    public function testCategoryOfAnotherCompanyIsRejected(): void
+    {
+        $supplierId = $this->createSupplier();
+        $foreignSupplier = $this->createSupplier();
+        $warehouseId = $this->warehouse($supplierId);
+        $foreignCategory = $this->category($foreignSupplier, 'CCF-ROOT');
+        $cycles = $this->container->get(CycleCountService::class);
+
+        foreach ([$foreignCategory, 999999999, 'abc'] as $categoryId) {
+            try {
+                $cycles->create($supplierId, ['warehouse_id' => $warehouseId, 'take_date' => '2099-09-02', 'category_id' => $categoryId], $this->userId);
+                self::fail('Cizí nebo neexistující kategorie musí být odmítnuta.');
+            } catch (\MyInvoice\Service\Stock\StockException $e) {
+                self::assertSame('invalid_category', $e->errorCode);
+                self::assertSame(422, $e->httpStatus);
+            }
+        }
+        $count = $this->db->pdo()->prepare('SELECT COUNT(*) FROM stock_cycle_counts WHERE supplier_id = ?');
+        $count->execute([$supplierId]);
+        self::assertSame(0, (int) $count->fetchColumn());
+    }
+
+    public function testWithoutCategoryTheCycleHasNoScope(): void
+    {
+        $supplierId = $this->createSupplier();
+        $warehouseId = $this->warehouse($supplierId);
+        $cycles = $this->container->get(CycleCountService::class);
+
+        $cycle = $cycles->create($supplierId, ['warehouse_id' => $warehouseId, 'take_date' => '2099-09-02', 'category_id' => null], $this->userId);
+
+        self::assertNull($cycle['category_id']);
+        self::assertNull($cycle['category_name']);
+    }
+
+    public function testDeletingTheCategoryKeepsTheCycleCount(): void
+    {
+        $supplierId = $this->createSupplier();
+        $warehouseId = $this->warehouse($supplierId);
+        $root = $this->category($supplierId, 'CCD-ROOT');
+        $cycles = $this->container->get(CycleCountService::class);
+        $cycle = $cycles->create($supplierId, ['warehouse_id' => $warehouseId, 'take_date' => '2099-09-02', 'category_id' => $root], $this->userId);
+
+        $this->db->pdo()->prepare('DELETE FROM stock_categories WHERE supplier_id = ? AND id = ?')->execute([$supplierId, $root]);
+
+        self::assertNull($cycles->get($supplierId, (int) $cycle['id'])['category_id'], 'Smazání kategorie inventuru neblokuje ani nesmaže.');
+    }
+
+    private function qty(int $supplierId, int $warehouseId, int $itemId): string
+    {
+        $stmt = $this->db->pdo()->prepare('SELECT qty FROM stock_levels WHERE supplier_id = ? AND warehouse_id = ? AND stock_item_id = ?');
+        $stmt->execute([$supplierId, $warehouseId, $itemId]);
+        return (string) $stmt->fetchColumn();
+    }
+
+    private function category(int $supplierId, string $code, ?int $parentId = null): int
+    {
+        $pdo = $this->db->pdo();
+        $parentPath = '/';
+        if ($parentId !== null) {
+            $stmt = $pdo->prepare('SELECT path FROM stock_categories WHERE id = ?');
+            $stmt->execute([$parentId]);
+            $parentPath = (string) $stmt->fetchColumn();
+        }
+        $pdo->prepare('INSERT INTO stock_categories (supplier_id, parent_id, code, name, path) VALUES (?, ?, ?, ?, ?)')
+            ->execute([$supplierId, $parentId, $code, 'Kategorie ' . $code, '']);
+        $id = (int) $pdo->lastInsertId();
+        $pdo->prepare('UPDATE stock_categories SET path = ? WHERE id = ?')->execute([$parentPath . $id . '/', $id]);
+        return $id;
+    }
+
+    private function assignCategory(int $supplierId, int $itemId, int $categoryId): void
+    {
+        $this->db->pdo()->prepare('INSERT INTO stock_item_categories (supplier_id, stock_item_id, category_id, is_primary) VALUES (?, ?, ?, 1)')
+            ->execute([$supplierId, $itemId, $categoryId]);
+    }
 }
