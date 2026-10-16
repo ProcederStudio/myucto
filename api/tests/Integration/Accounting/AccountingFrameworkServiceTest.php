@@ -71,7 +71,7 @@ final class AccountingFrameworkServiceTest extends TestCase
         }
     }
 
-    public function testMigrationBackfillsExistingSupplierWithCz500Baseline(): void
+    public function testExistingFixtureSupplierHasInitializedCz500Baseline(): void
     {
         $stmt = $this->db->pdo()->prepare(
             "SELECT accounting_framework FROM supplier_accounting_frameworks
