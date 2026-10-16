@@ -14,7 +14,7 @@
 #   5. smír DPH proti podaným XML a tvar nálezů kontrol (jen když skripty existují)
 #
 # Kroky 2–5 čtou reálná data a NIC NEZAPISUJÍ, lze je pustit i proti kopii produkce.
-# „Nebylo co kontrolovat" (exit 2) není zelená: brána to vypíše jako NEOVĚŘENO.
+# U datových kontrol znamená exit 2 NEOVĚŘENO; u testů je každý nenulový kód selhání.
 #
 # Použití:
 #   cmd/audit-gate.sh                          (data z databáze v cfg)
@@ -49,6 +49,11 @@ done
 # přepnutí nenajde konfiguraci, `--testsuite` je pro něj neznámý přepínač a vypíše
 # nápovědu s exit 1. Vypadá to jako selhání testů, přitom se žádné nespustily.
 run_step() {
+    local allow_no_data=0
+    if [ "$1" = "--allow-no-data" ]; then
+        allow_no_data=1
+        shift
+    fi
     local name="$1"; shift
     local step_start=$SECONDS
     echo
@@ -56,7 +61,7 @@ run_step() {
     (cd "$API_DIR" && "$@")
     local code=$?
     local took=$((SECONDS - step_start))
-    if [ "$code" -eq 2 ]; then
+    if [ "$allow_no_data" -eq 1 ] && [ "$code" -eq 2 ]; then
         UNVERIFIED+=("$name (nebylo co kontrolovat)")
         echo "    NEOVĚŘENO — nebylo co kontrolovat (${took} s)"
     elif [ "$code" -ne 0 ]; then
@@ -84,24 +89,24 @@ if [ "$SKIP_DATA" -eq 0 ]; then
         export MYINVOICE_DB_NAME="$DATA_DB"
     fi
 
-    run_step 'Invarianty nad daty (read-only)' \
+    run_step --allow-no-data 'Invarianty nad daty (read-only)' \
         "$PHP_BIN" "$API_DIR/bin/check-invariants.php" --quiet
 
     # Odsouhlasené známé rozdíly instalace (data, ne kód) — viz hlavička cross-check.php.
     ACCEPTED_DIFFS="$REPO_ROOT/private/cross-check-accepted.json"
     if [ -f "$ACCEPTED_DIFFS" ]; then
-        run_step 'Křížové kontroly (read-only)' \
+        run_step --allow-no-data 'Křížové kontroly (read-only)' \
             "$PHP_BIN" "$API_DIR/bin/cross-check.php" "--accepted=$ACCEPTED_DIFFS"
     else
-        run_step 'Křížové kontroly (read-only)' \
+        run_step --allow-no-data 'Křížové kontroly (read-only)' \
             "$PHP_BIN" "$API_DIR/bin/cross-check.php"
     fi
 
-    run_step 'Struktura databáze proti migracím (read-only)' \
+    run_step --allow-no-data 'Struktura databáze proti migracím (read-only)' \
         "$PHP_BIN" "$API_DIR/bin/check-schema.php"
 
     if [ -f "$REPO_ROOT/private/scripts/compare_dph.php" ]; then
-        run_step 'Smír DPH proti podaným XML' \
+        run_step --allow-no-data 'Smír DPH proti podaným XML' \
             "$PHP_BIN" "$REPO_ROOT/private/scripts/compare_dph.php"
     else
         echo
@@ -110,7 +115,7 @@ if [ "$SKIP_DATA" -eq 0 ]; then
 
     # E-1: tvar nálezů kontrol nad OSTRÝMI daty (počet nálezů = vypsané řádky).
     if [ -f "$REPO_ROOT/private/scripts/checks_shape_sweep.php" ]; then
-        run_step 'Tvar nálezů kontrol (počet = vypsané řádky, datum, čeština)' \
+        run_step --allow-no-data 'Tvar nálezů kontrol (počet = vypsané řádky, datum, čeština)' \
             "$PHP_BIN" "$REPO_ROOT/private/scripts/checks_shape_sweep.php"
     else
         echo
