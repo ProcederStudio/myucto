@@ -56,6 +56,7 @@ require __DIR__ . '/../vendor/autoload.php';
     '*/api/src/Infrastructure/Cache/RedisProbe.php',
     '*/api/src/Infrastructure/Config/Config.php',
     '*/api/src/Infrastructure/Database/Connection.php',
+    '*/api/src/Repository/AccountingFrameworkRepository.php',
     '*/api/src/Middleware/FirstRunLockMiddleware.php',
     '*/api/src/Repository/ChartOfAccountsRepository.php',
     '*/api/src/Repository/BankConnectionRepository.php',

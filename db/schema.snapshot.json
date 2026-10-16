@@ -997,7 +997,8 @@
         "2013_client_email_isdoc_override.sql",
         "2014_client_ai_extraction.sql",
         "2015_client_bank_permissions.sql",
-        "2016_invoice_item_tracking.sql"
+        "2016_invoice_item_tracking.sql",
+        "2017_supplier_accounting_frameworks.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -21931,6 +21932,28 @@
                 "chk_supplier_tax_entity_status": "`tax_entity_status` in ('normal','liquidation','insolvency','transformation')",
                 "self_copy": "json_valid(`self_copy`)"
             }
+        },
+        "supplier_accounting_frameworks": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "accounting_framework": "enum('cz_500','cz_504') NOT NULL",
+                "created_at": "datetime NOT NULL DEFAULT current_timestamp()",
+                "created_by": "int(10) unsigned NULL DEFAULT NULL",
+                "effective_from": "date NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "idx_supplier_accounting_framework_lookup": "BTREE (supplier_id, effective_from, accounting_framework)",
+                "uq_supplier_accounting_framework_date": "UNIQUE BTREE (supplier_id, effective_from)"
+            },
+            "foreign_keys": {
+                "fk_supplier_accounting_framework_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE"
+            },
+            "checks": []
         },
         "supplier_accounting_modes": {
             "type": "BASE TABLE",

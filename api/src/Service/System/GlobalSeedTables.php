@@ -240,7 +240,8 @@ final class GlobalSeedTables
         // nebo změny režimu. Režim v čase a účetní období jsou konfigurace firmy; bez
         // období by firma po resetu neměla kam účtovat. Hraniční: kategorie účetní
         // jednotky je zmrazená k období, které zůstává, proto zůstává s ním.
-        'supplier_accounting_modes', 'accounting_periods', 'entity_category_history',
+        'supplier_accounting_modes', 'supplier_accounting_frameworks',
+        'accounting_periods', 'entity_category_history',
         'chart_of_accounts', 'accounting_supplier_settings', 'accounting_document_series',
         'accounting_fixed_exchange_rates',
         'auto_posting_policy', 'expense_classification_rules', 'posting_rules',
