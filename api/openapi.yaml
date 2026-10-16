@@ -37142,6 +37142,10 @@ components:
         warehouse_id:
           type: [integer, "null"]
           description: "FK na sklad (/api/stock/warehouses), ze kterého se položka vydává. Relevantní jen když je vyplněn stock_item_id."
+        tracking_allocations:
+          type: array
+          description: "Vybraná sériová čísla nebo šarže karty se sledováním (prázdné pole = bez výběru). Výdejka při vystavení vydá přesně tyto kusy, dobropis z faktury je převezme."
+          items: { $ref: '#/components/schemas/InvoiceItemTrackingAllocation' }
         small_asset_id:
           type: [integer, "null"]
           description: "FK na kartu drobného majetku (/accounting/small-assets). Výnos řádku jde na 642 (small_asset.sale.revenue) a po vystavení faktury karta přejde do stavu `sold`."
@@ -37166,6 +37170,15 @@ components:
           type: boolean
           description: "Odvození při importu nedokázalo určit místo plnění (sazba platí v zemi dodavatele i ve státě spotřeby, nebo se číselník sazeb členských států nedal zeptat). Řádek JE v OSS, ale čeká na potvrzení člověkem. Chybí-li na instanci migrace 1293, pole se nevrací."
 
+    InvoiceItemTrackingAllocation:
+      type: object
+      required: [quantity]
+      properties:
+        quantity: { type: [string, number], description: "Množství v základní jednotce karty, nejvýš 3 desetinná místa (u sériového čísla 1)." }
+        serial_number: { type: [string, "null"], maxLength: 184, description: "Sériové číslo (karta v režimu serial), například VIN." }
+        lot_code: { type: [string, "null"], maxLength: 100, description: "Kód šarže (karta v režimu lot)." }
+        expires_on: { type: [string, "null"], format: date, description: "Expirace šarže." }
+        location_id: { type: [integer, "null"], description: "Umístění ve skladu, ze kterého se kus vydá." }
     InvoiceItemInput:
       type: object
       required: [description, quantity, unit_price_without_vat, vat_rate_id]
@@ -37184,6 +37197,14 @@ components:
         warehouse_id:
           type: [integer, "null"]
           description: "Sklad, ze kterého se má vydat (jen ve spojení se stock_item_id)."
+        tracking_allocations:
+          type: [array, "null"]
+          description: |
+            Vybraná sériová čísla nebo šarže (jen u karty se sledováním, jinak 422 `tracking_not_enabled`).
+            Sériové číslo = množství 1 (`invalid_tracking_quantity`). Koncept smí mít výběr neúplný,
+            úplnost a dostupnost kusů na skladu se ověří při vystavení. Při úpravě dokladu se položky
+            nahrazují celé, výběr je proto potřeba poslat znovu (GET ho vrací).
+          items: { $ref: '#/components/schemas/InvoiceItemTrackingAllocation' }
         small_asset_id:
           type: [integer, "null"]
           description: "Prodávaná karta drobného majetku. Nesmí být vyplněná zároveň s `asset_id`; karta musí patřit téže firmě, být v užívání a nesmí být prodaná jinou fakturou (jinak 400 integrity_violation)."

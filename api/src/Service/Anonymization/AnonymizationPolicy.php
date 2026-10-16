@@ -242,7 +242,7 @@ final class AnonymizationPolicy
         'integration_outbox' => ['entity_id' => 'keep', 'entity_type' => 'keep', 'event_type' => 'keep', 'event_uuid' => 'keep', 'idempotency_key' => 'keep', 'last_error_code' => 'keep', 'lease_token' => 'keep', 'payload_json' => 'json', 'payload_sha256' => 'keep'],
         'invoice_attachments' => ['filename' => 'file_path', 'mime_type' => 'keep', 'original_name' => 'file_name', 'sha256' => 'keep'],
         'invoice_counters' => ['period' => 'keep'],
-        'invoice_items' => ['description' => 'text', 'oss_consumer_country' => 'keep', 'oss_original_period' => 'keep', 'oss_rate_type' => 'keep', 'revenue_account_code' => 'keep', 'unit' => 'keep', 'vat_classification_code' => 'keep'],
+        'invoice_items' => ['description' => 'text', 'oss_consumer_country' => 'keep', 'oss_original_period' => 'keep', 'oss_rate_type' => 'keep', 'revenue_account_code' => 'keep', 'tracking_json' => 'json', 'unit' => 'keep', 'vat_classification_code' => 'keep'],
         'invoice_payment_schedule' => ['note' => 'text'],
         'invoice_payments' => ['bank_reference' => 'keep', 'currency' => 'keep', 'note' => 'text', 'variable_symbol' => 'symbol'],
         'invoice_pdfs' => ['filename' => 'file_path', 'reason' => 'keep', 'sent_to' => 'json', 'sha256' => 'keep'],

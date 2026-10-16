@@ -231,6 +231,12 @@ final class FinalFromProformaCreator
             // „k ručnímu posouzení" je samostatný, takže variant by jinak byly tři a počet
             // otazníků by se s nimi rozešel (shodně s `InvoiceRepository::replaceItems()`).
             $ossColumns = $this->ossCarry->columns();
+            // Vybraná sériová čísla / šarže (2012): sklad hýbe až finál, výběr z proformy
+            // proto přechází s ním. Zapisuje se zvlášť po vložení řádku, protože $itemStmt
+            // sdílí i doplatek a odpočtové řádky § 37a, které výběr nemají.
+            $trackingStmt = $this->db->hasColumn('invoice_items', 'tracking_json')
+                ? $pdo->prepare('UPDATE invoice_items SET tracking_json = ? WHERE id = ? AND invoice_id = ?')
+                : null;
             $itemStmt = $pdo->prepare(
                 'INSERT INTO invoice_items
                    (invoice_id, description, quantity, duration_minutes, unit, unit_price_without_vat,
@@ -272,6 +278,10 @@ final class FinalFromProformaCreator
                     // ta už derivací i případnou ruční opravou prošla (viz OssItemCarryOver).
                     ...$this->ossCarry->values($item),
                 ]);
+                $tracking = \MyInvoice\Service\Stock\InvoiceItemTracking::storedJson($item);
+                if ($trackingStmt !== null && $tracking !== null) {
+                    $trackingStmt->execute([$tracking, (int) $pdo->lastInsertId(), $finalId]);
+                }
                 $maxOrder = max($maxOrder, (int) $item['order_index']);
             }
 

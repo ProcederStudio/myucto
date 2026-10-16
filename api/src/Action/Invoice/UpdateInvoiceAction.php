@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MyInvoice\Action\Invoice;
 
+use MyInvoice\Service\Stock\InvoiceItemTracking;
 use MyInvoice\Service\Stock\StockException;
 use MyInvoice\Service\Stock\StockPriceLevelService;
 use MyInvoice\Http\GuardsDocumentLock;
@@ -70,6 +71,7 @@ final class UpdateInvoiceAction
         private readonly CashSettlementService $cashSettlement,
         private readonly StockPriceLevelService $priceLevels,
         private readonly \MyInvoice\Repository\ClientRepository $clients,
+        private readonly InvoiceItemTracking $itemTracking,
     ) {}
 
     /**
@@ -157,6 +159,16 @@ final class UpdateInvoiceAction
                 DocumentItemsPayload::emptyErrorMessage(),
                 422,
             );
+        }
+
+        // Vybraná sériová čísla / šarže řádků (2012) — před přečíslováním, ať odmítnutí
+        // nespálí číslo řady. Bez klíče `items` zůstane uložený výběr (replay níž).
+        if (DocumentItemsPayload::replaces($body) && is_array($body['items'])) {
+            try {
+                $body['items'] = $this->itemTracking->normalizeItems((int) $existing['supplier_id'], $body['items']);
+            } catch (StockException $e) {
+                return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus, $e->details);
+            }
         }
 
         // B11 (audit 2026-07): force-edit dokladu s AKTIVNÍM zaúčtovaným zápisem v UZAVŘENÉM

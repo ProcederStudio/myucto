@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MyInvoice\Action\Invoice;
 
+use MyInvoice\Service\Stock\InvoiceItemTracking;
 use MyInvoice\Service\Stock\StockException;
 use MyInvoice\Service\Stock\StockPriceLevelService;
 use MyInvoice\Http\GuardsDocumentLock;
@@ -53,6 +54,7 @@ final class CreateInvoiceAction
         private readonly OssItemDeriver $ossDeriver,
         private readonly OssItemPlanner $ossPlanner,
         private readonly StockPriceLevelService $priceLevels,
+        private readonly InvoiceItemTracking $itemTracking,
     ) {}
 
     public function __invoke(Request $request, Response $response): Response
@@ -91,6 +93,16 @@ final class CreateInvoiceAction
                     $body['price_level_id'],
                     null,
                 );
+            } catch (StockException $e) {
+                return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus, $e->details);
+            }
+        }
+
+        // Vybraná sériová čísla / šarže řádků (2012): `tracking_allocations` → ověřený
+        // `tracking_json`. Úplnost a dostupnost kusů se kontroluje až při vystavení.
+        if (isset($body['items']) && is_array($body['items'])) {
+            try {
+                $body['items'] = $this->itemTracking->normalizeItems(SupplierGuard::currentId($request), $body['items']);
             } catch (StockException $e) {
                 return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus, $e->details);
             }
