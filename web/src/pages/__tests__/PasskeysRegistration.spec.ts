@@ -45,6 +45,21 @@ async function register() {
 }
 
 describe('registrace klíče před návratem do portálu', () => {
+  it.each([{}, { csrf_token: 'rotated' }])('obnoví profil i zabezpečení nezávisle na rotaci CSRF: %j', async result => {
+    m.register.mockResolvedValueOnce(result)
+    const wrapper = await register()
+    expect(m.refresh).toHaveBeenCalledOnce()
+    expect(m.securityRefresh).toHaveBeenCalledExactlyOnceWith({ force: true })
+    expect(m.refresh.mock.invocationCallOrder[0]).toBeLessThan(m.securityRefresh.mock.invocationCallOrder[0]!)
+    expect(m.load).toHaveBeenCalledTimes(2)
+    expect(wrapper.emitted('registered')).toHaveLength(1)
+    if (!('csrf_token' in result)) {
+      expect(m.advance).not.toHaveBeenCalled()
+      expect(m.setCsrf).not.toHaveBeenCalled()
+    }
+    wrapper.unmount()
+  })
+
   it('ohlásí dokončení až po aktualizaci vlastnictví rotované relace', async () => {
     m.refresh.mockImplementation(async () => {
       expect(m.advance).toHaveBeenCalledWith('owned', 'rotated')
