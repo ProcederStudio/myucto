@@ -12,6 +12,7 @@ use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Repository\ImportJobRepository;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\IpMatcher;
+use MyInvoice\Service\Migration\Shared\ImportJobUploads;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
@@ -19,7 +20,8 @@ use Psr\Http\Message\ServerRequestInterface as Request;
  * DELETE /api/admin/imports/{id}
  *
  * Ruční smazání import jobu (escape hatch). Na rozdíl od cancel mizí job úplně —
- * uklidí zaseknuté i dokončené joby z UI. Scope na tenanta, admin/účetní.
+ * uklidí zaseknuté i dokončené joby z UI. Scope na tenanta, admin/účetní. Nahraný
+ * a rozbalený soubor převodu, na který už žádný job neodkazuje, se smaže s ním.
  */
 final class DeleteImportJobAction
 {
@@ -46,12 +48,14 @@ final class DeleteImportJobAction
             return Json::error($response, 'not_found',
                 'Job nelze smazat (neexistuje nebo patří jinému tenantovi).', 404);
         }
+        $purged = $job !== null ? ImportJobUploads::purgeOrphaned($this->jobs, $job) : 0;
 
         $userId = (int) ($user['id'] ?? 0);
         $ip = $this->ipMatcher->clientIpFromRequest($request->getServerParams());
-        $this->logger->log('import.deleted', $userId, 'import_job', $id, null,
+        $this->logger->log('import.deleted', $userId, 'import_job', $id,
+            $purged > 0 ? ['purged_uploads' => $purged] : null,
             $ip, $request->getHeaderLine('User-Agent'));
 
-        return Json::ok($response, ['ok' => true, 'deleted' => true]);
+        return Json::ok($response, ['ok' => true, 'deleted' => true, 'purged_uploads' => $purged]);
     }
 }

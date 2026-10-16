@@ -300,6 +300,21 @@ final class ChunkedUploadStore
         $this->removeTree($this->dir($supplierId, $token), $supplierId);
     }
 
+    /** Smaže nahraný soubor, pokud s ním zrovna nepracuje job. False = nesmazáno. */
+    public function purgeIdle(int $supplierId, string $token): bool
+    {
+        if (!$this->isValid($supplierId, $token)) {
+            return false;
+        }
+        $dir = $this->dir($supplierId, $token);
+        if (!is_dir($dir) || self::isBusy($dir)) {
+            return false;
+        }
+        $this->removeTree($dir, $supplierId);
+        clearstatcache(true, $dir);
+        return !is_dir($dir);
+    }
+
     /** @return int kolik nahraných souborů firmy se smazalo */
     public function purgeStale(int $supplierId): int
     {
