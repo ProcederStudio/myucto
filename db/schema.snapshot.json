@@ -997,7 +997,8 @@
         "2013_client_email_isdoc_override.sql",
         "2014_client_ai_extraction.sql",
         "2015_client_bank_permissions.sql",
-        "2016_invoice_item_tracking.sql"
+        "2016_invoice_item_tracking.sql",
+        "2020_simplified_document_series_and_customer.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -6036,7 +6037,7 @@
             "columns": {
                 "client_id": "bigint(20) unsigned NOT NULL DEFAULT 0",
                 "floor_number": "int(10) unsigned NOT NULL DEFAULT 0",
-                "invoice_type": "enum('invoice','proforma','credit_note') NOT NULL",
+                "invoice_type": "enum('invoice','proforma','credit_note','simplified') NOT NULL",
                 "last_number": "int(10) unsigned NOT NULL DEFAULT 0",
                 "period": "varchar(10) NOT NULL",
                 "revenue_category_id": "int(10) unsigned NOT NULL DEFAULT 0",
@@ -6282,6 +6283,7 @@
                 "exchange_rate": "decimal(14,6) NULL DEFAULT NULL",
                 "exchange_rate_date": "date NULL DEFAULT NULL",
                 "fakturoid_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "hide_customer_on_pdf": "tinyint(1) NOT NULL DEFAULT 0",
                 "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
                 "idoklad_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "import_batch_id": "varchar(32) NULL DEFAULT NULL",
@@ -21885,6 +21887,8 @@
                 "sest_prijmeni": "varchar(100) NULL DEFAULT NULL",
                 "sest_telefon": "varchar(40) NULL DEFAULT NULL",
                 "signature_path": "varchar(255) NULL DEFAULT NULL",
+                "simplified_hide_customer_default": "tinyint(1) NOT NULL DEFAULT 0",
+                "simplified_number_format": "varchar(60) NULL DEFAULT NULL",
                 "stock_auto_issue": "tinyint(1) NOT NULL DEFAULT 1",
                 "stock_enabled": "tinyint(1) NOT NULL DEFAULT 0",
                 "stock_in_transit_from": "enum('sent','confirmed') NOT NULL DEFAULT 'sent'",

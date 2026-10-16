@@ -119,7 +119,7 @@ final class DeleteInvoiceAction
         // s parentem, ale chceme je zalogovat, invalidovat jejich PDF cache a zahrnout
         // do posouzení, zda force-delete maže výhradně nezaúčtované doklady.
         $children = $this->db->pdo()->prepare(
-            'SELECT id, supplier_id, invoice_type, varsymbol, status, issue_date, tax_date,
+            'SELECT id, supplier_id, invoice_type, is_simplified, varsymbol, status, issue_date, tax_date,
                     effective_tax_date, booked_at, revenue_category_id
                FROM invoices
               WHERE parent_invoice_id = ?'
@@ -272,7 +272,9 @@ final class DeleteInvoiceAction
                 if ($parentVs !== '' && in_array($parentType, ['invoice', 'proforma', 'credit_note'], true)) {
                     $issueDate = !empty($existing['issue_date']) ? new \DateTimeImmutable($existing['issue_date']) : null;
                     $parentCat = (int) ($existing['revenue_category_id'] ?? 0);
-                    if ($this->varsymbol->releaseIfLatest($supplierId, $parentType, $parentVs, $issueDate, $clientId ?? 0, $parentCat)) {
+                    // Řada, ze které číslo přišlo (zjednodušený doklad může mít vlastní).
+                    $parentSeries = VarsymbolGenerator::seriesTypeFor($existing);
+                    if ($this->varsymbol->releaseIfLatest($supplierId, $parentSeries, $parentVs, $issueDate, $clientId ?? 0, $parentCat)) {
                         $counterReleased[] = ['id' => $id, 'varsymbol' => $parentVs, 'type' => $parentType];
                     }
                 }
@@ -283,7 +285,7 @@ final class DeleteInvoiceAction
                 if ($cvs === '' || !in_array($ctype, ['invoice', 'proforma', 'credit_note'], true)) continue;
                 $cdate = !empty($child['issue_date']) ? new \DateTimeImmutable($child['issue_date']) : null;
                 $ccat  = (int) ($child['revenue_category_id'] ?? 0);
-                if ($this->varsymbol->releaseIfLatest($supplierId, $ctype, $cvs, $cdate, $clientId ?? 0, $ccat)) {
+                if ($this->varsymbol->releaseIfLatest($supplierId, VarsymbolGenerator::seriesTypeFor($child), $cvs, $cdate, $clientId ?? 0, $ccat)) {
                     $counterReleased[] = ['id' => (int) $child['id'], 'varsymbol' => $cvs, 'type' => $ctype];
                 }
             }

@@ -305,10 +305,21 @@ final class UpdateInvoiceAction
 
             $body['invoice_type'] = $requestedType;
             $renumber = ['from' => $oldVs, 'to' => null, 'from_type' => $existingType, 'to_type' => $requestedType];
+            // Řada se bere podle typu A příznaku zjednodušeného dokladu (vlastní řada
+            // zjednodušených dokladů, migrace 2020): staré číslo se vrací do řady, ze které
+            // přišlo, nové se bere z řady, do které doklad po změně patří.
+            $newSimplified = array_key_exists('is_simplified', $body)
+                ? filter_var($body['is_simplified'], FILTER_VALIDATE_BOOLEAN)
+                : !empty($existing['is_simplified']);
             $renumberScope = [
                 'supplier_id' => $supplierId,
                 'old'         => [$oldDate, $oldClient, $oldCategory],
                 'new'         => [$newDate, $newClient, $newCategory],
+                'old_series'  => VarsymbolGenerator::seriesTypeFor($existing),
+                'new_series'  => VarsymbolGenerator::seriesTypeFor([
+                    'invoice_type'  => $requestedType,
+                    'is_simplified' => $newSimplified,
+                ]),
             ];
         } else {
             // Bez přečíslování: typ je u vystavené faktury immutable (číslo + auditní stopa),
@@ -431,19 +442,19 @@ final class UpdateInvoiceAction
             }
             [$newDate, $newClient, $newCategory] = $renumberScope['new'];
             try {
-                $newVs = $this->varsymbol->next($renumberScope['supplier_id'], $requestedType, $newDate, $newClient, $newCategory);
+                $newVs = $this->varsymbol->next($renumberScope['supplier_id'], $renumberScope['new_series'], $newDate, $newClient, $newCategory);
             } catch (\InvalidArgumentException | \RuntimeException $e) {
                 if ($renumberTx && $pdo->inTransaction()) $pdo->rollBack();
                 return Json::error($response, 'varsymbol_failed', $e->getMessage(), 500);
             }
             $body['varsymbol'] = $newVs;
             $renumber['to'] = $newVs;
-            $abortRenumber = function () use ($pdo, $renumberTx, $renumberScope, $requestedType, $newVs, $newDate, $newClient, $newCategory): void {
+            $abortRenumber = function () use ($pdo, $renumberTx, $renumberScope, $newVs, $newDate, $newClient, $newCategory): void {
                 if ($renumberTx) {
                     if ($pdo->inTransaction()) $pdo->rollBack();
                     return;
                 }
-                $this->varsymbol->releaseIfLatest($renumberScope['supplier_id'], $requestedType, $newVs, $newDate, $newClient, $newCategory);
+                $this->varsymbol->releaseIfLatest($renumberScope['supplier_id'], $renumberScope['new_series'], $newVs, $newDate, $newClient, $newCategory);
             };
         }
         try {
@@ -479,7 +490,7 @@ final class UpdateInvoiceAction
         if ($renumber !== null) {
             [$oldDate, $oldClient, $oldCategory] = $renumberScope['old'];
             if ($renumberScope['supplier_id'] > 0 && $renumber['from'] !== '') {
-                $this->varsymbol->releaseIfLatest($renumberScope['supplier_id'], $existingType, $renumber['from'], $oldDate, $oldClient, $oldCategory);
+                $this->varsymbol->releaseIfLatest($renumberScope['supplier_id'], $renumberScope['old_series'], $renumber['from'], $oldDate, $oldClient, $oldCategory);
             }
             if ($renumberTx) $pdo->commit();
         }
@@ -830,7 +841,7 @@ final class UpdateInvoiceAction
             'invoice_type', 'payment_method', 'rounding_mode', 'supplier_order_number', 'note_above_items', 'note_below_items',
             'discount_percent', 'advance_paid_amount', 'reverse_charge',
             'prices_include_vat', 'vat_classification_code', 'income_tax_exempt', 'language',
-            'is_simplified', 'price_level_id',
+            'is_simplified', 'hide_customer_on_pdf', 'price_level_id',
         ];
 
         $changed = [];

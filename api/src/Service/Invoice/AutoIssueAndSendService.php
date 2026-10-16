@@ -239,7 +239,7 @@ final class AutoIssueAndSendService
         try {
             $varsymbol = $this->varsymbol->next(
                 $supplierId,
-                $invoice['invoice_type'],
+                VarsymbolGenerator::seriesTypeFor($invoice),
                 $issueDate,
                 (int) $invoice['client_id'],
                 (int) ($invoice['revenue_category_id'] ?? 0),
@@ -265,7 +265,7 @@ final class AutoIssueAndSendService
                 } else {
                     $this->varsymbol->releaseIfLatest(
                         $supplierId,
-                        (string) $invoice['invoice_type'],
+                        VarsymbolGenerator::seriesTypeFor($invoice),
                         $varsymbol,
                         $issueDate,
                         (int) $invoice['client_id'],

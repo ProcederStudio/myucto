@@ -476,6 +476,9 @@ final class SettingsAction
             // Per-supplier konfigurace číslování faktur (migrace 0014; přijaté 0095)
             'invoice_number_format', 'proforma_number_format', 'credit_note_number_format',
             'purchase_invoice_number_format',
+            // Zjednodušený daňový doklad (migrace 2020): vlastní řada (NULL = řada faktur)
+            // a výchozí „netisknout odběratele" na novém dokladu.
+            'simplified_number_format', 'simplified_hide_customer_default',
             // Číslování přijatých dokladů podle typu (migrace 2001)
             'purchase_invoice_numbering', 'purchase_receipt_number_format', 'purchase_credit_note_number_format',
             'purchase_advance_number_format', 'purchase_tax_document_number_format',
@@ -883,7 +886,7 @@ final class SettingsAction
         }
         // Validace per-supplier varsymbol templatů: prázdný string → NULL (= fallback na cfg);
         // jinak max 60 znaků a musí obsahovat alespoň jeden counter placeholder {C+}.
-        foreach (['invoice_number_format', 'proforma_number_format', 'credit_note_number_format', 'purchase_invoice_number_format',
+        foreach (['invoice_number_format', 'proforma_number_format', 'credit_note_number_format', 'simplified_number_format', 'purchase_invoice_number_format',
             'purchase_receipt_number_format', 'purchase_credit_note_number_format', 'purchase_advance_number_format',
             'purchase_tax_document_number_format'] as $f) {
             if (array_key_exists($f, $body)) {
@@ -995,7 +998,7 @@ final class SettingsAction
             }
             if (array_key_exists($f, $body)) {
                 $sets[] = "$f = ?";
-                $params[] = in_array($f, ['is_vat_payer', 'is_identified', 'oss_enabled', 'auto_send_reminders', 'auto_generate_recurring', 'embed_isdoc', 'public_isdoc_enabled', 'email_attach_isdoc', 'default_prices_include_vat', 'email_branding_enabled', 'pdf_logo_show_name', 'branding_profiles_enabled', 'payment_thanks_enabled', 'payment_thanks_auto_send', 'payment_thanks_default_checked', 'payment_thanks_attach_paid_pdf', 'stock_enabled', 'stock_auto_issue', 'invoice_pdf_show_base_qty', 'dimensions_enabled', 'accounting_enabled', 'payroll_enabled', 'auto_post_invoices', 'auto_post_purchases', 'ai_eu_residency_required', 'client_ai_extraction_enabled', 'tax_investment_incentive', 'tax_atad_cfc', 'tax_public_benefit', 'tax_cooperating_person', 'tax_foreign_income_credit', 'allow_refund_invoices', DefaultInvoiceNote::ENABLED_COLUMN], true)
+                $params[] = in_array($f, ['is_vat_payer', 'is_identified', 'oss_enabled', 'auto_send_reminders', 'auto_generate_recurring', 'embed_isdoc', 'public_isdoc_enabled', 'email_attach_isdoc', 'default_prices_include_vat', 'email_branding_enabled', 'pdf_logo_show_name', 'branding_profiles_enabled', 'payment_thanks_enabled', 'payment_thanks_auto_send', 'payment_thanks_default_checked', 'payment_thanks_attach_paid_pdf', 'stock_enabled', 'stock_auto_issue', 'invoice_pdf_show_base_qty', 'dimensions_enabled', 'accounting_enabled', 'payroll_enabled', 'auto_post_invoices', 'auto_post_purchases', 'ai_eu_residency_required', 'client_ai_extraction_enabled', 'tax_investment_incentive', 'tax_atad_cfc', 'tax_public_benefit', 'tax_cooperating_person', 'tax_foreign_income_credit', 'allow_refund_invoices', 'simplified_hide_customer_default', DefaultInvoiceNote::ENABLED_COLUMN], true)
                     ? ((int) (bool) $body[$f])
                     : $body[$f];
             }
@@ -1323,6 +1326,9 @@ final class SettingsAction
             true,
         ) ? (string) $row['proforma_payment_document'] : ProformaPaymentDocuments::MODE_ALWAYS_TAX_DOCUMENT;
         $row['allow_refund_invoices']    = (bool) ($row['allow_refund_invoices'] ?? false);
+        // Zjednodušený daňový doklad (migrace 2020): klíče vrátit vždy, i bez migrace.
+        $row['simplified_number_format'] = ($row['simplified_number_format'] ?? null) ?: null;
+        $row['simplified_hide_customer_default'] = (bool) ($row['simplified_hide_customer_default'] ?? false);
         // Sklad (Epic SKLAD, migrace 1023) — opt-in modul; FE nav sekci gatuje MeAction.
         $row['stock_enabled']            = (bool) ($row['stock_enabled'] ?? false);
         $row['dimensions_enabled']       = (bool) ($row['dimensions_enabled'] ?? false);

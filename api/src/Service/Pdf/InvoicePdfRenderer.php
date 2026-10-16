@@ -14,6 +14,7 @@ use MyInvoice\Repository\WorkReportRepository;
 use MyInvoice\Service\Bank\VariableSymbolNormalizer;
 use MyInvoice\Service\Branding\AccentColor;
 use MyInvoice\Service\Export\IsdocExporter;
+use MyInvoice\Service\Invoice\SimplifiedDocumentPolicy;
 use MyInvoice\Service\Invoice\CzkRecap;
 use MyInvoice\Service\Invoice\RefundDocument;
 use MyInvoice\Service\Invoice\SnapshotBuilder;
@@ -386,6 +387,8 @@ final class InvoicePdfRenderer
             'invoice'           => $invoice,
             'supplier'          => $supplierData,
             'client'            => $clientData,
+            // Zjednodušený doklad s volbou „netisknout odběratele" (migrace 2020).
+            'hide_customer'     => SimplifiedDocumentPolicy::hidesCustomer($invoice, $supplierData),
             'bank'              => $bankData,
             'qr_data_uri'       => $qrUri,
             // Platební VS = samostatný payment_variable_symbol, jinak číslice z čísla
