@@ -197,6 +197,53 @@ final class StockTrackingRepository
         }, $stmt->fetchAll(PDO::FETCH_ASSOC));
     }
 
+    /**
+     * Zásoba konkrétních kusů karty ve skladu po umístěních (jen posted/reversed doklady),
+     * pro klíče `serial:…` / `lot:…|…` (porovnání podle collation sloupce, tedy bez ohledu
+     * na velikost písmen). Pořadí je stálé: umístění podle kódu, bez umístění nakonec.
+     *
+     * @param list<string> $keys
+     * @return list<array{tracking_key:string, location_id:?int, location_code:?string, quantity:string}>
+     */
+    public function stockByKeys(int $supplierId, int $itemId, int $warehouseId, array $keys): array
+    {
+        if ($keys === []) {
+            return [];
+        }
+        $in = implode(',', array_fill(0, count($keys), '?'));
+        $stmt = $this->db->pdo()->prepare("SELECT u.tracking_key, a.location_id, wl.code AS location_code, SUM(CASE WHEN a.direction = 'in' THEN a.quantity ELSE -a.quantity END) AS quantity FROM stock_tracking_units u JOIN stock_tracking_allocations a ON a.supplier_id = u.supplier_id AND a.stock_tracking_unit_id = u.id JOIN stock_document_lines l ON l.id = a.stock_document_line_id AND l.supplier_id = a.supplier_id JOIN stock_documents d ON d.id = l.document_id AND d.supplier_id = l.supplier_id LEFT JOIN warehouse_locations wl ON wl.id = a.location_id AND wl.supplier_id = a.supplier_id WHERE u.supplier_id = ? AND u.stock_item_id = ? AND a.warehouse_id = ? AND u.tracking_key IN ($in) AND d.status IN ('posted','reversed') GROUP BY u.tracking_key, a.location_id, wl.code HAVING quantity > 0 ORDER BY wl.code IS NULL, wl.code, a.location_id");
+        $stmt->execute([$supplierId, $itemId, $warehouseId, ...$keys]);
+        return array_map(static fn (array $row): array => [
+            'tracking_key' => (string) $row['tracking_key'],
+            'location_id' => $row['location_id'] === null ? null : (int) $row['location_id'],
+            'location_code' => $row['location_code'] === null ? null : (string) $row['location_code'],
+            'quantity' => (string) $row['quantity'],
+        ], $stmt->fetchAll(PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Množství po kusech karty, které doklady faktury pohnuly daným směrem: výdej
+     * (`out`) u výdejky k faktuře, příjem (`in`) u vratek k jejím dobropisům. Jen posted.
+     *
+     * @param list<int> $invoiceIds
+     * @return array<string,int> klíč kusu (malými písmeny) => množství v tisícinách
+     */
+    public function movedByInvoices(int $supplierId, int $itemId, array $invoiceIds, string $docType, string $direction): array
+    {
+        if ($invoiceIds === []) {
+            return [];
+        }
+        $in = implode(',', array_fill(0, count($invoiceIds), '?'));
+        $stmt = $this->db->pdo()->prepare("SELECT u.tracking_key, SUM(a.quantity) AS quantity FROM stock_tracking_allocations a JOIN stock_tracking_units u ON u.id = a.stock_tracking_unit_id AND u.supplier_id = a.supplier_id JOIN stock_document_lines l ON l.id = a.stock_document_line_id AND l.supplier_id = a.supplier_id JOIN stock_documents d ON d.id = l.document_id AND d.supplier_id = l.supplier_id WHERE a.supplier_id = ? AND u.stock_item_id = ? AND d.invoice_id IN ($in) AND d.doc_type = ? AND d.status = 'posted' AND a.direction = ? GROUP BY u.tracking_key");
+        $stmt->execute([$supplierId, $itemId, ...$invoiceIds, $docType, $direction]);
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $key = mb_strtolower((string) $row['tracking_key']);
+            $out[$key] = ($out[$key] ?? 0) + \MyInvoice\Service\Stock\StockValuation::qtyToT((string) $row['quantity']);
+        }
+        return $out;
+    }
+
     private function castLocation(array $row): array
     {
         foreach (['id', 'supplier_id', 'warehouse_id'] as $key) $row[$key] = (int) $row[$key];
