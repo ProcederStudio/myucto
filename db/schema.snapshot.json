@@ -997,7 +997,8 @@
         "2013_client_email_isdoc_override.sql",
         "2014_client_ai_extraction.sql",
         "2015_client_bank_permissions.sql",
-        "2016_invoice_item_tracking.sql"
+        "2016_invoice_item_tracking.sql",
+        "2017_invoice_issued_by.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -6295,6 +6296,8 @@
                 "invoice_type": "enum('invoice','proforma','credit_note','cancellation','tax_document','penalty','payment_calendar') NOT NULL",
                 "is_simplified": "tinyint(1) NOT NULL DEFAULT 0",
                 "issue_date": "date NOT NULL",
+                "issued_by": "bigint(20) unsigned NULL DEFAULT NULL",
+                "issued_by_name": "varchar(120) NULL DEFAULT NULL",
                 "language": "enum('cs','en') NOT NULL DEFAULT 'cs'",
                 "last_reminder_at": "timestamp NULL DEFAULT NULL",
                 "note_above_items": "text NULL DEFAULT NULL",
@@ -6342,6 +6345,7 @@
                 "PRIMARY": "UNIQUE BTREE (id)",
                 "fk_inv_cash_register": "BTREE (cash_register_id)",
                 "fk_inv_currency": "BTREE (currency_id)",
+                "fk_inv_issued_by": "BTREE (issued_by)",
                 "fk_inv_user": "BTREE (created_by)",
                 "fk_invoices_branding_profile": "BTREE (branding_profile_id)",
                 "idx_inv_approval_reminder": "BTREE (approval_status, approval_reminder_at, approval_requested_at)",
@@ -6376,6 +6380,7 @@
                 "fk_inv_cash_register": "(cash_register_id) -> cash_registers (id) ON UPDATE RESTRICT ON DELETE SET NULL",
                 "fk_inv_client": "(client_id) -> clients (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
                 "fk_inv_currency": "(currency_id) -> currencies (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_inv_issued_by": "(issued_by) -> users (id) ON UPDATE RESTRICT ON DELETE SET NULL",
                 "fk_inv_parent": "(parent_invoice_id) -> invoices (id) ON UPDATE RESTRICT ON DELETE CASCADE",
                 "fk_inv_project": "(project_id) -> projects (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
                 "fk_inv_recurring": "(recurring_template_id) -> recurring_invoice_templates (id) ON UPDATE RESTRICT ON DELETE SET NULL",
@@ -21833,6 +21838,7 @@
                 "invoice_number_format": "varchar(60) NULL DEFAULT NULL",
                 "invoice_number_period": "enum('year','month','none') NOT NULL DEFAULT 'month'",
                 "invoice_pdf_show_base_qty": "tinyint(1) NOT NULL DEFAULT 1",
+                "invoice_pdf_show_issued_by": "tinyint(1) NOT NULL DEFAULT 0",
                 "invoice_qr_include_due_date": "tinyint(1) NOT NULL DEFAULT 0",
                 "is_identified": "tinyint(1) NOT NULL DEFAULT 0",
                 "is_vat_payer": "tinyint(1) NOT NULL DEFAULT 1",

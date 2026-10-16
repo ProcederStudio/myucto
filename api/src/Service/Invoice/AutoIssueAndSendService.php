@@ -94,6 +94,7 @@ final class AutoIssueAndSendService
                 if ($issue->rowCount() === 0) {
                     throw new \RuntimeException('Faktura byla mezitím změněna.');
                 }
+                InvoiceIssuer::record($pdo, $invoiceId, $userId);
                 if ($stockEnabled) $this->stockIssue->issueForInvoice($supplierId, $invoice, $userId);
                 $this->clients->markAsCustomer((int) $invoice['client_id'], $supplierId);
                 if ($ownTransaction) $pdo->commit();

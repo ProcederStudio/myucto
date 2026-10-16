@@ -1557,6 +1557,25 @@ final class RecurringGeneratorTest extends TestCase
         $this->assertSame('2026-10-31', $tpl['next_run_date'], 'Po vystavení se posune na další konec měsíce');
     }
 
+    /** Vystavení cronem zapíše jako vystavitele autora šablony (stejně jako created_by). */
+    public function testIssuedRecurringInvoiceRecordsIssuer(): void
+    {
+        $tplId = $this->createPeriodTemplate('2026-04-30', ['end_of_month' => true]);
+
+        $res = $this->generator->generate($tplId, null, null, '127.0.0.1', 'phpunit');
+        $this->createdInvoiceIds[] = $res['invoice_id'];
+
+        $this->assertTrue($res['issued']);
+        $stmt = $this->db->pdo()->prepare(
+            'SELECT i.issued_by, i.issued_by_name, u.name AS user_name
+               FROM invoices i JOIN users u ON u.id = ? WHERE i.id = ?'
+        );
+        $stmt->execute([$this->userId, $res['invoice_id']]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        $this->assertSame($this->userId, (int) $row['issued_by']);
+        $this->assertSame($row['user_name'], $row['issued_by_name']);
+    }
+
     public function testIssuePeriodDispatchesSendWhenAutoSendEmail(): void
     {
         // Plný lifecycle „koncept → vystaveno A ODESLÁNO": ověříme, že issuePeriod při

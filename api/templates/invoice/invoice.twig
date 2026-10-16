@@ -188,6 +188,13 @@
     <td class="meta-value mono" colspan="3">{{ invoice.supplier_order_number }}</td>
   </tr>
   {% endif %}
+  {# Kdo doklad vystavil, jen se zapnutou volbou firmy (InvoicePdfRenderer::issuedByLabel). #}
+  {% if issued_by_label %}
+  <tr>
+    <td class="meta-label">{{ t('Vystavil', 'Issued by') }}</td>
+    <td class="meta-value" colspan="3">{{ issued_by_label }}</td>
+  </tr>
+  {% endif %}
 </table>
 
 {% if invoice.note_above_items %}

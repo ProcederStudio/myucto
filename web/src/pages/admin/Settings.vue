@@ -570,6 +570,7 @@ async function saveSupplier() {
       default_payment_due_unit: supplier.value.default_payment_due_unit,
       default_prices_include_vat: supplier.value.default_prices_include_vat,
       allow_refund_invoices: supplier.value.allow_refund_invoices ?? false,
+      invoice_pdf_show_issued_by: supplier.value.invoice_pdf_show_issued_by ?? false,
       // Výchozí poznámka pod položkami (#79) — prázdné pole ukládá server jako NULL.
       default_note_below_items_enabled: supplier.value.default_note_below_items_enabled ?? false,
       default_note_below_items_cs: supplier.value.default_note_below_items_cs ?? null,
@@ -1146,6 +1147,13 @@ async function confirmTaxRepDelete() {
               <span class="font-medium">{{ t('refundInvoice.settings_label') }}</span>
             </label>
             <p class="text-xs text-neutral-500 mt-1 ml-6">{{ t('refundInvoice.settings_hint') }}</p>
+          </div>
+          <div class="md:col-span-2">
+            <label class="flex items-center gap-2 text-sm">
+              <input v-model="supplier.invoice_pdf_show_issued_by" type="checkbox" class="rounded border-neutral-300 text-primary-600" data-test="invoice-pdf-show-issued-by" />
+              <span class="font-medium">{{ t('settings.invoice_pdf_show_issued_by') }}</span>
+            </label>
+            <p class="text-xs text-neutral-500 mt-1 ml-6">{{ t('settings.invoice_pdf_show_issued_by_hint') }}</p>
           </div>
           <div class="md:col-span-2 border-t border-neutral-200 pt-4 space-y-3">
             <div>

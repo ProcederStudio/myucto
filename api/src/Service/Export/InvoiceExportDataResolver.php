@@ -99,7 +99,10 @@ final class InvoiceExportDataResolver
      */
     public function issuePerson(array $invoice): string
     {
+        // Zapsaný vystavitel (migrace 2017) má přednost před autorem dokladu,
+        // stejně jako na PDF (InvoicePdfRenderer::issuedByLabel).
         $direct = $this->nonEmptyString($invoice['issue_person'] ?? null)
+            ?? $this->nonEmptyString($invoice['issued_by_name'] ?? null)
             ?? $this->nonEmptyString($invoice['created_by_name'] ?? null)
             ?? $this->nonEmptyString($invoice['user_name'] ?? null);
         if ($direct !== null) {

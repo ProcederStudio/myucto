@@ -269,6 +269,12 @@ export interface Invoice {
   income_tax_exempt_reason: string | null
   language: 'cs' | 'en'
   supplier_order_number: string | null
+  /** Kdo doklad vystavil (migrace 2017); null u konceptu a dokladů vystavených bez uživatele. */
+  issued_by?: number | null
+  /** Jméno vystavitele v okamžiku vystavení. */
+  issued_by_name?: string | null
+  /** Autor dokladu (JOIN users), záloha pro „Vystavil" u starších dokladů. */
+  created_by_name?: string | null
   note_above_items: string | null
   note_below_items: string | null
   revenue_category_id: number | null

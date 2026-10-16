@@ -776,6 +776,7 @@ final class RecurringInvoiceGenerator
             if ($issue->rowCount() === 0) {
                 throw new \RuntimeException('Faktura byla mezitím změněna.');
             }
+            InvoiceIssuer::record($pdo, $invoiceId, $userId);
             if ($stockEnabled) $this->stockIssue->issueForInvoice(
                 $supplierId,
                 array_merge($invoice, ['varsymbol' => $varsymbol]),

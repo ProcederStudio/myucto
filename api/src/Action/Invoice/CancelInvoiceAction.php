@@ -21,6 +21,7 @@ use MyInvoice\Service\Accounting\DocumentLockService;
 use MyInvoice\Service\Accounting\PostingException;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Invoice\AdvanceCycleLock;
+use MyInvoice\Service\Invoice\InvoiceIssuer;
 use MyInvoice\Service\Invoice\InvoiceCalculator;
 use MyInvoice\Service\IpMatcher;
 use MyInvoice\Service\Oss\OssPeriod;
@@ -214,6 +215,7 @@ final class CancelInvoiceAction
                 $userId,
             ]);
             $cancellationId = (int) $pdo->lastInsertId();
+            InvoiceIssuer::record($pdo, $cancellationId, $userId);
 
             // 2. Označ původní fakturu jako cancelled. Optimistický zámek L1 (Epic F6):
             // pro klienta UPDATE podmíněný booked_at IS NULL — účetní mohla zaúčtovat

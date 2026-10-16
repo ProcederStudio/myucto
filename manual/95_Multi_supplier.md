@@ -233,6 +233,15 @@ v [Platebních příkazech](26_Platebni_prikazy.md) a doklad placený hotově se
 výdajovým pokladním dokladem; v [Pokladně](32_Pokladna.md) jde výdajový doklad s účelem „Úhrada faktury"
 navázat na doklad k vyplacení. Bez volby se nic z toho nenabízí a editor dál vyžaduje kladnou částku k úhradě.
 
+**Kdo fakturu vystavil** (ve výchozím stavu vypnuté):
+
+1. Na záložce **Fakturace** zapněte **Tisknout na faktuře, kdo ji vystavil**.
+2. Uložte.
+
+PDF faktury pak v hlavičce s daty tiskne řádek **Vystavil** se jménem uživatele, který doklad
+vystavil (viz [§ 16.10.4](16_Faktura_PDF.md#16104-pdf-struktura)). Náhledy konceptů se
+přegenerují hned. PDF vystavených faktur, která už vznikla, se zpětně nemění.
+
 **Jak poznáte, že je hotovo:** Volby jsou uloženy a při dalším odeslání dokladu nebo zaplacení faktury se chovají podle nastavení.
 
 ## 95.9 Krok za krokem: Pohoda kódy
