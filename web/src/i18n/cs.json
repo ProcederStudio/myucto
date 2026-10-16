@@ -33480,6 +33480,13 @@
     }
   },
   "dimensions": {
+    "system_badge": "Systémová dimenze",
+    "builtin_badge": "Vestavěná hodnota",
+    "system_type_hint": "Systémový typ nelze deaktivovat ani smazat. Změny použitého významu kontroluje server.",
+    "builtin_hint": "Vestavěný význam nelze přejmenovat, přesunout, vyřadit ani smazat. Odpovědnou osobu a poznámky lze upravit.",
+    "system_assignment_hint": "Činnost a předběžné daňové zařazení zvolte podle skutečného případu. Systém nepředpokládá hlavní činnost ani předmět daně.",
+    "system_custom_hint": "Vlastní druh činnosti lze vyřadit z nového použití. Historická přiřazení zůstanou zachována.",
+    "system_history_conflict": "Systémovou dimenzi ani význam použité hodnoty nelze změnit. Pro nový význam založte novou hodnotu; vlastní druh činnosti můžete vyřadit z nového použití.",
     "license_title": "Dimenze vyžadují licenci účetnictví",
     "license_hint": "Dostupné během zkušební doby nebo s platnou licencí účetnictví. Po skončení licence nelze dimenze zapnout ani používat.",
     "license_cta": "Získat licenci",

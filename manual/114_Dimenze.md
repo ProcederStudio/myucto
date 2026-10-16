@@ -854,7 +854,10 @@ zařazení. Rámec 504 zatím nelze v nastavení firmy aktivovat. Předběžné 
 zařazení samo nepotvrzuje daňové posouzení ani nárok na osvobození a systém
 automaticky nevybírá hlavní činnost ani předmět daně.
 
-Systémový typ nelze odstranit ani vypnout. Název a význam použité systémové
+Označení **Systémová dimenze** znamená, že typ nelze odstranit ani vypnout.
+Označení **Vestavěná hodnota** označuje pevný význam, který nelze přejmenovat,
+přesunout, vyřadit ani smazat. Odpovědnou osobu a poznámky lze upravit.
+Název a význam použité systémové
 hodnoty, její kód a zařazení do stromu zůstávají zachované i v otevřeném období.
 Pro nový význam je nutná nová hodnota. Provozní poznámky a odpovědnou osobu lze
 měnit. Vlastní druh činnosti lze ukončit a později znovu zpřístupnit, jeho

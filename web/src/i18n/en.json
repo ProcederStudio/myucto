@@ -33480,6 +33480,13 @@
     }
   },
   "dimensions": {
+    "system_badge": "System dimension",
+    "builtin_badge": "Builtin value",
+    "system_type_hint": "System types cannot be deactivated or deleted. The server checks changes to meanings already in use.",
+    "builtin_hint": "Builtin meanings cannot be renamed, moved, retired or deleted. You can edit responsibility and notes.",
+    "system_assignment_hint": "Choose the activity and preliminary tax classification for the actual case. The system does not assume main activity or taxable status.",
+    "system_custom_hint": "Custom activity kinds can be retired from new use. Historical assignments remain unchanged.",
+    "system_history_conflict": "System dimensions and meanings already in use cannot be changed. Create a new value for a new meaning; custom activity kinds can be retired from new use.",
     "license_title": "Dimensions require an accounting licence",
     "license_hint": "Available during the trial or with a valid accounting licence. After it expires, dimensions cannot be enabled or used.",
     "license_cta": "Get a licence",
