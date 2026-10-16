@@ -22048,6 +22048,7 @@ paths:
   /api/v1/tax-evidence/cash-journal:
     parameters:
       - $ref: '#/components/parameters/SupplierIdHeader'
+      - $ref: '#/components/parameters/CashJournalClassificationFilter'
       - in: query
         name: year
         schema: { type: integer }
@@ -22066,9 +22067,16 @@ paths:
         checks{} + warnings[]. Řádek nese i `notes` (poznámky pohybu: id, body,
         pinned), `attachment_entity` (typ entity pro přílohy v
         `/documents/by-entity/{type}/{id}` s `source_id`, u pohybu GoPay null)
-        a `attachment_count`.
+        a `attachment_count`. `classification` vybírá řádky podle zobrazené primární
+        klasifikace (`bucket`), nikoli podle všech daňových alokací pohybu. Prázdná
+        nebo chybějící hodnota vrací všechny řádky. Součty, zůstatky (včetně běžných
+        zůstatků řádků), kontroly a varování vždy patří celému zvolenému období.
       responses:
-        '200': { description: OK }
+        '200':
+          description: Peněžní deník s metadaty výběru řádků
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaxEvidenceCashJournal' }
         '422':
           $ref: '#/components/responses/ValidationFailed'
   /api/v1/tax-evidence/cash-journal/notes/{source}/{id}:
@@ -22132,6 +22140,7 @@ paths:
   /api/v1/tax-evidence/cash-journal/export:
     parameters:
       - $ref: '#/components/parameters/SupplierIdHeader'
+      - $ref: '#/components/parameters/CashJournalClassificationFilter'
       - in: query
         name: year
         schema: { type: integer }
@@ -22148,6 +22157,10 @@ paths:
     get:
       tags: [Tax]
       summary: Export peněžního deníku (PDF/XLSX)
+      description: |
+        Filtr `classification` vybírá stejné řádky jako přehled peněžního deníku.
+        Filtrovaný export uvádí klasifikaci, počet zobrazených a celkových pohybů
+        a označení „Filtrovaný přehled“. Souhrn, zůstatky a varování zůstávají za celé období.
       responses:
         '200':
           description: Soubor exportu
@@ -29489,6 +29502,19 @@ components:
         HTTP vývoji změnit konfigurací; produkční výchozí používá prefix `__Host-`.
 
   parameters:
+    CashJournalClassificationFilter:
+      in: query
+      name: classification
+      required: false
+      description: |
+        Zobrazená primární klasifikace pohybu. Chybějící nebo prázdná hodnota = všechny
+        klasifikace. Filtr nemění součty, zůstatky, kontroly ani varování za celé období.
+        Jiná hodnota nebo jiný typ vrací 422.
+      schema:
+        anyOf:
+          - $ref: '#/components/schemas/CashJournalClassification'
+          - { type: string, enum: [''] }
+
     SupplierIdHeader:
       in: header
       name: X-Supplier-Id
@@ -38274,6 +38300,67 @@ components:
         account_code: { type: string, maxLength: 10 }
         vat_classification_code: { type: [string, "null"] }
         order_index: { type: integer }
+
+    CashJournalClassification:
+      type: string
+      enum: [income_taxable, income_exempt, income_nontax, expense_taxable, expense_nontax, transfer, private, nezarazeno]
+
+    TaxEvidenceCashJournal:
+      type: object
+      required: [from, to, year, is_vat_payer, opening_balance, closing_balance, balances, rows, totals, checks, warnings, classification, total_rows, filtered_rows, blocking_unclassified_count]
+      properties:
+        from: { type: string, format: date }
+        to: { type: string, format: date }
+        year: { type: integer }
+        is_vat_payer: { type: boolean }
+        opening_balance: { type: number, description: Počáteční zůstatek celého deníku }
+        closing_balance: { type: number, description: Konečný zůstatek celého deníku }
+        balances:
+          type: array
+          description: Zůstatky podle platebních prostředků za celé období
+          items:
+            type: object
+            properties:
+              instrument: { type: string }
+              opening: { type: number }
+              movement: { type: number }
+              closing: { type: number }
+        classification:
+          description: Aktivní filtr; null = všechny klasifikace
+          anyOf:
+            - $ref: '#/components/schemas/CashJournalClassification'
+            - { type: 'null' }
+        total_rows: { type: integer, minimum: 0, description: Počet řádků celého deníku před filtrováním }
+        filtered_rows: { type: integer, minimum: 0, description: Počet vrácených řádků po filtrování }
+        blocking_unclassified_count: { type: integer, minimum: 0, description: Počet nezařazených blokujících pohybů v celém deníku před filtrováním }
+        rows:
+          type: array
+          items:
+            type: object
+            properties:
+              source_type: { type: string }
+              source_id: { type: integer }
+              date: { type: string, format: date }
+              doc_no: { type: string }
+              partner: { type: string }
+              description: { type: string }
+              income: { type: [number, 'null'] }
+              expense: { type: [number, 'null'] }
+              running_balance: { type: number, description: Běžný zůstatek celého deníku, nezávislý na filtru }
+              bucket: { $ref: '#/components/schemas/CashJournalClassification' }
+              unclassified: { type: boolean }
+              blocking: { type: boolean }
+              notes:
+                type: array
+                items: { type: object }
+              attachment_entity: { type: [string, 'null'] }
+              attachment_count: { type: integer }
+        totals: { type: object, description: Souhrn za celé období bez ohledu na filtr }
+        checks: { type: object, description: Kontroly celého deníku bez ohledu na filtr }
+        warnings:
+          type: array
+          description: Varování celého deníku včetně pohybů skrytých filtrem
+          items: { type: object }
 
     TaxEvidenceBankRule:
       type: object

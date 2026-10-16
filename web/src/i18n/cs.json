@@ -26431,6 +26431,12 @@
       "form_active": "Aktivní"
     },
     "cash_journal": {
+      "all_classifications": "Všechny klasifikace",
+      "show_unclassified": "Zobrazit nezařazené",
+      "rows_shown": "Zobrazeno {shown} z {total} pohybů",
+      "empty_classification": "Zvolené klasifikaci neodpovídají žádné pohyby.",
+      "clear_classification": "Zrušit filtr klasifikace",
+      "summary_period": "Souhrn za celé období",
       "title": "Peněžní deník",
       "subtitle": "Kasová evidence příjmů a výdajů §7b/§23 s běžným zůstatkem a daňovou klasifikací.",
       "empty": "Ve zvoleném období nejsou žádné peněžní pohyby.",

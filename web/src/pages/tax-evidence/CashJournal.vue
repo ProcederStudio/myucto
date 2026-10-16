@@ -1,16 +1,19 @@
 <script setup lang="ts">
-import { ref, onMounted, reactive, computed } from 'vue'
+import { ref, reactive, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import {
   taxEvidenceApi,
   type CashJournalReport,
+  type CashJournalParams,
+  type CashBucket,
   type CashJournalRow,
   type CashJournalInstrument,
   type TaxBucketOverride,
 } from '@/api/taxEvidence'
 import { useToast } from '@/composables/useToast'
 import { formatMoney } from '@/composables/useFormat'
+import FilterBar, { type FilterChip } from '@/components/ui/FilterBar.vue'
 import ColumnPicker from '@/components/ui/ColumnPicker.vue'
 import DensityToggle from '@/components/ui/DensityToggle.vue'
 import { useTablePrefs, type ColumnDef } from '@/composables/useTablePrefs'
@@ -22,6 +25,8 @@ import type { CashJournalNote } from '@/api/taxEvidence'
 
 const { t } = useI18n()
 const toast = useToast()
+const route = useRoute()
+const router = useRouter()
 
 const report = ref<CashJournalReport | null>(null)
 const loading = ref(false)
@@ -33,24 +38,64 @@ const filters = reactive({
   year: currentYear as number,
   from: '',
   to: '',
+  classification: '' as CashBucket | '',
 })
 
-function queryParams() {
-  if (filters.from && filters.to) {
-    return { from: filters.from, to: filters.to }
-  }
-  return { year: Number(filters.year) }
+function queryParams(): CashJournalParams {
+  const period = filters.from && filters.to
+    ? { from: filters.from, to: filters.to }
+    : { year: Number(filters.year) }
+  return { ...period, ...(filters.classification ? { classification: filters.classification } : {}) }
 }
 
+function applyFilters() {
+  const query = {
+    ...route.query,
+    year: String(filters.year), from: filters.from || undefined, to: filters.to || undefined,
+    classification: filters.classification || undefined,
+  }
+  if (['year', 'from', 'to', 'classification'].every(key => route.query[key] === query[key as keyof typeof query])) return
+  // Invalidate outstanding requests before navigation updates the route watcher.
+  ++loadSeq
+  loading.value = true
+  void router.push({ query })
+}
+
+function clearFilter(key: string) {
+  if (key === 'classification') filters.classification = ''
+  if (key === 'year') filters.year = currentYear
+  if (key === 'from') filters.from = ''
+  if (key === 'to') filters.to = ''
+  applyFilters()
+}
+function clearFilters() {
+  Object.assign(filters, { year: currentYear, from: '', to: '', classification: '' })
+  applyFilters()
+}
+function showUnclassified() {
+  if (filters.classification === 'nezarazeno') return
+  filters.classification = 'nezarazeno'
+  applyFilters()
+}
+
+let loadSeq = 0
+const loadedParams = ref<CashJournalParams | null>(null)
+
 async function load() {
+  const seq = ++loadSeq
+  const params = queryParams()
   loading.value = true
   try {
-    report.value = await taxEvidenceApi.cashJournal(queryParams())
+    const result = await taxEvidenceApi.cashJournal(params)
+    if (seq !== loadSeq) return
+    report.value = result
+    loadedParams.value = params
   } catch (e: any) {
+    if (seq !== loadSeq) return
     toast.error(e?.response?.data?.error?.message || t('common.error'))
     report.value = null
   } finally {
-    loading.value = false
+    if (seq === loadSeq) loading.value = false
   }
 }
 
@@ -78,6 +123,24 @@ const CLASS_KEY: Record<string, string> = {
   private: 'tax_evidence.cash_journal.class_private',
   nezarazeno: 'tax_evidence.cash_journal.class_unclassified',
 }
+const filterChips = computed<FilterChip[]>(() => [
+  ...(filters.year !== currentYear ? [{ key: 'year', label: t('tax_evidence.cash_journal.filter_year'), value: String(filters.year) }] : []),
+  ...(filters.from ? [{ key: 'from', label: t('tax_evidence.cash_journal.filter_from'), value: filters.from }] : []),
+  ...(filters.to ? [{ key: 'to', label: t('tax_evidence.cash_journal.filter_to'), value: filters.to }] : []),
+  ...(filters.classification ? [{ key: 'classification', label: t('tax_evidence.cash_journal.col_class'), value: classLabel(filters.classification) }] : []),
+])
+
+watch(() => JSON.stringify([route.query.year, route.query.from, route.query.to, route.query.classification]), () => {
+  const year = Number(route.query.year)
+  filters.year = Number.isInteger(year) && year >= 1900 && year <= 9999 ? year : currentYear
+  filters.from = typeof route.query.from === 'string' ? route.query.from : ''
+  filters.to = typeof route.query.to === 'string' ? route.query.to : ''
+  const classification = route.query.classification
+  filters.classification = typeof classification === 'string' && Object.hasOwn(CLASS_KEY, classification)
+    ? classification as CashBucket : ''
+  void load()
+}, { immediate: true })
+
 function classLabel(bucket: string): string {
   const key = CLASS_KEY[bucket]
   return key ? t(key) : bucket
@@ -149,19 +212,19 @@ async function onClassify(row: CashJournalRow, value: string, select: HTMLSelect
 
 // R10: blokující varování (nezařazené příchozí pohyby mimo daňový základ).
 const blockingWarnings = computed(() => (report.value?.warnings ?? []).filter(w => w.blocking))
-const unclassifiedCount = computed(() =>
-  (report.value?.rows ?? []).filter(r => r.unclassified && r.blocking).length,
-)
+const unclassifiedCount = computed(() => report.value?.blocking_unclassified_count ?? 0)
 
 const checksOpen = ref(false)
 
 const exporting = ref(false)
 async function exportFile(format: 'pdf' | 'xlsx') {
-  if (!report.value) return
+  if (!report.value || loading.value || exporting.value || !loadedParams.value) return
+  const params = { ...loadedParams.value }
+  const year = report.value.year
   exporting.value = true
   try {
-    const r = await taxEvidenceApi.exportReport('/tax-evidence/cash-journal/export', { ...queryParams(), format })
-    downloadBlob(r.data as unknown as Blob, `penezni-denik-${report.value.year}.${format}`)
+    const r = await taxEvidenceApi.exportReport('/tax-evidence/cash-journal/export', { ...params, format })
+    downloadBlob(r.data as unknown as Blob, `penezni-denik-${year}.${format}`)
   } catch (e: any) {
     toast.error(e?.response?.data?.error?.message || t('common.error'))
   } finally {
@@ -200,7 +263,6 @@ function onNotesChanged(notes: CashJournalNote[]) {
   if (movementRow.value) movementRow.value.notes = notes.map(n => ({ id: n.id, body: n.body, pinned: n.pinned }))
 }
 
-onMounted(load)
 </script>
 
 <template>
@@ -213,39 +275,41 @@ onMounted(load)
       <div class="flex flex-wrap items-center gap-2">
         <ColumnPicker class="hidden md:block" :ctrl="tbl" />
         <DensityToggle class="hidden md:block" :ctrl="tbl" />
-        <button :disabled="!report || exporting" @click="exportFile('pdf')" :class="btnOutline('primary')">
+        <button :disabled="!report || exporting || loading" @click="exportFile('pdf')" :class="btnOutline('primary')">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.download" /></svg>
           {{ t('tax_evidence.cash_journal.export_pdf') }}
         </button>
-        <button :disabled="!report || exporting" @click="exportFile('xlsx')" :class="btnOutline('primary')">
+        <button :disabled="!report || exporting || loading" @click="exportFile('xlsx')" :class="btnOutline('primary')">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.download" /></svg>
           {{ t('tax_evidence.cash_journal.export_xlsx') }}
         </button>
       </div>
     </div>
 
-    <!-- Filtry -->
-    <div class="bg-surface border border-neutral-200 rounded-lg shadow-sm p-3 mb-4">
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        <div>
-          <label class="block text-xs font-medium text-neutral-500 mb-1">{{ t('tax_evidence.cash_journal.filter_year') }}</label>
-          <select v-model="filters.year" @change="load"
-            class="w-full h-9 px-2 border border-neutral-300 rounded-md text-sm bg-surface">
-            <option v-for="y in years" :key="y" :value="y">{{ y }}</option>
-          </select>
-        </div>
-        <div>
-          <label class="block text-xs font-medium text-neutral-500 mb-1">{{ t('tax_evidence.cash_journal.filter_from') }}</label>
-          <DateInput v-model="filters.from" @change="load"
-            class="w-full h-9 px-2 border border-neutral-300 rounded-md text-sm" />
-        </div>
-        <div>
-          <label class="block text-xs font-medium text-neutral-500 mb-1">{{ t('tax_evidence.cash_journal.filter_to') }}</label>
-          <DateInput v-model="filters.to" @change="load"
-            class="w-full h-9 px-2 border border-neutral-300 rounded-md text-sm" />
-        </div>
+    <FilterBar :chips="filterChips" :active-count="filterChips.length" @clear="clearFilter" @clear-all="clearFilters">
+      <div>
+        <label for="cash-journal-year" class="block text-xs font-medium text-neutral-500 mb-1">{{ t('tax_evidence.cash_journal.filter_year') }}</label>
+        <select id="cash-journal-year" v-model="filters.year" @change="applyFilters" class="h-9 px-2 border border-neutral-300 rounded-md text-sm bg-surface">
+          <option v-if="!years.includes(filters.year)" :value="filters.year">{{ filters.year }}</option>
+          <option v-for="y in years" :key="y" :value="y">{{ y }}</option>
+        </select>
       </div>
-    </div>
+      <div>
+        <label for="cash-journal-from" class="block text-xs font-medium text-neutral-500 mb-1">{{ t('tax_evidence.cash_journal.filter_from') }}</label>
+        <DateInput id="cash-journal-from" v-model="filters.from" @change="applyFilters" class="h-9 px-2 border border-neutral-300 rounded-md text-sm" />
+      </div>
+      <div>
+        <label for="cash-journal-to" class="block text-xs font-medium text-neutral-500 mb-1">{{ t('tax_evidence.cash_journal.filter_to') }}</label>
+        <DateInput id="cash-journal-to" v-model="filters.to" @change="applyFilters" class="h-9 px-2 border border-neutral-300 rounded-md text-sm" />
+      </div>
+      <div>
+        <label for="cash-journal-classification" class="block text-xs font-medium text-neutral-500 mb-1">{{ t('tax_evidence.cash_journal.col_class') }}</label>
+        <select id="cash-journal-classification" v-model="filters.classification" @change="applyFilters" class="h-9 max-w-full px-2 border border-neutral-300 rounded-md text-sm bg-surface">
+          <option value="">{{ t('tax_evidence.cash_journal.all_classifications') }}</option>
+          <option v-for="(_, bucket) in CLASS_KEY" :key="bucket" :value="bucket">{{ classLabel(bucket) }}</option>
+        </select>
+      </div>
+    </FilterBar>
 
     <!-- R10: blokující varování — nezařazené pohyby mimo daňový základ -->
     <div v-if="report && blockingWarnings.length > 0"
@@ -256,6 +320,10 @@ onMounted(load)
           <p class="font-semibold">{{ unclassifiedCount > 0
             ? t('tax_evidence.cash_journal.unclassified_warning', { n: unclassifiedCount })
             : t('tax_evidence.cash_journal.blocking_warning', { n: blockingWarnings.length }) }}</p>
+          <button v-if="unclassifiedCount > 0" type="button" :disabled="filters.classification === 'nezarazeno'" @click="showUnclassified" :class="[btnOutlineSm('warning'), 'mt-2 whitespace-nowrap']">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.search" /></svg>
+            {{ t('tax_evidence.cash_journal.show_unclassified') }}
+          </button>
           <ul class="mt-1.5 space-y-0.5 text-danger-500">
             <li v-for="(w, i) in blockingWarnings" :key="i">{{ w.message }}</li>
           </ul>
@@ -265,7 +333,7 @@ onMounted(load)
 
     <!-- Souhrn (totály) -->
     <div v-if="report" class="bg-surface border border-neutral-200 rounded-lg shadow-sm p-3 mb-4">
-      <div class="text-xs text-neutral-500 uppercase tracking-wide font-medium mb-2">{{ t('tax_evidence.cash_journal.summary_title') }}</div>
+      <div class="text-xs text-neutral-500 uppercase tracking-wide font-medium mb-2">{{ t('tax_evidence.cash_journal.summary_period') }}</div>
       <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 text-sm">
         <div>
           <div class="text-xs text-neutral-500">{{ t('tax_evidence.cash_journal.opening_balance') }}</div>
@@ -364,7 +432,13 @@ onMounted(load)
       </div>
     </div>
 
+    <p v-if="report && !loading" class="mb-3 text-sm text-neutral-500" role="status">{{ t('tax_evidence.cash_journal.rows_shown', { shown: report.filtered_rows, total: report.total_rows }) }}</p>
+
     <div v-if="loading" class="text-center text-neutral-500 py-12 text-sm">{{ t('common.loading') }}</div>
+
+    <EmptyState v-else-if="report && report.rows.length === 0 && report.total_rows > 0 && report.classification"
+      variant="filtered" :title="t('tax_evidence.cash_journal.empty_classification')"
+      :cta="t('tax_evidence.cash_journal.clear_classification')" @action="clearFilter('classification')" boxed />
 
     <EmptyState v-else-if="!report || report.rows.length === 0"
       icon="coin" :title="t('tax_evidence.cash_journal.empty')" boxed />

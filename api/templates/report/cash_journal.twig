@@ -20,6 +20,7 @@
     }
     .warn-title { font-weight: bold; font-size: 9pt; margin-bottom: 1mm; }
     .warn-line { font-size: 8pt; margin-top: 0.5mm; }
+    .filter-block { border: 0.5pt solid #555; background-color: #f3f4f6; padding: 2mm 2.5mm; margin-bottom: 3mm; }
     table.book { width: 100%; border-collapse: collapse; margin: 0; } /* bez okraje: šev mezi kusy tabulky nesmí dělat mezeru */
     table.book thead th {
         font-size: 7pt;
@@ -82,6 +83,13 @@
     </tr>
 </table>
 
+{% if classification|default(null) is not null %}
+    <div class="filter-block">
+        <strong>Filtrovaný přehled — {{ bucket_labels[classification] }}</strong><br>
+        Zobrazeno {{ filtered_rows }} z {{ total_rows }} pohybů. Zůstatky jsou za celý deník.
+    </div>
+{% endif %}
+
 {% if warnings is not empty %}
     <div class="warn-block">
         <div class="warn-title">⚠ Nezařazené pohyby ({{ warnings|length }}) — mimo daňový základ, riziko podhodnocení příjmu</div>
@@ -97,7 +105,7 @@
 
 {% if rows is empty %}
     <p style="text-align:center; color:#888; padding: 10mm 0;">
-        Pro zvolené období nejsou v peněžním deníku žádné pohyby.
+        {{ classification|default(null) is not null ? 'Zvolené klasifikaci neodpovídají žádné pohyby.' : 'Pro zvolené období nejsou v peněžním deníku žádné pohyby.' }}
     </p>
 {% else %}
 <table class="book">
@@ -135,8 +143,10 @@
         </tr>
     </tfoot>
 </table>
+{% endif %}
 
-<div class="totals-title">Součty za období</div>
+{% if rows is not empty or classification|default(null) is not null %}
+<div class="totals-title">{{ classification|default(null) is not null ? 'Souhrn za celé období' : 'Součty za období' }}</div>
 <table class="totals">
     <tr><td>Počáteční zůstatek</td><td class="num">{{ opening_balance|cz_money }}</td></tr>
     <tr><td>Daňové příjmy</td><td class="num">{{ totals.prijem_danovy|cz_money }}</td></tr>

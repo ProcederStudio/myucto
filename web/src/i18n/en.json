@@ -26431,6 +26431,12 @@
       "form_active": "Active"
     },
     "cash_journal": {
+      "all_classifications": "All classifications",
+      "show_unclassified": "Show unclassified",
+      "rows_shown": "Showing {shown} of {total} movements",
+      "empty_classification": "No movements match the selected classification.",
+      "clear_classification": "Clear classification filter",
+      "summary_period": "Summary for the entire period",
       "title": "Cash journal",
       "subtitle": "Cash-basis income and expense record (§7b/§23) with running balance and tax classification.",
       "empty": "No cash movements in the selected period.",

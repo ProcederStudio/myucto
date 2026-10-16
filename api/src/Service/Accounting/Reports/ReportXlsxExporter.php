@@ -756,6 +756,16 @@ final class ReportXlsxExporter
         $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
         $sheet->setCellValue('A2', 'Období: ' . $this->czDate((string) ($data['from'] ?? '')) . ' – ' . $this->czDate((string) ($data['to'] ?? '')));
 
+        $filtered = ($data['classification'] ?? null) !== null;
+        if ($filtered) {
+            $sheet->setCellValue('A3', 'Filtrovaný přehled — ' . $labels[$data['classification']]
+                . '. Zobrazeno ' . $data['filtered_rows'] . ' z ' . $data['total_rows'] . ' pohybů. Zůstatky jsou za celý deník.');
+            $sheet->mergeCells('A3:H3');
+            $sheet->getStyle('A3')->getFont()->setBold(true);
+            $sheet->getStyle('A3')->getAlignment()->setWrapText(true);
+            $sheet->getRowDimension(3)->setRowHeight(32);
+        }
+
         $warnings = $data['warnings'] ?? [];
         $head = 4;
         if (!empty($warnings)) {
@@ -798,7 +808,7 @@ final class ReportXlsxExporter
 
         $t = $data['totals'] ?? [];
         $tr = $r + 1;
-        $sheet->setCellValue("A{$tr}", 'Součty za období');
+        $sheet->setCellValue("A{$tr}", $filtered ? 'Souhrn za celé období' : 'Součty za období');
         $sheet->getStyle("A{$tr}")->getFont()->setBold(true);
         foreach ([
             'Počáteční zůstatek' => (float) ($data['opening_balance'] ?? 0),

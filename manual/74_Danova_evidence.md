@@ -51,12 +51,12 @@ nesmí změnit výsledek DPH. Viz [Výkazy DPH](41_Vykazy_DPH.md).
 
 1. Otevřete `Daňová evidence → Peněžní deník`.
 2. Vyberte **Rok** (aktuální a 5 předchozích) nebo vyplňte **Od** a **Do** (vlastní rozsah má přednost před rokem). Sestava se po každé změně přenačte.
-3. Zkontrolujte panel **Souhrn** a řádek **Daňový základ (příjem - výdaj)**. To je číslo, které se má shodovat s podklady pro přiznání k dani z příjmů.
-4. Projděte červené upozornění nad souhrnem (viz [§ 74.4](#744-krok-za-krokem-zaradit-nezarazeny-pohyb)) a řádky s klasifikací **Nezařazeno**.
+3. Zkontrolujte panel **Souhrn za celé období** a řádek **Daňový základ (příjem - výdaj)**. To je číslo, které se má shodovat s podklady pro přiznání k dani z příjmů.
+4. Projděte červené upozornění nad souhrnem (viz [§ 74.4](#744-krok-za-krokem-zaradit-nezarazeny-pohyb)). Tlačítkem **Zobrazit nezařazené** nebo filtrem **Klasifikace → Nezařazeno** vyberte příslušné řádky.
 5. Případně rozbalte panel **Kontrola vůči přiznanému příjmu** a porovnejte daňový příjem s ročním příjmem z faktur (viz [§ 74.9.7](#7497-kontrola-vuci-priznanemu-prijmu)).
 6. Pro předání účetní klikněte na **Export PDF** nebo **Export XLSX**.
 
-**Jak poznáte, že je hotovo:** panel **Souhrn** nehlásí **Nezařazeno** a nad ním není červené upozornění. Export se uloží jako
+**Jak poznáte, že je hotovo:** panel **Souhrn za celé období** nehlásí **Nezařazeno** a nad ním není červené upozornění. Export se uloží jako
 `penezni-denik-{rok}.pdf` nebo `.xlsx`.
 
 Přes **Výběr sloupců** a hustotu řádků přizpůsobíte tabulku (stejné ovládací prvky jako u ostatních tabulek, nastavení se ukládá
@@ -69,7 +69,7 @@ výpisu znovu spárujete s dokladem, nese úhradu opět avízo a do peněžního
 
 ## 74.4 Krok za krokem: zařadit nezařazený pohyb
 
-1. V peněžním deníku najděte řádek se štítkem **Nezařazeno** (červeně podbarvený).
+1. V peněžním deníku zvolte filtr **Klasifikace → Nezařazeno** a najděte příslušný červeně podbarvený řádek.
 2. Pokud pohyb patří k faktuře nebo pokladnímu dokladu, opravte zdrojový doklad: spárujte bankovní pohyb s fakturou, nebo upravte
    účel pokladního dokladu či příznaky uznatelnosti a osvobození na faktuře.
 3. Pokud k pohybu doklad neexistuje, v řádku zvolte klasifikaci ve výběru **Zařadit...** (například soukromý vklad či výběr).
@@ -167,13 +167,29 @@ podvojné účetnictví, přesměruje vás aplikace na úvodní stránku (přech
 
 ### 74.9.2 Peněžní deník: filtry a rozsah
 
-Horní panel nabízí tři filtry: **Rok** (posledních šest let, přednastaven aktuální), **Od** a **Do** (vlastní rozsah, pokud vyplníte
-oba, má přednost před rokem). Po každé změně filtru se sestava přenačte automaticky. Vpravo nahoře je **Výběr sloupců**,
-hustota řádků a **Export PDF** / **Export XLSX** za aktuálně zvolený rozsah.
+Horní lišta nabízí **Rok** (posledních šest let, přednastaven aktuální), **Od** a **Do** (vlastní rozsah, pokud vyplníte
+oba, má přednost před rokem) a **Klasifikaci**. Výchozí volba **Všechny klasifikace** zobrazí celý deník. Vybrat lze daňový,
+osvobozený nebo nedaňový příjem, daňový nebo nedaňový výdaj, převod, soukromý pohyb a **Nezařazeno**. Výběr se řídí
+štítkem ve sloupci **Klasifikace**. Pohyb s více daňovými složkami se nerozděluje do dalších řádků.
+
+Po změně se sestava přenačte automaticky. Aktivní klasifikaci ukazuje odstranitelný štítek; jeho zrušením zachováte
+zvolené období. Filtr je uložený v adrese stránky, takže jej zachová otevření odkazu i návrat v historii prohlížeče.
+Na mobilu lze další ovládací prvky rozbalit tlačítkem **Filtry**. Nad tabulkou vidíte počet zobrazených pohybů z celkového
+počtu za období. Prázdný výsledek filtru nabízí jeho zrušení.
+
+**Souhrn za celé období**, zůstatky peněžních prostředků, kontrola příjmů i varování vždy zahrnují celé zvolené období.
+Také zůstatek u jednotlivého řádku odpovídá úplnému chronologickému deníku, včetně právě skrytých pohybů.
+Filtrem proto nelze skrýt blokující upozornění ani změnit daňový základ. Po ručním přeřazení pohybu zůstává filtr aktivní;
+pohyb, který už vybrané klasifikaci neodpovídá, ze seznamu zmizí.
+
+Vpravo nahoře je **Výběr sloupců**, hustota řádků a **Export PDF** / **Export XLSX**. Export respektuje období i klasifikaci.
+Při aktivní klasifikaci je označený **Filtrovaný přehled**, uvádí vybranou klasifikaci a počet vybraných pohybů. Souhrny,
+zůstatky a varování v exportu zůstávají za celé období stejně jako na obrazovce. Pro úplný export zvolte
+**Všechny klasifikace**.
 
 ### 74.9.3 Souhrn (počáteční a konečný zůstatek, totály)
 
-Nad tabulkou pohybů je panel **Souhrn** s běžným zůstatkem a rozpadem do daňových kbelíků za celé zvolené období:
+Nad tabulkou pohybů je panel **Souhrn za celé období** s běžným zůstatkem a rozpadem do daňových kbelíků za celé zvolené období:
 
 <!-- cols: 30 70 -->
 | Položka | Význam |
