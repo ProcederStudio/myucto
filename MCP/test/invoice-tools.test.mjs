@@ -262,6 +262,7 @@ const calendarDraft = (overrides = {}) => ({
       vat_classification_code: '1', stock_item_id: null, warehouse_id: null,
       small_asset_id: null, asset_id: null, accrual_from: '2026-10-01', accrual_to: '2027-09-30',
       oss_applicable: false, oss_consumer_country: null, total_with_vat: 14520,
+      tracking_allocations: [{ quantity: '1.000', serial_number: 'VIN-A', lot_code: null, expires_on: null }],
     },
     { id: 102, description: 'Sleva 10 %', quantity: 1, unit: 'ks', unit_price_without_vat: -1200,
       vat_rate_id: 1, order_index: 1, item_kind: 'discount' },
@@ -302,6 +303,7 @@ test('rozpis plateb pošle celou hlavičku i položky se skrytými poli', async 
     stock_item_id: null, warehouse_id: null, small_asset_id: null, asset_id: null,
     accrual_from: '2026-10-01', accrual_to: '2027-09-30',
     oss_applicable: false, oss_consumer_country: null,
+    tracking_allocations: [{ quantity: '1.000', serial_number: 'VIN-A', lot_code: null, expires_on: null }],
   });
   assert.deepEqual(body.payment_schedule, [
     { due_on: '2026-10-15', total_amount: 6050, base_amount: 5000, vat_amount: 1050, note: 'první splátka' },

@@ -37178,7 +37178,7 @@ components:
         serial_number: { type: [string, "null"], maxLength: 184, description: "Sériové číslo (karta v režimu serial), například VIN." }
         lot_code: { type: [string, "null"], maxLength: 100, description: "Kód šarže (karta v režimu lot)." }
         expires_on: { type: [string, "null"], format: date, description: "Expirace šarže." }
-        location_id: { type: [integer, "null"], description: "Umístění ve skladu, ze kterého se kus vydá." }
+        unit_code: { type: string, description: "Jen ve vstupu: jednotka množství, převede se na základní jednotku karty (`invalid_unit`, když karta převod nemá). Neukládá se." }
     InvoiceItemInput:
       type: object
       required: [description, quantity, unit_price_without_vat, vat_rate_id]
@@ -37200,10 +37200,12 @@ components:
         tracking_allocations:
           type: [array, "null"]
           description: |
-            Vybraná sériová čísla nebo šarže (jen u karty se sledováním, jinak 422 `tracking_not_enabled`).
-            Sériové číslo = množství 1 (`invalid_tracking_quantity`). Koncept smí mít výběr neúplný,
-            úplnost a dostupnost kusů na skladu se ověří při vystavení. Při úpravě dokladu se položky
-            nahrazují celé, výběr je proto potřeba poslat znovu (GET ho vrací).
+            Vybraná sériová čísla nebo šarže (jen u karty se sledováním, jinak 422 `tracking_not_enabled`;
+            karta jiné firmy 422 `invalid_document`). Sériové číslo = množství 1 (`invalid_tracking_quantity`).
+            Koncept smí mít výběr neúplný, úplnost a dostupnost kusů na skladu se ověří při vystavení.
+            Umístění ve skladu se neukládá, dohledá ho výdej. Při úpravě dokladu se položky nahrazují
+            celé, výběr je proto potřeba poslat znovu (GET ho vrací). U vystavené faktury, ke které už
+            existuje zaúčtovaný skladový doklad, změna výběru vrátí 409 `tracking_locked`.
           items: { $ref: '#/components/schemas/InvoiceItemTrackingAllocation' }
         small_asset_id:
           type: [integer, "null"]

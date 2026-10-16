@@ -125,6 +125,10 @@ final class DocumentItemsPayload
                     round((float) ($item['unit_price_without_vat'] ?? 0), 6),
                     (int) ($item['vat_rate_id'] ?? 0),
                     ...self::ossFingerprint($item),
+                    // Vybrané kusy (2012): konkrétní sériové číslo je obsah položky.
+                    array_key_exists('tracking_json', $item)
+                        ? \MyInvoice\Service\Stock\InvoiceItemTracking::payloadJson($item)
+                        : \MyInvoice\Service\Stock\InvoiceItemTracking::storedJson($item),
                 ];
             },
             array_values($items),

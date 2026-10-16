@@ -94,6 +94,14 @@ export interface AdvanceCandidate {
   currency: string
 }
 
+/** Vybraný kus (sériové číslo) nebo šarže na řádku faktury; množství v základní jednotce karty. */
+export interface InvoiceItemTrackingAllocation {
+  quantity: string
+  serial_number: string | null
+  lot_code: string | null
+  expires_on: string | null
+}
+
 export interface InvoiceItem {
   id?: number
   invoice_id?: number
@@ -121,6 +129,11 @@ export interface InvoiceItem {
   stock_item_id?: number | null
   /** Sklad, ze kterého se položka vydá při vystavení (auto-výdejka); null = default sklad supplieru. */
   warehouse_id?: number | null
+  /**
+   * Vybraná sériová čísla / šarže karty se sledováním. Stejně jako stock_item_id se MUSÍ
+   * posílat zpět, jinak je replaceItems (DELETE+INSERT) smaže.
+   */
+  tracking_allocations?: InvoiceItemTrackingAllocation[]
   /** Prodávaná karta drobného majetku (1177) — výnos 642 a po vystavení karta → prodáno. */
   small_asset_id?: number | null
   /** Prodávaná karta dlouhodobého majetku (1177) — výnos 641 a po vystavení vyřazení type=sold. */
@@ -565,6 +578,7 @@ export interface InvoicePayload {
     order_index: number
     stock_item_id?: number | null
     warehouse_id?: number | null
+    tracking_allocations?: InvoiceItemTrackingAllocation[]
     small_asset_id?: number | null
     asset_id?: number | null
     accrual_from?: string | null

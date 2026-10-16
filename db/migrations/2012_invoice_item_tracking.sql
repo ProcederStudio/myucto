@@ -6,11 +6,11 @@
 -- řádek faktury: přežije úpravy konceptu, převezme ho dobropis a výdejka, vratka
 -- i obnovení po stornu z něj vycházejí.
 --
--- Identita je TEXT (serial_number / lot_code + expires_on), ne stock_tracking_unit_id:
--- archiv a obnova firmy pak sloupec nemusí přemapovávat. Tvar JSON pole:
--- [{quantity, serial_number, lot_code, expires_on, location_id}] v základní jednotce
--- karty, normalizuje TrackingAllocationService::normalizeDraftInput().
--- NULL = řádek bez výběru.
+-- Identita je TEXT (serial_number / lot_code + expires_on), bez stock_tracking_unit_id
+-- a bez umístění ve skladu: id se při obnově archivu do jiné firmy mění a kus se může
+-- přestěhovat, umístění proto dohledá až výdej. Tvar JSON pole:
+-- [{quantity, serial_number, lot_code, expires_on}] v základní jednotce karty,
+-- normalizuje TrackingAllocationService::normalizeDraftInput(). NULL = řádek bez výběru.
 --
 -- Idempotence: ADD COLUMN IF NOT EXISTS.
 

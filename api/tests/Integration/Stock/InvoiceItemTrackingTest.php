@@ -89,11 +89,12 @@ final class InvoiceItemTrackingTest extends StockTestCase
         $wh = $this->warehouse($sid);
         $moto = $this->trackedItem($sid, 'MOTO-3', 'serial');
         $invoiceId = $this->createInvoice($sid, [
-            $this->line($moto, $wh, '1', [['quantity' => '1', 'serial_number' => 'VIN-E', 'stock_tracking_unit_id' => 999999, 'location_to_id' => 5]]),
+            $this->line($moto, $wh, '1', [['quantity' => '1', 'serial_number' => 'VIN-E', 'stock_tracking_unit_id' => 999999, 'location_id' => 3, 'location_to_id' => 5]]),
         ]);
         $stored = $this->storedItems($invoiceId)[0]['tracking_allocations'][0];
         self::assertArrayNotHasKey('stock_tracking_unit_id', $stored, 'Identita se ukládá textem, ne id jednotky.');
         self::assertArrayNotHasKey('location_to_id', $stored);
+        self::assertArrayNotHasKey('location_id', $stored, 'Umístění se dohledá až při výdeji (obnova archivu, přesuny ve skladu).');
     }
 
     public function testLotWithExpiryRoundTrips(): void
@@ -157,7 +158,116 @@ final class InvoiceItemTrackingTest extends StockTestCase
         self::assertSame('VIN-H', $this->storedItems($finalId)[0]['tracking_allocations'][0]['serial_number'], 'Sklad hýbe až finál, výběr z proformy přechází s ním.');
     }
 
+    public function testForeignTrackedItemIsRejected(): void
+    {
+        $sid = $this->createSupplier();
+        $wh = $this->warehouse($sid);
+        $foreign = $this->trackedItem($this->createSupplier(), 'CIZI-MOTO', 'serial');
+        $res = $this->createInvoiceResponse($sid, [$this->line($foreign, $wh, '1', [['quantity' => '1', 'serial_number' => 'VIN-X']])]);
+        self::assertSame(422, $res->getStatusCode(), (string) $res->getBody());
+    }
+
+    public function testInjectedTrackingJsonIsIgnored(): void
+    {
+        $sid = $this->createSupplier();
+        $wh = $this->warehouse($sid);
+        $moto = $this->trackedItem($sid, 'MOTO-20', 'serial');
+        $line = $this->line($moto, $wh, '1', null);
+        $line['tracking_json'] = '[{"quantity":"1.000","serial_number":"PODVRH"}]';
+        $invoiceId = $this->createInvoice($sid, [$line]);
+        self::assertSame([], $this->storedItems($invoiceId)[0]['tracking_allocations'], 'tracking_json z těla požadavku obchází validaci.');
+
+        $items = $this->storedItems($invoiceId);
+        $items[0]['tracking_json'] = '[{"quantity":"1.000","serial_number":"PODVRH"}]';
+        self::assertSame(200, $this->updateInvoice($sid, $invoiceId, ['items' => $items])->getStatusCode());
+        self::assertSame([], $this->storedItems($invoiceId)[0]['tracking_allocations']);
+    }
+
+    public function testPutWithoutTrackingClearsSelection(): void
+    {
+        $sid = $this->createSupplier();
+        $wh = $this->warehouse($sid);
+        $moto = $this->trackedItem($sid, 'MOTO-21', 'serial');
+        $invoiceId = $this->createInvoice($sid, [$this->line($moto, $wh, '1', [['quantity' => '1', 'serial_number' => 'VIN-K']])]);
+        $items = $this->storedItems($invoiceId);
+        unset($items[0]['tracking_allocations']);
+        self::assertSame(200, $this->updateInvoice($sid, $invoiceId, ['items' => $items])->getStatusCode());
+        self::assertSame([], $this->storedItems($invoiceId)[0]['tracking_allocations'], 'Položky se nahrazují celé, výběr se posílá s nimi.');
+    }
+
+    public function testDeletedCardHidesStaleSelection(): void
+    {
+        $sid = $this->createSupplier();
+        $wh = $this->warehouse($sid);
+        $moto = $this->trackedItem($sid, 'MOTO-22', 'serial');
+        $invoiceId = $this->createInvoice($sid, [$this->line($moto, $wh, '1', [['quantity' => '1', 'serial_number' => 'VIN-L']])]);
+        // fk_ii_stock_item je ON DELETE SET NULL: smazaná karta nechá řádek bez vazby.
+        $this->db->pdo()->prepare('UPDATE invoice_items SET stock_item_id = NULL WHERE invoice_id = ?')->execute([$invoiceId]);
+
+        $items = $this->storedItems($invoiceId);
+        self::assertSame([], $items[0]['tracking_allocations'], 'Řádek bez karty výběr nenabízí.');
+        self::assertSame(200, $this->updateInvoice($sid, $invoiceId, ['items' => $items])->getStatusCode(), 'GET → PUT projde.');
+    }
+
+    public function testTrackingModeChangeIsBlockedWhileInvoiceSelectsUnits(): void
+    {
+        $sid = $this->createSupplier();
+        $wh = $this->warehouse($sid);
+        $moto = $this->trackedItem($sid, 'MOTO-23', 'serial');
+        $this->createInvoice($sid, [$this->line($moto, $wh, '1', [['quantity' => '1', 'serial_number' => 'VIN-M']])]);
+
+        $res = $this->container->get(\MyInvoice\Action\Stock\StockItemAction::class)->update(
+            $this->request('PUT', $sid, ['tracking_mode' => 'none']), new Psr7Response(), ['id' => (string) $moto],
+        );
+        $this->assertError($res, 409, 'tracking_mode_in_use');
+    }
+
+    public function testIssuedInvoiceWithStockDocumentRejectsSelectionChange(): void
+    {
+        $sid = $this->createSupplier(autoIssue: false);
+        $wh = $this->warehouse($sid);
+        $moto = $this->trackedItem($sid, 'MOTO-24', 'serial');
+        $this->receiveUnits($sid, $wh, $moto, ['VIN-N', 'VIN-O']);
+        $invoiceId = $this->createInvoice($sid, [$this->line($moto, $wh, '1', [['quantity' => '1', 'serial_number' => 'VIN-N']])]);
+        $this->markIssued($invoiceId);
+        $issue = $this->documents->create($sid, [
+            'doc_type' => 'issue', 'origin' => 'invoice', 'warehouse_id' => $wh, 'doc_date' => '2099-06-10',
+            'description' => 'Výdej k faktuře', 'invoice_id' => $invoiceId,
+            'lines' => [['stock_item_id' => $moto, 'qty' => '1.000', 'invoice_item_id' => $this->storedItems($invoiceId)[0]['id'],
+                'tracking_allocations' => [['quantity' => '1', 'serial_number' => 'VIN-N']]]],
+        ], $this->userId);
+        $this->documents->post($sid, (int) $issue['id'], $this->userId);
+
+        $items = $this->storedItems($invoiceId);
+        $items[0]['tracking_allocations'] = [['quantity' => '1', 'serial_number' => 'VIN-O']];
+        $res = $this->container->get(UpdateInvoiceAction::class)(
+            $this->request('PUT', $sid, ['items' => $items])->withQueryParams(['force' => '1']), new Psr7Response(), ['id' => (string) $invoiceId],
+        );
+        $this->assertError($res, 409, 'tracking_locked');
+        self::assertSame('VIN-N', $this->storedItems($invoiceId)[0]['tracking_allocations'][0]['serial_number']);
+
+        $items = $this->storedItems($invoiceId);
+        $items[0]['description'] = 'Motocykl, opravený popis';
+        $res = $this->container->get(UpdateInvoiceAction::class)(
+            $this->request('PUT', $sid, ['items' => $items])->withQueryParams(['force' => '1']), new Psr7Response(), ['id' => (string) $invoiceId],
+        );
+        self::assertSame(200, $res->getStatusCode(), 'Bez změny výběru úprava projde: ' . $res->getBody());
+        self::assertSame('VIN-N', $this->storedItems($invoiceId)[0]['tracking_allocations'][0]['serial_number']);
+    }
+
     // ── pomocníci ────────────────────────────────────────────────────────────
+
+    /** @param list<string> $serials */
+    private function receiveUnits(int $supplierId, int $warehouseId, int $itemId, array $serials): void
+    {
+        $draft = $this->documents->create($supplierId, [
+            'doc_type' => 'receipt', 'origin' => 'manual', 'warehouse_id' => $warehouseId, 'doc_date' => '2099-01-10',
+            'description' => 'Příjem kusů',
+            'lines' => [['stock_item_id' => $itemId, 'qty' => count($serials) . '.000', 'unit_cost' => '100.000000',
+                'tracking_allocations' => array_map(static fn (string $s): array => ['quantity' => '1', 'serial_number' => $s], $serials)]],
+        ], $this->userId);
+        $this->documents->post($supplierId, (int) $draft['id'], $this->userId);
+    }
 
     private function trackedItem(int $supplierId, string $sku, string $mode): int
     {

@@ -216,4 +216,23 @@ final class DocumentItemsPayloadTest extends TestCase
 
         self::assertFalse(DocumentItemsPayload::changed($stored, $reviewed));
     }
+
+    /**
+     * Výběr sériových čísel / šarží (2012) je změna položek: u vystaveného dokladu ho
+     * notes_only nesmí pustit a audit ho má zaznamenat. Uložený řádek nese dekódovaný
+     * `tracking_allocations`, požadavek po normalizaci `tracking_json`.
+     */
+    public function testChangedDetectsTrackingSelection(): void
+    {
+        $stored = [['description' => 'Motocykl', 'quantity' => 1, 'unit' => 'ks', 'unit_price_without_vat' => 100, 'vat_rate_id' => 1,
+            'stock_item_id' => 7, 'tracking_allocations' => [['quantity' => '1.000', 'serial_number' => 'VIN-A', 'lot_code' => null, 'expires_on' => null]]]];
+        $same = $stored;
+        unset($same[0]['tracking_allocations']);
+        $same[0]['tracking_json'] = '[{"quantity":"1.000","serial_number":"VIN-A","lot_code":null,"expires_on":null}]';
+        self::assertFalse(DocumentItemsPayload::changed($stored, $same));
+
+        $other = $same;
+        $other[0]['tracking_json'] = '[{"quantity":"1.000","serial_number":"VIN-B","lot_code":null,"expires_on":null}]';
+        self::assertTrue(DocumentItemsPayload::changed($stored, $other), 'Jiné sériové číslo je změna položky.');
+    }
 }

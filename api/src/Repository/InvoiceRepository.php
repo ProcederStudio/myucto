@@ -1750,7 +1750,7 @@ final class InvoiceRepository
                 $params = array_merge($params, self::ossItemParams($item, $supportsManualReview));
             }
             if ($supportsTracking) {
-                $params[] = \MyInvoice\Service\Stock\InvoiceItemTracking::storedJson($item);
+                $params[] = \MyInvoice\Service\Stock\InvoiceItemTracking::payloadJson($item);
             }
             $stmt->execute($params);
 
@@ -2719,9 +2719,11 @@ final class InvoiceRepository
         $row['linked_work_report_id'] = $row['linked_work_report_id'] !== null ? (int) $row['linked_work_report_id'] : null;
         $row['item_kind'] = (string) ($row['item_kind'] ?? 'standard');
         // Vybraná sériová čísla / šarže (2012) jdou ven jako seznam, prázdný bez výběru.
-        $row['tracking_allocations'] = \MyInvoice\Service\Stock\InvoiceItemTracking::decode(
-            isset($row['tracking_json']) ? (string) $row['tracking_json'] : null,
-        );
+        // Řádek bez karty (smazaná karta: FK ON DELETE SET NULL) výběr nenabízí, jinak
+        // by klient, který řádky jen vrací zpět, narazil na tracking_not_enabled.
+        $row['tracking_allocations'] = ($row['stock_item_id'] ?? null) !== null
+            ? \MyInvoice\Service\Stock\InvoiceItemTracking::decode(isset($row['tracking_json']) ? (string) $row['tracking_json'] : null)
+            : [];
         unset($row['tracking_json']);
         if (array_key_exists('stock_item_id', $row)) {
             $row['stock_item_id'] = $row['stock_item_id'] !== null ? (int) $row['stock_item_id'] : null;

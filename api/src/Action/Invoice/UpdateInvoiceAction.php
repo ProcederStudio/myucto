@@ -169,6 +169,20 @@ final class UpdateInvoiceAction
             } catch (StockException $e) {
                 return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus, $e->details);
             }
+            // Po výdeji je výběr kusů pevný: výdejka vydala konkrétní kusy a úprava ji
+            // znovu nevystaví, takže by doklad a sklad tvrdily každý jiné sériové číslo
+            // (a dobropis by vracel kus, který neodešel). Oprava jde dobropisem.
+            if ($existing['status'] !== 'draft'
+                && InvoiceItemTracking::signature((array) $body['items']) !== InvoiceItemTracking::signature((array) ($existing['items'] ?? []))
+                && $this->hasPostedStockDocument((int) $existing['supplier_id'], $id)) {
+                return Json::error(
+                    $response,
+                    'tracking_locked',
+                    'Faktura už vydala konkrétní kusy ze skladu. Sériová čísla ani šarže u vystavené faktury nejde změnit, '
+                        . 'opravte ji dobropisem a novou fakturou.',
+                    409,
+                );
+            }
         }
 
         // B11 (audit 2026-07): force-edit dokladu s AKTIVNÍM zaúčtovaným zápisem v UZAVŘENÉM
@@ -457,7 +471,7 @@ final class UpdateInvoiceAction
             if (DocumentItemsPayload::replaces($body)) {
                 $this->repo->replaceItems($id, (array) $body['items']);
             } elseif (($replay = self::storedItemsToReplay($body, $existing)) !== null) {
-                $this->repo->replaceItems($id, $replay);
+                $this->repo->replaceItems($id, InvoiceItemTracking::fromStored($replay));
             }
         } catch (\InvalidArgumentException $e) {
             // Neplatná vazba řádku na kartu majetku (1177) — hlavička je už uložená, ale položky
@@ -767,6 +781,15 @@ final class UpdateInvoiceAction
      * @param  array<string,mixed> $existing
      * @return list<array<string,mixed>>|null
      */
+    private function hasPostedStockDocument(int $supplierId, int $invoiceId): bool
+    {
+        $stmt = $this->db->pdo()->prepare(
+            "SELECT 1 FROM stock_documents WHERE supplier_id = ? AND invoice_id = ? AND status = 'posted' LIMIT 1"
+        );
+        $stmt->execute([$supplierId, $invoiceId]);
+        return $stmt->fetchColumn() !== false;
+    }
+
     private static function storedItemsToReplay(array $body, array $existing): ?array
     {
         if (DocumentItemsPayload::replaces($body)) {
