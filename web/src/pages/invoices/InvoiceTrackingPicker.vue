@@ -3,6 +3,7 @@ import { computed, ref, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { InvoiceItemTrackingAllocation } from '@/api/invoices'
 import { formatDate, formatNumber } from '@/composables/useFormat'
+import { ICONS, btnOutlineSm } from '@/components/ui/buttonStyles'
 import {
   anyExceedsAvailable,
   exceedsAvailable,
@@ -112,7 +113,8 @@ function removeSelected(s: InvoiceItemTrackingAllocation) {
       <span :id="`${groupId}-title`" class="font-medium text-neutral-600">
         {{ t(mode === 'serial' ? 'invoice.tracking.serials' : 'invoice.tracking.lots') }}{{ kind === 'return' ? ` · ${t('invoice.tracking.return')}` : '' }}
       </span>
-      <span class="rounded px-1.5 py-0.5 font-medium" :class="stateClass" aria-live="polite" data-test="invoice-tracking-state">{{ summary }}</span>
+      <!-- Faktura vystavená před evidencí kusů výběr nemá; varování by na ní bylo jen šum. -->
+      <span v-if="!readonly || modelValue.length" class="rounded px-1.5 py-0.5 font-medium" :class="stateClass" aria-live="polite" data-test="invoice-tracking-state">{{ summary }}</span>
       <span v-if="!readonly && requiredOnIssue && state !== 'complete'" class="text-neutral-500">{{ t('invoice.tracking.required_on_issue') }}</span>
     </div>
 
@@ -126,9 +128,12 @@ function removeSelected(s: InvoiceItemTrackingAllocation) {
 
     <template v-else>
       <p v-if="loading" class="mt-1.5 text-neutral-500">{{ t('common.loading') }}</p>
-      <p v-else-if="error" class="mt-1.5 text-danger-600">
+      <p v-else-if="error" class="mt-1.5 flex flex-wrap items-center gap-2 text-danger-600">
         {{ t('invoice.tracking.load_failed') }}
-        <button type="button" class="ml-1 cursor-pointer underline" @click="emit('retry')">{{ t('invoice.tracking.retry') }}</button>
+        <button type="button" :class="btnOutlineSm('neutral')" @click="emit('retry')">
+          <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.cycle" /></svg>
+          {{ t('invoice.tracking.retry') }}
+        </button>
       </p>
       <p v-else-if="choices.length === 0 && !allowFreeText" class="mt-1.5 text-neutral-500">
         {{ t(kind === 'return' ? 'invoice.tracking.empty_return' : 'invoice.tracking.empty') }}
@@ -170,7 +175,10 @@ function removeSelected(s: InvoiceItemTrackingAllocation) {
         <div v-if="mode === 'lot' && modelValue.length" class="flex flex-wrap gap-1.5">
           <span v-for="s in modelValue" :key="trackingKey(s)" class="inline-flex items-center gap-1 rounded border border-primary-500 bg-primary-50 px-2 py-1 font-mono text-primary-700">
             {{ lotLabel(s) }}: {{ formatNumber(Number(s.quantity), { maximumFractionDigits: 3 }) }} {{ baseUnit }}
-            <button type="button" class="cursor-pointer text-neutral-500 hover:text-danger-500" :aria-label="t('common.delete')" @click="removeSelected(s)">×</button>
+            <button type="button" class="inline-flex cursor-pointer items-center rounded text-neutral-500 hover:text-danger-600"
+              :aria-label="t('common.delete')" :title="t('common.delete')" @click="removeSelected(s)">
+              <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.x" /></svg>
+            </button>
           </span>
         </div>
         <div class="flex flex-wrap items-center gap-2">
@@ -183,7 +191,8 @@ function removeSelected(s: InvoiceItemTrackingAllocation) {
             :aria-label="t('invoice.tracking.free_quantity')" :placeholder="baseUnit"
             @keydown.enter.prevent="addFreeText"
             class="h-8 w-20 rounded-md border border-neutral-300 bg-surface px-2 text-right font-mono" />
-          <button type="button" class="h-8 cursor-pointer rounded-md border border-neutral-300 bg-surface px-2 text-neutral-700 hover:border-primary-500" @click="addFreeText">
+          <button type="button" :class="btnOutlineSm('primary')" @click="addFreeText">
+            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.plus" /></svg>
             {{ t('invoice.tracking.add') }}
           </button>
         </div>
