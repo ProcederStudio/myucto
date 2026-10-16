@@ -26933,6 +26933,15 @@
     }
   },
   "aiGateway": {
+    "client_extraction_monthly_limit": "Monthly client purchase document extraction limit",
+    "client_extraction_limit_hint": "The purchase document extraction limit is shared by all clients of this company. The default is 100 attempts per month; 0 blocks extraction.",
+    "client_extraction_usage": "Purchase document extraction for {period}: {used} of {limit} attempts, {remaining} remaining.",
+    "client_extraction_usage_hint": "Each valid purchase document file submitted for processing uses one attempt, including errors, duplicates and ISDOC imports. Attempts are not refunded; usage resets each calendar month. AI billing depends on the provider.",
+    "client_extraction_limit_reached": "The monthly client purchase document extraction limit has been reached. Enter further documents manually, wait for the next month or ask your accountant to increase the limit.",
+    "client_extraction_enabled": "Allow clients to extract documents with AI",
+    "client_extraction_hint": "Clients with permission to extract and enter purchase invoices can use this company’s AI. The active provider must be configured. Extraction creates a draft for the client to review and mark as received, just like manual entry.",
+    "client_extraction_unavailable": "AI extraction is unavailable for this company or you do not have permission. Ask your accountant to enable and configure AI.",
+
     "effort": "AI reasoning effort",
     "effort_default": "Default (per model)",
     "effort_fast": "Fast and cheap",

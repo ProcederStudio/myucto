@@ -27,8 +27,20 @@ test('shared manifest persists the audited client surface and legacy aliases', (
   // 40 → 41: purchase-invoices-renumber. Klientskou plochu nerozšiřuje: je to
   // client_redirect — klienta na vlastní doméně přesměruje na seznam přijatých
   // faktur, přečíslování zůstává jen účetní (router guard i backend 403).
-  assert.equal(manifest.routes.length, 41)
-  assert.equal(new Set(manifest.routes.map(route => route.name)).size, 41)
+  // 41 → 42: purchase-invoice-ai-import. Klientské vytěžování vyžaduje
+  // samostatné oprávnění; navigace navíc ověřuje dostupnost firemní AI.
+  assert.equal(manifest.routes.length, 42)
+  assert.equal(new Set(manifest.routes.map(route => route.name)).size, 42)
+  assert.deepEqual(
+    manifest.routes.find(route => route.name === 'purchase-invoice-ai-import'),
+    {
+      name: 'purchase-invoice-ai-import',
+      path_pattern: '^/purchase-invoices/ai-import/?$',
+      kind: 'permission',
+      permission: 'purchase_invoices.extract',
+      access: 'write',
+    },
+  )
   assert.deepEqual(
     manifest.routes.slice(-3).map(route => route.name),
     ['data-exchange', 'admin-export', 'admin-import'],
@@ -39,10 +51,10 @@ test('navigation switches to the client experience for every locked custom domai
   assert.match(layout, /clientExperience = computed\(\(\) => usesClientNavigation\(auth\.isClientRole, auth\.domainContext\)\)/)
   assert.match(layout, /if \(clientExperience\.value\) \{\s*return filterNavigation/)
   assert.match(layout, /!clientExperience\.value && auth\.hasCommercialFeatures && auth\.canWrite\('accounting\.journal\.write'\)/)
-  // Předmětem je klientská plocha, ne ukázkový režim: hlídá se `!clientExperience`.
-  // `!auth.isDemo` tu bylo jen proto, že se opisoval celý řádek, a od 6.13.2 v kódu
-  // není — ukázka vidí celou aplikaci včetně AI importu a vytěžení odmítne backend.
-  assert.match(layout, /!clientExperience\.value && auth\.canWrite\('purchase_invoices\.scan'\)/)
+  // Menu i rychlá akce sdílejí kontrolu práv a dostupnosti AI aktuální firmy.
+  assert.match(layout, /canExtractPurchase = computed\(\(\) => canUsePurchaseAiExtraction\(auth, supplierStore\.currentSupplier\)\)/)
+  assert.match(layout, /\.\.\.\(canExtractPurchase\.value \? \[\{ to: '\/purchase-invoices\/ai-import'/)
+  assert.match(layout, /if \(canExtractPurchase\.value\) \{[\s\S]*?const aiImport = \{ to: '\/purchase-invoices\/ai-import'/)
   assert.equal((layout.match(/v-if="!clientExperience" to="\/admin\/support"/g) || []).length, 2)
   assert.match(layout, /if \(!auth\.domainContext\?\.locked \|\| !canonicalBaseUrl\) return path/)
   assert.match(layout, /new URL\(canonicalBaseUrl\)\.origin/)

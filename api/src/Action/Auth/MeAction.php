@@ -43,6 +43,7 @@ final class MeAction
         private readonly SessionLockPolicy $lockPolicy,
         private readonly ClockInterface $clock,
         ?EntityCache $cache = null,
+        private readonly ?\MyInvoice\Service\Import\ClientAiExtractionPolicy $clientAi = null,
     ) {
         // Volitelná a na konci, ať se nerozbijí volající, kteří akci staví
         // pozičně (unit testy). Produkci ji předává explicitní bind v Bootstrapu —
@@ -82,7 +83,7 @@ final class MeAction
             // Rozsah přiřazených firem je součástí KLÍČE, takže změna membershipu
             // vede na jiný klíč a starou odpověď nemůže vrátit.
             $cacheKey = 'me:suppliers:' . ($allowed === [] ? 'all' : implode(',', $allowed))
-                . ':' . ($ossSelect === 'oss_enabled' ? '1' : '0');
+                . ':' . ($ossSelect === 'oss_enabled' ? '1' : '0') . ':client-ai';
             $suppliers = (array) $this->cache->remember(
                 EntityCache::GROUP_SUPPLIER,
                 $cacheKey,
@@ -96,7 +97,7 @@ final class MeAction
                                 default_payment_due_days, default_payment_due_unit, default_prices_include_vat,
                                 allow_refund_invoices, auto_send_reminders, payment_thanks_enabled, payment_thanks_default_checked,
                                 accounting_mode, accounting_enabled, payroll_enabled, stock_enabled, dimensions_enabled, fiscal_year_start_month, ' . $ossSelect . ',
-                                ai_provider, ai_data_region, ai_eu_residency_required, '
+                                ai_provider, ai_data_region, ai_eu_residency_required, client_ai_extraction_enabled, '
                         // Výchozí poznámka pod položkami (#79) — editor faktury ji
                         // předvyplní, a ten běží i pod rolí bez `settings.company.write`,
                         // takže na GET /settings/supplier nedosáhne.
@@ -169,6 +170,10 @@ final class MeAction
                 $s[$column] = isset($s[$column]) ? (string) $s[$column] : null;
             }
             // F7 — AI provider selection (pro FE badge / Settings sekci; nav gate).
+            $s = array_replace($s, $this->clientAi?->supplierState($s['id'], (bool) ($s['client_ai_extraction_enabled'] ?? false)) ?? [
+                'client_ai_extraction_enabled' => (bool) ($s['client_ai_extraction_enabled'] ?? false),
+                'client_ai_extraction_available' => false,
+            ]);
             $s['ai_provider']                    = (string) ($s['ai_provider'] ?? 'anthropic');
             $s['ai_data_region']                 = (string) ($s['ai_data_region'] ?? 'us');
             $s['ai_eu_residency_required']       = (bool) ($s['ai_eu_residency_required'] ?? false);

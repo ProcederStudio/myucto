@@ -943,9 +943,9 @@ final class RoutePermissionMap
         ['*', '#^/api/admin/imports/(idoklad|fakturoid)/credentials$#', 'utilities.import', AccessLevel::WRITE],
         // AI extrakce z PDF — sdílí oprávnění s tou stranou dokladů, do které zapisuje
         // (AiExtractPdfAction = přijaté, AiExtractPdfIssuedAction = vystavené).
-        ['POST', '#^/api/admin/imports/ai-extract-pdf$#', 'purchase_invoices.scan', AccessLevel::WRITE],
+        ['POST', '#^/api/admin/imports/ai-extract-pdf$#', 'purchase_invoices.extract', AccessLevel::WRITE],
         ['POST', '#^/api/admin/imports/ai-extract-pdf-issued$#', 'invoices.create', AccessLevel::WRITE],
-        ['GET', '#^/api/admin/imports/ai-extract-pdf/status$#', 'purchase_invoices.scan', AccessLevel::WRITE],
+        ['GET', '#^/api/admin/imports/ai-extract-pdf/status$#', 'purchase_invoices.extract', AccessLevel::WRITE],
         ['GET', '#^/api/admin/imports/ai-extract-pdf-issued/status$#', 'invoices.create', AccessLevel::WRITE],
         // Klíče k AI poskytovatelům sem vědomě NEPATŘÍ — zůstávají superadmin-only
         // (F7, viz F7NestedRbacTest). Guard `settings.ai_provider` v akcích je druhá

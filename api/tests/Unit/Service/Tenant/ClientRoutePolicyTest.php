@@ -24,9 +24,9 @@ final class ClientRoutePolicyTest extends TestCase
         $names = array_column($routes, 'name');
         $patterns = array_column($routes, 'path_pattern');
 
-        self::assertCount(41, $routes);
-        self::assertCount(41, array_unique($names));
-        self::assertCount(41, array_unique($patterns));
+        self::assertCount(42, $routes);
+        self::assertCount(42, array_unique($names));
+        self::assertCount(42, array_unique($patterns));
         self::assertContains('data-exchange', $names);
         self::assertContains('admin-export', $names);
         self::assertContains('admin-import', $names);
@@ -73,6 +73,7 @@ final class ClientRoutePolicyTest extends TestCase
             '/purchase-invoices',
             '/purchase-invoices/export',
             '/purchase-invoices/import',
+            '/purchase-invoices/ai-import',
             '/purchase-invoices/new',
             '/purchase-invoices/42',
             '/purchase-invoices/42/edit',
@@ -108,7 +109,6 @@ final class ClientRoutePolicyTest extends TestCase
             '/projects',
             '/purchase-invoices/incoming',
             '/purchase-invoices/payment-orders',
-            '/purchase-invoices/ai-import',
             '/documents',
             '/bank',
             '/accounting/journal',

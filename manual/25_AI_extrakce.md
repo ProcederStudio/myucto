@@ -27,7 +27,9 @@ přihlašovací údaje nastavíte podle [§ 25.3](#253-krok-za-krokem-nastavit-p
 ## 25.2 Než začnete
 
 - **Oprávnění.** Nastavení poskytovatele vidí jen administrátoři (položka `Firma → AI nastavení`).
-  Import přijatých faktur vyžaduje oprávnění ke skenování přijatých faktur, import vydaných oprávnění vytvářet vydané faktury.
+  Import přijatých faktur vyžaduje oprávnění k AI vytěžování přijatých faktur, import vydaných oprávnění vytvářet vydané faktury.
+  Klient potřebuje také právo přijaté faktury vytvářet, povolení vytěžování u konkrétní firmy a nastaveného aktivního
+  poskytovatele AI této firmy.
 - **API klíč** zvoleného poskytovatele (u Ollamy klíč není potřeba). Postup získání je v dokumentaci poskytovatele.
 - **Rezidence dat.** Pokud je pro vás důležitá EU, vyberte poskytovatele podle tabulky v
   [§ 25.9.14](#25914-eu-rezidence-dat-co-to-znamena-a-jak-se-vynucuje).
@@ -56,6 +58,18 @@ přihlašovací údaje nastavíte podle [§ 25.3](#253-krok-za-krokem-nastavit-p
 
 Volitelné kroky:
 
+- **Povolit klientům AI vytěžování.** V AI nastavení firmy povolíte klientům položku `Nákup → AI import`.
+  Volba je standardně vypnutá a platí jen pro vybranou firmu. Klient používá jejího aktivního poskytovatele a její uložené
+  přihlašovací údaje; samotný klíč se mu nezobrazuje. U vlastní klientské role povolte také vytěžování a vytváření přijatých
+  faktur. Klient si toto povolení ani měsíční limit sám změnit nemůže.
+- **Měsíční limit klientského vytěžování přijatých dokladů.** Výchozí hodnota je 100 pokusů, nastavit lze 0 až 100 000. Nula klientské
+  vytěžování přijatých dokladů zablokuje. Limit sdílejí všichni klienti firmy; účetní ho svým vytěžováním nečerpá. Nastavení i klientský AI import
+  přijatých faktur ukazují aktuální měsíc, počet použitých a zbývajících pokusů. Každý platný soubor předaný ke zpracování spotřebuje jeden
+  pokus, včetně chyby, duplicity a strukturovaného ISDOC/ISDOCX. Neplatný upload nebo odmítnuté oprávnění se nepočítají.
+  Pokusy se nevracejí, na začátku kalendářního měsíce se čerpání obnoví. Po vyčerpání se dávka zastaví; doklady lze zadat
+  ručně nebo účetní zvýší limit. Jde o počet pokusů, cenu volání AI určuje poskytovatel.
+  Při vytěžování přijatých dokladů klient používá uložený model firmy, nemůže pro jednotlivý import vybírat jiný a AI jej
+  automaticky nepřepíná na silnější model.
 - **Uložit nastavení do všech firem.** Zaškrtnutím **Uložit nastavení do všech firem** se stejný poskytovatel, klíč, model, region
   dat, EU rezidence a míra uvažování uloží i do ostatních firem, ve kterých smíte měnit nastavení AI. Volba **Jen do firem s
   nenastavenou AI** (výchozí zapnutá) přeskočí firmy, jejichž aktivní poskytovatel už má klíč. Detaily v
@@ -84,7 +98,12 @@ Volitelné kroky:
 Po importu se otevře okno kontroly (viz [§ 25.5](#255-krok-za-krokem-zkontrolovat-vytezene-doklady)). Doklad, na kterém je napsáno
 „zaplaceno", se zakládá jako **koncept**, aby šel po vytěžení volně upravit. Hlášení na to upozorní a tlačítko
 **Potvrdit a označit jako uhrazenou** doklad přijme a uhradí k datu vystavení. Výjimkou je účtenka zaplacená kartou, když má firma
-zapnuté vypořádání plateb kartou: ta se dál hned uhradí, spáruje s pohybem karty a zaúčtuje.
+zapnuté vypořádání plateb kartou: při importu pracovníkem se hned uhradí, spáruje s pohybem karty a zaúčtuje.
+
+**Klientský import** vytváří nové doklady vždy jako koncepty v právě vybrané firmě, i u zaplacených účtenek.
+Klient zkontroluje údaje a na detailu použije **Označit jako přijaté**, stejně jako u ručního zadání. Vyžaduje-li firma
+schválení, doklad nejprve projde schvalováním. Koncept se do souhrnu nákladů nezapočítává; přijatý doklad se zahrne podle
+stejných pravidel jako ručně zadaná faktura. Doklad jiné firmy se při klientském importu automaticky nepřesouvá.
 
 Pokud brána ještě není vůbec nakonfigurovaná a pokusíte se o AI import v [Import přijatých](21_Importy.md#21914-import-prijatych-faktur-pravidla-a-scan-inbox),
 zobrazí se upozornění s odkazem na **AI nastavení**.

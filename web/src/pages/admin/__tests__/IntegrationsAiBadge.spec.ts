@@ -1,4 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AiCredentialsResponse, AiProvider } from '@/api/integrations'
 
@@ -34,10 +35,12 @@ vi.mock('@/composables/useSessionAwarePolling', () => ({ useSessionAwarePolling:
 
 vi.mock('vue-i18n', async (importOriginal) => ({
   ...(await importOriginal<typeof import('vue-i18n')>()),
-  useI18n: () => ({ locale: { value: 'cs' }, t: (key: string) => key }),
+  useI18n: () => ({ locale: { value: 'cs' }, t: (key: string, params?: Record<string, unknown>) => params ? key + JSON.stringify(params) : key }),
 }))
 
 import Integrations from '@/pages/admin/Integrations.vue'
+import { useSupplierStore } from '@/stores/supplier'
+import type { SupplierBrief } from '@/api/auth'
 import { aiProviderBadge } from '@/pages/admin/aiProviderBadge'
 
 function creds(active: AiProvider, configured: Partial<Record<AiProvider, boolean>>): AiCredentialsResponse {
@@ -85,6 +88,7 @@ describe('aiProviderBadge', () => {
 
 describe('Externí integrace → AI extrakce', () => {
   beforeEach(() => {
+    setActivePinia(createPinia())
     m.getAiCredentials.mockReset()
     m.setAiCredentials.mockReset()
     m.updateSupplier.mockReset().mockResolvedValue({})
@@ -156,5 +160,78 @@ describe('Externí integrace → AI extrakce', () => {
     expect(payload).not.toHaveProperty('apply_to_all_companies')
     expect(payload).not.toHaveProperty('only_unconfigured')
     expect(w.find('[data-test="bulk-result"]').exists()).toBe(false)
+  })
+})
+
+
+describe('povolení klientského vytěžování', () => {
+  it('načte uložené povolení i u firmy bez aktivního klíče', async () => {
+    setActivePinia(createPinia())
+    m.getAiCredentials.mockResolvedValue({ ...creds('anthropic', {}), client_ai_extraction_enabled: true })
+    const w = await mountPage()
+    expect((w.get('[data-test="client-ai-extraction"]').element as HTMLInputElement).checked).toBe(true)
+    expect(w.get('[data-test="save-client-ai-extraction"]').attributes('disabled')).toBeDefined()
+    w.unmount()
+  })
+
+  it('uloží přepínač samostatně bez změny vybraného poskytovatele', async () => {
+    setActivePinia(createPinia())
+    m.getAiCredentials.mockResolvedValue(creds('anthropic', { anthropic: true }))
+    m.updateSupplier.mockReset().mockResolvedValue({ client_ai_extraction_enabled: true })
+    const w = await mountPage()
+    expect((w.get('[data-test="client-ai-extraction"]').element as HTMLInputElement).checked).toBe(false)
+    expect(w.get('[data-test="save-client-ai-extraction"]').attributes('disabled')).toBeDefined()
+    await w.get('[data-test="client-ai-extraction"]').setValue(true)
+    await w.get('[data-test="save-client-ai-extraction"]').trigger('click')
+    await flushPromises()
+    expect(m.updateSupplier).toHaveBeenCalledExactlyOnceWith({ client_ai_extraction_enabled: true, client_ai_extraction_monthly_limit: 100 })
+    w.unmount()
+  })
+})
+
+
+describe('měsíční limit klientského vytěžování', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    setActivePinia(createPinia())
+    m.updateSupplier.mockReset().mockResolvedValue({})
+    m.getAiCredentials.mockReset().mockResolvedValue({
+      ...creds('anthropic', { anthropic: true }), client_ai_extraction_enabled: true,
+      client_ai_extraction_usage: { period: '2026-10', limit: 25, used: 7, remaining: 18 },
+    })
+  })
+
+  it('zobrazí čerpání a uloží limit včetně nuly', async () => {
+    const w = await mountPage()
+    expect((w.get('[data-test="client-ai-monthly-limit"]').element as HTMLInputElement).value).toBe('25')
+    expect(w.get('[data-test="client-ai-usage"]').text()).toContain('\"used\":7')
+    expect(w.get('[data-test="client-ai-usage"]').text()).toContain('\"remaining\":18')
+    await w.get('[data-test="client-ai-monthly-limit"]').setValue('0')
+    await w.get('[data-test="save-client-ai-extraction"]').trigger('click')
+    await flushPromises()
+    expect(m.updateSupplier).toHaveBeenCalledExactlyOnceWith({ client_ai_extraction_enabled: true, client_ai_extraction_monthly_limit: 0 })
+    w.unmount()
+  })
+
+  it('po přepnutí firmy ignoruje opožděné čerpání původní firmy', async () => {
+    useSupplierStore().setAvailable([{ id: 1 }, { id: 2 }] as SupplierBrief[], 1)
+    let finish!: (value: AiCredentialsResponse) => void
+    m.getAiCredentials.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const w = await mountPage()
+    useSupplierStore().setSupplier(2)
+    await flushPromises()
+    finish({ ...creds('anthropic', {}), client_ai_extraction_usage: { period: '2026-10', limit: 1, used: 1, remaining: 0 } })
+    await flushPromises()
+    expect((w.get('[data-test="client-ai-monthly-limit"]').element as HTMLInputElement).value).toBe('25')
+    expect(w.get('[data-test="client-ai-usage"]').text()).toContain('"remaining":18')
+    w.unmount()
+  })
+
+  it.each(['-1', '100001', '1.5', ''])('neuloží neplatný limit %s', async value => {
+    const w = await mountPage()
+    await w.get('[data-test="client-ai-monthly-limit"]').setValue(value)
+    expect(w.get('[data-test="save-client-ai-extraction"]').attributes('disabled')).toBeDefined()
+    expect(m.updateSupplier).not.toHaveBeenCalled()
+    w.unmount()
   })
 })

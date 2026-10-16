@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed, watch } from 'vue'
+import { ref, reactive, onMounted, computed, watch, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { integrationsApi,
   type IdokladCredentialsStatus, type FakturoidCredentialsStatus,
@@ -8,6 +8,7 @@ import { integrationsApi,
   type AiEffort, type AiBulkResult } from '@/api/integrations'
 import { aiProviderBadge } from './aiProviderBadge'
 import { settingsApi, type AiAssistSettings, type AiAssistScope } from '@/api/settings'
+import { useSupplierStore } from '@/stores/supplier'
 import { useRoute } from 'vue-router'
 import { useToast } from '@/composables/useToast'
 import { apiErrorMessage } from '@/api/errors'
@@ -18,6 +19,7 @@ import ImportJobReport from '@/components/admin/ImportJobReport.vue'
 
 const { t } = useI18n()
 const toast = useToast()
+const suppliers = useSupplierStore()
 
 type Tab = 'idoklad' | 'fakturoid' | 'ai'
 // Tab z ?tab=... query (default idoklad). Watch pro proklik mezi sidebar položkami
@@ -290,6 +292,12 @@ const aiProvider = ref<AiProvider>('anthropic')   // aktivní provider tenanta (
 const aiRegion = ref<AiDataRegion>('us')
 const aiEuRequired = ref(false)
 const aiSavingSelection = ref(false)
+let aiContextVersion = 0
+onBeforeUnmount(() => { aiContextVersion++ })
+const clientAiEnabled = ref(false)
+const clientAiMonthlyLimit = ref(100)
+const validClientAiLimit = computed(() => Number.isInteger(clientAiMonthlyLimit.value) && clientAiMonthlyLimit.value >= 0 && clientAiMonthlyLimit.value <= 100000)
+const clientAiSaving = ref(false)
 const aiAssist = ref<AiAssistSettings | null>(null)
 const aiAssistEnabled = ref(false)
 const aiAssistScopes = ref<AiAssistScope[]>([])
@@ -348,9 +356,19 @@ function syncCredForm() {
 // keepProvider: po uložení/smazání klíče zůstane vybraná záložka, kterou uživatel
 // právě upravuje — jinak by skočila zpět na aktivního poskytovatele brány.
 async function loadAiCreds(keepProvider = false) {
+  const version = aiContextVersion
+  const supplierId = suppliers.currentSupplierId
   try {
     const testMsg = credTestMsg.value
-    aiCreds.value = await integrationsApi.getAiCredentials()
+    const credentials = await integrationsApi.getAiCredentials()
+    if (version !== aiContextVersion || supplierId !== suppliers.currentSupplierId) return
+    aiCreds.value = credentials
+    clientAiEnabled.value = credentials.client_ai_extraction_enabled === true
+    clientAiMonthlyLimit.value = credentials.client_ai_extraction_usage?.limit ?? 100
+    suppliers.patchSupplier(supplierId, {
+      client_ai_extraction_enabled: clientAiEnabled.value,
+      client_ai_extraction_available: clientAiEnabled.value && !!credentials.providers[credentials.ai_provider]?.configured,
+    })
     if (!keepProvider) aiProvider.value = aiCreds.value.ai_provider
     aiRegion.value = aiCreds.value.ai_data_region
     aiEuRequired.value = aiCreds.value.ai_eu_residency_required
@@ -361,7 +379,7 @@ async function loadAiCreds(keepProvider = false) {
     if (keepProvider) credTestMsg.value = testMsg
   } catch {
     // Backend brána ještě nemusí být nasazená — degradujeme defenzivně (UI zůstane prázdné).
-    aiCreds.value = null
+    if (version === aiContextVersion) aiCreds.value = null
   }
 }
 
@@ -435,6 +453,24 @@ function selectProvider(p: AiProvider) {
   if (aiProvider.value === p) return
   aiProvider.value = p
   syncCredForm()
+}
+
+async function saveClientAiExtraction() {
+  if (clientAiSaving.value || !validClientAiLimit.value) return
+  const version = aiContextVersion
+  const supplierId = suppliers.currentSupplierId
+  const enabled = clientAiEnabled.value
+  clientAiSaving.value = true
+  try {
+    await settingsApi.updateSupplier({ client_ai_extraction_enabled: enabled, client_ai_extraction_monthly_limit: clientAiMonthlyLimit.value })
+    if (version !== aiContextVersion || supplierId !== suppliers.currentSupplierId) return
+    await loadAiCreds(true)
+    if (version === aiContextVersion) toast.success(t('common.saved'))
+  } catch (e) {
+    if (version === aiContextVersion && supplierId === suppliers.currentSupplierId) toast.error(apiErrorMessage(e))
+  } finally {
+    if (version === aiContextVersion) clientAiSaving.value = false
+  }
 }
 
 async function saveAiSelection() {
@@ -559,6 +595,15 @@ async function deleteAiCredentials() {
     toast.error(apiErrorMessage(e))
   }
 }
+
+watch(() => suppliers.currentSupplierId, () => {
+  aiContextVersion++
+  aiCreds.value = null
+  clientAiEnabled.value = false
+  clientAiMonthlyLimit.value = 100
+  clientAiSaving.value = false
+  void loadAiCreds()
+})
 
 function providerLabel(p: AiProvider): string { return t(`aiGateway.provider.${p}`) }
 
@@ -1001,6 +1046,31 @@ onMounted(() => {
               <strong>{{ t('integrations.ai.privacy_title') }}</strong>
               <p class="text-xs leading-relaxed">{{ t('aiGateway.privacy_body') }}</p>
             </div>
+          </div>
+        </div>
+
+        <div v-if="aiCreds" class="bg-surface border border-neutral-200 rounded-lg p-4 space-y-3">
+          <label class="flex items-center gap-2 text-sm font-medium text-neutral-700">
+            <input v-model="clientAiEnabled" type="checkbox" data-test="client-ai-extraction" :disabled="clientAiSaving" />
+            {{ t('aiGateway.client_extraction_enabled') }}
+          </label>
+          <p class="text-xs text-neutral-500">{{ t('aiGateway.client_extraction_hint') }}</p>
+          <label class="block text-sm text-neutral-700">
+            {{ t('aiGateway.client_extraction_monthly_limit') }}
+            <input v-model.number="clientAiMonthlyLimit" type="number" min="0" max="100000" step="1" data-test="client-ai-monthly-limit" :disabled="clientAiSaving"
+                   class="mt-1 block h-9 w-40 rounded-md border border-neutral-300 bg-surface px-2" />
+          </label>
+          <p class="text-xs text-neutral-500">{{ t('aiGateway.client_extraction_limit_hint') }}</p>
+          <p v-if="aiCreds.client_ai_extraction_usage" data-test="client-ai-usage" class="text-sm text-neutral-700">
+            {{ t('aiGateway.client_extraction_usage', aiCreds.client_ai_extraction_usage) }}
+          </p>
+          <p class="text-xs text-neutral-500">{{ t('aiGateway.client_extraction_usage_hint') }}</p>
+          <div class="flex flex-wrap gap-2">
+            <button type="button" data-test="save-client-ai-extraction" :class="btnFilled('primary')"
+                    :disabled="clientAiSaving || !validClientAiLimit || (clientAiEnabled === !!aiCreds.client_ai_extraction_enabled && clientAiMonthlyLimit === (aiCreds.client_ai_extraction_usage?.limit ?? 100))" @click="saveClientAiExtraction">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path :d="ICONS.check" /></svg>
+              {{ clientAiSaving ? t('common.saving') : t('common.save') }}
+            </button>
           </div>
         </div>
 

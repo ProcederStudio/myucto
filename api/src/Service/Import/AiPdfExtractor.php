@@ -86,11 +86,15 @@ final class AiPdfExtractor
     /**
      * Extract + create draft purchase_invoice.
      *
+     * @param bool $requireReview Klientská cesta vyžaduje kontrolu i u uhrazené účtenky;
+     *        nepovolí přímou úhradu ani kartovou automatiku. ISDOC větve vždy tvoří koncept.
+     * @param bool $allowModelUpgrade false zakáže retry dražším modelem; klient zůstává u výchozího modelu firmy.
+     *
      * @return array{ok:bool, purchase_invoice_id?:int, vendor_id?:int, source:string,
      *               error?:string, ai_data?:array<string,mixed>, model?:string,
      *               usage?:array<string,int>}
      */
-    public function extractAndCreate(int $supplierId, int $userId, string $pdfBytes, ?string $modelOverride = null, ?string $originalFilename = null, ?string $importBatchId = null): array
+    public function extractAndCreate(int $supplierId, int $userId, string $pdfBytes, ?string $modelOverride = null, ?string $originalFilename = null, ?string $importBatchId = null, bool $requireReview = false, bool $allowModelUpgrade = true): array
     {
         // Hlavička PDF posunutá o prázdný řádek / BOM (dompdf za PHP skriptem s mezerou)
         // — oprav na vstupu, ať ISDOC, AI klienti i archivace dostanou PDF od `%PDF-`.
@@ -165,7 +169,7 @@ final class AiPdfExtractor
         // parse failure už router zalogoval a signalizuje useLlm=true → spadneme do AI.
         if ($decision !== null && $decision->source === 'isdoc_embedded' && !$decision->useLlm) {
             try {
-                $r = $this->isdocMapper->map(((array) $decision->parsed)['invoices'][0], $supplierId, $userId);
+                $r = $this->isdocMapper->map(((array) $decision->parsed)['invoices'][0], $supplierId, $userId, 'draft');
                 // Attach PDF k vytvořené přijaté faktuře
                 $this->attachPdf((int) $r['purchase_invoice_id'], $supplierId, $pdfBytes, $originalFilename);
                 // Zdrojový artefakt = vytažený ISDOC XML (embedded v PDF/A-3) — issue #175.
@@ -219,7 +223,7 @@ final class AiPdfExtractor
         // pro daného tenanta (Anthropic: haiku → sonnet-4-6) nebo null = žádný upgrade.
         // Extrakci retry provedeme JEN když je návrat non-null; jinak chování identické.
         $modelUsed = (string) ($extracted['model'] ?? '');
-        $strongerModel = $this->anthropic->strongerModel($supplierId, $modelUsed);
+        $strongerModel = $allowModelUpgrade ? $this->anthropic->strongerModel($supplierId, $modelUsed) : null;
         if ($strongerModel !== null) {
             $tenantIc = $this->fetchTenantIc($supplierId);
             $weakness = $this->detectWeakExtraction($extracted['data'], $tenantIc);
@@ -345,7 +349,7 @@ final class AiPdfExtractor
         // Create purchase invoice draft
         try {
             $existed = false;
-            $invoiceId = $this->createDraft($data, $supplierId, $userId, $resolved['id'], $resolved['is_vat_payer'] ?? null, $existed);
+            $invoiceId = $this->createDraft($data, $supplierId, $userId, $resolved['id'], $resolved['is_vat_payer'] ?? null, $existed, $requireReview);
             // Stejná faktura v jiném PDF (jiný hash, stejný dodavatel + číslo + datum) —
             // existující doklad se nesmí měnit: žádné nové PDF ani automatika navíc.
             if ($existed) {
@@ -362,7 +366,10 @@ final class AiPdfExtractor
             $this->tagImportBatch($invoiceId, $supplierId, $importBatchId);
             // Koncept čeká na kontrolu; doklad, který import rovnou uzavřel (účtenka
             // „uhrazeno kartou"), se hned spáruje s pohybem karty a vypořádá.
-            $this->cardAutomation?->afterPurchaseReady($supplierId, $invoiceId, $userId > 0 ? $userId : null);
+            // Klient nejprve provede stejnou kontrolu a přijetí jako při ručním zadání.
+            if (!$requireReview) {
+                $this->cardAutomation?->afterPurchaseReady($supplierId, $invoiceId, $userId > 0 ? $userId : null);
+            }
             $this->extractionRecorder?->record(
                 $supplierId,
                 $invoiceId,
@@ -428,7 +435,7 @@ final class AiPdfExtractor
         }
 
         try {
-            $r = $this->isdocMapper->map($parsed['invoices'][0], $supplierId, $userId);
+            $r = $this->isdocMapper->map($parsed['invoices'][0], $supplierId, $userId, 'draft');
         } catch (\Throwable $e) {
             return ['ok' => false, 'error' => 'ISDOCX → faktura selhala: ' . $e->getMessage(), 'source' => 'isdocx_map_failed'];
         }
@@ -507,7 +514,7 @@ final class AiPdfExtractor
         return null;
     }
 
-    private function createDraft(array $data, int $supplierId, int $userId, int $vendorId, ?bool $vendorIsVatPayer = null, bool &$existed = false): int
+    private function createDraft(array $data, int $supplierId, int $userId, int $vendorId, ?bool $vendorIsVatPayer = null, bool &$existed = false, bool $requireReview = false): int
     {
         $existed = false;
         // Datum, ke kterému se páruje sazba — DUZP s fallbackem na vystavení, tedy
@@ -1068,7 +1075,7 @@ final class AiPdfExtractor
             // Schvalování manažerem střediska (F6): s ním se účtenka hned neuhradí —
             // skok draft → paid by schválení obešel. Zůstane konceptem a ke schválení
             // ji pošle přijetí po kontrole vytěžení.
-            if ($this->isCardSettledReceipt($supplierId, $data)
+            if (!$requireReview && $this->isCardSettledReceipt($supplierId, $data)
                 && (new \MyInvoice\Service\PurchaseInvoice\Approval\PurchaseApprovalRequirements($this->db))->approvalTypes($supplierId) === []) {
                 $this->markAlreadyPaid($id, $supplierId);
             } else {

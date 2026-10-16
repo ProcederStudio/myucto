@@ -8,14 +8,18 @@ use MyInvoice\Http\Json;
 use MyInvoice\Http\SupplierGuard;
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Repository\PurchaseInvoiceSubmissionRepository;
-use MyInvoice\Security\AccessLevel;
 use MyInvoice\Security\CrossSupplierAuthorization;
 use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Import\AiPdfExtractor;
+use MyInvoice\Service\Import\ClientAiExtractionPolicy;
+use MyInvoice\Service\Import\ClientAiExtractionQuota;
 use MyInvoice\Service\Import\DocumentAddresseeResolver;
+use MyInvoice\Service\Import\ImageToPdfConverter;
+use MyInvoice\Service\Import\IsdocxExtractor;
 use MyInvoice\Service\PurchaseInvoice\PurchaseInvoiceSubmissionUploadService;
 use MyInvoice\Support\CompanyIdNormalizer;
+use MyInvoice\Support\PdfBytes;
 use MyInvoice\Service\IpMatcher;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -29,7 +33,7 @@ use Psr\Http\Message\UploadedFileInterface;
  * single-shot operace trvá 10-30s, OK pro user-blocking UX).
  *
  * Body: multipart form-data, field "pdf" = soubor.
- * Optional ?model=<id z whitelistu provideru> (override per request) — whitelist drží
+ * Staff-only ?model=<id z whitelistu provideru> (override per request) — whitelist drží
  * LlmProviderCapabilities (ANTHROPIC_MODELS / OPENAI_MODELS / GEMINI_MODELS).
  */
 final class AiExtractPdfAction
@@ -44,17 +48,31 @@ final class AiExtractPdfAction
         private readonly DocumentAddresseeResolver $addressees,
         private readonly PurchaseInvoiceSubmissionUploadService $submissions,
         private readonly PurchaseInvoiceSubmissionRepository $submissionRows,
+        private readonly ClientAiExtractionPolicy $clientPolicy,
+        private readonly ClientAiExtractionQuota $clientQuota,
+        private readonly ImageToPdfConverter $images,
     ) {}
 
     public function __invoke(Request $request, Response $response): Response
     {
         $user = (array) $request->getAttribute(AuthMiddleware::ATTR_USER, []);
-        if (!RequestAuthorization::allows($request, 'purchase_invoices.scan', AccessLevel::WRITE)) {
-            return Json::error($response, 'forbidden', 'Pouze admin nebo účetní.', 403);
+        if (!ClientAiExtractionPolicy::hasDocumentPermissions($request)) {
+            return Json::error($response, 'forbidden', 'Nemáte oprávnění vytěžovat doklady.', 403);
         }
         $supplierId = SupplierGuard::currentId($request);
         if ($supplierId === 0) {
             return Json::error($response, 'no_supplier', 'Chybí supplier kontext.', 400);
+        }
+
+        $client = RequestAuthorization::isClientType($request);
+        if ($client) {
+            $state = $this->clientPolicy->supplierState($supplierId);
+            if (!$state['client_ai_extraction_enabled']) {
+                return Json::error($response, 'client_ai_extraction_disabled', 'AI vytěžení pro klienty není povoleno.', 403);
+            }
+            if (!$state['client_ai_extraction_available']) {
+                return Json::error($response, 'ai_not_configured', 'Firma nemá nastaveného AI poskytovatele.', 422);
+            }
         }
 
         $uploads = $request->getUploadedFiles();
@@ -67,16 +85,20 @@ final class AiExtractPdfAction
             return Json::error($response, 'file_too_large', 'PDF musí být <= ' . self::MAX_PDF_BYTES . ' B.', 413);
         }
         $bytes = (string) $file->getStream()->getContents();
+        if ($client && (strlen($bytes) !== $size || (!PdfBytes::isPdf($bytes)
+            && !IsdocxExtractor::isZip($bytes) && $this->images->detectImageMime($bytes) === null))) {
+            return Json::error($response, 'invalid_file', 'Nahrajte PDF, ISDOCX nebo obrázek dokladu.', 400);
+        }
         $originalName = $file->getClientFilename() ?: null;
         $current = $supplierId;
 
         // Doklad jiné firmy uživatele se vytěží rovnou v ní. Firma se určí bez AI
         // (strojový ISDOC, IČO/DIČ v textu PDF) a jen mezi firmami, kde smí uživatel
         // vytěžovat; AI pak běží s nastavením té firmy.
-        $others = array_values(array_filter(
-            $this->crossSupplier->suppliersAllowing($request, ['purchase_invoices.scan']),
+        $others = ClientAiExtractionPolicy::canRouteAcrossSuppliers($request) ? array_values(array_filter(
+            $this->crossSupplier->suppliersAllowing($request, ['purchase_invoices.extract']),
             static fn (int $id): bool => $id !== $current,
-        ));
+        )) : [];
         if ($others !== []) {
             $extension = strtolower(pathinfo((string) $originalName, PATHINFO_EXTENSION));
             try {
@@ -89,9 +111,10 @@ final class AiExtractPdfAction
             }
         }
 
-        // ?model override — validuj proti whitelistu aktivního providera (jinak by
+        // Klient vždy používá výchozí model firmy. Staff ?model override validuj
+        // proti whitelistu aktivního providera (jinak by
         // libovolný string protekl do klienta). Neznámý model → 400.
-        $modelOverride = (string) ($request->getQueryParams()['model'] ?? '') ?: null;
+        $modelOverride = $client ? null : ((string) ($request->getQueryParams()['model'] ?? '') ?: null);
         if ($modelOverride !== null) {
             $allowedModels = $this->extractor->capabilities($supplierId)->models;
             if (!in_array($modelOverride, $allowedModels, true)) {
@@ -106,7 +129,14 @@ final class AiExtractPdfAction
         $importBatchId = ($importBatchId !== '') ? substr($importBatchId, 0, 32) : null;
 
         $userId = (int) ($user['id'] ?? 0);
-        $result = $this->extractor->extractAndCreate($supplierId, $userId, $bytes, $modelOverride, $originalName, $importBatchId);
+        if ($client && $this->clientQuota->reserve($supplierId) === null) {
+            return Json::error($response, 'client_ai_extraction_limit_reached',
+                'Měsíční limit pokusů o AI vytěžení této firmy je vyčerpán. Obraťte se na správce firmy.', 429,
+                ['client_ai_extraction_usage' => $this->clientQuota->usage($supplierId)],
+            );
+        }
+        $result = $this->extractor->extractAndCreate($supplierId, $userId, $bytes, $modelOverride, $originalName, $importBatchId,
+            requireReview: $client, allowModelUpgrade: !$client);
 
         // Provenance (F7 §3.7): data_residency_ok=false jen když router odmítl kvůli
         // EU rezidenci (residency_conflict); ISDOC i úspěšná AI cesta = true.
@@ -131,7 +161,7 @@ final class AiExtractPdfAction
 
         // AI přečetla odběratele jiné firmy uživatele. Druhé AI volání se nedělá:
         // doklad jde do příchozích dokladů té firmy i s odběratelem a vytěží se tam.
-        if (!$result['ok'] && ($result['source'] ?? null) === 'wrong_tenant') {
+        if (!$result['ok'] && ($result['source'] ?? null) === 'wrong_tenant' && ClientAiExtractionPolicy::canRouteAcrossSuppliers($request)) {
             $handed = $this->handToOwnerInbox($request, $supplierId, $bytes, (string) ($originalName ?? 'doklad.pdf'), (array) ($result['ai_data'] ?? []), $userId);
             if ($handed !== null) {
                 return Json::ok($response, $handed);

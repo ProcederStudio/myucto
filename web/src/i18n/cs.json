@@ -26933,6 +26933,15 @@
     }
   },
   "aiGateway": {
+    "client_extraction_monthly_limit": "Měsíční limit klientského vytěžování přijatých dokladů",
+    "client_extraction_limit_hint": "Limit vytěžování přijatých dokladů platí společně pro všechny klienty firmy. Výchozí hodnota je 100 pokusů za měsíc; 0 vytěžování zablokuje.",
+    "client_extraction_usage": "Vytěžování přijatých dokladů za {period}: {used} z {limit} pokusů, zbývá {remaining}.",
+    "client_extraction_usage_hint": "Jeden platný soubor přijatého dokladu předaný ke zpracování spotřebuje jeden pokus, i při chybě, duplicitě nebo načtení ISDOC. Pokusy se nevracejí; čerpání se obnovuje každý kalendářní měsíc. Účtování AI se řídí poskytovatelem.",
+    "client_extraction_limit_reached": "Měsíční limit klientského vytěžování přijatých dokladů je vyčerpán. Další doklady zadejte ručně, počkejte na nový měsíc nebo požádejte účetní o zvýšení limitu.",
+    "client_extraction_enabled": "Povolit klientům AI vytěžování",
+    "client_extraction_hint": "Klienti s oprávněním vytěžovat a zadávat přijaté faktury mohou použít AI této firmy. Aktivní poskytovatel musí být nakonfigurovaný. Vznikne koncept, který klient zkontroluje a označí jako přijatý stejně jako při ručním zadání.",
+    "client_extraction_unavailable": "AI vytěžování pro tuto firmu není dostupné nebo k němu nemáte oprávnění. Požádejte účetní o povolení a nastavení AI.",
+
     "effort": "Míra uvažování AI",
     "effort_default": "Výchozí (podle modelu)",
     "effort_fast": "Rychle a levně",

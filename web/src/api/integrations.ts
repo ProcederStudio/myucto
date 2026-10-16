@@ -158,7 +158,16 @@ export interface AiProviderInfo {
 /** Míra uvažování AI. `default` = neposílat providerovi nic navíc. */
 export type AiEffort = 'default' | 'fast' | 'accurate'
 
+export interface ClientAiExtractionUsage {
+  period: string
+  limit: number
+  used: number
+  remaining: number
+}
+
 export interface AiCredentialsResponse {
+  client_ai_extraction_usage?: ClientAiExtractionUsage
+  client_ai_extraction_enabled?: boolean
   ai_provider: AiProvider
   ai_data_region: AiDataRegion
   ai_eu_residency_required: boolean
@@ -171,6 +180,8 @@ export interface AiCredentialsResponse {
 }
 
 export interface AiExtractionStatus {
+  client_ai_extraction_usage?: ClientAiExtractionUsage
+  client_ai_extraction_enabled?: boolean
   ai_provider: AiProvider
   providers: Partial<Record<AiProvider, Pick<AiProviderInfo, 'configured' | 'default_model' | 'models'>>>
 }

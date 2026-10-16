@@ -114,7 +114,8 @@ final class AiProviderCredentialsActionTest extends TestCase
         self::assertIsString($provider);
         self::assertSame([$provider], array_keys($res['body']['providers'] ?? []));
         self::assertSame(['configured', 'default_model', 'models', 'allowed_models'], array_keys($res['body']['providers'][$provider]));
-        self::assertSame(['ai_provider', 'providers'], array_keys($res['body']));
+        self::assertSame(['client_ai_extraction_enabled', 'client_ai_extraction_usage', 'ai_provider', 'providers'], array_keys($res['body']));
+        self::assertIsBool($res['body']['client_ai_extraction_enabled']);
 
         self::assertSame(403, $this->call('extractionStatus', 'GET', 'readonly')['status']);
     }
@@ -272,6 +273,7 @@ final class AiProviderCredentialsActionTest extends TestCase
             $c->get(\MyInvoice\Service\ActivityLogger::class),
             $c->get(\MyInvoice\Service\IpMatcher::class),
             $c->get(\MyInvoice\Service\Import\AiCredentialsBulkApplier::class),
+            $c->get(\MyInvoice\Service\Import\ClientAiExtractionQuota::class),
         );
     }
 

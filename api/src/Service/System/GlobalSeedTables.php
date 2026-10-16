@@ -253,6 +253,8 @@ final class GlobalSeedTables
         'expense_categories', 'revenue_categories', 'trip_categories',
         // Předvolby AI (ztlumené zdroje návrhů), ne návrhy samotné.
         'ai_source_mutes',
+        // Čerpání vynucuje firemní limit; reset dokladů nesmí obnovit již spotřebovaný rozpočet.
+        'client_ai_extraction_usage',
         // NASTAVENÍ MEZD: stav modulu a jeho kvalifikace, zaměstnavatelská politika
         // s auditem, účtárny a jejich registrace, instituce a jejich účty, sazby
         // úrazového pojištění, mzdové složky a jejich mapování do JMHZ, střediska,

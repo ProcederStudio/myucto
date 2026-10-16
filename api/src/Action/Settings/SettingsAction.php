@@ -378,6 +378,18 @@ final class SettingsAction
         if ($id <= 0) return Json::error($response, 'validation_failed', 'Neplatné id.', 400);
 
         $body = (array) ($request->getParsedBody() ?? []);
+        if ((array_key_exists('client_ai_extraction_enabled', $body) || array_key_exists('client_ai_extraction_monthly_limit', $body))
+            && (RequestAuthorization::isClientType($request)
+                || !RequestAuthorization::allows($request, 'settings.ai_provider', AccessLevel::WRITE))) {
+            return Json::error($response, 'forbidden', 'Povolení AI vytěžení klientům smí měnit pouze správce AI nastavení.', 403);
+        }
+        if (array_key_exists('client_ai_extraction_enabled', $body) && !is_bool($body['client_ai_extraction_enabled'])) {
+            return Json::error($response, 'validation_failed', 'client_ai_extraction_enabled musí být boolean.', 400);
+        }
+        if (array_key_exists('client_ai_extraction_monthly_limit', $body)
+            && (!is_int($body['client_ai_extraction_monthly_limit']) || $body['client_ai_extraction_monthly_limit'] < 0 || $body['client_ai_extraction_monthly_limit'] > 100000)) {
+            return Json::error($response, 'validation_failed', 'Měsíční limit klientského AI vytěžení musí být celé číslo od 0 do 100000.', 400);
+        }
 
         if (!$this->db->hasColumn('supplier', 'oss_enabled')) {
             $ossFields = ['oss_enabled', 'oss_valid_from', 'oss_valid_to', 'oss_identification_country', 'oss_return_currency'];
@@ -517,7 +529,7 @@ final class SettingsAction
             'auto_post_invoices', 'auto_post_purchases',
             // F7 — AI provider selection (NON-secret; secrety `*_enc` jdou VÝHRADNĚ přes
             // AiProviderCredentialsAction, NIKDY tady — mustFix #11).
-            'ai_provider', 'ai_data_region', 'ai_eu_residency_required',
+            'ai_provider', 'ai_data_region', 'ai_eu_residency_required', 'client_ai_extraction_enabled', 'client_ai_extraction_monthly_limit',
             // Datum přijetí u importovaných přijatých dokladů (migrace 1848) — 'issue_date'
             // (z dokladu, výchozí) vs 'import_date' (den importu, chování do 1848).
             // Platí pro VŠECHNY importní kanály, ne jen AI extrakci.
@@ -983,7 +995,7 @@ final class SettingsAction
             }
             if (array_key_exists($f, $body)) {
                 $sets[] = "$f = ?";
-                $params[] = in_array($f, ['is_vat_payer', 'is_identified', 'oss_enabled', 'auto_send_reminders', 'auto_generate_recurring', 'embed_isdoc', 'public_isdoc_enabled', 'email_attach_isdoc', 'default_prices_include_vat', 'email_branding_enabled', 'pdf_logo_show_name', 'branding_profiles_enabled', 'payment_thanks_enabled', 'payment_thanks_auto_send', 'payment_thanks_default_checked', 'payment_thanks_attach_paid_pdf', 'stock_enabled', 'stock_auto_issue', 'invoice_pdf_show_base_qty', 'dimensions_enabled', 'accounting_enabled', 'payroll_enabled', 'auto_post_invoices', 'auto_post_purchases', 'ai_eu_residency_required', 'tax_investment_incentive', 'tax_atad_cfc', 'tax_public_benefit', 'tax_cooperating_person', 'tax_foreign_income_credit', 'allow_refund_invoices', DefaultInvoiceNote::ENABLED_COLUMN], true)
+                $params[] = in_array($f, ['is_vat_payer', 'is_identified', 'oss_enabled', 'auto_send_reminders', 'auto_generate_recurring', 'embed_isdoc', 'public_isdoc_enabled', 'email_attach_isdoc', 'default_prices_include_vat', 'email_branding_enabled', 'pdf_logo_show_name', 'branding_profiles_enabled', 'payment_thanks_enabled', 'payment_thanks_auto_send', 'payment_thanks_default_checked', 'payment_thanks_attach_paid_pdf', 'stock_enabled', 'stock_auto_issue', 'invoice_pdf_show_base_qty', 'dimensions_enabled', 'accounting_enabled', 'payroll_enabled', 'auto_post_invoices', 'auto_post_purchases', 'ai_eu_residency_required', 'client_ai_extraction_enabled', 'tax_investment_incentive', 'tax_atad_cfc', 'tax_public_benefit', 'tax_cooperating_person', 'tax_foreign_income_credit', 'allow_refund_invoices', DefaultInvoiceNote::ENABLED_COLUMN], true)
                     ? ((int) (bool) $body[$f])
                     : $body[$f];
             }
@@ -1343,6 +1355,8 @@ final class SettingsAction
         // F7 — AI provider selection (non-secret; klíče `*_enc` jsou níže redigovány).
         $row['ai_provider']              = (string) ($row['ai_provider'] ?? 'anthropic');
         $row['ai_data_region']           = (string) ($row['ai_data_region'] ?? 'us');
+        $row['client_ai_extraction_enabled'] = (bool) ($row['client_ai_extraction_enabled'] ?? false);
+        $row['client_ai_extraction_monthly_limit'] = (int) ($row['client_ai_extraction_monthly_limit'] ?? 100);
         $row['ai_eu_residency_required'] = (bool) ($row['ai_eu_residency_required'] ?? false);
         $row['email_branding_enabled']   = (bool) ($row['email_branding_enabled'] ?? false);
         $row['email_accent_color']       = (string) ($row['email_accent_color'] ?? '#3B2D83');

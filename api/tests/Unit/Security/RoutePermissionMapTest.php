@@ -280,7 +280,7 @@ final class RoutePermissionMapTest extends TestCase
             ['GET', '/api/admin/imports/idoklad/credentials', 'utilities.import', AccessLevel::WRITE],
             ['PUT', '/api/admin/imports/fakturoid/credentials', 'utilities.import', AccessLevel::WRITE],
             ['DELETE', '/api/admin/imports/idoklad/credentials', 'utilities.import', AccessLevel::WRITE],
-            ['POST', '/api/admin/imports/ai-extract-pdf', 'purchase_invoices.scan', AccessLevel::WRITE],
+            ['POST', '/api/admin/imports/ai-extract-pdf', 'purchase_invoices.extract', AccessLevel::WRITE],
             ['POST', '/api/admin/imports/ai-extract-pdf-issued', 'invoices.create', AccessLevel::WRITE],
         ] as [$method, $path, $key, $level]) {
             $match = $map->match($method, $path);
@@ -312,7 +312,7 @@ final class RoutePermissionMapTest extends TestCase
     {
         $map = new RoutePermissionMap();
         foreach ([
-            '/api/admin/imports/ai-extract-pdf/status' => 'purchase_invoices.scan',
+            '/api/admin/imports/ai-extract-pdf/status' => 'purchase_invoices.extract',
             '/api/admin/imports/ai-extract-pdf-issued/status' => 'invoices.create',
         ] as $path => $key) {
             $rule = $map->match('GET', $path);
