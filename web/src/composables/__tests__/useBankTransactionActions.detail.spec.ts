@@ -112,12 +112,20 @@ describe('actions opened from bank transaction detail', () => {
     expect(mocks.bank.unignore).not.toHaveBeenCalled()
   })
 
+  it('lets staff ignore with bank.ignore even without bank.match', () => {
+    mocks.canWrite.mockImplementation(permission => permission === 'bank.ignore')
+    const actions = setup()
+    expect(actions.canRunDetailAction(row(), 'ignore')).toBe(true)
+    expect(actions.canRunDetailAction(row(), 'match')).toBe(false)
+  })
+
   it('preserves staff matching without new bank read or document payment prerequisites', async () => {
     mocks.canRead.mockReturnValue(false)
     mocks.canWrite.mockImplementation(permission => permission === 'bank.match')
     const actions = setup(), tx = row()
     expect(actions.canRunDetailAction(tx, 'match')).toBe(true)
-    expect(actions.canRunDetailAction(tx, 'ignore')).toBe(true)
+    // Ignorování má vlastní oprávnění bank.ignore, stejně jako na backendu.
+    expect(actions.canRunDetailAction(tx, 'ignore')).toBe(false)
     actions.startMatch(tx)
     await flushPromises()
     await actions.confirmCandidate({ id: 1, type: 'purchase_invoice' } as never)
