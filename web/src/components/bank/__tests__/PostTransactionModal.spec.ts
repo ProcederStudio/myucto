@@ -263,7 +263,7 @@ describe('PostTransactionModal — našeptávač účtů', () => {
       props: { tx: tx(-100), layout: 'mobile', isDoubleEntry: true, actions: {
         expandedDocs: ref(new Set()), expandedSuggestions: ref(new Set()), suggestionFor: () => null,
       } as unknown as BankTransactionActions },
-      global: { stubs: { RuleFormModal: false, RuleForm: true, Teleport: true } },
+      global: { stubs: { WorkspaceTeleport: false, RuleFormModal: false, RuleForm: true, Teleport: true } },
     })
     const menu = wrapper.findComponent({ name: 'RowActionsMenu' })
     menu.props('actions').find((action: { key: string }) => action.key === 'create-posting-rule').run()

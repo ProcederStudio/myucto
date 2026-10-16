@@ -312,7 +312,8 @@ final class PayrollRunGarnishmentProcessor
                 : max(0, min(
                     $requested,
                     self::int($agreement, 'total_limit_minor')
-                        - self::int($agreement, 'withheld_total_minor'),
+                        - self::int($agreement, 'withheld_total_minor')
+                        - (int) ($agreement['taken_over_withheld_minor'] ?? 0),
                 ));
             if ($outstanding <= 0) {
                 continue;

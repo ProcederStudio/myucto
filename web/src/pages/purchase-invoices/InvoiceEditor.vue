@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useWindowTitle } from '@/composables/useWindowTitle'
 import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch, useId } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 // RouterLink se používá i v Add Currency modalu — import už pokrývá
@@ -62,6 +63,7 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import { btnFilled, ICONS } from '@/components/ui/buttonStyles'
 import { useAuthStore } from '@/stores/auth'
 import { useSupplierStore } from '@/stores/supplier'
+import { useSupplierSwitch } from '@/composables/useSupplierSwitch'
 import { canSaveToCompanyFolder, pdfFileName, savePdfToCompanyFolder } from '@/composables/useCompanyPdfSave'
 import { appIsoDate } from '@/utils/date'
 import { useSidePreviewWide } from '@/composables/useSidePreviewWide'
@@ -82,6 +84,7 @@ const paneDom = usePaneDom()
 const { blockDemoMutation } = useDemoMode()
 const auth = useAuthStore()
 const supplierStore = useSupplierStore()
+const supplierSwitch = useSupplierSwitch()
 
 // Chrome/Edge: dialog Uložit jako ve složce, kam se naposledy ukládalo PDF této firmy
 // (#104). Jinde odkaz stáhne PDF jako dřív.
@@ -465,7 +468,9 @@ async function dismissWarning(section?: string) {
 }
 
 // === Default vendor currency on selection ===
+const windowVendor = ref<{ id: number; name: string } | null>(null)
 function onVendorSelected(v: any) {
+  windowVendor.value = v ? { id: Number(v.id), name: v.company_name } : null
   if (v && !isEdit.value) {
     // Pre-fill default currency from vendor.currency_default_id if available
     if (v.currency_default_id && form.value.currency_id === null) {
@@ -835,6 +840,7 @@ const vatClaimPeriodLabel = computed(() => {
 })
 
 function populate(inv: PurchaseInvoice) {
+  windowVendor.value = inv.vendor_id ? { id: inv.vendor_id, name: inv.vendor_company_name ?? '' } : null
   form.value.vendor_id = inv.vendor_id
   form.value.vendor_invoice_number = inv.vendor_invoice_number
   form.value.varsymbol = inv.varsymbol || ''
@@ -1288,8 +1294,7 @@ async function onPdfDropped(file: File) {
       // Faktura patřila jiné firmě uživatele a vznikla v ní: přepni do ní a otevři ji.
       if (imported.target_supplier_id) {
         toast.success(t('purchase_invoice.extraction.isdoc_other_company', { company: imported.target_supplier_name ?? '' }))
-        supplierStore.setSupplier(imported.target_supplier_id)
-        window.location.href = `/purchase-invoices/${imported.purchase_invoice_id}/edit`
+        await supplierSwitch.switchTo(imported.target_supplier_id, `/purchase-invoices/${imported.purchase_invoice_id}/edit`)
         return
       }
       toast.success(t(imported.duplicate
@@ -1582,6 +1587,11 @@ function fieldErr(key: string): string | null {
   const errs = fieldErrors.value[key]
   return errs?.length ? errs[0] : null
 }
+useWindowTitle(
+  () => [t(isEdit.value ? 'purchase_invoice.title_edit' : 'purchase_invoice.title_new'), form.value.varsymbol.trim() || form.value.vendor_invoice_number.trim()].filter(Boolean).join(' '),
+  () => windowVendor.value?.id === form.value.vendor_id ? windowVendor.value?.name ?? null : null,
+)
+
 </script>
 
 <template>

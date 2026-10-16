@@ -440,7 +440,7 @@ final class PayrollEmploymentExitRevisionRepository
      * jsou to pohledávky tohoto zaměstnavatele, které další plátce mzdy
      * srážet nesmí.
      *
-     * @return list<array{id:int,agreement_reference:string,title:string,total_limit_minor:?int,withheld_total_minor:int,delivered_on:?string,recipient_reference:?string,row_version:int}>
+     * @return list<array{id:int,agreement_reference:string,title:string,total_limit_minor:?int,withheld_total_minor:int,taken_over_withheld_minor:int,delivered_on:?string,recipient_reference:?string,row_version:int}>
      */
     public function lockContinuingDeductionAgreements(
         int $supplierId,
@@ -450,15 +450,15 @@ final class PayrollEmploymentExitRevisionRepository
         $this->requireTransaction();
         $statement = $this->db->pdo()->prepare(
             'SELECT id, agreement_reference, title, total_limit_minor,
-                    withheld_total_minor, delivered_on, recipient_reference,
-                    row_version
+                    withheld_total_minor, taken_over_withheld_minor, delivered_on,
+                    recipient_reference, row_version
                FROM payroll_deduction_agreements
               WHERE supplier_id = ? AND employee_id = ?
                 AND legal_basis = "agreement"
                 AND status IN ("active", "paused")
                 AND valid_from <= ?
                 AND (total_limit_minor IS NULL
-                     OR total_limit_minor > withheld_total_minor)
+                     OR total_limit_minor > withheld_total_minor + taken_over_withheld_minor)
               ORDER BY COALESCE(delivered_on, "9999-12-31"), priority_no, id
               FOR UPDATE',
         );
@@ -475,6 +475,7 @@ final class PayrollEmploymentExitRevisionRepository
                 'title' => self::text($row, 'title'),
                 'total_limit_minor' => $limit === null ? null : self::databaseInt($limit, 'total_limit_minor'),
                 'withheld_total_minor' => self::nonNegativeInt($row, 'withheld_total_minor'),
+                'taken_over_withheld_minor' => self::nonNegativeInt($row, 'taken_over_withheld_minor'),
                 'delivered_on' => is_string($delivered) && $delivered !== '' ? $delivered : null,
                 'recipient_reference' => is_string($recipient) && $recipient !== '' ? $recipient : null,
                 'row_version' => self::positiveInt($row, 'row_version'),

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
-import { RouterView, useRouter } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { useSupplierStore } from '@/stores/supplier'
@@ -27,7 +27,9 @@ import { instanceStatus } from '@/api/instanceStatus'
 import { hostingNavAttention, resolveHostingActions } from '@/api/hostingActions'
 import WorkspaceHost from '@/components/workspace/WorkspaceHost.vue'
 import WorkspaceNavLink from '@/components/workspace/WorkspaceNavLink.vue'
-import PaneActivityScope from '@/components/workspace/PaneActivityScope.vue'
+import WorkspaceWindowSwitcher from '@/components/workspace/WorkspaceWindowSwitcher.vue'
+import WorkspaceWindowButton from '@/components/workspace/WorkspaceWindowButton.vue'
+import { getWindowManager } from '@/workspace/windowRegistry'
 import type { AccessLevel, PermissionKey } from '@/security/permissions'
 import { useSessionSecurityStore } from '@/stores/sessionSecurity'
 import { useToast } from '@/composables/useToast'
@@ -1094,14 +1096,16 @@ function onResetNavOrder(): void {
 /** Paleta příkazů — otevírá ji i tlačítko v patičce, nejen zkratka. */
 const paletteRef = ref<InstanceType<typeof CommandPalette> | null>(null)
 
-const activeSectionAccent = computed<string>(() => {
+function sectionAccent(fullPath: string): string {
+  const resolved = router.resolve(fullPath)
   for (const section of orderedNav.value) {
-    if (section.items.some(item => !item.external && isActive(item))) {
+    if (section.items.some(item => !item.external && isActive(item, resolved))) {
       return section.accent ?? 'primary'
     }
   }
   return 'primary'
-})
+}
+const activeSectionAccent = computed(() => sectionAccent(workspace.activeFullPath))
 
 /** Rychlé zkratky v topbaru (desktop) — ikony navazují na menu (ICONS). */
 const quickActions = computed(() => {
@@ -1191,6 +1195,14 @@ const shortcutActions = computed<ShortcutAction[]>(() => {
     label: t('keyboard_shortcuts.search'),
     group: 'general',
   }, {
+    id: 'windows.switcher', label: t('workspace.windows'), group: 'general',
+  }, {
+    id: 'windows.previous', label: t('workspace.previous_window'), group: 'general',
+  }, {
+    id: 'windows.next', label: t('workspace.next_window'), group: 'general',
+  }, {
+    id: 'windows.recent', label: t('workspace.recent_windows'), group: 'general',
+  }, {
     // Registruje se vždy, i když v aktuální agendě zakládat nejde — jinak by
     // zkratka zmizela z nastavení v profilu. Prázdné `to` handler ignoruje.
     id: 'create.contextual',
@@ -1252,13 +1264,27 @@ function onGlobalShortcut(event: KeyboardEvent): void {
   if (event.repeat || event.isComposing || sessionSecurity.privacyCurtain) return
   const target = event.target instanceof HTMLElement ? event.target : null
   if (target?.closest('[data-shortcut-capture]')) return
-  if (document.querySelector('[role="dialog"][aria-modal="true"], dialog[open]')) return
-
   const action = keyboardShortcuts.actionForEvent(event)
   if (!action) return
-  if (isEditableTarget(event.target) && action.id !== 'search.global') return
+  const windowAction = action.id.startsWith('windows.')
+  const modalOpen = [...document.querySelectorAll('[role="dialog"][aria-modal="true"], dialog[open]')]
+    .some(dialog => !dialog.closest('[hidden], [aria-hidden="true"]'))
+  if (modalOpen && !(windowAction && workspace.windowSwitcherOpen)) return
+  if (isEditableTarget(event.target) && action.id !== 'search.global' && !windowAction) return
 
   event.preventDefault()
+  if (windowAction) {
+    event.stopImmediatePropagation()
+    if (action.id === 'windows.switcher') workspace.windowSwitcherOpen = !workspace.windowSwitcherOpen
+    else {
+      workspace.windowSwitcherOpen = false
+      const manager = getWindowManager()
+      if (action.id === 'windows.previous') void manager?.previous()
+      else if (action.id === 'windows.next') void manager?.next()
+      else if (action.id === 'windows.recent') void manager?.toggleRecent()
+    }
+    return
+  }
   if (action.id === 'search.global') {
     if (isDesktop.value) {
       desktopSearchRef.value?.focus()
@@ -1272,7 +1298,7 @@ function onGlobalShortcut(event: KeyboardEvent): void {
   if (action.external) {
     window.open(action.to, '_blank', 'noopener')
   } else {
-    void workspaceNavigation.navigate(action.to)
+    void workspaceNavigation.navigate(action.to, action.group === 'create' ? { fresh: true } : undefined)
   }
 }
 
@@ -1322,12 +1348,12 @@ const manualHref = computed(() => {
  * by matchoval /reports/dph-book). Query klíče z URL musí všechny sedět
  * s route.query; `queried` říká, že shoda vznikla i přes query (= specifičtější).
  */
-function urlCoversRoute(url: string): { covers: boolean; queried: boolean } {
+function urlCoversRoute(url: string, resolved = activeRoute.value): { covers: boolean; queried: boolean } {
   const [path, qs] = url.split('?', 2)
-  if (activeRoute.value.path !== path && !activeRoute.value.path.startsWith(path + '/')) return { covers: false, queried: false }
+  if (resolved.path !== path && !resolved.path.startsWith(path + '/')) return { covers: false, queried: false }
   if (!qs) return { covers: true, queried: false }
   for (const [k, v] of new URLSearchParams(qs)) {
-    if (String(activeRoute.value.query[k] ?? '') !== v) return { covers: false, queried: false }
+    if (String(resolved.query[k] ?? '') !== v) return { covers: false, queried: false }
   }
   return { covers: true, queried: true }
 }
@@ -1343,14 +1369,13 @@ function itemUrls(item: { to: string; newTo?: string }): string[] {
   return item.newTo ? [item.to, item.newTo] : [item.to]
 }
 
-function isActive(item: NavItem): boolean {
-  if (!workspace.activePane?.fullPath) return false
+function isActive(item: NavItem, resolved = activeRoute.value): boolean {
   const to = item.to
-  if (to === '/') return activeRoute.value.path === '/'
+  if (to === '/') return resolved.path === '/'
 
   const [toPath] = to.split('?', 2)
 
-  const matches = itemUrls(item).map(urlCoversRoute)
+  const matches = itemUrls(item).map(url => urlCoversRoute(url, resolved))
   if (!matches.some(m => m.covers)) return false
 
   // Match bez query shody prohrává s itemem, který route pokrývá včetně query —
@@ -1360,7 +1385,7 @@ function isActive(item: NavItem): boolean {
     for (const section of navSections.value) {
       for (const it of section.items) {
         if (it.to === to) continue
-        if (itemUrls(it).some(u => urlCoversRoute(u).queried)) return false
+        if (itemUrls(it).some(u => urlCoversRoute(u, resolved).queried)) return false
       }
     }
   }
@@ -1368,7 +1393,7 @@ function isActive(item: NavItem): boolean {
   // Delší `to` v menu má prednost (např. /purchase-invoices vs /purchase-invoices/export).
   for (const section of navSections.value) {
     for (const it of section.items) {
-      if (it.to !== to && it.to.startsWith(toPath + '/') && activeRoute.value.path.startsWith(it.to.split('?')[0])) {
+      if (it.to !== to && it.to.startsWith(toPath + '/') && resolved.path.startsWith(it.to.split('?')[0])) {
         return false
       }
     }
@@ -1377,6 +1402,7 @@ function isActive(item: NavItem): boolean {
 }
 
 function syncActivePaneTitle(): void {
+  if (workspace.windows.some(window => window.paneId === workspace.activePaneId)) return
   if (!workspace.activePane?.fullPath) {
     workspace.updatePane(workspace.activePaneId, { title: null })
     return
@@ -1662,13 +1688,13 @@ onBeforeUnmount(() => {
         :expand-label="isDesktop ? t('nav.menu_full') : undefined"
         @expand="setDesktopNavigationMode('side')"
         :class="[
-          'sticky top-[calc(var(--instance-alert-h,0px)+3rem)] h-[calc(100vh-3rem-var(--instance-alert-h,0px))]',
+          'sticky top-[calc(var(--instance-alert-h,0px)+3rem)] h-[calc(100vh-3rem-var(--instance-alert-h,0px)-1px)]',
           // Lišta s přepínačem dodavatele (2,125rem) je uvnitř hlavičky, ale `lg:hidden` —
           // od 1024 px má nulovou výšku. Bez `lg:` prefixu se o ni rail odsazoval i na
           // desktopu, takže mu nad hlavou zůstal pruh plátna. Zrcadlí to, co níž dělá
           // plný sidebar: pod lg offset s lištou, od lg bez ní.
           supplierStore.hasMultiple && supplierStore.currentSupplier
-            ? 'top-[calc(var(--instance-alert-h,0px)+5.125rem)] h-[calc(100vh-5.125rem-var(--instance-alert-h,0px))] lg:top-[calc(var(--instance-alert-h,0px)+3rem)] lg:h-[calc(100vh-3rem-var(--instance-alert-h,0px))]'
+            ? 'top-[calc(var(--instance-alert-h,0px)+5.125rem)] h-[calc(100vh-5.125rem-var(--instance-alert-h,0px))] lg:top-[calc(var(--instance-alert-h,0px)+3rem)] lg:h-[calc(100vh-3rem-var(--instance-alert-h,0px)-1px)]'
             : '',
         ]"
       />
@@ -1686,7 +1712,7 @@ onBeforeUnmount(() => {
            o první položku menu. -->
       <aside
         :class="[
-          'fixed right-0 z-30 lg:right-auto lg:sticky lg:top-[calc(var(--instance-alert-h,0px)+3rem)] lg:h-[calc(100vh-3rem-var(--instance-alert-h,0px))]',
+          'fixed right-0 z-30 lg:right-auto lg:sticky lg:top-[calc(var(--instance-alert-h,0px)+3rem)] lg:h-[calc(100vh-3rem-var(--instance-alert-h,0px)-1px)]',
           supplierStore.hasMultiple && supplierStore.currentSupplier
             ? 'top-[calc(var(--instance-alert-h,0px)+5.125rem)] h-[calc(100vh-5.125rem-var(--instance-alert-h,0px))]'
             : 'top-[calc(var(--instance-alert-h,0px)+3rem)] h-[calc(100vh-3rem-var(--instance-alert-h,0px))]',
@@ -1833,6 +1859,8 @@ onBeforeUnmount(() => {
                 <WorkspaceNavLink
                   v-if="canCreate(item)"
                   :to="createTarget(item)"
+                  fresh
+                  @click="mobileOpen = false"
                   :draggable="false"
                   :title="t('nav.quick_new')"
                   :aria-label="t('nav.quick_new')"
@@ -1910,10 +1938,11 @@ onBeforeUnmount(() => {
         <!-- Paleta příkazů (Ctrl/⌘+K) — sama si registruje zkratku i teleport,
              stačí ji mít v layoutu jednou. -->
         <CommandPalette ref="paletteRef" :nav-items="paletteNavItems" :quick-actions="quickActions" />
+        <WorkspaceWindowSwitcher />
 
         <main
           class="flex-1 px-5 sm:px-8 py-6 w-full"
-          :class="workspace.paneCount > 1 ? 'workspace-main-multi' : ''"
+          :class="workspace.paneCount > 1 ? 'workspace-main-multi' : 'workspace-main-single'"
           :data-accent="activeSectionAccent"
         >
           <div v-if="auth.isDemo" class="mb-5 rounded-lg border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-primary-800">
@@ -1933,15 +1962,7 @@ onBeforeUnmount(() => {
               {{ auth.license?.state === 'overage' ? t('license.banner_upgrade_cta') : t('license.banner_cta') }}
             </WorkspaceNavLink>
           </div>
-          <WorkspaceHost>
-            <template #primary="{ revision }">
-              <PaneActivityScope pane-id="primary">
-                <RouterView v-slot="{ Component }">
-                  <component :is="Component" :key="revision" />
-                </RouterView>
-              </PaneActivityScope>
-            </template>
-          </WorkspaceHost>
+          <WorkspaceHost :accent-for="sectionAccent" />
         </main>
 
         <!-- Patička je stejné „chrome" jako topbar (globální hledání, jazyk, motiv),
@@ -2109,6 +2130,7 @@ onBeforeUnmount(() => {
               </button>
               <LanguageToggle />
               <ThemeToggle />
+              <WorkspaceWindowButton class="border border-neutral-200" />
             </div>
             <div class="flex flex-wrap items-center justify-end gap-1.5">
               <WorkspaceNavLink v-if="!clientExperience" to="/admin/support" :class="supportBtnClass" :title="t('support.help_title')">

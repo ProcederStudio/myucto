@@ -1,3 +1,4 @@
+import { requestSupplierId } from '@/workspace/supplierContext'
 import { api } from './client'
 import type { CatalogJob } from './catalogJobs'
 import type { ProductSetDefinition } from './eshop'
@@ -1030,7 +1031,7 @@ function toParams<T extends object>(f: T = {} as T): Record<string, string | num
 }
 
 function downloadUrl(path: string): string {
-  const sid = localStorage.getItem('myinvoice.current_supplier_id')
+  const sid = requestSupplierId()
   const params = new URLSearchParams()
   if (sid && /^\d+$/.test(sid)) params.set('supplier_id', sid)
   const qs = params.toString()

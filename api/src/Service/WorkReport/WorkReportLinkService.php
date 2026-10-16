@@ -224,6 +224,7 @@ final class WorkReportLinkService
                     'expiresIn' => $this->ttlMinutes() . ' min',
                     'supplier'  => $this->loadSupplierVars((int) $link['supplier_id']),
                 ],
+                templateSupplierId: (int) $link['supplier_id'],
             );
         } catch (\Throwable $e) {
             $this->logger->error('work_report_link.code_mail_failed', [

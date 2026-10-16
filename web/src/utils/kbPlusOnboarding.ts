@@ -1,3 +1,5 @@
+import { navigateFullPage } from '@/workspace/fullPageNavigation'
+
 export function isKbPlusRegistrationRedirect(value: unknown): value is string {
   if (typeof value !== 'string' || value.length > 16384 || /[\u0000-\u0020\u007f\\]/.test(value)) return false
   try {
@@ -12,7 +14,7 @@ export function isKbPlusRegistrationRedirect(value: unknown): value is string {
 
 export function navigateToKbPlus(value: unknown): boolean {
   if (!isKbPlusRegistrationRedirect(value)) return false
-  window.location.assign(value)
+  navigateFullPage(value)
   return true
 }
 

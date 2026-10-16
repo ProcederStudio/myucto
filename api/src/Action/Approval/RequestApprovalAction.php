@@ -127,6 +127,7 @@ final class RequestApprovalAction
                 $bcc,
                 [['path' => $pdfPath, 'name' => basename($pdfPath), 'contentType' => 'application/pdf']],
                 $userId,
+                templateSupplierId: (int) $invoice['supplier_id'],
             );
         } catch (\Throwable $e) {
             return Json::error($response, 'send_failed', 'Email se nepodařilo odeslat: ' . $e->getMessage(), 502);

@@ -128,6 +128,41 @@ final class CashJournalService
                 ];
             }
 
+            // #164: navázané úhrady nesedí na bankovní pohyb. Řádek nese skutečnou částku
+            // pohybu a daňové složky jsou přepočtené na ni, nesoulad ale musí účetní vidět:
+            // převis znamená duplicitní nebo chybné párování (blokuje, dokud se neopraví),
+            // nerozdělený zbytek je část pohybu bez dokladu a jde do „nezařazeno".
+            $unallocated = (float) ($c['unallocated'] ?? 0.0);
+            if ($unallocated != 0.0) {
+                $totals['nezarazeno'] = round($totals['nezarazeno'] + $unallocated, 2);
+            }
+            if (($c['allocation_issue'] ?? null) !== null) {
+                $over = $c['allocation_issue'] === 'over';
+                $warnings[] = [
+                    'type'        => $over ? 'bank_allocation_exceeds_movement' : 'bank_allocation_below_movement',
+                    'source_type' => 'bank',
+                    'source_id'   => (int) $r['source_id'],
+                    'date'        => (string) $r['movement_date'],
+                    'direction'   => (string) $r['direction'],
+                    'amount'      => $over ? (float) $r['amount'] : $unallocated,
+                    'blocking'    => $over,
+                    'message'     => $over
+                        ? sprintf(
+                            'Navázané úhrady bankovního pohybu ze dne %s převyšují jeho částku %s Kč. '
+                                . 'Pohyb je nejspíš spárovaný vícekrát. V deníku je jen skutečná částka, '
+                                . 'opravte párování.',
+                            (string) $r['movement_date'],
+                            number_format((float) $r['amount'], 2, ',', ' '),
+                        )
+                        : sprintf(
+                            'Bankovní pohyb ze dne %s je navázaný na doklady jen částečně, %s Kč '
+                                . 'zůstává nezařazeno. Dopárujte zbytek pohybu.',
+                            (string) $r['movement_date'],
+                            number_format($unallocated, 2, ',', ' '),
+                        ),
+                ];
+            }
+
             // #28: cizoměnový pohyb, který se neměl čím ocenit. Po dotažení kurzů z ČNB
             // (ensureExchangeRates) i po nouzovém ocenění nejbližším pozdějším kurzem
             // sem spadne jen pohyb v měně, o které v `exchange_rates` NENÍ ANI JEDEN
@@ -466,9 +501,11 @@ final class CashJournalService
         //     jeden pohyb = jeden řádek i u sloučené úhrady N faktur/PF, #89). base/vat/exempt
         //     hotové v CZK — klasifikátor jen rozdělí do kbelíků.
         if ($source === 'bank' && ($r['bank_class'] ?? null) === 'income') {
-            return $this->bankIncomeAlloc($amount, $direction, $r);
+            $fit = self::bankAllocationFit($r);
+            return $this->bankIncomeAlloc($fit['portion'], $direction, $r, $fit['ratio']) + $fit;
         }
         if ($source === 'bank' && ($r['bank_class'] ?? null) === 'expense') {
+            $fit = self::bankAllocationFit($r);
             $base = $this->taxExpenses->forBankPayment(
                 $supplierId,
                 (int) $r['source_id'],
@@ -476,7 +513,7 @@ final class CashJournalService
                 $year,
                 (float) ($taxConstants['fixed_asset_limit'] ?? 80000),
             );
-            return $this->bankExpenseAlloc($amount, $direction, $base);
+            return $this->bankExpenseAlloc($fit['portion'], $direction, round($base * $fit['ratio'], 2)) + $fit;
         }
 
         // 2) Vazba na vydanou fakturu → příjem (i dobropis: out = záporný příjem, R11).
@@ -663,11 +700,11 @@ final class CashJournalService
      * @param array<string,mixed> $r
      * @return array{alloc:array<string,float>, bucket:string, base:float, vat:float, unclassified:bool, blocking:bool}
      */
-    private function bankIncomeAlloc(float $amount, string $direction, array $r): array
+    private function bankIncomeAlloc(float $amount, string $direction, array $r, float $ratio = 1.0): array
     {
         $sign   = $direction === 'in' ? 1.0 : -1.0;
-        $base   = round((float) ($r['bank_income_base'] ?? 0.0), 2);
-        $exempt = round((float) ($r['bank_income_exempt'] ?? 0.0), 2);
+        $base   = round((float) ($r['bank_income_base'] ?? 0.0) * $ratio, 2);
+        $exempt = round((float) ($r['bank_income_exempt'] ?? 0.0) * $ratio, 2);
         $vat    = round($amount - $base - $exempt, 2);
 
         $alloc = [];
@@ -683,6 +720,51 @@ final class CashJournalService
             'vat'          => round($sign * $vat, 2),
             'unclassified' => false,
             'blocking'     => false,
+        ];
+    }
+
+    /**
+     * #164: jak se navázané úhrady (alokace) vejdou do skutečného bankovního pohybu.
+     * Řádek deníku nese vždy částku pohybu; alokace jen určují, jakou jeho část a v jakém
+     * poměru rozdělit do daňových kbelíků.
+     *
+     *  - portion: část pohybu v CZK, kterou alokace vysvětlují,
+     *  - ratio: přepočet daňových složek spočtených z alokací (v CZK) na `portion`,
+     *  - unallocated: zbytek pohybu bez alokace (do „nezařazeno"),
+     *  - allocation_issue: 'over' = alokace převyšují pohyb (duplicitní nebo chybné
+     *    párování), 'under' = část pohybu není rozdělená, null = v pořádku.
+     *
+     * Nesoulad se posuzuje v měně pohybu, ne v CZK. Jinak by kurz dne úhrady proti
+     * kurzu dne pohybu vypadal jako chyba párování. Úhrada v jiné měně, než je účet
+     * (EUR faktura zaplacená z korunového účtu), se v měně pohybu porovnat nedá; tam
+     * rozhoduje skutečně zaúčtovaná koruna a kurzový rozdíl se rozpustí poměrem.
+     *
+     * @param array<string,mixed> $r
+     * @return array{portion:float, ratio:float, unallocated:float, allocation_issue:?string}
+     */
+    private static function bankAllocationFit(array $r): array
+    {
+        $movement = (float) $r['amount'];
+        $allocated = abs((float) ($r['bank_alloc_czk'] ?? 0.0));
+        $issue = null;
+        $portion = $movement;
+
+        if (($r['bank_alloc_cross_ccy'] ?? false) !== true) {
+            $allocatedNative = abs((float) ($r['bank_alloc_native'] ?? 0.0));
+            $movementNative = abs((float) ($r['bank_native_amount'] ?? 0.0));
+            if ($allocatedNative > $movementNative + 0.005) {
+                $issue = 'over';
+            } elseif ($allocatedNative < $movementNative - 0.005) {
+                $issue = 'under';
+                $portion = $movementNative > 0.0 ? round($movement * $allocatedNative / $movementNative, 2) : 0.0;
+            }
+        }
+
+        return [
+            'portion'          => $portion,
+            'ratio'            => $allocated > 0.0 ? $portion / $allocated : 0.0,
+            'unallocated'      => round($movement - $portion, 2),
+            'allocation_issue' => $issue,
         ];
     }
 

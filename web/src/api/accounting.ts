@@ -1,3 +1,4 @@
+import { requestSupplierId } from '@/workspace/supplierContext'
 import { api } from './client'
 import type { AutomationProvenance } from './automation'
 import type { DimensionRuleWarning, DimensionSplits } from './dimensions'
@@ -2135,7 +2136,7 @@ export const accountingApi = {
     api.delete<{ ok: boolean }>(`/accounting/journal/${id}/attachments/${attId}`).then(r => r.data),
   /** Přímá navigace v prohlížeči — supplier_id v query param (X-Supplier-Id header se neposílá). */
   journalAttachmentDownloadUrl: (id: number, attId: number) => {
-    const s = localStorage.getItem('myinvoice.current_supplier_id')
+    const s = requestSupplierId()
     const qs = s && /^\d+$/.test(s) ? `?supplier_id=${s}` : ''
     return `/api/accounting/journal/${id}/attachments/${attId}${qs}`
   },

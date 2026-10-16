@@ -8,9 +8,14 @@ import { ensureInstanceDunning, instanceStatus } from '@/api/instanceStatus'
 import { resolveBillingNarrative } from '@/api/instanceHealth'
 import { ICONS, btnFilled, btnOutline } from '@/components/ui/buttonStyles'
 import ChangePayNotice from './ChangePayNotice.vue'
+import { navigateFullPage } from '@/workspace/fullPageNavigation'
+import { useRoute, useRouter } from 'vue-router'
+import { pageLocation, replacePageLocation } from '@/workspace/pageLocation'
 
 const { t, te, tm, rt } = useI18n()
 const auth = useAuthStore()
+const route = useRoute()
+const router = useRouter()
 
 const status = ref<LicenseStatus | null>(null)
 const loading = ref(true)
@@ -165,12 +170,14 @@ const purchaseError = ref<string | null>(null)
  * případné diagnostiky stránky.
  */
 const purchaseReturn = (() => {
-  const raw = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : ''
+  const url = pageLocation(route)
+  const raw = url.hash.slice(1)
   const params = new URLSearchParams(raw)
   if (!params.has('purchase') && !params.has('state')) return null
   const purchase = params.get('purchase') ?? ''
   const state = params.get('state') ?? ''
-  window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}`)
+  url.hash = ''
+  replacePageLocation(router, url)
   return { purchase, state }
 })()
 
@@ -294,7 +301,7 @@ async function startPurchase(): Promise<void> {
   purchaseSuccess.value = null
   try {
     const result = await licenseApi.startPurchase()
-    window.location.assign(checkoutUrl(result.buy_url))
+    navigateFullPage(checkoutUrl(result.buy_url))
   } catch (e: unknown) {
     const err = e as { response?: { data?: { error?: { message?: string } } } }
     purchaseError.value = err.response?.data?.error?.message ?? t('license.purchase_start_failed')
@@ -742,7 +749,7 @@ async function resumeRenewal() {
   try {
     const res = await licenseApi.resumeRenewal()
     if (!res.pay_url) throw new Error('missing pay_url')
-    window.location.href = res.pay_url
+    navigateFullPage(res.pay_url)
   } catch (e: unknown) {
     const err = e as { response?: { data?: { error?: { message?: string } } } }
     renewalError.value = err.response?.data?.error?.message ?? t('license.renewal_resume_failed')

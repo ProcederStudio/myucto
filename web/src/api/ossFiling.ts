@@ -1,3 +1,4 @@
+import { requestSupplierId } from '@/workspace/supplierContext'
 import { api } from './client'
 
 /**
@@ -155,7 +156,7 @@ export interface OssEvidence {
 }
 
 function supplierParam(params: URLSearchParams): URLSearchParams {
-  const sid = localStorage.getItem('myinvoice.current_supplier_id')
+  const sid = requestSupplierId()
   if (sid && /^\d+$/.test(sid)) params.set('supplier_id', sid)
   return params
 }

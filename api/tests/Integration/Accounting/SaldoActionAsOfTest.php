@@ -134,6 +134,32 @@ final class SaldoActionAsOfTest extends TestCase
         self::assertSame(422, $resp->getStatusCode(), 'Formát data se dál validuje beze změny.');
     }
 
+    public function testPdfExportWithAgingBucketsForBanks(): void
+    {
+        $resp = $this->action->export($this->req([
+            'period_id' => (string) $this->currentPeriodId,
+            'account'   => '311',
+            'format'    => 'pdf',
+            'aging'     => '120,30,60',
+            'detail'    => '0',
+        ]), new Psr7Response());
+
+        self::assertSame(200, $resp->getStatusCode());
+        $resp->getBody()->rewind();
+        self::assertStringStartsWith('%PDF', (string) $resp->getBody());
+    }
+
+    public function testPdfExportRejectsInvalidAgingBoundaries(): void
+    {
+        $resp = $this->action->export($this->req([
+            'period_id' => (string) $this->currentPeriodId,
+            'format'    => 'pdf',
+            'aging'     => '30,abc',
+        ]), new Psr7Response());
+
+        self::assertSame(422, $resp->getStatusCode());
+    }
+
     /** @param array<string,string> $query */
     private function req(array $query): ServerRequestInterface
     {

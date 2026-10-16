@@ -232,6 +232,17 @@ try {
 // levná a stav po `migrate.php` má být vždy konzistentní.
 $connection->invalidateSchemaCache();
 
+// Assety frontendu z předchozích vydání. Nasazení rozbalí bundle přes starý strom
+// a migrate.php je jediný krok, který proběhne po každém nasazení. Selhání deploy nezastaví.
+try {
+    $pruned = \MyInvoice\Service\Update\FrontendAssetPruner::forInstallation()->prune();
+    if ($pruned['removed'] > 0) {
+        echo 'Smazáno ' . $pruned['removed'] . ' starých souborů frontendu (' . round($pruned['bytes'] / 1048576, 1) . " MB).\n";
+    }
+} catch (\Throwable $e) {
+    fwrite(STDERR, 'VAROVÁNÍ: úklid starých souborů frontendu selhal: ' . $e->getMessage() . "\n");
+}
+
 // Statistiky optimizeru účetních tabulek. Importéry si je přepočítají samy (TableStatistics),
 // ale ruční obnova dumpu nebo přenos instance je obejde a optimizer pak volí plné průchody:
 // na produkci po přenosu dat seznam přijatých faktur 1,4 s místo 5 ms. Na 240 MB DB trvá < 1 s.

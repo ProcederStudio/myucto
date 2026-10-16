@@ -9,7 +9,12 @@ import { authApi, type TotpSetup } from '@/api/auth'
 import { createCredential, getCredential, isWebAuthnAvailable, webAuthnErrorKey } from '@/security/webauthn'
 import { useAuthStore } from '@/stores/auth'
 import { useSessionSecurityStore } from '@/stores/sessionSecurity'
-import { authorizePendingDomainLogin, hasPendingCanonicalDomainLogin } from '@/security/domainLogin'
+import {
+  advanceCanonicalDomainLoginSession,
+  authorizePendingDomainLogin,
+  canonicalDomainLoginSessionCsrf,
+  hasPendingCanonicalDomainLogin,
+} from '@/security/domainLogin'
 import { takeTotpEnrollment } from '@/security/totpEnrollment'
 
 const { t } = useI18n()
@@ -91,12 +96,17 @@ async function completePasskey() {
     }
     const flow = await authApi.passkeyRegisterOptions(authorization)
     const credential = await createCredential(flow.public_key)
+    const previousCsrf = canonicalDomainLoginSessionCsrf()
     const result = await authApi.passkeyRegisterVerify(
       flow.flow_token,
       credential,
       passkeyLabel.value.trim() || t('mfa_setup.default_passkey_label'),
+      previousCsrf ?? undefined,
     )
-    if (result.csrf_token) auth.setSessionCsrfToken(result.csrf_token)
+    if (result.csrf_token) {
+      if (previousCsrf) advanceCanonicalDomainLoginSession(previousCsrf, result.csrf_token)
+      auth.setSessionCsrfToken(result.csrf_token)
+    }
     await auth.refresh()
     await sessionSecurity.refresh({ force: true })
     // ⚠️ Stejně jako u TOTP: kódy PŘED dokončením setupu, jinak je odnaviguje
@@ -182,8 +192,12 @@ async function completeTotp() {
   busy.value = true
   error.value = ''
   try {
-    const result = await authApi.totpEnable(totpCode.value)
-    if (result.csrf_token) auth.setSessionCsrfToken(result.csrf_token)
+    const previousCsrf = canonicalDomainLoginSessionCsrf()
+    const result = await authApi.totpEnable(totpCode.value, previousCsrf ?? undefined)
+    if (result.csrf_token) {
+      if (previousCsrf) advanceCanonicalDomainLoginSession(previousCsrf, result.csrf_token)
+      auth.setSessionCsrfToken(result.csrf_token)
+    }
     await auth.refresh()
     // ⚠️ Kódy se ukazují PŘED dokončením setupu. Kdyby se pokračovalo rovnou,
     // odnavigovalo by je pryč a uživatel by je už nikde nenašel — druhý faktor
@@ -224,8 +238,11 @@ async function completeTotp() {
 async function confirmRecoveryCodes() {
   if (busy.value) return
   busy.value = true
+  error.value = ''
   try {
     await continueAfterSetup()
+  } catch (e: any) {
+    error.value = e?.response?.data?.error?.message || t('domain_login.authorize_failed')
   } finally {
     busy.value = false
   }

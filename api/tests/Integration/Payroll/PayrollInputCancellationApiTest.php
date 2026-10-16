@@ -295,6 +295,30 @@ final class PayrollInputCancellationApiTest extends TestCase
         self::assertSame('input_has_movement', $this->errorCode($response));
     }
 
+    /**
+     * Rozpracovaná opravná revize vstupy opravit pouští: schválený výsledek drží
+     * vlastní snímek, takže zrušený vstup se od něj neutrhne. Bez otevřené opravy
+     * zůstává vstup ze schválené revize zamčený.
+     */
+    public function testInputFrozenInApprovedRevisionCanBeCancelledOnlyDuringOpenCorrection(): void
+    {
+        $input = $this->createInput('correction-one', 4_200);
+        $id = PayrollTimeValue::int($input['id'] ?? null, 'id');
+        $runId = $this->freezeInRunRevision($id, 'approved', 'approved');
+
+        $blocked = $this->cancel($id, PayrollTimeValue::int($input['row_version'] ?? null, 'row_version'));
+        self::assertSame(409, $blocked->getStatusCode());
+        self::assertSame('input_has_movement', $this->errorCode($blocked));
+
+        $this->openCorrection($runId, $id);
+        $cancelled = $this->cancel($id, PayrollTimeValue::int($input['row_version'] ?? null, 'row_version'));
+        self::assertSame(200, $cancelled->getStatusCode(), (string) $cancelled->getBody());
+        self::assertSame(
+            'cancelled',
+            PayrollTimeValue::row($this->json($cancelled)['input'] ?? null, 'input')['status'],
+        );
+    }
+
     public function testStaleRowVersionConflicts(): void
     {
         $input = $this->createInput('stale-one', 500);
@@ -424,15 +448,39 @@ final class PayrollInputCancellationApiTest extends TestCase
         )->execute([$this->supplierId, $importId, $inputId]);
     }
 
-    private function freezeInRunRevision(int $inputId): void
-    {
+    private function freezeInRunRevision(
+        int $inputId,
+        string $runStatus = 'calculated',
+        string $revisionStatus = 'calculated',
+    ): int {
         $pdo = $this->db->pdo();
         $pdo->prepare(
             'INSERT INTO payroll_runs
                 (supplier_id, period_start, payment_date, status, current_revision_no)
-             VALUES (?, ?, "2026-07-10", "calculated", 1)'
-        )->execute([$this->supplierId, self::PERIOD_START]);
+             VALUES (?, ?, "2026-07-10", ?, 1)'
+        )->execute([$this->supplierId, self::PERIOD_START, $runStatus]);
         $runId = (int) $pdo->lastInsertId();
+        $this->insertRevision($runId, 1, 'regular', $revisionStatus, $inputId);
+
+        return $runId;
+    }
+
+    private function openCorrection(int $runId, int $inputId): void
+    {
+        $this->insertRevision($runId, 2, 'correction', 'snapshot', $inputId);
+        $this->db->pdo()->prepare(
+            'UPDATE payroll_runs SET status = "reopened", current_revision_no = 2
+              WHERE supplier_id = ? AND id = ?'
+        )->execute([$this->supplierId, $runId]);
+    }
+
+    private function insertRevision(
+        int $runId,
+        int $revisionNo,
+        string $kind,
+        string $status,
+        int $inputId,
+    ): void {
         $snapshot = CanonicalJson::encode([
             'schema_version' => 'payroll-run-input.v2',
             'people' => [[
@@ -441,20 +489,23 @@ final class PayrollInputCancellationApiTest extends TestCase
                 ]],
             ]],
         ]);
-        $pdo->prepare(
+        $this->db->pdo()->prepare(
             'INSERT INTO payroll_run_revisions
                 (supplier_id, run_id, revision_no, revision_kind, status,
                  schema_version, ruleset_manifest_hash, input_snapshot_json,
                  input_snapshot_hash, idempotency_key_hash)
-             VALUES (?, ?, 1, "regular", "calculated", "payroll-run-input.v2",
+             VALUES (?, ?, ?, ?, ?, "payroll-run-input.v2",
                      SHA2(?, 256), ?, SHA2(?, 256), UNHEX(SHA2(?, 256)))'
         )->execute([
             $this->supplierId,
             $runId,
+            $revisionNo,
+            $kind,
+            $status,
             'manifest-' . $inputId,
             $snapshot,
             $snapshot,
-            'idempotency-' . $inputId,
+            'idempotency-' . $inputId . '-' . $revisionNo,
         ]);
     }
 

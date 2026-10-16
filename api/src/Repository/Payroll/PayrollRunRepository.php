@@ -1883,6 +1883,36 @@ final class PayrollRunRepository
     }
 
     /**
+     * Opravná revize vrací uzamčené vstupy období do stavu schválený, aby je šlo
+     * opravit nebo zrušit. Schválený výsledek drží vlastní snímek vstupů, zámek
+     * se obnoví schválením opravné revize ({@see lockApprovedInputs()}).
+     */
+    public function unlockInputsForCorrection(
+        int $supplierId,
+        string $periodStart,
+        ?int $officeId,
+    ): void {
+        $officeSql = $officeId === null ? '1 = 1' : 'employment.office_id = ?';
+        $stmt = $this->db->pdo()->prepare(
+            'UPDATE payroll_inputs input
+               JOIN payroll_employments employment
+                 ON employment.supplier_id = input.supplier_id
+                AND employment.id = input.employment_id
+                SET input.status = "approved",
+                    input.row_version = input.row_version + 1
+              WHERE input.supplier_id = ?
+                AND input.period_start = ?
+                AND input.status = "locked"
+                AND ' . $officeSql
+        );
+        $stmt->execute([
+            $supplierId,
+            $periodStart,
+            ...($officeId === null ? [] : [$officeId]),
+        ]);
+    }
+
+    /**
      * @param array<string,mixed> $result
      */
     public function saveCalculation(

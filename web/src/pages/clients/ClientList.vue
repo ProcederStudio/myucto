@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useWindowRefresh } from '@/composables/useWindowRefresh'
 import { ref, onMounted, watch, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -241,6 +242,7 @@ function formatPaymentDue(c: Client): string {
     '—',
   )
 }
+useWindowRefresh(['clients', 'invoices', 'purchase-invoices'], () => load(), () => !showDuplicatesModal.value)
 </script>
 
 <template>

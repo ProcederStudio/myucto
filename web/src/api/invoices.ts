@@ -1,3 +1,4 @@
+import { requestSupplierId } from '@/workspace/supplierContext'
 import { api } from './client'
 import type { DocumentLock } from './locks'
 import { appIsoDate } from '@/utils/date'
@@ -930,7 +931,7 @@ export const invoicesApi = {
   pdfUrl: (id: number, download: boolean = false) => {
     // Přímá navigace v prohlížeči neposílá X-Supplier-Id header (na rozdíl od axios) —
     // proto přidáváme supplier_id jako query param. Middleware ho přečte jako fallback.
-    const sid = localStorage.getItem('myinvoice.current_supplier_id')
+    const sid = requestSupplierId()
     const params = new URLSearchParams()
     if (download) params.set('download', '1')
     if (sid && /^\d+$/.test(sid)) params.set('supplier_id', sid)
@@ -941,7 +942,7 @@ export const invoicesApi = {
   importedPdfUrl: (id: number, inline: boolean = false) => {
     // Přímá navigace / iframe / <a href> neposílá X-Supplier-Id header (na rozdíl od
     // axios) — proto přidáváme supplier_id jako query param (middleware ho čte jako fallback).
-    const sid = localStorage.getItem('myinvoice.current_supplier_id')
+    const sid = requestSupplierId()
     const params = new URLSearchParams()
     if (inline) params.set('inline', '1')
     if (sid && /^\d+$/.test(sid)) params.set('supplier_id', sid)
@@ -962,7 +963,7 @@ export const invoicesApi = {
     }> }>(`/invoices/${id}/pdfs`).then(r => r.data.items),
 
   archivedPdfUrl: (id: number, archiveId: number, download: boolean = false) => {
-    const sid = localStorage.getItem('myinvoice.current_supplier_id')
+    const sid = requestSupplierId()
     const params = new URLSearchParams()
     if (download) params.set('download', '1')
     if (sid && /^\d+$/.test(sid)) params.set('supplier_id', sid)
@@ -1074,7 +1075,7 @@ export const invoicesApi = {
   deleteAttachment: (invoiceId: number, attachmentId: number) =>
     api.delete<{ deleted: number }>(`/invoices/${invoiceId}/attachments/${attachmentId}`).then(r => r.data),
   attachmentUrl: (invoiceId: number, attachmentId: number, download: boolean = false) => {
-    const sid = localStorage.getItem('myinvoice.current_supplier_id')
+    const sid = requestSupplierId()
     const params = new URLSearchParams()
     if (download) params.set('download', '1')
     if (sid && /^\d+$/.test(sid)) params.set('supplier_id', sid)

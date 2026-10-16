@@ -18,6 +18,12 @@ const api = {
   refresh: vi.fn(async () => ({ refreshed: true })),
 }
 
+const frameScope = vi.hoisted(() => ({ active: false }))
+vi.mock('@/workspace/supplierContext', async importOriginal => ({
+  ...await importOriginal<typeof import('@/workspace/supplierContext')>(),
+  getWindowSupplierScope: () => frameScope.active ? { windowId: 'window-test', supplierId: 1 } : null,
+}))
+
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => auth }))
 vi.mock('@/api/license', () => ({ licenseApi: api }))
 vi.mock('@/api/instanceStatus', () => ({
@@ -61,7 +67,7 @@ function status(over: Record<string, unknown> = {}) {
   }
 }
 
-async function mountPage() {
+async function mountPage(path = '/activation/purchase') {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -70,7 +76,7 @@ async function mountPage() {
       { path: '/hosting', component: { template: '<div />' } },
     ],
   })
-  await router.push('/activation/purchase')
+  await router.push(path)
   await router.isReady()
   const wrapper = mount(Zakoupeni, { global: { plugins: [router] } })
   await flushPromises()
@@ -89,6 +95,23 @@ beforeEach(() => {
 })
 
 describe('automatický purchase handoff', () => {
+  it('dokončí nákup z paměťové routy pracovního okna, ne z bootstrap URL iframe', async () => {
+    const purchase = 'c'.repeat(32)
+    const state = 'D'.repeat(43)
+    window.history.replaceState({}, '', '/?__myucto_window=window-test&__myucto_supplier=1')
+    frameScope.active = true
+    api.completePurchase.mockResolvedValue(status({ state: 'active' }))
+    try {
+      const wrapper = await mountPage(`/activation/purchase#purchase=${purchase}&state=${state}`)
+      expect(api.completePurchase).toHaveBeenCalledWith(purchase, state)
+      expect(wrapper.vm.$route.hash).toBe('')
+      expect(window.location.search).toContain('__myucto_window=window-test')
+      wrapper.unmount()
+    } finally {
+      frameScope.active = false
+    }
+  })
+
   it('odstraní fragment a po serverovém claimu neukáže žádný licenční klíč', async () => {
     const purchase = 'a'.repeat(32)
     const state = 'B'.repeat(43)

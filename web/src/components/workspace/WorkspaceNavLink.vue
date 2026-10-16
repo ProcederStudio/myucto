@@ -8,9 +8,11 @@ const props = withDefaults(defineProps<{
   to: RouteLocationRaw
   external?: boolean
   target?: string
+  fresh?: boolean
 }>(), {
   external: false,
   target: undefined,
+  fresh: false,
 })
 
 const globalRouter = useRouter()
@@ -29,7 +31,7 @@ const active = computed(() => {
 function onClick(event: MouseEvent): void {
   if (props.external || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return
   event.preventDefault()
-  void navigation.navigate(props.to)
+  void navigation.navigate(props.to, props.fresh ? { fresh: true } : undefined)
 }
 
 function onDragStart(event: DragEvent): void {

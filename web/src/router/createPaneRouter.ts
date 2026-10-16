@@ -8,6 +8,7 @@ import {
 } from 'vue-router'
 import { ensureNamespaces, namespacesForRoute } from '@/i18n'
 import { createWorkspaceRoutes } from './workspaceRoutes'
+import { payrollStartPeriodGuard } from './payrollStartPeriodGuard'
 
 interface PaneRouterOptions {
   prepareRoutes: (routes: RouteRecordRaw[]) => void
@@ -45,7 +46,8 @@ export function createPaneRouter(options: PaneRouterOptions): Router {
         return false
       }
     }
-    return decision
+    if (decision !== true) return decision
+    return payrollStartPeriodGuard(to)
   })
 
   paneRouter.beforeResolve(async (to) => {

@@ -185,6 +185,7 @@ final class WorkReportLinkAction
                 $bcc,
                 [],
                 $userId,
+                templateSupplierId: (int) $ctx['supplier_id'],
             );
         } catch (\Throwable $e) {
             return Json::error($response, 'send_failed', 'E-mail se nepodařilo odeslat: ' . $e->getMessage(), 502);

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { requestSupplierId } from '@/workspace/supplierContext'
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
@@ -137,7 +138,7 @@ const actions = computed<ActionItem[]>(() => {
  */
 function withSupplierScope(href: string): string {
   if (!href.startsWith('/api/')) return href
-  const sid = localStorage.getItem('myinvoice.current_supplier_id')
+  const sid = requestSupplierId()
   if (!sid || !/^\d+$/.test(sid)) return href
   return `${href}${href.includes('?') ? '&' : '?'}supplier_id=${sid}`
 }

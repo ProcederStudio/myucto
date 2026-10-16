@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useWindowRefresh } from '@/composables/useWindowRefresh'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { formatAccountNumber } from '@/utils/bankAccount'
@@ -215,6 +216,7 @@ watch(page, () => {
   silentPageChange = false
   void load(silent)
 }, { flush: 'sync' })
+useWindowRefresh(['bank', 'bank-statements', 'bank-transactions', 'bank-match-suggestions', 'accounting', 'invoices', 'purchase-invoices', 'clients'], () => load(true))
 </script>
 
 <template>

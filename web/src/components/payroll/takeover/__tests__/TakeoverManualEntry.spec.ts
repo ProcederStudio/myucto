@@ -58,6 +58,9 @@ function row(employmentId: number, month: number, gross = 0) {
     worked_days_hundredths: 0,
     worked_minutes: 0,
     pension_participation: true,
+    old_age_savings_minor: 0,
+    non_cash_health_benefit_minor: 0,
+    non_cash_leisure_benefit_minor: 0,
     payout_date: null,
     stored: false,
   }

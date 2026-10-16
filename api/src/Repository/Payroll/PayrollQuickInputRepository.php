@@ -8,6 +8,7 @@ use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Service\Payroll\Absence\PayrollWageProrationService;
 use MyInvoice\Service\Payroll\Component\PayrollRecurringAmountCalculator;
 use MyInvoice\Service\Payroll\Calculation\DecimalRate;
+use MyInvoice\Service\Payroll\Calculation\PayrollWageRoundingPolicy;
 use MyInvoice\Service\Payroll\Calculation\RoundingMode;
 use MyInvoice\Service\Payroll\PayrollClosedRunGuard;
 use MyInvoice\Service\Payroll\PayrollRunClosedException;
@@ -18,6 +19,7 @@ use MyInvoice\Service\Payroll\Time\Surcharge\PayrollAchievedWage;
 use MyInvoice\Service\Payroll\Time\Surcharge\PayrollQuickSurchargeCalculator;
 use MyInvoice\Service\Payroll\Time\Surcharge\PayrollSurchargeCompensationMode;
 use MyInvoice\Service\Payroll\Time\Surcharge\PayrollSurchargeException;
+use MyInvoice\Service\Payroll\Time\Surcharge\PayrollSurchargeInputMaterializer;
 use MyInvoice\Service\Payroll\Time\Surcharge\PayrollSurchargeKind;
 use MyInvoice\Service\Payroll\Time\Surcharge\PayrollSurchargePolicy;
 use MyInvoice\Service\Payroll\Time\Surcharge\PayrollSurchargeRuleset;
@@ -1846,9 +1848,11 @@ final class PayrollQuickInputRepository
         // Měsíc ze souhrnu importu docházky nemá směny, takže nepřítomnost
         // v něm nese jen měsíční součet hodin — krátí se podle něj.
         $importSummaryMonth = ($employment['time_work_source'] ?? null) === 'import_summary';
+        // Nástup nebo skončení v průběhu měsíce se krátí stejně jako předpis
+        // ({@see \MyInvoice\Service\Payroll\Component\PayrollRecurringMaterializer}):
+        // hodinami fondu mimo trvání vztahu, spolu s nepřítomnostmi.
         $proration = null;
-        if (($awayInMonth || $importSummaryMonth)
-            && !$partialMonth
+        if (($awayInMonth || $importSummaryMonth || $partialMonth)
             && !$suspendedInMonth
             && !$managed['base']
             && $employment['monthly_gross_minor'] !== null
@@ -1863,11 +1867,15 @@ final class PayrollQuickInputRepository
                     $employment['monthly_gross_minor'],
                     'monthly_gross_minor',
                 ),
+                $partialMonth
+                    ? ['from' => max((string) $effectiveStart, $periodStart), 'to' => min((string) $effectiveEnd, $periodEnd)]
+                    : null,
             );
         }
+        $partialProrated = $partialMonth && $proration !== null && $proration['supported'] === true;
         $prorationUnsupported = $proration !== null && $proration['supported'] === false;
 
-        $baseRequiresEntry = ($partialMonth || $suspendedInMonth || $prorationUnsupported)
+        $baseRequiresEntry = (($partialMonth && !$partialProrated) || $suspendedInMonth || $prorationUnsupported)
             && !$managed['base']
             && $quick['base'] === null;
         if ($baseRequiresEntry) {
@@ -2613,7 +2621,10 @@ final class PayrollQuickInputRepository
                 // musí se vrátit u konkrétního pole, ne shodit celou dávku.
                 throw new \DomainException($exception->getMessage(), 0, $exception);
             }
-            $amount = $computed['amount_minor'];
+            $amount = PayrollSurchargeInputMaterializer::wholeCzk(
+                $computed['amount_minor'],
+                PayrollWageRoundingPolicy::forSupplier($this->db, $supplierId),
+            );
             $source = $computed['source'];
         }
 

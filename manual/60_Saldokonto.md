@@ -32,6 +32,16 @@ Kapitolu otevřete, když:
 
 **Jak poznáte, že je hotovo:** **Rozdíl** je nulový na všech kontrolovaných účtech a protokol je vyexportovaný.
 
+### Podklad pro banku: pohledávky podle doby po splatnosti
+
+1. V poli **Účet** zvolte účet, který banka chce vidět, typicky **311**.
+2. Pod filtry zaškrtněte **PDF s členěním podle doby po splatnosti**.
+3. Do pole **Hranice (dny)** zapište rozmezí, která banka požaduje, například `30, 60, 120`.
+4. Chcete-li jen souhrnnou tabulku bez jednotlivých dokladů, zrušte **Včetně rozpisu dokladů**.
+5. Klikněte na **Export PDF**.
+
+Aplikace si volbu i hranice zapamatuje a nabídne je i příště.
+
 > [!WARNING]
 > Nulový rozdíl sám nepotvrzuje existenci pohledávky, vymahatelnost ani úplnost závazků. Tyto skutečnosti je nutné doložit nezávislými podklady.
 
@@ -172,6 +182,17 @@ den vždy v podobě podle partnera (zůstatek hlavní knihy, součet otevřenýc
 položek, rozdíl a rozpad partnerů s doklady). XLSX export respektuje aktuálně
 zvolený pohled - podle partnera stejně jako protokol, podle dokladů jako
 plochý seznam pro další zpracování (např. filtrování v Excelu).
+
+PDF umí navíc **členění podle doby po splatnosti** (podklad pro banky). Na
+začátku protokolu je pak za každý účet tabulka partnerů se zbývajícími
+částkami v pásmech **Do splatnosti**, **1–30 dní**, **31–60 dní**,
+**61–120 dní** a **Nad 120 dní**, se součtem za účet. Pásma určují zadané
+hranice: lze jich zadat jednu až šest (1 až 3650 dní), aplikace je seřadí sama.
+Počet dní po splatnosti se počítá k rozvahovému dni sestavy, ne k dnešku, a
+součet pásem odpovídá součtu otevřených položek účtu. Záloha čekající na
+vyúčtování patří do pásma **Do splatnosti**. Pod členěním následuje běžný
+rozpis dokladů, pokud ho nevypnete volbou **Včetně rozpisu dokladů**. Volba
+se ukládá ke každému uživateli.
 
 > [!TIP]
 > Nenulový rozdíl řešte od konfrontačního pruhu přes partnera a doklad; pro

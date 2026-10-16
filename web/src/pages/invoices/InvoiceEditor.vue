@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useWindowTitle } from '@/composables/useWindowTitle'
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch, nextTick, useId } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { invoicesApi, type Invoice, type InvoicePayload, type InvoiceItem, type WorkReportItem, type WorkReportMaterial, type InvoiceAttachment, type PaymentMethod, type InvoiceRoundingMode, type PaymentScheduleRow, type CashSettlementResult } from '@/api/invoices'
@@ -2472,6 +2473,10 @@ async function deleteDraft() {
     error.value = apiErrorMessage(e, t('common.delete_failed'))
   }
 }
+useWindowTitle(
+  () => [editorTitle.value, form.value.varsymbol.trim() || editedVarsymbol.value].filter(Boolean).join(' '),
+  () => selectedClient.value?.company_name ?? selectedClientOption.value?.label ?? null,
+)
 </script>
 
 <template>

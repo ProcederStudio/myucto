@@ -98,6 +98,7 @@ interface AgreementForm {
   percent: string
   base_czk: string
   limit_czk: string
+  taken_over_czk: string
   valid_from: string
   valid_to: string
   delivered_on: string
@@ -119,6 +120,7 @@ function emptyForm(): AgreementForm {
     percent: '',
     base_czk: '',
     limit_czk: '',
+    taken_over_czk: '',
     valid_from: today,
     valid_to: '',
     delivered_on: '',
@@ -291,6 +293,7 @@ function fillForm(item: DeductionAgreementDetail) {
     percent: item.basis_points === null ? '' : String(item.basis_points / 100),
     base_czk: fromMinor(item.basis_amount_minor),
     limit_czk: fromMinor(item.total_limit_minor),
+    taken_over_czk: item.taken_over_withheld_minor ? fromMinor(item.taken_over_withheld_minor) : '',
     valid_from: item.valid_from,
     valid_to: item.valid_to ?? '',
     delivered_on: item.delivered_on ?? '',
@@ -343,6 +346,7 @@ function payloadFromForm() {
     legal_basis: form.value.legal_basis,
     priority_no: Number(form.value.priority_no),
     total_limit_minor: toMinor(form.value.limit_czk, false),
+    taken_over_withheld_minor: toMinor(form.value.taken_over_czk, false) ?? 0,
     valid_from: form.value.valid_from,
     valid_to: form.value.valid_to || null,
     delivered_on: form.value.delivered_on || null,
@@ -704,6 +708,11 @@ onMounted(load)
               <span v-if="detail" class="mt-1 block text-xs font-normal text-neutral-500">
                 {{ t('payroll.deductions.remaining_limit', { value: detail.remaining_limit_minor === null ? '∞' : money(detail.remaining_limit_minor) }) }}
               </span>
+            </label>
+            <label class="text-xs font-medium text-neutral-600">
+              {{ t('payroll.deductions.taken_over_czk') }}
+              <input v-model="form.taken_over_czk" inputmode="decimal" class="mt-1 w-full rounded-md border border-neutral-300 bg-surface px-3 py-2 text-sm" data-test="deduction-taken-over">
+              <span class="mt-1 block text-xs font-normal text-neutral-500">{{ t('payroll.deductions.taken_over_hint') }}</span>
             </label>
           </div>
         </fieldset>

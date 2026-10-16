@@ -12,8 +12,9 @@
 | Potřebujete zahraniční sazbu DPH, jednotku nebo upravit klasifikaci DPH | Upravit číselník | [§ 96.3](#963-krok-za-krokem-ciselniky) |
 | Přichází nový kolega nebo externí účetní | Založit uživatele a přidělit roli a firmy | [§ 96.4](#964-krok-za-krokem-uzivatele-role-a-pristup-k-firmam) |
 | Chcete si změnit heslo, zapnout 2FA nebo passkey | Upravit Můj profil | [§ 96.5](#965-krok-za-krokem-muj-profil) |
-| Chcete změnit text e-mailu klientům | Upravit e-mailovou šablonu | [§ 96.6](#966-krok-za-krokem-e-mailove-sablony) |
+| Chcete změnit text e-mailů pro aktuální firmu | Upravit její e-mailovou šablonu | [§ 96.6](#966-krok-za-krokem-e-mailove-sablony) |
 | Posíláte e-maily z jiné adresy nebo přes jiný server | Nastavit odesílací profil | [§ 96.7](#967-krok-za-krokem-odesilaci-e-mailove-profily) |
+| Klientský správce chce nastavit firemní podpis PDF nebo e-mailů | Přidělit zápis do nastavení firmy a založit firemní podpisový profil | [§ 96.16.4](#96164-role-a-opravneni), [99. Elektronické podpisy](99_Elektronicke_podpisy.md) |
 | E-mail nedorazil klientovi | Zkontrolovat Odeslané e-maily a SMTP log | [§ 96.14](#9614-krok-za-krokem-diagnostika-odeslanych-e-mailu-a-activity-log) |
 | Často používáte stejný filtr seznamu | Uložit filtr a nastavit sloupce | [§ 96.8](#968-krok-za-krokem-ulozene-filtry-a-zobrazeni-tabulek) |
 | Chcete, aby se faktury účtovaly samy | Zapnout automatické účtování | [§ 96.9](#969-krok-za-krokem-automaticke-uctovani) |
@@ -144,22 +145,21 @@ může být jen stejný nebo kratší. Podrobnosti jsou v [101. Bezpečnost](101
 
 ## 96.6 Krok za krokem: e-mailové šablony
 
-1. Otevřete `Systém → E-maily a certifikáty` a záložku **E-mail šablony**.
+Firemní šablonu může upravit správce s právem zápisu do nastavení firmy. V klientském portálu ji může upravit klient-admin s úrovní **Zápis** u **Nastavení firmy**.
 
-![E-mail šablony](img/15_emails_list.webp)
+1. Otevřete `Firma → Nastavení` a záložku **E-mailové šablony**. V klientském portálu otevřete `Nastavení firmy` a stejnou záložku.
+2. Zkontrolujte název firmy v horní části stránky. Seznam ukazuje každou podporovanou šablonu v češtině i angličtině a zdroj právě používaného obsahu.
+3. U vybraného typu zprávy a jazyka klikněte na **Upravit**. Editor předvyplní obsah, který firma skutečně dědí. Rozbalte **Proměnné** pro seznam dostupných proměnných a jejich popis; **Náhled** zobrazí výsledek na syntetických datech.
+4. Upravte předmět, HTML tělo a textové tělo a klikněte na **Uložit**. Uloží se samostatná firemní kopie všech tří částí. Tlačítkem **Používat společnou šablonu** se firemní úprava odstraní a znovu se použije zděděný obsah.
 
-2. Seznam má pro každou šablonu samostatný řádek za každý jazyk (sloupec jazyk). Sloupec stavu ukazuje **Upraveno** (firemní úprava), nebo **Výchozí**. U řádku klikněte na **Upravit**.
-3. Upravte **Předmět** (podporuje placeholdery, například `{{ varsymbol }}`), **HTML tělo (Twig)** a **Plain text tělo (Twig)**.
-4. Klikněte na **Uložit šablonu**. Úpravu zrušíte tlačítkem **Obnovit výchozí**.
+Při odesílání se nejprve hledá firemní, potom společná a nakonec výchozí šablona v požadovaném jazyce. Teprve pokud v tomto jazyce není dostupná žádná z nich, stejné pořadí se použije pro češtinu. Firemní úprava jednoho jazyka se tak nepoužije místo dostupné šablony v jiném požadovaném jazyce.
 
-**Jak poznáte, že je hotovo:** Řádek šablony má stav **Upraveno** a další odeslaný e-mail daného typu použije nový text.
+**Jak poznáte, že je hotovo:** U řádku je jako zdroj uvedena firemní šablona a další zpráva daného typu pro tuto firmu použije uložený obsah.
 
 > [!TIP]
-> Editor šablon nemá vlastní testovací odeslání. Po úpravě pošlete zkušební e-mail sami sobě (například fakturu
-> na vlastní adresu) a zkontrolujte výsledek. Překlep v syntaxi Twig by rozbil odesílání všem klientům.
+> Firemní úprava se týká jen zvolené firmy, typu zprávy a jazyka. Návrat ke společné šabloně nemaže úpravy jiných firem.
 
-Seznam šablon a placeholderů je v [§ 96.16.5](#96165-e-mailove-sablony-seznam-a-placeholdery). Obsahové šablony jsou
-společné pro dodavatele; vzhled e-mailů řídí branding ([§ 96.11](#9611-krok-za-krokem-brandingove-profily)).
+Společné šablony spravuje superadmin v `Systém → E-maily a certifikáty` na záložce **E-mail šablony**. Změna společné šablony se projeví u firem, které ji dědí. Přehled typů a dostupných proměnných je v [§ 96.16.5](#96165-e-mailove-sablony-seznam-a-placeholdery); vzhled e-mailů řídí branding ([§ 96.11](#9611-krok-za-krokem-brandingove-profily)).
 
 ## 96.7 Krok za krokem: odesílací e-mailové profily
 
@@ -299,7 +299,7 @@ snapshotu dokladu.
 Právní údaje dodavatele (firma, adresa, IČ a DIČ) zůstávají společné a profilem se nemění. Výchozí profil se použije
 vždy, když faktura, pravidelná fakturace ani zákazník neurčují jiný profil. Pozdější změna profilu nebo nahrání nového
 loga nezmění již vystavené faktury. Původní konfigurace brandingu e-mailů se používá při vypnutém modulu. Obsahové
-e-mailové šablony zůstávají společné pro dodavatele a spravují se odděleně na záložce **E-mail šablony**.
+e-mailové šablony lze upravovat pro každou firmu zvlášť; společné výchozí šablony se spravují odděleně podle [§ 96.6](#966-krok-za-krokem-e-mailove-sablony).
 
 > [!WARNING]
 > E-mailový profil, který používá některý brandingový profil, nelze smazat. Chybová zpráva vypíše dotčené profily;
@@ -596,8 +596,12 @@ smazat ani upravit jejich matici:
 | **Admin Plus** | Má práva role Admin a navíc může v `Systém → Firmy` založit novou firmu. K nové firmě automaticky získá práva Admin. |
 
 U klientské role má položka **Nastavení firmy** záměrně užší význam než interní právo **Měnit nastavení firmy**. Úroveň
-**Zápis** otevře v klientském menu pouze odesílací profily firmy, branding a dvě volby data splatnosti v QR
-vystavených a přijatých dokladů; neotevře právní, daňové ani účetní údaje dodavatele. Díky přepisu role u konkrétní
+**Zápis** otevře v klientském menu odesílací profily firmy, firemní podpisové profily, e-mailové šablony, branding a dvě volby data
+splatnosti v QR vystavených a přijatých dokladů; neotevře právní, daňové ani účetní údaje dodavatele. Klientský správce
+může pro firmu nahrát certifikát P12/PFX, nastavit jeho použití pro PDF výstupy a propojit podpisový profil s e-mailovým
+odesílacím profilem. Správa se týká firemních profilů s podporovaným nativním backendem a šifrovaným uložením hesla;
+osobní profily a osobní trezor certifikátů zůstávají součástí interní správy. Podrobnosti a omezení jsou v [kapitole
+99](99_Elektronicke_podpisy.md). Díky přepisu role u konkrétní
 firmy lze stejného uživatele nechat spravovat provozní nastavení firmy A a ve firmě B mu ponechat běžný klientský
 přístup. Podrobný rozsah popisuje [§ 9.11.2 Delegované nastavení firmy](09_Klientsky_portal.md#9112-delegovane-nastaveni-firmy).
 
@@ -624,33 +628,33 @@ nemůže upravit uživatele ani konfiguraci). Roli **readonly** dejte auditorovi
 
 ### 96.16.5 E-mailové šablony: seznam a placeholdery
 
-<!-- cols: 34 66 -->
+Šablony lze spravovat v češtině (`cs`) a angličtině (`en`); každá jazyková varianta se upravuje samostatně. Ve firemním editoru jsou dostupné tyto typy:
+
 | Kód | Použití |
 |---|---|
 | `invoice_send` | Odeslání faktury klientovi |
-| `invoice_reminder` | Upomínka po splatnosti |
-| `proforma_reminder` | Připomínka nezaplacené zálohové faktury |
-| `invoice_payment_thanks` | Poděkování za úhradu (viz [§ 95.8](95_Multi_supplier.md#958-krok-za-krokem-kopie-e-mailu-podekovani-za-uhradu-a-vyuctovani-k-vyplaceni)); má i variantu pro zálohu |
-| `invoice_approval` | Žádost o schválení výkazu víceprací zákazníkem |
-| `recurring_draft_reminder` | Připomínka otevřeného konceptu pravidelné fakturace |
-| `password_reset` | Reset hesla (systémová) |
-| `login_otp` | Ověřovací kód pro přihlášení (systémová) |
-| `welcome` | Uvítací e-mail novému uživateli |
-| `test` | Testovací zpráva (ladění) |
+| `invoice_payment_thanks` | Poděkování za úhradu |
+| `invoice_reminder` | Upomínka faktury |
+| `proforma_reminder` | Připomínka zálohy |
+| `invoice_approval` | Žádost o schválení výkazu práce |
+| `purchase_invoice_approval` | Žádost o schválení přijatého dokladu |
+| `recurring_draft_reminder` | Upozornění na koncept pravidelné faktury |
+| `document_request_reminder` | Připomínka chybějícího dokladu |
+| `work_report_link` | Odkaz na výkaz práce |
+| `work_report_access_code` | Přístupový kód k výkazu práce |
 
-Šablona se edituje v textových polích se syntaxí Twig, každý jazyk (`cs`, `en`) je samostatný řádek seznamu.
-Placeholdery závisí na typu šablony. Pro šablonu `invoice_send`:
+Pouze ve společné správě jsou navíc `password_reset` (obnova hesla), `user_invite` (pozvánka uživatele), `login_otp` (přihlášení), `email_profile_test` (test odesílacího profilu), `payroll_document_secure_link` a `payroll_document_access_code` (doručování mzdových dokumentů). Editor firemní šablony ukazuje v rozbalovací části **Proměnné** proměnné dostupné pro vybraný typ a jejich popis. Například pro `invoice_send`:
 
 <!-- cols: 34 66 -->
 | Placeholder | Význam |
 |---|---|
-| `{{ varsymbol }}` | Variabilní symbol |
-| `{{ amount }}` | Částka (formátovaná) |
-| `{{ currency }}` | Měna |
-| `{{ due_date }}` | Splatnost |
+| `{{ invoice.varsymbol }}` | Variabilní symbol |
+| `{{ amount_to_pay }}` | Částka k úhradě |
+| `{{ invoice.currency }}` | Měna |
+| `{{ invoice.due_date }}` | Splatnost |
 | `{{ client_name }}` | Klient |
-| `{{ supplier_name }}` | Dodavatel |
-| `{{ pdf_url }}` | Odkaz pro stažení PDF (pokud máte veřejný odkaz) |
+| `{{ supplier.company_name }}` | Dodavatel |
+| `{{ public_url }}` | Veřejný odkaz na fakturu, pokud je dostupný |
 
 ### 96.16.6 Odesílací profily: podrobnosti
 

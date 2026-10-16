@@ -5,8 +5,8 @@ declare(strict_types=1);
 /**
  * Denní cleanup — login_attempts (>24h), expirované a staré odvolané sessions,
  * použité password_resets, login_otps + trusted_devices, WebAuthn flow/proofy,
- * expirované jednorázové granty, log files >90 dní a nahrané zálohy agend Money S3
- * po týdnu bez práce s nimi.
+ * expirované jednorázové granty, log files >90 dní, nahrané zálohy agend Money S3
+ * po týdnu bez práce s nimi a assety frontendu z předchozích vydání.
  *
  * POZN: PDF se NEMAŽE. Aktivní cache může pominout (renderer ji znovu vytvoří),
  * ale archivovaná historie (storage/invoices/sup-N/_archive) obsahuje verze
@@ -195,6 +195,14 @@ try {
 }
 $report['abra_flexi_snapshot_tenants'] = (new \MyInvoice\Service\Migration\Abra\AbraSnapshotStore())->pruneAll();
 $report['abra_flexi_cache_pages'] = \MyInvoice\Service\Migration\Abra\AbraPageCache::pruneExpired();
+
+// 9) Assety frontendu z předchozích vydání - po nasazení je uklidí migrate.php,
+// soubory mladší než den ale nechá, takže je dočistí až tenhle denní běh.
+try {
+    $report['frontend_assets'] = \MyInvoice\Service\Update\FrontendAssetPruner::forInstallation()->prune()['removed'];
+} catch (\Throwable $e) {
+    $report['frontend_assets_error'] = $e->getMessage();
+}
 
 // Pročisti cron_runs — drž max 500 posledních záznamů na skript.
 $report['cron_runs_purged'] = CronRun::purgeOld($pdo, 500);

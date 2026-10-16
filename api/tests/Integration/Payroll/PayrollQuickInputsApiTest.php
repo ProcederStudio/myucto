@@ -1094,6 +1094,31 @@ final class PayrollQuickInputsApiTest extends TestCase
         self::assertSame('absence_pending_decision', $row['base_proration_unsupported_reason']);
     }
 
+    /**
+     * Nástup v průběhu měsíce: dny před nástupem jsou neodpracovaná doba bez
+     * náhrady. Červen 2026 má 22 pracovních dnů, před nástupem 15. 6. jich je 10,
+     * takže 42 000 × 12/22 = 22 909,09 Kč, nahoru na 22 910 Kč.
+     */
+    public function testPartialMonthWithWorkCalendarProratesBaseByScheduledDays(): void
+    {
+        $this->workCalendar('2026-01-01');
+        $this->db->pdo()->prepare(
+            'UPDATE payroll_employments
+                SET start_date = "2026-06-15", actual_start_date = "2026-06-15"
+              WHERE supplier_id = ? AND id = ?'
+        )->execute([$this->supplierId, $this->employmentId]);
+
+        $row = $this->firstRow('2026-06');
+
+        self::assertTrue($row['partial_month']);
+        self::assertFalse($row['base_requires_entry']);
+        self::assertNotContains('partial_month_base_required', $row['blockers']);
+        self::assertSame(2_291_000, $row['base_amount_minor']);
+        $proration = PayrollTimeValue::row($row['base_proration'] ?? null, 'base_proration');
+        self::assertSame(4_800, $proration['replaced_minutes']);
+        self::assertSame(['unpaid' => 4_800], $proration['replaced_minutes_by_title']);
+    }
+
     /** Měsíc bez absence se nezměnil a nestojí ani dotaz navíc. */
     public function testMonthWithoutAbsenceKeepsTheAgreedAmount(): void
     {

@@ -367,6 +367,9 @@ za krokem.
 `private/`, `log/`, `tmp/` a `.git/` se nikdy nepřepisují - bundle je
 ani neobsahuje a swap je navíc přeskakuje. Soubory, které v novém
 bundlu nejsou, se **nemažou** (stejné chování jako ruční `tar -xzf`).
+Výjimkou jsou soubory frontendu ve `web/dist/assets/` z předchozích vydání:
+po migracích a v denním úklidu se smažou ty, které nepatří k aktuálnímu ani
+předchozímu vydání a jsou starší než den.
 
 `VERSION` se úmyslně přepisuje jako poslední krok: dokud migrace
 neproběhnou, instalace se hlásí starou verzí, takže přerušená

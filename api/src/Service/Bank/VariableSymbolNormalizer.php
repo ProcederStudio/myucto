@@ -16,8 +16,8 @@ namespace MyInvoice\Service\Bank;
  *                     jen číslice, max 10 (vodicí nuly zachované, jsou platné).
  *   - forMatching() — kanonický klíč pro párování s bankovní transakcí:
  *                     číslice bez vodicích nul (banka i GPC vodicí nuly ořezávají).
- *                     SQL ekvivalent ve `StatementMatcher` je
- *                     `CAST(REGEXP_REPLACE(varsymbol, '[^0-9]', '') AS UNSIGNED)`.
+ *   - matchKey()    — tentýž klíč jako indexované sloupce `*_match_key` dokladů
+ *                     (migrace 2010), podle kterých `StatementMatcher` hledá doklad.
  *   - digits()      — holé číslice (bez ořezu délky i vodicích nul).
  *
  * @see \MyInvoice\Service\Bank\AccountNumberNormalizer  obdobná normalizace čísel účtů
@@ -82,5 +82,15 @@ final class VariableSymbolNormalizer
         $digits = self::digits($value);
         $trimmed = ltrim($digits, '0');
         return $trimmed !== '' ? $trimmed : $digits;
+    }
+
+    /**
+     * Klíč pro vyhledání dokladu podle VS: číslice bez vodicích nul. Shoduje se se
+     * sloupci `*_match_key` (`NULLIF(TRIM(LEADING '0' FROM REGEXP_REPLACE(…)), '')`),
+     * takže VS bez nenulové číslice vrací prázdný řetězec a žádný doklad nenajde.
+     */
+    public static function matchKey(string $value): string
+    {
+        return ltrim(self::digits($value), '0');
     }
 }

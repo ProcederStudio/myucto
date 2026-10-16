@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRoute, useRouter } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { reportsApi, type DphPriznaniPreview, type DphSettings, type DphTrendRow, type DphDraftsPrediction, type DphVariant, type DphCrossCheckDocument, type DphCrossCheckFinding, type DphCrossCheck343Reason } from '@/api/reports'
 import { vatClearingApi, type VatClearingStatus } from '@/api/vatClearing'
 import { apiErrorMessage } from '@/api/errors'
 import { formatMoney, formatDate } from '@/composables/useFormat'
 import { useYearOptions } from '@/composables/useYearOptions'
+import { useReportPeriodQuery } from '@/composables/useReportPeriodQuery'
 import { ICONS, btnOutline, btnFilled } from '@/components/ui/buttonStyles'
 import { useAuthStore } from '@/stores/auth'
 import PaginationBar from '@/components/ui/PaginationBar.vue'
@@ -16,25 +17,10 @@ import DateInput from '@/components/ui/DateInput.vue'
 import PendingApprovalVatNotice from '@/components/reports/PendingApprovalVatNotice.vue'
 
 const { t, locale } = useI18n()
-const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 
-const now = new Date()
-function yearFromQuery(value: unknown): number | null {
-  return typeof value === 'string' && /^(20|21)\d{2}$/.test(value) ? Number(value) : null
-}
-function monthFromQuery(value: unknown): number | null {
-  return typeof value === 'string' && /^(0?[1-9]|1[0-2])$/.test(value) ? Number(value) : null
-}
-const year = ref(yearFromQuery(route.query.year) ?? now.getFullYear())
-const month = ref(monthFromQuery(route.query.month) ?? now.getMonth() + 1)
-watch(() => [route.query.year, route.query.month], ([requestedYear, requestedMonth]) => {
-  const y = yearFromQuery(requestedYear)
-  const m = monthFromQuery(requestedMonth)
-  if (y !== null) year.value = y
-  if (m !== null) month.value = m
-})
+const { year, month, periodOverride } = useReportPeriodQuery()
 
 const settings = ref<DphSettings | null>(null)
 const preview = ref<DphPriznaniPreview | null>(null)
@@ -43,8 +29,6 @@ const draftsPrediction = ref<DphDraftsPrediction | null>(null)
 const loading = ref(false)
 const error = ref('')
 
-// Period override (jinak default ze settings.vat_period)
-const periodOverride = ref<'monthly' | 'quarterly' | ''>('')
 const effectivePeriod = computed<'monthly' | 'quarterly'>(() => {
   if (periodOverride.value) return periodOverride.value
   return (settings.value?.vat_period as 'monthly' | 'quarterly') || 'monthly'
@@ -64,32 +48,41 @@ const reason = ref('')
 const isAmendment = computed(() => variant.value === 'dodatecne' || variant.value === 'dodatecne_opravne')
 const amendmentReady = computed(() => !isAmendment.value || dZjist.value !== '')
 
+let loadSeq = 0
 async function loadAll() {
+  const seq = ++loadSeq
+  const requestedYear = year.value
+  const requestedMonth = month.value
+  const requestedPeriod = periodOverride.value || undefined
+  const requestedVariant = variant.value
+  const requestedDate = isAmendment.value ? dZjist.value : undefined
+  const requestedReason = isAmendment.value ? reason.value : undefined
   loading.value = true
   error.value = ''
   try {
     const [s, tr, dp] = await Promise.all([
       reportsApi.dphSettings(),
       reportsApi.dphTrend(12),
-      reportsApi.dphDraftsPrediction(year.value, month.value, periodOverride.value || undefined).catch(() => null),
+      reportsApi.dphDraftsPrediction(requestedYear, requestedMonth, requestedPeriod).catch(() => null),
     ])
+    if (seq !== loadSeq) return
     settings.value = s
     trend.value = tr
     draftsPrediction.value = dp
     // Dodatečné bez data zjištění nelze spočítat — počkáme, až uživatel datum zadá.
     if (amendmentReady.value) {
-      preview.value = await reportsApi.dphPreview(
-        year.value, month.value, periodOverride.value || undefined,
-        variant.value, isAmendment.value ? dZjist.value : undefined,
-        isAmendment.value ? reason.value : undefined,
+      const result = await reportsApi.dphPreview(
+        requestedYear, requestedMonth, requestedPeriod,
+        requestedVariant, requestedDate, requestedReason,
       )
+      if (seq === loadSeq) preview.value = result
     } else {
       preview.value = null
     }
   } catch (e) {
-    error.value = apiErrorMessage(e)
+    if (seq === loadSeq) error.value = apiErrorMessage(e)
   } finally {
-    loading.value = false
+    if (seq === loadSeq) loading.value = false
   }
 }
 

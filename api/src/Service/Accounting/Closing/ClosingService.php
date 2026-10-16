@@ -784,6 +784,7 @@ final class ClosingService
                 'saldo_lines' => $preview['saldo']['lines'] ?? [],
                 'bank_rows' => $bankRows,
                 'bank_lines' => $preview['bank']['lines'] ?? [],
+                'ledger_lines' => $preview['ledger']['lines'] ?? [],
                 'totals' => $preview['totals'] ?? [],
                 'entry_ids' => $entryIds,
                 'ran_at' => date('Y-m-d H:i:s'),

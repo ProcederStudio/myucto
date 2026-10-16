@@ -102,6 +102,7 @@ final class SendTestReminderAction
                 [],
                 [$this->varsBuilder->pdfAttachment($invoice, $pdfPath)],
                 $userId,
+                templateSupplierId: (int) $invoice['supplier_id'],
             );
         } catch (\Throwable $e) {
             $user = (array) $request->getAttribute(AuthMiddleware::ATTR_USER, []);

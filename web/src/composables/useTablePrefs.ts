@@ -137,6 +137,12 @@ export function useTablePrefs(pageKey: string, columns: ColumnDef[]) {
   function setColumnLabels(value: boolean): void {
     setFlag('column_labels', value)
   }
+  function option<T>(key: string, fallback: T): T {
+    return (prefs.value.options?.[key] as T | undefined) ?? fallback
+  }
+  function setOption(key: string, value: unknown): void {
+    patchPagePrefs(pageKey, { options: { ...(prefs.value.options ?? {}), [key]: value } })
+  }
 
   const sort = computed<SortPref | null>(() => prefs.value.sort ?? null)
   // Cyklus desc → asc → výchozí; persistuje do prefs.
@@ -160,6 +166,7 @@ export function useTablePrefs(pageKey: string, columns: ColumnDef[]) {
     density, setDensity, densityClass,
     sort, toggleSort, clearSort,
     flag, setFlag,
+    option, setOption,
     columnLabelsDefault, showColumnLabels, setColumnLabels,
     ready,
   }

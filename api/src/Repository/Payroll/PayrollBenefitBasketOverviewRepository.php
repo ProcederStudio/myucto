@@ -150,7 +150,7 @@ final class PayrollBenefitBasketOverviewRepository
      * @param string $basketList Seznam košů pro `IN (…)`, viz konstanty výše.
      * @param string $windowClause Podmínka rozhodného období s jedním `?`.
      * @param ?int $takenOverYear zdaňovací období, za které se připočte čerpání koše
-     *        v převzatých měsících ({@see PayrollInputRepository::takenOverOldAgeSavingsSql()});
+     *        v převzatých měsících ({@see PayrollInputRepository::takenOverBasketSql()});
      *        `null` u měsíčního přehledu
      * @return array{items: list<array<string,int|string>>, total: int}
      */
@@ -174,14 +174,20 @@ final class PayrollBenefitBasketOverviewRepository
             ? ''
             : ' AND ' . PayrollPeopleRepository::fullNameExpression()
                 . " LIKE ? ESCAPE '" . self::LIKE_ESCAPE . "'";
-        $takenOver = $takenOverYear !== null
-            && ($basket === null || $basket === PayrollBenefitExemptionBasket::OldAgeSavings);
+        $takenOver = [];
+        if ($takenOverYear !== null) {
+            foreach (array_keys(PayrollInputRepository::TAKEN_OVER_BASKET_COLUMNS) as $value) {
+                if ($basket === null || $basket->value === $value) {
+                    $takenOver[] = PayrollBenefitExemptionBasket::from($value);
+                }
+            }
+        }
 
         $params = [$supplierId, $windowValue];
         if ($basket !== null) {
             $params[] = $basket->value;
         }
-        if ($takenOver) {
+        foreach ($takenOver as $_) {
             array_push($params, $supplierId, sprintf('%04d-01-01', $takenOverYear), sprintf('%04d-01-01', $takenOverYear + 1));
         }
         $params[] = $supplierId;
@@ -310,7 +316,9 @@ final class PayrollBenefitBasketOverviewRepository
                FROM payroll_migration_reference_totals taken
               WHERE taken.supplier_id = ?
                 AND taken.employee_id IS NOT NULL
-                AND taken.old_age_savings_contribution_minor > 0
+                AND (taken.old_age_savings_contribution_minor > 0
+                     OR taken.non_cash_health_benefit_minor > 0
+                     OR taken.non_cash_leisure_benefit_minor > 0)
               ORDER BY 1 DESC'
         );
         $stmt->execute([$supplierId, $supplierId]);
@@ -364,19 +372,20 @@ final class PayrollBenefitBasketOverviewRepository
         string $basketList,
         string $windowClause,
         string $basketClause,
-        bool $takenOver = false,
+        array $takenOver = [],
     ): string {
-        // Převzaté měsíce (rok přechodu z jiného mzdového programu) čerpají koš spoření na
-        // stáří stejně jako v PayrollInputRepository::annualBasketTotal(): do „vyčerpáno" se
+        // Převzaté měsíce (rok přechodu z jiného mzdového programu) čerpají roční koše
+        // stejně jako v PayrollInputRepository::annualBasketTotal(): do „vyčerpáno" se
         // započtou, ale nejsou to mzdové vstupy, takže se nepočítají mezi vstupy a nemají
         // zmrazený rozpad; jdou ven zvlášť jako `taken_over_minor` a `taken_over_months`.
-        $takenOverSource = $takenOver
-            ? ' UNION ALL
-                SELECT taken.employee_id, "old_age_savings", taken.contribution,
+        $takenOverSource = '';
+        foreach ($takenOver as $takenBasket) {
+            $takenOverSource .= ' UNION ALL
+                SELECT taken.employee_id, "' . $takenBasket->value . '", taken.contribution,
                        0, 0, 0, 0, 0, 0, 0, taken.contribution, taken.period_start
-                  FROM (' . PayrollInputRepository::takenOverOldAgeSavingsSql(false) . ') taken
-                 WHERE taken.contribution > 0'
-            : '';
+                  FROM (' . PayrollInputRepository::takenOverBasketSql($takenBasket, false) . ') taken
+                 WHERE taken.contribution > 0';
+        }
 
         return 'WITH basket_sources AS (
                     SELECT accumulator.employee_id AS employee_id,

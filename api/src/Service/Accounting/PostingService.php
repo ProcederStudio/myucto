@@ -3455,11 +3455,8 @@ final class PostingService
         $net = 0.0;
         $vat = 0.0;
         $selfAssessed = 0.0;
-        foreach ($this->vatLedger->rows($supplierId, $start, $end, true) as $row) {
-            if (($row['document_kind'] ?? null) !== 'cash'
-                && $row['source'] === $source
-                && (int) $row['invoice_id'] === $invoiceId
-            ) {
+        foreach ($this->vatLedger->documentRows($supplierId, $source, $invoiceId, $start, $end, true) as $row) {
+            if ($row['source'] === $source && (int) $row['invoice_id'] === $invoiceId) {
                 $net += (float) $row['base_czk'];
                 $vat += (float) $row['vat_czk'];
                 if (VatLedgerService::isSelfAssessedRow($row)) {

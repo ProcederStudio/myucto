@@ -12,6 +12,7 @@ import { portfolioApi, type PortfolioCompany, type PortfolioCheckSummary } from 
 import Modal from '@/components/ui/Modal.vue'
 import { useSupplierStore } from '@/stores/supplier'
 import { useAuthStore } from '@/stores/auth'
+import { useSupplierSwitch } from '@/composables/useSupplierSwitch'
 import { apiErrorMessage } from '@/api/errors'
 import { ICONS, btnFilled, btnOutline } from '@/components/ui/buttonStyles'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -24,6 +25,7 @@ const route = useRoute()
 const router = useRouter()
 const supplierStore = useSupplierStore()
 const auth = useAuthStore()
+const supplierSwitch = useSupplierSwitch()
 // Správa firem je v menu Systém jen pro superadmina a Admin Plus, tlačítko má stejnou viditelnost.
 const canManageCompanies = computed(() => auth.isSuperadmin || auth.isAdminPlusRole)
 
@@ -93,8 +95,7 @@ function clearFilters() {
 /** Přepne aktivní firmu (X-Supplier-Id) a naviguje na cílovou agendu — mirror SupplierSwitcher.pick(). */
 function switchTo(supplierId: number, path: string) {
   if (supplierId !== supplierStore.currentSupplierId) {
-    supplierStore.setSupplier(supplierId)
-    window.location.href = path
+    void supplierSwitch.switchTo(supplierId, path)
     return
   }
   router.push(path)

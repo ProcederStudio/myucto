@@ -23,6 +23,12 @@ final class OperationalSettingsAccess
         return RequestAuthorization::allows($request, 'settings.company.write', AccessLevel::WRITE);
     }
 
+    public static function emailTemplates(Request $request): bool
+    {
+        if (RequestAuthorization::isClientType($request)) return self::clientCompanyWrite($request);
+        return RequestAuthorization::allows($request, 'settings.company.write', AccessLevel::WRITE);
+    }
+
     public static function branding(Request $request): bool
     {
         if (RequestAuthorization::isClientType($request)) {

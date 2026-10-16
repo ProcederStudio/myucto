@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import WorkspaceTeleport from '@/components/workspace/WorkspaceTeleport.vue'
 
 type Option = { value: number; label: string; secondary?: string }
 
@@ -238,7 +239,7 @@ const controlClass = computed(() => [
     />
 
     <!-- Nabídka skladových karet — teleport do body, aby ji neořízl overflow tabulky -->
-    <Teleport to="body">
+    <WorkspaceTeleport>
     <div
       v-if="stockEnabled && open"
       ref="listbox"
@@ -278,6 +279,6 @@ const controlClass = computed(() => [
         </button>
       </template>
     </div>
-    </Teleport>
+    </WorkspaceTeleport>
   </div>
 </template>

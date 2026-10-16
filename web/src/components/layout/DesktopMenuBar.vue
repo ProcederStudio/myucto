@@ -270,6 +270,7 @@ onBeforeUnmount(() => {
               <WorkspaceNavLink
                 v-if="props.canCreate(item)"
                 :to="props.createTarget(item)"
+                fresh
                 :title="quickNewLabel"
                 :aria-label="quickNewLabel"
                 class="absolute right-2 top-1/2 -translate-y-1/2 inline-flex h-6 w-6 items-center justify-center rounded-md text-neutral-400 opacity-0 group-hover/item:opacity-100 focus:opacity-100 hover:bg-primary-100 hover:text-primary-700"

@@ -53,7 +53,7 @@ test('router and every login return carrier use the shared route policy', () => 
   assert.match(router, /isClientDomainAuthenticatedPath\(to\.fullPath\)/)
   assert.match(router, /isClientDomainRouteName\(to\.name\)/)
 
-  assert.match(login, /beginDomainLogin\(requestedDomainReturnPath\(\)\)/)
+  assert.match(login, /beginDomainLogin\(requestedDomainReturnPath\(\), requestedDomainHandoffPath\(\) \?\? undefined\)/)
   assert.match(login, /isClientDomainAuthenticatedPath\(candidate\) \? candidate : '\/portal'/)
   assert.match(callback, /if \(!isClientDomainAuthenticatedPath\(result\.return_path\)\)/)
   assert.match(lock, /isClientDomainAuthenticatedPath\(route\.fullPath\) \? route\.fullPath : '\/portal'/)
@@ -74,7 +74,7 @@ test('WebAuthn pages use a fixed canonical handoff and a separate custom-domain 
 
   assert.match(router, /clientDomainCanonicalHandoffPath\(to\.fullPath\)/)
   assert.match(router, /domain_handoff: to\.fullPath/)
-  assert.match(login, /beginDomainLogin\(requestedDomainReturnPath\(\), domainHandoff\)/)
+  assert.match(login, /beginDomainLogin\(requestedDomainReturnPath\(\), requestedDomainHandoffPath\(\) \?\? undefined\)/)
   assert.match(login, /route\.query\.domain_login_handoff/)
   assert.match(domainLogin, /canonicalDomainLoginHandoffPath\(handoffPath\)/)
   assert.match(profile, /authorizePendingDomainLogin\(\)/)

@@ -67,6 +67,8 @@ export interface DeductionAgreementSummary {
   basis_amount_minor: number | null
   total_limit_minor: number | null
   withheld_total_minor: number
+  /** Sraženo předchozím mzdovým programem; čerpá limit mimo ledger. */
+  taken_over_withheld_minor?: number
   remaining_limit_minor: number | null
   valid_from: string
   valid_to: string | null
@@ -137,6 +139,7 @@ export interface DeductionAgreementPayload {
   basis_points?: number | null
   basis_amount_minor?: number | null
   total_limit_minor?: number | null
+  taken_over_withheld_minor?: number
   valid_from: string
   valid_to?: string | null
   delivered_on?: string | null

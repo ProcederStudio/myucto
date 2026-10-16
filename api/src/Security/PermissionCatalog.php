@@ -159,7 +159,7 @@ final class PermissionCatalog
                 'group' => $group,
                 'label' => $label,
                 'description' => $key === 'settings.company'
-                    ? 'Čtení zpřístupní firemní kontext; zápis klientské roli otevře pouze delegované provozní nastavení (odesílací profily a branding), nikoli daňové ani právní údaje.'
+                    ? 'Čtení zpřístupní firemní kontext; zápis klientské roli otevře pouze delegované provozní nastavení (odesílací a firemní podpisové profily, PDF podpisy, e-mailové šablony, branding a platební QR), nikoli daňové ani právní údaje.'
                     : (str_contains($key, '.')
                         ? 'Povoluje akci „' . $label . '“.'
                         : 'Zpřístupňuje modul „' . $label . '“.'),

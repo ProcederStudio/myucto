@@ -41,9 +41,11 @@ export function useListKeyboard(opts: Options): { activeIndex: Ref<number> } {
 
   /** Dialogy si klávesnici řídí samy (Esc zavírá, šipky vybírají v seznamu). */
   function inDialog(): boolean {
+    if ([...document.querySelectorAll('[role="dialog"][aria-modal="true"]')]
+      .some(dialog => !dialog.closest('[hidden], [aria-hidden="true"]'))) return true
     if (paneDom.querySelector('[role="dialog"], [aria-modal="true"]')) return true
-    return paneId !== null && document.querySelector(
-      `[data-workspace-pane="${paneId}"][role="dialog"], [data-workspace-pane="${paneId}"] [role="dialog"], [data-workspace-pane="${paneId}"] [aria-modal="true"]`,
+    return paneId.value !== null && document.querySelector(
+      `[data-workspace-pane="${paneId.value}"][role="dialog"], [data-workspace-pane="${paneId.value}"] [role="dialog"], [data-workspace-pane="${paneId.value}"] [aria-modal="true"]`,
     ) !== null
   }
 
@@ -62,7 +64,7 @@ export function useListKeyboard(opts: Options): { activeIndex: Ref<number> } {
   }
 
   function onKey(e: KeyboardEvent): void {
-    if (!paneActive.value) return
+    if (!paneActive.value || e.defaultPrevented) return
     if (e.ctrlKey || e.metaKey || e.altKey) return
     if (isTyping() || inDialog()) return
 

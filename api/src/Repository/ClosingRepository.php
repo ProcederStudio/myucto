@@ -6,6 +6,7 @@ namespace MyInvoice\Repository;
 
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Service\Accounting\Closing\ClosingSourceId;
+use MyInvoice\Service\Accounting\ForeignCurrencyAccountPolicy;
 use MyInvoice\Support\Sql\LinkedManualSettlementSql;
 use PDO;
 
@@ -542,6 +543,11 @@ final class ClosingRepository
     }
 
     /**
+     * Už zaúčtované přecenění saldokonta (sloty saldo a storno). Slot banky se sem
+     * nepočítá: přeceňuje bankovní účty a peněžní účty 378/379 proti vlastnímu
+     * zůstatku a nikdy se nestornuje, takže by ho saldokonto při opakovaném běhu
+     * i v dalším roce protiúčtovalo jako „přecenění, které už nemá být".
+     *
      * @return list<array{account_id:int,account_code:string,currency_code:string,amount:float}>
      */
     public function fxCarryingAdjustments(int $supplierId, string $asOf, int $excludeSourceId): array
@@ -555,16 +561,63 @@ final class ClosingRepository
               WHERE l.supplier_id = ? AND l.currency_code IS NOT NULL AND l.currency_code <> 'CZK'
                 AND e.source_type = 'fx_revaluation' AND e.posted_at IS NOT NULL
                 AND e.entry_date <= ? AND e.source_id <> ?
+                AND MOD(e.source_id, 10) <> ?
               GROUP BY l.account_id, a.account_code, l.currency_code
              HAVING ABS(amount) >= 0.005"
         );
-        $stmt->execute([$supplierId, $asOf, $excludeSourceId]);
+        $stmt->execute([$supplierId, $asOf, $excludeSourceId, ClosingSourceId::SLOT_FX_BANK]);
         return array_map(static fn (array $row): array => [
             'account_id' => (int) $row['account_id'],
             'account_code' => (string) $row['account_code'],
             'currency_code' => (string) $row['currency_code'],
             'amount' => round((float) $row['amount'], 2),
         ], $stmt->fetchAll(PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Cizoměnové zůstatky peněžních účtů přeceňovaných z deníku
+     * ({@see ForeignCurrencyAccountPolicy::LEDGER_REVALUED_PREFIXES}) k rozvahovému dni,
+     * per (účet, měna). Sčítají se JEN řádky nesoucí danou měnu: `foreign_balance` je
+     * zůstatek v cizí měně, `czk_balance` jeho dosavadní Kč hodnota včetně přecenění
+     * z dřívějších let (ta nese měnu s cizí částkou 0). Kč pohyby téhož účtu bez měny
+     * (CZK faktoring na tomtéž 379) do Kč hodnoty eurové pozice nepatří.
+     *
+     * $excludeSourceId vynechá vlastní zápis slotu (re-run kroku nesmí vidět diff 0,
+     * idempotence R6, §24/6 ZoÚ) — stejný vzor jako accountBalance pro banku.
+     *
+     * @return list<array{account_code:string, currency_code:string, label:string,
+     *                    foreign_balance:float, czk_balance:float}>
+     */
+    public function ledgerFxBalances(int $supplierId, string $asOf, int $excludeSourceId): array
+    {
+        $prefixes = ForeignCurrencyAccountPolicy::LEDGER_REVALUED_PREFIXES;
+        $accountFilter = implode(' OR ', array_fill(0, count($prefixes), "a.account_code LIKE CONCAT(?, '%')"));
+        $stmt = $this->db->pdo()->prepare(
+            "SELECT a.account_code, a.name AS label, l.currency_code,
+                    SUM(CASE WHEN l.side = 'debit' THEN l.signed_amount_foreign ELSE -l.signed_amount_foreign END) AS foreign_balance,
+                    SUM(CASE WHEN l.side = 'debit' THEN l.signed_amount ELSE -l.signed_amount END) AS czk_balance
+               FROM journal_entry_lines l
+               JOIN journal_entries e   ON e.id = l.entry_id
+               JOIN chart_of_accounts a ON a.id = l.account_id AND a.supplier_id = l.supplier_id
+              WHERE l.supplier_id = ? AND e.posted_at IS NOT NULL
+                AND e.entry_date <= ?
+                AND NOT (e.source_type = 'fx_revaluation' AND e.source_id = ?)
+                AND l.currency_code IS NOT NULL AND l.currency_code <> 'CZK'
+                AND ({$accountFilter})
+              GROUP BY a.account_code, a.name, l.currency_code
+             HAVING ABS(foreign_balance) >= 0.005 OR ABS(czk_balance) >= 0.005
+              ORDER BY a.account_code, l.currency_code"
+        );
+        $stmt->execute([$supplierId, $asOf, $excludeSourceId, ...$prefixes]);
+        return array_map(static function (array $r): array {
+            return [
+                'account_code' => (string) $r['account_code'],
+                'currency_code' => (string) $r['currency_code'],
+                'label' => (string) $r['label'],
+                'foreign_balance' => round((float) $r['foreign_balance'], 2),
+                'czk_balance' => round((float) $r['czk_balance'], 2),
+            ];
+        }, $stmt->fetchAll(PDO::FETCH_ASSOC));
     }
 
     /**

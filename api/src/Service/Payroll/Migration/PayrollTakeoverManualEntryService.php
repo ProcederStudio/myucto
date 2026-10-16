@@ -61,6 +61,18 @@ final class PayrollTakeoverManualEntryService
         'tax_bonus_minor',
     ];
 
+    /**
+     * Čerpání ročních košů osvobozených benefitů (§ 6 odst. 9 písm. d) a m) ZDP)
+     * v haléřích. Nejsou to příjmy měsíce (ty nese hrubá mzda), ale úhrn, proti
+     * kterému se poměřuje zbytek roku; bez nich MyÚčto osvobodí celý limit znovu.
+     * Pole, které klient nepošle, nechá dřív převzatou hodnotu beze změny.
+     */
+    public const BENEFIT_FIELDS = [
+        'old_age_savings_minor',
+        'non_cash_health_benefit_minor',
+        'non_cash_leisure_benefit_minor',
+    ];
+
     /** Doby (celá čísla: dny, setiny dne, minuty). */
     public const DURATION_FIELDS = [
         'insurance_days',
@@ -126,6 +138,9 @@ final class PayrollTakeoverManualEntryService
                 foreach (self::DURATION_FIELDS as $field) {
                     $row[$field] = 0;
                 }
+                $row['old_age_savings_minor'] = (int) ($wage?->oldAgeSavingsContributionMinor ?? 0);
+                $row['non_cash_health_benefit_minor'] = (int) ($wage?->nonCashHealthBenefitMinor ?? 0);
+                $row['non_cash_leisure_benefit_minor'] = (int) ($wage?->nonCashLeisureBenefitMinor ?? 0);
                 $row['pension_participation'] = true;
                 $row['payout_date'] = null;
                 if ($wage !== null) {
@@ -324,6 +339,12 @@ final class PayrollTakeoverManualEntryService
                     // se úpravou měsíce nesmí tiše ztratit.
                     sicknessExcludedDays: $current?->sicknessExcludedDays,
                     uninsuredIncomeMinor: $current?->uninsuredIncomeMinor,
+                    oldAgeSavingsContributionMinor: $row['old_age_savings_minor']
+                        ?? $current?->oldAgeSavingsContributionMinor,
+                    nonCashHealthBenefitMinor: $row['non_cash_health_benefit_minor']
+                        ?? $current?->nonCashHealthBenefitMinor,
+                    nonCashLeisureBenefitMinor: $row['non_cash_leisure_benefit_minor']
+                        ?? $current?->nonCashLeisureBenefitMinor,
                 ),
             );
             $month = $row['month'];
@@ -418,6 +439,22 @@ final class PayrollTakeoverManualEntryService
             if (in_array($field, self::MONEY_FIELDS, true) && $value !== 0) {
                 $allZero = false;
             }
+        }
+        foreach (self::BENEFIT_FIELDS as $field) {
+            if (!array_key_exists($field, $raw) || $raw[$field] === null) {
+                $row[$field] = null;
+                continue;
+            }
+            $value = filter_var($raw[$field], FILTER_VALIDATE_INT);
+            if ($value === false || $value < 0) {
+                throw new \InvalidArgumentException(sprintf(
+                    'Řádek %d (měsíc %d): hodnota „%s" musí být nula nebo kladné číslo.',
+                    $line,
+                    $month,
+                    $field,
+                ));
+            }
+            $row[$field] = $value;
         }
         $row['all_zero'] = $allZero;
         $row['confirmed_zero'] = ($raw['confirmed_zero'] ?? false) === true;

@@ -1,6 +1,8 @@
 import { computed, nextTick, ref } from 'vue'
 import { afterEach, describe, expect, it } from 'vitest'
 import { bindColumnLabels, type ColumnLabelsController } from '@/directives/columnLabels'
+import cs from '@/i18n/cs.json'
+import en from '@/i18n/en.json'
 
 const cleanups: (() => void)[] = []
 afterEach(() => {
@@ -42,6 +44,20 @@ async function settle() {
 }
 
 describe('table column labels', () => {
+  it.each([['cs', cs], ['en', en]] as const)('nevyvolá nouzové načtení překladů chybějícím pomocným popiskem v %s', (_locale, messages) => {
+    const common = messages.common as Record<string, unknown>
+    const element = table(`<thead><tr><th>${common.show ?? ''}</th></tr></thead><tbody><tr><td>Open</td></tr></tbody>`)
+    const { ctrl } = controller(true)
+    ctrl.columns = []
+    const dispose = bindColumnLabels(element, ctrl, key => {
+      const value = common[key.slice('common.'.length)]
+      expect(typeof value, key).toBe('string')
+      return value as string
+    })
+    cleanups.push(dispose)
+    expect(element.querySelector('td')!.hasAttribute('data-column-label')).toBe(false)
+  })
+
   it('labels only data cells and excludes selectors, actions, details and footer totals', () => {
     const element = table(`<thead><tr>
       <th><input type="checkbox" aria-label="Select all"></th>

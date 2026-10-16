@@ -90,8 +90,94 @@ final class MatchCandidateProvider
         return $ranked;
     }
 
-    /** @return list<array<string,mixed>> */
+    /** Otevřené stavy vydaného dokladu, ze kterých se berou kandidáti. */
+    private const ISSUED_OPEN_STATUSES = ['issued', 'sent', 'reminded'];
+
+    /**
+     * Nejbližších 300 otevřených vydaných dokladů ke dni platby podle splatnosti
+     * (`ORDER BY |splatnost − den platby|, id DESC`), v okně ± FALLBACK_DAY_WINDOW dní
+     * podle splatnosti nebo vystavení.
+     *
+     * Jedno ORDER BY přes celé okno index nepoužije: firma s tisíci otevřených faktur by
+     * pro každý pohyb řadila všechny (u 30 000 faktur v jednom měsíci kolem 45 ms na
+     * pohyb). Okno se proto dělí na disjunktní větve, které index
+     * (supplier_id, status, due_date, id) čte rovnou ve výsledném pořadí: pro každý stav
+     * splatnost do dne platby (pozpátku) a po něm, plus doklady se splatností mimo okno
+     * a vystavením v něm. Každá větev vrátí svých prvních 300 a ty se seřadí stejným
+     * výrazem. Prvních 300 celku je v prvních 300 své větve, takže výsledek je totožný
+     * s jedním dotazem přes celé okno. U firmy s malým počtem otevřených dokladů je
+     * jednoduchý dotaz rychlejší než sedm větví, proto se větve použijí až od
+     * ISSUED_POOL_BRANCHED_FROM otevřených dokladů; obě cesty vrací totéž.
+     *
+     * @return list<array<string,mixed>>
+     */
     private function issuedPool(int $supplierId, string $posted): array
+    {
+        if (!$this->hasLargeIssuedPool($supplierId)) {
+            return $this->issuedPoolScan($supplierId, $posted);
+        }
+        $day = \DateTimeImmutable::createFromFormat('!Y-m-d', substr($posted, 0, 10));
+        if ($day === false) {
+            return [];
+        }
+        $from = $day->modify('-' . self::FALLBACK_DAY_WINDOW . ' days')->format('Y-m-d');
+        $dayStr = $day->format('Y-m-d');
+        $to = $day->modify('+' . self::FALLBACK_DAY_WINDOW . ' days')->format('Y-m-d');
+        $base = "SELECT 'invoice' AS candidate_type, i.id, i.client_id, i.varsymbol AS ref, i.payment_variable_symbol AS payment_vs,
+                        i.amount_to_pay, i.paid_total, i.invoice_type, i.status,
+                        i.exchange_rate, i.issue_date, i.due_date, cur.code AS currency,
+                        c.company_name AS party, i.parent_invoice_id
+                   FROM invoices i
+                   JOIN currencies cur ON cur.id = i.currency_id
+                   JOIN clients c ON c.id = i.client_id AND c.supplier_id = i.supplier_id
+                  WHERE i.supplier_id = ? AND i.invoice_type IN ('invoice','proforma')";
+        $branches = [];
+        $params = [];
+        foreach (self::ISSUED_OPEN_STATUSES as $status) {
+            $branches[] = "SELECT * FROM ({$base} AND i.status = ? AND i.due_date BETWEEN ? AND ?
+                             ORDER BY i.due_date DESC, i.id DESC LIMIT 300) b";
+            array_push($params, $supplierId, $status, $from, $dayStr);
+            $branches[] = "SELECT * FROM ({$base} AND i.status = ? AND i.due_date > ? AND i.due_date <= ?
+                             ORDER BY i.due_date ASC, i.id DESC LIMIT 300) b";
+            array_push($params, $supplierId, $status, $dayStr, $to);
+        }
+        $statusList = implode(',', array_fill(0, count(self::ISSUED_OPEN_STATUSES), '?'));
+        $branches[] = "SELECT * FROM ({$base} AND i.status IN ({$statusList})
+                         AND (i.due_date IS NULL OR i.due_date NOT BETWEEN ? AND ?)
+                         AND i.issue_date BETWEEN ? AND ?
+                         ORDER BY ABS(DATEDIFF(i.due_date, ?)), i.id DESC LIMIT 300) b";
+        array_push($params, $supplierId, ...self::ISSUED_OPEN_STATUSES);
+        array_push($params, $from, $to, $from, $to, $dayStr);
+
+        $stmt = $this->db->pdo()->prepare(
+            'SELECT * FROM (' . implode(' UNION ALL ', $branches) . ') pool
+              ORDER BY ABS(DATEDIFF(due_date, ?)), id DESC LIMIT 300'
+        );
+        $stmt->execute([...$params, $dayStr]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /** Od tolika otevřených vydaných dokladů se kandidáti čtou po indexovaných větvích. */
+    private const ISSUED_POOL_BRANCHED_FROM = 1000;
+
+    /** @var array<int, bool> Velikost se mění pomalu a ovlivňuje jen rychlost, ne výsledek. */
+    private array $largeIssuedPool = [];
+
+    private function hasLargeIssuedPool(int $supplierId): bool
+    {
+        if (!isset($this->largeIssuedPool[$supplierId])) {
+            $statuses = implode(',', array_fill(0, count(self::ISSUED_OPEN_STATUSES), '?'));
+            $stmt = $this->db->pdo()->prepare(
+                "SELECT COUNT(*) FROM invoices WHERE supplier_id = ? AND status IN ({$statuses})"
+            );
+            $stmt->execute([$supplierId, ...self::ISSUED_OPEN_STATUSES]);
+            $this->largeIssuedPool[$supplierId] = (int) $stmt->fetchColumn() >= self::ISSUED_POOL_BRANCHED_FROM;
+        }
+        return $this->largeIssuedPool[$supplierId];
+    }
+
+    /** @return list<array<string,mixed>> Týž výsledek jako {@see issuedPool()} jedním dotazem. */
+    private function issuedPoolScan(int $supplierId, string $posted): array
     {
         $stmt = $this->db->pdo()->prepare(
             "SELECT 'invoice' AS candidate_type, i.id, i.client_id, i.varsymbol AS ref, i.payment_variable_symbol AS payment_vs,
@@ -111,10 +197,17 @@ final class MatchCandidateProvider
         return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
 
-    /** @return list<array<string,mixed>> */
+    /**
+     * Otevřené přijaté doklady a k nim zálohy uhrazené jen evidenčně, které vyúčtovává
+     * konečná faktura. Obě množiny jsou disjunktní (jiný stav), proto jdou dvěma větvemi
+     * přes UNION ALL: v jednom WHERE spojeném přes OR s odvozenou tabulkou `fin` MariaDB
+     * nepoužila index stavu a procházela všechny přijaté doklady firmy na každý pohyb.
+     *
+     * @return list<array<string,mixed>>
+     */
     private function purchasePool(int $supplierId, string $posted): array
     {
-        $stmt = $this->db->pdo()->prepare(
+        $branch = static fn (string $statusCondition): string =>
             "SELECT 'purchase_invoice' AS candidate_type, p.id, p.vendor_id AS client_id,
                     COALESCE(NULLIF(p.vendor_invoice_number,''), p.varsymbol) AS ref,
                     p.amount_to_pay,
@@ -135,16 +228,19 @@ final class MatchCandidateProvider
                              AND f.status <> 'cancelled'
                            GROUP BY f.advance_purchase_invoice_id) fin ON fin.advance_id = p.id
               WHERE p.supplier_id = ?
-                AND (p.status IN ('received','booked')
-                     -- Záloha uhrazená jen evidenčně (stav paid bez jakékoli úhrady), kterou
-                     -- vyúčtovává konečná faktura: platba k ní pořád patří.
-                     OR (p.document_kind = 'advance' AND p.status = 'paid' AND fin.advance_id IS NOT NULL
-                         AND ABS(" . PurchaseSettledExpr::settled('p') . ") < 0.005))
+                AND {$statusCondition}
                 AND p.document_kind IN ('invoice','advance')
-                AND (ABS(DATEDIFF(p.due_date, ?)) <= ? OR ABS(DATEDIFF(p.issue_date, ?)) <= ?)
-              ORDER BY ABS(DATEDIFF(p.due_date, ?)), p.id DESC LIMIT 300"
+                AND (ABS(DATEDIFF(p.due_date, ?)) <= ? OR ABS(DATEDIFF(p.issue_date, ?)) <= ?)";
+        $stmt = $this->db->pdo()->prepare(
+            'SELECT * FROM (' . $branch("p.status IN ('received','booked')") . ' UNION ALL '
+            // Záloha uhrazená jen evidenčně (stav paid bez jakékoli úhrady), kterou
+            // vyúčtovává konečná faktura: platba k ní pořád patří.
+            . $branch("p.document_kind = 'advance' AND p.status = 'paid' AND fin.advance_id IS NOT NULL
+                       AND ABS(" . PurchaseSettledExpr::settled('p') . ') < 0.005')
+            . ') pool ORDER BY ABS(DATEDIFF(due_date, ?)), id DESC LIMIT 300'
         );
-        $stmt->execute([$supplierId, $supplierId, $posted, self::FALLBACK_DAY_WINDOW, $posted, self::FALLBACK_DAY_WINDOW, $posted]);
+        $window = [$posted, self::FALLBACK_DAY_WINDOW, $posted, self::FALLBACK_DAY_WINDOW];
+        $stmt->execute([$supplierId, $supplierId, ...$window, $supplierId, $supplierId, ...$window, $posted]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
 
@@ -179,9 +275,7 @@ final class MatchCandidateProvider
         if ($vsExact) $signals['vs_exact'] = MatchScorer::W_VS_EXACT;
         $amountExact = abs($amount - $converted) <= $tol;
         if ($amountExact) $signals['amount_remaining'] = MatchScorer::W_AMOUNT_REMAINING;
-        $message = preg_replace('/\s+/', '', BankMessageNormalizer::normalizeKeepDigits(
-            (string) ($tx['description'] ?? '') . ' ' . (string) ($tx['bank_ref'] ?? '')
-        )) ?? '';
+        $message = $this->transactionMessage((string) ($tx['description'] ?? '') . ' ' . (string) ($tx['bank_ref'] ?? ''));
         $rawRefDigits = VariableSymbolNormalizer::digits((string) ($row['ref'] ?? ''));
         if (strlen($rawRefDigits) >= 4 && str_contains($message, $rawRefDigits)) {
             $signals['invoice_no_in_message'] = MatchScorer::W_INVOICE_NO_IN_MSG;
@@ -357,15 +451,48 @@ final class MatchCandidateProvider
 
     private function nameSimilarity(string $a, string $b): float
     {
-        $tokens = static function (string $value): array {
-            $value = mb_strtoupper($value, 'UTF-8');
-            $value = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $value) ?: $value;
-            $value = preg_replace('/[^A-Z0-9]+/', ' ', $value) ?? '';
-            $stop = ['SRO','AS','INC','LTD','LLC','GMBH','VOS','SPOL','THE','AND','CZ','CZE','SK','SVK','DE','DEU','PRAHA','BRNO'];
-            return array_values(array_unique(array_filter(preg_split('/\s+/', trim($value)) ?: [], static fn (string $v): bool => strlen($v) >= 3 && !in_array($v, $stop, true))));
-        };
-        $ta = $tokens($a); $tb = $tokens($b);
+        $ta = $this->nameTokens($a); $tb = $this->nameTokens($b);
         if ($ta === [] || $tb === []) return 0.0;
         return count(array_intersect($ta, $tb)) / count(array_unique(array_merge($ta, $tb)));
+    }
+
+    /** @var array<string, list<string>> */
+    private array $nameTokenCache = [];
+
+    /**
+     * Tokeny jména pro podobnost. Kandidátů je na pohyb až 300 a jméno pohybu i
+     * opakující se odběratelé by se jinak transliterovali znovu pro každý řádek.
+     *
+     * @return list<string>
+     */
+    private function nameTokens(string $value): array
+    {
+        if (isset($this->nameTokenCache[$value])) {
+            return $this->nameTokenCache[$value];
+        }
+        if (count($this->nameTokenCache) >= 5000) {
+            $this->nameTokenCache = [];
+        }
+        $upper = mb_strtoupper($value, 'UTF-8');
+        $upper = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $upper) ?: $upper;
+        $upper = preg_replace('/[^A-Z0-9]+/', ' ', $upper) ?? '';
+        $stop = ['SRO','AS','INC','LTD','LLC','GMBH','VOS','SPOL','THE','AND','CZ','CZE','SK','SVK','DE','DEU','PRAHA','BRNO'];
+        return $this->nameTokenCache[$value] = array_values(array_unique(array_filter(
+            preg_split('/\s+/', trim($upper)) ?: [],
+            static fn (string $v): bool => strlen($v) >= 3 && !in_array($v, $stop, true),
+        )));
+    }
+
+    private ?string $messageSource = null;
+    private string $message = '';
+
+    /** Zpráva pohybu bez mezer pro hledání čísla dokladu; počítá se jednou na pohyb, ne na kandidáta. */
+    private function transactionMessage(string $source): string
+    {
+        if ($this->messageSource !== $source) {
+            $this->messageSource = $source;
+            $this->message = preg_replace('/\s+/', '', BankMessageNormalizer::normalizeKeepDigits($source)) ?? '';
+        }
+        return $this->message;
     }
 }

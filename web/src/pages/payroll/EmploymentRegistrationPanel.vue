@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { requestSupplierId } from '@/workspace/supplierContext'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
@@ -350,7 +351,7 @@ interface A1LocalDraft {
 const a1DraftStorageKey = computed(() => {
   let supplier = '0'
   try {
-    supplier = localStorage.getItem('myinvoice.current_supplier_id') ?? '0'
+    supplier = requestSupplierId() ?? '0'
   } catch {
     supplier = '0'
   }

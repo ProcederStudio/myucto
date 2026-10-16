@@ -134,6 +134,13 @@ final readonly class DeductionAgreementTerms
          */
         public ?string $deliveredOn = null,
         public string $legalBasis = 'agreement',
+        /**
+         * Kolik z limitu dohody už srazil předchozí mzdový program, než firma začala
+         * vést mzdy v MyÚčtu. Do ledgeru srážek nepatří (ten nese jen vlastní běhy),
+         * ale limit dohody čerpá stejně. `null` = požadavek údaj nenese, úprava
+         * dohody ponechá uloženou hodnotu.
+         */
+        public ?int $takenOverWithheldMinor = null,
     ) {}
 
     /**
@@ -191,6 +198,15 @@ final readonly class DeductionAgreementTerms
         if ($limit !== null && $limit < 0) {
             throw new \InvalidArgumentException('Limit dohody nesmí být záporný.');
         }
+        $takenOver = array_key_exists('taken_over_withheld_minor', $body)
+            ? (self::optionalInteger($body['taken_over_withheld_minor'], 'taken_over_withheld_minor') ?? 0)
+            : $current?->takenOverWithheldMinor;
+        if ($takenOver !== null && $takenOver < 0) {
+            throw new \InvalidArgumentException('Částka sražená předchozím programem nesmí být záporná.');
+        }
+        if ($limit !== null && $takenOver !== null && $takenOver > $limit) {
+            throw new \InvalidArgumentException('Částka sražená předchozím programem nesmí převýšit celkový limit dohody.');
+        }
         $validFrom = self::date($body['valid_from'] ?? null, 'valid_from');
         $validTo = self::optionalDate($body['valid_to'] ?? null, 'valid_to');
         if ($validTo !== null && $validTo < $validFrom) {
@@ -242,6 +258,7 @@ final readonly class DeductionAgreementTerms
             self::optionalText($body['note'] ?? null, 'note', 500),
             $deliveredOn,
             $legalBasis,
+            $takenOver,
         );
     }
 
@@ -274,6 +291,7 @@ final readonly class DeductionAgreementTerms
         'basis_points' => 'Procento',
         'basis_amount_minor' => 'Základ pro procentní srážku',
         'total_limit_minor' => 'Celkový limit dohody',
+        'taken_over_withheld_minor' => 'Sraženo předchozím programem',
         'valid_from' => 'Účinnost od',
         'valid_to' => 'Účinnost do',
         'delivered_on' => 'Doručeno plátci mzdy / zahájení srážek',

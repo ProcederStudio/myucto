@@ -2,6 +2,7 @@
 import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import WorkspaceLayoutToggle from '@/components/workspace/WorkspaceLayoutToggle.vue'
+import WorkspaceWindowButton from '@/components/workspace/WorkspaceWindowButton.vue'
 import WorkspaceNavLink from '@/components/workspace/WorkspaceNavLink.vue'
 
 interface QuickAction {
@@ -24,6 +25,7 @@ watch(() => props.manualHref, () => { open.value = false })
 
 <template>
   <div class="items-center gap-1 text-sm">
+    <WorkspaceWindowButton />
     <WorkspaceLayoutToggle />
 
     <div v-if="quickActions.length > 0" class="relative">
@@ -57,6 +59,7 @@ watch(() => props.manualHref, () => { open.value = false })
             v-for="action in quickActions"
             :key="action.to"
             :to="action.to"
+            fresh
             class="flex items-center gap-2.5 px-3 py-2 text-sm text-neutral-700 hover:bg-neutral-50 hover:text-primary-700"
             @click="open = false"
           >

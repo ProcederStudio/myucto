@@ -687,6 +687,8 @@ daňová chyba (neoprávněný odpočet v ř. 40 přiznání nebo v sekci B kont
   celkový závazek se nezmění. Samotné zjištění neplátcovství nepřepisuje částky dodavatelského dokladu.
 - **AI import** - extraktor plátcovství ověří a u neplátce (signál „DIČ: Neplátce DPH", nebo žádné DIČ a žádná DPH na
   řádcích, případně ARES) odpočet automaticky zakáže a doplní varování (viz [AI extrakce](25_AI_extrakce.md)).
+- **Import ISDOC, PDF s ISDOC a Pohoda XML** - doklad od neplátce vznikne rovnou s **Bez nároku na odpočet**.
+  Výjimkou je **reverse charge**, kde si daň samovyměříte a odpočet uplatníte.
 
 Plátcovství dodavatele je vidět i ve **výpisu klientů a dodavatelů** jako štítek *Plátce DPH* (viz
 [§ 18.1](18_Klienti.md#1871-seznam-klientu)).

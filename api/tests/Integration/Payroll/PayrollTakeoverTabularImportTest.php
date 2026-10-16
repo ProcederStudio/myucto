@@ -87,7 +87,7 @@ final class PayrollTakeoverTabularImportTest extends TestCase
         foreach (TakeoverTabularImportService::requiredColumns() as $column) {
             self::assertContains($column, $header, "Vzorový soubor nemá sloupec {$column}.");
         }
-        self::assertLessThanOrEqual(24, count($header), 'Parser přijímá nejvýš 24 sloupců.');
+        self::assertLessThanOrEqual(32, count($header), 'Parser přijímá nejvýš 32 sloupců.');
     }
 
     /**

@@ -11,6 +11,7 @@ use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Service\Accounting\Reports\ReportException;
 use MyInvoice\Service\Accounting\Reports\ReportXlsxExporter;
+use MyInvoice\Service\Accounting\Reports\SaldoAgingBuckets;
 use MyInvoice\Service\Accounting\Reports\SaldoService;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\IpMatcher;
@@ -24,7 +25,8 @@ use Psr\Log\LoggerInterface;
  * účtů pohledávek/závazků per partner + konfrontace se zůstatkem účtu z deníku.
  *
  *   GET /api/accounting/reports/saldo         — data sestavy
- *   GET /api/accounting/reports/saldo/export  — PDF / XLSX (?format=pdf|xlsx&view=grouped|flat)
+ *   GET /api/accounting/reports/saldo/export  — PDF / XLSX (?format=pdf|xlsx&view=grouped|flat;
+ *       PDF navíc &aging=30,60,120 = členění podle doby po splatnosti, &detail=0 = bez rozpisu)
  *
  * `as_of` smí ležet mimo `period_id` (task #3, D6/2) — SaldoService si k němu
  * dohledá skutečné období samo. `view` (jen export/XLSX) přepíná grouped
@@ -92,8 +94,27 @@ final class SaldoAction
             return Json::error($response, 'validation_failed', "view musí být 'grouped' nebo 'flat'.", 422);
         }
 
+        // Podklad pro banky: PDF volitelně s členěním podle doby po splatnosti
+        // (`aging=30,60,120`) a bez rozpisu dokladů (`detail=0`). Bez `aging` je PDF
+        // inventarizační protokol jako dřív, `detail=0` bez členění by byl prázdný.
+        $aging = null;
+        $rawAging = trim((string) ($request->getQueryParams()['aging'] ?? ''));
+        if ($rawAging !== '') {
+            $aging = SaldoAgingBuckets::parse($rawAging);
+            if ($aging === null) {
+                return Json::error($response, 'validation_failed',
+                    'aging musí být 1–' . SaldoAgingBuckets::MAX_BOUNDARIES . ' počtů dní 1–'
+                    . SaldoAgingBuckets::MAX_DAYS . ' oddělených čárkou (např. 30,60,120).', 422);
+            }
+        }
+        $detail = (string) ($request->getQueryParams()['detail'] ?? '1') !== '0' || $aging === null;
+
         try {
             $data = $this->saldo->build($supplierId, $params['period_id'], $params['as_of'], $params['account'], $params['partner_id']);
+            if ($format === 'pdf' && $aging !== null) {
+                $data['aging'] = SaldoAgingBuckets::build($data, $aging);
+            }
+            $data['show_detail'] = $detail;
             $out = $format === 'pdf'
                 ? [
                     'bytes'    => $this->pdf->render($data),
@@ -109,7 +130,7 @@ final class SaldoAction
         }
 
         $this->logger->log('report.accounting_export', $this->userId($request), 'report', null,
-            ['report' => 'saldo', 'format' => $format, 'view' => $view],
+            ['report' => 'saldo', 'format' => $format, 'view' => $view, 'aging' => $aging, 'detail' => $detail],
             $this->ipMatcher->clientIpFromRequest($request->getServerParams()),
             $request->getHeaderLine('User-Agent'), $supplierId);
 

@@ -50,6 +50,7 @@
     "cash_settlement",
     "checks",
     "codebookTransfer",
+    "company_email_templates",
     "company_profile",
     "costs",
     "credit_cards",
@@ -161,6 +162,7 @@
     ],
     "setup-mfa": [
       "app",
+      "domain_login",
       "mfa_setup",
       "recovery_codes"
     ],
@@ -202,7 +204,9 @@
       "purchase_submissions"
     ],
     "portal-company-settings": [
-      "settings"
+      "company_email_templates",
+      "settings",
+      "users"
     ],
     "clients": [
       "purchase_invoice"
@@ -950,13 +954,15 @@
     "admin-settings": [
       "activation",
       "automation",
+      "company_email_templates",
       "company_profile",
       "dimensions",
       "domains",
       "invoice_default_note",
       "refundInvoice",
       "settings",
-      "stock"
+      "stock",
+      "users"
     ],
     "accounting-activation": [
       "activation"

@@ -44,8 +44,8 @@ function sendActivity() {
   trailingActivityTimer = null
   void security.recordActivity()
 }
-function realInput(event: Event) {
-  if (!event.isTrusted
+function recordInputActivity() {
+  if (document.visibilityState !== 'visible'
     || !privateRoute.value
     || security.privacyCurtain
     || !automaticLockEnabled.value
@@ -56,13 +56,19 @@ function realInput(event: Event) {
     sendActivity()
   } else if (trailingActivityTimer === null) {
     trailingActivityTimer = window.setTimeout(() => {
-      if (document.visibilityState === 'visible' && privateRoute.value && !security.privacyCurtain) {
+      if (document.visibilityState === 'visible' && privateRoute.value && !security.privacyCurtain && automaticLockEnabled.value) {
         sendActivity()
       } else {
         trailingActivityTimer = null
       }
     }, remaining)
   }
+}
+function realInput(event: Event) {
+  if (event.isTrusted) recordInputActivity()
+}
+function frameActivity() {
+  recordInputActivity()
 }
 function visibilityChanged() {
   if (document.visibilityState === 'visible' && privateRoute.value && lockPossible.value) {
@@ -171,6 +177,7 @@ watch(privateRoute, (isPrivate, wasPrivate) => {
 
 onMounted(() => {
   window.addEventListener('myinvoice:session-locked', lockedEvent)
+  window.addEventListener('myucto:window-activity', frameActivity)
   window.addEventListener('pointerdown', realInput, { capture: true, passive: true })
   window.addEventListener('keydown', realInput, true)
   window.addEventListener('beforeinput', realInput, true)
@@ -187,6 +194,7 @@ onMounted(() => {
 })
 onUnmounted(() => {
   window.removeEventListener('myinvoice:session-locked', lockedEvent)
+  window.removeEventListener('myucto:window-activity', frameActivity)
   window.removeEventListener('pointerdown', realInput, true)
   window.removeEventListener('keydown', realInput, true)
   window.removeEventListener('beforeinput', realInput, true)

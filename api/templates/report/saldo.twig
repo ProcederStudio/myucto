@@ -35,6 +35,10 @@
     .col-num { width: 16%; }
     .overdue { color: #b91c1c; }
     .empty { text-align: center; color: #888; padding: 8mm 0; }
+    .section-title { font-size: 11pt; font-weight: bold; margin-top: 2mm; margin-bottom: 1mm; }
+    .section-sub { font-size: 8pt; color: #555; margin-bottom: 2mm; }
+    table.book tfoot td { padding: 1mm 1.5mm; font-size: 8pt; font-weight: bold; border-top: 0.3pt solid #999; background-color: #f4f4f5; }
+    .aging-partner { width: 28%; }
 </style>
 </head>
 <body>
@@ -60,6 +64,51 @@
     <p class="empty">Pro zvolený rozvahový den nejsou na saldokontních účtech žádné zůstatky ani otevřené položky.</p>
 {% endif %}
 
+{% if aging is defined and aging and accounts is not empty %}
+    {% set aging_width = (72 / (aging.buckets|length + 1))|round(3) %}
+    <div class="section-title">Členění otevřených položek podle doby po splatnosti</div>
+    <div class="section-sub">Zbývající částky v Kč podle počtu dní po splatnosti k {{ as_of|cz_date }}.</div>
+    {% for acc in aging.accounts %}
+        <div class="acc-title">Účet {{ acc.account.code }} — {{ acc.account.name }}</div>
+        {% if acc.partners is empty %}
+            <p class="empty" style="padding: 3mm 0;">Žádné otevřené položky na tomto účtu.</p>
+        {% else %}
+        <table class="book">
+            <thead>
+                <tr>
+                    <th class="thl aging-partner">Partner</th>
+                    {% for b in aging.buckets %}<th style="width:{{ aging_width }}%;">{{ b.label }}</th>{% endfor %}
+                    <th style="width:{{ aging_width }}%;">Celkem</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in acc.partners %}
+                <tr>
+                    <td class="aging-partner">{{ p.partner_name }}</td>
+                    {% for b in aging.buckets %}
+                        <td class="num {{ b.key != 'not_due' and p.amounts[b.key] != 0 ? 'overdue' : '' }}" style="width:{{ aging_width }}%;">{{ p.amounts[b.key] != 0 ? p.amounts[b.key]|cz_money : '' }}</td>
+                    {% endfor %}
+                    <td class="num" style="width:{{ aging_width }}%;">{{ p.total|cz_money }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+            <tfoot>
+                <tr>
+                    <td class="aging-partner">Celkem</td>
+                    {% for b in aging.buckets %}<td class="num" style="width:{{ aging_width }}%;">{{ acc.totals[b.key]|cz_money }}</td>{% endfor %}
+                    <td class="num" style="width:{{ aging_width }}%;">{{ acc.total|cz_money }}</td>
+                </tr>
+            </tfoot>
+        </table>
+        {% endif %}
+    {% endfor %}
+{% endif %}
+
+{% if show_detail is not defined or show_detail %}
+{% if aging is defined and aging and accounts is not empty %}
+    <pagebreak />
+    <div class="section-title">Rozpis otevřených položek</div>
+{% endif %}
 {% for acc in accounts %}
     <div class="acc-title">Účet {{ acc.account.code }} — {{ acc.account.name }}</div>
     {% if acc.note %}<div class="header-sub" style="text-align:left; margin-bottom:2mm;">{{ acc.note }}</div>{% endif %}
@@ -127,6 +176,7 @@
     </table>
     {% endif %}
 {% endfor %}
+{% endif %}
 
 </body>
 </html>

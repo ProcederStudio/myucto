@@ -2193,6 +2193,16 @@ final class PayrollInputRepository
                 AND run.id = revision.run_id
               WHERE revision.supplier_id = ?
                 AND run.period_start = ?
+                AND revision.status <> "abandoned"
+                AND NOT EXISTS (
+                    SELECT 1
+                      FROM payroll_run_revisions open_correction
+                     WHERE open_correction.supplier_id = run.supplier_id
+                       AND open_correction.run_id = run.id
+                       AND open_correction.revision_no = run.current_revision_no
+                       AND open_correction.revision_kind = "correction"
+                       AND open_correction.status IN ("snapshot", "calculated", "reviewed")
+                )
                 AND JSON_CONTAINS(
                         COALESCE(
                             JSON_EXTRACT(
@@ -2254,7 +2264,8 @@ final class PayrollInputRepository
      * přechodu má část měsíců spočítanou předchozím programem a limit platí za celý rok.
      * Převzaté měsíce leží před začátkem vedení mezd, takže se s akumulátory vstupů
      * nepřekrývají. Měsíc vztahu převzatý z víc zdrojů (převod i import hlášení) se počítá
-     * jednou. Zatím jen koš příspěvků na produkty spoření na stáří; jiný koš zdroje nenesou.
+     * jednou. Převzaté čerpání nesou jen roční koše ({@see TAKEN_OVER_BASKET_COLUMNS}):
+     * měsíční koše se v měsících před začátkem vedení mezd neprojeví.
      */
     private function takenOverBasketTotal(
         int $supplierId,
@@ -2262,11 +2273,11 @@ final class PayrollInputRepository
         PayrollBenefitExemptionBasket $basket,
         int $year,
     ): int {
-        if ($basket !== PayrollBenefitExemptionBasket::OldAgeSavings) {
+        if (!isset(self::TAKEN_OVER_BASKET_COLUMNS[$basket->value])) {
             return 0;
         }
         $stmt = $this->db->pdo()->prepare(
-            'SELECT COALESCE(SUM(contribution), 0) FROM (' . self::takenOverOldAgeSavingsSql(true) . ') taken_over'
+            'SELECT COALESCE(SUM(contribution), 0) FROM (' . self::takenOverBasketSql($basket, true) . ') taken_over'
         );
         $stmt->execute([$supplierId, $employeeId, sprintf('%04d-01-01', $year), sprintf('%04d-01-01', $year + 1)]);
 
@@ -2274,24 +2285,41 @@ final class PayrollInputRepository
     }
 
     /**
-     * Převzaté měsíce s příspěvkem na produkty spoření na stáří: jeden řádek za osobu,
-     * měsíc a vztah (`employee_id`, `period_start`, `contribution`). Sdílí ho roční úhrn koše
+     * Roční koš → sloupec převzatého čerpání v `payroll_migration_reference_totals`.
+     */
+    public const TAKEN_OVER_BASKET_COLUMNS = [
+        'old_age_savings' => 'old_age_savings_contribution_minor',
+        'non_cash_health' => 'non_cash_health_benefit_minor',
+        'non_cash_leisure' => 'non_cash_leisure_benefit_minor',
+    ];
+
+    /**
+     * Převzaté měsíce s čerpáním ročního koše: jeden řádek za osobu, měsíc a vztah
+     * (`employee_id`, `period_start`, `contribution`). Sdílí ho roční úhrn koše
      * ({@see annualBasketTotal()}) i přehled čerpání košů
      * ({@see PayrollBenefitBasketOverviewRepository}), aby „vyčerpáno" znamenalo na obou
      * místech totéž.
      *
      * Parametry v pořadí: firma, [osoba], první den roku, první den dalšího roku.
      */
-    public static function takenOverOldAgeSavingsSql(bool $oneEmployee): string
+    public static function takenOverBasketSql(PayrollBenefitExemptionBasket $basket, bool $oneEmployee): string
     {
-        return 'SELECT employee_id, period_start, MAX(old_age_savings_contribution_minor) AS contribution
+        $column = self::TAKEN_OVER_BASKET_COLUMNS[$basket->value]
+            ?? throw new \InvalidArgumentException('Koš nemá převzaté čerpání.');
+
+        return 'SELECT employee_id, period_start, MAX(' . $column . ') AS contribution
                   FROM payroll_migration_reference_totals
                  WHERE supplier_id = ?'
                  . ($oneEmployee ? ' AND employee_id = ?' : ' AND employee_id IS NOT NULL') . '
                    AND period_start >= ?
                    AND period_start < ?
-                   AND old_age_savings_contribution_minor IS NOT NULL
+                   AND ' . $column . ' IS NOT NULL
                  GROUP BY employee_id, period_start, COALESCE(employment_id, external_relationship_ref)';
+    }
+
+    public static function takenOverOldAgeSavingsSql(bool $oneEmployee): string
+    {
+        return self::takenOverBasketSql(PayrollBenefitExemptionBasket::OldAgeSavings, $oneEmployee);
     }
 
     /**
