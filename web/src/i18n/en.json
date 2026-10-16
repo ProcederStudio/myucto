@@ -21307,6 +21307,8 @@
     "delete_draft": "Delete",
     "pdf": "PDF",
     "view_pdf": "View PDF",
+    "print": "Print",
+    "print_failed": "Could not prepare the PDF for printing.",
     "download_pdf": "Download PDF",
     "download_isdoc": "Download ISDOC",
     "download_pdf_tooltip_signed": "Downloads the current invoice PDF. After any edit it is automatically regenerated from current data and electronically signed (PAdES).",

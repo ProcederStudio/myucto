@@ -24,6 +24,7 @@ import { durationTotal, formatDuration, isTimeItem, itemQuantity, workRowTotal }
 import { useAuthStore } from '@/stores/auth'
 import { useSupplierStore } from '@/stores/supplier'
 import { pdfFileName, savePdfToCompanyFolder } from '@/composables/useCompanyPdfSave'
+import { printPdf } from '@/composables/usePrintPdf'
 import InsufficientStockDialog from '@/components/stock/InsufficientStockDialog.vue'
 import { insufficientStockItems, type InsufficientStockItem } from '@/components/stock/insufficientStock'
 import { useHotkey } from '@/composables/useHotkey'
@@ -1221,6 +1222,16 @@ function viewPdf() {
   window.open(invoicesApi.pdfUrl(invoice.value.id, false), '_blank', 'noopener')
 }
 
+// Tisk stejného PDF jako „Zobrazit PDF" bez odbočky do nové záložky (usePrintPdf).
+async function printInvoicePdf() {
+  if (!invoice.value) return
+  try {
+    await printPdf(invoicesApi.pdfUrl(invoice.value.id, false))
+  } catch {
+    toast.error(t('invoice.print_failed'))
+  }
+}
+
 async function sendTest() {
   if (!invoice.value) return
   busy.value = 'send-test'
@@ -1766,6 +1777,8 @@ const invoiceActions = computed<ActionItem[]>(() => {
       disabled: b, loading: busy.value === 'clone', run: cloneInvoice },
     { key: 'view-pdf', label: t('invoice.view_pdf'), icon: 'eye', tier: 'overflow', variant: 'neutral',
       show: !isDraft.value || inv.items.length > 0, run: viewPdf },
+    { key: 'print', label: t('invoice.print'), icon: 'printer', tier: 'overflow', variant: 'neutral',
+      show: !isDraft.value || inv.items.length > 0, run: printInvoicePdf },
     { key: 'pdf', label: t('invoice.download_pdf'), icon: 'doc', tier: 'overflow', variant: 'neutral',
       show: !isDraft.value || inv.items.length > 0,
       title: invoiceWillBeSigned.value ? (t('invoice.download_pdf_tooltip_signed') as string) : undefined,

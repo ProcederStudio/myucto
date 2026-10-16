@@ -21307,6 +21307,8 @@
     "delete_draft": "Smazat",
     "pdf": "PDF",
     "view_pdf": "Zobrazit PDF",
+    "print": "Tisk",
+    "print_failed": "PDF se nepodařilo připravit k tisku.",
     "download_pdf": "Stáhnout PDF",
     "download_isdoc": "Stáhnout ISDOC",
     "download_pdf_tooltip_signed": "Stáhne aktuální PDF faktury. Po úpravě se automaticky přegeneruje z aktuálních dat a elektronicky podepíše (PAdES).",
