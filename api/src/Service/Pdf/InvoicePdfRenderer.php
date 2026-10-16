@@ -710,7 +710,7 @@ final class InvoicePdfRenderer
     }
 
     /**
-     * Vybraná sériová čísla a šarže řádku (migrace 2012) pod popisem položky:
+     * Vybraná sériová čísla a šarže řádku (migrace 2016) pod popisem položky:
      * „Výr. č.: VIN1, VIN2“ a „Šarže: L1 (exp. 31. 12. 2027): 2 ks, L2: 1 ks“.
      * Tiskne se vždy, když řádek výběr má: VIN na faktuře za vozidlo potřebuje
      * kupující k registraci, šarže slouží k dohledání při stažení zboží.

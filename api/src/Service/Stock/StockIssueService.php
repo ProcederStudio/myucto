@@ -414,7 +414,7 @@ final class StockIssueService
         // Tenant predikát přes JOIN na invoices (invoice_items nemá supplier_id) —
         // konzistence se zbytkem modulu (LOW-1 security audit; downstream se stejně
         // re-filtruje, tohle je defense-in-depth).
-        // Výběr sériových čísel / šarží řádku (2012) a režim sledování karty: výdejka
+        // Výběr sériových čísel / šarží řádku (2016) a režim sledování karty: výdejka
         // i vratka je potřebují, bez nich `TrackingAllocationService::postLine` skončí
         // `tracking_allocations_required`.
         $trackingColumn = $this->db->hasColumn('invoice_items', 'tracking_json') ? 'ii.tracking_json' : 'NULL';

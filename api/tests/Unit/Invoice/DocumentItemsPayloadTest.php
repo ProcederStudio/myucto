@@ -218,7 +218,7 @@ final class DocumentItemsPayloadTest extends TestCase
     }
 
     /**
-     * Výběr sériových čísel / šarží (2012) je změna položek: u vystaveného dokladu ho
+     * Výběr sériových čísel / šarží (2016) je změna položek: u vystaveného dokladu ho
      * notes_only nesmí pustit a audit ho má zaznamenat. Uložený řádek nese dekódovaný
      * `tracking_allocations`, požadavek po normalizaci `tracking_json`.
      */

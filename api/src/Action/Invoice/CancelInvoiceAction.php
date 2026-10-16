@@ -392,7 +392,7 @@ final class CancelInvoiceAction
             if ($supportsManualReview) {
                 $ossColumns[] = 'oss_needs_manual_review';
             }
-            // Dobropis vrací TYTÉŽ kusy (sériová čísla / šarže, 2012), vratka z nich vychází.
+            // Dobropis vrací TYTÉŽ kusy (sériová čísla / šarže, 2016), vratka z nich vychází.
             if ($supportsTracking) {
                 $ossColumns[] = 'tracking_json';
             }

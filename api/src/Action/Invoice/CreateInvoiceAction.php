@@ -98,7 +98,7 @@ final class CreateInvoiceAction
             }
         }
 
-        // Vybraná sériová čísla / šarže řádků (2012): `tracking_allocations` → ověřený
+        // Vybraná sériová čísla / šarže řádků (2016): `tracking_allocations` → ověřený
         // `tracking_json`. Úplnost a dostupnost kusů se kontroluje až při vystavení.
         if (isset($body['items']) && is_array($body['items'])) {
             try {

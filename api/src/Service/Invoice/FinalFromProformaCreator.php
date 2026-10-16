@@ -231,7 +231,7 @@ final class FinalFromProformaCreator
             // „k ručnímu posouzení" je samostatný, takže variant by jinak byly tři a počet
             // otazníků by se s nimi rozešel (shodně s `InvoiceRepository::replaceItems()`).
             $ossColumns = $this->ossCarry->columns();
-            // Vybraná sériová čísla / šarže (2012): sklad hýbe až finál, výběr z proformy
+            // Vybraná sériová čísla / šarže (2016): sklad hýbe až finál, výběr z proformy
             // proto přechází s ním. Zapisuje se zvlášť po vložení řádku, protože $itemStmt
             // sdílí i doplatek a odpočtové řádky § 37a, které výběr nemají.
             $trackingStmt = $this->db->hasColumn('invoice_items', 'tracking_json')

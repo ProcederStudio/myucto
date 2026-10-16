@@ -106,7 +106,7 @@ final class InvoiceRepository
 
     private ?bool $hasItemTracking = null;
 
-    /** Sloupec výběru sériových čísel a šarží na řádku (migrace 2012); starší instance ho nemají. */
+    /** Sloupec výběru sériových čísel a šarží na řádku (migrace 2016); starší instance ho nemají. */
     private function supportsItemTracking(): bool
     {
         if ($this->hasItemTracking === null) {
@@ -1638,7 +1638,7 @@ final class InvoiceRepository
         if ($supportsManualReview) {
             $ossColumns[] = 'oss_needs_manual_review';
         }
-        // Výběr sériových čísel / šarží (2012) jde za OSS sloupce, slevové řádky ho nemají.
+        // Výběr sériových čísel / šarží (2016) jde za OSS sloupce, slevové řádky ho nemají.
         $supportsTracking = $this->supportsItemTracking();
         if ($supportsTracking) {
             $ossColumns[] = 'tracking_json';
@@ -2797,7 +2797,7 @@ final class InvoiceRepository
         }
         $row['linked_work_report_id'] = $row['linked_work_report_id'] !== null ? (int) $row['linked_work_report_id'] : null;
         $row['item_kind'] = (string) ($row['item_kind'] ?? 'standard');
-        // Vybraná sériová čísla / šarže (2012) jdou ven jako seznam, prázdný bez výběru.
+        // Vybraná sériová čísla / šarže (2016) jdou ven jako seznam, prázdný bez výběru.
         // Řádek bez karty (smazaná karta: FK ON DELETE SET NULL) výběr nenabízí, jinak
         // by klient, který řádky jen vrací zpět, narazil na tracking_not_enabled.
         $row['tracking_allocations'] = ($row['stock_item_id'] ?? null) !== null

@@ -281,7 +281,7 @@ final class StockItemAction
             if ($stmt->fetchColumn() !== false) {
                 return Json::error($response, 'tracking_mode_in_use', 'Režim sledování nelze změnit po prvním pohybu šarže nebo sériového čísla.', 409);
             }
-            // Výběr kusů na rozpracované faktuře (2012) by po změně režimu nešel uložit ani vydat.
+            // Výběr kusů na rozpracované faktuře (2016) by po změně režimu nešel uložit ani vydat.
             if ($this->db->hasColumn('invoice_items', 'tracking_json')) {
                 $stmt = $this->db->pdo()->prepare(
                     "SELECT 1 FROM invoice_items ii

@@ -6,7 +6,7 @@ namespace MyInvoice\Service\Stock;
 
 /**
  * Vybraná sériová čísla a šarže na řádku faktury (`invoice_items.tracking_json`,
- * migrace 2012).
+ * migrace 2016).
  *
  * API řádku nese `tracking_allocations` ve stejném tvaru jako řádek skladového dokladu
  * ({@see TrackingAllocationService::normalizeDraftInput()}), ale ukládá se jen identita
