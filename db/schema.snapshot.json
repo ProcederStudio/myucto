@@ -998,7 +998,8 @@
         "2014_client_ai_extraction.sql",
         "2015_client_bank_permissions.sql",
         "2016_invoice_item_tracking.sql",
-        "2017_supplier_accounting_frameworks.sql"
+        "2017_supplier_accounting_frameworks.sql",
+        "2018_supplier_legal_form.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -21837,6 +21838,7 @@
                 "invoice_qr_include_due_date": "tinyint(1) NOT NULL DEFAULT 0",
                 "is_identified": "tinyint(1) NOT NULL DEFAULT 0",
                 "is_vat_payer": "tinyint(1) NOT NULL DEFAULT 1",
+                "legal_form": "varchar(3) NULL DEFAULT NULL",
                 "logo_path": "varchar(255) NULL DEFAULT NULL",
                 "ollama_api_key_enc": "varbinary(512) NULL DEFAULT NULL",
                 "ollama_base_url": "varchar(255) NULL DEFAULT NULL",
