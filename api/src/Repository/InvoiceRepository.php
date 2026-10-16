@@ -104,6 +104,17 @@ final class InvoiceRepository
 
     private ?bool $hasOssItemColumns = null;
 
+    private ?bool $hasItemTracking = null;
+
+    /** Sloupec výběru sériových čísel a šarží na řádku (migrace 2012); starší instance ho nemají. */
+    private function supportsItemTracking(): bool
+    {
+        if ($this->hasItemTracking === null) {
+            $this->hasItemTracking = $this->db->hasColumn('invoice_items', 'tracking_json');
+        }
+        return $this->hasItemTracking;
+    }
+
     private function supportsOssItemColumns(): bool
     {
         if ($this->hasOssItemColumns === null) {
@@ -601,6 +612,11 @@ final class InvoiceRepository
         // kategorie „místo plnění neurčeno" by po zavření reportu importu zanikla.
         if ($this->supportsOssManualReview()) {
             $ossSelect .= ', ii.oss_needs_manual_review';
+        }
+        // Výběr sériových čísel se musí číst, jinak by ho editor nemohl poslat zpět
+        // a replaceItems() (DELETE + INSERT) by ho při uložení zahodil.
+        if ($this->supportsItemTracking()) {
+            $ossSelect .= ', ii.tracking_json';
         }
         $stmt = $this->db->pdo()->prepare(
              'SELECT ii.id, ii.invoice_id, ii.description, ii.quantity, ii.duration_minutes, ii.unit,
@@ -1622,6 +1638,11 @@ final class InvoiceRepository
         if ($supportsManualReview) {
             $ossColumns[] = 'oss_needs_manual_review';
         }
+        // Výběr sériových čísel / šarží (2012) jde za OSS sloupce, slevové řádky ho nemají.
+        $supportsTracking = $this->supportsItemTracking();
+        if ($supportsTracking) {
+            $ossColumns[] = 'tracking_json';
+        }
 
         $stmt = $pdo->prepare(
             'INSERT INTO invoice_items
@@ -1730,6 +1751,9 @@ final class InvoiceRepository
             $accrualPeriods[implode('|', self::accrualPeriod($item))] = self::accrualPeriod($item);
             if ($supportsOss) {
                 $params = array_merge($params, self::ossItemParams($item, $supportsManualReview));
+            }
+            if ($supportsTracking) {
+                $params[] = \MyInvoice\Service\Stock\InvoiceItemTracking::payloadJson($item);
             }
             $stmt->execute($params);
 
@@ -1914,6 +1938,9 @@ final class InvoiceRepository
                     }
                 }
                 $params = array_merge($params, $oss);
+            }
+            if ($this->supportsItemTracking()) {
+                $params[] = null;   // slevový řádek nemá výběr sériových čísel
             }
             $stmt->execute($params);
         }
@@ -2770,6 +2797,13 @@ final class InvoiceRepository
         }
         $row['linked_work_report_id'] = $row['linked_work_report_id'] !== null ? (int) $row['linked_work_report_id'] : null;
         $row['item_kind'] = (string) ($row['item_kind'] ?? 'standard');
+        // Vybraná sériová čísla / šarže (2012) jdou ven jako seznam, prázdný bez výběru.
+        // Řádek bez karty (smazaná karta: FK ON DELETE SET NULL) výběr nenabízí, jinak
+        // by klient, který řádky jen vrací zpět, narazil na tracking_not_enabled.
+        $row['tracking_allocations'] = ($row['stock_item_id'] ?? null) !== null
+            ? \MyInvoice\Service\Stock\InvoiceItemTracking::decode(isset($row['tracking_json']) ? (string) $row['tracking_json'] : null)
+            : [];
+        unset($row['tracking_json']);
         if (array_key_exists('stock_item_id', $row)) {
             $row['stock_item_id'] = $row['stock_item_id'] !== null ? (int) $row['stock_item_id'] : null;
         }

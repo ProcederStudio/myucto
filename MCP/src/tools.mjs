@@ -370,7 +370,7 @@ const INVOICE_ITEM_OSS_FIELDS = [
 const INVOICE_ITEM_FIELDS = [
   'description', 'quantity', 'duration_minutes', 'unit', 'unit_price_without_vat',
   'vat_rate_id', 'order_index', 'vat_classification_code', 'stock_item_id', 'warehouse_id',
-  'small_asset_id', 'asset_id', 'accrual_from', 'accrual_to', ...INVOICE_ITEM_OSS_FIELDS,
+  'small_asset_id', 'asset_id', 'accrual_from', 'accrual_to', 'tracking_allocations', ...INVOICE_ITEM_OSS_FIELDS,
 ];
 
 /** Slevové řádky generuje server z `discount_percent`; zpět se neposílají. */

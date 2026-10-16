@@ -424,6 +424,8 @@ function restoreLegacyStockPrice(item: InvoiceItem) {
 function onStockSelect(rowIndex: number, itemId: number | null) {
   const item = form.value.items[rowIndex]
   if (!item) return
+  // Výběr kusů patří kartě: jiná karta (nebo žádná) ho ruší.
+  if (item.stock_item_id !== itemId) item.tracking_allocations = []
   item.stock_item_id = itemId
   onItemUnitChange(item)
   if (itemId === null) {
@@ -2321,6 +2323,8 @@ async function submit() {
         // B5: MUSÍ se posílat zpět, jinak je InvoiceRepository::replaceItems (DELETE+INSERT) tiše smaže.
         stock_item_id: it.stock_item_id ?? null,
         warehouse_id: it.warehouse_id ?? null,
+        // Vybraná sériová čísla / šarže — round-trip ze stejného důvodu jako karta.
+        tracking_allocations: it.stock_item_id != null ? (it.tracking_allocations ?? []) : [],
         // Totéž pro vazbu na kartu majetku (1177) — bez round-tripu by prodej zmizel.
         small_asset_id: it.small_asset_id ?? null,
         asset_id: it.asset_id ?? null,

@@ -281,6 +281,19 @@ final class StockItemAction
             if ($stmt->fetchColumn() !== false) {
                 return Json::error($response, 'tracking_mode_in_use', 'Režim sledování nelze změnit po prvním pohybu šarže nebo sériového čísla.', 409);
             }
+            // Výběr kusů na rozpracované faktuře (2012) by po změně režimu nešel uložit ani vydat.
+            if ($this->db->hasColumn('invoice_items', 'tracking_json')) {
+                $stmt = $this->db->pdo()->prepare(
+                    "SELECT 1 FROM invoice_items ii
+                       JOIN invoices i ON i.id = ii.invoice_id AND i.supplier_id = ?
+                      WHERE ii.stock_item_id = ? AND ii.tracking_json IS NOT NULL AND i.status <> 'cancelled'
+                      LIMIT 1"
+                );
+                $stmt->execute([$supplierId, $id]);
+                if ($stmt->fetchColumn() !== false) {
+                    return Json::error($response, 'tracking_mode_in_use', 'Režim sledování nelze změnit, faktura už u karty vybrala sériová čísla nebo šarže.', 409);
+                }
+            }
             $stmt = $this->db->pdo()->prepare('SELECT 1 FROM stock_levels WHERE supplier_id = ? AND stock_item_id = ? AND qty <> 0 LIMIT 1');
             $stmt->execute([$supplierId, $id]);
             if ($stmt->fetchColumn() !== false) {

@@ -323,6 +323,7 @@ final class CancelInvoiceAction
         // je řada verzí (shodně s InvoiceRepository::supportsOssManualReview()).
         $supportsManualReview = $supportsOss
             && $this->db->hasColumn('invoice_items', 'oss_needs_manual_review');
+        $supportsTracking = $this->db->hasColumn('invoice_items', 'tracking_json');
         $sourcePeriod = OssPeriod::quarterCode((string) ($invoice['tax_date'] ?? $invoice['issue_date'] ?? ''));
         $creditPeriod = OssPeriod::quarterCode(date('Y-m-d'));
         $defaultOriginalPeriod = $sourcePeriod !== null && $creditPeriod !== null && $sourcePeriod < $creditPeriod
@@ -390,6 +391,10 @@ final class CancelInvoiceAction
                 : [];
             if ($supportsManualReview) {
                 $ossColumns[] = 'oss_needs_manual_review';
+            }
+            // Dobropis vrací TYTÉŽ kusy (sériová čísla / šarže, 2012), vratka z nich vychází.
+            if ($supportsTracking) {
+                $ossColumns[] = 'tracking_json';
             }
             $itemStmt = $pdo->prepare(
                 'INSERT INTO invoice_items
@@ -468,6 +473,9 @@ final class CancelInvoiceAction
                     // Nese ho i tuzemský řádek smíšeného dokladu (proto bez vazby na
                     // `$ossApplicable`) — viz InvoiceRepository::ossItemParams().
                     $params[] = !empty($item['oss_needs_manual_review']) ? 1 : 0;
+                }
+                if ($supportsTracking) {
+                    $params[] = \MyInvoice\Service\Stock\InvoiceItemTracking::storedJson($item);
                 }
                 $itemStmt->execute($params);
             }

@@ -97,8 +97,13 @@ final class IssuedInvoiceStockGuard
         return $out;
     }
 
-    /** @return list<string> */
-    private function postedDocuments(int $supplierId, int $invoiceId): array
+    /**
+     * Čísla zaúčtovaných skladových dokladů faktury, navázaných hlavičkou i řádky.
+     * Jediné místo, které odpovídá „faktura už pohnula skladem" (i pro výběr kusů).
+     *
+     * @return list<string>
+     */
+    public function postedDocuments(int $supplierId, int $invoiceId): array
     {
         $stmt = $this->db->pdo()->prepare(
             "SELECT DISTINCT d.doc_number

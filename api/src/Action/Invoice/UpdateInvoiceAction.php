@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MyInvoice\Action\Invoice;
 
+use MyInvoice\Service\Stock\InvoiceItemTracking;
 use MyInvoice\Service\Stock\IssuedInvoiceStockGuard;
 use MyInvoice\Service\Stock\StockException;
 use MyInvoice\Service\Stock\StockPriceLevelService;
@@ -72,6 +73,7 @@ final class UpdateInvoiceAction
         private readonly StockPriceLevelService $priceLevels,
         private readonly \MyInvoice\Repository\ClientRepository $clients,
         private readonly IssuedInvoiceStockGuard $stockGuard,
+        private readonly InvoiceItemTracking $itemTracking,
     ) {}
 
     /**
@@ -161,6 +163,16 @@ final class UpdateInvoiceAction
             );
         }
 
+        // Vybraná sériová čísla / šarže řádků (2016) — před přečíslováním, ať odmítnutí
+        // nespálí číslo řady. Bez klíče `items` zůstane uložený výběr (replay níž).
+        if (DocumentItemsPayload::replaces($body) && is_array($body['items'])) {
+            try {
+                $body['items'] = $this->itemTracking->normalizeItems((int) $existing['supplier_id'], $body['items']);
+            } catch (StockException $e) {
+                return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus, $e->details);
+            }
+        }
+
         // Skladová část vystaveného dokladu, který už pohnul skladem, je pevná
         // ({@see IssuedInvoiceStockGuard}): výdej běží jen při vystavení, úprava by se
         // se skladem rozešla. Před přečíslováním, ať odmítnutí nespálí číslo řady.
@@ -173,6 +185,19 @@ final class UpdateInvoiceAction
             );
             if ($lockedBy !== []) {
                 return Json::error($response, 'stock_items_locked', IssuedInvoiceStockGuard::message($lockedBy), 409);
+            }
+            // Totéž platí pro výběr kusů: výdejka vydala konkrétní kusy a úprava ji znovu
+            // nevystaví, takže by doklad a sklad tvrdily každý jiné sériové číslo (a dobropis
+            // by vracel kus, který neodešel). Oprava jde dobropisem.
+            if (InvoiceItemTracking::signature((array) $body['items']) !== InvoiceItemTracking::signature((array) ($existing['items'] ?? []))
+                && $this->stockGuard->postedDocuments((int) $existing['supplier_id'], $id) !== []) {
+                return Json::error(
+                    $response,
+                    'tracking_locked',
+                    'Faktura už vydala konkrétní kusy ze skladu. Sériová čísla ani šarže u vystavené faktury nejde změnit, '
+                        . 'opravte ji dobropisem a novou fakturou.',
+                    409,
+                );
             }
         }
 
@@ -462,7 +487,7 @@ final class UpdateInvoiceAction
             if (DocumentItemsPayload::replaces($body)) {
                 $this->repo->replaceItems($id, (array) $body['items']);
             } elseif (($replay = self::storedItemsToReplay($body, $existing)) !== null) {
-                $this->repo->replaceItems($id, $replay);
+                $this->repo->replaceItems($id, InvoiceItemTracking::fromStored($replay));
             }
         } catch (\InvalidArgumentException $e) {
             // Neplatná vazba řádku na kartu majetku (1177) — hlavička je už uložená, ale položky
