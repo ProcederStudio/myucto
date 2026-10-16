@@ -83,6 +83,7 @@ final class ResetKeepUsersSupplierClassificationTest extends TestCase
             ['chart_of_accounts', 'účtová osnova'],
             ['posting_rules', 'předkontace včetně per-tenant override'],
             ['webauthn_credentials', 'passkeys zachovaného účtu'],
+            ['client_ai_extraction_usage', 'již vyčerpaný měsíční limit klientského vytěžování'],
         ];
     }
 
