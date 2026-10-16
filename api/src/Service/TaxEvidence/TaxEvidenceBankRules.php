@@ -7,7 +7,7 @@ namespace MyInvoice\Service\TaxEvidence;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\CashJournalRepository;
 use MyInvoice\Repository\MovementClassificationRepository;
-use MyInvoice\Service\Bank\AccountNumberNormalizer;
+use MyInvoice\Service\Bank\CounterpartyAccountCriterion;
 use PDO;
 
 /**
@@ -87,6 +87,10 @@ final class TaxEvidenceBankRules
             'action_ignore'        => filter_var($body['action_ignore'] ?? false, FILTER_VALIDATE_BOOL) ? 1 : 0,
             'tax_bucket'           => $text($body['tax_bucket'] ?? null, 32),
         ];
+        if ($data['counterparty_account'] !== null && (mb_strlen(trim((string) $body['counterparty_account'])) > 64
+            || !CounterpartyAccountCriterion::isValid((string) $body['counterparty_account']))) {
+            $errors['counterparty_account'] = 'Zadejte číslo účtu, číslo účtu/kód banky nebo */kód banky (4 číslice).';
+        }
         if ($data['name'] === null) {
             $errors['name'] = 'Vyplňte název pravidla.';
         }
@@ -171,7 +175,7 @@ final class TaxEvidenceBankRules
         $in = implode(',', array_map('intval', $statementIds));
         $pdo = $this->db->pdo();
         $txs = $pdo->query(
-            "SELECT bt.id, bt.amount, bt.counterparty_account, bt.variable_symbol, bt.description,
+            "SELECT bt.id, bt.amount, bt.counterparty_account, bt.counterparty_bank, bt.variable_symbol, bt.description,
                     bt.counterparty_name, bt.match_status
                FROM bank_transactions bt
               WHERE bt.statement_id IN ({$in})
@@ -228,11 +232,9 @@ final class TaxEvidenceBankRules
         if ($rule['amount_min'] !== null && $abs < (float) $rule['amount_min'] - 0.005) return false;
         if ($rule['amount_max'] !== null && $abs > (float) $rule['amount_max'] + 0.005) return false;
 
-        if ($rule['counterparty_account'] !== null) {
-            $want = AccountNumberNormalizer::normalize((string) $rule['counterparty_account']);
-            $have = AccountNumberNormalizer::normalize((string) ($tx['counterparty_account'] ?? ''));
-            if ($want === '' || $want !== $have) return false;
-        }
+        if ($rule['counterparty_account'] !== null && !CounterpartyAccountCriterion::matches(
+            (string) $rule['counterparty_account'], $tx['counterparty_account'] ?? null, $tx['counterparty_bank'] ?? null,
+        )) return false;
         if ($rule['variable_symbol'] !== null) {
             $want = ltrim(preg_replace('/\D/', '', (string) $rule['variable_symbol']) ?? '', '0');
             $have = ltrim(preg_replace('/\D/', '', (string) ($tx['variable_symbol'] ?? '')) ?? '', '0');
