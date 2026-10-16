@@ -783,6 +783,24 @@ real_ip_header    X-Forwarded-For;
 real_ip_recursive on;
 ```
 
+U IP omezení API tokenu aplikace zobrazuje IP aktuálního prohlížeče tak, jak
+ji vyhodnocuje při kontrole přístupu. U privátní, lokální nebo sdílené adresy
+upozorní na možné chybějící předávání IP. V interní síti může být tato adresa
+správná; integrace na jiném serveru může používat jinou IP než prohlížeč.
+
+Upravený nginx konfigurák je nutné připojit také do služby aplikace v souboru
+Docker Compose (vedle ostatních `volumes`):
+
+```yaml
+volumes:
+  - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro
+```
+
+Použijte soubor odpovídající nasazenému image a po změně mountu znovu vytvořte
+kontejner aplikace. Do `set_real_ip_from` patří pouze skutečné důvěryhodné proxy,
+nikdy celý internet (`0.0.0.0/0` nebo `::/0`). Edge proxy musí příchozí klientské
+hlavičky bezpečně přepsat; postup ověření je výše.
+
 ### 101.11.5 RBAC (role-based access)
 
 Role se spravují v `Systém → Role a oprávnění`. Každý modul a významná akce mají jednu

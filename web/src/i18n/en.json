@@ -20027,6 +20027,10 @@
     "ip_note": "Note",
     "ip_add": "Add",
     "ip_remove": "Remove",
+    "ip_current": "Your IP address as seen by the application:",
+    "ip_current_hint": "This is the address of this browser. An integration or MCP client may connect from a different IP address.",
+    "ip_private_warning": "The application sees a private, local or shared IP address. This may be correct on an internal network. If you connect over the internet through a reverse proxy, check that the real client IP is forwarded; otherwise IP restrictions may only distinguish the proxy.",
+    "ip_proxy_docs": "Configure client IP forwarding behind a proxy and in Docker",
     "ip_hint": "Supports IPv4 and IPv6, a single address as well as a CIDR range — e.g. 203.0.113.7, 192.168.1.0/24, 2001:db8::1, 2001:db8::/32."
   },
   "license": {
