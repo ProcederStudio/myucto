@@ -8,6 +8,7 @@ use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\AccountingModeRepository;
 use MyInvoice\Repository\BankStatementOwnershipResolver;
 use MyInvoice\Service\Accounting\AccountingPeriodProvisioner;
+use MyInvoice\Service\Accounting\AccountingFrameworkService;
 use MyInvoice\Service\Accounting\AutoPostingPolicyService;
 use MyInvoice\Service\Accounting\Bank\BankRuleTemplateSeeder;
 use MyInvoice\Service\Accounting\ChartOfAccountsSeeder;
@@ -50,6 +51,7 @@ final class SupplierInitializer
         private readonly BankStatementOwnershipResolver $bankOwnership,
         private readonly ChartOfAccountsSeeder $coaSeeder,
         private readonly AccountingModeRepository $accountingModes,
+        private readonly AccountingFrameworkService $accountingFramework,
         private readonly AccountingPeriodProvisioner $periodProvisioner,
         private readonly AutoPostingPolicyService $autoPosting,
         private readonly LoggerInterface $log,
@@ -113,8 +115,10 @@ final class SupplierInitializer
         string $accountingMode,
         bool $isVatPayer,
         bool $isIdentified = false,
+        ?int $userId = null,
     ): void {
         VatStatusService::seedInitialStatus($pdo, $supplierId, $isVatPayer, $isIdentified);
+        $this->accountingFramework->initializeCz500Baseline($supplierId, $userId);
 
         // ⚠️ Historie účetního režimu musí vzniknout spolu s firmou — jinak dotazy
         // „jaký režim platil v roce X" padají na dnešní `supplier.accounting_mode`.

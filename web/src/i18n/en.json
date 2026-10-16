@@ -24406,6 +24406,21 @@
       "off_note": "Payroll disappears from the menu after saving. Payroll data is not deleted and remains available when enabled again.",
       "buy": "Activate payroll add-on"
     },
+    "accounting_framework": {
+      "title": "Accounting framework",
+      "current": "Framework effective today",
+      "cz_500": "Businesses (Decree 500)",
+      "cz_504": "Nonprofit organisations (Decree 504)",
+      "cz_504_unavailable": "Nonprofit organisations (Decree 504) - not yet available",
+      "hint": "The framework determines accounting rules and statements. Changes may start on the first day of an existing accounting period if the affected interval has no posted entries. Framework 504 cannot yet be activated.",
+      "effective_from": "Effective from period start",
+      "save": "Save accounting framework separately",
+      "saved": "Accounting framework saved.",
+      "save_error": "Could not save the accounting framework.",
+      "history": "Framework history",
+      "baseline": "Initial state",
+      "default_history": "The default framework for this company is Decree 500."
+    },
     "accounting_mode": "Accounting mode",
     "accounting_mode_tax_evidence": "Tax evidence (daňová evidence)",
     "accounting_mode_double_entry": "Double-entry accounting",

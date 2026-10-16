@@ -473,6 +473,12 @@ se po uložení smažou a aplikace založí období pro dnešní datum už v nov
 zápis v deníku, uzávěrka nebo ho založil převod, uložit pole nejde, protože změna účetního roku je samostatný
 úkon s přechodným obdobím. Fyzická osoba vede vždy kalendářní rok.
 
+U podvojného účetnictví je na stejné záložce samostatná karta **Účetní rámec**. Ukazuje rámec platný
+k dnešku a jeho historii. Výchozí je **Podnikatelé (vyhláška 500)**. Rámec podle vyhlášky 504 zatím nelze
+aktivovat. Změna rámce se ukládá samostatným tlačítkem s datem prvního dne existujícího účetního období.
+Pokud jsou v dotčeném intervalu zaúčtované zápisy, aplikace změnu odmítne. Ostatní rozpracované údaje
+ve formuláři toto tlačítko neukládá.
+
 Pole smí měnit jen admin, stejně jako ostatní údaje v detailu dodavatele. Výjimkou je zapnutí skladu, které smí
 přepnout i role účetní.
 

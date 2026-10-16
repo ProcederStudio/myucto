@@ -216,6 +216,124 @@ final class SupplierMembershipTest extends TestCase
             'Fallback bez headeru musí zvolit přiřazený supplier, ne globální MIN');
     }
 
+    public function testSupplierEndpointsReturnTenantScopedAccountingFrameworkHistory(): void
+    {
+        $userId = $this->mkUser('accountant');
+        $this->assign($userId, [[$this->supplierB, null]]);
+        $token = $this->mkToken($userId);
+        $pdo = $this->db->pdo();
+        $pdo->prepare(
+            'INSERT INTO supplier_accounting_frameworks
+                (supplier_id, effective_from, accounting_framework, created_by)
+             VALUES (?, ?, ?, ?), (?, ?, ?, ?)'
+        )->execute([
+            $this->supplierB, '1900-01-01', 'cz_500', $userId,
+            $this->supplierB, '2000-01-01', 'cz_504', $userId,
+        ]);
+
+        foreach (['/api/settings/supplier', '/api/suppliers/' . $this->supplierB] as $path) {
+            $response = $this->request('GET', $path, $token, $this->supplierB);
+            self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+            $body = $this->json($response);
+            self::assertSame('cz_504', $body['accounting_framework'] ?? null);
+            self::assertCount(2, $body['accounting_framework_history'] ?? []);
+            self::assertSame(
+                ['id', 'effective_from', 'accounting_framework', 'created_at', 'created_by'],
+                array_keys($body['accounting_framework_history'][0] ?? []),
+            );
+            self::assertSame('cz_500', $body['accounting_framework_history'][0]['accounting_framework'] ?? null);
+            self::assertSame('cz_504', $body['accounting_framework_history'][1]['accounting_framework'] ?? null);
+            self::assertSame($userId, $body['accounting_framework_history'][1]['created_by'] ?? null);
+        }
+    }
+
+    public function testFrameworkUpdateRequiresExplicitPairAndIsAtomicWithSupplierFields(): void
+    {
+        $accountantId = $this->mkUser('accountant');
+        $this->assign($accountantId, [[$this->supplierB, null]]);
+        $accountantResponse = $this->request(
+            'PUT',
+            '/api/suppliers/' . $this->supplierB,
+            $this->mkToken($accountantId),
+            $this->supplierB,
+            [
+                'accounting_framework' => 'cz_500',
+                'accounting_framework_effective_from' => '2098-01-01',
+            ],
+        );
+        self::assertSame(403, $accountantResponse->getStatusCode(), (string) $accountantResponse->getBody());
+
+        $userId = $this->mkUser('admin');
+        $token = $this->mkToken($userId);
+        $originalName = (string) $this->db->pdo()->query(
+            'SELECT company_name FROM supplier WHERE id = ' . $this->supplierB
+        )->fetchColumn();
+
+        $response = $this->request('PUT', '/api/suppliers/' . $this->supplierB, $token, $this->supplierB, [
+            'display_name' => '__TEST update without framework',
+        ]);
+        self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        self::assertSame(0, (int) $this->db->pdo()->query(
+            'SELECT COUNT(*) FROM supplier_accounting_frameworks WHERE supplier_id = ' . $this->supplierB
+        )->fetchColumn(), 'Běžný PUT bez explicitního páru nesmí měnit historii rámce.');
+
+        $response = $this->request('PUT', '/api/suppliers/' . $this->supplierB, $token, $this->supplierB, [
+            'company_name' => '__TEST framework partial pair',
+            'accounting_framework' => 'cz_500',
+        ]);
+        self::assertSame(400, $response->getStatusCode(), (string) $response->getBody());
+        self::assertSame('accounting_framework_pair_required', $this->json($response)['error']['code'] ?? null);
+
+        $response = $this->request('PUT', '/api/suppliers/' . $this->supplierB, $token, $this->supplierB, [
+            'company_name' => '__TEST framework must roll back',
+            'accounting_framework' => 'cz_504',
+            'accounting_framework_effective_from' => '2098-01-01',
+        ]);
+        self::assertSame(409, $response->getStatusCode(), (string) $response->getBody());
+        self::assertSame('accounting_framework_not_available', $this->json($response)['error']['code'] ?? null);
+
+        $name = $this->db->pdo()->query(
+            'SELECT company_name FROM supplier WHERE id = ' . $this->supplierB
+        )->fetchColumn();
+        self::assertSame($originalName, $name, 'Neplatný rámec nesmí částečně uložit ostatní pole firmy.');
+    }
+
+    public function testFrameworkUpdateUsesPeriodGuardAndWritesAudit(): void
+    {
+        $userId = $this->mkUser('admin');
+        $token = $this->mkToken($userId);
+        $pdo = $this->db->pdo();
+        $pdo->prepare(
+            'INSERT INTO supplier_accounting_frameworks
+                (supplier_id, effective_from, accounting_framework, created_by)
+             VALUES (?, ?, ?, ?)'
+        )->execute([$this->supplierB, '1900-01-01', 'cz_504', $userId]);
+        $pdo->prepare(
+            "INSERT INTO accounting_periods (supplier_id, fiscal_year, starts_on, ends_on, status)
+             VALUES (?, 2098, '2098-01-01', '2098-12-31', 'open')"
+        )->execute([$this->supplierB]);
+
+        $response = $this->request('PUT', '/api/suppliers/' . $this->supplierB, $token, $this->supplierB, [
+            'company_name' => '__TEST framework committed atomically',
+            'accounting_framework' => 'cz_500',
+            'accounting_framework_effective_from' => '2098-01-01',
+        ]);
+        self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        $body = $this->json($response);
+        self::assertSame('__TEST framework committed atomically', $body['company_name'] ?? null);
+        self::assertSame('cz_500', $body['accounting_framework_history'][1]['accounting_framework'] ?? null);
+
+        $audit = $pdo->prepare(
+            "SELECT payload FROM activity_log
+              WHERE supplier_id = ? AND user_id = ? AND action = 'supplier.accounting_framework_changed'
+              ORDER BY id DESC LIMIT 1"
+        );
+        $audit->execute([$this->supplierB, $userId]);
+        $payload = json_decode((string) $audit->fetchColumn(), true);
+        self::assertSame('cz_500', $payload['accounting_framework'] ?? null);
+        self::assertSame('2098-01-01', $payload['effective_from'] ?? null);
+    }
+
     public function testHistoricalForeignDefaultCurrencyDoesNotHideSupplierOrExposeCurrency(): void
     {
         $pdo = $this->db->pdo();

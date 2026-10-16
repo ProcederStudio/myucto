@@ -37,6 +37,28 @@ final class AccountingFrameworkServiceTest extends TestCase
         self::assertSame(AccountingFrameworkService::CZ_504, $service->forDate(9, '2030-01-01'));
     }
 
+    public function testHistoryIsTenantScopedAndHidesRepositoryTenantColumn(): void
+    {
+        $repository = $this->createMock(AccountingFrameworkRepository::class);
+        $repository->expects(self::once())->method('listForTenant')->with(9)->willReturn([[
+            'id' => 17,
+            'supplier_id' => 9,
+            'effective_from' => '2026-01-01',
+            'accounting_framework' => AccountingFrameworkService::CZ_500,
+            'created_at' => '2026-01-01 10:00:00',
+            'created_by' => 4,
+        ]]);
+        $service = new AccountingFrameworkService($this->createStub(Connection::class), $repository);
+
+        self::assertSame([[
+            'id' => 17,
+            'effective_from' => '2026-01-01',
+            'accounting_framework' => AccountingFrameworkService::CZ_500,
+            'created_at' => '2026-01-01 10:00:00',
+            'created_by' => 4,
+        ]], $service->history(9));
+    }
+
     public function testCz504ActivationIsRejectedBeforePersistence(): void
     {
         $repository = $this->createMock(AccountingFrameworkRepository::class);

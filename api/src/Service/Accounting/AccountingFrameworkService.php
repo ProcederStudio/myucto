@@ -29,6 +29,35 @@ final class AccountingFrameworkService
         return $this->frameworks->forDate($supplierId, $date) ?? self::CZ_500;
     }
 
+    /** @return list<array{id:int,effective_from:string,accounting_framework:string,created_at:string,created_by:?int}> */
+    public function history(int $supplierId): array
+    {
+        return array_map(static fn (array $row): array => [
+            'id' => $row['id'],
+            'effective_from' => $row['effective_from'],
+            'accounting_framework' => $row['accounting_framework'],
+            'created_at' => $row['created_at'],
+            'created_by' => $row['created_by'],
+        ], $this->frameworks->listForTenant($supplierId));
+    }
+
+    /**
+     * Zapíše výchozí rámec nové firmy uvnitř transakce jejího založení.
+     * Existující historii nikdy nepřepisuje.
+     */
+    public function initializeCz500Baseline(int $supplierId, ?int $userId = null): bool
+    {
+        if (!$this->db->pdo()->inTransaction()) {
+            throw new \LogicException('Inicializace účetního rámce vyžaduje transakci založení firmy.');
+        }
+        if ($this->frameworks->listForTenant($supplierId) !== []) {
+            return false;
+        }
+
+        $this->recordCz500($supplierId, '1900-01-01', $userId);
+        return true;
+    }
+
     /**
      * Změní rámec od prvního dne existujícího účetního období.
      *

@@ -24406,6 +24406,21 @@
       "off_note": "Mzdy zmizí z menu po uložení. Mzdová data se nemažou a po opětovném zapnutí zůstanou dostupná.",
       "buy": "Aktivovat mzdový doplněk"
     },
+    "accounting_framework": {
+      "title": "Účetní rámec",
+      "current": "Platný rámec k dnešku",
+      "cz_500": "Podnikatelé (vyhláška 500)",
+      "cz_504": "Nevýdělečné organizace (vyhláška 504)",
+      "cz_504_unavailable": "Nevýdělečné organizace (vyhláška 504) - zatím nedostupné",
+      "hint": "Rámec určuje účetní pravidla a výkazy. Změna je možná od prvního dne existujícího účetního období, pokud v dotčeném intervalu nejsou zaúčtované zápisy. Účetní rámec 504 zatím nelze aktivovat.",
+      "effective_from": "Účinnost od začátku období",
+      "save": "Uložit účetní rámec samostatně",
+      "saved": "Účetní rámec byl uložen.",
+      "save_error": "Účetní rámec se nepodařilo uložit.",
+      "history": "Historie rámce",
+      "baseline": "Výchozí stav",
+      "default_history": "Výchozí rámec pro firmu je vyhláška 500."
+    },
     "accounting_mode": "Režim účetnictví",
     "accounting_mode_tax_evidence": "Daňová evidence",
     "accounting_mode_double_entry": "Podvojné účetnictví",

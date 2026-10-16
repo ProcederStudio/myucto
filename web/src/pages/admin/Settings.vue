@@ -22,6 +22,7 @@ import SearchableSelect from '@/components/ui/SearchableSelect.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import SupplierDomainsSettings from '@/components/settings/SupplierDomainsSettings.vue'
 import InvoiceCounterField from '@/components/settings/InvoiceCounterField.vue'
+import AccountingFrameworkSettings from '@/components/settings/AccountingFrameworkSettings.vue'
 import { appIsoDate } from '@/utils/date'
 import DateInput from '@/components/ui/DateInput.vue'
 
@@ -61,6 +62,12 @@ function syncSupplierStore(s: Supplier) {
 
 const supplier = ref<Supplier | null>(null)
 const loading = ref(true)
+
+function updateAccountingFramework(state: Pick<Supplier, 'id' | 'accounting_framework' | 'accounting_framework_history'>) {
+  if (!supplier.value || supplier.value.id !== state.id) return
+  supplier.value.accounting_framework = state.accounting_framework
+  supplier.value.accounting_framework_history = state.accounting_framework_history
+}
 
 // Přiznání k dani z příjmů — číselníky odpovídají PHP SSOT
 // (MyInvoice\Service\Tax\Return\TaxpayerTypeCodebook, migrace 1782). Popisky
@@ -1550,6 +1557,13 @@ async function confirmTaxRepDelete() {
           </p>
         </div>
       </section>
+
+      <AccountingFrameworkSettings
+        v-if="supplier.accounting_enabled !== false && supplier.accounting_mode === 'double_entry'"
+        :supplier="supplier"
+        :can-change="auth.hasCommercialFeatures"
+        @updated="updateAccountingFramework"
+      />
 
       <section class="bg-surface border border-neutral-200 rounded-lg p-5 shadow-sm">
         <h2 class="text-sm font-semibold uppercase tracking-wide text-neutral-500 mb-4">{{ t('settings.payroll_enabled.title') }}</h2>

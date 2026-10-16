@@ -112,6 +112,14 @@ final class CreateSupplierInitializationTest extends TestCase
             $this->scalar('SELECT accounting_mode FROM supplier_accounting_modes WHERE supplier_id = ? AND effective_from = ?', [$id, date('Y-01-01')]),
             'historie účetního režimu musí vzniknout spolu s firmou',
         );
+        self::assertSame(
+            'cz_500',
+            $this->scalar(
+                'SELECT accounting_framework FROM supplier_accounting_frameworks WHERE supplier_id = ? AND effective_from = ?',
+                [$id, '1900-01-01'],
+            ),
+            'nová firma musí dostat historický baseline účetního rámce',
+        );
         self::assertGreaterThan(0, (int) $this->scalar('SELECT COUNT(*) FROM chart_of_accounts WHERE supplier_id = ?', [$id]), 'podvojné účetnictví bez směrné osnovy je rozbitý stav');
         self::assertSame(1, (int) $this->scalar(
             'SELECT COUNT(*) FROM accounting_periods WHERE supplier_id = ? AND fiscal_year = ?',
