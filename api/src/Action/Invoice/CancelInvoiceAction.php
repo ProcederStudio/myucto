@@ -400,10 +400,10 @@ final class CancelInvoiceAction
                 'INSERT INTO invoice_items
                    (invoice_id, description, quantity, duration_minutes, unit, unit_price_without_vat,
                     vat_rate_id, vat_rate_snapshot,
-                    total_without_vat, total_vat, total_with_vat, order_index, vat_classification_code,
+                    total_without_vat, total_vat, total_with_vat, order_index, item_kind, vat_classification_code,
                     stock_item_id, warehouse_id, revenue_account_code'
                 . ($ossColumns !== [] ? ', ' . implode(', ', $ossColumns) : '')
-                . ') VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?, ?'
+                . ') VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?, ?, ?'
                 . str_repeat(', ?', count($ossColumns))
                 . ')'
             );
@@ -412,7 +412,10 @@ final class CancelInvoiceAction
                 array_map(static fn (array $it): int => (int) ($it['stock_item_id'] ?? 0), $invoice['items']),
             );
             foreach ($invoice['items'] as $item) {
-                $code = $item['vat_classification_code']
+                // Textový řádek jde na dobropis jako textový, bez částky a bez klasifikace.
+                // Ostatní řádky (i slevový) jdou jako běžné, jako dřív.
+                $isText = \MyInvoice\Service\Invoice\InvoiceItemKind::isText($item);
+                $code = $isText ? null : $item['vat_classification_code']
                     ?? \MyInvoice\Repository\InvoiceRepository::defaultSaleClassificationCode(
                         (float) $item['vat_rate_snapshot'],
                         (bool) ($invoice['reverse_charge'] ?? false),
@@ -430,6 +433,7 @@ final class CancelInvoiceAction
                     $item['vat_rate_id'],
                     $item['vat_rate_snapshot'],
                     $item['order_index'],
+                    $isText ? \MyInvoice\Service\Invoice\InvoiceItemKind::TEXT : \MyInvoice\Service\Invoice\InvoiceItemKind::STANDARD,
                     $code !== null ? (string) $code : null,
                     // Vazba na skladovou kartu z parent faktury (Epic SKLAD §5.3) —
                     // bez ní by vratka při vystavení dobropisu neuměla napárovat výdej.

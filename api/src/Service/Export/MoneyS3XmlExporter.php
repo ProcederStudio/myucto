@@ -10,6 +10,7 @@ use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\InvoiceRepository;
 use MyInvoice\Repository\TaxConstantsRepository;
 use MyInvoice\Service\Bank\VariableSymbolNormalizer;
+use MyInvoice\Service\Invoice\InvoiceItemKind;
 
 /**
  * Money S3 (Seyfor) XML export for issued invoices — the "Faktury vydané"
@@ -144,7 +145,9 @@ final class MoneyS3XmlExporter
         $this->el($xml, $node, 'ZpVypDPH', '1');
 
         $items = array_values(array_filter((array) ($invoice['items'] ?? []), 'is_array'));
-        $buckets = $this->vatBuckets($invoice, $items);
+        // Textové řádky (InvoiceItemKind::TEXT) jdou do seznamu položek jako nulové,
+        // ale do počtu sazeb a rekapitulace DPH nevstupují.
+        $buckets = $this->vatBuckets($invoice, InvoiceItemKind::amountLines($items));
 
         $this->el($xml, $node, 'SazbaDPH1', $this->fmt($buckets['reducedRate']));
         $this->el($xml, $node, 'SazbaDPH2', $this->fmt($buckets['standardRate']));
@@ -240,6 +243,13 @@ final class MoneyS3XmlExporter
     private function itemNode(DOMDocument $xml, array $item, int $order, bool $pricesIncludeVat): DOMElement
     {
         $node = $xml->createElement('Polozka');
+        if (InvoiceItemKind::isText($item)) {
+            // Textový řádek: tentýž tvar položky, jen nulový a se sazbou 0, aby ho
+            // import nezařadil do žádné sazby DPH.
+            $item = ['quantity' => 0.0, 'unit_price_without_vat' => 0.0, 'vat_rate_snapshot' => 0.0,
+                'total_without_vat' => 0.0, 'total_vat' => 0.0, 'total_with_vat' => 0.0,
+                'description' => (string) ($item['description'] ?? '')];
+        }
 
         $quantity = TimeBillingExport::quantity($item);
         $base = (float) ($item['total_without_vat'] ?? 0);
@@ -507,8 +517,8 @@ final class MoneyS3XmlExporter
      */
     private function description(array $invoice): string
     {
-        $items = (array) ($invoice['items'] ?? []);
-        if (count($items) === 1 && is_array($items[0] ?? null)) {
+        $items = InvoiceItemKind::amountLines((array) ($invoice['items'] ?? []));
+        if (count($items) === 1) {
             return (string) ($items[0]['description'] ?? 'prodej zboží a služeb');
         }
 

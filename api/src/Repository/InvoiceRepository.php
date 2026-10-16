@@ -10,6 +10,7 @@ use MyInvoice\Service\Bank\VariableSymbolNormalizer;
 use MyInvoice\Service\Invoice\CzkRecap;
 use MyInvoice\Service\Invoice\InvoiceRounding;
 use MyInvoice\Service\Invoice\InvoiceCalculator;
+use MyInvoice\Service\Invoice\InvoiceItemKind;
 use MyInvoice\Service\Invoice\OverduePolicy;
 use MyInvoice\Service\Invoice\TimeBilling;
 use MyInvoice\Service\Report\VatLedgerService;
@@ -1580,8 +1581,10 @@ final class InvoiceRepository
     {
         $pdo = $this->db->pdo();
 
+        // Textový řádek (InvoiceItemKind::TEXT) se zapisuje vždy vynulovaný: popis + sazba,
+        // nic dalšího. Normalizace před TimeBilling, ať z něj nevznikne časová položka.
         $items = array_map(
-            static fn (array $item): array => TimeBilling::normalizeInvoiceItem($item),
+            static fn (array $item): array => TimeBilling::normalizeInvoiceItem(InvoiceItemKind::normalize($item)),
             array_values($items),
         );
 
@@ -1602,8 +1605,8 @@ final class InvoiceRepository
         $revenueAccounts = [];
         $productDefaults = new \MyInvoice\Service\Accounting\Product\ProductPostingDefaults($this->db);
         foreach ($items as $i => $item) {
-            if (($item['item_kind'] ?? 'standard') === 'discount') {
-                continue;   // slevový řádek se generuje níž, účet dědí
+            if (InvoiceItemKind::of($item) !== InvoiceItemKind::STANDARD) {
+                continue;   // slevový řádek se generuje níž, účet dědí; textový žádný nemá
             }
             try {
                 $revenueAccounts[$i] = $productDefaults->validateAccount(
@@ -1657,6 +1660,7 @@ final class InvoiceRepository
         );
 
         $vatRates = $this->loadVatRates();
+        $textRateId = InvoiceItemKind::textRowRateId($items, $pdo, $vatRates);
 
         // Reverse charge + země klienta + jazyk + sleva — z hlavičky.
         //   Klasifikační kód: CZ klient → '1'/'2'/'3' (tuzemsko podle sazby)
@@ -1691,6 +1695,26 @@ final class InvoiceRepository
         foreach (array_values($items) as $i => $item) {
             // Systémové slevové řádky z UI ignorujeme — generují se z header pole níže.
             if (($item['item_kind'] ?? 'standard') === 'discount') {
+                continue;
+            }
+            if (InvoiceItemKind::isText($item)) {
+                // Textový řádek: jen popis na svém místě. Bez klasifikace, OSS, skladu,
+                // majetku, účtu a období; do slevy ani do období slevy nevstupuje.
+                $vatRateId = $textRateId;
+                $orderIndex = (int) ($item['order_index'] ?? $i);
+                $params = [
+                    $invoiceId, (string) $item['description'], 0.0, null, '', 0.0,
+                    $vatRateId, $vatRates[$vatRateId] ?? 0.0, $orderIndex, InvoiceItemKind::TEXT,
+                    null, null, null, null, null, null, null, null,
+                ];
+                if ($supportsOss) {
+                    $params = array_merge($params, self::ossItemParams($item, $supportsManualReview));
+                }
+                if ($supportsTracking) {
+                    $params[] = null;
+                }
+                $stmt->execute($params);
+                $maxOrder = max($maxOrder, $orderIndex);
                 continue;
             }
             $vatRateId = (int) ($item['vat_rate_id'] ?? 0);
@@ -2833,7 +2857,8 @@ final class InvoiceRepository
     private function buildVatBreakdown(array $items): array
     {
         $bd = [];
-        foreach ($items as $item) {
+        // Textový řádek nezakládá řádek rekapitulace (InvoiceItemKind).
+        foreach (InvoiceItemKind::amountLines($items) as $item) {
             $rate = (float) $item['vat_rate_snapshot'];
             $key = number_format($rate, 2, '.', '');
             if (!isset($bd[$key])) {

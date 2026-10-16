@@ -2047,6 +2047,28 @@ final class KhDphTaxScenariosTest extends TestCase
         $this->assertStringContainsString('platné české DIČ', implode(' | ', $result['warnings']));
     }
 
+    /**
+     * Textový řádek (item_kind 'text') nemá klasifikaci DPH záměrně: nic nevykazuje.
+     * Varování „neklasifikovaný řádek se sazbou 0 %" se ho proto netýká.
+     */
+    public function testTextRowWithZeroRateIsNotUnclassifiedWarning(): void
+    {
+        $d = sprintf('%04d-%02d-15', self::YEAR, self::MONTH);
+        $customer = $this->client('Odběratel textového řádku', $this->czId, 'CZ57575757', customer: true);
+        $this->sale('TEXT-ROW-0', $customer, null, false, $d, $d, [[700, 147, 21]]);
+        $id = end($this->invoiceIds);
+        $rate = (int) $this->db->pdo()->query('SELECT vat_rate_id FROM invoice_items WHERE invoice_id = ' . (int) $id)->fetchColumn();
+        $this->db->pdo()->prepare(
+            "INSERT INTO invoice_items (invoice_id, description, quantity, unit, unit_price_without_vat, vat_rate_id,
+                                        vat_rate_snapshot, total_without_vat, total_vat, total_with_vat, order_index, item_kind)
+             VALUES (?, 'Oddíl B', 0, '', 0, ?, 0, 0, 0, 0, 1, 'text')"
+        )->execute([$id, $rate]);
+
+        $result = $this->dph->build($this->supplierId, self::YEAR, self::MONTH, 'monthly');
+
+        $this->assertStringNotContainsString('TEXT-ROW-0 obsahuje neklasifikovaný', implode(' | ', $result['warnings']));
+    }
+
     public function testCreditNoteAndUnclassifiedZeroRateProduceWarnings(): void
     {
         $d = sprintf('%04d-%02d-14', self::YEAR, self::MONTH);

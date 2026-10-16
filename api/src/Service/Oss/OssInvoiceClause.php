@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace MyInvoice\Service\Oss;
 
+use MyInvoice\Service\Invoice\InvoiceItemKind;
+
 /**
  * Doložka o odvodu daně v režimu jednoho správního místa (OSS) na dokladu.
  *
@@ -50,6 +52,10 @@ final class OssInvoiceClause
             $isOss = !empty($item['oss_applicable']);
             // Slevový řádek nemá vlastní plnění — kopíruje režim dokladu. Kdyby se počítal
             // mezi řádky plnění, udělal by ze zcela OSS dokladu smíšený.
+            // Textový řádek (InvoiceItemKind::TEXT) plnění není vůbec.
+            if (InvoiceItemKind::isText($item)) {
+                continue;
+            }
             if ((string) ($item['item_kind'] ?? 'standard') !== 'discount') {
                 $supplyLines++;
                 if ($isOss) {

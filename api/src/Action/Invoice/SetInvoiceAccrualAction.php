@@ -93,6 +93,11 @@ final class SetInvoiceAccrualAction
                 $changes[$itemId] = [null, null];
                 continue;
             }
+            // Textový řádek nemá částku, takže ani výnos k rozlišení.
+            if (\MyInvoice\Service\Invoice\InvoiceItemKind::isText($known[$itemId])) {
+                $errors["items.{$i}.accrual_from"][] = 'Textový řádek nemá částku, časové rozlišení se na něj nenastavuje';
+                continue;
+            }
             [$validFrom, $validTo] = InvoiceRepository::accrualPeriod(['accrual_from' => $from, 'accrual_to' => $to]);
             if ($validFrom === null) {
                 $errors["items.{$i}.accrual_from"][] = 'Období potřebuje obě data ve formátu RRRR-MM-DD a začátek nejpozději v den konce';

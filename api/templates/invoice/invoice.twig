@@ -223,6 +223,12 @@
   </thead>
   <tbody>
     {% for item in invoice.items %}
+    {# Textový řádek (item_kind 'text'): jen popis přes celou šířku tabulky, bez částek. #}
+    {% if item.item_kind == 'text' %}
+    <tr class="text-row">
+      <td colspan="{{ supplier.is_vat_payer ? 7 : 5 }}">{{ item.description|nl2br }}</td>
+    </tr>
+    {% else %}
     <tr{% if item.item_kind == 'discount' %} class="discount-row"{% endif %}>
       {# Když má faktura výkaz víceprací, je proklikávací (podtržený) odkaz na stránku
          s výkazem JEN položka výkazu — tj. ta, jejíž popis odpovídá názvu výkazu
@@ -268,6 +274,7 @@
       <td class="num nowrap">{{ item.total_without_vat|number_format(2, decimal_sep, thousand_sep) }}</td>
       {% endif %}
     </tr>
+    {% endif %}
     {% endfor %}
   </tbody>
 </table>

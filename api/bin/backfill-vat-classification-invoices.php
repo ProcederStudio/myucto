@@ -53,6 +53,8 @@ $stmt = $pdo->query(
        JOIN countries co ON co.id = c.country_id
       WHERE i.status NOT IN ('draft', 'cancelled')
         AND i.invoice_type != 'proforma'
+        -- Textový řádek klasifikaci nemá záměrně, nic nevykazuje (InvoiceItemKind).
+        AND ii.item_kind <> 'text'
         {$whereCode}
       ORDER BY i.supplier_id, i.id, ii.id"
 );

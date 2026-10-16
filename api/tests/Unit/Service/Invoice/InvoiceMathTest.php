@@ -579,4 +579,24 @@ final class InvoiceMathTest extends TestCase
         self::assertSame(5.73,  $up['totals']['vat']);
         self::assertSame(33.00, $up['totals']['with_vat']);
     }
+    /**
+     * Textový řádek (item_kind='text') je jen popis mezi položkami: nesmí ovlivnit
+     * součty ani založit vlastní řádek rekapitulace DPH, i kdyby nesl jinou sazbu
+     * a (omylem) nenulové množství a cenu.
+     */
+    public function testTextRowIsIgnoredInTotalsAndVatBreakdown(): void
+    {
+        foreach ([false, true] as $pricesIncludeVat) {
+            $r = InvoiceMath::compute([
+                ['quantity' => 1, 'unit_price_without_vat' => 1000.00, 'vat_rate_snapshot' => 21],
+                ['quantity' => 3, 'unit_price_without_vat' => 99.00, 'vat_rate_snapshot' => 12, 'item_kind' => 'text'],
+            ], false, $pricesIncludeVat);
+
+            $expectedBase = $pricesIncludeVat ? 826.45 : 1000.00;
+            self::assertSame($expectedBase, $r['totals']['without_vat']);
+            self::assertCount(1, $r['vat_breakdown'], 'Textový řádek nezakládá rekapitulaci své sazby.');
+            self::assertSame(21.0, $r['vat_breakdown'][0]['rate']);
+            self::assertSame(['base' => 0.0, 'vat' => 0.0, 'with' => 0.0, 'rate' => 12.0], $r['items'][1]);
+        }
+    }
 }

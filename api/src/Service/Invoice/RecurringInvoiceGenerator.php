@@ -87,7 +87,8 @@ final class RecurringInvoiceGenerator
         if ($template === null) {
             throw new \RuntimeException("Šablona #$templateId nenalezena");
         }
-        if (empty($template['items'])) {
+        // Textové řádky (InvoiceItemKind::TEXT) nejsou plnění: šablona jen z nich nefakturuje.
+        if (!InvoiceItemKind::hasAmountLine((array) ($template['items'] ?? []))) {
             throw new \DomainException("Šablona #$templateId nemá žádné položky.");
         }
 
@@ -179,7 +180,8 @@ final class RecurringInvoiceGenerator
         if ($template === null) {
             throw new \RuntimeException("Šablona #$templateId nenalezena");
         }
-        if (empty($template['items'])) {
+        // Textové řádky (InvoiceItemKind::TEXT) nejsou plnění: šablona jen z nich nefakturuje.
+        if (!InvoiceItemKind::hasAmountLine((array) ($template['items'] ?? []))) {
             throw new \DomainException("Šablona #$templateId nemá žádné položky.");
         }
         if ($template['status'] === 'expired') {
@@ -229,7 +231,8 @@ final class RecurringInvoiceGenerator
         if ($template === null) {
             throw new \RuntimeException("Šablona #$templateId nenalezena");
         }
-        if (empty($template['items'])) {
+        // Textové řádky (InvoiceItemKind::TEXT) nejsou plnění: šablona jen z nich nefakturuje.
+        if (!InvoiceItemKind::hasAmountLine((array) ($template['items'] ?? []))) {
             throw new \DomainException("Šablona #$templateId nemá žádné položky.");
         }
         if ($template['status'] === 'expired') {
@@ -546,6 +549,15 @@ final class RecurringInvoiceGenerator
                 $description = DescriptionPlaceholders::apply((string) $item['description'], $placeholderRef, $lang);
                 if ($syncTarget !== null) {
                     $description = MonthSynchronizer::syncTo($description, $syncTarget);
+                }
+                // Textový řádek jen s popisem na svém místě; OSS, sklad ani účet nemá.
+                if (InvoiceItemKind::isText($item)) {
+                    $items[] = [
+                        'item_kind'   => InvoiceItemKind::TEXT,
+                        'description' => $description,
+                        'order_index' => (int) $item['order_index'],
+                    ];
+                    continue;
                 }
                 $ossColumns = $this->ossColumnsFor(
                     $item,

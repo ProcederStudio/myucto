@@ -997,7 +997,8 @@
         "2013_client_email_isdoc_override.sql",
         "2014_client_ai_extraction.sql",
         "2015_client_bank_permissions.sql",
-        "2016_invoice_item_tracking.sql"
+        "2016_invoice_item_tracking.sql",
+        "2022_invoice_item_text_row.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -6062,7 +6063,7 @@
                 "duration_minutes": "int(11) NULL DEFAULT NULL",
                 "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
                 "invoice_id": "bigint(20) unsigned NOT NULL",
-                "item_kind": "enum('standard','discount') NOT NULL DEFAULT 'standard'",
+                "item_kind": "enum('standard','discount','text') NOT NULL DEFAULT 'standard'",
                 "linked_work_report_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "order_index": "int(11) NOT NULL DEFAULT 0",
                 "oss_applicable": "tinyint(1) NOT NULL DEFAULT 0",
@@ -18765,6 +18766,7 @@
                 "description_source": "varchar(16) NOT NULL DEFAULT 'template'",
                 "duration_minutes": "int(11) NULL DEFAULT NULL",
                 "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "item_kind": "enum('standard','text') NOT NULL DEFAULT 'standard'",
                 "order_index": "int(11) NOT NULL DEFAULT 0",
                 "oss_applicable": "tinyint(1) NOT NULL DEFAULT 0",
                 "oss_consumer_country": "char(2) NULL DEFAULT NULL",

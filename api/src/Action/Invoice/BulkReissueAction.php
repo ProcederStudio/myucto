@@ -280,7 +280,8 @@ final class BulkReissueAction
                     ? \MyInvoice\Service\Invoice\MonthIncrementer::increment((string) $item['description'])
                     : (string) $item['description'];
 
-                $code = $item['vat_classification_code']
+                // Textový řádek klasifikaci DPH nemá a mít nesmí (nic nevykazuje).
+                $code = \MyInvoice\Service\Invoice\InvoiceItemKind::isText($item) ? null : $item['vat_classification_code']
                     ?? \MyInvoice\Repository\InvoiceRepository::defaultSaleClassificationCode(
                         (float) $item['vat_rate_snapshot'],
                         (bool) ($source['reverse_charge'] ?? false),
