@@ -17,7 +17,7 @@ vi.mock('@/composables/useDimensions', () => ({
 }))
 vi.mock('vue-router', () => ({ RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
-vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ canWrite: () => true }) }))
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ canRead: () => true, canWrite: () => true }) }))
 vi.mock('@/composables/useFormat', () => ({ formatDate: (v: string) => v, formatMoney: (v: number) => String(v) }))
 
 import BankTransactionRow from '@/components/bank/BankTransactionRow.vue'
@@ -27,6 +27,7 @@ import RowActionsMenu, { type RowAction } from '@/components/ui/RowActionsMenu.v
 
 function actions(): BankTransactionActions {
   return {
+    canRunDetailAction: () => true,
     expandedSuggestions: ref(new Set()), expandedDocs: ref(new Set()), toggleSuggestion: vi.fn(), toggleDocs: vi.fn(),
     suggestionFor: () => null, reviewingSuggestion: ref(false), acceptTxSuggestion: vi.fn(), rejectTxSuggestion: vi.fn(),
     startMatch: vi.fn(), openCreate: vi.fn(), openRequestDoc: vi.fn(), ignoreTx: vi.fn(), unmatchTx: vi.fn(),
@@ -87,6 +88,19 @@ describe('BankTransactionRow — dimenze pohybu', () => {
     panel.vm.$emit('saved', { 1: 5 })
     await flushPromises()
     expect(wrapper.findComponent(DimensionChips).props('dimensions')).toEqual({ 1: 5 })
+    wrapper.unmount()
+  })
+
+  it.each(['payroll', 'transfer', 'outside_saldo'] as const)('shows %s resolution after accounting data is redacted', async resolution => {
+    const row = tx()
+    row.posting = null
+    row.resolution = resolution
+    row.match_available = false
+    row.ignore_available = false
+    const wrapper = mountRow('mobile', row)
+    await flushPromises()
+    expect(wrapper.text()).toContain(`bank.match_status.${resolution}`)
+    expect(wrapper.text()).not.toContain('bank.match_status.unmatched')
     wrapper.unmount()
   })
 

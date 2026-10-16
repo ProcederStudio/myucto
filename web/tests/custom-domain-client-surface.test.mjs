@@ -29,8 +29,11 @@ test('shared manifest persists the audited client surface and legacy aliases', (
   // faktur, přečíslování zůstává jen účetní (router guard i backend 403).
   // 41 → 42: purchase-invoice-ai-import. Klientské vytěžování vyžaduje
   // samostatné oprávnění; navigace navíc ověřuje dostupnost firemní AI.
-  assert.equal(manifest.routes.length, 42)
-  assert.equal(new Set(manifest.routes.map(route => route.name)).size, 42)
+  //
+  // 42 → 44: bank-statements a bank-detail (#160). Čtení banky je pro klienta
+  // volitelné; obě routy i jejich API vyžadují přidělené bankovní oprávnění.
+  assert.equal(manifest.routes.length, 44)
+  assert.equal(new Set(manifest.routes.map(route => route.name)).size, 44)
   assert.deepEqual(
     manifest.routes.find(route => route.name === 'purchase-invoice-ai-import'),
     {

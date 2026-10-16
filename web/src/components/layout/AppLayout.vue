@@ -340,6 +340,9 @@ const navSections = computed<NavSection[]>(() => {
           ...(canExtractPurchase.value ? [{ to: '/purchase-invoices/ai-import', label: t('nav.ai_import'), icon: ICONS.ai }] : []),
         ],
       },
+      { key: 'bank_cash', title: t('nav.section_bank_cash'), accent: 'success', items: [
+        { to: '/bank', label: t('nav.bank_accounts'), icon: ICONS.bank, permission: 'bank' as PermissionKey },
+      ] },
       {
         key: 'contacts',
         title: t('nav.section_contacts'),

@@ -32,7 +32,7 @@ vi.mock('@/composables/useToast', () => ({
 }))
 
 vi.mock('@/composables/useHotkey', () => ({ useHotkey: () => {} }))
-vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ canWrite: () => true }) }))
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ canRead: () => true, canWrite: () => true }) }))
 // Dimenze (Firma → Dimenze) jsou u firmy vypnuté — řádek pohybu je nevykreslí.
 vi.mock('@/composables/useDimensions', () => ({
   useDimensions: () => ({
@@ -261,6 +261,7 @@ describe('PostTransactionModal — našeptávač účtů', () => {
   it('opens the rule dialog from the movement menu and applies the rule to that movement', async () => {
     const wrapper = shallowMount(BankTransactionRow, {
       props: { tx: tx(-100), layout: 'mobile', isDoubleEntry: true, actions: {
+        canRunDetailAction: () => true,
         expandedDocs: ref(new Set()), expandedSuggestions: ref(new Set()), suggestionFor: () => null,
       } as unknown as BankTransactionActions },
       global: { stubs: { WorkspaceTeleport: false, RuleFormModal: false, RuleForm: true, Teleport: true } },

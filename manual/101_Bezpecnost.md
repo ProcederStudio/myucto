@@ -803,6 +803,8 @@ hlavičky bezpečně přepsat; postup ověření je výše.
 
 ### 101.11.5 RBAC (role-based access)
 
+Klientské role mohou mít samostatná oprávnění **Prohlížet banku**, **Nahrávat výpisy**, **Párovat platby** a **Ignorovat platby**. Administrátor je přiděluje jednotlivě, ve výchozím stavu jsou vypnutá. Zapnutí akčního oprávnění zároveň zapne čtení banky; odebrání čtení odebere i bankovní akce. Pro párování a jeho zrušení musí mít klient také čtení všech dotčených faktur a zápis do jejich úhrad: `invoices.mark_paid` u vydaných, `purchase_invoices.transition` u přijatých. Samotné čtení dokladů nestačí. Párování a import mohou spustit automatické účetní zpracování podle nastavení firmy; úhrady a účetní zápisy vznikají pod přihlášeným klientským uživatelem. Tato klientská omezení nemění oprávnění interních rolí.
+
 Role se spravují v `Systém → Role a oprávnění`. Každý modul a významná akce mají jednu
 ze tří úrovní: **neviditelné**, **pouze čtení** nebo **zápis**. Zápis zahrnuje
 čtení; chybějící nebo neznámé oprávnění znamená zákaz.

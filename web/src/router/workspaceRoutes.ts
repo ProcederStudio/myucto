@@ -370,11 +370,11 @@ export function createWorkspaceRoutes(): RouteRecordRaw[] {
         path: 'bank',
         name: 'bank-statements',
         component: () => import('@/pages/bank/BankPage.vue'),
-        beforeEnter: to => to.query.tab === 'rules'
+        beforeEnter: to => !useAuthStore().isClientRole && to.query.tab === 'rules'
           ? { path: '/templates', query: { section: 'posting' } }
           : true,
       },
-      { path: 'gopay', name: 'gopay', component: () => import('@/pages/accounting/GoPay.vue'), meta: { requiresAccountingMode: true } },
+      { path: 'gopay', name: 'gopay', component: () => import('@/pages/accounting/GoPay.vue'), meta: { staffOnly: true, requiresAccountingMode: true } },
       { path: 'bank/:id(\\d+)',         name: 'bank-detail',     component: () => import('@/pages/bank/StatementDetail.vue') },
       // Admin (M6)
       { path: 'admin/activity-log',     name: 'activity-log',   component: () => import('@/pages/admin/ActivityLog.vue'), meta: {  } },
@@ -390,12 +390,13 @@ export function createWorkspaceRoutes(): RouteRecordRaw[] {
       {
         path: 'admin/bank-accounts',
         name: 'admin-bank-accounts',
+        meta: { staffOnly: true },
         redirect: to => ({
           path: '/bank',
           query: { tab: ['accounts', 'balances', 'email'].includes(String(to.query.tab)) ? String(to.query.tab) : 'accounts' },
         }),
       },
-      { path: 'admin/bank-email-notices', name: 'admin-bank-email-notices', redirect: '/bank?tab=email' },
+      { path: 'admin/bank-email-notices', name: 'admin-bank-email-notices', meta: { staffOnly: true }, redirect: '/bank?tab=email' },
       // Dodavatelé (multi-tenant firmy) — vlastní stránka, vytažená ze záložky v Codebooks
       // (reorg menu, audit 2026-07): Firma/Globální nastavení jsou rozdělené a Dodavatelé
       // patří jako samostatný bod pod Globální nastavení.
@@ -405,8 +406,8 @@ export function createWorkspaceRoutes(): RouteRecordRaw[] {
       { path: 'payment-cards/new',       name: 'payment-card-new',    component: () => import('@/pages/company/PaymentCardDetail.vue'), meta: { requiresSupplier: true } },
       { path: 'payment-cards/:id(\\d+)', name: 'payment-card-detail', component: () => import('@/pages/company/PaymentCardDetail.vue'), meta: { requiresSupplier: true } },
       // Peníze → Kreditní karty: úvěrové účty ke kartě (231.x), import PDF výpisů, nastavení účtování.
-      { path: 'credit-cards',            name: 'credit-cards',        component: () => import('@/pages/company/CreditCardsPage.vue'),   meta: { requiresSupplier: true } },
-      { path: 'credit-cards/:id(\\d+)',  name: 'credit-card-detail',  component: () => import('@/pages/company/CreditCardDetail.vue'),  meta: { requiresSupplier: true } },
+      { path: 'credit-cards',            name: 'credit-cards',        component: () => import('@/pages/company/CreditCardsPage.vue'),   meta: { staffOnly: true, requiresSupplier: true } },
+      { path: 'credit-cards/:id(\\d+)',  name: 'credit-card-detail',  component: () => import('@/pages/company/CreditCardDetail.vue'),  meta: { staffOnly: true, requiresSupplier: true } },
       {
         path: 'admin/codebooks',
         name: 'admin-codebooks',

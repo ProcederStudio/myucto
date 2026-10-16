@@ -124,7 +124,11 @@ export interface BankTransaction {
   /** Seznam vystavených faktur uhrazených touto transakcí (sloučená úhrada → víc než 1). */
   matched_invoices?: MatchedInvoice[]
   matched_purchase_invoices?: MatchedPurchaseInvoice[]
+  ignore_origin?: string | null
   ignore_note?: string | null
+  resolution?: 'payroll' | 'transfer' | 'outside_saldo' | null
+  match_available?: boolean
+  ignore_available?: boolean
   match_status: MatchStatus
   /** Kód důvodu posledního neúspěšného automatického párování (#46), např. `no_invoice_with_vs`. */
   match_reason?: string | null
@@ -572,6 +576,7 @@ export const bankApi = {
     api.post<{ rejected: true }>(
       `/bank-match-suggestions/${id}/reject`, reason ? { reason } : {},
     ).then(r => r.data),
+  unignore: (txId: number) => api.post<{ unmatched: true }>(`/bank-transactions/${txId}/unignore`).then(r => r.data),
   ignore: (txId: number, note: string | null = null) =>
     api.post<{ ignored: true; ignore_note: string | null }>(`/bank-transactions/${txId}/ignore`, { note }).then(r => r.data),
   unmatch: (txId: number) =>

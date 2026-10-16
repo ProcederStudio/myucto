@@ -24860,6 +24860,13 @@
     "is_default_account_hint": "Výchozí účet pro tuto měnu (per kód lze mít vždy jen jeden)"
   },
   "roles": {
+    "bank_permissions": {
+      "bank": "Prohlížet banku",
+      "bank_import": "Nahrávat výpisy",
+      "bank_match": "Párovat platby",
+      "bank_ignore": "Ignorovat platby"
+    },
+    "client_bank_hint": "Bankovní oprávnění klienta jsou volitelná. Import, párování a ignorování vyžadují čtení banky. Párování a jeho zrušení navíc vyžadují čtení dokladů a právo měnit jejich úhrady. Párování a import mohou spustit automatické zpracování úhrad a účetních zápisů podle nastavení firmy.",
     "title": "Role a oprávnění",
     "subtitle": "Nastavení přístupu k modulům a významným akcím.",
     "new": "Nová role",

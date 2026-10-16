@@ -10,6 +10,8 @@ import type { BankEmailProvider } from '@/api/settings'
 
 const m = vi.hoisted(() => ({
   tab: 'email',
+  client: false,
+  accountBalances: vi.fn(),
   bankPanelMount: vi.fn(),
   getSupplier: vi.fn(),
   listCurrencies: vi.fn(),
@@ -29,7 +31,8 @@ vi.mock('@/api/settings', () => ({
 }))
 
 vi.mock('@/api/clients', () => ({ clientsApi: { lookupBank: vi.fn() } }))
-vi.mock('@/api/bank', () => ({ bankApi: { accountBalances: vi.fn() } }))
+vi.mock('@/api/bank', () => ({ bankApi: { accountBalances: m.accountBalances } }))
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ get isClientRole() { return m.client } }) }))
 vi.mock('@/api/errors', () => ({ apiErrorMessage: (_e: unknown, fallback: string) => fallback }))
 
 vi.mock('@/composables/useToast', () => ({
@@ -45,7 +48,7 @@ vi.mock('@/composables/useFormat', () => ({
   formatDateTime: (v: string) => v,
 }))
 vi.mock('@/components/bank/BankConnectionsPanel.vue', () => ({
-  default: { name: 'BankConnectionsPanel', setup: () => { m.bankPanelMount(); return () => null } },
+  default: { name: 'BankConnectionsPanel', props: ['accounts'], setup: () => { m.bankPanelMount(); return () => null } },
 }))
 vi.mock('@/components/charts/BalanceTrendChart.vue', () => ({
   default: { name: 'BalanceTrendChart', template: '<div />' },
@@ -84,9 +87,9 @@ function sharedProvider(overrides: Partial<BankEmailProvider> = {}): BankEmailPr
   }
 }
 
-async function mountWith(providers: BankEmailProvider[]) {
+async function mountWith(providers: BankEmailProvider[], currencies: unknown[] = []) {
   m.getSupplier.mockResolvedValue({ id: 1 })
-  m.listCurrencies.mockResolvedValue([])
+  m.listCurrencies.mockResolvedValue(currencies)
   m.getBankEmailOverview.mockResolvedValue({
     imap: null,
     imap_accounts: [],
@@ -109,7 +112,34 @@ describe('BankAccounts — společný parser provider', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     m.tab = 'email'
+    m.client = false
+    m.accountBalances.mockResolvedValue(null)
     m.updateBankEmailProvider.mockResolvedValue(undefined)
+  })
+
+  it('loads staff account settings when entering on balances and retains them after switching to accounts', async () => {
+    m.tab = 'balances'
+    const currencies = [{ id: 7, currency: 'CZK', bank_account: '1000000005', bank_code: '0100', is_default: true }]
+    const wrapper = await mountWith([], currencies)
+    expect(m.accountBalances).toHaveBeenCalledOnce()
+    expect(m.getSupplier).toHaveBeenCalledOnce()
+    expect(m.listCurrencies).toHaveBeenCalledOnce()
+    await wrapper.findAll('button').find(button => button.text() === 'bank_accounts.tab_accounts')!.trigger('click')
+    await flushPromises()
+    expect(wrapper.findComponent({ name: 'BankConnectionsPanel' }).props('accounts')).toEqual(currencies)
+    wrapper.unmount()
+  })
+
+  it('loads client balances without requesting bank settings', async () => {
+    m.tab = 'balances'
+    m.client = true
+    const wrapper = await mountWith([])
+    expect(m.accountBalances).toHaveBeenCalledOnce()
+    expect(m.getSupplier).not.toHaveBeenCalled()
+    expect(m.listCurrencies).not.toHaveBeenCalled()
+    expect(m.getBankEmailOverview).not.toHaveBeenCalled()
+    expect(wrapper.text()).not.toContain('bank_accounts.loading')
+    wrapper.unmount()
   })
 
   it('u společného provideru nabídne vypnutí pro vlastní firmu a pošle nezměněnou definici', async () => {

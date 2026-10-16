@@ -56,7 +56,7 @@ const {
 
       <MatchSuggestionPanel v-if="currentSuggestion" class="mb-4" variant="inline"
         :suggestion="currentSuggestion" :reviewing="reviewingSuggestion"
-        :can-review="auth.canWrite('bank.match')"
+        :can-review="actions.canReviewSuggestion(currentSuggestion)" :can-accept-candidate="actions.canAcceptCandidate"
         @accept="(i) => acceptTxSuggestion(currentSuggestion!.bank_transaction_id, i)"
         @reject="rejectTxSuggestion(currentSuggestion!.bank_transaction_id)" />
 
@@ -107,7 +107,7 @@ const {
         <div v-else-if="matchCandidates.length === 0" class="text-xs text-neutral-400 py-2">{{ t(matchSearch.trim() ? 'bank.candidate_search_empty' : 'bank.no_candidates') }}</div>
         <ul v-else class="border border-neutral-200 rounded-md divide-y divide-neutral-100 max-h-56 overflow-auto">
           <li v-for="c in matchCandidates" :key="`${c.type}-${c.id}`">
-            <button type="button" @click="confirmCandidate(c)" :disabled="matchingCandidate || !auth.canWrite('bank.match')"
+            <button type="button" @click="confirmCandidate(c)" :disabled="matchingCandidate || !actions.canMatchDocument(c.type)"
               class="w-full text-left px-3 py-2 hover:bg-primary-50 flex items-center justify-between gap-2 disabled:opacity-50">
               <span class="min-w-0">
                 <span class="text-[10px] uppercase px-1.5 py-0.5 rounded font-semibold"
@@ -202,7 +202,7 @@ const {
             <p v-if="matchCtx.amount < 0 && s.invoices.some(invoice => invoice.currency !== s.currency)" class="mb-2 text-xs text-neutral-500">
               {{ t('bank.split_fx_hint') }}
             </p>
-            <button type="button" @click="confirmSuggestion(s)"
+            <button type="button" @click="confirmSuggestion(s)" :disabled="matchBusy || !actions.canMatchCurrentDocument()"
               class="cursor-pointer w-full h-8 text-sm bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-md">
               {{ t('bank.split_match', { count: s.count }) }}
             </button>
@@ -217,7 +217,7 @@ const {
           placeholder="2603001"
           @keyup.enter="confirmMatch"
           class="flex-1 h-10 px-3 border border-neutral-300 rounded-md text-sm font-mono" />
-        <button @click="confirmMatch" :disabled="!matchVarsymbol.trim()"
+        <button @click="confirmMatch" :disabled="matchBusy || !matchVarsymbol.trim() || !actions.canMatchAnyDocument()"
           class="cursor-pointer px-4 h-10 text-sm bg-primary-600 hover:bg-primary-700 disabled:bg-neutral-300 text-white font-medium rounded-md">
           {{ t('bank.match') }}
         </button>

@@ -29,6 +29,7 @@ declare module 'vue-router' {
     permission?: PermissionKey
     additionalPermissions?: PermissionKey[]
     access?: AccessLevel
+    staffOnly?: boolean
     superadminOnly?: boolean
     adminPlusOnly?: boolean
     companyAdminOnly?: boolean
@@ -500,6 +501,8 @@ export async function authorizationGuard(
     && await switchSupplierForDeepLink(to)) {
     return false
   }
+
+  if (auth.isClientRole && to.matched.some(r => r.meta.staffOnly)) return denyFallback(to.name, auth)
 
   const superadminOnly = to.matched.some((r) => r.meta.superadminOnly)
   if (superadminOnly && !auth.isSuperadmin) {

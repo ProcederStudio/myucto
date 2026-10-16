@@ -19,7 +19,7 @@ vi.mock('@/api/gopay', () => ({ gopayApi: { payoutCandidate: vi.fn().mockResolve
 vi.mock('@/api/documentRequests', () => ({ documentRequestsApi: {} }))
 vi.mock('vue-router', () => ({ useRouter: () => ({}), RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string, params?: Record<string, unknown>) => params ? `${key}:${JSON.stringify(params)}` : key }) }))
-vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ canWrite: () => true, hasCommercialFeatures: true }) }))
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ canRead: () => true, canWrite: () => true, hasCommercialFeatures: true }) }))
 vi.mock('@/stores/supplier', () => ({ useSupplierStore: () => ({ currentSupplier: { accounting_mode: mocks.mode } }) }))
 vi.mock('@/composables/useToast', () => ({ useToast: () => ({ success: mocks.toast, error: mocks.toast, info: mocks.toastInfo }) }))
 vi.mock('@/composables/useHotkey', () => ({ useHotkey: () => {} }))

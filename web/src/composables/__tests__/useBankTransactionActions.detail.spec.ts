@@ -3,18 +3,18 @@ import { defineComponent, reactive } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import { useBankTransactionActions, type BankDetailAction, type BankTransactionActions } from '../useBankTransactionActions'
 import BankTransactionDialogs from '@/components/bank/BankTransactionDialogs.vue'
-import type { BankTransaction } from '@/api/bank'
+import type { BankTransaction, MatchSuggestion, SplitSuggestion } from '@/api/bank'
 
 const mocks = vi.hoisted(() => ({
   bank: { matchCandidates: vi.fn(), splitSuggestions: vi.fn(), matchManual: vi.fn(), matchMultiple: vi.fn(),
-    matchMultiplePurchases: vi.fn(), ignore: vi.fn(), unmatch: vi.fn(), createPurchaseInvoice: vi.fn(),
+    matchMultiplePurchases: vi.fn(), ignore: vi.fn(), unmatch: vi.fn(), unignore: vi.fn(), createPurchaseInvoice: vi.fn(),
     acceptMatchSuggestion: vi.fn(), rejectMatchSuggestion: vi.fn() },
-  request: vi.fn(), toast: vi.fn(), push: vi.fn(), canWrite: vi.fn(),
+  isClientRole: false, request: vi.fn(), toast: vi.fn(), push: vi.fn(), canWrite: vi.fn(), canRead: vi.fn(),
   escape: null as null | (() => void),
 }))
 const supplier = reactive({ currentSupplierId: 1 })
 vi.mock('@/stores/supplier', () => ({ useSupplierStore: () => supplier }))
-vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ canWrite: mocks.canWrite }) }))
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ canRead: mocks.canRead, isClientRole: mocks.isClientRole, canWrite: mocks.canWrite }) }))
 vi.mock('@/api/bank', () => ({ bankApi: mocks.bank }))
 vi.mock('@/api/invoices', () => ({ invoicesApi: {} }))
 vi.mock('@/api/purchaseInvoices', () => ({ purchaseInvoicesApi: {} }))
@@ -34,7 +34,7 @@ function setup() {
   return actions
 }
 function row(status: BankTransaction['match_status'] = 'unmatched') {
-  return reactive({ id: 7, amount: -25, posted_at: '2099-01-01', currency: 'CZK', match_status: status } as BankTransaction)
+  return reactive({ id: 7, amount: -25, posted_at: '2099-01-01', currency: 'CZK', match_status: status, ignore_origin: status === 'ignored' ? 'manual' : null } as BankTransaction)
 }
 function close(actions: BankTransactionActions, action: BankDetailAction) {
   const handlers = { match: actions.closeMatch, create: actions.closeCreate, request: actions.closeRequestDoc, ignore: actions.closeIgnore, unmatch: actions.closeUnmatch }
@@ -43,7 +43,9 @@ function close(actions: BankTransactionActions, action: BankDetailAction) {
 beforeEach(() => {
   vi.resetAllMocks()
   supplier.currentSupplierId = 1
+  mocks.isClientRole = false
   mocks.canWrite.mockReturnValue(true)
+  mocks.canRead.mockReturnValue(true)
   mocks.bank.matchCandidates.mockResolvedValue({ candidates: [], fallback: false })
   mocks.bank.splitSuggestions.mockResolvedValue({ suggestions: [], window: 7 })
 })
@@ -96,6 +98,121 @@ describe('actions opened from bank transaction detail', () => {
     for (const action of ['match', 'create', 'request', 'ignore', 'unmatch'] as BankDetailAction[]) {
       expect(actions.canRunDetailAction(tx, action)).toBe(false)
     }
+  })
+
+  it.each(['manual', 'notice_transfer', 'rule', null] as const)('restores staff ignored movement %s through the original unmatch endpoint', async origin => {
+    mocks.canRead.mockReturnValue(false)
+    mocks.canWrite.mockImplementation(permission => permission === 'bank.match')
+    const actions = setup(), tx = row('ignored')
+    tx.ignore_origin = origin
+    expect(actions.canRunDetailAction(tx, 'unmatch')).toBe(true)
+    actions.unmatchTx(tx)
+    await actions.confirmUnmatch()
+    expect(mocks.bank.unmatch).toHaveBeenCalledWith(tx.id)
+    expect(mocks.bank.unignore).not.toHaveBeenCalled()
+  })
+
+  it('preserves staff matching without new bank read or document payment prerequisites', async () => {
+    mocks.canRead.mockReturnValue(false)
+    mocks.canWrite.mockImplementation(permission => permission === 'bank.match')
+    const actions = setup(), tx = row()
+    expect(actions.canRunDetailAction(tx, 'match')).toBe(true)
+    expect(actions.canRunDetailAction(tx, 'ignore')).toBe(true)
+    actions.startMatch(tx)
+    await flushPromises()
+    await actions.confirmCandidate({ id: 1, type: 'purchase_invoice' } as never)
+    expect(mocks.bank.matchManual).toHaveBeenCalledWith(tx.id, { purchaseInvoiceId: 1 })
+  })
+
+  it.each(['invoices', 'purchase_invoices'] as const)('requires client payment permission for matching and removing %s payments', async agenda => {
+    mocks.isClientRole = true
+    mocks.canWrite.mockImplementation(permission => permission === 'bank.match')
+    const actions = setup(), tx = row('manual')
+    if (agenda === 'invoices') tx.matched_invoice_id = 123
+    else tx.matched_purchase_invoice_id = 123
+    expect(actions.canRunDetailAction(tx, 'unmatch')).toBe(false)
+    tx.match_status = 'unmatched'
+    expect(actions.canRunDetailAction(tx, 'match')).toBe(false)
+    mocks.canWrite.mockImplementation(permission => permission === 'bank.match' || permission === (agenda === 'invoices' ? 'invoices.mark_paid' : 'purchase_invoices.transition'))
+    expect(actions.canRunDetailAction(tx, 'match')).toBe(true)
+    tx.match_status = 'manual'
+    expect(actions.canRunDetailAction(tx, 'unmatch')).toBe(true)
+    mocks.canRead.mockImplementation(permission => permission !== agenda)
+    expect(actions.canRunDetailAction(tx, 'unmatch')).toBe(false)
+  })
+
+  it('guards mixed suggestions per candidate and rechecks payment rights at confirmation', async () => {
+    mocks.isClientRole = true
+    mocks.canWrite.mockImplementation(permission => permission === 'bank.match' || permission === 'invoices.mark_paid')
+    const actions = setup()
+    const candidateBase = {
+      invoice_id: null, invoice_ids: null, purchase_invoice_id: null,
+      score: 90, signals: {}, flags: [], fee_amount: null, overpayment_amount: null,
+      display: { ref: 'SYNTH-161', party: null, amount: 1000, currency: 'CZK', due_date: null, paid: false },
+    }
+    const suggestion: MatchSuggestion = {
+      id: 101, bank_transaction_id: 7, kind: 'single', reason: 'Synthetic suggestion',
+      top_score: 90, margin: null, deterministic_core: false, status: 'pending', created_at: '2099-06-15',
+      candidates: [
+        { ...candidateBase, type: 'invoice', invoice_id: 1 },
+        { ...candidateBase, type: 'purchase_invoice', purchase_invoice_id: 2 },
+      ],
+    }
+    actions.setSuggestions(new Map([[7, suggestion]]))
+    expect(actions.canReviewSuggestion(suggestion)).toBe(true)
+    expect(actions.canAcceptCandidate(suggestion.candidates[0]!)).toBe(true)
+    expect(actions.canAcceptCandidate(suggestion.candidates[1]!)).toBe(false)
+    await actions.acceptTxSuggestion(7, 1)
+    expect(mocks.bank.acceptMatchSuggestion).not.toHaveBeenCalled()
+    await actions.rejectTxSuggestion(7)
+    expect(mocks.bank.rejectMatchSuggestion).toHaveBeenCalledWith(101)
+    mocks.canRead.mockImplementation(permission => permission !== 'purchase_invoices')
+    expect(actions.canReviewSuggestion(suggestion)).toBe(false)
+    mocks.canRead.mockReturnValue(true)
+    const tx = row()
+    tx.amount = 25
+    tx.source = 'idoklad'
+    actions.startMatch(tx)
+    await flushPromises()
+    actions.matchVarsymbol.value = '123'
+    mocks.canWrite.mockImplementation(permission => permission === 'bank.match')
+    await actions.confirmMatch()
+    await actions.confirmCandidate({ id: 1, type: 'invoice' } as never)
+    await actions.confirmSuggestion({ invoices: [{ id: 1 }] } as SplitSuggestion)
+    await actions.acceptTxSuggestion(7, 0)
+    expect(mocks.bank.matchManual).not.toHaveBeenCalled()
+    expect(mocks.bank.matchMultiple).not.toHaveBeenCalled()
+    expect(mocks.bank.acceptMatchSuggestion).not.toHaveBeenCalled()
+  })
+
+  it('keeps client ignoring independent of matching and protects system ignores', async () => {
+    mocks.isClientRole = true
+    mocks.canWrite.mockImplementation(permission => permission === 'bank.ignore')
+    const actions = setup(), tx = row()
+    expect(actions.canRunDetailAction(tx, 'ignore')).toBe(true)
+    expect(actions.canRunDetailAction(tx, 'match')).toBe(false)
+    expect(actions.canRunDetailAction(tx, 'create')).toBe(false)
+    tx.match_status = 'ignored'
+    tx.ignore_origin = 'rule'
+    expect(actions.canRunDetailAction(tx, 'unmatch')).toBe(false)
+    tx.ignore_origin = 'manual'
+    expect(actions.canRunDetailAction(tx, 'unmatch')).toBe(true)
+    mocks.bank.unignore.mockResolvedValue({ unignored: true })
+    actions.unmatchTx(tx)
+    await actions.confirmUnmatch()
+    expect(mocks.bank.unignore).toHaveBeenCalledWith(tx.id)
+    expect(mocks.bank.unmatch).not.toHaveBeenCalled()
+  })
+
+  it.each(['payroll', 'transfer', 'outside_saldo'] as const)('hides client actions for %s with accounting data redacted', resolution => {
+    mocks.isClientRole = true
+    const actions = setup(), tx = row()
+    tx.posting = null
+    tx.resolution = resolution
+    tx.match_available = false
+    tx.ignore_available = false
+    expect(actions.canRunDetailAction(tx, 'match')).toBe(false)
+    expect(actions.canRunDetailAction(tx, 'ignore')).toBe(false)
   })
 
   it('renders the detail action bar and dispatches its match action', async () => {

@@ -113,8 +113,10 @@ final class RoutePermissionPathEscapeSweepTest extends TestCase
                     continue;
                 }
                 $type = $catalog->allowsRoleType($key, 'staff') ? 'staff' : 'client';
-                // Role drží PRÁVĚ TEN konkrétní klíč — na hrubší catch-all by nedosáhla.
-                $this->role = new EffectiveRole(2, 'Test', $type, true, [$key => $policy->minimum->value]);
+                // Role drží konkrétní klíč a jeho předpoklady; bank READ neotevírá mutační catch-all.
+                $permissions = [$key => $policy->minimum->value];
+                if (in_array($key, ['bank.import', 'bank.match', 'bank.ignore'], true)) $permissions['bank'] = 1;
+                $this->role = new EffectiveRole(2, 'Test', $type, true, $permissions);
             } else {
                 $this->role = new EffectiveRole(2, 'Test', 'staff', true, []);
             }

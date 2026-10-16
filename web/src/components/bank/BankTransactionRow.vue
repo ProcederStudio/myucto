@@ -76,13 +76,13 @@ const ruleTemplateOpen = ref(false)
 // Dimenze pohybu (Firma → Dimenze): štítky v řádku a vlastní rozbalovací editor.
 // Dřív byl editor jen v panelu „Dokumenty" a v řádku nebylo nic vidět.
 const dims = useDimensions()
-const dimensionsAvailable = computed(() => dims.enabled.value && dims.documentTypes.value.length > 0)
+const dimensionsAvailable = computed(() => !auth.isClientRole && dims.enabled.value && dims.documentTypes.value.length > 0)
 const dimensionsOpen = ref(false)
 const savedDimensions = ref<DimensionMap | null>(null)
 const txDimensions = computed<DimensionMap>(() => savedDimensions.value ?? props.tx.dimensions ?? {})
 const hasDimensions = computed(() => Object.values(txDimensions.value).some(v => !!v))
 // Číselník je sdílený a načte se jednou za firmu, ne za každý řádek.
-onMounted(() => { dims.load().catch(() => { /* bez číselníku se dimenze jen neukážou */ }) })
+onMounted(() => { if (!auth.isClientRole) dims.load().catch(() => { /* bez číselníku se dimenze jen neukážou */ }) })
 function toggleDimensions() {
   dimensionsOpen.value = !dimensionsOpen.value
 }
@@ -101,22 +101,20 @@ function onNotesChanged(notes: JournalNote[]) {
   savedNotes.value = notes.map(n => ({ id: n.id, body: n.body, pinned: n.pinned }))
 }
 
-const payrollMatched = computed(() => props.tx.posting?.payroll_matched === true)
+const payrollMatched = computed(() => props.tx.resolution === 'payroll' || props.tx.posting?.payroll_matched === true)
 // Vlastní převod fakturu nečeká: jeho protějškem je druhá noha na jiném vlastním účtu.
-const ownTransfer = computed(() => props.tx.match_status === 'unmatched' && props.tx.posting?.transfer != null)
+const ownTransfer = computed(() => props.tx.match_status === 'unmatched' && (props.tx.resolution === 'transfer' || props.tx.posting?.transfer != null))
 // Zaúčtováno mimo saldokontní účty (daň, odvod, poplatek, splátka) — doklad k tomu
 // neexistuje a nikdy nebude, takže „Nespárováno" je tu jen falešný poplach.
 const outsideSaldo = computed(() => props.tx.match_status === 'unmatched'
-  && props.tx.posting?.outside_saldo === true)
+  && (props.tx.resolution === 'outside_saldo' || props.tx.posting?.outside_saldo === true))
 const noInvoiceExpected = computed(() => payrollMatched.value || ownTransfer.value || outsideSaldo.value)
 const statusText = computed(() => payrollMatched.value
   ? t('bank.match_status.payroll')
   : ownTransfer.value ? t('bank.match_status.transfer')
     : outsideSaldo.value ? t('bank.match_status.outside_saldo') : statusLabel(props.tx.match_status))
 // Štítek „Nespárováno" je zkratka k párování — stejná podmínka jako akce „Spárovat" v menu.
-const badgeMatchable = computed(() => !noInvoiceExpected.value
-  && auth.canWrite('bank.match') && !props.tx.posting?.payroll_matched
-  && (props.tx.match_status === 'unmatched' || props.tx.match_status === 'auto_partial'))
+const badgeMatchable = computed(() => !noInvoiceExpected.value && props.actions.canRunDetailAction(props.tx, 'match'))
 const statusTitle = computed(() => outsideSaldo.value
   ? t('bank.outside_saldo_hint')
   : badgeMatchable.value ? t('bank.match_badge_hint') : undefined)
@@ -236,17 +234,17 @@ function onPosted(payload: { result: PostResult; debit: string; credit: string }
 // Řádkové akce párování banky → 2 tlačítka inline, zbytek do „…" popupu (RowActionsMenu).
 function matchActions(tx: BankTransaction): RowAction[] {
   const st = tx.match_status
-  const canMatch = auth.canWrite('bank.match') && !tx.posting?.payroll_matched
+  const canMatch = props.actions.canRunDetailAction(tx, 'match')
   return [
     {
       key: 'open-inv', label: t('bank.open'), icon: 'doc', variant: 'neutral',
       to: tx.matched_invoice_id ? `/invoices/${tx.matched_invoice_id}` : undefined,
-      show: !!tx.matched_invoice_id,
+      show: !!tx.matched_invoice_id && auth.canRead('invoices'),
     },
     {
       key: 'open-pi', label: t('bank.open'), icon: 'doc', variant: 'neutral',
       to: tx.matched_purchase_invoice_id ? `/purchase-invoices/${tx.matched_purchase_invoice_id}` : undefined,
-      show: !tx.matched_invoice_id && !!tx.matched_purchase_invoice_id,
+      show: !tx.matched_invoice_id && !!tx.matched_purchase_invoice_id && auth.canRead('purchase_invoices'),
     },
     {
       key: 'match', label: t('bank.match'), icon: 'link', variant: 'primary',
@@ -256,17 +254,18 @@ function matchActions(tx: BankTransaction): RowAction[] {
     {
       key: 'create-purchase', label: t('bank.create_purchase'), icon: 'plus', variant: 'primary',
       run: () => openCreate(tx),
-      show: !tx.posting?.payroll_matched && auth.canWrite('purchase_invoices.create') && tx.amount < 0 && st === 'unmatched',
+      show: props.actions.canRunDetailAction(tx, 'create'),
     },
     {
       key: 'request-document', label: t('bank.document_request.action'), icon: 'doc', variant: 'warning',
       run: () => openRequestDoc(tx),
-      show: !tx.posting?.payroll_matched && auth.canWrite('documents.requests') && (st === 'unmatched' || st === 'auto_partial'),
+      show: props.actions.canRunDetailAction(tx, 'request'),
     },
     {
       key: 'documents', label: expandedDocs.value.has(tx.id) ? t('bank.documents_hide') : t('bank.documents_action'),
       icon: 'doc', variant: 'neutral',
       run: () => toggleDocs(tx.id),
+      show: !auth.isClientRole && auth.canRead('documents'),
     },
     {
       key: 'dimensions', label: dimensionsOpen.value ? t('bank.dimensions_hide') : t('bank.dimensions_action'),
@@ -282,12 +281,12 @@ function matchActions(tx: BankTransaction): RowAction[] {
     {
       key: 'ignore', label: t('bank.ignore'), icon: 'x', variant: 'neutral',
       run: () => ignoreTx(tx),
-      show: canMatch && st === 'unmatched',
+      show: props.actions.canRunDetailAction(tx, 'ignore'),
     },
     {
       key: 'unmatch', label: t(tx.match_status === 'ignored' ? 'bank.unignore' : 'bank.unmatch'), icon: 'uturn', variant: 'neutral',
       run: () => unmatchTx(tx),
-      show: canMatch && ['auto_exact', 'auto_partial', 'manual', 'ignored'].includes(st),
+      show: props.actions.canRunDetailAction(tx, 'unmatch'),
     },
     /*
      * Přeúčtování je vzácný administrativní zásah do už hotového zápisu, proto
@@ -364,14 +363,14 @@ function candidateReject() {
         </button>
       </td>
       <td class="px-3 py-2 text-xs">
-        <template v-if="(tx.matched_invoices?.length ?? 0) > 1">
+        <template v-if="(tx.matched_invoices?.length ?? 0) > 1 && auth.canRead('invoices')">
           <RouterLink v-for="mi in tx.matched_invoices" :key="mi.invoice_id" :to="`/invoices/${mi.invoice_id}`"
             class="text-primary-600 hover:underline block">
             {{ mi.varsymbol || `#${mi.invoice_id}` }}
           </RouterLink>
           <div v-if="tx.matched_invoices?.[0]?.client_name" class="text-neutral-500 text-xs">{{ tx.matched_invoices[0].client_name }}</div>
         </template>
-        <template v-else-if="(tx.matched_purchase_invoices?.length ?? 0) > 1">
+        <template v-else-if="(tx.matched_purchase_invoices?.length ?? 0) > 1 && auth.canRead('purchase_invoices')">
           <div v-for="invoice in tx.matched_purchase_invoices" :key="invoice.purchase_invoice_id">
             <RouterLink :to="`/purchase-invoices/${invoice.purchase_invoice_id}`" class="text-primary-600 hover:underline">
               {{ invoice.ref || `#${invoice.purchase_invoice_id}` }}
@@ -380,11 +379,11 @@ function candidateReject() {
           </div>
         </template>
         <template v-else>
-          <RouterLink v-if="tx.matched_invoice_id" :to="`/invoices/${tx.matched_invoice_id}`"
+          <RouterLink v-if="tx.matched_invoice_id && auth.canRead('invoices')" :to="`/invoices/${tx.matched_invoice_id}`"
             class="text-primary-600 hover:underline">
             {{ tx.matched_varsymbol || `#${tx.matched_invoice_id}` }}
           </RouterLink>
-          <RouterLink v-else-if="tx.matched_purchase_invoice_id" :to="`/purchase-invoices/${tx.matched_purchase_invoice_id}`"
+          <RouterLink v-else-if="tx.matched_purchase_invoice_id && auth.canRead('purchase_invoices')" :to="`/purchase-invoices/${tx.matched_purchase_invoice_id}`"
             class="text-primary-600 hover:underline">
             {{ tx.matched_purchase_ref || `#${tx.matched_purchase_invoice_id}` }}
           </RouterLink>
@@ -444,7 +443,7 @@ function candidateReject() {
     <tr v-if="!payrollMatched && expandedSuggestions.has(tx.id) && suggestionFor(tx.id)">
       <td :colspan="colspan" class="bg-warning-50/40 px-4 py-3">
         <MatchSuggestionPanel variant="panel" :suggestion="suggestionFor(tx.id)!" :reviewing="reviewingSuggestion"
-          :can-review="auth.canWrite('bank.match')" @accept="candidateAccept" @reject="candidateReject" />
+          :can-review="actions.canReviewSuggestion(suggestionFor(tx.id)!)" :can-accept-candidate="actions.canAcceptCandidate" @accept="candidateAccept" @reject="candidateReject" />
       </td>
     </tr>
     <tr v-if="expandedDocs.has(tx.id)">
@@ -538,14 +537,14 @@ function candidateReject() {
         <DimensionChips :dimensions="txDimensions" />
       </button>
     </div>
-    <div v-if="(tx.matched_invoices?.length ?? 0) > 1" class="text-xs">
+    <div v-if="(tx.matched_invoices?.length ?? 0) > 1 && auth.canRead('invoices')" class="text-xs">
       <RouterLink v-for="mi in tx.matched_invoices" :key="mi.invoice_id" :to="`/invoices/${mi.invoice_id}`"
         class="text-primary-600 hover:underline font-mono mr-2">
         {{ mi.varsymbol || `#${mi.invoice_id}` }}
       </RouterLink>
       <span v-if="tx.matched_invoices?.[0]?.client_name" class="text-neutral-500">{{ tx.matched_invoices[0].client_name }}</span>
     </div>
-    <div v-else-if="(tx.matched_purchase_invoices?.length ?? 0) > 1" class="text-xs">
+    <div v-else-if="(tx.matched_purchase_invoices?.length ?? 0) > 1 && auth.canRead('purchase_invoices')" class="text-xs">
       <div v-for="invoice in tx.matched_purchase_invoices" :key="invoice.purchase_invoice_id">
         <RouterLink :to="`/purchase-invoices/${invoice.purchase_invoice_id}`" class="text-primary-600 hover:underline">
           {{ invoice.ref || `#${invoice.purchase_invoice_id}` }}
@@ -553,14 +552,14 @@ function candidateReject() {
         <span v-if="invoice.vendor_name" class="text-neutral-500"> · {{ invoice.vendor_name }}</span>
       </div>
     </div>
-    <div v-else-if="tx.matched_invoice_id" class="text-xs">
+    <div v-else-if="tx.matched_invoice_id && auth.canRead('invoices')" class="text-xs">
       <RouterLink :to="`/invoices/${tx.matched_invoice_id}`"
         class="text-primary-600 hover:underline font-mono">
         {{ tx.matched_varsymbol || `#${tx.matched_invoice_id}` }}
       </RouterLink>
       <span v-if="tx.matched_client_name" class="text-neutral-500 ml-2">{{ tx.matched_client_name }}</span>
     </div>
-    <div v-else-if="tx.matched_purchase_invoice_id" class="text-xs">
+    <div v-else-if="tx.matched_purchase_invoice_id && auth.canRead('purchase_invoices')" class="text-xs">
       <RouterLink :to="`/purchase-invoices/${tx.matched_purchase_invoice_id}`"
         class="text-primary-600 hover:underline font-mono">
         {{ tx.matched_purchase_ref || `#${tx.matched_purchase_invoice_id}` }}
@@ -569,7 +568,7 @@ function candidateReject() {
     </div>
     <MatchSuggestionPanel v-if="!payrollMatched && expandedSuggestions.has(tx.id) && suggestionFor(tx.id)" variant="inline"
       :suggestion="suggestionFor(tx.id)!" :reviewing="reviewingSuggestion"
-      :can-review="auth.canWrite('bank.match')" @accept="candidateAccept" @reject="candidateReject" />
+      :can-review="actions.canReviewSuggestion(suggestionFor(tx.id)!)" :can-accept-candidate="actions.canAcceptCandidate" @accept="candidateAccept" @reject="candidateReject" />
     <div v-if="expandedDocs.has(tx.id)" class="pt-1">
       <LinkedDocumentsPanel entity-type="bank_transaction" :entity-id="tx.id" />
     </div>

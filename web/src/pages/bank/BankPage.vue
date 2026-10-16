@@ -20,7 +20,7 @@ const supplierStore = useSupplierStore()
 const isAdmin = computed(() => auth.isCompanyAdminRole)
 const canReadBankSettings = computed(() => auth.isDemo || auth.canRead('settings.bank_accounts'))
 const canWriteBankSettings = computed(() => auth.isDemo || auth.canWrite('settings.bank_accounts'))
-const isDoubleEntry = computed(() => auth.hasCommercialFeatures && supplierStore.currentSupplier?.accounting_mode === 'double_entry')
+const isDoubleEntry = computed(() => !auth.isClientRole && auth.hasCommercialFeatures && supplierStore.currentSupplier?.accounting_mode === 'double_entry')
 
 // Sjednocená stránka „Bankovní účty" (Finance): výpisy + účetní automatika + admin záložky.
 // Pravidla účtování (dřívější tab „rules") žijí pod Šablony (/templates?section=posting) —

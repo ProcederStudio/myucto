@@ -3690,6 +3690,7 @@ final class Routes
         $app->post ('/api/bank-transactions/{id:[0-9]+}/match',   [BankStatementAction::class, 'manualMatch']);
         $app->post ('/api/bank-transactions/{id:[0-9]+}/unmatch', [BankStatementAction::class, 'unmatch']);
         $app->post ('/api/bank-transactions/{id:[0-9]+}/ignore',  [BankStatementAction::class, 'ignore']);
+        $app->post ('/api/bank-transactions/{id:[0-9]+}/unignore', [BankStatementAction::class, 'unignore']);
         $app->post ('/api/bank-transactions/{id:[0-9]+}/create-purchase-invoice', [BankStatementAction::class, 'createPurchaseInvoice']);
         $app->post ('/api/bank-transactions/{id:[0-9]+}/document-request', [BankStatementAction::class, 'createDocumentRequest']);
         // Automatizace (mini-epic) — ruční zaúčtování / storno transakce.

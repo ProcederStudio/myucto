@@ -84,7 +84,7 @@ const postingPanelRef = ref<InstanceType<typeof DocumentPostingPanel> | null>(nu
 const lockedForMe = computed(() => !!invoice.value?.locked?.is_locked && auth.isClientRole)
 const bankMatchTarget = ref<{ id: number; ref: string | null } | null>(null)
 const canMatchBankPayment = computed(() => !!invoice.value && !lockedForMe.value
-  && auth.canRead('bank') && auth.canWrite('bank.match')
+  && !auth.isClientRole && auth.canRead('bank') && auth.canWrite('bank.match')
   && Number(invoice.value.amount_to_pay) !== 0
   && ['received', 'booked', 'paid'].includes(invoice.value.status))
 function openBankMatch() {

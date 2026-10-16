@@ -10,6 +10,10 @@ Systém pohyby deduplikuje, nabídne jejich párování s doklady a v podvojném
 
 Výpisy najdete v `Peníze → Bankovní účty`, záložka **Bankovní výpisy**. Konfigurace bankovních účtů, IMAP schránek a parserů má vlastní kapitolu [Bankovní účty a e-mailová avíza (IMAP)](30_Bankovni_ucty.md) a leží na dalších záložkách téže stránky. Vedle výpisů umí systém zpracovávat i bankovní e-mailová avíza z IMAP schránky; hodí se, když banka posílá oznámení o příchozí platbě rychleji než pravidelný výpis.
 
+Administrátor může uživateli typu **Klient** přidělit bankovní oprávnění prostřednictvím klientské role v `Systém → Role a oprávnění`. Banka je pro klienta ve výchozím stavu vypnutá. Oprávnění **Prohlížet banku** zpřístupní výpisy, avíza, všechny pohyby, zůstatky a stažení podkladů jeho firmy. Samostatně lze povolit **Nahrávat výpisy**, **Párovat platby** a **Ignorovat platby**; každá z těchto akcí vyžaduje čtení banky.
+
+Klient potřebuje pro párování i jeho zrušení čtení všech dotčených dokladů a oprávnění měnit jejich úhrady: u vydaných faktur **Změnit úhradu** (`invoices.mark_paid`), u přijatých **Změnit stav přijaté faktury** (`purchase_invoices.transition`), vždy na úrovni **Zápis**. Samotné čtení faktur nestačí. Výpis může nahrát pouze k již založenému bankovnímu účtu své firmy; neznámý účet nebo účet jiné firmy musí vyřešit účetní. Ignorovat lze nespárovaný pohyb s volitelnou poznámkou; vrátit lze pouze ruční ignorování. Potlačené duplicity a pohyby ignorované pravidlem zůstávají pro klienta chráněné. Účetní může obnovit i převzaté ignorování z avíza akcí **Zrušit ignorování**. Zrušení párování respektuje účetní blokace. Import a párování mohou podle nastavení firmy automaticky vytvořit úhrady a účetní zápisy pod přihlášeným klientským uživatelem; klient přitom nezískává ruční účtování, správu účtů, napojení, pravidel ani mazání výpisů.
+
 ## 29.1 Kdy to potřebujete
 
 - Banka vám poslala nebo si stahujete výpis a chcete, aby se faktury samy označily jako zaplacené.
@@ -33,7 +37,7 @@ Výpisy najdete v `Peníze → Bankovní účty`, záložka **Bankovní výpisy*
 
 1. **Bankovní účet.** Číslo účtu z výpisu musí patřit některé z měn firmy. Účty zadáte v `Peníze → Bankovní účty`, záložka **Měny a účty** (viz [Bankovní účty](30_Bankovni_ucty.md)).
 2. **Zaúčtované doklady.** Aby se platba v podvojném účetnictví zaúčtovala přímo, musí mít faktura svůj zaúčtovaný předpis (viz [§ 29.13.13](#291313-automaticke-zauctovani-sparovanych-plateb-jen-podvojne-ucetnictvi)).
-3. **Oprávnění.** Párování vyžaduje oprávnění ke čtení banky a k zápisu párování. Smazání výpisu smí jen administrátor. Poznámku u pohybu přidává administrátor nebo účetní.
+3. **Oprávnění.** Párování vyžaduje zápis párování. Klient navíc potřebuje čtení banky, čtení dotčených dokladů a výše uvedená oprávnění měnit jejich úhrady. Smazání výpisu smí jen administrátor. Poznámku u pohybu přidává administrátor nebo účetní.
 4. **Podvojné účetnictví** pro záložky **K zaúčtování** a pravidla účtování. Daňová evidence žádný deník nemá, tyto záložky ani tlačítka se v ní nezobrazují a banka funguje jen jako párování plateb.
 
 ## 29.3 Krok za krokem: nahrání výpisu

@@ -3,11 +3,11 @@ import { reactive } from 'vue'
 import { mount } from '@vue/test-utils'
 import { useBankTransactionActions } from '../useBankTransactionActions'
 
-vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ canWrite: () => true }) }))
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ isClientRole: true, canRead: () => true, canWrite: () => true }) }))
 vi.mock('@/stores/supplier', () => ({ useSupplierStore: () => ({ currentSupplierId: 1 }) }))
 import BankTransactionDialogs from '@/components/bank/BankTransactionDialogs.vue'
 import type { BankTransaction } from '@/api/bank'
-const api = vi.hoisted(() => ({ ignore: vi.fn(), unmatch: vi.fn(), toast: vi.fn() }))
+const api = vi.hoisted(() => ({ ignore: vi.fn(), unmatch: vi.fn(), unignore: vi.fn(), toast: vi.fn() }))
 vi.mock('@/api/bank', () => ({ bankApi: api }))
 vi.mock('vue-router', () => ({ useRouter: () => ({}), RouterLink: { props: ['to'], template: '<a><slot /></a>' } }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
@@ -19,7 +19,7 @@ vi.mock('@/api/invoices', () => ({ invoicesApi: {} }))
 vi.mock('@/api/documentRequests', () => ({ documentRequestsApi: {} }))
 vi.mock('@/api/gopay', () => ({ gopayApi: {} }))
 function tx(status: 'ignored' | 'unmatched' = 'unmatched') {
-  return reactive({ id: 7, posted_at: '2099-01-01', amount: -25, currency: 'CZK', match_status: status,
+  return reactive({ id: 7, posted_at: '2099-01-01', amount: -25, currency: 'CZK', match_status: status, ignore_origin: status === 'ignored' ? 'manual' : null,
     counterparty_name: 'Test party', description: 'Full synthetic bank description', ignore_note: status === 'ignored' ? 'Test note' : null,
   } as BankTransaction)
 }
@@ -44,13 +44,13 @@ describe('bank confirmation dialogs', () => {
   })
   it('keeps note on rejection and blocks duplicate submits', async () => {
     let reject!: (reason: Error) => void
-    api.unmatch.mockImplementation(() => new Promise((_, no) => { reject = no }))
+    api.unignore.mockImplementation(() => new Promise((_, no) => { reject = no }))
     const refresh = vi.fn(), actions = useBankTransactionActions({ reload: vi.fn(), refresh }), row = tx('ignored')
     actions.unmatchTx(row)
     const pending = actions.confirmUnmatch()
     await actions.confirmUnmatch()
     actions.closeUnmatch()
-    expect(api.unmatch).toHaveBeenCalledOnce()
+    expect(api.unignore).toHaveBeenCalledOnce()
     expect(actions.unmatchTarget.value).toBe(row)
     reject(new Error('Closed period'))
     await pending
@@ -62,7 +62,7 @@ describe('bank confirmation dialogs', () => {
   it('clears note after unmatch; refresh failure does not offer mutation retry', async () => {
     const actions = useBankTransactionActions({ reload: vi.fn(), refresh: vi.fn().mockRejectedValue(new Error('Refresh failed')) }), row = tx('ignored')
     actions.unmatchTx(row)
-    api.unmatch.mockResolvedValue({ unmatched: true })
+    api.unignore.mockResolvedValue({ unmatched: true })
     await actions.confirmUnmatch()
     expect(row.ignore_note).toBeNull()
     expect(row.match_status).toBe('unmatched')

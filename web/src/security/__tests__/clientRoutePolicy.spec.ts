@@ -127,7 +127,7 @@ function deriveClientRouteParity(): ClientRouteParitySnapshot {
     .filter(route => typeof route.name === 'string'
       && typeof route.meta.permission === 'string'
       && isClientPermission(route.meta.permission as PermissionKey)
-      && route.meta.superadminOnly !== true)
+      && route.meta.superadminOnly !== true && route.meta.staffOnly !== true)
     .map(route => String(route.name))
 
   const explicitSelfService = explicitSelfServiceRouteNames()
@@ -144,7 +144,7 @@ function deriveClientRouteParity(): ClientRouteParitySnapshot {
 
   const allRedirects = new Map(
     routes
-      .filter(route => typeof route.name === 'string' && route.redirect)
+      .filter(route => typeof route.name === 'string' && route.redirect && route.meta.staffOnly !== true)
       .map(route => [String(route.name), redirectDestinationNames(route)]),
   )
   const covered = new Set([...clientPermissionRoutes, ...directSelfServiceRoutes])
@@ -286,8 +286,8 @@ function clientRouteParityErrors(manifestRoutes: readonly ManifestRoute[]): stri
 
 describe('sdílená klientská plocha vlastní domény', () => {
   it('obsahuje auditovanou klientskou plochu včetně nastavení firmy a legacy aliasů', () => {
-    expect(clientDomainRoutes).toHaveLength(42)
-    expect(new Set(clientDomainRoutes.map(route => route.name)).size).toBe(42)
+    expect(clientDomainRoutes).toHaveLength(44)
+    expect(new Set(clientDomainRoutes.map(route => route.name)).size).toBe(44)
     expect(clientDomainRoutes.slice(-3).map(route => route.name))
       .toEqual(['data-exchange', 'admin-export', 'admin-import'])
   })
@@ -309,7 +309,7 @@ describe('sdílená klientská plocha vlastní domény', () => {
       if (route!.path.includes(':')) parameterized.push(definition.name)
     }
 
-    expect(rendered).toHaveLength(34)
+    expect(rendered).toHaveLength(36)
     expect(redirects).toEqual([
       'profile-totp',
       'profile-shortcuts',
@@ -321,6 +321,7 @@ describe('sdílená klientská plocha vlastní domény', () => {
       'admin-import',
     ])
     expect(parameterized).toEqual([
+      'bank-detail',
       'client-detail',
       'client-edit',
       'invoice-detail',
@@ -337,7 +338,7 @@ describe('sdílená klientská plocha vlastní domény', () => {
     }
     expect(Object.fromEntries(kindCounts)).toEqual({
       client_redirect: 4,
-      permission: 27,
+      permission: 29,
       router_redirect: 8,
       self_service: 3,
     })
@@ -409,7 +410,7 @@ describe('sdílená klientská plocha vlastní domény', () => {
       .filter(route => typeof route.name === 'string'
         && typeof route.meta.permission === 'string'
         && isClientPermission(route.meta.permission as PermissionKey)
-        && route.meta.superadminOnly !== true)
+        && route.meta.superadminOnly !== true && route.meta.staffOnly !== true)
       .map(route => String(route.name))
       .sort()
 
@@ -458,6 +459,7 @@ describe('sdílená klientská plocha vlastní domény', () => {
     }
 
     expect([...new Set(paths.map(path => String(router.resolve(path).name)))].sort()).toEqual([
+      'bank-statements',
       'client-new',
       'clients',
       'invoice-new',

@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { rolesApi, type PermissionCatalogResponse, type RoleDetail, type RoleListItem } from '@/api/roles'
-import type { PermissionValue } from '@/security/permissions'
+import { CLIENT_BANK_ACTION_KEYS, setRolePermission, type PermissionValue } from '@/security/permissions'
 import { useToast } from '@/composables/useToast'
 import { btnFilled, btnOutline, btnOutlineSm, ICONS } from '@/components/ui/buttonStyles'
 
@@ -28,9 +28,16 @@ const applicableGroups = computed(() => Object.entries(catalog.value?.groups ?? 
 })).filter(group => group.permissions.length > 0))
 
 function permissionLabel(permission: { key: string; label: string }): string {
+  if (permission.key === 'bank' || (CLIENT_BANK_ACTION_KEYS as readonly string[]).includes(permission.key)) return t(`roles.bank_permissions.${permission.key.replace('.', '_')}`)
   if (locale.value === 'cs') return permission.label
   const text = permission.key.replace(/[._]/g, ' ')
   return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
+function permissionLevels(key: string): readonly PermissionValue[] {
+  if (form.role_type === 'client' && key === 'bank') return [0, 1]
+  if (form.role_type === 'client' && (CLIENT_BANK_ACTION_KEYS as readonly string[]).includes(key)) return [0, 2]
+  return [0, 1, 2]
 }
 
 function isFixedRole(role: Pick<RoleListItem, 'system_key'>): boolean {
@@ -160,12 +167,13 @@ onMounted(load)
               <div v-for="permission in group.permissions" :key="permission.key" class="p-3 grid md:grid-cols-[1fr_auto] gap-2 items-center">
                 <div><div class="font-medium text-sm">{{ permissionLabel(permission) }}</div><div class="text-xs text-neutral-500">{{ locale === 'cs' ? permission.description : permissionLabel(permission) }}</div></div>
                 <div class="inline-flex rounded-md border border-neutral-300 overflow-hidden">
-                  <label v-for="level in ([0,1,2] as const)" :key="level" class="cursor-pointer px-2 py-1.5 text-xs" :class="(form.permissions[permission.key] || 0) === level ? 'bg-primary-600 text-white' : 'bg-surface'"><input v-model.number="form.permissions[permission.key]" class="sr-only" type="radio" :value="level" />{{ t(`roles.levels.${level}`) }}</label>
+                  <label v-for="level in permissionLevels(permission.key)" :key="level" class="cursor-pointer px-2 py-1.5 text-xs" :class="(form.permissions[permission.key] || 0) === level ? 'bg-primary-600 text-white' : 'bg-surface'"><input :checked="(form.permissions[permission.key] || 0) === level" class="sr-only" type="radio" :value="level" @change="setRolePermission(form.permissions, form.role_type, permission.key, level)" />{{ t(`roles.levels.${level}`) }}</label>
                 </div>
               </div>
             </div>
           </section>
         </div>
+        <p v-if="form.role_type === 'client'" class="text-sm text-neutral-500">{{ t('roles.client_bank_hint') }}</p>
         <div class="flex flex-wrap justify-end gap-2">
           <button type="button" :class="btnOutline('neutral')" @click="closeForm"><svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path :d="ICONS.x" /></svg>{{ t('common.cancel') }}</button>
           <button v-if="!locked" type="submit" :disabled="saving" :class="btnFilled('primary')"><svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path :d="ICONS.check" /></svg>{{ t('common.save') }}</button>

@@ -66,7 +66,7 @@ function accountLabel(a: BankAccountOption): string {
 const bankActions = useBankTransactionActions({ reload: () => changed(), refresh: () => changed(true) })
 // „Všechny pohyby" vidí každá firma s výpisy; stav zaúčtování, kontace a akce zaúčtování
 // jen podvojné účetnictví s komerčními funkcemi (stejná podmínka jako detail výpisu).
-const isDoubleEntry = computed(() => auth.hasCommercialFeatures && supplierStore.currentSupplier?.accounting_mode === 'double_entry')
+const isDoubleEntry = computed(() => !auth.isClientRole && auth.hasCommercialFeatures && supplierStore.currentSupplier?.accounting_mode === 'double_entry')
 const colspan = computed(() => 7 + (props.scope === 'all' ? 1 : 0) + (isDoubleEntry.value ? 1 : 0))
 // Řazení podle sloupce — seznam je stránkovaný na serveru, řadí se tam (výchozí = nejnovější nahoře).
 const txSort = useBankTransactionSort(['posted_at', 'amount', 'account', 'variable_symbol', 'counterparty', 'invoice', 'posting', 'status'])
@@ -248,7 +248,7 @@ useWindowRefresh(['bank', 'bank-statements', 'bank-transactions', 'bank-match-su
         <option value="unposted">{{ t('bank.filter_posting_unposted') }}</option>
         <option value="posted">{{ t('bank.filter_posting_posted') }}</option>
       </select>
-      <ActionBar v-if="scope === 'all'" :actions="[{ key: 'export', label: t('bank.unmatched_export.download'), icon: 'download', tier: 'secondary', run: exportUnmatched }]" />
+      <ActionBar v-if="scope === 'all' && !auth.isClientRole" :actions="[{ key: 'export', label: t('bank.unmatched_export.download'), icon: 'download', tier: 'secondary', run: exportUnmatched }]" />
       <BankTransactionSortSelect v-model="txSort.selectValue.value" class="md:hidden" :keys="sortKeys" />
       <span class="text-xs text-neutral-500 whitespace-nowrap">{{ t('bank.posting.count_found', { n: total }) }}</span>
     </div>

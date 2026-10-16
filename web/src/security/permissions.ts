@@ -9,7 +9,7 @@ export const PERMISSION_KEYS = [
   'purchase_invoices.scan', 'purchase_invoices.extract', 'purchase_invoices.payment_orders', 'purchase_invoices.delete',
   'purchase_invoices.approve',
   'recurring', 'recurring.create', 'recurring.run', 'recurring.pause', 'recurring.delete',
-  'bank', 'bank.import', 'bank.match', 'bank.post', 'bank.unpost', 'bank.rules',
+  'bank', 'bank.import', 'bank.match', 'bank.ignore', 'bank.post', 'bank.unpost', 'bank.rules',
   'documents', 'documents.upload', 'documents.move', 'documents.delete',
   'documents.restore', 'documents.requests', 'documents.inbox', 'documents.inbox.delete',
   'documents.submit',
@@ -49,6 +49,7 @@ export const CLIENT_PERMISSION_KEYS = [
   'purchase_invoices', 'purchase_invoices.create', 'purchase_invoices.transition',
   'purchase_invoices.delete', 'purchase_invoices.extract',
   'recurring', 'recurring.create', 'recurring.run', 'recurring.pause', 'recurring.delete',
+  'bank', 'bank.import', 'bank.match', 'bank.ignore',
   'documents.submit', 'settings.company', 'profile',
 ] as const satisfies readonly PermissionKey[]
 
@@ -61,4 +62,19 @@ export function isClientPermission(key: PermissionKey): boolean {
 export const accessLevelValue: Record<AccessLevel, PermissionValue> = {
   read: 1,
   write: 2,
+}
+
+export const CLIENT_BANK_ACTION_KEYS = ['bank.import', 'bank.match', 'bank.ignore'] as const
+
+/** Client bank actions always include bank read access. Removing read removes the actions. */
+export function setRolePermission(
+  permissions: Record<string, PermissionValue>, roleType: 'staff' | 'client', key: string, level: PermissionValue,
+): void {
+  permissions[key] = roleType === 'client' && key === 'bank' && level > 0 ? 1 : level
+  if (roleType !== 'client') return
+  if (key === 'bank' && level === 0) {
+    for (const action of CLIENT_BANK_ACTION_KEYS) permissions[action] = 0
+  } else if ((CLIENT_BANK_ACTION_KEYS as readonly string[]).includes(key) && level > 0) {
+    permissions.bank = Math.max(1, permissions.bank ?? 0) as PermissionValue
+  }
 }
