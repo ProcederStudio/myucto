@@ -14,6 +14,7 @@ use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Ai\OllamaEndpointException;
 use MyInvoice\Service\Import\AiCredentialsBulkApplier;
 use MyInvoice\Service\Import\ClientAiExtractionPolicy;
+use MyInvoice\Service\Import\ClientAiExtractionQuota;
 use MyInvoice\Service\Import\AnthropicClient;
 use MyInvoice\Service\Import\AzureOpenAiClient;
 use MyInvoice\Service\Import\GeminiClient;
@@ -77,6 +78,7 @@ final class AiProviderCredentialsAction
         private readonly ActivityLogger $logger,
         private readonly IpMatcher $ipMatcher,
         private readonly AiCredentialsBulkApplier $bulkApplier,
+        private readonly ClientAiExtractionQuota $clientQuota,
     ) {}
 
     /**
@@ -86,12 +88,22 @@ final class AiProviderCredentialsAction
      */
     public function extractionStatus(Request $request, Response $response): Response
     {
-        $issued = str_ends_with($request->getUri()->getPath(), '/ai-extract-pdf-issued/status');
-        if ($issued
-            ? !RequestAuthorization::allows($request, 'invoices.create', AccessLevel::WRITE)
-            : !ClientAiExtractionPolicy::hasDocumentPermissions($request)) {
+        if (!ClientAiExtractionPolicy::hasDocumentPermissions($request)) {
             return Json::error($response, 'forbidden', 'Nemáte oprávnění.', 403);
         }
+        return $this->safeExtractionStatus($request, $response);
+    }
+
+    public function issuedExtractionStatus(Request $request, Response $response): Response
+    {
+        if (!RequestAuthorization::allows($request, 'invoices.create', AccessLevel::WRITE)) {
+            return Json::error($response, 'forbidden', 'Nemáte oprávnění.', 403);
+        }
+        return $this->safeExtractionStatus($request, $response);
+    }
+
+    private function safeExtractionStatus(Request $request, Response $response): Response
+    {
         $supplierId = SupplierGuard::currentId($request);
         $provider = $this->selection($supplierId)['ai_provider'];
         $providers = [];
@@ -109,6 +121,7 @@ final class AiProviderCredentialsAction
 
         return Json::ok($response, [
             'client_ai_extraction_enabled' => $this->clientExtractionEnabled($supplierId),
+            'client_ai_extraction_usage' => $this->clientQuota->usage($supplierId),
             'ai_provider' => $provider,
             'providers'   => $providers,
         ]);
@@ -165,6 +178,7 @@ final class AiProviderCredentialsAction
 
         return Json::ok($response, [
             'client_ai_extraction_enabled' => $this->clientExtractionEnabled($supplierId),
+            'client_ai_extraction_usage' => $this->clientQuota->usage($supplierId),
             'ai_provider'              => $sel['ai_provider'],
             'ai_data_region'           => $sel['ai_data_region'],
             'ai_eu_residency_required' => $sel['ai_eu_residency_required'],

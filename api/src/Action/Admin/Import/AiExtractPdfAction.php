@@ -13,9 +13,13 @@ use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Import\AiPdfExtractor;
 use MyInvoice\Service\Import\ClientAiExtractionPolicy;
+use MyInvoice\Service\Import\ClientAiExtractionQuota;
 use MyInvoice\Service\Import\DocumentAddresseeResolver;
+use MyInvoice\Service\Import\ImageToPdfConverter;
+use MyInvoice\Service\Import\IsdocxExtractor;
 use MyInvoice\Service\PurchaseInvoice\PurchaseInvoiceSubmissionUploadService;
 use MyInvoice\Support\CompanyIdNormalizer;
+use MyInvoice\Support\PdfBytes;
 use MyInvoice\Service\IpMatcher;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -29,7 +33,7 @@ use Psr\Http\Message\UploadedFileInterface;
  * single-shot operace trvá 10-30s, OK pro user-blocking UX).
  *
  * Body: multipart form-data, field "pdf" = soubor.
- * Optional ?model=<id z whitelistu provideru> (override per request) — whitelist drží
+ * Staff-only ?model=<id z whitelistu provideru> (override per request) — whitelist drží
  * LlmProviderCapabilities (ANTHROPIC_MODELS / OPENAI_MODELS / GEMINI_MODELS).
  */
 final class AiExtractPdfAction
@@ -45,6 +49,8 @@ final class AiExtractPdfAction
         private readonly PurchaseInvoiceSubmissionUploadService $submissions,
         private readonly PurchaseInvoiceSubmissionRepository $submissionRows,
         private readonly ClientAiExtractionPolicy $clientPolicy,
+        private readonly ClientAiExtractionQuota $clientQuota,
+        private readonly ImageToPdfConverter $images,
     ) {}
 
     public function __invoke(Request $request, Response $response): Response
@@ -79,6 +85,10 @@ final class AiExtractPdfAction
             return Json::error($response, 'file_too_large', 'PDF musí být <= ' . self::MAX_PDF_BYTES . ' B.', 413);
         }
         $bytes = (string) $file->getStream()->getContents();
+        if ($client && (strlen($bytes) !== $size || (!PdfBytes::isPdf($bytes)
+            && !IsdocxExtractor::isZip($bytes) && $this->images->detectImageMime($bytes) === null))) {
+            return Json::error($response, 'invalid_file', 'Nahrajte PDF, ISDOCX nebo obrázek dokladu.', 400);
+        }
         $originalName = $file->getClientFilename() ?: null;
         $current = $supplierId;
 
@@ -101,9 +111,10 @@ final class AiExtractPdfAction
             }
         }
 
-        // ?model override — validuj proti whitelistu aktivního providera (jinak by
+        // Klient vždy používá výchozí model firmy. Staff ?model override validuj
+        // proti whitelistu aktivního providera (jinak by
         // libovolný string protekl do klienta). Neznámý model → 400.
-        $modelOverride = (string) ($request->getQueryParams()['model'] ?? '') ?: null;
+        $modelOverride = $client ? null : ((string) ($request->getQueryParams()['model'] ?? '') ?: null);
         if ($modelOverride !== null) {
             $allowedModels = $this->extractor->capabilities($supplierId)->models;
             if (!in_array($modelOverride, $allowedModels, true)) {
@@ -118,7 +129,14 @@ final class AiExtractPdfAction
         $importBatchId = ($importBatchId !== '') ? substr($importBatchId, 0, 32) : null;
 
         $userId = (int) ($user['id'] ?? 0);
-        $result = $this->extractor->extractAndCreate($supplierId, $userId, $bytes, $modelOverride, $originalName, $importBatchId, requireReview: $client);
+        if ($client && $this->clientQuota->reserve($supplierId) === null) {
+            return Json::error($response, 'client_ai_extraction_limit_reached',
+                'Měsíční limit pokusů o AI vytěžení této firmy je vyčerpán. Obraťte se na správce firmy.', 429,
+                ['client_ai_extraction_usage' => $this->clientQuota->usage($supplierId)],
+            );
+        }
+        $result = $this->extractor->extractAndCreate($supplierId, $userId, $bytes, $modelOverride, $originalName, $importBatchId,
+            requireReview: $client, allowModelUpgrade: !$client);
 
         // Provenance (F7 §3.7): data_residency_ok=false jen když router odmítl kvůli
         // EU rezidenci (residency_conflict); ISDOC i úspěšná AI cesta = true.

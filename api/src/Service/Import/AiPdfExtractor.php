@@ -88,20 +88,17 @@ final class AiPdfExtractor
      *
      * @param bool $requireReview Klientská cesta vyžaduje kontrolu i u uhrazené účtenky;
      *        nepovolí přímou úhradu ani kartovou automatiku. ISDOC větve vždy tvoří koncept.
+     * @param bool $allowModelUpgrade false zakáže retry dražším modelem; klient zůstává u výchozího modelu firmy.
      *
      * @return array{ok:bool, purchase_invoice_id?:int, vendor_id?:int, source:string,
      *               error?:string, ai_data?:array<string,mixed>, model?:string,
      *               usage?:array<string,int>}
      */
-    public function extractAndCreate(int $supplierId, int $userId, string $pdfBytes, ?string $modelOverride = null, ?string $originalFilename = null, ?string $importBatchId = null, bool $requireReview = false): array
+    public function extractAndCreate(int $supplierId, int $userId, string $pdfBytes, ?string $modelOverride = null, ?string $originalFilename = null, ?string $importBatchId = null, bool $requireReview = false, bool $allowModelUpgrade = true): array
     {
         // Hlavička PDF posunutá o prázdný řádek / BOM (dompdf za PHP skriptem s mezerou)
         // — oprav na vstupu, ať ISDOC, AI klienti i archivace dostanou PDF od `%PDF-`.
-        // ZIP může obsahovat nekomprimované PDF už v prvním kilobajtu; jeho
-        // vnitřní hlavička se nesmí považovat za prefix samotného uploadu.
-        if (!IsdocxExtractor::isZip($pdfBytes)) {
-            $pdfBytes = PdfBytes::normalize($pdfBytes);
-        }
+        $pdfBytes = PdfBytes::normalize($pdfBytes);
         // ISDOC-first rozhodnutí (F7 §3.9) — sdílený router (stejný jako inbox scanner).
         // Detekuje isdocx balíček, embedded ISDOC v PDF, a rozhoduje o AI fallbacku
         // s OPRAVENOU sémantikou: validní ISDOC ⇒ AI se NIKDY nevolá; přítomný ISDOC
@@ -222,7 +219,7 @@ final class AiPdfExtractor
         // pro daného tenanta (Anthropic: haiku → sonnet-4-6) nebo null = žádný upgrade.
         // Extrakci retry provedeme JEN když je návrat non-null; jinak chování identické.
         $modelUsed = (string) ($extracted['model'] ?? '');
-        $strongerModel = $this->anthropic->strongerModel($supplierId, $modelUsed);
+        $strongerModel = $allowModelUpgrade ? $this->anthropic->strongerModel($supplierId, $modelUsed) : null;
         if ($strongerModel !== null) {
             $tenantIc = $this->fetchTenantIc($supplierId);
             $weakness = $this->detectWeakExtraction($extracted['data'], $tenantIc);

@@ -193,6 +193,33 @@ final class AiPdfExtractorUnitTest extends TestCase
         self::assertStringContainsString('jinému plátci', $result['error']);
     }
 
+    #[DataProvider('modelUpgradePolicies')]
+    public function testWeakExtractionUpgradesOnlyWhenExplicitlyAllowed(bool $allowUpgrade): void
+    {
+        $weak = ['ok' => true, 'model' => 'synthetic-default', 'data' => ['vendor' => ['ic' => '12345679']]];
+        $this->anthropic->expects(self::exactly($allowUpgrade ? 2 : 1))->method('extractInvoice')
+            ->willReturnCallback(function (int $supplier, string $pdf, ?string $model) use ($weak): array {
+                static $calls = 0;
+                self::assertSame($calls++ === 0 ? null : 'synthetic-stronger', $model);
+                return $weak;
+            });
+        $this->anthropic->expects($allowUpgrade ? self::once() : self::never())->method('strongerModel')
+            ->with(42, 'synthetic-default')->willReturn('synthetic-stronger');
+        $statement = $this->createStub(\PDOStatement::class);
+        $statement->method('fetchColumn')->willReturn('12345679');
+        $pdo = $this->createStub(\PDO::class);
+        $pdo->method('prepare')->willReturn($statement);
+        $this->conn->method('pdo')->willReturn($pdo);
+        $result = $this->extractor->extractAndCreate(42, 1, '%PDF-1.4 synthetic weak extraction', allowModelUpgrade: $allowUpgrade);
+        self::assertSame('ai_invalid', $result['source']);
+    }
+
+    public static function modelUpgradePolicies(): iterable
+    {
+        yield 'client keeps company default' => [false];
+        yield 'staff keeps automatic upgrade' => [true];
+    }
+
     // ── detectWeakExtraction ────────────────────────────────────────────────
 
     public function testDetectWeak_clean_extraction_returns_null(): void

@@ -378,13 +378,17 @@ final class SettingsAction
         if ($id <= 0) return Json::error($response, 'validation_failed', 'Neplatné id.', 400);
 
         $body = (array) ($request->getParsedBody() ?? []);
-        if (array_key_exists('client_ai_extraction_enabled', $body)
+        if ((array_key_exists('client_ai_extraction_enabled', $body) || array_key_exists('client_ai_extraction_monthly_limit', $body))
             && (RequestAuthorization::isClientType($request)
                 || !RequestAuthorization::allows($request, 'settings.ai_provider', AccessLevel::WRITE))) {
             return Json::error($response, 'forbidden', 'Povolení AI vytěžení klientům smí měnit pouze správce AI nastavení.', 403);
         }
         if (array_key_exists('client_ai_extraction_enabled', $body) && !is_bool($body['client_ai_extraction_enabled'])) {
             return Json::error($response, 'validation_failed', 'client_ai_extraction_enabled musí být boolean.', 400);
+        }
+        if (array_key_exists('client_ai_extraction_monthly_limit', $body)
+            && (!is_int($body['client_ai_extraction_monthly_limit']) || $body['client_ai_extraction_monthly_limit'] < 0 || $body['client_ai_extraction_monthly_limit'] > 100000)) {
+            return Json::error($response, 'validation_failed', 'Měsíční limit klientského AI vytěžení musí být celé číslo od 0 do 100000.', 400);
         }
 
         if (!$this->db->hasColumn('supplier', 'oss_enabled')) {
@@ -525,7 +529,7 @@ final class SettingsAction
             'auto_post_invoices', 'auto_post_purchases',
             // F7 — AI provider selection (NON-secret; secrety `*_enc` jdou VÝHRADNĚ přes
             // AiProviderCredentialsAction, NIKDY tady — mustFix #11).
-            'ai_provider', 'ai_data_region', 'ai_eu_residency_required', 'client_ai_extraction_enabled',
+            'ai_provider', 'ai_data_region', 'ai_eu_residency_required', 'client_ai_extraction_enabled', 'client_ai_extraction_monthly_limit',
             // Datum přijetí u importovaných přijatých dokladů (migrace 1848) — 'issue_date'
             // (z dokladu, výchozí) vs 'import_date' (den importu, chování do 1848).
             // Platí pro VŠECHNY importní kanály, ne jen AI extrakci.
@@ -1350,6 +1354,7 @@ final class SettingsAction
         $row['ai_provider']              = (string) ($row['ai_provider'] ?? 'anthropic');
         $row['ai_data_region']           = (string) ($row['ai_data_region'] ?? 'us');
         $row['client_ai_extraction_enabled'] = (bool) ($row['client_ai_extraction_enabled'] ?? false);
+        $row['client_ai_extraction_monthly_limit'] = (int) ($row['client_ai_extraction_monthly_limit'] ?? 100);
         $row['ai_eu_residency_required'] = (bool) ($row['ai_eu_residency_required'] ?? false);
         $row['email_branding_enabled']   = (bool) ($row['email_branding_enabled'] ?? false);
         $row['email_accent_color']       = (string) ($row['email_accent_color'] ?? '#3B2D83');
