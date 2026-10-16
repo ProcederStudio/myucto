@@ -40,6 +40,8 @@ async function save() {
       id: supplierId,
       accounting_framework: state.accounting_framework,
       accounting_framework_history: state.accounting_framework_history,
+      tax_accounting_decree_effective: state.tax_accounting_decree_effective,
+      tax_accounting_decree_is_derived: state.tax_accounting_decree_is_derived,
     })
     saved.value = true
   } catch (e) {

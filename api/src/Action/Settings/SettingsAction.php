@@ -34,6 +34,7 @@ use MyInvoice\Service\Supplier\SupplierDirectory;
 use MyInvoice\Service\Supplier\SupplierDirectoryQuery;
 use MyInvoice\Service\Supplier\SupplierInitializer;
 use MyInvoice\Service\Tax\Return\TaxpayerTypeCodebook;
+use MyInvoice\Service\Tax\Return\AccountingDecreeService;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
@@ -91,6 +92,7 @@ final class SettingsAction
         private readonly SupplierDirectory $supplierDirectory,
         private readonly \MyInvoice\Service\Accounting\FiscalYearStartChanger $fiscalYearStart,
         private readonly AccountingFrameworkService $accountingFramework,
+        private readonly AccountingDecreeService $accountingDecree,
     ) {}
 
     /**
@@ -1372,6 +1374,8 @@ final class SettingsAction
         $row['id']                       = (int) $row['id'];
         $row['accounting_framework']     = $this->accountingFramework->forDate($id, date('Y-m-d'));
         $row['accounting_framework_history'] = $this->accountingFramework->history($id);
+        $row['tax_accounting_decree_effective'] = $this->accountingDecree->forDate($id, date('Y-m-d'));
+        $row['tax_accounting_decree_is_derived'] = $this->accountingModes->forDate($id, date('Y-m-d')) === 'double_entry';
         $row['is_vat_payer']             = (bool) $row['is_vat_payer'];
         // Uložený CZ-NACE přeložený přes číselník ČINNOSTI — UI z něj pozná, že kód
         // sice existuje, ale po přechodu na NACE rev. 2.1 (1. 1. 2026) už EXPIROVAL

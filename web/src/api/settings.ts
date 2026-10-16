@@ -183,6 +183,8 @@ export interface VatRegistrationCheck {
   application_deadline_basis: 'statutory' | 'informative' | null
 }
 
+export type AccountingDecree = '500' | '501' | '502' | '503' | '504' | '325' | '410'
+
 export type AccountingFramework = 'cz_500' | 'cz_504'
 
 export interface AccountingFrameworkHistoryEntry {
@@ -197,6 +199,8 @@ export interface AccountingFrameworkState {
   id: number
   accounting_framework?: AccountingFramework
   accounting_framework_history?: AccountingFrameworkHistoryEntry[]
+  tax_accounting_decree_effective?: AccountingDecree
+  tax_accounting_decree_is_derived?: boolean
 }
 
 export interface Supplier {
@@ -218,6 +222,8 @@ export interface Supplier {
   vat_status_history?: VatStatusHistoryEntry[]
   accounting_framework?: AccountingFramework
   accounting_framework_history?: AccountingFrameworkHistoryEntry[]
+  tax_accounting_decree_effective?: AccountingDecree
+  tax_accounting_decree_is_derived?: boolean
   /** Identifikovaná osoba (§ 6g–6l ZDPH, issue #94) — neplátce v tuzemsku
    *  s přeshraničními povinnostmi. Nelze kombinovat s is_vat_payer. */
   is_identified: boolean

@@ -527,6 +527,8 @@ podrobně viz [Sklad](37_Sklad.md).
 > Obě pole skladu smí přepnout i role účetní, ne jen admin. Je to jediná výjimka z jinak admin-only nastavení
 > dodavatele.
 
+V podvojném účetnictví je účetní vyhláška závěrky pouze ke čtení a vychází z účetního rámce účinného k dnešnímu dni. Změna patří do sekce **Účetní rámec**. V daňové evidenci lze vyhlášku volit ručně; uložená ruční volba se při přepnutí režimu zachová.
+
 ### 95.13.6 Identifikace firmy v rozhraní API
 
 Aktuální dodavatel se posílá v každém API požadavku v hlavičce `X-Supplier-Id: N`. Aplikace ho posílá z

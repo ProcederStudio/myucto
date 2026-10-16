@@ -63,6 +63,9 @@ final class UnsupportedCaseDetector
      */
     public function detect(int $supplierId, string $type, array $podklady = [], array $result = [], array $inputs = []): array
     {
+        if ($type === 'po' && isset($podklady['period']['starts_on'])) {
+            $podklady['accounting_decree'] = (new AccountingDecreeService($this->db))->forDate($supplierId, (string) $podklady['period']['starts_on']);
+        }
         return self::detectForSupplier($this->loadSupplier($supplierId), $type, $podklady, $result, $inputs);
     }
 
@@ -85,6 +88,9 @@ final class UnsupportedCaseDetector
         self::checkForeignSeat($supplier, $type, $findings);
 
         if ($type === 'po') {
+            if (isset($podklady['accounting_decree'])) {
+                $supplier['tax_accounting_decree'] = $podklady['accounting_decree'];
+            }
             self::checkTaxpayerType($supplier, $nace, $findings);
             self::checkAccountingDecree($supplier, $findings);
             self::checkPublicBenefit($supplier, $nace, $findings);

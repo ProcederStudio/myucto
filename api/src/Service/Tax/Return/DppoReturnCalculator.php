@@ -97,6 +97,7 @@ final class DppoReturnCalculator
      */
     public function compute(array $data, array $inputs, array $c): array
     {
+        AccountingDecreeService::assertSupportedDecree((string) ($data['accounting_decree'] ?? '500'));
         $warnings = [];
 
         // ── Podklady ────────────────────────────────────────────────────────

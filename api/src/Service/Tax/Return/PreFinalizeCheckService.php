@@ -56,6 +56,9 @@ final class PreFinalizeCheckService
         $period = $this->periods->findByYear($supplierId, $year);
         $startsOn = $period !== null ? (string) $period['starts_on'] : sprintf('%04d-01-01', $year);
         $endsOn = $period !== null ? (string) $period['ends_on'] : sprintf('%04d-12-31', $year);
+        if ($type === 'po') {
+            $podklady['accounting_decree'] = (new AccountingDecreeService($this->db))->forDate($supplierId, $startsOn);
+        }
 
         $checks = [];
         $checks[] = $this->checkPeriodStatus($period, $isDoubleEntry);

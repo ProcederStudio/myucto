@@ -13,6 +13,8 @@ import AccountingFrameworkSettings from '../AccountingFrameworkSettings.vue'
 const state: AccountingFrameworkState = {
   id: 42,
   accounting_framework: 'cz_500',
+  tax_accounting_decree_effective: '500',
+  tax_accounting_decree_is_derived: true,
   accounting_framework_history: [{
     id: 7, effective_from: '1900-01-01', accounting_framework: 'cz_500',
     created_at: '2026-01-01 00:00:00', created_by: null,

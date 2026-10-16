@@ -84,12 +84,14 @@ final class DppoReturnDataProvider
      */
     public function gather(int $supplierId, int $year, array $inputs = []): array
     {
+        $decree = (new AccountingDecreeService($this->db))->assertDppoSupported($supplierId, $year);
         $warnings = [];
         $bankAccounts = $this->bankAccounts($supplierId);
         $bankAccount = $this->pickBankAccount($bankAccounts, $inputs['bank_account_id'] ?? null, $warnings);
         $period = $this->periods->findByYear($supplierId, $year);
         if ($period === null) {
             return [
+                'accounting_decree' => $decree,
                 'period' => null,
                 'vh' => 0.0,
                 'non_deductible_costs' => 0.0,
@@ -151,6 +153,7 @@ final class DppoReturnDataProvider
         ];
 
         return [
+            'accounting_decree' => $decree,
             'period' => [
                 'id' => (int) $period['id'],
                 'starts_on' => $startsOn,

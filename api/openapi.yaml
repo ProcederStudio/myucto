@@ -22767,6 +22767,7 @@ paths:
         zúčtovaných mezd nabídnutý mzdovou agendou pro ruční vstup `inputs.s7_payroll_gross`
         (null = agenda za rok nic nevykazuje). Zrušený jednořádkový vstup `inputs.s10_other`
         se při čtení i uložení převádí na jednu položku `inputs.s10_items[]`.
+        DPPO za období s účetním rámcem 504 vrací 422 `dppo_accounting_framework_not_supported`. Historická období s rámcem 500 zůstávají dostupná.
       responses:
         '200':
           description: OK
@@ -22780,6 +22781,7 @@ paths:
                   podklady:
                     type: object
                     properties:
+                      accounting_decree: { type: string, readOnly: true, description: "Účetní vyhláška účinná pro zdaňovací období DPPO." }
                       legal_provisions: { $ref: '#/components/schemas/LegalProvisionLedgerSummary' }
                   snapshot:
                     nullable: true
@@ -22787,6 +22789,7 @@ paths:
                       - $ref: '#/components/schemas/TaxReturnSnapshotMetadata'
         '400': { description: Neplatný typ/rok/variant }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { description: "DPPO podle vyhlášky 504 není podporováno (`dppo_accounting_framework_not_supported`).", content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
 
   /api/v1/tax-return/{type}/{year}/inputs:
     parameters:
@@ -22936,6 +22939,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { description: DPFO chybí finální XML snapshot, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         '500': { description: Build XML selhal, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '422': { description: "DPPO podle vyhlášky 504 není podporováno (`dppo_accounting_framework_not_supported`).", content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
 
   /api/v1/tax-return/{type}/{year}/reconcile:
     parameters:
@@ -26099,6 +26103,8 @@ paths:
 
         Jednohodnotová akce: klíč `project_id` je povinný. Chybí-li v těle, vrací 400
         `validation_failed` (`fields.project_id`); `null` zakázku odebere.
+        Skutečná změna zakázky na zápisu uzavřeného období vrací 409 `period_not_open`.
+        Uložení stejné hodnoty je povoleno; datumový zámek otevřeného období změně analytiky nebrání.
       requestBody:
         required: true
         content:
@@ -26374,6 +26380,8 @@ paths:
 
         Jednohodnotová akce: klíč `project_id` je povinný (může být `null`, což zakázku odebere).
         Chybí-li v těle, vrací 400 `validation_failed`.
+        Skutečná změna zakázky na zápisu uzavřeného období vrací 409 `period_not_open`.
+        Uložení stejné hodnoty je povoleno; datumový zámek otevřeného období změně analytiky nebrání.
       requestBody:
         required: true
         content:
@@ -29397,6 +29405,7 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '422': { description: "DPPO podle vyhlášky 504 není podporováno (`dppo_accounting_framework_not_supported`).", content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
 
   /api/v1/eshop/product-masters/{id}/{operation}:
     post:
@@ -37075,7 +37084,7 @@ components:
             řetězec se uloží jako `null` (= účetní typ poplatníka nepotvrdila).
         tax_entity_status: { type: string, enum: [normal, liquidation, insolvency, transformation], default: normal }
         tax_entity_status_date: { type: [string, "null"], format: date }
-        tax_accounting_decree: { type: string, enum: ["500", "501", "502", "503", "504", "325", "410"], default: "500" }
+        tax_accounting_decree: { type: string, enum: ["500", "501", "502", "503", "504", "325", "410"], default: "500", description: "Uložený ruční údaj pro daňovou evidenci. V podvojném účetnictví jej nahrazuje vyhláška odvozená z účinného účetního rámce; ruční hodnota zůstává zachována." }
         tax_investment_incentive: { type: boolean }
         tax_atad_cfc: { type: boolean }
         tax_public_benefit: { type: boolean }
@@ -37239,7 +37248,16 @@ components:
           type: string
           enum: ["500", "501", "502", "503", "504", "325", "410"]
           default: "500"
-          description: "Účetní vyhláška závěrky (`uv_vyhl`). Aplikace sestavuje výkazy jen podle 500/2002 Sb."
+          description: "Uložený ruční údaj pro daňovou evidenci. V podvojném účetnictví se nepoužívá, ale zůstává zachován při přepnutí režimu."
+        tax_accounting_decree_effective:
+          type: string
+          enum: ["500", "501", "502", "503", "504", "325", "410"]
+          readOnly: true
+          description: "Účinná účetní vyhláška k dnešku: v podvojném účetnictví odvozená z účinného účetního rámce, v daňové evidenci uložený ruční údaj."
+        tax_accounting_decree_is_derived:
+          type: boolean
+          readOnly: true
+          description: "True, pokud je vyhláška k dnešku odvozena z rámce podvojného účetnictví."
         tax_investment_incentive: { type: boolean, default: false, description: "Nositel příslibu investiční pobídky (§ 35a/§ 35b ZDP)" }
         tax_atad_cfc: { type: boolean, default: false, description: "Dotčen pravidly ATAD/CFC (§ 23e-23h, § 38fa ZDP)" }
         tax_public_benefit: { type: boolean, default: false, description: "Veřejně prospěšný poplatník (§ 17a ZDP)" }

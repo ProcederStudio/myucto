@@ -83,6 +83,7 @@ final class TaxReturnService
      */
     public function getReturn(int $supplierId, int $year, string $type, ?int $userId, string $variant = 'radne', int $variantSeq = 1): array
     {
+        $this->assertAccountingDecree($supplierId, $year, $type);
         $this->assertType($type);
         $this->assertSupplierType($supplierId, $type);
         $this->assertVariant($variant);
@@ -170,6 +171,7 @@ final class TaxReturnService
         if ($row === null) {
             return null;
         }
+        $this->assertAccountingDecree($supplierId, $year, $type);
         if ($row['status'] === 'final') {
             $result = (array) ($row['computed']['computed'] ?? []);
             return [
@@ -202,6 +204,7 @@ final class TaxReturnService
         if ($row === null) {
             return null;
         }
+        $this->assertAccountingDecree($supplierId, $year, $type);
         $result = $row['status'] === 'final'
             ? (array) ($row['computed']['computed'] ?? [])
             : $this->compute($supplierId, $year, $type, (array) $row['inputs'], 'radne')['result'];
@@ -232,6 +235,7 @@ final class TaxReturnService
      */
     public function previewReadOnly(int $supplierId, int $year, string $type): array
     {
+        $this->assertAccountingDecree($supplierId, $year, $type);
         $this->assertType($type);
         $this->assertSupplierType($supplierId, $type);
         $row = $this->returns->find($supplierId, $year, $type, 'radne', 1);
@@ -296,6 +300,7 @@ final class TaxReturnService
      */
     public function saveInputs(int $supplierId, int $year, string $type, array $inputs, int $expectedRowVersion, ?int $userId, string $variant = 'radne', int $variantSeq = 1, bool $partial = false): array
     {
+        $this->assertAccountingDecree($supplierId, $year, $type);
         $this->assertType($type);
         $this->assertSupplierType($supplierId, $type);
         $this->assertVariant($variant);
@@ -362,6 +367,7 @@ final class TaxReturnService
      */
     public function finalize(int $supplierId, int $year, string $type, int $expectedRowVersion, ?int $userId, string $variant = 'radne', int $variantSeq = 1): array
     {
+        $this->assertAccountingDecree($supplierId, $year, $type);
         $pdo = $this->db->pdo();
         $ownTx = !$pdo->inTransaction();
         if ($ownTx) {
@@ -846,6 +852,7 @@ final class TaxReturnService
     /** Vrátí finální přiznání zpět do draftu. @return array<string,mixed> */
     public function reopen(int $supplierId, int $year, string $type, int $expectedRowVersion, ?int $userId, string $variant = 'radne', int $variantSeq = 1): array
     {
+        $this->assertAccountingDecree($supplierId, $year, $type);
         $this->assertType($type);
         $this->assertSupplierType($supplierId, $type);
         $this->assertVariant($variant);
@@ -924,6 +931,7 @@ final class TaxReturnService
      */
     private function previewXmlWithComputation(int $supplierId, int $year, string $type, string $variant, int $variantSeq): array
     {
+        $this->assertAccountingDecree($supplierId, $year, $type);
         $this->assertType($type);
         $this->assertSupplierType($supplierId, $type);
         if ($type !== 'fo') {
@@ -980,6 +988,7 @@ final class TaxReturnService
      */
     private function buildXmlWithComputation(int $supplierId, int $year, string $type, string $variant, int $variantSeq): array
     {
+        $this->assertAccountingDecree($supplierId, $year, $type);
         $this->assertType($type);
         $this->assertSupplierType($supplierId, $type);
         $this->assertVariant($variant);
@@ -1000,6 +1009,11 @@ final class TaxReturnService
             $stored = $this->returns->snapshot($supplierId, (int) $row['final_snapshot_id']);
             if ($stored === null) {
                 throw new TaxReturnException('snapshot_not_found', 'Finální snapshot přiznání nebyl nalezen.', 409);
+            }
+            if ($type === 'po') {
+                (new AccountingDecreeService($this->db))->assertDppoSubmissionSupported($supplierId, [
+                    'form_code' => 'dppdp9', 'period_year' => $year, 'xml_content' => $stored['xml_content'],
+                ]);
             }
             $snapshot = (array) $stored['snapshot_json'];
             $summary = (array) (($snapshot['computed']['summary'] ?? []));
@@ -1109,10 +1123,11 @@ final class TaxReturnService
     {
         $type = 'po';
         $supplier = $this->loadSupplier($supplierId);
+        $supplier['tax_accounting_decree'] = (new AccountingDecreeService($this->db))->assertDppoSupported($supplierId, $year);
         $appVersion = $this->loadAppVersion();
         $amendMeta = $this->amendmentXmlMeta($type, $variant, $computation['result']);
 
-        $meta = ['verze_sw' => $appVersion ?? '0']
+        $meta = ['verze_sw' => $appVersion ?? '0', 'accounting_decree' => $supplier['tax_accounting_decree']]
             + $this->periodMeta($computation['podklady']['period'] ?? null, $year)
             + $amendMeta
             + $this->representationMeta($supplierId, null)
@@ -1721,12 +1736,20 @@ final class TaxReturnService
 
     // ── Interní ────────────────────────────────────────────────────────────
 
+    private function assertAccountingDecree(int $supplierId, int $year, string $type): void
+    {
+        if ($type === 'po') {
+            (new AccountingDecreeService($this->db))->assertDppoSupported($supplierId, $year);
+        }
+    }
+
     /**
      * @param array<string,mixed> $inputs
      * @return array{result:array<string,mixed>,podklady:array<string,mixed>,warnings:list<string>}
      */
     private function compute(int $supplierId, int $year, string $type, array $inputs, string $variant = 'radne'): array
     {
+        $this->assertAccountingDecree($supplierId, $year, $type);
         try {
             $const = $this->constants->forExactYear($year);
         } catch (\OutOfRangeException $e) {
@@ -1738,6 +1761,7 @@ final class TaxReturnService
             $result = $this->dppoCalc->compute($data, $inputs, $const);
             $newTax = (float) ($result['summary']['total_tax'] ?? 0);
             $podklady = [
+                'accounting_decree' => $data['accounting_decree'],
                 'period' => $data['period'],
                 'vh' => $data['vh'],
                 'non_deductible_costs' => $data['non_deductible_costs'],

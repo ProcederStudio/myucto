@@ -85,6 +85,12 @@ final readonly class DefaultSubmissionArtifactResolver implements SubmissionArti
             return null;
         }
 
+        try {
+            (new \MyInvoice\Service\Tax\Return\AccountingDecreeService($this->db))->assertDppoSubmissionSupported($supplierId, $row);
+        } catch (\MyInvoice\Service\Tax\Return\TaxReturnException $e) {
+            throw new \MyInvoice\Service\Submission\Channel\SubmissionChannelException($e->errorCode, $e->getMessage(), $e->httpStatus);
+        }
+
         $period = (string) $row['period_year'];
         if ($row['period_month'] !== null) {
             $period .= '-' . str_pad((string) $row['period_month'], 2, '0', STR_PAD_LEFT);

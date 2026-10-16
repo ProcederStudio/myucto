@@ -42,6 +42,8 @@ rekonciliace](49_Archiv_podani_a_rekonciliace.md).
 > [!WARNING]
 > Výpočty jsou pomůckou pro poplatníka a účetní. Sazby, minima a limity se každý rok mění. Před podáním hodnoty ověřte a případně konzultujte s daňovým poradcem. Vygenerované XML se ověřuje proti oficiálnímu XSD schématu finanční správy a archivuje.
 
+DPPO pro období vedené podle účetního rámce 504 zatím nelze vypočítat, exportovat ani podat. Přiznání zpracujte externě; potvrzenou daň lze zaúčtovat ručně. Historická období s rámcem 500 zůstávají dostupná i po změně současného rámce firmy. Rozhoduje rámec příslušného období, nikoli ručně uložená vyhláška v nastavení.
+
 ## 43.3 Krok za krokem: sestavení a podání přiznání
 
 1. Otevřete `Daně → Daň z příjmů`.
@@ -485,7 +487,7 @@ v `Nastavení → Daně a účetnictví`, část **Přiznání k dani z příjm�
 | Pole | K čemu je |
 |---|---|
 | Typ poplatníka (§ 17 ZDP) | Kód z tiskopisu DPPO. Aplikace umí sestavit přiznání jen pro typ **1 (ostatní)**. Dokud typ nepotvrdíte, staví se přiznání jako pro typ 1. |
-| Účetní vyhláška závěrky | Podle které vyhlášky sestavujete rozvahu a výsledovku. Aplikace umí jen **500/2002 Sb.** pro podnikatele. |
+| Účetní vyhláška závěrky | V podvojném účetnictví se odvozuje z účinného účetního rámce, v daňové evidenci se zadává ručně. DPPO aplikace zpracuje jen pro vyhlášku **500/2002 Sb.**. |
 | Stav poplatníka + rozhodný den | Běžný / v likvidaci / v insolvenci / po fúzi nebo přeměně. |
 | Veřejně prospěšný poplatník (§ 17a) | Spolek, nadace, ústav, církev, veřejná vysoká škola. |
 | Investiční pobídka (§ 35a/§ 35b) | Nositel příslibu investiční pobídky. |

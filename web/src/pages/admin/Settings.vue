@@ -62,11 +62,24 @@ function syncSupplierStore(s: Supplier) {
 
 const supplier = ref<Supplier | null>(null)
 const loading = ref(true)
+const isDecreeDerived = computed(() => {
+  const s = supplier.value
+  const mode = s?.accounting_mode ?? 'tax_evidence'
+  if (mode !== originalAccountingMode.value) return mode === 'double_entry'
+  return s?.tax_accounting_decree_is_derived ?? mode === 'double_entry'
+})
+const displayedAccountingDecree = computed(() => {
+  const s = supplier.value
+  if (s?.tax_accounting_decree_is_derived && s.tax_accounting_decree_effective) return s.tax_accounting_decree_effective
+  return s?.accounting_framework === 'cz_504' ? '504' : '500'
+})
 
-function updateAccountingFramework(state: Pick<Supplier, 'id' | 'accounting_framework' | 'accounting_framework_history'>) {
+function updateAccountingFramework(state: Pick<Supplier, 'id' | 'accounting_framework' | 'accounting_framework_history' | 'tax_accounting_decree_effective' | 'tax_accounting_decree_is_derived'>) {
   if (!supplier.value || supplier.value.id !== state.id) return
   supplier.value.accounting_framework = state.accounting_framework
   supplier.value.accounting_framework_history = state.accounting_framework_history
+  supplier.value.tax_accounting_decree_effective = state.tax_accounting_decree_effective
+  supplier.value.tax_accounting_decree_is_derived = state.tax_accounting_decree_is_derived
 }
 
 // Přiznání k dani z příjmů — číselníky odpovídají PHP SSOT
@@ -672,7 +685,7 @@ async function saveSupplier() {
       epo_taxpayer_code: (supplier.value as any).epo_taxpayer_code ?? '',
       tax_entity_status: (supplier.value as any).tax_entity_status ?? 'normal',
       tax_entity_status_date: (supplier.value as any).tax_entity_status_date ?? null,
-      tax_accounting_decree: (supplier.value as any).tax_accounting_decree ?? '500',
+      ...(isDecreeDerived.value ? {} : { tax_accounting_decree: supplier.value.tax_accounting_decree ?? '500' }),
       ...((supplier.value.fiscal_year_start_month ?? 1) !== originalFiscalStartMonth.value
         ? { fiscal_year_start_month: supplier.value.fiscal_year_start_month ?? 1 }
         : {}),
@@ -1906,12 +1919,15 @@ async function confirmTaxRepDelete() {
                 </div>
                 <div v-if="supplier.taxpayer_type !== 'fo'">
                   <label class="block text-xs font-medium text-neutral-700 mb-1">{{ t('settings.income_tax_profile.accounting_decree') }}</label>
-                  <select v-model="(supplier as any).tax_accounting_decree" class="w-full h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
+                  <p v-if="isDecreeDerived" data-test="derived-accounting-decree" class="text-sm">
+                    {{ displayedAccountingDecree }} - {{ t('settings.income_tax_profile.accounting_decree_' + displayedAccountingDecree) }}
+                  </p>
+                  <select v-else v-model="supplier.tax_accounting_decree" class="w-full h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
                     <option v-for="decree in ACCOUNTING_DECREES" :key="decree" :value="decree">
                       {{ decree }} - {{ t('settings.income_tax_profile.accounting_decree_' + decree) }}
                     </option>
                   </select>
-                  <p class="text-xs text-neutral-500 mt-1">{{ t('settings.income_tax_profile.accounting_decree_hint') }}</p>
+                  <p class="text-xs text-neutral-500 mt-1">{{ t(isDecreeDerived ? 'settings.income_tax_profile.accounting_decree_derived_hint' : 'settings.income_tax_profile.accounting_decree_hint') }}</p>
                 </div>
                 <div>
                   <label class="block text-xs font-medium text-neutral-700 mb-1">{{ t('settings.income_tax_profile.entity_status') }}</label>

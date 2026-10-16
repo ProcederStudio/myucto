@@ -414,6 +414,7 @@ final class DppoXmlBuilder
      */
     public function build(array $supplier, int $year, array $calc, array $meta = [], array $appendix = []): array
     {
+        AccountingDecreeService::assertSupportedDecree((string) ($meta['accounting_decree'] ?? $supplier['tax_accounting_decree'] ?? '500'));
         $warnings = [];
         [$dom, $root] = EpoEnvelope::create(
             'DPPDP9',
