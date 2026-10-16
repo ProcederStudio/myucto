@@ -93,14 +93,14 @@ DPH lze zapnout jen u účelů **Prodej** a **Nákup**. U úhrad faktur, převod
 **Vydaná faktura (příjem):**
 
 1. Klikněte na **Příjem** a zvolte účel **Úhrada vydané faktury**.
-2. Do pole **Vyberte fakturu** napište číslo nebo partnera a vyberte nezaplacenou fakturu. Partner, popis a částka se předvyplní.
+2. Do pole **Vyberte fakturu** napište číslo nebo partnera a vyberte nezaplacenou fakturu. Partner (název, IČ a DIČ odběratele), popis a částka se předvyplní. Platí-li za odběratele někdo jiný, partnera přepište.
 3. Částku můžete snížit na částečnou úhradu (do výše zbývající k úhradě).
 4. Klikněte na **Vystavit**.
 
 **Přijatá faktura (výdej):**
 
 1. Klikněte na **Výdej** a zvolte účel **Úhrada přijaté faktury**.
-2. Vyberte fakturu. Částka je uzamčená: přijatou fakturu hradíte vždy v **plné zbývající výši**.
+2. Vyberte fakturu. Partner (dodavatel s IČ a DIČ) se předvyplní. Částka je uzamčená: přijatou fakturu hradíte vždy v **plné zbývající výši**.
 3. Klikněte na **Vystavit**.
 
 **Vratka od dodavatele (příjem):** Klikněte na **Příjem**, zvolte účel **Úhrada přijaté faktury**, vyberte fakturu, na které už úhrada visí, zadejte vrácenou částku (libovolnou, nejvýše uhrazenou) a doklad vystavte.
@@ -192,7 +192,7 @@ Nad tabulkou dokladů jsou filtry: rozsah data (**Datum od**, **Datum do**, výc
 
 Dostupné sloupce: číslo dokladu, datum, typ (P/V), partner, popis, částka, vazba (odkaz na navázanou fakturu nebo účel dokladu), stav, DUZP, vytvořeno a kdo doklad vytvořil (poslední tři jsou ve výchozím zobrazení skryté).
 
-Kliknutím na řádek se rozbalí detail dokladu: účel platby, IČ/DIČ partnera (u daňových dokladů), DUZP, název pokladny a u dokladu s DPH tabulka rozpadu základ/sazba/daň po jednotlivých sazbách. V detailu je také prokliknutí **Zobrazit v deníku** na konkrétní zápis (jen v podvojném účetnictví, daňová evidence deník nemá).
+Kliknutím na řádek se rozbalí detail dokladu: účel platby, IČ/DIČ partnera (jsou-li vyplněné), DUZP, název pokladny a u dokladu s DPH tabulka rozpadu základ/sazba/daň po jednotlivých sazbách. V detailu je také prokliknutí **Zobrazit v deníku** na konkrétní zápis (jen v podvojném účetnictví, daňová evidence deník nemá).
 
 U každého řádku jsou ikony: **Upravit** a **Vystavit** (u rozpracovaného dokladu), **Tisk PDF** (u vystaveného nebo stornovaného), **Storno dokladu** (u zaúčtovaného) a **Trvale smazat doklad**. Stránka podporuje serverové stránkování (50 dokladů na stránku).
 
@@ -225,7 +225,7 @@ U **valutové pokladny** jsou záměrně dostupné jen účely, které lze bezpe
 Podle zvoleného účelu se formulář mění:
 
 - **Prodej / Nákup**: zobrazí se pole partner (s našeptávačem z evidence klientů), IČ a DIČ partnera. Volitelně lze doklad vystavit s DPH. U prodeje formulář připomíná, že existuje-li k prodeji faktura, má se použít úhrada faktury, jinak by DPH vzniklo dvakrát.
-- **Úhrada faktury / Úhrada přijaté faktury**: zobrazí se našeptávač nezaplacených dokladů (vyhledávání podle čísla nebo partnera); po výběru dokladu se automaticky předvyplní partner, popis a částka. U úhrady vydané faktury lze uhradit i částečnou částku (do výše zbývající k úhradě). U úhrady přijaté faktury (VPD) je nutné uhradit **celou zbývající částku najednou**, částka je po výběru dokladu uzamčená. Zbývající částkou se rozumí brutto snížené o **už uhrazenou zálohu** a o dřívější úhrady (bankovní i hotovostní); doklad, na kterém po záloze nic nezbývá, se v našeptávači vůbec nenabídne. Po zaúčtování se faktura označí jako uhrazená. U přijaté hotovostní úhrady zálohové faktury se stejně jako u bankovní platby automaticky připraví koncept daňového dokladu k částečné platbě, nebo koncept finální faktury při úplném uhrazení zálohy; v našeptávači jsou proto i **zálohové (proforma) faktury**, označené jako záloha. Našeptávač zobrazuje nejvýše 20 shod. Pokud jich odpovídá víc, dá to na konci seznamu vědět poznámkou, upřesněte hledání (například celým číslem dokladu).
+- **Úhrada faktury / Úhrada přijaté faktury**: zobrazí se našeptávač nezaplacených dokladů (vyhledávání podle čísla nebo partnera); po výběru dokladu se automaticky předvyplní partner (název, IČ a DIČ odběratele, u přijaté faktury dodavatele), popis a částka. Partnera jde přepsat, například když platí jiná osoba než odběratel. Uložíte-li doklad s prázdným partnerem, doplní se odběratel nebo dodavatel faktury. Při změně účelu se partner vymaže. U úhrady vydané faktury lze uhradit i částečnou částku (do výše zbývající k úhradě). U úhrady přijaté faktury (VPD) je nutné uhradit **celou zbývající částku najednou**, částka je po výběru dokladu uzamčená. Zbývající částkou se rozumí brutto snížené o **už uhrazenou zálohu** a o dřívější úhrady (bankovní i hotovostní); doklad, na kterém po záloze nic nezbývá, se v našeptávači vůbec nenabídne. Po zaúčtování se faktura označí jako uhrazená. U přijaté hotovostní úhrady zálohové faktury se stejně jako u bankovní platby automaticky připraví koncept daňového dokladu k částečné platbě, nebo koncept finální faktury při úplném uhrazení zálohy; v našeptávači jsou proto i **zálohové (proforma) faktury**, označené jako záloha. Našeptávač zobrazuje nejvýše 20 shod. Pokud jich odpovídá víc, dá to na konci seznamu vědět poznámkou, upřesněte hledání (například celým číslem dokladu).
 - **Převod** (v nabídce **Převod banka ↔ pokladna**): pokladní strana převodu hotovosti mezi bankou a pokladnou. Druhá strana (bankovní strana přes účet 261) vznikne z bankovního výpisu nebo ručním zápisem.
 - **Ostatní**: pro případy, které nespadají pod žádný z předchozích účelů (například manko nebo přebytek pokladny). Pole **Co to je** nabízí předvolby, které protiúčet doplní podle kontace. Nesedí-li žádná, zvolte **Jiné - vyberu protiúčet ručně** a vyberte volný protiúčet z účtové osnovy (musí být jiný než účet vybrané pokladny). Protiúčet se vybírá polem s hledáním podle čísla účtu nebo části názvu. DPH u tohoto účelu není podporována.
 
@@ -297,6 +297,8 @@ Hotovostní vyrovnání **nefunguje** u zálohových (proforma) faktur, u pravid
 ### 32.11.8 Tisk pokladního dokladu
 
 Ikona **Tisk PDF** u řádku v seznamu otevře PDF verzi dokladu (příjmový/výdajový pokladní doklad s označením PPD/VPD, číslem, údaji firmy, partnerem, datem vystavení a DUZP, částkou, účelem platby, rozpadem DPH u daňových dokladů a podpisovými bloky Vystavil/Schválil/Pokladník/Příjemce). Tisk je dostupný jen u dokladů, které už byly zaúčtovány (případně stornovány); u rozpracovaného dokladu nedává tisk smysl. Tisk je dostupný v obou účetních režimech.
+
+U úhrady faktury uloženého bez partnera uvede PDF jako partnera odběratele, resp. dodavatele placené faktury. Uložený doklad se tím nemění.
 
 U valutového dokladu PDF uvádí původní částku a měnu, korunový ekvivalent i použitý kurz. Tyto údaje před archivací zkontrolujte.
 

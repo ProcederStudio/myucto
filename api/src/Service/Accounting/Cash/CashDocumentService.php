@@ -84,7 +84,7 @@ final class CashDocumentService
      */
     public function create(int $supplierId, array $data, ?int $userId): array
     {
-        $doc = $this->normalize($data);
+        $doc = $this->fillPartnerFromLinkedDocument($supplierId, $this->normalize($data));
         $register = $this->requireActiveRegister($supplierId, $doc['register_id']);
         $doc = $this->resolveCurrency($doc, $register);
         $this->validateDoc($supplierId, $doc, $doc['vat_lines'], $register);
@@ -128,7 +128,10 @@ final class CashDocumentService
             throw new CashException('doc_not_draft', 'Upravovat lze jen rozpracovaný (draft) doklad.');
         }
         $linesInherited = !array_key_exists('vat_lines', $data);
-        $doc = $this->normalize($this->mergeDraftInput($supplierId, $id, $existing, $data));
+        $doc = $this->fillPartnerFromLinkedDocument(
+            $supplierId,
+            $this->normalize($this->mergeDraftInput($supplierId, $id, $existing, $data)),
+        );
         if ($linesInherited && $doc['vat_lines'] !== []) {
             // Nezměněný rozpad si drží i klasifikaci řádků, kterou normalize() nenese.
             $stored = $this->documents->vatLinesFor($id);
@@ -590,7 +593,8 @@ final class CashDocumentService
             }
             $stmt = $pdo->prepare(
                 "SELECT i.id, i.varsymbol AS number, i.issue_date, i.amount_to_pay, i.paid_total,
-                        i.invoice_type, cur.code AS currency, c.company_name AS partner_name
+                        i.invoice_type, cur.code AS currency, c.company_name AS partner_name,
+                        c.ic AS partner_ic, c.dic AS partner_dic
                    FROM invoices i
                    JOIN currencies cur ON cur.id = i.currency_id
                    JOIN clients c ON c.id = i.client_id
@@ -609,6 +613,8 @@ final class CashDocumentService
                     'kind'          => 'invoice',
                     'number'        => (string) ($r['number'] ?? ''),
                     'partner_name'  => (string) ($r['partner_name'] ?? ''),
+                    'partner_ic'    => self::nullableString($r['partner_ic'] ?? null),
+                    'partner_dic'   => self::nullableString($r['partner_dic'] ?? null),
                     'total'         => $refund,
                     'paid'          => 0.0,
                     'remaining'     => $refund,
@@ -624,7 +630,8 @@ final class CashDocumentService
         if ($kind === 'invoice') {
             $stmt = $pdo->prepare(
                 "SELECT i.id, i.varsymbol AS number, i.issue_date, i.amount_to_pay, i.paid_total,
-                        i.invoice_type, cur.code AS currency, c.company_name AS partner_name
+                        i.invoice_type, cur.code AS currency, c.company_name AS partner_name,
+                        c.ic AS partner_ic, c.dic AS partner_dic
                    FROM invoices i
                    JOIN currencies cur ON cur.id = i.currency_id
                    JOIN clients c ON c.id = i.client_id
@@ -652,6 +659,8 @@ final class CashDocumentService
                     'kind'          => 'invoice',
                     'number'        => (string) ($r['number'] ?? ''),
                     'partner_name'  => (string) ($r['partner_name'] ?? ''),
+                    'partner_ic'    => self::nullableString($r['partner_ic'] ?? null),
+                    'partner_dic'   => self::nullableString($r['partner_dic'] ?? null),
                     'total'         => round($total, 2),
                     'paid'          => round($paid, 2),
                     'remaining'     => round($total - $paid, 2),
@@ -679,7 +688,8 @@ final class CashDocumentService
             $stmt = $pdo->prepare(
                 "SELECT pi.id, pi.vendor_invoice_number, pi.varsymbol, pi.issue_date, pi.total_with_vat,
                         ({$remainingSql}) AS remaining,
-                        pi.document_kind, cur.code AS currency, c.company_name AS partner_name
+                        pi.document_kind, cur.code AS currency, c.company_name AS partner_name,
+                        c.ic AS partner_ic, c.dic AS partner_dic
                    FROM purchase_invoices pi
                    JOIN currencies cur ON cur.id = pi.currency_id
                    JOIN clients c ON c.id = pi.vendor_id
@@ -709,6 +719,8 @@ final class CashDocumentService
                     'kind'          => 'purchase_invoice',
                     'number'        => (string) ($r['vendor_invoice_number'] ?? $r['varsymbol'] ?? ''),
                     'partner_name'  => (string) ($r['partner_name'] ?? ''),
+                    'partner_ic'    => self::nullableString($r['partner_ic'] ?? null),
+                    'partner_dic'   => self::nullableString($r['partner_dic'] ?? null),
                     'total'         => round($total, 2),
                     'paid'          => round($total - $remaining, 2),
                     'remaining'     => $remaining,
@@ -1758,11 +1770,52 @@ final class CashDocumentService
             ? $this->loadPostingLines($supplierId, (int) $doc['journal_entry_id'])
             : [];
         return [
-            'document'     => $doc,
+            // Doklad uložený bez partnera (před doplňováním z faktury) ukáže na PDF
+            // odběratele/dodavatele placené faktury; v DB se nic nepřepisuje.
+            'document'     => $this->fillPartnerFromLinkedDocument($supplierId, $doc),
             'supplier'     => $this->loadSupplier($supplierId, (string) $doc['issue_date']),
             'posting'      => $posting,
             'generated_at' => date('Y-m-d'),
         ];
+    }
+
+    /**
+     * Úhrada faktury bez partnera převezme odběratele (FV) nebo dodavatele (PF) placeného
+     * dokladu, stejně jako automatické vyrovnání v {@see CashSettlementService}. Partner
+     * zadaný uživatelem má přednost; doplní se jen prázdné údaje.
+     *
+     * @param array<string,mixed> $doc
+     * @return array<string,mixed>
+     */
+    private function fillPartnerFromLinkedDocument(int $supplierId, array $doc): array
+    {
+        if (self::nullableString($doc['partner_name'] ?? null) !== null) {
+            return $doc;
+        }
+        $purpose = (string) ($doc['purpose'] ?? '');
+        if ($purpose === 'invoice_payment' && ($doc['invoice_id'] ?? null) !== null) {
+            $sql = 'SELECT c.company_name, c.ic, c.dic FROM invoices i
+                      JOIN clients c ON c.id = i.client_id
+                     WHERE i.id = ? AND i.supplier_id = ?';
+            $linkedId = (int) $doc['invoice_id'];
+        } elseif ($purpose === 'purchase_payment' && ($doc['purchase_invoice_id'] ?? null) !== null) {
+            $sql = 'SELECT c.company_name, c.ic, c.dic FROM purchase_invoices pi
+                      JOIN clients c ON c.id = pi.vendor_id
+                     WHERE pi.id = ? AND pi.supplier_id = ?';
+            $linkedId = (int) $doc['purchase_invoice_id'];
+        } else {
+            return $doc;
+        }
+        $stmt = $this->db->pdo()->prepare($sql);
+        $stmt->execute([$linkedId, $supplierId]);
+        $partner = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($partner)) {
+            return $doc;
+        }
+        $doc['partner_name'] = self::nullableString($partner['company_name']);
+        $doc['partner_ic'] = self::nullableString($doc['partner_ic'] ?? null) ?? self::nullableString($partner['ic']);
+        $doc['partner_dic'] = self::nullableString($doc['partner_dic'] ?? null) ?? self::nullableString($partner['dic']);
+        return $doc;
     }
 
     /** @return array<string,mixed> */

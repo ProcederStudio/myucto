@@ -104,6 +104,7 @@ const purposeOptions = computed<CashPurpose[]>(() => {
 
 const isTaxDoc = computed(() => form.purpose === 'sale' || form.purpose === 'purchase')
 const isPayment = computed(() => form.purpose === 'invoice_payment' || form.purpose === 'purchase_payment')
+const hasPartner = computed(() => isTaxDoc.value || isPayment.value)
 const isTransfer = computed(() => form.purpose === 'transfer')
 const isOther = computed(() => form.purpose === 'other')
 
@@ -302,6 +303,9 @@ watch(() => form.purpose, () => {
   selectedUnpaid.value = null
   unpaidQuery.value = ''
   unpaidOptions.value = []
+  // Partner patří k účelu (odběratel prodeje, plátce faktury, dodavatel), nesmí
+  // zůstat na dokladu s jiným účelem.
+  clearPartner()
 })
 
 // ── Našeptávač nezaplacených FV/PF ──────────────────────────────────────────
@@ -342,6 +346,8 @@ function pickUnpaid(o: UnpaidDocumentOption) {
   if (form.purpose === 'invoice_payment') { form.invoice_id = o.id; form.purchase_invoice_id = null }
   else { form.purchase_invoice_id = o.id; form.invoice_id = null }
   form.partner_name = o.partner_name
+  form.partner_ic = o.partner_ic ?? ''
+  form.partner_dic = o.partner_dic ?? ''
   form.description = t(`cash.purpose.${form.purpose}`) + ' ' + o.number
   // U vratky nabídni jako výchozí částku to, co je uhrazeno; jinak zbytek k úhradě.
   form.total_amount = isPurchaseRefund.value ? o.paid : o.remaining
@@ -379,8 +385,17 @@ let matchedPartner = ''
 /** Klient z číselníku, jehož název partner přesně nese (zdroj výchozích dimenzí). */
 const partnerClientId = ref<number | null>(null)
 
-// Nákup = dodavatel, ostatní účely (prodej) = odběratel.
-const partnerRole = computed<ClientRoleFilter>(() => (form.purpose === 'purchase' ? 'vendors' : 'customers'))
+// Nákup a úhrada přijaté faktury = dodavatel, ostatní účely (prodej, úhrada FV) = odběratel.
+const partnerRole = computed<ClientRoleFilter>(() =>
+  (form.purpose === 'purchase' || form.purpose === 'purchase_payment' ? 'vendors' : 'customers'))
+
+function clearPartner() {
+  form.partner_name = ''
+  form.partner_ic = ''
+  form.partner_dic = ''
+  matchedPartner = ''
+  partnerClientId.value = null
+}
 
 async function loadPartners(q: string) {
   try {
@@ -569,9 +584,11 @@ async function save(post = true) {
     // kurzem ČNB, pokud uživatel nezadal vlastní kurz (fx_rate null).
     amount_foreign: isForeign.value ? Number(form.total_amount) : null,
     fx_rate: isForeign.value && Number(form.fx_rate) > 0 ? Number(form.fx_rate) : null,
-    partner_name: isTaxDoc.value ? form.partner_name.trim() || null : null,
-    partner_ic: isTaxDoc.value ? form.partner_ic.trim() || null : null,
-    partner_dic: isTaxDoc.value ? form.partner_dic.trim() || null : null,
+    // U úhrady faktury je partner plátce (předvyplněný z faktury, jde přepsat);
+    // prázdný doplní backend z faktury.
+    partner_name: hasPartner.value ? form.partner_name.trim() || null : null,
+    partner_ic: hasPartner.value ? form.partner_ic.trim() || null : null,
+    partner_dic: hasPartner.value ? form.partner_dic.trim() || null : null,
     vat_mode: withVat ? 'vat' : 'none',
     tax_date: withVat ? form.tax_date || form.issue_date : null,
     vat_lines: withVat ? vatLines.value : [],
@@ -675,35 +692,6 @@ async function save(post = true) {
           </div>
         </div>
 
-        <!-- (a) Prodej / Nákup -->
-        <template v-if="isTaxDoc">
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div class="sm:col-span-1">
-              <label class="block text-sm font-medium text-neutral-700 mb-1">{{ t('cash.form.partner') }}</label>
-              <input v-model="form.partner_name" @input="onPartnerSearch" :list="`${pageId}-cash-partners`" type="text"
-                class="w-full h-10 px-3 border border-neutral-300 rounded-md text-sm" />
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-neutral-700 mb-1">{{ t('cash.form.partner_ic') }}</label>
-              <input v-model="form.partner_ic" type="text" class="w-full h-10 px-3 border border-neutral-300 rounded-md text-sm" />
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-neutral-700 mb-1">{{ t('cash.form.partner_dic') }}</label>
-              <input v-model="form.partner_dic" type="text" class="w-full h-10 px-3 border border-neutral-300 rounded-md text-sm" />
-            </div>
-          </div>
-          <div v-if="form.purpose === 'purchase' && !isTaxEvidence">
-            <label :for="`${pageId}-cash-expense-account`" class="block text-sm font-medium text-neutral-700 mb-1">{{ t('cash.form.expense_account') }}</label>
-            <SearchableSelect :model-value="form.counter_account_code || null" :options="expenseAccountOptions"
-              data-testid="cash-expense-account" :input-id="`${pageId}-cash-expense-account`"
-              :placeholder="t('cash.form.expense_account_default', { account: ruleAccount('cash.purchase', 'debit', '501') })"
-              @update:model-value="pickCounterAccount(($event as string | null) ?? '')" />
-          </div>
-          <p v-if="form.purpose === 'sale'" class="text-xs text-neutral-500 bg-neutral-50 border border-neutral-200 rounded-md px-3 py-2">
-            {{ t('cash.form.duplicate_vat_hint') }}
-          </p>
-        </template>
-
         <!-- (b) Úhrada faktury -->
         <template v-if="isPayment">
           <div class="relative">
@@ -731,6 +719,39 @@ async function save(post = true) {
               </li>
             </ul>
           </div>
+        </template>
+
+        <!-- Partner: (a) odběratel/dodavatel prodeje a nákupu, (b) plátce faktury (předvyplněný z faktury) -->
+        <template v-if="hasPartner">
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div class="sm:col-span-1">
+              <label class="block text-sm font-medium text-neutral-700 mb-1">{{ t('cash.form.partner') }}</label>
+              <input v-model="form.partner_name" @input="onPartnerSearch" :list="`${pageId}-cash-partners`" type="text"
+                class="w-full h-10 px-3 border border-neutral-300 rounded-md text-sm" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-neutral-700 mb-1">{{ t('cash.form.partner_ic') }}</label>
+              <input v-model="form.partner_ic" type="text" class="w-full h-10 px-3 border border-neutral-300 rounded-md text-sm" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-neutral-700 mb-1">{{ t('cash.form.partner_dic') }}</label>
+              <input v-model="form.partner_dic" type="text" class="w-full h-10 px-3 border border-neutral-300 rounded-md text-sm" />
+            </div>
+          </div>
+        </template>
+
+        <!-- (a) Prodej / Nákup -->
+        <template v-if="isTaxDoc">
+          <div v-if="form.purpose === 'purchase' && !isTaxEvidence">
+            <label :for="`${pageId}-cash-expense-account`" class="block text-sm font-medium text-neutral-700 mb-1">{{ t('cash.form.expense_account') }}</label>
+            <SearchableSelect :model-value="form.counter_account_code || null" :options="expenseAccountOptions"
+              data-testid="cash-expense-account" :input-id="`${pageId}-cash-expense-account`"
+              :placeholder="t('cash.form.expense_account_default', { account: ruleAccount('cash.purchase', 'debit', '501') })"
+              @update:model-value="pickCounterAccount(($event as string | null) ?? '')" />
+          </div>
+          <p v-if="form.purpose === 'sale'" class="text-xs text-neutral-500 bg-neutral-50 border border-neutral-200 rounded-md px-3 py-2">
+            {{ t('cash.form.duplicate_vat_hint') }}
+          </p>
         </template>
 
         <!-- (c) Převod -->
