@@ -808,7 +808,7 @@ function priceLevelPayload(): StockItemPriceLevelPayload[] {
 const priceLevelsDirty = computed(() => priceLevelsLoaded.value && priceLevelPayload().length > 0)
 
 /**
- * Sleva nebo přirážka pro produkt (pravidlo bez měny) — samostatné pole, platí ve všech
+ * Sleva nebo přirážka pro produkt (pravidlo bez měny): samostatné pole, platí ve všech
  * měnách hladiny. Pole ukazuje kladnou hodnotu, znaménko nese `o.kind`.
  */
 function productAdjustment(rule: LevelRuleValue | undefined): { kind: AdjustmentKind; discountInput: string } {
@@ -819,7 +819,7 @@ function levelDiscount(o: PriceLevelOverride): string {
   return o.discountInput
 }
 function setLevelDiscount(o: PriceLevelOverride, value: string) {
-  o.discountInput = value
+  o.discountInput = value.trim() === '' ? '' : value
   if (value.trim() === '') delete o.rules[ALL_CURRENCIES]
   else o.rules[ALL_CURRENCIES] = { rule_type: 'discount_pct', value: joinAdjustment(o.kind, value) }
 }

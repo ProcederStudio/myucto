@@ -14434,7 +14434,7 @@
     },
     "price_levels": {
       "title": "Price levels",
-      "subtitle": "Item price for customers with an assigned price level. The inherited price comes from the level rules (category, manufacturer, default discount); you can override it for this item here.",
+      "subtitle": "Item price for customers with an assigned price level. The inherited price comes from the level rules (category, manufacturer, default discount or markup); you can override it for this item here.",
       "load_failed": "Price levels could not be loaded, so changes to them will not be saved.",
       "empty": "The company has no active price level yet.",
       "empty_hint": "Create levels (e.g. Bronze, Silver, Gold) in E-shop on the Price levels tab and assign them to customers.",
@@ -14642,7 +14642,7 @@
       "title": "Price levels",
       "subtitle": "Customer levels (e.g. Bronze, Silver, Gold) with a discount on the whole range, a category, a manufacturer or a specific product. A customer without a level is in the Default level and pays standard prices.",
       "empty_title": "No price levels yet",
-      "empty_hint": "Create a level, set its default discount or rules and assign it to customers on their card.",
+      "empty_hint": "Create a level, set its default discount or markup or rules and assign it to customers on their card.",
       "new": "New level",
       "edit": "Edit level",
       "field_name": "Name",
@@ -14662,7 +14662,7 @@
       "rules_title": "Rules of level {name}",
       "rules_subtitle": "A discount or markup for a category, a manufacturer or a specific product; for a product also a fixed price in a currency. Product wins over category, category over manufacturer; among equal ones the higher priority wins.",
       "rules_empty": "The level has no rule yet.",
-      "rules_empty_hint": "Without rules the default level discount applies to all products.",
+      "rules_empty_hint": "Without rules the default level discount or markup applies to all products.",
       "rules_load_failed": "The level rules could not be loaded.",
       "add_rule": "Add rule",
       "match_type": "Applies to",
@@ -14693,7 +14693,8 @@
       "value_markup_pct": "Markup (%)",
       "adjustment_kind": "Discount or markup",
       "adjustment_discount": "Discount",
-      "adjustment_markup": "Markup"
+      "adjustment_markup": "Markup",
+      "only_currency": "Only in {currency}"
     },
     "attributes": {
       "title": "Attributes",

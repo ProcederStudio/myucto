@@ -14434,7 +14434,7 @@
     },
     "price_levels": {
       "title": "Cenové hladiny",
-      "subtitle": "Cena karty pro odběratele s přiřazenou hladinou. Zděděná cena vychází z pravidel hladiny (kategorie, výrobce, výchozí sleva), tady ji můžete pro tuto kartu přepsat.",
+      "subtitle": "Cena karty pro odběratele s přiřazenou hladinou. Zděděná cena vychází z pravidel hladiny (kategorie, výrobce, výchozí sleva nebo přirážka), tady ji můžete pro tuto kartu přepsat.",
       "load_failed": "Cenové hladiny se nepodařilo načíst. Změny v nich se proto neuloží.",
       "empty": "Firma zatím nemá žádnou aktivní cenovou hladinu.",
       "empty_hint": "Hladiny (například Bronze, Silver, Gold) založíte v E-shopu na záložce Cenové hladiny a přiřadíte je odběratelům.",
@@ -14642,7 +14642,7 @@
       "title": "Cenové hladiny",
       "subtitle": "Hladiny odběratelů (například Bronze, Silver, Gold) se slevou na celý sortiment, kategorii, výrobce nebo konkrétní zboží. Odběratel bez hladiny má hladinu Default a platí pro něj standardní ceny.",
       "empty_title": "Zatím žádné cenové hladiny",
-      "empty_hint": "Založte hladinu, nastavte jí výchozí slevu nebo pravidla a přiřaďte ji odběratelům na jejich kartě.",
+      "empty_hint": "Založte hladinu, nastavte jí výchozí slevu nebo přirážku nebo pravidla a přiřaďte ji odběratelům na jejich kartě.",
       "new": "Nová hladina",
       "edit": "Upravit hladinu",
       "field_name": "Název",
@@ -14662,7 +14662,7 @@
       "rules_title": "Pravidla hladiny {name}",
       "rules_subtitle": "Sleva nebo přirážka pro kategorii, výrobce nebo konkrétní zboží, u zboží i pevná cena v měně. Přednost má zboží, pak kategorie, pak výrobce, mezi stejnými vyšší priorita.",
       "rules_empty": "Hladina zatím nemá žádné pravidlo.",
-      "rules_empty_hint": "Bez pravidel platí pro všechno zboží výchozí sleva hladiny.",
+      "rules_empty_hint": "Bez pravidel platí pro všechno zboží výchozí sleva nebo přirážka hladiny.",
       "rules_load_failed": "Pravidla hladiny se nepodařilo načíst.",
       "add_rule": "Přidat pravidlo",
       "match_type": "Platí pro",
@@ -14693,7 +14693,8 @@
       "value_markup_pct": "Přirážka (%)",
       "adjustment_kind": "Sleva nebo přirážka",
       "adjustment_discount": "Sleva",
-      "adjustment_markup": "Přirážka"
+      "adjustment_markup": "Přirážka",
+      "only_currency": "Jen v měně {currency}"
     },
     "attributes": {
       "title": "Atributy",

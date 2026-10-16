@@ -96,4 +96,8 @@ describe('item price level rules: round-trip', () => {
     expect(invalidRule('EUR', { rule_type: 'discount_pct', value: '-999.999' })).toBe(false)
     expect(invalidRule(ALL_CURRENCIES, { rule_type: 'discount_pct', value: '-1000' })).toBe(true)
   })
+
+  it('typografické minus je totéž co pomlčka (výjimka se nepovažuje za změněnou)', () => {
+    expect(sameRuleValue({ rule_type: 'discount_pct', value: '\u221245' }, { rule_type: 'discount_pct', value: '-45.000' })).toBe(true)
+  })
 })

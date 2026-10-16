@@ -1,5 +1,5 @@
 import type { StockItemPriceLevelPayload } from '@/api/stock'
-import { invalidSignedPct } from '@/pages/eshop/priceAdjustment'
+import { invalidSignedPct, normalizePct } from '@/pages/eshop/priceAdjustment'
 
 /**
  * Výjimky skladové karty v cenových hladinách (pravidla match_type='product').
@@ -32,7 +32,7 @@ export interface ProductRuleLike {
 }
 
 export function normalizeRuleValue(value: string | number | null | undefined): string {
-  return String(value ?? '').trim().replace(/\s+/g, '').replace(',', '.')
+  return normalizePct(value)
 }
 
 /** Načtená pravidla → sada podle měny. Duplicitní klíč (nemá nastat) zachová první pravidlo. */

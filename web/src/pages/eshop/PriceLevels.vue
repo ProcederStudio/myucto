@@ -9,8 +9,6 @@ import {
   type PriceLevel,
   type PriceLevelMatchType,
   type PriceLevelPayload,
-  type PriceLevelRule,
-  type PriceLevelRulePayload,
 } from '@/api/eshop'
 import { stockApi } from '@/api/stock'
 import { useAuthStore } from '@/stores/auth'
@@ -22,6 +20,7 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import SearchableSelect from '@/components/ui/SearchableSelect.vue'
 import { ICONS, btnFilled, btnOutline, btnOutlineSm } from '@/components/ui/buttonStyles'
 import { formatAdjustment, invalidAdjustment, joinAdjustment, splitAdjustment, type AdjustmentKind } from '@/pages/eshop/priceAdjustment'
+import { isFixedRow, ruleDuplicateKey, rulePayload, ruleRowFrom, type RuleKind, type RuleRow } from '@/pages/eshop/priceLevelRuleRows'
 
 /**
  * Cenové hladiny odběratelů (Bronze / Silver / Gold). Odběratel bez hladiny je
@@ -190,23 +189,9 @@ async function remove(level: PriceLevel) {
 }
 
 // ── Pravidla hladiny ─────────────────────────────────────────────────────
-interface RuleRow {
-  key: number
-  match_type: PriceLevelMatchType
-  match_id: number | null
-  match_label: string | null
-  /** Typ ve formuláři: přirážka je v API `discount_pct` se záporným znaménkem. */
-  rule_type: RuleKind
-  /** Kladná hodnota slevy nebo přirážky v %. */
-  discount_pct: string
-  fixed_price: string
-  currency_code: string
-  priority: number
-}
 type SelectOption = { value: number; label: string; secondary?: string }
 
 const MATCH_TYPES: PriceLevelMatchType[] = ['category', 'manufacturer', 'product']
-type RuleKind = 'discount_pct' | 'markup_pct' | 'fixed'
 /** Pevná cena jen u zboží (CHECK chk_splr_value). */
 function ruleKinds(rule: RuleRow): RuleKind[] {
   return rule.match_type === 'product' ? ['discount_pct', 'markup_pct', 'fixed'] : ['discount_pct', 'markup_pct']
@@ -250,22 +235,6 @@ async function loadReferences() {
   referencesLoaded = true
 }
 
-function ruleRowFrom(r: PriceLevelRule): RuleRow {
-  return {
-    key: ++ruleKey,
-    match_type: r.match_type,
-    match_id: r.match_id,
-    match_label: r.match_label,
-    rule_type: r.match_type === 'product' && r.rule_type === 'fixed'
-      ? 'fixed'
-      : (splitAdjustment(r.discount_pct).kind === 'markup' ? 'markup_pct' : 'discount_pct'),
-    discount_pct: splitAdjustment(r.discount_pct).value,
-    fixed_price: r.fixed_price ?? '',
-    currency_code: (r.currency_code ?? 'CZK').toUpperCase(),
-    priority: r.priority,
-  }
-}
-
 async function openRules(level: PriceLevel) {
   rulesLevel.value = level
   rules.value = []
@@ -275,7 +244,7 @@ async function openRules(level: PriceLevel) {
   try {
     const [loaded] = await Promise.all([eshopApi.getPriceLevelRules(level.id), loadReferences()])
     if (rulesLevel.value?.id !== level.id) return
-    rules.value = loaded.map(ruleRowFrom)
+    rules.value = loaded.map(r => ruleRowFrom(r, ++ruleKey))
   } catch (e: any) {
     rulesLoadFailed.value = true
     rulesError.value = mapError(e)
@@ -299,6 +268,7 @@ function addRule() {
     discount_pct: '',
     fixed_price: '',
     currency_code: 'CZK',
+    pct_currency: null,
     priority: 0,
   })
 }
@@ -358,9 +328,7 @@ function targetLabel(rule: RuleRow): string {
   return targetChoices(rule).find(o => o.value === rule.match_id)?.label ?? `#${rule.match_id}`
 }
 
-function isFixed(rule: RuleRow): boolean {
-  return rule.match_type === 'product' && rule.rule_type === 'fixed'
-}
+const isFixed = isFixedRow
 
 function validateRules(): string | null {
   const seen = new Set<string>()
@@ -376,24 +344,11 @@ function validateRules(): string | null {
       return t('eshop.price_levels.value_invalid')
     }
     if (fixed && !r.currency_code) return t('eshop.price_levels.currency_required')
-    const key = `${r.match_type}|${r.match_id}|${fixed ? r.currency_code.toUpperCase() : ''}`
+    const key = ruleDuplicateKey(r)
     if (seen.has(key)) return t('eshop.price_levels.duplicate', { target: targetLabel(r) })
     seen.add(key)
   }
   return null
-}
-
-function rulePayload(r: RuleRow): PriceLevelRulePayload {
-  const fixed = isFixed(r)
-  return {
-    match_type: r.match_type,
-    match_id: r.match_id as number,
-    rule_type: fixed ? 'fixed' : 'discount_pct',
-    discount_pct: fixed ? null : joinAdjustment(r.rule_type === 'markup_pct' ? 'markup' : 'discount', r.discount_pct),
-    fixed_price: fixed ? normalizeDecimal(r.fixed_price) : null,
-    currency_code: fixed ? r.currency_code.toUpperCase() : null,
-    priority: Number(r.priority) || 0,
-  }
 }
 
 async function saveRules() {
@@ -598,6 +553,7 @@ const FIELD = 'w-full h-9 px-2 border border-neutral-300 rounded-md text-sm bg-s
                   <div v-else>
                     <label class="block text-xs font-medium text-neutral-500 mb-1">{{ t(rule.rule_type === 'markup_pct' ? 'eshop.price_levels.value_markup_pct' : 'eshop.price_levels.value_pct') }}</label>
                     <input v-model="rule.discount_pct" type="text" inputmode="decimal" :disabled="!canWrite" :class="FIELD" class="font-mono text-right" />
+                    <span v-if="rule.pct_currency" class="mt-1 block text-xs text-neutral-500">{{ t('eshop.price_levels.only_currency', { currency: rule.pct_currency }) }}</span>
                   </div>
                   <div>
                     <label class="block text-xs font-medium text-neutral-500 mb-1">{{ t('eshop.price_levels.priority') }}</label>
