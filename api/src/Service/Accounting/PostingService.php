@@ -16,6 +16,7 @@ use MyInvoice\Service\Accounting\Bank\BankDocumentNumber;
 use MyInvoice\Service\Accounting\Dimension\DimensionAccountRouter;
 use MyInvoice\Service\Accounting\Dimension\DimensionStamper;
 use MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard;
+use MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy;
 use MyInvoice\Service\Accounting\Expense\ExpenseClassificationService;
 use MyInvoice\Service\Accounting\Expense\ExpenseAutoClassifier;
 use MyInvoice\Service\Accounting\Expense\ExpenseKind;
@@ -263,7 +264,7 @@ final class PostingService
         // Pravidla dimenzí podle účtu (Firma → Dimenze → Pravidla): povinná dimenze
         // s vynucením `error` zápis odmítne, `warning` se vrátí přes dimensionWarnings().
         $this->dimensionWarnings = [];
-        $this->dimensionWarnings = $this->dimensionStamper()->rules()->check($supplierId, $sourceType, $resolved, $entryDate);
+
         self::assertBalanced($resolved); // v haléřích; UnbalancedEntryException při nerovnosti
 
         // R7 (Epic F4): flag allow_closing_period smí nastavit VÝHRADNĚ ClosingService —
@@ -439,6 +440,7 @@ final class PostingService
                             . ' a doklad nemá zápis, který by se dal přepsat — nový zápis do zamčeného data nelze.',
                     );
                 }
+                $this->dimensionWarnings = $this->dimensionStamper()->rules()->check($supplierId, $sourceType, $resolved, $entryDate);
                 try {
                     $entryId = $this->journal->insert($header, $resolved);
                 } catch (\PDOException $e) {
@@ -557,7 +559,7 @@ final class PostingService
             }
 
             $existing = [];
-            foreach ($this->journal->linesForEntry($entryId, $supplierId) as $line) {
+            foreach ($this->journal->linesForEntry($entryId, $supplierId, true) as $line) {
                 $existing[(int) $line['id']] = $line;
             }
             $removedCents = 0;
@@ -744,6 +746,8 @@ final class PostingService
         $origLineIds = array_map(static fn (array $l): int => (int) ($l['id'] ?? 0), $origLines);
         $origDims = $assignments->lineDimensions($supplierId, $origLineIds, true);
         $origSplits = $assignments->lineSplits($supplierId, $origLineIds, true);
+        $origOrigins = $assignments->lineOrigins($supplierId, $origLineIds, true);
+        $origSplitOrigins = $assignments->lineSplitOrigins($supplierId, $origLineIds, true);
         $mirror = [];
         foreach ($origLines as $line) {
             $reversalLine = JournalLineAmount::reversal($line);
@@ -761,6 +765,8 @@ final class PostingService
                 'project_id'     => isset($line['project_id']) ? (int) $line['project_id'] : null,
                 'dimensions'     => $origDims[(int) ($line['id'] ?? 0)] ?? [],
                 'dimension_splits' => $origSplits[(int) ($line['id'] ?? 0)] ?? [],
+                'dimension_origins' => $origOrigins[(int) ($line['id'] ?? 0)] ?? [],
+                'dimension_split_origins' => $origSplitOrigins[(int) ($line['id'] ?? 0)] ?? [],
             ];
         }
 
@@ -781,13 +787,7 @@ final class PostingService
             'posted_by'     => $meta['posted_by'] ?? null,
         ];
 
-            $reversalId = $this->journal->insert($header, $mirror);
-            // Atomická pojistka proti dvojímu stornu (audit F-1): podmíněný UPDATE
-            // reversed_by IS NULL. Když mezitím stornoval někdo jiný, vrátí false →
-            // rollback celé transakce (i právě vloženého zrcadla).
-            if (!$this->journal->setReversedBy($entryId, $supplierId, $reversalId)) {
-                throw new PostingException('already_reversed', 'Zápis #' . $entryId . ' byl mezitím stornován.');
-            }
+            $reversalId = $this->journal->insertReversal($header, $mirror, $entryId);
             if (in_array((string) $original['source_type'], ['bank', 'cash'], true)
                 && $original['source_id'] !== null) {
                 $column = $original['source_type'] === 'bank' ? 'bank_transaction_id' : 'cash_document_id';
@@ -867,6 +867,20 @@ final class PostingService
         }
     }
 
+    private function currentDimensionLines(int $supplierId, array $lines): array
+    {
+        $assignments = new DimensionAssignmentRepository($this->db);
+        $lineIds = array_column($lines, 'id');
+        $dimensions = $assignments->lineDimensions($supplierId, $lineIds, true);
+        $splits = $assignments->lineSplits($supplierId, $lineIds, true);
+        foreach ($lines as $i => $line) {
+            $lineId = (int) $line['id'];
+            $lines[$i]['dimensions'] = $dimensions[$lineId] ?? [];
+            $lines[$i]['dimension_splits'] = $splits[$lineId] ?? [];
+        }
+        return $lines;
+    }
+
     /**
      * Idempotentní přepis existujícího zápisu (re-post téhož dokladu). Před přepisem
      * vynucuje dvě neměnnostní pojistky (§35 ZoÚ), které surový replace() neměl:
@@ -937,6 +951,14 @@ final class PostingService
             );
         }
 
+        $this->dimensionWarnings = $this->dimensionStamper()->rules()->check(
+            $supplierId,
+            (string) $header['source_type'],
+            $resolved,
+            (string) $header['entry_date'],
+            SystemDimensionWritePolicy::canRetainEntryAssignments($header, $existing)
+                ? $this->currentDimensionLines($supplierId, $existing['lines']) : [],
+        );
         $this->journal->replace($entryId, $header, $resolved);
         return $entryId;
     }
@@ -3413,6 +3435,9 @@ final class PostingService
             // Rozpad řádku mezi víc hodnot typu (typ => hodnota => podíl), zvalidovaný volajícím.
             if (!empty($line['dimension_splits']) && is_array($line['dimension_splits'])) {
                 $resolvedLine['dimension_splits'] = $line['dimension_splits'];
+            }
+            foreach (['dimension_origins', 'dimension_split_origins'] as $field) {
+                if (isset($line[$field]) && is_array($line[$field])) $resolvedLine[$field] = $line[$field];
             }
             // cizoměnová stopa (jen saldokontní řádky cizoměnových dokladů)
             if (isset($line['currency_code'])) {

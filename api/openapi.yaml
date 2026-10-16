@@ -12392,7 +12392,13 @@ paths:
 
         (strom), `is_active` (uzavřená hodnota) a volitelné vazby na vůz, zakázku a
 
-        středisko. Změny číselníku přes token nejdou (účetní vrstva je jednosměrná).
+        středisko. `system_key` typu a `semantic_key` hodnoty označují chráněnou
+
+        systémovou identitu; u vlastních typů a hodnot jsou null. Předběžné daňové
+
+        zařazení není potvrzeným daňovým posouzením. Změny číselníku přes token nejdou
+
+        (účetní vrstva je jednosměrná).
 
         '
       parameters:
@@ -39276,6 +39282,7 @@ components:
       - code
       - name
       - kind
+      - system_key
       - is_active
       - show_on_documents
       - sort_order
@@ -39302,6 +39309,11 @@ components:
           type: string
         kind:
           $ref: '#/components/schemas/DimensionKind'
+        system_key:
+          type: [string, 'null']
+          readOnly: true
+          enum: [activity, activity_kind, tax_regime, unit, service, funding_source, null]
+          description: Systémová identita nezávislá na uživatelském kódu; null pro vlastní typ.
         is_active:
           type: boolean
         show_on_documents:
@@ -39388,6 +39400,7 @@ components:
       required:
       - id
       - type_id
+      - semantic_key
       - supplier_id
       - supplier_group_id
       - level
@@ -39409,6 +39422,10 @@ components:
           type: integer
         type_id:
           type: integer
+        semantic_key:
+          type: [string, 'null']
+          readOnly: true
+          description: Neměnný význam pevné systémové hodnoty; null u uživatelských hodnot.
         supplier_id:
           type:
           - number

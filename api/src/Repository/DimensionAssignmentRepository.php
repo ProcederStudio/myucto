@@ -6,6 +6,7 @@ namespace MyInvoice\Repository;
 
 use MyInvoice\Infrastructure\Database\Connection;
 use PDO;
+use MyInvoice\Service\Accounting\Dimension\DimensionAssignmentOrigin;
 
 /**
  * Přiřazení hodnot dimenzí dokladům (`document_dimensions`) a řádkům deníku
@@ -49,37 +50,41 @@ final class DimensionAssignmentRepository
      * @param array<int,int> $header typ => hodnota
      * @param array<int,array<int,int>> $items pořadí položky (od 1) => typ => hodnota
      */
-    public function replaceDocumentDimensions(int $supplierId, string $docType, int $docId, array $header, array $items): void
+    public function replaceDocumentDimensions(int $supplierId, string $docType, int $docId, array $header, array $items, array $headerOrigins = [], array $itemOrigins = []): void
     {
         $pdo = $this->db->pdo();
-        $pdo->prepare('DELETE FROM document_dimensions WHERE supplier_id = ? AND doc_type = ? AND doc_id = ?')
-            ->execute([$supplierId, $docType, $docId]);
+        $current = $this->documentDimensions($supplierId, $docType, $docId, $pdo->inTransaction());
+        $header = array_map('intval', $header);
+        ksort($header);
+        $items = array_filter(array_map(static function (array $dims): array { $dims = array_map('intval', $dims); ksort($dims); return $dims; }, $items), static fn (array $dims, int|string $itemNo): bool => (int) $itemNo > 0 && $dims !== [], ARRAY_FILTER_USE_BOTH);
+        ksort($items);
+        if ($current['header'] === $header && $current['items'] === $items) return;
+        $origins = $this->documentOrigins($supplierId, $docType, $docId, $pdo->inTransaction());
+        $pdo->prepare('DELETE FROM document_dimensions WHERE supplier_id = ? AND doc_type = ? AND doc_id = ?')->execute([$supplierId, $docType, $docId]);
         $rows = [];
-        foreach ($header as $typeId => $valueId) {
-            $rows[] = [$supplierId, $docType, $docId, 0, (int) $typeId, (int) $valueId];
-        }
-        foreach ($items as $itemNo => $dims) {
-            if ((int) $itemNo <= 0) {
-                continue;
-            }
+        foreach ([0 => $header] + $items as $itemNo => $dims) {
+            $old = $itemNo === 0 ? $current['header'] : ($current['items'][$itemNo] ?? []);
+            $oldOrigins = $itemNo === 0 ? $origins['header'] : ($origins['items'][$itemNo] ?? []);
+            $newOrigins = $itemNo === 0 ? $headerOrigins : ($itemOrigins[$itemNo] ?? []);
             foreach ($dims as $typeId => $valueId) {
-                $rows[] = [$supplierId, $docType, $docId, (int) $itemNo, (int) $typeId, (int) $valueId];
+                $origin = DimensionAssignmentOrigin::normalize(($old[$typeId] ?? null) === $valueId ? ($oldOrigins[$typeId] ?? []) : ($newOrigins[$typeId] ?? []));
+                $rows[] = [$supplierId, $docType, $docId, (int) $itemNo, (int) $typeId, $valueId, $origin['origin'], $origin['ref']];
             }
         }
         $this->insertDocumentRows($rows);
     }
-
     /**
      * Doplní hodnotu do hlavičky dokladu jen tam, kde pro typ ještě žádná není —
      * ruční volba uživatele má přednost (převody z jiných systémů).
      */
-    public function addHeaderDimensionIfMissing(int $supplierId, string $docType, int $docId, int $typeId, int $valueId): bool
+    public function addHeaderDimensionIfMissing(int $supplierId, string $docType, int $docId, int $typeId, int $valueId, array $origin = []): bool
     {
+        $origin = DimensionAssignmentOrigin::normalize($origin);
         $stmt = $this->db->pdo()->prepare(
-            'INSERT IGNORE INTO document_dimensions (supplier_id, doc_type, doc_id, item_no, dimension_type_id, dimension_value_id)
-             VALUES (?, ?, ?, 0, ?, ?)'
+            'INSERT IGNORE INTO document_dimensions (supplier_id, doc_type, doc_id, item_no, dimension_type_id, dimension_value_id, assignment_origin, assignment_origin_ref)
+             VALUES (?, ?, ?, 0, ?, ?, ?, ?)'
         );
-        $stmt->execute([$supplierId, $docType, $docId, $typeId, $valueId]);
+        $stmt->execute([$supplierId, $docType, $docId, $typeId, $valueId, $origin['origin'], $origin['ref']]);
         return $stmt->rowCount() > 0;
     }
 
@@ -105,13 +110,13 @@ final class DimensionAssignmentRepository
             return;
         }
         $pdo->prepare(
-            'INSERT INTO document_dimensions (supplier_id, doc_type, doc_id, item_no, dimension_type_id, dimension_value_id)
-             SELECT supplier_id, ?, ?, item_no, dimension_type_id, dimension_value_id
+            'INSERT INTO document_dimensions (supplier_id, doc_type, doc_id, item_no, dimension_type_id, dimension_value_id, assignment_origin, assignment_origin_ref)
+             SELECT supplier_id, ?, ?, item_no, dimension_type_id, dimension_value_id, assignment_origin, assignment_origin_ref
                FROM document_dimensions WHERE supplier_id = ? AND doc_type = ? AND doc_id = ?'
         )->execute([$docType, $toId, $supplierId, $fromDocType, $fromId]);
         $pdo->prepare(
-            'INSERT INTO document_dimension_splits (supplier_id, doc_type, doc_id, item_no, dimension_type_id, dimension_value_id, share)
-             SELECT supplier_id, ?, ?, item_no, dimension_type_id, dimension_value_id, share
+            'INSERT INTO document_dimension_splits (supplier_id, doc_type, doc_id, item_no, dimension_type_id, dimension_value_id, share, assignment_origin, assignment_origin_ref)
+             SELECT supplier_id, ?, ?, item_no, dimension_type_id, dimension_value_id, share, assignment_origin, assignment_origin_ref
                FROM document_dimension_splits WHERE supplier_id = ? AND doc_type = ? AND doc_id = ?'
         )->execute([$docType, $toId, $supplierId, $fromDocType, $fromId]);
     }
@@ -146,28 +151,32 @@ final class DimensionAssignmentRepository
     }
 
     /** @param array<int,array<int,array<int,float>>> $splits pořadí položky => typ => hodnota => podíl */
-    public function replaceDocumentSplits(int $supplierId, string $docType, int $docId, array $splits): void
+    public function replaceDocumentSplits(int $supplierId, string $docType, int $docId, array $splits, array $origins = []): void
     {
         $pdo = $this->db->pdo();
-        $pdo->prepare('DELETE FROM document_dimension_splits WHERE supplier_id = ? AND doc_type = ? AND doc_id = ?')
-            ->execute([$supplierId, $docType, $docId]);
+        $current = $this->documentSplits($supplierId, $docType, $docId, $pdo->inTransaction());
+        $itemNos = array_unique([...array_keys($current), ...array_keys($splits)]);
+        $same = true;
+        foreach ($itemNos as $itemNo) {
+            $same = $same && self::sameSplits($current[$itemNo] ?? [], $splits[$itemNo] ?? []);
+        }
+        if ($same) return;
+        $oldOrigins = $this->documentSplitOrigins($supplierId, $docType, $docId, $pdo->inTransaction());
+        $pdo->prepare('DELETE FROM document_dimension_splits WHERE supplier_id = ? AND doc_type = ? AND doc_id = ?')->execute([$supplierId, $docType, $docId]);
         $rows = [];
         foreach ($splits as $itemNo => $byType) {
             foreach ($byType as $typeId => $shares) {
                 foreach ($shares as $valueId => $share) {
-                    array_push($rows, $supplierId, $docType, $docId, (int) $itemNo, (int) $typeId, (int) $valueId, self::share($share));
+                    $unchanged = isset($current[$itemNo][$typeId][$valueId]) && self::share($current[$itemNo][$typeId][$valueId]) === self::share($share);
+                    $origin = DimensionAssignmentOrigin::normalize($unchanged ? ($oldOrigins[$itemNo][$typeId][$valueId] ?? []) : ($origins[$itemNo][$typeId][$valueId] ?? []));
+                    array_push($rows, $supplierId, $docType, $docId, (int) $itemNo, (int) $typeId, (int) $valueId, self::share($share), $origin['origin'], $origin['ref']);
                 }
             }
         }
-        foreach (array_chunk($rows, 7 * 300) as $chunk) {
-            $pdo->prepare(
-                'INSERT INTO document_dimension_splits
-                    (supplier_id, doc_type, doc_id, item_no, dimension_type_id, dimension_value_id, share) VALUES '
-                . implode(',', array_fill(0, intdiv(count($chunk), 7), '(?, ?, ?, ?, ?, ?, ?)'))
-            )->execute($chunk);
+        foreach (array_chunk($rows, 9 * 300) as $chunk) {
+            $pdo->prepare('INSERT INTO document_dimension_splits (supplier_id, doc_type, doc_id, item_no, dimension_type_id, dimension_value_id, share, assignment_origin, assignment_origin_ref) VALUES ' . implode(',', array_fill(0, intdiv(count($chunk), 9), '(?, ?, ?, ?, ?, ?, ?, ?, ?)')))->execute($chunk);
         }
     }
-
     /**
      * @param list<int> $lineIds
      * @return array<int,array<int,array<int,float>>> řádek => typ => hodnota => podíl
@@ -215,38 +224,35 @@ final class DimensionAssignmentRepository
      * @param array<int,array<int,float>> $splits typ => hodnota => podíl
      * @return bool zda se něco změnilo
      */
-    public function replaceLineSplits(int $supplierId, int $lineId, array $splits): bool
+    public function replaceLineSplits(int $supplierId, int $lineId, array $splits, array $origins = []): bool
     {
         $current = $this->lineSplits($supplierId, [$lineId], $this->db->pdo()->inTransaction())[$lineId] ?? [];
-        if (self::sameSplits($current, $splits)) {
-            return false;
+        if (self::sameSplits($current, $splits)) return false;
+        $oldOrigins = $this->lineSplitOrigins($supplierId, [$lineId], $this->db->pdo()->inTransaction())[$lineId] ?? [];
+        foreach ($splits as $typeId => $shares) {
+            foreach ($shares as $valueId => $share) {
+                if (isset($current[$typeId][$valueId]) && self::share($current[$typeId][$valueId]) === self::share($share)) $origins[$typeId][$valueId] = $oldOrigins[$typeId][$valueId] ?? [];
+            }
         }
-        $this->db->pdo()->prepare('DELETE FROM journal_entry_line_dimension_splits WHERE supplier_id = ? AND line_id = ?')
-            ->execute([$supplierId, $lineId]);
-        $this->insertLineSplits($supplierId, $lineId, $splits);
+        $this->db->pdo()->prepare('DELETE FROM journal_entry_line_dimension_splits WHERE supplier_id = ? AND line_id = ?')->execute([$supplierId, $lineId]);
+        $this->insertLineSplits($supplierId, $lineId, $splits, $origins);
         return true;
     }
-
     /** @param array<int,array<int,float>> $splits typ => hodnota => podíl */
-    public function insertLineSplits(int $supplierId, int $lineId, array $splits): void
+    public function insertLineSplits(int $supplierId, int $lineId, array $splits, array $origins = []): void
     {
         $rows = [];
         $params = [];
         foreach ($splits as $typeId => $shares) {
             foreach ($shares as $valueId => $share) {
-                $rows[] = '(?, ?, ?, ?, ?)';
-                array_push($params, $lineId, (int) $typeId, (int) $valueId, $supplierId, self::share($share));
+                $origin = DimensionAssignmentOrigin::normalize($origins[$typeId][$valueId] ?? []);
+                $rows[] = '(?, ?, ?, ?, ?, ?, ?)';
+                array_push($params, $lineId, (int) $typeId, (int) $valueId, $supplierId, self::share($share), $origin['origin'], $origin['ref']);
             }
         }
-        if ($rows === []) {
-            return;
-        }
-        $this->db->pdo()->prepare(
-            'INSERT INTO journal_entry_line_dimension_splits (line_id, dimension_type_id, dimension_value_id, supplier_id, share) VALUES '
-            . implode(',', $rows)
-        )->execute($params);
+        if ($rows === []) return;
+        $this->db->pdo()->prepare('INSERT INTO journal_entry_line_dimension_splits (line_id, dimension_type_id, dimension_value_id, supplier_id, share, assignment_origin, assignment_origin_ref) VALUES ' . implode(',', $rows))->execute($params);
     }
-
     /**
      * @param array<int,array<int,float>> $a
      * @param array<int,array<int,float>> $b
@@ -359,46 +365,123 @@ final class DimensionAssignmentRepository
      * @param array<int,int> $dims typ => hodnota
      * @return bool zda se něco změnilo
      */
-    public function replaceLineDimensions(int $supplierId, int $lineId, array $dims): bool
+    public function replaceLineDimensions(int $supplierId, int $lineId, array $dims, array $origins = []): bool
     {
         $current = $this->lineDimensions($supplierId, [$lineId], $this->db->pdo()->inTransaction())[$lineId] ?? [];
         ksort($current);
         ksort($dims);
-        if ($current === array_map('intval', $dims)) {
-            return false;
+        $dims = array_map('intval', $dims);
+        if ($current === $dims) return false;
+        $oldOrigins = $this->lineOrigins($supplierId, [$lineId], $this->db->pdo()->inTransaction())[$lineId] ?? [];
+        foreach ($dims as $typeId => $valueId) {
+            if (($current[$typeId] ?? null) === $valueId) $origins[$typeId] = $oldOrigins[$typeId] ?? [];
         }
         $pdo = $this->db->pdo();
-        $pdo->prepare('DELETE FROM journal_entry_line_dimensions WHERE supplier_id = ? AND line_id = ?')
-            ->execute([$supplierId, $lineId]);
-        $this->insertLineDimensions($supplierId, $lineId, $dims);
+        $pdo->prepare('DELETE FROM journal_entry_line_dimensions WHERE supplier_id = ? AND line_id = ?')->execute([$supplierId, $lineId]);
+        $this->insertLineDimensions($supplierId, $lineId, $dims, $origins);
         return true;
     }
-
     /** @param array<int,int> $dims typ => hodnota */
-    public function insertLineDimensions(int $supplierId, int $lineId, array $dims): void
+    public function insertLineDimensions(int $supplierId, int $lineId, array $dims, array $origins = []): void
     {
-        if ($dims === []) {
-            return;
-        }
+        if ($dims === []) return;
         $rows = [];
         $params = [];
         foreach ($dims as $typeId => $valueId) {
-            $rows[] = '(?, ?, ?, ?)';
-            array_push($params, $lineId, (int) $typeId, $supplierId, (int) $valueId);
+            $origin = DimensionAssignmentOrigin::normalize($origins[$typeId] ?? []);
+            $rows[] = '(?, ?, ?, ?, ?, ?)';
+            array_push($params, $lineId, (int) $typeId, $supplierId, (int) $valueId, $origin['origin'], $origin['ref']);
         }
-        $this->db->pdo()->prepare(
-            'INSERT INTO journal_entry_line_dimensions (line_id, dimension_type_id, supplier_id, dimension_value_id) VALUES '
-            . implode(',', $rows)
-        )->execute($params);
+        $this->db->pdo()->prepare('INSERT INTO journal_entry_line_dimensions (line_id, dimension_type_id, supplier_id, dimension_value_id, assignment_origin, assignment_origin_ref) VALUES ' . implode(',', $rows))->execute($params);
     }
 
-    /** @param list<array{0:int,1:string,2:int,3:int,4:int,5:int}> $rows */
+    public function documentOrigins(int $supplierId, string $docType, int $docId, bool $forUpdate = false): array
+    {
+        $stmt = $this->db->pdo()->prepare('SELECT item_no, dimension_type_id, assignment_origin, assignment_origin_ref FROM document_dimensions WHERE supplier_id = ? AND doc_type = ? AND doc_id = ? ORDER BY item_no, dimension_type_id' . ($forUpdate ? ' FOR UPDATE' : ''));
+        $stmt->execute([$supplierId, $docType, $docId]);
+        $out = ['header' => [], 'items' => []];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $origin = ['origin' => $row['assignment_origin'], 'ref' => $row['assignment_origin_ref']];
+            if ((int) $row['item_no'] === 0) $out['header'][(int) $row['dimension_type_id']] = $origin;
+            else $out['items'][(int) $row['item_no']][(int) $row['dimension_type_id']] = $origin;
+        }
+        return $out;
+    }
+
+    public function documentSplitOrigins(int $supplierId, string $docType, int $docId, bool $forUpdate = false): array
+    {
+        $stmt = $this->db->pdo()->prepare('SELECT item_no, dimension_type_id, dimension_value_id, assignment_origin, assignment_origin_ref FROM document_dimension_splits WHERE supplier_id = ? AND doc_type = ? AND doc_id = ? ORDER BY item_no, dimension_type_id, dimension_value_id' . ($forUpdate ? ' FOR UPDATE' : ''));
+        $stmt->execute([$supplierId, $docType, $docId]);
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) $out[(int) $row['item_no']][(int) $row['dimension_type_id']][(int) $row['dimension_value_id']] = ['origin' => $row['assignment_origin'], 'ref' => $row['assignment_origin_ref']];
+        return $out;
+    }
+
+    public function lineOrigins(int $supplierId, array $lineIds, bool $forUpdate = false): array
+    {
+        return $this->assignmentOrigins('journal_entry_line_dimensions', $supplierId, $lineIds, $forUpdate);
+    }
+
+    public function lineSplitOrigins(int $supplierId, array $lineIds, bool $forUpdate = false): array
+    {
+        return $this->assignmentOrigins('journal_entry_line_dimension_splits', $supplierId, $lineIds, $forUpdate);
+    }
+
+    public function entryLineOrigins(int $supplierId, int $entryId, bool $forUpdate = false): array
+    {
+        return $this->entryAssignmentOrigins('journal_entry_line_dimensions', $supplierId, $entryId, $forUpdate);
+    }
+
+    public function entryLineSplitOrigins(int $supplierId, int $entryId, bool $forUpdate = false): array
+    {
+        return $this->entryAssignmentOrigins('journal_entry_line_dimension_splits', $supplierId, $entryId, $forUpdate);
+    }
+
+    private function entryAssignmentOrigins(string $table, int $supplierId, int $entryId, bool $forUpdate): array
+    {
+        $stmt = $this->db->pdo()->prepare(
+            "SELECT d.line_id, d.dimension_type_id, d.dimension_value_id, d.assignment_origin, d.assignment_origin_ref
+               FROM journal_entry_lines l STRAIGHT_JOIN {$table} d ON d.line_id = l.id
+              WHERE l.supplier_id = ? AND l.entry_id = ? AND d.supplier_id = ?
+              ORDER BY d.line_id, d.dimension_type_id, d.dimension_value_id" . ($forUpdate ? ' FOR UPDATE' : '')
+        );
+        $stmt->execute([$supplierId, $entryId, $supplierId]);
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $origin = ['origin' => $row['assignment_origin'], 'ref' => $row['assignment_origin_ref']];
+            if ($table === 'journal_entry_line_dimensions') {
+                $out[(int) $row['line_id']][(int) $row['dimension_type_id']] = $origin;
+            } else {
+                $out[(int) $row['line_id']][(int) $row['dimension_type_id']][(int) $row['dimension_value_id']] = $origin;
+            }
+        }
+        return $out;
+    }
+
+    private function assignmentOrigins(string $table, int $supplierId, array $lineIds, bool $forUpdate): array
+    {
+        $lineIds = array_values(array_unique(array_map('intval', $lineIds)));
+        $out = [];
+        foreach (array_chunk($lineIds, 1000) as $chunk) {
+            $marks = implode(',', array_fill(0, count($chunk), '?'));
+            $stmt = $this->db->pdo()->prepare("SELECT line_id, dimension_type_id, dimension_value_id, assignment_origin, assignment_origin_ref FROM {$table} WHERE supplier_id = ? AND line_id IN ({$marks}) ORDER BY line_id, dimension_type_id, dimension_value_id" . ($forUpdate ? ' FOR UPDATE' : ''));
+            $stmt->execute([$supplierId, ...$chunk]);
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $origin = ['origin' => $row['assignment_origin'], 'ref' => $row['assignment_origin_ref']];
+                if ($table === 'journal_entry_line_dimensions') $out[(int) $row['line_id']][(int) $row['dimension_type_id']] = $origin;
+                else $out[(int) $row['line_id']][(int) $row['dimension_type_id']][(int) $row['dimension_value_id']] = $origin;
+            }
+        }
+        return $out;
+    }
+
+    /** @param list<array{0:int,1:string,2:int,3:int,4:int,5:int,6:string,7:?string}> $rows */
     private function insertDocumentRows(array $rows): void
     {
         foreach (array_chunk($rows, 500) as $chunk) {
             $this->db->pdo()->prepare(
-                'INSERT INTO document_dimensions (supplier_id, doc_type, doc_id, item_no, dimension_type_id, dimension_value_id) VALUES '
-                . implode(',', array_fill(0, count($chunk), '(?, ?, ?, ?, ?, ?)'))
+                'INSERT INTO document_dimensions (supplier_id, doc_type, doc_id, item_no, dimension_type_id, dimension_value_id, assignment_origin, assignment_origin_ref) VALUES '
+                . implode(',', array_fill(0, count($chunk), '(?, ?, ?, ?, ?, ?, ?, ?)'))
             )->execute(array_merge(...$chunk));
         }
     }

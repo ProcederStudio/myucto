@@ -445,6 +445,14 @@ final class JournalAction
                     }
                 }
             }
+            foreach ($line['dimensions'] ?? [] as $typeId => $_) {
+                $line['dimension_origins'][$typeId] = ['origin' => 'explicit', 'ref' => null];
+            }
+            foreach ($line['dimension_splits'] ?? [] as $typeId => $shares) {
+                foreach ($shares as $valueId => $_) {
+                    $line['dimension_split_origins'][$typeId][$valueId] = ['origin' => 'explicit', 'ref' => null];
+                }
+            }
             $lines[] = $line;
         }
 

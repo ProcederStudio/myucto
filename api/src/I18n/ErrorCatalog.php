@@ -18,6 +18,19 @@ final class ErrorCatalog
 {
     /** @var array<string,string> CZ → EN */
     private const MAP = [
+        'Vlastní účet nemá ověřenou vazbu na účetní rámec.' => 'The custom account has no verified binding to the accounting framework.',
+        'Systémovou dimenzi ani význam použité hodnoty nelze změnit. Pro nový význam založte novou hodnotu.' => 'A system dimension or the meaning of a used value cannot be changed. Create a new value for a new meaning.',
+        'Kód systémové dimenze již používá vlastní typ. Vlastní typ nelze automaticky převést.' => 'A custom type already uses the system dimension code. A custom type cannot be converted automatically.',
+        'Kód systémové hodnoty již používá vlastní hodnota.' => 'A custom value already uses the system value code.',
+        'Zápis nelze zaúčtovat bez povinných systémových dimenzí.' => 'An entry cannot be posted without the required system dimensions.',
+        'Systémová dimenze nepatří firmě.' => 'The system dimension does not belong to this company.',
+        'Rozdělení více systémových dimenzí musí mít společné alokační řádky.' => 'Splitting multiple system dimensions requires shared allocation rows.',
+        'Hodnota systémové dimenze nepatří firmě nebo typu.' => 'The system dimension value does not belong to this company or type.',
+        'Uzavřenou hodnotu systémové dimenze nelze nově přiřadit.' => 'A closed system dimension value cannot be assigned to a new row.',
+        'Převod účetnictví je podporován pouze pro období vedená celé v rámci vyhlášky 500.' => 'Accounting migration is supported only for periods maintained entirely under Decree 500.',
+        'Neplatný původ přiřazení dimenze.' => 'Invalid dimension assignment origin.',
+        'Protizápis neodpovídá živému zaúčtovanému zdroji.' => 'The reversal does not match a live posted source entry.',
+        'Konec intervalu nesmí předcházet začátku.' => 'The interval end must not precede its start.',
         'ARES je dočasně nedostupný.' => 'ARES is temporarily unavailable.',
         'Přešifrování je potřeba potvrdit.' => 'The re-encryption has to be confirmed.',
         'Přebalení je potřeba potvrdit.' => 'The re-wrap has to be confirmed.',

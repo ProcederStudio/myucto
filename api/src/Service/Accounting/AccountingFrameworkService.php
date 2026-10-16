@@ -41,6 +41,36 @@ final class AccountingFrameworkService
         );
     }
 
+    public function forDateForUpdate(int $supplierId, string $date): string
+    {
+        $this->assertDate($date);
+        return $this->frameworks->forDateForUpdate($supplierId, $date) ?? self::CZ_500;
+    }
+
+    public function forInterval(int $supplierId, string $from, string $to, bool $currentRead = false): array
+    {
+        $this->assertDate($from);
+        $this->assertDate($to);
+        if ($to < $from) {
+            throw new \InvalidArgumentException('Konec intervalu nesmí předcházet začátku.');
+        }
+        $out = [$from => $currentRead ? $this->forDateForUpdate($supplierId, $from) : $this->forDate($supplierId, $from)];
+        if ($currentRead) {
+            $cursor = $from;
+            while (($next = $this->frameworks->nextChangeForUpdate($supplierId, $cursor)) !== null && $next <= $to) {
+                $out[$next] = $this->forDateForUpdate($supplierId, $next);
+                $cursor = $next;
+            }
+        } else {
+            foreach ($this->history($supplierId) as $row) {
+                if ($row['effective_from'] > $from && $row['effective_from'] <= $to) {
+                    $out[$row['effective_from']] = $row['accounting_framework'];
+                }
+            }
+        }
+        return $out;
+    }
+
     /** @return list<array{id:int,effective_from:string,accounting_framework:string,created_at:string,created_by:?int}> */
     public function history(int $supplierId): array
     {

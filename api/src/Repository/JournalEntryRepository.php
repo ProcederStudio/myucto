@@ -6,7 +6,10 @@ namespace MyInvoice\Repository;
 
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Service\Accounting\Dimension\DimensionFilter;
+use MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard;
+use MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy;
 use MyInvoice\Service\Accounting\PostingException;
+use MyInvoice\Service\Accounting\JournalLineAmount;
 use MyInvoice\Service\ActivityLogger;
 use PDO;
 
@@ -42,26 +45,8 @@ final class JournalEntryRepository
             $pdo->beginTransaction();
         }
         try {
-            $pdo->prepare(
-                'INSERT INTO journal_entries
-                    (supplier_id, period_id, entry_date, document_date, document_no, description,
-                     source_type, source_id, posted_at, posted_by)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-            )->execute([
-                $header['supplier_id'],
-                $header['period_id'],
-                $header['entry_date'],
-                $header['document_date'] ?? null,
-                $header['document_no'] ?? null,
-                $header['description'] ?? null,
-                $header['source_type'] ?? 'manual',
-                $header['source_id'] ?? null,
-                $header['posted_at'] ?? null,
-                $header['posted_by'] ?? null,
-            ]);
-            $entryId = (int) $pdo->lastInsertId();
-
-            $this->insertLines($pdo, $entryId, (int) $header['supplier_id'], $lines);
+            (new SystemDimensionWritePolicy($this->db))->assertJournal($header, $lines);
+            $entryId = $this->persistJournal($header, $lines);
 
             if ($ownTx) {
                 $pdo->commit();
@@ -73,6 +58,84 @@ final class JournalEntryRepository
             }
             throw $e;
         }
+    }
+
+    private function persistJournal(array $header, array $lines): int
+    {
+        $pdo = $this->db->pdo();
+        if (!$pdo->inTransaction()) {
+            throw new \LogicException('Journal persistence requires a transaction.');
+        }
+        $pdo->prepare(
+            'INSERT INTO journal_entries
+                (supplier_id, period_id, entry_date, document_date, document_no, description,
+                 source_type, source_id, posted_at, posted_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        )->execute([
+            $header['supplier_id'],
+            $header['period_id'],
+            $header['entry_date'],
+            $header['document_date'] ?? null,
+            $header['document_no'] ?? null,
+            $header['description'] ?? null,
+            $header['source_type'] ?? 'manual',
+            $header['source_id'] ?? null,
+            $header['posted_at'] ?? null,
+            $header['posted_by'] ?? null,
+        ]);
+        $entryId = (int) $pdo->lastInsertId();
+        $this->insertLines($pdo, $entryId, (int) $header['supplier_id'], $lines);
+        return $entryId;
+    }
+
+    public function insertReversal(array $header, array $lines, int $sourceEntryId): int
+    {
+        return (new DimensionPeriodGuard($this->db))->transaction(
+            fn (): int => $this->insertReversalLocked($header, $lines, $sourceEntryId),
+        );
+    }
+
+    private function insertReversalLocked(array $header, array $lines, int $sourceEntryId): int
+    {
+        $supplierId = (int) $header['supplier_id'];
+        $source = $this->currentEntryForDimensionWrite($sourceEntryId, $supplierId);
+        $invalid = static fn (): PostingException => new PostingException('invalid_reversal_source', 'Protizápis neodpovídá živému zaúčtovanému zdroji.', 422);
+        if ($source === null || $source['posted_at'] === null || $source['reversed_by'] !== null || $source['source_type'] === 'payroll'
+            || ($header['source_type'] ?? 'manual') !== $source['source_type']
+            || ($header['source_id'] ?? null) !== null || ($header['posted_at'] ?? null) === null
+            || count($source['lines']) !== count($lines) || $lines === []) {
+            throw $invalid();
+        }
+        $period = $this->db->pdo()->prepare('SELECT status FROM accounting_periods WHERE id = ? AND supplier_id = ? AND starts_on <= ? AND ends_on >= ? FOR UPDATE');
+        $period->execute([(int) $header['period_id'], $supplierId, $header['entry_date'], $header['entry_date']]);
+        if (!in_array($period->fetchColumn(), ['open', 'closing'], true)) {
+            throw $invalid();
+        }
+        $dimensions = static function (array $values): array {
+            $values = array_map('intval', $values);
+            ksort($values);
+            return $values;
+        };
+        $mirror = [];
+        foreach (array_values($lines) as $index => $line) {
+            $original = $source['lines'][$index];
+            $expected = array_replace($original, JournalLineAmount::reversal($original));
+            if (!SystemDimensionWritePolicy::sameLedgerLine($line, $expected)
+                || $dimensions($line['dimensions'] ?? []) !== $dimensions($original['dimensions'])
+                || !DimensionAssignmentRepository::sameSplits($line['dimension_splits'] ?? [], $original['dimension_splits'])) {
+                throw $invalid();
+            }
+            unset($expected['id'], $expected['entry_id'], $expected['supplier_id']);
+            $expected['line_no'] = $index;
+            $mirror[] = $expected;
+        }
+        // Přesné storno ověřeného aktuálního zdroje zachová i chybějící historické
+        // dimenze. Nové povinnosti ani alokační pravidla jeho význam nedoplňují.
+        $reversalId = $this->persistJournal($header, $mirror);
+        if (!$this->setReversedBy($sourceEntryId, $supplierId, $reversalId)) {
+            throw new PostingException('already_reversed', 'Zápis #' . $sourceEntryId . ' byl mezitím stornován.');
+        }
+        return $reversalId;
     }
 
     /**
@@ -89,6 +152,19 @@ final class JournalEntryRepository
      */
     public function replace(int $id, array $header, array $lines): void
     {
+        $previous = $this->currentEntryForDimensionWrite($id, (int) $header['supplier_id']);
+        if ($previous === null || $previous['reversed_by'] !== null) {
+            throw new PostingException('entry_reversed', 'Zápis #' . $id . ' byl mezitím stornován — přepis není možný (§35).');
+        }
+        $validationPrevious = SystemDimensionWritePolicy::canRetainEntryAssignments($header, $previous) ? $previous['lines'] : [];
+        (new SystemDimensionWritePolicy($this->db))->assertJournal($header, $lines, $validationPrevious);
+        $retained = SystemDimensionWritePolicy::retainedAssignments($lines, $previous['lines']);
+        foreach ($retained as $index => $assignment) {
+            $lines[$index]['dimension_origins'] = ($assignment['dimension_origins'] ?? []) + ($lines[$index]['dimension_origins'] ?? []);
+            foreach ($assignment['dimension_split_origins'] ?? [] as $typeId => $origins) {
+                $lines[$index]['dimension_split_origins'][$typeId] = $origins + ($lines[$index]['dimension_split_origins'][$typeId] ?? []);
+            }
+        }
         $pdo = $this->db->pdo();
         $stmt = $pdo->prepare(
             'UPDATE journal_entries
@@ -143,6 +219,18 @@ final class JournalEntryRepository
      */
     public function replaceSomeLines(int $entryId, int $supplierId, int $expectedRowVersion, array $removeLineIds, array $addLines): void
     {
+        $entry = $this->currentEntryForDimensionWrite($entryId, $supplierId);
+        if ($entry === null || $entry['reversed_by'] !== null || (int) $entry['row_version'] !== $expectedRowVersion) {
+            throw new PostingException('version_conflict', 'Zápis #' . $entryId . ' se mezitím změnil nebo byl stornován — načtěte aktuální stav.', 409);
+        }
+        $remove = array_fill_keys(array_map('intval', $removeLineIds), true);
+        $retained = array_values(array_filter($entry['lines'], static fn (array $line): bool => !isset($remove[(int) $line['id']])));
+        $nextLineNo = $retained === [] ? 0 : max(array_column($retained, 'line_no')) + 1;
+        foreach ($addLines as $i => $line) {
+            unset($addLines[$i]['id']);
+            $addLines[$i]['line_no'] = $nextLineNo + $i;
+        }
+        (new SystemDimensionWritePolicy($this->db))->assertJournal($entry, [...$retained, ...$addLines], $retained);
         $pdo = $this->db->pdo();
         $stmt = $pdo->prepare(
             'UPDATE journal_entries SET row_version = row_version + 1
@@ -347,11 +435,53 @@ final class JournalEntryRepository
      */
     public function markPosted(int $id, int $supplierId, ?int $postedBy): bool
     {
-        $stmt = $this->db->pdo()->prepare(
-            'UPDATE journal_entries SET posted_at = NOW(), posted_by = ? WHERE id = ? AND supplier_id = ?'
-        );
-        $stmt->execute([$postedBy, $id, $supplierId]);
-        return $stmt->rowCount() > 0;
+        $pdo = $this->db->pdo();
+        $ownTx = !$pdo->inTransaction();
+        if ($ownTx) {
+            $pdo->beginTransaction();
+        }
+        try {
+            $entry = $this->currentEntryForDimensionWrite($id, $supplierId);
+            if ($entry !== null && $entry['posted_at'] === null) {
+                (new SystemDimensionWritePolicy($this->db))->assertJournal($entry, $entry['lines']);
+            }
+            $stmt = $pdo->prepare(
+                'UPDATE journal_entries SET posted_at = NOW(), posted_by = ? WHERE id = ? AND supplier_id = ?'
+            );
+            $stmt->execute([$postedBy, $id, $supplierId]);
+            $changed = $stmt->rowCount() > 0;
+            if ($ownTx) {
+                $pdo->commit();
+            }
+            return $changed;
+        } catch (\Throwable $e) {
+            if ($ownTx && $pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
+    }
+
+    private function currentEntryForDimensionWrite(int $entryId, int $supplierId): ?array
+    {
+        (new SystemDimensionWritePolicy($this->db))->lockPeriods($supplierId);
+        $entry = $this->findForUpdate($entryId, $supplierId);
+        if ($entry === null) {
+            return null;
+        }
+        $assignments = new DimensionAssignmentRepository($this->db);
+        $dimensions = $assignments->entryLineDimensions($supplierId, $entryId, true);
+        $splits = $assignments->entryLineSplits($supplierId, $entryId, true);
+        $origins = $assignments->entryLineOrigins($supplierId, $entryId, true);
+        $splitOrigins = $assignments->entryLineSplitOrigins($supplierId, $entryId, true);
+        foreach ($entry['lines'] as $i => $line) {
+            $lineId = (int) $line['id'];
+            $entry['lines'][$i]['dimensions'] = $dimensions[$lineId] ?? [];
+            $entry['lines'][$i]['dimension_splits'] = $splits[$lineId] ?? [];
+            $entry['lines'][$i]['dimension_origins'] = $origins[$lineId] ?? [];
+            $entry['lines'][$i]['dimension_split_origins'] = $splitOrigins[$lineId] ?? [];
+        }
+        return $entry;
     }
 
     /**
@@ -434,11 +564,11 @@ final class JournalEntryRepository
                 $assignments ??= new DimensionAssignmentRepository($this->db);
                 $lineId = (int) $pdo->lastInsertId();
                 if ($hasDims) {
-                    $assignments->insertLineDimensions($supplierId, $lineId, $line['dimensions']);
+                    $assignments->insertLineDimensions($supplierId, $lineId, $line['dimensions'], $line['dimension_origins'] ?? []);
                 }
                 if ($hasSplits) {
                     // Rozpad řádku mezi víc hodnot typu (pravidla dimenzí, EP-6).
-                    $assignments->insertLineSplits($supplierId, $lineId, $line['dimension_splits']);
+                    $assignments->insertLineSplits($supplierId, $lineId, $line['dimension_splits'], $line['dimension_split_origins'] ?? []);
                 }
             }
             $n++;

@@ -13,6 +13,7 @@ use MyInvoice\Repository\DimensionDefaultRepository;
 use MyInvoice\Repository\DimensionRepository;
 use MyInvoice\Service\Accounting\DocumentRepostService;
 use MyInvoice\Service\Accounting\PostingService;
+use MyInvoice\Service\Accounting\PostingException;
 use PDO;
 
 /**
@@ -154,7 +155,7 @@ final class DimensionService
     }
 
     /** @param array<string,mixed> $body */
-    public function updateType(int $supplierId, int $typeId, array $body): array
+    public function updateType(int $supplierId, int $typeId, array $body, ?int $actor = null, string $source = 'service'): array
     {
         $type = $this->requireType($supplierId, $typeId);
         $changes = array_intersect_key($body, array_flip(['name', 'is_active', 'show_on_documents', 'sort_order']));
@@ -167,7 +168,7 @@ final class DimensionService
                 throw new DimensionException('validation_failed', 'Název typu musí mít 1–100 znaků.');
             }
         }
-        $this->repo->updateType($supplierId, $typeId, $changes);
+        $this->repo->updateType($supplierId, $typeId, $changes, $actor, $source);
         return (array) $this->repo->findType($supplierId, $typeId);
     }
 
@@ -211,7 +212,7 @@ final class DimensionService
     // ── hodnoty ──────────────────────────────────────────────────────────────
 
     /** @param array<string,mixed> $body */
-    public function createValue(int $supplierId, int $typeId, array $body): array
+    public function createValue(int $supplierId, int $typeId, array $body, ?int $actor = null, string $source = 'service'): array
     {
         $type = $this->requireType($supplierId, $typeId);
         $code = trim((string) ($body['code'] ?? ''));
@@ -228,17 +229,17 @@ final class DimensionService
         if ($type['kind'] === 'cost_center' && $type['level'] === 'company' && !array_key_exists('cost_center_id', $body)) {
             $data['cost_center_id'] = $this->costCenterFor($supplierId, $code, (string) $data['name']);
         }
-        $id = $this->repo->createValue($type, $data);
+        $id = $this->repo->createValue($type, $data, $actor, $source);
         return (array) $this->repo->findValue($supplierId, $id);
     }
 
     /** @param array<string,mixed> $body */
-    public function updateValue(int $supplierId, int $valueId, array $body): array
+    public function updateValue(int $supplierId, int $valueId, array $body, ?int $actor = null, string $source = 'service'): array
     {
         $value = $this->requireValue($supplierId, $valueId);
         $type = $this->requireType($supplierId, $value['type_id']);
         $changes = $this->valueData($supplierId, $type, $body, $value);
-        $this->repo->updateValue($supplierId, $valueId, $changes);
+        $this->repo->updateValue($supplierId, $valueId, $changes, $actor, $source);
         if (array_key_exists('is_active', $changes) && $value['cost_center_id'] !== null && $value['supplier_id'] !== null) {
             $this->costCenters->update($supplierId, $value['cost_center_id'], ['is_active' => (bool) $changes['is_active']]);
         }
@@ -246,14 +247,14 @@ final class DimensionService
     }
 
     /** @return array{deleted:bool} */
-    public function deleteValue(int $supplierId, int $valueId): array
+    public function deleteValue(int $supplierId, int $valueId, ?int $actor = null, string $source = 'service'): array
     {
         $this->requireValue($supplierId, $valueId);
         if ($this->repo->valueInUse($valueId)) {
-            $this->repo->updateValue($supplierId, $valueId, ['is_active' => false]);
+            $this->repo->updateValue($supplierId, $valueId, ['is_active' => false], $actor, $source);
             return ['deleted' => false];
         }
-        return ['deleted' => $this->repo->deleteValue($supplierId, $valueId)];
+        return ['deleted' => $this->repo->deleteValue($supplierId, $valueId, $actor, $source)];
     }
 
     /**
@@ -567,9 +568,26 @@ final class DimensionService
         }
         $normSplits = array_filter($normSplits, static fn (array $byType): bool => $byType !== []);
         ksort($normSplits);
-        $this->assignments->replaceDocumentDimensions($supplierId, $docType, $docId, $normHeader, $normItems);
+        $prospective = self::documentAssignmentLines($normHeader, $normItems, $normSplits);
+        $previous = self::documentAssignmentLines($current['header'], $current['items'], $currentSplits, array_column($prospective, 'line_no'));
+        try {
+            if ($normHeader != $current['header'] || $normItems != $current['items'] || $normSplits != $currentSplits) {
+                (new SystemDimensionWritePolicy($this->db))->assertAssignments($supplierId, $prospective, null, $previous);
+            }
+        } catch (PostingException $e) {
+            throw new DimensionException($e->errorCode, $e->getMessage(), $e->httpStatus);
+        }
+        $ref = 'document:' . $docType . ':' . $docId . ':';
+        $itemOrigins = [];
+        foreach ($normItems as $itemNo => $dims) $itemOrigins[$itemNo] = self::explicitOrigins($dims, $ref . $itemNo);
+        $splitOrigins = [];
+        foreach ($normSplits as $itemNo => $byType) {
+            foreach ($byType as $typeId => $values) $splitOrigins[$itemNo][$typeId] = self::explicitOrigins($values, $ref . $itemNo);
+        }
+        $this->assignments->replaceDocumentDimensions($supplierId, $docType, $docId, $normHeader, $normItems,
+            self::explicitOrigins($normHeader, $ref . '0'), $itemOrigins);
         if ($normSplits !== [] || $currentSplits !== []) {
-            $this->assignments->replaceDocumentSplits($supplierId, $docType, $docId, $normSplits);
+            $this->assignments->replaceDocumentSplits($supplierId, $docType, $docId, $normSplits, $splitOrigins);
         }
         // Co doklad určoval před uložením: typ, který teď neurčuje, se z řádků zápisů
         // odebere jen tam, kde je pořád tato hodnota (ruční dimenze řádku zůstane).
@@ -850,6 +868,28 @@ final class DimensionService
         return $this->assignments->entryLineDimensions($supplierId, $entryId);
     }
 
+    private static function documentAssignmentLines(array $header, array $items, array $splits, array $itemNos = []): array
+    {
+        $out = [['line_no' => 0, 'dimensions' => $header, 'dimension_splits' => $splits[0] ?? []]];
+        foreach (array_unique([...array_keys($items), ...array_keys($splits), ...$itemNos]) as $itemNo) {
+            if ((int) $itemNo === 0) {
+                continue;
+            }
+            $dimensions = $header;
+            $shares = $splits[0] ?? [];
+            foreach ($items[$itemNo] ?? [] as $typeId => $valueId) {
+                $dimensions[$typeId] = $valueId;
+                unset($shares[$typeId]);
+            }
+            foreach ($splits[$itemNo] ?? [] as $typeId => $values) {
+                $shares[$typeId] = $values;
+                unset($dimensions[$typeId]);
+            }
+            $out[] = ['line_no' => (int) $itemNo, 'dimensions' => $dimensions, 'dimension_splits' => $shares];
+        }
+        return $out;
+    }
+
     /**
      * Ruční změna dimenzí řádků zápisu před uzavřením účetních knih.
      *
@@ -932,10 +972,28 @@ final class DimensionService
         if ($touched !== []) {
             $guard->assertMutable($entries[$entryId]);
         }
+        $previousLines = array_map(static fn (array $row): array => $row + [
+            'dimensions' => $current[(int) $row['id']] ?? [],
+            'dimension_splits' => $currentSplits[(int) $row['id']] ?? [],
+        ], array_values($rows));
+        $prospective = array_map(static fn (array $row): array => $row + [
+            'dimensions' => $newDims[(int) $row['id']] ?? [],
+            'dimension_splits' => $newSplits[(int) $row['id']] ?? [],
+        ], array_values($rows));
+        if ($touched !== []) {
+            try {
+                (new SystemDimensionWritePolicy($this->db))->assertJournal(
+                    $entries[$entryId] + ['supplier_id' => $supplierId], $prospective, $previousLines,
+                );
+            } catch (PostingException $e) {
+                throw new DimensionException($e->errorCode, $e->getMessage(), $e->httpStatus);
+            }
+        }
         $this->ruleService()->assertLines(
             $supplierId,
             (string) $first['source_type'],
             array_map(static fn (array $r): array => [
+                'id' => (int) $r['id'],
                 'account_id' => (int) $r['account_id'],
                 'side' => (string) $r['side'],
                 'amount' => (float) $r['amount'],
@@ -943,6 +1001,7 @@ final class DimensionService
                 'dimension_splits' => $newSplits[(int) $r['id']] ?? [],
             ], array_values($touched)),
             (string) $first['entry_date'],
+            $previousLines,
         );
 
         // Účtotvorná dimenze: nová hodnota nesmí tiše přesunout řádek na jinou analytiku.
@@ -972,9 +1031,11 @@ final class DimensionService
         $changed = 0;
         foreach (array_keys($rows) as $lineId) {
             $dimsChanged = isset($newDims[$lineId])
-                && $this->assignments->replaceLineDimensions($supplierId, $lineId, $newDims[$lineId]);
+                && $this->assignments->replaceLineDimensions($supplierId, $lineId, $newDims[$lineId],
+                    self::explicitOrigins($newDims[$lineId], 'journal:' . $entryId . ':' . $lineId));
             $splitsChanged = ($splits !== null || isset($currentSplits[$lineId]))
-                && $this->assignments->replaceLineSplits($supplierId, $lineId, $newSplits[$lineId] ?? []);
+                && $this->assignments->replaceLineSplits($supplierId, $lineId, $newSplits[$lineId] ?? [],
+                    array_map(static fn (array $values): array => self::explicitOrigins($values, 'journal:' . $entryId . ':' . $lineId), $newSplits[$lineId] ?? []));
             if ($dimsChanged || $splitsChanged) {
                 $changed++;
             }
@@ -1318,6 +1379,11 @@ final class DimensionService
             $data[$field] = $id > 0 ? $id : null;
         }
         return $data;
+    }
+
+    private static function explicitOrigins(array $values, string $reference): array
+    {
+        return array_fill_keys(array_keys($values), ['origin' => 'explicit', 'ref' => $reference]);
     }
 
     private function costCenterFor(int $supplierId, string $code, string $name): int

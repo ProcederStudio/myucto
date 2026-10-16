@@ -845,6 +845,35 @@ odeslání ke schválení a jeho zrušení patří ke změně stavu přijaté fa
 Převod z Money S3 dimenze zapne a středisko i zakázku z deníku Money převede na
 dimenze. Podrobnosti v kapitole [Přechod z Money S3](103_Prechod_z_Money_S3.md).
 
+### 114.11.17 Systémové dimenze a původ přiřazení
+
+Systémový typ má vlastní identitu nezávislou na názvu a kódu vlastního typu.
+Vlastní typ se stejným kódem se automaticky nepřevádí. Příprava rámce 504
+rozlišuje činnost (hlavní nebo hospodářskou), druh činnosti a předběžné daňové
+zařazení. Rámec 504 zatím nelze v nastavení firmy aktivovat. Předběžné daňové
+zařazení samo nepotvrzuje daňové posouzení ani nárok na osvobození a systém
+automaticky nevybírá hlavní činnost ani předmět daně.
+
+Systémový typ nelze odstranit ani vypnout. Název a význam použité systémové
+hodnoty, její kód a zařazení do stromu zůstávají zachované i v otevřeném období.
+Pro nový význam je nutná nová hodnota. Provozní poznámky a odpovědnou osobu lze
+měnit. Vlastní druh činnosti lze ukončit a později znovu zpřístupnit, jeho
+historické částky a název zůstávají v sestavách. Na nový účetní řádek ukončenou
+hodnotu nelze přiřadit. Dosavadní přiřazení lze ponechat beze změny a storno je
+převezme z původního zápisu. Pevné systémové hodnoty nelze
+přejmenovat ani ukončit. Tato přísnější pravidla nemění správu vlastních dimenzí.
+
+Přiřazení uchovává známý původ hodnoty, například přímý výběr, výchozí hodnotu
+klienta, zakázky nebo produktu, konkrétní účetní pravidlo či účetní modul. Kopie a
+storno zachovají původ převzatého přiřazení. U starších přiřazení bez doloženého
+původu zůstává původ neznámý; opětovné uložení stejné hodnoty jej nedoplňuje
+odhadem.
+
+Povinné systémové dimenze rámce 504 platí také pro systémové účetní zdroje.
+U závěrky a otevření se kontrolují rozvahové řádky. Nezávislé procentní rozpady
+více systémových os na jednom řádku se odmítnou, protože neurčují jejich
+společné kombinace.
+
 ## 114.12 Související kapitoly
 
 - [Zisk](11_Zisk.md) - souhrnný přehled firmy

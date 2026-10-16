@@ -52,8 +52,8 @@ final class RecurringManualScheduleTest extends TestCase
         $pdo->exec('CREATE TABLE vat_rates (id INTEGER PRIMARY KEY, code TEXT, label_cs TEXT, valid_from TEXT, valid_to TEXT)');
         $pdo->exec("INSERT INTO vat_rates VALUES (1, 'TEST', 'Test', '2000-01-01', NULL)");
         // Dimenze šablony se kopírují na vygenerovanou fakturu (F1).
-        $pdo->exec('CREATE TABLE document_dimensions (supplier_id INTEGER, doc_type TEXT, doc_id INTEGER, item_no INTEGER, dimension_type_id INTEGER, dimension_value_id INTEGER)');
-        $pdo->exec('CREATE TABLE document_dimension_splits (supplier_id INTEGER, doc_type TEXT, doc_id INTEGER, item_no INTEGER, dimension_type_id INTEGER, dimension_value_id INTEGER, share REAL)');
+        $pdo->exec("CREATE TABLE document_dimensions (supplier_id INTEGER, doc_type TEXT, doc_id INTEGER, item_no INTEGER, dimension_type_id INTEGER, dimension_value_id INTEGER, assignment_origin TEXT DEFAULT 'unknown', assignment_origin_ref TEXT)");
+        $pdo->exec("CREATE TABLE document_dimension_splits (supplier_id INTEGER, doc_type TEXT, doc_id INTEGER, item_no INTEGER, dimension_type_id INTEGER, dimension_value_id INTEGER, share REAL, assignment_origin TEXT DEFAULT 'unknown', assignment_origin_ref TEXT)");
         $db = $this->createStub(Connection::class);
         $db->method('pdo')->willReturn($pdo);
         $items = [['description' => 'Test service', 'quantity' => 1, 'unit' => 'ks', 'unit_price_without_vat' => 121, 'vat_rate_id' => 1, 'order_index' => 0]];

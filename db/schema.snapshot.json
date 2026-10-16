@@ -999,7 +999,8 @@
         "2015_client_bank_permissions.sql",
         "2016_invoice_item_tracking.sql",
         "2017_supplier_accounting_frameworks.sql",
-        "2018_supplier_legal_form.sql"
+        "2018_supplier_legal_form.sql",
+        "2019_system_dimensions_provenance.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -4334,20 +4335,23 @@
                 "sort_order": "smallint(6) NOT NULL DEFAULT 0",
                 "supplier_group_id": "int(10) unsigned NULL DEFAULT NULL",
                 "supplier_id": "int(10) unsigned NULL DEFAULT NULL",
+                "system_key": "varchar(30) NULL DEFAULT NULL",
                 "updated_at": "timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE CURRENT_TIMESTAMP()"
             },
             "indexes": {
                 "PRIMARY": "UNIQUE BTREE (id)",
                 "uq_dimension_type_drives_accounts": "UNIQUE BTREE (drives_accounts_owner)",
                 "uq_dimension_type_group_code": "UNIQUE BTREE (supplier_group_id, code)",
-                "uq_dimension_type_supplier_code": "UNIQUE BTREE (supplier_id, code)"
+                "uq_dimension_type_supplier_code": "UNIQUE BTREE (supplier_id, code)",
+                "uq_dimension_type_system": "UNIQUE BTREE (supplier_id, system_key)"
             },
             "foreign_keys": {
                 "fk_dimension_type_group": "(supplier_group_id) -> supplier_groups (id) ON UPDATE RESTRICT ON DELETE CASCADE",
                 "fk_dimension_type_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE"
             },
             "checks": {
-                "chk_dimension_type_owner": "`supplier_id` is null <> (`supplier_group_id` is null)"
+                "chk_dimension_type_owner": "`supplier_id` is null <> (`supplier_group_id` is null)",
+                "chk_dimension_type_system": "`system_key` is null or `supplier_id` is not null and `supplier_group_id` is null and `kind` = 'custom' and `system_key` in ('activity','activity_kind','tax_regime','unit','service','funding_source')"
             }
         },
         "dimension_values": {
@@ -4367,6 +4371,7 @@
                 "project_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "responsible_note": "varchar(190) NULL DEFAULT NULL",
                 "responsible_user_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "semantic_key": "varchar(50) NULL DEFAULT NULL",
                 "sort_order": "smallint(6) NOT NULL DEFAULT 0",
                 "supplier_group_id": "int(10) unsigned NULL DEFAULT NULL",
                 "supplier_id": "int(10) unsigned NULL DEFAULT NULL",
@@ -4382,6 +4387,7 @@
                 "idx_dimension_value_project": "BTREE (project_id)",
                 "idx_dimension_value_responsible": "BTREE (responsible_user_id)",
                 "idx_dimension_value_supplier": "BTREE (supplier_id, type_id)",
+                "uq_dimension_value_semantic": "UNIQUE BTREE (type_id, semantic_key)",
                 "uq_dimension_value_type_code": "UNIQUE BTREE (type_id, code)",
                 "uq_dimension_value_type_id": "UNIQUE BTREE (type_id, id)"
             },
@@ -4405,6 +4411,8 @@
             "engine": "InnoDB",
             "collation": "utf8mb4_unicode_ci",
             "columns": {
+                "assignment_origin": "varchar(24) NOT NULL DEFAULT 'unknown'",
+                "assignment_origin_ref": "varchar(190) NULL DEFAULT NULL",
                 "dimension_type_id": "bigint(20) unsigned NOT NULL",
                 "dimension_value_id": "bigint(20) unsigned NOT NULL",
                 "doc_id": "bigint(20) unsigned NOT NULL",
@@ -4431,6 +4439,8 @@
             "engine": "InnoDB",
             "collation": "utf8mb4_unicode_ci",
             "columns": {
+                "assignment_origin": "varchar(24) NOT NULL DEFAULT 'unknown'",
+                "assignment_origin_ref": "varchar(190) NULL DEFAULT NULL",
                 "dimension_type_id": "bigint(20) unsigned NOT NULL",
                 "dimension_value_id": "bigint(20) unsigned NOT NULL",
                 "doc_id": "bigint(20) unsigned NOT NULL",
@@ -6591,6 +6601,8 @@
             "engine": "InnoDB",
             "collation": "utf8mb4_unicode_ci",
             "columns": {
+                "assignment_origin": "varchar(24) NOT NULL DEFAULT 'unknown'",
+                "assignment_origin_ref": "varchar(190) NULL DEFAULT NULL",
                 "dimension_type_id": "bigint(20) unsigned NOT NULL",
                 "dimension_value_id": "bigint(20) unsigned NOT NULL",
                 "line_id": "bigint(20) unsigned NOT NULL",
@@ -6616,6 +6628,8 @@
             "engine": "InnoDB",
             "collation": "utf8mb4_unicode_ci",
             "columns": {
+                "assignment_origin": "varchar(24) NOT NULL DEFAULT 'unknown'",
+                "assignment_origin_ref": "varchar(190) NULL DEFAULT NULL",
                 "dimension_type_id": "bigint(20) unsigned NOT NULL",
                 "dimension_value_id": "bigint(20) unsigned NOT NULL",
                 "line_id": "bigint(20) unsigned NOT NULL",

@@ -1,0 +1,249 @@
+<?php
+
+declare(strict_types=1);
+
+namespace MyInvoice\Service\Accounting\Dimension;
+
+use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Repository\AccountingFrameworkRepository;
+use MyInvoice\Repository\DimensionAssignmentRepository;
+use MyInvoice\Service\Accounting\AccountingFrameworkService;
+use MyInvoice\Service\Accounting\PostingException;
+use PDO;
+
+final class SystemDimensionWritePolicy
+{
+    public function __construct(private readonly Connection $db) {}
+
+    public function lockPeriods(int $supplierId): void
+    {
+        (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+    }
+
+    public function assertJournal(array $header, array $lines, array $previousLines = []): void
+    {
+        $supplierId = (int) $header['supplier_id'];
+        $this->lockJournalPeriod($header);
+        $types = $this->types($supplierId, $lines);
+        if ($types === [] || !$this->is504($supplierId, (string) $header['entry_date'])) {
+            return;
+        }
+        $this->assignments($supplierId, $lines, $types, $previousLines);
+        $stmt = $this->db->pdo()->prepare("SELECT r.id, r.dimension_type_id, r.account_mask, r.enforcement, r.valid_from, r.valid_to
+            FROM dimension_account_rules r JOIN dimension_types t ON t.id = r.dimension_type_id
+            WHERE r.supplier_id = ? AND r.is_active = 1 AND t.system_key IS NOT NULL ORDER BY r.id FOR UPDATE");
+        $stmt->execute([$supplierId]);
+        $rules = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $rule) {
+            $rules[] = $rule + ['mask' => DimensionAccountMask::parse($rule['account_mask']), 'default_value_id' => null, 'default_from_card' => false];
+        }
+        foreach ($types as $type) {
+            if ($type['system_key'] === 'activity') {
+                $rules[] = SystemDimensionSourcePolicy::activityRule((int) $type['id']);
+            }
+        }
+        if ($rules === []) {
+            return;
+        }
+        $stmt = $this->db->pdo()->prepare('SELECT id, account_code, account_type FROM chart_of_accounts WHERE supplier_id = ? ORDER BY id FOR UPDATE');
+        $stmt->execute([$supplierId]);
+        $accounts = array_column($stmt->fetchAll(PDO::FETCH_ASSOC), null, 'id');
+        foreach ($lines as $line) {
+            $account = $accounts[(int) ($line['account_id'] ?? 0)] ?? null;
+            if ($account === null) {
+                continue;
+            }
+            $selected = array_values(array_filter($rules, static fn (array $rule): bool => SystemDimensionSourcePolicy::applies(
+                (string) ($header['source_type'] ?? 'manual'), $account['account_type'], $rule['enforcement'],
+            )));
+            $result = DimensionRuleEngine::apply($selected, [$line + ['account_code' => $account['account_code']]], (string) $header['entry_date'], null, false);
+            if ($result['violations'] !== []) {
+                throw new PostingException('dimension_required', 'Zápis nelze zaúčtovat bez povinných systémových dimenzí.', 422, ['violations' => $result['violations']]);
+            }
+        }
+    }
+
+    public function assertAssignments(int $supplierId, array $lines, ?string $date = null, array $previousLines = []): void
+    {
+        if (!$this->db->pdo()->inTransaction()) {
+            throw new \LogicException('System dimension validation requires period locks in a transaction.');
+        }
+        $types = $this->types($supplierId, $lines);
+        if ($types !== [] && ($date === null || $this->is504($supplierId, $date))) {
+            $this->assignments($supplierId, $lines, $types, $previousLines);
+        }
+    }
+
+    public function lockJournalPeriod(array $header): void
+    {
+        if (!$this->db->pdo()->inTransaction()) {
+            throw new \LogicException('Journal dimension validation requires a transaction.');
+        }
+        $sql = 'SELECT id FROM accounting_periods WHERE supplier_id = ?';
+        $params = [(int) $header['supplier_id']];
+        if (!empty($header['period_id'])) {
+            $sql .= ' AND id = ?';
+            $params[] = (int) $header['period_id'];
+        } else {
+            $sql .= ' AND starts_on <= ? AND ends_on >= ?';
+            array_push($params, $header['entry_date'], $header['entry_date']);
+        }
+        $stmt = $this->db->pdo()->prepare($sql . ' ORDER BY starts_on, id FOR UPDATE');
+        $stmt->execute($params);
+        $stmt->fetchAll(PDO::FETCH_COLUMN);
+    }
+
+    private function types(int $supplierId, array $lines): array
+    {
+        $ids = [];
+        foreach ($lines as $line) {
+            foreach (['dimensions', 'dimension_splits'] as $field) {
+                foreach (array_keys($line[$field] ?? []) as $id) $ids[(int) $id] = (int) $id;
+            }
+        }
+        $scope = 'supplier_id = ?';
+        $params = [$supplierId];
+        if ($ids !== []) {
+            $scope .= ' OR id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')';
+            array_push($params, ...array_values($ids));
+        }
+        $stmt = $this->db->pdo()->prepare('SELECT id, supplier_id, system_key FROM dimension_types WHERE (' . $scope . ') AND system_key IS NOT NULL ORDER BY id FOR UPDATE');
+        $stmt->execute($params);
+        $types = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($types as $type) {
+            if ((int) $type['supplier_id'] !== $supplierId) {
+                throw new PostingException('invalid_dimension_value', 'Systémová dimenze nepatří firmě.', 422);
+            }
+        }
+        return array_column($types, null, 'id');
+    }
+
+    private function is504(int $supplierId, string $date): bool
+    {
+        return (new AccountingFrameworkService($this->db, new AccountingFrameworkRepository($this->db)))->forDateForUpdate($supplierId, $date) === AccountingFrameworkService::CZ_504;
+    }
+
+    private function assignments(int $supplierId, array $lines, array $types, array $previousLines): void
+    {
+        $retained = self::retainedAssignments($lines, $previousLines);
+        $requested = [];
+        foreach ($lines as $index => $line) {
+            $fractional = 0;
+            foreach ($line['dimension_splits'] ?? [] as $typeId => $shares) {
+                if (!isset($types[$typeId])) {
+                    continue;
+                }
+                if (in_array($types[$typeId]['system_key'], ['activity', 'activity_kind', 'tax_regime'], true) && count($shares) > 1) {
+                    ++$fractional;
+                }
+                foreach ($shares as $valueId => $share) {
+                    $kept = isset($retained[$index]['dimension_splits'][$typeId][$valueId]);
+                    self::requestValue($requested, (int) $typeId, (int) $valueId, $kept);
+                }
+            }
+            if ($fractional > 1) {
+                throw new PostingException('system_dimension_allocation_ambiguous', 'Rozdělení více systémových dimenzí musí mít společné alokační řádky.', 422);
+            }
+            foreach ($line['dimensions'] ?? [] as $typeId => $valueId) {
+                if (isset($types[$typeId])) {
+                    $kept = ($retained[$index]['dimensions'][$typeId] ?? null) === (int) $valueId;
+                    self::requestValue($requested, (int) $typeId, (int) $valueId, $kept);
+                }
+            }
+        }
+        if ($requested === []) {
+            return;
+        }
+        $ids = array_values(array_unique(array_column($requested, 'value_id')));
+        sort($ids, SORT_NUMERIC);
+        $marks = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->db->pdo()->prepare("SELECT id, type_id, is_active FROM dimension_values WHERE supplier_id = ? AND id IN ({$marks}) ORDER BY id FOR UPDATE");
+        $stmt->execute([$supplierId, ...$ids]);
+        $values = array_column($stmt->fetchAll(PDO::FETCH_ASSOC), null, 'id');
+        foreach ($requested as $pair) {
+            $value = $values[$pair['value_id']] ?? null;
+            if ($value === null || (int) $value['type_id'] !== $pair['type_id']) {
+                throw new PostingException('invalid_dimension_value', 'Hodnota systémové dimenze nepatří firmě nebo typu.', 422);
+            }
+            if (!(bool) $value['is_active'] && !$pair['retained']) {
+                throw new PostingException('dimension_closed', 'Uzavřenou hodnotu systémové dimenze nelze nově přiřadit.', 422);
+            }
+        }
+    }
+
+    private static function requestValue(array &$requested, int $typeId, int $valueId, bool $retained): void
+    {
+        $key = $typeId . ':' . $valueId;
+        $requested[$key] = ['type_id' => $typeId, 'value_id' => $valueId,
+            'retained' => $retained && ($requested[$key]['retained'] ?? true)];
+    }
+
+    public static function retainedAssignments(array $lines, array $previousLines): array
+    {
+        $byId = [];
+        $byNumber = [];
+        foreach ($previousLines as $index => $line) {
+            if (isset($line['id'])) {
+                $byId[(int) $line['id']] = $line;
+            }
+            $byNumber[(int) ($line['line_no'] ?? $index)] = $line;
+        }
+        $out = [];
+        $used = [];
+        foreach ($lines as $index => $line) {
+            $previous = isset($line['id'])
+                ? ($byId[(int) $line['id']] ?? null)
+                : ($byNumber[(int) ($line['line_no'] ?? $index)] ?? null);
+            if ($previous === null || !self::sameLedgerLine($line, $previous)) {
+                continue;
+            }
+            $identity = isset($previous['id']) ? 'id:' . $previous['id'] : 'number:' . ($previous['line_no'] ?? $index);
+            if (isset($used[$identity])) {
+                continue;
+            }
+            $used[$identity] = true;
+            foreach ($line['dimensions'] ?? [] as $typeId => $valueId) {
+                if (isset($previous['dimensions'][$typeId]) && (int) $previous['dimensions'][$typeId] === (int) $valueId) {
+                    $out[$index]['dimensions'][$typeId] = (int) $valueId;
+                    $out[$index]['dimension_origins'][$typeId] = DimensionAssignmentOrigin::normalize($previous['dimension_origins'][$typeId] ?? []);
+                }
+            }
+            foreach ($line['dimension_splits'] ?? [] as $typeId => $shares) {
+                foreach ($shares as $valueId => $share) {
+                    if (isset($previous['dimension_splits'][$typeId][$valueId])
+                        && DimensionAssignmentRepository::share($previous['dimension_splits'][$typeId][$valueId]) === DimensionAssignmentRepository::share($share)) {
+                        $out[$index]['dimension_splits'][$typeId][$valueId] = $share;
+                        $out[$index]['dimension_split_origins'][$typeId][$valueId] = DimensionAssignmentOrigin::normalize($previous['dimension_split_origins'][$typeId][$valueId] ?? []);
+                    }
+                }
+            }
+        }
+        return $out;
+    }
+
+    public static function canRetainEntryAssignments(array $header, array $previous): bool
+    {
+        return (int) $header['supplier_id'] === (int) $previous['supplier_id']
+            && (int) $header['period_id'] === (int) $previous['period_id']
+            && $header['entry_date'] === $previous['entry_date']
+            && ($header['source_type'] ?? 'manual') === ($previous['source_type'] ?? 'manual')
+            && (isset($header['source_id']) ? (int) $header['source_id'] : null) === (isset($previous['source_id']) ? (int) $previous['source_id'] : null)
+            && !(($previous['posted_at'] ?? null) === null && ($header['posted_at'] ?? null) !== null);
+    }
+
+    public static function sameLedgerLine(array $a, array $b): bool
+    {
+        $normalize = static function (array $line): array {
+            $out = ['account_id' => (int) ($line['account_id'] ?? 0), 'side' => (string) ($line['side'] ?? ''),
+                'amount' => round((float) ($line['amount'] ?? 0), 2), 'is_red_storno' => (bool) ($line['is_red_storno'] ?? false)];
+            foreach (['currency_code', 'cost_center'] as $field) {
+                $out[$field] = $line[$field] ?? null;
+            }
+            foreach (['fx_rate', 'amount_foreign', 'project_id'] as $field) {
+                $out[$field] = isset($line[$field]) ? (float) $line[$field] : null;
+            }
+            return $out;
+        };
+        return $normalize($a) === $normalize($b);
+    }
+}
