@@ -244,6 +244,10 @@
         {%- else -%}
           {{ item.description|nl2br }}
         {%- endif -%}
+        {#- Vybraná sériová čísla a šarže (InvoicePdfRenderer::withTrackingLines). -#}
+        {%- for tracking_line in item.tracking_lines|default([]) -%}
+          <br><span style="font-size:85%;color:#666666">{{ tracking_line }}</span>
+        {%- endfor -%}
       </td>
       {% if item.item_kind == 'discount' %}
       <td></td><td></td><td></td>
