@@ -19,8 +19,8 @@ use PDO;
  *     (přijaté faktury) z e-mailové transakce na GPC transakci — beze ztráty MANUÁLNÍHO
  *     i SLOUČENÉHO (split 1→N) párování; paid_total se nemění, jen se přesune ukazatel,
  *   - zkopírujeme párovací metadata (`match_status`, `matched_invoice_id`, …) na GPC tx,
- *   - e-mailovou transakci rozpárujeme (zůstane jako `unmatched` ve svém avízo-výpisu;
- *     uživatel pak může celý avízo-výpis smazat z jeho detailu, viz BankStatementAction).
+ *   - e-mailovou transakci rozpárujeme (`unmatched`), ale trvale označíme jako
+ *     převzatou (`ignore_origin = superseded`), aby nezůstala dalším peněžním tokem.
  *
  * Bezpečnost: převezmeme JEN když existuje PRÁVĚ JEDEN jednoznačný kandidát (shoda
  * účtu + částky + VS + okno data + měny). 0 = nic neděláme (GPC se spáruje normálně),
@@ -627,14 +627,15 @@ final class EmailNoticeReconciler
                 $gpcTxId,
             ]);
 
-            // Sekundární záznam už není zdrojem úhrady. iDoklad ponecháme jako
-            // auditní stopu `ignored`, avízo zůstává ručně odstranitelné jako dřív.
+            // Sekundární záznam už není zdrojem peněz ani po smazání výpisu.
+            // Stav párování zachováme kompatibilní; účetní a mzdové čtení používá
+            // BankNoticeLifecycle, protože datum avíza může ležet mimo období výpisu.
             $pdo->prepare(
                 "UPDATE bank_transactions
                     SET match_status = ?, matched_invoice_id = NULL,
-                        matched_at = NULL, matched_by = NULL
+                        matched_at = NULL, matched_by = NULL, ignore_origin = ?
                   WHERE id = ?"
-            )->execute([$secondarySource === 'idoklad' ? 'ignored' : 'unmatched', $emailTxId]);
+            )->execute([$secondarySource === 'idoklad' ? 'ignored' : 'unmatched', BankNoticeLifecycle::SUPERSEDED, $emailTxId]);
 
             // Přepočti matched_count avízo-výpisu (GPC výpis řeší StatementImporter).
             $pdo->prepare(

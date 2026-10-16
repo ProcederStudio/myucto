@@ -7,6 +7,7 @@ namespace MyInvoice\Repository;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Service\Bank\AccountNumberNormalizer;
 use MyInvoice\Service\Bank\BankStatementSource;
+use MyInvoice\Service\Bank\BankNoticeLifecycle;
 use MyInvoice\Service\Bank\EmailNoticeReconciler;
 use MyInvoice\Service\Vat\VatStatusService;
 use PDO;
@@ -335,6 +336,7 @@ final class CashJournalRepository
                                          AND y.bank_transaction_id IS NULL
                                          AND y.source IN ('manual', 'mark_paid', 'legacy'))
                     )
+                    AND " . BankNoticeLifecycle::activeSql('bt') . "
                     " . $this->provisionalMovementExclusionSql($stmtIds) . "
                     AND " . sprintf($datePredicate, 'bt.posted_at');
         }
@@ -570,7 +572,9 @@ final class CashJournalRepository
             $inList = implode(',', array_map('intval', $stmtIds));
             $sources[] = "SELECT COALESCE(NULLIF(bt.currency, ''), 'CZK') AS c, bt.posted_at AS d
                             FROM bank_transactions bt
-                           WHERE bt.statement_id IN ({$inList}) AND bt.posted_at <= '{$toDate}'";
+                           WHERE bt.statement_id IN ({$inList}) AND bt.posted_at <= '{$toDate}'
+                             AND " . BankNoticeLifecycle::activeSql('bt') . "
+                             " . $this->provisionalMovementExclusionSql($stmtIds);
         }
 
         $sql = 'SELECT k.c AS currency, k.d AS `date`,
@@ -659,10 +663,9 @@ final class CashJournalRepository
      *
      * Avízo je jen předběžná zpráva o pohybu. Dokud za jeho den chybí výpis, je jediným
      * dokladem peněžního toku a v deníku zůstává. Jakmile výpis týž den pokryje, nese
-     * pohyb on a avízo by tentýž tok započetlo podruhé, ať už ho převzetí z avíza
-     * rozpárovalo (EmailNoticeReconciler::transfer), označilo za nahrazené, nebo
-     * zůstalo nespárované. Pravidlo proto nestojí na výsledku párování (vazbu avízo ×
-     * pohyb výpisu dnešní převzetí nikam neukládá), ale na pokrytí období výpisem.
+     * pohyb on a avízo by tentýž tok započetlo podruhé. Známé převzetí se vyřazuje
+     * přes BankNoticeLifecycle i mimo období výpisu; tato dodatečná podmínka chrání
+     * také starší data bez markeru převzetí a dosud nespárovaná avíza.
      *
      * Pokrytí = rozsah dat pohybů každého oficiálního výpisu účtu; sousední výpisy se
      * slévají přes mezeru do EmailNoticeReconciler::DATE_WINDOW_DAYS, aby denní výpisy

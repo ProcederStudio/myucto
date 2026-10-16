@@ -63,6 +63,9 @@ Přes **Výběr sloupců** a hustotu řádků přizpůsobíte tabulku (stejné o
 pro uživatele). Sloupce **Zdroj**, **Základ** a **DPH** jsou ve výchozím zobrazení skryté, zapněte je pro kontrolu, jak se DPH
 rozpočítalo u pohybů s vazbou na plátcovskou fakturu.
 
+Po převzetí úhrady z avíza do bankovního výpisu nese peněžní tok pouze pohyb výpisu. Převzaté avízo se do peněžního deníku
+znovu nezapočítá ani při rozdílném datu přes hranici roku nebo po pozdějším odstranění výpisu.
+
 ## 74.4 Krok za krokem: zařadit nezařazený pohyb
 
 1. V peněžním deníku najděte řádek se štítkem **Nezařazeno** (červeně podbarvený).
