@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Accounting\Bank;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Service\Accounting\ChartOfAccountsSeeder;
 use MyInvoice\Service\Bank\FxPaymentSettlement;
@@ -102,7 +103,7 @@ final class BankPostingBackfill
 
         // Dry-run: engine zapisuje, na konci vše zahodíme. Nested-safe: pokud žádná
         // transakce neběží, otevřeme vlastní; pokud běží (např. test), izolujeme
-        // SAVEPOINTem a rollbacknem jen k němu (vnější transakci nezrušíme).
+        // SAVEPOINTem a při běžném dokončení rollbacknem jen k němu.
         $ownTx = $dryRun && !$pdo->inTransaction();
         $useSavepoint = $dryRun && $pdo->inTransaction();
         if ($ownTx) {
@@ -170,6 +171,9 @@ final class BankPostingBackfill
                     }
                     $this->finishCandidateTransaction($candidateTx, true);
                 } catch (\Throwable $e) {
+                    if (TransactionFailure::aborted($e)) {
+                        throw $e;
+                    }
                     $this->finishCandidateTransaction($candidateTx, false);
                     $this->tallySkip($report, 'reconcile_error');
                     $this->tallyError($report, $txId, 'reconcile_error', $e->getMessage());
@@ -186,10 +190,13 @@ final class BankPostingBackfill
                 }
                 $this->tally($report, $res, $txId);
             }
+        } catch (\Throwable $e) {
+            TransactionFailure::rollbackIfAborted($pdo, $e);
+            throw $e;
         } finally {
-            if ($ownTx) {
+            if ($ownTx && $pdo->inTransaction()) {
                 $pdo->rollBack();
-            } elseif ($useSavepoint) {
+            } elseif ($useSavepoint && $pdo->inTransaction()) {
                 $pdo->exec('ROLLBACK TO SAVEPOINT bpbf_dry');
             }
         }

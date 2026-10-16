@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Automation;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Repository\BankPostingRuleRepository;
 use MyInvoice\Repository\SupplierBankAccountRepository;
@@ -192,6 +193,9 @@ final class RuleProposalService
                     }
                 }
             } catch (\Throwable $e) {
+                if (TransactionFailure::rollbackIfAborted($this->db->pdo(), $e)) {
+                    throw $e;
+                }
                 if ($throwOnError) {
                     throw $e;
                 }
