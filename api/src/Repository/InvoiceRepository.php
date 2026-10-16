@@ -99,10 +99,14 @@ final class InvoiceRepository
      */
     private function hideCustomerForNewDraft(array $data, int $supplierId): int
     {
+        // Běžná faktura odběratele nést musí (§ 29), volba se u ní neukládá.
+        if (empty($data['is_simplified'])) {
+            return 0;
+        }
         if (array_key_exists('hide_customer_on_pdf', $data)) {
             return !empty($data['hide_customer_on_pdf']) ? 1 : 0;
         }
-        if (empty($data['is_simplified']) || !$this->db->hasColumn('supplier', 'simplified_hide_customer_default')) {
+        if (!$this->db->hasColumn('supplier', 'simplified_hide_customer_default')) {
             return 0;
         }
         $stmt = $this->db->pdo()->prepare('SELECT simplified_hide_customer_default FROM supplier WHERE id = ?');
@@ -1378,9 +1382,15 @@ final class InvoiceRepository
         // Stejně jako `is_simplified`: jen když klíč v payloadu je, jinak by ho ostatní cesty
         // ukládající doklad (import, opakovaná fakturace) tiše smazaly.
         $hasPriceLevel = $this->supportsPriceLevel() && array_key_exists('price_level_id', $data);
-        // Volba „netisknout odběratele" (migrace 2020), taky jen když klíč v payloadu je.
-        $hasHideCustomer = $this->supportsHideCustomer() && array_key_exists('hide_customer_on_pdf', $data);
-        $currentStmt = $this->db->pdo()->prepare('SELECT supplier_id, branding_profile_id FROM invoices WHERE id = ?');
+        // Volba „netisknout odběratele" (migrace 2020), taky jen když klíč v payloadu je,
+        // nebo když se mění příznak zjednodušeného dokladu: bez něj se volba ruší.
+        $hasHideCustomer = $this->supportsHideCustomer()
+            && (array_key_exists('hide_customer_on_pdf', $data) || $hasSimplified);
+        $currentStmt = $this->db->pdo()->prepare(
+            'SELECT supplier_id, branding_profile_id'
+            . ($hasHideCustomer ? ', is_simplified, hide_customer_on_pdf' : '')
+            . ' FROM invoices WHERE id = ?'
+        );
         $currentStmt->execute([$id]);
         $current = $currentStmt->fetch(PDO::FETCH_ASSOC);
         if ($current === false) {
@@ -1438,7 +1448,13 @@ final class InvoiceRepository
             $params[] = array_key_exists('auto_send_reminders', $data) ? ((int) (bool) $data['auto_send_reminders']) : 1;
         }
         if ($hasSimplified) $params[] = !empty($data['is_simplified']) ? 1 : 0;
-        if ($hasHideCustomer) $params[] = !empty($data['hide_customer_on_pdf']) ? 1 : 0;
+        if ($hasHideCustomer) {
+            $finalSimplified = $hasSimplified ? !empty($data['is_simplified']) : !empty($current['is_simplified']);
+            $hide = array_key_exists('hide_customer_on_pdf', $data)
+                ? !empty($data['hide_customer_on_pdf'])
+                : !empty($current['hide_customer_on_pdf']);
+            $params[] = $finalSimplified && $hide ? 1 : 0;
+        }
         if ($hasPriceLevel) $params[] = self::normalizePriceLevelId($data['price_level_id']);
         if ($hasVarsymbol) $params[] = $manualVarsymbol;
         if ($hasPaymentVs) $params[] = $paymentVs;

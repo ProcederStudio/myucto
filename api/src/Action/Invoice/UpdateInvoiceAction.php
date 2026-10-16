@@ -74,6 +74,8 @@ final class UpdateInvoiceAction
         private readonly \MyInvoice\Repository\ClientRepository $clients,
         private readonly IssuedInvoiceStockGuard $stockGuard,
         private readonly InvoiceItemTracking $itemTracking,
+        // Limit zjednodušeného dokladu podle roku dokladu (§ 30 ZDPH), viz simplifiedRejection().
+        private readonly \MyInvoice\Repository\TaxConstantsRepository $taxConstants,
     ) {}
 
     /**
@@ -90,6 +92,9 @@ final class UpdateInvoiceAction
         'invoice_type', 'payment_method', 'rounding_mode', 'discount_percent', 'advance_paid_amount',
         'reverse_charge', 'prices_include_vat', 'vat_classification_code', 'income_tax_exempt',
         'is_simplified',
+        // „Netisknout odběratele" (migrace 2020) mění tištěný daňový doklad, takže v uzavřeném
+        // období neprojde jako poznámková úprava.
+        'hide_customer_on_pdf',
         // Volba hotovostního vyrovnání (migrace 1327) zakládá/ruší ZAÚČTOVANÝ pokladní
         // doklad, takže je to účetní pole jako každé jiné — notes_only ji nesmí pustit.
         'cash_register_id',
@@ -410,6 +415,16 @@ final class UpdateInvoiceAction
 
         // Auto-default VAT klasifikace pokud user nezadal (s multi-tenant scope)
         $this->applyVatClassificationDefaults($body, \MyInvoice\Http\SupplierGuard::currentId($request), (array) ($existing['items'] ?? []));
+
+        // § 30 ZDPH: vystavený zjednodušený doklad musí po úpravě splňovat totéž co při
+        // vystavení (limit 10 000 Kč s daní, ne v přenesené povinnosti, ne ř. 20/25).
+        // Jinak by úprava správcem obešla kontrolu, kterou IssueInvoiceAction hlídá.
+        // Před přečíslováním, ať odmítnutí nespálí číslo řady.
+        if ($existing['status'] !== 'draft'
+            && ($reason = $this->simplifiedRejection($body, $existing)) !== null
+        ) {
+            return Json::error($response, 'simplified_document_not_allowed', $reason, 422);
+        }
 
         // SOUDRŽNOST DOKLADU (§ H1) — táž kontrola jako u importu a u založení dokladu,
         // z téhož SSOT ({@see OssDocumentCoherence}). Počítá se při KAŽDÉM uložení, takže
@@ -890,6 +905,69 @@ final class UpdateInvoiceAction
             $changed[] = 'items';
         }
         return $changed;
+    }
+
+    /**
+     * Důvod, proč doklad v podobě PO úpravě nemůže být zjednodušeným daňovým dokladem;
+     * `null` = může, nebo zjednodušený není. Částka se počítá z položek, které se uloží
+     * (z těla, jinak uložené), stejným výpočtem jako {@see InvoiceCalculator::recompute()},
+     * protože součty se přepočítají až po zápisu.
+     *
+     * @param array<string,mixed> $body     tělo po sloučení s uloženou hlavičkou a defaulty
+     * @param array<string,mixed> $existing
+     */
+    private function simplifiedRejection(array $body, array $existing): ?string
+    {
+        $simplified = array_key_exists('is_simplified', $body)
+            ? filter_var($body['is_simplified'], FILTER_VALIDATE_BOOLEAN)
+            : !empty($existing['is_simplified']);
+        if (!$simplified) {
+            return null;
+        }
+
+        $rates = $this->repo->vatRateMap();
+        $items = [];
+        $source = DocumentItemsPayload::replaces($body) ? (array) $body['items'] : (array) ($existing['items'] ?? []);
+        foreach ($source as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $rateId = (int) ($item['vat_rate_id'] ?? 0);
+            $item['vat_rate_snapshot'] = $rateId > 0 && isset($rates[$rateId])
+                ? $rates[$rateId]
+                : (float) ($item['vat_rate_snapshot'] ?? 0);
+            $item['quantity'] = (float) ($item['quantity'] ?? 0);
+            $item['unit_price_without_vat'] = (float) ($item['unit_price_without_vat'] ?? 0);
+            $items[] = $item;
+        }
+        $reverseCharge = !empty($body['reverse_charge']);
+        $totals = \MyInvoice\Service\Invoice\InvoiceMath::compute($items, $reverseCharge, !empty($body['prices_include_vat']))['totals'];
+        $type = (string) ($body['invoice_type'] ?? $existing['invoice_type'] ?? 'invoice');
+        $withVat = $totals['with_vat'] + \MyInvoice\Service\Invoice\InvoiceRounding::adjustment(
+            $totals['with_vat'] - (float) ($body['advance_paid_amount'] ?? 0),
+            (string) ($body['rounding_mode'] ?? $existing['rounding_mode'] ?? 'auto'),
+            (string) ($this->repo->currencyCode($body['currency_id'] ?? $existing['currency_id'] ?? null) ?? ''),
+            (string) ($body['payment_method'] ?? $existing['payment_method'] ?? ''),
+            $type,
+        );
+
+        $code = (string) ($body['vat_classification_code'] ?? $existing['vat_classification_code'] ?? '');
+        $lineStmt = $this->db->pdo()->prepare(
+            'SELECT dphdp3_line FROM vat_classifications
+              WHERE code = ? AND (supplier_id = ? OR supplier_id IS NULL)
+              ORDER BY supplier_id IS NULL LIMIT 1'
+        );
+        $lineStmt->execute([$code, (int) $existing['supplier_id']]);
+        $line = $lineStmt->fetchColumn();
+
+        $taxDate = (string) (($body['tax_date'] ?? null) ?: ($body['issue_date'] ?? $existing['issue_date'] ?? ''));
+        $year = (int) substr($taxDate, 0, 4);
+        return \MyInvoice\Service\Invoice\SimplifiedDocumentPolicy::rejectionReason(
+            ['total_with_vat' => $withVat, 'reverse_charge' => $reverseCharge],
+            $line === false || $line === null ? null : (string) $line,
+            (float) ($this->taxConstants->forYear($year)['simplified_document_limit_with_vat']
+                ?? \MyInvoice\Service\Invoice\SimplifiedDocumentPolicy::LIMIT_WITH_VAT),
+        );
     }
 
     /**

@@ -345,7 +345,12 @@ zaškrtávátkem zjednodušeného dokladu; výchozí hodnotu pro nové doklady n
 nastavení firmy vystavená PDF nemění. Platí pro PDF i webovou fakturu, ISDOC odběratele nese dál
 (strukturovaná data pro účetnictví příjemce). Klient na dokladu zůstává, takže se počítá do
 statistik i obratu a uplatní se jeho cenová hladina. Běžná faktura odběratele nést musí (§ 29),
-u ní volba nic nemění.
+u ní se volba neuloží. Změna volby u vystaveného dokladu archivuje dosavadní PDF a v uzavřeném
+období ji nejde provést jako úpravu jen poznámek.
+
+Úprava vystaveného zjednodušeného dokladu správcem prochází stejnými kontrolami jako vystavení:
+doklad nad 10 000 Kč, v přenesené daňové povinnosti nebo s dodáním do jiného členského státu
+aplikace odmítne.
 
 ### 40.9.11 Storno vs. dobropis
 

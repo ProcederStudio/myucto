@@ -259,6 +259,13 @@ final class SimplifiedDocumentWalkInTest extends TestCase
         self::assertFalse($this->invoices->find($explicit)['hide_customer_on_pdf'], 'Volba v dokladu má přednost.');
     }
 
+    public function testHideFlagIsNotStoredOnOrdinaryInvoice(): void
+    {
+        $id = $this->createDraft(['is_simplified' => false, 'client_id' => $this->regularClient(), 'hide_customer_on_pdf' => true]);
+
+        self::assertFalse($this->invoices->find($id)['hide_customer_on_pdf'], 'Běžná faktura volbu neuloží.');
+    }
+
     // ── fixtures ─────────────────────────────────────────────────────────────
 
     private function regularClient(): int

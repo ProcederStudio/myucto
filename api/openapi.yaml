@@ -35744,6 +35744,8 @@ components:
             Zjednodušený daňový doklad podle § 30 ZDPH (do 10 000 Kč včetně daně).
             Ukládá se jen na instalacích s migrací 1170 — starší sloupec nemají a pole se ignoruje.
             Číslo dostane z vlastní řady firmy (`simplified_number_format`), je-li nastavená.
+            Úprava vystaveného dokladu (`?force=1`) ověří § 30 stejně jako vystavení
+            (limit, přenesená povinnost, ř. 20/25); odmítnutí vrací 422 `simplified_document_not_allowed`.
         hide_customer_on_pdf:
           type: boolean
           default: false
@@ -35751,6 +35753,8 @@ components:
             Netisknout odběratele na PDF a webové faktuře (migrace 2020). Platí jen pro
             zjednodušený daňový doklad plátce; běžná faktura odběratele nést musí (§ 29 ZDPH).
             Klient zůstává na dokladu (statistiky, cenová hladina); ISDOC se nemění.
+            U běžné faktury se volba neukládá (vždy false). V uzavřeném období je to účetní pole:
+            `force_mode=notes_only` ji nezmění.
             Při založení zjednodušeného dokladu bez tohoto pole se převezme
             `simplified_hide_customer_default` firmy. Při úpravě se mění jen, když je pole v těle.
         price_level_id:
