@@ -87,15 +87,21 @@ final class ClientResolver
     private function resolveAny(array $parsed, int $supplierId, bool $isCustomer, bool $isVendor): array
     {
         $ic = $this->normalizeIc($parsed['ic'] ?? null);
+        $companyName = trim((string) ($parsed['company_name'] ?? ''));
+
+        // Víc karet se stejným IČO/DIČ (pobočky, provozovny, nová karta vedle staré) je
+        // legitimní stav. Přednost má karta se shodným názvem, jinak nejstarší karta:
+        // dřív `LIMIT 1` bez řazení přiřadil doklad libovolné z nich.
+        $preferName = ' ORDER BY company_name = ? DESC, id LIMIT 1';
 
         // 1a. Lookup podle (supplier_id, ic) — primární klíč pro CZ entity. Uložené
         // IČO normalizujeme stejně jako vstup (LPAD na 8 míst) — starší karty
         // založené před opravou BUG 2/FR 2 mohly mít IČO uložené bez úvodní nuly.
         if ($ic !== null) {
             $stmt = $this->db->pdo()->prepare(
-                "SELECT id FROM clients WHERE supplier_id = ? AND LPAD(REGEXP_REPLACE(ic, '[^0-9]', ''), 8, '0') = ? LIMIT 1"
+                "SELECT id FROM clients WHERE supplier_id = ? AND LPAD(REGEXP_REPLACE(ic, '[^0-9]', ''), 8, '0') = ?" . $preferName
             );
-            $stmt->execute([$supplierId, $ic]);
+            $stmt->execute([$supplierId, $ic, $companyName]);
             $existing = $stmt->fetchColumn();
             if ($existing !== false) {
                 return ['id' => (int) $existing, 'created' => false];
@@ -110,9 +116,9 @@ final class ClientResolver
         $dicNormalized = \MyInvoice\Support\CompanyIdNormalizer::dic($dicRaw);
         if ($ic === null && $dicNormalized !== null) {
             $stmt = $this->db->pdo()->prepare(
-                "SELECT id FROM clients WHERE supplier_id = ? AND UPPER(REGEXP_REPLACE(dic, '[^A-Za-z0-9]', '')) = ? LIMIT 1"
+                "SELECT id FROM clients WHERE supplier_id = ? AND UPPER(REGEXP_REPLACE(dic, '[^A-Za-z0-9]', '')) = ?" . $preferName
             );
-            $stmt->execute([$supplierId, $dicNormalized]);
+            $stmt->execute([$supplierId, $dicNormalized, $companyName]);
             $existing = $stmt->fetchColumn();
             if ($existing !== false) {
                 return ['id' => (int) $existing, 'created' => false];
@@ -121,7 +127,6 @@ final class ClientResolver
 
         // 1c. Last resort — exact company_name match (pro zahraniční bez IČO i DIČ).
         // Bez tohoto by AI/inbox scan vytvořila duplikát pro každou fakturu.
-        $companyName = trim((string) ($parsed['company_name'] ?? ''));
         if ($ic === null && $dicRaw === '' && $companyName !== '') {
             $stmt = $this->db->pdo()->prepare(
                 "SELECT id FROM clients

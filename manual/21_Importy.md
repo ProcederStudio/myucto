@@ -298,7 +298,7 @@ Pro každou fakturu v souboru:
 
 | Entita | Logika |
 |---|---|
-| **Klient** | Vyhledání podle IČO. Pokud neexistuje, načte se adresa z **ARES** (preferenčně), záložně z adresy v XML. Vznikne nový klient. |
+| **Klient** | Vyhledání podle IČO. Má-li stejné IČO víc karet (pobočky, provozovny), dostane doklad kartu se shodným názvem odběratele, jinak nejstarší z nich. Pokud klient neexistuje, načte se adresa z **ARES** (preferenčně), záložně z adresy v XML. Vznikne nový klient. |
 | **Zakázka** | Má-li faktura číslo zakázky (ISDOC `OrderReference/ID`, Pohoda `numberOrder`), přiřadí se k zakázce s tím číslem (vytvoří se, pokud chybí). Nemá-li číslo zakázky, ale klient má v importovaném balíku **více různých e-mailů**, vytvoří se zakázka za každý e-mail s názvem `{Firma} - {e-mail}`. Jinak `bez zakázky`. |
 | **Faktura** | Uloží se se zachovaným původním variabilním symbolem. Položky, sazby DPH, kurz a měna se převezmou. Snapshoty klienta, dodavatele a banky se zafixují z aktuálních dat. |
 
