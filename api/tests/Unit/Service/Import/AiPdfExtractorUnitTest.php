@@ -43,6 +43,7 @@ final class AiPdfExtractorUnitTest extends TestCase
 {
     private PurchaseInvoiceRepository $repo;
     private AiPdfExtractor $extractor;
+    private PurchaseInvoicePdfArchiver $pdfArchiver;
     /** @var LlmGatewayInterface&\PHPUnit\Framework\MockObject\MockObject */
     private $anthropic;
     /** @var PdfIsdocExtractor&\PHPUnit\Framework\MockObject\MockObject */
@@ -79,6 +80,7 @@ final class AiPdfExtractorUnitTest extends TestCase
             new \MyInvoice\Service\Vat\VatRateResolver($conn),
         );
 
+        $this->pdfArchiver = $this->createMock(PurchaseInvoicePdfArchiver::class);
         $this->extractor = new AiPdfExtractor(
             $conn,
             $this->anthropic,
@@ -91,7 +93,7 @@ final class AiPdfExtractorUnitTest extends TestCase
             $this->createMock(CnbExchangeRateClient::class),
             new ImageToPdfConverter(), // bez závislostí — reálná instance stačí
             $this->createMock(\MyInvoice\Repository\TaxConstantsRepository::class),
-            $this->createMock(PurchaseInvoicePdfArchiver::class),
+            $this->pdfArchiver,
             new ExpenseKindClassifier(), // pure, bez DB — mock by nic nepřidal
             $planner,
             null, // uložení vytěžení importu — helpery ho nepotřebují
@@ -104,6 +106,52 @@ final class AiPdfExtractorUnitTest extends TestCase
     // ── PIN: ISDOC-first sémantika (F7 §3.9, §11.1) ────────────────────────
     // Zamykají OPRAVENÉ chování: validní ISDOC ⇒ LLM 0×; přítomný ISDOC který
     // selhal parse ⇒ LLM právě 1× (AI fallback; import se nebrickuje).
+
+    public function testStoredPdfInsideIsdocxPreservesPackageAndNeverCallsLlm(): void
+    {
+        $pdf = "%PDF-1.4\nsynthetic invoice\n%%EOF";
+        $xml = '<Invoice xmlns="http://isdoc.cz/namespace/2013"><ID>SYNTHETIC-ZIP-1</ID></Invoice>';
+        $tmp = tempnam(sys_get_temp_dir(), 'extractor-isdocx-');
+        self::assertNotFalse($tmp);
+        try {
+            $zip = new \ZipArchive();
+            self::assertTrue($zip->open($tmp, \ZipArchive::OVERWRITE));
+            // PDF je první a bez komprese: jeho hlavička leží v prvním 1 KiB ZIPu,
+            // kde ji PDF normalizace dříve zaměnila za začátek celého uploadu.
+            self::assertTrue($zip->addFromString('invoice.pdf', $pdf));
+            self::assertTrue($zip->setCompressionName('invoice.pdf', \ZipArchive::CM_STORE));
+            self::assertTrue($zip->addFromString('invoice.isdoc', $xml));
+            self::assertTrue($zip->close());
+            $bytes = file_get_contents($tmp);
+            self::assertNotFalse($bytes);
+        } finally {
+            unlink($tmp);
+        }
+        $pdfOffset = strpos($bytes, '%PDF-');
+        self::assertNotFalse($pdfOffset);
+        self::assertGreaterThan(0, $pdfOffset);
+        self::assertLessThan(1024, $pdfOffset);
+
+        $this->pdfIsdoc->expects($this->never())->method('extract');
+        $this->anthropic->expects($this->never())->method('extractInvoice');
+        $this->isdocParser->expects($this->once())->method('parse')->with($xml)
+            ->willReturn(['supplier_ic' => null, 'invoices' => [['id' => 'SYNTHETIC-ZIP-1']]]);
+        $this->repo->expects($this->once())->method('findIdByPdfHash')
+            ->with(1, hash('sha256', $pdf))->willReturn(null);
+        $this->isdocMapper->expects($this->once())->method('map')
+            ->with(['id' => 'SYNTHETIC-ZIP-1'], 1, 2)
+            ->willReturn(['purchase_invoice_id' => 99, 'vendor_id' => 7]);
+        $this->pdfArchiver->expects($this->once())->method('archiveBytes')
+            ->with(99, 1, $pdf, 'invoice.pdf');
+        $this->pdfArchiver->expects($this->once())->method('archiveSourceBytes')
+            ->with(99, 1, $bytes, 'invoice.isdocx', 'isdocx');
+
+        $result = $this->extractor->extractAndCreate(1, 2, $bytes, null, 'invoice.isdocx');
+
+        self::assertTrue($result['ok']);
+        self::assertSame('isdocx', $result['source']);
+        self::assertSame(99, $result['purchase_invoice_id']);
+    }
 
     public function testPin_validEmbeddedIsdoc_neverCallsLlm(): void
     {

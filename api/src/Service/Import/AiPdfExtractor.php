@@ -94,7 +94,11 @@ final class AiPdfExtractor
     {
         // Hlavička PDF posunutá o prázdný řádek / BOM (dompdf za PHP skriptem s mezerou)
         // — oprav na vstupu, ať ISDOC, AI klienti i archivace dostanou PDF od `%PDF-`.
-        $pdfBytes = PdfBytes::normalize($pdfBytes);
+        // ZIP může mít nekomprimované PDF hned na začátku; normalizace by usekla
+        // obálku ISDOCX a znemožnila načtení strukturovaného dokladu.
+        if (!IsdocxExtractor::isZip($pdfBytes)) {
+            $pdfBytes = PdfBytes::normalize($pdfBytes);
+        }
         // ISDOC-first rozhodnutí (F7 §3.9) — sdílený router (stejný jako inbox scanner).
         // Detekuje isdocx balíček, embedded ISDOC v PDF, a rozhoduje o AI fallbacku
         // s OPRAVENOU sémantikou: validní ISDOC ⇒ AI se NIKDY nevolá; přítomný ISDOC
