@@ -560,6 +560,7 @@ final class InvoiceItemTrackingTest extends StockTestCase
         } finally {
             $pdo->rollBack();
         }
+    }
 
     // ── PDF faktury ─────────────────────────────────────────────────────────
 
@@ -753,6 +754,7 @@ final class InvoiceItemTrackingTest extends StockTestCase
         );
         $stmt->execute([$supplierId, $locationId]);
         return (int) round((float) $stmt->fetchColumn() * 1000);
+    }
 
     private function pdfHtml(int $invoiceId): string
     {
