@@ -33,6 +33,7 @@ export const useAuthStore = defineStore('auth', () => {
   const domainContext = ref<DomainContext | null>(null)
   let logoutRetryCsrfToken = ''
   let logoutPromise: Promise<void> | null = null
+  let refreshGeneration = 0
 
   const isAuthenticated = computed(() => user.value !== null)
   const needsSetup = computed(() => setupStatus.value?.needs_setup === true)
@@ -102,9 +103,14 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function fetchDomainContext() {
-    domainContext.value = await authApi.domainContext()
-    setDomainSupplierLock(domainContext.value.locked ? domainContext.value.supplier_id : null)
-    return domainContext.value
+    const context = await authApi.domainContext()
+    applyDomainContext(context)
+    return context
+  }
+
+  function applyDomainContext(context: DomainContext) {
+    domainContext.value = context
+    setDomainSupplierLock(context.locked ? context.supplier_id : null)
   }
 
   function setSessionCsrfToken(token: string) {
@@ -119,10 +125,14 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function refresh() {
+    const generation = ++refreshGeneration
     permissionsLoading.value = true
     try {
-      await fetchDomainContext()
+      const context = await authApi.domainContext()
+      if (generation !== refreshGeneration) return false
+      applyDomainContext(context)
       const data = await authApi.me()
+      if (generation !== refreshGeneration) return false
       user.value = data.user
       setSessionCsrfToken(data.csrf_token)
       setMfaPolicy(data.require_mfa, data.allowed_mfa_methods)
@@ -144,10 +154,12 @@ export const useAuthStore = defineStore('auth', () => {
       )
       return true
     } catch (error: any) {
+      if (generation !== refreshGeneration) return false
       if (error?.response?.status === 423
           && error?.response?.data?.error?.code === 'session_locked') {
         try {
           const session = await authApi.sessionStatus()
+          if (generation !== refreshGeneration) return false
           if (session.session_state === 'locked') {
             user.value = session.user
             setSessionCsrfToken(session.csrf_token)
@@ -157,6 +169,7 @@ export const useAuthStore = defineStore('auth', () => {
             return true
           }
         } catch {
+          if (generation !== refreshGeneration) return false
           if (user.value !== null) return false
         }
       }
@@ -171,7 +184,7 @@ export const useAuthStore = defineStore('auth', () => {
       useSupplierStore().setAvailable([], 0, domainContext.value?.locked === true)
       return false
     } finally {
-      permissionsLoading.value = false
+      if (generation === refreshGeneration) permissionsLoading.value = false
     }
   }
 
@@ -182,6 +195,8 @@ export const useAuthStore = defineStore('auth', () => {
     totp?: string,
     opts?: { emailOtp?: string; rememberDevice?: boolean; resendOtp?: boolean; recoveryCode?: string },
   ) {
+    ++refreshGeneration
+    permissionsLoading.value = false
     rememberTotpEnrollment(null)
     loading.value = true
     try {
@@ -212,6 +227,8 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function clearPrivateState() {
+    ++refreshGeneration
+    permissionsLoading.value = false
     rememberTotpEnrollment(null)
     user.value = null
     csrfToken.value = ''
@@ -247,6 +264,8 @@ export const useAuthStore = defineStore('auth', () => {
   function logout(): Promise<void> {
     if (logoutPromise) return logoutPromise
 
+    ++refreshGeneration
+    permissionsLoading.value = false
     const pending = performLogout()
     logoutPromise = pending
     void pending.then(
@@ -261,6 +280,10 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function setLockedSession(session: SessionState | null) {
+    if (session !== null) {
+      ++refreshGeneration
+      permissionsLoading.value = false
+    }
     lockedSession.value = session
   }
 
