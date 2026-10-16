@@ -378,7 +378,7 @@ a InstatEvo soubor přijalo.
 | Skladový modul není pro tuto firmu zapnutý | Sklad není zapnutý v nastavení | `Firma → Nastavení`, záložka **Daně a účetnictví**, **Vést skladovou evidenci** |
 | Skladová karta s tímto SKU už existuje | SKU musí být v rámci firmy jedinečné | Zvolte jiné SKU, nebo použijte existující kartu |
 | Skladovou kartu nelze smazat - má skladové pohyby. Deaktivujte ji místo mazání. | Karta s pohybem se nemaže | Na detailu klikněte na **Deaktivovat** |
-| Nedostatek zásob pro výdej | Doklad by způsobil záporný stav | Snižte množství, změňte sklad, nebo napřed naskladněte. Záporný stav nejde povolit. Nesedí-li sklad se skutečností, srovnejte ho inventurou |
+| Okno **Nedostatek zásob** (vystavení faktury, zaúčtování nebo storno skladového dokladu) | Doklad by způsobil záporný stav | Okno vypíše každou chybějící kartu: kód, název, sklad, požadované množství, stav skladem, kolik chybí a jednotku. Odkazem **Karta** otevřete kartu, odkazem **Nová příjemka** založíte příjemku na tu kartu do téhož skladu. Jinak snižte množství nebo změňte sklad. Záporný stav nejde povolit. Nesedí-li sklad se skutečností, srovnejte ho inventurou |
 | Na skladu probíhá inventura - dokončete ji před zaúčtováním pohybu. | Na skladu je otevřená inventura | Dokončete a uzavřete inventuru (`Sklad → Inventury`) |
 | Na skladu už je rozpracovaná inventura. | Na sklad smí běžet jedna otevřená inventura | Dokončete rozpracovanou |
 | Upravovat lze jen rozpracovaný (draft) doklad. / Smazat lze jen rozpracovaný (draft) doklad. | Zaúčtovaný doklad se neupravuje | Použijte **Stornovat** |
@@ -845,9 +845,12 @@ zpracuje jako vratka na sklad, nikoli jako další výdej. Administrátorské sm
 vystavené faktury před smazáním atomicky stornuje i všechny její automatické
 skladové doklady.
 
-Pokud na skladě není dost zboží, vystavení faktury **skončí chybou „Nedostatek zásob
-pro výdej"** ještě předtím, než se spotřebuje číslo řady faktury. Faktura zůstane
-ve stavu koncept a dá se opravit (jiné množství, jiný sklad, nebo napřed naskladnit).
+Pokud na skladě není dost zboží, vystavení faktury **skončí oknem „Nedostatek zásob“**
+ještě předtím, než se spotřebuje číslo řady faktury. Okno vypíše chybějící karty se
+skladem, požadovaným a dostupným množstvím a jednotkou a z každého řádku nabídne odkaz
+na kartu a na novou příjemku do téhož skladu ([§ 37.11](#3711-kdyz-neco-nejde)).
+Faktura zůstane ve stavu koncept a dá se opravit (jiné množství, jiný sklad, nebo
+napřed naskladnit).
 Na detailu faktury najdete i přehled výdejek a vratek navázaných na daný doklad.
 
 Řádek fakturovaný v **balení** ([§ 37.12.2.8](#371228-baleni)) se vyskladní

@@ -15,6 +15,8 @@ import ActionBar, { type ActionItem } from '@/components/ui/ActionBar.vue'
 import { ICONS, btnFilled, btnOutline } from '@/components/ui/buttonStyles'
 import { appIsoDate } from '@/utils/date'
 import DateInput from '@/components/ui/DateInput.vue'
+import InsufficientStockDialog from '@/components/stock/InsufficientStockDialog.vue'
+import { insufficientStockItems, type InsufficientStockItem } from '@/components/stock/insufficientStock'
 
 const { t } = useI18n()
 const auth = useAuthStore()
@@ -27,6 +29,8 @@ const docId = computed(() => (isEdit.value ? Number(route.params.id) : null))
 const doc = ref<StockDocument | null>(null)
 const loading = ref(false)
 const error = ref('')
+/** Výčet chybějících zásob ze zaúčtování nebo storna (okno místo toastu). */
+const insufficientStock = ref<InsufficientStockItem[] | null>(null)
 
 const warehouses = ref<Warehouse[]>([])
 
@@ -340,7 +344,9 @@ async function post() {
     await loadDocument()
   } catch (e: any) {
     error.value = mapError(e)
-    toast.error(error.value)
+    const shortage = insufficientStockItems(e)
+    if (shortage) insufficientStock.value = shortage
+    else toast.error(error.value)
   } finally {
     posting.value = false
   }
@@ -357,7 +363,13 @@ async function reverse() {
     reverseOpen.value = false
     await loadDocument()
   } catch (e: any) {
-    toast.error(mapError(e))
+    const shortage = insufficientStockItems(e)
+    if (shortage) {
+      reverseOpen.value = false
+      insufficientStock.value = shortage
+    } else {
+      toast.error(mapError(e))
+    }
   } finally {
     reversing.value = false
   }
@@ -628,5 +640,6 @@ onMounted(async () => {
         <RouterLink to="/stock/documents" class="text-sm text-neutral-500 hover:text-neutral-700">{{ t('common.cancel') }}</RouterLink>
       </div>
     </template>
+    <InsufficientStockDialog v-if="insufficientStock" :items="insufficientStock" @close="insufficientStock = null" />
   </div>
 </template>

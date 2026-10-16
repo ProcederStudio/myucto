@@ -14114,6 +14114,20 @@
       "not_tracked": "bez skladové karty",
       "insufficient": "nedostatek zásob"
     },
+    "insufficient": {
+      "title": "Nedostatek zásob",
+      "intro": "Na skladě chybí zboží, doklad zůstal beze změny. Doplňte zásobu příjemkou, nebo upravte množství či sklad položky.",
+      "col_sku": "Kód",
+      "col_name": "Název",
+      "col_warehouse": "Sklad",
+      "col_requested": "Požadováno",
+      "col_available": "Skladem",
+      "col_missing": "Chybí",
+      "col_unit": "MJ",
+      "col_actions": "Akce",
+      "open_item": "Karta",
+      "new_receipt": "Nová příjemka"
+    },
     "receipt": {
       "action": "Přijmout na sklad",
       "modal_title": "Přijmout na sklad z přijaté faktury",
@@ -21650,7 +21664,6 @@
     "note_above": "Poznámka nad položkami",
     "note_below": "Poznámka pod položkami",
     "stock_item_placeholder": "Skladová karta (volitelné)",
-    "insufficient_stock_toast": "Nedostatek zásob pro vystavení:",
     "issued_stock_document": "Výdejka {number} vytvořena",
     "items_table": {
       "description": "Popis",
