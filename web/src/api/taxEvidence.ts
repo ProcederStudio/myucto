@@ -111,6 +111,10 @@ export interface CashJournalChecks {
 }
 
 export interface CashJournalReport {
+  classification: CashBucket | null
+  total_rows: number
+  filtered_rows: number
+  blocking_unclassified_count: number
   from: string
   to: string
   year: number
@@ -125,6 +129,7 @@ export interface CashJournalReport {
 }
 
 export interface CashJournalParams {
+  classification?: CashBucket | ''
   year?: number
   from?: string
   to?: string
