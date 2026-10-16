@@ -31374,6 +31374,7 @@ components:
         base_quantity: { type: string }
         unit_price: { type: [string, 'null'], description: Cena bez DPH za zvolenou jednotku; null = karta nemá cenu v měně. }
         base_unit_price: { type: [string, 'null'] }
+        list_unit_price: { type: [string, 'null'], description: "Ceníková cena bez DPH za zvolenou jednotku: standardní cena karty před individuální cenou, cenovou hladinou i akcí. Editor faktury ji uloží k řádku jako `list_unit_price`. null = karta nemá cenu v měně." }
         price_source: { type: string, enum: [standard, customer_fixed, customer_discount, price_level_fixed, price_level_discount, promo] }
         price_level:
           type: [object, 'null']
@@ -37328,6 +37329,7 @@ components:
           default: sent
           description: "Od kterého stavu objednávky se zboží počítá „na cestě\" (rozhodnutí #2). 'sent' = odeslaná objednávka je závazek; 'confirmed' = počítat až od potvrzení dodavatelem."
         invoice_pdf_show_base_qty: { type: boolean, default: true, description: "Na PDF faktury doplnit k řádku v balení množství v základní jednotce karty („celkem 80 ks\"). Platí jen se zapnutým skladem (migrace 1832)." }
+        invoice_pdf_show_line_discount: { type: boolean, default: false, description: "Na PDF faktury rozepsat slevu z ceníkové ceny: sloupce „Cena/j před slevou | Sleva | Cena/j po slevě\". Jen když má aspoň jeden řádek slevu; přirážka se nerozepisuje (migrace 2021)." }
         invoice_number_format:
           type: [string, "null"]
           example: "{YY}{MM}{CCC}"
@@ -37462,6 +37464,8 @@ components:
         duration_minutes: { type: [integer, "null"], minimum: -599999999, maximum: 599999999, description: "Přesná délka časové položky v celých minutách. Povoleno jen bez skladové vazby a s hodinovou měrnou jednotkou; NULL používá legacy `quantity`. Záporná hodnota je určena pro dobropis." }
         unit: { type: string, example: ks }
         unit_price_without_vat: { type: number, format: double, description: "Jednotková cena bez DPH. Hodinová časová položka podporuje až 6 desetinných míst; ostatní a skladové položky zůstávají na 2 místech. Může být záporná pro slevový řádek." }
+        list_unit_price: { type: [number, "null"], format: double, description: "Ceníková cena za jednotku před slevou, ve stejném základu jako `unit_price_without_vat` (v režimu „ceny s DPH\" brutto). Informační údaj, částky dokladu z ní nevychází. NULL = neznámá." }
+        line_discount_pct: { type: [number, "null"], format: double, description: "Sleva z ceníkové ceny v % (3 desetinná místa), dopočtená serverem z `list_unit_price` a `unit_price_without_vat`. Záporná = přirážka. NULL = bez slevy. S hlavičkovou slevou `discount_percent` nesouvisí." }
         vat_rate_id: { type: integer, description: "FK do /codebooks/vat-rates (kontextově k supplierovi)" }
         vat_rate_snapshot:
           type: number
@@ -37534,6 +37538,7 @@ components:
         duration_minutes: { type: [integer, "null"], minimum: -599999999, maximum: 599999999, description: "Volitelná přesná délka v celých minutách. Vyžaduje hodinovou jednotku a prázdný `stock_item_id`; vynecháno/NULL zachová legacy výpočet z `quantity`. Nula není povolena." }
         unit: { type: string, default: "ks" }
         unit_price_without_vat: { type: number, format: double, description: "Jednotková cena BEZ DPH. Hodinová časová položka podporuje až 6 desetinných míst; ostatní a skladové položky 2 místa. Může být záporná pro slevový řádek, ale ne současně se záporným množstvím." }
+        list_unit_price: { type: [number, "null"], format: double, description: "Volitelná ceníková cena za jednotku před slevou, ve stejném základu jako `unit_price_without_vat`. Kladné číslo, jinak se uloží NULL. Server z ní dopočítá `line_discount_pct`, poslané procento ignoruje. Při úpravě dokladu ji pošlete znovu (GET ji vrací), jinak se smaže." }
         vat_rate_id: { type: integer, description: "FK do /codebooks/vat-rates (kontextově k supplierovi)" }
         order_index: { type: integer, description: "Pořadí v rámci faktury. Default = pozice v poli." }
         vat_classification_code: { type: [string, "null"], description: "Volitelný kód klasifikace plnění (DPH přiznání / KH). Když nevyplněno, server dopočítá default podle sazby + reverse charge + země klienta." }

@@ -524,6 +524,8 @@ final class SettingsAction
             'dimensions_enabled',
             // Rozpis balení na základní jednotky na PDF faktury (issue #17, migrace 1832).
             'invoice_pdf_show_base_qty',
+            // Ceníková cena a sleva u položky na PDF faktury (migrace 2021), výchozí vypnuto.
+            'invoice_pdf_show_line_discount',
             // Auto-post hook (A2, migrace 1035) — auto-zaúčtování FV po vystavení / PF po
             // přijetí; admin-only (jako ostatní účetní nastavení firmy), účinek jen v double_entry.
             'auto_post_invoices', 'auto_post_purchases',
@@ -995,7 +997,7 @@ final class SettingsAction
             }
             if (array_key_exists($f, $body)) {
                 $sets[] = "$f = ?";
-                $params[] = in_array($f, ['is_vat_payer', 'is_identified', 'oss_enabled', 'auto_send_reminders', 'auto_generate_recurring', 'embed_isdoc', 'public_isdoc_enabled', 'email_attach_isdoc', 'default_prices_include_vat', 'email_branding_enabled', 'pdf_logo_show_name', 'branding_profiles_enabled', 'payment_thanks_enabled', 'payment_thanks_auto_send', 'payment_thanks_default_checked', 'payment_thanks_attach_paid_pdf', 'stock_enabled', 'stock_auto_issue', 'invoice_pdf_show_base_qty', 'dimensions_enabled', 'accounting_enabled', 'payroll_enabled', 'auto_post_invoices', 'auto_post_purchases', 'ai_eu_residency_required', 'client_ai_extraction_enabled', 'tax_investment_incentive', 'tax_atad_cfc', 'tax_public_benefit', 'tax_cooperating_person', 'tax_foreign_income_credit', 'allow_refund_invoices', DefaultInvoiceNote::ENABLED_COLUMN], true)
+                $params[] = in_array($f, ['is_vat_payer', 'is_identified', 'oss_enabled', 'auto_send_reminders', 'auto_generate_recurring', 'embed_isdoc', 'public_isdoc_enabled', 'email_attach_isdoc', 'default_prices_include_vat', 'email_branding_enabled', 'pdf_logo_show_name', 'branding_profiles_enabled', 'payment_thanks_enabled', 'payment_thanks_auto_send', 'payment_thanks_default_checked', 'payment_thanks_attach_paid_pdf', 'stock_enabled', 'stock_auto_issue', 'invoice_pdf_show_base_qty', 'invoice_pdf_show_line_discount', 'dimensions_enabled', 'accounting_enabled', 'payroll_enabled', 'auto_post_invoices', 'auto_post_purchases', 'ai_eu_residency_required', 'client_ai_extraction_enabled', 'tax_investment_incentive', 'tax_atad_cfc', 'tax_public_benefit', 'tax_cooperating_person', 'tax_foreign_income_credit', 'allow_refund_invoices', DefaultInvoiceNote::ENABLED_COLUMN], true)
                     ? ((int) (bool) $body[$f])
                     : $body[$f];
             }
@@ -1334,6 +1336,8 @@ final class SettingsAction
         $row['stock_in_transit_from']    = (string) ($row['stock_in_transit_from'] ?? 'sent');
         // Rozpis balení na PDF faktury (migrace 1832) — výchozí zapnuto.
         $row['invoice_pdf_show_base_qty'] = (bool) ($row['invoice_pdf_show_base_qty'] ?? true);
+        // Ceníková cena a sleva u položky na PDF faktury (migrace 2021), výchozí vypnuto.
+        $row['invoice_pdf_show_line_discount'] = (bool) ($row['invoice_pdf_show_line_discount'] ?? false);
         // Auto-post hook (A2, migrace 1035) — opt-in auto-zaúčtování; FE gatuje na double_entry.
         $row['auto_post_invoices']       = (bool) ($row['auto_post_invoices'] ?? false);
         $row['auto_post_purchases']      = (bool) ($row['auto_post_purchases'] ?? false);

@@ -375,6 +375,16 @@ final class InvoicePdfRenderer
             $this->withTrackingLines($this->withBaseQuantity($invoice), (int) ($invoice['supplier_id'] ?? 0), (string) $locale),
             !empty($invoice['prices_include_vat']),
         );
+        $lineDiscountColumns = false;
+        if (self::hasLineDiscount($invoice['items']) && $this->showsLineDiscount((int) ($invoice['supplier_id'] ?? 0))) {
+            $invoice['items'] = self::withLineDiscount(
+                $invoice['items'],
+                !empty($invoice['prices_include_vat']),
+                !empty($invoice['reverse_charge']),
+                (string) $locale,
+            );
+            $lineDiscountColumns = true;
+        }
         $workReport = $includeWorkReport
             ? $this->workReports->findByInvoice((int) $invoice['id'])
             : null;
@@ -427,8 +437,87 @@ final class InvoicePdfRenderer
             'payment_schedule'  => ($invoice['invoice_type'] ?? '') === 'payment_calendar'
                 ? $this->paymentSchedule->forInvoice((int) $invoice['supplier_id'], (int) $invoice['id'])
                 : [],
+            // Sloupce „Cena/j před slevou | Sleva | Cena/j po slevě" (migrace 2021).
+            'line_discount_columns' => $lineDiscountColumns,
         ];
         return $twig->render('invoice.twig', $vars);
+    }
+
+    /**
+     * Má doklad aspoň jeden řádek se slevou z ceníkové ceny? Přirážka (záporná sleva)
+     * se nepočítá, ta se zákazníkovi nerozepisuje.
+     *
+     * @param array<int|string,mixed> $items
+     */
+    private static function hasLineDiscount(array $items): bool
+    {
+        foreach ($items as $item) {
+            if (is_array($item) && self::lineDiscountPct($item) !== null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** @param array<string,mixed> $item */
+    private static function lineDiscountPct(array $item): ?float
+    {
+        if (($item['item_kind'] ?? 'standard') !== 'standard' || ($item['list_unit_price'] ?? null) === null) {
+            return null;
+        }
+        $pct = $item['line_discount_pct'] ?? null;
+        return $pct !== null && (float) $pct > 0 ? (float) $pct : null;
+    }
+
+    /**
+     * Volba `supplier.invoice_pdf_show_line_discount` (migrace 2021). Čte se živě jako
+     * rozpis balení: je to volba vzhledu, ne údaj dokladu, a snapshot dodavatele ji
+     * u starších dokladů nemá.
+     */
+    private function showsLineDiscount(int $supplierId): bool
+    {
+        if ($supplierId <= 0) {
+            return false;
+        }
+        $stmt = $this->db->pdo()->prepare('SELECT invoice_pdf_show_line_discount FROM supplier WHERE id = ?');
+        $stmt->execute([$supplierId]);
+        return (int) $stmt->fetchColumn() === 1;
+    }
+
+    /**
+     * Řádkům se slevou doplní `pdf_list_unit_price` (cena za jednotku před slevou bez DPH)
+     * a `pdf_discount_label` (procento na nejvýš dvě místa, bez koncových nul). Ostatní řádky, přirážku
+     * i hlavičkový slevový řádek nechá beze změny: ty tisknou jen výslednou cenu.
+     *
+     * Cena před slevou je ve stejném základu jako `pdf_unit_price`. V režimu „ceny
+     * s DPH" nese řádek brutto, proto se ceníková cena převede poměrem netto/brutto
+     * téhož řádku (sedí i na přenesenou daňovou povinnost, kde je poměr 1). Řádek
+     * se 100% slevou poměr nemá, ceník se převede sazbou.
+     *
+     * @param array<int|string,mixed> $items
+     * @return array<int|string,mixed>
+     */
+    private static function withLineDiscount(array $items, bool $pricesIncludeVat, bool $reverseCharge, string $locale): array
+    {
+        foreach ($items as $i => $item) {
+            $pct = is_array($item) ? self::lineDiscountPct($item) : null;
+            if ($pct === null) {
+                continue;
+            }
+            $list = (float) $item['list_unit_price'];
+            if ($pricesIncludeVat) {
+                $stored = (float) ($item['unit_price_without_vat'] ?? 0);
+                $rate = (float) ($item['vat_rate_snapshot'] ?? 0);
+                $list = abs($stored) > 0.0000001
+                    ? $list * (float) ($item['pdf_unit_price'] ?? $stored) / $stored
+                    : ($reverseCharge ? $list : $list * 100 / (100 + $rate));
+            }
+            $decimals = (int) ($item['unit_price_decimals'] ?? 2);
+            $items[$i]['pdf_list_unit_price'] = round($list, max(2, $decimals));
+            // Na dokladu stačí dvě desetinná místa (16,67 %), uložené procento má tři.
+            $items[$i]['pdf_discount_label'] = rtrim(rtrim(number_format($pct, 2, $locale === 'en' ? '.' : ',', ''), '0'), '.,');
+        }
+        return $items;
     }
 
     /**

@@ -396,6 +396,8 @@ final class StockPackagingTest extends StockTestCase
         self::assertSame('90.00', $withClient['lines'][0]['base_unit_price']);
         self::assertSame('customer_discount', $withClient['lines'][0]['price_source']);
         self::assertSame('10.000', $withClient['lines'][0]['discount_pct']);
+        self::assertSame(['800.00', '100.00'], [$withClient['lines'][0]['list_unit_price'], $withClient['lines'][1]['list_unit_price']], 'Ceníková cena za zvolenou jednotku.');
+        self::assertSame('800.00', $kt['list_unit_price']);
         self::assertIsInt($withClient['lines'][0]['customer_price_id']);
 
         $foreign = $action->quote($this->request('POST', $sid, ['client_id' => $this->client($this->createSupplier()), 'lines' => $lines]), new Psr7Response());

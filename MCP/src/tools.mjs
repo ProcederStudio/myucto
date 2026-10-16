@@ -366,9 +366,12 @@ const INVOICE_ITEM_OSS_FIELDS = [
   'oss_vat_amount_return', 'oss_original_period', 'oss_needs_manual_review',
 ];
 
-/** Všechna pole řádku, která server při náhradě položek přijímá. */
+/**
+ * Všechna pole řádku, která server při náhradě položek přijímá. Ceníková cena
+ * (`list_unit_price`) jde zpět i po změně ceny, procento slevy dopočítá server.
+ */
 const INVOICE_ITEM_FIELDS = [
-  'description', 'quantity', 'duration_minutes', 'unit', 'unit_price_without_vat',
+  'description', 'quantity', 'duration_minutes', 'unit', 'unit_price_without_vat', 'list_unit_price',
   'vat_rate_id', 'order_index', 'vat_classification_code', 'stock_item_id', 'warehouse_id',
   'small_asset_id', 'asset_id', 'accrual_from', 'accrual_to', 'tracking_allocations', ...INVOICE_ITEM_OSS_FIELDS,
 ];

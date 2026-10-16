@@ -209,6 +209,12 @@ table.items .center { text-align: center; }
 /* DPH sloupec je užší (místo dostal Cena/j) — sazba „21 %" / „12,5 %" o stupínek
    menší, aby se vešla bez zalomení. */
 table.items .vat { font-size: 8.5pt; }
+/* Sleva z ceníkové ceny (volba firmy): o tři sloupce víc, proto užší odsazení
+   a menší písmo, aby se částky v řádu milionů vešly bez zalomení. */
+table.items-ld th { font-size: 7pt; letter-spacing: 0; padding-left: 1.5mm; padding-right: 1.5mm; }
+table.items-ld td { padding-left: 1.5mm; padding-right: 1.5mm; }
+table.items-ld td.num { font-size: 8pt; }
+table.items-ld th.vat { font-size: 7pt; }
 
 /* ─── SUMACE ─── */
 .totals {

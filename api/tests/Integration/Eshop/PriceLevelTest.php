@@ -368,9 +368,37 @@ final class PriceLevelTest extends StockTestCase
         self::assertSame(['id' => $gold, 'code' => 'GOLD', 'name' => 'Gold'], $line['price_level']);
         self::assertSame('10.000', $line['discount_pct']);
         self::assertNull($line['customer_price_id']);
+        self::assertSame('1000.00', $line['list_unit_price'], 'Ceníková cena = standardní cena karty před hladinou.');
 
         $plain = $quotes->quote($sid, ['client_id' => null, 'currency' => 'CZK', 'date' => self::TODAY, 'lines' => $lines])['lines'][0];
         self::assertSame(['1000.00', 'standard', null, null], [$plain['unit_price'], $plain['price_source'], $plain['price_level'], $plain['discount_pct']]);
+        self::assertSame('1000.00', $plain['list_unit_price']);
+    }
+
+    public function testQuoteListPriceIsStandardPriceForEverySource(): void
+    {
+        $sid = $this->createSupplier();
+        $quotes = $this->container->get(StockItemQuoteService::class);
+        $quote = function (int $item, ?int $client) use ($sid, $quotes): array {
+            $lines = [['key' => 'a', 'stock_item_id' => $item, 'unit' => null, 'quantity' => '1']];
+            return $quotes->quote($sid, ['client_id' => $client, 'currency' => 'CZK', 'date' => self::TODAY, 'lines' => $lines])['lines'][0];
+        };
+
+        $markup = $this->pricedItem($sid, 'PL-LIST-MARKUP');
+        $client = $this->assignedClient($sid, $this->priceLevel($sid, 'RETAIL', 'Maloobchod', '-5'));
+        self::assertSame(['1050.00', '1000.00'], [$quote($markup, $client)['unit_price'], $quote($markup, $client)['list_unit_price']], 'Přirážka hladiny');
+
+        $fixed = $this->pricedItem($sid, 'PL-LIST-FIXED');
+        $vip = $this->client($sid);
+        $this->customerPrice($sid, $fixed, $vip, '850.00');
+        self::assertSame(['850.00', '1000.00'], [$quote($fixed, $vip)['unit_price'], $quote($fixed, $vip)['list_unit_price']], 'Individuální cena');
+
+        $promo = $this->pricedItem($sid, 'PL-LIST-PROMO');
+        $this->promo($sid, $promo, '799.00');
+        self::assertSame(['799.00', '1000.00'], [$quote($promo, null)['unit_price'], $quote($promo, null)['list_unit_price']], 'Akční cena');
+
+        $noPrice = $this->item($sid, 'PL-LIST-NONE');
+        self::assertNull($quote($noPrice, null)['list_unit_price'], 'Karta bez ceny nemá ani ceníkovou.');
     }
 
     // ── hladina zvolená na dokladu (migrace 1880) ──────────────────────────

@@ -997,7 +997,8 @@
         "2013_client_email_isdoc_override.sql",
         "2014_client_ai_extraction.sql",
         "2015_client_bank_permissions.sql",
-        "2016_invoice_item_tracking.sql"
+        "2016_invoice_item_tracking.sql",
+        "2021_invoice_item_line_discount.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -6063,7 +6064,9 @@
                 "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
                 "invoice_id": "bigint(20) unsigned NOT NULL",
                 "item_kind": "enum('standard','discount') NOT NULL DEFAULT 'standard'",
+                "line_discount_pct": "decimal(7,3) NULL DEFAULT NULL",
                 "linked_work_report_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "list_unit_price": "decimal(16,6) NULL DEFAULT NULL",
                 "order_index": "int(11) NOT NULL DEFAULT 0",
                 "oss_applicable": "tinyint(1) NOT NULL DEFAULT 0",
                 "oss_consumer_country": "char(2) NULL DEFAULT NULL",
@@ -21833,6 +21836,7 @@
                 "invoice_number_format": "varchar(60) NULL DEFAULT NULL",
                 "invoice_number_period": "enum('year','month','none') NOT NULL DEFAULT 'month'",
                 "invoice_pdf_show_base_qty": "tinyint(1) NOT NULL DEFAULT 1",
+                "invoice_pdf_show_line_discount": "tinyint(1) NOT NULL DEFAULT 0",
                 "invoice_qr_include_due_date": "tinyint(1) NOT NULL DEFAULT 0",
                 "is_identified": "tinyint(1) NOT NULL DEFAULT 0",
                 "is_vat_payer": "tinyint(1) NOT NULL DEFAULT 1",
