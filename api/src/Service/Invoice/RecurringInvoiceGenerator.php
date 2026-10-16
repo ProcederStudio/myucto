@@ -495,7 +495,7 @@ final class RecurringInvoiceGenerator
                     issue_date, tax_date, due_date, currency_id, reverse_charge, prices_include_vat, language,
                     note_above_items, note_below_items, payment_method, discount_percent,
                     recurring_template_id, revenue_category_id, payment_variable_symbol, rounding_mode, status, created_by)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "auto", "draft", ?)'
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "draft", ?)'
             );
             $stmt->execute([
                 $type,
@@ -518,6 +518,8 @@ final class RecurringInvoiceGenerator
                 $revenueCategoryId,
                 // Stabilní platební VS šablony (#249) — trvalý příkaz zákazníka.
                 InvoiceRepository::normalizePaymentVariableSymbol($template['payment_variable_symbol'] ?? null),
+                // Šablona vlastní režim zaokrouhlení nemá, platí výchozí volba firmy.
+                InvoiceRounding::supplierDefault($pdo, (int) $template['supplier_id']),
                 $userId,
             ]);
             $newId = (int) $pdo->lastInsertId();

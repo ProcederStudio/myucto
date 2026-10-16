@@ -997,7 +997,8 @@
         "2013_client_email_isdoc_override.sql",
         "2014_client_ai_extraction.sql",
         "2015_client_bank_permissions.sql",
-        "2016_invoice_item_tracking.sql"
+        "2016_invoice_item_tracking.sql",
+        "2019_invoice_rounding_default.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -21796,6 +21797,7 @@
                 "default_payment_due_days": "int(10) unsigned NOT NULL DEFAULT 7",
                 "default_payment_due_unit": "enum('days','month') NOT NULL DEFAULT 'days'",
                 "default_prices_include_vat": "tinyint(1) NOT NULL DEFAULT 0",
+                "default_rounding_mode": "enum('auto','none','whole_czk') NOT NULL DEFAULT 'auto'",
                 "default_vat_rate_id": "int(10) unsigned NOT NULL",
                 "dic": "varchar(20) NULL DEFAULT NULL",
                 "dimensions_enabled": "tinyint(1) NOT NULL DEFAULT 0",

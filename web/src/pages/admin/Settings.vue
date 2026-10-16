@@ -45,6 +45,7 @@ function syncSupplierStore(s: Supplier) {
     default_payment_due_days: s.default_payment_due_days,
     default_payment_due_unit: s.default_payment_due_unit,
     default_prices_include_vat: s.default_prices_include_vat,
+    default_rounding_mode: s.default_rounding_mode ?? 'auto',
     allow_refund_invoices: s.allow_refund_invoices ?? false,
     default_note_below_items_enabled: s.default_note_below_items_enabled ?? false,
     default_note_below_items_cs: s.default_note_below_items_cs ?? null,
@@ -569,6 +570,7 @@ async function saveSupplier() {
       default_payment_due_days: supplier.value.default_payment_due_days,
       default_payment_due_unit: supplier.value.default_payment_due_unit,
       default_prices_include_vat: supplier.value.default_prices_include_vat,
+      default_rounding_mode: supplier.value.default_rounding_mode ?? 'auto',
       allow_refund_invoices: supplier.value.allow_refund_invoices ?? false,
       // Výchozí poznámka pod položkami (#79) — prázdné pole ukládá server jako NULL.
       default_note_below_items_enabled: supplier.value.default_note_below_items_enabled ?? false,
@@ -1139,6 +1141,15 @@ async function confirmTaxRepDelete() {
               <span class="font-medium">{{ t('settings.default_prices_include_vat') }}</span>
             </label>
             <p class="text-xs text-neutral-500 mt-1 ml-6">{{ t('settings.default_prices_include_vat_hint') }}</p>
+          </div>
+          <div class="md:col-span-2">
+            <label class="block text-sm font-medium text-neutral-700 mb-1">{{ t('settings.default_rounding_mode') }}</label>
+            <select v-model="supplier.default_rounding_mode" class="w-full md:w-1/2 h-10 px-3 border border-neutral-300 rounded-md bg-surface text-sm" data-test="default-rounding-mode">
+              <option value="auto">{{ t('invoice.rounding.auto') }}</option>
+              <option value="none">{{ t('invoice.rounding.none') }}</option>
+              <option value="whole_czk">{{ t('invoice.rounding.whole_czk') }}</option>
+            </select>
+            <p class="text-xs text-neutral-500 mt-1">{{ t('settings.default_rounding_mode_hint') }}</p>
           </div>
           <div class="md:col-span-2">
             <label class="flex items-center gap-2 text-sm">

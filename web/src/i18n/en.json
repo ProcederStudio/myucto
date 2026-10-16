@@ -23874,6 +23874,8 @@
     "default_due_month_hint": "Calendar month — Feb 1 → Mar 1, Jan 31 → Feb 28 (not a fixed 30 days).",
     "default_prices_include_vat": "New invoices use prices incl. VAT",
     "default_prices_include_vat_hint": "Pre-checks the “Item prices include VAT” mode on new invoices (B2C/receipts). Can be overridden per invoice.",
+    "default_rounding_mode": "Rounding of new invoices",
+    "default_rounding_mode_hint": "Pre-fills the Rounding option on new invoices and credit notes in CZK, including invoices from the API, recurring billing and orders. Can be overridden per invoice; issued documents stay unchanged.",
     "default_hourly_rate": "Default hourly rate",
     "auto_send_reminders": "Send automatic reminders",
     "auto_send_reminders_hint": "When off, the cron will not send automatic reminders for this supplier. Manual send (single + bulk) always works.",

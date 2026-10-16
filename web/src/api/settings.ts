@@ -1,6 +1,7 @@
 import { api } from './client'
 import { appendStepUpProof, stepUpProofBody } from './epoSubmissions'
 import type { EpoSigningCredential, EpoStepUpProof } from './epoSubmissions'
+import type { InvoiceRoundingMode } from './invoices'
 
 /** Typy zpráv pro kopii dodavateli — zrcadlí RecipientResolver::TYPE_*. */
 export type SelfCopyType = 'documents' | 'reminders' | 'approvals'
@@ -214,6 +215,8 @@ export interface Supplier {
   default_payment_due_unit: 'days' | 'month'
   /** Výchozí režim cen u nových faktur (false = bez DPH, true = ceny s DPH). */
   default_prices_include_vat: boolean
+  /** Výchozí zaokrouhlení nových faktur (migrace 2019). */
+  default_rounding_mode?: InvoiceRoundingMode
   /**
    * Výchozí poznámka pod položkami na nově zakládaných dokladech (#79, migrace 1855).
    * Vypnuto + prázdné texty = dnešní chování. Text se drží podle JAZYKA dokladu,

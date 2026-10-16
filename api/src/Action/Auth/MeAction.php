@@ -17,6 +17,7 @@ use MyInvoice\Security\PermissionCatalog;
 use MyInvoice\Security\PermissionResolver;
 use MyInvoice\Service\Auth\MfaOfferService;
 use MyInvoice\Service\Invoice\DefaultInvoiceNote;
+use MyInvoice\Service\Invoice\InvoiceRounding;
 use MyInvoice\Service\Invoice\InvoicePublicLinkFeature;
 use MyInvoice\Service\Auth\MfaPolicyService;
 use MyInvoice\Service\Auth\SessionLockPolicy;
@@ -94,7 +95,7 @@ final class MeAction
                         // druhý dotaz jen kvůli hlavičce stránky.
                         'SELECT id, company_name, ic, dic, street, city, zip,
                                 is_vat_payer, is_identified, taxpayer_type,
-                                default_payment_due_days, default_payment_due_unit, default_prices_include_vat,
+                                default_payment_due_days, default_payment_due_unit, default_prices_include_vat, default_rounding_mode,
                                 allow_refund_invoices, auto_send_reminders, payment_thanks_enabled, payment_thanks_default_checked,
                                 accounting_mode, accounting_enabled, payroll_enabled, stock_enabled, dimensions_enabled, fiscal_year_start_month, ' . $ossSelect . ',
                                 ai_provider, ai_data_region, ai_eu_residency_required, client_ai_extraction_enabled, '
@@ -155,6 +156,8 @@ final class MeAction
             $s['default_payment_due_unit'] = (string) ($s['default_payment_due_unit'] ?? 'days');
             // Výchozí režim cen u nových faktur (0 = bez DPH, 1 = ceny s DPH) — předvyplní editor.
             $s['default_prices_include_vat'] = (bool) ($s['default_prices_include_vat'] ?? false);
+            // Výchozí zaokrouhlení nových faktur (migrace 2019), předvyplní editor.
+            $s['default_rounding_mode'] = InvoiceRounding::orDefault($s['default_rounding_mode'] ?? null);
             // Vyúčtování s výsledkem k vyplacení (migrace 1937) — editor povolí zápornou fakturu.
             $s['allow_refund_invoices']    = (bool) ($s['allow_refund_invoices'] ?? false);
             // Per-faktura přepínač upomínek v editoru se skryje, když dodavatel auto-upomínky nemá.
