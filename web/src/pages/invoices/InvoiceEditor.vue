@@ -60,6 +60,7 @@ import DimensionFields from '@/components/dimensions/DimensionFields.vue'
 import ItemDimensionsToggle from '@/components/dimensions/ItemDimensionsToggle.vue'
 import { useDocumentDimensions, applyPrefill } from '@/composables/useDocumentDimensions'
 import { durationTotal, isPreciseTimeItem, isTimeItem, itemAmount, itemQuantity, syncCreditNoteItemSign, timeItemTotals, validateDurationInputs, workHours, workRowTotal } from '@/utils/timeBilling'
+import { amountItems, blankTextItem, isTextItem, textItemPayload } from '@/utils/invoiceTextRow'
 import { groupInvoiceStockAvailability, invoiceStockAvailabilityKey } from './invoiceStockAvailability'
 import {
   availabilityQuantity,
@@ -1530,7 +1531,7 @@ async function applyClientDefaults(clientId: number) {
   // Klientská sazba — fallback pro faktury bez zakázky (project rate přepíše později).
   // „Prázdná položka" = prázdný popis; rate mohl naplnit předchozí klient/projekt, přesto chceme refresh.
   if (!form.value.project_id && c.hourly_rate && c.hourly_rate > 0) {
-    if (form.value.items.length === 1 && (form.value.items[0].description || '').trim() === '') {
+    if (form.value.items.length === 1 && !isTextItem(form.value.items[0]) && (form.value.items[0].description || '').trim() === '') {
       form.value.items[0].unit_price_without_vat = c.hourly_rate
       form.value.items[0].unit = defaultItemUnit()
       onItemUnitChange(form.value.items[0])
@@ -1584,7 +1585,7 @@ async function applyProjectDefaults(projectId: number) {
     form.value.revenue_category_id = p.default_revenue_category_id
   }
   // Pokud má jen jednu prázdnou položku (bez popisu), refresh sazby z projektu.
-  if (form.value.items.length === 1 && (form.value.items[0].description || '').trim() === '') {
+  if (form.value.items.length === 1 && !isTextItem(form.value.items[0]) && (form.value.items[0].description || '').trim() === '') {
     form.value.items[0].unit_price_without_vat = p.hourly_rate
     form.value.items[0].unit = defaultItemUnit()
     onItemUnitChange(form.value.items[0])
@@ -1599,6 +1600,12 @@ async function applyProjectDefaults(projectId: number) {
 function addItem() {
   form.value.items.push(blankItem())
   focusLastRow('[data-row-input="inv-item"]', paneDom.root())
+}
+
+// Textový řádek mezi položkami: jen popis, sazbu si server vezme z první položky.
+function addTextItem() {
+  form.value.items.push(blankTextItem(form.value.items.length, defaultVatRateId()) as InvoiceItem)
+  focusLastRow('[data-row-input="inv-text"]', paneDom.root())
 }
 
 async function addPriceListItem() {
@@ -1616,6 +1623,7 @@ async function addPriceListItem() {
       prices_include_vat: form.value.prices_include_vat,
     })
     const target = form.value.items.length === 1
+      && !isTextItem(form.value.items[0])
       && !form.value.items[0].description.trim()
       && Number(form.value.items[0].unit_price_without_vat) === 0
       ? form.value.items[0]
@@ -1668,7 +1676,8 @@ const computed_totals = computed(() => {
   const pricesIncl = form.value.prices_include_vat && supplierIsVatPayer.value
   const breakdown = new Map<number, { rate: number; base: number; vat: number }>()
 
-  for (const item of form.value.items) {
+  // Textový řádek nemá částku a nezakládá řádek rekapitulace (server ho vynuluje).
+  for (const item of amountItems(form.value.items)) {
     const vatRate = (form.value.reverse_charge || !supplierIsVatPayer.value)
       ? 0
       : vatRates.value.find(v => v.id === item.vat_rate_id)?.rate_percent ?? 0
@@ -2044,9 +2053,10 @@ function pushWrToInvoiceItem() {
   //    Cena se ignoruje — blankItem default cenu předvyplňuje z project.hourly_rate
   //    (nebo client.hourly_rate fallback), takže placeholder typicky cenu má.
   // 3. Jinak nová položka.
-  const existing = form.value.items.find(it => (it.description || '').trim() === description.trim())
+  // Textový řádek se stejným textem není položka výkazu (nemá cenu), přeskočí se.
+  const existing = amountItems(form.value.items).find(it => (it.description || '').trim() === description.trim())
   const empty = !existing
-    ? form.value.items.find(it => (it.description || '').trim() === '')
+    ? amountItems(form.value.items).find(it => (it.description || '').trim() === '')
     : undefined
   const target = existing || empty
 
@@ -2103,7 +2113,7 @@ function checkWorkReportSync(): string | null {
 
   const ccy = currencies.value.find(c => c.id === form.value.currency_id)?.code || ''
   const loc = locale.value === 'cs' ? 'cs' : 'en-US'
-  const item = form.value.items.find(it => (it.description || '').trim() === description)
+  const item = amountItems(form.value.items).find(it => (it.description || '').trim() === description)
 
   if (!item) {
     return t('invoice.wr_not_in_items_confirm', {
@@ -2144,7 +2154,7 @@ function checkMaterialReportSync(): string | null {
 
   const ccy = currencies.value.find(c => c.id === form.value.currency_id)?.code || ''
   const loc = locale.value === 'cs' ? 'cs' : 'en-US'
-  const item = form.value.items.find(it => (it.description || '').trim() === description)
+  const item = amountItems(form.value.items).find(it => (it.description || '').trim() === description)
 
   if (!item) {
     return t('invoice.wr_material_not_in_items_confirm', {
@@ -2195,8 +2205,8 @@ function pushMatToInvoiceItem() {
   const total = matTotal.value
   const description = (matTitle.value || t('invoice.wr_material_title')).trim()
   const unit = units.value.find(u => u.code === 'ks')?.code || 'ks'
-  const existing = form.value.items.find(it => (it.description || '').trim() === description)
-  const empty = !existing ? form.value.items.find(it => (it.description || '').trim() === '') : undefined
+  const existing = amountItems(form.value.items).find(it => (it.description || '').trim() === description)
+  const empty = !existing ? amountItems(form.value.items).find(it => (it.description || '').trim() === '') : undefined
   const target = existing || empty
   if (target) {
     target.description = description
@@ -2401,7 +2411,8 @@ async function submit() {
       vat_classification_code: form.value.vat_classification_code,
       revenue_category: form.value.revenue_category,
       revenue_category_id: form.value.revenue_category_id,
-      items: form.value.items.map((it, i) => ({
+      // Textový řádek jde jen jako druh + text + pořadí; zbytek si server vynuluje.
+      items: form.value.items.map((it, i) => isTextItem(it) ? textItemPayload(it, i) : ({
         description: it.description,
         quantity: itemQuantity(it),
         duration_minutes: isTimeItem(it) ? (it.duration_minutes ?? null) : null,
@@ -2935,6 +2946,10 @@ useWindowTitle(
                 {{ resolvingPriceListItem ? t('common.loading') : t('invoice.price_list_add') }}
               </button>
             </template>
+            <button type="button" @click="addTextItem" data-test="invoice-add-text-row" :title="t('invoice.text_row_hint')"
+              class="cursor-pointer inline-flex items-center justify-center h-8 px-3 border border-neutral-300 bg-surface hover:bg-neutral-50 text-neutral-700 text-sm font-medium rounded-md whitespace-nowrap">
+              {{ t('invoice.add_text_row') }}
+            </button>
             <button type="button" @click="addItem" class="px-3 h-8 text-sm bg-primary-600 hover:bg-primary-700 text-white rounded-md">
               {{ t('invoice.add_item') }}
             </button>
@@ -2962,7 +2977,24 @@ useWindowTitle(
           </thead>
           <tbody class="divide-y divide-neutral-200">
             <template v-for="(item, i) in form.items" :key="i">
-            <tr :class="itemHasBothNegative(item) ? 'bg-danger-50' : ''">
+            <!-- Textový řádek: jen text přes celou šířku, bez množství, ceny a sazby. -->
+            <tr v-if="isTextItem(item)" class="bg-neutral-50/60" data-test="invoice-text-row">
+              <td class="px-2 py-2 text-center text-xs text-neutral-400">
+                <button type="button" @click="moveUp(i)" :disabled="i === 0" class="block w-5 h-4 hover:text-neutral-700 disabled:opacity-30">▲</button>
+                <button type="button" @click="moveDown(i)" :disabled="i === form.items.length - 1" class="block w-5 h-4 hover:text-neutral-700 disabled:opacity-30">▼</button>
+              </td>
+              <td :colspan="supplierIsVatPayer ? 6 : 5" class="px-3 py-2">
+                <textarea v-model="item.description" rows="1" data-row-input="inv-text"
+                  :placeholder="t('invoice.text_row_placeholder')" :title="t('invoice.text_row_hint')" :aria-label="t('invoice.text_row')"
+                  class="w-full min-h-9 px-2 py-1.5 border border-neutral-300 rounded text-sm font-medium bg-surface resize-y" />
+              </td>
+              <td class="px-2 py-2">
+                <div class="flex items-center justify-end gap-2">
+                  <button type="button" @click="removeItem(i)" class="text-danger-500 hover:text-danger-600 text-lg leading-none">×</button>
+                </div>
+              </td>
+            </tr>
+            <tr v-else :class="itemHasBothNegative(item) ? 'bg-danger-50' : ''">
               <td class="px-2 py-2 text-center text-xs text-neutral-400">
                 <button type="button" @click="moveUp(i)" :disabled="i === 0" class="block w-5 h-4 hover:text-neutral-700 disabled:opacity-30">▲</button>
                 <button type="button" @click="moveDown(i)" :disabled="i === form.items.length - 1" class="block w-5 h-4 hover:text-neutral-700 disabled:opacity-30">▼</button>
@@ -3073,7 +3105,7 @@ useWindowTitle(
                 </div>
               </td>
             </tr>
-            <tr v-if="assetSaleMode && assetSaleAvailable" :class="['border-t-0!', itemHasBothNegative(item) ? 'bg-danger-50' : '']">
+            <tr v-if="assetSaleMode && assetSaleAvailable && !isTextItem(item)" :class="['border-t-0!', itemHasBothNegative(item) ? 'bg-danger-50' : '']">
               <td></td>
               <td :colspan="supplierIsVatPayer ? 7 : 6" class="px-3 pb-2">
                 <div class="flex items-center gap-2">
@@ -3098,7 +3130,7 @@ useWindowTitle(
                 </div>
               </td>
             </tr>
-            <tr v-if="docDims.enabled.value && docDims.isItemOpen(item)" :class="['border-t-0!', itemHasBothNegative(item) ? 'bg-danger-50' : '']">
+            <tr v-if="docDims.enabled.value && !isTextItem(item) && docDims.isItemOpen(item)" :class="['border-t-0!', itemHasBothNegative(item) ? 'bg-danger-50' : '']">
               <td></td>
               <td :colspan="supplierIsVatPayer ? 7 : 6" class="px-3 pb-2">
                 <div class="flex items-center gap-2">
@@ -3110,7 +3142,7 @@ useWindowTitle(
                 </div>
               </td>
             </tr>
-            <tr v-if="item.oss_applicable" :class="['border-t-0!', itemHasBothNegative(item) ? 'bg-danger-50' : '']">
+            <tr v-if="item.oss_applicable && !isTextItem(item)" :class="['border-t-0!', itemHasBothNegative(item) ? 'bg-danger-50' : '']">
               <td></td>
               <td :colspan="supplierIsVatPayer ? 7 : 6" class="px-3 pb-2">
                 <div class="flex flex-nowrap items-center gap-1.5 overflow-x-auto text-xs">
@@ -3179,7 +3211,7 @@ useWindowTitle(
             <div class="flex items-center justify-between text-xs text-neutral-500">
               <span class="font-mono">#{{ i + 1 }}</span>
               <div class="flex items-center gap-2">
-                <ItemDimensionsToggle v-if="docDims.enabled.value"
+                <ItemDimensionsToggle v-if="docDims.enabled.value && !isTextItem(item)"
                   :open="docDims.isItemOpen(item)" :filled="docDims.itemHasDims(item)" :disabled="!docDims.canEdit.value"
                   @toggle="docDims.toggleItem(item)" />
                 <button type="button" @click="moveUp(i)" :disabled="i === 0" class="cursor-pointer w-8 h-8 inline-flex items-center justify-center border border-neutral-300 rounded hover:bg-neutral-50 disabled:opacity-30 disabled:cursor-not-allowed">▲</button>
@@ -3187,6 +3219,13 @@ useWindowTitle(
                 <button type="button" @click="removeItem(i)" class="cursor-pointer w-8 h-8 inline-flex items-center justify-center border border-danger-500/40 text-danger-500 hover:bg-danger-50 rounded text-lg leading-none">×</button>
               </div>
             </div>
+            <div v-if="isTextItem(item)" data-test="invoice-text-row-mobile">
+              <label class="block text-xs font-medium text-neutral-600 mb-1">{{ t('invoice.text_row') }}</label>
+              <textarea v-model="item.description" rows="2" data-row-input="inv-text"
+                :placeholder="t('invoice.text_row_placeholder')" :title="t('invoice.text_row_hint')"
+                class="w-full px-3 py-2 border border-neutral-300 rounded text-sm font-medium bg-surface resize-y" />
+            </div>
+            <template v-else>
             <div v-if="docDims.enabled.value && docDims.isItemOpen(item)">
               <label class="block text-xs font-medium text-neutral-600 mb-1">{{ t('dimensions.items_title') }}</label>
               <DimensionFields compact :model-value="docDims.itemDimsOf(item)" :disabled="!docDims.canEdit.value"
@@ -3360,6 +3399,7 @@ useWindowTitle(
                 type="text" inputmode="decimal" :title="t('invoice.items_table.gross_edit_hint')"
                 class="w-32 h-9 px-2 border border-neutral-300 rounded text-right font-mono text-sm font-semibold" />
             </div>
+            </template>
           </div>
         </div>
       </div>

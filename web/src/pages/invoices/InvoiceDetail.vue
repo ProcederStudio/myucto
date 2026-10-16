@@ -242,7 +242,8 @@ const canEditAccrual = computed(() => !!invoice.value
 function startAccrualEdit() {
   for (const key of Object.keys(accrualDraft)) delete accrualDraft[Number(key)]
   for (const item of invoice.value?.items ?? []) {
-    if (item.id == null || item.item_kind === 'discount') continue
+    // Slevový ani textový řádek vlastní výnos k rozlišení nemá.
+    if (item.id == null || item.item_kind === 'discount' || item.item_kind === 'text') continue
     accrualDraft[item.id] = { from: item.accrual_from ?? null, to: item.accrual_to ?? null }
   }
   accrualEditing.value = true
@@ -2398,7 +2399,12 @@ useWindowRefresh(['invoices', 'clients', 'bank', 'bank-transactions', 'cash', 'a
             </tr>
           </thead>
           <tbody class="divide-y divide-neutral-100">
-            <tr v-for="item in invoice.items" :key="item.id" :class="item.item_kind === 'discount' ? 'text-warning-700' : ''">
+            <template v-for="item in invoice.items" :key="item.id">
+            <!-- Textový řádek: jen text přes celou šířku, bez částek. -->
+            <tr v-if="item.item_kind === 'text'" data-test="invoice-text-row">
+              <td :colspan="supplierIsVatPayer ? 7 : 5" class="px-4 py-2.5 whitespace-pre-wrap font-medium text-neutral-800">{{ item.description }}</td>
+            </tr>
+            <tr v-else :class="item.item_kind === 'discount' ? 'text-warning-700' : ''">
               <td class="px-4 py-2.5 whitespace-pre-wrap">
                 {{ item.description }}
                 <!-- OSS je vlastnost ŘÁDKU, ne dokladu — dole v doložce je jen souhrn zemí,
@@ -2427,6 +2433,7 @@ useWindowRefresh(['invoices', 'clients', 'bank', 'bank-transactions', 'cash', 'a
               <td v-if="supplierIsVatPayer" class="px-4 py-2.5 text-right font-mono">{{ formatMoney(item.total_without_vat ?? 0, invoice.currency) }}</td>
               <td class="px-4 py-2.5 text-right font-mono font-medium">{{ formatMoney(supplierIsVatPayer ? (item.total_with_vat ?? 0) : (item.total_without_vat ?? 0), invoice.currency) }}</td>
             </tr>
+            </template>
           </tbody>
         </table>
         </div>
@@ -2434,6 +2441,8 @@ useWindowRefresh(['invoices', 'clients', 'bank', 'bank-transactions', 'cash', 'a
         <!-- Mobile: stack karet -->
         <div class="md:hidden divide-y divide-neutral-100">
           <div v-for="item in invoice.items" :key="`m-${item.id}`" class="p-3 space-y-1.5">
+            <div v-if="item.item_kind === 'text'" class="text-sm whitespace-pre-wrap font-medium text-neutral-800" data-test="invoice-text-row-mobile">{{ item.description }}</div>
+            <template v-else>
             <div class="text-sm whitespace-pre-wrap" :class="item.item_kind === 'discount' ? 'text-warning-700' : 'text-neutral-900'">
               {{ item.description }}
               <span v-if="item.oss_applicable"
@@ -2468,6 +2477,7 @@ useWindowRefresh(['invoices', 'clients', 'bank', 'bank-transactions', 'cash', 'a
               <span class="text-xs text-neutral-500">{{ supplierIsVatPayer ? t('invoice.items_table.with_vat') : t('invoice.totals.total') }}</span>
               <span class="font-mono font-semibold">{{ formatMoney(supplierIsVatPayer ? (item.total_with_vat ?? 0) : (item.total_without_vat ?? 0), invoice.currency) }}</span>
             </div>
+            </template>
           </div>
         </div>
       </div>
