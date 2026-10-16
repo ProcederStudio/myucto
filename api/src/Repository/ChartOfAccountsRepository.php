@@ -115,15 +115,16 @@ final class ChartOfAccountsRepository
      * Vloží účet (analytiku i syntetiku) do osnovy firmy. Vrací id.
      *
      * @param array{account_code:string, name:string, account_type:string,
-     *              normal_side:?string, is_synthetic?:bool, parent_id?:?int, is_active?:bool} $data
+     *              normal_side:?string, is_synthetic?:bool, parent_id?:?int, is_active?:bool,
+     *              tax_deductibility?:string} $data
      */
     public function insert(int $supplierId, array $data): int
     {
         $pdo = $this->db->pdo();
         $pdo->prepare(
             'INSERT INTO chart_of_accounts
-                (supplier_id, account_code, name, account_type, normal_side, is_synthetic, parent_id, is_active)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+                (supplier_id, account_code, name, account_type, normal_side, is_synthetic, parent_id, is_active, tax_deductibility)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
         )->execute([
             $supplierId,
             $data['account_code'],
@@ -133,6 +134,7 @@ final class ChartOfAccountsRepository
             (int) ($data['is_synthetic'] ?? false),
             $data['parent_id'] ?? null,
             (int) ($data['is_active'] ?? true),
+            $data['tax_deductibility'] ?? 'deductible',
         ]);
         return (int) $pdo->lastInsertId();
     }

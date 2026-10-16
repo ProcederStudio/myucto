@@ -5,18 +5,19 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Accounting;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Repository\AccountingFrameworkRepository;
 use MyInvoice\Repository\PostingRuleRepository;
 use PDO;
 
 /**
- * Naseeduje směrnou účtovou osnovu ({@see ChartOfAccountsTemplate}) do
+ * Naseeduje směrnou účtovou osnovu účinného rámce do
  * chart_of_accounts pro danou firmu (Epic F1). Spouští se, když firma zapne
  * podvojné účetnictví (supplier.accounting_mode = 'double_entry') — trigger
  * napojí navazující workflow (Action/Settings).
  *
- * Idempotentní: vkládá jen účty, jejichž account_code pro daného suppliera ještě
- * neexistuje (nepřepisuje uživatelské úpravy názvů/analytik). Vrací počet reálně
- * vložených účtů.
+ * Rámec 500 doplňuje chybějící účty bez přepsání uživatelských úprav. Rámec 504
+ * inicializuje pouze prázdný rozvrh, aby nepřeváděl existující osnovu jiného rámce.
+ * Vrací počet reálně vložených účtů.
  */
 final class ChartOfAccountsSeeder
 {
@@ -26,15 +27,23 @@ final class ChartOfAccountsSeeder
     public function __construct(private readonly Connection $db) {}
 
     /**
-     * Vloží chybějící účty šablony pro suppliera. Idempotentní.
+     * Vybere šablonu z historie k zadanému datu, u starších volání k dnešku.
      *
-     * @return int počet nově vložených účtů (0 = osnova už kompletní)
+     * @return int počet nově vložených účtů
      */
-    public function seedForSupplier(int $supplierId): int
+    public function seedForSupplier(int $supplierId, ?string $date = null): int
     {
         $pdo = $this->db->pdo();
+        $framework = (new AccountingFrameworkService($this->db, new AccountingFrameworkRepository($this->db)))
+            ->forDate($supplierId, $date ?? date('Y-m-d'));
+        $template = $framework === AccountingFrameworkService::CZ_504
+            ? ChartOfAccountsTemplate504::class
+            : ChartOfAccountsTemplate::class;
 
         $existing = $this->existingCodes($pdo, $supplierId);
+        if ($framework === AccountingFrameworkService::CZ_504 && $existing !== []) {
+            return 0;
+        }
 
         $insert = $pdo->prepare(
              'INSERT INTO chart_of_accounts
@@ -54,7 +63,7 @@ final class ChartOfAccountsSeeder
             // každém založení firmy (v testech stovkykrát). Analytiky dávkovat NELZE:
             // potřebují `parent_id`, tedy id právě vloženého rodiče.
             $pending = [];
-            foreach (ChartOfAccountsTemplate::ACCOUNTS as $acc) {
+            foreach ($template::ACCOUNTS as $acc) {
                 if (!isset($existing[$acc['code']]) && ($acc['parent_code'] ?? null) === null) {
                     $pending[] = $acc;
                 }
@@ -71,7 +80,7 @@ final class ChartOfAccountsSeeder
                         $acc['normal_side'], // null → saldní účet
                         1,
                         null,
-                        ChartOfAccountsTemplate::taxDeductibility($acc['code']), // §25 ZDP
+                        $template::taxDeductibility($acc['code']),
                     );
                 }
                 $pdo->prepare(
@@ -86,7 +95,7 @@ final class ChartOfAccountsSeeder
                 $existing = $this->existingCodes($pdo, $supplierId);
             }
 
-            foreach (ChartOfAccountsTemplate::ACCOUNTS as $acc) {
+            foreach ($template::ACCOUNTS as $acc) {
                 if (isset($existing[$acc['code']]) || ($acc['parent_code'] ?? null) === null) {
                     continue;
                 }
@@ -103,12 +112,14 @@ final class ChartOfAccountsSeeder
                     $acc['normal_side'],
                     0,
                     $parentId,
-                    ChartOfAccountsTemplate::taxDeductibility($acc['code']),
+                    $template::taxDeductibility($acc['code']),
                 ]);
                 $existing[$acc['code']] = (int) $pdo->lastInsertId();
                 $inserted++;
             }
-            $this->seedAnalyticPostingRules($pdo, $supplierId);
+            if ($framework === AccountingFrameworkService::CZ_500) {
+                $this->seedAnalyticPostingRules($pdo, $supplierId);
+            }
             $this->markClearingAccounts($pdo, $supplierId);
             if ($ownTx) {
                 $pdo->commit();
