@@ -1,16 +1,15 @@
 <script setup lang="ts">
+import { useWindowRefresh } from '@/composables/useWindowRefresh'
+import { useWindowTitle } from '@/composables/useWindowTitle'
 import ClientQuickLinks from '@/components/clients/ClientQuickLinks.vue'
 import LinkedDocumentsPanel from '@/components/documents/LinkedDocumentsPanel.vue'
 import AttachmentCheckBadge from '@/components/documents/AttachmentCheckBadge.vue'
 import DocumentSidePreview from '@/components/documents/DocumentSidePreview.vue'
 import PdfDropzone from '@/components/purchase/PdfDropzone.vue'
 import ExtractionWarningText from '@/components/purchase/ExtractionWarningText.vue'
-import ExtractionReviewModal from '@/components/purchase/ExtractionReviewModal.vue'
 import PurchaseItemMeta from '@/components/purchase/PurchaseItemMeta.vue'
-import PaymentMethodModal from '@/components/invoices/PaymentMethodModal.vue'
 import CreditNoteOffsetNotice from '@/components/invoices/CreditNoteOffsetNotice.vue'
-import PaymentCalendarModal from '@/components/purchase/PaymentCalendarModal.vue'
-import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, watch, defineAsyncComponent } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { purchaseInvoicesApi, type PurchaseInvoice, type PurchaseInvoiceStatus, type PurchaseInvoiceBrief, type PaymentQrResponse } from '@/api/purchaseInvoices'
@@ -29,10 +28,6 @@ import PostingBadge from '@/components/ui/PostingBadge.vue'
 import PostingPreviewModal from '@/components/accounting/PostingPreviewModal.vue'
 import DocumentPostingPanel from '@/components/accounting/DocumentPostingPanel.vue'
 import DocumentDimensionsPanel from '@/components/dimensions/DocumentDimensionsPanel.vue'
-import ExpenseRuleTemplateModal from '@/components/accounting/ExpenseRuleTemplateModal.vue'
-import RuleFormModal from '@/components/bank/RuleFormModal.vue'
-import InvoiceBankMatchModal from '@/components/bank/InvoiceBankMatchModal.vue'
-import StockReceiptModal from '@/components/stock/StockReceiptModal.vue'
 import { stockApi, type StockDocument, type StockReceiptProposal } from '@/api/stock'
 import { vatClassificationsApi, type VatClassification } from '@/api/vatClassifications'
 import WhyChip from '@/components/automation/WhyChip.vue'
@@ -44,6 +39,15 @@ import PurchaseApprovalPanel from '@/components/purchase/PurchaseApprovalPanel.v
 import { purchaseApprovalsApi, approvalErrorMessage } from '@/api/purchaseApprovals'
 import { announceApprovalRequested } from '@/utils/purchaseApproval'
 import { useDimensions } from '@/composables/useDimensions'
+import WorkspaceTeleport from '@/components/workspace/WorkspaceTeleport.vue'
+
+const ExtractionReviewModal = defineAsyncComponent(() => import('@/components/purchase/ExtractionReviewModal.vue'))
+const PaymentCalendarModal = defineAsyncComponent(() => import('@/components/purchase/PaymentCalendarModal.vue'))
+const PaymentMethodModal = defineAsyncComponent(() => import('@/components/invoices/PaymentMethodModal.vue'))
+const ExpenseRuleTemplateModal = defineAsyncComponent(() => import('@/components/accounting/ExpenseRuleTemplateModal.vue'))
+const RuleFormModal = defineAsyncComponent(() => import('@/components/bank/RuleFormModal.vue'))
+const InvoiceBankMatchModal = defineAsyncComponent(() => import('@/components/bank/InvoiceBankMatchModal.vue'))
+const StockReceiptModal = defineAsyncComponent(() => import('@/components/stock/StockReceiptModal.vue'))
 
 const { t } = useI18n()
 const route = useRoute()
@@ -902,6 +906,21 @@ const purchaseActions = computed<ActionItem[]>(() => {
 
   return items
 })
+useWindowTitle(
+  () => invoice.value ? [t(`purchase_invoice.document_kind.${invoice.value.document_kind}`), invoice.value.varsymbol || invoice.value.vendor_invoice_number].filter(Boolean).join(' ') : null,
+  () => invoice.value?.vendor_company_name ?? null,
+)
+useWindowRefresh(['purchase-invoices', 'clients', 'bank', 'bank-transactions', 'cash', 'accounting', 'stock'], async () => {
+  const generation = loadGeneration
+  const invoiceId = id.value
+  const [updated, events] = await Promise.all([purchaseInvoicesApi.get(invoiceId), purchaseInvoicesApi.activity(invoiceId)])
+  if (generation !== loadGeneration || invoiceId !== id.value) return
+  invoice.value = updated
+  activity.value = events
+  if (stockIntegrationVisible.value) void loadStockIntegration(invoiceId, generation)
+}, () => !loading.value && !acting.value && !qrEditing.value && !qrSaving.value && !reviewOpen.value
+  && !markPaidOpen.value && !settleRestOpen.value && !advanceModalOpen.value
+  && !stockReceiptOpen.value && !paymentCalendarOpen.value && !bankMatchTarget.value)
 </script>
 
 <template>
@@ -2017,12 +2036,12 @@ const purchaseActions = computed<ActionItem[]>(() => {
       :rule-id="editingExpenseRuleId"
       @close="expenseRuleTemplateOpen = false"
       @saved="() => { expenseRuleTemplateOpen = false; load() }" />
-    <Teleport to="body">
+    <WorkspaceTeleport>
       <RuleFormModal v-if="postingRuleOpen && invoice"
         :prefill="{ name: invoice.vendor_company_name || invoice.vendor_invoice_number || '', direction: invoice.total_with_vat < 0 ? 'incoming' : 'outgoing', applies_currency: invoice.currency, variable_symbol: invoice.payment_variable_symbol || invoice.varsymbol || null }"
         @close="postingRuleOpen = false" @saved="postingRuleOpen = false" />
       <InvoiceBankMatchModal v-if="bankMatchTarget" doc-type="purchase_invoice" :doc-id="bankMatchTarget.id" :doc-ref="bankMatchTarget.ref"
         @close="bankMatchTarget = null" @done="load" />
-    </Teleport>
+    </WorkspaceTeleport>
 
 </template>

@@ -22,6 +22,7 @@ import DimensionChips from '@/components/dimensions/DimensionChips.vue'
 import { useDimensions } from '@/composables/useDimensions'
 import type { DimensionMap } from '@/api/dimensions'
 import RowActionsMenu, { type RowAction } from '@/components/ui/RowActionsMenu.vue'
+import WorkspaceTeleport from '@/components/workspace/WorkspaceTeleport.vue'
 import { BTN_ICON_SM_BASE, OUTLINE, ICONS } from '@/components/ui/buttonStyles'
 import type { BankTransactionActions } from '@/composables/useBankTransactionActions'
 
@@ -596,7 +597,7 @@ function candidateReject() {
           </button>
     </div>
   </div>
-  <Teleport to="body">
+  <WorkspaceTeleport>
     <RepostModal v-if="repostTx" :open="true" source="bank-transactions" :doc-id="repostTx.id"
       :doc-label="repostTx.description || repostTx.variable_symbol"
       :proposed-accounts="repostProposal"
@@ -607,5 +608,5 @@ function candidateReject() {
     <RuleFormModal v-if="ruleTemplateOpen" :prefill="rulePrefill" :base-amount="Math.abs(tx.amount)"
       :source-transaction-id="tx.id"
       @saved="onRuleSaved" @close="ruleTemplateOpen = false" />
-  </Teleport>
+  </WorkspaceTeleport>
 </template>

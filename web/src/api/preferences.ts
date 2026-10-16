@@ -23,6 +23,8 @@ export interface TablePrefs {
   // (dnes `analytics` = rozpad po analytikách v hlavní knize a předvaze). Ukládají
   // se sem, ne mezi filtry: účetní si je nastaví jednou a čeká je i příště.
   flags?: Record<string, boolean> | null
+  // Uložená nastavení stránky, která nejsou jen ano/ne (např. hranice členění PDF saldokonta).
+  options?: Record<string, unknown> | null
 }
 
 export interface NavOrderPrefs {

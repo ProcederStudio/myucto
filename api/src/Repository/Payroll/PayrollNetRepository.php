@@ -384,7 +384,7 @@ final class PayrollNetRepository
                 AND withheld_total_minor + ? >= 0
                 AND (
                   total_limit_minor IS NULL
-                  OR withheld_total_minor + ? <= total_limit_minor
+                  OR withheld_total_minor + taken_over_withheld_minor + ? <= total_limit_minor
                 )'
         );
         $stmt->execute([$deltaMinor, $supplierId, $agreementId, $deltaMinor, $deltaMinor]);

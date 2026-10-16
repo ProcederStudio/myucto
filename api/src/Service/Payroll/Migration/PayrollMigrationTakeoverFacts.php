@@ -74,6 +74,10 @@ final readonly class PayrollMigrationTakeoverFacts
          * čerpání ročního koše § 6 odst. 9 písm. m) ZDP v převzatém měsíci; `null` = zdroj ho nevydal.
          */
         public ?int $oldAgeSavingsContributionMinor = null,
+        /** Nepeněžní zdravotní plnění (koš § 6 odst. 9 písm. d) bod 1 ZDP) v haléřích; `null` = zdroj ho nevydal. */
+        public ?int $nonCashHealthBenefitMinor = null,
+        /** Nepeněžní plnění na rekreaci, sport, kulturu a vzdělávání (koš § 6 odst. 9 písm. d) bod 2 ZDP); `null` = nevydal. */
+        public ?int $nonCashLeisureBenefitMinor = null,
     ) {
         foreach ([
             'relationship_start_date' => $relationshipStartDate,
@@ -113,6 +117,9 @@ final readonly class PayrollMigrationTakeoverFacts
         }
         if ($oldAgeSavingsContributionMinor !== null && $oldAgeSavingsContributionMinor < 0) {
             throw new \InvalidArgumentException('Příspěvek na produkty spoření na stáří nesmí být záporný.');
+        }
+        if (($nonCashHealthBenefitMinor ?? 0) < 0 || ($nonCashLeisureBenefitMinor ?? 0) < 0) {
+            throw new \InvalidArgumentException('Čerpání koše nepeněžních plnění nesmí být záporné.');
         }
         if ($workedDaysHundredths < 0 || $workedMinutes < 0) {
             throw new \InvalidArgumentException('Odpracovaná doba nesmí být záporná.');
@@ -258,6 +265,8 @@ final readonly class PayrollMigrationTakeoverFacts
             'sickness_excluded_days' => $this->sicknessExcludedDays,
             'uninsured_income_minor' => $this->uninsuredIncomeMinor,
             'old_age_savings_contribution_minor' => $this->oldAgeSavingsContributionMinor,
+            'non_cash_health_benefit_minor' => $this->nonCashHealthBenefitMinor,
+            'non_cash_leisure_benefit_minor' => $this->nonCashLeisureBenefitMinor,
         ];
     }
 

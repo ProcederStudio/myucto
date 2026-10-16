@@ -83,13 +83,21 @@ final class PayrollRecurringMaterializer
                     $manualReview[] = $this->blocked($row, 'Mzdová složka není aktivní.');
                     continue;
                 }
-                $calculation = $this->calculate($row, $periodStart);
+                // Základní mzda vztahu, který trvá jen část měsíce, se počítá
+                // z celé měsíční částky a krátí hodinami fondu mimo trvání vztahu,
+                // stejně jako nepřítomnost — ne kalendářními dny.
+                $window = self::prorated($row) ? self::employmentWindow($row, $periodStart) : null;
+                $calculation = $this->calculate(
+                    $window === null ? $row : self::wholeMonthRow($row, $periodStart, $window),
+                    $periodStart,
+                );
                 if ($calculation['status'] === 'supported') {
                     $calculation = $this->prorateForAbsences(
                         $supplierId,
                         $periodStart,
                         $row,
                         $calculation,
+                        $window,
                     );
                 }
                 if ($calculation['status'] !== 'supported') {
@@ -181,6 +189,62 @@ final class PayrollRecurringMaterializer
     }
 
     /**
+     * Krátí se JEN základní mzda a předpis „odpracované hodiny". Druh složky,
+     * ne kód — kód si firma může přejmenovat, druh je vlastnost číselníku.
+     *
+     * @param array<string,mixed> $row
+     */
+    private static function prorated(array $row): bool
+    {
+        return ($row['component_kind'] ?? null) === 'base_wage' || self::byWorkedTime($row);
+    }
+
+    /**
+     * Trvání vztahu v měsíci, když vztah začíná nebo končí v jeho průběhu;
+     * `null` = vztah trvá celý měsíc.
+     *
+     * @param array<string,mixed> $row
+     * @return array{from:string,to:string}|null
+     */
+    private static function employmentWindow(array $row, string $periodStart): ?array
+    {
+        $periodEnd = (new \DateTimeImmutable($periodStart))->modify('last day of this month')->format('Y-m-d');
+        $start = is_string($row['employment_start'] ?? null) ? $row['employment_start'] : $periodStart;
+        $end = is_string($row['employment_end'] ?? null) ? $row['employment_end'] : $periodEnd;
+        $from = max($start, $periodStart);
+        $to = min($end, $periodEnd);
+        if (($from === $periodStart && $to === $periodEnd) || $from > $to) {
+            return null;
+        }
+
+        return ['from' => $from, 'to' => $to];
+    }
+
+    /**
+     * Předpis přepočtený na celý měsíc: trvání vztahu i platnost předpisu, která
+     * začíná nástupem nebo končí skončením vztahu, se roztáhne na celý měsíc —
+     * krátí je pak hodiny fondu. Změna předpisu v průběhu trvajícího vztahu
+     * (platnost uvnitř okna) zůstává kalendářními dny.
+     *
+     * @param array<string,mixed> $row
+     * @param array{from:string,to:string} $window
+     * @return array<string,mixed>
+     */
+    private static function wholeMonthRow(array $row, string $periodStart, array $window): array
+    {
+        $row['employment_start'] = $periodStart;
+        $row['employment_end'] = null;
+        if (is_string($row['valid_from'] ?? null) && $row['valid_from'] <= $window['from']) {
+            $row['valid_from'] = min($row['valid_from'], $periodStart);
+        }
+        if (is_string($row['valid_to'] ?? null) && $row['valid_to'] >= $window['to']) {
+            $row['valid_to'] = null;
+        }
+
+        return $row;
+    }
+
+    /**
      * Zkrácení spočítané částky o dobu, kterou v měsíci kryje jiný titul.
      *
      * Vstupem krácení je částka, kterou vrátil kalkulátor, ne sjednaná měsíční
@@ -196,10 +260,9 @@ final class PayrollRecurringMaterializer
         string $periodStart,
         array $row,
         array $calculation,
+        ?array $window = null,
     ): array {
-        // Krátí se JEN základní mzda a předpis „odpracované hodiny". Druh složky,
-        // ne kód — kód si firma může přejmenovat, druh je vlastnost číselníku.
-        if (($row['component_kind'] ?? null) !== 'base_wage' && !self::byWorkedTime($row)) {
+        if (!self::prorated($row)) {
             return $calculation;
         }
         $amount = $calculation['amount_minor'];
@@ -215,8 +278,8 @@ final class PayrollRecurringMaterializer
         // Měsíc ze souhrnu importu nemá směny, takže se nepřítomnost měří
         // měsíčními součty hodin; měsíc se směnami se měří rozvrhem.
         $proration = ($row['time_work_source'] ?? null) === 'import_summary'
-            ? $this->wageProration->forImportSummary($supplierId, $employmentId, $period, $amount)
-            : $this->wageProration->forMonth($supplierId, $employmentId, $period, $amount);
+            ? $this->wageProration->forImportSummary($supplierId, $employmentId, $period, $amount, $window)
+            : $this->wageProration->forMonth($supplierId, $employmentId, $period, $amount, $window);
 
         if ($proration['supported'] === false) {
             return [

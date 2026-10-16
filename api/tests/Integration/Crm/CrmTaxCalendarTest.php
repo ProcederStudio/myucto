@@ -154,6 +154,7 @@ final class CrmTaxCalendarTest extends TestCase
 
         $dph = $this->findByType($this->crm->taxCalendarItems($this->supplierId, $now, 45), 'tax_deadline');
         self::assertNotNull($dph);
+        self::assertSame('/reports/submissions?submission_id=' . $dph['payment']['submission_id'], $dph['link']);
         self::assertSame(1000.0, $dph['payment']['payable']);
         self::assertSame('705-77627311/0710', $dph['payment']['account']);
         self::assertSame('24681357', $dph['payment']['variable_symbol']);
@@ -242,4 +243,73 @@ final class CrmTaxCalendarTest extends TestCase
         sort($sorted);
         self::assertSame($sorted, $dates, 'Položky musí být seřazené dle termínu vzestupně.');
     }
+    public function testCalendarLinksAndPeriodsMatchMonthlyAndQuarterlyObligations(): void
+    {
+        foreach ([
+            ['monthly', 'po', '2026-10-15', ['year' => 2026, 'month' => 9, 'quarter' => null], ['year' => 2026, 'month' => 9, 'quarter' => null]],
+            ['monthly', 'fo', '2026-01-15', ['year' => 2025, 'month' => 12, 'quarter' => null], ['year' => 2025, 'month' => 12, 'quarter' => null]],
+            ['quarterly', 'po', '2026-10-15', ['year' => 2026, 'month' => null, 'quarter' => 3], ['year' => 2026, 'month' => 9, 'quarter' => null]],
+            ['quarterly', 'fo', '2026-10-15', ['year' => 2026, 'month' => null, 'quarter' => 3], ['year' => 2026, 'month' => null, 'quarter' => 3]],
+            ['quarterly', 'po', '2026-01-15', ['year' => 2025, 'month' => null, 'quarter' => 4], ['year' => 2025, 'month' => 12, 'quarter' => null]],
+        ] as [$frequency, $taxpayer, $today, $dphPeriod, $khPeriod]) {
+            $this->configure($frequency, $taxpayer);
+            $items = $this->crm->taxCalendarItems($this->supplierId, new \DateTimeImmutable($today), 45);
+            foreach (['tax_deadline' => ['dph', $dphPeriod], 'kh_deadline' => ['kh', $khPeriod]] as $type => [$report, $period]) {
+                $item = $this->findByType($items, $type);
+                self::assertNotNull($item);
+                self::assertSame($period, $item['period'] ?? null, "$frequency $taxpayer $today $report");
+                $month = $period['month'] ?? (($period['quarter'] - 1) * 3 + 1);
+                $mode = $period['quarter'] === null ? 'monthly' : 'quarterly';
+                self::assertSame("/reports/$report?year={$period['year']}&month=$month&period=$mode", $item['link']);
+            }
+        }
+    }
+
+    public function testIncomeTaxLinksTargetPreviousTaxYear(): void
+    {
+        foreach (['po', 'fo'] as $taxpayer) {
+            $this->configure('monthly', $taxpayer);
+            $items = $this->crm->taxCalendarItems($this->supplierId, new \DateTimeImmutable('2026-03-15'), 90);
+            $income = array_filter($items, static fn (array $item): bool => $item['type'] === 'income_tax_deadline');
+            self::assertCount(2, $income);
+            foreach ($income as $item) {
+                self::assertSame('/reports/income-tax?year=2025', $item['link']);
+                self::assertSame(['year' => 2025, 'month' => null, 'quarter' => null], $item['period'] ?? null);
+            }
+        }
+    }
+
+    public function testShLinksKeepMonthlyPeriodForQuarterlyPayerInCalendarAndActions(): void
+    {
+        $this->configure('quarterly', 'po');
+        $pdo = $this->db->pdo();
+        $country = (int) $pdo->query("SELECT id FROM countries WHERE iso2 = 'DE'")->fetchColumn();
+        $currency = (int) $pdo->query('SELECT id FROM currencies ORDER BY id LIMIT 1')->fetchColumn();
+        $vat = (int) $pdo->query('SELECT id FROM vat_rates ORDER BY id LIMIT 1')->fetchColumn();
+        $user = (int) $pdo->query('SELECT id FROM users ORDER BY id LIMIT 1')->fetchColumn();
+        $pdo->prepare(
+            "INSERT INTO clients (supplier_id, company_name, street, city, zip, country_id, dic, main_email, currency_default_id)
+             VALUES (?, '__SH_PERIOD_TEST__', 'Test 1', 'Berlin', '10000', ?, 'DE999999999', 'sh@example.invalid', ?)"
+        )->execute([$this->supplierId, $country, $currency]);
+        $client = (int) $pdo->lastInsertId();
+        $pdo->prepare(
+            "INSERT INTO invoices (supplier_id, client_id, issue_date, tax_date, due_date, currency_id, status, created_by)
+             VALUES (?, ?, '2025-12-10', '2025-12-10', '2025-12-24', ?, 'issued', ?)"
+        )->execute([$this->supplierId, $client, $currency, $user]);
+        $invoice = (int) $pdo->lastInsertId();
+        $pdo->prepare(
+            "INSERT INTO invoice_items (invoice_id, description, unit_price_without_vat, vat_rate_id, vat_rate_snapshot,
+                                        total_without_vat, total_vat, total_with_vat, vat_classification_code)
+             VALUES (?, 'Test service', 1000, ?, 0, 1000, 0, 1000, '22')"
+        )->execute([$invoice, $vat]);
+        $now = new \DateTimeImmutable('2026-01-20');
+        $sh = $this->findByType($this->crm->taxCalendarItems($this->supplierId, $now, 45), 'shv_deadline');
+        self::assertNotNull($sh);
+        self::assertSame('/reports/shv?year=2025&month=12&period=monthly', $sh['link']);
+        self::assertSame(['year' => 2025, 'month' => 12, 'quarter' => null], $sh['period'] ?? null);
+        $action = $this->findByType($this->crm->actionItems($this->supplierId, null, $now)['items'], 'shv_deadline');
+        self::assertNotNull($action);
+        self::assertSame($sh['link'], $action['link']);
+    }
+
 }

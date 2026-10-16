@@ -10,6 +10,7 @@ use MyInvoice\Infrastructure\Config\Config;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\EmailProfileRepository;
 use MyInvoice\Repository\EmailTemplateRepository;
+use MyInvoice\Repository\SupplierEmailTemplateRepository;
 use MyInvoice\Service\Branding\AccentColor;
 use MyInvoice\Service\Mail\RateLimit\MailOutbox;
 use MyInvoice\Service\Mail\RateLimit\MailRateLimitEventLog;
@@ -89,6 +90,7 @@ final class Mailer
      * @param array<int,array{path:string,name:string,contentType:string}> $attachments
      * @param ?int          $userId Přihlášený uživatel pro výběr user podpisového profilu.
      * @param array<string,mixed>|null $emailProfileOverride Explicitní profil pro test konfigurace.
+     * @param ?int $templateSupplierId Firma z důvěryhodného dokladu/operace, nikdy z fallbacku pro branding.
      * @return string Krátký SMTP server response z poslední odpovědi (např.
      *               „250 2.0.0 Ok: queued as ABCDEF"). Plný transcript jde
      *               do log/myinvoice-*.log na úrovni info.
@@ -104,6 +106,7 @@ final class Mailer
         array $attachments = [],
         ?int $userId = null,
         ?array $emailProfileOverride = null,
+        ?int $templateSupplierId = null,
     ): string {
         try {
             return $this->sendTemplateDetailed(
@@ -117,6 +120,7 @@ final class Mailer
                 $attachments,
                 $userId,
                 $emailProfileOverride,
+                $templateSupplierId,
             )['smtp_response'];
         } catch (MailDeliveredArchiveException $e) {
             return $e->smtpResponse();
@@ -131,6 +135,7 @@ final class Mailer
      * @param array<int,array{path:string,name:string,contentType:string}> $attachments
      * @param ?int          $userId Přihlášený uživatel pro výběr user podpisového profilu.
      * @param array<string,mixed>|null $emailProfileOverride Explicitní profil pro test konfigurace.
+     * @param ?int $templateSupplierId Firma z důvěryhodného dokladu/operace, nikdy z fallbacku pro branding.
      * @return array{
      *   smtp_response:string,
      *   imap_append:array{status:'skipped'|'saved'|'failed',folder:?string,error:?string}
@@ -147,6 +152,7 @@ final class Mailer
         array $attachments = [],
         ?int $userId = null,
         ?array $emailProfileOverride = null,
+        ?int $templateSupplierId = null,
     ): array {
         if ((bool) $this->config->get('demo.enabled', false)) {
             throw new DemoModeMailBlockedException('Demo režim neodesílá e-maily.');
@@ -190,6 +196,7 @@ final class Mailer
                     $attachments,
                     $userId,
                     $emailProfileOverride,
+                    $templateSupplierId,
                 );
                 if (($result['deferred'] ?? false) === true) {
                     $deferred++;
@@ -230,6 +237,7 @@ final class Mailer
                     'attachments'      => $attachments,
                     'user_id'          => $userId,
                     'email_profile'    => $emailProfileOverride,
+                    'template_supplier_id' => $templateSupplierId,
                 ],
             );
 
@@ -288,8 +296,8 @@ final class Mailer
         }
 
         // Pokud je v DB override, vyrenderuj přímo ze stringu (vyšší priorita než file).
-        $dbTpl = $this->templates->find($code, $locale)
-              ?? $this->templates->find($code, 'cs');
+        $resolved = $this->templateResolver()->resolve($code, $locale, $templateSupplierId);
+        $dbTpl = $resolved['source'] !== 'default' ? $resolved : null;
 
         if ($dbTpl !== null) {
             // DB šablona je editovatelná adminem — sandboxujeme proti SSTI
@@ -310,8 +318,9 @@ final class Mailer
             $html = $sandbox->createTemplate($dbTpl['body_html'])->render($vars);
             $text = $sandbox->createTemplate($dbTpl['body_text'])->render($vars);
         } else {
-            $htmlTemplate = "{$code}.{$locale}.html.twig";
-            $textTemplate = "{$code}.{$locale}.txt.twig";
+            $resolvedLocale = $resolved['resolved_locale'];
+            $htmlTemplate = "{$code}.{$resolvedLocale}.html.twig";
+            $textTemplate = "{$code}.{$resolvedLocale}.txt.twig";
             if (!$twig->getLoader()->exists($htmlTemplate)) {
                 $htmlTemplate = "{$code}.cs.html.twig";
                 $textTemplate = "{$code}.cs.txt.twig";
@@ -638,6 +647,7 @@ final class Mailer
                         array_values((array) ($payload['attachments'] ?? [])),
                         isset($payload['user_id']) ? (int) $payload['user_id'] : null,
                         is_array($payload['email_profile'] ?? null) ? $payload['email_profile'] : null,
+                        isset($payload['template_supplier_id']) ? (int) $payload['template_supplier_id'] : null,
                     );
                 } catch (MailDeliveredArchiveException) {
                     // Zpráva JE doručená, selhalo jen uložení kopie do IMAP —
@@ -1118,10 +1128,10 @@ final class Mailer
      *
      * @return array{field:string,message:string}|null
      */
-    public function validateUserTemplate(string $bodyHtml, string $bodyText): ?array
+    public function validateUserTemplate(string $bodyHtml, string $bodyText, ?string $subject = null): ?array
     {
         $sandbox = $this->sandboxedTwig();
-        foreach (['body_html' => $bodyHtml, 'body_text' => $bodyText] as $field => $body) {
+        foreach (['subject' => $subject ?? '', 'body_html' => $bodyHtml, 'body_text' => $bodyText] as $field => $body) {
             if ($body === '') continue;
             try {
                 // Trial render s prázdnými vars stačí — SecurityNotAllowed* errors
@@ -1162,6 +1172,86 @@ final class Mailer
         return null;
     }
 
+    /** Same sandbox as outgoing database templates, with synthetic values only. */
+    public function previewUserTemplate(string $code, string $locale, array $template, array $validationVars = []): array
+    {
+        $vars = array_replace(EmailTemplatePreviewData::variables($locale), $validationVars);
+        $sandbox = $this->sandboxedTwig();
+        $subject = $sandbox->createTemplate($template['subject'])->render($vars);
+        $vars['subject'] = $subject;
+        return [
+            'subject' => $subject,
+            'body_html' => $sandbox->createTemplate($template['body_html'])->render($vars),
+            'body_text' => $sandbox->createTemplate($template['body_text'])->render($vars),
+        ];
+    }
+
+    /** Validate before persistence; required content must survive actual rendering. */
+    public function validateSupplierTemplate(string $code, string $locale, array $template): ?array
+    {
+        foreach (['subject', 'body_html', 'body_text'] as $field) {
+            if (!is_string($template[$field] ?? null) || trim($template[$field]) === '') {
+                return ['field' => $field, 'message' => 'Vyplňte všechna pole šablony.'];
+            }
+            if (strlen($template[$field]) > 1048576) return ['field' => $field, 'message' => 'Šablona je příliš dlouhá.'];
+        }
+        if (mb_strlen($template['subject']) > 255 || preg_match('/[\r\n\x00]/', $template['subject'])) {
+            return ['field' => 'subject', 'message' => 'Předmět je příliš dlouhý nebo obsahuje nepovolené znaky.'];
+        }
+        $error = $this->validateUserTemplate($template['body_html'], $template['body_text'], $template['subject']);
+        if ($error !== null) return $error;
+        $required = (new EmailTemplateCatalog($this->config))->requiredVariable($code);
+        do {
+            $sentinel = $required === 'code' ? (string) random_int(100000, 999999) : 'https://preview.example.test/validate/' . bin2hex(random_bytes(18));
+        } while ($required === 'code' && $sentinel === EmailTemplatePreviewData::variables($locale)['code']);
+        try {
+            $rendered = $this->previewUserTemplate($code, $locale, $template, $required !== null ? [$required => $sentinel] : []);
+        } catch (\Throwable $e) {
+            return ['field' => 'body_html', 'message' => 'Šablonu nelze vykreslit: ' . $e->getMessage()];
+        }
+        if (trim($rendered['subject']) === '' || mb_strlen($rendered['subject']) > 255 || preg_match('/[\r\n\x00]/', $rendered['subject'])) {
+            return ['field' => 'subject', 'message' => 'Vykreslený předmět je neplatný.'];
+        }
+        if ($required !== null) {
+            if (!$this->hasVisibleFunctionalValue($rendered['body_html'], $sentinel, $required !== 'code')) {
+                return ['field' => 'body_html', 'message' => 'Šablona musí zachovat funkční odkaz nebo kód: ' . $required];
+            }
+            if (!str_contains($rendered['body_text'], $sentinel)) return ['field' => 'body_text', 'message' => 'Šablona musí zachovat funkční odkaz nebo kód: ' . $required];
+        }
+        return null;
+    }
+
+    private function hasVisibleFunctionalValue(string $html, string $value, bool $link): bool
+    {
+        $dom = new \DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        try {
+            $dom->loadHTML('<?xml encoding="utf-8" ?>' . $html, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
+        } finally {
+            libxml_clear_errors();
+            libxml_use_internal_errors($previous);
+        }
+        $xpath = new \DOMXPath($dom);
+        foreach ($xpath->query($link ? '//a[@href]' : '//text()') as $node) {
+            if ($link && $node->getAttribute('href') !== $value) continue;
+            $visibleText = '';
+            $textNodes = $link ? $xpath->query('.//text()', $node) : [$node];
+            foreach ($textNodes as $textNode) {
+                $visible = true;
+                for ($ancestor = $textNode; $ancestor !== null; $ancestor = $ancestor->parentNode) {
+                    if (!$ancestor instanceof \DOMElement) continue;
+                    if (in_array(strtolower($ancestor->tagName), ['script', 'style', 'template', 'head', 'textarea'], true)
+                        || $ancestor->hasAttribute('hidden')
+                        || preg_match('/(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*(?:hidden|collapse)|opacity\s*:\s*0(?:\.0+)?|font-size\s*:\s*0(?:px|em|rem|%|pt)?)(?:\s*!important)?\s*(?:;|$)/i', $ancestor->getAttribute('style'))
+                    ) { $visible = false; break; }
+                }
+                if ($visible) $visibleText .= $textNode->textContent;
+            }
+            if ($link ? trim($visibleText) !== '' : str_contains($visibleText, $value)) return true;
+        }
+        return false;
+    }
+
     /**
      * Sandboxovaný Twig pro renderování DB šablon — chrání proti SSTI:
      * povoleny jen základní tagy, filtry a accessory na safe variables.
@@ -1171,7 +1261,7 @@ final class Mailer
     {
         if ($this->sandboxTwig === null) {
             // `extends`/`block`/`use` musí být povoleny — uložená DB šablona dědí
-            // z `_layout.html.twig` (viz EmailTemplateAction::loadDefaults, který
+            // z `_layout.html.twig` (viz EmailTemplateCatalog::defaults, který
             // vrátí celé tělo včetně `{% extends %}{% block content %}`).
             // Tyto tagy jsou čistě strukturální (nespouští PHP) a FilesystemLoader
             // je rooted v `templates/email/`, takže nelze přes ně načíst soubor mimo.
@@ -1310,44 +1400,13 @@ final class Mailer
         return ['bytes' => $bytes, 'contentType' => $m[1]];
     }
 
+    public function templateResolver(): EmailTemplateResolver
+    {
+        return new EmailTemplateResolver($this->templates, new SupplierEmailTemplateRepository($this->db), new EmailTemplateCatalog($this->config));
+    }
+
     private function defaultSubject(string $code, string $locale): string
     {
-        $app = (string) $this->config->get('app.name', 'MyÚčto.cz');
-        $subjects = [
-            'cs' => [
-                'password_reset'    => 'Obnova hesla — ' . $app,
-                'user_invite'       => 'Váš účet je připravený — ' . $app,
-                'login_otp'         => 'Ověřovací kód pro přihlášení — ' . $app,
-                'email_profile_test'=> 'Test odesílacího profilu — ' . $app,
-                'invoice_send'      => 'Faktura — ' . $app,
-                'invoice_payment_thanks' => 'Poděkování za úhradu — ' . $app,
-                'invoice_reminder'  => 'Upomínka — ' . $app,
-                'proforma_reminder' => 'Připomínka zálohy — ' . $app,
-                'recurring_draft_reminder' => 'Koncept pravidelné faktury se brzy vystaví — ' . $app,
-                'work_report_link'  => 'Náhled na výkaz práce — ' . $app,
-                'work_report_access_code' => 'Ověřovací kód pro náhled výkazu práce — ' . $app,
-                // Předmět vědomě neuvádí, o jaký dokument jde ani za jaké období:
-                // předmět zprávy vidí i ten, kdo si jen prohlédne notifikaci na
-                // uzamčené obrazovce nebo náhled ve firemní schránce.
-                'payroll_document_secure_link' => 'Váš mzdový dokument — ' . $app,
-                'payroll_document_access_code' => 'Ověřovací kód pro mzdový dokument — ' . $app,
-            ],
-            'en' => [
-                'password_reset'    => 'Password reset — ' . $app,
-                'user_invite'       => 'Your account is ready — ' . $app,
-                'login_otp'         => 'Sign-in verification code — ' . $app,
-                'email_profile_test'=> 'Sending profile test — ' . $app,
-                'invoice_send'      => 'Invoice — ' . $app,
-                'invoice_payment_thanks' => 'Thank you for your payment — ' . $app,
-                'invoice_reminder'  => 'Reminder — ' . $app,
-                'proforma_reminder' => 'Advance payment reminder — ' . $app,
-                'recurring_draft_reminder' => 'Recurring invoice draft will be issued soon — ' . $app,
-                'work_report_link'  => 'Work report preview — ' . $app,
-                'work_report_access_code' => 'Verification code for work report preview — ' . $app,
-                'payroll_document_secure_link' => 'Your payroll document — ' . $app,
-                'payroll_document_access_code' => 'Verification code for your payroll document — ' . $app,
-            ],
-        ];
-        return $subjects[$locale][$code] ?? ($subjects['cs'][$code] ?? $app);
+        return (new EmailTemplateCatalog($this->config))->fallbackSubject($code, $locale);
     }
 }

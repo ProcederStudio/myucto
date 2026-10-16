@@ -66,6 +66,7 @@ use MyInvoice\Action\Settings\BrandingProfilesAction;
 use MyInvoice\Action\Settings\ClientBrandingSettingsAction;
 use MyInvoice\Action\Settings\ClientPaymentQrSettingsAction;
 use MyInvoice\Action\Settings\EmailProfilesAction;
+use MyInvoice\Action\Settings\SupplierEmailTemplateAction;
 use MyInvoice\Action\Settings\PdfSigningDiagnosticsAction;
 use MyInvoice\Action\Settings\SettingsAction;
 use MyInvoice\Action\Settings\BankConnectionAction;
@@ -3369,6 +3370,17 @@ final class Routes
         $app->get ('/api/settings/accounting-activation/jobs/{id:[0-9]+}', [AccountingActivationAction::class, 'job']);
         $app->post('/api/settings/accounting-activation/jobs/{id:[0-9]+}/cancel', [AccountingActivationAction::class, 'cancel']);
         $app->put ('/api/settings/supplier/invoice-counter', SupplierInvoiceCounterAction::class);
+        $app->get('/api/settings/email-templates', [SupplierEmailTemplateAction::class, 'list']);
+        $app->get('/api/settings/email-templates/{code:[a-z_]+}/{locale:cs|en}', [SupplierEmailTemplateAction::class, 'get']);
+        $app->put('/api/settings/email-templates/{code:[a-z_]+}/{locale:cs|en}', [SupplierEmailTemplateAction::class, 'put']);
+        $app->delete('/api/settings/email-templates/{code:[a-z_]+}/{locale:cs|en}', [SupplierEmailTemplateAction::class, 'delete']);
+        $app->post('/api/settings/email-templates/{code:[a-z_]+}/{locale:cs|en}/preview', [SupplierEmailTemplateAction::class, 'preview']);
+        $app->get('/api/settings/client/email-templates', [SupplierEmailTemplateAction::class, 'list']);
+        $app->get('/api/settings/client/email-templates/{code:[a-z_]+}/{locale:cs|en}', [SupplierEmailTemplateAction::class, 'get']);
+        $app->put('/api/settings/client/email-templates/{code:[a-z_]+}/{locale:cs|en}', [SupplierEmailTemplateAction::class, 'put']);
+        $app->delete('/api/settings/client/email-templates/{code:[a-z_]+}/{locale:cs|en}', [SupplierEmailTemplateAction::class, 'delete']);
+        $app->post('/api/settings/client/email-templates/{code:[a-z_]+}/{locale:cs|en}/preview', [SupplierEmailTemplateAction::class, 'preview']);
+
         $app->get    ('/api/settings/email-profiles',       [EmailProfilesAction::class, 'list']);
         $app->post   ('/api/settings/email-profiles',       [EmailProfilesAction::class, 'create']);
         $app->post   ('/api/settings/email-profiles/test',  [EmailProfilesAction::class, 'testDraft']);
@@ -3381,6 +3393,21 @@ final class Routes
         $app->delete ('/api/settings/email-profiles/{id:[0-9]+}', [EmailProfilesAction::class, 'delete']);
         // Klientský allowlist používá stejné supplier-scoped akce, ale vlastní URL.
         // RoutePermissionMap na těchto aliasových cestách vyžaduje settings.company WRITE.
+        // Klientská správa firemních podpisů má vlastní úzkou autorizační bránu.
+        $app->get('/api/settings/client/signing', [SigningProfilesAction::class, 'client'])->setArgument('operation', 'settings');
+        $app->get('/api/settings/client/signing/profiles', [SigningProfilesAction::class, 'client'])->setArgument('operation', 'listProfiles');
+        $app->post('/api/settings/client/signing/profiles', [SigningProfilesAction::class, 'client'])->setArgument('operation', 'createProfile');
+        $app->get('/api/settings/client/signing/profiles/{id:[0-9]+}', [SigningProfilesAction::class, 'client'])->setArgument('operation', 'getProfile');
+        $app->put('/api/settings/client/signing/profiles/{id:[0-9]+}', [SigningProfilesAction::class, 'client'])->setArgument('operation', 'updateProfile');
+        $app->delete('/api/settings/client/signing/profiles/{id:[0-9]+}', [SigningProfilesAction::class, 'client'])->setArgument('operation', 'deleteProfile');
+        $app->get('/api/settings/client/signing/profiles/{id:[0-9]+}/credentials/certificate', [SigningProfilesAction::class, 'client'])->setArgument('operation', 'credentialCertificate');
+        $app->post('/api/settings/client/signing/profiles/{id:[0-9]+}/credentials/certificate', [SigningProfilesAction::class, 'client'])->setArgument('operation', 'uploadCredentialCertificate');
+        $app->put('/api/settings/client/signing/profiles/{id:[0-9]+}/credentials/certificate', [SigningProfilesAction::class, 'client'])->setArgument('operation', 'updateCredentialCertificate');
+        $app->delete('/api/settings/client/signing/profiles/{id:[0-9]+}/credentials/certificate', [SigningProfilesAction::class, 'client'])->setArgument('operation', 'deleteCredentialCertificate');
+        $app->get('/api/settings/client/pdf-signing', [SigningProfilesAction::class, 'client'])->setArgument('operation', 'pdfSettings');
+        $app->put('/api/settings/client/pdf-signing/output-settings', [SigningProfilesAction::class, 'client'])->setArgument('operation', 'updatePdfOutputSettings');
+        $app->put('/api/settings/client/pdf-signing/output-settings/{output_type:[a-z_]+}', [SigningProfilesAction::class, 'client'])->setArgument('operation', 'updatePdfOutputSetting');
+        $app->post('/api/settings/client/pdf-signing/test', [SigningProfilesAction::class, 'client'])->setArgument('operation', 'testPdfSigning');
         $app->get    ('/api/settings/client/email-profiles',       [EmailProfilesAction::class, 'list']);
         $app->post   ('/api/settings/client/email-profiles',       [EmailProfilesAction::class, 'create']);
         $app->post   ('/api/settings/client/email-profiles/test',  [EmailProfilesAction::class, 'testDraft']);

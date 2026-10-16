@@ -20,7 +20,7 @@ final class MyuctoImportProfile
         'offset_agreements', 'offset_agreement_items', 'assets', 'asset_improvements',
         'depreciation_entries', 'small_assets', 'journal_entries', 'journal_entry_lines',
         'posting_rules', 'de_movement_classification', 'de_movement_classification_history',
-        'tax_evidence_bank_rules',
+        'tax_evidence_bank_rules', 'supplier_email_templates',
     ];
     public const CONFIG_TABLES = ['supplier_vat_status_history'];
     public const GLOBAL_KEYS = ['countries' => ['iso2'], 'vat_rates' => ['code', 'rate_percent', 'country']];

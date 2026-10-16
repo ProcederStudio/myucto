@@ -1,12 +1,19 @@
+import { nextTick } from 'vue'
 import { useRouter, type RouteLocationRaw } from 'vue-router'
 import { useWorkspaceStore, type PaneCount, type PaneId } from '@/stores/workspace'
 import { getPaneRuntime } from '@/workspace/runtimeRegistry'
+import { getWindowManager } from '@/workspace/windowRegistry'
 
 export function useWorkspaceNavigation() {
   const router = useRouter()
   const workspace = useWorkspaceStore()
 
-  async function navigate(to: RouteLocationRaw): Promise<void> {
+  async function navigate(to: RouteLocationRaw, options?: { fresh?: boolean }): Promise<void> {
+    const manager = getWindowManager()
+    if (options?.fresh && manager) {
+      await manager.open(to, workspace.activePaneId, options)
+      return
+    }
     const runtime = getPaneRuntime(workspace.activePaneId)
     if (!runtime) {
       await router.push(to)
@@ -28,6 +35,11 @@ export function useWorkspaceNavigation() {
     if (count === workspace.paneCount) return
 
     workspace.resizeLayout(count)
+    getWindowManager()?.reconcile()
+    await nextTick()
+    const active = getPaneRuntime(workspace.activePaneId)
+    active?.root.focus({ preventScroll: true })
+    active?.focus?.()
   }
 
   function back(id: PaneId = workspace.activePaneId): void {
@@ -45,47 +57,12 @@ export function useWorkspaceNavigation() {
     getPaneRuntime(id)?.clear()
   }
 
-  /**
-   * Zavře panel — kterýkoli, ne jen ten poslední.
-   *
-   * Zavřít první panel dřív nešlo, protože `primary` je slot s opravdovým
-   * routerem aplikace a odebrat ho nelze. Uživatele to ale nezajímá: má tři
-   * panely, chce zavřít levý a čeká, že se z prostředního stane levý.
-   *
-   * Řeší se to posunem OBSAHU doleva místo přečíslování slotů: každý panel od
-   * zavíraného dál převezme cestu svého souseda zprava a nakonec se odebere
-   * osiřelý slot na konci. Sloty tím zůstanou na místě, takže se nic
-   * neodmountuje a adresa v prohlížeči odpovídá tomu, co je v prvním panelu.
-   *
-   * Poslední zbývající panel se nezavírá — není kam se posunout, takže se jen
-   * vyprázdní.
-   */
   async function closePane(id: PaneId = workspace.activePaneId): Promise<void> {
-    const index = workspace.panes.findIndex(candidate => candidate.id === id)
-    if (index < 0) return
-    if (workspace.panes.length <= 1) {
-      closePaneContent(id)
-      return
-    }
-
-    // Stav se přečte dopředu: navigace panelu i přepíše jeho vlastní záznam
-    // ve store a bez kopie by se pak četla už posunutá hodnota.
-    const moved = workspace.panes.map(pane => ({ fullPath: pane.fullPath, title: pane.title }))
-    for (let i = index; i < workspace.panes.length - 1; i++) {
-      const pane = workspace.panes[i]!
-      const runtime = getPaneRuntime(pane.id)
-      if (!runtime) continue
-      const next = moved[i + 1]!
-      if (next.fullPath) await runtime.navigate(next.fullPath)
-      else runtime.clear()
-      // Titulek se musí přesunout s obsahem. AppLayout ho dopočítává jen
-      // AKTIVNÍMU panelu při změně jeho adresy, takže panelům, kterých se
-      // posun týká vedle aktivního, by v záhlaví zůstal název cizí stránky.
-      workspace.updatePane(pane.id, { title: next.title })
-    }
-
-    workspace.dropLastPane()
+    getWindowManager()?.closePane(id)
+    await nextTick()
+    const active = getPaneRuntime(workspace.activePaneId)
+    active?.root.focus({ preventScroll: true })
+    active?.focus?.()
   }
-
   return { navigate, openExternal, activatePane, setPaneCount, back, forward, closePaneContent, closePane }
 }

@@ -13,6 +13,7 @@ use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Auth\DomainLoginException;
 use MyInvoice\Service\Auth\DomainLoginService;
 use MyInvoice\Service\Auth\SessionCookieFactory;
+use MyInvoice\Service\Auth\SessionAuthContext;
 use MyInvoice\Service\Auth\SessionManager;
 use MyInvoice\Service\IpMatcher;
 use MyInvoice\Service\Tenant\TenantDomainContext;
@@ -213,6 +214,41 @@ final class DomainLoginFlowTest extends TestCase
             $expiredVerifier,
             'invalid_domain_login_code',
         );
+    }
+
+    public function testPortalExchangeSurvivesTemporaryCanonicalLogoutAndKeepsIndependentLogin(): void
+    {
+        $context = new SessionAuthContext('passkey', 'strong', new \DateTimeImmutable(), $this->credentialId);
+        $independent = $this->sessions->create($this->userId, '192.0.2.15', 'Independent canonical login', $context);
+        $temporary = $this->sessions->create($this->userId, '192.0.2.15', 'Temporary portal verification', $context);
+        $verifier = self::opaqueToken();
+        $flow = $this->start($verifier);
+        $authorized = $this->login->authorize(
+            $this->canonicalRequest(),
+            $flow['request_token'],
+            $flow['state'],
+            ['id' => $this->userId],
+            $this->sessions->load($temporary['token']),
+        );
+        parse_str((string) parse_url($authorized['redirect_url'], PHP_URL_QUERY), $callback);
+
+        $this->sessions->destroy($temporary['token']);
+        self::assertNull($this->sessions->load($temporary['token']));
+        $result = $this->login->exchange(
+            $this->customRequest(),
+            $flow['request_token'],
+            $callback['code'],
+            $flow['state'],
+            $verifier,
+            '192.0.2.15',
+        );
+        $portalToken = $result['session']['token'];
+        self::assertNotNull($this->sessions->load($portalToken));
+        self::assertNotNull($this->sessions->load($independent['token']));
+
+        $this->sessions->destroy($portalToken);
+        self::assertNull($this->sessions->load($portalToken));
+        self::assertNotNull($this->sessions->load($independent['token']));
     }
 
     public function testCanonicalAuthorizationStillRequiresCurrentMembership(): void

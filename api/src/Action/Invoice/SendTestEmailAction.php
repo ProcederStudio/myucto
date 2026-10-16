@@ -101,6 +101,7 @@ final class SendTestEmailAction
                 [],
                 $emailAttachments,
                 $userId,
+                templateSupplierId: (int) $invoice['supplier_id'],
             );
         } catch (\Throwable $e) {
             $user = (array) $request->getAttribute(AuthMiddleware::ATTR_USER, []);

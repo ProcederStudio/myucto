@@ -1,5 +1,6 @@
 <script setup lang="ts" generic="T extends string | number">
 import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick, useId } from 'vue'
+import WorkspaceTeleport from '@/components/workspace/WorkspaceTeleport.vue'
 
 /**
  * `keywords` jsou další názvy, podle kterých se položka má najít, ale nemají
@@ -313,7 +314,7 @@ onUnmounted(() => {
       >×</button>
       <span class="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none text-xs">▼</span>
     </div>
-    <Teleport to="body" :disabled="!teleport">
+    <WorkspaceTeleport :disabled="!teleport">
     <div
       v-if="open"
       ref="listbox"
@@ -360,6 +361,6 @@ onUnmounted(() => {
         class="border-t border-neutral-200 bg-warning-50 px-3 py-2 text-xs text-warning-800"
       >{{ truncatedLabel }}</div>
     </div>
-    </Teleport>
+    </WorkspaceTeleport>
   </div>
 </template>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { requestSupplierId } from '@/workspace/supplierContext'
 import { ref, computed, onMounted, reactive, watch, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, RouterLink, type RouteLocationRaw } from 'vue-router'
@@ -228,7 +229,7 @@ function checkValue(value: unknown): string {
  */
 function checkExportUrl(key: string): string | undefined {
   if (!periodId) return undefined
-  const sid = localStorage.getItem('myinvoice.current_supplier_id')
+  const sid = requestSupplierId()
   const q = sid ? `?supplier_id=${encodeURIComponent(sid)}` : ''
   return `/api/accounting/periods/${periodId}/checks/${key}/export${q}`
 }
@@ -1039,6 +1040,40 @@ const canOpenNextStage = computed(() => ['closed', 'reviewed', 'approved'].inclu
                       class="col-span-1 cursor-pointer text-danger-500 hover:text-danger-600">✕</button>
                   </div>
                   <div v-if="!bankRows.length" class="text-xs text-neutral-400">{{ t('accounting.closing.fx.no_bank_rows') }}</div>
+                </div>
+              </div>
+
+              <!-- Jiné pohledávky a závazky 378/379 — automaticky z deníku -->
+              <div v-if="fxPreview.ledger?.lines?.length">
+                <h3 class="text-sm font-medium text-neutral-700">{{ t('accounting.closing.fx.ledger_section') }}</h3>
+                <p class="text-xs text-neutral-500 mb-2">{{ t('accounting.closing.fx.ledger_hint') }}</p>
+                <div class="overflow-x-auto">
+                  <table class="w-full text-sm">
+                    <thead class="bg-neutral-50 text-xs text-neutral-500 uppercase tracking-wide">
+                      <tr>
+                        <th class="px-3 py-2 text-left font-medium">{{ t('accounting.closing.fx.account') }}</th>
+                        <th class="px-3 py-2 text-left font-medium w-20">{{ t('accounting.closing.fx.col_currency') }}</th>
+                        <th class="px-3 py-2 text-right font-medium w-32">{{ t('accounting.closing.fx.foreign_balance') }}</th>
+                        <th class="px-3 py-2 text-right font-medium w-28">{{ t('accounting.closing.fx.col_cnb_rate') }}</th>
+                        <th class="px-3 py-2 text-right font-medium w-32">{{ t('accounting.closing.fx.col_ledger_czk') }}</th>
+                        <th class="px-3 py-2 text-right font-medium w-32">{{ t('accounting.closing.fx.col_new_czk') }}</th>
+                        <th class="px-3 py-2 text-right font-medium w-32">{{ t('accounting.closing.fx.col_diff') }}</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-neutral-100">
+                      <tr v-for="(l, i) in fxPreview.ledger.lines" :key="i">
+                        <td class="px-3 py-1.5"><span class="font-mono">{{ l.account_code }}</span> {{ l.label }}</td>
+                        <td class="px-3 py-1.5">{{ l.currency_code }}</td>
+                        <td class="px-3 py-1.5 text-right font-mono">{{ formatMoney(l.foreign_balance, l.currency_code) }}</td>
+                        <td class="px-3 py-1.5 text-right font-mono">{{ l.rate_cnb }}</td>
+                        <td class="px-3 py-1.5 text-right font-mono">{{ formatMoney(l.ledger_czk) }}</td>
+                        <td class="px-3 py-1.5 text-right font-mono">{{ formatMoney(l.new_czk) }}</td>
+                        <td class="px-3 py-1.5 text-right font-mono" :class="l.direction === 'gain' ? 'text-success-600' : 'text-danger-500'">
+                          {{ formatMoney(l.diff) }}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
                 </div>
               </div>
 

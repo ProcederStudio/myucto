@@ -2,6 +2,9 @@ import { ref } from 'vue'
 import { useSupplierStore } from '@/stores/supplier'
 import { useAuthStore } from '@/stores/auth'
 import { authApi } from '@/api/auth'
+import { getWindowSupplierScope } from '@/workspace/supplierContext'
+import { postWindowFrameMessage } from '@/workspace/frameProtocol'
+import { getWindowManager } from '@/workspace/windowRegistry'
 import type { SupplierBrief } from '@/api/auth'
 import { LOCATABLE, abortManualSupplierSwitch, beginManualSupplierSwitch, isLocatableRoute } from '@/router/locatableRoutes'
 
@@ -95,8 +98,19 @@ export function useSupplierSwitch() {
    * `router/supplierDeepLink.ts`); bez něj jde o ruční přepnutí a detail se vrací na seznam.
    */
   async function switchTo(id: number, destination?: string): Promise<void> {
+    const frame = getWindowSupplierScope()
+    if (frame) {
+      postWindowFrameMessage({ type: 'myucto-window-company', id: frame.windowId, supplierId: id, to: destination })
+      return
+    }
     if (id === supplierStore.currentSupplierId || switching.value) return
     switching.value = true
+    const windows = getWindowManager()
+    if (windows) {
+      try { await windows.switchCompany(id, destination) }
+      finally { switching.value = false }
+      return
+    }
     const manual = destination === undefined
     if (manual) beginManualSupplierSwitch()
     const from = manual ? await currentRoute() : null

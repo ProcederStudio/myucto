@@ -36,6 +36,7 @@ import {
   type PayrollSubmissionDetail,
 } from '@/api/payroll'
 import { useAuthStore } from '@/stores/auth'
+import { navigateFullPage } from '@/workspace/fullPageNavigation'
 import ActionBar, { type ActionItem } from '@/components/ui/ActionBar.vue'
 import ColumnPicker from '@/components/ui/ColumnPicker.vue'
 import DensityToggle from '@/components/ui/DensityToggle.vue'
@@ -514,7 +515,7 @@ async function enqueueBulkIsds() {
 
 function continueIsdsBulkGateway() {
   if (isdsBulkGateway.value) {
-    window.location.assign(isdsBulkGateway.value.redirect_url)
+    navigateFullPage(isdsBulkGateway.value.redirect_url)
   }
 }
 
@@ -548,7 +549,7 @@ async function synchronizeObligations() {
 
 function continueIsdsGateway() {
   if (isdsGateway.value) {
-    window.location.assign(isdsGateway.value.redirect_url)
+    navigateFullPage(isdsGateway.value.redirect_url)
   }
 }
 

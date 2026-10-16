@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { requestSupplierId } from '@/workspace/supplierContext'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useYearOptions } from '@/composables/useYearOptions'
@@ -80,7 +81,7 @@ async function downloadExport() {
     const url = `/api/admin/export?${params.toString()}`
 
     // fetch + Blob → trigger download. Posíláme X-Supplier-Id explicitně (není to axios).
-    const sid = localStorage.getItem('myinvoice.current_supplier_id') || ''
+    const sid = requestSupplierId() || ''
     const headers: Record<string, string> = {}
     if (/^\d+$/.test(sid)) headers['X-Supplier-Id'] = sid
     const resp = await fetch(url, { credentials: 'include', headers })

@@ -197,7 +197,9 @@ final class JmhzBlockerExplainer
             . 'přihlášku (PREZEC/REGZEC A1) a číslo se doplní z protokolu samo.',
         'component_jmhz_manual_review' => 'Otevřete Mzdy → Mzdové složky a potvrďte zařazení.',
         'component_jmhz_treatment_invalid' => 'Otevřete Mzdy → Mzdové složky a opravte nastavení.',
-        'jmhz_average_hourly_earning_missing' => 'Otevřete Mzdy → Absence a průměry a doplňte výdělek.',
+        'jmhz_average_hourly_earning_missing' => 'Otevřete Mzdy → Absence a průměry a doplňte výdělek. '
+            . 'U nového vztahu nebo dohody bez odpracovaného předchozího čtvrtletí založte '
+            . 'pravděpodobný výdělek (§ 355 ZP); nulu pokyny MPSV k atributu 10345 nepřipouštějí.',
         'jmhz_average_hourly_earning_probable_missing' => 'Otevřete Mzdy → Absence a průměry '
             . 'a založte průměr za čtvrtletí. Když nejde odvodit z dosažené ani sjednané '
             . 'mzdy, aplikace navrhne spodní mez, minimální hodinovou mzdu; tak postupují '

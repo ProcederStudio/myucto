@@ -37,6 +37,17 @@ vi.mock('vue-i18n', () => ({
   useI18n: () => ({ locale: { value: 'cs' }, t: (key: string, p?: Record<string, unknown>) => (p ? `${key}:${JSON.stringify(p)}` : key) }),
 }))
 
+// Uložené volby stránky (členění PDF podle doby po splatnosti) — per test nastavitelné.
+const prefOptions = vi.hoisted(() => ({ value: {} as Record<string, unknown>, set: vi.fn() }))
+
+vi.mock('@/composables/useUserPrefs', () => ({ ensurePrefsLoaded: () => Promise.resolve() }))
+vi.mock('@/composables/useTablePrefs', () => ({
+  useTablePrefs: () => ({
+    option: (key: string, fallback: unknown) => prefOptions.value[key] ?? fallback,
+    setOption: prefOptions.set,
+  }),
+}))
+
 // `route.query` pohání deep-link `?period_id=&as_of=&account=&view=…`; testy
 // jedou bez query, takže vychází výchozí chování stránky.
 const routeQuery = vi.hoisted(() => ({ value: {} as Record<string, string> }))
@@ -96,6 +107,8 @@ describe('Saldokonto.vue', () => {
     m.getSaldo.mockReset()
     m.exportReport.mockReset()
     m.toastError.mockReset()
+    prefOptions.value = {}
+    prefOptions.set.mockReset()
     m.listPeriods.mockResolvedValue([
       { id: 6, supplier_id: 1, fiscal_year: 2099, starts_on: '2099-01-01', ends_on: '2099-12-31', status: 'open', closed_at: null, created_at: '' },
     ])
@@ -112,6 +125,47 @@ describe('Saldokonto.vue', () => {
     expect(rows[0].text()).toContain('F-101')
     expect(rows[0].text()).toContain('Alfa s.r.o.')
     expect(rows[1].text()).toContain('F-102')
+  })
+
+  it('PDF bez zapnutého členění zůstává inventarizačním protokolem', async () => {
+    m.getSaldo.mockResolvedValue(makeReport())
+    m.exportReport.mockResolvedValue({ data: new Blob() })
+    URL.createObjectURL = vi.fn(() => 'blob:x')
+    URL.revokeObjectURL = vi.fn()
+    const wrapper = mount(Saldokonto)
+    await flushPromises()
+
+    await wrapper.findAll('button').find(b => b.text().includes('accounting.saldo.export_pdf'))!.trigger('click')
+    await flushPromises()
+
+    expect(m.exportReport.mock.calls[0][1]).not.toHaveProperty('aging')
+  })
+
+  it('uložená volba členění se načte a pošle do exportu PDF, změna hranic se uloží', async () => {
+    prefOptions.value = { pdf_aging: { enabled: true, boundaries: [30, 90], detail: false } }
+    m.getSaldo.mockResolvedValue(makeReport())
+    m.exportReport.mockResolvedValue({ data: new Blob() })
+    URL.createObjectURL = vi.fn(() => 'blob:x')
+    URL.revokeObjectURL = vi.fn()
+    const wrapper = mount(Saldokonto)
+    await flushPromises()
+
+    const input = wrapper.find('[data-testid="saldo-pdf-aging-boundaries"]')
+    expect((input.element as HTMLInputElement).value).toBe('30, 90')
+
+    await wrapper.findAll('button').find(b => b.text().includes('accounting.saldo.export_pdf'))!.trigger('click')
+    await flushPromises()
+    expect(m.exportReport.mock.calls[0][1]).toMatchObject({ format: 'pdf', aging: '30,90', detail: '0' })
+
+    await input.setValue('120, 30, 60')
+    await flushPromises()
+    expect(prefOptions.set).toHaveBeenLastCalledWith('pdf_aging', { enabled: true, boundaries: [30, 60, 120], detail: false })
+
+    await input.setValue('30, abc')
+    await wrapper.findAll('button').find(b => b.text().includes('accounting.saldo.export_pdf'))!.trigger('click')
+    await flushPromises()
+    expect(m.exportReport).toHaveBeenCalledTimes(1)
+    expect(m.toastError).toHaveBeenCalledWith('accounting.saldo.pdf_aging_invalid')
   })
 
   it('otevře ostatní pohledávku v její agendě', async () => {

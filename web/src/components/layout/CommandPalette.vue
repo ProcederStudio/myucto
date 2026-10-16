@@ -8,6 +8,7 @@ import { useWorkspaceNavigation } from '@/composables/useWorkspaceNavigation'
 import { formatShortcut } from '@/composables/useKeyboardShortcuts'
 import { useSupplierStore } from '@/stores/supplier'
 import { matchSwitchableSuppliers, useSupplierSwitch } from '@/composables/useSupplierSwitch'
+import WorkspaceTeleport from '@/components/workspace/WorkspaceTeleport.vue'
 
 /**
  * Paleta příkazů (Ctrl/⌘ + K).
@@ -139,7 +140,7 @@ const options = computed<Option[]>(() => {
   // Bez dotazu: rychlé akce jako rozcestník, ať paleta není prázdná.
   if (!n) {
     for (const a of props.quickActions) {
-      out.push({ group: 'action', label: a.label, sub: t('command.action_hint'), icon: a.icon || ICON_PLUS, accent: 'primary', run: () => void workspaceNavigation.navigate(a.to) })
+      out.push({ group: 'action', label: a.label, sub: t('command.action_hint'), icon: a.icon || ICON_PLUS, accent: 'primary', run: () => void workspaceNavigation.navigate(a.to, { fresh: true }) })
     }
     return out
   }
@@ -153,7 +154,7 @@ const options = computed<Option[]>(() => {
   for (const a of props.quickActions) {
     const score = matchScore(`${createKeywords} ${a.label}`, n)
     if (score >= 0) {
-      scored.push({ score: score + 50, opt: { group: 'action', label: a.label, sub: t('command.action_hint'), icon: a.icon || ICON_PLUS, accent: 'primary', run: () => void workspaceNavigation.navigate(a.to) } })
+      scored.push({ score: score + 50, opt: { group: 'action', label: a.label, sub: t('command.action_hint'), icon: a.icon || ICON_PLUS, accent: 'primary', run: () => void workspaceNavigation.navigate(a.to, { fresh: true }) } })
     }
   }
 
@@ -289,7 +290,7 @@ defineExpose({ show })
 </script>
 
 <template>
-  <Teleport to="body">
+  <WorkspaceTeleport>
     <div v-if="open" class="fixed inset-0 z-[60] flex items-start justify-center px-4 pt-[12vh] bg-neutral-900/50 backdrop-blur-[3px]"
       @click.self="hide">
       <div class="rise-in w-full max-w-2xl overflow-hidden rounded-xl bg-surface-raised shadow-2xl ring-1 ring-neutral-200"
@@ -354,5 +355,5 @@ defineExpose({ show })
         </div>
       </div>
     </div>
-  </Teleport>
+  </WorkspaceTeleport>
 </template>

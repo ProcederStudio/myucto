@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import type { SupplierBrief } from '@/api/auth'
+import { getWindowSupplierScope, requestSupplierIdNumber } from '@/workspace/supplierContext'
 
 const STORAGE_KEY = 'myinvoice.current_supplier_id'
 
@@ -15,6 +16,8 @@ const STORAGE_KEY = 'myinvoice.current_supplier_id'
  */
 export const useSupplierStore = defineStore('supplier', () => {
   const initial = (() => {
+    const scoped = requestSupplierIdNumber()
+    if (getWindowSupplierScope()) return scoped
     const v = localStorage.getItem(STORAGE_KEY)
     return v && /^\d+$/.test(v) ? parseInt(v, 10) : 0
   })()
@@ -33,6 +36,7 @@ export const useSupplierStore = defineStore('supplier', () => {
   )
 
   watch(currentSupplierId, (v) => {
+    if (getWindowSupplierScope()) return
     if (domainLocked.value) {
       localStorage.removeItem(STORAGE_KEY)
       return
@@ -42,6 +46,11 @@ export const useSupplierStore = defineStore('supplier', () => {
   })
 
   function setSupplier(id: number) {
+    const windowScope = getWindowSupplierScope()
+    if (windowScope) {
+      if (id === windowScope.supplierId) currentSupplierId.value = id
+      return
+    }
     if (domainLocked.value && id !== currentSupplierId.value) return
     currentSupplierId.value = id
     if (id > 0) localStorage.setItem(STORAGE_KEY, String(id))
@@ -51,6 +60,11 @@ export const useSupplierStore = defineStore('supplier', () => {
   function setAvailable(list: SupplierBrief[], serverCurrent: number, locked = false) {
     domainLocked.value = locked
     availableSuppliers.value = list
+    const windowScope = getWindowSupplierScope()
+    if (windowScope) {
+      currentSupplierId.value = windowScope.supplierId
+      return
+    }
     if (locked) {
       localStorage.removeItem(STORAGE_KEY)
       currentSupplierId.value = serverCurrent || (list[0]?.id ?? 0)

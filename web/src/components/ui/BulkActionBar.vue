@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
+import WorkspaceTeleport from '@/components/workspace/WorkspaceTeleport.vue'
 
 /**
  * Plovoucí lišta hromadných akcí.
@@ -23,7 +24,7 @@ const { t } = useI18n()
 </script>
 
 <template>
-  <Teleport to="body">
+  <WorkspaceTeleport>
     <Transition
       enter-active-class="transition duration-300 ease-[cubic-bezier(0.22,1.2,0.36,1)]"
       enter-from-class="opacity-0 translate-y-4"
@@ -51,5 +52,5 @@ const { t } = useI18n()
         </div>
       </div>
     </Transition>
-  </Teleport>
+  </WorkspaceTeleport>
 </template>

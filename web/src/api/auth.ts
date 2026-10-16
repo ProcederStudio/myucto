@@ -300,6 +300,10 @@ export interface SetupSampleResult {
   warnings: string[]
 }
 
+function csrfHeaders(csrf?: string) {
+  return csrf ? { headers: { 'X-CSRF-Token': csrf } } : undefined
+}
+
 export const authApi = {
   domainContext: () => api.get<DomainContext>('/auth/domain-context').then((r) => r.data),
 
@@ -310,11 +314,11 @@ export const authApi = {
       handoff_path: handoffPath || undefined,
     }).then((r) => r.data),
 
-  domainLoginAuthorize: (requestToken: string, state: string) =>
+  domainLoginAuthorize: (requestToken: string, state: string, csrf?: string) =>
     api.post<{ redirect_url: string }>('/auth/domain-login/authorize', {
       request_token: requestToken,
       state,
-    }).then((r) => r.data),
+    }, csrfHeaders(csrf)).then((r) => r.data),
 
   domainLoginExchange: (requestToken: string, code: string, state: string, codeVerifier: string) =>
     api.post<{ csrf_token: string; return_path: string; supplier_id: number }>('/auth/domain-login/exchange', {
@@ -383,20 +387,20 @@ export const authApi = {
     }).then(r => r.data),
   sessionUnlockOptions: () =>
     api.post<WebAuthnFlow>('/auth/session/unlock/options', {}).then(r => r.data),
-  sessionUnlockVerify: (flowToken: string, credential: Record<string, any>) =>
+  sessionUnlockVerify: (flowToken: string, credential: Record<string, any>, csrf?: string) =>
     api.post<SessionState>('/auth/session/unlock/verify', {
       flow_token: flowToken,
       credential,
-    }).then(r => r.data),
+    }, csrfHeaders(csrf)).then(r => r.data),
 
   passkeys: () =>
     api.get<{ credentials: PasskeyCredential[] }>('/auth/webauthn/credentials').then(r => r.data.credentials),
   passkeyRegisterOptions: (authorization: { current_password?: string; step_up_token?: string }) =>
     api.post<WebAuthnFlow>('/auth/webauthn/register/options', authorization).then(r => r.data),
-  passkeyRegisterVerify: (flowToken: string, credential: Record<string, any>, label: string) =>
+  passkeyRegisterVerify: (flowToken: string, credential: Record<string, any>, label: string, csrf?: string) =>
     api.post<PasskeyRegistrationResult>('/auth/webauthn/register/verify', {
       flow_token: flowToken, credential, label,
-    }).then(r => r.data),
+    }, csrfHeaders(csrf)).then(r => r.data),
   passkeyRename: (id: number, label: string) =>
     api.patch<{ credential: PasskeyCredential }>(`/auth/webauthn/credentials/${id}`, { label }).then(r => r.data.credential),
   passkeyRevoke: (id: number, stepUpToken: string) =>
@@ -430,7 +434,7 @@ export const authApi = {
       step_up_token: stepUpToken,
     }).then(r => r.data),
 
-  logout: () => api.post('/auth/logout').then(() => undefined),
+  logout: (csrf?: string) => api.post('/auth/logout', undefined, csrfHeaders(csrf)).then(() => undefined),
 
   me: () => api.get<MeResponse>('/auth/me').then((r) => {
     setCsrfToken(r.data.csrf_token)
@@ -470,9 +474,10 @@ export const authApi = {
    * použitelné neměl — server plaintext neukládá. Kdo je v tu chvíli
    * nezobrazí, už je nikde nedohledá.
    */
-  totpEnable: (code: string) =>
+  totpEnable: (code: string, csrf?: string) =>
     api.post<{ enabled: boolean; recovery_codes?: string[] } & MfaSetupCompletion>(
       '/auth/totp/enable',
       { code },
+      csrfHeaders(csrf),
     ).then(r => r.data),
 }

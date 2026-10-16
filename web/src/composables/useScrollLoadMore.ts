@@ -19,7 +19,7 @@ export function useScrollLoadMore(
     previousY = y
     if (!movingDown || busy || !canLoad()) return
     const el = target.value
-    if (!el) return
+    if (!el || el.getClientRects().length === 0 || getComputedStyle(el).clipPath === 'inset(50%)') return
     const bottom = host === window
       ? window.innerHeight
       : Math.min((host as HTMLElement).getBoundingClientRect().bottom, window.innerHeight)

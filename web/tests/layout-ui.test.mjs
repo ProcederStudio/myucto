@@ -26,8 +26,17 @@ test('responsive utility breakpoints follow the nearest workspace panel', async 
   assert.match(styles, /body\s*\{[\s\S]*?container-name:\s*workspace;[\s\S]*?container-type:\s*inline-size;/)
   assert.match(pane, /'workspace-pane-container overflow-hidden bg-surface'/)
   assert.match(pane, /\.workspace-pane-container\s*\{[\s\S]*?container-name:\s*workspace;[\s\S]*?container-type:\s*inline-size;/)
-  assert.match(pane, /function clear\(\): void \{[\s\S]*?if \(props\.primaryRouter\) \{[\s\S]*?void navigate\('\/'\)[\s\S]*?return/)
-  assert.match(host, /const primaryRouter = useRouter\(\)\s*workspace\.resetLayout\(1, primaryRouter\.currentRoute\.value\.fullPath\)/)
+  assert.match(host, /const primaryRouter = useRouter\(\)/)
+  assert.match(host, /workspace\.resetLayout\(1, primaryRouter\.currentRoute\.value\.fullPath\)/)
+})
+
+test('clearing a pane parks its window and clears the visible route', async () => {
+  const pane = await readFile(new URL('components/workspace/WorkspacePane.vue', root), 'utf8')
+  const host = await readFile(new URL('components/workspace/WorkspaceHost.vue', root), 'utf8')
+
+  assert.match(pane, /clear:\s*\(\) => \{\s*manager\?\.parkPane\(props\.paneId\)\s*workspace\.updatePane\(props\.paneId, \{ fullPath: null, title: null, canGoBack: false, canGoForward: false \}\)/)
+  assert.match(host, /const target = fullPath \?\? '\/'/)
+  assert.match(host, /await mirrorWindowLocation\(primaryRouter, target, id,/)
 })
 
 test('company settings keep the save action available above the long form', async () => {

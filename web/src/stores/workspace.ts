@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 
 export type PaneCount = 1 | 2 | 3
 export type PaneId = 'primary' | 'secondary-2' | 'secondary-3'
+export const MAX_WORKSPACE_WINDOWS = 15
 
 export interface WorkspacePaneState {
   id: PaneId
@@ -12,6 +13,16 @@ export interface WorkspacePaneState {
   loading: boolean
   canGoBack: boolean
   canGoForward: boolean
+}
+
+export interface WorkspaceWindowState {
+  id: string
+  fullPath: string
+  title: string
+  paneId: PaneId | null
+  subtitle?: string | null
+  supplierId?: number
+  supplierName?: string
 }
 
 function createPane(id: PaneId, fullPath: string | null = null): WorkspacePaneState {
@@ -32,15 +43,23 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const activePaneId = ref<PaneId>('primary')
   const layoutRevision = ref(0)
   const panes = ref<WorkspacePaneState[]>([createPane('primary')])
+  const windows = ref<WorkspaceWindowState[]>([])
+  const windowSwitcherOpen = ref(false)
+  const companySwitching = ref(false)
 
   const activePane = computed(() => panes.value.find(pane => pane.id === activePaneId.value) ?? panes.value[0])
   const activeFullPath = computed(() => activePane.value?.fullPath ?? '/')
 
   function activatePane(id: PaneId): void {
-    if (panes.value.some(pane => pane.id === id)) activePaneId.value = id
+    if (!panes.value.some(pane => pane.id === id)) return
+    activePaneId.value = id
+    const index = windows.value.findIndex(window => window.paneId === id)
+    if (index > 0) windows.value.unshift(...windows.value.splice(index, 1))
   }
 
   function resetLayout(count: PaneCount, primaryPath: string): void {
+    windows.value = []
+    windowSwitcherOpen.value = false
     paneCount.value = count
     layoutRevision.value += 1
     activePaneId.value = 'primary'
@@ -81,16 +100,6 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     return true
   }
 
-  /**
-   * Zahodí POSLEDNÍ slot rozložení.
-   *
-   * Zavřít se dá kterýkoli panel včetně prvního, ale sloty jsou pozicové —
-   * `primary` je jediný, který drží skutečný router aplikace, a tím i adresu
-   * v prohlížeči. Přečíslovat je nejde bez toho, aby se všechny panely
-   * odmountovaly a přišly o svoji historii. Zavření se proto dělá posunem
-   * OBSAHU doleva (viz useWorkspaceNavigation.closePane) a tady se pak odebere
-   * osiřelý slot na konci.
-   */
   function dropLastPane(): boolean {
     if (panes.value.length <= 1) return false
     const removed = panes.value.pop()!
@@ -109,6 +118,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     activePaneId,
     layoutRevision,
     panes,
+    windows,
+    windowSwitcherOpen,
+    companySwitching,
     activePane,
     activeFullPath,
     activatePane,

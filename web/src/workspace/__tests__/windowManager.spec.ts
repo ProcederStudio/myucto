@@ -1,0 +1,579 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { defineComponent, h, nextTick, ref, watch } from 'vue'
+import { createPinia, setActivePinia, type Pinia } from 'pinia'
+import {
+  createMemoryHistory,
+  createRouter,
+  useRoute,
+  type Router,
+} from 'vue-router'
+
+vi.mock('@/i18n', () => ({
+  i18n: { install: () => undefined },
+}))
+vi.mock('@/directives/vMath', () => ({ vMath: {} }))
+vi.mock('@/directives/vSelectOnFocus', () => ({ vSelectOnFocus: {} }))
+vi.mock('@/directives/columnLabels', () => ({ vColumnLabels: {} }))
+import { useWorkspaceStore, type PaneCount, type PaneId } from '@/stores/workspace'
+import { createWindowManager, type WorkspaceWindowManager } from '@/workspace/windowManager'
+import WorkspaceTeleport from '@/components/workspace/WorkspaceTeleport.vue'
+import { useHotkey } from '@/composables/useHotkey'
+
+let editorInstanceSequence = 0
+
+const TestEditor = defineComponent({
+  name: 'TestEditor',
+  setup() {
+    const route = useRoute()
+    const instance = ++editorInstanceSequence
+    const draft = ref('')
+    const watchedId = ref(String(route.params.id ?? ''))
+    const hotkeys = ref(0)
+    useHotkey('ctrl+s', () => { hotkeys.value++ })
+
+    watch(() => route.params.id, value => {
+      watchedId.value = String(value ?? '')
+    })
+
+    return () => h('article', {
+      'data-testid': 'editor',
+      'data-editor-id': String(route.params.id ?? ''),
+      'data-instance': String(instance),
+      'data-watched-id': watchedId.value,
+      'data-hotkeys': String(hotkeys.value),
+    }, [
+      h('h1', `Editor ${String(route.params.id ?? '')}`),
+      h('input', {
+        'data-testid': 'draft',
+        value: draft.value,
+        onInput: (event: Event) => {
+          draft.value = (event.target as HTMLInputElement).value
+        },
+      }),
+      h(WorkspaceTeleport, {}, { default: () => h('div', { 'data-editor-portal': String(route.params.id) }, 'Popup') }),
+    ])
+  },
+})
+
+interface Deferred<T> {
+  promise: Promise<T>
+  resolve: (value: T) => void
+}
+
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => { resolve = done })
+  return { promise, resolve }
+}
+
+interface PaneMount {
+  pane: HTMLElement
+  target: HTMLElement
+  detach: () => void
+}
+
+interface Harness {
+  pinia: Pinia
+  store: ReturnType<typeof useWorkspaceStore>
+  manager: WorkspaceWindowManager
+  errors: unknown[]
+  confirmEviction: ReturnType<typeof vi.fn>
+  attachPane: (id: PaneId) => PaneMount
+  destroy: () => void
+}
+
+let activeHarness: Harness | null = null
+
+function testRouter(slowGate?: { entered: Deferred<void>, release: Deferred<boolean> }): Router {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: '/editor/:id', name: 'editor', component: TestEditor },
+      { path: '/slow/:id', name: 'slow-editor', component: TestEditor },
+    ],
+  })
+  if (slowGate) {
+    router.beforeEach(async (to) => {
+      if (to.name !== 'slow-editor') return true
+      slowGate.entered.resolve(undefined)
+      return slowGate.release.promise
+    })
+  }
+  return router
+}
+
+function createHarness(options: {
+  panes?: PaneCount
+  allowEviction?: () => boolean
+  slowGate?: { entered: Deferred<void>, release: Deferred<boolean> }
+  authorize?: (router: Router) => Promise<boolean>
+  supplier?: { id: number; name: string }
+  switchSupplier?: (id: number) => Promise<boolean>
+  frames?: boolean
+  routerFactory?: () => Router
+} = {}): Harness {
+  const pinia = createPinia()
+  setActivePinia(pinia)
+  const store = useWorkspaceStore(pinia)
+  store.resetLayout(options.panes ?? 1, '/')
+  const errors: unknown[] = []
+  const confirmEviction = vi.fn(() => options.allowEviction?.() ?? true)
+  const mounts = new Map<PaneId, PaneMount>()
+  const frameContainer = document.createElement('div')
+  document.body.append(frameContainer)
+  const manager = createWindowManager({
+    pinia,
+    createRouter: options.routerFactory ?? (() => testRouter(options.slowGate)),
+    authorize: options.authorize ?? vi.fn().mockResolvedValue(true),
+    confirmEviction,
+    onError: error => { errors.push(error) },
+    currentSupplier: () => options.supplier ?? { id: 0, name: '' },
+    switchSupplier: options.switchSupplier,
+    frames: options.frames,
+    frameContainer: () => frameContainer,
+  })
+
+  function attachPane(id: PaneId): PaneMount {
+    const previous = mounts.get(id)
+    previous?.detach()
+    previous?.pane.remove()
+    const pane = document.createElement('section')
+    pane.className = 'workspace-pane'
+    pane.tabIndex = -1
+    const scroller = document.createElement('div')
+    scroller.className = 'workspace-pane-scroll'
+    const target = document.createElement('div')
+    target.dataset.paneTarget = id
+    scroller.append(target)
+    pane.append(scroller)
+    document.body.append(pane)
+    const detachManager = manager.attach(id, target)
+    const mount: PaneMount = {
+      pane,
+      target,
+      detach: () => {
+        detachManager()
+        if (mounts.get(id) === mount) mounts.delete(id)
+      },
+    }
+    mounts.set(id, mount)
+    return mount
+  }
+
+  const harness: Harness = {
+    pinia,
+    store,
+    manager,
+    errors,
+    confirmEviction,
+    attachPane,
+    destroy: () => {
+      for (const mount of [...mounts.values()]) {
+        mount.detach()
+        mount.pane.remove()
+      }
+      manager.destroy()
+      frameContainer.remove()
+    },
+  }
+  activeHarness = harness
+  return harness
+}
+
+function windowIdFor(store: Harness['store'], fullPath: string): string {
+  const found = store.windows.find(window => window.fullPath === fullPath)
+  if (!found) throw new Error(`Window ${fullPath} was not found.`)
+  return found.id
+}
+
+function editor(id: string | number): HTMLElement {
+  const found = document.querySelector<HTMLElement>(`[data-testid="editor"][data-editor-id="${id}"]`)
+  if (!found) throw new Error(`Editor ${id} was not found.`)
+  return found
+}
+
+async function typeDraft(root: HTMLElement, value: string): Promise<HTMLInputElement> {
+  const input = root.querySelector<HTMLInputElement>('[data-testid="draft"]')!
+  input.value = value
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+  await nextTick()
+  return input
+}
+
+afterEach(() => {
+  activeHarness?.destroy()
+  activeHarness = null
+  editorInstanceSequence = 0
+  document.body.replaceChildren()
+  vi.restoreAllMocks()
+})
+
+describe('workspace window manager', () => {
+  it.each([1, 2, 3] as const)('nové čisté okno zachová rozepsanou instanci stejné stránky při %i panelech', async panes => {
+    const harness = createHarness({ panes })
+    const mounts = harness.store.panes.map(pane => harness.attachPane(pane.id))
+    await harness.manager.open('/editor/1', 'primary')
+    const originalId = harness.store.windows[0]!.id
+    const originalEditor = editor(1)
+    const originalInput = await typeDraft(originalEditor, 'Původní koncept')
+    const targetId = harness.store.panes.at(-1)!.id
+
+    await harness.manager.open('/editor/1', targetId, { fresh: true })
+    const cleanId = harness.store.windows[0]!.id
+    const cleanEditor = mounts.at(-1)!.target.querySelector<HTMLElement>('[data-testid="editor"]')!
+    expect(harness.store.windows).toHaveLength(2)
+    expect(cleanId).not.toBe(originalId)
+    expect(cleanEditor).not.toBe(originalEditor)
+    expect(cleanEditor.querySelector<HTMLInputElement>('input')!.value).toBe('')
+    expect(originalInput.value).toBe('Původní koncept')
+    expect(harness.store.activePaneId).toBe(targetId)
+    const cleanInput = await typeDraft(cleanEditor, 'Druhý koncept')
+
+    await harness.manager.select(originalId)
+    expect(originalInput.value).toBe('Původní koncept')
+    await harness.manager.select(cleanId)
+    expect(cleanInput.value).toBe('Druhý koncept')
+    await harness.manager.open('/editor/1', targetId)
+    expect(harness.store.windows).toHaveLength(2)
+  })
+
+  it('ověří oprávnění iframe okna bez blokujícího načítání jeho lazy komponenty do shellu', async () => {
+    vi.spyOn(HTMLIFrameElement.prototype, 'src', 'set').mockImplementation(() => undefined)
+    const lazy = vi.fn(async () => TestEditor)
+    const authorize = vi.fn().mockResolvedValue(true)
+    const harness = createHarness({ frames: true, supplier: { id: 1, name: 'Firma A' }, authorize,
+      routerFactory: () => createRouter({ history: createMemoryHistory(), routes: [{ path: '/editor/:id', component: lazy }] }) })
+    harness.attachPane('primary')
+    await harness.manager.open('/editor/1', 'primary')
+    expect(lazy).not.toHaveBeenCalled()
+    expect(authorize).toHaveBeenCalledTimes(1)
+    expect(harness.store.windows[0]?.fullPath).toBe('/editor/1')
+    expect(document.querySelector('iframe')).not.toBeNull()
+    authorize.mockResolvedValue(false)
+    await harness.manager.open('/editor/2', 'primary')
+    expect(harness.store.windows).toHaveLength(1)
+  })
+  it('rozlišuje stejnou cestu ve dvou firmách a výběrem obnoví firmu i rozepsaný obsah', async () => {
+    const supplier = { id: 1, name: 'Syntetická firma A' }
+    const switchSupplier = vi.fn(async (id: number) => { supplier.id = id; supplier.name = `Firma ${id}`; return true })
+    const harness = createHarness({ supplier, switchSupplier })
+    const primary = harness.attachPane('primary')
+    await harness.manager.open('/editor/1', 'primary')
+    const firstId = harness.store.windows[0]!.id
+    const firstEditor = editor(1)
+    const input = await typeDraft(firstEditor, 'Doklad firmy A')
+    await harness.manager.switchCompany(2, '/editor/1')
+
+    expect(harness.store.windows).toHaveLength(2)
+    expect(harness.store.windows[0]?.supplierId).toBe(2)
+    expect(primary.target.contains(firstEditor)).toBe(false)
+    expect(input.value).toBe('Doklad firmy A')
+    await harness.manager.select(firstId)
+    expect(supplier.id).toBe(1)
+    expect(primary.target.contains(firstEditor)).toBe(true)
+    expect(input.value).toBe('Doklad firmy A')
+    expect(switchSupplier.mock.calls.map(([id]) => id)).toEqual([2, 1])
+  })
+
+  it('při odmítnutém přepnutí firmy zachová původní okno i firmu', async () => {
+    const supplier = { id: 1, name: 'Syntetická firma A' }
+    const harness = createHarness({ supplier, switchSupplier: async () => false })
+    const primary = harness.attachPane('primary')
+    await harness.manager.open('/editor/1', 'primary')
+    const first = editor(1)
+    await harness.manager.switchCompany(2, '/editor/2')
+    expect(supplier.id).toBe(1)
+    expect(harness.store.windows).toHaveLength(1)
+    expect(primary.target.contains(first)).toBe(true)
+    expect(harness.store.companySwitching).toBe(false)
+  })
+
+  it('ponechá iframe v původním rodiči při parkování i přesunu do jiného panelu', async () => {
+    vi.spyOn(HTMLIFrameElement.prototype, 'src', 'set').mockImplementation(function (this: HTMLIFrameElement, value: string) {
+      this.dataset.testSrc = value
+    })
+    const harness = createHarness({ panes: 2, frames: true, supplier: { id: 1, name: 'Firma A' } })
+    harness.attachPane('primary')
+    harness.attachPane('secondary-2')
+    await harness.manager.open('/editor/1', 'primary')
+    const firstId = harness.store.windows[0]!.id
+    const frame = document.querySelector<HTMLIFrameElement>('iframe')!
+    const root = frame.parentElement!
+    const parent = root.parentElement!
+    await harness.manager.open('/editor/2', 'primary')
+    expect(root.hidden).toBe(true)
+    expect(frame.parentElement).toBe(root)
+    expect(root.parentElement).toBe(parent)
+    harness.store.activatePane('secondary-2')
+    await harness.manager.select(firstId)
+    expect(root.hidden).toBe(false)
+    expect(frame.parentElement).toBe(root)
+    expect(root.parentElement).toBe(parent)
+    expect(harness.store.windows.find(window => window.id === firstId)?.paneId).toBe('secondary-2')
+  })
+
+  it('respektuje odsazení obou panelů', async () => {
+    vi.spyOn(HTMLIFrameElement.prototype, 'src', 'set').mockImplementation(() => undefined)
+    const harness = createHarness({ panes: 2, frames: true, supplier: { id: 1, name: 'Firma A' } })
+    const primary = harness.attachPane('primary')
+    const secondary = harness.attachPane('secondary-2')
+    for (const [index, mount] of [primary, secondary].entries()) {
+      mount.target.style.padding = '20px'
+      vi.spyOn(mount.target, 'getBoundingClientRect').mockReturnValue({ left: index * 600, top: 40, width: 600, height: 800 } as DOMRect)
+    }
+    await harness.manager.open('/editor/1', 'primary')
+    await harness.manager.open('/editor/2', 'secondary-2')
+    const frames = [...document.querySelectorAll<HTMLIFrameElement>('iframe')]
+    expect(frames.map(frame => frame.parentElement!.style.left)).toEqual(['20px', '620px'])
+    expect(frames.map(frame => frame.parentElement!.style.width)).toEqual(['560px', '560px'])
+    expect(frames.map(frame => frame.parentElement!.style.top)).toEqual(['60px', '60px'])
+    expect(frames.map(frame => frame.parentElement!.style.height)).toEqual(['760px', '760px'])
+  })
+
+  it('izoluje portály a klávesnici skrytého okna a obnoví rozepsané pole s ohniskem', async () => {
+    const harness = createHarness()
+    harness.attachPane('primary')
+    await harness.manager.open('/editor/1', 'primary')
+    const firstId = windowIdFor(harness.store, '/editor/1')
+    const input = await typeDraft(editor(1), 'Pokračovat tady')
+    input.focus()
+    await harness.manager.open('/editor/2', 'primary')
+
+    expect(document.querySelector('[data-editor-portal="1"]')?.closest('[hidden]')).not.toBeNull()
+    expect(document.querySelector('[data-editor-portal="2"]')?.closest('[hidden]')).toBeNull()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 's', ctrlKey: true }))
+    await nextTick()
+    expect(editor(1).dataset.hotkeys).toBe('0')
+    expect(editor(2).dataset.hotkeys).toBe('1')
+
+    await harness.manager.select(firstId)
+    expect(document.activeElement).toBe(input)
+    expect(input.value).toBe('Pokračovat tady')
+    expect(document.querySelector('[data-editor-portal="1"]')?.closest('[hidden]')).toBeNull()
+    expect(document.querySelector('[data-editor-portal="2"]')?.closest('[hidden]')).not.toBeNull()
+  })
+
+  it('nevrátí staré okno do panelu, pokud při ověřování oprávnění nastane reset', async () => {
+    const authorization = deferred<boolean>()
+    const harness = createHarness({ authorize: () => authorization.promise })
+    const primary = harness.attachPane('primary')
+    await harness.manager.open('/editor/1', 'primary')
+    const firstId = windowIdFor(harness.store, '/editor/1')
+    await harness.manager.open('/editor/2', 'primary')
+    const selection = harness.manager.select(firstId)
+    await nextTick()
+    harness.manager.reset()
+    await harness.manager.open('/editor/3', 'primary')
+    authorization.resolve(true)
+    await selection
+
+    expect(harness.store.windows.map(window => window.fullPath)).toEqual(['/editor/3'])
+    expect(primary.target.contains(editor(3))).toBe(true)
+    expect(primary.target.querySelector('[data-editor-id="1"]')).toBeNull()
+  })
+
+  it('uchová rozepsaný formulář, komponentu i vlastní route při otevření dalšího okna', async () => {
+    const harness = createHarness()
+    const primary = harness.attachPane('primary')
+
+    await harness.manager.open('/editor/1', 'primary')
+    const firstEditor = editor(1)
+    const firstInput = await typeDraft(firstEditor, 'rozepsaná hodnota')
+    const firstInstance = firstEditor.dataset.instance
+    const firstWindow = windowIdFor(harness.store, '/editor/1')
+
+    await harness.manager.open('/editor/2', 'primary')
+
+    expect(primary.target.contains(editor(2))).toBe(true)
+    expect(firstEditor.dataset.editorId).toBe('1')
+    expect(firstEditor.dataset.watchedId).toBe('1')
+    expect(firstInput.value).toBe('rozepsaná hodnota')
+    expect(firstEditor.isConnected).toBe(true)
+
+    await harness.manager.select(firstWindow)
+
+    expect(primary.target.contains(firstEditor)).toBe(true)
+    expect(editor(1)).toBe(firstEditor)
+    expect(editor(1).dataset.instance).toBe(firstInstance)
+    expect(firstInput.value).toBe('rozepsaná hodnota')
+    expect(harness.errors).toEqual([])
+  })
+
+  it('otevře různé parametry jako samostatná okna a přesnou cestu znovu pouze vybere', async () => {
+    const harness = createHarness()
+    const primary = harness.attachPane('primary')
+
+    await harness.manager.open('/editor/7', 'primary')
+    const first = editor(7)
+    const firstId = windowIdFor(harness.store, '/editor/7')
+    await harness.manager.open('/editor/8', 'primary')
+    const second = editor(8)
+
+    expect(harness.store.windows).toHaveLength(2)
+    expect(first.dataset.instance).not.toBe(second.dataset.instance)
+
+    await harness.manager.open('/editor/7', 'primary')
+
+    expect(harness.store.windows).toHaveLength(2)
+    expect(harness.store.windows.find(window => window.paneId === 'primary')?.id).toBe(firstId)
+    expect(primary.target.contains(first)).toBe(true)
+    expect(editor(7)).toBe(first)
+  })
+
+  it('při výběru už viditelného okna zaměří jeho panel bez přesunu DOM', async () => {
+    const harness = createHarness({ panes: 2 })
+    const primary = harness.attachPane('primary')
+    const secondary = harness.attachPane('secondary-2')
+
+    await harness.manager.open('/editor/1', 'primary')
+    const first = editor(1)
+    const firstId = windowIdFor(harness.store, '/editor/1')
+    await harness.manager.open('/editor/2', 'secondary-2')
+    const second = editor(2)
+
+    expect(harness.store.activePaneId).toBe('secondary-2')
+    await harness.manager.select(firstId)
+
+    expect(harness.store.activePaneId).toBe('primary')
+    expect(primary.target.contains(first)).toBe(true)
+    expect(secondary.target.contains(second)).toBe(true)
+    expect(editor(1)).toBe(first)
+    expect(editor(2)).toBe(second)
+  })
+
+  it('přežije zmenšení a obnovení layoutu a při zavření prvního panelu posune stejné DOM uzly', async () => {
+    const harness = createHarness({ panes: 3 })
+    const primary = harness.attachPane('primary')
+    let secondary = harness.attachPane('secondary-2')
+    let third = harness.attachPane('secondary-3')
+
+    await harness.manager.open('/editor/1', 'primary')
+    await harness.manager.open('/editor/2', 'secondary-2')
+    await harness.manager.open('/editor/3', 'secondary-3')
+    const first = editor(1)
+    const second = editor(2)
+    const thirdEditor = editor(3)
+    const secondId = windowIdFor(harness.store, '/editor/2')
+    const thirdId = windowIdFor(harness.store, '/editor/3')
+
+    harness.store.resizeLayout(1)
+    secondary.detach()
+    secondary.pane.remove()
+    third.detach()
+    third.pane.remove()
+    harness.manager.reconcile()
+
+    expect(primary.target.contains(first)).toBe(true)
+    expect(second.isConnected).toBe(true)
+    expect(thirdEditor.isConnected).toBe(true)
+    expect(harness.store.windows.find(window => window.id === secondId)?.paneId).toBeNull()
+    expect(harness.store.windows.find(window => window.id === thirdId)?.paneId).toBeNull()
+
+    harness.store.resizeLayout(3)
+    secondary = harness.attachPane('secondary-2')
+    third = harness.attachPane('secondary-3')
+    await harness.manager.select(secondId)
+    harness.store.activatePane('secondary-3')
+    await harness.manager.select(thirdId)
+
+    expect(secondary.target.contains(second)).toBe(true)
+    expect(third.target.contains(thirdEditor)).toBe(true)
+    expect(editor(2)).toBe(second)
+    expect(editor(3)).toBe(thirdEditor)
+
+    harness.manager.closePane('primary')
+
+    expect(harness.store.paneCount).toBe(2)
+    expect(primary.target.contains(second)).toBe(true)
+    expect(secondary.target.contains(thirdEditor)).toBe(true)
+    expect(editor(1)).toBe(first)
+    expect(harness.store.windows.find(window => window.fullPath === '/editor/1')?.paneId).toBeNull()
+  })
+
+  it('neotevře šestnácté okno při odmítnuté evikci a po souhlasu drží limit patnáct', async () => {
+    let allowEviction = false
+    const harness = createHarness({ allowEviction: () => allowEviction })
+    harness.attachPane('primary')
+    for (let id = 1; id <= 15; id++) await harness.manager.open(`/editor/${id}`, 'primary')
+
+    const oldest = editor(1)
+    await harness.manager.open('/editor/16', 'primary')
+
+    expect(harness.confirmEviction).toHaveBeenCalledOnce()
+    expect(harness.store.windows).toHaveLength(15)
+    expect(document.querySelector('[data-editor-id="16"]')).toBeNull()
+    expect(oldest.isConnected).toBe(true)
+
+    allowEviction = true
+    await harness.manager.open('/editor/16', 'primary')
+
+    expect(harness.store.windows).toHaveLength(15)
+    expect(editor(16).isConnected).toBe(true)
+    expect(oldest.isConnected).toBe(false)
+    expect(harness.store.windows.some(window => window.fullPath === '/editor/1')).toBe(false)
+  })
+
+  it('přepíná opakovaně mezi dvěma naposledy použitými okny', async () => {
+    const harness = createHarness()
+    harness.attachPane('primary')
+    await harness.manager.open('/editor/1', 'primary')
+    await harness.manager.open('/editor/2', 'primary')
+    await harness.manager.open('/editor/3', 'primary')
+
+    await harness.manager.toggleRecent()
+    expect(harness.store.activeFullPath).toBe('/editor/2')
+
+    await harness.manager.toggleRecent()
+    expect(harness.store.activeFullPath).toBe('/editor/3')
+
+    await harness.manager.open('/editor/1', 'primary')
+    await harness.manager.open('/editor/2', 'primary')
+    await harness.manager.toggleRecent()
+    expect(harness.store.activeFullPath).toBe('/editor/1')
+    await harness.manager.toggleRecent()
+    expect(harness.store.activeFullPath).toBe('/editor/2')
+  })
+
+  it('prochází historii oken dozadu a dopředu bez vytváření dalších instancí', async () => {
+    const harness = createHarness()
+    harness.attachPane('primary')
+    await harness.manager.open('/editor/1', 'primary')
+    await harness.manager.open('/editor/2', 'primary')
+    await harness.manager.open('/editor/3', 'primary')
+    const instances = new Map([1, 2, 3].map(id => [id, editor(id).dataset.instance]))
+
+    await harness.manager.previous()
+    expect(harness.store.activeFullPath).toBe('/editor/2')
+    await harness.manager.previous()
+    expect(harness.store.activeFullPath).toBe('/editor/1')
+    await harness.manager.next()
+    expect(harness.store.activeFullPath).toBe('/editor/2')
+    await harness.manager.next()
+    expect(harness.store.activeFullPath).toBe('/editor/3')
+
+    expect(harness.store.windows).toHaveLength(3)
+    for (const [id, instance] of instances) expect(editor(id).dataset.instance).toBe(instance)
+  })
+
+  it('reset zneplatní rozpracované načtení a odstraní kořeny i portály všech oken', async () => {
+    const slowGate = { entered: deferred<void>(), release: deferred<boolean>() }
+    const harness = createHarness({ slowGate })
+    harness.attachPane('primary')
+    await harness.manager.open('/editor/1', 'primary')
+    const existingEditor = editor(1)
+
+    expect(document.querySelectorAll('[data-workspace-window]')).toHaveLength(1)
+    const pendingOpen = harness.manager.open('/slow/2', 'primary')
+    await slowGate.entered.promise
+
+    harness.manager.reset()
+    slowGate.release.resolve(true)
+    await pendingOpen
+
+    expect(harness.store.windows).toEqual([])
+    expect(existingEditor.isConnected).toBe(false)
+    expect(document.querySelector('[data-editor-id="2"]')).toBeNull()
+    expect(document.querySelectorAll('[data-workspace-window]')).toHaveLength(0)
+    expect(harness.errors).toEqual([])
+  })
+})

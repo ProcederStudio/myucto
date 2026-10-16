@@ -1,3 +1,4 @@
+import { requestSupplierId } from '@/workspace/supplierContext'
 import { api } from './client'
 
 export type TaxpayerType = 'fo' | 'po'
@@ -302,7 +303,7 @@ export interface InsuranceSummary {
 }
 
 function supplierParam(params: URLSearchParams): void {
-  const sid = localStorage.getItem('myinvoice.current_supplier_id')
+  const sid = requestSupplierId()
   if (sid && /^\d+$/.test(sid)) params.set('supplier_id', sid)
 }
 

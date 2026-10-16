@@ -29,6 +29,7 @@
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { navigateFullPage } from '@/workspace/fullPageNavigation'
 import { apiErrorMessage } from '@/api/errors'
 import { dataBoxApi, type GatewayStart } from '@/api/dataBox'
 import {
@@ -1492,7 +1493,7 @@ async function dispatchReady(
 
 function continueReadyGateway(submissionId: number) {
   const gateway = readyGateways.value[submissionId]
-  if (gateway) window.location.assign(gateway.redirect_url)
+  if (gateway) navigateFullPage(gateway.redirect_url)
 }
 
 async function close(attempt: PayrollJmhzTransportAttempt) {

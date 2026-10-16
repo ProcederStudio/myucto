@@ -1,3 +1,4 @@
+import { requestSupplierId } from '@/workspace/supplierContext'
 import { api } from './client'
 import type { DocumentLock } from './locks'
 import type { JournalSourceSummary } from './accounting'
@@ -1007,7 +1008,7 @@ export const purchaseInvoicesApi = {
   pdfUrl: (id: number, inline = false) => {
     // Přímá navigace v prohlížeči — supplier_id v query param (X-Supplier-Id header se neposílá).
     // inline=true → Content-Disposition: inline (iframe preview; bez tohoto Edge/IE blokuje pro attachment).
-    const sid = localStorage.getItem('myinvoice.current_supplier_id')
+    const sid = requestSupplierId()
     const params = new URLSearchParams()
     if (sid && /^\d+$/.test(sid)) params.set('supplier_id', sid)
     if (inline) params.set('inline', '1')
@@ -1016,7 +1017,7 @@ export const purchaseInvoicesApi = {
   },
   /** URL ke stažení strojového zdrojového originálu (ISDOC/ISDOCX/…) — vždy attachment. */
   sourceUrl: (id: number) => {
-    const sid = localStorage.getItem('myinvoice.current_supplier_id')
+    const sid = requestSupplierId()
     const params = new URLSearchParams()
     if (sid && /^\d+$/.test(sid)) params.set('supplier_id', sid)
     const qs = params.toString()
@@ -1025,7 +1026,7 @@ export const purchaseInvoicesApi = {
 
   /** Naše vygenerované PDF (mPDF z dat). Když nemáme originál nebo chceme vlastní layout. */
   ourPdfUrl: (id: number, inline = false) => {
-    const sid = localStorage.getItem('myinvoice.current_supplier_id')
+    const sid = requestSupplierId()
     const params = new URLSearchParams()
     if (sid && /^\d+$/.test(sid)) params.set('supplier_id', sid)
     if (inline) params.set('inline', '1')
@@ -1035,7 +1036,7 @@ export const purchaseInvoicesApi = {
 
   /** ISDOC XML export přijaté faktury (role inversion — vendor=supplier, my=customer). */
   isdocUrl: (id: number) => {
-    const sid = localStorage.getItem('myinvoice.current_supplier_id')
+    const sid = requestSupplierId()
     const params = new URLSearchParams()
     if (sid && /^\d+$/.test(sid)) params.set('supplier_id', sid)
     const qs = params.toString()
@@ -1044,7 +1045,7 @@ export const purchaseInvoicesApi = {
 
   /** Pohoda XML export přijaté faktury (dataPackItem s `<pur:purchase>`). */
   pohodaUrl: (id: number) => {
-    const sid = localStorage.getItem('myinvoice.current_supplier_id')
+    const sid = requestSupplierId()
     const params = new URLSearchParams()
     if (sid && /^\d+$/.test(sid)) params.set('supplier_id', sid)
     const qs = params.toString()
@@ -1075,7 +1076,7 @@ export const purchaseInvoicesApi = {
     dateBy: 'tax' | 'issue' | 'received' = 'tax',
     format: 'pdf-zip' | 'pohoda' | 'isdoc' | 'csv' = 'pdf-zip',
   ) => {
-    const sid = localStorage.getItem('myinvoice.current_supplier_id')
+    const sid = requestSupplierId()
     const params = new URLSearchParams({
       period: period.type,
       year: String(period.year),

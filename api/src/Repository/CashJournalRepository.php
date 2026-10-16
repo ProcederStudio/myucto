@@ -6,6 +6,8 @@ namespace MyInvoice\Repository;
 
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Service\Bank\AccountNumberNormalizer;
+use MyInvoice\Service\Bank\BankStatementSource;
+use MyInvoice\Service\Bank\EmailNoticeReconciler;
 use MyInvoice\Service\Vat\VatStatusService;
 use PDO;
 
@@ -39,6 +41,10 @@ final class CashJournalRepository
 {
     /** Ochranný strop stránkování (řádky na dotaz). */
     private const MAX_LIMIT = 5000;
+
+    /** Projekce alokací bankovního pohybu pro nohy, které bankovním pohybem nejsou. */
+    private const NO_BANK_ALLOCATION =
+        'NULL AS bank_alloc_czk, NULL AS bank_alloc_native, NULL AS bank_alloc_cross_ccy, NULL AS bank_native_amount';
 
     public function __construct(private readonly Connection $db) {}
 
@@ -164,7 +170,8 @@ final class CashJournalRepository
                     ccls.tax_bucket AS override_bucket,
                     " . self::otherItemKindSql($sid, 'cash_document_id', 'cd.id') . " AS other_item_kind,
                     " . self::otherItemAllocatedSql($sid, 'cash_document_id', 'cd.id') . " AS other_item_allocated,
-                    'cash' AS instrument, NULL AS gopay_clearing_id, NULL AS gopay_type
+                    'cash' AS instrument, NULL AS gopay_clearing_id, NULL AS gopay_type,
+                    " . self::NO_BANK_ALLOCATION . "
                FROM cash_documents cd
                LEFT JOIN (SELECT cash_document_id,
                                   SUM(CASE WHEN tax_treatment = 'deductible'
@@ -218,10 +225,15 @@ final class CashJournalRepository
             // kurz ke dni skutečného peněžního toku). Fallback na kurz faktury, když pro
             // dané datum/měnu chybí záznam v exchange_rates (NE tichý fallback na 1:1).
             $ipRateBank = $this->ipRateSql('i');
+            // #164: částka řádku je VŽDY skutečný bankovní pohyb. Součet navázaných úhrad
+            // (binc/bexp) ho dřív přebíjel, takže duplicitní párování nafouklo výdaj
+            // i zůstatek a nedopárovaný zbytek pohybu z deníku tiše zmizel. Alokace se
+            // vrací vedle částky (bank_alloc_*) a CashJournalService podle nich jen dělí
+            // pohyb do kbelíků; nesoulad s pohybem hlásí ve warnings[].
             $legs[] =
                 "SELECT 'bank' AS source_type, bt.id AS source_id, bt.posted_at AS movement_date,
                         CASE WHEN bt.amount >= 0 THEN 'in' ELSE 'out' END AS direction,
-                        ROUND(COALESCE(binc.czk_amount, bexp.czk_amount, ABS(bt.amount) * {$feeRate}), 2) AS amount,
+                        ROUND(ABS(bt.amount) * {$feeRate}, 2) AS amount,
                         COALESCE(NULLIF(bt.variable_symbol, ''), bt.bank_ref, '') AS doc_no,
                         COALESCE(bt.counterparty_name, '') AS partner,
                         COALESCE(bt.description, '') AS description,
@@ -247,11 +259,20 @@ final class CashJournalRepository
                         'bank' AS instrument,
                         (SELECT MIN(gc.id) FROM gopay_clearings gc
                           WHERE gc.supplier_id = {$sid} AND gc.bank_transaction_id = bt.id) AS gopay_clearing_id,
-                        NULL AS gopay_type
+                        NULL AS gopay_type,
+                        COALESCE(binc.czk_amount, bexp.czk_amount) AS bank_alloc_czk,
+                        COALESCE(binc.native_amount, bexp.native_amount) AS bank_alloc_native,
+                        COALESCE(binc.cross_ccy, 0) AS bank_alloc_cross_ccy,
+                        ABS(bt.amount) AS bank_native_amount
                    FROM bank_transactions bt
                    LEFT JOIN (
                         SELECT ip.bank_transaction_id AS btid,
                                SUM(ROUND(ip.amount * {$ipRateBank}, 2)) AS czk_amount,
+                               -- Úhrada v měně faktury vs. pohyb v měně účtu: srovnat
+                               -- se dají jen v CZK a rozdíl je kurzový, ne chyba párování.
+                               SUM(ip.amount) AS native_amount,
+                               MAX(COALESCE(NULLIF(ip.currency, ''), 'CZK')
+                                   <> COALESCE(NULLIF(ibt.currency, ''), 'CZK')) AS cross_ccy,
                                -- Paid gross contains rounding. Only the stored VAT is
                                -- excluded from income (same rule as CashJournalService::prorateBase).
                                SUM(ROUND(CASE WHEN i.income_tax_exempt = 1 THEN 0
@@ -272,6 +293,7 @@ final class CashJournalRepository
                                MIN(ip.invoice_id) AS any_invoice_id
                           FROM invoice_payments ip
                           JOIN invoices i ON i.id = ip.invoice_id AND i.supplier_id = {$sid}
+                          JOIN bank_transactions ibt ON ibt.id = ip.bank_transaction_id
                          WHERE ip.supplier_id = {$sid} AND ip.bank_transaction_id IS NOT NULL
                            AND i.status <> 'cancelled'
                          GROUP BY ip.bank_transaction_id
@@ -288,6 +310,7 @@ final class CashJournalRepository
                    LEFT JOIN (
                         SELECT pm.bank_transaction_id AS btid,
                                SUM(ROUND(pm.amount * {$btRate}, 2)) AS czk_amount,
+                               SUM(pm.amount) AS native_amount,
                                MIN(pm.purchase_invoice_id) AS any_pi_id
                           FROM payment_matches pm
                           JOIN purchase_invoices pi ON pi.id = pm.purchase_invoice_id AND pi.supplier_id = {$sid}
@@ -312,6 +335,7 @@ final class CashJournalRepository
                                          AND y.bank_transaction_id IS NULL
                                          AND y.source IN ('manual', 'mark_paid', 'legacy'))
                     )
+                    " . $this->provisionalMovementExclusionSql($stmtIds) . "
                     AND " . sprintf($datePredicate, 'bt.posted_at');
         }
 
@@ -342,7 +366,8 @@ final class CashJournalRepository
                               AND EXISTS (SELECT 1 FROM gopay_settings gs
                                            WHERE gs.supplier_id = {$sid} AND gs.currency = ip.currency)
                          THEN 'gopay' ELSE 'virtual' END AS instrument,
-                    NULL AS gopay_clearing_id, NULL AS gopay_type
+                    NULL AS gopay_clearing_id, NULL AS gopay_type,
+                    " . self::NO_BANK_ALLOCATION . "
                FROM invoice_payments ip
                JOIN invoices ii      ON ii.id = ip.invoice_id AND ii.supplier_id = {$sid}
                LEFT JOIN clients icl ON icl.id = ii.client_id
@@ -377,7 +402,8 @@ final class CashJournalRepository
                     pi.vat_deduction_percent AS pi_vat_deduction_percent,
                     pi.is_fixed_asset AS pi_is_fixed_asset, NULL AS override_bucket,
                     NULL AS other_item_kind, NULL AS other_item_allocated,
-                    'virtual' AS instrument, NULL AS gopay_clearing_id, NULL AS gopay_type
+                    'virtual' AS instrument, NULL AS gopay_clearing_id, NULL AS gopay_type,
+                    " . self::NO_BANK_ALLOCATION . "
                FROM purchase_invoices pi
                LEFT JOIN currencies pcur ON pcur.id = pi.currency_id
                LEFT JOIN clients pv      ON pv.id = pi.vendor_id
@@ -424,7 +450,8 @@ final class CashJournalRepository
                     NULL AS pi_deductible, NULL AS pi_kind, NULL AS pi_vat_deduction,
                     NULL AS pi_vat_deduction_percent, NULL AS pi_is_fixed_asset, NULL AS override_bucket,
                     NULL AS other_item_kind, NULL AS other_item_allocated,
-                    'gopay' AS instrument, gc.id AS gopay_clearing_id, gm.movement_type AS gopay_type
+                    'gopay' AS instrument, gc.id AS gopay_clearing_id, gm.movement_type AS gopay_type,
+                    " . self::NO_BANK_ALLOCATION . "
                FROM gopay_movements gm
                JOIN gopay_clearings gc ON gc.id = gm.clearing_id AND gc.supplier_id = {$sid}
                LEFT JOIN invoices gcn
@@ -627,6 +654,111 @@ final class CashJournalRepository
     }
 
     /**
+     * #164: podmínka bankovní nohy, která vyřadí provizorní pohyby (e-mailové avízo,
+     * iDoklad) tam, kde už platí oficiální výpis téhož účtu.
+     *
+     * Avízo je jen předběžná zpráva o pohybu. Dokud za jeho den chybí výpis, je jediným
+     * dokladem peněžního toku a v deníku zůstává. Jakmile výpis týž den pokryje, nese
+     * pohyb on a avízo by tentýž tok započetlo podruhé, ať už ho převzetí z avíza
+     * rozpárovalo (EmailNoticeReconciler::transfer), označilo za nahrazené, nebo
+     * zůstalo nespárované. Pravidlo proto nestojí na výsledku párování (vazbu avízo ×
+     * pohyb výpisu dnešní převzetí nikam neukládá), ale na pokrytí období výpisem.
+     *
+     * Pokrytí = rozsah dat pohybů každého oficiálního výpisu účtu; sousední výpisy se
+     * slévají přes mezeru do EmailNoticeReconciler::DATE_WINDOW_DAYS, aby denní výpisy
+     * pokryly i víkend, kdy banka neúčtuje, ale karta platí. Delší mezera (chybějící
+     * měsíc výpisů) pokrytá není a avíza z ní v deníku zůstanou.
+     *
+     * Ignorované avízo do deníku nepatří nikdy: ignoruje ho nahrazení výpisem nebo
+     * uživatel, který tím říká, že k pohybu nedošlo. U oficiálního výpisu ignorování
+     * jen vypíná párování, peníze se pohnuly, a proto se ho tahle podmínka netýká.
+     *
+     * Podvojné účetnictví avíza neúčtuje vůbec („Avízo se neúčtuje", BankPostingService).
+     * Daňová evidence je kasová a firma bez importu výpisů nemá jiný doklad o pohybu
+     * než avízo, proto se tu avízo počítá až do pokrytí výpisem.
+     *
+     * @param list<int> $stmtIds výpisy firmy z matchingStatementIds()
+     */
+    private function provisionalMovementExclusionSql(array $stmtIds): string
+    {
+        $pdo = $this->db->pdo();
+        $inList = implode(',', array_map('intval', $stmtIds));
+        $statements = $pdo->query(
+            "SELECT id, source, account_number FROM bank_statements WHERE id IN ({$inList})"
+        )->fetchAll(PDO::FETCH_ASSOC);
+
+        $provisional = [];
+        $official = [];
+        foreach ($statements as $s) {
+            $account = AccountNumberNormalizer::normalize((string) $s['account_number']);
+            if (BankStatementSource::isStatement((string) $s['source'])) {
+                $official[$account][] = (int) $s['id'];
+            } else {
+                $provisional[$account][] = (int) $s['id'];
+            }
+        }
+        if ($provisional === []) {
+            return '';
+        }
+
+        $covered = [];
+        foreach ($provisional as $account => $ids) {
+            $intervals = isset($official[$account]) ? $this->coveredIntervals($official[$account]) : [];
+            if ($intervals === []) {
+                continue;
+            }
+            $ranges = implode(' OR ', array_map(
+                static fn (array $i): string => "bt.posted_at BETWEEN '{$i[0]}' AND '{$i[1]}'",
+                $intervals,
+            ));
+            $covered[] = '(bt.statement_id IN (' . implode(',', $ids) . ") AND ({$ranges}))";
+        }
+
+        $allProvisional = implode(',', array_merge(...array_values($provisional)));
+        $conditions = ["bt.match_status = 'ignored'"];
+        if ($covered !== []) {
+            $conditions[] = implode(' OR ', $covered);
+        }
+        return "AND NOT (bt.statement_id IN ({$allProvisional}) AND (" . implode(' OR ', $conditions) . '))';
+    }
+
+    /**
+     * Období pokrytá oficiálními výpisy jednoho účtu jako seřazené, slité intervaly
+     * [od, do] (YYYY-MM-DD).
+     *
+     * @param list<int> $statementIds
+     * @return list<array{0:string,1:string}>
+     */
+    private function coveredIntervals(array $statementIds): array
+    {
+        $rows = $this->db->pdo()->query(
+            'SELECT MIN(posted_at) AS covered_from, MAX(posted_at) AS covered_to
+               FROM bank_transactions
+              WHERE statement_id IN (' . implode(',', array_map('intval', $statementIds)) . ')
+              GROUP BY statement_id
+              ORDER BY covered_from'
+        )->fetchAll(PDO::FETCH_ASSOC);
+
+        $merged = [];
+        foreach ($rows as $row) {
+            $from = substr((string) $row['covered_from'], 0, 10);
+            $to = substr((string) $row['covered_to'], 0, 10);
+            $last = count($merged) - 1;
+            if ($last >= 0) {
+                $gapLimit = (new \DateTimeImmutable($merged[$last][1]))
+                    ->modify('+' . (EmailNoticeReconciler::DATE_WINDOW_DAYS + 1) . ' days')
+                    ->format('Y-m-d');
+                if ($from <= $gapLimit) {
+                    $merged[$last][1] = max($merged[$last][1], $to);
+                    continue;
+                }
+            }
+            $merged[] = [$from, $to];
+        }
+        return $merged;
+    }
+
+    /**
      * H2: počet bankovních úhrad (invoice_payments s bank_transaction_id JAKÉHOKOLI source —
      * dedup nohou B/C1 klíčuje na bt_id bez ohledu na source — + payment_matches), jejichž
      * bank_transaction_id NEleží v žádném spárovaném výpisu daného supplieru (matchingStatementIds).
@@ -727,9 +859,11 @@ final class CashJournalRepository
         }
         foreach (['cash_vat_base', 'cash_vat_amount', 'inv_without_vat', 'inv_vat', 'inv_with_vat',
                   'pi_without_vat', 'pi_vat', 'pi_with_vat', 'pi_vat_deduction_percent',
-                  'bank_income_base', 'bank_income_exempt'] as $k) {
+                  'bank_income_base', 'bank_income_exempt', 'bank_alloc_czk', 'bank_alloc_native',
+                  'bank_native_amount'] as $k) {
             $r[$k] = (!array_key_exists($k, $r) || $r[$k] === null) ? null : round((float) $r[$k], 2);
         }
+        $r['bank_alloc_cross_ccy'] = (int) ($r['bank_alloc_cross_ccy'] ?? 0) === 1;
         $r['inv_exempt']    = ($r['inv_exempt'] === null) ? null : (int) $r['inv_exempt'];
         $r['pi_deductible'] = ($r['pi_deductible'] === null) ? null : (int) $r['pi_deductible'];
         $r['pi_is_fixed_asset'] = ($r['pi_is_fixed_asset'] === null) ? null : (int) $r['pi_is_fixed_asset'];

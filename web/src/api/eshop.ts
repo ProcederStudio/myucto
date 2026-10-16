@@ -1,3 +1,4 @@
+import { requestSupplierId } from '@/workspace/supplierContext'
 import { api } from './client'
 import type { StockItemPayload, StockTrackingMode } from './stock'
 
@@ -746,7 +747,7 @@ export const eshopApi = {
     api.delete<{ deleted: true }>(`/eshop/media/${mediaId}`).then(r => r.data),
   /** URL binárky média pro <img>/odkaz (supplier_id v query pro auth kontext). */
   mediaFileUrl: (mediaId: number) => {
-    const sid = localStorage.getItem('myinvoice.current_supplier_id')
+    const sid = requestSupplierId()
     const qs = sid && /^\d+$/.test(sid) ? `?supplier_id=${sid}` : ''
     return `/api/eshop/media/${mediaId}/file${qs}`
   },

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useWindowRefresh } from '@/composables/useWindowRefresh'
 import { ref, computed, onMounted, watch } from 'vue'
 import ListLoadingSpinner from '@/components/ui/ListLoadingSpinner.vue'
 import { useFillViewportHeight } from '@/composables/useFillViewportHeight'
@@ -1011,6 +1012,8 @@ async function bulkSetKind() {
   markRowsTouched('purchase_invoice', done)
   await load()
 }
+useWindowRefresh(['purchase-invoices', 'clients', 'bank', 'bank-transactions', 'cash', 'accounting'], () => load(),
+  () => !bulkBusy.value && selectedIds.value.length === 0)
 </script>
 
 <template>

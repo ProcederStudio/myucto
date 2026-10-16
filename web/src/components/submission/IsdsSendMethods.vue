@@ -14,6 +14,7 @@ import { apiErrorMessage } from '@/api/errors'
 import { dataBoxApi, type GatewayStart } from '@/api/dataBox'
 import { ICONS, btnFilled, btnOutlineSm } from '@/components/ui/buttonStyles'
 import MobileKeySendButton from '@/components/submission/MobileKeySendButton.vue'
+import { navigateFullPage } from '@/workspace/fullPageNavigation'
 
 type Method = 'gateway' | 'mobile_key' | 'password' | 'sms' | 'certificate'
 
@@ -125,7 +126,7 @@ async function startGateway() {
 
 function continueGateway() {
   // Plná navigace: cíl je v perimetru ISDS a vrací se na návratovou adresu.
-  if (gateway.value) window.location.assign(gateway.value.redirect_url)
+  if (gateway.value) navigateFullPage(gateway.value.redirect_url)
 }
 
 function credentialsFilled(): boolean {

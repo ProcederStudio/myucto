@@ -36,6 +36,7 @@ const nodeTests = [
 ]
 
 const jsdomTests = [
+  'src/workspace/__tests__/windowFrameShortcuts.spec.ts',
   'src/directives/__tests__/columnLabels.spec.ts',
   'src/composables/__tests__/{useAdaptiveTableRows,useKeyboardShortcuts}.spec.ts',
   'src/pages/activation/__tests__/ZakoupeniResume.spec.ts',

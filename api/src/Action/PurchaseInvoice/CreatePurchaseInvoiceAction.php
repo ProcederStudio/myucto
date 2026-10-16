@@ -123,8 +123,8 @@ final class CreatePurchaseInvoiceAction
             ? (bool) $body['vendor_is_vat_payer']
             : (isset($vendor['is_vat_payer']) ? (bool) $vendor['is_vat_payer'] : true);
         $vendorNonPayer = !$vendorIsPayer;
-        if ($vendorNonPayer && !array_key_exists('vat_deduction', $body)) {
-            $body['vat_deduction'] = 'none';
+        if (!array_key_exists('vat_deduction', $body)) {
+            $body['vat_deduction'] = PurchaseInvoiceValidation::defaultVatDeduction($vendorIsPayer, $body);
         }
 
         // Nespolehlivý plátce (CRPDPH, §109 ZDPH ručení za DPH) — audit 2026-07,

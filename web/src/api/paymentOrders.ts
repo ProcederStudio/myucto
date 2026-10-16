@@ -1,3 +1,4 @@
+import { requestSupplierId } from '@/workspace/supplierContext'
 import { api } from './client'
 import type { PaymentAccountSource } from './purchaseInvoices'
 import type { PaymentMethod, PaymentMethodSource } from './invoices'
@@ -326,7 +327,7 @@ export const paymentOrdersApi = {
    * supplier_id v query param (X-Supplier-Id header se při window.open neposílá).
    */
   downloadUrl: (id: number, format: PaymentOrderFormat): string => {
-    const sid = localStorage.getItem('myinvoice.current_supplier_id')
+    const sid = requestSupplierId()
     const params = new URLSearchParams({ format })
     if (sid && /^\d+$/.test(sid)) params.set('supplier_id', sid)
     return `/api/purchase-invoices/payment-orders/${id}/download?${params.toString()}`

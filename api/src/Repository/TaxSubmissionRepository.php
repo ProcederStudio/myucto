@@ -412,6 +412,11 @@ final class TaxSubmissionRepository
             $params = array_merge($params, array_values($scopeOut));
         }
 
+        if (isset($filters['submission_id'])) {
+            $where[] = 't.id = ?';
+            $params[] = (int) $filters['submission_id'];
+        }
+
         $status = trim((string) ($filters['status'] ?? ''));
         if ($status !== '') {
             $where[] = 't.status = ?';
@@ -441,7 +446,7 @@ final class TaxSubmissionRepository
     /**
      * Stránka seznamu per tenant. Vrátí bez `xml_content` (jen metadata) pro list view.
      *
-     * @param array<string,mixed> $filters status|form_code|q|allowed_form_codes
+     * @param array<string,mixed> $filters submission_id|status|form_code|q|allowed_form_codes
      * @return list<array<string,mixed>>
      */
     public function list(int $supplierId, array $filters = [], int $limit = 50, int $offset = 0): array

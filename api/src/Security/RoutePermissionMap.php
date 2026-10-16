@@ -61,7 +61,8 @@ final class RoutePermissionMap
         // Přesný allowlist provozních nastavení delegovatelných klientovi. Musí být
         // před obecným /api/settings fallbackem: `settings.company = WRITE` nikdy
         // nesmí otevřít PUT /api/settings/supplier ani účetní/daňové konfigurace.
-        ['*', '#^/api/settings/client/(email-profiles|branding|payment-qr)(/|$)#', 'settings.company', AccessLevel::WRITE],
+        ['*', '#^/api/settings/client/(email-profiles|email-templates|branding|payment-qr|signing|pdf-signing)(/|$)#', 'settings.company', AccessLevel::WRITE],
+        ['*', '#^/api/settings/email-templates(/|$)#', 'settings.company.write', AccessLevel::WRITE],
         ['GET', '#^/api/settings/domains(/|$)#', 'settings.domains', AccessLevel::READ],
         ['*', '#^/api/settings/domains(/|$)#', 'settings.domains', AccessLevel::WRITE],
         ['GET', '#^/api/auth/tokens(/|$)#', 'profile.tokens', AccessLevel::READ],

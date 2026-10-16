@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useWindowRefresh } from '@/composables/useWindowRefresh'
 import { ref, reactive, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import ListLoadingSpinner from '@/components/ui/ListLoadingSpinner.vue'
 import { useFillViewportHeight } from '@/composables/useFillViewportHeight'
@@ -1204,6 +1205,8 @@ const yearOptions = useYearOptions('invoices', yearFilter)
 // `tm()` vrací raw translation message (pole), kdežto `t()` na poli vrátí stringified verzi.
 // `rt()` zformátuje jednotlivé položky pole (pro případnou interpolaci).
 const monthOptions = computed(() => (tm('common.months_short') as unknown as string[]).map(m => rt(m)))
+useWindowRefresh(['invoices', 'clients', 'bank', 'bank-transactions', 'cash', 'accounting'], () => load(),
+  () => !bulkBusy.value && !bulkPdfOpen.value && !ossBulkOpen.value && !wrModalOpen.value && selectedIds.value.length === 0)
 </script>
 
 <template>

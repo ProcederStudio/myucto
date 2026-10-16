@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useWindowRefresh } from '@/composables/useWindowRefresh'
 import { computed, ref, watch, onMounted } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -73,6 +74,7 @@ function tabLabel(v: Tab): string {
     : v === 'balances' ? t('bank_accounts.tab_balances')
     : t('bank_accounts.tab_email_notices')
 }
+useWindowRefresh(['bank', 'bank-statements', 'bank-transactions', 'bank-match-suggestions', 'accounting', 'invoices', 'purchase-invoices', 'clients'], loadPendingCount)
 </script>
 
 <template>

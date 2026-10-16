@@ -62,6 +62,10 @@ final readonly class PayrollTakeoverMonth
         public ?int $sicknessExcludedDays = null,
         /** Příjem včetně nepojištěné činnosti (JMHZ 10476); `null` = zdroj ho nevydal. */
         public ?int $uninsuredIncomeMinor = null,
+        /** Čerpání ročních košů benefitů v převzatém měsíci; `null` = zdroj je nevydal. */
+        public ?int $oldAgeSavingsContributionMinor = null,
+        public ?int $nonCashHealthBenefitMinor = null,
+        public ?int $nonCashLeisureBenefitMinor = null,
     ) {}
 
     /** @param array<string,mixed> $row řádek `payroll_migration_reference_totals` */
@@ -100,6 +104,9 @@ final readonly class PayrollTakeoverMonth
             self::text($row, 'import_reference'),
             self::nullableInt($row, 'sickness_excluded_days'),
             self::nullableInt($row, 'uninsured_income_minor'),
+            self::nullableInt($row, 'old_age_savings_contribution_minor'),
+            self::nullableInt($row, 'non_cash_health_benefit_minor'),
+            self::nullableInt($row, 'non_cash_leisure_benefit_minor'),
         );
     }
 

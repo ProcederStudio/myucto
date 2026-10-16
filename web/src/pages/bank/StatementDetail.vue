@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useWindowRefresh } from '@/composables/useWindowRefresh'
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute, RouterLink, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -496,6 +497,7 @@ const statementActions = computed<ActionItem[]>(() => {
     },
   ]
 })
+useWindowRefresh(['bank', 'bank-statements', 'bank-transactions', 'bank-match-suggestions', 'accounting', 'invoices', 'purchase-invoices', 'clients'], refreshTransactions)
 </script>
 
 <template>

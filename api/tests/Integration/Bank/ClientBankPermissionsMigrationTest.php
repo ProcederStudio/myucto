@@ -12,7 +12,7 @@ use PHPUnit\Framework\TestCase;
 #[Group('integration')]
 final class ClientBankPermissionsMigrationTest extends TestCase
 {
-    private const MIGRATION = '2007_client_bank_permissions.sql';
+    private const MIGRATION = '2010_client_bank_permissions.sql';
 
     private ?PDO $server = null;
     private ?PDO $db = null;

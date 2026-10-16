@@ -11,7 +11,8 @@ use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\IpMatcher;
 use MyInvoice\Service\Mail\Mailer;
-use MyInvoice\Bootstrap;
+use MyInvoice\Service\Mail\EmailTemplateCatalog;
+use MyInvoice\Service\Mail\EmailTemplateResolver;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
@@ -24,18 +25,13 @@ use Psr\Http\Message\ServerRequestInterface as Request;
  */
 final class EmailTemplateAction
 {
-    /**
-     * Známé kódy šablon — fix list, ne dynamický.
-     * Při přidání nového typu emailu rozšířit zde a v api/templates/email/.
-     */
-    private const KNOWN = ['invoice_send', 'invoice_payment_thanks', 'invoice_reminder', 'proforma_reminder', 'invoice_approval', 'purchase_invoice_approval', 'recurring_draft_reminder', 'document_request_reminder', 'password_reset', 'user_invite', 'login_otp', 'email_profile_test', 'work_report_link', 'work_report_access_code', 'payroll_document_secure_link', 'payroll_document_access_code'];
-    private const LOCALES = ['cs', 'en'];
-
     public function __construct(
         private readonly EmailTemplateRepository $repo,
         private readonly ActivityLogger $logger,
         private readonly IpMatcher $ipMatcher,
         private readonly Mailer $mailer,
+        private readonly EmailTemplateCatalog $catalog,
+        private readonly EmailTemplateResolver $resolver,
     ) {}
 
     public function list(Request $request, Response $response): Response
@@ -51,8 +47,8 @@ final class EmailTemplateAction
         }
 
         $rows = [];
-        foreach (self::KNOWN as $code) {
-            foreach (self::LOCALES as $locale) {
+        foreach (EmailTemplateCatalog::CODES as $code) {
+            foreach (EmailTemplateCatalog::LOCALES as $locale) {
                 $key = "$code.$locale";
                 $rows[] = [
                     'code'         => $code,
@@ -70,19 +66,20 @@ final class EmailTemplateAction
         if (!$this->guard($request, $response, $err)) return $err;
         $code = (string) ($args['code'] ?? '');
         $locale = (string) ($args['locale'] ?? '');
-        if (!in_array($code, self::KNOWN, true) || !in_array($locale, self::LOCALES, true)) {
+        if (!in_array($code, EmailTemplateCatalog::CODES, true) || !in_array($locale, EmailTemplateCatalog::LOCALES, true)) {
             return Json::error($response, 'not_found', 'Šablona neexistuje.', 404);
         }
 
         $tpl = $this->repo->find($code, $locale);
-        $defaults = $this->loadDefaults($code, $locale);
+        $defaults = $this->catalog->defaults($code, $locale) ?? $this->catalog->defaults($code, 'cs');
+        $resolved = $this->resolver->resolve($code, $locale);
 
         return Json::ok($response, [
             'code'      => $code,
             'locale'    => $locale,
-            'subject'   => $tpl['subject']   ?? $defaults['subject'],
-            'body_html' => $tpl['body_html'] ?? $defaults['body_html'],
-            'body_text' => $tpl['body_text'] ?? $defaults['body_text'],
+            'subject'   => $resolved['subject'],
+            'body_html' => $resolved['body_html'],
+            'body_text' => $resolved['body_text'],
             'has_override' => $tpl !== null,
             'updated_at'   => $tpl['updated_at'] ?? null,
             'defaults'  => $defaults, // pro „Reset na default" tlačítko v UI
@@ -94,7 +91,7 @@ final class EmailTemplateAction
         if (!$this->guard($request, $response, $err)) return $err;
         $code = (string) ($args['code'] ?? '');
         $locale = (string) ($args['locale'] ?? '');
-        if (!in_array($code, self::KNOWN, true) || !in_array($locale, self::LOCALES, true)) {
+        if (!in_array($code, EmailTemplateCatalog::CODES, true) || !in_array($locale, EmailTemplateCatalog::LOCALES, true)) {
             return Json::error($response, 'not_found', 'Šablona neexistuje.', 404);
         }
 
@@ -109,7 +106,7 @@ final class EmailTemplateAction
 
         // Pre-render přes sandbox — zachytíme nepovolené tagy/filtry/syntax dřív,
         // než user pošle email a uvidí runtime crash (issue #25 follow-up).
-        $validation = $this->mailer->validateUserTemplate($bodyHtml, $bodyText);
+        $validation = $this->mailer->validateUserTemplate($bodyHtml, $bodyText, $subject);
         if ($validation !== null) {
             return Json::error($response, 'validation_failed', $validation['message'], 400, [
                 'field' => $validation['field'],
@@ -141,59 +138,6 @@ final class EmailTemplateAction
         ], $ip, $request->getHeaderLine('User-Agent'));
 
         return Json::ok($response, ['deleted' => true]);
-    }
-
-    private function loadDefaults(string $code, string $locale): array
-    {
-        $dir = Bootstrap::rootDir() . '/api/templates/email';
-        $html = @file_get_contents("$dir/{$code}.{$locale}.html.twig") ?: '';
-        $text = @file_get_contents("$dir/{$code}.{$locale}.txt.twig") ?: '';
-        return [
-            'subject'   => $this->defaultSubject($code, $locale),
-            'body_html' => $html,
-            'body_text' => $text,
-        ];
-    }
-
-    private function defaultSubject(string $code, string $locale): string
-    {
-        $cs = [
-            'invoice_send'      => 'Faktura {{ invoice.varsymbol }}',
-            'invoice_payment_thanks' => 'Děkujeme za úhradu faktury {{ invoice.varsymbol }}',
-            'invoice_reminder'  => 'Upomínka — faktura {{ invoice.varsymbol }} ({{ days_overdue }} dní po splatnosti)',
-            'proforma_reminder' => 'Připomínka — záloha {{ invoice.varsymbol }} ({{ days_overdue }} dní po splatnosti)',
-            'invoice_approval'  => 'Žádost o schválení výkazu práce ({{ invoice.varsymbol_or_id }})',
-            'purchase_invoice_approval' => '{{ is_reminder ? \'Připomínka: \' : \'\' }}Doklad ke schválení: {{ vendor_name }} {{ document_number }}',
-            'recurring_draft_reminder' => 'Koncept pravidelné faktury se brzy vystaví ({{ issue_date }})',
-            'document_request_reminder' => 'Chybí doklad — {{ description }}',
-            'password_reset'    => 'Obnova hesla',
-            'user_invite'       => 'Pozvánka nového uživatele',
-            'login_otp'         => 'Ověřovací kód pro přihlášení',
-            'email_profile_test'=> 'Test odesílacího profilu',
-            'work_report_link'  => 'Náhled na výkaz práce — MyÚčto.cz',
-            'work_report_access_code' => 'Ověřovací kód pro náhled výkazu práce — MyÚčto.cz',
-            'payroll_document_secure_link' => 'Váš mzdový dokument — MyÚčto.cz',
-            'payroll_document_access_code' => 'Ověřovací kód pro mzdový dokument — MyÚčto.cz',
-        ];
-        $en = [
-            'invoice_send'      => 'Invoice {{ invoice.varsymbol }}',
-            'invoice_payment_thanks' => 'Thank you for your payment — invoice {{ invoice.varsymbol }}',
-            'invoice_reminder'  => 'Reminder — invoice {{ invoice.varsymbol }} ({{ days_overdue }} days overdue)',
-            'proforma_reminder' => 'Reminder — proforma {{ invoice.varsymbol }} ({{ days_overdue }} days overdue)',
-            'invoice_approval'  => 'Work report — please approve ({{ invoice.varsymbol_or_id }})',
-            'purchase_invoice_approval' => '{{ is_reminder ? \'Reminder: \' : \'\' }}Document to approve: {{ vendor_name }} {{ document_number }}',
-            'recurring_draft_reminder' => 'Recurring invoice draft will be issued soon ({{ issue_date }})',
-            'document_request_reminder' => 'Missing document — {{ description }}',
-            'password_reset'    => 'Password reset',
-            'user_invite'       => 'New user invitation',
-            'login_otp'         => 'Sign-in verification code',
-            'email_profile_test'=> 'Sending profile test',
-            'work_report_link'  => 'Work report preview — MyÚčto.cz',
-            'work_report_access_code' => 'Verification code for work report preview — MyÚčto.cz',
-            'payroll_document_secure_link' => 'Your payroll document — MyÚčto.cz',
-            'payroll_document_access_code' => 'Verification code for your payroll document — MyÚčto.cz',
-        ];
-        return ($locale === 'en' ? $en : $cs)[$code] ?? '';
     }
 
     private function guard(Request $request, Response $response, ?Response &$err): bool

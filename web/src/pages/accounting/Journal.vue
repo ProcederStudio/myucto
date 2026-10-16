@@ -658,6 +658,13 @@ async function deleteEntry(entry: JournalEntryDetail) {
   }
 }
 
+// Přeúčtování zápis přepíše na místě, nebo ho stornuje a přidá nový — v obou
+// případech se seznam i rozbalené detaily musí načíst znovu.
+async function onReposted() {
+  collapseAll()
+  await load()
+}
+
 /**
  * Stornovaný zápis i jeho protizápis jdou z deníku odstranit úplně, dokud je období
  * otevřené. Obě strany se vzájemně ruší, takže se smazáním nezmění žádný zůstatek ani
@@ -1141,7 +1148,8 @@ function entryRange(entry: JournalEntryDetail): { from: string; to: string } {
                     :date-from="entryRange(details[e.id]!).from" :date-to="entryRange(details[e.id]!).to"
                     @preview="id => sourceDrawerEntryId = id" @focus-entry="onFocusEntry"
                     @description-updated="onDescriptionUpdated" @links-changed="onLinksChanged"
-                    @reverse="reverse" @remove="deleteEntry" @remove-pair="deleteEntryPair" @open-reversal="openReversal" />
+                    @reverse="reverse" @remove="deleteEntry" @remove-pair="deleteEntryPair" @open-reversal="openReversal"
+                    @reposted="onReposted" />
                 </td>
               </tr>
             </template>
@@ -1221,7 +1229,8 @@ function entryRange(entry: JournalEntryDetail): { from: string; to: string } {
               :date-from="entryRange(details[e.id]!).from" :date-to="entryRange(details[e.id]!).to"
               @preview="id => sourceDrawerEntryId = id" @focus-entry="onFocusEntry"
               @description-updated="onDescriptionUpdated" @links-changed="onLinksChanged"
-              @reverse="reverse" @remove="deleteEntry" @remove-pair="deleteEntryPair" @open-reversal="openReversal" />
+              @reverse="reverse" @remove="deleteEntry" @remove-pair="deleteEntryPair" @open-reversal="openReversal"
+              @reposted="onReposted" />
           </div>
         </div>
       </div>

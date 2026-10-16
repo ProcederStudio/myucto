@@ -9,6 +9,7 @@ import { bankPostingApi, bankPostingErrorMessage, type PostResult } from '@/api/
 import { btnFilledSm, btnOutlineSm, ICONS } from '@/components/ui/buttonStyles'
 import PostTransactionModal from './PostTransactionModal.vue'
 import RepostModal from '@/components/accounting/RepostModal.vue'
+import WorkspaceTeleport from '@/components/workspace/WorkspaceTeleport.vue'
 
 const props = defineProps<{ tx: BankTransaction; currency: string }>()
 const emit = defineEmits<{ changed: []; posted: [{ result: PostResult; debit: string; credit: string }] }>()
@@ -189,10 +190,10 @@ function onPosted(payload: { result: PostResult; debit: string; credit: string }
     <PostTransactionModal v-if="showModal" :tx="tx" :currency="currency"
       @posted="onPosted" @close="showModal = false" />
 
-    <Teleport to="body">
+    <WorkspaceTeleport>
       <RepostModal v-if="repostOpen" :open="repostOpen" source="bank-transactions" :doc-id="tx.id"
         :doc-label="tx.description || tx.variable_symbol"
         @close="repostOpen = false" @reposted="onReposted" @dimensions-saved="emit('changed')" />
-    </Teleport>
+    </WorkspaceTeleport>
   </div>
 </template>

@@ -17,6 +17,8 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { isAxiosError } from 'axios'
+import { navigateFullPage } from '@/workspace/fullPageNavigation'
+import { pageLocation, replacePageLocation } from '@/workspace/pageLocation'
 import {
   dataBoxApi,
   type AcceptanceState,
@@ -1630,15 +1632,15 @@ function resetRecipientForm() {
  * a obnovení stránky s ním v adrese by skončilo `SESSION_NOT_FOUND`.
  */
 async function handleGatewayReturn(): Promise<boolean> {
-  const params = new URLSearchParams(window.location.search)
+  const url = pageLocation(route)
+  const params = url.searchParams
   const appToken = params.get('appToken') ?? ''
   const sessionId = params.get('sessionId') ?? ''
   if (appToken === '' || sessionId === '') return false
 
   params.delete('appToken')
   params.delete('sessionId')
-  const query = params.toString()
-  window.history.replaceState({}, '', window.location.pathname + (query === '' ? '' : '?' + query))
+  replacePageLocation(router, url)
 
   tab.value = 'outbox'
   try {
@@ -1655,7 +1657,7 @@ async function handleGatewayReturn(): Promise<boolean> {
       // Koncept leží v datové schránce. Uživatel ho jde zkontrolovat
       // a schválit — teprve tím zpráva odejde.
       gatewayNotice.value = { state: result.state, message: result.message, messageId: null }
-      window.location.assign(result.redirect_url)
+      navigateFullPage(result.redirect_url)
 
       return true
     }
@@ -1679,7 +1681,7 @@ async function handleGatewayReturn(): Promise<boolean> {
 }
 
 onMounted(async () => {
-  const params = new URLSearchParams(window.location.search)
+  const params = pageLocation(route).searchParams
   const requestedTab = params.get('tab') ?? (inboxFromUrl ? 'inbox' : null)
   if (requestedTab && ['access', 'outbox', 'inbox', 'notices', 'recipients'].includes(requestedTab)) {
     tab.value = requestedTab as Tab

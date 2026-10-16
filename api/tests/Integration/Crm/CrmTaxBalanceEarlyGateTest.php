@@ -80,6 +80,7 @@ final class CrmTaxBalanceEarlyGateTest extends TestCase
         self::assertNotNull($item);
         self::assertSame('dppo_balance_due', $item['type']);
         self::assertSame(8, $item['days']);
+        self::assertSame('/reports/income-tax?year=2026', $item['link']);
         self::assertStringContainsString('1 000', $item['hint']);
     }
 
@@ -95,6 +96,7 @@ final class CrmTaxBalanceEarlyGateTest extends TestCase
         self::assertNotNull($item);
         self::assertSame('dppo_balance_due', $item['type']);
         self::assertStringContainsString('DPPO 2025', $item['hint']);
+        self::assertSame('/reports/income-tax?year=2025', $item['link']);
         self::assertStringContainsString('750', $item['hint']);
     }
 

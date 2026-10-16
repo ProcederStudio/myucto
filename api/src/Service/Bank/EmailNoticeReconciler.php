@@ -42,8 +42,11 @@ use PDO;
  */
 final class EmailNoticeReconciler
 {
-    /** Datum avíza (datum e-mailu) se může lišit od data zaúčtování v GPC. */
-    private const DATE_WINDOW_DAYS = 5;
+    /**
+     * Datum avíza (datum e-mailu) se může lišit od data zaúčtování v GPC. Stejné okno
+     * používá peněžní deník při rozhodování, které období už pokrývá oficiální výpis.
+     */
+    public const DATE_WINDOW_DAYS = 5;
     /** Částka z avíza i GPC je týž převod — povolíme jen haléřový rozdíl zaokrouhlení. */
     private const AMOUNT_TOLERANCE = 0.005;
     /**

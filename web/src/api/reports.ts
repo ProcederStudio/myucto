@@ -1,3 +1,4 @@
+import { requestSupplierId } from '@/workspace/supplierContext'
 import { api } from './client'
 
 export interface DphPriznaniLine {
@@ -780,7 +781,7 @@ export const reportsApi = {
     year: number, month: number, period?: 'monthly' | 'quarterly',
     variant: ShvVariant = 'radne', dZjist?: string,
   ) => {
-    const sid = localStorage.getItem('myinvoice.current_supplier_id')
+    const sid = requestSupplierId()
     const params = new URLSearchParams({ year: String(year), month: String(month) })
     if (sid && /^\d+$/.test(sid)) params.set('supplier_id', sid)
     if (period) params.set('period', period)
@@ -793,7 +794,7 @@ export const reportsApi = {
     year: number, month: number, period?: 'monthly' | 'quarterly',
     variant: KhVariant = 'radne', dZjist?: string, cJedVyzvy?: string, acknowledgeMismatch?: boolean,
   ) => {
-    const sid = localStorage.getItem('myinvoice.current_supplier_id')
+    const sid = requestSupplierId()
     const params = new URLSearchParams({ year: String(year), month: String(month) })
     if (sid && /^\d+$/.test(sid)) params.set('supplier_id', sid)
     if (period) params.set('period', period)
@@ -811,7 +812,7 @@ export const reportsApi = {
     }).then(r => r.data),
 
   dphBookPdfUrl: (year: number, month: number, period?: 'monthly' | 'quarterly') => {
-    const sid = localStorage.getItem('myinvoice.current_supplier_id')
+    const sid = requestSupplierId()
     const params = new URLSearchParams({ year: String(year), month: String(month) })
     if (period) params.set('period', period)
     if (sid && /^\d+$/.test(sid)) params.set('supplier_id', sid)
@@ -825,7 +826,7 @@ export const reportsApi = {
     }).then(r => r.data),
 
   khEvidenceDownloadUrl: (year: number, month: number, period: 'monthly' | 'quarterly', section: KhEvidenceSection, format: 'pdf' | 'xlsx') => {
-    const sid = localStorage.getItem('myinvoice.current_supplier_id')
+    const sid = requestSupplierId()
     const params = new URLSearchParams({ year: String(year), month: String(month), period, section, format })
     if (sid && /^\d+$/.test(sid)) params.set('supplier_id', sid)
     return `/api/reports/kh-evidence?${params.toString()}`
@@ -838,7 +839,7 @@ export const reportsApi = {
     }).then(r => r.data),
 
   khEvidenceSubmittedDownloadUrl: (submissionId: number, section: KhEvidenceSection, format: 'pdf' | 'xlsx') => {
-    const sid = localStorage.getItem('myinvoice.current_supplier_id')
+    const sid = requestSupplierId()
     const params = new URLSearchParams({ section, format })
     if (sid && /^\d+$/.test(sid)) params.set('supplier_id', sid)
     return `/api/reports/submissions/${submissionId}/kh-evidence/export?${params.toString()}`
@@ -853,7 +854,7 @@ export const reportsApi = {
     api.get<OssThresholdProgress>('/reports/oss/threshold', { params: { year } }).then(r => r.data),
 
   ossDownloadUrl: (year: number, quarter: number) => {
-    const sid = localStorage.getItem('myinvoice.current_supplier_id')
+    const sid = requestSupplierId()
     const params = new URLSearchParams({ year: String(year), quarter: String(quarter) })
     if (sid && /^\d+$/.test(sid)) params.set('supplier_id', sid)
     return `/api/reports/oss?${params.toString()}`
@@ -1002,7 +1003,7 @@ export const reportsApi = {
 
   /** URL ke stažení hotového ZIPu — otevírá se přímou navigací (cookie auth + supplier_id query). */
   monthlyExportDownloadUrl: (id: number) => {
-    const sid = localStorage.getItem('myinvoice.current_supplier_id')
+    const sid = requestSupplierId()
     const params = new URLSearchParams()
     if (sid && /^\d+$/.test(sid)) params.set('supplier_id', sid)
     const qs = params.toString()
@@ -1033,7 +1034,7 @@ export const reportsApi = {
     api.delete<{ ok: boolean; deleted: boolean }>(`/reports/closing-package/jobs/${id}`).then(r => r.data),
 
   closingPackageDownloadUrl: (id: number) => {
-    const sid = localStorage.getItem('myinvoice.current_supplier_id')
+    const sid = requestSupplierId()
     const params = new URLSearchParams()
     if (sid && /^\d+$/.test(sid)) params.set('supplier_id', sid)
     const qs = params.toString()
@@ -1045,7 +1046,7 @@ export const reportsApi = {
     year: number, month: number, period?: 'monthly' | 'quarterly', acknowledgeMismatch?: boolean,
     variant: DphVariant = 'radne', dZjist?: string, reason?: string,
   ) => {
-    const sid = localStorage.getItem('myinvoice.current_supplier_id')
+    const sid = requestSupplierId()
     const params = new URLSearchParams({ year: String(year), month: String(month) })
     if (period) params.set('period', period)
     if (sid && /^\d+$/.test(sid)) params.set('supplier_id', sid)

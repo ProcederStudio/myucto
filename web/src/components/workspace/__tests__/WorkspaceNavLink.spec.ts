@@ -5,6 +5,10 @@ import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import WorkspaceNavLink from '@/components/workspace/WorkspaceNavLink.vue'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { destroyPaneRuntimes, registerPaneRuntime } from '@/workspace/runtimeRegistry'
+import { getWindowManager } from '@/workspace/windowRegistry'
+import type { WorkspaceWindowManager } from '@/workspace/windowManager'
+
+vi.mock('@/workspace/windowRegistry', () => ({ getWindowManager: vi.fn() }))
 
 async function mountLink() {
   const pinia = createPinia()
@@ -40,7 +44,22 @@ async function mountLink() {
 }
 
 describe('WorkspaceNavLink', () => {
-  afterEach(() => destroyPaneRuntimes())
+  afterEach(() => {
+    destroyPaneRuntimes()
+    vi.mocked(getWindowManager).mockReset()
+  })
+
+  it('rychlé přidání otevře čisté okno v aktivním panelu místo obnovení jeho obsahu', async () => {
+    const { wrapper, navigate } = await mountLink()
+    const open = vi.fn().mockResolvedValue(undefined)
+    vi.mocked(getWindowManager).mockReturnValue({ open } as unknown as WorkspaceWindowManager)
+    await wrapper.setProps({ fresh: true })
+    await wrapper.trigger('click', { button: 0 })
+
+    expect(open).toHaveBeenCalledWith('/invoices', 'secondary-2', { fresh: true })
+    expect(navigate).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
 
   it('běžný levý klik naviguje aktivní vedlejší panel', async () => {
     const { wrapper, navigate } = await mountLink()

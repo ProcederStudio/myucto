@@ -1,3 +1,4 @@
+import { requestSupplierId } from '@/workspace/supplierContext'
 import { api } from './client'
 import type { AiDocumentAnalysis } from './aiAssistant'
 
@@ -174,7 +175,7 @@ export interface DocJob {
 }
 
 function sid(): string {
-  const s = localStorage.getItem('myinvoice.current_supplier_id')
+  const s = requestSupplierId()
   return s && /^\d+$/.test(s) ? s : ''
 }
 function urlWith(path: string, params: Record<string, string> = {}): string {

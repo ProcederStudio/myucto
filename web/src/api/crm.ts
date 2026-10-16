@@ -289,6 +289,8 @@ export interface TaxCalendarItem {
   deadline: string
   days: number
   link: string
+  /** Reporting period represented by this calendar item, when applicable. */
+  period?: { year: number; month: number | null; quarter: number | null }
   /** null u tax_advance (zálohy se "podávají" platbou — viz status). */
   submitted: boolean | null
   submitted_at?: string | null

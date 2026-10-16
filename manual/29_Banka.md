@@ -504,7 +504,7 @@ Platby bez faktury (odvody na OSSZ/ZP, bankovní poplatky, úroky, leasing …) 
    | Variabilní symbol | Přesná shoda VS (číslice) |
    | Fragment zprávy | Podřetězec v popisu pohybu nebo ve jménu protistrany (bez ohledu na velikost písmen a diakritiku) |
    | Rozsah částky (Kč) | Interval absolutní částky (**od** - **do**), ve kterém se pravidlo použije. Nevyplněná mez znamená „bez omezení“ na dané straně intervalu, nikoli částku 0 Kč |
-   | Měna pravidla | Měna pohybů, na které pravidlo sedí. U jiné měny než CZK lze pravidlem účtovat jen výsledkové účty 5xx/6xx |
+   | Měna pravidla | Měna pohybů, na které pravidlo sedí. U jiné měny než CZK lze pravidlem účtovat jen výsledkové účty 5xx/6xx, vlastní bankovní účet 221 a účty 378 a 379, jejichž cizoměnový zůstatek přecení roční závěrka ([§ 72.4.3](72_Uzaverka.md#7243-krok-3-kurzove-rozdily)) |
    | MD / D | Kontace zápisu, účty musí existovat v [účtovém rozvrhu](66_Ucetni_osnova.md) |
    | Režim | **Návrh**, nebo **Automaticky** |
    | Priorita | Pořadí vyhodnocení (nižší číslo má přednost; pod 50 přebije systémová rozpoznání) |

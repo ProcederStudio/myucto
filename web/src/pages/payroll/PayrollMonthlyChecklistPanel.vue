@@ -29,6 +29,7 @@ import { usePayrollLabels } from '@/composables/usePayrollLabels'
 import { useProductionSendConfirm } from '@/composables/useProductionSendConfirm'
 import { useReceiptFollowUp } from '@/composables/useReceiptFollowUp'
 import { payrollWorkingPeriod } from './payrollComponentsUi'
+import { navigateFullPage } from '@/workspace/fullPageNavigation'
 
 /*
  * Měsíční přehled říká, CO se za měsíc podává, a umí to rovnou připravit
@@ -534,7 +535,7 @@ async function approveGatewayConcept() {
   if (first === undefined) return
   try {
     const gateway = await dataBoxApi.gatewayStartPayroll(first)
-    window.location.assign(gateway.redirect_url)
+    navigateFullPage(gateway.redirect_url)
   } catch (exception) {
     sendSummary.value = apiErrorMessage(exception, t('payroll.submissions.queue.send_failed'))
   }

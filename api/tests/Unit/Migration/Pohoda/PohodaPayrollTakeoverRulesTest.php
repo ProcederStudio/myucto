@@ -62,4 +62,17 @@ final class PohodaPayrollTakeoverRulesTest extends TestCase
         self::assertSame(PohodaPayrollCatalog::TAXABLE_MEAL, PohodaPayrollCatalog::component('O01', 'nadlimit obědy', true)['code']);
         self::assertSame('hourly_wage', PohodaPayrollCatalog::component('M03', 'Práce přesčas v den pracovního klidu', false)['kind']);
     }
+
+    /**
+     * Zařazení odměny podle četnosti z převodu roku bez hlášení (2025) opraví až
+     * hlášení PAMICA dalšího roku; zařazení, které účetní upravila, zůstává.
+     */
+    public function testFrequencyGuessFromEarlierImportYieldsToReports(): void
+    {
+        $guess = ['is_active' => 1, 'is_current_package' => true, 'row_version' => 1, 'target_attribute_id' => '10331'];
+        self::assertTrue(PohodaPayrollImporter::isFrequencyGuess('PAM_O01', $guess));
+        self::assertFalse(PohodaPayrollImporter::isFrequencyGuess('PAM_O01', ['row_version' => 2] + $guess));
+        self::assertFalse(PohodaPayrollImporter::isFrequencyGuess('ODMENA', $guess));
+        self::assertFalse(PohodaPayrollImporter::isFrequencyGuess('PAM_O01', ['target_attribute_id' => '10332'] + $guess));
+    }
 }

@@ -879,12 +879,20 @@ final class PayrollRunCommandService
                     $revisionId,
                     $snapshot,
                 );
-                $this->runs->lockApprovedInputs(
-                    $supplierId,
-                    $revisionId,
-                    (string) $run['period_start'],
-                    $run['office_id'] === null ? null : (int) $run['office_id'],
-                );
+                if ($reopenAsCorrection || $refreshAsCorrection) {
+                    $this->runs->unlockInputsForCorrection(
+                        $supplierId,
+                        (string) $run['period_start'],
+                        $run['office_id'] === null ? null : (int) $run['office_id'],
+                    );
+                } else {
+                    $this->runs->lockApprovedInputs(
+                        $supplierId,
+                        $revisionId,
+                        (string) $run['period_start'],
+                        $run['office_id'] === null ? null : (int) $run['office_id'],
+                    );
+                }
                 $revision = $this->runs->revision($supplierId, $revisionId);
                 $run = $this->runs->updateRun(
                     $supplierId,
@@ -1003,6 +1011,12 @@ final class PayrollRunCommandService
                     $supplierId,
                     (int) $revision['id'],
                     $actorUserId,
+                );
+                $this->runs->lockApprovedInputs(
+                    $supplierId,
+                    (int) $revision['id'],
+                    (string) $run['period_start'],
+                    $run['office_id'] === null ? null : (int) $run['office_id'],
                 );
                 // Absence, kvůli které se běh opravoval, je tímhle vyřízená.
                 // Bez toho zůstal příznak `correction_pending` viset navždy

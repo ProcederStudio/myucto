@@ -13,6 +13,7 @@ use MyInvoice\Service\Accounting\Obligations\OtherItemForecastService;
 use MyInvoice\Service\Invoice\ProformaPaymentDocuments;
 use MyInvoice\Service\Invoice\OverduePolicy;
 use MyInvoice\Service\Report\CzechWorkingDays;
+use MyInvoice\Service\Report\TaxReportLink;
 use MyInvoice\Service\Accounting\UnbookedDocumentsCounter;
 use MyInvoice\Service\License\CommercialFeatureAccess;
 use MyInvoice\Service\License\LicenseService;
@@ -1661,7 +1662,7 @@ final class CrmAggregationService
                             : sprintf('Máš EU plnění — termín podání za %d %s (do %s)', $daysToDeadline,
                                 $daysToDeadline === 1 ? 'den' : ($daysToDeadline < 5 ? 'dny' : 'dní'),
                                 $deadlineDate),
-                        'link'     => '/reports/shv',
+                        'link'     => TaxReportLink::forPeriod('/reports/shv', $this->periodForMonthlyDeadline($deadlineDate)),
                         'days'     => $daysToDeadline,
                     ];
                 }
@@ -2065,7 +2066,7 @@ final class CrmAggregationService
                 && $this->hasForeignRcPurchasesForMonthBefore($supplierId, new \DateTimeImmutable($khDeadline))
             ) {
                 $item = $this->buildDeadlineItem('tax_deadline', 'DPH přiznání (identifikovaná osoba) za uplynulý měsíc',
-                    $khDeadline, '/reports/dph', $now, $maxDaysAhead);
+                    $khDeadline, TaxReportLink::forPeriod('/reports/dph', $ioP), $now, $maxDaysAhead);
                 if ($item !== null) {
                     $items[] = $item;
                 }
@@ -2082,7 +2083,7 @@ final class CrmAggregationService
                 $title = $vatPeriod === 'monthly'
                     ? 'DPH + KH za uplynulý měsíc'
                     : 'DPH + KH ' . $dphPeriod;
-                $item = $this->buildDeadlineItem('tax_deadline', $title, $dphDeadline, '/reports/dph', $now, $maxDaysAhead);
+                $item = $this->buildDeadlineItem('tax_deadline', $title, $dphDeadline, TaxReportLink::forPeriod('/reports/dph', $dphP), $now, $maxDaysAhead);
                 if ($item !== null) {
                     $items[] = $item;
                 }
@@ -2091,14 +2092,14 @@ final class CrmAggregationService
             // Čtvrtletní PO: KH měsíčně + DPH čtvrtletně, dvě samostatné položky.
             if ($khPayer && !$khSubmitted) {
                 $khItem = $this->buildDeadlineItem('kh_deadline', 'Kontrolní hlášení za uplynulý měsíc',
-                    $khDeadline, '/reports/kh', $now, $maxDaysAhead);
+                    $khDeadline, TaxReportLink::forPeriod('/reports/kh', $khP), $now, $maxDaysAhead);
                 if ($khItem !== null) {
                     $items[] = $khItem;
                 }
             }
             if ($dphPayer && $dphActive && !$dphSubmitted) {
                 $dphItem = $this->buildDeadlineItem('tax_deadline', 'DPH ' . $dphPeriod,
-                    $dphDeadline, '/reports/dph', $now, $maxDaysAhead);
+                    $dphDeadline, TaxReportLink::forPeriod('/reports/dph', $dphP), $now, $maxDaysAhead);
                 if ($dphItem !== null) {
                     $items[] = $dphItem;
                 }
@@ -2358,7 +2359,7 @@ final class CrmAggregationService
                 ? sprintf('DPPO %d: doplatek %s Kč — splatnost byla %s (%d dní zpět)', $periodYear, $amountFmt, $deadline, abs($days))
                 : sprintf('DPPO %d: doplatek %s Kč — splatnost %s (za %d %s)', $periodYear, $amountFmt, $deadline, $days,
                     $days === 1 ? 'den' : ($days < 5 ? 'dny' : 'dní')),
-            'link'     => '/reports/income-tax',
+            'link'     => TaxReportLink::forPeriod('/reports/income-tax', ['year' => $periodYear, 'month' => null, 'quarter' => null]),
             'days'     => $days,
         ];
     }
@@ -2709,7 +2710,10 @@ final class CrmAggregationService
                         'title'        => 'DPH přiznání',
                         'deadline'     => $dphDate,
                         'days'         => $dphDays,
-                        'link'         => $payment !== null ? '/reports/submissions' : '/reports/dph',
+                        'link'         => $payment !== null
+                            ? '/reports/submissions?submission_id=' . $payment['submission_id']
+                            : TaxReportLink::forPeriod('/reports/dph', $p),
+                        'period'       => $p,
                         'submitted'    => $sub !== null,
                         'submitted_at' => $sub,
                         'payment'      => $payment,
@@ -2728,7 +2732,8 @@ final class CrmAggregationService
                         'title'        => 'Kontrolní hlášení',
                         'deadline'     => $khDate,
                         'days'         => $khDays,
-                        'link'         => '/reports/kh',
+                        'link'         => TaxReportLink::forPeriod('/reports/kh', $p),
+                        'period'       => $p,
                         'submitted'    => $sub !== null,
                         'submitted_at' => $sub,
                     ];
@@ -2748,7 +2753,8 @@ final class CrmAggregationService
                     'title'        => 'Souhrnné hlášení',
                     'deadline'     => $shvDate,
                     'days'         => $shvDays,
-                    'link'         => '/reports/shv',
+                    'link'         => TaxReportLink::forPeriod('/reports/shv', $p),
+                    'period'       => $p,
                     'submitted'    => $sub !== null,
                     'submitted_at' => $sub,
                 ];
@@ -2794,6 +2800,7 @@ final class CrmAggregationService
             $formCode = $taxpayerType === 'po' ? 'dppdp9' : 'dpfdp5';
             $taxLabel = $taxpayerType === 'po' ? 'DPPO' : 'DPFO';
             $periodYear = $y - 1;
+            $period = ['year' => $periodYear, 'month' => null, 'quarter' => null];
 
             // Obě varianty sdílí stejný archiv (jedno podání za period_year) — vypočti jednou.
             $sub = $this->submittedAt($supplierId, $formCode, $periodYear, null, null);
@@ -2806,7 +2813,8 @@ final class CrmAggregationService
                     'title'        => "Přiznání $taxLabel (papírově)",
                     'deadline'     => $paperDate,
                     'days'         => $paperDays,
-                    'link'         => '/reports/income-tax',
+                    'link'         => TaxReportLink::forPeriod('/reports/income-tax', $period),
+                    'period'       => $period,
                     'submitted'    => $sub !== null,
                     'submitted_at' => $sub,
                 ];
@@ -2820,7 +2828,8 @@ final class CrmAggregationService
                     'title'        => "Přiznání $taxLabel (elektronicky)",
                     'deadline'     => $elecDate,
                     'days'         => $elecDays,
-                    'link'         => '/reports/income-tax',
+                    'link'         => TaxReportLink::forPeriod('/reports/income-tax', $period),
+                    'period'       => $period,
                     'submitted'    => $sub !== null,
                     'submitted_at' => $sub,
                 ];
