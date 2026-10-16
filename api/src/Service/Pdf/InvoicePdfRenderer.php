@@ -372,7 +372,7 @@ final class InvoicePdfRenderer
         }
 
         $invoice['items'] = TimeBillingPdfPresenter::invoiceItems(
-            $this->withBaseQuantity($invoice),
+            self::withTrackingLines($this->withBaseQuantity($invoice), (string) $locale),
             !empty($invoice['prices_include_vat']),
         );
         $workReport = $includeWorkReport
@@ -707,6 +707,49 @@ final class InvoicePdfRenderer
         $hasCzk = !empty($row['account_number']) && !empty($row['bank_code']);
         $hasIban = !empty($row['iban']);
         return ($hasCzk || $hasIban) ? $row : null;
+    }
+
+    /**
+     * Vybraná sériová čísla a šarže řádku (migrace 2012) pod popisem položky:
+     * „Výr. č.: VIN1, VIN2“ a „Šarže: L1 (exp. 31. 12. 2027): 2 ks, L2: 1 ks“.
+     * Tiskne se vždy, když řádek výběr má: VIN na faktuře za vozidlo potřebuje
+     * kupující k registraci, šarže slouží k dohledání při stažení zboží.
+     *
+     * @param array<int|string,mixed> $items
+     * @return array<int|string,mixed>
+     */
+    private static function withTrackingLines(array $items, string $locale): array
+    {
+        $en = $locale === 'en';
+        foreach ($items as $i => $item) {
+            $allocations = is_array($item) ? ($item['tracking_allocations'] ?? []) : [];
+            if (!is_array($allocations) || $allocations === []) {
+                continue;
+            }
+            $unit = (string) ($item['base_unit'] ?? $item['unit'] ?? '');
+            $serials = [];
+            $lots = [];
+            foreach ($allocations as $a) {
+                if (!empty($a['serial_number'])) {
+                    $serials[] = (string) $a['serial_number'];
+                } elseif (!empty($a['lot_code'])) {
+                    $expires = !empty($a['expires_on'])
+                        ? ' (exp. ' . date($en ? 'M j, Y' : 'j. n. Y', (int) strtotime((string) $a['expires_on'])) . ')'
+                        : '';
+                    $qty = rtrim(rtrim(number_format((float) $a['quantity'], 3, $en ? '.' : ',', ''), '0'), '.,');
+                    $lots[] = $a['lot_code'] . $expires . ': ' . $qty . ($unit !== '' ? ' ' . $unit : '');
+                }
+            }
+            $lines = [];
+            if ($serials !== []) {
+                $lines[] = ($en ? 'Serial no.: ' : 'Výr. č.: ') . implode(', ', $serials);
+            }
+            if ($lots !== []) {
+                $lines[] = ($en ? 'Lot: ' : 'Šarže: ') . implode(', ', $lots);
+            }
+            $items[$i]['tracking_lines'] = $lines;
+        }
+        return $items;
     }
 
     /**

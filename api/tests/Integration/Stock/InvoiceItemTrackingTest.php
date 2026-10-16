@@ -255,6 +255,38 @@ final class InvoiceItemTrackingTest extends StockTestCase
         self::assertSame('VIN-N', $this->storedItems($invoiceId)[0]['tracking_allocations'][0]['serial_number']);
     }
 
+    // ── PDF faktury ─────────────────────────────────────────────────────────
+
+    public function testPdfListsSelectedSerialsAndLots(): void
+    {
+        $sid = $this->createSupplier();
+        $wh = $this->warehouse($sid);
+        $moto = $this->trackedItem($sid, 'MOTO-PDF', 'serial');
+        $oil = $this->trackedItem($sid, 'OIL-PDF', 'lot');
+        $plain = $this->item($sid, 'PLAIN-PDF');
+        $invoiceId = $this->createInvoice($sid, [
+            $this->line($moto, $wh, '2', [['quantity' => '1', 'serial_number' => 'VIN-PDF-1'], ['quantity' => '1', 'serial_number' => 'VIN-PDF-2']]),
+            $this->line($oil, $wh, '3', [['quantity' => '2', 'lot_code' => 'L-PDF-1', 'expires_on' => '2099-12-31'], ['quantity' => '1', 'lot_code' => 'L-PDF-2']]),
+            $this->line($plain, $wh, '1', null),
+        ]);
+
+        $html = $this->pdfHtml($invoiceId);
+        self::assertStringContainsString('Výr. č.: VIN-PDF-1, VIN-PDF-2', $html);
+        self::assertStringContainsString('Šarže: L-PDF-1 (exp. 31. 12. 2099): 2 ks, L-PDF-2: 1 ks', $html);
+        self::assertSame(1, substr_count($html, 'Výr. č.:'), 'Řádek bez výběru nic nevypisuje.');
+    }
+
+    public function testPdfInEnglishUsesEnglishLabels(): void
+    {
+        $sid = $this->createSupplier();
+        $wh = $this->warehouse($sid);
+        $moto = $this->trackedItem($sid, 'MOTO-PDF-EN', 'serial');
+        $invoiceId = $this->createInvoice($sid, [$this->line($moto, $wh, '1', [['quantity' => '1', 'serial_number' => 'VIN-EN-1']])]);
+        $this->db->pdo()->prepare("UPDATE invoices SET language = 'en' WHERE id = ?")->execute([$invoiceId]);
+
+        self::assertStringContainsString('Serial no.: VIN-EN-1', $this->pdfHtml($invoiceId));
+    }
+
     // ── pomocníci ────────────────────────────────────────────────────────────
 
     /** @param list<string> $serials */
@@ -267,6 +299,16 @@ final class InvoiceItemTrackingTest extends StockTestCase
                 'tracking_allocations' => array_map(static fn (string $s): array => ['quantity' => '1', 'serial_number' => $s], $serials)]],
         ], $this->userId);
         $this->documents->post($supplierId, (int) $draft['id'], $this->userId);
+    }
+
+    private function pdfHtml(int $invoiceId): string
+    {
+        $html = $this->container->get(\MyInvoice\Service\Pdf\InvoicePdfRenderer::class)->renderHtml(
+            $this->container->get(InvoiceRepository::class)->find($invoiceId),
+            includeCss: false,
+            includeWorkReport: false,
+        );
+        return html_entity_decode(strip_tags(str_replace(['<br>', '<br/>', '<br />'], "\n", $html)), ENT_QUOTES | ENT_HTML5, 'UTF-8');
     }
 
     private function trackedItem(int $supplierId, string $sku, string $mode): int
