@@ -1,4 +1,4 @@
-import { computed, onBeforeUnmount, onMounted, ref, type Ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, type Ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { cancelImportJob, fetchImportJob, type FileImportJob } from '@/api/imports'
 import type { ChunkedUploadProgress } from '@/api/chunkedUpload'
@@ -111,6 +111,20 @@ export interface MigrationWizardOptions<TUpload extends { token: string }, TPend
    * mezd). Po doběhnutí úlohy a při návratu na náhled je průvodce načte znovu.
    */
   refreshPreview?: boolean
+  /**
+   * Vrátí do průvodce volby jobu, ke kterému se uživatel vrací (roky, potvrzení, …).
+   * Bez ní průvodce po návratu ukáže výsledek jobu, ale navazující krok spustí s výchozími
+   * volbami náhledu, ne s těmi, se kterými job běžel.
+   */
+  restoreParams?: (params: TStart) => void
+}
+
+/** Poslední job průvodce nad nahraným souborem: návrat na stránku k němu průvodce vrátí. */
+interface StoredWizardJob<TStart> {
+  token: string
+  jobId: number
+  mode: 'dry_run' | 'import'
+  params: TStart
 }
 
 /**
@@ -165,6 +179,24 @@ export function useMigrationWizard<TUpload extends { token: string }, TPending e
       if (token) sessionStorage.setItem(options.tokenKey(), token)
       else sessionStorage.removeItem(options.tokenKey())
     } catch { /* prohlížeč bez úložiště: průvodce jen nepřežije obnovení stránky */ }
+    if (!token) writeJob(null)
+  }
+  function jobKey(): string {
+    return `${options.tokenKey()}.job`
+  }
+  function readJob(): StoredWizardJob<TStart> | null {
+    try {
+      const raw = sessionStorage.getItem(jobKey())
+      const stored = raw ? JSON.parse(raw) as StoredWizardJob<TStart> : null
+      return stored && typeof stored.token === 'string' && Number.isInteger(stored.jobId)
+        && (stored.mode === 'dry_run' || stored.mode === 'import') ? stored : null
+    } catch { return null }
+  }
+  function writeJob(stored: StoredWizardJob<TStart> | null): void {
+    try {
+      if (stored) sessionStorage.setItem(jobKey(), JSON.stringify(stored))
+      else sessionStorage.removeItem(jobKey())
+    } catch { /* bez úložiště se průvodce po návratu vrátí na náhled */ }
   }
 
   function errorMessage(error: any, fallback: string): string {
@@ -341,6 +373,7 @@ export function useMigrationWizard<TUpload extends { token: string }, TPending e
     const accepting = mode === 'import' && !dryRunPassed.value && differencesAcceptable.value && acceptDifferences.value
     try {
       const started = await api.start(upload.value.token, accepting ? { ...(params as object), accept_differences: true } as TStart : params)
+      writeJob({ token: upload.value.token, jobId: started.job_id, mode, params })
       jobMode.value = mode
       run.value = null
       jobRuns.value = []
@@ -444,6 +477,27 @@ export function useMigrationWizard<TUpload extends { token: string }, TPending e
           writeToken(null)
         }
       }
+      // Job spuštěný z tohoto průvodce: běžící i doběhlý, včetně voleb, se kterými běžel.
+      // Doběhlá zkouška nanečisto tak po návratu dovolí pokračovat ostrým převodem.
+      const stored = readJob()
+      if (stored && upload.value?.token === stored.token) {
+        options.restoreParams?.(stored.params)
+        // Hlídače voleb na stránce zkoušku zneplatní; musí doběhnout dřív než výsledek jobu.
+        await nextTick()
+        jobMode.value = stored.mode
+        currentStep.value = stored.mode === 'dry_run' ? 3 : 4
+        try {
+          await pollJob(stored.jobId)
+          return
+        } catch {
+          // Job už neexistuje (smazaný protokol): průvodce zůstane na náhledu.
+          writeJob(null)
+          jobMode.value = null
+          job.value = null
+          currentStep.value = 2
+        }
+      }
+      if (stored && upload.value === null) writeJob(null)
       const active = runs.value.find(r => r.status === 'running' && r.job_id !== null)
       if (active?.job_id) {
         jobMode.value = active.mode
