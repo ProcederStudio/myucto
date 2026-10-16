@@ -57,7 +57,7 @@ final class SaveWorkReportMaterialsAction
         }
 
         $user = (array) $request->getAttribute(AuthMiddleware::ATTR_USER, []);
-        $isAdmin = RequestAuthorization::isCompanyAdmin($request);
+        $canEditIssued = RequestAuthorization::canEditIssuedInvoice($request);
         $isForce = !empty($request->getQueryParams()['force']);
 
         // Zámek dokladu (Epic F6) — PŘED status guardem: výkaz materiálu je součást dokladu.
@@ -65,7 +65,7 @@ final class SaveWorkReportMaterialsAction
             return $deny;
         }
 
-        if ($invoice['status'] !== 'draft' && !($isAdmin && $isForce)) {
+        if ($invoice['status'] !== 'draft' && !($canEditIssued && $isForce)) {
             return Json::error($response, 'not_editable', 'Výkaz lze upravit pouze v draftu (admin: ?force=1).', 409);
         }
 

@@ -390,8 +390,9 @@ Jak oba stavy vznikají a co s každým z nich dělat, popisuje
 
 > [!WARNING]
 > Upravujte jen koncepty. Vystavená faktura má neměnný snapshot dodavatele, klienta a banky.
-> Pro změnu je potřeba storno a nová faktura, nebo dobropis. Správce má v krajní nouzi
-> možnost upravit vystavenou fakturu (akce **Upravit (admin)**), zapíše se do auditního logu.
+> Pro změnu je potřeba storno a nová faktura, nebo dobropis. Správce (a role s právem
+> **Upravit vystavenou fakturu**) má v krajní nouzi možnost upravit vystavenou fakturu
+> (akce **Upravit vystavenou**), zapíše se do auditního logu.
 
 ### 14.11.6 Hranice „po splatnosti“
 

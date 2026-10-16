@@ -118,6 +118,17 @@ final class RequestAuthorization
             && self::allows($request, 'documents.submit', $minimum);
     }
 
+    /**
+     * Úprava vystavené faktury (?force=1) včetně jejího výkazu: správce firmy, nebo interní
+     * role s právem `invoices.edit_issued`. Uzavřené účetní období dál přebíjí jen správce
+     * ({@see \MyInvoice\Http\GuardsDocumentLock}) a skladová pojistka platí pro všechny.
+     */
+    public static function canEditIssuedInvoice(Request $request): bool
+    {
+        return self::isCompanyAdmin($request)
+            || (!self::isClientType($request) && self::allows($request, 'invoices.edit_issued', AccessLevel::WRITE));
+    }
+
     public static function allows(
         Request $request,
         string $permission,

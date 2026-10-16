@@ -40,7 +40,7 @@ final class DeleteWorkReportAction
         }
 
         $user = (array) $request->getAttribute(AuthMiddleware::ATTR_USER, []);
-        $isAdmin = RequestAuthorization::isCompanyAdmin($request);
+        $canEditIssued = RequestAuthorization::canEditIssuedInvoice($request);
         $isForce = !empty($request->getQueryParams()['force']);
 
         // Zámek dokladu (Epic F6) — PŘED status guardem: výkaz je součást dokladu.
@@ -48,7 +48,7 @@ final class DeleteWorkReportAction
             return $deny;
         }
 
-        if ($invoice['status'] !== 'draft' && !($isAdmin && $isForce)) {
+        if ($invoice['status'] !== 'draft' && !($canEditIssued && $isForce)) {
             return Json::error($response, 'not_editable', 'Výkaz lze smazat pouze v draftu (admin: ?force=1).', 409);
         }
         $this->repo->deleteByInvoice($invoiceId);

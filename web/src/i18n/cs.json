@@ -21445,7 +21445,7 @@
     "delete_cancelled": "Smazat (storno + originál)",
     "delete_credit_note": "Smazat dobropis",
     "clone": "Klonovat",
-    "edit_admin": "Upravit (admin)",
+    "edit_admin": "Upravit vystavenou",
     "changed_label": "změněno",
     "changed_fields": {
       "client": "odběratel",
@@ -21639,7 +21639,7 @@
     "edit_title": "Upravit fakturu",
     "new_title": "Nová faktura",
     "delete_draft_btn": "Smazat koncept",
-    "edit_issued_warning": "Editace vystavené faktury (admin)",
+    "edit_issued_warning": "Editace vystavené faktury",
     "edit_issued_body": "Upravujete fakturu {varsymbol} ve stavu {status}. Změny přepíšou snapshoty a mohou rozsynchronizovat doklad s evidencí klienta. Akce je auditována. Pro klienta doporučujeme raději vystavit dobropis.",
     "edit_issued_confirm": "⚠ POZOR - úprava VYSTAVENÉ faktury\n\nFaktura {varsymbol} už byla vystavena{sent}.\n\nÚprava:\n• změní obsah dokladu, který klient možná už eviduje v účetnictví\n• přepíše JSON snapshoty (immutability je porušena)\n• po uložení se NEgeneruje nový varsymbol - zůstává původní\n• tato akce je auditována v ActivityLog\n\nDoporučeno: vystavit dobropis. Pokračovat na editor i tak?",
     "edit_issued_confirm_sent": " a odeslána klientovi",

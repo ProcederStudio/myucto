@@ -113,7 +113,7 @@ final class UpdateInvoiceAction
 
         $user = (array) $request->getAttribute(AuthMiddleware::ATTR_USER, []);
         $isForce = $request->getQueryParams()['force'] ?? null;
-        $isAdmin = RequestAuthorization::isCompanyAdmin($request);
+        $canEditIssued = RequestAuthorization::canEditIssuedInvoice($request);
 
         $body = (array) ($request->getParsedBody() ?? []);
 
@@ -153,8 +153,9 @@ final class UpdateInvoiceAction
                 && ($deny = SessionOnlyAccountingAct::deny($request, $response, 'Vynucená úprava vystaveného dokladu'))) {
                 return $deny;
             }
-            // Pouze admin smí upravovat vystavenou fakturu, a to jen s explicit ?force=1.
-            if (!$isAdmin || !$isForce) {
+            // Vystavenou fakturu upraví jen správce nebo role s právem invoices.edit_issued,
+            // a to jen s explicitním ?force=1.
+            if (!$canEditIssued || !$isForce) {
                 return Json::error($response, 'not_editable', 'Vystavenou fakturu nelze editovat.', 409);
             }
             // Cancellation/credit_note jsou implicitně chráněné (auditní stopa)
@@ -234,7 +235,7 @@ final class UpdateInvoiceAction
         //   reconcile  → doklad se opraví a zápis se stornuje + přeúčtuje do běžného období
         //   notes_only → povolena jen neúčetní pole (poznámky/projekt/jazyk)
         $forceMode = null;
-        if ($isAdmin && $isForce && $lock->inClosedPeriod && $lock->posted) {
+        if ($canEditIssued && $isForce && $lock->inClosedPeriod && $lock->posted) {
             $forceMode = trim((string) ($request->getQueryParams()['force_mode'] ?? $body['force_mode'] ?? ''));
             if (!in_array($forceMode, ['reconcile', 'notes_only'], true)) {
                 return Json::error(
@@ -260,7 +261,7 @@ final class UpdateInvoiceAction
                 }
             }
         }
-        $repostOpenForceEdit = $isAdmin
+        $repostOpenForceEdit = $canEditIssued
             && (bool) $isForce
             && $lock->posted
             && !$lock->inClosedPeriod
