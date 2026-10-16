@@ -1600,6 +1600,9 @@ final class InvoiceRepository
             }
         }
 
+        // Řádky výdejek ukazují na řádky dokladu (FK ON DELETE SET NULL) a DELETE níž by
+        // jejich vazbu vynuloval. Na ní stojí rezervace, prodeje karty i Intrastat.
+        $stockLinks = $this->stockLineLinks($invoiceId);
         $pdo->prepare('DELETE FROM invoice_items WHERE invoice_id = ?')->execute([$invoiceId]);
 
         $supportsOss = $this->supportsOssItemColumns();
@@ -1775,6 +1778,82 @@ final class InvoiceRepository
                 count($accrualPeriods) === 1 ? reset($accrualPeriods) : [null, null],
             );
         }
+        $this->relinkStockLines($invoiceId, $stockLinks);
+    }
+
+    /**
+     * Řádky skladových dokladů navázané na řádky faktury, s pořadím skladového řádku
+     * mezi řádky se stejnou kartou, jednotkou a množstvím ({@see stockItemSlots()}).
+     *
+     * @return array<string,list<int>> slot => id řádků skladových dokladů
+     */
+    private function stockLineLinks(int $invoiceId): array
+    {
+        $stmt = $this->db->pdo()->prepare(
+            'SELECT l.id, l.invoice_item_id
+               FROM stock_document_lines l
+               JOIN invoice_items ii ON ii.id = l.invoice_item_id
+              WHERE ii.invoice_id = ?
+              ORDER BY l.id'
+        );
+        $stmt->execute([$invoiceId]);
+        $lines = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        if ($lines === []) {
+            return [];
+        }
+        $slotOf = array_flip($this->stockItemSlots($invoiceId));
+        $links = [];
+        foreach ($lines as $line) {
+            $slot = $slotOf[(int) $line['invoice_item_id']] ?? null;
+            if ($slot !== null) {
+                $links[$slot][] = (int) $line['id'];
+            }
+        }
+        return $links;
+    }
+
+    /**
+     * Po DELETE + INSERT vrátí řádky skladových dokladů na nový řádek faktury ve stejném
+     * slotu. Řádek, který v novém dokladu nemá protějšek, zůstane bez vazby jako dřív;
+     * u vystavené faktury takovou úpravu odmítne {@see \MyInvoice\Service\Stock\IssuedInvoiceStockGuard}.
+     *
+     * @param array<string,list<int>> $links
+     */
+    private function relinkStockLines(int $invoiceId, array $links): void
+    {
+        if ($links === []) {
+            return;
+        }
+        $update = $this->db->pdo()->prepare('UPDATE stock_document_lines SET invoice_item_id = ? WHERE id = ?');
+        foreach ($this->stockItemSlots($invoiceId) as $slot => $itemId) {
+            foreach ($links[$slot] ?? [] as $lineId) {
+                $update->execute([$itemId, $lineId]);
+            }
+        }
+    }
+
+    /**
+     * Skladové řádky faktury podle slotu „karta|jednotka|množství#pořadí". Id řádků se
+     * při každé úpravě mění, slot zůstává, dokud se nezmění skladová část řádku.
+     *
+     * @return array<string,int> slot => invoice_items.id
+     */
+    private function stockItemSlots(int $invoiceId): array
+    {
+        $stmt = $this->db->pdo()->prepare(
+            'SELECT id, stock_item_id, unit, quantity FROM invoice_items
+              WHERE invoice_id = ? AND stock_item_id IS NOT NULL
+              ORDER BY order_index, id'
+        );
+        $stmt->execute([$invoiceId]);
+        $slots = [];
+        $seen = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $row) {
+            $key = $row['stock_item_id'] . '|' . $row['unit'] . '|' . number_format((float) $row['quantity'], 3, '.', '');
+            $seen[$key] = ($seen[$key] ?? 0) + 1;
+            $slots[$key . '#' . $seen[$key]] = (int) $row['id'];
+        }
+        return $slots;
     }
 
     /**
