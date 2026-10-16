@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
+import { btnFilled, btnOutline } from '@/components/ui/buttonStyles'
+import { ensureLocaleLoaded } from '@/i18n'
 import { publicInvoiceApi, type PublicInvoiceData, type PublicInvoiceItem, type PublicInvoiceParty } from '@/api/publicInvoice'
 import { appIsoDate } from '@/utils/date'
 import { formatDuration, isPreciseTimeItem, isTimeItem, itemQuantity } from '@/utils/timeBilling'
 
+const { t } = useI18n()
 const route = useRoute()
 const token = computed(() => String(route.params.token || ''))
 
@@ -137,6 +141,7 @@ const showPayPanel = computed(() =>
   && (isPaid.value || inv.value.payment_method !== 'bank_transfer' || !!data.value?.bank))
 
 const pdfUrl = computed(() => publicInvoiceApi.pdfUrl(token.value, true))
+const isdocUrl = computed(() => publicInvoiceApi.isdocUrl(token.value))
 
 function attachmentUrl(attId: number): string {
   return publicInvoiceApi.attachmentUrl(token.value, attId)
@@ -150,6 +155,7 @@ function fmtBytes(n: number): string {
 onMounted(async () => {
   try {
     data.value = await publicInvoiceApi.get(token.value)
+    await ensureLocaleLoaded(data.value.invoice.language)
     document.title = `${typeLabel.value} ${inv.value?.varsymbol || ''} — MyÚčto.cz`
   } catch (e: any) {
     loadError.value = e?.response?.data?.error?.message
@@ -202,13 +208,20 @@ onMounted(async () => {
                   {{ statusBadge.text }}
                 </span>
               </div>
-              <a :href="pdfUrl"
-                class="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-primary-600 hover:bg-primary-700 text-white text-sm font-semibold rounded-lg shadow-sm transition shrink-0">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                </svg>
-                {{ tt('Stáhnout PDF', 'Download PDF') }}
-              </a>
+              <div class="flex flex-wrap items-center gap-2">
+                <a :href="pdfUrl" :class="btnFilled('primary')">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  {{ t('invoice.download_pdf', {}, { locale: lang }) }}
+                </a>
+                <a v-if="data.isdoc_available" :href="isdocUrl" :class="btnOutline('neutral')">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  {{ t('invoice.download_isdoc', {}, { locale: lang }) }}
+                </a>
+              </div>
             </div>
             <div class="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 text-sm">
               <div>

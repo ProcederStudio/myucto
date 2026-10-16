@@ -74,6 +74,7 @@ final class Mailer
         private readonly ?EmailProfileRepository $emailProfiles = null,
         private readonly ?SentMailAppenderInterface $sentMailImap = null,
         ?MailRateLimiter $rateLimiter = null,
+        private readonly ?InvoiceIsdocAttachments $invoiceIsdoc = null,
     ) {
         // ⚠️ Vědomě NENÍ promoted readonly property: PHP-DI optional class-param
         // nevyplní, takže by tu při ručním bindingu v Bootstrapu zůstal null a
@@ -87,7 +88,7 @@ final class Mailer
      * @param array<string,mixed> $vars
      * @param string[]      $cc
      * @param string[]      $bcc
-     * @param array<int,array{path:string,name:string,contentType:string}> $attachments
+     * @param array<int,array{path?:string,content?:string,name:string,contentType:string,invoice_isdoc?:bool}> $attachments
      * @param ?int          $userId Přihlášený uživatel pro výběr user podpisového profilu.
      * @param array<string,mixed>|null $emailProfileOverride Explicitní profil pro test konfigurace.
      * @param ?int $templateSupplierId Firma z důvěryhodného dokladu/operace, nikdy z fallbacku pro branding.
@@ -132,7 +133,7 @@ final class Mailer
      * @param array<string,mixed> $vars
      * @param string[]      $cc
      * @param string[]      $bcc
-     * @param array<int,array{path:string,name:string,contentType:string}> $attachments
+     * @param array<int,array{path?:string,content?:string,name:string,contentType:string,invoice_isdoc?:bool}> $attachments
      * @param ?int          $userId Přihlášený uživatel pro výběr user podpisového profilu.
      * @param array<string,mixed>|null $emailProfileOverride Explicitní profil pro test konfigurace.
      * @param ?int $templateSupplierId Firma z důvěryhodného dokladu/operace, nikdy z fallbacku pro branding.
@@ -161,6 +162,10 @@ final class Mailer
         // odešel e-mail s prázdnou hlavičkou Subject místo předmětu šablony či klienta.
         if ($subjectOverride !== null && trim($subjectOverride) === '') {
             $subjectOverride = null;
+        }
+
+        if ($this->invoiceIsdoc !== null) {
+            $attachments = $this->invoiceIsdoc->forEmail($code, $vars, $attachments, $userId);
         }
 
         // ── H-16: brzda odchozí pošty ────────────────────────────────────────
@@ -416,7 +421,11 @@ final class Mailer
         }
 
         foreach ($attachments as $att) {
-            $email->attachFromPath($att['path'], $att['name'], $att['contentType']);
+            if (array_key_exists('content', $att)) {
+                $email->attach($att['content'], $att['name'], $att['contentType']);
+            } else {
+                $email->attachFromPath($att['path'], $att['name'], $att['contentType']);
+            }
         }
 
         // POZOR (Bcc + DKIM/S/MIME): obálku (MAIL FROM + RCPT TO) musíme zachytit

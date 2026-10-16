@@ -10,10 +10,8 @@ use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Middleware\DemoReadOnlyMiddleware;
 use MyInvoice\Repository\InvoiceRepository;
 use MyInvoice\Service\ActivityLogger;
-use MyInvoice\Service\Currency\ExchangeRateApplier;
-use MyInvoice\Service\Export\IsdocExporter;
+use MyInvoice\Service\Invoice\InvoiceIsdocService;
 use MyInvoice\Service\IpMatcher;
-use MyInvoice\Service\Signing\Pdf\PdfSigningService;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
@@ -31,11 +29,9 @@ final class InvoiceIsdocAction
 {
     public function __construct(
         private readonly InvoiceRepository $repo,
-        private readonly IsdocExporter $isdoc,
+        private readonly InvoiceIsdocService $isdoc,
         private readonly ActivityLogger $logger,
         private readonly IpMatcher $ipMatcher,
-        private readonly ExchangeRateApplier $rateApplier,
-        private readonly PdfSigningService $pdfSigning,
     ) {}
 
     public function __invoke(Request $request, Response $response, array $args): Response
@@ -59,31 +55,16 @@ final class InvoiceIsdocAction
             return Json::error($response, 'invalid_state', 'Stornovanou fakturu nelze exportovat do ISDOC.', 409);
         }
 
-        // Backfill kurzu (cache → ČNB → last known) pro cizí měnu bez zafixovaného
-        // kurzu — stejně jako GetInvoiceAction / PdfAction; jinak IsdocExporter::buildXml
-        // padá na kurz 1.0 u starších dokladů bez uloženého exchange_rate.
-        if (
-            (string) ($invoice['currency'] ?? 'CZK') !== 'CZK'
-            && empty($invoice['exchange_rate'])
-        ) {
-            $demo = DemoReadOnlyMiddleware::enabled($request);
-            $resolved = $this->rateApplier->ensureRate($id, persist: !$demo);
-            $invoice = $demo
-                ? $this->rateApplier->applyResolvedToInvoiceData($invoice, $resolved)
-                : $this->repo->find($id);
-        }
-
         $user = (array) $request->getAttribute(AuthMiddleware::ATTR_USER, []);
         try {
-            $xml = $this->isdoc->buildXml($invoice);
+            $xml = $this->isdoc->buildXml($invoice, persistRate: !DemoReadOnlyMiddleware::enabled($request));
         } catch (\Throwable $e) {
             return Json::error($response, 'export_failed', $e->getMessage(), 500);
         }
         try {
-            $xml = $this->pdfSigning->signIsdocIfEnabled(
+            $xml = $this->isdoc->signXml(
                 $xml,
-                ['id' => (int) ($invoice['supplier_id'] ?? 0)],
-                $id,
+                $invoice,
                 isset($user['id']) ? (int) $user['id'] : null,
             );
         } catch (\Throwable $e) {
@@ -94,11 +75,10 @@ final class InvoiceIsdocAction
         $this->logger->log('invoice.isdoc_exported', isset($user['id']) ? (int) $user['id'] : null, 'invoice', $id,
             null, $ip, $request->getHeaderLine('User-Agent'), $sid);
 
-        $vs = preg_replace('/[^A-Za-z0-9_-]/', '_', (string) ($invoice['varsymbol'] ?? $id));
         $response->getBody()->write($xml);
         return $response
             ->withHeader('Content-Type', 'application/xml; charset=utf-8')
-            ->withHeader('Content-Disposition', 'attachment; filename="Faktura-' . $vs . '.isdoc"')
+            ->withHeader('Content-Disposition', 'attachment; filename="' . InvoiceIsdocService::filename($invoice) . '"')
             ->withHeader('Cache-Control', 'no-store');
     }
 }

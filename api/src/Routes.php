@@ -246,6 +246,7 @@ use MyInvoice\Action\Invoice\PdfAction;
 use MyInvoice\Action\Invoice\PublicInvoiceAttachmentAction;
 use MyInvoice\Action\Invoice\PublicInvoiceGetAction;
 use MyInvoice\Action\Invoice\PublicInvoicePdfAction;
+use MyInvoice\Action\Invoice\PublicInvoiceIsdocAction;
 use MyInvoice\Action\Invoice\PublicLinkAction;
 use MyInvoice\Action\Invoice\ListPdfsAction;
 use MyInvoice\Action\Invoice\DownloadArchivedPdfAction;
@@ -878,6 +879,7 @@ final class Routes
         // Web faktura — veřejný náhled + PDF + přílohy (bez auth, jen token)
         $app->get    ('/api/public/invoice/{token:[a-f0-9]{32,128}}',     PublicInvoiceGetAction::class);
         $app->get    ('/api/public/invoice/{token:[a-f0-9]{32,128}}/pdf', PublicInvoicePdfAction::class);
+        $app->get    ('/api/public/invoice/{token:[a-f0-9]{32,128}}/isdoc', PublicInvoiceIsdocAction::class);
         $app->get    ('/api/public/invoice/{token:[a-f0-9]{32,128}}/attachment/{attId:[0-9]+}', PublicInvoiceAttachmentAction::class);
 
         // Public náhled na výkaz práce (bez auth; token + e-mailová autorizace kódem)

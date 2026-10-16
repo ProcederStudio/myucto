@@ -374,6 +374,8 @@ async function load() {
   loading.value = true
   try {
     supplier.value = await settingsApi.getSupplier()
+    supplier.value.public_isdoc_enabled ??= false
+    supplier.value.email_attach_isdoc ??= false
     // Stav uloženého CZ-NACE proti číselníku počítá backend — expirovaný kód je
     // tak vidět hned při načtení, ne až z náhledu přiznání.
     naceResolved.value = supplier.value.cz_nace_resolved ?? null
@@ -582,6 +584,8 @@ async function saveSupplier() {
       self_copy: supplier.value.self_copy ?? null,
       auto_generate_recurring: supplier.value.auto_generate_recurring,
       embed_isdoc: supplier.value.embed_isdoc,
+      public_isdoc_enabled: supplier.value.public_isdoc_enabled ?? false,
+      email_attach_isdoc: supplier.value.email_attach_isdoc ?? false,
       // Datum přijetí u importovaných přijatých dokladů (migrace 1848) — chybějící
       // hodnota (nedoběhlá migrace) se posílá jako výchozí, ne prázdná.
       purchase_import_received_at: supplier.value.purchase_import_received_at ?? 'issue_date',
@@ -1286,6 +1290,20 @@ async function confirmTaxRepDelete() {
               {{ t('settings.embed_isdoc') }}
             </label>
             <p class="text-xs text-neutral-500 mt-1 ml-6">{{ t('settings.embed_isdoc_hint') }}</p>
+          </div>
+          <div class="md:col-span-2">
+            <label class="flex items-center gap-2 text-sm">
+              <input v-model="supplier.public_isdoc_enabled" type="checkbox" class="rounded border-neutral-300 text-primary-600" />
+              {{ t('settings.public_isdoc_enabled') }}
+            </label>
+            <p class="text-xs text-neutral-500 mt-1 ml-6">{{ t('settings.public_isdoc_enabled_hint') }}</p>
+          </div>
+          <div class="md:col-span-2">
+            <label class="flex items-center gap-2 text-sm">
+              <input v-model="supplier.email_attach_isdoc" type="checkbox" class="rounded border-neutral-300 text-primary-600" />
+              {{ t('settings.email_attach_isdoc') }}
+            </label>
+            <p class="text-xs text-neutral-500 mt-1 ml-6">{{ t('settings.email_attach_isdoc_hint') }}</p>
           </div>
           <div class="md:col-span-2">
             <label class="block text-sm font-medium text-neutral-700 mb-1">{{ t('settings.purchase_import_received_at') }}</label>

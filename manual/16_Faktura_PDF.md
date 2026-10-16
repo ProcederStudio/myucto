@@ -493,6 +493,13 @@ položky, součty s rozpadem DPH, platební údaje s QR kódem a poznámky z dok
 Klient si stáhne i přílohy e-mailu nahrané k faktuře. Stav úhrady se ukazuje živě
 (Uhrazeno, Částečně uhrazeno, Po splatnosti). Koncepty veřejný odkaz nemají.
 
+Je-li u dodavatele zapnuté **Umožnit stažení ISDOC na web faktuře**, nabídne stránka také
+samostatné stažení souboru ISDOC. Volba je nezávislá na vložení ISDOC přílohy do
+PDF: změna nastavení vložení do PDF nemění dostupnost samostatného souboru a
+naopak. Veřejné stažení je dostupné jen pro vystavený, nestornovaný doklad;
+koncepty a stornované faktury ho nenabízejí. U faktury v cizí měně je ISDOC
+dostupný, pokud má faktura platný směnný kurz.
+
 Odkaz obsahuje 48znakový náhodný token, nelze ho uhodnout ani odvodit.
 
 ### 16.10.12 Vypnutí web faktury na instalaci

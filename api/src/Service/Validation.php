@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service;
 
 use MyInvoice\Service\Mail\ClientEmailFormat;
+use MyInvoice\Service\Mail\ClientIsdocPreference;
 
 /**
  * Lehké validační helpery — vrací array chyb (prázdné = OK).
@@ -60,6 +61,9 @@ final class Validation
         }
         if (isset($data['hourly_rate']) && (float) $data['hourly_rate'] < 0) {
             $err['hourly_rate'][] = 'Hodinová sazba nesmí být záporná';
+        }
+        if (!ClientIsdocPreference::isValid($data['email_attach_isdoc'] ?? null)) {
+            $err['email_attach_isdoc'][] = ClientIsdocPreference::INVALID_MESSAGE;
         }
         foreach (ClientEmailFormat::errors($data['email_subject_format'] ?? null, ClientEmailFormat::SUBJECT_MAX_LENGTH, false) as $message) {
             $err['email_subject_format'][] = $message;

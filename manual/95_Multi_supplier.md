@@ -201,6 +201,19 @@ Poděkování jde poslat i ručně v detailu faktury nebo hromadně v seznamu fa
 idempotentní (k jedné faktuře se odešle jen jednou), neposílá se u storna ani u faktury bez e-mailu příjemce
 a selhání e-mailu nikdy nezablokuje samotné označení platby. Vše se zapisuje do activity logu.
 
+**Samostatný soubor ISDOC v e-mailech** (ve výchozím stavu vypnutý):
+
+1. V `Firma → Nastavení` na záložce **Fakturace** zapněte **Přikládat samostatný ISDOC k e-mailům s fakturou**.
+2. Při zapnutí se vedle PDF přiloží také samostatný soubor `.isdoc` k ručnímu i automatickému odeslání faktury, ručním i automatickým upomínkám a testu odeslání i testu upomínky.
+3. U poděkování za úhradu se ISDOC přiloží jen tehdy, když je zapnuté **Přiložit PDF faktury (se stavem Uhrazeno)**.
+
+Nastavení firmy platí jako výchozí pro její klienty. V kartě konkrétního klienta
+lze v sekci **E-mail s fakturou** zvolit **Podle nastavení dodavatele**,
+**Přikládat ISDOC** nebo **Nepřikládat ISDOC**. Klientská volba
+**Podle nastavení dodavatele** dědí aktuální nastavení dodavatele; zbývající dvě
+volby ho pro daného klienta přepisují.
+Přiložení ISDOC je nezávislé na vložení ISDOC přílohy přímo do PDF.
+
 **Vyúčtování s částkou k vyplacení** (ve výchozím stavu vypnuté):
 
 1. Na záložce **Fakturace** zapněte **Povolit vyúčtování s částkou k vyplacení**. Použijte ji, když vystavujete faktury, u kterých odpočty převáží plnění, například vrácené obaly nebo přeplatek záloh.
@@ -296,6 +309,7 @@ Každý dodavatel má vlastní:
 - **šablonu čísla faktury**: vlastní formát per typ dokladu (`{YY}{MM}{CCC}`, `JD{YYYY}-{CC}`…) a reset cyklu (rok, měsíc, nikdy), viz [§ 95.13.3](#95133-ciselne-rady-faktur),
 - **výchozí nastavení**: splatnost, hodinová sazba, DPH, výchozí režim cen s DPH nebo bez DPH (*Ceny s DPH*, předvyplní přepínač u nové faktury, viz [Ceny s DPH a bez DPH](15_Faktura_editor.md#ceny-s-dph-a-bez-dph-brutto-a-netto)) a oddělené zahrnutí data splatnosti do QR vystavených a přijatých dokladů,
 - **e-mailové šablony** (faktura nová, upomínka, reset hesla),
+- **nastavení ISDOC**: samostatné stažení na veřejné web faktuře a výchozí přiložení souboru `.isdoc` k e-mailům; obě volby jsou vypnuté ve výchozím stavu. Nastavení e-mailů lze přepsat na kartě klienta, viz [§ 18.4.1](18_Klienti.md#1841-predmet-e-mailu-a-nazev-prilozeneho-pdf), a obě volby jsou nezávislé na vložení ISDOC do PDF,
 - **Pohoda kódy** pro export,
 - **From: jméno a Reply-To** v odchozích e-mailech,
 - **statistiky** (dashboard ukazuje data jen aktuálního dodavatele).

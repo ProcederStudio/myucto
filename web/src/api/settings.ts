@@ -227,6 +227,8 @@ export interface Supplier {
   reminder_days_after_due: number
   auto_generate_recurring: boolean
   embed_isdoc: boolean
+  public_isdoc_enabled: boolean
+  email_attach_isdoc: boolean
   /** Přidat SPAYD DT se splatností do QR vystavených dokladů. */
   invoice_qr_include_due_date: boolean
   /** Přidat SPAYD DT se splatností do QR přijatých dokladů. */

@@ -83,12 +83,24 @@ jak se má jmenovat předmět e-mailu a přiložený soubor.
    `Klient_{DUZP_MM}_{DUZP_YYYY}_Dodavatel`.
 4. Do pole **Název přiloženého PDF** zadejte formát, například
    `Dodavatel_{DUZP_MM}_{DUZP_YYYY}`. Příponu `.pdf` doplní aplikace sama.
-5. Pod každým polem zkontrolujte živou **Ukázku** výsledku a klienta uložte.
+5. U **Samostatné přílohy ISDOC** vyberte **Podle nastavení dodavatele**,
+   **Přikládat ISDOC** nebo **Nepřikládat ISDOC**. Výchozí **Podle nastavení
+   dodavatele** přebírá aktuální volbu dodavatele; další dvě možnosti ji pro
+   tohoto klienta přepíší.
+6. Pod poli zkontrolujte živou **Ukázku** předmětu a názvu PDF a klienta uložte.
 
 **Jak poznáte, že je hotovo:** ukázka pod poli odpovídá tomu, co klient
 požaduje, a e-mail s fakturou odeslaný tomuto klientovi (nejlépe přes
-**Test odeslání**) má váš předmět i název přílohy. Prázdné pole znamená výchozí
-text.
+**Test odeslání**) má váš předmět, název PDF a nastavení ISDOC.
+
+Volba ISDOC platí pro ruční i automatické odeslání faktury, ruční i automatické
+upomínky a test odeslání i test upomínky. U poděkování za úhradu se ISDOC přiloží
+jen tehdy, pokud je u dodavatele zapnuté přiložení uhrazeného PDF. Nastavení
+klienta se týká jen samostatného souboru `.isdoc`; nemění ISDOC vložený do PDF
+ani stažení ISDOC na veřejné web faktuře. Soubor se přiloží, pokud jej lze pro
+daný doklad vytvořit. Pokud se ISDOC nepodaří vytvořit nebo elektronicky
+podepsat, chyba se zaznamená do aplikačního logu a e-mail se odešle bez přílohy
+ISDOC.
 
 > [!TIP]
 > Neznámý zástupný znak formulář při uložení odmítne. Seznam znaků je
@@ -183,7 +195,7 @@ zakázky. Jinak by smazání skončilo chybou.
 | Posílat automatické upomínky | Vypnutím zastavíte automatické upomínky tomuto klientovi. Ruční odeslání (jednotlivé i hromadné) funguje vždy, viz [22. Upomínky](22_Upominky.md) |
 | Výchozí kategorie tržby | Předvyplní se na nových vydaných fakturách klienta a po uložení se doplní i do jeho stávajících faktur bez kategorie. Kategorie zakázky má přednost |
 | Poznámka | Interní text, na faktuře se nezobrazí |
-| E-mail s fakturou | Volitelný předmět e-mailu a název přiloženého PDF pro klienta, viz [§ 18.4.1](#1841-predmet-e-mailu-a-nazev-prilozeneho-pdf) |
+| E-mail s fakturou | Volitelný předmět e-mailu, název přiloženého PDF a volba samostatného ISDOC pro klienta, viz [§ 18.4.1](#1841-predmet-e-mailu-a-nazev-prilozeneho-pdf) |
 
 Formulář obsahuje také blok **Vlastní číselná řada (volitelné)**: vyplníte-li
 formát, dostane klient vlastní řadu faktur, proformy a dobropisů s nezávislým
@@ -293,6 +305,13 @@ doklady příslušného druhu.
 |---|---|---|
 | Předmět e-mailu | E-mail s fakturou, zálohou i dobropisem: ruční i hromadné odeslání, automatické odeslání pravidelné fakturace a test odeslání (s prefixem `[TEST]`) | Předmět podle e-mailové šablony, standardně „Faktura 2610001 - Dodavatel“ |
 | Název přiloženého PDF | Každý e-mail s PDF faktury: odeslání, upomínky i poděkování za úhradu | Podle druhu dokladu: `Faktura-2610001.pdf`, `Proforma-…`, `Dobropis-…` |
+
+**Samostatný ISDOC v e-mailu** se řídí klientskou volbou **Podle nastavení
+dodavatele / Přikládat ISDOC / Nepřikládat ISDOC**. Výchozí dědění použije
+aktuální nastavení dodavatele; klientský přepis platí pro odeslání faktury,
+upomínky i jejich testy.
+U poděkování za úhradu se ISDOC připojí jen spolu s uhrazeným PDF. Tato volba
+nemění vložení ISDOC do PDF ani stažení na veřejné web faktuře.
 
 Upomínky a poděkování za úhradu si předmět ponechávají vlastní, jde o jinou
 zprávu než samotnou fakturu. Předmět klienta má přednost i před předmětem

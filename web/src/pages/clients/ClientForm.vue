@@ -160,6 +160,7 @@ const form = ref<ClientPayload>({
   default_branding_profile_id: null,
   email_subject_format: null,
   email_attachment_name_format: null,
+  email_attach_isdoc: null,
 })
 
 // Cenová hladina odběratele — jen se zapnutým skladem. Drží se mimo `form`, aby se bez
@@ -269,7 +270,7 @@ const formEl = ref<HTMLFormElement | null>(null)
 const INLINE_ERROR_FIELDS = [
   'company_name', 'first_name', 'last_name', 'main_email', 'hourly_rate',
   'ic', 'street', 'zip', 'city', 'phone', 'price_level_id',
-  'email_subject_format', 'email_attachment_name_format',
+  'email_subject_format', 'email_attachment_name_format', 'email_attach_isdoc',
 ]
 const unplacedErrors = computed(() =>
   Object.entries(errors.value)
@@ -338,7 +339,7 @@ onMounted(async () => {
   if (isEdit.value && clientId.value) {
     const c = await clientsApi.get(clientId.value)
     Object.assign(form.value, sanitize(c))
-    emailFormatOpen.value = !!(c.email_subject_format || c.email_attachment_name_format)
+    emailFormatOpen.value = !!(c.email_subject_format || c.email_attachment_name_format) || c.email_attach_isdoc != null
     priceLevelId.value = c.price_level_id ?? null
     priceLevelName.value = c.price_level_name ?? null
     emailContacts.value = (c.email_contacts ?? []).map(ec => ({
@@ -403,6 +404,7 @@ function sanitize(c: Client): Partial<ClientPayload> {
     default_branding_profile_id: c.default_branding_profile_id ?? null,
     email_subject_format: c.email_subject_format ?? null,
     email_attachment_name_format: c.email_attachment_name_format ?? null,
+    email_attach_isdoc: c.email_attach_isdoc ?? null,
   }
 }
 
@@ -509,6 +511,7 @@ async function submit() {
   // Kontakty: vyřaď řádky bez e-mailu (rozpracované), pošli celé pole (replace-all).
   const payload: ClientPayload = {
     ...form.value,
+    email_attach_isdoc: form.value.email_attach_isdoc ?? null,
     email_contacts: emailContacts.value
       .filter(c => (c.email || '').trim() !== '')
       .map(c => ({
@@ -554,7 +557,7 @@ async function submit() {
     error.value = data?.message || t('errors.generic')
     if (data?.fields) {
       errors.value = data.fields
-      if (data.fields.email_subject_format || data.fields.email_attachment_name_format) {
+      if (data.fields.email_subject_format || data.fields.email_attachment_name_format || data.fields.email_attach_isdoc) {
         emailFormatOpen.value = true
       }
       // Uložit je na patě dlouhého formuláře, chybné pole bývá nahoře mimo
@@ -1069,6 +1072,17 @@ if (!props.embedded) {
           </summary>
           <p class="text-xs text-neutral-500 mt-1 mb-3">{{ t('client.email_format_hint') }}</p>
           <div class="space-y-3">
+            <div>
+              <label for="client-email-attach-isdoc" class="block text-xs font-medium text-neutral-700 mb-1">{{ t('client.email_attach_isdoc') }}</label>
+              <select id="client-email-attach-isdoc" v-model="form.email_attach_isdoc"
+                class="w-full h-10 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
+                <option :value="null">{{ t('client.email_attach_isdoc_inherit') }}</option>
+                <option :value="true">{{ t('client.email_attach_isdoc_yes') }}</option>
+                <option :value="false">{{ t('client.email_attach_isdoc_no') }}</option>
+              </select>
+              <p class="text-xs text-neutral-500 mt-1">{{ t('client.email_attach_isdoc_hint') }}</p>
+              <p data-field-error v-if="errors.email_attach_isdoc" class="text-xs text-danger-500 mt-1">{{ errors.email_attach_isdoc[0] }}</p>
+            </div>
             <div>
               <label for="client-email-subject-format" class="block text-xs font-medium text-neutral-700 mb-1">{{ t('client.email_subject_format') }}</label>
               <input id="client-email-subject-format" v-model="form.email_subject_format" type="text" maxlength="200"

@@ -16,6 +16,7 @@ const m = vi.hoisted(() => ({
   query: undefined as any,
   replace: vi.fn(),
   getSupplier: vi.fn(),
+  updateSupplier: vi.fn(),
 }))
 
 vi.mock('vue-router', () => ({
@@ -28,10 +29,12 @@ vi.mock('vue-router', () => ({
 vi.mock('@/api/settings', () => ({
   settingsApi: {
     getSupplier: m.getSupplier,
+    updateSupplier: m.updateSupplier,
     getVatRegistrationCheck: vi.fn().mockResolvedValue(null),
     searchNaceCodes: vi.fn().mockResolvedValue([]),
   },
 }))
+vi.mock('@/api/closing', () => ({ closingSettingsApi: { get: vi.fn().mockResolvedValue(null) } }))
 vi.mock('@/api/admin', () => ({ adminApi: { sampleDataStatus: vi.fn().mockRejectedValue(new Error('403')) } }))
 vi.mock('@/api/clients', () => ({ clientsApi: { lookupAres: vi.fn() } }))
 vi.mock('@/api/errors', () => ({ apiErrorMessage: (_e: unknown, fallback: string) => fallback }))
@@ -46,7 +49,7 @@ vi.mock('vue-i18n', async (importOriginal) => ({
   useI18n: () => ({ locale: { value: 'cs' }, t: (key: string) => key }),
 }))
 vi.mock('@/stores/supplier', () => ({
-  useSupplierStore: () => ({ currentSupplier: { accounting_mode: 'tax_evidence' }, refresh: vi.fn(), setCurrent: vi.fn() }),
+  useSupplierStore: () => ({ currentSupplier: { accounting_mode: 'tax_evidence' }, refresh: vi.fn(), setCurrent: vi.fn(), patchSupplier: vi.fn() }),
 }))
 vi.mock('@/stores/auth', () => ({
   useAuthStore: () => ({
@@ -89,6 +92,7 @@ async function mountSettings(tab?: string) {
 beforeEach(() => {
   vi.clearAllMocks()
   m.getSupplier.mockResolvedValue({ ...SUPPLIER })
+  m.updateSupplier.mockImplementation(async payload => ({ ...SUPPLIER, ...payload }))
 })
 
 describe('Nastavení — adresovatelné záložky', () => {
@@ -130,4 +134,47 @@ describe('Nastavení — adresovatelné záložky', () => {
     wrapper.unmount()
   })
 
+})
+
+
+describe('Nastavení — samostatný ISDOC', () => {
+  function checkbox(wrapper: ReturnType<typeof mount>, key: string) {
+    const label = wrapper.findAll('label').find(l => l.text() === `settings.${key}`)!
+    return label.find('input[type="checkbox"]')
+  }
+
+  it('nové přepínače jsou vypnuté a jejich hodnoty se uloží nezávisle na vložení do PDF', async () => {
+    const wrapper = await mountSettings('documents')
+    try {
+      expect((checkbox(wrapper, 'public_isdoc_enabled').element as HTMLInputElement).checked).toBe(false)
+      expect((checkbox(wrapper, 'email_attach_isdoc').element as HTMLInputElement).checked).toBe(false)
+      await checkbox(wrapper, 'public_isdoc_enabled').setValue(true)
+      await checkbox(wrapper, 'email_attach_isdoc').setValue(true)
+      await wrapper.findAll('button').find(b => b.text() === 'settings.save_supplier')!.trigger('click')
+      await flushPromises()
+      expect(m.updateSupplier).toHaveBeenCalledWith(expect.objectContaining({
+        public_isdoc_enabled: true, email_attach_isdoc: true,
+      }))
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('načte zapnuté přepínače a uloží jejich vypnutí', async () => {
+    m.getSupplier.mockResolvedValue({ ...SUPPLIER, embed_isdoc: true, public_isdoc_enabled: true, email_attach_isdoc: true })
+    const wrapper = await mountSettings('documents')
+    try {
+      expect((checkbox(wrapper, 'public_isdoc_enabled').element as HTMLInputElement).checked).toBe(true)
+      expect((checkbox(wrapper, 'email_attach_isdoc').element as HTMLInputElement).checked).toBe(true)
+      await checkbox(wrapper, 'public_isdoc_enabled').setValue(false)
+      await checkbox(wrapper, 'email_attach_isdoc').setValue(false)
+      await wrapper.findAll('button').find(b => b.text() === 'settings.save_supplier')!.trigger('click')
+      await flushPromises()
+      expect(m.updateSupplier).toHaveBeenCalledWith(expect.objectContaining({
+        embed_isdoc: true, public_isdoc_enabled: false, email_attach_isdoc: false,
+      }))
+    } finally {
+      wrapper.unmount()
+    }
+  })
 })
