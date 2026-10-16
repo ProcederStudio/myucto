@@ -244,6 +244,52 @@ final class StockTrackingRepository
         return $out;
     }
 
+    /**
+     * Kusy karty skladem ve skladu, sečtené přes umístění (nabídka výběru na faktuře;
+     * faktura umístění neukládá). Nejvýš `$limit` kusů, šarže podle expirace.
+     *
+     * @return list<array{serial_number:?string, lot_code:?string, expires_on:?string, quantity:string}>
+     */
+    public function inStockByUnit(int $supplierId, int $itemId, int $warehouseId, int $limit = 2000): array
+    {
+        $stmt = $this->db->pdo()->prepare("SELECT u.serial_number, u.lot_code, u.expires_on, SUM(CASE WHEN a.direction = 'in' THEN a.quantity ELSE -a.quantity END) AS quantity FROM stock_tracking_units u JOIN stock_tracking_allocations a ON a.supplier_id = u.supplier_id AND a.stock_tracking_unit_id = u.id JOIN stock_document_lines l ON l.id = a.stock_document_line_id AND l.supplier_id = a.supplier_id JOIN stock_documents d ON d.id = l.document_id AND d.supplier_id = l.supplier_id WHERE u.supplier_id = ? AND u.stock_item_id = ? AND a.warehouse_id = ? AND d.status IN ('posted','reversed') GROUP BY u.id, u.serial_number, u.lot_code, u.expires_on HAVING quantity > 0 ORDER BY u.expires_on IS NULL, u.expires_on, u.lot_code, u.serial_number LIMIT " . max(1, $limit));
+        $stmt->execute([$supplierId, $itemId, $warehouseId]);
+        return array_map(static fn (array $row): array => [
+            'serial_number' => $row['serial_number'] === null ? null : (string) $row['serial_number'],
+            'lot_code' => $row['lot_code'] === null ? null : (string) $row['lot_code'],
+            'expires_on' => $row['expires_on'] === null ? null : (string) $row['expires_on'],
+            'quantity' => \MyInvoice\Service\Stock\StockValuation::tToDecimal(\MyInvoice\Service\Stock\StockValuation::qtyToT((string) $row['quantity'])),
+        ], $stmt->fetchAll(PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Kusy karty, které doklady faktur pohnuly daným směrem, s identitou (pro nabídku
+     * vratky na dobropisu). Viz {@see movedByInvoices()}.
+     *
+     * @param list<int> $invoiceIds
+     * @return array<string,array{serial_number:?string, lot_code:?string, expires_on:?string, qtyT:int}> klíč malými písmeny
+     */
+    public function movedUnitsByInvoices(int $supplierId, int $itemId, array $invoiceIds, string $docType, string $direction): array
+    {
+        if ($invoiceIds === []) {
+            return [];
+        }
+        $in = implode(',', array_fill(0, count($invoiceIds), '?'));
+        $stmt = $this->db->pdo()->prepare("SELECT u.tracking_key, u.serial_number, u.lot_code, u.expires_on, SUM(a.quantity) AS quantity FROM stock_tracking_allocations a JOIN stock_tracking_units u ON u.id = a.stock_tracking_unit_id AND u.supplier_id = a.supplier_id JOIN stock_document_lines l ON l.id = a.stock_document_line_id AND l.supplier_id = a.supplier_id JOIN stock_documents d ON d.id = l.document_id AND d.supplier_id = l.supplier_id WHERE a.supplier_id = ? AND u.stock_item_id = ? AND d.invoice_id IN ($in) AND d.doc_type = ? AND d.status = 'posted' AND a.direction = ? GROUP BY u.tracking_key, u.serial_number, u.lot_code, u.expires_on ORDER BY u.expires_on IS NULL, u.expires_on, u.lot_code, u.serial_number");
+        $stmt->execute([$supplierId, $itemId, ...$invoiceIds, $docType, $direction]);
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $key = mb_strtolower((string) $row['tracking_key']);
+            $out[$key] = [
+                'serial_number' => $row['serial_number'] === null ? null : (string) $row['serial_number'],
+                'lot_code' => $row['lot_code'] === null ? null : (string) $row['lot_code'],
+                'expires_on' => $row['expires_on'] === null ? null : (string) $row['expires_on'],
+                'qtyT' => ($out[$key]['qtyT'] ?? 0) + \MyInvoice\Service\Stock\StockValuation::qtyToT((string) $row['quantity']),
+            ];
+        }
+        return $out;
+    }
+
     private function castLocation(array $row): array
     {
         foreach (['id', 'supplier_id', 'warehouse_id'] as $key) $row[$key] = (int) $row[$key];

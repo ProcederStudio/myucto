@@ -548,6 +548,14 @@ export interface TrackingAllocationInput {
   location_to_id?: number | null
 }
 
+export interface StockTrackingChoices {
+  tracking_mode: StockTrackingMode
+  base_unit: string
+  in_stock: Array<{ serial_number: string | null; lot_code: string | null; expires_on: string | null; quantity: string }>
+  /** Jen u dobropisu k faktuře: kusy vydané původní fakturou a dosud nevrácené; jinak null. */
+  returnable: Array<{ serial_number: string | null; lot_code: string | null; expires_on: string | null; quantity: string }> | null
+}
+
 export interface StockTrackingOverview {
   tracking_mode: StockTrackingMode
   base_unit: string
@@ -1105,6 +1113,11 @@ export const stockApi = {
     return downloadUrl(`/stock/items/${id}/movements/export?${params.toString()}`)
   },
   itemTracking: (id: number) => api.get<StockTrackingOverview>(`/stock/items/${id}/tracking`).then(r => r.data),
+  /** Nabídka kusů pro řádek faktury: skladem ve skladu, u dobropisu i kusy k vrácení (returnable). */
+  trackingChoices: (id: number, params: { warehouse_id?: number | null; invoice_id?: number | null }) =>
+    api.get<StockTrackingChoices>(`/stock/items/${id}/tracking-choices`, {
+      params: { warehouse_id: params.warehouse_id ?? undefined, invoice_id: params.invoice_id ?? undefined },
+    }).then(r => r.data),
   replaceItemUnits: (id: number, units: Array<{ unit_code: string; numerator: number; denominator: number }>) => api.put(`/stock/items/${id}/units`, { units }).then(r => r.data),
 
   // ── Výchozí účet a dimenze produktu (Účtování podle dimenzí, F1) ─────────

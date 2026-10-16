@@ -17785,6 +17785,39 @@ paths:
         '200':
           description: Režim sledování, přesné převodní jednotky, aktuální alokace a úplná historie.
         '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/stock/items/{id}/tracking-choices:
+    parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - in: path
+        name: id
+        required: true
+        schema: { type: integer, minimum: 1 }
+    get:
+      tags: [Stock]
+      summary: Nabídka sériových čísel a šarží pro řádek faktury
+      description: |
+        Kusy karty skladem ve skladu `warehouse_id`, sečtené přes umístění (faktura umístění
+        neukládá), bez historie pohybů. S `invoice_id` dobropisu k faktuře navíc `returnable`:
+        kusy, které původní faktura vydala a jiné dobropisy dosud nevrátily (vratka jiné kusy
+        odmítne `tracking_not_on_parent`). Jinak je `returnable` null.
+      parameters:
+        - { in: query, name: warehouse_id, schema: { type: integer, minimum: 1 } }
+        - { in: query, name: invoice_id, schema: { type: integer, minimum: 1 } }
+      responses:
+        '200':
+          description: Nabídka kusů.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tracking_mode: { type: string, enum: [none, lot, serial] }
+                  base_unit: { type: string }
+                  in_stock: { type: array, items: { $ref: '#/components/schemas/InvoiceItemTrackingAllocation' } }
+                  returnable:
+                    type: [array, "null"]
+                    items: { $ref: '#/components/schemas/InvoiceItemTrackingAllocation' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /api/v1/stock/items/{id}/units:
     parameters:
       - $ref: '#/components/parameters/SupplierIdHeader'

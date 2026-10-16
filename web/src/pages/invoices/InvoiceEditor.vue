@@ -38,6 +38,8 @@ import CountrySelect from '@/components/ui/CountrySelect.vue'
 import { rowKey } from '@/utils/rowKey'
 import { defaultNoteFor, noteAfterLanguageChange } from '@/pages/invoices/invoiceDefaultNote'
 import StockDescriptionField from '@/components/ui/StockDescriptionField.vue'
+import InvoiceTrackingPicker from './InvoiceTrackingPicker.vue'
+import { isReturnRow, preselectFromSearch, takenByOtherRows, trackingChoices, trackingKey, type TrackingChoice, type TrackingMode, type TrackingUnit } from './invoiceTracking'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import ClientFormModal from '@/components/modals/ClientFormModal.vue'
 import ProjectFormModal from '@/components/modals/ProjectFormModal.vue'
@@ -273,6 +275,83 @@ function rowWarehouseId(item: InvoiceItem): number | null {
   return item.warehouse_id ?? defaultWarehouseId.value
 }
 
+// ── Výběr sériových čísel a šarží (karty se sledováním) ──────────────────
+// Nabídka kusů (GET /stock/items/{id}/tracking-choices) se drží podle karty a skladu:
+// kusy skladem pro prodej, u dobropisu k faktuře kusy, které faktura vydala a dosud se
+// nevrátily. Dřív vybrané kusy si řádek pamatuje, aby odškrtnutý kus z nabídky nezmizel.
+interface TrackingSource { in_stock: TrackingUnit[]; returnable: TrackingUnit[] | null }
+const trackingModeById = reactive<Record<number, TrackingMode>>({})
+const trackingData = reactive<Record<string, TrackingSource>>({})
+const trackingLoading = reactive<Record<string, boolean>>({})
+const trackingFailed = reactive<Record<string, boolean>>({})
+const trackingRemembered = new WeakMap<InvoiceItem, TrackingUnit[]>()
+const stockRowQuery: Record<number, string> = {}
+
+function trackingDataKey(item: InvoiceItem): string {
+  return `${item.stock_item_id ?? 0}|${rowWarehouseId(item) ?? ''}`
+}
+async function ensureRowTracking(item: InvoiceItem, force = false): Promise<void> {
+  if (!item.stock_item_id || (trackingModeById[item.stock_item_id] ?? 'none') === 'none') return
+  const key = trackingDataKey(item)
+  if (!force && (trackingData[key] || trackingLoading[key])) return
+  trackingLoading[key] = true
+  trackingFailed[key] = false
+  try {
+    const res = await stockApi.trackingChoices(item.stock_item_id, { warehouse_id: rowWarehouseId(item), invoice_id: invoiceId.value })
+    trackingData[key] = { in_stock: res.in_stock, returnable: res.returnable }
+  } catch {
+    trackingFailed[key] = true
+  } finally {
+    trackingLoading[key] = false
+  }
+}
+function rowTrackingMode(item: InvoiceItem): TrackingMode {
+  if (!stockEnabled.value || !item.stock_item_id) return 'none'
+  return trackingModeById[item.stock_item_id] ?? 'none'
+}
+function rowIsReturn(item: InvoiceItem): boolean {
+  return isReturnRow(form.value.invoice_type, rowBaseQuantity(item))
+}
+function rowTrackingSource(item: InvoiceItem): TrackingSource | undefined {
+  return trackingData[trackingDataKey(item)]
+}
+function rowTrackingChoices(item: InvoiceItem, rowIndex: number): TrackingChoice[] {
+  const data = rowTrackingSource(item)
+  const source = rowIsReturn(item) ? (data?.returnable ?? []) : (data?.in_stock ?? [])
+  const taken = takenByOtherRows(
+    form.value.items.map(it => ({ stock_item_id: it.stock_item_id, warehouse: rowWarehouseId(it), tracking_allocations: it.tracking_allocations })),
+    rowIndex, item.stock_item_id!, rowWarehouseId(item),
+  )
+  return trackingChoices(source, item.tracking_allocations ?? [], trackingRemembered.get(item) ?? [], taken)
+}
+/** Vratka bez původní faktury (ruční dobropis, záporný řádek): nabídka neexistuje, kus se zadá ručně. */
+function rowTrackingFreeText(item: InvoiceItem): boolean {
+  return rowIsReturn(item) && !!rowTrackingSource(item) && rowTrackingSource(item)!.returnable === null
+}
+function rememberSelection(item: InvoiceItem): void {
+  const known = trackingRemembered.get(item) ?? []
+  const keys = new Set(known.map(u => trackingKey(u)))
+  for (const a of item.tracking_allocations ?? []) {
+    if (!keys.has(trackingKey(a))) {
+      known.push({ ...a })
+      keys.add(trackingKey(a))
+    }
+  }
+  trackingRemembered.set(item, known)
+}
+function onTrackingChange(item: InvoiceItem, value: InvoiceItem['tracking_allocations']): void {
+  rememberSelection(item)
+  item.tracking_allocations = value ?? []
+  rememberSelection(item)
+}
+function rememberTrackingMode(itemId: number, mode: TrackingMode | undefined): void {
+  trackingModeById[itemId] = mode ?? 'none'
+}
+function onRowWarehouseChange(item: InvoiceItem): void {
+  refreshAvailability()
+  void ensureRowTracking(item)
+}
+
 // Hotovostní vyrovnání (migrace 1327): u formy úhrady „Hotově" nabídneme pokladnu a
 // backend z ní při vystavení faktury vyrobí zaúčtovaný příjmový pokladní doklad.
 // Jen KORUNOVÉ pokladny — inkaso faktury z valutové pokladny CashDocumentService
@@ -339,6 +418,7 @@ async function refreshAvailability() {
 }
 
 async function onStockSearch(rowIndex: number, q: string) {
+  stockRowQuery[rowIndex] = q
   stockRowLoading[rowIndex] = true
   try {
     const res = await stockApi.searchItems(q, 30)
@@ -436,6 +516,12 @@ function onStockSelect(rowIndex: number, itemId: number | null) {
   if (si) {
     stockOptionById[si.id] = { value: si.id, label: `${si.sku} - ${si.name}`, secondary: si.unit }
     rememberPackaging(si)
+    rememberTrackingMode(si.id, si.tracking_mode)
+    // Karta nalezená podle celého VIN / sériového čísla: kus se rovnou vybere.
+    if (!(item.tracking_allocations?.length)) {
+      item.tracking_allocations = preselectFromSearch(si.tracking_mode ?? 'none', si.search_match, stockRowQuery[rowIndex] ?? '')
+    }
+    void ensureRowTracking(item)
     // Sloučené pole (popis = combobox): výběr karty popis přepíše názvem — dosavadní text byl
     // vyhledávací dotaz. Řádek jde dál libovolně přepsat ručně (volný text zůstává první občan).
     item.description = si.name
@@ -703,8 +789,11 @@ async function hydrateStockSelections() {
         effective_price: si.effective_price, promo_price: si.promo_price,
         promo_label: si.promo_label, promo_qty_available: si.promo_qty_available,
         units: pack?.units, default_sale_unit: pack?.default_sale_unit ?? si.default_sale_unit ?? null,
-        has_customer_prices: si.has_customer_prices,
+        has_customer_prices: si.has_customer_prices, tracking_mode: si.tracking_mode,
       })
+      rememberTrackingMode(si.id, si.tracking_mode)
+      rememberSelection(it)
+      void ensureRowTracking(it)
       if (pack) stockPackagingById[si.id] = { base_unit: pack.base_unit, units: pack.units }
       // Jen příznak pro řádky karet s novou logikou; jednotka ani cena načteného řádku se nemění.
       stockFeaturesById[si.id] = usesStockPricingFeatures({ units: pack?.units, has_customer_prices: si.has_customer_prices })
@@ -2906,13 +2995,27 @@ useWindowTitle(
                 <label v-if="stockEnabled && item.stock_item_id && stockWarehouses.length > 0"
                   class="mt-1.5 flex items-center gap-2 text-xs text-neutral-500">
                   <span class="whitespace-nowrap">{{ t('stock.receipt.field_warehouse') }}</span>
-                  <select v-model.number="item.warehouse_id" @change="refreshAvailability"
+                  <select v-model.number="item.warehouse_id" @change="onRowWarehouseChange(item)"
                     class="h-8 min-w-0 max-w-56 rounded-md border border-neutral-300 bg-surface px-2 text-xs text-neutral-700">
                     <option v-for="warehouse in stockWarehouses" :key="warehouse.id" :value="warehouse.id">
                       {{ warehouse.name }}
                     </option>
                   </select>
                 </label>
+                <InvoiceTrackingPicker v-if="rowTrackingMode(item) !== 'none'"
+                  :mode="rowTrackingMode(item) as 'lot' | 'serial'"
+                  :kind="rowIsReturn(item) ? 'return' : 'sale'"
+                  :choices="rowTrackingChoices(item, i)"
+                  :model-value="item.tracking_allocations ?? []"
+                  :required-base="rowBaseQuantity(item)"
+                  :base-unit="rowBaseUnit(item)"
+                  :loading="trackingLoading[trackingDataKey(item)]"
+                  :error="trackingFailed[trackingDataKey(item)]"
+                  :readonly="isEdit && editedStatus !== 'draft'"
+                  :allow-free-text="rowTrackingFreeText(item)"
+                  :required-on-issue="form.invoice_type === 'invoice' || form.invoice_type === 'credit_note'"
+                  @retry="ensureRowTracking(item, true)"
+                  @update:model-value="(v) => onTrackingChange(item, v)" />
                 <ItemAccrualFields v-if="showAccrual" :description="item.description"
                   v-model:from="item.accrual_from" v-model:to="item.accrual_to" />
                 <label v-if="showItemAccounts && itemAccountsAvailable && !item.asset_id && !item.small_asset_id"
@@ -3112,13 +3215,27 @@ useWindowTitle(
               <label v-if="stockEnabled && item.stock_item_id && stockWarehouses.length > 0"
                 class="mt-1.5 block text-xs font-medium text-neutral-600">
                 <span class="mb-1 block">{{ t('stock.receipt.field_warehouse') }}</span>
-                <select v-model.number="item.warehouse_id" @change="refreshAvailability"
+                <select v-model.number="item.warehouse_id" @change="onRowWarehouseChange(item)"
                   class="h-9 w-full rounded-md border border-neutral-300 bg-surface px-2 text-sm text-neutral-700">
                   <option v-for="warehouse in stockWarehouses" :key="warehouse.id" :value="warehouse.id">
                     {{ warehouse.name }}
                   </option>
                 </select>
               </label>
+              <InvoiceTrackingPicker v-if="rowTrackingMode(item) !== 'none'"
+                :mode="rowTrackingMode(item) as 'lot' | 'serial'"
+                :kind="rowIsReturn(item) ? 'return' : 'sale'"
+                :choices="rowTrackingChoices(item, i)"
+                :model-value="item.tracking_allocations ?? []"
+                :required-base="rowBaseQuantity(item)"
+                :base-unit="rowBaseUnit(item)"
+                :loading="trackingLoading[trackingDataKey(item)]"
+                :error="trackingFailed[trackingDataKey(item)]"
+                :readonly="isEdit && editedStatus !== 'draft'"
+                :allow-free-text="rowTrackingFreeText(item)"
+                :required-on-issue="form.invoice_type === 'invoice' || form.invoice_type === 'credit_note'"
+                @retry="ensureRowTracking(item, true)"
+                @update:model-value="(v) => onTrackingChange(item, v)" />
               <ItemAccrualFields v-if="showAccrual" stacked :description="item.description"
                 v-model:from="item.accrual_from" v-model:to="item.accrual_to" />
               <label v-if="showItemAccounts && itemAccountsAvailable && !item.asset_id && !item.small_asset_id"

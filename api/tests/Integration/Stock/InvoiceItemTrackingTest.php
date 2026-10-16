@@ -562,6 +562,65 @@ final class InvoiceItemTrackingTest extends StockTestCase
         }
     }
 
+    // ── nabídka kusů pro editor faktury ─────────────────────────────────────
+
+    public function testChoicesSumUnitsAcrossLocationsOfOneWarehouse(): void
+    {
+        $sid = $this->createSupplier();
+        $wh = $this->warehouse($sid);
+        $other = $this->warehouse($sid, 'DRUHY', false);
+        $a = $this->location($sid, $wh, 'A-50');
+        $b = $this->location($sid, $wh, 'B-50');
+        $oil = $this->trackedItem($sid, 'OIL-50', 'lot');
+        $this->receiveTracked($sid, $wh, $oil, [
+            ['quantity' => '2', 'lot_code' => 'L1', 'expires_on' => '2099-12-31', 'location_id' => $a],
+            ['quantity' => '3', 'lot_code' => 'L1', 'expires_on' => '2099-12-31', 'location_id' => $b],
+        ]);
+        $this->receiveTracked($sid, $other, $oil, [['quantity' => '7', 'lot_code' => 'L2']]);
+
+        $body = $this->choices($sid, $oil, ['warehouse_id' => (string) $wh]);
+        self::assertSame('lot', $body['tracking_mode']);
+        self::assertSame([['L1', '2099-12-31', '5.000']], array_map(
+            static fn (array $c): array => [$c['lot_code'], $c['expires_on'], $c['quantity']],
+            $body['in_stock'],
+        ), 'Jen zvolený sklad, šarže sečtená přes umístění.');
+        self::assertNull($body['returnable']);
+        self::assertArrayNotHasKey('history', $body, 'Editor historii pohybů nepotřebuje.');
+    }
+
+    public function testChoicesForCreditNoteOfferWhatTheInvoiceIssuedAndIsNotReturned(): void
+    {
+        $sid = $this->createSupplier();
+        $wh = $this->warehouse($sid);
+        $moto = $this->trackedItem($sid, 'MOTO-50', 'serial');
+        $this->receiveTracked($sid, $wh, $moto, [['quantity' => '1', 'serial_number' => 'VIN-50A'], ['quantity' => '1', 'serial_number' => 'VIN-50B'], ['quantity' => '1', 'serial_number' => 'VIN-50C']]);
+        $invoiceId = $this->createInvoice($sid, [$this->line($moto, $wh, '2', [['quantity' => '1', 'serial_number' => 'VIN-50A'], ['quantity' => '1', 'serial_number' => 'VIN-50B']])]);
+        self::assertSame(200, $this->issue($sid, $invoiceId)->getStatusCode());
+
+        $first = (int) $this->cancel($sid, $invoiceId, 'credit_note')['credit_note_id'];
+        $items = $this->storedItems($first);
+        $items[0]['quantity'] = -1;
+        $items[0]['tracking_allocations'] = [['quantity' => '1', 'serial_number' => 'VIN-50A']];
+        self::assertSame(200, $this->updateInvoice($sid, $first, ['items' => $items])->getStatusCode());
+        self::assertSame(200, $this->issue($sid, $first)->getStatusCode());
+
+        $second = (int) $this->cancel($sid, $invoiceId, 'credit_note')['credit_note_id'];
+        $body = $this->choices($sid, $moto, ['warehouse_id' => (string) $wh, 'invoice_id' => (string) $second]);
+        self::assertSame(['VIN-50B'], array_column($body['returnable'], 'serial_number'), 'Vrátit jde jen to, co faktura vydala a dosud se nevrátilo.');
+        self::assertSame(['VIN-50A', 'VIN-50C'], array_column($body['in_stock'], 'serial_number'));
+    }
+
+    public function testChoicesIgnoreForeignInvoice(): void
+    {
+        $sid = $this->createSupplier();
+        $wh = $this->warehouse($sid);
+        $moto = $this->trackedItem($sid, 'MOTO-51', 'serial');
+        $foreignSupplier = $this->createSupplier();
+        $foreignInvoice = $this->invoiceDraft($foreignSupplier, $this->client($foreignSupplier), 'credit_note');
+        $body = $this->choices($sid, $moto, ['warehouse_id' => (string) $wh, 'invoice_id' => (string) $foreignInvoice]);
+        self::assertNull($body['returnable']);
+    }
+
     // ── pomocníci ────────────────────────────────────────────────────────────
 
     /** @param list<string> $serials */
@@ -663,6 +722,16 @@ final class InvoiceItemTrackingTest extends StockTestCase
         );
         $stmt->execute([$supplierId, $locationId]);
         return (int) round((float) $stmt->fetchColumn() * 1000);
+    }
+
+    /** @param array<string,string> $query */
+    private function choices(int $supplierId, int $itemId, array $query): array
+    {
+        $res = $this->container->get(\MyInvoice\Action\Stock\StockTrackingAction::class)->choices(
+            $this->request('GET', $supplierId, [])->withQueryParams($query), new Psr7Response(), ['id' => (string) $itemId],
+        );
+        self::assertSame(200, $res->getStatusCode(), (string) $res->getBody());
+        return $this->body($res);
     }
 
     private function trackedItem(int $supplierId, string $sku, string $mode): int
