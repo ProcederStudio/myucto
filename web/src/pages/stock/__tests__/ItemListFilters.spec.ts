@@ -135,6 +135,15 @@ describe('ItemList catalog filters', () => {
     expect(wrapper.get('[data-test="display-attribute-value"]').text()).toBe('12.5 kW')
   })
 
+  it('drops a remembered parameter column choice when the parameter no longer exists', async () => {
+    m.tableOptions.display_attribute_id = 99
+    mount(ItemList, { global: { stubs: { FilterBar: filterBar, SavedFiltersMenu: true, ColumnPicker: true, DensityToggle: true, SortableTh: true, EmptyState: true, RouterLink: true } } })
+    await flushPromises()
+
+    expect(m.tableOptions.display_attribute_id).toBeNull()
+    expect(m.listItems).toHaveBeenLastCalledWith(expect.objectContaining({ display_attribute_id: undefined }), expect.anything())
+  })
+
   it('keeps an attribute value restored from a saved view and lazily loads its options', async () => {
     mount(ItemList, { global: { stubs: { FilterBar: filterBar, SavedFiltersMenu: true, ColumnPicker: true, DensityToggle: true, SortableTh: true, EmptyState: true, RouterLink: true } } })
     await flushPromises()

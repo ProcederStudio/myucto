@@ -5,6 +5,8 @@ const m = vi.hoisted(() => ({
   item: {} as Record<string, unknown>,
   levels: [] as Array<Record<string, unknown>>,
   context: null as Record<string, unknown> | null,
+  vatRates: [{ id: 1, rate_percent: 21, is_reverse_charge: false }] as Array<Record<string, unknown>>,
+  deniedWrite: new Set<string>(),
 }))
 
 vi.mock('@/api/stock', () => ({
@@ -33,7 +35,7 @@ vi.mock('@/api/productMasters', () => ({
   productMastersApi: { getProductContext: vi.fn(async () => m.context) },
 }))
 vi.mock('@/api/codebooks', () => ({
-  codebooksApi: { vatRates: vi.fn(async () => [{ id: 1, rate_percent: 21 }]) },
+  codebooksApi: { vatRates: vi.fn(async () => m.vatRates) },
 }))
 vi.mock('@/api/eshop', () => ({
   eshopApi: {
@@ -49,7 +51,7 @@ vi.mock('@/composables/useFormat', () => ({
   formatDate: (value: string) => value,
 }))
 vi.mock('@/stores/auth', () => ({
-  useAuthStore: () => ({ canRead: () => true, canWrite: () => true }),
+  useAuthStore: () => ({ canRead: () => true, canWrite: (key: string) => !m.deniedWrite.has(key) }),
 }))
 vi.mock('@/stores/supplier', () => ({
   useSupplierStore: () => ({ currentSupplierId: 1, currentSupplier: { id: 1, is_vat_payer: true } }),
@@ -111,6 +113,35 @@ describe('ItemDetail overview', () => {
     m.item = {}
     m.levels = []
     m.context = null
+  })
+
+  it('nenabídne příjemku ani převodku bez práva zapisovat skladové doklady', async () => {
+    m.deniedWrite = new Set(['stock.documents.write'])
+    const actionBar = { props: ['actions'], template: '<div />' }
+    const wrapper = mount(ItemDetail, {
+      global: { stubs: { ActionBar: actionBar, EmptyState: true, ItemDuplicateDialog: true, ItemTemplatesPanel: true, ProductRelationsPanel: true, RouterLink: { template: '<a><slot /></a>' } } },
+    })
+    await flushPromises()
+
+    const actions = wrapper.findComponent(actionBar).props('actions') as Array<{ key: string; show?: boolean }>
+    expect(actions.find(a => a.key === 'new-receipt')?.show).toBe(false)
+    expect(actions.find(a => a.key === 'new-transfer')?.show).toBe(false)
+    wrapper.unmount()
+    m.deniedWrite = new Set()
+  })
+
+  it('u sazby s přenesenou daňovou povinností cenu s DPH neukáže', async () => {
+    m.item = { sale_price_without_vat: '1000.00', effective_price: '1000.00', vat_rate_id: 2 }
+    m.vatRates = [{ id: 2, rate_percent: 21, is_reverse_charge: true }]
+    const wrapper = mount(ItemDetail, {
+      global: { stubs: { ActionBar: true, EmptyState: true, ItemDuplicateDialog: true, ItemTemplatesPanel: true, ProductRelationsPanel: true, RouterLink: { template: '<a><slot /></a>' } } },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="sale-price-with-vat"]').exists()).toBe(false)
+    wrapper.unmount()
+    m.item = {}
+    m.vatRates = [{ id: 1, rate_percent: 21, is_reverse_charge: false }]
   })
 })
 

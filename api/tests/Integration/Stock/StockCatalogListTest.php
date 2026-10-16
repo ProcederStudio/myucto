@@ -7,6 +7,8 @@ namespace MyInvoice\Tests\Integration\Stock;
 use MyInvoice\Action\Stock\StockItemAction;
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Middleware\SupplierScopeMiddleware;
+use MyInvoice\Security\AccessLevel;
+use MyInvoice\Security\EffectiveRole;
 use PHPUnit\Framework\Attributes\Group;
 use Slim\Psr7\Factory\ServerRequestFactory;
 use Slim\Psr7\Response as Psr7Response;
@@ -203,6 +205,20 @@ final class StockCatalogListTest extends StockTestCase
 
         $invalid = $this->callList($sid, ['display_attribute_id' => 'abc']);
         self::assertSame(400, $invalid['status']);
+
+        // Parametr jiné firmy hodnotu nevrátí.
+        $foreignAttribute = $this->insertAttribute($this->createSupplier(), 'KAT-PARAM-FOREIGN');
+        $this->db->pdo()->prepare('UPDATE stock_item_attribute_values SET attribute_id = ? WHERE supplier_id = ? AND stock_item_id = ?')
+            ->execute([$foreignAttribute, $sid, $numeric]);
+        $foreign = $this->callList($sid, ['display_attribute_id' => (string) $foreignAttribute]);
+        self::assertSame(200, $foreign['status']);
+        self::assertNull($byId($foreign['body']['data'])[$numeric]);
+
+        // Parametry spravuje e-shop: bez práva ho číst se sloupec ignoruje.
+        $stockOnly = new EffectiveRole(0, 'Skladník', 'staff', true, ['stock' => AccessLevel::READ->value]);
+        $withoutEshop = $this->callList($sid, ['display_attribute_id' => (string) $enumAttribute], $stockOnly);
+        self::assertSame(200, $withoutEshop['status']);
+        self::assertArrayNotHasKey('display_attribute_value', $withoutEshop['body']['data'][0]);
     }
 
     public function testApiRejectsUnknownSortAndMalformedFilters(): void
@@ -223,13 +239,16 @@ final class StockCatalogListTest extends StockTestCase
     }
 
     /** @param array<string,mixed> $query @return array{status:int,body:array<string,mixed>} */
-    private function callList(int $supplierId, array $query): array
+    private function callList(int $supplierId, array $query, ?EffectiveRole $role = null): array
     {
         $request = (new ServerRequestFactory())
             ->createServerRequest('GET', '/api/stock/items')
             ->withAttribute(SupplierScopeMiddleware::ATTR_CURRENT_ID, $supplierId)
             ->withAttribute(AuthMiddleware::ATTR_USER, ['id' => $this->userId, 'role' => 'accountant'])
             ->withQueryParams($query);
+        if ($role !== null) {
+            $request = $request->withAttribute('auth.effective_role', $role);
+        }
         $response = $this->action->list($request, new Psr7Response());
         $response->getBody()->rewind();
         $body = json_decode((string) $response->getBody(), true);

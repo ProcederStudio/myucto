@@ -148,13 +148,15 @@ async function loadVatRates() {
   }
 }
 const round2 = (n: number) => Math.round(n * 100) / 100
+// U přenesené daňové povinnosti DPH odvádí odběratel, cena „s DPH“ by klamala.
 const salePriceWithVat = computed<number | null>(() => {
   const current = item.value
   if (!current || !(supplier.currentSupplier?.is_vat_payer ?? true) || current.vat_rate_id == null) return null
   const net = current.effective_price ?? current.sale_price_without_vat
   if (net == null || net === '') return null
-  const rate = vatRates.value.find(r => r.id === current.vat_rate_id)?.rate_percent
-  if (rate == null) return null
+  const vatRate = vatRates.value.find(r => r.id === current.vat_rate_id)
+  if (!vatRate || vatRate.is_reverse_charge) return null
+  const rate = vatRate.rate_percent
   const base = round2(Number(net))
   return round2(base + round2(base * Number(rate) / 100))
 })
@@ -283,12 +285,12 @@ const actions = computed<ActionItem[]>(() => [
   },
   {
     key: 'new-receipt', label: t('stock.item_detail.new_receipt'), icon: 'inbox', tier: 'secondary', variant: 'success',
-    show: auth.canWrite('stock'),
+    show: auth.canWrite('stock.documents.write'),
     to: { path: '/stock/documents/new', query: { doc_type: 'receipt', stock_item_id: id.value } },
   },
   {
     key: 'new-transfer', label: t('stock.item_detail.new_transfer'), icon: 'swap', tier: 'secondary', variant: 'primary',
-    show: auth.canWrite('stock'),
+    show: auth.canWrite('stock.documents.write'),
     to: { path: '/stock/documents/new', query: { doc_type: 'transfer', stock_item_id: id.value } },
   },
   {

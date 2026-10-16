@@ -107,13 +107,16 @@ final class StockItemAction
         } catch (\InvalidArgumentException $e) {
             return Json::error($response, 'validation_failed', $e->getMessage(), 400);
         }
-        // Volitelný sloupec seznamu: hodnota jednoho parametru karty (ne filtr).
+        // Volitelný sloupec seznamu: hodnota jednoho parametru karty (ne filtr). Parametry
+        // spravuje e-shop, bez práva ho číst se sloupec tiše vynechá.
         if (($q['display_attribute_id'] ?? '') !== '') {
             $displayAttributeId = filter_var($q['display_attribute_id'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
             if ($displayAttributeId === false) {
                 return Json::error($response, 'validation_failed', 'display_attribute_id musí být kladné celé číslo.', 400);
             }
-            $filters['display_attribute_id'] = $displayAttributeId;
+            if (RequestAuthorization::allows($request, 'eshop', AccessLevel::READ)) {
+                $filters['display_attribute_id'] = $displayAttributeId;
+            }
         }
 
         $p = Pagination::fromQuery($q, 50);

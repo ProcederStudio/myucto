@@ -49,6 +49,7 @@ const tags = ref<Tag[]>([])
 const attributes = ref<Attribute[]>([])
 // Všechny nearchivované parametry: sloupec smí ukázat i parametr, podle kterého se nefiltruje.
 const displayAttributes = ref<Attribute[]>([])
+const displayAttributesLoaded = ref(false)
 const attributeOptions = ref<Record<number, AttributeOption[]>>({})
 const vendors = ref<Client[]>([])
 const selectedIds = ref(new Set<number>())
@@ -387,6 +388,13 @@ const displayAttributeId = computed<number | null>(() => {
 })
 const displayAttribute = computed(() => displayAttributes.value.find(a => a.id === displayAttributeId.value) ?? null)
 const displayAttributeRequestId = computed(() => (tbl.isVisible('attribute') && displayAttributeId.value != null) ? displayAttributeId.value : undefined)
+// Uložený parametr, který mezitím z číselníku zmizel (smazaný, archivovaný), se zahodí:
+// jinak by sloupec ukazoval hodnoty bez typu (ano/ne jako 1/0) a výběr by byl prázdný.
+function dropMissingDisplayAttribute() {
+  if (!displayAttributesLoaded.value || displayAttributeId.value == null) return
+  if (!displayAttributes.value.some(a => a.id === displayAttributeId.value)) tbl.setOption('display_attribute_id', null)
+}
+watch(displayAttributeId, dropMissingDisplayAttribute)
 function onDisplayAttributeChange(event: Event) {
   const value = Number((event.target as HTMLSelectElement).value)
   tbl.setOption('display_attribute_id', value > 0 ? value : null)
@@ -464,14 +472,16 @@ onMounted(async () => {
     eshopApi.listManufacturers().catch(() => [] as Manufacturer[]),
     eshopApi.listCategories().catch(() => [] as Category[]),
     eshopApi.listTags().catch(() => [] as Tag[]),
-    eshopApi.listAttributes().catch(() => [] as Attribute[]),
+    eshopApi.listAttributes().catch(() => null),
   ])
   warehouses.value = wh
   manufacturers.value = mf.filter(x => !x.archived)
   categories.value = cat.filter(x => !x.archived)
   tags.value = tg.filter(x => !x.archived)
-  attributes.value = attr.filter(x => !x.archived && x.is_filterable)
-  displayAttributes.value = attr.filter(x => !x.archived)
+  attributes.value = (attr ?? []).filter(x => !x.archived && x.is_filterable)
+  displayAttributes.value = (attr ?? []).filter(x => !x.archived)
+  displayAttributesLoaded.value = attr !== null
+  dropMissingDisplayAttribute()
   const loadedVendors: Client[] = []
   for (let vendorPage = 1; ; vendorPage++) {
     const result = await clientsApi.list({ role: 'vendors', per_page: 500, page: vendorPage, sort: 'name' }).catch(() => null)
