@@ -24,6 +24,21 @@ use Slim\Psr7\Response as Psr7Response;
 #[Group('integration')]
 final class InvoiceItemTrackingTest extends StockTestCase
 {
+    /** Vystavení přes akci zakládá čítače číselné řady; StockTestCase je neuklízí. */
+    protected function tearDown(): void
+    {
+        if (isset($this->db)) {
+            $pdo = $this->db->pdo();
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            foreach ($this->supplierIds as $sid) {
+                $pdo->prepare('DELETE FROM invoice_counters WHERE supplier_id = ?')->execute([$sid]);
+            }
+        }
+        parent::tearDown();
+    }
+
     public function testDraftRoundTripKeepsTrackingAcrossEdits(): void
     {
         $sid = $this->createSupplier();
@@ -255,18 +270,253 @@ final class InvoiceItemTrackingTest extends StockTestCase
         self::assertSame('VIN-N', $this->storedItems($invoiceId)[0]['tracking_allocations'][0]['serial_number']);
     }
 
+    // ── vystavení: výdejka, vratka, storno ──────────────────────────────────
+
+    public function testIssueAllocatesChosenSerials(): void
+    {
+        $sid = $this->createSupplier();
+        $wh = $this->warehouse($sid);
+        $moto = $this->trackedItem($sid, 'MOTO-10', 'serial');
+        $this->receiveTracked($sid, $wh, $moto, [['quantity' => '1', 'serial_number' => 'VIN-A'], ['quantity' => '1', 'serial_number' => 'VIN-B']]);
+        $invoiceId = $this->createInvoice($sid, [$this->line($moto, $wh, '1', [['quantity' => '1', 'serial_number' => 'VIN-B']])]);
+
+        $res = $this->issue($sid, $invoiceId);
+        self::assertSame(200, $res->getStatusCode(), (string) $res->getBody());
+        self::assertSame(0, $this->serialBalance($sid, $moto, 'VIN-B'), 'Vydal se vybraný kus.');
+        self::assertSame(1000, $this->serialBalance($sid, $moto, 'VIN-A'), 'Druhý kus zůstal skladem.');
+        self::assertSame(['VIN-B'], $this->issuedSerials($sid, $invoiceId), 'Řádek výdejky je navázaný na řádek faktury se sériovým číslem.');
+    }
+
+    public function testIssueWithoutSelectionFailsBeforeNumbering(): void
+    {
+        $sid = $this->createSupplier();
+        $wh = $this->warehouse($sid);
+        $moto = $this->trackedItem($sid, 'MOTO-11', 'serial');
+        $this->receiveTracked($sid, $wh, $moto, [['quantity' => '1', 'serial_number' => 'VIN-C']]);
+        $invoiceId = $this->createInvoice($sid, [$this->line($moto, $wh, '1', null)]);
+
+        $res = $this->issue($sid, $invoiceId);
+        $this->assertError($res, 422, 'stock.error.tracking_selection_required');
+        self::assertSame('MOTO-11', $this->body($res)['error']['items'][0]['sku'] ?? null, 'Chyba jmenuje kartu, u které výběr chybí.');
+        $row = $this->invoiceRow($invoiceId);
+        self::assertSame(['draft', null], [$row['status'], $row['varsymbol']], 'Koncept bez čísla, řada nespálená.');
+    }
+
+    public function testIncompleteSelectionFails(): void
+    {
+        $sid = $this->createSupplier();
+        $wh = $this->warehouse($sid);
+        $moto = $this->trackedItem($sid, 'MOTO-12', 'serial');
+        $this->receiveTracked($sid, $wh, $moto, [['quantity' => '1', 'serial_number' => 'VIN-D'], ['quantity' => '1', 'serial_number' => 'VIN-E']]);
+        $invoiceId = $this->createInvoice($sid, [$this->line($moto, $wh, '2', [['quantity' => '1', 'serial_number' => 'VIN-D']])]);
+
+        $this->assertError($this->issue($sid, $invoiceId), 422, 'stock.error.tracking_selection_required');
+    }
+
+    public function testIssueOfSoldSerialFails(): void
+    {
+        $sid = $this->createSupplier();
+        $wh = $this->warehouse($sid);
+        $moto = $this->trackedItem($sid, 'MOTO-13', 'serial');
+        $this->receiveTracked($sid, $wh, $moto, [['quantity' => '1', 'serial_number' => 'VIN-F'], ['quantity' => '1', 'serial_number' => 'VIN-G']]);
+        $first = $this->createInvoice($sid, [$this->line($moto, $wh, '1', [['quantity' => '1', 'serial_number' => 'VIN-F']])]);
+        self::assertSame(200, $this->issue($sid, $first)->getStatusCode());
+        $second = $this->createInvoice($sid, [$this->line($moto, $wh, '1', [['quantity' => '1', 'serial_number' => 'VIN-F']])]);
+
+        $res = $this->issue($sid, $second);
+        self::assertSame(409, $res->getStatusCode(), (string) $res->getBody());
+        self::assertSame('stock.error.tracking_insufficient_stock', $this->body($res)['error']['code'] ?? null);
+        self::assertSame('draft', $this->invoiceRow($second)['status']);
+        self::assertSame(1000, $this->serialBalance($sid, $moto, 'VIN-G'));
+    }
+
+    public function testLotSelectionIssues(): void
+    {
+        $sid = $this->createSupplier();
+        $wh = $this->warehouse($sid);
+        $oil = $this->trackedItem($sid, 'OIL-10', 'lot');
+        $this->receiveTracked($sid, $wh, $oil, [['quantity' => '5', 'lot_code' => 'L1', 'expires_on' => '2099-12-31']]);
+        $invoiceId = $this->createInvoice($sid, [$this->line($oil, $wh, '2', [['quantity' => '2', 'lot_code' => 'L1', 'expires_on' => '2099-12-31']])]);
+
+        self::assertSame(200, $this->issue($sid, $invoiceId)->getStatusCode());
+        self::assertSame(3000, $this->lotBalance($sid, $oil, 'L1', '2099-12-31'));
+    }
+
+    public function testCreditNoteReturnsSameSerial(): void
+    {
+        $sid = $this->createSupplier();
+        $wh = $this->warehouse($sid);
+        $moto = $this->trackedItem($sid, 'MOTO-14', 'serial');
+        $this->receiveTracked($sid, $wh, $moto, [['quantity' => '1', 'serial_number' => 'VIN-H']]);
+        $invoiceId = $this->createInvoice($sid, [$this->line($moto, $wh, '1', [['quantity' => '1', 'serial_number' => 'VIN-H']])]);
+        self::assertSame(200, $this->issue($sid, $invoiceId)->getStatusCode());
+
+        $creditId = $this->cancel($sid, $invoiceId, 'credit_note')['credit_note_id'];
+        $res = $this->issue($sid, (int) $creditId);
+        self::assertSame(200, $res->getStatusCode(), (string) $res->getBody());
+        self::assertSame(1000, $this->serialBalance($sid, $moto, 'VIN-H'), 'Dobropis vrátil tentýž kus na sklad.');
+    }
+
+    public function testInternalCancelRestoresSerialAndUncancelIssuesItAgain(): void
+    {
+        $sid = $this->createSupplier();
+        $wh = $this->warehouse($sid);
+        $moto = $this->trackedItem($sid, 'MOTO-15', 'serial');
+        $this->receiveTracked($sid, $wh, $moto, [['quantity' => '1', 'serial_number' => 'VIN-I']]);
+        $invoiceId = $this->createInvoice($sid, [$this->line($moto, $wh, '1', [['quantity' => '1', 'serial_number' => 'VIN-I']])]);
+        self::assertSame(200, $this->issue($sid, $invoiceId)->getStatusCode());
+
+        $this->cancel($sid, $invoiceId, 'internal');
+        self::assertSame(1000, $this->serialBalance($sid, $moto, 'VIN-I'), 'Interní storno vrátí kus.');
+
+        $res = $this->container->get(\MyInvoice\Action\Invoice\UncancelInvoiceAction::class)(
+            $this->request('POST', $sid, []), new Psr7Response(), ['id' => (string) $invoiceId],
+        );
+        self::assertSame(200, $res->getStatusCode(), (string) $res->getBody());
+        self::assertSame(0, $this->serialBalance($sid, $moto, 'VIN-I'), 'Obnovení po stornu vydá tentýž kus znovu.');
+    }
+
+    public function testIssueFindsLocationOfSelectedSerial(): void
+    {
+        $sid = $this->createSupplier();
+        $wh = $this->warehouse($sid);
+        $shelf = $this->location($sid, $wh, 'A-01');
+        $moto = $this->trackedItem($sid, 'MOTO-30', 'serial');
+        $this->receiveTracked($sid, $wh, $moto, [['quantity' => '1', 'serial_number' => 'VIN-P', 'location_id' => $shelf]]);
+        $invoiceId = $this->createInvoice($sid, [$this->line($moto, $wh, '1', [['quantity' => '1', 'serial_number' => 'VIN-P']])]);
+
+        $res = $this->issue($sid, $invoiceId);
+        self::assertSame(200, $res->getStatusCode(), 'Faktura umístění nezná, výdej ho dohledá: ' . $res->getBody());
+        self::assertSame(0, $this->serialBalance($sid, $moto, 'VIN-P'));
+    }
+
+    public function testIssueSplitsLotAcrossLocations(): void
+    {
+        $sid = $this->createSupplier();
+        $wh = $this->warehouse($sid);
+        $a = $this->location($sid, $wh, 'A-02');
+        $b = $this->location($sid, $wh, 'B-02');
+        $oil = $this->trackedItem($sid, 'OIL-30', 'lot');
+        $this->receiveTracked($sid, $wh, $oil, [
+            ['quantity' => '2', 'lot_code' => 'L9', 'expires_on' => '2099-12-31', 'location_id' => $a],
+            ['quantity' => '3', 'lot_code' => 'L9', 'expires_on' => '2099-12-31', 'location_id' => $b],
+        ]);
+        $invoiceId = $this->createInvoice($sid, [$this->line($oil, $wh, '4', [['quantity' => '4', 'lot_code' => 'L9', 'expires_on' => '2099-12-31']])]);
+
+        self::assertSame(200, $this->issue($sid, $invoiceId)->getStatusCode());
+        self::assertSame(1000, $this->lotBalance($sid, $oil, 'L9', '2099-12-31'), 'Šarže se vydala ze dvou umístění.');
+    }
+
+    public function testServiceIssueWithoutSelectionFailsClearly(): void
+    {
+        $sid = $this->createSupplier();
+        $wh = $this->warehouse($sid);
+        $moto = $this->trackedItem($sid, 'MOTO-16', 'serial');
+        $this->receiveTracked($sid, $wh, $moto, [['quantity' => '1', 'serial_number' => 'VIN-J']]);
+        $invoiceId = $this->createInvoice($sid, [$this->line($moto, $wh, '1', null)]);
+        $pdo = $this->db->pdo();
+        $pdo->beginTransaction();
+        try {
+            $this->issue->issueForInvoice($sid, ['id' => $invoiceId, 'invoice_type' => 'invoice', 'issue_date' => '2099-06-10', 'varsymbol' => 'X1'], $this->userId);
+            self::fail('Opakovaná faktura nebo automatické vystavení bez výběru musí skončit srozumitelnou chybou.');
+        } catch (\MyInvoice\Service\Stock\StockException $e) {
+            self::assertSame('tracking_selection_required', $e->errorCode);
+        } finally {
+            $pdo->rollBack();
+        }
+    }
+
     // ── pomocníci ────────────────────────────────────────────────────────────
 
     /** @param list<string> $serials */
     private function receiveUnits(int $supplierId, int $warehouseId, int $itemId, array $serials): void
     {
+        $this->receiveTracked($supplierId, $warehouseId, $itemId, array_map(
+            static fn (string $s): array => ['quantity' => '1', 'serial_number' => $s],
+            $serials,
+        ));
+    }
+
+    /** @param list<array<string,mixed>> $allocations */
+    private function receiveTracked(int $supplierId, int $warehouseId, int $itemId, array $allocations): void
+    {
+        $qty = array_sum(array_map(static fn (array $a): float => (float) $a['quantity'], $allocations));
         $draft = $this->documents->create($supplierId, [
             'doc_type' => 'receipt', 'origin' => 'manual', 'warehouse_id' => $warehouseId, 'doc_date' => '2099-01-10',
-            'description' => 'Příjem kusů',
-            'lines' => [['stock_item_id' => $itemId, 'qty' => count($serials) . '.000', 'unit_cost' => '100.000000',
-                'tracking_allocations' => array_map(static fn (string $s): array => ['quantity' => '1', 'serial_number' => $s], $serials)]],
+            'description' => 'Příjem',
+            'lines' => [['stock_item_id' => $itemId, 'qty' => number_format($qty, 3, '.', ''), 'unit_cost' => '100.000000', 'tracking_allocations' => $allocations]],
         ], $this->userId);
         $this->documents->post($supplierId, (int) $draft['id'], $this->userId);
+    }
+
+    private function issue(int $supplierId, int $invoiceId): ResponseInterface
+    {
+        return $this->container->get(\MyInvoice\Action\Invoice\IssueInvoiceAction::class)(
+            $this->request('POST', $supplierId, []), new Psr7Response(), ['id' => (string) $invoiceId],
+        );
+    }
+
+    /** @return array<string,mixed> */
+    private function cancel(int $supplierId, int $invoiceId, string $mode): array
+    {
+        $res = $this->container->get(CancelInvoiceAction::class)(
+            $this->request('POST', $supplierId, ['mode' => $mode, 'reason' => 'Test']), new Psr7Response(), ['id' => (string) $invoiceId],
+        );
+        self::assertContains($res->getStatusCode(), [200, 201], (string) $res->getBody());
+        return $this->body($res);
+    }
+
+    private function serialBalance(int $supplierId, int $itemId, string $serial): int
+    {
+        return $this->trackingBalance($supplierId, $itemId, 'serial:' . $serial);
+    }
+
+    private function lotBalance(int $supplierId, int $itemId, string $lot, string $expires): int
+    {
+        return $this->trackingBalance($supplierId, $itemId, 'lot:' . $lot . '|' . $expires);
+    }
+
+    private function trackingBalance(int $supplierId, int $itemId, string $key): int
+    {
+        $stmt = $this->db->pdo()->prepare(
+            "SELECT COALESCE(SUM(CASE WHEN a.direction = 'in' THEN a.quantity ELSE -a.quantity END), 0)
+               FROM stock_tracking_allocations a
+               JOIN stock_tracking_units u ON u.id = a.stock_tracking_unit_id
+              WHERE a.supplier_id = ? AND u.stock_item_id = ? AND u.tracking_key = ?"
+        );
+        $stmt->execute([$supplierId, $itemId, $key]);
+        return (int) round((float) $stmt->fetchColumn() * 1000);
+    }
+
+    /** @return list<string> */
+    private function issuedSerials(int $supplierId, int $invoiceId): array
+    {
+        $stmt = $this->db->pdo()->prepare(
+            "SELECT u.serial_number
+               FROM stock_tracking_allocations a
+               JOIN stock_tracking_units u ON u.id = a.stock_tracking_unit_id
+               JOIN stock_document_lines l ON l.id = a.stock_document_line_id
+               JOIN invoice_items ii ON ii.id = l.invoice_item_id
+              WHERE a.supplier_id = ? AND ii.invoice_id = ? AND a.direction = 'out'
+              ORDER BY u.serial_number"
+        );
+        $stmt->execute([$supplierId, $invoiceId]);
+        return array_map('strval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
+    /** @return array<string,mixed> */
+    private function invoiceRow(int $invoiceId): array
+    {
+        $stmt = $this->db->pdo()->prepare('SELECT status, varsymbol FROM invoices WHERE id = ?');
+        $stmt->execute([$invoiceId]);
+        return (array) $stmt->fetch(\PDO::FETCH_ASSOC);
+    }
+
+    private function location(int $supplierId, int $warehouseId, string $code): int
+    {
+        $this->db->pdo()->prepare('INSERT INTO warehouse_locations (supplier_id, warehouse_id, code, name) VALUES (?, ?, ?, ?)')
+            ->execute([$supplierId, $warehouseId, $code, 'Regál ' . $code]);
+        return (int) $this->db->pdo()->lastInsertId();
     }
 
     private function trackedItem(int $supplierId, string $sku, string $mode): int
