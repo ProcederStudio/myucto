@@ -28,6 +28,7 @@ const applicableGroups = computed(() => Object.entries(catalog.value?.groups ?? 
 })).filter(group => group.permissions.length > 0))
 
 function permissionLabel(permission: { key: string; label: string }): string {
+  if (permission.key === 'price_list') return t('permissions.groups.price_list')
   if (permission.key === 'bank' || (CLIENT_BANK_ACTION_KEYS as readonly string[]).includes(permission.key)) return t(`roles.bank_permissions.${permission.key.replace('.', '_')}`)
   if (locale.value === 'cs') return permission.label
   const text = permission.key.replace(/[._]/g, ' ')

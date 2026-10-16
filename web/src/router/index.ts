@@ -85,6 +85,8 @@ const routes: RouteRecordRaw[] = [
 ]
 
 const routePermissions: Record<string, [PermissionKey, AccessLevel?]> = {
+  'admin-price-list': ['price_list'], 'admin-price-list-view': ['price_list'],
+  'admin-price-list-new': ['price_list', 'write'], 'admin-price-list-edit': ['price_list', 'write'],
   home: ['dashboard'], portal: ['profile'], 'portal-document-requests': ['documents.submit'],
   'portal-purchase-invoice-submissions': ['documents.submit'], 'portal-company-settings': ['settings.company', 'write'],
   clients: ['clients'], 'client-new': ['clients.create', 'write'], 'client-detail': ['clients'], 'client-edit': ['clients', 'write'],
@@ -217,7 +219,7 @@ const superadminRouteNames = new Set([
 ])
 
 const adminPlusRouteNames = new Set(['admin-suppliers'])
-const companyAdminRouteNames = new Set(['admin-price-list', 'admin-price-list-new', 'admin-price-list-edit'])
+const companyAdminRouteNames = new Set([] as string[])
 
 // Routy, které projdou deny-by-default guardem (:361) bez permission meta jinak než
 // přes routePermissions — musí být zrcadleny se `selfServiceRoute` v beforeEach.

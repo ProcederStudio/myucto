@@ -19708,6 +19708,7 @@
     "email": "E-mail"
   },
   "price_list": {
+    "detail": "Detail ceníkové položky",
     "title": "Ceníkové položky",
     "subtitle": "Správa opakovaně používaných položek, cen v různých měnách a individuálních cen zákazníků.",
     "new": "Nová položka",
@@ -24927,6 +24928,7 @@
   },
   "permissions": {
     "groups": {
+      "price_list": "Ceník",
       "dashboard": "Přehled",
       "clients": "Klienti a dodavatelé",
       "projects": "Zakázky",

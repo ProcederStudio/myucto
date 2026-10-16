@@ -89,7 +89,8 @@ final class PermissionMiddleware implements MiddlewareInterface
         $permission = $role->isClientType() && $method === 'POST'
             && preg_match('#^/api/bank-transactions/[0-9]+/unmatch$#D', $path) === 1
             ? 'bank.match' : $route->key;
-        if ($permission !== null && $this->checker->allows($role, $permission, $route->minimum)) {
+        if ($permission !== null && array_any([$permission, ...$route->alternativeKeys],
+            fn (string $key): bool => $this->checker->allows($role, $key, $route->minimum))) {
             if ($role->isClientType() && !ClientBankRoutePolicy::allows($method, $path, $route->key)) {
                 return $this->forbidden($request);
             }

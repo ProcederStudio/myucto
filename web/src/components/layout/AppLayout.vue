@@ -317,6 +317,7 @@ function sectionIcon(section: NavSection): string {
 }
 
 const navSections = computed<NavSection[]>(() => {
+  const isStockEnabled = auth.hasCommercialFeatures && supplierStore.currentSupplier?.stock_enabled === true
   // Role client (Epic F6): samostatný, minimální nav. Sekce Firma se přidá jen
   // při `settings.company = WRITE`; vše ostatní drží BE deny-by-default.
   if (clientExperience.value) {
@@ -329,6 +330,7 @@ const navSections = computed<NavSection[]>(() => {
         items: [
           { to: '/invoices',  label: t('nav.invoices'),  icon: ICONS.invoices,  newTo: '/invoices/new' },
           { to: '/recurring', label: t('nav.recurring'), icon: ICONS.recurring, newTo: '/recurring/new' },
+          ...(!isStockEnabled ? [{ to: '/admin/price-list', label: t('nav.price_list'), icon: ICONS.price_list, permission: 'price_list' as PermissionKey }] : []),
         ],
       },
       {
@@ -398,7 +400,6 @@ const navSections = computed<NavSection[]>(() => {
   // Daňová evidence (Epic DE) — zrcadlo isDoubleEntry; sekce jen pro režim daňové evidence.
   const isTaxEvidence = accountingEnabled && supplierStore.currentSupplier?.accounting_mode === 'tax_evidence'
   // Sklad (Epic SKLAD) — nezávislé na accounting_mode (funguje i pro tax_evidence).
-  const isStockEnabled = auth.hasCommercialFeatures && supplierStore.currentSupplier?.stock_enabled === true
   // Firma → Dimenze (migrace 1860) — opt-in; vypnuté nesmí v menu nic přidat.
   const dimensionsEnabled = auth.hasCommercialFeatures && supplierStore.currentSupplier?.dimensions_enabled === true
   const sections: NavSection[] = [
@@ -430,12 +431,12 @@ const navSections = computed<NavSection[]>(() => {
         { to: '/invoices',         label: t('nav.invoices'),   icon: ICONS.invoices,  newTo: '/invoices/new' },
         ...(isStockEnabled ? [{ to: '/stock/sales-orders', label: t('nav.stock_sales_orders'), icon: ICONS.stock_documents, newTo: '/stock/sales-orders/new', newPermission: 'stock.orders.write' as PermissionKey }] : []),
         { to: '/recurring',        label: t('nav.recurring'),  icon: ICONS.recurring, newTo: '/recurring/new' },
-        ...(auth.isCompanyAdminRole && !isStockEnabled ? [{
+        ...(!isStockEnabled ? [{
           to: '/admin/price-list',
           label: t('nav.price_list'),
           icon: ICONS.price_list,
-          permission: 'settings.company.write' as PermissionKey,
-          access: 'write' as const,
+          permission: 'price_list' as PermissionKey,
+          access: 'read' as const,
         }] : []),
         { to: '/clients',          label: t('nav.clients'),    icon: ICONS.clients,   newTo: '/clients/new' },
         { to: '/projects',         label: t('nav.projects'),   icon: ICONS.projects },

@@ -5,7 +5,9 @@ import { useRoute, useRouter } from 'vue-router'
 import { priceListApi, type PriceListItem, type PriceListPayload, type ResolvedPriceListItem } from '@/api/priceList'
 import { codebooksApi, type Currency, type Unit, type VatRate } from '@/api/codebooks'
 import { clientsApi, type Client } from '@/api/clients'
-import { settingsApi } from '@/api/settings'
+import { useAuthStore } from '@/stores/auth'
+import ActionBar, { type ActionItem } from '@/components/ui/ActionBar.vue'
+import { btnOutline, ICONS } from '@/components/ui/buttonStyles'
 import { apiErrorMessage } from '@/api/errors'
 import { useToast } from '@/composables/useToast'
 import SearchableSelect from '@/components/ui/SearchableSelect.vue'
@@ -15,6 +17,13 @@ const { t, locale } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
+const auth = useAuthStore()
+const readOnly = computed(() => route.name === 'admin-price-list-view' || !auth.canWrite('price_list'))
+const actions = computed<ActionItem[]>(() => [
+  { key: 'save', label: saving.value ? t('common.saving') : t('common.save'), icon: 'check', variant: 'primary', tier: 'primary', show: !readOnly.value, disabled: saving.value || loading.value, run: save },
+  { key: 'edit', label: t('common.edit'), icon: 'edit', variant: 'primary', tier: 'primary', show: readOnly.value && auth.canWrite('price_list'), run: () => router.push({ name: 'admin-price-list-edit', params: { id: itemId.value } }) },
+  { key: 'back', label: t('price_list.back_to_list'), icon: 'uturn', tier: 'secondary', run: cancel },
+])
 
 const itemId = computed(() => Number(route.params.id ?? 0))
 const isEdit = computed(() => itemId.value > 0)
@@ -134,6 +143,7 @@ function removePrice(index: number) {
 }
 
 async function save() {
+  if (readOnly.value) return
   saving.value = true
   error.value = ''
   try {
@@ -175,7 +185,7 @@ function resetOverrideForm() {
 }
 
 async function saveOverride() {
-  if (!isEdit.value || !overrideClientId.value || !overrideCurrency.value || overridePrice.value === null) return
+  if (readOnly.value || !isEdit.value || !overrideClientId.value || !overrideCurrency.value || overridePrice.value === null) return
   try {
     const overrides = await priceListApi.upsertCustomerOverride(
       itemId.value,
@@ -192,7 +202,7 @@ async function saveOverride() {
 }
 
 async function removeOverride(clientId: number, currencyCode: string) {
-  if (!isEdit.value || !window.confirm(t('price_list.override_delete_confirm'))) return
+  if (readOnly.value || !isEdit.value || !window.confirm(t('price_list.override_delete_confirm'))) return
   try {
     await priceListApi.deleteCustomerOverride(itemId.value, clientId, currencyCode)
     if (item.value) {
@@ -232,16 +242,15 @@ function priceSourceLabel(source: ResolvedPriceListItem['catalog_price_source'])
 
 onMounted(async () => {
   try {
-    const [loadedCurrencies, loadedUnits, loadedVatRates, supplier] = await Promise.all([
+    const [loadedCurrencies, loadedUnits, loadedVatRates] = await Promise.all([
       codebooksApi.currencies(true),
       codebooksApi.units(),
       codebooksApi.vatRates('CZ'),
-      settingsApi.getSupplier(),
     ])
     currencies.value = loadedCurrencies
     units.value = loadedUnits
     vatRates.value = loadedVatRates
-    supplierDefaultCurrencyCode.value = supplier.default_currency
+    supplierDefaultCurrencyCode.value = loadedCurrencies.find(currency => currency.is_default)?.code ?? ''
 
     if (isEdit.value) {
       const detail = await priceListApi.get(itemId.value)
@@ -259,10 +268,10 @@ onMounted(async () => {
 
 <template>
   <div class="w-full">
-    <header class="mb-4">
-      <button type="button" class="cursor-pointer text-sm text-neutral-600 hover:text-neutral-900" @click="cancel">{{ t('price_list.back_to_list') }}</button>
-      <h1 class="mt-1 text-2xl font-semibold">{{ isEdit ? t('price_list.edit') : t('price_list.new') }}</h1>
-      <p class="mt-1 text-sm text-neutral-500">{{ t('price_list.form_hint') }}</p>
+    <header class="mb-4 flex flex-wrap items-center justify-between gap-3">
+      <div><h1 class="mt-1 text-2xl font-semibold">{{ readOnly ? t('price_list.detail') : isEdit ? t('price_list.edit') : t('price_list.new') }}</h1>
+      <p class="mt-1 text-sm text-neutral-500">{{ t('price_list.form_hint') }}</p></div>
+      <ActionBar :actions="actions" />
     </header>
 
     <div v-if="error" class="mb-4 rounded-md border border-danger-300 bg-danger-50 px-4 py-3 text-sm text-danger-700">
@@ -272,6 +281,7 @@ onMounted(async () => {
 
     <form v-else class="w-full border border-neutral-200 bg-surface shadow-sm rounded-lg" @submit.prevent="save">
       <div class="space-y-6 p-5">
+        <fieldset :disabled="readOnly" class="space-y-6">
         <div v-if="currentPolicyUsage > 0" class="rounded-md border border-warning-200 bg-warning-50 px-4 py-3 text-sm text-warning-700">
           {{ t('price_list.current_usage_warning', { count: currentPolicyUsage }) }}
         </div>
@@ -326,12 +336,12 @@ onMounted(async () => {
               <h2 class="text-sm font-semibold">{{ t('price_list.prices') }}</h2>
               <p class="text-xs text-neutral-500">{{ t('price_list.prices_hint') }}</p>
             </div>
-            <div class="flex gap-2">
+            <div v-if="!readOnly" class="flex flex-wrap gap-2">
               <select v-model="newPriceCurrency" class="h-9 min-w-32 px-2 border border-neutral-300 rounded-md bg-surface text-sm">
                 <option value="">{{ t('price_list.currency') }}</option>
                 <option v-for="currency in availablePriceCurrencies" :key="currency.code" :value="currency.code">{{ currency.code }}</option>
               </select>
-              <button type="button" class="cursor-pointer inline-flex items-center justify-center h-9 px-3 border border-neutral-300 bg-surface hover:bg-neutral-50 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium rounded-md" :disabled="!newPriceCurrency" @click="addPrice">+ {{ t('common.add') }}</button>
+              <button type="button" :class="btnOutline('neutral')" :disabled="!newPriceCurrency" @click="addPrice"><svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path :d="ICONS.plus" /></svg>{{ t('common.add') }}</button>
             </div>
           </div>
           <div class="overflow-x-auto border-y border-neutral-200">
@@ -359,13 +369,15 @@ onMounted(async () => {
                     </label>
                   </td>
                   <td class="px-3 py-2 text-right">
-                    <button v-if="price.currency_code !== form.base_currency_code" type="button" class="cursor-pointer text-danger-600 hover:text-danger-700" @click="removePrice(index)">{{ t('common.remove') }}</button>
+                    <button v-if="!readOnly && price.currency_code !== form.base_currency_code" type="button" :class="btnOutline('danger')" @click="removePrice(index)"><svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path :d="ICONS.trash" /></svg>{{ t('common.remove') }}</button>
                   </td>
                 </tr>
               </tbody>
             </table>
           </div>
         </div>
+
+        </fieldset>
 
         <div v-if="isEdit" class="border-t border-neutral-200 pt-5">
           <h2 class="text-sm font-semibold">{{ t('price_list.preview_title') }}</h2>
@@ -377,7 +389,7 @@ onMounted(async () => {
                 <option v-for="currency in currencyOptions" :key="currency.code" :value="currency.code">{{ currency.code }}</option>
               </select>
             </label>
-            <button type="button" class="cursor-pointer inline-flex items-center justify-center h-10 px-3 border border-neutral-300 bg-surface hover:bg-neutral-50 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium rounded-md" :disabled="previewLoading || !previewCurrency" @click="loadPreview">
+            <button type="button" :class="btnOutline('neutral')" :disabled="previewLoading || !previewCurrency" @click="loadPreview"><svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path :d="ICONS.eye" /></svg>
               {{ previewLoading ? t('common.loading') : t('price_list.preview_action') }}
             </button>
           </div>
@@ -393,13 +405,13 @@ onMounted(async () => {
         <div v-if="isEdit" class="border-t border-neutral-200 pt-5">
           <h2 class="text-sm font-semibold">{{ t('price_list.customer_prices') }}</h2>
           <p class="text-xs text-neutral-500">{{ t('price_list.customer_prices_hint') }}</p>
-          <div class="mt-3 grid gap-2 lg:grid-cols-[minmax(260px,1fr)_120px_160px_auto]">
+          <div v-if="!readOnly && auth.canRead('clients')" class="mt-3 grid gap-2 lg:grid-cols-[minmax(260px,1fr)_120px_160px_auto]">
             <SearchableSelect v-model="overrideClientId" :options="clientOptions" :selected-option="selectedClientOption" :placeholder="t('price_list.customer')" :loading="clientsLoading" remote @search="onClientSearch" />
             <select v-model="overrideCurrency" class="h-10 px-3 border border-neutral-300 rounded-md bg-surface">
               <option v-for="currency in currencyOptions" :key="currency.code" :value="currency.code">{{ currency.code }}</option>
             </select>
             <input v-model.number="overridePrice" type="number" min="0" step="0.01" :placeholder="t('price_list.unit_price')" class="h-10 px-3 border border-neutral-300 rounded-md bg-surface text-right font-mono" />
-            <button type="button" class="cursor-pointer inline-flex items-center justify-center h-10 px-3 border border-neutral-300 bg-surface hover:bg-neutral-50 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium rounded-md" :disabled="!overrideClientId || overridePrice === null" @click="saveOverride">{{ t('common.add') }}</button>
+            <button type="button" :class="btnOutline('success')" :disabled="!overrideClientId || overridePrice === null" @click="saveOverride"><svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path :d="ICONS.plus" /></svg>{{ t('common.add') }}</button>
           </div>
           <div v-if="item?.customer_overrides?.length" class="mt-3 overflow-x-auto border-y border-neutral-200">
             <table class="w-full text-sm">
@@ -412,7 +424,7 @@ onMounted(async () => {
                     {{ override.affected_template_count ? t('price_list.affected_templates', { count: override.affected_template_count }) : '' }}
                   </td>
                   <td class="px-3 py-2 text-right">
-                    <button type="button" class="cursor-pointer text-danger-600 hover:text-danger-700" @click="removeOverride(override.client_id, override.currency_code)">{{ t('common.remove') }}</button>
+                    <button v-if="!readOnly" type="button" :class="btnOutline('danger')" @click="removeOverride(override.client_id, override.currency_code)"><svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path :d="ICONS.trash" /></svg>{{ t('common.remove') }}</button>
                   </td>
                 </tr>
               </tbody>
@@ -421,14 +433,11 @@ onMounted(async () => {
         </div>
 
         <label v-if="isEdit" class="flex items-center gap-2 border-t border-neutral-200 pt-5 text-sm text-neutral-700">
-          <input v-model="form.archived" type="checkbox" class="rounded border-neutral-300 text-primary-600" />
+          <input v-model="form.archived" :disabled="readOnly" type="checkbox" class="rounded border-neutral-300 text-primary-600" />
           {{ t('price_list.archive_item') }}
         </label>
 
-        <div class="flex justify-end gap-2 border-t border-neutral-200 pt-5">
-          <button type="button" class="cursor-pointer inline-flex items-center justify-center h-9 px-3 border border-neutral-300 bg-surface hover:bg-neutral-50 text-sm font-medium rounded-md" @click="cancel">{{ t('common.cancel') }}</button>
-          <button type="submit" class="cursor-pointer inline-flex items-center justify-center h-9 px-3 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-md" :disabled="saving">{{ saving ? t('common.saving') : t('common.save') }}</button>
-        </div>
+
       </div>
     </form>
   </div>

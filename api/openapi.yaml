@@ -16911,7 +16911,8 @@ paths:
         cenami zákazníků (nezaměňovat se skladovými kartami). Bez `currency` vrací stránku
         položek. Se `currency` vrací jen položky použitelné v dané měně (pro odběratele
         `client_id` i s jeho individuálními cenami) a u každé doplní `resolved_price` stejně
-        jako `/resolve`; stránkuje se až vyhodnocená množina. Veřejně jen ke čtení.
+        jako `/resolve`; stránkuje se až vyhodnocená množina. Vyžaduje čtení `price_list`,
+        `invoices` nebo `recurring`. Veřejně jen ke čtení.
       parameters:
         - in: query
           name: q
@@ -16967,7 +16968,7 @@ paths:
     get:
       tags: [PriceList]
       summary: Detail položky ceníku
-      description: Položka včetně cen po měnách (`prices`), použití v šablonách pravidelné fakturace (`usage`) a individuálních cen zákazníků (`customer_overrides`).
+      description: Položka včetně cen po měnách (`prices`) a použití v šablonách (`usage`). Individuální ceny zákazníků (`customer_overrides`) jsou přítomny jen s oprávněním `price_list` alespoň ke čtení.
       responses:
         '200':
           description: OK
@@ -16979,6 +16980,7 @@ paths:
                   - type: object
                     properties:
                       customer_overrides:
+                        description: Individuální ceny; dostupné jen s oprávněním price_list alespoň ke čtení.
                         type: array
                         items: { $ref: '#/components/schemas/PriceListCustomerOverride' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -17014,6 +17016,7 @@ paths:
     get:
       tags: [PriceList]
       summary: Individuální ceny zákazníků u položky ceníku
+      description: Vyžaduje oprávnění `price_list` alespoň ke čtení; samotná oprávnění k fakturám nebo pravidelné fakturaci nestačí.
       responses:
         '200':
           description: OK

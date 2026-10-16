@@ -507,7 +507,9 @@ Výchozí jednotka `hodina` dává smysl, protože nová položka přebírá hod
 položky (paušál, licence, materiál) jednotku ručně přepnete. Při uložení faktury se řádky bez popisu i bez ceny tiše smažou,
 takže v editoru můžete přidat víc řádků na zásobu a nepoužité se neuloží.
 
-**Ceníkové položky.** `Prodej → Ceník` (jen administrátor) spravuje ceník aktuálního dodavatele. Každá položka má kód,
+**Ceníkové položky.** Oprávnění **Ceník** lze přidělit interním i klientským rolím. **Čtení** zpřístupní přehled a detail včetně zákaznických cen; **zápis** dovolí vytvářet, upravovat, archivovat a mazat položky i jejich ceny. Výchozí role Admin a Admin+ mají zápis, Účetní a Pouze pro čtení mají čtení. Klientům a vlastním rolím přístup nastavuje správce v editoru rolí; lze použít i samostatnou roli pro konkrétní firmu. Použití položek ve faktuře či pravidelné šabloně se řídí oprávněním příslušného dokladu a správu ceníku nevyžaduje.
+
+ `Prodej → Ceník` (podle oprávnění **Ceník**) spravuje ceník aktuálního dodavatele. Každá položka má kód,
 název, fakturační popis, jednotku, sazbu DPH a povinnou základní cenu v jedné měně. Kód je unikátní pouze v rámci
 dodavatele. Přehled lze prohledávat a filtrovat podle měny a aktivního či archivovaného stavu. Tento jednoduchý ceník je
 dostupný jen firmám bez aktivního modulu **Sklad**. E-shop je součástí skladového modulu a používá společné skladové karty,

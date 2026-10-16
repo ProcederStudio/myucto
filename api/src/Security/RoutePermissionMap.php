@@ -97,10 +97,6 @@ final class RoutePermissionMap
         ['GET', '#^/api/invoices(/|$)#', 'invoices', AccessLevel::READ],
         ['*', '#^/api/invoices(/|$)#', 'invoices', AccessLevel::WRITE],
 
-        // Čtení fallbackového ceníku používá editor faktur. Správa je níže v match()
-        // vyhrazena superadminovi a API samo navíc odmítne firmy s aktivním skladem.
-        ['GET', '#^/api/price-list-items(/|$)#', 'invoices', AccessLevel::READ],
-
         ['GET', '#^/api/purchase-invoices/payment-orders(/|$)#', 'purchase_invoices.payment_orders', AccessLevel::READ],
         ['*', '#^/api/purchase-invoices/payment-orders(/|$)#', 'purchase_invoices.payment_orders', AccessLevel::WRITE],
         ['POST', '#^/api/purchase-invoices/scan-inbox$#', 'purchase_invoices.scan', AccessLevel::WRITE],
@@ -1005,8 +1001,16 @@ final class RoutePermissionMap
         if (str_starts_with($path, '/api/license/')) {
             return new RoutePermission(self::SUPERADMIN);
         }
-        if ($method !== 'GET' && preg_match('#^/api/price-list-items(/|$)#', $path) === 1) {
-            return new RoutePermission(self::PERMISSION, 'invoices', AccessLevel::WRITE);
+        // Výběr položky v dokladu nesmí vyžadovat správu ceníku. Celý seznam
+        // zákaznických výjimek ale patří výhradně ke čtení ceníku.
+        if (preg_match('#^/api/price-list-items(/|$)#', $path) === 1) {
+            $read = in_array($method, ['GET', 'HEAD'], true);
+            $picker = $read && preg_match('#^/api/price-list-items(?:/[0-9]+(?:/(?:prices|resolve))?)?$#D', $path) === 1;
+            return new RoutePermission(self::PERMISSION, 'price_list', $read ? AccessLevel::READ : AccessLevel::WRITE,
+                $picker ? ['invoices', 'recurring'] : []);
+        }
+        if ($method === 'GET' && preg_match('#^/api/codebooks/(currencies|units|vat-rates)$#D', $path) === 1) {
+            return new RoutePermission(self::PERMISSION, 'settings.company', AccessLevel::READ, ['price_list']);
         }
         if ($method === 'POST' && $path === '/api/suppliers') {
             return new RoutePermission(self::ADMIN_PLUS);
@@ -1029,5 +1033,7 @@ final class RoutePermission
         public readonly string $kind,
         public readonly ?string $key = null,
         public readonly AccessLevel $minimum = AccessLevel::NONE,
+        /** @var list<string> Další oprávnění se stejnou minimální úrovní (OR). */
+        public readonly array $alternativeKeys = [],
     ) {}
 }

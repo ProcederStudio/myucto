@@ -212,6 +212,36 @@ final class PermissionMiddlewareTest extends TestCase
             ->process($this->request('POST', '/api/admin/bank-rule-templates'), $this->handler())->getStatusCode());
     }
 
+    public function testPriceListMatrixSeparatesPickerManagementAndSupplierAccess(): void
+    {
+        foreach (['staff', 'client'] as $type) {
+            foreach ([0, 1, 2] as $level) {
+                $role = new EffectiveRole(8, 'Synthetic catalog role', $type, true, ['price_list' => $level]);
+                $middleware = $this->middleware($role, new SupplierAccess(1, false, null));
+                foreach (['/api/price-list-items', '/api/price-list-items/7', '/api/price-list-items/7/prices', '/api/price-list-items/7/resolve', '/api/price-list-items/7/customer-overrides', '/api/codebooks/currencies', '/api/codebooks/units', '/api/codebooks/vat-rates'] as $path) {
+                    self::assertSame($level >= 1 ? 204 : 403, $middleware->process($this->request('GET', $path), $this->handler())->getStatusCode(), "$type $level GET $path");
+                }
+                foreach ([['POST', '/api/price-list-items'], ['PUT', '/api/price-list-items/7'], ['DELETE', '/api/price-list-items/7'], ['PUT', '/api/price-list-items/7/prices/CZK'], ['DELETE', '/api/price-list-items/7/prices/CZK'], ['PUT', '/api/price-list-items/7/customer-overrides/3/CZK'], ['DELETE', '/api/price-list-items/7/customer-overrides/3/CZK']] as [$method, $path]) {
+                    self::assertSame($level === 2 ? 204 : 403, $middleware->process($this->request($method, $path), $this->handler())->getStatusCode(), "$type $level $method $path");
+                }
+                self::assertSame(403, $this->middleware($role, new SupplierAccess(0, true, null))->process($this->request('GET', '/api/price-list-items'), $this->handler())->getStatusCode());
+            }
+            foreach (['invoices', 'recurring'] as $pickerPermission) {
+                $role = new EffectiveRole(9, 'Synthetic picker', $type, true, [$pickerPermission => 2]);
+                $middleware = $this->middleware($role, new SupplierAccess(1, false, null));
+                self::assertSame(204, $middleware->process($this->request('GET', '/api/price-list-items'), $this->handler())->getStatusCode());
+                self::assertSame(204, $middleware->process($this->request('GET', '/api/price-list-items/7/resolve'), $this->handler())->getStatusCode());
+                self::assertSame(403, $middleware->process($this->request('GET', '/api/price-list-items/7/customer-overrides'), $this->handler())->getStatusCode());
+                self::assertSame(403, $middleware->process($this->request('POST', '/api/price-list-items'), $this->handler())->getStatusCode());
+            }
+        }
+        $policy = new \MyInvoice\Service\Tenant\ClientRoutePolicy();
+        self::assertTrue($policy->allowsAuthenticatedPath('/admin/price-list/7'));
+        self::assertTrue($policy->allowsAuthenticatedPath('/admin/price-list/7/edit'));
+        self::assertTrue($policy->allowsApiRequest('PUT', '/api/price-list-items/7'));
+        self::assertFalse($policy->allowsApiRequest('PUT', '/api/settings/supplier'));
+    }
+
     private function middleware(EffectiveRole $role, SupplierAccess $access): PermissionMiddleware
     {
         $roles = $this->createStub(PermissionResolver::class);

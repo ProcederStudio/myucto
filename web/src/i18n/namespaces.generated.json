@@ -1144,6 +1144,9 @@
     "admin-price-list-edit": [
       "price_list"
     ],
+    "admin-price-list-view": [
+      "price_list"
+    ],
     "recurring": [
       "recurring"
     ],

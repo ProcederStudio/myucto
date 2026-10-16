@@ -19708,6 +19708,7 @@
     "email": "E-mail"
   },
   "price_list": {
+    "detail": "Price list item details",
     "title": "Price list items",
     "subtitle": "Manage reusable items, multi-currency prices and customer-specific prices.",
     "new": "New item",
@@ -24927,6 +24928,7 @@
   },
   "permissions": {
     "groups": {
+      "price_list": "Price list",
       "dashboard": "Dashboard",
       "clients": "Clients and vendors",
       "projects": "Projects",
