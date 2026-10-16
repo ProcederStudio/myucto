@@ -43,7 +43,8 @@ try {
         if ((int) ($e->errorInfo[1] ?? 0) !== 1205) {
             throw $e;
         }
-        file_put_contents($argv[1] . '.blocked', '1205');
+        file_put_contents($argv[1] . '.blocked.tmp', '1205');
+        rename($argv[1] . '.blocked.tmp', $argv[1] . '.blocked');
         $pdo->exec('SET SESSION innodb_lock_wait_timeout = 10');
         $write();
     }
