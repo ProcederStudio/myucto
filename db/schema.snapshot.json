@@ -992,7 +992,11 @@
         "2008_payroll_deduction_agreement_taken_over_withheld.sql",
         "2009_supplier_email_templates.sql",
         "2010_variable_symbol_match_keys.sql",
-        "2011_stock_price_level_markup.sql"
+        "2011_stock_price_level_markup.sql",
+        "2012_supplier_standalone_isdoc.sql",
+        "2013_client_email_isdoc_override.sql",
+        "2014_client_ai_extraction.sql",
+        "2015_client_bank_permissions.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -3533,6 +3537,23 @@
             },
             "checks": []
         },
+        "client_ai_extraction_usage": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "period": "char(7) NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "used": "int(10) unsigned NOT NULL DEFAULT 0"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (supplier_id, period)"
+            },
+            "foreign_keys": {
+                "fk_client_ai_extraction_usage_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE"
+            },
+            "checks": []
+        },
         "client_bank_accounts": {
             "type": "BASE TABLE",
             "engine": "InnoDB",
@@ -3639,6 +3660,7 @@
                 "default_payment_method": "enum('bank_transfer','direct_debit','card','cash','cash_on_delivery','offset','other') NULL DEFAULT NULL",
                 "default_revenue_category_id": "int(10) unsigned NULL DEFAULT NULL",
                 "dic": "varchar(20) NULL DEFAULT NULL",
+                "email_attach_isdoc": "tinyint(1) NULL DEFAULT NULL",
                 "email_attachment_name_format": "varchar(120) NULL DEFAULT NULL",
                 "email_subject_format": "varchar(200) NULL DEFAULT NULL",
                 "fakturoid_id": "bigint(20) unsigned NULL DEFAULT NULL",
@@ -21749,6 +21771,8 @@
                 "azure_openai_endpoint": "varchar(255) NULL DEFAULT NULL",
                 "branding_profiles_enabled": "tinyint(1) NOT NULL DEFAULT 0",
                 "city": "varchar(120) NOT NULL",
+                "client_ai_extraction_enabled": "tinyint(1) NOT NULL DEFAULT 0",
+                "client_ai_extraction_monthly_limit": "int(10) unsigned NOT NULL DEFAULT 100",
                 "commercial_register": "varchar(255) NULL DEFAULT NULL",
                 "company_name": "varchar(190) NOT NULL",
                 "country_id": "smallint(5) unsigned NOT NULL",
@@ -21774,6 +21798,7 @@
                 "display_name": "varchar(190) NULL DEFAULT NULL",
                 "email": "varchar(190) NOT NULL",
                 "email_accent_color": "varchar(7) NOT NULL DEFAULT '#3B2D83'",
+                "email_attach_isdoc": "tinyint(1) NOT NULL DEFAULT 0",
                 "email_branding_enabled": "tinyint(1) NOT NULL DEFAULT 1",
                 "embed_isdoc": "tinyint(1) NOT NULL DEFAULT 1",
                 "epo_taxpayer_code": "varchar(1) NULL DEFAULT NULL",
@@ -21839,6 +21864,7 @@
                 "pohoda_contract_code": "varchar(20) NULL DEFAULT NULL",
                 "proforma_number_format": "varchar(60) NULL DEFAULT NULL",
                 "proforma_payment_document": "enum('final_on_full_payment','always_tax_document','manual') NOT NULL DEFAULT 'always_tax_document'",
+                "public_isdoc_enabled": "tinyint(1) NOT NULL DEFAULT 0",
                 "purchase_advance_number_format": "varchar(60) NULL DEFAULT NULL",
                 "purchase_credit_note_number_format": "varchar(60) NULL DEFAULT NULL",
                 "purchase_import_received_at": "enum('issue_date','import_date') NOT NULL DEFAULT 'issue_date'",
