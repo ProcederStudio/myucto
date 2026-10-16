@@ -218,7 +218,7 @@ const checksOpen = ref(false)
 
 const exporting = ref(false)
 async function exportFile(format: 'pdf' | 'xlsx') {
-  if (!report.value || loading.value || exporting.value || !loadedParams.value) return
+  if (!report.value || loading.value || exporting.value || classifyingKey.value !== null || !loadedParams.value) return
   const params = { ...loadedParams.value }
   const year = report.value.year
   exporting.value = true
@@ -275,11 +275,11 @@ function onNotesChanged(notes: CashJournalNote[]) {
       <div class="flex flex-wrap items-center gap-2">
         <ColumnPicker class="hidden md:block" :ctrl="tbl" />
         <DensityToggle class="hidden md:block" :ctrl="tbl" />
-        <button :disabled="!report || exporting || loading" @click="exportFile('pdf')" :class="btnOutline('primary')">
+        <button :disabled="!report || exporting || loading || classifyingKey !== null" @click="exportFile('pdf')" :class="btnOutline('primary')">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.download" /></svg>
           {{ t('tax_evidence.cash_journal.export_pdf') }}
         </button>
-        <button :disabled="!report || exporting || loading" @click="exportFile('xlsx')" :class="btnOutline('primary')">
+        <button :disabled="!report || exporting || loading || classifyingKey !== null" @click="exportFile('xlsx')" :class="btnOutline('primary')">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.download" /></svg>
           {{ t('tax_evidence.cash_journal.export_xlsx') }}
         </button>
@@ -432,9 +432,9 @@ function onNotesChanged(notes: CashJournalNote[]) {
       </div>
     </div>
 
-    <p v-if="report && !loading && report.classification" class="mb-3 text-sm text-neutral-500" role="status">{{ t('tax_evidence.cash_journal.rows_shown', { shown: report.filtered_rows, total: report.total_rows }) }}</p>
+    <p v-if="report && report.classification" class="mb-3 text-sm text-neutral-500" role="status">{{ t('tax_evidence.cash_journal.rows_shown', { shown: report.filtered_rows, total: report.total_rows }) }}</p>
 
-    <div v-if="loading" class="text-center text-neutral-500 py-12 text-sm">{{ t('common.loading') }}</div>
+    <div v-if="loading && !report" class="text-center text-neutral-500 py-12 text-sm">{{ t('common.loading') }}</div>
 
     <EmptyState v-else-if="report && report.rows.length === 0 && report.total_rows > 0 && report.classification"
       variant="filtered" :title="t('tax_evidence.cash_journal.empty_classification')"
@@ -445,7 +445,7 @@ function onNotesChanged(notes: CashJournalNote[]) {
 
     <div v-else class="bg-surface border border-neutral-200 rounded-lg shadow-sm overflow-hidden">
       <div class="overflow-x-auto">
-        <table v-column-labels="tbl" class="w-full text-sm" :class="tbl.densityClass.value">
+        <table v-column-labels="tbl" :aria-busy="loading" class="w-full text-sm" :class="tbl.densityClass.value">
           <thead class="bg-neutral-50 text-xs text-neutral-500 uppercase tracking-wide">
             <tr>
               <th v-if="tbl.isVisible('date')" class="px-3 py-2 text-left font-medium w-24">{{ t('tax_evidence.cash_journal.col_date') }}</th>
@@ -484,7 +484,7 @@ function onNotesChanged(notes: CashJournalNote[]) {
                   <select
                     v-if="isClassifiable(row)"
                     class="h-6 text-xs border border-neutral-200 rounded px-1 bg-surface text-neutral-500 disabled:opacity-50"
-                    :disabled="classifyingKey === rowKey(row)"
+                    :disabled="loading || classifyingKey !== null"
                     @change="onClassify(row, ($event.target as HTMLSelectElement).value, $event.target as HTMLSelectElement)"
                   >
                     <option value="">{{ t('tax_evidence.cash_journal.classify_placeholder') }}</option>

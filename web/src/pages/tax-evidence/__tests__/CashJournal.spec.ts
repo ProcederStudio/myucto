@@ -163,4 +163,78 @@ describe('cash journal classification filter', () => {
     expect(router.currentRoute.value.query.classification).toBe('income_taxable')
     expect(wrapper.text()).toContain('tax_evidence.cash_journal.empty_classification')
   })
+
+  it('keeps the table, rows and result count mounted while changing the classification filter', async () => {
+    api.cashJournal.mockResolvedValueOnce(report({ classification: 'income_taxable' }))
+    const { wrapper } = await setup('?year=2026&classification=income_taxable')
+    const table = wrapper.get('table').element
+    const row = wrapper.get('tbody tr').element
+    const count = wrapper.get('[role="status"]').element
+    let finish!: (result: CashJournalReport) => void
+    api.cashJournal.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    await choose(wrapper, 'private')
+    expect(wrapper.find('table').element).toBe(table)
+    expect(wrapper.find('tbody tr').element).toBe(row)
+    expect(wrapper.find('[role="status"]').element).toBe(count)
+    expect(wrapper.get('table').attributes('aria-busy')).toBe('true')
+    expect(button(wrapper, 'tax_evidence.cash_journal.export_pdf').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('tbody select').attributes('disabled')).toBeDefined()
+    const result = report({ classification: 'private' })
+    result.rows[0]!.bucket = 'private'
+    finish(result)
+    await flushPromises()
+    expect(wrapper.get('table').element).toBe(table)
+    expect(wrapper.get('tbody tr').element).toBe(row)
+    expect(wrapper.get('table').attributes('aria-busy')).toBe('false')
+    expect(wrapper.get('tbody tr').text()).toContain('tax_evidence.cash_journal.class_private')
+    expect(wrapper.get('tbody select').attributes('disabled')).toBeUndefined()
+  })
+
+  it('updates a classified movement and server totals without replacing its table or row', async () => {
+    const { wrapper, router } = await setup()
+    const table = wrapper.get('table').element
+    const row = wrapper.get('tbody tr').element
+    const select = wrapper.get<HTMLSelectElement>('tbody select')
+    let finish!: (result: CashJournalReport) => void
+    let save!: (result: object) => void
+    api.classifyMovement.mockImplementationOnce(() => new Promise(resolve => { save = resolve }))
+    api.cashJournal.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    await select.setValue('private')
+    await flushPromises()
+    expect(wrapper.get('table').element).toBe(table)
+    expect(button(wrapper, 'tax_evidence.cash_journal.export_pdf').attributes('disabled')).toBeDefined()
+    expect(button(wrapper, 'tax_evidence.cash_journal.export_xlsx').attributes('disabled')).toBeDefined()
+    expect(api.cashJournal).toHaveBeenCalledTimes(1)
+    save({})
+    await flushPromises()
+    expect(api.classifyMovement).toHaveBeenCalledWith({ source_type: 'bank', source_id: 1, tax_bucket: 'private' })
+    expect(wrapper.find('table').element).toBe(table)
+    expect(wrapper.find('tbody tr').element).toBe(row)
+    expect(wrapper.find('tbody select').element).toBe(select.element)
+    const result = report()
+    result.rows[0]!.bucket = 'private'
+    result.totals = { ...result.totals, prijem_danovy: 0, private: 10, net: 0 }
+    finish(result)
+    await flushPromises()
+    expect(wrapper.get('table').element).toBe(table)
+    expect(wrapper.get('tbody tr').element).toBe(row)
+    expect(wrapper.get('tbody tr').text()).toContain('tax_evidence.cash_journal.class_private')
+    expect(wrapper.text()).not.toContain('777')
+    expect(select.element.value).toBe('')
+    expect(router.currentRoute.value.query).toEqual({ year: '2026' })
+    expect(api.cashJournal).toHaveBeenCalledTimes(2)
+  })
+
+  it('shows the full loading state only before the first report is available', async () => {
+    let finish!: (result: CashJournalReport) => void
+    api.cashJournal.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const { wrapper } = await setup()
+    expect(wrapper.find('table').exists()).toBe(false)
+    expect(wrapper.text()).toContain('common.loading')
+    finish(report())
+    await flushPromises()
+    expect(wrapper.find('table').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('common.loading')
+  })
+
 })
