@@ -99,8 +99,7 @@ final class PohodaPayrollRelations
             // (doplatek) nebo vztah nemá nástup; bez nástupu začíná měsícem první mzdy.
             if ($paid !== null) {
                 $start ??= $paid;
-            } elseif ($start === null || $start > sprintf('%04d-12-31', $year)
-                || ($end !== null && ($end < sprintf('%04d-01-01', $year) || $end < $today))) {
+            } elseif ($start === null || !self::withoutPayslip($start, $end, $year, $today)) {
                 continue;
             }
             $dpp = in_array(strtolower(trim(PohodaXml::text($relation, 'JeDPP'))), ['1', '-1', 'true'], true);
@@ -129,6 +128,16 @@ final class PohodaPayrollRelations
             <=> [$b['person_key'], $b['order'], $b['personal_number']]);
 
         return $out;
+    }
+
+    /**
+     * Vztah bez uzavřené mzdy v roce, který se přesto zakládá: začal nejpozději v roce
+     * a ke dni exportu trvá. Kartu osoby k němu doplní {@see PohodaPayrollPeople::cards()}.
+     */
+    public static function withoutPayslip(string $start, ?string $end, int $year, string $today): bool
+    {
+        return $start <= sprintf('%04d-12-31', $year)
+            && ($end === null || ($end >= sprintf('%04d-01-01', $year) && $end >= $today));
     }
 
     /**

@@ -112,8 +112,10 @@ final class PohodaPayrollPeopleWriter
      * @param list<array<string,mixed>> $records
      * @param list<array<string,mixed>> $institutions příjemci odvodů z PAMICA (zdravotní pojišťovny,
      *     ČSSZ, finanční úřad) - {@see PohodaPayrollPeople::institutions()}
+     * @param list<array<string,mixed>> $cards karty osob se vztahem bez mzdy v roce
+     *     ({@see PohodaPayrollPeople::cards()}); zapíší se jen údaje osoby
      */
-    public function write(int $supplierId, ?int $userId, array $records, int $year, bool $confirmIdentifiers, ImportProtocol $protocol, string $step, array $institutions = []): void
+    public function write(int $supplierId, ?int $userId, array $records, int $year, bool $confirmIdentifiers, ImportProtocol $protocol, string $step, array $institutions = [], array $cards = []): void
     {
         $this->messages = 0;
         $this->state = $state = new PayrollTakeoverRunState();
@@ -158,19 +160,7 @@ final class PohodaPayrollPeopleWriter
                 $this->part($protocol, $step, $number, 'Údaje o narození a občanství', fn (): array => $this->people->identity($supplierId, $employeeId, $person, $policy));
                 $this->part($protocol, $step, $number, 'Adresa a kontakt', fn (): array => $this->people->personCard($supplierId, $employeeId, $person, $relation->start, $userId, $policy));
                 $this->part($protocol, $step, $number, 'Daňová rezidence a prohlášení poplatníka', fn (): array => $this->people->statutoryEvidence(
-                    $supplierId, $employeeId, $person, $today, $userId, $policy,
-                    function (string $manual) use ($state, $number): void {
-                        if ($manual === 'tax_residence') {
-                            throw new \DomainException('PAMICA vede zaměstnance jako daňového nerezidenta bez státu rezidence. Daňovou rezidenci doplňte ručně.');
-                        }
-                        if ($manual === 'health_minimum_reduction') {
-                            $state->healthMinimumUnverified[] = $number;
-                            return;
-                        }
-                        // Příslušnost k sociálnímu pojištění osoby podléhající cizím právním
-                        // předpisům se ručně ověří; souhrn je na konci protokolu.
-                        $state->foreignLegislation[] = $number;
-                    },
+                    $supplierId, $employeeId, $person, $today, $userId, $policy, $this->manualEvidence($number),
                 ));
                 $this->part($protocol, $step, $number, 'Počáteční stavy kumulací', fn (): array => $this->openingBalances($supplierId, $employeeId, $person, $year, $moduleStart, $userId, $policy));
                 $this->part($protocol, $step, $number, 'Děti a daňové zvýhodnění', fn (): array => $this->people->children($supplierId, $employeeId, $person, $userId, $policy));
@@ -212,6 +202,34 @@ final class PohodaPayrollPeopleWriter
                     $this->warn($protocol, $step, 'checklist_failed', "Osobní číslo {$number}: položku {$key} se nepodařilo odškrtnout: {$e->getMessage()}", $number);
                 },
             ));
+        }
+
+        // Nástup bez první mzdy: vztah založil krok měsíců jen se jménem, rodným číslem
+        // a pojišťovnou. Mzdová část (kumulace, mzda, nepřítomnosti, termíny) k němu
+        // v PAMICA ještě není, údaje osoby z karty ano.
+        $cardStarts = PohodaPayrollTakeover::personEvidenceStarts($cards);
+        foreach ($cards as $record) {
+            $number = (string) $record['personal_number'];
+            $employment = $this->employmentByCode($supplierId, $number);
+            if ($employment === null) {
+                continue;
+            }
+            $employeeId = (int) $employment['employee_id'];
+            if (isset($employees[$employeeId])) {
+                continue;
+            }
+            $employees[$employeeId] = true;
+            $takeover = PohodaPayrollTakeover::record($record, $cardStarts[(string) $record['person_key']] ?? null);
+            $person = $takeover->person;
+            $start = $takeover->employment->start;
+            $protocol->count($step, 'people_without_payslip');
+            $this->part($protocol, $step, $number, 'Údaje o narození a občanství', fn (): array => $this->people->identity($supplierId, $employeeId, $person, $policy));
+            $this->part($protocol, $step, $number, 'Adresa a kontakt', fn (): array => $this->people->personCard($supplierId, $employeeId, $person, $start, $userId, $policy));
+            $this->part($protocol, $step, $number, 'Daňová rezidence a prohlášení poplatníka', fn (): array => $this->people->statutoryEvidence(
+                $supplierId, $employeeId, $person, $today, $userId, $policy, $this->manualEvidence($number),
+            ));
+            $this->part($protocol, $step, $number, 'Děti a daňové zvýhodnění', fn (): array => $this->people->children($supplierId, $employeeId, $person, $userId, $policy));
+            $this->part($protocol, $step, $number, 'Výplatní účty', fn (): array => $this->people->payoutAccounts($supplierId, $employeeId, $person, $start, $userId, $policy, $state));
         }
 
         if ($unconfirmed > 0) {
@@ -341,15 +359,15 @@ final class PohodaPayrollPeopleWriter
             $withoutPayout = count(array_unique($state->accountsWithoutPayout));
             $protocol->warn($step, 'payout_accounts_unverified', sprintf(
                 'Výplatní účty z PAMICA: nově ověřeno %d, ověřených už z dřívějška %d, k ověření %d. Za ověřený se bere '
-                . 'účet, na který PAMICA opakovaně vyplácela mzdu; datem ověření je den poslední výplaty. K ověření '
-                . 'zůstávají účty, které PAMICA vede jako neaktivní (%d), a aktivní účty osob, u kterých PAMICA žádnou '
-                . 'výplatu na účet nedoložila (%d osob). Ověřte je v kartě osoby v části Výplata; na neověřený účet '
-                . 'nejde připravit výplatní příkaz.',
+                . 'aktivní výplatní účet z karty PAMICA; datem ověření je den poslední výplaty na účet, u osob, kterým '
+                . 'PAMICA v převáděném období na účet nic nevyplatila (rodičovská, nástup bez první mzdy), den převodu '
+                . '(%d osob). K ověření zůstávají jen účty, které PAMICA vede jako neaktivní (%d); mzda na ně nechodí. '
+                . 'Ověřte je v kartě osoby v části Výplata, pokud se na ně má vyplácet.',
                 $state->accountsVerified,
                 $state->accountsAlreadyVerified,
                 $state->accountsToVerify,
-                $state->accountsInactive,
                 $withoutPayout,
+                $state->accountsInactive,
             ));
         }
         if ($state->foreignLegislation !== []) {
@@ -614,6 +632,30 @@ final class PohodaPayrollPeopleWriter
             $reason === 'age_55_plus' && $age < 55 => "důvod a) věk nad 55 let, osobě je ale ke dni uplatnění {$age} let",
             $reason === 'under_21' && $age >= 21 => "důvod g) věk do 21 let, osobě je ale ke dni uplatnění {$age} let",
             default => null,
+        };
+    }
+
+    /**
+     * Co zákonná evidence z PAMICA nedoplní sama: nerezident bez státu je chyba údaje,
+     * ostatní jde do souhrnu protokolu.
+     *
+     * @return callable(string):void
+     */
+    private function manualEvidence(string $number): callable
+    {
+        $state = $this->state;
+
+        return static function (string $manual) use ($state, $number): void {
+            if ($manual === 'tax_residence') {
+                throw new \DomainException('PAMICA vede zaměstnance jako daňového nerezidenta bez státu rezidence. Daňovou rezidenci doplňte ručně.');
+            }
+            if ($manual === 'health_minimum_reduction') {
+                $state->healthMinimumUnverified[] = $number;
+                return;
+            }
+            // Příslušnost k sociálnímu pojištění osoby podléhající cizím právním
+            // předpisům se ručně ověří; souhrn je na konci protokolu.
+            $state->foreignLegislation[] = $number;
         };
     }
 

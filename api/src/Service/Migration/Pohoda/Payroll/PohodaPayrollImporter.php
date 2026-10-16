@@ -896,7 +896,7 @@ final class PohodaPayrollImporter
                     ));
                 }
                 $this->people->write($supplierId, $userOrNull, $records, $year, $confirmIdentifiers, $protocol, self::STEP_PEOPLE,
-                    PohodaPayrollPeople::institutions($file));
+                    PohodaPayrollPeople::institutions($file), PohodaPayrollPeople::cards($file, $year, $exportedOn));
                 [$sourceTotals, $sourceSkipped] = $this->storeReferenceTotals($supplierId, $file, $year, $protocol, $exportedOn, $range);
                 $this->accidentInsuranceRate($supplierId, $file, $year, $userOrNull, $protocol);
                 // Náhrady mzdy z hodin docházky až po osobách: stojí na průměrném výdělku,

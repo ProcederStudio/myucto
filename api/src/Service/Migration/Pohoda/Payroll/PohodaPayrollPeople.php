@@ -118,6 +118,29 @@ final class PohodaPayrollPeople
      */
     public static function read(string $file, int $year): array
     {
+        return self::collect($file, $year, null);
+    }
+
+    /**
+     * Karty osob, jejichž vztah převod zakládá bez mzdy v roce: nástup bez první výplaty
+     * ({@see PohodaPayrollRelations::withoutPayslip()}). Nesou jen údaje osoby (adresa,
+     * kontakt, rezidence, pojišťovna, děti, výplatní účty); měsíce, mzda ani nepřítomnosti
+     * k nim nejsou. Bez nich by nový zaměstnanec zůstal jen se jménem a rodným číslem.
+     *
+     * @return list<array<string,mixed>> záznamy tvaru {@see self::read()} s `card_only` = true
+     */
+    public static function cards(string $file, int $year, ?string $exportedOn): array
+    {
+        return self::collect($file, $year, $exportedOn ?? date('Y-m-d'));
+    }
+
+    /**
+     * @param ?string $cardsOn null = vztahy se mzdou v roce; jinak den exportu a jen karty
+     *        vztahů bez mzdy, které ke dni trvají
+     * @return list<array<string,mixed>>
+     */
+    private static function collect(string $file, int $year, ?string $cardsOn): array
+    {
         $byId = [];
         /** @var array<string,array<string,list<array<string,mixed>>>> $payslips vztah => období => mzdy */
         $payslips = [];
@@ -284,7 +307,8 @@ final class PohodaPayrollPeople
         $hourlyWage = [];
         /** @var array<string,array<string,int>> $benefitMonths vztah => plnění => počet měsíců s částkou */
         $benefitMonths = [];
-        foreach (PohodaXml::scan($file, ['MZneprit', 'MZslozky']) as $table => $row) {
+        // Karty vztahů bez mzdy nepřítomnosti ani složky mzdy nemají, druhý průchod nepotřebují.
+        foreach ($cardsOn === null ? PohodaXml::scan($file, ['MZneprit', 'MZslozky']) : [] as $table => $row) {
             if ($table === 'MZneprit') {
                 $payslip = $payslipOf[PohodaXml::text($row, 'RefAg')] ?? null;
                 if ($payslip === null) {
@@ -380,6 +404,9 @@ final class PohodaPayrollPeople
             usort($rows, static fn (array $a, array $b): int => ($b['active'] ? 1 : 0) <=> ($a['active'] ? 1 : 0));
             $accounts[$personKey] = $rows;
         }
+        if ($cardsOn !== null) {
+            return self::cardRecords($byId, $payslips, $relationCount, $year, $cardsOn, $children, $childrenWithoutCredit, $accounts, $lastPaid);
+        }
 
         $health = self::healthNotices($byId);
         $social = self::socialSubmissions($byId);
@@ -400,8 +427,6 @@ final class PohodaPayrollPeople
             $start = self::realDate($start);
             $end = self::realDate(PohodaXml::date($relation, 'DatOdch'));
             $place = $byId['sMzMist'][PohodaXml::text($person, 'RefMist')] ?? null;
-            $insurer = $byId['sMzPoj'][PohodaXml::text($person, 'RefPoj')] ?? null;
-            $insurerCode = $insurer === null ? '' : PohodaXml::text($insurer, 'Kod');
             $firstSigned = null;
             foreach ($months as $month => $sums) {
                 if ($sums['signed'] === true && $month >= (int) substr((string) array_key_first($periods), 5, 2)) {
@@ -422,11 +447,6 @@ final class PohodaPayrollPeople
                 // První měsíc, za který převod přebírá mzdy (nejstarší zpracovaná mzda roku).
                 'transfer_start' => (string) $transferStart,
                 'social_participation' => $socialParticipation[$relationId] ?? false,
-                // Pojišťovna osoby; 999 (cizinec bez českého pojištění) a prázdný kód neplatí.
-                'insurer_code' => preg_match('/^[0-9]{3}$/D', $insurerCode) === 1 && $insurerCode !== '999' ? $insurerCode : null,
-                'foreign_legislation' => self::bool(PohodaXml::text($person, 'PrislCizimPrav')),
-                'children' => $children[$personId] ?? [],
-                'children_without_credit' => $childrenWithoutCredit[$personId] ?? 0,
                 'monthly_wages' => self::monthlyWages($relationMonths[$relationId] ?? [], $year, $start, $end),
                 'hourly_wage' => $hourlyWage[$relationId] ?? false,
                 'hourly_wage_from' => self::hourlyWageFrom($relationMonths[$relationId] ?? [], $year),
@@ -445,30 +465,10 @@ final class PohodaPayrollPeople
                 // ho ručně zapsat neumí (vzniká jen ze schválené nepřítomnosti).
                 'leave' => $leave,
                 'leave_shared' => $shared,
-                'accounts' => $accounts[$personId] ?? [],
-                // Den poslední mzdy vyplacené v PAMICA: doklad, že se na účet opravdu platilo.
-                'accounts_paid_on' => $lastPaid[$personId] ?? null,
                 'first_signed_period' => $firstSigned,
                 'start' => $start,
                 'end' => $end,
                 'ended_by_code' => PohodaXml::text($relation, 'RelUkonc') !== '',
-                'identity' => [
-                    'title_prefix' => self::limited(PohodaXml::text($person, 'Titul'), 64),
-                    'title_suffix' => self::limited(PohodaXml::text($person, 'TitulZa'), 64),
-                    'birth_place' => self::limited(PohodaXml::text($person, 'MistoNar'), 128),
-                    'citizenship_country_code' => self::country(PohodaXml::text($person, 'StatPris')),
-                ],
-                'birth_surname' => self::limited(PohodaXml::text($person, 'Rozena'), 128),
-                'residence' => self::address($person, ''),
-                'mailing' => self::address($person, 'Kon'),
-                'email' => self::email(PohodaXml::text($person, 'Email')),
-                'phone' => self::phone(PohodaXml::text($person, 'Tel')),
-                'tax_residence' => match (PohodaXml::text($person, 'Nerezident')) {
-                    '0', 'false' => 'czech-resident',
-                    '1', '-1', 'true' => 'non-resident',
-                    default => null,
-                },
-                'tax_residence_country' => self::country(PohodaXml::text($person, 'ResCisSTOBC')),
                 'declarations' => self::declarations($months, $year),
                 // Měsíce osoby, ve kterých PAMICA nedoplácela zdravotní pojištění do minima.
                 'health_minimum_exempt_periods' => array_map(
@@ -481,7 +481,6 @@ final class PohodaPayrollPeople
                 'pensioner' => self::pensioner($person, $relation),
                 'pensioner_discounts' => self::pensioner($person, $relation) && !isset($discountKnown[$personId])
                     ? [] : self::declarations($months, $year, 'pensioner_discount', 'verified', 'not_claimed'),
-                'birth_date' => self::realDate(PohodaXml::date($person, 'DatNar')),
                 'part_time_discount' => self::partTimeDiscount($byId['SocPojSleva'] ?? [], (string) $relationId, $partTime[$relationId] ?? []),
                 'first_signed' => self::bool(PohodaXml::text($periods[array_key_first($periods)][0], 'Prohlas'))
                     || (bool) ($months[(int) substr((string) array_key_first($periods), 5, 2)]['signed'] ?? false),
@@ -499,7 +498,122 @@ final class PohodaPayrollPeople
                     'social_end' => $social['end'][$relationId] ?? null,
                     'eldp' => $eldp[$relationId] ?? null,
                 ],
-            ];
+            ] + self::personFields($person, $personId, $byId, $children, $childrenWithoutCredit, $accounts, $lastPaid);
+        }
+        usort($records, static fn (array $a, array $b): int => strcmp((string) $a['personal_number'], (string) $b['personal_number']));
+
+        return $records;
+    }
+
+    /**
+     * Údaje OSOBY z karty PAMICA (`ZAM` a navázané tabulky), stejné pro všechny její vztahy.
+     *
+     * @param array<string,array<string,array<string,mixed>>> $byId
+     * @param array<string,list<array<string,mixed>>> $children
+     * @param array<string,int> $childrenWithoutCredit
+     * @param array<string,list<array{account:string,bank_code:string,active:bool}>> $accounts
+     * @param array<string,string> $lastPaid
+     * @return array<string,mixed>
+     */
+    private static function personFields(array $person, string $personId, array $byId, array $children, array $childrenWithoutCredit, array $accounts, array $lastPaid): array
+    {
+        $insurer = $byId['sMzPoj'][PohodaXml::text($person, 'RefPoj')] ?? null;
+        $insurerCode = $insurer === null ? '' : PohodaXml::text($insurer, 'Kod');
+
+        return [
+            // Pojišťovna osoby; 999 (cizinec bez českého pojištění) a prázdný kód neplatí.
+            'insurer_code' => preg_match('/^[0-9]{3}$/D', $insurerCode) === 1 && $insurerCode !== '999' ? $insurerCode : null,
+            'foreign_legislation' => self::bool(PohodaXml::text($person, 'PrislCizimPrav')),
+            'children' => $children[$personId] ?? [],
+            'children_without_credit' => $childrenWithoutCredit[$personId] ?? 0,
+            'accounts' => $accounts[$personId] ?? [],
+            // Den poslední mzdy vyplacené v PAMICA: doklad, že se na účet opravdu platilo.
+            'accounts_paid_on' => $lastPaid[$personId] ?? null,
+            'identity' => [
+                'title_prefix' => self::limited(PohodaXml::text($person, 'Titul'), 64),
+                'title_suffix' => self::limited(PohodaXml::text($person, 'TitulZa'), 64),
+                'birth_place' => self::limited(PohodaXml::text($person, 'MistoNar'), 128),
+                'citizenship_country_code' => self::country(PohodaXml::text($person, 'StatPris')),
+            ],
+            'birth_surname' => self::limited(PohodaXml::text($person, 'Rozena'), 128),
+            'residence' => self::address($person, ''),
+            'mailing' => self::address($person, 'Kon'),
+            'email' => self::email(PohodaXml::text($person, 'Email')),
+            'phone' => self::phone(PohodaXml::text($person, 'Tel')),
+            'tax_residence' => match (PohodaXml::text($person, 'Nerezident')) {
+                '0', 'false' => 'czech-resident',
+                '1', '-1', 'true' => 'non-resident',
+                default => null,
+            },
+            'tax_residence_country' => self::country(PohodaXml::text($person, 'ResCisSTOBC')),
+            'birth_date' => self::realDate(PohodaXml::date($person, 'DatNar')),
+        ];
+    }
+
+    /**
+     * Záznamy {@see self::cards()}: vztahy bez mzdy v roce, které převod zakládá, s údaji
+     * osoby a prázdnou mzdovou částí (tvar {@see self::read()}, aby šly týmž překladem).
+     *
+     * @param array<string,array<string,array<string,mixed>>> $byId
+     * @param array<string,mixed> $payslips vztah => období se mzdou
+     * @param array<string,int> $relationCount
+     * @param array<string,list<array<string,mixed>>> $children
+     * @param array<string,int> $childrenWithoutCredit
+     * @param array<string,list<array{account:string,bank_code:string,active:bool}>> $accounts
+     * @param array<string,string> $lastPaid
+     * @return list<array<string,mixed>>
+     */
+    private static function cardRecords(array $byId, array $payslips, array $relationCount, int $year, string $today, array $children, array $childrenWithoutCredit, array $accounts, array $lastPaid): array
+    {
+        $records = [];
+        foreach ($byId['ZAMpomer'] ?? [] as $relationId => $relation) {
+            if (isset($payslips[(string) $relationId])) {
+                continue;
+            }
+            $personId = PohodaXml::text($relation, 'RefZAM');
+            $person = $byId['ZAM'][$personId] ?? null;
+            $start = self::realDate(PohodaXml::date($relation, 'DatNast') ?? PohodaXml::date($relation, 'DatVstup'));
+            $end = self::realDate(PohodaXml::date($relation, 'DatOdch'));
+            if ($person === null || $start === null || !PohodaPayrollRelations::withoutPayslip($start, $end, $year, $today)) {
+                continue;
+            }
+            $period = substr($start, 0, 7);
+            $records[] = [
+                'personal_number' => self::personalNumber($person, $relation, $relationCount[$personId] ?? 1),
+                'person_key' => $personId,
+                'relation_key' => (string) $relationId,
+                'card_only' => true,
+                'first_period' => $period,
+                'transfer_start' => $period,
+                'social_participation' => false,
+                'monthly_wages' => [],
+                'hourly_wage' => false,
+                'hourly_wage_from' => null,
+                'weekly_hours_by_month' => [],
+                'stated_weekly_hours_by_month' => [],
+                'regular_benefits' => [],
+                'averages' => [],
+                'absences' => [],
+                'absences_without_dates' => 0,
+                'leave' => null,
+                'leave_shared' => false,
+                'first_signed_period' => null,
+                'start' => $start,
+                'end' => $end,
+                'ended_by_code' => false,
+                'declarations' => [],
+                'health_minimum_exempt_periods' => [],
+                'pensioner' => self::pensioner($person, $relation),
+                'pensioner_discounts' => [],
+                'part_time_discount' => null,
+                'first_signed' => false,
+                'months' => [],
+                'workplace' => null,
+                'cz_isco' => null,
+                'oic' => self::digits(PohodaXml::text($person, 'OIC')),
+                'id_ppv' => self::digits(PohodaXml::text($relation, 'IDPPV')),
+                'evidence' => ['health_start' => null, 'health_end' => null, 'social_start' => null, 'social_end' => null, 'eldp' => null],
+            ] + self::personFields($person, $personId, $byId, $children, $childrenWithoutCredit, $accounts, $lastPaid);
         }
         usort($records, static fn (array $a, array $b): int => strcmp((string) $a['personal_number'], (string) $b['personal_number']));
 

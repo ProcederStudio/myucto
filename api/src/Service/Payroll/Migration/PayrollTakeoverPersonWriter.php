@@ -727,7 +727,8 @@ final class PayrollTakeoverPersonWriter
      * Ověření účtu: na účet předchozí mzdový systém opakovaně vyplácel mzdu, a to je
      * věcný doklad, ne domněnka. Zdroj `user_verified` je z přípustných hodnot nejbližší
      * (převod ani migrace mezi nimi nejsou) a původ nese popisek účtu, protože pole pro
-     * odkaz na zdroj tabulka účtů nemá. Datum je den poslední výplaty ze zdroje.
+     * odkaz na zdroj tabulka účtů nemá. Datum je den poslední výplaty ze zdroje; osobě bez
+     * výplaty v převáděném období den převodu.
      *
      * Je to samostatný krok schválně: pouští se i nad účty, které založil dřívější běh,
      * takže opakovaný převod dovede evidenci doplnit místo aby ji nechal, jak byla.
@@ -753,14 +754,22 @@ final class PayrollTakeoverPersonWriter
                 $state->accountsInactive++;
             }
         }
-        // Bez přihlášeného uživatele nebo bez dokladu o výplatě ověřit nejde: `verified_by`
-        // i `verified_on` jsou povinné společně (trigger z migrace 1271).
-        if ($userId === null || $paidOn === null) {
-            if ($paidOn === null && array_filter($unverified, static fn (array $a): bool => $a['is_active'] === true) !== []) {
-                $state->accountsWithoutPayout[] = $employeeId;
-            }
+        // Bez přihlášeného uživatele ověřit nejde: `verified_by` i `verified_on` jsou povinné
+        // společně (trigger z migrace 1271).
+        if ($userId === null) {
             $state->accountsToVerify += count($unverified);
             return [];
+        }
+        // Osoba, které zdroj v převáděném období na účet nic nevyplatil (rodičovská,
+        // nástup bez první mzdy): aktivní výplatní účet z karty zdroje je ten, na který
+        // předchozí systém mzdu posílá. Ověří ho uživatel, který převod spustil a převzetí
+        // potvrdil, ke dni převodu. Nechat ho neověřený by u každé takové osoby hlásilo
+        // chybějící údaj, který účetní nemá čím jiným doložit.
+        if ($paidOn === null) {
+            if (array_filter($unverified, static fn (array $a): bool => $a['is_active'] === true) !== []) {
+                $state->accountsWithoutPayout[] = $employeeId;
+            }
+            $paidOn = date('Y-m-d');
         }
         $verified = 0;
         $pending = 0;

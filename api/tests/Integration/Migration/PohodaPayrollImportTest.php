@@ -350,6 +350,52 @@ final class PohodaPayrollImportTest extends TestCase
     }
 
     /**
+     * Aktivní výplatní účet z karty PAMICA se ověří i osobě, které PAMICA v převáděném
+     * období na účet nic nevyplatila (Jana na rodičovské s výplatou 0 Kč), a to ke dni
+     * převodu. Nástup bez první mzdy (Eva) dostane kartu osoby celou: adresu, kontakt,
+     * daňovou rezidenci a ověřený výplatní účet, ne jen jméno a pojišťovnu.
+     */
+    public function testAccountWithoutPayoutAndHireWithoutPayslipGetFullCard(): void
+    {
+        $supplierId = $this->payrollSupplier();
+        $file = SyntheticPohodaPayroll::write($this->tmp);
+        $xml = (string) file_get_contents($file);
+        $xml = str_replace('<KcVyplat>33000</KcVyplat>', '<KcVyplat>0</KcVyplat>', $xml);
+        $xml = str_replace('</mdbExport>', '<ZAM><ID>3</ID><OsCislo>1003</OsCislo><Jmeno>Eva</Jmeno><Prijmeni>Nováčková</Prijmeni>'
+            . '<DatNar>1995-02-03</DatNar><StatPris>CZ</StatPris><Nerezident>0</Nerezident><RefPoj>1</RefPoj><Ulice>Nová</Ulice><CP>5</CP>'
+            . '<Obec>Brno</Obec><PSC>60300</PSC><Stat>CZ</Stat><Email>eva@example.invalid</Email></ZAM>'
+            . '<ZAMpomer><ID>3</ID><RefZAM>3</RefZAM><Poradi>1</Poradi><Cislo>1</Cislo><JeDPP>0</JeDPP><DatNast>2026-03-01</DatNast><TUvazek>40</TUvazek></ZAMpomer>'
+            . '<ZAMucet><ID>3</ID><RefAg>3</RefAg><Ucet>1000010</Ucet><KodBanky>0800</KodBanky><Active>1</Active></ZAMucet></mdbExport>', $xml);
+        file_put_contents($file, $xml);
+
+        $protocol = $this->importer->run($supplierId, $this->userId, $file, SyntheticPohodaPayroll::YEAR, false, startDecision: PohodaPayrollImporter::START_KEEP);
+        self::assertFalse($protocol->hasErrors(), $this->explain($protocol));
+        self::assertSame(1, self::stepCounts($protocol, PohodaPayrollImporter::STEP_PEOPLE)['people_without_payslip'] ?? 0, $this->explain($protocol));
+        $today = date('Y-m-d');
+        $jana = $this->employment($supplierId, '1001');
+        $eva = $this->employment($supplierId, '1003');
+
+        foreach ([$jana, $eva] as $employment) {
+            self::assertSame(1, $this->scalar(
+                "SELECT COUNT(*) FROM payroll_person_accounts
+                  WHERE supplier_id = ? AND employee_id = ? AND is_active = 1 AND verification_source = 'user_verified'
+                    AND verified_on = ? AND verified_by = ?",
+                [$supplierId, $employment['employee_id'], $today, $this->userId],
+            ), $this->explain($protocol));
+        }
+        self::assertSame(1, $this->scalar("SELECT COUNT(*) FROM payroll_person_addresses WHERE supplier_id = ? AND employee_id = ? AND address_type = 'residence' AND city = 'Brno'", [$supplierId, $eva['employee_id']]), $this->explain($protocol));
+        self::assertSame(1, $this->scalar("SELECT COUNT(*) FROM payroll_person_contacts WHERE supplier_id = ? AND employee_id = ? AND contact_type = 'email' AND is_primary = 1", [$supplierId, $eva['employee_id']]), $this->explain($protocol));
+        self::assertSame(1, $this->scalar("SELECT COUNT(*) FROM payroll_person_tax_residences WHERE supplier_id = ? AND employee_id = ? AND residence = 'czech-resident'", [$supplierId, $eva['employee_id']]), $this->explain($protocol));
+        self::assertSame(1, $this->scalar("SELECT COUNT(*) FROM payroll_employee_profiles WHERE supplier_id = ? AND employee_id = ? AND payout_method = 'bank'", [$supplierId, $eva['employee_id']]));
+
+        // Opakovaný převod nic nezdvojí.
+        $again = $this->importer->run($supplierId, $this->userId, $file, SyntheticPohodaPayroll::YEAR, false, startDecision: PohodaPayrollImporter::START_KEEP);
+        self::assertFalse($again->hasErrors(), $this->explain($again));
+        self::assertSame(1, $this->scalar('SELECT COUNT(*) FROM payroll_person_contacts WHERE supplier_id = ? AND employee_id = ?', [$supplierId, $eva['employee_id']]));
+        self::assertSame(1, $this->scalar('SELECT COUNT(*) FROM payroll_person_accounts WHERE supplier_id = ? AND employee_id = ?', [$supplierId, $eva['employee_id']]));
+    }
+
+    /**
      * Výplata na účet celým podílem nesmí mít zároveň 100 % v hotovosti. Nová karta
      * z převodu má hotovost 0; kartu, kterou tak nechal starší převod, opakovaný převod
      * opraví a řekne to. Jinak nastavené rozdělení (vědomá volba) nechá být.
