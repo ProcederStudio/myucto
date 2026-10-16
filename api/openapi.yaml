@@ -13729,6 +13729,8 @@ paths:
         `status` to_create / match / mismatch / unavailable, převzaté zápisy `entries`,
         tabulka rozdílů `diff` [{account_code, expected, existing, difference}],
         `preliminary` = porovnání před uzavřením knih.
+        Účty kontrol vycházejí z historického rámce období; například kontrola
+        `vh_431_undistributed` uvádí v `value.account` účet 431 pro 500 a 931 pro 504.
       parameters:
         - $ref: '#/components/parameters/SupplierIdHeader'
         - { in: path, name: id, required: true, schema: { type: integer } }
@@ -14069,15 +14071,20 @@ paths:
   /api/v1/accounting/periods/{id}/open-next:
     post:
       tags: [Accounting]
-      summary: Otevření nového roku přes 701 (krok 7)
+      summary: Otevření nového roku podle historického účetního rámce (krok 7)
       description: |
         Admin-only, stav closed. Následující období se dohledá/založí (musí přesně
         navazovat — 422 `period_gap`); opening zápis = zrcadlo rozvahové části
-        closingu + VH na 431, číslo z řady OT; volitelné FX storno saldokonta.
+        closingu + VH na 431 pro rámec 500. Rámec 504 používá 961 a 931,
+        převádí 932 na 931 a zachovává členění výsledku dimenzemi.
+        Účty určuje rámec k datu uzavření a otevření, nikoli aktuální nastavení.
+        Přechod mezi rámci vyžaduje samostatný převod; běžné otevření jej odmítne
+        jako 409 `accounting_framework_transition_not_supported`.
+        Číslo z řady OT; volitelné FX storno saldokonta.
 
         Převzaté počáteční stavy: má-li následující období už zaúčtovaný otevírací
         zápis z jiného zdroje (bez ohledu na source_id), porovná se účet po účtu
-        (70x vynechané, 431 za syntetiku). Shoda → krok hotový s `opening_source =
+        (70x vynechané a 431 za syntetiku pro 500; 96x a 931 pro 504). Shoda → krok hotový s `opening_source =
         taken_over`, nic se neúčtuje. Rozdíl → 422 `opening_takeover_mismatch`
         (tabulka rozdílů je v `opening_takeover` stavu průvodce), dokud klient
         nepošle `replace_taken_over_opening: true` s důvodem — pak se převzaté
@@ -14101,7 +14108,7 @@ paths:
         '200': { description: OK, content: { application/json: { schema: { type: object } } } }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { description: version_conflict, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '409': { description: version_conflict / accounting_framework_transition_not_supported, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
   /api/v1/accounting/periods/{id}/profit-distribution/preview:
@@ -14129,6 +14136,9 @@ paths:
         počítá a zaokrouhluje dolů per společník (MD účet podílů / D 342). Kontrola
         Σ přídělů = |zůstatek 431| a limitu rozdělitelných zdrojů. Účtuje se do OTEVŘENÉHO období; idempotence source
         profit_distribution/approved_period_id.
+        Tento postup podporuje rámec 500. Pro 504 vrací 422
+        `accounting_framework_operation_not_supported`, dokud není dostupný
+        postup s právním titulem a členěním rozhodnutí podle činností.
       parameters:
         - $ref: '#/components/parameters/SupplierIdHeader'
         - { in: path, name: id, required: true, schema: { type: integer } }
@@ -25738,6 +25748,7 @@ paths:
       tags:
       - Accounting
       summary: Náhled odložené daně bez zaúčtování
+      description: Rámec se určuje k poslednímu dni období. Pro rámec 504 je applicable false a computation null; automatický výpočet pro 500 se nepoužije.
       parameters:
       - $ref: '#/components/parameters/SupplierIdHeader'
       - in: path
@@ -43534,6 +43545,7 @@ components:
             type: string
     DeferredTaxPreview:
       type: object
+      description: Pro rámec 504 k poslednímu dni období je applicable false a computation null. Historická období rámce 500 zachovávají dosavadní výpočet.
       required:
       - as_of
       - period

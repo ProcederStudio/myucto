@@ -5,6 +5,11 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Accounting\Closing;
 
 use MyInvoice\Service\Accounting\AccountingPeriodStatus;
+use MyInvoice\Service\Accounting\AccountRoleResolver;
+use MyInvoice\Service\Accounting\AccountingFrameworkException;
+use MyInvoice\Service\Accounting\AccountingFrameworkService;
+use MyInvoice\Service\Accounting\AccountingRoleProfile;
+use MyInvoice\Service\Accounting\FrameworkOperationPolicy;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Repository\AccountingSupplierSettingsRepository;
@@ -293,10 +298,12 @@ final class ClosingService
             'accounts' => 0,
             'preliminary' => $steps['close_books']['status'] !== 'done',
         ];
-        if ($entries === []) {
-            return ['status' => 'to_create'] + $base;
-        }
         try {
+            $openingDate = $next['starts_on'] ?? (new \DateTimeImmutable((string) $period['ends_on']))->modify('+1 day')->format('Y-m-d');
+            $this->assertOpeningFramework($supplierId, (string) $period['ends_on'], $openingDate);
+            if ($entries === []) {
+                return ['status' => 'to_create'] + $base;
+            }
             $cmp = $this->compareOpeningBalances(
                 $supplierId,
                 (int) $next['id'],
@@ -324,6 +331,7 @@ final class ClosingService
             $expectedLines,
             $this->closing->openingBalancesWithDimensionsInPeriod($supplierId, $nextPeriodId),
             $linkedTypes,
+            $this->roleProfile($supplierId, (string) $this->periods->findById($supplierId, $nextPeriodId)['starts_on']),
         );
         if ($comparison['diff'] !== []) {
             $values = array_column($dimensions->listValues($supplierId), null, 'id');
@@ -354,6 +362,37 @@ final class ClosingService
         return $comparison;
     }
 
+    private function roleProfile(int $supplierId, string $date): AccountingRoleProfile
+    {
+        return AccountRoleResolver::fromConnection($this->db)->forDate($supplierId, $date);
+    }
+
+    private function assertOpeningFramework(int $supplierId, string $closingDate, string $openingDate): AccountingRoleProfile
+    {
+        $profile = $this->roleProfile($supplierId, $closingDate);
+        try {
+            $profile->assertCompatibleOpening($this->roleProfile($supplierId, $openingDate));
+        } catch (AccountingFrameworkException $e) {
+            throw new ClosingException($e->errorCode, $e->getMessage(), $e->httpStatus);
+        }
+        return $profile;
+    }
+
+    private function plBalancesForProfile(int $supplierId, array $period, AccountingRoleProfile $profile): array
+    {
+        return $profile->framework === AccountingFrameworkService::CZ_504
+            ? $this->closing->plBalancesWithDimensions($supplierId, (int) $period['id'], (string) $period['starts_on'], (string) $period['ends_on'])
+            : $this->closing->plBalances($supplierId, (int) $period['id'], (string) $period['starts_on'], (string) $period['ends_on']);
+    }
+
+    private function bsBalancesForProfile(int $supplierId, array $period, AccountingRoleProfile $profile): array
+    {
+        $balances = $this->closing->bsBalances($supplierId, (int) $period['id'], (string) $period['ends_on']);
+        return $profile->framework === AccountingFrameworkService::CZ_504
+            ? array_values(array_filter($balances, static fn (array $row): bool => !$profile->isTransientAccount((string) $row['account_code'])))
+            : $balances;
+    }
+
     /**
      * Řádky otevíracího zápisu N+1, které by zaúčtoval krok open_next — jediný zdroj pro
      * zaúčtování i porovnání s převzatými počátečními stavy. Po uzavření knih zrcadlo
@@ -367,32 +406,18 @@ final class ClosingService
     private function expectedOpeningLines(int $supplierId, array $period, array $steps): array
     {
         $periodId = (int) $period['id'];
+        $next = $this->periods->nextPeriod($supplierId, (string) $period['ends_on']);
+        $openingDate = $next['starts_on'] ?? (new \DateTimeImmutable((string) $period['ends_on']))->modify('+1 day')->format('Y-m-d');
+        $profile = $this->assertOpeningFramework($supplierId, (string) $period['ends_on'], $openingDate);
         if ($steps['close_books']['status'] === 'done') {
             $closingEntry = $this->findEntryWithLines($supplierId, 'closing', $periodId);
             $profit = round((float) ($steps['close_books']['payload']['profit'] ?? 0.0), 2);
-            $bs = [];
-            foreach ($closingEntry['lines'] ?? [] as $l) {
-                if (!in_array((string) $l['account_type'], ['asset', 'liability', 'equity'], true)) {
-                    continue;
-                }
-                // (c): debetní zůstatek → MD 702 / D účet (řádek účtu = credit);
-                //      kreditní zůstatek → MD účet / D 702 (řádek účtu = debit).
-                $bs[] = [
-                    'account_id' => (int) $l['account_id'],
-                    'account_code' => (string) $l['account_code'],
-                    'name' => (string) ($l['account_name'] ?? ''),
-                    'bal' => $l['side'] === 'credit' ? (float) $l['amount'] : -(float) $l['amount'],
-                ] + array_intersect_key($l, ['dimensions' => true, 'dimension_splits' => true, 'cost_center' => true, 'project_id' => true]);
-            }
-        } else {
-            $pl = $this->closing->plBalances($supplierId, $periodId, (string) $period['starts_on'], (string) $period['ends_on']);
-            $bs = $this->closing->bsBalances($supplierId, $periodId, (string) $period['ends_on']);
-            $profit = round((float) $this->builder->closingLines($pl, $bs)['profit'], 2);
+            return OpeningEntryExpectation::fromClosingLines($closingEntry['lines'] ?? [], $profit, $profile);
         }
-        if ($bs === [] && abs($profit) < 0.005) {
-            return [];
-        }
-        return $this->builder->openingLines($bs, $profit);
+        $pl = $this->plBalancesForProfile($supplierId, $period, $profile);
+        $bs = $this->bsBalancesForProfile($supplierId, $period, $profile);
+        $profit = round((float) $this->builder->closingLines($pl, $bs, $profile)['profit'], 2);
+        return $this->builder->openingLines($bs, $profit, $profile, ClosingEntryBuilder::resultBalances($pl));
     }
 
     // ── start / abort ─────────────────────────────────────────────────────────
@@ -424,12 +449,15 @@ final class ClosingService
             // ale rozdělení se účtuje do TOHOTO období — a jakmile je ve stavu 'closing',
             // uživatel se k němu dostane hůř. Řekneme to rovnou na vstupu, ať to nezjistí
             // až u kroku 9 s hromadou uzávěrkových zápisů za sebou.
-            $balance431 = round($this->closing->accountBalance($supplierId, '431', (string) $period['ends_on']), 2);
+            $profile = $this->roleProfile($supplierId, (string) $period['ends_on']);
+            $pendingAccount = $profile->account('result.pending_approval');
+            $retainedAccounts = implode('/', array_unique([$profile->account('result.retained_profit'), $profile->account('result.retained_loss')]));
+            $balance431 = round($this->closing->accountBalance($supplierId, $pendingAccount, (string) $period['ends_on']), 2);
             if (abs($balance431) >= 0.005) {
                 throw new ClosingException(
                     'profit_not_distributed',
-                    'Na účtu 431 je nerozdělený výsledek hospodaření ' . number_format($balance431, 2, ',', ' ')
-                    . ' Kč. Rozdělte ho (431 → 428/429) ještě před zahájením uzávěrky — po zahájení '
+                    'Na účtu ' . $pendingAccount . ' je nerozdělený výsledek hospodaření ' . number_format($balance431, 2, ',', ' ')
+                    . ' Kč. Rozdělte ho (' . $pendingAccount . ' → ' . $retainedAccounts . ') ještě před zahájením uzávěrky — po zahájení '
                     . 'se do období účtuje hůř a uzavření knih by stejně neprošlo.',
                     422,
                 );
@@ -3041,7 +3069,7 @@ final class ClosingService
         $fiscalYear = (int) $period['fiscal_year'];
 
         $taxpayerType = $this->supplierTaxpayerType($supplierId);
-        $applicable = $taxpayerType !== 'fo';
+        $applicable = $taxpayerType !== 'fo' && FrameworkOperationPolicy::allows($this->roleProfile($supplierId, $endsOn), 'deferred_tax');
         $computed = $applicable
             ? $this->deferredTax->compute($supplierId, $fiscalYear, $endsOn, $manual)
             : null;
@@ -3215,7 +3243,7 @@ final class ClosingService
         $target = $context['target'];
         $sourceId = (int) $period['id'];
         $asOf = (string) $target['ends_on'];
-        $balance431 = round($this->closing->accountBalance($supplierId, '431', $asOf), 2);
+        $balance431 = round($this->closing->accountBalance($supplierId, $this->roleProfile($supplierId, $asOf)->account('result.pending_approval'), $asOf), 2);
         $available = round(-$balance431, 2); // kladné = zisk k rozdělení, záporné = ztráta k úhradě
         $existing = $this->journal->findBySource($supplierId, 'profit_distribution', $sourceId);
         $resources = $this->distributableResources($supplierId, $asOf, $available, $sourceId);
@@ -3297,6 +3325,12 @@ final class ClosingService
                 );
             }
 
+            // Rozdělení 504 vyžaduje právní titul a zachování činností; tento průvodce zatím implementuje jen 500.
+            try {
+                FrameworkOperationPolicy::assertAllowed($this->roleProfile($supplierId, $decisionDate), 'profit_distribution');
+            } catch (AccountingFrameworkException $e) {
+                throw new ClosingException($e->errorCode, $e->getMessage(), $e->httpStatus);
+            }
             $asOf = (string) $lockedTarget['ends_on'];
             // Vyloučit vlastní předchozí zápis (audit #3) — bez toho by re-run po prvním
             // zaúčtování viděl 431 už vynulovaný a distribution_mismatch by byla nedosažitelná.
@@ -3448,10 +3482,11 @@ final class ClosingService
             if ($existing === null) {
                 throw new ClosingException('not_found', 'Žádné zaúčtované rozdělení VH k revertu.', 404);
             }
+            $pendingAccount = $this->roleProfile($supplierId, (string) $existing['entry_date'])->account('result.pending_approval');
             $watchCodes = [];
             foreach (($existing['lines'] ?? []) as $l) {
                 $code = (string) $l['account_code'];
-                if ($code !== '431') {
+                if ($code !== $pendingAccount) {
                     $watchCodes[$code] = true;
                 }
             }
@@ -3576,8 +3611,8 @@ final class ClosingService
      */
     private function distributableResources(int $supplierId, string $asOf, float $currentProfit, int $sourcePeriodId): array
     {
-        $balance428 = round($this->closing->accountBalance($supplierId, '428', $asOf, 'profit_distribution', $sourcePeriodId), 2);
-        $balance429 = round($this->closing->accountBalance($supplierId, '429', $asOf, 'profit_distribution', $sourcePeriodId), 2);
+        $balance428 = round($this->closing->accountBalance($supplierId, $this->roleProfile($supplierId, $asOf)->account('result.retained_profit'), $asOf, 'profit_distribution', $sourcePeriodId), 2);
+        $balance429 = round($this->closing->accountBalance($supplierId, $this->roleProfile($supplierId, $asOf)->account('result.retained_loss'), $asOf, 'profit_distribution', $sourcePeriodId), 2);
         $retainedProfit = max(0.0, round(-$balance428, 2));
         $uncoveredLoss = max(0.0, round($balance429, 2));
         return [
@@ -3661,9 +3696,10 @@ final class ClosingService
                 $this->audit($supplierId, 'accounting.books_closed_unposted_override', $periodId, $unpostedOverride, $meta);
             }
 
-            $pl = $this->closing->plBalances($supplierId, $periodId, $startsOn, $endsOn);
-            $bs = $this->closing->bsBalances($supplierId, $periodId, $endsOn);
-            $built = $this->builder->closingLines($pl, $bs);
+            $profile = $this->roleProfile($supplierId, $endsOn);
+            $pl = $this->plBalancesForProfile($supplierId, $period, $profile);
+            $bs = $this->bsBalancesForProfile($supplierId, $period, $profile);
+            $built = $this->builder->closingLines($pl, $bs, $profile);
             $lines = $built['lines'];
             $profit = round((float) $built['profit'], 2);
 
@@ -3814,6 +3850,7 @@ final class ClosingService
             $nextFy = (int) $next['fiscal_year'];
             $nextStart = (string) $next['starts_on'];
             $nextEnds = (string) $next['ends_on'];
+            $this->assertOpeningFramework($supplierId, (string) $period['ends_on'], $nextStart);
 
             $lines = $this->expectedOpeningLines($supplierId, $period, $steps);
 
@@ -5496,12 +5533,12 @@ final class ClosingService
             'value' => ['difference' => $journalDiff],
         ];
 
-        $balance431 = round($this->closing->accountBalance($supplierId, '431', $endsOn), 2);
+        $balance431 = round($this->closing->accountBalance($supplierId, $this->roleProfile($supplierId, $endsOn)->account('result.pending_approval'), $endsOn), 2);
         $checks[] = [
             'key' => 'vh_431_undistributed',
             'severity' => 'error',
             'ok' => abs($balance431) < 0.005,
-            'value' => ['account' => '431', 'balance' => $balance431],
+            'value' => ['account' => $this->roleProfile($supplierId, $endsOn)->account('result.pending_approval'), 'balance' => $balance431],
         ];
 
         // EP-6: inventarizace rozvahových účtů (§29–30 ZoÚ). Rozlišujeme dva stavy:

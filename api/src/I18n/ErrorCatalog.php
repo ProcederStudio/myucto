@@ -123,6 +123,10 @@ final class ErrorCatalog
         'Strana musí být MD nebo D a částka musí být kladná.' => 'Side must be Dr or Cr and the amount must be positive.',
         'Řádek rozvahy není platný.' => 'The opening balance row is not valid.',
         'Účet 701 doplní systém automaticky.' => 'Account 701 is added by the system automatically.',
+        'Počáteční účet rozvažný doplní systém automaticky.' => 'The opening balance account is added by the system automatically.',
+        'Převod počátečních stavů mezi účetními rámci zatím není podporován.' => 'Transferring opening balances between accounting frameworks is not supported yet.',
+        'Tato operace není v daném účetním rámci podporována.' => 'This operation is not supported in this accounting framework.',
+        'Výsledek hospodaření nesouhlasí s převáděnými výsledkovými zůstatky.' => 'The profit or loss does not match the result balances being transferred.',
         'Účet není v aktivní účtové osnově: ' => 'Account is not in the active chart of accounts: ',
         'Účet je na stejné straně uveden vícekrát: ' => 'The account appears twice on the same side: ',
         // Časté hlášky používané v jednom callsite, ale stejný text se opakuje (např. not_found):

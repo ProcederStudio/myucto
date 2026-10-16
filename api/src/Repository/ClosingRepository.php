@@ -166,6 +166,16 @@ final class ClosingRepository
         );
     }
 
+    public function plBalancesWithDimensions(int $supplierId, int $periodId, string $startsOn, string $endsOn): array
+    {
+        return $this->balancesWithDimensions(
+            $supplierId,
+            "e.entry_date BETWEEN ? AND ? AND a.account_type IN ('revenue','expense')
+             AND NOT (e.source_type = 'closing' AND e.period_id = ? AND e.source_id <=> ?)",
+            [$startsOn, $endsOn, $periodId, $periodId],
+        );
+    }
+
     public function openingBalancesWithDimensionsInPeriod(int $supplierId, int $periodId): array
     {
         return $this->balancesWithDimensions(
