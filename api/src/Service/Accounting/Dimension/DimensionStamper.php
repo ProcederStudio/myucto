@@ -684,14 +684,17 @@ final class DimensionStamper
     }
 
     /**
-     * Rozdělí haléře podle vah; zbytek po zaokrouhlení dostane největší váha,
-     * takže součet sedí přesně.
+     * Rozdělí haléře podle vah. Kladný zbytek dostane největší váha, záporný
+     * se od největších vah postupně odečte jen do výše jejich zaokrouhlených dílů.
+     * Součet tak sedí přesně a kladný celek nikdy nevytvoří záporný díl.
      *
      * @param list<float> $weights
      * @return list<int>
      */
     public static function distributeCents(int $total, array $weights): array
     {
+        $sign = $total < 0 ? -1 : 1;
+        $total = abs($total);
         $sum = array_sum($weights);
         $out = [];
         $assigned = 0;
@@ -701,11 +704,23 @@ final class DimensionStamper
             $assigned += $c;
         }
         $residual = $total - $assigned;
-        if ($residual !== 0) {
+        if ($residual > 0) {
             $biggest = array_keys($weights, max($weights), true)[0];
             $out[$biggest] += $residual;
+        } elseif ($residual < 0) {
+            $remaining = -$residual;
+            $priority = array_keys($weights);
+            usort($priority, static fn (int $a, int $b): int => ($weights[$b] <=> $weights[$a]) ?: ($a <=> $b));
+            foreach ($priority as $i) {
+                $deduction = min($out[$i], $remaining);
+                $out[$i] -= $deduction;
+                $remaining -= $deduction;
+                if ($remaining === 0) {
+                    break;
+                }
+            }
         }
-        return $out;
+        return $sign === 1 ? $out : array_map(static fn (int $part): int => -$part, $out);
     }
 
     /**

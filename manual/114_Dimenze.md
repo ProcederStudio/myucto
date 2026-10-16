@@ -606,8 +606,10 @@ jedinou hodnotu. Když typu později vyberete jedinou hodnotu, rozpad se zruší
 
 Řádek zápisu se rozpadem nedělí, zůstává jeden se svou částkou. Rozpad se ukládá
 jako podíly a všechny sestavy ho počítají poměrem po haléřích: každý díl se
-zaokrouhlí na haléře a zbytek dostane největší podíl (při shodě hodnota založená
-dřív). Výkazy po dimenzi i výkazy s filtrem na dimenzi tak dávají pro hodnotu
+zaokrouhlí na haléře. Kladný zbytek dostane největší podíl (při shodě hodnota
+založená dřív). Záporný zbytek se odečítá od největších podílů postupně, nejvýše
+do výše jejich dílu. Kladná částka tak nikdy nevytvoří záporný díl.
+Výkazy po dimenzi i výkazy s filtrem na dimenzi tak dávají pro hodnotu
 stejné číslo a součet po hodnotách sedí na výsledek firmy. Rozpad dokladu se při
 zaúčtování přenese na řádky zápisu. Storno zápisu přenese stejný rozpad, takže
 odečte přesně to, co původní zápis přičetl. Rozpad splní i povinnou dimenzi

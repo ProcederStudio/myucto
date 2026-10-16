@@ -185,6 +185,58 @@ final class DimensionReportsTest extends TestCase
         self::assertSame([$a => 1, $b => 2, $c => 2], $cents, 'Zbytek po zaokrouhlení nese hodnota s nižším id při shodě podílů.');
     }
 
+    public function testTinySplitSpreadsNegativeRemainderWithoutNegativeMarginals(): void
+    {
+        $values = [];
+        foreach (range(1, 5) as $i) {
+            $values[] = $this->value($this->centerType, 'R-T' . $i);
+        }
+        $shares = array_fill_keys($values, 0.2);
+        $split = ['dimension_splits' => [$this->centerType => $shares]];
+        $this->post([['518', 'debit', 0.03, $split], ['321', 'credit', 0.03]]);
+
+        $report = $this->profit->build($this->supplierId, $this->centerType, self::FROM, self::TO, [$this->supplierId]);
+        $rows = array_column($report['rows'], null, 'value_id');
+        $cents = [];
+        foreach ($values as $valueId) {
+            $cents[$valueId] = (int) round($rows[$valueId]['own']['cost'] * 100);
+            $filtered = (int) round(-$this->incomeProfit($this->dimensions->filter($this->supplierId, $valueId)) * 100);
+            self::assertSame($cents[$valueId], $filtered, 'Výsledovka po dimenzi a její filtr musí mít stejný marginální díl.');
+            self::assertGreaterThanOrEqual(0, $cents[$valueId], 'Kladný náklad nesmí vytvořit záporný díl.');
+        }
+        self::assertSame([0, 0, 1, 1, 1], array_values($cents));
+        self::assertSame(3, array_sum($cents), 'Součet pěti dílů musí zůstat přesně tři haléře.');
+        self::assertSame(-3, (int) round($report['totals']['result'] * 100));
+    }
+
+    public function testTinyRedStornoMirrorsPositiveSplit(): void
+    {
+        $values = [];
+        foreach (range(1, 5) as $i) {
+            $values[] = $this->value($this->centerType, 'R-TS' . $i);
+        }
+        $split = ['dimension_splits' => [$this->centerType => array_fill_keys($values, 0.2)]];
+        $this->post([['518', 'debit', 0.06, $split], ['321', 'credit', 0.06]]);
+        $this->post([
+            ['518', 'debit', 0.03, $split + ['is_red_storno' => true]],
+            ['321', 'credit', 0.03, ['is_red_storno' => true]],
+        ]);
+
+        $rows = array_column($this->profit->build($this->supplierId, $this->centerType, self::FROM, self::TO, [$this->supplierId])['rows'], null, 'value_id');
+        $cents = [];
+        foreach ($values as $valueId) {
+            $part = (int) round($rows[$valueId]['own']['cost'] * 100);
+            $cents[] = $part;
+            self::assertSame(
+                $part,
+                (int) round(-$this->incomeProfit($this->dimensions->filter($this->supplierId, $valueId)) * 100),
+                'Červené storno musí používat stejné díly i ve filtrovaném výkazu.',
+            );
+        }
+        self::assertSame([2, 1, 0, 0, 0], $cents);
+        self::assertSame(3, array_sum($cents));
+    }
+
     public function testRedStornoSplitReducesEachDimensionCost(): void
     {
         $a = $this->value($this->centerType, 'R-S1');
