@@ -15,6 +15,7 @@ use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Repository\ClientRepository;
 use MyInvoice\Repository\InvoiceRepository;
 use MyInvoice\Service\Accounting\DocumentLockService;
+use MyInvoice\Service\Codebook\UnitPrecision;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Currency\CnbRateDeviationChecker;
 use MyInvoice\Service\Currency\ExchangeRateApplier;
@@ -55,6 +56,7 @@ final class CreateInvoiceAction
         private readonly OssItemPlanner $ossPlanner,
         private readonly StockPriceLevelService $priceLevels,
         private readonly InvoiceItemTracking $itemTracking,
+        private readonly UnitPrecision $unitPrecision,
     ) {}
 
     public function __invoke(Request $request, Response $response): Response
@@ -105,6 +107,15 @@ final class CreateInvoiceAction
                 $body['items'] = $this->itemTracking->normalizeItems(SupplierGuard::currentId($request), $body['items']);
             } catch (StockException $e) {
                 return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus, $e->details);
+            }
+        }
+
+        // Desetinná místa množství podle měrné jednotky (2018). Bez nastavení u jednotky
+        // se nic nekontroluje; přesnější vstup se odmítne, nic se potichu nezaokrouhlí.
+        if (isset($body['items']) && is_array($body['items'])) {
+            $tooPrecise = $this->unitPrecision->check($body['items']);
+            if ($tooPrecise !== []) {
+                return Json::error($response, 'validation_failed', UnitPrecision::ERROR_MESSAGE, 400, ['items' => $tooPrecise]);
             }
         }
 

@@ -5462,6 +5462,11 @@ paths:
       responses:
         '200':
           description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Unit' }
 
   /api/v1/settings/countries:
     parameters:
@@ -6409,6 +6414,11 @@ paths:
       responses:
         '200':
           description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Unit' }
 
   /api/v1/codebooks/years:
     parameters:
@@ -34787,6 +34797,26 @@ components:
         note:          { type: string, nullable: true }
         updated_at:    { type: string, format: date-time }
 
+    Unit:
+      type: object
+      description: Měrná jednotka z globálního číselníku (spravuje správce instalace).
+      properties:
+        id: { type: integer }
+        code: { type: string, maxLength: 20 }
+        label_cs: { type: string }
+        label_en: { type: string }
+        is_default: { type: boolean }
+        display_order: { type: integer }
+        quantity_decimals:
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 3
+          description: |
+            Nejvyšší počet desetinných míst množství s touto jednotkou. `null` = bez omezení
+            (jako dosud, ukládá se až na 3 místa). Platí pro ruční zadání řádků faktury
+            a ručních skladových dokladů (jednotka karty); importy a opakovaná fakturace
+            se nekontrolují. PDF faktury tiskne množství s tímto počtem míst.
+        items_count: { type: integer, description: "Jen v /settings/units: počet řádků faktur s jednotkou." }
     Currency:
       type: object
       properties:
@@ -37530,9 +37560,9 @@ components:
       required: [description, quantity, unit_price_without_vat, vat_rate_id]
       properties:
         description: { type: string }
-        quantity: { type: number, format: float, description: "Nesmí být 0. Může být záporné pro slevový řádek, ale ne současně se zápornou cenou." }
+        quantity: { type: number, format: float, description: "Nesmí být 0. Může být záporné pro slevový řádek, ale ne současně se zápornou cenou. Má-li jednotka v číselníku nastavené `quantity_decimals`, smí mít nejvýš tolik desetinných míst; jinak 400 `validation_failed` se seznamem `items` [{index, unit, decimals}]. Nic se nezaokrouhluje. Časové řádky s `duration_minutes` se nekontrolují." }
         duration_minutes: { type: [integer, "null"], minimum: -599999999, maximum: 599999999, description: "Volitelná přesná délka v celých minutách. Vyžaduje hodinovou jednotku a prázdný `stock_item_id`; vynecháno/NULL zachová legacy výpočet z `quantity`. Nula není povolena." }
-        unit: { type: string, default: "ks" }
+        unit: { type: string, default: "ks", description: "Kód jednotky, s číselníkem `/codebooks/units` se páruje bez ohledu na velikost písmen." }
         unit_price_without_vat: { type: number, format: double, description: "Jednotková cena BEZ DPH. Hodinová časová položka podporuje až 6 desetinných míst; ostatní a skladové položky 2 místa. Může být záporná pro slevový řádek, ale ne současně se záporným množstvím." }
         vat_rate_id: { type: integer, description: "FK do /codebooks/vat-rates (kontextově k supplierovi)" }
         order_index: { type: integer, description: "Pořadí v rámci faktury. Default = pozice v poli." }

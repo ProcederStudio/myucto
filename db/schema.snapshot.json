@@ -997,7 +997,8 @@
         "2013_client_email_isdoc_override.sql",
         "2014_client_ai_extraction.sql",
         "2015_client_bank_permissions.sql",
-        "2016_invoice_item_tracking.sql"
+        "2016_invoice_item_tracking.sql",
+        "2018_unit_quantity_decimals.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -22986,6 +22987,7 @@
                 "is_default": "tinyint(1) NOT NULL DEFAULT 0",
                 "label_cs": "varchar(60) NOT NULL",
                 "label_en": "varchar(60) NOT NULL",
+                "quantity_decimals": "tinyint(3) unsigned NULL DEFAULT NULL",
                 "updated_at": "timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE CURRENT_TIMESTAMP()"
             },
             "indexes": {
@@ -22993,7 +22995,9 @@
                 "uq_units_code": "UNIQUE BTREE (code)"
             },
             "foreign_keys": [],
-            "checks": []
+            "checks": {
+                "quantity_decimals": "`quantity_decimals` is null or `quantity_decimals` <= 3"
+            }
         },
         "user_preferences": {
             "type": "BASE TABLE",

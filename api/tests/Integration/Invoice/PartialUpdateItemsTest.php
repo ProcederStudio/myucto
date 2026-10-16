@@ -173,6 +173,41 @@ final class PartialUpdateItemsTest extends TestCase
         self::assertSame('Jediný nový řádek', (string) $stmt->fetchColumn());
     }
 
+    /**
+     * Desetinná místa podle jednotky (2018) se kontrolují jen u POSLANÝCH řádků.
+     * Doklad založený před nastavením jednotky musí jít dál upravovat v hlavičce;
+     * přeposlané řádky kontrolou neprojdou a 400 uživateli řekne, co opravit.
+     */
+    public function testUnitDecimalsCheckOnlyAppliesToSentItems(): void
+    {
+        $code = 'pu' . substr(bin2hex(random_bytes(4)), 0, 6);
+        $pdo = $this->db->pdo();
+        $pdo->prepare('INSERT INTO units (code, label_cs, label_en) VALUES (?, ?, ?)')->execute([$code, $code, $code]);
+        try {
+            $body = $this->payload();
+            $body['items'][0]['unit'] = $code;
+            $body['items'][0]['quantity'] = 1.5;
+            $created = self::decode(($this->create)($this->request('POST', $body), new Psr7Response()));
+            self::assertSame(201, $created['status'], json_encode($created['body'], JSON_UNESCAPED_UNICODE));
+            $id = (int) $created['body']['id'];
+
+            $pdo->prepare('UPDATE units SET quantity_decimals = 0 WHERE code = ?')->execute([$code]);
+
+            $partial = $body;
+            unset($partial['items']);
+            $partial['note_above_items'] = 'Jen poznámka.';
+            $res = $this->put($id, $partial);
+            self::assertSame(200, $res['status'], json_encode($res['body'], JSON_UNESCAPED_UNICODE));
+
+            $res = $this->put($id, $body);
+            self::assertSame(400, $res['status'], json_encode($res['body'], JSON_UNESCAPED_UNICODE));
+            self::assertSame('validation_failed', $res['body']['error']['code'] ?? null);
+            self::assertSame(2, $this->itemCount($id), 'Odmítnutý požadavek nesmí nic smazat.');
+        } finally {
+            $pdo->prepare('DELETE FROM units WHERE code = ?')->execute([$code]);
+        }
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────
 
     private function createInvoice(): int

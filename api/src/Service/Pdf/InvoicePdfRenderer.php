@@ -8,6 +8,7 @@ use Mpdf\Mpdf;
 use MyInvoice\Bootstrap;
 use MyInvoice\Infrastructure\Config\Config;
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Service\Codebook\UnitPrecision;
 use MyInvoice\Repository\InvoiceRepository;
 use MyInvoice\Repository\SupplierPaymentQrSettingsRepository;
 use MyInvoice\Repository\WorkReportRepository;
@@ -371,10 +372,10 @@ final class InvoicePdfRenderer
             }
         }
 
-        $invoice['items'] = TimeBillingPdfPresenter::invoiceItems(
+        $invoice['items'] = $this->withQuantityDecimals(TimeBillingPdfPresenter::invoiceItems(
             $this->withTrackingLines($this->withBaseQuantity($invoice), (int) ($invoice['supplier_id'] ?? 0), (string) $locale),
             !empty($invoice['prices_include_vat']),
-        );
+        ));
         $workReport = $includeWorkReport
             ? $this->workReports->findByInvoice((int) $invoice['id'])
             : null;
@@ -775,6 +776,29 @@ final class InvoicePdfRenderer
      * @param array<string,mixed> $invoice
      * @return list<array<string,mixed>>|array<int|string,mixed>
      */
+    /**
+     * Pevný počet desetinných míst množství podle jednotky (2018). Řádek s jednotkou,
+     * která nastavení nemá, dostane null a šablona tiskne dnešní adaptivní formát.
+     *
+     * @param list<array<string,mixed>> $items
+     * @return list<array<string,mixed>>
+     */
+    private function withQuantityDecimals(array $items): array
+    {
+        if ($items === []) {
+            return $items;
+        }
+        $map = (new UnitPrecision($this->db))->decimalsByUnit();
+        foreach ($items as &$item) {
+            $item['quantity_decimals'] = UnitPrecision::printDecimals(
+                $item['quantity'] ?? null,
+                $map[UnitPrecision::key((string) ($item['unit'] ?? ''))] ?? null,
+            );
+        }
+        unset($item);
+        return $items;
+    }
+
     private function withBaseQuantity(array $invoice): array
     {
         $items = (array) ($invoice['items'] ?? []);
