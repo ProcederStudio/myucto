@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Settings\CompanyProfile;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\AccountingSupplierSettingsRepository;
 use MyInvoice\Repository\BankPostingRuleRepository;
 use MyInvoice\Repository\ChartOfAccountsRepository;
@@ -17,6 +18,7 @@ use MyInvoice\Service\Accounting\Dimension\DimensionAccountMask;
 use MyInvoice\Service\Accounting\Dimension\DimensionException;
 use MyInvoice\Service\Accounting\Dimension\DimensionRuleService;
 use MyInvoice\Service\Accounting\Dimension\DimensionService;
+use MyInvoice\Service\Accounting\Dimension\DimensionValueHistoryGuard;
 use MyInvoice\Service\Accounting\Learning\RulePromotionService;
 use MyInvoice\Service\Accounting\PostingException;
 use MyInvoice\Service\Accounting\Reports\FinancialStatementService;
@@ -109,6 +111,10 @@ final class CompanyProfileImporter
         $nested = $pdo->inTransaction();
         $nested ? $pdo->exec('SAVEPOINT ' . self::SAVEPOINT) : $pdo->beginTransaction();
         try {
+            if (isset($sections['dimensions'])) {
+                // První průchod upravuje metadata hodnot, druhý jejich rodiče. Období musí předcházet oběma.
+                (new DimensionValueHistoryGuard($this->db))->lockPeriods();
+            }
             foreach ($sections as $name => $data) {
                 $this->report[$name] = ['created' => 0, 'updated' => 0, 'unchanged' => 0, 'removed' => 0, 'changes' => [], 'warnings' => []];
                 try {
@@ -125,7 +131,7 @@ final class CompanyProfileImporter
                         'bank_posting_rules' => $this->importBankPostingRules($supplierId, $data, $userId),
                     };
                 } catch (ReportException | DimensionException | PostingException $e) {
-                    throw new CompanyProfileException($e->errorCode, $e->getMessage(), $name);
+                    throw new CompanyProfileException($e->errorCode, $e->getMessage(), $name, $e->httpStatus);
                 } catch (CompanyProfileException $e) {
                     throw $e->section !== null ? $e : new CompanyProfileException($e->errorCode, $e->getMessage(), $name, $e->httpStatus);
                 }
@@ -136,10 +142,8 @@ final class CompanyProfileImporter
                 $nested ? $pdo->exec('RELEASE SAVEPOINT ' . self::SAVEPOINT) : $pdo->commit();
             }
         } catch (\Throwable $e) {
-            if ($nested) {
-                $pdo->exec('ROLLBACK TO SAVEPOINT ' . self::SAVEPOINT);
-            } elseif ($pdo->inTransaction()) {
-                $pdo->rollBack();
+            if (!TransactionFailure::rollbackIfAborted($pdo, $e) && $pdo->inTransaction()) {
+                $nested ? $pdo->exec('ROLLBACK TO SAVEPOINT ' . self::SAVEPOINT) : $pdo->rollBack();
             }
             throw $e;
         }

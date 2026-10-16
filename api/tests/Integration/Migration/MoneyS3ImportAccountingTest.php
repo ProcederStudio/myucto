@@ -375,6 +375,8 @@ final class MoneyS3ImportAccountingTest extends MoneyS3ImportTestCase
         $purchase->execute([$supplierId]);
         self::assertSame('REZIE,ZAK01', $purchase->fetchColumn(), 'Doklad přebírá dimenze ze svých řádků.');
 
+        self::assertSame('closed', array_column($protocol->get('closing'), null, 'year')[2024]['status']);
+        (new \MyInvoice\Repository\DimensionRepository($this->db))->updateValue($supplierId, (int) $byCode['ZAK01']['id'], ['is_active' => false]);
         $second = $this->import($supplierId);
         $step = array_column($second->toArray()['steps'], null, 'key')['dimensions'];
         self::assertSame(0, $step['counts']['lines'] ?? 0, 'Opakovaný převod dimenze nemění.');
@@ -382,6 +384,7 @@ final class MoneyS3ImportAccountingTest extends MoneyS3ImportTestCase
         self::assertSame(4, $step['counts']['values_existing'] ?? 0);
         self::assertSame(0, $step['counts']['values_created'] ?? 0);
         self::assertNotContains('period_not_open', array_column($step['messages'], 'code'));
+        self::assertTrue((new \MyInvoice\Repository\DimensionRepository($this->db))->findValue($supplierId, (int) $byCode['ZAK01']['id'])['is_active'], 'Money může znovu aktivovat historickou hodnotu beze změny její struktury.');
     }
 
     public function testMoneyDimensionsDoNotRewriteClosedYearFromChangedBackup(): void

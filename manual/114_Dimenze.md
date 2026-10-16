@@ -216,6 +216,12 @@ hodnotu sečte celou její větev. Hodnotu lze:
 
 Kód hodnoty se po založení nemění.
 
+Větev použitou v uzavřeném, zkontrolovaném nebo schváleném účetním období nelze
+přesunout pod jinou nadřízenou hodnotu. Platí to i tehdy, když jsou použité jen
+její podřízené hodnoty nebo podíly v rozpadu. U globálního typu se kontroluje
+použití ve všech firmách. Názvy, poznámky a odpovědnou osobu lze dál upravovat;
+nevyužité větve a vlastní dimenze použité pouze v otevřených obdobích lze přesouvat.
+
 K hodnotě lze uvést **odpovědnou osobu** (uživatele firmy nebo text). Je to údaj
 o hodnotě: do účetního deníku se nekopíruje, zápisy nesou jen odkaz na hodnotu.
 
@@ -232,6 +238,13 @@ Nová hodnota typu Středisko si středisko se stejným kódem v číselníku na
 ho založí. Uzavření hodnoty středisko deaktivuje. Řádky deníku, které nesou jen
 kód střediska (mzdy, starší ruční zápisy), se v sestavách po středisku započítají
 k hodnotě navázané na to středisko.
+
+U existující hodnoty nelze změnit vazbu na středisko, pokud by se tím změnilo
+členění uzavřené historie. Kontroluje se dosavadní i nové středisko včetně starších
+řádků, které nesou jen jeho textový kód. Takovou historickou hodnotu, její typ ani navázané středisko
+nelze odstranit; běžné uzavření hodnoty ji v sestavách zachová. Stejnou vazbu lze
+uložit znovu. Ochrana platí také při nahrání profilu firmy. Pro strukturální opravu
+nejprve znovu otevřete dotčené účetní knihy.
 
 Hodnota projektu navázaná na zakázku doplní zakázku i na řádky deníku, takže se
 promítne do ziskovosti zakázky.

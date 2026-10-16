@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Repository;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Service\Accounting\Dimension\DimensionValueHistoryGuard;
 use PDO;
 
 /**
@@ -26,7 +27,12 @@ final class DimensionRepository
     /** @var array<int,?int> */
     private array $groupCache = [];
 
-    public function __construct(private readonly Connection $db) {}
+    private readonly DimensionValueHistoryGuard $history;
+
+    public function __construct(private readonly Connection $db)
+    {
+        $this->history = new DimensionValueHistoryGuard($db);
+    }
 
     public function groupIdOf(int $supplierId): ?int
     {
@@ -188,13 +194,16 @@ final class DimensionRepository
 
     public function deleteType(int $supplierId, int $typeId): bool
     {
-        $pdo = $this->db->pdo();
-        [$vis, $visParams] = $this->visibleSql($supplierId, 'dimension_types');
-        // Strom se maže od listů — FK na rodiče je RESTRICT.
-        $pdo->prepare('UPDATE dimension_values SET parent_id = NULL WHERE type_id = ?')->execute([$typeId]);
-        $stmt = $pdo->prepare("DELETE FROM dimension_types WHERE id = ? AND {$vis}");
-        $stmt->execute([$typeId, ...$visParams]);
-        return $stmt->rowCount() > 0;
+        return $this->history->deleteType($typeId, function () use ($supplierId, $typeId): bool {
+            $pdo = $this->db->pdo();
+            [$vis, $visParams] = $this->visibleSql($supplierId, 'dimension_types');
+            // Strom se maže od listů; i tento mezikrok musí respektovat viditelnost a rollback.
+            $pdo->prepare("UPDATE dimension_values SET parent_id = NULL WHERE type_id = ?
+                AND type_id IN (SELECT id FROM dimension_types WHERE {$vis})")->execute([$typeId, ...$visParams]);
+            $stmt = $pdo->prepare("DELETE FROM dimension_types WHERE id = ? AND {$vis}");
+            $stmt->execute([$typeId, ...$visParams]);
+            return $stmt->rowCount() > 0;
+        });
     }
 
     // ── hodnoty ──────────────────────────────────────────────────────────────
@@ -341,6 +350,11 @@ final class DimensionRepository
     /** @param array<string,mixed> $changes */
     public function updateValue(int $supplierId, int $valueId, array $changes): void
     {
+        $this->history->changeValue($valueId, $changes, fn () => $this->writeValue($supplierId, $valueId, $changes));
+    }
+
+    private function writeValue(int $supplierId, int $valueId, array $changes): void
+    {
         $allowed = ['parent_id', 'code', 'name', 'is_active', 'responsible_user_id', 'responsible_note',
             'car_id', 'project_id', 'cost_center_id', 'note', 'sort_order'];
         $sets = [];
@@ -377,10 +391,12 @@ final class DimensionRepository
 
     public function deleteValue(int $supplierId, int $valueId): bool
     {
-        [$vis, $visParams] = $this->visibleSql($supplierId, 'dimension_values');
-        $stmt = $this->db->pdo()->prepare("DELETE FROM dimension_values WHERE id = ? AND {$vis}");
-        $stmt->execute([$valueId, ...$visParams]);
-        return $stmt->rowCount() > 0;
+        return $this->history->deleteValue($valueId, function () use ($supplierId, $valueId): bool {
+            [$vis, $visParams] = $this->visibleSql($supplierId, 'dimension_values');
+            $stmt = $this->db->pdo()->prepare("DELETE FROM dimension_values WHERE id = ? AND {$vis}");
+            $stmt->execute([$valueId, ...$visParams]);
+            return $stmt->rowCount() > 0;
+        });
     }
 
     /**
