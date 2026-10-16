@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MyInvoice\Action\Invoice;
 
+use MyInvoice\Service\Stock\IssuedInvoiceStockGuard;
 use MyInvoice\Service\Stock\StockException;
 use MyInvoice\Service\Stock\StockPriceLevelService;
 use MyInvoice\Http\GuardsDocumentLock;
@@ -70,6 +71,7 @@ final class UpdateInvoiceAction
         private readonly CashSettlementService $cashSettlement,
         private readonly StockPriceLevelService $priceLevels,
         private readonly \MyInvoice\Repository\ClientRepository $clients,
+        private readonly IssuedInvoiceStockGuard $stockGuard,
     ) {}
 
     /**
@@ -157,6 +159,21 @@ final class UpdateInvoiceAction
                 DocumentItemsPayload::emptyErrorMessage(),
                 422,
             );
+        }
+
+        // Skladová část vystaveného dokladu, který už pohnul skladem, je pevná
+        // ({@see IssuedInvoiceStockGuard}): výdej běží jen při vystavení, úprava by se
+        // se skladem rozešla. Před přečíslováním, ať odmítnutí nespálí číslo řady.
+        if ($existing['status'] !== 'draft' && DocumentItemsPayload::replaces($body)) {
+            $lockedBy = $this->stockGuard->lockedBy(
+                (int) $existing['supplier_id'],
+                $id,
+                (array) ($existing['items'] ?? []),
+                (array) $body['items'],
+            );
+            if ($lockedBy !== []) {
+                return Json::error($response, 'stock_items_locked', IssuedInvoiceStockGuard::message($lockedBy), 409);
+            }
         }
 
         // B11 (audit 2026-07): force-edit dokladu s AKTIVNÍM zaúčtovaným zápisem v UZAVŘENÉM

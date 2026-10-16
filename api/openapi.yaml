@@ -1428,7 +1428,11 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
         '409':
-          description: Faktura už není draft (vystavená/storno) — nelze editovat
+          description: |
+            Faktura už není draft (vystavená/storno) — nelze editovat (`not_editable`). U vynucené
+            úpravy (`force=1`) faktury, ke které už existuje zaúčtovaná výdejka nebo vratka,
+            `stock_items_locked`: `items` mění skladovou kartu, sklad, jednotku nebo množství
+            skladového řádku, přidávají nebo odebírají skladový řádek. Opravuje se dobropisem.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }

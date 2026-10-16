@@ -571,6 +571,12 @@ nedostal):
 Variabilní symbol je neměnný, úprava ho nezmění. Chcete-li číslo změnit, vystavte
 storno nebo dobropis a fakturu znovu pod novým číslem.
 
+Pokud už faktura vydala zboží ze skladu (vznikla k ní výdejka), úprava nesmí změnit
+skladové položky: kartu, množství, jednotku ani sklad, a nesmí skladovou položku
+přidat ani odebrat. Výdej proběhl při vystavení a úprava ho znovu neprovede, takže
+by se sklad rozešel s fakturou. Popis, cenu, DPH a neskladové řádky upravíte i tak.
+Změnu zboží opravte dobropisem, případně novou fakturou.
+
 #### Nezaplacené (vrátit ze stavu paid)
 
 Tlačítko **Nezaplacené** je viditelné jen u faktur ve stavu Zaplaceno (jen admin).
