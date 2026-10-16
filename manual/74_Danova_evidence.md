@@ -236,6 +236,15 @@ Hlavní tabulka řadí všechny pohyby chronologicky a pro každý zobrazuje bě
 | DPH *(skrytý)* | Složka DPH pohybu |
 | Poznámky a přílohy | Tlačítko otevře poznámky a přílohy pohybu (viz [§ 74.9.18](#74918-poznamky-a-prilohy-k-pohybum)), u řádku je vidět první poznámka a počet poznámek a příloh |
 
+Pod číslem dokladu je u dohledatelného zdroje akce **Přejít na detail**. U bankovního pohybu otevře původní výpis
+rovnou s detailem konkrétní transakce (včetně protistrany, účtu, platebních symbolů a zprávy), i když je pohyb rozdělený do
+více řádků deníku. U pokladny otevře pokladní doklad, u samostatné úhrady příslušnou fakturu a u GoPay navázané vyúčtování.
+Odkaz se zobrazí jen s oprávněním ke čtení cílové agendy.
+
+Máte-li vedle sebe více panelů aplikace, detail se otevře v jiném panelu: přednostně v prázdném, jinak v následujícím.
+Peněžní deník tak zůstává otevřený s původními filtry a pozicí. Předchozí obsah cílového panelu zůstane dostupný mezi okny
+aplikace. Při jednom panelu se detail otevře v něm; zpět do deníku se vrátíte navigací panelu.
+
 ### 74.9.5 Daňová klasifikace pohybů
 
 Každý pohyb (pokladní doklad, spárovaná bankovní úhrada nebo virtuální noha z úhrady faktury) aplikace automaticky zařadí do

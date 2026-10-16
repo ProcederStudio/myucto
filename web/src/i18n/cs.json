@@ -26433,6 +26433,8 @@
       "form_active": "Aktivní"
     },
     "cash_journal": {
+      "open_source": "Přejít na detail",
+      "open_source_beside": "Při více panelech se detail otevře vedle deníku.",
       "all_classifications": "Všechny klasifikace",
       "show_unclassified": "Zobrazit nezařazené",
       "rows_shown": "Zobrazeno {shown} z {total} pohybů",

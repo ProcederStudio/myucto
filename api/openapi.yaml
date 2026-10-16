@@ -22067,7 +22067,10 @@ paths:
         checks{} + warnings[]. Řádek nese i `notes` (poznámky pohybu: id, body,
         pinned), `attachment_entity` (typ entity pro přílohy v
         `/documents/by-entity/{type}/{id}` s `source_id`, u pohybu GoPay null)
-        a `attachment_count`. `classification` vybírá řádky podle zobrazené primární
+        a `attachment_count`. Bankovní řádek má `bank_statement_id` pro otevření
+        zdrojového výpisu; `source_id` označuje transakci v něm. U ostatních zdrojů
+        nebo nepřístupného výpisu je `bank_statement_id` null.
+        `classification` vybírá řádky podle zobrazené primární
         klasifikace (`bucket`), nikoli podle všech daňových alokací pohybu. Prázdná
         nebo chybějící hodnota vrací všechny řádky. Součty, zůstatky (včetně běžných
         zůstatků řádků), kontroly a varování vždy patří celému zvolenému období.
@@ -38357,6 +38360,7 @@ components:
                 items: { type: object }
               attachment_entity: { type: [string, 'null'] }
               attachment_count: { type: integer }
+              bank_statement_id: { type: [integer, 'null'], description: ID přístupného zdrojového bankovního výpisu; u ostatních zdrojů null }
         totals: { type: object, description: Souhrn za celé období bez ohledu na filtr }
         checks: { type: object, description: Kontroly celého deníku bez ohledu na filtr }
         warnings:

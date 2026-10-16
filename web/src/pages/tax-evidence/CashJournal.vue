@@ -21,6 +21,7 @@ import { ICONS, btnOutline, btnOutlineSm } from '@/components/ui/buttonStyles'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import DateInput from '@/components/ui/DateInput.vue'
 import CashJournalMovementModal from '@/components/tax-evidence/CashJournalMovementModal.vue'
+import CashJournalSourceLink from '@/components/tax-evidence/CashJournalSourceLink.vue'
 import type { CashJournalNote } from '@/api/taxEvidence'
 
 const { t } = useI18n()
@@ -472,6 +473,7 @@ function onNotesChanged(notes: CashJournalNote[]) {
                   {{ row.doc_no || '—' }}
                 </RouterLink>
                 <span v-else class="font-mono text-neutral-600">{{ row.doc_no || '—' }}</span>
+                <div class="mt-1 flex flex-wrap gap-1"><CashJournalSourceLink :row="row" /></div>
               </td>
               <td v-if="tbl.isVisible('partner')" class="px-3 py-2">{{ row.partner || '—' }}</td>
               <td v-if="tbl.isVisible('desc')" class="px-3 py-2 text-neutral-600">{{ row.description || '—' }}</td>
