@@ -101,6 +101,8 @@ final class StorageQuotaReadOnlyMiddleware implements MiddlewareInterface
         '/api/license/tier/quote',
         '/api/license/payroll',
         '/api/license/payroll/quote',
+        '/api/license/performance',
+        '/api/license/performance/quote',
         '/api/license/period',
         '/api/license/period/quote',
         '/api/license/change-status',

@@ -3,7 +3,14 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { licenseApi, type StorageQuote, type TierQuote, type UpgradeQuote } from '@/api/license'
+import {
+  licenseApi,
+  type ManagedPerformanceInfo,
+  type PerformanceQuote,
+  type StorageQuote,
+  type TierQuote,
+  type UpgradeQuote,
+} from '@/api/license'
 import { formatQuotaBytes } from '@/api/storageQuota'
 import { instanceStatus, publishInstanceStatus } from '@/api/instanceStatus'
 import {
@@ -622,6 +629,111 @@ async function buyStorage(): Promise<void> {
   }
 }
 
+// ─── Výkonnostní instance ──────────────────────────────────────────────────
+//
+// Vypnutí platí až ke konci zaplaceného období a zapnutí během naplánovaného
+// vypnutí to vypnutí jen zruší — obojí rozhoduje licenční server, obrazovka
+// jen ukazuje jeho kalkulaci.
+
+const performance = computed<ManagedPerformanceInfo | null>(() => instance.value?.performance ?? null)
+const performanceQuote = ref<PerformanceQuote | null>(null)
+const quotingPerformance = ref(false)
+const changingPerformance = ref(false)
+const performanceError = ref<string | null>(null)
+const performanceDone = ref<string | null>(null)
+
+type PerformanceStateKey = 'off' | 'on' | 'enable_requested' | 'pending_disable' | 'disable_requested'
+
+const performanceState = computed<PerformanceStateKey>(() => {
+  const p = performance.value
+  if (!p) return 'off'
+  if (p.enabled && p.pending_disable) return 'pending_disable'
+  if (p.vendor_state === 'disable_requested') return 'disable_requested'
+  if (p.enabled && p.vendor_state === 'enable_requested') return 'enable_requested'
+  return p.enabled ? 'on' : 'off'
+})
+
+const performanceStateLabel = computed(() => {
+  if (performanceState.value !== 'pending_disable') return t(`hosting.performance_state_${performanceState.value}`)
+  return paidUntil.value
+    ? t('hosting.performance_state_pending_disable', { date: fmtDate(paidUntil.value) })
+    : t('hosting.performance_state_pending_disable_nodate')
+})
+
+const performanceRecommendation = computed(() => {
+  const usage = performance.value?.usage
+  if (!usage?.recommended || performance.value?.enabled) return null
+  const fmt = (n: number) => new Intl.NumberFormat().format(n)
+  return usage.invoices > usage.thresholds.invoices
+    ? t('hosting.performance_recommended_invoices', { limit: fmt(usage.thresholds.invoices) })
+    : t('hosting.performance_recommended_journal', { limit: fmt(usage.thresholds.journal_entries) })
+})
+
+/** Cílový stav tlačítka: zapnout, vypnout, nebo zrušit naplánované vypnutí (= zapnout). */
+const performanceTarget = computed<boolean>(() => !performance.value?.enabled || performance.value.pending_disable)
+
+async function calcPerformanceQuote(): Promise<void> {
+  if (quotingPerformance.value || changingPerformance.value || previewing.value) return
+  performanceQuote.value = null
+  performanceError.value = null
+  performanceDone.value = null
+  payUrl.value = null
+  quotingPerformance.value = true
+  try {
+    performanceQuote.value = await licenseApi.performanceQuote(performanceTarget.value)
+  } catch (e: unknown) {
+    const failure = apiError(e, 'hosting.performance_failed')
+    performanceError.value = failure.message
+    showPayLink(failure)
+  } finally {
+    quotingPerformance.value = false
+  }
+}
+
+async function applyPerformanceChange(): Promise<void> {
+  if (changingPerformance.value || previewing.value) return
+  const quote = performanceQuote.value
+  if (!quote) return
+
+  const date = fmtPeriodEnd(quote.effective_at ?? quote.period_end) ?? '—'
+  const message = quote.cancel_scheduled
+    ? t('hosting.performance_confirm_keep')
+    : quote.new_enabled
+      ? t('hosting.performance_confirm_enable', { amount: fmtAmount(quote.amount, quote.currency) })
+      : t('hosting.performance_confirm_disable', { date })
+  if (!confirm(message)) return
+
+  changingPerformance.value = true
+  performanceError.value = null
+  performanceDone.value = null
+  payUrl.value = null
+  try {
+    let res = await licenseApi.changePerformance(quote.new_enabled, quote.quote_token)
+    if (res.pending && res.order_id) {
+      const settled = await licenseApi.waitForChange(res.order_id)
+      if (settled.applied && settled.license) res = { ...res, pending: false, state: settled.license }
+    }
+    performanceQuote.value = null
+    performanceDone.value = res.pending
+      ? t('license.change_pending')
+      : quote.cancel_scheduled
+        ? t('hosting.performance_keep_done')
+        : quote.new_enabled
+          ? t('hosting.performance_enable_done')
+          : t('hosting.performance_disable_scheduled', { date: fmtPeriodEnd(res.effective_at) ?? date })
+    publishInstanceStatus(res.state)
+    await load()
+    await auth.refresh()
+  } catch (e: unknown) {
+    const failure = apiError(e, 'hosting.performance_failed')
+    performanceError.value = failure.message
+    showPayLink(failure)
+    if (failure.code === 'result_unknown') performanceQuote.value = null
+  } finally {
+    changingPerformance.value = false
+  }
+}
+
 // ─── Co provoz zahrnuje ────────────────────────────────────────────────────
 
 const included = computed(() => (tm('license.managed_included') as unknown[]).map(i => rt(i as string)))
@@ -647,6 +759,9 @@ watch(previewScenario, (scenario) => {
   tierQuote.value = null
   tierMessage.value = null
   tierError.value = null
+  performanceQuote.value = null
+  performanceDone.value = null
+  performanceError.value = null
   payUrl.value = null
   offerClosed.value = false
   selectedGb.value = null
@@ -1097,6 +1212,111 @@ watch(previewScenario, (scenario) => {
         <p v-if="!links?.subscription && !links?.expand_storage" class="mt-3 text-xs text-neutral-500">
           {{ t('license.managed_subscription_contact') }}
         </p>
+      </section>
+
+      <!-- ── VÝKONNOSTNÍ INSTANCE ──────────────────────────────────────────
+           Jen když ji licenční server zná (blok `performance`). -->
+      <section v-if="performance" id="vykon" class="rounded-lg border border-neutral-200 bg-surface p-5" data-hosting-performance>
+        <div class="flex flex-wrap items-center gap-2">
+          <h2 class="text-lg font-semibold text-neutral-900">{{ t('hosting.performance_title') }}</h2>
+          <span
+            v-if="performanceRecommendation"
+            class="rounded bg-primary-100 px-2 py-0.5 text-xs font-medium text-primary-800"
+            data-hosting-performance-recommended
+          >{{ t('hosting.performance_recommended_badge') }}</span>
+        </div>
+        <p class="mt-1 text-sm text-neutral-600">{{ t('hosting.performance_desc') }}</p>
+        <p v-if="performanceRecommendation" class="mt-2 text-sm text-primary-800">{{ performanceRecommendation }}</p>
+
+        <dl class="mt-4 grid gap-3 text-sm sm:grid-cols-3">
+          <div>
+            <dt class="text-xs uppercase tracking-wider text-neutral-500">{{ t('hosting.performance_state_label') }}</dt>
+            <dd class="mt-0.5 font-medium text-neutral-900" data-hosting-performance-state>{{ performanceStateLabel }}</dd>
+          </div>
+          <div>
+            <dt class="text-xs uppercase tracking-wider text-neutral-500">{{ t('hosting.performance_params_label') }}</dt>
+            <dd class="mt-0.5 text-neutral-900">
+              {{ t('hosting.performance_params', {
+                ram: performance.ram_mb ?? 1024,
+                php: performance.php_processes ?? 8,
+                baseRam: performance.base_ram_mb ?? 512,
+                basePhp: performance.base_php_processes ?? 4,
+              }) }}
+            </dd>
+          </div>
+          <div>
+            <dt class="text-xs uppercase tracking-wider text-neutral-500">{{ t('hosting.performance_price_label') }}</dt>
+            <dd class="mt-0.5 text-neutral-900">{{ t('hosting.performance_price', { price: fmtAmount(performance.price_month_czk, 'CZK') }) }}</dd>
+          </div>
+        </dl>
+        <p class="mt-2 text-xs text-neutral-500">{{ t('hosting.performance_billing_note') }}</p>
+
+        <div v-if="performanceState !== 'disable_requested'" class="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button" :disabled="quotingPerformance || changingPerformance || previewing"
+            :class="performanceTarget ? btnOutline('primary') : btnOutline('warning')"
+            data-hosting-performance-quote
+            @click="calcPerformanceQuote"
+          >
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="performanceTarget ? ICONS.play : ICONS.pause" /></svg>
+            {{ quotingPerformance
+              ? t('hosting.performance_quoting')
+              : t(!performance.enabled ? 'hosting.performance_enable_cta' : performance.pending_disable ? 'hosting.performance_keep_cta' : 'hosting.performance_disable_cta') }}
+          </button>
+        </div>
+
+        <div v-if="performanceQuote" class="mt-4 rounded-md border border-primary-300 bg-primary-50/40 p-4 text-sm" data-hosting-performance-offer>
+          <template v-if="performanceQuote.cancel_scheduled">
+            <p class="text-neutral-700">{{ t('hosting.performance_keep_desc') }}</p>
+          </template>
+          <template v-else-if="performanceQuote.new_enabled">
+            <dl class="grid gap-3 sm:grid-cols-2">
+              <div>
+                <dt class="text-xs uppercase tracking-wider text-neutral-500">{{ t('hosting.storage_amount_now') }}</dt>
+                <dd class="mt-0.5 text-lg font-semibold text-neutral-900">{{ fmtAmount(performanceQuote.amount, performanceQuote.currency) }}</dd>
+              </div>
+              <div>
+                <dt class="text-xs uppercase tracking-wider text-neutral-500">{{ t('hosting.storage_recurring_delta') }}</dt>
+                <dd class="mt-0.5 text-lg font-semibold text-neutral-900">
+                  {{ performanceQuote.recurring_delta === null ? '—' : `+ ${fmtAmount(performanceQuote.recurring_delta, performanceQuote.currency)}` }}
+                </dd>
+              </div>
+            </dl>
+            <p v-if="fmtPeriodEnd(performanceQuote.period_end)" class="mt-1 text-xs text-neutral-500">
+              {{ t('hosting.storage_period_end', { date: fmtPeriodEnd(performanceQuote.period_end) }) }}
+            </p>
+            <p class="mt-2 text-neutral-700">{{ t('hosting.performance_enable_note') }}</p>
+            <p class="mt-3 font-medium text-neutral-900">{{ t('hosting.storage_card_notice') }}</p>
+          </template>
+          <template v-else>
+            <p class="text-neutral-700">
+              {{ t('hosting.performance_disable_desc', { date: fmtPeriodEnd(performanceQuote.effective_at ?? performanceQuote.period_end) ?? '—' }) }}
+            </p>
+          </template>
+
+          <button
+            type="button" :disabled="changingPerformance || previewing"
+            :class="[btnFilled(performanceQuote.new_enabled ? 'success' : 'warning'), 'mt-3']"
+            data-hosting-performance-apply
+            @click="applyPerformanceChange"
+          >
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="performanceQuote.cancel_scheduled ? ICONS.check : performanceQuote.new_enabled ? ICONS.coin : ICONS.pause" /></svg>
+            {{ changingPerformance
+              ? t('hosting.performance_applying')
+              : t(performanceQuote.cancel_scheduled
+                ? 'hosting.performance_confirm_keep_cta'
+                : performanceQuote.new_enabled ? 'hosting.performance_confirm_enable_cta' : 'hosting.performance_confirm_disable_cta') }}
+          </button>
+          <p v-if="previewing" class="mt-2 text-xs text-neutral-800">{{ t('hosting.preview_no_orders') }}</p>
+        </div>
+
+        <div v-if="performanceDone" class="mt-4 rounded-md border border-success-500/40 bg-success-50 p-3 text-sm text-success-700" data-hosting-performance-done>
+          {{ performanceDone }}
+        </div>
+        <div v-if="performanceError" class="mt-4 rounded-md border border-danger-500/40 bg-danger-50 p-3 text-sm text-danger-600" data-hosting-performance-error>
+          {{ performanceError }}
+          <PayAgainNotice v-if="payUrl" :href="payUrl" :card-required="payCardRequired" />
+        </div>
       </section>
 
       <!-- ── DOKOUPENÍ UŽIVATELŮ ────────────────────────────────────────────

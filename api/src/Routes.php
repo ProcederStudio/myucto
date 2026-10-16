@@ -362,6 +362,8 @@ use MyInvoice\Action\License\TierQuoteAction;
 use MyInvoice\Action\License\TierChangeAction;
 use MyInvoice\Action\License\PayrollQuoteAction;
 use MyInvoice\Action\License\PayrollChangeAction;
+use MyInvoice\Action\License\PerformanceQuoteAction;
+use MyInvoice\Action\License\PerformanceChangeAction;
 use MyInvoice\Action\License\ChangeStatusAction;
 use MyInvoice\Action\License\PurchaseStartAction;
 use MyInvoice\Action\License\PurchaseCompleteAction;
@@ -533,6 +535,8 @@ final class Routes
         $app->post('/api/license/period',       AnnualSwitchAction::class);
         $app->post('/api/license/payroll/quote', PayrollQuoteAction::class);
         $app->post('/api/license/payroll',       PayrollChangeAction::class);
+        $app->post('/api/license/performance/quote', PerformanceQuoteAction::class);
+        $app->post('/api/license/performance',       PerformanceChangeAction::class);
         $app->post('/api/license/change-status', ChangeStatusAction::class);
         // Nový nákup: PKCE session a serverový claim bez licenčního klíče v URL.
         $app->post('/api/license/purchase/start', PurchaseStartAction::class);

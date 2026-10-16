@@ -17,6 +17,7 @@ use MyInvoice\Service\License\LicenseState;
 use MyInvoice\Service\License\LicenseTokenVerifier;
 use MyInvoice\Service\System\InstanceEntitlement;
 use MyInvoice\Service\System\ManagedModeGuard;
+use MyInvoice\Service\System\PerformanceRecommendation;
 use MyInvoice\Service\System\StorageQuotaPolicy;
 use MyInvoice\Service\System\StorageQuotaStatus;
 use MyInvoice\Service\System\StorageUsageMeter;
@@ -420,6 +421,7 @@ final class LicenseStatusManagedInstanceTest extends TestCase
             $config,
             new InstanceEntitlement($db, $config),
             new BillingSnapshot($config),
+            new PerformanceRecommendation($db),
         );
     }
 

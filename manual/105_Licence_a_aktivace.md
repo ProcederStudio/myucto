@@ -320,6 +320,16 @@ krátkodobě platná a potvrzení je svázané právě se zobrazenou částkou. 
 platební brána platbu zpracovává asynchronně, aplikace její stav průběžně
 ověřuje a nový rozsah zpřístupní hned po potvrzení.
 
+Instance s velkým objemem dat si u spravovaného hostingu může zapnout
+**výkonnostní instanci** (`Předplatné a provoz`, sekce **Výkonnostní instance**):
+1024 MB paměti a 8 PHP procesů místo standardních 512 MB a 4 procesů za
+350 Kč s DPH měsíčně (u ročního předplatného 12 měsíců bez slevy). Zapnutí se
+doplatí poměrně do konce zaplaceného období a projeví se, jakmile ho provede
+poskytovatel hostingu. Vypnutí platí od konce zaplaceného období bez vratky;
+do té doby ho tlačítkem **Ponechat zapnuté** zdarma zrušíte. Nad 100 000
+faktur nebo 500 000 účetních zápisů v celé instanci aplikace nabídku označí
+jako doporučenou.
+
 Server účtuje při navýšení jen poměrný doplatek do konce aktuálního období
 z uložené karty. U předplatného placeného fakturou (typicky roční) se kartou
 zaplatí jen jednorázově tato změna; předplatné se dál platí fakturou a konec

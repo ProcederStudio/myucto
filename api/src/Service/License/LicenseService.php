@@ -988,6 +988,65 @@ final class LicenseService
     }
 
     /** @return array<string,mixed> */
+    public function performanceQuote(bool $enabled): array
+    {
+        $row = $this->loadRow();
+        $key = $this->keyOf($row);
+        if ($key === null) {
+            return ['ok' => false, 'error' => 'invalid_key'];
+        }
+        try {
+            $resp = $this->client->performanceQuote($key, $this->instanceIdOf($row), $enabled);
+        } catch (LicenseNetworkException $e) {
+            $this->logger->info('license.performance_quote.network_error', ['error' => $e->getMessage()]);
+            return ['ok' => false, 'error' => 'server_unreachable'];
+        }
+        if (($resp['ok'] ?? false) !== true) {
+            return ['ok' => false, 'error' => (string) ($resp['error'] ?? 'quote_failed')];
+        }
+        $resp['scheduled'] = ($resp['scheduled'] ?? false) === true || ($resp['change'] ?? '') === 'scheduled';
+        return $resp;
+    }
+
+    /**
+     * Zapnutí/vypnutí výkonnostní instance. Na rozdíl od úložiště se licence
+     * obnoví i u naplánovaného vypnutí — `instance.performance.pending_disable`
+     * přichází až s obnovou a obrazovka podle něj ukazuje, že vypnutí čeká
+     * na konec období.
+     *
+     * @return array<string,mixed>
+     */
+    public function changePerformance(bool $enabled, string $quoteToken): array
+    {
+        $row = $this->loadRow();
+        $key = $this->keyOf($row);
+        if ($key === null) {
+            return ['ok' => false, 'error' => 'invalid_key'];
+        }
+        try {
+            $resp = $this->client->performanceChange($key, $this->instanceIdOf($row), $enabled, $quoteToken);
+        } catch (LicenseNetworkException $e) {
+            $this->logger->warning('license.performance_change.network_error', ['error' => $e->getMessage()]);
+            return ['ok' => false, 'error' => 'result_unknown'];
+        }
+        if (($resp['ok'] ?? false) !== true && ($resp['error'] ?? '') !== 'charge_pending') {
+            $this->logger->warning('license.performance_change.rejected', ['error' => (string) ($resp['error'] ?? 'unknown')]);
+            return $this->rejection($resp, 'change_failed');
+        }
+        $pending = ($resp['error'] ?? '') === 'charge_pending' || ($resp['state'] ?? '') === 'pending'
+            || ($resp['pending'] ?? false) === true;
+        $scheduled = ($resp['scheduled'] ?? false) === true || ($resp['change'] ?? '') === 'scheduled';
+        if (!$pending) {
+            $this->forceRenew();
+        }
+        $resp['ok'] = true;
+        $resp['pending'] = $pending;
+        $resp['scheduled'] = $scheduled;
+        $resp['state_local'] = $this->current();
+        return $resp;
+    }
+
+    /** @return array<string,mixed> */
     public function changeStatus(string $orderId): array
     {
         $row = $this->loadRow();

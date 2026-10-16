@@ -42,6 +42,10 @@ const isAdmin = computed(() => auth.isSuperadmin)
 const managedInstance = computed(() => status.value?.instance ?? null)
 const isManaged = computed(() => managedInstance.value !== null)
 const storage = computed(() => managedInstance.value?.storage ?? null)
+const performanceRecommended = computed(() => {
+  const performance = managedInstance.value?.performance
+  return performance?.usage.recommended === true && !performance.enabled
+})
 
 /**
  * ⚠️ Tři stavy místa, které se nesmí slít do jednoho:
@@ -1051,6 +1055,10 @@ onMounted(async () => {
           <p class="font-medium">{{ t('license.managed_storage_warning_title') }}</p>
           <p class="mt-1">{{ t('license.managed_storage_warning_desc', { percent: storage?.read_only_percent ?? 100 }) }}</p>
         </div>
+
+        <p v-if="performanceRecommended" class="mt-3 text-sm" data-performance-hint>
+          <RouterLink to="/hosting#vykon" class="text-primary-600 hover:text-primary-800 hover:underline">{{ t('hosting.performance_hint') }}</RouterLink>
+        </p>
 
         <div class="mt-5 flex flex-wrap gap-2">
           <!-- ⚠️ Hlavní akce vede DOVNITŘ aplikace. Rozšířit místo i navýšit

@@ -390,6 +390,27 @@ final class LicenseClient
     }
 
     /** @return array<string,mixed> */
+    public function performanceQuote(string $licenseKey, string $instanceId, bool $enabled): array
+    {
+        return $this->post('/api/license/performance/quote', [
+            'license_key' => $licenseKey,
+            'instance_id' => $instanceId,
+            'enabled'     => $enabled,
+        ]);
+    }
+
+    /** @return array<string,mixed> */
+    public function performanceChange(string $licenseKey, string $instanceId, bool $enabled, string $quoteToken): array
+    {
+        return $this->post('/api/license/performance', [
+            'license_key' => $licenseKey,
+            'instance_id' => $instanceId,
+            'enabled'     => $enabled,
+            'quote_token' => $quoteToken,
+        ], self::CHARGE_TIMEOUT);
+    }
+
+    /** @return array<string,mixed> */
     public function changeStatus(string $licenseKey, string $instanceId, string $orderId): array
     {
         return $this->post('/api/license/change-status', [

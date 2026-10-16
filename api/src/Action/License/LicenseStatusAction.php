@@ -16,6 +16,7 @@ use MyInvoice\Service\License\LicenseService;
 use MyInvoice\Service\License\LicenseState;
 use MyInvoice\Service\System\InstanceEntitlement;
 use MyInvoice\Service\System\ManagedModeGuard;
+use MyInvoice\Service\System\PerformanceRecommendation;
 use MyInvoice\Service\System\StorageQuotaPolicy;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -52,6 +53,7 @@ final class LicenseStatusAction
         private readonly Config $config,
         private readonly InstanceEntitlement $entitlement,
         private readonly BillingSnapshot $snapshot,
+        private readonly PerformanceRecommendation $performance,
     ) {}
 
     public function __invoke(Request $request, Response $response): Response
@@ -86,7 +88,7 @@ final class LicenseStatusAction
         $contracted = $this->quota->contractedBytes();  // ⚠️ null = neznámý objem
         $raw        = $this->entitlement->deliveredRaw();
 
-        return [
+        $instance = [
             'billing'          => $this->snapshot->full($state),
             'links'            => $this->links(),
             'managed'          => true,
@@ -123,6 +125,39 @@ final class LicenseStatusAction
                 // Odkud se ví, kolik má zaplaceno: `license` / `config` / `none`.
                 'quota_source'      => $this->entitlement->quotaSource(),
             ],
+        ];
+
+        // Starší licenční server blok nepošle — obrazovka pak sekci nekreslí.
+        if (is_array($raw['performance'] ?? null)) {
+            $instance['performance'] = $this->performance($raw['performance']);
+        }
+
+        return $instance;
+    }
+
+    /**
+     * Výkonnostní instance: stav od licenčního serveru + objem dat instance,
+     * podle kterého obrazovka nabídku doporučí.
+     *
+     * @param array<string,mixed> $raw
+     * @return array<string,mixed>
+     */
+    private function performance(array $raw): array
+    {
+        $vendorState = (string) ($raw['vendor_state'] ?? 'off');
+
+        return [
+            'enabled'            => (bool) ($raw['enabled'] ?? false),
+            'pending_disable'    => (bool) ($raw['pending_disable'] ?? false),
+            'vendor_state'       => in_array($vendorState, ['off', 'enable_requested', 'on', 'disable_requested'], true)
+                ? $vendorState
+                : 'off',
+            'price_month_czk'    => isset($raw['price_month_czk']) ? (float) $raw['price_month_czk'] : null,
+            'ram_mb'             => isset($raw['ram_mb']) ? (int) $raw['ram_mb'] : null,
+            'php_processes'      => isset($raw['php_processes']) ? (int) $raw['php_processes'] : null,
+            'base_ram_mb'        => isset($raw['base_ram_mb']) ? (int) $raw['base_ram_mb'] : null,
+            'base_php_processes' => isset($raw['base_php_processes']) ? (int) $raw['base_php_processes'] : null,
+            'usage'              => $this->performance->usage(),
         ];
     }
 

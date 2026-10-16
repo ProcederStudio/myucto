@@ -129,6 +129,33 @@ export interface ManagedInstanceInfo {
   storage: ManagedStorageInfo
   billing: ManagedBillingInfo
   links: ManagedLinks
+  /** Chybí = starší licenční server; obrazovka sekci nekreslí. */
+  performance?: ManagedPerformanceInfo
+}
+
+/** Objem dat celé instance, podle kterého se výkonnostní instance doporučí. */
+export interface PerformanceUsage {
+  invoices: number
+  journal_entries: number
+  recommended: boolean
+  thresholds: { invoices: number; journal_entries: number }
+}
+
+export type PerformanceVendorState = 'off' | 'enable_requested' | 'on' | 'disable_requested'
+
+/** Výkonnostní instance — stav od licenčního serveru a objem dat instance. */
+export interface ManagedPerformanceInfo {
+  enabled: boolean
+  /** Vypnutí je naplánované ke konci zaplaceného období. */
+  pending_disable: boolean
+  /** Co už provedl poskytovatel hostingu. */
+  vendor_state: PerformanceVendorState
+  price_month_czk: number | null
+  ram_mb: number | null
+  php_processes: number | null
+  base_ram_mb: number | null
+  base_php_processes: number | null
+  usage: PerformanceUsage
 }
 
 /**
@@ -337,6 +364,43 @@ export interface StorageUpgradeResult {
   effective_at: number | string | null
   pending: boolean
   order_id: string | null
+}
+
+/**
+ * Kalkulace zapnutí/vypnutí výkonnostní instance. Zapnutí strhne `amount`
+ * hned (poměrně do `period_end`), vypnutí platí od `effective_at` bez vratky.
+ * `cancel_scheduled` = zapnutí jen ruší naplánované vypnutí, zdarma.
+ */
+export interface PerformanceQuote {
+  current_enabled: boolean
+  new_enabled: boolean
+  pending_disable: boolean
+  cancel_scheduled: boolean
+  amount: number | null
+  recurring_delta: number | null
+  monthly_price: number | null
+  currency: string | null
+  period_end: number | string | null
+  scheduled: boolean
+  effective_at: number | string | null
+  ram_mb: number | null
+  php_processes: number | null
+  base_ram_mb: number | null
+  base_php_processes: number | null
+  quote_token: string
+  expires_at: number | string | null
+  usage: PerformanceUsage
+}
+
+export interface PerformanceChangeResult {
+  enabled: boolean
+  pending_disable: boolean
+  amount_charged: number | null
+  scheduled: boolean
+  effective_at: number | string | null
+  pending: boolean
+  order_id: string | null
+  state: LicenseStatus
 }
 
 export interface TierQuote {
@@ -582,6 +646,12 @@ export const licenseApi = {
       payroll_employees_target,
       payroll_users_target,
     }).then((r) => r.data),
+
+  performanceQuote: (enabled: boolean) =>
+    api.post<PerformanceQuote>('/license/performance/quote', { enabled }).then((r) => r.data),
+
+  changePerformance: (enabled: boolean, quote_token: string) =>
+    api.post<PerformanceChangeResult>('/license/performance', { enabled, quote_token }).then((r) => r.data),
 
   changeStatus: (order_id: string) =>
     api.post<ChangeStatusResult>('/license/change-status', { order_id }).then((r) => r.data),
