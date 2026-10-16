@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Bank;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\ClientBankAccountRepository;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Invoice\FinalFromProformaCreator;
@@ -380,8 +381,12 @@ final class StatementMatcher
         $pdo->exec('RELEASE SAVEPOINT ' . $level);
     }
 
-    private function rollBackIfOpen(PDO $pdo): void
+    private function rollBackIfOpen(PDO $pdo, ?\Throwable $cause = null): void
     {
+        if ($cause !== null && TransactionFailure::rollbackIfAborted($pdo, $cause)) {
+            $this->txStack = [];
+            return;
+        }
         if ($this->txStack !== [] && $pdo->inTransaction()) {
             $this->rollBack($pdo);
         } else {
@@ -882,7 +887,7 @@ final class StatementMatcher
                 }
                 $this->commit($pdo);
             } catch (\Throwable $e) {
-                $this->rollBackIfOpen($pdo);
+                $this->rollBackIfOpen($pdo, $e);
                 throw $e;
             }
 
@@ -941,7 +946,7 @@ final class StatementMatcher
                 $taxDocId = $recorded['tax_document_id'];
                 $this->commit($pdo);
             } catch (\Throwable $e) {
-                $this->rollBackIfOpen($pdo);
+                $this->rollBackIfOpen($pdo, $e);
                 throw $e;
             }
             $this->clientBankAccounts?->captureForInvoiceTransaction((int) $inv['id'], $transactionId);
@@ -1210,7 +1215,7 @@ final class StatementMatcher
                 )->execute([$transactionId]);
                 $this->commit($pdo);
             } catch (\Throwable $e) {
-                $this->rollBackIfOpen($pdo);
+                $this->rollBackIfOpen($pdo, $e);
                 throw $e;
             }
             $this->clientBankAccounts?->captureForPurchaseInvoiceTransaction((int) $pi['id'], $transactionId);
@@ -1245,7 +1250,7 @@ final class StatementMatcher
                 )->execute([$transactionId]);
                 $this->commit($pdo);
             } catch (\Throwable $e) {
-                $this->rollBackIfOpen($pdo);
+                $this->rollBackIfOpen($pdo, $e);
                 throw $e;
             }
             $this->clientBankAccounts?->captureForPurchaseInvoiceTransaction((int) $pi['id'], $transactionId);
@@ -1459,7 +1464,7 @@ final class StatementMatcher
                 )->execute([$transactionId]);
                 $this->commit($pdo);
             } catch (\Throwable $e) {
-                $this->rollBackIfOpen($pdo);
+                $this->rollBackIfOpen($pdo, $e);
                 throw $e;
             }
             $this->logPaymentMatch('purchase_invoice', (int) $pi['id'], $supplierId, 'auto_exact', $absAmount, '', $transactionId);
@@ -1543,7 +1548,7 @@ final class StatementMatcher
             )->execute([$transactionId]);
             $this->commit($pdo);
         } catch (\Throwable $e) {
-            $this->rollBackIfOpen($pdo);
+            $this->rollBackIfOpen($pdo, $e);
             throw $e;
         }
         $this->logPaymentMatch('purchase_invoice', (int) $pi['id'], $supplierId, 'auto_exact', $absAmount, '', $transactionId);
@@ -1778,7 +1783,7 @@ final class StatementMatcher
             )->execute([$transactionId]);
             $this->commit($pdo);
         } catch (\Throwable $e) {
-            $this->rollBackIfOpen($pdo);
+            $this->rollBackIfOpen($pdo, $e);
             throw $e;
         }
 
@@ -1826,7 +1831,9 @@ final class StatementMatcher
         $matches = [];
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
             if ((string) $row['currency'] !== self::LOCAL_CURRENCY) continue;
-            $m = $this->expectedMatch(abs((float) $row['amount_to_pay']), (string) $row['currency'], (float) ($row['exchange_rate'] ?: 0), $txCurrency);
+            $remaining = CreditRefundAllocation::issuedRemaining($pdo, $supplierId, (int) $row['id'], $transactionId);
+            if ($remaining === null || $remaining <= InvoicePaymentService::TOLERANCE) continue;
+            $m = $this->expectedMatch($remaining, (string) $row['currency'], (float) ($row['exchange_rate'] ?: 0), $txCurrency);
             if ($m !== null && abs($absAmount - $m['expected']) <= $m['exact']) $matches[] = $row;
         }
         $matches = $this->preferExactVsMatches($matches);
@@ -1840,18 +1847,27 @@ final class StatementMatcher
                 $this->rollBack($pdo);
                 return ['status' => 'unmatched', 'reason' => 'transaction_not_free'];
             }
+            $allocation = CreditRefundAllocation::allocateIssued(
+                $pdo,
+                $supplierId,
+                $transactionId,
+                (int) $credit['id'],
+                $absAmount,
+                'auto',
+                95,
+                exactTolerance: self::EXACT_MATCH_TOLERANCE,
+            );
+            if ($allocation === null) {
+                $this->rollBack($pdo);
+                return ['status' => 'unmatched', 'reason' => 'credit_refund_changed'];
+            }
             $pdo->prepare("UPDATE invoices SET status='paid', paid_at=? WHERE id=? AND status<>'paid'")
                 ->execute([$postedAt, $credit['id']]);
-            $pdo->prepare(
-                "INSERT INTO payment_matches
-                    (supplier_id, bank_transaction_id, invoice_id, amount, match_type, match_confidence)
-                 VALUES (?, ?, ?, ?, 'auto', 95)"
-            )->execute([$supplierId, $transactionId, $credit['id'], $absAmount]);
             $pdo->prepare("UPDATE bank_transactions SET matched_invoice_id=?, match_status='auto_exact', matched_at=NOW() WHERE id=?")
                 ->execute([$credit['id'], $transactionId]);
             $this->commit($pdo);
         } catch (\Throwable $e) {
-            $this->rollBackIfOpen($pdo);
+            $this->rollBackIfOpen($pdo, $e);
             throw $e;
         }
         $this->clientBankAccounts?->captureForInvoiceTransaction((int) $credit['id'], $transactionId);
@@ -1890,7 +1906,9 @@ final class StatementMatcher
         $matches = [];
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
             if ((string) $row['currency'] !== self::LOCAL_CURRENCY) continue;
-            $m = $this->expectedMatch(abs((float) $row['amount_to_pay']), (string) $row['currency'], (float) ($row['exchange_rate'] ?: 0), $txCurrency);
+            $remaining = CreditRefundAllocation::purchaseRemaining($pdo, $supplierId, (int) $row['id'], $transactionId);
+            if ($remaining === null || $remaining <= InvoicePaymentService::TOLERANCE) continue;
+            $m = $this->expectedMatch($remaining, (string) $row['currency'], (float) ($row['exchange_rate'] ?: 0), $txCurrency);
             if ($m !== null && abs($amount - $m['expected']) <= $m['exact']) $matches[] = $row;
         }
         $matches = $this->preferExactVsMatches($matches);
@@ -1904,14 +1922,27 @@ final class StatementMatcher
                 $this->rollBack($pdo);
                 return ['status' => 'unmatched', 'reason' => 'transaction_not_free'];
             }
+            $allocation = CreditRefundAllocation::allocatePurchase(
+                $pdo,
+                $supplierId,
+                $transactionId,
+                (int) $credit['id'],
+                $amount,
+                'auto',
+                95,
+                exactTolerance: self::EXACT_MATCH_TOLERANCE,
+            );
+            if ($allocation === null) {
+                $this->rollBack($pdo);
+                return ['status' => 'unmatched', 'reason' => 'purchase_credit_refund_changed'];
+            }
             $pdo->prepare("UPDATE purchase_invoices SET status='paid', paid_at=? WHERE id=? AND status<>'paid'")
                 ->execute([$postedAt, $credit['id']]);
-            PurchasePaymentMatchWriter::record($pdo, $supplierId, $transactionId, (int) $credit['id'], $amount, 'auto', 95);
             $pdo->prepare("UPDATE bank_transactions SET match_status='auto_exact', matched_at=NOW() WHERE id=?")
                 ->execute([$transactionId]);
             $this->commit($pdo);
         } catch (\Throwable $e) {
-            $this->rollBackIfOpen($pdo);
+            $this->rollBackIfOpen($pdo, $e);
             throw $e;
         }
         $this->clientBankAccounts?->captureForPurchaseInvoiceTransaction((int) $credit['id'], $transactionId);
