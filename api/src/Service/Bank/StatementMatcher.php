@@ -671,24 +671,21 @@ final class StatementMatcher
         // vedle čísla dokladu. Na rozdíl od čísla dokladu NENÍ unikátní — pravidelná
         // fakturace mívá jeden VS pro všechny doklady — proto víc shod rozhodne až částka
         // (resolveSharedPaymentVs) a limit kandidátů je vyšší.
-        $vsDigits = VariableSymbolNormalizer::digits((string) $vs);
+        $vsKey = VariableSymbolNormalizer::matchKey((string) $vs);
+        $paymentVsMatch = $this->vsKeyMatches('invoices', 'i', 'payment_variable_symbol');
+        [$candidateSql, $candidateParams] = $this->vsCandidates('invoices', 'i', (string) $vs, $supplierId, ['varsymbol'], ['varsymbol', 'payment_variable_symbol']);
         $sql = "SELECT i.id, i.varsymbol, i.amount_to_pay, i.paid_total, i.exchange_rate, i.status, i.invoice_type, i.parent_invoice_id, cur.code AS currency,
                        CASE WHEN i.varsymbol = ? OR i.payment_variable_symbol = ? THEN 2 ELSE 1 END AS vs_match_rank,
-                       (i.payment_variable_symbol REGEXP '[1-9]'
-                        AND CAST(i.payment_variable_symbol AS UNSIGNED) = CAST(? AS UNSIGNED)) AS payment_vs_match
+                       {$paymentVsMatch} AS payment_vs_match
                   FROM invoices i
                   JOIN currencies cur ON cur.id = i.currency_id
                  WHERE i.supplier_id = ?
-                   AND (i.varsymbol = ?
-                        OR (i.varsymbol REGEXP '[1-9]'
-                            AND CAST(REGEXP_REPLACE(i.varsymbol, '[^0-9]', '') AS UNSIGNED) = CAST(? AS UNSIGNED))
-                        OR (i.payment_variable_symbol REGEXP '[1-9]'
-                            AND CAST(i.payment_variable_symbol AS UNSIGNED) = CAST(? AS UNSIGNED)))
+                   AND {$candidateSql}
                    AND i.status IN ('issued', 'sent', 'reminded', 'paid')
                    AND i.invoice_type IN ('invoice', 'proforma')
                  ORDER BY vs_match_rank DESC, i.id LIMIT 100";
         $stmt = $pdo->prepare($sql);
-        $stmt->execute([$vs, $vs, $vsDigits, $supplierId, $vs, $vsDigits, $vsDigits]);
+        $stmt->execute([$vs, $vs, $vsKey, $supplierId, ...$candidateParams]);
         $matches = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
         // Pořadí je podstatné: pár „proforma + její finál" se zúží DŘÍV, než se sáhne po
         // doslovné shodě — jinak by přednost dostal finál („2408001") před proformou
@@ -1038,6 +1035,74 @@ final class StatementMatcher
      * bank_transactions.matched_invoice_id slouží jen pro vystavené faktury,
      * pro přijaté používáme payment_matches table (N:N model).
      */
+    /**
+     * Podmínka „doklad nese VS pohybu" a její parametry: doslovná shoda v `$exactColumns`
+     * nebo shoda číslic bez vodicích nul v `$keyColumns`.
+     *
+     * Číslice se porovnávají přes indexované sloupce `*_match_key` (migrace 2010); výraz
+     * nad REGEXP_REPLACE index nepoužije a procházel by všechny doklady firmy na každý
+     * pohyb. Nese-li VS nenulovou číslici, doslovná shoda z klíče plyne vždy (týž řetězec
+     * má tytéž číslice), takže stačí sjednocení dotazů podle klíče. Bez nenulové číslice
+     * klíčem nic neprojde a zbývá doslovná shoda. Bez sloupců klíče (SQLite v jednotkových
+     * testech) se použije původní výraz se stejným výsledkem.
+     *
+     * @param list<string> $exactColumns
+     * @param list<string> $keyColumns
+     * @return array{0: string, 1: list<int|string>}
+     */
+    private function vsCandidates(string $table, string $alias, string $vs, int $supplierId, array $exactColumns, array $keyColumns): array
+    {
+        $key = VariableSymbolNormalizer::matchKey($vs);
+        $exact = [];
+        $exactParams = [];
+        foreach ($exactColumns as $column) {
+            $exact[] = "{$alias}.{$column} = ?";
+            $exactParams[] = $vs;
+        }
+        if (!$this->hasVsMatchKeys($table, $keyColumns)) {
+            $branches = $exact;
+            $params = $exactParams;
+            foreach ($keyColumns as $column) {
+                $branches[] = $this->vsKeyMatches($table, $alias, $column);
+                $params[] = $key;
+            }
+            return ['(' . implode(' OR ', $branches) . ')', $params];
+        }
+        if ($key === '') {
+            return ['(' . implode(' OR ', $exact) . ')', $exactParams];
+        }
+        $selects = [];
+        $params = [];
+        foreach ($keyColumns as $column) {
+            $selects[] = "SELECT id FROM {$table} WHERE supplier_id = ? AND {$column}_match_key = ?";
+            array_push($params, $supplierId, $key);
+        }
+        // Odvozená tabulka kolem UNION: bez ní MariaDB vyhodnotí IN jako závislý poddotaz
+        // nad každým dokladem firmy a index klíče se tím zase obejde.
+        return ["{$alias}.id IN (SELECT vs_hit.id FROM (" . implode(' UNION ', $selects) . ') vs_hit)', $params];
+    }
+
+    /** Výraz „číslice sloupce bez vodicích nul = ?" (parametr {@see VariableSymbolNormalizer::matchKey()}). */
+    private function vsKeyMatches(string $table, string $alias, string $column): string
+    {
+        if ($this->db->hasColumn($table, $column . '_match_key')) {
+            return "({$alias}.{$column}_match_key = ?)";
+        }
+        return "({$alias}.{$column} REGEXP '[1-9]'"
+            . " AND CAST(REGEXP_REPLACE({$alias}.{$column}, '[^0-9]', '') AS UNSIGNED) = CAST(? AS UNSIGNED))";
+    }
+
+    /** @param list<string> $columns */
+    private function hasVsMatchKeys(string $table, array $columns): bool
+    {
+        foreach ($columns as $column) {
+            if (!$this->db->hasColumn($table, $column . '_match_key')) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private function matchPurchase(\PDO $pdo, int $supplierId, string $vs, float $absAmount, string $postedAt, int $transactionId, ?string $txCurrency = null): array
     {
         // 'paid' v setu: dovolíme navázat transakci i na ručně zaplacenou přijatou fakturu
@@ -1046,7 +1111,8 @@ final class StatementMatcher
         //
         // Platební VS může být jiný než číslo dokladu. Zachováváme i hledání
         // podle interního a dodavatelského čísla, včetně numerické normalizace.
-        $vsDigits = VariableSymbolNormalizer::digits($vs);
+        $purchaseVsColumns = ['payment_variable_symbol', 'varsymbol', 'vendor_invoice_number'];
+        [$candidateSql, $candidateParams] = $this->vsCandidates('purchase_invoices', 'pi', $vs, $supplierId, $purchaseVsColumns, $purchaseVsColumns);
         // Vlastní alokace pohybu (z dřívějšího auto_partial) se vynechá přímo ve výrazu:
         // součet je v měně dokladu, takže odečíst syrovou částku párování by u korunové
         // úhrady cizoměnové faktury míchalo dvě měny.
@@ -1059,13 +1125,7 @@ final class StatementMatcher
                   FROM purchase_invoices pi
              LEFT JOIN currencies cur ON cur.id = pi.currency_id
                  WHERE pi.supplier_id = ?
-                   AND (pi.payment_variable_symbol = ? OR pi.varsymbol = ? OR pi.vendor_invoice_number = ?
-                        OR (pi.payment_variable_symbol REGEXP '[1-9]'
-                            AND CAST(REGEXP_REPLACE(pi.payment_variable_symbol, '[^0-9]', '') AS UNSIGNED) = CAST(? AS UNSIGNED))
-                        OR (pi.varsymbol REGEXP '[1-9]'
-                            AND CAST(REGEXP_REPLACE(pi.varsymbol, '[^0-9]', '') AS UNSIGNED) = CAST(? AS UNSIGNED))
-                        OR (pi.vendor_invoice_number REGEXP '[1-9]'
-                            AND CAST(REGEXP_REPLACE(pi.vendor_invoice_number, '[^0-9]', '') AS UNSIGNED) = CAST(? AS UNSIGNED)))
+                   AND {$candidateSql}
                    AND pi.status IN ('received', 'booked', 'paid')
                    -- DDKP (daňový doklad k platbě) není platební cíl: nemá závazek 321 ani
                    -- vlastní úhradu, peníze patří k zálohové faktuře (advance). Vyluč z párování.
@@ -1074,7 +1134,7 @@ final class StatementMatcher
                  -- těch, které trefila až normalizace na číslice (viz preferExactVsMatches).
                  ORDER BY vs_match_rank DESC, pi.id LIMIT 5";
         $stmt = $pdo->prepare($sql);
-        $stmt->execute([$vs, $vs, $vs, $supplierId, $vs, $vs, $vs, $vsDigits, $vsDigits, $vsDigits]);
+        $stmt->execute([$vs, $vs, $vs, $supplierId, ...$candidateParams]);
         $matches = $this->preferExactVsMatches($stmt->fetchAll(PDO::FETCH_ASSOC) ?: []);
         if (count($matches) > 1) {
             return ['status' => 'unmatched', 'reason' => 'ambiguous_vs_purchase', 'tx_currency' => $txCurrency];
@@ -1754,16 +1814,15 @@ final class StatementMatcher
         if ($txCurrency !== null && strtoupper($txCurrency) !== self::LOCAL_CURRENCY) {
             return ['status' => 'unmatched', 'reason' => 'fx_credit_refund_requires_manual'];
         }
-        $digits = VariableSymbolNormalizer::digits($vs);
+        [$candidateSql, $candidateParams] = $this->vsCandidates('invoices', 'i', $vs, $supplierId, ['varsymbol'], ['varsymbol']);
         $stmt = $pdo->prepare(
             "SELECT i.id, i.amount_to_pay, i.exchange_rate, cur.code AS currency,
                     CASE WHEN i.varsymbol = ? THEN 2 ELSE 1 END AS vs_match_rank
                FROM invoices i JOIN currencies cur ON cur.id = i.currency_id
               WHERE i.supplier_id = ? AND " . RefundDocument::openRefundSql('i') . "
-                AND (i.varsymbol = ? OR (i.varsymbol REGEXP '[1-9]'
-                     AND CAST(REGEXP_REPLACE(i.varsymbol, '[^0-9]', '') AS UNSIGNED) = CAST(? AS UNSIGNED)))"
+                AND {$candidateSql}"
         );
-        $stmt->execute([$vs, $supplierId, $vs, $digits]);
+        $stmt->execute([$vs, $supplierId, ...$candidateParams]);
         $matches = [];
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
             if ((string) $row['currency'] !== self::LOCAL_CURRENCY) continue;
@@ -1812,7 +1871,8 @@ final class StatementMatcher
         if ($txCurrency !== null && strtoupper($txCurrency) !== self::LOCAL_CURRENCY) {
             return ['status' => 'unmatched', 'reason' => 'fx_credit_refund_requires_manual'];
         }
-        $digits = VariableSymbolNormalizer::digits($vs);
+        $purchaseVsColumns = ['payment_variable_symbol', 'varsymbol', 'vendor_invoice_number'];
+        [$candidateSql, $candidateParams] = $this->vsCandidates('purchase_invoices', 'pi', $vs, $supplierId, $purchaseVsColumns, $purchaseVsColumns);
         $stmt = $pdo->prepare(
             "SELECT pi.id, COALESCE(pi.amount_to_pay, pi.total_with_vat, 0) + COALESCE(pi.rounding, 0) AS amount_to_pay,
                     pi.exchange_rate, cur.code AS currency,
@@ -1824,13 +1884,9 @@ final class StatementMatcher
                 -- visí ve výpisu nespárovaná a úhrada se nezaúčtuje (221/321), takže
                 -- závazek 321 zůstane v deníku otevřený. paid_at nepřepisujeme (viz UPDATE níž).
                 AND pi.status IN ('received','booked','paid')
-                AND (pi.payment_variable_symbol = ? OR pi.varsymbol = ? OR pi.vendor_invoice_number = ?
-                        OR (pi.payment_variable_symbol REGEXP '[1-9]'
-                            AND CAST(REGEXP_REPLACE(pi.payment_variable_symbol, '[^0-9]', '') AS UNSIGNED) = CAST(? AS UNSIGNED))
-                     OR (pi.varsymbol REGEXP '[1-9]' AND CAST(REGEXP_REPLACE(pi.varsymbol, '[^0-9]', '') AS UNSIGNED) = CAST(? AS UNSIGNED))
-                     OR (pi.vendor_invoice_number REGEXP '[1-9]' AND CAST(REGEXP_REPLACE(pi.vendor_invoice_number, '[^0-9]', '') AS UNSIGNED) = CAST(? AS UNSIGNED)))"
+                AND {$candidateSql}"
         );
-        $stmt->execute([$vs, $vs, $vs, $supplierId, $vs, $vs, $vs, $digits, $digits, $digits]);
+        $stmt->execute([$vs, $vs, $vs, $supplierId, ...$candidateParams]);
         $matches = [];
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
             if ((string) $row['currency'] !== self::LOCAL_CURRENCY) continue;

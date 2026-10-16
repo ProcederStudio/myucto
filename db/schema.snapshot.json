@@ -990,7 +990,8 @@
         "2006_payroll_wage_rounding.sql",
         "2007_payroll_takeover_benefit_baskets.sql",
         "2008_payroll_deduction_agreement_taken_over_withheld.sql",
-        "2009_supplier_email_templates.sql"
+        "2009_supplier_email_templates.sql",
+        "2010_variable_symbol_match_keys.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -6279,6 +6280,7 @@
                 "payment_thanks_sent_at": "timestamp NULL DEFAULT NULL",
                 "payment_thanks_sent_to": "varchar(512) NULL DEFAULT NULL",
                 "payment_variable_symbol": "varchar(10) NULL DEFAULT NULL",
+                "payment_variable_symbol_match_key": "varchar(10) NULL DEFAULT NULL STORED GENERATED AS (nullif(trim(leading '0' from regexp_replace(`payment_variable_symbol`,'[^0-9]','')),''))",
                 "pdf_generated_at": "timestamp NULL DEFAULT NULL",
                 "pdf_path": "varchar(255) NULL DEFAULT NULL",
                 "penalty_covered_through": "date NULL DEFAULT NULL",
@@ -6306,6 +6308,7 @@
                 "total_without_vat": "decimal(12,2) NOT NULL DEFAULT 0.00",
                 "updated_at": "timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE CURRENT_TIMESTAMP()",
                 "varsymbol": "varchar(20) NULL DEFAULT NULL",
+                "varsymbol_match_key": "varchar(20) NULL DEFAULT NULL STORED GENERATED AS (nullif(trim(leading '0' from regexp_replace(`varsymbol`,'[^0-9]','')),''))",
                 "vat_classification_code": "varchar(8) NULL DEFAULT NULL"
             },
             "indexes": {
@@ -6326,10 +6329,12 @@
                 "idx_inv_supplier": "BTREE (supplier_id)",
                 "idx_inv_supplier_efftax": "BTREE (supplier_id, effective_tax_date)",
                 "idx_inv_supplier_payment_vs": "BTREE (supplier_id, payment_variable_symbol)",
+                "idx_inv_supplier_payment_vs_key": "BTREE (supplier_id, payment_variable_symbol_match_key)",
                 "idx_inv_supplier_status_due": "BTREE (supplier_id, status, due_date)",
                 "idx_inv_supplier_status_issue": "BTREE (supplier_id, status, issue_date)",
                 "idx_inv_supplier_status_type_efftax": "BTREE (supplier_id, status, invoice_type, effective_tax_date)",
                 "idx_inv_supplier_status_type_tax": "BTREE (supplier_id, status, invoice_type, tax_date)",
+                "idx_inv_supplier_vs_key": "BTREE (supplier_id, varsymbol_match_key)",
                 "idx_inv_type_month": "BTREE (invoice_type, issue_date)",
                 "idx_invoices_approval_receipt_hash": "BTREE (approval_receipt_hash)",
                 "idx_invoices_import_batch": "BTREE (supplier_id, import_batch_id)",
@@ -18489,6 +18494,7 @@
                 "payment_method_source": "enum('default','vendor','ai','manual') NOT NULL DEFAULT 'default'",
                 "payment_ordered_at": "timestamp NULL DEFAULT NULL",
                 "payment_variable_symbol": "varchar(20) NULL DEFAULT NULL",
+                "payment_variable_symbol_match_key": "varchar(20) NULL DEFAULT NULL STORED GENERATED AS (nullif(trim(leading '0' from regexp_replace(`payment_variable_symbol`,'[^0-9]','')),''))",
                 "pdf_hash": "char(64) NULL DEFAULT NULL",
                 "pdf_original_name": "varchar(255) NULL DEFAULT NULL",
                 "pdf_path": "varchar(255) NULL DEFAULT NULL",
@@ -18515,12 +18521,14 @@
                 "total_without_vat": "decimal(12,2) NOT NULL DEFAULT 0.00",
                 "updated_at": "timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE CURRENT_TIMESTAMP()",
                 "varsymbol": "varchar(20) NULL DEFAULT NULL",
+                "varsymbol_match_key": "varchar(20) NULL DEFAULT NULL STORED GENERATED AS (nullif(trim(leading '0' from regexp_replace(`varsymbol`,'[^0-9]','')),''))",
                 "vat_classification_code": "varchar(10) NULL DEFAULT NULL",
                 "vat_deduction": "enum('full','none','proportional','reduced') NOT NULL DEFAULT 'full'",
                 "vat_deduction_percent": "decimal(5,2) NOT NULL DEFAULT 100.00",
                 "vat_overrides": "longtext NULL DEFAULT NULL COLLATE utf8mb4_bin",
                 "vendor_id": "bigint(20) unsigned NOT NULL",
                 "vendor_invoice_number": "varchar(50) NOT NULL",
+                "vendor_invoice_number_match_key": "varchar(50) NULL DEFAULT NULL STORED GENERATED AS (nullif(trim(leading '0' from regexp_replace(`vendor_invoice_number`,'[^0-9]','')),''))",
                 "vendor_is_vat_payer": "tinyint(1) NULL DEFAULT NULL",
                 "vendor_number_seq": "smallint(5) unsigned NOT NULL DEFAULT 0",
                 "vendor_snapshot": "longtext NOT NULL COLLATE utf8mb4_bin"
@@ -18547,7 +18555,10 @@
                 "idx_pi_supplier_approval": "BTREE (supplier_id, approval_status)",
                 "idx_pi_supplier_external_barcode": "BTREE (supplier_id, external_barcode)",
                 "idx_pi_supplier_issue": "BTREE (supplier_id, issue_date)",
+                "idx_pi_supplier_payment_vs_key": "BTREE (supplier_id, payment_variable_symbol_match_key)",
                 "idx_pi_supplier_status_effcost": "BTREE (supplier_id, status, effective_cost_date)",
+                "idx_pi_supplier_vendor_no_key": "BTREE (supplier_id, vendor_invoice_number_match_key)",
+                "idx_pi_supplier_vs_key": "BTREE (supplier_id, varsymbol_match_key)",
                 "idx_pi_tax_date": "BTREE (supplier_id, tax_date)",
                 "idx_pi_vendor": "BTREE (vendor_id, issue_date)",
                 "uq_pi_advance_link": "UNIQUE BTREE (advance_purchase_invoice_id)",

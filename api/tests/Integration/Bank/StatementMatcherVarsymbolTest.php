@@ -7,6 +7,7 @@ namespace MyInvoice\Tests\Integration\Bank;
 use MyInvoice\Bootstrap;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Service\Bank\StatementMatcher;
+use MyInvoice\Service\Bank\VariableSymbolNormalizer;
 use MyInvoice\Service\Bank\Match\MatchSuggestionException;
 use MyInvoice\Service\Bank\Match\MatchSuggestionService;
 use MyInvoice\Service\Invoice\FinalFromProformaCreator;
@@ -335,6 +336,23 @@ final class StatementMatcherVarsymbolTest extends TestCase
             $proformaId,
             (int) $pdo->query("SELECT matched_invoice_id FROM bank_transactions WHERE id = {$this->transactionId}")->fetchColumn()
         );
+    }
+
+    public function testIndexedMatchKeyEqualsNormalizer(): void
+    {
+        if (!$this->db->hasColumn('invoices', 'varsymbol_match_key')) {
+            $this->markTestSkipped('Schéma bez migrace 2010.');
+        }
+        $pdo = $this->db->pdo();
+        foreach (['2099-00042', 'A209900042', '2099000099'] as $varsymbol) {
+            $this->seed($varsymbol, $varsymbol, 10.00);
+            self::assertSame(
+                VariableSymbolNormalizer::matchKey($varsymbol),
+                (string) $pdo->query("SELECT varsymbol_match_key FROM invoices WHERE id = {$this->invoiceId}")->fetchColumn(),
+                "Klíč sloupce a normalizátoru se pro „{$varsymbol}\" musí shodovat, jinak párování doklad nenajde.",
+            );
+            $this->cleanup();
+        }
     }
 
     public function testWrongVsDoesNotMatch(): void
