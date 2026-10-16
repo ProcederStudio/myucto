@@ -556,6 +556,144 @@ final class PostingClosingConcurrencyTest extends TestCase
         return [[false], [true]];
     }
 
+    #[\PHPUnit\Framework\Attributes\DataProvider('partialSnapshotModes')]
+    public function testFullReplacementCannotMoveClosedSourceSnapshot(int $snapshotIsolation): void
+    {
+        [$source, $entry] = $this->partialReplacementSource();
+        $before = $this->journalB->find($entry, $this->supplierId);
+        $target = $this->periodsA->create($this->supplierId, 2100, '2100-01-01', '2100-12-31');
+        $pdo = $this->oldReverseSnapshot($snapshotIsolation);
+        (new AccountingPeriodRepository($this->dbB))->setStatus($this->periodId, $this->supplierId, 'closed');
+        $failure = null;
+        try {
+            $this->fullReplacement($source);
+        } catch (\Throwable $e) {
+            $failure = $e;
+        }
+        $transactionActive = $pdo->inTransaction();
+        $moved = (int) $pdo->query('SELECT COUNT(*) FROM journal_entries WHERE id = ' . $entry . ' AND period_id = ' . $target)->fetchColumn();
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        self::assertNotNull($failure, 'Closed source was rewritten into target period: ' . $moved);
+        self::assertSame(0, $moved);
+        if ($snapshotIsolation === 0) {
+            self::assertInstanceOf(PostingException::class, $failure);
+            self::assertSame('period_not_open', $failure->errorCode);
+        } else {
+            self::assertInstanceOf(\PDOException::class, $failure);
+            self::assertSame(1020, (int) $failure->errorInfo[1]);
+            self::assertFalse($transactionActive);
+        }
+        self::assertSame($before, $this->journalB->find($entry, $this->supplierId));
+    }
+
+    public function testFullReplacementReadsCurrentSourceDateLock(): void
+    {
+        [$source, $entry] = $this->partialReplacementSource();
+        $before = $this->journalB->find($entry, $this->supplierId);
+        $this->periodsA->create($this->supplierId, 2100, '2100-01-01', '2100-12-31');
+        $pdo = $this->oldReverseSnapshot();
+        (new \MyInvoice\Repository\AccountingSupplierSettingsRepository($this->dbB))->setLockedUntil($this->supplierId, self::ENDS_ON);
+        $failure = null;
+        try {
+            $this->fullReplacement($source);
+        } catch (PostingException $e) {
+            $failure = $e;
+        }
+        $pdo->rollBack();
+        self::assertNotNull($failure, 'Reposting to an open target must still respect the current source date lock.');
+        self::assertSame('date_locked', $failure->errorCode);
+        self::assertSame($before, $this->journalB->find($entry, $this->supplierId));
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('reversePeriodLocks')]
+    public function testFullReplacementLocksBothPeriodsBeforeJournal(bool $lockTarget): void
+    {
+        [$source, $entry] = $this->partialReplacementSource();
+        $target = $this->periodsA->create($this->supplierId, 2100, '2100-01-01', '2100-12-31');
+        $pdoA = $this->dbA->pdo();
+        $pdoB = $this->dbB->pdo();
+        $pdoA->beginTransaction();
+        $this->periodsA->findForUpdate($lockTarget ? $target : $this->periodId, $this->supplierId);
+        $pdoB->exec('SET SESSION innodb_lock_wait_timeout = 1');
+        $pdoB->beginTransaction();
+        $failure = null;
+        try {
+            $this->postingB->postDocument($this->supplierId, 'other_item', $source, [
+                ['account_code' => '221', 'side' => 'debit', 'amount' => 250],
+                ['account_code' => '411', 'side' => 'credit', 'amount' => 250],
+            ], ['entry_date' => '2100-01-01']);
+        } catch (\PDOException $e) {
+            $failure = $e;
+        }
+        self::assertNotNull($failure);
+        self::assertSame(1205, (int) $failure->errorInfo[1]);
+        self::assertSame($entry, (int) $pdoA->query('SELECT id FROM journal_entries WHERE id = ' . $entry . ' FOR UPDATE NOWAIT')->fetchColumn());
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('reverseTargetStatuses')]
+    public function testFullReplacementPreservesSourceStatusRules(string $status, bool $allowClosing, bool $allowed): void
+    {
+        [$source, $entry] = $this->partialReplacementSource();
+        $this->periodsA->setStatus($this->periodId, $this->supplierId, $status);
+        $target = $this->periodsA->create($this->supplierId, 2100, '2100-01-01', '2100-12-31');
+        try {
+            self::assertSame($entry, $this->fullReplacement($source, ['allow_closing_period' => $allowClosing]));
+            self::assertTrue($allowed);
+            $current = $this->journalB->find($entry, $this->supplierId);
+            self::assertSame($target, $current['period_id']);
+            self::assertSame('2100-01-01', $current['entry_date']);
+            self::assertSame([250.00, 250.00], array_column($current['lines'], 'amount'));
+        } catch (PostingException $e) {
+            self::assertFalse($allowed);
+            self::assertSame('period_not_open', $e->errorCode);
+        }
+    }
+
+    public function testFullReplacementTaxNeutralGuardUsesCurrentAmounts(): void
+    {
+        [$source, $entry] = $this->partialReplacementSource();
+        $pdo = $this->oldReverseSnapshot();
+        $this->dbB->pdo()->prepare('UPDATE journal_entry_lines SET amount = 250 WHERE entry_id = ?')->execute([$entry]);
+        (new \MyInvoice\Repository\AccountingSupplierSettingsRepository($this->dbB))->setLockedUntil($this->supplierId, self::ENDS_ON);
+        $failure = null;
+        try {
+            Bootstrap::buildContainer()->get(PostingService::class)->postDocument($this->supplierId, 'other_item', $source, [
+                ['account_code' => '221', 'side' => 'debit', 'amount' => 100],
+                ['account_code' => '411', 'side' => 'credit', 'amount' => 100],
+            ], ['entry_date' => self::ENDS_ON, 'tax_neutral_rewrite' => true]);
+        } catch (PostingException $e) {
+            $failure = $e;
+        }
+        $pdo->rollBack();
+        self::assertNotNull($failure, 'Old line amounts must not authorize a tax-neutral rewrite of changed current amounts.');
+        self::assertSame('date_locked', $failure->errorCode);
+        self::assertSame([250.00, 250.00], array_column($this->journalB->find($entry, $this->supplierId)['lines'], 'amount'));
+    }
+
+    public function testFullReplacementInheritsCurrentTrace(): void
+    {
+        [, $entry] = $this->partialReplacementSource();
+        $pdo = $this->oldReverseSnapshot();
+        $this->dbB->pdo()->prepare('UPDATE journal_entry_lines SET cost_center = ? WHERE entry_id = ?')->execute(['CURRENT-TRACE', $entry]);
+        $new = Bootstrap::buildContainer()->get(PostingService::class)->postDocument($this->supplierId, 'manual', null, [
+            ['account_code' => '221', 'side' => 'debit', 'amount' => 100],
+            ['account_code' => '411', 'side' => 'credit', 'amount' => 100],
+        ], ['entry_date' => self::ENDS_ON, 'inherit_line_trace_from' => $entry]);
+        $lines = Bootstrap::buildContainer()->get(\MyInvoice\Repository\JournalEntryRepository::class)->linesForEntry($new, $this->supplierId);
+        $pdo->rollBack();
+        self::assertSame(['CURRENT-TRACE', 'CURRENT-TRACE'], array_column($lines, 'cost_center'));
+    }
+
+    private function fullReplacement(int $source, array $meta = []): int
+    {
+        return Bootstrap::buildContainer()->get(PostingService::class)->postDocument($this->supplierId, 'other_item', $source, [
+            ['account_code' => '221', 'side' => 'debit', 'amount' => 250],
+            ['account_code' => '411', 'side' => 'credit', 'amount' => 250],
+        ], ['entry_date' => '2100-01-01'] + $meta);
+    }
+
     private function oldReverseSnapshot(int $mode = 0): \PDO
     {
         $pdo = $this->dbA->pdo();
