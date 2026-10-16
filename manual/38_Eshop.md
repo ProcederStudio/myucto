@@ -264,7 +264,7 @@ ceny. Při vystavení faktury tomuto odběrateli se použije jako základ
 ### 38.8.2 Cenová hladina
 
 1. Otevřete `Sklad → E-shop`, záložku **Cenové hladiny**, a založte hladinu
-   (**Název**, **Výchozí sleva %**, **Pořadí**).
+   (**Název**, **Výchozí sleva nebo přirážka**, **Pořadí**).
 2. V detailu hladiny přidejte pravidla pro produkt, kategorii nebo výrobce.
 3. Hladinu přiřaďte odběrateli na jeho kartě (viz [Klienti](18_Klienti.md#1872-pole-formulare)).
 4. Jednorázově ji můžete zvolit i na faktuře ve výběru **Cenová hladina dokladu**.
@@ -339,7 +339,7 @@ takže jde odkázat i na obnovení stránky.
 | **Tagy** | Barevné štítky zboží |
 | **Poplatky** | Typy poplatků (autorský, recyklační) s vlastní sazbou DPH |
 | **Balení** | Kódy balení (karton, paleta), které karty používají jako nadřazené jednotky ([§ 38.11.17](#381117-baleni)) |
-| **Cenové hladiny** | Hladiny odběratelů (Bronze, Silver, Gold) s výchozí slevou a pravidly pro produkty, kategorie a výrobce ([§ 38.11.18](#381118-cenove-hladiny)) |
+| **Cenové hladiny** | Hladiny odběratelů (Bronze, Silver, Gold) s výchozí slevou nebo přirážkou a pravidly pro produkty, kategorie a výrobce ([§ 38.11.18](#381118-cenove-hladiny)) |
 | **Jazyky** | Jazykové mutace, ve kterých vedete názvy a popisy zboží a kategorií ([§ 38.11.13](#381113-jazyky)) |
 | **Měny** | Prodejní měny ([§ 38.11.19](#381119-meny)) |
 | **Sklady** | Stejná záložka jako číselník skladů v modulu Sklad, sklady patří oběma pohledům |
@@ -985,7 +985,8 @@ Editor faktury nacení skladový řádek pro odběratele, měnu a datum dokladu:
    odběratele, pokud ji má přiřazenou a je aktivní ([§ 38.11.18](#381118-cenove-hladiny)).
 3. Jinak je základem standardní cena z cenotvorby.
 4. **Akční cena** se použije jen tehdy, když je nižší než tento základ. Zákazník tak
-   dostane lepší z obou cen.
+   dostane lepší z obou cen. U odběratele s přirážkou to platí i pro akci, která je
+   dražší než standardní cena, ale levnější než jeho cena s přirážkou.
 
 Odběratel bez individuální ceny a bez cenové hladiny se naceňuje přesně jako dosud.
 Změna odběratele, měny nebo cenové hladiny dokladu na faktuře přecení jen řádky, jejichž
@@ -1464,29 +1465,38 @@ Cenová hladina seskupuje odběratele, kteří nakupují za stejných podmínek,
 **Default** a skladové zboží se mu naceňuje standardní cenou přesně jako dosud.
 
 Formulář hladiny: **Název**, **Kód** (vyplní se z názvu, nejvýše 50 znaků bez mezer),
-**Výchozí sleva %**, **Pořadí** a **Aktivní**. Tabulka u každé hladiny ukazuje počet
-odběratelů a pravidel.
+**Výchozí sleva nebo přirážka** (výběr **Sleva** / **Přirážka** a hodnota v %),
+**Pořadí** a **Aktivní**. Tabulka u každé hladiny ukazuje výchozí hodnotu („−10 %“ sleva,
+„+45 %“ přirážka) a počet odběratelů a pravidel.
+
+Sleva sníží standardní cenu, přirážka ji zvýší. Sleva je nejvýše 100 %, přirážka nejvýše
+999,999 %. Přirážku použijete tam, kde se pro některé zákazníky nebo zboží prodává dráž
+než za standardní cenu, například díly s nízkou ceníkovou cenou pro koncové zákazníky
+(+45 %) nebo urgentní objednávka běžného zákazníka (+5 %).
 
 #### 38.11.18.1 Pravidla hladiny
 
-V detailu hladiny zpřesníte slevu pro konkrétní zboží:
+V detailu hladiny zpřesníte slevu nebo přirážku pro konkrétní zboží:
 
 <!-- cols: 20 80 -->
 | Cíl | Co lze nastavit |
 |---|---|
-| **Produkt** | sleva v % nebo pevná cena v konkrétní měně |
-| **Kategorie** | sleva v % pro zboží zařazené v kategorii |
-| **Výrobce** | sleva v % pro zboží výrobce |
+| **Produkt** | sleva nebo přirážka v %, nebo pevná cena v konkrétní měně |
+| **Kategorie** | sleva nebo přirážka v % pro zboží zařazené v kategorii |
+| **Výrobce** | sleva nebo přirážka v % pro zboží výrobce |
 
-- Sleva i pevná cena jsou vždy **za základní jednotku** karty a **bez DPH**. Řádek
-  faktury v balení dostane cenu vynásobenou poměrem balení.
-- Sleva se počítá ze standardní ceny v měně dokladu a zaokrouhluje na haléře.
+- Sleva, přirážka i pevná cena jsou vždy **za základní jednotku** karty a **bez DPH**.
+  Řádek faktury v balení dostane cenu vynásobenou poměrem balení.
+- Sleva i přirážka se počítá ze standardní ceny v měně dokladu a zaokrouhluje na haléře.
+  Příklad: standardní cena 1 000 Kč, přirážka 45 % → 1 450 Kč; sleva 10 % → 900 Kč.
+- Pravidlo s hodnotou 0 % vyřadí zboží z výchozí slevy i přirážky hladiny.
 - Pravidlo může platit jen v jedné měně, bez měny platí ve všech. Pevná cena má měnu
   vždy.
 
 Výjimku pro produkt zadáte i přímo na kartě zboží v záložce **Ceny**, v sekci **Cenové
 hladiny**. Řádek pro každou aktivní hladinu a měnu ukazuje zděděnou cenu a její zdroj
-(výchozí sleva, kategorie, výrobce). Výjimku uložíte společným tlačítkem **Uložit**
+(výchozí hodnota, kategorie, výrobce). Pole **Sleva nebo přirážka pro produkt** má
+výběr **Sleva** / **Přirážka**. Výjimku uložíte společným tlačítkem **Uložit**
 editoru, návratem k zděděné ceně ji odeberete. Pravidla kategorií a výrobců se tím
 nemění.
 
@@ -1498,15 +1508,15 @@ Pro kartu a měnu dokladu se použije první, co platí:
 2. pravidlo **kategorie** nebo **výrobce** karty. Obě mají stejnou váhu, rozhoduje
    priorita pravidla, při shodě pravidlo pro konkrétní měnu a pak dříve založené
    pravidlo. Stejné pořadí přednosti platí u cenových profilů v cenotvorbě,
-3. **výchozí sleva** hladiny, pokud je vyšší než nula.
+3. **výchozí sleva nebo přirážka** hladiny, pokud je nenulová.
 
-Pevná cena v jiné měně, než je měna dokladu, se nepoužije. Sleva bez standardní ceny
-v měně dokladu nemá z čeho počítat a hladina pak cenu neurčí.
+Pevná cena v jiné měně, než je měna dokladu, se nepoužije. Sleva ani přirážka bez
+standardní ceny v měně dokladu nemá z čeho počítat a hladina pak cenu neurčí.
 
 Na faktuře má přednost individuální cena odběratele, hladina rozhoduje až po ní a akční
 cena vyhraje jen tehdy, když je levnější (viz
 [§ 38.11.8.12](#3811812-individualni-ceny-zakazniku)). U řádku faktury se ukáže, že cenu
-určila hladina, například „Gold −10 %“.
+určila hladina, například „Gold −10 %“ nebo „Běžný +45 %“.
 
 - Hladinu, kterou mají přiřazenou odběratelé, nejde smazat. **Deaktivujte** ji,
   její odběratelé se pak naceňují standardní cenou a hladinu mají na kartě dál, dokud
@@ -1531,7 +1541,8 @@ velkoobchodní ceník pro jednorázový nákup. Proto má editor faktury pod odb
 
 Příklad: odběratel má hladinu **Dealer**, urgentní objednávky se prodávají s nižší
 slevou. Založte hladinu **Dealer urgentní** s jejími slevami a u urgentní objednávky ji
-vyberte na faktuře. Karta odběratele zůstane beze změny.
+vyberte na faktuře. Karta odběratele zůstane beze změny. Běžnému zákazníkovi, kterému
+se urgentní objednávka účtuje dráž, vyberete hladinu s přirážkou, například +5 %.
 
 ### 38.11.19 Měny
 

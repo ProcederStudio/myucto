@@ -294,10 +294,45 @@ final class PriceLevelTest extends StockTestCase
         self::assertSame(201, $created->getStatusCode(), (string) $created->getBody());
         self::assertSame('-35.000', $this->body($created)['default_discount_pct']);
 
-        foreach ([-1000, '-999.9999', 100.5] as $bad) {
-            $res = $action->create($this->request('POST', $sid, ['code' => 'X' . md5((string) $bad), 'name' => 'X', 'default_discount_pct' => $bad]), new Psr7Response());
-            self::assertSame(400, $res->getStatusCode(), 'Mimo rozsah: ' . $bad);
+        foreach (['-999.999', '100', '−45'] as $ok) {
+            $res = $action->create($this->request('POST', $sid, ['code' => 'OK' . md5($ok), 'name' => 'OK', 'default_discount_pct' => $ok]), new Psr7Response());
+            self::assertSame(201, $res->getStatusCode(), 'Hranice / typografické minus: ' . $ok);
         }
+        foreach ([-1000, '-999.9999', 100.5, '- 5', '--5', '+5', '–5'] as $bad) {
+            $res = $action->create($this->request('POST', $sid, ['code' => 'X' . md5((string) $bad), 'name' => 'X', 'default_discount_pct' => $bad]), new Psr7Response());
+            self::assertSame(400, $res->getStatusCode(), 'Neplatné: ' . $bad);
+        }
+        $zero = $action->create($this->request('POST', $sid, ['code' => 'ZERO', 'name' => 'Nula', 'default_discount_pct' => '-0']), new Psr7Response());
+        self::assertSame('0.000', $this->body($zero)['default_discount_pct'], 'Záporná nula se uloží jako 0.');
+    }
+
+    public function testCustomerPriceStillRejectsMarkup(): void
+    {
+        $sid = $this->createSupplier();
+        $item = $this->pricedItem($sid, 'PL-CUST-MARKUP');
+        $client = $this->client($sid);
+        try {
+            $this->container->get(\MyInvoice\Service\Stock\StockItemCustomerPriceService::class)->save($sid, $item, [
+                ['client_id' => $client, 'currency_code' => 'CZK', 'price_type' => 'discount_pct', 'discount_pct' => '-10'],
+            ]);
+            self::fail('Individuální cena zákazníka přirážku nepřijímá.');
+        } catch (StockException $e) {
+            self::assertSame('validation_failed', $e->errorCode);
+        }
+    }
+
+    public function testItemOverviewShowsMarkedUpPrice(): void
+    {
+        $sid = $this->createSupplier();
+        $item = $this->pricedItem($sid, 'PL-OVERVIEW-MARKUP');
+        $level = $this->priceLevel($sid, 'BEZNY', 'Běžný', '-5');
+
+        $row = $this->overviewRow($sid, $item, $level);
+        self::assertSame(['1050.00', 'default'], [$row['resulting_price'], $row['source']], 'Výchozí přirážka hladiny na kartě.');
+
+        $this->service->saveItem($sid, $item, [['price_level_id' => $level, 'rule_type' => 'discount_pct', 'discount_pct' => '-45']]);
+        $row = $this->overviewRow($sid, $item, $level);
+        self::assertSame(['1450.00', 'product', '1050.00'], [$row['resulting_price'], $row['source'], $row['inherited_price']]);
     }
 
     public function testRuleSetAcceptsMarkupAndRejectsOutOfRange(): void
@@ -671,6 +706,17 @@ final class PriceLevelTest extends StockTestCase
     }
 
     // ── pomocníci ───────────────────────────────────────────────────────────
+
+    /** @return array<string,mixed> řádek náhledu karty pro hladinu v CZK */
+    private function overviewRow(int $supplierId, int $itemId, int $levelId): array
+    {
+        foreach ($this->service->itemOverview($supplierId, $itemId) as $row) {
+            if ((int) $row['price_level_id'] === $levelId && $row['currency_code'] === 'CZK') {
+                return $row;
+            }
+        }
+        self::fail('Náhled karty nemá řádek hladiny.');
+    }
 
     private function unitPrice(int $supplierId, int $itemId, int $clientId): ?string
     {

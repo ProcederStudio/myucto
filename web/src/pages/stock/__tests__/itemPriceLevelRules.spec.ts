@@ -90,4 +90,10 @@ describe('item price level rules: round-trip', () => {
     expect(invalidRule(ALL_CURRENCIES, { rule_type: 'discount_pct', value: '100.5' })).toBe(true)
     expect(invalidRule(ALL_CURRENCIES, { rule_type: 'discount_pct', value: '100' })).toBe(false)
   })
+
+  it('přirážka je záporná sleva do −999,999 %', () => {
+    expect(invalidRule(ALL_CURRENCIES, { rule_type: 'discount_pct', value: '-45' })).toBe(false)
+    expect(invalidRule('EUR', { rule_type: 'discount_pct', value: '-999.999' })).toBe(false)
+    expect(invalidRule(ALL_CURRENCIES, { rule_type: 'discount_pct', value: '-1000' })).toBe(true)
+  })
 })

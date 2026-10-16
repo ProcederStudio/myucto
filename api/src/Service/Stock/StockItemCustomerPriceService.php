@@ -177,7 +177,8 @@ final class StockItemCustomerPriceService
 
     /**
      * Nezáporné desetinné číslo s nejvýše `$scale` místy, jinak null. Sdílí ho
-     * i {@see StockPriceLevelService} (slevy a pevné ceny cenových hladin).
+     * i {@see StockPriceLevelService} (pevné ceny cenových hladin; slevu a přirážku
+     * hladiny čte {@see signedDecimal()}).
      */
     public static function decimal(mixed $v, int $scale): ?string
     {
@@ -192,7 +193,8 @@ final class StockItemCustomerPriceService
     }
 
     /**
-     * Jako {@see decimal()}, ale připouští záporné číslo (přirážka cenové hladiny).
+     * Jako {@see decimal()}, ale připouští záporné číslo (přirážka cenové hladiny). Minus
+     * musí stát hned před číslicí; přijme i typografické minus (U+2212), ne pomlčku.
      */
     public static function signedDecimal(mixed $v, int $scale): ?string
     {
@@ -200,12 +202,11 @@ final class StockItemCustomerPriceService
             $v = is_float($v) ? number_format($v, $scale, '.', '') : (string) $v;
         }
         $s = str_replace([',', "\u{2212}"], ['.', '-'], trim((string) $v));
-        $negative = str_starts_with($s, '-');
-        $abs = self::decimal($negative ? substr($s, 1) : $s, $scale);
-        if ($abs === null) {
+        if (preg_match('/^-?[0-9]{1,10}(\.[0-9]{1,' . $scale . '})?$/D', $s) !== 1) {
             return null;
         }
-        return $negative && bccomp($abs, '0', $scale) !== 0 ? '-' . $abs : $abs;
+        $n = bcadd($s, '0', $scale);
+        return bccomp($n, '0', $scale) === 0 ? bcadd('0', '0', $scale) : $n;
     }
 
     /** @return string|null|false null = nezadáno, false = neplatné */

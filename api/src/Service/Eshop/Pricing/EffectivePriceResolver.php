@@ -113,8 +113,9 @@ final class EffectivePriceResolver
 
     /**
      * Cena za základní jednotku podle řádku zákaznické ceny: pevná cena, nebo
-     * standardní cena ponížená o slevu (haléře, half-up). Sleva bez standardní
-     * ceny nemá z čeho počítat → null.
+     * standardní cena ponížená o slevu (haléře, half-up). Záporná sleva je přirážka
+     * (cenové hladiny); výsledek je i tak vždy nezáporný, protože sleva je nejvýš 100 %.
+     * Sleva bez standardní ceny nemá z čeho počítat → null.
      *
      * @param array<string,mixed> $row řádek stock_item_customer_prices
      */
@@ -160,7 +161,7 @@ final class EffectivePriceResolver
      *   standard_price       … standardní cena z cenotvorby (string|null),
      *   price_source         … price_level_fixed|price_level_discount|promo,
      *   price_level          … {id,code,name},
-     *   discount_pct         … sleva hladiny (string), u pevné ceny null
+     *   discount_pct         … sleva hladiny (string, záporná = přirážka), u pevné ceny null
      * a `base_price` je cena podle hladiny.
      *
      * @param list<int> $stockItemIds

@@ -11,7 +11,6 @@ import {
   type PriceLevelPayload,
   type PriceLevelRule,
   type PriceLevelRulePayload,
-  type PriceLevelRuleType,
 } from '@/api/eshop'
 import { stockApi } from '@/api/stock'
 import { useAuthStore } from '@/stores/auth'
@@ -22,6 +21,7 @@ import CodeNameFields from '@/components/ui/CodeNameFields.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import SearchableSelect from '@/components/ui/SearchableSelect.vue'
 import { ICONS, btnFilled, btnOutline, btnOutlineSm } from '@/components/ui/buttonStyles'
+import { formatAdjustment, invalidAdjustment, joinAdjustment, splitAdjustment, type AdjustmentKind } from '@/pages/eshop/priceAdjustment'
 
 /**
  * Cenové hladiny odběratelů (Bronze / Silver / Gold). Odběratel bez hladiny je
@@ -68,16 +68,18 @@ function normalizeDecimal(value: string | number | null | undefined): string {
   return String(value ?? '').trim().replace(/\s+/g, '').replace(',', '.')
 }
 
+/** Výchozí hodnota hladiny v tabulce: „−10 %“ sleva, „+45 %“ přirážka. */
 function formatPct(value: string | number | null | undefined): string {
-  const n = Number(value)
-  return Number.isFinite(n) ? `${formatNumber(n, { maximumFractionDigits: 3 })} %` : '—'
+  return formatAdjustment(value, n => formatNumber(n, { maximumFractionDigits: 3 }))
 }
 
 // ── Modal: založit / upravit hladinu ─────────────────────────────────────
 interface LevelForm {
   code: string
   name: string
+  /** Kladná hodnota; znaménko nese `default_kind`. */
   default_discount_pct: string
+  default_kind: AdjustmentKind
   is_active: boolean
   display_order: number
 }
@@ -85,25 +87,32 @@ const modalOpen = ref(false)
 const editing = ref<PriceLevel | null>(null)
 const saving = ref(false)
 const error = ref('')
-const form = ref<LevelForm>({ code: '', name: '', default_discount_pct: '0', is_active: true, display_order: 0 })
+const form = ref<LevelForm>({ code: '', name: '', default_discount_pct: '0', default_kind: 'discount', is_active: true, display_order: 0 })
 const takenCodes = computed(() => levels.value.filter(l => l.id !== editing.value?.id).map(l => l.code))
 
 function openCreate() {
   editing.value = null
-  form.value = { code: '', name: '', default_discount_pct: '0', is_active: true, display_order: (levels.value.length + 1) * 10 }
+  form.value = { code: '', name: '', default_discount_pct: '0', default_kind: 'discount', is_active: true, display_order: (levels.value.length + 1) * 10 }
   error.value = ''
   modalOpen.value = true
 }
 
-function openEdit(level: PriceLevel) {
-  editing.value = level
-  form.value = {
+/** Uložená hladina → formulář: znaménko výchozí hodnoty se rozloží na druh a kladné číslo. */
+function formFromLevel(level: PriceLevel): LevelForm {
+  const { kind, value } = splitAdjustment(level.default_discount_pct)
+  return {
     code: level.code,
     name: level.name,
-    default_discount_pct: level.default_discount_pct,
+    default_discount_pct: value,
+    default_kind: kind,
     is_active: level.is_active,
     display_order: level.display_order,
   }
+}
+
+function openEdit(level: PriceLevel) {
+  editing.value = level
+  form.value = formFromLevel(level)
   error.value = ''
   modalOpen.value = true
 }
@@ -112,7 +121,7 @@ function payloadOf(value: LevelForm): PriceLevelPayload {
   return {
     code: value.code.trim(),
     name: value.name.trim(),
-    default_discount_pct: normalizeDecimal(value.default_discount_pct) || '0',
+    default_discount_pct: joinAdjustment(value.default_kind, value.default_discount_pct) || '0',
     is_active: value.is_active,
     display_order: Number(value.display_order) || 0,
   }
@@ -124,8 +133,7 @@ async function save() {
     error.value = t('eshop.price_levels.field_name') + ' / ' + t('eshop.price_levels.field_code')
     return
   }
-  const pct = Number(normalizeDecimal(form.value.default_discount_pct) || '0')
-  if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
+  if (invalidAdjustment(form.value.default_kind, normalizeDecimal(form.value.default_discount_pct) || '0')) {
     error.value = t('eshop.price_levels.default_discount_invalid')
     return
   }
@@ -149,7 +157,7 @@ async function save() {
 /** Přiřazenou hladinu nejde smazat, místo toho nabídneme deaktivaci (odběratelé pak mají standardní ceny). */
 async function deactivate(level: PriceLevel) {
   try {
-    await eshopApi.updatePriceLevel(level.id, payloadOf({ ...level, is_active: false }))
+    await eshopApi.updatePriceLevel(level.id, payloadOf({ ...formFromLevel(level), is_active: false }))
     toast.success(t('eshop.price_levels.deactivated'))
     await load()
   } catch (e: any) {
@@ -187,7 +195,9 @@ interface RuleRow {
   match_type: PriceLevelMatchType
   match_id: number | null
   match_label: string | null
-  rule_type: PriceLevelRuleType
+  /** Typ ve formuláři: přirážka je v API `discount_pct` se záporným znaménkem. */
+  rule_type: RuleKind
+  /** Kladná hodnota slevy nebo přirážky v %. */
   discount_pct: string
   fixed_price: string
   currency_code: string
@@ -196,7 +206,11 @@ interface RuleRow {
 type SelectOption = { value: number; label: string; secondary?: string }
 
 const MATCH_TYPES: PriceLevelMatchType[] = ['category', 'manufacturer', 'product']
-const RULE_TYPES: PriceLevelRuleType[] = ['discount_pct', 'fixed']
+type RuleKind = 'discount_pct' | 'markup_pct' | 'fixed'
+/** Pevná cena jen u zboží (CHECK chk_splr_value). */
+function ruleKinds(rule: RuleRow): RuleKind[] {
+  return rule.match_type === 'product' ? ['discount_pct', 'markup_pct', 'fixed'] : ['discount_pct', 'markup_pct']
+}
 
 const rulesLevel = ref<PriceLevel | null>(null)
 const rules = ref<RuleRow[]>([])
@@ -242,8 +256,10 @@ function ruleRowFrom(r: PriceLevelRule): RuleRow {
     match_type: r.match_type,
     match_id: r.match_id,
     match_label: r.match_label,
-    rule_type: r.match_type === 'product' ? r.rule_type : 'discount_pct',
-    discount_pct: r.discount_pct ?? '',
+    rule_type: r.match_type === 'product' && r.rule_type === 'fixed'
+      ? 'fixed'
+      : (splitAdjustment(r.discount_pct).kind === 'markup' ? 'markup_pct' : 'discount_pct'),
+    discount_pct: splitAdjustment(r.discount_pct).value,
     fixed_price: r.fixed_price ?? '',
     currency_code: (r.currency_code ?? 'CZK').toUpperCase(),
     priority: r.priority,
@@ -295,7 +311,7 @@ function removeRule(idx: number) {
 function onMatchTypeChange(rule: RuleRow) {
   rule.match_id = null
   rule.match_label = null
-  if (rule.match_type !== 'product') rule.rule_type = 'discount_pct'
+  if (rule.match_type !== 'product' && rule.rule_type === 'fixed') rule.rule_type = 'discount_pct'
 }
 
 async function searchProducts(q: string) {
@@ -353,7 +369,10 @@ function validateRules(): string | null {
     const fixed = isFixed(r)
     const raw = normalizeDecimal(fixed ? r.fixed_price : r.discount_pct)
     const value = Number(raw)
-    if (raw === '' || !Number.isFinite(value) || value < 0 || (!fixed && value > 100) || !Number.isInteger(Number(r.priority))) {
+    const invalidValue = fixed
+      ? raw === '' || !Number.isFinite(value) || value < 0
+      : invalidAdjustment(r.rule_type === 'markup_pct' ? 'markup' : 'discount', raw)
+    if (invalidValue || !Number.isInteger(Number(r.priority))) {
       return t('eshop.price_levels.value_invalid')
     }
     if (fixed && !r.currency_code) return t('eshop.price_levels.currency_required')
@@ -370,7 +389,7 @@ function rulePayload(r: RuleRow): PriceLevelRulePayload {
     match_type: r.match_type,
     match_id: r.match_id as number,
     rule_type: fixed ? 'fixed' : 'discount_pct',
-    discount_pct: fixed ? null : normalizeDecimal(r.discount_pct),
+    discount_pct: fixed ? null : joinAdjustment(r.rule_type === 'markup_pct' ? 'markup' : 'discount', r.discount_pct),
     fixed_price: fixed ? normalizeDecimal(r.fixed_price) : null,
     currency_code: fixed ? r.currency_code.toUpperCase() : null,
     priority: Number(r.priority) || 0,
@@ -486,7 +505,15 @@ const FIELD = 'w-full h-9 px-2 border border-neutral-300 rounded-md text-sm bg-s
         />
         <div>
           <label class="block text-xs font-medium text-neutral-500 mb-1">{{ t('eshop.price_levels.field_default_discount') }}</label>
-          <input v-model="form.default_discount_pct" type="text" inputmode="decimal" class="w-32 h-9 px-2 border border-neutral-300 rounded-md text-sm font-mono text-right" />
+          <div class="flex items-center gap-2">
+            <select v-model="form.default_kind" data-test="price-level-default-kind" :aria-label="t('eshop.price_levels.adjustment_kind')"
+              class="h-9 px-2 border border-neutral-300 rounded-md text-sm bg-surface">
+              <option value="discount">{{ t('eshop.price_levels.adjustment_discount') }}</option>
+              <option value="markup">{{ t('eshop.price_levels.adjustment_markup') }}</option>
+            </select>
+            <input v-model="form.default_discount_pct" type="text" inputmode="decimal" class="w-32 h-9 px-2 border border-neutral-300 rounded-md text-sm font-mono text-right" />
+            <span class="text-sm text-neutral-500">%</span>
+          </div>
           <span class="mt-1 block text-xs text-neutral-500">{{ t('eshop.price_levels.default_discount_hint') }}</span>
         </div>
         <div>
@@ -552,8 +579,8 @@ const FIELD = 'w-full h-9 px-2 border border-neutral-300 rounded-md text-sm bg-s
                   </div>
                   <div>
                     <label class="block text-xs font-medium text-neutral-500 mb-1">{{ t('eshop.price_levels.rule_type') }}</label>
-                    <select v-model="rule.rule_type" :disabled="!canWrite || rule.match_type !== 'product'" :class="FIELD">
-                      <option v-for="rt in RULE_TYPES" :key="rt" :value="rt">{{ t('eshop.price_levels.rule_' + rt) }}</option>
+                    <select v-model="rule.rule_type" :disabled="!canWrite" :class="FIELD">
+                      <option v-for="rt in ruleKinds(rule)" :key="rt" :value="rt">{{ t('eshop.price_levels.rule_' + rt) }}</option>
                     </select>
                   </div>
                   <div v-if="isFixed(rule)" class="grid grid-cols-[minmax(0,1fr)_5.5rem] gap-2">
@@ -569,7 +596,7 @@ const FIELD = 'w-full h-9 px-2 border border-neutral-300 rounded-md text-sm bg-s
                     </div>
                   </div>
                   <div v-else>
-                    <label class="block text-xs font-medium text-neutral-500 mb-1">{{ t('eshop.price_levels.value_pct') }}</label>
+                    <label class="block text-xs font-medium text-neutral-500 mb-1">{{ t(rule.rule_type === 'markup_pct' ? 'eshop.price_levels.value_markup_pct' : 'eshop.price_levels.value_pct') }}</label>
                     <input v-model="rule.discount_pct" type="text" inputmode="decimal" :disabled="!canWrite" :class="FIELD" class="font-mono text-right" />
                   </div>
                   <div>
