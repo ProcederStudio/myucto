@@ -52,7 +52,7 @@ use PDO;
  * (guard předpisu H1), opakované platby bez dokladu → pravidla (suggest/auto) nebo
  * naučený návrh (learned). Zaúčtování VÝHRADNĚ přes {@see PostingService}
  * (source_type='bank', idempotence na ('bank', bt.id)). handleTransaction je
- * best-effort hook (nikdy nevyhazuje — loguje), Action cesty (approve/reject/post/
+ * best-effort hook (běžné chyby loguje, abort celé transakce propaguje), Action cesty (approve/reject/post/
  * unpost) chyby propagují jako {@see PostingException}.
  *
  * CZK-only v1, avíza se nikdy neúčtují, saldokonta mimo automatiku (blacklist H2).
@@ -276,7 +276,10 @@ final class BankPostingService
             try {
                 $this->activity->log('bank_posting.error', $userId, 'bank_transaction', $txId,
                     ['message' => $e->getMessage()]);
-            } catch (\Throwable) {
+            } catch (\Throwable $auditFailure) {
+                if (TransactionFailure::rollbackIfAborted($pdo, $auditFailure)) {
+                    throw $auditFailure;
+                }
             }
             return ['action' => 'skipped', 'reason' => 'error', 'message' => $e->getMessage()];
         }
@@ -1933,7 +1936,7 @@ final class BankPostingService
         return $count;
     }
 
-    /** Po zaúčtování bankovního zápisu pohybu kartou dorovná vypořádání. Nikdy nevyhazuje. */
+    /** Dorovná vypořádání karty; abort celé transakce propaguje. */
     private function afterCardBankPosted(int $supplierId, int $txId, ?int $userId): void
     {
         if ($this->cardSettlement === null || $this->liveCardClearingLine($supplierId, $txId) === null) {
@@ -1951,6 +1954,9 @@ final class BankPostingService
                 $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
             }
         } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             if ($inTx && $pdo->inTransaction()) {
                 $pdo->exec('ROLLBACK TO SAVEPOINT ' . $savepoint);
                 $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
@@ -1958,7 +1964,10 @@ final class BankPostingService
             try {
                 $this->activity->log('card_settlement.error', $userId, 'bank_transaction', $txId,
                     ['message' => $e->getMessage()], supplierId: $supplierId);
-            } catch (\Throwable) {
+            } catch (\Throwable $auditFailure) {
+                if (TransactionFailure::rollbackIfAborted($pdo, $auditFailure)) {
+                    throw $auditFailure;
+                }
             }
         }
     }
@@ -3440,8 +3449,10 @@ final class BankPostingService
         try {
             $this->aiSuggestions?->metric($supplierId, $source, $metric);
             $this->aiKillSwitch?->evaluate($supplierId, $source);
-        } catch (\Throwable) {
-            // Účetní rozhodnutí nesmí selhat kvůli pomocné AI telemetrii.
+        } catch (\Throwable $failure) {
+            if (TransactionFailure::rollbackIfAborted($this->db->pdo(), $failure)) {
+                throw $failure;
+            }
         }
     }
 
@@ -3553,7 +3564,10 @@ final class BankPostingService
     {
         try {
             $this->embeddingWriter?->enqueueFromDecision($supplierId, 'bank_transaction', $txId);
-        } catch (\Throwable) {
+        } catch (\Throwable $failure) {
+            if (TransactionFailure::rollbackIfAborted($this->db->pdo(), $failure)) {
+                throw $failure;
+            }
         }
     }
 

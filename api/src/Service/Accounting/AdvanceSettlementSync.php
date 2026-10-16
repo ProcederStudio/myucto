@@ -313,7 +313,10 @@ final class AdvanceSettlementSync
                     ['reason' => 'error', 'message' => $e->getMessage()],
                     supplierId: $supplierId,
                 );
-            } catch (\Throwable) {
+            } catch (\Throwable $auditFailure) {
+                if (TransactionFailure::rollbackIfAborted($pdo, $auditFailure)) {
+                    throw $auditFailure;
+                }
             }
         }
     }

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Accounting\Card;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Service\Accounting\Bank\BankPostingService;
 use MyInvoice\Service\Accounting\DocumentAutoPoster;
 use MyInvoice\Service\ActivityLogger;
@@ -24,8 +25,8 @@ use PDO;
  *      ({@see StatementMatcher::matchCardDocument()}) a pohyb se zaúčtuje,
  *   3. u pohybů, které už na doklad spárované jsou, se dorovná vypořádání 321/378.x.
  *
- * Běží jen u firmy se zapnutým režimem karet. Nikdy nevyhazuje — doklad se uložil,
- * automatika je nadstavba a její chyba se jen zaloguje.
+ * Běží jen u firmy se zapnutým režimem karet. Běžná chyba automatiky se zaloguje;
+ * zrušení celé transakce se propaguje, protože ruší i uložení dokladu.
  */
 final class CardPaymentAutomation
 {
@@ -74,10 +75,16 @@ final class CardPaymentAutomation
             }
             $out['settlements'] = $this->bankPosting->syncCardSettlementsForPurchase($supplierId, $purchaseInvoiceId, $userId);
         } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($this->db->pdo(), $e)) {
+                throw $e;
+            }
             try {
                 $this->activity->log('card_settlement.automation_failed', $userId, 'purchase_invoice', $purchaseInvoiceId,
                     ['message' => $e->getMessage()], supplierId: $supplierId);
-            } catch (\Throwable) {
+            } catch (\Throwable $auditFailure) {
+                if (TransactionFailure::rollbackIfAborted($this->db->pdo(), $auditFailure)) {
+                    throw $auditFailure;
+                }
             }
         }
         return $out;
