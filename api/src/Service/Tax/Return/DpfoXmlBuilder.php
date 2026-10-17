@@ -844,6 +844,7 @@ final class DpfoXmlBuilder
         }
         $vetaP->setAttribute('jmeno', mb_substr($firstName, 0, 30));
         $vetaP->setAttribute('prijmeni', mb_substr($lastName, 0, 36));
+        EpoSupplierBlockBuilder::fillPersonTitle($vetaP, $supplier);
 
         [$ulice, $cpop, $corient] = $this->parseStreet($supplier);
         if ($ulice !== '') {

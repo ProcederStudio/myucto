@@ -5021,6 +5021,7 @@ paths:
         IČO/DIČ, bankovní účty, číslování faktur, default platební podmínky.
         Pole `client_ai_extraction_enabled` informuje, zda správce firmě povolil klientské AI vytěžování.
         Pole `client_ai_extraction_monthly_limit` udává měsíční strop klientských pokusů o vytěžení přijatých dokladů; nula jejich vytěžování blokuje.
+        Pole `person_title` obsahuje nepovinný titul fyzické osoby pro daňová XML podání.
       responses:
         '200':
           description: OK
@@ -5043,6 +5044,8 @@ paths:
         (není součástí tohoto endpointu).
         `dimensions_enabled=true` lze nově nastavit jen během zkušební doby
         nebo s platnou licencí, která odemyká účetnictví.
+        `person_title` je nepovinný titul fyzické osoby (nejvýše 10 znaků po
+        oříznutí okolních mezer); prázdný řetězec nebo `null` titul vymaže.
       requestBody:
         required: true
         content:
@@ -36963,6 +36966,7 @@ components:
         public_isdoc_enabled: { type: boolean, default: false, description: "Nabízet samostatný ISDOC na web faktuře. Nezávislé na vložení ISDOC do PDF." }
         email_attach_isdoc: { type: boolean, default: false, description: "Přikládat samostatný ISDOC vedle PDF v e-mailech faktur, včetně automatického odesílání, upomínek a poděkování s PDF. Výslovná volba odběratele email_attach_isdoc má přednost." }
         company_name: { type: string }
+        person_title: { type: [string, "null"], maxLength: 10, description: "Nepovinný titul fyzické osoby pro daňová XML podání; okolní mezery se oříznou a prázdný řetězec se uloží jako null." }
         purchase_import_received_at: { type: string, enum: [issue_date, import_date], default: issue_date, description: "Datum přijetí u importovaných přijatých dokladů (migrace 1848). issue_date = datum z dokladu (datum vystavení, jinak DUZP), import_date = den importu. Platí pro všechny formáty importu — AI z PDF, ISDOC/ISDOCX/PDF/A-3, Pohoda XML, iDoklad, Fakturoid i scan inbox. Na období nároku na odpočet vliv nemá: importovaný doklad si drží received_at_source='import'." }
         display_name: { type: [string, "null"], description: "Obchodní/značkové jméno v hlavičce PDF a e-mailů (fallback = company_name)" }
         street: { type: string }
@@ -37052,6 +37056,7 @@ components:
         email_attach_isdoc: { type: boolean, default: false, description: "Přikládat samostatný ISDOC vedle PDF v e-mailech faktur, včetně automatického odesílání, upomínek a poděkování s PDF. Výslovná volba odběratele email_attach_isdoc má přednost." }
         id: { type: integer }
         company_name: { type: string }
+        person_title: { type: [string, "null"], maxLength: 10, description: "Nepovinný titul fyzické osoby pro daňová XML podání." }
         purchase_import_received_at: { type: string, enum: [issue_date, import_date], description: "Datum přijetí u importovaných přijatých dokladů (migrace 1848). issue_date = datum z dokladu (datum vystavení, jinak DUZP) — výchozí; import_date = den importu." }
         display_name: { type: [string, "null"] }
         street: { type: string }

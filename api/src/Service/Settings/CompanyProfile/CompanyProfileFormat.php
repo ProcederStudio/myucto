@@ -74,7 +74,7 @@ final class CompanyProfileFormat
         'tax_investment_incentive', 'tax_atad_cfc', 'tax_public_benefit', 'tax_cooperating_person',
         'tax_foreign_income_credit', 'financial_office_code', 'workplace_code', 'cz_nace_code',
         'sest_jmeno', 'sest_prijmeni', 'sest_telefon', 'sest_email', 'sest_funkce',
-        'opr_jmeno', 'opr_prijmeni', 'opr_postaveni',
+        'opr_jmeno', 'opr_prijmeni', 'opr_postaveni', 'person_title',
     ];
 
     /**

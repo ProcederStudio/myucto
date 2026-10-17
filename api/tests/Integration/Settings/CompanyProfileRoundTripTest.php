@@ -139,6 +139,29 @@ final class CompanyProfileRoundTripTest extends TestCase
         self::assertNotNull($row['mode_set_manually_at']);
     }
 
+    public function testPersonTitleSurvivesTaxProfileRoundTrip(): void
+    {
+        $source = $this->company();
+        $target = $this->company();
+        $pdo = $this->db->pdo();
+        $pdo->prepare('UPDATE supplier SET person_title = ? WHERE id = ?')->execute(['Ing.', $source]);
+        $pdo->prepare('UPDATE supplier SET person_title = NULL WHERE id = ?')->execute([$target]);
+        $profile = $this->exporter->export($source, ['tax_profile']);
+        self::assertSame('Ing.', $profile['sections']['tax_profile']['person_title']);
+        $this->importer->import($target, $profile, false);
+        $exported = $this->exporter->export($target, ['tax_profile']);
+        self::assertSame('Ing.', $exported['sections']['tax_profile']['person_title']);
+
+        $profile['sections']['tax_profile']['person_title'] = str_repeat('Ž', 11);
+        try {
+            $this->importer->import($target, $profile, false);
+            self::fail('Import profilu musí odmítnout titul přes limit EPO.');
+        } catch (CompanyProfileException $e) {
+            self::assertSame('validation_failed', $e->errorCode);
+        }
+        self::assertSame('Ing.', $this->exporter->export($target, ['tax_profile'])['sections']['tax_profile']['person_title']);
+    }
+
     /** Dávkový převod odloží profil před převodem do existující firmy a po převodu ho obnoví. */
     public function testBatchCarryOverRestoresSettingsDroppedByReconversion(): void
     {
