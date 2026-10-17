@@ -936,13 +936,6 @@ final class UpdateInvoiceAction
     }
 
     /**
-     * B11: seznam ÚČETNÍCH polí, která se v requestu reálně mění proti uloženému dokladu.
-     * Porovnává hodnotu (ne pouhou přítomnost) — FE smí poslat celý objekt, blokujeme jen
-     * skutečnou změnu částkového/DPH/položkového pole (režim notes_only).
-     *
-     * @return list<string>
-     */
-    /**
      * Popis podaného výkazu, který pokrývá původní nebo nové datum plnění faktury, nebo `null`
      * ({@see FiledVatPeriodLookup}). OSS přiznání se počítá jen u faktury s OSS položkou.
      *
@@ -967,6 +960,13 @@ final class UpdateInvoiceAction
         return null;
     }
 
+    /**
+     * B11: seznam ÚČETNÍCH polí, která se v requestu reálně mění proti uloženému dokladu.
+     * Porovnává hodnotu (ne pouhou přítomnost) — FE smí poslat celý objekt, blokujeme jen
+     * skutečnou změnu částkového/DPH/položkového pole (režim notes_only).
+     *
+     * @return list<string>
+     */
     private static function financialFieldsChanged(array $body, array $existing): array
     {
         $changed = [];
