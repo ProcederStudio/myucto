@@ -11,6 +11,19 @@ async function call(name, args) {
   return request;
 }
 
+test('sazby SVJ používají výhradně kurátorované čtecí cesty a přesné časové vstupy', async () => {
+  assert.equal((await call('list_property_charge_components', {})).path, '/property/catalog/charges/components');
+  assert.equal((await call('get_property_charge_version', { id: 42 })).path, '/property/catalog/charges/versions/42');
+  const args = { house_id: 7, as_of: '2026-10-17T12:34:56.123456+02:00', known_at: '2026-10-18T00:00:00Z' };
+  const request = await call('list_property_charge_versions', args);
+  assert.equal(request.path, '/property/catalog/charges/versions');
+  assert.deepEqual(request.query, args);
+  const tool = TOOLS_BY_NAME.get('list_property_charge_versions');
+  assert.deepEqual(validateToolArguments(tool, args), args);
+  assert.throws(() => validateToolArguments(tool, { ...args, as_of: '2026-10-17' }));
+  assert.throws(() => validateToolArguments(tool, { ...args, house_id: 0 }));
+});
+
 test('všechny dimenzní nástroje jsou čtecí a zapojené do společného katalogu', () => {
   for (const tool of DIMENSION_TOOLS) {
     assert.equal(tool.write, false);

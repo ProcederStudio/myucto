@@ -664,6 +664,8 @@ final class RoutePermissionMap
         ['POST', '#^/api/accounting/joint-allocations/preview$#', 'accounting', AccessLevel::READ],
         ['GET', '#^/api/property/export$#', 'property.export', AccessLevel::WRITE],
         ['POST', '#^/api/property/(profile|objects/[0-9]+/revisions/[0-9]+/confirm)$#', 'property.registry.confirm', AccessLevel::WRITE],
+        ['POST', '#^/api/property/charges/versions$#', 'property.charges.confirm', AccessLevel::WRITE],
+        ['POST', '#^/api/property/charges/(components|preview)$#', 'property.charges.manage', AccessLevel::WRITE],
         ['GET', '#^/api/property(/|$)#', 'property', AccessLevel::READ],
         ['*', '#^/api/property(/|$)#', 'property.registry.manage', AccessLevel::WRITE],
         ['POST', '#^/api/accounting/periods/[0-9]+/nonprofit-tax/preview$#', 'accounting', AccessLevel::READ],

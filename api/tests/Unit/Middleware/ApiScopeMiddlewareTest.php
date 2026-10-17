@@ -27,6 +27,18 @@ final class ApiScopeMiddlewareTest extends TestCase
         }
     }
 
+    public function testPropertyChargeTokenReadsOnlyCuratedHistory(): void
+    {
+        foreach (['components', 'versions', 'versions/7'] as $resource) {
+            $path = '/api/property/catalog/charges/' . $resource;
+            self::assertSame(204, $this->middleware()->process($this->bearer('GET', $path, 'read'), $this->okHandler())->getStatusCode());
+            self::assertSame(403, $this->middleware()->process($this->bearer('POST', $path, 'read_write'), $this->okHandler())->getStatusCode());
+        }
+        foreach (['components', 'context', 'versions', 'versions/7', 'preview'] as $resource) {
+            self::assertSame(403, $this->middleware()->process($this->bearer('GET', '/api/property/charges/' . $resource, 'read_write'), $this->okHandler())->getStatusCode());
+        }
+    }
+
     public function testCatalogReadPostHasExactReadScopeException(): void
     {
         foreach ([

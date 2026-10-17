@@ -2468,6 +2468,16 @@ final class Routes
         });
 
         $app->group('/api/property', function ($g) {
+            $g->get('/catalog/charges/components', [\MyInvoice\Action\Property\Charges\ChargeAction::class, 'catalogComponents']);
+            $g->get('/catalog/charges/versions', [\MyInvoice\Action\Property\Charges\ChargeAction::class, 'catalogVersions']);
+            $g->get('/catalog/charges/versions/{id:[0-9]+}', [\MyInvoice\Action\Property\Charges\ChargeAction::class, 'catalogDetail']);
+            $g->get('/charges/components', [\MyInvoice\Action\Property\Charges\ChargeAction::class, 'components']);
+            $g->post('/charges/components', [\MyInvoice\Action\Property\Charges\ChargeAction::class, 'createComponent']);
+            $g->get('/charges/context', [\MyInvoice\Action\Property\Charges\ChargeAction::class, 'context']);
+            $g->get('/charges/versions', [\MyInvoice\Action\Property\Charges\ChargeAction::class, 'versions']);
+            $g->get('/charges/versions/{id:[0-9]+}', [\MyInvoice\Action\Property\Charges\ChargeAction::class, 'detail']);
+            $g->post('/charges/preview', [\MyInvoice\Action\Property\Charges\ChargeAction::class, 'preview']);
+            $g->post('/charges/versions', [\MyInvoice\Action\Property\Charges\ChargeAction::class, 'saveVersion']);
             $g->get('/catalog/profile', [\MyInvoice\Action\Property\PropertyAction::class, 'catalogProfile']);
             $g->get('/catalog/summary', [\MyInvoice\Action\Property\PropertyAction::class, 'summary']);
             $g->get('/catalog/{kind:houses|units|services}', [\MyInvoice\Action\Property\PropertyAction::class, 'catalogList']);

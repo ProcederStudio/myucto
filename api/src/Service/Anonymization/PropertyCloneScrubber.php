@@ -17,20 +17,20 @@ final class PropertyCloneScrubber
 
     public function __construct(private readonly PDO $pdo, private readonly TextScrubber $scrubber) {}
 
-    public function run(): void
+    public function run(): array
     {
         $marks = implode(',', array_fill(0, count(self::TABLES), '?'));
         $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ({$marks})");
         $stmt->execute(self::TABLES);
         $count = (int) $stmt->fetchColumn();
-        if ($count === 0) return;
+        if ($count === 0) return [];
         if ($count !== count(self::TABLES) || $this->pdo->inTransaction()) throw new \LogicException('Property clone postprocess requires the complete schema and its own transaction.');
         if ((int) $this->pdo->query('SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = DATABASE()')->fetchColumn() !== 0) {
             throw new \LogicException('Property clone postprocess must run before installing triggers.');
         }
         $this->pdo->beginTransaction();
         try {
-            $hashes = [];
+            $hashes = []; $stateMap = [];
             $objects = array_column($this->rows('property_objects'), null, 'id');
             foreach ($this->rows('property_module_profiles') as $row) {
                 $request = ['expected_revision' => (int) $row['revision_no'] - 1, 'effective_from' => self::instant($row['effective_from']),
@@ -62,6 +62,7 @@ final class PropertyCloneScrubber
                 $envelope['request']['reason'] = $this->scrubber->scrub($row['reason']);
                 $envelope['request']['title_ref'] = $this->scrubber->scrub($row['title_ref']);
                 $hashes[$row['state_hash']] = $stateHash = PropertyInput::hash($state);
+                $stateMap[(int) $row['supplier_id']][(int) $row['id']] = ['before_state_hash' => $row['state_hash'], 'after_state_hash' => $stateHash];
                 $hashes[$row['request_hash']] = $requestHash = PropertyInput::hash($envelope);
                 $this->update('property_revisions', $row, ['state_json' => self::json($state), 'state_hash' => $stateHash, 'request_hash' => $requestHash,
                     'reason' => $envelope['request']['reason'], 'title_ref' => $envelope['request']['title_ref']]);
@@ -91,6 +92,7 @@ final class PropertyCloneScrubber
                 $this->update('property_audit', $row, ['payload_json' => self::json($payload)]);
             }
             $this->pdo->commit();
+            return $stateMap;
         } catch (\Throwable $e) {
             if ($this->pdo->inTransaction()) $this->pdo->rollBack();
             throw $e;

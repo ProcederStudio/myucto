@@ -125,13 +125,15 @@ final class DynamicRolesMigrationRuntimeTest extends TestCase
             'SELECT COUNT(*) FROM role_permissions WHERE role_id = ' . (int) $roles['accountant']
         )->fetchColumn();
         $db->prepare("UPDATE role_permissions SET access_level=0 WHERE role_id=? AND permission_key='property.registry.confirm'")->execute([(int) $roles['admin']]);
+        $db->prepare("UPDATE role_permissions SET access_level=0 WHERE role_id=? AND permission_key='property.charges.confirm'")->execute([(int) $roles['admin']]);
         $db->exec(
             "DELETE FROM migrations WHERE filename IN (
                 '1074_dynamic_roles_permissions.sql',
                 '1747_predefined_admin_roles.sql',
                 '1748_bank_rule_templates_tenant_scope.sql',
                 '2014_client_ai_extraction.sql',
-                '2023_property_registry.sql'
+                '2023_property_registry.sql',
+                '2024_property_charge_versions.sql'
             )"
         );
         $this->runMigrator();
@@ -145,6 +147,7 @@ final class DynamicRolesMigrationRuntimeTest extends TestCase
         self::assertSame(6, (int) $db->query('SELECT COUNT(*) FROM roles')->fetchColumn());
         self::assertSame(1, (int) $db->query('SELECT client_ai_extraction_enabled FROM supplier WHERE id = ' . $this->supplierA)->fetchColumn());
         self::assertSame(0, (int) $db->query("SELECT access_level FROM role_permissions WHERE role_id=" . (int) $roles['admin'] . " AND permission_key='property.registry.confirm'")->fetchColumn());
+        self::assertSame(0, (int) $db->query("SELECT access_level FROM role_permissions WHERE role_id=" . (int) $roles['admin'] . " AND permission_key='property.charges.confirm'")->fetchColumn());
     }
 
     private function createLegacyParentTables(PDO $db): void
@@ -302,6 +305,7 @@ final class DynamicRolesMigrationRuntimeTest extends TestCase
                 '2014_client_ai_extraction.sql',
                 '2015_client_bank_permissions.sql',
                 '2023_property_registry.sql',
+                '2024_property_charge_versions.sql',
             ]),
         ];
         $env = getenv();

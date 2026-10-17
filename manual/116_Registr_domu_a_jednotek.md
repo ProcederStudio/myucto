@@ -30,6 +30,20 @@ CSV nebo XLSX nejprve otevřete v náhledu. Osoby přiřaďte ke kontaktům dan�
 
 JSON export je samostatně oprávněná a auditovaná operace. Obsahuje právní podklady a účastníky, proto je dostupný z webového rozhraní. Veřejné API a MCP poskytují přehled číselníků a úplnosti evidence bez historie osob a platebních dispozic.
 
+## Složky a verze předpisů
+
+V nabídce **Složky a předpisy** nejprve vyberte dům a okamžik účinnosti. Složky rozlišují zálohy na správu, dlouhodobé zálohy, služby a doložené definitivní příspěvky. U nové složky vyplňte kód, název, druh a účinnost; záloha na služby má navíc vazbu na konkrétní službu registru.
+
+Nová verze sazeb obsahuje celé rozhodnutí pro vybrané jednotky. Zadejte účinnost, datum rozhodnutí, jeho označení a důvod. Výslovně zvolte, zda jsou částky měsíční, čtvrtletní, roční nebo jednorázové. Změny uprostřed měsíce se automaticky nekrátí.
+
+U každé složky vyberte konkrétní jednotky, metodu výpočtu a právní podklad. Zákonný podílový klíč a rovný díl vlastní správy vyžadují potvrzenou úplnost registru domu. Rozhodné osoby pro služby jsou samostatným atributem jednotky; počet vlastníků se k výpočtu nepoužívá. SJM ani spoluvlastnictví nenásobí jednotkovou částku. Rozpočet se po ukončení jednotky bez nového rozhodnutí nepřerozděluje.
+
+Náhled ukazuje částky po jednotkách, zaokrouhlení, rozdíly proti dřívějšímu uloženému stavu a změnu samotných sazeb na stejném novém základu. Zkontrolujte také překryvy s budoucími naplánovanými verzemi. Zbylé haléře připadnou největším zlomkovým zbytkům; při shodě rozhoduje stabilní pořadí jednotek.
+
+Správa složek a potvrzení verze mají samostatná oprávnění. Potvrzení uloží novou neměnnou verzi a její původní podklady. Nevystavuje předpis, neurčuje dlužníka a neúčtuje. U změn záloh na služby bude při vystavení potřeba doložit písemné oznámení, jeho doručení a odůvodnění; samotná sazba jejich splnění nepotvrzuje.
+
+Historie zůstává čitelná i po vypnutí profilu. Veřejné API a MCP poskytují složky a přesné historické výpočty bez právní historie osob a rozhodovacích podkladů.
+
 ## Reset dat
 
 Reset se zachováním účtu a konfigurace firmy odstraní registr, jeho systémové dimenze jednotek a služeb i alokační klíče, které na ně odkazují. Vlastní dimenze a ostatní alokační klíče zachová. Pokud má zachovaná vlastní hodnota jako nadřazenou jednotku nebo službu registru, reset se zastaví před mazáním; nejprve opravte tuto vazbu.

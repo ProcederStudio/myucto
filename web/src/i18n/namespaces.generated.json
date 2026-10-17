@@ -115,6 +115,7 @@
     "product_posting",
     "profile_signing",
     "project",
+    "propertyCharges",
     "propertyRegistry",
     "public_holidays",
     "purchase_invoice",
@@ -883,6 +884,10 @@
       "logbook_fuel"
     ],
     "property-registry": [
+      "propertyRegistry"
+    ],
+    "property-charges": [
+      "propertyCharges",
       "propertyRegistry"
     ],
     "group-stats": [

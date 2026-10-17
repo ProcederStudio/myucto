@@ -6,7 +6,7 @@ namespace MyInvoice\Security;
 
 final class PermissionCatalog
 {
-    public const VERSION = '2026-10-property-registry-v1';
+    public const VERSION = '2026-10-property-charges-v1';
 
     /** @var list<string> */
     private const GROUPS = [
@@ -87,6 +87,8 @@ final class PermissionCatalog
             ['property.registry.manage', 'property', 'Spravovat podklady registru SVJ', $staffOnly],
             ['property.registry.confirm', 'property', 'Potvrzovat právní podklady SVJ', $staffOnly],
             ['property.export', 'property', 'Exportovat registr SVJ', $staffOnly],
+            ['property.charges.manage', 'property', 'Spravovat složky a sazby SVJ', $staffOnly],
+            ['property.charges.confirm', 'property', 'Potvrzovat verze předpisů SVJ', $staffOnly],
             ['other_items', 'other_items', 'Ostatní pohledávky a závazky', $staffOnly],
             ['tax_evidence', 'tax_evidence', 'Daňová evidence', $staffOnly],
             ['tax_evidence.classification.write', 'tax_evidence', 'Klasifikovat pohyby', $staffOnly],
@@ -201,7 +203,7 @@ final class PermissionCatalog
                 // který si ho může kterékoli roli přidělit v editoru rolí.
                 'documents.inbox.delete',
                 'accounting.periods.close', 'accounting.periods.manage',
-                'property.registry.confirm',
+                'property.registry.confirm', 'property.charges.confirm',
                 'settings.ai_provider', 'settings.bank_accounts', 'settings.branding',
                 'settings.company.write', 'settings.domains', 'utilities.import',
                 'payroll.settings', 'payroll.person.read_sensitive', 'payroll.approve',

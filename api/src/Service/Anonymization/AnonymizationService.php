@@ -86,7 +86,8 @@ final class AnonymizationService
                 $pdo->exec($sql);
             }
             (new JointAllocationCloneScrubber($pdo, $this->scrubber))->run();
-            (new PropertyCloneScrubber($pdo, $this->scrubber))->run();
+            $registryMap = (new PropertyCloneScrubber($pdo, $this->scrubber))->run();
+            (new ChargesCloneScrubber($pdo, $this->scrubber))->run($registryMap);
             $this->resealAuditChain($options->target, $log);
             foreach ($plan['system_versioned'] as $table) {
                 $pdo->exec('DELETE HISTORY FROM ' . DatabaseCloner::quote($table));

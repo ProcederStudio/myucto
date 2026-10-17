@@ -238,6 +238,105 @@ tags:
       pojišťovnu a zálohy na daň (§38a) vč. rozhodnutí FÚ (§174).
 
 paths:
+  /api/v1/property/catalog/charges/components:
+    get:
+      tags:
+      - Accounting
+      summary: Složky předpisů SVJ
+      description: Pouze čtení s oprávněním property v kontextu vybrané firmy. Částky v haléřích i přesné zlomky jsou
+        řetězce. Uložená verze sazeb nevytváří pohledávku ani účetní zápis. Kurátorovaná projekce neobsahuje právní
+        účastníky, podklady rozhodnutí, platební dispozice ani interní požadavky.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PropertyChargeComponents'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/property/catalog/charges/versions:
+    get:
+      tags:
+      - Accounting
+      summary: Historické verze sazeb a výpočtů SVJ
+      description: Pouze čtení s oprávněním property v kontextu vybrané firmy. Částky v haléřích i přesné zlomky jsou
+        řetězce. Uložená verze sazeb nevytváří pohledávku ani účetní zápis. Kurátorovaná projekce neobsahuje právní
+        účastníky, podklady rozhodnutí, platební dispozice ani interní požadavky.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - name: house_id
+        in: query
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      - name: as_of
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date-time
+      - name: known_at
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date-time
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PropertyChargeVersions'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Poškozená nebo neověřitelná historická verze.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/property/catalog/charges/versions/{id}:
+    get:
+      tags:
+      - Accounting
+      summary: Konkrétní neměnná verze sazeb SVJ
+      description: Pouze čtení s oprávněním property v kontextu vybrané firmy. Částky v haléřích i přesné zlomky jsou
+        řetězce. Uložená verze sazeb nevytváří pohledávku ani účetní zápis. Kurátorovaná projekce neobsahuje právní
+        účastníky, podklady rozhodnutí, platební dispozice ani interní požadavky.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PropertyChargeVersion'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Poškozená nebo neověřitelná historická verze.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Verze v této firmě neexistuje.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/property/catalog/profile:
     get:
       tags:
@@ -30291,6 +30390,237 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
 
   schemas:
+    PropertyChargeRational:
+      type: object
+      additionalProperties: false
+      required:
+      - num
+      - den
+      properties:
+        num:
+          type: string
+          pattern: ^-?[0-9]+$
+        den:
+          type: string
+          pattern: ^[1-9][0-9]*$
+    PropertyChargeComponent:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - code
+      - name
+      - kind
+      - service_id
+      - account_code
+      - effective_at
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        code:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+          enum:
+          - long_term_advance
+          - admin_advance
+          - service_advance
+          - contribution
+          - other
+        service_id:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+        account_code:
+          type: string
+        effective_at:
+          type: string
+          format: date-time
+    PropertyChargeLine:
+      type: object
+      additionalProperties: false
+      required:
+      - unit_id
+      - basis
+      - exact_cents
+      - amount_cents
+      - residual_cent
+      properties:
+        unit_id:
+          type: integer
+          minimum: 1
+        basis:
+          $ref: '#/components/schemas/PropertyChargeRational'
+        exact_cents:
+          $ref: '#/components/schemas/PropertyChargeRational'
+        amount_cents:
+          type: string
+          pattern: ^-?[0-9]+$
+        residual_cent:
+          type: boolean
+    PropertyChargeRate:
+      type: object
+      additionalProperties: false
+      required:
+      - component
+      - method
+      - mode
+      - rate_amount
+      - unit_ids
+      - rounding
+      - total_cents
+      - lines
+      properties:
+        component:
+          $ref: '#/components/schemas/PropertyChargeComponent'
+        method:
+          type: string
+          enum:
+          - unit
+          - floor_area
+          - share
+          - person
+          - equal
+        mode:
+          type: string
+          enum:
+          - rate_per_basis
+          - total_budget
+        rate_amount:
+          type: string
+          pattern: ^-?[0-9]+(?:\.[0-9]+)?$
+        unit_ids:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+        rounding:
+          type: string
+          enum:
+          - aggregate_half_up_largest_remainder_unit_id_v1
+        total_cents:
+          type: string
+          pattern: ^-?[0-9]+$
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/PropertyChargeLine'
+    PropertyChargeVersion:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - house_id
+      - revision_no
+      - effective_from
+      - effective_to
+      - recorded_at
+      - preview_hash
+      - basis_at
+      - frequency
+      - currency
+      - total_cents
+      - unit_totals
+      - components
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        house_id:
+          type: integer
+          minimum: 1
+        revision_no:
+          type: integer
+          minimum: 1
+        effective_from:
+          type: string
+          format: date-time
+        effective_to:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        recorded_at:
+          type: string
+          format: date-time
+        preview_hash:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        basis_at:
+          type: string
+          format: date-time
+        frequency:
+          type: string
+          enum:
+          - monthly
+          - quarterly
+          - annual
+          - one_off
+        currency:
+          type: string
+          enum:
+          - CZK
+        total_cents:
+          type: string
+          pattern: ^-?[0-9]+$
+        unit_totals:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - unit_id
+            - amount_cents
+            properties:
+              unit_id:
+                type: integer
+                minimum: 1
+              amount_cents:
+                type: string
+                pattern: ^-?[0-9]+$
+        components:
+          type: array
+          items:
+            $ref: '#/components/schemas/PropertyChargeRate'
+    PropertyChargeComponents:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PropertyChargeComponent'
+    PropertyChargeVersions:
+      type: object
+      additionalProperties: false
+      required:
+      - as_of
+      - known_at
+      - items
+      - selected
+      properties:
+        as_of:
+          type: string
+          format: date-time
+        known_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PropertyChargeVersion'
+        selected:
+          anyOf:
+          - $ref: '#/components/schemas/PropertyChargeVersion'
+          - type: 'null'
     PropertyPublicRational:
       type: object
       additionalProperties: false

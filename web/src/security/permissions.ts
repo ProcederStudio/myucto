@@ -31,6 +31,7 @@ export const PERMISSION_KEYS = [
   'eshop', 'eshop.write', 'eshop.integrations',
   'logbook', 'logbook.write', 'logbook.import', 'logbook.delete',
   'property', 'property.registry.manage', 'property.registry.confirm', 'property.export',
+  'property.charges.manage', 'property.charges.confirm',
   'settings.company', 'settings.company.write', 'settings.domains', 'settings.bank_accounts',
   'settings.branding', 'settings.ai_provider', 'settings.signing',
   'utilities', 'utilities.export', 'utilities.import', 'utilities.archives',
