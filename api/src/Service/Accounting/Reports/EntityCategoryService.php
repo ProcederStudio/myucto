@@ -12,12 +12,12 @@ use MyInvoice\Repository\StatementDefinitionRepository;
 use MyInvoice\Repository\TaxConstantsRepository;
 
 /**
- * Kategorizace účetní jednotky (§1d ZoÚ po novele 316/2025 Sb., R9–R11):
+ * Kategorizace účetní jednotky (§1b a §1e ZoÚ, R9–R11):
  * kategorie = nejnižší, u níž ÚJ nepřekračuje ≥ 2 ze 3 kritérií (aktiva netto /
  * čistý obrat 601+602+604 / průměrný počet zaměstnanců). Dle §1e odst. 2 se
  * kategorie mění až od počátku období NÁSLEDUJÍCÍHO po dvou po sobě jdoucích
- * rozvahových dnech se shodnou raw kategorií; v prvním období platí raw stav
- * k rozvahovému dni (§1e odst. 1). Admin override `statement_scope_override`
+ * rozvahových dnech potvrzujících překročení téže hranice kategorie. Bez
+ * historie se používá raw stav běžného období. Admin override `statement_scope_override`
  * vyhrává. Default (žádná data) = mikro.
  *
  * Volá JEN repositories + StatementMapper (ne FinancialStatementService) —
@@ -64,19 +64,7 @@ final class EntityCategoryService
         $closedRaws = $this->rawsForClosedPeriods($supplierId, $period, $employees);
         $rawPrevious = $closedRaws === [] ? null : $closedRaws[count($closedRaws) - 1];
 
-        // §1e odst. 2: kategorie se mění od počátku období následujícího po dvou
-        // po sobě jdoucích rozvahových dnech se shodnou raw kategorií; bez
-        // uzavřeného období platí raw stav běžného období (§1e odst. 1).
-        if ($closedRaws === []) {
-            $category = $rawCurrent;
-        } else {
-            $category = $closedRaws[0];
-            for ($i = 1, $n = count($closedRaws); $i < $n; $i++) {
-                if ($closedRaws[$i] === $closedRaws[$i - 1]) {
-                    $category = $closedRaws[$i];
-                }
-            }
-        }
+        $category = self::categoryFromHistory($rawCurrent, $closedRaws);
 
         $scopeOverride = $settings['statement_scope_override'];
         $scope = $scopeOverride ?? match ($category) {
@@ -103,6 +91,35 @@ final class EntityCategoryService
             'scope'          => $scope,
             'scope_override' => $scopeOverride,
         ];
+    }
+
+    /** @param list<string> $closedRaws Chronologické kategorie dle limitů jednotlivých období. */
+    public static function categoryFromHistory(string $rawCurrent, array $closedRaws): string
+    {
+        if ($closedRaws === []) {
+            return $rawCurrent;
+        }
+        $categories = ['micro', 'small', 'medium', 'large'];
+        $ranks = array_map(static function (string $raw) use ($categories): int {
+            $rank = array_search($raw, $categories, true);
+            if ($rank === false) {
+                throw new \InvalidArgumentException('Unknown entity category: ' . $raw);
+            }
+            return $rank;
+        }, $closedRaws);
+        $effective = $ranks[0];
+        for ($i = 1, $n = count($ranks); $i < $n; $i++) {
+            // §1e odst. 2: každá hranice musí být překročena (nebo nepřekročena)
+            // v obou obdobích; rozdílné raw kategorie mohou potvrdit společnou hranici.
+            $lower = min($ranks[$i - 1], $ranks[$i]);
+            $upper = max($ranks[$i - 1], $ranks[$i]);
+            if ($effective < $lower) {
+                $effective = $lower;
+            } elseif ($effective > $upper) {
+                $effective = $upper;
+            }
+        }
+        return $categories[$effective];
     }
 
     /**
@@ -258,6 +275,11 @@ final class EntityCategoryService
      * @param array{assets_net: float, net_turnover: float, employees: int} $criteria
      */
     private function classify(array $criteria, array $thresholds): string
+    {
+        return self::classifyCriteria($criteria, $thresholds);
+    }
+
+    public static function classifyCriteria(array $criteria, array $thresholds): string
     {
         foreach ($thresholds as $category => $limits) {
             $exceeded = 0;
