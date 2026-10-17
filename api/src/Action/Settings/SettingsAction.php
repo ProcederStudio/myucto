@@ -1121,6 +1121,7 @@ final class SettingsAction
             || array_key_exists('pdf_logo_show_name', $body)
             || array_key_exists('invoice_pdf_show_issued_by', $body)
             || array_key_exists('invoice_pdf_monochrome', $body)
+            || array_key_exists('invoice_pdf_show_line_discount', $body)
         ) {
             $this->pdf->invalidateDraftsBySupplier($id);
         }
