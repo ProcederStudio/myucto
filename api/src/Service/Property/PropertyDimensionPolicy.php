@@ -36,6 +36,15 @@ final class PropertyDimensionPolicy
         $this->assertWindow((int) $header['supplier_id'], $start->format('Y-m-d\TH:i:sP'), $start->modify('+1 day')->format('Y-m-d\TH:i:sP'), $lines, [], $carried);
     }
 
+    public function assertClosingCarryJournal(array $header, array $lines, \MyInvoice\Service\Accounting\Closing\ClosingCarryJournalProof $proof): void
+    {
+        $carried = $proof->indices($this->db, $header, $lines);
+        $date = (string) $header['entry_date'];
+        $start = \DateTimeImmutable::createFromFormat('!Y-m-d', $date, new \DateTimeZone('Europe/Prague'));
+        if ($start === false || $start->format('Y-m-d') !== $date) PropertyInput::invalid('entry_date');
+        $this->assertWindow((int) $header['supplier_id'], $start->format('Y-m-d\TH:i:sP'), $start->modify('+1 day')->format('Y-m-d\TH:i:sP'), $lines, [], $carried);
+    }
+
     public function assertAt(int $supplierId, string $at, array $lines): void
     {
         $this->assertWindow($supplierId, $at, null, $lines);

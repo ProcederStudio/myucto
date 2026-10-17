@@ -44,9 +44,14 @@ final class SystemDimensionWritePolicy
         $this->assertJournalCore($header, $lines, [], $proof);
     }
 
-    private function assertJournalCore(array $header, array $lines, array $previousLines, ?\MyInvoice\Service\Property\Payments\PaymentHistoricalCarrierProof $proof = null): void
+    public function assertClosingCarry(\MyInvoice\Service\Accounting\Closing\ClosingCarryJournalProof $proof): void
     {
-        $carried = $proof?->indices($this->db, $header, $lines) ?? [];
+        $this->assertJournalCore($proof->header, $proof->lines, [], null, $proof);
+    }
+
+    private function assertJournalCore(array $header, array $lines, array $previousLines, ?\MyInvoice\Service\Property\Payments\PaymentHistoricalCarrierProof $proof = null, ?\MyInvoice\Service\Accounting\Closing\ClosingCarryJournalProof $closingCarry = null): void
+    {
+        $carried = $closingCarry?->indices($this->db, $header, $lines) ?? $proof?->indices($this->db, $header, $lines) ?? [];
         $supplierId = (int) $header['supplier_id'];
         $this->lockJournalPeriod($header);
         foreach ($lines as $line) {
@@ -56,7 +61,10 @@ final class SystemDimensionWritePolicy
                 break;
             }
         }
-        if ($proof === null) {
+        if ($closingCarry !== null) {
+            try { (new \MyInvoice\Service\Property\PropertyDimensionPolicy($this->db))->assertClosingCarryJournal($header, $lines, $closingCarry); }
+            catch (\MyInvoice\Service\Property\PropertyException $e) { throw new PostingException($e->errorCode, $e->getMessage(), $e->httpStatus, $e->details); }
+        } elseif ($proof === null) {
             $this->propertyAssignments($supplierId, $lines, (string) $header['entry_date'], $previousLines);
         } else {
             try { (new \MyInvoice\Service\Property\PropertyDimensionPolicy($this->db))->assertPaymentCarrierJournal($header, $lines, $proof); }

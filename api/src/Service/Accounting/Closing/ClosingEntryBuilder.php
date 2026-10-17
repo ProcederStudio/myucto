@@ -93,6 +93,7 @@ final class ClosingEntryBuilder
             }
             $amount = abs($cents) / 100;
             $code = (string) $row['account_code'];
+            if ($profile->framework !== AccountingFrameworkService::CZ_504) unset($row['currency_code'], $row['amount_foreign'], $row['fx_rate']);
             if ($cents > 0) {
                 $lines[] = self::line($profile->account('closing.final_balance'), 'debit', $amount, $row);
                 $lines[] = self::line($code, 'credit', $amount, $row);
@@ -127,6 +128,7 @@ final class ClosingEntryBuilder
             }
             $amount = abs($cents) / 100;
             $code = $profile->openingAccount((string) $row['account_code']);
+            if ($profile->framework !== AccountingFrameworkService::CZ_504) unset($row['currency_code'], $row['amount_foreign'], $row['fx_rate']);
             if ($cents > 0) {
                 $lines[] = self::line($code, 'debit', $amount, $row);
                 $lines[] = self::line($profile->account('closing.opening_balance'), 'credit', $amount, $row);
@@ -211,8 +213,10 @@ final class ClosingEntryBuilder
     private static function line(string $code, string $side, float $amount, array $balance = []): array
     {
         /** @var array{account_code:string, side:'debit'|'credit', amount:float} */
+        $currency = ($balance['account_code'] ?? null) === $code
+            ? array_intersect_key($balance, ['currency_code' => true, 'amount_foreign' => true, 'fx_rate' => true]) : [];
         return ['account_code' => $code, 'side' => $side, 'amount' => round($amount, 2)]
-            + array_intersect_key($balance, ['dimensions' => true, 'dimension_splits' => true, 'cost_center' => true, 'project_id' => true]);
+            + array_intersect_key($balance, ['dimensions' => true, 'dimension_splits' => true, 'cost_center' => true, 'project_id' => true]) + $currency;
     }
 
     /** Peníze → haléře (int); vstup je zaokrouhlený DECIMAL(x,2) ↔ float. */

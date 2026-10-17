@@ -178,6 +178,75 @@ final class JournalEntryRepository
         });
     }
 
+    public function upsertCurrentClosingCarry(int $supplierId, int $periodId, string $step, int $expectedVersion): int
+    {
+        return (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $periodId, $step, $expectedVersion): int {
+            $proof = \MyInvoice\Service\Accounting\Closing\ClosingCarryJournalProof::forPending($this->db, $supplierId, $periodId, $step, $expectedVersion);
+            (new SystemDimensionWritePolicy($this->db))->assertClosingCarry($proof);
+            $header = $proof->header;
+            $existing = $this->findActiveBySourceForUpdate($supplierId, $header['source_type'], $header['source_id']);
+            if ($proof->record['status'] === 'written') {
+                if ($existing === null || (int) $existing['id'] !== ($proof->record['entry_id'] ?? 0)
+                    || (int) $existing['row_version'] !== ($proof->record['entry_version'] ?? 0)) throw \MyInvoice\Repository\ClosingCarryReadRepository::changed();
+                foreach ($header as $field => $value) {
+                    if ((string) ($existing[$field] ?? '') !== (string) ($value ?? '')) throw \MyInvoice\Repository\ClosingCarryReadRepository::changed();
+                }
+                $current = $this->currentEntryForDimensionWrite((int) $existing['id'], $supplierId);
+                if (count($current['lines']) !== count($proof->lines)) throw \MyInvoice\Repository\ClosingCarryReadRepository::changed();
+                foreach ($proof->lines as $index => $line) {
+                    $old = $current['lines'][$index];
+                    if (!SystemDimensionWritePolicy::sameLedgerLine($line, $old)
+                        || ($line['dimensions'] ?? []) !== $old['dimensions']
+                        || !DimensionAssignmentRepository::sameSplits($line['dimension_splits'] ?? [], $old['dimension_splits'])) throw \MyInvoice\Repository\ClosingCarryReadRepository::changed();
+                }
+                return (int) $existing['id'];
+            }
+            if (($existing === null ? null : (int) $existing['id']) !== ($proof->record['previous_entry_id'] ?? null)
+                || ($existing === null ? null : (int) $existing['row_version']) !== ($proof->record['previous_entry_version'] ?? null)) throw \MyInvoice\Repository\ClosingCarryReadRepository::changed();
+            if ($existing === null) {
+                $entryId = $this->persistJournal($header, $proof->lines);
+                $entryVersion = 1;
+            } else {
+                $entryId = (int) $existing['id'];
+                (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->assertPostingEntriesMutable($supplierId, [$entryId]);
+                (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->assertEntriesMutable($supplierId, [$entryId]);
+                (new JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, [$entryId]);
+                $locked = $this->db->pdo()->prepare('SELECT locked_until FROM accounting_supplier_settings WHERE supplier_id = ? FOR UPDATE');
+                $locked->execute([$supplierId]);
+                $lockedUntil = $locked->fetchColumn();
+                if ($lockedUntil && $existing['entry_date'] <= $lockedUntil) throw new PostingException('date_locked', 'Datum původního zápisu leží v uzamčené části účetnictví.', 422);
+                $this->replaceVerifiedClosingCarry($entryId, (int) $existing['row_version'], $proof);
+                $entryVersion = (int) $existing['row_version'] + 1;
+            }
+            $payload = $proof->stepRow['decoded_payload'];
+            $payload['carry'][$step] = array_replace($proof->record, ['status' => 'written', 'entry_id' => $entryId,
+                'entry_version' => $entryVersion, 'source_line_ids' => $proof->sourceLineIds]);
+            $cas = $this->db->pdo()->prepare('UPDATE accounting_closing_steps SET payload = ? WHERE id = ? AND supplier_id = ? AND payload <=> ?');
+            $cas->execute([json_encode($payload, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE), $proof->stepRow['id'], $supplierId, $proof->stepRow['payload']]);
+            if ($cas->rowCount() !== 1) throw \MyInvoice\Repository\ClosingCarryReadRepository::changed();
+            $meta = $proof->record['meta'] ?? [];
+            $this->activity->log($existing === null ? 'accounting.posted' : 'accounting.reposted', $meta['user_id'] ?? null, 'journal_entry', $entryId,
+                ['source_type' => $header['source_type'], 'source_id' => $header['source_id'], 'closing_carry_source_hash' => $proof->record['source_hash']],
+                $meta['ip'] ?? null, $meta['user_agent'] ?? null, $supplierId);
+            return $entryId;
+        });
+    }
+
+    private function replaceVerifiedClosingCarry(int $entryId, int $entryVersion, \MyInvoice\Service\Accounting\Closing\ClosingCarryJournalProof $proof): void
+    {
+        $proof->assertConnection($this->db);
+        $header = $proof->header;
+        $stmt = $this->db->pdo()->prepare('UPDATE journal_entries SET entry_date = ?, document_date = ?, document_no = ?, description = ?,
+            posted_at = ?, posted_by = ?, row_version = row_version + 1 WHERE supplier_id = ? AND id = ? AND period_id = ? AND row_version = ? AND reversed_by IS NULL');
+        $stmt->execute([$header['entry_date'], $header['document_date'], $header['document_no'], $header['description'], $header['posted_at'], $header['posted_by'],
+            $header['supplier_id'], $entryId, $header['period_id'], $entryVersion]);
+        if ($stmt->rowCount() !== 1) throw \MyInvoice\Repository\ClosingCarryReadRepository::changed();
+        $this->deleteLines($entryId, $header['supplier_id']);
+        $this->insertLines($this->db->pdo(), $entryId, $header['supplier_id'], $proof->lines);
+        $this->logReleasedPairings($header['supplier_id'], $entryId,
+            (new JournalLinePairingRepository($this->db))->releaseStale($header['supplier_id'], $entryId), 'repost');
+    }
+
     private function persistJournal(array $header, array $lines): int
     {
         $pdo = $this->db->pdo();

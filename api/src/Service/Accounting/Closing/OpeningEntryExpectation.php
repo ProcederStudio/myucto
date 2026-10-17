@@ -25,6 +25,9 @@ final class OpeningEntryExpectation
                 $pl[] = $balance;
             } elseif (in_array((string) $line['account_type'], ['asset', 'liability', 'equity'], true)
                 && ($profile->framework !== AccountingFrameworkService::CZ_504 || !$profile->isTransientAccount($balance['account_code']))) {
+                if ($profile->framework === AccountingFrameworkService::CZ_504) {
+                    $balance += array_intersect_key($line, ['currency_code' => true, 'amount_foreign' => true, 'fx_rate' => true]);
+                }
                 $bs[] = $balance;
             }
         }

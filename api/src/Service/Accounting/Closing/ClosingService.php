@@ -3553,6 +3553,33 @@ final class ClosingService
         }));
     }
 
+    private function post504Carry(int $supplierId, array $source, array $target, string $step, int $expectedVersion, array $options): int
+    {
+        return (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $source, $target, $step, $expectedVersion, $options): int {
+            $read = new \MyInvoice\Repository\ClosingCarryReadRepository($this->db);
+            $periods = $read->periods($supplierId);
+            $source = $periods[(int) $source['id']] ?? throw \MyInvoice\Repository\ClosingCarryReadRepository::changed();
+            $target = $periods[(int) $target['id']] ?? throw \MyInvoice\Repository\ClosingCarryReadRepository::changed();
+            $date = (string) $options['entry_date'];
+            $profile = $this->resultDecisionProfile($supplierId, $date, true);
+            $snapshot = $read->snapshot($supplierId, $source, $target, $step, $date, $profile);
+            $key = $step;
+            $current = $read->step($supplierId, (int) $source['id'], $key);
+            $payload = $current['decoded_payload'] ?? [];
+            $sourceType = ['close_books' => 'closing', 'open_next' => 'opening'][$step];
+            $sourceId = $step === 'open_next' ? (int) $target['id'] : (int) $source['id'];
+            $existing = $this->journal->findActiveBySourceForUpdate($supplierId, $sourceType, $sourceId);
+            $payload['carry'][$step] = ['status' => 'pending', 'expected_version' => $expectedVersion,
+                'target_period_id' => (int) $target['id'], 'entry_date' => $date, 'source_hash' => $snapshot['source_hash'],
+                'previous_entry_id' => $existing === null ? null : (int) $existing['id'],
+                'previous_entry_version' => $existing === null ? null : (int) $existing['row_version'],
+                'document_no' => $existing['document_no'] ?? $options['document_no'] ?? null, 'description' => $options['description'] ?? null,
+                'posted_at' => date('Y-m-d H:i:s'), 'posted_by' => $options['posted_by'] ?? null, 'meta' => array_intersect_key($options, ['user_id' => true, 'ip' => true, 'user_agent' => true])];
+            $this->closing->upsertStep($supplierId, (int) $source['id'], $key, $current['status'] ?? 'pending', $payload, $current['note'] ?? null, $options['user_id'] ?? null);
+            return $this->journal->upsertCurrentClosingCarry($supplierId, (int) $source['id'], $step, $expectedVersion);
+        });
+    }
+
     private function unresolvedResult504Cells(int $supplierId, array $period, bool $forUpdate): array
     {
         return ProfitDistribution504Builder::cells($this->closing->pendingResultLines($supplierId, (int) $period['id'],
@@ -3756,6 +3783,7 @@ final class ClosingService
     public function closeBooks(int $supplierId, int $periodId, int $rowVersion, array $meta = [], bool $overrideUnposted = false, ?string $overrideReason = null): array
     {
         return $this->tx(function () use ($supplierId, $periodId, $rowVersion, $meta, $overrideUnposted, $overrideReason): array {
+            (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
             $period = $this->lockPeriod($supplierId, $periodId, $rowVersion);
             $this->assertStatus($period, ['closing']);
 
@@ -3823,7 +3851,9 @@ final class ClosingService
             $profile = $this->roleProfile($supplierId, $endsOn);
             $pl = $this->plBalancesForProfile($supplierId, $period, $profile);
             $bs = $this->bsBalancesForProfile($supplierId, $period, $profile);
-            $built = $this->builder->closingLines($pl, $bs, $profile);
+            $built = $profile->framework === AccountingFrameworkService::CZ_504
+                ? (new \MyInvoice\Repository\ClosingCarryReadRepository($this->db))->snapshot($supplierId, $period, $period, 'close_books', $endsOn, $profile)
+                : $this->builder->closingLines($pl, $bs, $profile);
             $lines = $built['lines'];
             $profit = round((float) $built['profit'], 2);
 
@@ -3835,6 +3865,9 @@ final class ClosingService
                 $docNo = $existing !== null && $existing['document_no'] !== null
                     ? (string) $existing['document_no']
                     : $this->series->next($supplierId, 'closing', $fiscalYear);
+                if ($profile->framework === AccountingFrameworkService::CZ_504) {
+                    $entryId = $this->post504Carry($supplierId, $period, $period, 'close_books', $rowVersion, ['entry_date' => $endsOn, 'document_no' => $docNo, 'description' => 'Uzavření účetních knih ' . $fiscalYear] + $meta);
+                } else {
                 $entryId = $this->posting->postDocument($supplierId, 'closing', $periodId, $lines, [
                     'entry_date' => $endsOn,
                     'document_no' => $docNo,
@@ -3846,6 +3879,7 @@ final class ClosingService
                     'user_agent' => $meta['user_agent'] ?? null,
                     'allow_closing_period' => true,
                 ]);
+                }
             }
 
             $this->casStatus($supplierId, $periodId, 'closed', $rowVersion, $meta);
@@ -3906,6 +3940,10 @@ final class ClosingService
                     . $categoryFreezeError . '. Knihy jsou uzavřené, ale období nelze zákonně schválit, '
                     . 'dokud historická kategorie nebude uložena (zopakuj krok / oprav podklad kategorizace).';
             }
+            if ($profile->framework === AccountingFrameworkService::CZ_504) {
+                $carryStep = (new \MyInvoice\Repository\ClosingCarryReadRepository($this->db))->step($supplierId, $periodId, 'close_books');
+                if (isset($carryStep['decoded_payload']['carry'])) $payload['carry'] = $carryStep['decoded_payload']['carry'];
+            }
             $this->closing->upsertStep($supplierId, $periodId, 'close_books', 'done', $payload, null, $meta['user_id'] ?? null);
             $this->audit($supplierId, 'accounting.books_closed', $periodId, [
                 'entry_id' => $entryId,
@@ -3941,6 +3979,7 @@ final class ClosingService
             $replaceTakenOverReason = null;
         }
         return $this->tx(fn (): array => (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $periodId, $rowVersion, $meta, $replaceTakenOverReason): array {
+            (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
             $period = $this->lockPeriod($supplierId, $periodId, $rowVersion);
             // Past #37: open_next musí jít i nad 'approved' obdobím. Je to čistě technický
             // přenos počátečních zůstatků do NÁSLEDUJÍCÍHO období (N+1, open) — do knih
@@ -3974,9 +4013,11 @@ final class ClosingService
             $nextFy = (int) $next['fiscal_year'];
             $nextStart = (string) $next['starts_on'];
             $nextEnds = (string) $next['ends_on'];
-            $this->assertOpeningFramework($supplierId, (string) $period['ends_on'], $nextStart);
+            $openingProfile = $this->assertOpeningFramework($supplierId, (string) $period['ends_on'], $nextStart);
 
-            $lines = $this->expectedOpeningLines($supplierId, $period, $steps);
+            $lines = $openingProfile->framework === AccountingFrameworkService::CZ_504
+                ? (new \MyInvoice\Repository\ClosingCarryReadRepository($this->db))->snapshot($supplierId, $period, $next, 'open_next', $nextStart, $openingProfile)['lines']
+                : $this->expectedOpeningLines($supplierId, $period, $steps);
 
             // Převzaté počáteční stavy: N+1 už má otevírací zápis, který nevznikl tímto
             // krokem (převod z jiného systému bez source_id, ruční otevírací rozvaha se
@@ -4028,6 +4069,9 @@ final class ClosingService
                 $docNo = $existingOpening !== null && $existingOpening['document_no'] !== null
                     ? (string) $existingOpening['document_no']
                     : $this->series->next($supplierId, 'opening', $nextFy);
+                if ($openingProfile->framework === AccountingFrameworkService::CZ_504) {
+                    $entryId = $this->post504Carry($supplierId, $period, $next, 'open_next', $rowVersion, ['entry_date' => $nextStart, 'document_no' => $docNo, 'description' => 'Otevření účetních knih ' . $nextFy] + $meta);
+                } else {
                 $entryId = $this->posting->postDocument($supplierId, 'opening', $nextId, $lines, [
                     'entry_date' => $nextStart,
                     'document_no' => $docNo,
@@ -4038,6 +4082,7 @@ final class ClosingService
                     'ip' => $meta['ip'] ?? null,
                     'user_agent' => $meta['user_agent'] ?? null,
                 ]);
+                }
             }
 
             // FX storno saldokonta k 1. dni nového období (R11, slot 3) — jen slot 1,
@@ -4243,6 +4288,10 @@ final class ClosingService
                 $payload['taken_over_accounts'] = $takenOverAccounts;
             } elseif ($openingSource === 'replaced') {
                 $payload['replace_reason'] = mb_substr((string) $replaceTakenOverReason, 0, 500);
+            }
+            if ($openingProfile->framework === AccountingFrameworkService::CZ_504) {
+                $carryStep = (new \MyInvoice\Repository\ClosingCarryReadRepository($this->db))->step($supplierId, $periodId, 'open_next');
+                if (isset($carryStep['decoded_payload']['carry'])) $payload['carry'] = $carryStep['decoded_payload']['carry'];
             }
             $this->closing->upsertStep($supplierId, $periodId, 'open_next', 'done', $payload, null, $meta['user_id'] ?? null);
             $this->bumpVersion($supplierId, $periodId, $rowVersion);
