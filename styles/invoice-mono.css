@@ -54,6 +54,7 @@ table.items th {
 }
 table.items td { border-bottom: 0.2pt solid #000000; }
 table.items tr:nth-child(even) td { background: #FFFFFF; }
+table.items tr.text-row td { color: #000000; }
 
 /* Součty */
 td.tot-label { color: #000000; }
