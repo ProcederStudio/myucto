@@ -42,11 +42,24 @@ final class RegressionMariaDbInstrumentationTest extends TestCase
             self::assertTrue($guarded['separate_instance']);
             self::assertTrue($guarded['transaction']);
             self::assertFalse($guarded['after_rollback']);
+            $savepointOriginal = RegressionInstrumentationTest::probe('maria-savepoint-original', $name);
+            $savepointGuarded = RegressionInstrumentationTest::probe('maria-savepoint-guarded', $name);
+            self::assertSame([1, 1], $savepointGuarded['read_only']);
+            self::assertSame(['sql_write_or_unsafe_statement'], $savepointGuarded['violations']);
+            self::assertTrue($savepointGuarded['forged_caller_rejected']);
+            self::assertTrue($savepointGuarded['dml_rejected']);
+            unset($savepointGuarded['read_only'], $savepointGuarded['violations'], $savepointGuarded['forged_caller_rejected'], $savepointGuarded['dml_rejected']);
+            self::assertSame($savepointOriginal, $savepointGuarded);
+            self::assertSame(['nested' => true, 'rollback_executed' => true, 'data_unchanged' => true,
+                'transaction_active' => true, 'after_rollback' => false], $savepointOriginal);
             self::assertSame('12345678901234567890.1234567890', $server->query('SELECT amount FROM `' . $name . '`.regression_probe WHERE id = 1')->fetchColumn());
         } finally {
             if ($owned) {
                 Safety::database($name, (string) $config->get('db.name'));
                 $server->exec('DROP DATABASE `' . $name . '`');
+                $absent = $server->prepare('SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = ?');
+                $absent->execute([$name]);
+                self::assertSame(0, (int) $absent->fetchColumn());
             }
         }
     }

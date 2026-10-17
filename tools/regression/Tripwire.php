@@ -63,6 +63,15 @@ final class Tripwire
         if (self::$internal) {
             return;
         }
+        if (preg_match('/\A(?:SAVEPOINT|RELEASE SAVEPOINT|ROLLBACK TO SAVEPOINT) dimension_period_[1-9][0-9]*\z/D', $sql)) {
+            $trace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 3);
+            if (($trace[1]['class'] ?? '') === 'MyInvoice\\Infrastructure\\Database\\LoggingPdo'
+                && ($trace[1]['function'] ?? '') === 'exec'
+                && ($trace[2]['class'] ?? '') === 'MyInvoice\\Service\\Accounting\\Dimension\\DimensionPeriodGuard'
+                && ($trace[2]['function'] ?? '') === 'transaction') {
+                return;
+            }
+        }
         // Strings are removed, executable comments are rejected before ordinary comments.
         if (preg_match('~/\*[!+]~', $sql)) {
             self::fail('sql_executable_comment');
@@ -78,7 +87,19 @@ final class Tripwire
                 }
             }
         }
-        if (!preg_match('/^(SELECT|WITH|SHOW|DESCRIBE|DESC|EXPLAIN)\b/i', $plain)
+        $nativeFxUnion = false;
+        if (substr_count(strtoupper($plain), 'UNION ALL') === 1
+            && preg_match('/\A\(SELECT\b.*\)\s+UNION ALL\s+\(SELECT\b.*\)\s+ORDER BY doc_type,\s*doc_id\z/is', $plain)) {
+            $trace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 3);
+            $pdoCall = (($trace[1]['class'] ?? '') === 'MyInvoice\\Infrastructure\\Database\\LoggingPdo'
+                    && ($trace[1]['function'] ?? '') === 'prepare')
+                || (($trace[1]['class'] ?? '') === 'MyInvoice\\Infrastructure\\Database\\LoggingPdoStatement'
+                    && ($trace[1]['function'] ?? '') === 'execute');
+            $nativeFxUnion = $pdoCall
+                && ($trace[2]['class'] ?? '') === 'MyInvoice\\Repository\\ClosingRepository'
+                && ($trace[2]['function'] ?? '') === 'openFxItems';
+        }
+        if ((!preg_match('/^(SELECT|WITH|SHOW|DESCRIBE|DESC|EXPLAIN)\b/i', $plain) && !$nativeFxUnion)
             || str_contains(rtrim($plain, ';'), ';')
             || preg_match('/\b(INSERT|UPDATE|DELETE|REPLACE|CREATE|ALTER|DROP|TRUNCATE|GRANT|REVOKE|CALL|INTO|OUTFILE|DUMPFILE|LOAD_FILE|GET_LOCK|RELEASE_LOCK|SLEEP|BENCHMARK|FOR\s+UPDATE|LOCK\s+IN\s+SHARE)\b/i', $plain)) {
             self::fail('sql_write_or_unsafe_statement');

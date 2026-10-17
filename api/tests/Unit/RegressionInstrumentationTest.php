@@ -36,6 +36,16 @@ final class RegressionInstrumentationTest extends TestCase
         self::assertTrue(self::probe('unknown-signature')['rejected']);
     }
 
+    public function testSavepointSyntaxOutsideNativeSymbolIsRejected(): void
+    {
+        self::assertSame(array_fill(0, 17, true), self::probe('savepoint-syntax')['rejected']);
+    }
+
+    public function testParenthesizedUnionOutsideNativeSymbolIsRejected(): void
+    {
+        self::assertSame(array_fill(0, 12, true), self::probe('union-syntax')['rejected']);
+    }
+
     public static function probe(string $mode, string $database = ''): array
     {
         $command = [PHP_BINARY, '-d', 'display_errors=0', '-d', 'disable_functions=' . implode(',', Network::FUNCTIONS), dirname(__DIR__) . '/Fixtures/regression-probe.php', $mode, $database];

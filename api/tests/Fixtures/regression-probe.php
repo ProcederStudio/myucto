@@ -38,6 +38,39 @@ try {
         echo json_encode(['violations' => Tripwire::violations()], JSON_THROW_ON_ERROR);
         exit(0);
     }
+    if ($mode === 'union-syntax') {
+        $statements = ['(SELECT 1) UNION ALL (SELECT 2) ORDER BY doc_type, doc_id', '(SELECT 1)',
+            '((SELECT 1))', '(SELECT 1) UNION ALL (SELECT 2); COMMIT',
+            '(SELECT 1) UNION ALL (SELECT 2) /*! COMMIT */', '(SELECT 1) UNION ALL (SELECT 2) /*+ hint */',
+            '(SELECT 1 INTO OUTFILE \'x\') UNION ALL (SELECT 2)', '(SELECT SLEEP(1)) UNION ALL (SELECT 2)',
+            '(SELECT 1) UNION ALL (UPDATE regression_probe SET amount = 1)',
+            '(SELECT 1) UNION ALL (SELECT 2) UNION ALL (SELECT 3)',
+            '(SELECT 1) UNION ALL (SELECT 2); SELECT 3', '(SELECT 1 FOR UPDATE) UNION ALL (SELECT 2)'];
+        $rejected = [];
+        foreach ($statements as $sql) {
+            try { Tripwire::sql($sql); $rejected[] = false; }
+            catch (RuntimeException) { $rejected[] = true; }
+        }
+        echo json_encode(['rejected' => $rejected], JSON_THROW_ON_ERROR);
+        exit(0);
+    }
+    if ($mode === 'savepoint-syntax') {
+        $statements = [
+            'SAVEPOINT dimension_period_1', 'RELEASE SAVEPOINT dimension_period_1', 'ROLLBACK TO SAVEPOINT dimension_period_1',
+            'SAVEPOINT dimension_period_0', 'SAVEPOINT unrelated', 'SAVEPOINT dimension_period_1; COMMIT',
+            'SAVEPOINT dimension_period_1; SELECT 1', 'SAVEPOINT dimension_period_1 /* comment */',
+            'SAVEPOINT dimension_period_1 /*! COMMIT */', 'SAVEPOINT dimension_period_1 /*+ hint */',
+            'COMMIT', 'BEGIN', 'START TRANSACTION', 'ROLLBACK', 'SET TRANSACTION READ WRITE',
+            'RELEASE SAVEPOINT dimension_period_1; COMMIT', 'ROLLBACK TO SAVEPOINT dimension_period_1; COMMIT',
+        ];
+        $rejected = [];
+        foreach ($statements as $sql) {
+            try { Tripwire::sql($sql); $rejected[] = false; }
+            catch (RuntimeException) { $rejected[] = true; }
+        }
+        echo json_encode(['rejected' => $rejected], JSON_THROW_ON_ERROR);
+        exit(0);
+    }
     require $root . '/api/vendor/autoload.php';
     if ($mode === 'config-snapshot') {
         $data = [
@@ -94,6 +127,51 @@ try {
     $second = new \MyInvoice\Infrastructure\Database\Connection($config);
     $third = \MyInvoice\Infrastructure\Database\Connection::withoutSharedTestConnection(static fn () => new \MyInvoice\Infrastructure\Database\Connection($config));
     $thirdPdo = $third->pdo();
+    if ($mode === 'maria-fx-union-guarded') {
+        $repo = new \MyInvoice\Repository\ClosingRepository($first);
+        $rows = $repo->openFxItems(3, '2025-12-31');
+        $result = ['native_query_completed' => true, 'row_count' => count($rows),
+            'read_only' => (int) $pdo->query('SELECT @@session.tx_read_only')->fetchColumn(), 'transaction_active' => $pdo->inTransaction()];
+        $result['wrong_caller_rejected'] = false;
+        try { $pdo->prepare('(SELECT amount FROM regression_probe) UNION ALL (SELECT amount FROM regression_probe) ORDER BY doc_type, doc_id'); }
+        catch (RuntimeException $error) { $result['wrong_caller_rejected'] = $error->getMessage() === 'sql_write_or_unsafe_statement'; }
+        $result['for_update_rejected'] = false;
+        try { $repo->openFxItems(3, '2025-12-31', true); }
+        catch (RuntimeException $error) { $result['for_update_rejected'] = $error->getMessage() === 'sql_write_or_unsafe_statement'; }
+        $result['violations'] = Tripwire::violations();
+        try { Tripwire::finish(); } catch (Throwable) {}
+        echo json_encode($result, JSON_THROW_ON_ERROR);
+        exit(0);
+    }
+    if (str_starts_with($mode, 'maria-savepoint-')) {
+        $before = $pdo->query('SELECT amount FROM regression_probe WHERE id = 2')->fetchColumn();
+        $guard = new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($first);
+        $nested = $guard->transaction(static fn (): bool => $pdo->inTransaction());
+        $rolled = false;
+        try {
+            $guard->transaction(static function () use ($pdo, $instrumented): void {
+                if (!$instrumented) $pdo->exec('UPDATE regression_probe SET amount = 12.34 WHERE id = 2');
+                throw new LogicException('synthetic_rollback');
+            });
+        } catch (LogicException) { $rolled = true; }
+        $after = $pdo->query('SELECT amount FROM regression_probe WHERE id = 2')->fetchColumn();
+        $result = ['nested' => $nested, 'rollback_executed' => $rolled, 'data_unchanged' => $before === $after,
+            'transaction_active' => $pdo->inTransaction()];
+        if ($instrumented) {
+            $result['read_only'] = [(int) $pdo->query('SELECT @@session.tx_read_only')->fetchColumn(), (int) $thirdPdo->query('SELECT @@session.tx_read_only')->fetchColumn()];
+            $result['forged_caller_rejected'] = false;
+            try { $guard->transaction(static fn () => $pdo->exec('SAVEPOINT dimension_period_999')); }
+            catch (RuntimeException $error) { $result['forged_caller_rejected'] = $error->getMessage() === 'sql_write_or_unsafe_statement'; }
+            $result['dml_rejected'] = false;
+            try { $pdo->prepare('UPDATE regression_probe SET amount = 1')->execute(); }
+            catch (RuntimeException $error) { $result['dml_rejected'] = $error->getMessage() === 'sql_write_or_unsafe_statement'; }
+            $result['violations'] = Tripwire::violations();
+            try { Tripwire::finish(); } catch (Throwable) {}
+        } else { $pdo->rollBack(); }
+        $result['after_rollback'] = $pdo->inTransaction();
+        echo json_encode($result, JSON_THROW_ON_ERROR);
+        exit(0);
+    }
     $result = [
         'rows' => $pdo->query('SELECT amount, nullable FROM regression_probe ORDER BY id')->fetchAll(),
         'session' => $pdo->query('SELECT @@session.sql_mode AS mode, @@session.time_zone AS timezone')->fetch(),
