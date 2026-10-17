@@ -342,11 +342,11 @@
               {# Vyúčtování s výsledkem k vyplacení: peníze posíláme my, takže žádné
                  platební údaje k úhradě ani QR. #}
               {% set _vs = payment_varsymbol|default(invoice.varsymbol) %}
-              <div class="bank-label"{% if is_paid %} style="color:#2E7D32;"{% endif %}>
+              <div class="bank-label{% if is_paid %} paid-mark{% endif %}">
                 {%- if is_paid %}{{ t('VRÁCENO', 'REFUNDED') }}{% else %}{{ t('K vrácení', 'Amount to be refunded') }}{% endif -%}
               </div>
               <div class="spacer-3">&nbsp;</div>
-              <div class="bank-value"{% if is_paid %} style="color:#2E7D32;"{% endif %}>{{ refund_amount|number_format(2, decimal_sep, thousand_sep) }} {{ invoice.currency }}</div>
+              <div class="bank-value{% if is_paid %} paid-mark{% endif %}">{{ refund_amount|number_format(2, decimal_sep, thousand_sep) }} {{ invoice.currency }}</div>
               <div class="spacer-2">&nbsp;</div>
               <div class="bank-meta-line">
                 {%- if payment_method == 'cash' -%}
@@ -361,8 +361,8 @@
                 <div class="bank-meta-line">{{ t('Datum vrácení', 'Refunded on') }}: {{ invoice.paid_at|date(date_format) }}</div>
               {% endif %}
             {% elseif is_paid %}
-              <div class="bank-label" style="color:#2E7D32;margin-bottom:1.5mm;">{{ t('UHRAZENO', 'PAID') }}</div>
-              <div class="bank-value" style="color:#2E7D32;">
+              <div class="bank-label paid-mark" style="margin-bottom:1.5mm;">{{ t('UHRAZENO', 'PAID') }}</div>
+              <div class="bank-value paid-mark">
                 {%- if payment_method == 'card' -%}{{ t('Platba kartou online', 'Paid online by card') }}
                 {%- elseif payment_method == 'cash' -%}{{ t('Hotově', 'Cash') }}
                 {%- else -%}{{ t('Neplaťte prosím znovu', 'Do not pay again') }}{%- endif -%}
@@ -687,7 +687,7 @@
       <td class="num nowrap">{{ it.total_amount|number_format(total_dec, decimal_sep, thousand_sep) }} {{ invoice.currency }}</td>
     </tr>
     {% endfor %}
-    <tr style="background:#F4F2F8;font-weight:bold;">
+    <tr class="wr-total">
       <td style="text-align:right;" {% if wr_has_dates %}colspan="2"{% endif %}>{{ t('Celkem', 'Total') }}</td>
       <td class="num nowrap">{% if work_report.total_duration_display is defined and work_report.total_duration_display is not null %}{{ work_report.total_duration_display }}{% else %}{{ work_report.total_hours|number_format(hours_dec, decimal_sep, thousand_sep) }}{% endif %} h</td>
       <td></td>
@@ -724,12 +724,12 @@
       <td class="num nowrap">{{ m.total_amount|number_format(mtotal_dec, decimal_sep, thousand_sep) }} {{ invoice.currency }}</td>
     </tr>
     {% endfor %}
-    <tr style="background:#F4F2F8;font-weight:bold;">
+    <tr class="wr-total">
       <td style="text-align:right;" colspan="4">{% if supplier.is_vat_payer %}{{ t('Celkem bez DPH', 'Total excl. VAT') }}{% else %}{{ t('Celkem', 'Total') }}{% endif %}</td>
       <td class="num nowrap">{{ work_report.material_total|number_format(supplier.is_vat_payer ? 2 : mtotal_dec, decimal_sep, thousand_sep) }} {{ invoice.currency }}</td>
     </tr>
     {% if supplier.is_vat_payer %}
-    <tr style="background:#F4F2F8;font-weight:bold;">
+    <tr class="wr-total">
       <td style="text-align:right;" colspan="4">{{ t('Celkem s DPH', 'Total incl. VAT') }}{% if work_report.material_vat_rate is not null %} ({{ work_report.material_vat_rate|number_format(work_report.material_vat_rate == work_report.material_vat_rate|round(0) ? 0 : 2, decimal_sep, thousand_sep) }}&nbsp;%){% endif %}</td>
       <td class="num nowrap">{{ work_report.material_total_with_vat|number_format(2, decimal_sep, thousand_sep) }} {{ invoice.currency }}</td>
     </tr>
