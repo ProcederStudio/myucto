@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Accounting\Closing;
 
 use MyInvoice\Service\Accounting\AccountingPeriodStatus;
+use MyInvoice\Service\Accounting\JournalLineComparison;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard;
@@ -3217,10 +3218,11 @@ final class ClosingService
         $target = $context['target'];
         $sourceId = (int) $period['id'];
         $asOf = (string) $target['ends_on'];
-        $balance431 = round($this->closing->accountBalance($supplierId, '431', $asOf), 2);
+        $existing = $this->journal->findActiveBySource($supplierId, 'profit_distribution', $sourceId);
+        $snapshot = $this->closing->profitDistributionSnapshot($supplierId, $existing['id'] ?? null, $asOf);
+        $balance431 = $snapshot['balance_431'];
         $available = round(-$balance431, 2); // kladné = zisk k rozdělení, záporné = ztráta k úhradě
-        $existing = $this->journal->findBySource($supplierId, 'profit_distribution', $sourceId);
-        $resources = $this->distributableResources($supplierId, $asOf, $available, $sourceId);
+        $resources = $this->distributableResources($snapshot, $available);
 
         return [
             'approved_period' => ['id' => (int) $period['id'], 'fiscal_year' => (int) $period['fiscal_year'], 'status' => (string) $period['status']],
@@ -3250,7 +3252,7 @@ final class ClosingService
      * D 342). Tvrdá kontrola Σ přídělů = |zůstatek 431| a limitu rozdělitelných zdrojů.
      *
      * Idempotence (audit 2026-07 #3): zůstatek 431 se počítá s VYLOUČENÍM vlastního
-     * předchozího zápisu téhož source_id (accountBalance exclude*, vzor FX slotu 2) —
+     * aktivního předchozího zápisu téhož source_id (profitDistributionSnapshot) —
      * jinak by po prvním běhu 431 už nettoval na 0 a Σ přídělů by při re-runu vždy
      * selhala na distribution_mismatch (rewrite větev by byla nedosažitelná). Re-run
      * tak skutečně přepočítá „jako by se distribuce ještě nestala" a postDocument
@@ -3280,11 +3282,12 @@ final class ClosingService
         $targetRowVersion = (int) ($body['target_row_version'] ?? 0);
 
         return $this->tx(function () use ($supplierId, $periodId, $decisionDate, $allocations, $withholdingRate, $targetRowVersion, $meta): array {
-            $requested = $this->periods->findById($supplierId, $periodId);
+            (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+            $requested = $this->periods->findForUpdate($periodId, $supplierId);
             if ($requested === null) {
                 throw new ClosingException('not_found', 'Účetní období #' . $periodId . ' neexistuje.', 404);
             }
-            $context = $this->profitDistributionContext($supplierId, $requested);
+            $context = $this->profitDistributionContext($supplierId, $requested, true);
             $period = $context['source'];
             $target = $context['target'];
             $sourceId = (int) $period['id'];
@@ -3302,10 +3305,12 @@ final class ClosingService
             $asOf = (string) $lockedTarget['ends_on'];
             // Vyloučit vlastní předchozí zápis (audit #3) — bez toho by re-run po prvním
             // zaúčtování viděl 431 už vynulovaný a distribution_mismatch by byla nedosažitelná.
-            $balance431 = round($this->closing->accountBalance($supplierId, '431', $asOf, 'profit_distribution', $sourceId), 2);
+            $existing = $this->journal->findActiveBySourceForUpdate($supplierId, 'profit_distribution', $sourceId);
+            $snapshot = $this->closing->profitDistributionSnapshot($supplierId, $existing['id'] ?? null, $asOf, true);
+            $balance431 = $snapshot['undistributed_balance_431'];
             $available = round(-$balance431, 2);
             $isLoss = $available < 0;
-            $resources = $this->distributableResources($supplierId, $asOf, $available, $sourceId);
+            $resources = $this->distributableResources($snapshot, $available);
 
             $sum = 0.0;
             $sharesGross = 0.0;
@@ -3373,7 +3378,8 @@ final class ClosingService
 
             $this->assertKnownCodes($supplierId, $lines);
 
-            $existing = $this->journal->findBySource($supplierId, 'profit_distribution', $sourceId);
+            $this->assertProfitDistributionUnsettled($supplierId, $sourceId, $decisionDate,
+                $this->posting->prepareDocumentLines($supplierId, 'profit_distribution', $sourceId, $lines, $decisionDate));
             $docNo = $existing !== null && $existing['document_no'] !== null
                 ? (string) $existing['document_no']
                 : $this->series->next($supplierId, 'manual', (int) $lockedTarget['fiscal_year']);
@@ -3447,25 +3453,11 @@ final class ClosingService
             // Symetrie s zaúčtováním: co jde zaúčtovat do 'closing', musí jít i vzít zpět.
             $this->assertStatus($lockedTarget, self::PROFIT_DISTRIBUTION_TARGET_STATUSES);
 
-            $existing = $this->findEntryWithLines($supplierId, 'profit_distribution', $sourceId, true);
+            $existing = $this->findEntryWithLines($supplierId, 'profit_distribution', $sourceId, true, true);
             if ($existing === null) {
                 throw new ClosingException('not_found', 'Žádné zaúčtované rozdělení VH k revertu.', 404);
             }
-            $watchCodes = [];
-            foreach (($existing['lines'] ?? []) as $l) {
-                $code = (string) $l['account_code'];
-                if ($code !== '431') {
-                    $watchCodes[$code] = true;
-                }
-            }
-            if ($watchCodes !== [] && $this->closing->hasFollowUpPostingsForUpdate($supplierId, array_keys($watchCodes), (string) $existing['entry_date'])) {
-                throw new ClosingException(
-                    'distribution_settled',
-                    'Na účty rozdělení VH (např. 364 — podíly společníků) navazují pozdější zaúčtované doklady '
-                        . '(výplata podílu, čerpání fondu apod.) — nejprve stornuj navazující platby, teprve pak vezmi rozdělení zpět.',
-                    422,
-                );
-            }
+            $this->assertProfitDistributionUnsettled($supplierId, $sourceId);
 
             $dump = $this->closing->deleteClosingEntry($supplierId, 'profit_distribution', $sourceId, $targetId, true);
             if ($dump === null) {
@@ -3480,13 +3472,24 @@ final class ClosingService
         });
     }
 
-    /**
-     * Zdrojové schválené a cílové otevřené období pro rozdělení VH. Volání nad
-     * otevřeným obdobím kanonicky dohledá jeho bezprostředně předchozí approved rok.
-     *
-     * @param array<string,mixed> $period
-     * @return array{source:array<string,mixed>,target:array<string,mixed>}
-     */
+    /** Přesný finanční retry je dovolen; změna nebo smazání nesmí opustit použité zdroje. */
+    public function assertProfitDistributionUnsettled(int $supplierId, int $sourcePeriodId, ?string $newDate = null, ?array $resolvedLines = null, string $pendingAccount = '431'): void
+    {
+        (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+        $existing = $this->findEntryWithLines($supplierId, 'profit_distribution', $sourcePeriodId, true, true);
+        if ($existing === null) return;
+        if ($newDate === $existing['entry_date'] && $resolvedLines !== null && JournalLineComparison::sameLines($resolvedLines, $existing['lines'])) return;
+        $watchCodes = [];
+        foreach ($existing['lines'] as $line) {
+            if (!str_starts_with($line['account_code'], $pendingAccount)) $watchCodes[$line['account_code']] = true;
+        }
+        if ($this->closing->hasFollowUpPostingsForUpdate($supplierId, array_keys($watchCodes), $existing['entry_date'], (int) $existing['id'])) {
+            throw new ClosingException('distribution_settled',
+                'Na účty rozdělení VH (např. 364 — podíly společníků) navazují pozdější zaúčtované doklady '
+                    . '(výplata podílu, čerpání fondu apod.) — nejprve stornuj navazující platby, teprve pak vezmi rozdělení zpět.', 422);
+        }
+    }
+
     /**
      * Dobová sazba srážkové daně §36 z podílu na zisku pro daný rok — z verzovaných
      * konstant, s fallbackem na {@see self::WITHHOLDING_RATE} pro roky bez klíče.
@@ -3506,6 +3509,13 @@ final class ClosingService
      */
     private const PROFIT_DISTRIBUTION_TARGET_STATUSES = ['open', 'closing'];
 
+    /**
+     * Zdrojové schválené a cílové otevřené období pro rozdělení VH. Volání nad
+     * otevřeným obdobím kanonicky dohledá jeho bezprostředně předchozí approved rok.
+     *
+     * @param array<string,mixed> $period
+     * @return array{source:array<string,mixed>,target:array<string,mixed>}
+     */
     private function profitDistributionContext(int $supplierId, array $period, bool $forUpdate = false): array
     {
         if (in_array((string) $period['status'], self::PROFIT_DISTRIBUTION_TARGET_STATUSES, true)) {
@@ -3543,10 +3553,10 @@ final class ClosingService
      *
      * @return array{retained_profit:float,uncovered_loss:float,limit:float}
      */
-    private function distributableResources(int $supplierId, string $asOf, float $currentProfit, int $sourcePeriodId): array
+    private function distributableResources(array $snapshot, float $currentProfit): array
     {
-        $balance428 = round($this->closing->accountBalance($supplierId, '428', $asOf, 'profit_distribution', $sourcePeriodId), 2);
-        $balance429 = round($this->closing->accountBalance($supplierId, '429', $asOf, 'profit_distribution', $sourcePeriodId), 2);
+        $balance428 = $snapshot['balance_428'];
+        $balance429 = $snapshot['balance_429'];
         $retainedProfit = max(0.0, round(-$balance428, 2));
         $uncoveredLoss = max(0.0, round($balance429, 2));
         return [
@@ -5871,10 +5881,11 @@ final class ClosingService
      *
      * @return array<string,mixed>|null
      */
-    private function findEntryWithLines(int $supplierId, string $sourceType, int $sourceId, bool $forUpdate = false): ?array
+    private function findEntryWithLines(int $supplierId, string $sourceType, int $sourceId, bool $forUpdate = false, bool $activeOnly = false): ?array
     {
-        $entry = $forUpdate ? $this->journal->findBySourceForUpdate($supplierId, $sourceType, $sourceId)
-            : $this->journal->findBySource($supplierId, $sourceType, $sourceId);
+        $entry = $activeOnly ? $this->journal->findActiveBySource($supplierId, $sourceType, $sourceId, $forUpdate)
+            : ($forUpdate ? $this->journal->findBySourceForUpdate($supplierId, $sourceType, $sourceId)
+                : $this->journal->findBySource($supplierId, $sourceType, $sourceId));
         if ($entry === null) {
             return null;
         }

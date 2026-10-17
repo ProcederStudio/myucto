@@ -209,34 +209,9 @@ final class PostingService
         ]);
     }
 
-    /**
-     * Sestaví a zapíše vyvážený účetní zápis. Vrací id zápisu (existující při
-     * re-postu, nový jinak).
-     *
-     * @param 'invoice'|'purchase_invoice'|'bank'|'cash'|'asset'|'manual'|'closing'|'opening'|'payroll'|'vat_clearing' $sourceType
-     * @param list<array{account_code:string, side:'debit'|'credit', amount:float|int|string, cost_center?:?string}> $lines
-     * @param array{
-     *     entry_date:string, document_date?:?string, document_no?:?string, description?:?string,
-     *     posted?:bool, posted_at?:?string, posted_by?:?int, user_id?:?int, ip?:?string, user_agent?:?string,
-     *     expected_row_version?:?int
-     * } $meta
-     *
-     * @throws UnbalancedEntryException když Σ MD ≠ Σ D
-     * @throws PostingException při chybějícím účtu / zavřeném / chybějícím období
-     */
-    public function postDocument(int $supplierId, string $sourceType, ?int $sourceId, array $lines, array $meta): int
+    /** @return list<array<string,mixed>> */
+    public function prepareDocumentLines(int $supplierId, string $sourceType, ?int $sourceId, array $lines, string $entryDate): array
     {
-        if ($lines === []) {
-            throw new PostingException('empty_entry', 'Účetní zápis nemá žádné řádky.');
-        }
-        $entryDate = (string) ($meta['entry_date'] ?? '');
-        if ($entryDate === '') {
-            throw new PostingException('missing_entry_date', 'Chybí datum účetního případu (meta.entry_date).');
-        }
-        if ($sourceType === 'payroll') {
-            $this->assertPayrollPostingContext($supplierId, $sourceId);
-        }
-
         // 1) překlad CODE → account_id (v rámci osnovy firmy) + kontrola vyváženosti.
         //    Vyváženost se ověřuje na RESOLVED řádcích (částky zaokr. na 2 des. místa),
         //    tj. přesně na tom, co se uloží — ne na surovém vstupu.
@@ -265,6 +240,39 @@ final class PostingService
         $this->dimensionWarnings = [];
         $this->dimensionWarnings = $this->dimensionStamper()->rules()->check($supplierId, $sourceType, $resolved, $entryDate);
         self::assertBalanced($resolved); // v haléřích; UnbalancedEntryException při nerovnosti
+
+        return $resolved;
+    }
+
+    /**
+     * Sestaví a zapíše vyvážený účetní zápis. Vrací id zápisu (existující při
+     * re-postu, nový jinak).
+     *
+     * @param 'invoice'|'purchase_invoice'|'bank'|'cash'|'asset'|'manual'|'closing'|'opening'|'payroll'|'vat_clearing' $sourceType
+     * @param list<array{account_code:string, side:'debit'|'credit', amount:float|int|string, cost_center?:?string}> $lines
+     * @param array{
+     *     entry_date:string, document_date?:?string, document_no?:?string, description?:?string,
+     *     posted?:bool, posted_at?:?string, posted_by?:?int, user_id?:?int, ip?:?string, user_agent?:?string,
+     *     expected_row_version?:?int
+     * } $meta
+     *
+     * @throws UnbalancedEntryException když Σ MD ≠ Σ D
+     * @throws PostingException při chybějícím účtu / zavřeném / chybějícím období
+     */
+    public function postDocument(int $supplierId, string $sourceType, ?int $sourceId, array $lines, array $meta): int
+    {
+        if ($lines === []) {
+            throw new PostingException('empty_entry', 'Účetní zápis nemá žádné řádky.');
+        }
+        $entryDate = (string) ($meta['entry_date'] ?? '');
+        if ($entryDate === '') {
+            throw new PostingException('missing_entry_date', 'Chybí datum účetního případu (meta.entry_date).');
+        }
+        if ($sourceType === 'payroll') {
+            $this->assertPayrollPostingContext($supplierId, $sourceId);
+        }
+
+        $resolved = $this->prepareDocumentLines($supplierId, $sourceType, $sourceId, $lines, $entryDate);
 
         // R7 (Epic F4): flag allow_closing_period smí nastavit VÝHRADNĚ ClosingService —
         // závěrkové zápisy k ends_on se účtují do období ve stavu 'closing' (nikdy closed/approved).

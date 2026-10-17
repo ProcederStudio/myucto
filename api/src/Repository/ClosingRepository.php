@@ -54,12 +54,12 @@ final class ClosingRepository
     /**
      * Aktuální návazné zápisy po period-first zámku volajícího (včetně staršího RR snapshotu).
      * Existuje na některý z $accountCodes zaúčtovaný zápis mimo profit_distribution
-     * s entry_date > $afterDate? Guard pro revert rozdělení VH (audit #2) — prefix-match
+     * s pozdějším datem, nebo při zadaném ID i pozdější zápis stejného dne. Prefix-match
      * jako {@see ClosingRepository::accountBalance}, aby chytil i analytiky.
      *
      * @param list<string> $accountCodes
      */
-    public function hasFollowUpPostingsForUpdate(int $supplierId, array $accountCodes, string $afterDate): bool
+    public function hasFollowUpPostingsForUpdate(int $supplierId, array $accountCodes, string $afterDate, ?int $afterEntryId = null): bool
     {
         if ($accountCodes === []) {
             return false;
@@ -72,6 +72,7 @@ final class ClosingRepository
             $params[] = $code;
         }
         $params[] = $afterDate;
+        if ($afterEntryId !== null) array_push($params, $afterDate, $afterEntryId);
         $stmt = $this->db->pdo()->prepare(
             'SELECT 1
                FROM journal_entry_lines l
@@ -81,7 +82,7 @@ final class ClosingRepository
               WHERE l.supplier_id = ? AND e.posted_at IS NOT NULL
                 AND e.source_type <> \'profit_distribution\'
                 AND (' . implode(' OR ', $conditions) . ')
-                AND e.entry_date > ?
+                AND (e.entry_date > ?' . ($afterEntryId !== null ? ' OR (e.entry_date = ? AND e.id > ?)' : '') . ')
               LIMIT 1 FOR UPDATE'
         );
         $stmt->execute($params);
@@ -415,6 +416,41 @@ final class ClosingRepository
         $params[] = $accountCode;
         $stmt->execute($params);
         return round((float) $stmt->fetchColumn(), 2);
+    }
+
+    /**
+     * Náhled čte skutečný 431; opakované rozdělení vynechá pouze aktivní vlastní zápis.
+     * Historické originály a jejich storna s NULL source_id zůstávají společně v saldu.
+     * Zamykající varianta vyžaduje předchozí period-first zámky volajícího.
+     *
+     * @return array{balance_431:float,undistributed_balance_431:float,balance_428:float,balance_429:float}
+     */
+    public function profitDistributionSnapshot(int $supplierId, ?int $activeEntryId, string $asOf, bool $forUpdate = false): array
+    {
+        if ($forUpdate && !$this->db->pdo()->inTransaction()) {
+            throw new \LogicException('Current distribution balances require a transaction.');
+        }
+        $stmt = $this->db->pdo()->prepare("SELECT l.entry_id, l.side, l.signed_amount, a.account_code,
+                COALESCE(p.account_code, a.account_code) AS parent_code
+            FROM journal_entry_lines l JOIN journal_entries e ON e.id = l.entry_id AND e.supplier_id = l.supplier_id
+            JOIN chart_of_accounts a ON a.id = l.account_id AND a.supplier_id = l.supplier_id
+            LEFT JOIN chart_of_accounts p ON p.id = a.parent_id
+            WHERE l.supplier_id = ? AND e.posted_at IS NOT NULL AND e.entry_date <= ?
+                AND (a.account_code REGEXP '^(431|428|429)' OR COALESCE(p.account_code, a.account_code) REGEXP '^(431|428|429)')
+            ORDER BY e.id, l.id" . ($forUpdate ? ' FOR UPDATE' : ''));
+        $stmt->execute([$supplierId, $asOf]);
+        $actual431 = 0;
+        $balances = ['431' => 0, '428' => 0, '429' => 0];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $amount = (int) round((float) $row['signed_amount'] * 100) * ($row['side'] === 'debit' ? 1 : -1);
+            foreach ($balances as $code => $_) {
+                if (!str_starts_with($row['account_code'], (string) $code) && !str_starts_with($row['parent_code'], (string) $code)) continue;
+                if ((string) $code === '431') $actual431 += $amount;
+                if ((int) $row['entry_id'] !== $activeEntryId) $balances[$code] += $amount;
+            }
+        }
+        return ['balance_431' => $actual431 / 100, 'undistributed_balance_431' => $balances['431'] / 100,
+            'balance_428' => $balances['428'] / 100, 'balance_429' => $balances['429'] / 100];
     }
 
     /**
@@ -933,7 +969,8 @@ final class ClosingRepository
                     source_type, source_id, posted_at, posted_by, reversed_by, row_version
                FROM journal_entries
               WHERE supplier_id = ? AND source_type = ? AND source_id = ?
-              " . ($forUpdate ? 'ORDER BY id DESC LIMIT 1 FOR UPDATE' : 'LIMIT 1')
+              " . ($sourceType === 'profit_distribution' ? 'AND reversed_by IS NULL ' : '')
+                . ($forUpdate ? 'ORDER BY id DESC LIMIT 1 FOR UPDATE' : 'LIMIT 1')
         );
         $stmt->execute([$supplierId, $sourceType, $sourceId]);
         $entry = $stmt->fetch(PDO::FETCH_ASSOC);

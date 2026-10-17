@@ -557,6 +557,11 @@ final class JournalEntryRepository
      */
     public function findActiveBySourceForUpdate(int $supplierId, string $sourceType, int $sourceId): ?array
     {
+        return $this->findActiveBySource($supplierId, $sourceType, $sourceId, true);
+    }
+
+    public function findActiveBySource(int $supplierId, string $sourceType, int $sourceId, bool $forUpdate = false): ?array
+    {
         $stmt = $this->db->pdo()->prepare(
             'SELECT id, supplier_id, period_id, entry_date, document_date, document_no, description,
                     source_type, source_id, posted_at, posted_by, reversed_by, row_version,
@@ -564,8 +569,7 @@ final class JournalEntryRepository
                FROM journal_entries
               WHERE supplier_id = ? AND source_type = ? AND source_id = ? AND reversed_by IS NULL
               ORDER BY id DESC
-              LIMIT 1
-              FOR UPDATE'
+              LIMIT 1' . ($forUpdate ? ' FOR UPDATE' : '')
         );
         $stmt->execute([$supplierId, $sourceType, $sourceId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
