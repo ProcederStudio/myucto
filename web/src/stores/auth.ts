@@ -9,6 +9,7 @@ import { broadcastSessionEvent } from '@/security/sessionChannel'
 import { rememberTotpEnrollment } from '@/security/totpEnrollment'
 import { setOverdueIncludesToday } from '@/utils/invoiceOverdue'
 import { getWindowSupplierScope } from '@/workspace/supplierContext'
+import { clearVatReportPeriodSession } from '@/utils/vatReportPeriodSession'
 import { useSupplierStore } from './supplier'
 import { accessLevelValue, type AccessLevel, type PermissionKey, type PermissionValue } from '@/security/permissions'
 
@@ -227,6 +228,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function clearPrivateState() {
+    clearVatReportPeriodSession()
     ++refreshGeneration
     permissionsLoading.value = false
     rememberTotpEnrollment(null)

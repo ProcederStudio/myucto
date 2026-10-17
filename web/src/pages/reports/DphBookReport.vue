@@ -7,6 +7,7 @@ import {
 } from '@/api/reports'
 import { apiErrorMessage } from '@/api/errors'
 import { useYearOptions } from '@/composables/useYearOptions'
+import { useVatReportPeriod } from '@/composables/useVatReportPeriod'
 import { ICONS, btnOutline } from '@/components/ui/buttonStyles'
 import { useAuthStore } from '@/stores/auth'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -16,13 +17,10 @@ import DphBookDocumentLink from '@/components/reports/DphBookDocumentLink.vue'
 const { t, locale } = useI18n()
 const auth = useAuthStore()
 
-const now = new Date()
-const year = ref(now.getFullYear())
-const month = ref(now.getMonth() + 1)
-const periodType = ref<'monthly' | 'quarterly'>('monthly')
+const { year, month, periodOverride, effectivePeriod: periodType, ready, settingsError, initialize } = useVatReportPeriod()
 
 const preview = ref<DphBookPreview | null>(null)
-const loading = ref(false)
+const loading = ref(true)
 const error = ref('')
 
 // Filtr „Oddíl KH" (issue #142): prázdný = celá Kniha DPH, jinak soupis dokladů
@@ -31,29 +29,39 @@ const khSection = ref<KhEvidenceSection | ''>('')
 const khReport = ref<KhEvidenceReport | null>(null)
 const khSectionOptions: KhEvidenceSection[] = ['all', ...KH_EVIDENCE_SECTIONS]
 
+let previewSeq = 0
 async function loadPreview() {
+  if (!ready.value) return
+  const seq = ++previewSeq
+  const requestedYear = year.value
+  const requestedMonth = month.value
+  const requestedPeriod = periodType.value
+  const requestedSection = khSection.value
   loading.value = true
   error.value = ''
   try {
-    if (khSection.value === '') {
+    if (requestedSection === '') {
       khReport.value = null
-      preview.value = await reportsApi.dphBookPreview(year.value, month.value, periodType.value)
+      const result = await reportsApi.dphBookPreview(requestedYear, requestedMonth, requestedPeriod)
+      if (seq === previewSeq) preview.value = result
     } else {
-      khReport.value = await reportsApi.khEvidencePreview(year.value, month.value, periodType.value, khSection.value)
+      const result = await reportsApi.khEvidencePreview(requestedYear, requestedMonth, requestedPeriod, requestedSection)
+      if (seq === previewSeq) khReport.value = result
     }
   } catch (e) {
-    error.value = apiErrorMessage(e)
+    if (seq === previewSeq) error.value = apiErrorMessage(e)
   } finally {
-    loading.value = false
+    if (seq === previewSeq) loading.value = false
   }
 }
 
 function downloadPdf() {
+  if (!ready.value || !preview.value || loading.value) return
   window.open(reportsApi.dphBookPdfUrl(year.value, month.value, periodType.value), '_blank')
 }
 
 function downloadKh(format: 'pdf' | 'xlsx') {
-  if (khSection.value === '') return
+  if (!ready.value || !khReport.value || loading.value || khSection.value === '') return
   window.open(reportsApi.khEvidenceDownloadUrl(year.value, month.value, periodType.value, khSection.value, format), '_blank')
 }
 
@@ -117,8 +125,28 @@ const anyClaimShifted = computed(() =>
   (preview.value?.sections ?? []).some(s => s.rows.some(claimShifted))
 )
 
-watch([year, month, periodType, khSection], loadPreview)
-onMounted(loadPreview)
+watch([ready, year, month, periodType, khSection], () => {
+  if (!ready.value) {
+    ++previewSeq
+    preview.value = null
+    khReport.value = null
+    loading.value = !settingsError.value
+    return
+  }
+  void loadPreview()
+})
+watch(settingsError, value => {
+  if (value) {
+    error.value = apiErrorMessage(value)
+    loading.value = false
+  }
+})
+function retrySettings() {
+  loading.value = true
+  error.value = ''
+  void initialize()
+}
+onMounted(() => { void initialize() })
 </script>
 
 <template>
@@ -132,26 +160,26 @@ onMounted(loadPreview)
       <div class="flex items-center gap-2 flex-wrap">
         <!-- Period toggle (měsíční / kvartální) -->
         <div class="flex rounded-md border border-neutral-300 overflow-hidden text-sm">
-          <button type="button" @click="periodType = 'monthly'"
+          <button type="button" :disabled="!ready" @click="periodOverride = 'monthly'"
             :class="periodType === 'monthly' ? 'bg-primary-600 text-white' : 'bg-surface text-neutral-700 hover:bg-neutral-50'"
             class="px-3 h-9 cursor-pointer">
             {{ t('reports.dph.monthly') }}
           </button>
-          <button type="button" @click="periodType = 'quarterly'"
+          <button type="button" :disabled="!ready" @click="periodOverride = 'quarterly'"
             :class="periodType === 'quarterly' ? 'bg-primary-600 text-white' : 'bg-surface text-neutral-700 hover:bg-neutral-50'"
             class="px-3 h-9 cursor-pointer border-l border-neutral-300">
             {{ t('reports.dph.quarterly') }}
           </button>
         </div>
         <!-- Quarter picker pokud quarterly, jinak month -->
-        <select v-if="isQuarterly" :value="currentQuarter" @change="setQuarter(Number(($event.target as HTMLSelectElement).value))"
+        <select :disabled="!ready" v-if="isQuarterly" :value="currentQuarter" @change="setQuarter(Number(($event.target as HTMLSelectElement).value))"
           class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
           <option v-for="q in quarterOptions" :key="q" :value="q">Q{{ q }}</option>
         </select>
-        <select v-else v-model.number="month" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
+        <select v-else :disabled="!ready" v-model.number="month" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
           <option v-for="(label, i) in monthOptions" :key="i + 1" :value="i + 1">{{ label }}</option>
         </select>
-        <select v-model.number="year" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
+        <select :disabled="!ready" v-model.number="year" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
           <option v-for="y in yearOptions" :key="y" :value="y">{{ y }}</option>
         </select>
         <select v-model="khSection" :aria-label="t('reports.kh_evidence.filter_label')"
@@ -184,8 +212,12 @@ onMounted(loadPreview)
     <div v-if="loading" class="bg-surface border border-neutral-200 rounded-lg shadow-sm p-8 text-center text-neutral-400">
       {{ t('common.loading') }}…
     </div>
-    <div v-else-if="error" class="bg-danger-50 border border-danger-500/40 text-danger-500 rounded-md p-3 text-sm">
-      {{ error }}
+    <div v-else-if="error" class="bg-danger-50 border border-danger-500/40 text-danger-500 rounded-md p-3 text-sm flex flex-wrap items-center gap-3">
+      <span>{{ error }}</span>
+      <button v-if="settingsError" type="button" @click="retrySettings" :class="btnOutline('neutral')">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.cycle" /></svg>
+        {{ t('common.retry') }}
+      </button>
     </div>
 
     <div v-else-if="khSection !== '' && khReport" class="space-y-4">
