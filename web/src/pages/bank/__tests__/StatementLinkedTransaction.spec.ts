@@ -141,6 +141,48 @@ describe('statement transaction deep link', () => {
     expect(page.bankActions.textDetail.value?.id).toBe(43)
     expect(page.bankApi.get).toHaveBeenLastCalledWith(8, { page: 1, status: undefined, posting_status: undefined })
   })
+  it('only focuses another transaction of the already loaded statement', async () => {
+    const page = setup()
+    page.bankApi.get.mockResolvedValue(page.respond([42, 43]))
+    page.mount()
+    await settle()
+    const loaded = page.statement.value
+    expect(page.bankApi.get).toHaveBeenCalledTimes(1)
+    page.row.scrollIntoView.mockClear()
+    page.route.query.tx = '43'
+    page.navigate()
+    expect(page.statement.value).toBe(loaded)
+    await settle()
+    expect(page.bankApi.get).toHaveBeenCalledTimes(1)
+    expect(page.bankApi.matchSuggestions).toHaveBeenCalledTimes(1)
+    expect(page.statement.value).toBe(loaded)
+    expect(page.bankActions.textDetail.value?.id).toBe(43)
+    expect(page.row.scrollIntoView).toHaveBeenCalled()
+  })
+  it('closes the previous detail when a tx-only link targets the same statement', async () => {
+    const page = setup()
+    page.bankApi.get.mockResolvedValue(page.respond([42, 43]))
+    page.mount()
+    await settle()
+    page.route.query = { tx: '43' }
+    page.navigate()
+    await settle()
+    expect(page.bankApi.get).toHaveBeenCalledTimes(1)
+    expect(page.bankActions.textDetail.value).toBeNull()
+  })
+  it('reloads the same statement when remembered filters would hide the linked detail', async () => {
+    const page = setup()
+    page.bankApi.get.mockResolvedValue(page.respond([42, 43]))
+    page.mount()
+    await settle()
+    page.statusFilter.value = 'ignored'
+    page.route.query.tx = '43'
+    page.navigate()
+    await settle()
+    expect(page.bankApi.get).toHaveBeenCalledTimes(2)
+    expect(page.bankApi.get).toHaveBeenLastCalledWith(7, { page: 1, status: undefined, posting_status: undefined })
+    expect(page.bankActions.textDetail.value?.id).toBe(43)
+  })
   it('does not open detail for a missing transaction', async () => {
     const page = setup()
     page.bankApi.get.mockResolvedValue(page.respond([1]))
