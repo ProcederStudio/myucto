@@ -15,7 +15,7 @@ export function useBankJournalNavigation() {
   const { t } = useI18n()
 
   function cashTarget(tx: BankTransaction): RouteLocationRaw | null {
-    if (auth.isClientRole || !auth.hasCommercialFeatures || !auth.canRead('tax_evidence')
+    if (auth.isClientRole || !auth.canRead('tax_evidence')
       || supplier.currentSupplier?.accounting_mode !== 'tax_evidence') return null
     const year = tx.posted_at.match(/^(\d{4})-/)?.[1]
     if (!year || Number(year) < 1900 || Number(year) > 9999

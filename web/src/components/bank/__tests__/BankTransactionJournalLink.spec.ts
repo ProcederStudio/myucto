@@ -85,14 +85,24 @@ describe('bankovní pohyb → deník', () => {
     expect(m.openBeside).toHaveBeenCalledWith({ name: 'accounting-journal', query: { entry_id: '84' } })
   })
 
-  it.each(['tax_evidence', 'double_entry'])('skryje proklik bez komerčních funkcí nebo v klientské roli (%s)', async mode => {
+  it.each(['tax_evidence', 'double_entry'])('skryje proklik v klientské roli (%s)', async mode => {
     m.mode = mode
-    const tx = transaction({ posting: { status: 'posted', journal_entry_id: 84 } })
-    m.commercial = false
-    expect((await show(tx)).find(linkSelector).exists()).toBe(false)
-    m.commercial = true
     m.client = true
+    expect((await show(transaction({ posting: { status: 'posted', journal_entry_id: 84 } }))).find(linkSelector).exists()).toBe(false)
+  })
+
+  it('peněžní deník není komerční funkce, účetní deník ano', async () => {
+    m.commercial = false
+    const tx = transaction({ posting: { status: 'posted', journal_entry_id: 84 } })
+    expect((await show(tx)).find(linkSelector).exists()).toBe(true)
+    m.mode = 'double_entry'
     expect((await show(tx)).find(linkSelector).exists()).toBe(false)
+  })
+
+  it('pohyb rozdělený na více dokladů otevře svůj jediný řádek peněžního deníku', async () => {
+    const link = (await show(transaction({ match_status: 'manual', matched_invoice_id: 19, amount: 2420 }))).get(linkSelector)
+    await link.trigger('click', { button: 0 })
+    expect(m.openBeside).toHaveBeenCalledExactlyOnceWith({ name: 'tax-evidence-cash-journal', query: { year: '2025', source_type: 'bank', source_id: '42' } })
   })
 
   it('ignorovaný pohyb ve výpisu může být v peněžním deníku', async () => {
