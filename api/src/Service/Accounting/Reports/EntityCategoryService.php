@@ -14,7 +14,7 @@ use MyInvoice\Repository\TaxConstantsRepository;
 /**
  * Kategorizace účetní jednotky (§1b a §1e ZoÚ, R9–R11):
  * kategorie = nejnižší, u níž ÚJ nepřekračuje ≥ 2 ze 3 kritérií (aktiva netto /
- * čistý obrat 601+602+604 / průměrný počet zaměstnanců). Dle §1e odst. 2 se
+ * čistý obrat / průměrný počet zaměstnanců). Dle §1e odst. 2 se
  * kategorie mění až od počátku období NÁSLEDUJÍCÍHO po dvou po sobě jdoucích
  * rozvahových dnech potvrzujících překročení téže hranice kategorie. Bez
  * historie se používá raw stav běžného období. Admin override `statement_scope_override`
@@ -25,9 +25,6 @@ use MyInvoice\Repository\TaxConstantsRepository;
  */
 final class EntityCategoryService
 {
-    /** Čistý obrat pro kategorizaci = tržby 601 + 602 + 604 (R9). */
-    private const TURNOVER_CODES = ['601', '602', '604'];
-
     public function __construct(
         private readonly LedgerReportRepository $ledger,
         private readonly StatementDefinitionRepository $definitions,
@@ -37,6 +34,7 @@ final class EntityCategoryService
         private readonly EntityCategoryHistoryRepository $history,
         private readonly TaxConstantsRepository $taxConstants,
         private readonly StatementMapResolver $maps,
+        private readonly NetTurnoverReadService $turnover,
     ) {}
 
     /**
@@ -260,12 +258,7 @@ final class EntityCategoryService
 
         return [
             'assets_net'   => $this->mapper->assetsNet($rows, $mapped),
-            'net_turnover' => $this->ledger->netTurnoverForCodes(
-                $supplierId,
-                (string) $period['starts_on'],
-                (string) $period['ends_on'],
-                self::TURNOVER_CODES,
-            ),
+            'net_turnover' => $this->turnover->forPeriod($supplierId, $period),
         ];
     }
 

@@ -18,6 +18,7 @@ final class ErrorCatalog
 {
     /** @var array<string,string> CZ → EN */
     private const MAP = [
+        'Čistý obrat pro kategorizaci nelze určit. V nastavení „Čistý obrat: výnosy obchodního modelu“ ověřte shodné zahrnutí výnosů v druhovém i účelovém členění výsledovky a úplnost mapování účtů do výkazů.' => 'Net turnover for entity categorization cannot be determined. In the Net turnover: business model revenue settings, verify that both income statement formats include the same revenue and that account mappings are complete.',
         'Vazba dobropisu na původní doklad nemá doloženou stejnou protistranu a časové pořadí.' => 'The credit note link to the original document does not prove the same counterparty and chronological order.',
         'Doklad má více saldokontních řádků pro stejný účet a měnu. Jejich přiřazení k účetnímu případu není jednoznačně doloženo.' => 'The document has multiple open-item journal lines for the same account and currency. Their allocation to the accounting case is not uniquely established.',
         'Historický podklad přecenění neobsahuje důkaz původního střediska, projektu nebo dimenzí dokladu.' => 'The historical revaluation record does not establish the document\'s original cost centre, project or dimensions.',
