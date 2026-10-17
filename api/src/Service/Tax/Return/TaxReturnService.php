@@ -2243,7 +2243,7 @@ final class TaxReturnService
                     s.dic, s.email, s.phone, s.data_box_id,
                     s.street_number_pop, s.street_number_orient,
                     s.cssz_vsdp, s.cssz_ossz_code, s.health_insurance_number,
-                    s.opr_jmeno, s.opr_prijmeni
+                    s.opr_jmeno, s.opr_prijmeni, s.person_title
                FROM supplier s
           LEFT JOIN countries c ON c.id = s.country_id
               WHERE s.id = ?"

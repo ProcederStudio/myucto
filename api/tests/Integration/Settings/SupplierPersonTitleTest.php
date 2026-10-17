@@ -9,6 +9,7 @@ use MyInvoice\Bootstrap;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Middleware\SupplierScopeMiddleware;
+use MyInvoice\Service\Tax\Return\TaxReturnService;
 use MyInvoice\Tests\Support\IsolatedSupplierTrait;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
@@ -23,6 +24,7 @@ final class SupplierPersonTitleTest extends TestCase
 
     private Connection $db;
     private SettingsAction $action;
+    private TaxReturnService $taxReturns;
     private int $supplierId;
     private int $userId;
 
@@ -34,6 +36,7 @@ final class SupplierPersonTitleTest extends TestCase
         $container = Bootstrap::buildContainer();
         $this->db = $container->get(Connection::class);
         $this->action = $container->get(SettingsAction::class);
+        $this->taxReturns = $container->get(TaxReturnService::class);
         $pdo = $this->db->pdo();
         $sourceId = (int) $pdo->query('SELECT id FROM supplier ORDER BY id LIMIT 1')->fetchColumn();
         $this->userId = (int) $pdo->query('SELECT id FROM users ORDER BY id LIMIT 1')->fetchColumn();
@@ -87,6 +90,13 @@ final class SupplierPersonTitleTest extends TestCase
         self::assertSame(400, $response->getStatusCode());
         self::assertStringContainsString('validation_failed', (string) $response->getBody());
         self::assertSame($title, $this->storedTitle());
+    }
+
+    public function testCsszOverviewLoadsTitleForXml(): void
+    {
+        $this->db->pdo()->prepare('UPDATE supplier SET person_title = ? WHERE id = ?')->execute(['Ing.', $this->supplierId]);
+        $load = new \ReflectionMethod(TaxReturnService::class, 'loadSupplierCssz');
+        self::assertSame('Ing.', $load->invoke($this->taxReturns, $this->supplierId)['person_title'] ?? null);
     }
 
     private function save(array $body, bool $byId): Response

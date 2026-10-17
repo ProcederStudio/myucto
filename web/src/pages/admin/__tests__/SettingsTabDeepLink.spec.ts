@@ -208,6 +208,29 @@ describe('Nastavení — osobní údaje podnikatele', () => {
     }
   })
 
+  it.each([null, ''])('OSVČ s neurčeným typem poplatníka (%j) také nabídne titul', async taxpayerType => {
+    m.getSupplier.mockResolvedValue({ ...SUPPLIER, taxpayer_type: taxpayerType })
+    const wrapper = await mountSettings('accounting')
+    try {
+      expect(wrapper.text()).toContain('settings.person_section')
+      expect(wrapper.get('[data-test="tax-person-details"]').find('#person-title').exists()).toBe(true)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('OSVČ s dříve uloženým postavením ho vidí a může smazat, protože se posílá do XML', async () => {
+    m.getSupplier.mockResolvedValue({ ...SUPPLIER, taxpayer_type: 'fo', opr_jmeno: 'Jan', opr_prijmeni: 'Novák', opr_postaveni: 'jednatel' })
+    const wrapper = await mountSettings('accounting')
+    try {
+      const details = wrapper.get('[data-test="tax-person-details"]')
+      expect(details.text()).toContain('settings.opr_postaveni')
+      expect(details.findAll('input')).toHaveLength(4)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
   it('právnická osoba zachová podpisující osobu a její postavení bez pole titulu', async () => {
     const wrapper = await mountSettings('accounting')
     try {
