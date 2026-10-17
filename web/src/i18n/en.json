@@ -14507,6 +14507,9 @@
       "counted": "Counted",
       "surplus_cost": "Surplus cost",
       "all_locations": "Entire warehouse",
+      "all_categories": "All categories",
+      "category_scope": "Category (incl. subcategories)",
+      "scope_category": "Category {name} (incl. subcategories)",
       "close": "Close count",
       "status": {
         "draft": "Draft",

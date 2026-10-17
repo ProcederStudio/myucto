@@ -19560,6 +19560,14 @@ paths:
               properties:
                 warehouse_id: { type: integer, minimum: 1 }
                 location_id: { type: [integer, 'null'], minimum: 1 }
+                category_id:
+                  type: [integer, 'null']
+                  minimum: 1
+                  description: |
+                    Rozsah inventury: kategorie firmy včetně všech podkategorií. Bez `item_ids`
+                    zahrne karty kategorie, které se na skladu někdy pohnuly; s `item_ids` je
+                    zúží na karty z kategorie. Uzávěrka mění jen řádky inventury. Detail
+                    i seznam vrací `category_id` a `category_name`.
                 take_date: { type: string, format: date }
                 item_ids:
                   type: array

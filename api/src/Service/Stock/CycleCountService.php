@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Stock;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Repository\StockItemRepository;
 use MyInvoice\Repository\StockTrackingRepository;
 use MyInvoice\Repository\WarehouseRepository;
 use MyInvoice\Service\Eshop\CatalogJobService;
@@ -32,6 +33,7 @@ final class CycleCountService
             $location = $this->tracking->location($supplierId, $locationId);
             if ($location === null || (int) $location['warehouse_id'] !== $warehouseId || !$location['is_active']) throw new StockException('invalid_location', 'Lokace nepatří zvolenému skladu.', 422);
         }
+        $categoryId = $this->categoryId($supplierId, $body['category_id'] ?? null);
         $date = trim((string) ($body['take_date'] ?? date('Y-m-d')));
         $parsed = \DateTimeImmutable::createFromFormat('!Y-m-d', $date);
         if ($parsed === false || $parsed->format('Y-m-d') !== $date) throw new StockException('invalid_document', 'Neplatné datum cyklické inventury.', 422);
@@ -43,16 +45,16 @@ final class CycleCountService
             $open = $pdo->prepare("SELECT id FROM stock_cycle_counts WHERE supplier_id = ? AND warehouse_id = ? AND (location_id <=> ?) AND status IN ('draft','queued','running','counting') LIMIT 1 FOR UPDATE");
             $open->execute([$supplierId, $warehouseId, $locationId]);
             if ($open->fetchColumn() !== false) throw new StockException('cycle_count_in_progress', 'Pro sklad a lokaci už probíhá cyklická inventura.', 409);
-            $itemIds = $this->normalizeItemIds($supplierId, $body['item_ids'] ?? null);
+            $itemIds = $this->normalizeItemIds($supplierId, $body['item_ids'] ?? null, $categoryId);
             $cutoffLine = (int) $pdo->query('SELECT COALESCE(MAX(id), 0) FROM stock_document_lines')->fetchColumn();
             $cutoffAllocation = (int) $pdo->query('SELECT COALESCE(MAX(id), 0) FROM stock_tracking_allocations')->fetchColumn();
-            $stmt = $pdo->prepare("INSERT INTO stock_cycle_counts (supplier_id, warehouse_id, location_id, status, cutoff_document_line_id, cutoff_allocation_id, take_date, note, created_by) VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?)");
-            $stmt->execute([$supplierId, $warehouseId, $locationId, $cutoffLine, $cutoffAllocation, $date, self::nullable($body['note'] ?? null), $userId]);
+            $stmt = $pdo->prepare("INSERT INTO stock_cycle_counts (supplier_id, warehouse_id, location_id, category_id, status, cutoff_document_line_id, cutoff_allocation_id, take_date, note, created_by) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?)");
+            $stmt->execute([$supplierId, $warehouseId, $locationId, $categoryId, $cutoffLine, $cutoffAllocation, $date, self::nullable($body['note'] ?? null), $userId]);
             $id = (int) $pdo->lastInsertId();
             $membership = $pdo->prepare("INSERT INTO stock_cycle_count_documents (supplier_id, cycle_count_id, stock_document_id) SELECT ?, ?, d.id FROM stock_documents d WHERE d.supplier_id = ? AND d.status IN ('posted','reversed') AND (d.warehouse_id = ? OR (d.doc_type = 'transfer' AND d.warehouse_to_id = ?))");
             $membership->execute([$supplierId, $id, $supplierId, $warehouseId, $warehouseId]);
             if (!isset($body['item_ids'])) {
-                // Celý sklad = jen karty, které se na něm někdy pohnuly; výslovně vybrané karty zůstávají.
+                // Celý sklad (i celá kategorie) = jen karty, které se na něm někdy pohnuly; výslovně vybrané karty zůstávají.
                 $moved = $pdo->prepare('SELECT DISTINCT l.stock_item_id FROM stock_document_lines l JOIN stock_cycle_count_documents ccd ON ccd.supplier_id = l.supplier_id AND ccd.cycle_count_id = ? AND ccd.stock_document_id = l.document_id WHERE l.supplier_id = ?');
                 $moved->execute([$id, $supplierId]);
                 $itemIds = array_values(array_intersect($itemIds, array_map('intval', $moved->fetchAll(PDO::FETCH_COLUMN))));
@@ -242,13 +244,13 @@ final class CycleCountService
 
     public function list(int $supplierId): array
     {
-        $stmt = $this->db->pdo()->prepare('SELECT * FROM stock_cycle_counts WHERE supplier_id = ? ORDER BY id DESC LIMIT 100'); $stmt->execute([$supplierId]);
+        $stmt = $this->db->pdo()->prepare('SELECT cc.*, c.name AS category_name FROM stock_cycle_counts cc LEFT JOIN stock_categories c ON c.id = cc.category_id AND c.supplier_id = cc.supplier_id WHERE cc.supplier_id = ? ORDER BY cc.id DESC LIMIT 100'); $stmt->execute([$supplierId]);
         return array_map($this->castCycle(...), $stmt->fetchAll(PDO::FETCH_ASSOC));
     }
 
     public function get(int $supplierId, int $id): array
     {
-        $stmt = $this->db->pdo()->prepare('SELECT * FROM stock_cycle_counts WHERE supplier_id = ? AND id = ?'); $stmt->execute([$supplierId, $id]);
+        $stmt = $this->db->pdo()->prepare('SELECT cc.*, c.name AS category_name FROM stock_cycle_counts cc LEFT JOIN stock_categories c ON c.id = cc.category_id AND c.supplier_id = cc.supplier_id WHERE cc.supplier_id = ? AND cc.id = ?'); $stmt->execute([$supplierId, $id]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC); if ($row === false) throw new StockException('not_found', 'Cyklická inventura nenalezena.', 404);
         $cycle = $this->castCycle($row);
         $cycle['lines'] = $this->lines($supplierId, $id);
@@ -271,14 +273,29 @@ final class CycleCountService
         return array_map(static function (array $r): array { foreach (['id','supplier_id','cycle_count_id','stock_item_id'] as $k) $r[$k]=(int)$r[$k]; $r['stock_tracking_unit_id']=$r['stock_tracking_unit_id']===null?null:(int)$r['stock_tracking_unit_id']; return $r; }, $stmt->fetchAll(PDO::FETCH_ASSOC));
     }
 
-    private function normalizeItemIds(int $supplierId, mixed $raw): array
+    private function normalizeItemIds(int $supplierId, mixed $raw, ?int $categoryId = null): array
     {
         if ($raw !== null && (!is_array($raw) || !array_is_list($raw) || count($raw) > 30000)) throw new StockException('invalid_document', 'item_ids musí být seznam nejvýše 30 000 ID.', 422);
-        $params = [$supplierId]; $sql = 'SELECT id FROM stock_items WHERE supplier_id = ? AND is_active = 1';
-        if ($raw !== null) { $ids=array_values(array_unique(array_map('intval',$raw))); if ($ids===[]) return []; $sql.=' AND id IN ('.implode(',',array_fill(0,count($ids),'?')).')'; $params=[...$params,...$ids]; }
-        $stmt=$this->db->pdo()->prepare($sql.' ORDER BY id'); $stmt->execute($params); return array_map('intval',$stmt->fetchAll(PDO::FETCH_COLUMN));
+        $params = [$supplierId]; $sql = 'SELECT si.id FROM stock_items si WHERE si.supplier_id = ? AND si.is_active = 1';
+        if ($raw !== null) { $ids=array_values(array_unique(array_map('intval',$raw))); if ($ids===[]) return []; $sql.=' AND si.id IN ('.implode(',',array_fill(0,count($ids),'?')).')'; $params=[...$params,...$ids]; }
+        // Rozsah kategorie (včetně podkategorií) zužuje celý sklad i výslovný výběr karet.
+        if ($categoryId !== null) { $sql .= ' AND ' . StockItemRepository::categorySubtreeSql('si'); $params[] = $categoryId; }
+        $stmt=$this->db->pdo()->prepare($sql.' ORDER BY si.id'); $stmt->execute($params); return array_map('intval',$stmt->fetchAll(PDO::FETCH_COLUMN));
     }
 
-    private function castCycle(array $r): array { foreach(['id','supplier_id','warehouse_id','cutoff_document_line_id','cutoff_allocation_id'] as $k)$r[$k]=(int)$r[$k]; foreach(['location_id','preparation_job_id','created_by','closed_by'] as $k)$r[$k]=$r[$k]===null?null:(int)$r[$k]; return $r; }
+    /** Kategorie rozsahu musí patřit firmě; prázdná hodnota = bez omezení. */
+    private function categoryId(int $supplierId, mixed $raw): ?int
+    {
+        if ($raw === null || $raw === '' || $raw === 0 || $raw === '0') return null;
+        $id = filter_var($raw, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        if ($id !== false) {
+            $stmt = $this->db->pdo()->prepare('SELECT id FROM stock_categories WHERE supplier_id = ? AND id = ?');
+            $stmt->execute([$supplierId, $id]);
+            if ($stmt->fetchColumn() !== false) return (int) $id;
+        }
+        throw new StockException('invalid_category', 'Kategorie nenalezena.', 422);
+    }
+
+    private function castCycle(array $r): array { foreach(['id','supplier_id','warehouse_id','cutoff_document_line_id','cutoff_allocation_id'] as $k)$r[$k]=(int)$r[$k]; foreach(['location_id','category_id','preparation_job_id','created_by','closed_by'] as $k)$r[$k]=$r[$k]===null?null:(int)$r[$k]; return $r; }
     private static function nullable(mixed $v): ?string { $v=trim((string)$v); return $v===''?null:$v; }
 }

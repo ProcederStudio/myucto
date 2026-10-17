@@ -727,6 +727,9 @@ export interface StockCycleCount {
   id: number
   warehouse_id: number
   location_id: number | null
+  /** Rozsah: kategorie včetně podkategorií (null = bez omezení). */
+  category_id?: number | null
+  category_name?: string | null
   status: 'draft' | 'queued' | 'running' | 'counting' | 'closed' | 'cancelled' | 'failed'
   preparation_job_id: number | null
   preparation_job?: CatalogJob | null
@@ -1224,7 +1227,7 @@ export const stockApi = {
   takePdfUrl: (id: number) => downloadUrl(`/stock/takes/${id}/pdf`),
   listCycleCounts: () => api.get<StockCycleCount[]>('/stock/cycle-counts').then(r => r.data),
   getCycleCount: (id: number) => api.get<StockCycleCount>(`/stock/cycle-counts/${id}`).then(r => r.data),
-  createCycleCount: (payload: { warehouse_id: number; location_id?: number | null; take_date: string; item_ids?: number[]; note?: string | null }) => api.post<StockCycleCount>('/stock/cycle-counts', payload).then(r => r.data),
+  createCycleCount: (payload: { warehouse_id: number; location_id?: number | null; category_id?: number | null; take_date: string; item_ids?: number[]; note?: string | null }) => api.post<StockCycleCount>('/stock/cycle-counts', payload).then(r => r.data),
   updateCycleCount: (id: number, lines: Array<{ id: number; counted_qty: string | number | null; surplus_unit_cost?: string | number | null }>) => api.put<StockCycleCount>(`/stock/cycle-counts/${id}`, { lines }).then(r => r.data),
   closeCycleCount: (id: number) => api.post<StockCycleCount>(`/stock/cycle-counts/${id}/close`).then(r => r.data),
 

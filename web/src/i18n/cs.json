@@ -14507,6 +14507,9 @@
       "counted": "Spočteno",
       "surplus_cost": "Cena přebytku",
       "all_locations": "Celý sklad",
+      "all_categories": "Všechny kategorie",
+      "category_scope": "Kategorie (vč. podkategorií)",
+      "scope_category": "Kategorie {name} (vč. podkategorií)",
       "close": "Uzavřít inventuru",
       "status": {
         "draft": "Koncept",
