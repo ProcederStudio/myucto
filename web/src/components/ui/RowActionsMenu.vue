@@ -34,6 +34,9 @@ export interface RowAction {
    */
   disabledReason?: string
   title?: string
+  /** Runs in capture phase so it can prevent RouterLink's default navigation. */
+  onNavigate?: (event: MouseEvent) => void
+  workspaceOpen?: 'beside'
   to?: RouteLocationRaw
   href?: string
   download?: boolean
@@ -82,7 +85,7 @@ function menuTagOf(a: RowAction) {
   return a.disabled ? 'span' : tagOf(a)
 }
 function attrsOf(a: RowAction): Record<string, unknown> {
-  if (a.to) return { to: a.to }
+  if (a.to) return { to: a.to, 'data-workspace-open': a.workspaceOpen }
   if (a.href) return { href: a.href, target: '_blank', rel: 'noopener', ...(a.download ? { download: '' } : {}) }
   return { type: 'button' }
 }
@@ -175,12 +178,24 @@ function onKey(e: KeyboardEvent) { if (paneActive.value && e.key === 'Escape') c
 // Posluchač musí být TÁŽ funkce při přidání i odebrání; `close` sama bere
 // argument, takže by jí prohlížeč jako „vrať ohnisko" podstrčil Event.
 function closeOnViewportChange() { close() }
+// Workspace frames intercept links in document capture and stop propagation before
+// target handlers. Dismiss our menu first without taking over the navigation.
+function closeOnNavigationCapture(event: MouseEvent) {
+  if (!open.value || !(event.target instanceof Element)) return
+  const anchor = event.target.closest('a[data-menu-item]')
+  if (!anchor || !menuRef.value?.contains(anchor) || anchor.closest('[aria-disabled="true"]')) return
+  close()
+}
 onMounted(() => {
+  window.addEventListener('click', closeOnNavigationCapture, true)
+  window.addEventListener('auxclick', closeOnNavigationCapture, true)
   window.addEventListener('keydown', onKey)
   window.addEventListener('scroll', closeOnViewportChange, true)
   window.addEventListener('resize', closeOnViewportChange)
 })
 onBeforeUnmount(() => {
+  window.removeEventListener('click', closeOnNavigationCapture, true)
+  window.removeEventListener('auxclick', closeOnNavigationCapture, true)
   window.removeEventListener('keydown', onKey)
   window.removeEventListener('scroll', closeOnViewportChange, true)
   window.removeEventListener('resize', closeOnViewportChange)
@@ -191,7 +206,7 @@ onBeforeUnmount(() => {
   <div class="inline-flex items-center gap-1 justify-end">
     <component :is="tagOf(a)" v-for="a in inline" :key="a.key" v-bind="attrsOf(a)"
       :class="inlineClass(a)" :disabled="a.disabled" :title="titleOf(a)" :aria-label="iconOnly ? a.label : undefined"
-      @click="runItem(a)">
+      @click.capture="!a.disabled && a.onNavigate?.($event)" @click="runItem(a)">
       <svg v-if="a.icon" class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" :d="ICONS[a.icon]" />
       </svg>
@@ -217,7 +232,7 @@ onBeforeUnmount(() => {
             :class="['w-full flex items-start gap-2.5 px-3 py-2 text-left',
                      a.variant === 'danger' ? 'text-danger-600 hover:bg-danger-50' : 'text-neutral-700 hover:bg-neutral-50',
                      a.disabled ? 'opacity-70 cursor-default' : 'cursor-pointer']"
-            :title="a.title || undefined" @click="runItem(a)">
+            :title="a.title || undefined" @click.capture="!a.disabled && a.onNavigate?.($event)" @click="runItem(a)">
             <svg v-if="a.icon" :class="['w-4 h-4 mt-0.5 shrink-0', a.variant === 'danger' ? 'text-danger-600' : MENU_ICON[a.variant ?? 'neutral']]"
               fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
               <path stroke-linecap="round" stroke-linejoin="round" :d="ICONS[a.icon]" />

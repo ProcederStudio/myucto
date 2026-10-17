@@ -15,6 +15,7 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import { downloadApiFile } from '@/utils/downloadFile'
 import DateInput from '@/components/ui/DateInput.vue'
 import PendingApprovalVatNotice from '@/components/reports/PendingApprovalVatNotice.vue'
+import VatBookSectionActions from '@/components/reports/VatBookSectionActions.vue'
 
 const { t, locale } = useI18n()
 const router = useRouter()
@@ -24,6 +25,12 @@ const { year, month, periodOverride } = useReportPeriodQuery()
 
 const settings = ref<DphSettings | null>(null)
 const preview = ref<DphPriznaniPreview | null>(null)
+const loadedPeriod = ref<{ year: number; month: number; period: 'monthly' | 'quarterly' } | null>(null)
+function lineBookRoute(line: string) {
+  // Informative correction totals (33/34) have no corresponding document section.
+  if (!loadedPeriod.value || !/^(?:[1-8]|1[0-3]|2[0-6]|30|31|4[0-4]k?|47|50|51b?)$/.test(line)) return null
+  return { path: '/reports/dph-book', query: { ...loadedPeriod.value, dph_line: line } }
+}
 const trend = ref<DphTrendRow[]>([])
 const draftsPrediction = ref<DphDraftsPrediction | null>(null)
 const loading = ref(false)
@@ -75,7 +82,10 @@ async function loadAll() {
         requestedYear, requestedMonth, requestedPeriod,
         requestedVariant, requestedDate, requestedReason,
       )
-      if (seq === loadSeq) preview.value = result
+      if (seq === loadSeq) {
+        preview.value = result
+        loadedPeriod.value = { year: requestedYear, month: requestedMonth, period: result?.summary?.period_type ?? requestedPeriod ?? s.vat_period ?? 'monthly' }
+      }
     } else {
       preview.value = null
     }
@@ -240,11 +250,11 @@ const linesSorted = computed(() => {
   if (!preview.value) return []
   return Object.entries(preview.value.summary.lines)
     .map(([line, data]) => ({ line, ...data }))
-    .sort((a, b) => Number(a.line) - Number(b.line))
+    .sort((a, b) => parseInt(a.line, 10) - parseInt(b.line, 10) || a.line.localeCompare(b.line))
 })
 
-const outputLines = computed(() => linesSorted.value.filter(l => Number(l.line) < 40))
-const inputLines = computed(() => linesSorted.value.filter(l => Number(l.line) >= 40))
+const outputLines = computed(() => linesSorted.value.filter(l => parseInt(l.line, 10) < 40))
+const inputLines = computed(() => linesSorted.value.filter(l => parseInt(l.line, 10) >= 40))
 
 // Vývoj DPH řazený sestupně dle data — nejnovější měsíc nahoře.
 const trendSorted = computed(() => [...trend.value].sort((a, b) => b.period.localeCompare(a.period)))
@@ -657,6 +667,7 @@ onMounted(() => {
               <th class="text-left px-3 py-2">{{ t('reports.dph.description') }}</th>
               <th class="text-right px-3 py-2">{{ t('reports.dph.base') }}</th>
               <th class="text-right px-5 py-2">{{ t('reports.dph.vat') }}</th>
+              <th class="w-12 px-3 py-2 text-right"><span class="sr-only">{{ t('common.actions') }}</span></th>
             </tr>
           </thead>
           <tbody class="divide-y divide-neutral-100">
@@ -665,6 +676,9 @@ onMounted(() => {
               <td class="px-3 py-2.5 text-neutral-700">{{ l.label }}</td>
               <td class="px-3 py-2.5 text-right font-mono">{{ formatMoney(l.base, 'CZK') }}</td>
               <td class="px-5 py-2.5 text-right font-mono">{{ formatMoney(l.vat, 'CZK') }}</td>
+              <td class="w-12 px-3 py-2.5 text-right">
+                <VatBookSectionActions :to="lineBookRoute(l.line)" :label="t('reports.dph_book.open_line_beside', { line: l.line })" />
+              </td>
             </tr>
           </tbody>
         </table>
@@ -684,6 +698,7 @@ onMounted(() => {
               <th class="text-left px-3 py-2">{{ t('reports.dph.description') }}</th>
               <th class="text-right px-3 py-2">{{ t('reports.dph.base') }}</th>
               <th class="text-right px-5 py-2">{{ t('reports.dph.vat') }}</th>
+              <th class="w-12 px-3 py-2 text-right"><span class="sr-only">{{ t('common.actions') }}</span></th>
             </tr>
           </thead>
           <tbody class="divide-y divide-neutral-100">
@@ -692,6 +707,9 @@ onMounted(() => {
               <td class="px-3 py-2.5 text-neutral-700">{{ l.label }}</td>
               <td class="px-3 py-2.5 text-right font-mono">{{ formatMoney(l.base, 'CZK') }}</td>
               <td class="px-5 py-2.5 text-right font-mono">{{ formatMoney(l.vat, 'CZK') }}</td>
+              <td class="w-12 px-3 py-2.5 text-right">
+                <VatBookSectionActions :to="lineBookRoute(l.line)" :label="t('reports.dph_book.open_line_beside', { line: l.line })" />
+              </td>
             </tr>
           </tbody>
         </table>

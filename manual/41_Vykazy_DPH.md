@@ -50,7 +50,7 @@ Lhůta: zpravidla 25. den po skončení měsíce, u čtvrtletního plátce po sk
 3. V poli **Typ podání** nechte **Řádné**.
 4. Přečtěte upozornění nad kartami (sekce **Upozornění**, žlutý a červený rámeček). Odstraňte jejich příčiny, než budete pokračovat. Typicky jde o koncepty, doklady čekající na schválení nebo nesoulad s kontrolním hlášením (viz [§ 41.12](#4112-kdyz-neco-nejde)).
 5. Zkontrolujte čtyři karty: **DPH na výstupu**, **DPH na vstupu**, **Daň k odvodu** (nebo **Nadměrný odpočet**) a **Termín podání** s odpočtem dnů.
-6. Projděte tabulky **DPH na výstupu (řádky 1-29)** a **DPH na vstupu (řádky 40+)**. U každého řádku vidíte kód, popis, základ a DPH. Porovnejte součty se seznamem faktur za období.
+6. Projděte tabulky **DPH na výstupu (řádky 1-29)** a **DPH na vstupu (řádky 40+)**. U každého řádku vidíte kód, popis, základ a DPH. Nabídka **…** v posledním sloupci řádku otevře Knihu DPH za stejné období, omezenou na odpovídající sekce. Informační řádky bez dokladové sekce tuto akci nemají. Porovnejte součty se seznamem faktur za období.
 7. Pod kartami je přehled **Vývoj DPH (12 měsíců)** pro rychlé porovnání s předchozími obdobími. Žlutá **Predikce** ukazuje odhad včetně konceptů. Do přiznání se promítne až po dokončení konceptů.
 8. Klikněte na **Stáhnout XML**. Stránka najde-li nesoulad s kontrolním nebo souhrnným hlášením, nebo s účtem 343, zeptá se na potvrzení. Po stažení se otevře `Daně → EPO podání a archív`.
 9. Podání dokončete na portálu EPO podle [§ 41.6](#416-krok-za-krokem-podani-na-portalu-epo-a-dolozeni).
@@ -69,7 +69,7 @@ Lhůta: stejná jako u přiznání. Identifikovaná osoba kontrolní hlášení 
 2. Zvolte období. Právnická osoba má jen měsíc a rok. Fyzická osoba může přepínačem **Měsíčně / Kvartálně** zvolit čtvrtletí.
 3. V poli **Typ podání** nechte **Řádné**.
 4. Přečtěte upozornění. Doklady čekající na schválení nebo zamítnuté stránka vyjmenuje a u dokladů se samovyměřením (sekce A.2 a B.1) vyžaduje při stažení potvrzení.
-5. Zkontrolujte kartu **Termín podání** a počty řádků v sekcích: **A.1**, **A.2**, **A.4**, **A.5** (vystavené) a **B.1**, **B.2**, **B.3** (přijaté). Sekce A.5 a B.3 jsou sumace (**agregováno**).
+5. Zkontrolujte kartu **Termín podání** a počty řádků v sekcích: **A.1**, **A.2**, **A.4**, **A.5** (vystavené) a **B.1**, **B.2**, **B.3** (přijaté). Nabídka **…** v posledním sloupci oddílu otevře soupis jeho dokladů za stejné období. Sekce A.5 a B.3 jsou sumace (**agregováno**); soupis zobrazí jejich jednotlivé doklady. Rychlé odpovědi na výzvu bez oddílů tyto akce nenabízejí.
 6. Klikněte na **Stáhnout XML**. Po stažení se otevře `Daně → EPO podání a archív`.
 7. Podání dokončete podle [§ 41.6](#416-krok-za-krokem-podani-na-portalu-epo-a-dolozeni).
 
@@ -77,6 +77,8 @@ Lhůta: stejná jako u přiznání. Identifikovaná osoba kontrolní hlášení 
 
 > [!TIP]
 > Přiznání a kontrolní hlášení se sestavují ze stejných dat. Nejdřív podejte přiznání, které zkontroluje shodu s hlášením (viz [§ 41.13.5](#41135-krizova-kontrola-s-kh-sh-a-uctem-343)), pak hlášení.
+
+Odkazy z řádků přiznání a oddílů hlášení otevírají podklady v pravém pracovním panelu, pokud je dostupný. Při jediném panelu se podklady otevřou v něm. Kniha DPH je pracovní přehled aktuálních dat včetně konceptů; neukazuje rozdíl dodatečného přiznání ani uložené podání. Pro kontrolu skutečně podaného KH použijte soupis z [Archivu podání](49_Archiv_podani_a_rekonciliace.md).
 
 ## 41.5 Krok za krokem: oprava už podaného přiznání nebo hlášení
 
