@@ -59,7 +59,7 @@ final class EntityCategoryService
         $criteria = $this->criteriaFor($supplierId, $period);
         $criteria['employees'] = $employees;
         $thresholds = $this->thresholdsForPeriod($period);
-        $rawCurrent = $this->classify($criteria, $thresholds);
+        $rawCurrent = $this->classify($criteria, $thresholds, $period);
 
         $closedRaws = $this->rawsForClosedPeriods($supplierId, $period, $employees);
         $rawPrevious = $closedRaws === [] ? null : $closedRaws[count($closedRaws) - 1];
@@ -161,7 +161,7 @@ final class EntityCategoryService
             }
             $criteria = $this->criteriaFor($supplierId, $p);
             $criteria['employees'] = $employees;
-            $raws[] = $this->classify($criteria, $this->thresholdsForPeriod($p));
+            $raws[] = $this->classify($criteria, $this->thresholdsForPeriod($p), $p);
         }
 
         return $raws;
@@ -184,7 +184,7 @@ final class EntityCategoryService
 
         $criteria = $this->criteriaFor($supplierId, $period);
         $criteria['employees'] = $employees;
-        $raw = $this->classify($criteria, $this->thresholdsForPeriod($period));
+        $raw = $this->classify($criteria, $this->thresholdsForPeriod($period), $period);
 
         $this->history->upsert(
             $supplierId,
@@ -274,19 +274,27 @@ final class EntityCategoryService
      *
      * @param array{assets_net: float, net_turnover: float, employees: int} $criteria
      */
-    private function classify(array $criteria, array $thresholds): string
+    private function classify(array $criteria, array $thresholds, array $period): string
     {
-        return self::classifyCriteria($criteria, $thresholds);
+        return self::classifyCriteria($criteria, $thresholds, EntityCategoryPeriodPolicy::commencedMonths(
+            (string) $period['starts_on'],
+            (string) $period['ends_on'],
+        ));
     }
 
-    public static function classifyCriteria(array $criteria, array $thresholds): string
+    public static function classifyCriteria(array $criteria, array $thresholds, int $turnoverMonths = 12): string
     {
+        if ($turnoverMonths < 1) {
+            throw new \InvalidArgumentException('Počet započatých měsíců musí být kladný.');
+        }
         foreach ($thresholds as $category => $limits) {
             $exceeded = 0;
             if ($criteria['assets_net'] > $limits['assets_net']) {
                 $exceeded++;
             }
-            if ($criteria['net_turnover'] > $limits['net_turnover']) {
+            if ($turnoverMonths === 12
+                ? $criteria['net_turnover'] > $limits['net_turnover']
+                : EntityCategoryPeriodPolicy::turnoverExceeds($criteria['net_turnover'], $limits['net_turnover'], $turnoverMonths)) {
                 $exceeded++;
             }
             if ($criteria['employees'] > $limits['employees']) {
@@ -302,7 +310,7 @@ final class EntityCategoryService
     /** @param array<string,mixed> $period */
     private function thresholdsForPeriod(array $period): array
     {
-        $year = (int) substr((string) $period['ends_on'], 0, 4);
+        $year = EntityCategoryPeriodPolicy::thresholdYear((string) $period['starts_on'], (string) $period['ends_on']);
         return (array) $this->taxConstants->forYear($year)['entity_category_thresholds'];
     }
 }
