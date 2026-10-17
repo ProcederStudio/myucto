@@ -79,6 +79,7 @@ export async function startWindowFrame(frame: WindowFrameBootstrap): Promise<voi
   const active = ref(init.active)
   const paneId = ref<WindowFramePaneId | null>(init.paneId ?? null)
   const canOpenRight = ref(init.canOpenRight === true)
+  const canOpenRightWithSplit = ref(init.canOpenRightWithSplit === true)
   const globalShortcuts = ref(new Set(init.globalShortcuts ?? []))
   const pinia = createPinia()
   setActivePinia(pinia)
@@ -191,6 +192,7 @@ export async function startWindowFrame(frame: WindowFrameBootstrap): Promise<voi
     const state: WindowFrameParentMessage = event.data
     active.value = state.active
     if (state.paneId !== undefined) paneId.value = state.paneId
+    if (state.canOpenRightWithSplit !== undefined) canOpenRightWithSplit.value = state.canOpenRightWithSplit
     if (state.canOpenRight !== undefined) canOpenRight.value = state.canOpenRight
     void applyAppearance(state.theme, state.locale, state.accent, state.singlePanel).catch(() => {
       postWindowFrameMessage({ type: 'myucto-window-error', id: frame.id, code: 'locale-failed' })
@@ -229,7 +231,7 @@ export async function startWindowFrame(frame: WindowFrameBootstrap): Promise<voi
   }
 
   document.addEventListener('click', (event) => {
-    const navigation = internalAnchorNavigation(router, event, canOpenRight.value)
+    const navigation = internalAnchorNavigation(router, event, canOpenRight.value, canOpenRightWithSplit.value)
     if (!navigation) return
     event.preventDefault()
     event.stopImmediatePropagation()

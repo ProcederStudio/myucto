@@ -32,6 +32,7 @@ export interface WindowFrameInitMessage {
   globalShortcuts?: string[]
   paneId?: WindowFramePaneId | null
   canOpenRight?: boolean
+  canOpenRightWithSplit?: boolean
   shortcutActions?: ShortcutAction[]
   csrfToken?: string
   accent?: string
@@ -48,6 +49,7 @@ export interface WindowFrameStateMessage {
   refreshAuth?: boolean
   paneId?: WindowFramePaneId | null
   canOpenRight?: boolean
+  canOpenRightWithSplit?: boolean
   shortcutActions?: ShortcutAction[]
   csrfToken?: string
   accent?: string
@@ -60,7 +62,7 @@ export type WindowFrameParentMessage = WindowFrameInitMessage | WindowFrameState
 export type WindowFrameChildMessage =
   | { type: 'myucto-window-ready'; id: string }
   | { type: 'myucto-window-route'; id: string; fullPath: string; title: string; subtitle?: string | null }
-  | { type: 'myucto-window-navigate'; id: string; to: RouteLocationRaw; newPane?: boolean; placement?: 'beside' }
+  | { type: 'myucto-window-navigate'; id: string; to: RouteLocationRaw; newPane?: boolean; placement?: 'beside' | 'right' }
   | { type: 'myucto-window-key'; id: string; event: WindowFrameKeyboardEvent }
   | { type: 'myucto-window-activate'; id: string }
   | { type: 'myucto-window-history'; id: string; direction: -1 | 1 }
@@ -95,6 +97,7 @@ export function isWindowFrameParentMessage(value: unknown, id: string): value is
     && (!Array.isArray(message.globalShortcuts) || !message.globalShortcuts.every(item => typeof item === 'string'))) return false
   if (message.paneId !== undefined && message.paneId !== null
     && !['primary', 'secondary-2', 'secondary-3'].includes(String(message.paneId))) return false
+  if (message.canOpenRightWithSplit !== undefined && typeof message.canOpenRightWithSplit !== 'boolean') return false
   if (message.canOpenRight !== undefined && typeof message.canOpenRight !== 'boolean') return false
   if (message.csrfToken !== undefined && typeof message.csrfToken !== 'string') return false
   if (message.singlePanel !== undefined && typeof message.singlePanel !== 'boolean') return false

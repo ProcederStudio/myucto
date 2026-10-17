@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { computed, ref, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { RouterLink, type RouteLocationRaw } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import WorkspaceTeleport from '@/components/workspace/WorkspaceTeleport.vue'
@@ -146,6 +146,8 @@ function close(returnFocus = false) {
   open.value = false
   if (returnFocus) triggerRef.value?.focus()
 }
+
+watch(paneActive, active => { if (!active) close() })
 
 function runItem(a: RowAction) {
   if (a.disabled) return

@@ -9,7 +9,7 @@ import { MAX_WORKSPACE_WINDOWS, useWorkspaceStore, type PaneId, type WorkspaceWi
 import { windowContextKey } from './windowContext'
 import PaneRoot from '@/components/workspace/PaneRoot.vue'
 import { createFrameSurface, type FrameAppearance, type FrameKeyboardEvent } from './frameSurface'
-import { paneForBeside, paneForCtrlClick } from './panelLinks'
+import { paneForBeside, paneForCtrlClick, rightPanePlan } from './panelLinks'
 import { getWindowManager, setWindowManager } from './windowRegistry'
 export { getWindowManager } from './windowRegistry'
 
@@ -44,6 +44,7 @@ interface WindowManagerOptions {
 
 export interface WorkspaceWindowManager {
   open: (to: RouteLocationRaw, paneId: PaneId, options?: { fresh?: boolean }) => Promise<void>
+  openRight: (to: RouteLocationRaw, sourcePaneId: PaneId) => Promise<void>
   select: (id: string) => Promise<void>
   previous: () => Promise<void>
   next: () => Promise<void>
@@ -230,14 +231,16 @@ export function createWindowManager(options: WindowManagerOptions): WorkspaceWin
     visitIndex = currentVisit ? visits.lastIndexOf(currentVisit) : -1
   }
 
-  async function open(to: RouteLocationRaw, paneId: PaneId, fresh = false): Promise<void> {
+  async function open(to: RouteLocationRaw, paneId: PaneId, fresh = false, reuseVisibleElsewhere = true): Promise<void> {
     if (!workspace.panes.some(pane => pane.id === paneId)) return
     const resolver = options.createRouter()
     const resolved = resolver.resolve(to)
     const fullPath = resolved.fullPath
     const supplier = options.currentSupplier?.() ?? { id: 0, name: '' }
     const useFrame = options.frames && supplier.id > 0
-    const existing = !fresh && [...runtimes.values()].find(runtime => runtime.state.fullPath === fullPath && (runtime.state.supplierId ?? 0) === supplier.id)
+    const existing = !fresh && [...runtimes.values()].find(runtime => runtime.state.fullPath === fullPath
+      && (runtime.state.supplierId ?? 0) === supplier.id
+      && (reuseVisibleElsewhere || runtime.state.paneId === null || runtime.state.paneId === paneId))
     if (existing) {
       if (await authorized(existing)) await display(existing, paneId)
       return
@@ -312,7 +315,8 @@ export function createWindowManager(options: WindowManagerOptions): WorkspaceWin
         id: state.id, supplierId: supplier.id, to, root,
         appearance: () => ({ active: runtime.state.paneId !== null && workspace.activePaneId === runtime.state.paneId,
           theme: 'light', locale: 'cs', globalShortcuts: [], ...options.appearance?.(runtime.state.fullPath), paneId: runtime.state.paneId,
-          canOpenRight: runtime.state.paneId ? paneForCtrlClick(runtime.state.paneId, workspace.panes) !== null : false }),
+          canOpenRight: runtime.state.paneId ? paneForCtrlClick(runtime.state.paneId, workspace.panes) !== null : false,
+          canOpenRightWithSplit: runtime.state.paneId ? rightPanePlan(runtime.state.paneId, workspace.panes, workspace.maximumPaneCount) !== null : false }),
         route: (fullPath, title, subtitle) => {
           if (!runtimes.has(state.id)) return
           runtime.state.fullPath = fullPath
@@ -322,6 +326,11 @@ export function createWindowManager(options: WindowManagerOptions): WorkspaceWin
           runtime.surface?.update()
         },
         navigate: (to, newPane, placement) => {
+          if (placement === 'right') {
+            const sourcePane = runtime.state.paneId
+            if (sourcePane) void enqueue(() => openRight(to, sourcePane, runtime))
+            return
+          }
           if (placement === 'beside') {
             void enqueue(async () => {
               const sourceGeneration = generation
@@ -396,6 +405,26 @@ export function createWindowManager(options: WindowManagerOptions): WorkspaceWin
     updateTitle(runtime)
   }
 
+  async function openRight(to: RouteLocationRaw, sourcePaneId: PaneId, source = windowFor(sourcePaneId)): Promise<void> {
+    const sourceGeneration = generation
+    if (!rightPanePlan(sourcePaneId, workspace.panes, workspace.maximumPaneCount)) return
+    if (source && !await authorized(source)) return
+    if (destroyed || sourceGeneration !== generation
+      || source && (runtimes.get(source.state.id) !== source || source.state.paneId !== null && source.state.paneId !== sourcePaneId)) return
+    // Ověření firmy může zdroj zaparkovat; při otevření detailu musí zůstat viditelný.
+    if (source?.state.paneId === null) await display(source, sourcePaneId, false)
+    if (destroyed || sourceGeneration !== generation) return
+    const plan = rightPanePlan(sourcePaneId, workspace.panes, workspace.maximumPaneCount)
+    if (!plan) return
+    if (plan.count !== workspace.paneCount) {
+      workspace.resizeLayout(plan.count)
+      reconcile()
+      await nextTick()
+    }
+    if (destroyed || sourceGeneration !== generation) return
+    await open(to, plan.paneId, false, false)
+  }
+
   async function select(id: string, visit = true): Promise<void> {
     const runtime = runtimes.get(id)
     if (runtime && await authorized(runtime)) await display(runtime, workspace.activePaneId, visit)
@@ -455,6 +484,7 @@ export function createWindowManager(options: WindowManagerOptions): WorkspaceWin
 
   const manager: WorkspaceWindowManager = {
     open: (to, paneId, options) => enqueue(() => open(to, paneId, options?.fresh)),
+    openRight: (to, sourcePaneId) => enqueue(() => openRight(to, sourcePaneId)),
     select: id => enqueue(() => select(id)),
     previous: () => enqueue(() => traverse(-1)),
     next: () => enqueue(() => traverse(1)),
