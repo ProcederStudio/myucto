@@ -404,7 +404,7 @@ function displayAttributeText(item: StockItem): string {
   if (raw == null || raw === '') return '—'
   const attribute = displayAttribute.value
   if (attribute?.data_type === 'bool') {
-    return raw.split(', ').map(v => v === '1' ? t('common.yes') : t('common.no')).join(', ')
+    return raw.split(', ').map(v => v === 'true' ? t('common.yes') : v === 'false' ? t('common.no') : v).join(', ')
   }
   if (attribute?.data_type === 'number' && attribute.unit) return `${raw} ${attribute.unit}`
   return raw

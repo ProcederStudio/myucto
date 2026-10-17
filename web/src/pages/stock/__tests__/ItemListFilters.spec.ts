@@ -135,6 +135,16 @@ describe('ItemList catalog filters', () => {
     expect(wrapper.get('[data-test="display-attribute-value"]').text()).toBe('12.5 kW')
   })
 
+  it('translates a yes/no parameter column from the neutral API value', async () => {
+    m.listAttributes.mockResolvedValue([{ id: 18, name: 'New', data_type: 'bool', is_filterable: false, archived: false }])
+    m.listItems.mockResolvedValue({ data: [{ id: 52, sku: 'PARAM-52', name: 'Bool item', item_type: 'goods', unit: 'ks', is_active: true, min_qty: null, display_attribute_value: 'true, false' }], meta: { total: 1, pages: 1 } })
+    m.tableOptions.display_attribute_id = 18
+    const wrapper = mount(ItemList, { global: { stubs: { FilterBar: filterBar, SavedFiltersMenu: true, ColumnPicker: true, DensityToggle: true, SortableTh: true, EmptyState: true, RouterLink: { template: '<a><slot /></a>' } } } })
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="display-attribute-value"]').text()).toBe('common.yes, common.no')
+  })
+
   it('drops a remembered parameter column choice when the parameter no longer exists', async () => {
     m.tableOptions.display_attribute_id = 99
     mount(ItemList, { global: { stubs: { FilterBar: filterBar, SavedFiltersMenu: true, ColumnPicker: true, DensityToggle: true, SortableTh: true, EmptyState: true, RouterLink: true } } })

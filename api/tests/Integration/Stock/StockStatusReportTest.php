@@ -140,6 +140,65 @@ final class StockStatusReportTest extends StockTestCase
         self::assertSame('true', $read($bool), 'API vrací neutrální hodnotu, překlad dělá UI a export.');
     }
 
+    public function testParameterColumnMatchesCatalogListFormat(): void
+    {
+        $sid = $this->createSupplier();
+        $wh = $this->warehouse($sid);
+        $item = $this->item($sid, 'ST-SSOT');
+        $colors = $this->attribute($sid, 'SSOT-BARVA', 'enum');
+        $red = $this->attributeOption($sid, $colors, 'RED', 'Červená', 2);
+        $black = $this->attributeOption($sid, $colors, 'BLACK', 'Černá', 1);
+        // Shodné pořadí na kartě: rozhoduje pořadí volby, ne pořadí zápisu.
+        $this->attributeValue($sid, $item, $colors, ['option_id' => $red]);
+        $this->attributeValue($sid, $item, $colors, ['option_id' => $black]);
+        $bool = $this->attribute($sid, 'SSOT-NOVY', 'bool');
+        $this->attributeValue($sid, $item, $bool, ['value_bool' => true]);
+        $this->levels->setLevel($sid, $wh, $item, 1_000, 1_000);
+
+        $items = $this->container->get(\MyInvoice\Repository\StockItemRepository::class);
+        foreach ([$colors => 'Černá, Červená', $bool => 'true'] as $attributeId => $expected) {
+            $status = $this->report()->status($sid, StockReportService::normalizeStatusFilters(['attribute_id' => (string) $attributeId]));
+            [$listed] = $items->listPaged($sid, ['display_attribute_id' => $attributeId], 50, 0);
+            self::assertSame($expected, $status['items'][0]['attribute_value']);
+            self::assertSame($expected, $listed[0]['display_attribute_value'], 'Seznam karet a Stav zásob mají jeden formát.');
+        }
+    }
+
+    public function testParameterAndCategoryGroupsNeedEshopPermission(): void
+    {
+        $sid = $this->createSupplier();
+        $wh = $this->warehouse($sid);
+        $item = $this->item($sid, 'ST-PERM');
+        $vin = $this->attribute($sid, 'PERM-VIN', 'text');
+        $this->attributeValue($sid, $item, $vin, ['value_text' => 'TAJNY-VIN']);
+        $this->assignCategory($sid, $item, $this->category($sid, 'PERM-KAT'), true);
+        $this->levels->setLevel($sid, $wh, $item, 1_000, 1_000);
+
+        $action = $this->container->get(\MyInvoice\Action\Stock\StockReportAction::class);
+        $call = function (string $method, array $query, array $permissions) use ($action, $sid): array {
+            $request = (new \Slim\Psr7\Factory\ServerRequestFactory())->createServerRequest('GET', '/api/stock/reports/' . $method)
+                ->withQueryParams($query)
+                ->withAttribute(\MyInvoice\Middleware\SupplierScopeMiddleware::ATTR_CURRENT_ID, $sid)
+                ->withAttribute(\MyInvoice\Middleware\AuthMiddleware::ATTR_USER, ['id' => $this->userId, 'role' => 'accountant'])
+                ->withAttribute('auth.effective_role', new \MyInvoice\Security\EffectiveRole(0, 'Skladník', 'staff', true, $permissions));
+            $response = $action->{$method}($request, new \Slim\Psr7\Response());
+            self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+            return json_decode((string) $response->getBody(), true, flags: JSON_THROW_ON_ERROR);
+        };
+        $stockOnly = ['stock' => \MyInvoice\Security\AccessLevel::READ->value];
+        $withEshop = $stockOnly + ['eshop' => \MyInvoice\Security\AccessLevel::READ->value];
+
+        $status = $call('status', ['attribute_id' => (string) $vin], $withEshop);
+        self::assertSame('TAJNY-VIN', $status['items'][0]['attribute_value']);
+        $status = $call('status', ['attribute_id' => (string) $vin], $stockOnly);
+        self::assertSame(['items', 'totals'], array_keys($status), 'Bez práva e-shop se parametr ignoruje.');
+        self::assertArrayNotHasKey('attribute_value', $status['items'][0]);
+
+        self::assertArrayHasKey('category_groups', $call('valuation', ['group_by' => 'category'], $withEshop));
+        self::assertArrayNotHasKey('category_groups', $call('valuation', ['group_by' => 'category'], $stockOnly),
+            'Názvy kategorií spravuje e-shop, bez práva se souhrn vynechá.');
+    }
+
     public function testColumnsCanHideCostAndValue(): void
     {
         $sid = $this->createSupplier();

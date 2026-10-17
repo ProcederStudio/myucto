@@ -7,6 +7,8 @@ namespace MyInvoice\Action\Stock;
 use MyInvoice\Action\Accounting\AccountingActionSupport;
 use MyInvoice\Http\Json;
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Security\AccessLevel;
+use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\IpMatcher;
 use MyInvoice\Service\Pdf\StockStatusPdfRenderer;
@@ -78,7 +80,7 @@ final class StockReportAction
             $filters['warehouse_id'] = (int) $q['warehouse_id'];
         }
         try {
-            $grouping = StockValuationCategoryGroups::normalize($q);
+            $grouping = $this->categoryGrouping($request, $q);
             $data = $this->service->valuation($supplierId, $date, $filters);
             if ($grouping !== null) {
                 $data['category_groups'] = $this->categoryGroups->summarize($supplierId, $grouping['parent_id'], $data['items']);
@@ -153,7 +155,7 @@ final class StockReportAction
             return Json::error($response, 'validation_failed', 'Neplatné stránkování.', 422);
         }
         try {
-            $grouping = StockValuationCategoryGroups::normalize($query);
+            $grouping = $this->categoryGrouping($request, $query);
             $data = $this->valuationJobs->result($supplierId, (int) $args['id'], $page, $limit);
             if ($grouping !== null) {
                 $data['category_groups'] = $this->valuationJobs->categoryGroups($supplierId, (int) $args['id'], $grouping['parent_id']);
@@ -234,7 +236,7 @@ final class StockReportAction
                 $q = $request->getQueryParams();
                 $date = trim((string) ($q['date'] ?? (new \DateTimeImmutable())->format('Y-m-d')));
                 $filters = !empty($q['warehouse_id']) ? ['warehouse_id' => (int) $q['warehouse_id']] : [];
-                $grouping = StockValuationCategoryGroups::normalize($q);
+                $grouping = $this->categoryGrouping($request, $q);
                 if (isset($q['job_id'])) {
                     $jobId = filter_var($q['job_id'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
                     if ($jobId === false) {
@@ -277,10 +279,30 @@ final class StockReportAction
             ->withHeader('Cache-Control', 'private, no-store');
     }
 
-    /** @return array<string,mixed> */
+    /**
+     * Parametry i kategorie karet spravuje e-shop. Bez práva ho číst se sloupec parametru
+     * i souhrn podle kategorií tiše vynechají, stejně jako sloupec parametru v seznamu karet
+     * ({@see StockItemAction::list()}); neplatná hodnota ale vrací chybu i tak.
+     *
+     * @return array<string,mixed>
+     */
     private function statusFilters(Request $request): array
     {
-        return StockReportService::normalizeStatusFilters($request->getQueryParams());
+        $filters = StockReportService::normalizeStatusFilters($request->getQueryParams());
+        if (!RequestAuthorization::allows($request, 'eshop', AccessLevel::READ)) {
+            unset($filters['attribute_id']);
+        }
+        return $filters;
+    }
+
+    /**
+     * @param array<string,mixed> $q
+     * @return array{parent_id:?int}|null
+     */
+    private function categoryGrouping(Request $request, array $q): ?array
+    {
+        $grouping = StockValuationCategoryGroups::normalize($q);
+        return RequestAuthorization::allows($request, 'eshop', AccessLevel::READ) ? $grouping : null;
     }
 
     private function mapStockError(Response $response, \Throwable $e): Response

@@ -49,15 +49,11 @@ final class StockLevelRepository
         if ($attribute !== null) {
             $select .= ', av.attribute_value';
             $join = ' LEFT JOIN (
-                    SELECT siav.stock_item_id,
-                           GROUP_CONCAT(' . self::attributeValueSql((string) $attribute['data_type']) . "
-                                        ORDER BY siav.display_order, siav.id SEPARATOR ', ') AS attribute_value
-                      FROM stock_item_attribute_values siav
-                      LEFT JOIN stock_attribute_options sao
-                        ON sao.id = siav.option_id AND sao.supplier_id = siav.supplier_id
+                    SELECT siav.stock_item_id, ' . StockAttributeDisplayValue::AGGREGATE_SQL . ' AS attribute_value
+                      FROM stock_item_attribute_values siav' . StockAttributeDisplayValue::JOINS_SQL . '
                      WHERE siav.supplier_id = ? AND siav.attribute_id = ?
                      GROUP BY siav.stock_item_id
-               ) av ON av.stock_item_id = sl.stock_item_id";
+               ) av ON av.stock_item_id = sl.stock_item_id';
             $joinParams = [$supplierId, (int) $attribute['id']];
         }
 
@@ -88,17 +84,6 @@ final class StockLevelRepository
             $rows[] = $row;
         }
         return $rows;
-    }
-
-    /** Hodnota parametru podle typu (volba = popisek, číslo bez koncových nul, ano/ne = 'true'/'false'). */
-    private static function attributeValueSql(string $dataType): string
-    {
-        return match ($dataType) {
-            'enum' => 'sao.label',
-            'number' => "TRIM(TRAILING '.' FROM TRIM(TRAILING '0' FROM CAST(siav.value_num AS CHAR)))",
-            'bool' => "CASE siav.value_bool WHEN 1 THEN 'true' WHEN 0 THEN 'false' END",
-            default => 'siav.value_text',
-        };
     }
 
     /**

@@ -37,23 +37,13 @@ final class StockItemRepository
                        AND sa.data_type = \'text\' AND siav.value_text LIKE ?)';
 
     /**
-     * Hodnota jednoho parametru karty jako text pro volitelný sloupec seznamu
-     * (jeden placeholder = id parametru). Výběr hodnot = popisek volby, číslo bez
-     * koncových nul, ano/ne jako 1/0 (formátuje klient), víc hodnot oddělených čárkou.
+     * Hodnota jednoho parametru karty pro volitelný sloupec seznamu (jeden placeholder
+     * = id parametru), formát {@see StockAttributeDisplayValue}.
      */
     private const DISPLAY_ATTRIBUTE_SQL =
-        "(SELECT GROUP_CONCAT(
-                    CASE sa.data_type
-                        WHEN 'enum' THEN sao.label
-                        WHEN 'number' THEN TRIM(TRAILING '.' FROM TRIM(TRAILING '0' FROM CAST(siav.value_num AS CHAR)))
-                        WHEN 'bool' THEN CAST(siav.value_bool AS CHAR)
-                        ELSE siav.value_text
-                    END
-                    ORDER BY siav.display_order, sao.display_order, siav.id SEPARATOR ', ')
-            FROM stock_item_attribute_values siav
-            JOIN stock_attributes sa ON sa.id = siav.attribute_id AND sa.supplier_id = siav.supplier_id
-            LEFT JOIN stock_attribute_options sao ON sao.id = siav.option_id AND sao.supplier_id = siav.supplier_id
-           WHERE siav.supplier_id = si.supplier_id AND siav.stock_item_id = si.id AND siav.attribute_id = ?)";
+        '(SELECT ' . StockAttributeDisplayValue::AGGREGATE_SQL . '
+            FROM stock_item_attribute_values siav' . StockAttributeDisplayValue::JOINS_SQL . '
+           WHERE siav.supplier_id = si.supplier_id AND siav.stock_item_id = si.id AND siav.attribute_id = ?)';
 
     private const COLUMNS =
         'id, supplier_id, sku, name, item_type, manufacturer_id, unit, default_sale_unit, tracking_mode, ean, vat_rate_id,
