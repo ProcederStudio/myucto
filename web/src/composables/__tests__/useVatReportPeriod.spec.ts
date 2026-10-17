@@ -94,6 +94,37 @@ describe('období výkazů v relaci uživatele a firmy', () => {
     expect(first.month.value).toBe(6)
   })
 
+  it('SH začíná měsíčně i u čtvrtletního plátce a jeho periodicita nemění DPH', async () => {
+    const vat = create()
+    await vat.initialize()
+    vat.year.value = 2026
+    vat.month.value = 6
+    const sh = create('sh')
+    await sh.initialize()
+    expect([sh.year.value, sh.month.value, sh.effectivePeriod.value]).toEqual([2026, 6, 'monthly'])
+    sh.periodOverride.value = 'quarterly'
+    sh.periodOverride.value = 'monthly'
+    const nextVat = create()
+    await nextVat.initialize()
+    expect([nextVat.year.value, nextVat.month.value, nextVat.effectivePeriod.value]).toEqual([2026, 6, 'quarterly'])
+    const nextSh = create('sh')
+    await nextSh.initialize()
+    expect(nextSh.effectivePeriod.value).toBe('monthly')
+  })
+
+  it('SH si pamatuje vlastní čtvrtletní volbu', async () => {
+    const sh = create('sh')
+    await sh.initialize()
+    expect([sh.year.value, sh.month.value, sh.effectivePeriod.value]).toEqual([2026, 9, 'monthly'])
+    sh.periodOverride.value = 'quarterly'
+    const again = create('sh')
+    await again.initialize()
+    expect(again.effectivePeriod.value).toBe('quarterly')
+    const vat = create()
+    await vat.initialize()
+    expect(vat.periodOverride.value).toBe('')
+  })
+
   it('výchozí období zůstane v relaci i po překročení hranice kvartálu', async () => {
     const first = create()
     await first.initialize()

@@ -17,7 +17,7 @@ const { t, locale } = useI18n()
 const router = useRouter()
 const auth = useAuthStore()
 
-const { year, month, periodOverride, effectivePeriod, ready, settingsError, initialize } = useVatReportPeriod()
+const { year, month, periodOverride, effectivePeriod, ready, settingsError, initialize } = useVatReportPeriod('sh')
 
 const currentQuarter = computed(() => Math.ceil(month.value / 3))
 

@@ -10,6 +10,16 @@ vi.mock('@/composables/useToast', () => ({ useToast: () => ({ error: m.error }) 
 vi.mock('@/composables/useYearOptions', () => ({ useYearOptions: () => [2026] }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key, locale: { value: 'cs' } }) }))
 vi.mock('vue-router', () => ({ useRouter: () => ({ resolve: (to: unknown) => ({ href: `/#${JSON.stringify(to)}` }) }) }))
+vi.mock('@/composables/useVatReportPeriod', async () => {
+  const { computed, ref } = await import('vue')
+  return { useVatReportPeriod: () => {
+    const ready = ref(false)
+    return {
+      year: ref(2026), month: ref(10), periodOverride: ref(''), effectivePeriod: computed(() => 'monthly'),
+      ready, settingsError: ref(null), initialize: async () => { ready.value = true; return true },
+    }
+  } }
+})
 import DphBookReport from '../DphBookReport.vue'
 
 const row = (over: Partial<DphBookRow>): DphBookRow => ({

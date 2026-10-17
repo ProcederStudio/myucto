@@ -11,7 +11,7 @@ import {
   type VatReportPeriod, type VatReportSelection,
 } from '@/utils/vatReportPeriodSession'
 
-type VatReportKind = 'vat' | 'kh' | 'oss' | 'monthly'
+type VatReportKind = 'vat' | 'kh' | 'sh' | 'oss' | 'monthly'
 
 export function lastClosedVatPeriod(period: VatReportPeriod, now = new Date()): Pick<VatReportSelection, 'year' | 'month'> {
   const date = appIsoDate(now)
@@ -47,9 +47,11 @@ export function useVatReportPeriod(kind: VatReportKind = 'vat') {
     if (kind === 'monthly' || (kind === 'kh' && settings.value?.taxpayer_type === 'po')) return 'monthly'
     return ''
   })
-  const companyPeriod = computed<VatReportPeriod>(() => settings.value?.vat_period === 'quarterly' ? 'quarterly' : 'monthly')
+  // SH se podle § 102 řídí druhem plnění, ne periodicitou DPH: výchozí je měsíc a vlastní volba se nesdílí.
+  const companyPeriod = computed<VatReportPeriod>(() => kind !== 'sh' && settings.value?.vat_period === 'quarterly' ? 'quarterly' : 'monthly')
   const effectivePeriod = computed<VatReportPeriod>(() => forcedPeriod.value || periodOverride.value || companyPeriod.value)
-  const group = computed(() => forcedPeriod.value ? (kind === 'kh' ? 'kh-monthly' : kind) : 'vat')
+  const group = computed(() => forcedPeriod.value ? (kind === 'kh' ? 'kh-monthly' : kind) : (kind === 'sh' ? 'sh' : 'vat'))
+  const ownGroup = computed(() => group.value !== 'vat')
   const identity = computed(() => {
     const userId = Number(auth.user?.id)
     const supplierId = Number(getWindowSupplierScope()?.supplierId ?? supplier.currentSupplierId)
@@ -73,7 +75,7 @@ export function useVatReportPeriod(kind: VatReportKind = 'vat') {
   function applySelection() {
     pendingQuerySync = false
     const own = readVatReportSelection(activeIdentity, group.value)
-    const common = forcedPeriod.value && !own ? readVatReportSelection(activeIdentity, 'vat') : null
+    const common = ownGroup.value && !own ? readVatReportSelection(activeIdentity, 'vat') : null
     const remembered = own ?? common
     const requestedYear = reportYearFromQuery(route.query.year)
     const requestedMonth = queryMonth(route.query.month)

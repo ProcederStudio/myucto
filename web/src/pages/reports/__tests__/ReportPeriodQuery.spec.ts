@@ -36,10 +36,11 @@ import ShReport from '@/pages/reports/SouhrnneHlaseniReport.vue'
 import DphBookReport from '@/pages/reports/DphBookReport.vue'
 
 const pages = [
-  { name: 'DPH', component: DphReport, preview: m.dphPreview, download: m.dphDownloadUrl, action: 'downloadXml' },
-  { name: 'KH', component: KhReport, preview: m.khPreview, download: m.khDownloadUrl, action: 'downloadXml' },
-  { name: 'SH', component: ShReport, preview: m.shvPreview, download: m.shvDownloadUrl, action: 'downloadXml' },
-  { name: 'Kniha DPH', component: DphBookReport, preview: m.dphBookPreview, download: m.dphBookPdfUrl, action: 'downloadPdf' },
+  { name: 'DPH', component: DphReport, preview: m.dphPreview, download: m.dphDownloadUrl, action: 'downloadXml', companyPeriod: true },
+  { name: 'KH', component: KhReport, preview: m.khPreview, download: m.khDownloadUrl, action: 'downloadXml', companyPeriod: true },
+  // SH se řídí druhem plnění, ne periodicitou DPH firmy.
+  { name: 'SH', component: ShReport, preview: m.shvPreview, download: m.shvDownloadUrl, action: 'downloadXml', companyPeriod: false },
+  { name: 'Kniha DPH', component: DphBookReport, preview: m.dphBookPreview, download: m.dphBookPdfUrl, action: 'downloadPdf', companyPeriod: true },
 ]
 const mounted: ReturnType<typeof shallowMount>[] = []
 function mountPage(component: typeof DphReport | typeof KhReport | typeof ShReport | typeof DphBookReport) {
@@ -73,7 +74,9 @@ describe('období výkazů DPH', () => {
     vi.restoreAllMocks()
   })
 
-  for (const { name, component, preview, download, action } of pages) {
+  for (const { name, component, preview, download, action, companyPeriod } of pages) {
+    const closed = (year: number, quarterMonth: number, month: number) =>
+      companyPeriod ? [year, quarterMonth, 'quarterly'] : [year, month, 'monthly']
     it(`${name}: zamkne výběr období během nastavení a po chybě nabídne opakování`, async () => {
       m.dphSettings.mockRejectedValueOnce(new Error('settings unavailable'))
       preview.mockResolvedValue(null)
@@ -98,12 +101,12 @@ describe('období výkazů DPH', () => {
       resolveSettings({ vat_period: 'quarterly', taxpayer_type: 'fo' })
       await flushPromises()
       expect(preview).toHaveBeenCalledTimes(1)
-      expect(preview.mock.lastCall?.slice(0, 3)).toEqual([2026, 9, 'quarterly'])
+      expect(preview.mock.lastCall?.slice(0, 3)).toEqual(closed(2026, 9, 9))
       expect(wrapper.text()).not.toContain('settings unavailable')
       expect(wrapper.findAll('button').some(button => button.text() === 'common.retry')).toBe(false)
       for (const toggle of toggles) expect(toggle.attributes('disabled')).toBeUndefined()
     })
-    it(`${name}: první náhled čeká na nastavení firmy a použije poslední uzavřený kvartál`, async () => {
+    it(`${name}: první náhled čeká na nastavení firmy a použije poslední uzavřené období`, async () => {
       let resolveSettings!: (value: unknown) => void
       m.dphSettings.mockImplementationOnce(() => new Promise(resolve => { resolveSettings = resolve }))
       mountPage(component)
@@ -112,7 +115,7 @@ describe('období výkazů DPH', () => {
       resolveSettings({ vat_period: 'quarterly', taxpayer_type: 'fo' })
       await flushPromises()
       expect(preview).toHaveBeenCalledTimes(1)
-      expect(preview.mock.calls[0]?.slice(0, 3)).toEqual([2026, 9, 'quarterly'])
+      expect(preview.mock.calls[0]?.slice(0, 3)).toEqual(closed(2026, 9, 9))
     })
     it(`${name}: měsíční firma začíná posledním uzavřeným měsícem`, async () => {
       m.dphSettings.mockResolvedValue({ vat_period: 'monthly', taxpayer_type: 'fo' })
@@ -124,15 +127,15 @@ describe('období výkazů DPH', () => {
       vi.setSystemTime(new Date('2026-01-15T12:00:00+01:00'))
       const wrapper = mountPage(component)
       await flushPromises()
-      expect(preview.mock.calls[0]?.slice(0, 3)).toEqual([2025, 12, 'quarterly'])
+      expect(preview.mock.calls[0]?.slice(0, 3)).toEqual(closed(2025, 12, 12))
       await (vm(wrapper)[action] as () => Promise<void>)()
-      expect(download.mock.lastCall?.slice(0, 3)).toEqual([2025, 12, 'quarterly'])
+      expect(download.mock.lastCall?.slice(0, 3)).toEqual(closed(2025, 12, 12))
     })
-    it(`${name}: uvnitř kvartálu zvolí předchozí uzavřený kvartál`, async () => {
+    it(`${name}: uvnitř kvartálu zvolí předchozí uzavřené období`, async () => {
       vi.setSystemTime(new Date('2026-08-15T12:00:00+02:00'))
       mountPage(component)
       await flushPromises()
-      expect(preview.mock.calls[0]?.slice(0, 3)).toEqual([2026, 6, 'quarterly'])
+      expect(preview.mock.calls[0]?.slice(0, 3)).toEqual(closed(2026, 6, 7))
     })
     it(`${name}: první náhled i export respektují explicitní období odkazu`, async () => {
       m.route.query = { year: '2025', month: '12', period: 'monthly' }
@@ -207,7 +210,7 @@ describe('období výkazů DPH', () => {
       m.route.query = { year: ['2025', '2024'], month: '12oops', period: ['quarterly', 'monthly'] }
       mountPage(component)
       await flushPromises()
-      expect(preview.mock.calls[0]?.slice(0, 3)).toEqual([2026, 9, 'quarterly'])
+      expect(preview.mock.calls[0]?.slice(0, 3)).toEqual(closed(2026, 9, 9))
     })
   }
 
@@ -221,7 +224,7 @@ describe('období výkazů DPH', () => {
     expect(m.khDownloadUrl.mock.lastCall?.slice(0, 3)).toEqual([2025, 6, 'monthly'])
   })
 
-  it('ruční výběr z DPH přebírá souhrnné hlášení a Kniha DPH', async () => {
+  it('ruční výběr z DPH přebírá Kniha DPH, souhrnné hlášení jen rok a měsíc', async () => {
     const dph = mountPage(DphReport)
     await flushPromises()
     vm(dph).year = 2025
@@ -233,7 +236,7 @@ describe('období výkazů DPH', () => {
     await flushPromises()
     mountPage(DphBookReport)
     await flushPromises()
-    expect(m.shvPreview.mock.lastCall?.slice(0, 3)).toEqual([2025, 3, 'quarterly'])
+    expect(m.shvPreview.mock.lastCall?.slice(0, 3)).toEqual([2025, 3, 'monthly'])
     expect(m.dphBookPreview.mock.lastCall?.slice(0, 3)).toEqual([2025, 3, 'quarterly'])
   })
 
