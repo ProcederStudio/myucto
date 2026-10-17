@@ -37,6 +37,19 @@ use Slim\Psr7\Factory\ServerRequestFactory;
 #[Group('integration')]
 final class MoneyS3ImportAccountingTest extends MoneyS3ImportTestCase
 {
+    public function testOpeningWithoutDimensionsIsNotAcceptedEvenWhenAccountTotalsMatch(): void
+    {
+        $supplierId = $this->supplier();
+        SyntheticAgenda::writeLzFiles($this->tmp . '/no-opening-dimensions.lz', SyntheticAgenda::filesWithoutOpeningDimensions());
+        $backup = Ms3Backup::extract($this->tmp . '/no-opening-dimensions.lz', $this->tmp . '/no-opening-dimensions');
+        $protocol = $this->importer->run($supplierId, $this->userId, $backup, new ImportOptions(ImportOptions::MODE_IMPORT, true));
+        self::assertFalse($protocol->hasErrors(), $this->explain($protocol));
+        $closing = array_column($protocol->get('closing'), null, 'year')[2024];
+        self::assertSame('mismatch', $closing['status'], $this->explain($protocol));
+        self::assertNotEmpty($closing['diffs']);
+        self::assertSame('open', $this->container(AccountingPeriodRepository::class)->findByYear($supplierId, 2024)['status']);
+    }
+
     public function testImportedAccountingPreservesPeriodsBalancesAndClassification(): void
     {
         $supplierId = $this->supplier();
@@ -330,8 +343,7 @@ final class MoneyS3ImportAccountingTest extends MoneyS3ImportTestCase
         self::assertSame('1AB 2345 - Dodávka', $byCode['1AB 2345']['name']);
         self::assertSame('project', $byCode['ZAK01']['kind']);
         self::assertNull($byCode['ZAK01']['supplier_group_id'], 'Firma bez skupiny má projekt firemní.');
-        // Zakázky použil jen rok 2024, poslední převáděný rok je 2025.
-        self::assertSame(0, (int) $byCode['ZAK01']['is_active']);
+        self::assertSame(1, (int) $byCode['ZAK01']['is_active']);
         $projects = $pdo->prepare('SELECT COUNT(*) FROM projects p JOIN clients c ON c.id = p.client_id WHERE c.supplier_id = ?');
         $projects->execute([$supplierId]);
         self::assertSame(0, (int) $projects->fetchColumn(), 'Zakázka z Money nezakládá fakturační zakázku.');
@@ -363,12 +375,99 @@ final class MoneyS3ImportAccountingTest extends MoneyS3ImportTestCase
         $purchase->execute([$supplierId]);
         self::assertSame('REZIE,ZAK01', $purchase->fetchColumn(), 'Doklad přebírá dimenze ze svých řádků.');
 
+        self::assertSame('closed', array_column($protocol->get('closing'), null, 'year')[2024]['status']);
+        (new \MyInvoice\Repository\DimensionRepository($this->db))->updateValue($supplierId, (int) $byCode['ZAK01']['id'], ['is_active' => false]);
         $second = $this->import($supplierId);
         $step = array_column($second->toArray()['steps'], null, 'key')['dimensions'];
         self::assertSame(0, $step['counts']['lines'] ?? 0, 'Opakovaný převod dimenze nemění.');
         self::assertSame(0, $step['counts']['documents'] ?? 0);
         self::assertSame(4, $step['counts']['values_existing'] ?? 0);
         self::assertSame(0, $step['counts']['values_created'] ?? 0);
+        self::assertNotContains('period_not_open', array_column($step['messages'], 'code'));
+        self::assertTrue((new \MyInvoice\Repository\DimensionRepository($this->db))->findValue($supplierId, (int) $byCode['ZAK01']['id'])['is_active'], 'Money může znovu aktivovat historickou hodnotu beze změny její struktury.');
+    }
+
+    public function testMoneyDimensionsDoNotRewriteClosedYearFromChangedBackup(): void
+    {
+        $supplierId = $this->supplier();
+        $first = $this->import($supplierId);
+        self::assertFalse($first->hasErrors(), $this->explain($first));
+        self::assertSame('closed', array_column($first->get('closing'), null, 'year')[2024]['status']);
+        $pdo = $this->db->pdo();
+        $split = $pdo->prepare("INSERT INTO journal_entry_line_dimension_splits
+            (line_id, dimension_type_id, dimension_value_id, supplier_id, share)
+            SELECT l.id, v.type_id, v.id, l.supplier_id, 0.5
+            FROM journal_entries je
+            JOIN journal_entry_lines l ON l.entry_id = je.id AND l.supplier_id = je.supplier_id
+            JOIN dimension_values v ON v.supplier_id = je.supplier_id AND v.code IN ('ZAK01', 'ZAK02')
+            WHERE je.supplier_id = ? AND je.document_no = 'FP24001' AND je.entry_date < '2025-01-01' AND l.line_no = 1");
+        $split->execute([$supplierId]);
+        self::assertSame(2, $split->rowCount());
+        $pdo->prepare('DELETE d FROM journal_entry_line_dimensions d
+            JOIN journal_entry_line_dimension_splits s ON s.line_id = d.line_id AND s.dimension_type_id = d.dimension_type_id
+            WHERE d.supplier_id = ?')->execute([$supplierId]);
+        $before = $this->moneyDimensionSnapshot($supplierId);
+
+        SyntheticAgenda::writeLzFiles($this->tmp . '/agenda.lz', SyntheticAgenda::filesWithChangedDimensions());
+        $second = $this->import($supplierId);
+        self::assertFalse($second->hasErrors(), $this->explain($second));
+        self::assertSame($before, $this->moneyDimensionSnapshot($supplierId));
+        $step = array_column($second->toArray()['steps'], null, 'key')['dimensions'];
+        self::assertContains('period_not_open', array_column($step['messages'], 'code'));
+    }
+
+    public function testMoneyDimensionsStillUpdateOpenYear(): void
+    {
+        $supplierId = $this->supplier();
+        $options = new ImportOptions(ImportOptions::MODE_IMPORT, true, fromYear: 2025);
+        $first = $this->importer->run($supplierId, $this->userId, $this->backup(), $options);
+        self::assertFalse($first->hasErrors(), $this->explain($first));
+        $before = $this->moneyDimensionSnapshot($supplierId);
+        SyntheticAgenda::writeLzFiles($this->tmp . '/agenda.lz', SyntheticAgenda::filesWithChangedDimensions(2025));
+        $second = $this->importer->run($supplierId, $this->userId, $this->backup(), $options);
+        self::assertFalse($second->hasErrors(), $this->explain($second));
+        self::assertNotSame($before, $this->moneyDimensionSnapshot($supplierId));
+        $step = array_column($second->toArray()['steps'], null, 'key')['dimensions'];
+        self::assertGreaterThan(0, $step['counts']['lines']);
+        self::assertNotContains('period_not_open', array_column($step['messages'], 'code'));
+        $stmt = $this->db->pdo()->prepare("SELECT COUNT(*) FROM journal_entry_lines WHERE supplier_id = ? AND cost_center = 'NOVE1'");
+        $stmt->execute([$supplierId]);
+        self::assertGreaterThan(0, (int) $stmt->fetchColumn());
+    }
+
+    public function testMoneyDimensionsDoNotFillMissingClosedDocumentHeader(): void
+    {
+        $supplierId = $this->supplier();
+        $first = $this->import($supplierId);
+        self::assertFalse($first->hasErrors(), $this->explain($first));
+        $pdo = $this->db->pdo();
+        $delete = $pdo->prepare("DELETE dd FROM document_dimensions dd
+            JOIN purchase_invoices pi ON pi.id = dd.doc_id AND pi.supplier_id = dd.supplier_id
+            WHERE dd.supplier_id = ? AND dd.doc_type = 'purchase_invoice' AND pi.vendor_invoice_number = 'DF-2024-017'");
+        $delete->execute([$supplierId]);
+        self::assertGreaterThan(0, $delete->rowCount());
+        $before = $this->moneyDimensionSnapshot($supplierId);
+        $second = $this->import($supplierId);
+        self::assertFalse($second->hasErrors(), $this->explain($second));
+        self::assertSame($before, $this->moneyDimensionSnapshot($supplierId));
+        $step = array_column($second->toArray()['steps'], null, 'key')['dimensions'];
+        self::assertContains('period_not_open', array_column($step['messages'], 'code'));
+    }
+
+    private function moneyDimensionSnapshot(int $supplierId): array
+    {
+        $out = [];
+        foreach ([
+            'lines' => 'SELECT l.id, l.cost_center FROM journal_entry_lines l WHERE l.supplier_id = ? ORDER BY l.id',
+            'dimensions' => 'SELECT d.* FROM journal_entry_line_dimensions d WHERE d.supplier_id = ? ORDER BY d.line_id, d.dimension_type_id',
+            'splits' => 'SELECT d.* FROM journal_entry_line_dimension_splits d WHERE d.supplier_id = ? ORDER BY d.line_id, d.dimension_type_id, d.dimension_value_id',
+            'documents' => 'SELECT d.* FROM document_dimensions d WHERE d.supplier_id = ? ORDER BY d.doc_type, d.doc_id, d.item_no, d.dimension_type_id',
+        ] as $key => $sql) {
+            $stmt = $this->db->pdo()->prepare($sql);
+            $stmt->execute([$supplierId]);
+            $out[$key] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        }
+        return $out;
     }
 
     public function testMoneyJobIsGlobalProjectOfSupplierGroup(): void

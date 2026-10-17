@@ -352,6 +352,10 @@ onMounted(async () => {
                 </thead>
                 <tbody class="divide-y divide-neutral-100">
                   <tr v-for="(it, i) in inv.items" :key="i">
+                    <!-- Textový řádek: jen text přes celou šířku tabulky (stejně jako v PDF). -->
+                    <td v-if="it.item_kind === 'text'" :colspan="isVatPayer ? 7 : 5"
+                      class="px-4 py-2 whitespace-pre-wrap font-medium text-neutral-800" data-test="public-text-row">{{ it.description }}</td>
+                    <template v-else>
                     <td class="px-4 py-2 whitespace-pre-wrap text-neutral-800">{{ it.description }}</td>
                     <template v-if="it.item_kind === 'discount'">
                       <td></td><td></td><td></td>
@@ -364,6 +368,7 @@ onMounted(async () => {
                     <td v-if="isVatPayer" class="px-3 py-2 text-center whitespace-nowrap text-neutral-600">{{ fmtRate(it.vat_rate_snapshot) }}</td>
                     <td v-if="isVatPayer" class="px-3 py-2 text-right font-mono whitespace-nowrap">{{ fmtMoney(it.total_without_vat, 2) }}</td>
                     <td class="px-3 py-2 text-right font-mono whitespace-nowrap">{{ fmtMoney(isVatPayer ? it.total_with_vat : it.total_without_vat, 2) }}</td>
+                    </template>
                   </tr>
                 </tbody>
               </table>

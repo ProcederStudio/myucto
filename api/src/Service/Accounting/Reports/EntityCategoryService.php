@@ -12,12 +12,12 @@ use MyInvoice\Repository\StatementDefinitionRepository;
 use MyInvoice\Repository\TaxConstantsRepository;
 
 /**
- * Kategorizace účetní jednotky (§1d ZoÚ po novele 316/2025 Sb., R9–R11):
+ * Kategorizace účetní jednotky (§1b a §1e ZoÚ, R9–R11):
  * kategorie = nejnižší, u níž ÚJ nepřekračuje ≥ 2 ze 3 kritérií (aktiva netto /
- * čistý obrat 601+602+604 / průměrný počet zaměstnanců). Dle §1e odst. 2 se
+ * čistý obrat / průměrný počet zaměstnanců). Dle §1e odst. 2 se
  * kategorie mění až od počátku období NÁSLEDUJÍCÍHO po dvou po sobě jdoucích
- * rozvahových dnech se shodnou raw kategorií; v prvním období platí raw stav
- * k rozvahovému dni (§1e odst. 1). Admin override `statement_scope_override`
+ * rozvahových dnech potvrzujících překročení téže hranice kategorie. Bez
+ * historie se používá raw stav běžného období. Admin override `statement_scope_override`
  * vyhrává. Default (žádná data) = mikro.
  *
  * Volá JEN repositories + StatementMapper (ne FinancialStatementService) —
@@ -25,9 +25,6 @@ use MyInvoice\Repository\TaxConstantsRepository;
  */
 final class EntityCategoryService
 {
-    /** Čistý obrat pro kategorizaci = tržby 601 + 602 + 604 (R9). */
-    private const TURNOVER_CODES = ['601', '602', '604'];
-
     public function __construct(
         private readonly LedgerReportRepository $ledger,
         private readonly StatementDefinitionRepository $definitions,
@@ -37,6 +34,7 @@ final class EntityCategoryService
         private readonly EntityCategoryHistoryRepository $history,
         private readonly TaxConstantsRepository $taxConstants,
         private readonly StatementMapResolver $maps,
+        private readonly NetTurnoverReadService $turnover,
     ) {}
 
     /**
@@ -59,24 +57,12 @@ final class EntityCategoryService
         $criteria = $this->criteriaFor($supplierId, $period);
         $criteria['employees'] = $employees;
         $thresholds = $this->thresholdsForPeriod($period);
-        $rawCurrent = $this->classify($criteria, $thresholds);
+        $rawCurrent = $this->classify($criteria, $thresholds, $period);
 
         $closedRaws = $this->rawsForClosedPeriods($supplierId, $period, $employees);
         $rawPrevious = $closedRaws === [] ? null : $closedRaws[count($closedRaws) - 1];
 
-        // §1e odst. 2: kategorie se mění od počátku období následujícího po dvou
-        // po sobě jdoucích rozvahových dnech se shodnou raw kategorií; bez
-        // uzavřeného období platí raw stav běžného období (§1e odst. 1).
-        if ($closedRaws === []) {
-            $category = $rawCurrent;
-        } else {
-            $category = $closedRaws[0];
-            for ($i = 1, $n = count($closedRaws); $i < $n; $i++) {
-                if ($closedRaws[$i] === $closedRaws[$i - 1]) {
-                    $category = $closedRaws[$i];
-                }
-            }
-        }
+        $category = self::categoryFromHistory($rawCurrent, $closedRaws);
 
         $scopeOverride = $settings['statement_scope_override'];
         $scope = $scopeOverride ?? match ($category) {
@@ -103,6 +89,35 @@ final class EntityCategoryService
             'scope'          => $scope,
             'scope_override' => $scopeOverride,
         ];
+    }
+
+    /** @param list<string> $closedRaws Chronologické kategorie dle limitů jednotlivých období. */
+    public static function categoryFromHistory(string $rawCurrent, array $closedRaws): string
+    {
+        if ($closedRaws === []) {
+            return $rawCurrent;
+        }
+        $categories = ['micro', 'small', 'medium', 'large'];
+        $ranks = array_map(static function (string $raw) use ($categories): int {
+            $rank = array_search($raw, $categories, true);
+            if ($rank === false) {
+                throw new \InvalidArgumentException('Unknown entity category: ' . $raw);
+            }
+            return $rank;
+        }, $closedRaws);
+        $effective = $ranks[0];
+        for ($i = 1, $n = count($ranks); $i < $n; $i++) {
+            // §1e odst. 2: každá hranice musí být překročena (nebo nepřekročena)
+            // v obou obdobích; rozdílné raw kategorie mohou potvrdit společnou hranici.
+            $lower = min($ranks[$i - 1], $ranks[$i]);
+            $upper = max($ranks[$i - 1], $ranks[$i]);
+            if ($effective < $lower) {
+                $effective = $lower;
+            } elseif ($effective > $upper) {
+                $effective = $upper;
+            }
+        }
+        return $categories[$effective];
     }
 
     /**
@@ -144,7 +159,7 @@ final class EntityCategoryService
             }
             $criteria = $this->criteriaFor($supplierId, $p);
             $criteria['employees'] = $employees;
-            $raws[] = $this->classify($criteria, $this->thresholdsForPeriod($p));
+            $raws[] = $this->classify($criteria, $this->thresholdsForPeriod($p), $p);
         }
 
         return $raws;
@@ -167,7 +182,7 @@ final class EntityCategoryService
 
         $criteria = $this->criteriaFor($supplierId, $period);
         $criteria['employees'] = $employees;
-        $raw = $this->classify($criteria, $this->thresholdsForPeriod($period));
+        $raw = $this->classify($criteria, $this->thresholdsForPeriod($period), $period);
 
         $this->history->upsert(
             $supplierId,
@@ -243,12 +258,7 @@ final class EntityCategoryService
 
         return [
             'assets_net'   => $this->mapper->assetsNet($rows, $mapped),
-            'net_turnover' => $this->ledger->netTurnoverForCodes(
-                $supplierId,
-                (string) $period['starts_on'],
-                (string) $period['ends_on'],
-                self::TURNOVER_CODES,
-            ),
+            'net_turnover' => $this->turnover->forPeriod($supplierId, $period),
         ];
     }
 
@@ -257,14 +267,27 @@ final class EntityCategoryService
      *
      * @param array{assets_net: float, net_turnover: float, employees: int} $criteria
      */
-    private function classify(array $criteria, array $thresholds): string
+    private function classify(array $criteria, array $thresholds, array $period): string
     {
+        return self::classifyCriteria($criteria, $thresholds, EntityCategoryPeriodPolicy::commencedMonths(
+            (string) $period['starts_on'],
+            (string) $period['ends_on'],
+        ));
+    }
+
+    public static function classifyCriteria(array $criteria, array $thresholds, int $turnoverMonths = 12): string
+    {
+        if ($turnoverMonths < 1) {
+            throw new \InvalidArgumentException('Počet započatých měsíců musí být kladný.');
+        }
         foreach ($thresholds as $category => $limits) {
             $exceeded = 0;
             if ($criteria['assets_net'] > $limits['assets_net']) {
                 $exceeded++;
             }
-            if ($criteria['net_turnover'] > $limits['net_turnover']) {
+            if ($turnoverMonths === 12
+                ? $criteria['net_turnover'] > $limits['net_turnover']
+                : EntityCategoryPeriodPolicy::turnoverExceeds($criteria['net_turnover'], $limits['net_turnover'], $turnoverMonths)) {
                 $exceeded++;
             }
             if ($criteria['employees'] > $limits['employees']) {
@@ -280,7 +303,7 @@ final class EntityCategoryService
     /** @param array<string,mixed> $period */
     private function thresholdsForPeriod(array $period): array
     {
-        $year = (int) substr((string) $period['ends_on'], 0, 4);
+        $year = EntityCategoryPeriodPolicy::thresholdYear((string) $period['starts_on'], (string) $period['ends_on']);
         return (array) $this->taxConstants->forYear($year)['entity_category_thresholds'];
     }
 }

@@ -188,6 +188,10 @@ export type OpeningTakeoverStatus = 'to_create' | 'match' | 'mismatch' | 'unavai
 
 export interface OpeningTakeoverDiffRow {
   account_code: string
+  dimension_labels?: string[]
+  cost_center?: string | null
+  project_id?: number | null
+  project_name?: string | null
   expected: number
   existing: number
   difference: number
@@ -241,6 +245,8 @@ export interface FxDetailRow {
   fx_rate: number
   rate_cnb: number
   diff: number
+  carrying_before?: string
+  incremental_signed?: string
   account_code?: string
 }
 
@@ -288,6 +294,12 @@ export interface FxLedgerLine {
   direction: 'gain' | 'loss' | null
 }
 
+export interface FxSettlementWarning {
+  code: 'payment_header_divergence'
+  doc_type: 'invoice' | 'purchase_invoice'
+  doc_id: number
+}
+
 export interface FxPreview {
   rate_info: FxRateInfo[]
   saldo: { lines: FxAggregateLine[]; detail: FxDetailRow[] }
@@ -295,6 +307,7 @@ export interface FxPreview {
   ledger?: { lines: FxLedgerLine[] }
   proposals?: FxBankProposal[]
   totals: { loss: number; gain: number }
+  warnings?: FxSettlementWarning[]
 }
 
 // ── Body mutací (§4.3) ─────────────────────────────────────────────────────

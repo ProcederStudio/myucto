@@ -236,6 +236,16 @@ Hlavní tabulka řadí všechny pohyby chronologicky a pro každý zobrazuje bě
 | Základ *(skrytý)* | Daňový základ pohybu (bez složky DPH) |
 | DPH *(skrytý)* | Složka DPH pohybu |
 | Poznámky a přílohy | Tlačítko otevře poznámky a přílohy pohybu (viz [§ 74.9.18](#74918-poznamky-a-prilohy-k-pohybum)), u řádku je vidět první poznámka a počet poznámek a příloh |
+| Akce | Ikona oka otevře detail zdrojového záznamu; při více panelech vedle deníku |
+
+V posledním sloupci tabulky, který nemá viditelný nadpis, je u dohledatelného zdroje ikona oka **Přejít na detail**. U bankovního pohybu otevře původní výpis
+rovnou s detailem konkrétní transakce (včetně protistrany, účtu, platebních symbolů a zprávy), i když je pohyb rozdělený do
+více řádků deníku. U pokladny otevře pokladní doklad, u samostatné úhrady příslušnou fakturu a u GoPay navázané vyúčtování.
+Odkaz se zobrazí jen s oprávněním ke čtení cílové agendy.
+
+Máte-li vedle sebe více panelů aplikace, detail se otevře v jiném panelu: přednostně v prázdném, jinak v následujícím.
+Peněžní deník tak zůstává otevřený s původními filtry a pozicí. Předchozí obsah cílového panelu zůstane dostupný mezi okny
+aplikace. Při jednom panelu se detail otevře v něm; zpět do deníku se vrátíte navigací panelu.
 
 ### 74.9.5 Daňová klasifikace pohybů
 
@@ -544,8 +554,11 @@ Pohyby bez dokladu se opakují: bankovní poplatky, převody mezi vlastními ú�
 zařazování každého pohybu v peněžním deníku (§ 74.4) si v menu `Daňová evidence → Pravidla bankovních pohybů` založte
 pravidlo.
 
-- **Podmínky:** směr (příchozí, odchozí), protiúčet, variabilní symbol, text ve zprávě nebo názvu protistrany a rozpětí
-  částky. Vyplnit je potřeba aspoň protiúčet, variabilní symbol nebo text, platit musí všechny vyplněné.
+- **Podmínky:** směr (příchozí, odchozí), protiúčet, variabilní symbol, konstantní symbol, text ve zprávě nebo názvu
+  protistrany a rozpětí částky. Vyplnit je potřeba aspoň protiúčet, variabilní symbol, konstantní symbol nebo text;
+  platit musí všechny vyplněné. Konstantní symbol (KS) je volitelný a může být jedinou podmínkou. Zadává se jako
+  1 až 4 číslice; při porovnání se úvodní nuly ignorují, takže `0308` odpovídá i `308`. Prázdný KS podmínku vypne;
+  `0000` je platná hodnota a neodpovídá pohybu bez KS.
   Protiúčet zadejte ve tvaru `1000000005/5050`, pokud má odpovídat účet i banka. `*/5050` vybere libovolný účet
   s kódem banky `5050`; `1000000005` vybere tento účet bez ohledu na banku. Kód banky má čtyři číslice;
   pohyby bez známého kódu banky neodpovídají podmínce, která kód banky obsahuje.

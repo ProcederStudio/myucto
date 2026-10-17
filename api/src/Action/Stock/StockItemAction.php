@@ -107,6 +107,17 @@ final class StockItemAction
         } catch (\InvalidArgumentException $e) {
             return Json::error($response, 'validation_failed', $e->getMessage(), 400);
         }
+        // Volitelný sloupec seznamu: hodnota jednoho parametru karty (ne filtr). Parametry
+        // spravuje e-shop, bez práva ho číst se sloupec tiše vynechá.
+        if (($q['display_attribute_id'] ?? '') !== '') {
+            $displayAttributeId = filter_var($q['display_attribute_id'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+            if ($displayAttributeId === false) {
+                return Json::error($response, 'validation_failed', 'display_attribute_id musí být kladné celé číslo.', 400);
+            }
+            if (RequestAuthorization::allows($request, 'eshop', AccessLevel::READ)) {
+                $filters['display_attribute_id'] = $displayAttributeId;
+            }
+        }
 
         $p = Pagination::fromQuery($q, 50);
         [$rows, $total] = $this->items->listPaged($supplierId, $filters, $p['per_page'], $p['offset']);
@@ -149,11 +160,34 @@ final class StockItemAction
         $limit = max(1, min(200, (int) ($q['limit'] ?? 50)));
         $term = trim((string) ($q['q'] ?? ''));
         $rows = $this->items->search($supplierId, $term, $limit);
-        return Json::ok($response, $this->withSearchMatch(
+        $warehouseId = !empty($q['warehouse_id']) ? (int) $q['warehouse_id'] : null;
+        return Json::ok($response, $this->withStockLevel($supplierId, $this->withSearchMatch(
             $supplierId,
             $this->withPackaging($supplierId, $this->withEffectivePrice($supplierId, $rows), $term),
             $term,
+        ), $warehouseId));
+    }
+
+    /**
+     * `qty` = stav karty v základní jednotce stejně jako GET /stock/availability
+     * (součet aktivních prodejních skladů, s `warehouse_id` jen ten sklad), aby
+     * nabídka v editoru dokladu ukazovala totéž číslo jako řádek po výběru.
+     * Skladová karta bez pohybu má `0.000`, neskladová (`is_stocked` = false) null.
+     *
+     * @param list<array<string,mixed>> $rows
+     * @return list<array<string,mixed>>
+     */
+    private function withStockLevel(int $supplierId, array $rows, ?int $warehouseId): array
+    {
+        $stocked = array_values(array_map(
+            static fn (array $r): int => (int) $r['id'],
+            array_filter($rows, static fn (array $r): bool => (bool) ($r['is_stocked'] ?? true)),
         ));
+        $levels = $stocked === [] ? [] : $this->levels->availability($supplierId, $stocked, $warehouseId);
+        foreach ($rows as $i => $row) {
+            $rows[$i]['qty'] = ($row['is_stocked'] ?? true) ? ($levels[(int) $row['id']] ?? '0.000') : null;
+        }
+        return $rows;
     }
 
     /**

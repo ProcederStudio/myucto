@@ -9,6 +9,7 @@ use MyInvoice\Repository\DimensionAssignmentRepository;
 use MyInvoice\Repository\DimensionRepository;
 use MyInvoice\Service\Accounting\Dimension\DimensionDefaults;
 use MyInvoice\Service\Accounting\Dimension\DimensionRuleService;
+use MyInvoice\Service\Accounting\Dimension\DimensionStamper;
 use PDO;
 
 /**
@@ -422,8 +423,8 @@ final class CashJournalDimensionService
     }
 
     /**
-     * Rozdělí haléře podle podílů: každý díl se zaokrouhlí a zbytek dostane největší podíl
-     * (při shodě nižší id) — stejné pravidlo jako rozpad řádku deníku.
+     * Rozdělí haléře stejným pravidlem jako řádek účetního deníku. Pořadí podle id
+     * zajišťuje shodné rozhodnutí při stejných podílech.
      *
      * @param array<int,float> $shares
      * @return array<int,int>
@@ -434,16 +435,11 @@ final class CashJournalDimensionService
         if ($shares === []) {
             return [0 => $cents];
         }
-        $sum = array_sum($shares);
         ksort($shares);
         $out = [];
-        foreach ($shares as $valueId => $share) {
-            $out[$valueId] = (int) round($cents * $share / $sum);
-        }
-        $residual = $cents - array_sum($out);
-        if ($residual !== 0) {
-            $biggest = array_keys($shares, max($shares), true)[0];
-            $out[$biggest] += $residual;
+        $parts = DimensionStamper::distributeCents($cents, array_values($shares));
+        foreach (array_keys($shares) as $i => $valueId) {
+            $out[$valueId] = $parts[$i];
         }
         return $out;
     }

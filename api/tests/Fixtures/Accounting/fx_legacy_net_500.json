@@ -1,0 +1,104 @@
+{
+    "supplier_id": 913,
+    "period_id": 1168,
+    "payload": {
+        "rate_info": [
+            {
+                "currency": "EUR",
+                "rate": 25,
+                "rate_date": "2098-12-31",
+                "fallback_used": false
+            }
+        ],
+        "detail": [
+            {
+                "doc_type": "invoice",
+                "doc_id": 1088,
+                "varsymbol": "2098000701",
+                "account_code": "311",
+                "currency_code": "EUR",
+                "remaining_foreign": 1000,
+                "fx_rate": 24,
+                "rate_cnb": 25,
+                "booked_czk": 24000,
+                "new_czk": 25000,
+                "diff": 1000,
+                "direction": "gain"
+            },
+            {
+                "doc_type": "invoice",
+                "doc_id": 1089,
+                "varsymbol": "2098000702",
+                "account_code": "311",
+                "currency_code": "EUR",
+                "remaining_foreign": 1000,
+                "fx_rate": 25.5,
+                "rate_cnb": 25,
+                "booked_czk": 25500,
+                "new_czk": 25000,
+                "diff": -500,
+                "direction": "loss"
+            }
+        ],
+        "saldo_lines": [
+            {
+                "account_id": 228393,
+                "account_code": "311",
+                "currency_code": "EUR",
+                "direction": "gain",
+                "amount": 500,
+                "desired_signed": 500,
+                "already_booked": 0
+            }
+        ],
+        "bank_rows": [],
+        "bank_lines": [],
+        "ledger_lines": [],
+        "totals": {
+            "loss": 0,
+            "gain": 500
+        },
+        "entry_ids": {
+            "saldo": 3078
+        },
+        "ran_at": "2026-10-17 06:10:29"
+    },
+    "lines": [
+        {
+            "id": 7835,
+            "entry_id": 3078,
+            "supplier_id": 913,
+            "account_id": 228393,
+            "side": "debit",
+            "amount": "500.00",
+            "is_red_storno": 0,
+            "signed_amount": "500.00",
+            "currency_code": "EUR",
+            "fx_rate": "25.000000",
+            "amount_foreign": "0.00",
+            "signed_amount_foreign": "0.00",
+            "cost_center": null,
+            "project_id": null,
+            "line_no": 0,
+            "account_code": "311"
+        },
+        {
+            "id": 7836,
+            "entry_id": 3078,
+            "supplier_id": 913,
+            "account_id": 228519,
+            "side": "credit",
+            "amount": "500.00",
+            "is_red_storno": 0,
+            "signed_amount": "500.00",
+            "currency_code": null,
+            "fx_rate": null,
+            "amount_foreign": null,
+            "signed_amount_foreign": null,
+            "cost_center": null,
+            "project_id": null,
+            "line_no": 1,
+            "account_code": "663"
+        }
+    ]
+}

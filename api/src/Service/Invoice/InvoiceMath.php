@@ -34,6 +34,9 @@ namespace MyInvoice\Service\Invoice;
  * Reziduum vůči vypočtenému se dorovná na nejsilnějším řádku dané sazby (stejný
  * princip jako koeficientová distribuce výše) → uložené řádkové totály sednou na
  * doklad a VatLedger (čte je) reportuje přesně.
+ *
+ * Textový řádek (`item_kind = 'text'`, {@see InvoiceItemKind}) vychází vždy na nulu,
+ * nezakládá řádek rekapitulace DPH a nevstupuje do dorovnání sazby ani overridu.
  */
 final class InvoiceMath
 {
@@ -50,27 +53,39 @@ final class InvoiceMath
      */
     public static function compute(array $items, bool $reverseCharge = false, bool $pricesIncludeVat = false, array $vatOverrides = []): array
     {
+        $textIdx = [];
+        foreach ($items as $i => $item) {
+            if (InvoiceItemKind::isText($item)) {
+                $textIdx[$i] = true;
+            }
+        }
+
         $perItem = $pricesIncludeVat
-            ? self::linesTopDown($items, $reverseCharge)
-            : self::linesBottomUp($items, $reverseCharge);
+            ? self::linesTopDown($items, $reverseCharge, $textIdx)
+            : self::linesBottomUp($items, $reverseCharge, $textIdx);
 
-        $perItem = self::applyRateOverrides($perItem, $vatOverrides, $reverseCharge);
+        $perItem = self::applyRateOverrides($perItem, $vatOverrides, $reverseCharge, $textIdx);
 
-        return ['items' => $perItem] + self::summarize($perItem);
+        return ['items' => $perItem] + self::summarize($perItem, $textIdx);
     }
 
     /**
      * Režim ZDOLA — ceny položek jsou bez DPH (netto). DPH zdola na řádek.
      *
      * @param list<array{quantity: float|int, unit_price_without_vat: float|int, vat_rate_snapshot: float|int}> $items
+     * @param array<int,true> $textIdx indexy textových řádků
      * @return list<array{base: float, vat: float, with: float, rate: float}>
      */
-    private static function linesBottomUp(array $items, bool $reverseCharge): array
+    private static function linesBottomUp(array $items, bool $reverseCharge, array $textIdx = []): array
     {
         $perItem = [];
-        foreach ($items as $item) {
+        foreach ($items as $i => $item) {
             // Nominální sazba zůstává (zobrazení + breakdown bucket); u RC se nuluje jen DAŇ.
             $rate  = (float) $item['vat_rate_snapshot'];
+            if (isset($textIdx[$i])) {
+                $perItem[] = ['base' => 0.0, 'vat' => 0.0, 'with' => 0.0, 'rate' => $rate];
+                continue;
+            }
 
             $base = TimeBilling::invoiceAmount($item);
             // Dělit až nakonec (base*rate/100), ne base*(rate/100) — viz issue #82.
@@ -86,15 +101,20 @@ final class InvoiceMath
      * Režim SHORA — ceny položek jsou včetně DPH (gross). Viz docblock třídy.
      *
      * @param list<array{quantity: float|int, duration_minutes?: int|null, unit_price_without_vat: float|int, vat_rate_snapshot: float|int}> $items
+     * @param array<int,true> $textIdx indexy textových řádků
      * @return list<array{base: float, vat: float, with: float, rate: float}>
      */
-    private static function linesTopDown(array $items, bool $reverseCharge): array
+    private static function linesTopDown(array $items, bool $reverseCharge, array $textIdx = []): array
     {
         // 1. průchod — per řádek gross + provizorní daň koeficientem; seskup dle sazby.
         $lines = [];      // i => ['gross','rate','vat','base']
         $rateGroups = []; // rateKey => ['rate','grossSum','idx'[],'maxIdx','maxGross']
         foreach ($items as $i => $item) {
             $rate  = (float) $item['vat_rate_snapshot'];
+            if (isset($textIdx[$i])) {
+                $lines[$i] = ['gross' => 0.0, 'rate' => $rate, 'vat' => 0.0, 'base' => 0.0];
+                continue;
+            }
 
             $gross = TimeBilling::invoiceAmount($item);
             $lineRc = self::lineReverseCharge($item, $reverseCharge);
@@ -163,9 +183,10 @@ final class InvoiceMath
      *
      * @param list<array{base: float, vat: float, with: float, rate: float}> $perItem
      * @param list<array{rate: float|int, base?: float|int|null, vat?: float|int|null}> $vatOverrides
+     * @param array<int,true> $textIdx indexy textových řádků (dorovnání na ně nikdy nejde)
      * @return list<array{base: float, vat: float, with: float, rate: float}>
      */
-    private static function applyRateOverrides(array $perItem, array $vatOverrides, bool $reverseCharge): array
+    private static function applyRateOverrides(array $perItem, array $vatOverrides, bool $reverseCharge, array $textIdx = []): array
     {
         if ($reverseCharge || $vatOverrides === [] || $perItem === []) {
             return $perItem;
@@ -196,6 +217,9 @@ final class InvoiceMath
         // Seskup řádky dle sazby + najdi nejsilnější (max |base|).
         $groups = []; // key => ['idx'=>int[], 'maxIdx'=>int, 'maxAbs'=>float]
         foreach ($perItem as $i => $l) {
+            if (isset($textIdx[$i])) {
+                continue;
+            }
             $key = number_format((float) $l['rate'], 2, '.', '');
             if (!isset($groups[$key])) {
                 $groups[$key] = ['idx' => [], 'maxIdx' => $i, 'maxAbs' => -1.0];
@@ -245,14 +269,18 @@ final class InvoiceMath
      * Sestav invoice totals + vat_breakdown ze (případně přepsaných) řádků.
      *
      * @param list<array{base: float, vat: float, with: float, rate: float}> $perItem
+     * @param array<int,true> $textIdx indexy textových řádků (nezakládají řádek rekapitulace)
      * @return array{totals: array{without_vat: float, vat: float, with_vat: float}, vat_breakdown: list<array{rate: float, base: float, vat: float}>}
      */
-    private static function summarize(array $perItem): array
+    private static function summarize(array $perItem, array $textIdx = []): array
     {
         $totalWithoutVat = 0.0;
         $totalVat = 0.0;
         $vatBuckets = [];
-        foreach ($perItem as $l) {
+        foreach ($perItem as $i => $l) {
+            if (isset($textIdx[$i])) {
+                continue;
+            }
             $totalWithoutVat += $l['base'];
             $totalVat        += $l['vat'];
 

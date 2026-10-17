@@ -27,6 +27,7 @@ final class ClientBrandingSettingsAction
         'email_branding_enabled',
         'email_accent_color',
         'pdf_logo_show_name',
+        'invoice_pdf_monochrome',
         'branding_profiles_enabled',
     ];
 
@@ -118,7 +119,7 @@ final class ClientBrandingSettingsAction
         $stmt = $this->db->pdo()->prepare(
             'SELECT id, company_name, display_name, email, phone, web, tagline,
                     email_branding_enabled, email_accent_color, pdf_logo_show_name,
-                    branding_profiles_enabled, default_branding_profile_id, logo_path
+                    invoice_pdf_monochrome, branding_profiles_enabled, default_branding_profile_id, logo_path
                FROM supplier WHERE id = ?'
         );
         $stmt->execute([$supplierId]);
@@ -130,6 +131,7 @@ final class ClientBrandingSettingsAction
         $row['id'] = (int) $row['id'];
         $row['email_branding_enabled'] = (bool) $row['email_branding_enabled'];
         $row['pdf_logo_show_name'] = (bool) $row['pdf_logo_show_name'];
+        $row['invoice_pdf_monochrome'] = (bool) $row['invoice_pdf_monochrome'];
         $row['branding_profiles_enabled'] = (bool) $row['branding_profiles_enabled'];
         $row['default_branding_profile_id'] = $row['default_branding_profile_id'] !== null
             ? (int) $row['default_branding_profile_id']

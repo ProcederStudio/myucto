@@ -36,7 +36,7 @@ export function evalMath(input: string, decimals = 2): number | null {
     if (rpn === null) return null
     const r = evalRpn(rpn)
     if (r === null || !isFinite(r)) return null
-    // Zaokrouhlení na 2 desetinná místa — user preference (částky v Kč/EUR)
+    // Zaokrouhlení výsledku výrazu na `decimals` míst (částky 2, sazby 6, množství viz mathDecimals)
     const scale = 10 ** decimals
     return Math.round(r * scale) / scale
   } catch {
@@ -147,9 +147,18 @@ function evalRpn(rpn: Token[]): number | null {
   return stack.length === 1 ? stack[0] : null
 }
 
+/**
+ * Počet míst výsledku výrazu z hodnoty direktivy: celé číslo 0 až 6, jinak 2.
+ * Pole množství posílá 3, když má jednotka nastavená desetinná místa
+ * (viz useUnitDecimals); částky dál 2, sazby 6.
+ */
+function mathDecimals(value: unknown): number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 6 ? value : 2
+}
+
 export const vMath: Directive<HTMLInputElement> = {
   mounted(el, binding) {
-    ;(el as any).__mathDecimals = binding.value === 6 ? 6 : 2
+    ;(el as any).__mathDecimals = mathDecimals(binding.value)
     const evaluate = () => {
       const r = evalMath(el.value, (el as any).__mathDecimals)
       if (r === null) return
@@ -183,7 +192,7 @@ export const vMath: Directive<HTMLInputElement> = {
     ;(el as any).__mathHandler = evaluate
   },
   updated(el, binding) {
-    ;(el as any).__mathDecimals = binding.value === 6 ? 6 : 2
+    ;(el as any).__mathDecimals = mathDecimals(binding.value)
   },
   beforeUnmount(el) {
     const h = (el as any).__mathHandler

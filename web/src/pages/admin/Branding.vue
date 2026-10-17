@@ -56,6 +56,7 @@ async function saveBranding(silent = false) {
       email_branding_enabled: supplier.value.email_branding_enabled,
       email_accent_color: supplier.value.email_accent_color,
       pdf_logo_show_name: supplier.value.pdf_logo_show_name,
+      invoice_pdf_monochrome: !!supplier.value.invoice_pdf_monochrome,
     }
     const updated = props.clientScoped
       ? await settingsApi.updateClientBranding(payload)
@@ -113,6 +114,7 @@ async function removeLogo() {
 watch(previewLocale, () => { if (supplier.value) bumpPreview() })
 watch(() => supplier.value?.email_branding_enabled, () => { if (watching) saveBranding(true) })
 watch(() => supplier.value?.pdf_logo_show_name, () => { if (watching) saveBranding(true) })
+watch(() => supplier.value?.invoice_pdf_monochrome, () => { if (watching) saveBranding(true) })
 watch(() => supplier.value?.email_accent_color, () => {
   if (!watching) return
   if (colorTimer) clearTimeout(colorTimer)
@@ -179,6 +181,17 @@ onMounted(load)
               <span class="text-sm text-neutral-700">{{ t('settings.branding_logo_show_name') }}</span>
             </label>
             <p class="text-xs text-neutral-500 mt-1">{{ t('settings.branding_logo_show_name_hint') }}</p>
+            <!-- Úsporná černobílá faktura (migrace 2033): nezávislá na brandingu, proto není disabled. -->
+            <label class="inline-flex items-center gap-2 mt-3 cursor-pointer">
+              <input
+                v-model="supplier.invoice_pdf_monochrome"
+                type="checkbox"
+                data-testid="branding-invoice-pdf-monochrome"
+                class="h-4 w-4 accent-primary-600"
+              />
+              <span class="text-sm text-neutral-700">{{ t('settings.branding_pdf_monochrome') }}</span>
+            </label>
+            <p class="text-xs text-neutral-500 mt-1">{{ t('settings.branding_pdf_monochrome_hint') }}</p>
           </div>
 
           <div>

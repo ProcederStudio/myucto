@@ -123,6 +123,32 @@ final class OssDocumentContradictionActionsTest extends TestCase
         $this->db->close();
     }
 
+    // ── 0. textový řádek ────────────────────────────────────────────────────
+
+    /**
+     * Textový řádek (item_kind 'text') není plnění. Na čistě OSS dokladu ho derivace
+     * místa plnění nesmí přepnout do OSS a kontrola soudržnosti ho nesmí brát jako
+     * tuzemský řádek: doklad by jinak dostal falešné varování a příznak k posouzení.
+     */
+    public function testTextRowOnOssDocumentIsNeitherOssNorContradiction(): void
+    {
+        $created = $this->post($this->payload([
+            $this->ossItem(),
+            ['item_kind' => 'text', 'description' => 'Zásilka č. 1', 'vat_rate_id' => $this->domesticVatRateId, 'order_index' => 1],
+        ]));
+
+        self::assertSame(201, $created['status'], json_encode($created['body']));
+        $id = (int) $created['body']['id'];
+        self::assertSame([], $created['body']['_warnings'] ?? [], 'Žádné varování o smíšeném dokladu.');
+        self::assertSame([0, 0], $this->storedFlags($id), 'Žádný řádek k ručnímu posouzení.');
+        $stmt = $this->db->pdo()->prepare('SELECT item_kind, oss_applicable FROM invoice_items WHERE invoice_id = ? ORDER BY order_index, id');
+        $stmt->execute([$id]);
+        self::assertSame([['standard', 1], ['text', 0]], array_map(
+            static fn (array $r): array => [(string) $r['item_kind'], (int) $r['oss_applicable']],
+            $stmt->fetchAll(PDO::FETCH_ASSOC),
+        ));
+    }
+
     // ── 1. ruční zadání a editor ─────────────────────────────────────────────
 
     /**

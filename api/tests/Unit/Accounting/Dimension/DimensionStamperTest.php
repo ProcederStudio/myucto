@@ -134,6 +134,15 @@ final class DimensionStamperTest extends TestCase
         self::assertSame([-50, -50], DimensionStamper::distributeCents(-100, [1.0, 1.0]));
     }
 
+    public function testDistributeCentsNeverMakesPositiveAllocationNegative(): void
+    {
+        self::assertSame([0, 0, 1, 1, 1], DimensionStamper::distributeCents(3, [0.2, 0.2, 0.2, 0.2, 0.2]));
+        self::assertSame([1, 2, 2], DimensionStamper::distributeCents(5, [1.0, 1.0, 1.0]), 'Dosavadní rozdělení pěti haléřů zůstává stabilní.');
+        self::assertSame([0, 0, -1, -1, -1], DimensionStamper::distributeCents(-3, [0.2, 0.2, 0.2, 0.2, 0.2]), 'Záporný celek je zrcadlem kladného.');
+        self::assertSame([0, 0, 0], DimensionStamper::distributeCents(0, [1.0, 1.0, 1.0]));
+        self::assertSame([0, 1, 0], DimensionStamper::distributeCents(1, [0.0, 1.0, 0.0]));
+    }
+
     public function testFilterLineSourceCountsCostCentreTextOnlyWithoutDimensionAndSplitsByShare(): void
     {
         $filter = new DimensionFilter(5, 11, [11, 12], ['REZ']);

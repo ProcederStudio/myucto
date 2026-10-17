@@ -368,6 +368,31 @@ final class StockPackagingTest extends StockTestCase
         self::assertNull($bySku[0]['matched_unit']);
     }
 
+    public function testSearchReturnsStockLevelPerWarehouse(): void
+    {
+        $sid = $this->createSupplier();
+        $main = $this->warehouse($sid, 'HLAVNI');
+        $shop = $this->warehouse($sid, 'PRODEJNA', false);
+        $item = $this->item($sid, 'LVL-STOCK');
+        $empty = $this->item($sid, 'LVL-EMPTY');
+        $service = $this->item($sid, 'LVL-SERVICE');
+        $this->db->pdo()->prepare('UPDATE stock_items SET is_stocked = 0 WHERE id = ?')->execute([$service]);
+        $this->receiveStock($sid, $main, $item, '5.000', 10.0);
+        $this->receiveStock($sid, $shop, $item, '3.000', 10.0);
+        $action = $this->container->get(StockItemAction::class);
+
+        $all = array_column($this->body($action->search($this->request('GET', $sid, null, ['q' => 'LVL-']), new Psr7Response())), null, 'id');
+        self::assertSame('8.000', $all[$item]['qty'], 'Bez skladu = součet prodejních skladů (jako /stock/availability).');
+        self::assertTrue($all[$item]['is_stocked']);
+        self::assertSame('0.000', $all[$empty]['qty'], 'Skladová karta bez pohybu má stav nula, ne null.');
+        self::assertFalse($all[$service]['is_stocked']);
+        self::assertNull($all[$service]['qty'], 'Neskladová karta stav nemá.');
+
+        $inShop = array_column($this->body($action->search($this->request('GET', $sid, null, ['q' => 'LVL-', 'warehouse_id' => (string) $shop]), new Psr7Response())), null, 'id');
+        self::assertSame('3.000', $inShop[$item]['qty']);
+        self::assertSame('0.000', $inShop[$empty]['qty']);
+    }
+
     public function testQuotePricesSelectedUnit(): void
     {
         $sid = $this->createSupplier();
@@ -396,6 +421,8 @@ final class StockPackagingTest extends StockTestCase
         self::assertSame('90.00', $withClient['lines'][0]['base_unit_price']);
         self::assertSame('customer_discount', $withClient['lines'][0]['price_source']);
         self::assertSame('10.000', $withClient['lines'][0]['discount_pct']);
+        self::assertSame(['800.00', '100.00'], [$withClient['lines'][0]['list_unit_price'], $withClient['lines'][1]['list_unit_price']], 'Ceníková cena za zvolenou jednotku.');
+        self::assertSame('800.00', $kt['list_unit_price']);
         self::assertIsInt($withClient['lines'][0]['customer_price_id']);
 
         $foreign = $action->quote($this->request('POST', $sid, ['client_id' => $this->client($this->createSupplier()), 'lines' => $lines]), new Psr7Response());

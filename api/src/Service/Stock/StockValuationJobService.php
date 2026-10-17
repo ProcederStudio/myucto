@@ -25,6 +25,7 @@ final class StockValuationJobService
         private readonly WarehouseRepository $warehouses,
         private readonly StockTakeRepository $takes,
         private readonly \MyInvoice\Repository\StockDocumentRepository $documents,
+        private readonly StockValuationCategoryGroups $categoryGroups,
     ) {}
 
     public function enqueue(int $supplierId, string $date, array $filters = []): array
@@ -220,17 +221,8 @@ final class StockValuationJobService
 
     public function result(int $supplierId, int $jobId, int $page = 1, int $limit = 100): array
     {
-        $job = $this->jobs->find($supplierId, $jobId);
-        if ($job === null || $job['kind'] !== 'stock_valuation') {
-            throw new StockException('not_found', 'Ocenění nenalezeno.', 404);
-        }
-        if ($job['status'] !== 'completed') {
-            throw new StockException('stock_valuation_not_ready', 'Ocenění dosud není dokončeno.', 409);
-        }
+        $job = $this->completedJob($supplierId, $jobId);
         $versions = $job['input']['source_versions'];
-        if ($this->snapshots->versions($supplierId, array_map('intval', array_keys($versions))) != $versions) {
-            throw new StockException('stock_valuation_stale', 'Ocenění vychází ze staršího stavu skladu.', 409);
-        }
         $page = max(1, $page);
         $limit = max(1, min(500, $limit));
         $where = 'r.supplier_id = ? AND r.job_id = ? AND r.completed = 1 AND (r.qty <> 0 OR r.value_total <> 0)';
@@ -251,5 +243,37 @@ final class StockValuationJobService
         return ['job_id' => $jobId, 'date' => $job['input']['date'], 'items' => $items,
             'source_versions' => $versions, 'totals' => ['count' => (int) $totals['count'], 'value_total' => (string) $totals['value_total']],
             'pagination' => ['page' => $page, 'limit' => $limit, 'total' => (int) $totals['count'], 'pages' => (int) ceil((int) $totals['count'] / $limit)]];
+    }
+
+    /**
+     * Souhrn dokončeného ocenění podle kategorií přes všechny řádky úlohy (ne jen
+     * stránku). Stejné řádky jako {@see result()}, takže součet skupin = totals.
+     *
+     * @return array<string,mixed> {@see StockValuationCategoryGroups::summarize()}
+     */
+    public function categoryGroups(int $supplierId, int $jobId, ?int $parentId): array
+    {
+        $this->completedJob($supplierId, $jobId);
+        $stmt = $this->db->pdo()->prepare('SELECT r.stock_item_id, r.value_total FROM stock_valuation_rows r
+            WHERE r.supplier_id = ? AND r.job_id = ? AND r.completed = 1 AND (r.qty <> 0 OR r.value_total <> 0)');
+        $stmt->execute([$supplierId, $jobId]);
+        return $this->categoryGroups->summarize($supplierId, $parentId, $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []);
+    }
+
+    /** Dokončená a stále platná úloha ocenění, jinak 404/409. */
+    private function completedJob(int $supplierId, int $jobId): array
+    {
+        $job = $this->jobs->find($supplierId, $jobId);
+        if ($job === null || $job['kind'] !== 'stock_valuation') {
+            throw new StockException('not_found', 'Ocenění nenalezeno.', 404);
+        }
+        if ($job['status'] !== 'completed') {
+            throw new StockException('stock_valuation_not_ready', 'Ocenění dosud není dokončeno.', 409);
+        }
+        $versions = $job['input']['source_versions'];
+        if ($this->snapshots->versions($supplierId, array_map('intval', array_keys($versions))) != $versions) {
+            throw new StockException('stock_valuation_stale', 'Ocenění vychází ze staršího stavu skladu.', 409);
+        }
+        return $job;
     }
 }

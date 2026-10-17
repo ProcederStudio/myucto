@@ -2,7 +2,9 @@
 import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { stockApi, type StockItem, type StockItemPackaging, type StockLedgerRow, type StockTrackingOverview } from '@/api/stock'
+import { stockApi, type StockItem, type StockItemPackaging, type StockLedgerRow, type StockLevelRow, type StockTrackingOverview } from '@/api/stock'
+import { codebooksApi, type VatRate } from '@/api/codebooks'
+import { eshopApi, type Attribute, type AttributeOption } from '@/api/eshop'
 import { purchaseOrdersApi, type StockQuantityRow } from '@/api/purchaseOrders'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
@@ -67,6 +69,98 @@ async function loadProductContext() {
   }
 }
 
+// Parametry karty (e-shopové atributy) jen ke čtení: hodnoty z kontextu produktu,
+// názvy, jednotky a popisky voleb z číselníku. Bez práva k e-shopu kontext nepřijde.
+const attributeDefs = ref<Attribute[]>([])
+const attributeOptions = ref<Record<number, AttributeOption[]>>({})
+async function loadAttributeDefs() {
+  if (!auth.canRead('eshop')) return
+  try {
+    attributeDefs.value = await eshopApi.listAttributes()
+  } catch {
+    attributeDefs.value = []
+  }
+}
+watch(() => productContext.value?.attributes, async (rows) => {
+  const enumIds = [...new Set((rows ?? []).filter(r => r.option_id != null).map(r => r.attribute_id))]
+    .filter(attributeId => !attributeOptions.value[attributeId])
+  for (const attributeId of enumIds) {
+    try {
+      attributeOptions.value[attributeId] = await eshopApi.listAttributeOptions(attributeId)
+    } catch {
+      attributeOptions.value[attributeId] = []
+    }
+  }
+})
+interface ParameterRow { attributeId: number; name: string; value: string }
+const parameterRows = computed<ParameterRow[]>(() => {
+  const grouped = new Map<number, string[]>()
+  for (const row of productContext.value?.attributes ?? []) {
+    const def = attributeDefs.value.find(a => a.id === row.attribute_id)
+    let value: string | null = null
+    if (row.option_id != null) {
+      value = attributeOptions.value[row.attribute_id]?.find(o => o.id === row.option_id)?.label ?? null
+    } else if (row.value_bool != null) {
+      value = row.value_bool ? t('common.yes') : t('common.no')
+    } else if (row.value_num != null && row.value_num !== '') {
+      value = String(Number(row.value_num)) + (def?.unit ? ` ${def.unit}` : '')
+    } else if (row.value_text != null && row.value_text !== '') {
+      value = row.value_text
+    }
+    if (value === null) continue
+    grouped.set(row.attribute_id, [...(grouped.get(row.attribute_id) ?? []), value])
+  }
+  return [...grouped.entries()]
+    .map(([attributeId, values]) => {
+      const def = attributeDefs.value.find(a => a.id === attributeId)
+      return { attributeId, name: def?.name ?? `#${attributeId}`, value: values.join(', '), order: def?.display_order ?? 0 }
+    })
+    .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name))
+    .map(({ attributeId, name, value }) => ({ attributeId, name, value }))
+})
+
+// Stav a skladová (průměrná nákupní) cena po jednotlivých skladech. Stejná čísla
+// jako sloupce Stav, Hodnota a Prům. cena v seznamu karet, jen rozepsaná.
+const warehouseLevels = ref<StockLevelRow[]>([])
+async function loadWarehouseLevels() {
+  try {
+    const result = await stockApi.levels({ item_ids: [id.value], per_page: 200 })
+    // Sklad, kde karta kdysi byla a dnes má nulu, jen přidává šum.
+    warehouseLevels.value = result.data.filter(row => Number(row.qty) !== 0 || Number(row.value_total) !== 0)
+  } catch {
+    warehouseLevels.value = []
+  }
+}
+const warehouseTotals = computed(() => {
+  const qty = warehouseLevels.value.reduce((sum, row) => sum + Number(row.qty), 0)
+  const value = warehouseLevels.value.reduce((sum, row) => sum + Number(row.value_total), 0)
+  return { qty: Math.round(qty * 1000) / 1000, value: Math.round(value * 100) / 100, avg: qty === 0 ? null : value / qty }
+})
+
+// Prodejní cena s DPH podle sazby karty, jen u plátce. Zaokrouhlení stejně jako
+// řádek faktury (InvoiceMath): DPH = round2(základ × sazba / 100), cena = základ + DPH.
+const vatRates = ref<VatRate[]>([])
+async function loadVatRates() {
+  try {
+    vatRates.value = await codebooksApi.vatRates('CZ')
+  } catch {
+    vatRates.value = []
+  }
+}
+const round2 = (n: number) => Math.round(n * 100) / 100
+// U přenesené daňové povinnosti DPH odvádí odběratel, cena „s DPH“ by klamala.
+const salePriceWithVat = computed<number | null>(() => {
+  const current = item.value
+  if (!current || !(supplier.currentSupplier?.is_vat_payer ?? true) || current.vat_rate_id == null) return null
+  const net = current.effective_price ?? current.sale_price_without_vat
+  if (net == null || net === '') return null
+  const vatRate = vatRates.value.find(r => r.id === current.vat_rate_id)
+  if (!vatRate || vatRate.is_reverse_charge) return null
+  const rate = vatRate.rate_percent
+  const base = round2(Number(net))
+  return round2(base + round2(base * Number(rate) / 100))
+})
+
 // Odvozené kvantity (Epic SKLAD, fáze 4) — skladem/rezervováno/na cestě/u dodavatele.
 // BE vrací řádek se samými nulami i pro kartu bez jediného pohybu/objednávky — nikdy
 // se nespoléhat na to, že `items` bude prázdné, ale i tak drž `quantities` nullable
@@ -130,6 +224,9 @@ async function loadMovements(reset = false) {
 onMounted(async () => {
   await loadItem()
   void loadPackaging()
+  void loadWarehouseLevels()
+  void loadVatRates()
+  void loadAttributeDefs()
   await loadMovements(true)
   loadQuantities()
   void loadProductContext()
@@ -185,6 +282,16 @@ const actions = computed<ActionItem[]>(() => [
     key: 'new-issue', label: t('stock.item_detail.new_issue'), icon: 'send', tier: 'primary', variant: 'primary',
     show: auth.canWrite('stock'),
     to: { path: '/stock/documents/new', query: { doc_type: 'issue', stock_item_id: id.value } },
+  },
+  {
+    key: 'new-receipt', label: t('stock.item_detail.new_receipt'), icon: 'inbox', tier: 'secondary', variant: 'success',
+    show: auth.canWrite('stock.documents.write'),
+    to: { path: '/stock/documents/new', query: { doc_type: 'receipt', stock_item_id: id.value } },
+  },
+  {
+    key: 'new-transfer', label: t('stock.item_detail.new_transfer'), icon: 'swap', tier: 'secondary', variant: 'primary',
+    show: auth.canWrite('stock.documents.write'),
+    to: { path: '/stock/documents/new', query: { doc_type: 'transfer', stock_item_id: id.value } },
   },
   {
     key: 'edit', label: t('stock.item_detail.edit'), icon: 'edit', tier: 'secondary', variant: 'warning',
@@ -245,7 +352,7 @@ const openingBalanceNum = computed(() => Number(openingBalance.value))
             <span class="font-mono">{{ item.sku }}</span> · {{ t(`stock.item_type.${item.item_type}`) }} · {{ item.unit }}
           </p>
         </div>
-        <ActionBar :actions="actions" />
+        <ActionBar :actions="actions" :desktop-inline="4" />
       </div>
       <div ref="detailTabList" role="tablist" :aria-label="t('stock.item_detail.tabs_label')" class="mb-4 flex gap-1 overflow-x-auto border-b border-neutral-200">
         <button type="button" role="tab" :aria-selected="detailTab === 'overview'" :tabindex="detailTab === 'overview' ? 0 : -1" class="cursor-pointer whitespace-nowrap border-b-2 px-4 py-2 text-sm transition" :class="detailTab === 'overview' ? 'border-primary-600 font-medium text-primary-700' : 'border-transparent text-neutral-600 hover:text-neutral-900'" @click="detailTab = 'overview'" @keydown="onDetailTabKey($event, 'overview')">{{ t('stock.item_detail.tab_overview') }}</button>
@@ -299,6 +406,9 @@ const openingBalanceNum = computed(() => Number(openingBalance.value))
             <span class="line-through">{{ item.sale_price_without_vat != null ? formatMoney(Number(item.sale_price_without_vat)) : '—' }}</span>
             <span class="ml-1">{{ item.promo_label ?? t('eshop.promo.title') }}</span>
           </div>
+          <div v-if="salePriceWithVat != null" data-test="sale-price-with-vat" class="text-xs text-neutral-500 mt-0.5">
+            {{ t('stock.item_detail.price_with_vat', { price: formatMoney(salePriceWithVat) }) }}
+          </div>
         </div>
         <div class="bg-surface border border-neutral-200 rounded-lg shadow-sm p-3">
           <div class="text-xs text-neutral-500">{{ t('stock.items.col_min_qty') }}</div>
@@ -307,6 +417,62 @@ const openingBalanceNum = computed(() => Number(openingBalance.value))
         <div class="bg-surface border border-neutral-200 rounded-lg shadow-sm p-3">
           <div class="text-xs text-neutral-500">EAN</div>
           <div class="text-lg font-semibold font-mono">{{ item.ean ?? '—' }}</div>
+        </div>
+      </div>
+
+      <!-- Stav a skladová cena po skladech -->
+      <div v-if="warehouseLevels.length" data-test="warehouse-levels" class="bg-surface border border-neutral-200 rounded-lg shadow-sm overflow-hidden mb-4">
+        <div class="px-5 py-3 border-b border-neutral-200">
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-neutral-500">{{ t('stock.item_detail.levels_title') }}</h3>
+          <p class="text-xs text-neutral-500 mt-0.5">{{ t('stock.item_detail.levels_hint') }}</p>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="bg-neutral-50 text-xs text-neutral-500 uppercase tracking-wide">
+              <tr>
+                <th class="px-3 py-2 text-left font-medium">{{ t('stock.item_detail.col_warehouse') }}</th>
+                <th class="px-3 py-2 text-right font-medium">{{ t('stock.item_detail.col_qty') }}</th>
+                <th class="px-3 py-2 text-right font-medium">{{ t('stock.item_detail.col_avg_cost') }}</th>
+                <th class="px-3 py-2 text-right font-medium">{{ t('stock.item_detail.col_value') }}</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-neutral-100">
+              <tr v-for="row in warehouseLevels" :key="row.warehouse_id">
+                <td class="px-3 py-2">{{ row.warehouse_name }} <span class="font-mono text-xs text-neutral-400">{{ row.warehouse_code }}</span></td>
+                <td class="px-3 py-2 text-right font-mono whitespace-nowrap">{{ row.qty }} {{ item.unit }}</td>
+                <td class="px-3 py-2 text-right font-mono whitespace-nowrap">{{ formatMoney(Number(row.avg_unit_cost)) }}</td>
+                <td class="px-3 py-2 text-right font-mono whitespace-nowrap">{{ formatMoney(Number(row.value_total)) }}</td>
+              </tr>
+            </tbody>
+            <tfoot v-if="warehouseLevels.length > 1">
+              <tr class="border-t-2 border-neutral-300 font-semibold bg-neutral-50">
+                <td class="px-3 py-2">{{ t('stock.item_detail.levels_total') }}</td>
+                <td class="px-3 py-2 text-right font-mono whitespace-nowrap">{{ warehouseTotals.qty }} {{ item.unit }}</td>
+                <td class="px-3 py-2 text-right font-mono whitespace-nowrap">{{ warehouseTotals.avg == null ? '—' : formatMoney(warehouseTotals.avg) }}</td>
+                <td class="px-3 py-2 text-right font-mono whitespace-nowrap">{{ formatMoney(warehouseTotals.value) }}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+
+      <div v-if="parameterRows.length || item.note" class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+        <div v-if="parameterRows.length" data-test="item-parameters" class="bg-surface border border-neutral-200 rounded-lg shadow-sm overflow-hidden">
+          <div class="px-5 py-3 border-b border-neutral-200">
+            <h3 class="text-sm font-semibold uppercase tracking-wide text-neutral-500">{{ t('stock.item_detail.parameters_title') }}</h3>
+          </div>
+          <dl class="divide-y divide-neutral-100">
+            <div v-for="row in parameterRows" :key="row.attributeId" class="px-5 py-2 flex flex-wrap justify-between gap-2 text-sm">
+              <dt class="text-neutral-500">{{ row.name }}</dt>
+              <dd class="font-medium text-neutral-900 text-right">{{ row.value }}</dd>
+            </div>
+          </dl>
+        </div>
+        <div v-if="item.note" data-test="item-note" class="bg-surface border border-neutral-200 rounded-lg shadow-sm overflow-hidden">
+          <div class="px-5 py-3 border-b border-neutral-200">
+            <h3 class="text-sm font-semibold uppercase tracking-wide text-neutral-500">{{ t('stock.item_detail.note_title') }}</h3>
+          </div>
+          <p class="px-5 py-3 text-sm text-neutral-800 whitespace-pre-line">{{ item.note }}</p>
         </div>
       </div>
 

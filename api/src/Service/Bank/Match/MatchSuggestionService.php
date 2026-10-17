@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Bank\Match;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
+use MyInvoice\Service\Bank\BankTransactionContext;
 use MyInvoice\Service\Bank\AccountNumberNormalizer;
 use MyInvoice\Service\Invoice\InvoicePaymentService;
 use MyInvoice\Service\Payroll\Payment\PayrollBankEvidenceGuard;
@@ -74,9 +76,8 @@ final class MatchSuggestionService
                 $pdo->exec('SAVEPOINT ' . $savepoint);
             }
             try {
-                $lock = $pdo->prepare('SELECT match_status FROM bank_transactions WHERE id = ? FOR UPDATE');
-                $lock->execute([$transactionId]);
-                if ($lock->fetchColumn() !== 'unmatched') {
+                $current = (new BankTransactionContext($this->db))->lock($supplierId, $transactionId);
+                if ($current === null || (string) $current['match_status'] !== 'unmatched') {
                     if ($ownTx) {
                         $pdo->commit();
                     } else {
@@ -84,6 +85,19 @@ final class MatchSuggestionService
                     }
                     return $matchResult;
                 }
+                $current['supplier_id'] = $supplierId;
+                $current['currency'] = (string) ($current['currency'] ?: ($current['statement_currency'] ?: 'CZK'));
+                $tx = $current;
+                $candidates = $this->provider->candidatesFor($supplierId, $tx);
+                if ($this->scorer->decide($candidates) !== 'auto'
+                    || in_array('advance_of_final', (array) ($candidates[0]['flags'] ?? []), true)) {
+                    if ($ownTx) $pdo->commit();
+                    else $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
+                    return $matchResult;
+                }
+                $top = $candidates[0];
+                $margin = count($candidates) > 1 ? round((float) $top['score'] - (float) $candidates[1]['score'], 3) : null;
+                $kind = $this->kind($top);
                 $pdo->prepare(
                     "UPDATE bank_match_suggestions SET status = 'superseded', updated_at = NOW()
                       WHERE supplier_id = ? AND bank_transaction_id = ? AND status = 'pending'"
@@ -100,6 +114,7 @@ final class MatchSuggestionService
                 }
                 return $applied + ['via' => 'match_v2'];
             } catch (\Throwable $e) {
+                if (TransactionFailure::rollbackIfAborted($pdo, $e)) throw $e;
                 if ($ownTx && $pdo->inTransaction()) {
                     $pdo->rollBack();
                 } elseif ($pdo->inTransaction()) {
@@ -148,6 +163,13 @@ final class MatchSuggestionService
         $pdo = $this->db->pdo();
         $pdo->beginTransaction();
         try {
+            $candidate = $pdo->prepare('SELECT bank_transaction_id FROM bank_match_suggestions WHERE id = ? AND supplier_id = ?');
+            $candidate->execute([$suggestionId, $supplierId]);
+            $transactionId = (int) $candidate->fetchColumn();
+            $tx = (new BankTransactionContext($this->db))->lock($supplierId, $transactionId);
+            if ($tx === null) throw new MatchSuggestionException('not_found', 'Návrh nebyl nalezen.', 404);
+            $tx['supplier_id'] = $supplierId;
+            $tx['currency'] = (string) ($tx['currency'] ?: ($tx['statement_currency'] ?: 'CZK'));
             $stmt = $pdo->prepare('SELECT * FROM bank_match_suggestions WHERE id = ? AND supplier_id = ? FOR UPDATE');
             $stmt->execute([$suggestionId, $supplierId]);
             $suggestion = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -157,11 +179,8 @@ final class MatchSuggestionService
             if (!isset($candidates[$candidateIndex]) || !is_array($candidates[$candidateIndex])) {
                 throw new MatchSuggestionException('candidate_out_of_range', 'Vybraný kandidát neexistuje.', 422);
             }
-            $tx = $this->loadTransaction((int) $suggestion['bank_transaction_id']);
-            if ($tx === null || (int) $tx['supplier_id'] !== $supplierId) throw new MatchSuggestionException('not_found', 'Návrh nebyl nalezen.', 404);
-            $txLock = $pdo->prepare('SELECT match_status FROM bank_transactions WHERE id = ? FOR UPDATE');
-            $txLock->execute([(int) $suggestion['bank_transaction_id']]);
-            if ($txLock->fetchColumn() !== 'unmatched') {
+            if ((int) $suggestion['bank_transaction_id'] !== $transactionId) throw new MatchSuggestionException('not_found', 'Návrh nebyl nalezen.', 404);
+            if ((string) $tx['match_status'] !== 'unmatched') {
                 $pdo->prepare("UPDATE bank_match_suggestions SET status = 'superseded', updated_at = NOW() WHERE id = ?")
                     ->execute([$suggestionId]);
                 $pdo->commit();

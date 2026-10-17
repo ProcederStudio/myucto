@@ -6,6 +6,7 @@ namespace MyInvoice\Repository;
 
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Service\Accounting\Dimension\DimensionFilter;
+use MyInvoice\Service\Accounting\JournalLineAmount;
 use MyInvoice\Service\Accounting\PostingException;
 use MyInvoice\Service\ActivityLogger;
 use PDO;
@@ -417,11 +418,11 @@ final class JournalEntryRepository
                 $supplierId,
                 $line['account_id'],
                 $line['side'],
-                $line['amount'],
+                JournalLineAmount::decimal($line['amount']),
                 !empty($line['is_red_storno']) ? 1 : 0,
                 $line['currency_code'] ?? null,
                 $line['fx_rate'] ?? null,
-                $line['amount_foreign'] ?? null,
+                isset($line['amount_foreign']) ? JournalLineAmount::decimal($line['amount_foreign']) : null,
                 $line['cost_center'] ?? null,
                 isset($line['project_id']) && (int) $line['project_id'] > 0 ? (int) $line['project_id'] : null,
                 $line['line_no'] ?? $n,
@@ -557,6 +558,11 @@ final class JournalEntryRepository
      */
     public function findActiveBySourceForUpdate(int $supplierId, string $sourceType, int $sourceId): ?array
     {
+        return $this->findActiveBySource($supplierId, $sourceType, $sourceId, true);
+    }
+
+    public function findActiveBySource(int $supplierId, string $sourceType, int $sourceId, bool $forUpdate = false): ?array
+    {
         $stmt = $this->db->pdo()->prepare(
             'SELECT id, supplier_id, period_id, entry_date, document_date, document_no, description,
                     source_type, source_id, posted_at, posted_by, reversed_by, row_version,
@@ -564,8 +570,7 @@ final class JournalEntryRepository
                FROM journal_entries
               WHERE supplier_id = ? AND source_type = ? AND source_id = ? AND reversed_by IS NULL
               ORDER BY id DESC
-              LIMIT 1
-              FOR UPDATE'
+              LIMIT 1' . ($forUpdate ? ' FOR UPDATE' : '')
         );
         $stmt->execute([$supplierId, $sourceType, $sourceId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -616,21 +621,21 @@ final class JournalEntryRepository
             return null;
         }
         $entry = $this->cast($row);
-        $entry['lines'] = $this->linesForEntry($id, $supplierId);
+        $entry['lines'] = $this->linesForEntry($id, $supplierId, true);
         return $entry;
     }
 
     /**
      * @return list<array<string,mixed>>
      */
-    public function linesForEntry(int $entryId, int $supplierId): array
+    public function linesForEntry(int $entryId, int $supplierId, bool $forUpdate = false): array
     {
         $stmt = $this->db->pdo()->prepare(
             'SELECT id, entry_id, supplier_id, account_id, side, amount, is_red_storno, currency_code, fx_rate,
                     amount_foreign, cost_center, project_id, line_no
                FROM journal_entry_lines
               WHERE entry_id = ? AND supplier_id = ?
-              ORDER BY line_no ASC, id ASC'
+              ORDER BY line_no ASC, id ASC' . ($forUpdate ? ' FOR UPDATE' : '')
         );
         $stmt->execute([$entryId, $supplierId]);
         return array_map(static function (array $r): array {

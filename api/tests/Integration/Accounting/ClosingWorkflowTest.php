@@ -7,10 +7,13 @@ namespace MyInvoice\Tests\Integration\Accounting;
 use MyInvoice\Bootstrap;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\AccountingPeriodRepository;
+use MyInvoice\Repository\DimensionAssignmentRepository;
 use MyInvoice\Repository\JournalEntryRepository;
 use MyInvoice\Service\Accounting\ChartOfAccountsSeeder;
 use MyInvoice\Service\Accounting\Closing\ClosingException;
 use MyInvoice\Service\Accounting\Closing\ClosingService;
+use MyInvoice\Service\Accounting\Dimension\DimensionService;
+use MyInvoice\Service\Accounting\Dimension\DimensionSplitAllocation;
 use MyInvoice\Service\Accounting\PostingService;
 use MyInvoice\Service\Accounting\Reports\EntityCategoryService;
 use PDO;
@@ -35,6 +38,7 @@ final class ClosingWorkflowTest extends TestCase
     private Connection $db;
     private PostingService $posting;
     private ClosingService $closing;
+    private DimensionService $dimensions;
     private AccountingPeriodRepository $periods;
     private JournalEntryRepository $journal;
     private EntityCategoryService $categories;
@@ -55,6 +59,7 @@ final class ClosingWorkflowTest extends TestCase
             $this->db      = $container->get(Connection::class);
             $this->posting = $container->get(PostingService::class);
             $this->closing = $container->get(ClosingService::class);
+            $this->dimensions = $container->get(DimensionService::class);
             $this->periods = $container->get(AccountingPeriodRepository::class);
             $this->journal = $container->get(JournalEntryRepository::class);
             $this->categories = $container->get(EntityCategoryService::class);
@@ -92,6 +97,171 @@ final class ClosingWorkflowTest extends TestCase
     }
 
     // ── I1: celý řetěz do closeBooks ─────────────────────────────────────────
+
+    public function testClosingAndOpeningPreserveCombinedDimensions(): void
+    {
+        [$firstType, $a, $b, $secondType, $c, $d] = $this->createClosingDimensions();
+        $this->manual([
+            self::l('378', 'debit', 100.00) + ['dimensions' => [$firstType => $a, $secondType => $c]],
+            self::l('378', 'debit', 200.00) + ['dimensions' => [$firstType => $b, $secondType => $d]],
+            self::l('379', 'credit', 300.00),
+        ], self::YEAR . '-04-01');
+
+        $this->assertClosingDimensionContinuity([
+            $firstType => [$a => 10000, $b => 20000],
+            $secondType => [$c => 10000, $d => 20000],
+        ]);
+        $stmt = $this->db->pdo()->prepare(
+            "SELECT d.dimension_value_id AS first_value, p.dimension_value_id AS second_value,
+                    SUM(IF(l.side = 'debit', l.signed_amount, -l.signed_amount)) AS balance
+               FROM journal_entry_lines l
+               JOIN journal_entries e ON e.id = l.entry_id AND e.supplier_id = l.supplier_id
+               JOIN chart_of_accounts a ON a.id = l.account_id
+               JOIN journal_entry_line_dimensions d ON d.line_id = l.id AND d.dimension_type_id = ?
+               JOIN journal_entry_line_dimensions p ON p.line_id = l.id AND p.dimension_type_id = ?
+              WHERE l.supplier_id = ? AND e.source_type = 'opening' AND a.account_code = '378'
+              GROUP BY d.dimension_value_id, p.dimension_value_id ORDER BY first_value, second_value"
+        );
+        $stmt->execute([$firstType, $secondType, $this->supplierId]);
+        $combined = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $combined[$row['first_value'] . '|' . $row['second_value']] = self::cents((float) $row['balance']);
+        }
+        self::assertSame([$a . '|' . $c => 10000, $b . '|' . $d => 20000], $combined);
+    }
+
+    public function testClosingAndOpeningPreserveDimensionBalancesWhenAccountIsZero(): void
+    {
+        [$typeId, $a, $b] = $this->createClosingDimensions();
+        $this->manual([
+            self::l('378', 'debit', 100.00) + ['dimensions' => [$typeId => $a]],
+            self::l('378', 'credit', 100.00) + ['dimensions' => [$typeId => $b]],
+        ], self::YEAR . '-04-01');
+
+        $this->assertClosingDimensionContinuity([$typeId => [$a => 10000, $b => -10000]]);
+    }
+
+    public function testClosingAndOpeningPreserveSplitRoundingForEachType(): void
+    {
+        [$firstType, $a, $b, $secondType, $c, $d] = $this->createClosingDimensions();
+        $splits = ['dimension_splits' => [
+            $firstType => [$a => 0.5, $b => 0.5],
+            $secondType => [$c => 0.25, $d => 0.75],
+        ]];
+        $this->manual([
+            self::l('378', 'debit', 0.01) + $splits,
+            self::l('378', 'debit', 0.01) + $splits,
+            self::l('379', 'credit', 0.02),
+        ], self::YEAR . '-04-01');
+
+        $this->assertClosingDimensionContinuity([
+            $firstType => [$b => 2],
+            $secondType => [$d => 2],
+        ]);
+    }
+
+    public function testClosingAndOpeningPreserveRedStornoSplitBalances(): void
+    {
+        [$typeId, $a, $b] = $this->createClosingDimensions();
+        $split = ['dimension_splits' => [$typeId => [$a => 0.5, $b => 0.5]]];
+        $this->manual([
+            self::l('378', 'debit', 100.00) + $split,
+            self::l('379', 'credit', 100.00),
+        ], self::YEAR . '-04-01');
+        $this->manual([
+            self::l('378', 'debit', 20.00) + $split + ['is_red_storno' => true],
+            self::l('379', 'credit', 20.00) + ['is_red_storno' => true],
+        ], self::YEAR . '-05-01');
+
+        $this->assertClosingDimensionContinuity([$typeId => [$a => 4000, $b => 4000]]);
+    }
+
+    public function testOpeningTakeoverRefusesMatchingAccountsWithoutDimensions(): void
+    {
+        [$typeId, $a] = $this->createClosingDimensions();
+        $this->manual([
+            self::l('378', 'debit', 100.00) + ['dimensions' => [$typeId => $a]],
+            self::l('379', 'credit', 100.00),
+        ], self::YEAR . '-04-01');
+        $this->runStepsUntilCloseReady();
+        $this->closing->closeBooks($this->supplierId, $this->periodId, $this->rv(), $this->meta());
+        $nextId = $this->periods->create($this->supplierId, self::YEAR + 1, (self::YEAR + 1) . '-01-01', (self::YEAR + 1) . '-12-31');
+        $this->posting->postDocument($this->supplierId, 'opening', null, [
+            self::l('378', 'debit', 100.00),
+            self::l('379', 'credit', 100.00),
+        ], ['entry_date' => (self::YEAR + 1) . '-01-01', 'period_id' => $nextId] + $this->meta());
+
+        $takeover = $this->closing->state($this->supplierId, $this->periodId)['opening_takeover'];
+        self::assertSame('mismatch', $takeover['status']);
+        self::assertStringContainsString('CLOSE-A', implode(' ', array_merge(...array_column($takeover['diff'], 'dimension_labels'))));
+        try {
+            $this->closing->openNext($this->supplierId, $this->periodId, $this->rv(), $this->meta());
+            self::fail('Převzaté stavy nesmějí tiše ztratit dimenze.');
+        } catch (ClosingException $e) {
+            self::assertSame('opening_takeover_mismatch', $e->errorCode);
+        }
+    }
+
+    public function testOpeningTakeoverAcceptsMatchingDimensions(): void
+    {
+        [$typeId, $a] = $this->createClosingDimensions();
+        $lines = [
+            self::l('378', 'debit', 100.00) + ['dimensions' => [$typeId => $a]],
+            self::l('379', 'credit', 100.00),
+        ];
+        $this->manual($lines, self::YEAR . '-04-01');
+        $this->runStepsUntilCloseReady();
+        $this->closing->closeBooks($this->supplierId, $this->periodId, $this->rv(), $this->meta());
+        $nextId = $this->periods->create($this->supplierId, self::YEAR + 1, (self::YEAR + 1) . '-01-01', (self::YEAR + 1) . '-12-31');
+        $this->posting->postDocument($this->supplierId, 'opening', null, $lines,
+            ['entry_date' => (self::YEAR + 1) . '-01-01', 'period_id' => $nextId] + $this->meta());
+
+        $result = $this->closing->openNext($this->supplierId, $this->periodId, $this->rv(), $this->meta());
+        self::assertSame('taken_over', $result['opening_source']);
+        self::assertSame([$a => 10000], $this->dimensionBalances($typeId, (self::YEAR + 1) . '-01-01', (self::YEAR + 1) . '-12-31'));
+    }
+
+    public function testRepeatedClosingDoesNotMultiplySplitOpeningLines(): void
+    {
+        [$typeId, $a, $b] = $this->createClosingDimensions();
+        $splits = ['dimension_splits' => [$typeId => [$a => 0.5, $b => 0.5]]];
+        $this->manual([
+            self::l('378', 'debit', 0.01) + $splits,
+            self::l('378', 'debit', 0.01) + $splits,
+            self::l('379', 'credit', 0.02),
+        ], self::YEAR . '-04-01');
+        $this->assertClosingDimensionContinuity([$typeId => [$b => 2]]);
+        $this->periodId = (int) $this->periods->findByYear($this->supplierId, self::YEAR + 1)['id'];
+        $opening = $this->journal->findBySource($this->supplierId, 'opening', $this->periodId);
+        $lineCount = count($this->journal->linesForEntry((int) $opening['id'], $this->supplierId));
+
+        $this->runStepsUntilCloseReady();
+        $this->closing->closeBooks($this->supplierId, $this->periodId, $this->rv(), $this->meta());
+        $result = $this->closing->openNext($this->supplierId, $this->periodId, $this->rv(), $this->meta());
+        self::assertSame($lineCount, count($this->journal->linesForEntry((int) $result['entry_id'], $this->supplierId)));
+        self::assertSame([$b => 2], $this->dimensionBalances($typeId, (self::YEAR + 2) . '-01-01', (self::YEAR + 2) . '-12-31'));
+    }
+
+    public function testFollowingClosingUsesOpeningAnchorAfterHistoricalDimensionEdit(): void
+    {
+        [$typeId, $a, $b] = $this->createClosingDimensions();
+        $entryId = $this->manual([
+            self::l('378', 'debit', 100.00) + ['dimensions' => [$typeId => $a]],
+            self::l('379', 'credit', 100.00),
+        ], self::YEAR . '-04-01');
+        $this->assertClosingDimensionContinuity([$typeId => [$a => 10000]]);
+        $sourceLines = $this->journal->linesForEntry($entryId, $this->supplierId);
+        (new DimensionAssignmentRepository($this->db))->replaceLineDimensions(
+            $this->supplierId, (int) $sourceLines[0]['id'], [$typeId => $b],
+        );
+        $this->periodId = (int) $this->periods->findByYear($this->supplierId, self::YEAR + 1)['id'];
+        self::assertSame([$a => 10000], $this->dimensionBalances($typeId, (self::YEAR + 1) . '-01-01', (self::YEAR + 1) . '-12-31'));
+
+        $this->runStepsUntilCloseReady();
+        $this->closing->closeBooks($this->supplierId, $this->periodId, $this->rv(), $this->meta());
+        $this->closing->openNext($this->supplierId, $this->periodId, $this->rv(), $this->meta());
+        self::assertSame([$a => 10000], $this->dimensionBalances($typeId, (self::YEAR + 2) . '-01-01', (self::YEAR + 2) . '-12-31'));
+    }
 
     public function testI1FullChainClosesBooksWithBalancedClosingEntry(): void
     {
@@ -623,6 +793,84 @@ final class ClosingWorkflowTest extends TestCase
      * Syntetická data I1: výnos 602 10 000, náklad 518 4 000, zůstatky 311/321/221/343.
      * BS: 311 = 7 100, 343 = −1 260, 221 = 5 000, 321 = −4 840; VH = 6 000.
      */
+    private function createClosingDimensions(): array
+    {
+        $dimensions = $this->dimensions;
+        $dimensions->setEnabled($this->supplierId, true);
+        $types = $dimensions->ensureDefaultTypes($this->supplierId, ['stredisko', 'projekt']);
+        $value = fn (int $typeId, string $code): int => (int) $dimensions->createValue(
+            $this->supplierId,
+            $typeId,
+            ['code' => $code, 'name' => $code],
+        )['id'];
+        return [
+            $types['cost_center'],
+            $value($types['cost_center'], 'CLOSE-A'),
+            $value($types['cost_center'], 'CLOSE-B'),
+            $types['project'],
+            $value($types['project'], 'CLOSE-C'),
+            $value($types['project'], 'CLOSE-D'),
+        ];
+    }
+
+    private function assertClosingDimensionContinuity(array $expected): void
+    {
+        foreach ($expected as $typeId => $balances) {
+            ksort($balances);
+            self::assertSame($balances, $this->dimensionBalances($typeId, self::YEAR . '-01-01', self::ENDS_ON));
+        }
+        $this->runStepsUntilCloseReady();
+        $this->closing->closeBooks($this->supplierId, $this->periodId, $this->rv(), $this->meta());
+        $closing = $this->journal->findBySource($this->supplierId, 'closing', $this->periodId);
+        $this->assertPairDimensions((int) $closing['id']);
+        foreach ($expected as $typeId => $balances) {
+            self::assertSame([], $this->dimensionBalances($typeId, self::YEAR . '-01-01', self::ENDS_ON), 'Uzávěrka vyrovná i jednotlivé dimenze.');
+        }
+        $opening = $this->closing->openNext($this->supplierId, $this->periodId, $this->rv(), $this->meta());
+        $this->assertPairDimensions((int) $opening['entry_id']);
+        foreach ($expected as $typeId => $balances) {
+            ksort($balances);
+            self::assertSame($balances, $this->dimensionBalances($typeId, (self::YEAR + 1) . '-01-01', (self::YEAR + 1) . '-12-31'), 'Otevření zachová saldo každé dimenze.');
+        }
+    }
+
+    private function dimensionBalances(int $typeId, string $from, string $to): array
+    {
+        [$splitSql, $splitParams] = DimensionSplitAllocation::partsSql($typeId, null, $this->supplierId);
+        $stmt = $this->db->pdo()->prepare(
+            "SELECT COALESCE(d.dimension_value_id, s.value_id) AS value_id,
+                    SUM(IF(l.side = 'debit', 1, -1) * IF(l.is_red_storno, -1, 1)
+                        * COALESCE(s.amount, l.amount)) AS balance
+               FROM journal_entry_lines l
+               JOIN journal_entries e ON e.id = l.entry_id AND e.supplier_id = l.supplier_id
+               JOIN chart_of_accounts a ON a.id = l.account_id AND a.supplier_id = l.supplier_id
+               LEFT JOIN journal_entry_line_dimensions d ON d.line_id = l.id AND d.dimension_type_id = ?
+               LEFT JOIN ({$splitSql}) s ON s.line_id = l.id
+              WHERE l.supplier_id = ? AND e.posted_at IS NOT NULL
+                AND e.entry_date BETWEEN ? AND ? AND a.account_code = '378'
+                AND COALESCE(d.dimension_value_id, s.value_id) IS NOT NULL
+              GROUP BY COALESCE(d.dimension_value_id, s.value_id) HAVING balance <> 0 ORDER BY value_id"
+        );
+        $stmt->execute([$typeId, ...$splitParams, $this->supplierId, $from, $to]);
+        $result = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $result[(int) $row['value_id']] = self::cents((float) $row['balance']);
+        }
+        return $result;
+    }
+
+    private function assertPairDimensions(int $entryId): void
+    {
+        $assignments = new DimensionAssignmentRepository($this->db);
+        $dimensions = $assignments->entryLineDimensions($this->supplierId, $entryId);
+        $splits = $assignments->entryLineSplits($this->supplierId, $entryId);
+        $lines = $this->journal->linesForEntry($entryId, $this->supplierId);
+        foreach (array_chunk($lines, 2) as [$first, $second]) {
+            self::assertSame($dimensions[$first['id']] ?? [], $dimensions[$second['id']] ?? []);
+            self::assertSame($splits[$first['id']] ?? [], $splits[$second['id']] ?? []);
+        }
+    }
+
     private function seedScenario(): void
     {
         $this->manual([

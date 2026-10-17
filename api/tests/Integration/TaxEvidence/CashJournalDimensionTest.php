@@ -122,6 +122,8 @@ final class CashJournalDimensionTest extends CashJournalTestCase
     {
         self::assertSame([1 => 334, 2 => 333, 3 => 333], CashJournalDimensionService::distribute(1000, [1 => 1 / 3, 2 => 1 / 3, 3 => 1 / 3]));
         self::assertSame([1 => -334, 2 => -333, 3 => -333], CashJournalDimensionService::distribute(-1000, [1 => 1 / 3, 2 => 1 / 3, 3 => 1 / 3]));
+        self::assertSame([1 => 0, 2 => 0, 3 => 1, 4 => 1, 5 => 1], CashJournalDimensionService::distribute(3, array_fill(1, 5, 0.2)));
+        self::assertSame([1 => 0, 2 => 0, 3 => -1, 4 => -1, 5 => -1], CashJournalDimensionService::distribute(-3, array_fill(1, 5, 0.2)));
         self::assertSame([0 => 500], CashJournalDimensionService::distribute(500, []));
     }
 

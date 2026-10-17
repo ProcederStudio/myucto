@@ -27,7 +27,7 @@ final class RefundInvoiceBankMatchTest extends TestCase
 {
     private const FILE_MARKER = '__refund_invoice_bank_match_test__';
     private const CLIENT_MARKER = '__refund_invoice_bank_match_client__';
-    private const TEST_VS = ['209990001', '209990002', '209990003'];
+    private const TEST_VS = ['209990001', '209990002', '209990003', '209990004'];
 
     private Connection $db;
     private BankStatementAction $action;
@@ -126,7 +126,7 @@ final class RefundInvoiceBankMatchTest extends TestCase
         $this->clientId = 0;
     }
 
-    /** @return array{invoice_id:int,transaction_id:int} */
+    /** @return array{invoice_id:int,statement_id:int,transaction_id:int} */
     private function seed(string $varsymbol, float $txAmount): array
     {
         $pdo = $this->db->pdo();
@@ -162,7 +162,34 @@ final class RefundInvoiceBankMatchTest extends TestCase
              VALUES (?, ?, ?, "CZK", ?, "1000000005", "0100")'
         )->execute([$statementId, $date, $txAmount, $varsymbol]);
 
-        return ['invoice_id' => $invoiceId, 'transaction_id' => (int) $pdo->lastInsertId()];
+        return [
+            'invoice_id' => $invoiceId,
+            'statement_id' => $statementId,
+            'transaction_id' => (int) $pdo->lastInsertId(),
+        ];
+    }
+
+    private function addTransaction(int $statementId, string $varsymbol, float $amount): int
+    {
+        $pdo = $this->db->pdo();
+        $pdo->prepare(
+            'INSERT INTO bank_transactions
+                (statement_id, posted_at, amount, currency, variable_symbol, counterparty_account, counterparty_bank)
+             VALUES (?, "2099-07-15", ?, "CZK", ?, "1000000005", "0100")'
+        )->execute([$statementId, $amount, $varsymbol]);
+
+        return (int) $pdo->lastInsertId();
+    }
+
+    private function manualMatch(int $transactionId, int $invoiceId): Psr7Response
+    {
+        $request = (new ServerRequestFactory())
+            ->createServerRequest('POST', '/api/bank-transactions/' . $transactionId . '/match')
+            ->withAttribute(SupplierScopeMiddleware::ATTR_CURRENT_ID, $this->supplierId)
+            ->withAttribute(AuthMiddleware::ATTR_USER, ['id' => $this->userId, 'role' => 'admin'])
+            ->withParsedBody(['invoice_id' => $invoiceId]);
+
+        return $this->action->manualMatch($request, new Psr7Response(), ['id' => (string) $transactionId]);
     }
 
     private function assertRefunded(array $seed, string $matchType): void
@@ -202,12 +229,7 @@ final class RefundInvoiceBankMatchTest extends TestCase
     {
         $seed = $this->seed(self::TEST_VS[1], -608.0);
 
-        $request = (new ServerRequestFactory())
-            ->createServerRequest('POST', '/api/bank-transactions/' . $seed['transaction_id'] . '/match')
-            ->withAttribute(SupplierScopeMiddleware::ATTR_CURRENT_ID, $this->supplierId)
-            ->withAttribute(AuthMiddleware::ATTR_USER, ['id' => $this->userId, 'role' => 'admin'])
-            ->withParsedBody(['invoice_id' => $seed['invoice_id']]);
-        $response = $this->action->manualMatch($request, new Psr7Response(), ['id' => (string) $seed['transaction_id']]);
+        $response = $this->manualMatch($seed['transaction_id'], $seed['invoice_id']);
         $response->getBody()->rewind();
 
         self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
@@ -225,5 +247,44 @@ final class RefundInvoiceBankMatchTest extends TestCase
             'issued',
             $this->db->pdo()->query("SELECT status FROM invoices WHERE id = {$seed['invoice_id']}")->fetchColumn(),
         );
+    }
+
+    public function testAutomaticRefundUsesOnlyRemainderAfterManualPartialRefund(): void
+    {
+        $seed = $this->seed(self::TEST_VS[3], -200.0);
+        $manual = $this->manualMatch($seed['transaction_id'], $seed['invoice_id']);
+        self::assertSame(200, $manual->getStatusCode(), (string) $manual->getBody());
+        self::assertSame('issued', $this->db->pdo()->query(
+            "SELECT status FROM invoices WHERE id = {$seed['invoice_id']}"
+        )->fetchColumn());
+
+        $fullAmountTx = $this->addTransaction($seed['statement_id'], self::TEST_VS[3], -608.0);
+        $fullAmountResult = $this->matcher->match($fullAmountTx);
+        self::assertSame('unmatched', $fullAmountResult['status'] ?? null, json_encode($fullAmountResult));
+        self::assertEqualsWithDelta(200.0, (float) $this->db->pdo()->query(
+            "SELECT COALESCE(SUM(amount), 0) FROM payment_matches WHERE invoice_id = {$seed['invoice_id']}"
+        )->fetchColumn(), 0.001);
+
+        $remainderTx = $this->addTransaction($seed['statement_id'], self::TEST_VS[3], -408.0);
+        $result = $this->matcher->match($remainderTx);
+
+        self::assertSame('auto_exact', $result['status'] ?? null, json_encode($result));
+        $allocations = $this->db->pdo()->query(
+            "SELECT bank_transaction_id, amount FROM payment_matches
+              WHERE invoice_id = {$seed['invoice_id']} ORDER BY bank_transaction_id"
+        )->fetchAll(PDO::FETCH_KEY_PAIR);
+        self::assertSame(200.0, (float) $allocations[$seed['transaction_id']]);
+        self::assertSame(408.0, (float) $allocations[$remainderTx]);
+        self::assertEqualsWithDelta(608.0, array_sum(array_map('floatval', $allocations)), 0.001);
+        self::assertSame('paid', $this->db->pdo()->query(
+            "SELECT status FROM invoices WHERE id = {$seed['invoice_id']}"
+        )->fetchColumn());
+
+        $duplicateTx = $this->addTransaction($seed['statement_id'], self::TEST_VS[3], -408.0);
+        $duplicate = $this->matcher->match($duplicateTx);
+        self::assertSame('unmatched', $duplicate['status'] ?? null, json_encode($duplicate));
+        self::assertEqualsWithDelta(608.0, (float) $this->db->pdo()->query(
+            "SELECT COALESCE(SUM(amount), 0) FROM payment_matches WHERE invoice_id = {$seed['invoice_id']}"
+        )->fetchColumn(), 0.001);
     }
 }

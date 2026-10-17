@@ -22,6 +22,8 @@ use Psr\Http\Message\ServerRequestInterface as Request;
  * supplier-wide řada; jinak counter té úrovně, která template dodala (priorita
  * klient → kategorie → dodavatel, viz VarsymbolGenerator).
  *
+ * `simplified=1` = zjednodušený daňový doklad; s vlastní řadou firmy ukáže číslo z ní.
+ *
  * Response: { "varsymbol": "JD2026-01", "has_template": true }
  *           { "varsymbol": "", "has_template": false }   pokud chybí template
  */
@@ -56,7 +58,13 @@ final class PreviewVarsymbolAction
             $for = new \DateTimeImmutable('today');
         }
 
-        $varsymbol = $this->varsymbol->preview($supplierId, $type, $for, $clientId, $category);
+        // Zjednodušený daňový doklad (`simplified=1`) může mít vlastní řadu (migrace 2037);
+        // řadu volí týž helper jako vystavení, ať náhled ukáže číslo, které doklad dostane.
+        $series = VarsymbolGenerator::seriesTypeFor([
+            'invoice_type'  => $type,
+            'is_simplified' => filter_var($params['simplified'] ?? false, FILTER_VALIDATE_BOOLEAN),
+        ]);
+        $varsymbol = $this->varsymbol->preview($supplierId, $series, $for, $clientId, $category);
 
         return Json::ok($response, [
             'varsymbol'    => $varsymbol,

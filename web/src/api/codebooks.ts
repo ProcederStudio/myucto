@@ -42,6 +42,8 @@ export interface Unit {
   label_en: string
   is_default: boolean
   display_order: number
+  /** Desetinná místa množství (0 až 3), null = bez omezení. */
+  quantity_decimals?: number | null
 }
 
 export const codebooksApi = {

@@ -87,7 +87,8 @@ final class RecurringInvoiceGenerator
         if ($template === null) {
             throw new \RuntimeException("Šablona #$templateId nenalezena");
         }
-        if (empty($template['items'])) {
+        // Textové řádky (InvoiceItemKind::TEXT) nejsou plnění: šablona jen z nich nefakturuje.
+        if (!InvoiceItemKind::hasAmountLine((array) ($template['items'] ?? []))) {
             throw new \DomainException("Šablona #$templateId nemá žádné položky.");
         }
 
@@ -97,7 +98,9 @@ final class RecurringInvoiceGenerator
         $issueDate = $forcedIssueDate ?? (string) $template['next_run_date'];
 
         // Cron volá s $userId=null — fallback na autora šablony, aby invoices.created_by
-        // (NOT NULL) i activity_log měly konzistentní audit.
+        // (NOT NULL) i activity_log měly konzistentní audit. Vystavitelem dokladu ale
+        // autor šablony není: automat vystavuje bez vystavitele ({@see InvoiceIssuer}).
+        $issuerId = $userId;
         $userId ??= (int) $template['created_by'];
 
         // Validate state — paused/expired by neměl cron volat, ale RunNow může
@@ -119,7 +122,7 @@ final class RecurringInvoiceGenerator
         } else {
             try {
                 ['issued' => $issued, 'sent_to' => $sentTo, 'varsymbol' => $varsymbol] =
-                    $this->performIssue($invoiceId, $template, $userId, $ip, $ua);
+                    $this->performIssue($invoiceId, $template, $userId, $issuerId, $ip, $ua);
             } catch (StockException $e) {
                 $this->failIssueOnStock($e, $templateId, $template, $issueDate, $advanceSchedule);
             }
@@ -179,7 +182,8 @@ final class RecurringInvoiceGenerator
         if ($template === null) {
             throw new \RuntimeException("Šablona #$templateId nenalezena");
         }
-        if (empty($template['items'])) {
+        // Textové řádky (InvoiceItemKind::TEXT) nejsou plnění: šablona jen z nich nefakturuje.
+        if (!InvoiceItemKind::hasAmountLine((array) ($template['items'] ?? []))) {
             throw new \DomainException("Šablona #$templateId nemá žádné položky.");
         }
         if ($template['status'] === 'expired') {
@@ -229,7 +233,8 @@ final class RecurringInvoiceGenerator
         if ($template === null) {
             throw new \RuntimeException("Šablona #$templateId nenalezena");
         }
-        if (empty($template['items'])) {
+        // Textové řádky (InvoiceItemKind::TEXT) nejsou plnění: šablona jen z nich nefakturuje.
+        if (!InvoiceItemKind::hasAmountLine((array) ($template['items'] ?? []))) {
             throw new \DomainException("Šablona #$templateId nemá žádné položky.");
         }
         if ($template['status'] === 'expired') {
@@ -237,6 +242,7 @@ final class RecurringInvoiceGenerator
         }
 
         $issueDate = (string) $template['next_run_date'];
+        $issuerId = $userId;
         $userId ??= (int) $template['created_by'];
 
         $existing = $this->templates->findPeriodInvoice($templateId, $issueDate);
@@ -263,7 +269,7 @@ final class RecurringInvoiceGenerator
 
             try {
                 ['issued' => $issued, 'sent_to' => $sentTo, 'varsymbol' => $varsymbol] =
-                    $this->performIssue($invoiceId, $template, $userId, $ip, $ua);
+                    $this->performIssue($invoiceId, $template, $userId, $issuerId, $ip, $ua);
             } catch (StockException $e) {
                 $this->failIssueOnStock($e, $templateId, $template, $issueDate);
             }
@@ -306,19 +312,20 @@ final class RecurringInvoiceGenerator
 
     /**
      * Vystaví fakturu dle per-šablona flagů auto_issue / auto_send_email.
+     * `$issuerId` = uživatel, který běh spustil ručně; null u cronu (doklad bez vystavitele).
      *
      * @return array{issued:bool, sent_to:list<string>, varsymbol:?string}
      */
-    private function performIssue(int $invoiceId, array $template, ?int $userId, string $ip, string $ua): array
+    private function performIssue(int $invoiceId, array $template, ?int $userId, ?int $issuerId, string $ip, string $ua): array
     {
         if (!$template['auto_issue']) {
             return ['issued' => false, 'sent_to' => [], 'varsymbol' => null];
         }
         if ($template['auto_send_email']) {
-            $r = $this->issueAndSend->run($invoiceId, $userId, $ip, $ua);
+            $r = $this->issueAndSend->run($invoiceId, $userId, $ip, $ua, userIsIssuer: $issuerId !== null);
             return ['issued' => $r['issued'], 'sent_to' => $r['sent_to'], 'varsymbol' => $r['varsymbol']];
         }
-        $varsymbol = $this->issueOnlyWithoutSend($invoiceId, $userId, $ip, $ua);
+        $varsymbol = $this->issueOnlyWithoutSend($invoiceId, $userId, $issuerId, $ip, $ua);
         return ['issued' => true, 'sent_to' => [], 'varsymbol' => $varsymbol];
     }
 
@@ -495,7 +502,7 @@ final class RecurringInvoiceGenerator
                     issue_date, tax_date, due_date, currency_id, reverse_charge, prices_include_vat, language,
                     note_above_items, note_below_items, payment_method, discount_percent,
                     recurring_template_id, revenue_category_id, payment_variable_symbol, rounding_mode, status, created_by)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "auto", "draft", ?)'
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "draft", ?)'
             );
             $stmt->execute([
                 $type,
@@ -518,6 +525,8 @@ final class RecurringInvoiceGenerator
                 $revenueCategoryId,
                 // Stabilní platební VS šablony (#249) — trvalý příkaz zákazníka.
                 InvoiceRepository::normalizePaymentVariableSymbol($template['payment_variable_symbol'] ?? null),
+                // Šablona vlastní režim zaokrouhlení nemá, platí výchozí volba firmy.
+                InvoiceRounding::supplierDefault($pdo, (int) $template['supplier_id']),
                 $userId,
             ]);
             $newId = (int) $pdo->lastInsertId();
@@ -546,6 +555,15 @@ final class RecurringInvoiceGenerator
                 $description = DescriptionPlaceholders::apply((string) $item['description'], $placeholderRef, $lang);
                 if ($syncTarget !== null) {
                     $description = MonthSynchronizer::syncTo($description, $syncTarget);
+                }
+                // Textový řádek jen s popisem na svém místě; OSS, sklad ani účet nemá.
+                if (InvoiceItemKind::isText($item)) {
+                    $items[] = [
+                        'item_kind'   => InvoiceItemKind::TEXT,
+                        'description' => $description,
+                        'order_index' => (int) $item['order_index'],
+                    ];
+                    continue;
                 }
                 $ossColumns = $this->ossColumnsFor(
                     $item,
@@ -721,7 +739,7 @@ final class RecurringInvoiceGenerator
      * Issue draft bez odeslání — vystaví VS + snapshoty + status='issued',
      * invaliduje cached PDF, recompute stats. Vrací varsymbol.
      */
-    private function issueOnlyWithoutSend(int $invoiceId, ?int $userId, string $ip, string $ua): string
+    private function issueOnlyWithoutSend(int $invoiceId, ?int $userId, ?int $issuerId, string $ip, string $ua): string
     {
         $invoice = $this->invoices->find($invoiceId);
         if ($invoice === null) {
@@ -765,7 +783,7 @@ final class RecurringInvoiceGenerator
             // sklad, rollback vrátí do řady i číslo (dřív v ní zůstala díra).
             $varsymbol = $this->varsymbol->next(
                 $supplierId,
-                (string) $invoice['invoice_type'],
+                VarsymbolGenerator::seriesTypeFor($invoice),
                 $issueDate,
                 (int) $invoice['client_id'],
                 (int) ($invoice['revenue_category_id'] ?? 0),
@@ -776,6 +794,7 @@ final class RecurringInvoiceGenerator
             if ($issue->rowCount() === 0) {
                 throw new \RuntimeException('Faktura byla mezitím změněna.');
             }
+            InvoiceIssuer::record($pdo, $invoiceId, $issuerId);
             if ($stockEnabled) $this->stockIssue->issueForInvoice(
                 $supplierId,
                 array_merge($invoice, ['varsymbol' => $varsymbol]),
@@ -793,7 +812,7 @@ final class RecurringInvoiceGenerator
             if (!$ownTransaction && $varsymbol !== null) {
                 $this->varsymbol->releaseIfLatest(
                     $supplierId,
-                    (string) $invoice['invoice_type'],
+                    VarsymbolGenerator::seriesTypeFor($invoice),
                     $varsymbol,
                     $issueDate,
                     (int) $invoice['client_id'],

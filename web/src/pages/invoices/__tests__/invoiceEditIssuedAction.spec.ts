@@ -1,0 +1,103 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { mount, flushPromises } from '@vue/test-utils'
+import { createMemoryHistory, createRouter } from 'vue-router'
+import type { ActionItem } from '@/components/ui/ActionBar.vue'
+
+// Úpravu vystavené faktury (?force=1) nabízí detail správci a interní roli s právem
+// `invoices.edit_issued`. Server rozhoduje stejně (RequestAuthorization::canEditIssuedInvoice).
+
+const m = vi.hoisted(() => ({
+  isCompanyAdmin: false,
+  writable: new Set<string>(),
+  invoice: {
+    id: 9, supplier_id: 1, status: 'sent', invoice_type: 'invoice',
+    varsymbol: '2610001', currency: 'CZK', total: 1210, amount_to_pay: 1210,
+    issue_date: '2026-10-01', tax_date: '2026-10-01', due_date: '2026-10-15',
+    items: [], public_token: null, public_viewed_at: null,
+  } as Record<string, unknown>,
+}))
+
+// Načtení detailu volá desítky endpointů; pro viditelnost akce stačí, že všechny
+// odpoví prázdně a jen `get` vrátí fakturu.
+function emptyApi(overrides: Record<string, unknown> = {}) {
+  return new Proxy(overrides, {
+    get: (target, key: string) => (key in target ? target[key] : vi.fn().mockResolvedValue([])),
+  })
+}
+
+vi.mock('@/api/invoices', () => ({ invoicesApi: emptyApi({ get: vi.fn(async () => m.invoice) }) }))
+vi.mock('@/api/settings', () => ({ settingsApi: emptyApi() }))
+vi.mock('@/api/admin', () => ({ adminApi: emptyApi() }))
+vi.mock('@/api/stock', () => ({ stockApi: emptyApi() }))
+vi.mock('@/api/eshop', () => ({ eshopApi: emptyApi() }))
+vi.mock('@/api/accounting', () => ({ accountingApi: emptyApi(), postingErrorI18nKey: () => 'error' }))
+vi.mock('@/api/vatClassifications', () => ({ vatClassificationsApi: emptyApi() }))
+vi.mock('@/stores/auth', () => ({
+  useAuthStore: () => ({
+    canRead: () => true,
+    canWrite: (key: string) => m.writable.has(key),
+    isClientRole: false,
+    isSuperadmin: false,
+    get isCompanyAdminRole() { return m.isCompanyAdmin },
+    hasCommercialFeatures: true,
+    invoicePublicLinksEnabled: true,
+  }),
+}))
+vi.mock('@/stores/supplier', () => ({
+  useSupplierStore: () => ({ currentSupplier: { accounting_mode: 'tax_records', stock_enabled: false } }),
+}))
+vi.mock('@/composables/useUserPrefs', () => ({
+  ensurePrefsLoaded: vi.fn().mockResolvedValue(undefined),
+  getPagePrefs: () => ({ value: {} }),
+  patchPagePrefs: vi.fn(),
+}))
+vi.mock('@/composables/useToast', () => ({ useToast: () => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn() }) }))
+vi.mock('vue-i18n', async importOriginal => ({
+  ...await importOriginal<typeof import('vue-i18n')>(),
+  useI18n: () => ({ t: (key: string) => key, te: () => false, locale: { value: 'cs' } }),
+}))
+
+import InvoiceDetail from '../InvoiceDetail.vue'
+
+async function editIssuedShown(): Promise<boolean> {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/invoices/:id', component: { render: () => null } }],
+  })
+  await router.push('/invoices/9')
+  const wrapper = mount({ ...InvoiceDetail, render: () => null }, { global: { plugins: [router] } })
+  await flushPromises()
+  const items = (wrapper.vm as unknown as { invoiceActions: ActionItem[] }).invoiceActions
+  wrapper.unmount()
+  const item = items.find(a => a.key === 'edit-admin')
+  expect(item).toBeDefined()
+  return Boolean(item!.show)
+}
+
+describe('akce Upravit vystavenou v detailu faktury', () => {
+  beforeEach(() => {
+    m.isCompanyAdmin = false
+    m.writable = new Set(['invoices'])
+    m.invoice.status = 'sent'
+  })
+
+  it('správce ji vidí', async () => {
+    m.isCompanyAdmin = true
+    expect(await editIssuedShown()).toBe(true)
+  })
+
+  it('role s právem invoices.edit_issued ji vidí', async () => {
+    m.writable.add('invoices.edit_issued')
+    expect(await editIssuedShown()).toBe(true)
+  })
+
+  it('role bez práva ji nevidí', async () => {
+    expect(await editIssuedShown()).toBe(false)
+  })
+
+  it('u konceptu se nenabízí ani s právem', async () => {
+    m.writable.add('invoices.edit_issued')
+    m.invoice.status = 'draft'
+    expect(await editIssuedShown()).toBe(false)
+  })
+})

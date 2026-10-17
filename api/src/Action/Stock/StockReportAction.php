@@ -7,6 +7,8 @@ namespace MyInvoice\Action\Stock;
 use MyInvoice\Action\Accounting\AccountingActionSupport;
 use MyInvoice\Http\Json;
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Security\AccessLevel;
+use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\IpMatcher;
 use MyInvoice\Service\Pdf\StockStatusPdfRenderer;
@@ -15,6 +17,7 @@ use MyInvoice\Service\Stock\StockException;
 use MyInvoice\Service\Stock\StockReportService;
 use MyInvoice\Service\Stock\StockSalesReportService;
 use MyInvoice\Service\Stock\StockReportXlsxExporter;
+use MyInvoice\Service\Stock\StockValuationCategoryGroups;
 use MyInvoice\Service\Stock\StockValuationJobService;
 use MyInvoice\Service\Eshop\CatalogJobService;
 use Psr\Http\Message\ResponseInterface as Response;
@@ -23,8 +26,10 @@ use Psr\Http\Message\ServerRequestInterface as Request;
 /**
  * Skladové sestavy (Epic SKLAD §6, §8.1) — Stav zásob · Ocenění k datu · Prodeje.
  *
- *   GET /api/stock/reports/status              — data (filtry warehouse_id, item_type, below_min, active, q)
- *   GET /api/stock/reports/valuation?date=      — data k historickému datu (B8 limit-guard)
+ *   GET /api/stock/reports/status              — data (filtry warehouse_id, item_type, below_min, active, q,
+ *                                                 category_id; volitelné sloupce columns, attribute_id)
+ *   GET /api/stock/reports/valuation?date=      — data k historickému datu (B8 limit-guard),
+ *                                                 group_by=category[&group_parent_id] přidá souhrn podle kategorií
  *   GET /api/stock/reports/sales                — prodeje karet z řádků FV a dobropisů (právo i na vydané faktury)
  *   GET /api/stock/reports/{name}/export        — PDF/XLSX (?format=pdf|xlsx), name = status|valuation; sales jen XLSX
  */
@@ -46,6 +51,7 @@ final class StockReportAction
         private readonly StockValuationJobService $valuationJobs,
         private readonly CatalogJobService $jobs,
         private readonly StockSalesReportService $sales,
+        private readonly StockValuationCategoryGroups $categoryGroups,
     ) {}
 
     public function status(Request $request, Response $response): Response
@@ -74,7 +80,12 @@ final class StockReportAction
             $filters['warehouse_id'] = (int) $q['warehouse_id'];
         }
         try {
-            return Json::ok($response, $this->service->valuation($supplierId, $date, $filters));
+            $grouping = $this->categoryGrouping($request, $q);
+            $data = $this->service->valuation($supplierId, $date, $filters);
+            if ($grouping !== null) {
+                $data['category_groups'] = $this->categoryGroups->summarize($supplierId, $grouping['parent_id'], $data['items']);
+            }
+            return Json::ok($response, $data);
         } catch (\Throwable $e) {
             return $this->mapStockError($response, $e);
         }
@@ -144,7 +155,12 @@ final class StockReportAction
             return Json::error($response, 'validation_failed', 'Neplatné stránkování.', 422);
         }
         try {
-            return Json::ok($response, $this->valuationJobs->result($supplierId, (int) $args['id'], $page, $limit));
+            $grouping = $this->categoryGrouping($request, $query);
+            $data = $this->valuationJobs->result($supplierId, (int) $args['id'], $page, $limit);
+            if ($grouping !== null) {
+                $data['category_groups'] = $this->valuationJobs->categoryGroups($supplierId, (int) $args['id'], $grouping['parent_id']);
+            }
+            return Json::ok($response, $data);
         } catch (\Throwable $e) {
             return $this->mapStockError($response, $e);
         }
@@ -220,6 +236,7 @@ final class StockReportAction
                 $q = $request->getQueryParams();
                 $date = trim((string) ($q['date'] ?? (new \DateTimeImmutable())->format('Y-m-d')));
                 $filters = !empty($q['warehouse_id']) ? ['warehouse_id' => (int) $q['warehouse_id']] : [];
+                $grouping = $this->categoryGrouping($request, $q);
                 if (isset($q['job_id'])) {
                     $jobId = filter_var($q['job_id'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
                     if ($jobId === false) {
@@ -232,8 +249,14 @@ final class StockReportAction
                         $next = $this->valuationJobs->result($supplierId, $jobId, $page, 500);
                         array_push($data['items'], ...$next['items']);
                     }
+                    if ($grouping !== null) {
+                        $data['category_groups'] = $this->valuationJobs->categoryGroups($supplierId, $jobId, $grouping['parent_id']);
+                    }
                 } else {
                     $data = $this->service->valuation($supplierId, $date, $filters);
+                    if ($grouping !== null) {
+                        $data['category_groups'] = $this->categoryGroups->summarize($supplierId, $grouping['parent_id'], $data['items']);
+                    }
                 }
                 $out = $format === 'pdf'
                     ? ['bytes' => $this->valuationPdf->render($data), 'filename' => 'oceneni-zasob-' . $date . '.pdf', 'mime' => 'application/pdf']
@@ -256,27 +279,30 @@ final class StockReportAction
             ->withHeader('Cache-Control', 'private, no-store');
     }
 
-    /** @return array<string,mixed> */
+    /**
+     * Parametry i kategorie karet spravuje e-shop. Bez práva ho číst se sloupec parametru
+     * i souhrn podle kategorií tiše vynechají, stejně jako sloupec parametru v seznamu karet
+     * ({@see StockItemAction::list()}); neplatná hodnota ale vrací chybu i tak.
+     *
+     * @return array<string,mixed>
+     */
     private function statusFilters(Request $request): array
     {
-        $q = $request->getQueryParams();
-        $filters = [];
-        if (!empty($q['warehouse_id'])) {
-            $filters['warehouse_id'] = (int) $q['warehouse_id'];
-        }
-        if (!empty($q['item_type'])) {
-            $filters['item_type'] = (string) $q['item_type'];
-        }
-        if (!empty($q['below_min'])) {
-            $filters['below_min'] = true;
-        }
-        if (array_key_exists('active', $q) && $q['active'] !== '') {
-            $filters['active'] = (bool) (int) $q['active'];
-        }
-        if (!empty($q['q'])) {
-            $filters['q'] = (string) $q['q'];
+        $filters = StockReportService::normalizeStatusFilters($request->getQueryParams());
+        if (!RequestAuthorization::allows($request, 'eshop', AccessLevel::READ)) {
+            unset($filters['attribute_id']);
         }
         return $filters;
+    }
+
+    /**
+     * @param array<string,mixed> $q
+     * @return array{parent_id:?int}|null
+     */
+    private function categoryGrouping(Request $request, array $q): ?array
+    {
+        $grouping = StockValuationCategoryGroups::normalize($q);
+        return RequestAuthorization::allows($request, 'eshop', AccessLevel::READ) ? $grouping : null;
     }
 
     private function mapStockError(Response $response, \Throwable $e): Response

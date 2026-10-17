@@ -80,6 +80,26 @@ final class RbacSourceGuardsTest extends TestCase
         self::assertSame([], $violations, 'Autorizační role-check musí používat PermissionResolver/PermissionChecker; výjimky patří jen na hranici identity role.');
     }
 
+    /**
+     * Úprava vystavené faktury a jejího výkazu se rozhoduje jedním helperem
+     * (správce nebo právo `invoices.edit_issued`). Vlastní kontrola na správce by
+     * právo z editoru rolí tiše obešla.
+     */
+    public function testIssuedInvoiceEditUsesSinglePermissionHelper(): void
+    {
+        $src = dirname(__DIR__, 2) . '/src/Action';
+        foreach ([
+            'Invoice/UpdateInvoiceAction.php',
+            'WorkReport/SaveWorkReportAction.php',
+            'WorkReport/SaveWorkReportMaterialsAction.php',
+            'WorkReport/DeleteWorkReportAction.php',
+        ] as $relative) {
+            $source = SourceCorpus::read($src . '/' . $relative);
+            self::assertStringContainsString('RequestAuthorization::canEditIssuedInvoice($request)', $source, $relative);
+            self::assertStringNotContainsString('isCompanyAdmin(', $source, $relative);
+        }
+    }
+
     public function testFrontendDoesNotAuthorizeByLegacyRoleName(): void
     {
         $src = dirname(__DIR__, 3) . '/web/src';

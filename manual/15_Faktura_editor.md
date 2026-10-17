@@ -48,6 +48,10 @@ nebo z detailu klienta či zakázky).
 8. Klikněte na **Vytvořit** (u úpravy konceptu na **Uložit**). Faktura se uloží jako koncept.
    Uložit lze kdykoli i zkratkou Ctrl+S (macOS Cmd+S).
 9. V detailu faktury klikněte na **Vystavit**. Faktura dostane číslo a vygeneruje se PDF.
+   K dokladu se zapíše, kdo ho vystavil. Detail faktury ukazuje jméno v řádku **Vystavil**;
+   u dokladů vystavených automaticky (pravidelná fakturace) řádek chybí.
+   Na PDF se tiskne jen se zapnutou volbou **Tisknout na faktuře, kdo ji vystavil**
+   (`Nastavení`, záložka **Fakturace**, viz [§ 16.10.4](16_Faktura_PDF.md#16104-pdf-struktura)).
 10. Klikněte na **Odeslat klientovi**. Odeslání e-mailem je samostatný krok po vystavení.
 
 **Jak poznáte, že je hotovo:** v seznamu `Prodej → Vydané faktury` má faktura stav
@@ -170,7 +174,7 @@ Rozdíl mezi stornem a dobropisem a zaúčtování dobropisu viz [§ 15.9.9](#15
 <!-- cols: 32 34 34 -->
 | Co vidíte | Proč | Co udělat |
 |---|---|---|
-| „Faktura musí mít aspoň jednu položku.“ | Vystavit nelze doklad bez položek | Přidejte položku tlačítkem **+ Přidat položku** |
+| „Faktura musí mít aspoň jednu položku.“ | Vystavit nelze doklad bez položek; textové řádky se mezi položky nepočítají | Přidejte položku tlačítkem **+ Přidat položku** |
 | „Výsledná částka k úhradě musí být větší než 0. Pro čistě záporný nebo nulový doklad použij dobropis.“ | Faktura nesmí skončit zápornou částkou | Vystavte dobropis, nebo zapněte vyúčtování s částkou k vyplacení ([§ 15.9.4](#1594-sumar-vpravo)) |
 | Chyba „Číslo už existuje…“ | Ručně zadané číslo už je u jiné faktury téhož dodavatele | Číslo změňte, nebo pole nechte prázdné |
 | Tlačítko **Vystavit** je zablokované | Zakázka vyžaduje schválení výkazu zákazníkem | Pošlete výkaz ke schválení ([§ 15.6](#156-krok-za-krokem-nechat-vykaz-schvalit-zakaznikem)) |
@@ -223,6 +227,11 @@ Dobropis vztahující se k jiné faktuře nezakládejte ručně přes **Typ dokl
   odběratele. Prázdný seznam zůstává jen pro odběratele.
 - **Zakázka** (volitelná): má-li klient zakázky, nabídne se jen jeho vlastní. Po výběru
   zakázky se předvyplní hodinová sazba a splatnost.
+- **Zjednodušený daňový doklad** (§ 30 ZDPH, jen plátce): klient je u něj nepovinný. S vybraným
+  klientem se pod zaškrtávátkem objeví **Netisknout odběratele na dokladu**; klient na dokladu
+  zůstane, jen se nevytiskne na PDF ani webové faktuře (ISDOC, i ten vložený do PDF, odběratele
+  nese dál). Výchozí hodnotu nastavíte ve
+  `Firma → Nastavení` na záložce **Fakturace** (viz [§ 40.9.10](40_Fakturujeme.md#40910-zjednoduseny-danovy-doklad-30-zdph)).
 
 > [!WARNING]
 > Pokud změníte klienta uprostřed editace, zakázka se vyresetuje (původní patřila jinému
@@ -255,9 +264,13 @@ Zálohová faktura nemá DUZP, daňový doklad k záloze se vystaví po platbě.
 #### Zaokrouhlení úhrady
 
 U pole **Zaokrouhlení** lze zvolit **Automaticky pro hotovost v Kč**, **Nezaokrouhlovat** nebo
-**Na celé Kč**. Nová faktura má automatický režim. Pro dobírku nebo převod lze celé koruny
-zapnout ručně. U dobírky tuto volbu používejte pouze při hotovostní úhradě. Platba kartou se
-nezaokrouhluje.
+**Na celé Kč**. Pro dobírku nebo převod lze celé koruny zapnout ručně. U dobírky tuto volbu
+používejte pouze při hotovostní úhradě. Platba kartou se nezaokrouhluje.
+
+Nová faktura dostane režim podle nastavení firmy: `Nastavení`, záložka **Fakturace**, volba
+**Zaokrouhlení nových faktur** (výchozí **Automaticky pro hotovost v Kč**). Stejný režim dostanou
+faktury založené přes API nebo MCP bez pole `rounding_mode`, faktury z pravidelné fakturace
+a faktury z objednávky. Změna volby firmy se netýká už založených dokladů.
 
 Zaokrouhlení platí pro faktury a dobropisy v CZK, nikoli pro zálohové faktury a daňové
 doklady k přijaté platbě. Při každém uložení se částka po odečtení zálohy matematicky
@@ -265,8 +278,9 @@ zaokrouhlí na nejbližší korunu: 916,44 Kč na 916 Kč, 9,70 Kč na 10 Kč. R
 samostatně v sumáři i PDF a je zahrnut v celkové částce. Základy položek, DPH a výkazy DPH
 se nemění.
 
-Režim je uložený na faktuře a přenáší se při kopírování i tvorbě dobropisu. Existující
-doklady mají zaokrouhlení vypnuté, dokud ho výslovně nezměníte.
+Režim je uložený na faktuře a přenáší se při kopírování i tvorbě dobropisu. Výpočet se řídí
+jen uloženým režimem, ne aktuálním nastavením firmy. Existující doklady mají zaokrouhlení
+vypnuté, dokud ho výslovně nezměníte.
 
 #### Číslo dokladu - ruční zadání (volitelné)
 
@@ -275,7 +289,8 @@ V hlavičce konceptu je pole **Číslo faktury** (podle typu **Číslo zálohov�
 
 - **Prázdné** - při vystavení systém automaticky vygeneruje číslo podle šablony (per
   dodavatel v Nastavení nebo globální konfigurace). V poli vidíte živý náhled, např. `2605002`,
-  což je číslo, které faktura dostane, pokud ho nepřepíšete.
+  což je číslo, které faktura dostane, pokud ho nepřepíšete. Zjednodušený daňový doklad
+  dostane číslo z řady zjednodušených dokladů, má-li ji firma nastavenou.
 - **Vyplněné** - použije se přesně vaše hodnota, počítadlo se neposune. Při vystavení se
   ověří, že číslo není už použité u jiné faktury **stejného dodavatele** (jinak vrátí chybu
   „Číslo už existuje…“). Maximálně 20 znaků.
@@ -436,6 +451,18 @@ a produktových údajů.
 U karty se sledováním sériových čísel nebo šarží vyberete pod řádkem konkrétní kusy
 (například VIN motocyklu), viz [§ 37.5.1](37_Sklad.md#3751-vydej-fakturou).
 
+**Stav skladu v nabídce karet.** Při zapnutém skladu ukazuje nabídka u každé skladové
+karty stav v základní jednotce (například „skladem 12 ks“) pro sklad řádku, a dokud
+sklad nevyberete, pro výchozí sklad. Karta s nulovým nebo záporným stavem má štítek
+zvýrazněný jako varování. Neskladová karta stav nemá.
+
+**Rychlé zadávání z klávesnice.** Do popisu napište kód nebo název, šipkami vyberte kartu
+a potvrďte Enterem. Kurzor skočí do **Množství** s označenou hodnotou, takže číslo rovnou
+přepíšete. Enter v množství přejde na popis dalšího řádku, za posledním řádkem přidá nový.
+Enter v množství fakturu neuloží, uložení zůstává na Ctrl+S (macOS Cmd+S) a tlačítku.
+Enter v popisu bez otevřené nabídky zalomí řádek textu, Shift+Enter ho zalomí vždy,
+i když je nabídka karet otevřená. Prázdný řádek navíc se při uložení sám vynechá.
+
 Ve výběru lze hledat podle kódu a názvu. U každé nabídky je uvedena výsledná cena a její zdroj,
 u kurzového přepočtu také datum použitého kurzovního lístku. Vložený řádek je samostatný
 snapshot. Lze jej dále upravit a pozdější změna ceníku, zákazníka nebo kurzu jej automaticky
@@ -445,14 +472,41 @@ nepřecení. Správa ceníku je popsána v [§ 96.1.5](96_Nastaveni.md#96161-cis
 | Sloupec | Význam |
 |---|---|
 | Popis | Co fakturujete. Lze víceřádkově. Je-li v popisu měsíc (`Konzultace 3/2026`), klonování faktury ho automaticky posune |
-| Množ. | Počet jednotek (kusy, hodiny, ...) |
+| Množ. | Počet jednotek (kusy, hodiny, ...). Má-li jednotka v číselníku nastavená **desetinná místa množství**, přesnější zadání editor zvýrazní a fakturu neuloží, nic se nezaokrouhluje. Viz [§ 96.16.1](96_Nastaveni.md#96161-ciselniky-podrobnosti) |
 | Jed. | Jednotka z číselníku (výchozí `h` / hodina). Číselník spravuje správce v `Systém → Sazby a číselníky`, záložce **Jednotky**, viz [§ 96.1.4](96_Nastaveni.md#96161-ciselniky-podrobnosti) |
 | Cena/j | Jednotková cena (v režimu bez DPH netto, v režimu s DPH brutto, viz [§ 15.9.2](#1592-hlavicka)) |
 | DPH | Sazba: `21 %`, `12 %`, `0 %` (osvobozeno), `RC` (reverse charge) |
 | Celkem | Automaticky: množství × cena/j |
 | Celkem s DPH | Cena řádku včetně DPH. Zadání respektuje aktuální režim: v režimu bez DPH se z brutto zpětně dopočte cena bez DPH, v režimu s DPH se uloží brutto |
 
+**Ceníková cena a sleva.** Nacení-li se řádek ze skladové karty, uloží se k němu i ceníková
+cena karty (standardní cena před individuální cenou, cenovou hladinou i akcí). Liší-li se od
+ceny řádku, ukáže se pod cenou „Ceník 1 000,00 · sleva 10 %“, u vyšší ceny „přirážka“. Ruční
+změna ceny ceníkovou cenu zachová a procento se přepočítá, jiná karta ji nahradí. Je to jen
+informace: částky faktury počítá dál cena řádku. Na PDF ji rozepíše volba z
+[§ 16.10.4](16_Faktura_PDF.md#16104-pdf-struktura). Se [slevou z celé faktury](#sleva-z-cele-faktury)
+se nesčítá.
+
 **Pořadí.** Levým úchytem (☰) přetáhněte položky pro změnu pořadí. Pořadí se zachová v PDF.
+
+#### Textový řádek mezi položkami
+
+Tlačítko **+ Textový řádek** vloží mezi položky řádek jen s textem, například nadpis oddílu
+(„Materiál“, „Práce“), místo montáže nebo číslo zakázky. Řádek posunete šipkami na místo,
+kam patří, a v PDF, na web faktuře i v detailu se vytiskne přes celou šířku tabulky
+položek, bez množství a cen.
+
+Textový řádek je jen text na dokladu:
+
+- nemá množství, cenu ani sazbu DPH a do součtů, rekapitulace DPH, přiznání k DPH,
+  kontrolního hlášení, OSS ani zaúčtování nevstupuje,
+- nevydává nic ze skladu a neprodává majetek,
+- prázdný textový řádek se při uložení zahodí,
+- doklad jen z textových řádků vystavit nejde, potřebuje aspoň jednu položku.
+
+Kopie dokladu i dobropis textový řádek převezmou na stejné místo. U kopie s posunem
+měsíce se posune i měsíc v jeho textu. Jak se textový řádek přenáší do exportů,
+viz [§ 20.7](20_Exporty.md#207-podrobnosti-a-pravidla).
 
 **Smazání položky.** Křížkem vpravo. Pokud je položka propojená s výkazem víceprací (viz
 [§ 15.9.6](#1596-vykaz-vicepraci)), smazání se zeptá, zda smazat i výkaz.
@@ -912,6 +966,8 @@ schvalovacím e-mailu i na schvalovací stránce zákazník vidí obě části a
 ### 15.9.11 Tipy
 
 - Ctrl+S (macOS Cmd+S) kdykoli uloží rozpracovanou fakturu jako koncept.
+- Enter v množství přejde na další řádek položek (za posledním přidá nový), viz
+  [§ 15.9.3](#1593-polozky).
 - Klonování zachová položky i výkaz víceprací, datum se aktualizuje na dnešní, popis položky
   posune měsíc.
 - **Reverse charge** automaticky nastaví všechny položky na sazbu „RC“ (0 %) a v PDF přidá text

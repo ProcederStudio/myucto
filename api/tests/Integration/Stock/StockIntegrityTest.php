@@ -255,7 +255,7 @@ final class StockIntegrityTest extends StockTestCase
                 proc_terminate($process);
             }
             proc_close($process);
-            foreach (['', '.ready', '.ready.tmp', '.blocked', '.result', '.out', '.err'] as $suffix) {
+            foreach (['', '.ready', '.ready.tmp', '.blocked', '.blocked.tmp', '.result', '.out', '.err'] as $suffix) {
                 if (is_file($file . $suffix)) {
                     unlink($file . $suffix);
                 }

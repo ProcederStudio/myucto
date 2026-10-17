@@ -30,6 +30,7 @@ import ItemDimensionsToggle from '@/components/dimensions/ItemDimensionsToggle.v
 import { useDocumentDimensions } from '@/composables/useDocumentDimensions'
 import { useResultAccounts } from '@/composables/useResultAccounts'
 import { isPreciseTimeItem, isTimeItem, itemAmount, itemQuantity, timeItemTotals, validateDurationInputs } from '@/utils/timeBilling'
+import { amountItems, isTextItem } from '@/utils/invoiceTextRow'
 
 const { t, tm, rt } = useI18n()
 const toast = useToast()
@@ -135,6 +136,8 @@ function defaultItemUnit(): string {
 }
 
 type FormItem = {
+  // 'text' = textový řádek mezi položkami (jen popis), do částek ani DPH nevstupuje.
+  item_kind?: 'standard' | 'text'
   description: string
   quantity: number
   duration_minutes: number | null
@@ -429,6 +432,11 @@ function addItem() {
   form.value.items.push(blankItem())
   focusLastRow('[data-row-input="rec-item"]', paneDom.root())
 }
+// Textový řádek: jen popis, sazbu si server vezme z první položky šablony.
+function addTextItem() {
+  form.value.items.push({ ...blankItem(), item_kind: 'text', quantity: 0, unit: '', unit_price_without_vat: 0 })
+  focusLastRow('[data-row-input="rec-text"]', paneDom.root())
+}
 function removeItem(idx: number) {
   form.value.items.splice(idx, 1)
 }
@@ -442,7 +450,8 @@ function round2(n: number): number {
 function vatBuckets(): Map<number, { rate: number; base: number; vat: number }> {
   const pricesIncl = form.value.prices_include_vat && supplierIsVatPayer.value
   const buckets = new Map<number, { rate: number; base: number; vat: number }>()
-  for (const item of form.value.items) {
+  // Textový řádek nemá částku a nezakládá řádek rekapitulace.
+  for (const item of amountItems(form.value.items)) {
     const vatRate = (form.value.reverse_charge || !supplierIsVatPayer.value)
       ? 0
       : vatRates.value.find(v => v.id === item.vat_rate_id)?.rate_percent ?? 0
@@ -750,6 +759,7 @@ onMounted(async () => {
         form.value.payment_variable_symbol = inv.payment_variable_symbol ?? ''
         // Slevová položka se do šablony nepřenáší — drží se jako discount_percent.
         form.value.items = inv.items.filter(it => it.item_kind !== 'discount').map((it, i) => ({
+          item_kind: isTextItem(it) ? 'text' as const : 'standard' as const,
           description: it.description,
           quantity: it.quantity,
           duration_minutes: it.duration_minutes ?? null,
@@ -819,6 +829,7 @@ onMounted(async () => {
         auto_issue: tpl.auto_issue,
         auto_send_email: tpl.auto_send_email,
         items: (tpl.items ?? []).map(it => ({
+          item_kind: isTextItem(it) ? 'text' as const : 'standard' as const,
           description: it.description,
           quantity: it.quantity,
           duration_minutes: it.duration_minutes ?? null,
@@ -876,7 +887,8 @@ async function submit() {
   if (!validateDurationInputs(paneDom.root())) return
   if (!form.value.client_id) { error.value = 'Klient je povinný'; return }
   if (!form.value.name.trim()) { error.value = t('recurring.name_required'); return }
-  if (form.value.items.length === 0) { error.value = t('recurring.items_required'); return }
+  // Textové řádky nejsou plnění: šablona potřebuje aspoň jednu skutečnou položku.
+  if (amountItems(form.value.items).length === 0) { error.value = t('recurring.items_required'); return }
   if (form.value.auto_send_email && !form.value.auto_issue) {
     error.value = t('recurring.auto_send_requires_issue')
     return
@@ -934,7 +946,16 @@ async function submit() {
       increment_month_in_descriptions: form.value.increment_month_in_descriptions,
       auto_issue: form.value.auto_issue,
       auto_send_email: form.value.auto_send_email,
-      items: form.value.items.map((it, i) => ({
+      items: form.value.items.map((it, i) => isTextItem(it) ? {
+        // Textový řádek: jen druh, text a pořadí; zbytek si server vynuluje.
+        item_kind: 'text' as const,
+        description: it.description,
+        quantity: 0,
+        unit: '',
+        unit_price_without_vat: 0,
+        vat_rate_id: it.vat_rate_id,
+        order_index: i,
+      } : {
         description: it.description,
         quantity: itemQuantity(it),
         duration_minutes: isTimeItem(it) ? it.duration_minutes : null,
@@ -960,7 +981,7 @@ async function submit() {
         stock_item_id: it.stock_item_id,
         warehouse_id: it.warehouse_id,
         revenue_account_code: (it.revenue_account_code ?? '').trim() || null,
-      })),
+      }),
     }
     const itemDimsSnapshot = docDims.snapshot(form.value.items)
     const saved = isEdit.value && tplId.value
@@ -1211,6 +1232,10 @@ async function submit() {
             :title="t('invoice.item_account.hint')" @click="showItemAccounts = !showItemAccounts">
             {{ showItemAccounts ? t('invoice.item_account.hide') : t('invoice.item_account.show') }}
           </button>
+          <button type="button" @click="addTextItem" data-test="recurring-add-text-row" :title="t('invoice.text_row_hint')"
+            class="cursor-pointer inline-flex items-center justify-center h-8 px-3 border border-neutral-300 bg-surface hover:bg-neutral-50 text-neutral-700 text-sm font-medium rounded-md whitespace-nowrap">
+            {{ t('invoice.add_text_row') }}
+          </button>
           <button type="button" @click="addItem"
             class="cursor-pointer px-3 h-8 text-sm bg-primary-600 hover:bg-primary-700 text-white rounded-md font-medium">
             {{ t('invoice.add_item') }}
@@ -1277,7 +1302,18 @@ async function submit() {
           </thead>
           <tbody>
             <template v-for="(it, idx) in form.items" :key="idx">
-            <tr :class="['border-t border-neutral-200', itemHasBothNegative(it) ? 'bg-danger-50' : '']">
+            <!-- Textový řádek: jen text přes celou šířku, bez množství, ceny a sazby. -->
+            <tr v-if="isTextItem(it)" class="border-t border-neutral-200" data-test="recurring-text-row">
+              <td :colspan="supplierIsVatPayer ? 5 : 4" class="py-1.5 pr-2">
+                <textarea v-model="it.description" rows="1" data-row-input="rec-text"
+                  :placeholder="t('invoice.text_row_placeholder')" :title="t('invoice.text_row_hint')" :aria-label="t('invoice.text_row')"
+                  class="w-full min-h-8 px-2 py-1 border border-neutral-300 rounded bg-surface text-sm font-medium resize-y" />
+              </td>
+              <td class="py-1.5 text-right">
+                <button type="button" @click="removeItem(idx)" class="cursor-pointer text-danger-500 hover:text-danger-700 text-lg">×</button>
+              </td>
+            </tr>
+            <tr v-else :class="['border-t border-neutral-200', itemHasBothNegative(it) ? 'bg-danger-50' : '']">
               <td class="py-1.5 pr-2">
                 <div v-if="priceListEnabled && (hasPriceList || it.price_list_item_id)" class="mb-1 grid gap-1 xl:grid-cols-3">
                   <select v-model.number="it.price_list_item_id" class="h-8 min-w-0 px-2 border border-neutral-300 rounded bg-surface text-xs" @change="applyCatalogItem(it, idx)">
@@ -1357,7 +1393,7 @@ async function submit() {
             </tr>
             <!-- OSS pod-řádek — stejná pole jako na řádku faktury; „oprava období" tu není,
                  protože to je vlastnost konkrétního dokladu, ne předpisu. -->
-            <tr v-if="docDims.enabled.value && docDims.isItemOpen(it)" :class="['border-t-0!', itemHasBothNegative(it) ? 'bg-danger-50' : '']">
+            <tr v-if="docDims.enabled.value && !isTextItem(it) && docDims.isItemOpen(it)" :class="['border-t-0!', itemHasBothNegative(it) ? 'bg-danger-50' : '']">
               <td :colspan="supplierIsVatPayer ? 6 : 5" class="pb-2">
                 <div class="flex items-center gap-2">
                   <span class="shrink-0 text-xs text-neutral-500">{{ t('dimensions.items_title') }}</span>
@@ -1367,7 +1403,7 @@ async function submit() {
                 </div>
               </td>
             </tr>
-            <tr v-if="it.oss_applicable" :class="['border-t-0!', itemHasBothNegative(it) ? 'bg-danger-50' : '']">
+            <tr v-if="it.oss_applicable && !isTextItem(it)" :class="['border-t-0!', itemHasBothNegative(it) ? 'bg-danger-50' : '']">
               <td :colspan="supplierIsVatPayer ? 6 : 5" class="pb-2">
                 <div class="flex flex-wrap items-center gap-1.5 text-xs">
                   <input v-model="it.oss_consumer_country" type="text" maxlength="2"
@@ -1410,6 +1446,13 @@ async function submit() {
               <span class="font-mono">#{{ idx + 1 }}</span>
               <button type="button" @click="removeItem(idx)" class="cursor-pointer w-8 h-8 inline-flex items-center justify-center border border-danger-500/40 text-danger-500 hover:bg-danger-50 rounded text-lg leading-none">×</button>
             </div>
+            <div v-if="isTextItem(it)" data-test="recurring-text-row-mobile">
+              <label class="block text-xs font-medium text-neutral-600 mb-1">{{ t('invoice.text_row') }}</label>
+              <textarea v-model="it.description" rows="2" data-row-input="rec-text"
+                :placeholder="t('invoice.text_row_placeholder')" :title="t('invoice.text_row_hint')"
+                class="w-full px-3 py-2 border border-neutral-300 rounded bg-surface text-sm font-medium resize-y" />
+            </div>
+            <template v-else>
             <div v-if="priceListEnabled && (hasPriceList || it.price_list_item_id)" class="space-y-2">
               <label class="block text-xs font-medium text-neutral-600">{{ t('recurring.catalog_item') }}</label>
               <select v-model.number="it.price_list_item_id" class="w-full h-10 px-3 border border-neutral-300 rounded bg-surface text-sm" @change="applyCatalogItem(it, idx)">
@@ -1528,6 +1571,7 @@ async function submit() {
                 </div>
               </div>
             </div>
+            </template>
           </div>
         </div>
         <!-- Šablona se zakládá jednou a generuje roky, registrace do OSS má konec platnosti.

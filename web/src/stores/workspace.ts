@@ -3,7 +3,7 @@ import { defineStore } from 'pinia'
 
 export type PaneCount = 1 | 2 | 3
 export type PaneId = 'primary' | 'secondary-2' | 'secondary-3'
-export const MAX_WORKSPACE_WINDOWS = 15
+export const MAX_WORKSPACE_WINDOWS = 20
 
 export interface WorkspacePaneState {
   id: PaneId

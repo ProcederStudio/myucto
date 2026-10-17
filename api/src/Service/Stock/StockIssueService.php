@@ -97,10 +97,11 @@ final class StockIssueService
                 $need[$itemId] = ($need[$itemId] ?? 0) + StockValuation::qtyToT((string) $l['qty']);
             }
             $meta = $this->itemsMeta($supplierId, array_keys($need));
+            $inWarehouse = [];
             foreach ($need as $itemId => $qtyT) {
                 $cur = $this->levels->current($supplierId, (int) $warehouseId, (int) $itemId);
                 if ($qtyT > $cur['qtyT']) {
-                    $shortages[] = [
+                    $inWarehouse[] = [
                         'stock_item_id' => (int) $itemId,
                         'sku'           => $meta[$itemId]['sku'] ?? null,
                         'name'          => $meta[$itemId]['name'] ?? null,
@@ -109,6 +110,7 @@ final class StockIssueService
                     ];
                 }
             }
+            array_push($shortages, ...StockShortageDetails::enrich($this->db->pdo(), $supplierId, (int) $warehouseId, $inWarehouse));
         }
         if ($shortages !== []) {
             throw new StockException('insufficient_stock', 'Nedostatek zásob pro vystavení faktury.', 409, $shortages);

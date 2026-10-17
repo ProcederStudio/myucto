@@ -105,7 +105,7 @@ Na menší obrazovce klikněte ve spodní liště na **Menu vlevo** (kompaktní 
 1. V horní liště (mezi šířkami 1 024 a 1 535 px ve spodní liště) zvolte rozložení s jedním, dvěma nebo třemi panely.
 2. Kliknutím do panelu ho aktivujete. Další položka menu se otevře v aktivním panelu.
 3. Šířku panelů změníte tažením předělu.
-4. Ikonou **Okna** vlevo od přepínače rozložení nebo klávesami **Alt+W** otevřete posledních 15 oken. Návrat do rozepsané faktury zachová zadané hodnoty i firmu.
+4. Ikonou **Okna** vlevo od přepínače rozložení nebo klávesami **Alt+W** otevřete posledních 20 oken. Návrat do rozepsané faktury zachová zadané hodnoty i firmu.
 
 Dva panely jsou dostupné od šířky pracovního prostoru 1 100 px, tři od 1 600 px. Pravidla jsou v [§ 10.10.10](#101010-vice-panelu-pracovniho-prostoru).
 
@@ -301,7 +301,7 @@ Zvýšení počtu panelů zachová jejich otevřený obsah, přidá nový prázd
 
 Všechna tlačítka **+** v menu a rychlé přidání v horní liště otevřou nové čisté okno v aktivním panelu, i když už máte stejný formulář rozepsaný. Stejně fungují klávesové zkratky pro vytvoření a rychlé akce v paletě příkazů. Původní rozepsané okno zůstane dostupné v přepínači **Okna**.
 
-Přepínač **Okna** najdete vlevo od volby rozložení, na mobilu ve spodní liště vedle přepínače světlého a tmavého režimu. Ukazuje nejvýše 15 oken podle posledního použití, jejich názvy, firmu a případné číslo panelu. U vydaných a přijatých faktur uvádí také číslo dokladu a zákazníka nebo dodavatele; u klientských karet jejich název. Domovská obrazovka má označení **Homepage**. Okno lze vyhledat podle těchto údajů, vybrat šipkami a potvrdit klávesou **Enter**; **Esc** přepínač zavře. Výchozí zkratky jsou **Alt+W** pro přepínač, **Alt+PageUp** pro předchozí okno v historii, **Alt+PageDown** pro další a **Alt+Shift+W** pro střídání posledních dvou oken. Fungují také při psaní do formuláře a lze je změnit v **Klávesových zkratkách**. Na macOS se místo Alt používá Option.
+Přepínač **Okna** najdete vlevo od volby rozložení, na mobilu ve spodní liště vedle přepínače světlého a tmavého režimu. Ukazuje nejvýše 20 oken podle posledního použití, jejich názvy, firmu a případné číslo panelu. U vydaných a přijatých faktur uvádí také číslo dokladu a zákazníka nebo dodavatele; u klientských karet jejich název. Domovská obrazovka má označení **Homepage**. Okno lze vyhledat podle těchto údajů, vybrat šipkami a potvrdit klávesou **Enter**; **Esc** přepínač zavře. Výchozí zkratky jsou **Alt+W** pro přepínač, **Alt+PageUp** pro předchozí okno v historii, **Alt+PageDown** pro další a **Alt+Shift+W** pro střídání posledních dvou oken. Fungují také při psaní do formuláře a lze je změnit v **Klávesových zkratkách**. Na macOS se místo Alt používá Option.
 
 Při otevření šestnáctého okna aplikace požádá o potvrzení zavření nejstaršího skrytého okna. Odmítnutím zachováte všechna rozpracovaná data. Obsah oken se uchovává pouze v paměti této záložky. Obnovení stránky, zavření záložky nebo odhlášení jej vymaže; po obnovení se otevře jeden panel na adrese prvního panelu. Okna nenahrazují ukládání dokladů.
 

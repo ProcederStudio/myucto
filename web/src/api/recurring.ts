@@ -31,6 +31,8 @@ export interface RecurringTemplateItemOss {
 export interface RecurringTemplateItem extends RecurringTemplateItemOss {
   id?: number
   template_id?: number
+  /** 'text' = textový řádek mezi položkami (jen popis), přenáší se do vygenerované faktury. */
+  item_kind?: 'standard' | 'text'
   description: string
   quantity: number
   unit: string
@@ -151,6 +153,7 @@ export interface RecurringTemplatePayload {
   auto_issue?: boolean
   auto_send_email?: boolean
   items: Array<{
+    item_kind?: 'standard' | 'text'
     description: string
     quantity: number
     unit: string

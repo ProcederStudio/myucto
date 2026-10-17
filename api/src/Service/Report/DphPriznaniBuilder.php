@@ -964,6 +964,10 @@ final class DphPriznaniBuilder
         $ossFilter = $this->db->hasColumn('invoice_items', 'oss_applicable')
             ? 'AND COALESCE(ii.oss_applicable, 0) = 0'
             : '';
+        // Textový řádek klasifikaci nemá záměrně, nic nevykazuje (InvoiceItemKind).
+        $textFilter = $this->db->hasColumn('invoice_items', 'item_kind')
+            ? "AND ii.item_kind <> 'text'"
+            : '';
         $unclassifiedZero = $this->db->pdo()->prepare(
             "SELECT DISTINCT i.varsymbol
                FROM invoices i
@@ -975,6 +979,7 @@ final class DphPriznaniBuilder
                 AND COALESCE(i.reverse_charge, 0) = 0
                 AND ii.vat_rate_snapshot = 0
                 {$ossFilter}
+                {$textFilter}
                 AND ii.vat_classification_code IS NULL
                 AND i.vat_classification_code IS NULL
            ORDER BY i.varsymbol"

@@ -31,7 +31,7 @@ async function setup(query = '?year=2026') {
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/tax-evidence/cash-journal', component: CashJournal }] })
   await router.push('/tax-evidence/cash-journal' + query)
   await router.isReady()
-  const wrapper = mount(CashJournal, { global: { plugins: [router], directives: { 'column-labels': {} }, stubs: { ColumnPicker: true, DensityToggle: true, CashJournalMovementModal: true } } })
+  const wrapper = mount(CashJournal, { global: { plugins: [router], directives: { 'column-labels': {} }, stubs: { ColumnPicker: true, DensityToggle: true, CashJournalMovementModal: true, CashJournalSourceLink: true } } })
   await flushPromises()
   return { wrapper, router }
 }
@@ -53,6 +53,16 @@ beforeEach(() => {
 })
 
 describe('cash journal classification filter', () => {
+  it('places the source detail action in the final actions column, separately from the document', async () => {
+    const { wrapper } = await setup()
+    expect(wrapper.findAll('thead th').at(-1)?.text()).toBe('')
+    expect(wrapper.findAll('thead th').at(-1)?.attributes('aria-label')).toBe('tax_evidence.cash_journal.col_actions')
+    const cells = wrapper.get('tbody tr').findAll('td')
+    expect(cells.at(-1)?.find('cash-journal-source-link-stub').exists()).toBe(true)
+    expect(cells[1]?.text()).toContain('SYNTH-1')
+    expect(cells[1]?.find('cash-journal-source-link-stub').exists()).toBe(false)
+  })
+
   it('loads URL classification and dates once, preserving period when its chip is removed', async () => {
     const { wrapper, router } = await setup('?year=2025&from=2025-02-01&to=2025-03-01&classification=expense_taxable&other=keep')
     expect(api.cashJournal).toHaveBeenCalledTimes(1)
@@ -235,6 +245,21 @@ describe('cash journal classification filter', () => {
     await flushPromises()
     expect(wrapper.find('table').exists()).toBe(true)
     expect(wrapper.text()).not.toContain('common.loading')
+  })
+
+  it('dims the summary and table of the previous period while a refresh is loading', async () => {
+    const { wrapper } = await setup()
+    expect(wrapper.get('[data-test="cash-journal-summary"]').classes()).not.toContain('opacity-60')
+    expect(wrapper.get('[data-test="cash-journal-table"]').classes()).not.toContain('opacity-60')
+    let finish!: (result: CashJournalReport) => void
+    api.cashJournal.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    await choose(wrapper, 'private')
+    expect(wrapper.get('[data-test="cash-journal-summary"]').classes()).toContain('opacity-60')
+    expect(wrapper.get('[data-test="cash-journal-table"]').classes()).toContain('opacity-60')
+    finish(report({ classification: 'private' }))
+    await flushPromises()
+    expect(wrapper.get('[data-test="cash-journal-summary"]').classes()).not.toContain('opacity-60')
+    expect(wrapper.get('[data-test="cash-journal-table"]').classes()).not.toContain('opacity-60')
   })
 
 })

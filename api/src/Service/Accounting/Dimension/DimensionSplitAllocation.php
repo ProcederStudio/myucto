@@ -12,12 +12,13 @@ namespace MyInvoice\Service\Accounting\Dimension;
  * hodnotu a součet přes hodnoty sedí na částku řádku.
  *
  * Pravidlo je stejné jako {@see DimensionStamper::distributeCents()}: každý podíl se
- * zaokrouhlí na haléře a zbytek dostane největší podíl (při shodě ta hodnota s nižším
- * id). Počítá se v SQL nad DECIMAL, tedy přesně, bez binární plovoucí čárky.
+ * zaokrouhlí na haléře. Kladný zbytek dostane největší podíl, záporný se od podílů
+ * odečítá v pořadí velikosti a id jen do výše jejich zaokrouhlených dílů. Počítá se
+ * v SQL nad DECIMAL, tedy přesně, bez binární plovoucí čárky.
  *
  * Částka je vždy nezáporná (`journal_entry_lines.amount`); strana zůstává na řádku.
- * Zaokrouhlení v MariaDB je u přesných čísel od nuly, takže rozdělení kladné
- * a záporné částky je zrcadlové.
+ * Červené storno obrací znaménko až nad výsledným dílem, takže rozdělení je
+ * přesným zrcadlem kladné částky.
  */
 final class DimensionSplitAllocation
 {
@@ -48,17 +49,24 @@ final class DimensionSplitAllocation
                                               WHERE r.dimension_type_id = ? AND r.dimension_value_id IN ({$marks}))";
             array_push($params, $typeId, ...$valueIds);
         }
-        $sql = "SELECT q.line_id, q.value_id,
-                       q.part + CASE WHEN q.rn = 1
-                                     THEN q.amount - SUM(q.part) OVER (PARTITION BY q.line_id)
+        $sql = "SELECT a.line_id, a.value_id,
+                       a.part + CASE WHEN a.residual > 0 AND a.rn = 1 THEN a.residual
+                                     WHEN a.residual < 0
+                                     THEN -LEAST(a.part, GREATEST(-a.residual - a.prior_part, 0))
                                      ELSE 0 END AS amount
-                  FROM (SELECT s.line_id, s.dimension_value_id AS value_id, sl.amount,
-                               ROUND(sl.amount * s.share / SUM(s.share) OVER (PARTITION BY s.line_id), 2) AS part,
-                               ROW_NUMBER() OVER (PARTITION BY s.line_id
-                                                  ORDER BY s.share DESC, s.dimension_value_id) AS rn
-                          FROM journal_entry_line_dimension_splits s
-                          JOIN journal_entry_lines sl ON sl.id = s.line_id
-                         WHERE s.dimension_type_id = ?{$restrict}) q";
+                  FROM (SELECT q.*,
+                               q.amount - SUM(q.part) OVER (PARTITION BY q.line_id) AS residual,
+                               COALESCE(SUM(q.part) OVER (
+                                   PARTITION BY q.line_id ORDER BY q.rn
+                                   ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                               ), 0) AS prior_part
+                          FROM (SELECT s.line_id, s.dimension_value_id AS value_id, sl.amount,
+                                       ROUND(sl.amount * s.share / SUM(s.share) OVER (PARTITION BY s.line_id), 2) AS part,
+                                       ROW_NUMBER() OVER (PARTITION BY s.line_id
+                                                          ORDER BY s.share DESC, s.dimension_value_id) AS rn
+                                  FROM journal_entry_line_dimension_splits s
+                                  JOIN journal_entry_lines sl ON sl.id = s.line_id
+                                 WHERE s.dimension_type_id = ?{$restrict}) q) a";
         return [$sql, $params];
     }
 

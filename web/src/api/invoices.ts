@@ -110,6 +110,13 @@ export interface InvoiceItem {
   unit: string
   duration_minutes?: number | null
   unit_price_without_vat: number
+  /**
+   * Ceníková cena za jednotku před slevou (stejný základ jako unit_price_without_vat), informační údaj.
+   * Round-trip jako karta, jinak ji replaceItems (DELETE+INSERT) smaže.
+   */
+  list_unit_price?: number | null
+  /** Sleva z ceníkové ceny v %, dopočítá ji server (záporná = přirážka). Jen ke čtení. */
+  line_discount_pct?: number | null
   vat_rate_id: number
   vat_rate_snapshot?: number
   total_without_vat?: number
@@ -118,7 +125,8 @@ export interface InvoiceItem {
   order_index: number
   // 'discount' = systémově generovaná záporná slevová položka (z invoices.discount_percent).
   // Editor ji při načtení vyfiltruje — needituje se a negeneruje znovu při uložení.
-  item_kind?: 'standard' | 'discount'
+  // 'text' = textový řádek mezi položkami: jen popis, do částek ani DPH nevstupuje.
+  item_kind?: 'standard' | 'discount' | 'text'
   linked_work_report_id?: number | null
   vat_code?: string
   vat_label_cs?: string
@@ -256,6 +264,8 @@ export interface Invoice {
   reverse_charge: boolean
   /** § 30 ZDPH — zjednodušený daňový doklad (do 10 000 Kč vč. daně). */
   is_simplified: boolean
+  /** Zjednodušený doklad bez údajů odběratele na PDF a webové faktuře (migrace 2037). */
+  hide_customer_on_pdf?: boolean
   /** Cenová hladina zvolená na dokladu (přepíše hladinu odběratele); null = hladina odběratele. */
   price_level_id?: number | null
   /** § 31/31a ZDPH — rozpis plateb kalendáře (prázdné u ostatních typů). */
@@ -269,6 +279,12 @@ export interface Invoice {
   income_tax_exempt_reason: string | null
   language: 'cs' | 'en'
   supplier_order_number: string | null
+  /** Kdo doklad vystavil (migrace 2032); null u konceptu a dokladů vystavených bez uživatele. */
+  issued_by?: number | null
+  /** Jméno vystavitele v okamžiku vystavení. */
+  issued_by_name?: string | null
+  /** Autor dokladu (JOIN users), záloha pro „Vystavil" u starších dokladů. */
+  created_by_name?: string | null
   note_above_items: string | null
   note_below_items: string | null
   revenue_category_id: number | null
@@ -333,7 +349,7 @@ export interface Invoice {
   created_at: string
   updated_at: string
   /** Výsledek děkovného e-mailu (issue #57) — vrací mark-paid, jen když se odesílalo. */
-  payment_thanks?: { status: 'sent' | 'skipped' | 'failed'; reason?: string; recipients?: string[] } | null
+  payment_thanks?: { status: 'sent' | 'skipped' | 'failed' | 'queued'; reason?: string; recipients?: string[] } | null
   client_company_name?: string
   client_main_email?: string
   client_ic?: string | null
@@ -536,6 +552,9 @@ export interface InvoicePayload {
   reverse_charge?: boolean
   /** § 30 ZDPH; server ověří limit i výjimky § 30 odst. 2. */
   is_simplified?: boolean
+  /** Netisknout odběratele; platí jen u zjednodušeného dokladu. Bez klíče se při založení
+   *  převezme výchozí hodnota firmy, při úpravě se nemění. */
+  hide_customer_on_pdf?: boolean
   /** Cenová hladina dokladu; chybějící klíč hodnotu NEMĚNÍ, null ji zruší. */
   price_level_id?: number | null
   /** § 31/31a ZDPH; chybějící klíč rozpis NEMĚNÍ, prázdné pole ho smaže. */
@@ -574,6 +593,7 @@ export interface InvoicePayload {
     unit: string
     duration_minutes?: number | null
     unit_price_without_vat: number
+    list_unit_price?: number | null
     vat_rate_id: number
     order_index: number
     stock_item_id?: number | null
@@ -595,7 +615,14 @@ export interface InvoicePayload {
     oss_original_period?: string | null
     /** Round-trip příznaku „místo plnění systém neurčil" — viz InvoiceItem. */
     oss_needs_manual_review?: boolean
-  }>
+  } | InvoicePayloadTextItem>
+}
+
+/** Textový řádek v payloadu dokladu: jen druh, text a pořadí (server ho vynuluje). */
+export interface InvoicePayloadTextItem {
+  item_kind: 'text'
+  description: string
+  order_index: number
 }
 
 /**
@@ -831,6 +858,8 @@ export const invoicesApi = {
     issueDate: string,
     clientId?: number,
     revenueCategoryId?: number,
+    /** Zjednodušený daňový doklad, může mít vlastní řadu firmy. */
+    simplified?: boolean,
   ) =>
     api.get<{ varsymbol: string; has_template: boolean }>(
       `/invoices/preview-varsymbol`,
@@ -840,6 +869,7 @@ export const invoicesApi = {
           issue_date: issueDate,
           ...(clientId ? { client_id: clientId } : {}),
           ...(revenueCategoryId ? { revenue_category_id: revenueCategoryId } : {}),
+          ...(simplified ? { simplified: 1 } : {}),
         },
       },
     ).then(r => r.data),
@@ -889,7 +919,7 @@ export const invoicesApi = {
       payment: InvoicePayment
       became_paid: boolean
       remaining: number
-      payment_thanks?: { status: 'sent' | 'skipped' | 'failed'; reason?: string } | null
+      payment_thanks?: { status: 'sent' | 'skipped' | 'failed' | 'queued'; reason?: string } | null
     }>(`/invoices/${id}/payments`, payload).then(r => r.data),
   deletePayment: (id: number, paymentId: number) =>
     api.delete<{ invoice: Invoice; payments: InvoicePayment[]; became_unpaid: boolean; remaining: number }>(

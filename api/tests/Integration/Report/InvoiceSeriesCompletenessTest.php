@@ -70,7 +70,8 @@ final class InvoiceSeriesCompletenessTest extends TestCase
         }
 
         $stmt = $pdo->prepare(
-            'SELECT invoice_number_format, credit_note_number_format, invoice_number_period FROM supplier WHERE id = ?'
+            'SELECT invoice_number_format, credit_note_number_format, invoice_number_period,
+                    simplified_number_format FROM supplier WHERE id = ?'
         );
         $stmt->execute([$this->supplierId]);
         $this->originalSupplierRow = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
@@ -91,12 +92,14 @@ final class InvoiceSeriesCompletenessTest extends TestCase
         $pdo = $this->db->pdo();
 
         $pdo->prepare(
-            'UPDATE supplier SET invoice_number_format = ?, credit_note_number_format = ?, invoice_number_period = ?
+            'UPDATE supplier SET invoice_number_format = ?, credit_note_number_format = ?, invoice_number_period = ?,
+                    simplified_number_format = ?
               WHERE id = ?'
         )->execute([
             $this->originalSupplierRow['invoice_number_format'] ?? null,
             $this->originalSupplierRow['credit_note_number_format'] ?? null,
             $this->originalSupplierRow['invoice_number_period'] ?? null,
+            $this->originalSupplierRow['simplified_number_format'] ?? null,
             $this->supplierId,
         ]);
 
@@ -179,20 +182,38 @@ final class InvoiceSeriesCompletenessTest extends TestCase
         ?int $revenueCategoryId = null,
         ?int $clientId = null,
         ?string $issueDate = null,
+        bool $simplified = false,
     ): void {
         $issue = $issueDate ?? self::YEAR . '-06-15';
         $this->db->pdo()->prepare(
             'INSERT INTO invoices
-                (supplier_id, varsymbol, invoice_type, client_id, revenue_category_id,
+                (supplier_id, varsymbol, invoice_type, is_simplified, client_id, revenue_category_id,
                  issue_date, tax_date, due_date,
                  currency_id, reverse_charge, total_without_vat, total_vat, total_with_vat,
                  status, vat_classification_code, created_by)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1000.00, 210.00, 1210.00, "issued", "1", ?)'
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1000.00, 210.00, 1210.00, "issued", "1", ?)'
         )->execute([
-            $this->supplierId, $varsymbol, $type, $clientId ?? $this->clientId, $revenueCategoryId,
+            $this->supplierId, $varsymbol, $type, $simplified ? 1 : 0, $clientId ?? $this->clientId, $revenueCategoryId,
             $issue, $issue, $issue,
             $this->currencyId, $this->userId,
         ]);
+    }
+
+    private function setSimplifiedTemplate(?string $template): void
+    {
+        $this->db->pdo()->prepare('UPDATE supplier SET simplified_number_format = ? WHERE id = ?')
+            ->execute([$template, $this->supplierId]);
+    }
+
+    /** @param list<array<string,mixed>> $series */
+    private static function groupOfType(array $series, string $type): array
+    {
+        foreach ($series as $group) {
+            if (empty($group['inferred']) && in_array($type, $group['types'], true)) {
+                return $group;
+            }
+        }
+        self::fail("Řada typu {$type} v reportu chybí.");
     }
 
     /** @param list<array<string,mixed>> $series */
@@ -304,6 +325,75 @@ final class InvoiceSeriesCompletenessTest extends TestCase
         $bucket = $group['buckets'][0];
         self::assertSame([5], $bucket['missing'], 'Čísla daňového dokladu k platbě a penalizace nejsou mezery.');
         self::assertSame(5, $bucket['used_count']);
+    }
+
+    /** Vlastní řada zjednodušených dokladů (migrace 2037) je samostatná řada reportu. */
+    public function testSimplifiedSeriesIsReportedOnItsOwn(): void
+    {
+        $this->setTemplates('{YYYY}{CCCCCC}', 'D{YYYY}{CCCCCC}');
+        $this->setSimplifiedTemplate('ZD{YYYY}{CCCC}');
+
+        $y = self::YEAR;
+        $this->insertInvoice("{$y}000001");
+        $this->insertInvoice("{$y}000002");
+        $this->insertInvoice("ZD{$y}0001", simplified: true);
+        $this->insertInvoice("ZD{$y}0002", simplified: true);
+        // ZD…0003 chybí OPRAVDU.
+        $this->insertInvoice("ZD{$y}0004", simplified: true);
+
+        $series = $this->service->build($this->supplierId, self::YEAR);
+
+        $invoices = self::groupOfType($series, 'invoice');
+        self::assertSame([], $invoices['buckets'][0]['missing'], 'Řada faktur je úplná.');
+        self::assertSame(2, $invoices['buckets'][0]['used_count']);
+
+        $simplified = self::groupOfType($series, 'simplified');
+        self::assertSame(0, $simplified['client_id']);
+        self::assertSame([3], $simplified['buckets'][0]['missing']);
+        self::assertSame(["ZD{$y}0003"], $simplified['buckets'][0]['missing_preview']);
+    }
+
+    /**
+     * Řada se pozná podle tvaru čísla, ne podle dnešního nastavení ani příznaku: doklad,
+     * který dostal číslo dřív, než firma řadu zjednodušených dokladů zavedla (nebo u něj
+     * někdo příznak dodatečně přepnul), zůstává v řadě, ze které číslo přišlo.
+     */
+    public function testNumberStaysInSeriesItCameFrom(): void
+    {
+        $this->setTemplates('{YYYY}{CCCCCC}', 'D{YYYY}{CCCCCC}');
+        $this->setSimplifiedTemplate('ZD{YYYY}{CCCC}');
+
+        $y = self::YEAR;
+        $this->insertInvoice("{$y}000001");
+        $this->insertInvoice("{$y}000002", simplified: true); // vystaven před zavedením řady
+        $this->insertInvoice("{$y}000003");
+        $this->insertInvoice("ZD{$y}0001", simplified: true);
+        $this->insertInvoice("ZD{$y}0002"); // příznak přepnutý až po vystavení
+        $this->insertInvoice("ZD{$y}0003", simplified: true);
+
+        $series = $this->service->build($this->supplierId, self::YEAR);
+
+        self::assertSame([], self::groupOfType($series, 'invoice')['buckets'][0]['missing']);
+        self::assertSame(3, self::groupOfType($series, 'invoice')['buckets'][0]['used_count']);
+        self::assertSame([], self::groupOfType($series, 'simplified')['buckets'][0]['missing']);
+        self::assertSame(3, self::groupOfType($series, 'simplified')['buckets'][0]['used_count']);
+    }
+
+    public function testSimplifiedSeriesRespectsManualStart(): void
+    {
+        $this->setTemplates('{YYYY}{CCCCCC}', 'D{YYYY}{CCCCCC}');
+        $this->setSimplifiedTemplate('ZD{YYYY}{CCCC}');
+        $this->setCounterFloor('simplified', 50);
+
+        $y = self::YEAR;
+        $this->insertInvoice("ZD{$y}0050", simplified: true);
+        $this->insertInvoice("ZD{$y}0051", simplified: true);
+
+        $series = $this->service->build($this->supplierId, self::YEAR);
+
+        $bucket = self::groupOfType($series, 'simplified')['buckets'][0];
+        self::assertSame([], $bucket['missing'], 'Čísla pod ručním začátkem řady nejsou chybějící doklady.');
+        self::assertSame(50, $bucket['range_from']);
     }
 
     public function testDistinctSeriesAreReportedIndependently(): void

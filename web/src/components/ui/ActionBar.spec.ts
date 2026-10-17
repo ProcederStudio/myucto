@@ -70,6 +70,26 @@ describe('ActionBar — důvod u zašedlé akce', () => {
   })
 })
 
+describe('ActionBar — počet akcí v hlavičce', () => {
+  const four: ActionItem[] = [
+    { key: 'a', label: 'A', tier: 'primary', run: () => {} },
+    { key: 'b', label: 'B', run: () => {} },
+    { key: 'c', label: 'C', run: () => {} },
+    { key: 'd', label: 'D', run: () => {} },
+  ]
+  const desktopOnly = (wrapper: ReturnType<typeof mountBar>) =>
+    wrapper.findAll('button.sm\\:inline-flex').map(b => b.text())
+
+  it('na desktopu ukáže nejvýš tři akce', () => {
+    expect(desktopOnly(mountBar(four))).toEqual(['C'])
+  })
+
+  it('stránka si může povolit víc', () => {
+    const wrapper = mount(ActionBar, { props: { actions: four, desktopInline: 4 }, global: { plugins: [i18n] } })
+    expect(desktopOnly(wrapper)).toEqual(['C', 'D'])
+  })
+})
+
 /*
  * Prázdný stav a selhání načtení jsou dva různé stavy. Prázdno smí tvrdit
  * „nic tu není"; selhání o obsahu neví nic a smí jen nabídnout opakování.

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Accounting\Dimension;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\BankStatementOwnershipResolver;
 use MyInvoice\Repository\CostCenterRepository;
 use MyInvoice\Repository\DimensionAssignmentRepository;
@@ -429,13 +430,10 @@ final class DimensionService
      * Uloží dimenze dokladu (hlavička + položky podle pořadí od 1) a promítne je do
      * už zaúčtovaných řádků dokladu.
      *
-     * Přerazítkování mění jen analytiku (účet, strana, částka ani datum řádku se
-     * nemění), proto jde i u zápisu v uzavřeném nebo zamčeném období a nevzniká
-     * protizápis. Jedinou výjimkou je rozdělení řádku mezi položky s různými
-     * dimenzemi: to mění částky řádků, a smí tedy jen přeúčtování. U zápisu, který
-     * se nedá přepsat na místě ({@see DocumentRepostService::decide()}), se takové
-     * uložení ODMÍTNE — řádek s hlavičkovými dimenzemi by sestavy po dimenzích tiše
-     * zkreslil a přeúčtování, které by to spravilo, tam vede přes storno.
+     * Změna dimenzí je možná před uzavřením knih, i při zámku účetního data.
+     * Uzavřené knihy uchovávají dimenzované zůstatky závěrky a počátečních stavů.
+     * Bezezměnové uložení zůstává povolené. Rozdělení řádků či změna analytického
+     * účtu vyžadují přeúčtování; v zamčeném období se takové uložení odmítne.
      * `$forRepost` = volá přeúčtování, které řádky hned potom zapíše znovu a rozdělí.
      *
      * `$splits` = rozpad hlavičky (0) a položek (pořadí od 1) mezi víc hodnot typu,
@@ -514,8 +512,13 @@ final class DimensionService
      */
     private function applyDocument(int $supplierId, string $docType, int $docId, array $header, ?array $items, ?array $splits = null): array
     {
-        $current = $this->assignments->documentDimensions($supplierId, $docType, $docId);
-        $currentSplits = $this->assignments->documentSplits($supplierId, $docType, $docId);
+        $guard = new DimensionPeriodGuard($this->db);
+        $guard->lockPeriods($supplierId);
+        $sources = $this->postingSources($supplierId, $docType, $docId, true);
+        $cascade = $this->cascadeSources($supplierId, $docType, $docId, true);
+        $guard->lockSources($supplierId, [...$sources, ...$cascade]);
+        $current = $this->assignments->documentDimensions($supplierId, $docType, $docId, true);
+        $currentSplits = $this->assignments->documentSplits($supplierId, $docType, $docId, true);
         $currentIds = array_values($current['header']);
         foreach ($current['items'] as $dims) {
             array_push($currentIds, ...array_values($dims));
@@ -575,14 +578,14 @@ final class DimensionService
             $released[$typeId] = null;
         }
         $restamp = ['lines' => 0, 'needs_repost' => false, 'account_change' => false, 'locked' => false];
-        foreach ($this->postingSources($supplierId, $docType, $docId) as [$source, $sourceId]) {
+        foreach ($sources as [$source, $sourceId]) {
             $one = $this->posting->restampDimensions($supplierId, $source, $sourceId, false, $released);
             $restamp['lines'] += $one['lines'];
             $restamp['needs_repost'] = $restamp['needs_repost'] || $one['needs_repost'];
             $restamp['account_change'] = $restamp['account_change'] || !empty($one['account_change']);
             $restamp['locked'] = $restamp['locked'] || $this->postedOutsideOpenPeriod($supplierId, $source, $sourceId);
         }
-        foreach ($this->cascadeSources($supplierId, $docType, $docId) as [$source, $sourceId, $keep]) {
+        foreach ($cascade as [$source, $sourceId, $keep]) {
             $one = $this->posting->restampDimensions($supplierId, $source, $sourceId, $keep, $keep ? $released : []);
             $restamp['lines'] += $one['lines'];
             // Účtotvorná dimenze i v kaskádě: zápis úhrady / zápočtu, jehož řádek by změnil
@@ -614,14 +617,15 @@ final class DimensionService
      *
      * @return list<array{0:string, 1:int, 2:bool}> zdroj, id, zachovat ruční typy řádků
      */
-    private function cascadeSources(int $supplierId, string $docType, int $docId): array
+    private function cascadeSources(int $supplierId, string $docType, int $docId, bool $forUpdate = false): array
     {
         $pdo = $this->db->pdo();
         $out = [];
+        $lock = $forUpdate ? ' FOR UPDATE' : '';
         if ($docType === 'other_item') {
             $stmt = $pdo->prepare(
                 'SELECT DISTINCT bank_transaction_id, cash_document_id FROM other_item_allocations
-                  WHERE supplier_id = ? AND other_item_id = ?'
+                  WHERE supplier_id = ? AND other_item_id = ?' . $lock
             );
             $stmt->execute([$supplierId, $docId]);
             foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
@@ -634,38 +638,41 @@ final class DimensionService
         if ($docType !== 'invoice' && $docType !== 'purchase_invoice') {
             return [];
         }
-        $settlements = $pdo->prepare('SELECT id FROM invoice_settlements WHERE supplier_id = ? AND doc_type = ? AND doc_id = ?');
+        $settlements = $pdo->prepare('SELECT id FROM invoice_settlements WHERE supplier_id = ? AND doc_type = ? AND doc_id = ?' . $lock);
         $settlements->execute([$supplierId, $docType, $docId]);
         foreach ($settlements->fetchAll(PDO::FETCH_COLUMN) as $settlementId) {
             $out[] = ['settlement', (int) $settlementId, true];
         }
-        $offsets = $pdo->prepare('SELECT DISTINCT agreement_id FROM offset_agreement_items WHERE supplier_id = ? AND doc_type = ? AND doc_id = ?');
+        $offsets = $pdo->prepare('SELECT DISTINCT agreement_id FROM offset_agreement_items WHERE supplier_id = ? AND doc_type = ? AND doc_id = ?' . $lock);
         $offsets->execute([$supplierId, $docType, $docId]);
         foreach ($offsets->fetchAll(PDO::FETCH_COLUMN) as $agreementId) {
             $out[] = ['offset', (int) $agreementId, true];
         }
+        $bankIds = [];
         if ($docType === 'invoice') {
-            $bank = $pdo->prepare(
-                'SELECT ip.bank_transaction_id FROM invoice_payments ip
+            foreach ([
+                ['SELECT ip.bank_transaction_id FROM invoice_payments ip
                    JOIN invoices i ON i.id = ip.invoice_id AND i.supplier_id = ?
-                  WHERE ip.invoice_id = ? AND ip.bank_transaction_id IS NOT NULL
-                 UNION
-                 SELECT bank_transaction_id FROM payment_matches WHERE supplier_id = ? AND invoice_id = ?
-                 UNION
-                 SELECT bt.id FROM bank_transactions bt
-                   JOIN bank_statements bs ON bs.id = bt.statement_id
-                  WHERE bt.matched_invoice_id = ? AND ' . BankStatementOwnershipResolver::sql()
-            );
-            $bank->execute([$supplierId, $docId, $supplierId, $docId, $docId, ...BankStatementOwnershipResolver::params($supplierId)]);
+                  WHERE ip.invoice_id = ? AND ip.bank_transaction_id IS NOT NULL', [$supplierId, $docId]],
+                ['SELECT bank_transaction_id FROM payment_matches WHERE supplier_id = ? AND invoice_id = ?', [$supplierId, $docId]],
+                ['SELECT bt.id FROM bank_transactions bt JOIN bank_statements bs ON bs.id = bt.statement_id
+                  WHERE bt.matched_invoice_id = ? AND ' . BankStatementOwnershipResolver::sql(), [$docId, ...BankStatementOwnershipResolver::params($supplierId)]],
+            ] as [$sql, $params]) {
+                $bank = $pdo->prepare($sql . $lock);
+                $bank->execute($params);
+                array_push($bankIds, ...$bank->fetchAll(PDO::FETCH_COLUMN));
+            }
+            $bankIds = array_unique($bankIds);
             $cashColumn = 'invoice_id';
         } else {
-            $bank = $pdo->prepare('SELECT DISTINCT bank_transaction_id FROM payment_matches WHERE supplier_id = ? AND purchase_invoice_id = ?');
+            $bank = $pdo->prepare('SELECT DISTINCT bank_transaction_id FROM payment_matches WHERE supplier_id = ? AND purchase_invoice_id = ?' . $lock);
             $bank->execute([$supplierId, $docId]);
+            $bankIds = $bank->fetchAll(PDO::FETCH_COLUMN);
             $cashColumn = 'purchase_invoice_id';
         }
-        $cash = $pdo->prepare("SELECT id FROM cash_documents WHERE supplier_id = ? AND {$cashColumn} = ?");
+        $cash = $pdo->prepare("SELECT id FROM cash_documents WHERE supplier_id = ? AND {$cashColumn} = ?" . $lock);
         $cash->execute([$supplierId, $docId]);
-        foreach ($bank->fetchAll(PDO::FETCH_COLUMN) as $txId) {
+        foreach ($bankIds as $txId) {
             $out[] = ['bank', (int) $txId, false];
         }
         foreach ($cash->fetchAll(PDO::FETCH_COLUMN) as $cashId) {
@@ -675,15 +682,16 @@ final class DimensionService
             $assets = $pdo->prepare(
                 "SELECT a.id FROM assets a
                   WHERE a.supplier_id = ? AND a.purchase_invoice_id = ?
-                    AND NOT EXISTS (SELECT 1 FROM document_dimensions d
-                                     WHERE d.supplier_id = a.supplier_id AND d.doc_type = 'asset' AND d.doc_id = a.id)
-                    AND NOT EXISTS (SELECT 1 FROM document_dimension_splits d
-                                     WHERE d.supplier_id = a.supplier_id AND d.doc_type = 'asset' AND d.doc_id = a.id)
-                  ORDER BY a.id"
+                  ORDER BY a.id" . $lock
             );
             $assets->execute([$supplierId, $docId]);
             foreach ($assets->fetchAll(PDO::FETCH_COLUMN) as $assetId) {
-                foreach ($this->postingSources($supplierId, 'asset', (int) $assetId) as [$source, $sourceId]) {
+                $own = $this->assignments->documentDimensions($supplierId, 'asset', (int) $assetId, $forUpdate);
+                if ($own['header'] !== [] || $own['items'] !== []
+                    || $this->assignments->documentSplits($supplierId, 'asset', (int) $assetId, $forUpdate) !== []) {
+                    continue;
+                }
+                foreach ($this->postingSources($supplierId, 'asset', (int) $assetId, $forUpdate) as [$source, $sourceId]) {
                     $out[] = [$source, $sourceId, true];
                 }
             }
@@ -717,11 +725,11 @@ final class DimensionService
      *
      * @return list<array{0:string, 1:int}>
      */
-    private function postingSources(int $supplierId, string $docType, int $docId): array
+    private function postingSources(int $supplierId, string $docType, int $docId, bool $forUpdate = false): array
     {
         if ($docType === 'asset') {
             $stmt = $this->db->pdo()->prepare(
-                "SELECT id FROM depreciation_entries WHERE supplier_id = ? AND asset_id = ? AND kind = 'accounting' ORDER BY id"
+                "SELECT id FROM depreciation_entries WHERE supplier_id = ? AND asset_id = ? AND kind = 'accounting' ORDER BY id" . ($forUpdate ? ' FOR UPDATE' : '')
             );
             $stmt->execute([$supplierId, $docId]);
             return [
@@ -823,7 +831,7 @@ final class DimensionService
         try {
             $result = $fn();
         } catch (\Throwable $e) {
-            if ($pdo->inTransaction()) {
+            if (!TransactionFailure::rollbackIfAborted($pdo, $e) && $pdo->inTransaction()) {
                 $ownTx ? $pdo->rollBack() : $pdo->exec('ROLLBACK TO SAVEPOINT dimension_document');
             }
             throw $e;
@@ -843,8 +851,7 @@ final class DimensionService
     }
 
     /**
-     * Ruční změna dimenzí řádků zápisu (i zaúčtovaného a v uzavřeném období — mění
-     * se jen analytika).
+     * Ruční změna dimenzí řádků zápisu před uzavřením účetních knih.
      *
      * `$splits` = id řádku => typ => seznam `{value_id, share}` (rozpad řádku mezi víc
      * hodnot typu); null = rozpady ponechat. Typ s rozpadem jedinou hodnotu nemá
@@ -858,13 +865,22 @@ final class DimensionService
     public function saveEntryLines(int $supplierId, int $entryId, array $lines, ?array $splits = null): int
     {
         $this->requireEnabled($supplierId);
+        return (new DimensionPeriodGuard($this->db))->transaction(
+            fn (): int => $this->applyEntryLines($supplierId, $entryId, $lines, $splits),
+        );
+    }
+
+    private function applyEntryLines(int $supplierId, int $entryId, array $lines, ?array $splits): int
+    {
+        $guard = new DimensionPeriodGuard($this->db);
+        $entries = $guard->lockEntries($supplierId, [$entryId]);
         $pdo = $this->db->pdo();
         $stmt = $pdo->prepare(
             'SELECT l.id, l.account_id, l.side, l.amount, je.source_type, je.entry_date
                FROM journal_entry_lines l
                JOIN journal_entries je ON je.id = l.entry_id AND je.supplier_id = l.supplier_id
               WHERE l.supplier_id = ? AND l.entry_id = ?
-              ORDER BY l.line_no, l.id'
+              ORDER BY l.line_no, l.id FOR UPDATE'
         );
         $stmt->execute([$supplierId, $entryId]);
         $rows = [];
@@ -874,8 +890,8 @@ final class DimensionService
         if ($rows === []) {
             throw new DimensionException('not_found', 'Účetní zápis nenalezen.', 404);
         }
-        $current = $this->assignments->entryLineDimensions($supplierId, $entryId);
-        $currentSplits = $this->assignments->entryLineSplits($supplierId, $entryId);
+        $current = $this->assignments->entryLineDimensions($supplierId, $entryId, true);
+        $currentSplits = $this->assignments->entryLineSplits($supplierId, $entryId, true);
         $newDims = $current;
         $newSplits = $currentSplits;
         foreach ($lines as $lineId => $dims) {
@@ -913,6 +929,9 @@ final class DimensionService
             return $before !== $after
                 || !DimensionAssignmentRepository::sameSplits($currentSplits[$id] ?? [], $newSplits[$id] ?? []);
         });
+        if ($touched !== []) {
+            $guard->assertMutable($entries[$entryId]);
+        }
         $this->ruleService()->assertLines(
             $supplierId,
             (string) $first['source_type'],

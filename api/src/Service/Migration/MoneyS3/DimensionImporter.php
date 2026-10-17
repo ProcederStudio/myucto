@@ -9,6 +9,8 @@ use MyInvoice\Repository\CostCenterRepository;
 use MyInvoice\Repository\DimensionRepository;
 use MyInvoice\Repository\MoneyS3ImportRepository;
 use MyInvoice\Service\Accounting\Dimension\DimensionService;
+use MyInvoice\Service\Accounting\Dimension\DimensionException;
+use MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard;
 
 /**
  * Středisko a zakázka z deníku Money do dimenzí MyÚčta (Firma → Dimenze).
@@ -26,10 +28,8 @@ use MyInvoice\Service\Accounting\Dimension\DimensionService;
  * vznikne uzavřená; hodnotu, kterou poslední rok použil, převod znovu otevře.
  * Existující hodnotu převod nikdy nezavírá.
  *
- * Dimenze se razítkují do všech zápisů převzatých z Money, i do let uzavřených
- * dřívějším převodem: jde o analytické členění, obraty ani výkazy se nemění. Pro
- * řádky z Money je rozhodující Money — opakovaný převod přepíše ruční změnu typů,
- * které převod spravuje.
+ * Dimenze uzavřených let zůstávají beze změny. Pro řádky v otevřených obdobích
+ * je rozhodující Money: opakovaný převod přepíše ruční změnu spravovaných typů.
  *
  * Doklad (přijatá a vydaná faktura, pokladní doklad, bankovní pohyb) dostane hodnotu
  * do hlavičky, když všechny řádky jeho zápisů s tímto typem nesou tutéž. Hlavičku,
@@ -56,9 +56,15 @@ final class DimensionImporter
         private readonly DimensionRepository $dimensions,
         private readonly DimensionService $dimensionService,
         private readonly MoneyS3ImportRepository $map,
+        private readonly DimensionPeriodGuard $periodGuard,
     ) {}
 
     public function run(ImportContext $ctx): void
+    {
+        $this->periodGuard->transaction(fn () => $this->import($ctx));
+    }
+
+    private function import(ImportContext $ctx): void
     {
         $p = $ctx->protocol;
 
@@ -124,9 +130,9 @@ final class DimensionImporter
         }
 
         $managed = array_values($types);
-        $stamped = $this->stampLines($ctx, $types['center'] ?? null, $centerValues, $jobValues, $managed);
+        [$stamped, $entries] = $this->stampLines($ctx, $types['center'] ?? null, $centerValues, $jobValues, $managed);
         $p->count(self::STEP, 'lines', $stamped);
-        $documents = $this->stampDocuments($ctx, $managed);
+        $documents = $this->stampDocuments($ctx, $managed, $entries);
         $p->count(self::STEP, 'documents', $documents);
 
         $p->info(self::STEP, 'summary', sprintf(
@@ -221,9 +227,9 @@ final class DimensionImporter
      * @param array<string,int> $centerValues
      * @param array<string,array{0:int,1:int}> $jobValues kód => [typ, hodnota]
      * @param list<int> $managedTypes typy, které převod na řádcích z Money spravuje
-     * @return int počet změněných vazeb řádek–dimenze
+     * @return array{int,array<int,array>} počet změněných vazeb a zamčené zápisy
      */
-    private function stampLines(ImportContext $ctx, ?int $centerType, array $centerValues, array $jobValues, array $managedTypes): int
+    private function stampLines(ImportContext $ctx, ?int $centerType, array $centerValues, array $jobValues, array $managedTypes): array
     {
         $pdo = $this->db->pdo();
         $pdo->exec('DROP TEMPORARY TABLE IF EXISTS tmp_money_s3_dimensions');
@@ -275,6 +281,54 @@ final class DimensionImporter
         }
         $flush();
 
+        $this->periodGuard->lockPeriods($ctx->supplierId);
+        $sources = implode(',', array_fill(0, count(self::DOCUMENT_SOURCES), '?'));
+        $ids = $pdo->prepare("SELECT je.id FROM journal_entries je
+            WHERE je.supplier_id = ? AND (je.source_type IN ({$sources})
+                OR EXISTS (SELECT 1 FROM tmp_money_s3_dimensions t WHERE t.entry_id = je.id)) FOR UPDATE");
+        $ids->execute([$ctx->supplierId, ...array_keys(self::DOCUMENT_SOURCES)]);
+        $entries = $this->periodGuard->lockEntries($ctx->supplierId, array_map('intval', $ids->fetchAll(\PDO::FETCH_COLUMN)));
+        $marks = implode(',', array_fill(0, count($managedTypes), '?'));
+        $changed = $pdo->prepare("SELECT DISTINCT t.entry_id
+            FROM tmp_money_s3_dimensions t
+            JOIN journal_entry_lines jel ON jel.entry_id = t.entry_id AND jel.line_no = t.line_no
+            WHERE jel.supplier_id = ? AND (
+                NOT (jel.cost_center <=> t.cost_center)
+                OR EXISTS (SELECT 1 FROM journal_entry_line_dimensions jd
+                    WHERE jd.supplier_id = jel.supplier_id AND jd.line_id = jel.id AND jd.dimension_type_id IN ({$marks})
+                    AND NOT (jd.dimension_type_id <=> t.center_type AND jd.dimension_value_id <=> t.center_value)
+                    AND NOT (jd.dimension_type_id <=> t.job_type AND jd.dimension_value_id <=> t.job_value))
+                OR EXISTS (SELECT 1 FROM journal_entry_line_dimension_splits ds
+                    WHERE ds.supplier_id = jel.supplier_id AND ds.line_id = jel.id AND ds.dimension_type_id IN ({$marks}))
+                OR (t.center_value IS NOT NULL AND NOT EXISTS (SELECT 1 FROM journal_entry_line_dimensions jd
+                    WHERE jd.supplier_id = jel.supplier_id AND jd.line_id = jel.id
+                    AND jd.dimension_type_id = t.center_type AND jd.dimension_value_id = t.center_value))
+                OR (t.job_value IS NOT NULL AND NOT EXISTS (SELECT 1 FROM journal_entry_line_dimensions jd
+                    WHERE jd.supplier_id = jel.supplier_id AND jd.line_id = jel.id
+                    AND jd.dimension_type_id = t.job_type AND jd.dimension_value_id = t.job_value)))");
+        $changed->execute([$ctx->supplierId, ...$managedTypes, ...$managedTypes]);
+        $changedIds = array_fill_keys(array_map('intval', $changed->fetchAll(\PDO::FETCH_COLUMN)), true);
+        $dropIds = [];
+        foreach ($entries as $entryId => $entry) {
+            if (!isset($changedIds[$entryId])) {
+                $dropIds[] = $entryId;
+                continue;
+            }
+            try {
+                $this->periodGuard->assertMutable($entry);
+            } catch (DimensionException $e) {
+                if ($e->errorCode !== 'period_not_open') {
+                    throw $e;
+                }
+                $dropIds[] = $entryId;
+                $ctx->protocol->warn(self::STEP, $e->errorCode, 'Dimenze účetního zápisu v uzavřeném období zůstaly beze změny.', ['entry_id' => $entryId]);
+            }
+        }
+        foreach (array_chunk($dropIds, self::BATCH) as $batchIds) {
+            $dropMarks = implode(',', array_fill(0, count($batchIds), '?'));
+            $pdo->prepare("DELETE FROM tmp_money_s3_dimensions WHERE entry_id IN ({$dropMarks})")->execute($batchIds);
+        }
+
         $count = 0;
         // Textový kód střediska zůstává na řádku jako dosud (mzdy a starší sestavy).
         $stmt = $pdo->prepare(
@@ -320,14 +374,14 @@ final class DimensionImporter
             $count += $insert->rowCount();
         }
         $pdo->exec('DROP TEMPORARY TABLE IF EXISTS tmp_money_s3_dimensions');
-        return $count;
+        return [$count, $entries];
     }
 
     /**
      * @param list<int> $managedTypes
      * @return int počet doplněných hlaviček (doklad × typ)
      */
-    private function stampDocuments(ImportContext $ctx, array $managedTypes): int
+    private function stampDocuments(ImportContext $ctx, array $managedTypes, array $entries): int
     {
         // STRAIGHT_JOIN: čerstvě naplněná vazební tabulka nemá statistiky a optimalizátor
         // jinak volí průchod dimenzemi celé firmy pro každý zápis (desítky minut).
@@ -336,10 +390,17 @@ final class DimensionImporter
         }
         $marks = implode(',', array_fill(0, count($managedTypes), '?'));
         $count = 0;
+        $byDocument = [];
+        foreach ($entries as $entry) {
+            if ($entry['source_id'] !== null) {
+                $byDocument[$entry['source_type']][(int) $entry['source_id']][] = $entry;
+            }
+        }
+        $insert = $this->db->pdo()->prepare('INSERT IGNORE INTO document_dimensions
+            (supplier_id, doc_type, doc_id, item_no, dimension_type_id, dimension_value_id) VALUES (?, ?, ?, 0, ?, ?)');
         foreach (self::DOCUMENT_SOURCES as $sourceType => $docType) {
             $stmt = $this->db->pdo()->prepare(
-                "INSERT IGNORE INTO document_dimensions (supplier_id, doc_type, doc_id, item_no, dimension_type_id, dimension_value_id)
-                 SELECT ?, ?, x.source_id, 0, x.type_id, x.value_id
+                "SELECT x.source_id, x.type_id, x.value_id
                    FROM (SELECT je.source_id, jd.dimension_type_id AS type_id, MIN(jd.dimension_value_id) AS value_id
                            FROM journal_entries je
                            STRAIGHT_JOIN journal_entry_lines jel ON jel.entry_id = je.id AND jel.supplier_id = je.supplier_id
@@ -348,12 +409,31 @@ final class DimensionImporter
                             AND jd.dimension_type_id IN ({$marks})
                           GROUP BY je.source_id, jd.dimension_type_id
                          HAVING COUNT(DISTINCT jd.dimension_value_id) = 1) x
-                  WHERE NOT EXISTS (SELECT 1 FROM document_dimension_splits ds
+                  WHERE NOT EXISTS (SELECT 1 FROM document_dimensions dd
+                                     WHERE dd.supplier_id = ? AND dd.doc_type = ? AND dd.doc_id = x.source_id
+                                       AND dd.item_no = 0 AND dd.dimension_type_id = x.type_id)
+                    AND NOT EXISTS (SELECT 1 FROM document_dimension_splits ds
                                      WHERE ds.supplier_id = ? AND ds.doc_type = ? AND ds.doc_id = x.source_id
                                        AND ds.item_no = 0 AND ds.dimension_type_id = x.type_id)"
             );
-            $stmt->execute([$ctx->supplierId, $docType, $ctx->supplierId, $sourceType, ...$managedTypes, $ctx->supplierId, $docType]);
-            $count += $stmt->rowCount();
+            $stmt->execute([$ctx->supplierId, $sourceType, ...$managedTypes, $ctx->supplierId, $docType, $ctx->supplierId, $docType]);
+            $candidates = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+            foreach ($candidates as $candidate) {
+                $docId = (int) $candidate['source_id'];
+                try {
+                    foreach ($byDocument[$sourceType][$docId] ?? [] as $entry) {
+                        $this->periodGuard->assertMutable($entry);
+                    }
+                } catch (DimensionException $e) {
+                    if ($e->errorCode !== 'period_not_open') {
+                        throw $e;
+                    }
+                    $ctx->protocol->warn(self::STEP, $e->errorCode, 'Dimenze dokladu v uzavřeném období zůstaly beze změny.', ['doc_type' => $docType, 'doc_id' => $docId]);
+                    continue;
+                }
+                $insert->execute([$ctx->supplierId, $docType, $docId, $candidate['type_id'], $candidate['value_id']]);
+                $count += $insert->rowCount();
+            }
         }
         return $count;
     }

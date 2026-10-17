@@ -354,9 +354,11 @@ s daným typem nesou tutéž; hlavičku, kterou už někdo vyplnil, převod nem�
 - Fakturační zakázky (`Zakázky`) ani klienty převod ze zakázek Money nezakládá.
 - Činnost z Money se nepřevádí.
 
-Dimenze dostanou i zápisy z let, která převod uzavřel už dříve; obraty ani výkazy
-se tím nemění. U řádků převzatých z Money platí Money: opakovaný převod přepíše
-středisko, projekt nebo vozidlo, které jste u nich změnili ručně.
+Dimenze se doplní před uzavřením převáděného roku. V již uzavřeném roce opakovaný
+převod zachová uložené středisko, projekt, vozidlo i rozpady. Pokud nová záloha
+obsahuje jiné hodnoty, protokol na zachované dimenze upozorní. Shodný opakovaný
+převod toto upozornění nevytváří. V otevřeném období platí Money: opakovaný převod
+přepíše ruční změnu spravovaných dimenzí.
 
 **Popisy zápisů se dogenerují.** Money veze v řádku deníku jen pole `Popis`, které
 je u celé řady dokladů shodné. Po navázání dokladů proto převod popisy přeskládá do

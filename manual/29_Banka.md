@@ -378,6 +378,11 @@ Skóre je dohledatelné složení signálů, nikoli odhad AI. Automatické potvr
 
 Pole **Vyhledat jiný doklad** hledá podle čísla dokladu, platebního VS, dodavatele či odběratele nebo přesné částky dokladu či zbývající úhrady. Ruční hledání zahrnuje i starší doklady mimo časové okno automatických návrhů a respektuje směr platby včetně dobropisů.
 
+Vratky vydaných a přijatých dobropisů i vydané faktury k vyplacení zohledňují
+již spárované částečné vratky. Automatické párování hledá zbývající částku,
+ruční párování přidělí nejvýše tento zbytek. Přijatý dobropis se páruje s příchozí
+platbou. Částečná vratka sama doklad neoznačí jako plně vypořádaný.
+
 Párování z detailu faktury (**Spárovat s bankou**): seznam lze hledat podle protistrany, VS, popisu nebo přesné částky. Pohyb přidělený jinému dokladu, mzdám, daním nebo vlastnímu převodu se nenabídne; dostupnost se znovu kontroluje při potvrzení. U ostatních pohledávek a závazků použijte **Připojit úhradu**.
 
 U CZK platby cizoměnové faktury, která odpovídá celému zbytku v devizové toleranci, se faktura vyrovná celým zbytkem v její měně; přesný CZK pohyb zůstane na bankovní transakci. Výrazně nižší částka je částečná úhrada.

@@ -481,6 +481,20 @@ API token nastavený pro dodavatele. Na stránce `Prodej → Export` ho spustít
 **Fakturoid** v poli **Formát**. Nevzniká při něm žádný soubor ke stažení.
 Přihlašovací údaje k Fakturoidu se zadávají v `Firma → Externí integrace`.
 
+### 20.7.10 Textové řádky v exportech
+
+Textový řádek mezi položkami ([§ 15.9.3](15_Faktura_editor.md#1593-polozky)) nemá částku,
+proto ho každý formát přenáší jinak:
+
+<!-- cols: 22 78 -->
+| Formát | Textový řádek |
+|---|---|
+| PDF | Řádek přes celou šířku tabulky položek, bez množství a cen |
+| ISDOC | Mezi řádky dokladu (`InvoiceLines`) není, řádky se číslují bez něj. Texty všech textových řádků jdou do poznámky dokladu (`Note`), každý na vlastní řádek |
+| Pohoda XML | Textová položka jen s `inv:text`, bez množství, sazby a cen. Text delší než 90 znaků se rozdělí do více textových položek |
+| Money S3 XML | Položka s nulovým množstvím, cenou a sazbou 0 %. Do souhrnu DPH ani do počtu sazeb dokladu nevstupuje |
+| Stereo XML | Vynechá se. Formát nemá ověřený tvar textového řádku a řádek nemá účetní význam |
+
 ## 20.8 Související kapitoly
 
 - [Export přijatých faktur](24_Export_prijatych.md)

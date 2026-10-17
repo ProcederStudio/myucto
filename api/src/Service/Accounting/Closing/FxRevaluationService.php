@@ -16,7 +16,7 @@ use MyInvoice\Service\Currency\CnbExchangeRateClient;
  * Kurzové rozdíly k rozvahovému dni (Epic F4, R10 — §24 odst. 6+7 ZoÚ, ČÚS 006).
  *
  * (a) Saldokonto 311/321 — open-item metoda z dokladů: cizoměnové saldokontní
- *     řádky deníku × otevřenost dokladu k D; zbytek v cizí měně dle poměru úhrad;
+ *     řádky deníku a doložená vypořádání dokladu k D; zbytek ve skutečné měně;
  *     přepočet kurzem ČNB k D (cache-first, 7denní fallback).
  * (b) Banka/valutová pokladna — poloautomat: uživatelem potvrzené devizové
  *     zůstatky {account_code, currency_code, foreign_balance}; rozdíl proti
@@ -25,7 +25,7 @@ use MyInvoice\Service\Currency\CnbExchangeRateClient;
  *     z deníku: cizoměnový zůstatek řádků s měnou × kurz ČNB proti jejich Kč
  *     hodnotě; zapisuje se do slotu (b).
  *
- * Agregace: JEDEN pár řádků zápisu per (účet, měna, směr); rozpad per doklad
+ * Agregace: pár řádků per doložený případ, účet, měna a úplná dimenze; rozpad per doklad
  * jde do payload kroku (audit + tisk podkladu). Strany (R10): zisk → MD účet /
  * D 663 (fx.gain), ztráta → MD 563 (fx.loss) / D účet — platí shodně pro
  * pohledávku (diff > 0 zisk) i závazek (diff < 0 zisk; diff se počítá
@@ -35,6 +35,28 @@ use MyInvoice\Service\Currency\CnbExchangeRateClient;
  */
 final class FxRevaluationService
 {
+    private static function settlementFindingText(string $finding): string
+    {
+        return match ($finding) {
+            'document_missing', 'document_ledger_missing' => 'Doklad nebo jeho účetní zápis není dostupný.',
+            'payment_posting_reversed' => 'Platba je stále přiřazena k dokladu, ale její účetní zápis byl stornován.',
+            'document_currency_conflict', 'payment_currency_conflict', 'legacy_payment_currency_unproven',
+            'advance_document_currency_conflict', 'advance_receipt_currency_unproven' => 'Měny dokladu, úhrad a účetních zápisů nesouhlasí.',
+            'payment_representation_conflict', 'advance_receipt_representation_conflict' => 'Bankovní párování a evidence úhrady uvádějí rozdílné částky.',
+            'advance_receipt_pool_conflict' => 'Jedna platba je přiřazena ve vyšší částce, než skutečně obsahuje.',
+            'advance_lineage_missing', 'advance_parent_unproven', 'advance_receipt_bank_missing' => 'Záloha nemá doloženou vazbu na platbu a vyúčtování.',
+            'advance_final_membership_unproven', 'advance_receipt_entry_ambiguous', 'advance_receipt_account_unproven',
+            'advance_receipt_allocation_rounding_unproven', 'advance_receipt_bank_allocation_unproven',
+            'advance_original_allocation_unproven' => 'Rozdělení platby nebo zálohy mezi doklady není jednoznačně doloženo.',
+            'advance_refund_exceeds_receipts', 'advance_settlement_exceeds_receipts', 'advance_settlement_pair_unproven' => 'Zúčtování zálohy neodpovídá aktuálně zaúčtovaným platbám a vratkám.',
+            'advance_tax_currency_unproven', 'advance_tax_valuation_unproven', 'advance_partial_tax_settlement_unproven' => 'Zúčtování daně ze zálohy nelze přesně přiřadit k částce v cizí měně.',
+            'advance_rate_missing', 'advance_settlement_valuation_unproven' => 'Čerpání zálohy nelze přesně rozdělit podle doložených kurzů.',
+            'manual_allocation_unproven', 'manual_currency_conflict', 'manual_original_allocation_unproven',
+            'manual_settlement_amount_conflict' => 'Ruční vypořádání nemá jednoznačné přiřazení k dokladu, jeho částce a měně.',
+            default => 'Částky úhrad a zúčtovaných záloh nesouhlasí s doloženým zůstatkem dokladu.',
+        };
+    }
+
     private const FALLBACK_LOSS_ACCOUNT = '563';
     private const FALLBACK_GAIN_ACCOUNT = '663';
 
@@ -58,15 +80,21 @@ final class FxRevaluationService
      *     warnings: list<array<string,mixed>>
      * }
      */
-    public function preview(int $supplierId, array $period, array $bankRows = []): array
+    public function preview(int $supplierId, array $period, array $bankRows = [], bool $currentRead = false): array
     {
         $endsOn = (string) $period['ends_on'];
         $rates = [];
         $warnings = [];
         $detail = [];
         $desiredGroups = [];
+        $snapshot = $this->repo->fxCaseSnapshot($supplierId, $period, $currentRead);
+        $carrying = (new FxCaseCarryingProjection())->project($snapshot, $period);
+        if (!$carrying['complete']) {
+            throw new ClosingException('fx_case_history_unproven', FxCaseCarryingProjection::findingMessage($carrying['findings'][0]), 422);
+        }
 
-        foreach ($this->repo->openFxItems($supplierId, $endsOn) as $item) {
+        foreach ($snapshot['items'] as $projection) {
+            $item = $projection['item'];
             // EP-17: nepeněžní zálohy (314 poskytnuté / 324 přijaté zálohy na budoucí
             // dodání zboží/služby) NEJSOU peněžní položka podle §4 odst. 12 ZoÚ / ČÚS 006 —
             // vypořádají se PLNĚNÍM, ne penězi — a k rozvahovému dni se kurzem
@@ -83,40 +111,33 @@ final class FxRevaluationService
             }
 
             $currency = (string) $item['currency_code'];
-            $rateCnb = $this->rateFor($currency, $endsOn, $rates);
-
-            $ratio = $this->repo->paidRatioBefore(
-                $supplierId,
-                (string) $item['doc_type'],
-                (int) $item['doc_id'],
-                $endsOn,
-                (float) $item['total_with_vat'],
-            );
-            if ($ratio > 1.0) {
-                // Jednotka úhrad nejistá (platba v jiné měně než doklad apod.) —
-                // konzervativní fallback: přecenit celý doklad + warning (§8/6).
-                $warnings[] = [
-                    'key'      => 'fx_partial_payment_uncertain',
-                    'doc_type' => $item['doc_type'],
-                    'doc_id'   => $item['doc_id'],
-                    'ratio'    => round($ratio, 4),
-                ];
-                $ratio = 0.0;
+            $evidence = $projection['evidence'];
+            if (!$evidence['complete']) {
+                $label = $item['doc_type'] === 'invoice' ? 'Vydaná faktura' : 'Přijatá faktura';
+                throw new ClosingException('fx_settlement_unproven', self::settlementFindingText($evidence['findings'][0]) . ' ' . $label . ': #' . $item['doc_id'], 422);
             }
-
-            $remainingForeign = round((float) $item['amount_foreign'] * (1 - $ratio), 2);
-            if (self::cents($remainingForeign) === 0) {
+            foreach ($evidence['diagnostics'] ?? [] as $diagnostic) {
+                $warnings[] = ['code' => $diagnostic, 'doc_type' => $item['doc_type'], 'doc_id' => $item['doc_id']];
+            }
+            $remainingForeign = (float) $evidence['remaining_foreign'];
+            $caseKey = FxCaseCarryingProjection::key($item);
+            $priorCents = $carrying['carrying'][$caseKey] ?? 0;
+            if (JournalLineAmount::cents($evidence['remaining_foreign']) === 0 && $priorCents === 0) {
                 continue;
             }
-            $bookedCzk = round($remainingForeign * (float) $item['fx_rate'], 2);
-            $newCzk = round($remainingForeign * $rateCnb, 2);
-            $diff = round($newCzk - $bookedCzk, 2);
+            $rateCnb = $this->rateFor($currency, $endsOn, $rates);
+            $bookedCzk = (float) $evidence['booked_czk'];
+            $newCents = JournalLineAmount::cents(bcmul((string) $evidence['remaining_foreign'], (string) $rateCnb, 16));
+            $diffCents = $newCents - JournalLineAmount::cents($evidence['booked_czk']);
+            $newCzk = (float) bcdiv((string) $newCents, '100', 2);
+            $diff = (float) bcdiv((string) $diffCents, '100', 2);
 
             // Požadovaná kumulativní změna carrying amount na saldokontním účtu:
             // pohledávka roste na MD, závazek roste na D.
             $isReceivable = $item['doc_type'] === 'invoice';
-            $desiredSigned = $isReceivable ? $diff : -$diff;
-            $direction = $desiredSigned > 0 ? 'gain' : 'loss';
+            $desiredCents = $isReceivable ? $diffCents : -$diffCents;
+            $incrementCents = $desiredCents - $priorCents;
+            $direction = $incrementCents > 0 ? 'gain' : 'loss';
 
             $detail[] = [
                 'doc_type'          => $item['doc_type'],
@@ -130,56 +151,42 @@ final class FxRevaluationService
                 'booked_czk'        => $bookedCzk,
                 'new_czk'           => $newCzk,
                 'diff'              => $diff,
-                'direction'         => self::cents($diff) === 0 ? null : $direction,
+                'direction'         => $incrementCents === 0 ? null : $direction,
+                'case_id'           => $caseKey,
+                'source_tuple'      => $item['source_tuple'] ?? FxCaseTuple::fromRow([]),
+                'source_proof_hash' => $item['source_proof_hash'] ?? null,
+                'source_line_id'    => (int) ($item['source_line_id'] ?? 0),
+                'source_entry_id'   => (int) ($item['source_entry_id'] ?? 0),
+                'carrying_before'   => bcdiv((string) $priorCents, '100', 2),
+                'incremental_signed' => bcdiv((string) $incrementCents, '100', 2),
             ];
 
-            if (self::cents($diff) === 0) {
-                continue;
-            }
-            $key = $item['account_id'] . '|' . $currency;
-            if (!isset($desiredGroups[$key])) {
-                $desiredGroups[$key] = [
-                    'account_id'    => (int) $item['account_id'],
-                    'account_code'  => (string) $item['account_code'],
-                    'currency_code' => $currency,
-                    'desired_signed' => 0.0,
-                ];
-            }
-            $desiredGroups[$key]['desired_signed'] = round(
-                $desiredGroups[$key]['desired_signed'] + $desiredSigned,
-                2,
-            );
-        }
-
-        $groups = [];
-        $currentSlot = ClosingSourceId::fxSaldo((int) $period['id']);
-        $alreadyBookedByKey = [];
-        foreach ($this->repo->fxCarryingAdjustments($supplierId, $endsOn, $currentSlot) as $adjustment) {
-            $key = $adjustment['account_id'] . '|' . $adjustment['currency_code'];
-            $alreadyBookedByKey[$key] = (float) $adjustment['amount'];
+            if ($incrementCents === 0) continue;
+            $key = $item['doc_type'] . ':' . ($item['case_document_id'] ?? $item['doc_id']) . '|' . $item['account_id'] . '|' . $currency . '|' . FxCaseTuple::hash($item['source_tuple'] ?? []);
             $desiredGroups[$key] ??= [
-                'account_id' => (int) $adjustment['account_id'],
-                'account_code' => (string) $adjustment['account_code'],
-                'currency_code' => (string) $adjustment['currency_code'],
-                'desired_signed' => 0.0,
+                'account_id' => (int) $item['account_id'],
+                'account_code' => (string) $item['account_code'],
+                'currency_code' => $currency,
+                'direction' => $direction,
+                'source_tuple' => $item['source_tuple'] ?? FxCaseTuple::fromRow([]),
+                'amount_cents' => 0,
+                'desired_cents' => 0,
+                'booked_cents' => 0,
             ];
+            $desiredGroups[$key]['amount_cents'] += $incrementCents;
+            $desiredGroups[$key]['desired_cents'] += $desiredCents;
+            $desiredGroups[$key]['booked_cents'] += $priorCents;
         }
-        foreach ($desiredGroups as $key => $g) {
-            $alreadyBooked = $alreadyBookedByKey[$key] ?? 0.0;
-            $incremental = round((float) $g['desired_signed'] - $alreadyBooked, 2);
-            if (self::cents($incremental) === 0) {
-                continue;
-            }
-            $groups[] = [
-                'account_id' => (int) $g['account_id'],
-                'account_code' => (string) $g['account_code'],
-                'currency_code' => (string) $g['currency_code'],
-                'direction' => $incremental > 0 ? 'gain' : 'loss',
-                'amount' => abs($incremental),
-                'desired_signed' => (float) $g['desired_signed'],
-                'already_booked' => $alreadyBooked,
-            ];
-        }
+        $groups = array_map(static fn (array $group): array => [
+            'account_id' => $group['account_id'],
+            'account_code' => $group['account_code'],
+            'currency_code' => $group['currency_code'],
+            'direction' => $group['amount_cents'] > 0 ? 'gain' : 'loss',
+            'source_tuple' => $group['source_tuple'],
+            'amount' => (float) bcdiv((string) abs($group['amount_cents']), '100', 2),
+            'desired_signed' => (float) bcdiv((string) $group['desired_cents'], '100', 2),
+            'already_booked' => (float) bcdiv((string) $group['booked_cents'], '100', 2),
+        ], array_values($desiredGroups));
 
         // (b) banka / valutová pokladna — poloautomat z potvrzených řádků.
         // R10b: každý účet smí v bank_rows figurovat NEJVÝŠE JEDNOU. accountBalance()
@@ -285,6 +292,8 @@ final class FxRevaluationService
             'ledger'    => ['lines' => $ledgerLines],
             'totals'    => ['loss' => round($loss, 2), 'gain' => round($gain, 2)],
             'warnings'  => $warnings,
+            'case_projection_version' => 1,
+            'case_history_proof' => $carrying['proof'],
         ];
     }
 
@@ -312,12 +321,13 @@ final class FxRevaluationService
                 'fx_rate'        => $this->rateFromInfo($preview, (string) $g['currency_code']),
                 'amount_foreign' => 0.0,
             ];
+            $tuple = $g['source_tuple'] ?? [];
             if ($g['direction'] === 'gain') {
-                $saldo[] = ['account_code' => (string) $g['account_code'], 'side' => 'debit', 'amount' => $amount] + $trace;
-                $saldo[] = ['account_code' => $gainAccount, 'side' => 'credit', 'amount' => $amount];
+                $saldo[] = ['account_code' => (string) $g['account_code'], 'side' => 'debit', 'amount' => $amount] + $trace + $tuple;
+                $saldo[] = ['account_code' => $gainAccount, 'side' => 'credit', 'amount' => $amount] + $tuple;
             } else {
-                $saldo[] = ['account_code' => $lossAccount, 'side' => 'debit', 'amount' => $amount];
-                $saldo[] = ['account_code' => (string) $g['account_code'], 'side' => 'credit', 'amount' => $amount] + $trace;
+                $saldo[] = ['account_code' => $lossAccount, 'side' => 'debit', 'amount' => $amount] + $tuple;
+                $saldo[] = ['account_code' => (string) $g['account_code'], 'side' => 'credit', 'amount' => $amount] + $trace + $tuple;
             }
         }
 

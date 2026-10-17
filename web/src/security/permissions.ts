@@ -4,7 +4,7 @@ export const PERMISSION_KEYS = [
   'projects', 'projects.create', 'projects.archive',
   'invoices', 'invoices.create', 'invoices.issue', 'invoices.send',
   'invoices.reminder', 'invoices.mark_paid', 'invoices.cancel', 'invoices.clone',
-  'invoices.delete', 'invoices.approval',
+  'invoices.delete', 'invoices.approval', 'invoices.edit_issued',
   'purchase_invoices', 'purchase_invoices.create', 'purchase_invoices.transition',
   'purchase_invoices.scan', 'purchase_invoices.extract', 'purchase_invoices.payment_orders', 'purchase_invoices.delete',
   'purchase_invoices.approve',

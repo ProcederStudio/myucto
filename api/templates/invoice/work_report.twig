@@ -42,7 +42,7 @@
 </table>
 
 <div style="margin-bottom:5mm;">
-  <div style="font-size:11pt;font-weight:bold;color:#3B2D83;margin-bottom:1mm;">{{ work_report.title }}</div>
+  <div class="wr-report-title" style="font-size:11pt;font-weight:bold;margin-bottom:1mm;">{{ work_report.title }}</div>
   <div style="font-size:9pt;color:#5A5470;">
     {% if invoice.client_company_name %}
       {{ t('Pro', 'For') }}: <strong>{{ invoice.client_company_name }}</strong>
@@ -73,7 +73,7 @@
       <td class="num nowrap">{{ it.total_amount|number_format(total_dec, decimal_sep, thousand_sep) }} {{ invoice.currency }}</td>
     </tr>
     {% endfor %}
-    <tr style="background:#F4F2F8;font-weight:bold;">
+    <tr class="wr-total">
       <td style="text-align:right;" {% if wr_has_dates %}colspan="2"{% endif %}>{{ t('Celkem', 'Total') }}</td>
       <td class="num nowrap">{% if work_report.total_duration_display is defined and work_report.total_duration_display is not null %}{{ work_report.total_duration_display }}{% else %}{{ work_report.total_hours|number_format(hours_dec, decimal_sep, thousand_sep) }}{% endif %} h</td>
       <td></td>
@@ -87,7 +87,7 @@
 {% set mprice_dec = (work_report.materials|filter(m => m.unit_price != m.unit_price|round(0))|length) > 0 ? 2 : 0 %}
 {% set mtotal_dec = (work_report.materials|filter(m => m.total_amount != m.total_amount|round(0))|length) > 0 ? 2 : 0 %}
 
-<div style="margin-top:6mm;margin-bottom:2mm;font-size:10pt;font-weight:bold;color:#3B2D83;">{{ work_report.material_title|default(t('Materiál', 'Material')) }}</div>
+<div class="wr-report-title" style="margin-top:6mm;margin-bottom:2mm;font-size:10pt;font-weight:bold;">{{ work_report.material_title|default(t('Materiál', 'Material')) }}</div>
 
 <table class="items">
   <thead>
@@ -109,7 +109,7 @@
       <td class="num nowrap">{{ m.total_amount|number_format(mtotal_dec, decimal_sep, thousand_sep) }} {{ invoice.currency }}</td>
     </tr>
     {% endfor %}
-    <tr style="background:#F4F2F8;font-weight:bold;">
+    <tr class="wr-total">
       <td style="text-align:right;" colspan="4">{{ t('Celkem', 'Total') }}</td>
       <td class="num nowrap">{{ work_report.material_total|number_format(mtotal_dec, decimal_sep, thousand_sep) }} {{ invoice.currency }}</td>
     </tr>

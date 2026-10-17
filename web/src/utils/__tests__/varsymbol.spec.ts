@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { digitSkeleton, hasCounterPlaceholder, renderVarsymbolTemplate, templatesCollide } from '../varsymbol'
+import { digitSkeleton, hasCounterPlaceholder, renderVarsymbolTemplate, templatesCollide, varsymbolSeriesType } from '../varsymbol'
 
 // Zrcadlo api/tests/Unit/Service/Invoice/InvoiceNumberFormatTest.php — stejné případy
 // musí dát stejný výsledek v obou jazycích. Rozejít se smí jen jedno: číslo dokladu,
@@ -53,5 +53,24 @@ describe('digitSkeleton — posun je součástí identity tokenu', () => {
 
   it('posun 0 je totéž co bez posunu', () => {
     expect(digitSkeleton('{YY+0}{CCC}')).toBe(digitSkeleton('{YY}{CCC}'))
+  })
+})
+
+// Zrcadlo VarsymbolGenerator::seriesTypeFor() (PHP), editor podle ní žádá náhled
+// čísla a nastavení podle ní hlídá kolize řad.
+describe('varsymbolSeriesType, řada zjednodušeného dokladu', () => {
+  it('zjednodušená faktura jde do řady zjednodušených dokladů', () => {
+    expect(varsymbolSeriesType('invoice', true)).toBe('simplified')
+  })
+
+  it('běžná faktura zůstává v řadě faktur', () => {
+    expect(varsymbolSeriesType('invoice', false)).toBe('invoice')
+    expect(varsymbolSeriesType('invoice', undefined)).toBe('invoice')
+  })
+
+  it('příznak u jiného typu dokladu řadu nemění', () => {
+    expect(varsymbolSeriesType('proforma', true)).toBe('proforma')
+    expect(varsymbolSeriesType('credit_note', true)).toBe('credit_note')
+    expect(varsymbolSeriesType('payment_calendar', true)).toBe('payment_calendar')
   })
 })

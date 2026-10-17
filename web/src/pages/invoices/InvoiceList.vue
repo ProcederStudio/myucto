@@ -662,6 +662,7 @@ async function bulkMarkPaid() {
   let okCount = 0
   let thanksSent = 0
   let thanksFailed = 0
+  let thanksQueued = 0
   const errors: string[] = []
   try {
     for (const inv of list) {
@@ -671,6 +672,7 @@ async function bulkMarkPaid() {
         const pt = updated.payment_thanks
         if (pt?.status === 'sent') thanksSent++
         else if (pt?.status === 'failed') thanksFailed++
+        else if (pt?.status === 'queued') thanksQueued++
       } catch (e: any) {
         errors.push(`${inv.varsymbol || `#${inv.id}`}: ${e?.response?.data?.error?.message || 'chyba'}`)
       }
@@ -682,6 +684,7 @@ async function bulkMarkPaid() {
       : t('invoice.bulk_mark_paid_success', { n: okCount })
     if (sendThanks) {
       msg += '\n' + t('invoice.bulk_thanks_summary', { sent: thanksSent, failed: thanksFailed })
+      if (thanksQueued > 0) msg += '\n' + t('invoice.bulk_thanks_queued', { n: thanksQueued })
     }
     if (errors.length) {
       toast.warning(msg + '\n' + errors.join('\n'))
@@ -1724,10 +1727,13 @@ useWindowRefresh(['invoices', 'clients', 'bank', 'bank-transactions', 'cash', 'a
                       <tr v-if="expandedLoading"><td colspan="4" class="py-1 text-neutral-500">{{ t('common.loading') }}</td></tr>
                       <tr v-else-if="!expandedItems?.length"><td colspan="4" class="py-1 text-neutral-500">{{ t('common.no_data') }}</td></tr>
                       <tr v-for="(item, ii) in expandedItems" :key="item.id ?? ii" class="border-t border-neutral-200/70">
+                        <td v-if="item.item_kind === 'text'" colspan="4" class="py-1 pr-3 font-medium text-neutral-700 whitespace-pre-wrap">{{ item.description }}</td>
+                        <template v-else>
                         <td class="py-1 pr-3 text-neutral-700">{{ item.description }}</td>
                         <td class="py-1 text-right font-mono tabular-nums whitespace-nowrap">{{ formatNumber(item.quantity) }} {{ item.unit }}</td>
                         <td class="py-1 text-right font-mono tabular-nums whitespace-nowrap">{{ formatMoney(item.unit_price_without_vat, inv.currency) }}</td>
                         <td class="py-1 text-right font-mono tabular-nums whitespace-nowrap font-semibold text-neutral-900">{{ formatMoney(item.total_with_vat ?? item.total_without_vat ?? 0, inv.currency) }}</td>
+                        </template>
                       </tr>
                     </tbody>
                   </table>

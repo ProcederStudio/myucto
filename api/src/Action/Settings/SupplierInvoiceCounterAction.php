@@ -19,7 +19,7 @@ use Psr\Http\Message\ServerRequestInterface as Request;
 /**
  * PUT /api/settings/supplier/invoice-counter — nastaví counter číselné řady (admin).
  *
- * Body: { "type": "invoice"|"proforma"|"credit_note", "next_number": 42,
+ * Body: { "type": "invoice"|"proforma"|"credit_note"|"simplified", "next_number": 42,
  *         "date": "2026-07-01"?, "client_id": 7?, "revenue_category_id": 3? }
  *
  * Nastaví counter tak, aby PŘÍŠTÍ vystavený doklad daného typu dostal číslo
@@ -66,8 +66,10 @@ final class SupplierInvoiceCounterAction
 
         $b    = (array) ($request->getParsedBody() ?? []);
         $type = (string) ($b['type'] ?? 'invoice');
-        if (!in_array($type, ['invoice', 'proforma', 'credit_note'], true)) {
-            return Json::error($response, 'validation_failed', "Neplatný type (invoice|proforma|credit_note).", 400);
+        // `simplified` = vlastní řada zjednodušených dokladů (migrace 2037); bez šablony
+        // firmy ji generátor odmítne, protože by se psalo do počítadla faktur.
+        if (!in_array($type, ['invoice', 'proforma', 'credit_note', VarsymbolGenerator::SIMPLIFIED], true)) {
+            return Json::error($response, 'validation_failed', "Neplatný type (invoice|proforma|credit_note|simplified).", 400);
         }
 
         $next = (int) ($b['next_number'] ?? 0);

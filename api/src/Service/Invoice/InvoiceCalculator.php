@@ -16,6 +16,7 @@ use PDO;
  *              total_with_vat = total_without_vat + total_vat
  *  - Reverse charge: items se vat_rate_snapshot = 0 (i kdyby byl jiný)
  *  - Faktura: SUM jednotlivých položek
+ *  - Textový řádek (item_kind='text') vychází na nulu a do rekapitulace nevstupuje
  *  - amount_to_pay je generated column v DB (total_with_vat - advance_paid_amount)
  */
 final class InvoiceCalculator
@@ -45,7 +46,7 @@ final class InvoiceCalculator
 
         // Načti položky
         $stmt = $pdo->prepare(
-            'SELECT id, quantity, duration_minutes, unit_price_without_vat, vat_rate_snapshot
+            'SELECT id, quantity, duration_minutes, unit_price_without_vat, vat_rate_snapshot, item_kind
                FROM invoice_items WHERE invoice_id = ? ORDER BY order_index, id'
         );
         $stmt->execute([$invoiceId]);

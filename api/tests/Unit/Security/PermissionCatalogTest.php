@@ -162,4 +162,65 @@ final class PermissionCatalogTest extends TestCase
         ]);
         self::assertTrue($checker->allows($healthOfficer, 'payroll.health_evidence', AccessLevel::READ));
     }
+
+    /**
+     * Úprava vystavené faktury je samostatné interní právo. Správce ho má vždy, výchozí
+     * účetní ne; vlastní interní roli ho přidělí správce v editoru rolí. Klient ho
+     * nedostane ani poškozeným řádkem matice.
+     */
+    public function testEditIssuedInvoiceIsStaffOnlyAndGrantedExplicitly(): void
+    {
+        $catalog = new PermissionCatalog();
+        self::assertSame(['staff'], $catalog->all()['invoices.edit_issued']['role_types']);
+        self::assertArrayNotHasKey('invoices.edit_issued', $catalog->legacyPreset('accountant'));
+        self::assertArrayNotHasKey('invoices.edit_issued', $catalog->legacyPreset('client'));
+
+        $request = static fn (EffectiveRole $role) => (new \Slim\Psr7\Factory\ServerRequestFactory())
+            ->createServerRequest('PUT', '/')
+            ->withAttribute('auth.effective_role', $role);
+        $canEdit = static fn (EffectiveRole $role): bool
+            => \MyInvoice\Security\RequestAuthorization::canEditIssuedInvoice($request($role));
+
+        self::assertTrue($canEdit(new EffectiveRole(1, 'Superadmin', 'superadmin', true, [], 'superadmin')));
+        self::assertTrue($canEdit(new EffectiveRole(2, 'Admin', 'staff', true, [], 'admin')));
+        self::assertTrue($canEdit(new EffectiveRole(3, 'Admin Plus', 'staff', true, [], 'admin_plus')));
+        self::assertFalse($canEdit(new EffectiveRole(4, 'Účetní', 'staff', true, $catalog->legacyPreset('accountant'), 'accountant')));
+        self::assertTrue($canEdit(new EffectiveRole(5, 'Fakturantka', 'staff', true, [
+            'invoices' => AccessLevel::WRITE->value,
+            'invoices.edit_issued' => AccessLevel::WRITE->value,
+        ])));
+        self::assertFalse($canEdit(new EffectiveRole(6, 'Jen čtení', 'staff', true, [
+            'invoices.edit_issued' => AccessLevel::READ->value,
+        ])), 'Úprava je zápis, čtení nestačí.');
+        self::assertFalse($canEdit(new EffectiveRole(7, 'Vypnutá', 'staff', false, [
+            'invoices.edit_issued' => AccessLevel::WRITE->value,
+        ])));
+        self::assertFalse($canEdit(new EffectiveRole(8, 'Klient', 'client', true, [
+            'invoices.edit_issued' => AccessLevel::WRITE->value,
+        ])), 'Klientská role právo nedostane ani poškozeným řádkem.');
+
+        // Finanční úprava zaúčtované faktury přeúčtuje deník: neadmin k ní potřebuje i právo zaúčtovat.
+        $canRepost = static fn (EffectiveRole $role): bool
+            => \MyInvoice\Security\RequestAuthorization::canRepostIssuedInvoice($request($role));
+        self::assertTrue($canRepost(new EffectiveRole(2, 'Admin', 'staff', true, [], 'admin')));
+        self::assertFalse($canRepost(new EffectiveRole(5, 'Fakturantka', 'staff', true, [
+            'invoices.edit_issued' => AccessLevel::WRITE->value,
+        ])));
+        self::assertTrue($canRepost(new EffectiveRole(9, 'Fakturantka a účetní', 'staff', true, [
+            'invoices.edit_issued' => AccessLevel::WRITE->value,
+            'accounting.journal.post' => AccessLevel::WRITE->value,
+        ])));
+        self::assertFalse($canRepost(new EffectiveRole(10, 'Jen zaúčtování', 'staff', true, [
+            'accounting.journal.post' => AccessLevel::WRITE->value,
+        ])), 'Bez práva upravit vystavenou fakturu nic nepřeúčtuje.');
+
+        // Podané DPH období mění jen správce, právo upravit vystavenou fakturu ani zaúčtovat nestačí.
+        $canChangeFiled = static fn (EffectiveRole $role): bool
+            => \MyInvoice\Security\RequestAuthorization::canChangeFiledVatPeriod($request($role));
+        self::assertTrue($canChangeFiled(new EffectiveRole(2, 'Admin', 'staff', true, [], 'admin')));
+        self::assertFalse($canChangeFiled(new EffectiveRole(9, 'Fakturantka a účetní', 'staff', true, [
+            'invoices.edit_issued' => AccessLevel::WRITE->value,
+            'accounting.journal.post' => AccessLevel::WRITE->value,
+        ])));
+    }
 }

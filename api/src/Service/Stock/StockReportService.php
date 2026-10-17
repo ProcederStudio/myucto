@@ -23,10 +23,72 @@ final class StockReportService
         private readonly \MyInvoice\Repository\StockValuationSnapshotRepository $snapshots,
     ) {}
 
+    /** Volitelné sloupce sestavy Stav zásob; bez parametru `columns` jsou vidět první dva. */
+    public const STATUS_COLUMNS = ['avg_unit_cost', 'value_total', 'sale_price', 'note'];
+    private const STATUS_DEFAULT_COLUMNS = ['avg_unit_cost', 'value_total'];
+
     /**
-     * Stav zásob k dnešku (aktuální stock_levels) s filtry sklad/typ/pod minimem.
+     * Filtry sestavy Stav zásob z query stringu. Původní filtry (sklad, typ, pod
+     * minimem, aktivní, hledání) zůstávají tolerantní jako dřív, nové jsou přísné:
+     * `category_id` a `attribute_id` kladné celé číslo, `columns` čárkami oddělený
+     * výběr z {@see STATUS_COLUMNS}. Přítomný `columns` určuje sloupce přesně
+     * (prázdný nebo `none` = žádný volitelný), chybějící ponechá výchozí průměrnou
+     * cenu a hodnotu.
      *
-     * @param array<string,mixed> $filters
+     * @param array<string,mixed> $q
+     * @return array<string,mixed>
+     */
+    public static function normalizeStatusFilters(array $q): array
+    {
+        $filters = [];
+        if (!empty($q['warehouse_id'])) {
+            $filters['warehouse_id'] = (int) $q['warehouse_id'];
+        }
+        if (!empty($q['item_type'])) {
+            $filters['item_type'] = (string) $q['item_type'];
+        }
+        if (!empty($q['below_min'])) {
+            $filters['below_min'] = true;
+        }
+        if (array_key_exists('active', $q) && $q['active'] !== '') {
+            $filters['active'] = (bool) (int) $q['active'];
+        }
+        if (!empty($q['q'])) {
+            $filters['q'] = (string) $q['q'];
+        }
+        foreach (['category_id', 'attribute_id'] as $key) {
+            if (!isset($q[$key]) || $q[$key] === '') {
+                continue;
+            }
+            $id = filter_var($q[$key], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+            if ($id === false) {
+                throw new StockException('validation_failed', 'Neplatný identifikátor filtru.', 422, ['field' => $key]);
+            }
+            $filters[$key] = $id;
+        }
+        if (array_key_exists('columns', $q)) {
+            if (!is_string($q['columns'])) {
+                throw new StockException('validation_failed', 'Neplatný výběr sloupců.', 422, ['field' => 'columns']);
+            }
+            $requested = array_values(array_filter(array_map('trim', explode(',', $q['columns'])), static fn (string $c): bool => $c !== ''));
+            if ($requested === ['none']) {
+                $requested = [];
+            }
+            if (array_diff($requested, self::STATUS_COLUMNS) !== []) {
+                throw new StockException('validation_failed', 'Neznámý sloupec sestavy.', 422, ['field' => 'columns']);
+            }
+            $filters['columns'] = array_values(array_intersect(self::STATUS_COLUMNS, $requested));
+        }
+        return $filters;
+    }
+
+    /**
+     * Stav zásob k dnešku (aktuální stock_levels) s filtry sklad/typ/pod minimem/
+     * kategorie. Při volbě sloupců (`columns`, `attribute_id`) odpověď navíc nese
+     * `columns` (zobrazené volitelné sloupce, parametr jako 'attribute') a `attribute`
+     * (popis parametru) a řádky jen vyžádané údaje karty. Bez nich je výstup beze změny.
+     *
+     * @param array<string,mixed> $filters výstup {@see normalizeStatusFilters()}
      * @return array<string,mixed>
      */
     public function status(int $supplierId, array $filters): array
@@ -47,19 +109,49 @@ final class StockReportService
         if (!empty($filters['q'])) {
             $levelFilters['q'] = (string) $filters['q'];
         }
+        if (!empty($filters['category_id'])) {
+            $levelFilters['category_id'] = (int) $filters['category_id'];
+        }
 
-        $rows = $this->levels->levels($supplierId, $levelFilters);
+        $custom = array_key_exists('columns', $filters) || !empty($filters['attribute_id']);
+        $columns = (array) ($filters['columns'] ?? self::STATUS_DEFAULT_COLUMNS);
+        $attribute = !empty($filters['attribute_id']) ? $this->attributeMeta($supplierId, (int) $filters['attribute_id']) : null;
+
+        $rows = $this->levels->levels($supplierId, $levelFilters, array_values(array_intersect(['sale_price', 'note'], $columns)), $attribute);
         $totalValueC = 0;
         foreach ($rows as $r) {
             $totalValueC += StockValuation::valueToC((string) $r['value_total']);
         }
 
-        return [
+        $out = [
             'items'  => $rows,
             'totals' => [
                 'value_total' => StockValuation::cToDecimal($totalValueC),
                 'count'       => count($rows),
             ],
+        ];
+        if ($custom) {
+            $out['columns'] = $attribute !== null ? [...$columns, 'attribute'] : $columns;
+            $out['attribute'] = $attribute;
+        }
+        return $out;
+    }
+
+    /** @return array{id:int,code:string,name:string,unit:?string,data_type:string} */
+    private function attributeMeta(int $supplierId, int $attributeId): array
+    {
+        $stmt = $this->db->pdo()->prepare('SELECT id, code, name, unit, data_type FROM stock_attributes WHERE supplier_id = ? AND id = ?');
+        $stmt->execute([$supplierId, $attributeId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row === false) {
+            throw new StockException('validation_failed', 'Parametr nenalezen.', 422, ['field' => 'attribute_id']);
+        }
+        return [
+            'id' => (int) $row['id'],
+            'code' => (string) $row['code'],
+            'name' => (string) $row['name'],
+            'unit' => $row['unit'] !== null && $row['unit'] !== '' ? (string) $row['unit'] : null,
+            'data_type' => (string) $row['data_type'],
         ];
     }
 

@@ -111,6 +111,10 @@ final class StockDocumentLifecycleTest extends StockTestCase
             self::assertSame('insufficient_stock', $e->errorCode);
             self::assertSame(409, $e->httpStatus);
             self::assertNotEmpty($e->details);
+            // Okno nedostatku v aplikaci ukazuje sklad a jednotku (aditivní klíče).
+            self::assertSame($whId, $e->details[0]['warehouse_id']);
+            self::assertSame('Sklad HLAVNI', $e->details[0]['warehouse_name']);
+            self::assertSame('ks', $e->details[0]['unit']);
         }
 
         $stillDraft = $this->docsRepo->find($supplierId, (int) $draft['id']);
@@ -378,6 +382,68 @@ final class StockDocumentLifecycleTest extends StockTestCase
         $posted = $this->documents->post($supplierId, (int) $draft['id'], $this->userId);
         self::assertSame('posted', $posted['status']);
         self::assertNotEmpty($posted['warnings']);
+    }
+
+    // ── desetinná místa množství podle jednotky karty (2036) ────────────────
+
+    /**
+     * BEZ ZMĚNY PADÁ: ručně zadaný doklad uložil 1,5 ks, i když jednotka dovoluje
+     * jen celé kusy. Kontrola platí jen pro ruční zadání (`checkUnitDecimals`),
+     * automatické doklady z faktur, importy a převody se nemění.
+     */
+    public function testManualDraftRejectsQuantityOverUnitDecimals(): void
+    {
+        $supplierId = $this->createSupplier();
+        $whId = $this->warehouse($supplierId);
+        $itemId = $this->item($supplierId, 'DEC-1');
+        $code = 'sd' . substr(bin2hex(random_bytes(4)), 0, 6);
+        $pdo = $this->db->pdo();
+        $pdo->prepare('INSERT INTO units (code, label_cs, label_en, quantity_decimals) VALUES (?, ?, ?, 0)')
+            ->execute([$code, $code, $code]);
+        $pdo->prepare('UPDATE stock_items SET unit = ? WHERE id = ?')->execute([strtoupper($code), $itemId]);
+
+        try {
+            $body = [
+                'doc_type'     => 'receipt',
+                'origin'       => 'manual',
+                'warehouse_id' => $whId,
+                'doc_date'     => '2099-05-03',
+                'description'  => 'Příjem po kusech',
+                'lines'        => [
+                    ['stock_item_id' => $itemId, 'qty' => '2.000', 'unit_cost' => '10'],
+                    ['stock_item_id' => $itemId, 'qty' => '1.5', 'unit_cost' => '10'],
+                ],
+            ];
+            try {
+                $this->documents->create($supplierId, $body, $this->userId, checkUnitDecimals: true);
+                self::fail('create() s 1,5 ks měl vyhodit quantity_decimals.');
+            } catch (StockException $e) {
+                self::assertSame('quantity_decimals', $e->errorCode);
+                self::assertSame(400, $e->httpStatus);
+                self::assertSame([['index' => 1, 'unit' => strtoupper($code), 'decimals' => 0]], $e->details);
+            }
+
+            // Automatické cesty (výdejka k faktuře, import) kontrolu nemají, beze změny.
+            $auto = $this->documents->create($supplierId, $body, $this->userId);
+            self::assertSame('draft', $auto['status']);
+
+            // Úprava draftu: poslané řádky se kontrolují, vynechané (uložené) ne.
+            try {
+                $this->documents->updateDraft($supplierId, (int) $auto['id'], ['lines' => $body['lines']], $this->userId, checkUnitDecimals: true);
+                self::fail('updateDraft() s 1,5 ks měl vyhodit quantity_decimals.');
+            } catch (StockException $e) {
+                self::assertSame('quantity_decimals', $e->errorCode);
+            }
+            $kept = $this->documents->updateDraft($supplierId, (int) $auto['id'], ['description' => 'Jen popis'], $this->userId, checkUnitDecimals: true);
+            self::assertSame('Jen popis', $kept['description']);
+
+            $ok = $this->documents->create($supplierId, array_merge($body, [
+                'lines' => [['stock_item_id' => $itemId, 'qty' => '3.000', 'unit_cost' => '10']],
+            ]), $this->userId, checkUnitDecimals: true);
+            self::assertSame('3.000', $ok['lines'][0]['qty']);
+        } finally {
+            $pdo->prepare('DELETE FROM units WHERE code = ?')->execute([$code]);
+        }
     }
 
     // ── 2) souběh na poslední kusy (B3) ──────────────────────────────────────

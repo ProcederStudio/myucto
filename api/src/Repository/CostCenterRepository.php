@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Repository;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Service\Accounting\Dimension\DimensionValueHistoryGuard;
 use PDO;
 
 final class CostCenterRepository
@@ -106,9 +107,11 @@ final class CostCenterRepository
 
     public function delete(int $supplierId, int $id): bool
     {
-        $stmt = $this->db->pdo()->prepare('DELETE FROM cost_centers WHERE id = ? AND supplier_id = ?');
-        $stmt->execute([$id, $supplierId]);
-        return $stmt->rowCount() > 0;
+        return (new DimensionValueHistoryGuard($this->db))->deleteCostCenter($supplierId, $id, function () use ($supplierId, $id): bool {
+            $stmt = $this->db->pdo()->prepare('DELETE FROM cost_centers WHERE id = ? AND supplier_id = ?');
+            $stmt->execute([$id, $supplierId]);
+            return $stmt->rowCount() > 0;
+        });
     }
 
     /** @return array<string,mixed> */

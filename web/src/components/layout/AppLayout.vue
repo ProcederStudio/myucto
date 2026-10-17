@@ -958,6 +958,9 @@ const orderedNav = computed(() => nav.orderedSections(navSections.value))
 const isDesktop = ref(false)
 const compactNavigationFits = ref(false)
 let desktopResizeObserver: ResizeObserver | null = null
+const appHeader = ref<HTMLElement | null>(null)
+const appHeaderHeight = ref(48)
+let headerResizeObserver: ResizeObserver | null = null
 const appFooter = ref<HTMLElement | null>(null)
 const appFooterHeight = ref(48)
 let footerResizeObserver: ResizeObserver | null = null
@@ -1476,6 +1479,13 @@ onMounted(async () => {
   window.addEventListener('keydown', onGlobalShortcut)
   window.addEventListener('myinvoice:demo-read-only', demoReadOnly)
   window.addEventListener('resize', scheduleDesktopStateUpdate)
+  headerResizeObserver = new ResizeObserver(() => {
+    appHeaderHeight.value = appHeader.value?.getBoundingClientRect().height ?? 48
+  })
+  if (appHeader.value) {
+    headerResizeObserver.observe(appHeader.value)
+    appHeaderHeight.value = appHeader.value.getBoundingClientRect().height
+  }
   footerResizeObserver = new ResizeObserver(() => {
     appFooterHeight.value = appFooter.value?.getBoundingClientRect().height ?? 0
   })
@@ -1507,6 +1517,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onGlobalShortcut)
   window.removeEventListener('myinvoice:demo-read-only', demoReadOnly)
   window.removeEventListener('resize', scheduleDesktopStateUpdate)
+  headerResizeObserver?.disconnect()
   footerResizeObserver?.disconnect()
   desktopResizeObserver?.disconnect()
   navResizeObserver?.disconnect()
@@ -1516,10 +1527,10 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div :style="{ '--app-footer-height': `${appFooterHeight}px` }" class="min-h-screen flex flex-col overflow-x-clip bg-neutral-50" @keydown.esc="userMenuOpen = false; navigationLayoutOpen = false">
+  <div :style="{ '--app-footer-height': `${appFooterHeight}px`, '--app-header-height': `${appHeaderHeight}px` }" class="min-h-screen flex flex-col overflow-x-clip bg-neutral-50" @keydown.esc="userMenuOpen = false; navigationLayoutOpen = false">
 
     <!-- ═════════════════════ TOPBAR ═════════════════════ -->
-    <header class="nav-inverted sticky top-0 z-30 bg-surface border-b border-neutral-200 shadow-md">
+    <header ref="appHeader" class="nav-inverted sticky top-0 z-30 bg-surface border-b border-neutral-200 shadow-md">
       <!-- Blokující stav instalace (H-31) — červená linka úplně nahoře, uvnitř
            připnuté lišty, takže nejde odrolovat. Nemá zavírací prvek a na
            self-hosted instalaci se nezobrazí vůbec. Výšku hlásí do
@@ -1602,7 +1613,7 @@ onBeforeUnmount(() => {
               leave-from-class="opacity-100 translate-y-0"
               leave-to-class="opacity-0 -translate-y-1"
             >
-              <div v-if="userMenuOpen" class="absolute right-0 top-full w-64 bg-surface border border-neutral-200 rounded-b-lg shadow-xl py-1.5 z-40" role="menu">
+              <div v-if="userMenuOpen" class="absolute right-0 top-full max-h-[calc(100dvh-var(--app-header-height,3rem))] overflow-y-auto overscroll-contain w-64 bg-surface border border-neutral-200 rounded-b-lg shadow-xl py-1.5 z-40" role="menu">
                 <div class="px-3 pt-1 pb-2 border-b border-neutral-200 mb-1">
                   <div class="font-medium text-neutral-900 truncate">{{ auth.user?.name }}</div>
                   <div class="text-xs text-neutral-500 truncate">{{ auth.user?.email }}</div>
@@ -1693,13 +1704,13 @@ onBeforeUnmount(() => {
         :expand-label="isDesktop ? t('nav.menu_full') : undefined"
         @expand="setDesktopNavigationMode('side')"
         :class="[
-          'sticky top-[calc(var(--instance-alert-h,0px)+3rem)] h-[calc(100vh-3rem-var(--instance-alert-h,0px)-1px)]',
+          'sticky top-[calc(var(--instance-alert-h,0px)+3rem)] h-[calc(100dvh-3rem-var(--instance-alert-h,0px)-1px)]',
           // Lišta s přepínačem dodavatele (2,125rem) je uvnitř hlavičky, ale `lg:hidden` —
           // od 1024 px má nulovou výšku. Bez `lg:` prefixu se o ni rail odsazoval i na
           // desktopu, takže mu nad hlavou zůstal pruh plátna. Zrcadlí to, co níž dělá
           // plný sidebar: pod lg offset s lištou, od lg bez ní.
           supplierStore.hasMultiple && supplierStore.currentSupplier
-            ? 'top-[calc(var(--instance-alert-h,0px)+5.125rem)] h-[calc(100vh-5.125rem-var(--instance-alert-h,0px))] lg:top-[calc(var(--instance-alert-h,0px)+3rem)] lg:h-[calc(100vh-3rem-var(--instance-alert-h,0px)-1px)]'
+            ? 'top-[calc(var(--instance-alert-h,0px)+5.125rem)] h-[calc(100dvh-5.125rem-var(--instance-alert-h,0px))] lg:top-[calc(var(--instance-alert-h,0px)+3rem)] lg:h-[calc(100dvh-3rem-var(--instance-alert-h,0px)-1px)]'
             : '',
         ]"
       />
@@ -1717,10 +1728,10 @@ onBeforeUnmount(() => {
            o první položku menu. -->
       <aside
         :class="[
-          'fixed right-0 z-30 lg:right-auto lg:sticky lg:top-[calc(var(--instance-alert-h,0px)+3rem)] lg:h-[calc(100vh-3rem-var(--instance-alert-h,0px)-1px)]',
+          'fixed right-0 z-30 lg:right-auto lg:sticky lg:top-[calc(var(--instance-alert-h,0px)+3rem)] lg:h-[calc(100dvh-3rem-var(--instance-alert-h,0px)-1px)]',
           supplierStore.hasMultiple && supplierStore.currentSupplier
-            ? 'top-[calc(var(--instance-alert-h,0px)+5.125rem)] h-[calc(100vh-5.125rem-var(--instance-alert-h,0px))]'
-            : 'top-[calc(var(--instance-alert-h,0px)+3rem)] h-[calc(100vh-3rem-var(--instance-alert-h,0px))]',
+            ? 'top-[calc(var(--instance-alert-h,0px)+5.125rem)] h-[calc(100dvh-5.125rem-var(--instance-alert-h,0px))]'
+            : 'top-[calc(var(--instance-alert-h,0px)+3rem)] h-[calc(100dvh-3rem-var(--instance-alert-h,0px))]',
           'w-[calc(100vw-3rem)] max-w-80 shrink-0',
           'lg:w-60',
           'nav-inverted bg-surface border-l border-neutral-200 shadow-lg lg:border-l-0 lg:border-r lg:shadow-none',
@@ -1730,7 +1741,7 @@ onBeforeUnmount(() => {
           mobileOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0',
         ]"
       >
-        <nav class="flex-1 overflow-y-auto scrollbar-slim px-2.5 py-3">
+        <nav class="min-h-0 flex-1 overflow-y-auto overscroll-contain scrollbar-slim px-2.5 py-3">
           <!-- Globální vyhledávač (před Přehled) — našeptává menu + hledá klienty/faktury -->
           <div class="lg:hidden">
             <GlobalSearch ref="mobileSearchRef" :menu-items="flatNavItems" @navigated="mobileOpen = false" />
@@ -1897,7 +1908,7 @@ onBeforeUnmount(() => {
         </nav>
 
         <!-- Mobile only: profil + ovládání relace (na dně sidebaru) -->
-        <div class="lg:hidden border-t border-neutral-200 px-4 py-3 bg-neutral-50 space-y-3">
+        <div class="lg:hidden shrink-0 border-t border-neutral-200 px-4 py-3 bg-neutral-50 space-y-3">
           <div class="flex items-center justify-between">
             <WorkspaceNavLink
               to="/profile/password"
