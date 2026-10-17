@@ -15161,6 +15161,11 @@ paths:
     post:
       tags: [Accounting]
       summary: Nový pokladní doklad (default post:true = create+post v 1 transakci) — účetní|admin
+      description: |
+        U účelu úhrada faktury (`purpose=invoice_payment`) nebo úhrada přijaté faktury
+        (`purpose=purchase_payment`) bez vyplněného `partner_name` doplní server partnera
+        z odběratele (FV) nebo dodavatele (PF) placeného dokladu; nevyplněné `partner_ic`
+        a `partner_dic` převezme z téhož kontaktu. Zadaný partner má přednost.
       parameters:
         - $ref: '#/components/parameters/SupplierIdHeader'
       requestBody:
@@ -15189,7 +15194,7 @@ paths:
         - { in: query, name: q, schema: { type: string } }
         - { in: query, name: limit, schema: { type: integer, default: 20 } }
       responses:
-        '200': { description: "OK — položky {id, kind, number, partner_name, total, paid, remaining, currency_code, issued_on} + `invoice_type`/`is_proforma` (FV) nebo `document_kind` (PF)", content: { application/json: { schema: { type: array, items: { type: object } } } } }
+        '200': { description: "OK — položky {id, kind, number, partner_name, partner_ic, partner_dic, total, paid, remaining, currency_code, issued_on} + `invoice_type`/`is_proforma` (FV) nebo `document_kind` (PF)", content: { application/json: { schema: { type: array, items: { type: object, properties: { id: { type: integer }, kind: { type: string, enum: [invoice, purchase_invoice] }, number: { type: string }, partner_name: { type: string }, partner_ic: { type: string, nullable: true, description: "IČ odběratele (FV) nebo dodavatele (PF)" }, partner_dic: { type: string, nullable: true, description: "DIČ odběratele (FV) nebo dodavatele (PF)" }, total: { type: number }, paid: { type: number }, remaining: { type: number }, currency_code: { type: string }, issued_on: { type: string, format: date }, invoice_type: { type: string }, is_proforma: { type: boolean }, document_kind: { type: string } } } } } } }
 
   /api/v1/accounting/cash-documents/rule-presets:
     get:
@@ -15225,7 +15230,9 @@ paths:
         nemění měna pokladny a `issue_date`; jinak se znovu stáhne kurz ČNB (`fx_rate: null` =
         použít ČNB). Při změně `purpose` se vazby na faktury ani `rule_key` / `counter_account_code`
         nedědí; poslání jednoho z `rule_key` / `counter_account_code` vymaže druhé. `project_id` se
-        při vynechání zachová.
+        při vynechání zachová. Úhrada faktury nebo přijaté faktury bez `partner_name` převezme
+        partnera (název, chybějící IČ a DIČ) z odběratele nebo dodavatele placeného dokladu
+        stejně jako při založení.
       parameters:
         - $ref: '#/components/parameters/SupplierIdHeader'
         - { in: path, name: id, required: true, schema: { type: integer } }
@@ -17689,7 +17696,7 @@ paths:
         name: display_attribute_id
         description: |
           Volitelný sloupec: hodnota tohoto parametru karty v poli `display_attribute_value`
-          (text, popisek volby, číslo bez koncových nul, ano/ne jako `1`/`0`, víc hodnot
+          (text, popisek volby, číslo bez koncových nul, ano/ne jako `true`/`false`, víc hodnot
           oddělených čárkou; bez hodnoty null). Nefiltruje. Bez práva číst e-shop
           (parametry spravuje e-shop) se ignoruje a pole v odpovědi není.
         schema:
@@ -19856,7 +19863,7 @@ paths:
         - in: query
           name: attribute_id
           schema: { type: integer, minimum: 1 }
-          description: Přidá sloupec s hodnotami vybraného parametru karty.
+          description: Přidá sloupec s hodnotami vybraného parametru karty. Bez práva číst e-shop (parametry spravuje e-shop) se ignoruje.
       responses:
         '200': { description: OK }
         '422': { description: Neplatný filtr, sloupec nebo parametr. }
@@ -20017,7 +20024,7 @@ paths:
         schema:
           type: integer
           minimum: 1
-        description: Jen u sestavy status. Sloupec s hodnotami vybraného parametru karty.
+        description: Jen u sestavy status. Sloupec s hodnotami vybraného parametru karty; bez práva číst e-shop se ignoruje.
       - in: query
         name: date
         schema:
@@ -30436,7 +30443,9 @@ components:
         ve zvolené kategorii, `uncategorized` = karty bez kategorie nebo jen mimo zvolený
         strom. Karta ve více kategoriích patří do jediné skupiny (primární kategorie,
         jinak první v pořadí karty, vždy jen ze zvoleného stromu). Součet skupin se rovná
-        celkovému ocenění. Zařazení podle dnešních kategorií karet.
+        celkovému ocenění. Zařazení podle dnešních kategorií karet. Kategorie spravuje
+        e-shop, takže bez práva ho číst se `group_by=category` ignoruje a souhrn chybí
+        (v datech i v exportu).
       properties:
         parent:
           type: object
