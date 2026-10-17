@@ -390,8 +390,22 @@ Jak oba stavy vznikají a co s každým z nich dělat, popisuje
 
 > [!WARNING]
 > Upravujte jen koncepty. Vystavená faktura má neměnný snapshot dodavatele, klienta a banky.
-> Pro změnu je potřeba storno a nová faktura, nebo dobropis. Správce má v krajní nouzi
-> možnost upravit vystavenou fakturu (akce **Upravit (admin)**), zapíše se do auditního logu.
+> Pro změnu je potřeba storno a nová faktura, nebo dobropis. Správce (a role s právem
+> **Upravit vystavenou fakturu**) má v krajní nouzi možnost upravit vystavenou fakturu
+> (akce **Upravit vystavenou**), zapíše se do auditního logu.
+>
+> Role s tímto právem, která není správcem, má užší hranice:
+> - částky, DPH a položky zaúčtované faktury změní jen s právem **Zaúčtovat doklad**,
+>   protože úprava přeúčtuje deník,
+> - v období, za které je už podané přiznání k DPH, kontrolní hlášení nebo u OSS dokladu
+>   OSS přiznání, nezmění částky, data ani položky vůbec; opravu podaného období řešte
+>   opravným nebo dodatečným tvrzením,
+> - uzavřené účetní období přebíjí jen správce.
+>
+> Změna **typu** vystaveného dokladu (třeba zálohová faktura na fakturu) doklad
+> přečísluje: každý typ má vlastní číselnou řadu, staré číslo se vrátí do původní řady,
+> pokud bylo poslední, a doklad dostane další číslo v řadě nového typu. Zálohovou fakturu,
+> ke které už existuje finální faktura nebo daňový doklad k platbě, takto překlopit nejde.
 
 ### 14.11.6 Hranice „po splatnosti“
 

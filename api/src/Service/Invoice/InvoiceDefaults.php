@@ -26,7 +26,7 @@ final class InvoiceDefaults
      *        smí platit jen při založení, by jinak dotekly i roky staré faktury při
      *        obyčejném přeuložení. Týká se výchozí poznámky pod položkami (#79).
      */
-    public function resolve(array $data, bool $forNewInvoice = false): array
+    public function resolve(array $data, bool $forNewInvoice = false, ?array $resolvedClient = null): array
     {
         $pdo = $this->db->pdo();
         $today = date('Y-m-d');
@@ -35,8 +35,8 @@ final class InvoiceDefaults
         $clientId = (int) ($data['client_id'] ?? 0);
         $projectId = isset($data['project_id']) && $data['project_id'] ? (int) $data['project_id'] : null;
 
-        $client = null;
-        if ($clientId) {
+        $client = $resolvedClient;
+        if ($client === null && $clientId) {
             $stmt = $pdo->prepare(
                 'SELECT supplier_id, language, currency_default_id, reverse_charge,
                         payment_due_default, payment_due_unit

@@ -146,7 +146,8 @@ objeví štítek **Zobrazeno klientem**.
 ## 16.8 Krok za krokem: Opravit nebo zrušit vystavenou fakturu
 
 Preferované řešení chyby je vždy **dobropis** nebo **storno + nová faktura**.
-Úpravy a smazání jsou výjimečné a jen pro admina.
+Úpravy a smazání jsou výjimečné. Upravit vystavenou fakturu smí admin a role
+s právem **Upravit vystavenou fakturu**, smazat jen admin.
 
 1. Otevřete detail faktury a v nabídce **Další akce** klikněte na **Storno / dobropis**.
 2. V okně **Storno / Dobropis** zvolte jednu z možností:
@@ -154,7 +155,8 @@ Preferované řešení chyby je vždy **dobropis** nebo **storno + nová faktura
      dobropisu se zápornými položkami, klient dostane oficiální opravu.
    - **Pouze interní storno** - jen interní označení, klient nedostane nic.
    - **Smazat fakturu (admin, force-delete)** - nevratné smazání, jen výjimečně.
-3. Překlep v ještě neodeslané faktuře opraví admin tlačítkem **Upravit (admin)**.
+3. Překlep v ještě neodeslané faktuře opraví admin (nebo role s právem **Upravit
+   vystavenou fakturu**) tlačítkem **Upravit vystavenou**.
 4. Fakturu označenou omylem jako zaplacenou vrátíte tlačítkem **Nezaplacené**.
 5. Fakturu stornovanou omylem obnovíte tlačítkem **Zrušit storno** v menu **Další akce**.
 
@@ -212,7 +214,7 @@ Akční tlačítka vpravo nahoře závisí na stavu faktury:
 
 | Stav | Dostupné akce |
 |---|---|
-| Vystaveno | Zobrazit PDF, Stáhnout PDF, Odeslat klientovi, Web faktura, Označit zaplaceno, Částečná úhrada, Storno / dobropis, Test odeslání, Test upomínky, **Upravit (admin)**, Zaúčtovat\* |
+| Vystaveno | Zobrazit PDF, Stáhnout PDF, Odeslat klientovi, Web faktura, Označit zaplaceno, Částečná úhrada, Storno / dobropis, Test odeslání, Test upomínky, **Upravit vystavenou**, Zaúčtovat\* |
 | Odesláno | Zobrazit PDF, Stáhnout PDF, Odeslat klientovi (znovu), Web faktura, Označit zaplaceno, Částečná úhrada, Odeslat upomínku (po splatnosti), Storno / dobropis, Zaúčtovat\* |
 | Upomínka | Zobrazit PDF, Stáhnout PDF, Odeslat upomínku (další, s odstupem 14 dní), Web faktura, Označit zaplaceno, Částečná úhrada, Zaúčtovat\* |
 | Zaplaceno | Zobrazit PDF, Stáhnout PDF, Web faktura, Storno / dobropis (dobropis pro vrácení peněz), Zaúčtovat\* |
@@ -596,14 +598,14 @@ neodstraňujte doklad o tom, co klient skutečně obdržel.
 ### 16.10.14 Admin akce nad vystavenou fakturou
 
 Sekce **Další akce** v detailu faktury skrývá nástroje přístupné jen adminovi,
-používané v krajních případech.
+používané v krajních případech. Výjimkou je editace vystavené faktury, kterou admin
+může svěřit i jiné interní roli (viz níže).
 
 #### Editace vystavené faktury (force=1)
 
-V krajní nouzi (admin udělal ve vystavené faktuře překlep a klient ji ještě
-nedostal):
+V krajní nouzi (ve vystavené faktuře je překlep a klient ji ještě nedostal):
 
-1. Na detailu faktury klikněte na **Upravit (admin)**.
+1. Na detailu faktury klikněte na **Upravit vystavenou**.
 2. Otevře se editor s adresou `?force=1`.
 3. Změny se uloží, původní PDF se zneplatní a v activity logu vznikne záznam o
    vynucené úpravě.
@@ -612,6 +614,16 @@ nedostal):
 > Editace vystavené faktury obecně není doporučená. Změny snapshotů mohou být
 > v rozporu s tím, co klient dostal e-mailem. Preferujte **storno + novou fakturu**
 > nebo **dobropis**.
+
+Akci má admin a interní role s právem **Upravit vystavenou fakturu** (úroveň
+**Zápis**, viz [§ 96.16.4](96_Nastaveni.md#96164-role-a-opravneni)). Výchozí role
+účetní ho nemá. Stejné právo platí pro úpravu a smazání výkazu práce vystavené
+faktury. Doklad v uzavřeném účetním období upraví i s tímto právem jen admin a
+skladová omezení níže platí pro všechny. U zaúčtované faktury přeúčtuje změna částek,
+DPH nebo položek zápis v deníku, proto k ní role kromě tohoto práva potřebuje i
+**Zaúčtovat doklad**. Bez něj úpravu odmítne a dovolí změnit jen neúčetní údaje
+(texty, poznámky, splatnost). Úpravu ani výkaz vystavené faktury nejde vynutit
+přes API token, jen v aplikaci.
 
 Variabilní symbol je neměnný, úprava ho nezmění. Chcete-li číslo změnit, vystavte
 storno nebo dobropis a fakturu znovu pod novým číslem.

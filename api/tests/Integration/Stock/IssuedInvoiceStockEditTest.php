@@ -9,6 +9,8 @@ use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Middleware\SupplierScopeMiddleware;
 use MyInvoice\Repository\InTransitRepository;
 use MyInvoice\Repository\InvoiceRepository;
+use MyInvoice\Security\AccessLevel;
+use MyInvoice\Security\EffectiveRole;
 use PHPUnit\Framework\Attributes\Group;
 use Psr\Http\Message\ResponseInterface;
 use Slim\Psr7\Factory\ServerRequestFactory;
@@ -142,6 +144,39 @@ final class IssuedInvoiceStockEditTest extends StockTestCase
         self::assertSame(200, $res->getStatusCode(), 'Neskladový řádek jde upravit dál: ' . $res->getBody());
     }
 
+    /**
+     * Role s právem úpravy vystavené faktury (ne správce) upraví popis a cenu, ale
+     * skladová pojistka platí pro ni stejně jako pro správce.
+     */
+    public function testEditIssuedPermissionKeepsStockGuard(): void
+    {
+        $supplierId = $this->createSupplier();
+        $whId = $this->warehouse($supplierId);
+        $itemId = $this->item($supplierId, 'EDIT-ROLE');
+        $this->receiveStock($supplierId, $whId, $itemId, '10.000', 10.0);
+        $invoiceId = $this->issuedInvoice($supplierId, [[$itemId, $whId, '2.000']]);
+        $editor = new EffectiveRole(90, 'Úprava vystavených', 'staff', true, [
+            'invoices' => AccessLevel::WRITE->value,
+            'invoices.edit_issued' => AccessLevel::WRITE->value,
+        ]);
+
+        $items = $this->storedItems($invoiceId);
+        $items[0]['description'] = 'Opravený popis';
+        $res = $this->forceEdit($supplierId, $invoiceId, $items, $editor);
+        self::assertSame(200, $res->getStatusCode(), (string) $res->getBody());
+
+        $items = $this->storedItems($invoiceId);
+        $items[0]['quantity'] = 3;
+        $this->assertStockLocked($this->forceEdit($supplierId, $invoiceId, $items, $editor));
+
+        $withoutRight = new EffectiveRole(91, 'Fakturace', 'staff', true, ['invoices' => AccessLevel::WRITE->value]);
+        $items = $this->storedItems($invoiceId);
+        $items[0]['description'] = 'Další oprava';
+        $res = $this->forceEdit($supplierId, $invoiceId, $items, $withoutRight);
+        self::assertSame(409, $res->getStatusCode(), (string) $res->getBody());
+        self::assertStringContainsString('not_editable', (string) $res->getBody());
+    }
+
     public function testRepositoryReplaceItemsKeepsIssueLink(): void
     {
         $supplierId = $this->createSupplier();
@@ -203,7 +238,7 @@ final class IssuedInvoiceStockEditTest extends StockTestCase
     }
 
     /** @param list<array<string,mixed>> $items */
-    private function forceEdit(int $supplierId, int $invoiceId, array $items): ResponseInterface
+    private function forceEdit(int $supplierId, int $invoiceId, array $items, ?EffectiveRole $role = null): ResponseInterface
     {
         /** @var UpdateInvoiceAction $action */
         $action = $this->container->get(UpdateInvoiceAction::class);
@@ -214,6 +249,9 @@ final class IssuedInvoiceStockEditTest extends StockTestCase
             ->withAttribute(SupplierScopeMiddleware::ATTR_CURRENT_ID, $supplierId)
             ->withAttribute(AuthMiddleware::ATTR_USER, ['id' => $this->userId, 'role' => 'admin'])
             ->withAttribute(AuthMiddleware::ATTR_METHOD, 'session');
+        if ($role !== null) {
+            $request = $request->withAttribute('auth.effective_role', $role);
+        }
         return $action($request, new Psr7Response(), ['id' => (string) $invoiceId]);
     }
 

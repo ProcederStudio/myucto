@@ -4,12 +4,15 @@ declare(strict_types=1);
 
 namespace MyInvoice\Tests\Integration\WorkReport;
 
+use MyInvoice\Action\WorkReport\DeleteWorkReportAction;
 use MyInvoice\Action\WorkReport\SaveWorkReportAction;
 use MyInvoice\Action\WorkReport\SaveWorkReportMaterialsAction;
 use MyInvoice\Bootstrap;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Middleware\SupplierScopeMiddleware;
+use MyInvoice\Security\AccessLevel;
+use MyInvoice\Security\EffectiveRole;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Slim\Psr7\Factory\ServerRequestFactory;
@@ -26,6 +29,7 @@ final class PartialWorkReportUpdateTest extends TestCase
     private Connection $db;
     private SaveWorkReportAction $work;
     private SaveWorkReportMaterialsAction $materials;
+    private DeleteWorkReportAction $delete;
 
     private int $supplierId = 0;
     private int $userId = 0;
@@ -45,6 +49,7 @@ final class PartialWorkReportUpdateTest extends TestCase
             $this->db        = $c->get(Connection::class);
             $this->work      = $c->get(SaveWorkReportAction::class);
             $this->materials = $c->get(SaveWorkReportMaterialsAction::class);
+            $this->delete    = $c->get(DeleteWorkReportAction::class);
         } catch (\Throwable $e) {
             $this->markTestSkipped('DI/DB nedostupné: ' . $e->getMessage());
         }
@@ -167,6 +172,46 @@ final class PartialWorkReportUpdateTest extends TestCase
         self::assertEqualsWithDelta(0.0, (float) $res['body']['material_total'], 0.001);
     }
 
+    /**
+     * Výkaz vystavené faktury je součást úpravy vystavené faktury: s ?force=1 ho upraví
+     * a smaže i interní role s právem `invoices.edit_issued`, bez něj ani s force ne.
+     */
+    public function testIssuedInvoiceWorkReportFollowsEditIssuedPermission(): void
+    {
+        $this->saveFullWorkReport();
+        $this->saveFullMaterials();
+        $this->db->pdo()->prepare("UPDATE invoices SET status = 'issued', varsymbol = 'P13-WR-1' WHERE id = ?")
+            ->execute([$this->invoiceId]);
+        $editor = new EffectiveRole(90, 'Úprava vystavených', 'staff', true, [
+            'invoices' => AccessLevel::WRITE->value,
+            'invoices.edit_issued' => AccessLevel::WRITE->value,
+        ]);
+        $withoutRight = new EffectiveRole(91, 'Fakturace', 'staff', true, ['invoices' => AccessLevel::WRITE->value]);
+
+        $res = $this->call($this->work, ['title' => 'Bez práva'], $withoutRight, true);
+        self::assertSame(409, $res['status']);
+        $res = $this->call($this->materials, ['material_title' => 'Bez práva'], $withoutRight, true);
+        self::assertSame(409, $res['status']);
+        $res = $this->call($this->delete, [], $withoutRight, true);
+        self::assertSame(409, $res['status']);
+        $res = $this->call($this->work, ['title' => 'Bez force'], $editor);
+        self::assertSame(409, $res['status'], 'Bez ?force=1 zůstává výkaz vystavené faktury zamčený.');
+
+        // Vynucená úprava výkazu vystavené faktury je účetní úkon jen z relace, ne tokenem.
+        foreach ([[$this->work, ['title' => 'Tokenem']], [$this->materials, ['material_title' => 'Tokenem']], [$this->delete, []]] as [$action, $body]) {
+            $res = $this->call($action, $body, $editor, true, 'bearer');
+            self::assertSame(403, $res['status'], json_encode($res['body'], JSON_UNESCAPED_UNICODE));
+            self::assertSame('token_write_forbidden', $res['body']['error']['code'] ?? null);
+        }
+
+        $res = $this->call($this->work, ['title' => 'Opravený výkaz'], $editor, true);
+        self::assertSame(200, $res['status'], json_encode($res['body'], JSON_UNESCAPED_UNICODE));
+        $res = $this->call($this->materials, ['material_title' => 'Opravený materiál'], $editor, true);
+        self::assertSame(200, $res['status'], json_encode($res['body'], JSON_UNESCAPED_UNICODE));
+        $res = $this->call($this->delete, [], $editor, true);
+        self::assertSame(200, $res['status'], json_encode($res['body'], JSON_UNESCAPED_UNICODE));
+    }
+
     private function saveFullWorkReport(): void
     {
         $res = $this->call($this->work, [
@@ -198,13 +243,25 @@ final class PartialWorkReportUpdateTest extends TestCase
      * @param  array<string,mixed> $body
      * @return array{status:int, body:array<string,mixed>}
      */
-    private function call(callable $action, array $body): array
-    {
+    private function call(
+        callable $action,
+        array $body,
+        ?EffectiveRole $role = null,
+        bool $force = false,
+        string $authMethod = 'session',
+    ): array {
         $request = (new ServerRequestFactory())
             ->createServerRequest('PUT', '/api/invoices/' . $this->invoiceId . '/work-report')
             ->withAttribute(SupplierScopeMiddleware::ATTR_CURRENT_ID, $this->supplierId)
             ->withAttribute(AuthMiddleware::ATTR_USER, ['id' => $this->userId, 'role' => 'admin'])
+            ->withAttribute(AuthMiddleware::ATTR_METHOD, $authMethod)
             ->withParsedBody($body);
+        if ($role !== null) {
+            $request = $request->withAttribute('auth.effective_role', $role);
+        }
+        if ($force) {
+            $request = $request->withQueryParams(['force' => '1']);
+        }
         $response = $action($request, new Psr7Response(), ['id' => (string) $this->invoiceId]);
         $response->getBody()->rewind();
         $decoded = json_decode((string) $response->getBody(), true);
