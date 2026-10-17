@@ -352,7 +352,7 @@ const openingBalanceNum = computed(() => Number(openingBalance.value))
             <span class="font-mono">{{ item.sku }}</span> · {{ t(`stock.item_type.${item.item_type}`) }} · {{ item.unit }}
           </p>
         </div>
-        <ActionBar :actions="actions" />
+        <ActionBar :actions="actions" :desktop-inline="4" />
       </div>
       <div ref="detailTabList" role="tablist" :aria-label="t('stock.item_detail.tabs_label')" class="mb-4 flex gap-1 overflow-x-auto border-b border-neutral-200">
         <button type="button" role="tab" :aria-selected="detailTab === 'overview'" :tabindex="detailTab === 'overview' ? 0 : -1" class="cursor-pointer whitespace-nowrap border-b-2 px-4 py-2 text-sm transition" :class="detailTab === 'overview' ? 'border-primary-600 font-medium text-primary-700' : 'border-transparent text-neutral-600 hover:text-neutral-900'" @click="detailTab = 'overview'" @keydown="onDetailTabKey($event, 'overview')">{{ t('stock.item_detail.tab_overview') }}</button>
