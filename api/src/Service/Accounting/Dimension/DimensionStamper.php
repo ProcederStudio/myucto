@@ -252,6 +252,7 @@ final class DimensionStamper
         $guard = new DimensionPeriodGuard($this->db);
         (new SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
         (new IssuanceUseGuard($this->db))->lockClaims($supplierId);
+        (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->acquire($supplierId);
         $lockedEntries = $guard->lockSources($supplierId, [[$sourceType, $sourceId]]);
         $entryDates = [];
         foreach ($lockedEntries as $entryId => $entry) {

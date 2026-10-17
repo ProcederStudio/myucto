@@ -40,12 +40,20 @@ final class MatchSuggestionService
     /** @param array<string,mixed> $matchResult @return array<string,mixed> */
     public function afterMatch(int $transactionId, array $matchResult): array
     {
+        return (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->transaction(
+            fn (): array => $this->afterMatchLocked($transactionId, $matchResult),
+        );
+    }
+
+    private function afterMatchLocked(int $transactionId, array $matchResult): array
+    {
         if (in_array((string) ($matchResult['reason'] ?? ''), ['transaction_not_found', 'unknown_supplier_for_account'], true)) {
             return $matchResult;
         }
         $tx = $this->loadTransaction($transactionId);
         if ($tx === null || (int) $tx['supplier_id'] <= 0) return $matchResult;
         $supplierId = (int) $tx['supplier_id'];
+        if ((new BankTransactionContext($this->db))->mutableTransaction($supplierId, $transactionId) === null) return $matchResult;
         if (($matchResult['status'] ?? 'unmatched') !== 'unmatched') {
             $this->recordTargets($supplierId, $tx, $matchResult, false);
             $this->db->pdo()->prepare(
@@ -76,7 +84,7 @@ final class MatchSuggestionService
                 $pdo->exec('SAVEPOINT ' . $savepoint);
             }
             try {
-                $current = (new BankTransactionContext($this->db))->lock($supplierId, $transactionId);
+                $current = (new BankTransactionContext($this->db))->mutableTransaction($supplierId, $transactionId);
                 if ($current === null || (string) $current['match_status'] !== 'unmatched') {
                     if ($ownTx) {
                         $pdo->commit();
@@ -166,7 +174,7 @@ final class MatchSuggestionService
             $candidate = $pdo->prepare('SELECT bank_transaction_id FROM bank_match_suggestions WHERE id = ? AND supplier_id = ?');
             $candidate->execute([$suggestionId, $supplierId]);
             $transactionId = (int) $candidate->fetchColumn();
-            $tx = (new BankTransactionContext($this->db))->lock($supplierId, $transactionId);
+            $tx = (new BankTransactionContext($this->db))->mutableTransaction($supplierId, $transactionId);
             if ($tx === null) throw new MatchSuggestionException('not_found', 'Návrh nebyl nalezen.', 404);
             $tx['supplier_id'] = $supplierId;
             $tx['currency'] = (string) ($tx['currency'] ?: ($tx['statement_currency'] ?: 'CZK'));
@@ -212,6 +220,9 @@ final class MatchSuggestionService
             return $result;
         } catch (\Throwable $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();
+            if ($e instanceof \MyInvoice\Service\Accounting\PostingException && $e->errorCode === 'property_payment_source_immutable') {
+                throw new MatchSuggestionException($e->errorCode, $e->getMessage(), $e->httpStatus);
+            }
             throw $e;
         }
     }

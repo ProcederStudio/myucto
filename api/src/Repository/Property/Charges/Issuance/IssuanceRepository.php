@@ -64,49 +64,71 @@ final class IssuanceRepository
     public function post(int $supplier,int $batchId,array $expected,int $actor): array
     {
         PropertyInput::id($actor,'actor'); $expected=self::versions($expected);
-        return (new DimensionPeriodGuard($this->db))->transaction(function() use($supplier,$batchId,$expected,$actor): array {
-            $locks=new IssuanceLocks($this->db); $locks->acquire($supplier);
-            $reader=new IssuanceReadRepository($this->db); $batch=$reader->batch($supplier,$batchId,true);
-            $ids=array_column($batch['charges'],'id'); sort($ids,SORT_NUMERIC);
-            if($ids!==array_keys($expected)) self::conflict();
-            $done=true;
-            $proof=new IssuanceJournalProof($this->db);
-            foreach($batch['charges'] as $charge) {
-                if($charge['status']==='posted'&&in_array($expected[$charge['id']],[$charge['row_version'],$charge['row_version']-1],true)) {
-                    $proof->assertEntry($supplier,$charge['journal_entry_id'],$charge);
-                    continue;
-                }
-                if(in_array($charge['status'],['cancelled','reversed'],true)&&$charge['row_version']===$expected[$charge['id']]) {
-                    if($charge['status']==='reversed') $proof->assertEntry($supplier,$charge['reversal_entry_id'],$charge,true);
-                    continue;
-                }
-                if($charge['status']!=='draft'||$charge['row_version']!==$expected[$charge['id']]) self::conflict();
-                $done=false;
-            }
-            if($done) return $batch;
-            (new PropertyProfileRepository($this->db))->assertEnabledLocked($supplier,self::instant());
-            $version=(new ChargeReadRepository($this->db))->find($supplier,$batch['version_id'],true);
-            if($version['preview_hash']!==$batch['snapshot']['version_preview_hash']) IssuanceReadRepository::corrupt();
-            $proof=new IssuanceJournalProof($this->db);
-            foreach($batch['charges'] as $charge) {
-                if($charge['status']!=='draft') continue;
-                $locks->assertFramework($supplier,$charge['accounting_date']);
-                $lines=IssuanceJournalProof::lines($charge);
-                (new PropertyDimensionPolicy($this->db))->assertAccountingDate($supplier,$charge['accounting_date'],$lines);
-                $documentDate=(new \DateTimeImmutable($charge['snapshot']['issued_at']))->setTimezone(new \DateTimeZone('Europe/Prague'))->format('Y-m-d');
-                $entry=$this->posting->postDocument($supplier,'unit_charge',$charge['id'],$lines,
-                    ['entry_date'=>$charge['accounting_date'],'document_date'=>$documentDate,'document_no'=>'P-'.$charge['id'],
-                        'description'=>'Předpis '.$charge['snapshot']['registry']['revision']['state']['unit_no'].' / '.$charge['period_from'],
-                        'posted_by'=>$actor,'user_id'=>$actor]);
-                $proof->assertEntry($supplier,$entry,$charge);
-                $stmt=$this->db->pdo()->prepare("UPDATE unit_charges SET status='posted',journal_entry_id=?,row_version=row_version+1 WHERE supplier_id=? AND id=? AND status='draft' AND row_version=?");
-                $stmt->execute([$entry,$supplier,$charge['id'],$charge['row_version']]); if($stmt->rowCount()!==1) self::conflict();
-                if($charge['previous_charge_id']!==null) $this->adjustment($supplier,$charge['previous_charge_id'],$charge['id'],$charge['issue_mode'],$entry,
-                    $charge['snapshot']['issued_at'],['new_charge_id'=>$charge['id'],'snapshot_hash'=>$charge['snapshot_hash']], 'issue-'.$charge['id'],$actor);
-                $this->audit($supplier,$batchId,$charge['id'],'posted',['journal_entry_id'=>$entry,'snapshot_hash'=>$charge['snapshot_hash']],$actor,self::now());
-            }
-            return $reader->batch($supplier,$batchId,true);
+        return (new DimensionPeriodGuard($this->db))->transaction(fn():array=>$this->postLocked($supplier,$batchId,$expected,$actor));
+    }
+
+    public function postPaymentCorrection(\MyInvoice\Service\Property\Payments\PaymentCorrectionIntent $intent):array
+    {
+        $intent->claim($this->db);
+        return (new DimensionPeriodGuard($this->db))->transaction(function()use($intent):array{
+            $intent->prepareWrite($this->db);
+            $this->postLocked($intent->supplierId,$intent->batchId,[$intent->chargeId=>$intent->expectedVersion],$intent->actor,$intent);
+            return $intent->complete($this->db);
         });
+    }
+
+    public function reversePaymentCorrection(\MyInvoice\Service\Property\Payments\PaymentCorrectionReversalIntent $intent):array
+    {
+        return $this->journal->insertPropertyCorrectionChargeReversal($intent);
+    }
+
+    private function postLocked(int $supplier,int $batchId,array $expected,int $actor,?\MyInvoice\Service\Property\Payments\PaymentCorrectionIntent $correction=null):array
+    {
+        $locks=new IssuanceLocks($this->db); $locks->acquire($supplier);
+        $reader=new IssuanceReadRepository($this->db); $batch=$reader->batch($supplier,$batchId,true);
+        $ids=array_column($batch['charges'],'id'); sort($ids,SORT_NUMERIC);
+        if($ids!==array_keys($expected)) self::conflict();
+        $done=true;
+        $proof=new IssuanceJournalProof($this->db);
+        foreach($batch['charges'] as $charge) {
+            if($charge['status']==='posted'&&in_array($expected[$charge['id']],[$charge['row_version'],$charge['row_version']-1],true)) {
+                $proof->assertEntry($supplier,$charge['journal_entry_id'],$charge);
+                continue;
+            }
+            if(in_array($charge['status'],['cancelled','reversed'],true)&&$charge['row_version']===$expected[$charge['id']]) {
+                if($charge['status']==='reversed') $proof->assertEntry($supplier,$charge['reversal_entry_id'],$charge,true);
+                continue;
+            }
+            if($charge['status']!=='draft'||$charge['row_version']!==$expected[$charge['id']]) self::conflict();
+            $done=false;
+        }
+        if($done) return $batch;
+        (new PropertyProfileRepository($this->db))->assertEnabledLocked($supplier,self::instant());
+        $version=(new ChargeReadRepository($this->db))->find($supplier,$batch['version_id'],true);
+        if($version['preview_hash']!==$batch['snapshot']['version_preview_hash']) IssuanceReadRepository::corrupt();
+        $proof=new IssuanceJournalProof($this->db);
+        foreach($batch['charges'] as $charge) {
+            if($charge['status']!=='draft') continue;
+            if($correction===null){
+                try{(new \MyInvoice\Service\Property\Payments\PaymentUseGuard($this->db))->assertChargePostingAllowed($supplier,$charge['id']);}
+                catch(\MyInvoice\Service\Property\Payments\PaymentException $e){throw new IssuanceException($e->errorCode,$e->getMessage(),$e->httpStatus,$e->details);}
+            }else $correction->assertCharge($this->db,$charge);
+            $locks->assertFramework($supplier,$charge['accounting_date']);
+            $lines=IssuanceJournalProof::lines($charge);
+            (new PropertyDimensionPolicy($this->db))->assertAccountingDate($supplier,$charge['accounting_date'],$lines);
+            $documentDate=(new \DateTimeImmutable($charge['snapshot']['issued_at']))->setTimezone(new \DateTimeZone('Europe/Prague'))->format('Y-m-d');
+            $entry=$this->posting->postDocument($supplier,'unit_charge',$charge['id'],$lines,
+                ['entry_date'=>$charge['accounting_date'],'document_date'=>$documentDate,'document_no'=>'P-'.$charge['id'],
+                    'description'=>'Předpis '.$charge['snapshot']['registry']['revision']['state']['unit_no'].' / '.$charge['period_from'],
+                    'posted_by'=>$actor,'user_id'=>$actor]);
+            $proof->assertEntry($supplier,$entry,$charge);
+            $stmt=$this->db->pdo()->prepare("UPDATE unit_charges SET status='posted',journal_entry_id=?,row_version=row_version+1 WHERE supplier_id=? AND id=? AND status='draft' AND row_version=?");
+            $stmt->execute([$entry,$supplier,$charge['id'],$charge['row_version']]); if($stmt->rowCount()!==1) self::conflict();
+            if($charge['previous_charge_id']!==null) $this->adjustment($supplier,$charge['previous_charge_id'],$charge['id'],$charge['issue_mode'],$entry,
+                $charge['snapshot']['issued_at'],['new_charge_id'=>$charge['id'],'snapshot_hash'=>$charge['snapshot_hash']], 'issue-'.$charge['id'],$actor);
+            $this->audit($supplier,$batchId,$charge['id'],'posted',['journal_entry_id'=>$entry,'snapshot_hash'=>$charge['snapshot_hash']],$actor,self::now());
+        }
+        return $reader->batch($supplier,$batchId,true);
     }
 
     public function reverse(int $supplier,int $chargeId,array $input,int $actor): array
@@ -130,11 +152,15 @@ final class IssuanceRepository
                 return $charge;
             }
             if($charge['row_version']!==$request['row_version']||!in_array($charge['status'],['draft','posted'],true)) self::conflict();
+            try{(new \MyInvoice\Service\Property\Payments\PaymentUseGuard($this->db))->assertChargeCorrectable($supplier,$chargeId);}
+            catch(\MyInvoice\Service\Property\Payments\PaymentException $e){throw new IssuanceException($e->errorCode,$e->getMessage(),$e->httpStatus,$e->details);}
             foreach($reader->charges($supplier,true) as $next) if($next['unit_id']===$charge['unit_id']&&$next['source_key']===$charge['source_key']
                 &&$next['revision_no']>$charge['revision_no']&&in_array($next['status'],['draft','posted'],true))
                 throw new IssuanceException('property_charge_issue_successor_active','Nejprve zrušte navazující předpis nebo rozdílovou opravu.',409);
             if($request['effective_at']<$charge['snapshot']['issued_at']||$request['accounting_date']<$charge['accounting_date'])
                 throw new IssuanceException('property_charge_issue_reversal_date','Storno nesmí předcházet původnímu předpisu.');
+            try{(new \MyInvoice\Service\Property\Receivables\PartyHistoryUseGuard($this->db))->assertChargeMutable($supplier,$chargeId);}
+            catch(\MyInvoice\Service\Property\Payments\PaymentException $e){throw new IssuanceException($e->errorCode,$e->getMessage(),$e->httpStatus,$e->details);}
             $reversal=null; $kind=$charge['status']==='posted'?'reversal':'cancel_draft'; $status='cancelled';
             $adjustment=$this->adjustment($supplier,$chargeId,null,$kind,null,$request['effective_at'],$request,$token,$actor);
             if($charge['status']==='posted') {

@@ -66,6 +66,74 @@ final class JournalEntryRepository
         }
     }
 
+    public function insertPropertyClearing(\MyInvoice\Service\Property\Payments\Workflow\PaymentClearingIntent $intent, ?string $documentNumber = null): int
+    {
+        $intent->assertConnection($this->db);
+        $proof = $intent->journal();
+        if ($documentNumber !== null) {
+            if ($proof['header']['source_type'] !== 'cash' || trim($documentNumber) === '' || mb_strlen($documentNumber) > 100) throw new \LogicException('A cash number requires the current cash owner.');
+            $proof['header']['document_no'] = $documentNumber;
+        }
+        $entry = $this->persistJournal($proof['header'], $proof['lines']);
+        $intent->bindJournal($entry);
+        return $entry;
+    }
+
+    public function insertPropertySourceRevision(\MyInvoice\Service\Property\Payments\Workflow\ClearingRevisionIntent $intent): int
+    {
+        return (new DimensionPeriodGuard($this->db))->transaction(function () use ($intent): int {
+            $proof = $intent->journal($this->db);
+            $entry = $this->persistJournal($proof['header'], $proof['lines']);
+            $intent->complete($this->db, $entry);
+            return $entry;
+        });
+    }
+
+    public function insertPropertySettlement(\MyInvoice\Service\Property\Payments\Workflow\PaymentSettlementIntent $intent): int
+    {
+        $proof = $intent->journal($this->db);
+        $entry = $this->persistJournal($proof['header'], $proof['lines']);
+        $stmt = $this->db->pdo()->prepare("UPDATE unit_payment_operations SET journal_entry_id=? WHERE supplier_id=? AND id=? AND status='pending' AND journal_entry_id IS NULL");
+        $stmt->execute([$entry, $intent->supplier, $intent->operationId]);
+        if ($stmt->rowCount() !== 1) \MyInvoice\Service\Property\Payments\PaymentException::reject('settlement_intent');
+        return $entry;
+    }
+
+    public function insertPropertySetoff(\MyInvoice\Service\Property\Payments\Workflow\PaymentSetoffIntent $intent): int
+    {
+        $intent->claim($this->db);
+        return (new DimensionPeriodGuard($this->db))->transaction(function () use ($intent): int {
+            $proof = $intent->journal($this->db);
+            $entry = $this->persistJournal($proof['header'], $proof['lines']);
+            $intent->complete($this->db, $entry);
+            return $entry;
+        });
+    }
+
+    public function insertPropertyPaymentReversal(\MyInvoice\Service\Property\Payments\PaymentReversalIntent $intent): int
+    {
+        return (new DimensionPeriodGuard($this->db))->transaction(function () use ($intent): int {
+        $intent = $intent->current($this->db);
+        $source = $this->currentEntryForDimensionWrite($intent->sourceEntryId, $intent->supplierId);
+        if ($source === null) \MyInvoice\Service\Property\Payments\PaymentException::reject('reversal_intent');
+        $period = (new AccountingPeriodRepository($this->db))->findForDateForUpdate($intent->supplierId, $intent->accountingDate);
+        if ($period === null || $period['status'] !== 'open') \MyInvoice\Service\Property\Payments\PaymentException::reject('target_period_not_open');
+        $lines = array_map(static fn (array $line): array => array_replace($line, JournalLineAmount::reversal($line)), $source['lines']);
+        $header = [
+            'supplier_id' => $intent->supplierId, 'period_id' => (int) $period['id'],
+            'entry_date' => $intent->accountingDate, 'document_date' => $source['document_date'],
+            'document_no' => $source['document_no'] === null ? null : mb_substr('STORNO ' . $source['document_no'], 0, 50),
+            'description' => $intent->description, 'source_type' => $source['source_type'], 'source_id' => null,
+            'posted_at' => date('Y-m-d H:i:s'), 'posted_by' => $intent->actor,
+        ];
+        $entry = $this->insertReversalLocked($header, $lines, $intent->sourceEntryId);
+        $intent->complete($this->db, $entry);
+        $this->activity->log('accounting.reversed', $intent->actor, 'journal_entry', $entry,
+            ['original_entry_id' => $intent->sourceEntryId, 'reversal_entry_id' => $entry, 'lines' => $lines], null, null, $intent->supplierId);
+        return $entry;
+        });
+    }
+
     public function insertCurrentAllocation(int $supplierId, int $batchId): int
     {
         return (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $batchId): int {
@@ -142,6 +210,7 @@ final class JournalEntryRepository
     {
         return (new DimensionPeriodGuard($this->db))->transaction(function () use ($header, $lines, $sourceEntryId): int {
             (new IssuanceUseGuard($this->db))->assertPostingEntriesMutable((int) $header['supplier_id'], [$sourceEntryId]);
+            (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->assertEntriesMutable((int) $header['supplier_id'], [$sourceEntryId]);
             return $this->insertReversalLocked($header, $lines, $sourceEntryId);
         });
     }
@@ -149,23 +218,39 @@ final class JournalEntryRepository
     public function insertPropertyChargeReversal(int $supplierId, int $intentId): int
     {
         return (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $intentId): int {
-            $intent = IssuanceReversalIntent::fromCurrentRequest($this->db, $supplierId, $intentId);
-            $source = $this->currentEntryForDimensionWrite($intent->sourceEntryId, $supplierId);
-            if ($source === null) throw new PostingException('entry_not_found', 'Účetní zápis nebyl nalezen.', 404);
-            $lines = array_map(static fn (array $line): array => array_replace($line, JournalLineAmount::reversal($line)), $source['lines']);
-            $header = [
-                'supplier_id' => $supplierId, 'period_id' => $intent->targetPeriodId,
-                'entry_date' => $intent->accountingDate, 'document_date' => $source['document_date'],
-                'document_no' => $source['document_no'] === null ? null : mb_substr('STORNO ' . $source['document_no'], 0, 50),
-                'description' => $intent->description, 'source_type' => $source['source_type'], 'source_id' => null,
-                'posted_at' => date('Y-m-d H:i:s'), 'posted_by' => $intent->actor,
-            ];
-            $reversalId = $this->insertReversalLocked($header, $lines, $intent->sourceEntryId);
-            $intent->complete($this->db, $reversalId);
-            $this->activity->log('accounting.reversed', $intent->actor, 'journal_entry', $reversalId,
-                ['original_entry_id' => $intent->sourceEntryId, 'reversal_entry_id' => $reversalId, 'lines' => $lines], null, null, $supplierId);
-            return $reversalId;
+            return $this->persistPropertyChargeReversal(IssuanceReversalIntent::fromCurrentRequest($this->db,$supplierId,$intentId));
         });
+    }
+
+    public function insertPropertyCorrectionChargeReversal(\MyInvoice\Service\Property\Payments\PaymentCorrectionReversalIntent $correction):array
+    {
+        $correction->claim($this->db);
+        return (new DimensionPeriodGuard($this->db))->transaction(function()use($correction):array{
+            $correction->prepareWrite($this->db);
+            $intent=IssuanceReversalIntent::fromPaymentCorrection($this->db,$correction);
+            $this->persistPropertyChargeReversal($intent);
+            return $correction->complete($this->db);
+        });
+    }
+
+    private function persistPropertyChargeReversal(IssuanceReversalIntent $intent):int
+    {
+        $supplierId=$intent->supplierId;
+        $source = $this->currentEntryForDimensionWrite($intent->sourceEntryId, $supplierId);
+        if ($source === null) throw new PostingException('entry_not_found', 'Účetní zápis nebyl nalezen.', 404);
+        $lines = array_map(static fn (array $line): array => array_replace($line, JournalLineAmount::reversal($line)), $source['lines']);
+        $header = [
+            'supplier_id' => $supplierId, 'period_id' => $intent->targetPeriodId,
+            'entry_date' => $intent->accountingDate, 'document_date' => $source['document_date'],
+            'document_no' => $source['document_no'] === null ? null : mb_substr('STORNO ' . $source['document_no'], 0, 50),
+            'description' => $intent->description, 'source_type' => $source['source_type'], 'source_id' => null,
+            'posted_at' => date('Y-m-d H:i:s'), 'posted_by' => $intent->actor,
+        ];
+        $reversalId = $this->insertReversalLocked($header, $lines, $intent->sourceEntryId);
+        $intent->complete($this->db, $reversalId);
+        $this->activity->log('accounting.reversed', $intent->actor, 'journal_entry', $reversalId,
+            ['original_entry_id' => $intent->sourceEntryId, 'reversal_entry_id' => $reversalId, 'lines' => $lines], null, null, $supplierId);
+        return $reversalId;
     }
 
     private function insertReversalLocked(array $header, array $lines, int $sourceEntryId): int
@@ -227,6 +312,7 @@ final class JournalEntryRepository
     public function replace(int $id, array $header, array $lines): void
     {
         (new IssuanceUseGuard($this->db))->assertPostingEntriesMutable((int) $header['supplier_id'], [$id]);
+        (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->assertEntriesMutable((int) $header['supplier_id'], [$id]);
         $previous = $this->currentEntryForDimensionWrite($id, (int) $header['supplier_id']);
         (new JointAllocationUseGuard($this->db))->assertEntriesMutable((int) $header['supplier_id'], [$id]);
         if ($previous === null || $previous['reversed_by'] !== null) {
@@ -296,6 +382,7 @@ final class JournalEntryRepository
     public function replaceSomeLines(int $entryId, int $supplierId, int $expectedRowVersion, array $removeLineIds, array $addLines): void
     {
         (new IssuanceUseGuard($this->db))->assertPostingEntriesMutable($supplierId, [$entryId]);
+        (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->assertEntriesMutable($supplierId, [$entryId]);
         $entry = $this->currentEntryForDimensionWrite($entryId, $supplierId);
         (new JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, [$entryId]);
         if ($entry === null || $entry['reversed_by'] !== null || (int) $entry['row_version'] !== $expectedRowVersion) {
@@ -521,6 +608,7 @@ final class JournalEntryRepository
         }
         try {
             (new IssuanceUseGuard($this->db))->assertPostingEntriesMutable($supplierId, [$id]);
+            (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->assertEntriesMutable($supplierId, [$id]);
             $entry = $this->currentEntryForDimensionWrite($id, $supplierId);
             (new JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, [$id]);
             if ($entry !== null && $entry['posted_at'] === null) {
@@ -547,6 +635,7 @@ final class JournalEntryRepository
     {
         (new SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
         (new IssuanceUseGuard($this->db))->lockClaims($supplierId);
+        (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->acquire($supplierId);
         $entry = $this->findForUpdate($entryId, $supplierId);
         if ($entry === null) {
             return null;
@@ -578,6 +667,7 @@ final class JournalEntryRepository
     {
         return (new DimensionPeriodGuard($this->db))->transaction(function () use ($id, $supplierId, $reversalEntryId): bool {
             (new IssuanceUseGuard($this->db))->assertPostingEntriesMutable($supplierId, [$id, $reversalEntryId]);
+            (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->assertEntriesMutable($supplierId, [$id, $reversalEntryId]);
             (new JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, [$id]);
             return $this->setReversedByLocked($id, $supplierId, $reversalEntryId);
         });
@@ -614,6 +704,7 @@ final class JournalEntryRepository
     {
         return (new DimensionPeriodGuard($this->db))->transaction(function () use ($entryId, $supplierId): bool {
             (new IssuanceUseGuard($this->db))->assertPostingEntriesMutable($supplierId, [$entryId]);
+            (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->assertEntriesMutable($supplierId, [$entryId]);
             (new JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, [$entryId]);
             return $this->detachSourceLocked($entryId, $supplierId);
         });

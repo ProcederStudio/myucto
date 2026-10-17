@@ -27,6 +27,15 @@ final class PropertyDimensionPolicy
         $this->assertWindow($supplierId, $start->format('Y-m-d\TH:i:sP'), $start->modify('+1 day')->format('Y-m-d\TH:i:sP'), $lines, $previousLines);
     }
 
+    public function assertPaymentCarrierJournal(array $header, array $lines, Payments\PaymentHistoricalCarrierProof $proof): void
+    {
+        $carried = $proof->indices($this->db, $header, $lines);
+        $date = (string) $header['entry_date'];
+        $start = \DateTimeImmutable::createFromFormat('!Y-m-d', $date, new \DateTimeZone('Europe/Prague'));
+        if ($start === false || $start->format('Y-m-d') !== $date) PropertyInput::invalid('entry_date');
+        $this->assertWindow((int) $header['supplier_id'], $start->format('Y-m-d\TH:i:sP'), $start->modify('+1 day')->format('Y-m-d\TH:i:sP'), $lines, [], $carried);
+    }
+
     public function assertAt(int $supplierId, string $at, array $lines): void
     {
         $this->assertWindow($supplierId, $at, null, $lines);
@@ -38,7 +47,7 @@ final class PropertyDimensionPolicy
     }
 
     /** Owner locks periods before catalog/journal rows; this check must precede the first mutation. */
-    private function assertWindow(int $supplierId, ?string $from, ?string $to, array $lines, array $previousLines = []): void
+    private function assertWindow(int $supplierId, ?string $from, ?string $to, array $lines, array $previousLines = [], array $carried = []): void
     {
         if (!$this->db->pdo()->inTransaction()) throw new \LogicException('Property dimensions require period-first transaction locks.');
         $from = $from === null ? null : PropertyInstant::normalize($from);
@@ -56,7 +65,7 @@ final class PropertyDimensionPolicy
         $framework = $from === null ? null : (new AccountingFrameworkService($this->db, new AccountingFrameworkRepository($this->db)))->forDateForUpdate($supplierId, (new \DateTimeImmutable($from))->setTimezone(new \DateTimeZone('Europe/Prague'))->format('Y-m-d'));
         if ($from !== null && $framework !== AccountingFrameworkService::CZ_504) throw new PropertyException('property_framework_required', 'Jednotky a služby SVJ vyžadují účetní rámec podle vyhlášky 504 k datu zápisu.', 409);
         $requested = [];
-        $retained = self::retainedTuples($lines, $previousLines, $types);
+        $retained = self::retainedTuples($lines, $previousLines, $types) + $carried;
         foreach ($lines as $index => $line) {
             if (isset($line['document_assignment_owners']) && ($line['id'] ?? null) === null
                 && array_intersect_key(($line['dimensions'] ?? []) + ($line['dimension_splits'] ?? []), $types) !== []) {

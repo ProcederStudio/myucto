@@ -90,7 +90,9 @@ final class AnonymizationService
             $versionMap = (new ChargesCloneScrubber($pdo, $this->scrubber))->run($registryMap);
             $targetConnection = Connection::withoutSharedTestConnection(fn () => new Connection($this->targetConfig($options->target)));
             try {
-                (new IssuanceCloneScrubber($targetConnection, $this->scrubber))->run($registryMap, $versionMap);
+                $issuanceMap = (new IssuanceCloneScrubber($targetConnection, $this->scrubber))->run($registryMap, $versionMap);
+                $paymentMap = (new PaymentsCloneScrubber($targetConnection, $this->scrubber))->run($issuanceMap);
+                (new ReceivablesCloneScrubber($targetConnection, $this->scrubber))->run($registryMap, $issuanceMap, $paymentMap);
             } finally {
                 $targetConnection->close();
             }

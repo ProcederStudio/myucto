@@ -92,6 +92,9 @@ final class PermissionCatalog
             ['property.charges.issue', 'property', 'Vydávat předpisy SVJ', $staffOnly],
             ['property.charges.post', 'property', 'Účtovat předpisy SVJ', $staffOnly],
             ['property.charges.reverse', 'property', 'Stornovat předpisy SVJ', $staffOnly],
+            ['property.payments.manage', 'property', 'Spravovat úhrady SVJ', $staffOnly],
+            ['property.payments.post', 'property', 'Účtovat úhrady SVJ', $staffOnly],
+            ['property.payments.reverse', 'property', 'Stornovat úhrady SVJ', $staffOnly],
             ['other_items', 'other_items', 'Ostatní pohledávky a závazky', $staffOnly],
             ['tax_evidence', 'tax_evidence', 'Daňová evidence', $staffOnly],
             ['tax_evidence.classification.write', 'tax_evidence', 'Klasifikovat pohyby', $staffOnly],
@@ -206,7 +209,7 @@ final class PermissionCatalog
                 // který si ho může kterékoli roli přidělit v editoru rolí.
                 'documents.inbox.delete',
                 'accounting.periods.close', 'accounting.periods.manage',
-                'property.registry.confirm', 'property.charges.confirm', 'property.charges.reverse',
+                'property.registry.confirm', 'property.charges.confirm', 'property.charges.reverse', 'property.payments.reverse',
                 'settings.ai_provider', 'settings.bank_accounts', 'settings.branding',
                 'settings.company.write', 'settings.domains', 'utilities.import',
                 'payroll.settings', 'payroll.person.read_sensitive', 'payroll.approve',

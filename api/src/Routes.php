@@ -2468,6 +2468,36 @@ final class Routes
         });
 
         $app->group('/api/property', function ($g) {
+            $g->get('/payments/{collection:debts|charges|credits|reservations|operations|corrections}', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'page']);
+            $g->get('/payments/{collection:debts|charges|credits|reservations|operations|corrections}/{id:[0-9]+}', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'detail']);
+            $g->get('/payments/parties', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'parties']);
+            $g->get('/payments/correction-options', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'correctionOptions']);
+            $g->get('/payments/card', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'card']);
+            $g->get('/payments/bank-accounts', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'bankAccounts']);
+            $g->get('/payments/accessory-candidates', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'accessoryCandidates']);
+            $g->post('/payments/debts/{id:[0-9]+}/accessories', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'bindAccessory']);
+            $g->post('/payments/reservations/abo/{id:[0-9]+}/download', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'exportDownload']);
+            $g->post('/payments/reservations/abo/preview', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'exportPreview']);
+            $g->post('/payments/reservations/abo/confirm', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'exportConfirm']);
+            $g->post('/payments/reservations/{id:[0-9]+}/cancel-submission', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'cancelExport']);
+            $g->post('/payments/debts/register', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'registerDebt']);
+            $g->post('/payments/credits/{id:[0-9]+}/reserve', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'reserve']);
+            $g->post('/payments/reservations/{id:[0-9]+}/cancel', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'cancelReservation']);
+            $g->post('/payments/setoffs/preview', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'setoffPreview']);
+            $g->post('/payments/setoffs/confirm', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'setoffConfirm']);
+            $g->post('/payments/corrections/preview', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'correctionPreview']);
+            $g->post('/payments/corrections/confirm', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'correctionConfirm']);
+            $g->post('/payments/operations/{id:[0-9]+}/reverse', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'reverse']);
+            $g->post('/payments/corrections/{id:[0-9]+}/reverse', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'correctionReverse']);
+            $g->get('/payments/source', [\MyInvoice\Action\Property\Payments\PaymentWorkflowAction::class, 'source']);
+            $g->post('/payments/source-revisions/preview', [\MyInvoice\Action\Property\Payments\PaymentWorkflowAction::class, 'revisionPreview']);
+            $g->post('/payments/source-revisions/confirm', [\MyInvoice\Action\Property\Payments\PaymentWorkflowAction::class, 'revisionConfirm']);
+            $g->get('/payments/context', [\MyInvoice\Action\Property\Payments\PaymentWorkflowAction::class, 'context']);
+            $g->get('/payments/candidates', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'candidates']);
+            $g->get('/payments/history', [\MyInvoice\Action\Property\Payments\PaymentWorkflowAction::class, 'history']);
+            $g->post('/payments/preview', [\MyInvoice\Action\Property\Payments\PaymentWorkflowAction::class, 'preview']);
+            $g->post('/payments/confirm', [\MyInvoice\Action\Property\Payments\PaymentWorkflowAction::class, 'confirm']);
+
             $g->get('/charges/issues', [\MyInvoice\Action\Property\Charges\Issuance\IssuanceAction::class, 'list']);
             $g->get('/charges/issues/context', [\MyInvoice\Action\Property\Charges\Issuance\IssuanceAction::class, 'context']);
             $g->get('/charges/issues/batches/{id:[0-9]+}', [\MyInvoice\Action\Property\Charges\Issuance\IssuanceAction::class, 'batch']);

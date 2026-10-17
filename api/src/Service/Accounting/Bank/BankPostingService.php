@@ -3065,6 +3065,13 @@ final class BankPostingService
      * @param array{user_id?:?int, posted_by?:?int} $meta
      * @return array{entry_id:int, rule_id:?int, rule_hint:?array<string,mixed>}
      */
+    public function postPropertyClearing(\MyInvoice\Service\Property\Payments\Workflow\PaymentClearingIntent $intent): int
+    {
+        $intent->assertConnection($this->db);
+        $intent->current('bank');
+        return $this->journal->insertPropertyClearing($intent);
+    }
+
     public function postManual(int $supplierId, int $txId, array $input, array $meta): array
     {
         $pdo = $this->db->pdo();
@@ -3351,6 +3358,12 @@ final class BankPostingService
      */
     public function onIgnore(int $supplierId, int $txId): void
     {
+        (new DimensionPeriodGuard($this->db))->transaction(fn () => $this->onIgnoreLocked($supplierId, $txId));
+    }
+
+    private function onIgnoreLocked(int $supplierId, int $txId): void
+    {
+        (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->assertSourceMutable($supplierId, 'bank', $txId);
         if ($this->supplierMode($supplierId) !== 'double_entry') {
             return;
         }
@@ -4580,13 +4593,13 @@ final class BankPostingService
     /** @return array<string,mixed>|null */
     public function lockStatement(int $supplierId, int $statementId): ?array
     {
-        return (new BankTransactionContext($this->db))->statement($supplierId, $statementId);
+        return (new BankTransactionContext($this->db))->mutableStatement($supplierId, $statementId);
     }
 
     /** @return array<string,mixed>|null */
     public function lockTransaction(int $supplierId, int $txId): ?array
     {
-        return (new BankTransactionContext($this->db))->lock($supplierId, $txId);
+        return (new BankTransactionContext($this->db))->mutableTransaction($supplierId, $txId);
     }
 
     /** @return array<string,mixed>|null */

@@ -24,12 +24,12 @@ final class IssuanceCloneScrubber
 
     public function __construct(private readonly Connection $db,private readonly TextScrubber $scrubber) {}
 
-    public function run(array $registryMap,array $versionMap): void
+    public function run(array $registryMap,array $versionMap): array
     {
         $pdo=$this->db->pdo(); $marks=implode(',',array_fill(0,count(self::TABLES),'?'));
         $stmt=$pdo->prepare('SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('.$marks.')');
         $stmt->execute(self::TABLES); $count=(int)$stmt->fetchColumn();
-        if($count===0) return;
+        if($count===0) return [];
         if($count!==count(self::TABLES)||$pdo->inTransaction()) throw new \LogicException('Issuance clone requires the complete schema and its own transaction.');
         if((int)$pdo->query('SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA=DATABASE()')->fetchColumn()!==0)
             throw new \LogicException('Issuance clone must run before installing triggers.');
@@ -110,7 +110,10 @@ final class IssuanceCloneScrubber
                 if($charge['status']==='reversed') $ledger->assertEntry($charge['supplier_id'],$charge['reversal_entry_id'],$charge,true);
             }
             IssuanceCaseIdentity::families(array_values($newCharges));
+            $map=[];
+            foreach($charges as $id=>$charge)$map[$charge['supplier_id']][$id]=['before_snapshot_hash'=>$charge['snapshot_hash'],'after_snapshot_hash'=>$newCharges[$id]['snapshot_hash']];
             $pdo->commit();
+            return $map;
         } catch(\Throwable $e) { if($pdo->inTransaction()) $pdo->rollBack(); throw $e; }
     }
 

@@ -24,13 +24,23 @@ final class IssuanceReadRepository
 
     public function find(int $supplier,int $id,bool $current = false): array
     {
-        $stmt=$this->db->pdo()->prepare('SELECT * FROM unit_charges WHERE supplier_id=? AND id=?'.$this->lock($current));
-        $stmt->execute([$supplier,$id]);
-        $row=$stmt->fetch(PDO::FETCH_ASSOC);
-        if(!$row) throw new IssuanceException('property_charge_issue_not_found','Předpis nebyl nalezen.',404);
-        $charge=$this->decodeCharge($row);
-        $this->assertMaterialized($supplier,[$charge],$current);
-        return $charge;
+        return $this->findMany($supplier,[$id],$current)[$id];
+    }
+
+    public function findMany(int $supplier,array $ids,bool $current = false): array
+    {
+        foreach($ids as $id) PropertyInput::id($id,'charge_id');
+        $ids=array_values(array_unique($ids)); sort($ids,SORT_NUMERIC); $out=[];
+        foreach(array_chunk($ids,500) as $chunk) {
+            $marks=implode(',',array_fill(0,count($chunk),'?'));
+            $stmt=$this->db->pdo()->prepare('SELECT * FROM unit_charges WHERE supplier_id=? AND id IN ('.$marks.') ORDER BY id'.$this->lock($current));
+            $stmt->execute([$supplier,...$chunk]);
+            $charges=array_map($this->decodeCharge(...),$stmt->fetchAll(PDO::FETCH_ASSOC));
+            if(count($charges)!==count($chunk)) throw new IssuanceException('property_charge_issue_not_found','Předpis nebyl nalezen.',404);
+            $this->assertMaterialized($supplier,$charges,$current);
+            foreach($charges as $charge) $out[$charge['id']]=$charge;
+        }
+        return $out;
     }
 
     public function batch(int $supplier,int $id,bool $current = false): array

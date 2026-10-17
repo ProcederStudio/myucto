@@ -296,6 +296,7 @@ final class StatementMatcher
             $results[$transactionId] = $this->afterMatch($transactionId, $results[$transactionId]);
         }
         foreach ($ids as $transactionId) {
+            if (($results[$transactionId]['reason'] ?? null) === 'property_payment_source_immutable') continue;
             if (($results[$transactionId]['status'] ?? 'unmatched') !== 'unmatched') {
                 continue;
             }
@@ -312,7 +313,7 @@ final class StatementMatcher
             }
         }
         foreach ($results as $transactionId => $result) {
-            $this->rememberReason($transactionId, $result);
+            $results[$transactionId] = $this->rememberReason($transactionId, $result);
         }
         return $results;
     }
@@ -331,6 +332,23 @@ final class StatementMatcher
         if (!empty($result['already_recorded']) || ($result['reason'] ?? null) === 'transaction_not_found') {
             return $result;
         }
+        return (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->transaction(function () use ($transactionId, $result): array {
+            $row = (new BankTransactionContext($this->db))->find($transactionId);
+            if ($row === null) return $result;
+            $supplierId = (int) ($row['statement_supplier_id'] ?? 0);
+            if ($supplierId === 0) $supplierId = $this->discoverSupplier($row);
+            try {
+                if ($supplierId > 0) (new BankTransactionContext($this->db))->mutableTransaction($supplierId, $transactionId);
+            } catch (\MyInvoice\Service\Accounting\PostingException $e) {
+                if ($e->errorCode !== 'property_payment_source_immutable') throw $e;
+                return self::propertyPaymentResult();
+            }
+            return $this->writeReason($transactionId, $result);
+        });
+    }
+
+    private function writeReason(int $transactionId, array $result): array
+    {
         $reason = ($result['status'] ?? 'unmatched') === 'unmatched' && is_string($result['reason'] ?? null)
             ? mb_substr($result['reason'], 0, 40)
             : null;
@@ -416,6 +434,7 @@ final class StatementMatcher
     /** @return array<string,mixed> */
     private function afterMatch(int $transactionId, array $result): array
     {
+        if (($result['reason'] ?? null) === 'property_payment_source_immutable') return $result;
         if (($result['status'] ?? 'unmatched') !== 'unmatched' && empty($result['already_recorded'])) {
             $this->syncAdvanceCoveredStatus($transactionId);
         }
@@ -468,19 +487,24 @@ final class StatementMatcher
         $supplierId = $recorded && (int) ($row['statement_supplier_id'] ?? 0) > 0
             ? (int) $row['statement_supplier_id']
             : $this->discoverSupplier($row);
-        if ($supplierId === 0) {
-            return $recorded ? $this->recordedResult($transactionId, $row, false)
-                : ['status' => 'unmatched', 'reason' => 'unknown_supplier_for_account'];
-        }
         $this->begin($pdo);
         try {
-            $current = (new BankTransactionContext($this->db))->lock($supplierId, $transactionId);
-            $result = $current === null
-                ? ['status' => 'unmatched', 'reason' => 'transaction_not_found']
-                : $this->doMatchCurrent($transactionId, $allowAmountDateFallback, $current, $supplierId);
+            if ((int) ($row['statement_supplier_id'] ?? 0) > 0) {
+                (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->assertSourceMutable((int) $row['statement_supplier_id'], 'bank', $transactionId);
+            }
+            if ($supplierId === 0) {
+                $result = $recorded ? $this->recordedResult($transactionId, $row, false)
+                    : ['status' => 'unmatched', 'reason' => 'unknown_supplier_for_account'];
+            } else {
+                $current = (new BankTransactionContext($this->db))->mutableTransaction($supplierId, $transactionId);
+                $result = $current === null
+                    ? ['status' => 'unmatched', 'reason' => 'transaction_not_found']
+                    : $this->doMatchCurrent($transactionId, $allowAmountDateFallback, $current, $supplierId);
+            }
             $this->commit($pdo);
         } catch (\Throwable $e) {
             $this->rollBackIfOpen($pdo, $e);
+            if ($e instanceof \MyInvoice\Service\Accounting\PostingException && $e->errorCode === 'property_payment_source_immutable') return self::propertyPaymentResult();
             throw $e;
         }
         if (!$pdo->inTransaction() && !empty($result['invoice_id'])) {
@@ -492,6 +516,11 @@ final class StatementMatcher
             }
         }
         return $result;
+    }
+
+    private static function propertyPaymentResult(): array
+    {
+        return ['status' => 'unmatched', 'reason' => 'property_payment_source_immutable', 'already_recorded' => true, 'requires_review' => true];
     }
 
     /** @param array<string,mixed> $row @return array<string,mixed> */

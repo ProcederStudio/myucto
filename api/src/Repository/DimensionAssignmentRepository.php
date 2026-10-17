@@ -58,6 +58,7 @@ final class DimensionAssignmentRepository
         (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $docType, $docId, $header, $items, $headerOrigins, $itemOrigins): void {
             (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
             (new IssuanceUseGuard($this->db))->lockClaims($supplierId);
+            (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->acquire($supplierId);
             $this->replaceDocumentDimensionsLocked($supplierId, $docType, $docId, $header, $items, $headerOrigins, $itemOrigins);
         });
     }
@@ -72,6 +73,7 @@ final class DimensionAssignmentRepository
         ksort($items);
         if ($current['header'] === $header && $current['items'] === $items) return;
         (new IssuanceUseGuard($this->db))->assertDocumentMutable($supplierId, $docType, $docId);
+        (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->assertDocumentMutable($supplierId, $docType, $docId);
         (new JointAllocationUseGuard($this->db))->assertDocumentMutable($supplierId, $docType, $docId);
         $origins = $this->documentOrigins($supplierId, $docType, $docId, $pdo->inTransaction());
         $pdo->prepare('DELETE FROM document_dimensions WHERE supplier_id = ? AND doc_type = ? AND doc_id = ?')->execute([$supplierId, $docType, $docId]);
@@ -96,8 +98,10 @@ final class DimensionAssignmentRepository
         return (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $docType, $docId, $typeId, $valueId, $origin): bool {
             (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
             (new IssuanceUseGuard($this->db))->lockClaims($supplierId);
+            (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->acquire($supplierId);
             if (isset($this->documentDimensions($supplierId, $docType, $docId, true)['header'][$typeId])) return false;
             (new IssuanceUseGuard($this->db))->assertDocumentMutable($supplierId, $docType, $docId);
+            (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->assertDocumentMutable($supplierId, $docType, $docId);
             (new JointAllocationUseGuard($this->db))->assertDocumentMutable($supplierId, $docType, $docId);
             return $this->addHeaderDimensionLocked($supplierId, $docType, $docId, $typeId, $valueId, $origin);
         });
@@ -125,10 +129,12 @@ final class DimensionAssignmentRepository
         (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $docType, $fromId, $toId, $toDocType): void {
             (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
             (new IssuanceUseGuard($this->db))->lockClaims($supplierId);
+            (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->acquire($supplierId);
             $target = $toDocType ?? $docType;
             $current = $this->documentDimensions($supplierId, $target, $toId, true);
             if ($current['header'] !== [] || $current['items'] !== [] || $this->documentSplits($supplierId, $target, $toId, true) !== []) return;
             (new IssuanceUseGuard($this->db))->assertDocumentMutable($supplierId, $target, $toId);
+            (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->assertDocumentMutable($supplierId, $target, $toId);
             (new JointAllocationUseGuard($this->db))->assertDocumentMutable($supplierId, $target, $toId);
             $this->copyDocumentLocked($supplierId, $docType, $fromId, $toId, $toDocType);
         });
@@ -166,9 +172,11 @@ final class DimensionAssignmentRepository
         (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $docType, $docId): void {
             (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
             (new IssuanceUseGuard($this->db))->lockClaims($supplierId);
+            (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->acquire($supplierId);
             $current = $this->documentDimensions($supplierId, $docType, $docId, true);
             if ($current['header'] === [] && $current['items'] === [] && $this->documentSplits($supplierId, $docType, $docId, true) === []) return;
             (new IssuanceUseGuard($this->db))->assertDocumentMutable($supplierId, $docType, $docId);
+            (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->assertDocumentMutable($supplierId, $docType, $docId);
             (new JointAllocationUseGuard($this->db))->assertDocumentMutable($supplierId, $docType, $docId);
             $this->deleteDocumentLocked($supplierId, $docType, $docId);
         });
@@ -209,6 +217,7 @@ final class DimensionAssignmentRepository
         (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $docType, $docId, $splits, $origins): void {
             (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
             (new IssuanceUseGuard($this->db))->lockClaims($supplierId);
+            (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->acquire($supplierId);
             $this->replaceDocumentSplitsLocked($supplierId, $docType, $docId, $splits, $origins);
         });
     }
@@ -224,6 +233,7 @@ final class DimensionAssignmentRepository
         }
         if ($same) return;
         (new IssuanceUseGuard($this->db))->assertDocumentMutable($supplierId, $docType, $docId);
+        (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->assertDocumentMutable($supplierId, $docType, $docId);
         (new JointAllocationUseGuard($this->db))->assertDocumentMutable($supplierId, $docType, $docId);
         $oldOrigins = $this->documentSplitOrigins($supplierId, $docType, $docId, $pdo->inTransaction());
         $pdo->prepare('DELETE FROM document_dimension_splits WHERE supplier_id = ? AND doc_type = ? AND doc_id = ?')->execute([$supplierId, $docType, $docId]);
@@ -293,6 +303,7 @@ final class DimensionAssignmentRepository
         return (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $lineId, $splits, $origins): bool {
             (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
             (new IssuanceUseGuard($this->db))->lockClaims($supplierId);
+            (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->acquire($supplierId);
             return $this->replaceLineSplitsLocked($supplierId, $lineId, $splits, $origins);
         });
     }
@@ -302,6 +313,7 @@ final class DimensionAssignmentRepository
         $current = $this->lineSplits($supplierId, [$lineId], $this->db->pdo()->inTransaction())[$lineId] ?? [];
         if (self::sameSplits($current, $splits)) return false;
         (new IssuanceUseGuard($this->db))->assertDimensionLinesMutable($supplierId, [$lineId]);
+        (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->assertLinesMutable($supplierId, [$lineId]);
         (new JointAllocationUseGuard($this->db))->assertLinesMutable($supplierId, [$lineId]);
         $oldOrigins = $this->lineSplitOrigins($supplierId, [$lineId], $this->db->pdo()->inTransaction())[$lineId] ?? [];
         foreach ($splits as $typeId => $shares) {
@@ -318,7 +330,7 @@ final class DimensionAssignmentRepository
     {
         if ($splits === []) return;
         (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $lineId, $splits, $origins): void {
-            (new JointAllocationUseGuard($this->db))->assertAssignmentInsertMutable($supplierId, $lineId);
+            (new \MyInvoice\Service\Property\Payments\PaymentUseGuard($this->db))->assertAssignmentInsertsMutable($supplierId, [$lineId]);
             $this->insertLineSplitsLocked($supplierId, $lineId, $splits, $origins);
         });
     }
@@ -454,6 +466,7 @@ final class DimensionAssignmentRepository
         return (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $lineId, $dims, $origins): bool {
             (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
             (new IssuanceUseGuard($this->db))->lockClaims($supplierId);
+            (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->acquire($supplierId);
             return $this->replaceLineDimensionsLocked($supplierId, $lineId, $dims, $origins);
         });
     }
@@ -466,6 +479,7 @@ final class DimensionAssignmentRepository
         $dims = array_map('intval', $dims);
         if ($current === $dims) return false;
         (new IssuanceUseGuard($this->db))->assertDimensionLinesMutable($supplierId, [$lineId]);
+        (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->assertLinesMutable($supplierId, [$lineId]);
         (new JointAllocationUseGuard($this->db))->assertLinesMutable($supplierId, [$lineId]);
         $oldOrigins = $this->lineOrigins($supplierId, [$lineId], $this->db->pdo()->inTransaction())[$lineId] ?? [];
         foreach ($dims as $typeId => $valueId) {
@@ -481,7 +495,7 @@ final class DimensionAssignmentRepository
     {
         if ($dims === []) return;
         (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $lineId, $dims, $origins): void {
-            (new JointAllocationUseGuard($this->db))->assertAssignmentInsertMutable($supplierId, $lineId);
+            (new \MyInvoice\Service\Property\Payments\PaymentUseGuard($this->db))->assertAssignmentInsertsMutable($supplierId, [$lineId]);
             $this->insertLineDimensionsLocked($supplierId, $lineId, $dims, $origins);
         });
     }
@@ -491,7 +505,7 @@ final class DimensionAssignmentRepository
         $lines = array_filter($lines, static fn (array $line): bool => !empty($line['dimensions']) || !empty($line['dimension_splits']));
         if ($lines === []) return;
         (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $lines): void {
-            (new JointAllocationUseGuard($this->db))->assertAssignmentInsertsMutable($supplierId, array_keys($lines));
+            (new \MyInvoice\Service\Property\Payments\PaymentUseGuard($this->db))->assertAssignmentInsertsMutable($supplierId, array_keys($lines));
             foreach ($lines as $lineId => $line) {
                 $this->insertLineDimensionsLocked($supplierId, (int) $lineId, $line['dimensions'] ?? [], $line['dimension_origins'] ?? []);
                 $this->insertLineSplitsLocked($supplierId, (int) $lineId, $line['dimension_splits'] ?? [], $line['dimension_split_origins'] ?? []);

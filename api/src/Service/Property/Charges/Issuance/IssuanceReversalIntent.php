@@ -24,6 +24,25 @@ final readonly class IssuanceReversalIntent
 
     public static function fromCurrentRequest(Connection $db,int $supplier,int $intentId): self
     {
+        $intent=self::fromRequest($db,$supplier,$intentId);
+        try{(new \MyInvoice\Service\Property\Payments\PaymentUseGuard($db))->assertChargeCorrectable($supplier,$intent->chargeId);
+            (new \MyInvoice\Service\Property\Receivables\PartyHistoryUseGuard($db))->assertChargeMutable($supplier,$intent->chargeId);}
+        catch(\MyInvoice\Service\Property\Payments\PaymentException $e){throw new IssuanceException($e->errorCode,$e->getMessage(),$e->httpStatus,$e->details);}
+        return $intent;
+    }
+
+    public static function fromPaymentCorrection(Connection $db,\MyInvoice\Service\Property\Payments\PaymentCorrectionReversalIntent $correction):self
+    {
+        $request=$correction->reversalRequest($db);$supplier=$correction->supplierId;$charge=$correction->chargeId;$actor=$correction->actor;
+        $token='payment-correction-'.$correction->correctionId;
+        $hash=PropertyInput::hash(['charge_id'=>$charge,'request'=>$request,'idempotency_key'=>$token,'actor'=>$actor]);
+        $db->pdo()->prepare('INSERT INTO unit_charge_adjustments (supplier_id,charge_id,adjustment_charge_id,kind,journal_entry_id,effective_at,request_json,request_hash,idempotency_key,created_by,recorded_at) VALUES (?,?,NULL,\'reversal\',NULL,?,?,?,?,?,UTC_TIMESTAMP(6))')
+            ->execute([$supplier,$charge,PropertyInstant::sql($request['effective_at']),IssuanceRequest::json($request),$hash,$token,$actor]);
+        return self::fromRequest($db,$supplier,(int)$db->pdo()->lastInsertId());
+    }
+
+    private static function fromRequest(Connection $db,int $supplier,int $intentId):self
+    {
         if(!$db->pdo()->inTransaction()) throw new \LogicException('Property reversal proof requires its owner transaction.');
         $locks=new IssuanceLocks($db); $locks->acquire($supplier);
         (new IssuanceUseGuard($db))->lockClaims($supplier);

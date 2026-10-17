@@ -47,7 +47,8 @@ final class JointAllocationUseGuard
             $periodIds = array_map('intval', $period->fetchAll(PDO::FETCH_COLUMN));
         }
         (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->assertAssignmentInsertsAfterPeriodPreflight($supplierId, $lineIds);
-        $current = $pdo->prepare("SELECT l.id, e.period_id, c.batch_id AS source_batch_id, b.id AS allocation_batch_id, x.id AS cancellation_id
+        $paymentReference = \MyInvoice\Service\Property\Payments\PaymentUseGuard::entryReferenceSql();
+        $current = $pdo->prepare("SELECT l.id, e.period_id, c.batch_id AS source_batch_id, b.id AS allocation_batch_id, x.id AS cancellation_id, ({$paymentReference}) AS property_payment_in_use
             FROM journal_entry_lines l JOIN journal_entries e ON e.id = l.entry_id AND e.supplier_id = l.supplier_id
             LEFT JOIN joint_allocation_source_claims c ON c.line_id = l.id AND c.supplier_id = l.supplier_id
             LEFT JOIN joint_allocation_batches b ON b.journal_entry_id = e.id AND b.supplier_id = e.supplier_id
@@ -59,6 +60,7 @@ final class JointAllocationUseGuard
             throw new PostingException('allocation_source_changed', 'Řádek nebo jeho účetní období se změnily. Načtěte aktuální stav.', 409);
         }
         foreach ($rows as $row) {
+            \MyInvoice\Service\Property\Payments\PaymentUseGuard::assertEntryReferenceMutable((bool) $row['property_payment_in_use']);
             if (!$allPeriods && !in_array((int) $row['period_id'], $periodIds, true)) {
                 throw new PostingException('allocation_source_changed', 'Řádek nebo jeho účetní období se změnily. Načtěte aktuální stav.', 409);
             }

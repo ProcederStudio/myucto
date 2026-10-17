@@ -1300,6 +1300,7 @@ final class JournalAction
         $attachmentRows = [];
         try {
             (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->assertPostingEntriesMutable($supplierId, [$id]);
+            (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->assertEntriesMutable($supplierId, [$id]);
             (new \MyInvoice\Service\Accounting\Allocation\JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, [$id]);
             $stmt = $pdo->prepare(
                 'SELECT je.id, je.period_id, je.entry_date, je.document_no, je.source_type,
@@ -1531,7 +1532,7 @@ final class JournalAction
             if ($ownTx && $pdo->inTransaction()) {
                 $pdo->rollBack();
             }
-            if ($e instanceof PostingException && (str_starts_with($e->errorCode, 'allocation_') || $e->errorCode === 'property_charge_issue_source_immutable')) {
+            if ($e instanceof PostingException && (str_starts_with($e->errorCode, 'allocation_') || in_array($e->errorCode, ['property_charge_issue_source_immutable', 'property_payment_source_immutable'], true))) {
                 return $this->mapPostingError($response, $e);
             }
             throw $e;
@@ -1610,6 +1611,7 @@ final class JournalAction
         $attachmentRows = [];
         try {
             (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->assertPostingEntriesMutable($supplierId, [$id]);
+            (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->assertEntriesMutable($supplierId, [$id]);
             (new \MyInvoice\Service\Accounting\Allocation\JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, [$id]);
             $load = $pdo->prepare(
                 'SELECT je.id, je.period_id, je.entry_date, je.document_no, je.description,
@@ -1653,6 +1655,7 @@ final class JournalAction
             }
             $reversalId = (int) $original['reversed_by'];
             (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->assertPostingEntriesMutable($supplierId, [$originalId, $reversalId]);
+            (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->assertEntriesMutable($supplierId, [$originalId, $reversalId]);
             (new \MyInvoice\Service\Accounting\Allocation\JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, [$originalId, $reversalId]);
             $load->execute([$reversalId, $supplierId]);
             $reversal = $load->fetch(\PDO::FETCH_ASSOC);
@@ -1819,7 +1822,7 @@ final class JournalAction
             );
         } catch (\Throwable $e) {
             if ($ownTx && $pdo->inTransaction()) $pdo->rollBack();
-            if ($e instanceof PostingException && (str_starts_with($e->errorCode, 'allocation_') || $e->errorCode === 'property_charge_issue_source_immutable')) {
+            if ($e instanceof PostingException && (str_starts_with($e->errorCode, 'allocation_') || in_array($e->errorCode, ['property_charge_issue_source_immutable', 'property_payment_source_immutable'], true))) {
                 return $this->mapPostingError($response, $e);
             }
             throw $e;

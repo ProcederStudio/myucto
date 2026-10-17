@@ -1006,7 +1006,11 @@
         "2022_nonprofit_tax_assessments.sql",
         "2023_property_registry.sql",
         "2024_property_charge_versions.sql",
-        "2025_property_charge_issuance.sql"
+        "2025_property_charge_issuance.sql",
+        "2026_unit_payments.sql",
+        "2027_property_receivables.sql",
+        "2028_property_payment_workflow.sql",
+        "2029_property_payment_permissions.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -6685,7 +6689,7 @@
                 "reversed_by": "bigint(20) unsigned NULL DEFAULT NULL",
                 "row_version": "int(10) unsigned NOT NULL DEFAULT 1",
                 "source_id": "bigint(20) unsigned NULL DEFAULT NULL",
-                "source_type": "enum('invoice','purchase_invoice','bank','cash','asset','manual','closing','opening','depreciation','asset_disposal','fx_revaluation','stock','provision','income_tax','profit_distribution','offset','small_asset_accrual','prepaid_expense_accrual','settlement','deferred_tax','payroll','vat_clearing','payroll_payment','gopay','card_settlement','card_writeoff','other_item','payroll_accident_insurance','payroll_travel','deferred_revenue_accrual','unit_charge') NOT NULL DEFAULT 'manual'",
+                "source_type": "enum('invoice','purchase_invoice','bank','cash','asset','manual','closing','opening','depreciation','asset_disposal','fx_revaluation','stock','provision','income_tax','profit_distribution','offset','small_asset_accrual','prepaid_expense_accrual','settlement','deferred_tax','payroll','vat_clearing','payroll_payment','gopay','card_settlement','card_writeoff','other_item','payroll_accident_insurance','payroll_travel','deferred_revenue_accrual','unit_charge','unit_payment','unit_payment_revision') NOT NULL DEFAULT 'manual'",
                 "supplier_id": "int(10) unsigned NOT NULL",
                 "updated_at": "timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE CURRENT_TIMESTAMP()"
             },
@@ -18459,6 +18463,125 @@
                 "payload_json": "json_valid(`payload_json`)"
             }
         },
+        "property_claim_party_event_debts": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "debt_id": "bigint(20) unsigned NOT NULL",
+                "event_id": "bigint(20) unsigned NOT NULL",
+                "predecessor_event_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "remaining_cents": "decimal(30,0) NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (event_id, debt_id)",
+                "fk_property_party_debt_predecessor": "BTREE (supplier_id, predecessor_event_id, debt_id)",
+                "fk_property_party_debt_source": "BTREE (supplier_id, debt_id)",
+                "uq_property_party_event_debt": "UNIQUE BTREE (supplier_id, event_id, debt_id)"
+            },
+            "foreign_keys": {
+                "fk_property_party_debt_event": "(supplier_id, event_id) -> property_claim_party_events (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_property_party_debt_predecessor": "(supplier_id, predecessor_event_id, debt_id) -> property_claim_party_event_debts (supplier_id, event_id, debt_id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_property_party_debt_source": "(supplier_id, debt_id) -> unit_payment_debts (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "remaining_cents": "`remaining_cents` >= 0"
+            }
+        },
+        "property_claim_party_events": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "effective_at": "datetime(6) NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "idempotency_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "recorded_at": "datetime(6) NOT NULL",
+                "registry_revision_id": "bigint(20) unsigned NOT NULL",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "request_json": "longtext NOT NULL",
+                "snapshot_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "snapshot_json": "longtext NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "unit_id": "bigint(20) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_property_party_event_actor": "BTREE (created_by)",
+                "fk_property_party_event_revision": "BTREE (supplier_id, unit_id, registry_revision_id)",
+                "uq_property_party_event_tenant": "UNIQUE BTREE (supplier_id, id)",
+                "uq_property_party_event_token": "UNIQUE BTREE (supplier_id, idempotency_key)"
+            },
+            "foreign_keys": {
+                "fk_property_party_event_actor": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_property_party_event_revision": "(supplier_id, unit_id, registry_revision_id) -> property_revisions (supplier_id, object_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "request_json": "json_valid(`request_json`)",
+                "snapshot_json": "json_valid(`snapshot_json`)"
+            }
+        },
+        "property_claim_party_members": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "client_id": "bigint(20) unsigned NOT NULL",
+                "debt_id": "bigint(20) unsigned NOT NULL",
+                "event_id": "bigint(20) unsigned NOT NULL",
+                "group_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "role": "varchar(16) NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (event_id, debt_id, group_key, client_id)",
+                "fk_property_party_member_client": "BTREE (supplier_id, client_id)",
+                "fk_property_party_member_event": "BTREE (supplier_id, event_id, debt_id)"
+            },
+            "foreign_keys": {
+                "fk_property_party_member_client": "(supplier_id, client_id) -> clients (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_property_party_member_event": "(supplier_id, event_id, debt_id) -> property_claim_party_event_debts (supplier_id, event_id, debt_id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "role": "`role` in ('debtor','guarantor')"
+            }
+        },
+        "property_debt_certificates": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "as_of": "datetime(6) NOT NULL",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "idempotency_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "known_at": "datetime(6) NOT NULL",
+                "recorded_at": "datetime(6) NOT NULL",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "request_json": "longtext NOT NULL",
+                "snapshot_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "snapshot_json": "longtext NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "unit_id": "bigint(20) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_property_certificate_actor": "BTREE (created_by)",
+                "fk_property_certificate_unit": "BTREE (supplier_id, unit_id)",
+                "uq_property_certificate_tenant": "UNIQUE BTREE (supplier_id, id)",
+                "uq_property_certificate_token": "UNIQUE BTREE (supplier_id, idempotency_key)"
+            },
+            "foreign_keys": {
+                "fk_property_certificate_actor": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_property_certificate_unit": "(supplier_id, unit_id) -> property_objects (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "request_json": "json_valid(`request_json`)",
+                "snapshot_json": "json_valid(`snapshot_json`)"
+            }
+        },
         "property_module_profiles": {
             "type": "BASE TABLE",
             "engine": "InnoDB",
@@ -23885,6 +24008,646 @@
                 "snapshot_json": "json_valid(`snapshot_json`)"
             }
         },
+        "unit_claim_accessory_receipts": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "amount_cents": "decimal(30,0) NOT NULL",
+                "charge_id": "bigint(20) unsigned NOT NULL",
+                "component": "varchar(32) NOT NULL",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "debt_id": "bigint(20) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "journal_entry_id": "bigint(20) unsigned NOT NULL",
+                "journal_line_id": "bigint(20) unsigned NOT NULL",
+                "receipt_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "receipt_json": "longtext NOT NULL",
+                "recorded_at": "datetime(6) NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_unit_accessory_actor": "BTREE (created_by)",
+                "fk_unit_accessory_charge": "BTREE (supplier_id, charge_id)",
+                "fk_unit_accessory_debt": "BTREE (supplier_id, debt_id)",
+                "fk_unit_accessory_journal": "BTREE (supplier_id, journal_entry_id)",
+                "uq_unit_accessory_line": "UNIQUE BTREE (journal_line_id)",
+                "uq_unit_accessory_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "fk_unit_accessory_actor": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_accessory_charge": "(supplier_id, charge_id) -> unit_charges (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_accessory_debt": "(supplier_id, debt_id) -> unit_payment_debts (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_accessory_journal": "(supplier_id, journal_entry_id) -> journal_entries (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_accessory_line": "(journal_line_id) -> journal_entry_lines (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "chk_unit_accessory": "`amount_cents` > 0 and `component` in ('determined_cost','default_interest','interest')",
+                "receipt_json": "json_valid(`receipt_json`)"
+            }
+        },
+        "unit_credit_events": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "amount_cents": "decimal(30,0) NOT NULL",
+                "credit_id": "bigint(20) unsigned NOT NULL",
+                "event_json": "longtext NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "kind": "varchar(16) NOT NULL",
+                "operation_id": "bigint(20) unsigned NOT NULL",
+                "reservation_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_unit_credit_event_credit": "BTREE (supplier_id, credit_id)",
+                "fk_unit_credit_event_reservation": "BTREE (supplier_id, reservation_id)",
+                "uq_unit_credit_event_operation": "UNIQUE BTREE (supplier_id, operation_id)",
+                "uq_unit_credit_event_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "fk_unit_credit_event_credit": "(supplier_id, credit_id) -> unit_credit_lots (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_credit_event_operation": "(supplier_id, operation_id) -> unit_payment_operations (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_credit_event_reservation": "(supplier_id, reservation_id) -> unit_credit_reservations (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "chk_unit_credit_event": "`amount_cents` <> 0 and `kind` in ('refund','setoff','reversal','correction')",
+                "event_json": "json_valid(`event_json`)"
+            }
+        },
+        "unit_credit_lots": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "amount_cents": "decimal(30,0) NOT NULL",
+                "due_date": "date NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "operation_id": "bigint(20) unsigned NOT NULL",
+                "row_version": "int(10) unsigned NOT NULL DEFAULT 1",
+                "snapshot_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "snapshot_json": "longtext NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "unit_id": "bigint(20) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_unit_credit_unit": "BTREE (supplier_id, unit_id)",
+                "uq_unit_credit_origin": "UNIQUE BTREE (supplier_id, operation_id)",
+                "uq_unit_credit_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "fk_unit_credit_operation": "(supplier_id, operation_id) -> unit_payment_operations (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_credit_unit": "(supplier_id, unit_id) -> property_objects (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "chk_unit_credit_amount": "`amount_cents` > 0",
+                "snapshot_json": "json_valid(`snapshot_json`)"
+            }
+        },
+        "unit_credit_parties": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "client_id": "bigint(20) unsigned NOT NULL",
+                "credit_id": "bigint(20) unsigned NOT NULL",
+                "party_json": "longtext NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (credit_id, client_id)",
+                "fk_unit_credit_party_client": "BTREE (supplier_id, client_id)",
+                "fk_unit_credit_party_credit": "BTREE (supplier_id, credit_id)"
+            },
+            "foreign_keys": {
+                "fk_unit_credit_party_client": "(supplier_id, client_id) -> clients (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_credit_party_credit": "(supplier_id, credit_id) -> unit_credit_lots (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "party_json": "json_valid(`party_json`)"
+            }
+        },
+        "unit_credit_reservations": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "amount_cents": "decimal(30,0) NOT NULL",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "credit_id": "bigint(20) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "idempotency_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "paid_cents": "decimal(30,0) NOT NULL DEFAULT 0",
+                "recorded_at": "datetime(6) NOT NULL",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "request_json": "longtext NOT NULL",
+                "row_version": "int(10) unsigned NOT NULL DEFAULT 1",
+                "status": "varchar(16) NOT NULL DEFAULT 'reserved'",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_unit_credit_reservation_actor": "BTREE (created_by)",
+                "fk_unit_credit_reservation_credit": "BTREE (supplier_id, credit_id)",
+                "uq_unit_credit_reservation_tenant": "UNIQUE BTREE (supplier_id, id)",
+                "uq_unit_credit_reservation_token": "UNIQUE BTREE (supplier_id, idempotency_key)"
+            },
+            "foreign_keys": {
+                "fk_unit_credit_reservation_actor": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_credit_reservation_credit": "(supplier_id, credit_id) -> unit_credit_lots (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "chk_unit_credit_reservation": "`amount_cents` > 0 and `paid_cents` >= 0 and `paid_cents` <= `amount_cents` and `status` in ('reserved','submitted','cancelled','failed','paid')",
+                "request_json": "json_valid(`request_json`)"
+            }
+        },
+        "unit_payment_allocations": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "accessory_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "allocation_json": "longtext NOT NULL",
+                "amount_cents": "decimal(30,0) NOT NULL",
+                "charge_id": "bigint(20) unsigned NOT NULL",
+                "charge_line_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "debt_id": "bigint(20) unsigned NOT NULL",
+                "debtor_id": "bigint(20) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "liability_group": "varchar(80) NOT NULL",
+                "operation_id": "bigint(20) unsigned NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_unit_allocation_accessory": "BTREE (supplier_id, accessory_id)",
+                "fk_unit_allocation_charge": "BTREE (supplier_id, charge_id)",
+                "fk_unit_allocation_debt": "BTREE (supplier_id, debt_id)",
+                "fk_unit_allocation_debtor": "BTREE (supplier_id, debtor_id)",
+                "fk_unit_allocation_line": "BTREE (supplier_id, charge_line_id)",
+                "fk_unit_allocation_operation": "BTREE (supplier_id, operation_id)",
+                "uq_unit_allocation_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "fk_unit_allocation_accessory": "(supplier_id, accessory_id) -> unit_claim_accessory_receipts (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_allocation_charge": "(supplier_id, charge_id) -> unit_charges (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_allocation_debt": "(supplier_id, debt_id) -> unit_payment_debts (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_allocation_debtor": "(supplier_id, debtor_id) -> clients (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_allocation_line": "(supplier_id, charge_line_id) -> unit_charge_lines (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_allocation_operation": "(supplier_id, operation_id) -> unit_payment_operations (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "allocation_json": "json_valid(`allocation_json`)",
+                "chk_unit_allocation": "`amount_cents` > 0 and `charge_line_id` is null <> (`accessory_id` is null)"
+            }
+        },
+        "unit_payment_audit": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "action": "varchar(32) NOT NULL",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "object_id": "bigint(20) unsigned NOT NULL",
+                "object_kind": "varchar(32) NOT NULL",
+                "payload_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "payload_json": "longtext NOT NULL",
+                "recorded_at": "datetime(6) NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_unit_payment_audit_actor": "BTREE (created_by)",
+                "fk_unit_payment_audit_supplier": "BTREE (supplier_id)"
+            },
+            "foreign_keys": {
+                "fk_unit_payment_audit_actor": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_payment_audit_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "payload_json": "json_valid(`payload_json`)"
+            }
+        },
+        "unit_payment_correction_anchors": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "adjustment_line_id": "bigint(20) unsigned NOT NULL",
+                "amount_cents": "decimal(30,0) NOT NULL",
+                "correction_id": "bigint(20) unsigned NOT NULL",
+                "original_line_id": "bigint(20) unsigned NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (supplier_id, correction_id, adjustment_line_id, original_line_id)",
+                "fk_unit_payment_anchor_adjustment": "BTREE (supplier_id, adjustment_line_id)",
+                "fk_unit_payment_anchor_original": "BTREE (supplier_id, original_line_id)"
+            },
+            "foreign_keys": {
+                "fk_unit_payment_anchor_adjustment": "(supplier_id, adjustment_line_id) -> unit_charge_lines (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_payment_anchor_correction": "(supplier_id, correction_id) -> unit_payment_corrections (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_payment_anchor_original": "(supplier_id, original_line_id) -> unit_charge_lines (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "amount_cents": "`amount_cents` > 0"
+            }
+        },
+        "unit_payment_corrections": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "adjustment_charge_id": "bigint(20) unsigned NOT NULL",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "idempotency_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "operation_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "recorded_at": "datetime(6) NOT NULL",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "request_json": "longtext NOT NULL",
+                "row_version": "int(10) unsigned NOT NULL DEFAULT 1",
+                "snapshot_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "snapshot_json": "longtext NOT NULL",
+                "status": "varchar(16) NOT NULL DEFAULT 'pending'",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_unit_payment_correction_actor": "BTREE (created_by)",
+                "uq_unit_payment_correction_charge": "UNIQUE BTREE (supplier_id, adjustment_charge_id)",
+                "uq_unit_payment_correction_operation": "UNIQUE BTREE (supplier_id, operation_id)",
+                "uq_unit_payment_correction_tenant": "UNIQUE BTREE (supplier_id, id)",
+                "uq_unit_payment_correction_token": "UNIQUE BTREE (supplier_id, idempotency_key)"
+            },
+            "foreign_keys": {
+                "fk_unit_payment_correction_actor": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_payment_correction_charge": "(supplier_id, adjustment_charge_id) -> unit_charges (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_payment_correction_operation": "(supplier_id, operation_id) -> unit_payment_operations (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "chk_unit_payment_correction_status": "`status` in ('pending','posted','reversed')",
+                "request_json": "json_valid(`request_json`)",
+                "snapshot_json": "json_valid(`snapshot_json`)"
+            }
+        },
+        "unit_payment_debt_lines": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "charge_line_id": "bigint(20) unsigned NOT NULL",
+                "debt_id": "bigint(20) unsigned NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (supplier_id, charge_line_id)",
+                "fk_unit_payment_debt_line_debt": "BTREE (supplier_id, debt_id)"
+            },
+            "foreign_keys": {
+                "fk_unit_payment_debt_line_charge": "(supplier_id, charge_line_id) -> unit_charge_lines (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_payment_debt_line_debt": "(supplier_id, debt_id) -> unit_payment_debts (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": []
+        },
+        "unit_payment_debts": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "charge_id": "bigint(20) unsigned NOT NULL",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "idempotency_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "recorded_at": "datetime(6) NOT NULL",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "request_json": "longtext NOT NULL",
+                "snapshot_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "snapshot_json": "longtext NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_unit_payment_debt_actor": "BTREE (created_by)",
+                "fk_unit_payment_debt_charge": "BTREE (supplier_id, charge_id)",
+                "uq_unit_payment_debt_tenant": "UNIQUE BTREE (supplier_id, id)",
+                "uq_unit_payment_debt_token": "UNIQUE BTREE (supplier_id, idempotency_key)"
+            },
+            "foreign_keys": {
+                "fk_unit_payment_debt_actor": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_payment_debt_charge": "(supplier_id, charge_id) -> unit_charges (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "request_json": "json_valid(`request_json`)",
+                "snapshot_json": "json_valid(`snapshot_json`)"
+            }
+        },
+        "unit_payment_export_items": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "amount_cents": "decimal(30,0) NOT NULL",
+                "export_id": "bigint(20) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "reservation_id": "bigint(20) unsigned NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_unit_payment_export_item_owner": "BTREE (supplier_id, export_id)",
+                "uq_unit_payment_export_item_tenant": "UNIQUE BTREE (supplier_id, id)",
+                "uq_unit_payment_export_reservation": "UNIQUE BTREE (supplier_id, reservation_id)"
+            },
+            "foreign_keys": {
+                "fk_unit_payment_export_item_owner": "(supplier_id, export_id) -> unit_payment_exports (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_payment_export_item_reservation": "(supplier_id, reservation_id) -> unit_credit_reservations (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "chk_unit_payment_export_amount": "`amount_cents` > 0"
+            }
+        },
+        "unit_payment_exports": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "content_base64": "longtext NOT NULL COLLATE ascii_bin",
+                "content_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "idempotency_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "recorded_at": "datetime(6) NOT NULL",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "request_json": "longtext NOT NULL",
+                "snapshot_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "snapshot_json": "longtext NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_unit_payment_export_actor": "BTREE (created_by)",
+                "uq_unit_payment_export_tenant": "UNIQUE BTREE (supplier_id, id)",
+                "uq_unit_payment_export_token": "UNIQUE BTREE (supplier_id, idempotency_key)"
+            },
+            "foreign_keys": {
+                "fk_unit_payment_export_actor": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_payment_export_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "request_json": "json_valid(`request_json`)",
+                "snapshot_json": "json_valid(`snapshot_json`)"
+            }
+        },
+        "unit_payment_operations": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "accounting_date": "date NOT NULL",
+                "amount_cents": "decimal(30,0) NOT NULL",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "idempotency_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "journal_entry_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "kind": "varchar(24) NOT NULL",
+                "original_operation_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "recorded_at": "datetime(6) NOT NULL",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "request_json": "longtext NOT NULL",
+                "reversal_entry_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "row_version": "int(10) unsigned NOT NULL DEFAULT 1",
+                "snapshot_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "snapshot_json": "longtext NOT NULL",
+                "source_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "status": "varchar(16) NOT NULL DEFAULT 'pending'",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_unit_payment_operation_actor": "BTREE (created_by)",
+                "fk_unit_payment_operation_original": "BTREE (supplier_id, original_operation_id)",
+                "fk_unit_payment_operation_reverse": "BTREE (supplier_id, reversal_entry_id)",
+                "fk_unit_payment_operation_source": "BTREE (supplier_id, source_id)",
+                "uq_unit_payment_operation_journal": "UNIQUE BTREE (supplier_id, journal_entry_id)",
+                "uq_unit_payment_operation_tenant": "UNIQUE BTREE (supplier_id, id)",
+                "uq_unit_payment_operation_token": "UNIQUE BTREE (supplier_id, idempotency_key)"
+            },
+            "foreign_keys": {
+                "fk_unit_payment_operation_actor": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_payment_operation_journal": "(supplier_id, journal_entry_id) -> journal_entries (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_payment_operation_original": "(supplier_id, original_operation_id) -> unit_payment_operations (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_payment_operation_reverse": "(supplier_id, reversal_entry_id) -> journal_entries (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_payment_operation_source": "(supplier_id, source_id) -> unit_payment_sources (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_payment_operation_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "chk_unit_payment_operation": "`amount_cents` > 0 and `kind` in ('allocation','refund','setoff','reversal','correction') and `status` in ('pending','posted','reversed')",
+                "request_json": "json_valid(`request_json`)",
+                "snapshot_json": "json_valid(`snapshot_json`)"
+            }
+        },
+        "unit_payment_reliefs": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "allocation_id": "bigint(20) unsigned NOT NULL",
+                "amount_cents": "decimal(30,0) NOT NULL",
+                "correction_id": "bigint(20) unsigned NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (supplier_id, correction_id, allocation_id)",
+                "fk_unit_payment_relief_allocation": "BTREE (supplier_id, allocation_id)"
+            },
+            "foreign_keys": {
+                "fk_unit_payment_relief_allocation": "(supplier_id, allocation_id) -> unit_payment_allocations (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_payment_relief_correction": "(supplier_id, correction_id) -> unit_payment_corrections (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "amount_cents": "`amount_cents` > 0"
+            }
+        },
+        "unit_payment_source_heads": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "revision_id": "bigint(20) unsigned NOT NULL",
+                "row_version": "int(10) unsigned NOT NULL",
+                "source_id": "bigint(20) unsigned NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (supplier_id, source_id)",
+                "fk_unit_payment_source_head_revision": "BTREE (supplier_id, source_id, revision_id)"
+            },
+            "foreign_keys": {
+                "fk_unit_payment_source_head_revision": "(supplier_id, source_id, revision_id) -> unit_payment_source_revisions (supplier_id, source_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_payment_source_head_source": "(supplier_id, source_id) -> unit_payment_sources (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "chk_unit_payment_source_head_version": "`row_version` > 0"
+            }
+        },
+        "unit_payment_source_revisions": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "accounting_date": "date NOT NULL",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "effective_at": "datetime(6) NOT NULL",
+                "expected_source_version": "int(10) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "idempotency_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "journal_entry_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "previous_revision_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "recorded_at": "datetime(6) NOT NULL DEFAULT utc_timestamp(6)",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "request_json": "longtext NOT NULL",
+                "revision_no": "int(10) unsigned NOT NULL",
+                "snapshot_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "snapshot_json": "longtext NOT NULL",
+                "source_id": "bigint(20) unsigned NOT NULL",
+                "status": "varchar(8) NOT NULL DEFAULT 'pending'",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_unit_payment_revision_actor": "BTREE (created_by)",
+                "fk_unit_payment_revision_previous": "BTREE (supplier_id, source_id, previous_revision_id)",
+                "uq_unit_payment_revision_entry": "UNIQUE BTREE (supplier_id, journal_entry_id)",
+                "uq_unit_payment_revision_number": "UNIQUE BTREE (supplier_id, source_id, revision_no)",
+                "uq_unit_payment_revision_source_id": "UNIQUE BTREE (supplier_id, source_id, id)",
+                "uq_unit_payment_revision_tenant": "UNIQUE BTREE (supplier_id, id)",
+                "uq_unit_payment_revision_token": "UNIQUE BTREE (supplier_id, idempotency_key)"
+            },
+            "foreign_keys": {
+                "fk_unit_payment_revision_actor": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_payment_revision_journal": "(supplier_id, journal_entry_id) -> journal_entries (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_payment_revision_previous": "(supplier_id, source_id, previous_revision_id) -> unit_payment_source_revisions (supplier_id, source_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_payment_revision_source": "(supplier_id, source_id) -> unit_payment_sources (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "chk_unit_payment_revision_status": "`revision_no` > 0 and `expected_source_version` > 0 and `status` in ('pending','posted') and (`status` = 'pending' or `journal_entry_id` is not null)",
+                "request_json": "json_valid(`request_json`)",
+                "snapshot_json": "json_valid(`snapshot_json`)"
+            }
+        },
+        "unit_payment_sources": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "amount_cents": "decimal(30,0) NOT NULL",
+                "bank_transaction_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "cash_document_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "consumed_cents": "decimal(30,0) NOT NULL DEFAULT 0",
+                "direction": "varchar(3) NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "journal_entry_id": "bigint(20) unsigned NOT NULL",
+                "receipt_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "receipt_json": "longtext NOT NULL",
+                "row_version": "int(10) unsigned NOT NULL DEFAULT 1",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "uq_unit_payment_bank_source": "UNIQUE BTREE (bank_transaction_id)",
+                "uq_unit_payment_cash_source": "UNIQUE BTREE (cash_document_id)",
+                "uq_unit_payment_source_journal": "UNIQUE BTREE (supplier_id, journal_entry_id)",
+                "uq_unit_payment_source_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "fk_unit_payment_source_bank": "(bank_transaction_id) -> bank_transactions (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_payment_source_cash": "(cash_document_id) -> cash_documents (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_payment_source_journal": "(supplier_id, journal_entry_id) -> journal_entries (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_payment_source_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "chk_unit_payment_one_source": "`bank_transaction_id` is null <> (`cash_document_id` is null)",
+                "chk_unit_payment_source_amount": "`amount_cents` > 0 and `consumed_cents` >= 0 and `consumed_cents` <= `amount_cents` and `direction` in ('in','out')",
+                "receipt_json": "json_valid(`receipt_json`)"
+            }
+        },
+        "unit_payment_workflow_operations": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "operation_id": "bigint(20) unsigned NOT NULL",
+                "part_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "part_no": "int(10) unsigned NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "workflow_id": "bigint(20) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "uq_unit_payment_workflow_operation": "UNIQUE BTREE (supplier_id, operation_id)",
+                "uq_unit_payment_workflow_order": "UNIQUE BTREE (supplier_id, workflow_id, part_no)",
+                "uq_unit_payment_workflow_part": "UNIQUE BTREE (supplier_id, workflow_id, part_key)"
+            },
+            "foreign_keys": {
+                "fk_unit_payment_workflow_part_operation": "(supplier_id, operation_id) -> unit_payment_operations (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_payment_workflow_part_owner": "(supplier_id, workflow_id) -> unit_payment_workflows (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": []
+        },
+        "unit_payment_workflows": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "bank_transaction_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "cash_document_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "idempotency_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "journal_entry_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "plan_json": "longtext NOT NULL",
+                "preview_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "recorded_at": "datetime(6) NOT NULL DEFAULT utc_timestamp(6)",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "request_json": "longtext NOT NULL",
+                "row_version": "int(10) unsigned NOT NULL DEFAULT 1",
+                "source_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "source_kind": "varchar(4) NOT NULL",
+                "status": "varchar(12) NOT NULL DEFAULT 'pending'",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_unit_payment_workflow_actor": "BTREE (created_by)",
+                "fk_unit_payment_workflow_bank": "BTREE (bank_transaction_id)",
+                "fk_unit_payment_workflow_cash": "BTREE (cash_document_id)",
+                "fk_unit_payment_workflow_journal": "BTREE (supplier_id, journal_entry_id)",
+                "fk_unit_payment_workflow_source": "BTREE (supplier_id, source_id)",
+                "uq_unit_payment_workflow_tenant": "UNIQUE BTREE (supplier_id, id)",
+                "uq_unit_payment_workflow_token": "UNIQUE BTREE (supplier_id, idempotency_key)"
+            },
+            "foreign_keys": {
+                "fk_unit_payment_workflow_actor": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_payment_workflow_bank": "(bank_transaction_id) -> bank_transactions (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_payment_workflow_cash": "(cash_document_id) -> cash_documents (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_payment_workflow_journal": "(supplier_id, journal_entry_id) -> journal_entries (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_payment_workflow_source": "(supplier_id, source_id) -> unit_payment_sources (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_payment_workflow_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "chk_unit_payment_workflow_source": "`source_kind` in ('bank','cash') and (`bank_transaction_id` is null or `cash_document_id` is null)",
+                "chk_unit_payment_workflow_status": "`status` in ('pending','confirmed') and (`status` = 'pending' or `source_id` is not null and `journal_entry_id` is not null)",
+                "plan_json": "json_valid(`plan_json`)",
+                "request_json": "json_valid(`request_json`)"
+            }
+        },
         "units": {
             "type": "BASE TABLE",
             "engine": "InnoDB",
@@ -24929,7 +25692,15 @@
         "trg_pr_revision_services_update": "BEFORE UPDATE ON property_revision_services #df35f2666dbc920bb225c5793487dfbf6e6cd61e",
         "trg_pr_revisions_delete": "BEFORE DELETE ON property_revisions #df35f2666dbc920bb225c5793487dfbf6e6cd61e",
         "trg_pr_revisions_update": "BEFORE UPDATE ON property_revisions #df35f2666dbc920bb225c5793487dfbf6e6cd61e",
+        "trg_property_certificate_no_delete": "BEFORE DELETE ON property_debt_certificates #7b9e57b68ccd3295e911bfa7783b3be1371b59e3",
+        "trg_property_certificate_no_update": "BEFORE UPDATE ON property_debt_certificates #7b9e57b68ccd3295e911bfa7783b3be1371b59e3",
         "trg_property_object_identity": "BEFORE UPDATE ON property_objects #971d7a4c0f3aa319be058874bd679288e68e266c",
+        "trg_property_party_debt_no_delete": "BEFORE DELETE ON property_claim_party_event_debts #09e54dae44754623ff06ff29539d3414f985f499",
+        "trg_property_party_debt_no_update": "BEFORE UPDATE ON property_claim_party_event_debts #09e54dae44754623ff06ff29539d3414f985f499",
+        "trg_property_party_event_no_delete": "BEFORE DELETE ON property_claim_party_events #09e54dae44754623ff06ff29539d3414f985f499",
+        "trg_property_party_event_no_update": "BEFORE UPDATE ON property_claim_party_events #09e54dae44754623ff06ff29539d3414f985f499",
+        "trg_property_party_member_no_delete": "BEFORE DELETE ON property_claim_party_members #09e54dae44754623ff06ff29539d3414f985f499",
+        "trg_property_party_member_no_update": "BEFORE UPDATE ON property_claim_party_members #09e54dae44754623ff06ff29539d3414f985f499",
         "trg_submission_defect_notice_guard": "BEFORE INSERT ON submission_defect_notices #a86513c4dc1c74e0b4cbe8de9a1bc593f16b17d9",
         "trg_submission_defect_notice_inbox_privacy": "BEFORE INSERT ON submission_defect_notices #8311952e7004cc589badcad747c0804d1de7b8c9",
         "trg_submission_defect_notice_update_guard": "BEFORE UPDATE ON submission_defect_notices #8caf5532dcdb8848b0a4c802df86cd71590a88f0",
@@ -24974,7 +25745,47 @@
         "unit_charge_versions_immutable_delete": "BEFORE DELETE ON unit_charge_versions #c5afbacaba12862c2a877c4c7a6cd6cf5cf93d60",
         "unit_charge_versions_immutable_update": "BEFORE UPDATE ON unit_charge_versions #c5afbacaba12862c2a877c4c7a6cd6cf5cf93d60",
         "unit_charges_guard_update": "BEFORE UPDATE ON unit_charges #313c3018773d952a16ed05cb8402856ea4a1d96d",
-        "unit_charges_immutable_delete": "BEFORE DELETE ON unit_charges #d9772cfe008372988002f0a8131591df3f1168a0"
+        "unit_charges_immutable_delete": "BEFORE DELETE ON unit_charges #d9772cfe008372988002f0a8131591df3f1168a0",
+        "unit_claim_accessory_receipts_immutable_delete": "BEFORE DELETE ON unit_claim_accessory_receipts #c504061195b9df06cb80f0f5716c48353216dfdf",
+        "unit_claim_accessory_receipts_immutable_update": "BEFORE UPDATE ON unit_claim_accessory_receipts #c504061195b9df06cb80f0f5716c48353216dfdf",
+        "unit_credit_events_immutable_delete": "BEFORE DELETE ON unit_credit_events #c504061195b9df06cb80f0f5716c48353216dfdf",
+        "unit_credit_events_immutable_update": "BEFORE UPDATE ON unit_credit_events #c504061195b9df06cb80f0f5716c48353216dfdf",
+        "unit_credit_lots_immutable_delete": "BEFORE DELETE ON unit_credit_lots #c504061195b9df06cb80f0f5716c48353216dfdf",
+        "unit_credit_lots_immutable_update": "BEFORE UPDATE ON unit_credit_lots #ce5e138dee071d22987a4af0e4af62ff52e25d66",
+        "unit_credit_parties_immutable_delete": "BEFORE DELETE ON unit_credit_parties #c504061195b9df06cb80f0f5716c48353216dfdf",
+        "unit_credit_parties_immutable_update": "BEFORE UPDATE ON unit_credit_parties #c504061195b9df06cb80f0f5716c48353216dfdf",
+        "unit_credit_reservations_immutable_delete": "BEFORE DELETE ON unit_credit_reservations #c504061195b9df06cb80f0f5716c48353216dfdf",
+        "unit_credit_reservations_immutable_update": "BEFORE UPDATE ON unit_credit_reservations #8644f5e1e36ac3bb286470ce76187e5f5976bb8e",
+        "unit_payment_allocations_immutable_delete": "BEFORE DELETE ON unit_payment_allocations #c504061195b9df06cb80f0f5716c48353216dfdf",
+        "unit_payment_allocations_immutable_update": "BEFORE UPDATE ON unit_payment_allocations #c504061195b9df06cb80f0f5716c48353216dfdf",
+        "unit_payment_anchors_immutable_delete": "BEFORE DELETE ON unit_payment_correction_anchors #c504061195b9df06cb80f0f5716c48353216dfdf",
+        "unit_payment_anchors_immutable_update": "BEFORE UPDATE ON unit_payment_correction_anchors #c504061195b9df06cb80f0f5716c48353216dfdf",
+        "unit_payment_audit_immutable_delete": "BEFORE DELETE ON unit_payment_audit #c504061195b9df06cb80f0f5716c48353216dfdf",
+        "unit_payment_audit_immutable_update": "BEFORE UPDATE ON unit_payment_audit #c504061195b9df06cb80f0f5716c48353216dfdf",
+        "unit_payment_corrections_immutable_delete": "BEFORE DELETE ON unit_payment_corrections #c504061195b9df06cb80f0f5716c48353216dfdf",
+        "unit_payment_corrections_immutable_update": "BEFORE UPDATE ON unit_payment_corrections #a9abc5a21fff7ac67ce488d11561c1fa6cc8cce7",
+        "unit_payment_debt_lines_immutable_delete": "BEFORE DELETE ON unit_payment_debt_lines #c504061195b9df06cb80f0f5716c48353216dfdf",
+        "unit_payment_debt_lines_immutable_update": "BEFORE UPDATE ON unit_payment_debt_lines #c504061195b9df06cb80f0f5716c48353216dfdf",
+        "unit_payment_debts_immutable_delete": "BEFORE DELETE ON unit_payment_debts #c504061195b9df06cb80f0f5716c48353216dfdf",
+        "unit_payment_debts_immutable_update": "BEFORE UPDATE ON unit_payment_debts #c504061195b9df06cb80f0f5716c48353216dfdf",
+        "unit_payment_export_items_immutable_delete": "BEFORE DELETE ON unit_payment_export_items #30ec2cdc03c150f6f34ebc9dafff6088323234c1",
+        "unit_payment_export_items_immutable_update": "BEFORE UPDATE ON unit_payment_export_items #30ec2cdc03c150f6f34ebc9dafff6088323234c1",
+        "unit_payment_exports_immutable_delete": "BEFORE DELETE ON unit_payment_exports #30ec2cdc03c150f6f34ebc9dafff6088323234c1",
+        "unit_payment_exports_immutable_update": "BEFORE UPDATE ON unit_payment_exports #30ec2cdc03c150f6f34ebc9dafff6088323234c1",
+        "unit_payment_operations_immutable_delete": "BEFORE DELETE ON unit_payment_operations #c504061195b9df06cb80f0f5716c48353216dfdf",
+        "unit_payment_operations_immutable_update": "BEFORE UPDATE ON unit_payment_operations #90d841c78ba0fc5d0ea438310f6e1bb83d8da803",
+        "unit_payment_reliefs_immutable_delete": "BEFORE DELETE ON unit_payment_reliefs #c504061195b9df06cb80f0f5716c48353216dfdf",
+        "unit_payment_reliefs_immutable_update": "BEFORE UPDATE ON unit_payment_reliefs #c504061195b9df06cb80f0f5716c48353216dfdf",
+        "unit_payment_source_heads_guard_delete": "BEFORE DELETE ON unit_payment_source_heads #e1539b73fcf8ec2d0a2fcab779a035542c328594",
+        "unit_payment_source_heads_guard_update": "BEFORE UPDATE ON unit_payment_source_heads #8bd9ef0af5e9ee504770257ec5895bd7b0f3c2d0",
+        "unit_payment_source_revisions_guard_delete": "BEFORE DELETE ON unit_payment_source_revisions #0692169b5fa108ec1d7bb46be3c62cf505ea1ef3",
+        "unit_payment_source_revisions_guard_update": "BEFORE UPDATE ON unit_payment_source_revisions #22d0b00f8ecd17d9a631688f8c5fb791f5f5e265",
+        "unit_payment_sources_immutable_delete": "BEFORE DELETE ON unit_payment_sources #c504061195b9df06cb80f0f5716c48353216dfdf",
+        "unit_payment_sources_immutable_update": "BEFORE UPDATE ON unit_payment_sources #e579841023ab595cd4e561a547dab0dafd74d13f",
+        "unit_payment_workflow_operations_guard_delete": "BEFORE DELETE ON unit_payment_workflow_operations #52d265ff331451863ce1d367c1f20806577c415a",
+        "unit_payment_workflow_operations_guard_update": "BEFORE UPDATE ON unit_payment_workflow_operations #52d265ff331451863ce1d367c1f20806577c415a",
+        "unit_payment_workflows_guard_delete": "BEFORE DELETE ON unit_payment_workflows #52d265ff331451863ce1d367c1f20806577c415a",
+        "unit_payment_workflows_guard_update": "BEFORE UPDATE ON unit_payment_workflows #e20a2d140ec97a6597183a372bb6c03089616afb"
     },
     "routines": {
         "sp_cleanup_expired_sessions": "PROCEDURE #3f07dfb486c1c44eece5a7a5487cac34782cf0b1",

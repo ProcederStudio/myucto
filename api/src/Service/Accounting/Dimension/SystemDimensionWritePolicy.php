@@ -36,6 +36,17 @@ final class SystemDimensionWritePolicy
 
     public function assertJournal(array $header, array $lines, array $previousLines = []): void
     {
+        $this->assertJournalCore($header, $lines, $previousLines);
+    }
+
+    public function assertPropertyPaymentCarrierJournal(array $header, array $lines, \MyInvoice\Service\Property\Payments\PaymentHistoricalCarrierProof $proof): void
+    {
+        $this->assertJournalCore($header, $lines, [], $proof);
+    }
+
+    private function assertJournalCore(array $header, array $lines, array $previousLines, ?\MyInvoice\Service\Property\Payments\PaymentHistoricalCarrierProof $proof = null): void
+    {
+        $carried = $proof?->indices($this->db, $header, $lines) ?? [];
         $supplierId = (int) $header['supplier_id'];
         $this->lockJournalPeriod($header);
         foreach ($lines as $line) {
@@ -45,12 +56,17 @@ final class SystemDimensionWritePolicy
                 break;
             }
         }
-        $this->propertyAssignments($supplierId, $lines, (string) $header['entry_date'], $previousLines);
+        if ($proof === null) {
+            $this->propertyAssignments($supplierId, $lines, (string) $header['entry_date'], $previousLines);
+        } else {
+            try { (new \MyInvoice\Service\Property\PropertyDimensionPolicy($this->db))->assertPaymentCarrierJournal($header, $lines, $proof); }
+            catch (\MyInvoice\Service\Property\PropertyException $e) { throw new PostingException($e->errorCode, $e->getMessage(), $e->httpStatus, $e->details); }
+        }
         $types = $this->types($supplierId, $lines);
         if ($types === [] || !$this->is504($supplierId, (string) $header['entry_date'])) {
             return;
         }
-        $this->assignments($supplierId, $lines, $types, $previousLines);
+        $this->assignments($supplierId, $lines, $types, $previousLines, $carried);
         $stmt = $this->db->pdo()->prepare("SELECT r.id, r.dimension_type_id, r.account_mask, r.enforcement, r.valid_from, r.valid_to
             FROM dimension_account_rules r JOIN dimension_types t ON t.id = r.dimension_type_id
             WHERE r.supplier_id = ? AND r.is_active = 1 AND t.system_key IS NOT NULL ORDER BY r.id FOR UPDATE");
@@ -155,7 +171,7 @@ final class SystemDimensionWritePolicy
         return (new AccountingFrameworkService($this->db, new AccountingFrameworkRepository($this->db)))->forDateForUpdate($supplierId, $date) === AccountingFrameworkService::CZ_504;
     }
 
-    private function assignments(int $supplierId, array $lines, array $types, array $previousLines): void
+    private function assignments(int $supplierId, array $lines, array $types, array $previousLines, array $carried = []): void
     {
         $retained = self::retainedAssignments($lines, $previousLines);
         $requested = [];
@@ -169,7 +185,7 @@ final class SystemDimensionWritePolicy
                     ++$fractional;
                 }
                 foreach ($shares as $valueId => $share) {
-                    $kept = isset($retained[$index]['dimension_splits'][$typeId][$valueId]);
+                    $kept = isset($carried[$index]) || isset($retained[$index]['dimension_splits'][$typeId][$valueId]);
                     self::requestValue($requested, (int) $typeId, (int) $valueId, $kept);
                 }
             }
@@ -178,7 +194,7 @@ final class SystemDimensionWritePolicy
             }
             foreach ($line['dimensions'] ?? [] as $typeId => $valueId) {
                 if (isset($types[$typeId])) {
-                    $kept = ($retained[$index]['dimensions'][$typeId] ?? null) === (int) $valueId;
+                    $kept = isset($carried[$index]) || ($retained[$index]['dimensions'][$typeId] ?? null) === (int) $valueId;
                     self::requestValue($requested, (int) $typeId, (int) $valueId, $kept);
                 }
             }
