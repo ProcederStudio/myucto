@@ -3759,7 +3759,7 @@ final class ClosingService
         if ($replaceTakenOverReason === '') {
             $replaceTakenOverReason = null;
         }
-        return $this->tx(function () use ($supplierId, $periodId, $rowVersion, $meta, $replaceTakenOverReason): array {
+        return $this->tx(fn (): array => (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $periodId, $rowVersion, $meta, $replaceTakenOverReason): array {
             $period = $this->lockPeriod($supplierId, $periodId, $rowVersion);
             // Past #37: open_next musí jít i nad 'approved' obdobím. Je to čistě technický
             // přenos počátečních zůstatků do NÁSLEDUJÍCÍHO období (N+1, open) — do knih
@@ -4073,7 +4073,7 @@ final class ClosingService
                 'taken_over_entry_ids' => $takenOverIds,
             ], $meta);
             return $payload;
-        });
+        }));
     }
 
     // ── revert kroků (R12) ────────────────────────────────────────────────────
