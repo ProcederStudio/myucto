@@ -543,8 +543,11 @@ Pohyby bez dokladu se opakují: bankovní poplatky, převody mezi vlastními ú�
 zařazování každého pohybu v peněžním deníku (§ 74.4) si v menu `Daňová evidence → Pravidla bankovních pohybů` založte
 pravidlo.
 
-- **Podmínky:** směr (příchozí, odchozí), protiúčet, variabilní symbol, text ve zprávě nebo názvu protistrany a rozpětí
-  částky. Vyplnit je potřeba aspoň protiúčet, variabilní symbol nebo text, platit musí všechny vyplněné.
+- **Podmínky:** směr (příchozí, odchozí), protiúčet, variabilní symbol, konstantní symbol, text ve zprávě nebo názvu
+  protistrany a rozpětí částky. Vyplnit je potřeba aspoň protiúčet, variabilní symbol, konstantní symbol nebo text;
+  platit musí všechny vyplněné. Konstantní symbol (KS) je volitelný a může být jedinou podmínkou. Zadává se jako
+  1 až 4 číslice; při porovnání se úvodní nuly ignorují, takže `0308` odpovídá i `308`. Prázdný KS podmínku vypne;
+  `0000` je platná hodnota a neodpovídá pohybu bez KS.
   Protiúčet zadejte ve tvaru `1000000005/5050`, pokud má odpovídat účet i banka. `*/5050` vybere libovolný účet
   s kódem banky `5050`; `1000000005` vybere tento účet bez ohledu na banku. Kód banky má čtyři číslice;
   pohyby bez známého kódu banky neodpovídají podmínce, která kód banky obsahuje.
