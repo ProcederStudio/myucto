@@ -316,8 +316,11 @@ final class FxDiffTest extends TestCase
     private function service(array $openItems, array $rates, float $paidRatio = 0.0, float $ledgerBalance = 0.0): FxRevaluationService
     {
         $repo = $this->createStub(ClosingRepository::class);
-        $repo->method('openFxItems')->willReturn($openItems);
-        $repo->method('paidRatioBefore')->willReturn($paidRatio);
+        $repo->method('fxCaseSnapshot')->willReturn(['history' => [], 'entries' => [], 'items' => array_map(static fn (array $item): array => ['item' => $item, 'evidence' => [
+            'complete' => true, 'findings' => [],
+            'remaining_foreign' => number_format((float) $item['amount_foreign'] * (1 - $paidRatio), 2, '.', ''),
+            'booked_czk' => number_format((float) $item['amount_foreign'] * (1 - $paidRatio) * (float) $item['fx_rate'], 2, '.', ''),
+        ]], $openItems)]);
         $repo->method('accountBalance')->willReturn($ledgerBalance);
 
         $cnb = $this->createStub(CnbExchangeRateClient::class);

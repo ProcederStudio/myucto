@@ -826,7 +826,7 @@ final class ClosingService
             $endsOn = (string) $period['ends_on'];
             $fiscalYear = (int) $period['fiscal_year'];
 
-            $preview = $this->fx->preview($supplierId, $period, $bankRows);
+            $preview = $this->fx->preview($supplierId, $period, $bankRows, true);
             $entries = $this->fx->buildEntries($supplierId, $preview, $endsOn);
 
             $slots = [
@@ -865,6 +865,8 @@ final class ClosingService
             $payload = [
                 'rate_info' => $preview['rate_info'] ?? [],
                 'detail' => $preview['saldo']['detail'] ?? [],
+                'case_projection_version' => $preview['case_projection_version'],
+                'case_history_proof' => $preview['case_history_proof'],
                 'saldo_lines' => $preview['saldo']['lines'] ?? [],
                 'bank_rows' => $bankRows,
                 'bank_lines' => $preview['bank']['lines'] ?? [],
@@ -4053,7 +4055,7 @@ final class ClosingService
                             'side' => (string) $l['side'],
                             'amount' => (float) $l['amount'],
                             'is_red_storno' => (bool) ($l['is_red_storno'] ?? false),
-                        ];
+                        ] + array_intersect_key($l, ['cost_center' => true, 'project_id' => true, 'dimensions' => true, 'dimension_splits' => true]);
                         if (($l['currency_code'] ?? null) !== null) {
                             $line['currency_code'] = $l['currency_code'];
                             $line['fx_rate'] = $l['fx_rate'];
@@ -4705,12 +4707,24 @@ final class ClosingService
         // řádků (např. 311 a 343), proto se řádky slučují na doklad; jinak by se počet
         // nálezů rozcházel s počtem dokladů v tabulce.
         if ($wants('fx_open_items')) {
-            $fxItems = $this->closing->openFxItems($supplierId, $rangeTo);
+            $fxItems = $this->closing->fxItemsWithSettlement($supplierId, $rangeTo);
             $fxByDoc = [];
-            foreach ($fxItems as $it) {
+            foreach ($fxItems as $projection) {
+                $it = $projection['item'];
+                $evidence = $projection['evidence'];
+                $complete = $evidence['complete'];
+                if ($complete && bccomp($evidence['remaining_foreign'], '0', 2) === 0) continue;
+                $remaining = $complete ? (float) $evidence['remaining_foreign'] : null;
+                $issues = $complete ? ($evidence['diagnostics'] ?? []) : ['fx_settlement_unproven'];
                 $docKey = $it['doc_type'] . '#' . $it['doc_id'];
                 if (isset($fxByDoc[$docKey])) {
-                    $fxByDoc[$docKey]['amount_foreign'] += (float) $it['amount_foreign'];
+                    $row = &$fxByDoc[$docKey];
+                    $row['amount'] = $row['amount'] !== null && $remaining !== null ? round($row['amount'] + $remaining, 2) : null;
+                    $row['issues'] = array_values(array_unique([...$row['issues'], ...$issues]));
+                    $row['detail']['settlement_complete'] = $row['detail']['settlement_complete'] && $complete;
+                    $row['detail']['remaining_foreign'] = $row['amount'];
+                    $row['detail']['settlement_findings'] = array_values(array_unique([...$row['detail']['settlement_findings'], ...$evidence['findings']]));
+                    unset($row);
                     continue;
                 }
                 $fxByDoc[$docKey] = [
@@ -4719,9 +4733,15 @@ final class ClosingService
                     'doc_no'       => (string) ($it['varsymbol'] ?? ''),
                     'doc_date'     => $it['doc_date'] ?? null,
                     'partner_name' => $it['partner_name'] ?? null,
-                    'amount'       => round((float) $it['total_with_vat'], 2),
+                    'amount'       => $remaining,
                     'currency'     => (string) $it['currency_code'],
-                    'amount_foreign' => (float) $it['amount_foreign'],
+                    'issues'       => $issues,
+                    'detail'       => [
+                        'settlement_complete' => $complete,
+                        'settlement_findings' => $evidence['findings'],
+                        'remaining_foreign' => $remaining,
+                        'document_total_foreign' => round((float) $it['total_with_vat'], 2),
+                    ],
                 ];
             }
             $fxRows = array_values($fxByDoc);

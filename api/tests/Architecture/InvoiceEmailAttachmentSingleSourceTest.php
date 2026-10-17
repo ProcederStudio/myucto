@@ -37,7 +37,7 @@ final class InvoiceEmailAttachmentSingleSourceTest extends TestCase
         'Action/Invoice/SendTestReminderAction.php' => 'SendTestReminderAction::__invoke',
         'Service/Invoice/AutoIssueAndSendService.php' => 'AutoIssueAndSendService::run',
         'Service/Invoice/ReminderService.php'       => 'ReminderService::send',
-        'Service/Mail/PaymentThanksMailer.php'      => 'PaymentThanksMailer::sendForInvoice',
+        'Service/Mail/PaymentThanksMailer.php'      => 'PaymentThanksMailer::sendCommitted',
     ];
 
     public function testPdfPrilohuEmailuSestavujeJenPovolenaMetoda(): void
@@ -74,6 +74,14 @@ final class InvoiceEmailAttachmentSingleSourceTest extends TestCase
         }
 
         self::assertSame([], $missing, "Cesta e-mailu s fakturou bez pdfAttachment():\n  " . implode("\n  ", $missing));
+    }
+
+    public function testPrimeIFrontovanePodekovaniPouzivaStejnyCommittedSender(): void
+    {
+        $tokens = \PhpToken::tokenize((string) file_get_contents(dirname(__DIR__, 2) . '/src/Service/Mail/PaymentThanksMailer.php'));
+        $callers = $this->methodsCalling($tokens, 'sendCommitted');
+        self::assertContains('PaymentThanksMailer::sendForInvoice', $callers);
+        self::assertContains('PaymentThanksMailer::flushDeferred', $callers);
     }
 
     /**

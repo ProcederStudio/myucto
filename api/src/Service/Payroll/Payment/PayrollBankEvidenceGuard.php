@@ -79,10 +79,12 @@ final class PayrollBankEvidenceGuard
         }
     }
 
-    public function assertAvailableForBankPosting(int $bankTransactionId): void
+    public function assertAvailableForBankPosting(int $bankTransactionId, bool $currentRead = true): void
     {
-        $statement = $this->db->pdo()->prepare('SELECT id FROM bank_transactions WHERE id = ? FOR UPDATE');
-        $statement->execute([$bankTransactionId]);
+        if ($currentRead) {
+            $statement = $this->db->pdo()->prepare('SELECT id FROM bank_transactions WHERE id = ? FOR UPDATE');
+            $statement->execute([$bankTransactionId]);
+        }
         try {
             $statement = $this->db->pdo()->prepare(
                 'SELECT payment_match.id FROM payroll_payment_matches payment_match
@@ -90,7 +92,7 @@ final class PayrollBankEvidenceGuard
                      ON entry.supplier_id = payment_match.supplier_id
                     AND entry.source_type = "payroll_payment" AND entry.source_id = payment_match.id
                     AND entry.reversed_by IS NULL AND entry.posted_at IS NOT NULL
-                  WHERE payment_match.bank_transaction_id = ? LIMIT 1 FOR UPDATE',
+                  WHERE payment_match.bank_transaction_id = ? LIMIT 1' . ($currentRead ? ' FOR UPDATE' : ''),
             );
             $statement->execute([$bankTransactionId]);
             if ($statement->fetchColumn() !== false) {

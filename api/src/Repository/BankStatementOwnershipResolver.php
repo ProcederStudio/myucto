@@ -112,7 +112,7 @@ final class BankStatementOwnershipResolver
      * Patří bankovní transakce supplieru? `bank_transactions` vlastní sloupec
      * supplier_id nemá — vlastnictví se dědí z hlavičky výpisu.
      */
-    public function transactionOwned(int $transactionId, int $supplierId): bool
+    public function transactionOwned(int $transactionId, int $supplierId, bool $currentRead = false): bool
     {
         if ($transactionId <= 0 || $supplierId <= 0) {
             return false;
@@ -121,7 +121,7 @@ final class BankStatementOwnershipResolver
             'SELECT 1
                FROM bank_transactions bt
                JOIN bank_statements bs ON bs.id = bt.statement_id
-              WHERE bt.id = ? AND ' . self::sql() . ' LIMIT 1'
+              WHERE bt.id = ? AND ' . self::sql('bs', $currentRead) . ' LIMIT 1' . ($currentRead ? ' FOR UPDATE' : '')
         );
         $stmt->execute(array_merge([$transactionId], self::params($supplierId)));
 

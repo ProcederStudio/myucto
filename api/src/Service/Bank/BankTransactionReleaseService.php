@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Bank;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Service\Accounting\AutoPostingPolicyService;
 use MyInvoice\Service\Accounting\Bank\BankPostingService;
 use MyInvoice\Service\Accounting\PostingException;
@@ -55,8 +56,9 @@ final class BankTransactionReleaseService
      *
      * @return list<int>
      */
-    public function releasableTransactionIds(int $supplierId, int $statementId): array
+    public function releasableTransactionIds(int $supplierId, int $statementId, bool $currentRead = false): array
     {
+        $lock = $currentRead ? ' FOR UPDATE' : '';
         $types = self::sourceTypesSql();
         $stmt = $this->db->pdo()->prepare(
             "SELECT bt.id
@@ -64,12 +66,12 @@ final class BankTransactionReleaseService
               WHERE bt.statement_id = ?
                 AND (bt.match_status IN " . self::MATCHED_STATUSES . "
                      OR bt.matched_invoice_id IS NOT NULL
-                     OR EXISTS (SELECT 1 FROM invoice_payments ip WHERE ip.bank_transaction_id = bt.id)
-                     OR EXISTS (SELECT 1 FROM payment_matches pm WHERE pm.bank_transaction_id = bt.id)
+                     OR EXISTS (SELECT 1 FROM invoice_payments ip WHERE ip.bank_transaction_id = bt.id{$lock})
+                     OR EXISTS (SELECT 1 FROM payment_matches pm WHERE pm.bank_transaction_id = bt.id{$lock})
                      OR EXISTS (SELECT 1 FROM journal_entries je
                                  WHERE je.supplier_id = ? AND je.source_type IN ($types)
-                                   AND je.source_id = bt.id AND je.reversed_by IS NULL))
-              ORDER BY bt.id"
+                                   AND je.source_id = bt.id AND je.reversed_by IS NULL{$lock}))
+              ORDER BY bt.id{$lock}"
         );
         $stmt->execute([$statementId, $supplierId]);
         return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN) ?: []);
@@ -138,13 +140,8 @@ final class BankTransactionReleaseService
             $pdo->beginTransaction();
         }
         try {
-            $stmt = $pdo->prepare(
-                'SELECT id, statement_id, matched_invoice_id, posted_at, match_status
-                   FROM bank_transactions WHERE id = ?'
-            );
-            $stmt->execute([$txId]);
-            $tx = $stmt->fetch(PDO::FETCH_ASSOC);
-            if ($tx === false) {
+            $tx = $this->bankPosting->lockTransaction($supplierId, $txId);
+            if ($tx === null) {
                 throw new BankTransactionReleaseException('not_found', 'Transakce nenalezena.', 404);
             }
 
@@ -163,6 +160,9 @@ final class BankTransactionReleaseService
             }
             return $result;
         } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             if ($ownTx && $pdo->inTransaction()) {
                 $pdo->rollBack();
             }

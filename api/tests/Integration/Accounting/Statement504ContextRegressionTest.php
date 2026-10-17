@@ -15,6 +15,7 @@ use MyInvoice\Service\Accounting\Reports\StatementFrameworkResolver;
 use MyInvoice\Service\Accounting\Reports\StatementNotesService;
 use MyInvoice\Tests\Support\IsolatedSupplierTrait;
 use PDO;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 
@@ -71,6 +72,24 @@ final class Statement504ContextRegressionTest extends TestCase
             }
         }
         $pdo->prepare('UPDATE journal_entries SET posted_at = NOW() WHERE id = ?')->execute([$entry]);
+    }
+
+    public static function nonAnnualPeriods(): iterable
+    {
+        yield 'six months' => ['2099-06-30', '8000000.00', 16000000.0, 'micro'];
+        yield 'eighteen months' => ['2100-06-30', '45000000.00', 30000000.0, 'small'];
+    }
+
+    #[DataProvider('nonAnnualPeriods')]
+    public function testAnnualTurnoverIsClassifiedOnce(string $endsOn, string $revenue, float $annualTurnover, string $expectedCategory): void
+    {
+        $period = $this->periods[2099];
+        $this->db->pdo()->prepare('UPDATE accounting_periods SET ends_on = ? WHERE id = ?')->execute([$endsOn, $period]);
+        $this->post(2099, '022', '901', '40000000.00', 'opening');
+        $this->post(2099, '221', '602', $revenue, 'manual', true);
+        $result = Bootstrap::buildContainer()->get(EntityCategoryService::class)->evaluate($this->supplier, $period);
+        self::assertSame($annualTurnover, $result['criteria']['net_turnover']);
+        self::assertSame($expectedCategory, $result['raw_current']);
     }
 
     private function history(): void

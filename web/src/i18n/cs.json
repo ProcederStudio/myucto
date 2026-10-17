@@ -18434,7 +18434,9 @@
         "col_remaining": "Zbývá (cizí měna)",
         "col_doc_rate": "Kurz dokladu",
         "col_cnb_rate": "Kurz ČNB",
-        "col_diff": "Rozdíl",
+        "col_diff": "Změna ocenění od dokladu",
+        "col_carrying": "Přeneseno z minulých let",
+        "col_increment": "Zisk / ztráta tohoto roku",
         "doc_type": {
           "invoice": "FV",
           "purchase_invoice": "FP"
@@ -20728,7 +20730,9 @@
       "attachment_tax_date": "DUZP na příloze jiný den",
       "attachment_amount": "částka na příloze jiná",
       "attachment_counterparty_ico": "IČO protistrany na příloze jiné",
-      "attachment_variable_symbol": "VS na příloze jiný"
+      "attachment_variable_symbol": "VS na příloze jiný",
+      "payment_header_divergence": "Údaj o zaplacení dokladu se liší od doložených úhrad. Přecenění používá úhrady doložené k rozvahovému dni.",
+      "fx_settlement_unproven": "Zůstatek dokladu nelze pro přecenění spolehlivě určit. Otevřete náhled kurzových rozdílů a opravte uvedené vazby."
     },
     "open_list": "Otevřít v seznamu",
     "field": {
@@ -21203,6 +21207,8 @@
     "send_payment_thanks": "Odeslat zákazníkovi poděkování za úhradu",
     "send_payment_thanks_no_recipient": "Faktura nemá e-mail příjemce.",
     "payment_thanks_sent": "Poděkování za úhradu odesláno.",
+    "payment_thanks_queued": "Poděkování za úhradu je zařazeno do fronty.",
+    "bulk_thanks_queued": "Poděkování ve frontě: {n}.",
     "payment_thanks_failed": "Označeno jako zaplacené, ale poděkování se nepodařilo odeslat.",
     "payment_thanks_no_recipient": "Označeno jako zaplacené; poděkování neodesláno (chybí e-mail příjemce).",
     "bulk_send_thanks_confirm": "Odeslat i poděkování za úhradu pro {n} faktur?",
