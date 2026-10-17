@@ -1008,7 +1008,7 @@
         "2036_unit_quantity_decimals.sql",
         "2037_simplified_document_series_and_customer.sql",
         "2038_invoice_edit_issued_permission.sql",
-        "2039_supplier_person_title.sql"
+        "2047_supplier_person_title.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
