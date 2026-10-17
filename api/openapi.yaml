@@ -13815,6 +13815,11 @@ paths:
         z doložených úhrad a zúčtovaných záloh; bankovní a samostatná evidence téže
         platby se započtou jednou. Rozdíl proti historickému údaji o zaplacení uvádí
         `warnings`. Nedoložitelný zůstatek vrací HTTP 422 s kódem `fx_settlement_unproven`.
+        Zisky a ztráty se účtují po doložených případech se stejným účtem, měnou a úplnou analytikou.
+        Přenesené přecenění vyžaduje soulad rozpisu, deníku, storen a uzavření i otevření knih;
+        nedoložená historie vrací HTTP 422 `fx_case_history_unproven`. `diff` porovnává hodnotu
+        s původním dokladem; `incremental_signed` je skutečný zisk (kladný) nebo ztráta (záporná)
+        běžného období po odečtení doloženého `carrying_before`.
       parameters:
         - $ref: '#/components/parameters/SupplierIdHeader'
         - { in: path, name: id, required: true, schema: { type: integer } }
@@ -29588,6 +29593,185 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
 
   schemas:
+    ClosingFxSourceTuple:
+      type: object
+      additionalProperties: false
+      required:
+      - cost_center
+      - project_id
+      - dimensions
+      - dimension_splits
+      properties:
+        cost_center:
+          type:
+          - string
+          - 'null'
+        project_id:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+        dimensions:
+          anyOf:
+          - type: object
+            additionalProperties:
+              type: integer
+              minimum: 1
+          - type: array
+            maxItems: 0
+        dimension_splits:
+          anyOf:
+          - type: object
+            additionalProperties:
+              anyOf:
+              - type: object
+                additionalProperties:
+                  type: number
+                  minimum: 0
+                  maximum: 100
+              - type: array
+                maxItems: 0
+          - type: array
+            maxItems: 0
+    ClosingFxCaseHistoryProof:
+      type: object
+      additionalProperties: false
+      required:
+      - period_id
+      - step_id
+      - source_line_ids
+      - closed_home_source_line_ids
+      - fx_entry_id
+      - closing_entry_id
+      - opening_entry_id
+      - reversal_entry_id
+      properties:
+        period_id:
+          type: integer
+          minimum: 1
+        step_id:
+          type: integer
+          minimum: 1
+        source_line_ids:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+        closed_home_source_line_ids:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+        fx_entry_id:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+        closing_entry_id:
+          type: integer
+          minimum: 1
+        opening_entry_id:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+          description: Computed opening journal ID; null for a proven retained opening group.
+        opening_entry_ids:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          description: Actual journal IDs of the complete retained opening group. Present only when opening_entry_id is null.
+          items:
+            type: integer
+            minimum: 1
+        reversal_entry_id:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+    ClosingFxCaseDetail:
+      type: object
+      additionalProperties: false
+      required:
+      - doc_type
+      - doc_id
+      - varsymbol
+      - account_code
+      - currency_code
+      - remaining_foreign
+      - fx_rate
+      - rate_cnb
+      - booked_czk
+      - new_czk
+      - diff
+      - direction
+      - case_id
+      - source_tuple
+      - source_proof_hash
+      - source_line_id
+      - source_entry_id
+      - carrying_before
+      - incremental_signed
+      properties:
+        doc_type:
+          type: string
+          enum:
+          - invoice
+          - purchase_invoice
+        doc_id:
+          type: integer
+          minimum: 1
+        varsymbol:
+          type:
+          - string
+          - 'null'
+        account_code:
+          type: string
+        currency_code:
+          type: string
+        remaining_foreign:
+          type: number
+        fx_rate:
+          type: number
+        rate_cnb:
+          type: number
+        booked_czk:
+          type: number
+        new_czk:
+          type: number
+        diff:
+          type: number
+        direction:
+          type:
+          - string
+          - 'null'
+          enum:
+          - gain
+          - loss
+          - null
+        case_id:
+          type: string
+        source_tuple:
+          $ref: '#/components/schemas/ClosingFxSourceTuple'
+        source_proof_hash:
+          type:
+          - string
+          - 'null'
+          pattern: ^[a-f0-9]{64}$
+        source_line_id:
+          type: integer
+          minimum: 1
+        source_entry_id:
+          type: integer
+          minimum: 1
+        carrying_before:
+          description: Doložená přenesená změna saldokontní hodnoty v Kč, kladná pro historický zisk a záporná pro ztrátu.
+          type: string
+          pattern: ^-?[0-9]+\.[0-9]{2}$
+        incremental_signed:
+          description: Zisk nebo ztráta běžného období v Kč po odečtení carrying_before; kladná hodnota znamená zisk.
+          type: string
+          pattern: ^-?[0-9]+\.[0-9]{2}$
     AiAssistantStatus:
       type: object
       required: [available, reason, provider, model, supports_files, models]
@@ -43318,6 +43502,8 @@ components:
       - saldo
       - bank
       - totals
+      - case_projection_version
+      - case_history_proof
       properties:
         rate_info:
           type: array
@@ -43330,10 +43516,13 @@ components:
               type: array
               items:
                 type: object
+                properties:
+                  source_tuple:
+                    $ref: '#/components/schemas/ClosingFxSourceTuple'
             detail:
               type: array
               items:
-                type: object
+                $ref: '#/components/schemas/ClosingFxCaseDetail'
         bank:
           type: object
         ledger:
@@ -43356,6 +43545,13 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ClosingFxSettlementWarning'
+        case_projection_version:
+          type: integer
+          const: 1
+        case_history_proof:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClosingFxCaseHistoryProof'
 
     ClosingCheckFinding:
       type: object

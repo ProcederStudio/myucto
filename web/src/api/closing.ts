@@ -245,6 +245,8 @@ export interface FxDetailRow {
   fx_rate: number
   rate_cnb: number
   diff: number
+  carrying_before?: string
+  incremental_signed?: string
   account_code?: string
 }
 

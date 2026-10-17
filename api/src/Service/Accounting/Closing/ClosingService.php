@@ -831,6 +831,8 @@ final class ClosingService
             $payload = [
                 'rate_info' => $preview['rate_info'] ?? [],
                 'detail' => $preview['saldo']['detail'] ?? [],
+                'case_projection_version' => $preview['case_projection_version'],
+                'case_history_proof' => $preview['case_history_proof'],
                 'saldo_lines' => $preview['saldo']['lines'] ?? [],
                 'bank_rows' => $bankRows,
                 'bank_lines' => $preview['bank']['lines'] ?? [],
@@ -3873,7 +3875,7 @@ final class ClosingService
                             'side' => (string) $l['side'],
                             'amount' => (float) $l['amount'],
                             'is_red_storno' => (bool) ($l['is_red_storno'] ?? false),
-                        ];
+                        ] + array_intersect_key($l, ['cost_center' => true, 'project_id' => true, 'dimensions' => true, 'dimension_splits' => true]);
                         if (($l['currency_code'] ?? null) !== null) {
                             $line['currency_code'] = $l['currency_code'];
                             $line['fx_rate'] = $l['fx_rate'];

@@ -694,7 +694,7 @@ final class ClosingRepository
         $stmt = $this->db->pdo()->prepare(
             "(SELECT 'invoice' AS doc_type, i.id AS doc_id, i.varsymbol,
                     i.issue_date AS doc_date, cl.company_name AS partner_name,
-                    l.account_id, ca.account_code, l.currency_code, l.fx_rate,
+                    l.account_id, ca.account_code, l.currency_code, l.fx_rate, l.id AS source_line_id, e.id AS source_entry_id, l.amount AS source_amount, l.amount_foreign AS source_foreign, l.side AS source_side, l.is_red_storno AS source_is_red_storno, e.entry_date AS source_entry_date, l.cost_center, l.project_id,
                     CASE WHEN l.side = 'debit' THEN l.signed_amount_foreign ELSE -l.signed_amount_foreign END AS amount_foreign,
                     i.total_with_vat, i.paid_at, i.status
                FROM journal_entry_lines l
@@ -711,7 +711,7 @@ final class ClosingRepository
              UNION ALL
              (SELECT 'purchase_invoice' AS doc_type, pi.id AS doc_id, pi.varsymbol,
                     pi.issue_date AS doc_date, vn.company_name AS partner_name,
-                    l.account_id, ca.account_code, l.currency_code, l.fx_rate,
+                    l.account_id, ca.account_code, l.currency_code, l.fx_rate, l.id AS source_line_id, e.id AS source_entry_id, l.amount AS source_amount, l.amount_foreign AS source_foreign, l.side AS source_side, l.is_red_storno AS source_is_red_storno, e.entry_date AS source_entry_date, l.cost_center, l.project_id,
                     CASE WHEN l.side = 'credit' THEN l.signed_amount_foreign ELSE -l.signed_amount_foreign END AS amount_foreign,
                     pi.total_with_vat, pi.paid_at, pi.status
                FROM journal_entry_lines l
@@ -814,6 +814,11 @@ final class ClosingRepository
                 'czk_balance' => round((float) $r['czk_balance'], 2),
             ];
         }, $stmt->fetchAll(PDO::FETCH_ASSOC));
+    }
+
+    public function fxCaseSnapshot(int $supplierId, array $period, bool $currentRead = false): array
+    {
+        return (new FxCaseHistoryRepository($this->db, $this))->snapshot($supplierId, $period, $currentRead);
     }
 
     public function fxItemsWithSettlement(int $supplierId, string $asOf, bool $currentRead = false): array

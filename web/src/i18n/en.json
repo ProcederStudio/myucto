@@ -18350,7 +18350,9 @@
         "col_remaining": "Remaining (foreign)",
         "col_doc_rate": "Document rate",
         "col_cnb_rate": "CNB rate",
-        "col_diff": "Difference",
+        "col_diff": "Change from document value",
+        "col_carrying": "Carried from prior years",
+        "col_increment": "Current year gain / loss",
         "doc_type": {
           "invoice": "AR",
           "purchase_invoice": "AP"

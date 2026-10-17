@@ -18350,7 +18350,9 @@
         "col_remaining": "Zbývá (cizí měna)",
         "col_doc_rate": "Kurz dokladu",
         "col_cnb_rate": "Kurz ČNB",
-        "col_diff": "Rozdíl",
+        "col_diff": "Změna ocenění od dokladu",
+        "col_carrying": "Přeneseno z minulých let",
+        "col_increment": "Zisk / ztráta tohoto roku",
         "doc_type": {
           "invoice": "FV",
           "purchase_invoice": "FP"

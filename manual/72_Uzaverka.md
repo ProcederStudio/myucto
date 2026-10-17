@@ -118,7 +118,7 @@ Nebyl-li v období žádný odpisovaný majetek, krok se přeskočí sám.
 Krok se zpřístupní až po zahájení uzávěrky. Zobrazí přecenění cizoměnových položek kurzem ČNB k rozvahovému
 dni (§ 24 odst. 6 a 7 zákona o účetnictví, ČÚS 006).
 
-1. V části **Saldokonto** zkontrolujte tabulku otevřených cizoměnových vydaných (FV) a přijatých (FP) faktur: zbývá v cizí měně, kurz dokladu, kurz ČNB a vypočtený rozdíl (zeleně kladný, červeně záporný). Nad tabulkou je pro každou měnu použitý kurz ČNB a datum; pokud se ke dni nenašel platný kurz a použil se náhradní, zobrazí se u měny varovná ikona.
+1. V části **Saldokonto** zkontrolujte tabulku cizoměnových vydaných (FV) a přijatých (FP) faktur: zbývá v cizí měně, kurz dokladu a kurz ČNB. Změna ocenění od dokladu, přecenění přenesené z minulých let a skutečný zisk nebo ztráta tohoto roku mají samostatné sloupce. Zelená označuje zisk běžného roku, červená ztrátu; změna korunové hodnoty závazku sama o sobě není zisk. Nad tabulkou je pro každou měnu použitý kurz ČNB a datum; pokud se ke dni nenašel platný kurz a použil se náhradní, zobrazí se u měny varovná ikona.
 2. V části **Devizové účty a valutové pokladny** doplňte řádky: účet z osnovy, měna, **Zůstatek v cizí měně**. Tlačítkem **Přidat řádek pokladny** přidáte řádek, křížkem ho odeberete. Aplikace nabízí i návrhy zůstatků z posledních bankovních výpisů, účet osnovy ale doplňte ručně (výpis nese jen číslo účtu banky).
 3. Cizoměnové zůstatky účtů **378** a **379** (například eurová záloha od faktora) aplikace přecení sama z účetního deníku. Zobrazí je v samostatné tabulce jen pro čtení. Bere jen řádky v dané měně, korunové pohyby na týchž účtech se nepřeceňují. Tyto účty do devizových účtů nezadávejte, aplikace je tam odmítne.
 4. Klikněte na **Přepočítat návrh** (náhled bez zaúčtování).
@@ -126,6 +126,8 @@ dni (§ 24 odst. 6 a 7 zákona o účetnictví, ČÚS 006).
 6. Potvrďte krok.
 
 Administrátor může přecenění vzít zpět tlačítkem **Zrušit přecenění** (smaže zaúčtovaný zápis).
+
+Saldokontní kurzové zisky a ztráty se počítají pro jednotlivé doložené účetní případy. Zisk jedné faktury se při účtování nezapočítává proti ztrátě jiné faktury. Dobropis se posuzuje spolu s původním dokladem, pokud je doložena jejich vazba a stejná protistrana. Přecenění zachovává středisko, projekt i úplné dimenze zdrojového zápisu. Při pokračování z minulého období se odečte pouze prokazatelně přenesené přecenění. Program kontroluje uložený rozpis, účetní zápis, případné storno a návaznost uzavření a otevření knih. Pokud podklady nesouhlasí nebo chybí, přecenění zastaví s konkrétním důvodem; uzavřené knihy automaticky nemění.
 
 **Jak poznáte, že je hotovo:** Aplikace ohlásí **Kurzové rozdíly byly zaúčtovány** a krok je potvrzený.
 

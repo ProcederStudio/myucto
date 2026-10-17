@@ -18,6 +18,20 @@ final class ErrorCatalog
 {
     /** @var array<string,string> CZ → EN */
     private const MAP = [
+        'Vazba dobropisu na původní doklad nemá doloženou stejnou protistranu a časové pořadí.' => 'The credit note link to the original document does not prove the same counterparty and chronological order.',
+        'Doklad má více saldokontních řádků pro stejný účet a měnu. Jejich přiřazení k účetnímu případu není jednoznačně doloženo.' => 'The document has multiple open-item journal lines for the same account and currency. Their allocation to the accounting case is not uniquely established.',
+        'Historický podklad přecenění neobsahuje důkaz původního střediska, projektu nebo dimenzí dokladu.' => 'The historical revaluation record does not establish the document\'s original cost centre, project or dimensions.',
+        'Původní účetní zápis nebo jeho dimenze nesouhlasí s uloženým podkladem přecenění.' => 'The original journal entry or its dimensions do not match the stored revaluation record.',
+        'Kurzy v historickém rozpisu dokladů nesouhlasí s uloženým kurzovým podkladem.' => 'Exchange rates in the historical document breakdown do not match the stored rate evidence.',
+        'Částky historického přecenění nesouhlasí s doloženými zůstatky dokladů a účetním zápisem.' => 'Historical revaluation amounts do not reconcile with the proven document balances and journal entry.',
+        'Historické úhrady a vypořádání dokladu nelze jednoznačně doložit.' => 'Historical payments and settlements of the document cannot be uniquely established.',
+        'Počáteční zůstatek účtu nesouhlasí s uzavřeným deníkem a doloženým rozpisem účetních případů.' => 'The opening account balance does not reconcile with the closed ledger and proven accounting case breakdown.',
+        'Storno historického přecenění není úplným zrcadlem původního účetního zápisu.' => 'The historical revaluation reversal does not exactly mirror the entire original journal entry.',
+        'Účet obsahuje historické přecenění bez jednoznačné vazby na doklady a uložený podklad uzávěrky.' => 'The account contains a historical revaluation without an unambiguous link to documents and a stored closing record.',
+        'Chybí úplná doložená návaznost historického přecenění, uzavření knih a otevření dalšího období.' => 'A complete proven chain of historical revaluation, closing the books and opening the next period is missing.',
+        'Rozpis účetních případů není úplný vůči původním dokladům a dosud zaúčtovanému přecenění.' => 'The accounting case breakdown is incomplete against the original documents and previously posted revaluation.',
+        'Účetní zápis historického přecenění nemá doložené období, měnu nebo správnou protistranu.' => 'The historical revaluation entry does not establish its accounting period, currency or correct counterpart account.',
+        'Historický podklad přecenění chybí nebo má neplatný formát. Bez úplného podkladu nelze určit přecenění jednotlivých účetních případů.' => 'The historical revaluation record is missing or malformed. Complete evidence is required to determine the revaluation of individual accounting cases.',
         'Poděkování nelze odeslat v neukončené transakci.' => 'A payment thank-you cannot be sent while a transaction is pending.',
         'Zámek poděkování nelze získat.' => 'The payment thank-you lock could not be acquired.',
         'Uzavřené účetní knihy nelze měnit. Nejprve je znovu otevřete.' => 'Closed accounting books cannot be changed. Reopen them first.',
