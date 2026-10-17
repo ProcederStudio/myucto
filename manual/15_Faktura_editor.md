@@ -229,7 +229,8 @@ Dobropis vztahující se k jiné faktuře nezakládejte ručně přes **Typ dokl
   zakázky se předvyplní hodinová sazba a splatnost.
 - **Zjednodušený daňový doklad** (§ 30 ZDPH, jen plátce): klient je u něj nepovinný. S vybraným
   klientem se pod zaškrtávátkem objeví **Netisknout odběratele na dokladu**; klient na dokladu
-  zůstane, jen se nevytiskne na PDF ani webové faktuře. Výchozí hodnotu nastavíte ve
+  zůstane, jen se nevytiskne na PDF ani webové faktuře (ISDOC, i ten vložený do PDF, odběratele
+  nese dál). Výchozí hodnotu nastavíte ve
   `Firma → Nastavení` na záložce **Fakturace** (viz [§ 40.9.10](40_Fakturujeme.md#40910-zjednoduseny-danovy-doklad-30-zdph)).
 
 > [!WARNING]

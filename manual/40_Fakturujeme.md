@@ -343,7 +343,8 @@ vynechat i u vybraného klienta. Volba **Netisknout odběratele na dokladu** je 
 zaškrtávátkem zjednodušeného dokladu; výchozí hodnotu pro nové doklady nastavíte v
 `Firma → Nastavení` na záložce **Fakturace**. Volba se ukládá na doklad, takže pozdější změna
 nastavení firmy vystavená PDF nemění. Platí pro PDF i webovou fakturu, ISDOC odběratele nese dál
-(strukturovaná data pro účetnictví příjemce). Klient na dokladu zůstává, takže se počítá do
+(strukturovaná data pro účetnictví příjemce), a to i ISDOC vložený přímo do PDF, takže odběratel
+v souboru PDF zůstává, jen není vidět. Klient na dokladu zůstává, takže se počítá do
 statistik i obratu a uplatní se jeho cenová hladina. Běžná faktura odběratele nést musí (§ 29),
 u ní se volba neuloží. Změna volby u vystaveného dokladu archivuje dosavadní PDF a v uzavřeném
 období ji nejde provést jako úpravu jen poznámek.
