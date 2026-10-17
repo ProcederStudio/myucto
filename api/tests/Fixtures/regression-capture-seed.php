@@ -100,4 +100,5 @@ foreach ([['2026-06-15', 10000], ['2026-12-15', 9000]] as [$day, $amount]) {
     ], ['entry_date' => $day, 'posted_by' => $user, 'user_id' => $user]);
 }
 $container->get(TaxReturnRepository::class)->create($sid, 2026, 'po', ['tax_paid_advances' => 100, 'filing_deadline' => '2099-04-01'], $user);
+require __DIR__ . '/regression-closing-seed.php';
 echo "SYNTHETIC_CAPTURE_SEEDED\n";

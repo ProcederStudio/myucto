@@ -46,6 +46,7 @@ final class RegressionManifestTest extends TestCase
         self::assertEmpty(array_filter($cases, static fn (array $c): bool => $c['kind'] === 'control_statement' && $c['args'][0] === 1 && $c['args'][3] === 'quarterly'));
         self::assertNotEmpty(array_filter($cases, static fn (array $c): bool => $c['kind'] === 'control_statement' && $c['args'][0] === 2 && $c['args'][3] === 'quarterly'));
         self::assertFalse($manifest['coverage']['complete']);
+        self::assertTrue($manifest['coverage']['manifest_complete']);
     }
 
     public function testDiscoveryIncludesInactiveBranchFiltersAndJointCompanyDimensions(): void
@@ -71,7 +72,7 @@ final class RegressionManifestTest extends TestCase
     public function testHistoricalTaxYearStillHasReturnButNoUnsupportedForecastCall(): void
     {
         $pdo = self::discoveryDatabase();
-        $pdo->exec('INSERT INTO income_tax_returns VALUES (1, 2019)');
+        $pdo->exec("INSERT INTO income_tax_returns VALUES (1, 2019, 'po')");
         $manifest = Manifest::discover($pdo, '2026-06-30');
         $cases = array_values($manifest['cases']);
         self::assertNotEmpty(array_filter($cases, static fn (array $c): bool => $c['kind'] === 'dppo_preview' && $c['args'] === [1, 2019, 'po']));
@@ -84,6 +85,97 @@ final class RegressionManifestTest extends TestCase
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('missing_exchange_rates');
         Manifest::normalize(['warnings' => [['type' => 'fx_rate_approximate', 'blocking' => false]]], '2026-06-30');
+    }
+
+    public function testCoverageInvokesFinancialPreviewsAndTaxXmlInsteadOfLeavingGaps(): void
+    {
+        $manifest = Manifest::discover(self::discoveryDatabase(), '2026-06-30');
+        $kinds = array_column(array_values($manifest['cases']), 'kind');
+        foreach (['closing_entry_projection', 'closing_inventory', 'closing_stock', 'closing_fx', 'closing_small_asset_accrual', 'closing_prepaid_accrual', 'closing_deferred_revenue', 'closing_provisions', 'closing_deferred_tax', 'dppo_xml', 'dpfo_xml', 'accounting_mode_year'] as $kind) {
+            self::assertContains($kind, $kinds, $kind . ' must call its actual financial service');
+        }
+        self::assertSame([], $manifest['coverage']['not_implemented']);
+    }
+
+    public function testIncomeTaxXmlProjectionDetectsChangedFinancialAttributes(): void
+    {
+        $before = Manifest::xmlNumericProjection('<Pisemnost><DPFDP7><VetaO kc_zd7="700000"/><VetaD da_slezap="74160"/></DPFDP7></Pisemnost>');
+        $after = Manifest::xmlNumericProjection('<Pisemnost><DPFDP7><VetaO kc_zd7="700001"/><VetaD da_slezap="74160"/></DPFDP7></Pisemnost>');
+        self::assertNotSame($before, $after);
+        self::assertContains('74160', array_values($before));
+    }
+
+    public function testIncomeTaxAppendixAmountsAreNumericEvidenceWithoutIdentifiers(): void
+    {
+        $xml = '<Pisemnost><DPFDP7><VetaC prijmy7="1000000" vydaje7="300000" pr_prij7="200000" pr_vyd7="120000" pr_sazba="60"/><VetaF prijmy10="2000" vydaje10="1500" rozdil10="500" uhrn_prijmy10="2000" uhrn_vydaje10="1500" uhrn_rozdil10="500" rod_c="1234567890"/><VetaA ost_trans_sl1="123.45" ost_trans_sl2="0"/></DPFDP7></Pisemnost>';
+        $values = Manifest::xmlNumericProjection($xml);
+        self::assertCount(13, $values);
+        self::assertSame('1000000', $values['/Pisemnost/DPFDP7/VetaC/@prijmy7']);
+        self::assertSame('123.45', $values['/Pisemnost/DPFDP7/VetaA/@ost_trans_sl1']);
+        self::assertSame('0', $values['/Pisemnost/DPFDP7/VetaA/@ost_trans_sl2']);
+        self::assertArrayNotHasKey('/Pisemnost/DPFDP7/VetaF/@rod_c', $values);
+        self::assertNotSame($values, Manifest::xmlNumericProjection(str_replace('prijmy7="1000000"', 'prijmy7="1000001"', $xml)));
+    }
+
+    public function testHistoricalModeAndStoredTaxpayerTypeAreExplicitCases(): void
+    {
+        $pdo = self::discoveryDatabase();
+        $pdo->exec("UPDATE supplier SET accounting_mode = 'double_entry' WHERE id = 2");
+        $pdo->exec("INSERT INTO supplier_accounting_modes VALUES (2, '2025-01-01', 'tax_evidence'), (2, '2026-01-01', 'double_entry')");
+        $pdo->exec("INSERT INTO income_tax_returns VALUES (1, 2025, 'fo')");
+        $manifest = Manifest::discover($pdo, '2026-06-30');
+        $cases = array_values($manifest['cases']);
+        foreach ([2025, 2026] as $year) self::assertNotEmpty(array_filter($cases, static fn (array $c): bool => $c['kind'] === 'accounting_mode_year' && $c['args'] === [2, $year]));
+        self::assertNotEmpty(array_filter($cases, static fn (array $c): bool => $c['kind'] === 'cash_journal' && $c['args'][0] === 2 && $c['args'][1] === '2025-01-01'));
+        foreach (['preview', 'inputs', 'balance_due', 'xml'] as $suffix) self::assertNotEmpty(array_filter($cases, static fn (array $c): bool => $c['kind'] === 'dpfo_' . $suffix && $c['args'] === [1, 2025, 'fo']));
+    }
+
+    public function testFiledVatPredecessorCreatesEverySupportedAmendmentVariant(): void
+    {
+        $pdo = self::discoveryDatabase();
+        $empty = Manifest::discover($pdo, '2026-06-30');
+        self::assertGreaterThan(0, $empty['coverage']['not_applicable']['vat_amendments_without_filed_predecessor']);
+        $pdo->exec("INSERT INTO tax_submissions (id,supplier_id,form_code,period_year,period_month,period_quarter,form_variant,status) VALUES (1, 2, 'dphdp3', 2025, 12, NULL, 'B', 'submitted'), (2, 2, 'dphkh1', 2025, 12, NULL, 'B', 'accepted'), (3, 2, 'dphshv', 2025, 12, NULL, 'R', 'submitted')");
+        foreach (['DPHDP3', 'DPHKH1', 'DPHSHV'] as $index => $form) {
+            $xml = '<Pisemnost><' . $form . '><VetaD rok="2025" mesic="12"/><VetaP/></' . $form . '></Pisemnost>';
+            $pdo->prepare('UPDATE tax_submissions SET xml_content=?,xml_sha256=? WHERE id=?')->execute([$xml, hash('sha256', $xml), $index + 1]);
+        }
+        $manifest = Manifest::discover($pdo, '2026-06-30');
+        $cases = array_values($manifest['cases']);
+        foreach (['vat_return' => ['opravne', 'dodatecne'], 'control_statement' => ['opravne', 'nasledne', 'nasledne_opravne'], 'recapitulative_statement' => ['nasledne']] as $kind => $variants) {
+            foreach ($variants as $variant) self::assertNotEmpty(array_filter($cases, static fn (array $c): bool => $c['kind'] === $kind && $c['args'] === [2, 2025, 12, 'monthly', $variant, '2026-06-30']));
+        }
+        self::assertSame(3, $manifest['coverage']['filed_vat_amendment_periods']);
+        self::assertSame($empty['coverage']['not_applicable']['vat_amendments_without_filed_predecessor'] - 3, $manifest['coverage']['not_applicable']['vat_amendments_without_filed_predecessor']);
+        $pdo->exec("INSERT INTO tax_submissions (id,supplier_id,form_code,period_year,period_month,period_quarter,form_variant,status) VALUES (4, 2, 'dphdp3', 2025, 13, NULL, 'B', 'submitted')");
+        $this->expectExceptionMessage('invalid_filed_vat_period');
+        Manifest::discover($pdo, '2026-06-30');
+    }
+
+    public function testWrongFiledXmlCannotBecomeAnEmptyFinancialBaseline(): void
+    {
+        $pdo = self::discoveryDatabase();
+        $xml = '<Pisemnost><WrongForm/></Pisemnost>';
+        $pdo->prepare("INSERT INTO tax_submissions (id,supplier_id,form_code,period_year,period_month,form_variant,status,xml_content,xml_sha256) VALUES (1,2,'dphdp3',2025,12,'B','submitted',?,?)")->execute([$xml, hash('sha256', $xml)]);
+        $this->expectExceptionMessage('invalid_filed_vat_xml');
+        Manifest::discover($pdo, '2026-06-30');
+    }
+
+    public function testHistoricalModeUsesTheNativeAnnualContractAvailableOnBaseline(): void
+    {
+        $container = new class {
+            public function get(string $class): object
+            {
+                return new class {
+                    public function forYear(int $supplier, int $year): string
+                    {
+                        TestCase::assertSame([2, 2025], [$supplier, $year]);
+                        return 'tax_evidence';
+                    }
+                };
+            }
+        };
+        self::assertSame('tax_evidence', Manifest::invoke($container, ['kind' => 'accounting_mode_year', 'args' => [2, 2025]]));
     }
 
     private static function discoveryDatabase(): \PDO
@@ -105,7 +197,9 @@ final class RegressionManifestTest extends TestCase
             'CREATE TABLE cash_documents (supplier_id INTEGER, issue_date TEXT)',
             'CREATE TABLE bank_transactions (statement_id INTEGER, posted_at TEXT)',
             'CREATE TABLE bank_statements (id INTEGER, supplier_id INTEGER)',
-            'CREATE TABLE income_tax_returns (supplier_id INTEGER, year INTEGER)',
+            'CREATE TABLE income_tax_returns (supplier_id INTEGER, year INTEGER, taxpayer_type TEXT)',
+            'CREATE TABLE supplier_accounting_modes (supplier_id INTEGER, effective_from TEXT, accounting_mode TEXT)',
+            'CREATE TABLE tax_submissions (id INTEGER, supplier_id INTEGER, form_code TEXT, period_year INTEGER, period_month INTEGER, period_quarter INTEGER, form_variant TEXT, status TEXT, xml_content TEXT, xml_sha256 TEXT)',
             'CREATE TABLE tax_profiles (supplier_id INTEGER, year INTEGER)',
         ] as $sql) {
             $pdo->exec($sql);

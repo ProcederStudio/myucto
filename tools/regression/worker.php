@@ -66,11 +66,12 @@ try {
     }
     $response = ['status' => 'ok', 'data' => $data];
 } catch (Throwable $error) {
-    $safeCodes = ['missing_exchange_rates', 'execution_day_changed', 'unknown_manifest_case', 'unreviewed_result_object', 'unsupported_database_source_signature', 'unsupported_database_method_signature', 'unsupported_config_source_signature', 'unsupported_bootstrap_source_signature', 'test_database_required', 'local_test_host_required', 'sticky_violation'];
+    $safeCodes = ['missing_exchange_rates', 'execution_day_changed', 'unknown_manifest_case', 'unreviewed_result_object', 'unsupported_database_source_signature', 'unsupported_database_method_signature', 'unsupported_config_source_signature', 'unsupported_bootstrap_source_signature', 'test_database_required', 'local_test_host_required', 'sticky_violation', 'invalid_filed_vat_xml', 'invalid_filed_vat_period', 'invalid_historical_taxpayer_type', 'invalid_provisions_pagination'];
     $code = in_array($error->getMessage(), $safeCodes, true) ? $error->getMessage() : 'case_exception';
     $candidateCode = get_object_vars($error)['errorCode'] ?? null;
     $domainCode = is_string($candidateCode) && preg_match('/^[a-z][a-z0-9_]{0,79}$/D', $candidateCode) ? $candidateCode : null;
     $response = ['status' => 'error', 'error' => $code, 'exception_class' => get_class($error), 'domain_code' => $domainCode, 'violations' => Tripwire::violations(), 'diagnostics' => Tripwire::diagnostics()];
+    if ($error instanceof \MyUctoRegression\ProjectionUnavailable) $response['framework_proof'] = $error->frameworkProof;
 }
 $unexpectedOutput = ob_get_clean();
 if ($unexpectedOutput !== '') {

@@ -94,6 +94,7 @@ final class Runner
             }
         }
         $capture['status'] = $failed === 0 && $numeric > 0 ? 'ok' : 'error';
+        $capture['coverage']['complete'] = $capture['coverage']['manifest_complete'] === true && $capture['status'] === 'ok' && $manifest !== [];
         $capture['numeric_count'] = $numeric;
         Safety::writeJson($output, $capture);
         echo json_encode(['status' => $capture['status'], 'cases' => count($manifest), 'errors' => $failed, 'numeric_count' => $numeric], JSON_THROW_ON_ERROR) . PHP_EOL;

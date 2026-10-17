@@ -21,6 +21,9 @@ final class Manifest
             UNION ALL SELECT supplier_id, issue_date FROM cash_documents
             UNION ALL SELECT bs.supplier_id, bt.posted_at FROM bank_transactions bt JOIN bank_statements bs ON bs.id = bt.statement_id
         ) activity GROUP BY supplier_id")->fetchAll(\PDO::FETCH_KEY_PAIR);
+        $modeHistory = $pdo->query('SELECT supplier_id, effective_from, accounting_mode FROM supplier_accounting_modes ORDER BY supplier_id, effective_from')->fetchAll(\PDO::FETCH_ASSOC);
+        $storedTypes = $pdo->query('SELECT supplier_id, year, taxpayer_type FROM income_tax_returns ORDER BY supplier_id, year, taxpayer_type')->fetchAll(\PDO::FETCH_ASSOC);
+        $filed = $pdo->query("SELECT supplier_id, form_code, period_year, period_month, period_quarter, form_variant, xml_content, xml_sha256 FROM tax_submissions WHERE status IN ('submitted','accepted') AND form_code IN ('dphdp3','dphkh1','dphshv') ORDER BY supplier_id, form_code, period_year, period_month, period_quarter, id")->fetchAll(\PDO::FETCH_ASSOC);
         $cases = [];
         $years = [];
         $periodSuppliers = [];
@@ -81,6 +84,7 @@ final class Manifest
             self::add($cases, 'opening_balances', [$sid, $pid]);
             self::add($cases, 'closing_state', [$sid, $pid]);
             self::add($cases, 'closing_income_tax', [$sid, $pid]);
+            foreach (['closing_entry_projection', 'closing_inventory', 'closing_stock', 'closing_fx', 'closing_small_asset_accrual', 'closing_prepaid_accrual', 'closing_deferred_revenue', 'closing_provisions', 'closing_deferred_tax'] as $kind) self::add($cases, $kind, [$sid, $pid, $from, $end]);
         }
         foreach ($pdo->query('SELECT supplier_id, year FROM income_tax_returns UNION SELECT supplier_id, year FROM tax_profiles ORDER BY supplier_id, year')->fetchAll(\PDO::FETCH_ASSOC) as $return) {
             $years[(int) $return['supplier_id']][(int) $return['year']] = true;
@@ -92,6 +96,11 @@ final class Manifest
             $sid = (int) $supplier['id'];
             $years[$sid][(int) substr($asOf, 0, 4)] = true;
             $withoutPeriods += isset($periodSuppliers[$sid]) ? 0 : 1;
+            foreach ($modeHistory as $mode) if ((int) $mode['supplier_id'] === $sid) {
+                $years[$sid][(int) substr($mode['effective_from'], 0, 4)] = true;
+                foreach ([(int) substr($mode['effective_from'], 0, 4) - 1, (int) substr($mode['effective_from'], 0, 4)] as $modeYear) self::add($cases, 'accounting_mode_year', [$sid, $modeYear]);
+            }
+            self::add($cases, 'accounting_mode_year', [$sid, (int) substr($asOf, 0, 4)]);
             $first = (string) ($starts[$sid] ?? substr($asOf, 0, 4) . '-01-01');
             for ($year = (int) substr($first, 0, 4); $year <= (int) substr($asOf, 0, 4); ++$year) {
                 $years[$sid][$year] = true;
@@ -128,6 +137,13 @@ final class Manifest
                     self::add($cases, $prefix . '_' . $suffix, [$sid, $year, $type]);
                 }
                 self::add($cases, $prefix . '_data', [$sid, $year]);
+                self::add($cases, $prefix . '_xml', [$sid, $year, $type]);
+                self::add($cases, 'accounting_mode_year', [$sid, $year]);
+                foreach ($storedTypes as $stored) if ((int) $stored['supplier_id'] === $sid && (int) $stored['year'] === $year && $stored['taxpayer_type'] !== $type) {
+                    $historical = $stored['taxpayer_type'];
+                    if (!in_array($historical, ['po', 'fo'], true)) throw new \RuntimeException('invalid_historical_taxpayer_type');
+                    foreach (['preview', 'inputs', 'balance_due', 'xml'] as $suffix) self::add($cases, ($historical === 'po' ? 'dppo_' : 'dpfo_') . $suffix, [$sid, $year, $historical]);
+                }
                 if ($type === 'po') {
                     if ($year >= 2020 && $year <= 2100) {
                         self::add($cases, 'dppo_forecast', [$sid, $year]);
@@ -135,22 +151,77 @@ final class Manifest
                         ++$forecastYearUnsupported;
                     }
                 }
-                if ($supplier['accounting_mode'] === 'tax_evidence') {
+                $modes = [$supplier['accounting_mode']];
+                foreach ($modeHistory as $mode) if ((int) $mode['supplier_id'] === $sid && $mode['effective_from'] <= $year . '-12-31') $modes[] = $mode['accounting_mode'];
+                if (in_array('tax_evidence', $modes, true)) {
                     self::add($cases, 'cash_journal', [$sid, $year . '-01-01', max($year . '-01-01', min($year . '-12-31', $asOf)), ['year' => $year]]);
                     self::add($cases, 'tax_estimate', [$sid, $year, $asOf]);
                 }
             }
         }
+        $amendmentPeriods = [];
+        $futureFiled = 0;
+        foreach ($filed as $submission) {
+            $form = $submission['form_code'];
+            $year = (int) $submission['period_year'];
+            $quarter = $submission['period_quarter'] === null ? null : (int) $submission['period_quarter'];
+            $month = $quarter === null ? (int) $submission['period_month'] : $quarter * 3;
+            if ($year < 1 || $month < 1 || $month > 12 || ($quarter !== null && ($quarter < 1 || $quarter > 4))) throw new \RuntimeException('invalid_filed_vat_period');
+            if ((new \DateTimeImmutable(sprintf('%04d-%02d-01', $year, $month)))->format('Y-m-t') > $asOf) { ++$futureFiled; continue; }
+            self::assertFiledVatXml($submission);
+            $kind = ['dphdp3' => 'vat_return', 'dphkh1' => 'control_statement', 'dphshv' => 'recapitulative_statement'][$form];
+            $variants = $form === 'dphdp3' ? ['opravne', 'dodatecne'] : ($form === 'dphkh1' ? ['opravne', 'nasledne', 'nasledne_opravne'] : ['nasledne']);
+            $sid = (int) $submission['supplier_id'];
+            foreach ($variants as $variant) self::add($cases, $kind, [$sid, $year, $month, $quarter === null ? 'monthly' : 'quarterly', $variant, $asOf]);
+            $amendmentPeriods[$sid . ':' . $form . ':' . $year . ':' . $month . ':' . ($quarter ?? '')] = true;
+        }
+        $noFiledPredecessor = 0;
+        foreach ($cases as $case) {
+            $kind = $case['kind']; $args = $case['args'];
+            $form = ['vat_return' => 'dphdp3', 'control_statement' => 'dphkh1', 'recapitulative_statement' => 'dphshv'][$kind] ?? null;
+            if ($form === null || count($args) !== 4) continue;
+            $quarter = $args[3] === 'quarterly' ? (int) ceil($args[2] / 3) : null;
+            if (!isset($amendmentPeriods[$args[0] . ':' . $form . ':' . $args[1] . ':' . $args[2] . ':' . ($quarter ?? '')])) ++$noFiledPredecessor;
+        }
         ksort($cases);
         return ['cases' => $cases, 'coverage' => [
             'complete' => false,
-            'implemented' => ['accounting_period_reports', 'full_period_future_entries', 'dppo_read_only', 'dppo_forecast', 'dpfo_read_only', 'tax_evidence', 'dimension_filters', 'joint_dimensions', 'closing_read_only_balances_state_income_tax', 'monthly_vat', 'quarterly_vat', 'vat_xml_numeric_projection', 'suppliers_without_accounting_periods'],
-            'not_implemented' => ['joint_dimension_closing_opening_preview', 'closing_inventory_fx_accrual_provisions_deferred_tax_previews', 'tax_return_xml_numeric_projection', 'vat_amendments', 'historical_taxpayer_mode_transitions'],
-            'not_applicable' => ['po_quarterly_control_statement' => $quarterlyKhPo, 'dppo_forecast_year_outside_2020_2100' => $forecastYearUnsupported],
+            'manifest_complete' => true,
+            'scope' => 'native_500_and_annual_tax_evidence; unsupported frameworks fail rather than count as covered',
+            'outside_scope' => ['daily_accounting_mode_boundaries', 'native_504_closing_opening'],
+            'implemented' => ['accounting_period_reports', 'full_period_future_entries', 'dppo_read_only', 'dppo_forecast', 'dpfo_read_only', 'tax_evidence', 'dimension_filters', 'joint_dimensions', 'closing_read_only_balances_state_income_tax', 'monthly_vat', 'quarterly_vat', 'vat_xml_numeric_projection', 'suppliers_without_accounting_periods', 'joint_dimension_closing_opening_preview_500', 'closing_inventory_fx_accrual_provisions_deferred_tax_previews', 'tax_return_xml_numeric_projection', 'vat_amendments_for_filed_periods', 'historical_annual_taxpayer_mode_transitions'],
+            'not_implemented' => [],
+            'not_applicable' => ['po_quarterly_control_statement' => $quarterlyKhPo, 'dppo_forecast_year_outside_2020_2100' => $forecastYearUnsupported, 'vat_amendments_without_filed_predecessor' => $noFiledPredecessor, 'filed_vat_period_after_as_of' => $futureFiled],
             'future_or_partial_periods_full_year_included' => $future,
             'suppliers_without_accounting_periods' => $withoutPeriods,
             'period_count' => count($periods),
+            'filed_vat_amendment_periods' => count($amendmentPeriods),
+            'amendment_applicability' => 'Only periods with an existing filed submission; without a filed predecessor corrective/additional VAT submissions have no legal baseline. Invalid/incomplete filed predecessors remain failing cases.',
+            'historical_taxpayer_scope' => 'Stored return types are invoked explicitly; current supplier-type mismatch remains an error. No historical type is inferred without stored evidence. Mode comparisons use native forYear at year-end; daily boundaries are outside this parity scope.',
         ]];
+    }
+
+    private static function assertFiledVatXml(array $submission): void
+    {
+        $xml = (string) $submission['xml_content'];
+        if ($xml === '' || !hash_equals((string) $submission['xml_sha256'], hash('sha256', $xml)) || stripos($xml, '<!DOCTYPE') !== false || stripos($xml, '<!ENTITY') !== false) throw new \RuntimeException('invalid_filed_vat_xml');
+        $previous = libxml_use_internal_errors(true);
+        try {
+            $document = new \DOMDocument();
+            if (!$document->loadXML($xml, LIBXML_NONET)) throw new \RuntimeException('invalid_filed_vat_xml');
+            $xpath = new \DOMXPath($document);
+            $formPath = '/Pisemnost/' . strtoupper($submission['form_code']);
+            if ($xpath->query($formPath)->length !== 1 || $xpath->query($formPath . '/VetaP')->length !== 1) throw new \RuntimeException('invalid_filed_vat_xml');
+            $dates = $xpath->query($formPath . '/VetaD');
+            if ($dates->length !== 1) throw new \RuntimeException('invalid_filed_vat_xml');
+            $date = $dates->item(0);
+            $periodKey = $submission['period_quarter'] === null ? 'mesic' : 'ctvrt';
+            $periodValue = $submission['period_quarter'] ?? $submission['period_month'];
+            if ((int) $date->getAttribute('rok') !== (int) $submission['period_year'] || (int) $date->getAttribute($periodKey) !== (int) $periodValue) throw new \RuntimeException('invalid_filed_vat_period');
+        } finally {
+            libxml_clear_errors();
+            libxml_use_internal_errors($previous);
+        }
     }
 
     private static function visible(array $type, int $supplierId, array $suppliers): bool
@@ -177,6 +248,7 @@ final class Manifest
 
     public static function invoke(object $container, array $case): mixed
     {
+        if (str_starts_with($case['kind'], 'closing_') && !in_array($case['kind'], ['closing_pl_balances', 'closing_bs_balances', 'closing_state', 'closing_income_tax'], true)) return CaseProjection::closing($container, $case);
         $accounting = 'MyInvoice\\Service\\Accounting\\Reports\\';
         $tax = 'MyInvoice\\Service\\Tax\\Return\\';
         $vat = 'MyInvoice\\Service\\Report\\';
@@ -186,6 +258,8 @@ final class Manifest
             'income_statement_function' => [$accounting . 'FinancialStatementService', 'incomeStatementByFunction'],
             'trial_balance' => [$accounting . 'TrialBalanceService', 'build'],
             'general_ledger' => [$accounting . 'GeneralLedgerService', 'build'],
+            'accounting_mode_year' => ['MyInvoice\\Repository\\AccountingModeRepository', 'forYear'],
+            'dppo_xml', 'dpfo_xml' => [$tax . 'TaxReturnService', 'reportSource'],
             'dppo_preview', 'dpfo_preview' => [$tax . 'TaxReturnService', 'previewReadOnly'],
             'dppo_inputs', 'dpfo_inputs' => [$tax . 'TaxReturnService', 'readOnlyInputs'],
             'dppo_balance_due', 'dpfo_balance_due' => [$tax . 'TaxReturnService', 'balanceDueReadOnly'],
@@ -244,7 +318,7 @@ final class Manifest
         }
         $values = [];
         foreach ((new \DOMXPath($document))->query('//@*') as $attribute) {
-            if (preg_match('/^(?:zakl|dan|odp|nar|kr_|uprav|pln|obrat|hodnota|celk|sum|vypor|koef)/', $attribute->nodeName)
+            if (preg_match('/^(?:kc_|da_|uhrn_|prijmy|vydaje|rozdil|pr_prij|pr_vyd|pr_sazba|sazba_dal|ost_trans_sl|zakl|dan|odp|nar|kr_|uprav|pln|obrat|hodnota|celk|sum|vypor|koef)/', $attribute->nodeName)
                 && preg_match('/^[+-]?\d+(?:\.\d+)?$/D', $attribute->nodeValue)) {
                 $values[$attribute->getNodePath()] = $attribute->nodeValue;
             }
