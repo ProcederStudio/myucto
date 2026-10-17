@@ -4,6 +4,12 @@
 
 Výkazy najdete v menu **Daně**, archiv podání jako poslední bod téhož menu (`Daně → EPO podání a archív`). Související výkazy a exporty mají vlastní kapitoly: [Kniha DPH](42_Kniha_DPH.md) (interní žurnál), [Souhrnné hlášení](44_Souhrnne_hlaseni.md) (EU dodání B2B) a [Hromadný export](48_Hromadny_export.md) (ZIP balíček pro účetní). Rozdíl mezi staženým a skutečně podaným XML vysvětluje [Archiv podání a daňová rekonciliace](49_Archiv_podani_a_rekonciliace.md).
 
+**Volba období:** Přiznání DPH, kontrolní a souhrnné hlášení i Kniha DPH přebírají výchozí měsíční nebo čtvrtletní režim z nastavení firmy. Bez zapamatované volby se otevře poslední celé uzavřené období: například 15. října září, u čtvrtletní firmy třetí čtvrtletí. V lednu jde o prosinec nebo čtvrté čtvrtletí předchozího roku.
+
+Vybrané období se pamatuje pro konkrétního uživatele a firmu v rámci karty prohlížeče, včetně pracovních panelů a obnovení stránky. Přechodem do dalšího výkazu se zachová; odhlášení tuto volbu vymaže. Již otevřený výkaz v jiném panelu se sám nepřepne. Odkaz s konkrétním obdobím má před zapamatovanou volbou přednost. Pokud prohlížeč ukládání nepovoluje, zůstane k dispozici výchozí poslední uzavřené období a ruční výběr.
+
+Kontrolní hlášení právnické osoby zůstává měsíční. Měsíční náhledy oprav § 74b a obnov § 46 i čtvrtletní OSS si pamatují vlastní volbu, při prvním otevření mohou převzít rok a měsíc ze společného výběru DPH. Jejich pevná periodicita nepřepíše režim ostatních výkazů. Roční koeficient, roční seznamy oprav, data doručení a období jednotlivých evidovaných oprav zůstávají samostatná. Automatický výběr období se neřídí stavem podání v archivu.
+
 ## 41.1 Kdy to potřebujete
 
 - Skončil měsíc nebo čtvrtletí a musíte podat přiznání k DPH a kontrolní hlášení.

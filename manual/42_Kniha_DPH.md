@@ -47,6 +47,9 @@ Aby byla úplná, potřebujete:
 1. Otevřete `Daně → Kniha DPH`.
 2. Nahoře přepněte **Měsíčně** nebo **Kvartálně** a zvolte měsíc (u čtvrtletí
    Q1 až Q4) a rok. Zvolte totéž období, za které podáváte přiznání.
+   Výchozí režim odpovídá nastavení firmy; období se přebírá ze společné volby
+   výkazů DPH během sezení. Bez uložené volby se otevře poslední uzavřený měsíc
+   nebo čtvrtletí. Konkrétní období v odkazu má přednost.
 3. Projděte řádky označené štítkem **Koncept**. Kniha koncepty záměrně
    zahrnuje, ostré přiznání a kontrolní hlášení je neobsahují. Každý koncept
    dokončete, nebo zrušte.

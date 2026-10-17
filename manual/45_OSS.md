@@ -11,6 +11,12 @@ odvést daň z přeshraničních plnění spotřebitelům v jiných členských 
 Daň se počítá sazbou státu spotřeby, přiznává se v eurech a česká finanční správa
 ji přepošle do cílových států.
 
+Stránka OSS při prvním otevření nabízí poslední uzavřené čtvrtletí, případně
+čtvrtletí odpovídající již vybranému období DPH. Vlastní výběr roku a čtvrtletí
+si pamatuje během sezení pro uživatele a firmu. Náhled, rekonciliace a evidence
+používají stejné období; archiv zobrazuje jednotlivá uložená podání. OSS zůstává
+čtvrtletní a jeho otevření nemění měsíční či čtvrtletní režim běžného přiznání DPH.
+
 > [!TIP]
 > MyÚčto podporuje **režim EU** (plnění z ČR spotřebitelům v jiných členských
 > státech). Režim mimo EU ani dovozní režim **IOSS** aplikace nevede. Pro ně nemá
