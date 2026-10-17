@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Migration\Premier;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Service\Accounting\AccountingFrameworkException;
+use MyInvoice\Service\Accounting\AccountingFrameworkImportGuard;
 use MyInvoice\Infrastructure\Database\TableStatistics;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Repository\PremierImportRepository;
@@ -146,6 +148,10 @@ final class PremierImporter
                 $add('warning', 'table_missing', "Záloha neobsahuje tabulku {$table}, doklady z ní se nepřevedou.", ['table' => $table]);
             }
         }
+        try {
+            $guard = new AccountingFrameworkImportGuard($this->db);
+            $guard->assertCz500Periods($supplierId, $guard->periodsForYears($supplierId, [$year]));
+        } catch (AccountingFrameworkException $e) { $add('error', $e->errorCode, $e->getMessage()); }
         $period = $this->periods->findByYear($supplierId, $year);
         if ($period !== null) {
             $mapped = $this->map->get($supplierId, PremierImportRepository::KIND_PERIOD, (string) $year) !== null
@@ -227,6 +233,8 @@ final class PremierImporter
         $ctx->progress = $progress;
         $ctx->smallAssets = PremierSmallAssets::fromBackup($backup);
 
+        $frameworkGuard = new AccountingFrameworkImportGuard($this->db);
+        $frameworkPeriods = $frameworkGuard->periodsForYears($supplierId, [$year]);
         $pdo = $this->db->pdo();
         // Zkouška nanečisto uvnitř cizí transakce (testy) jede přes savepoint.
         $savepoint = $dryRun && $pdo->inTransaction();
@@ -237,11 +245,13 @@ final class PremierImporter
         }
         try {
             $snapshot = ($dryRun ? null : $this->map->pendingAutomationSnapshot($supplierId)) ?? $this->unit->snapshot($supplierId);
-            if (!$dryRun && $runId !== null) {
-                $this->map->saveAutomationSnapshot($runId, $supplierId, $snapshot);
-            }
             if (!$dryRun) {
-                $this->unit->disableAutomation($supplierId, $ctx->userOrNull());
+                $frameworkGuard->writeCz500Periods($supplierId, $frameworkPeriods, function () use ($runId, $supplierId, $snapshot, $userId, $ctx): void {
+                    if ($runId !== null) $this->map->saveAutomationSnapshot($runId, $supplierId, $snapshot);
+                    $this->unit->disableAutomation($supplierId, $ctx->userOrNull());
+                });
+            } else {
+                $frameworkGuard->assertCz500Periods($supplierId, $frameworkPeriods, true);
             }
             $automation = ['before' => $snapshot, 'during' => $dryRun ? 'off' : $this->unit->automationLevel($supplierId), 'restored' => false, 'after' => null];
 
@@ -259,10 +269,13 @@ final class PremierImporter
                     $this->statistics->refreshAfterImport(['premier_import_map']);
                 }
                 try {
-                    $dryRun ? $fn() : $this->transactional($fn);
+                    $dryRun ? $fn() : $this->transactional(function () use ($frameworkGuard, $supplierId, $frameworkPeriods, $fn): void {
+                        $frameworkGuard->assertCz500Periods($supplierId, $frameworkPeriods, true);
+                        $fn();
+                    });
                     $protocol->finish($key);
                 } catch (\Throwable $e) {
-                    if ($e instanceof PremierException) {
+                    if ($e instanceof PremierException || $e instanceof AccountingFrameworkException) {
                         $protocol->error($key, $e->errorCode, $e->getMessage());
                     } else {
                         error_log(sprintf('PREMIER: krok %s převodu firmy %d selhal: %s', $key, $supplierId, (string) $e));
@@ -287,6 +300,9 @@ final class PremierImporter
                 $automation['after'] = $this->unit->automationLevel($supplierId);
             }
             $protocol->set('automation', $automation);
+        } catch (AccountingFrameworkException $e) {
+            $protocol->error(self::STEP_PREFLIGHT, $e->errorCode, $e->getMessage());
+            $protocol->fail(self::STEP_PREFLIGHT);
         } finally {
             if ($savepoint) {
                 $pdo->exec('ROLLBACK TO SAVEPOINT premier_dry_run');

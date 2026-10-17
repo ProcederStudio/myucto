@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Migration\StereoNx;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Service\Accounting\AccountingFrameworkException;
+use MyInvoice\Service\Accounting\AccountingFrameworkImportGuard;
 use MyInvoice\Service\Accounting\FiscalCalendar;
 use MyInvoice\Service\Migration\Pohoda\PartnerImporter;
 use MyInvoice\Service\Migration\MoneyS3\AccountingUnitSwitch;
@@ -142,6 +144,11 @@ final class StereoNxAccountingImporter
                 $report['date_bounds'] = ['from' => min($dates), 'to' => max($dates)];
             }
 
+            $frameworkGuard = new AccountingFrameworkImportGuard($this->db);
+            $frameworkPeriods = !empty($report['date_bounds']['from']) && !empty($report['date_bounds']['to'])
+                ? $frameworkGuard->periodsForDates($supplierId, $report['date_bounds']['from'], $report['date_bounds']['to']) : [];
+            if ($frameworkPeriods === []) throw new StereoNxException('accounting_source_invalid', 'Zdrojové účetnictví obsahuje chyby, které brání převodu.');
+            $frameworkGuard->assertCz500Periods($supplierId, $frameworkPeriods);
             $lastPayroll = $plans['payroll']['last_source_period'] ?? null;
             $lastData = isset($report['date_bounds']['to']) ? substr($report['date_bounds']['to'], 0, 7) : null;
             if ($lastPayroll !== null) {
@@ -153,6 +160,7 @@ final class StereoNxAccountingImporter
             if ($nested) $pdo->exec('SAVEPOINT stereo_nx_accounting');
             else $pdo->beginTransaction();
             try {
+                $frameworkGuard->assertCz500Periods($supplierId, $frameworkPeriods, true);
                 $lock = $pdo->prepare('SELECT ic, accounting_mode, is_vat_payer FROM supplier WHERE id = ? FOR UPDATE');
                 $lock->execute([$supplierId]);
                 $supplier = $lock->fetch(PDO::FETCH_ASSOC);
@@ -244,7 +252,7 @@ final class StereoNxAccountingImporter
                 } elseif ($pdo->inTransaction()) $pdo->rollBack();
                 throw $e;
             }
-        } catch (StereoNxException $e) {
+        } catch (StereoNxException | AccountingFrameworkException $e) {
             $report['written'] = [];
             $report['errors'][] = ['level' => 'error', 'code' => $e->errorCode, 'message' => $e->getMessage()];
         } catch (Throwable $e) {

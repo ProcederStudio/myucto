@@ -26,6 +26,8 @@
 
 ## 103.2 Než začnete
 
+Účetní převody z Money S3, POHODY, PREMIERU a Stereo NX podporují pouze období vedená po celou dobu podle vyhlášky 500. Historické období 500 lze převést i tehdy, když firma později přešla na rámec 504. Převod zahrnující rámec 504 se odmítne před zápisem účetnictví. Samostatný převod dokladů toto omezení nepřebírá.
+
 1. **Cílová firma.** Vyberte (nebo založte) firmu v MyÚčtu, do které se bude
    převádět. Firma, která dosud vede daňovou evidenci, se převodem přepne na
    podvojné účetnictví. Má-li se skupina firem sdílet jako projekty, založte

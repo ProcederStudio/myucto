@@ -225,7 +225,12 @@ final class StereoNxAccountingWriter
             'journal_lines' => 0,
         ];
         if ($this->accounts->count($supplierId) === 0) {
-            $this->seeder->seedForSupplier($supplierId);
+            $firstDate = $prepared['date_bounds']['from'] ?? null;
+            if ($firstDate === null) throw new StereoNxException('accounting_plan_invalid', 'Plán převodu účetnictví není platný.');
+            $calendar = $this->calendar($supplierId);
+            $year = $calendar->fiscalYearOfDate($firstDate);
+            $seedDate = $this->periods->findByYear($supplierId, $year)['starts_on'] ?? $calendar->periodStart($year);
+            $this->seeder->seedForSupplier($supplierId, $seedDate);
         }
 
         $accountIds = $this->writeChart(

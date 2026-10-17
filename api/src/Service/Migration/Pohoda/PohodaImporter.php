@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Migration\Pohoda;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Service\Accounting\AccountingFrameworkException;
+use MyInvoice\Service\Accounting\AccountingFrameworkImportGuard;
 use MyInvoice\Infrastructure\Database\TableStatistics;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Repository\PohodaImportRepository;
@@ -142,6 +144,11 @@ final class PohodaImporter
         $allLaterYears = $laterYears !== null && $agendaYear->calendar->isCalendar() ? array_map('intval', $laterYears) : $agendaYear->laterYears();
         $laterYears = array_values(array_diff($allLaterYears, $skipYears));
         $skipped = array_values(array_intersect($allLaterYears, $skipYears));
+        try {
+            $guard = new AccountingFrameworkImportGuard($this->db);
+            $guard->assertCz500Periods($supplierId, $guard->periodsForYears($supplierId, [$agendaLabel, ...$laterYears]));
+        } catch (AccountingFrameworkException $e) { $add('error', $e->errorCode, $e->getMessage()); }
+
         $journalMapped = $this->map->hasAny($supplierId, PohodaImportRepository::KIND_JOURNAL_ENTRY);
         foreach (array_merge([$agendaLabel], $laterYears) as $year) {
             $period = $this->periods->findByYear($supplierId, $year);
@@ -225,6 +232,8 @@ final class PohodaImporter
         $ctx->skippedYears = array_fill_keys($skipYears, true);
         $ctx->stock = $stock;
 
+        $frameworkGuard = new AccountingFrameworkImportGuard($this->db);
+        $frameworkPeriods = $frameworkGuard->periodsForYears($supplierId, [$agendaYear->label, ...array_values(array_diff($agendaYear->laterYears(), $skipYears))]);
         $pdo = $this->db->pdo();
         // Zkouška nanečisto uvnitř cizí transakce (testy, vnořené volání) jede přes savepoint -
         // vlastní BEGIN by PDO odmítlo a vnější transakci by nesměla vrátit.
@@ -236,11 +245,13 @@ final class PohodaImporter
         }
         try {
             $snapshot = ($dryRun ? null : $this->map->pendingAutomationSnapshot($supplierId)) ?? $this->unit->snapshot($supplierId);
-            if (!$dryRun && $runId !== null) {
-                $this->map->saveAutomationSnapshot($runId, $supplierId, $snapshot);
-            }
             if (!$dryRun) {
-                $this->unit->disableAutomation($supplierId, $ctx->userOrNull());
+                $frameworkGuard->writeCz500Periods($supplierId, $frameworkPeriods, function () use ($runId, $supplierId, $snapshot, $userId, $ctx): void {
+                    if ($runId !== null) $this->map->saveAutomationSnapshot($runId, $supplierId, $snapshot);
+                    $this->unit->disableAutomation($supplierId, $ctx->userOrNull());
+                });
+            } else {
+                $frameworkGuard->assertCz500Periods($supplierId, $frameworkPeriods, true);
             }
             $automation = ['before' => $snapshot, 'during' => $dryRun ? 'off' : $this->unit->automationLevel($supplierId), 'restored' => false, 'after' => null];
 
@@ -258,10 +269,13 @@ final class PohodaImporter
                     $this->statistics->refreshAfterImport(['pohoda_import_map']);
                 }
                 try {
-                    $dryRun ? $fn() : $this->transactional($fn);
+                    $dryRun ? $fn() : $this->transactional(function () use ($frameworkGuard, $supplierId, $frameworkPeriods, $fn): void {
+                        $frameworkGuard->assertCz500Periods($supplierId, $frameworkPeriods, true);
+                        $fn();
+                    });
                     $protocol->finish($key);
                 } catch (\Throwable $e) {
-                    if ($e instanceof PohodaException) {
+                    if ($e instanceof PohodaException || $e instanceof AccountingFrameworkException) {
                         $protocol->error($key, $e->errorCode, $e->getMessage());
                     } else {
                         // Text výjimky (SQL, cesty) do protokolu viditelného v UI nepatří.
@@ -287,6 +301,9 @@ final class PohodaImporter
                 $automation['after'] = $this->unit->automationLevel($supplierId);
             }
             $protocol->set('automation', $automation);
+        } catch (AccountingFrameworkException $e) {
+            $protocol->error(self::STEP_PREFLIGHT, $e->errorCode, $e->getMessage());
+            $protocol->fail(self::STEP_PREFLIGHT);
         } finally {
             if ($savepoint) {
                 $pdo->exec('ROLLBACK TO SAVEPOINT pohoda_dry_run');
