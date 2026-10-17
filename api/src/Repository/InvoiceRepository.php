@@ -26,6 +26,13 @@ use PDO;
  */
 final class InvoiceRepository
 {
+    /**
+     * Jednotka řádku, který klíč `unit` vůbec nepošle (nebo pošle null). Sdílí ji
+     * kontrola desetinných míst ({@see \MyInvoice\Service\Codebook\UnitPrecision}),
+     * aby kontrolovala tutéž jednotku, se kterou se řádek uloží.
+     */
+    public const DEFAULT_ITEM_UNIT = 'ks';
+
     public function __construct(
         private readonly Connection $db,
         private readonly TaxConstantsRepository $taxConstants,
@@ -1780,7 +1787,7 @@ final class InvoiceRepository
                 (string) ($item['description'] ?? ''),
                 (float) ($item['quantity'] ?? 1),
                 $item['duration_minutes'],
-                (string) ($item['unit'] ?? 'ks'),
+                (string) ($item['unit'] ?? self::DEFAULT_ITEM_UNIT),
                 (float) ($item['unit_price_without_vat'] ?? 0),
                 $vatRateId,
                 $rate,

@@ -28,6 +28,7 @@ use MyInvoice\Service\Currency\ExchangeRateApplier;
 use MyInvoice\Service\Invoice\InvoiceItemKind;
 use MyInvoice\Service\Invoice\DocumentItemsPayload;
 use MyInvoice\Service\Invoice\InvoiceCalculator;
+use MyInvoice\Service\Codebook\UnitPrecision;
 use MyInvoice\Service\Invoice\InvoiceDefaults;
 use MyInvoice\Service\Invoice\InvoiceNoteAlias;
 use MyInvoice\Service\Invoice\VarsymbolGenerator;
@@ -75,6 +76,7 @@ final class UpdateInvoiceAction
         private readonly \MyInvoice\Repository\ClientRepository $clients,
         private readonly IssuedInvoiceStockGuard $stockGuard,
         private readonly InvoiceItemTracking $itemTracking,
+        private readonly UnitPrecision $unitPrecision,
     ) {}
 
     /**
@@ -178,6 +180,19 @@ final class UpdateInvoiceAction
                 $body['items'] = $this->itemTracking->normalizeItems((int) $existing['supplier_id'], $body['items']);
             } catch (StockException $e) {
                 return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus, $e->details);
+            }
+        }
+
+        // Desetinná místa množství podle měrné jednotky (2018), jen u NOVÝCH a ZMĚNĚNÝCH
+        // řádků: vynechaný klíč `items` nechá uložené řádky, jak jsou, a řádek poslaný
+        // beze změny množství a jednotky ({@see UnitPrecision::unchangedIndexes()}) se
+        // nekontroluje, jinak by doklad uložený před nastavením jednotky nešel uložit
+        // (a u vystaveného by ho IssuedInvoiceStockGuard nedovolil ani opravit).
+        // Před přečíslováním, ať odmítnutí nespálí číslo řady.
+        if (DocumentItemsPayload::replaces($body) && is_array($body['items'])) {
+            $tooPrecise = $this->unitPrecision->check($body['items'], 'quantity', (array) ($existing['items'] ?? []));
+            if ($tooPrecise !== []) {
+                return Json::error($response, 'validation_failed', UnitPrecision::ERROR_MESSAGE, 400, ['items' => $tooPrecise]);
             }
         }
 

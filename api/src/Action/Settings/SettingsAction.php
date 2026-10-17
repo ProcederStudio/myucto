@@ -17,6 +17,7 @@ use MyInvoice\Security\AccessLevel;
 use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Bank\OwnBankAccountRegistrar;
+use MyInvoice\Service\Codebook\UnitPrecision;
 use MyInvoice\Service\IpMatcher;
 use MyInvoice\Service\License\LicenseCapacityGate;
 use MyInvoice\Service\License\LicenseCompanyLimitExceeded;
@@ -54,6 +55,8 @@ final class SettingsAction
      * proti překlepu typu vložená smlouva — na doklad se text tiskne celý.
      */
     private const DEFAULT_NOTE_MAX_LENGTH = 5000;
+
+    private const UNIT_DECIMALS_ERROR = 'Desetinná místa množství musí být 0 až 3, nebo prázdné (bez omezení).';
 
     public function __construct(
         private readonly Connection $db,
@@ -1912,7 +1915,7 @@ final class SettingsAction
     public function listUnits(Request $request, Response $response): Response
     {
         $rows = $this->db->pdo()->query(
-            'SELECT u.id, u.code, u.label_cs, u.label_en, u.is_default, u.display_order,
+            'SELECT u.id, u.code, u.label_cs, u.label_en, u.is_default, u.display_order, u.quantity_decimals,
                     (SELECT COUNT(*) FROM invoice_items i WHERE i.unit = u.code) AS items_count
                FROM units u ORDER BY u.display_order, u.code'
         )->fetchAll(\PDO::FETCH_ASSOC);
@@ -1921,6 +1924,7 @@ final class SettingsAction
             $r['is_default']    = (bool) $r['is_default'];
             $r['display_order'] = (int) $r['display_order'];
             $r['items_count']   = (int) $r['items_count'];
+            $r['quantity_decimals'] = $r['quantity_decimals'] !== null ? (int) $r['quantity_decimals'] : null;
         }
         return Json::ok($response, $rows);
     }
@@ -1933,16 +1937,21 @@ final class SettingsAction
         if ($code === '' || mb_strlen($code) > 20) {
             return Json::error($response, 'validation_failed', 'code je povinný (max 20 znaků).', 400);
         }
+        $decimals = UnitPrecision::parseSetting($b['quantity_decimals'] ?? null);
+        if (!$decimals['ok']) {
+            return Json::error($response, 'validation_failed', self::UNIT_DECIMALS_ERROR, 400);
+        }
         try {
             $this->db->pdo()->prepare(
-                'INSERT INTO units (code, label_cs, label_en, is_default, display_order)
-                 VALUES (?,?,?,?,?)'
+                'INSERT INTO units (code, label_cs, label_en, is_default, display_order, quantity_decimals)
+                 VALUES (?,?,?,?,?,?)'
             )->execute([
                 $code,
                 (string) ($b['label_cs'] ?? $code),
                 (string) ($b['label_en'] ?? $code),
                 !empty($b['is_default']) ? 1 : 0,
                 (int) ($b['display_order'] ?? 0),
+                $decimals['value'],
             ]);
         } catch (\PDOException $e) {
             return Json::error($response, 'duplicate', 'Jednotka s tímto kódem už existuje.', 409);
@@ -1961,6 +1970,15 @@ final class SettingsAction
         $b = (array) ($request->getParsedBody() ?? []);
         $allowed = ['code', 'label_cs', 'label_en', 'is_default', 'display_order'];
         $sets = []; $params = [];
+        // Desetinná místa množství (2018): null / "" = bez omezení, jinak 0 až 3.
+        if (array_key_exists('quantity_decimals', $b)) {
+            $decimals = UnitPrecision::parseSetting($b['quantity_decimals']);
+            if (!$decimals['ok']) {
+                return Json::error($response, 'validation_failed', self::UNIT_DECIMALS_ERROR, 400);
+            }
+            $sets[] = 'quantity_decimals = ?';
+            $params[] = $decimals['value'];
+        }
         foreach ($allowed as $f) {
             if (array_key_exists($f, $b)) {
                 $sets[] = "$f = ?";
