@@ -1,4 +1,4 @@
-/* ─── Úsporná černobílá varianta (supplier.invoice_pdf_monochrome, migrace 2023) ───
+/* ─── Úsporná černobílá varianta (supplier.invoice_pdf_monochrome, migrace 2033) ───
    Připojuje se ZA invoice.css MÍSTO brandingového akcentu (PdfBranding::themeCss),
    platí pro fakturu i výkaz víceprací. Selektory zrcadlí base stylopis (stejná
    specificita, pozdější pořadí vyhrává):

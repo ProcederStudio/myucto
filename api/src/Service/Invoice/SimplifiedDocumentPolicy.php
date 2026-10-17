@@ -87,7 +87,7 @@ final class SimplifiedDocumentPolicy
     }
 
     /**
-     * Netisknout odběratele (migrace 2020): zjednodušený daňový doklad údaje o odběrateli
+     * Netisknout odběratele (migrace 2037): zjednodušený daňový doklad údaje o odběrateli
      * nevyžaduje (§ 30a odst. 1), takže je firma smí vynechat, i když prodej eviduje na
      * konkrétního klienta. Běžný daňový doklad je nést musí (§ 29 odst. 1 písm. c), proto
      * volba platí jen tam, kde se doklad jako zjednodušený i tiskne: faktura plátce

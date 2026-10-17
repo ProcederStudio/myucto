@@ -39,7 +39,7 @@ use PDO;
  * Scope se sbírá za všechny tři osy číslování, které zná
  * {@see VarsymbolGenerator::resolveTemplateAndPeriod()} — dodavatel, klient s vlastní
  * šablonou a kategorie tržby s vlastní šablonou. K nim případná vlastní řada
- * zjednodušených daňových dokladů firmy (typ `simplified`, migrace 2020).
+ * zjednodušených daňových dokladů firmy (typ `simplified`, migrace 2037).
  *
  * Do KTERÉ řady doklad patří, se ale NEURČUJE podle jeho aktuálního `client_id` /
  * `revenue_category_id`, nýbrž podle toho, jestli jeho VS fakticky odpovídá vzoru té řady.
@@ -261,7 +261,7 @@ final class InvoiceSeriesCompletenessService
             ];
         }
 
-        // Vlastní řada zjednodušených daňových dokladů (migrace 2020), jen na úrovni firmy,
+        // Vlastní řada zjednodušených daňových dokladů (migrace 2037), jen na úrovni firmy,
         // s obdobím firmy, stejně jako ji vyhodnocuje generátor. Bez šablony žádná není.
         $simplifiedTemplate = trim((string) ($sup['simplified_number_format'] ?? ''));
         if ($simplifiedTemplate !== '') {
@@ -599,7 +599,7 @@ final class InvoiceSeriesCompletenessService
 
     /**
      * Řady, do kterých faktura může patřit, v pořadí, ve kterém se zkouší. Faktura
-     * se může ocitnout v řadě faktur i v řadě zjednodušených dokladů (migrace 2020):
+     * se může ocitnout v řadě faktur i v řadě zjednodušených dokladů (migrace 2037):
      * číslo dostala dřív, než firma řadu zavedla, nebo jí někdo příznak `is_simplified`
      * přepnul až po vystavení. Rozhoduje tvar čísla jako všude jinde v reportu; příznak
      * jen určí, která z obou řad má přednost, kdyby VS vyhověl oběma vzorům.

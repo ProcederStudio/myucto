@@ -118,7 +118,7 @@ final class CreateInvoiceAction
             }
         }
 
-        // Desetinná místa množství podle měrné jednotky (2018). Bez nastavení u jednotky
+        // Desetinná místa množství podle měrné jednotky (2036). Bez nastavení u jednotky
         // se nic nekontroluje; přesnější vstup se odmítne, nic se potichu nezaokrouhlí.
         if (isset($body['items']) && is_array($body['items'])) {
             $tooPrecise = $this->unitPrecision->check($body['items']);

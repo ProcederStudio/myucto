@@ -58,7 +58,7 @@ final class PreviewVarsymbolAction
             $for = new \DateTimeImmutable('today');
         }
 
-        // Zjednodušený daňový doklad (`simplified=1`) může mít vlastní řadu (migrace 2020);
+        // Zjednodušený daňový doklad (`simplified=1`) může mít vlastní řadu (migrace 2037);
         // řadu volí týž helper jako vystavení, ať náhled ukáže číslo, které doklad dostane.
         $series = VarsymbolGenerator::seriesTypeFor([
             'invoice_type'  => $type,

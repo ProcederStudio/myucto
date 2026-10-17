@@ -181,7 +181,7 @@ onMounted(load)
               <span class="text-sm text-neutral-700">{{ t('settings.branding_logo_show_name') }}</span>
             </label>
             <p class="text-xs text-neutral-500 mt-1">{{ t('settings.branding_logo_show_name_hint') }}</p>
-            <!-- Úsporná černobílá faktura (migrace 2023): nezávislá na brandingu, proto není disabled. -->
+            <!-- Úsporná černobílá faktura (migrace 2033): nezávislá na brandingu, proto není disabled. -->
             <label class="inline-flex items-center gap-2 mt-3 cursor-pointer">
               <input
                 v-model="supplier.invoice_pdf_monochrome"

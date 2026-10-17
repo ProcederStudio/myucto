@@ -1,5 +1,5 @@
 /**
- * Textový řádek mezi položkami vydaného dokladu (`item_kind: 'text'`, migrace 2022).
+ * Textový řádek mezi položkami vydaného dokladu (`item_kind: 'text'`, migrace 2034).
  *
  * Nese jen popis. Server ho ukládá vynulovaný (množství, ceny, sklad, OSS, klasifikace
  * DPH, účet) a sazbu bere z první položky dokladu; do součtů, rekapitulace DPH ani

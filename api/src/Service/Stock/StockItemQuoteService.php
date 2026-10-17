@@ -145,7 +145,7 @@ final class StockItemQuoteService
                     ? (string) $basePrice
                     : StockUnitConverter::applyRatio((string) $basePrice, $ratio['numerator'], $ratio['denominator'], 2)),
                 'base_unit_price'     => $basePrice !== null ? (string) $basePrice : null,
-                // Cena za zvolenou jednotku před slevou (migrace 2021), přepočtená stejně
+                // Cena za zvolenou jednotku před slevou (migrace 2035), přepočtená stejně
                 // jako unit_price. Editor ji uloží k řádku jako `list_unit_price`.
                 'list_unit_price'     => $listBase === null ? null : ($isBase
                     ? (string) $listBase

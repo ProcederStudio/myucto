@@ -174,7 +174,7 @@ final class PartialUpdateItemsTest extends TestCase
     }
 
     /**
-     * Desetinná místa podle jednotky (2018) se kontrolují jen u nových a změněných řádků.
+     * Desetinná místa podle jednotky (2036) se kontrolují jen u nových a změněných řádků.
      * Doklad s řádkem uloženým dřív, než jednotka dostala nastavení, musí jít dál ukládat:
      * bez klíče `items` i s řádky poslanými beze změny (editor posílá vždy všechny).
      * Změněné množství už kontrolou neprojde.

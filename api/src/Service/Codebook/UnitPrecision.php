@@ -9,7 +9,7 @@ use MyInvoice\Repository\InvoiceRepository;
 use MyInvoice\Service\Invoice\TimeBilling;
 
 /**
- * Počet desetinných míst množství podle měrné jednotky (migrace 2018).
+ * Počet desetinných míst množství podle měrné jednotky (migrace 2036).
  *
  * `units` je globální číselník, jednotka na řádku dokladu i na skladové kartě je
  * volný text. Párují se podle kódu bez ohledu na velikost písmen a okolní mezery.

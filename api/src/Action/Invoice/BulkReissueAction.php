@@ -262,7 +262,7 @@ final class BulkReissueAction
             if ($supportsManualReview) {
                 $ossColumns[] = 'oss_needs_manual_review';
             }
-            // Ceníková cena řádku (2021): kopie přebírá cenu, tedy i cenu před slevou.
+            // Ceníková cena řádku (2035): kopie přebírá cenu, tedy i cenu před slevou.
             $supportsLineDiscount = $this->db->hasColumn('invoice_items', \MyInvoice\Service\Invoice\LineDiscount::LIST_COLUMN);
             if ($supportsLineDiscount) {
                 $ossColumns[] = \MyInvoice\Service\Invoice\LineDiscount::LIST_COLUMN;

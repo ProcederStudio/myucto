@@ -35,7 +35,7 @@ const error = ref('')
 const insufficientStock = ref<InsufficientStockItem[] | null>(null)
 
 const warehouses = ref<Warehouse[]>([])
-// Desetinná místa množství podle jednotky karty (2018): krok pole a upozornění, nic se nezaokrouhluje.
+// Desetinná místa množství podle jednotky karty (2036): krok pole a upozornění, nic se nezaokrouhluje.
 const units = ref<Unit[]>([])
 const { decimalsFor: unitDecimalsFor, tooPrecise: quantityTooPrecise, stepFor: quantityStepFor } = useUnitDecimals(units)
 

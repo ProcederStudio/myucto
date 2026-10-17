@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Invoice;
 
 /**
- * Ceníková cena a sleva řádku vydané faktury (migrace 2021).
+ * Ceníková cena a sleva řádku vydané faktury (migrace 2035).
  *
  * `list_unit_price` je cena za jednotku před slevou ve stejném základu jako
  * `unit_price_without_vat` (v režimu „ceny s DPH" tedy brutto). Sleva v % se

@@ -264,7 +264,7 @@ export interface Invoice {
   reverse_charge: boolean
   /** § 30 ZDPH — zjednodušený daňový doklad (do 10 000 Kč vč. daně). */
   is_simplified: boolean
-  /** Zjednodušený doklad bez údajů odběratele na PDF a webové faktuře (migrace 2020). */
+  /** Zjednodušený doklad bez údajů odběratele na PDF a webové faktuře (migrace 2037). */
   hide_customer_on_pdf?: boolean
   /** Cenová hladina zvolená na dokladu (přepíše hladinu odběratele); null = hladina odběratele. */
   price_level_id?: number | null
@@ -279,7 +279,7 @@ export interface Invoice {
   income_tax_exempt_reason: string | null
   language: 'cs' | 'en'
   supplier_order_number: string | null
-  /** Kdo doklad vystavil (migrace 2017); null u konceptu a dokladů vystavených bez uživatele. */
+  /** Kdo doklad vystavil (migrace 2032); null u konceptu a dokladů vystavených bez uživatele. */
   issued_by?: number | null
   /** Jméno vystavitele v okamžiku vystavení. */
   issued_by_name?: string | null

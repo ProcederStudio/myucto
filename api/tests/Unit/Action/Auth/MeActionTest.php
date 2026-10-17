@@ -40,7 +40,7 @@ final class MeActionTest extends TestCase
             ->method('prepare')
             ->willReturn($supplierStatement);
         $db = $this->createMock(Connection::class);
-        // Sloupce kontrolované kvůli instalacím pozadu s migrací: OSS a zjednodušený doklad (2020).
+        // Sloupce kontrolované kvůli instalacím pozadu s migrací: OSS a zjednodušený doklad (2037).
         $db->expects(self::exactly(2))->method('hasColumn')
             ->willReturnCallback(static fn (string $table, string $column): bool =>
                 $table === 'supplier' && in_array($column, ['oss_enabled', 'simplified_hide_customer_default'], true));

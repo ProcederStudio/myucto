@@ -399,7 +399,7 @@ final class InvoicePdfRenderer
             'invoice'           => $invoice,
             'supplier'          => $supplierData,
             'client'            => $clientData,
-            // Zjednodušený doklad s volbou „netisknout odběratele" (migrace 2020).
+            // Zjednodušený doklad s volbou „netisknout odběratele" (migrace 2037).
             'hide_customer'     => SimplifiedDocumentPolicy::hidesCustomer($invoice, $supplierData),
             'bank'              => $bankData,
             'qr_data_uri'       => $qrUri,
@@ -443,7 +443,7 @@ final class InvoicePdfRenderer
             'payment_schedule'  => ($invoice['invoice_type'] ?? '') === 'payment_calendar'
                 ? $this->paymentSchedule->forInvoice((int) $invoice['supplier_id'], (int) $invoice['id'])
                 : [],
-            // Sloupce „Cena/j před slevou | Sleva | Cena/j po slevě" (migrace 2021).
+            // Sloupce „Cena/j před slevou | Sleva | Cena/j po slevě" (migrace 2035).
             'line_discount_columns' => $lineDiscountColumns,
         ];
         return $twig->render('invoice.twig', $vars);
@@ -476,7 +476,7 @@ final class InvoicePdfRenderer
     }
 
     /**
-     * Volba `supplier.invoice_pdf_show_line_discount` (migrace 2021). Čte se živě jako
+     * Volba `supplier.invoice_pdf_show_line_discount` (migrace 2035). Čte se živě jako
      * rozpis balení: je to volba vzhledu, ne údaj dokladu, a snapshot dodavatele ji
      * u starších dokladů nemá.
      */
@@ -862,7 +862,7 @@ final class InvoicePdfRenderer
     }
 
     /**
-     * Pevný počet desetinných míst množství podle jednotky (2018). Řádek s jednotkou,
+     * Pevný počet desetinných míst množství podle jednotky (2036). Řádek s jednotkou,
      * která nastavení nemá, dostane null a šablona tiskne dnešní adaptivní formát.
      *
      * @param list<array<string,mixed>> $items
@@ -930,7 +930,7 @@ final class InvoicePdfRenderer
     }
 
     /**
-     * Řádek „Vystavil" (migrace 2017): jméno zapsané při vystavení, u starších
+     * Řádek „Vystavil" (migrace 2032): jméno zapsané při vystavení, u starších
      * dokladů a konceptů autor dokladu. Přepíná `supplier.invoice_pdf_show_issued_by`
      * a čte se živě jako {@see withBaseQuantity()}: je to volba vzhledu, ne údaj dokladu.
      *

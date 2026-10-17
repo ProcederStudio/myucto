@@ -66,7 +66,7 @@ final class SupplierInvoiceCounterAction
 
         $b    = (array) ($request->getParsedBody() ?? []);
         $type = (string) ($b['type'] ?? 'invoice');
-        // `simplified` = vlastní řada zjednodušených dokladů (migrace 2020); bez šablony
+        // `simplified` = vlastní řada zjednodušených dokladů (migrace 2037); bez šablony
         // firmy ji generátor odmítne, protože by se psalo do počítadla faktur.
         if (!in_array($type, ['invoice', 'proforma', 'credit_note', VarsymbolGenerator::SIMPLIFIED], true)) {
             return Json::error($response, 'validation_failed', "Neplatný type (invoice|proforma|credit_note|simplified).", 400);

@@ -19,7 +19,7 @@ use Slim\Psr7\Factory\ServerRequestFactory;
 use Slim\Psr7\Response as Psr7Response;
 
 /**
- * Desetinná místa množství podle měrné jednotky (migrace 2018).
+ * Desetinná místa množství podle měrné jednotky (migrace 2036).
  *
  * `units.quantity_decimals` NULL = jako dosud (bez omezení, ukládá se až na 3 místa).
  * Nastavená hodnota 0 až 3 omezí množství na řádku faktury s touto jednotkou;

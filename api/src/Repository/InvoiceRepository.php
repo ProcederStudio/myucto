@@ -91,7 +91,7 @@ final class InvoiceRepository
     }
 
     /**
-     * Volba „netisknout odběratele" na zjednodušeném dokladu (migrace 2020). Bez sloupce
+     * Volba „netisknout odběratele" na zjednodušeném dokladu (migrace 2037). Bez sloupce
      * se odběratel tiskne jako dosud.
      */
     private function supportsHideCustomer(): bool
@@ -148,7 +148,7 @@ final class InvoiceRepository
 
     private ?bool $hasLineDiscount = null;
 
-    /** Ceníková cena a sleva řádku (migrace 2021); starší instance je nemají. */
+    /** Ceníková cena a sleva řádku (migrace 2035); starší instance je nemají. */
     private function supportsLineDiscount(): bool
     {
         if ($this->hasLineDiscount === null) {
@@ -1405,7 +1405,7 @@ final class InvoiceRepository
         // Stejně jako `is_simplified`: jen když klíč v payloadu je, jinak by ho ostatní cesty
         // ukládající doklad (import, opakovaná fakturace) tiše smazaly.
         $hasPriceLevel = $this->supportsPriceLevel() && array_key_exists('price_level_id', $data);
-        // Volba „netisknout odběratele" (migrace 2020), taky jen když klíč v payloadu je,
+        // Volba „netisknout odběratele" (migrace 2037), taky jen když klíč v payloadu je,
         // nebo když se mění příznak zjednodušeného dokladu: bez něj se volba ruší.
         $hasHideCustomer = $this->supportsHideCustomer()
             && (array_key_exists('hide_customer_on_pdf', $data) || $hasSimplified);
@@ -1722,7 +1722,7 @@ final class InvoiceRepository
         if ($supportsTracking) {
             $ossColumns[] = 'tracking_json';
         }
-        // Ceníková cena a sleva řádku (2021), procento dopočítá LineDiscount.
+        // Ceníková cena a sleva řádku (2035), procento dopočítá LineDiscount.
         $supportsLineDiscount = $this->supportsLineDiscount();
         if ($supportsLineDiscount) {
             $ossColumns[] = \MyInvoice\Service\Invoice\LineDiscount::LIST_COLUMN;
@@ -2907,7 +2907,7 @@ final class InvoiceRepository
         $row['quantity']               = (float) $row['quantity'];
         $row['duration_minutes']       = $row['duration_minutes'] !== null ? (int) $row['duration_minutes'] : null;
         $row['unit_price_without_vat'] = (float) $row['unit_price_without_vat'];
-        // Ceníková cena a sleva řádku (2021) jdou ven vždy, na starší instanci jako null.
+        // Ceníková cena a sleva řádku (2035) jdou ven vždy, na starší instanci jako null.
         $row['list_unit_price']        = isset($row['list_unit_price']) ? (float) $row['list_unit_price'] : null;
         $row['line_discount_pct']      = isset($row['line_discount_pct']) ? (float) $row['line_discount_pct'] : null;
         $row['vat_rate_snapshot']      = (float) $row['vat_rate_snapshot'];

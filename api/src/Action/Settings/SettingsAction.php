@@ -472,7 +472,7 @@ final class SettingsAction
             'default_hourly_rate', 'auto_send_reminders', 'reminder_days_after_due', 'auto_generate_recurring', 'embed_isdoc', 'public_isdoc_enabled', 'email_attach_isdoc',
             'invoice_qr_include_due_date', 'purchase_invoice_qr_include_due_date',
             'default_prices_include_vat',
-            // Výchozí zaokrouhlení nových faktur (migrace 2019), viz InvoiceRounding::supplierDefault().
+            // Výchozí zaokrouhlení nových faktur (migrace 2031), viz InvoiceRounding::supplierDefault().
             'default_rounding_mode',
             // Pohoda kódy; `pohoda_accounting_code` = předkontace (migrace 1376) — bez ní
             // si Pohoda po importu dosadí vlastní default a doklad se zaúčtuje jinam.
@@ -481,7 +481,7 @@ final class SettingsAction
             // Per-supplier konfigurace číslování faktur (migrace 0014; přijaté 0095)
             'invoice_number_format', 'proforma_number_format', 'credit_note_number_format',
             'purchase_invoice_number_format',
-            // Zjednodušený daňový doklad (migrace 2020): vlastní řada (NULL = řada faktur)
+            // Zjednodušený daňový doklad (migrace 2037): vlastní řada (NULL = řada faktur)
             // a výchozí „netisknout odběratele" na novém dokladu.
             'simplified_number_format', 'simplified_hide_customer_default',
             // Číslování přijatých dokladů podle typu (migrace 2001)
@@ -490,7 +490,7 @@ final class SettingsAction
             'invoice_number_period',
             // Per-supplier branding emailů (migrace 0016) + PDF logo+název (migrace 0058)
             'email_branding_enabled', 'email_accent_color', 'pdf_logo_show_name', 'branding_profiles_enabled',
-            // Úsporná černobílá faktura (migrace 2023)
+            // Úsporná černobílá faktura (migrace 2033)
             'invoice_pdf_monochrome',
             // Tax settings pro EPO výkazy (migrace 0038, fáze 6)
             'taxpayer_type', 'vat_period', 'financial_office_code', 'workplace_code',
@@ -534,9 +534,9 @@ final class SettingsAction
             'dimensions_enabled',
             // Rozpis balení na základní jednotky na PDF faktury (issue #17, migrace 1832).
             'invoice_pdf_show_base_qty',
-            // Řádek „Vystavil" na PDF faktury (migrace 2017).
+            // Řádek „Vystavil" na PDF faktury (migrace 2032).
             'invoice_pdf_show_issued_by',
-            // Ceníková cena a sleva u položky na PDF faktury (migrace 2021), výchozí vypnuto.
+            // Ceníková cena a sleva u položky na PDF faktury (migrace 2035), výchozí vypnuto.
             'invoice_pdf_show_line_discount',
             // Auto-post hook (A2, migrace 1035) — auto-zaúčtování FV po vystavení / PF po
             // přijetí; admin-only (jako ostatní účetní nastavení firmy), účinek jen v double_entry.
@@ -1352,7 +1352,7 @@ final class SettingsAction
             true,
         ) ? (string) $row['proforma_payment_document'] : ProformaPaymentDocuments::MODE_ALWAYS_TAX_DOCUMENT;
         $row['allow_refund_invoices']    = (bool) ($row['allow_refund_invoices'] ?? false);
-        // Zjednodušený daňový doklad (migrace 2020): klíče vrátit vždy, i bez migrace.
+        // Zjednodušený daňový doklad (migrace 2037): klíče vrátit vždy, i bez migrace.
         $row['simplified_number_format'] = ($row['simplified_number_format'] ?? null) ?: null;
         $row['simplified_hide_customer_default'] = (bool) ($row['simplified_hide_customer_default'] ?? false);
         // Sklad (Epic SKLAD, migrace 1023) — opt-in modul; FE nav sekci gatuje MeAction.
@@ -1366,9 +1366,9 @@ final class SettingsAction
         $row['stock_in_transit_from']    = (string) ($row['stock_in_transit_from'] ?? 'sent');
         // Rozpis balení na PDF faktury (migrace 1832) — výchozí zapnuto.
         $row['invoice_pdf_show_base_qty'] = (bool) ($row['invoice_pdf_show_base_qty'] ?? true);
-        // Řádek „Vystavil" na PDF faktury (migrace 2017), výchozí vypnuto.
+        // Řádek „Vystavil" na PDF faktury (migrace 2032), výchozí vypnuto.
         $row['invoice_pdf_show_issued_by'] = (bool) ($row['invoice_pdf_show_issued_by'] ?? false);
-        // Ceníková cena a sleva u položky na PDF faktury (migrace 2021), výchozí vypnuto.
+        // Ceníková cena a sleva u položky na PDF faktury (migrace 2035), výchozí vypnuto.
         $row['invoice_pdf_show_line_discount'] = (bool) ($row['invoice_pdf_show_line_discount'] ?? false);
         // Auto-post hook (A2, migrace 1035) — opt-in auto-zaúčtování; FE gatuje na double_entry.
         $row['auto_post_invoices']       = (bool) ($row['auto_post_invoices'] ?? false);
@@ -1976,7 +1976,7 @@ final class SettingsAction
         $b = (array) ($request->getParsedBody() ?? []);
         $allowed = ['code', 'label_cs', 'label_en', 'is_default', 'display_order'];
         $sets = []; $params = [];
-        // Desetinná místa množství (2018): null / "" = bez omezení, jinak 0 až 3.
+        // Desetinná místa množství (2036): null / "" = bez omezení, jinak 0 až 3.
         if (array_key_exists('quantity_decimals', $b)) {
             $decimals = UnitPrecision::parseSetting($b['quantity_decimals']);
             if (!$decimals['ok']) {

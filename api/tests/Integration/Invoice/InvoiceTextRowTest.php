@@ -22,7 +22,7 @@ use Slim\Psr7\Factory\ServerRequestFactory;
 use Slim\Psr7\Response as Psr7Response;
 
 /**
- * Textový řádek mezi položkami vydaného dokladu (item_kind = 'text', migrace 2022).
+ * Textový řádek mezi položkami vydaného dokladu (item_kind = 'text', migrace 2034).
  *
  * Řádek nese jen popis. Nesmí ovlivnit žádnou částku, rekapitulaci DPH, evidenci DPH
  * ani zaúčtování (žádné nulové řádky v deníku), a přesto musí přežít uložení na svém

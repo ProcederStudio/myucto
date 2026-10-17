@@ -194,7 +194,7 @@ const vatClassifications = ref<VatClassification[]>([])
 const revenueCategories = ref<RevenueCategory[]>([])
 const currencies = ref<Currency[]>([])
 const units = ref<Unit[]>([])
-// Desetinná místa množství podle jednotky (2018): upozornění místo tichého zaokrouhlení.
+// Desetinná místa množství podle jednotky (2036): upozornění místo tichého zaokrouhlení.
 const { decimalsFor: unitDecimalsFor, tooPrecise: quantityTooPrecise, stepFor: quantityStepFor, mathDecimalsFor: quantityMathDecimals } = useUnitDecimals(units)
 // Uložené řádky dokladu: řádek beze změny jednotky a množství se nekontroluje (vznikl
 // dřív, než jednotka dostala nastavení), stejně jako na serveru.
@@ -679,7 +679,7 @@ async function quoteStockRows(rows: InvoiceItem[], mode: QuoteMode, requestUnit?
       }
       if (unit !== null) item.unit = unit
       item.unit_price_without_vat = price
-      // Ceníková cena ve stejném základu jako cena řádku (migrace 2021).
+      // Ceníková cena ve stejném základu jako cena řádku (migrace 2035).
       item.list_unit_price = quotedListPrice(line)
       stockQuoteStates.set(item, {
         seq: quote.seq,
@@ -757,7 +757,7 @@ function stockRowBaseQtyText(item: InvoiceItem): string | null {
   })
 }
 
-/** Ceníková cena a sleva pod cenou řádku (migrace 2021); null bez ceníku nebo bez rozdílu. */
+/** Ceníková cena a sleva pod cenou řádku (migrace 2035); null bez ceníku nebo bez rozdílu. */
 function lineDiscountHint(item: InvoiceItem): string | null {
   const pct = lineDiscountPct(item.list_unit_price, item.unit_price_without_vat)
   if (pct === null || item.list_unit_price == null) return null
@@ -1046,7 +1046,7 @@ const form = ref<{
   reverse_charge: boolean
   /** § 30 ZDPH — zjednodušený daňový doklad (do 10 000 Kč vč. daně). */
   is_simplified: boolean
-  /** Netisknout odběratele na zjednodušeném dokladu (migrace 2020). */
+  /** Netisknout odběratele na zjednodušeném dokladu (migrace 2037). */
   hide_customer_on_pdf: boolean
   price_level_id: number | null
   prices_include_vat: boolean
@@ -1096,7 +1096,7 @@ const form = ref<{
   advance_paid_amount: 0,
   discount_percent: 0,
   payment_method: 'bank_transfer',
-  // Výchozí zaokrouhlení firmy (migrace 2019); úprava existující faktury ho přepíše uloženým režimem.
+  // Výchozí zaokrouhlení firmy (migrace 2031); úprava existující faktury ho přepíše uloženým režimem.
   rounding_mode: supplierStore.currentSupplier?.default_rounding_mode ?? 'auto',
   cash_register_id: null,
   auto_send_reminders: true,
@@ -1468,7 +1468,7 @@ onMounted(async () => {
     if (queryDocType.value) form.value.invoice_type = queryDocType.value
     // Výchozí režim cen z nastavení dodavatele (0 = bez DPH; 1 = ceny s DPH).
     form.value.prices_include_vat = supplierStore.currentSupplier?.default_prices_include_vat ?? false
-    // Výchozí zaokrouhlení firmy (migrace 2019) znovu tady: při tvrdém načtení stránky
+    // Výchozí zaokrouhlení firmy (migrace 2031) znovu tady: při tvrdém načtení stránky
     // je supplier store v init form refu ještě prázdný.
     form.value.rounding_mode = supplierStore.currentSupplier?.default_rounding_mode ?? 'auto'
     if (route.query.client_id) {
@@ -2461,7 +2461,7 @@ async function submit() {
     error.value = t('invoice.amount_positive_required')
     return
   }
-  // Množství s víc desetinnými místy, než jednotka dovoluje (2018). Nezaokrouhluje se,
+  // Množství s víc desetinnými místy, než jednotka dovoluje (2036). Nezaokrouhluje se,
   // uživatel opraví vstup sám; server by stejný doklad odmítl 400.
   if (form.value.items.some(itemQtyTooPrecise)
     || (matOpen.value && matItemsValid.value.some(m => matQtyTooPrecise(m)))) {
@@ -2525,7 +2525,7 @@ async function submit() {
         duration_minutes: isTimeItem(it) ? (it.duration_minutes ?? null) : null,
         unit: it.unit,
         unit_price_without_vat: it.unit_price_without_vat,
-        // Ceníková cena (2021): round-trip, procento slevy dopočítá server.
+        // Ceníková cena (2035): round-trip, procento slevy dopočítá server.
         list_unit_price: it.list_unit_price ?? null,
         vat_rate_id: it.vat_rate_id,
         order_index: i,

@@ -202,7 +202,7 @@ const proformaPreview       = computed(() => validateAndPreview(supplier.value?.
 const proformaFormatError   = computed(() => validateAndPreview(supplier.value?.proforma_number_format ?? null).error)
 const creditNotePreview     = computed(() => validateAndPreview(supplier.value?.credit_note_number_format ?? null).preview)
 const creditNoteFormatError = computed(() => validateAndPreview(supplier.value?.credit_note_number_format ?? null).error)
-// Zjednodušené daňové doklady (migrace 2020): prázdné pole = řada faktur, žádný fallback.
+// Zjednodušené daňové doklady (migrace 2037): prázdné pole = řada faktur, žádný fallback.
 const simplifiedPreview     = computed(() => validateAndPreview(supplier.value?.simplified_number_format ?? null).preview)
 const simplifiedFormatError = computed(() => validateAndPreview(supplier.value?.simplified_number_format ?? null).error)
 const hasSimplifiedSeries   = computed(() => (supplier.value?.simplified_number_format ?? '').trim() !== '')
@@ -611,7 +611,7 @@ async function saveSupplier() {
       invoice_number_format: supplier.value.invoice_number_format,
       proforma_number_format: supplier.value.proforma_number_format,
       credit_note_number_format: supplier.value.credit_note_number_format,
-      // Chybějící hodnota (nedoběhlá migrace 2020) se neposílá, aby uložení nespadlo.
+      // Chybějící hodnota (nedoběhlá migrace 2037) se neposílá, aby uložení nespadlo.
       ...(supplier.value.simplified_hide_customer_default !== undefined ? {
         simplified_number_format: supplier.value.simplified_number_format ?? null,
         simplified_hide_customer_default: supplier.value.simplified_hide_customer_default,

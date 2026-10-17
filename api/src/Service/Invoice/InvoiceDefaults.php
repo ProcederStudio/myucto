@@ -131,7 +131,7 @@ final class InvoiceDefaults
         // taky a existující faktuře by přeuložení doplnilo text, který nikdy neměla.
         if ($forNewInvoice) {
             $data = self::withDefaultNote($data, $supplier);
-            // Výchozí zaokrouhlení firmy (migrace 2019). Jen chybí-li klíč: editor ho
+            // Výchozí zaokrouhlení firmy (migrace 2031). Jen chybí-li klíč: editor ho
             // posílá vždy, API a MCP ho vynechávají.
             if (!array_key_exists('rounding_mode', $data)) {
                 $data['rounding_mode'] = InvoiceRounding::supplierDefault($pdo, (int) $supplierId);

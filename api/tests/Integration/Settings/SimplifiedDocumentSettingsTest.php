@@ -19,7 +19,7 @@ use Slim\Psr7\Factory\ServerRequestFactory;
 use Slim\Psr7\Response;
 
 /**
- * Nastavení zjednodušeného daňového dokladu (migrace 2020): řada v Číslování,
+ * Nastavení zjednodušeného daňového dokladu (migrace 2037): řada v Číslování,
  * výchozí „netisknout odběratele" ve Fakturaci. Bez nastavení se nic nemění.
  */
 #[Group('integration')]

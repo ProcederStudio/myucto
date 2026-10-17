@@ -1,5 +1,5 @@
 /**
- * Ceníková cena a sleva řádku faktury (migrace 2021).
+ * Ceníková cena a sleva řádku faktury (migrace 2035).
  *
  * `list_unit_price` je cena za jednotku před slevou ve stejném základu jako
  * `unit_price_without_vat`. Editor ji ukládá při nacenění skladové karty a ruční

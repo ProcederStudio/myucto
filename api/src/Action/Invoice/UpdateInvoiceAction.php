@@ -95,7 +95,7 @@ final class UpdateInvoiceAction
         'invoice_type', 'payment_method', 'rounding_mode', 'discount_percent', 'advance_paid_amount',
         'reverse_charge', 'prices_include_vat', 'vat_classification_code', 'income_tax_exempt',
         'is_simplified',
-        // „Netisknout odběratele" (migrace 2020) mění tištěný daňový doklad, takže v uzavřeném
+        // „Netisknout odběratele" (migrace 2037) mění tištěný daňový doklad, takže v uzavřeném
         // období neprojde jako poznámková úprava.
         'hide_customer_on_pdf',
         // Volba hotovostního vyrovnání (migrace 1327) zakládá/ruší ZAÚČTOVANÝ pokladní
@@ -188,7 +188,7 @@ final class UpdateInvoiceAction
             }
         }
 
-        // Desetinná místa množství podle měrné jednotky (2018), jen u NOVÝCH a ZMĚNĚNÝCH
+        // Desetinná místa množství podle měrné jednotky (2036), jen u NOVÝCH a ZMĚNĚNÝCH
         // řádků: vynechaný klíč `items` nechá uložené řádky, jak jsou, a řádek poslaný
         // beze změny množství a jednotky ({@see UnitPrecision::unchangedIndexes()}) se
         // nekontroluje, jinak by doklad uložený před nastavením jednotky nešel uložit
@@ -334,7 +334,7 @@ final class UpdateInvoiceAction
             $body['invoice_type'] = $requestedType;
             $renumber = ['from' => $oldVs, 'to' => null, 'from_type' => $existingType, 'to_type' => $requestedType];
             // Řada se bere podle typu A příznaku zjednodušeného dokladu (vlastní řada
-            // zjednodušených dokladů, migrace 2020): staré číslo se vrací do řady, ze které
+            // zjednodušených dokladů, migrace 2037): staré číslo se vrací do řady, ze které
             // přišlo, nové se bere z řady, do které doklad po změně patří.
             $newSimplified = array_key_exists('is_simplified', $body)
                 ? filter_var($body['is_simplified'], FILTER_VALIDATE_BOOLEAN)

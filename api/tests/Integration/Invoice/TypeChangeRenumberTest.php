@@ -114,7 +114,7 @@ final class TypeChangeRenumberTest extends TestCase
         }
     }
 
-    /** Vlastní řada zjednodušených dokladů (migrace 2020), v cleanup se vrátí původní. */
+    /** Vlastní řada zjednodušených dokladů (migrace 2037), v cleanup se vrátí původní. */
     private function useSimplifiedSeries(string $template): void
     {
         $pdo = $this->db->pdo();

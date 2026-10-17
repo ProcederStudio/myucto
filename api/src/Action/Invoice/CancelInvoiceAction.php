@@ -400,7 +400,7 @@ final class CancelInvoiceAction
             if ($supportsTracking) {
                 $ossColumns[] = 'tracking_json';
             }
-            // Ceníková cena řádku (2021): dobropis vrací totéž plnění za tutéž cenu.
+            // Ceníková cena řádku (2035): dobropis vrací totéž plnění za tutéž cenu.
             if ($supportsLineDiscount) {
                 $ossColumns[] = LineDiscount::LIST_COLUMN;
                 $ossColumns[] = LineDiscount::PERCENT_COLUMN;

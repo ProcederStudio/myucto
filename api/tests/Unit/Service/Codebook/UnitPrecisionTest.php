@@ -10,7 +10,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Počet desetinných míst množství podle měrné jednotky (migrace 2018).
+ * Počet desetinných míst množství podle měrné jednotky (migrace 2036).
  *
  * Kontrola nesmí nic zaokrouhlovat, jen říct, že zadané množství má víc míst,
  * než jednotka dovoluje. Jednotka bez nastavení a jednotka mimo číselník

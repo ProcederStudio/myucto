@@ -1,7 +1,7 @@
 import { computed, unref, type MaybeRef } from 'vue'
 
 /**
- * Desetinná místa množství podle měrné jednotky (migrace 2018).
+ * Desetinná místa množství podle měrné jednotky (migrace 2036).
  *
  * Číselník jednotek je globální, jednotka na řádku dokladu i na skladové kartě je
  * volný text. Párují se podle kódu bez ohledu na velikost písmen a okolní mezery,

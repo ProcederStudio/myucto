@@ -72,7 +72,7 @@ final class MeAction
             $ossSelect = $this->db->hasColumn('supplier', 'oss_enabled')
                 ? 'oss_enabled'
                 : '0 AS oss_enabled';
-            // Zjednodušený doklad (migrace 2020): instalace pozadu s migrací sloupec nemá.
+            // Zjednodušený doklad (migrace 2037): instalace pozadu s migrací sloupec nemá.
             $simplifiedSelect = $this->db->hasColumn('supplier', 'simplified_hide_customer_default')
                 ? 'simplified_hide_customer_default'
                 : '0 AS simplified_hide_customer_default';
@@ -162,11 +162,11 @@ final class MeAction
             $s['default_payment_due_unit'] = (string) ($s['default_payment_due_unit'] ?? 'days');
             // Výchozí režim cen u nových faktur (0 = bez DPH, 1 = ceny s DPH) — předvyplní editor.
             $s['default_prices_include_vat'] = (bool) ($s['default_prices_include_vat'] ?? false);
-            // Výchozí zaokrouhlení nových faktur (migrace 2019), předvyplní editor.
+            // Výchozí zaokrouhlení nových faktur (migrace 2031), předvyplní editor.
             $s['default_rounding_mode'] = InvoiceRounding::orDefault($s['default_rounding_mode'] ?? null);
             // Vyúčtování s výsledkem k vyplacení (migrace 1937) — editor povolí zápornou fakturu.
             $s['allow_refund_invoices']    = (bool) ($s['allow_refund_invoices'] ?? false);
-            // Zjednodušený doklad (migrace 2020), editor podle ní předvyplní „netisknout
+            // Zjednodušený doklad (migrace 2037), editor podle ní předvyplní „netisknout
             // odběratele" při zaškrtnutí zjednodušeného dokladu.
             $s['simplified_hide_customer_default'] = (bool) ($s['simplified_hide_customer_default'] ?? false);
             // Per-faktura přepínač upomínek v editoru se skryje, když dodavatel auto-upomínky nemá.

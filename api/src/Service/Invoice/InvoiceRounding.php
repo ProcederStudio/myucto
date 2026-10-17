@@ -7,7 +7,7 @@ namespace MyInvoice\Service\Invoice;
 /**
  * Zaokrouhlení částky k úhradě na celé koruny podle režimu uloženého na dokladu.
  * Výchozí režim nových dokladů je volba firmy (`supplier.default_rounding_mode`,
- * migrace 2019).
+ * migrace 2031).
  */
 final class InvoiceRounding
 {

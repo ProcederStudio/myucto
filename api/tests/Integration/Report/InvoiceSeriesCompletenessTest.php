@@ -327,7 +327,7 @@ final class InvoiceSeriesCompletenessTest extends TestCase
         self::assertSame(5, $bucket['used_count']);
     }
 
-    /** Vlastní řada zjednodušených dokladů (migrace 2020) je samostatná řada reportu. */
+    /** Vlastní řada zjednodušených dokladů (migrace 2037) je samostatná řada reportu. */
     public function testSimplifiedSeriesIsReportedOnItsOwn(): void
     {
         $this->setTemplates('{YYYY}{CCCCCC}', 'D{YYYY}{CCCCCC}');

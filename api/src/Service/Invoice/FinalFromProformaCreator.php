@@ -237,7 +237,7 @@ final class FinalFromProformaCreator
             $trackingStmt = $this->db->hasColumn('invoice_items', 'tracking_json')
                 ? $pdo->prepare('UPDATE invoice_items SET tracking_json = ? WHERE id = ? AND invoice_id = ?')
                 : null;
-            // Ceníková cena řádku (2021) přechází stejně, zápis zvlášť ze stejného důvodu.
+            // Ceníková cena řádku (2035) přechází stejně, zápis zvlášť ze stejného důvodu.
             $lineDiscountStmt = $this->db->hasColumn('invoice_items', LineDiscount::LIST_COLUMN)
                 ? $pdo->prepare('UPDATE invoice_items SET list_unit_price = ?, line_discount_pct = ? WHERE id = ? AND invoice_id = ?')
                 : null;

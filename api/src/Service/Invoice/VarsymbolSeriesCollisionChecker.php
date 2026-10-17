@@ -85,7 +85,7 @@ final class VarsymbolSeriesCollisionChecker
             }
         }
 
-        // Vlastní řada zjednodušených daňových dokladů (migrace 2020) je jen na úrovni
+        // Vlastní řada zjednodušených daňových dokladů (migrace 2037) je jen na úrovni
         // firmy a bez šablony žádná není (doklady jdou do řady faktur). Její čísla jsou
         // VS v téže tabulce `invoices`, takže se s ostatními řadami porovnává taky.
         $simplifiedTpl = trim((string) ($sup['simplified_number_format'] ?? ''));

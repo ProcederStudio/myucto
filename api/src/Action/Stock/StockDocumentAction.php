@@ -102,7 +102,7 @@ final class StockDocumentAction
         }
         $body = (array) ($request->getParsedBody() ?? []);
         try {
-            // Ruční zadání: hlídá desetinná místa množství podle jednotky karty (2018).
+            // Ruční zadání: hlídá desetinná místa množství podle jednotky karty (2036).
             $result = $this->service->create($supplierId, $body, $this->userId($request), checkUnitDecimals: true);
             $this->log($request, 'stock.document_created', (int) $result['id'], ['doc_type' => $result['doc_type'] ?? null]);
             return Json::ok($response, $result, 201);

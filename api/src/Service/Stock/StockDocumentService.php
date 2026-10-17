@@ -80,7 +80,7 @@ final class StockDocumentService
      * NOVÉ řádky draftu (422) — post existujícího draftu neblokuje.
      *
      * `checkUnitDecimals` zapíná kontrolu desetinných míst množství podle jednotky
-     * karty (2018). Zapíná ji jen ruční zadání (HTTP); automatické doklady k fakturám,
+     * karty (2036). Zapíná ji jen ruční zadání (HTTP); automatické doklady k fakturám,
      * importy, inventury a kompletace převádějí už vzniklá data a zůstávají beze změny.
      *
      * @param array<string,mixed> $body
@@ -137,7 +137,7 @@ final class StockDocumentService
             if (!$linesSent) {
                 $body['lines'] = $this->docs->lines($supplierId, $id);
             }
-            // Desetinná místa (2018) jen u poslaných řádků, uložené zůstávají, jak jsou.
+            // Desetinná místa (2036) jen u poslaných řádků, uložené zůstávají, jak jsou.
             [$header, $lines] = $this->validateBody($supplierId, $body, blockInactiveItems: $linesSent, checkUnitDecimals: $checkUnitDecimals && $linesSent);
             $persistedCosts = $this->landedCosts->listForDocument($supplierId, $id);
             if (!$this->docs->updateDraftHeader($supplierId, $id, $header)) {
@@ -782,7 +782,7 @@ final class StockDocumentService
         }
         $meta = $this->itemsMeta($supplierId, array_values(array_unique($itemIds)));
 
-        // Desetinná místa množství podle jednotky karty (2018): množství řádku je
+        // Desetinná místa množství podle jednotky karty (2036): množství řádku je
         // v základní jednotce karty, `stock_items.unit` je volný text párovaný
         // s číselníkem bez ohledu na velikost písmen. Nic se nezaokrouhluje.
         if ($checkUnitDecimals) {

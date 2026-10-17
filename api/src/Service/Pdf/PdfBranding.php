@@ -69,7 +69,7 @@ final class PdfBranding
         return !preg_match($bad, $svg);
     }
 
-    /** Úsporná černobílá varianta PDF (migrace 2023), cesta relativně ke kořeni instalace. */
+    /** Úsporná černobílá varianta PDF (migrace 2033), cesta relativně ke kořeni instalace. */
     public const MONOCHROME_CSS = 'styles/invoice-mono.css';
 
     /**

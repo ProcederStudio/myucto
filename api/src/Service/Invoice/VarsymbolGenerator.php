@@ -50,7 +50,7 @@ use Psr\Log\LoggerInterface;
 final class VarsymbolGenerator
 {
     /**
-     * Řada zjednodušených daňových dokladů (§ 30 ZDPH, migrace 2020). Není to typ dokladu
+     * Řada zjednodušených daňových dokladů (§ 30 ZDPH, migrace 2037). Není to typ dokladu
      * (zjednodušený doklad je faktura s příznakem `is_simplified`), jen řada, do které
      * se čísluje. Bez `supplier.simplified_number_format` je totožná s řadou faktur.
      */

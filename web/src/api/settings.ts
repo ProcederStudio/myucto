@@ -215,7 +215,7 @@ export interface Supplier {
   default_payment_due_unit: 'days' | 'month'
   /** Výchozí režim cen u nových faktur (false = bez DPH, true = ceny s DPH). */
   default_prices_include_vat: boolean
-  /** Výchozí zaokrouhlení nových faktur (migrace 2019). */
+  /** Výchozí zaokrouhlení nových faktur (migrace 2031). */
   default_rounding_mode?: InvoiceRoundingMode
   /**
    * Výchozí poznámka pod položkami na nově zakládaných dokladech (#79, migrace 1855).
@@ -263,10 +263,10 @@ export interface Supplier {
   invoice_number_format: string | null
   proforma_number_format: string | null
   credit_note_number_format: string | null
-  /** Řada zjednodušených daňových dokladů (migrace 2020); null = řada faktur.
+  /** Řada zjednodušených daňových dokladů (migrace 2037); null = řada faktur.
    *  `undefined` = starší backend bez pole. */
   simplified_number_format?: string | null
-  /** Výchozí „netisknout odběratele" na novém zjednodušeném dokladu (migrace 2020). */
+  /** Výchozí „netisknout odběratele" na novém zjednodušeném dokladu (migrace 2037). */
   simplified_hide_customer_default?: boolean
   // Šablona interního čísla přijaté faktury (migrace 0095). null = vestavěný
   // default '{PP}{YY}{MM}{CCC}'. {PP} = daňový prefix (PF/PN/KU/KN/NU/NN).
@@ -283,7 +283,7 @@ export interface Supplier {
   email_branding_enabled: boolean
   email_accent_color: string  // #RRGGBB
   pdf_logo_show_name: boolean // vedle loga v PDF zobrazit i název firmy (migrace 0058)
-  invoice_pdf_monochrome?: boolean // úsporná černobílá faktura (migrace 2023)
+  invoice_pdf_monochrome?: boolean // úsporná černobílá faktura (migrace 2033)
   branding_profiles_enabled: boolean
   has_email_logo?: boolean    // server flag (existence storage/supplier-logos/sup-{id}.png)
   // Děkovný e-mail za úhradu (issue #57)
@@ -313,7 +313,7 @@ export interface Supplier {
   stock_in_transit_from?: 'sent' | 'confirmed'
   /** Na PDF faktury doplnit u balení celkové množství v základní jednotce (issue #17). */
   invoice_pdf_show_base_qty?: boolean
-  /** Na PDF faktury tisknout řádek „Vystavil" (migrace 2017). */
+  /** Na PDF faktury tisknout řádek „Vystavil" (migrace 2032). */
   invoice_pdf_show_issued_by?: boolean
   /** Na PDF faktury rozepsat slevu z ceníkové ceny (Cena/j před slevou, Sleva, Cena/j po slevě). Výchozí vypnuto. */
   invoice_pdf_show_line_discount?: boolean

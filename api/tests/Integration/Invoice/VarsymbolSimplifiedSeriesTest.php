@@ -16,7 +16,7 @@ use Slim\Psr7\Factory\ServerRequestFactory;
 use Slim\Psr7\Response as Psr7Response;
 
 /**
- * Vlastní číselná řada zjednodušených daňových dokladů (§ 30 ZDPH, migrace 2020).
+ * Vlastní číselná řada zjednodušených daňových dokladů (§ 30 ZDPH, migrace 2037).
  *
  * Prázdná `supplier.simplified_number_format` = zjednodušený doklad sdílí řadu faktur
  * (dosavadní chování, včetně řady klienta a kategorie). Vyplněná = vlastní řada

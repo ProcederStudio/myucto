@@ -384,7 +384,7 @@ final class StockDocumentLifecycleTest extends StockTestCase
         self::assertNotEmpty($posted['warnings']);
     }
 
-    // ── desetinná místa množství podle jednotky karty (2018) ────────────────
+    // ── desetinná místa množství podle jednotky karty (2036) ────────────────
 
     /**
      * BEZ ZMĚNY PADÁ: ručně zadaný doklad uložil 1,5 ks, i když jednotka dovoluje

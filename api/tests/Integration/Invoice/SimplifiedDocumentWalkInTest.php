@@ -161,7 +161,7 @@ final class SimplifiedDocumentWalkInTest extends TestCase
     }
 
 
-    // ── vlastní řada a netisknutý odběratel (migrace 2020) ───────────────────
+    // ── vlastní řada a netisknutý odběratel (migrace 2037) ───────────────────
 
     public function testSimplifiedDocumentTakesNumberFromOwnSeries(): void
     {

@@ -8,7 +8,7 @@ use MyInvoice\Service\Invoice\LineDiscount;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Ceníková cena a sleva řádku faktury (migrace 2021): informační údaj k řádku,
+ * Ceníková cena a sleva řádku faktury (migrace 2035): informační údaj k řádku,
  * částky dokladu dál určuje `unit_price_without_vat`.
  *
  * @see \MyInvoice\Service\Invoice\LineDiscount

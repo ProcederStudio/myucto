@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Invoice;
 
 /**
- * Druh řádku vydaného dokladu (`invoice_items.item_kind`, migrace 0053 a 2022).
+ * Druh řádku vydaného dokladu (`invoice_items.item_kind`, migrace 0053 a 2034).
  *
  *   standard  běžná položka (plnění)
  *   discount  systémová sleva z hlavičky, generuje ji `InvoiceRepository::replaceItems()`

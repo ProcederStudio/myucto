@@ -92,7 +92,7 @@ final class RecurringTemplateRepository
     }
 
     /**
-     * Textový řádek šablony (migrace 2022). Guard ze stejného důvodu jako u OSS: bez
+     * Textový řádek šablony (migrace 2034). Guard ze stejného důvodu jako u OSS: bez
      * migrace se šablona čte jako dřív, jen bez druhu řádku (= běžné položky).
      */
     private function supportsItemKind(): bool

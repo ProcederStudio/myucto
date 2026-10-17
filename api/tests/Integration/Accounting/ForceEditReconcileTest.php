@@ -184,7 +184,7 @@ final class ForceEditReconcileTest extends TestCase
     }
 
     /**
-     * „Netisknout odběratele" (migrace 2020) mění tištěný daňový doklad, takže v uzavřeném
+     * „Netisknout odběratele" (migrace 2037) mění tištěný daňový doklad, takže v uzavřeném
      * období neprojde jako čistě poznámková úprava.
      */
     public function testNotesOnlyWithHiddenCustomerChangeReturns422(): void

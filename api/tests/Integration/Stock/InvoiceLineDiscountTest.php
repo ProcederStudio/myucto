@@ -23,7 +23,7 @@ use Slim\Psr7\Factory\ServerRequestFactory;
 use Slim\Psr7\Response as Psr7Response;
 
 /**
- * Ceníková cena a sleva u položky faktury (migrace 2021).
+ * Ceníková cena a sleva u položky faktury (migrace 2035).
  *
  * Řádek nese `list_unit_price` (cena před slevou ve stejném základu jako
  * `unit_price_without_vat`) a server z ní dopočítá `line_discount_pct`. Je to

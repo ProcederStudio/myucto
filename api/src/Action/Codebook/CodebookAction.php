@@ -73,7 +73,7 @@ final class CodebookAction
             'label_en'      => $r['label_en'],
             'is_default'    => (bool) $r['is_default'],
             'display_order' => (int) $r['display_order'],
-            // Desetinná místa množství (2018), null = bez omezení.
+            // Desetinná místa množství (2036), null = bez omezení.
             'quantity_decimals' => $r['quantity_decimals'] !== null ? (int) $r['quantity_decimals'] : null,
         ], $rows));
     }

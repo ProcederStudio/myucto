@@ -6,7 +6,7 @@ namespace MyInvoice\Service\Invoice;
 
 /**
  * Zápis vystavitele dokladu (`invoices.issued_by` + snapshot jména `issued_by_name`,
- * migrace 2017). Volá ho každá cesta, která doklad vystavuje jménem uživatele:
+ * migrace 2032). Volá ho každá cesta, která doklad vystavuje jménem uživatele:
  * {@see \MyInvoice\Action\Invoice\IssueInvoiceAction}, {@see AutoIssueAndSendService},
  * ručně spuštěný {@see RecurringInvoiceGenerator} a interní storno v
  * {@see \MyInvoice\Action\Invoice\CancelInvoiceAction}.

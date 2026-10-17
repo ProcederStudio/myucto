@@ -375,7 +375,7 @@ final class SalesOrderServiceTest extends StockTestCase
         )->fetchColumn());
     }
 
-    /** Faktura z objednávky dostane výchozí zaokrouhlení firmy (migrace 2019). */
+    /** Faktura z objednávky dostane výchozí zaokrouhlení firmy (migrace 2031). */
     public function testInvoiceFromOrderTakesCompanyRoundingDefault(): void
     {
         $supplierId = $this->createSupplier();
