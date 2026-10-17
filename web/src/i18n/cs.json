@@ -21693,6 +21693,10 @@
       "gross_edit_hint": "Můžete přepsat částkou s DPH - dopočítá se cena bez DPH za jednotku."
     },
     "add_item": "+ Přidat položku",
+    "add_text_row": "+ Textový řádek",
+    "text_row": "Textový řádek",
+    "text_row_placeholder": "Text mezi položkami, třeba nadpis oddílu nebo poznámka",
+    "text_row_hint": "Jen text na dokladu, do částek ani DPH nevstupuje.",
     "no_items": "Žádné položky.",
     "add_first": "Přidat první",
     "totals": {

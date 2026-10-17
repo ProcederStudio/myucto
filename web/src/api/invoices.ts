@@ -118,7 +118,8 @@ export interface InvoiceItem {
   order_index: number
   // 'discount' = systémově generovaná záporná slevová položka (z invoices.discount_percent).
   // Editor ji při načtení vyfiltruje — needituje se a negeneruje znovu při uložení.
-  item_kind?: 'standard' | 'discount'
+  // 'text' = textový řádek mezi položkami: jen popis, do částek ani DPH nevstupuje.
+  item_kind?: 'standard' | 'discount' | 'text'
   linked_work_report_id?: number | null
   vat_code?: string
   vat_label_cs?: string
@@ -601,7 +602,14 @@ export interface InvoicePayload {
     oss_original_period?: string | null
     /** Round-trip příznaku „místo plnění systém neurčil" — viz InvoiceItem. */
     oss_needs_manual_review?: boolean
-  }>
+  } | InvoicePayloadTextItem>
+}
+
+/** Textový řádek v payloadu dokladu: jen druh, text a pořadí (server ho vynuluje). */
+export interface InvoicePayloadTextItem {
+  item_kind: 'text'
+  description: string
+  order_index: number
 }
 
 /**

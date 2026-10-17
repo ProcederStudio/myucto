@@ -293,6 +293,24 @@ final class RecurringTemplateOssApiTest extends TestCase
         self::assertSame(1, (int) ($row['oss_needs_manual_review'] ?? 0), 'Přebití rozhodnutí musí být vidět v datech');
     }
 
+    /**
+     * Šablona jen z textových řádků (item_kind 'text') by se uložila a každý běh
+     * generátoru by pak spadl. Uložení ji musí odmítnout validační chybou na items.
+     */
+    public function testTemplateWithOnlyTextRowsIsRejected(): void
+    {
+        $body = $this->payload((new \DateTimeImmutable('today'))->format('Y-m-d'), []);
+        $body['items'] = [['item_kind' => 'text', 'description' => 'Jen text', 'order_index' => 0]];
+
+        $created = $this->call('create', 'POST', $body);
+        if (isset($created['body']['id'])) {
+            $this->createdTemplateIds[] = (int) $created['body']['id'];
+        }
+
+        self::assertSame(400, $created['status'], json_encode($created['body'], JSON_UNESCAPED_UNICODE));
+        self::assertArrayHasKey('items', $created['body']['error']['fields'] ?? []);
+    }
+
     /** @param array<string,mixed> $oss @return array<string,mixed> */
     private function payload(string $anchorDate, array $oss): array
     {

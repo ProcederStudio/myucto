@@ -7,6 +7,7 @@ namespace MyInvoice\Service\Report;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\TaxConstantsRepository;
 use MyInvoice\Service\Accounting\PostingException;
+use MyInvoice\Service\Invoice\InvoiceItemKind;
 
 /**
  * Kanonický producent VAT řádků — JEDNO místo se sdílenou logikou pro všechny
@@ -433,6 +434,12 @@ final class VatLedgerService
         $ossFilter = $this->db->hasColumn('invoice_items', 'oss_applicable')
             ? 'AND COALESCE(ii.oss_applicable, 0) = 0'
             : '';
+        // Textový řádek (InvoiceItemKind::TEXT) nic nevykazuje. Bez kódu by spadl na kód
+        // hlavičky a v knize DPH i KH by vznikla věta s nulovým základem.
+        // Guard na sloupec jako u OSS výše (fixture schémata bez migrace 0053).
+        $textFilter = $this->db->hasColumn('invoice_items', 'item_kind')
+            ? 'AND ' . InvoiceItemKind::sqlAmountLine('ii')
+            : '';
         // Práh základní/snížená sazba pro fallback klasifikaci — per rok období
         // (číselník daňových konstant, ne natvrdo 20.5).
         // ZÁKLADNÍ sazba, ne práh mezi buckety: fallback rozhoduje, jestli je sazba česká
@@ -504,6 +511,7 @@ final class VatLedgerService
                AND {$statusFilter}
                AND i.invoice_type NOT IN ('proforma', 'penalty')
                {$ossFilter}
+               {$textFilter}
                {$documentFilter}
                AND i.effective_tax_date BETWEEN ? AND ?
           ORDER BY i.effective_tax_date, i.id, ii.id

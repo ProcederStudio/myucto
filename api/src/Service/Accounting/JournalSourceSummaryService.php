@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Accounting;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Service\Invoice\InvoiceItemKind;
 use MyInvoice\Service\Accounting\Closing\ClosingSourceId;
 use PDO;
 
@@ -211,7 +212,7 @@ final class JournalSourceSummaryService
 
         $items = $this->rows(
             'SELECT description, quantity, unit, unit_price_without_vat, vat_rate_snapshot,
-                    total_without_vat, total_vat, total_with_vat
+                    total_without_vat, total_vat, total_with_vat, item_kind
                FROM invoice_items WHERE invoice_id = ? ORDER BY order_index ASC, id ASC',
             [$id]
         );
@@ -231,7 +232,8 @@ final class JournalSourceSummaryService
         $blocks = [];
         if ($items !== []) {
             $blocks[] = $this->itemsBlock($items, $itemsTotal, $currency, false);
-            $blocks[] = $this->vatRecapBlock($this->vatRecapFromItems($items), $currency);
+            // Textový řádek nezakládá řádek rekapitulace DPH.
+            $blocks[] = $this->vatRecapBlock($this->vatRecapFromItems(InvoiceItemKind::amountLines($items)), $currency);
         }
         if ($payments !== []) {
             $blocks[] = $this->tableBlock('payments', 'payments', [

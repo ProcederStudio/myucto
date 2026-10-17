@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace MyInvoice\Service\Oss;
 
+use MyInvoice\Service\Invoice\InvoiceItemKind;
+
 /**
  * SOUDRŽNOST DOKLADU: leží týž doklad zároveň v OSS podání a v tuzemském přiznání?
  *
@@ -126,7 +128,8 @@ final class OssDocumentCoherence
     {
         $lines = [];
         foreach ($items as $key => $item) {
-            if (!is_array($item) || (string) ($item['item_kind'] ?? 'standard') === 'discount') {
+            // Textový řádek (InvoiceItemKind::TEXT) není plnění, tuzemskou stranu nedělá.
+            if (!is_array($item) || InvoiceItemKind::of($item) !== InvoiceItemKind::STANDARD) {
                 continue;
             }
             $lines[$key] = [

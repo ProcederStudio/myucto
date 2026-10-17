@@ -1727,10 +1727,13 @@ useWindowRefresh(['invoices', 'clients', 'bank', 'bank-transactions', 'cash', 'a
                       <tr v-if="expandedLoading"><td colspan="4" class="py-1 text-neutral-500">{{ t('common.loading') }}</td></tr>
                       <tr v-else-if="!expandedItems?.length"><td colspan="4" class="py-1 text-neutral-500">{{ t('common.no_data') }}</td></tr>
                       <tr v-for="(item, ii) in expandedItems" :key="item.id ?? ii" class="border-t border-neutral-200/70">
+                        <td v-if="item.item_kind === 'text'" colspan="4" class="py-1 pr-3 font-medium text-neutral-700 whitespace-pre-wrap">{{ item.description }}</td>
+                        <template v-else>
                         <td class="py-1 pr-3 text-neutral-700">{{ item.description }}</td>
                         <td class="py-1 text-right font-mono tabular-nums whitespace-nowrap">{{ formatNumber(item.quantity) }} {{ item.unit }}</td>
                         <td class="py-1 text-right font-mono tabular-nums whitespace-nowrap">{{ formatMoney(item.unit_price_without_vat, inv.currency) }}</td>
                         <td class="py-1 text-right font-mono tabular-nums whitespace-nowrap font-semibold text-neutral-900">{{ formatMoney(item.total_with_vat ?? item.total_without_vat ?? 0, inv.currency) }}</td>
+                        </template>
                       </tr>
                     </tbody>
                   </table>

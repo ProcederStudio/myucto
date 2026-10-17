@@ -1282,6 +1282,52 @@ final class RecurringGeneratorTest extends TestCase
     }
 
     /**
+     * Textový řádek šablony (item_kind 'text') se uloží vynulovaný, přežije čtení
+     * a do vygenerované faktury přejde na své místo jako textový, s posunutým měsícem.
+     * Šablona jen z textových řádků fakturu nevygeneruje.
+     */
+    public function testTextRowOnTemplateIsCarriedToGeneratedInvoice(): void
+    {
+        $tplId = $this->createPeriodTemplate((new \DateTimeImmutable('today'))->format('Y-m-d'));
+        $this->repo->replaceItems($tplId, [
+            ['description' => 'Hosting', 'quantity' => 1.0, 'unit' => 'ks', 'unit_price_without_vat' => 1000.00,
+                'vat_rate_id' => $this->vatRateId, 'order_index' => 0],
+            ['item_kind' => 'text', 'description' => 'Období 1/2093', 'quantity' => 3, 'unit_price_without_vat' => 50,
+                'order_index' => 1],
+        ]);
+
+        $tpl = $this->repo->find($tplId);
+        self::assertSame(['standard', 'text'], array_column($tpl['items'], 'item_kind'));
+        self::assertSame(0.0, $tpl['items'][1]['quantity']);
+        self::assertSame(0.0, $tpl['items'][1]['unit_price_without_vat']);
+        self::assertSame($this->vatRateId, $tpl['items'][1]['vat_rate_id']);
+
+        $res = $this->generator->generate($tplId, null, $this->userId, '127.0.0.1', 'phpunit');
+        $this->createdInvoiceIds[] = $res['invoice_id'];
+
+        $stmt = $this->db->pdo()->prepare(
+            'SELECT item_kind, quantity, total_with_vat, vat_classification_code FROM invoice_items
+              WHERE invoice_id = ? ORDER BY order_index, id'
+        );
+        $stmt->execute([$res['invoice_id']]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        self::assertSame(['standard', 'text'], array_column($rows, 'item_kind'));
+        self::assertEquals(0.0, (float) $rows[1]['total_with_vat']);
+        self::assertNull($rows[1]['vat_classification_code']);
+    }
+
+    public function testTemplateWithOnlyTextRowsDoesNotGenerate(): void
+    {
+        $tplId = $this->createPeriodTemplate((new \DateTimeImmutable('today'))->format('Y-m-d'));
+        $this->repo->replaceItems($tplId, [
+            ['item_kind' => 'text', 'description' => 'Jen text', 'order_index' => 0],
+        ]);
+
+        $this->expectException(\DomainException::class);
+        $this->generator->generate($tplId, null, $this->userId, '127.0.0.1', 'phpunit');
+    }
+
+    /**
      * Šablona se zakládá jednou a generuje roky — registrace do OSS mezitím může skončit.
      * Uložené rozhodnutí je pak rozhodnutím o JINÉM období a řádek s `oss_applicable = 1`
      * by nespadl do žádného přiznání: z OSS podání ho vyřadí platnost registrace,

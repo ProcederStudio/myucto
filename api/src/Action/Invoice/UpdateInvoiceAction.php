@@ -25,6 +25,7 @@ use MyInvoice\Service\Accounting\UnbalancedEntryException;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Currency\CnbRateDeviationChecker;
 use MyInvoice\Service\Currency\ExchangeRateApplier;
+use MyInvoice\Service\Invoice\InvoiceItemKind;
 use MyInvoice\Service\Invoice\DocumentItemsPayload;
 use MyInvoice\Service\Invoice\InvoiceCalculator;
 use MyInvoice\Service\Invoice\InvoiceDefaults;
@@ -112,6 +113,13 @@ final class UpdateInvoiceAction
         // Generický `note` → `note_below_items` (issue #38). Musí být hned tady, ještě nad
         // guardy: force_mode="notes_only" i auditní diff čtou už konkrétní klíč.
         $body = InvoiceNoteAlias::normalize($body);
+
+        // Textový řádek (InvoiceItemKind::TEXT) hned v kanonickém tvaru: jen popis a sazba.
+        // Derivace OSS, klasifikace DPH, sklad ani kontrola soudržnosti ho pak neuvidí jako
+        // plnění (OSS klíč je vyplněný, karta prázdná).
+        if (isset($body['items']) && is_array($body['items'])) {
+            $body['items'] = InvoiceItemKind::normalizeItems($body['items']);
+        }
 
         // Částečný PUT (#113): vynechaný klíč = uložená hodnota, ne default nového dokladu.
         // Musí předcházet guardům (zámek, notes_only, BOLA) i resolveru defaultů.
@@ -888,11 +896,11 @@ final class UpdateInvoiceAction
     {
         // Částečný PUT bez položek a bez kódu (mergeStoredHeader ho nepřevzal, protože se
         // změnil vstup klasifikace) — hlavička se dopočítá z uložených položek.
-        $headerItems = !empty($body['items']) ? (array) $body['items'] : [];
+        $headerItems = !empty($body['items']) ? InvoiceItemKind::amountLines((array) $body['items']) : [];
         if ($headerItems === [] && !array_key_exists('vat_classification_code', $body)) {
             $headerItems = array_values(array_filter(
                 $storedItems,
-                static fn ($it): bool => is_array($it) && ($it['item_kind'] ?? 'standard') !== 'discount',
+                static fn ($it): bool => is_array($it) && InvoiceItemKind::of($it) === InvoiceItemKind::STANDARD,
             ));
         }
         $vatRates = $this->repo->vatRateMap();
@@ -904,7 +912,7 @@ final class UpdateInvoiceAction
 
         if (!empty($body['items']) && is_array($body['items'])) {
             foreach ($body['items'] as &$item) {
-                if (!empty($item['vat_classification_code'])) continue;
+                if (!empty($item['vat_classification_code']) || InvoiceItemKind::isText($item)) continue;
                 $rateId = (int) ($item['vat_rate_id'] ?? 0);
                 $rate = (float) ($vatRates[$rateId] ?? 0);
                 $taxDate = $body['tax_date'] ?? $body['issue_date'] ?? null;

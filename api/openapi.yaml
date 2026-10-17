@@ -37628,9 +37628,9 @@ components:
         total_with_vat: { type: number, format: float }
         item_kind:
           type: string
-          enum: [standard, discount]
+          enum: [standard, discount, text]
           default: standard
-          description: "`discount` = systémově vygenerovaný záporný řádek „Sleva X %\" z `discount_percent` faktury (po sazbách DPH). Needituj ho ručně."
+          description: "`discount` = systémově vygenerovaný záporný řádek „Sleva X %\" z `discount_percent` faktury (po sazbách DPH). Needituj ho ručně. `text` = textový řádek mezi položkami: nese jen `description`, množství, ceny a součty jsou 0, sazbu přebírá z první položky dokladu; do součtů, rekapitulace DPH, výkazů ani zaúčtování nevstupuje."
         order_index: { type: integer }
         linked_work_report_id: { type: [integer, "null"] }
         stock_item_id:
@@ -37809,6 +37809,11 @@ components:
             type: object
             properties:
               id: { type: integer }
+              item_kind:
+                type: string
+                enum: [standard, text]
+                default: standard
+                description: "`text` = textový řádek jen s `description`; na vygenerovanou fakturu přejde jako textový řádek. Množství a ceny jsou 0, sazbu přebírá z první položky šablony."
               description: { type: string }
               quantity: { type: number, format: float, description: "Může být záporné pro slevový řádek. Nesmí být 0." }
               duration_minutes: { type: [integer, "null"], minimum: -599999999, maximum: 599999999, description: "Přesná délka časové položky v minutách; NULL používá legacy `quantity`." }

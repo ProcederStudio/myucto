@@ -21693,6 +21693,10 @@
       "gross_edit_hint": "You can overwrite with the gross (incl. VAT) amount — the net unit price is back-calculated."
     },
     "add_item": "+ Add item",
+    "add_text_row": "+ Text line",
+    "text_row": "Text line",
+    "text_row_placeholder": "Text between items, e.g. a section heading or a note",
+    "text_row_hint": "Text on the document only, not included in amounts or VAT.",
     "no_items": "No items.",
     "add_first": "Add first",
     "totals": {

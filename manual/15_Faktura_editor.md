@@ -173,7 +173,7 @@ Rozdíl mezi stornem a dobropisem a zaúčtování dobropisu viz [§ 15.9.9](#15
 <!-- cols: 32 34 34 -->
 | Co vidíte | Proč | Co udělat |
 |---|---|---|
-| „Faktura musí mít aspoň jednu položku.“ | Vystavit nelze doklad bez položek | Přidejte položku tlačítkem **+ Přidat položku** |
+| „Faktura musí mít aspoň jednu položku.“ | Vystavit nelze doklad bez položek; textové řádky se mezi položky nepočítají | Přidejte položku tlačítkem **+ Přidat položku** |
 | „Výsledná částka k úhradě musí být větší než 0. Pro čistě záporný nebo nulový doklad použij dobropis.“ | Faktura nesmí skončit zápornou částkou | Vystavte dobropis, nebo zapněte vyúčtování s částkou k vyplacení ([§ 15.9.4](#1594-sumar-vpravo)) |
 | Chyba „Číslo už existuje…“ | Ručně zadané číslo už je u jiné faktury téhož dodavatele | Číslo změňte, nebo pole nechte prázdné |
 | Tlačítko **Vystavit** je zablokované | Zakázka vyžaduje schválení výkazu zákazníkem | Pošlete výkaz ke schválení ([§ 15.6](#156-krok-za-krokem-nechat-vykaz-schvalit-zakaznikem)) |
@@ -461,6 +461,25 @@ nepřecení. Správa ceníku je popsána v [§ 96.1.5](96_Nastaveni.md#96161-cis
 | Celkem s DPH | Cena řádku včetně DPH. Zadání respektuje aktuální režim: v režimu bez DPH se z brutto zpětně dopočte cena bez DPH, v režimu s DPH se uloží brutto |
 
 **Pořadí.** Levým úchytem (☰) přetáhněte položky pro změnu pořadí. Pořadí se zachová v PDF.
+
+#### Textový řádek mezi položkami
+
+Tlačítko **+ Textový řádek** vloží mezi položky řádek jen s textem, například nadpis oddílu
+(„Materiál“, „Práce“), místo montáže nebo číslo zakázky. Řádek posunete šipkami na místo,
+kam patří, a v PDF, na web faktuře i v detailu se vytiskne přes celou šířku tabulky
+položek, bez množství a cen.
+
+Textový řádek je jen text na dokladu:
+
+- nemá množství, cenu ani sazbu DPH a do součtů, rekapitulace DPH, přiznání k DPH,
+  kontrolního hlášení, OSS ani zaúčtování nevstupuje,
+- nevydává nic ze skladu a neprodává majetek,
+- prázdný textový řádek se při uložení zahodí,
+- doklad jen z textových řádků vystavit nejde, potřebuje aspoň jednu položku.
+
+Kopie dokladu i dobropis textový řádek převezmou na stejné místo. U kopie s posunem
+měsíce se posune i měsíc v jeho textu. Jak se textový řádek přenáší do exportů,
+viz [§ 20.7](20_Exporty.md#207-podrobnosti-a-pravidla).
 
 **Smazání položky.** Křížkem vpravo. Pokud je položka propojená s výkazem víceprací (viz
 [§ 15.9.6](#1596-vykaz-vicepraci)), smazání se zeptá, zda smazat i výkaz.

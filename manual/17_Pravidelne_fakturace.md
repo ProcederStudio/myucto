@@ -218,6 +218,12 @@ platby párují, popisuje [§ 29.2](29_Banka.md).
 Položky šablony se kopírují na každou vygenerovanou fakturu (popis, množství,
 cena za jednotku, sazba DPH). Sazba se bere podle vybrané sazby ze šablony.
 
+Tlačítkem **+ Textový řádek** vložíte mezi položky řádek jen s textem. Na vygenerovanou
+fakturu přejde na stejné místo jako textový řádek, placeholdery období se v něm doplní
+stejně jako v popisu položky. Do částek ani DPH nevstupuje, viz
+[§ 15.9.3](15_Faktura_editor.md#1593-polozky). Šablona jen z textových řádků fakturu
+nevygeneruje.
+
 Vedle sazby má řádek volitelnou **klasifikaci DPH** - kód, podle kterého se plnění
 dostane na správný řádek přiznání a do kontrolního či souhrnného hlášení. Výchozí
 volba **Automaticky podle sazby** ho nechá odvodit při každém generování ze sazby a

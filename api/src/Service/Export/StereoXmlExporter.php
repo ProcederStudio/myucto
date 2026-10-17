@@ -10,6 +10,7 @@ use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\InvoiceRepository;
 use MyInvoice\Repository\TaxConstantsRepository;
 use MyInvoice\Service\Bank\VariableSymbolNormalizer;
+use MyInvoice\Service\Invoice\InvoiceItemKind;
 
 /**
  * Stereo for Windows DocumentPack exporter for issued invoices.
@@ -167,7 +168,9 @@ final class StereoXmlExporter
         $rowVatResolutions = [];
 
         foreach (($invoice['items'] ?? []) as $item) {
-            if (!is_array($item)) {
+            // Textový řádek (InvoiceItemKind::TEXT) nemá v DocumentPacku účetní význam
+            // ani ověřený tvar řádku; do Typu DPH, řádků ani tabulky sazeb nevstupuje.
+            if (!is_array($item) || InvoiceItemKind::isText($item)) {
                 continue;
             }
             $items[] = $item;

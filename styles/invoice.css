@@ -209,6 +209,8 @@ table.items .center { text-align: center; }
 /* DPH sloupec je užší (místo dostal Cena/j) — sazba „21 %" / „12,5 %" o stupínek
    menší, aby se vešla bez zalomení. */
 table.items .vat { font-size: 8.5pt; }
+/* Textový řádek mezi položkami: popis přes celou šířku, bez částek. */
+table.items tr.text-row td { font-weight: 600; color: #3B2D83; }
 
 /* ─── SUMACE ─── */
 .totals {

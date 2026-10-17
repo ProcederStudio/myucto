@@ -21,6 +21,7 @@ use MyInvoice\Service\Accounting\DocumentLockService;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Invoice\AdvanceCycleLock;
 use MyInvoice\Service\Invoice\InvoiceIssuer;
+use MyInvoice\Service\Invoice\InvoiceItemKind;
 use MyInvoice\Service\Invoice\SnapshotBuilder;
 use MyInvoice\Service\Invoice\VarsymbolGenerator;
 use MyInvoice\Service\IpMatcher;
@@ -111,7 +112,8 @@ final class IssueInvoiceAction
         if ($deny = $this->denyIfLocked($request, $response, $this->locks->forInvoice($invoice), 'invoice', $id)) {
             return $deny;
         }
-        if (count($invoice['items']) === 0) {
+        // Textové řádky (InvoiceItemKind::TEXT) nejsou plnění: doklad jen z nich se nevystaví.
+        if (!InvoiceItemKind::hasAmountLine((array) $invoice['items'])) {
             return Json::error($response, 'no_items', 'Faktura musí obsahovat alespoň jednu položku.', 422);
         }
         if (
