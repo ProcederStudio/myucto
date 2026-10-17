@@ -63,6 +63,8 @@ Přes **Výběr sloupců** a hustotu řádků přizpůsobíte tabulku (stejné o
 pro uživatele). Sloupce **Zdroj**, **Základ** a **DPH** jsou ve výchozím zobrazení skryté, zapněte je pro kontrolu, jak se DPH
 rozpočítalo u pohybů s vazbou na plátcovskou fakturu.
 
+Z bankovního výpisu sem přejdete volbou **Otevřít v peněžním deníku** v nabídce **…** u pohybu. Deník nastaví rok pohybu, zvýrazní odpovídající řádky a podle potřeby na ně odskroluje. Ostatní řádky i zůstatky za období zůstávají zobrazené.
+
 Po převzetí úhrady z avíza do bankovního výpisu nese peněžní tok pouze pohyb výpisu. Převzaté avízo se do peněžního deníku
 znovu nezapočítá ani při rozdílném datu přes hranici roku nebo po pozdějším odstranění výpisu. Pokud avízo po odstranění
 výpisu znovu spárujete s dokladem, nese úhradu opět avízo a do peněžního deníku se započítá.
@@ -243,7 +245,7 @@ rovnou s detailem konkrétní transakce (včetně protistrany, účtu, platební
 více řádků deníku. U pokladny otevře pokladní doklad, u samostatné úhrady příslušnou fakturu a u GoPay navázané vyúčtování.
 Odkaz se zobrazí jen s oprávněním ke čtení cílové agendy.
 
-Máte-li vedle sebe více panelů aplikace, detail se otevře v jiném panelu: přednostně v prázdném, jinak v následujícím.
+Máte-li vedle sebe více panelů aplikace, detail se otevře přednostně v panelu vpravo: v prázdném, pokud tam je, jinak v následujícím. Z posledního panelu se použije jiný dostupný panel.
 Peněžní deník tak zůstává otevřený s původními filtry a pozicí. Předchozí obsah cílového panelu zůstane dostupný mezi okny
 aplikace. Při jednom panelu se detail otevře v něm; zpět do deníku se vrátíte navigací panelu.
 

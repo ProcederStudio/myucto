@@ -28,6 +28,7 @@ vi.mock('@/composables/useDimensions', () => ({
   }),
 }))
 vi.mock('@/composables/useToast', () => ({ useToast: () => ({ success: mocks.toast, error: mocks.toast, info: mocks.toast }) }))
+vi.mock('@/composables/useWorkspaceNavigation', () => ({ useWorkspaceNavigation: () => ({ openBeside: vi.fn() }) }))
 vi.mock('@/composables/useHotkey', () => ({ useHotkey: () => {} }))
 vi.mock('@/composables/useFormat', () => ({ formatDate: (v: string) => v, formatMoney: (v: number, currency: string) => `${v} ${currency}` }))
 
@@ -133,7 +134,7 @@ describe('sloučené bankovní úhrady', () => {
       matched_purchase_invoices: suggestion.invoices.map(invoice => ({ purchase_invoice_id: invoice.id, ref: invoice.ref,
         vendor_name: `Test vendor ${invoice.id}`, amount: invoice.amount, currency: invoice.currency })) }
     const wrapper = mount(BankTransactionRow, { props: { tx, actions, layout, isDoubleEntry: false }, global: {
-      stubs: { RowActionsMenu: true, PostingStatusBadge: true, WhyChip: true, PostingRowActions: true, MatchSuggestionPanel: true },
+      stubs: { BankTransactionJournalLink: true, RowActionsMenu: true, PostingStatusBadge: true, WhyChip: true, PostingRowActions: true, MatchSuggestionPanel: true },
     } })
     expect(wrapper.findAll('a').map(a => a.attributes('href'))).toEqual(expect.arrayContaining(['/purchase-invoices/21', '/purchase-invoices/22']))
     expect(wrapper.text()).toContain('Test vendor 22')

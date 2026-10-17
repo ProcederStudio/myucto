@@ -22341,6 +22341,8 @@
     "default_revenue_category_backfilled": "Default revenue category applied to {count} project invoices without a category."
   },
   "bank": {
+    "open_cash_journal": "Open in cash journal",
+    "open_accounting_journal": "Open in accounting journal",
     "imported_to_other_company": "Statements for other companies' accounts imported there: {n} ({companies}).",
     "counter_account": "Counter-account",
     "gpc_calculated_hint": "The export in the standard GPC (ABO) format includes all recorded booked account transactions in this period, excluding notices. This is a MyÚčto export, not an original bank statement. Calculated balances assume complete transaction records. Long bank references are included in the description.",
@@ -26517,6 +26519,7 @@
       "form_active": "Active"
     },
     "cash_journal": {
+      "source_not_found": "This bank movement is not in the cash journal for the selected period.",
       "col_actions": "Actions",
       "open_source": "Go to details",
       "all_classifications": "All classifications",

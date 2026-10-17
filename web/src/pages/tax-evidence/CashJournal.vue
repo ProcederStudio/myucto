@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, reactive, computed, watch, nextTick, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import {
@@ -11,6 +11,8 @@ import {
   type CashJournalInstrument,
   type TaxBucketOverride,
 } from '@/api/taxEvidence'
+import { usePaneDom } from '@/composables/usePaneDom'
+import { requestSupplierId } from '@/workspace/supplierContext'
 import { useToast } from '@/composables/useToast'
 import { formatMoney } from '@/composables/useFormat'
 import FilterBar, { type FilterChip } from '@/components/ui/FilterBar.vue'
@@ -28,6 +30,18 @@ const { t } = useI18n()
 const toast = useToast()
 const route = useRoute()
 const router = useRouter()
+const paneDom = usePaneDom()
+let disposed = false
+onBeforeUnmount(() => { disposed = true; ++loadSeq })
+
+const focusedSource = computed(() => {
+  const type = route.query.source_type
+  const id = Number(route.query.source_id)
+  return typeof type === 'string' && /^[a-z_]+$/.test(type) && Number.isSafeInteger(id) && id > 0
+    ? `${type}-${id}` : null
+})
+const focusMissing = computed(() => focusedSource.value && !loading.value && report.value
+  && !report.value.rows.some(row => rowKey(row) === focusedSource.value))
 
 const report = ref<CashJournalReport | null>(null)
 const loading = ref(false)
@@ -52,13 +66,16 @@ function queryParams(): CashJournalParams {
 function applyFilters() {
   const query = {
     ...route.query,
+    source_type: undefined, source_id: undefined,
     year: String(filters.year), from: filters.from || undefined, to: filters.to || undefined,
     classification: filters.classification || undefined,
   }
-  if (['year', 'from', 'to', 'classification'].every(key => route.query[key] === query[key as keyof typeof query])) return
+  if (['year', 'from', 'to', 'classification', 'source_type', 'source_id'].every(key => route.query[key] === query[key as keyof typeof query])) return
   // Invalidate outstanding requests before navigation updates the route watcher.
-  ++loadSeq
-  loading.value = true
+  if (JSON.stringify(queryParams()) !== requestedParams) {
+    ++loadSeq
+    loading.value = true
+  }
   void router.push({ query })
 }
 
@@ -84,19 +101,20 @@ const loadedParams = ref<CashJournalParams | null>(null)
 
 async function load() {
   const seq = ++loadSeq
+  const supplierId = requestSupplierId()
   const params = queryParams()
   loading.value = true
   try {
     const result = await taxEvidenceApi.cashJournal(params)
-    if (seq !== loadSeq) return
+    if (seq !== loadSeq || disposed || supplierId !== requestSupplierId()) return
     report.value = result
     loadedParams.value = params
   } catch (e: any) {
-    if (seq !== loadSeq) return
+    if (seq !== loadSeq || disposed || supplierId !== requestSupplierId()) return
     toast.error(e?.response?.data?.error?.message || t('common.error'))
     report.value = null
   } finally {
-    if (seq === loadSeq) loading.value = false
+    if (seq === loadSeq && !disposed && supplierId === requestSupplierId()) loading.value = false
   }
 }
 
@@ -131,7 +149,8 @@ const filterChips = computed<FilterChip[]>(() => [
   ...(filters.classification ? [{ key: 'classification', label: t('tax_evidence.cash_journal.col_class'), value: classLabel(filters.classification) }] : []),
 ])
 
-watch(() => JSON.stringify([route.query.year, route.query.from, route.query.to, route.query.classification]), () => {
+let requestedParams = ''
+watch(() => JSON.stringify([route.query.year, route.query.from, route.query.to, route.query.classification, focusedSource.value]), () => {
   const year = Number(route.query.year)
   filters.year = Number.isInteger(year) && year >= 1900 && year <= 9999 ? year : currentYear
   filters.from = typeof route.query.from === 'string' ? route.query.from : ''
@@ -139,8 +158,31 @@ watch(() => JSON.stringify([route.query.year, route.query.from, route.query.to, 
   const classification = route.query.classification
   filters.classification = typeof classification === 'string' && Object.hasOwn(CLASS_KEY, classification)
     ? classification as CashBucket : ''
-  void load()
+  if (focusedSource.value) {
+    // Odkaz na zdroj ukáže pohyb v celém roce, aby zůstaly zachované součty deníku.
+    filters.from = ''
+    filters.to = ''
+    filters.classification = ''
+    if (route.query.from || route.query.to || route.query.classification) {
+      void router.replace({ query: { ...route.query, from: undefined, to: undefined, classification: undefined } })
+    }
+  }
+  const params = JSON.stringify(queryParams())
+  if (params !== requestedParams || (!loading.value && (!report.value || params !== JSON.stringify(loadedParams.value)))) {
+    requestedParams = params
+    void load()
+  }
 }, { immediate: true })
+
+watch([report, focusedSource, loading], async () => {
+  const target = focusedSource.value
+  if (!target || loading.value) return
+  await nextTick()
+  if (disposed || target !== focusedSource.value || loading.value) return
+  const row = [...paneDom.querySelectorAll<HTMLElement>(`[data-cash-journal-source="${target}"]`)]
+    .find(el => el.getClientRects().length > 0)
+  row?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' })
+}, { flush: 'post' })
 
 function classLabel(bucket: string): string {
   const key = CLASS_KEY[bucket]
@@ -286,6 +328,10 @@ function onNotesChanged(notes: CashJournalNote[]) {
           {{ t('tax_evidence.cash_journal.export_xlsx') }}
         </button>
       </div>
+    </div>
+
+    <div v-if="focusMissing" role="status" class="mb-4 rounded-lg border border-primary-200 bg-primary-50 p-3 text-sm text-primary-700">
+      {{ t('tax_evidence.cash_journal.source_not_found') }}
     </div>
 
     <FilterBar :chips="filterChips" :active-count="filterChips.length" @clear="clearFilter" @clear-all="clearFilters">
@@ -467,7 +513,11 @@ function onNotesChanged(notes: CashJournalNote[]) {
           </thead>
           <tbody class="divide-y divide-neutral-100">
             <tr v-for="(row, i) in report.rows" :key="`${row.source_type}-${row.source_id}-${i}`"
-              class="hover:bg-neutral-50" :class="row.unclassified || row.fx_rate_missing ? 'bg-danger-50/40' : ''">
+              class="scroll-mt-4" :data-cash-journal-source="rowKey(row)"
+              :aria-current="rowKey(row) === focusedSource ? 'true' : undefined"
+              :class="rowKey(row) === focusedSource
+                ? 'bg-primary-50 ring-2 ring-inset ring-primary-500'
+                : [row.unclassified || row.fx_rate_missing ? 'bg-danger-50/40' : '', 'hover:bg-neutral-50']">
               <td v-if="tbl.isVisible('date')" class="px-3 py-2 whitespace-nowrap">{{ row.date }}</td>
               <td v-if="tbl.isVisible('doc')" class="px-3 py-2">
                 <RouterLink v-if="docLink(row)" :to="docLink(row)!"

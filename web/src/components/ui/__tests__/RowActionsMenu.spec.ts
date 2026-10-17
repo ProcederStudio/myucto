@@ -34,6 +34,27 @@ function mountMenu(props: Record<string, unknown> = {}) {
 }
 
 describe('RowActionsMenu', () => {
+  it('menuOnly udrží i jedinou akci pod třemi tečkami', async () => {
+    const wrapper = mountMenu({ actions: [{ key: 'journal', label: 'Deník', menuOnly: true, to: '/journal' }], inlineCount: 1 })
+    expect(wrapper.find('a').exists()).toBe(false)
+    await wrapper.get('button[aria-haspopup="menu"]').trigger('click')
+    expect(document.querySelector('[data-action="journal"]')?.textContent).toContain('Deník')
+    wrapper.unmount()
+  })
+
+  it('vlastní navigace může před zpracováním routeru převzít obyčejný klik', async () => {
+    const onNavigate = vi.fn((event: MouseEvent) => { if (!event.ctrlKey) event.preventDefault() })
+    const wrapper = mountMenu({ actions: [{ key: 'journal', label: 'Deník', menuOnly: true, to: '/journal', onNavigate, workspaceOpen: 'beside' }] })
+    await wrapper.get('button[aria-haspopup="menu"]').trigger('click')
+    const link = document.querySelector('[data-action="journal"]')!
+    const event = new MouseEvent('click', { button: 0, cancelable: true, bubbles: true })
+    link.dispatchEvent(event)
+    expect(onNavigate).toHaveBeenCalledExactlyOnceWith(event)
+    expect(event.defaultPrevented).toBe(true)
+    expect(link.getAttribute('data-workspace-open')).toBe('beside')
+    wrapper.unmount()
+  })
+
   it('otevře nabídku šipkou dolů a stoupne na první položku', async () => {
     const wrapper = mountMenu()
     await wrapper.get('button[aria-haspopup="menu"]').trigger('keydown', { key: 'ArrowDown' })
