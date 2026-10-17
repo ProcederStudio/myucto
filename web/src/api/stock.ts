@@ -74,6 +74,8 @@ export interface StockItem extends StockItemEffectivePrice {
   updated_at: string
   /** Jen ve výsledku hledání (`q`). */
   search_match?: StockSearchMatch | null
+  /** Jen se `display_attribute_id`: hodnota zvoleného parametru jako text (bool = '1'/'0'). */
+  display_attribute_value?: string | null
 }
 
 export interface StockItemPayload {
@@ -399,6 +401,8 @@ export interface StockItemListFilters {
   qty_max?: string | number
   sort?: 'sku' | 'name' | 'type' | 'qty' | 'value'
   direction?: 'asc' | 'desc'
+  /** Volitelný sloupec seznamu s hodnotou jednoho parametru karty (nefiltruje). */
+  display_attribute_id?: number
   page?: number
   per_page?: number
 }

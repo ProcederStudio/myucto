@@ -453,9 +453,15 @@ plného detailu nebo editoru. **Import zboží** v liště vede na import katalo
 Sloupce: **SKU**, **Název**, **Typ**, **MJ** (měrná jednotka), **Stav** (aktuální
 množství, červeně a tučně, pokud je pod nastaveným minimem), **Hodnota** (ocenění
 stavu v Kč), **Prům. cena** (dopočtená průměrná pořizovací cena za jednotku),
-volitelně i **Prodejní cena**, **Min. zásoba** a **Aktivní**. Stav a hodnota se
-počítají ze skutečných skladových pohybů v okamžiku zobrazení stránky, ne z uložených
-souhrnných čísel karty.
+volitelně i **Prodejní cena**, **Min. zásoba**, **Parametr** a **Aktivní**. Stav
+a hodnota se počítají ze skutečných skladových pohybů v okamžiku zobrazení stránky,
+ne z uložených souhrnných čísel karty.
+
+Sloupec **Parametr** ukáže hodnotu jednoho parametru karty (například výkon nebo
+barvu), který vyberete přímo v jeho záhlaví. Nabízí všechny nearchivované parametry,
+nejen ty filtrovatelné. Výběr se pamatuje v předvolbách tabulky stejně jako zapnuté
+sloupce. Karta s více hodnotami parametru je ukáže oddělené čárkou, karta bez hodnoty
+má prázdné pole. Sloupec nefiltruje, k tomu slouží filtr parametru.
 
 Pole editoru nové karty:
 
@@ -539,7 +545,20 @@ posune do viditelné části lišty.
 #### 37.12.2.3 Detail karty a skladová kniha
 
 Kliknutím na řádek v seznamu otevřete **detail karty**: dlaždice s počátečním
-stavem, prodejní cenou, minimální zásobou a EAN, pod nimi záložka **Pohyby**, tedy
+stavem, prodejní cenou, minimální zásobou a EAN. U plátce DPH má dlaždice prodejní
+ceny druhý řádek s **cenou s DPH** podle sazby karty, zaokrouhlenou stejně jako řádek
+faktury (DPH na haléře, pak součet). Bez sazby na kartě nebo u neplátce se cena s DPH
+neukazuje.
+
+Pod dlaždicemi je tabulka **Stav po skladech**: pro každý sklad s nenulovým stavem
+množství, průměrná nákupní (skladová) cena a hodnota zásoby, při více skladech
+i řádek **Celkem** s průměrnou cenou za všechny sklady. Jsou to stejná čísla jako ve
+sloupcích seznamu karet, jen rozepsaná po skladech (výpočet viz
+[§ 37.12.3](#37123-ocenovani-zasob)). Následuje panel **Parametry** s hodnotami
+parametrů karty (jen s právem k e-shopu, kde se parametry spravují) a panel
+**Poznámka**, pokud je na kartě vyplněná.
+
+Úplně dole je záložka **Pohyby**, tedy
 kompletní **skladová kniha** karty (datum, doklad s prokliknutím, sklad, množství
 se znaménkem, jednotková cena, hodnota a **běžná bilance** po každém řádku).
 Stránka pohybů se natahuje po 100 řádcích (lze vyžádat až 500 najednou), počáteční
@@ -554,7 +573,8 @@ pohybů je prázdný. Jméno odběratele je z dokladu, tedy takové, jaké bylo 
 vystavení. Uživatel bez práva číst vydané, resp. přijaté faktury vidí jen skladový
 doklad, bez faktury, partnera a ceny. Oba sloupce jsou i v exportu skladové karty.
 
-Akce v hlavičce detailu: **Nová výdejka** (předvyplní kartu do nového dokladu),
+Akce v hlavičce detailu: **Nová výdejka**, **Nová příjemka** a **Nová převodka**
+(každá otevře nový skladový doklad daného typu s touto kartou na prvním řádku),
 **Upravit**, **Prodeje karty** (otevře sestavu prodejů filtrovanou na tuto kartu,
 viz [§ 37.12.8](#37128-skladove-sestavy)), **export do PDF** a **export do XLSX**
 (kompletní skladová kniha karty, natažená dávkově po 500 řádcích bez ohledu na
@@ -661,6 +681,9 @@ vyhlášky 500/2002 Sb., ČÚS 015 bod 3.6). Při každém příjmu se dopočít
 cena z dosavadní hodnoty skladu a hodnoty přijaté dávky. Výdej se vždy oceňuje
 aktuální průměrnou cenou v okamžiku zaúčtování dokladu, ne cenou z minulého příjmu.
 Je to jediná podporovaná oceňovací metoda, FIFO ani LIFO modul nenabízí.
+Průměrná cena se vede zvlášť pro každý sklad. Aktuální průměrnou cenu karty na
+jednotlivých skladech ukazuje tabulka **Stav po skladech** v detailu karty
+([§ 37.12.2.3](#371223-detail-karty-a-skladova-kniha)).
 
 Uvnitř se nepočítá s desetinnými čísly, ale s celočíselnou aritmetikou: množství se
 drží v **tisícinách kusu** a hodnota v **haléřích**. Haléřová hodnota skladu je vždy
