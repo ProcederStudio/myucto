@@ -1007,7 +1007,8 @@
         "2035_invoice_item_line_discount.sql",
         "2036_unit_quantity_decimals.sql",
         "2037_simplified_document_series_and_customer.sql",
-        "2038_invoice_edit_issued_permission.sql"
+        "2038_invoice_edit_issued_permission.sql",
+        "2039_supplier_person_title.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -21885,6 +21886,7 @@
                 "payroll_attendance_sample_seeded_at": "datetime NULL DEFAULT NULL",
                 "payroll_enabled": "tinyint(1) NOT NULL DEFAULT 0",
                 "pdf_logo_show_name": "tinyint(1) NOT NULL DEFAULT 0",
+                "person_title": "varchar(10) NULL DEFAULT NULL",
                 "phone": "varchar(40) NULL DEFAULT NULL",
                 "pohoda_account_code": "varchar(20) NULL DEFAULT NULL",
                 "pohoda_accounting_code": "varchar(20) NULL DEFAULT NULL",

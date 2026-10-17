@@ -178,3 +178,47 @@ describe('Nastavení — samostatný ISDOC', () => {
     }
   })
 })
+
+
+describe('Nastavení — osobní údaje podnikatele', () => {
+  it('OSVČ zobrazí titul, jméno a příjmení a uloží volitelný titul', async () => {
+    m.getSupplier.mockResolvedValue({ ...SUPPLIER, taxpayer_type: 'fo', person_title: 'Ing.', opr_jmeno: 'Jan', opr_prijmeni: 'Novák' })
+    const wrapper = await mountSettings('accounting')
+    try {
+      expect(wrapper.text()).toContain('settings.person_section')
+      expect(wrapper.text()).toContain('settings.person_hint')
+      const details = wrapper.get('[data-test="tax-person-details"]')
+      expect(details.findAll('input')).toHaveLength(3)
+      expect(details.text()).not.toContain('settings.opr_postaveni')
+      const title = details.get('#person-title')
+      expect((title.element as HTMLInputElement).value).toBe('Ing.')
+      expect(title.attributes('maxlength')).toBe('10')
+      await title.setValue('Mgr.')
+      await wrapper.findAll('button').find(b => b.text() === 'settings.save_supplier')!.trigger('click')
+      await flushPromises()
+      expect(m.updateSupplier).toHaveBeenLastCalledWith(expect.objectContaining({
+        person_title: 'Mgr.', opr_jmeno: 'Jan', opr_prijmeni: 'Novák',
+      }))
+      await wrapper.get('#person-title').setValue('')
+      await wrapper.findAll('button').find(b => b.text() === 'settings.save_supplier')!.trigger('click')
+      await flushPromises()
+      expect(m.updateSupplier).toHaveBeenLastCalledWith(expect.objectContaining({ person_title: '' }))
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('právnická osoba zachová podpisující osobu a její postavení bez pole titulu', async () => {
+    const wrapper = await mountSettings('accounting')
+    try {
+      expect(wrapper.text()).toContain('settings.opr_section')
+      expect(wrapper.text()).toContain('settings.opr_hint')
+      const details = wrapper.get('[data-test="tax-person-details"]')
+      expect(details.findAll('input')).toHaveLength(3)
+      expect(details.text()).toContain('settings.opr_postaveni')
+      expect(details.find('#person-title').exists()).toBe(false)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+})

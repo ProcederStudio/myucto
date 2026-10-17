@@ -363,6 +363,7 @@ export interface Supplier {
   // Doplňky pro DPH/KH XML VetaP (migrace 0043)
   street_number_pop?: string | null
   street_number_orient?: string | null
+  person_title?: string | null
   opr_jmeno?: string | null
   opr_prijmeni?: string | null
   opr_postaveni?: string | null

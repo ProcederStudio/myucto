@@ -48,6 +48,17 @@ final class DpfoXmlBuilderVetaBAndNTest extends TestCase
         return (new DpfoXmlBuilder())->build($this->sampleSupplier(), 2025, $calc, $meta);
     }
 
+    public function testNaturalPersonTitleIsExportedInIdentification(): void
+    {
+        $supplier = $this->sampleSupplier() + ['person_title' => ' Ing. '];
+        $result = (new DpfoXmlBuilder())->build($supplier, 2025, $this->calc());
+        $dom = new \DOMDocument();
+        $dom->loadXML($result['xml']);
+        $v = $dom->getElementsByTagName('VetaP')->item(0);
+        self::assertSame('Ing.', $v?->getAttribute('titul'));
+        self::assertSame('Jan', $v?->getAttribute('jmeno'));
+    }
+
     // ── VetaB ────────────────────────────────────────────────────────────────
 
     public function testVetaBBuiltWithPriloha1WhenSection7Present(): void

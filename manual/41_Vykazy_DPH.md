@@ -38,7 +38,7 @@ Kontrolní hlášení právnické osoby zůstává měsíční. Měsíční náh
 ## 41.2 Než začnete
 
 1. **Daňové nastavení firmy.** V `Nastavení → Daně a účetnictví`, v boxu **Daňové nastavení (EPO výkazy DPH/KH)**, vyplňte **Typ poplatníka** (fyzická osoba nebo právnická osoba), **Perioda DPH přiznání** (měsíční nebo kvartální), **Kód finančního úřadu** a případně **Kód územního pracoviště (ÚzP)**. Povinné je také **DIČ** v identifikaci firmy. Volitelně doplňte **CZ-NACE klasifikaci**, datovou schránku a **Sestavitel přiznání (účetní)**. Přehled všech polí je v [§ 41.13.1](#41131-pole-epo-a-vetap).
-2. **Oprávněná osoba.** U právnické osoby je povinná: jméno, příjmení a postavení osoby, která přiznání podepisuje (typicky jednatel).
+2. **Údaje podnikatele nebo oprávněné osoby.** U fyzické osoby zkontrolujte v `Nastavení → Daně a účetnictví` část **Osobní údaje podnikatele**. U právnické osoby vyplňte v části **Oprávněná osoba (jednatel / podpisující)** jméno, příjmení a postavení osoby, která přiznání podepisuje (typicky jednatel).
 3. **Plátcovství DPH.** Rozhoduje stav ke konci období výkazu, ne dnešní stav. Historii plátcovství vedete v témže nastavení v bloku **Plátcovství DPH**.
 4. **Doklady.** Doklady za období musí být vystavené nebo přijaté (ne koncepty) a mít správnou **Klasifikaci DPH**. Chybějící klasifikaci doplní automatika, viz [§ 41.13.10](#411310-automaticke-prirazeni-klasifikace).
 5. **OSS.** Stránka `Daně → OSS přiznání` se objeví až po zapnutí režimu OSS v `Nastavení → Daně a účetnictví`, viz [Režim OSS](45_OSS.md).
@@ -246,7 +246,7 @@ Používáte ji jako věřitel: opravujete základ daně u pohledávky, kterou d
 
 ### 41.13.1 Pole EPO a VetaP
 
-Tato část mapuje pole z `Nastavení → Daně a účetnictví`, box **Daňové nastavení (EPO výkazy DPH/KH)**, na atributy v EPO XML (DPHDP3 a DPHKH1). Vyplňte je všechny, jinak EPO portál podání odmítne nebo bude výkaz formálně neúplný.
+Tato část mapuje pole z `Nastavení → Daně a účetnictví`, box **Daňové nastavení (EPO výkazy DPH/KH)**, na atributy v EPO XML (DPHDP3 a DPHKH1). Vyplňte údaje potřebné pro právní formu a podání; některá pole jsou volitelná.
 
 #### Identifikace finančního úřadu
 
@@ -285,18 +285,20 @@ EPO rozděluje uliční adresu na tři samostatné atributy (`ulice`, `c_pop`, `
 
 #### Osobní údaje (jen fyzická osoba, OSVČ)
 
+Vyplňte je v `Nastavení → Daně a účetnictví` v části **Osobní údaje podnikatele**. Pole **Titul** je nepovinné a může obsahovat více titulů, například `Ing. Ph.D.`; limit je 10 znaků. EPO údaje o podnikateli používá v přiznání k DPH, kontrolním i souhrnném hlášení. Stejné údaje se používají také v přiznání DPFO a ve mzdových EPO formulářích, které titul podporují.
+
 <!-- cols: 26 18 56 -->
 | Pole v UI | XML atribut | Popis |
 |---|---|---|
-| Titul | `titul` | Před jménem (Bc., Ing., Mgr.), nepovinné. |
+| **Titul** | `titul` | Titul nebo kombinace titulů, například `Ing.`, `Ph.D.` či `Ing. Ph.D.`; nepovinné, nejvýše 10 znaků. |
 | Jméno | `jmeno` | Křestní jméno plátce. |
 | Příjmení | `prijmeni` | Příjmení plátce. |
 
 Právnické osoby tato pole nevyplňují. Místo nich se použije `zkrobchjm` z firmy.
 
-#### Oprávněná osoba k podpisu
+#### Oprávněná osoba k podpisu (právnická osoba)
 
-Pole `opr_*` identifikují fyzickou osobu, která je u právnické osoby oprávněná přiznání podepsat (typicky jednatel, předseda představenstva). Pro právnickou osobu jsou povinná.
+V `Nastavení → Daně a účetnictví` vyplňte část **Oprávněná osoba (jednatel / podpisující)**. Pole `opr_*` identifikují fyzickou osobu, která je u právnické osoby oprávněná přiznání podepsat (typicky jednatel, předseda představenstva). Pro právnickou osobu jsou povinná.
 
 <!-- cols: 34 18 48 -->
 | Pole v UI (blok **Oprávněná osoba (jednatel / podpisující)**) | XML atribut | Popis |
@@ -305,7 +307,7 @@ Pole `opr_*` identifikují fyzickou osobu, která je u právnické osoby oprávn
 | **Příjmení** | `opr_prijmeni` | Příjmení. |
 | **Postavení (např. jednatel)** | `opr_postaveni` | Funkce, typicky `jednatel`, `majitel`, `předseda představenstva`. |
 
-U OSVČ zůstávají pole volitelná. Vyplňte vlastní jméno a příjmení pro přesné rozdělení v EPO výkazech, jinak se odvodí z názvu (včetně odstranění akademických titulů).
+U OSVČ se údaje o podnikateli zadávají v části **Osobní údaje podnikatele**. Nevyplněné jméno a příjmení se odvodí z názvu (včetně odstranění akademických titulů).
 
 #### Zastoupení a podepisující osoba
 
