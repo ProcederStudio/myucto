@@ -27,7 +27,7 @@ const loadedPeriod = ref<{ year: number; month: number; period: 'monthly' | 'qua
 function lineBookRoute(line: string) {
   // Informativní korekce (ř. 33/34) nemají v Knize DPH vlastní oddíl dokladů.
   if (!loadedPeriod.value || !/^(?:[1-8]|1[0-3]|2[0-6]|30|31|4[0-4]k?|47|50|51b?)$/.test(line)) return null
-  return { path: '/reports/dph-book', query: { ...loadedPeriod.value, dph_line: line } }
+  return { path: '/reports/dph-book', query: { ...loadedPeriod.value, dph_line: line, remember: '0' } }
 }
 const trend = ref<DphTrendRow[]>([])
 const draftsPrediction = ref<DphDraftsPrediction | null>(null)

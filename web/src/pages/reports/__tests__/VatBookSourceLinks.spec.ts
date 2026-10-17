@@ -83,11 +83,11 @@ describe('links from VAT reports to the book', () => {
     expect(informative.text()).toContain('Informative')
     expect(informative.find('button').exists()).toBe(false)
     let link = await openAction(wrapper)
-    expect(link.attributes('href')).toBe('/reports/dph-book?year=2025&month=9&period=quarterly&dph_line=1')
+    expect(link.attributes('href')).toBe('/reports/dph-book?year=2025&month=9&period=quarterly&dph_line=1&remember=0')
     expect(link.text()).toBe('reports.dph_book.open_line_beside')
     expect(link.find('svg').exists()).toBe(true)
     await link.trigger('click')
-    expect(m.openBeside).toHaveBeenCalledWith({ path: '/reports/dph-book', query: { year: 2025, month: 9, period: 'quarterly', dph_line: '1' } })
+    expect(m.openBeside).toHaveBeenCalledWith({ path: '/reports/dph-book', query: { year: 2025, month: 9, period: 'quarterly', dph_line: '1', remember: '0' } })
     link = await openAction(wrapper, 2)
     expect(link.attributes('href')).toContain('dph_line=40k')
     link = await openAction(wrapper, 3)
@@ -109,7 +109,7 @@ describe('links from VAT reports to the book', () => {
     m.dphPreview.mockResolvedValue({ ...dphResult(), summary: { ...dphResult().summary, is_amendment: true } })
     const wrapper = mount(DphReport, options)
     await flushPromises()
-    expect((await openAction(wrapper)).attributes('href')).toBe('/reports/dph-book?year=2025&month=9&period=quarterly&dph_line=1')
+    expect((await openAction(wrapper)).attributes('href')).toBe('/reports/dph-book?year=2025&month=9&period=quarterly&dph_line=1&remember=0')
     wrapper.unmount()
   })
 
@@ -141,7 +141,7 @@ describe('links from VAT reports to the book', () => {
     }
     expect(sections).toEqual(['A.1', 'A.2', 'A.4', 'A.5', 'B.1', 'B.2', 'B.3'])
     await (await openAction(wrapper, 5)).trigger('click')
-    expect(m.openBeside).toHaveBeenCalledWith({ path: '/reports/dph-book', query: { year: 2025, month: 9, period: 'quarterly', kh_section: 'B.2' } })
+    expect(m.openBeside).toHaveBeenCalledWith({ path: '/reports/dph-book', query: { year: 2025, month: 9, period: 'quarterly', kh_section: 'B.2', remember: '0' } })
     wrapper.unmount()
   })
 

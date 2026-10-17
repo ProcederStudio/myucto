@@ -65,6 +65,9 @@ export function useVatReportPeriod(kind: VatReportKind = 'vat') {
   let activeIdentity = ''
   let pendingQuerySync = false
 
+  // Rozpis z výkazu (remember=0) ukáže období odkazu, ale nemění zapamatovanou volbu ostatních výkazů.
+  const linkOnly = () => route.query.remember === '0'
+
   function persist() {
     if (!ready.value || applying || activeIdentity !== identity.value) return
     writeVatReportSelection(activeIdentity, group.value, {
@@ -87,7 +90,7 @@ export function useVatReportPeriod(kind: VatReportKind = 'vat') {
     periodOverride.value = requestedPeriod || (forcedPeriod.value ? '' : own?.periodOverride ?? '')
     applying = false
     // Proklik z kalendáře je také výběr uživatele; pouhé otevření nuceného výkazu není.
-    if (requestedYear !== null || requestedMonth !== null || requestedPeriod) persist()
+    if (!linkOnly() && (requestedYear !== null || requestedMonth !== null || requestedPeriod)) persist()
   }
 
   async function initialize(): Promise<boolean> {
@@ -104,7 +107,7 @@ export function useVatReportPeriod(kind: VatReportKind = 'vat') {
       activeIdentity = scope
       applySelection()
       ready.value = true
-      if (!forcedPeriod.value || reportYearFromQuery(route.query.year) !== null || queryMonth(route.query.month) !== null || queryPeriod(route.query.period)) persist()
+      if (!linkOnly() && (!forcedPeriod.value || reportYearFromQuery(route.query.year) !== null || queryMonth(route.query.month) !== null || queryPeriod(route.query.period))) persist()
       return true
     } catch (error) {
       if (!disposed && seq === generation && scope === identity.value) settingsError.value = error

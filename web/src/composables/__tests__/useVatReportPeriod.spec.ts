@@ -112,6 +112,19 @@ describe('období výkazů v relaci uživatele a firmy', () => {
     expect(nextSh.effectivePeriod.value).toBe('monthly')
   })
 
+  it('rozpis z výkazu (remember=0) zobrazí období odkazu, ale zapamatovanou volbu nezmění', async () => {
+    const vat = create()
+    await vat.initialize()
+    m.route.query = { year: '2026', month: '8', period: 'monthly', remember: '0' }
+    const book = create()
+    await book.initialize()
+    expect([book.year.value, book.month.value, book.effectivePeriod.value]).toEqual([2026, 8, 'monthly'])
+    m.route.query = {}
+    const next = create()
+    await next.initialize()
+    expect([next.year.value, next.month.value, next.effectivePeriod.value]).toEqual([2026, 9, 'quarterly'])
+  })
+
   it('SH si pamatuje vlastní čtvrtletní volbu', async () => {
     const sh = create('sh')
     await sh.initialize()

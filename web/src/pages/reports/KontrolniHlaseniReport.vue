@@ -33,7 +33,7 @@ const loadedPeriod = ref<{ year: number; month: number; period: 'monthly' | 'qua
 function sectionBookRoute(section: string) {
   // Rychlá odpověď na výzvu jen potvrzuje podání nebo posílá nulové KH, doklady za ní nejsou.
   if (!loadedPeriod.value || preview.value?.summary.is_vyzva_odpoved) return null
-  return { path: '/reports/dph-book', query: { ...loadedPeriod.value, kh_section: section } }
+  return { path: '/reports/dph-book', query: { ...loadedPeriod.value, kh_section: section, remember: '0' } }
 }
 const loading = ref(true)
 const error = ref('')

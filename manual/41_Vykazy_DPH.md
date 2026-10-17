@@ -84,7 +84,7 @@ Lhůta: stejná jako u přiznání. Identifikovaná osoba kontrolní hlášení 
 > [!TIP]
 > Přiznání a kontrolní hlášení se sestavují ze stejných dat. Nejdřív podejte přiznání, které zkontroluje shodu s hlášením (viz [§ 41.13.5](#41135-krizova-kontrola-s-kh-sh-a-uctem-343)), pak hlášení.
 
-Odkazy z řádků přiznání a oddílů hlášení otevírají podklady v pravém pracovním panelu, pokud je dostupný. Při jediném panelu se podklady otevřou v něm. Odkaz nese období, za které je výkaz právě načtený, a Kniha DPH ho převezme jako zvolené období. Kniha DPH je pracovní přehled aktuálních dat včetně konceptů; neukazuje rozdíl dodatečného přiznání ani uložené podání. Pro kontrolu skutečně podaného KH použijte soupis z [Archivu podání](49_Archiv_podani_a_rekonciliace.md).
+Odkazy z řádků přiznání a oddílů hlášení otevírají podklady v pravém pracovním panelu, pokud je dostupný. Při jediném panelu se podklady otevřou v něm. Odkaz nese období, za které je výkaz právě načtený, a Kniha DPH ho zobrazí; zapamatovanou volbu období ostatních výkazů tím nezmění. Kniha DPH je pracovní přehled aktuálních dat včetně konceptů; neukazuje rozdíl dodatečného přiznání ani uložené podání. Pro kontrolu skutečně podaného KH použijte soupis z [Archivu podání](49_Archiv_podani_a_rekonciliace.md).
 
 ## 41.5 Krok za krokem: oprava už podaného přiznání nebo hlášení
 
