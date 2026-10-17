@@ -7,6 +7,8 @@ namespace MyInvoice\Repository;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Service\Accounting\Closing\ClosingSourceId;
 use MyInvoice\Service\Accounting\ForeignCurrencyAccountPolicy;
+use MyInvoice\Service\Accounting\JournalLineAmount;
+use MyInvoice\Service\Accounting\JournalLineComparison;
 use MyInvoice\Support\Sql\LinkedManualSettlementSql;
 use PDO;
 
@@ -56,6 +58,7 @@ final class ClosingRepository
      * Existuje na některý z $accountCodes zaúčtovaný zápis mimo profit_distribution
      * s pozdějším datem, nebo při zadaném ID i pozdější zápis stejného dne. Prefix-match
      * jako {@see ClosingRepository::accountBalance}, aby chytil i analytiky.
+     * Vynechá jen celý aktuálně ověřený storno pár uvnitř téhož období a časového okna.
      *
      * @param list<string> $accountCodes
      */
@@ -74,19 +77,57 @@ final class ClosingRepository
         $params[] = $afterDate;
         if ($afterEntryId !== null) array_push($params, $afterDate, $afterEntryId);
         $stmt = $this->db->pdo()->prepare(
-            'SELECT 1
+            'SELECT e.id, e.reversed_by
                FROM journal_entry_lines l
-               JOIN journal_entries e ON e.id = l.entry_id
-               JOIN chart_of_accounts a ON a.id = l.account_id
+               JOIN journal_entries e ON e.id = l.entry_id AND e.supplier_id = l.supplier_id
+               JOIN chart_of_accounts a ON a.id = l.account_id AND a.supplier_id = l.supplier_id
                LEFT JOIN chart_of_accounts p ON p.id = a.parent_id
               WHERE l.supplier_id = ? AND e.posted_at IS NOT NULL
                 AND e.source_type <> \'profit_distribution\'
                 AND (' . implode(' OR ', $conditions) . ')
                 AND (e.entry_date > ?' . ($afterEntryId !== null ? ' OR (e.entry_date = ? AND e.id > ?)' : '') . ')
-              LIMIT 1 FOR UPDATE'
+              ORDER BY e.id, l.id FOR UPDATE'
         );
         $stmt->execute($params);
-        return $stmt->fetchColumn() !== false;
+        $candidates = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) $candidates[(int) $row['id']] = $row['reversed_by'];
+        foreach ($candidates as $id => $reversalId) {
+            if (!array_key_exists($id, $candidates)) continue;
+            $reversalId = (int) $reversalId;
+            if ($reversalId <= $id || !array_key_exists($reversalId, $candidates)
+                || !$this->exactFollowUpReversalForUpdate($supplierId, $id, $reversalId)) return true;
+            unset($candidates[$id], $candidates[$reversalId]);
+        }
+        return false;
+    }
+
+    private function exactFollowUpReversalForUpdate(int $supplierId, int $originalId, int $reversalId): bool
+    {
+        $journal = new JournalEntryRepository($this->db, new \MyInvoice\Service\ActivityLogger($this->db));
+        $original = $journal->findForUpdate($originalId, $supplierId);
+        $reversal = $journal->findForUpdate($reversalId, $supplierId);
+        if ($original === null || $reversal === null || $original['posted_at'] === null || $reversal['posted_at'] === null
+            || (int) $original['reversed_by'] !== $reversalId || $reversal['reversed_by'] !== null
+            || $reversal['source_id'] !== null || $original['source_type'] !== $reversal['source_type']
+            || $original['period_id'] !== $reversal['period_id'] || $original['lines'] === []) return false;
+        $links = $this->db->pdo()->prepare('SELECT id FROM journal_entries WHERE supplier_id = ? AND reversed_by = ? ORDER BY id FOR UPDATE');
+        $links->execute([$supplierId, $reversalId]);
+        if (array_map('intval', $links->fetchAll(PDO::FETCH_COLUMN)) !== [$originalId]) return false;
+        $period = (new AccountingPeriodRepository($this->db))->findForUpdate((int) $original['period_id'], $supplierId);
+        if ($period === null || $original['entry_date'] < $period['starts_on'] || $original['entry_date'] > $period['ends_on']
+            || $reversal['entry_date'] < $period['starts_on'] || $reversal['entry_date'] > $period['ends_on']) return false;
+        $assignments = new DimensionAssignmentRepository($this->db);
+        foreach ([$originalId => &$original, $reversalId => &$reversal] as $entryId => &$entry) {
+            $dimensions = $assignments->entryLineDimensions($supplierId, $entryId, true);
+            $splits = $assignments->entryLineSplits($supplierId, $entryId, true);
+            foreach ($entry['lines'] as &$line) {
+                $line['dimensions'] = $dimensions[$line['id']] ?? [];
+                $line['dimension_splits'] = $splits[$line['id']] ?? [];
+            }
+            unset($line);
+        }
+        unset($entry);
+        return JournalLineComparison::sameLines(array_map(JournalLineAmount::reversal(...), $original['lines']), $reversal['lines']);
     }
 
     public function provisionSourceId(int $supplierId, int $periodId, int $invoiceId): int
