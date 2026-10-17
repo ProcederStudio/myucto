@@ -605,7 +605,7 @@ function onStockSelect(rowIndex: number, itemId: number | null) {
   void prefillFromProduct(item, itemId)
   refreshAvailability()
   // Rychlé zadávání: po výběru karty rovnou množství (hodnota označená, číslo ji přepíše).
-  void focusRowField('[data-row-qty="inv-item"]', rowIndex, paneDom.root())
+  void focusRowField('[data-row-qty="inv-item"]', amountRowPosition(rowIndex), paneDom.root())
 }
 
 function onItemUnitChange(item: InvoiceItem): void {
@@ -1667,6 +1667,11 @@ function addItem() {
   focusLastRow('[data-row-input="inv-item"]', paneDom.root())
 }
 
+// Pořadí řádku mezi poli popisu a množství: textové řádky je nemají.
+function amountRowPosition(rowIndex: number): number {
+  return form.value.items.slice(0, rowIndex).filter(it => !isTextItem(it)).length
+}
+
 // Textový řádek mezi položkami: jen popis, sazbu si server vezme z první položky.
 function addTextItem() {
   form.value.items.push(blankTextItem(form.value.items.length, defaultVatRateId()) as InvoiceItem)
@@ -1687,8 +1692,10 @@ function onQtyEnter(e: KeyboardEvent, rowIndex: number) {
     target.reportValidity()
     return
   }
-  if (rowIndex < form.value.items.length - 1) {
-    void focusRowField('[data-row-input="inv-item"]', rowIndex + 1, paneDom.root())
+  const items = form.value.items
+  const next = items.findIndex((it, idx) => idx > rowIndex && !isTextItem(it))
+  if (next !== -1) {
+    void focusRowField('[data-row-input="inv-item"]', amountRowPosition(next), paneDom.root())
     return
   }
   // Za prázdným posledním řádkem (bez popisu i bez karty) další prázdný nepřidávat.

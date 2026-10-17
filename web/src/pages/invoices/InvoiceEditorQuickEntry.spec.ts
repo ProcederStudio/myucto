@@ -32,7 +32,7 @@ vi.mock('@/api/stock', async importOriginal => {
 
 import InvoiceEditor from './InvoiceEditor.vue'
 
-type Row = { description: string; quantity: number | string; warehouse_id: number | null; stock_item_id: number | null }
+type Row = { item_kind?: string; description: string; quantity: number | string; warehouse_id: number | null; stock_item_id: number | null }
 type Vm = {
   form: { items: Row[] }
   onQtyEnter: (e: KeyboardEvent, i: number) => void
@@ -127,6 +127,22 @@ describe('InvoiceEditor rychlé zadávání', () => {
     m.focusRowField.mockClear()
     vm.onStockSelect(1, null)
     expect(m.focusRowField).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('textový řádek mezi položkami neposune fokus na pole jiného řádku', async () => {
+    const { wrapper, vm } = await mountEditor()
+    vm.form.items.splice(1, 0, { item_kind: 'text', description: 'Oddíl B', quantity: 0, warehouse_id: null, stock_item_id: null } as Row)
+    vm.onQtyEnter(enter(), 0)
+    expect(m.focusRowField).toHaveBeenCalledWith('[data-row-input="inv-item"]', 1, expect.anything())
+    m.focusRowField.mockClear()
+    vm.onStockSelect(2, 77)
+    expect(m.focusRowField).toHaveBeenCalledWith('[data-row-qty="inv-item"]', 1, expect.anything())
+
+    vm.form.items.push({ item_kind: 'text', description: 'Závěr', quantity: 0, warehouse_id: null, stock_item_id: null } as Row)
+    vm.onQtyEnter(enter(), 2)
+    expect(vm.form.items).toHaveLength(5)
+    expect(m.focusLastRow).toHaveBeenCalledWith('[data-row-input="inv-item"]', expect.anything())
     wrapper.unmount()
   })
 
