@@ -10,6 +10,7 @@ import RecoveryCodes from '@/components/security/RecoveryCodes.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 
 const { t } = useI18n()
+const emit = defineEmits<{ registered: [] }>()
 const auth = useAuthStore()
 const sessionSecurity = useSessionSecurityStore()
 const pageId = useId()
@@ -82,6 +83,7 @@ async function add() {
   }
   busy.value = true
   error.value = ''
+  let registrationCompleted = false
   try {
     const authorization: { current_password?: string; step_up_token?: string } = {}
     if (list.value.length > 0 || auth.user?.totp_enabled) {
@@ -97,6 +99,7 @@ async function add() {
       if (previousCsrf) advanceCanonicalDomainLoginSession(previousCsrf, registered.csrf_token)
       auth.setSessionCsrfToken(registered.csrf_token)
     }
+    registrationCompleted = true
     await auth.refresh()
     await sessionSecurity.refresh({ force: true })
     label.value = ''
@@ -113,6 +116,7 @@ async function add() {
         : e?.response?.data?.error?.message || t('passkeys.operation_failed')
   } finally {
     busy.value = false
+    if (registrationCompleted) emit('registered')
   }
 }
 

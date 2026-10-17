@@ -543,7 +543,7 @@ onMounted(() => {
     </div>
 
     <!-- ── Passkeys ── -->
-    <Passkeys v-else-if="tab === 'passkeys'" />
+    <Passkeys v-else-if="tab === 'passkeys'" @registered="returnToClientDomain" />
 
     <!-- ── Automatický zámek ── -->
     <form v-else-if="tab === 'session-lock'" @submit.prevent="saveLockPreference"
