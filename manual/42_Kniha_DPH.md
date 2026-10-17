@@ -52,6 +52,9 @@ Aby byla úplná, potřebujete:
    dokončete, nebo zrušte.
 4. Zkontrolujte, že u dokladů nechybí klasifikace DPH. Chybějící klasifikaci
    doplňte na zdrojovém dokladu.
+   Číslo vystavené nebo přijaté faktury či pokladního dokladu otevře jeho
+   detail. Máte-li knihu vlevo a vedle ní další pracovní panel, detail se
+   otevře vpravo; v jednom panelu se otevře na stejném místě.
 5. Porovnejte součty sekcí **PŘIJATÁ** a **USKUTEČNĚNÁ** s řádky náhledu
    přiznání na `Daně → DPH přiznání`. Částky se v evidenci drží na haléře,
    zatímco XML přiznání zaokrouhluje jednotlivé formulářové údaje na celé Kč.
@@ -86,8 +89,9 @@ Je to správně, pokud jde o období, ve kterém jste doklad mohli mít k dispoz
 3. Je-li u data hvězdička, posunulo odpočet datum přijetí dokladu. V PDF je za
    hvězdičkou rozhodné datum.
 4. Odpovídá-li datum přijetí skutečnosti, nic nedělejte.
-5. Neodpovídá-li, otevřete přijatou fakturu a opravte **datum přijetí**.
-   Editor u dat rovnou píše, do jakého období odpočet půjde a proč.
+5. Neodpovídá-li, klikněte na číslo dokladu a v jeho detailu opravte
+   **datum přijetí**. Editor u dat rovnou píše, do jakého období odpočet půjde
+   a proč.
 6. Vraťte se do knihy a ověřte, že doklad je ve správném období.
 
 **Jak poznáte, že je hotovo:** Doklad je v období, ve kterém jste ho skutečně

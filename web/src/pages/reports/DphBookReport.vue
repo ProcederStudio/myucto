@@ -11,6 +11,7 @@ import { ICONS, btnOutline } from '@/components/ui/buttonStyles'
 import { useAuthStore } from '@/stores/auth'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import KhEvidenceSections from '@/components/reports/KhEvidenceSections.vue'
+import DphBookDocumentLink from '@/components/reports/DphBookDocumentLink.vue'
 
 const { t, locale } = useI18n()
 const auth = useAuthStore()
@@ -268,7 +269,7 @@ onMounted(loadPreview)
                     class="inline-block bg-warning-100 text-warning-700 text-[10px] font-bold px-1 py-px rounded mr-1">
                     {{ t('reports.dph_book.draft_badge') }}
                   </span>
-                  <span class="font-mono">{{ row.direction === 'issued' ? 'VF' : 'PF' }} {{ row.doc_number }}</span>
+                  <DphBookDocumentLink :row="row" />
                 </td>
                 <td class="px-2 py-1.5">
                   {{ row.description }}
