@@ -74,7 +74,7 @@ final class JointAllocationCloneScrubberTest extends TestCase
         }
         foreach ($this->schemas as $schema) {
             self::assertMatchesRegularExpression('/^myucto_joint_scrub_(src|dst)_[a-f0-9]{10}_test$/D', $schema);
-            $this->server->exec('DROP DATABASE IF EXISTS ' . DatabaseCloner::quote($schema));
+            \MyInvoice\Tests\Support\OwnedTestDatabaseCleanup::drop($this->server,$schema,$this->schemas);
         }
     }
 

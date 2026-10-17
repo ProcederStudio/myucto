@@ -52,9 +52,10 @@ final class PaymentWorkflowCloneTest extends TestCase
             if ($db->pdo()->inTransaction()) $db->pdo()->rollBack();
             $db->close();
         }
-        if($this->targetSchema!==null){self::assertMatchesRegularExpression('/^myucto_workflow_clone_[a-f0-9]{10}_test_copy_test$/D',$this->targetSchema);$this->server->exec('DROP DATABASE IF EXISTS '.DatabaseCloner::quote($this->targetSchema));}
+        $ownedSchemas=array_values(array_filter([$this->targetSchema,$this->ownedSchema??null],static fn($schema)=>$schema!==null));
+        if($this->targetSchema!==null){self::assertMatchesRegularExpression('/^myucto_workflow_clone_[a-f0-9]{10}_test_copy_test$/D',$this->targetSchema);\MyInvoice\Tests\Support\OwnedTestDatabaseCleanup::drop($this->server,$this->targetSchema,$ownedSchemas);}
         self::assertMatchesRegularExpression('/^myucto_workflow_clone_[a-f0-9]{10}_test$/D', $this->ownedSchema);
-        $this->server->exec('DROP DATABASE ' . DatabaseCloner::quote($this->ownedSchema));
+        \MyInvoice\Tests\Support\OwnedTestDatabaseCleanup::drop($this->server,$this->ownedSchema,$ownedSchemas);
     }
 
 

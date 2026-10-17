@@ -50,10 +50,11 @@ final class ChargeIssuanceCloneTest extends TestCase
     protected function tearDown(): void
     {
         foreach($this->connections as $db) { if($db->pdo()->inTransaction()) $db->pdo()->rollBack(); $db->close(); }
-        if($this->targetSchema!==null) { self::assertMatchesRegularExpression('/^myucto_issue_clone_[a-f0-9]{10}_test_copy_test$/D',$this->targetSchema); $this->server->exec('DROP DATABASE IF EXISTS '.DatabaseCloner::quote($this->targetSchema)); }
+        $ownedSchemas=array_values(array_filter([$this->targetSchema,$this->schema??null],static fn($schema)=>$schema!==null));
+        if($this->targetSchema!==null) { self::assertMatchesRegularExpression('/^myucto_issue_clone_[a-f0-9]{10}_test_copy_test$/D',$this->targetSchema); \MyInvoice\Tests\Support\OwnedTestDatabaseCleanup::drop($this->server,$this->targetSchema,$ownedSchemas); }
         if(isset($this->schema,$this->server)) {
             self::assertMatchesRegularExpression('/^myucto_issue_clone_[a-f0-9]{10}_test$/D',$this->schema);
-            $this->server->exec('DROP DATABASE IF EXISTS '.DatabaseCloner::quote($this->schema));
+            \MyInvoice\Tests\Support\OwnedTestDatabaseCleanup::drop($this->server,$this->schema,$ownedSchemas);
         }
     }
 

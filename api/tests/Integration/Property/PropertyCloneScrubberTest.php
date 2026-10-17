@@ -53,7 +53,7 @@ final class PropertyCloneScrubberTest extends TestCase
         foreach ($this->connections as $db) { if ($db->pdo()->inTransaction()) $db->pdo()->rollBack(); $db->close(); }
         foreach (array_reverse($this->schemas) as $schema) {
             self::assertMatchesRegularExpression('/^myucto_property_clone_[a-f0-9]{10}_(source|target|partial)_test$/D', $schema);
-            $this->server->exec('DROP DATABASE IF EXISTS ' . DatabaseCloner::quote($schema));
+            \MyInvoice\Tests\Support\OwnedTestDatabaseCleanup::drop($this->server,$schema,$this->schemas);
         }
     }
 
