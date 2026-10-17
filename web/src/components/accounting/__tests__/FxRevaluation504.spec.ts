@@ -10,6 +10,7 @@ vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 import FxRevaluation504 from '../FxRevaluation504.vue'
 const wrappers: VueWrapper[] = []
 const sample = (missing = false): Fx504Preview => ({
+  securities: { complete: true, as_of: '2098-12-31', inventory_hash: 'empty', evidence: null, findings: [], cells: [], opening_entry_ids: [], profile_periods: [], profile_history: [], posted_entries: [], legal_basis: { valuation_rules: 'cz_504_2024', category_rules: 'act_316_2025_II_2', period_start_from: '2024-01-01', period_end_from: '2024-12-31', period_end_to: '2026-12-31' }, available_accounts: [], monetary_members: [], valuations: [] },
   accounting_decree: '504', snapshot_hash: 'current-proof', complete: !missing,
   positions: [{ key: 'source', account_code: '311', currency_code: 'EUR', booked_czk: '2399.99', foreign_balance: '100.00',
     dimensions: missing ? { '4': 41 } : { '1': 11, '2': 21, '3': 31, '4': 41 }, source_line_ids: [71], diff: '100.01', new_czk: '2500.00', rate: '25.000000',
@@ -37,6 +38,20 @@ beforeEach(() => {
   m.rate.mockResolvedValue({})
 })
 afterEach(() => { wrappers.splice(0).forEach(w => w.unmount()); vi.restoreAllMocks() })
+
+it('blocks posting when separate securities valuation is incomplete even with no ordinary FX positions', async () => {
+  const result = sample()
+  result.positions = []
+  result.complete = false
+  result.securities.complete = false
+  result.securities.findings = [{ code: 'securities_evidence_required' }]
+  m.preview.mockResolvedValue(result)
+  const w = render()
+  await flushPromises()
+  expect(w.get('[data-testid="fx504-save"]').attributes('disabled')).toBeDefined()
+  await w.get('[data-testid="fx504-save"]').trigger('click')
+  expect(m.run).not.toHaveBeenCalled()
+})
 
 it('requires exact cent total and all missing axes, retaining the complete source tuple', async () => {
   m.preview.mockResolvedValue(sample(true))

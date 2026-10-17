@@ -14910,7 +14910,12 @@ paths:
         řetězci, úplnými zdrojovými dimenzemi a doloženými účetními případy. Nejednoznačné
         podklady jsou v `case_unresolved` a `case_findings`; neúplné součty zahrnují pouze
         vyřešené položky. Historická přiřazení jsou uzamčená. GET nic nepotvrzuje ani neúčtuje.
-        Interní POST náhled s rozhodnutími vyžaduje přihlášenou relaci a není veřejnou mutací.
+        Pole `securities` obsahuje aktuální inventuru cenných papírů, profil účetní jednotky,
+        podklady ocenění, kontrolované zápisy a konkrétní findings. `complete` vyžaduje i úplné
+        posouzení cenných papírů; neúplná inventura se neocení běžným peněžním FX postupem.
+        GET používá uložené podklady jen při shodě aktuálního snapshotu a žádný parametr pro jejich potvrzení nebo změnu nepřijímá.
+        Volitelné `securities.debt_basis` jsou pouze diagnostika: `financial_authorization` i
+        `complete` zůstávají false, kupónové, diskontní a HTM oceňovací postupy tím nejsou dokončeny.
       parameters:
         - $ref: '#/components/parameters/SupplierIdHeader'
         - { in: path, name: id, required: true, schema: { type: integer } }
@@ -55044,7 +55049,10 @@ components:
       - account_decisions
       - saved_decisions
       - rate_info
+      - securities
       properties:
+        securities:
+          $ref: '#/components/schemas/ClosingSecurities504Assessment'
         accounting_decree:
           type: string
           const: '504'
@@ -55197,6 +55205,888 @@ components:
                 format: date
               fallback_used:
                 type: boolean
+
+    ClosingSecurities504Finding:
+      type: object
+      properties:
+        code:
+          type: string
+        valuation_index:
+          anyOf:
+          - type: integer
+          - type: 'null'
+        entry_id:
+          type: integer
+        lot_id:
+          type: string
+      required:
+      - code
+    ClosingSecurities504CategoryFacts:
+      type: object
+      properties:
+        period_id:
+          type: integer
+        starts_on:
+          type: string
+          format: date
+        ends_on:
+          type: string
+          format: date
+        assets_net:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+        net_turnover:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+        average_employees:
+          type: string
+        statement_reference:
+          type: string
+        employees_reference:
+          type: string
+      required:
+      - period_id
+      - starts_on
+      - ends_on
+      - assets_net
+      - net_turnover
+      - average_employees
+      - statement_reference
+      - employees_reference
+    ClosingSecurities504Profile:
+      type: object
+      properties:
+        scope:
+          type: string
+        category:
+          type: string
+        micro_exception:
+          type: string
+        reference:
+          type: string
+        scope_reference:
+          type: string
+        inception_reference:
+          type: string
+        registration_reference:
+          type: string
+        as_of:
+          type: string
+          format: date
+        first_period_start:
+          type: string
+          format: date
+        registration_from:
+          type: string
+          format: date
+        registration_to:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+        category_facts:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClosingSecurities504CategoryFacts'
+      required:
+      - scope
+      - category
+      - micro_exception
+      - as_of
+      - reference
+      - scope_reference
+      - inception_reference
+      - first_period_start
+      - category_facts
+    ClosingSecurities504Member:
+      type: object
+      properties:
+        source_cell_hash:
+          type: string
+        book_czk:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+        book_foreign:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+      required:
+      - source_cell_hash
+      - book_czk
+      - book_foreign
+    ClosingSecurities504MonetaryMember:
+      allOf:
+      - $ref: '#/components/schemas/ClosingSecurities504Member'
+      - type: object
+        properties:
+          nature:
+            type: string
+            const: monetary
+          contract_reference:
+            type: string
+          case_origin:
+            $ref: '#/components/schemas/ClosingFx504Origin'
+        required:
+        - nature
+        - contract_reference
+        - case_origin
+    ClosingSecurities504Instrument:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum:
+          - equity
+          - debt
+        classification:
+          type: string
+          enum:
+          - trading
+          - available_for_sale
+          - held_to_maturity
+          - participation
+        method:
+          type: string
+          enum:
+          - cost_equity
+          - fair_value_market
+          - equity_method
+        identity:
+          type: string
+        reference:
+          type: string
+        classification_reference:
+          type: string
+        influence_reference:
+          type: string
+        influence:
+          type: string
+        debt_type:
+          type: string
+        designated_on:
+          type: string
+          format: date
+      description: Metoda musí být přípustná pro doložený rámec, kategorii, nástroj a datum. Výčet klasifikací neznamená
+        podporu dokončeného ocenění dluhových CP.
+      required:
+      - kind
+      - identity
+      - classification
+      - method
+      - reference
+      - classification_reference
+      - designated_on
+    ClosingSecurities504ValuationFacts:
+      type: object
+      properties:
+        reference:
+          type: string
+        acquisition_cost_czk:
+          type: string
+        acquired_quantity:
+          type: string
+        unit_cost_foreign:
+          type: string
+        recoverability_reference:
+          type: string
+        recoverable_unit_value_foreign:
+          type: string
+        participation_fraction:
+          type: string
+        issuer_equity_foreign:
+          type: string
+        issuer_statement_reference:
+          type: string
+        market:
+          type: string
+        market_type:
+          type: string
+        market_reference:
+          type: string
+        quote_currency:
+          type: string
+        market_calendar_reference:
+          type: string
+        unit_price_foreign:
+          type: string
+        quantity:
+          type: string
+        valuation_date:
+          type: string
+          format: date
+        acquisition_date:
+          type: string
+          format: date
+        recoverability_date:
+          type: string
+          format: date
+        market_calendar_as_of:
+          type: string
+          format: date
+        last_trading_date:
+          type: string
+          format: date
+      additionalProperties:
+        type: string
+      description: Podklady podle zvolené metody; desetinné částky a množství jsou řetězce, nikoli binární float.
+      required:
+      - reference
+      - valuation_date
+    ClosingSecurities504PostedProof:
+      type: object
+      properties:
+        entry_id:
+          type: integer
+        asset_line_id:
+          type: integer
+        counterpart_line_id:
+          type: integer
+        component:
+          type: string
+        amount_czk:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+      required:
+      - entry_id
+      - asset_line_id
+      - counterpart_line_id
+      - component
+      - amount_czk
+    ClosingSecurities504ValuationEvidence:
+      type: object
+      properties:
+        instrument:
+          $ref: '#/components/schemas/ClosingSecurities504Instrument'
+        as_of:
+          type: string
+          format: date
+        evidence:
+          $ref: '#/components/schemas/ClosingSecurities504ValuationFacts'
+        target_czk:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClosingSecurities504Member'
+        posted_proof:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClosingSecurities504PostedProof'
+      required:
+      - instrument
+      - as_of
+      - evidence
+      - target_czk
+      - members
+      - posted_proof
+    ClosingSecurities504DebtAllocation:
+      type: object
+      properties:
+        cell_key:
+          type: string
+        source_hash:
+          type: string
+        component:
+          type: string
+          enum:
+          - clean
+          - acquired_interest
+          - asset
+          - counterpart
+        czk:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+        foreign:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+      required:
+      - cell_key
+      - source_hash
+      - component
+      - czk
+      - foreign
+    ClosingSecurities504DebtEventEvidence:
+      type: object
+      properties:
+        entry_id:
+          type: integer
+        kind:
+          type: string
+          enum:
+          - accrual
+          - coupon_receipt
+          - principal_redemption
+          - amortisation
+        allocations:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClosingSecurities504DebtAllocation'
+      required:
+      - entry_id
+      - kind
+      - allocations
+    ClosingSecurities504DebtLotEvidence:
+      type: object
+      properties:
+        lot_id:
+          type: string
+        instrument_identity:
+          type: string
+        nominal:
+          type: string
+        classification:
+          type: string
+          enum:
+          - trading
+          - held_to_maturity
+        debt_type:
+          type: string
+          enum:
+          - coupon
+          - discount
+        acquired_on:
+          type: string
+          format: date
+        maturity_on:
+          type: string
+          format: date
+        acquisition:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClosingSecurities504DebtAllocation'
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClosingSecurities504DebtEventEvidence'
+        coupon_period:
+          type: object
+          properties:
+            from:
+              type: string
+              format: date
+            to_exclusive:
+              type: string
+              format: date
+            day_count:
+              type: string
+              enum:
+              - ACT/365F
+              - ACT/360
+            annual_rate_fraction:
+              type: string
+            terms_reference:
+              type: string
+            rounding:
+              type: string
+              const: half_away_from_zero_2_cumulative
+        amortisation:
+          type: object
+          properties:
+            method:
+              type: string
+              const: actual_days_linear
+            acquired_on:
+              type: string
+              format: date
+            maturity_on:
+              type: string
+              format: date
+            policy_reference:
+              type: string
+            rounding:
+              type: string
+              const: half_away_from_zero_2_cumulative
+      required:
+      - lot_id
+      - instrument_identity
+      - classification
+      - debt_type
+      - acquired_on
+      - maturity_on
+      - nominal
+      - acquisition
+      - events
+    ClosingSecurities504DebtEvidence:
+      type: object
+      properties:
+        inventory_hash:
+          type: string
+        lots:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClosingSecurities504DebtLotEvidence'
+      description: Volitelné podklady pouze pro diagnostiku dluhové báze. Neopravňují ocenění ani zaúčtování a nezpřístupňují
+        kupónové, diskontní nebo HTM metody.
+      required:
+      - inventory_hash
+      - lots
+    ClosingSecurities504Evidence:
+      type: object
+      properties:
+        profile:
+          $ref: '#/components/schemas/ClosingSecurities504Profile'
+        valuations:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClosingSecurities504ValuationEvidence'
+        inventory_account_ids:
+          type: array
+          items:
+            type: integer
+        non_security_members:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClosingSecurities504MonetaryMember'
+        debt_basis:
+          $ref: '#/components/schemas/ClosingSecurities504DebtEvidence'
+      required:
+      - valuations
+    ClosingSecurities504InventoryCell:
+      type: object
+      properties:
+        currency_code:
+          type: string
+        dimensions:
+          oneOf:
+          - type: object
+            additionalProperties:
+              type: integer
+          - type: array
+            maxItems: 0
+        cost_center:
+          anyOf:
+          - type: string
+          - type: 'null'
+        project_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+        cell_key:
+          type: string
+        source_hash:
+          type: string
+        account_code:
+          type: string
+        line_id:
+          type: integer
+        entry_id:
+          type: integer
+        account_id:
+          type: integer
+        entry_date:
+          type: string
+          format: date
+        book_czk:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+        book_foreign:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+        case_origins:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClosingFx504Origin'
+      required:
+      - cell_key
+      - source_hash
+      - line_id
+      - entry_id
+      - entry_date
+      - account_id
+      - account_code
+      - currency_code
+      - dimensions
+      - cost_center
+      - project_id
+      - book_czk
+      - book_foreign
+    ClosingSecurities504ValuationResult:
+      type: object
+      properties:
+        identity:
+          type: string
+        method:
+          type: string
+        book_czk:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+        target_czk:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+        change_czk:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+        components:
+          type: array
+          items:
+            type: object
+            properties:
+              kind:
+                type: string
+              route:
+                type: string
+              amount_czk:
+                type: string
+                pattern: ^-?\d+\.\d{2}$
+            required:
+            - kind
+            - route
+            - amount_czk
+      required:
+      - identity
+      - method
+      - book_czk
+      - target_czk
+      - change_czk
+      - components
+    ClosingSecurities504PostedEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+        document_no:
+          anyOf:
+          - type: string
+          - type: 'null'
+        entry_date:
+          type: string
+          format: date
+        lines:
+          type: array
+          items:
+            type: object
+            properties:
+              currency_code:
+                type: string
+              dimensions:
+                oneOf:
+                - type: object
+                  additionalProperties:
+                    type: integer
+                - type: array
+                  maxItems: 0
+              cost_center:
+                anyOf:
+                - type: string
+                - type: 'null'
+              project_id:
+                anyOf:
+                - type: integer
+                - type: 'null'
+              id:
+                type: integer
+              account_code:
+                type: string
+              signed_czk:
+                type: string
+                pattern: ^-?\d+\.\d{2}$
+            required:
+            - id
+            - account_code
+            - signed_czk
+            - currency_code
+            - dimensions
+            - cost_center
+            - project_id
+      required:
+      - id
+      - document_no
+      - entry_date
+      - lines
+    ClosingSecurities504DebtEventResult:
+      type: object
+      properties:
+        kind:
+          type: string
+        entry_id:
+          type: integer
+        source_type:
+          type: string
+        origins:
+          oneOf:
+          - type: object
+            additionalProperties:
+              type: array
+              items:
+                $ref: '#/components/schemas/ClosingFx504Origin'
+          - type: array
+            maxItems: 0
+        asset_czk:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+        asset_foreign:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+      required:
+      - kind
+      - entry_id
+      - source_type
+      - origins
+      - asset_czk
+      - asset_foreign
+    ClosingSecurities504DebtLotResult:
+      type: object
+      properties:
+        lot_id:
+          type: string
+        instrument_identity:
+          type: string
+        currency_code:
+          type: string
+        clean_czk:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+        clean_foreign:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+        acquired_interest:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+        earlier_earned:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+        current_earned:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+        coupon_receipts_ledger:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+        principal_redemptions_ledger:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+        unpaid_interest_candidate:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+        amortisation:
+          anyOf:
+          - type: string
+            pattern: ^-?\d+\.\d{2}$
+          - type: 'null'
+        verified_unpaid_interest:
+          type: 'null'
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClosingSecurities504DebtEventResult'
+        tuple:
+          type: array
+          prefixItems:
+          - type: integer
+          - type: string
+          - oneOf:
+            - type: object
+              additionalProperties:
+                type: integer
+            - type: array
+              maxItems: 0
+          - anyOf:
+            - type: string
+            - type: 'null'
+          - anyOf:
+            - type: integer
+            - type: 'null'
+          minItems: 5
+          maxItems: 5
+      description: unpaid_interest_candidate je neověřená aritmetika; verified_unpaid_interest zůstává null. Neprokazuje
+        úplnou vazbu nástroje a plateb.
+      required:
+      - lot_id
+      - instrument_identity
+      - currency_code
+      - verified_unpaid_interest
+      - unpaid_interest_candidate
+      - events
+    ClosingSecurities504DebtAssessment:
+      type: object
+      properties:
+        complete:
+          type: boolean
+          const: false
+        financial_authorization:
+          type: boolean
+          const: false
+        ledger_complete:
+          type: boolean
+        inventory_hash:
+          type: string
+        as_of:
+          type: string
+          format: date
+        findings:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClosingSecurities504Finding'
+        opening_entry_ids:
+          type: array
+          items:
+            type: integer
+        cancelled_entry_ids:
+          type: array
+          items:
+            type: integer
+        lots:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClosingSecurities504DebtLotResult'
+        claims:
+          oneOf:
+          - type: object
+            additionalProperties:
+              type: array
+              items:
+                type: integer
+              minItems: 2
+              maxItems: 2
+          - type: array
+            maxItems: 0
+        legal_reference:
+          type: string
+      description: Pouze review diagnostika. ledger_complete je kontrola fyzického rozpisu, nikoli finanční oprávnění.
+        Úplná návaznost plateb a členství událostí vyžaduje další důkaz.
+      required:
+      - complete
+      - financial_authorization
+      - ledger_complete
+      - inventory_hash
+      - as_of
+      - findings
+      - opening_entry_ids
+      - cancelled_entry_ids
+      - lots
+      - claims
+      - legal_reference
+    ClosingSecurities504Assessment:
+      type: object
+      properties:
+        complete:
+          type: boolean
+        as_of:
+          type: string
+          format: date
+        inventory_hash:
+          type: string
+        evidence:
+          anyOf:
+          - $ref: '#/components/schemas/ClosingSecurities504Evidence'
+          - type: 'null'
+        findings:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClosingSecurities504Finding'
+        cells:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClosingSecurities504InventoryCell'
+        opening_entry_ids:
+          type: array
+          items:
+            type: integer
+        monetary_members:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClosingSecurities504MonetaryMember'
+        valuations:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClosingSecurities504ValuationResult'
+        available_accounts:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              account_code:
+                type: string
+              account_type:
+                type: string
+            required:
+            - id
+            - account_code
+            - account_type
+        profile_periods:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              starts_on:
+                type: string
+                format: date
+              ends_on:
+                type: string
+                format: date
+              fiscal_year:
+                type: integer
+            required:
+            - id
+            - starts_on
+            - ends_on
+            - fiscal_year
+        profile_history:
+          type: array
+          items:
+            type: object
+            properties:
+              period_id:
+                type: integer
+              assets_net:
+                type: string
+                pattern: ^-?\d+\.\d{2}$
+              net_turnover:
+                type: string
+                pattern: ^-?\d+\.\d{2}$
+              avg_employees:
+                type: number
+              raw_category:
+                type: string
+            required:
+            - period_id
+            - assets_net
+            - net_turnover
+            - avg_employees
+            - raw_category
+        posted_entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClosingSecurities504PostedEntry'
+        legal_basis:
+          type: object
+          properties:
+            valuation_rules:
+              type: string
+            category_rules:
+              type: string
+            period_start_from:
+              type: string
+            period_end_from:
+              type: string
+            period_end_to:
+              type: string
+          required:
+          - valuation_rules
+          - category_rules
+          - period_start_from
+          - period_end_from
+          - period_end_to
+        debt_basis:
+          $ref: '#/components/schemas/ClosingSecurities504DebtAssessment'
+      required:
+      - complete
+      - as_of
+      - inventory_hash
+      - evidence
+      - findings
+      - cells
+      - opening_entry_ids
+      - monetary_members
+      - valuations
+      - available_accounts
+      - profile_periods
+      - profile_history
+      - posted_entries
+      - legal_basis
 
     PropertyOpeningCatalog:
       type: object

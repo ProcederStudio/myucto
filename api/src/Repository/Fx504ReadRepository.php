@@ -24,19 +24,13 @@ final class Fx504ReadRepository
         $periods = array_column($stmt->fetchAll(PDO::FETCH_ASSOC), null, 'id');
         $period = $periods[$periodId] ?? null;
         if ($period === null) throw new ClosingException('not_found', 'Účetní období neexistuje.', 404);
+        $securitiesRead = new SecuritiesValuation504ReadRepository($this->db);
+        $securitiesProfile = $securitiesRead->profileSnapshot($supplierId, $period, $currentRead);
         $stmt = $this->db->pdo()->prepare('SELECT id, period_id, entry_date, source_type, source_id, reversed_by, row_version
             FROM journal_entries WHERE supplier_id = ? AND posted_at IS NOT NULL AND entry_date <= ? ORDER BY id' . $lock);
         $stmt->execute([$supplierId, $period['ends_on']]);
         $headers = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        $excluded = [];
-        $ownSlots = [ClosingSourceId::fxSaldo($periodId), ClosingSourceId::fxBank($periodId)];
-        foreach ($headers as $header) {
-            if ($header['source_type'] === 'fx_revaluation' && in_array((int) $header['source_id'], $ownSlots, true)) $excluded[(int) $header['id']] = true;
-        }
-        do {
-            $size = count($excluded);
-            foreach ($headers as $header) if (isset($excluded[(int) $header['id']]) && $header['reversed_by'] !== null) $excluded[(int) $header['reversed_by']] = true;
-        } while (count($excluded) !== $size);
+        $excluded = self::excludedEntries($headers, $periodId);
         $excludedIds = array_keys($excluded);
         $excludedIds = $excludedIds === [] ? [0] : $excludedIds;
         $excludedMarks = implode(',', array_fill(0, count($excludedIds), '?'));
@@ -98,9 +92,25 @@ final class Fx504ReadRepository
             $rates[$currency] = (string) $rate['rate'];
             $rateInfo[] = ['currency' => $currency, 'rate' => (string) $rate['rate'], 'rate_date' => $rate['rate_date'], 'fallback_used' => $rate['rate_date'] !== $period['ends_on']];
         }
+        $securities = $securitiesRead->snapshot($supplierId, $period, $currentRead, $securitiesProfile);
         return ['period' => $period, 'positions' => $positions, 'rates' => $rates, 'rate_info' => $rateInfo,
+            'securities_snapshot' => $securities,
             'required_types' => $requiredTypes, 'dimension_types' => $types, 'dimension_values' => $values,
             'source_line_ids' => $ids, 'source_rows' => $rows, 'case_snapshot' => $caseSnapshot,
-            'snapshot_hash' => hash('sha256', json_encode([$periodId, $period['starts_on'], $period['ends_on'], $anchor, $rows, $types, $values, $rateInfo, $caseSnapshot['hash']], JSON_THROW_ON_ERROR))];
+            'snapshot_hash' => hash('sha256', json_encode([$periodId, $period['starts_on'], $period['ends_on'], $anchor, $rows, $types, $values, $rateInfo, $caseSnapshot['hash'], $securities['hash']], JSON_THROW_ON_ERROR))];
     }
+    public static function excludedEntries(array $headers, int $periodId): array
+    {
+        $excluded = [];
+        $ownSlots = [ClosingSourceId::fxSaldo($periodId), ClosingSourceId::fxBank($periodId)];
+        foreach ($headers as $header) {
+            if ($header['source_type'] === 'fx_revaluation' && in_array((int) $header['source_id'], $ownSlots, true)) $excluded[(int) $header['id']] = true;
+        }
+        do {
+            $size = count($excluded);
+            foreach ($headers as $header) if (isset($excluded[(int) $header['id']]) && $header['reversed_by'] !== null) $excluded[(int) $header['reversed_by']] = true;
+        } while (count($excluded) !== $size);
+        return $excluded;
+    }
+
 }

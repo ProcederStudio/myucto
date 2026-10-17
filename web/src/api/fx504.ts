@@ -1,3 +1,4 @@
+import type { SecuritiesAssessment, SecuritiesEvidence } from './securities504'
 import { api } from './client'
 
 export type Fx504Map<T> = Record<string, T> | []
@@ -17,6 +18,7 @@ export interface Fx504Position {
   finding: 'monetary_title_required' | 'profit_dimensions_required' | 'rate_required' | 'securities_valuation_required' | 'case_evidence_required' | null
 }
 export interface Fx504Preview {
+  securities: SecuritiesAssessment
   accounting_decree: '504'; snapshot_hash: string; positions: Fx504Position[]; complete: boolean
   totals: { loss: string; gain: string }; required_types: number[]
   dimension_types: { id: number; name: string; is_active: boolean | 0 | 1; system_key: string | null }[]
@@ -29,9 +31,9 @@ const scope = (supplierId: number) => ({ headers: { 'X-Supplier-Id': String(supp
 export const fx504Api = {
   preview: (supplierId: number, periodId: number, decisions?: Record<string, Fx504AccountDecision>) => api.get<Fx504Preview>(
     `/accounting/periods/${periodId}/closing/fx-preview`, { ...scope(supplierId), params: decisions === undefined ? {} : { account_decisions: JSON.stringify(decisions) } }).then(r => r.data),
-  casePreview: (supplierId: number, periodId: number, body: { account_decisions: Record<string, Fx504AccountDecision>; case_decisions: Fx504CaseDecision[] }) =>
+  casePreview: (supplierId: number, periodId: number, body: { account_decisions: Record<string, Fx504AccountDecision>; case_decisions: Fx504CaseDecision[]; securities_evidence?: SecuritiesEvidence }) =>
     api.post<Fx504Preview>(`/accounting/periods/${periodId}/closing/fx-preview`, body, scope(supplierId)).then(r => r.data),
-  run: (supplierId: number, periodId: number, body: { row_version: number; snapshot_hash: string; account_decisions: Record<string, Fx504AccountDecision>; decisions: Record<string, Fx504Decision>; case_decisions: Fx504CaseDecision[] }) =>
+  run: (supplierId: number, periodId: number, body: { row_version: number; snapshot_hash: string; account_decisions: Record<string, Fx504AccountDecision>; decisions: Record<string, Fx504Decision>; case_decisions: Fx504CaseDecision[]; securities_evidence?: SecuritiesEvidence }) =>
     api.post(`/accounting/periods/${periodId}/closing/steps/fx_revaluation/run`, body, scope(supplierId)).then(r => r.data),
   revert: (supplierId: number, periodId: number, rowVersion: number) =>
     api.post(`/accounting/periods/${periodId}/closing/steps/fx_revaluation/revert`, { row_version: rowVersion }, scope(supplierId)).then(r => r.data),

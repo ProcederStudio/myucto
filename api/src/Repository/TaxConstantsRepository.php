@@ -28,9 +28,11 @@ final class TaxConstantsRepository
      * u nichž je historický fallback nebezpečný, ověřují rok výsledné sady.
      * @return array<string,mixed>
      */
-    public function forYear(int $year): array
+    public function forYear(int $year, bool $currentRead = false): array
     {
-        $override = $this->override($year);
+        if ($currentRead && !$this->db->pdo()->inTransaction()) throw new \LogicException('Current tax constants require a caller transaction.');
+        $knownFallback = $currentRead ? $this->nearestKnownYear($year, true) : null;
+        $override = $this->override($year, $currentRead);
         if ($override !== null) {
             $default = in_array($year, TaxConstants::availableYears(), true)
                 ? TaxConstants::forYear($year)
@@ -40,12 +42,12 @@ final class TaxConstantsRepository
         if (in_array($year, TaxConstants::availableYears(), true)) {
             return TaxConstants::forYear($year);
         }
-        $fallback = $this->nearestKnownYear($year);
+        $fallback = $knownFallback ?? $this->nearestKnownYear($year, $currentRead);
         $defaultYear = in_array($fallback, TaxConstants::availableYears(), true)
             ? $fallback
             : $this->nearestBuiltInYear($fallback);
         $default = TaxConstants::forYear($defaultYear);
-        $fallbackOverride = $this->override($fallback);
+        $fallbackOverride = $this->override($fallback, $currentRead);
         return $fallbackOverride !== null ? $this->merge($default, $fallbackOverride, $year) : $default;
     }
 
@@ -84,11 +86,11 @@ final class TaxConstantsRepository
         return TaxConstants::withDerived($this->deepMerge($default, $override), $year);
     }
 
-    private function nearestKnownYear(int $year): int
+    private function nearestKnownYear(int $year, bool $currentRead = false): int
     {
         $dbYears = array_map(
             'intval',
-            $this->db->pdo()->query('SELECT year FROM tax_constants')->fetchAll(\PDO::FETCH_COLUMN)
+            $this->db->pdo()->query('SELECT year FROM tax_constants' . ($currentRead ? ' ORDER BY year FOR UPDATE' : ''))->fetchAll(\PDO::FETCH_COLUMN)
         );
         $known = array_unique([...TaxConstants::availableYears(), ...$dbYears]);
         $below = array_filter($known, static fn (int $y): bool => $y < $year);
@@ -150,9 +152,10 @@ final class TaxConstantsRepository
      * DB override pro rok, nebo null když není.
      * @return array<string,mixed>|null
      */
-    public function override(int $year): ?array
+    public function override(int $year, bool $currentRead = false): ?array
     {
-        $stmt = $this->db->pdo()->prepare('SELECT data FROM tax_constants WHERE year = ?');
+        if ($currentRead && !$this->db->pdo()->inTransaction()) throw new \LogicException('Current tax constants require a caller transaction.');
+        $stmt = $this->db->pdo()->prepare('SELECT data FROM tax_constants WHERE year = ?' . ($currentRead ? ' FOR UPDATE' : ''));
         $stmt->execute([$year]);
         $json = $stmt->fetchColumn();
         if ($json === false || $json === null) {

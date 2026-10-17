@@ -799,11 +799,11 @@ final class ClosingService
      * @param list<array{account_code:string, currency_code:string, foreign_balance:float|int|string}> $bankRows
      * @return array<string,mixed>
      */
-    public function fxPreview(int $supplierId, int $periodId, array $bankRows = [], ?array $accountDecisions = null, ?array $caseDecisions = null): array
+    public function fxPreview(int $supplierId, int $periodId, array $bankRows = [], ?array $accountDecisions = null, ?array $caseDecisions = null, ?array $securitiesEvidence = null): array
     {
         $jointFx = new Fx504Service($this->db, $this->journal, $this->series, $this->closing, $this->posting, $this->activity);
-        if ($jointFx->handles($supplierId, $periodId)) return $jointFx->preview($supplierId, $periodId, $accountDecisions, false, $caseDecisions);
-        if ($accountDecisions !== null || $caseDecisions !== null) throw new ClosingException('fx_case_framework_unsupported', 'Podrobné posouzení kurzových případů je dostupné pouze pro účetní rámec 504.', 422);
+        if ($jointFx->handles($supplierId, $periodId)) return $jointFx->preview($supplierId, $periodId, $accountDecisions, false, $caseDecisions, $securitiesEvidence);
+        if ($accountDecisions !== null || $caseDecisions !== null || $securitiesEvidence !== null) throw new ClosingException('fx_case_framework_unsupported', 'Podrobné posouzení kurzových případů je dostupné pouze pro účetní rámec 504.', 422);
         $period = $this->periods->findById($supplierId, $periodId);
         if ($period === null) {
             throw new ClosingException('not_found', 'Účetní období #' . $periodId . ' neexistuje.', 404);
@@ -826,7 +826,7 @@ final class ClosingService
     {
         $jointFx = new Fx504Service($this->db, $this->journal, $this->series, $this->closing, $this->posting, $this->activity);
         if ($jointFx->handles($supplierId, $periodId, true)) return $jointFx->run($supplierId, $periodId, $jointDecision, $rowVersion, $meta);
-        if (array_intersect(['snapshot_hash', 'account_decisions', 'case_decisions', 'decisions'], array_keys($jointDecision)) !== []) throw new ClosingException('fx_case_framework_unsupported', 'Podrobné posouzení kurzových případů je dostupné pouze pro účetní rámec 504.', 422);
+        if (array_intersect(['snapshot_hash', 'account_decisions', 'case_decisions', 'decisions', 'securities_evidence'], array_keys($jointDecision)) !== []) throw new ClosingException('fx_case_framework_unsupported', 'Podrobné posouzení kurzových případů je dostupné pouze pro účetní rámec 504.', 422);
         return (new DimensionPeriodGuard($this->db))->transaction(fn (): array => $this->tx(function () use ($supplierId, $periodId, $bankRows, $rowVersion, $meta): array {
             $period = $this->lockPeriod($supplierId, $periodId, $rowVersion);
             $this->assertStatus($period, ['closing']);

@@ -131,13 +131,14 @@ final class ClosingAction
         $supplierId = $this->currentSupplierId($request);
         if (!$this->requireDoubleEntry($this->db, $supplierId, $response, $err)) return $err;
         $body = $request->getParsedBody();
-        if (!is_array($body) || array_diff(array_keys($body), ['account_decisions', 'case_decisions']) !== []
+        if (!is_array($body) || array_diff(array_keys($body), ['account_decisions', 'case_decisions', 'securities_evidence']) !== []
             || !is_array($body['account_decisions'] ?? null) || !is_array($body['case_decisions'] ?? null)
-            || ($body['account_decisions'] !== [] && array_is_list($body['account_decisions'])) || !array_is_list($body['case_decisions'])) {
+            || ($body['account_decisions'] !== [] && array_is_list($body['account_decisions'])) || !array_is_list($body['case_decisions'])
+            || (array_key_exists('securities_evidence', $body) && (!is_array($body['securities_evidence']) || array_is_list($body['securities_evidence'])))) {
             return Json::error($response, 'validation_failed', 'Zadejte strukturované posouzení účtů a úplný seznam doložených účetních případů.', 422);
         }
         try {
-            $data = $this->closing->fxPreview($supplierId, (int) ($args['id'] ?? 0), [], $body['account_decisions'], $body['case_decisions']);
+            $data = $this->closing->fxPreview($supplierId, (int) ($args['id'] ?? 0), [], $body['account_decisions'], $body['case_decisions'], $body['securities_evidence'] ?? null);
         } catch (\Throwable $e) {
             return $this->mapError($response, $e, 'Náhled kurzových případů selhal');
         }

@@ -6,7 +6,7 @@ namespace MyInvoice\Service\Accounting\Closing;
 
 final class Fx504CaseProjection
 {
-    public static function preview(array $snapshot, array $accountDecisions, ?array $caseDecisions = null): array
+    public static function preview(array $snapshot, array $accountDecisions, ?array $caseDecisions = null, array $monetaryInventoryCells = []): array
     {
         $source = $snapshot['case_snapshot'];
         $caseDecisions ??= $source['prior_decisions'];
@@ -29,7 +29,7 @@ final class Fx504CaseProjection
         }
         unset($cell);
         $projection = self::project($source['rows'], $source['origins'], $caseDecisions);
-        $preview = Fx504Builder::preview(Fx504Builder::positions($projection['rows']), $snapshot['rates'], $snapshot['required_types'], $accountDecisions);
+        $preview = Fx504Builder::preview(Fx504Builder::positions($projection['rows']), $snapshot['rates'], $snapshot['required_types'], $accountDecisions, $monetaryInventoryCells);
         if ($source['findings'] !== []) $preview['complete'] = false;
         $requiredCases = array_column(array_filter($preview['positions'], static fn (array $position): bool => $position['finding'] === 'case_evidence_required'), 'case_cell_key');
         $unresolved = array_values(array_filter($projection['unresolved'], static fn (array $cell): bool => in_array($cell['cell_key'], $requiredCases, true)));
@@ -59,10 +59,8 @@ final class Fx504CaseProjection
         $used = [];
         $declared = [];
         foreach ($decisions as $decision) {
-            if (!is_array($decision) || !is_array($decision['origin'] ?? null) || !is_string($decision['reason'] ?? null) || trim($decision['reason']) === '' || strlen($decision['reason']) > 8000
-                || array_diff(array_keys($decision), ['origin', 'reason', 'contributions']) !== []
-                || !is_array($decision['contributions'] ?? null) || $decision['contributions'] === []) throw self::invalid();
-            $origin = self::origin($decision['origin']);
+            $decision = self::normalizeDecision($decision);
+            $origin = $decision['origin'];
             $root = null;
             if ($origin['kind'] === 'declared_title') {
                 foreach ($cells as $cell) if ($cell['line_id'] === $origin['origin_line_id']) { $root = $cell; break; }
@@ -72,22 +70,10 @@ final class Fx504CaseProjection
                 $declared[$identity] = $origin;
             }
             foreach ($decision['contributions'] as $contribution) {
-                if (!is_array($contribution) || array_diff(array_keys($contribution), ['cell_key', 'czk_signed', 'foreign_signed']) !== []) throw self::invalid();
                 $key = $contribution['cell_key'] ?? null;
                 if (!is_string($key) || !isset($cells[$key])) throw self::invalid();
                 $cell = $cells[$key];
-                $candidates = $origins[$cell['line_id']] ?? [];
-                if ($candidates !== [] && !in_array($origin, $candidates, true)) throw self::invalid();
-                if ($origin['kind'] === 'cash_account' && !in_array($origin, $candidates, true)) throw self::invalid();
-                if ($root !== null && ($cell['account_id'] !== $root['account_id'] || $cell['currency_code'] !== $root['currency_code'])) throw self::invalid();
-                if ($origin['kind'] === 'document' && $candidates === []) {
-                    $evidenced = false;
-                    foreach ($cells as $sourceCell) {
-                        if ($sourceCell['account_id'] === $cell['account_id'] && $sourceCell['currency_code'] === $cell['currency_code']
-                            && in_array($origin, $origins[$sourceCell['line_id']] ?? [], true)) { $evidenced = true; break; }
-                    }
-                    if (!$evidenced) throw self::invalid();
-                }
+                self::assertOriginForCell($cell, $cells, $origins, $origin);
                 $czk = self::cents($contribution['czk_signed'] ?? null);
                 $fx = self::cents($contribution['foreign_signed'] ?? null);
                 self::portion($czk, $cell['czk_cents']);
@@ -113,6 +99,42 @@ final class Fx504CaseProjection
             }
         }
         return ['rows' => $pieces, 'unresolved' => $unresolved, 'complete' => $unresolved === []];
+    }
+
+    public static function assertOriginForCell(array $cell, array $cells, array $origins, array $origin): void
+    {
+        $origin = self::origin($origin);
+        $root = null;
+        if ($origin['kind'] === 'declared_title') {
+            foreach ($cells as $sourceCell) if ($sourceCell['line_id'] === $origin['origin_line_id']) { $root = $sourceCell; break; }
+            if ($root === null) throw self::invalid();
+        }
+        $candidates = $origins[$cell['line_id']] ?? [];
+        if ($candidates !== [] && !in_array($origin, $candidates, true)) throw self::invalid();
+        if ($origin['kind'] === 'cash_account' && !in_array($origin, $candidates, true)) throw self::invalid();
+        if ($root !== null && ($cell['account_id'] !== $root['account_id'] || $cell['currency_code'] !== $root['currency_code'])) throw self::invalid();
+        if ($origin['kind'] === 'document' && $candidates === []) {
+            $evidenced = false;
+            foreach ($cells as $sourceCell) {
+                if ($sourceCell['account_id'] === $cell['account_id'] && $sourceCell['currency_code'] === $cell['currency_code']
+                    && in_array($origin, $origins[$sourceCell['line_id']] ?? [], true)) { $evidenced = true; break; }
+            }
+            if (!$evidenced) throw self::invalid();
+        }
+    }
+
+    public static function normalizeDecision(mixed $decision): array
+    {
+        if (!is_array($decision) || !is_array($decision['origin'] ?? null) || !is_string($decision['reason'] ?? null) || trim($decision['reason']) === '' || strlen($decision['reason']) > 8000
+            || array_diff(array_keys($decision), ['origin', 'reason', 'contributions']) !== []
+            || !is_array($decision['contributions'] ?? null) || $decision['contributions'] === []) throw self::invalid();
+        $decision['origin'] = self::origin($decision['origin']);
+        foreach ($decision['contributions'] as $contribution) {
+            if (!is_array($contribution) || array_diff(array_keys($contribution), ['cell_key', 'czk_signed', 'foreign_signed']) !== [] || !is_string($contribution['cell_key'] ?? null)) throw self::invalid();
+            self::cents($contribution['czk_signed'] ?? null);
+            self::cents($contribution['foreign_signed'] ?? null);
+        }
+        return $decision;
     }
 
     private static function piece(array $cell, int $czk, int $fx, ?array $origin): array

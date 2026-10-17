@@ -55,7 +55,9 @@ final class Fx504JournalProof
         $lockedUntil = $lock->fetchColumn();
         if ($lockedUntil && $period['ends_on'] <= $lockedUntil) throw new ClosingException('date_locked', 'Datum zápisu leží v uzamčené části účetnictví.', 422);
         if (($record['case_projection_version'] ?? null) !== 1 || ($record['case_source_hash'] ?? null) !== $snapshot['case_snapshot']['hash']) throw self::changed();
-        $preview = Fx504CaseProjection::preview($snapshot, $record['account_decisions'] ?? [], $record['case_decisions'] ?? null);
+        if (($record['securities_inventory_hash'] ?? null) !== $snapshot['securities_snapshot']['hash']) throw self::changed();
+        $preview = SecuritiesValuation504Evidence::preview($snapshot, $record['account_decisions'] ?? [], $record['case_decisions'] ?? null, $record['securities_evidence'] ?? null);
+        if ($preview['securities'] !== ($record['securities_assessment'] ?? null)) throw self::changed();
         $built = Fx504Builder::build($preview, $record['decisions'] ?? [], $snapshot['required_types']);
         if ($built['case_materialization'] !== ($record['case_materialization'] ?? null) || hash('sha256', json_encode($built['case_materialization'], JSON_THROW_ON_ERROR)) !== ($record['case_materialization_hash'] ?? null)) throw self::changed();
         $accounts = $db->pdo()->prepare('SELECT id, account_code, account_type, is_active FROM chart_of_accounts WHERE supplier_id = ? ORDER BY id FOR UPDATE');

@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import Fx504CaseEditor from './Fx504CaseEditor.vue'
+import SecuritiesValuation504Editor from './SecuritiesValuation504Editor.vue'
+import type { SecuritiesEvidence } from '@/api/securities504'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { fx504Api, type Fx504AccountDecision, type Fx504Decision, type Fx504Position, type Fx504Preview, type Fx504Map, type Fx504CaseDecision } from '@/api/fx504'
@@ -20,6 +22,12 @@ const assessedAccounts = ref('')
 const cases = ref<Fx504CaseDecision[]>([])
 const casesValid = ref(true)
 const assessedCases = ref('')
+const securities = ref<SecuritiesEvidence | null>(null)
+const securitiesValid = ref(true)
+const assessedSecurities = ref('null')
+const securitiesChanged = computed(() => assessedSecurities.value !== JSON.stringify(securities.value))
+function securitiesChange(value: SecuritiesEvidence | null, valid: boolean) { securities.value = value; securitiesValid.value = valid }
+const missingRateCurrencies = computed(() => [...new Set([...(preview.value?.positions.filter(row => row.finding === 'rate_required').map(row => row.currency_code) ?? []), ...(preview.value?.securities.findings.some(row => row.code === 'securities_rate_required') ? preview.value.securities.cells.filter(row => row.currency_code !== 'CZK').map(row => row.currency_code) : [])])])
 const casesChanged = computed(() => assessedCases.value !== JSON.stringify(cases.value))
 function caseChange(value: Fx504CaseDecision[], valid: boolean) { cases.value = value; casesValid.value = valid }
 let generation = 0
@@ -36,7 +44,7 @@ function cents(value: string): bigint | null {
 }
 const missingTypes = (position: Fx504Position) => (preview.value?.required_types ?? []).filter(id => !map(position.dimensions)[String(id)])
 const valid = computed(() => {
-  if (!preview.value || !canEdit.value || accountsChanged.value || casesChanged.value || !casesValid.value || preview.value.case_findings.length > 0 || preview.value.case_unresolved.length > 0) return false
+  if (!preview.value || !canEdit.value || accountsChanged.value || casesChanged.value || !casesValid.value || !securitiesValid.value || securitiesChanged.value || !preview.value.securities.complete || preview.value.case_findings.length > 0 || preview.value.case_unresolved.length > 0) return false
   return preview.value.positions.every(position => {
     if (position.finding !== null && position.finding !== 'profit_dimensions_required') return false
     if (position.finding !== 'profit_dimensions_required') return true
@@ -52,11 +60,12 @@ const valid = computed(() => {
     return total === target
   })
 })
-function dimensionsLabel(position: Fx504Position): string {
-  return Object.entries(position.dimensions).map(([type, value]) => {
+function dimensionsLabel(position: Fx504Position): string { return dimensionMapLabel(position.dimensions) }
+function dimensionMapLabel(dimensions: Fx504Map<number>): string {
+  return Object.entries(dimensions).map(([type, value]) => {
     const name = preview.value?.dimension_types.find(row => row.id === Number(type))?.name ?? type
     return `${name}: ${preview.value?.dimension_values.find(row => row.id === value)?.name ?? value}`
-  }).join(' · ') || t('fx504.no_dimensions')
+  }).join(' Â· ') || t('fx504.no_dimensions')
 }
 function addCell(position: Fx504Position) {
   if (!canEdit.value) return
@@ -80,11 +89,14 @@ async function act(work: (current: () => boolean) => Promise<void>) {
 }
 async function refresh(initial = false) {
   await act(async current => {
-    const result = initial ? await fx504Api.preview(props.supplierId, props.periodId) : await fx504Api.casePreview(props.supplierId, props.periodId, { account_decisions: accounts.value, case_decisions: cases.value })
+    const result = initial ? await fx504Api.preview(props.supplierId, props.periodId) : await fx504Api.casePreview(props.supplierId, props.periodId, { account_decisions: accounts.value, case_decisions: cases.value, ...(securities.value === null ? {} : { securities_evidence: securities.value }) })
     if (!current()) return
     if (result.accounting_decree !== '504') throw new Error(t('fx504.framework_changed'))
     const previousHash = preview.value?.snapshot_hash
     preview.value = result
+    securities.value = result.securities.evidence
+    assessedSecurities.value = JSON.stringify(securities.value)
+    securitiesValid.value = securities.value !== null || result.securities.cells.length === 0
     cases.value = result.case_decisions
     casesValid.value = result.case_unresolved.length === 0
     assessedCases.value = JSON.stringify(cases.value)
@@ -100,7 +112,7 @@ async function refresh(initial = false) {
 }
 async function fetchRates() {
   await act(async current => {
-    for (const currency of new Set(preview.value?.positions.filter(row => row.finding === 'rate_required').map(row => row.currency_code))) {
+    for (const currency of missingRateCurrencies.value) {
       await fx504Api.rate(props.supplierId, currency, props.endsOn)
       if (!current()) return
     }
@@ -110,7 +122,7 @@ async function fetchRates() {
 async function save() {
   if (!valid.value || !preview.value) return
   const body = { row_version: props.rowVersion, snapshot_hash: preview.value.snapshot_hash,
-    case_decisions: JSON.parse(JSON.stringify(cases.value)), account_decisions: JSON.parse(JSON.stringify(accounts.value)), decisions: JSON.parse(JSON.stringify(decisions.value)) }
+    case_decisions: JSON.parse(JSON.stringify(cases.value)), account_decisions: JSON.parse(JSON.stringify(accounts.value)), decisions: JSON.parse(JSON.stringify(decisions.value)), ...(securities.value === null ? {} : { securities_evidence: JSON.parse(JSON.stringify(securities.value)) as SecuritiesEvidence }) }
   await act(async current => {
     await fx504Api.run(props.supplierId, props.periodId, body)
     if (current()) emit('updated')
@@ -134,6 +146,9 @@ watch(() => [props.supplierId, props.periodId, props.rowVersion, supplier.curren
   cases.value = []
   casesValid.value = true
   assessedCases.value = ''
+  securities.value = null
+  securitiesValid.value = true
+  assessedSecurities.value = 'null'
   if (sameSupplier.value) void refresh(true)
 }, { immediate: true })
 onBeforeUnmount(() => { ++generation })
@@ -148,16 +163,17 @@ onBeforeUnmount(() => { ++generation })
     <template v-if="preview">
       <p v-if="!preview.complete" class="rounded border border-warning-300 bg-warning-50 p-3 text-sm">{{ t('fx504.incomplete') }}</p>
       <p v-for="(finding, index) in preview.case_findings" :key="index" role="alert" class="text-sm text-warning-700">{{ t(finding.code === 'case_nominal_unproven' ? 'fx504.case_nominal_unproven' : 'fx504.case_source_changed') }} <span v-if="finding.entry_id">{{ t('fx504.case_source', { entry: finding.entry_id, line: finding.line_id ?? '' }) }}</span></p>
-      <p v-if="accountsChanged || casesChanged" class="text-sm text-warning-700">{{ t('fx504.refresh_required') }}</p>
+      <p v-if="accountsChanged || casesChanged || securitiesChanged" class="text-sm text-warning-700">{{ t('fx504.refresh_required') }}</p>
       <div class="flex flex-wrap gap-3 text-sm">
         <span>{{ t('fx504.known_loss') }}: <strong>{{ preview.totals.loss }} CZK</strong></span>
         <span>{{ t('fx504.known_gain') }}: <strong>{{ preview.totals.gain }} CZK</strong></span>
         <span v-for="rate in preview.rate_info" :key="rate.currency">{{ rate.currency }}: {{ rate.rate }} ({{ rate.rate_date }})</span>
       </div>
+      <SecuritiesValuation504Editor :assessment="preview.securities" :disabled="!canEdit" :dimension-label="dimensionMapLabel" @change="securitiesChange" />
       <Fx504CaseEditor :cells="preview.case_source_cells" :decisions="preview.case_decisions" :unresolved="preview.case_unresolved" :locked="preview.case_locked_cell_keys" :disabled="!canEdit" @change="caseChange" />
       <p v-if="!preview.positions.length" class="text-sm text-neutral-500">{{ t('fx504.empty') }}</p>
       <article v-for="position in preview.positions" :key="position.key" class="rounded-lg border border-neutral-200 p-4 space-y-3">
-        <h3 class="font-semibold">{{ position.account_code }} · {{ position.currency_code }}</h3>
+        <h3 class="font-semibold">{{ position.account_code }} Â· {{ position.currency_code }}</h3>
         <p class="text-sm">{{ dimensionsLabel(position) }}</p>
         <div class="flex flex-wrap gap-4 text-sm">
           <span>{{ t('fx504.foreign') }}: {{ position.foreign_balance }} {{ position.currency_code }}</span>
@@ -179,7 +195,7 @@ onBeforeUnmount(() => { ++generation })
           <div v-for="(cell, index) in decisions[position.key]!.cells" :key="index" class="flex flex-wrap items-end gap-2">
             <label class="text-sm">{{ t('fx504.amount') }}<input v-model="cell.amount" inputmode="decimal" class="block w-32 h-9 rounded border border-neutral-300 px-2" /></label>
             <label v-for="typeId in missingTypes(position)" :key="typeId" class="text-sm">{{ preview.dimension_types.find(type => type.id === typeId)?.name }}
-              <select v-model="cell.dimensions[String(typeId)]" class="block h-9 rounded border border-neutral-300 px-2"><option :value="undefined">{{ t('fx504.choose') }}</option><option v-for="value in preview.dimension_values.filter(row => row.type_id === typeId && row.is_active)" :key="value.id" :value="value.id">{{ value.code }} · {{ value.name }}</option></select>
+              <select v-model="cell.dimensions[String(typeId)]" class="block h-9 rounded border border-neutral-300 px-2"><option :value="undefined">{{ t('fx504.choose') }}</option><option v-for="value in preview.dimension_values.filter(row => row.type_id === typeId && row.is_active)" :key="value.id" :value="value.id">{{ value.code }} Â· {{ value.name }}</option></select>
             </label>
             <button type="button" :class="btnOutline('danger')" @click="decisions[position.key]!.cells.splice(index, 1)"><svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path :d="ICONS.trash" /></svg>{{ t('fx504.remove_cell') }}</button>
           </div>
@@ -188,9 +204,9 @@ onBeforeUnmount(() => { ++generation })
       </article>
     </template>
     <div class="flex flex-wrap gap-2">
-      <button type="button" :disabled="busy || !sameSupplier || !casesValid" :class="btnOutline('neutral')" @click="refresh()"><svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path :d="ICONS.cycle" /></svg>{{ t('fx504.refresh') }}</button>
+      <button type="button" :disabled="busy || !sameSupplier || !casesValid || !securitiesValid" :class="btnOutline('neutral')" @click="refresh()"><svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path :d="ICONS.cycle" /></svg>{{ t('fx504.refresh') }}</button>
       <button type="button" :disabled="busy || !sameSupplier" :class="btnOutline('neutral')" @click="refresh(true)"><svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path :d="ICONS.cycle" /></svg>{{ t('fx504.reload_sources') }}</button>
-      <button v-if="preview?.positions.some(row => row.finding === 'rate_required')" type="button" :disabled="busy || !sameSupplier" :class="btnOutline('neutral')" @click="fetchRates"><svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path :d="ICONS.cycle" /></svg>{{ t('fx504.fetch_rates') }}</button>
+      <button v-if="missingRateCurrencies.length" type="button" :disabled="busy || !sameSupplier" :class="btnOutline('neutral')" @click="fetchRates"><svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path :d="ICONS.cycle" /></svg>{{ t('fx504.fetch_rates') }}</button>
       <button v-if="canWrite" type="button" :disabled="!valid" :class="btnFilled('success')" data-testid="fx504-save" @click="save"><svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path :d="ICONS.check" /></svg>{{ t('fx504.book') }}</button>
       <button v-if="canRevert && canWrite" type="button" :disabled="!canEdit" :class="btnOutline('danger')" @click="revert"><svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path :d="ICONS.uturn" /></svg>{{ t('fx504.revert') }}</button>
     </div>

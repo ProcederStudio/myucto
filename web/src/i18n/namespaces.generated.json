@@ -133,6 +133,7 @@
     "revenue_categories",
     "roles",
     "sales_orders",
+    "securities504",
     "sent_emails",
     "settings",
     "setup",
@@ -712,7 +713,8 @@
       "checks",
       "dimensions",
       "fx504",
-      "nonprofitTax"
+      "nonprofitTax",
+      "securities504"
     ],
     "accounting-closing-package": [
       "reports"

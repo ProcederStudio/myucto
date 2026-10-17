@@ -124,6 +124,8 @@ Zaúčtování vyžaduje aktuální podklady, aktivní účet a úplné rozhodnu
 zůstat uzavřené, nově doplněné hodnoty musí být aktivní. Kurzové zisky a ztráty se zachovávají po jednotlivých
 případech i při uzavření a otevření knih. Cenné papíry vyžadují samostatné doložené ocenění.
 
+V části **Cenné papíry** doložte profil a kategorii účetní jednotky, identitu a zařazení nástroje a přesný rozpis inventurních řádků v Kč i cizí měně. Editor nabízí pořizovací ocenění majetkových cenných papírů, tržní reálnou hodnotu a ekvivalenci u účastí; přípustnost ověřuje podle profilu, období a doloženého vlivu. Podle metody přiložte pořizovací cenu a posouzení návratnosti, aktuální tržní podklady nebo podíl a vlastní kapitál emitenta. Nenulová změna vyžaduje odpovídající existující účetní zápis se správnými účty a úplnými dimenzemi. Peněžní část na společném účtu doložte odděleně. Chybějící či změněné podklady brání dokončení. Kupónové a diskontní dluhové cenné papíry ani ocenění HTM nelze tímto postupem dokončit; případná diagnostika dluhové báze nepotvrzuje neuhrazený úrok a neopravňuje zaúčtování.
+
 U doložené korunové hotovostní úhrady cizoměnového dokladu systém načítá nominál z propojené evidence platby. Chybějící nebo nejednoznačná vazba se zobrazí jako nevyřešený podklad a zabrání zaúčtování. Ověřte zdrojový doklad, platbu a její účetní zápis a obnovte náhled.
 
 Následující přehled polí Saldokonto a Devizové účty popisuje průvodce pro účetní rámec 500.

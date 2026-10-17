@@ -39,9 +39,9 @@ final class Fx504Service
         });
     }
 
-    public function preview(int $supplierId, int $periodId, ?array $accountDecisions = null, bool $currentRead = false, ?array $caseDecisions = null): array
+    public function preview(int $supplierId, int $periodId, ?array $accountDecisions = null, bool $currentRead = false, ?array $caseDecisions = null, ?array $securitiesEvidence = null): array
     {
-        return (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $periodId, $accountDecisions, $currentRead, $caseDecisions): array {
+        return (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $periodId, $accountDecisions, $currentRead, $caseDecisions, $securitiesEvidence): array {
             $snapshot = (new Fx504ReadRepository($this->db))->snapshot($supplierId, $periodId, $currentRead);
             $this->assertFramework($supplierId, $snapshot['period'], $currentRead);
             $stmt = $this->db->pdo()->prepare("SELECT payload FROM accounting_closing_steps WHERE supplier_id=? AND period_id=? AND step_key='fx_revaluation'" . ($currentRead ? ' FOR UPDATE' : ''));
@@ -51,7 +51,8 @@ final class Fx504Service
             if (!is_array($saved) || ($saved['snapshot_hash'] ?? null) !== $snapshot['snapshot_hash']) $saved = null;
             $accountDecisions ??= $saved['account_decisions'] ?? [];
             $caseDecisions ??= $saved['case_decisions'] ?? null;
-            $preview = Fx504CaseProjection::preview($snapshot, $accountDecisions, $caseDecisions);
+            $securitiesEvidence ??= $saved['securities_evidence'] ?? null;
+            $preview = SecuritiesValuation504Evidence::preview($snapshot, $accountDecisions, $caseDecisions, $securitiesEvidence);
             return $preview + ['account_decisions' => $accountDecisions, 'saved_decisions' => $saved['decisions'] ?? []]
                 + array_intersect_key($snapshot, array_flip(['snapshot_hash', 'required_types', 'dimension_types', 'dimension_values', 'rate_info']));
         });
@@ -67,10 +68,13 @@ final class Fx504Service
             if ((int) $period['row_version'] !== $rowVersion) throw new ClosingException('version_conflict', 'Účetní období se změnilo. Načtěte stav znovu.', 409);
             if (!is_string($body['snapshot_hash'] ?? null) || !hash_equals($snapshot['snapshot_hash'], $body['snapshot_hash'])) throw Fx504JournalProof::changed();
             if (!is_array($body['account_decisions'] ?? []) || !is_array($body['decisions'] ?? []) || !is_array($body['case_decisions'] ?? [])) throw Fx504JournalProof::changed();
-            $preview = Fx504CaseProjection::preview($snapshot, $body['account_decisions'] ?? [], $body['case_decisions'] ?? null);
+            if (isset($body['securities_evidence']) && !is_array($body['securities_evidence'])) throw Fx504JournalProof::changed();
+            $preview = SecuritiesValuation504Evidence::preview($snapshot, $body['account_decisions'] ?? [], $body['case_decisions'] ?? null, $body['securities_evidence'] ?? null);
             $built = Fx504Builder::build($preview, $body['decisions'] ?? [], $snapshot['required_types']);
             $record = ['expected_version' => $rowVersion, 'snapshot_hash' => $snapshot['snapshot_hash'],
                 'account_decisions' => $body['account_decisions'] ?? [], 'decisions' => $body['decisions'] ?? [],
+                'securities_evidence' => $body['securities_evidence'] ?? null, 'securities_inventory_hash' => $snapshot['securities_snapshot']['hash'],
+                'securities_assessment' => $preview['securities'],
                 'case_projection_version' => 1, 'case_decisions' => $preview['case_decisions'], 'case_source_hash' => $snapshot['case_snapshot']['hash'],
                 'case_materialization' => $built['case_materialization'], 'case_materialization_hash' => hash('sha256', json_encode($built['case_materialization'], JSON_THROW_ON_ERROR)),
                 'posted_at' => date('Y-m-d H:i:s'), 'posted_by' => $meta['posted_by'] ?? $meta['user_id'] ?? null, 'slots' => []];

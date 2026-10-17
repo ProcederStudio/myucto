@@ -14,37 +14,11 @@ final class Fx504Builder
     {
         $positions = [];
         foreach ($rows as $row) {
-            $currency = $row['currency_code'] ?? null;
-            if ($currency === null || $currency === 'CZK') continue;
-            if ($row['amount_foreign'] === null) throw self::invalid('fx_trace_incomplete', 'Cizoměnový řádek nemá doloženou částku v cizí měně.');
-            $dimensions = self::dimensions($row['dimensions'] ?? []);
-            $splits = $row['dimension_splits'] ?? [];
-            foreach ($splits as $type => $shares) {
-                if (count($shares) === 1) {
-                    $dimensions[$type] = (int) array_key_first($shares);
-                    unset($splits[$type]);
-                }
-            }
-            if (count($splits) > 1) throw self::invalid('fx_joint_source_required', 'Zdrojové rozdělení více dimenzí vyžaduje doložené společné alokační buňky.');
-            $sign = $row['side'] === 'credit' ? -1 : 1;
-            $czk = $sign * JournalLineAmount::signedCents($row);
-            $foreign = $sign * JournalLineAmount::signedCents(['amount' => $row['amount_foreign'], 'is_red_storno' => $row['is_red_storno'] ?? false]);
-            $pieces = [[$dimensions, $czk, $foreign]];
-            if ($splits !== []) {
-                $type = array_key_first($splits);
-                $shares = $splits[$type];
-                ksort($shares, SORT_NUMERIC);
-                if ($shares === [] || min($shares) <= 0 || abs(array_sum($shares) - 100) > 0.000001) throw self::invalid('fx_joint_source_required', 'Zdrojové rozdělení dimenzí není úplné.');
-                $czkParts = DimensionStamper::distributeCents($czk, array_values($shares));
-                $foreignParts = DimensionStamper::distributeCents($foreign, array_values($shares));
-                $pieces = [];
-                foreach (array_keys($shares) as $index => $value) $pieces[] = [$dimensions + [$type => (int) $value], $czkParts[$index], $foreignParts[$index]];
-            }
-            foreach ($pieces as [$dims, $local, $fx]) {
-                ksort($dims, SORT_NUMERIC);
-                $metadata = ['account_id' => (int) $row['account_id'], 'account_code' => (string) $row['account_code'],
-                    'currency_code' => (string) $currency, 'dimensions' => $dims,
-                    'cost_center' => $row['cost_center'] ?? null, 'project_id' => isset($row['project_id']) ? (int) $row['project_id'] : null];
+            if (($row['currency_code'] ?? 'CZK') === 'CZK') continue;
+            foreach (self::sourceCells($row) as $cell) {
+                $local = $cell['czk_cents'];
+                $fx = $cell['foreign_cents'];
+                $metadata = array_diff_key($cell, array_flip(['czk_cents', 'foreign_cents']));
                 if (array_key_exists('case_origin', $row)) {
                     $metadata['case_origin'] = $row['case_origin'];
                     $metadata['case_finding'] = $row['case_finding'] ?? null;
@@ -67,7 +41,45 @@ final class Fx504Builder
         return array_values($positions);
     }
 
-    public static function preview(array $positions, array $rates, array $requiredTypes, array $accountDecisions = []): array
+    public static function sourceCells(array $row): array
+    {
+        $currency = $row['currency_code'] ?? 'CZK';
+        if ($currency !== 'CZK' && ($row['amount_foreign'] ?? null) === null) throw self::invalid('fx_trace_incomplete', 'Cizoměnový řádek nemá doloženou částku v cizí měně.');
+        $dimensions = self::dimensions($row['dimensions'] ?? []);
+        $splits = $row['dimension_splits'] ?? [];
+        foreach ($splits as $type => $shares) {
+            if (count($shares) === 1) {
+                $dimensions[$type] = (int) array_key_first($shares);
+                unset($splits[$type]);
+            }
+        }
+        if (count($splits) > 1) throw self::invalid('fx_joint_source_required', 'Zdrojové rozdělení více dimenzí vyžaduje doložené společné alokační buňky.');
+        $sign = $row['side'] === 'credit' ? -1 : 1;
+        $czk = $sign * JournalLineAmount::signedCents($row);
+        $foreign = $currency === 'CZK' ? 0 : $sign * JournalLineAmount::signedCents(['amount' => $row['amount_foreign'], 'is_red_storno' => $row['is_red_storno'] ?? false]);
+        $pieces = [[$dimensions, $czk, $foreign]];
+        if ($splits !== []) {
+            $type = array_key_first($splits);
+            $shares = $splits[$type];
+            ksort($shares, SORT_NUMERIC);
+            if ($shares === [] || min($shares) <= 0 || abs(array_sum($shares) - 100) > 0.000001) throw self::invalid('fx_joint_source_required', 'Zdrojové rozdělení dimenzí není úplné.');
+            $czkParts = DimensionStamper::distributeCents($czk, array_values($shares));
+            $foreignParts = DimensionStamper::distributeCents($foreign, array_values($shares));
+            $pieces = [];
+            foreach (array_keys($shares) as $index => $value) $pieces[] = [$dimensions + [$type => (int) $value], $czkParts[$index], $foreignParts[$index]];
+        }
+        $out = [];
+        foreach ($pieces as [$dims, $local, $fx]) {
+            ksort($dims, SORT_NUMERIC);
+            $out[] = ['account_id' => (int) $row['account_id'], 'account_code' => (string) $row['account_code'],
+                'currency_code' => $currency, 'dimensions' => $dims, 'cost_center' => $row['cost_center'] ?? null,
+                'project_id' => isset($row['project_id']) ? (int) $row['project_id'] : null,
+                'czk_cents' => $local, 'foreign_cents' => $fx];
+        }
+        return $out;
+    }
+
+    public static function preview(array $positions, array $rates, array $requiredTypes, array $accountDecisions = [], array $monetaryInventoryCells = []): array
     {
         $loss = $gain = 0;
         $complete = $positions === [] || count($requiredTypes) === 3;
@@ -76,11 +88,13 @@ final class Fx504Builder
             $code = $position['account_code'];
             $decision = $accountDecisions[$code] ?? null;
             $known = in_array(substr($code, 0, 3), ['211', '221', '311', '321', '378', '379'], true);
-            $classification = $known ? 'monetary' : null;
+            $inventoryMonetary = $monetaryInventoryCells !== [] && array_all($position['source_line_ids'], static fn (int $id): bool => in_array(hash('sha256', json_encode([$id, $position['account_id'], $position['currency_code'], $position['dimensions'], $position['cost_center'], $position['project_id']], JSON_THROW_ON_ERROR)), $monetaryInventoryCells, true));
+            $classification = $known || $inventoryMonetary ? 'monetary' : null;
             if ($decision !== null) {
                 if (!is_array($decision) || !in_array($decision['classification'] ?? null, ['monetary', 'nonmonetary'], true) || (!is_string($decision['reason'] ?? null) || trim($decision['reason']) === '')) throw self::invalid('fx_title_decision_invalid', 'Posouzení peněžní povahy účtu vyžaduje doložený důvod.');
                 $classification = $decision['classification'];
             }
+            if ($inventoryMonetary) $classification = 'monetary';
             $position['classification'] = $classification;
             $position['title_decision'] = $decision;
             $position['booked_czk'] = self::decimal($position['czk_cents']);
@@ -91,7 +105,7 @@ final class Fx504Builder
             $position['diff_cents'] = null;
             $position['rate'] = null;
             $position['new_czk'] = null;
-            if (in_array(substr($code, 0, 3), ['061', '062', '063', '251', '253', '256'], true)) {
+            if (!$inventoryMonetary && \MyInvoice\Repository\SecuritiesValuation504ReadRepository::candidate($code)) {
                 $position['classification'] = 'securities';
                 $position['finding'] = 'securities_valuation_required';
                 $complete = false;
@@ -134,6 +148,7 @@ final class Fx504Builder
 
     public static function build(array $preview, array $decisions, array $requiredTypes): array
     {
+        if (isset($preview['securities']) && !$preview['securities']['complete']) throw self::invalid('fx_securities_valuation_required', 'Nejprve dokončete doložené ocenění všech cenných papírů a podílů.');
         if (($preview['case_findings'] ?? []) !== []) throw self::invalid('fx_case_source_changed', 'Historické podklady kurzových případů nesouhlasí s aktuálními účetními zápisy nebo počátečním stavem.');
         if ($preview['positions'] !== [] && count($requiredTypes) !== 3) throw self::invalid('fx_dimensions_required', 'Nejsou dostupné systémové dimenze činnosti a daňového režimu.');
         $profile = new AccountingRoleProfile('cz_504');
