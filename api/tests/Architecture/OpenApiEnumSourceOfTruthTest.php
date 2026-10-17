@@ -48,8 +48,13 @@ final class OpenApiEnumSourceOfTruthTest extends TestCase
 
     public function testJournalSourceTypesCoverWholeDomain(): void
     {
-        $domain = $this->enumFromMigration('1324_journal_source_vat_clearing.sql', 'source_type');
-        self::assertGreaterThan(20, count($domain), 'Doména source_type se nenačetla z migrace.');
+        $snapshot = json_decode($this->read('db/schema.snapshot.json'), true, flags: JSON_THROW_ON_ERROR);
+        $definition = $snapshot['tables']['journal_entries']['columns']['source_type'] ?? null;
+        self::assertIsString($definition);
+        self::assertSame(1, preg_match('/^enum\(([^)]+)\)/i', $definition, $matches));
+        preg_match_all("/'([^']+)'/", $matches[1], $values);
+        $domain = $values[1];
+        self::assertGreaterThan(20, count($domain), 'Doména source_type se nenačetla z aktuálního otisku migrací.');
         // Report dávkového účtování má vlastní `source_type` jen pro doklady, ze
         // kterých se účtuje — pozná se tím, že nezná ruční zápis.
         $this->assertEveryEnumNamed(

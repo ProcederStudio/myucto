@@ -33789,8 +33789,8 @@ components:
         description: { type: [string, "null"] }
         source_type:
           type: string
-          enum: [invoice, purchase_invoice, bank, cash, asset, manual, closing, opening, depreciation, asset_disposal, fx_revaluation, stock, provision, income_tax, profit_distribution, offset, small_asset_accrual, prepaid_expense_accrual, settlement, deferred_tax, payroll, vat_clearing]
-          description: "Původ zápisu. Doména odpovídá sloupci `journal_entries.source_type` (migrace 1324)."
+          enum: [invoice, purchase_invoice, bank, cash, asset, manual, closing, opening, depreciation, asset_disposal, fx_revaluation, stock, provision, income_tax, profit_distribution, offset, small_asset_accrual, prepaid_expense_accrual, settlement, deferred_tax, payroll, vat_clearing, payroll_payment, gopay, card_settlement, card_writeoff, other_item, payroll_accident_insurance, payroll_travel, deferred_revenue_accrual]
+          description: "Původ zápisu. Doména odpovídá sloupci `journal_entries.source_type` v aktuálním otisku migrací."
         source_id: { type: [integer, "null"], description: Drill-down na zdrojový doklad }
         posted_at: { type: [string, "null"], description: "NULL = koncept" }
         posted_by: { type: [integer, "null"] }
