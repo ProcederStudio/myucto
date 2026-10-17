@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import type { CashJournalReport } from '@/api/taxEvidence'
@@ -14,6 +14,7 @@ vi.mock('@/composables/useTablePrefs', () => ({ useTablePrefs: () => ({ isVisibl
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ locale: { value: 'cs' }, t: (key: string, params?: object) => key + (params ? JSON.stringify(params) : '') }) }))
 
 import CashJournal from '../CashJournal.vue'
+import { windowContextKey } from '@/workspace/windowContext'
 
 function report(overrides: Partial<CashJournalReport> = {}): CashJournalReport {
   return {
@@ -31,7 +32,10 @@ async function setup(query = '?year=2026') {
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/tax-evidence/cash-journal', component: CashJournal }] })
   await router.push('/tax-evidence/cash-journal' + query)
   await router.isReady()
-  const wrapper = mount(CashJournal, { global: { plugins: [router], directives: { 'column-labels': {} }, stubs: { ColumnPicker: true, DensityToggle: true, CashJournalMovementModal: true, CashJournalSourceLink: true } } })
+  const root = document.createElement('div')
+  root.dataset.testPane = 'cash-journal'
+  document.body.appendChild(root)
+  const wrapper = mount(CashJournal, { attachTo: root, global: { provide: { [windowContextKey as symbol]: { root } }, plugins: [router], directives: { 'column-labels': {} }, stubs: { ColumnPicker: true, DensityToggle: true, CashJournalMovementModal: true, CashJournalSourceLink: true } } })
   await flushPromises()
   return { wrapper, router }
 }
@@ -42,6 +46,8 @@ async function choose(wrapper: Awaited<ReturnType<typeof setup>>['wrapper'], val
 function button(wrapper: Awaited<ReturnType<typeof setup>>['wrapper'], label: string) {
   return wrapper.findAll('button').find(b => b.text().includes(label))!
 }
+
+afterEach(() => { document.querySelectorAll('[data-test-pane]').forEach(el => el.remove()) })
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -262,4 +268,95 @@ describe('cash journal classification filter', () => {
     expect(wrapper.get('[data-test="cash-journal-table"]').classes()).not.toContain('opacity-60')
   })
 
+})
+
+
+describe('cash journal movement focus', () => {
+  it('keeps the full historical year and focuses only the matching source in its own pane', async () => {
+    const row = report().rows[0]!
+    api.cashJournal.mockResolvedValue(report({ year: 2010, rows: [
+      { ...row, source_type: 'cash', doc_no: 'CASH-COLLISION' },
+      { ...row, date: '2010-04-01', doc_no: 'BANK-TARGET', unclassified: true },
+      { ...row, date: '2010-04-01', doc_no: 'BANK-TARGET-SPLIT' },
+    ] }))
+    const otherPane = document.createElement('tr')
+    otherPane.dataset.cashJournalSource = 'bank-1'
+    document.body.appendChild(otherPane)
+    const scroll = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scroll })
+    vi.spyOn(HTMLElement.prototype, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList)
+    const { wrapper } = await setup('?year=2010&source_type=bank&source_id=1&classification=private&from=2026-01-01&to=2026-01-31')
+    expect(api.cashJournal).toHaveBeenLastCalledWith({ year: 2010 })
+    const rows = wrapper.findAll('tbody tr')
+    expect(rows).toHaveLength(3)
+    expect(wrapper.get<HTMLSelectElement>('#cash-journal-year').element.value).toBe('2010')
+    expect(rows[0]!.classes()).not.toContain('ring-primary-500')
+    expect(rows[1]!.classes()).toContain('ring-primary-500')
+    expect(rows[2]!.classes()).toContain('ring-primary-500')
+    expect(scroll).toHaveBeenCalledTimes(1)
+    expect(scroll.mock.instances[0]).toBe(rows[1]!.element)
+    expect(wrapper.text()).toContain('777')
+    expect(wrapper.text()).toContain('999')
+    expect(api.classifyMovement).not.toHaveBeenCalled()
+    otherPane.remove()
+  })
+
+  it('clears current-year source focus through explicit filters without getting stuck loading', async () => {
+    const { wrapper, router } = await setup(`?year=${new Date().getFullYear()}&source_type=bank&source_id=1`)
+    wrapper.findComponent({ name: 'FilterBar' }).vm.$emit('clear-all')
+    await flushPromises()
+    expect(router.currentRoute.value.query.source_id).toBeUndefined()
+    expect(wrapper.get('table').attributes('aria-busy')).toBe('false')
+    expect(wrapper.findAll('.ring-primary-500')).toHaveLength(0)
+    await choose(wrapper, 'private')
+    expect(api.cashJournal).toHaveBeenLastCalledWith({ year: new Date().getFullYear(), classification: 'private' })
+    expect(router.currentRoute.value.query.source_type).toBeUndefined()
+  })
+
+  it('retries a failed report when navigating to another source in the same year', async () => {
+    api.cashJournal.mockRejectedValueOnce(new Error('Temporary failure'))
+    const { wrapper, router } = await setup('?year=2026&source_type=bank&source_id=1')
+    expect(wrapper.find('table').exists()).toBe(false)
+    await router.push({ query: { year: '2026', source_type: 'bank', source_id: '2' } })
+    await flushPromises()
+    expect(api.cashJournal).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('table').exists()).toBe(true)
+    expect(wrapper.text()).toContain('tax_evidence.cash_journal.source_not_found')
+    expect(wrapper.findAll('.ring-primary-500')).toHaveLength(0)
+  })
+
+  it('only scrolls the current source after a late previous-year request completes', async () => {
+    let finishOld!: (value: CashJournalReport) => void
+    api.cashJournal.mockImplementationOnce(() => new Promise(resolve => { finishOld = resolve }))
+    const scroll = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scroll })
+    vi.spyOn(HTMLElement.prototype, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList)
+    const { wrapper, router } = await setup('?year=2010&source_type=bank&source_id=8')
+    await router.push({ query: { year: '2026', source_type: 'bank', source_id: '1' } })
+    await flushPromises()
+    finishOld(report({ year: 2010, rows: [{ ...report().rows[0]!, source_id: 8 }] }))
+    await flushPromises()
+    expect(scroll).toHaveBeenCalledTimes(1)
+    expect(wrapper.get('[aria-current="true"]').attributes('data-cash-journal-source')).toBe('bank-1')
+    expect(wrapper.get<HTMLSelectElement>('#cash-journal-year').element.value).toBe('2026')
+  })
+
+  it('moves persistent focus on reused-route navigation without narrowing the report', async () => {
+    const row = report().rows[0]!
+    api.cashJournal.mockResolvedValue(report({ rows: [row, { ...row, source_id: 2 }] }))
+    const scroll = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scroll })
+    vi.spyOn(HTMLElement.prototype, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList)
+    const { wrapper, router } = await setup('?year=2026&source_type=bank&source_id=1')
+    await router.push({ query: { year: '2026', source_type: 'bank', source_id: '2' } })
+    await flushPromises()
+    const rows = wrapper.findAll('tbody tr')
+    expect(rows[0]!.classes()).not.toContain('ring-primary-500')
+    expect(rows[1]!.classes()).toContain('ring-primary-500')
+    expect(scroll.mock.instances.at(-1)).toBe(rows[1]!.element)
+    expect(api.cashJournal).toHaveBeenCalledTimes(1)
+    await router.push({ query: { year: '2026' } })
+    await flushPromises()
+    expect(wrapper.findAll('.ring-primary-500')).toHaveLength(0)
+  })
 })

@@ -19,7 +19,8 @@ export function paneForBeside(
   panes: Pick<WorkspacePaneState, 'id' | 'fullPath'>[],
 ): PaneId {
   const index = panes.findIndex(pane => pane.id === currentPaneId)
-  return panes.find(pane => pane.id !== currentPaneId && !pane.fullPath)?.id
+  return paneForCtrlClick(currentPaneId, panes)
+    ?? panes.find(pane => pane.id !== currentPaneId && !pane.fullPath)?.id
     ?? panes[(index + 1) % panes.length]?.id ?? currentPaneId
 }
 

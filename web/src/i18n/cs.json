@@ -22341,6 +22341,8 @@
     "default_revenue_category_backfilled": "Výchozí kategorie tržby doplněna do {count} faktur zakázky bez kategorie."
   },
   "bank": {
+    "open_cash_journal": "Otevřít v peněžním deníku",
+    "open_accounting_journal": "Otevřít v účetním deníku",
     "imported_to_other_company": "Výpisy k účtům jiných firem naimportovány do nich: {n} ({companies}).",
     "counter_account": "Protiúčet",
     "gpc_calculated_hint": "Export ve standardním formátu GPC (ABO) obsahuje všechny evidované zaúčtované pohyby účtu za uvedené období, bez avíz. Jde o export MyÚčta, nikoli originální výpis banky. Vypočtený zůstatek předpokládá úplnou evidenci pohybů. Dlouhé bankovní reference se přenášejí do popisu.",
@@ -26517,6 +26519,7 @@
       "form_active": "Aktivní"
     },
     "cash_journal": {
+      "source_not_found": "Tento bankovní pohyb není v peněžním deníku za vybrané období.",
       "col_actions": "Akce",
       "open_source": "Přejít na detail",
       "all_classifications": "Všechny klasifikace",

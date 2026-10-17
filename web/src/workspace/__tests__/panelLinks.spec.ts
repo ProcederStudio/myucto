@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { internalRouteFromAnchor, internalRouteFromElement, paneForCtrlClick, rightPanePlan } from '@/workspace/panelLinks'
+import { internalRouteFromAnchor, internalRouteFromElement, paneForBeside, paneForCtrlClick, rightPanePlan } from '@/workspace/panelLinks'
 
 describe('panel links', () => {
   it('pro Shift klik volí bezprostřední pravý panel a případně rozšíří rozložení', () => {
@@ -14,6 +14,15 @@ describe('panel links', () => {
     expect(rightPanePlan('secondary-3', [primary, secondary, third], 3)).toBeNull()
     expect(rightPanePlan('secondary-2', [primary], 3)).toBeNull()
   })
+
+  it('detail z prostředního panelu otevře vpravo i při prázdném panelu vlevo', () => {
+    expect(paneForBeside('secondary-2', [
+      { id: 'primary', fullPath: null },
+      { id: 'secondary-2', fullPath: '/bank/1' },
+      { id: 'secondary-3', fullPath: '/previous-detail' },
+    ])).toBe('secondary-3')
+  })
+
   it('plní prázdné panely zleva doprava a po zaplnění používá panel +1', () => {
     const panes = [
       { id: 'primary' as const, fullPath: '/invoices' },
