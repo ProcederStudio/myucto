@@ -413,6 +413,7 @@ final class InvoicePdfRenderer
             // Opt-in: vedle loga vykreslit i název firmy (migrace 0058). Jen když logo
             // reálně je — bez loga se název ukazuje vždy (textový brand-name fallback).
             'logo_show_name'    => $logoPath !== null && !empty($supplierData['pdf_logo_show_name']),
+            'issued_by_label'   => $this->issuedByLabel($invoice),
             'isdoc_attachment'  => $hasIsdocAttachment, // bool — badge gate
             'hide_pdf_czk_recap'=> $hidePdfCzkRecap,
             'pdf_czk_vat'       => $pdfCzkVat,
@@ -808,6 +809,31 @@ final class InvoicePdfRenderer
             $items[$i]['base_unit'] = $ratio['base_unit'];
         }
         return $items;
+    }
+
+    /**
+     * Řádek „Vystavil" (migrace 2017): jméno zapsané při vystavení, u starších
+     * dokladů a konceptů autor dokladu. Přepíná `supplier.invoice_pdf_show_issued_by`
+     * a čte se živě jako {@see withBaseQuantity()}: je to volba vzhledu, ne údaj dokladu.
+     *
+     * @param array<string,mixed> $invoice
+     */
+    private function issuedByLabel(array $invoice): ?string
+    {
+        $supplierId = (int) ($invoice['supplier_id'] ?? 0);
+        if ($supplierId <= 0) {
+            return null;
+        }
+        $name = trim((string) ($invoice['issued_by_name'] ?? ''));
+        if ($name === '') {
+            $name = trim((string) ($invoice['created_by_name'] ?? ''));
+        }
+        if ($name === '') {
+            return null;
+        }
+        $flag = $this->db->pdo()->prepare('SELECT invoice_pdf_show_issued_by FROM supplier WHERE id = ?');
+        $flag->execute([$supplierId]);
+        return (int) $flag->fetchColumn() === 1 ? $name : null;
     }
 
     private function getSupplierData(int $supplierId): array

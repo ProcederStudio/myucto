@@ -52,11 +52,13 @@ final class AutoIssueAndSendService
     /**
      * @param int      $invoiceId
      * @param ?int     $userId   user, který akci spustil (může být null pro public approval)
+     * @param bool     $userIsIssuer false = $userId je jen auditní (pravidelná fakturace z cronu
+     *                 dosazuje autora šablony); doklad pak vystavitele nemá ({@see InvoiceIssuer})
      * @param string   $ip       IP pro audit log
      * @param string   $ua       User-Agent pro audit log
      * @return array{issued: bool, sent_to: list<string>, varsymbol: string|null}
      */
-    public function run(int $invoiceId, ?int $userId, string $ip, string $ua): array
+    public function run(int $invoiceId, ?int $userId, string $ip, string $ua, bool $userIsIssuer = true): array
     {
         $invoice = $this->repo->find($invoiceId);
         if ($invoice === null) {
@@ -94,6 +96,7 @@ final class AutoIssueAndSendService
                 if ($issue->rowCount() === 0) {
                     throw new \RuntimeException('Faktura byla mezitím změněna.');
                 }
+                InvoiceIssuer::record($pdo, $invoiceId, $userIsIssuer ? $userId : null);
                 if ($stockEnabled) $this->stockIssue->issueForInvoice($supplierId, $invoice, $userId);
                 $this->clients->markAsCustomer((int) $invoice['client_id'], $supplierId);
                 if ($ownTransaction) $pdo->commit();

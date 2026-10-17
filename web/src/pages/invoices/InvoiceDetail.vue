@@ -21,6 +21,7 @@ import { apiErrorMessage } from '@/api/errors'
 import { stockApi, type StockDocument } from '@/api/stock'
 import { formatMoney, formatHourlyRate, formatDate, formatNumber, formatPercent, statusLabel, typeLabel, statusBadgeClass, displayStatus } from '@/composables/useFormat'
 import { durationTotal, formatDuration, isTimeItem, itemQuantity, workRowTotal } from '@/utils/timeBilling'
+import { invoiceIssuedBy } from '@/pages/invoices/invoiceIssuedBy'
 import { useAuthStore } from '@/stores/auth'
 import { useSupplierStore } from '@/stores/supplier'
 import { pdfFileName, savePdfToCompanyFolder } from '@/composables/useCompanyPdfSave'
@@ -2305,6 +2306,10 @@ useWindowRefresh(['invoices', 'clients', 'bank', 'bank-transactions', 'cash', 'a
             <div v-if="invoice.supplier_order_number" class="flex justify-between gap-3">
               <dt class="text-neutral-500">{{ t('invoice.supplier_order_number') }}</dt>
               <dd class="font-mono text-right">{{ invoice.supplier_order_number }}</dd>
+            </div>
+            <div v-if="invoiceIssuedBy(invoice)" class="flex justify-between gap-3" data-test="invoice-issued-by">
+              <dt class="text-neutral-500">{{ t('invoice.issued_by') }}</dt>
+              <dd class="text-right">{{ invoiceIssuedBy(invoice) }}</dd>
             </div>
             <div v-if="invoice.paid_at" class="flex justify-between"><dt class="text-neutral-500">{{ t('status.paid') }}</dt><dd>{{ formatDate(invoice.paid_at) }}</dd></div>
           </dl>

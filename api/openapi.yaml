@@ -35713,6 +35713,8 @@ components:
           description: "CZK rekapitulace u cizoměnových faktur (null pokud měna == CZK nebo není zafixován kurz)"
           type: [object, "null"]
         supplier_order_number: { type: [string, "null"], maxLength: 80, description: "Číslo objednávky dodavatele; samostatná reference dokladu nezávislá na zakázce." }
+        issued_by: { type: [integer, "null"], readOnly: true, description: "Uživatel, který doklad vystavil (migrace 2017). Null u konceptu, importovaného dokladu a dokladu vystaveného bez přihlášeného uživatele." }
+        issued_by_name: { type: [string, "null"], readOnly: true, maxLength: 120, description: "Jméno vystavitele v okamžiku vystavení. Na PDF se tiskne jako „Vystavil\", když to firma zapne (invoice_pdf_show_issued_by)." }
         note_above_items: { type: [string, "null"] }
         note_below_items: { type: [string, "null"] }
         bank_account_number: { type: [string, "null"], description: "Z currencies (per-měna bank účet supplier-a)" }
@@ -37353,6 +37355,7 @@ components:
         email_branding_enabled: { type: boolean, description: "Původní branding dodavatele používaný při vypnutých brandingových profilech" }
         email_accent_color: { type: string, example: "#3B2D83", description: "Hex #RRGGBB; akcentní barva e-mailů a PDF faktur" }
         pdf_logo_show_name: { type: boolean, description: "Zobrazit vedle loga v PDF i název dodavatele" }
+        invoice_pdf_show_issued_by: { type: boolean, default: false, description: "Tisknout na PDF faktury řádek „Vystavil\" se jménem uživatele, který doklad vystavil (migrace 2017)." }
         branding_profiles_enabled: { type: boolean, description: "Zapíná volbu brandingových profilů; výchozí hodnota je false." }
         default_branding_profile_id: { type: [integer, "null"], readOnly: true }
         auto_send_reminders: { type: boolean, description: "Automatické odesílání upomínek; u nově založené firmy je výchozí hodnota false." }
@@ -37473,6 +37476,7 @@ components:
           default: sent
           description: "Od kterého stavu objednávky se zboží počítá „na cestě\" (rozhodnutí #2). 'sent' = odeslaná objednávka je závazek; 'confirmed' = počítat až od potvrzení dodavatelem."
         invoice_pdf_show_base_qty: { type: boolean, default: true, description: "Na PDF faktury doplnit k řádku v balení množství v základní jednotce karty („celkem 80 ks\"). Platí jen se zapnutým skladem (migrace 1832)." }
+        invoice_pdf_show_issued_by: { type: boolean, default: false, description: "Tisknout na PDF faktury řádek „Vystavil\" se jménem uživatele, který doklad vystavil; starší doklady bez zápisu tisknou autora dokladu (migrace 2017)." }
         invoice_number_format:
           type: [string, "null"]
           example: "{YY}{MM}{CCC}"

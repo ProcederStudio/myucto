@@ -316,7 +316,16 @@ Vygenerované PDF obsahuje:
    (u neplátce jen IČO a DIČ), německý nebo rakouský Steuernummer, polský NIP,
    maďarský Adószám (viz [§ 18.7.3](18_Klienti.md#1873-slovensky-klient-a-narodni-danova-cisla)).
 3. **Číslo faktury** a **typ** (Faktura, Proforma, Dobropis, Storno).
-4. **Data** - vystaveno, DUZP, splatnost.
+4. **Data** - vystaveno, DUZP, splatnost. Se zapnutou volbou **Tisknout na faktuře,
+   kdo ji vystavil** (Nastavení → Fakturace) přibude řádek **Vystavil** se jménem
+   uživatele, který doklad vystavil. Jméno se uloží při vystavení, takže pozdější
+   přejmenování uživatele už vystavený doklad nezmění. Doklad vystavený před zapnutím
+   této evidence, převzatý importem nebo zobrazený jako koncept ukáže autora dokladu.
+   Doklad vystavený bez přihlášeného uživatele (schválení výkazu klientem přes odkaz
+   nebo pravidelná fakturace spuštěná automaticky) ukáže také autora. Stejné jméno vidíte
+   v detailu faktury. U už vystavených dokladů se řádek objeví až po přegenerování
+   jejich PDF (například po úpravě dokladu nebo aktualizaci aplikace), dříve vytvořené
+   PDF se samo nemění.
 5. **Bankovní spojení** - číslo účtu nebo IBAN, BIC, banka, variabilní symbol.
 6. **Položky** - tabulka (Popis, Množství, Cena, DPH, Celkem). U položky s vybranými
    kusy skladové karty se pod popisem vypíšou sériová čísla („Výr. č.: …“, například VIN)
