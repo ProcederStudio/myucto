@@ -1006,7 +1006,8 @@
         "2034_invoice_item_text_row.sql",
         "2035_invoice_item_line_discount.sql",
         "2036_unit_quantity_decimals.sql",
-        "2037_simplified_document_series_and_customer.sql"
+        "2037_simplified_document_series_and_customer.sql",
+        "2038_invoice_edit_issued_permission.sql"
     ],
     "tables": {
         "abra_flexi_connections": {

@@ -41,6 +41,7 @@ use MyInvoice\Service\Pdf\InvoicePdfRenderer;
 use MyInvoice\Service\Report\VatClassificationDefaulter;
 use MyInvoice\Service\Stats\StatsRecomputer;
 use MyInvoice\Service\Validation\InvoiceValidation;
+use MyInvoice\Service\Vat\FiledVatPeriodLookup;
 use MyInvoice\Support\ExchangeRateDate;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -80,6 +81,7 @@ final class UpdateInvoiceAction
         private readonly UnitPrecision $unitPrecision,
         // Limit zjednodušeného dokladu podle roku dokladu (§ 30 ZDPH), viz simplifiedRejection().
         private readonly \MyInvoice\Repository\TaxConstantsRepository $taxConstants,
+        private readonly FiledVatPeriodLookup $filedPeriods,
     ) {}
 
     /**
@@ -114,9 +116,13 @@ final class UpdateInvoiceAction
 
         $user = (array) $request->getAttribute(AuthMiddleware::ATTR_USER, []);
         $isForce = $request->getQueryParams()['force'] ?? null;
-        $isAdmin = RequestAuthorization::isCompanyAdmin($request);
+        $canEditIssued = RequestAuthorization::canEditIssuedInvoice($request);
 
         $body = (array) ($request->getParsedBody() ?? []);
+        // effective_tax_date je generovaný sloupec (COALESCE(tax_date, issue_date)) a z těla se
+        // neukládá. invoiceRefDate() ho bere přednostně, takže podvržená hodnota by zámek
+        // období i kontrolu podaného DPH období vyhodnotila nad jiným datem, než se uloží.
+        unset($body['effective_tax_date']);
 
         // Generický `note` → `note_below_items` (issue #38). Musí být hned tady, ještě nad
         // guardy: force_mode="notes_only" i auditní diff čtou už konkrétní klíč.
@@ -154,8 +160,9 @@ final class UpdateInvoiceAction
                 && ($deny = SessionOnlyAccountingAct::deny($request, $response, 'Vynucená úprava vystaveného dokladu'))) {
                 return $deny;
             }
-            // Pouze admin smí upravovat vystavenou fakturu, a to jen s explicit ?force=1.
-            if (!$isAdmin || !$isForce) {
+            // Vystavenou fakturu upraví jen správce nebo role s právem invoices.edit_issued,
+            // a to jen s explicitním ?force=1.
+            if (!$canEditIssued || !$isForce) {
                 return Json::error($response, 'not_editable', 'Vystavenou fakturu nelze editovat.', 409);
             }
             // Cancellation/credit_note jsou implicitně chráněné (auditní stopa)
@@ -231,11 +238,12 @@ final class UpdateInvoiceAction
         }
 
         // B11 (audit 2026-07): force-edit dokladu s AKTIVNÍM zaúčtovaným zápisem v UZAVŘENÉM
-        // období rozejde doklad × deník (zápis v closed období nelze přepsat). Vynucená volba:
+        // období rozejde doklad × deník (zápis v closed období nelze přepsat). Sem dojde jen
+        // správce, uzavřené období ostatním odmítne už denyIfLocked(). Vynucená volba:
         //   reconcile  → doklad se opraví a zápis se stornuje + přeúčtuje do běžného období
         //   notes_only → povolena jen neúčetní pole (poznámky/projekt/jazyk)
         $forceMode = null;
-        if ($isAdmin && $isForce && $lock->inClosedPeriod && $lock->posted) {
+        if ($canEditIssued && $isForce && $lock->inClosedPeriod && $lock->posted) {
             $forceMode = trim((string) ($request->getQueryParams()['force_mode'] ?? $body['force_mode'] ?? ''));
             if (!in_array($forceMode, ['reconcile', 'notes_only'], true)) {
                 return Json::error(
@@ -261,11 +269,42 @@ final class UpdateInvoiceAction
                 }
             }
         }
-        $repostOpenForceEdit = $isAdmin
+        $repostOpenForceEdit = $canEditIssued
             && (bool) $isForce
             && $lock->posted
             && !$lock->inClosedPeriod
             && self::financialFieldsChanged($body, $existing) !== [];
+        // Finanční změna zaúčtovaného dokladu přeúčtuje deník. Role s právem upravit vystavenou
+        // fakturu, ale bez práva zaúčtovat, ji neprovede; neúčetní změny projdou. Před
+        // přečíslováním a zápisem, ať odmítnutí nic nezmění.
+        if (($repostOpenForceEdit || $forceMode === 'reconcile')
+            && !RequestAuthorization::canRepostIssuedInvoice($request)) {
+            return Json::error(
+                $response,
+                'journal_post_forbidden',
+                'Změna částek, DPH nebo položek zaúčtované faktury přeúčtuje deník. K tomu je potřeba '
+                    . 'i oprávnění „Zaúčtovat doklad“; bez něj lze měnit jen neúčetní údaje (texty, poznámky, splatnost).',
+                403,
+            );
+        }
+
+        // Podané DPH období (přiznání, KH, u OSS dokladu i OSS) mění jen správce: delegovaná role
+        // s právem upravit vystavenou fakturu v něm nezmění částky, data ani položky, a to ani
+        // přesunem data do podaného období. Oprava podaného období jde opravným nebo dodatečným
+        // tvrzením. Stejná brána jako import vystaveného dokladu a hromadná změna OSS.
+        if ($existing['status'] !== 'draft'
+            && $isForce
+            && !RequestAuthorization::canChangeFiledVatPeriod($request)
+            && self::financialFieldsChanged($body, $existing) !== []
+            && ($filed = $this->filedPeriodOf($existing, $body)) !== null) {
+            return Json::error(
+                $response,
+                'period_filed',
+                'Období faktury už bylo podáno (' . $filed . '). Částky, data ani položky v něm může změnit '
+                    . 'jen správce firmy; opravu podaného období řešte opravným nebo dodatečným tvrzením.',
+                409,
+            );
+        }
 
         // parent_invoice_id se nikdy nemění při update (vazba dobropisu na původní doklad).
         $body['parent_invoice_id'] = $existing['parent_invoice_id'];
@@ -278,7 +317,7 @@ final class UpdateInvoiceAction
         $isIssued      = $existing['status'] !== 'draft';
         $existingType  = (string) $existing['invoice_type'];
 
-        // Změna TYPU u VYSTAVENÉ faktury (force-edit, admin) = přečíslování.
+        // Změna TYPU u VYSTAVENÉ faktury (force-edit: správce nebo právo invoices.edit_issued) = přečíslování.
         // Každý typ má vlastní číselnou řadu, takže staré číslo uvolníme z původní
         // řady (releaseIfLatest — dekrement counteru, je-li poslední) a přidělíme nové
         // v řadě cílového typu (next()). Typické užití: vystavená zálohová faktura
@@ -903,6 +942,31 @@ final class UpdateInvoiceAction
      *
      * @return list<string>
      */
+    /**
+     * Popis podaného výkazu, který pokrývá původní nebo nové datum plnění faktury, nebo `null`
+     * ({@see FiledVatPeriodLookup}). OSS přiznání se počítá jen u faktury s OSS položkou.
+     *
+     * @param array<string,mixed> $existing
+     * @param array<string,mixed> $body tělo po sloučení s uloženou hlavičkou
+     */
+    private function filedPeriodOf(array $existing, array $body): ?string
+    {
+        $items = [...(array) ($existing['items'] ?? []), ...(DocumentItemsPayload::replaces($body) ? (array) $body['items'] : [])];
+        $includeOss = array_filter($items, static fn ($item): bool => !empty($item['oss_applicable'])) !== [];
+        $supplierId = (int) $existing['supplier_id'];
+        $dates = array_unique(array_filter([
+            DocumentLockService::invoiceRefDate($existing),
+            DocumentLockService::invoiceRefDate($body),
+        ]));
+        foreach ($dates as $refDate) {
+            if (($filed = $this->filedPeriods->describe($supplierId, $refDate, $includeOss)) !== null) {
+                return $filed;
+            }
+        }
+
+        return null;
+    }
+
     private static function financialFieldsChanged(array $body, array $existing): array
     {
         $changed = [];

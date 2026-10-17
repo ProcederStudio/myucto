@@ -1405,9 +1405,11 @@ const canIssueFinal = computed(() => isProforma.value
   && (invoice.value?.status === 'paid' || Number(invoice.value?.paid_total ?? 0) > 0)
   && !invoice.value?.final_invoice)
 const isIssued = computed(() => invoice.value && ['issued', 'sent', 'reminded'].includes(invoice.value.status))
-// Admin „force" edit už vystaveného dokladu — viz tlačítko „Upravit (admin)".
+// Úprava už vystaveného dokladu (?force=1): správce nebo role s právem invoices.edit_issued,
+// stejně jako RequestAuthorization::canEditIssuedInvoice na serveru.
 const canAdminEdit = computed(() =>
-  isAdmin.value && !isDraft.value && invoice.value?.invoice_type !== 'cancellation')
+  (isAdmin.value || auth.canWrite('invoices.edit_issued'))
+  && !isDraft.value && invoice.value?.invoice_type !== 'cancellation')
 const hasPositiveAmountToPay = computed(() => {
   if (!invoice.value) return false
   if (!['invoice', 'proforma'].includes(invoice.value.invoice_type)) return true

@@ -118,6 +118,39 @@ final class RequestAuthorization
             && self::allows($request, 'documents.submit', $minimum);
     }
 
+    /**
+     * Úprava vystavené faktury (?force=1) včetně jejího výkazu: správce firmy, nebo interní
+     * role s právem `invoices.edit_issued`. Uzavřené účetní období dál přebíjí jen správce
+     * ({@see \MyInvoice\Http\GuardsDocumentLock}) a skladová pojistka platí pro všechny.
+     */
+    public static function canEditIssuedInvoice(Request $request): bool
+    {
+        return self::isCompanyAdmin($request)
+            || (!self::isClientType($request) && self::allows($request, 'invoices.edit_issued', AccessLevel::WRITE));
+    }
+
+    /**
+     * Finanční úprava zaúčtované vystavené faktury přepíše (nebo stornuje a znovu založí)
+     * zápis v deníku. Kromě práva upravit vystavenou fakturu k ní neadmin potřebuje i právo
+     * zaúčtovat (`accounting.journal.post`), jinak by úpravou faktury účtoval bez něj.
+     */
+    public static function canRepostIssuedInvoice(Request $request): bool
+    {
+        return self::isCompanyAdmin($request)
+            || (self::canEditIssuedInvoice($request)
+                && self::allows($request, 'accounting.journal.post', AccessLevel::WRITE));
+    }
+
+    /**
+     * Částky, data a položky vystavené faktury v období, za které je podané přiznání k DPH,
+     * kontrolní hlášení nebo OSS přiznání, mění jen správce firmy. Delegovaná role s právem
+     * upravit vystavenou fakturu ho nepřebije: podané se opravuje opravným tvrzením.
+     */
+    public static function canChangeFiledVatPeriod(Request $request): bool
+    {
+        return self::isCompanyAdmin($request);
+    }
+
     public static function allows(
         Request $request,
         string $permission,

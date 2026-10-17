@@ -6,6 +6,7 @@ namespace MyInvoice\Action\WorkReport;
 
 use MyInvoice\Http\GuardsDocumentLock;
 use MyInvoice\Http\Json;
+use MyInvoice\Http\SessionOnlyAccountingAct;
 use MyInvoice\Http\SupplierGuard;
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Repository\InvoiceRepository;
@@ -40,7 +41,7 @@ final class DeleteWorkReportAction
         }
 
         $user = (array) $request->getAttribute(AuthMiddleware::ATTR_USER, []);
-        $isAdmin = RequestAuthorization::isCompanyAdmin($request);
+        $canEditIssued = RequestAuthorization::canEditIssuedInvoice($request);
         $isForce = !empty($request->getQueryParams()['force']);
 
         // Zámek dokladu (Epic F6) — PŘED status guardem: výkaz je součást dokladu.
@@ -48,8 +49,13 @@ final class DeleteWorkReportAction
             return $deny;
         }
 
-        if ($invoice['status'] !== 'draft' && !($isAdmin && $isForce)) {
-            return Json::error($response, 'not_editable', 'Výkaz lze smazat pouze v draftu (admin: ?force=1).', 409);
+        // Vynucená úprava výkazu vystaveného dokladu jen z relace, stejně jako úprava faktury.
+        if ($invoice['status'] !== 'draft' && $isForce
+            && ($deny = SessionOnlyAccountingAct::deny($request, $response, 'Vynucené smazání výkazu vystavené faktury'))) {
+            return $deny;
+        }
+        if ($invoice['status'] !== 'draft' && !($canEditIssued && $isForce)) {
+            return Json::error($response, 'not_editable', 'Výkaz lze smazat pouze v draftu (vystavenou s oprávněním: ?force=1).', 409);
         }
         $this->repo->deleteByInvoice($invoiceId);
         $this->pdf->invalidate($invoiceId, 'invalidate_workreport');

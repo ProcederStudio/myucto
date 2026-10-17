@@ -64,6 +64,8 @@ final class DocumentLockTest extends TestCase
     private array $userIds = [];
     /** @var list<string> */
     private array $sessionTokens = [];
+    /** @var list<int> */
+    private array $roleIds = [];
 
     protected function setUp(): void
     {
@@ -123,6 +125,7 @@ final class DocumentLockTest extends TestCase
             $pdo->prepare('DELETE FROM journal_entry_lines WHERE supplier_id = ?')->execute([$sid]);
             $pdo->prepare('DELETE FROM journal_entries WHERE supplier_id = ?')->execute([$sid]);
             $pdo->prepare('DELETE FROM accounting_periods WHERE supplier_id = ?')->execute([$sid]);
+            $pdo->prepare('DELETE FROM tax_submissions WHERE supplier_id = ?')->execute([$sid]);
             $pdo->prepare('DELETE FROM chart_of_accounts WHERE supplier_id = ?')->execute([$sid]);
             $pdo->prepare('DELETE FROM invoice_payments WHERE supplier_id = ?')->execute([$sid]);
             $pdo->prepare('DELETE FROM invoices WHERE supplier_id = ?')->execute([$sid]);
@@ -140,9 +143,13 @@ final class DocumentLockTest extends TestCase
             $pdo->prepare("DELETE FROM api_tokens WHERE user_id IN ($place)")->execute($this->userIds);
             $pdo->prepare("DELETE FROM users WHERE id IN ($place)")->execute($this->userIds);
         }
+        foreach ($this->roleIds as $roleId) {
+            $pdo->prepare('DELETE FROM role_permissions WHERE role_id = ?')->execute([$roleId]);
+            $pdo->prepare('DELETE FROM roles WHERE id = ?')->execute([$roleId]);
+        }
 
         $this->supplierIds = $this->currencyIds = $this->clientIds = $this->ownerIds = [];
-        $this->userIds = $this->sessionTokens = [];
+        $this->userIds = $this->sessionTokens = $this->roleIds = [];
         $this->db->close();
         $this->app = null;
     }
@@ -401,6 +408,86 @@ final class DocumentLockTest extends TestCase
         self::assertSame(403, $res->getStatusCode(), 'closing zamyká klienta');
         $res = $this->request('PUT', "/api/invoices/$invoiceId", $accountant, $sid, $body);
         self::assertSame(200, $res->getStatusCode(), 'closing účetní nebrzdí: ' . (string) $res->getBody());
+    }
+
+    /**
+     * Úpravu vystavené faktury (?force=1) smí kromě správce i interní role s právem
+     * `invoices.edit_issued`. Uzavřené období dál přebíjí jen správce a výchozí účetní
+     * právo nemá.
+     */
+    public function testEditIssuedPermissionAllowsForceEditOnlyInOpenPeriod(): void
+    {
+        $sid = $this->mkSupplier('double_entry');
+        $this->mkPeriod($sid, 2024, 'closed');
+        $this->mkPeriod($sid, 2026, 'open');
+        $openInvoice = $this->mkInvoice($sid, 'issued', '2026-05-01', 'P13-OPEN-1');
+        $closedInvoice = $this->mkInvoice($sid, 'issued', '2024-06-15', 'P13-CLOSED-1');
+
+        $editorRole = $this->mkCustomRole('__TEST úprava vystavených', [
+            'invoices' => 2,
+            'invoices.edit_issued' => 2,
+        ]);
+        $editor = $this->mkSessionUserWithRole($editorRole, $sid);
+        $accountant = $this->mkSessionUser('accountant', $sid);
+        $openBody = $this->invoiceBody($sid, '2026-05-01');
+
+        $res = $this->sessionRequest('PUT', "/api/invoices/$openInvoice", $editor, $sid, $openBody);
+        self::assertSame(409, $res->getStatusCode(), 'Bez ?force=1 zůstává vystavená faktura needitovatelná.');
+        self::assertSame('not_editable', $this->errorCode($res));
+
+        $res = $this->sessionRequest('PUT', "/api/invoices/$openInvoice?force=1", $accountant, $sid, $openBody);
+        self::assertSame(409, $res->getStatusCode(), 'Výchozí účetní právo úpravy vystavené faktury nemá.');
+        self::assertSame('not_editable', $this->errorCode($res));
+
+        $res = $this->sessionRequest('PUT', "/api/invoices/$openInvoice?force=1", $editor, $sid, $openBody);
+        self::assertSame(200, $res->getStatusCode(), 'Role s právem upraví vystavenou fakturu: ' . (string) $res->getBody());
+
+        $res = $this->sessionRequest('PUT', "/api/invoices/$closedInvoice?force=1", $editor, $sid, $this->invoiceBody($sid, '2024-06-15'));
+        self::assertSame(409, $res->getStatusCode(), 'Uzavřené období přebíjí jen správce.');
+        self::assertSame('period_closed', $this->errorCode($res));
+    }
+
+    /**
+     * Podané přiznání k DPH (nebo KH) uzavírá období jen pro delegovanou roli: částky,
+     * data ani položky vystavené faktury v něm role s `invoices.edit_issued` nezmění,
+     * a to ani přesunem data do podaného období. Neúčetní úprava projde a správce
+     * zůstává beze změny.
+     */
+    public function testEditIssuedPermissionCannotChangeFinancialFieldsInFiledVatPeriod(): void
+    {
+        $sid = $this->mkSupplier('double_entry');
+        $this->mkPeriod($sid, 2026, 'open');
+        $filedInvoice = $this->mkInvoice($sid, 'issued', '2026-05-01', 'P13-FILED-1');
+        $openInvoice = $this->mkInvoice($sid, 'issued', '2026-06-01', 'P13-FILED-2');
+        $this->fileVatReturn($sid, 2026, 5);
+
+        $editorRole = $this->mkCustomRole('__TEST úprava vystavených v podaném období', [
+            'invoices' => 2,
+            'invoices.edit_issued' => 2,
+        ]);
+        $editor = $this->mkSessionUserWithRole($editorRole, $sid);
+        $admin = $this->mkSessionUser('admin', $sid);
+
+        $res = $this->sessionRequest('PUT', "/api/invoices/$filedInvoice?force=1", $editor, $sid, ['due_date' => '2026-07-31']);
+        self::assertSame(409, $res->getStatusCode(), 'Finanční změna v podaném období: ' . (string) $res->getBody());
+        self::assertSame('period_filed', $this->errorCode($res));
+        self::assertStringContainsString('přiznání k DPH za 5/2026', (string) $res->getBody());
+
+        $res = $this->sessionRequest('PUT', "/api/invoices/$openInvoice?force=1", $editor, $sid, ['tax_date' => '2026-05-20']);
+        self::assertSame(409, $res->getStatusCode(), 'Přesun data do podaného období: ' . (string) $res->getBody());
+        self::assertSame('period_filed', $this->errorCode($res));
+
+        // effective_tax_date je generovaný sloupec, z těla se neukládá a kontrolu nesmí přebít.
+        $res = $this->sessionRequest('PUT', "/api/invoices/$openInvoice?force=1", $editor, $sid,
+            ['tax_date' => '2026-05-20', 'effective_tax_date' => '2026-06-15']);
+        self::assertSame(409, $res->getStatusCode(), 'Podvržené effective_tax_date: ' . (string) $res->getBody());
+        self::assertSame('period_filed', $this->errorCode($res));
+
+        $res = $this->sessionRequest('PUT', "/api/invoices/$filedInvoice?force=1", $editor, $sid, ['note_below_items' => 'Jen poznámka']);
+        self::assertSame(200, $res->getStatusCode(), 'Neúčetní úprava projde: ' . (string) $res->getBody());
+
+        $res = $this->sessionRequest('PUT', "/api/invoices/$filedInvoice?force=1", $admin, $sid, ['due_date' => '2026-07-31']);
+        self::assertSame(200, $res->getStatusCode(), 'Správce zůstává beze změny: ' . (string) $res->getBody());
     }
 
     /** Scénář 5 (H1): create/issue/přesun data do zavřeného období. */
@@ -749,6 +836,17 @@ final class DocumentLockTest extends TestCase
         return (int) $pdo->lastInsertId();
     }
 
+    private function fileVatReturn(int $sid, int $year, int $month): void
+    {
+        $this->db->pdo()->prepare(
+            "INSERT INTO tax_submissions
+                (supplier_id, form_code, period_year, period_month, period_quarter, form_variant,
+                 xml_content, xml_size_bytes, xml_sha256, validation_status, status, submitted_at,
+                 summary_json, generated_by)
+             VALUES (?, 'dphdp3', ?, ?, NULL, 'B', '<test/>', 7, ?, 'passed', 'submitted', NOW(), '{}', NULL)"
+        )->execute([$sid, $year, $month, hash('sha256', 'test')]);
+    }
+
     private function addInvoiceItem(int $sid, int $invoiceId): void
     {
         $vatRateId = (int) $this->db->pdo()->query('SELECT id FROM vat_rates ORDER BY id LIMIT 1')->fetchColumn();
@@ -837,6 +935,38 @@ final class DocumentLockTest extends TestCase
     private function mkSessionUser(string $role, int $sid): array
     {
         $userId = $this->mkUser($role);
+        $this->db->pdo()->prepare('INSERT INTO user_suppliers (user_id, supplier_id, role_id) VALUES (?, ?, NULL)')
+            ->execute([$userId, $sid]);
+        $out = $this->sessions->create($userId, '127.0.0.1', '__test_f6_lock');
+        $this->sessionTokens[] = (string) $out['token'];
+        return ['token' => $out['token'], 'csrf_token' => $out['csrf_token']];
+    }
+
+    /** @param array<string,int> $permissions */
+    private function mkCustomRole(string $name, array $permissions): int
+    {
+        $pdo = $this->db->pdo();
+        $pdo->prepare("INSERT INTO roles (system_key, name, role_type, is_active) VALUES (NULL, ?, 'staff', 1)")
+            ->execute([$name . ' ' . bin2hex(random_bytes(3))]);
+        $roleId = (int) $pdo->lastInsertId();
+        $this->roleIds[] = $roleId;
+        $stmt = $pdo->prepare('INSERT INTO role_permissions (role_id, permission_key, access_level) VALUES (?, ?, ?)');
+        foreach ($permissions as $key => $level) {
+            $stmt->execute([$roleId, $key, $level]);
+        }
+        return $roleId;
+    }
+
+    /** @return array{token:string, csrf_token:string} */
+    private function mkSessionUserWithRole(int $roleId, int $sid): array
+    {
+        $email = '__test_f6_lock_' . bin2hex(random_bytes(6)) . '@example.com';
+        $this->db->pdo()->prepare(
+            "INSERT INTO users (email, password_hash, name, role_id, locale, is_active)
+             VALUES (?, '\$2y\$10\$abcdefghijklmnopqrstuvABCDEFGHIJKLMNOPQRSTUVWXYZ01234', '__TEST F6 lock', ?, 'cs', 1)"
+        )->execute([$email, $roleId]);
+        $userId = (int) $this->db->pdo()->lastInsertId();
+        $this->userIds[] = $userId;
         $this->db->pdo()->prepare('INSERT INTO user_suppliers (user_id, supplier_id, role_id) VALUES (?, ?, NULL)')
             ->execute([$userId, $sid]);
         $out = $this->sessions->create($userId, '127.0.0.1', '__test_f6_lock');

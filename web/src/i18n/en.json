@@ -21444,7 +21444,7 @@
     "delete_cancelled": "Delete (cancellation + original)",
     "delete_credit_note": "Delete credit note",
     "clone": "Clone",
-    "edit_admin": "Edit (admin)",
+    "edit_admin": "Edit issued invoice",
     "changed_label": "changed",
     "changed_fields": {
       "client": "client",
@@ -21638,7 +21638,7 @@
     "edit_title": "Edit invoice",
     "new_title": "New invoice",
     "delete_draft_btn": "Delete draft",
-    "edit_issued_warning": "Editing an issued invoice (admin)",
+    "edit_issued_warning": "Editing an issued invoice",
     "edit_issued_body": "You are editing invoice {varsymbol} in status {status}. Changes will overwrite snapshots and may desynchronize the document with the client's records. The action is audited. For the client, we recommend issuing a credit note instead.",
     "edit_issued_confirm": "⚠ WARNING — editing an ISSUED invoice\n\nInvoice {varsymbol} has already been issued{sent}.\n\nEditing will:\n• change the content of a document the client may already have in their books\n• overwrite JSON snapshots (immutability is broken)\n• keep the original varsymbol (no new one is generated)\n• be audited in ActivityLog\n\nRecommended: issue a credit note instead. Continue to the editor anyway?",
     "edit_issued_confirm_sent": " and sent to the client",
