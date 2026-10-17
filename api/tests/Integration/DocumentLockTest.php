@@ -125,6 +125,7 @@ final class DocumentLockTest extends TestCase
             $pdo->prepare('DELETE FROM journal_entry_lines WHERE supplier_id = ?')->execute([$sid]);
             $pdo->prepare('DELETE FROM journal_entries WHERE supplier_id = ?')->execute([$sid]);
             $pdo->prepare('DELETE FROM accounting_periods WHERE supplier_id = ?')->execute([$sid]);
+            $pdo->prepare('DELETE FROM tax_submissions WHERE supplier_id = ?')->execute([$sid]);
             $pdo->prepare('DELETE FROM chart_of_accounts WHERE supplier_id = ?')->execute([$sid]);
             $pdo->prepare('DELETE FROM invoice_payments WHERE supplier_id = ?')->execute([$sid]);
             $pdo->prepare('DELETE FROM invoices WHERE supplier_id = ?')->execute([$sid]);
@@ -444,6 +445,43 @@ final class DocumentLockTest extends TestCase
         $res = $this->sessionRequest('PUT', "/api/invoices/$closedInvoice?force=1", $editor, $sid, $this->invoiceBody($sid, '2024-06-15'));
         self::assertSame(409, $res->getStatusCode(), 'Uzavřené období přebíjí jen správce.');
         self::assertSame('period_closed', $this->errorCode($res));
+    }
+
+    /**
+     * Podané přiznání k DPH (nebo KH) uzavírá období jen pro delegovanou roli: částky,
+     * data ani položky vystavené faktury v něm role s `invoices.edit_issued` nezmění,
+     * a to ani přesunem data do podaného období. Neúčetní úprava projde a správce
+     * zůstává beze změny.
+     */
+    public function testEditIssuedPermissionCannotChangeFinancialFieldsInFiledVatPeriod(): void
+    {
+        $sid = $this->mkSupplier('double_entry');
+        $this->mkPeriod($sid, 2026, 'open');
+        $filedInvoice = $this->mkInvoice($sid, 'issued', '2026-05-01', 'P13-FILED-1');
+        $openInvoice = $this->mkInvoice($sid, 'issued', '2026-06-01', 'P13-FILED-2');
+        $this->fileVatReturn($sid, 2026, 5);
+
+        $editorRole = $this->mkCustomRole('__TEST úprava vystavených v podaném období', [
+            'invoices' => 2,
+            'invoices.edit_issued' => 2,
+        ]);
+        $editor = $this->mkSessionUserWithRole($editorRole, $sid);
+        $admin = $this->mkSessionUser('admin', $sid);
+
+        $res = $this->sessionRequest('PUT', "/api/invoices/$filedInvoice?force=1", $editor, $sid, ['due_date' => '2026-07-31']);
+        self::assertSame(409, $res->getStatusCode(), 'Finanční změna v podaném období: ' . (string) $res->getBody());
+        self::assertSame('period_filed', $this->errorCode($res));
+        self::assertStringContainsString('přiznání k DPH za 5/2026', (string) $res->getBody());
+
+        $res = $this->sessionRequest('PUT', "/api/invoices/$openInvoice?force=1", $editor, $sid, ['tax_date' => '2026-05-20']);
+        self::assertSame(409, $res->getStatusCode(), 'Přesun data do podaného období: ' . (string) $res->getBody());
+        self::assertSame('period_filed', $this->errorCode($res));
+
+        $res = $this->sessionRequest('PUT', "/api/invoices/$filedInvoice?force=1", $editor, $sid, ['note_below_items' => 'Jen poznámka']);
+        self::assertSame(200, $res->getStatusCode(), 'Neúčetní úprava projde: ' . (string) $res->getBody());
+
+        $res = $this->sessionRequest('PUT', "/api/invoices/$filedInvoice?force=1", $admin, $sid, ['due_date' => '2026-07-31']);
+        self::assertSame(200, $res->getStatusCode(), 'Správce zůstává beze změny: ' . (string) $res->getBody());
     }
 
     /** Scénář 5 (H1): create/issue/přesun data do zavřeného období. */
@@ -790,6 +828,17 @@ final class DocumentLockTest extends TestCase
             $issueDate, $this->currencyIds[$sid], $status, $totalWithVat, $this->ownerIds[$sid],
         ]);
         return (int) $pdo->lastInsertId();
+    }
+
+    private function fileVatReturn(int $sid, int $year, int $month): void
+    {
+        $this->db->pdo()->prepare(
+            "INSERT INTO tax_submissions
+                (supplier_id, form_code, period_year, period_month, period_quarter, form_variant,
+                 xml_content, xml_size_bytes, xml_sha256, validation_status, status, submitted_at,
+                 summary_json, generated_by)
+             VALUES (?, 'dphdp3', ?, ?, NULL, 'B', '<test/>', 7, ?, 'passed', 'submitted', NOW(), '{}', NULL)"
+        )->execute([$sid, $year, $month, hash('sha256', 'test')]);
     }
 
     private function addInvoiceItem(int $sid, int $invoiceId): void

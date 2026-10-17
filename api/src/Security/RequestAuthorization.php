@@ -141,6 +141,16 @@ final class RequestAuthorization
                 && self::allows($request, 'accounting.journal.post', AccessLevel::WRITE));
     }
 
+    /**
+     * Částky, data a položky vystavené faktury v období, za které je podané přiznání k DPH,
+     * kontrolní hlášení nebo OSS přiznání, mění jen správce firmy. Delegovaná role s právem
+     * upravit vystavenou fakturu ho nepřebije: podané se opravuje opravným tvrzením.
+     */
+    public static function canChangeFiledVatPeriod(Request $request): bool
+    {
+        return self::isCompanyAdmin($request);
+    }
+
     public static function allows(
         Request $request,
         string $permission,

@@ -1399,6 +1399,11 @@ paths:
         Vynucená úprava vystaveného dokladu (`force=1`, u zaúčtovaného dokladu
         přeúčtuje deník) i úprava v uzavřeném účetním období je účetní úkon:
         přes API token vrací 403 `token_write_forbidden`, provádí se v aplikaci.
+        Vystavený doklad upraví správce firmy nebo role s právem `invoices.edit_issued`.
+        Taková role mění částky, DPH nebo položky zaúčtovaného dokladu jen s právem
+        `accounting.journal.post` (jinak 403 `journal_post_forbidden`) a v období, za které
+        je podané přiznání k DPH, kontrolní hlášení nebo u OSS dokladu OSS přiznání, je
+        nezmění vůbec (409 `period_filed`). Uzavřené účetní období přebíjí jen správce.
 
         Částečná aktualizace (viz úvod). Schéma `InvoiceInput` je sdílené s POST, kde zůstávají
         povinné `client_id` a `items`; na PUT jsou všechny vlastnosti nepovinné, včetně `client_id`.
@@ -1432,6 +1437,8 @@ paths:
           description: |
             Doklad je uzamčený pro roli (`document_locked`), nebo API token žádá vynucenou
             úpravu vystaveného dokladu či přebití uzavřeného období (`token_write_forbidden`).
+            Role bez práva zaúčtovat mění částky, DPH nebo položky zaúčtované vystavené faktury,
+            což by přeúčtovalo deník (`journal_post_forbidden`).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -1441,6 +1448,8 @@ paths:
             úpravy (`force=1`) faktury, ke které už existuje zaúčtovaná výdejka nebo vratka,
             `stock_items_locked`: `items` mění skladovou kartu, sklad, jednotku nebo množství
             skladového řádku, přidávají nebo odebírají skladový řádek. Opravuje se dobropisem.
+            `period_filed`: role, která není správcem, mění částky, data nebo položky v období,
+            za které už je podané přiznání k DPH, kontrolní hlášení nebo OSS přiznání.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -2152,8 +2161,10 @@ paths:
       summary: Vytvoří nebo aktualizuje výkaz
       description: |
         Idempotentní upsert (jedna fakturace = max 1 výkaz). Výkaz lze měnit
-        pouze pokud faktura má status `draft`. Admin může vynutit edit
-        pomocí query parametru `?force=1` (bez ohledu na status).
+        pouze pokud faktura má status `draft`. Správce nebo role s právem
+        `invoices.edit_issued` může úpravu vynutit query parametrem `?force=1`
+        (bez ohledu na status). Vynucená úprava i smazání výkazu vystavené faktury
+        jdou jen z relace, API token dostane 403 `token_write_forbidden`.
 
         Suma `total_hours` a `total_amount` se přepočítá ze `items` na serveru.
 
@@ -2169,7 +2180,7 @@ paths:
       parameters:
         - in: query
           name: force
-          description: Admin-only override editace u nedraftových faktur
+          description: Vynucená úprava u nedraftové faktury (správce nebo právo `invoices.edit_issued`, jen z relace)
           schema: { type: boolean }
       requestBody:
         required: true
@@ -2185,18 +2196,37 @@ paths:
         '400':
           $ref: '#/components/responses/ValidationFailed'
         '409':
-          description: Faktura není draft (a klient není admin s ?force=1)
+          description: Faktura není draft a požadavek není vynucená úprava s oprávněním (`not_editable`)
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
     delete:
       tags: [WorkReports]
       summary: Smaže výkaz
+      description: |
+        Výkaz lze smazat jen u konceptu faktury. U vystavené faktury smazání vynutí `?force=1`
+        správce nebo role s právem `invoices.edit_issued`, a to jen z relace (API token dostane
+        403 `token_write_forbidden`).
+      parameters:
+        - in: query
+          name: force
+          description: Vynucené smazání u nedraftové faktury (správce nebo právo `invoices.edit_issued`, jen z relace)
+          schema: { type: boolean }
       responses:
         '200':
           description: OK
+        '403':
+          description: Vynucené smazání přes API token (`token_write_forbidden`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          description: Faktura není draft a požadavek není vynucené smazání s oprávněním (`not_editable`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /api/v1/invoices/{id}/request-approval:
     parameters:
@@ -6160,13 +6190,14 @@ paths:
       - in: query
         name: force
         schema: { type: integer, enum: [1] }
-        description: "Jen admin — vynutí uložení i u vystavené faktury."
+        description: "Správce nebo právo `invoices.edit_issued` — vynutí uložení i u vystavené faktury (jen z relace)."
     put:
       tags: [WorkReports]
       summary: Uloží materiálovou část výkazu práce
       description: |
         Vyžaduje roli `accountant` nebo vyšší. Standardně jen u konceptu faktury
-        (admin může vynutit u vystavené přes `?force=1`). Materiály jsou součástí
+        (správce nebo role s právem `invoices.edit_issued` může vynutit u vystavené přes
+        `?force=1`; jen z relace, API token dostane 403 `token_write_forbidden`). Materiály jsou součástí
         téhož výkazu práce jako práce a na faktuře se promítnou jako souhrnná položka.
 
         Částečná aktualizace (viz úvod). `material_title`, `material_vat_rate_id` a `materials` jsou

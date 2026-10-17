@@ -40,6 +40,7 @@ use MyInvoice\Service\Pdf\InvoicePdfRenderer;
 use MyInvoice\Service\Report\VatClassificationDefaulter;
 use MyInvoice\Service\Stats\StatsRecomputer;
 use MyInvoice\Service\Validation\InvoiceValidation;
+use MyInvoice\Service\Vat\FiledVatPeriodLookup;
 use MyInvoice\Support\ExchangeRateDate;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -79,6 +80,7 @@ final class UpdateInvoiceAction
         private readonly UnitPrecision $unitPrecision,
         // Limit zjednodušeného dokladu podle roku dokladu (§ 30 ZDPH), viz simplifiedRejection().
         private readonly \MyInvoice\Repository\TaxConstantsRepository $taxConstants,
+        private readonly FiledVatPeriodLookup $filedPeriods,
     ) {}
 
     /**
@@ -278,6 +280,24 @@ final class UpdateInvoiceAction
                 'Změna částek, DPH nebo položek zaúčtované faktury přeúčtuje deník. K tomu je potřeba '
                     . 'i oprávnění „Zaúčtovat doklad“; bez něj lze měnit jen neúčetní údaje (texty, poznámky, splatnost).',
                 403,
+            );
+        }
+
+        // Podané DPH období (přiznání, KH, u OSS dokladu i OSS) mění jen správce: delegovaná role
+        // s právem upravit vystavenou fakturu v něm nezmění částky, data ani položky, a to ani
+        // přesunem data do podaného období. Oprava podaného období jde opravným nebo dodatečným
+        // tvrzením. Stejná brána jako import vystaveného dokladu a hromadná změna OSS.
+        if ($existing['status'] !== 'draft'
+            && $isForce
+            && !RequestAuthorization::canChangeFiledVatPeriod($request)
+            && self::financialFieldsChanged($body, $existing) !== []
+            && ($filed = $this->filedPeriodOf($existing, $body)) !== null) {
+            return Json::error(
+                $response,
+                'period_filed',
+                'Období faktury už bylo podáno (' . $filed . '). Částky, data ani položky v něm může změnit '
+                    . 'jen správce firmy; opravu podaného období řešte opravným nebo dodatečným tvrzením.',
+                409,
             );
         }
 
@@ -917,6 +937,31 @@ final class UpdateInvoiceAction
      *
      * @return list<string>
      */
+    /**
+     * Popis podaného výkazu, který pokrývá původní nebo nové datum plnění faktury, nebo `null`
+     * ({@see FiledVatPeriodLookup}). OSS přiznání se počítá jen u faktury s OSS položkou.
+     *
+     * @param array<string,mixed> $existing
+     * @param array<string,mixed> $body tělo po sloučení s uloženou hlavičkou
+     */
+    private function filedPeriodOf(array $existing, array $body): ?string
+    {
+        $items = [...(array) ($existing['items'] ?? []), ...(DocumentItemsPayload::replaces($body) ? (array) $body['items'] : [])];
+        $includeOss = array_filter($items, static fn ($item): bool => !empty($item['oss_applicable'])) !== [];
+        $supplierId = (int) $existing['supplier_id'];
+        $dates = array_unique(array_filter([
+            DocumentLockService::invoiceRefDate($existing),
+            DocumentLockService::invoiceRefDate($body),
+        ]));
+        foreach ($dates as $refDate) {
+            if (($filed = $this->filedPeriods->describe($supplierId, $refDate, $includeOss)) !== null) {
+                return $filed;
+            }
+        }
+
+        return null;
+    }
+
     private static function financialFieldsChanged(array $body, array $existing): array
     {
         $changed = [];

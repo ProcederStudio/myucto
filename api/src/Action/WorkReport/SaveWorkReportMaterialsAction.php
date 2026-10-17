@@ -72,7 +72,7 @@ final class SaveWorkReportMaterialsAction
             return $deny;
         }
         if ($invoice['status'] !== 'draft' && !($canEditIssued && $isForce)) {
-            return Json::error($response, 'not_editable', 'Výkaz lze upravit pouze v draftu (admin: ?force=1).', 409);
+            return Json::error($response, 'not_editable', 'Výkaz lze upravit pouze v draftu (vystavenou s oprávněním: ?force=1).', 409);
         }
 
         $body = (array) ($request->getParsedBody() ?? []);

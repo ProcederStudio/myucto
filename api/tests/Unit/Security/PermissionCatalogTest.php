@@ -213,5 +213,14 @@ final class PermissionCatalogTest extends TestCase
         self::assertFalse($canRepost(new EffectiveRole(10, 'Jen zaúčtování', 'staff', true, [
             'accounting.journal.post' => AccessLevel::WRITE->value,
         ])), 'Bez práva upravit vystavenou fakturu nic nepřeúčtuje.');
+
+        // Podané DPH období mění jen správce, právo upravit vystavenou fakturu ani zaúčtovat nestačí.
+        $canChangeFiled = static fn (EffectiveRole $role): bool
+            => \MyInvoice\Security\RequestAuthorization::canChangeFiledVatPeriod($request($role));
+        self::assertTrue($canChangeFiled(new EffectiveRole(2, 'Admin', 'staff', true, [], 'admin')));
+        self::assertFalse($canChangeFiled(new EffectiveRole(9, 'Fakturantka a účetní', 'staff', true, [
+            'invoices.edit_issued' => AccessLevel::WRITE->value,
+            'accounting.journal.post' => AccessLevel::WRITE->value,
+        ])));
     }
 }
