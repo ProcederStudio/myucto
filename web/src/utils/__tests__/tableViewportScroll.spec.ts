@@ -179,16 +179,15 @@ describe('viewport table scroll controller', () => {
     expect(state.bars[0]).toMatchObject({ left: 200, width: 500, top: 584, zIndex: 51 })
   })
 
-  it('keeps an overlay-native scrollbar painted even when the table bottom is already visible', () => {
+  it('does not duplicate an overlay-native scrollbar when the table bottom is visible', () => {
     table(undefined, 100, 200, 600, 300)
     const state = start()
-    expect(state.bars[0]).toMatchObject({ left: 100, top: 484, width: 600 })
+    expect(state.bars).toEqual([])
   })
 
   it.each([
     ['sticky footer', 760, 40, 1200],
     ['partially visible footer', 790, 50, 1200],
-    ['fully visible table footer', 460, 40, 400],
   ])('keeps a %s readable instead of overlaying its totals', (_name, footerTop, footerHeight, sourceHeight) => {
     const { table: element } = table(undefined, 100, 100, 600, sourceHeight)
     const footer = element.createTFoot()
@@ -208,13 +207,26 @@ describe('viewport table scroll controller', () => {
     expect(state.bars[0].top).toBe(784)
   })
 
-  it('uses an existing blank gutter below totals without moving the control over body rows', () => {
-    const { table: element } = table(undefined, 100, 100, 600, 450)
+  it.each([400, 450])('leaves only the native scrollbar below a fully visible totals footer (source height %s)', sourceHeight => {
+    const { table: element } = table(undefined, 100, 100, 600, sourceHeight)
     const footer = element.createTFoot()
     box(footer, 100, 460, 1800, 40)
     const state = start()
-    expect(state.bars[0].top).toBe(534)
-    expect(state.bars[0].top).toBeGreaterThanOrEqual(footer.getBoundingClientRect().bottom)
+    expect(state.bars).toEqual([])
+  })
+
+  it('hands control back to the native scrollbar as its bottom enters the viewport', () => {
+    const { source } = table()
+    const state = start()
+    expect(state.bars).toHaveLength(1)
+    box(source, 100, 100, 600, 400)
+    source.dispatchEvent(new Event('scroll'))
+    flush()
+    expect(state.bars).toEqual([])
+    box(source, 100, 100, 600, 1200)
+    source.dispatchEvent(new Event('scroll'))
+    flush()
+    expect(state.bars).toHaveLength(1)
   })
 
   it('hides the control when only the totals footer remains visible', () => {

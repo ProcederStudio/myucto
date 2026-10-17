@@ -174,10 +174,9 @@ export function installTableViewportScroll(options: {
         if ((css.position === 'sticky' || css.position === 'fixed') && rect.right > left && rect.left < right && rect.top > top) bottom = Math.min(bottom, rect.top)
       }
     }
-    // Overlay scrollbars leave no gutter and may disappear, so keep the painted control for them.
-    const sourceCss = style(source)
-    const gutter = source.offsetHeight - source.clientHeight - (Number.parseFloat(sourceCss.borderTopWidth) || 0) - (Number.parseFloat(sourceCss.borderBottomWidth) || 0)
-    if (gutter > 1 && sourceRect.bottom <= bottom + 1) return null
+    // Once its bottom is reachable, use the native scrollbar below the table footer.
+    // Overlay scrollbars can also be visible without reserving a measurable gutter.
+    if (sourceRect.bottom <= bottom + 1) return null
     bottom = Math.min(bottom, sourceBox.bottom)
     const height = TABLE_VIEWPORT_SCROLLBAR_HEIGHT
     const portal = source.closest<HTMLElement>('[role="dialog"][aria-modal="true"], dialog[open]')
