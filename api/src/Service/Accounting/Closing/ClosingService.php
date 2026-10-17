@@ -820,7 +820,7 @@ final class ClosingService
      */
     public function runFxRevaluation(int $supplierId, int $periodId, array $bankRows, int $rowVersion, array $meta = []): array
     {
-        return $this->tx(function () use ($supplierId, $periodId, $bankRows, $rowVersion, $meta): array {
+        return (new DimensionPeriodGuard($this->db))->transaction(fn (): array => $this->tx(function () use ($supplierId, $periodId, $bankRows, $rowVersion, $meta): array {
             $period = $this->lockPeriod($supplierId, $periodId, $rowVersion);
             $this->assertStatus($period, ['closing']);
             $endsOn = (string) $period['ends_on'];
@@ -877,7 +877,7 @@ final class ClosingService
             $this->bumpVersion($supplierId, $periodId, $rowVersion);
             $this->audit($supplierId, 'accounting.fx_revalued', $periodId, ['entry_ids' => $entryIds, 'totals' => $preview['totals'] ?? []], $meta);
             return ['entry_ids' => $entryIds, 'deleted' => $deleted, 'totals' => $preview['totals'] ?? []];
-        });
+        }));
     }
 
     // ── krok 6: zásoby — uzávěrka způsobem B (SKLAD §3.4) ─────────────────────

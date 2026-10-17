@@ -527,7 +527,7 @@ final class PostingService
      * dimenzemi dokladu stejně jako při zaúčtování.
      *
      * @param list<int> $removeLineIds řádky zápisu, které se odeberou
-     * @param list<array{account_code:string, side:'debit'|'credit', amount:float, cost_center?:?string}> $addLines
+     * @param list<array{account_code:string, side:'debit'|'credit', amount:float|int|string, cost_center?:?string}> $addLines
      * @param array{user_id?:?int, ip?:?string, user_agent?:?string} $meta
      * @return int id zápisu
      *
@@ -597,7 +597,7 @@ final class PostingService
             }
             $addedCents = 0;
             foreach ($resolved as $line) {
-                $addedCents += self::cents((float) $line['amount']) * (!empty($line['is_red_storno']) ? -1 : 1)
+                $addedCents += JournalLineAmount::signedCents($line)
                     * ($line['side'] === 'debit' ? 1 : -1);
             }
             if ($addedCents !== $removedCents) {
@@ -901,7 +901,7 @@ final class PostingService
      *
      * @param array<string,mixed> $existing zápis z findBySource (+ načtené 'lines')
      * @param array<string,mixed> $header
-     * @param list<array{account_id:int, side:'debit'|'credit', amount:float, cost_center:?string}> $resolved
+     * @param list<array{account_id:int, side:'debit'|'credit', amount:float|string, cost_center:?string}> $resolved
      * @param array<int,string> $periodStatuses stavy načtené pod zámkem před deníkem
      */
     private function rewriteExisting(
@@ -978,7 +978,7 @@ final class PostingService
      * volajícího sám nestačí a mezi náhledem a potvrzením se zápis mohl změnit.
      *
      * @param array<string,mixed> $existing zápis včetně načtených 'lines'
-     * @param list<array{account_id:int, side:string, amount:float}> $resolved
+     * @param list<array{account_id:int, side:string, amount:float|string}> $resolved
      */
     private function assertTaxNeutralRewrite(int $supplierId, array $existing, string $entryDate, array $resolved): void
     {
@@ -3053,10 +3053,10 @@ final class PostingService
         }
     }
 
-    /** Peníze → haléře (int). Vstup je float zaokr. na 2 des. místa (viz money repr.). */
+    /** Peníze → haléře (int). */
     private static function cents(float|int|string $amount): int
     {
-        return (int) round(((float) $amount) * 100.0);
+        return JournalLineAmount::cents($amount);
     }
 
     /**
@@ -3376,7 +3376,7 @@ final class PostingService
      * @param list<array{account_code:string, side:'debit'|'credit', amount:float|int|string, cost_center?:?string}> $lines
      * @param array<string, array{id:int, is_active:bool, account_type:string}> $codeMap
      * @param 'invoice'|'purchase_invoice'|'bank'|'cash'|'asset'|'manual'|'closing'|'opening'|'payroll'|'vat_clearing' $sourceType
-     * @return list<array{account_id:int, side:'debit'|'credit', amount:float, cost_center:?string}>
+     * @return list<array{account_id:int, side:'debit'|'credit', amount:string, cost_center:?string}>
      */
     private function resolveLines(int $supplierId, array $lines, array $codeMap, string $sourceType): array
     {
@@ -3419,8 +3419,17 @@ final class PostingService
             if ($side !== 'debit' && $side !== 'credit') {
                 throw new PostingException('invalid_side', 'Neplatná strana řádku #' . $i . ': ' . (string) $side . '.');
             }
-            $amount = round((float) $line['amount'], 2);
-            if (self::cents($amount) <= 0) {
+            try {
+                $rawAmount = $line['amount'] ?? null;
+                if (!is_float($rawAmount) && !is_int($rawAmount) && !is_string($rawAmount)) {
+                    throw new \InvalidArgumentException('Invalid amount type.');
+                }
+                $amount = JournalLineAmount::decimal($rawAmount);
+                $cents = self::cents($amount);
+            } catch (\InvalidArgumentException) {
+                throw new PostingException('nonpositive_amount', 'Řádek #' . $i . ' (' . $code . ') nemá platnou kladnou částku.');
+            }
+            if ($cents <= 0) {
                 throw new PostingException('nonpositive_amount', 'Řádek #' . $i . ' (' . $code . ') má nekladnou částku ' . $amount . '.');
             }
             $resolvedLine = [
