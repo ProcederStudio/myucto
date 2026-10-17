@@ -11,6 +11,7 @@ import { useAuthStore } from '@/stores/auth'
 import { downloadApiFile } from '@/utils/downloadFile'
 import DateInput from '@/components/ui/DateInput.vue'
 import PendingApprovalVatNotice from '@/components/reports/PendingApprovalVatNotice.vue'
+import VatBookSectionActions from '@/components/reports/VatBookSectionActions.vue'
 
 const { t, locale } = useI18n()
 const router = useRouter()
@@ -27,6 +28,13 @@ function setQuarter(q: number) {
 }
 
 const preview = ref<Awaited<ReturnType<typeof reportsApi.khPreview>> | null>(null)
+// Odkaz do Knihy DPH nese období, za které je náhled skutečně načtený.
+const loadedPeriod = ref<{ year: number; month: number; period: 'monthly' | 'quarterly' } | null>(null)
+function sectionBookRoute(section: string) {
+  // Rychlá odpověď na výzvu jen potvrzuje podání nebo posílá nulové KH, doklady za ní nejsou.
+  if (!loadedPeriod.value || preview.value?.summary.is_vyzva_odpoved) return null
+  return { path: '/reports/dph-book', query: { ...loadedPeriod.value, kh_section: section } }
+}
 const loading = ref(true)
 const error = ref('')
 
@@ -63,16 +71,20 @@ let previewSeq = 0
 async function loadPreview() {
   if (!ready.value) return
   const seq = ++previewSeq
+  const requestedPeriod = { year: year.value, month: month.value, period: effectivePeriod.value }
   loading.value = true
   error.value = ''
   try {
     const result = await reportsApi.khPreview(
-      year.value, month.value, effectivePeriod.value,
+      requestedPeriod.year, requestedPeriod.month, requestedPeriod.period,
       variant.value,
       isFollowUp.value ? dZjist.value : undefined,
       needsVyzvaRef.value ? cJedVyzvy.value : undefined,
     )
-    if (seq === previewSeq) preview.value = result
+    if (seq === previewSeq) {
+      preview.value = result
+      loadedPeriod.value = requestedPeriod
+    }
   } catch (e) {
     if (seq === previewSeq) error.value = apiErrorMessage(e)
   } finally {
@@ -253,6 +265,9 @@ onMounted(() => { void initialize() })
           <h3 class="text-sm font-semibold uppercase tracking-wide text-neutral-700">{{ t('reports.kh.section_a_title') }}</h3>
         </header>
         <table class="w-full text-sm">
+          <thead class="sr-only">
+            <tr><th>{{ t('reports.dph.description') }}</th><th>{{ t('reports.kh.rows') }}</th><th>{{ t('common.actions') }}</th></tr>
+          </thead>
           <tbody class="divide-y divide-neutral-100">
             <tr v-for="section in sectionARows" :key="section.code">
               <td class="px-5 py-2.5 text-neutral-700">
@@ -260,6 +275,9 @@ onMounted(() => { void initialize() })
               </td>
               <td class="px-5 py-2.5 text-right font-mono">
                 {{ section.count }} {{ t(section.aggregated ? 'reports.kh.aggregated' : 'reports.kh.rows') }}
+              </td>
+              <td class="w-12 px-3 py-2.5 text-right">
+                <VatBookSectionActions :to="sectionBookRoute(section.code)" :label="t('reports.dph_book.open_section_beside', { section: section.code })" />
               </td>
             </tr>
           </tbody>
@@ -272,6 +290,9 @@ onMounted(() => { void initialize() })
           <h3 class="text-sm font-semibold uppercase tracking-wide text-neutral-700">{{ t('reports.kh.section_b_title') }}</h3>
         </header>
         <table class="w-full text-sm">
+          <thead class="sr-only">
+            <tr><th>{{ t('reports.dph.description') }}</th><th>{{ t('reports.kh.rows') }}</th><th>{{ t('common.actions') }}</th></tr>
+          </thead>
           <tbody class="divide-y divide-neutral-100">
             <tr v-for="section in sectionBRows" :key="section.code">
               <td class="px-5 py-2.5 text-neutral-700">
@@ -279,6 +300,9 @@ onMounted(() => { void initialize() })
               </td>
               <td class="px-5 py-2.5 text-right font-mono">
                 {{ section.count }} {{ t(section.aggregated ? 'reports.kh.aggregated' : 'reports.kh.rows') }}
+              </td>
+              <td class="w-12 px-3 py-2.5 text-right">
+                <VatBookSectionActions :to="sectionBookRoute(section.code)" :label="t('reports.dph_book.open_section_beside', { section: section.code })" />
               </td>
             </tr>
           </tbody>

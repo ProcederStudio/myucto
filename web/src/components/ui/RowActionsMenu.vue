@@ -186,12 +186,24 @@ function onKey(e: KeyboardEvent) { if (paneActive.value && e.key === 'Escape') c
 // Posluchač musí být TÁŽ funkce při přidání i odebrání; `close` sama bere
 // argument, takže by jí prohlížeč jako „vrať ohnisko" podstrčil Event.
 function closeOnViewportChange() { close() }
+// Rámy pracovní plochy zachytí odkaz už v capture fázi dokumentu a zastaví šíření
+// dřív, než dojde na handlery položky. Nabídku proto zavřeme předem, navigaci nepřebíráme.
+function closeOnNavigationCapture(event: MouseEvent) {
+  if (!open.value || !(event.target instanceof Element)) return
+  const anchor = event.target.closest('a[data-menu-item]')
+  if (!anchor || !menuRef.value?.contains(anchor) || anchor.closest('[aria-disabled="true"]')) return
+  close()
+}
 onMounted(() => {
+  window.addEventListener('click', closeOnNavigationCapture, true)
+  window.addEventListener('auxclick', closeOnNavigationCapture, true)
   window.addEventListener('keydown', onKey)
   window.addEventListener('scroll', closeOnViewportChange, true)
   window.addEventListener('resize', closeOnViewportChange)
 })
 onBeforeUnmount(() => {
+  window.removeEventListener('click', closeOnNavigationCapture, true)
+  window.removeEventListener('auxclick', closeOnNavigationCapture, true)
   window.removeEventListener('keydown', onKey)
   window.removeEventListener('scroll', closeOnViewportChange, true)
   window.removeEventListener('resize', closeOnViewportChange)

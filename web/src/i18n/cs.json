@@ -25946,6 +25946,15 @@
       }
     },
     "dph_book": {
+      "section_filter": "Řádek přiznání / oddíl KH",
+      "all_sections": "Celá kniha DPH",
+      "dph_lines": "Řádky DPH přiznání",
+      "line_filter_option": "Řádek {line}",
+      "filtered_line": "Doklady k řádku {line} přiznání",
+      "filtered_line_note": "Zobrazeny jsou jen sekce vybraného řádku s jejich mezisoučty. Celkové součty a PDF celé knihy jsou dostupné po zrušení filtru.",
+      "current_book_note": "Kniha ukazuje aktuální podklady včetně konceptů, nikoli rozdíl dodatečného přiznání ani uložené podání. Koncepty do přiznání nevstupují. Částky se mohou lišit také zaokrouhlením nebo krácením odpočtu.",
+      "open_line_beside": "Otevřít doklady řádku {line} v knize DPH",
+      "open_section_beside": "Otevřít soupis dokladů oddílu {section}",
       "nil_row_note": "Nulový základ i daň (typicky vyúčtování plně uhrazené zálohy)",
       "nil_kh": "nevykazuje se",
       "nil_kh_hint": "Doklad s nulovým základem i daní se do kontrolního hlášení neuvádí. Plnění je vykázané na daňovém dokladu k přijaté platbě.",

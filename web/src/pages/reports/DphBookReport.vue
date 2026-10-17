@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
   reportsApi, KH_EVIDENCE_SECTIONS,
@@ -16,6 +17,8 @@ import DphBookDocumentLink from '@/components/reports/DphBookDocumentLink.vue'
 
 const { t, locale } = useI18n()
 const auth = useAuthStore()
+const route = useRoute()
+const router = useRouter()
 
 const { year, month, periodOverride, effectivePeriod: periodType, ready, settingsError, initialize } = useVatReportPeriod()
 
@@ -26,8 +29,46 @@ const error = ref('')
 // Filtr „Oddíl KH" (issue #142): prázdný = celá Kniha DPH, jinak soupis dokladů
 // oddílu sestavený stejnou logikou jako kontrolní hlášení.
 const khSection = ref<KhEvidenceSection | ''>('')
+const dphLine = ref('')
 const khReport = ref<KhEvidenceReport | null>(null)
 const khSectionOptions: KhEvidenceSection[] = ['all', ...KH_EVIDENCE_SECTIONS]
+
+// Období drží v URL useVatReportPeriod; stránka zapisuje jen vlastní filtr.
+function syncFilterQuery() {
+  void router.replace({ query: {
+    ...route.query,
+    dph_line: dphLine.value || undefined,
+    kh_section: khSection.value || undefined,
+  } }).catch(() => {})
+}
+
+// Sloupce kráceného odpočtu (40k–44k) a ř. 51b jsou samostatné položky přiznání.
+function normalizeDphLine(value: unknown): string {
+  if (typeof value !== 'string') return ''
+  const match = /^0*([1-9]\d*)(k|b)?$/.exec(value)
+  return match ? `${match[1]}${match[2] ?? ''}` : ''
+}
+
+watch(() => [route.query.dph_line, route.query.kh_section], ([line, section]) => {
+  dphLine.value = normalizeDphLine(line)
+  khSection.value = dphLine.value === '' && typeof section === 'string' && khSectionOptions.includes(section as KhEvidenceSection)
+    ? section as KhEvidenceSection : ''
+}, { immediate: true })
+
+const sectionFilter = computed({
+  get: () => dphLine.value ? `dph:${dphLine.value}` : khSection.value ? `kh:${khSection.value}` : '',
+  set: (value: string) => {
+    dphLine.value = value.startsWith('dph:') ? normalizeDphLine(value.slice(4)) : ''
+    khSection.value = value.startsWith('kh:') ? value.slice(3) as KhEvidenceSection : ''
+    syncFilterQuery()
+  },
+})
+const dphLineOptions = computed(() => [...new Set([
+  ...(preview.value?.sections ?? []).map(section => normalizeDphLine(section.dphdp3_line)),
+  dphLine.value,
+])].filter(Boolean).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })))
+const visibleSections = computed(() => (preview.value?.sections ?? [])
+  .filter(section => !dphLine.value || normalizeDphLine(section.dphdp3_line) === dphLine.value))
 
 let previewSeq = 0
 async function loadPreview() {
@@ -39,6 +80,8 @@ async function loadPreview() {
   const requestedSection = khSection.value
   loading.value = true
   error.value = ''
+  preview.value = null
+  khReport.value = null
   try {
     if (requestedSection === '') {
       khReport.value = null
@@ -56,7 +99,7 @@ async function loadPreview() {
 }
 
 function downloadPdf() {
-  if (!ready.value || !preview.value || loading.value) return
+  if (!ready.value || dphLine.value || !preview.value || loading.value) return
   window.open(reportsApi.dphBookPdfUrl(year.value, month.value, periodType.value), '_blank')
 }
 
@@ -122,7 +165,7 @@ function isNilRow(row: DphBookRow): boolean {
 }
 
 const anyClaimShifted = computed(() =>
-  (preview.value?.sections ?? []).some(s => s.rows.some(claimShifted))
+  visibleSections.value.some(s => s.rows.some(claimShifted))
 )
 
 watch([ready, year, month, periodType, khSection], () => {
@@ -182,13 +225,22 @@ onMounted(() => { void initialize() })
         <select :disabled="!ready" v-model.number="year" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
           <option v-for="y in yearOptions" :key="y" :value="y">{{ y }}</option>
         </select>
-        <select v-model="khSection" :aria-label="t('reports.kh_evidence.filter_label')"
-          class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm max-w-full">
-          <option value="">{{ t('reports.kh_evidence.filter_none') }}</option>
-          <option v-for="s in khSectionOptions" :key="s" :value="s">{{ khSectionLabel(s) }}</option>
-        </select>
+        <label class="flex flex-wrap items-center gap-2 text-sm text-neutral-600 min-w-0 max-w-full">
+          <span class="whitespace-nowrap">{{ t('reports.dph_book.section_filter') }}</span>
+          <select v-model="sectionFilter" :aria-label="t('reports.dph_book.section_filter')"
+          class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm min-w-0 max-w-full">
+            <option value="">{{ t('reports.dph_book.all_sections') }}</option>
+            <optgroup v-if="dphLineOptions.length" :label="t('reports.dph_book.dph_lines')">
+              <option v-for="line in dphLineOptions" :key="line" :value="`dph:${line}`">{{ t('reports.dph_book.line_filter_option', { line }) }}</option>
+            </optgroup>
+            <optgroup :label="t('reports.kh_evidence.filter_label')">
+              <option v-for="s in khSectionOptions" :key="s" :value="`kh:${s}`">{{ khSectionLabel(s) }}</option>
+            </optgroup>
+          </select>
+        </label>
         <template v-if="auth.canRead('reports.export')">
-          <button v-if="khSection === ''" type="button" @click="downloadPdf" :disabled="loading || !preview"
+          <button v-if="khSection === ''" type="button" @click="downloadPdf" :disabled="loading || !preview || !!dphLine"
+            :title="dphLine ? t('reports.dph_book.filtered_line_note') : undefined"
             :class="btnOutline('primary')" class="whitespace-nowrap">
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.download" /></svg>
             {{ t('reports.dph_book.download_pdf') }}
@@ -207,6 +259,12 @@ onMounted(() => { void initialize() })
           </template>
         </template>
       </div>
+    </div>
+
+    <div v-if="dphLine" class="mb-4 rounded-lg border border-primary-200 bg-primary-50 p-3 text-sm">
+      <p class="font-semibold text-primary-700">{{ t('reports.dph_book.filtered_line', { line: dphLine }) }}</p>
+      <p class="mt-1 text-neutral-600">{{ t('reports.dph_book.filtered_line_note') }}</p>
+      <p class="mt-1 text-neutral-600">{{ t('reports.dph_book.current_book_note') }}</p>
     </div>
 
     <div v-if="loading" class="bg-surface border border-neutral-200 rounded-lg shadow-sm p-8 text-center text-neutral-400">
@@ -246,11 +304,11 @@ onMounted(() => { void initialize() })
       </div>
 
       <!-- No data -->
-      <EmptyState v-if="preview.sections.length === 0" boxed accent="neutral" icon="doc"
+      <EmptyState v-if="visibleSections.length === 0" boxed accent="neutral" icon="doc"
         :title="t('reports.dph_book.no_data')" />
 
       <!-- Sections -->
-      <div v-for="section in preview.sections" :key="section.key"
+      <div v-for="section in visibleSections" :key="section.key"
         class="bg-surface border border-neutral-200 rounded-lg shadow-sm overflow-hidden">
         <header class="sticky top-0 px-5 py-3 border-b border-neutral-200 bg-neutral-50">
           <h3 class="text-sm font-semibold text-neutral-800">
@@ -337,7 +395,7 @@ onMounted(() => { void initialize() })
       </div>
 
       <!-- Total summary — odděleně uskutečněná (daň na výstupu) a přijatá (odpočet) -->
-      <div v-if="preview.sections.length > 0" class="grid gap-4 md:grid-cols-2">
+      <div v-if="!dphLine && visibleSections.length > 0" class="grid gap-4 md:grid-cols-2">
         <!-- Uskutečněná plnění -->
         <div class="bg-surface border border-neutral-200 rounded-lg shadow-sm p-4">
           <div class="text-xs uppercase tracking-wide text-neutral-500 font-medium mb-3">
@@ -381,7 +439,7 @@ onMounted(() => { void initialize() })
       </div>
 
       <!-- Výsledná DPH = na výstupu − odpočet (kladná = povinnost, záporná = nadměrný odpočet) -->
-      <div v-if="preview.sections.length > 0"
+      <div v-if="!dphLine && visibleSections.length > 0"
         class="border rounded-lg p-4 flex items-center justify-between"
         :class="preview.totals.vat_balance >= 0
           ? 'bg-primary-50 border-primary-200'

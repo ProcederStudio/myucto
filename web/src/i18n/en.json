@@ -25946,6 +25946,15 @@
       }
     },
     "dph_book": {
+      "section_filter": "VAT return line / control statement section",
+      "all_sections": "Full VAT ledger",
+      "dph_lines": "VAT return lines",
+      "line_filter_option": "Line {line}",
+      "filtered_line": "Documents for VAT return line {line}",
+      "filtered_line_note": "Only sections for the selected line and their subtotals are shown. Clear the filter to view full-period totals or download the full ledger PDF.",
+      "current_book_note": "The ledger shows current documents including drafts, rather than amendment differences or a saved filing. Drafts are excluded from the VAT return. Rounding or partial deductions may also cause amounts to differ.",
+      "open_line_beside": "Open documents for line {line} in the VAT ledger",
+      "open_section_beside": "Open the document list for section {section}",
       "nil_row_note": "Zero base and VAT (typically settlement of a fully paid advance)",
       "nil_kh": "not reported",
       "nil_kh_hint": "A document with zero base and VAT is not included in the control statement. The supply is reported on the tax document for the received payment.",
