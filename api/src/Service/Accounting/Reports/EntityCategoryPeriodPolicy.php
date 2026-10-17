@@ -41,6 +41,13 @@ final class EntityCategoryPeriodPolicy
         ) > 0;
     }
 
+    public static function annualTurnoverWhole(float|int|string $turnover, string $startsOn, string $endsOn): string
+    {
+        $months = self::commencedMonths($startsOn, $endsOn);
+        // Pro jediné zaokrouhlení na celé jednotky stačí první desetinná číslice podílu.
+        return bcround(bcdiv(bcmul(JournalLineAmount::decimal($turnover), '12', 2), (string) $months, 1), 0);
+    }
+
     private static function date(string $date): \DateTimeImmutable
     {
         if (!preg_match('/^\d{4}-\d{2}-\d{2}$/D', $date)) {

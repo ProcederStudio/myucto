@@ -80,7 +80,7 @@ final class DppoXmlBuilderVetaSTest extends TestCase
     /** XML přebírá doložený souhrn výkazu včetně dalších výnosů obchodního modelu. */
     public function testKcDppI1UsesAuthoritativeTurnoverFromIncomeStatement(): void
     {
-        $appendix = ['income_statement' => ['checks' => ['net_turnover' => 9999999.0], 'rows' => [
+        $appendix = ['income_statement' => ['period' => ['starts_on' => '2025-01-01', 'ends_on' => '2025-12-31'], 'checks' => ['net_turnover' => 9999999.0], 'rows' => [
             ['row_code' => 'I.', 'amount' => 1000000.0, 'prev_amount' => 0.0],
             ['row_code' => 'II.', 'amount' => 200000.0, 'prev_amount' => 0.0],
             ['row_code' => 'OBRAT', 'amount' => 9999999.0, 'prev_amount' => 0.0],

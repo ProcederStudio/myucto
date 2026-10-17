@@ -12,6 +12,15 @@ final class NetTurnoverProjection
 
     public static function fromStatement(array $statement): array
     {
+        $result = self::fromStatementDecimal($statement);
+        if ($result['finding'] === null) {
+            $result['amount'] = JournalLineAmount::cents($result['amount']) / 100;
+        }
+        return $result;
+    }
+
+    public static function fromStatementDecimal(array $statement): array
+    {
         if (!is_array($statement['checks'] ?? []) || !is_array($statement['rows'] ?? [])) {
             return ['amount' => null, 'finding' => 'net_turnover_invalid'];
         }
@@ -46,7 +55,7 @@ final class NetTurnoverProjection
         if (count(array_unique($cents)) !== 1) {
             return ['amount' => null, 'finding' => 'net_turnover_conflict'];
         }
-        return ['amount' => $cents[0] / 100, 'finding' => null];
+        return ['amount' => bcdiv((string) $cents[0], '100', 2), 'finding' => null];
     }
 
     public function project(array $rows, array $map, array $balances, string $type, string $startsOn, array $selected = []): array

@@ -6,6 +6,7 @@ namespace MyInvoice\Service\Tax\Return;
 
 use MyInvoice\Service\Bank\AccountNumberNormalizer;
 use MyInvoice\Service\Accounting\Reports\NetTurnoverProjection;
+use MyInvoice\Service\Accounting\Reports\EntityCategoryPeriodPolicy;
 use MyInvoice\Service\Report\EpoEnvelope;
 use MyInvoice\Service\Report\EpoSupplierBlockBuilder;
 use MyInvoice\Service\Tax\TaxConstants;
@@ -1545,14 +1546,35 @@ final class DppoXmlBuilder
         // kc_dpp_i1: jen když je k dispozici VZZ (příloha účetní závěrky).
         $incomeStatement = (array) ($appendix['income_statement'] ?? []);
         if ($incomeStatement !== []) {
-            $turnover = NetTurnoverProjection::fromStatement($incomeStatement);
+            $turnover = NetTurnoverProjection::fromStatementDecimal($incomeStatement);
             if ($turnover['finding'] === null) {
-                $vetaS->setAttribute('kc_dpp_i1', (string) (int) round($turnover['amount']));
+                $period = $incomeStatement['period'] ?? null;
+                if (!is_array($period) || !is_string($period['starts_on'] ?? null) || !is_string($period['ends_on'] ?? null)) {
+                    $turnover['finding'] = 'net_turnover_period_invalid';
+                } else {
+                    try {
+                        $turnover['amount'] = EntityCategoryPeriodPolicy::annualTurnoverWhole($turnover['amount'], $period['starts_on'], $period['ends_on']);
+                    } catch (\InvalidArgumentException) {
+                        $turnover['finding'] = 'net_turnover_period_invalid';
+                    }
+                    if ($turnover['finding'] === null && array_key_exists('as_of', $incomeStatement) && $incomeStatement['as_of'] !== $period['ends_on']) {
+                        $turnover['finding'] = 'net_turnover_period_incomplete';
+                    }
+                    if ($turnover['finding'] === null && (bccomp($turnover['amount'], '99999999999999', 0) > 0 || bccomp($turnover['amount'], '-99999999999999', 0) < 0)) {
+                        $turnover['finding'] = 'net_turnover_xml_range';
+                    }
+                }
+            }
+            if ($turnover['finding'] === null) {
+                $vetaS->setAttribute('kc_dpp_i1', $turnover['amount']);
             } else {
                 $warnings[] = 'Roční úhrn čistého obratu (kc_dpp_i1) nebyl vyplněn: '
                     . match ($turnover['finding']) {
                         'net_turnover_conflict' => 'souhrnné údaje čistého obratu ve výsledovce si odporují.',
                         'net_turnover_invalid' => 'souhrnný údaj čistého obratu ve výsledovce není platná částka.',
+                        'net_turnover_period_invalid' => 've výsledovce chybí platný začátek nebo konec účetního období pro roční přepočet.',
+                        'net_turnover_period_incomplete' => 'výsledovka není sestavena ke konci účetního období.',
+                        'net_turnover_xml_range' => 'roční úhrn čistého obratu přesahuje rozsah 14 číslic formuláře.',
                         default => 've výsledovce chybí doložený souhrnný údaj čistého obratu.',
                     }
                     . ' Ověřte výkaz a přiznání vygenerujte znovu; povinné pole EPO 1703 zůstalo prázdné.';
