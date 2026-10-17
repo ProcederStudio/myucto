@@ -18,6 +18,7 @@ final class ErrorCatalog
 {
     /** @var array<string,string> CZ → EN */
     private const MAP = [
+        'Uzavřené účetní knihy nelze měnit. Nejprve je znovu otevřete.' => 'Closed accounting books cannot be changed. Reopen them first.',
         'ARES je dočasně nedostupný.' => 'ARES is temporarily unavailable.',
         'Přešifrování je potřeba potvrdit.' => 'The re-encryption has to be confirmed.',
         'Přebalení je potřeba potvrdit.' => 'The re-wrap has to be confirmed.',
