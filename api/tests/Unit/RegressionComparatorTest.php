@@ -21,6 +21,39 @@ final class RegressionComparatorTest extends TestCase
         self::assertFalse(Comparator::values(['amount' => '0.000000000001'], ['amount' => '0'])['equal']);
     }
 
+    public function testScientificLookingDocumentNumberDoesNotEnterDecimalParser(): void
+    {
+        $result = Comparator::values(['original_doc_number' => '5E20990101', 'amount' => '12.00'], ['original_doc_number' => '5E20990101', 'amount' => 12]);
+        self::assertTrue($result['equal']);
+        self::assertSame(1, $result['numeric_count']);
+    }
+
+    public function testIdentifierLeadingZeroesRemainSignificant(): void
+    {
+        foreach (['original_doc_number', 'document_number', 'doc_number', 'document_no', 'invoice_number', 'vendor_invoice_number', 'purchase_number', 'doc_no', 'invoice_no', 'varsymbol', 'payment_variable_symbol', 'constant_symbol', 'specific_symbol', 'bank_ref', 'reference', 'payment_reference', 'snapshot_hash', 'idempotency_key'] as $field) {
+            $result = Comparator::values([$field => '0012'], [$field => '12']);
+            self::assertFalse($result['equal'], $field);
+            self::assertSame(0, $result['numeric_count'], $field);
+            self::assertSame('value_or_type', $result['differences'][0]['kind'], $field);
+        }
+    }
+
+    public function testIdentifierTypesRemainSignificantIncludingNestedLists(): void
+    {
+        foreach (['original_doc_number', 'variable_symbol', 'bank_ref', 'input_hash', 'case_key'] as $field) {
+            $result = Comparator::values([$field => ['12']], [$field => [12]]);
+            self::assertFalse($result['equal'], $field);
+            self::assertSame(0, $result['numeric_count'], $field);
+        }
+    }
+
+    public function testFinancialDecimalRangeStillFailsClosed(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('decimal_range');
+        Comparator::values(['amount' => '5E20990101'], ['amount' => '5E20990101']);
+    }
+
     public function testZeroNullMissingRowAndDuplicateRemainDifferent(): void
     {
         self::assertFalse(Comparator::values(['amount' => 0], ['amount' => null])['equal']);

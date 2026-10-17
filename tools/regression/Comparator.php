@@ -40,6 +40,12 @@ final class Comparator
         return ['equal' => $differences === [], 'numeric_count' => $numericCount, 'differences' => $differences];
     }
 
+    public static function isIdentifierField(string $key): bool
+    {
+        return in_array($key, ['original_doc_number', 'document_number', 'doc_number', 'document_no', 'invoice_number', 'vendor_invoice_number', 'purchase_number', 'doc_no', 'invoice_no', 'varsymbol'], true)
+            || preg_match('/(?:^|_)(?:symbol|reference|ref|hash|sha256|key)$/D', $key) === 1;
+    }
+
     private static function walk(mixed $left, mixed $right, string $path, string $key, array &$diff, int &$count): void
     {
         if (is_array($left) && is_array($right)) {
@@ -57,7 +63,7 @@ final class Comparator
             }
             return;
         }
-        $numeric = !preg_match('/(^id$|_id$|^year$|^month$|^fiscal_year$|^code$|_code$|^level$|^sort_order$|^row_version$|^accounting_decree$)/', $key);
+        $numeric = !self::isIdentifierField($key) && !preg_match('/(^id$|_id$|^year$|^month$|^fiscal_year$|^code$|_code$|^level$|^sort_order$|^row_version$|^accounting_decree$)/', $key);
         if ($numeric && (is_int($left) || is_float($left) || is_string($left)) && (is_int($right) || is_float($right) || is_string($right))) {
             $a = self::decimal($left);
             $b = self::decimal($right);
