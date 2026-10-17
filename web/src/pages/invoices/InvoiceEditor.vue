@@ -61,7 +61,7 @@ import ItemDimensionsToggle from '@/components/dimensions/ItemDimensionsToggle.v
 import { useDocumentDimensions, applyPrefill } from '@/composables/useDocumentDimensions'
 import { durationTotal, isPreciseTimeItem, isTimeItem, itemAmount, itemQuantity, syncCreditNoteItemSign, timeItemTotals, validateDurationInputs, workHours, workRowTotal } from '@/utils/timeBilling'
 import { groupInvoiceStockAvailability, invoiceStockAvailabilityKey } from './invoiceStockAvailability'
-import { useUnitDecimals } from '@/composables/useUnitDecimals'
+import { unchangedRows, useUnitDecimals } from '@/composables/useUnitDecimals'
 import {
   availabilityQuantity,
   availabilityUnit,
@@ -193,9 +193,16 @@ const currencies = ref<Currency[]>([])
 const units = ref<Unit[]>([])
 // Desetinná místa množství podle jednotky (2018): upozornění místo tichého zaokrouhlení.
 const { decimalsFor: unitDecimalsFor, tooPrecise: quantityTooPrecise, stepFor: quantityStepFor, mathDecimalsFor: quantityMathDecimals } = useUnitDecimals(units)
+// Uložené řádky dokladu: řádek beze změny jednotky a množství se nekontroluje (vznikl
+// dřív, než jednotka dostala nastavení), stejně jako na serveru.
+const storedItemQuantities = ref<Array<{ quantity: unknown; unit?: string | null }>>([])
+const storedMatQuantities = ref<Array<{ quantity: unknown; unit?: string | null }>>([])
 /** Časový řádek se zadává jako doba (h:mm), množství z ní jen vychází, proto se nekontroluje. */
 function itemQtyTooPrecise(item: Parameters<typeof isTimeItem>[0]): boolean {
-  return !isTimeItem(item) && quantityTooPrecise(item.quantity, item.unit)
+  return !isTimeItem(item) && quantityTooPrecise(item.quantity, item.unit) && !unchangedItems.value.has(item)
+}
+function matQtyTooPrecise(m: { quantity: unknown; unit?: string | null }): boolean {
+  return quantityTooPrecise(m.quantity, m.unit) && !unchangedMaterials.value.has(m)
 }
 const priceListItems = ref<PriceListItem[]>([])
 const selectedPriceListItemId = ref<number | null>(null)
@@ -1348,6 +1355,7 @@ onMounted(async () => {
     }
     editedStatus.value = inv.status
     editedVarsymbol.value = inv.varsymbol
+    storedItemQuantities.value = inv.items.filter(i => i.item_kind !== 'discount').map(i => ({ quantity: i.quantity, unit: i.unit }))
     editedType.value = inv.invoice_type
     Object.assign(form.value, {
       invoice_type: (inv.invoice_type === 'proforma' || inv.invoice_type === 'credit_note'
@@ -1986,6 +1994,7 @@ async function loadWorkReport() {
     // Materiál
     if (wr.material_title) matTitle.value = wr.material_title
     matItems.value = (wr.materials ?? []).map(m => ({ ...m }))
+    storedMatQuantities.value = (wr.materials ?? []).map(m => ({ quantity: m.quantity, unit: m.unit }))
     matVatRateId.value = supplierIsVatPayer.value
       ? (wr.material_vat_rate_id ?? vatRateIdByPercent(12) ?? defaultVatRateId())
       : defaultVatRateId()
@@ -2136,6 +2145,8 @@ function checkWorkReportSync(): string | null {
 }
 
 // ── Materiál: řádky + přenos ───────────────────────────────────────────
+const unchangedItems = computed(() => unchangedRows(form.value.items, storedItemQuantities.value))
+const unchangedMaterials = computed(() => unchangedRows(matItems.value, storedMatQuantities.value))
 const matItemsValid = computed(() => matItems.value.filter(m => (m.description || '').trim() !== '' && (Number(m.quantity) || 0) > 0))
 const matTotal = computed(() => matItemsValid.value.reduce((s, m) => s + Math.round((Number(m.quantity) || 0) * (Number(m.unit_price) || 0) * 100) / 100, 0))
 
@@ -2362,7 +2373,7 @@ async function submit() {
   // Množství s víc desetinnými místy, než jednotka dovoluje (2018). Nezaokrouhluje se,
   // uživatel opraví vstup sám; server by stejný doklad odmítl 400.
   if (form.value.items.some(itemQtyTooPrecise)
-    || (matOpen.value && matItemsValid.value.some(m => quantityTooPrecise(m.quantity, m.unit)))) {
+    || (matOpen.value && matItemsValid.value.some(m => matQtyTooPrecise(m)))) {
     error.value = t('invoice.quantity_decimals_blocked')
     return
   }
@@ -3806,8 +3817,8 @@ useWindowTitle(
                 </td>
                 <td class="px-2 py-1.5">
                   <input v-model.number="m.quantity" type="number" :step="quantityStepFor(m.unit)" min="0"
-                    :class="['w-full h-9 px-2 border rounded text-sm text-right font-mono', quantityTooPrecise(m.quantity, m.unit) ? 'border-danger-400' : 'border-neutral-300']" />
-                  <p v-if="quantityTooPrecise(m.quantity, m.unit)" class="mt-1 text-xs text-danger-600">
+                    :class="['w-full h-9 px-2 border rounded text-sm text-right font-mono', matQtyTooPrecise(m) ? 'border-danger-400' : 'border-neutral-300']" />
+                  <p v-if="matQtyTooPrecise(m)" class="mt-1 text-xs text-danger-600">
                     {{ t('invoice.quantity_decimals_warning', { unit: m.unit, n: unitDecimalsFor(m.unit) }) }}
                   </p>
                 </td>
@@ -3873,8 +3884,8 @@ useWindowTitle(
                 <div>
                   <label class="block text-xs font-medium text-neutral-600 mb-1">{{ t('invoice.wr_material_qty') }}</label>
                   <input v-model.number="m.quantity" type="number" inputmode="decimal" :step="quantityStepFor(m.unit)" min="0"
-                    :class="['w-full h-10 px-3 border rounded text-right font-mono text-sm bg-surface', quantityTooPrecise(m.quantity, m.unit) ? 'border-danger-400' : 'border-neutral-300']" />
-                  <p v-if="quantityTooPrecise(m.quantity, m.unit)" class="mt-1 text-xs text-danger-600">
+                    :class="['w-full h-10 px-3 border rounded text-right font-mono text-sm bg-surface', matQtyTooPrecise(m) ? 'border-danger-400' : 'border-neutral-300']" />
+                  <p v-if="matQtyTooPrecise(m)" class="mt-1 text-xs text-danger-600">
                     {{ t('invoice.quantity_decimals_warning', { unit: m.unit, n: unitDecimalsFor(m.unit) }) }}
                   </p>
                 </div>

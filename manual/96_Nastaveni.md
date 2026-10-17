@@ -513,7 +513,9 @@ omezení nemá.
 
 Zadáte-li přesnější množství (například 1,5 u jednotky s `0`), editor pole zvýrazní, pod ním vypíše povolený počet míst
 a doklad neuloží. Nic se nezaokrouhluje, množství opravíte sami. API stejný vstup odmítne chybou 400 `validation_failed`
-se seznamem řádků (`items`: pořadí řádku, jednotka, povolená místa). Časové řádky v hodinách se zadávají jako doba
+se seznamem řádků (`items`: pořadí řádku, jednotka, povolená místa). Řádek bez jednotky se kontroluje jako `ks`, se kterou
+se uloží. Při úpravě dokladu se kontrolují jen nové a změněné řádky: řádek uložený dřív, než jednotka dostala nastavení,
+projde beze změny dál, takže doklad jde uložit i se starým množstvím. Časové řádky v hodinách se zadávají jako doba
 (h:mm) a nekontrolují se. Importy dokladů, opakovaná fakturace a automatické výdejky k fakturám se nekontrolují
 také, převádějí už vzniklá data.
 

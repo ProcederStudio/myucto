@@ -174,11 +174,14 @@ final class PartialUpdateItemsTest extends TestCase
     }
 
     /**
-     * Desetinná místa podle jednotky (2018) se kontrolují jen u POSLANÝCH řádků.
-     * Doklad založený před nastavením jednotky musí jít dál upravovat v hlavičce;
-     * přeposlané řádky kontrolou neprojdou a 400 uživateli řekne, co opravit.
+     * Desetinná místa podle jednotky (2018) se kontrolují jen u nových a změněných řádků.
+     * Doklad s řádkem uloženým dřív, než jednotka dostala nastavení, musí jít dál ukládat:
+     * bez klíče `items` i s řádky poslanými beze změny (editor posílá vždy všechny).
+     * Změněné množství už kontrolou neprojde.
+     *
+     * BEZ OPRAVY PADÁ: PUT s řádky beze změny vracel 400 a doklad nešel uložit vůbec.
      */
-    public function testUnitDecimalsCheckOnlyAppliesToSentItems(): void
+    public function testUnitDecimalsCheckSkipsUnchangedStoredRows(): void
     {
         $code = 'pu' . substr(bin2hex(random_bytes(4)), 0, 6);
         $pdo = $this->db->pdo();
@@ -199,10 +202,29 @@ final class PartialUpdateItemsTest extends TestCase
             $res = $this->put($id, $partial);
             self::assertSame(200, $res['status'], json_encode($res['body'], JSON_UNESCAPED_UNICODE));
 
-            $res = $this->put($id, $body);
+            // Starý řádek beze změny (jiná jednotka zápisu, jiné pořadí) projde.
+            $unchanged = $body;
+            $unchanged['note_above_items'] = 'Změna hlavičky.';
+            $unchanged['items'][0]['unit'] = strtoupper($code);
+            $unchanged['items'] = array_reverse($unchanged['items']);
+            $res = $this->put($id, $unchanged);
+            self::assertSame(200, $res['status'], json_encode($res['body'], JSON_UNESCAPED_UNICODE));
+
+            // Změněné množství ne, a nic se nesmaže.
+            $changed = $body;
+            $changed['items'][0]['quantity'] = 2.5;
+            $res = $this->put($id, $changed);
             self::assertSame(400, $res['status'], json_encode($res['body'], JSON_UNESCAPED_UNICODE));
             self::assertSame('validation_failed', $res['body']['error']['code'] ?? null);
+            self::assertSame([['index' => 0, 'unit' => $code, 'decimals' => 0]], $res['body']['error']['items'] ?? null);
             self::assertSame(2, $this->itemCount($id), 'Odmítnutý požadavek nesmí nic smazat.');
+
+            // Nový řádek se stejným množstvím jako starý (druhá kopie) se kontroluje.
+            $copy = $body;
+            $copy['items'][] = $body['items'][0];
+            $res = $this->put($id, $copy);
+            self::assertSame(400, $res['status'], json_encode($res['body'], JSON_UNESCAPED_UNICODE));
+            self::assertSame([['index' => 2, 'unit' => $code, 'decimals' => 0]], $res['body']['error']['items'] ?? null);
         } finally {
             $pdo->prepare('DELETE FROM units WHERE code = ?')->execute([$code]);
         }

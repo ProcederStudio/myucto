@@ -175,11 +175,14 @@ final class UpdateInvoiceAction
             }
         }
 
-        // Desetinná místa množství podle měrné jednotky (2018), jen u POSLANÝCH řádků:
-        // vynechaný klíč `items` nechá uložené řádky, jak jsou. Před přečíslováním,
-        // ať odmítnutí nespálí číslo řady.
+        // Desetinná místa množství podle měrné jednotky (2018), jen u NOVÝCH a ZMĚNĚNÝCH
+        // řádků: vynechaný klíč `items` nechá uložené řádky, jak jsou, a řádek poslaný
+        // beze změny množství a jednotky ({@see UnitPrecision::unchangedIndexes()}) se
+        // nekontroluje, jinak by doklad uložený před nastavením jednotky nešel uložit
+        // (a u vystaveného by ho IssuedInvoiceStockGuard nedovolil ani opravit).
+        // Před přečíslováním, ať odmítnutí nespálí číslo řady.
         if (DocumentItemsPayload::replaces($body) && is_array($body['items'])) {
-            $tooPrecise = $this->unitPrecision->check($body['items']);
+            $tooPrecise = $this->unitPrecision->check($body['items'], 'quantity', (array) ($existing['items'] ?? []));
             if ($tooPrecise !== []) {
                 return Json::error($response, 'validation_failed', UnitPrecision::ERROR_MESSAGE, 400, ['items' => $tooPrecise]);
             }

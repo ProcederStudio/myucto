@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ref } from 'vue'
-import { decimalPlaces, useUnitDecimals } from '../useUnitDecimals'
+import { decimalPlaces, unchangedRows, useUnitDecimals } from '../useUnitDecimals'
 
 describe('decimalPlaces', () => {
   it.each([
@@ -74,5 +74,26 @@ describe('useUnitDecimals', () => {
     expect(decimalsFor('ks')).toBeNull()
     list.value = [{ code: 'ks', quantity_decimals: 0 }]
     expect(decimalsFor('ks')).toBe(0)
+  })
+})
+
+// Stejné párování jako UnitPrecision::unchangedIndexes() na serveru: řádek uložený
+// dřív, než jednotka dostala nastavení, editor neblokuje, pokud se nezměnil.
+describe('unchangedRows', () => {
+  it('páruje podle jednotky a množství, každý uložený řádek jednou', () => {
+    const stored = [{ quantity: '2.125', unit: 'kg' }, { quantity: '1.500', unit: 'ks' }]
+    const a = { quantity: 2.125, unit: 'KG' }
+    const b = { quantity: '2.125', unit: 'kg' }
+    const c = { quantity: '1.25', unit: 'ks' }
+    const d = { quantity: '1,5' } // bez jednotky = ks
+    const set = unchangedRows([a, b, c, d], stored)
+    expect(set.has(a)).toBe(true)
+    expect(set.has(b)).toBe(false)
+    expect(set.has(c)).toBe(false)
+    expect(set.has(d)).toBe(true)
+  })
+
+  it('bez uložených řádků nic', () => {
+    expect(unchangedRows([{ quantity: 1, unit: 'ks' }], []).size).toBe(0)
   })
 })

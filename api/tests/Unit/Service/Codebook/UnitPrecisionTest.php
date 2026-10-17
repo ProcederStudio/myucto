@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MyInvoice\Tests\Unit\Service\Codebook;
 
+use MyInvoice\Repository\InvoiceRepository;
 use MyInvoice\Service\Codebook\UnitPrecision;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -98,6 +99,47 @@ final class UnitPrecisionTest extends TestCase
         self::assertSame(2, UnitPrecision::printDecimals('1.5', 2));
         self::assertSame(0, UnitPrecision::printDecimals('3.000', 0));
         self::assertSame(3, UnitPrecision::printDecimals('2.125', 0), 'Starý řádek se při tisku nezaokrouhlí.');
+    }
+
+    /**
+     * BEZ OPRAVY PADÁ: řádek bez klíče `unit` kontrolu obešel, repozitář ho ale
+     * uloží s výchozí jednotkou. Prázdný řetězec je jiná jednotka (mimo číselník).
+     */
+    public function testMissingUnitKeyMeansDefaultUnitLikeRepository(): void
+    {
+        self::assertSame(
+            [['index' => 0, 'unit' => InvoiceRepository::DEFAULT_ITEM_UNIT, 'decimals' => 0]],
+            UnitPrecision::violations([['quantity' => 1.5]], [InvoiceRepository::DEFAULT_ITEM_UNIT => 0]),
+        );
+        self::assertSame(
+            [['index' => 0, 'unit' => InvoiceRepository::DEFAULT_ITEM_UNIT, 'decimals' => 0]],
+            UnitPrecision::violations([['quantity' => 1.5, 'unit' => null]], [InvoiceRepository::DEFAULT_ITEM_UNIT => 0]),
+        );
+        self::assertSame([], UnitPrecision::violations([['quantity' => 1.5, 'unit' => '']], [InvoiceRepository::DEFAULT_ITEM_UNIT => 0]));
+    }
+
+    /**
+     * BEZ OPRAVY PADÁ: PUT kontroloval i řádky poslané beze změny, takže doklad
+     * s dřív uloženým 2,125 kg nešel po nastavení jednotky uložit vůbec.
+     */
+    public function testUnchangedStoredRowsArePairedByIdOrByUnitAndQuantity(): void
+    {
+        $stored = [
+            ['id' => 10, 'quantity' => '2.125', 'unit' => 'kg'],
+            ['id' => 11, 'quantity' => '1.500', 'unit' => 'ks'],
+        ];
+        $sent = [
+            ['quantity' => 2.125, 'unit' => 'KG'],         // beze změny, bez id (editor id neposílá)
+            ['quantity' => '2.125', 'unit' => 'kg'],       // druhá kopie: uložený řádek už je spárovaný
+            ['id' => 11, 'quantity' => '1.25', 'unit' => 'ks'], // id sedí, množství se změnilo
+            ['quantity' => '1.5', 'unit' => 'ks'],         // jako uložený řádek 11, ten ale patří id výše
+        ];
+
+        self::assertSame([0 => true], UnitPrecision::unchangedIndexes($sent, $stored));
+        self::assertSame([], UnitPrecision::unchangedIndexes([['quantity' => '2.1251', 'unit' => 'kg']], $stored));
+        self::assertSame([0 => true], UnitPrecision::unchangedIndexes([['id' => 10, 'quantity' => '2,125', 'unit' => 'kg']], $stored));
+        // Bez klíče unit = výchozí jednotka, stejně jako při ukládání.
+        self::assertSame([0 => true], UnitPrecision::unchangedIndexes([['quantity' => '1.5']], [['id' => 3, 'quantity' => '1.500', 'unit' => 'ks']]));
     }
 
     public function testKeyIsCaseAndWhitespaceInsensitive(): void

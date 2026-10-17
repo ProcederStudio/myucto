@@ -38,6 +38,56 @@ export function decimalPlaces(value: unknown): number | null {
   return (m[1] ?? '').replace(/0+$/, '').length
 }
 
+/** Jednotka řádku bez klíče `unit`, stejně jako InvoiceRepository::DEFAULT_ITEM_UNIT. */
+export const DEFAULT_ITEM_UNIT = 'ks'
+
+function canonicalQuantity(value: unknown): string | null {
+  let s: string
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return null
+    s = value.toFixed(9)
+  } else if (typeof value === 'string') {
+    s = value.trim().replace(',', '.')
+  } else {
+    return null
+  }
+  const m = /^([+-]?)(\d*)(?:\.(\d*))?$/.exec(s)
+  if (!m || (m[2] === '' && (m[3] ?? '') === '')) return null
+  const int = m[2].replace(/^0+/, '') || '0'
+  const frac = (m[3] ?? '').replace(/0+$/, '')
+  const abs = frac ? `${int}.${frac}` : int
+  return m[1] === '-' && abs !== '0' ? `-${abs}` : abs
+}
+
+function signature(row: { quantity?: unknown; unit?: string | null }): string | null {
+  const q = canonicalQuantity(row.quantity)
+  return q === null ? null : `${unitKey(row.unit ?? DEFAULT_ITEM_UNIT)}|${q}`
+}
+
+/**
+ * Řádky, které mají stejnou jednotku a množství jako některý uložený řádek dokladu
+ * (každý uložený řádek se spáruje nejvýš jednou). Takový řádek vznikl dřív, než
+ * jednotka dostala nastavení, a editor ho neblokuje. Stejné pravidlo jako
+ * `UnitPrecision::unchangedIndexes()` na serveru.
+ */
+export function unchangedRows(
+  rows: ReadonlyArray<{ quantity?: unknown; unit?: string | null }>,
+  stored: ReadonlyArray<{ quantity?: unknown; unit?: string | null }>,
+): ReadonlySet<unknown> {
+  const pool = stored.map(signature)
+  const out = new Set<unknown>()
+  for (const row of rows) {
+    const sig = signature(row)
+    if (sig === null) continue
+    const hit = pool.indexOf(sig)
+    if (hit >= 0) {
+      out.add(row)
+      pool[hit] = null
+    }
+  }
+  return out
+}
+
 export function useUnitDecimals(units: MaybeRef<UnitWithDecimals[]>) {
   const map = computed(() => {
     const out = new Map<string, number>()

@@ -767,16 +767,6 @@ final class InvoicePdfRenderer
     }
 
     /**
-     * Balení na PDF (issue #17): řádek skladové karty fakturovaný v balení dostane
-     * `base_qty` a `base_unit` a šablona pod jednotku doplní „(celkem 80 ks)".
-     * Přepíná `supplier.invoice_pdf_show_base_qty` (čte se živě — je to volba
-     * vzhledu, ne údaj dokladu). Převod dělá jen StockUnitConverter; řádek
-     * v základní nebo neznámé jednotce zůstane beze změny.
-     *
-     * @param array<string,mixed> $invoice
-     * @return list<array<string,mixed>>|array<int|string,mixed>
-     */
-    /**
      * Pevný počet desetinných míst množství podle jednotky (2018). Řádek s jednotkou,
      * která nastavení nemá, dostane null a šablona tiskne dnešní adaptivní formát.
      *
@@ -799,6 +789,16 @@ final class InvoicePdfRenderer
         return $items;
     }
 
+    /**
+     * Balení na PDF (issue #17): řádek skladové karty fakturovaný v balení dostane
+     * `base_qty` a `base_unit` a šablona pod jednotku doplní „(celkem 80 ks)".
+     * Přepíná `supplier.invoice_pdf_show_base_qty` (čte se živě — je to volba
+     * vzhledu, ne údaj dokladu). Převod dělá jen StockUnitConverter; řádek
+     * v základní nebo neznámé jednotce zůstane beze změny.
+     *
+     * @param array<string,mixed> $invoice
+     * @return list<array<string,mixed>>|array<int|string,mixed>
+     */
     private function withBaseQuantity(array $invoice): array
     {
         $items = (array) ($invoice['items'] ?? []);

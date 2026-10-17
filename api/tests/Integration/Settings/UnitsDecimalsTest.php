@@ -189,6 +189,35 @@ final class UnitsDecimalsTest extends TestCase
         self::assertSame('2.000', $this->storedQuantity($id), 'Odmítnutá úprava nesmí přepsat řádek.');
     }
 
+    /**
+     * BEZ OPRAVY PADÁ: řádek bez klíče `unit` (token, MCP) kontrolu obešel, ale uloží
+     * se s výchozí jednotkou dokladu. Výchozí jednotka je globální, proto se jí nastavení
+     * jen dočasně změní a vrátí.
+     */
+    public function testItemWithoutUnitKeyIsCheckedAsDefaultUnit(): void
+    {
+        $pdo = $this->db->pdo();
+        $default = \MyInvoice\Repository\InvoiceRepository::DEFAULT_ITEM_UNIT;
+        $stmt = $pdo->prepare('SELECT id, quantity_decimals FROM units WHERE code = ?');
+        $stmt->execute([$default]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if ($row === false) {
+            self::markTestSkipped("Výchozí jednotka '$default' není v číselníku.");
+        }
+        $pdo->prepare('UPDATE units SET quantity_decimals = 0 WHERE id = ?')->execute([(int) $row['id']]);
+        try {
+            $item = $this->item('Bez jednotky', 1.5, 'x');
+            unset($item['unit']);
+            $res = $this->call('POST', fn ($req, $res) => ($this->create)($req, $res), $this->payload([$item]));
+
+            self::assertSame(400, $res['status'], json_encode($res['body'], JSON_UNESCAPED_UNICODE));
+            self::assertSame([['index' => 0, 'unit' => $default, 'decimals' => 0]], $res['body']['error']['items'] ?? null);
+        } finally {
+            $pdo->prepare('UPDATE units SET quantity_decimals = ? WHERE id = ?')
+                ->execute([$row['quantity_decimals'], (int) $row['id']]);
+        }
+    }
+
     public function testQuantityWithinUnitDecimalsAndUnitsWithoutSettingStayAsToday(): void
     {
         $this->unit('kg', 2);
