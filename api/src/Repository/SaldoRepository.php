@@ -483,7 +483,7 @@ final class SaldoRepository
         return iterator_to_array($this->iterateDefinitiveOpenRows($sql, $params, $map, $limit), false);
     }
 
-    private function iterateDefinitiveOpenRows(string $sql, callable $params, callable $map, ?int $limit): \Generator
+    private function iterateDefinitiveOpenRows(string $sql, callable $params, callable $map, ?int $limit, bool $currentRead = false): \Generator
     {
         $pageSize = $limit === null
             ? $this->candidatePageSize
@@ -491,7 +491,7 @@ final class SaldoRepository
         $offset = 0;
         $count = 0;
         do {
-            $pageSql = $sql . self::limitSql($pageSize, $offset);
+            $pageSql = $sql . self::limitSql($pageSize, $offset) . ($currentRead ? ' FOR UPDATE' : '');
             $stmt = $this->db->pdo()->prepare($pageSql);
             $stmt->execute($params($pageSql));
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -510,12 +510,13 @@ final class SaldoRepository
         } while (count($rows) === $pageSize);
     }
 
-    public function iterateOpenInvoiceItems(int $supplierId, int $accountId, string $asOf, ?array $invoiceIds = null): \Generator
+    public function iterateOpenInvoiceItems(int $supplierId, int $accountId, string $asOf, ?array $invoiceIds = null, bool $currentRead = false): \Generator
     {
         if ($invoiceIds === []) {
             return;
         }
         $pdo = $this->db->pdo();
+        if ($currentRead && !$pdo->inTransaction()) throw new \LogicException('Current saldo reads require caller period-first locks and a transaction.');
         $ownsSnapshot = !$pdo->inTransaction();
         if ($ownsSnapshot) {
             $pdo->exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
@@ -524,10 +525,10 @@ final class SaldoRepository
         }
         try {
             if ($invoiceIds === null) {
-                yield from $this->fetchOpenInvoices($supplierId, $accountId, $asOf, null, stream: true);
+                yield from $this->fetchOpenInvoices($supplierId, $accountId, $asOf, null, stream: true, currentRead: $currentRead);
             } else {
                 foreach (array_chunk(array_values(array_unique(array_map('intval', $invoiceIds))), 500) as $chunk) {
-                    yield from $this->fetchOpenInvoices($supplierId, $accountId, $asOf, null, stream: true, invoiceIds: $chunk);
+                    yield from $this->fetchOpenInvoices($supplierId, $accountId, $asOf, null, stream: true, invoiceIds: $chunk, currentRead: $currentRead);
                 }
             }
         } finally {
@@ -549,7 +550,7 @@ final class SaldoRepository
      * navíc uvnitř dalšího poddotazu na každý řádek sestavy); teď je to jedna agregace
      * přes bankovní zápisy firmy. Obsahuje JEDEN placeholder: asOf.
      */
-    private static function bankSettleCte(int $supplierId): string
+    private static function bankSettleCte(int $supplierId, bool $currentRead = false): string
     {
         return
             "SELECT be.source_id AS bank_transaction_id, MIN(be.entry_date) AS settled_on
@@ -557,7 +558,7 @@ final class SaldoRepository
                LEFT JOIN journal_entries brev ON brev.id = be.reversed_by
               WHERE be.supplier_id = {$supplierId} AND be.source_type = 'bank' AND be.posted_at IS NOT NULL
                 AND (be.reversed_by IS NULL OR brev.entry_date > ?)
-              GROUP BY be.source_id";
+              GROUP BY be.source_id" . ($currentRead ? ' FOR UPDATE' : '');
     }
 
     /**
@@ -965,10 +966,12 @@ final class SaldoRepository
         bool $orderByDue = false,
         bool $stream = false,
         ?array $invoiceIds = null,
+        bool $currentRead = false,
     ): array|\Generator
     {
         $invoiceFilter = $invoiceIds === null ? '' : ' AND d.id IN (' . implode(',', array_map('intval', $invoiceIds)) . ')';
-        $advanceCte = $this->advanceOnAccountCte('credit', $supplierId, $accountId);
+        $lock = $currentRead ? ' FOR UPDATE' : '';
+        $advanceCte = $this->advanceOnAccountCte('credit', $supplierId, $accountId, $currentRead);
 
         $paidExpr    = 'COALESCE(paid.paid_sum, 0)';
         $advanceExpr = 'ROUND(COALESCE(adv.advance_sum, 0), 2)';
@@ -992,11 +995,12 @@ final class SaldoRepository
             'credit',
             LinkedManualSettlementSql::accountIdPredicate($accountId),
             (string) $supplierId,
+            currentRead: $currentRead,
         );
 
         $sql =
             "WITH bank_settle AS (
-                " . self::bankSettleCte($supplierId) . "
+                " . self::bankSettleCte($supplierId, $currentRead) . "
             ), man AS (
                 {$manualCte}
             ), paid AS (
@@ -1006,7 +1010,7 @@ final class SaldoRepository
                   LEFT JOIN bank_settle bs ON bs.bank_transaction_id = ip.bank_transaction_id
                  WHERE ip.supplier_id = {$supplierId}
                    AND COALESCE(bs.settled_on, DATE(ipbt.posted_at), ip.paid_on) <= ?
-                 GROUP BY ip.invoice_id
+                 GROUP BY ip.invoice_id{$lock}
             ), advances AS (
                 {$advanceCte}
             )
@@ -1089,6 +1093,7 @@ final class SaldoRepository
                 ];
             },
             $limit,
+            ...($stream ? [$currentRead] : []),
         );
     }
 
@@ -1144,15 +1149,16 @@ final class SaldoRepository
      * @param 'credit'|'debit' $side strana, na kterou úhrada zálohy dopadá na daném účtu
      *                               (311 pohledávka → credit, 321 závazek → debit)
      */
-    private function advanceOnAccountCte(string $side, int $supplierId, int $accountId): string
+    private function advanceOnAccountCte(string $side, int $supplierId, int $accountId, bool $currentRead = false): string
     {
+        $lock = $currentRead ? ' FOR UPDATE' : '';
         if ($side === 'credit') {
             $key = 'pip.invoice_id';
             $from = "FROM invoice_payments pip
                      JOIN invoices pf ON pf.id = pip.invoice_id AND pf.supplier_id = pip.supplier_id
                                      AND pf.invoice_type = 'proforma'";
             $childExists = "EXISTS (SELECT 1 FROM invoices ch
-                                     WHERE ch.supplier_id = pf.supplier_id AND ch.parent_invoice_id = pf.id)";
+                                     WHERE ch.supplier_id = pf.supplier_id AND ch.parent_invoice_id = pf.id{$lock})";
             $cashLink = 'cd.invoice_payment_id = pip.id';
         } else {
             $key = 'pip.purchase_invoice_id';
@@ -1160,7 +1166,7 @@ final class SaldoRepository
                      JOIN purchase_invoices pf ON pf.id = pip.purchase_invoice_id AND pf.supplier_id = pip.supplier_id
                                               AND pf.document_kind = 'advance'";
             $childExists = "EXISTS (SELECT 1 FROM purchase_invoices ch
-                                     WHERE ch.supplier_id = pf.supplier_id AND ch.advance_purchase_invoice_id = pf.id)";
+                                     WHERE ch.supplier_id = pf.supplier_id AND ch.advance_purchase_invoice_id = pf.id{$lock})";
             $cashLink = 'cd.purchase_invoice_id = pf.id';
         }
 
@@ -1187,7 +1193,7 @@ final class SaldoRepository
                           FROM journal_entries pe
                           {$postedOnAccount}
                            AND pe.supplier_id = pip.supplier_id
-                           AND pe.source_type = 'bank' AND pe.source_id = pip.bank_transaction_id
+                           AND pe.source_type = 'bank' AND pe.source_id = pip.bank_transaction_id{$lock}
                     ))
                     OR EXISTS (
                         SELECT 1
@@ -1195,10 +1201,10 @@ final class SaldoRepository
                           JOIN journal_entries pe ON pe.supplier_id = cd.supplier_id
                                                  AND pe.source_type = 'cash' AND pe.source_id = cd.id
                           {$postedOnAccount}
-                           AND cd.supplier_id = pip.supplier_id AND {$cashLink}
+                           AND cd.supplier_id = pip.supplier_id AND {$cashLink}{$lock}
                     )
                 )
-              GROUP BY {$key}";
+              GROUP BY {$key}{$lock}";
     }
 
     /**

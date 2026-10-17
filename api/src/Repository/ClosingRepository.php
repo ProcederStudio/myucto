@@ -130,16 +130,18 @@ final class ClosingRepository
         return JournalLineComparison::sameLines(array_map(JournalLineAmount::reversal(...), $original['lines']), $reversal['lines']);
     }
 
-    public function provisionSourceId(int $supplierId, int $periodId, int $invoiceId): int
+    public function provisionSourceId(int $supplierId, int $periodId, int $invoiceId, bool $currentRead = false): int
     {
         $pdo = $this->db->pdo();
-        $mapped = $pdo->prepare('SELECT id FROM accounting_receivable_provisions WHERE supplier_id = ? AND period_id = ? AND invoice_id = ?');
+        if ($currentRead && !$pdo->inTransaction()) throw new \LogicException('Current provision mapping requires a transaction.');
+        $lock = $currentRead ? ' FOR UPDATE' : '';
+        $mapped = $pdo->prepare('SELECT id FROM accounting_receivable_provisions WHERE supplier_id = ? AND period_id = ? AND invoice_id = ?' . $lock);
         $mapped->execute([$supplierId, $periodId, $invoiceId]);
         $mappedId = $mapped->fetchColumn();
         if ($mappedId !== false) {
             return ClosingSourceId::PROVISION_BASE + (int) $mappedId;
         }
-        $legacy = $pdo->prepare("SELECT period_id FROM journal_entries WHERE supplier_id = ? AND source_type = 'provision' AND source_id = ? LIMIT 1");
+        $legacy = $pdo->prepare("SELECT period_id FROM journal_entries WHERE supplier_id = ? AND source_type = 'provision' AND source_id = ? LIMIT 1" . $lock);
         $legacy->execute([$supplierId, $invoiceId]);
         $legacyPeriod = $legacy->fetchColumn();
         if ($legacyPeriod === false || (int) $legacyPeriod === $periodId) {
@@ -147,14 +149,16 @@ final class ClosingRepository
         }
         $pdo->prepare('INSERT INTO accounting_receivable_provisions (supplier_id, period_id, invoice_id) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE id = id')
             ->execute([$supplierId, $periodId, $invoiceId]);
-        $stmt = $pdo->prepare('SELECT id FROM accounting_receivable_provisions WHERE supplier_id = ? AND period_id = ? AND invoice_id = ?');
+        $stmt = $pdo->prepare('SELECT id FROM accounting_receivable_provisions WHERE supplier_id = ? AND period_id = ? AND invoice_id = ?' . $lock);
         $stmt->execute([$supplierId, $periodId, $invoiceId]);
         return ClosingSourceId::PROVISION_BASE + (int) $stmt->fetchColumn();
     }
 
-    public function provisionOpeningState(int $supplierId, string $startsOn, string $endsOn): array
+    public function provisionOpeningState(int $supplierId, string $startsOn, string $endsOn, bool $currentRead = false): array
     {
-        $origin = \MyInvoice\Service\Tax\Return\JournalTaxOrigin::provisionsBeforeCte($supplierId);
+        if ($currentRead && !$this->db->pdo()->inTransaction()) throw new \LogicException('Current provision balances require a transaction.');
+        $lock = $currentRead ? ' FOR UPDATE' : '';
+        $origin = \MyInvoice\Service\Tax\Return\JournalTaxOrigin::provisionsBeforeCte($supplierId, $currentRead);
         $stmt = $this->db->pdo()->prepare(
             "WITH RECURSIVE {$origin}
              SELECT COALESCE(pr.invoice_id, tax_origin.source_id) AS invoice_id,
@@ -170,7 +174,7 @@ final class ClosingRepository
                      AND pr.supplier_id = e.supplier_id
               WHERE e.supplier_id = ? AND e.posted_at IS NOT NULL AND e.entry_date <= ?
                 AND tax_origin.source_type = 'provision' AND tax_origin.source_id IS NOT NULL
-              GROUP BY COALESCE(pr.invoice_id, tax_origin.source_id)"
+              GROUP BY COALESCE(pr.invoice_id, tax_origin.source_id){$lock}"
         );
         $stmt->execute([$startsOn, ClosingSourceId::PROVISION_BASE, ClosingSourceId::PROVISION_BASE, $supplierId, $endsOn]);
         $result = [];
@@ -184,7 +188,7 @@ final class ClosingRepository
         $sections = $this->db->pdo()->prepare(
             "SELECT s.payload FROM accounting_closing_steps s
                JOIN accounting_periods p ON p.id = s.period_id AND p.supplier_id = s.supplier_id
-              WHERE s.supplier_id = ? AND s.step_key = 'provisions' AND p.ends_on < ? ORDER BY p.ends_on"
+              WHERE s.supplier_id = ? AND s.step_key = 'provisions' AND p.ends_on < ? ORDER BY p.ends_on{$lock}"
         );
         $sections->execute([$supplierId, $startsOn]);
         foreach ($sections->fetchAll(PDO::FETCH_COLUMN) as $raw) {
@@ -905,15 +909,16 @@ final class ClosingRepository
      *
      * @return list<array<string,mixed>>
      */
-    public function steps(int $periodId): array
+    public function steps(int $periodId, bool $currentRead = false): array
     {
+        if ($currentRead && !$this->db->pdo()->inTransaction()) throw new \LogicException('Current closing steps require a transaction.');
         $stmt = $this->db->pdo()->prepare(
             "SELECT id, supplier_id, period_id, step_key, status, payload, note, done_at, done_by,
                     created_at, updated_at
                FROM accounting_closing_steps
               WHERE period_id = ?
               ORDER BY FIELD(step_key, 'precheck','depreciation','fx_revaluation','estimates',
-                             'deferrals','close_books','open_next')"
+                             'deferrals','close_books','open_next')" . ($currentRead ? ' FOR UPDATE' : '')
         );
         $stmt->execute([$periodId]);
         return array_map(static function (array $r): array {

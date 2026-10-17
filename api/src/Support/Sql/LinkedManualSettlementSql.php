@@ -37,12 +37,14 @@ final class LinkedManualSettlementSql
         string $accountPredicate,
         string $supplierExpr = '?',
         string $asOfExpr = '?',
+        bool $currentRead = false,
     ): string {
         if (!in_array($docType, ['invoice', 'purchase_invoice'], true)
             || !in_array($settleSide, ['credit', 'debit'], true)) {
             throw new \InvalidArgumentException('linked_manual_settlement_invalid');
         }
 
+        $lock = $currentRead ? ' FOR UPDATE' : '';
         return "SELECT dl.doc_id,
                        SUM(CASE WHEN l.side = '{$settleSide}' THEN l.signed_amount ELSE -l.signed_amount END) AS settled
                   FROM journal_entry_document_links dl
@@ -59,9 +61,9 @@ final class LinkedManualSettlementSql
                    AND NOT EXISTS (
                        SELECT 1 FROM journal_entry_document_links other
                         WHERE other.supplier_id = dl.supplier_id AND other.entry_id = dl.entry_id
-                          AND other.doc_type = dl.doc_type AND other.doc_id <> dl.doc_id
+                          AND other.doc_type = dl.doc_type AND other.doc_id <> dl.doc_id{$lock}
                    )
-                 GROUP BY dl.doc_id";
+                 GROUP BY dl.doc_id{$lock}";
     }
 
     /** Podmínka „řádek je na saldokontním účtu s tímto prefixem" (vč. analytik). */
