@@ -877,6 +877,41 @@ U závěrky a otevření se kontrolují rozvahové řádky. Nezávislé procentn
 více systémových os na jednom řádku se odmítnou, protože neurčují jejich
 společné kombinace.
 
+### 114.11.18 Společné alokace
+
+Stránka **Účetní nástroje → Společné alokace** zachovává doložené společné
+kombinace činnosti, druhu činnosti, předběžného daňového zařazení a případných
+dalších dimenzí. Přeúčtování patří do otevřeného a nezamčeného období rámce 504.
+Zdroj může pocházet i z uzavřeného období stejného rámce; jeho účetní zápis se
+nepřepisuje. Rámec 504 zatím nelze v nastavení firmy aktivovat.
+
+1. Založte klíč s kódem, názvem, vysvětlením a účinností. Datum **Do** je první
+   den, kdy verze již neplatí. Verze jsou neměnné a jejich intervaly se nesmějí
+   překrývat. Pro opravu ve stejném intervalu založte nový klíč.
+2. Zadejte celé společné kombinace dimenzí. U váženého rozdělení doložte hodiny,
+   plochu, výnosy nebo pevný poměr. Pokud více nezávislých procentních rozpadů
+   nedokládá jejich vzájemnou souvislost, použijte režim přesných částek a
+   doložte částku každé kombinace u každého zdrojového řádku. U cizí měny se
+   zadávají také částky v měně dokladu. Samotné souhlasící procentní součty
+   neurčují společné kombinace.
+3. Vyberte datum přeúčtování, vyhledejte zdrojové řádky a připravte náhled.
+   Prohlédněte kompenzaci původního zařazení i cílové řádky. Částky se rozdělí
+   přesně na haléře; nevzniká výchozí hlavní činnost ani automaticky zvolený
+   předmět daně.
+4. Vyplňte důvod a potvrďte zaúčtování. Aplikace znovu ověří aktuální zdroje,
+   klíč, otevřené období a shodu náhledu. Změněný podklad vyžaduje nový náhled.
+
+Historie obsahuje neměnné podklady, odkaz do deníku, audit a případné storno.
+Použitý zdroj ani vytvořený alokační zápis nelze ručně změnit či smazat.
+Zrušení alokace vyžaduje datum v otevřeném období a důvod. Vytvoří přesný
+protizápis a uvolní zdrojové řádky pro nové doložené rozdělení. Opakování stejné
+operace nevytváří další zápis. Předběžné daňové zařazení nenahrazuje potvrzené
+daňové posouzení.
+
+Náhled a historii může číst uživatel s právem číst účetnictví. Klíče,
+zaúčtování a storno vyžadují právo zápisu a přihlášení přes web. Veřejné API
+a MCP poskytují čtení klíčů, zdrojů a historie v rozsahu dostupné firmy.
+
 ## 114.12 Související kapitoly
 
 - [Zisk](11_Zisk.md) - souhrnný přehled firmy

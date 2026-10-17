@@ -2623,9 +2623,9 @@ final class ClosingService
             if ($partial && count($items) > 200) {
                 throw new ClosingException('validation_failed', 'Dávka opravných položek smí obsahovat nejvýše 200 položek.', 422);
             }
-            $openingByInvoice = $this->closing->provisionOpeningState($supplierId, (string) $period['starts_on'], $endsOn);
+            $openingByInvoice = $this->closing->provisionOpeningState($supplierId, (string) $period['starts_on'], $endsOn, true);
             $prevByInvoice = $openingByInvoice;
-            foreach (($this->stepsMap($supplierId, $periodId)['provisions']['payload']['entries'] ?? []) as $e) {
+            foreach (($this->stepsMap($supplierId, $periodId, true)['provisions']['payload']['entries'] ?? []) as $e) {
                 $prevByInvoice[(int) ($e['invoice_id'] ?? 0)] = $e;
             }
 
@@ -2638,7 +2638,7 @@ final class ClosingService
                 }
             }
             $remainingByInvoice = [];
-            foreach ($this->openReceivables($supplierId, $periodId, $endsOn, $invoiceIds) as $r) {
+            foreach ($this->openReceivables($supplierId, $periodId, $endsOn, $invoiceIds, true) as $r) {
                 $remainingByInvoice[$r['invoice_id']] = $r['remaining'];
             }
             foreach ($items as &$item) {
@@ -2677,7 +2677,7 @@ final class ClosingService
                 $legal = round(max(0.0, (float) ($raw['legal_amount'] ?? 0)), 2);
                 $acct = round(max(0.0, (float) ($raw['acct_amount'] ?? 0)), 2);
                 $total = round($legal + $acct, 2);
-                $sourceId = $this->closing->provisionSourceId($supplierId, $periodId, $invoiceId);
+                $sourceId = $this->closing->provisionSourceId($supplierId, $periodId, $invoiceId, true);
                 $legalDelta = round($legal - (float) ($openingByInvoice[$invoiceId]['legal_amount'] ?? 0), 2);
                 $acctDelta = round($acct - (float) ($openingByInvoice[$invoiceId]['acct_amount'] ?? 0), 2);
                 $delta = round($legalDelta + $acctDelta, 2);
@@ -2724,7 +2724,7 @@ final class ClosingService
                 }
                 $this->assertKnownCodes($supplierId, $lines);
 
-                $existing = $this->journal->findBySource($supplierId, 'provision', $sourceId);
+                $existing = $this->journal->findActiveBySourceForUpdate($supplierId, 'provision', $sourceId);
                 $note = trim((string) ($raw['note'] ?? ''));
                 $receivableNo = trim((string) ($raw['document_no'] ?? ''));
                 if ($lines === []) {
@@ -2780,14 +2780,14 @@ final class ClosingService
      *     partner_name:string, issue_date:?string, due_date:string, days_overdue:int,
      *     remaining:float, currency_code:?string}>
      */
-    private function openReceivables(int $supplierId, int $periodId, string $asOf, ?array $invoiceIds = null): \Generator
+    private function openReceivables(int $supplierId, int $periodId, string $asOf, ?array $invoiceIds = null, bool $currentRead = false): \Generator
     {
         $account = $this->saldo->resolveAccount($supplierId, '311');
         if ($account === null) {
             return;
         }
         $normalSide = $account['normal_side'] ?? (in_array($account['account_type'], ['asset', 'expense'], true) ? 'debit' : 'credit');
-        foreach ($this->saldo->iterateOpenInvoiceItems($supplierId, $account['id'], $asOf, $invoiceIds) as $it) {
+        foreach ($this->saldo->iterateOpenInvoiceItems($supplierId, $account['id'], $asOf, $invoiceIds, $currentRead) as $it) {
             $booked = $normalSide === 'debit' ? $it['booked_signed'] : -$it['booked_signed'];
             $remaining = SaldoRepository::settlementAmounts($booked, (float) $it['paid_ratio'])['remaining'];
             if ($remaining <= 0) {
@@ -5829,13 +5829,13 @@ final class ClosingService
      *
      * @return array<string, array{step_key:string, status:string, payload:?array<string,mixed>, note:?string, done_at:?string, done_by:?int}>
      */
-    private function stepsMap(int $supplierId, int $periodId): array
+    private function stepsMap(int $supplierId, int $periodId, bool $currentRead = false): array
     {
         $map = [];
         foreach (self::STEP_KEYS as $key) {
             $map[$key] = ['step_key' => $key, 'status' => 'pending', 'payload' => null, 'note' => null, 'done_at' => null, 'done_by' => null];
         }
-        foreach ($this->closing->steps($periodId) as $row) {
+        foreach ($this->closing->steps($periodId, $currentRead) as $row) {
             $key = (string) $row['step_key'];
             if (!isset($map[$key])) {
                 continue;

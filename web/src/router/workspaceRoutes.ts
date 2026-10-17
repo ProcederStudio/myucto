@@ -253,6 +253,7 @@ export function createWorkspaceRoutes(): RouteRecordRaw[] {
       { path: 'accounting/income-statement', name: 'accounting-income-statement', component: () => import('@/pages/accounting/IncomeStatement.vue'), meta: { requiresDoubleEntry: true } },
       { path: 'accounting/income-statement-by-function', name: 'accounting-income-statement-by-function', component: () => import('@/pages/accounting/IncomeStatementByFunction.vue'), meta: { requiresDoubleEntry: true } },
       { path: 'accounting/dimension-profit', name: 'accounting-dimension-profit', component: () => import('@/pages/accounting/DimensionProfit.vue'), meta: { requiresAccountingMode: true } },
+      { path: 'accounting/joint-allocations', name: 'accounting-joint-allocations', component: () => import('@/pages/accounting/JointAllocations.vue'), meta: { requiresDoubleEntry: true } },
       // Výjimky mapování účtů do výkazů pro konkrétní firmu (splatnost, spřízněné osoby, analytiky).
       { path: 'accounting/statement-mapping', name: 'accounting-statement-mapping', component: () => import('@/pages/accounting/StatementMapping.vue'), meta: { requiresDoubleEntry: true, requiresSupplier: true } },
       { path: 'accounting/saldo',            name: 'accounting-saldo',            component: () => import('@/pages/accounting/Saldokonto.vue'),      meta: { requiresDoubleEntry: true } },

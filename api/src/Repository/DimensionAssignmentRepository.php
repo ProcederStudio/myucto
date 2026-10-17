@@ -7,6 +7,8 @@ namespace MyInvoice\Repository;
 use MyInvoice\Infrastructure\Database\Connection;
 use PDO;
 use MyInvoice\Service\Accounting\Dimension\DimensionAssignmentOrigin;
+use MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard;
+use MyInvoice\Service\Accounting\Allocation\JointAllocationUseGuard;
 
 /**
  * Přiřazení hodnot dimenzí dokladům (`document_dimensions`) a řádkům deníku
@@ -52,6 +54,14 @@ final class DimensionAssignmentRepository
      */
     public function replaceDocumentDimensions(int $supplierId, string $docType, int $docId, array $header, array $items, array $headerOrigins = [], array $itemOrigins = []): void
     {
+        (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $docType, $docId, $header, $items, $headerOrigins, $itemOrigins): void {
+            (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+            $this->replaceDocumentDimensionsLocked($supplierId, $docType, $docId, $header, $items, $headerOrigins, $itemOrigins);
+        });
+    }
+
+    private function replaceDocumentDimensionsLocked(int $supplierId, string $docType, int $docId, array $header, array $items, array $headerOrigins, array $itemOrigins): void
+    {
         $pdo = $this->db->pdo();
         $current = $this->documentDimensions($supplierId, $docType, $docId, $pdo->inTransaction());
         $header = array_map('intval', $header);
@@ -59,6 +69,7 @@ final class DimensionAssignmentRepository
         $items = array_filter(array_map(static function (array $dims): array { $dims = array_map('intval', $dims); ksort($dims); return $dims; }, $items), static fn (array $dims, int|string $itemNo): bool => (int) $itemNo > 0 && $dims !== [], ARRAY_FILTER_USE_BOTH);
         ksort($items);
         if ($current['header'] === $header && $current['items'] === $items) return;
+        (new JointAllocationUseGuard($this->db))->assertDocumentMutable($supplierId, $docType, $docId);
         $origins = $this->documentOrigins($supplierId, $docType, $docId, $pdo->inTransaction());
         $pdo->prepare('DELETE FROM document_dimensions WHERE supplier_id = ? AND doc_type = ? AND doc_id = ?')->execute([$supplierId, $docType, $docId]);
         $rows = [];
@@ -79,6 +90,16 @@ final class DimensionAssignmentRepository
      */
     public function addHeaderDimensionIfMissing(int $supplierId, string $docType, int $docId, int $typeId, int $valueId, array $origin = []): bool
     {
+        return (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $docType, $docId, $typeId, $valueId, $origin): bool {
+            (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+            if (isset($this->documentDimensions($supplierId, $docType, $docId, true)['header'][$typeId])) return false;
+            (new JointAllocationUseGuard($this->db))->assertDocumentMutable($supplierId, $docType, $docId);
+            return $this->addHeaderDimensionLocked($supplierId, $docType, $docId, $typeId, $valueId, $origin);
+        });
+    }
+
+    private function addHeaderDimensionLocked(int $supplierId, string $docType, int $docId, int $typeId, int $valueId, array $origin): bool
+    {
         $origin = DimensionAssignmentOrigin::normalize($origin);
         $stmt = $this->db->pdo()->prepare(
             'INSERT IGNORE INTO document_dimensions (supplier_id, doc_type, doc_id, item_no, dimension_type_id, dimension_value_id, assignment_origin, assignment_origin_ref)
@@ -95,6 +116,18 @@ final class DimensionAssignmentRepository
      * a na začátku. Cíl, který už nějaké dimenze má, se nemění.
      */
     public function copyDocument(int $supplierId, string $docType, int $fromId, int $toId, ?string $toDocType = null): void
+    {
+        (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $docType, $fromId, $toId, $toDocType): void {
+            (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+            $target = $toDocType ?? $docType;
+            $current = $this->documentDimensions($supplierId, $target, $toId, true);
+            if ($current['header'] !== [] || $current['items'] !== [] || $this->documentSplits($supplierId, $target, $toId, true) !== []) return;
+            (new JointAllocationUseGuard($this->db))->assertDocumentMutable($supplierId, $target, $toId);
+            $this->copyDocumentLocked($supplierId, $docType, $fromId, $toId, $toDocType);
+        });
+    }
+
+    private function copyDocumentLocked(int $supplierId, string $docType, int $fromId, int $toId, ?string $toDocType): void
     {
         $fromDocType = $docType;
         $docType = $toDocType ?? $docType;
@@ -122,6 +155,17 @@ final class DimensionAssignmentRepository
     }
 
     public function deleteDocument(int $supplierId, string $docType, int $docId): void
+    {
+        (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $docType, $docId): void {
+            (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+            $current = $this->documentDimensions($supplierId, $docType, $docId, true);
+            if ($current['header'] === [] && $current['items'] === [] && $this->documentSplits($supplierId, $docType, $docId, true) === []) return;
+            (new JointAllocationUseGuard($this->db))->assertDocumentMutable($supplierId, $docType, $docId);
+            $this->deleteDocumentLocked($supplierId, $docType, $docId);
+        });
+    }
+
+    private function deleteDocumentLocked(int $supplierId, string $docType, int $docId): void
     {
         $this->db->pdo()->prepare('DELETE FROM document_dimensions WHERE supplier_id = ? AND doc_type = ? AND doc_id = ?')
             ->execute([$supplierId, $docType, $docId]);
@@ -153,6 +197,14 @@ final class DimensionAssignmentRepository
     /** @param array<int,array<int,array<int,float>>> $splits pořadí položky => typ => hodnota => podíl */
     public function replaceDocumentSplits(int $supplierId, string $docType, int $docId, array $splits, array $origins = []): void
     {
+        (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $docType, $docId, $splits, $origins): void {
+            (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+            $this->replaceDocumentSplitsLocked($supplierId, $docType, $docId, $splits, $origins);
+        });
+    }
+
+    private function replaceDocumentSplitsLocked(int $supplierId, string $docType, int $docId, array $splits, array $origins): void
+    {
         $pdo = $this->db->pdo();
         $current = $this->documentSplits($supplierId, $docType, $docId, $pdo->inTransaction());
         $itemNos = array_unique([...array_keys($current), ...array_keys($splits)]);
@@ -161,6 +213,7 @@ final class DimensionAssignmentRepository
             $same = $same && self::sameSplits($current[$itemNo] ?? [], $splits[$itemNo] ?? []);
         }
         if ($same) return;
+        (new JointAllocationUseGuard($this->db))->assertDocumentMutable($supplierId, $docType, $docId);
         $oldOrigins = $this->documentSplitOrigins($supplierId, $docType, $docId, $pdo->inTransaction());
         $pdo->prepare('DELETE FROM document_dimension_splits WHERE supplier_id = ? AND doc_type = ? AND doc_id = ?')->execute([$supplierId, $docType, $docId]);
         $rows = [];
@@ -226,8 +279,17 @@ final class DimensionAssignmentRepository
      */
     public function replaceLineSplits(int $supplierId, int $lineId, array $splits, array $origins = []): bool
     {
+        return (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $lineId, $splits, $origins): bool {
+            (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+            return $this->replaceLineSplitsLocked($supplierId, $lineId, $splits, $origins);
+        });
+    }
+
+    private function replaceLineSplitsLocked(int $supplierId, int $lineId, array $splits, array $origins): bool
+    {
         $current = $this->lineSplits($supplierId, [$lineId], $this->db->pdo()->inTransaction())[$lineId] ?? [];
         if (self::sameSplits($current, $splits)) return false;
+        (new JointAllocationUseGuard($this->db))->assertLinesMutable($supplierId, [$lineId]);
         $oldOrigins = $this->lineSplitOrigins($supplierId, [$lineId], $this->db->pdo()->inTransaction())[$lineId] ?? [];
         foreach ($splits as $typeId => $shares) {
             foreach ($shares as $valueId => $share) {
@@ -240,6 +302,15 @@ final class DimensionAssignmentRepository
     }
     /** @param array<int,array<int,float>> $splits typ => hodnota => podíl */
     public function insertLineSplits(int $supplierId, int $lineId, array $splits, array $origins = []): void
+    {
+        if ($splits === []) return;
+        (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $lineId, $splits, $origins): void {
+            (new JointAllocationUseGuard($this->db))->assertAssignmentInsertMutable($supplierId, $lineId);
+            $this->insertLineSplitsLocked($supplierId, $lineId, $splits, $origins);
+        });
+    }
+
+    private function insertLineSplitsLocked(int $supplierId, int $lineId, array $splits, array $origins): void
     {
         $rows = [];
         $params = [];
@@ -367,11 +438,20 @@ final class DimensionAssignmentRepository
      */
     public function replaceLineDimensions(int $supplierId, int $lineId, array $dims, array $origins = []): bool
     {
+        return (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $lineId, $dims, $origins): bool {
+            (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+            return $this->replaceLineDimensionsLocked($supplierId, $lineId, $dims, $origins);
+        });
+    }
+
+    private function replaceLineDimensionsLocked(int $supplierId, int $lineId, array $dims, array $origins): bool
+    {
         $current = $this->lineDimensions($supplierId, [$lineId], $this->db->pdo()->inTransaction())[$lineId] ?? [];
         ksort($current);
         ksort($dims);
         $dims = array_map('intval', $dims);
         if ($current === $dims) return false;
+        (new JointAllocationUseGuard($this->db))->assertLinesMutable($supplierId, [$lineId]);
         $oldOrigins = $this->lineOrigins($supplierId, [$lineId], $this->db->pdo()->inTransaction())[$lineId] ?? [];
         foreach ($dims as $typeId => $valueId) {
             if (($current[$typeId] ?? null) === $valueId) $origins[$typeId] = $oldOrigins[$typeId] ?? [];
@@ -383,6 +463,28 @@ final class DimensionAssignmentRepository
     }
     /** @param array<int,int> $dims typ => hodnota */
     public function insertLineDimensions(int $supplierId, int $lineId, array $dims, array $origins = []): void
+    {
+        if ($dims === []) return;
+        (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $lineId, $dims, $origins): void {
+            (new JointAllocationUseGuard($this->db))->assertAssignmentInsertMutable($supplierId, $lineId);
+            $this->insertLineDimensionsLocked($supplierId, $lineId, $dims, $origins);
+        });
+    }
+
+    public function insertLineAssignments(int $supplierId, array $lines): void
+    {
+        $lines = array_filter($lines, static fn (array $line): bool => !empty($line['dimensions']) || !empty($line['dimension_splits']));
+        if ($lines === []) return;
+        (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $lines): void {
+            (new JointAllocationUseGuard($this->db))->assertAssignmentInsertsMutable($supplierId, array_keys($lines));
+            foreach ($lines as $lineId => $line) {
+                $this->insertLineDimensionsLocked($supplierId, (int) $lineId, $line['dimensions'] ?? [], $line['dimension_origins'] ?? []);
+                $this->insertLineSplitsLocked($supplierId, (int) $lineId, $line['dimension_splits'] ?? [], $line['dimension_split_origins'] ?? []);
+            }
+        });
+    }
+
+    private function insertLineDimensionsLocked(int $supplierId, int $lineId, array $dims, array $origins): void
     {
         if ($dims === []) return;
         $rows = [];

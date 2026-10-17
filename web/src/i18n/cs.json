@@ -34795,5 +34795,92 @@
       "failed": "Selhalo",
       "cancelled": "Zrušeno"
     }
+  },
+  "jointAllocations": {
+    "title": "Společné alokace",
+    "intro": "Doložené přeúčtování výsledkových řádků mezi činnostmi, druhy činnosti a předběžnými daňovými režimy. Zdrojové zápisy zůstávají zachovány.",
+    "keyEditor": "Klíče a verze",
+    "immutableKey": "Uložená verze je neměnná. Další verze stejného klíče musí mít nepřekrývající se účinnost; pro opravu stejného intervalu založte nový klíč.",
+    "key": "Klíč",
+    "newKey": "Nový klíč",
+    "code": "Kód klíče",
+    "name": "Název",
+    "validFrom": "Účinnost od",
+    "validTo": "Účinnost do (tento den již neplatí)",
+    "basis": "Podklad",
+    "bases": {
+      "hours": "Odpracované hodiny",
+      "area": "Plocha",
+      "revenue": "Výnosy",
+      "fixed": "Doložené pevné rozdělení"
+    },
+    "mode": "Způsob rozdělení",
+    "weighted": "Váhy úplných kombinací",
+    "explicit": "Přesné doložené částky",
+    "explanation": "Věcný podklad a vysvětlení klíče",
+    "additionalAxes": "Další zachované dimenze",
+    "fullTupleHelp": "Každá buňka uvádí jednu úplnou kombinaci. Zahrňte všechny další dimenze, které jsou ve zdroji rozdělené. Procenta nezávislých os se nenásobí.",
+    "choose": "Vyberte",
+    "weight": "Váha",
+    "removeCell": "Odebrat buňku",
+    "addCell": "Přidat buňku",
+    "saveVersion": "Uložit neměnnou verzi",
+    "close": "Zavřít",
+    "axes": {
+      "activity": "Činnost",
+      "activity_kind": "Druh činnosti",
+      "tax_regime": "Předběžný daňový režim"
+    },
+    "missingValue": "Nedostupná hodnota",
+    "journalEntry": "Účetní zápis",
+    "requestFailed": "Operaci se nepodařilo dokončit. Zkuste ji znovu.",
+    "resolveWithKey": "Doplnit úplné buňky v novém klíči",
+    "loading": "Načítání…",
+    "sources": "Zdrojové účetní případy",
+    "version": "Verze klíče",
+    "targetDate": "Datum přeúčtování",
+    "from": "Zdroj od",
+    "to": "Zdroj do",
+    "search": "Doklad, popis nebo účet",
+    "findSources": "Vyhledat řádky",
+    "chooseDate": "Nejprve zadejte datum přeúčtování.",
+    "noSources": "Vyhledejte účinné výsledkové řádky rámce 504. Aktivně alokované řádky a zápisy alokací se nenabízejí.",
+    "openSource": "Otevřít doklad nebo zápis",
+    "more": "Načíst další",
+    "exactCells": "Přesné částky společných buněk",
+    "exactHelp": "Zadejte desetinné částky s tečkou v Kč a samostatně v měně zdroje. Musí souhlasit celková částka i všechny zachované dimenze. Měna a původní kurz se nepřepisují. Znaménko červeného storna zůstává na řádku.",
+    "evidence": "Doložení částek a jejich vztahu v účetní a cizí měně",
+    "amountCzk": "Částka v Kč",
+    "reason": "Důvod účetního přeúčtování",
+    "preview": "Zkontrolovat náhled",
+    "keyDateRequired": "Vyberte verzi účinnou k datu přeúčtování.",
+    "previewHelp": "Náhled obsahuje vyrovnávací řádek původního přiřazení a samostatné cílové řádky. Při zaúčtování se znovu ověří aktuální zdroj, klíč a otevřené cílové období.",
+    "compensation": "Vyrovnávací řádek",
+    "apply": "Zaúčtovat alokaci",
+    "reasonRequired": "Před zaúčtováním uveďte důvod.",
+    "history": "Historie alokací",
+    "noHistory": "Zatím nebyla zaúčtována žádná alokace.",
+    "status": {
+      "applied": "Zaúčtováno",
+      "cancelled": "Zrušeno protizápisem"
+    },
+    "detail": "Detail",
+    "openJournal": "Otevřít alokační zápis",
+    "cancelledOn": "Zrušeno dne",
+    "cancelHelp": "Zrušení vytvoří přesný protizápis v otevřeném období a uvolní původní zdroje pro nové rozdělení. Historie zůstane zachována.",
+    "cancelDate": "Datum protizápisu",
+    "cancel": "Zrušit alokaci protizápisem",
+    "sides": {
+      "debit": "Má dáti",
+      "credit": "Dal"
+    },
+    "actions": {
+      "cancel": "Zrušení protizápisem",
+      "apply": "Zaúčtování"
+    },
+    "actors": {
+      "system": "Systémová operace",
+      "user": "Uživatelská operace"
+    }
   }
 }

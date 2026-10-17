@@ -3094,6 +3094,7 @@ final class PostingService
                         continue;
                     }
                     $guard->assertMutable($entry);
+                    (new \MyInvoice\Service\Accounting\Allocation\JointAllocationUseGuard($this->db))->assertLinesMutable($supplierId, [(int) $line['id']]);
                     $update->execute([$projectId, $supplierId, (int) $line['id']]);
                     $changed += $update->rowCount();
                 }

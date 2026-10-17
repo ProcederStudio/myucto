@@ -276,6 +276,7 @@ final class PurchaseDiscountReclass
                     } catch (DimensionException $e) {
                         throw new PostingException($e->errorCode, 'Uzavřené účetní knihy nelze měnit. Nejprve je znovu otevřete.', $e->httpStatus);
                     }
+                    (new \MyInvoice\Service\Accounting\Allocation\JointAllocationUseGuard($this->db))->assertLinesMutable($supplierId, [(int) $line['id']]);
                     $update->execute([$b['currency_code'], $b['fx_rate'] ?? null, $b['amount_foreign'] ?? null, (int) $line['id'], $supplierId]);
                 }
                 $fixed++;

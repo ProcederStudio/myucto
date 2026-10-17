@@ -627,6 +627,7 @@ const navSections = computed<NavSection[]>(() => {
       items: [
         { to: '/templates', label: t('nav.section_templates'), icon: ICONS.documents, permission: 'accounting.templates' },
         { to: '/accounting/setup-assistant', label: t('nav.accounting_setup_assistant'), icon: ICONS.ai, permission: 'accounting' },
+        ...(dimensionsEnabled ? [{ to: '/accounting/joint-allocations', label: t('jointAllocations.title'), icon: ICONS.reports, permission: 'accounting' as PermissionKey }] : []),
         { to: '/admin/bank-rule-templates', label: t('nav.bank_rule_templates'), icon: ICONS.bank, permission: 'bank.rules' as PermissionKey },
         { to: '/accounting/accounts',       label: t('nav.accounting_accounts'), icon: ICONS.codebooks },
         { to: '/accounting/offsets',          label: t('nav.accounting_offsets'),          icon: ICONS.coin },

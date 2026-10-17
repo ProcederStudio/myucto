@@ -2691,6 +2691,15 @@ final class Routes
             $g->post  ('/reports/statement-overrides/suggestions', [\MyInvoice\Action\Accounting\Reports\StatementOverrideAction::class, 'suggestFromUpload']);
             $g->put   ('/reports/statement-overrides/{id:[0-9]+}', [\MyInvoice\Action\Accounting\Reports\StatementOverrideAction::class, 'update']);
             $g->delete('/reports/statement-overrides/{id:[0-9]+}', [\MyInvoice\Action\Accounting\Reports\StatementOverrideAction::class, 'delete']);
+            $g->get('/joint-allocations/keys',                    [\MyInvoice\Action\Accounting\JointAllocationAction::class, 'keys']);
+            $g->post('/joint-allocations/keys',                   [\MyInvoice\Action\Accounting\JointAllocationAction::class, 'createKey']);
+            $g->post('/joint-allocations/keys/{id:[0-9]+}/versions', [\MyInvoice\Action\Accounting\JointAllocationAction::class, 'createVersion']);
+            $g->get('/joint-allocations/candidates',              [\MyInvoice\Action\Accounting\JointAllocationAction::class, 'candidates']);
+            $g->post('/joint-allocations/preview',                [\MyInvoice\Action\Accounting\JointAllocationAction::class, 'preview']);
+            $g->post('/joint-allocations/apply',                  [\MyInvoice\Action\Accounting\JointAllocationAction::class, 'apply']);
+            $g->get('/joint-allocations/batches',                 [\MyInvoice\Action\Accounting\JointAllocationAction::class, 'batches']);
+            $g->get('/joint-allocations/batches/{id:[0-9]+}',       [\MyInvoice\Action\Accounting\JointAllocationAction::class, 'detail']);
+            $g->post('/joint-allocations/batches/{id:[0-9]+}/cancel', [\MyInvoice\Action\Accounting\JointAllocationAction::class, 'cancel']);
             $g->get('/reports/dimension-profit',                  \MyInvoice\Action\Accounting\Reports\DimensionProfitAction::class);
             $g->get('/reports/dimension-analytics',               [\MyInvoice\Action\Accounting\Reports\DimensionProfitAction::class, 'analytics']);
             $g->get('/reports/dimension-analytics/export',        [\MyInvoice\Action\Accounting\Reports\DimensionProfitAction::class, 'exportAnalytics']);

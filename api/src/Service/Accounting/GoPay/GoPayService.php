@@ -383,6 +383,7 @@ final class GoPayService
         $pdo = $this->db->pdo();
         $ownTx = $this->beginUnit($pdo, 'gopay_delete');
         try {
+            (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
             $stmt = $pdo->prepare(
                 'SELECT id,clearing_id,payout_match_transaction_id,bank_transaction_id,bank_journal_entry_id,
                         bank_journal_entry_owned
@@ -427,6 +428,7 @@ final class GoPayService
                     ? (int) $clearing['bank_journal_entry_id'] : 0;
             $entries->execute([$supplierId, $clearingId, $supplierId, $bankEntryId]);
             $entryRows = $entries->fetchAll(PDO::FETCH_ASSOC) ?: [];
+            (new \MyInvoice\Service\Accounting\Allocation\JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, array_map('intval', array_column($entryRows, 'id')));
             $this->poster->assertEntriesRemovable(
                 $supplierId,
                 array_map(static fn (array $entry): int => (int) $entry['id'], $entryRows),

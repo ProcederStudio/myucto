@@ -238,6 +238,132 @@ tags:
       pojišťovnu a zálohy na daň (§38a) vč. rozhodnutí FÚ (§174).
 
 paths:
+  /api/v1/accounting/joint-allocations/keys:
+    get:
+      tags:
+      - Accounting
+      summary: Verze klíčů společných alokací
+      description: Pouze čtení v kontextu vybrané firmy a oprávnění accounting. Zápis klíčů, zaúčtování
+        a storno jsou dostupné pouze ve webovém rozhraní. Předběžné daňové zařazení nenahrazuje potvrzené
+        daňové posouzení.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/JointAllocationListedVersion'
+  /api/v1/accounting/joint-allocations/candidates:
+    get:
+      tags:
+      - Accounting
+      summary: Dostupné zdrojové řádky pro společnou alokaci
+      description: Pouze čtení v kontextu vybrané firmy a oprávnění accounting. Zápis klíčů, zaúčtování
+        a storno jsou dostupné pouze ve webovém rozhraní. Předběžné daňové zařazení nenahrazuje potvrzené
+        daňové posouzení. Výběr je poradní a stránkovaný; při zaúčtování se podklady znovu ověřují. Prázdná
+        stránka může mít next_before_id, protože kurzor postupuje i přes vyřazené řádky.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - name: target_date
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date
+      - name: from
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date
+      - name: to
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date
+      - name: search
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: before_id
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                - next_before_id
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/JointAllocationCandidate'
+                  next_before_id:
+                    type: integer
+                    minimum: 1
+                    nullable: true
+  /api/v1/accounting/joint-allocations/batches:
+    get:
+      tags:
+      - Accounting
+      summary: Historie společných alokací
+      description: Pouze čtení v kontextu vybrané firmy a oprávnění accounting. Zápis klíčů, zaúčtování
+        a storno jsou dostupné pouze ve webovém rozhraní. Předběžné daňové zařazení nenahrazuje potvrzené
+        daňové posouzení.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - name: before_id
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/JointAllocationBatch'
+  /api/v1/accounting/joint-allocations/batches/{id}:
+    get:
+      tags:
+      - Accounting
+      summary: Neměnný detail společné alokace
+      description: Pouze čtení v kontextu vybrané firmy a oprávnění accounting. Zápis klíčů, zaúčtování
+        a storno jsou dostupné pouze ve webovém rozhraní. Předběžné daňové zařazení nenahrazuje potvrzené
+        daňové posouzení.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JointAllocationDetail'
   /api/public/shoptet/feed/{token}:
     get:
       tags: [Eshop]
@@ -29939,6 +30065,542 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
 
   schemas:
+    JointAllocationCell:
+      type: object
+      required:
+      - activity
+      - activity_kind
+      - tax_regime
+      - weight
+      properties:
+        activity:
+          type: integer
+          minimum: 1
+        activity_kind:
+          type: integer
+          minimum: 1
+        tax_regime:
+          type: integer
+          minimum: 1
+        weight:
+          type: string
+        additional_dimensions:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 1
+    JointAllocationVersion:
+      type: object
+      required:
+      - id
+      - key_id
+      - version_no
+      - valid_from
+      - valid_to
+      - allocation_mode
+      - cells
+      - content_hash
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        supplier_id:
+          type: integer
+          minimum: 1
+        key_id:
+          type: integer
+          minimum: 1
+        code:
+          type: string
+        name:
+          type: string
+        version_no:
+          type: integer
+          minimum: 1
+        valid_from:
+          type: string
+          format: date
+        valid_to:
+          type: string
+          format: date
+          description: Výlučná horní hranice účinnosti.
+        basis:
+          type: string
+          enum:
+          - hours
+          - area
+          - revenue
+          - fixed
+        explanation:
+          type: string
+        rounding_policy:
+          type: string
+        allocation_mode:
+          type: string
+          enum:
+          - weighted
+          - explicit_amounts
+        cells:
+          type: array
+          items:
+            $ref: '#/components/schemas/JointAllocationCell'
+        cell_ids:
+          type: array
+          items:
+            type: string
+        content_hash:
+          type: string
+        created_by:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+        created_at:
+          type: string
+    JointAllocationCandidate:
+      type: object
+      required:
+      - id
+      - entry_id
+      - source_date
+      - account_code
+      - side
+      - amount
+      - dimensions
+      - dimension_splits
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        entry_id:
+          type: integer
+          minimum: 1
+        source_date:
+          type: string
+          format: date
+        source_type:
+          type: string
+        source_id:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+        document_no:
+          type:
+          - string
+          - 'null'
+        entry_description:
+          type:
+          - string
+          - 'null'
+        account_id:
+          type: integer
+          minimum: 1
+        account_code:
+          type: string
+        account_name:
+          type: string
+        side:
+          type: string
+          enum:
+          - debit
+          - credit
+        amount:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+          description: Přesná desetinná částka bez převodu na float.
+        amount_foreign:
+          type:
+          - string
+          - 'null'
+          pattern: ^-?\d+\.\d{2}$
+          description: Přesná desetinná částka bez převodu na float.
+        currency_code:
+          type:
+          - string
+          - 'null'
+        fx_rate:
+          type:
+          - string
+          - 'null'
+        is_red_storno:
+          type: integer
+          enum:
+          - 0
+          - 1
+        dimensions:
+          oneOf:
+          - type: object
+            additionalProperties:
+              type: integer
+              minimum: 1
+          - type: array
+            maxItems: 0
+            items: false
+        dimension_splits:
+          oneOf:
+          - type: object
+            additionalProperties:
+              type: object
+              additionalProperties:
+                type: number
+          - type: array
+            maxItems: 0
+            items: false
+    JointAllocationLine:
+      type: object
+      required:
+      - account_id
+      - side
+      - amount
+      - dimensions
+      properties:
+        account_id:
+          type: integer
+          minimum: 1
+        side:
+          type: string
+          enum:
+          - debit
+          - credit
+        amount:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+          description: Přesná desetinná částka bez převodu na float.
+        amount_foreign:
+          type:
+          - string
+          - 'null'
+          pattern: ^-?\d+\.\d{2}$
+          description: Přesná desetinná částka bez převodu na float.
+        currency_code:
+          type:
+          - string
+          - 'null'
+        fx_rate:
+          type:
+          - string
+          - 'null'
+        is_red_storno:
+          oneOf:
+          - type: boolean
+          - type: integer
+            enum:
+            - 0
+            - 1
+        dimensions:
+          oneOf:
+          - type: object
+            additionalProperties:
+              type: integer
+              minimum: 1
+          - type: array
+            maxItems: 0
+            items: false
+        dimension_splits:
+          oneOf:
+          - type: object
+            additionalProperties:
+              type: object
+              additionalProperties:
+                type: number
+          - type: array
+            maxItems: 0
+            items: false
+        dimension_origins:
+          oneOf:
+          - type: object
+            additionalProperties:
+              type: object
+          - type: array
+            maxItems: 0
+            items: false
+        dimension_split_origins:
+          oneOf:
+          - type: object
+            additionalProperties:
+              type: object
+          - type: array
+            maxItems: 0
+            items: false
+    JointAllocationExactSourceCells:
+      type: object
+      required:
+      - source_line_id
+      - evidence
+      - cells
+      properties:
+        source_line_id:
+          type: integer
+          minimum: 1
+        evidence:
+          type: string
+        cells:
+          type: array
+          items:
+            type: object
+            required:
+            - cell_id
+            - amount
+            properties:
+              cell_id:
+                type: string
+              amount:
+                type: string
+                pattern: ^-?\d+\.\d{2}$
+                description: Přesná desetinná částka bez převodu na float.
+              amount_foreign:
+                type:
+                - string
+                - 'null'
+                pattern: ^-?\d+\.\d{2}$
+                description: Přesná desetinná částka bez převodu na float.
+    JointAllocationPlan:
+      type: object
+      required:
+      - sources
+      properties:
+        sources:
+          type: array
+          items:
+            type: object
+            required:
+            - source_line_id
+            - compensation
+            - targets
+            properties:
+              source_line_id:
+                type: integer
+                minimum: 1
+              compensation:
+                $ref: '#/components/schemas/JointAllocationLine'
+              targets:
+                type: array
+                items:
+                  $ref: '#/components/schemas/JointAllocationLine'
+    JointAllocationSnapshot:
+      type: object
+      required:
+      - supplier_id
+      - key_version_id
+      - period_id
+      - target_date
+      - key
+      - source_lines
+      - plan
+      - preview_hash
+      properties:
+        supplier_id:
+          type: integer
+          minimum: 1
+        key_version_id:
+          type: integer
+          minimum: 1
+        period_id:
+          type: integer
+          minimum: 1
+        target_date:
+          type: string
+          format: date
+        key:
+          $ref: '#/components/schemas/JointAllocationVersion'
+        source_lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/JointAllocationCandidate'
+        exact_cells:
+          oneOf:
+          - type: object
+            additionalProperties:
+              $ref: '#/components/schemas/JointAllocationExactSourceCells'
+          - type: array
+            maxItems: 0
+            items: false
+        type_ids:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 1
+        semantic_values:
+          type: object
+          additionalProperties:
+            type: object
+            required:
+            - id
+            - type_id
+            - code
+            - name
+            properties:
+              id:
+                type: integer
+                minimum: 1
+              type_id:
+                type: integer
+                minimum: 1
+              system_key:
+                type:
+                - string
+                - 'null'
+              semantic_key:
+                type:
+                - string
+                - 'null'
+              code:
+                type: string
+              name:
+                type: string
+        plan:
+          $ref: '#/components/schemas/JointAllocationPlan'
+        preview_hash:
+          type: string
+    JointAllocationBatch:
+      type: object
+      required:
+      - id
+      - key_version_id
+      - target_date
+      - reason
+      - journal_entry_id
+      - status
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        key_version_id:
+          type: integer
+          minimum: 1
+        target_date:
+          type: string
+          format: date
+        reason:
+          type: string
+        journal_entry_id:
+          type: integer
+          minimum: 1
+        created_by:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+        created_at:
+          type: string
+        cancellation_entry_id:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+        status:
+          type: string
+          enum:
+          - applied
+          - cancelled
+    JointAllocationCancellation:
+      type: object
+      required: []
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        supplier_id:
+          type: integer
+          minimum: 1
+        batch_id:
+          type: integer
+          minimum: 1
+        target_date:
+          type: string
+          format: date
+        reason:
+          type: string
+        idempotency_key:
+          type: string
+        request_hash:
+          type: string
+        reversal_entry_id:
+          type: integer
+          minimum: 1
+        created_by:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+        created_at:
+          type: string
+    JointAllocationAudit:
+      type: object
+      required:
+      - id
+      - entity_type
+      - entity_id
+      - action
+      - payload
+      - actor_source
+      - created_at
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        supplier_id:
+          type: integer
+          minimum: 1
+        entity_type:
+          type: string
+        entity_id:
+          type: integer
+          minimum: 1
+        action:
+          type: string
+        payload:
+          type: object
+          additionalProperties: true
+        actor_id:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+        actor_source:
+          type: string
+        created_at:
+          type: string
+    JointAllocationDetail:
+      allOf:
+      - $ref: '#/components/schemas/JointAllocationBatch'
+      - type: object
+        required:
+        - snapshot
+        - cancellation
+        - audit
+        properties:
+          supplier_id:
+            type: integer
+            minimum: 1
+          idempotency_key:
+            type: string
+          request_hash:
+            type: string
+          preview_hash:
+            type: string
+          snapshot:
+            $ref: '#/components/schemas/JointAllocationSnapshot'
+          cancellation:
+            anyOf:
+            - $ref: '#/components/schemas/JointAllocationCancellation'
+            - type: 'null'
+          audit:
+            type: array
+            items:
+              $ref: '#/components/schemas/JointAllocationAudit'
+    JointAllocationListedVersion:
+      allOf:
+      - $ref: '#/components/schemas/JointAllocationVersion'
+      - type: object
+        required:
+        - cell_ids
+        properties:
+          cell_ids:
+            type: array
+            items:
+              type: string
     ResultDecision504Cell:
       type: object
       required:

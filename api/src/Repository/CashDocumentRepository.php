@@ -259,8 +259,11 @@ final class CashDocumentRepository
     /** Smaže účetní zápis dokladu; řádky i přílohy padnou přes ON DELETE CASCADE. */
     public function deleteJournalEntry(int $supplierId, int $entryId): void
     {
-        $this->db->pdo()->prepare('DELETE FROM journal_entries WHERE id = ? AND supplier_id = ?')
-            ->execute([$entryId, $supplierId]);
+        (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $entryId): void {
+            (new \MyInvoice\Service\Accounting\Allocation\JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, [$entryId]);
+            $this->db->pdo()->prepare('DELETE FROM journal_entries WHERE id = ? AND supplier_id = ?')
+                ->execute([$entryId, $supplierId]);
+        });
     }
 
     /**

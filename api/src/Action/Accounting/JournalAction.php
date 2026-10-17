@@ -1299,6 +1299,7 @@ final class JournalAction
 
         $attachmentRows = [];
         try {
+            (new \MyInvoice\Service\Accounting\Allocation\JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, [$id]);
             $stmt = $pdo->prepare(
                 'SELECT je.id, je.period_id, je.entry_date, je.document_no, je.source_type,
                         je.source_id, je.posted_at, je.reversed_by, p.status AS period_status,
@@ -1529,6 +1530,9 @@ final class JournalAction
             if ($ownTx && $pdo->inTransaction()) {
                 $pdo->rollBack();
             }
+            if ($e instanceof PostingException && str_starts_with($e->errorCode, 'allocation_')) {
+                return $this->mapPostingError($response, $e);
+            }
             throw $e;
         }
 
@@ -1604,6 +1608,7 @@ final class JournalAction
 
         $attachmentRows = [];
         try {
+            (new \MyInvoice\Service\Accounting\Allocation\JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, [$id]);
             $load = $pdo->prepare(
                 'SELECT je.id, je.period_id, je.entry_date, je.document_no, je.description,
                         je.source_type, je.source_id, je.reversed_by, p.status AS period_status,
@@ -1645,6 +1650,7 @@ final class JournalAction
                 $original = $selected;
             }
             $reversalId = (int) $original['reversed_by'];
+            (new \MyInvoice\Service\Accounting\Allocation\JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, [$originalId, $reversalId]);
             $load->execute([$reversalId, $supplierId]);
             $reversal = $load->fetch(\PDO::FETCH_ASSOC);
             if ($reversal === false) {
@@ -1810,6 +1816,9 @@ final class JournalAction
             );
         } catch (\Throwable $e) {
             if ($ownTx && $pdo->inTransaction()) $pdo->rollBack();
+            if ($e instanceof PostingException && str_starts_with($e->errorCode, 'allocation_')) {
+                return $this->mapPostingError($response, $e);
+            }
             throw $e;
         }
 

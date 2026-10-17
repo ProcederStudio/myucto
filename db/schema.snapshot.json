@@ -1001,7 +1001,8 @@
         "2017_supplier_accounting_frameworks.sql",
         "2018_supplier_legal_form.sql",
         "2019_system_dimensions_provenance.sql",
-        "2020_statement_framework_504.sql"
+        "2020_statement_framework_504.sql",
+        "2021_joint_allocations.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -6497,6 +6498,168 @@
                 "chk_isds_gateway_sessions_token": "`app_token` regexp '^[0-9]{10,20}$'",
                 "chk_isds_gateway_sessions_version": "`row_version` > 0"
             }
+        },
+        "joint_allocation_audit": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "action": "varchar(24) NOT NULL",
+                "actor_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "actor_source": "varchar(24) NOT NULL",
+                "created_at": "datetime NOT NULL DEFAULT current_timestamp()",
+                "entity_id": "bigint(20) unsigned NOT NULL",
+                "entity_type": "varchar(16) NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "payload_json": "longtext NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "idx_joint_audit_entity": "BTREE (supplier_id, entity_type, entity_id, id)"
+            },
+            "foreign_keys": {
+                "fk_joint_audit_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE"
+            },
+            "checks": {
+                "payload_json": "json_valid(`payload_json`)"
+            }
+        },
+        "joint_allocation_batches": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "created_at": "datetime NOT NULL DEFAULT current_timestamp()",
+                "created_by": "bigint(20) unsigned NULL DEFAULT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "idempotency_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "journal_entry_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "key_version_id": "bigint(20) unsigned NOT NULL",
+                "preview_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "reason": "text NOT NULL",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "snapshot_json": "longtext NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "target_date": "date NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_joint_batch_version": "BTREE (supplier_id, key_version_id)",
+                "uq_joint_batch_entry": "UNIQUE BTREE (journal_entry_id)",
+                "uq_joint_batch_idempotency": "UNIQUE BTREE (supplier_id, idempotency_key)",
+                "uq_joint_batch_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "fk_joint_batch_version": "(supplier_id, key_version_id) -> joint_allocation_key_versions (supplier_id, id) ON UPDATE RESTRICT ON DELETE CASCADE"
+            },
+            "checks": {
+                "snapshot_json": "json_valid(`snapshot_json`)"
+            }
+        },
+        "joint_allocation_cancellations": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "batch_id": "bigint(20) unsigned NOT NULL",
+                "created_at": "datetime NOT NULL DEFAULT current_timestamp()",
+                "created_by": "bigint(20) unsigned NULL DEFAULT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "idempotency_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "reason": "text NOT NULL",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "reversal_entry_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "target_date": "date NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_joint_cancel_batch": "BTREE (supplier_id, batch_id)",
+                "uq_joint_cancel_batch": "UNIQUE BTREE (batch_id)",
+                "uq_joint_cancel_entry": "UNIQUE BTREE (reversal_entry_id)",
+                "uq_joint_cancel_idempotency": "UNIQUE BTREE (supplier_id, idempotency_key)"
+            },
+            "foreign_keys": {
+                "fk_joint_cancel_batch": "(supplier_id, batch_id) -> joint_allocation_batches (supplier_id, id) ON UPDATE RESTRICT ON DELETE CASCADE"
+            },
+            "checks": []
+        },
+        "joint_allocation_key_versions": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "basis": "varchar(16) NOT NULL",
+                "cells_json": "longtext NOT NULL",
+                "content_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "created_at": "datetime NOT NULL DEFAULT current_timestamp()",
+                "created_by": "bigint(20) unsigned NULL DEFAULT NULL",
+                "explanation": "text NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "key_id": "bigint(20) unsigned NOT NULL",
+                "rounding_policy": "varchar(50) NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "valid_from": "date NOT NULL",
+                "valid_to": "date NOT NULL",
+                "version_no": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "idx_joint_version_interval": "BTREE (supplier_id, key_id, valid_from, valid_to)",
+                "uq_joint_version_number": "UNIQUE BTREE (key_id, version_no)",
+                "uq_joint_version_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "fk_joint_version_key": "(supplier_id, key_id) -> joint_allocation_keys (supplier_id, id) ON UPDATE RESTRICT ON DELETE CASCADE"
+            },
+            "checks": {
+                "cells_json": "json_valid(`cells_json`)",
+                "chk_joint_version_basis": "`basis` in ('hours','area','revenue','fixed')",
+                "chk_joint_version_interval": "`valid_from` < `valid_to`"
+            }
+        },
+        "joint_allocation_keys": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "code": "varchar(50) NOT NULL",
+                "created_at": "datetime NOT NULL DEFAULT current_timestamp()",
+                "created_by": "bigint(20) unsigned NULL DEFAULT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "name": "varchar(190) NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "uq_joint_key_code": "UNIQUE BTREE (supplier_id, code)",
+                "uq_joint_key_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "fk_joint_key_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE"
+            },
+            "checks": []
+        },
+        "joint_allocation_source_claims": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "batch_id": "bigint(20) unsigned NOT NULL",
+                "line_id": "bigint(20) unsigned NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (supplier_id, line_id)",
+                "fk_joint_claim_source_line": "BTREE (line_id)",
+                "idx_joint_claim_batch": "BTREE (supplier_id, batch_id)"
+            },
+            "foreign_keys": {
+                "fk_joint_claim_batch": "(supplier_id, batch_id) -> joint_allocation_batches (supplier_id, id) ON UPDATE RESTRICT ON DELETE CASCADE",
+                "fk_joint_claim_source_line": "(line_id) -> journal_entry_lines (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": []
         },
         "journal_entries": {
             "type": "SYSTEM VERSIONED",

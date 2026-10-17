@@ -267,10 +267,13 @@ final class CashDocumentService
             $pdo->beginTransaction();
         }
         try {
+            (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
             $doc = $this->documents->lockForPost($supplierId, $id);
             if ($doc === null) {
                 throw new CashException('validation', 'Pokladní doklad nenalezen.', 404);
             }
+            (new \MyInvoice\Service\Accounting\Allocation\JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId,
+                array_values(array_filter([(int) ($doc['journal_entry_id'] ?? 0), (int) ($doc['reversal_entry_id'] ?? 0)])));
             $this->assertTaxDateUnlocked($supplierId, (string) ($doc['tax_date'] ?? $doc['issue_date']));
             $this->assertNoFollowUpDocuments($supplierId, $doc);
 

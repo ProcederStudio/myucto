@@ -250,6 +250,7 @@ final class GlobalSeedTables
         'statement_account_overrides', 'statement_function_map',
         'cost_centers', 'dimension_types', 'dimension_values', 'dimension_account_rules',
         'dimension_account_map',
+        'joint_allocation_keys', 'joint_allocation_key_versions',
         // Per-supplier číselníky.
         'expense_categories', 'revenue_categories', 'trip_categories',
         // Předvolby AI (ztlumené zdroje návrhů), ne návrhy samotné.
@@ -359,6 +360,8 @@ final class GlobalSeedTables
         'journal_entries', 'journal_entry_attachments', 'journal_entry_document_links',
         'journal_entry_line_dimension_splits', 'journal_entry_line_dimensions', 'journal_entry_lines',
         'journal_entry_notes', 'journal_integrity_findings', 'journal_line_pairing_items',
+        'joint_allocation_batches', 'joint_allocation_cancellations', 'joint_allocation_source_claims',
+        'joint_allocation_audit',
         'journal_line_pairings',
         'logbook_fuel_scans',
         'login_attempts',

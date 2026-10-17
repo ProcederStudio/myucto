@@ -14,6 +14,8 @@ use MyInvoice\Repository\DimensionRepository;
 use MyInvoice\Service\Accounting\DocumentRepostService;
 use MyInvoice\Service\Accounting\PostingService;
 use MyInvoice\Service\Accounting\PostingException;
+use MyInvoice\Service\Accounting\Allocation\JointAllocationUseGuard;
+use MyInvoice\Service\Accounting\Allocation\JointAllocationException;
 use PDO;
 
 /**
@@ -572,9 +574,10 @@ final class DimensionService
         $previous = self::documentAssignmentLines($current['header'], $current['items'], $currentSplits, array_column($prospective, 'line_no'));
         try {
             if ($normHeader != $current['header'] || $normItems != $current['items'] || $normSplits != $currentSplits) {
+                (new JointAllocationUseGuard($this->db))->assertSourcesMutable($supplierId, [...$sources, ...$cascade]);
                 (new SystemDimensionWritePolicy($this->db))->assertAssignments($supplierId, $prospective, null, $previous);
             }
-        } catch (PostingException $e) {
+        } catch (PostingException|JointAllocationException $e) {
             throw new DimensionException($e->errorCode, $e->getMessage(), $e->httpStatus);
         }
         $ref = 'document:' . $docType . ':' . $docId . ':';
@@ -852,6 +855,9 @@ final class DimensionService
             if (!TransactionFailure::rollbackIfAborted($pdo, $e) && $pdo->inTransaction()) {
                 $ownTx ? $pdo->rollBack() : $pdo->exec('ROLLBACK TO SAVEPOINT dimension_document');
             }
+            if ($e instanceof PostingException && str_starts_with($e->errorCode, 'allocation_')) {
+                throw new DimensionException($e->errorCode, $e->getMessage(), $e->httpStatus);
+            }
             throw $e;
         }
         if ($discard) {
@@ -982,10 +988,11 @@ final class DimensionService
         ], array_values($rows));
         if ($touched !== []) {
             try {
+                (new JointAllocationUseGuard($this->db))->assertLinesMutable($supplierId, array_map('intval', array_keys($touched)));
                 (new SystemDimensionWritePolicy($this->db))->assertJournal(
                     $entries[$entryId] + ['supplier_id' => $supplierId], $prospective, $previousLines,
                 );
-            } catch (PostingException $e) {
+            } catch (PostingException|JointAllocationException $e) {
                 throw new DimensionException($e->errorCode, $e->getMessage(), $e->httpStatus);
             }
         }

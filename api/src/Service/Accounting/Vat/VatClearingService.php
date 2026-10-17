@@ -486,6 +486,7 @@ final class VatClearingService
             $pdo->beginTransaction();
         }
         try {
+            (new \MyInvoice\Service\Accounting\Allocation\JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, [$entryId]);
             $stmt = $pdo->prepare('DELETE FROM journal_entries WHERE id = ? AND supplier_id = ? AND source_type = ?');
             $stmt->execute([$entryId, $supplierId, self::SOURCE_TYPE]);
             $pdo->prepare("INSERT INTO activity_log (action, user_id, entity_type, entity_id, payload, ip, user_agent, supplier_id)

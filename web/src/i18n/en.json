@@ -34795,5 +34795,92 @@
       "failed": "Failed",
       "cancelled": "Cancelled"
     }
+  },
+  "jointAllocations": {
+    "title": "Joint allocations",
+    "intro": "Documented reclassification of profit and loss lines by activity, activity kind and provisional tax treatment. Source entries remain unchanged.",
+    "keyEditor": "Keys and versions",
+    "immutableKey": "A saved version is immutable. Versions of the same key must have non-overlapping effective dates; create a new key to correct the same interval.",
+    "key": "Key",
+    "newKey": "New key",
+    "code": "Key code",
+    "name": "Name",
+    "validFrom": "Effective from",
+    "validTo": "Effective until (exclusive)",
+    "basis": "Basis",
+    "bases": {
+      "hours": "Hours worked",
+      "area": "Area",
+      "revenue": "Revenue",
+      "fixed": "Documented fixed allocation"
+    },
+    "mode": "Allocation method",
+    "weighted": "Weights of complete combinations",
+    "explicit": "Documented exact amounts",
+    "explanation": "Supporting facts and explanation",
+    "additionalAxes": "Other retained dimensions",
+    "fullTupleHelp": "Each cell declares one complete combination. Include every other dimension split on the source. Percentages of independent axes are not multiplied.",
+    "choose": "Select",
+    "weight": "Weight",
+    "removeCell": "Remove cell",
+    "addCell": "Add cell",
+    "saveVersion": "Save immutable version",
+    "close": "Close",
+    "axes": {
+      "activity": "Activity",
+      "activity_kind": "Activity kind",
+      "tax_regime": "Provisional tax treatment"
+    },
+    "missingValue": "Unavailable value",
+    "journalEntry": "Journal entry",
+    "requestFailed": "The operation could not be completed. Please try again.",
+    "resolveWithKey": "Complete the joint cells in a new key",
+    "loading": "Loading…",
+    "sources": "Source accounting entries",
+    "version": "Key version",
+    "targetDate": "Reclassification date",
+    "from": "Source from",
+    "to": "Source until",
+    "search": "Document, description or account",
+    "findSources": "Find lines",
+    "chooseDate": "Enter the reclassification date first.",
+    "noSources": "Find effective profit and loss lines under framework 504. Sources with active allocations and allocation entries are excluded.",
+    "openSource": "Open document or entry",
+    "more": "Load more",
+    "exactCells": "Exact joint cell amounts",
+    "exactHelp": "Enter decimal amounts using a dot, separately in CZK and the source currency. Totals and all retained dimensions must match. The original currency and exchange rate are preserved. Red reversal signs remain on the lines.",
+    "evidence": "Evidence supporting amounts and their relationship in both currencies",
+    "amountCzk": "Amount in CZK",
+    "reason": "Reason for reclassification",
+    "preview": "Review preview",
+    "keyDateRequired": "Select a version effective on the reclassification date.",
+    "previewHelp": "The preview includes a compensation line for the original assignment and separate target lines. Posting rechecks the current source, key and open destination period.",
+    "compensation": "Compensation line",
+    "apply": "Post allocation",
+    "reasonRequired": "Enter a reason before posting.",
+    "history": "Allocation history",
+    "noHistory": "No allocations have been posted yet.",
+    "status": {
+      "applied": "Posted",
+      "cancelled": "Cancelled by reversal"
+    },
+    "detail": "Details",
+    "openJournal": "Open allocation entry",
+    "cancelledOn": "Cancelled on",
+    "cancelHelp": "Cancellation posts an exact mirror in an open period and releases the original sources for a new allocation. History remains available.",
+    "cancelDate": "Reversal date",
+    "cancel": "Cancel allocation by reversal",
+    "sides": {
+      "debit": "Debit",
+      "credit": "Credit"
+    },
+    "actions": {
+      "cancel": "Cancellation by reversal",
+      "apply": "Posting"
+    },
+    "actors": {
+      "system": "System operation",
+      "user": "User operation"
+    }
   }
 }

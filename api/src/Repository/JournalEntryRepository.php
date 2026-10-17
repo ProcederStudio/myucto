@@ -11,6 +11,10 @@ use MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy;
 use MyInvoice\Service\Accounting\PostingException;
 use MyInvoice\Service\Accounting\JournalLineAmount;
 use MyInvoice\Service\ActivityLogger;
+use MyInvoice\Service\Accounting\Allocation\JointAllocationJournalProof;
+use MyInvoice\Service\Accounting\Allocation\JointAllocationAudit;
+use MyInvoice\Service\Accounting\Allocation\JointAllocationException;
+use MyInvoice\Service\Accounting\Allocation\JointAllocationUseGuard;
 use PDO;
 
 /**
@@ -60,6 +64,50 @@ final class JournalEntryRepository
         }
     }
 
+    public function insertCurrentAllocation(int $supplierId, int $batchId): int
+    {
+        return (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $batchId): int {
+            $proof = (new JointAllocationJournalProof($this->db))->apply($supplierId, $batchId);
+            $entryId = $this->persistJournal($proof['header'], $proof['lines']);
+            $stmt = $this->db->pdo()->prepare('UPDATE joint_allocation_batches SET journal_entry_id = ? WHERE supplier_id = ? AND id = ? AND journal_entry_id IS NULL');
+            $stmt->execute([$entryId, $supplierId, $batchId]);
+            if ($stmt->rowCount() !== 1) {
+                throw new JointAllocationException('allocation_changed', 'Alokace se během zápisu změnila.', 409);
+            }
+            $batch = $proof['batch'];
+            (new JointAllocationAudit($this->db))->record($supplierId, 'batch', $batchId, 'apply', [
+                'journal_entry_id' => $entryId, 'key_version_id' => (int) $batch['key_version_id'],
+                'preview_hash' => $batch['preview_hash'], 'reason' => $batch['reason'],
+            ], $batch['created_by'] === null ? null : (int) $batch['created_by']);
+            return $entryId;
+        });
+    }
+
+    public function reverseCurrentAllocation(int $supplierId, int $cancellationId): int
+    {
+        return (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $cancellationId): int {
+            $proof = (new JointAllocationJournalProof($this->db))->cancellation($supplierId, $cancellationId);
+            $entryId = $this->persistJournal($proof['header'], $proof['lines']);
+            $pdo = $this->db->pdo();
+            $stmt = $pdo->prepare('UPDATE joint_allocation_cancellations SET reversal_entry_id = ? WHERE supplier_id = ? AND id = ? AND reversal_entry_id IS NULL');
+            $stmt->execute([$entryId, $supplierId, $cancellationId]);
+            if ($stmt->rowCount() !== 1) {
+                throw new JointAllocationException('allocation_changed', 'Zrušení alokace se během zápisu změnilo.', 409);
+            }
+            $batch = $proof['batch'];
+            $release = $pdo->prepare('DELETE FROM joint_allocation_source_claims WHERE supplier_id = ? AND batch_id = ?');
+            $release->execute([$supplierId, $batch['id']]);
+            if ($release->rowCount() !== count($proof['source_line_ids'])) {
+                throw new JointAllocationException('allocation_changed', 'Vazby zdrojových řádků se změnily.', 409);
+            }
+            $cancellation = $proof['cancellation'];
+            (new JointAllocationAudit($this->db))->record($supplierId, 'cancellation', $cancellationId, 'cancel', [
+                'batch_id' => (int) $batch['id'], 'reversal_entry_id' => $entryId, 'reason' => $cancellation['reason'],
+            ], $cancellation['created_by'] === null ? null : (int) $cancellation['created_by']);
+            return $entryId;
+        });
+    }
+
     private function persistJournal(array $header, array $lines): int
     {
         $pdo = $this->db->pdo();
@@ -99,6 +147,7 @@ final class JournalEntryRepository
     {
         $supplierId = (int) $header['supplier_id'];
         $source = $this->currentEntryForDimensionWrite($sourceEntryId, $supplierId);
+        (new JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, [$sourceEntryId]);
         $invalid = static fn (): PostingException => new PostingException('invalid_reversal_source', 'Protizápis neodpovídá živému zaúčtovanému zdroji.', 422);
         if ($source === null || $source['posted_at'] === null || $source['reversed_by'] !== null || $source['source_type'] === 'payroll'
             || ($header['source_type'] ?? 'manual') !== $source['source_type']
@@ -153,6 +202,7 @@ final class JournalEntryRepository
     public function replace(int $id, array $header, array $lines): void
     {
         $previous = $this->currentEntryForDimensionWrite($id, (int) $header['supplier_id']);
+        (new JointAllocationUseGuard($this->db))->assertEntriesMutable((int) $header['supplier_id'], [$id]);
         if ($previous === null || $previous['reversed_by'] !== null) {
             throw new PostingException('entry_reversed', 'Zápis #' . $id . ' byl mezitím stornován — přepis není možný (§35).');
         }
@@ -193,7 +243,7 @@ final class JournalEntryRepository
             );
         }
 
-        $this->deleteLines($id);
+        $this->deleteLines($id, (int) $header['supplier_id']);
         $this->insertLines($pdo, $id, (int) $header['supplier_id'], $lines);
 
         // Okruh drží řádek přes (zápis, pořadí), takže přeúčtování ho přežije. Pokud
@@ -220,6 +270,7 @@ final class JournalEntryRepository
     public function replaceSomeLines(int $entryId, int $supplierId, int $expectedRowVersion, array $removeLineIds, array $addLines): void
     {
         $entry = $this->currentEntryForDimensionWrite($entryId, $supplierId);
+        (new JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, [$entryId]);
         if ($entry === null || $entry['reversed_by'] !== null || (int) $entry['row_version'] !== $expectedRowVersion) {
             throw new PostingException('version_conflict', 'Zápis #' . $entryId . ' se mezitím změnil nebo byl stornován — načtěte aktuální stav.', 409);
         }
@@ -278,9 +329,9 @@ final class JournalEntryRepository
         ], null, null, $supplierId);
     }
 
-    public function deleteLines(int $entryId): void
+    private function deleteLines(int $entryId, int $supplierId): void
     {
-        $this->db->pdo()->prepare('DELETE FROM journal_entry_lines WHERE entry_id = ?')->execute([$entryId]);
+        $this->db->pdo()->prepare('DELETE FROM journal_entry_lines WHERE entry_id = ? AND supplier_id = ?')->execute([$entryId, $supplierId]);
     }
 
     /**
@@ -442,6 +493,7 @@ final class JournalEntryRepository
         }
         try {
             $entry = $this->currentEntryForDimensionWrite($id, $supplierId);
+            (new JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, [$id]);
             if ($entry !== null && $entry['posted_at'] === null) {
                 (new SystemDimensionWritePolicy($this->db))->assertJournal($entry, $entry['lines']);
             }
@@ -494,6 +546,14 @@ final class JournalEntryRepository
      */
     public function setReversedBy(int $id, int $supplierId, int $reversalEntryId): bool
     {
+        return (new DimensionPeriodGuard($this->db))->transaction(function () use ($id, $supplierId, $reversalEntryId): bool {
+            (new JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, [$id]);
+            return $this->setReversedByLocked($id, $supplierId, $reversalEntryId);
+        });
+    }
+
+    private function setReversedByLocked(int $id, int $supplierId, int $reversalEntryId): bool
+    {
         $stmt = $this->db->pdo()->prepare(
             'UPDATE journal_entries SET reversed_by = ?
               WHERE id = ? AND supplier_id = ? AND reversed_by IS NULL'
@@ -521,6 +581,14 @@ final class JournalEntryRepository
      */
     public function detachSource(int $entryId, int $supplierId): bool
     {
+        return (new DimensionPeriodGuard($this->db))->transaction(function () use ($entryId, $supplierId): bool {
+            (new JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, [$entryId]);
+            return $this->detachSourceLocked($entryId, $supplierId);
+        });
+    }
+
+    private function detachSourceLocked(int $entryId, int $supplierId): bool
+    {
         $stmt = $this->db->pdo()->prepare(
             'UPDATE journal_entries SET source_id = NULL WHERE id = ? AND supplier_id = ?'
         );
@@ -540,7 +608,7 @@ final class JournalEntryRepository
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $n = 0;
-        $assignments = null;
+        $assignmentLines = [];
         foreach ($lines as $line) {
             $lineStmt->execute([
                 $entryId,
@@ -561,17 +629,13 @@ final class JournalEntryRepository
             $hasDims = !empty($line['dimensions']) && is_array($line['dimensions']);
             $hasSplits = !empty($line['dimension_splits']) && is_array($line['dimension_splits']);
             if ($hasDims || $hasSplits) {
-                $assignments ??= new DimensionAssignmentRepository($this->db);
                 $lineId = (int) $pdo->lastInsertId();
-                if ($hasDims) {
-                    $assignments->insertLineDimensions($supplierId, $lineId, $line['dimensions'], $line['dimension_origins'] ?? []);
-                }
-                if ($hasSplits) {
-                    // Rozpad řádku mezi víc hodnot typu (pravidla dimenzí, EP-6).
-                    $assignments->insertLineSplits($supplierId, $lineId, $line['dimension_splits'], $line['dimension_split_origins'] ?? []);
-                }
+                $assignmentLines[$lineId] = $line;
             }
             $n++;
+        }
+        if ($assignmentLines !== []) {
+            (new DimensionAssignmentRepository($this->db))->insertLineAssignments($supplierId, $assignmentLines);
         }
     }
 

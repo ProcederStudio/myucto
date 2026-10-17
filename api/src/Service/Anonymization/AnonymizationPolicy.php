@@ -121,6 +121,11 @@ final class AnonymizationPolicy
 
     /** @var array<string, array<string,string>> */
     public const COLUMNS = [
+        'joint_allocation_keys' => ['code' => 'keep', 'name' => 'keep'],
+        'joint_allocation_key_versions' => ['basis' => 'keep', 'explanation' => 'keep', 'rounding_policy' => 'keep', 'cells_json' => 'keep', 'content_hash' => 'keep'],
+        'joint_allocation_batches' => ['reason' => 'keep', 'idempotency_key' => 'keep', 'request_hash' => 'keep', 'preview_hash' => 'keep', 'snapshot_json' => 'keep'],
+        'joint_allocation_cancellations' => ['reason' => 'keep', 'idempotency_key' => 'keep', 'request_hash' => 'keep'],
+        'joint_allocation_audit' => ['entity_type' => 'keep', 'action' => 'keep', 'payload_json' => 'keep', 'actor_source' => 'keep'],
         'accounting_archives' => ['filename' => 'file_path', 'scope' => 'keep', 'sha256' => 'keep'],
         'accounting_backfill_jobs' => ['last_error' => 'text', 'log_text' => 'text', 'params' => 'json', 'report_json' => 'json'],
         'accounting_balance_inventory' => ['note' => 'text', 'protocol_ref' => 'text', 'responsible_person' => 'person_name'],

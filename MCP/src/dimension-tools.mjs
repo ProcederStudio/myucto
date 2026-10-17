@@ -24,6 +24,23 @@ const read = (name, title, description, properties, required, run) => ({
 });
 
 export const DIMENSION_TOOLS = [
+  read('list_joint_allocation_keys', 'Klíče společných alokací',
+    'Neměnné verze doložených klíčů, účinnost a společné kombinace dimenzí. Předběžné daňové zařazení není potvrzeným daňovým posouzením.',
+    {}, [], (c, _a, tool) => c.get('/accounting/joint-allocations/keys', null, tool)),
+  read('list_joint_allocation_candidates', 'Zdroje společné alokace',
+    'Poradní výběr výsledkových řádků pro cílové datum. Pokračujte přes next_before_id i po prázdné stránce; zápis znovu ověřuje aktuální podklady.',
+    { target_date: date('Datum přeúčtování do otevřeného období rámce 504.'), ...range,
+      search: str('Text v čísle dokladu, popisu nebo účtu.'), before_id: int('Kurzor next_before_id z předchozí stránky.') },
+    ['target_date'], (c, a, tool) => c.get('/accounting/joint-allocations/candidates',
+      { target_date: a.target_date, from: a.from, to: a.to, search: a.search, before_id: a.before_id }, tool)),
+  read('list_joint_allocations', 'Historie společných alokací',
+    'Historie zaúčtovaných a stornovaných alokací. Stránka má nejvýše 100 položek; další stránku načtěte s before_id poslední položky.',
+    { before_id: int('ID poslední položky předchozí stránky.') }, [],
+    (c, a, tool) => c.get('/accounting/joint-allocations/batches', { before_id: a.before_id }, tool)),
+  read('get_joint_allocation', 'Detail společné alokace',
+    'Neměnné zdrojové a cílové řádky, částky v CZK i cizí měně, dokladové podklady, audit a případné storno.',
+    { id: int('ID alokace z list_joint_allocations.') }, ['id'],
+    (c, a, tool) => c.get(`/accounting/joint-allocations/batches/${seg(a.id)}`, null, tool)),
   read('list_dimensions', 'Dimenze a jejich hodnoty',
     'Typy a hierarchie dimenzí dostupné pro firmu: střediska, projekty, vozidla a vlastní dimenze. Vrací ID pro filtry sestav i informaci, zda jsou dimenze zapnuté.',
     {}, [], (c, _a, tool) => c.get('/accounting/dimensions', null, tool)),

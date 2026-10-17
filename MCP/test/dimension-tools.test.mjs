@@ -18,6 +18,15 @@ test('všechny dimenzní nástroje jsou čtecí a zapojené do společného kata
   }
 });
 
+test('společné alokace poskytují čtení s přesnými kurzory a cílovým datem', async () => {
+  assert.equal((await call('list_joint_allocation_keys', {})).path, '/accounting/joint-allocations/keys');
+  const candidates = await call('list_joint_allocation_candidates', { target_date: '2026-10-17', from: '2026-01-01', to: '2026-09-30', search: 'synthetic', before_id: 500 });
+  assert.equal(candidates.path, '/accounting/joint-allocations/candidates');
+  assert.deepEqual(candidates.query, { target_date: '2026-10-17', from: '2026-01-01', to: '2026-09-30', search: 'synthetic', before_id: 500 });
+  assert.deepEqual((await call('list_joint_allocations', { before_id: 100 })).query, { before_id: 100 });
+  assert.equal((await call('get_joint_allocation', { id: 42 })).path, '/accounting/joint-allocations/batches/42');
+});
+
 test('statistika skupiny používá all bez kolize s kontextem firmy hosted MCP', async () => {
   assert.equal(TOOLS_BY_NAME.get('dimension_analytics').inputSchema.properties.supplier_id, undefined);
   const group = await call('dimension_analytics', { type_id: 3, year: 2026, scope: 'group' });
