@@ -17,6 +17,8 @@ import { appIsoDate } from '@/utils/date'
 import DateInput from '@/components/ui/DateInput.vue'
 import { codebooksApi, type Unit } from '@/api/codebooks'
 import { useUnitDecimals } from '@/composables/useUnitDecimals'
+import InsufficientStockDialog from '@/components/stock/InsufficientStockDialog.vue'
+import { insufficientStockItems, type InsufficientStockItem } from '@/components/stock/insufficientStock'
 
 const { t } = useI18n()
 const auth = useAuthStore()
@@ -29,6 +31,8 @@ const docId = computed(() => (isEdit.value ? Number(route.params.id) : null))
 const doc = ref<StockDocument | null>(null)
 const loading = ref(false)
 const error = ref('')
+/** Výčet chybějících zásob ze zaúčtování nebo storna (okno místo toastu). */
+const insufficientStock = ref<InsufficientStockItem[] | null>(null)
 
 const warehouses = ref<Warehouse[]>([])
 // Desetinná místa množství podle jednotky karty (2018): krok pole a upozornění, nic se nezaokrouhluje.
@@ -352,8 +356,14 @@ async function post() {
     }
     await loadDocument()
   } catch (e: any) {
-    error.value = mapError(e)
-    toast.error(error.value)
+    // Nedostatek ukáže jen okno s výčtem, bez chybového pruhu a toastu.
+    const shortage = insufficientStockItems(e)
+    if (shortage) {
+      insufficientStock.value = shortage
+    } else {
+      error.value = mapError(e)
+      toast.error(error.value)
+    }
   } finally {
     posting.value = false
   }
@@ -370,7 +380,13 @@ async function reverse() {
     reverseOpen.value = false
     await loadDocument()
   } catch (e: any) {
-    toast.error(mapError(e))
+    const shortage = insufficientStockItems(e)
+    if (shortage) {
+      reverseOpen.value = false
+      insufficientStock.value = shortage
+    } else {
+      toast.error(mapError(e))
+    }
   } finally {
     reversing.value = false
   }
@@ -644,5 +660,6 @@ onMounted(async () => {
         <RouterLink to="/stock/documents" class="text-sm text-neutral-500 hover:text-neutral-700">{{ t('common.cancel') }}</RouterLink>
       </div>
     </template>
+    <InsufficientStockDialog v-if="insufficientStock" :items="insufficientStock" @close="insufficientStock = null" />
   </div>
 </template>

@@ -1551,7 +1551,10 @@ paths:
             (`invalid_amount`), k zálohové faktuře už existuje finální doklad
             (`final_exists`), varsymbol by kolidoval (`varsymbol_duplicate`),
             nebo se doklad mezitím změnil (`race_condition`). Zamčené období
-            u účetní role hlásí `document_locked`.
+            u účetní role hlásí `document_locked`. Při zapnutém skladu chybí zásoba
+            (`stock.error.insufficient_stock`): `error.items` vypisuje každou chybějící
+            kartu se `stock_item_id`, `sku`, `name`, `requested`, `available`
+            (základní jednotka), `warehouse_id`, `warehouse_name` a `unit`.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -17305,7 +17308,10 @@ paths:
         výsledek nese i `effective_price` (CZK, dnes, bez odběratele), `default_sale_unit`,
         `units` (balení karty, `StockItemSalesUnit`), `matched_unit` (kód balení, jehož
         EAN přesně odpovídá `q`, jinak null), `has_customer_prices` a `search_match`
-        (stejný význam jako v seznamu karet).
+        (stejný význam jako v seznamu karet). `is_stocked` říká, zda karta hlídá stav,
+        a `qty` je stav v základní jednotce jako u `GET /stock/availability` (součet
+        aktivních prodejních skladů, s `warehouse_id` jen daný sklad); skladová karta
+        bez pohybu má `0.000`, neskladová null.
       parameters:
         - in: query
           name: q
@@ -17314,6 +17320,10 @@ paths:
         - in: query
           name: limit
           schema: { type: integer, default: 50, minimum: 1, maximum: 200 }
+        - in: query
+          name: warehouse_id
+          schema: { type: integer, format: int64 }
+          description: Volitelně sklad, pro který se počítá `qty` (sklad řádku dokladu).
       responses:
         '200': { description: OK }
   /api/v1/stock/items/quote:

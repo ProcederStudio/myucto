@@ -537,7 +537,7 @@ final class StockItemRepository
 
         $identifiers = self::identifierSearchable($q);
         $stmt = $this->db->pdo()->prepare(
-            'SELECT si.id, si.sku, si.name, si.unit, si.default_sale_unit, si.tracking_mode, si.vat_rate_id, si.sale_price_without_vat
+            'SELECT si.id, si.sku, si.name, si.unit, si.default_sale_unit, si.tracking_mode, si.vat_rate_id, si.sale_price_without_vat, si.is_stocked
                FROM stock_items si
               WHERE si.supplier_id = ? AND si.is_active = 1 AND si.lifecycle_status = \'ready\'
                 AND (si.sku LIKE ? OR si.name LIKE ? OR si.ean LIKE ?
@@ -558,6 +558,7 @@ final class StockItemRepository
                 'tracking_mode'          => (string) $r['tracking_mode'],
                 'vat_rate_id'            => $r['vat_rate_id'] !== null ? (int) $r['vat_rate_id'] : null,
                 'sale_price_without_vat' => $r['sale_price_without_vat'],
+                'is_stocked'             => (bool) $r['is_stocked'],
             ];
         }, $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []);
     }

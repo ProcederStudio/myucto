@@ -25,6 +25,9 @@ import { invoiceIssuedBy } from '@/pages/invoices/invoiceIssuedBy'
 import { useAuthStore } from '@/stores/auth'
 import { useSupplierStore } from '@/stores/supplier'
 import { pdfFileName, savePdfToCompanyFolder } from '@/composables/useCompanyPdfSave'
+import { printPdf } from '@/composables/usePrintPdf'
+import InsufficientStockDialog from '@/components/stock/InsufficientStockDialog.vue'
+import { insufficientStockItems, type InsufficientStockItem } from '@/components/stock/insufficientStock'
 import { useHotkey } from '@/composables/useHotkey'
 import { useToast } from '@/composables/useToast'
 import { useAccountingPeriodToast } from '@/composables/useAccountingPeriodToast'
@@ -107,6 +110,8 @@ const wrModalOpen = ref(false)
 const loading = ref(true)
 const error = ref('')
 const busy = ref<string | null>(null)
+/** Výčet chybějících zásob z neúspěšného vystavení (okno místo toastu). */
+const insufficientStock = ref<InsufficientStockItem[] | null>(null)
 let loadGeneration = 0
 
 // V režimu „ceny s DPH" nese unit_price_without_vat brutto (kvůli haléřově přesnému
@@ -895,10 +900,11 @@ async function issue() {
     }
   } catch (e: any) {
     const code = e?.response?.data?.error?.code
-    if (code === 'stock.error.insufficient_stock') {
-      const items = (e?.response?.data?.error?.items ?? []) as Array<{ sku: string; name: string; requested: string; available: string }>
-      const lines = items.map(it => t('stock.documents.insufficient_stock_line', it)).join('; ')
-      toast.error(`${t('invoice.insufficient_stock_toast')} ${lines}`)
+    const shortage = insufficientStockItems(e)
+    if (shortage) {
+      insufficientStock.value = shortage
+    } else if (code === 'stock.error.insufficient_stock') {
+      toast.error(e?.response?.data?.error?.message || t('invoice.issue_failed'))
     } else if (code === 'stock.error.tracking_selection_required') {
       const items = (e?.response?.data?.error?.items ?? []) as Array<{ sku: string | null; name: string | null; selected: string; required: string }>
       const qty = (v: string) => formatNumber(Number(v), { maximumFractionDigits: 3 })
@@ -1216,6 +1222,19 @@ async function downloadPdf() {
 function viewPdf() {
   if (!invoice.value) return
   window.open(invoicesApi.pdfUrl(invoice.value.id, false), '_blank', 'noopener')
+}
+
+// Tisk stejného PDF jako „Zobrazit PDF" bez odbočky do nové záložky (usePrintPdf).
+// Selhání (stažení, načtení, tisk) nabídne v toastu běžné zobrazení PDF: nové okno
+// se otevře až kliknutím, po asynchronním čekání by ho zastavil blokátor oken.
+async function printInvoicePdf() {
+  if (!invoice.value) return
+  const id = invoice.value.id
+  try {
+    await printPdf(`/invoices/${id}/pdf`, invoicesApi.pdfUrl(id, false))
+  } catch {
+    toast.error(t('invoice.print_failed'), { label: t('invoice.view_pdf'), handler: viewPdf })
+  }
 }
 
 async function sendTest() {
@@ -1763,6 +1782,8 @@ const invoiceActions = computed<ActionItem[]>(() => {
       disabled: b, loading: busy.value === 'clone', run: cloneInvoice },
     { key: 'view-pdf', label: t('invoice.view_pdf'), icon: 'eye', tier: 'overflow', variant: 'neutral',
       show: !isDraft.value || inv.items.length > 0, run: viewPdf },
+    { key: 'print', label: t('invoice.print'), icon: 'printer', tier: 'overflow', variant: 'neutral',
+      show: !isDraft.value || inv.items.length > 0, run: printInvoicePdf },
     { key: 'pdf', label: t('invoice.download_pdf'), icon: 'doc', tier: 'overflow', variant: 'neutral',
       show: !isDraft.value || inv.items.length > 0,
       title: invoiceWillBeSigned.value ? (t('invoice.download_pdf_tooltip_signed') as string) : undefined,
@@ -3446,6 +3467,7 @@ useWindowRefresh(['invoices', 'clients', 'bank', 'bank-transactions', 'cash', 'a
         @close="postingRuleOpen = false" @saved="postingRuleOpen = false" />
     </WorkspaceTeleport>
     <LockedPeriodAckModal :ref="(el: any) => { lockedAck.modal.value = el }" />
+    <InsufficientStockDialog v-if="insufficientStock" :items="insufficientStock" @close="insufficientStock = null" />
   </div>
     <WorkspaceTeleport>
       <InvoiceBankMatchModal v-if="bankMatchTarget" doc-type="invoice" :doc-id="bankMatchTarget.id" :doc-ref="bankMatchTarget.ref"

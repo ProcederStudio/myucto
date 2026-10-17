@@ -14139,6 +14139,20 @@
       "not_tracked": "bez skladové karty",
       "insufficient": "nedostatek zásob"
     },
+    "insufficient": {
+      "title": "Nedostatek zásob",
+      "intro": "Na skladě chybí zboží, a proto se akce neprovedla: doklad se nevystavil, nezaúčtoval ani nestornoval. Doplňte zásobu příjemkou, nebo upravte množství či sklad položky.",
+      "col_sku": "Kód",
+      "col_name": "Název",
+      "col_warehouse": "Sklad",
+      "col_requested": "Požadováno",
+      "col_available": "Skladem",
+      "col_missing": "Chybí",
+      "col_unit": "MJ",
+      "col_actions": "Akce",
+      "open_item": "Karta",
+      "new_receipt": "Nová příjemka"
+    },
     "receipt": {
       "action": "Přijmout na sklad",
       "modal_title": "Přijmout na sklad z přijaté faktury",
@@ -21324,6 +21338,8 @@
     "delete_draft": "Smazat",
     "pdf": "PDF",
     "view_pdf": "Zobrazit PDF",
+    "print": "Tisk",
+    "print_failed": "PDF se nepodařilo připravit k tisku.",
     "download_pdf": "Stáhnout PDF",
     "download_isdoc": "Stáhnout ISDOC",
     "download_pdf_tooltip_signed": "Stáhne aktuální PDF faktury. Po úpravě se automaticky přegeneruje z aktuálních dat a elektronicky podepíše (PAdES).",
@@ -21687,7 +21703,6 @@
     "note_above": "Poznámka nad položkami",
     "note_below": "Poznámka pod položkami",
     "stock_item_placeholder": "Skladová karta (volitelné)",
-    "insufficient_stock_toast": "Nedostatek zásob pro vystavení:",
     "issued_stock_document": "Výdejka {number} vytvořena",
     "items_table": {
       "description": "Popis",

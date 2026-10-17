@@ -219,6 +219,10 @@ export interface StockItemSearchResult extends StockItemEffectivePrice {
   /** Karta má individuální ceny zákazníků (zapíná nacenění v editoru faktury). */
   has_customer_prices?: boolean
   search_match?: StockSearchMatch | null
+  /** Karta hlídá stav skladu (false = neskladová položka, `qty` null). */
+  is_stocked?: boolean
+  /** Stav v základní jednotce jako GET /stock/availability (s `warehouse_id` jen ten sklad). */
+  qty?: string | null
 }
 
 /**
@@ -1120,8 +1124,11 @@ export const stockApi = {
     const { ids, excluded_ids, ...filters } = options
     return api.post<StockItemNeighbors>(`/stock/items/${id}/neighbors`, { filters, ids, excluded_ids }, { signal: request.signal }).then(r => r.data)
   },
-  searchItems: (q: string, limit = 50) =>
-    api.get<StockItemSearchResult[]>('/stock/items/search', { params: { q, limit } }).then(r => r.data),
+  /** `warehouseId` = sklad, pro který server spočítá `qty` (sklad řádku dokladu). */
+  searchItems: (q: string, limit = 50, warehouseId?: number | null) =>
+    api.get<StockItemSearchResult[]>('/stock/items/search', {
+      params: warehouseId ? { q, limit, warehouse_id: warehouseId } : { q, limit },
+    }).then(r => r.data),
   getItem: (id: number, options: { signal?: AbortSignal } = {}) => api.get<StockItem>(`/stock/items/${id}`, { signal: options.signal }).then(r => r.data),
   createItem: (payload: StockItemPayload) => api.post<StockItem>('/stock/items', payload).then(r => r.data),
   updateItem: (id: number, payload: StockItemPayload) => api.put<StockItem>(`/stock/items/${id}`, payload).then(r => r.data),

@@ -14139,6 +14139,20 @@
       "not_tracked": "no stock item linked",
       "insufficient": "insufficient stock"
     },
+    "insufficient": {
+      "title": "Insufficient stock",
+      "intro": "Some goods are missing in stock, so the action was not carried out: the document was not issued, posted or cancelled. Add stock with a receipt, or change the item quantity or warehouse.",
+      "col_sku": "Code",
+      "col_name": "Name",
+      "col_warehouse": "Warehouse",
+      "col_requested": "Requested",
+      "col_available": "In stock",
+      "col_missing": "Missing",
+      "col_unit": "Unit",
+      "col_actions": "Actions",
+      "open_item": "Item",
+      "new_receipt": "New receipt"
+    },
     "receipt": {
       "action": "Receive into stock",
       "modal_title": "Receive into stock from purchase invoice",
@@ -21324,6 +21338,8 @@
     "delete_draft": "Delete",
     "pdf": "PDF",
     "view_pdf": "View PDF",
+    "print": "Print",
+    "print_failed": "Could not prepare the PDF for printing.",
     "download_pdf": "Download PDF",
     "download_isdoc": "Download ISDOC",
     "download_pdf_tooltip_signed": "Downloads the current invoice PDF. After any edit it is automatically regenerated from current data and electronically signed (PAdES).",
@@ -21687,7 +21703,6 @@
     "note_above": "Note above items",
     "note_below": "Note below items",
     "stock_item_placeholder": "Stock item (optional)",
-    "insufficient_stock_toast": "Insufficient stock to post:",
     "issued_stock_document": "Goods issue {number} created",
     "items_table": {
       "description": "Description",

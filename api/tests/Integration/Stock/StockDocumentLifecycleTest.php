@@ -111,6 +111,10 @@ final class StockDocumentLifecycleTest extends StockTestCase
             self::assertSame('insufficient_stock', $e->errorCode);
             self::assertSame(409, $e->httpStatus);
             self::assertNotEmpty($e->details);
+            // Okno nedostatku v aplikaci ukazuje sklad a jednotku (aditivní klíče).
+            self::assertSame($whId, $e->details[0]['warehouse_id']);
+            self::assertSame('Sklad HLAVNI', $e->details[0]['warehouse_name']);
+            self::assertSame('ks', $e->details[0]['unit']);
         }
 
         $stillDraft = $this->docsRepo->find($supplierId, (int) $draft['id']);

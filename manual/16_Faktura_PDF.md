@@ -60,16 +60,21 @@ záznam s adresami příjemců. V sekci **Historie PDF** je u odeslané verze ze
 Příloha navíc k PDF (smlouva, předávací protokol) se přidává v sekci **Přílohy
 e-mailu** na detailu, viz [§ 16.10.9](#16109-prilohy-e-mailu).
 
-## 16.4 Krok za krokem: Zobrazit nebo stáhnout PDF
+## 16.4 Krok za krokem: Zobrazit, vytisknout nebo stáhnout PDF
 
 1. Otevřete detail faktury (`Prodej → Vydané faktury`, klik na číslo).
-2. Klikněte na **Zobrazit PDF** (otevře fakturu v nové záložce bez dialogu pro uložení)
-   nebo na **Stáhnout PDF**.
+2. Klikněte na **Zobrazit PDF** (otevře fakturu v nové záložce bez dialogu pro uložení),
+   na **Tisk** nebo na **Stáhnout PDF**.
+   **Tisk** otevře rovnou tiskový dialog prohlížeče s PDF faktury, bez odbočky do nové
+   záložky. Prohlížeč bez vestavěného prohlížeče PDF (typicky v mobilu) otevře PDF
+   v nové záložce a vytisknete ho odtud. Když se tisk nepodaří připravit, aplikace
+   to oznámí a v hlášce nabídne **Zobrazit PDF**.
 3. V Chrome a Edge se u **Stáhnout PDF** otevře dialog Uložit jako. Poprvé zvolte
    složku, kam PDF dané firmy ukládáte. Prohlížeč si složku pamatuje zvlášť pro
    každou firmu a příště dialog otevře rovnou v ní.
 
-**Jak poznáte, že je hotovo:** PDF je otevřené v záložce, případně uložené ve vámi zvolené složce.
+**Jak poznáte, že je hotovo:** PDF je otevřené v záložce, odeslané na tiskárnu, případně
+uložené ve vámi zvolené složce.
 
 > [!TIP]
 > Firefox a Safari dialog Uložit jako nepodporují, PDF se tam stáhne do výchozí
