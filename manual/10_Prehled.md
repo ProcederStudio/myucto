@@ -307,6 +307,17 @@ Při otevření šestnáctého okna aplikace požádá o potvrzení zavření ne
 
 Každé okno si pamatuje vlastní firmu. Výběr okna jiné firmy automaticky přepne aktivní firmu; rozpracovaná okna předchozí firmy zůstanou v přepínači. Zobrazované panely patří vždy aktivní firmě. Ruční přepnutí firmy obnoví její poslední otevřené okno, případně Homepage, pokud ještě žádné nemá. Prakticky lze například ponechat seznam přijatých faktur v prvním panelu, otevřít detail dokladu ve druhém a účetní deník ve třetím. **Ctrl+klik** na interní odkaz uvnitř panelu jej otevře v prvním prázdném panelu napravo a tento panel aktivuje. Po zaplnění všech panelů napravo se další odkaz otevře v bezprostředním panelu **+1**. Ctrl+klik v posledním panelu, Cmd+klik a prostřední tlačítko myši zachovávají běžné otevření nové záložky prohlížeče.
 
+**Shift+klik** na interní odkaz nebo navigovatelný řádek otevře cíl v bezprostředním
+panelu napravo a aktivuje jej. Funguje také na odkazy v hlavním menu; jejich cílový
+panel se určuje podle právě aktivního panelu. Pokud pravý panel ještě nemáte,
+aplikace ho přidá, dovoluje-li to šířka pracovního prostoru. Z jednoho panelu tak
+vzniknou dva, ze dvou mohou vzniknout tři. Původní stránka i rozpracované formuláře
+zůstanou otevřené. Je-li cílová stránka už vidět v jiném panelu, otevře se její
+samostatné okno vpravo. Na úzkém okně nebo za posledním podporovaným panelem si
+Shift+klik zachová běžné chování prohlížeče. Stejně se chovají externí odkazy,
+stahování a odkazy s výslovným cílem do nové záložky. Kombinace s dalšími
+modifikačními klávesami tato zkratka nepřebírá.
+
 ### 10.10.11 Klávesové zkratky
 
 Obrazovka **Klávesové zkratky** umožňuje nastavit kombinaci pro každý viditelný bod menu, položky **Přidat / Nová** i hledání ve spodní liště. Nastavení je uložené u uživatelského účtu, takže se přenáší mezi prohlížeči a není společné s ostatními uživateli. Stejnou obrazovku najdete jako pátou záložku v **Profilu**, na mobilu ji vyberete z nabídky záložek pod nadpisem Profil.
