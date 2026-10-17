@@ -997,7 +997,8 @@
         "2013_client_email_isdoc_override.sql",
         "2014_client_ai_extraction.sql",
         "2015_client_bank_permissions.sql",
-        "2016_invoice_item_tracking.sql"
+        "2016_invoice_item_tracking.sql",
+        "2017_tax_evidence_bank_rules_constant_symbol.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -22308,6 +22309,7 @@
                 "action_ignore": "tinyint(1) NOT NULL DEFAULT 0",
                 "amount_max": "decimal(15,2) NULL DEFAULT NULL",
                 "amount_min": "decimal(15,2) NULL DEFAULT NULL",
+                "constant_symbol": "varchar(4) NULL DEFAULT NULL",
                 "counterparty_account": "varchar(64) NULL DEFAULT NULL",
                 "created_at": "timestamp NOT NULL DEFAULT current_timestamp()",
                 "created_by": "int(11) NULL DEFAULT NULL",
@@ -22333,7 +22335,7 @@
             },
             "checks": {
                 "chk_tebr_action": "`action_ignore` = 1 or `tax_bucket` is not null",
-                "chk_tebr_criteria": "`counterparty_account` is not null or `variable_symbol` is not null or `text_contains` is not null"
+                "chk_tebr_criteria": "`counterparty_account` is not null or `variable_symbol` is not null or `constant_symbol` is not null or `text_contains` is not null"
             }
         },
         "tax_evidence_closings": {

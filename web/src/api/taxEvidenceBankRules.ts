@@ -12,6 +12,7 @@ export interface TaxEvidenceBankRule {
   direction: BankRuleDirection
   counterparty_account: string | null
   variable_symbol: string | null
+  constant_symbol: string | null
   text_contains: string | null
   amount_min: number | null
   amount_max: number | null
