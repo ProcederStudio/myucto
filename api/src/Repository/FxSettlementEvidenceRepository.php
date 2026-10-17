@@ -167,7 +167,7 @@ final class FxSettlementEvidenceRepository
             if ($headerPaidAsOf !== (bccomp($remaining, '0', 2) === 0)) $diagnostics[] = 'payment_header_divergence';
         }
         if (bccomp($foreign, '0', 2) !== 0 && bccomp(bcdiv($remaining, $foreign, 16), '0', 16) < 0) $findings[] = 'manual_settlement_amount_conflict';
-        return [
+        $evidence = [
             'complete' => $findings === [],
             'findings' => array_values(array_unique($findings)),
             'diagnostics' => $diagnostics,
@@ -185,6 +185,13 @@ final class FxSettlementEvidenceRepository
             'members' => $members,
             'posted_sources' => $sources,
         ];
+        if ($findings === ['document_currency_conflict']
+            && (new FxClosedHomePositionRepository($this->db))->proves($supplierId, $item, $document, $asOf, $evidence, $currentRead)) {
+            $evidence['findings'] = [];
+            $evidence['complete'] = true;
+            $evidence['closed_home_position_proven'] = true;
+        }
+        return $evidence;
     }
 
     private function manualLifecycle(int $supplierId, string $type, int $id, int $accountId, bool $currentRead): array
