@@ -332,9 +332,12 @@ a doplnění zásob ho začne navrhovat znovu. Zavřenou objednávku vrátíte t
 
 1. Otevřete `Sklad → Sestavy`.
 2. Záložka **Stav zásob k datu** ukazuje množství, průměrnou cenu a hodnotu po
-   kartách a skladech.
+   kartách a skladech. Sestavu zúžíte na **kategorii** (včetně podkategorií),
+   tlačítkem sloupců přidáte prodejní cenu nebo poznámku karty a v poli
+   **Parametr** vyberete parametr karty, který se zobrazí jako další sloupec.
 3. Záložka **Ocenění k datu** spočítá stav k historickému datu. Výpočet běží na
-   pozadí, průběh je vidět na stránce.
+   pozadí, průběh je vidět na stránce. V poli **Seskupit podle kategorií** zvolte
+   kategorii a nad tabulkou se objeví hodnota zásob po jejích podkategoriích.
 4. Záložka **Prodeje** ukáže, kolik kusů, komu a za kolik jste prodali (filtry
    období, sklad, odběratel, kategorie; **Po odběratelích** a po kartách sečte).
 5. Pro export použijte **Export PDF** nebo **Export XLSX**.
@@ -1029,10 +1032,34 @@ nalezenou na skladu**).
 
 - **Stav zásob k datu** ukazuje aktuální množství, průměrnou cenu a hodnotu po
   jednotlivých kartách a skladech k okamžiku zobrazení. Řádky pod nastaveným minimem
-  se zvýrazní. Filtr je jen na sklad.
+  se zvýrazní.
+  - **Filtry:** sklad a kategorie. Kategorie zahrnuje i všechny své podkategorie,
+    karta zařazená do více kategorií se v sestavě objeví jen jednou.
+  - **Sloupce:** průměrnou cenu a hodnotu můžete skrýt, prodejní cenu bez DPH
+    a poznámku karty přidat. Volba se pamatuje pro vašeho uživatele.
+  - **Parametr:** vybraný parametr karty (například VIN nebo umístění) přidá sloupec
+    s jeho hodnotou. Má-li karta hodnot víc, jsou oddělené čárkou, u výběrového
+    parametru se ukáže popisek volby, u parametru ano/ne slovo „ano“ nebo „ne“.
+  - Filtr kategorie a výběr parametru (stejně jako seskupení ocenění) vidí uživatel
+    s právem číst katalog, protože čtou kategorie a parametry karet.
+  - Export PDF i XLSX má stejné sloupce jako obrazovka (navíc sklad, typ a MJ).
+    PDF je vždy na šířku. Skrytá hodnota z exportu zmizí i se součtem, počet
+    položek zůstane.
 - **Ocenění k datu** poskytne přehled **k historickému datu**. Výpočet běží jako úloha
   na pozadí a zobrazuje průběh. Hotové výsledky lze stránkovat. Opakovaný výpočet
   využívá uložené snapshoty, změna skladových pohybů dotčené snapshoty zneplatní.
+  - **Seskupit podle kategorií** přidá nad tabulku souhrn: počet položek a hodnotu
+    za každou přímou podkategorii zvolené kategorie (volba **Kategorie nejvyšší
+    úrovně** sečte hlavní kategorie). Zvlášť se ukážou karty zařazené **přímo
+    ve zvolené kategorii** a karty **mimo ni** (bez kategorie nebo jen v jiných
+    kategoriích). Prázdná podkategorie zůstane v přehledu s nulou.
+  - Karta ve více kategoriích se počítá **jen jednou**: podle primární kategorie,
+    jinak podle první kategorie v pořadí na kartě, vždy jen z kategorií zvoleného
+    stromu. Součet skupin se proto vždy rovná celkovému ocenění.
+  - Zařazení vychází z **dnešních** kategorií karet, ne z kategorií k datu ocenění.
+    Kdo kartu mezitím přeřadil, uvidí ji v nové kategorii i ve starším ocenění.
+  - Změna seskupení výpočet neopakuje, jen znovu načte hotové ocenění. Export XLSX
+    přidá list **Podle kategorií**, export PDF souhrnnou tabulku nad seznam.
 - **Prodeje** viz [§ 37.12.8.1](#371281-prodeje-skladovych-karet).
 
 Stav zásob a ocenění mají **součtový řádek** (počet položek a celková hodnota) a jdou

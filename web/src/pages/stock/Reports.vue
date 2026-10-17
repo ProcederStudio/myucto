@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { stockApi, type StockStatusReport, type StockValuationReport, type StockSalesReport, type StockSalesAmount, type Warehouse } from '@/api/stock'
-import { eshopApi, type Category } from '@/api/eshop'
+import { stockApi, type StockStatusReport, type StockStatusColumn, type StockValuationReport, type StockSalesReport, type StockSalesAmount, type Warehouse } from '@/api/stock'
+import { eshopApi, type Attribute, type Category } from '@/api/eshop'
+import ColumnPicker from '@/components/ui/ColumnPicker.vue'
+import { useTablePrefs, type ColumnDef } from '@/composables/useTablePrefs'
 import ClientSearchSelect from '@/components/ui/ClientSearchSelect.vue'
 import PaginationBar from '@/components/ui/PaginationBar.vue'
 import { indentedCategoryLabel } from '@/utils/categoryLabel'
@@ -14,7 +16,7 @@ import { ICONS, btnOutline } from '@/components/ui/buttonStyles'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import { appIsoDate } from '@/utils/date'
 import DateInput from '@/components/ui/DateInput.vue'
-import { catalogJobsApi, type CatalogJob, type ValuationJobResult } from '@/api/catalogJobs'
+import { catalogJobsApi, type CatalogJob, type ValuationJobResult, type ValuationGroupParams } from '@/api/catalogJobs'
 import CatalogJobProgress from '@/components/stock/CatalogJobProgress.vue'
 
 const { t } = useI18n()
@@ -35,6 +37,55 @@ const filters = reactive({
 })
 
 const categories = ref<Category[]>([])
+const attributes = ref<Attribute[]>([])
+
+// Stav zásob: filtr kategorie (včetně podkategorií), sloupce a parametr karty.
+// Viditelnost sloupců si pamatují uživatelské předvolby tabulky, jako u seznamu karet.
+const STATUS_COLUMNS: ColumnDef[] = [
+  { key: 'sku', labelKey: 'stock.reports.col_sku', required: true },
+  { key: 'name', labelKey: 'stock.reports.col_name', required: true },
+  { key: 'warehouse', labelKey: 'stock.reports.col_warehouse', required: true },
+  { key: 'qty', labelKey: 'stock.reports.col_qty', required: true },
+  { key: 'avg_cost', labelKey: 'stock.reports.col_avg_cost' },
+  { key: 'value', labelKey: 'stock.reports.col_value' },
+  { key: 'sale_price', labelKey: 'stock.reports.col_sale_price', defaultHidden: true },
+  { key: 'note', labelKey: 'stock.reports.col_note', defaultHidden: true },
+]
+const STATUS_API_COLUMNS: Array<[string, StockStatusColumn]> = [
+  ['avg_cost', 'avg_unit_cost'], ['value', 'value_total'], ['sale_price', 'sale_price'], ['note', 'note'],
+]
+const statusTbl = useTablePrefs('stock-report-status', STATUS_COLUMNS)
+const statusFilters = reactive({
+  category_id: '' as number | '',
+  attribute_id: '' as number | '',
+})
+/** Výchozí průměrná cena + hodnota = bez parametru (odpověď beze změny), žádný sloupec = 'none'. */
+const statusColumnsParam = computed<string | undefined>(() => {
+  const keys = STATUS_API_COLUMNS.filter(([ui]) => statusTbl.isVisible(ui)).map(([, api]) => api)
+  if (keys.join(',') === 'avg_unit_cost,value_total') return undefined
+  return keys.length ? keys.join(',') : 'none'
+})
+function statusParams() {
+  return {
+    warehouse_id: filters.warehouse_id || undefined,
+    category_id: statusFilters.category_id || undefined,
+    columns: statusColumnsParam.value,
+    attribute_id: statusFilters.attribute_id || undefined,
+  }
+}
+/** API vrací ano/ne neutrálně ('true'/'false'), překlad je až tady. */
+function statusAttributeText(value: string | null | undefined): string {
+  if (value == null) return ''
+  if (statusReport.value?.attribute?.data_type !== 'bool') return value
+  return value.split(', ').map(v => v === 'true' ? t('common.yes') : v === 'false' ? t('common.no') : v).join(', ')
+}
+const statusAttributeLabel = computed(() => {
+  const a = statusReport.value?.attribute
+  return a ? (a.unit ? `${a.name} [${a.unit}]` : a.name) : ''
+})
+/** Sloupce před hodnotou (pro součtový řádek), resp. všechny sloupce, když je hodnota skrytá. */
+const statusLeadColumns = computed(() => 4 + (statusReport.value?.attribute ? 1 : 0) + (statusTbl.isVisible('avg_cost') ? 1 : 0))
+const statusTrailColumns = computed(() => (statusTbl.isVisible('sale_price') ? 1 : 0) + (statusTbl.isVisible('note') ? 1 : 0))
 const sales = ref<StockSalesReport | null>(null)
 const salesFilters = reactive({
   date_from: `${appIsoDate().slice(0, 4)}-01-01`,
@@ -134,12 +185,29 @@ const valuationPage = ref(1)
 const cancellingValuation = ref(false)
 let valuationTimer: ReturnType<typeof setTimeout> | undefined
 let valuationGeneration = 0
+// Seskupení ocenění: '' = žádné, 'top' = kategorie nejvyšší úrovně, číslo = přímé podkategorie.
+const valuationGroup = ref<'' | 'top' | number>('')
+function valuationGroupParams(): ValuationGroupParams {
+  if (valuationGroup.value === '') return {}
+  return valuationGroup.value === 'top' ? { group_by: 'category' } : { group_by: 'category', group_parent_id: valuationGroup.value }
+}
+const valuationGroups = computed(() => valuationResult.value?.category_groups ?? null)
+function valuationGroupLabel(group: NonNullable<ValuationJobResult['category_groups']>['groups'][number]): string {
+  const parent = valuationGroups.value?.parent
+  if (group.kind === 'parent') return t('stock.reports.group_parent', { name: parent?.name ?? '' })
+  if (group.kind === 'uncategorized') return parent ? t('stock.reports.group_outside', { name: parent.name }) : t('stock.reports.group_none')
+  return group.name
+}
+/** Hotové ocenění se jen znovu načte se souhrnem, výpočet se neopakuje. */
+function onValuationGroupChange() {
+  if (valuationJob.value?.status === 'completed') void loadValuationPage(1)
+}
 
 async function load() {
   loading.value = true
   try {
     if (tab.value === 'status') {
-      statusReport.value = await stockApi.reportStatus({ warehouse_id: filters.warehouse_id || undefined })
+      statusReport.value = await stockApi.reportStatus(statusParams())
     } else if (tab.value === 'sales') {
       await loadSales()
     } else { await startValuation() }
@@ -186,7 +254,7 @@ async function loadValuationPage(page = valuationPage.value) {
   if (!valuationJob.value) return
   const generation = valuationGeneration
   try {
-    const result = await catalogJobsApi.getValuation(valuationJob.value.id, { page, limit: 50 })
+    const result = await catalogJobsApi.getValuation(valuationJob.value.id, { page, limit: 50, ...valuationGroupParams() })
     if (generation !== valuationGeneration) return
     valuationPage.value = page
     valuationResult.value = result
@@ -211,10 +279,11 @@ async function exportFile(format: 'pdf' | 'xlsx') {
     window.open(stockApi.reportExportUrl('sales', 'xlsx', salesParams()), '_blank', 'noopener')
     return
   }
-  const url = stockApi.reportExportUrl(tab.value, format, {
+  const url = stockApi.reportExportUrl(tab.value, format, tab.value === 'status' ? statusParams() : {
     warehouse_id: filters.warehouse_id || undefined,
-    date: tab.value === 'valuation' ? filters.date : undefined,
-    job_id: tab.value === 'valuation' ? valuationResult.value?.job_id : undefined,
+    date: filters.date,
+    job_id: valuationResult.value?.job_id,
+    ...valuationGroupParams(),
   })
   window.open(url, '_blank', 'noopener')
 }
@@ -222,10 +291,16 @@ async function exportFile(format: 'pdf' | 'xlsx') {
 const statusRows = computed(() => statusReport.value?.items ?? [])
 const valuationRows = computed(() => valuationResult.value?.items ?? valuationReport.value?.items ?? [])
 
+// Změna viditelných sloupců mění obsah sestavy i exportu, proto stav zásob načte znovu.
+watch(statusColumnsParam, () => { if (tab.value === 'status') void load() })
+
 onMounted(async () => {
   try { warehouses.value = await stockApi.listWarehouses(true) } catch { warehouses.value = [] }
-  if (canSeeSales.value) {
+  // Kategorie a parametry čte jen uživatel s právem ke katalogu (jinak by šly zbytečné 403);
+  // bez nich filtry kategorie, parametru a seskupení zůstanou skryté.
+  if (auth.canRead('eshop')) {
     eshopApi.listCategories().then(list => { categories.value = list.filter(x => !x.archived) }).catch(() => { categories.value = [] })
+    eshopApi.listAttributes().then(list => { attributes.value = list.filter(x => !x.archived) }).catch(() => { attributes.value = [] })
   }
   // Odkaz z detailu karty: /stock/reports?tab=sales&stock_item_id=…
   const itemId = Number(route.query.stock_item_id)
@@ -289,6 +364,31 @@ onBeforeUnmount(() => { clearValuationTimer(); ++valuationGeneration; if (salesS
           <label class="block text-xs font-medium text-neutral-500 mb-1">{{ t('stock.reports.filter_date') }}</label>
           <DateInput v-model="filters.date" @change="load" class="h-9 px-2 border border-neutral-300 rounded-md text-sm" />
         </div>
+        <div v-if="tab === 'valuation' && categories.length">
+          <label class="block text-xs font-medium text-neutral-500 mb-1">{{ t('stock.reports.filter_group') }}</label>
+          <select v-model="valuationGroup" data-test="valuation-group" @change="onValuationGroupChange" class="h-9 px-2 border border-neutral-300 rounded-md text-sm bg-surface min-w-[12rem]">
+            <option value="">{{ t('stock.reports.group_off') }}</option>
+            <option value="top">{{ t('stock.reports.group_top') }}</option>
+            <option v-for="c in categories" :key="c.id" :value="c.id">{{ indentedCategoryLabel(c) }}</option>
+          </select>
+        </div>
+        <template v-if="tab === 'status'">
+          <div v-if="categories.length">
+            <label class="block text-xs font-medium text-neutral-500 mb-1">{{ t('stock.reports.filter_category') }}</label>
+            <select v-model="statusFilters.category_id" data-test="status-category" @change="load" class="h-9 px-2 border border-neutral-300 rounded-md text-sm bg-surface min-w-[10rem]">
+              <option value="">{{ t('common.all') }}</option>
+              <option v-for="c in categories" :key="c.id" :value="c.id">{{ indentedCategoryLabel(c) }}</option>
+            </select>
+          </div>
+          <div v-if="attributes.length">
+            <label class="block text-xs font-medium text-neutral-500 mb-1">{{ t('stock.reports.filter_attribute') }}</label>
+            <select v-model="statusFilters.attribute_id" data-test="status-attribute" @change="load" class="h-9 px-2 border border-neutral-300 rounded-md text-sm bg-surface min-w-[10rem]">
+              <option value="">{{ t('stock.reports.no_attribute') }}</option>
+              <option v-for="a in attributes" :key="a.id" :value="a.id">{{ a.name }}</option>
+            </select>
+          </div>
+          <ColumnPicker :ctrl="statusTbl" />
+        </template>
         <template v-if="tab === 'sales'">
           <div>
             <label class="block text-xs font-medium text-neutral-500 mb-1">{{ t('stock.reports.sales.filter_from') }}</label>
@@ -369,26 +469,36 @@ onBeforeUnmount(() => { clearValuationTimer(); ++valuationGeneration; if (salesS
               <tr>
                 <th class="px-3 py-2 text-left font-medium">{{ t('stock.reports.col_sku') }}</th>
                 <th class="px-3 py-2 text-left font-medium">{{ t('stock.reports.col_name') }}</th>
+                <th v-if="statusReport?.attribute" class="px-3 py-2 text-left font-medium">{{ statusAttributeLabel }}</th>
                 <th class="px-3 py-2 text-left font-medium">{{ t('stock.reports.col_warehouse') }}</th>
                 <th class="px-3 py-2 text-right font-medium">{{ t('stock.reports.col_qty') }}</th>
-                <th class="px-3 py-2 text-right font-medium">{{ t('stock.reports.col_avg_cost') }}</th>
-                <th class="px-3 py-2 text-right font-medium">{{ t('stock.reports.col_value') }}</th>
+                <th v-if="statusTbl.isVisible('avg_cost')" class="px-3 py-2 text-right font-medium">{{ t('stock.reports.col_avg_cost') }}</th>
+                <th v-if="statusTbl.isVisible('value')" class="px-3 py-2 text-right font-medium">{{ t('stock.reports.col_value') }}</th>
+                <th v-if="statusTbl.isVisible('sale_price')" class="px-3 py-2 text-right font-medium">{{ t('stock.reports.col_sale_price') }}</th>
+                <th v-if="statusTbl.isVisible('note')" class="px-3 py-2 text-left font-medium">{{ t('stock.reports.col_note') }}</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-neutral-100">
               <tr v-for="r in statusRows" :key="`${r.warehouse_id}-${r.stock_item_id}`" class="hover:bg-neutral-50" :class="{ 'bg-danger-50/40': r.min_qty != null && Number(r.qty) < Number(r.min_qty) }">
                 <td class="px-3 py-2 font-mono text-xs">{{ r.sku }}</td>
                 <td class="px-3 py-2">{{ r.name }}</td>
+                <td v-if="statusReport?.attribute" class="px-3 py-2">{{ statusAttributeText(r.attribute_value) }}</td>
                 <td class="px-3 py-2">{{ r.warehouse_name }}</td>
                 <td class="px-3 py-2 text-right font-mono">{{ r.qty }}</td>
-                <td class="px-3 py-2 text-right font-mono">{{ formatMoney(Number(r.avg_unit_cost)) }}</td>
-                <td class="px-3 py-2 text-right font-mono">{{ formatMoney(Number(r.value_total)) }}</td>
+                <td v-if="statusTbl.isVisible('avg_cost')" class="px-3 py-2 text-right font-mono">{{ formatMoney(Number(r.avg_unit_cost)) }}</td>
+                <td v-if="statusTbl.isVisible('value')" class="px-3 py-2 text-right font-mono">{{ formatMoney(Number(r.value_total)) }}</td>
+                <td v-if="statusTbl.isVisible('sale_price')" class="px-3 py-2 text-right font-mono">{{ r.sale_price != null ? formatMoney(Number(r.sale_price)) : '' }}</td>
+                <td v-if="statusTbl.isVisible('note')" class="px-3 py-2 text-neutral-600 whitespace-pre-line">{{ r.note ?? '' }}</td>
               </tr>
             </tbody>
             <tfoot v-if="statusReport">
               <tr class="border-t-2 border-neutral-300 font-semibold bg-neutral-50">
-                <td class="px-3 py-2" colspan="5">{{ t('stock.reports.totals') }} ({{ statusReport.totals.count }})</td>
-                <td class="px-3 py-2 text-right font-mono">{{ formatMoney(Number(statusReport.totals.value_total)) }}</td>
+                <template v-if="statusTbl.isVisible('value')">
+                  <td class="px-3 py-2" :colspan="statusLeadColumns">{{ t('stock.reports.totals') }} ({{ statusReport.totals.count }})</td>
+                  <td class="px-3 py-2 text-right font-mono">{{ formatMoney(Number(statusReport.totals.value_total)) }}</td>
+                  <td v-if="statusTrailColumns" :colspan="statusTrailColumns"></td>
+                </template>
+                <td v-else class="px-3 py-2" :colspan="statusLeadColumns + statusTrailColumns">{{ t('stock.reports.totals') }} ({{ statusReport.totals.count }})</td>
               </tr>
             </tfoot>
           </table>
@@ -521,7 +631,36 @@ onBeforeUnmount(() => { clearValuationTimer(); ++valuationGeneration; if (salesS
     <!-- Ocenění -->
     <template v-else>
       <CatalogJobProgress v-if="valuationJob && ['queued', 'running'].includes(valuationJob.status)" class="mb-4" :job="valuationJob" :cancelling="cancellingValuation" :can-cancel="auth.canWrite('stock')" @cancel="cancelValuation" />
-      <p v-if="valuationJob?.status === 'failed' || valuationJob?.status === 'cancelled'" class="text-sm text-danger-600 mb-3">{{ t('stock.reports.valuation_failed') }}</p><EmptyState v-if="valuationJob?.status === 'completed' && valuationRows.length === 0" boxed accent="neutral" icon="coin"
+      <p v-if="valuationJob?.status === 'failed' || valuationJob?.status === 'cancelled'" class="text-sm text-danger-600 mb-3">{{ t('stock.reports.valuation_failed') }}</p>
+      <!-- Souhrn podle kategorií za celé ocenění (ne jen stránku); součet = celkové ocenění. -->
+      <div v-if="valuationGroups" class="bg-surface border border-neutral-200 rounded-lg shadow-sm overflow-hidden mb-4">
+        <div class="overflow-x-auto">
+          <table class="min-w-[28rem] w-full text-sm">
+            <thead class="bg-neutral-50 text-xs text-neutral-500 uppercase tracking-wide">
+              <tr>
+                <th class="px-3 py-2 text-left font-medium">{{ valuationGroups.parent ? `${t('stock.reports.col_category')}: ${valuationGroups.parent.name}` : t('stock.reports.col_category') }}</th>
+                <th class="px-3 py-2 text-right font-medium whitespace-nowrap">{{ t('stock.reports.col_rows') }}</th>
+                <th class="px-3 py-2 text-right font-medium whitespace-nowrap">{{ t('stock.reports.col_value') }}</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-neutral-100">
+              <tr v-for="g in valuationGroups.groups" :key="`${g.kind}-${g.category_id ?? ''}`">
+                <td class="px-3 py-2" :class="g.kind === 'category' ? '' : 'text-neutral-600'">{{ valuationGroupLabel(g) }}</td>
+                <td class="px-3 py-2 text-right font-mono">{{ g.count }}</td>
+                <td class="px-3 py-2 text-right font-mono whitespace-nowrap">{{ formatMoney(Number(g.value_total)) }}</td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr class="border-t-2 border-neutral-300 font-semibold bg-neutral-50">
+                <td class="px-3 py-2">{{ t('stock.reports.totals') }}</td>
+                <td class="px-3 py-2 text-right font-mono">{{ valuationGroups.count }}</td>
+                <td class="px-3 py-2 text-right font-mono whitespace-nowrap">{{ formatMoney(Number(valuationGroups.value_total)) }}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <p class="px-3 py-2 text-xs text-neutral-500 border-t border-neutral-100">{{ t('stock.reports.group_note') }}</p>
+      </div><EmptyState v-if="valuationJob?.status === 'completed' && valuationRows.length === 0" boxed accent="neutral" icon="coin"
         :title="t('stock.reports.empty_title')" :message="t('stock.reports.empty_hint')" />
       <div v-else-if="valuationRows.length > 0" class="bg-surface border border-neutral-200 rounded-lg shadow-sm overflow-hidden">
         <div class="overflow-x-auto">
