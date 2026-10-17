@@ -21069,6 +21069,8 @@
     "send_payment_thanks": "Odeslat zákazníkovi poděkování za úhradu",
     "send_payment_thanks_no_recipient": "Faktura nemá e-mail příjemce.",
     "payment_thanks_sent": "Poděkování za úhradu odesláno.",
+    "payment_thanks_queued": "Poděkování za úhradu je zařazeno do fronty.",
+    "bulk_thanks_queued": "Poděkování ve frontě: {n}.",
     "payment_thanks_failed": "Označeno jako zaplacené, ale poděkování se nepodařilo odeslat.",
     "payment_thanks_no_recipient": "Označeno jako zaplacené; poděkování neodesláno (chybí e-mail příjemce).",
     "bulk_send_thanks_confirm": "Odeslat i poděkování za úhradu pro {n} faktur?",

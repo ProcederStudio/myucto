@@ -21069,6 +21069,8 @@
     "send_payment_thanks": "Send the customer a payment thank-you",
     "send_payment_thanks_no_recipient": "The invoice has no recipient e-mail.",
     "payment_thanks_sent": "Payment thank-you sent.",
+    "payment_thanks_queued": "Payment thank-you queued for delivery.",
+    "bulk_thanks_queued": "Thank-you e-mails queued: {n}.",
     "payment_thanks_failed": "Marked as paid, but the thank-you e-mail could not be sent.",
     "payment_thanks_no_recipient": "Marked as paid; thank-you not sent (no recipient e-mail).",
     "bulk_send_thanks_confirm": "Also send a payment thank-you for {n} invoices?",

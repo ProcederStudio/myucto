@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Mail;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\InvoiceRepository;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Pdf\InvoicePdfRenderer;
@@ -15,8 +16,8 @@ use MyInvoice\Service\Pdf\InvoicePdfRenderer;
  * Volá se z MarkPaidAction (ruční/bulk) i z bankovního párování. Sama si ověří
  * podmínky (paid, ne-cancellation, příjemce, per-supplier zapnutí) a je
  * idempotentní (auto odeslání jen pokud `payment_thanks_sent_at IS NULL`).
- * NIKDY nevyhazuje výjimku ven — selhání odeslání nesmí rozbít označení/párování;
- * vrací strukturovaný výsledek a vše loguje do activity logu.
+ * V neukončené transakci ukládá pouze intent. Chyba uložení nebo úplný abort
+ * transakce se propaguje; SMTP selhání po commitu vrací strukturovaný výsledek.
  */
 final class PaymentThanksMailer
 {
@@ -32,7 +33,7 @@ final class PaymentThanksMailer
 
     /**
      * @param 'manual'|'bulk'|'bank_match' $trigger
-     * @return array{status:'sent'|'skipped'|'failed', reason?:string, recipients?:list<string>}
+     * @return array{status:'sent'|'skipped'|'failed'|'queued', reason?:string, recipients?:list<string>}
      */
     public function sendForInvoice(
         int $invoiceId,
@@ -42,6 +43,26 @@ final class PaymentThanksMailer
         ?string $userAgent = null,
         bool $requireUnsent = false,
     ): array {
+        $outbox = new PaymentThanksOutbox($this->db);
+        if ($this->db->pdo()->inTransaction()) {
+            return $outbox->enqueue($invoiceId, $trigger, $userId, $ip, $userAgent, $requireUnsent);
+        }
+        return $outbox->withInvoiceLock($invoiceId, fn (): array => $this->sendCommitted(
+            $invoiceId, $trigger, $userId, $ip, $userAgent, $requireUnsent,
+        )) ?? $outbox->enqueue($invoiceId, $trigger, $userId, $ip, $userAgent, $requireUnsent);
+    }
+
+    /** Chyby persistence fronty a zámků se propagují; nejde o best-effort consumer. */
+    public function flushDeferred(?int $invoiceId = null, int $max = 25): array
+    {
+        return (new PaymentThanksOutbox($this->db))->flush(fn (array $intent): array => $this->sendCommitted(
+            $intent['invoice_id'], $intent['trigger'], $intent['user_id'], $intent['ip'],
+            $intent['user_agent'], $intent['require_unsent'],
+        ), $invoiceId, $max);
+    }
+
+    private function sendCommitted(int $invoiceId, string $trigger, ?int $userId, ?string $ip, ?string $userAgent, bool $requireUnsent): array
+    {
         $invoice = $this->repo->find($invoiceId);
         if (!$invoice) {
             return ['status' => 'skipped', 'reason' => 'not_found'];
@@ -88,14 +109,18 @@ final class PaymentThanksMailer
                 $pdfPath = $this->renderer->render($invoiceId, false, $userId);
                 $attachments[] = $this->varsBuilder->pdfAttachment($invoice, $pdfPath);
             } catch (\Throwable $e) {
+                if (TransactionFailure::aborted($e)) throw $e;
                 // PDF příloha je volitelná — když selže, pošli e-mail bez ní.
                 $attachments = [];
             }
         }
 
         try {
-            $smtp = $this->mailer->sendTemplate('invoice_payment_thanks', $locale, $to, $vars, null, $cc, $bcc, $attachments, $userId, templateSupplierId: (int) $invoice['supplier_id']);
+            $delivery = $this->mailer->sendTemplateDetailed('invoice_payment_thanks', $locale, $to, $vars, null, $cc, $bcc, $attachments, $userId, templateSupplierId: (int) $invoice['supplier_id']);
+        } catch (MailDeliveredArchiveException $e) {
+            $delivery = ['smtp_response' => $e->smtpResponse(), 'deferred' => false];
         } catch (\Throwable $e) {
+            if (TransactionFailure::aborted($e)) throw $e;
             $this->logger->log('invoice.payment_thanks_failed', $userId, 'invoice', $invoiceId, [
                 'varsymbol' => $invoice['varsymbol'] ?? null,
                 'paid_at'   => $invoice['paid_at'] ?? null,
@@ -111,15 +136,18 @@ final class PaymentThanksMailer
             ->prepare('UPDATE invoices SET payment_thanks_sent_at = NOW(), payment_thanks_sent_to = ? WHERE id = ?')
             ->execute([$sentTo, $invoiceId]);
 
-        $this->logger->log('invoice.payment_thanks_sent', $userId, 'invoice', $invoiceId, [
+        $queued = ($delivery['deferred'] ?? false) === true;
+        $this->logger->log($queued ? 'invoice.payment_thanks_queued' : 'invoice.payment_thanks_sent', $userId, 'invoice', $invoiceId, [
             'varsymbol'     => $invoice['varsymbol'] ?? null,
             'paid_at'       => $invoice['paid_at'] ?? null,
             'recipients'    => $to,
             'trigger'       => $trigger,
-            'smtp_response' => $smtp,
+            'smtp_response' => $delivery['smtp_response'],
         ], $ip, $userAgent);
 
-        return ['status' => 'sent', 'recipients' => $to];
+        return $queued
+            ? ['status' => 'queued', 'reason' => 'rate_limit', 'recipients' => $to]
+            : ['status' => 'sent', 'recipients' => $to];
     }
 
     /** @return array{enabled:bool, auto_send:bool, attach_paid_pdf:bool} */

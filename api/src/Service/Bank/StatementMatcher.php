@@ -422,7 +422,10 @@ final class StatementMatcher
         if ($this->matchV2 === null) return $result;
         try {
             return $this->matchV2->afterMatch($transactionId, $result);
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($this->db->pdo(), $e)) {
+                throw $e;
+            }
             return $result;
         }
     }
@@ -461,59 +464,63 @@ final class StatementMatcher
         if (!$row) {
             return ['status' => 'unmatched', 'reason' => 'transaction_not_found'];
         }
-        $storedStatus = (string) ($row['match_status'] ?? 'unmatched');
-        if (in_array($storedStatus, ['auto_exact', 'manual', 'ignored'], true)) {
-            $repaired = $storedStatus === 'auto_exact' && ($this->paymentRepair?->repair($transactionId) ?? false);
-            $result = ['status' => $storedStatus, 'already_recorded' => !$repaired];
-            if ($repaired) {
-                $this->logPaymentMatch('invoice', (int) $row['matched_invoice_id'], null, $storedStatus,
-                    (float) $row['amount'], (string) ($row['variable_symbol'] ?? ''), $transactionId);
+        $recorded = in_array((string) ($row['match_status'] ?? ''), ['auto_exact', 'manual', 'ignored'], true);
+        $supplierId = $recorded && (int) ($row['statement_supplier_id'] ?? 0) > 0
+            ? (int) $row['statement_supplier_id']
+            : $this->discoverSupplier($row);
+        if ($supplierId === 0) {
+            return $recorded ? $this->recordedResult($transactionId, $row, false)
+                : ['status' => 'unmatched', 'reason' => 'unknown_supplier_for_account'];
+        }
+        $this->begin($pdo);
+        try {
+            $current = (new BankTransactionContext($this->db))->lock($supplierId, $transactionId);
+            $result = $current === null
+                ? ['status' => 'unmatched', 'reason' => 'transaction_not_found']
+                : $this->doMatchCurrent($transactionId, $allowAmountDateFallback, $current, $supplierId);
+            $this->commit($pdo);
+        } catch (\Throwable $e) {
+            $this->rollBackIfOpen($pdo, $e);
+            throw $e;
+        }
+        if (!$pdo->inTransaction() && !empty($result['invoice_id'])) {
+            try {
+                $this->paymentThanks?->flushDeferred((int) $result['invoice_id']);
+            } catch (\Throwable $e) {
+                if ($pdo->inTransaction() || TransactionFailure::aborted($e)) throw $e;
+                // Platba je commitnutá; trvalý intent zpracuje cron, který chybu fronty hlásí.
             }
-            if (!empty($row['matched_invoice_id'])) {
-                $result['invoice_id'] = (int) $row['matched_invoice_id'];
-            } else {
-                $purchase = $pdo->prepare(
-                    'SELECT purchase_invoice_id FROM payment_matches
-                      WHERE bank_transaction_id = ? AND purchase_invoice_id IS NOT NULL
-                      ORDER BY id LIMIT 1'
-                );
-                $purchase->execute([$transactionId]);
-                $purchaseId = $purchase->fetchColumn();
-                if ($purchaseId !== false) {
-                    $result['purchase_invoice_id'] = (int) $purchaseId;
-                }
-            }
-            return $result;
         }
-        if (($taken = $this->takenElsewhereReason($pdo, $transactionId)) !== null) {
-            return ['status' => 'unmatched', 'reason' => $taken];
-        }
-        // Pohyb, který už spotřebovala mzdová platba, není volný — druhé
-        // přiřazení k faktuře by tutéž korunu použilo dvakrát. Důvod
-        // `payroll_settled` záměrně NENÍ v MatchSuggestionService::ALLOWED_REASONS,
-        // takže se ani nenavrhne ke schválení.
-        if ($this->payrollEvidence?->isUsedByPayrollSafely($transactionId) === true) {
-            return ['status' => 'unmatched', 'reason' => 'payroll_settled'];
-        }
-        $vs = $row['variable_symbol'];
-        $amount = (float) $row['amount'];
-        // VS může chybět (karetní platby) — řeší se per-směr níže: odchozí přes fuzzy
-        // (částka + podobný název), příchozí stále vyžadují VS.
-        // Currency guard: tx currency (preferováno) → statement currency
-        // (fallback) → null (backward compat — staré výpisy bez měny matchují
-        // jakoukoli fakturu, jak to dělaly před fixem v4.1.0).
-        $txCurrency = is_string($row['currency'] ?? null) && $row['currency'] !== ''
-            ? (string) $row['currency']
-            : (is_string($row['statement_currency'] ?? null) && $row['statement_currency'] !== ''
-                ? (string) $row['statement_currency']
-                : null);
-        // Outgoing (amount < 0) → match na purchase_invoice (přijatou) — fáze 3.
-        // Incoming (amount > 0) → match na invoice (vydanou) — existing flow.
-        $isOutgoing = $amount < 0;
-        $exactTolerance = isset($row['match_tolerance']) && $row['match_tolerance'] !== null
-            ? max(0.0, (float) $row['match_tolerance'])
-            : null;
+        return $result;
+    }
 
+    /** @param array<string,mixed> $row @return array<string,mixed> */
+    private function recordedResult(int $transactionId, array $row, bool $repaired): array
+    {
+        $pdo = $this->db->pdo();
+        $result = ['status' => (string) $row['match_status'], 'already_recorded' => !$repaired];
+        if (!empty($row['matched_invoice_id'])) {
+            $result['invoice_id'] = (int) $row['matched_invoice_id'];
+        } else {
+            $purchase = $pdo->prepare(
+                'SELECT purchase_invoice_id FROM payment_matches
+                  WHERE bank_transaction_id = ? AND purchase_invoice_id IS NOT NULL
+                  ORDER BY id LIMIT 1'
+            );
+            $purchase->execute([$transactionId]);
+            $purchaseId = $purchase->fetchColumn();
+            if ($purchaseId !== false) {
+                $result['purchase_invoice_id'] = (int) $purchaseId;
+            }
+        }
+        return $result;
+    }
+
+    /** @param array<string,mixed> $row */
+    private function discoverSupplier(array $row): int
+    {
+        $pdo = $this->db->pdo();
+        $isOutgoing = (float) $row['amount'] < 0;
         // Určení supplier_id z bank účtu (currencies.account_number + bank_code).
         // Normalizace přes AccountNumberNormalizer (řeší zero-padding a prefix).
         // Porovnává se i domácí část IBANu (#109) — cizoměnové účty bývají evidované
@@ -555,9 +562,51 @@ final class StatementMatcher
                 (string) ($row['recipient_account'] ?? ''),
             );
         }
-        if ($supplierId === 0) {
-            return ['status' => 'unmatched', 'reason' => 'unknown_supplier_for_account'];
+        return $supplierId;
+    }
+
+    /** @param array<string,mixed> $row @return array<string,mixed> */
+    private function doMatchCurrent(int $transactionId, bool $allowAmountDateFallback, array $row, int $supplierId): array
+    {
+        $pdo = $this->db->pdo();
+        $storedStatus = (string) ($row['match_status'] ?? 'unmatched');
+        if (in_array($storedStatus, ['auto_exact', 'manual', 'ignored'], true)) {
+            $repaired = $storedStatus === 'auto_exact' && ($this->paymentRepair?->repair($transactionId) ?? false);
+            if ($repaired) {
+                $this->logPaymentMatch('invoice', (int) $row['matched_invoice_id'], null, $storedStatus,
+                    (float) $row['amount'], (string) ($row['variable_symbol'] ?? ''), $transactionId);
+            }
+            return $this->recordedResult($transactionId, $row, $repaired);
         }
+        if (($taken = $this->takenElsewhereReason($pdo, $transactionId)) !== null) {
+            return ['status' => 'unmatched', 'reason' => $taken];
+        }
+        // Pohyb, který už spotřebovala mzdová platba, není volný — druhé
+        // přiřazení k faktuře by tutéž korunu použilo dvakrát. Důvod
+        // `payroll_settled` záměrně NENÍ v MatchSuggestionService::ALLOWED_REASONS,
+        // takže se ani nenavrhne ke schválení.
+        if ($this->payrollEvidence?->isUsedByPayrollSafely($transactionId) === true) {
+            return ['status' => 'unmatched', 'reason' => 'payroll_settled'];
+        }
+        $vs = $row['variable_symbol'];
+        $amount = (float) $row['amount'];
+        // VS může chybět (karetní platby) — řeší se per-směr níže: odchozí přes fuzzy
+        // (částka + podobný název), příchozí stále vyžadují VS.
+        // Currency guard: tx currency (preferováno) → statement currency
+        // (fallback) → null (backward compat — staré výpisy bez měny matchují
+        // jakoukoli fakturu, jak to dělaly před fixem v4.1.0).
+        $txCurrency = is_string($row['currency'] ?? null) && $row['currency'] !== ''
+            ? (string) $row['currency']
+            : (is_string($row['statement_currency'] ?? null) && $row['statement_currency'] !== ''
+                ? (string) $row['statement_currency']
+                : null);
+        // Outgoing (amount < 0) → match na purchase_invoice (přijatou) — fáze 3.
+        // Incoming (amount > 0) → match na invoice (vydanou) — existing flow.
+        $isOutgoing = $amount < 0;
+        $exactTolerance = isset($row['match_tolerance']) && $row['match_tolerance'] !== null
+            ? max(0.0, (float) $row['match_tolerance'])
+            : null;
+
         // Převod mezi vlastními účty se zrcadlovým protipohybem je jistý i bez VS; jinak
         // by odchozí noha bez VS šla do párování podle částky a data na přijatou fakturu.
         if ($this->ownTransfers?->pairIfCertain($supplierId, $transactionId) !== null) {
@@ -893,10 +942,7 @@ final class StatementMatcher
 
             $this->clientBankAccounts?->captureForInvoiceTransaction((int) $inv['id'], $transactionId);
 
-            // Děkovný e-mail za úhradu (#57/#127) — jen pro fakturu nově označenou jako
-            // paid (ne ručně paid, kterou jen navazujeme). Best-effort, mimo transakci:
-            // mailer si sám ohlídá enabled + auto_send (bank_match trigger) i idempotenci
-            // a nikdy nevyhazuje výjimku, takže selhání e-mailu nerozbije spárování.
+            // Intent patří ke stejné platbě; PDF a SMTP smí běžet až po outermost commit.
             if (!$alreadyPaid) {
                 $this->paymentThanks?->sendForInvoice((int) $inv['id'], 'bank_match', null, null, null, requireUnsent: true);
             }
@@ -967,10 +1013,10 @@ final class StatementMatcher
 
         if ($diff <= $m['partial']) {
             // Partial match (legacy fallback / již paid faktura) — flag, ale nepaint paid.
-            $pdo->beginTransaction();
+            $this->begin($pdo);
             try {
                 if (!$this->claimTransaction($pdo, $transactionId)) {
-                    $pdo->rollBack();
+                    $this->rollBack($pdo);
                     return ['status' => 'unmatched', 'reason' => 'transaction_not_free'];
                 }
                 $pdo->prepare(
@@ -978,9 +1024,9 @@ final class StatementMatcher
                         SET matched_invoice_id = ?, match_status = 'auto_partial', matched_at = NOW()
                       WHERE id = ?"
                 )->execute([$inv['id'], $transactionId]);
-                $pdo->commit();
+                $this->commit($pdo);
             } catch (\Throwable $e) {
-                if ($pdo->inTransaction()) $pdo->rollBack();
+                $this->rollBackIfOpen($pdo, $e);
                 throw $e;
             }
             $this->clientBankAccounts?->captureForInvoiceTransaction((int) $inv['id'], $transactionId);

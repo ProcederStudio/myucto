@@ -946,6 +946,7 @@ async function markPaid() {
     toast.success( t('invoice.marked_paid_at', { date: paidAtInput.value }))
     const pt = invoice.value.payment_thanks
     if (pt?.status === 'sent') toast.success(t('invoice.payment_thanks_sent'))
+    else if (pt?.status === 'queued') toast.success(t('invoice.payment_thanks_queued'))
     else if (pt?.status === 'failed') toast.warning(t('invoice.payment_thanks_failed'))
     else if (pt?.status === 'skipped' && pt.reason === 'no_recipient') toast.warning(t('invoice.payment_thanks_no_recipient'))
   } catch (e: any) {

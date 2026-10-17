@@ -1388,6 +1388,12 @@ final class BankStatementAction
      */
     public function delete(Request $request, Response $response, array $args): Response
     {
+        return $this->withCurrentBankSource($request, $response, (int) ($args['id'] ?? 0), true,
+            fn (): Response => $this->deleteWithCurrentSource($request, $response, $args));
+    }
+
+    private function deleteWithCurrentSource(Request $request, Response $response, array $args): Response
+    {
         $id = (int) ($args['id'] ?? 0);
         $sid = SupplierGuard::currentId($request);
         if ($sid <= 0 || $id <= 0) {
@@ -1407,7 +1413,7 @@ final class BankStatementAction
         $pdo = $this->db->pdo();
         $owned = $pdo->prepare(
             'SELECT bs.file_name, bs.source, bs.matched_count FROM bank_statements bs
-              WHERE bs.id = ? AND ' . \MyInvoice\Repository\BankStatementOwnershipResolver::sql()
+              WHERE bs.id = ? AND ' . \MyInvoice\Repository\BankStatementOwnershipResolver::sql('bs', true) . ' FOR UPDATE'
         );
         $owned->execute(array_merge([$id], \MyInvoice\Repository\BankStatementOwnershipResolver::params($sid)));
         $ownedRow = $owned->fetch(\PDO::FETCH_ASSOC);
@@ -1475,7 +1481,7 @@ final class BankStatementAction
                 }
             }
             $released = 0;
-            foreach ($this->release->releasableTransactionIds($sid, $id) as $txId) {
+            foreach ($this->release->releasableTransactionIds($sid, $id, true) as $txId) {
                 $this->release->release($sid, $txId, BankTransactionReleaseService::MODE_DELETE, $userId ?: null);
                 $released++;
             }
@@ -2188,12 +2194,36 @@ final class BankStatementAction
         return $all ? [(int) $all[0]['id'], (string) $all[0]['code']] : [0, 'CZK'];
     }
 
+    private function withCurrentBankSource(Request $request, Response $response, int $id, bool $statement, callable $work): Response
+    {
+        if ($statement && !RequestAuthorization::allows($request, 'bank', AccessLevel::WRITE)) {
+            return Json::error($response, 'forbidden', 'Pouze admin smí mazat výpisy.', 403);
+        }
+        $pdo = $this->db->pdo();
+        $savepoint = $statement ? 'bank_statement_owner' : 'bank_transaction_owner';
+        $own = self::beginAtomic($pdo, $savepoint);
+        try {
+            $supplierId = SupplierGuard::currentId($request);
+            $source = $statement ? $this->bankPosting->lockStatement($supplierId, $id)
+                : $this->bankPosting->lockTransaction($supplierId, $id);
+            if ($source === null) {
+                self::rollbackAtomic($pdo, $own, $savepoint);
+                return Json::error($response, 'not_found', $statement ? 'Výpis nenalezen.' : 'Transakce nenalezena.', 404);
+            }
+            $result = $work();
+            if ($result->getStatusCode() >= 400) self::rollbackAtomic($pdo, $own, $savepoint);
+            else self::commitAtomic($pdo, $own, $savepoint);
+            return $result;
+        } catch (\Throwable $e) {
+            self::rollbackAtomic($pdo, $own, $savepoint, $e);
+            throw $e;
+        }
+    }
+
     private function lockOwnedTransaction(Request $request, int $txId): array
     {
-        $stmt = $this->db->pdo()->prepare('SELECT * FROM bank_transactions WHERE id = ? FOR UPDATE');
-        $stmt->execute([$txId]);
-        $tx = $stmt->fetch(\PDO::FETCH_ASSOC);
-        if (!$tx || !$this->txBelongsToCurrentSupplier($request, $txId)) throw new \DomainException('Transakce nenalezena.', 404);
+        $tx = $this->bankPosting->lockTransaction(SupplierGuard::currentId($request), $txId);
+        if ($tx === null) throw new \DomainException('Transakce nenalezena.', 404);
         return $tx;
     }
 
@@ -2222,9 +2252,9 @@ final class BankStatementAction
      * report @andrejtomci #1). Rozhodnutí dělá
      * {@see \MyInvoice\Repository\BankStatementOwnershipResolver} (SEC-01).
      */
-    private function txBelongsToCurrentSupplier(Request $request, int $txId): bool
+    private function txBelongsToCurrentSupplier(Request $request, int $txId, bool $currentRead = false): bool
     {
-        return $this->ownership->transactionOwned($txId, SupplierGuard::currentId($request));
+        return $this->ownership->transactionOwned($txId, SupplierGuard::currentId($request), $currentRead);
     }
 
     public function matchSuggestions(Request $request, Response $response, array $args): Response
@@ -2271,7 +2301,10 @@ final class BankStatementAction
             return Json::error($response, 'forbidden_document', $e->getMessage(), self::domainHttpStatus($e));
         } catch (MatchSuggestionException $e) {
             return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus);
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($this->db->pdo(), $e)) {
+                throw $e;
+            }
             return Json::error($response, 'match_accept_failed', 'Potvrzení návrhu párování selhalo.', 500);
         }
     }
@@ -3097,6 +3130,12 @@ final class BankStatementAction
 
     public function manualMatch(Request $request, Response $response, array $args): Response
     {
+        return $this->withCurrentBankSource($request, $response, (int) ($args['id'] ?? 0), false,
+            fn (): Response => $this->manualMatchWithCurrentSource($request, $response, $args));
+    }
+
+    private function manualMatchWithCurrentSource(Request $request, Response $response, array $args): Response
+    {
         if (!RequestAuthorization::isClientType($request)) return $this->performManualMatch($request, $response, $args);
         if (!RequestAuthorization::allows($request, 'bank.match', AccessLevel::WRITE)) {
             return Json::error($response, 'forbidden', 'Chybí oprávnění pro párování banky.', 403);
@@ -3131,7 +3170,7 @@ final class BankStatementAction
     private function performManualMatch(Request $request, Response $response, array $args): Response
     {
         $txId = (int) ($args['id'] ?? 0);
-        if (!$this->txBelongsToCurrentSupplier($request, $txId)) {
+        if (!$this->txBelongsToCurrentSupplier($request, $txId, true)) {
             return Json::error($response, 'not_found', 'Transakce nenalezena.', 404);
         }
 
@@ -3255,7 +3294,7 @@ final class BankStatementAction
                     COALESCE(NULLIF(bt.currency, ""), bs.currency) AS tx_currency
                FROM bank_transactions bt
                JOIN bank_statements bs ON bs.id = bt.statement_id
-              WHERE bt.id = ?'
+              WHERE bt.id = ? FOR UPDATE'
         );
         $tx->execute([$txId]);
         $txRow = $tx->fetch(\PDO::FETCH_ASSOC) ?: [];
@@ -3392,6 +3431,7 @@ final class BankStatementAction
             return Json::error($response, InvoiceAlreadySettledException::CODE, $e->getMessage(), 409);
         } catch (\Throwable $e) {
             self::rollbackAtomic($pdo, $own, $savepoint, $e);
+            if (TransactionFailure::aborted($e)) throw $e;
             return Json::error($response, 'match_failed', 'Manuální párování selhalo: ' . $e->getMessage(), 500);
         }
 
@@ -3588,7 +3628,7 @@ final class BankStatementAction
                     UPPER(COALESCE(NULLIF(bt.currency, ""), NULLIF(bs.currency, ""), "CZK")) AS tx_currency
                FROM bank_transactions bt
                JOIN bank_statements bs ON bs.id = bt.statement_id
-              WHERE bt.id = ?'
+              WHERE bt.id = ? FOR UPDATE'
         );
         $tx->execute([$txId]);
         $txRow = $tx->fetch(\PDO::FETCH_ASSOC) ?: [];
@@ -3814,6 +3854,7 @@ final class BankStatementAction
             return Json::error($response, InvoiceAlreadySettledException::CODE, $e->getMessage(), 409);
         } catch (\Throwable $e) {
             self::rollbackAtomic($pdo, $own, $savepoint, $e);
+            if (TransactionFailure::aborted($e)) throw $e;
             return Json::error($response, 'match_failed', 'Sloučené párování selhalo: ' . $e->getMessage(), 500);
         }
 
@@ -4131,6 +4172,7 @@ final class BankStatementAction
             ]);
         } catch (\Throwable $e) {
             self::rollbackAtomic($pdo, $own, $savepoint, $e);
+            if (TransactionFailure::aborted($e)) throw $e;
             return Json::error($response, 'match_failed', 'Sloučené párování přijatých faktur selhalo: ' . $e->getMessage(), 500);
         }
 
@@ -4187,7 +4229,7 @@ final class BankStatementAction
                     COALESCE(NULLIF(bt.currency, ""), NULLIF(bs.currency, "")) AS currency
                FROM bank_transactions bt
                JOIN bank_statements bs ON bs.id = bt.statement_id
-              WHERE bt.id = ?'
+              WHERE bt.id = ? FOR UPDATE'
         );
         $tx->execute([$txId]);
         $txRow = $tx->fetch(\PDO::FETCH_ASSOC) ?: [];
@@ -4357,6 +4399,7 @@ final class BankStatementAction
             return Json::error($response, InvoiceAlreadySettledException::CODE, $e->getMessage(), 409);
         } catch (\Throwable $e) {
             self::rollbackAtomic($pdo, $own, $savepoint, $e);
+            if (TransactionFailure::aborted($e)) throw $e;
             return Json::error($response, 'match_failed', 'Párování selhalo: ' . $e->getMessage(), 500);
         }
         $this->clientBankAccounts->captureForPurchaseInvoiceTransaction($purchaseInvoiceId, $txId);
@@ -4391,11 +4434,18 @@ final class BankStatementAction
     {
         try {
             $this->matchV2->recordManual($transactionId, $supplierId, $userId);
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($this->db->pdo(), $e)) throw $e;
         }
     }
 
     public function unmatch(Request $request, Response $response, array $args): Response
+    {
+        return $this->withCurrentBankSource($request, $response, (int) ($args['id'] ?? 0), false,
+            fn (): Response => $this->unmatchWithCurrentSource($request, $response, $args));
+    }
+
+    private function unmatchWithCurrentSource(Request $request, Response $response, array $args): Response
     {
         if (!RequestAuthorization::isClientType($request)) return $this->performUnmatch($request, $response, $args);
         if (!RequestAuthorization::allows($request, 'bank.match', AccessLevel::WRITE)) return Json::error($response, 'forbidden', 'Chybí oprávnění pro párování banky.', 403);
@@ -4419,7 +4469,7 @@ final class BankStatementAction
     private function performUnmatch(Request $request, Response $response, array $args): Response
     {
         $txId = (int) ($args['id'] ?? 0);
-        if (!$this->txBelongsToCurrentSupplier($request, $txId)) {
+        if (!$this->txBelongsToCurrentSupplier($request, $txId, true)) {
             return Json::error($response, 'not_found', 'Transakce nenalezena.', 404);
         }
 
@@ -4428,7 +4478,7 @@ final class BankStatementAction
 
         $stmt = $pdo->prepare(
             'SELECT id, statement_id, matched_invoice_id, posted_at, match_status
-               FROM bank_transactions WHERE id = ?'
+               FROM bank_transactions WHERE id = ? FOR UPDATE'
         );
         $stmt->execute([$txId]);
         $tx = $stmt->fetch(\PDO::FETCH_ASSOC);
@@ -4460,7 +4510,8 @@ final class BankStatementAction
         try {
             try {
                 $this->matchV2->recordUnmatch($txId, $supplierId, $userId);
-            } catch (\Throwable) {
+            } catch (\Throwable $e) {
+                if (TransactionFailure::rollbackIfAborted($pdo, $e)) throw $e;
             }
             // Storno/odpojení zápisu, zrušení platby, vazby na přijatou fakturu a přepočet
             // stavu dokladů — sdílené se smazáním výpisu. Zavřené období nebo daňový
@@ -4477,6 +4528,7 @@ final class BankStatementAction
             return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus);
         } catch (\Throwable $e) {
             self::rollbackAtomic($pdo, $own, $savepoint, $e);
+            if (TransactionFailure::aborted($e)) throw $e;
             return Json::error($response, 'unmatch_failed', 'Zrušení spárování selhalo: ' . $e->getMessage(), 500);
         }
 

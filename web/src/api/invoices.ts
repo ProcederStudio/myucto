@@ -333,7 +333,7 @@ export interface Invoice {
   created_at: string
   updated_at: string
   /** Výsledek děkovného e-mailu (issue #57) — vrací mark-paid, jen když se odesílalo. */
-  payment_thanks?: { status: 'sent' | 'skipped' | 'failed'; reason?: string; recipients?: string[] } | null
+  payment_thanks?: { status: 'sent' | 'skipped' | 'failed' | 'queued'; reason?: string; recipients?: string[] } | null
   client_company_name?: string
   client_main_email?: string
   client_ic?: string | null
@@ -889,7 +889,7 @@ export const invoicesApi = {
       payment: InvoicePayment
       became_paid: boolean
       remaining: number
-      payment_thanks?: { status: 'sent' | 'skipped' | 'failed'; reason?: string } | null
+      payment_thanks?: { status: 'sent' | 'skipped' | 'failed' | 'queued'; reason?: string } | null
     }>(`/invoices/${id}/payments`, payload).then(r => r.data),
   deletePayment: (id: number, paymentId: number) =>
     api.delete<{ invoice: Invoice; payments: InvoicePayment[]; became_unpaid: boolean; remaining: number }>(

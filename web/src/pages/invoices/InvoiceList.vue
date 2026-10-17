@@ -662,6 +662,7 @@ async function bulkMarkPaid() {
   let okCount = 0
   let thanksSent = 0
   let thanksFailed = 0
+  let thanksQueued = 0
   const errors: string[] = []
   try {
     for (const inv of list) {
@@ -671,6 +672,7 @@ async function bulkMarkPaid() {
         const pt = updated.payment_thanks
         if (pt?.status === 'sent') thanksSent++
         else if (pt?.status === 'failed') thanksFailed++
+        else if (pt?.status === 'queued') thanksQueued++
       } catch (e: any) {
         errors.push(`${inv.varsymbol || `#${inv.id}`}: ${e?.response?.data?.error?.message || 'chyba'}`)
       }
@@ -682,6 +684,7 @@ async function bulkMarkPaid() {
       : t('invoice.bulk_mark_paid_success', { n: okCount })
     if (sendThanks) {
       msg += '\n' + t('invoice.bulk_thanks_summary', { sent: thanksSent, failed: thanksFailed })
+      if (thanksQueued > 0) msg += '\n' + t('invoice.bulk_thanks_queued', { n: thanksQueued })
     }
     if (errors.length) {
       toast.warning(msg + '\n' + errors.join('\n'))

@@ -197,9 +197,17 @@ záměrně neposílá, o úhradě dodavatel ví.
 | **Předzaškrtnout při ručním označení jako zaplacené** | V okně ručního označení faktury jako zaplacené bude volba „Odeslat zákazníkovi poděkování“ předem zaškrtnutá (jinak prázdná). |
 | **Přiložit PDF faktury (se stavem Uhrazeno)** | K e-mailu se připojí PDF faktury označené jako uhrazené. |
 
-Poděkování jde poslat i ručně v detailu faktury nebo hromadně v seznamu faktur při označování plateb. Je
-idempotentní (k jedné faktuře se odešle jen jednou), neposílá se u storna ani u faktury bez e-mailu příjemce
-a selhání e-mailu nikdy nezablokuje samotné označení platby. Vše se zapisuje do activity logu.
+Poděkování jde poslat i ručně v detailu faktury nebo hromadně v seznamu faktur při označování plateb.
+Automatické poděkování se neopakuje; vědomé ruční odeslání může zprávu poslat znovu. U storna,
+neuhrazené faktury nebo chybějícího příjemce se neodesílá. Požadavek na poděkování se uloží
+společně s úhradou. Pokud se úhradu nebo požadavek nepodaří uložit, párování se neprovede
+a poděkování se neodešle.
+
+Po potvrzení platby se poděkování odešle nebo zůstane ve frontě. Úloha `cron-payment-thanks`
+každou minutu zpracovává potvrzené požadavky a odloženou poštu. Při samostatném plánování úloh
+ji musí správce instalace zapnout. Stav **Zařazeno do fronty** neznamená doručení. Při zpracování
+se znovu ověří firma, úhrada a nastavení poděkování. Selhání odeslání po potvrzení platby úhradu
+nevrací zpět; fronta provede nejvýše pět pokusů s patnáctiminutovým odstupem.
 
 **Samostatný soubor ISDOC v e-mailech** (ve výchozím stavu vypnutý):
 

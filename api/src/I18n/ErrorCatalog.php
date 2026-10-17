@@ -18,6 +18,8 @@ final class ErrorCatalog
 {
     /** @var array<string,string> CZ → EN */
     private const MAP = [
+        'Poděkování nelze odeslat v neukončené transakci.' => 'A payment thank-you cannot be sent while a transaction is pending.',
+        'Zámek poděkování nelze získat.' => 'The payment thank-you lock could not be acquired.',
         'Uzavřené účetní knihy nelze měnit. Nejprve je znovu otevřete.' => 'Closed accounting books cannot be changed. Reopen them first.',
         'ARES je dočasně nedostupný.' => 'ARES is temporarily unavailable.',
         'Přešifrování je potřeba potvrdit.' => 'The re-encryption has to be confirmed.',
