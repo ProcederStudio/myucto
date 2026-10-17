@@ -9,6 +9,7 @@ use MyInvoice\Http\GuardsAccountingMode;
 use MyInvoice\Http\Json;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\CashJournalNoteRepository;
+use MyInvoice\Repository\BankStatementOwnershipResolver;
 use MyInvoice\Service\Accounting\Reports\ReportXlsxExporter;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\IpMatcher;
@@ -43,6 +44,7 @@ final class CashJournalAction
         private readonly Connection $db,
         private readonly CashJournalNoteRepository $notes,
         private readonly CashJournalClassificationFilter $classificationFilter,
+        private readonly BankStatementOwnershipResolver $bankOwnership,
     ) {}
 
     public function get(Request $request, Response $response): Response
@@ -63,11 +65,14 @@ final class CashJournalAction
         // Poznámky a počty příloh pohybů (jen pro obrazovku, export je nenese).
         $notes = $this->notes->briefForSupplier($supplierId);
         $attachments = $this->notes->attachmentCounts($supplierId);
+        $bankTransactionIds = array_column(array_filter($data['rows'], static fn (array $row): bool => $row['source_type'] === 'bank'), 'source_id');
+        $bankStatements = $this->bankOwnership->statementIdsForTransactions($supplierId, $bankTransactionIds);
         foreach ($data['rows'] as &$row) {
             $key = $row['source_type'] . ':' . $row['source_id'];
             $row['notes'] = $notes[$key] ?? [];
             $row['attachment_entity'] = CashJournalNoteRepository::ATTACHMENT_ENTITY[$row['source_type']] ?? null;
             $row['attachment_count'] = $attachments[$key] ?? 0;
+            $row['bank_statement_id'] = $row['source_type'] === 'bank' ? ($bankStatements[(int) $row['source_id']] ?? null) : null;
         }
         unset($row);
 

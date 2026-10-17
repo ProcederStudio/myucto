@@ -26444,6 +26444,8 @@
       "form_active": "Active"
     },
     "cash_journal": {
+      "col_actions": "Actions",
+      "open_source": "Go to details",
       "all_classifications": "All classifications",
       "show_unclassified": "Show unclassified",
       "rows_shown": "Showing {shown} of {total} movements",

@@ -3,10 +3,29 @@ import { useRouter, type RouteLocationRaw } from 'vue-router'
 import { useWorkspaceStore, type PaneCount, type PaneId } from '@/stores/workspace'
 import { getPaneRuntime } from '@/workspace/runtimeRegistry'
 import { getWindowManager } from '@/workspace/windowRegistry'
+import { usePaneId } from '@/workspace/paneActivity'
+import { paneForBeside } from '@/workspace/panelLinks'
 
 export function useWorkspaceNavigation() {
   const router = useRouter()
   const workspace = useWorkspaceStore()
+  const paneId = usePaneId()
+
+  async function openBeside(to: RouteLocationRaw): Promise<void> {
+    const sourceId = paneId.value ?? workspace.activePaneId
+    const targetId = paneForBeside(sourceId, workspace.panes)
+    const manager = getWindowManager()
+    if (manager) {
+      await manager.open(to, targetId)
+      return
+    }
+    const runtime = getPaneRuntime(targetId) ?? getPaneRuntime(sourceId)
+    if (runtime) {
+      await runtime.navigate(to)
+      return
+    }
+    await router.push(to)
+  }
 
   async function navigate(to: RouteLocationRaw, options?: { fresh?: boolean }): Promise<void> {
     const manager = getWindowManager()
@@ -64,5 +83,5 @@ export function useWorkspaceNavigation() {
     active?.root.focus({ preventScroll: true })
     active?.focus?.()
   }
-  return { navigate, openExternal, activatePane, setPaneCount, back, forward, closePaneContent, closePane }
+  return { navigate, openBeside, openExternal, activatePane, setPaneCount, back, forward, closePaneContent, closePane }
 }

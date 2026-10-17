@@ -1,5 +1,14 @@
 import type { PaneId, WorkspacePaneState } from '@/stores/workspace'
 
+export function paneForBeside(
+  currentPaneId: PaneId,
+  panes: Pick<WorkspacePaneState, 'id' | 'fullPath'>[],
+): PaneId {
+  const index = panes.findIndex(pane => pane.id === currentPaneId)
+  return panes.find(pane => pane.id !== currentPaneId && !pane.fullPath)?.id
+    ?? panes[(index + 1) % panes.length]?.id ?? currentPaneId
+}
+
 export function paneForCtrlClick(
   currentPaneId: PaneId,
   panes: Pick<WorkspacePaneState, 'id' | 'fullPath'>[],
