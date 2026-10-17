@@ -259,7 +259,7 @@
     {# Textový řádek (item_kind 'text'): jen popis přes celou šířku tabulky, bez částek. #}
     {% if item.item_kind == 'text' %}
     <tr class="text-row">
-      <td colspan="{{ supplier.is_vat_payer ? 7 : 5 }}">{{ item.description|nl2br }}</td>
+      <td colspan="{{ (supplier.is_vat_payer ? 7 : 5) + (line_discount_columns|default(false) ? 2 : 0) }}">{{ item.description|nl2br }}</td>
     </tr>
     {% else %}
     <tr{% if item.item_kind == 'discount' %} class="discount-row"{% endif %}>

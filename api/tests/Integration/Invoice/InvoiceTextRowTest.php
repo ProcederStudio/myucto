@@ -303,6 +303,21 @@ final class InvoiceTextRowTest extends TestCase
         self::assertMatchesRegularExpression('~<tr class="text-row">\s*<td colspan="7">Oddíl B<br />\s*montáž</td>\s*</tr>~u', $html);
     }
 
+    public function testPdfTextRowSpansLineDiscountColumns(): void
+    {
+        $this->db->pdo()->prepare('UPDATE supplier SET invoice_pdf_show_line_discount = 1 WHERE id = ?')->execute([$this->supplierId]);
+        $id = $this->draft([
+            $this->line('Licence', 800.00, $this->rate21) + ['list_unit_price' => 1000.00],
+            ['item_kind' => 'text', 'description' => 'Oddíl B', 'vat_rate_id' => $this->rate21],
+        ]);
+        $renderer = $this->container->get(InvoicePdfRenderer::class);
+
+        $html = $renderer->renderHtml($this->repo->find($id), includeCss: false);
+
+        self::assertStringContainsString('items-ld', $html);
+        self::assertMatchesRegularExpression('~<tr class="text-row">\s*<td colspan="9">Oddíl B</td>\s*</tr>~u', $html);
+    }
+
     // ── pomocné ──────────────────────────────────────────────────────────────
 
     /** @return array<string,mixed> */

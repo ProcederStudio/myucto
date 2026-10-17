@@ -1734,6 +1734,9 @@ final class InvoiceRepository
                 if ($supportsTracking) {
                     $params[] = null;
                 }
+                if ($supportsLineDiscount) {
+                    array_push($params, null, null);
+                }
                 $stmt->execute($params);
                 $maxOrder = max($maxOrder, $orderIndex);
                 continue;
