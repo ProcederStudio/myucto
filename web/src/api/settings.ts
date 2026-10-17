@@ -263,6 +263,11 @@ export interface Supplier {
   invoice_number_format: string | null
   proforma_number_format: string | null
   credit_note_number_format: string | null
+  /** Řada zjednodušených daňových dokladů (migrace 2020); null = řada faktur.
+   *  `undefined` = starší backend bez pole. */
+  simplified_number_format?: string | null
+  /** Výchozí „netisknout odběratele" na novém zjednodušeném dokladu (migrace 2020). */
+  simplified_hide_customer_default?: boolean
   // Šablona interního čísla přijaté faktury (migrace 0095). null = vestavěný
   // default '{PP}{YY}{MM}{CCC}'. {PP} = daňový prefix (PF/PN/KU/KN/NU/NN).
   purchase_invoice_number_format: string | null
@@ -390,8 +395,9 @@ export interface PaymentQrSettings {
   purchase_invoice_qr_include_due_date: boolean
 }
 
-/** Typy dokladů, které mají supplier-wide počítadlo číselné řady. */
-export type InvoiceCounterType = 'invoice' | 'proforma' | 'credit_note'
+/** Typy dokladů, které mají supplier-wide počítadlo číselné řady. `simplified` = vlastní
+ *  řada zjednodušených daňových dokladů (jen s vyplněnou `simplified_number_format`). */
+export type InvoiceCounterType = 'invoice' | 'proforma' | 'credit_note' | 'simplified'
 
 /** Odpověď PUT /settings/supplier/invoice-counter. */
 export interface InvoiceCounterResult {
@@ -410,7 +416,7 @@ export interface InvoiceCounterResult {
 }
 
 export interface NumberSeriesSide {
-  type: 'invoice' | 'proforma' | 'credit_note'
+  type: 'invoice' | 'proforma' | 'credit_note' | 'simplified'
   client_id: number | null
   client_name: string | null
   revenue_category_id: number | null

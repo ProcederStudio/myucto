@@ -495,7 +495,8 @@ export interface InvoiceSeriesBucket {
 }
 
 export interface InvoiceSeriesGroup {
-  types: ('invoice' | 'credit_note')[]
+  /** `simplified` = vlastní řada zjednodušených daňových dokladů (migrace 2020). */
+  types: ('invoice' | 'credit_note' | 'simplified')[]
   /** Řada rozpoznaná z čísel importovaných dokladů mimo nastavené šablony. */
   inferred?: boolean
   client_id: number

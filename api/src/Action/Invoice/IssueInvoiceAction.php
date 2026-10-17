@@ -411,7 +411,7 @@ final class IssueInvoiceAction
             if ($allocated && !$ownTransaction) {
                 $this->varsymbol->releaseIfLatest(
                     $supplierId,
-                    (string) $invoice['invoice_type'],
+                    VarsymbolGenerator::seriesTypeFor($invoice),
                     (string) $varsymbol,
                     $issueDate,
                     (int) $invoice['client_id'],
@@ -422,9 +422,10 @@ final class IssueInvoiceAction
         try {
             if ($varsymbol === null) {
                 try {
+                    // Zjednodušený doklad má vlastní řadu, je-li ve firmě nastavená.
                     $varsymbol = $this->varsymbol->next(
                         $supplierId,
-                        $invoice['invoice_type'],
+                        VarsymbolGenerator::seriesTypeFor($invoice),
                         $issueDate,
                         (int) $invoice['client_id'],
                         (int) ($invoice['revenue_category_id'] ?? 0),

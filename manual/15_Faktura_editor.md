@@ -226,6 +226,10 @@ Dobropis vztahující se k jiné faktuře nezakládejte ručně přes **Typ dokl
   odběratele. Prázdný seznam zůstává jen pro odběratele.
 - **Zakázka** (volitelná): má-li klient zakázky, nabídne se jen jeho vlastní. Po výběru
   zakázky se předvyplní hodinová sazba a splatnost.
+- **Zjednodušený daňový doklad** (§ 30 ZDPH, jen plátce): klient je u něj nepovinný. S vybraným
+  klientem se pod zaškrtávátkem objeví **Netisknout odběratele na dokladu**; klient na dokladu
+  zůstane, jen se nevytiskne na PDF ani webové faktuře. Výchozí hodnotu nastavíte ve
+  `Firma → Nastavení` na záložce **Fakturace** (viz [§ 40.9.10](40_Fakturujeme.md#40910-zjednoduseny-danovy-doklad-30-zdph)).
 
 > [!WARNING]
 > Pokud změníte klienta uprostřed editace, zakázka se vyresetuje (původní patřila jinému
@@ -283,7 +287,8 @@ V hlavičce konceptu je pole **Číslo faktury** (podle typu **Číslo zálohov�
 
 - **Prázdné** - při vystavení systém automaticky vygeneruje číslo podle šablony (per
   dodavatel v Nastavení nebo globální konfigurace). V poli vidíte živý náhled, např. `2605002`,
-  což je číslo, které faktura dostane, pokud ho nepřepíšete.
+  což je číslo, které faktura dostane, pokud ho nepřepíšete. Zjednodušený daňový doklad
+  dostane číslo z řady zjednodušených dokladů, má-li ji firma nastavenou.
 - **Vyplněné** - použije se přesně vaše hodnota, počítadlo se neposune. Při vystavení se
   ověří, že číslo není už použité u jiné faktury **stejného dodavatele** (jinak vrátí chybu
   „Číslo už existuje…“). Maximálně 20 znaků.

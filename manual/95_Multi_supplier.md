@@ -119,7 +119,7 @@ V nastavení firmy najdete záložku **Číslování faktur** se šablonami pro 
 pořadové číslo resetuje.
 
 1. Otevřete `Firma → Nastavení`, záložku **Číslování faktur**.
-2. Vyplňte šablonu pro fakturu, zálohovou fakturu a dobropis. Pod každým polem je živý náhled příštího čísla (například „Náhled: `JD2026-001`").
+2. Vyplňte šablonu pro fakturu, zálohovou fakturu a dobropis. Pod každým polem je živý náhled příštího čísla (například „Náhled: `JD2026-001`"). Chcete-li číslovat zjednodušené daňové doklady zvlášť, vyplňte i **Šablonu pro zjednodušený daňový doklad**; prázdná znamená, že se číslují řadou faktur.
 3. V poli **Reset číselné řady** zvolte **Roční (1. ledna)**, **Měsíční (1. dne v měsíci)**, nebo **Bez resetu (souvislá řada)**.
 4. Uložte nastavení.
 5. Navazujete-li na rozjetou číselnou řadu (typicky při přechodu z jiného programu), zadejte do pole **Příští číslo** číslo, kterým má řada pokračovat, a klikněte na **Nastavit počítadlo**. Ukáže se náhled výsledného čísla. Šablonu uložte před nastavením počítadla.
@@ -363,6 +363,7 @@ Každý dodavatel má vlastní:
 | Šablona pro fakturu | například `{YY}{MM}{CCC}` → `2605001` (výchozí) nebo `JD{YYYY}-{CCC}` → `JD2026-001` |
 | Šablona pro zálohovou | například `9{YY}{MM}{CCC}` → `92605001` (prefix 9 = záloha) |
 | Šablona pro dobropis | například `7{YY}{MM}{CCC}` → `72605001` (prefix 7 = dobropis) |
+| Šablona pro zjednodušený daňový doklad | například `8{YY}{CCCCC}` → `82600001`; prázdné = řada faktur (výchozí) |
 
 Placeholdery:
 
@@ -428,6 +429,13 @@ nezaplňuje, tu ukáže sestava Úplnost číselné řady. Stejně se chová i i
 | 2. Kategorie tržby | Číselníky, **Kategorie tržeb**, *Vlastní číselná řada* | Oddělené řady podle druhu tržby (například hosting × konzultace) napříč zákazníky |
 | 3. Dodavatel | Nastavení firmy | Standardní řada firmy |
 | 4. Konfigurace instalace (`cfg.varsymbol.templates`) | Konfigurace instalace | Záloha, když není vyplněné nic |
+
+**Řada zjednodušených daňových dokladů** (§ 30 ZDPH) stojí mimo tohle pořadí: je jen na úrovni firmy a má-li
+vyplněnou šablonu, dostane z ní číslo každý zjednodušený doklad bez ohledu na zákazníka a kategorii tržby
+(pokladní prodej jde jednou řadou). Bez šablony se zjednodušený doklad čísluje přesně jako faktura, včetně
+řady zákazníka a kategorie. Počítadlo má vlastní, pole **Příští číslo** se u ní objeví po uložení šablony.
+Do které řady číslo patří, pozná kontrola úplnosti podle tvaru čísla, takže doklad očíslovaný před zavedením
+řady (nebo s dodatečně přepnutým příznakem) se počítá do řady, ze které číslo dostal.
 
 Každá vyhrávající úroveň má **vlastní počítadlo**: dvě kategorie tržeb s vlastní šablonou se navzájem
 nepřečíslovávají a řada dodavatele jimi neproběhne. Nevyplněná pole se dědí, takže kategorie může mít vlastní

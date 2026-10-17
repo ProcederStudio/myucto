@@ -1186,6 +1186,8 @@ paths:
         Řada se vybírá podle priority `klient → kategorie tržby → dodavatel →
         výchozí konfigurace`, takže náhled odpovídá skutečnosti jen tehdy, když
         se předá i `client_id` a `revenue_category_id` rozpracované faktury.
+        Zjednodušený daňový doklad (`simplified=1`) má přednost vlastní řada
+        firmy (`simplified_number_format`), je-li nastavená.
       parameters:
         - $ref: '#/components/parameters/SupplierIdHeader'
         - in: query
@@ -1194,6 +1196,12 @@ paths:
             type: string
             enum: [invoice, proforma, credit_note]
             default: invoice
+        - in: query
+          name: simplified
+          description: |
+            `1` = zjednodušený daňový doklad (§ 30 ZDPH). Platí jen pro `type=invoice`;
+            bez vlastní řady firmy ukáže číslo z řady faktur.
+          schema: { type: boolean, default: false }
         - in: query
           name: issue_date
           description: Datum vystavení (YYYY-MM-DD). Default = dnes.
@@ -5036,7 +5044,8 @@ paths:
 
         Zahrnuje i **číslování dokladů** (`invoice_number_format`,
         `proforma_number_format`, `credit_note_number_format`,
-        `purchase_invoice_number_format`, `invoice_number_period`) a **branding
+        `simplified_number_format`, `purchase_invoice_number_format`,
+        `invoice_number_period`) a **branding
         PDF/e-mailů** (`email_branding_enabled`, `email_accent_color`,
         `pdf_logo_show_name`, `invoice_pdf_monochrome`, `display_name`, `tagline`). Brandingová pole jsou
         původním nastavením dodavatele. Logo se nahrává zvlášť
@@ -5095,8 +5104,11 @@ paths:
               properties:
                 type:
                   type: string
-                  enum: [invoice, proforma, credit_note]
+                  enum: [invoice, proforma, credit_note, simplified]
                   default: invoice
+                  description: |
+                    `simplified` = vlastní řada zjednodušených daňových dokladů; bez
+                    `simplified_number_format` firmy vrací 400 (doklady jdou do řady faktur).
                 next_number:
                   type: integer
                   minimum: 1
@@ -35900,6 +35912,20 @@ components:
           description: |
             Zjednodušený daňový doklad podle § 30 ZDPH (do 10 000 Kč včetně daně).
             Ukládá se jen na instalacích s migrací 1170 — starší sloupec nemají a pole se ignoruje.
+            Číslo dostane z vlastní řady firmy (`simplified_number_format`), je-li nastavená.
+            Úprava vystaveného dokladu (`?force=1`) ověří § 30 stejně jako vystavení
+            (limit, přenesená povinnost, ř. 20/25); odmítnutí vrací 422 `simplified_document_not_allowed`.
+        hide_customer_on_pdf:
+          type: boolean
+          default: false
+          description: |
+            Netisknout odběratele na PDF a webové faktuře (migrace 2020). Platí jen pro
+            zjednodušený daňový doklad plátce; běžná faktura odběratele nést musí (§ 29 ZDPH).
+            Klient zůstává na dokladu (statistiky, cenová hladina); ISDOC se nemění.
+            U běžné faktury se volba neukládá (vždy false). V uzavřeném období je to účetní pole:
+            `force_mode=notes_only` ji nezmění.
+            Při založení zjednodušeného dokladu bez tohoto pole se převezme
+            `simplified_hide_customer_default` firmy. Při úpravě se mění jen, když je pole v těle.
         price_level_id:
           type: [integer, "null"]
           description: |
@@ -37372,6 +37398,8 @@ components:
             na globální cfg.
         proforma_number_format: { type: [string, "null"], maxLength: 60, example: "9{YY}{MM}{CCC}" }
         credit_note_number_format: { type: [string, "null"], maxLength: 60, example: "7{YY}{MM}{CCC}" }
+        simplified_number_format: { type: [string, "null"], maxLength: 60, example: "ZD{YY}{CCCCC}", description: "Vlastní řada zjednodušených daňových dokladů (§ 30 ZDPH, migrace 2020). Má přednost před řadou klienta i kategorie. Prázdné / null = zjednodušené doklady se číslují řadou faktur (dosavadní chování)." }
+        simplified_hide_customer_default: { type: boolean, default: false, description: "Výchozí hodnota volby `hide_customer_on_pdf` na novém zjednodušeném dokladu." }
         purchase_invoice_number_format: { type: [string, "null"], maxLength: 60, description: "Interní číslování přijatých faktur" }
         purchase_invoice_numbering: { type: string, enum: [shared, by_kind], default: shared, description: "Číslování přijatých dokladů: jedna řada (shared), nebo samostatná řada pro každý typ dokladu (by_kind)." }
         purchase_receipt_number_format: { type: [string, "null"], maxLength: 60, description: "Šablona účtenek (jen by_kind); null = výchozí UC{YY}{MM}{CCC}." }
@@ -37516,6 +37544,8 @@ components:
           description: "{YYYY}/{YY}, {MM}, {C..C} placeholders (viz SupplierUpdate). Per-supplier; null = globální cfg."
         proforma_number_format: { type: [string, "null"] }
         credit_note_number_format: { type: [string, "null"] }
+        simplified_number_format: { type: [string, "null"], description: "Řada zjednodušených daňových dokladů; null = řada faktur." }
+        simplified_hide_customer_default: { type: boolean, description: "Výchozí „netisknout odběratele\" na novém zjednodušeném dokladu." }
         purchase_invoice_number_format: { type: [string, "null"] }
         purchase_invoice_numbering: { type: string, enum: [shared, by_kind] }
         purchase_receipt_number_format: { type: [string, "null"] }

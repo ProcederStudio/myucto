@@ -264,6 +264,8 @@ export interface Invoice {
   reverse_charge: boolean
   /** § 30 ZDPH — zjednodušený daňový doklad (do 10 000 Kč vč. daně). */
   is_simplified: boolean
+  /** Zjednodušený doklad bez údajů odběratele na PDF a webové faktuře (migrace 2020). */
+  hide_customer_on_pdf?: boolean
   /** Cenová hladina zvolená na dokladu (přepíše hladinu odběratele); null = hladina odběratele. */
   price_level_id?: number | null
   /** § 31/31a ZDPH — rozpis plateb kalendáře (prázdné u ostatních typů). */
@@ -550,6 +552,9 @@ export interface InvoicePayload {
   reverse_charge?: boolean
   /** § 30 ZDPH; server ověří limit i výjimky § 30 odst. 2. */
   is_simplified?: boolean
+  /** Netisknout odběratele; platí jen u zjednodušeného dokladu. Bez klíče se při založení
+   *  převezme výchozí hodnota firmy, při úpravě se nemění. */
+  hide_customer_on_pdf?: boolean
   /** Cenová hladina dokladu; chybějící klíč hodnotu NEMĚNÍ, null ji zruší. */
   price_level_id?: number | null
   /** § 31/31a ZDPH; chybějící klíč rozpis NEMĚNÍ, prázdné pole ho smaže. */
@@ -853,6 +858,8 @@ export const invoicesApi = {
     issueDate: string,
     clientId?: number,
     revenueCategoryId?: number,
+    /** Zjednodušený daňový doklad, může mít vlastní řadu firmy. */
+    simplified?: boolean,
   ) =>
     api.get<{ varsymbol: string; has_template: boolean }>(
       `/invoices/preview-varsymbol`,
@@ -862,6 +869,7 @@ export const invoicesApi = {
           issue_date: issueDate,
           ...(clientId ? { client_id: clientId } : {}),
           ...(revenueCategoryId ? { revenue_category_id: revenueCategoryId } : {}),
+          ...(simplified ? { simplified: 1 } : {}),
         },
       },
     ).then(r => r.data),

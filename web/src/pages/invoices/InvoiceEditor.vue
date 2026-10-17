@@ -37,6 +37,7 @@ import { useAuthStore } from '@/stores/auth'
 import SearchableSelect from '@/components/ui/SearchableSelect.vue'
 import CountrySelect from '@/components/ui/CountrySelect.vue'
 import { rowKey } from '@/utils/rowKey'
+import { varsymbolSeriesType } from '@/utils/varsymbol'
 import { defaultNoteFor, noteAfterLanguageChange } from '@/pages/invoices/invoiceDefaultNote'
 import StockDescriptionField from '@/components/ui/StockDescriptionField.vue'
 import InvoiceTrackingPicker from './InvoiceTrackingPicker.vue'
@@ -1036,6 +1037,8 @@ const form = ref<{
   reverse_charge: boolean
   /** § 30 ZDPH — zjednodušený daňový doklad (do 10 000 Kč vč. daně). */
   is_simplified: boolean
+  /** Netisknout odběratele na zjednodušeném dokladu (migrace 2020). */
+  hide_customer_on_pdf: boolean
   price_level_id: number | null
   prices_include_vat: boolean
   income_tax_exempt: boolean
@@ -1071,6 +1074,7 @@ const form = ref<{
   currency: 'CZK',
   reverse_charge: false,
   is_simplified: false,
+  hide_customer_on_pdf: false,
   price_level_id: null,
   prices_include_vat: false,
   income_tax_exempt: false,
@@ -1270,6 +1274,7 @@ async function loadVarsymbolPreview() {
       form.value.issue_date,
       form.value.client_id ?? undefined,
       form.value.revenue_category_id ?? undefined,
+      varsymbolSeriesType(form.value.invoice_type, form.value.is_simplified) === 'simplified',
     )
     varsymbolAutoPreview.value = r.varsymbol
     varsymbolAutoHasTemplate.value = r.has_template
@@ -1278,9 +1283,17 @@ async function loadVarsymbolPreview() {
     varsymbolAutoHasTemplate.value = false
   }
 }
-watch(() => [form.value.invoice_type, form.value.issue_date, form.value.client_id, form.value.revenue_category_id], () => {
+watch(() => [form.value.invoice_type, form.value.issue_date, form.value.client_id, form.value.revenue_category_id, form.value.is_simplified], () => {
   if (loaded.value && editedStatus.value === 'draft') loadVarsymbolPreview()
 })
+
+// Zaškrtnutí zjednodušeného dokladu předvyplní „netisknout odběratele" podle nastavení
+// firmy. Jen při změně uživatelem: načtený doklad si volbu nese sám.
+function onSimplifiedToggle() {
+  if (form.value.is_simplified) {
+    form.value.hide_customer_on_pdf = supplierStore.currentSupplier?.simplified_hide_customer_default ?? false
+  }
+}
 
 // Při změně Vystaveno přepočti Splatnost — priorita zakázka → klient → dodavatel
 // řeší resolveDueDate. Jen pro draft / nový (po `loaded`), abys nepřepsal uloženou
@@ -1398,6 +1411,7 @@ onMounted(async () => {
       currency: inv.currency,
       reverse_charge: inv.reverse_charge,
       is_simplified: inv.is_simplified === true,
+      hide_customer_on_pdf: inv.hide_customer_on_pdf === true,
       price_level_id: inv.price_level_id ?? null,
       prices_include_vat: (inv as { prices_include_vat?: boolean }).prices_include_vat ?? false,
       income_tax_exempt: (inv as { income_tax_exempt?: boolean }).income_tax_exempt ?? false,
@@ -2429,6 +2443,7 @@ async function submit() {
       currency_id: form.value.currency_id,
       reverse_charge: form.value.reverse_charge,
       is_simplified: form.value.is_simplified,
+      hide_customer_on_pdf: form.value.is_simplified && form.value.hide_customer_on_pdf,
       price_level_id: form.value.price_level_id,
       // Rozpis se posílá JEN u kalendáře. U ostatních typů by prázdné pole smazalo
       // rozpis dokladu, který se na kalendář teprve překlápí zpátky.
@@ -2854,8 +2869,16 @@ useWindowTitle(
                  kdy už doklad považuje za hotový. -->
             <div v-if="supplierIsVatPayer">
               <label class="flex items-center gap-2 text-sm text-neutral-700">
-                <input v-model="form.is_simplified" type="checkbox" class="rounded border-neutral-300 text-primary-600" />
+                <input v-model="form.is_simplified" type="checkbox" class="rounded border-neutral-300 text-primary-600"
+                  @change="onSimplifiedToggle" />
                 <span>{{ t('invoice.simplified_document') }}</span>
+              </label>
+              <!-- Zjednodušený doklad údaje odběratele nevyžaduje (§ 30a), klient zůstává
+                   na dokladu kvůli statistikám a cenové hladině. Bez klienta se netiskne nic. -->
+              <label v-if="form.is_simplified && form.client_id" class="flex items-center gap-2 text-sm text-neutral-700 mt-1 ml-6"
+                data-test="hide-customer-on-pdf">
+                <input v-model="form.hide_customer_on_pdf" type="checkbox" class="rounded border-neutral-300 text-primary-600" />
+                <span>{{ t('invoice.hide_customer_on_pdf') }}</span>
               </label>
               <p v-if="form.is_simplified && simplifiedBlockedReason"
                  class="text-xs text-warning-600 mt-1 ml-6">{{ simplifiedBlockedReason }}</p>

@@ -59,6 +59,8 @@ export interface SupplierBrief {
   default_rounding_mode?: InvoiceRoundingMode
   /** Vyúčtování s výsledkem k vyplacení (migrace 1937): editor povolí zápornou fakturu. */
   allow_refund_invoices: boolean
+  /** Výchozí „netisknout odběratele" na zjednodušeném dokladu (migrace 2020). */
+  simplified_hide_customer_default?: boolean
   /**
    * Výchozí poznámka pod položkami na nových dokladech (#79, migrace 1855) — editor
    * ji předvyplní podle jazyka dokladu. Chodí přes `/me`, protože editor faktury běží

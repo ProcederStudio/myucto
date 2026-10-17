@@ -47,6 +47,7 @@ function syncSupplierStore(s: Supplier) {
     default_prices_include_vat: s.default_prices_include_vat,
     default_rounding_mode: s.default_rounding_mode ?? 'auto',
     allow_refund_invoices: s.allow_refund_invoices ?? false,
+    simplified_hide_customer_default: s.simplified_hide_customer_default ?? false,
     default_note_below_items_enabled: s.default_note_below_items_enabled ?? false,
     default_note_below_items_cs: s.default_note_below_items_cs ?? null,
     default_note_below_items_en: s.default_note_below_items_en ?? null,
@@ -201,6 +202,10 @@ const proformaPreview       = computed(() => validateAndPreview(supplier.value?.
 const proformaFormatError   = computed(() => validateAndPreview(supplier.value?.proforma_number_format ?? null).error)
 const creditNotePreview     = computed(() => validateAndPreview(supplier.value?.credit_note_number_format ?? null).preview)
 const creditNoteFormatError = computed(() => validateAndPreview(supplier.value?.credit_note_number_format ?? null).error)
+// Zjednodušené daňové doklady (migrace 2020): prázdné pole = řada faktur, žádný fallback.
+const simplifiedPreview     = computed(() => validateAndPreview(supplier.value?.simplified_number_format ?? null).preview)
+const simplifiedFormatError = computed(() => validateAndPreview(supplier.value?.simplified_number_format ?? null).error)
+const hasSimplifiedSeries   = computed(() => (supplier.value?.simplified_number_format ?? '').trim() !== '')
 // Přijaté faktury nemají cfg fallback: prázdné pole = vestavěná šablona (náhled ji ukáže).
 const purchasePreview       = computed(() => validateAndPreview(
   (supplier.value?.purchase_invoice_number_format ?? '').trim() || supplier.value?.cfg_varsymbol_fallback?.purchase || '{PP}{YY}{MM}{CCC}',
@@ -229,6 +234,7 @@ function purchaseSeriesCheck(field: PurchaseSeriesField, fallback: string) {
 // a kategorie tržby); tady se jen dopočítá EFEKTIVNÍ šablona, protože prázdné pole
 // jede na cfg fallback úplně stejně jako na backendu.
 function counterTemplate(type: InvoiceCounterType): string {
+  if (type === 'simplified') return (supplier.value?.simplified_number_format ?? '').trim()
   const own = (supplier.value?.[`${type}_number_format`] ?? '').trim()
   return own !== '' ? own : (supplier.value?.cfg_varsymbol_fallback?.[type] ?? '')
 }
@@ -248,7 +254,7 @@ const employerIdentifiersInPayroll = computed(() =>
 // Sloučeno a odduplikováno podle (typ/klient) páru, ať se stejná kolize neukáže dvakrát.
 interface SeriesWarning { key: string; aLabel: string; bLabel: string }
 
-function numberSeriesTypeLabel(type: 'invoice' | 'proforma' | 'credit_note'): string {
+function numberSeriesTypeLabel(type: NumberSeriesSide['type']): string {
   return t(`settings.numbering_type_${type}`)
 }
 
@@ -276,10 +282,12 @@ const numberSeriesWarnings = computed<SeriesWarning[]>(() => {
     const trimmed = (tpl ?? '').trim()
     return trimmed !== '' ? trimmed : (fallback ?? '')
   }
-  const live: Array<{ type: 'invoice' | 'proforma' | 'credit_note'; template: string }> = [
+  const live: Array<{ type: NumberSeriesSide['type']; template: string }> = [
     { type: 'invoice', template: effective(supplier.value?.invoice_number_format, fb?.invoice) },
     { type: 'proforma', template: effective(supplier.value?.proforma_number_format, fb?.proforma) },
     { type: 'credit_note', template: effective(supplier.value?.credit_note_number_format, fb?.credit_note) },
+    // Bez vlastní šablony zjednodušené doklady žádnou samostatnou řadu nemají.
+    { type: 'simplified', template: (supplier.value?.simplified_number_format ?? '').trim() },
   ]
   for (let i = 0; i < live.length; i++) {
     for (let j = i + 1; j < live.length; j++) {
@@ -603,6 +611,11 @@ async function saveSupplier() {
       invoice_number_format: supplier.value.invoice_number_format,
       proforma_number_format: supplier.value.proforma_number_format,
       credit_note_number_format: supplier.value.credit_note_number_format,
+      // Chybějící hodnota (nedoběhlá migrace 2020) se neposílá, aby uložení nespadlo.
+      ...(supplier.value.simplified_hide_customer_default !== undefined ? {
+        simplified_number_format: supplier.value.simplified_number_format ?? null,
+        simplified_hide_customer_default: supplier.value.simplified_hide_customer_default,
+      } : {}),
       purchase_invoice_number_format: supplier.value.purchase_invoice_number_format,
       // Chybějící hodnota (nedoběhlá migrace 2001) se neposílá, aby uložení nespadlo.
       ...(supplier.value.purchase_invoice_numbering !== undefined ? {
@@ -1144,6 +1157,13 @@ async function confirmTaxRepDelete() {
             </label>
             <p class="text-xs text-neutral-500 mt-1 ml-6">{{ t('settings.default_prices_include_vat_hint') }}</p>
           </div>
+          <div v-if="supplier.is_vat_payer && supplier.simplified_hide_customer_default !== undefined" class="md:col-span-2">
+            <label class="flex items-center gap-2 text-sm">
+              <input v-model="supplier.simplified_hide_customer_default" type="checkbox" class="rounded border-neutral-300 text-primary-600" data-test="simplified-hide-customer-default" />
+              <span class="font-medium">{{ t('settings.simplified_hide_customer_default') }}</span>
+            </label>
+            <p class="text-xs text-neutral-500 mt-1 ml-6">{{ t('settings.simplified_hide_customer_default_hint') }}</p>
+          </div>
           <div class="md:col-span-2">
             <label class="block text-sm font-medium text-neutral-700 mb-1">{{ t('settings.default_rounding_mode') }}</label>
             <select v-model="supplier.default_rounding_mode" class="w-full md:w-1/2 h-10 px-3 border border-neutral-300 rounded-md bg-surface text-sm" data-test="default-rounding-mode">
@@ -1451,6 +1471,21 @@ async function confirmTaxRepDelete() {
               </p>
               <p v-else class="text-xs text-neutral-400 mt-1">{{ t('settings.numbering_preview') }}: {{ t('settings.numbering_preview_fallback') }}</p>
               <InvoiceCounterField type="credit_note" :template="counterTemplate('credit_note')"
+                :period="supplier.invoice_number_period" />
+            </div>
+            <div data-test="simplified-number-format">
+              <label class="block text-xs font-medium text-neutral-700 mb-1">{{ t('settings.simplified_number_format') }}</label>
+              <input v-model="supplier.simplified_number_format" type="text"
+                :placeholder="supplier.invoice_number_format || supplier.cfg_varsymbol_fallback?.invoice || ''" maxlength="60"
+                :disabled="supplier.simplified_hide_customer_default === undefined"
+                class="w-full h-9 px-3 border rounded-md text-sm font-mono disabled:opacity-60"
+                :class="simplifiedFormatError ? 'border-danger-500 bg-danger-50' : 'border-neutral-300'" />
+              <p v-if="simplifiedFormatError" class="text-xs text-danger-500 mt-1">{{ simplifiedFormatError }}</p>
+              <p v-else-if="simplifiedPreview" class="text-xs text-success-600 mt-1">
+                {{ t('settings.numbering_preview') }}: <code class="font-mono font-semibold">{{ simplifiedPreview }}</code>
+              </p>
+              <p class="text-xs text-neutral-400 mt-1">{{ t('settings.simplified_number_format_hint') }}</p>
+              <InvoiceCounterField v-if="hasSimplifiedSeries" type="simplified" :template="counterTemplate('simplified')"
                 :period="supplier.invoice_number_period" />
             </div>
           </div>

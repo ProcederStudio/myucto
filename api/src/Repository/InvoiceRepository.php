@@ -91,6 +91,38 @@ final class InvoiceRepository
     }
 
     /**
+     * Volba „netisknout odběratele" na zjednodušeném dokladu (migrace 2020). Bez sloupce
+     * se odběratel tiskne jako dosud.
+     */
+    private function supportsHideCustomer(): bool
+    {
+        return $this->db->hasColumn('invoices', 'hide_customer_on_pdf');
+    }
+
+    /**
+     * Výchozí hodnota volby pro nový doklad: platí jen pro zjednodušený doklad a bere se
+     * z nastavení firmy, pokud ji volající neposlal sám.
+     *
+     * @param array<string,mixed> $data
+     */
+    private function hideCustomerForNewDraft(array $data, int $supplierId): int
+    {
+        // Běžná faktura odběratele nést musí (§ 29), volba se u ní neukládá.
+        if (empty($data['is_simplified'])) {
+            return 0;
+        }
+        if (array_key_exists('hide_customer_on_pdf', $data)) {
+            return !empty($data['hide_customer_on_pdf']) ? 1 : 0;
+        }
+        if (!$this->db->hasColumn('supplier', 'simplified_hide_customer_default')) {
+            return 0;
+        }
+        $stmt = $this->db->pdo()->prepare('SELECT simplified_hide_customer_default FROM supplier WHERE id = ?');
+        $stmt->execute([$supplierId]);
+        return (int) (bool) $stmt->fetchColumn();
+    }
+
+    /**
      * Cache existence sloupce price_level_id (migrace 1880, cenová hladina dokladu). Bez
      * sloupce se doklad uloží bez hladiny; ceny řádků jsou uložené samostatně, hladina
      * je jen pomůcka pro nacenění v editoru.
@@ -1248,6 +1280,7 @@ final class InvoiceRepository
         $hasExempt = $this->supportsIncomeTaxExempt();
         $hasReminders = $this->supportsAutoSendReminders();
         $hasSimplified = $this->supportsSimplified();
+        $hasHideCustomer = $hasSimplified && $this->supportsHideCustomer();
         $hasPriceLevel = $this->supportsPriceLevel() && array_key_exists('price_level_id', $data);
         $sql = 'INSERT INTO invoices
             (invoice_type, parent_invoice_id, client_id, project_id, supplier_id, branding_profile_id,
@@ -1258,12 +1291,14 @@ final class InvoiceRepository
             . ($hasExempt ? ' income_tax_exempt, income_tax_exempt_reason,' : '')
             . ($hasReminders ? ' auto_send_reminders,' : '')
             . ($hasSimplified ? ' is_simplified,' : '')
+            . ($hasHideCustomer ? ' hide_customer_on_pdf,' : '')
             . ($hasPriceLevel ? ' price_level_id,' : '')
             . ' created_by)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "draft", ?, ?, ?,'
             . ($hasExempt ? ' ?, ?,' : '')
             . ($hasReminders ? ' ?,' : '')
             . ($hasSimplified ? ' ?,' : '')
+            . ($hasHideCustomer ? ' ?,' : '')
             . ($hasPriceLevel ? ' ?,' : '')
             . ' ?)';
 
@@ -1303,6 +1338,9 @@ final class InvoiceRepository
         }
         if ($hasSimplified) {
             $params[] = !empty($data['is_simplified']) ? 1 : 0;
+        }
+        if ($hasHideCustomer) {
+            $params[] = $this->hideCustomerForNewDraft($data, $supplierId);
         }
         if ($hasPriceLevel) {
             $params[] = self::normalizePriceLevelId($data['price_level_id']);
@@ -1367,7 +1405,15 @@ final class InvoiceRepository
         // Stejně jako `is_simplified`: jen když klíč v payloadu je, jinak by ho ostatní cesty
         // ukládající doklad (import, opakovaná fakturace) tiše smazaly.
         $hasPriceLevel = $this->supportsPriceLevel() && array_key_exists('price_level_id', $data);
-        $currentStmt = $this->db->pdo()->prepare('SELECT supplier_id, branding_profile_id FROM invoices WHERE id = ?');
+        // Volba „netisknout odběratele" (migrace 2020), taky jen když klíč v payloadu je,
+        // nebo když se mění příznak zjednodušeného dokladu: bez něj se volba ruší.
+        $hasHideCustomer = $this->supportsHideCustomer()
+            && (array_key_exists('hide_customer_on_pdf', $data) || $hasSimplified);
+        $currentStmt = $this->db->pdo()->prepare(
+            'SELECT supplier_id, branding_profile_id'
+            . ($hasHideCustomer ? ', is_simplified, hide_customer_on_pdf' : '')
+            . ' FROM invoices WHERE id = ?'
+        );
         $currentStmt->execute([$id]);
         $current = $currentStmt->fetch(PDO::FETCH_ASSOC);
         if ($current === false) {
@@ -1387,6 +1433,7 @@ final class InvoiceRepository
               . ($hasExempt ? ', income_tax_exempt = ?, income_tax_exempt_reason = ?' : '')
               . ($hasReminders ? ', auto_send_reminders = ?' : '')
               . ($hasSimplified ? ', is_simplified = ?' : '')
+              . ($hasHideCustomer ? ', hide_customer_on_pdf = ?' : '')
               . ($hasPriceLevel ? ', price_level_id = ?' : '')
               . ($hasVarsymbol ? ', varsymbol = ?' : '')
               . ($hasPaymentVs ? ', payment_variable_symbol = ?' : '')
@@ -1424,6 +1471,13 @@ final class InvoiceRepository
             $params[] = array_key_exists('auto_send_reminders', $data) ? ((int) (bool) $data['auto_send_reminders']) : 1;
         }
         if ($hasSimplified) $params[] = !empty($data['is_simplified']) ? 1 : 0;
+        if ($hasHideCustomer) {
+            $finalSimplified = $hasSimplified ? !empty($data['is_simplified']) : !empty($current['is_simplified']);
+            $hide = array_key_exists('hide_customer_on_pdf', $data)
+                ? !empty($data['hide_customer_on_pdf'])
+                : !empty($current['hide_customer_on_pdf']);
+            $params[] = $finalSimplified && $hide ? 1 : 0;
+        }
         if ($hasPriceLevel) $params[] = self::normalizePriceLevelId($data['price_level_id']);
         if ($hasVarsymbol) $params[] = $manualVarsymbol;
         if ($hasPaymentVs) $params[] = $paymentVs;
@@ -2388,6 +2442,7 @@ final class InvoiceRepository
         // Vždy klíč vrátit, i na instalaci bez migrace 1170 — editor by jinak checkbox
         // po načtení dokladu tiše zrušil (undefined → false → uložení jako běžný doklad).
         $row['is_simplified']       = isset($row['is_simplified']) ? (bool) $row['is_simplified'] : false;
+        $row['hide_customer_on_pdf'] = isset($row['hide_customer_on_pdf']) ? (bool) $row['hide_customer_on_pdf'] : false;
         $row['price_level_id']      = isset($row['price_level_id']) ? (int) $row['price_level_id'] : null;
         $row['prices_include_vat']  = isset($row['prices_include_vat']) ? (bool) $row['prices_include_vat'] : false;
         if (array_key_exists('income_tax_exempt', $row)) {

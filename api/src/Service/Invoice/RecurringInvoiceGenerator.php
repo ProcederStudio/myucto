@@ -783,7 +783,7 @@ final class RecurringInvoiceGenerator
             // sklad, rollback vrátí do řady i číslo (dřív v ní zůstala díra).
             $varsymbol = $this->varsymbol->next(
                 $supplierId,
-                (string) $invoice['invoice_type'],
+                VarsymbolGenerator::seriesTypeFor($invoice),
                 $issueDate,
                 (int) $invoice['client_id'],
                 (int) ($invoice['revenue_category_id'] ?? 0),
@@ -812,7 +812,7 @@ final class RecurringInvoiceGenerator
             if (!$ownTransaction && $varsymbol !== null) {
                 $this->varsymbol->releaseIfLatest(
                     $supplierId,
-                    (string) $invoice['invoice_type'],
+                    VarsymbolGenerator::seriesTypeFor($invoice),
                     $varsymbol,
                     $issueDate,
                     (int) $invoice['client_id'],

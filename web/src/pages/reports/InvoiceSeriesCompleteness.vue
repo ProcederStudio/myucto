@@ -30,6 +30,7 @@ async function load() {
 }
 
 function typeLabel(type: string): string {
+  if (type === 'simplified') return t('reports.series_completeness.type_simplified')
   return type === 'credit_note' ? t('reports.series_completeness.type_credit_note') : t('reports.series_completeness.type_invoice')
 }
 
