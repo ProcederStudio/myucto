@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { internalRouteFromAnchor, internalRouteFromElement, paneForCtrlClick } from '@/workspace/panelLinks'
+import { internalRouteFromAnchor, internalRouteFromElement, paneForBeside, paneForCtrlClick } from '@/workspace/panelLinks'
 
 describe('panel links', () => {
+  it('při otevření vedle upřednostní pravý panel před prázdným vlevo', () => {
+    expect(paneForBeside('secondary-2', [
+      { id: 'primary', fullPath: null },
+      { id: 'secondary-2', fullPath: '/reports/dph' },
+      { id: 'secondary-3', fullPath: '/reports/dph-book' },
+    ])).toBe('secondary-3')
+  })
+
   it('plní prázdné panely zleva doprava a po zaplnění používá panel +1', () => {
     const panes = [
       { id: 'primary' as const, fullPath: '/invoices' },
