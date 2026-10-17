@@ -116,6 +116,7 @@
     "profile_signing",
     "project",
     "propertyCharges",
+    "propertyIssuance",
     "propertyRegistry",
     "public_holidays",
     "purchase_invoice",
@@ -888,6 +889,10 @@
     ],
     "property-charges": [
       "propertyCharges",
+      "propertyRegistry"
+    ],
+    "property-charge-issues": [
+      "propertyIssuance",
       "propertyRegistry"
     ],
     "group-stats": [

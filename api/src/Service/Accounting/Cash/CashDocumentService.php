@@ -268,10 +268,13 @@ final class CashDocumentService
         }
         try {
             (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+            (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->lockClaims($supplierId);
             $doc = $this->documents->lockForPost($supplierId, $id);
             if ($doc === null) {
                 throw new CashException('validation', 'Pokladní doklad nenalezen.', 404);
             }
+            (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->assertPostingEntriesMutable($supplierId,
+                array_values(array_filter([(int) ($doc['journal_entry_id'] ?? 0), (int) ($doc['reversal_entry_id'] ?? 0)])));
             (new \MyInvoice\Service\Accounting\Allocation\JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId,
                 array_values(array_filter([(int) ($doc['journal_entry_id'] ?? 0), (int) ($doc['reversal_entry_id'] ?? 0)])));
             $this->assertTaxDateUnlocked($supplierId, (string) ($doc['tax_date'] ?? $doc['issue_date']));
@@ -317,6 +320,9 @@ final class CashDocumentService
         } catch (\Throwable $e) {
             if ($ownTx && $pdo->inTransaction()) {
                 $pdo->rollBack();
+            }
+            if ($e instanceof \MyInvoice\Service\Property\PropertyException && $e->errorCode === 'property_not_found') {
+                throw new CashException('validation', 'Pokladní doklad nenalezen.', 404);
             }
             throw $e;
         }

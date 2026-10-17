@@ -1628,7 +1628,8 @@
     "dimensions": "Dimenze",
     "accounting_dimension_profit": "Výkazy po dimenzi",
     "property_registry": "Registr SVJ",
-    "property_charges": "Složky a předpisy"
+    "property_charges": "Složky a předpisy",
+    "property_issuance": "Vydání předpisů"
   },
   "migration_overview": {
     "myucto_hint": "Přenos jedné firmy z Kompletního exportu dat MyÚčta nebo databázové zálohy MyInvoice, včetně pravidelné fakturace.",
@@ -16588,6 +16589,7 @@
         "card_writeoff": "Uzavření platby kartou",
         "payroll_travel": "Vyúčtování pracovní cesty",
         "payroll_accident_insurance": "Zákonné pojištění odpovědnosti",
+        "unit_charge": "Předpis SVJ",
         "journal_entry": "Účetní zápis"
       },
       "history": {
@@ -35310,5 +35312,161 @@
     },
     "overlapping": "Nová verze má přednost v těchto překryvech. Zkontrolujte i dopad na naplánovaná budoucí období.",
     "noEnd": "bez konce"
+  },
+  "propertyIssuance": {
+    "title": "Předpisy a pohledávky SVJ",
+    "scopeHelp": "Vydání, zaúčtování a doložené opravy předpisů. Platby ani kredity se zde nepřiřazují.",
+    "registryAsOf": "Historický stav registru k okamžiku",
+    "refresh": "Načíst",
+    "house": "Dům",
+    "version": "Potvrzená verze sazeb",
+    "choose": "Vyberte",
+    "remove": "Odebrat",
+    "currency": "Kč",
+    "claimTitle": "Titul pohledávky",
+    "originAt": "Okamžik vzniku nároku",
+    "issuedAt": "Okamžik vyhotovení",
+    "effectiveAt": "Okamžik právních účinků",
+    "snapshotDateHelp": "Před náhledem načtěte registr ke stejnému okamžiku jako vznik nároku.",
+    "noProration": "Četnost vychází z potvrzené verze. Poměrná část měsíce se neodhaduje.",
+    "reason": "Důvod a rozhodnutí",
+    "evidence": "Listina nebo jiný doložený podklad",
+    "legalReason": "Doložený právní důvod",
+    "selectUnits": "Jednotky zahrnuté do předpisu",
+    "receivable_account": "Pohledávkový účet",
+    "counter_account": "Protiúčet složky",
+    "settlementDue": "Předpokládaný termín vypořádání zálohy",
+    "accountEvidence": "Podklad pro účetní zařazení",
+    "unassigned": "Nepřiřazeno",
+    "preview": "Náhled předpisů",
+    "oneClaimHelp": "Částka každé jednotky se účtuje jednou. Počet zavázaných osob ji nenásobí.",
+    "issue": "Vydat neměnné předpisy",
+    "history": "Historie předpisů",
+    "detail": "Podrobnosti a podklady",
+    "postBatch": "Zaúčtovat dávku",
+    "reverse": "Úplné storno předpisu",
+    "cancelDraft": "Zrušit nezaúčtovaný předpis",
+    "confirmReverse": "Potvrdit doloženou opravu",
+    "difference": "Rozdílový předpis podle vybrané verze",
+    "replacement": "Náhradní předpis podle vybrané verze",
+    "close": "Zavřít",
+    "unknownPerson": "Osoba v historickém podkladu",
+    "noInferredDebtor": "Vlastník, plátce ani zástupce se nestává dlužníkem automaticky. Zadejte doložený titul a rozsah odpovědnosti. SJM má jednu účast se společnými členy.",
+    "registryFacts": "Doložené vlastnické skutečnosti registru",
+    "liabilityRole": "Právní role",
+    "liabilityMode": "Režim odpovědnosti",
+    "liabilityBasis": "Právní titul odpovědnosti",
+    "extent": "Rozsah odpovědnosti skupiny jako přesný podíl celého nároku",
+    "liabilityFrom": "Odpovědnost od",
+    "liabilityTo": "Odpovědnost do, je-li doloženo",
+    "addLiability": "Přidat doloženou odpovědnost",
+    "serviceNotice": "Titul a doručení zálohy služby",
+    "monthlyNoticeHelp": "Změna měsíční zálohy vyžaduje odůvodněné písemné oznámení a doručení. Účinnost nejdříve od prvního dne dalšího měsíce podle § 4 odst. 4 zákona 67/2013 Sb.",
+    "nonMonthlyNoticeHelp": "Změna neměsíční zálohy vyžaduje vlastní doloženou dohodu nebo kompetentní titul s účinností a určením zavázaných příjemců. Měsíční lhůta se nepřebírá automaticky.",
+    "noticeMode": "Vznik nebo změna zálohy",
+    "noticeTitle": "Rozhodnutí nebo dohoda o záloze",
+    "writtenNotice": "Písemné oznámení nové výše",
+    "deliveryRecipient": "Skutečný příjemce doručení",
+    "represented": "Osoby, pro které je účinek doložen",
+    "authority": "Podklad oprávnění jednat nebo přijmout za jiné osoby",
+    "deliveredAt": "Skutečný okamžik doručení",
+    "deliveryEvidence": "Důkaz doručení",
+    "addDelivery": "Přidat doložené doručení",
+    "nonMonthlyTitle": "Výslovný titul neměsíční zálohy",
+    "agreementEffectiveAt": "Doložená účinnost dohody nebo rozhodnutí",
+    "evidenceHistory": "Doložené události pohledávky",
+    "evidenceHelp": "Události zachovávají právní podklady a časové účinky. Nemění částku, nepřevádějí dlužníka a samy neprovádějí platební alokaci ani odeslání upomínky.",
+    "eventKind": "Druh podkladu",
+    "regime": "Posouzený režim § 1932",
+    "statuteAsOf": "Rozhodné znění k datu",
+    "assessmentScale": "Doložená společná stupnice zajištění",
+    "securityRank": "Posouzený stupeň zajištění",
+    "recordEvidence": "Zapsat doloženou událost",
+    "roles": {
+      "debtor": "Dlužník",
+      "guarantor": "Ručitel"
+    },
+    "modes": {
+      "individual": "Samostatná odpovědnost",
+      "solidary": "Výslovně doložená solidarita"
+    },
+    "bases": {
+      "individual_title": "Samostatný právní titul",
+      "sjm_713": "Doložené SJM a § 713",
+      "joint_act_1127": "Doložené společné právní jednání a § 1127",
+      "documented_title": "Jiný výslovný právní titul"
+    },
+    "noticeModes": {
+      "initial": "První doložená záloha",
+      "unchanged": "Beze změny dosavadní zálohy",
+      "change": "Doložená změna zálohy"
+    },
+    "issueModes": {
+      "initial": "Nový samostatný případ",
+      "replacement": "Náhrada zrušeného předpisu",
+      "difference": "Rozdílová oprava stejného případu"
+    },
+    "titles": {
+      "prescription": "Pravidelný předpis",
+      "extra_contribution": "Mimořádný příspěvek"
+    },
+    "dates": {
+      "period_from": "Období od",
+      "period_to": "Období do",
+      "accounting_date": "Datum účetního případu",
+      "due_date": "Splatnost"
+    },
+    "statuses": {
+      "draft": "Vydaný, nezaúčtovaný",
+      "posted": "Zaúčtovaný",
+      "reversed": "Stornovaný",
+      "cancelled": "Zrušený před zaúčtováním"
+    },
+    "eventKinds": {
+      "reminder": "Doložené upomenutí",
+      "liability_assessment": "Podklad posouzení odpovědnosti",
+      "allocation_regime": "Posouzení režimu § 1932",
+      "security_basis": "Posouzení zajištění pro § 1933"
+    },
+    "regimes": {
+      "consumer": "Doložený spotřebitelský režim",
+      "general": "Doložený obecný režim",
+      "other_documented": "Jiný doložený režim"
+    },
+    "case": {
+      "chooseTitle": "Případ předpisu",
+      "chooseHelp": "Pokračujte ve stávajícím případu, nebo výslovně založte nový doložený případ. Označení případu se nikdy nevytváří automaticky.",
+      "newCase": "Založit nový doložený případ",
+      "newCaseHelp": "Vyplníte označení případu, výskyt, původní rozhodnutí a podklad.",
+      "legacyFamily": "Starší předpis bez doložené identity případu",
+      "revision": "revize {n}",
+      "identityTitle": "Identita případu",
+      "assessmentHelp": "Uvedené údaje jsou odpovědné posouzení uživatele. Systém samostatně neověřuje, že doložený podklad zakládá právní titul.",
+      "immutableHelp": "Identita případu je neměnná. Oprava ji přebírá z původního případu a nelze ji upravit.",
+      "fields": {
+        "case_ref": "Označení případu",
+        "occurrence_ref": "Výskyt případu",
+        "title_ref": "Právní titul",
+        "decision_ref": "Původní rozhodnutí",
+        "decided_on": "Datum rozhodnutí",
+        "evidence_ref": "Doložený podklad"
+      },
+      "incomplete": "Doplňte všechny povinné údaje případu a případné odlišení od souběžných případů, teprve poté lze vytvořit náhled.",
+      "legacyContinuation": "Tento starší předpis nemá doloženou identitu případu. Oprava ji nevymýšlí a pokračuje bez ní.",
+      "draftFamily": "Poslední předpis tohoto případu je dosud nezaúčtovaný. Zaúčtujte nebo zrušte jej v historii, nový předpis nad ním nelze vydat.",
+      "staleFamily": "Případ se mezitím změnil. Načtěte stav znovu a vyberte případ znovu.",
+      "identityConflict": "Identita případu v kontextu a v předpisu si neodpovídá. Oprava se nezahájí.",
+      "existsHelp": "Tento doložený případ již má rodinu předpisů. Vyberte ji a pokračujte opravou. Rozepsaný nový případ zůstane do výběru zachován.",
+      "useExisting": "Vybrat existující případ",
+      "distinctionTitle": "Odlišení samostatného nároku",
+      "distinctionHelp": "Server uvedl souběžné případy této jednotky. Označte všechny a doložte, proč jde o samostatný nárok. Nic se nezaškrtává automaticky.",
+      "legalReason": "Doložený právní důvod odlišení",
+      "distinctionIncomplete": "Označte přesně všechny uvedené případy a doplňte důvod i podklad.",
+      "removeDistinction": "Odebrat odlišení",
+      "reasons": {
+        "period_overlap": "překrývající se období",
+        "same_decision_occurrence": "stejné rozhodnutí a výskyt"
+      }
+    }
   }
 }

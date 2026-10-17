@@ -9,6 +9,7 @@ use MyInvoice\Repository\DimensionAssignmentRepository;
 use MyInvoice\Repository\DimensionRepository;
 use MyInvoice\Service\Accounting\JournalLineAmount;
 use MyInvoice\Service\Accounting\Product\IssuedDiscountAllocation;
+use MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard;
 use PDO;
 
 /**
@@ -250,6 +251,7 @@ final class DimensionStamper
         $pdo = $this->db->pdo();
         $guard = new DimensionPeriodGuard($this->db);
         (new SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
+        (new IssuanceUseGuard($this->db))->lockClaims($supplierId);
         $lockedEntries = $guard->lockSources($supplierId, [[$sourceType, $sourceId]]);
         $entryDates = [];
         foreach ($lockedEntries as $entryId => $entry) {

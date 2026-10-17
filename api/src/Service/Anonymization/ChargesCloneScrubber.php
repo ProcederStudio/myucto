@@ -14,13 +14,13 @@ final class ChargesCloneScrubber
 
     public function __construct(private readonly PDO $pdo, private readonly TextScrubber $scrubber) {}
 
-    public function run(array $registryStateMap): void
+    public function run(array $registryStateMap): array
     {
         $marks = implode(',', array_fill(0, count(self::TABLES), '?'));
         $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ({$marks})");
         $stmt->execute(self::TABLES);
         $count = (int) $stmt->fetchColumn();
-        if ($count === 0) return;
+        if ($count === 0) return [];
         if ($count !== count(self::TABLES) || $this->pdo->inTransaction()) throw new \LogicException('Charge clone requires the complete schema and its own transaction.');
         if ((int) $this->pdo->query('SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA=DATABASE()')->fetchColumn() !== 0) throw new \LogicException('Charge clone must run before installing triggers.');
         $this->pdo->beginTransaction();
@@ -102,6 +102,7 @@ final class ChargesCloneScrubber
                 $this->update('unit_charge_audit', $row, ['payload_json' => self::json($replacement)]);
             }
             $this->pdo->commit();
+            return $versions;
         } catch (\Throwable $e) {
             if ($this->pdo->inTransaction()) $this->pdo->rollBack();
             throw $e;

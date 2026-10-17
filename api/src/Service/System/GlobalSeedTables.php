@@ -313,6 +313,8 @@ final class GlobalSeedTables
         'property_revision_members', 'property_revision_roles', 'property_revision_identifiers',
         'property_revision_services', 'property_audit',
         'unit_charge_components', 'unit_charge_versions', 'unit_charge_rates', 'unit_charge_audit',
+        'unit_charge_batches', 'unit_charges', 'unit_charge_lines', 'unit_charge_parties',
+        'unit_charge_notices', 'unit_charge_adjustments', 'unit_charge_evidence_events', 'unit_charge_issue_audit',
         'accounting_archives', 'accounting_backfill_jobs', 'accounting_balance_inventory',
         'accounting_balance_inventory_items', 'accounting_closing_steps', 'accounting_corrections',
         'accounting_opening_balances', 'accounting_receivable_provisions',

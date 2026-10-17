@@ -60,6 +60,7 @@ final class DocumentJournalPurge
             throw new \LogicException('DocumentJournalPurge::purge musí běžet v transakci volajícího.');
         }
         (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+        (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->lockClaims($supplierId);
 
         $lock = $pdo->prepare('SELECT locked_until FROM accounting_supplier_settings WHERE supplier_id = ? FOR UPDATE');
         $lock->execute([$supplierId]);
@@ -121,6 +122,7 @@ final class DocumentJournalPurge
 
         $entryIds = [];
         foreach ($groups as $group) foreach ($group['entries'] as $entry) $entryIds[] = (int) $entry['id'];
+        (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->assertPostingEntriesMutable($supplierId, $entryIds);
         (new \MyInvoice\Service\Accounting\Allocation\JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, $entryIds);
         $deleted = [];
         $attachmentRows = [];

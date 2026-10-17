@@ -57,7 +57,7 @@ final class PropertyCloneScrubber
                 if ($row['resolves_revision_id'] !== null) $request['resolves_revision_id'] = (int) $row['resolves_revision_id'];
                 $envelope = ['kind' => $object['kind'], 'id' => $create ? null : (int) $object['id'], 'request' => $request, 'actor' => (int) $row['created_by']];
                 $this->assertHash($row['request_hash'], $envelope);
-                $state = $this->scrubState($object['kind'], $state);
+                $state = $this->scrubSnapshotState($object['kind'], $state);
                 $envelope['request']['state'] = $state;
                 $envelope['request']['reason'] = $this->scrubber->scrub($row['reason']);
                 $envelope['request']['title_ref'] = $this->scrubber->scrub($row['title_ref']);
@@ -78,7 +78,7 @@ final class PropertyCloneScrubber
                     $request = $payload['request'];
                     $this->assertHash($payload['request_hash'], $request + ['actor' => (int) $row['created_by']]);
                     $this->assertHash($request['preview_hash'], $request['plan']);
-                    foreach ($request['plan']['units'] as &$unit) $unit['state'] = $this->scrubState('unit', $unit['state']);
+                    foreach ($request['plan']['units'] as &$unit) $unit['state'] = $this->scrubSnapshotState('unit', $unit['state']);
                     unset($unit);
                     foreach (['reason', 'title_ref'] as $field) $request['plan'][$field] = $this->scrubber->scrub($request['plan'][$field]);
                     $request['preview_hash'] = PropertyInput::hash($request['plan']);
@@ -99,7 +99,7 @@ final class PropertyCloneScrubber
         }
     }
 
-    private function scrubState(string $kind, array $state): array
+    public function scrubSnapshotState(string $kind, array $state): array
     {
         if ($kind === 'house') {
             $state['name'] = $this->scrubber->scrub($state['name']);

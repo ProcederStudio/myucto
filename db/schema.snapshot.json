@@ -1005,7 +1005,8 @@
         "2021_joint_allocations.sql",
         "2022_nonprofit_tax_assessments.sql",
         "2023_property_registry.sql",
-        "2024_property_charge_versions.sql"
+        "2024_property_charge_versions.sql",
+        "2025_property_charge_issuance.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -6684,7 +6685,7 @@
                 "reversed_by": "bigint(20) unsigned NULL DEFAULT NULL",
                 "row_version": "int(10) unsigned NOT NULL DEFAULT 1",
                 "source_id": "bigint(20) unsigned NULL DEFAULT NULL",
-                "source_type": "enum('invoice','purchase_invoice','bank','cash','asset','manual','closing','opening','depreciation','asset_disposal','fx_revaluation','stock','provision','income_tax','profit_distribution','offset','small_asset_accrual','prepaid_expense_accrual','settlement','deferred_tax','payroll','vat_clearing','payroll_payment','gopay','card_settlement','card_writeoff','other_item','payroll_accident_insurance','payroll_travel','deferred_revenue_accrual') NOT NULL DEFAULT 'manual'",
+                "source_type": "enum('invoice','purchase_invoice','bank','cash','asset','manual','closing','opening','depreciation','asset_disposal','fx_revaluation','stock','provision','income_tax','profit_distribution','offset','small_asset_accrual','prepaid_expense_accrual','settlement','deferred_tax','payroll','vat_clearing','payroll_payment','gopay','card_settlement','card_writeoff','other_item','payroll_accident_insurance','payroll_travel','deferred_revenue_accrual','unit_charge') NOT NULL DEFAULT 'manual'",
                 "supplier_id": "int(10) unsigned NOT NULL",
                 "updated_at": "timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE CURRENT_TIMESTAMP()"
             },
@@ -6697,7 +6698,8 @@
                 "idx_je_supplier_reversed_by": "BTREE (supplier_id, reversed_by)",
                 "idx_je_supplier_source": "BTREE (supplier_id, source_type, source_id)",
                 "uq_je_supplier_active_source": "UNIQUE BTREE (supplier_id, source_type, active_source_id)",
-                "uq_je_supplier_id": "UNIQUE BTREE (supplier_id, id)"
+                "uq_je_supplier_id": "UNIQUE BTREE (supplier_id, id)",
+                "uq_unit_charge_journal_tenant": "UNIQUE BTREE (supplier_id, id)"
             },
             "foreign_keys": {
                 "fk_je_period_supplier": "(supplier_id, period_id) -> accounting_periods (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
@@ -23488,6 +23490,44 @@
             },
             "checks": []
         },
+        "unit_charge_adjustments": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "adjustment_charge_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "charge_id": "bigint(20) unsigned NOT NULL",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "effective_at": "datetime(6) NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "idempotency_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "journal_entry_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "kind": "varchar(20) NOT NULL",
+                "recorded_at": "datetime(6) NOT NULL",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "request_json": "longtext NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_issue_adjustment_actor": "BTREE (created_by)",
+                "fk_issue_adjustment_charge": "BTREE (supplier_id, charge_id)",
+                "fk_issue_adjustment_journal": "BTREE (supplier_id, journal_entry_id)",
+                "fk_issue_adjustment_new": "BTREE (supplier_id, adjustment_charge_id)",
+                "uq_issue_adjustment_tenant": "UNIQUE BTREE (supplier_id, id)",
+                "uq_issue_adjustment_token": "UNIQUE BTREE (supplier_id, idempotency_key)"
+            },
+            "foreign_keys": {
+                "fk_issue_adjustment_actor": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_issue_adjustment_charge": "(supplier_id, charge_id) -> unit_charges (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_issue_adjustment_journal": "(supplier_id, journal_entry_id) -> journal_entries (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_issue_adjustment_new": "(supplier_id, adjustment_charge_id) -> unit_charges (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "chk_issue_adjustment_kind": "`kind` in ('reversal','cancel_draft','difference','replacement')",
+                "request_json": "json_valid(`request_json`)"
+            }
+        },
         "unit_charge_audit": {
             "type": "BASE TABLE",
             "engine": "InnoDB",
@@ -23517,6 +23557,39 @@
             "checks": {
                 "chk_charge_audit_action": "`action` = 'component' and `component_id` is not null and `version_id` is null or `action` = 'version' and `component_id` is null and `version_id` is not null",
                 "payload_json": "json_valid(`payload_json`)"
+            }
+        },
+        "unit_charge_batches": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "idempotency_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "preview_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "recorded_at": "datetime(6) NOT NULL",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "request_json": "longtext NOT NULL",
+                "snapshot_json": "longtext NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "version_id": "bigint(20) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_issue_batch_actor": "BTREE (created_by)",
+                "fk_issue_batch_version": "BTREE (supplier_id, version_id)",
+                "uq_issue_batch_tenant": "UNIQUE BTREE (supplier_id, id)",
+                "uq_issue_batch_token": "UNIQUE BTREE (supplier_id, idempotency_key)"
+            },
+            "foreign_keys": {
+                "fk_issue_batch_actor": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_issue_batch_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_issue_batch_version": "(supplier_id, version_id) -> unit_charge_versions (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "request_json": "json_valid(`request_json`)",
+                "snapshot_json": "json_valid(`snapshot_json`)"
             }
         },
         "unit_charge_components": {
@@ -23554,6 +23627,147 @@
                 "chk_charge_component_kind": "`kind` in ('long_term_advance','admin_advance','service_advance','contribution','other')",
                 "chk_charge_component_service": "`kind` = 'service_advance' and `service_id` is not null or `kind` <> 'service_advance' and `service_id` is null",
                 "request_json": "json_valid(`request_json`)"
+            }
+        },
+        "unit_charge_evidence_events": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "charge_id": "bigint(20) unsigned NOT NULL",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "effective_at": "datetime(6) NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "idempotency_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "kind": "varchar(24) NOT NULL",
+                "recorded_at": "datetime(6) NOT NULL",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "request_json": "longtext NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_issue_evidence_actor": "BTREE (created_by)",
+                "fk_issue_evidence_charge": "BTREE (supplier_id, charge_id)",
+                "uq_issue_evidence_token": "UNIQUE BTREE (supplier_id, idempotency_key)"
+            },
+            "foreign_keys": {
+                "fk_issue_evidence_actor": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_issue_evidence_charge": "(supplier_id, charge_id) -> unit_charges (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "chk_issue_evidence_kind": "`kind` in ('reminder','liability_assessment','allocation_regime','security_basis')",
+                "request_json": "json_valid(`request_json`)"
+            }
+        },
+        "unit_charge_issue_audit": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "action": "varchar(24) NOT NULL",
+                "batch_id": "bigint(20) unsigned NOT NULL",
+                "charge_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "payload_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "payload_json": "longtext NOT NULL",
+                "recorded_at": "datetime(6) NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_issue_audit_actor": "BTREE (created_by)",
+                "fk_issue_audit_batch": "BTREE (supplier_id, batch_id)",
+                "fk_issue_audit_charge": "BTREE (supplier_id, charge_id)"
+            },
+            "foreign_keys": {
+                "fk_issue_audit_actor": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_issue_audit_batch": "(supplier_id, batch_id) -> unit_charge_batches (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_issue_audit_charge": "(supplier_id, charge_id) -> unit_charges (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "payload_json": "json_valid(`payload_json`)"
+            }
+        },
+        "unit_charge_lines": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "amount_cents": "decimal(30,0) NOT NULL",
+                "charge_id": "bigint(20) unsigned NOT NULL",
+                "component_id": "bigint(20) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "line_json": "longtext NOT NULL",
+                "service_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_issue_line_component": "BTREE (supplier_id, component_id)",
+                "fk_issue_line_service": "BTREE (supplier_id, service_id)",
+                "uq_issue_line_component": "UNIQUE BTREE (supplier_id, charge_id, component_id)",
+                "uq_issue_line_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "fk_issue_line_charge": "(supplier_id, charge_id) -> unit_charges (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_issue_line_component": "(supplier_id, component_id) -> unit_charge_components (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_issue_line_service": "(supplier_id, service_id) -> property_objects (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "line_json": "json_valid(`line_json`)"
+            }
+        },
+        "unit_charge_notices": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "charge_id": "bigint(20) unsigned NOT NULL",
+                "component_id": "bigint(20) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "notice_json": "longtext NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_issue_notice_component": "BTREE (supplier_id, component_id)",
+                "uq_issue_notice_component": "UNIQUE BTREE (supplier_id, charge_id, component_id)"
+            },
+            "foreign_keys": {
+                "fk_issue_notice_charge": "(supplier_id, charge_id) -> unit_charges (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_issue_notice_component": "(supplier_id, component_id) -> unit_charge_components (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "notice_json": "json_valid(`notice_json`)"
+            }
+        },
+        "unit_charge_parties": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "charge_id": "bigint(20) unsigned NOT NULL",
+                "client_id": "bigint(20) unsigned NOT NULL",
+                "group_key": "varchar(80) NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "party_json": "longtext NOT NULL",
+                "role": "varchar(16) NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_issue_party_client": "BTREE (supplier_id, client_id)",
+                "uq_issue_party_member": "UNIQUE BTREE (supplier_id, charge_id, role, client_id)"
+            },
+            "foreign_keys": {
+                "fk_issue_party_charge": "(supplier_id, charge_id) -> unit_charges (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_issue_party_client": "(supplier_id, client_id) -> clients (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "chk_issue_party_role": "`role` in ('debtor','guarantor')",
+                "party_json": "json_valid(`party_json`)"
             }
         },
         "unit_charge_rates": {
@@ -23617,6 +23831,58 @@
                 "chk_charge_version_interval": "`effective_to` is null or `effective_to` > `effective_from`",
                 "preview_json": "json_valid(`preview_json`)",
                 "request_json": "json_valid(`request_json`)"
+            }
+        },
+        "unit_charges": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "accounting_date": "date NOT NULL",
+                "amount_cents": "decimal(30,0) NOT NULL",
+                "batch_id": "bigint(20) unsigned NOT NULL",
+                "claim_origin_at": "datetime(6) NOT NULL",
+                "due_date": "date NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "issue_mode": "varchar(20) NOT NULL",
+                "issued_at": "datetime(6) NOT NULL",
+                "journal_entry_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "period_from": "date NOT NULL",
+                "period_to": "date NOT NULL",
+                "previous_charge_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "reversal_entry_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "revision_no": "int(10) unsigned NOT NULL",
+                "row_version": "int(10) unsigned NOT NULL DEFAULT 1",
+                "snapshot_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "snapshot_json": "longtext NOT NULL",
+                "source_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "status": "varchar(16) NOT NULL DEFAULT 'draft'",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "title": "varchar(32) NOT NULL",
+                "unit_id": "bigint(20) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_issue_charge_previous": "BTREE (supplier_id, previous_charge_id)",
+                "uq_issue_charge_batch_unit": "UNIQUE BTREE (supplier_id, batch_id, unit_id)",
+                "uq_issue_charge_journal": "UNIQUE BTREE (supplier_id, journal_entry_id)",
+                "uq_issue_charge_reversal": "UNIQUE BTREE (supplier_id, reversal_entry_id)",
+                "uq_issue_charge_revision": "UNIQUE BTREE (supplier_id, unit_id, source_key, revision_no)",
+                "uq_issue_charge_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "fk_issue_charge_batch": "(supplier_id, batch_id) -> unit_charge_batches (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_issue_charge_journal": "(supplier_id, journal_entry_id) -> journal_entries (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_issue_charge_previous": "(supplier_id, previous_charge_id) -> unit_charges (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_issue_charge_reversal": "(supplier_id, reversal_entry_id) -> journal_entries (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_issue_charge_unit": "(supplier_id, unit_id) -> property_objects (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "chk_issue_charge_dates": "`period_to` >= `period_from`",
+                "chk_issue_charge_mode": "`issue_mode` in ('initial','replacement','difference')",
+                "chk_issue_charge_state": "`status` = 'draft' and `journal_entry_id` is null and `reversal_entry_id` is null or `status` = 'posted' and `journal_entry_id` is not null and `reversal_entry_id` is null or `status` = 'reversed' and `journal_entry_id` is not null and `reversal_entry_id` is not null or `status` = 'cancelled' and `journal_entry_id` is null and `reversal_entry_id` is null",
+                "chk_issue_charge_title": "`title` in ('prescription','extra_contribution')",
+                "snapshot_json": "json_valid(`snapshot_json`)"
             }
         },
         "units": {
@@ -24685,14 +24951,30 @@
         "trg_xmlzam_response_no_delete": "BEFORE DELETE ON payroll_enforcement_xmlzam_responses #7d7e3c0bff2c899bfeca374b3f6c0a05eda0fa52",
         "trg_xmlzam_response_no_update": "BEFORE UPDATE ON payroll_enforcement_xmlzam_responses #2dd42c78be1084399de6e1070c815fa49e9ad98e",
         "trg_xmlzam_response_source_guard": "BEFORE INSERT ON payroll_enforcement_xmlzam_responses #93a80c537d22f0d4e1c58a0cd4bc49ff9898a706",
+        "unit_charge_adjustments_immutable_delete": "BEFORE DELETE ON unit_charge_adjustments #d9772cfe008372988002f0a8131591df3f1168a0",
+        "unit_charge_adjustments_immutable_update": "BEFORE UPDATE ON unit_charge_adjustments #d9772cfe008372988002f0a8131591df3f1168a0",
         "unit_charge_audit_immutable_delete": "BEFORE DELETE ON unit_charge_audit #c5afbacaba12862c2a877c4c7a6cd6cf5cf93d60",
         "unit_charge_audit_immutable_update": "BEFORE UPDATE ON unit_charge_audit #c5afbacaba12862c2a877c4c7a6cd6cf5cf93d60",
+        "unit_charge_batches_immutable_delete": "BEFORE DELETE ON unit_charge_batches #d9772cfe008372988002f0a8131591df3f1168a0",
+        "unit_charge_batches_immutable_update": "BEFORE UPDATE ON unit_charge_batches #d9772cfe008372988002f0a8131591df3f1168a0",
         "unit_charge_components_immutable_delete": "BEFORE DELETE ON unit_charge_components #c5afbacaba12862c2a877c4c7a6cd6cf5cf93d60",
         "unit_charge_components_immutable_update": "BEFORE UPDATE ON unit_charge_components #c5afbacaba12862c2a877c4c7a6cd6cf5cf93d60",
+        "unit_charge_evidence_events_immutable_delete": "BEFORE DELETE ON unit_charge_evidence_events #d9772cfe008372988002f0a8131591df3f1168a0",
+        "unit_charge_evidence_events_immutable_update": "BEFORE UPDATE ON unit_charge_evidence_events #d9772cfe008372988002f0a8131591df3f1168a0",
+        "unit_charge_issue_audit_immutable_delete": "BEFORE DELETE ON unit_charge_issue_audit #d9772cfe008372988002f0a8131591df3f1168a0",
+        "unit_charge_issue_audit_immutable_update": "BEFORE UPDATE ON unit_charge_issue_audit #d9772cfe008372988002f0a8131591df3f1168a0",
+        "unit_charge_lines_immutable_delete": "BEFORE DELETE ON unit_charge_lines #d9772cfe008372988002f0a8131591df3f1168a0",
+        "unit_charge_lines_immutable_update": "BEFORE UPDATE ON unit_charge_lines #d9772cfe008372988002f0a8131591df3f1168a0",
+        "unit_charge_notices_immutable_delete": "BEFORE DELETE ON unit_charge_notices #d9772cfe008372988002f0a8131591df3f1168a0",
+        "unit_charge_notices_immutable_update": "BEFORE UPDATE ON unit_charge_notices #d9772cfe008372988002f0a8131591df3f1168a0",
+        "unit_charge_parties_immutable_delete": "BEFORE DELETE ON unit_charge_parties #d9772cfe008372988002f0a8131591df3f1168a0",
+        "unit_charge_parties_immutable_update": "BEFORE UPDATE ON unit_charge_parties #d9772cfe008372988002f0a8131591df3f1168a0",
         "unit_charge_rates_immutable_delete": "BEFORE DELETE ON unit_charge_rates #c5afbacaba12862c2a877c4c7a6cd6cf5cf93d60",
         "unit_charge_rates_immutable_update": "BEFORE UPDATE ON unit_charge_rates #c5afbacaba12862c2a877c4c7a6cd6cf5cf93d60",
         "unit_charge_versions_immutable_delete": "BEFORE DELETE ON unit_charge_versions #c5afbacaba12862c2a877c4c7a6cd6cf5cf93d60",
-        "unit_charge_versions_immutable_update": "BEFORE UPDATE ON unit_charge_versions #c5afbacaba12862c2a877c4c7a6cd6cf5cf93d60"
+        "unit_charge_versions_immutable_update": "BEFORE UPDATE ON unit_charge_versions #c5afbacaba12862c2a877c4c7a6cd6cf5cf93d60",
+        "unit_charges_guard_update": "BEFORE UPDATE ON unit_charges #313c3018773d952a16ed05cb8402856ea4a1d96d",
+        "unit_charges_immutable_delete": "BEFORE DELETE ON unit_charges #d9772cfe008372988002f0a8131591df3f1168a0"
     },
     "routines": {
         "sp_cleanup_expired_sessions": "PROCEDURE #3f07dfb486c1c44eece5a7a5487cac34782cf0b1",

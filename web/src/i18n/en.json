@@ -1628,7 +1628,8 @@
     "dimensions": "Dimensions",
     "accounting_dimension_profit": "Reports by dimension",
     "property_registry": "Property registry",
-    "property_charges": "Charge components and rates"
+    "property_charges": "Charge components and rates",
+    "property_issuance": "Charge issuance"
   },
   "migration_overview": {
     "myucto_hint": "Transfer one company from a MyÚčto Complete data export or a MyInvoice database backup, including recurring invoices.",
@@ -16588,6 +16589,7 @@
         "card_writeoff": "Card payment closed",
         "payroll_travel": "Business trip settlement",
         "payroll_accident_insurance": "Statutory employer liability insurance",
+        "unit_charge": "Owners association charge",
         "journal_entry": "Journal entry"
       },
       "history": {
@@ -35310,5 +35312,161 @@
     },
     "overlapping": "The new version takes precedence in these overlaps. Check its effect on planned future periods too.",
     "noEnd": "open-ended"
+  },
+  "propertyIssuance": {
+    "title": "Owners association charges and receivables",
+    "scopeHelp": "Issue, post and document corrections to charges. Payments and credits are not allocated here.",
+    "registryAsOf": "Registry snapshot at an explicit instant",
+    "refresh": "Load",
+    "house": "Building",
+    "version": "Confirmed rate version",
+    "choose": "Choose",
+    "remove": "Remove",
+    "currency": "CZK",
+    "claimTitle": "Legal title of the claim",
+    "originAt": "Instant the claim arose",
+    "issuedAt": "Issue instant",
+    "effectiveAt": "Instant of legal effect",
+    "snapshotDateHelp": "Before previewing, load the registry at the same instant as the claim origin.",
+    "noProration": "Frequency follows the confirmed version. Partial months are not estimated.",
+    "reason": "Reason and decision",
+    "evidence": "Deed or other documented evidence",
+    "legalReason": "Documented legal basis",
+    "selectUnits": "Units included in this issue",
+    "receivable_account": "Receivable account",
+    "counter_account": "Component counter-account",
+    "settlementDue": "Expected advance settlement date",
+    "accountEvidence": "Evidence supporting the accounting treatment",
+    "unassigned": "Unassigned",
+    "preview": "Preview charges",
+    "oneClaimHelp": "Each unit amount is posted once. Multiple liable parties do not multiply it.",
+    "issue": "Issue immutable charges",
+    "history": "Charge history",
+    "detail": "Details and evidence",
+    "postBatch": "Post batch",
+    "reverse": "Reverse entire charge",
+    "cancelDraft": "Cancel unposted charge",
+    "confirmReverse": "Confirm documented correction",
+    "difference": "Difference charge using selected version",
+    "replacement": "Replacement charge using selected version",
+    "close": "Close",
+    "unknownPerson": "Person in historical evidence",
+    "noInferredDebtor": "An owner, payer or representative is not automatically a debtor. Record the legal title and extent of liability. Joint marital ownership is one participation with shared members.",
+    "registryFacts": "Documented ownership facts from the registry",
+    "liabilityRole": "Legal role",
+    "liabilityMode": "Liability regime",
+    "liabilityBasis": "Legal title of liability",
+    "extent": "Group liability as an exact fraction of the whole claim",
+    "liabilityFrom": "Liability from",
+    "liabilityTo": "Liability until, if documented",
+    "addLiability": "Add documented liability",
+    "serviceNotice": "Service advance title and delivery",
+    "monthlyNoticeHelp": "Changing a monthly advance requires a reasoned written notice and evidence of delivery. It may take effect no earlier than the first day of the next month under Section 4(4) of Act 67/2013.",
+    "nonMonthlyNoticeHelp": "Changing a non-monthly advance requires its own documented agreement or competent legal title, effective date and bound recipients. The monthly notice deadline is not applied automatically.",
+    "noticeMode": "Initial or changed advance",
+    "noticeTitle": "Advance decision or agreement",
+    "writtenNotice": "Written notice of the new amount",
+    "deliveryRecipient": "Actual delivery recipient",
+    "represented": "People covered by the documented legal effect",
+    "authority": "Evidence of authority to act or receive for other people",
+    "deliveredAt": "Actual delivery instant",
+    "deliveryEvidence": "Delivery evidence",
+    "addDelivery": "Add documented delivery",
+    "nonMonthlyTitle": "Explicit title for a non-monthly advance",
+    "agreementEffectiveAt": "Documented agreement or decision effective instant",
+    "evidenceHistory": "Documented claim events",
+    "evidenceHelp": "Events preserve legal evidence and its effects over time. They do not change the amount, transfer the debtor, allocate a payment or send a reminder.",
+    "eventKind": "Evidence type",
+    "regime": "Assessed Section 1932 regime",
+    "statuteAsOf": "Applicable statutory wording as of",
+    "assessmentScale": "Documented common security assessment scale",
+    "securityRank": "Assessed security rank",
+    "recordEvidence": "Record documented event",
+    "roles": {
+      "debtor": "Debtor",
+      "guarantor": "Guarantor"
+    },
+    "modes": {
+      "individual": "Individual liability",
+      "solidary": "Explicitly documented joint and several liability"
+    },
+    "bases": {
+      "individual_title": "Individual legal title",
+      "sjm_713": "Documented marital community and Section 713",
+      "joint_act_1127": "Documented joint legal act and Section 1127",
+      "documented_title": "Other explicit legal title"
+    },
+    "noticeModes": {
+      "initial": "Initial documented advance",
+      "unchanged": "Existing advance unchanged",
+      "change": "Documented advance change"
+    },
+    "issueModes": {
+      "initial": "New independent case",
+      "replacement": "Replacement of a cancelled charge",
+      "difference": "Difference correction of the same case"
+    },
+    "titles": {
+      "prescription": "Regular charge",
+      "extra_contribution": "Extraordinary contribution"
+    },
+    "dates": {
+      "period_from": "Period from",
+      "period_to": "Period until",
+      "accounting_date": "Accounting date",
+      "due_date": "Due date"
+    },
+    "statuses": {
+      "draft": "Issued, not posted",
+      "posted": "Posted",
+      "reversed": "Reversed",
+      "cancelled": "Cancelled before posting"
+    },
+    "eventKinds": {
+      "reminder": "Documented reminder",
+      "liability_assessment": "Liability assessment evidence",
+      "allocation_regime": "Section 1932 regime assessment",
+      "security_basis": "Security assessment for Section 1933"
+    },
+    "regimes": {
+      "consumer": "Documented consumer regime",
+      "general": "Documented general regime",
+      "other_documented": "Other documented regime"
+    },
+    "case": {
+      "chooseTitle": "Charge case",
+      "chooseHelp": "Continue an existing case or explicitly create a new evidenced case. A case reference is never generated automatically.",
+      "newCase": "Create a new evidenced case",
+      "newCaseHelp": "You will enter the case reference, occurrence, original decision and evidence.",
+      "legacyFamily": "Earlier charge without an evidenced case identity",
+      "revision": "revision {n}",
+      "identityTitle": "Case identity",
+      "assessmentHelp": "These entries are the responsible user's own assessment. The system does not independently verify that the evidence establishes a legal title.",
+      "immutableHelp": "The case identity is immutable. A correction takes it from the original case and it cannot be edited.",
+      "fields": {
+        "case_ref": "Case reference",
+        "occurrence_ref": "Case occurrence",
+        "title_ref": "Legal title",
+        "decision_ref": "Original decision",
+        "decided_on": "Decision date",
+        "evidence_ref": "Evidence"
+      },
+      "incomplete": "Complete all required case fields and any distinction from concurrent cases before a preview can be created.",
+      "legacyContinuation": "This earlier charge has no evidenced case identity. The correction does not invent one and continues without it.",
+      "draftFamily": "The latest charge of this case is not posted yet. Post or cancel it in the history, a new charge cannot be issued on top of it.",
+      "staleFamily": "The case has changed in the meantime. Reload the state and select the case again.",
+      "identityConflict": "The case identity in the context and in the charge do not match. The correction was not started.",
+      "existsHelp": "This evidenced case already has a charge family. Select it and continue with a correction. Your new-case draft is kept until you do.",
+      "useExisting": "Select the existing case",
+      "distinctionTitle": "Distinction of a separate claim",
+      "distinctionHelp": "The server listed concurrent cases of this unit. Mark all of them and evidence why this is a separate claim. Nothing is ticked automatically.",
+      "legalReason": "Evidenced legal reason for the distinction",
+      "distinctionIncomplete": "Mark exactly all listed cases and fill in both the reason and the evidence.",
+      "removeDistinction": "Remove distinction",
+      "reasons": {
+        "period_overlap": "overlapping period",
+        "same_decision_occurrence": "same decision and occurrence"
+      }
+    }
   }
 }

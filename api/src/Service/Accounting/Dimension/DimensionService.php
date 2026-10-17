@@ -514,6 +514,7 @@ final class DimensionService
     private function applyDocument(int $supplierId, string $docType, int $docId, array $header, ?array $items, ?array $splits = null): array
     {
         $guard = new DimensionPeriodGuard($this->db);
+        (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->lockClaims($supplierId);
         $context = (new DocumentDimensionContext($this->db))->lockCurrent($supplierId, $docType, $docId);
         $sources = $this->postingSources($supplierId, $docType, $docId, true);
         $cascade = $this->cascadeSources($supplierId, $docType, $docId, true);
@@ -579,6 +580,7 @@ final class DimensionService
         if ($dates === []) $dates = [$context['date']];
         try {
             if ($normHeader != $current['header'] || $normItems != $current['items'] || $normSplits != $currentSplits) {
+                (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->assertSourcesMutable($supplierId, [...$sources, ...$cascade]);
                 (new JointAllocationUseGuard($this->db))->assertSourcesMutable($supplierId, [...$sources, ...$cascade]);
                 foreach ($dates as $date) (new SystemDimensionWritePolicy($this->db))->assertDocumentAssignments($supplierId, $prospective, $date, $previous);
             }
@@ -947,6 +949,7 @@ final class DimensionService
     private function applyEntryLines(int $supplierId, int $entryId, array $lines, ?array $splits): int
     {
         (new SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
+        (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->lockClaims($supplierId);
         $guard = new DimensionPeriodGuard($this->db);
         $entries = $guard->lockEntries($supplierId, [$entryId]);
         $pdo = $this->db->pdo();
@@ -1017,6 +1020,7 @@ final class DimensionService
         ], array_values($rows));
         if ($touched !== []) {
             try {
+                (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->assertPostingLinesMutable($supplierId, array_map('intval', array_keys($touched)));
                 (new JointAllocationUseGuard($this->db))->assertLinesMutable($supplierId, array_map('intval', array_keys($touched)));
                 (new SystemDimensionWritePolicy($this->db))->assertJournal(
                     $entries[$entryId] + ['supplier_id' => $supplierId], $prospective, $previousLines,

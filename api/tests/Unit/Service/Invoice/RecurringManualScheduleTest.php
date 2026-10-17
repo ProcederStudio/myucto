@@ -61,6 +61,11 @@ final class RecurringManualScheduleTest extends TestCase
         $pdo->exec("CREATE TABLE document_dimension_splits (supplier_id INTEGER, doc_type TEXT, doc_id INTEGER, item_no INTEGER, dimension_type_id INTEGER, dimension_value_id INTEGER, share REAL, assignment_origin TEXT DEFAULT 'unknown', assignment_origin_ref TEXT)");
         $pdo->exec('CREATE TABLE accounting_periods (id INTEGER PRIMARY KEY, supplier_id INTEGER, starts_on TEXT, status TEXT)');
         $pdo->exec('CREATE TABLE journal_entries (id INTEGER PRIMARY KEY, supplier_id INTEGER, source_type TEXT, source_id INTEGER)');
+        $pdo->exec('CREATE TABLE supplier_accounting_frameworks (id INTEGER PRIMARY KEY, supplier_id INTEGER, effective_from TEXT, accounting_framework TEXT)');
+        $pdo->exec('CREATE TABLE dimension_types (id INTEGER PRIMARY KEY, supplier_id INTEGER)');
+        $pdo->exec('CREATE TABLE dimension_values (id INTEGER PRIMARY KEY, supplier_id INTEGER, type_id INTEGER)');
+        $pdo->exec('CREATE TABLE property_objects (id INTEGER PRIMARY KEY, supplier_id INTEGER)');
+        $pdo->exec('CREATE TABLE unit_charges (id INTEGER PRIMARY KEY, supplier_id INTEGER, journal_entry_id INTEGER, reversal_entry_id INTEGER)');
         $db = $this->createStub(Connection::class);
         $db->method('pdo')->willReturn($pdo);
         $items = [['description' => 'Test service', 'quantity' => 1, 'unit' => 'ks', 'unit_price_without_vat' => 121, 'vat_rate_id' => 1, 'order_index' => 0]];

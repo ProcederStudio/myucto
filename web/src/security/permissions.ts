@@ -32,6 +32,7 @@ export const PERMISSION_KEYS = [
   'logbook', 'logbook.write', 'logbook.import', 'logbook.delete',
   'property', 'property.registry.manage', 'property.registry.confirm', 'property.export',
   'property.charges.manage', 'property.charges.confirm',
+  'property.charges.issue', 'property.charges.post', 'property.charges.reverse',
   'settings.company', 'settings.company.write', 'settings.domains', 'settings.bank_accounts',
   'settings.branding', 'settings.ai_provider', 'settings.signing',
   'utilities', 'utilities.export', 'utilities.import', 'utilities.archives',

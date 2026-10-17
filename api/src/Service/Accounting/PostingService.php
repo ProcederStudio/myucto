@@ -300,6 +300,7 @@ final class PostingService
         try {
             $periodStatuses = (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
             (new SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
+        (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->lockClaims($supplierId);
             if ($sourceType === 'bank' && $sourceId !== null) {
                 (new PayrollBankEvidenceGuard($this->db))->assertAvailableForBankPosting($sourceId);
             }
@@ -551,6 +552,7 @@ final class PostingService
         try {
             $periodStatuses = (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
             (new SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
+            (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->lockClaims($supplierId);
             $lockedUntil = $this->lockedUntilForUpdate($supplierId);
             $entry = $this->journal->findActiveBySourceForUpdate($supplierId, $sourceType, $sourceId);
             if ($entry === null || ($entry['posted_at'] ?? null) === null) {
@@ -655,6 +657,7 @@ final class PostingService
         }
         try {
         (new SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
+            (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->lockClaims($supplierId);
         $lockedUntil = $this->lockedUntilForUpdate($supplierId);
         $periodForDate = function (string $date) use ($supplierId, $meta): ?array {
             $period = $this->periods->findForDateForUpdate($supplierId, $date);
@@ -669,6 +672,7 @@ final class PostingService
             }
             return $period;
         };
+        (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->assertPostingEntriesMutable($supplierId, [$entryId]);
         $original = $this->journal->findForUpdate($entryId, $supplierId);
         if ($original === null) {
             throw new PostingException('entry_not_found', 'Účetní zápis #' . $entryId . ' neexistuje.', 404);
@@ -3082,6 +3086,7 @@ final class PostingService
         $guard = new DimensionPeriodGuard($this->db);
         return $guard->transaction(function () use ($guard, $supplierId, $sourceType, $sourceId, $projectId): int {
             $projectId = $projectId !== null && $projectId > 0 ? $projectId : null;
+            (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->lockClaims($supplierId);
             $entries = $guard->lockSources($supplierId, [[$sourceType, $sourceId]]);
             $find = $this->db->pdo()->prepare(
                 'SELECT id, project_id FROM journal_entry_lines WHERE supplier_id = ? AND entry_id = ? FOR UPDATE'
@@ -3096,6 +3101,7 @@ final class PostingService
                         continue;
                     }
                     $guard->assertMutable($entry);
+                    (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->assertPostingLinesMutable($supplierId, [(int) $line['id']]);
                     (new \MyInvoice\Service\Accounting\Allocation\JointAllocationUseGuard($this->db))->assertLinesMutable($supplierId, [(int) $line['id']]);
                     $update->execute([$projectId, $supplierId, (int) $line['id']]);
                     $changed += $update->rowCount();

@@ -40,9 +40,25 @@ U každé složky vyberte konkrétní jednotky, metodu výpočtu a právní podk
 
 Náhled ukazuje částky po jednotkách, zaokrouhlení, rozdíly proti dřívějšímu uloženému stavu a změnu samotných sazeb na stejném novém základu. Zkontrolujte také překryvy s budoucími naplánovanými verzemi. Zbylé haléře připadnou největším zlomkovým zbytkům; při shodě rozhoduje stabilní pořadí jednotek.
 
-Správa složek a potvrzení verze mají samostatná oprávnění. Potvrzení uloží novou neměnnou verzi a její původní podklady. Nevystavuje předpis, neurčuje dlužníka a neúčtuje. U změn záloh na služby bude při vystavení potřeba doložit písemné oznámení, jeho doručení a odůvodnění; samotná sazba jejich splnění nepotvrzuje.
+Správa složek a potvrzení verze mají samostatná oprávnění. Potvrzení uloží novou neměnnou verzi a její původní podklady. Nevystavuje předpis, neurčuje dlužníka a neúčtuje. U změn záloh na služby je při vystavení potřeba doložit písemné oznámení, jeho doručení a odůvodnění; samotná sazba jejich splnění nepotvrzuje.
 
 Historie zůstává čitelná i po vypnutí profilu. Veřejné API a MCP poskytují složky a přesné historické výpočty bez právní historie osob a rozhodovacích podkladů.
+
+## Vydání a účtování předpisů
+
+V nabídce **Vydání předpisů** vyberte dům, rozhodný okamžik registru a potvrzenou verzi sazeb. Zadejte období, vznik pohledávky, okamžik vyhotovení, účetní datum, splatnost a právní titul. Při změně firmy nebo rozhodného okamžiku načtěte podklady znovu. Předpisy jsou vedené v Kč.
+
+Poté vyberte existující případ pro pokračování či opravu, nebo založte nový doložený případ. U nového případu uveďte jeho označení, konkrétní výskyt, právní titul, původní rozhodnutí, datum rozhodnutí a podklad. Stejný případ nelze vydat znovu pod jiným technickým identifikátorem, ani když byl původní předpis zrušen nebo stornován. Pokud se nový nárok překrývá s jiným případem jednotky, doložte jeho samostatnost vůči každému uvedenému případu. Opravy zachovávají původní označení a odlišení; u starších předpisů bez těchto údajů se historie zpětně nedoplňuje.
+
+U každé jednotky potvrďte zavázané osoby, právní důvod, rozsah a způsob jejich odpovědnosti. Více osob u SJM představuje jednu společnou pohledávku. Samotné vlastnictví ani kontaktní role bez doloženého titulu nevytvářejí další dluh. Pro každou složku potvrďte pohledávkový účet 315, protiúčet, účetní podklad a případné další dimenze. Jednotka a služba se doplní z původních podkladů.
+
+Změna zálohy na služby vyžaduje odůvodněné písemné oznámení a důkaz doručení všem dotčeným osobám, případně jejich oprávněnému zástupci. U měsíčních záloh lze změnu uplatnit nejdříve od měsíce následujícího po doručení. U jiné četnosti doložte také sjednanou účinnost a její právní podklad. Část období se automaticky nekrátí.
+
+Nejprve vytvořte a zkontrolujte náhled. Vydání uloží neměnné předpisy a jejich podklady. Samostatná akce **Zaúčtovat dávku** vytvoří zápisy do deníku; vydání, zaúčtování a storno mají oddělená oprávnění. Vydaná částka není aktuálním saldem po úhradách.
+
+Nezaúčtovaný předpis lze zrušit. Zaúčtovaný předpis opravte doloženým rozdílovým předpisem při zachování původních osob, období, účtů a dimenzí, nebo úplným stornem a novým předpisem. Náhradní plný předpis lze vydat až po zrušení či stornu všech původních a rozdílových předpisů daného případu. Storno může směřovat do otevřeného navazujícího období. Předchozí účetní zápisy se nepřepisují. Přímé úpravy těchto zápisů v obecném deníku nejsou povolené.
+
+Detail uchovává původní podklady a další doložené události, například doručení upomínky nebo posouzení odpovědnosti. Zápis doručení sám zprávu neodesílá. Kontakty použité v právní historii archivujte místo mazání. API a MCP poskytují finanční řádky, stav a účetní vazby předpisů bez osobních a právních podkladů.
 
 ## Reset dat
 

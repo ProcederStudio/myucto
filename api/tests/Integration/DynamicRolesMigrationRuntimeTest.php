@@ -126,6 +126,7 @@ final class DynamicRolesMigrationRuntimeTest extends TestCase
         )->fetchColumn();
         $db->prepare("UPDATE role_permissions SET access_level=0 WHERE role_id=? AND permission_key='property.registry.confirm'")->execute([(int) $roles['admin']]);
         $db->prepare("UPDATE role_permissions SET access_level=0 WHERE role_id=? AND permission_key='property.charges.confirm'")->execute([(int) $roles['admin']]);
+        $db->prepare("UPDATE role_permissions SET access_level=0 WHERE role_id=? AND permission_key='property.charges.reverse'")->execute([(int) $roles['admin']]);
         $db->exec(
             "DELETE FROM migrations WHERE filename IN (
                 '1074_dynamic_roles_permissions.sql',
@@ -133,7 +134,8 @@ final class DynamicRolesMigrationRuntimeTest extends TestCase
                 '1748_bank_rule_templates_tenant_scope.sql',
                 '2014_client_ai_extraction.sql',
                 '2023_property_registry.sql',
-                '2024_property_charge_versions.sql'
+                '2024_property_charge_versions.sql',
+                '2025_property_charge_issuance.sql'
             )"
         );
         $this->runMigrator();
@@ -148,6 +150,7 @@ final class DynamicRolesMigrationRuntimeTest extends TestCase
         self::assertSame(1, (int) $db->query('SELECT client_ai_extraction_enabled FROM supplier WHERE id = ' . $this->supplierA)->fetchColumn());
         self::assertSame(0, (int) $db->query("SELECT access_level FROM role_permissions WHERE role_id=" . (int) $roles['admin'] . " AND permission_key='property.registry.confirm'")->fetchColumn());
         self::assertSame(0, (int) $db->query("SELECT access_level FROM role_permissions WHERE role_id=" . (int) $roles['admin'] . " AND permission_key='property.charges.confirm'")->fetchColumn());
+        self::assertSame(0, (int) $db->query("SELECT access_level FROM role_permissions WHERE role_id=" . (int) $roles['admin'] . " AND permission_key='property.charges.reverse'")->fetchColumn());
     }
 
     private function createLegacyParentTables(PDO $db): void
@@ -200,6 +203,8 @@ final class DynamicRolesMigrationRuntimeTest extends TestCase
             'dimension_types' => 'id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY',
             'dimension_values' => 'id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, supplier_id INT UNSIGNED NULL',
             'clients' => 'id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, supplier_id INT UNSIGNED NOT NULL',
+            'journal_entries' => "id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, supplier_id INT UNSIGNED NOT NULL,
+                source_type ENUM('manual') NOT NULL DEFAULT 'manual'",
             'payroll_employees' => "id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
                 supplier_id INT UNSIGNED NOT NULL, UNIQUE KEY uq_payroll_employee_supplier_id (supplier_id, id)",
             'external_entity_map' => "id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -306,6 +311,7 @@ final class DynamicRolesMigrationRuntimeTest extends TestCase
                 '2015_client_bank_permissions.sql',
                 '2023_property_registry.sql',
                 '2024_property_charge_versions.sql',
+                '2025_property_charge_issuance.sql',
             ]),
         ];
         $env = getenv();

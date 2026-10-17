@@ -1256,6 +1256,8 @@ final class SettingsAction
             'property_module_profiles' => 'potvrzené profily SVJ',
             'unit_charge_components' => 'složky předpisů SVJ',
             'unit_charge_versions' => 'verze předpisů SVJ',
+            'unit_charge_batches' => 'dávky vydaných předpisů SVJ',
+            'unit_charges' => 'vydané předpisy SVJ',
             'tax_submissions'    => 'daňové výkazy (DPH/KH/SH)',
             'payment_orders'     => 'příkazy k úhradě',
             'bank_statements'    => 'bankovní výpisy',

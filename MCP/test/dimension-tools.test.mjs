@@ -11,6 +11,20 @@ async function call(name, args) {
   return request;
 }
 
+test('vydané předpisy SVJ mají pouze kurátorované čtecí nástroje', async () => {
+  assert.equal((await call('list_property_charge_issues', {})).path, '/property/catalog/charges/issues');
+  assert.equal((await call('get_property_charge_issue', { id: 42 })).path, '/property/catalog/charges/issues/42');
+  for (const name of ['list_property_charge_issues', 'get_property_charge_issue']) {
+    const tool = TOOLS_BY_NAME.get(name);
+    assert.equal(tool.write, false);
+    assert.equal(tool.inputSchema.additionalProperties, false);
+  }
+  const detail = TOOLS_BY_NAME.get('get_property_charge_issue');
+  assert.deepEqual(validateToolArguments(detail, { id: 42 }), { id: 42 });
+  assert.throws(() => validateToolArguments(detail, { id: 0 }));
+  assert.throws(() => validateToolArguments(detail, { id: 42, snapshot: {} }));
+});
+
 test('sazby SVJ používají výhradně kurátorované čtecí cesty a přesné časové vstupy', async () => {
   assert.equal((await call('list_property_charge_components', {})).path, '/property/catalog/charges/components');
   assert.equal((await call('get_property_charge_version', { id: 42 })).path, '/property/catalog/charges/versions/42');

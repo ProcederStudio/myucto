@@ -17,6 +17,7 @@ final class JointAllocationService
         $request = JointAllocationRequest::apply($input);
         return (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $request, $actor): array {
             (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
+            (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->lockClaims($supplierId);
             $existing = $this->byToken('joint_allocation_batches', $supplierId, $request['idempotency_key']);
             if ($existing !== null) {
                 self::assertSameRequest($existing, $request);
@@ -54,6 +55,7 @@ final class JointAllocationService
         $request = JointAllocationRequest::cancel($input);
         return (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $request, $actor): array {
             (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
+            (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->lockClaims($supplierId);
             $existing = $this->byToken('joint_allocation_cancellations', $supplierId, $request['idempotency_key']);
             if ($existing !== null) {
                 self::assertSameRequest($existing, $request);

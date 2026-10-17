@@ -206,6 +206,7 @@ final class AssetService
         }
         try {
             (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+            (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->lockClaims($supplierId);
             $asset = $this->assets->findForUpdate($supplierId, $id);
             if ($asset === null) {
                 throw new AssetException('not_found', 'Majetek nenalezen.', 404);
@@ -260,6 +261,7 @@ final class AssetService
 
             if ($activationEntry !== false) {
                 $activationEntryId = (int) $activationEntry['id'];
+                (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->assertPostingEntriesMutable($supplierId, [$activationEntryId]);
                 (new \MyInvoice\Service\Accounting\Allocation\JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, [$activationEntryId]);
                 $period = $this->periods->findForUpdate((int) $activationEntry['period_id'], $supplierId);
                 if ($period === null || $period['status'] !== 'open') {
@@ -972,6 +974,7 @@ final class AssetService
         }
         try {
             (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+            (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->lockClaims($supplierId);
             $reverseMeta = [
                 'entry_date' => $disposalDate,
                 'posted_by' => $meta['posted_by'] ?? null,
@@ -982,6 +985,7 @@ final class AssetService
 
             $disposalEntry = $this->journal->findBySource($supplierId, 'asset_disposal', $id);
             if ($disposalEntry !== null) {
+                (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->assertPostingEntriesMutable($supplierId, [(int) $disposalEntry['id']]);
                 (new \MyInvoice\Service\Accounting\Allocation\JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, [(int) $disposalEntry['id']]);
                 if (($disposalEntry['reversed_by'] ?? null) === null) {
                     $this->posting->reverse($supplierId, (int) $disposalEntry['id'], $reverseMeta);

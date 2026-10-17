@@ -2468,7 +2468,18 @@ final class Routes
         });
 
         $app->group('/api/property', function ($g) {
+            $g->get('/charges/issues', [\MyInvoice\Action\Property\Charges\Issuance\IssuanceAction::class, 'list']);
+            $g->get('/charges/issues/context', [\MyInvoice\Action\Property\Charges\Issuance\IssuanceAction::class, 'context']);
+            $g->get('/charges/issues/batches/{id:[0-9]+}', [\MyInvoice\Action\Property\Charges\Issuance\IssuanceAction::class, 'batch']);
+            $g->get('/charges/issues/{id:[0-9]+}', [\MyInvoice\Action\Property\Charges\Issuance\IssuanceAction::class, 'detail']);
+            $g->post('/charges/issues/preview', [\MyInvoice\Action\Property\Charges\Issuance\IssuanceAction::class, 'preview']);
+            $g->post('/charges/issues', [\MyInvoice\Action\Property\Charges\Issuance\IssuanceAction::class, 'issue']);
+            $g->post('/charges/issues/batches/{id:[0-9]+}/post', [\MyInvoice\Action\Property\Charges\Issuance\IssuanceAction::class, 'post']);
+            $g->post('/charges/issues/{id:[0-9]+}/reverse', [\MyInvoice\Action\Property\Charges\Issuance\IssuanceAction::class, 'reverse']);
+            $g->post('/charges/issues/{id:[0-9]+}/evidence', [\MyInvoice\Action\Property\Charges\Issuance\IssuanceAction::class, 'recordEvidence']);
             $g->get('/catalog/charges/components', [\MyInvoice\Action\Property\Charges\ChargeAction::class, 'catalogComponents']);
+            $g->get('/catalog/charges/issues', [\MyInvoice\Action\Property\Charges\Issuance\IssuanceAction::class, 'catalogList']);
+            $g->get('/catalog/charges/issues/{id:[0-9]+}', [\MyInvoice\Action\Property\Charges\Issuance\IssuanceAction::class, 'catalogDetail']);
             $g->get('/catalog/charges/versions', [\MyInvoice\Action\Property\Charges\ChargeAction::class, 'catalogVersions']);
             $g->get('/catalog/charges/versions/{id:[0-9]+}', [\MyInvoice\Action\Property\Charges\ChargeAction::class, 'catalogDetail']);
             $g->get('/charges/components', [\MyInvoice\Action\Property\Charges\ChargeAction::class, 'components']);

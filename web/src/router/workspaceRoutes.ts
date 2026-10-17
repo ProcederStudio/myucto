@@ -362,6 +362,7 @@ export function createWorkspaceRoutes(): RouteRecordRaw[] {
       { path: 'logbook',                name: 'logbook',          component: () => import('@/pages/logbook/LogbookPage.vue') },
       { path: 'property/registry',      name: 'property-registry', component: () => import('@/views/PropertyRegistryView.vue'), meta: { requiresSupplier: true } },
       { path: 'property/charges', name: 'property-charges', component: () => import('@/views/PropertyChargesView.vue'), meta: { requiresSupplier: true } },
+      { path: 'property/charges/issues', name: 'property-charge-issues', component: () => import('@/views/PropertyChargeIssuanceView.vue'), meta: { requiresSupplier: true } },
       { path: 'group-stats', name: 'group-stats', component: () => import('@/pages/GroupStats.vue'), meta: { permission: 'dashboard.portfolio' } },
       { path: 'stats',                  name: 'stats',           component: () => import('@/pages/Stats.vue') },
       { path: 'purchase-stats',         name: 'purchase-stats',  component: () => import('@/pages/PurchaseStats.vue') },

@@ -61,7 +61,15 @@ final class DeleteClientAction
         }
 
         try {
-            $this->db->pdo()->prepare('DELETE FROM clients WHERE id = ?')->execute([$id]);
+            $deleted = (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->transaction(function () use ($client, $id): bool {
+                $supplier = (int) $client['supplier_id'];
+                (new \MyInvoice\Service\Property\PropertyCatalog($this->db))->lockContext($supplier);
+                if ((new \MyInvoice\Service\Property\PropertyHistoryUseGuard($this->db))->clientHasHistory($supplier, $id, true)) return false;
+                $stmt = $this->db->pdo()->prepare('DELETE FROM clients WHERE id = ? AND supplier_id = ?');
+                $stmt->execute([$id, $supplier]);
+                return $stmt->rowCount() === 1;
+            });
+            if (!$deleted) return Json::error($response, 'has_dependencies', 'Kontakt nelze smazat, je součástí právní historie SVJ nebo se mezitím změnil. Místo toho jej archivujte.', 409);
         } catch (\PDOException $failure) {
             if ((int) ($failure->errorInfo[1] ?? 0) !== 1451) {
                 throw $failure;

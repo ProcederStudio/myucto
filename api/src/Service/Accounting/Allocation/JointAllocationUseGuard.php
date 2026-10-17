@@ -46,6 +46,7 @@ final class JointAllocationUseGuard
             $period->execute([$supplierId, ...$periodIds]);
             $periodIds = array_map('intval', $period->fetchAll(PDO::FETCH_COLUMN));
         }
+        (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->assertAssignmentInsertsAfterPeriodPreflight($supplierId, $lineIds);
         $current = $pdo->prepare("SELECT l.id, e.period_id, c.batch_id AS source_batch_id, b.id AS allocation_batch_id, x.id AS cancellation_id
             FROM journal_entry_lines l JOIN journal_entries e ON e.id = l.entry_id AND e.supplier_id = l.supplier_id
             LEFT JOIN joint_allocation_source_claims c ON c.line_id = l.id AND c.supplier_id = l.supplier_id

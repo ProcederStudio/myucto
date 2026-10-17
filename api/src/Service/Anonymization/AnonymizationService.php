@@ -87,7 +87,13 @@ final class AnonymizationService
             }
             (new JointAllocationCloneScrubber($pdo, $this->scrubber))->run();
             $registryMap = (new PropertyCloneScrubber($pdo, $this->scrubber))->run();
-            (new ChargesCloneScrubber($pdo, $this->scrubber))->run($registryMap);
+            $versionMap = (new ChargesCloneScrubber($pdo, $this->scrubber))->run($registryMap);
+            $targetConnection = Connection::withoutSharedTestConnection(fn () => new Connection($this->targetConfig($options->target)));
+            try {
+                (new IssuanceCloneScrubber($targetConnection, $this->scrubber))->run($registryMap, $versionMap);
+            } finally {
+                $targetConnection->close();
+            }
             $this->resealAuditChain($options->target, $log);
             foreach ($plan['system_versioned'] as $table) {
                 $pdo->exec('DELETE HISTORY FROM ' . DatabaseCloner::quote($table));

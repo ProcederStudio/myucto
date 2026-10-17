@@ -337,6 +337,68 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+  /api/v1/property/catalog/charges/issues:
+    get:
+      tags:
+      - Accounting
+      summary: Vydané předpisy SVJ
+      description: Pouze čtení s oprávněním property v kontextu firmy. Původní vydaná částka není saldem po úhradách.
+        Částky v haléřích zůstávají řetězce. Kurátorovaná projekce neobsahuje osoby, právní podklady, interní požadavky
+        ani aktéry. Účetní vazby odpovídají aktuálnímu stavu předpisu.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PropertyChargeIssues'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Poškozený nebo neověřitelný uložený předpis.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/property/catalog/charges/issues/{id}:
+    get:
+      tags:
+      - Accounting
+      summary: Konkrétní vydaný předpis SVJ
+      description: Pouze čtení s oprávněním property v kontextu firmy. Původní vydaná částka není saldem po úhradách.
+        Částky v haléřích zůstávají řetězce. Kurátorovaná projekce neobsahuje osoby, právní podklady, interní požadavky
+        ani aktéry. Účetní vazby odpovídají aktuálnímu stavu předpisu.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PropertyChargeIssue'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Poškozený nebo neověřitelný uložený předpis.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Předpis v této firmě neexistuje.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/property/catalog/profile:
     get:
       tags:
@@ -30390,6 +30452,142 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
 
   schemas:
+    PropertyChargeIssueLine:
+      type: object
+      additionalProperties: false
+      required:
+      - component_id
+      - service_id
+      - amount_cents
+      - receivable_account
+      - counter_account
+      - dimensions
+      properties:
+        component_id:
+          type: integer
+          minimum: 1
+        service_id:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+        amount_cents:
+          type: string
+          pattern: ^-?[0-9]+$
+        receivable_account:
+          type: string
+        counter_account:
+          type: string
+        dimensions:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 1
+          description: Úplná společná kombinace dimenzí řádku, včetně jednotky a případné služby. Klíč je ID typu, hodnota
+            ID hodnoty.
+    PropertyChargeIssue:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - batch_id
+      - unit_id
+      - revision_no
+      - row_version
+      - previous_charge_id
+      - journal_entry_id
+      - reversal_entry_id
+      - period_from
+      - period_to
+      - accounting_date
+      - due_date
+      - title
+      - issue_mode
+      - status
+      - amount_cents
+      - currency
+      - lines
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        batch_id:
+          type: integer
+          minimum: 1
+        unit_id:
+          type: integer
+          minimum: 1
+        revision_no:
+          type: integer
+          minimum: 1
+        row_version:
+          type: integer
+          minimum: 1
+        previous_charge_id:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+        journal_entry_id:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+        reversal_entry_id:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+        period_from:
+          type: string
+          format: date
+        period_to:
+          type: string
+          format: date
+        accounting_date:
+          type: string
+          format: date
+        due_date:
+          type: string
+          format: date
+        title:
+          type: string
+          enum:
+          - prescription
+          - extra_contribution
+        issue_mode:
+          type: string
+          enum:
+          - initial
+          - difference
+          - replacement
+        status:
+          type: string
+          enum:
+          - draft
+          - posted
+          - cancelled
+          - reversed
+        amount_cents:
+          type: string
+          pattern: ^-?[0-9]+$
+        currency:
+          type: string
+          const: CZK
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/PropertyChargeIssueLine'
+    PropertyChargeIssues:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PropertyChargeIssue'
     PropertyChargeRational:
       type: object
       additionalProperties: false
@@ -36966,7 +37164,7 @@ components:
         description: { type: [string, "null"] }
         source_type:
           type: string
-          enum: [invoice, purchase_invoice, bank, cash, asset, manual, closing, opening, depreciation, asset_disposal, fx_revaluation, stock, provision, income_tax, profit_distribution, offset, small_asset_accrual, prepaid_expense_accrual, settlement, deferred_tax, payroll, vat_clearing]
+          enum: [invoice, purchase_invoice, bank, cash, asset, manual, closing, opening, depreciation, asset_disposal, fx_revaluation, stock, provision, income_tax, profit_distribution, offset, small_asset_accrual, prepaid_expense_accrual, settlement, deferred_tax, payroll, vat_clearing, unit_charge]
           description: "Původ zápisu. Doména odpovídá sloupci `journal_entries.source_type` (migrace 1324)."
         source_id: { type: [integer, "null"], description: Drill-down na zdrojový doklad }
         posted_at: { type: [string, "null"], description: "NULL = koncept" }

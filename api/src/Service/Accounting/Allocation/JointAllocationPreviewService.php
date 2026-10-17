@@ -30,6 +30,7 @@ final class JointAllocationPreviewService
     public function forPendingBatchLocked(int $supplierId, int $batchId): array
     {
         (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
+        (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->lockClaims($supplierId);
         $stmt = $this->db->pdo()->prepare('SELECT * FROM joint_allocation_batches WHERE supplier_id = ? AND id = ? FOR UPDATE');
         $stmt->execute([$supplierId, $batchId]);
         $batch = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -50,6 +51,7 @@ final class JointAllocationPreviewService
         JointAllocationKeyVersion::date($targetDate);
         $sourceLineIds = JointAllocationRequest::sourceIds($sourceLineIds);
         (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
+        (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->assertAllocationSourcesMutable($supplierId, $sourceLineIds);
         $period = $this->targetPeriod($supplierId, $targetDate);
         $keys = new JointAllocationKeyRepository($this->db);
         $version = $keys->findForUpdate($supplierId, $versionId);

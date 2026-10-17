@@ -232,7 +232,7 @@ final class JointAllocationFoundationTest extends TestCase
         $before = (int) $pdo->query("SHOW SESSION STATUS LIKE 'Com_select'")->fetch()['Value'];
         $entry = $journal->insert(['supplier_id' => $this->supplier, 'period_id' => $this->period, 'entry_date' => '2096-06-01', 'source_type' => 'manual'], $lines);
         $queries = (int) $pdo->query("SHOW SESSION STATUS LIKE 'Com_select'")->fetch()['Value'] - $before;
-        self::assertLessThanOrEqual(11, $queries, 'Current context and ownership checks must be bounded per journal batch, not per line.');
+        self::assertLessThanOrEqual(13, $queries, 'Current context, issued membership and line-to-entry proof must be batched once for all 1000 rows.');
         $stmt = $pdo->prepare("SELECT COUNT(*), SUM(IF(l.side = 'debit', l.amount, -l.amount)) FROM journal_entry_lines l
             JOIN journal_entry_line_dimensions d ON d.line_id = l.id AND d.supplier_id = l.supplier_id
             WHERE l.entry_id = ? AND d.dimension_type_id = ? AND d.dimension_value_id = ? AND d.assignment_origin = 'explicit'");

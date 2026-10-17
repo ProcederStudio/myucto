@@ -260,6 +260,7 @@ final class CashDocumentRepository
     public function deleteJournalEntry(int $supplierId, int $entryId): void
     {
         (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $entryId): void {
+            (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->assertPostingEntriesMutable($supplierId, [$entryId]);
             (new \MyInvoice\Service\Accounting\Allocation\JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, [$entryId]);
             $this->db->pdo()->prepare('DELETE FROM journal_entries WHERE id = ? AND supplier_id = ?')
                 ->execute([$entryId, $supplierId]);

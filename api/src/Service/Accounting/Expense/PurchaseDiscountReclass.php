@@ -109,7 +109,7 @@ final class PurchaseDiscountReclass
         $commit = false;
         try {
             if ($apply) {
-                (new DimensionPeriodGuard($this->db))->lockSources($supplierId, [['purchase_invoice', $purchaseInvoiceId]]);
+                (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->assertSourcesMutable($supplierId, [['purchase_invoice', $purchaseInvoiceId]]);
             }
             $live = null;
             $reversed = false;
@@ -251,6 +251,7 @@ final class PurchaseDiscountReclass
     {
         $fixed = 0;
         $guard = new DimensionPeriodGuard($this->db);
+        if ($apply) (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->lockClaims($supplierId);
         $entry = $apply ? ($guard->lockEntries($supplierId, [$entryId])[$entryId] ?? null) : null;
         $update = $this->db->pdo()->prepare(
             'UPDATE journal_entry_lines SET currency_code = ?, fx_rate = ?, amount_foreign = ?
@@ -277,6 +278,7 @@ final class PurchaseDiscountReclass
                     } catch (DimensionException $e) {
                         throw new PostingException($e->errorCode, 'Uzavřené účetní knihy nelze měnit. Nejprve je znovu otevřete.', $e->httpStatus);
                     }
+                    (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->assertPostingLinesMutable($supplierId, [(int) $line['id']]);
                     (new \MyInvoice\Service\Accounting\Allocation\JointAllocationUseGuard($this->db))->assertLinesMutable($supplierId, [(int) $line['id']]);
                     $update->execute([$b['currency_code'], $b['fx_rate'] ?? null,
                         isset($b['amount_foreign']) ? JournalLineAmount::decimal($b['amount_foreign']) : null,

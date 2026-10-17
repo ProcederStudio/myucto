@@ -327,7 +327,7 @@ final class GoPayPendingService
         $scope = $pdo->prepare('SELECT supplier_id FROM invoice_payments WHERE id = ?');
         $scope->execute([$paymentId]);
         $scopeId = $scope->fetchColumn();
-        if ($scopeId !== false) (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->lockPeriods((int) $scopeId);
+        if ($scopeId !== false) (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->lockClaims((int) $scopeId);
         $stmt = $pdo->prepare(
             'SELECT gm.id,gm.supplier_id,gm.clearing_id,gc.clearing_id provider_clearing_id
                FROM gopay_movements gm
@@ -354,6 +354,7 @@ final class GoPayPendingService
             );
             $entries->execute([$supplierId, (int) $movement['id']]);
             $entryIds = array_map('intval', $entries->fetchAll(PDO::FETCH_COLUMN));
+            (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->assertPostingEntriesMutable($supplierId, $entryIds);
             (new \MyInvoice\Service\Accounting\Allocation\JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, $entryIds);
             $this->poster->assertEntriesRemovable($supplierId, $entryIds, 'Úhrada GoPay');
             foreach ($entryIds as $entryId) {

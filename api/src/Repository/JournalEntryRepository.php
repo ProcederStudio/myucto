@@ -15,6 +15,8 @@ use MyInvoice\Service\Accounting\Allocation\JointAllocationJournalProof;
 use MyInvoice\Service\Accounting\Allocation\JointAllocationAudit;
 use MyInvoice\Service\Accounting\Allocation\JointAllocationException;
 use MyInvoice\Service\Accounting\Allocation\JointAllocationUseGuard;
+use MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard;
+use MyInvoice\Service\Property\Charges\Issuance\IssuanceReversalIntent;
 use PDO;
 
 /**
@@ -138,9 +140,32 @@ final class JournalEntryRepository
 
     public function insertReversal(array $header, array $lines, int $sourceEntryId): int
     {
-        return (new DimensionPeriodGuard($this->db))->transaction(
-            fn (): int => $this->insertReversalLocked($header, $lines, $sourceEntryId),
-        );
+        return (new DimensionPeriodGuard($this->db))->transaction(function () use ($header, $lines, $sourceEntryId): int {
+            (new IssuanceUseGuard($this->db))->assertPostingEntriesMutable((int) $header['supplier_id'], [$sourceEntryId]);
+            return $this->insertReversalLocked($header, $lines, $sourceEntryId);
+        });
+    }
+
+    public function insertPropertyChargeReversal(int $supplierId, int $intentId): int
+    {
+        return (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $intentId): int {
+            $intent = IssuanceReversalIntent::fromCurrentRequest($this->db, $supplierId, $intentId);
+            $source = $this->currentEntryForDimensionWrite($intent->sourceEntryId, $supplierId);
+            if ($source === null) throw new PostingException('entry_not_found', 'Účetní zápis nebyl nalezen.', 404);
+            $lines = array_map(static fn (array $line): array => array_replace($line, JournalLineAmount::reversal($line)), $source['lines']);
+            $header = [
+                'supplier_id' => $supplierId, 'period_id' => $intent->targetPeriodId,
+                'entry_date' => $intent->accountingDate, 'document_date' => $source['document_date'],
+                'document_no' => $source['document_no'] === null ? null : mb_substr('STORNO ' . $source['document_no'], 0, 50),
+                'description' => $intent->description, 'source_type' => $source['source_type'], 'source_id' => null,
+                'posted_at' => date('Y-m-d H:i:s'), 'posted_by' => $intent->actor,
+            ];
+            $reversalId = $this->insertReversalLocked($header, $lines, $intent->sourceEntryId);
+            $intent->complete($this->db, $reversalId);
+            $this->activity->log('accounting.reversed', $intent->actor, 'journal_entry', $reversalId,
+                ['original_entry_id' => $intent->sourceEntryId, 'reversal_entry_id' => $reversalId, 'lines' => $lines], null, null, $supplierId);
+            return $reversalId;
+        });
     }
 
     private function insertReversalLocked(array $header, array $lines, int $sourceEntryId): int
@@ -181,7 +206,7 @@ final class JournalEntryRepository
         // Přesné storno ověřeného aktuálního zdroje zachová i chybějící historické
         // dimenze. Nové povinnosti ani alokační pravidla jeho význam nedoplňují.
         $reversalId = $this->persistJournal($header, $mirror);
-        if (!$this->setReversedBy($sourceEntryId, $supplierId, $reversalId)) {
+        if (!$this->setReversedByLocked($sourceEntryId, $supplierId, $reversalId)) {
             throw new PostingException('already_reversed', 'Zápis #' . $sourceEntryId . ' byl mezitím stornován.');
         }
         return $reversalId;
@@ -201,6 +226,7 @@ final class JournalEntryRepository
      */
     public function replace(int $id, array $header, array $lines): void
     {
+        (new IssuanceUseGuard($this->db))->assertPostingEntriesMutable((int) $header['supplier_id'], [$id]);
         $previous = $this->currentEntryForDimensionWrite($id, (int) $header['supplier_id']);
         (new JointAllocationUseGuard($this->db))->assertEntriesMutable((int) $header['supplier_id'], [$id]);
         if ($previous === null || $previous['reversed_by'] !== null) {
@@ -269,6 +295,7 @@ final class JournalEntryRepository
      */
     public function replaceSomeLines(int $entryId, int $supplierId, int $expectedRowVersion, array $removeLineIds, array $addLines): void
     {
+        (new IssuanceUseGuard($this->db))->assertPostingEntriesMutable($supplierId, [$entryId]);
         $entry = $this->currentEntryForDimensionWrite($entryId, $supplierId);
         (new JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, [$entryId]);
         if ($entry === null || $entry['reversed_by'] !== null || (int) $entry['row_version'] !== $expectedRowVersion) {
@@ -331,6 +358,7 @@ final class JournalEntryRepository
 
     private function deleteLines(int $entryId, int $supplierId): void
     {
+        (new IssuanceUseGuard($this->db))->assertPostingEntriesMutable($supplierId, [$entryId]);
         $this->db->pdo()->prepare('DELETE FROM journal_entry_lines WHERE entry_id = ? AND supplier_id = ?')->execute([$entryId, $supplierId]);
     }
 
@@ -492,6 +520,7 @@ final class JournalEntryRepository
             $pdo->beginTransaction();
         }
         try {
+            (new IssuanceUseGuard($this->db))->assertPostingEntriesMutable($supplierId, [$id]);
             $entry = $this->currentEntryForDimensionWrite($id, $supplierId);
             (new JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, [$id]);
             if ($entry !== null && $entry['posted_at'] === null) {
@@ -517,6 +546,7 @@ final class JournalEntryRepository
     private function currentEntryForDimensionWrite(int $entryId, int $supplierId): ?array
     {
         (new SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
+        (new IssuanceUseGuard($this->db))->lockClaims($supplierId);
         $entry = $this->findForUpdate($entryId, $supplierId);
         if ($entry === null) {
             return null;
@@ -547,6 +577,7 @@ final class JournalEntryRepository
     public function setReversedBy(int $id, int $supplierId, int $reversalEntryId): bool
     {
         return (new DimensionPeriodGuard($this->db))->transaction(function () use ($id, $supplierId, $reversalEntryId): bool {
+            (new IssuanceUseGuard($this->db))->assertPostingEntriesMutable($supplierId, [$id, $reversalEntryId]);
             (new JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, [$id]);
             return $this->setReversedByLocked($id, $supplierId, $reversalEntryId);
         });
@@ -582,6 +613,7 @@ final class JournalEntryRepository
     public function detachSource(int $entryId, int $supplierId): bool
     {
         return (new DimensionPeriodGuard($this->db))->transaction(function () use ($entryId, $supplierId): bool {
+            (new IssuanceUseGuard($this->db))->assertPostingEntriesMutable($supplierId, [$entryId]);
             (new JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, [$entryId]);
             return $this->detachSourceLocked($entryId, $supplierId);
         });
