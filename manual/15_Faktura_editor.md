@@ -48,7 +48,8 @@ nebo z detailu klienta či zakázky).
 8. Klikněte na **Vytvořit** (u úpravy konceptu na **Uložit**). Faktura se uloží jako koncept.
    Uložit lze kdykoli i zkratkou Ctrl+S (macOS Cmd+S).
 9. V detailu faktury klikněte na **Vystavit**. Faktura dostane číslo a vygeneruje se PDF.
-   K dokladu se zapíše, kdo ho vystavil. Detail faktury ukazuje jméno v řádku **Vystavil**.
+   K dokladu se zapíše, kdo ho vystavil. Detail faktury ukazuje jméno v řádku **Vystavil**;
+   u dokladů vystavených automaticky (pravidelná fakturace) řádek chybí.
    Na PDF se tiskne jen se zapnutou volbou **Tisknout na faktuře, kdo ji vystavil**
    (`Nastavení`, záložka **Fakturace**, viz [§ 16.10.4](16_Faktura_PDF.md#16104-pdf-struktura)).
 10. Klikněte na **Odeslat klientovi**. Odeslání e-mailem je samostatný krok po vystavení.
