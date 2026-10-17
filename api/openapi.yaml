@@ -238,6 +238,124 @@ tags:
       pojišťovnu a zálohy na daň (§38a) vč. rozhodnutí FÚ (§174).
 
 paths:
+  /api/v1/accounting/periods/{id}/nonprofit-tax:
+    get:
+      tags:
+      - Accounting
+      summary: Podklady a poslední daňové posouzení činností
+      description: Pouze čtení v kontextu vybrané firmy s oprávněním accounting. Klasifikační most 504 před obecnými
+        úpravami základu daně; nejde o konečné DPPO ani podání. Potvrzení a odvolání jsou pouze interní session operace.
+        Částky s příponou _cents jsou přesné celé haléře. Historické revize se nemění; aktuálnost určuje current_confirmed
+        v exportu.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NonprofitTaxRead'
+  /api/v1/accounting/periods/{id}/nonprofit-tax/history:
+    get:
+      tags:
+      - Accounting
+      summary: Historie daňových posouzení činností
+      description: Pouze čtení v kontextu vybrané firmy s oprávněním accounting. Klasifikační most 504 před obecnými
+        úpravami základu daně; nejde o konečné DPPO ani podání. Potvrzení a odvolání jsou pouze interní session operace.
+        Částky s příponou _cents jsou přesné celé haléře. Historické revize se nemění; aktuálnost určuje current_confirmed
+        v exportu.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/NonprofitTaxRevision'
+  /api/v1/accounting/nonprofit-tax-assessments/{assessmentId}/export:
+    get:
+      tags:
+      - Accounting
+      summary: Strukturovaný export konkrétní revize
+      description: Pouze čtení v kontextu vybrané firmy s oprávněním accounting. Klasifikační most 504 před obecnými
+        úpravami základu daně; nejde o konečné DPPO ani podání. Potvrzení a odvolání jsou pouze interní session operace.
+        Částky s příponou _cents jsou přesné celé haléře. Historické revize se nemění; aktuálnost určuje current_confirmed
+        v exportu.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - name: assessmentId
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NonprofitTaxExport'
+  /api/v1/accounting/nonprofit-tax-assessments/{assessmentId}/export.pdf:
+    get:
+      tags:
+      - Accounting
+      summary: Export revize daňového posouzení PDF
+      description: Soubor konkrétní neměnné revize s označením aktuálnosti, soukromé stahování bez cache.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - name: assessmentId
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      responses:
+        '200':
+          description: Soubor
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+  /api/v1/accounting/nonprofit-tax-assessments/{assessmentId}/export.xlsx:
+    get:
+      tags:
+      - Accounting
+      summary: Export revize daňového posouzení XLSX
+      description: Soubor konkrétní neměnné revize s označením aktuálnosti, soukromé stahování bez cache.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - name: assessmentId
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      responses:
+        '200':
+          description: Soubor
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
   /api/v1/accounting/joint-allocations/keys:
     get:
       tags:
@@ -30065,6 +30183,545 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
 
   schemas:
+    NonprofitTaxFinding:
+      type: object
+      required:
+      - code
+      properties:
+        code:
+          type: string
+        line_id:
+          type: integer
+        message:
+          type: string
+    NonprofitTaxSource:
+      type: object
+      required:
+      - id
+      - line_id
+      - account_code
+      - date
+      - kind
+      - amount_cents
+      - activity
+      - activity_kind_id
+      - tax_regime
+      - mandatory_non_deductible
+      - axes
+      - origin
+      properties:
+        id:
+          type: string
+        line_id:
+          type: integer
+        entry_id:
+          type: integer
+        account_id:
+          type: integer
+        account_code:
+          type: string
+        date:
+          type: string
+          format: date
+        kind:
+          type: string
+          enum:
+          - revenue
+          - expense
+        amount_cents:
+          type: integer
+        activity:
+          anyOf:
+          - type: string
+          - type: 'null'
+        activity_kind_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+        tax_regime:
+          anyOf:
+          - type: string
+          - type: 'null'
+        mandatory_non_deductible:
+          type: boolean
+        axes:
+          oneOf:
+          - type: object
+            additionalProperties: true
+          - type: array
+            maxItems: 0
+        provenance:
+          oneOf:
+          - type: object
+            additionalProperties: true
+          - type: array
+            maxItems: 0
+        origin:
+          type: object
+          required:
+          - type
+          - id
+          - line_id
+          properties:
+            type:
+              type: string
+            id:
+              anyOf:
+              - oneOf:
+                - type: integer
+                  minimum: 1
+                - type: string
+                  pattern: ^[1-9][0-9]*$
+              - type: 'null'
+            line_id:
+              type: integer
+    NonprofitTaxSnapshot:
+      type: object
+      required:
+      - supplier_id
+      - period
+      - ruleset
+      - input_hash
+      - sources
+      - findings
+      - accounting_result_cents
+      properties:
+        supplier_id:
+          type: integer
+        period:
+          type: object
+          required:
+          - id
+          - fiscal_year
+          - starts_on
+          - ends_on
+          properties:
+            id:
+              oneOf:
+              - type: integer
+                minimum: 1
+              - type: string
+                pattern: ^[1-9][0-9]*$
+            fiscal_year:
+              oneOf:
+              - type: integer
+                minimum: 1
+              - type: string
+                pattern: ^[1-9][0-9]*$
+            starts_on:
+              type: string
+              format: date
+            ends_on:
+              type: string
+              format: date
+        frameworks:
+          type: object
+          additionalProperties:
+            type: string
+        ruleset:
+          type: string
+        input_hash:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/NonprofitTaxSource'
+        findings:
+          type: array
+          items:
+            $ref: '#/components/schemas/NonprofitTaxFinding'
+        accounting_result_cents:
+          type: integer
+        ledger:
+          type: array
+          items:
+            type: object
+        dimensions:
+          oneOf:
+          - type: object
+            additionalProperties: true
+          - type: array
+            maxItems: 0
+        joint_projections:
+          oneOf:
+          - type: object
+            additionalProperties: true
+          - type: array
+            maxItems: 0
+        source_references:
+          oneOf:
+          - type: object
+            additionalProperties: true
+          - type: array
+            maxItems: 0
+        neutral_line_ids:
+          type: array
+          items:
+            type: integer
+        funding_history:
+          type: array
+          items:
+            type: object
+        funding_reference_sources:
+          oneOf:
+          - type: object
+            additionalProperties: true
+          - type: array
+            maxItems: 0
+        assessment_support:
+          type: object
+          required:
+          - automatic
+          - documented_manual
+          - automatic_from
+          - automatic_to
+          properties:
+            automatic:
+              type: boolean
+            documented_manual:
+              type: boolean
+            automatic_from:
+              type: string
+              format: date
+            automatic_to:
+              type: string
+              format: date
+    NonprofitTaxAssessment:
+      type: object
+      required:
+      - profile
+      properties:
+        profile:
+          type: object
+          required:
+          - kind
+          - evidence
+          properties:
+            kind:
+              type: string
+              enum:
+              - narrow_vpp
+              - broad_vpp
+              - non_vpp
+              - documented
+            evidence:
+              type: string
+        activities:
+          oneOf:
+          - type: object
+            additionalProperties: true
+          - type: array
+            maxItems: 0
+        decisions:
+          oneOf:
+          - type: object
+            additionalProperties:
+              $ref: '#/components/schemas/NonprofitTaxDecision'
+          - type: array
+            maxItems: 0
+        funding:
+          type: array
+          items:
+            type: object
+            required:
+            - source_id
+            - cost_id
+            - amount_cents
+            - evidence
+            properties:
+              source_id:
+                type: string
+              cost_id:
+                type: string
+              amount_cents:
+                type: integer
+              evidence:
+                type: string
+              deductible_funded_cents:
+                type: integer
+        funding_sources:
+          type: array
+          items:
+            type: object
+        funding_costs:
+          type: array
+          items:
+            type: object
+        method:
+          $ref: '#/components/schemas/NonprofitTaxAssessmentMethod'
+    NonprofitTaxResult:
+      type: object
+      required:
+      - ruleset
+      - profile
+      - scope
+      - dppo_supported
+      - accounting_result_cents
+      - excluded_revenue_cents
+      - cost_addbacks_cents
+      - assessed_result_cents
+      - activities
+      - rows
+      - funding_usage
+      - external_adjustments
+      properties:
+        ruleset:
+          type: string
+        profile:
+          type: string
+        scope:
+          const: classification_bridge_before_general_adjustments
+        dppo_supported:
+          const: false
+        accounting_result_cents:
+          type: integer
+        excluded_revenue_cents:
+          type: integer
+        cost_addbacks_cents:
+          type: integer
+        assessed_result_cents:
+          type: integer
+        activities:
+          type: array
+          items:
+            type: object
+        rows:
+          type: array
+          items:
+            allOf:
+            - $ref: '#/components/schemas/NonprofitTaxSource'
+            - type: object
+              required:
+              - decision
+              - classification
+              - deductible_cents
+              - adjustment_cents
+              properties:
+                decision:
+                  $ref: '#/components/schemas/NonprofitTaxDecision'
+                classification:
+                  type: object
+                  required:
+                  - regime
+                  - method
+                  - legal_basis
+                  properties:
+                    regime:
+                      type: string
+                    method:
+                      type: string
+                    legal_basis:
+                      type: string
+                deductible_cents:
+                  type: integer
+                adjustment_cents:
+                  type: integer
+        funding:
+          type: array
+          items:
+            type: object
+        funding_usage:
+          type: array
+          items:
+            type: object
+        external_adjustments:
+          type: array
+          items:
+            type: object
+            required:
+            - included_in_bridge
+            properties:
+              funding_anchor:
+                type: string
+              evidence:
+                type: string
+              legal_basis:
+                type: string
+              adjustment_cents:
+                type: integer
+              included_in_bridge:
+                const: false
+        assessment_method:
+          type: string
+          enum:
+          - ruleset
+          - documented_manual
+          description: Automatic rules or a user-documented classification for a period outside the verified automatic
+            range.
+    NonprofitTaxRevision:
+      type: object
+      required:
+      - id
+      - supplier_id
+      - period_id
+      - revision_no
+      - previous_id
+      - status
+      - reason
+      - ruleset
+      - input_hash
+      - created_by
+      - created_at
+      - snapshot
+      - assessment
+      - result
+      properties:
+        id:
+          type: integer
+        supplier_id:
+          type: integer
+        period_id:
+          type: integer
+        revision_no:
+          type: integer
+        previous_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+        status:
+          type: string
+          enum:
+          - confirmed
+          - withdrawn
+        reason:
+          type: string
+        ruleset:
+          type: string
+        input_hash:
+          type: string
+        request_hash:
+          type: string
+        idempotency_key:
+          type: string
+        created_by:
+          type: integer
+        created_at:
+          type: string
+        snapshot:
+          $ref: '#/components/schemas/NonprofitTaxSnapshot'
+        assessment:
+          $ref: '#/components/schemas/NonprofitTaxAssessment'
+        result:
+          $ref: '#/components/schemas/NonprofitTaxResult'
+    NonprofitTaxRead:
+      type: object
+      required:
+      - snapshot
+      - latest
+      properties:
+        snapshot:
+          $ref: '#/components/schemas/NonprofitTaxSnapshot'
+        latest:
+          anyOf:
+          - $ref: '#/components/schemas/NonprofitTaxRevision'
+          - type: 'null'
+    NonprofitTaxClosingCheck:
+      type: object
+      required:
+      - applicable
+      - complete
+      - assessment_id
+      - findings
+      properties:
+        applicable:
+          type: boolean
+        complete:
+          type: boolean
+        assessment_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+        findings:
+          type: array
+          items:
+            $ref: '#/components/schemas/NonprofitTaxFinding'
+        input_hash:
+          type: string
+        dppo_supported:
+          const: false
+    NonprofitTaxExport:
+      type: object
+      required:
+      - format
+      - scope
+      - dppo_supported
+      - current_confirmed
+      - current_check
+      - revision
+      properties:
+        format:
+          const: myucto-nonprofit-tax-assessment-v1
+        scope:
+          const: classification_bridge_before_general_adjustments
+        dppo_supported:
+          const: false
+        current_confirmed:
+          type: boolean
+        current_check:
+          $ref: '#/components/schemas/NonprofitTaxClosingCheck'
+        revision:
+          $ref: '#/components/schemas/NonprofitTaxRevision'
+    NonprofitTaxAssessmentMethod:
+      type: object
+      description: Explicit user-documented basis for the entire assessment period. Does not claim automatic verification
+        of tax law or support a DPPO filing.
+      required:
+      - mode
+      - valid_from
+      - valid_to
+      - legal_basis
+      - evidence
+      properties:
+        mode:
+          const: documented_manual
+        valid_from:
+          type: string
+          format: date
+        valid_to:
+          type: string
+          format: date
+        legal_basis:
+          type: string
+        evidence:
+          type: string
+    NonprofitTaxDecision:
+      type: object
+      required:
+      - title
+      - evidence
+      properties:
+        title:
+          type: string
+        evidence:
+          type: string
+        legal_basis:
+          type: string
+        cohort:
+          type: string
+        deductible_cents:
+          type: integer
+          description: Deductible expense portion before the separately evidenced exclusion of funded costs.
+        final_regime:
+          type: string
+          enum:
+          - subject
+          - exempt
+          - out_of_scope
+          description: Required for every row in documented_manual mode.
+        final_method:
+          type: string
+          enum:
+          - return
+          - none
+          - final_withholding
+          description: Required for revenue in documented_manual mode.
+        facts:
+          oneOf:
+          - type: object
+            additionalProperties: true
+          - type: array
+            maxItems: 0
     JointAllocationCell:
       type: object
       required:

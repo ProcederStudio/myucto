@@ -30,6 +30,7 @@ final class FrameworkClosingIntegrationTest extends TestCase
     private int $supplierId;
     private int $periodId;
     private int $userId;
+    private array $taxDimensions = [];
 
     protected function setUp(): void
     {
@@ -47,7 +48,7 @@ final class FrameworkClosingIntegrationTest extends TestCase
             $pdo->prepare("INSERT INTO chart_of_accounts (supplier_id, account_code, name, account_type, normal_side, is_active) VALUES (?, ?, ?, 'equity', NULL, 1)")->execute([$this->supplierId, $code, 'Synthetic ' . $code]);
         }
         $this->periods = $this->container->get(AccountingPeriodRepository::class);
-        $this->periodId = $this->periods->create($this->supplierId, 2096, '2096-07-01', '2097-06-30');
+        $this->periodId = $this->periods->create($this->supplierId, 2024, '2024-07-01', '2025-06-30');
         $this->closing = $this->container->get(ClosingService::class);
     }
 
@@ -63,25 +64,25 @@ final class FrameworkClosingIntegrationTest extends TestCase
 
     public function testOpeningUsesHistorical500DespiteLater504(): void
     {
-        $this->framework('2097-07-01', 'cz_504');
-        $result = $this->postOpening('2096-07-01');
+        $this->framework('2025-07-01', 'cz_504');
+        $result = $this->postOpening('2024-07-01');
         self::assertSame(['221', '701', '701', '932'], array_column($this->entryLines($result['journal_entry_id']), 'account_code'));
     }
 
     public function testInitial504OpeningUses961AndKeepsImported932(): void
     {
-        $this->framework('2096-07-01', 'cz_504');
-        $result = $this->postOpening('2096-10-01');
+        $this->framework('2024-07-01', 'cz_504');
+        $result = $this->postOpening('2024-10-01');
         self::assertSame(['221', '961', '961', '932'], array_column($this->entryLines($result['journal_entry_id']), 'account_code'));
     }
 
     public function testInitial504OpeningRejectsAutomaticCounteraccount(): void
     {
-        $this->framework('2096-07-01', 'cz_504');
+        $this->framework('2024-07-01', 'cz_504');
         $opening = $this->container->get(OpeningBalanceService::class);
         $opening->saveDraft($this->supplierId, [['account_code' => '221', 'side' => 'debit', 'amount' => 100], ['account_code' => '961', 'side' => 'credit', 'amount' => 100]]);
         try {
-            $opening->post($this->supplierId, '2096-07-01', $this->meta());
+            $opening->post($this->supplierId, '2024-07-01', $this->meta());
             self::fail('Automatic counteraccount must not be supplied manually.');
         } catch (PostingException $e) {
             self::assertSame('opening_counteraccount_forbidden', $e->errorCode);
@@ -90,7 +91,7 @@ final class FrameworkClosingIntegrationTest extends TestCase
 
     public function test504CloseAndOpenPreserveActivityAndTransfer932To931(): void
     {
-        $this->framework('2096-07-01', 'cz_504');
+        $this->framework('2024-07-01', 'cz_504');
         $dimensions = $this->container->get(DimensionService::class);
         $dimensions->setEnabled($this->supplierId, true);
         $types = $dimensions->ensureDefaultTypes($this->supplierId, ['stredisko']);
@@ -125,11 +126,23 @@ final class FrameworkClosingIntegrationTest extends TestCase
         self::assertSame('taken_over', $repeated['opening_source']);
     }
 
+    public function testDocumentedManualAssessmentAllowsFiscal504ClosingAndOpening(): void
+    {
+        $this->db->pdo()->prepare("UPDATE accounting_periods SET fiscal_year = 2026, starts_on = '2026-07-01', ends_on = '2027-06-30' WHERE id = ?")
+            ->execute([$this->periodId]);
+        $this->framework('2026-07-01', 'cz_504');
+        $this->manual([['account_code' => '221', 'side' => 'debit', 'amount' => 120], ['account_code' => '602', 'side' => 'credit', 'amount' => 120]]);
+        $this->closeBooks();
+        $opened = $this->closing->openNext($this->supplierId, $this->periodId, $this->rv(), $this->meta());
+        self::assertContains('931', array_column($this->entryLines((int) $opened['entry_id']), 'account_code'));
+        self::assertSame('2027-07-01', $this->periods->findById($this->supplierId, (int) $opened['next_period_id'])['starts_on']);
+    }
+
     public function testOpeningAcrossFrameworkChangeIsRejectedBeforePosting(): void
     {
         $this->manual([['account_code' => '221', 'side' => 'debit', 'amount' => 100], ['account_code' => '602', 'side' => 'credit', 'amount' => 100]]);
         $this->closeBooks();
-        $this->framework('2097-07-01', 'cz_504');
+        $this->framework('2025-07-01', 'cz_504');
         try {
             $this->closing->openNext($this->supplierId, $this->periodId, $this->rv(), $this->meta());
             self::fail('Cross-framework opening must be explicit.');
@@ -144,7 +157,7 @@ final class FrameworkClosingIntegrationTest extends TestCase
 
     public function test504DeferredTaxIsNeitherProposedNorPosted(): void
     {
-        $this->framework('2096-07-01', 'cz_504');
+        $this->framework('2024-07-01', 'cz_504');
         $preview = $this->closing->deferredTaxPreview($this->supplierId, $this->periodId);
         self::assertFalse($preview['applicable']);
         self::assertNull($preview['computation']);
@@ -162,14 +175,14 @@ final class FrameworkClosingIntegrationTest extends TestCase
     {
         $this->manual([['account_code' => '221', 'side' => 'debit', 'amount' => 100], ['account_code' => '602', 'side' => 'credit', 'amount' => 100]]);
         $this->closeBooks();
-        $this->framework('2098-07-01', 'cz_504');
+        $this->framework('2026-07-01', 'cz_504');
         $opened = $this->closing->openNext($this->supplierId, $this->periodId, $this->rv(), $this->meta());
         self::assertSame(['221', '701', '701', '431'], array_column($this->entryLines((int) $opened['entry_id']), 'account_code'));
     }
 
     public function test504Pending931BlocksStart(): void
     {
-        $this->framework('2096-07-01', 'cz_504');
+        $this->framework('2024-07-01', 'cz_504');
         $this->manual([['account_code' => '221', 'side' => 'debit', 'amount' => 100], ['account_code' => '931', 'side' => 'credit', 'amount' => 100]]);
         try {
             $this->closing->start($this->supplierId, $this->periodId, $this->rv(), $this->meta());
@@ -183,7 +196,7 @@ final class FrameworkClosingIntegrationTest extends TestCase
 
     public function test504DistributionCannotReuse500DecisionWorkflow(): void
     {
-        $this->framework('2096-07-01', 'cz_504');
+        $this->framework('2024-07-01', 'cz_504');
         $this->manual([['account_code' => '221', 'side' => 'debit', 'amount' => 100], ['account_code' => '602', 'side' => 'credit', 'amount' => 100]]);
         $this->closeBooks();
         $opened = $this->closing->openNext($this->supplierId, $this->periodId, $this->rv(), $this->meta());
@@ -191,7 +204,7 @@ final class FrameworkClosingIntegrationTest extends TestCase
         $next = $this->periods->findById($this->supplierId, (int) $opened['next_period_id']);
         try {
             $this->closing->runProfitDistribution($this->supplierId, $this->periodId, [
-                'decision_date' => '2097-07-01', 'target_row_version' => (int) $next['row_version'],
+                'decision_date' => '2025-07-01', 'target_row_version' => (int) $next['row_version'],
                 'allocations' => [['account_code' => '932', 'amount' => 100]],
             ], $this->meta());
             self::fail('504 result decisions require their own legal context.');
@@ -216,6 +229,9 @@ final class FrameworkClosingIntegrationTest extends TestCase
         foreach (['estimates', 'deferrals', 'provisions', 'income_tax'] as $step) {
             $this->closing->confirmStep($sid, $pid, $step, 'skipped', null, $this->rv(), $this->meta());
         }
+        if ($this->taxDimensions !== []) {
+            \MyInvoice\Tests\Support\NonprofitTaxAssessmentFixture::confirm($this->container, $sid, $pid, $this->userId);
+        }
         $result = $this->closing->closeBooks($sid, $pid, $this->rv(), $this->meta());
         self::assertSame('closed', $result['status']);
     }
@@ -234,8 +250,21 @@ final class FrameworkClosingIntegrationTest extends TestCase
 
     private function manual(array $lines, array $dimensions = []): void
     {
-        $lines = array_map(static fn (array $line): array => $line + ['dimensions' => $dimensions], $lines);
-        $this->container->get(PostingService::class)->postDocument($this->supplierId, 'manual', null, $lines, ['entry_date' => '2096-10-01', 'posted' => true] + $this->meta());
+        $period = $this->periods->findById($this->supplierId, $this->periodId);
+        $date = (new \DateTimeImmutable($period['starts_on']))->modify('+3 months')->format('Y-m-d');
+        $framework = $this->container->get(\MyInvoice\Service\Accounting\AccountingFrameworkService::class)->forDate($this->supplierId, $date);
+        if ($framework === 'cz_504' && $this->taxDimensions === []) {
+            $catalog = $this->container->get(\MyInvoice\Service\Accounting\Dimension\SystemDimensionCatalog::class)->ensureForFramework($this->supplierId, $date);
+            $this->db->pdo()->prepare('INSERT INTO dimension_values(type_id,supplier_id,code,name) VALUES (?,?,?,?)')
+                ->execute([$catalog['activity_kind']['id'], $this->supplierId, 'synthetic_rent', 'Synthetic rent']);
+            $this->taxDimensions = [$catalog['activity']['id'] => $catalog['activity']['values']['main'],
+                $catalog['activity_kind']['id'] => (int) $this->db->pdo()->lastInsertId(),
+                $catalog['tax_regime']['id'] => $catalog['tax_regime']['values']['subject']];
+        }
+        if ($framework === 'cz_504') $dimensions += $this->taxDimensions;
+        $origins = array_fill_keys(array_keys($dimensions), ['origin' => 'explicit', 'ref' => null]);
+        $lines = array_map(static fn (array $line): array => $line + ['dimensions' => $dimensions, 'dimension_origins' => $origins], $lines);
+        $this->container->get(PostingService::class)->postDocument($this->supplierId, 'manual', null, $lines, ['entry_date' => $date, 'posted' => true] + $this->meta());
     }
 
     private function entryLines(int $entryId): array

@@ -42,6 +42,7 @@ final class AnonymizationPolicy
      * @var array<string,string> tabulka → důvod
      */
     public const TRUNCATE = [
+        'nonprofit_tax_assessments' => 'potvrzené podklady obsahují původní doklady a jejich otisky',
         'abra_flexi_connections' => 'šifrované připojení ke zdrojové účetní firmě',
         'ai_assistant_conversations' => 'osobní historie dotazů AI asistenta (názvy z dotazů)',
         'ai_assistant_messages' => 'dotazy a odpovědi AI asistenta nad skutečnými doklady',

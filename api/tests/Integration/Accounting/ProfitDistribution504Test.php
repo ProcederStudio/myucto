@@ -38,10 +38,10 @@ final class ProfitDistribution504Test extends TestCase
             $pdo->prepare("INSERT IGNORE INTO chart_of_accounts(supplier_id,account_code,name,account_type,is_active) VALUES (?,?,?,'equity',1)")->execute([$this->supplier,$code,'Synthetic '.$code]);
         }
         $periods=$c->get(AccountingPeriodRepository::class);
-        $this->source=$periods->create($this->supplier,2096,'2096-07-01','2097-06-30');
-        $this->target=$periods->create($this->supplier,2097,'2097-07-01','2098-06-30');
-        $pdo->prepare("INSERT INTO supplier_accounting_frameworks(supplier_id,effective_from,accounting_framework) VALUES (?,'2096-07-01','cz_504')")->execute([$this->supplier]);
-        $this->catalog=(new SystemDimensionCatalog($this->db))->ensureForFramework($this->supplier,'2097-07-01');
+        $this->source=$periods->create($this->supplier,2024,'2024-07-01','2025-06-30');
+        $this->target=$periods->create($this->supplier,2025,'2025-07-01','2026-06-30');
+        $pdo->prepare("INSERT INTO supplier_accounting_frameworks(supplier_id,effective_from,accounting_framework) VALUES (?,'2024-07-01','cz_504')")->execute([$this->supplier]);
+        $this->catalog=(new SystemDimensionCatalog($this->db))->ensureForFramework($this->supplier,'2025-07-01');
         foreach(['main','economic'] as $kind) {
             $pdo->prepare('INSERT INTO dimension_values(type_id,supplier_id,code,name) VALUES (?,?,?,?)')
                 ->execute([$this->catalog['activity_kind']['id'],$this->supplier,'synthetic_'.$kind,'Synthetic '.$kind]);
@@ -121,7 +121,7 @@ final class ProfitDistribution504Test extends TestCase
                 Bootstrap::buildContainer()->get(PostingService::class)->postDocument($this->supplier,'manual',null,[
                     ['account_code'=>'932','side'=>'debit','amount'=>1,'dimensions'=>$this->dims('main')],
                     ['account_code'=>'221','side'=>'credit','amount'=>1,'dimensions'=>$this->dims('main')],
-                ],['entry_date'=>'2097-09-01','posted'=>true]);
+                ],['entry_date'=>'2025-09-01','posted'=>true]);
             });
             try {
                 $this->service->revertProfitDistribution($this->supplier,$this->source,$preview['target_period']['row_version']);
@@ -230,7 +230,7 @@ final class ProfitDistribution504Test extends TestCase
 
     public static function fundUseDates(): array
     {
-        return [['2097-08-01'],['2097-09-01']];
+        return [['2025-08-01'],['2025-09-01']];
     }
 
     public function testStaleSnapshotAndUnfundedLossAreRejectedWithoutWrite(): void
@@ -249,10 +249,11 @@ final class ProfitDistribution504Test extends TestCase
         $this->service->runProfitDistribution($this->supplier,$this->source,$this->body($this->service->profitDistributionPreview($this->supplier,$this->source)));
         $posting=Bootstrap::buildContainer()->get(PostingService::class);
         foreach([['main','602','credit',150.0],['economic','518','debit',50.0]] as [$activity,$code,$side,$amount]) {
+            $origins = array_fill_keys(array_keys($this->dims($activity)), ['origin' => 'explicit', 'ref' => null]);
             $posting->postDocument($this->supplier,'manual',null,[
-                ['account_code'=>$code,'side'=>$side,'amount'=>$amount,'dimensions'=>$this->dims($activity)],
-                ['account_code'=>'221','side'=>$side==='debit'?'credit':'debit','amount'=>$amount,'dimensions'=>$this->dims($activity)],
-            ],['entry_date'=>'2097-10-01','posted'=>true]);
+                ['account_code'=>$code,'side'=>$side,'amount'=>$amount,'dimensions'=>$this->dims($activity),'dimension_origins'=>$origins],
+                ['account_code'=>'221','side'=>$side==='debit'?'credit':'debit','amount'=>$amount,'dimensions'=>$this->dims($activity),'dimension_origins'=>$origins],
+            ],['entry_date'=>'2025-10-01','posted'=>true]);
         }
         $rv=fn():int=>(int)Bootstrap::buildContainer()->get(AccountingPeriodRepository::class)->findById($this->supplier,$this->target)['row_version'];
         $this->service->start($this->supplier,$this->target,$rv());
@@ -265,6 +266,8 @@ final class ProfitDistribution504Test extends TestCase
         $this->service->confirmStep($this->supplier,$this->target,'depreciation','skipped',null,$rv());
         $this->service->runFxRevaluation($this->supplier,$this->target,[],$rv());
         foreach(['estimates','deferrals','provisions','income_tax'] as $step) $this->service->confirmStep($this->supplier,$this->target,$step,'skipped',null,$rv());
+        $actor = (int) $this->db->pdo()->query('SELECT id FROM users ORDER BY id LIMIT 1')->fetchColumn();
+        \MyInvoice\Tests\Support\NonprofitTaxAssessmentFixture::confirm(Bootstrap::buildContainer(), $this->supplier, $this->target, $actor);
         $this->service->closeBooks($this->supplier,$this->target,$rv());
         $opened=$this->service->openNext($this->supplier,$this->target,$rv());
         $stmt=$this->db->pdo()->prepare("SELECT l.id,l.side,l.amount,a.account_code FROM journal_entry_lines l JOIN chart_of_accounts a ON a.id=l.account_id WHERE l.entry_id=? ORDER BY l.id");
@@ -288,7 +291,7 @@ final class ProfitDistribution504Test extends TestCase
         Bootstrap::buildContainer()->get(PostingService::class)->postDocument($this->supplier,'manual',null,[
             ['account_code'=>'911','side'=>'credit','amount'=>60,'dimensions'=>$this->dims('economic')],
             ['account_code'=>'221','side'=>'debit','amount'=>60,'dimensions'=>$this->dims('economic')],
-        ],['entry_date'=>'2097-07-15','posted'=>true]);
+        ],['entry_date'=>'2025-07-15','posted'=>true]);
         $body=$this->body($this->service->profitDistributionPreview($this->supplier,$this->source));
         $body['allocations']=[];
         foreach($this->service->profitDistributionPreview($this->supplier,$this->source)['cells'] as $cell) {
@@ -319,7 +322,7 @@ final class ProfitDistribution504Test extends TestCase
         Bootstrap::buildContainer()->get(PostingService::class)->postDocument($this->supplier,'manual',null,[
             ['account_code'=>$code,'side'=>'credit','amount'=>60.03,'dimensions'=>$this->dims('economic')],
             ['account_code'=>'221','side'=>'debit','amount'=>60.03,'dimensions'=>$this->dims('economic')],
-        ],['entry_date'=>'2097-07-15','posted'=>true]);
+        ],['entry_date'=>'2025-07-15','posted'=>true]);
         $body=$this->body($this->service->profitDistributionPreview($this->supplier,$this->source));
         foreach($body['allocations'] as &$allocation) {
             if($allocation['amount']===50.02) $allocation['role']=$role;
@@ -406,7 +409,7 @@ final class ProfitDistribution504Test extends TestCase
 
     private function body(array $preview): array
     {
-        return ['decision_date'=>'2097-08-01','decision_reference'=>'SYN-DECISION-1','decision_authority'=>'Synthetic authorised body',
+        return ['decision_date'=>'2025-08-01','decision_reference'=>'SYN-DECISION-1','decision_authority'=>'Synthetic authorised body',
             'target_row_version'=>$preview['target_period']['row_version'],'snapshot_hash'=>$preview['snapshot_hash']??'',
             'allocations'=>isset($preview['cells']) ? array_map(static fn(array $cell):array=>[
                 'cell_key'=>$cell['key'],'role'=>'result.retained_profit','amount'=>abs($cell['available'])],$preview['cells'])
@@ -419,7 +422,7 @@ final class ProfitDistribution504Test extends TestCase
         Bootstrap::buildContainer()->get(PostingService::class)->postDocument($this->supplier,'opening',null,[
             ['account_code'=>'931','side'=>$side,'amount'=>$amount,'dimensions'=>$dims],
             ['account_code'=>'221','side'=>$side==='debit'?'credit':'debit','amount'=>$amount,'dimensions'=>$dims],
-        ],['entry_date'=>'2097-07-01','posted'=>true]);
+        ],['entry_date'=>'2025-07-01','posted'=>true]);
     }
 
     private function dims(string $activity): array

@@ -24,6 +24,18 @@ const read = (name, title, description, properties, required, run) => ({
 });
 
 export const DIMENSION_TOOLS = [
+  read('nonprofit_tax_assessment', 'Daňové posouzení činností',
+    'Účetní podklady 504 a poslední doložené posouzení. Jde o klasifikační most před obecnými úpravami základu daně, nikoli o výpočet nebo podání DPPO.',
+    { period_id: int('ID účetního období.') }, ['period_id'],
+    (c, a, tool) => c.get(`/accounting/periods/${seg(a.period_id)}/nonprofit-tax`, null, tool)),
+  read('nonprofit_tax_assessment_history', 'Historie daňových posouzení',
+    'Neměnné potvrzené a odvolané revize daňového posouzení po druzích činností.',
+    { period_id: int('ID účetního období.') }, ['period_id'],
+    (c, a, tool) => c.get(`/accounting/periods/${seg(a.period_id)}/nonprofit-tax/history`, null, tool)),
+  read('export_nonprofit_tax_assessment', 'Podklady daňového posouzení',
+    'Strukturovaný export konkrétní revize včetně původních podkladů, rozhodnutí a kontroly aktuálnosti. Historická revize není automaticky aktuálním potvrzením.',
+    { assessment_id: int('ID revize z historie posouzení.') }, ['assessment_id'],
+    (c, a, tool) => c.get(`/accounting/nonprofit-tax-assessments/${seg(a.assessment_id)}/export`, null, tool)),
   read('list_joint_allocation_keys', 'Klíče společných alokací',
     'Neměnné verze doložených klíčů, účinnost a společné kombinace dimenzí. Předběžné daňové zařazení není potvrzeným daňovým posouzením.',
     {}, [], (c, _a, tool) => c.get('/accounting/joint-allocations/keys', null, tool)),

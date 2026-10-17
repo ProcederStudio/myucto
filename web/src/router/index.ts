@@ -163,6 +163,7 @@ const routePermissions: Record<string, [PermissionKey, AccessLevel?]> = {
   'accounting-balance-sheet': ['accounting'], 'accounting-income-statement': ['accounting'], 'accounting-income-statement-by-function': ['accounting'], 'accounting-saldo': ['accounting'],
   'accounting-dimension-profit': ['accounting'], 'company-dimensions': ['accounting'],
   'accounting-joint-allocations': ['accounting'],
+  'accounting-nonprofit-tax': ['accounting'],
   'accounting-statement-mapping': ['accounting'],
   'accounting-document-completeness': ['accounting'],
   'accounting-balance-inventory': ['accounting'],

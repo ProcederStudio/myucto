@@ -632,7 +632,23 @@ potvrzení správnosti; k významným varováním uchovejte podklad a zdůvodně
 - Znovuotevření uzavřeného období je zablokované, dokud existují zaúčtované uzávěrkové nebo otevírací zápisy. Nejprve je nutné vzít zpět kroky Otevření nového roku a Uzavření knih v průvodci.
 - Číselné řady se nikdy nedorovnávají po smazaných dokladech. Jedinečnost a souvislost číslování je vyžadována zákonem, ne estetika bez mezer.
 
-## 72.13 Související kapitoly
+## 72.13 Daňové posouzení činností v rámci 504
+
+V průvodci uzávěrkou otevřete **Daňové posouzení činností**. Podklady vycházejí ze zaúčtovaných výsledkových řádků, jejich doloženého členění a společných alokací. Chybějící členění nebo neprůkaznou alokaci nejprve opravte v účetnictví.
+
+Vyberte a doložte postavení poplatníka. U jednotlivých příjmů určete právní titul a rozhodné skutečnosti, u nákladů uznatelnou část a právní podklad. Samostatně vymezte druhy činností a případné cenové kohorty. U darů a dotací doložte financované náklady; dřívější čerpání se zohledňuje podle potvrzených historických podkladů. U částečně uznatelných nákladů doložte souhrnný překryv financování s uznatelnou částí. Stejnou neuznatelnou část nelze přidělit více zdrojům; kontrola zohledňuje také opravy nákladu.
+
+Roční test zohledňuje také financování z daru, který se podle výsledku činnosti stane příjmem mimo předmět daně. Navazující činnosti se vyhodnocují podle vazeb financování. Kruhová závislost je přípustná jen při prokázání jediného konzistentního výsledku; více možných výsledků, chybějící podklady nebo více než deset podmíněných zdrojových kohort vyžaduje samostatné posouzení.
+
+Automatická metodika pokrývá účetní období zcela uvnitř let 2024 až 2026. Pro jiné období použijte **Doložené ruční posouzení**. Uveďte právní podklad a jeho účinnost pro celé období, doložte postavení poplatníka a konečný režim každého řádku. U příjmů určete také způsob zdanění. U nákladů zadejte uznatelnou část před zvláštním vyloučením financovaných nákladů; aplikace průkazný překryv odečte právě jednou. Roční test činností se v této variantě neprovádí. Jde o uživatelem doložený podklad bez automatického ověření daňového režimu, což výslovně uvádějí i exporty. Kontroly účetních zdrojů, financování, volby osvobození darů a aktuálnosti potvrzení zůstávají povinné.
+
+Spusťte náhled, zkontrolujte návaznost na účetní výsledek a potvrďte posouzení s důvodem. Potvrzení ukládá neměnnou revizi s uživatelem a otiskem podkladů. Změna podkladů vyžaduje nové posouzení. Uzavření knih vyžaduje aktuální potvrzenou revizi; staré nebo odvolané potvrzení nestačí.
+
+Historii a podklady konkrétní revize lze stáhnout jako PDF, XLSX nebo strukturovaná data. Export označuje, zda revize stále odpovídá aktuálním podkladům. Přehled tvoří klasifikační most před obecnými úpravami základu daně. Nepočítá konečné DPPO, odpočty ani daň k podání; doložené úpravy mimo tento most zůstávají samostatným podkladem pro daňové přiznání.
+
+Potvrzenou volbu osvobození daru nelze zpětně změnit ani jeho rozdělením do nových alokačních řádků. Části stejného původního daru musejí mít jednotný právní titul a volbu osvobození. Pokud z dřívějšího zdroje čerpá další potvrzené období, nejprve doloženě přehodnoťte navazující posouzení. Ochranu zachovává i nahrazení starého posouzení, při němž zdroj dostane jiný právní titul.
+
+## 72.14 Související kapitoly
 
 - [Účetní kontroly a inventarizace](46_Ucetni_kontroly_a_inventarizace.md)
 - [Inventarizace účtů](69_Inventarizace_rozvahovych_uctu.md)

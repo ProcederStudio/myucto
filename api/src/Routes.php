@@ -2825,6 +2825,14 @@ final class Routes
             // celá rodina closing/close/open-next/revert běží na právu accounting.periods.close
             // (RoutePermissionMap + Action requireClose), /status na accounting.periods.manage.
             $g->get   ('/periods/{id:[0-9]+}/closing',                          [ClosingAction::class, 'state']);
+            $g->get('/periods/{id:[0-9]+}/nonprofit-tax', [\MyInvoice\Action\Accounting\Closing\NonprofitTaxAssessmentAction::class, 'read']);
+            $g->get('/periods/{id:[0-9]+}/nonprofit-tax/history', [\MyInvoice\Action\Accounting\Closing\NonprofitTaxAssessmentAction::class, 'history']);
+            $g->post('/periods/{id:[0-9]+}/nonprofit-tax/preview', [\MyInvoice\Action\Accounting\Closing\NonprofitTaxAssessmentAction::class, 'preview']);
+            $g->post('/periods/{id:[0-9]+}/nonprofit-tax/confirm', [\MyInvoice\Action\Accounting\Closing\NonprofitTaxAssessmentAction::class, 'confirm']);
+            $g->post('/periods/{id:[0-9]+}/nonprofit-tax/withdraw', [\MyInvoice\Action\Accounting\Closing\NonprofitTaxAssessmentAction::class, 'withdraw']);
+            $g->get('/nonprofit-tax-assessments/{assessmentId:[0-9]+}/export', [\MyInvoice\Action\Accounting\Closing\NonprofitTaxAssessmentAction::class, 'export']);
+            $g->get('/nonprofit-tax-assessments/{assessmentId:[0-9]+}/export.pdf', [\MyInvoice\Action\Accounting\Closing\NonprofitTaxAssessmentAction::class, 'exportPdf']);
+            $g->get('/nonprofit-tax-assessments/{assessmentId:[0-9]+}/export.xlsx', [\MyInvoice\Action\Accounting\Closing\NonprofitTaxAssessmentAction::class, 'exportXlsx']);
             $g->get   ('/periods/{id:[0-9]+}/monthly-check',                    [ClosingAction::class, 'monthlyCheck']);
             // CSV export nálezů jedné kontroly — BEZ stropu (náhled je capnutý na 50).
             // Sdílí ho uzávěrkový průvodce i měsíční kontrola, protože obě stavějí

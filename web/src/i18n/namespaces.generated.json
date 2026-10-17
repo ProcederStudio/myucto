@@ -92,6 +92,7 @@
     "money_s3",
     "monthly_report",
     "myucto_import",
+    "nonprofitTax",
     "oss_rates",
     "other_items",
     "pamica",
@@ -657,6 +658,9 @@
     "accounting-dimension-profit": [
       "dimensions"
     ],
+    "accounting-nonprofit-tax": [
+      "nonprofitTax"
+    ],
     "accounting-statement-mapping": [
       "settings"
     ],
@@ -698,7 +702,8 @@
       "dimensions"
     ],
     "accounting-period-closing": [
-      "checks"
+      "checks",
+      "nonprofitTax"
     ],
     "accounting-closing-package": [
       "reports"

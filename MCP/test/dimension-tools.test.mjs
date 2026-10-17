@@ -27,6 +27,12 @@ test('společné alokace poskytují čtení s přesnými kurzory a cílovým dat
   assert.equal((await call('get_joint_allocation', { id: 42 })).path, '/accounting/joint-allocations/batches/42');
 });
 
+test('daňové posouzení poskytuje pouze aktuální podklady, historii a konkrétní revizi', async () => {
+  assert.equal((await call('nonprofit_tax_assessment', { period_id: 7 })).path, '/accounting/periods/7/nonprofit-tax');
+  assert.equal((await call('nonprofit_tax_assessment_history', { period_id: 7 })).path, '/accounting/periods/7/nonprofit-tax/history');
+  assert.equal((await call('export_nonprofit_tax_assessment', { assessment_id: 42 })).path, '/accounting/nonprofit-tax-assessments/42/export');
+});
+
 test('statistika skupiny používá all bez kolize s kontextem firmy hosted MCP', async () => {
   assert.equal(TOOLS_BY_NAME.get('dimension_analytics').inputSchema.properties.supplier_id, undefined);
   const group = await call('dimension_analytics', { type_id: 3, year: 2026, scope: 'group' });

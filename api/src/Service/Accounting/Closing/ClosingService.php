@@ -97,6 +97,7 @@ final class ClosingService
         'journal_unbalanced',
         'vh_431_undistributed',
         'inventory_unresolved',
+        'nonprofit_tax_assessment',
     ];
 
     /**
@@ -220,6 +221,7 @@ final class ClosingService
         // Mezičlen plateb kartou (378.x): vlastní kontroly a vyloučení analytik karet
         // z kontrol 261/395/průběžných účtů, ať se tentýž zůstatek nehlásí dvakrát.
         private readonly \MyInvoice\Service\Accounting\Card\CardClearingOverview $cardClearing,
+        private readonly \MyInvoice\Service\Tax\Nonprofit\NonprofitTaxAssessmentGuard $nonprofitTaxAssessment,
     ) {}
 
     // ── stav pro FE ───────────────────────────────────────────────────────────
@@ -3755,6 +3757,11 @@ final class ClosingService
             $period = $this->lockPeriod($supplierId, $periodId, $rowVersion);
             $this->assertStatus($period, ['closing']);
 
+            $taxAssessment = $this->nonprofitTaxAssessment->closingCheck($supplierId, $periodId, true);
+            if (!$taxAssessment['complete']) {
+                throw new ClosingException('nonprofit_tax_assessment_required', 'Uzavření knih vyžaduje aktuální potvrzené daňové posouzení činností.', 422);
+            }
+
             $steps = $this->stepsMap($supplierId, $periodId);
             if (!$this->stepsComplete($steps, $this->preCloseStepKeys($supplierId, $period))) {
                 throw new ClosingException(
@@ -3931,7 +3938,7 @@ final class ClosingService
         if ($replaceTakenOverReason === '') {
             $replaceTakenOverReason = null;
         }
-        return $this->tx(function () use ($supplierId, $periodId, $rowVersion, $meta, $replaceTakenOverReason): array {
+        return $this->tx(fn (): array => (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $periodId, $rowVersion, $meta, $replaceTakenOverReason): array {
             $period = $this->lockPeriod($supplierId, $periodId, $rowVersion);
             // Past #37: open_next musí jít i nad 'approved' obdobím. Je to čistě technický
             // přenos počátečních zůstatků do NÁSLEDUJÍCÍHO období (N+1, open) — do knih
@@ -4246,7 +4253,7 @@ final class ClosingService
                 'taken_over_entry_ids' => $takenOverIds,
             ], $meta);
             return $payload;
-        });
+        }));
     }
 
     // ── revert kroků (R12) ────────────────────────────────────────────────────
@@ -5601,7 +5608,7 @@ final class ClosingService
      * @param array<string,mixed> $period
      * @return list<array{key:string, severity:'error'|'warning', ok:bool, value:mixed}>
      */
-    private function buildErrorChecks(int $supplierId, array $period): array
+    private function buildErrorChecks(int $supplierId, array $period, bool $currentRead = false): array
     {
         $periodId = (int) $period['id'];
         $startsOn = (string) $period['starts_on'];
@@ -5682,6 +5689,11 @@ final class ClosingService
             ],
         ];
 
+        $taxAssessment = $this->nonprofitTaxAssessment->closingCheck($supplierId, $periodId, $currentRead);
+        if ($taxAssessment['applicable']) {
+            $checks[] = ['key' => 'nonprofit_tax_assessment', 'severity' => 'error',
+                'ok' => $taxAssessment['complete'], 'value' => $taxAssessment];
+        }
         return $checks;
     }
 
@@ -5692,7 +5704,7 @@ final class ClosingService
     private function failingErrorChecks(int $supplierId, array $period): array
     {
         $failing = [];
-        foreach ($this->buildErrorChecks($supplierId, $period) as $check) {
+        foreach ($this->buildErrorChecks($supplierId, $period, true) as $check) {
             // Severity se u některých kontrol určuje za běhu (např. inventory_unresolved
             // je jen 'warning', dokud inventarizace vůbec není založená) — blokovat smí
             // pouze 'error', jinak by upozornění fungovalo jako tvrdá závora.

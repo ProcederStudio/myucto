@@ -827,9 +827,14 @@ const canOpenNextStage = computed(() => ['closed', 'reviewed', 'approved'].inclu
           </span>
         </p>
       </div>
-      <div class="flex items-center gap-2">
+      <div class="flex flex-wrap items-center gap-2">
         <RouterLink to="/accounting/periods" class="text-sm text-neutral-500 hover:text-neutral-700">
           {{ t('common.back') }}
+        </RouterLink>
+        <RouterLink v-if="state?.accounting_framework === 'cz_504' && auth.can('accounting')"
+          :to="{ name: 'accounting-nonprofit-tax', params: { id: periodId } }" :class="btnOutline('neutral')">
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path :d="ICONS.chart" /></svg>
+          {{ t('nonprofitTax.title') }}
         </RouterLink>
         <RouterLink v-if="auth.can('accounting')" :to="{ name: 'accounting-statement-notes', params: { id: periodId } }"
           :class="btnOutline('neutral')">

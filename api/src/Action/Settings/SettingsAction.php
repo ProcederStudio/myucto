@@ -1251,6 +1251,7 @@ final class SettingsAction
             'warehouses'         => 'sklady',
             'documents'          => 'dokumenty (DMS)',
             'income_tax_returns' => 'přiznání k dani z příjmů',
+            'nonprofit_tax_assessments' => 'potvrzená daňová posouzení',
             'tax_submissions'    => 'daňové výkazy (DPH/KH/SH)',
             'payment_orders'     => 'příkazy k úhradě',
             'bank_statements'    => 'bankovní výpisy',

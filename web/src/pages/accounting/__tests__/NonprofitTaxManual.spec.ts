@@ -1,0 +1,66 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { defineComponent } from 'vue'
+import { flushPromises, mount } from '@vue/test-utils'
+import Page from '@/pages/accounting/NonprofitTaxAssessment.vue'
+const mocks = vi.hoisted(() => ({ read: vi.fn(), history: vi.fn(), preview: vi.fn(), confirm: vi.fn(), withdraw: vi.fn(), export: vi.fn(), document: vi.fn(), can: vi.fn() }))
+vi.mock('@/api/nonprofitTax', () => ({ nonprofitTaxApi: mocks }))
+vi.mock('vue-router', () => ({ useRoute: () => ({ params: { id: '7' } }) }))
+vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ can: mocks.can }) }))
+vi.mock('@/composables/useToast', () => ({ useToast: () => ({ success: vi.fn() }) }))
+vi.mock('@/workspace/supplierContext', () => ({ requestSupplierId: () => '22' }))
+vi.mock('@/api/errors', () => ({ apiErrorMessage: (error: Error) => error.message }))
+const snapshot = { period: { id: 7, fiscal_year: 2027, starts_on: '2027-01-01', ends_on: '2027-12-31' }, assessment_support: { automatic: false, documented_manual: true, automatic_from: '2024-01-01', automatic_to: '2026-12-31' }, input_hash: 'manual-hash', findings: [], funding_reference_sources: {}, accounting_result_cents: 7900, sources: [{ id: 'line:1', line_id: 1, account_code: '644', date: '2027-01-01', kind: 'revenue', amount_cents: 7900, activity_kind_id: null, activity: null, tax_regime: 'subject', mandatory_non_deductible: false, axes: [], origin: { line_id: 1, type: 'manual', id: null } }] }
+const result = { assessment_method: 'documented_manual', accounting_result_cents: 7900, excluded_revenue_cents: 7900, cost_addbacks_cents: 0, assessed_result_cents: 0, activities: [], rows: [], funding_usage: [], external_adjustments: [] }
+const ActionBar = defineComponent({ props: ['actions'], template: '<div><template v-for="action in actions" :key="action.key"><button type="button" v-if="action.show !== false" :data-action="action.key" :disabled="action.disabled" @click="action.run">{{ action.label }}</button></template></div>' })
+const DateInput = defineComponent({ props: ['modelValue', 'required', 'min', 'max', 'readonly'], emits: ['update:modelValue'], template: '<input type="date" :value="modelValue" :required="required" :min="min" :max="max" :readonly="readonly" @input="$emit(\'update:modelValue\', $event.target.value)" />' })
+function render() { return mount(Page, { attachTo: document.body, global: { stubs: { ActionBar, FundingEditor: true, DateInput } } }) }
+beforeEach(() => {
+  vi.clearAllMocks()
+  mocks.can.mockReturnValue(true)
+  mocks.read.mockResolvedValue({ snapshot, latest: null })
+  mocks.history.mockResolvedValue([])
+  mocks.preview.mockResolvedValue({ snapshot, result, previous_assessment_id: null })
+  mocks.confirm.mockResolvedValue({ id: 10 })
+})
+describe('manual assessment page', () => {
+  it('shows missing evidence, then previews and confirms a complete manual decision without inferred account classification', async () => {
+    const wrapper = render()
+    await flushPromises()
+    expect(wrapper.get('[data-test="manual-method"]').text()).toContain('nonprofitTax.manual.notice')
+    expect((wrapper.get('[data-test="final-regime"]').element as HTMLSelectElement).value).toBe('')
+    await wrapper.get('[data-action="preview"]').trigger('click')
+    await flushPromises()
+    expect(mocks.preview).not.toHaveBeenCalled()
+    expect(wrapper.get('[role="alert"]').text()).toBe('nonprofitTax.manual.invalidForm')
+    await wrapper.get('[data-test="method-legal-basis"]').setValue('Applicable legal provisions')
+    await wrapper.get('[data-test="method-evidence"]').setValue('Period-specific legal assessment')
+    await wrapper.get('[data-test="profile-evidence"]').setValue('Documented organization facts')
+    const article = wrapper.get('article')
+    const field = (label: string, selector: string) => article.findAll('label').find(row => row.text().startsWith(label))!.get(selector)
+    await field('nonprofitTax.legalTitle', 'select').setValue('bank_interest')
+    await wrapper.get('[data-test="final-regime"]').setValue('subject')
+    await wrapper.get('[data-test="final-method"]').setValue('final_withholding')
+    await field('nonprofitTax.legalBasis', 'input').setValue('Documented withholding rule')
+    await field('nonprofitTax.facts.gross_interest_cents', 'input').setValue('100.00')
+    await field('nonprofitTax.facts.withholding_cents', 'input').setValue('21.00')
+    await field('nonprofitTax.evidence', 'textarea').setValue('Synthetic bank certificate')
+    await wrapper.get('[data-action="preview"]').trigger('click')
+    await flushPromises()
+    expect(mocks.preview).toHaveBeenCalledWith(7, expect.objectContaining({ method: expect.objectContaining({ mode: 'documented_manual', valid_from: '2027-01-01', valid_to: '2027-12-31' }), profile: { kind: 'documented', evidence: 'Documented organization facts' }, decisions: { 'line:1': expect.objectContaining({ final_regime: 'subject', final_method: 'final_withholding', facts: { gross_interest_cents: 10000, withholding_cents: 2100 } }) } }))
+    expect(wrapper.get('[data-test="manual-result"]').text()).toBe('nonprofitTax.manual.resultNotice')
+    const reason = wrapper.findAll('label').find(row => row.text().startsWith('nonprofitTax.reason'))!
+    await reason.get('textarea').setValue('Own evidenced conclusion')
+    await wrapper.get('input[type="checkbox"]').setValue(true)
+    await wrapper.get('[data-action="confirm"]').trigger('click')
+    await flushPromises()
+    expect(mocks.confirm).toHaveBeenCalledWith(7, expect.objectContaining({ input_hash: 'manual-hash', assessment: expect.objectContaining({ method: expect.objectContaining({ mode: 'documented_manual' }) }) }))
+  })
+  it('does not expose the manual method when automatic rules support the period', async () => {
+    mocks.read.mockResolvedValue({ snapshot: { ...snapshot, assessment_support: { ...snapshot.assessment_support, automatic: true } }, latest: null })
+    const wrapper = render()
+    await flushPromises()
+    expect(wrapper.find('[data-test="manual-method"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="final-regime"]').exists()).toBe(false)
+  })
+})

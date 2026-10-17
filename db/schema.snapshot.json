@@ -1,6 +1,6 @@
 {
     "format": 1,
-    "database_collation": "utf8mb4_unicode_ci",
+    "database_collation": "utf8mb4_general_ci",
     "migrations": [
         "0001_init.sql",
         "0002_work_report_approval.sql",
@@ -1002,7 +1002,8 @@
         "2018_supplier_legal_form.sql",
         "2019_system_dimensions_provenance.sql",
         "2020_statement_framework_504.sql",
-        "2021_joint_allocations.sql"
+        "2021_joint_allocations.sql",
+        "2022_nonprofit_tax_assessments.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -7521,6 +7522,52 @@
             "checks": {
                 "cc": "json_valid(`cc`)",
                 "sent_to": "json_valid(`sent_to`)"
+            }
+        },
+        "nonprofit_tax_assessments": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "assessment_json": "longtext NOT NULL",
+                "created_at": "datetime NOT NULL DEFAULT current_timestamp()",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "idempotency_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "input_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "period_id": "bigint(20) unsigned NOT NULL",
+                "previous_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "reason": "text NOT NULL",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "result_json": "longtext NOT NULL",
+                "revision_no": "int(10) unsigned NOT NULL",
+                "ruleset": "varchar(80) NOT NULL",
+                "snapshot_json": "longtext NOT NULL",
+                "status": "varchar(16) NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_nonprofit_tax_actor": "BTREE (created_by)",
+                "fk_nonprofit_tax_period": "BTREE (period_id)",
+                "fk_nonprofit_tax_previous": "BTREE (supplier_id, period_id, previous_id)",
+                "uq_nonprofit_tax_idempotency": "UNIQUE BTREE (supplier_id, idempotency_key)",
+                "uq_nonprofit_tax_period_revision": "UNIQUE BTREE (supplier_id, period_id, id)",
+                "uq_nonprofit_tax_revision": "UNIQUE BTREE (supplier_id, period_id, revision_no)",
+                "uq_nonprofit_tax_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "fk_nonprofit_tax_actor": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_nonprofit_tax_period": "(period_id) -> accounting_periods (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_nonprofit_tax_previous": "(supplier_id, period_id, previous_id) -> nonprofit_tax_assessments (supplier_id, period_id, id) ON UPDATE RESTRICT ON DELETE CASCADE",
+                "fk_nonprofit_tax_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE"
+            },
+            "checks": {
+                "assessment_json": "json_valid(`assessment_json`)",
+                "chk_nonprofit_tax_revision": "`revision_no` > 0",
+                "chk_nonprofit_tax_status": "`status` in ('confirmed','withdrawn')",
+                "result_json": "json_valid(`result_json`)",
+                "snapshot_json": "json_valid(`snapshot_json`)"
             }
         },
         "offset_agreement_items": {
@@ -23952,6 +23999,9 @@
         "trg_jmhz_scn_requirement_bu": "BEFORE UPDATE ON payroll_jmhz_field_requirements #b71c659e5b0a7a47ecbc804e6ae742279b0b9208",
         "trg_journal_payroll_batch_insert": "BEFORE INSERT ON journal_entries #f75c2f92cf4c2bec4dae140c18d6e95f50264967",
         "trg_journal_payroll_immutable_update": "BEFORE UPDATE ON journal_entries #3635d1e00151830cb61416104ed79cfa05bc025f",
+        "trg_nonprofit_tax_immutable_delete": "BEFORE DELETE ON nonprofit_tax_assessments #f38c1e13859ea670801b2496d566bdd872f4cb06",
+        "trg_nonprofit_tax_immutable_update": "BEFORE UPDATE ON nonprofit_tax_assessments #f38c1e13859ea670801b2496d566bdd872f4cb06",
+        "trg_nonprofit_tax_insert": "BEFORE INSERT ON nonprofit_tax_assessments #4e66f08f4b1f04a9c040cdde16a122b7ffcc8f1b",
         "trg_oss_filing_evidence_no_delete": "BEFORE DELETE ON oss_filing_evidence #4307481f6d74af201895e7a19831c30cc145081f",
         "trg_oss_filing_evidence_no_update": "BEFORE UPDATE ON oss_filing_evidence #6abb792aa68c037daacd2bb6ef980c6181fcd46b",
         "trg_other_item_allocation_insert": "BEFORE INSERT ON other_item_allocations #4a852e7af4ad9e755b9dcbb5d78c28499a7f3c26",
