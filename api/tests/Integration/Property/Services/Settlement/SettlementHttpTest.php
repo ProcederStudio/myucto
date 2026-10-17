@@ -553,6 +553,45 @@ final class SettlementHttpTest extends TestCase
 
     }
 
+    public function testCostCatalogSkipsUnsupportedCurrencyAndAccountCandidates(): void
+    {
+        extract($this->newClaimFixture(false));
+        $pdo = $this->db->pdo();
+        $q = $pdo->prepare('SELECT cost_line_id FROM property_service_settlements WHERE supplier_id=? AND id=?');
+        $q->execute([$f['supplier'], $saved['id']]);
+        $valid = (int)$q->fetchColumn();
+        $q = $pdo->prepare('SELECT dimension_type_id,dimension_value_id FROM journal_entry_line_dimensions WHERE supplier_id=? AND line_id=?');
+        $q->execute([$f['supplier'], $valid]);
+        $dims = array_map('intval', $q->fetchAll(PDO::FETCH_KEY_PAIR));
+        $posting = $this->container()->get(\MyInvoice\Service\Accounting\PostingService::class);
+        $foreign = ['currency_code' => 'EUR', 'amount_foreign' => '4.00', 'fx_rate' => '25.000000'];
+        $entry = $posting->postDocument($f['supplier'], 'manual', null, [
+            ['account_code' => '315.210', 'side' => 'debit', 'amount' => '100.00', 'dimensions' => $dims] + $foreign,
+            ['account_code' => '321', 'side' => 'credit', 'amount' => '100.00', 'dimensions' => $dims] + $foreign,
+        ], ['entry_date' => '2026-12-31', 'posted_by' => $f['actor']]);
+        $q = $pdo->prepare("SELECT id,currency_code,amount_foreign,fx_rate FROM journal_entry_lines WHERE supplier_id=? AND entry_id=? AND side='debit'");
+        $q->execute([$f['supplier'], $entry]);
+        $fx = $q->fetch(PDO::FETCH_ASSOC);
+        self::assertGreaterThan($valid, (int)$fx['id']);
+        self::assertSame('EUR', $fx['currency_code']);
+        self::assertNotNull($fx['amount_foreign']); self::assertNotNull($fx['fx_rate']);
+        $pdo->prepare("INSERT INTO chart_of_accounts(supplier_id,account_code,name,account_type) VALUES (?,'315.299','Synthetic non-cost liability','liability')")->execute([$f['supplier']]);
+        $posting->postDocument($f['supplier'], 'manual', null, [
+            ['account_code' => '315.299', 'side' => 'debit', 'amount' => '100.00', 'dimensions' => $dims],
+            ['account_code' => '321', 'side' => 'credit', 'amount' => '100.00', 'dimensions' => $dims],
+        ], ['entry_date' => '2026-12-31', 'posted_by' => $f['actor']]);
+        $query = ['unit_id' => $f['units']['U02'], 'service_id' => $f['service']['id'], 'date' => '2026-12-31', 's3_line_id' => $source['id'], 'limit' => 1];
+        foreach ([['EUR','4.00','25.000000'],['EUR',null,null],[null,'4.00',null],[null,null,'25.000000']] as $metadata) {
+            $pdo->prepare('UPDATE journal_entry_lines SET currency_code=?,amount_foreign=?,fx_rate=? WHERE supplier_id=? AND id=?')->execute([...$metadata,$f['supplier'],$fx['id']]);
+            [$status, $page] = $this->http('GET', '/api/property/service-settlements/catalog/costs', [], null, false, true, $query);
+            self::assertSame(200, $status, json_encode($page));
+            self::assertCount(1, $page['items']);
+            self::assertSame($valid, $page['items'][0]['cost_source_id']);
+            self::assertSame('1400000', $page['items'][0]['cost_cents']);
+            self::assertNull($page['next_cursor']);
+        }
+    }
+
     private function newClaimFixture(bool $apply = true): array
     {
 

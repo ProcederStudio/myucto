@@ -80,22 +80,29 @@ final class UnitPaymentsCloneTest extends TestCase
         $sourceHash=$this->fingerprint($source->pdo());
         $cloner=new DatabaseCloner($this->server);$plan=$cloner->plan($this->ownedSchema);$this->targetSchema=$this->ownedSchema.'_copy_test';$cloner->copyTables($plan,$this->targetSchema,static function():void{});
         $config=Bootstrap::buildContainer()->get(Config::class);$data=$config->all();$data['db']['name']=$this->targetSchema;$target=Connection::withoutSharedTestConnection(fn()=>new Connection(new Config($data,$config->dataDir())));$this->connections[]=$target;
+        $settlementInputs=\MyInvoice\Service\Anonymization\SettlementCloneScrubber::captureInputs($target);
         $scrubber=new \MyInvoice\Service\Anonymization\TextScrubber(new \MyInvoice\Service\Anonymization\Pseudonymizer(str_repeat('synthetic-payments-',3)));
         $registry=(new \MyInvoice\Service\Anonymization\PropertyCloneScrubber($target->pdo(),$scrubber))->run();
         $versions=(new \MyInvoice\Service\Anonymization\ChargesCloneScrubber($target->pdo(),$scrubber))->run($registry);
-        (new \MyInvoice\Service\Anonymization\IssuanceCloneScrubber($target,$scrubber))->run($registry,$versions);
+        $charges=(new \MyInvoice\Service\Anonymization\IssuanceCloneScrubber($target,$scrubber))->run($registry,$versions);
         foreach($target->pdo()->query('SELECT line_id,dimension_type_id,assignment_origin_ref FROM journal_entry_line_dimensions WHERE assignment_origin_ref IS NOT NULL')->fetchAll(PDO::FETCH_ASSOC) as $row)$target->pdo()->prepare('UPDATE journal_entry_line_dimensions SET assignment_origin_ref=? WHERE line_id=? AND dimension_type_id=?')->execute([$scrubber->scrub($row['assignment_origin_ref']),$row['line_id'],$row['dimension_type_id']]);
         foreach($target->pdo()->query('SELECT id,counterparty_account FROM bank_transactions WHERE counterparty_account IS NOT NULL')->fetchAll(PDO::FETCH_ASSOC) as $row){$fact=json_decode($scrubber->scrubJson(json_encode(['counterparty_account'=>$row['counterparty_account']],JSON_THROW_ON_ERROR)),true,flags:JSON_THROW_ON_ERROR);$target->pdo()->prepare('UPDATE bank_transactions SET counterparty_account=? WHERE id=?')->execute([$fact['counterparty_account'],$row['id']]);}
+        foreach($target->pdo()->query('SELECT id,partner_name FROM cash_documents')->fetchAll(PDO::FETCH_ASSOC) as $row){$fact=json_decode($scrubber->scrubJson(json_encode(['partner_name'=>$row['partner_name']],JSON_THROW_ON_ERROR)),true,flags:JSON_THROW_ON_ERROR);$target->pdo()->prepare('UPDATE cash_documents SET partner_name=? WHERE id=?')->execute([$fact['partner_name'],$row['id']]);}
         $helper=new \MyInvoice\Service\Anonymization\PaymentsCloneScrubber($target,$scrubber);
         $target->pdo()->prepare('UPDATE unit_payment_operations SET snapshot_hash=? WHERE id=?')->execute([str_repeat('0',64),$op['id']]);$corrupt=$this->fingerprint($target->pdo());
-        try{$helper->run();self::fail('Corrupt hash was repaired.');}catch(PaymentException $e){self::assertSame('property_payment_history_corrupt',$e->errorCode);}
+        try{$helper->run($charges,$registry,$settlementInputs);self::fail('Corrupt hash was repaired.');}catch(PaymentException $e){self::assertSame('property_payment_history_corrupt',$e->errorCode);}
         self::assertSame($corrupt,$this->fingerprint($target->pdo()));$target->pdo()->prepare('UPDATE unit_payment_operations SET snapshot_hash=? WHERE id=?')->execute([$oldHash,$op['id']]);
-        $target->pdo()->beginTransaction();try{$helper->run();self::fail('Caller transaction accepted.');}catch(\LogicException $e){self::assertStringContainsString('own transaction',$e->getMessage());}finally{$target->pdo()->rollBack();}
-        $target->pdo()->prepare("UPDATE journal_entry_line_dimensions SET assignment_origin='rule_default' WHERE line_id=?")->execute([$line]);$mismatch=$this->fingerprint($target->pdo());
-        try{$helper->run();self::fail('Unrelated origin mismatch repaired.');}catch(PaymentException $e){self::assertSame('property_payment_source_changed',$e->errorCode);}self::assertSame($mismatch,$this->fingerprint($target->pdo()));
-        $target->pdo()->prepare("UPDATE journal_entry_line_dimensions SET assignment_origin='explicit' WHERE line_id=?")->execute([$line]);
-        $helper->run();$cloner->finalize($plan,$this->targetSchema);
-        try{$helper->run();self::fail('Live triggers accepted.');}catch(\LogicException $e){self::assertStringContainsString('trigger installation',$e->getMessage());}
+        $target->pdo()->beginTransaction();try{$helper->run($charges,$registry,$settlementInputs);self::fail('Caller transaction accepted.');}catch(\LogicException $e){self::assertStringContainsString('own transaction',$e->getMessage());}finally{$target->pdo()->rollBack();}
+        $q=$target->pdo()->prepare('SELECT bt.counterparty_account FROM bank_transactions bt JOIN bank_statements bs ON bs.id=bt.statement_id WHERE bs.supplier_id=? AND bt.id=?');$q->execute([$f['supplier'],$bank]);$counterparty=$q->fetchColumn();
+        $target->pdo()->prepare('UPDATE bank_transactions SET counterparty_account=? WHERE id=?')->execute([$counterparty==='1000000005'?'19-1000000005':'1000000005',$bank]);$mismatch=$this->fingerprint($target->pdo());
+        try{try{$helper->run($charges,$registry,$settlementInputs);self::fail('Changed physical source repaired.');}catch(PaymentException $e){self::assertSame('property_payment_source_changed',$e->errorCode);}self::assertSame($mismatch,$this->fingerprint($target->pdo()));}
+        finally{$target->pdo()->prepare('UPDATE bank_transactions SET counterparty_account=? WHERE id=?')->execute([$counterparty,$bank]);}
+        $helper->run($charges,$registry,$settlementInputs);$cloned=$this->fingerprint($target->pdo());$target->pdo()->beginTransaction();
+        try{(new PaymentLocks($target))->acquire($f['supplier']);$target->pdo()->prepare("UPDATE journal_entry_line_dimensions SET assignment_origin='rule_default' WHERE supplier_id=? AND line_id=? AND dimension_type_id=?")->execute([$f['supplier'],$line,(int)$value['type_id']]);$mismatch=$this->fingerprint($target->pdo());
+            try{(new PaymentSourceProof($target))->current($f['supplier'],'bank',$bank);self::fail('Unrelated origin mismatch repaired.');}catch(PaymentException $e){self::assertSame('property_payment_source_changed',$e->errorCode);}self::assertSame($mismatch,$this->fingerprint($target->pdo()));
+        }finally{if($target->pdo()->inTransaction())$target->pdo()->rollBack();}
+        self::assertSame($cloned,$this->fingerprint($target->pdo()));$cloner->finalize($plan,$this->targetSchema);
+        try{$helper->run($charges,$registry,$settlementInputs);self::fail('Live triggers accepted.');}catch(\LogicException $e){self::assertStringContainsString('trigger installation',$e->getMessage());}
         $clone=$this->writer($target);$changed=$clone->operation($f['supplier'],$op['id']);self::assertNotSame($oldHash,$changed['snapshot_hash']);
         self::assertStringNotContainsString('person@example.test',json_encode($changed,JSON_THROW_ON_ERROR));
         self::assertSame($op['id'],$clone->apply($f['supplier'],$changed['request'],$changed['snapshot_hash'],'opaque-credit',$f['actor'])['id']);
@@ -118,12 +125,15 @@ final class UnitPaymentsCloneTest extends TestCase
         $reservation=$this->correctionPayments()->reserve($f['supplier'],$done['credit_id'],1,['amount_cents'=>'1000','party_ids'=>[$f['clients'][1]],'disposition'=>'Synthetic reservation','recipient_account'=>'1000000005/0100'],'reserve',$f['actor']);$source->pdo()->commit();$before=$this->fingerprint($source->pdo());
         $cloner=new DatabaseCloner($this->server);$plan=$cloner->plan($this->ownedSchema);$this->targetSchema=$this->ownedSchema.'_copy_test';$cloner->copyTables($plan,$this->targetSchema,static function():void{});
         $config=Bootstrap::buildContainer()->get(Config::class);$data=$config->all();$data['db']['name']=$this->targetSchema;$target=Connection::withoutSharedTestConnection(fn()=>new Connection(new Config($data,$config->dataDir())));$this->connections[]=$target;
+        $settlementInputs=\MyInvoice\Service\Anonymization\SettlementCloneScrubber::captureInputs($target);
         $scrubber=new \MyInvoice\Service\Anonymization\TextScrubber(new \MyInvoice\Service\Anonymization\Pseudonymizer(str_repeat('synthetic-correction-',3)));
         foreach($target->pdo()->query('SELECT id,counterparty_account FROM bank_transactions WHERE counterparty_account IS NOT NULL')->fetchAll(PDO::FETCH_ASSOC) as $row){$fact=json_decode($scrubber->scrubJson(json_encode(['counterparty_account'=>$row['counterparty_account']],JSON_THROW_ON_ERROR)),true,flags:JSON_THROW_ON_ERROR);$target->pdo()->prepare('UPDATE bank_transactions SET counterparty_account=? WHERE id=?')->execute([$fact['counterparty_account'],$row['id']]);}
         $registry=(new \MyInvoice\Service\Anonymization\PropertyCloneScrubber($target->pdo(),$scrubber))->run();$versions=(new \MyInvoice\Service\Anonymization\ChargesCloneScrubber($target->pdo(),$scrubber))->run($registry);
+        foreach($target->pdo()->query('SELECT id,partner_name FROM cash_documents')->fetchAll(PDO::FETCH_ASSOC) as $row){$fact=json_decode($scrubber->scrubJson(json_encode(['partner_name'=>$row['partner_name']],JSON_THROW_ON_ERROR)),true,flags:JSON_THROW_ON_ERROR);$target->pdo()->prepare('UPDATE cash_documents SET partner_name=? WHERE id=?')->execute([$fact['partner_name'],$row['id']]);}
+        foreach($target->pdo()->query('SELECT line_id,dimension_type_id,assignment_origin_ref FROM journal_entry_line_dimensions WHERE assignment_origin_ref IS NOT NULL')->fetchAll(PDO::FETCH_ASSOC) as $row)$target->pdo()->prepare('UPDATE journal_entry_line_dimensions SET assignment_origin_ref=? WHERE line_id=? AND dimension_type_id=?')->execute([$scrubber->scrub($row['assignment_origin_ref']),$row['line_id'],$row['dimension_type_id']]);
         $charges=(new \MyInvoice\Service\Anonymization\IssuanceCloneScrubber($target,$scrubber))->run($registry,$versions);$helper=new \MyInvoice\Service\Anonymization\PaymentsCloneScrubber($target,$scrubber);$unchanged=$this->fingerprint($target->pdo());
-        try{$helper->run();self::fail('Unproved S3 hashes accepted.');}catch(PaymentException $e){self::assertSame('property_payment_clone_issuance_proof',$e->errorCode);}self::assertSame($unchanged,$this->fingerprint($target->pdo()));
-        $helper->run($charges);$cloner->finalize($plan,$this->targetSchema);$this->db=$target;$clone=$this->correctionWriter();$read=$clone->find($f['supplier'],$done['id']);
+        try{$helper->run([],$registry,$settlementInputs);self::fail('Unproved S3 hashes accepted.');}catch(PaymentException $e){self::assertSame('property_payment_clone_issuance_proof',$e->errorCode);}self::assertSame($unchanged,$this->fingerprint($target->pdo()));
+        $helper->run($charges,$registry,$settlementInputs);$cloner->finalize($plan,$this->targetSchema);$this->db=$target;$clone=$this->correctionWriter();$read=$clone->find($f['supplier'],$done['id']);
         self::assertNotSame($hash,$read['snapshot_hash']);self::assertStringNotContainsString('person@example.test',json_encode($read,JSON_THROW_ON_ERROR));
         self::assertSame($done['id'],$clone->apply($f['supplier'],$read['request'],$read['snapshot_hash'],'opaque-correction',$f['actor'])['id']);
         $this->correctionPayments()->cancelReservation($f['supplier'],$reservation['id'],1,'Synthetic cancellation','cancel',$f['actor']);
@@ -134,7 +144,7 @@ final class UnitPaymentsCloneTest extends TestCase
     }
     private function fingerprint(PDO $pdo):string
     {
-        $rows=[];foreach(['unit_payment_sources','unit_payment_operations','unit_credit_lots','unit_credit_parties','unit_credit_reservations','unit_credit_events','unit_payment_audit','unit_payment_corrections','unit_payment_correction_anchors','unit_payment_reliefs','unit_payment_debts'] as $table)$rows[$table]=$pdo->query('SELECT * FROM '.$table)->fetchAll(PDO::FETCH_ASSOC);return \MyInvoice\Service\Property\PropertyInput::hash($rows);
+        $rows=[];foreach(['unit_payment_sources','unit_payment_operations','unit_credit_lots','unit_credit_parties','unit_credit_reservations','unit_credit_events','unit_payment_audit','unit_payment_corrections','unit_payment_correction_anchors','unit_payment_reliefs','unit_payment_debts','bank_transactions','journal_entry_line_dimensions'] as $table)$rows[$table]=$pdo->query('SELECT * FROM '.$table)->fetchAll(PDO::FETCH_ASSOC);return \MyInvoice\Service\Property\PropertyInput::hash($rows);
     }
     private function writer(Connection $db):PaymentRepository
     {

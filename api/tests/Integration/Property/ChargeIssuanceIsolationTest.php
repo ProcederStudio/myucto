@@ -61,13 +61,13 @@ final class ChargeIssuanceIsolationTest extends TestCase
         $b->pdo()->beginTransaction(); $f=$this->issuanceFixture($b); $b->pdo()->commit();
         $preview=(new IssuancePreviewService($a))->preview($f['supplier'],$f['issue_request']);
         $input=['request'=>$f['issue_request'],'preview_hash'=>$preview['preview_hash'],'idempotency_key'=>'first'];
-        $a->pdo()->beginTransaction(); self::assertSame(0,(int)$a->pdo()->query('SELECT COUNT(*) FROM unit_charges')->fetchColumn());
+        $a->pdo()->beginTransaction(); self::assertSame(0,(int)$a->pdo()->query('SELECT COUNT(*) FROM unit_charges WHERE supplier_id='.(int)$f['supplier'])->fetchColumn());
         $writer=$this->writer($b); $batch=$writer->issue($f['supplier'],$input,$f['actor']);
         $input['idempotency_key']='second';
         try { $this->writer($a)->issue($f['supplier'],$input,$f['actor']); self::fail('Old snapshot issued duplicate business case.'); }
         catch(IssuanceException $e) { self::assertSame('property_charge_issue_revision_conflict',$e->errorCode); }
         self::assertTrue($a->pdo()->inTransaction()); $a->pdo()->rollBack();
-        $a->pdo()->beginTransaction(); self::assertSame(0,(int)$a->pdo()->query('SELECT COUNT(*) FROM unit_charges WHERE journal_entry_id IS NOT NULL')->fetchColumn());
+        $a->pdo()->beginTransaction(); self::assertSame(0,(int)$a->pdo()->query('SELECT COUNT(*) FROM unit_charges WHERE journal_entry_id IS NOT NULL AND supplier_id='.(int)$f['supplier'])->fetchColumn());
         $posted=$writer->post($f['supplier'],$batch['id'],array_map(fn($c)=>['id'=>$c['id'],'row_version'=>1],$batch['charges']),$f['actor']);
         $entry=$posted['charges'][0]['journal_entry_id'];
         try { (new IssuanceUseGuard($a))->assertEntriesMutable($f['supplier'],[$entry]); self::fail('Old snapshot missed current ledger ownership.'); }
@@ -94,8 +94,8 @@ final class ChargeIssuanceIsolationTest extends TestCase
             self::assertSame('property_charge_issue_source_immutable', $e->errorCode);
         }
         $a->pdo()->rollBack();
-        self::assertSame(1,(int)$b->pdo()->query('SELECT COUNT(*) FROM unit_charge_batches')->fetchColumn());
-        self::assertSame(12,(int)$b->pdo()->query("SELECT COUNT(*) FROM unit_charges WHERE status='posted'")->fetchColumn());
+        self::assertSame(1,(int)$b->pdo()->query('SELECT COUNT(*) FROM unit_charge_batches WHERE supplier_id='.(int)$f['supplier'])->fetchColumn());
+        self::assertSame(12,(int)$b->pdo()->query("SELECT COUNT(*) FROM unit_charges WHERE status='posted' AND supplier_id=".(int)$f['supplier'])->fetchColumn());
     }
 
     private function writer(Connection $db): IssuanceRepository

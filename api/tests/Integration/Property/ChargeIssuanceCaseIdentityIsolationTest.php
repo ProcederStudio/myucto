@@ -63,16 +63,16 @@ final class ChargeIssuanceCaseIdentityIsolationTest extends TestCase
         $reload=$request;$reload['source_key']='RELOADED';
         $a->pdo()->exec('SET TRANSACTION READ ONLY');$a->pdo()->beginTransaction();
         $preview=(new IssuancePreviewService($a))->preview($f['supplier'],$reload);$a->pdo()->commit();
-        $a->pdo()->beginTransaction();self::assertSame(0,(int)$a->pdo()->query('SELECT COUNT(*) FROM unit_charges')->fetchColumn());
+        $a->pdo()->beginTransaction();self::assertSame(0,(int)$a->pdo()->query('SELECT COUNT(*) FROM unit_charges WHERE supplier_id='.(int)$f['supplier'])->fetchColumn());
         $p=(new IssuancePreviewService($b))->preview($f['supplier'],$request);$writer=$this->writer($b);
         $first=$writer->issue($f['supplier'],['request'=>$request,'preview_hash'=>$p['preview_hash'],'idempotency_key'=>'first'],$f['actor']);
         $writer->post($f['supplier'],$first['id'],[['id'=>$first['charges'][0]['id'],'row_version'=>1]],$f['actor']);
-        self::assertSame(0,(int)$a->pdo()->query('SELECT COUNT(*) FROM unit_charges')->fetchColumn());
+        self::assertSame(0,(int)$a->pdo()->query('SELECT COUNT(*) FROM unit_charges WHERE supplier_id='.(int)$f['supplier'])->fetchColumn());
         try{$this->writer($a)->issue($f['supplier'],['request'=>$reload,'preview_hash'=>$preview['preview_hash'],'idempotency_key'=>'reload'],$f['actor']);self::fail('Current identity was hidden by old RR snapshot.');}
         catch(IssuanceException $e){self::assertSame('property_charge_case_exists',$e->errorCode);}
         self::assertTrue($a->pdo()->inTransaction());$a->pdo()->rollBack();
-        self::assertSame(1,(int)$b->pdo()->query('SELECT COUNT(*) FROM unit_charge_batches')->fetchColumn());
-        self::assertSame(1,(int)$b->pdo()->query("SELECT COUNT(*) FROM journal_entries WHERE source_type='unit_charge'")->fetchColumn());
+        self::assertSame(1,(int)$b->pdo()->query('SELECT COUNT(*) FROM unit_charge_batches WHERE supplier_id='.(int)$f['supplier'])->fetchColumn());
+        self::assertSame(1,(int)$b->pdo()->query("SELECT COUNT(*) FROM journal_entries WHERE source_type='unit_charge' AND supplier_id=".(int)$f['supplier'])->fetchColumn());
         $b->pdo()->beginTransaction();$other=$this->issuanceFixture($b);$b->pdo()->commit();
         $otherRequest=$other['issue_request'];$otherRequest['units']=[$otherRequest['units'][0]];
         self::assertSame($request['case_identity'],$otherRequest['case_identity']);
@@ -98,8 +98,8 @@ final class ChargeIssuanceCaseIdentityIsolationTest extends TestCase
         try{$this->writer($a)->issue($f['supplier'],$input,$f['actor']);self::fail('Waiter created a second identity after commit.');}
         catch(IssuanceException $e){self::assertSame('property_charge_case_exists',$e->errorCode);}
         self::assertFalse($a->pdo()->inTransaction());
-        self::assertSame(1,(int)$b->pdo()->query('SELECT COUNT(*) FROM unit_charge_batches')->fetchColumn());
-        self::assertSame($first['id'],(int)$b->pdo()->query('SELECT id FROM unit_charge_batches')->fetchColumn());
+        self::assertSame(1,(int)$b->pdo()->query('SELECT COUNT(*) FROM unit_charge_batches WHERE supplier_id='.(int)$f['supplier'])->fetchColumn());
+        self::assertSame($first['id'],(int)$b->pdo()->query('SELECT id FROM unit_charge_batches WHERE supplier_id='.(int)$f['supplier'])->fetchColumn());
     }
 
     private function writer(Connection $db): IssuanceRepository

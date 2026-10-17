@@ -192,6 +192,7 @@ final class PaymentWorkflowCloneTest extends TestCase
         $this->targetSchema=$this->ownedSchema.'_copy_test'; $cloner->copyTables($plan,$this->targetSchema,static function():void{});
         $config=Bootstrap::buildContainer()->get(Config::class); $data=$config->all(); $data['db']['name']=$this->targetSchema;
         $target=Connection::withoutSharedTestConnection(fn()=>new Connection(new Config($data,$config->dataDir()))); $this->connections[]=$target;
+        $settlementInputs=\MyInvoice\Service\Anonymization\SettlementCloneScrubber::captureInputs($target);
         $scrubber=new TextScrubber(new Pseudonymizer(str_repeat('synthetic-workflow-',3)));
         $registry=(new \MyInvoice\Service\Anonymization\PropertyCloneScrubber($target->pdo(),$scrubber))->run();
         $versions=(new \MyInvoice\Service\Anonymization\ChargesCloneScrubber($target->pdo(),$scrubber))->run($registry);
@@ -200,6 +201,8 @@ final class PaymentWorkflowCloneTest extends TestCase
             $fact=json_decode($scrubber->scrubJson(json_encode(['partner_name'=>$row['partner_name']],JSON_THROW_ON_ERROR)),true,flags:JSON_THROW_ON_ERROR);
             $target->pdo()->prepare('UPDATE cash_documents SET partner_name=? WHERE id=?')->execute([$fact['partner_name'],$row['id']]);
         }
+        foreach($target->pdo()->query('SELECT id,counterparty_account FROM bank_transactions WHERE counterparty_account IS NOT NULL')->fetchAll(PDO::FETCH_ASSOC) as $row){$fact=json_decode($scrubber->scrubJson(json_encode(['counterparty_account'=>$row['counterparty_account']],JSON_THROW_ON_ERROR)),true,flags:JSON_THROW_ON_ERROR);$target->pdo()->prepare('UPDATE bank_transactions SET counterparty_account=? WHERE id=?')->execute([$fact['counterparty_account'],$row['id']]);}
+        foreach($target->pdo()->query('SELECT line_id,dimension_type_id,assignment_origin_ref FROM journal_entry_line_dimensions WHERE assignment_origin_ref IS NOT NULL')->fetchAll(PDO::FETCH_ASSOC) as $row)$target->pdo()->prepare('UPDATE journal_entry_line_dimensions SET assignment_origin_ref=? WHERE line_id=? AND dimension_type_id=?')->execute([$scrubber->scrub($row['assignment_origin_ref']),$row['line_id'],$row['dimension_type_id']]);
         $helper=new PaymentsCloneScrubber($target,$scrubber);
         $target->pdo()->beginTransaction();
         $receipt=\MyInvoice\Service\Anonymization\PaymentWorkflowCloneScrubber::capture($target,$scrubber,static fn(array $v):array=>$v);
@@ -209,7 +212,7 @@ final class PaymentWorkflowCloneTest extends TestCase
         finally{$target->pdo()->rollBack();}
         $before=$this->fingerprint($target->pdo());
         $target->pdo()->exec('RENAME TABLE unit_payment_source_heads TO unit_payment_source_heads_synthetic_hold');
-        try{$helper->run($charges);self::fail('An incomplete workflow schema was accepted.');}
+        try{$helper->run($charges,$registry,$settlementInputs);self::fail('An incomplete workflow schema was accepted.');}
         catch(\LogicException $e){self::assertStringContainsString('complete schema',$e->getMessage());}
         finally{$target->pdo()->exec('RENAME TABLE unit_payment_source_heads_synthetic_hold TO unit_payment_source_heads');}
         self::assertSame($before,$this->fingerprint($target->pdo()));
@@ -217,7 +220,7 @@ final class PaymentWorkflowCloneTest extends TestCase
             $saved=$target->pdo()->query('SELECT id,'.$column.' FROM '.$table.' ORDER BY id DESC LIMIT 1')->fetch(PDO::FETCH_ASSOC);
             $target->pdo()->prepare('UPDATE '.$table.' SET '.$column.'=? WHERE id=?')->execute([str_repeat('0',64),$saved['id']]);
             $before=$this->fingerprint($target->pdo());
-            try{$helper->run($charges);self::fail('A raw workflow/revision hash was repaired.');}
+            try{$helper->run($charges,$registry,$settlementInputs);self::fail('A raw workflow/revision hash was repaired.');}
             catch(PaymentException $e){self::assertSame($table==='unit_payment_exports'?'property_payment_clone_export_proof':'property_payment_clone_workflow_proof',$e->errorCode);}
             self::assertSame($before,$this->fingerprint($target->pdo())); self::assertFalse($target->pdo()->inTransaction());
             $target->pdo()->prepare('UPDATE '.$table.' SET '.$column.'=? WHERE id=?')->execute([$saved[$column],$saved['id']]);
@@ -226,17 +229,17 @@ final class PaymentWorkflowCloneTest extends TestCase
         $q->execute([$this->f['supplier']]); $origin=$q->fetch(PDO::FETCH_ASSOC);
         $target->pdo()->prepare("UPDATE journal_entry_line_dimensions SET assignment_origin='rule_default' WHERE line_id=? AND dimension_type_id=?")->execute([$origin['line_id'],$origin['dimension_type_id']]);
         $before=$this->fingerprint($target->pdo());
-        try{$helper->run($charges);self::fail('An unrelated origin mismatch was repaired.');}
+        try{$helper->run($charges,$registry,$settlementInputs);self::fail('An unrelated origin mismatch was repaired.');}
         catch(PaymentException $e){self::assertContains($e->errorCode,['property_payment_clone_workflow_proof','property_payment_ledger_mismatch']);}
         self::assertSame($before,$this->fingerprint($target->pdo())); self::assertFalse($target->pdo()->inTransaction());
         $target->pdo()->prepare('UPDATE journal_entry_line_dimensions SET assignment_origin=? WHERE line_id=? AND dimension_type_id=?')->execute([$origin['assignment_origin'],$origin['line_id'],$origin['dimension_type_id']]);
         $target->pdo()->prepare("UPDATE unit_payment_sources SET consumed_cents='5999' WHERE supplier_id=? AND id=?")->execute([$this->f['supplier'],$state['id']]);
         $before=$this->fingerprint($target->pdo());
-        try{$helper->run($charges);self::fail('A corrupt financial capacity was repaired during clone.');}
+        try{$helper->run($charges,$registry,$settlementInputs);self::fail('A corrupt financial capacity was repaired during clone.');}
         catch(PaymentException $e){self::assertSame('property_payment_source_capacity_corrupt',$e->errorCode);}
         self::assertSame($before,$this->fingerprint($target->pdo())); self::assertFalse($target->pdo()->inTransaction());
         $target->pdo()->prepare("UPDATE unit_payment_sources SET consumed_cents='6000' WHERE supplier_id=? AND id=?")->execute([$this->f['supplier'],$state['id']]);
-        $helper->run($charges);
+        $helper->run($charges,$registry,$settlementInputs);
         $this->bind($target); $target->pdo()->beginTransaction(); (new PaymentLocks($target))->acquire($this->f['supplier']);
         $current=(new PaymentSourceProof($target))->current($this->f['supplier'],'cash',$native['source']['id']);
         self::assertSame(['A'=>'0','B'=>'4000'],ClearingCells::available($current['clearing_cells'],$current['cell_consumed']));
