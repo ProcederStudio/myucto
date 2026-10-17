@@ -8,16 +8,16 @@ use DOMElement;
 
 /**
  * `VetaP` písemností PLÁTCE DANĚ ze závislé činnosti — DPZVD6, DPSVD2,
- * DPZMB1 a DPZDB1.
+ * DPZMB1 a DPZDB1; také DPSHL1 a DPSZD1 pro příjmy nerezidentů.
  *
  * Není to `VetaP` z DPH/KH/SH. Schémata téhle rodiny NEMAJÍ atributy `c_ufo`,
  * `stat`, `email` ani `c_telef`, které {@see EpoSupplierBlockBuilder::fillVetaP()}
  * emituje bezpodmínečně — podání by na nich spadlo. Správce daně se u nich
  * uvádí jen v `VetaD` (`c_ufo_cil`).
  *
- * Sada atributů je napříč všemi čtyřmi písemnostmi znak po znaku shodná
- * s jedinou výjimkou: `sest_email` znají jen vyúčtování (DPZVD6, DPSVD2),
- * žádosti o bonus ne. Proto `$includeSestEmail`, ne čtvrtá kopie plniče.
+ * `sest_email` znají vyúčtování a hlášení nerezidentů, žádosti o bonus ne.
+ * Hlášení nerezidentů naopak nemají `titul`. Rozdíly schémat řídí
+ * `$includeSestEmail` a `$includePersonTitle` místo samostatných kopií plniče.
  *
  * Vzniklo to sloučením kopie, kterou si napsala vlna DPZMB1/DPZDB1, s tou,
  * kterou by jinak potřebovala vlna vyúčtování. Normalizační primitiva
@@ -28,12 +28,15 @@ final class EpoPayerBlockBuilder
 {
     /**
      * @param array<string,mixed> $supplier Řádek z {@see EpoSupplierBlockBuilder::loadSupplier()}.
-     * @param bool $includeSestEmail Emitovat `sest_email`? Jen DPZVD6/DPSVD2.
+     * @param bool $includeSestEmail Emitovat `sest_email`? Vyúčtování a hlášení nerezidentů.
+     * @param bool $includePersonTitle DPSHL1/DPSZD1 atribut `titul` nemají; ostatní
+     *                                formuláře této rodiny dovolují titul FO do 10 znaků.
      */
     public static function fillVetaP(
         DOMElement $vetaP,
         array $supplier,
         bool $includeSestEmail = false,
+        bool $includePersonTitle = true,
     ): void {
         $vetaP->setAttribute('dic', EpoSupplierBlockBuilder::normalizeDic(
             isset($supplier['dic']) ? (string) $supplier['dic'] : null,
@@ -57,6 +60,9 @@ final class EpoPayerBlockBuilder
             }
             $vetaP->setAttribute('jmeno', $jmeno);
             $vetaP->setAttribute('prijmeni', $prijmeni !== '' ? $prijmeni : $jmeno);
+            if ($includePersonTitle) {
+                EpoSupplierBlockBuilder::fillPersonTitle($vetaP, $supplier);
+            }
         }
 
         [$ulice, $cpop, $corient] = EpoSupplierBlockBuilder::parseStreet($supplier);

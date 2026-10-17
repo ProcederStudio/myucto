@@ -4258,6 +4258,8 @@
     "verify_passkey": "Ověřit přes passkey"
   },
   "bank": {
+    "open_cash_journal": "Otevřít v peněžním deníku",
+    "open_accounting_journal": "Otevřít v účetním deníku",
     "account": "Účet",
     "advance_final_force_confirm": "Jde opravdu o doplatek této faktury, ne o platbu zálohy? Potvrzením platbu spárujete s fakturou.",
     "all_accounts": "Všechny účty",
@@ -31015,6 +31017,15 @@
       "you_are_quarterly": "Kvartální plátce DPH"
     },
     "dph_book": {
+      "section_filter": "Řádek přiznání / oddíl KH",
+      "all_sections": "Celá kniha DPH",
+      "dph_lines": "Řádky DPH přiznání",
+      "line_filter_option": "Řádek {line}",
+      "filtered_line": "Doklady k řádku {line} přiznání",
+      "filtered_line_note": "Zobrazeny jsou jen sekce vybraného řádku s jejich mezisoučty. Celkové součty a PDF celé knihy jsou dostupné po zrušení filtru.",
+      "current_book_note": "Kniha ukazuje aktuální podklady včetně konceptů, nikoli rozdíl dodatečného přiznání ani uložené podání. Koncepty do přiznání nevstupují. Částky se mohou lišit také zaokrouhlením nebo krácením odpočtu.",
+      "open_line_beside": "Otevřít doklady řádku {line} v knize DPH",
+      "open_section_beside": "Otevřít soupis dokladů oddílu {section}",
       "claim_basis": {
         "issue_date": "dle data vystavení",
         "received_at": "dle data přijetí",
@@ -32857,11 +32868,14 @@
     "numbering_type_invoice": "Faktura",
     "numbering_type_proforma": "Zálohová (proforma)",
     "numbering_type_simplified": "Zjednodušený daňový doklad",
-    "opr_hint": "Povinné u právnických osob - osoba podepisující daňová přiznání. U OSVČ volitelné: vyplňte vlastní jméno a příjmení pro přesné rozdělení do EPO výkazů (jinak se odvodí z názvu, včetně odstranění akademických titulů).",
+    "opr_hint": "Povinné u právnických osob - osoba podepisující daňová přiznání.",
     "opr_jmeno": "Jméno",
     "opr_postaveni": "Postavení (např. jednatel)",
     "opr_prijmeni": "Příjmení",
     "opr_section": "Oprávněná osoba (jednatel / podpisující)",
+    "person_section": "Osobní údaje podnikatele",
+    "person_hint": "Údaje podnikatele pro daňová podání. Vyplňte vlastní jméno a příjmení pro přesné rozdělení do výkazů; jinak se odvodí z názvu firmy. Titul je nepovinný.",
+    "person_title": "Titul",
     "oss_enabled": "OSS režim",
     "oss_hint": "Zapne evidenci One Stop Shop. Řádky vydaných faktur se do OSS zařazují automaticky podle sazby, země odběratele a číselníku sazeb členských států - sporné případy systém označí k ručnímu posouzení.",
     "oss_identification_country": "Země identifikace",
@@ -35837,6 +35851,7 @@
       "usage": "{count}×"
     },
     "cash_journal": {
+      "source_not_found": "Tento bankovní pohyb není v peněžním deníku za vybrané období.",
       "all_classifications": "Všechny klasifikace",
       "attachments_title": "Přílohy dokladu",
       "attachments_unavailable": "Pohyb vyúčtování GoPay přílohy nemá, doklady najdete v modulu GoPay.",

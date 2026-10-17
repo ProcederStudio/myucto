@@ -8,14 +8,15 @@
  * dokládá účetní a zadává je při evidenci opravy. Obnova po úhradě (§ 46e) už
  * automatická je — plyne výhradně z úhrad, které systém eviduje.
  */
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { reportsApi, type S46Row, type S46LegalGround, type S46RestorationsPreview } from '@/api/reports'
-import { btnFilledSmWrap } from '@/components/ui/buttonStyles'
+import { btnFilledSmWrap, btnOutlineSm, ICONS } from '@/components/ui/buttonStyles'
 import { apiErrorMessage } from '@/api/errors'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
+import { useVatReportPeriod } from '@/composables/useVatReportPeriod'
 import ActionBar, { type ActionItem } from '@/components/ui/ActionBar.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import { appIsoDate } from '@/utils/date'
@@ -50,13 +51,14 @@ const visibleCandidates = computed(() =>
 )
 
 const now = new Date()
-const restYear = ref(now.getFullYear())
-const restMonth = ref(now.getMonth() + 1)
+const { year: restYear, month: restMonth, ready, settingsError, initialize } = useVatReportPeriod('monthly')
 const restorations = ref<S46RestorationsPreview | null>(null)
-const loadingRest = ref(false)
+const loadingRest = ref(true)
 const recording = ref(false)
 
 const canFinalize = computed(() => auth.canWrite('reports.finalize'))
+let restSeq = 0
+onBeforeUnmount(() => { ++restSeq })
 
 async function loadCandidates() {
   loading.value = true
@@ -72,19 +74,25 @@ async function loadCandidates() {
 }
 
 async function loadRestorations() {
+  if (!ready.value) return
+  const seq = ++restSeq
+  const requestedYear = restYear.value
+  const requestedMonth = restMonth.value
+  const current = () => seq === restSeq && ready.value && requestedYear === restYear.value && requestedMonth === restMonth.value
   loadingRest.value = true
+  restorations.value = null
   try {
-    restorations.value = await reportsApi.s46Restorations(restYear.value, restMonth.value)
+    const result = await reportsApi.s46Restorations(requestedYear, requestedMonth)
+    if (current()) restorations.value = result
   } catch (e) {
-    toast.error(apiErrorMessage(e))
-    restorations.value = null
+    if (current()) toast.error(apiErrorMessage(e))
   } finally {
-    loadingRest.value = false
+    if (seq === restSeq) loadingRest.value = false
   }
 }
 
 async function recordRestorations() {
-  if (!restorations.value || restorations.value.rows.length === 0) return
+  if (!ready.value || loadingRest.value || !restorations.value || restorations.value.rows.length === 0) return
   if (!confirm(t('reports.s46.restore_confirm', { count: restorations.value.rows.length }))) return
   recording.value = true
   try {
@@ -173,12 +181,16 @@ function fmtDate(iso: string | null): string {
 const months = Array.from({ length: 12 }, (_, i) => i + 1)
 const restYears = computed(() => {
   const y = now.getFullYear()
-  return [y - 2, y - 1, y, y + 1].filter(v => v >= 2020)
+  return [...new Set([y - 2, y - 1, y, y + 1, restYear.value])].filter(v => v >= 2000).sort((a, b) => b - a)
 })
 
-watch([restYear, restMonth], loadRestorations)
+watch([ready, restYear, restMonth], () => {
+  if (ready.value) void loadRestorations()
+  else { ++restSeq; restorations.value = null; loadingRest.value = !settingsError.value }
+})
+watch(settingsError, value => { if (value) loadingRest.value = false })
 watch(asOf, loadCandidates)
-onMounted(() => { loadCandidates(); loadRestorations() })
+onMounted(() => { void loadCandidates(); void initialize() })
 </script>
 
 <template>
@@ -290,20 +302,27 @@ onMounted(() => { loadCandidates(); loadRestorations() })
           <h2 class="text-sm font-semibold">{{ t('reports.s46.restorations_title') }}</h2>
           <p class="text-xs text-neutral-500 mt-0.5">{{ t('reports.s46.restorations_hint') }}</p>
         </div>
-        <div class="flex items-center gap-2">
-          <select v-model.number="restMonth" class="h-8 px-2 border border-neutral-300 rounded-md bg-surface text-sm">
+        <div class="flex flex-wrap items-center gap-2">
+          <select v-model.number="restMonth" :disabled="!ready || recording" class="h-8 px-2 border border-neutral-300 rounded-md bg-surface text-sm">
             <option v-for="m in months" :key="m" :value="m">{{ m }}</option>
           </select>
-          <select v-model.number="restYear" class="h-8 px-2 border border-neutral-300 rounded-md bg-surface text-sm">
+          <select v-model.number="restYear" :disabled="!ready || recording" class="h-8 px-2 border border-neutral-300 rounded-md bg-surface text-sm">
             <option v-for="y in restYears" :key="y" :value="y">{{ y }}</option>
           </select>
           <button v-if="canFinalize" type="button"
-                  :disabled="recording || loadingRest || !restorations || restorations.rows.length === 0"
+                  :disabled="!ready || recording || loadingRest || !restorations || restorations.rows.length === 0"
                   class="cursor-pointer h-8 px-3 text-xs bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-md disabled:opacity-50"
                   @click="recordRestorations">
             {{ recording ? t('common.saving') : t('reports.s46.record_restorations') }}
           </button>
         </div>
+      </div>
+      <div v-if="settingsError" class="p-4 flex flex-wrap items-center gap-3 text-sm text-danger-600">
+        <span>{{ apiErrorMessage(settingsError) }}</span>
+        <button type="button" :class="btnOutlineSm('neutral')" @click="initialize()">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.cycle" /></svg>
+          {{ t('common.retry') }}
+        </button>
       </div>
       <div v-if="loadingRest" class="p-6 text-center text-neutral-400">{{ t('common.loading') }}…</div>
       <EmptyState v-else-if="!restorations || restorations.rows.length === 0" dense accent="neutral" icon="cycle"

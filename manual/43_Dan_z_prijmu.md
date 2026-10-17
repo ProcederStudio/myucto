@@ -35,6 +35,7 @@ rekonciliace](49_Archiv_podani_a_rekonciliace.md).
 - U DPPO dokončete účetní závěrku (viz [Účetní závěrka](72_Uzaverka.md)).
 - U účtů nákladů mějte na účtovém rozvrhu správně nastavenou daňovou uznatelnost (viz [Účtová osnova](66_Ucetni_osnova.md)).
 - V `Nastavení → Daně a účetnictví` zkontrolujte část **Přiznání k dani z příjmů - povaha poplatníka**. Výchozí hodnoty odpovídají běžné firmě a OSVČ, takže je ponechte, pokud se vás netýkají (viz [§ 43.11.10](#431110-situace-ktere-aplikace-v-priznani-neumi)).
+- U OSVČ můžete v `Nastavení → Daně a účetnictví`, části **Osobní údaje podnikatele**, doplnit titul, jméno a příjmení. Titul je nepovinný; použije se také v XML přiznání DPFO a v XML přehledu pro ČSSZ.
 - Chcete-li prodloužení lhůty, vyplňte zastoupení daňovým poradcem v `Nastavení → Daně a účetnictví`, část **Zastoupení a podepisující osoba**.
 - Pro párování záloh potřebujete naimportované bankovní výpisy.
 - Pro stažení XML a PDF potřebujete oprávnění k exportu výkazů.

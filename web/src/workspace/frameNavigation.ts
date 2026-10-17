@@ -32,18 +32,39 @@ export function internalAnchorNavigation(
   router: Router,
   event: MouseEvent,
   canOpenRight: boolean,
-): { to: RouteLocationRaw; newPane?: boolean; placement?: 'beside' } | null {
-  if (event.defaultPrevented || event.button !== 0 || event.altKey || event.metaKey || event.shiftKey) return null
+  canOpenRightWithSplit = false,
+): { to: RouteLocationRaw; newPane?: boolean; placement?: 'beside' | 'right' } | null {
+  if (event.defaultPrevented || event.button !== 0 || event.altKey || event.metaKey) return null
+  if (event.shiftKey && (event.ctrlKey || !canOpenRightWithSplit)) return null
   const newPane = event.ctrlKey
   if (newPane && !canOpenRight) return null
   const to = event.target instanceof Element ? internalRouteFromElement(event.target) : null
   if (!to) return null
   try {
-    const beside = !newPane && event.target instanceof Element
+    const beside = !newPane && !event.shiftKey && event.target instanceof Element
       && event.target.closest('a[data-workspace-open="beside"]') !== null
     return router.resolve(to).matched.length
-      ? { to, ...(newPane ? { newPane: true } : {}), ...(beside ? { placement: 'beside' as const } : {}) } : null
+      ? { to, ...(newPane ? { newPane: true } : {}), ...(event.shiftKey ? { placement: 'right' as const } : {}), ...(beside ? { placement: 'beside' as const } : {}) } : null
   } catch {
     return null
   }
+}
+
+export function installShiftClickNavigation(
+  router: Router,
+  canOpen: (event: MouseEvent) => boolean,
+  open: (to: RouteLocationRaw, event: MouseEvent) => void,
+  target: Document = document,
+): () => void {
+  const click = (event: MouseEvent) => {
+    if (!event.shiftKey) return
+    const navigation = internalAnchorNavigation(router, event, false, canOpen(event))
+    if (navigation?.placement !== 'right'
+      || !router.resolve(navigation.to).matched.some(record => record.meta.requiresAuth)) return
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    open(navigation.to, event)
+  }
+  target.addEventListener('click', click, true)
+  return () => target.removeEventListener('click', click, true)
 }

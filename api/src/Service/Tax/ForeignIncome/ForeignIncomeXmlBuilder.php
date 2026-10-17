@@ -88,7 +88,8 @@ final class ForeignIncomeXmlBuilder
 
         // ── VetaP — plátce daně ─────────────────────────────────────────────
         $vetaP = $dom->createElement('VetaP');
-        EpoPayerBlockBuilder::fillVetaP($vetaP, $supplier, true);
+        // DPSHL1 na rozdíl od vyúčtování a žádostí o bonus nemá v XSD atribut titul.
+        EpoPayerBlockBuilder::fillVetaP($vetaP, $supplier, true, includePersonTitle: false);
         $root->appendChild($vetaP);
 
         // ── VetaH — poplatník a jeden druh příjmu ───────────────────────────
@@ -283,7 +284,8 @@ final class ForeignIncomeXmlBuilder
 
         // ── VetaP — plátce daně ─────────────────────────────────────────────
         $vetaP = $dom->createElement('VetaP');
-        EpoPayerBlockBuilder::fillVetaP($vetaP, $supplier, true);
+        // DPSZD1 stejně jako DPSHL1 atribut titul v XSD nemá.
+        EpoPayerBlockBuilder::fillVetaP($vetaP, $supplier, true, includePersonTitle: false);
         $root->appendChild($vetaP);
 
         return [

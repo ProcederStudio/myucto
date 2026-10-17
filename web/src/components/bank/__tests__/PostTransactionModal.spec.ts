@@ -31,6 +31,9 @@ vi.mock('@/composables/useToast', () => ({
   useToast: () => ({ success: vi.fn(), error: vi.fn() }),
 }))
 
+vi.mock('@/components/bank/useBankJournalNavigation', () => ({
+  useBankJournalNavigation: () => ({ cashTarget: () => null, entryTarget: () => null, open: vi.fn(), href: () => '' }),
+}))
 vi.mock('@/composables/useHotkey', () => ({ useHotkey: () => {} }))
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ canRead: () => true, canWrite: () => true }) }))
 // Dimenze (Firma → Dimenze) jsou u firmy vypnuté — řádek pohybu je nevykreslí.

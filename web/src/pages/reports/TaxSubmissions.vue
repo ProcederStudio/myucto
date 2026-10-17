@@ -1868,10 +1868,10 @@ onMounted(async () => {
           </thead>
           <tbody class="divide-y divide-neutral-100">
             <tr v-for="item in filtered" :key="item.id"
-              class="hover:bg-neutral-50 cursor-pointer"
-              :class="{ 'bg-primary-50/50': expandedId === item.id }"
+              class="cursor-pointer"
+              :class="expandedId === item.id ? 'bg-primary-50 hover:bg-primary-50' : 'hover:bg-neutral-50'"
               @click="toggleDetail(item)">
-              <td class="px-4 py-3">
+              <td class="px-4 py-3" :class="{ 'shadow-[inset_3px_0_0_var(--color-primary-500)]': expandedId === item.id }">
                 <div class="font-medium">
                   {{ formCodeLabel(item.form_code) }}
                   <span v-if="isPayrollForm(item.form_code)"
@@ -1949,8 +1949,9 @@ onMounted(async () => {
 
       <div class="md:hidden space-y-3">
         <button v-for="item in filtered" :key="item.id" type="button"
-          class="w-full text-left bg-surface border rounded-lg p-4"
-          :class="expandedId === item.id ? 'border-primary-500' : 'border-neutral-200'"
+          class="w-full text-left border rounded-lg p-4"
+          :class="expandedId === item.id ? 'border-primary-500 bg-primary-50' : 'border-neutral-200 bg-surface'"
+          :aria-expanded="expandedId === item.id"
           @click="toggleDetail(item)">
           <div class="flex items-start justify-between gap-3">
             <div>

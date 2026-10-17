@@ -1,11 +1,26 @@
-import type { PaneId, WorkspacePaneState } from '@/stores/workspace'
+import type { PaneCount, PaneId, WorkspacePaneState } from '@/stores/workspace'
+
+export function rightPanePlan(
+  sourceId: PaneId,
+  panes: Pick<WorkspacePaneState, 'id'>[],
+  maximum: PaneCount,
+): { paneId: PaneId; count: PaneCount } | null {
+  const index = panes.findIndex(pane => pane.id === sourceId)
+  if (index < 0) return null
+  const next = panes[index + 1]
+  if (next) return { paneId: next.id, count: panes.length as PaneCount }
+  if (panes.length >= maximum) return null
+  const count = (panes.length + 1) as PaneCount
+  return { paneId: count === 2 ? 'secondary-2' : 'secondary-3', count }
+}
 
 export function paneForBeside(
   currentPaneId: PaneId,
   panes: Pick<WorkspacePaneState, 'id' | 'fullPath'>[],
 ): PaneId {
   const index = panes.findIndex(pane => pane.id === currentPaneId)
-  return panes.find(pane => pane.id !== currentPaneId && !pane.fullPath)?.id
+  return paneForCtrlClick(currentPaneId, panes)
+    ?? panes.find(pane => pane.id !== currentPaneId && !pane.fullPath)?.id
     ?? panes[(index + 1) % panes.length]?.id ?? currentPaneId
 }
 

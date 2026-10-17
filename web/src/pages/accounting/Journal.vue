@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, reactive, computed, watch, useId } from 'vue'
+import { ref, onMounted, reactive, computed, watch, useId, nextTick, onBeforeUnmount } from 'vue'
 import ListLoadingSpinner from '@/components/ui/ListLoadingSpinner.vue'
 import { useFillViewportHeight } from '@/composables/useFillViewportHeight'
 import { useAdaptiveTableRows } from '@/composables/useAdaptiveTableRows'
@@ -12,6 +12,8 @@ import {
   type AccountingPeriod,
   type ChartAccount,
 } from '@/api/accounting'
+import { usePaneDom } from '@/composables/usePaneDom'
+import { requestSupplierId } from '@/workspace/supplierContext'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
 import { formatDate, formatDateTime, formatMoney } from '@/composables/useFormat'
@@ -50,6 +52,12 @@ const toast = useToast()
 const route = useRoute()
 const router = useRouter()
 const pageId = useId()
+const paneDom = usePaneDom()
+let initialized = false
+let disposed = false
+let focusSeq = 0
+let focusPending = false
+onBeforeUnmount(() => { disposed = true; ++focusSeq; ++loadSeq })
 const dims = useDimensions()
 
 const entries = ref<JournalEntry[]>([])
@@ -122,9 +130,10 @@ const sourceIdFilter = ref<number | ''>('')
 const entryIdFilter = ref<number | ''>('')
 
 let loadSeq = 0
-async function load(reset = true) {
-  if (!reset && (loading.value || loadingMore.value || page.value >= totalPages.value)) return
+async function load(reset = true): Promise<boolean> {
+  if (!reset && (loading.value || loadingMore.value || page.value >= totalPages.value)) return false
   const seq = ++loadSeq
+  const supplierId = requestSupplierId()
   if (reset) {
     loading.value = true
     loadingMore.value = false
@@ -162,17 +171,19 @@ async function load(reset = true) {
       include_notes: tbl.isVisible('note'),
       include_documents: tbl.isVisible('documents'),
     })
-    if (seq !== loadSeq) return
+    if (seq !== loadSeq || disposed || supplierId !== requestSupplierId()) return false
     entries.value = reset ? r.items : [...entries.value, ...r.items]
     total.value = r.total
     perPage.value = r.per_page
+    return true
   } catch (e) {
-    if (seq === loadSeq) {
+    if (seq === loadSeq && !disposed && supplierId === requestSupplierId()) {
       if (!reset) page.value--
       toast.error(t('common.error'))
     }
+    return false
   } finally {
-    if (seq === loadSeq) {
+    if (seq === loadSeq && !disposed && supplierId === requestSupplierId()) {
       loading.value = false
       loadingMore.value = false
     }
@@ -180,6 +191,8 @@ async function load(reset = true) {
 }
 
 function applyFilters() {
+  ++focusSeq
+  focusPending = false
   // Uživatel sáhl na filtry → uvolni drill-down omezení na konkrétní doklad i zápis.
   sourceIdFilter.value = ''
   entryIdFilter.value = ''
@@ -406,12 +419,26 @@ watch(() => route.query, (q) => {
  * případě znovu nespustí, takže bez tohohle watcheru by odkaz mířící z deníku do
  * deníku jen přepsal adresu a jinak neudělal nic.
  */
-watch(() => route.query.entry_id, async (raw) => {
+watch(() => [route.query.entry_id, route.query.source_type, route.query.source_id], async ([raw]) => {
+  const pending = focusPending
+  focusPending = false
+  ++focusSeq
+  if (!initialized) return
   const id = Number(raw || 0)
-  if (id <= 0 || id === entryIdFilter.value) return
   sourceDrawerEntryId.value = null
-  if (!await focusEntry(id)) toast.error(t('common.error'))
-})
+  if (Number.isSafeInteger(id) && id > 0) {
+    if ((pending || id !== entryIdFilter.value) && !await focusEntry(id)) toast.error(t('common.error'))
+    return
+  }
+  const sourceId = Number(route.query.source_id || 0)
+  if ((Number.isSafeInteger(sourceId) && sourceId > 0) || entryIdFilter.value !== '' || sourceIdFilter.value !== '' || pending) {
+    hydrateFilters(route.query)
+    entryIdFilter.value = ''
+    sourceIdFilter.value = Number.isSafeInteger(sourceId) && sourceId > 0 ? sourceId : ''
+    collapseAll()
+    await load()
+  }
+}, { flush: 'sync' })
 
 const COLUMNS: ColumnDef[] = [
   { key: 'date', labelKey: 'accounting.journal.entry_date', required: true },
@@ -551,12 +578,14 @@ onMounted(async () => {
   accountingApi.listAccounts().then(v => { accounts.value = v }).catch(() => { accounts.value = [] })
   // Číselník dimenzí pro popisek chipu filtru; při vypnutých dimenzích nic nenačte.
   dims.load().catch(() => { /* chip ukáže #id */ })
+  if (disposed) return
   hydrateFilters(route.query)
+  initialized = true
   const qSourceId = Number(route.query.source_id || 0)
-  if (qSourceId > 0) sourceIdFilter.value = qSourceId
+  if (Number.isSafeInteger(qSourceId) && qSourceId > 0) sourceIdFilter.value = qSourceId
   const entryId = Number(route.query.entry_id || 0)
   // Neexistující/cizí zápis → pokračuje běžné načtení.
-  if (entryId > 0 && await focusEntry(entryId)) return
+  if (Number.isSafeInteger(entryId) && entryId > 0 && await focusEntry(entryId)) return
   if (Object.keys(route.query).length === 0 && await saved.applyDefaultIfAny()) return
   await load()
 })
@@ -726,19 +755,33 @@ function onLinksChanged(entryId: number) {
  * viditelný kontext (uživatel hned vidí, kde v čase je), takže se vedle hledaného
  * zápisu neukážou nesouvisející zápisy z téhož dne.
  *
- * @returns false, když zápis neexistuje nebo patří jinému tenantovi
+ * @returns false, když zápis neexistuje nebo patří jinému tenantovi; překonaný
+ * požadavek vrací true, aby už nespouštěl náhradní načtení ani chybovou hlášku.
  */
 async function focusEntry(entryId: number): Promise<boolean> {
+  const seq = ++focusSeq
+  focusPending = true
+  const supplierId = requestSupplierId()
+  const current = () => !disposed && seq === focusSeq && supplierId === requestSupplierId()
+  ++loadSeq
+  loading.value = true
+  entryIdFilter.value = ''
+  collapseAll()
   let d: JournalEntryDetail
   try {
     d = await accountingApi.getEntry(entryId)
   } catch {
+    if (!current()) return true
+    focusPending = false
+    loading.value = false
     return false
   }
+  if (!current()) return true
   filters.document_no = ''
   filters.period_id = ''
   filters.source_type = ''
   filters.posted = ''
+  filters.reversal = ''
   filters.automation = ''
   filters.q = ''
   filters.account_from = ''
@@ -753,11 +796,19 @@ async function focusEntry(entryId: number): Promise<boolean> {
   filters.date_from = d.entry_date
   filters.date_to = d.entry_date
   page.value = 1
-  await load()
+  const loaded = await load()
+  if (!current()) return true
+  focusPending = false
+  if (!loaded || !entries.value.some(entry => entry.id === entryId)) return false
   // Proklik na konkrétní zápis ho ukáže rozbalený sám, ostatní k němu nepatří.
   expandedIds.value = [entryId]
   details.value = { [entryId]: d }
   detailLoadingIds.value = []
+  await nextTick()
+  if (!current()) return true
+  const target = [...paneDom.querySelectorAll<HTMLElement>(`[data-journal-entry="${entryId}"]`)]
+    .find(el => el.getClientRects().length > 0)
+  target?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' })
   return true
 }
 
@@ -772,10 +823,12 @@ async function openReversal(id: number) {
  */
 async function onFocusEntry(entryId: number) {
   sourceDrawerEntryId.value = null
+  const seq = focusSeq + 1
   if (!await focusEntry(entryId)) {
     toast.error(t('common.error'))
     return
   }
+  if (seq !== focusSeq || disposed) return
   // Adresa musí odpovídat tomu, co je vidět (sdílitelný odkaz, zpětné tlačítko).
   void router.replace({ query: { entry_id: String(entryId) } })
 }
@@ -1041,11 +1094,12 @@ function entryRange(entry: JournalEntryDetail): { from: string; to: string } {
               <!-- Rozbalený zápis je podbarvený i s hlavičkou a nese levou lištu
                    v akcentu: detail je vysoký přes celou obrazovku a bez toho se
                    při odrolování ztratí, na kterém řádku vlastně pracuju. -->
-              <tr class="cursor-pointer" :class="[
+              <tr class="cursor-pointer scroll-mt-12" :data-journal-entry="e.id" :aria-current="entryIdFilter === e.id ? 'true' : undefined" :class="[
                     e.reversed_by && !colors.hasColors.value ? 'opacity-60' : '',
+                    entryIdFilter === e.id ? 'ring-2 ring-inset ring-primary-500' : '',
                     isExpanded(e.id)
                       ? 'bg-primary-50/60 border-x-2 border-t-2 border-primary-500/60'
-                      : 'hover:bg-neutral-50',
+                      : entryIdFilter === e.id ? 'bg-primary-50' : 'hover:bg-neutral-50',
                   ]" @click="toggleExpand(e)">
                 <td class="px-3 py-2 text-neutral-400">
                   <span class="inline-block transition-transform" :class="{ 'rotate-90': isExpanded(e.id) }">▸</span>
@@ -1161,8 +1215,8 @@ function entryRange(entry: JournalEntryDetail): { from: string; to: string } {
            se neskrývají — picker je desktopový ovladač a na kartě jde o jiné,
            vertikální rozvržení, kde se zápis stejně vejde celý. -->
       <div class="md:hidden divide-y divide-neutral-100">
-        <div v-for="e in entries" :key="`m-${e.id}`"
-          :class="isExpanded(e.id) ? 'bg-primary-50/60' : ''">
+        <div v-for="e in entries" :key="`m-${e.id}`" :data-journal-entry="e.id" :aria-current="entryIdFilter === e.id ? 'true' : undefined" class="scroll-mt-12"
+          :class="[isExpanded(e.id) || entryIdFilter === e.id ? 'bg-primary-50/60' : '', entryIdFilter === e.id ? 'ring-2 ring-inset ring-primary-500' : '']">
           <button type="button" class="cursor-pointer w-full text-left p-3 space-y-1.5"
             :class="e.reversed_by && !colors.hasColors.value ? 'opacity-60' : ''" @click="toggleExpand(e)">
             <div class="flex items-baseline justify-between gap-2">

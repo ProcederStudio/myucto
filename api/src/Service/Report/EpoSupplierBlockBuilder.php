@@ -6,6 +6,7 @@ namespace MyInvoice\Service\Report;
 
 use DOMElement;
 use MyInvoice\Service\Tax\Return\TaxRepresentationService;
+use MyInvoice\Service\Supplier\SupplierPersonTitle;
 
 /**
  * Sdílený helper pro sestavení `<VetaP>` (identifikace daňového subjektu)
@@ -29,7 +30,7 @@ final class EpoSupplierBlockBuilder
         'dic', 'taxpayer_type', 'financial_office_code', 'workplace_code',
         'email', 'phone',
         'street_number_pop', 'street_number_orient',
-        'opr_jmeno', 'opr_prijmeni', 'opr_postaveni',
+        'opr_jmeno', 'opr_prijmeni', 'opr_postaveni', 'person_title',
         'sest_jmeno', 'sest_prijmeni', 'sest_telefon',
     ];
 
@@ -50,7 +51,7 @@ final class EpoSupplierBlockBuilder
                     s.workplace_code, s.cz_nace_code, s.data_box_id,
                     s.email, s.phone,
                     s.street_number_pop, s.street_number_orient,
-                    s.opr_jmeno, s.opr_prijmeni, s.opr_postaveni,
+                    s.opr_jmeno, s.opr_prijmeni, s.opr_postaveni, s.person_title,
                     s.sest_jmeno, s.sest_prijmeni, s.sest_telefon, s.sest_email, s.sest_funkce";
     }
 
@@ -136,6 +137,7 @@ final class EpoSupplierBlockBuilder
             }
             $vetaP->setAttribute('jmeno', $jmeno);
             $vetaP->setAttribute('prijmeni', $prijmeni !== '' ? $prijmeni : $jmeno);
+            self::fillPersonTitle($vetaP, $supplier);
         }
 
         [$uliceText, $cpop, $corient] = self::parseStreet($supplier);
@@ -184,6 +186,18 @@ final class EpoSupplierBlockBuilder
         if (!empty($supplier['sest_telefon'])) $vetaP->setAttribute('sest_telef', self::normalizePhone((string) $supplier['sest_telefon']));
         // Pozn.: sest_email a sest_funkce NEJSOU v EPO XSD (DPH/KH/SHV) — držíme je
         // jen v DB pro vnitřní použití (kontakt na účetní v UI).
+    }
+
+    /** Titul subjektu FO pro EPO formuláře s atributem titul, odděleně od podepisující osoby. */
+    public static function fillPersonTitle(DOMElement $vetaP, array $supplier): void
+    {
+        if (($supplier['taxpayer_type'] ?? null) === 'po') {
+            return;
+        }
+        $title = SupplierPersonTitle::normalize($supplier['person_title'] ?? null);
+        if ($title !== null) {
+            $vetaP->setAttribute('titul', $title);
+        }
     }
 
     /**

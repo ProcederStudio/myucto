@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { computed, ref, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { RouterLink, type RouteLocationRaw } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import WorkspaceTeleport from '@/components/workspace/WorkspaceTeleport.vue'
@@ -25,6 +25,11 @@ export interface RowAction {
   label: string
   icon?: ActionIcon
   variant?: ActionVariant   // default 'neutral'
+  /** Akce zůstává v nabídce i při volném místě mezi inline tlačítky. */
+  menuOnly?: boolean
+  /** Zachytí klik před vlastní navigací RouterLinku; preventDefault() ji převezme. */
+  onNavigate?: (event: MouseEvent) => void
+  workspaceOpen?: 'beside'
   filled?: boolean          // inline: plné tlačítko místo outline (hlavní akce)
   disabled?: boolean
   /**
@@ -64,8 +69,8 @@ const paneActive = usePaneActivity()
 const DOTS = 'M6.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0zM12.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0zM18.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0z'
 
 const visible = computed(() => props.actions.filter(a => a.show === undefined || !!a.show))
-const inline = computed(() => visible.value.slice(0, props.inlineCount))
-const menu = computed(() => visible.value.slice(props.inlineCount))
+const inline = computed(() => visible.value.filter(a => !a.menuOnly).slice(0, props.inlineCount))
+const menu = computed(() => visible.value.filter(a => !inline.value.includes(a)))
 const hasMenu = computed(() => menu.value.length > 0)
 const triggerLabel = computed(() => props.menuLabel || t('common.more_actions'))
 
@@ -147,6 +152,12 @@ function close(returnFocus = false) {
   if (returnFocus) triggerRef.value?.focus()
 }
 
+watch(paneActive, active => { if (!active) close() })
+
+function navigateItem(a: RowAction, event: MouseEvent) {
+  if (!a.disabled) a.onNavigate?.(event)
+}
+
 function runItem(a: RowAction) {
   if (a.disabled) return
   close()
@@ -175,12 +186,24 @@ function onKey(e: KeyboardEvent) { if (paneActive.value && e.key === 'Escape') c
 // Posluchač musí být TÁŽ funkce při přidání i odebrání; `close` sama bere
 // argument, takže by jí prohlížeč jako „vrať ohnisko" podstrčil Event.
 function closeOnViewportChange() { close() }
+// Rámy pracovní plochy zachytí odkaz už v capture fázi dokumentu a zastaví šíření
+// dřív, než dojde na handlery položky. Nabídku proto zavřeme předem, navigaci nepřebíráme.
+function closeOnNavigationCapture(event: MouseEvent) {
+  if (!open.value || !(event.target instanceof Element)) return
+  const anchor = event.target.closest('a[data-menu-item]')
+  if (!anchor || !menuRef.value?.contains(anchor) || anchor.closest('[aria-disabled="true"]')) return
+  close()
+}
 onMounted(() => {
+  window.addEventListener('click', closeOnNavigationCapture, true)
+  window.addEventListener('auxclick', closeOnNavigationCapture, true)
   window.addEventListener('keydown', onKey)
   window.addEventListener('scroll', closeOnViewportChange, true)
   window.addEventListener('resize', closeOnViewportChange)
 })
 onBeforeUnmount(() => {
+  window.removeEventListener('click', closeOnNavigationCapture, true)
+  window.removeEventListener('auxclick', closeOnNavigationCapture, true)
   window.removeEventListener('keydown', onKey)
   window.removeEventListener('scroll', closeOnViewportChange, true)
   window.removeEventListener('resize', closeOnViewportChange)
@@ -191,7 +214,8 @@ onBeforeUnmount(() => {
   <div class="inline-flex items-center gap-1 justify-end">
     <component :is="tagOf(a)" v-for="a in inline" :key="a.key" v-bind="attrsOf(a)"
       :class="inlineClass(a)" :disabled="a.disabled" :title="titleOf(a)" :aria-label="iconOnly ? a.label : undefined"
-      @click="runItem(a)">
+      :data-workspace-open="a.workspaceOpen" :data-action="a.key"
+      @click.capture="navigateItem(a, $event)" @click="runItem(a)">
       <svg v-if="a.icon" class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" :d="ICONS[a.icon]" />
       </svg>
@@ -217,7 +241,8 @@ onBeforeUnmount(() => {
             :class="['w-full flex items-start gap-2.5 px-3 py-2 text-left',
                      a.variant === 'danger' ? 'text-danger-600 hover:bg-danger-50' : 'text-neutral-700 hover:bg-neutral-50',
                      a.disabled ? 'opacity-70 cursor-default' : 'cursor-pointer']"
-            :title="a.title || undefined" @click="runItem(a)">
+            :title="a.title || undefined" :data-workspace-open="a.workspaceOpen" :data-action="a.key"
+            @click.capture="navigateItem(a, $event)" @click="runItem(a)">
             <svg v-if="a.icon" :class="['w-4 h-4 mt-0.5 shrink-0', a.variant === 'danger' ? 'text-danger-600' : MENU_ICON[a.variant ?? 'neutral']]"
               fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
               <path stroke-linecap="round" stroke-linejoin="round" :d="ICONS[a.icon]" />

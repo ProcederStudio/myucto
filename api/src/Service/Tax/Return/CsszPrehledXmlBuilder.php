@@ -115,8 +115,9 @@ final class CsszPrehledXmlBuilder
         $name = $dom->createElement('name');
         $full = trim((string) ($supplier['company_name'] ?? ''));
         [$fir, $sur] = EpoSupplierBlockBuilder::splitPersonName($full);
-        $title = '';
-        if (preg_match('/^((?:(?:prof|doc|MUDr|MDDr|MVDr|JUDr|PhDr|RNDr|PharmDr|ThDr|ThLic|Ing|BcA?|MgrA?)\.)\s*)+/iu', $full, $m)) {
+        // Titul z nastavení OSVČ (stejný zdroj jako EPO podání), u starších dat odhad z názvu.
+        $title = trim((string) ($supplier['person_title'] ?? ''));
+        if ($title === '' && preg_match('/^((?:(?:prof|doc|MUDr|MDDr|MVDr|JUDr|PhDr|RNDr|PharmDr|ThDr|ThLic|Ing|BcA?|MgrA?)\.)\s*)+/iu', $full, $m)) {
             $title = trim($m[1]);
         }
         if ($sur === '') {

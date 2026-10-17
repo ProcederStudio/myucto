@@ -26,7 +26,7 @@ podání. Kde se podává přiznání a kontrolní hlášení, popisuje kapitola
 | před každým podáním DPH | Projít knihu za stejné období jako přiznání a odstranit koncepty a chybějící klasifikace | `Daně → Kniha DPH`, postup v [§ 42.3](#423-krok-za-krokem-kontrola-knihy-pred-podanim-dph) |
 | když doklad nesedí do období | Dohledat, podle jakého data se doklad zařadil | sloupec **Období odpočtu**, postup v [§ 42.4](#424-krok-za-krokem-proc-je-doklad-v-jinem-obdobi) |
 | po podání, změnil-li se doklad | Posoudit, zda je nutné opravné nebo dodatečné podání | `Daně → DPH přiznání`, fronta změn po podání |
-| při kontrole finančního úřadu | Vytisknout soupis dokladů oddílu KH (např. A.4) se součty | pole **Oddíl KH**, postup v [§ 42.5](#425-krok-za-krokem-soupis-dokladu-oddilu-kh-pro-kontrolu-financniho-uradu) |
+| při kontrole finančního úřadu | Vytisknout soupis dokladů oddílu KH (např. A.4) se součty | pole **Řádek přiznání / oddíl KH**, postup v [§ 42.5](#425-krok-za-krokem-soupis-dokladu-oddilu-kh-pro-kontrolu-financniho-uradu) |
 
 ## 42.2 Než začnete
 
@@ -47,11 +47,17 @@ Aby byla úplná, potřebujete:
 1. Otevřete `Daně → Kniha DPH`.
 2. Nahoře přepněte **Měsíčně** nebo **Kvartálně** a zvolte měsíc (u čtvrtletí
    Q1 až Q4) a rok. Zvolte totéž období, za které podáváte přiznání.
+   Výchozí režim odpovídá nastavení firmy; období se přebírá ze společné volby
+   výkazů DPH během sezení. Bez uložené volby se otevře poslední uzavřený měsíc
+   nebo čtvrtletí. Konkrétní období v odkazu má přednost.
 3. Projděte řádky označené štítkem **Koncept**. Kniha koncepty záměrně
    zahrnuje, ostré přiznání a kontrolní hlášení je neobsahují. Každý koncept
    dokončete, nebo zrušte.
 4. Zkontrolujte, že u dokladů nechybí klasifikace DPH. Chybějící klasifikaci
    doplňte na zdrojovém dokladu.
+   Číslo vystavené nebo přijaté faktury či pokladního dokladu otevře jeho
+   detail. Máte-li knihu vlevo a vedle ní další pracovní panel, detail se
+   otevře vpravo; v jednom panelu se otevře na stejném místě.
 5. Porovnejte součty sekcí **PŘIJATÁ** a **USKUTEČNĚNÁ** s řádky náhledu
    přiznání na `Daně → DPH přiznání`. Částky se v evidenci drží na haléře,
    zatímco XML přiznání zaokrouhluje jednotlivé formulářové údaje na celé Kč.
@@ -61,6 +67,10 @@ Aby byla úplná, potřebujete:
    včetně DPH. Přesně 10 000 Kč patří do souhrnné sekce A.5/B.3, individuální
    A.4/B.2 je až nad limitem a vyžaduje DIČ.
 7. Klikněte na **Stáhnout PDF**, chcete-li mít pracovní podklad.
+
+Z konkrétního řádku na stránce **DPH přiznání** otevřete nabídku **…** v posledním sloupci. Kniha se otevře za stejné období s filtrem na tento řádek. Pole **Řádek přiznání / oddíl KH** umožňuje řádek změnit nebo volbou **Celá kniha DPH** filtr zrušit. Filtr zachovává odlišné sloupce řádku, například `43` a `43k`. Zobrazují se jen příslušné sekce a jejich mezisoučty; celkové součty období a PDF celé knihy jsou dostupné po zrušení filtru.
+
+Z nabídky **…** v posledním sloupci oddílu na stránce **Kontrolní hlášení** se otevře soupis pouze tohoto oddílu. Při více pracovních panelech mají oba prokliky přednostně cíl vpravo od výkazu, pokud je tam další panel.
 
 **Jak poznáte, že je hotovo:** V knize nezůstal žádný **Koncept** ani doklad
 bez klasifikace a součty odpovídají náhledu přiznání (až na zákonné
@@ -86,8 +96,9 @@ Je to správně, pokud jde o období, ve kterém jste doklad mohli mít k dispoz
 3. Je-li u data hvězdička, posunulo odpočet datum přijetí dokladu. V PDF je za
    hvězdičkou rozhodné datum.
 4. Odpovídá-li datum přijetí skutečnosti, nic nedělejte.
-5. Neodpovídá-li, otevřete přijatou fakturu a opravte **datum přijetí**.
-   Editor u dat rovnou píše, do jakého období odpočet půjde a proč.
+5. Neodpovídá-li, klikněte na číslo dokladu a v jeho detailu opravte
+   **datum přijetí**. Editor u dat rovnou píše, do jakého období odpočet půjde
+   a proč.
 6. Vraťte se do knihy a ověřte, že doklad je ve správném období.
 
 **Jak poznáte, že je hotovo:** Doklad je v období, ve kterém jste ho skutečně
@@ -106,7 +117,7 @@ vidět, které doklady jste uvedli v určitém oddílu kontrolního hlášení,
 typicky v A.4. Soupis sestavíte přímo z Knihy DPH.
 
 1. Otevřete `Daně → Kniha DPH` a zvolte období kontrolního hlášení.
-2. V poli **Oddíl KH** vyberte oddíl, například **A.4 - Uskutečněná plnění nad
+2. V poli **Řádek přiznání / oddíl KH** vyberte oddíl, například **A.4 - Uskutečněná plnění nad
    10 000 Kč**. Volba **Soupis KH - všechny oddíly** ukáže všechny oddíly
    najednou, **Mimo KH** doklady z evidence DPH, které do kontrolního hlášení
    nepatří (například osvobozená plnění nebo vývoz).

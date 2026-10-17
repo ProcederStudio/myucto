@@ -4258,6 +4258,8 @@
     "verify_passkey": "Verify with passkey"
   },
   "bank": {
+    "open_cash_journal": "Open in cash journal",
+    "open_accounting_journal": "Open in accounting journal",
     "account": "Account",
     "advance_final_force_confirm": "Is this really a top-up payment of this invoice, not the advance payment? Confirming matches the payment with the invoice.",
     "all_accounts": "All accounts",
@@ -31015,6 +31017,15 @@
       "you_are_quarterly": "Quarterly VAT payer"
     },
     "dph_book": {
+      "section_filter": "VAT return line / control statement section",
+      "all_sections": "Full VAT ledger",
+      "dph_lines": "VAT return lines",
+      "line_filter_option": "Line {line}",
+      "filtered_line": "Documents for VAT return line {line}",
+      "filtered_line_note": "Only sections for the selected line and their subtotals are shown. Clear the filter to view full-period totals or download the full ledger PDF.",
+      "current_book_note": "The ledger shows current documents including drafts, rather than amendment differences or a saved filing. Drafts are excluded from the VAT return. Rounding or partial deductions may also cause amounts to differ.",
+      "open_line_beside": "Open documents for line {line} in the VAT ledger",
+      "open_section_beside": "Open the document list for section {section}",
       "claim_basis": {
         "issue_date": "by issue date",
         "received_at": "by date received",
@@ -32857,11 +32868,14 @@
     "numbering_type_invoice": "Invoice",
     "numbering_type_proforma": "Proforma",
     "numbering_type_simplified": "Simplified tax document",
-    "opr_hint": "Required for legal entities — the person signing tax returns. Optional for sole traders: fill in your own first and last name for a precise split in EPO filings (otherwise derived from the business name, academic titles stripped).",
+    "opr_hint": "Required for legal entities — the person signing tax returns.",
     "opr_jmeno": "First name",
     "opr_postaveni": "Position (e.g. executive)",
     "opr_prijmeni": "Last name",
     "opr_section": "Authorized signatory (executive)",
+    "person_section": "Sole trader personal details",
+    "person_hint": "Personal details for tax filings. Enter your own first and last name for an accurate split in returns; otherwise they are derived from the business name. Academic title is optional.",
+    "person_title": "Academic title",
     "oss_enabled": "OSS regime",
     "oss_hint": "Enables One Stop Shop tracking. Issued invoice lines are assigned to OSS automatically from the VAT rate, the customer's country and the member-state rate codebook — uncertain cases are flagged for manual review.",
     "oss_identification_country": "Identification country",
@@ -35837,6 +35851,7 @@
       "usage": "{count}×"
     },
     "cash_journal": {
+      "source_not_found": "This bank movement is not in the cash journal for the selected period.",
       "all_classifications": "All classifications",
       "attachments_title": "Document attachments",
       "attachments_unavailable": "GoPay settlement movements have no attachments; see the GoPay module for documents.",
