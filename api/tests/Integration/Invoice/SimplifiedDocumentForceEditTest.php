@@ -148,7 +148,7 @@ final class SimplifiedDocumentForceEditTest extends TestCase
     private function row(int $id): array
     {
         return $this->db->pdo()->query(
-            "SELECT is_simplified, hide_customer_on_pdf, reverse_charge, total_with_vat, pdf_path FROM invoices WHERE id = {$id}"
+            "SELECT is_simplified, hide_customer_on_pdf, reverse_charge, discount_percent, total_with_vat, pdf_path FROM invoices WHERE id = {$id}"
         )->fetch(PDO::FETCH_ASSOC);
     }
 
@@ -173,6 +173,85 @@ final class SimplifiedDocumentForceEditTest extends TestCase
         self::assertSame(422, $res['status'], $res['body']);
         self::assertSame('simplified_document_not_allowed', $res['code']);
         self::assertSame(121.0, (float) $this->row($id)['total_with_vat']);
+    }
+
+    public function testForceEditAllowsInvoiceBelowLimitAfterHeaderDiscount(): void
+    {
+        $id = $this->issued('P7FE-0006', simplified: false);
+
+        $res = $this->forcePut($id, $this->body(10000, [
+            'is_simplified' => true,
+            'discount_percent' => 20,
+        ]));
+
+        self::assertSame(200, $res['status'], $res['body']);
+        self::assertSame(9680.0, (float) $this->row($id)['total_with_vat']);
+    }
+
+    public function testHeaderOnlyForceEditReplacesStaleGeneratedDiscountForLimitCheck(): void
+    {
+        $id = $this->issued('P7FE-0007', simplified: true);
+        $pdo = $this->db->pdo();
+        $pdo->prepare(
+            'UPDATE invoice_items SET unit_price_without_vat = 10000, total_without_vat = 10000,
+                    total_vat = 2100, total_with_vat = 12100 WHERE invoice_id = ? AND order_index = 1'
+        )->execute([$id]);
+        $pdo->prepare(
+            'UPDATE invoices SET discount_percent = 10, total_without_vat = 9000,
+                    total_vat = 1890, total_with_vat = 10890 WHERE id = ?'
+        )->execute([$id]);
+        $pdo->prepare(
+            "INSERT INTO invoice_items
+                (invoice_id, description, quantity, unit, unit_price_without_vat, vat_rate_id,
+                 vat_rate_snapshot, total_without_vat, total_vat, total_with_vat, order_index, item_kind)
+             VALUES (?, 'Sleva 10 %', 1, 'ks', -1000, ?, 21.00, -1000, -210, -1210, 2, 'discount')"
+        )->execute([$id, $this->vatRateId]);
+
+        $res = $this->forcePut($id, [
+            'discount_percent' => 20,
+            'is_simplified' => true,
+        ]);
+
+        self::assertSame(200, $res['status'], $res['body']);
+        self::assertSame(9680.0, (float) $this->row($id)['total_with_vat']);
+    }
+    public function testHeaderOnlyForceEditCannotReduceDiscountBelowSimplifiedLimit(): void
+    {
+        $id = $this->issued('P7FE-0008', simplified: true);
+        $pdo = $this->db->pdo();
+        $pdo->prepare(
+            'UPDATE invoice_items SET unit_price_without_vat = 10000, total_without_vat = 10000,
+                    total_vat = 2100, total_with_vat = 12100 WHERE invoice_id = ? AND order_index = 1'
+        )->execute([$id]);
+        $pdo->prepare(
+            'UPDATE invoices SET discount_percent = 20, total_without_vat = 8000,
+                    total_vat = 1680, total_with_vat = 9680 WHERE id = ?'
+        )->execute([$id]);
+        $pdo->prepare(
+            "INSERT INTO invoice_items
+                (invoice_id, description, quantity, unit, unit_price_without_vat, vat_rate_id,
+                 vat_rate_snapshot, total_without_vat, total_vat, total_with_vat, order_index, item_kind)
+             VALUES (?, 'Sleva 20 %', 1, 'ks', -2000, ?, 21.00, -2000, -420, -2420, 2, 'discount')"
+        )->execute([$id, $this->vatRateId]);
+
+        $res = $this->forcePut($id, ['discount_percent' => 10]);
+
+        self::assertSame(422, $res['status'], $res['body']);
+        self::assertSame('simplified_document_not_allowed', $res['code']);
+        self::assertSame(9680.0, (float) $this->row($id)['total_with_vat']);
+        self::assertSame(20.0, (float) $this->row($id)['discount_percent']);
+    }
+
+    public function testForceEditUsesPersistedUnitPricePrecisionForSimplifiedLimit(): void
+    {
+        $id = $this->issued('P7FE-0009', simplified: false);
+        $body = $this->body(1652.893, ['is_simplified' => true]);
+        $body['items'][0]['quantity'] = 5;
+
+        $res = $this->forcePut($id, $body);
+
+        self::assertSame(200, $res['status'], $res['code'] ?? '');
+        self::assertSame(9999.98, (float) $this->row($id)['total_with_vat']);
     }
 
     public function testForceEditCannotMakeSimplifiedDocumentReverseCharge(): void

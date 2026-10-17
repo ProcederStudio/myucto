@@ -31,6 +31,7 @@ use MyInvoice\Service\Invoice\InvoiceCalculator;
 use MyInvoice\Service\Codebook\UnitPrecision;
 use MyInvoice\Service\Invoice\InvoiceDefaults;
 use MyInvoice\Service\Invoice\InvoiceNoteAlias;
+use MyInvoice\Service\Invoice\TimeBilling;
 use MyInvoice\Service\Invoice\VarsymbolGenerator;
 use MyInvoice\Service\IpMatcher;
 use MyInvoice\Service\Oss\OssDocumentCoherence;
@@ -949,12 +950,24 @@ final class UpdateInvoiceAction
         }
 
         $rates = $this->repo->vatRateMap();
-        $items = [];
         $source = DocumentItemsPayload::replaces($body) ? (array) $body['items'] : (array) ($existing['items'] ?? []);
+        $source = array_values(array_filter(
+            $source,
+            static fn ($item): bool => is_array($item)
+                && \MyInvoice\Service\Invoice\InvoiceItemKind::of($item) !== \MyInvoice\Service\Invoice\InvoiceItemKind::DISCOUNT,
+        ));
+        // applyVatClassificationDefaults běží i nad lokální kopií uložených položek,
+        // takže preview seskupí řádky stejně jako replaceItems při header-only PUTu.
+        $previewBody = $body;
+        $previewBody['items'] = $source;
+        $this->applyVatClassificationDefaults($previewBody, (int) $existing['supplier_id'], (array) ($existing['items'] ?? []));
+        $source = (array) $previewBody['items'];
+        $items = [];
         foreach ($source as $item) {
             if (!is_array($item)) {
                 continue;
             }
+            $item = TimeBilling::normalizeInvoiceItem(InvoiceItemKind::normalize($item));
             $rateId = (int) ($item['vat_rate_id'] ?? 0);
             $item['vat_rate_snapshot'] = $rateId > 0 && isset($rates[$rateId])
                 ? $rates[$rateId]
@@ -963,6 +976,8 @@ final class UpdateInvoiceAction
             $item['unit_price_without_vat'] = (float) ($item['unit_price_without_vat'] ?? 0);
             $items[] = $item;
         }
+        $discountPercent = (float) ($body['discount_percent'] ?? $existing['discount_percent'] ?? 0);
+        $items = array_merge($items, $this->repo->previewHeaderDiscountItems($items, $discountPercent));
         $reverseCharge = !empty($body['reverse_charge']);
         $totals = \MyInvoice\Service\Invoice\InvoiceMath::compute($items, $reverseCharge, !empty($body['prices_include_vat']))['totals'];
         $type = (string) ($body['invoice_type'] ?? $existing['invoice_type'] ?? 'invoice');

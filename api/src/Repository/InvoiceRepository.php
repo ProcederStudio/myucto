@@ -10,6 +10,7 @@ use MyInvoice\Service\Bank\VariableSymbolNormalizer;
 use MyInvoice\Service\Invoice\CzkRecap;
 use MyInvoice\Service\Invoice\InvoiceRounding;
 use MyInvoice\Service\Invoice\InvoiceCalculator;
+use MyInvoice\Service\Invoice\InvoiceHeaderDiscount;
 use MyInvoice\Service\Invoice\InvoiceItemKind;
 use MyInvoice\Service\Invoice\OverduePolicy;
 use MyInvoice\Service\Invoice\TimeBilling;
@@ -1653,6 +1654,34 @@ final class InvoiceRepository
         return $pair !== null ? [$pair['from'], $pair['to']] : [null, null];
     }
 
+    /**
+     * Slevové řádky pro výpočet před uložením, se stejným seskupením a
+     * zaokrouhlením jako replaceItems(). Staré systémové slevové řádky ignoruje.
+     *
+     * @param list<array<string,mixed>> $items normalized source rows, not generated discounts
+     * @return list<array{quantity:float,unit_price_without_vat:float,vat_rate_snapshot:float,item_kind:string}>
+     */
+    public function previewHeaderDiscountItems(array $items, float $discountPercent): array
+    {
+        $supportsOss = $this->supportsOssItemColumns();
+        $supportsManualReview = $this->supportsOssManualReview();
+        $vatRates = $this->loadVatRates();
+        $discountItems = [];
+        foreach (array_values($items) as $item) {
+            if (!is_array($item) || InvoiceItemKind::of($item) !== InvoiceItemKind::STANDARD) {
+                continue;
+            }
+            $rateId = (int) ($item['vat_rate_id'] ?? 0);
+            $oss = $supportsOss ? self::ossItemParams($item, $supportsManualReview) : [];
+            $discountItems[] = array_replace($item, [
+                'vat_rate_snapshot' => (float) ($vatRates[$rateId] ?? $item['vat_rate_snapshot'] ?? 0),
+                '_header_discount_oss_params' => $oss,
+            ]);
+        }
+        $groups = InvoiceHeaderDiscount::groups($discountItems, $supportsOss);
+        return InvoiceHeaderDiscount::calculationItems($groups, self::clampDiscountPercent($discountPercent));
+    }
+
     public function replaceItems(int $invoiceId, array $items): void
     {
         $pdo = $this->db->pdo();
@@ -1768,9 +1797,8 @@ final class InvoiceRepository
         $docYear = !empty($meta['doc_date']) ? (int) substr((string) $meta['doc_date'], 0, 4) : (int) date('Y');
         $standardRate = $this->taxConstants->vatRateStandard($docYear);
 
-        // Slevu agregujeme po (vat_rate_id, vat_rate_snapshot, code) — báze = součet
-        // round(qty*price, 2) jednotlivých řádků (stejné zaokrouhlení jako InvoiceMath).
-        $discountGroups = [];
+        // Skupiny slevy připravuje společná čistá kalkulace, kterou používá i preflight limitů.
+        $discountSourceItems = [];
         $maxOrder = -1;
         $accrualPeriods = [];
 
@@ -1871,37 +1899,16 @@ final class InvoiceRepository
 
             $maxOrder = max($maxOrder, $orderIndex);
             if ($discountPercent > 0) {
-                $base = TimeBilling::invoiceAmount($item);
                 $oss = $supportsOss ? self::ossItemParams($item, $supportsManualReview) : [];
-                $key = $vatRateId . '|' . ($code ?? '');
-                if ($supportsOss) {
-                    $ossKey = $oss;
-                    $ossKey[6] = null;
-                    $ossKey[7] = null;
-                    $key .= '|' . implode('|', array_map(static fn ($v) => $v === null ? '' : (string) $v, $ossKey));
-                }
-                if (!isset($discountGroups[$key])) {
-                    $discountGroups[$key] = [
-                        'vat_rate_id' => $vatRateId,
-                        'snapshot'    => $rate,
-                        'code'        => $code,
-                        'base'        => 0.0,
-                    ];
-                    if ($supportsOss) {
-                        $discountGroups[$key]['oss'] = $oss;
-                    }
-                } elseif ($supportsOss) {
-                    foreach ([6, 7] as $amountIndex) {
-                        if ($oss[$amountIndex] !== null) {
-                            $discountGroups[$key]['oss'][$amountIndex] =
-                                (float) ($discountGroups[$key]['oss'][$amountIndex] ?? 0.0) + (float) $oss[$amountIndex];
-                        }
-                    }
-                }
-                $discountGroups[$key]['base'] += $base;
+                $discountSourceItems[] = array_replace($item, [
+                    'vat_rate_snapshot' => $rate,
+                    'vat_classification_code' => $code,
+                    '_header_discount_oss_params' => $oss,
+                ]);
             }
         }
 
+        $discountGroups = InvoiceHeaderDiscount::groups($discountSourceItems, $supportsOss);
         if ($discountPercent > 0 && $discountGroups !== []) {
             $this->materializeDiscountLines(
                 $stmt,
@@ -2012,11 +2019,8 @@ final class InvoiceRepository
     ): void {
         $label = self::discountLabel($discountPercent, $language);
         $order = $startOrder;
-        foreach ($groups as $g) {
-            $disc = round($g['base'] * $discountPercent / 100.0, 2);
-            if ($disc == 0.0) {
-                continue;
-            }
+        foreach (InvoiceHeaderDiscount::discountGroups($groups, $discountPercent) as $g) {
+            $disc = (float) $g['discount'];
             $params = [
                 $invoiceId,
                 $label,
