@@ -15,9 +15,11 @@ use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Repository\ClientRepository;
 use MyInvoice\Repository\InvoiceRepository;
 use MyInvoice\Service\Accounting\DocumentLockService;
+use MyInvoice\Service\Codebook\UnitPrecision;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Currency\CnbRateDeviationChecker;
 use MyInvoice\Service\Currency\ExchangeRateApplier;
+use MyInvoice\Service\Invoice\InvoiceItemKind;
 use MyInvoice\Service\Invoice\InvoiceCalculator;
 use MyInvoice\Service\Invoice\InvoiceDefaults;
 use MyInvoice\Service\Invoice\InvoiceNoteAlias;
@@ -55,6 +57,7 @@ final class CreateInvoiceAction
         private readonly OssItemPlanner $ossPlanner,
         private readonly StockPriceLevelService $priceLevels,
         private readonly InvoiceItemTracking $itemTracking,
+        private readonly UnitPrecision $unitPrecision,
     ) {}
 
     public function __invoke(Request $request, Response $response): Response
@@ -64,6 +67,13 @@ final class CreateInvoiceAction
         // Generický `note` → `note_below_items` (issue #38). Musí být nad vším ostatním:
         // pod klíčem `note` není sloupec, takže by ho repository jinak tiše zahodila.
         $body = InvoiceNoteAlias::normalize($body);
+
+        // Textový řádek (InvoiceItemKind::TEXT) hned v kanonickém tvaru: jen popis a sazba.
+        // Derivace OSS, klasifikace DPH, sklad ani kontrola soudržnosti ho pak neuvidí jako
+        // plnění (OSS klíč je vyplněný, karta prázdná).
+        if (isset($body['items']) && is_array($body['items'])) {
+            $body['items'] = InvoiceItemKind::normalizeItems($body['items']);
+        }
 
         // Zjednodušený daňový doklad (§ 30 ZDPH) nemusí nést odběratele: bez klienta se
         // naváže na systémového koncového zákazníka firmy.
@@ -105,6 +115,15 @@ final class CreateInvoiceAction
                 $body['items'] = $this->itemTracking->normalizeItems(SupplierGuard::currentId($request), $body['items']);
             } catch (StockException $e) {
                 return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus, $e->details);
+            }
+        }
+
+        // Desetinná místa množství podle měrné jednotky (2036). Bez nastavení u jednotky
+        // se nic nekontroluje; přesnější vstup se odmítne, nic se potichu nezaokrouhlí.
+        if (isset($body['items']) && is_array($body['items'])) {
+            $tooPrecise = $this->unitPrecision->check($body['items']);
+            if ($tooPrecise !== []) {
+                return Json::error($response, 'validation_failed', UnitPrecision::ERROR_MESSAGE, 400, ['items' => $tooPrecise]);
             }
         }
 
@@ -277,7 +296,7 @@ final class CreateInvoiceAction
 
         if (!empty($body['items']) && is_array($body['items'])) {
             foreach ($body['items'] as &$item) {
-                if (!empty($item['vat_classification_code'])) continue;
+                if (!empty($item['vat_classification_code']) || InvoiceItemKind::isText($item)) continue;
                 $rateId = (int) ($item['vat_rate_id'] ?? 0);
                 $rate = (float) ($vatRates[$rateId] ?? 0);
                 $taxDate = $body['tax_date'] ?? $body['issue_date'] ?? null;
@@ -295,7 +314,7 @@ final class CreateInvoiceAction
                 $qty = (float) ($it['quantity'] ?? 1);
                 $price = (float) ($it['unit_price_without_vat'] ?? 0);
                 return ['vat_rate' => $rate, 'total_with_vat' => $qty * $price * (1 + $rate / 100), 'unit' => (string) ($it['unit'] ?? '')];
-            }, (array) $body['items']);
+            }, InvoiceItemKind::amountLines((array) $body['items']));
             $body['vat_classification_code'] = $this->vatDefaulter->suggestHeaderForInvoice(
                 $itemsWithTotals,
                 (bool) ($body['reverse_charge'] ?? false),

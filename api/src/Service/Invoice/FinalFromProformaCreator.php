@@ -237,6 +237,10 @@ final class FinalFromProformaCreator
             $trackingStmt = $this->db->hasColumn('invoice_items', 'tracking_json')
                 ? $pdo->prepare('UPDATE invoice_items SET tracking_json = ? WHERE id = ? AND invoice_id = ?')
                 : null;
+            // Ceníková cena řádku (2035) přechází stejně, zápis zvlášť ze stejného důvodu.
+            $lineDiscountStmt = $this->db->hasColumn('invoice_items', LineDiscount::LIST_COLUMN)
+                ? $pdo->prepare('UPDATE invoice_items SET list_unit_price = ?, line_discount_pct = ? WHERE id = ? AND invoice_id = ?')
+                : null;
             $itemStmt = $pdo->prepare(
                 'INSERT INTO invoice_items
                    (invoice_id, description, quantity, duration_minutes, unit, unit_price_without_vat,
@@ -278,9 +282,14 @@ final class FinalFromProformaCreator
                     // ta už derivací i případnou ruční opravou prošla (viz OssItemCarryOver).
                     ...$this->ossCarry->values($item),
                 ]);
+                $lineId = (int) $pdo->lastInsertId();
                 $tracking = \MyInvoice\Service\Stock\InvoiceItemTracking::storedJson($item);
                 if ($trackingStmt !== null && $tracking !== null) {
-                    $trackingStmt->execute([$tracking, (int) $pdo->lastInsertId(), $finalId]);
+                    $trackingStmt->execute([$tracking, $lineId, $finalId]);
+                }
+                [$listPrice, $discountPct] = LineDiscount::columns($item);
+                if ($lineDiscountStmt !== null && $listPrice !== null) {
+                    $lineDiscountStmt->execute([$listPrice, $discountPct, $lineId, $finalId]);
                 }
                 $maxOrder = max($maxOrder, (int) $item['order_index']);
             }

@@ -74,6 +74,8 @@ export interface StockItem extends StockItemEffectivePrice {
   updated_at: string
   /** Jen ve výsledku hledání (`q`). */
   search_match?: StockSearchMatch | null
+  /** Jen se `display_attribute_id`: hodnota zvoleného parametru jako text (bool = '1'/'0'). */
+  display_attribute_value?: string | null
 }
 
 export interface StockItemPayload {
@@ -217,6 +219,10 @@ export interface StockItemSearchResult extends StockItemEffectivePrice {
   /** Karta má individuální ceny zákazníků (zapíná nacenění v editoru faktury). */
   has_customer_prices?: boolean
   search_match?: StockSearchMatch | null
+  /** Karta hlídá stav skladu (false = neskladová položka, `qty` null). */
+  is_stocked?: boolean
+  /** Stav v základní jednotce jako GET /stock/availability (s `warehouse_id` jen ten sklad). */
+  qty?: string | null
 }
 
 /**
@@ -367,6 +373,8 @@ export interface StockQuoteLine {
   /** Cena bez DPH za ZVOLENOU jednotku; null = pro danou měnu karta cenu nemá. */
   unit_price: string | null
   base_unit_price: string
+  /** Ceníková cena bez DPH za zvolenou jednotku (standardní cena před slevou, hladinou i akcí); null = neznámá. */
+  list_unit_price?: string | null
   price_source: StockQuotePriceSource
   customer_price_id: number | null
   /** Sleva zákazníka nebo hladiny v % (price_source = customer_discount / price_level_discount). */
@@ -399,6 +407,8 @@ export interface StockItemListFilters {
   qty_max?: string | number
   sort?: 'sku' | 'name' | 'type' | 'qty' | 'value'
   direction?: 'asc' | 'desc'
+  /** Volitelný sloupec seznamu s hodnotou jednoho parametru karty (nefiltruje). */
+  display_attribute_id?: number
   page?: number
   per_page?: number
 }
@@ -723,6 +733,9 @@ export interface StockCycleCount {
   id: number
   warehouse_id: number
   location_id: number | null
+  /** Rozsah: kategorie včetně podkategorií (null = bez omezení). */
+  category_id?: number | null
+  category_name?: string | null
   status: 'draft' | 'queued' | 'running' | 'counting' | 'closed' | 'cancelled' | 'failed'
   preparation_job_id: number | null
   preparation_job?: CatalogJob | null
@@ -789,9 +802,31 @@ export interface StockTake {
   issue_document?: StockDocument | null
 }
 
+/** Volitelný sloupec sestavy Stav zásob (parametr karty se vybírá přes attribute_id). */
+export type StockStatusColumn = 'avg_unit_cost' | 'value_total' | 'sale_price' | 'note'
+
+export interface StockStatusFilters extends StockLevelFilters {
+  /** Kategorie karty včetně podkategorií. */
+  category_id?: number
+  /** Volitelné sloupce oddělené čárkou, 'none' = žádný; bez parametru průměrná cena a hodnota. */
+  columns?: string
+  attribute_id?: number
+}
+
+export interface StockStatusRow extends StockLevelRow {
+  /** Jen když byl sloupec vyžádán. */
+  sale_price?: string | null
+  note?: string | null
+  /** Hodnoty parametru spojené čárkou; u typu ano/ne 'true'/'false' (překládá UI). */
+  attribute_value?: string | null
+}
+
 export interface StockStatusReport {
-  items: StockLevelRow[]
+  items: StockStatusRow[]
   totals: { value_total: string; count: number }
+  /** Jen při výběru sloupců: zobrazené volitelné sloupce, parametr jako 'attribute'. */
+  columns?: Array<StockStatusColumn | 'attribute'>
+  attribute?: { id: number; code: string; name: string; unit: string | null; data_type: string } | null
 }
 
 export interface StockSalesFilters {
@@ -1089,8 +1124,11 @@ export const stockApi = {
     const { ids, excluded_ids, ...filters } = options
     return api.post<StockItemNeighbors>(`/stock/items/${id}/neighbors`, { filters, ids, excluded_ids }, { signal: request.signal }).then(r => r.data)
   },
-  searchItems: (q: string, limit = 50) =>
-    api.get<StockItemSearchResult[]>('/stock/items/search', { params: { q, limit } }).then(r => r.data),
+  /** `warehouseId` = sklad, pro který server spočítá `qty` (sklad řádku dokladu). */
+  searchItems: (q: string, limit = 50, warehouseId?: number | null) =>
+    api.get<StockItemSearchResult[]>('/stock/items/search', {
+      params: warehouseId ? { q, limit, warehouse_id: warehouseId } : { q, limit },
+    }).then(r => r.data),
   getItem: (id: number, options: { signal?: AbortSignal } = {}) => api.get<StockItem>(`/stock/items/${id}`, { signal: options.signal }).then(r => r.data),
   createItem: (payload: StockItemPayload) => api.post<StockItem>('/stock/items', payload).then(r => r.data),
   updateItem: (id: number, payload: StockItemPayload) => api.put<StockItem>(`/stock/items/${id}`, payload).then(r => r.data),
@@ -1198,12 +1236,12 @@ export const stockApi = {
   takePdfUrl: (id: number) => downloadUrl(`/stock/takes/${id}/pdf`),
   listCycleCounts: () => api.get<StockCycleCount[]>('/stock/cycle-counts').then(r => r.data),
   getCycleCount: (id: number) => api.get<StockCycleCount>(`/stock/cycle-counts/${id}`).then(r => r.data),
-  createCycleCount: (payload: { warehouse_id: number; location_id?: number | null; take_date: string; item_ids?: number[]; note?: string | null }) => api.post<StockCycleCount>('/stock/cycle-counts', payload).then(r => r.data),
+  createCycleCount: (payload: { warehouse_id: number; location_id?: number | null; category_id?: number | null; take_date: string; item_ids?: number[]; note?: string | null }) => api.post<StockCycleCount>('/stock/cycle-counts', payload).then(r => r.data),
   updateCycleCount: (id: number, lines: Array<{ id: number; counted_qty: string | number | null; surplus_unit_cost?: string | number | null }>) => api.put<StockCycleCount>(`/stock/cycle-counts/${id}`, { lines }).then(r => r.data),
   closeCycleCount: (id: number) => api.post<StockCycleCount>(`/stock/cycle-counts/${id}/close`).then(r => r.data),
 
   // ── Sestavy ─────────────────────────────────────────────────────────────
-  reportStatus: (filters: StockLevelFilters = {}) =>
+  reportStatus: (filters: StockStatusFilters = {}) =>
     api.get<StockStatusReport>('/stock/reports/status', { params: toParams(filters) }).then(r => r.data),
   reportValuation: (filters: { date?: string; warehouse_id?: number } = {}) =>
     api.get<StockValuationReport>('/stock/reports/valuation', { params: toParams(filters) }).then(r => r.data),

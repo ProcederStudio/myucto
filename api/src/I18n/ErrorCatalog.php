@@ -403,6 +403,8 @@ final class ErrorCatalog
         'Lze zrušit jen vystavenou/odeslanou/zaplacenou fakturu.' => 'Only an issued/sent/paid invoice can be cancelled.',
         'Měna nenalezena.' => 'Currency not found.',
         'Množství nesmí být 0.' => 'Quantity must not be 0.',
+        'Množství má víc desetinných míst, než dovoluje měrná jednotka.' => 'The quantity has more decimal places than the unit of measure allows.',
+        'Desetinná místa množství musí být 0 až 3, nebo prázdné (bez omezení).' => 'Quantity decimal places must be 0 to 3, or empty (no limit).',
         'Měna s tímto kódem už existuje.' => 'A currency with this code already exists.',
         'Nelze deaktivovat posledního aktivního admina.' => 'Cannot deactivate the last active admin.',
         'Nelze odebrat admin roli ani deaktivovat posledního aktivního admina.' => 'Cannot remove the admin role or deactivate the last active admin.',

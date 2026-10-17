@@ -35,7 +35,7 @@ interface FrameSurfaceOptions {
   root: HTMLElement
   appearance: () => FrameAppearance
   route: (fullPath: string, title: string, subtitle: string | null) => void
-  navigate: (to: RouteLocationRaw, newPane: boolean) => void
+  navigate: (to: RouteLocationRaw, newPane: boolean, placement?: 'beside') => void
   activate: () => void
   history?: (direction: -1 | 1) => void
   keyboard: (event: FrameKeyboardEvent) => void
@@ -69,7 +69,8 @@ export function createFrameSurface(options: FrameSurfaceOptions) {
     } else if (data.type === 'myucto-window-route' && typeof data.fullPath === 'string' && data.fullPath.startsWith('/') && !data.fullPath.startsWith('//')) {
       options.route(data.fullPath, typeof data.title === 'string' ? data.title : data.fullPath, typeof data.subtitle === 'string' ? data.subtitle : null)
     } else if (data.type === 'myucto-window-navigate' && (typeof data.to === 'string' || typeof data.to === 'object' && data.to !== null)) {
-      options.navigate(data.to, data.newPane === true)
+      if (data.placement === 'beside') options.navigate(data.to, data.newPane === true, 'beside')
+      else options.navigate(data.to, data.newPane === true)
     } else if (data.type === 'myucto-window-activate') options.activate()
     else if (data.type === 'myucto-window-history' && (data.direction === -1 || data.direction === 1)) options.history?.(data.direction)
     else if (data.type === 'myucto-window-activity') window.dispatchEvent(new CustomEvent('myucto:window-activity'))

@@ -101,3 +101,35 @@ describe('public invoice ISDOC download', () => {
     }
   })
 })
+
+describe('public invoice text row', () => {
+  it('prints the text row across the whole table without amounts', async () => {
+    api.get.mockResolvedValue({
+      invoice: {
+        invoice_type: 'invoice', status: 'issued', language: 'cs', currency: 'CZK',
+        amount_to_pay: 1210, paid_total: 0, due_date: '2099-01-01', prices_include_vat: false,
+        totals: { without_vat: 1000, vat: 210, with_vat: 1210, amount_to_pay: 1210 },
+        vat_breakdown: [{ rate: 21, base: 1000, vat: 210 }],
+        items: [
+          { description: 'Oddíl B: montáž', item_kind: 'text', quantity: 0, duration_minutes: null, unit: '',
+            unit_price_without_vat: 0, total_without_vat: 0, total_with_vat: 0, vat_rate_snapshot: 21 },
+          { description: 'Synthetic service', item_kind: 'standard', quantity: 1, duration_minutes: null, unit: 'ks',
+            unit_price_without_vat: 1000, total_without_vat: 1000, total_with_vat: 1210, vat_rate_snapshot: 21 },
+        ],
+      },
+      supplier: { is_vat_payer: true }, client: {}, bank: null, attachments: [], oss_clause: null,
+    })
+    const wrapper = mount(InvoicePublic, { global: { plugins: [createI18n({ legacy: false, locale: 'cs', messages: { cs, en } })] } })
+    await flushPromises()
+    try {
+      const rows = wrapper.findAll('tbody tr')
+      const cells = rows[0]!.findAll('td')
+      expect(cells).toHaveLength(1)
+      expect(cells[0]!.attributes('colspan')).toBe('7')
+      expect(cells[0]!.text()).toBe('Oddíl B: montáž')
+      expect(rows[1]!.findAll('td').length).toBeGreaterThan(1)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+})

@@ -84,8 +84,9 @@
       </div>
     </td>
     {# Zjednodušený doklad (§ 30) bez odběratele: systémový koncový zákazník se netiskne,
-       buňka odběratele se nevykreslí vůbec (prázdný barevný box by působil jako chyba). #}
-    {% if not client.is_walk_in|default(false) %}
+       buňka odběratele se nevykreslí vůbec (prázdný barevný box by působil jako chyba).
+       Totéž při volbě „netisknout odběratele" na zjednodušeném dokladu (hide_customer). #}
+    {% if not client.is_walk_in|default(false) and not hide_customer|default(false) %}
     <td class="party-customer">
       <h2>{{ t('Odběratel', 'Customer') }}</h2>
       <div class="spacer-3">&nbsp;</div>
@@ -188,6 +189,13 @@
     <td class="meta-value mono" colspan="3">{{ invoice.supplier_order_number }}</td>
   </tr>
   {% endif %}
+  {# Kdo doklad vystavil, jen se zapnutou volbou firmy (InvoicePdfRenderer::issuedByLabel). #}
+  {% if issued_by_label %}
+  <tr>
+    <td class="meta-label">{{ t('Vystavil', 'Issued by') }}</td>
+    <td class="meta-value" colspan="3">{{ issued_by_label }}</td>
+  </tr>
+  {% endif %}
 </table>
 
 {% if invoice.note_above_items %}
@@ -195,10 +203,36 @@
 {% endif %}
 
 {# ─── POLOŽKY ─── #}
-<table class="items">
+<table class="items{% if line_discount_columns|default(false) %} items-ld{% endif %}">
   <thead>
     <tr>
+      {# Sleva z ceníkové ceny (migrace 2035, volba firmy): tři cenové sloupce místo
+         jednoho. Jen když ji má aspoň jeden řádek, jinak tabulka beze změny. #}
+      {% if line_discount_columns|default(false) %}
       {% if supplier.is_vat_payer %}
+      <th style="width:20%">{{ t('Popis', 'Description') }}</th>
+      <th class="num nowrap" style="width:5.5%">{{ t('Mn.', 'Qty') }}</th>
+      <th class="nowrap" style="width:5.5%">{{ t('Jed.', 'Unit') }}</th>
+      <th class="num" style="width:13%">{{ t('Cena/j před slevou', 'Unit price before discount') }}</th>
+      <th class="num nowrap" style="width:8%">{{ t('Sleva', 'Discount') }}</th>
+      <th class="num" style="width:13%">{{ t('Cena/j po slevě', 'Unit price after discount') }}</th>
+      <th class="center nowrap vat" style="width:6%">{{ t('DPH', 'VAT') }}</th>
+      <th class="num nowrap" style="width:14.5%">{{ t('Bez DPH', 'Without VAT') }}</th>
+      <th class="num nowrap" style="width:14.5%">{{ t('S DPH', 'With VAT') }}</th>
+      {% else %}
+      <th style="width:27%">{{ t('Popis', 'Description') }}</th>
+      <th class="num nowrap" style="width:7%">{{ t('Mn.', 'Qty') }}</th>
+      <th class="nowrap" style="width:6%">{{ t('Jed.', 'Unit') }}</th>
+      <th class="num" style="width:15%">{{ t('Cena/j před slevou', 'Unit price before discount') }}</th>
+      <th class="num nowrap" style="width:9%">{{ t('Sleva', 'Discount') }}</th>
+      <th class="num" style="width:15%">{{ t('Cena/j po slevě', 'Unit price after discount') }}</th>
+      {% if invoice.reverse_charge %}
+      <th class="num nowrap" style="width:21%">{{ t('Celkem bez DPH', 'Total excl. VAT') }}</th>
+      {% else %}
+      <th class="num nowrap" style="width:21%">{{ t('Celkem', 'Total') }}</th>
+      {% endif %}
+      {% endif %}
+      {% elseif supplier.is_vat_payer %}
       <th style="width:30%">{{ t('Popis', 'Description') }}</th>
       <th class="num nowrap" style="width:7%">{{ t('Mn.', 'Qty') }}</th>
       <th class="nowrap" style="width:7%">{{ t('Jed.', 'Unit') }}</th>
@@ -223,6 +257,12 @@
   </thead>
   <tbody>
     {% for item in invoice.items %}
+    {# Textový řádek (item_kind 'text'): jen popis přes celou šířku tabulky, bez částek. #}
+    {% if item.item_kind == 'text' %}
+    <tr class="text-row">
+      <td colspan="{{ (supplier.is_vat_payer ? 7 : 5) + (line_discount_columns|default(false) ? 2 : 0) }}">{{ item.description|nl2br }}</td>
+    </tr>
+    {% else %}
     <tr{% if item.item_kind == 'discount' %} class="discount-row"{% endif %}>
       {# Když má faktura výkaz víceprací, je proklikávací (podtržený) odkaz na stránku
          s výkazem JEN položka výkazu — tj. ta, jejíž popis odpovídá názvu výkazu
@@ -251,13 +291,23 @@
       </td>
       {% if item.item_kind == 'discount' %}
       <td></td><td></td><td></td>
+      {%- if line_discount_columns|default(false) %}<td></td><td></td>{% endif %}
       {% else %}
-      <td class="num nowrap">{% if item.duration_display is defined and item.duration_display is not null %}{{ item.duration_display }}{% else %}{{ item.quantity|number_format(item.quantity == item.quantity|round(0) ? 0 : (item.quantity == item.quantity|round(1) ? 1 : (item.quantity == item.quantity|round(2) ? 2 : 3)), decimal_sep, thousand_sep) }}{% endif %}</td>
+      <td class="num nowrap">{% if item.duration_display is defined and item.duration_display is not null %}{{ item.duration_display }}{% else %}{{ item.quantity|number_format(item.quantity_decimals ?? (item.quantity == item.quantity|round(0) ? 0 : (item.quantity == item.quantity|round(1) ? 1 : (item.quantity == item.quantity|round(2) ? 2 : 3))), decimal_sep, thousand_sep) }}{% endif %}</td>
       {# Balení (issue #17): řádek v kartonech dostane rozpis na základní jednotky
          karty, pokud ho firma nemá v nastavení vypnutý (InvoicePdfRenderer::withBaseQuantity). #}
       <td>{{ item.unit }}{% if item.base_qty is defined and item.base_qty is not null %}<br><span style="font-size:85%;color:#666666;white-space:nowrap">({{ t('celkem', 'total') }} {{ item.base_qty|number_format(item.base_qty == item.base_qty|round(0) ? 0 : (item.base_qty == item.base_qty|round(1) ? 1 : (item.base_qty == item.base_qty|round(2) ? 2 : 3)), decimal_sep, thousand_sep) }}&nbsp;{{ item.base_unit }})</span>{% endif %}</td>
       {# V režimu „ceny s DPH" nese unit_price_without_vat brutto; pro zobrazení dopočítáme
          skutečné netto z řádkového základu (total_without_vat / množství). #}
+      {% if line_discount_columns|default(false) %}
+      {# Přirážka a řádek bez slevy tisknou jen výslednou cenu. #}
+      {% if item.pdf_list_unit_price is defined %}
+      <td class="num nowrap">{{ item.pdf_list_unit_price|number_format(item.unit_price_decimals|default(2), decimal_sep, thousand_sep) }}</td>
+      <td class="num nowrap">{{ item.pdf_discount_label }}&nbsp;%</td>
+      {% else %}
+      <td></td><td></td>
+      {% endif %}
+      {% endif %}
       <td class="num nowrap">{{ item.pdf_unit_price|default(invoice.prices_include_vat and item.quantity != 0 ? item.total_without_vat / item.quantity : item.unit_price_without_vat)|number_format(item.unit_price_decimals|default(2), decimal_sep, thousand_sep) }}</td>
       {% endif %}
       {% if supplier.is_vat_payer %}
@@ -268,6 +318,7 @@
       <td class="num nowrap">{{ item.total_without_vat|number_format(2, decimal_sep, thousand_sep) }}</td>
       {% endif %}
     </tr>
+    {% endif %}
     {% endfor %}
   </tbody>
 </table>
@@ -335,11 +386,11 @@
               {# Vyúčtování s výsledkem k vyplacení: peníze posíláme my, takže žádné
                  platební údaje k úhradě ani QR. #}
               {% set _vs = payment_varsymbol|default(invoice.varsymbol) %}
-              <div class="bank-label"{% if is_paid %} style="color:#2E7D32;"{% endif %}>
+              <div class="bank-label{% if is_paid %} paid-mark{% endif %}">
                 {%- if is_paid %}{{ t('VRÁCENO', 'REFUNDED') }}{% else %}{{ t('K vrácení', 'Amount to be refunded') }}{% endif -%}
               </div>
               <div class="spacer-3">&nbsp;</div>
-              <div class="bank-value"{% if is_paid %} style="color:#2E7D32;"{% endif %}>{{ refund_amount|number_format(2, decimal_sep, thousand_sep) }} {{ invoice.currency }}</div>
+              <div class="bank-value{% if is_paid %} paid-mark{% endif %}">{{ refund_amount|number_format(2, decimal_sep, thousand_sep) }} {{ invoice.currency }}</div>
               <div class="spacer-2">&nbsp;</div>
               <div class="bank-meta-line">
                 {%- if payment_method == 'cash' -%}
@@ -354,8 +405,8 @@
                 <div class="bank-meta-line">{{ t('Datum vrácení', 'Refunded on') }}: {{ invoice.paid_at|date(date_format) }}</div>
               {% endif %}
             {% elseif is_paid %}
-              <div class="bank-label" style="color:#2E7D32;margin-bottom:1.5mm;">{{ t('UHRAZENO', 'PAID') }}</div>
-              <div class="bank-value" style="color:#2E7D32;">
+              <div class="bank-label paid-mark" style="margin-bottom:1.5mm;">{{ t('UHRAZENO', 'PAID') }}</div>
+              <div class="bank-value paid-mark">
                 {%- if payment_method == 'card' -%}{{ t('Platba kartou online', 'Paid online by card') }}
                 {%- elseif payment_method == 'cash' -%}{{ t('Hotově', 'Cash') }}
                 {%- else -%}{{ t('Neplaťte prosím znovu', 'Do not pay again') }}{%- endif -%}
@@ -680,7 +731,7 @@
       <td class="num nowrap">{{ it.total_amount|number_format(total_dec, decimal_sep, thousand_sep) }} {{ invoice.currency }}</td>
     </tr>
     {% endfor %}
-    <tr style="background:#F4F2F8;font-weight:bold;">
+    <tr class="wr-total">
       <td style="text-align:right;" {% if wr_has_dates %}colspan="2"{% endif %}>{{ t('Celkem', 'Total') }}</td>
       <td class="num nowrap">{% if work_report.total_duration_display is defined and work_report.total_duration_display is not null %}{{ work_report.total_duration_display }}{% else %}{{ work_report.total_hours|number_format(hours_dec, decimal_sep, thousand_sep) }}{% endif %} h</td>
       <td></td>
@@ -717,12 +768,12 @@
       <td class="num nowrap">{{ m.total_amount|number_format(mtotal_dec, decimal_sep, thousand_sep) }} {{ invoice.currency }}</td>
     </tr>
     {% endfor %}
-    <tr style="background:#F4F2F8;font-weight:bold;">
+    <tr class="wr-total">
       <td style="text-align:right;" colspan="4">{% if supplier.is_vat_payer %}{{ t('Celkem bez DPH', 'Total excl. VAT') }}{% else %}{{ t('Celkem', 'Total') }}{% endif %}</td>
       <td class="num nowrap">{{ work_report.material_total|number_format(supplier.is_vat_payer ? 2 : mtotal_dec, decimal_sep, thousand_sep) }} {{ invoice.currency }}</td>
     </tr>
     {% if supplier.is_vat_payer %}
-    <tr style="background:#F4F2F8;font-weight:bold;">
+    <tr class="wr-total">
       <td style="text-align:right;" colspan="4">{{ t('Celkem s DPH', 'Total incl. VAT') }}{% if work_report.material_vat_rate is not null %} ({{ work_report.material_vat_rate|number_format(work_report.material_vat_rate == work_report.material_vat_rate|round(0) ? 0 : 2, decimal_sep, thousand_sep) }}&nbsp;%){% endif %}</td>
       <td class="num nowrap">{{ work_report.material_total_with_vat|number_format(2, decimal_sep, thousand_sep) }} {{ invoice.currency }}</td>
     </tr>

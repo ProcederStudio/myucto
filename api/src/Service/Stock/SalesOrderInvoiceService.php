@@ -8,6 +8,7 @@ use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\InvoiceRepository;
 use MyInvoice\Service\Integration\IntegrationEventPublisher;
 use MyInvoice\Service\Invoice\InvoiceCalculator;
+use MyInvoice\Service\Invoice\InvoiceRounding;
 use MyInvoice\Service\Oss\OssItemPlanner;
 use MyInvoice\Service\Shoptet\ShoptetInvoicingGuard;
 use PDO;
@@ -92,6 +93,7 @@ final class SalesOrderInvoiceService
                 'supplier_order_number' => (string) $order['order_number'],
                 'note_below_items' => 'Objednávka: ' . (string) $order['order_number'],
                 'discount_percent' => 0,
+                'rounding_mode' => InvoiceRounding::supplierDefault($pdo, $supplierId),
                 'items' => $items,
             ], $userId);
             $this->invoices->replaceItems($invoiceId, $items);

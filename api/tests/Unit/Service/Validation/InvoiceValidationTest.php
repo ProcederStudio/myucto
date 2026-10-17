@@ -327,4 +327,30 @@ final class InvoiceValidationTest extends TestCase
             ]],
         ];
     }
+    /**
+     * Textový řádek nese jen popis: množství, cenu ani sazbu nepotřebuje a zahraniční
+     * sazba na něm nevadí (nic nevykazuje). Bez popisu ale nedává smysl.
+     */
+    public function testTextRowNeedsOnlyDescription(): void
+    {
+        $base = [
+            'invoice_type' => 'invoice',
+            'client_id'    => 1,
+            'currency_id'  => 1,
+            'issue_date'   => '2026-04-15',
+            'due_date'     => '2026-04-30',
+            'tax_date'     => '2026-04-15',
+        ];
+        $item = ['description' => 'Konzultace', 'quantity' => 2, 'unit_price_without_vat' => 1500, 'vat_rate_id' => 1];
+
+        $ok = $base + ['items' => [$item, ['item_kind' => 'text', 'description' => 'Oddíl B: montáž', 'vat_rate_id' => 9]]];
+        self::assertSame([], InvoiceValidation::invoice($ok, [1 => 21.0, 9 => 19.0], [1 => 'CZ', 9 => 'DE'], 'CZ'));
+
+        $empty = $base + ['items' => [$item, ['item_kind' => 'text', 'description' => '  ']]];
+        $errors = InvoiceValidation::invoice($empty);
+        self::assertArrayHasKey('items.1.description', $errors);
+        self::assertArrayNotHasKey('items.1.quantity', $errors);
+        self::assertArrayNotHasKey('items.1.unit_price_without_vat', $errors);
+        self::assertArrayNotHasKey('items.1.vat_rate_id', $errors);
+    }
 }

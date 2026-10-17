@@ -21,6 +21,7 @@ import { ICONS, btnOutline, btnOutlineSm } from '@/components/ui/buttonStyles'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import DateInput from '@/components/ui/DateInput.vue'
 import CashJournalMovementModal from '@/components/tax-evidence/CashJournalMovementModal.vue'
+import CashJournalSourceLink from '@/components/tax-evidence/CashJournalSourceLink.vue'
 import type { CashJournalNote } from '@/api/taxEvidence'
 
 const { t } = useI18n()
@@ -218,7 +219,7 @@ const checksOpen = ref(false)
 
 const exporting = ref(false)
 async function exportFile(format: 'pdf' | 'xlsx') {
-  if (!report.value || loading.value || exporting.value || !loadedParams.value) return
+  if (!report.value || loading.value || exporting.value || classifyingKey.value !== null || !loadedParams.value) return
   const params = { ...loadedParams.value }
   const year = report.value.year
   exporting.value = true
@@ -254,6 +255,7 @@ const COLUMNS: ColumnDef[] = [
   { key: 'base', labelKey: 'tax_evidence.cash_journal.col_base', defaultHidden: true },
   { key: 'vat', labelKey: 'tax_evidence.cash_journal.col_vat', defaultHidden: true },
   { key: 'notes', labelKey: 'tax_evidence.cash_journal.col_notes' },
+  { key: 'actions', labelKey: 'tax_evidence.cash_journal.col_actions', required: true },
 ]
 const tbl = useTablePrefs('cash_journal', COLUMNS)
 
@@ -275,11 +277,11 @@ function onNotesChanged(notes: CashJournalNote[]) {
       <div class="flex flex-wrap items-center gap-2">
         <ColumnPicker class="hidden md:block" :ctrl="tbl" />
         <DensityToggle class="hidden md:block" :ctrl="tbl" />
-        <button :disabled="!report || exporting || loading" @click="exportFile('pdf')" :class="btnOutline('primary')">
+        <button :disabled="!report || exporting || loading || classifyingKey !== null" @click="exportFile('pdf')" :class="btnOutline('primary')">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.download" /></svg>
           {{ t('tax_evidence.cash_journal.export_pdf') }}
         </button>
-        <button :disabled="!report || exporting || loading" @click="exportFile('xlsx')" :class="btnOutline('primary')">
+        <button :disabled="!report || exporting || loading || classifyingKey !== null" @click="exportFile('xlsx')" :class="btnOutline('primary')">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.download" /></svg>
           {{ t('tax_evidence.cash_journal.export_xlsx') }}
         </button>
@@ -332,7 +334,7 @@ function onNotesChanged(notes: CashJournalNote[]) {
     </div>
 
     <!-- Souhrn (totály) -->
-    <div v-if="report" class="bg-surface border border-neutral-200 rounded-lg shadow-sm p-3 mb-4">
+    <div v-if="report" data-test="cash-journal-summary" class="bg-surface border border-neutral-200 rounded-lg shadow-sm p-3 mb-4 transition-opacity" :class="{ 'opacity-60': loading }">
       <div class="text-xs text-neutral-500 uppercase tracking-wide font-medium mb-2">{{ t('tax_evidence.cash_journal.summary_period') }}</div>
       <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 text-sm">
         <div>
@@ -383,7 +385,7 @@ function onNotesChanged(notes: CashJournalNote[]) {
     </div>
 
     <!-- Zůstatky po peněžních prostředcích (pokladna, banka, GoPay, úhrady bez pohybu) -->
-    <div v-if="report && report.balances && report.balances.length > 1" class="bg-surface border border-neutral-200 rounded-lg shadow-sm p-3 mb-4">
+    <div v-if="report && report.balances && report.balances.length > 1" class="bg-surface border border-neutral-200 rounded-lg shadow-sm p-3 mb-4 transition-opacity" :class="{ 'opacity-60': loading }">
       <div class="text-xs text-neutral-500 uppercase tracking-wide font-medium mb-2">{{ t('tax_evidence.cash_journal.balances_title') }}</div>
       <div class="overflow-x-auto">
         <table class="w-full text-sm">
@@ -432,9 +434,9 @@ function onNotesChanged(notes: CashJournalNote[]) {
       </div>
     </div>
 
-    <p v-if="report && !loading && report.classification" class="mb-3 text-sm text-neutral-500" role="status">{{ t('tax_evidence.cash_journal.rows_shown', { shown: report.filtered_rows, total: report.total_rows }) }}</p>
+    <p v-if="report && report.classification" class="mb-3 text-sm text-neutral-500" role="status">{{ t('tax_evidence.cash_journal.rows_shown', { shown: report.filtered_rows, total: report.total_rows }) }}</p>
 
-    <div v-if="loading" class="text-center text-neutral-500 py-12 text-sm">{{ t('common.loading') }}</div>
+    <div v-if="loading && !report" class="text-center text-neutral-500 py-12 text-sm">{{ t('common.loading') }}</div>
 
     <EmptyState v-else-if="report && report.rows.length === 0 && report.total_rows > 0 && report.classification"
       variant="filtered" :title="t('tax_evidence.cash_journal.empty_classification')"
@@ -443,9 +445,9 @@ function onNotesChanged(notes: CashJournalNote[]) {
     <EmptyState v-else-if="!report || report.rows.length === 0"
       icon="coin" :title="t('tax_evidence.cash_journal.empty')" boxed />
 
-    <div v-else class="bg-surface border border-neutral-200 rounded-lg shadow-sm overflow-hidden">
+    <div v-else data-test="cash-journal-table" class="bg-surface border border-neutral-200 rounded-lg shadow-sm overflow-hidden transition-opacity" :class="{ 'opacity-60': loading }">
       <div class="overflow-x-auto">
-        <table v-column-labels="tbl" class="w-full text-sm" :class="tbl.densityClass.value">
+        <table v-column-labels="tbl" :aria-busy="loading" class="w-full text-sm" :class="tbl.densityClass.value">
           <thead class="bg-neutral-50 text-xs text-neutral-500 uppercase tracking-wide">
             <tr>
               <th v-if="tbl.isVisible('date')" class="px-3 py-2 text-left font-medium w-24">{{ t('tax_evidence.cash_journal.col_date') }}</th>
@@ -460,6 +462,7 @@ function onNotesChanged(notes: CashJournalNote[]) {
               <th v-if="tbl.isVisible('base')" class="px-3 py-2 text-right font-medium">{{ t('tax_evidence.cash_journal.col_base') }}</th>
               <th v-if="tbl.isVisible('vat')" class="px-3 py-2 text-right font-medium">{{ t('tax_evidence.cash_journal.col_vat') }}</th>
               <th v-if="tbl.isVisible('notes')" class="px-3 py-2 text-left font-medium">{{ t('tax_evidence.cash_journal.col_notes') }}</th>
+              <th v-if="tbl.isVisible('actions')" scope="col" :aria-label="t('tax_evidence.cash_journal.col_actions')" class="px-3 py-2 w-8"></th>
             </tr>
           </thead>
           <tbody class="divide-y divide-neutral-100">
@@ -484,7 +487,7 @@ function onNotesChanged(notes: CashJournalNote[]) {
                   <select
                     v-if="isClassifiable(row)"
                     class="h-6 text-xs border border-neutral-200 rounded px-1 bg-surface text-neutral-500 disabled:opacity-50"
-                    :disabled="classifyingKey === rowKey(row)"
+                    :disabled="loading || classifyingKey !== null"
                     @change="onClassify(row, ($event.target as HTMLSelectElement).value, $event.target as HTMLSelectElement)"
                   >
                     <option value="">{{ t('tax_evidence.cash_journal.classify_placeholder') }}</option>
@@ -505,6 +508,9 @@ function onNotesChanged(notes: CashJournalNote[]) {
                   </button>
                   <span v-if="row.notes?.length" class="text-xs text-neutral-600 line-clamp-2 max-w-xs whitespace-pre-wrap break-words">{{ row.notes[0]!.body }}</span>
                 </div>
+              </td>
+              <td v-if="tbl.isVisible('actions')" class="px-3 py-2 text-right whitespace-nowrap">
+                <div class="flex flex-wrap items-center justify-end gap-1"><CashJournalSourceLink :row="row" /></div>
               </td>
             </tr>
           </tbody>

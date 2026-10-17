@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Repository;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Service\Invoice\InvoiceItemKind;
 use MyInvoice\Service\Invoice\PeriodicityCalculator;
 use MyInvoice\Service\Invoice\TimeBilling;
 use MyInvoice\Service\Oss\OssTemplateItemPolicy;
@@ -90,14 +91,24 @@ final class RecurringTemplateRepository
         return $this->db->hasColumn('recurring_invoice_template_items', 'oss_applicable');
     }
 
-    /** Výčet OSS sloupců do SELECTu (s prefixem aliasu), nebo prázdný řetězec. */
+    /**
+     * Textový řádek šablony (migrace 2034). Guard ze stejného důvodu jako u OSS: bez
+     * migrace se šablona čte jako dřív, jen bez druhu řádku (= běžné položky).
+     */
+    private function supportsItemKind(): bool
+    {
+        return $this->db->hasColumn('recurring_invoice_template_items', 'item_kind');
+    }
+
+    /** Výčet OSS sloupců (a druhu řádku) do SELECTu s prefixem aliasu, nebo prázdný řetězec. */
     private function ossItemSelect(string $alias): string
     {
+        $kind = $this->supportsItemKind() ? ', ' . $alias . '.item_kind' : '';
         if (!$this->supportsOssItemColumns()) {
-            return '';
+            return $kind;
         }
 
-        return ', ' . implode(', ', array_map(
+        return $kind . ', ' . implode(', ', array_map(
             static fn (string $c): string => $alias . '.' . $c,
             self::OSS_ITEM_COLUMNS,
         ));
@@ -769,10 +780,13 @@ final class RecurringTemplateRepository
     public function replaceItems(int $templateId, array $items): void
     {
         $pdo = $this->db->pdo();
+        // Textový řádek (InvoiceItemKind::TEXT) jen s popisem, stejně jako na faktuře.
         $items = array_map(
-            static fn (array $item): array => TimeBilling::normalizeInvoiceItem($item),
+            static fn (array $item): array => TimeBilling::normalizeInvoiceItem(InvoiceItemKind::normalize($item)),
             array_values($items),
         );
+        $supportsItemKind = $this->supportsItemKind();
+        $textRateId = InvoiceItemKind::textRowRateId($items, $pdo);
         $owner = $pdo->prepare('SELECT supplier_id FROM recurring_invoice_templates WHERE id = ?');
         $owner->execute([$templateId]);
         $ownerId = (int) $owner->fetchColumn();
@@ -786,6 +800,9 @@ final class RecurringTemplateRepository
         $revenueAccounts = [];
         $productDefaults = new \MyInvoice\Service\Accounting\Product\ProductPostingDefaults($this->db);
         foreach ($items as $i => $item) {
+            if (InvoiceItemKind::isText($item)) {
+                continue;
+            }
             try {
                 $revenueAccounts[$i] = $productDefaults->validateAccount(
                     $ownerId,
@@ -800,8 +817,10 @@ final class RecurringTemplateRepository
             ->execute([$templateId]);
 
         $supportsOss = $this->supportsOssItemColumns();
-        $ossColumns = $supportsOss ? ', ' . implode(', ', self::OSS_ITEM_COLUMNS) : '';
-        $ossPlaceholders = $supportsOss ? str_repeat(', ?', count(self::OSS_ITEM_COLUMNS)) : '';
+        $ossColumns = ($supportsItemKind ? ', item_kind' : '')
+            . ($supportsOss ? ', ' . implode(', ', self::OSS_ITEM_COLUMNS) : '');
+        $ossPlaceholders = ($supportsItemKind ? ', ?' : '')
+            . ($supportsOss ? str_repeat(', ?', count(self::OSS_ITEM_COLUMNS)) : '');
 
         $stmt = $pdo->prepare(
             'INSERT INTO recurring_invoice_template_items
@@ -814,6 +833,17 @@ final class RecurringTemplateRepository
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?' . $ossPlaceholders . ')'
         );
         foreach (array_values($items) as $i => $item) {
+            $isText = $supportsItemKind && InvoiceItemKind::isText($item);
+            if ($isText) {
+                // Sazbu nese kvůli NOT NULL a JOINu, bere se z první položky šablony.
+                // Na ceník se textový řádek nenavazuje (nemá cenu ani popis z katalogu).
+                $item = array_merge($item, [
+                    'vat_rate_id' => $textRateId, 'price_list_item_id' => null, 'catalog_policy' => 'fixed',
+                    'description_source' => 'template', 'catalog_price_source' => null,
+                    'catalog_source_currency_code' => null, 'catalog_source_unit_price' => null,
+                    'catalog_exchange_rate' => null, 'catalog_exchange_rate_date' => null,
+                ]);
+            }
             $params = [
                 $templateId,
                 !empty($item['price_list_item_id']) ? (int) $item['price_list_item_id'] : null,
@@ -842,6 +872,9 @@ final class RecurringTemplateRepository
                 !empty($item['stock_item_id']) ? (int) $item['stock_item_id'] : null,
                 !empty($item['stock_item_id']) && !empty($item['warehouse_id']) ? (int) $item['warehouse_id'] : null,
             ];
+            if ($supportsItemKind) {
+                $params[] = $isText ? InvoiceItemKind::TEXT : InvoiceItemKind::STANDARD;
+            }
             if ($supportsOss) {
                 // Pravidlo „co je platný OSS řádek šablony" je sdílené s generátorem
                 // ({@see OssTemplateItemPolicy}) — dvě kopie by se rozešly a šablona by
@@ -1013,6 +1046,7 @@ final class RecurringTemplateRepository
         if (array_key_exists('oss_applicable', $row)) {
             $row['oss_applicable'] = (bool) $row['oss_applicable'];
         }
+        $row['item_kind'] = InvoiceItemKind::of($row);
         return $row;
     }
 }

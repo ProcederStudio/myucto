@@ -85,4 +85,24 @@ final class SimplifiedDocumentPolicy
 
         return null;
     }
+
+    /**
+     * Netisknout odběratele (migrace 2037): zjednodušený daňový doklad údaje o odběrateli
+     * nevyžaduje (§ 30a odst. 1), takže je firma smí vynechat, i když prodej eviduje na
+     * konkrétního klienta. Běžný daňový doklad je nést musí (§ 29 odst. 1 písm. c), proto
+     * volba platí jen tam, kde se doklad jako zjednodušený i tiskne: faktura plátce
+     * s příznakem `is_simplified` (stejná podmínka jako titulek dokladu v PDF).
+     *
+     * Jedno místo pro PDF i veřejnou webovou fakturu, ať obě říkají totéž.
+     *
+     * @param array<string,mixed> $invoice
+     * @param array<string,mixed> $supplier resolvovaný dodavatel (snapshot-first), stačí `is_vat_payer`
+     */
+    public static function hidesCustomer(array $invoice, array $supplier = []): bool
+    {
+        return !empty($invoice['hide_customer_on_pdf'])
+            && !empty($invoice['is_simplified'])
+            && ($invoice['invoice_type'] ?? '') === 'invoice'
+            && (bool) ($supplier['is_vat_payer'] ?? true);
+    }
 }

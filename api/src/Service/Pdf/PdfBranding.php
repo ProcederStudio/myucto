@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MyInvoice\Service\Pdf;
 
+use MyInvoice\Bootstrap;
 use MyInvoice\Service\Branding\AccentColor;
 use MyInvoice\Service\Mail\SafeLogoPath;
 
@@ -66,6 +67,24 @@ final class PdfBranding
         }
         $bad = '/<(?:clipPath|use|mask|pattern|filter)\b/i';
         return !preg_match($bad, $svg);
+    }
+
+    /** Úsporná černobílá varianta PDF (migrace 2033), cesta relativně ke kořeni instalace. */
+    public const MONOCHROME_CSS = 'styles/invoice-mono.css';
+
+    /**
+     * CSS připojované za base invoice.css: černobílý stylopis, když má dodavatel
+     * zapnutou úspornou černobílou fakturu (`invoice_pdf_monochrome`), jinak barevný
+     * akcent. Černobílá volba akcent nahrazuje, ne doplňuje: barvy brandingu by jinak
+     * vrátily plné plochy, které černobílý stylopis právě vypíná.
+     */
+    public static function themeCss(array $supplier): string
+    {
+        if (!empty($supplier['invoice_pdf_monochrome'])) {
+            $path = Bootstrap::rootDir() . '/' . self::MONOCHROME_CSS;
+            return is_file($path) ? (string) file_get_contents($path) : '';
+        }
+        return self::accentCss($supplier);
     }
 
     /**

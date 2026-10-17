@@ -7,6 +7,7 @@ namespace MyInvoice\Service\Export;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\InvoiceRepository;
 use MyInvoice\Service\Bank\VariableSymbolNormalizer;
+use MyInvoice\Service\Invoice\InvoiceItemKind;
 use Rikudou\Iban\Iban\CzechIbanAdapter;
 
 /**
@@ -217,6 +218,24 @@ final class IsdocExporter
         // ElectronicPossibilityAgreementReference je povinný (minOccurs=1) — pokud
         // dodavatel nemá explicitní souhlasový dokument, posíláme prázdný string.
         $this->el($dom, $root, 'ElectronicPossibilityAgreementReference', '');
+        // Textové řádky dokladu (InvoiceItemKind::TEXT) nejsou plnění: v <InvoiceLines>
+        // by je příjemce naimportoval jako nulové položky. Jdou proto do <Note> dokladu
+        // (XSD: 0..1, hned za ElectronicPossibilityAgreementReference), řádky se číslují
+        // bez nich. Doklad bez textového řádku <Note> nemá, jako dřív.
+        $allItems = (array) ($invoice['items'] ?? []);
+        $textNotes = [];
+        foreach ($allItems as $item) {
+            if (InvoiceItemKind::isText($item)) {
+                $text = trim((string) ($item['description'] ?? ''));
+                if ($text !== '') {
+                    $textNotes[] = $text;
+                }
+            }
+        }
+        if ($textNotes !== []) {
+            $this->el($dom, $root, 'Note', implode("\n", $textNotes));
+        }
+        $lineItems = InvoiceItemKind::amountLines($allItems);
         $this->el($dom, $root, 'LocalCurrencyCode', $localCurrency);
         if ($isForeign) {
             // Schema používá <ForeignCurrencyCode> (ne <CurrencyCode>) pro měnu faktury,
@@ -229,7 +248,7 @@ final class IsdocExporter
 
         $internalDocumentNumber = trim((string) ($invoice['internal_document_number'] ?? ''));
         $timeBillingLines = [];
-        foreach ((array) ($invoice['items'] ?? []) as $index => $item) {
+        foreach ($lineItems as $index => $item) {
             $durationMinutes = TimeBillingExport::durationMinutes((array) $item);
             if ($durationMinutes !== null) {
                 $timeBillingLines[] = [
@@ -303,8 +322,7 @@ final class IsdocExporter
 
         // Invoice lines
         $lines = $dom->createElementNS(self::NS, 'InvoiceLines');
-        $items = $invoice['items'] ?? [];
-        foreach ($items as $i => $item) {
+        foreach ($lineItems as $i => $item) {
             $line = $dom->createElementNS(self::NS, 'InvoiceLine');
             $this->el($dom, $line, 'ID', (string) ($i + 1));
             $qtyValue = TimeBillingExport::quantity($item);

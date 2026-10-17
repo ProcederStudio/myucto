@@ -60,16 +60,21 @@ záznam s adresami příjemců. V sekci **Historie PDF** je u odeslané verze ze
 Příloha navíc k PDF (smlouva, předávací protokol) se přidává v sekci **Přílohy
 e-mailu** na detailu, viz [§ 16.10.9](#16109-prilohy-e-mailu).
 
-## 16.4 Krok za krokem: Zobrazit nebo stáhnout PDF
+## 16.4 Krok za krokem: Zobrazit, vytisknout nebo stáhnout PDF
 
 1. Otevřete detail faktury (`Prodej → Vydané faktury`, klik na číslo).
-2. Klikněte na **Zobrazit PDF** (otevře fakturu v nové záložce bez dialogu pro uložení)
-   nebo na **Stáhnout PDF**.
+2. Klikněte na **Zobrazit PDF** (otevře fakturu v nové záložce bez dialogu pro uložení),
+   na **Tisk** nebo na **Stáhnout PDF**.
+   **Tisk** otevře rovnou tiskový dialog prohlížeče s PDF faktury, bez odbočky do nové
+   záložky. Prohlížeč bez vestavěného prohlížeče PDF (typicky v mobilu) otevře PDF
+   v nové záložce a vytisknete ho odtud. Když se tisk nepodaří připravit, aplikace
+   to oznámí a v hlášce nabídne **Zobrazit PDF**.
 3. V Chrome a Edge se u **Stáhnout PDF** otevře dialog Uložit jako. Poprvé zvolte
    složku, kam PDF dané firmy ukládáte. Prohlížeč si složku pamatuje zvlášť pro
    každou firmu a příště dialog otevře rovnou v ní.
 
-**Jak poznáte, že je hotovo:** PDF je otevřené v záložce, případně uložené ve vámi zvolené složce.
+**Jak poznáte, že je hotovo:** PDF je otevřené v záložce, odeslané na tiskárnu, případně
+uložené ve vámi zvolené složce.
 
 > [!TIP]
 > Firefox a Safari dialog Uložit jako nepodporují, PDF se tam stáhne do výchozí
@@ -316,11 +321,28 @@ Vygenerované PDF obsahuje:
    (u neplátce jen IČO a DIČ), německý nebo rakouský Steuernummer, polský NIP,
    maďarský Adószám (viz [§ 18.7.3](18_Klienti.md#1873-slovensky-klient-a-narodni-danova-cisla)).
 3. **Číslo faktury** a **typ** (Faktura, Proforma, Dobropis, Storno).
-4. **Data** - vystaveno, DUZP, splatnost.
+4. **Data** - vystaveno, DUZP, splatnost. Se zapnutou volbou **Tisknout na faktuře,
+   kdo ji vystavil** (Nastavení → Fakturace) přibude řádek **Vystavil** se jménem
+   uživatele, který doklad vystavil. Jméno se uloží při vystavení, takže pozdější
+   přejmenování uživatele už vystavený doklad nezmění. Doklad vystavený před zapnutím
+   této evidence, převzatý importem nebo zobrazený jako koncept ukáže autora dokladu.
+   Doklad vystavený bez přihlášeného uživatele (schválení výkazu klientem přes odkaz
+   nebo pravidelná fakturace spuštěná automaticky) ukáže také autora. Stejné jméno vidíte
+   v detailu faktury. U už vystavených dokladů se řádek objeví až po přegenerování
+   jejich PDF (například po úpravě dokladu nebo aktualizaci aplikace), dříve vytvořené
+   PDF se samo nemění.
 5. **Bankovní spojení** - číslo účtu nebo IBAN, BIC, banka, variabilní symbol.
 6. **Položky** - tabulka (Popis, Množství, Cena, DPH, Celkem). U položky s vybranými
    kusy skladové karty se pod popisem vypíšou sériová čísla („Výr. č.: …“, například VIN)
    nebo šarže s expirací a množstvím („Šarže: …“), viz [§ 37.5.1](37_Sklad.md#3751-vydej-fakturou).
+   Textový řádek ([§ 15.9.3](15_Faktura_editor.md#1593-polozky)) se tiskne přes celou
+   šířku tabulky, bez množství a cen.
+   Se zapnutou volbou **Na PDF faktury rozepsat slevu z ceníkové ceny** (`Nastavení → Doklady`,
+   výchozí vypnuto) má tabulka místo sloupce Cena/j sloupce **Cena/j před slevou**, **Sleva**
+   a **Cena/j po slevě**, pokud má faktura aspoň jednu položku se slevou z ceníkové ceny.
+   Položka bez ceníkové ceny nebo s přirážkou ukáže jen výslednou cenu. U faktury s cenami
+   včetně DPH jsou obě ceny bez DPH. Ceníková cena nemění částky dokladu ani export ISDOC
+   a POHODA.
 7. **Sumář** - mezisoučet, sleva, rozpis DPH, **CELKEM**.
 8. **Přepočet do CZK** (EUR a cizí měna) - u českého odběratele kurz ČNB a tabulka
    základů a DPH v CZK; u zahraničního odběratele pouze česká DPH v CZK, pokud na
@@ -337,6 +359,20 @@ Vygenerované PDF obsahuje:
 > světlá podbarvení). Když je logo malé nebo neobsahuje název firmy, zapněte
 > **Zobrazit i název firmy vedle loga**. Sémantické barvy zůstávají vždy stejné
 > (dobropis červená, storno šedá).
+
+**Úsporná černobílá faktura.** Pro tisk na černobílé tiskárně zapněte v `Firma → Branding`
+volbu **Úsporná černobílá faktura (PDF)**. PDF faktury i výkazu víceprací pak nemá žádné
+barevné ani tmavé plochy (hlavička tabulky položek, řádky **Celkem** a **K úhradě**, bloky
+dodavatele a odběratele, platební panel, poznámky, přepočet do CZK ani podbarvené sudé
+řádky). Text je černý, oddělení dělají tenké čáry, odběratele a platební panel ohraničuje
+rámeček a důležité údaje zvýrazňuje tučné písmo a velikost. Dobropis a storno poznáte podle
+názvu dokladu v hlavičce („Opravný daňový doklad“, „Storno (interní)“), ne podle barvy.
+Volba nahrazuje akcentovou barvu brandingu a platí i při vypnutém brandingu. Vlastní logo
+se tiskne tak, jak je nahrané (barevné logo zůstane barevné).
+
+- Ve výchozím stavu je volba vypnutá a PDF vypadá jako dosud.
+- Projeví se na konceptech a na PDF vytvořených po zapnutí. Už vygenerovaná PDF vystavených
+  dokladů (a jejich historie, [§ 16.10.13](#161013-historie-pdf)) se nemění.
 
 ### 16.10.5 Přepočet do CZK (faktury v cizí měně)
 

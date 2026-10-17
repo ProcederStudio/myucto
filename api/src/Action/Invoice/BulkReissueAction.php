@@ -262,6 +262,12 @@ final class BulkReissueAction
             if ($supportsManualReview) {
                 $ossColumns[] = 'oss_needs_manual_review';
             }
+            // Ceníková cena řádku (2035): kopie přebírá cenu, tedy i cenu před slevou.
+            $supportsLineDiscount = $this->db->hasColumn('invoice_items', \MyInvoice\Service\Invoice\LineDiscount::LIST_COLUMN);
+            if ($supportsLineDiscount) {
+                $ossColumns[] = \MyInvoice\Service\Invoice\LineDiscount::LIST_COLUMN;
+                $ossColumns[] = \MyInvoice\Service\Invoice\LineDiscount::PERCENT_COLUMN;
+            }
             $itemStmt = $pdo->prepare(
                 'INSERT INTO invoice_items
                    (invoice_id, description, quantity, duration_minutes, unit, unit_price_without_vat,
@@ -280,7 +286,8 @@ final class BulkReissueAction
                     ? \MyInvoice\Service\Invoice\MonthIncrementer::increment((string) $item['description'])
                     : (string) $item['description'];
 
-                $code = $item['vat_classification_code']
+                // Textový řádek klasifikaci DPH nemá a mít nesmí (nic nevykazuje).
+                $code = \MyInvoice\Service\Invoice\InvoiceItemKind::isText($item) ? null : $item['vat_classification_code']
                     ?? \MyInvoice\Repository\InvoiceRepository::defaultSaleClassificationCode(
                         (float) $item['vat_rate_snapshot'],
                         (bool) ($source['reverse_charge'] ?? false),
@@ -325,6 +332,9 @@ final class BulkReissueAction
                     // Nese ho i tuzemský řádek smíšeného dokladu (proto bez vazby na
                     // `$ossApplicable`) — viz InvoiceRepository::ossItemParams().
                     $params[] = !empty($item['oss_needs_manual_review']) ? 1 : 0;
+                }
+                if ($supportsLineDiscount) {
+                    array_push($params, ...\MyInvoice\Service\Invoice\LineDiscount::columns($item));
                 }
                 $itemStmt->execute($params);
             }

@@ -174,6 +174,10 @@ Průběh můžete bezpečně zavřít a znovu otevřít, dokončené dávky se n
 **Jak poznáte, že je hotovo:** při zapnuté automatické výdejce vznikne výdejka
 s původem **Vydaná faktura**. Přehled navázaných výdejek je na detailu faktury.
 
+Výběrem karty se řádek nacení a uloží si i ceníkovou cenu karty. Je-li cena řádku nižší
+(individuální cena, cenová hladina, akce nebo ruční sleva), editor pod cenou ukáže slevu
+a PDF ji může rozepsat, viz [§ 15.9.3](15_Faktura_editor.md#1593-polozky).
+
 Chybí-li zboží, vystavení skončí chybou „Nedostatek zásob pro výdej“ a faktura
 zůstane konceptem. Opravte množství či sklad, nebo napřed naskladněte.
 
@@ -244,7 +248,10 @@ Uzavřenou inventuru vytisknete jako **inventurní soupis PDF**.
 > zaúčtovat žádný jiný pohyb. Rozdělanou inventuru proto dokončete a uzavřete.
 
 Pro průběžné kontroly slouží na stejné stránce **cyklické inventury** (viz
-[§ 37.12.7](#37127-inventury)).
+[§ 37.12.7](#37127-inventury)). Cyklickou inventuru založíte výběrem **skladu**,
+případně **lokace** a **kategorie (vč. podkategorií)**, a tlačítkem **Nová cyklická
+inventura**. Výběr kategorie omezí sčítání na karty dané kategorie a všech jejích
+podkategorií. Ostatní karty skladu uzavření cyklické inventury nezmění.
 
 ## 37.7 Krok za krokem: objednat u dodavatele
 
@@ -332,9 +339,12 @@ a doplnění zásob ho začne navrhovat znovu. Zavřenou objednávku vrátíte t
 
 1. Otevřete `Sklad → Sestavy`.
 2. Záložka **Stav zásob k datu** ukazuje množství, průměrnou cenu a hodnotu po
-   kartách a skladech.
+   kartách a skladech. Sestavu zúžíte na **kategorii** (včetně podkategorií),
+   tlačítkem sloupců přidáte prodejní cenu nebo poznámku karty a v poli
+   **Parametr** vyberete parametr karty, který se zobrazí jako další sloupec.
 3. Záložka **Ocenění k datu** spočítá stav k historickému datu. Výpočet běží na
-   pozadí, průběh je vidět na stránce.
+   pozadí, průběh je vidět na stránce. V poli **Seskupit podle kategorií** zvolte
+   kategorii a nad tabulkou se objeví hodnota zásob po jejích podkategoriích.
 4. Záložka **Prodeje** ukáže, kolik kusů, komu a za kolik jste prodali (filtry
    období, sklad, odběratel, kategorie; **Po odběratelích** a po kartách sečte).
 5. Pro export použijte **Export PDF** nebo **Export XLSX**.
@@ -378,7 +388,7 @@ a InstatEvo soubor přijalo.
 | Skladový modul není pro tuto firmu zapnutý | Sklad není zapnutý v nastavení | `Firma → Nastavení`, záložka **Daně a účetnictví**, **Vést skladovou evidenci** |
 | Skladová karta s tímto SKU už existuje | SKU musí být v rámci firmy jedinečné | Zvolte jiné SKU, nebo použijte existující kartu |
 | Skladovou kartu nelze smazat - má skladové pohyby. Deaktivujte ji místo mazání. | Karta s pohybem se nemaže | Na detailu klikněte na **Deaktivovat** |
-| Nedostatek zásob pro výdej | Doklad by způsobil záporný stav | Snižte množství, změňte sklad, nebo napřed naskladněte. Záporný stav nejde povolit. Nesedí-li sklad se skutečností, srovnejte ho inventurou |
+| Okno **Nedostatek zásob** (vystavení faktury, zaúčtování nebo storno skladového dokladu) | Doklad by způsobil záporný stav | Okno vypíše každou chybějící kartu: kód, název, sklad, požadované množství, stav skladem, kolik chybí a jednotku. Odkazem **Karta** otevřete kartu (s právem číst sklad), odkazem **Nová příjemka** založíte příjemku na tu kartu do téhož skladu (s právem zapisovat skladové doklady). Jinak snižte množství nebo změňte sklad. Záporný stav nejde povolit. Nesedí-li sklad se skutečností, srovnejte ho inventurou |
 | Na skladu probíhá inventura - dokončete ji před zaúčtováním pohybu. | Na skladu je otevřená inventura | Dokončete a uzavřete inventuru (`Sklad → Inventury`) |
 | Na skladu už je rozpracovaná inventura. | Na sklad smí běžet jedna otevřená inventura | Dokončete rozpracovanou |
 | Upravovat lze jen rozpracovaný (draft) doklad. / Smazat lze jen rozpracovaný (draft) doklad. | Zaúčtovaný doklad se neupravuje | Použijte **Stornovat** |
@@ -453,9 +463,15 @@ plného detailu nebo editoru. **Import zboží** v liště vede na import katalo
 Sloupce: **SKU**, **Název**, **Typ**, **MJ** (měrná jednotka), **Stav** (aktuální
 množství, červeně a tučně, pokud je pod nastaveným minimem), **Hodnota** (ocenění
 stavu v Kč), **Prům. cena** (dopočtená průměrná pořizovací cena za jednotku),
-volitelně i **Prodejní cena**, **Min. zásoba** a **Aktivní**. Stav a hodnota se
-počítají ze skutečných skladových pohybů v okamžiku zobrazení stránky, ne z uložených
-souhrnných čísel karty.
+volitelně i **Prodejní cena**, **Min. zásoba**, **Parametr** a **Aktivní**. Stav
+a hodnota se počítají ze skutečných skladových pohybů v okamžiku zobrazení stránky,
+ne z uložených souhrnných čísel karty.
+
+Sloupec **Parametr** ukáže hodnotu jednoho parametru karty (například výkon nebo
+barvu), který vyberete přímo v jeho záhlaví. Nabízí všechny nearchivované parametry,
+nejen ty filtrovatelné. Výběr se pamatuje v předvolbách tabulky stejně jako zapnuté
+sloupce. Karta s více hodnotami parametru je ukáže oddělené čárkou, karta bez hodnoty
+má prázdné pole. Sloupec nefiltruje, k tomu slouží filtr parametru.
 
 Pole editoru nové karty:
 
@@ -478,6 +494,9 @@ Pole editoru nové karty:
 - **Měrná jednotka** (výchozí „ks“), **EAN**, **sazba DPH** (výchozí do řádku
   faktury), **prodejní cena bez DPH** (výchozí do řádku faktury) a **minimální
   zásoba**. Klesne-li stav pod ni, karta se v seznamu i sestavách zvýrazní.
+  Má-li jednotka v číselníku nastavená **desetinná místa množství** (například `0`
+  u kusů), ruční skladový doklad s touto kartou přesnější množství nepřijme, viz
+  [§ 96.16.1](96_Nastaveni.md#96161-ciselniky-podrobnosti).
 - **Poznámka** a příznak **Aktivní**. Neaktivní kartu jde jen deaktivovat, ne
   smazat, aby zůstala historie pohybů.
 
@@ -539,7 +558,20 @@ posune do viditelné části lišty.
 #### 37.12.2.3 Detail karty a skladová kniha
 
 Kliknutím na řádek v seznamu otevřete **detail karty**: dlaždice s počátečním
-stavem, prodejní cenou, minimální zásobou a EAN, pod nimi záložka **Pohyby**, tedy
+stavem, prodejní cenou, minimální zásobou a EAN. U plátce DPH má dlaždice prodejní
+ceny druhý řádek s **cenou s DPH** podle sazby karty, zaokrouhlenou stejně jako řádek
+faktury (DPH na haléře, pak součet). Bez sazby na kartě nebo u neplátce se cena s DPH
+neukazuje.
+
+Pod dlaždicemi je tabulka **Stav po skladech**: pro každý sklad s nenulovým stavem
+množství, průměrná nákupní (skladová) cena a hodnota zásoby, při více skladech
+i řádek **Celkem** s průměrnou cenou za všechny sklady. Jsou to stejná čísla jako ve
+sloupcích seznamu karet, jen rozepsaná po skladech (výpočet viz
+[§ 37.12.3](#37123-ocenovani-zasob)). Následuje panel **Parametry** s hodnotami
+parametrů karty (jen s právem k e-shopu, kde se parametry spravují) a panel
+**Poznámka**, pokud je na kartě vyplněná.
+
+Úplně dole je záložka **Pohyby**, tedy
 kompletní **skladová kniha** karty (datum, doklad s prokliknutím, sklad, množství
 se znaménkem, jednotková cena, hodnota a **běžná bilance** po každém řádku).
 Stránka pohybů se natahuje po 100 řádcích (lze vyžádat až 500 najednou), počáteční
@@ -554,7 +586,8 @@ pohybů je prázdný. Jméno odběratele je z dokladu, tedy takové, jaké bylo 
 vystavení. Uživatel bez práva číst vydané, resp. přijaté faktury vidí jen skladový
 doklad, bez faktury, partnera a ceny. Oba sloupce jsou i v exportu skladové karty.
 
-Akce v hlavičce detailu: **Nová výdejka** (předvyplní kartu do nového dokladu),
+Akce v hlavičce detailu: **Nová výdejka**, **Nová příjemka** a **Nová převodka**
+(každá otevře nový skladový doklad daného typu s touto kartou na prvním řádku),
 **Upravit**, **Prodeje karty** (otevře sestavu prodejů filtrovanou na tuto kartu,
 viz [§ 37.12.8](#37128-skladove-sestavy)), **export do PDF** a **export do XLSX**
 (kompletní skladová kniha karty, natažená dávkově po 500 řádcích bez ohledu na
@@ -661,6 +694,9 @@ vyhlášky 500/2002 Sb., ČÚS 015 bod 3.6). Při každém příjmu se dopočít
 cena z dosavadní hodnoty skladu a hodnoty přijaté dávky. Výdej se vždy oceňuje
 aktuální průměrnou cenou v okamžiku zaúčtování dokladu, ne cenou z minulého příjmu.
 Je to jediná podporovaná oceňovací metoda, FIFO ani LIFO modul nenabízí.
+Průměrná cena se vede zvlášť pro každý sklad. Aktuální průměrnou cenu karty na
+jednotlivých skladech ukazuje tabulka **Stav po skladech** v detailu karty
+([§ 37.12.2.3](#371223-detail-karty-a-skladova-kniha)).
 
 Uvnitř se nepočítá s desetinnými čísly, ale s celočíselnou aritmetikou: množství se
 drží v **tisícinách kusu** a hodnota v **haléřích**. Haléřová hodnota skladu je vždy
@@ -789,6 +825,9 @@ se z klouzavého průměru při zaúčtování) a poznámka. U výdejky a převo
 řádku zobrazuje náhled **dostupného množství** na zvoleném skladu. Je jen
 informativní, závaznou kontrolu dělá až zaúčtování. Nesedí-li množství, zobrazí se
 u řádku hláška ve tvaru „{SKU} - {název}: požadováno {X}, skladem {Y}“.
+Množství je v jednotce karty. Má-li ta jednotka nastavená desetinná místa množství,
+editor přesnější zadání zvýrazní a doklad neuloží (nic se nezaokrouhluje), viz
+[§ 37.12.2](#37122-skladove-karty).
 
 Akce v hlavičce editoru: **Zaúčtovat** (uloží a rovnou zaúčtuje), **Uložit koncept**,
 tisk do PDF a u zaúčtovaného dokladu **Stornovat** (přes dialog s polem **Důvod storna**).
@@ -827,7 +866,8 @@ dopravu 200 Kč).
 
 Na řádku [vydané faktury](15_Faktura_editor.md) můžete vybrat **skladovou kartu**
 a **sklad**, ze kterého se má zboží vydat. Zobrazí se náhled dostupného množství
-stejně jako v editoru skladového dokladu.
+stejně jako v editoru skladového dokladu. Stav vidíte už v nabídce karet při psaní
+popisu, pro sklad řádku (viz [§ 15.9.3](15_Faktura_editor.md#1593-polozky)).
 
 Je-li zapnutá **automatická výdejka** ([§ 37.12.1](#37121-zapnuti-modulu)), při
 vystavení běžné nebo finální faktury s takto napojenými řádky systém automaticky
@@ -844,9 +884,12 @@ zpracuje jako vratka na sklad, nikoli jako další výdej. Administrátorské sm
 vystavené faktury před smazáním atomicky stornuje i všechny její automatické
 skladové doklady.
 
-Pokud na skladě není dost zboží, vystavení faktury **skončí chybou „Nedostatek zásob
-pro výdej"** ještě předtím, než se spotřebuje číslo řady faktury. Faktura zůstane
-ve stavu koncept a dá se opravit (jiné množství, jiný sklad, nebo napřed naskladnit).
+Pokud na skladě není dost zboží, vystavení faktury **skončí oknem „Nedostatek zásob“**
+ještě předtím, než se spotřebuje číslo řady faktury. Okno vypíše chybějící karty se
+skladem, požadovaným a dostupným množstvím a jednotkou a z každého řádku nabídne odkaz
+na kartu a na novou příjemku do téhož skladu ([§ 37.11](#3711-kdyz-neco-nejde)).
+Faktura zůstane ve stavu koncept a dá se opravit (jiné množství, jiný sklad, nebo
+napřed naskladnit).
 Na detailu faktury najdete i přehled výdejek a vratek navázaných na daný doklad.
 
 Řádek fakturovaný v **balení** ([§ 37.12.2.8](#371228-baleni)) se vyskladní
@@ -1000,16 +1043,54 @@ je šarže vedena. Cyklická inventura celého skladu zahrne jen karty, které n
 někdy byly. Nalezenou kartu mimo ně zapíšete běžnou inventurou (pole **Přidat kartu
 nalezenou na skladu**).
 
+Rozsah cyklické inventury lze omezit na **kategorii včetně podkategorií** (výběr
+**Kategorie (vč. podkategorií)** vedle skladu a lokace). Výběr se zobrazí jen
+uživateli s právem číst e-shop číselníky, protože strom kategorií patří k nim.
+Seznam karet se určí jednou
+při založení: karty, které jsou v okamžiku založení zařazené ve zvolené kategorii nebo
+kterékoli její podkategorii a na skladu někdy byly. Karta zařazená ve více kategoriích
+se započítá, pokud do rozsahu spadá aspoň jedna z nich. Pozdější přeřazení karty do
+jiné kategorie už rozsah založené inventury nemění. Uzavření zaúčtuje rozdíly jen
+u řádků inventury, karty mimo rozsah se nezmění. Seznam cyklických inventur i jejich
+detail zobrazuje zvolenou kategorii. Smazáním kategorie se inventura nesmaže, jen
+přestane kategorii zobrazovat. Na jednom skladu a lokaci smí současně běžet jen jedna
+cyklická inventura, i když se kategorie liší. Běžná (roční) inventura se na kategorii
+omezit nedá a vždy zahrne celý sklad.
+
 ### 37.12.8 Skladové sestavy
 
 `Sklad → Sestavy` nabízí tři záložky:
 
 - **Stav zásob k datu** ukazuje aktuální množství, průměrnou cenu a hodnotu po
   jednotlivých kartách a skladech k okamžiku zobrazení. Řádky pod nastaveným minimem
-  se zvýrazní. Filtr je jen na sklad.
+  se zvýrazní.
+  - **Filtry:** sklad a kategorie. Kategorie zahrnuje i všechny své podkategorie,
+    karta zařazená do více kategorií se v sestavě objeví jen jednou.
+  - **Sloupce:** průměrnou cenu a hodnotu můžete skrýt, prodejní cenu bez DPH
+    a poznámku karty přidat. Volba se pamatuje pro vašeho uživatele.
+  - **Parametr:** vybraný parametr karty (například VIN nebo umístění) přidá sloupec
+    s jeho hodnotou. Má-li karta hodnot víc, jsou oddělené čárkou, u výběrového
+    parametru se ukáže popisek volby, u parametru ano/ne slovo „ano“ nebo „ne“.
+  - Filtr kategorie a výběr parametru (stejně jako seskupení ocenění) vidí uživatel
+    s právem číst katalog, protože čtou kategorie a parametry karet.
+  - Export PDF i XLSX má stejné sloupce jako obrazovka (navíc sklad, typ a MJ).
+    PDF je vždy na šířku. Skrytá hodnota z exportu zmizí i se součtem, počet
+    položek zůstane.
 - **Ocenění k datu** poskytne přehled **k historickému datu**. Výpočet běží jako úloha
   na pozadí a zobrazuje průběh. Hotové výsledky lze stránkovat. Opakovaný výpočet
   využívá uložené snapshoty, změna skladových pohybů dotčené snapshoty zneplatní.
+  - **Seskupit podle kategorií** přidá nad tabulku souhrn: počet položek a hodnotu
+    za každou přímou podkategorii zvolené kategorie (volba **Kategorie nejvyšší
+    úrovně** sečte hlavní kategorie). Zvlášť se ukážou karty zařazené **přímo
+    ve zvolené kategorii** a karty **mimo ni** (bez kategorie nebo jen v jiných
+    kategoriích). Prázdná podkategorie zůstane v přehledu s nulou.
+  - Karta ve více kategoriích se počítá **jen jednou**: podle primární kategorie,
+    jinak podle první kategorie v pořadí na kartě, vždy jen z kategorií zvoleného
+    stromu. Součet skupin se proto vždy rovná celkovému ocenění.
+  - Zařazení vychází z **dnešních** kategorií karet, ne z kategorií k datu ocenění.
+    Kdo kartu mezitím přeřadil, uvidí ji v nové kategorii i ve starším ocenění.
+  - Změna seskupení výpočet neopakuje, jen znovu načte hotové ocenění. Export XLSX
+    přidá list **Podle kategorií**, export PDF souhrnnou tabulku nad seznam.
 - **Prodeje** viz [§ 37.12.8.1](#371281-prodeje-skladovych-karet).
 
 Stav zásob a ocenění mají **součtový řádek** (počet položek a celková hodnota) a jdou

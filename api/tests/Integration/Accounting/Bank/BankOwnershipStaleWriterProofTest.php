@@ -432,6 +432,9 @@ final class BankOwnershipStaleWriterProofTest extends TestCase
                 self::assertSame($original, $e);
             }
             self::assertFalse($pdo->inTransaction());
+            // Protějšek commituje až po rollbacku volajícího, hodnotu lze číst teprve po jeho skončení.
+            $deadline = microtime(true) + 12;
+            while (proc_get_status($worker)['running'] && microtime(true) < $deadline) usleep(10000);
             self::assertSame(1, (int) $pdo->query("SELECT value FROM {$table} WHERE id=2")->fetchColumn());
         } finally {
             $property->setValue($a, $pdo);

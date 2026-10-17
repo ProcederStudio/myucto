@@ -186,6 +186,43 @@ final class MoneyS3XmlExporterTest extends TestCase
         ])]);
     }
 
+    /**
+     * Textový řádek: nulová položka se sazbou 0, do rekapitulace DPH ani do počtu
+     * sazeb dokladu nevstupuje (jinak by jeho sazba třetí nenulovou sazbou export
+     * shodila) a popis dokladu bere z jediné skutečné položky.
+     */
+    public function testTextRowIsZeroItemOutsideVatBuckets(): void
+    {
+        $xml = $this->exporter->buildXml([$this->invoice([
+            'items' => [
+                $this->item(['item_kind' => 'text', 'description' => 'Zakazka 42', 'quantity' => 0.0, 'unit' => '',
+                    'unit_price_without_vat' => 0.0, 'vat_rate_snapshot' => 15.0,
+                    'total_without_vat' => 0.0, 'total_vat' => 0.0, 'total_with_vat' => 0.0]),
+                $this->item(['vat_rate_snapshot' => 12.0, 'total_without_vat' => 1000.0, 'total_vat' => 120.0]),
+                $this->item(['description' => 'doprava', 'vat_rate_snapshot' => 21.0, 'total_without_vat' => 100.0, 'total_vat' => 21.0]),
+            ],
+        ])]);
+
+        self::assertSame('12.00', $this->xpathOne($xml, '//FaktVyd/SazbaDPH1'));
+        self::assertSame('21.00', $this->xpathOne($xml, '//FaktVyd/SazbaDPH2'));
+        self::assertSame('0.00', $this->xpathOne($xml, '//FaktVyd/SouhrnDPH/Zaklad0'));
+        self::assertSame('Zakazka 42', $this->xpathOne($xml, '//SeznamPolozek/Polozka[1]/Popis'));
+        self::assertSame('0.00', $this->xpathOne($xml, '//SeznamPolozek/Polozka[1]/PocetMJ'));
+        self::assertSame('0.00', $this->xpathOne($xml, '//SeznamPolozek/Polozka[1]/SazbaDPH'));
+        self::assertSame('0.00', $this->xpathOne($xml, '//SeznamPolozek/Polozka[1]/Cena'));
+        self::assertSame('2', $this->xpathOne($xml, '//SeznamPolozek/Polozka[2]/Poradi'));
+        self::assertSame('prodej zboží a služeb', $this->xpathOne($xml, '//FaktVyd/Popis'));
+
+        $single = $this->exporter->buildXml([$this->invoice([
+            'items' => [
+                $this->item(['item_kind' => 'text', 'description' => 'Zakazka 42', 'quantity' => 0.0,
+                    'unit_price_without_vat' => 0.0, 'total_without_vat' => 0.0, 'total_vat' => 0.0, 'total_with_vat' => 0.0]),
+                $this->item(),
+            ],
+        ])]);
+        self::assertSame('prodej zbozi', $this->xpathOne($single, '//FaktVyd/Popis'));
+    }
+
     public function testBuyerPartyUsesClientSnapshotAndSupplierUsesOwnCompany(): void
     {
         $xml = $this->exporter->buildXml([$this->invoice()]);

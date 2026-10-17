@@ -50,6 +50,18 @@ final class OssInvoiceClauseTest extends TestCase
         self::assertNull(OssInvoiceClause::build($items, self::names()));
     }
 
+    /** Textový řádek není plnění: z čistě OSS dokladu neudělá smíšený. */
+    public function testTextRowDoesNotMakeOssDocumentMixed(): void
+    {
+        $clause = OssInvoiceClause::build([
+            self::item(),
+            ['description' => 'Zásilka 1/2', 'item_kind' => 'text', 'oss_applicable' => false],
+        ], self::names());
+
+        self::assertNotNull($clause);
+        self::assertTrue($clause['all_items']);
+    }
+
     public function testFullyOssDocumentNamesTheStateOfConsumption(): void
     {
         $clause = OssInvoiceClause::build([

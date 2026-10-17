@@ -20,6 +20,7 @@ use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Accounting\AccountingFrameworkException;
 use MyInvoice\Service\Accounting\AccountingFrameworkService;
 use MyInvoice\Service\Bank\OwnBankAccountRegistrar;
+use MyInvoice\Service\Codebook\UnitPrecision;
 use MyInvoice\Service\IpMatcher;
 use MyInvoice\Service\License\LicenseCapacityGate;
 use MyInvoice\Service\License\LicenseCompanyLimitExceeded;
@@ -58,6 +59,8 @@ final class SettingsAction
      * proti překlepu typu vložená smlouva — na doklad se text tiskne celý.
      */
     private const DEFAULT_NOTE_MAX_LENGTH = 5000;
+
+    private const UNIT_DECIMALS_ERROR = 'Desetinná místa množství musí být 0 až 3, nebo prázdné (bez omezení).';
 
     public function __construct(
         private readonly Connection $db,
@@ -502,6 +505,8 @@ final class SettingsAction
             'default_hourly_rate', 'auto_send_reminders', 'reminder_days_after_due', 'auto_generate_recurring', 'embed_isdoc', 'public_isdoc_enabled', 'email_attach_isdoc',
             'invoice_qr_include_due_date', 'purchase_invoice_qr_include_due_date',
             'default_prices_include_vat',
+            // Výchozí zaokrouhlení nových faktur (migrace 2031), viz InvoiceRounding::supplierDefault().
+            'default_rounding_mode',
             // Pohoda kódy; `pohoda_accounting_code` = předkontace (migrace 1376) — bez ní
             // si Pohoda po importu dosadí vlastní default a doklad se zaúčtuje jinam.
             'pohoda_account_code', 'pohoda_centre_code', 'pohoda_activity_code', 'pohoda_contract_code',
@@ -509,12 +514,17 @@ final class SettingsAction
             // Per-supplier konfigurace číslování faktur (migrace 0014; přijaté 0095)
             'invoice_number_format', 'proforma_number_format', 'credit_note_number_format',
             'purchase_invoice_number_format',
+            // Zjednodušený daňový doklad (migrace 2037): vlastní řada (NULL = řada faktur)
+            // a výchozí „netisknout odběratele" na novém dokladu.
+            'simplified_number_format', 'simplified_hide_customer_default',
             // Číslování přijatých dokladů podle typu (migrace 2001)
             'purchase_invoice_numbering', 'purchase_receipt_number_format', 'purchase_credit_note_number_format',
             'purchase_advance_number_format', 'purchase_tax_document_number_format',
             'invoice_number_period',
             // Per-supplier branding emailů (migrace 0016) + PDF logo+název (migrace 0058)
             'email_branding_enabled', 'email_accent_color', 'pdf_logo_show_name', 'branding_profiles_enabled',
+            // Úsporná černobílá faktura (migrace 2033)
+            'invoice_pdf_monochrome',
             // Tax settings pro EPO výkazy (migrace 0038, fáze 6)
             'taxpayer_type', 'vat_period', 'financial_office_code', 'workplace_code',
             'cz_nace_code', 'data_box_type', 'data_box_id', 'flat_tax_band',
@@ -557,6 +567,10 @@ final class SettingsAction
             'dimensions_enabled',
             // Rozpis balení na základní jednotky na PDF faktury (issue #17, migrace 1832).
             'invoice_pdf_show_base_qty',
+            // Řádek „Vystavil" na PDF faktury (migrace 2032).
+            'invoice_pdf_show_issued_by',
+            // Ceníková cena a sleva u položky na PDF faktury (migrace 2035), výchozí vypnuto.
+            'invoice_pdf_show_line_discount',
             // Auto-post hook (A2, migrace 1035) — auto-zaúčtování FV po vystavení / PF po
             // přijetí; admin-only (jako ostatní účetní nastavení firmy), účinek jen v double_entry.
             'auto_post_invoices', 'auto_post_purchases',
@@ -572,6 +586,18 @@ final class SettingsAction
             DefaultInvoiceNote::ENABLED_COLUMN,
             ...array_values(DefaultInvoiceNote::COLUMNS),
         ];
+
+        if (array_key_exists('default_rounding_mode', $body)
+            && (!is_string($body['default_rounding_mode'])
+                || !in_array($body['default_rounding_mode'], \MyInvoice\Service\Invoice\InvoiceRounding::MODES, true))
+        ) {
+            return Json::error(
+                $response,
+                'validation_failed',
+                'default_rounding_mode musí být jedna z hodnot: ' . implode(', ', \MyInvoice\Service\Invoice\InvoiceRounding::MODES) . '.',
+                400,
+            );
+        }
 
         // ENUM validace volby data přijetí u importu (migrace 1848).
         if (array_key_exists('purchase_import_received_at', $body)
@@ -916,7 +942,7 @@ final class SettingsAction
         }
         // Validace per-supplier varsymbol templatů: prázdný string → NULL (= fallback na cfg);
         // jinak max 60 znaků a musí obsahovat alespoň jeden counter placeholder {C+}.
-        foreach (['invoice_number_format', 'proforma_number_format', 'credit_note_number_format', 'purchase_invoice_number_format',
+        foreach (['invoice_number_format', 'proforma_number_format', 'credit_note_number_format', 'simplified_number_format', 'purchase_invoice_number_format',
             'purchase_receipt_number_format', 'purchase_credit_note_number_format', 'purchase_advance_number_format',
             'purchase_tax_document_number_format'] as $f) {
             if (array_key_exists($f, $body)) {
@@ -1028,7 +1054,7 @@ final class SettingsAction
             }
             if (array_key_exists($f, $body)) {
                 $sets[] = "$f = ?";
-                $params[] = in_array($f, ['is_vat_payer', 'is_identified', 'oss_enabled', 'auto_send_reminders', 'auto_generate_recurring', 'embed_isdoc', 'public_isdoc_enabled', 'email_attach_isdoc', 'default_prices_include_vat', 'email_branding_enabled', 'pdf_logo_show_name', 'branding_profiles_enabled', 'payment_thanks_enabled', 'payment_thanks_auto_send', 'payment_thanks_default_checked', 'payment_thanks_attach_paid_pdf', 'stock_enabled', 'stock_auto_issue', 'invoice_pdf_show_base_qty', 'dimensions_enabled', 'accounting_enabled', 'payroll_enabled', 'auto_post_invoices', 'auto_post_purchases', 'ai_eu_residency_required', 'client_ai_extraction_enabled', 'tax_investment_incentive', 'tax_atad_cfc', 'tax_public_benefit', 'tax_cooperating_person', 'tax_foreign_income_credit', 'allow_refund_invoices', DefaultInvoiceNote::ENABLED_COLUMN], true)
+                $params[] = in_array($f, ['is_vat_payer', 'simplified_hide_customer_default', 'is_identified', 'oss_enabled', 'auto_send_reminders', 'auto_generate_recurring', 'embed_isdoc', 'public_isdoc_enabled', 'email_attach_isdoc', 'default_prices_include_vat', 'email_branding_enabled', 'pdf_logo_show_name', 'invoice_pdf_monochrome', 'branding_profiles_enabled', 'payment_thanks_enabled', 'payment_thanks_auto_send', 'payment_thanks_default_checked', 'payment_thanks_attach_paid_pdf', 'stock_enabled', 'stock_auto_issue', 'invoice_pdf_show_base_qty', 'invoice_pdf_show_issued_by', 'invoice_pdf_show_line_discount', 'dimensions_enabled', 'accounting_enabled', 'payroll_enabled', 'auto_post_invoices', 'auto_post_purchases', 'ai_eu_residency_required', 'client_ai_extraction_enabled', 'tax_investment_incentive', 'tax_atad_cfc', 'tax_public_benefit', 'tax_cooperating_person', 'tax_foreign_income_credit', 'allow_refund_invoices', DefaultInvoiceNote::ENABLED_COLUMN], true)
                     ? ((int) (bool) $body[$f])
                     : $body[$f];
             }
@@ -1160,6 +1186,8 @@ final class SettingsAction
             if (array_key_exists('email_accent_color', $body)
                 || array_key_exists('email_branding_enabled', $body)
                 || array_key_exists('pdf_logo_show_name', $body)
+                || array_key_exists('invoice_pdf_show_issued_by', $body)
+                || array_key_exists('invoice_pdf_monochrome', $body)
             ) {
                 $this->pdf->invalidateDraftsBySupplier($id);
             }
@@ -1426,6 +1454,7 @@ final class SettingsAction
         $row['reminder_days_after_due']  = (int) ($row['reminder_days_after_due'] ?? 3);
         $row['auto_generate_recurring']  = (bool) ($row['auto_generate_recurring'] ?? true);
         $row['default_prices_include_vat'] = (bool) ($row['default_prices_include_vat'] ?? false);
+        $row['default_rounding_mode'] = \MyInvoice\Service\Invoice\InvoiceRounding::orDefault($row['default_rounding_mode'] ?? null);
         $row['embed_isdoc']              = (bool) ($row['embed_isdoc'] ?? true);
         $row['public_isdoc_enabled']     = (bool) ($row['public_isdoc_enabled'] ?? false);
         $row['email_attach_isdoc']       = (bool) ($row['email_attach_isdoc'] ?? false);
@@ -1449,6 +1478,9 @@ final class SettingsAction
             true,
         ) ? (string) $row['proforma_payment_document'] : ProformaPaymentDocuments::MODE_ALWAYS_TAX_DOCUMENT;
         $row['allow_refund_invoices']    = (bool) ($row['allow_refund_invoices'] ?? false);
+        // Zjednodušený daňový doklad (migrace 2037): klíče vrátit vždy, i bez migrace.
+        $row['simplified_number_format'] = ($row['simplified_number_format'] ?? null) ?: null;
+        $row['simplified_hide_customer_default'] = (bool) ($row['simplified_hide_customer_default'] ?? false);
         // Sklad (Epic SKLAD, migrace 1023) — opt-in modul; FE nav sekci gatuje MeAction.
         $row['stock_enabled']            = (bool) ($row['stock_enabled'] ?? false);
         $row['dimensions_enabled']       = (bool) ($row['dimensions_enabled'] ?? false);
@@ -1460,6 +1492,10 @@ final class SettingsAction
         $row['stock_in_transit_from']    = (string) ($row['stock_in_transit_from'] ?? 'sent');
         // Rozpis balení na PDF faktury (migrace 1832) — výchozí zapnuto.
         $row['invoice_pdf_show_base_qty'] = (bool) ($row['invoice_pdf_show_base_qty'] ?? true);
+        // Řádek „Vystavil" na PDF faktury (migrace 2032), výchozí vypnuto.
+        $row['invoice_pdf_show_issued_by'] = (bool) ($row['invoice_pdf_show_issued_by'] ?? false);
+        // Ceníková cena a sleva u položky na PDF faktury (migrace 2035), výchozí vypnuto.
+        $row['invoice_pdf_show_line_discount'] = (bool) ($row['invoice_pdf_show_line_discount'] ?? false);
         // Auto-post hook (A2, migrace 1035) — opt-in auto-zaúčtování; FE gatuje na double_entry.
         $row['auto_post_invoices']       = (bool) ($row['auto_post_invoices'] ?? false);
         $row['auto_post_purchases']      = (bool) ($row['auto_post_purchases'] ?? false);
@@ -1487,6 +1523,7 @@ final class SettingsAction
         $row['email_branding_enabled']   = (bool) ($row['email_branding_enabled'] ?? false);
         $row['email_accent_color']       = (string) ($row['email_accent_color'] ?? '#3B2D83');
         $row['pdf_logo_show_name']       = (bool) ($row['pdf_logo_show_name'] ?? false);
+        $row['invoice_pdf_monochrome']   = (bool) ($row['invoice_pdf_monochrome'] ?? false);
         $row['branding_profiles_enabled'] = (bool) ($row['branding_profiles_enabled'] ?? false);
         $row['default_branding_profile_id'] = $row['default_branding_profile_id'] !== null
             ? (int) $row['default_branding_profile_id']
@@ -2010,7 +2047,7 @@ final class SettingsAction
     public function listUnits(Request $request, Response $response): Response
     {
         $rows = $this->db->pdo()->query(
-            'SELECT u.id, u.code, u.label_cs, u.label_en, u.is_default, u.display_order,
+            'SELECT u.id, u.code, u.label_cs, u.label_en, u.is_default, u.display_order, u.quantity_decimals,
                     (SELECT COUNT(*) FROM invoice_items i WHERE i.unit = u.code) AS items_count
                FROM units u ORDER BY u.display_order, u.code'
         )->fetchAll(\PDO::FETCH_ASSOC);
@@ -2019,6 +2056,7 @@ final class SettingsAction
             $r['is_default']    = (bool) $r['is_default'];
             $r['display_order'] = (int) $r['display_order'];
             $r['items_count']   = (int) $r['items_count'];
+            $r['quantity_decimals'] = $r['quantity_decimals'] !== null ? (int) $r['quantity_decimals'] : null;
         }
         return Json::ok($response, $rows);
     }
@@ -2031,16 +2069,21 @@ final class SettingsAction
         if ($code === '' || mb_strlen($code) > 20) {
             return Json::error($response, 'validation_failed', 'code je povinný (max 20 znaků).', 400);
         }
+        $decimals = UnitPrecision::parseSetting($b['quantity_decimals'] ?? null);
+        if (!$decimals['ok']) {
+            return Json::error($response, 'validation_failed', self::UNIT_DECIMALS_ERROR, 400);
+        }
         try {
             $this->db->pdo()->prepare(
-                'INSERT INTO units (code, label_cs, label_en, is_default, display_order)
-                 VALUES (?,?,?,?,?)'
+                'INSERT INTO units (code, label_cs, label_en, is_default, display_order, quantity_decimals)
+                 VALUES (?,?,?,?,?,?)'
             )->execute([
                 $code,
                 (string) ($b['label_cs'] ?? $code),
                 (string) ($b['label_en'] ?? $code),
                 !empty($b['is_default']) ? 1 : 0,
                 (int) ($b['display_order'] ?? 0),
+                $decimals['value'],
             ]);
         } catch (\PDOException $e) {
             return Json::error($response, 'duplicate', 'Jednotka s tímto kódem už existuje.', 409);
@@ -2059,6 +2102,15 @@ final class SettingsAction
         $b = (array) ($request->getParsedBody() ?? []);
         $allowed = ['code', 'label_cs', 'label_en', 'is_default', 'display_order'];
         $sets = []; $params = [];
+        // Desetinná místa množství (2036): null / "" = bez omezení, jinak 0 až 3.
+        if (array_key_exists('quantity_decimals', $b)) {
+            $decimals = UnitPrecision::parseSetting($b['quantity_decimals']);
+            if (!$decimals['ok']) {
+                return Json::error($response, 'validation_failed', self::UNIT_DECIMALS_ERROR, 400);
+            }
+            $sets[] = 'quantity_decimals = ?';
+            $params[] = $decimals['value'];
+        }
         foreach ($allowed as $f) {
             if (array_key_exists($f, $b)) {
                 $sets[] = "$f = ?";

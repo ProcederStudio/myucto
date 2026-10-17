@@ -399,6 +399,50 @@ final class StockInvoiceIntegrationTest extends StockTestCase
         self::assertSame(0, (int) $stmt->fetchColumn());
     }
 
+    // ── nedostatek zásob: okno v aplikaci potřebuje sklad a jednotku ────────
+
+    public function testInsufficientStockDetailsNameWarehouseAndUnit(): void
+    {
+        $supplierId = $this->createSupplier();
+        $warehouseId = $this->warehouse($supplierId, 'PRODEJNA');
+        $itemId = $this->item($supplierId, 'SHORT-1');
+        $this->receiveStock($supplierId, $warehouseId, $itemId, '2.000', 10.0);
+        $invoiceId = $this->invoiceDraft($supplierId, $this->client($supplierId));
+        $this->invoiceItem($invoiceId, $itemId, $warehouseId, '5.000');
+        $row = $this->invoiceRow($invoiceId, $supplierId, 'invoice');
+
+        // Předběžná kontrola před přidělením čísla (IssueInvoiceAction).
+        try {
+            $this->issue->assertAvailableForInvoice($supplierId, $row);
+            self::fail('5 ks ze 2 ks se vydat nedá.');
+        } catch (StockException $e) {
+            $this->assertShortageDetail($e, $itemId, $warehouseId);
+        }
+
+        // Autoritativní kontrola pod zámky (výdejka v transakci vystavení).
+        try {
+            $this->callIssueForInvoice($supplierId, $row);
+            self::fail('Výdej 5 ks ze 2 ks musí skončit nedostatkem.');
+        } catch (StockException $e) {
+            $this->assertShortageDetail($e, $itemId, $warehouseId);
+        }
+    }
+
+    private function assertShortageDetail(StockException $e, int $itemId, int $warehouseId): void
+    {
+        self::assertSame('insufficient_stock', $e->errorCode);
+        self::assertCount(1, $e->details);
+        $d = $e->details[0];
+        self::assertSame($itemId, $d['stock_item_id']);
+        self::assertSame('SHORT-1', $d['sku']);
+        self::assertSame('Karta SHORT-1', $d['name']);
+        self::assertSame('5.000', $d['requested']);
+        self::assertSame('2.000', $d['available']);
+        self::assertSame($warehouseId, $d['warehouse_id']);
+        self::assertSame('Sklad PRODEJNA', $d['warehouse_name']);
+        self::assertSame('ks', $d['unit']);
+    }
+
     // ── pomocníci ────────────────────────────────────────────────────────────
 
     /** @return array<string,mixed> minimální řádek faktury dle kontraktu StockIssueService */

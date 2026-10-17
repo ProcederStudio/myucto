@@ -8,6 +8,7 @@ use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\InvoiceRepository;
 use MyInvoice\Repository\TaxConstantsRepository;
 use MyInvoice\Service\Bank\VariableSymbolNormalizer;
+use MyInvoice\Service\Invoice\InvoiceItemKind;
 use MyInvoice\Support\CompanyIdNormalizer;
 
 /**
@@ -339,6 +340,17 @@ final class PohodaXmlExporter
             // Detail (položky)
             $detail = $dom->createElementNS(self::NS_INV, 'inv:invoiceDetail');
             foreach ($invoice['items'] ?? [] as $item) {
+                // Textový řádek (InvoiceItemKind::TEXT) = textová položka Pohody: jen
+                // <inv:text> bez množství, sazby a cen (invoiceItemType má vše minOccurs=0).
+                // Delší text se rozdělí na víc položek, ať ho limit 90 znaků neusekne.
+                if (InvoiceItemKind::isText($item)) {
+                    foreach (self::textChunks((string) ($item['description'] ?? ''), 90) as $chunk) {
+                        $row = $dom->createElementNS(self::NS_INV, 'inv:invoiceItem');
+                        $this->el($dom, $row, self::NS_INV, 'inv:text', $chunk);
+                        $detail->appendChild($row);
+                    }
+                    continue;
+                }
                 $row = $dom->createElementNS(self::NS_INV, 'inv:invoiceItem');
                 // Pohoda invoice.xsd omezuje text položky na 90 znaků (facet maxLength) —
                 // delší popisy ořízneme, jinak XSD validace spadne (mb_substr kvůli diakritice).
@@ -463,6 +475,40 @@ final class PohodaXmlExporter
         }
 
         return (string) $dom->saveXML();
+    }
+
+    /**
+     * Rozdělí text na kusy do $limit znaků, po slovech (slovo delší než limit natvrdo).
+     * Konce řádků se slijí do mezer, prázdný text nedá žádný kus.
+     *
+     * @return list<string>
+     */
+    private static function textChunks(string $text, int $limit): array
+    {
+        $words = preg_split('/\s+/u', trim($text), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        $chunks = [];
+        $current = '';
+        foreach ($words as $word) {
+            while (mb_strlen($word) > $limit) {
+                if ($current !== '') {
+                    $chunks[] = $current;
+                    $current = '';
+                }
+                $chunks[] = mb_substr($word, 0, $limit);
+                $word = mb_substr($word, $limit);
+            }
+            $candidate = $current === '' ? $word : $current . ' ' . $word;
+            if (mb_strlen($candidate) > $limit) {
+                $chunks[] = $current;
+                $current = $word;
+            } else {
+                $current = $candidate;
+            }
+        }
+        if ($current !== '') {
+            $chunks[] = $current;
+        }
+        return $chunks;
     }
 
     /** <inv:account><typ:ids>CODE</typ:ids></inv:account> */

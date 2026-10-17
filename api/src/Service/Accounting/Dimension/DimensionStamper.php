@@ -10,6 +10,7 @@ use MyInvoice\Repository\DimensionRepository;
 use MyInvoice\Service\Accounting\JournalLineAmount;
 use MyInvoice\Service\Accounting\Product\IssuedDiscountAllocation;
 use MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard;
+use MyInvoice\Service\Invoice\InvoiceItemKind;
 use PDO;
 
 /**
@@ -879,7 +880,14 @@ final class DimensionStamper
             }
             if ($dims['items'] !== [] || $productDims !== []) {
                 foreach ($rows as $i => $row) {
-                    $items[] = [
+                    // Textový řádek vydaného dokladu (InvoiceItemKind::TEXT) nemá částku. Jako
+                    // nulová kombinace dimenzí by rozpad výnosu zablokoval (nulová váha) a celý
+                    // řádek by spadl na hlavičku. Číslování položek ($i + 1) ho ale počítá,
+                    // stejně jako editor při ukládání dimenzí položek.
+                    if ($issued && InvoiceItemKind::isText($row)) {
+                        continue;
+                    }
+                    $items[$i] = [
                         'dims' => DimensionDefaults::fill(
                             $dims['items'][$i + 1] ?? [],
                             $productDims[(int) ($row['stock_item_id'] ?? 0)]['header'] ?? [],
@@ -889,9 +897,8 @@ final class DimensionStamper
                         'account_id' => $itemAccounts[(int) $row['id']] ?? null,
                     ];
                 }
-                if ($issued) {
-                    $items = self::foldIssuedDiscounts($rows, $items);
-                }
+                // foldIssuedDiscounts adresuje položky pozicí řádku, proto klíč $i až do něj.
+                $items = $issued ? self::foldIssuedDiscounts($rows, $items) : array_values($items);
             }
         }
         // Zděděné dimenze (zápočet z faktury, karta z přijaté faktury) včetně rozpadu;
@@ -917,7 +924,8 @@ final class DimensionStamper
      * mezi položky s různými dimenzemi nedal rozdělit.
      *
      * @param list<array<string,mixed>> $rows řádky invoice_items v pořadí $items
-     * @param list<array{dims:array<int,int>, weight:float, account_id:?int}> $items
+     * @param array<int,array{dims:array<int,int>, weight:float, account_id:?int}> $items klíč = pozice řádku v $rows
+     *        (textový řádek bez položky chybí)
      * @return list<array{dims:array<int,int>, weight:float, account_id:?int}>
      */
     public static function foldIssuedDiscounts(array $rows, array $items): array

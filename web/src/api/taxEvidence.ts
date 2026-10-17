@@ -15,6 +15,8 @@ export type CashBucket =
   | 'transfer' | 'private' | 'nezarazeno'
 
 export interface CashJournalRow {
+  /** Zdrojový výpis bankovního pohybu; u ostatních zdrojů null. */
+  bank_statement_id?: number | null
   source_type: string
   source_id: number
   invoice_id: number | null

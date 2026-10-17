@@ -129,6 +129,37 @@ final class BankStatementOwnershipResolver
     }
 
     /**
+     * Dávkový read-only odkaz z pohybů na přístupné výpisy (např. peněžní deník).
+     * Stejné vlastnictví jako detail výpisu; žádné účetní částky se zde nepočítají.
+     *
+     * @param list<int> $transactionIds
+     * @return array<int,int> ID transakce => ID výpisu
+     */
+    public function statementIdsForTransactions(int $supplierId, array $transactionIds): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $transactionIds), static fn (int $id): bool => $id > 0)));
+        if ($supplierId <= 0 || $ids === []) {
+            return [];
+        }
+
+        $result = [];
+        // Omezení počtu parametrů i pro deník s desítkami tisíc pohybů.
+        foreach (array_chunk($ids, 1000) as $chunk) {
+            $placeholders = implode(',', array_fill(0, count($chunk), '?'));
+            $stmt = $this->db->pdo()->prepare(
+                'SELECT bt.id, bt.statement_id FROM bank_transactions bt
+                  JOIN bank_statements bs ON bs.id = bt.statement_id
+                 WHERE bt.id IN (' . $placeholders . ') AND ' . self::sql() . ' ORDER BY bt.id'
+            );
+            $stmt->execute([...$chunk, ...self::params($supplierId)]);
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $result[(int) $row['id']] = (int) $row['statement_id'];
+            }
+        }
+        return $result;
+    }
+
+    /**
      * ID všech výpisů supplieru — pro dotazy, kde se predikát nedá inlinovat
      * (agregace nad více zdroji). Prázdné pole = žádný přístupný výpis.
      *

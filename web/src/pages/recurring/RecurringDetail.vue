@@ -413,6 +413,9 @@ const recurringActions = computed<ActionItem[]>(() => {
           </thead>
           <tbody class="divide-y divide-neutral-100">
             <tr v-for="it in tpl.items" :key="it.id">
+              <!-- Textový řádek: jen text přes celou šířku, bez částek. -->
+              <td v-if="it.item_kind === 'text'" colspan="5" class="px-4 py-2 whitespace-pre-wrap font-medium text-neutral-800" data-test="recurring-text-row">{{ it.description }}</td>
+              <template v-else>
               <td class="px-4 py-2">
                 <div>{{ it.description }}</div>
                 <div v-if="priceListEnabled && it.price_list_item_id" class="mt-1 flex flex-wrap items-center gap-1 text-xs">
@@ -437,6 +440,7 @@ const recurringActions = computed<ActionItem[]>(() => {
               <td class="px-4 py-2">{{ it.unit }}</td>
               <td class="px-4 py-2 text-right font-mono">{{ formatMoney(displayUnitPriceNet(it), tpl.currency ?? '') }}</td>
               <td class="px-4 py-2 text-center text-neutral-600">{{ Number(it.vat_rate_percent) > 0 ? it.vat_rate_percent + ' %' : '—' }}</td>
+              </template>
             </tr>
           </tbody>
         </table>

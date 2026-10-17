@@ -1,6 +1,6 @@
 import { computed, createApp, defineComponent, h, nextTick, provide, ref, Fragment } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
-import { RouterView, type RouteLocationRaw, type Router } from 'vue-router'
+import { RouterView, type RouteLocationRaw } from 'vue-router'
 import { i18n, ensureInitialLocaleReady, ensureLocaleLoaded } from '@/i18n'
 import { vMath } from '@/directives/vMath'
 import { vSelectOnFocus } from '@/directives/vSelectOnFocus'
@@ -11,11 +11,11 @@ import { createPaneRouter } from '@/router/createPaneRouter'
 import { setForbiddenPermissionHandler } from '@/api/client'
 import { shortcutFromEvent, useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts'
 import { paneCountFromShortcut, panelIndexFromShortcut } from '@/workspace/panelShortcuts'
-import { installFrameNavigation } from '@/workspace/frameNavigation'
+import { installFrameNavigation, internalAnchorNavigation } from '@/workspace/frameNavigation'
 import { windowContextKey } from '@/workspace/windowContext'
 import Toaster from '@/components/Toaster.vue'
 import WebAuthnCeremonyPrompt from '@/components/WebAuthnCeremonyPrompt.vue'
-import { internalRouteFromAnchor, internalRouteFromElement } from '@/workspace/panelLinks'
+import { internalRouteFromAnchor } from '@/workspace/panelLinks'
 import {
   isWindowFrameParentMessage,
   postWindowFrameMessage,
@@ -55,23 +55,6 @@ function keyboardPayload(event: KeyboardEvent) {
     isComposing: event.isComposing,
     repeat: event.repeat,
     editable: event.target instanceof HTMLElement && (event.target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target.tagName)),
-  }
-}
-
-function internalAnchorNavigation(
-  router: Router,
-  event: MouseEvent,
-  canOpenRight: boolean,
-): { to: RouteLocationRaw; newPane?: boolean } | null {
-  if (event.defaultPrevented || event.button !== 0 || event.altKey || event.metaKey || event.shiftKey) return null
-  const newPane = event.ctrlKey
-  if (newPane && !canOpenRight) return null
-  const to = event.target instanceof Element ? internalRouteFromElement(event.target) : null
-  if (!to) return null
-  try {
-    return router.resolve(to).matched.length ? { to, ...(newPane ? { newPane: true } : {}) } : null
-  } catch {
-    return null
   }
 }
 
@@ -250,7 +233,7 @@ export async function startWindowFrame(frame: WindowFrameBootstrap): Promise<voi
     if (!navigation) return
     event.preventDefault()
     event.stopImmediatePropagation()
-    if (!navigation.newPane && router.resolve(navigation.to).path === router.currentRoute.value.path) void router.push(navigation.to)
+    if (!navigation.newPane && !navigation.placement && router.resolve(navigation.to).path === router.currentRoute.value.path) void router.push(navigation.to)
     else postWindowFrameMessage({ type: 'myucto-window-navigate', id: frame.id, ...navigation })
   }, true)
 

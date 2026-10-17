@@ -60,7 +60,7 @@ export type WindowFrameParentMessage = WindowFrameInitMessage | WindowFrameState
 export type WindowFrameChildMessage =
   | { type: 'myucto-window-ready'; id: string }
   | { type: 'myucto-window-route'; id: string; fullPath: string; title: string; subtitle?: string | null }
-  | { type: 'myucto-window-navigate'; id: string; to: RouteLocationRaw; newPane?: boolean }
+  | { type: 'myucto-window-navigate'; id: string; to: RouteLocationRaw; newPane?: boolean; placement?: 'beside' }
   | { type: 'myucto-window-key'; id: string; event: WindowFrameKeyboardEvent }
   | { type: 'myucto-window-activate'; id: string }
   | { type: 'myucto-window-history'; id: string; direction: -1 | 1 }

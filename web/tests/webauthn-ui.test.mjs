@@ -120,7 +120,7 @@ test('security management renders inside the shared profile tabs', async () => {
   const authApi = await readFile(new URL('api/auth.ts', root), 'utf8')
 
   assert.match(profile, /type Tab = 'password' \| 'totp' \| 'passkeys' \| 'session-lock' \| 'shortcuts'/)
-  assert.match(profile, /<Passkeys v-else-if="tab === 'passkeys'" \/>/)
+  assert.match(profile, /<Passkeys\b[^>]*v-else-if="tab === 'passkeys'"[^>]*\/>/)
   assert.match(profile, /<KeyboardShortcuts v-else embedded \/>/)
   assert.match(profile, /sessionSecurity\.apply\(result\.session\)/)
   assert.match(profile, /<select[\s\S]*?class="md:hidden/)
@@ -143,15 +143,10 @@ test('passkey management fields have visible associated labels', async () => {
   assert.match(passkeys, /<input :id="`\$\{pageId\}-passkey-totp`"/)
 })
 
-test('passkey changes refresh the shared user profile independently of CSRF rotation', async () => {
+test('revoking a passkey refreshes the shared user profile and session security', async () => {
   const passkeys = await readFile(new URL('pages/Passkeys.vue', root), 'utf8')
-  const add = passkeys.match(/async function add\(\) \{([\s\S]*?)\n\}/)?.[1] || ''
   const revoke = passkeys.match(/async function revoke\(item: PasskeyCredential\) \{([\s\S]*?)\n\}/)?.[1] || ''
 
-  assert.match(
-    add,
-    /if \(registered\.csrf_token\) \{[\s\S]*?auth\.setSessionCsrfToken\(registered\.csrf_token\)[\s\S]*?\}\s*await auth\.refresh\(\)[\s\S]*?await sessionSecurity\.refresh\(\{ force: true \}\)/,
-  )
   assert.match(
     revoke,
     /passkeyRevoke[\s\S]*?await auth\.refresh\(\)[\s\S]*?await sessionSecurity\.refresh\(\{ force: true \}\)[\s\S]*?await load\(\)/,

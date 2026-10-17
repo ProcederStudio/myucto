@@ -366,15 +366,21 @@ const INVOICE_ITEM_OSS_FIELDS = [
   'oss_vat_amount_return', 'oss_original_period', 'oss_needs_manual_review',
 ];
 
-/** Všechna pole řádku, která server při náhradě položek přijímá. */
+/**
+ * Všechna pole řádku, která server při náhradě položek přijímá. Ceníková cena
+ * (`list_unit_price`) jde zpět i po změně ceny, procento slevy dopočítá server.
+ */
 const INVOICE_ITEM_FIELDS = [
-  'description', 'quantity', 'duration_minutes', 'unit', 'unit_price_without_vat',
+  'item_kind', 'description', 'quantity', 'duration_minutes', 'unit', 'unit_price_without_vat', 'list_unit_price',
   'vat_rate_id', 'order_index', 'vat_classification_code', 'stock_item_id', 'warehouse_id',
   'small_asset_id', 'asset_id', 'accrual_from', 'accrual_to', 'tracking_allocations', ...INVOICE_ITEM_OSS_FIELDS,
 ];
 
 /** Slevové řádky generuje server z `discount_percent`; zpět se neposílají. */
 const isDiscountRow = (item) => (item?.item_kind ?? 'standard') === 'discount';
+
+/** Textový řádek (`item_kind: "text"`) nese jen popis, bez částky. */
+const isTextRow = (item) => item?.item_kind === 'text';
 
 /** Položky dokladu bez systémových slevových řádků, v pořadí jako na dokladu. */
 export const invoiceLines = (invoice) => (invoice?.items ?? []).filter((item) => !isDiscountRow(item));
@@ -1393,17 +1399,19 @@ export const TOOLS = [
       client_id: int('ID odběratele.'),
       items: {
         type: 'array',
-        description: 'Fakturované položky, alespoň jedna.',
+        description: 'Fakturované položky, alespoň jedna. Mezi ně lze vložit textový řádek '
+          + '(`item_kind: "text"`, jen `description`); do částek ani DPH nevstupuje.',
         minItems: 1,
         items: schema({
+          item_kind: str('„text" = textový řádek jen s popisem; jinak běžná položka.', { enum: ['standard', 'text'] }),
           description: str('Text položky.'),
-          quantity: num('Množství. Nesmí být nula.'),
+          quantity: num('Množství. Nesmí být nula. U běžné položky povinné.'),
           unit: str('Měrná jednotka, výchozí "ks".'),
-          unit_price_without_vat: num('Jednotková cena bez DPH.'),
-          vat_rate_id: int('ID sazby DPH — viz `list_vat_rates`.'),
+          unit_price_without_vat: num('Jednotková cena bez DPH. U běžné položky povinná.'),
+          vat_rate_id: int('ID sazby DPH, viz `list_vat_rates`. U běžné položky povinné.'),
           stock_item_id: int('Volitelná vazba na skladovou kartu.'),
           warehouse_id: int('Sklad k výdeji; jen spolu se `stock_item_id`.'),
-        }, ['description', 'quantity', 'unit_price_without_vat', 'vat_rate_id']),
+        }, ['description']),
       },
       invoice_type: str('Typ dokladu, výchozí "invoice".', {
         enum: ['invoice', 'proforma', 'credit_note', 'cancellation', 'payment_calendar'],
@@ -1513,6 +1521,8 @@ export const TOOLS = [
       'Přidá položku na KONCEPT faktury, např. „přidej na koncept pro ACME dopravu, 1 ks, 350 Kč". '
       + 'Existující položky zůstanou beze změny, včetně skrytých údajů (časové rozlišení, '
       + 'sklad, OSS, pořadí).\n\n'
+      + 'S `kind: "text"` přidá TEXTOVÝ ŘÁDEK mezi položky (nadpis, poznámka k části dokladu): '
+      + 'stačí `description`, množství, cenu ani sazbu nezadávej. Do částek ani DPH nevstupuje.\n\n'
       + 'Doklad určíš `invoice_id`, nebo názvem odběratele (`client`) či zakázky (`project`); '
       + 'při víc konceptech nástroj nehádá a vypíše je.\n\n'
       + 'Sazbu DPH NEHÁDEJ: `vat_rate_id` je povinné (seznam vrátí `list_vat_rates`). '
@@ -1521,35 +1531,45 @@ export const TOOLS = [
       invoice_id: int('ID konceptu faktury. Když chybí, dohledá se podle `client` / `project`.'),
       client: str('Název odběratele, alternativa k `invoice_id`.'),
       project: str('Název zakázky, alternativa k `invoice_id`.'),
+      kind: str('Druh řádku: „item" = položka s cenou (výchozí), „text" = jen textový řádek.', { enum: ['item', 'text'] }),
       description: str('Text položky.'),
-      quantity: num('Množství. Nesmí být nula.'),
+      quantity: num('Množství. Nesmí být nula. U položky povinné.'),
       unit: str('Měrná jednotka, výchozí „ks".'),
-      unit_price_without_vat: num('Jednotková cena (bez DPH, u dokladu s `prices_include_vat` s DPH).'),
-      vat_rate_id: int('ID sazby DPH, viz `list_vat_rates`.'),
+      unit_price_without_vat: num('Jednotková cena (bez DPH, u dokladu s `prices_include_vat` s DPH). U položky povinná.'),
+      vat_rate_id: int('ID sazby DPH, viz `list_vat_rates`. U položky povinné.'),
       position: int('Pořadí, na které se položka vloží (1 = první). Výchozí je na konec.', { minimum: 1 }),
       accrual_from: date('Časové rozlišení od (RRRR-MM-DD).'),
       accrual_to: date('Časové rozlišení do (RRRR-MM-DD).'),
       stock_item_id: int('Volitelná vazba na skladovou kartu.'),
       warehouse_id: int('Sklad k výdeji; jen spolu se `stock_item_id`.'),
-    }, ['description', 'quantity', 'unit_price_without_vat', 'vat_rate_id']),
+    }, ['description']),
     write: true,
     run: async (c, a, tool) => {
-      const quantity = Number(a.quantity);
-      if (!Number.isFinite(quantity) || quantity === 0) throw new Error('Množství nesmí být nula.');
+      const text = a.kind === 'text';
       if (String(a.description ?? '').trim() === '') throw new Error('Zadejte text položky.');
+      const quantity = Number(a.quantity);
+      if (!text) {
+        if (!Number.isFinite(quantity) || quantity === 0) throw new Error('Množství nesmí být nula.');
+        if (a.unit_price_without_vat === undefined || !Number.isFinite(Number(a.unit_price_without_vat))) {
+          throw new Error('Zadejte jednotkovou cenu položky (`unit_price_without_vat`).');
+        }
+        if (a.vat_rate_id === undefined) throw new Error('Zadejte sazbu DPH (`vat_rate_id`), viz `list_vat_rates`.');
+      }
 
       const { invoiceId } = await resolveDraftInvoice(c, a, tool);
       const invoice = await loadDraftInvoice(c, invoiceId, tool);
       const lines = invoiceLines(invoice).map((item) => lineForPut(item));
 
-      const added = {
-        description: String(a.description).trim(),
-        quantity,
-        unit: String(a.unit ?? 'ks').trim() || 'ks',
-        unit_price_without_vat: Number(a.unit_price_without_vat),
-        vat_rate_id: a.vat_rate_id,
-        ...changed(a, ['accrual_from', 'accrual_to', 'stock_item_id', 'warehouse_id']),
-      };
+      const added = text
+        ? { item_kind: 'text', description: String(a.description).trim() }
+        : {
+          description: String(a.description).trim(),
+          quantity,
+          unit: String(a.unit ?? 'ks').trim() || 'ks',
+          unit_price_without_vat: Number(a.unit_price_without_vat),
+          vat_rate_id: a.vat_rate_id,
+          ...changed(a, ['accrual_from', 'accrual_to', 'stock_item_id', 'warehouse_id']),
+        };
       const at = a.position !== undefined ? Math.min(Number(a.position), lines.length + 1) - 1 : lines.length;
       lines.splice(at, 0, added);
       // Pořadí se počítá znovu, ať nová položka nesdílí `order_index` s tou, za kterou se vložila.
@@ -1596,6 +1616,9 @@ export const TOOLS = [
       const items = invoiceLines(invoice);
       const index = pickInvoiceLine(items, a);
       const before = items[index];
+      if (isTextRow(before) && Object.keys(changes).some((key) => key !== 'description')) {
+        throw new Error('Textový řádek nese jen text, změnit jde jen `description`.');
+      }
 
       const rateChanged = changes.vat_rate_id !== undefined && Number(changes.vat_rate_id) !== Number(before.vat_rate_id);
       const lines = items.map((item, i) => lineForPut(item, { rederive: i === index && rateChanged }));
@@ -1641,7 +1664,8 @@ export const TOOLS = [
       const items = invoiceLines(invoice);
       const index = pickInvoiceLine(items, a);
       const target = items[index];
-      if (items.length === 1) {
+      // Textové řádky nejsou plnění: doklad musí mít aspoň jednu skutečnou položku.
+      if (!isTextRow(target) && items.filter((item) => !isTextRow(item)).length === 1) {
         throw new Error('Doklad má jen tuto položku a bez položek ho uložit nejde. Upravte ji, nebo koncept smažte v aplikaci.');
       }
       requireConfirm(a, 'Z konceptu se má odebrat položka',

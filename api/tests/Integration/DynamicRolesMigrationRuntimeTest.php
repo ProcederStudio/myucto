@@ -136,7 +136,7 @@ final class DynamicRolesMigrationRuntimeTest extends TestCase
                 '2023_property_registry.sql',
                 '2024_property_charge_versions.sql',
                 '2025_property_charge_issuance.sql',
-                '2029_property_payment_permissions.sql'
+                '2038_property_payment_permissions.sql'
             )"
         );
         $this->runMigrator();
@@ -313,7 +313,7 @@ final class DynamicRolesMigrationRuntimeTest extends TestCase
                 '2023_property_registry.sql',
                 '2024_property_charge_versions.sql',
                 '2025_property_charge_issuance.sql',
-                '2029_property_payment_permissions.sql',
+                '2038_property_payment_permissions.sql',
             ]),
         ];
         $env = getenv();

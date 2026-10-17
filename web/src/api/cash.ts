@@ -122,6 +122,9 @@ export interface UnpaidDocumentOption {
   id: number; kind: 'invoice' | 'purchase_invoice'; number: string
   partner_name: string; total: number; paid: number; remaining: number
   currency_code: string; issued_on: string
+  /** IČ a DIČ odběratele (FV) nebo dodavatele (PF) z evidence klientů. */
+  partner_ic?: string | null
+  partner_dic?: string | null
   /** Zálohová faktura — úhrada se účtuje jako přijatá záloha (211/324), ne na saldokonto 311. */
   is_proforma?: boolean
   invoice_type?: string

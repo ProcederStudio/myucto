@@ -8,6 +8,8 @@ import { flushPromises, mount } from '@vue/test-utils'
  * tahle záložka tiše zahodila (toast „aktivováno" a nic víc).
  */
 const m = vi.hoisted(() => ({
+  domainPending: false,
+  authorizeDomain: vi.fn(),
   totpStatus: vi.fn(),
   totpSetup: vi.fn(),
   totpEnable: vi.fn(),
@@ -48,10 +50,10 @@ vi.mock('@/security/webauthn', () => ({
 vi.mock('@/security/domainLogin', () => ({
   canonicalDomainLoginSessionCsrf: m.ownedCsrf,
   advanceCanonicalDomainLoginSession: m.advanceSession,
-  hasPendingCanonicalDomainLogin: () => false,
-  authorizePendingDomainLogin: vi.fn(),
+  hasPendingCanonicalDomainLogin: () => m.domainPending,
+  authorizePendingDomainLogin: m.authorizeDomain,
 }))
-vi.mock('@/pages/Passkeys.vue', () => ({ default: { name: 'Passkeys', template: '<div />' } }))
+vi.mock('@/pages/Passkeys.vue', () => ({ default: { name: 'Passkeys', emits: ['registered'], template: '<button data-test="register-passkey" @click="$emit(\'registered\')" />' } }))
 vi.mock('@/pages/KeyboardShortcuts.vue', () => ({ default: { name: 'KeyboardShortcuts', template: '<div />' } }))
 vi.mock('@/components/security/RecoveryCodesOnce.vue', () => ({
   default: {
@@ -94,6 +96,8 @@ async function activate(wrapper: ReturnType<typeof mountPage>) {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  m.domainPending = false
+  m.authorizeDomain.mockReset().mockResolvedValue(true)
   m.ownedCsrf.mockReturnValue(null)
   m.routeQuery.tab = 'totp'
   m.store.user = { totp_enabled: false, mfa_methods: [], passkey_count: 0 }
@@ -219,6 +223,46 @@ describe('PasswordChange — owned portal session rotation', () => {
     expect(m.advanceSession).toHaveBeenCalledWith('owned', 'rotated')
     expect(m.setSessionCsrfToken).toHaveBeenCalledWith('rotated')
     expect(m.advanceSession.mock.invocationCallOrder[0]).toBeLessThan(m.refresh.mock.invocationCallOrder[0]!)
+    wrapper.unmount()
+  })
+})
+
+
+describe('PasswordChange — návrat po registraci klíče z portálu', () => {
+  it('po přidání klíče dokončí předání a úklid dočasné relace', async () => {
+    m.domainPending = true
+    m.routeQuery.tab = 'passkeys'
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.get('[data-test="register-passkey"]').trigger('click')
+    await flushPromises()
+    expect(m.authorizeDomain).toHaveBeenCalledOnce()
+    wrapper.unmount()
+  })
+
+  it('při selhání návratu zobrazí chybu a umožní opakování', async () => {
+    m.domainPending = true
+    m.routeQuery.tab = 'passkeys'
+    m.authorizeDomain.mockRejectedValueOnce(new Error('offline'))
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.get('[data-test="register-passkey"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('domain_login.authorize_failed')
+    const retry = wrapper.findAll('button').find(b => b.text() === 'domain_login.return_to_client')!
+    await retry.trigger('click')
+    await flushPromises()
+    expect(m.authorizeDomain).toHaveBeenCalledTimes(2)
+    wrapper.unmount()
+  })
+
+  it('samostatná správa klíčů na hlavní adrese neprovádí předání', async () => {
+    m.routeQuery.tab = 'passkeys'
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.get('[data-test="register-passkey"]').trigger('click')
+    await flushPromises()
+    expect(m.authorizeDomain).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 })

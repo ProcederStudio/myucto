@@ -8,12 +8,14 @@ use Mpdf\Mpdf;
 use MyInvoice\Bootstrap;
 use MyInvoice\Infrastructure\Config\Config;
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Service\Codebook\UnitPrecision;
 use MyInvoice\Repository\InvoiceRepository;
 use MyInvoice\Repository\SupplierPaymentQrSettingsRepository;
 use MyInvoice\Repository\WorkReportRepository;
 use MyInvoice\Service\Bank\VariableSymbolNormalizer;
 use MyInvoice\Service\Branding\AccentColor;
 use MyInvoice\Service\Export\IsdocExporter;
+use MyInvoice\Service\Invoice\SimplifiedDocumentPolicy;
 use MyInvoice\Service\Invoice\CzkRecap;
 use MyInvoice\Service\Invoice\RefundDocument;
 use MyInvoice\Service\Invoice\SnapshotBuilder;
@@ -88,6 +90,7 @@ final class InvoicePdfRenderer
         // Cache je validní jen když je novější než šablona, CSS a kód renderu
         $tplMtime = max(
             @filemtime(Bootstrap::rootDir() . '/styles/invoice.css') ?: 0,
+            @filemtime(Bootstrap::rootDir() . '/' . PdfBranding::MONOCHROME_CSS) ?: 0,
             @filemtime(Bootstrap::rootDir() . '/api/templates/invoice/invoice.twig') ?: 0,
             @filemtime(__DIR__ . '/TimeBillingPdfPresenter.php') ?: 0,
             @filemtime(__FILE__) ?: 0,
@@ -272,8 +275,8 @@ final class InvoicePdfRenderer
     {
         $cssPath = Bootstrap::rootDir() . '/styles/invoice.css';
         $css = is_file($cssPath) ? (string) file_get_contents($cssPath) : '';
-        // Per-supplier branding barva — přebarví fialové akcenty na zvolený odstín.
-        $css .= $this->brandAccentCss($this->resolveSupplier($invoice));
+        // Per-supplier branding barva, nebo úsporná černobílá varianta (ta akcent nahrazuje).
+        $css .= $this->brandThemeCss($this->resolveSupplier($invoice));
         // Renderuj template BEZ inline <style> bloku — CSS pošleme do mPDF zvlášť
         $body = $this->renderHtml(
             $invoice,
@@ -340,7 +343,7 @@ final class InvoicePdfRenderer
             ? (is_file($cssPath) ? (string) file_get_contents($cssPath) : '')
             : '';
         if ($includeCss && $css !== '') {
-            $css .= $this->brandAccentCss($supplierData);
+            $css .= $this->brandThemeCss($supplierData);
         }
 
         // Locale pro `t()` — čte ho closure registrovaná v twig() (viz komentář tam).
@@ -371,10 +374,20 @@ final class InvoicePdfRenderer
             }
         }
 
-        $invoice['items'] = TimeBillingPdfPresenter::invoiceItems(
+        $invoice['items'] = $this->withQuantityDecimals(TimeBillingPdfPresenter::invoiceItems(
             $this->withTrackingLines($this->withBaseQuantity($invoice), (int) ($invoice['supplier_id'] ?? 0), (string) $locale),
             !empty($invoice['prices_include_vat']),
-        );
+        ));
+        $lineDiscountColumns = false;
+        if (self::hasLineDiscount($invoice['items']) && $this->showsLineDiscount((int) ($invoice['supplier_id'] ?? 0))) {
+            $invoice['items'] = self::withLineDiscount(
+                $invoice['items'],
+                !empty($invoice['prices_include_vat']),
+                !empty($invoice['reverse_charge']),
+                (string) $locale,
+            );
+            $lineDiscountColumns = true;
+        }
         $workReport = $includeWorkReport
             ? $this->workReports->findByInvoice((int) $invoice['id'])
             : null;
@@ -386,6 +399,8 @@ final class InvoicePdfRenderer
             'invoice'           => $invoice,
             'supplier'          => $supplierData,
             'client'            => $clientData,
+            // Zjednodušený doklad s volbou „netisknout odběratele" (migrace 2037).
+            'hide_customer'     => SimplifiedDocumentPolicy::hidesCustomer($invoice, $supplierData),
             'bank'              => $bankData,
             'qr_data_uri'       => $qrUri,
             // Platební VS = samostatný payment_variable_symbol, jinak číslice z čísla
@@ -413,6 +428,7 @@ final class InvoicePdfRenderer
             // Opt-in: vedle loga vykreslit i název firmy (migrace 0058). Jen když logo
             // reálně je — bez loga se název ukazuje vždy (textový brand-name fallback).
             'logo_show_name'    => $logoPath !== null && !empty($supplierData['pdf_logo_show_name']),
+            'issued_by_label'   => $this->issuedByLabel($invoice),
             'isdoc_attachment'  => $hasIsdocAttachment, // bool — badge gate
             'hide_pdf_czk_recap'=> $hidePdfCzkRecap,
             'pdf_czk_vat'       => $pdfCzkVat,
@@ -427,8 +443,87 @@ final class InvoicePdfRenderer
             'payment_schedule'  => ($invoice['invoice_type'] ?? '') === 'payment_calendar'
                 ? $this->paymentSchedule->forInvoice((int) $invoice['supplier_id'], (int) $invoice['id'])
                 : [],
+            // Sloupce „Cena/j před slevou | Sleva | Cena/j po slevě" (migrace 2035).
+            'line_discount_columns' => $lineDiscountColumns,
         ];
         return $twig->render('invoice.twig', $vars);
+    }
+
+    /**
+     * Má doklad aspoň jeden řádek se slevou z ceníkové ceny? Přirážka (záporná sleva)
+     * se nepočítá, ta se zákazníkovi nerozepisuje.
+     *
+     * @param array<int|string,mixed> $items
+     */
+    private static function hasLineDiscount(array $items): bool
+    {
+        foreach ($items as $item) {
+            if (is_array($item) && self::lineDiscountPct($item) !== null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** @param array<string,mixed> $item */
+    private static function lineDiscountPct(array $item): ?float
+    {
+        if (($item['item_kind'] ?? 'standard') !== 'standard' || ($item['list_unit_price'] ?? null) === null) {
+            return null;
+        }
+        $pct = $item['line_discount_pct'] ?? null;
+        return $pct !== null && (float) $pct > 0 ? (float) $pct : null;
+    }
+
+    /**
+     * Volba `supplier.invoice_pdf_show_line_discount` (migrace 2035). Čte se živě jako
+     * rozpis balení: je to volba vzhledu, ne údaj dokladu, a snapshot dodavatele ji
+     * u starších dokladů nemá.
+     */
+    private function showsLineDiscount(int $supplierId): bool
+    {
+        if ($supplierId <= 0) {
+            return false;
+        }
+        $stmt = $this->db->pdo()->prepare('SELECT invoice_pdf_show_line_discount FROM supplier WHERE id = ?');
+        $stmt->execute([$supplierId]);
+        return (int) $stmt->fetchColumn() === 1;
+    }
+
+    /**
+     * Řádkům se slevou doplní `pdf_list_unit_price` (cena za jednotku před slevou bez DPH)
+     * a `pdf_discount_label` (procento na nejvýš dvě místa, bez koncových nul). Ostatní řádky, přirážku
+     * i hlavičkový slevový řádek nechá beze změny: ty tisknou jen výslednou cenu.
+     *
+     * Cena před slevou je ve stejném základu jako `pdf_unit_price`. V režimu „ceny
+     * s DPH" nese řádek brutto, proto se ceníková cena převede poměrem netto/brutto
+     * téhož řádku (sedí i na přenesenou daňovou povinnost, kde je poměr 1). Řádek
+     * se 100% slevou poměr nemá, ceník se převede sazbou.
+     *
+     * @param array<int|string,mixed> $items
+     * @return array<int|string,mixed>
+     */
+    private static function withLineDiscount(array $items, bool $pricesIncludeVat, bool $reverseCharge, string $locale): array
+    {
+        foreach ($items as $i => $item) {
+            $pct = is_array($item) ? self::lineDiscountPct($item) : null;
+            if ($pct === null) {
+                continue;
+            }
+            $list = (float) $item['list_unit_price'];
+            if ($pricesIncludeVat) {
+                $stored = (float) ($item['unit_price_without_vat'] ?? 0);
+                $rate = (float) ($item['vat_rate_snapshot'] ?? 0);
+                $list = abs($stored) > 0.0000001
+                    ? $list * (float) ($item['pdf_unit_price'] ?? $stored) / $stored
+                    : ($reverseCharge ? $list : $list * 100 / (100 + $rate));
+            }
+            $decimals = (int) ($item['unit_price_decimals'] ?? 2);
+            $items[$i]['pdf_list_unit_price'] = round($list, max(2, $decimals));
+            // Na dokladu stačí dvě desetinná místa (16,67 %), uložené procento má tři.
+            $items[$i]['pdf_discount_label'] = rtrim(rtrim(number_format($pct, 2, $locale === 'en' ? '.' : ',', ''), '0'), '.,');
+        }
+        return $items;
     }
 
     /**
@@ -511,10 +606,11 @@ final class InvoicePdfRenderer
      * AccentColor::tint() (mix s bílou). Šedá paleta CZK rekapitulace (bg #F2F2F2/…) je
      * záměrně neutrální, tu necháváme být — barvíme jen její fialové linky/text.
      */
-    private function brandAccentCss(array $supplier): string
+    private function brandThemeCss(array $supplier): string
     {
-        // Sdíleno s výkazem víceprací — viz PdfBranding::accentCss.
-        return PdfBranding::accentCss($supplier);
+        // Sdíleno s výkazem víceprací, viz PdfBranding::themeCss (černobílá varianta
+        // `invoice_pdf_monochrome` akcent nahrazuje) a PdfBranding::accentCss.
+        return PdfBranding::themeCss($supplier);
     }
 
     /**
@@ -766,6 +862,29 @@ final class InvoicePdfRenderer
     }
 
     /**
+     * Pevný počet desetinných míst množství podle jednotky (2036). Řádek s jednotkou,
+     * která nastavení nemá, dostane null a šablona tiskne dnešní adaptivní formát.
+     *
+     * @param list<array<string,mixed>> $items
+     * @return list<array<string,mixed>>
+     */
+    private function withQuantityDecimals(array $items): array
+    {
+        if ($items === []) {
+            return $items;
+        }
+        $map = (new UnitPrecision($this->db))->decimalsByUnit();
+        foreach ($items as &$item) {
+            $item['quantity_decimals'] = UnitPrecision::printDecimals(
+                $item['quantity'] ?? null,
+                $map[UnitPrecision::key((string) ($item['unit'] ?? ''))] ?? null,
+            );
+        }
+        unset($item);
+        return $items;
+    }
+
+    /**
      * Balení na PDF (issue #17): řádek skladové karty fakturovaný v balení dostane
      * `base_qty` a `base_unit` a šablona pod jednotku doplní „(celkem 80 ks)".
      * Přepíná `supplier.invoice_pdf_show_base_qty` (čte se živě — je to volba
@@ -808,6 +927,31 @@ final class InvoicePdfRenderer
             $items[$i]['base_unit'] = $ratio['base_unit'];
         }
         return $items;
+    }
+
+    /**
+     * Řádek „Vystavil" (migrace 2032): jméno zapsané při vystavení, u starších
+     * dokladů a konceptů autor dokladu. Přepíná `supplier.invoice_pdf_show_issued_by`
+     * a čte se živě jako {@see withBaseQuantity()}: je to volba vzhledu, ne údaj dokladu.
+     *
+     * @param array<string,mixed> $invoice
+     */
+    private function issuedByLabel(array $invoice): ?string
+    {
+        $supplierId = (int) ($invoice['supplier_id'] ?? 0);
+        if ($supplierId <= 0) {
+            return null;
+        }
+        $name = trim((string) ($invoice['issued_by_name'] ?? ''));
+        if ($name === '') {
+            $name = trim((string) ($invoice['created_by_name'] ?? ''));
+        }
+        if ($name === '') {
+            return null;
+        }
+        $flag = $this->db->pdo()->prepare('SELECT invoice_pdf_show_issued_by FROM supplier WHERE id = ?');
+        $flag->execute([$supplierId]);
+        return (int) $flag->fetchColumn() === 1 ? $name : null;
     }
 
     private function getSupplierData(int $supplierId): array

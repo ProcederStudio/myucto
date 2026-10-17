@@ -2,7 +2,8 @@
 import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import WorkspaceTeleport from '@/components/workspace/WorkspaceTeleport.vue'
 
-type Option = { value: number; label: string; secondary?: string }
+/** `badge` = krátký stav vpravo (např. „skladem 12 ks"); `badgeTone: 'warning'` = nula, karta se nevydá. */
+type Option = { value: number; label: string; secondary?: string; badge?: string; badgeTone?: 'neutral' | 'warning' }
 
 const props = withDefaults(defineProps<{
   /** Popis řádku (v-model:description). */
@@ -152,6 +153,8 @@ function onKey(e: KeyboardEvent) {
     highlightIdx.value = Math.max(highlightIdx.value - 1, 0)
     scrollHighlightIntoView()
   } else if (e.key === 'Enter') {
+    // Shift+Enter vždy zalomí řádek popisu, i když je nabídka otevřená.
+    if (e.shiftKey || e.isComposing) return
     if (open.value && opts[highlightIdx.value]) {
       e.preventDefault()
       selectOption(opts[highlightIdx.value])
@@ -265,7 +268,12 @@ const controlClass = computed(() => [
             o.value === stockItemId ? 'font-medium text-primary-700' : 'text-neutral-900',
           ]"
         >
-          <div class="truncate">{{ o.label }}</div>
+          <div class="flex items-start gap-2">
+            <div class="truncate min-w-0 flex-1">{{ o.label }}</div>
+            <span v-if="o.badge" data-test="stock-option-badge"
+              :class="['shrink-0 px-1.5 py-0.5 rounded border text-xs font-normal whitespace-nowrap tabular-nums',
+                       o.badgeTone === 'warning' ? 'border-warning-500/40 bg-warning-50 text-warning-700' : 'border-neutral-200 bg-neutral-50 text-neutral-600']">{{ o.badge }}</span>
+          </div>
           <div v-if="o.secondary" class="text-xs text-neutral-500 truncate">{{ o.secondary }}</div>
         </button>
         <div v-if="options.length === 0" class="px-3 py-2 text-sm text-neutral-400">{{ noResultsLabel }}</div>

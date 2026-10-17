@@ -1,6 +1,7 @@
 import { api } from './client'
 import { appendStepUpProof, stepUpProofBody } from './epoSubmissions'
 import type { EpoSigningCredential, EpoStepUpProof } from './epoSubmissions'
+import type { InvoiceRoundingMode } from './invoices'
 
 /** Typy zpráv pro kopii dodavateli — zrcadlí RecipientResolver::TYPE_*. */
 export type SelfCopyType = 'documents' | 'reminders' | 'approvals'
@@ -239,6 +240,8 @@ export interface Supplier {
   default_payment_due_unit: 'days' | 'month'
   /** Výchozí režim cen u nových faktur (false = bez DPH, true = ceny s DPH). */
   default_prices_include_vat: boolean
+  /** Výchozí zaokrouhlení nových faktur (migrace 2031). */
+  default_rounding_mode?: InvoiceRoundingMode
   /**
    * Výchozí poznámka pod položkami na nově zakládaných dokladech (#79, migrace 1855).
    * Vypnuto + prázdné texty = dnešní chování. Text se drží podle JAZYKA dokladu,
@@ -285,6 +288,11 @@ export interface Supplier {
   invoice_number_format: string | null
   proforma_number_format: string | null
   credit_note_number_format: string | null
+  /** Řada zjednodušených daňových dokladů (migrace 2037); null = řada faktur.
+   *  `undefined` = starší backend bez pole. */
+  simplified_number_format?: string | null
+  /** Výchozí „netisknout odběratele" na novém zjednodušeném dokladu (migrace 2037). */
+  simplified_hide_customer_default?: boolean
   // Šablona interního čísla přijaté faktury (migrace 0095). null = vestavěný
   // default '{PP}{YY}{MM}{CCC}'. {PP} = daňový prefix (PF/PN/KU/KN/NU/NN).
   purchase_invoice_number_format: string | null
@@ -300,6 +308,7 @@ export interface Supplier {
   email_branding_enabled: boolean
   email_accent_color: string  // #RRGGBB
   pdf_logo_show_name: boolean // vedle loga v PDF zobrazit i název firmy (migrace 0058)
+  invoice_pdf_monochrome?: boolean // úsporná černobílá faktura (migrace 2033)
   branding_profiles_enabled: boolean
   has_email_logo?: boolean    // server flag (existence storage/supplier-logos/sup-{id}.png)
   // Děkovný e-mail za úhradu (issue #57)
@@ -329,6 +338,10 @@ export interface Supplier {
   stock_in_transit_from?: 'sent' | 'confirmed'
   /** Na PDF faktury doplnit u balení celkové množství v základní jednotce (issue #17). */
   invoice_pdf_show_base_qty?: boolean
+  /** Na PDF faktury tisknout řádek „Vystavil" (migrace 2032). */
+  invoice_pdf_show_issued_by?: boolean
+  /** Na PDF faktury rozepsat slevu z ceníkové ceny (Cena/j před slevou, Sleva, Cena/j po slevě). Výchozí vypnuto. */
+  invoice_pdf_show_line_discount?: boolean
   // Auto-post hook (A2, migrace 1035) — auto-zaúčtování FV po vystavení / PF po přijetí;
   // účinek jen v režimu double_entry.
   auto_post_invoices?: boolean
@@ -407,8 +420,9 @@ export interface PaymentQrSettings {
   purchase_invoice_qr_include_due_date: boolean
 }
 
-/** Typy dokladů, které mají supplier-wide počítadlo číselné řady. */
-export type InvoiceCounterType = 'invoice' | 'proforma' | 'credit_note'
+/** Typy dokladů, které mají supplier-wide počítadlo číselné řady. `simplified` = vlastní
+ *  řada zjednodušených daňových dokladů (jen s vyplněnou `simplified_number_format`). */
+export type InvoiceCounterType = 'invoice' | 'proforma' | 'credit_note' | 'simplified'
 
 /** Odpověď PUT /settings/supplier/invoice-counter. */
 export interface InvoiceCounterResult {
@@ -427,7 +441,7 @@ export interface InvoiceCounterResult {
 }
 
 export interface NumberSeriesSide {
-  type: 'invoice' | 'proforma' | 'credit_note'
+  type: 'invoice' | 'proforma' | 'credit_note' | 'simplified'
   client_id: number | null
   client_name: string | null
   revenue_category_id: number | null
@@ -472,6 +486,7 @@ export interface OperationalBrandingSettings {
   email_branding_enabled: boolean
   email_accent_color: string
   pdf_logo_show_name: boolean
+  invoice_pdf_monochrome?: boolean
   branding_profiles_enabled: boolean
   logo_path: string | null
   has_email_logo?: boolean
@@ -679,6 +694,8 @@ export interface Unit {
   is_default: boolean
   display_order: number
   items_count?: number
+  /** Desetinná místa množství (0 až 3), null = bez omezení. */
+  quantity_decimals?: number | null
 }
 
 export interface PdfSigningDiagnostics {

@@ -9,7 +9,7 @@ import { MAX_WORKSPACE_WINDOWS, useWorkspaceStore, type PaneId, type WorkspaceWi
 import { windowContextKey } from './windowContext'
 import PaneRoot from '@/components/workspace/PaneRoot.vue'
 import { createFrameSurface, type FrameAppearance, type FrameKeyboardEvent } from './frameSurface'
-import { paneForCtrlClick } from './panelLinks'
+import { paneForBeside, paneForCtrlClick } from './panelLinks'
 import { getWindowManager, setWindowManager } from './windowRegistry'
 export { getWindowManager } from './windowRegistry'
 
@@ -322,7 +322,23 @@ export function createWindowManager(options: WindowManagerOptions): WorkspaceWin
           syncPane(runtime)
           runtime.surface?.update()
         },
-        navigate: (to, newPane) => {
+        navigate: (to, newPane, placement) => {
+          if (placement === 'beside') {
+            void enqueue(async () => {
+              const sourceGeneration = generation
+              const sourcePane = runtime.state.paneId
+              if (!sourcePane || !workspace.panes.some(pane => pane.id === sourcePane)) return
+              const targetPane = paneForBeside(sourcePane, workspace.panes)
+              if (!await authorized(runtime)) return
+              if (!workspace.panes.some(pane => pane.id === sourcePane)
+                || runtime.state.paneId !== null && runtime.state.paneId !== sourcePane) return
+              // Změna firmy parkuje panely; zdrojový report musí zůstat vedle detailu.
+              if (runtime.state.paneId === null) await display(runtime, sourcePane, false)
+              if (destroyed || sourceGeneration !== generation || runtimes.get(runtime.state.id) !== runtime) return
+              await open(to, targetPane)
+            })
+            return
+          }
           const paneId = newPane && runtime.state.paneId ? paneForCtrlClick(runtime.state.paneId, workspace.panes) : runtime.state.paneId
           if (paneId && (runtime.state.supplierId ?? 0) === (options.currentSupplier?.().id ?? 0)) void manager.open(to, paneId)
         },

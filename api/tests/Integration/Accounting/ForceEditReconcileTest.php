@@ -183,6 +183,21 @@ final class ForceEditReconcileTest extends TestCase
         self::assertStringContainsString('items', (string) ($res['body']['error']['message'] ?? ''));
     }
 
+    /**
+     * „Netisknout odběratele" (migrace 2037) mění tištěný daňový doklad, takže v uzavřeném
+     * období neprojde jako čistě poznámková úprava.
+     */
+    public function testNotesOnlyWithHiddenCustomerChangeReturns422(): void
+    {
+        $invoiceId = $this->postedInvoiceInClosedPeriod('FV-B11-HC1');
+
+        $res = $this->invoke($invoiceId, ['hide_customer_on_pdf' => true], ['force' => '1', 'force_mode' => 'notes_only']);
+
+        self::assertSame(422, $res['status'], 'notes_only se změnou tisku odběratele → 422.');
+        self::assertSame('financial_change_not_allowed', $res['body']['error']['code'] ?? null);
+        self::assertStringContainsString('hide_customer_on_pdf', (string) ($res['body']['error']['message'] ?? ''));
+    }
+
     public function testFinancialFieldsChangedDecision(): void
     {
         $ref = new \ReflectionMethod(UpdateInvoiceAction::class, 'financialFieldsChanged');

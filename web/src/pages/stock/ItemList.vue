@@ -47,6 +47,9 @@ const manufacturers = ref<Manufacturer[]>([])
 const categories = ref<Category[]>([])
 const tags = ref<Tag[]>([])
 const attributes = ref<Attribute[]>([])
+// Všechny nearchivované parametry: sloupec smí ukázat i parametr, podle kterého se nefiltruje.
+const displayAttributes = ref<Attribute[]>([])
+const displayAttributesLoaded = ref(false)
 const attributeOptions = ref<Record<number, AttributeOption[]>>({})
 const vendors = ref<Client[]>([])
 const selectedIds = ref(new Set<number>())
@@ -260,7 +263,12 @@ async function load(reset = true) {
     loadingMore.value = true
   }
   try {
-    const res = await stockApi.listItems({ ...currentListFilters(), page: targetPage, per_page: PER_PAGE }, { signal: requestController.signal })
+    const res = await stockApi.listItems({
+      ...currentListFilters(),
+      display_attribute_id: displayAttributeRequestId.value,
+      page: targetPage,
+      per_page: PER_PAGE,
+    }, { signal: requestController.signal })
     if (version !== requestVersion) return
     page.value = targetPage
     items.value = reset ? res.data : items.value.concat(res.data)
@@ -367,9 +375,40 @@ const COLUMNS: ColumnDef[] = [
   { key: 'avg_cost', labelKey: 'stock.items.col_avg_cost' },
   { key: 'sale_price', labelKey: 'stock.items.col_sale_price', defaultHidden: true },
   { key: 'min_qty', labelKey: 'stock.items.col_min_qty', defaultHidden: true },
+  { key: 'attribute', labelKey: 'stock.items.col_attribute', defaultHidden: true },
   { key: 'active', labelKey: 'stock.items.col_active', defaultHidden: true },
 ]
 const tbl = useTablePrefs('stock-items', COLUMNS)
+
+// Sloupec Parametr: zvolený parametr se pamatuje v předvolbách tabulky. Hodnoty
+// se ze serveru berou jen při viditelném sloupci, jinak by dotaz zbytečně rostl.
+const displayAttributeId = computed<number | null>(() => {
+  const value = tbl.option<number | null>('display_attribute_id', null)
+  return typeof value === 'number' && value > 0 ? value : null
+})
+const displayAttribute = computed(() => displayAttributes.value.find(a => a.id === displayAttributeId.value) ?? null)
+const displayAttributeRequestId = computed(() => (tbl.isVisible('attribute') && displayAttributeId.value != null) ? displayAttributeId.value : undefined)
+// Uložený parametr, který mezitím z číselníku zmizel (smazaný, archivovaný), se zahodí:
+// jinak by sloupec ukazoval hodnoty bez typu (ano/ne jako 1/0) a výběr by byl prázdný.
+function dropMissingDisplayAttribute() {
+  if (!displayAttributesLoaded.value || displayAttributeId.value == null) return
+  if (!displayAttributes.value.some(a => a.id === displayAttributeId.value)) tbl.setOption('display_attribute_id', null)
+}
+watch(displayAttributeId, dropMissingDisplayAttribute)
+function onDisplayAttributeChange(event: Event) {
+  const value = Number((event.target as HTMLSelectElement).value)
+  tbl.setOption('display_attribute_id', value > 0 ? value : null)
+}
+function displayAttributeText(item: StockItem): string {
+  const raw = item.display_attribute_value
+  if (raw == null || raw === '') return '—'
+  const attribute = displayAttribute.value
+  if (attribute?.data_type === 'bool') {
+    return raw.split(', ').map(v => v === 'true' ? t('common.yes') : v === 'false' ? t('common.no') : v).join(', ')
+  }
+  if (attribute?.data_type === 'number' && attribute.unit) return `${raw} ${attribute.unit}`
+  return raw
+}
 const saved = useSavedFilters('stock-items', { getQuery: buildQuery, applyQuery: applyQueryToPage })
 
 /**
@@ -391,6 +430,7 @@ function onViewClick(f: SavedFilter) {
 }
 
 watch(() => tbl.sort.value, () => void load())
+watch(displayAttributeRequestId, (next, previous) => { if (next !== previous) void load() })
 watch(() => filters.q, scheduleSearch)
 
 function qty(i: StockItem): number { return Number(i.qty ?? 0) }
@@ -432,13 +472,16 @@ onMounted(async () => {
     eshopApi.listManufacturers().catch(() => [] as Manufacturer[]),
     eshopApi.listCategories().catch(() => [] as Category[]),
     eshopApi.listTags().catch(() => [] as Tag[]),
-    eshopApi.listAttributes().catch(() => [] as Attribute[]),
+    eshopApi.listAttributes().catch(() => null),
   ])
   warehouses.value = wh
   manufacturers.value = mf.filter(x => !x.archived)
   categories.value = cat.filter(x => !x.archived)
   tags.value = tg.filter(x => !x.archived)
-  attributes.value = attr.filter(x => !x.archived && x.is_filterable)
+  attributes.value = (attr ?? []).filter(x => !x.archived && x.is_filterable)
+  displayAttributes.value = (attr ?? []).filter(x => !x.archived)
+  displayAttributesLoaded.value = attr !== null
+  dropMissingDisplayAttribute()
   const loadedVendors: Client[] = []
   for (let vendorPage = 1; ; vendorPage++) {
     const result = await clientsApi.list({ role: 'vendors', per_page: 500, page: vendorPage, sort: 'name' }).catch(() => null)
@@ -665,6 +708,13 @@ onBeforeUnmount(() => {
               <th v-if="tbl.isVisible('avg_cost')" class="px-3 py-2 text-right font-medium w-28">{{ t('stock.items.col_avg_cost') }}</th>
               <th v-if="tbl.isVisible('sale_price')" class="px-3 py-2 text-right font-medium w-28">{{ t('stock.items.col_sale_price') }}</th>
               <th v-if="tbl.isVisible('min_qty')" class="px-3 py-2 text-right font-medium w-24">{{ t('stock.items.col_min_qty') }}</th>
+              <th v-if="tbl.isVisible('attribute')" class="px-3 py-1 text-left font-medium normal-case tracking-normal" @click.stop>
+                <select data-test="display-attribute" :value="displayAttributeId ?? ''" :aria-label="t('stock.items.col_attribute_choose')" :title="t('stock.items.col_attribute_choose')"
+                  class="h-8 max-w-44 px-2 border border-neutral-300 rounded-md text-xs bg-surface" @change="onDisplayAttributeChange">
+                  <option value="">{{ t('stock.items.col_attribute_choose') }}</option>
+                  <option v-for="attribute in displayAttributes" :key="attribute.id" :value="attribute.id">{{ attribute.name }}</option>
+                </select>
+              </th>
               <th v-if="tbl.isVisible('active')" class="px-3 py-2 text-center font-medium w-20">{{ t('stock.items.col_active') }}</th>
             </tr>
           </thead>
@@ -699,6 +749,7 @@ onBeforeUnmount(() => {
                 <template v-else>{{ i.effective_price != null ? formatMoney(Number(i.effective_price)) : (i.sale_price_without_vat != null ? formatMoney(Number(i.sale_price_without_vat)) : '—') }}</template>
               </td>
               <td v-if="tbl.isVisible('min_qty')" class="px-3 py-2 text-right font-mono whitespace-nowrap">{{ i.min_qty ?? '—' }}</td>
+              <td v-if="tbl.isVisible('attribute')" data-test="display-attribute-value" class="px-3 py-2">{{ displayAttributeText(i) }}</td>
               <td v-if="tbl.isVisible('active')" class="px-3 py-2 text-center">
                 <span class="text-xs px-2 py-0.5 rounded font-medium" :class="i.is_active ? 'bg-success-50 text-success-600' : 'bg-neutral-100 text-neutral-500'">
                   {{ i.is_active ? t('common.yes') : t('common.no') }}

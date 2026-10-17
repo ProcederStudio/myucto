@@ -1455,6 +1455,126 @@ final class CashDocumentServiceTest extends TestCase
         ], $reg), $this->userId);
     }
 
+    /**
+     * Ruční úhrada faktury bez partnera dostane odběratele faktury (název, IČ, DIČ)
+     * stejně jako automatické hotovostní vyrovnání. Platí i pro koncept a jeho úpravu,
+     * kde explicitní null partnera dřív uložený údaj smazal.
+     */
+    public function testInvoicePaymentWithoutPartnerTakesClientOfInvoice(): void
+    {
+        $reg = $this->makeRegister();
+        $client = $this->client('Odběratel hotově s.r.o.', true, false);
+        $this->setClientIc($client, '12345679');
+        $invoiceId = $this->saleInvoice('FV-2099-300', $client, 2000.00, $this->currencyId);
+
+        $res = $this->service->create($this->supplierId, $this->doc([
+            'purpose' => 'invoice_payment', 'doc_type' => 'in', 'total_amount' => 500.00, 'invoice_id' => $invoiceId,
+            'partner_name' => null, 'partner_ic' => null, 'partner_dic' => null,
+        ], $reg), $this->userId);
+        $this->assertPartner($res['id'], 'Odběratel hotově s.r.o.', '12345679', 'CZ12345678');
+
+        $draft = $this->service->create($this->supplierId, $this->doc([
+            'purpose' => 'invoice_payment', 'doc_type' => 'in', 'total_amount' => 500.00, 'invoice_id' => $invoiceId,
+            'post' => false,
+        ], $reg), $this->userId);
+        $this->assertPartner($draft['id'], 'Odběratel hotově s.r.o.', '12345679', 'CZ12345678');
+
+        $this->service->updateDraft($this->supplierId, $draft['id'], [
+            'partner_name' => null, 'partner_ic' => null, 'partner_dic' => null, 'total_amount' => 400.00,
+        ]);
+        $this->assertPartner($draft['id'], 'Odběratel hotově s.r.o.', '12345679', 'CZ12345678');
+    }
+
+    /** Partner zadaný uživatelem má přednost před odběratelem faktury. */
+    public function testInvoicePaymentKeepsExplicitPartner(): void
+    {
+        $reg = $this->makeRegister();
+        $client = $this->client('Odběratel faktury s.r.o.', true, false);
+        $invoiceId = $this->saleInvoice('FV-2099-301', $client, 2000.00, $this->currencyId);
+
+        $res = $this->service->create($this->supplierId, $this->doc([
+            'purpose' => 'invoice_payment', 'doc_type' => 'in', 'total_amount' => 500.00, 'invoice_id' => $invoiceId,
+            'partner_name' => 'Jan Plátce', 'partner_ic' => null, 'partner_dic' => null,
+        ], $reg), $this->userId);
+        $this->assertPartner($res['id'], 'Jan Plátce', null, null);
+    }
+
+    /** Úhrada i vratka přijaté faktury bez partnera dostanou dodavatele faktury. */
+    public function testPurchasePaymentAndRefundWithoutPartnerTakeVendor(): void
+    {
+        $reg = $this->makeRegister();
+        $vendor = $this->client('Dodavatel hotově a.s.', false, true);
+        $this->setClientIc($vendor, '87654321');
+        $pf = $this->purchaseInvoice('PF-2099-300', $vendor, 3000.00, $this->currencyId);
+
+        $payment = $this->service->create($this->supplierId, $this->doc([
+            'purpose' => 'purchase_payment', 'doc_type' => 'out', 'total_amount' => 3000.00, 'purchase_invoice_id' => $pf,
+        ], $reg), $this->userId);
+        $this->assertPartner($payment['id'], 'Dodavatel hotově a.s.', '87654321', 'CZ12345678');
+
+        $refund = $this->service->create($this->supplierId, $this->doc([
+            'purpose' => 'purchase_payment', 'doc_type' => 'in', 'total_amount' => 1000.00,
+            'purchase_invoice_id' => $pf, 'issue_date' => self::YEAR . '-06-25',
+        ], $reg), $this->userId);
+        $this->assertPartner($refund['id'], 'Dodavatel hotově a.s.', '87654321', 'CZ12345678');
+    }
+
+    /**
+     * Starší doklad uložený bez partnera dostane na PDF odběratele faktury. Uložený
+     * doklad se tím nemění (zaúčtovaný doklad se nepřepisuje).
+     */
+    public function testPdfDataOfOlderPaymentWithoutPartnerShowsClientOfInvoice(): void
+    {
+        $reg = $this->makeRegister();
+        $client = $this->client('Odběratel PDF s.r.o.', true, false);
+        $this->setClientIc($client, '11223344');
+        $invoiceId = $this->saleInvoice('FV-2099-302', $client, 2000.00, $this->currencyId);
+        $res = $this->service->create($this->supplierId, $this->doc([
+            'purpose' => 'invoice_payment', 'doc_type' => 'in', 'total_amount' => 500.00, 'invoice_id' => $invoiceId,
+        ], $reg), $this->userId);
+        $this->db->pdo()->prepare('UPDATE cash_documents SET partner_name = NULL, partner_ic = NULL, partner_dic = NULL WHERE id = ?')
+            ->execute([$res['id']]);
+
+        $document = $this->service->pdfData($this->supplierId, $res['id'])['document'];
+        self::assertSame('Odběratel PDF s.r.o.', $document['partner_name']);
+        self::assertSame('11223344', $document['partner_ic']);
+        self::assertSame('CZ12345678', $document['partner_dic']);
+        $this->assertPartner($res['id'], null, null, null);
+    }
+
+    /** Našeptávač nese IČ a DIČ partnera, aby je formulář předvyplnil spolu s názvem. */
+    public function testUnpaidSearchReturnsPartnerIcAndDic(): void
+    {
+        $client = $this->client('Odběratel IČ s.r.o.', true, false);
+        $this->setClientIc($client, '12345679');
+        $invoiceId = $this->saleInvoice('FV-2099-310', $client, 1000.00, $this->currencyId);
+        $vendor = $this->client('Dodavatel IČ a.s.', false, true);
+        $pf = $this->purchaseInvoice('PF-2099-310', $vendor, 1000.00, $this->currencyId);
+
+        $invoices = $this->service->searchUnpaid($this->supplierId, 'invoice', 'FV-2099-310');
+        self::assertSame($invoiceId, $invoices[0]['id']);
+        self::assertSame('12345679', $invoices[0]['partner_ic']);
+        self::assertSame('CZ12345678', $invoices[0]['partner_dic']);
+
+        $purchases = $this->service->searchUnpaid($this->supplierId, 'purchase_invoice', 'PF-2099-310');
+        self::assertSame($pf, $purchases[0]['id']);
+        self::assertNull($purchases[0]['partner_ic']);
+        self::assertSame('CZ12345678', $purchases[0]['partner_dic']);
+    }
+
+    private function setClientIc(int $clientId, string $ic): void
+    {
+        $this->db->pdo()->prepare('UPDATE clients SET ic = ? WHERE id = ?')->execute([$ic, $clientId]);
+    }
+
+    private function assertPartner(int $docId, ?string $name, ?string $ic, ?string $dic): void
+    {
+        $stmt = $this->db->pdo()->prepare('SELECT partner_name, partner_ic, partner_dic FROM cash_documents WHERE id = ?');
+        $stmt->execute([$docId]);
+        $row = (array) $stmt->fetch(PDO::FETCH_ASSOC);
+        self::assertSame(['partner_name' => $name, 'partner_ic' => $ic, 'partner_dic' => $dic], $row);
+    }
+
     private function makeExpenseAccount(string $code, bool $active = true, ?int $supplierId = null, string $type = 'expense'): void
     {
         $this->db->pdo()->prepare(

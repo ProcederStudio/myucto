@@ -126,6 +126,10 @@ final class StockItemQuoteService
             // Karta bez ceny v požadované měně → unit_price i base_unit_price jsou
             // null, NIKDY 0: editor dokladu pak ponechá řádku dosavadní cenu.
             $basePrice = $p['unit_price'] ?? null;
+            // Ceníková cena = standardní cena karty před zákaznickou cenou, hladinou
+            // i akcí. Resolver ji vrací jako `standard_price` jen tehdy, když cenu
+            // určil odběratel nebo hladina, jinak je standardní cena v `base_price`.
+            $listBase = $p === null ? null : (array_key_exists('standard_price', $p) ? $p['standard_price'] : ($p['base_price'] ?? null));
             $isBase = $ratio['numerator'] === $ratio['denominator'];
             $out[] = [
                 'key'                 => $line['key'],
@@ -141,6 +145,11 @@ final class StockItemQuoteService
                     ? (string) $basePrice
                     : StockUnitConverter::applyRatio((string) $basePrice, $ratio['numerator'], $ratio['denominator'], 2)),
                 'base_unit_price'     => $basePrice !== null ? (string) $basePrice : null,
+                // Cena za zvolenou jednotku před slevou (migrace 2035), přepočtená stejně
+                // jako unit_price. Editor ji uloží k řádku jako `list_unit_price`.
+                'list_unit_price'     => $listBase === null ? null : ($isBase
+                    ? (string) $listBase
+                    : StockUnitConverter::applyRatio((string) $listBase, $ratio['numerator'], $ratio['denominator'], 2)),
                 'price_source'        => $p['price_source'] ?? (($p['promo_applied'] ?? false) ? 'promo' : 'standard'),
                 // Cenová hladina odběratele (1833), jen když cenu určila.
                 'price_level'         => $p['price_level'] ?? null,
