@@ -20,7 +20,7 @@ final class Fx504CaseReadRepository
         $stmt = $this->db->pdo()->prepare("SELECT s.id,s.period_id,s.step_key,s.status,s.payload,p.ends_on
             FROM accounting_closing_steps s JOIN accounting_periods p ON p.id=s.period_id AND p.supplier_id=s.supplier_id
             WHERE s.supplier_id=? AND s.step_key IN ('fx_revaluation','open_next') AND p.ends_on<=?
-                AND NOT(s.period_id=? AND s.step_key='fx_revaluation') ORDER BY p.ends_on,s.id" . ($currentRead ? ' FOR UPDATE' : ''));
+                AND s.period_id<>? ORDER BY p.ends_on,s.id" . ($currentRead ? ' FOR UPDATE' : ''));
         $stmt->execute([$supplierId, $period['ends_on'], $period['id']]);
         $steps = $stmt->fetchAll(PDO::FETCH_ASSOC);
         $byEntry = [];

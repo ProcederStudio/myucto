@@ -244,7 +244,11 @@ final class Fx504RevaluationTest extends TestCase
             $pdo->prepare('UPDATE accounting_periods SET status=?,row_version=row_version+1 WHERE supplier_id=? AND id=?')
                 ->execute([$sourceStatus, $this->supplier, $this->period]);
         }
+        $beforeOpen = $closing->fxPreview($this->supplier, $this->period);
         $opened = $closing->openNext($this->supplier, $this->period, $version());
+        $afterOpen = $closing->fxPreview($this->supplier, $this->period);
+        self::assertSame($beforeOpen['case_source_hash'], $afterOpen['case_source_hash']);
+        self::assertSame($beforeOpen['case_findings'], $afterOpen['case_findings']);
         self::assertGreaterThan(0, $opened['entry_id']);
         $journal = $container->get(JournalEntryRepository::class);
         $mirror = $journal->findActiveBySourceForUpdate($this->supplier, 'fx_revaluation', \MyInvoice\Service\Accounting\Closing\ClosingSourceId::fxReversal($this->period));
