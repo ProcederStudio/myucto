@@ -116,13 +116,13 @@ Nebyl-li v období žádný odpisovaný majetek, krok se přeskočí sám.
 ### 72.4.3 Krok 3: Kurzové rozdíly
 
 Krok se zpřístupní až po zahájení uzávěrky. Zobrazí přecenění cizoměnových položek kurzem ČNB k rozvahovému
-dni (§ 24 odst. 6 a 7 zákona o účetnictví, ČÚS 006).
+dni (§ 24 odst. 6 a 7 zákona o účetnictví, ČÚS 006 pro rámec 500 a ČÚS 404 pro rámec 504).
 
 1. V části **Saldokonto** zkontrolujte tabulku otevřených cizoměnových vydaných (FV) a přijatých (FP) faktur: zbývá v cizí měně, kurz dokladu, kurz ČNB a vypočtený rozdíl (zeleně kladný, červeně záporný). Nad tabulkou je pro každou měnu použitý kurz ČNB a datum; pokud se ke dni nenašel platný kurz a použil se náhradní, zobrazí se u měny varovná ikona.
 2. V části **Devizové účty a valutové pokladny** doplňte řádky: účet z osnovy, měna, **Zůstatek v cizí měně**. Tlačítkem **Přidat řádek pokladny** přidáte řádek, křížkem ho odeberete. Aplikace nabízí i návrhy zůstatků z posledních bankovních výpisů, účet osnovy ale doplňte ručně (výpis nese jen číslo účtu banky).
 3. Cizoměnové zůstatky účtů **378** a **379** (například eurová záloha od faktora) aplikace přecení sama z účetního deníku. Zobrazí je v samostatné tabulce jen pro čtení. Bere jen řádky v dané měně, korunové pohyby na týchž účtech se nepřeceňují. Tyto účty do devizových účtů nezadávejte, aplikace je tam odmítne.
 4. Klikněte na **Přepočítat návrh** (náhled bez zaúčtování).
-5. Klikněte na **Zaúčtovat kurzové rozdíly** (jen ve stavu Uzavírá se). Zápis jde na účty **563** (kurzová ztráta) a **663** (kurzový zisk), jejich součty jsou pod tabulkami.
+5. Klikněte na **Zaúčtovat kurzové rozdíly** (jen ve stavu Uzavírá se). Účty se řídí rámcem platným na konci daného období: pro vyhlášku 500 jde o **563** (kurzová ztráta) a **663** (kurzový zisk), pro vyhlášku 504 o **545** a **645**. V rámci 500 se zachovávají vlastní nastavené kontace. Součty jsou pod tabulkami.
 6. Potvrďte krok.
 
 Administrátor může přecenění vzít zpět tlačítkem **Zrušit přecenění** (smaže zaúčtovaný zápis).

@@ -21,8 +21,8 @@ final class AccountRoleResolver
         return new AccountingRoleProfile($this->frameworks->forDate($supplierId, $date));
     }
 
-    public function resolve(int $supplierId, string $role, string $date): string
+    public function resolve(int $supplierId, string $role, string $date, ?string $legacy500Account = null): string
     {
-        return $this->forDate($supplierId, $date)->account($role);
+        return $this->forDate($supplierId, $date)->account($role, $legacy500Account);
     }
 }

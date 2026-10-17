@@ -820,7 +820,7 @@ final class ClosingService
             $fiscalYear = (int) $period['fiscal_year'];
 
             $preview = $this->fx->preview($supplierId, $period, $bankRows);
-            $entries = $this->fx->buildEntries($supplierId, $preview);
+            $entries = $this->fx->buildEntries($supplierId, $preview, $endsOn);
 
             $slots = [
                 'saldo' => ClosingSourceId::fxSaldo($periodId),

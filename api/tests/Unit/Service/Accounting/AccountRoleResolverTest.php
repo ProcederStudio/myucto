@@ -49,6 +49,39 @@ final class AccountRoleResolverTest extends TestCase
         }
     }
 
+    public function testFinancialRolesRespectHistoricalFrameworkAndLegacyOverrides(): void
+    {
+        $resolver = AccountRoleResolver::fromConnection($this->connection());
+        foreach (['fx.loss' => ['563', '545'], 'fx.gain' => ['663', '645'], 'bank.fee' => ['568', '549.100'],
+            'interest.expense' => ['562', '544'], 'interest.income' => ['662', '644'],
+            'rounding.loss' => ['548', '549'], 'rounding.gain' => ['648', '649']] as $role => [$legacy, $nonprofit]) {
+            self::assertSame($legacy, $resolver->resolve(7, $role, '2026-06-30'));
+            self::assertSame($legacy . '.123', $resolver->resolve(7, $role, '2026-06-30', $legacy . '.123'));
+            self::assertSame($nonprofit, $resolver->resolve(7, $role, '2026-07-01', $legacy . '.123'));
+        }
+    }
+
+    public function testLegacyOverrideCannotHideUnknownRole(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        (new AccountingRoleProfile())->account('unknown.role', '563');
+    }
+
+    public function testLegacyFalseyOverrideKeepsOriginalFallback(): void
+    {
+        foreach ([null, '', '0'] as $override) {
+            self::assertSame('563', (new AccountingRoleProfile())->account('fx.loss', $override));
+        }
+    }
+
+    public function testExplicitSettingsArePreservedFor500AndRejectedWithout504Binding(): void
+    {
+        self::assertSame('568.123', (new AccountingRoleProfile())->configuredAccount('bank.fee', 10, '568.123'));
+        self::assertSame('549.100', (new AccountingRoleProfile('cz_504'))->configuredAccount('bank.fee', null, '568'));
+        $this->expectException(AccountingFrameworkException::class);
+        (new AccountingRoleProfile('cz_504'))->configuredAccount('bank.fee', 10, '549.100');
+    }
+
     public function testLegalOperationsRequireExplicitTaxableLegalContext(): void
     {
         $profile = new AccountingRoleProfile('cz_504');

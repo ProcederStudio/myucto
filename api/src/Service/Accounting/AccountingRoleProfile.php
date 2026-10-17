@@ -13,12 +13,26 @@ final readonly class AccountingRoleProfile
         }
     }
 
-    public function account(string $role): string
+    public function account(string $role, ?string $legacy500Account = null): string
     {
         $accounts = $this->framework === AccountingFrameworkService::CZ_504
-            ? ['closing.opening_balance' => '961', 'closing.final_balance' => '962', 'result.current' => '933', 'result.pending_approval' => '931', 'result.retained_profit' => '932', 'result.retained_loss' => '932']
-            : ['closing.opening_balance' => '701', 'closing.final_balance' => '702', 'result.current' => '710', 'result.pending_approval' => '431', 'result.retained_profit' => '428', 'result.retained_loss' => '429'];
-        return $accounts[$role] ?? throw new \InvalidArgumentException('Unknown account role: ' . $role);
+            ? ['closing.opening_balance' => '961', 'closing.final_balance' => '962', 'result.current' => '933', 'result.pending_approval' => '931', 'result.retained_profit' => '932', 'result.retained_loss' => '932',
+                'fx.loss' => '545', 'fx.gain' => '645', 'interest.expense' => '544', 'interest.income' => '644', 'bank.fee' => '549.100', 'rounding.loss' => '549', 'rounding.gain' => '649']
+            : ['closing.opening_balance' => '701', 'closing.final_balance' => '702', 'result.current' => '710', 'result.pending_approval' => '431', 'result.retained_profit' => '428', 'result.retained_loss' => '429',
+                'fx.loss' => '563', 'fx.gain' => '663', 'interest.expense' => '562', 'interest.income' => '662', 'bank.fee' => '568', 'rounding.loss' => '548', 'rounding.gain' => '648'];
+        $default = $accounts[$role] ?? throw new \InvalidArgumentException('Unknown account role: ' . $role);
+        return $this->framework === AccountingFrameworkService::CZ_500 && $legacy500Account
+            ? $legacy500Account
+            : $default;
+    }
+
+    public function configuredAccount(string $role, ?int $accountId, ?string $legacy500Account = null): string
+    {
+        $account = $this->account($role, $legacy500Account);
+        if ($this->framework === AccountingFrameworkService::CZ_504 && $accountId !== null) {
+            throw new AccountingFrameworkException('accounting_framework_account_binding_required', 'Vlastní účet nemá ověřenou vazbu na účetní rámec.');
+        }
+        return $account;
     }
 
     public function openingAccount(string $code): string
