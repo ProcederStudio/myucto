@@ -334,7 +334,7 @@ function onNotesChanged(notes: CashJournalNote[]) {
     </div>
 
     <!-- Souhrn (totály) -->
-    <div v-if="report" class="bg-surface border border-neutral-200 rounded-lg shadow-sm p-3 mb-4">
+    <div v-if="report" data-test="cash-journal-summary" class="bg-surface border border-neutral-200 rounded-lg shadow-sm p-3 mb-4 transition-opacity" :class="{ 'opacity-60': loading }">
       <div class="text-xs text-neutral-500 uppercase tracking-wide font-medium mb-2">{{ t('tax_evidence.cash_journal.summary_period') }}</div>
       <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 text-sm">
         <div>
@@ -385,7 +385,7 @@ function onNotesChanged(notes: CashJournalNote[]) {
     </div>
 
     <!-- Zůstatky po peněžních prostředcích (pokladna, banka, GoPay, úhrady bez pohybu) -->
-    <div v-if="report && report.balances && report.balances.length > 1" class="bg-surface border border-neutral-200 rounded-lg shadow-sm p-3 mb-4">
+    <div v-if="report && report.balances && report.balances.length > 1" class="bg-surface border border-neutral-200 rounded-lg shadow-sm p-3 mb-4 transition-opacity" :class="{ 'opacity-60': loading }">
       <div class="text-xs text-neutral-500 uppercase tracking-wide font-medium mb-2">{{ t('tax_evidence.cash_journal.balances_title') }}</div>
       <div class="overflow-x-auto">
         <table class="w-full text-sm">
@@ -445,7 +445,7 @@ function onNotesChanged(notes: CashJournalNote[]) {
     <EmptyState v-else-if="!report || report.rows.length === 0"
       icon="coin" :title="t('tax_evidence.cash_journal.empty')" boxed />
 
-    <div v-else class="bg-surface border border-neutral-200 rounded-lg shadow-sm overflow-hidden">
+    <div v-else data-test="cash-journal-table" class="bg-surface border border-neutral-200 rounded-lg shadow-sm overflow-hidden transition-opacity" :class="{ 'opacity-60': loading }">
       <div class="overflow-x-auto">
         <table v-column-labels="tbl" :aria-busy="loading" class="w-full text-sm" :class="tbl.densityClass.value">
           <thead class="bg-neutral-50 text-xs text-neutral-500 uppercase tracking-wide">

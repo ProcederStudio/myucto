@@ -247,4 +247,19 @@ describe('cash journal classification filter', () => {
     expect(wrapper.text()).not.toContain('common.loading')
   })
 
+  it('dims the summary and table of the previous period while a refresh is loading', async () => {
+    const { wrapper } = await setup()
+    expect(wrapper.get('[data-test="cash-journal-summary"]').classes()).not.toContain('opacity-60')
+    expect(wrapper.get('[data-test="cash-journal-table"]').classes()).not.toContain('opacity-60')
+    let finish!: (result: CashJournalReport) => void
+    api.cashJournal.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    await choose(wrapper, 'private')
+    expect(wrapper.get('[data-test="cash-journal-summary"]').classes()).toContain('opacity-60')
+    expect(wrapper.get('[data-test="cash-journal-table"]').classes()).toContain('opacity-60')
+    finish(report({ classification: 'private' }))
+    await flushPromises()
+    expect(wrapper.get('[data-test="cash-journal-summary"]').classes()).not.toContain('opacity-60')
+    expect(wrapper.get('[data-test="cash-journal-table"]').classes()).not.toContain('opacity-60')
+  })
+
 })
