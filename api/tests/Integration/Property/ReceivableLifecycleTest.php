@@ -26,7 +26,8 @@ final class ReceivableLifecycleTest extends TestCase
     protected function tearDown():void
     {
         foreach($this->connections as $db){if($db->pdo()->inTransaction())$db->pdo()->rollBack();$db->close();}
-        foreach(array_filter([$this->targetSchema,$this->ownedSchema]) as $schema){self::assertMatchesRegularExpression('/^myucto_s5_lifecycle_[a-f0-9]{10}_test(?:_copy_test)?$/D',$schema);$this->server->exec('DROP DATABASE '.DatabaseCloner::quote($schema));}
+        $schemas=array_filter([$this->targetSchema,$this->ownedSchema]);
+        foreach($schemas as $schema){self::assertMatchesRegularExpression('/^myucto_s5_lifecycle_[a-f0-9]{10}_test(?:_copy_test)?$/D',$schema);\MyInvoice\Tests\Support\OwnedTestDatabaseCleanup::drop($this->server,$schema,$schemas);}
     }
     public function testOldSnapshotCannotHideCurrentPartyHeadAndPeriodOwnershipSerializes():void
     {
