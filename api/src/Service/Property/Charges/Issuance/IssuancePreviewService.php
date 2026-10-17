@@ -20,6 +20,22 @@ final class IssuancePreviewService
 
     public function preview(int $supplier,array $input,bool $current=false): array
     {
+        $pdo=$this->db->pdo();
+        if($current||$pdo->inTransaction()) return $this->build($supplier,$input,$current);
+        $pdo->exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+        $pdo->exec('START TRANSACTION READ ONLY');
+        try {
+            $result=$this->build($supplier,$input,false);
+            $pdo->commit();
+            return $result;
+        } catch(\Throwable $e) {
+            if($pdo->inTransaction()) $pdo->rollBack();
+            throw $e;
+        }
+    }
+
+    private function build(int $supplier,array $input,bool $current): array
+    {
         $request=IssuanceRequest::normalize($input);
         $reader=new ChargeReadRepository($this->db);
         $version=$reader->find($supplier,$request['version_id'],$current);
@@ -31,8 +47,7 @@ final class IssuancePreviewService
             throw new IssuanceException('property_charge_issue_registry_unproven','Dům není v rozhodném okamžiku aktivní.',409);
         $profile=(new PropertyProfileRepository($this->db))->at($supplier,$request['issued_at'],$current);
         if(!($profile['enabled']??false)) throw new IssuanceException('property_charge_issue_profile_required','Nový předpis vyžaduje účinný potvrzený profil SVJ.',409);
-        $all=(new IssuanceReadRepository($this->db))->charges($supplier,$current);
-        $families=IssuanceCaseIdentity::families($all);
+        $previewHistory=new IssuancePreviewHistory((new IssuanceReadRepository($this->db))->stream($supplier,$current),$request);
         $clientIds=[];
         foreach($request['units'] as $unit) {
             foreach($unit['liability_groups'] as $group) foreach($group['members']??[] as $id) $clientIds[]=$id;
@@ -46,6 +61,8 @@ final class IssuancePreviewService
         $stmt=$this->db->pdo()->prepare("SELECT t.id type_id,v.id value_id,t.system_key FROM dimension_values v JOIN dimension_types t ON t.id=v.type_id WHERE (t.supplier_id=? OR t.supplier_id IS NULL) AND (v.supplier_id=? OR v.supplier_id IS NULL) AND t.is_active=1 AND v.is_active=1 ORDER BY t.id,v.id".($current?' FOR UPDATE':''));
         $stmt->execute([$supplier,$supplier]); $values=[];
         foreach($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) $values[(int)$row['value_id']]=['type_id'=>(int)$row['type_id'],'system_key'=>$row['system_key']];
+        $calculations=[];
+        foreach($version['preview']['calculation']['rates'] as $key=>$rate) $calculations[$key]=array_column($rate['calculation']['lines'],null,'unit_id');
         $charges=[]; $total='0';
         foreach($request['units'] as $unit) {
             $object=$objects[$unit['unit_id']]??null;
@@ -54,21 +71,18 @@ final class IssuancePreviewService
                 ||$snapshot['ownership_review_required']) throw new IssuanceException('property_charge_issue_registry_unproven','Jednotka vyžaduje potvrzený historický stav a vlastnický titul.',409,['unit_id'=>$unit['unit_id']]);
             $state=$snapshot['revision']['state'];
             $groups=LiabilityPolicy::validate($unit['liability_groups'],$state,$request['claim_origin_at'],$partyIds);
-            $history=array_values(array_filter($all,fn($c)=>$c['unit_id']===$unit['unit_id']&&$c['source_key']===$request['source_key']));
-            $last=$history===[]?null:$history[array_key_last($history)];
+            $families=$previewHistory->families($unit['unit_id']);
+            $last=$previewHistory->last($unit['unit_id']);
             if(($last['revision_no']??0)!==$unit['expected_revision']) throw new IssuanceException('property_charge_issue_revision_conflict','Předpis se mezitím změnil.',409);
-            $this->previous($request,$unit,$last,$groups,$history);
+            $this->previous($request,$unit,$last,$groups,$previewHistory->replacementReady($unit['unit_id']));
             $caseCandidates=[];
             if($request['issue_mode']==='initial') $caseCandidates=IssuanceCaseIdentity::assertInitial($supplier,$request,$unit,$families);
             else IssuanceCaseIdentity::assertContinuation($supplier,$request,$unit,$families);
-            $oldLines=[]; $oldAnchors=[];
-            foreach($history as $old) if($old['status']==='posted') foreach($old['snapshot']['lines'] as $line) {
-                $oldLines[$line['component_id']]=bcadd($oldLines[$line['component_id']]??'0',$line['amount_cents'],0);
-                $oldAnchors[$line['component_id']][]=$line;
-            }
+            $oldLines=$previewHistory->oldLines($unit['unit_id']);
+            $oldAnchors=$previewHistory->oldAnchors($unit['unit_id']);
             $lines=[]; $notices=[]; $unitTotal='0'; $givenNotices=array_column($unit['notices'],'notice','component_id');
-            foreach($version['preview']['calculation']['rates'] as $rate) {
-                $calculated=array_column($rate['calculation']['lines'],null,'unit_id')[$unit['unit_id']]??null;
+            foreach($version['preview']['calculation']['rates'] as $key=>$rate) {
+                $calculated=$calculations[$key][$unit['unit_id']]??null;
                 if($calculated===null) continue;
                 $component=$rate['component']; $componentId=$component['id'];
                 $amount=$calculated['amount_cents'];
@@ -95,7 +109,7 @@ final class IssuancePreviewService
                 if($amount==='0') continue;
                 if($component['kind']==='service_advance') {
                     if(!in_array($component['service_id'],$state['services'],true)) throw new IssuanceException('property_charge_issue_service_unavailable','Služba jednotce v daném okamžiku nepatří.',409);
-                    $changed=ServiceNoticePolicy::changed($all,$unit['unit_id'],$componentId,$calculated['amount_cents'],$version['request']['frequency'],$request['period_from']);
+                    $changed=$previewHistory->changed($unit['unit_id'],$componentId,$calculated['amount_cents'],$version['request']['frequency']);
                     $recipients=[];
                     foreach($state['ownerships'] as $ownership) foreach($ownership['members'] as $id) $recipients[]=$id;
                     $notices[]=['component_id'=>$componentId,'notice'=>ServiceNoticePolicy::validate($givenNotices[$componentId]??[],$recipients,
@@ -106,8 +120,8 @@ final class IssuancePreviewService
                 $unitTotal=bcadd($unitTotal,$amount,0);
             }
             if($request['issue_mode']==='difference') foreach($oldLines as $id=>$amount) if($amount!=='0') {
-                $present=false; foreach($version['preview']['calculation']['rates'] as $rate)
-                    if($rate['component']['id']===$id&&isset(array_column($rate['calculation']['lines'],null,'unit_id')[$unit['unit_id']])) $present=true;
+                $present=false; foreach($version['preview']['calculation']['rates'] as $key=>$rate)
+                    if($rate['component']['id']===$id&&isset($calculations[$key][$unit['unit_id']])) $present=true;
                 if(!$present) throw new IssuanceException('property_charge_issue_full_reversal_required','Odstranění složky opravte úplným stornem a novým předpisem.',409);
             }
             if($lines===[]||($request['issue_mode']!=='difference'&&bccomp($unitTotal,'0',0)<=0)) throw new IssuanceException('property_charge_issue_empty','Jednotka nemá kladný předpis ani doložený rozdíl.');
@@ -132,15 +146,15 @@ final class IssuancePreviewService
         return ['snapshot'=>$snapshot,'preview_hash'=>PropertyInput::hash($snapshot)];
     }
 
-    private function previous(array $request,array $unit,?array $last,array $groups,array $history): void
+    private function previous(array $request,array $unit,?array $last,array $groups,bool $replacementReady): void
     {
         if($request['issue_mode']==='initial') {
             if($last!==null) throw new IssuanceException('property_charge_issue_source_exists','Tento případ již existuje; použijte doloženou opravu.',409);
             return;
         }
         if($last===null||$last['id']!==$unit['previous_charge_id']) throw new IssuanceException('property_charge_issue_revision_conflict','Oprava musí navazovat na poslední revizi.',409);
-        if($request['issue_mode']==='replacement') foreach($history as $previous)
-            if(!in_array($previous['status'],['reversed','cancelled'],true)) throw new IssuanceException('property_charge_issue_reverse_first','Nejprve úplně stornujte předchozí předpis.',409);
+        if($request['issue_mode']==='replacement'&&!$replacementReady)
+            throw new IssuanceException('property_charge_issue_reverse_first','Nejprve úplně stornujte předchozí předpis.',409);
         if($request['issue_mode']==='difference'&&($last['status']!=='posted'||$request['period_from']!==$last['period_from']||$request['period_to']!==$last['period_to']
             ||$request['claim_origin_at']!==$last['snapshot']['claim_origin_at']||PropertyInput::hash($groups)!==PropertyInput::hash($last['snapshot']['liability_groups'])))
             throw new IssuanceException('property_charge_issue_difference_title','Rozdíl musí zachovat původní případ, období a zavázané osoby.',409);

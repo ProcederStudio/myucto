@@ -29385,6 +29385,7 @@
       "snapshotTitle": "Podrobnosti náhledu ze serveru",
       "tabs": {
         "card": "Karta",
+        "saldo": "Saldo a právní historie",
         "corrections": "Opravy a historie",
         "credits": "Kredity",
         "debts": "Dluhy a kredity",
@@ -36412,5 +36413,98 @@
     "case_reference": "Identifikace doloženého titulu",
     "case_add": "Přidat část případu",
     "reload_sources": "Znovu načíst zdroje a zahodit úpravy"
+  },
+  "propertySaldo": {
+    "title": "Saldo jednotek",
+    "partial": "Přehled zachycuje pouze evidované předpisy a úhrady S3/S4. Vyúčtování služeb a počáteční stavy nejsou zahrnuty; nejde o úplnou finanční pozici ani potvrzení bezdlužnosti.",
+    "pagesHelp": "Každá stránka má vlastní konzistentní snímek. Mezi stránkami se data mohou změnit. Částky nesčítejte jako ověřený souhrn celé firmy.",
+    "pageSize": "Jednotek na stránce",
+    "load": "Načíst saldo",
+    "page": "Stránka {number}, jednotek {count}",
+    "review": "Údaj vyžaduje posouzení. Neznámá částka není nula.",
+    "reviewCounts": "Nejisté události: {uncertain}, právní posouzení: {legal}, nevyřešené záporné řádky: {negative}.",
+    "detail": "Karta pohledávek a kreditů",
+    "legalHistory": "Právní historie, převody a potvrzení",
+    "empty": "Na této stránce nejsou jednotky.",
+    "previous": "Předchozí stránka",
+    "next": "Další stránka",
+    "readProof": "Otisk podkladů této stránky",
+    "readProofHelp": "Otisk pokrývá pouze finanční vazby zobrazených jednotek. Není oprávněním k zápisu ani otiskem celého tenanta.",
+    "personId": "Osoba č. {id}",
+    "groupKey": "Označení skupiny",
+    "role": "Role",
+    "mode": "Odpovědnost",
+    "basis": "Právní základ",
+    "members": "Zavázané osoby",
+    "numerator": "Rozsah: čitatel",
+    "denominator": "Rozsah: jmenovatel",
+    "legalReason": "Právní důvod",
+    "evidence": "Doklad",
+    "validFrom": "Platnost od",
+    "validTo": "Platnost do (volitelně)",
+    "preview": "Ověřit náhled",
+    "confirmTransfer": "Potvrdit právní změnu",
+    "transfer": "Přechod dluhu a ručení",
+    "transferHelp": "Vyberte dluhy a doložte právní posouzení. Změna vlastníka sama dluh ani kredit nepřevádí. Náhled a potvrzení znovu ověří aktuální zdroje; po změně podkladů je nutný nový náhled.",
+    "effectiveAt": "Účinnost",
+    "decision": "Rozhodnutí",
+    "discoverable": "Nabyvatel měl a mohl zjistit dluh",
+    "proposedGroups": "Nové zavázané osoby a ručení",
+    "previousGroups": "Předchozí zavázané osoby a ručení",
+    "addGroup": "Přidat skupinu odpovědnosti",
+    "reviewPreview": "Ověřený náhled právní změny",
+    "issuedCertificate": "Potvrzení č. {id}",
+    "certificatePreview": "Náhled potvrzení",
+    "recordedAt": "Zaznamenáno",
+    "asOf": "Stav k okamžiku",
+    "certificateScope": "Potvrzení se týká pouze evidovaných předpisů a úhrad S3/S4. Nelze je vydávat za bezpodmínečné potvrzení bezdlužnosti.",
+    "immutableHash": "Otisk neměnného potvrzení",
+    "certificates": "Potvrzení o evidovaných dluzích",
+    "issueCertificate": "Vydat neměnné potvrzení",
+    "requester": "Žadatel",
+    "reload": "Znovu načíst podklady",
+    "stale": "Podklady se změnily nebo byla uložena právní změna. Znovu načtěte přehled, případně upravte okamžik znalosti, a připravte nový náhled.",
+    "oneDebt": "Společný dluh se počítá jednou. Rozsahy odpovědnosti a ručení jsou samostatné; počet osob nenásobí pohledávku.",
+    "currentNames": "Jména v historickém přehledu jsou z aktuálního adresáře; identitu určuje číslo osoby. U náhledu a uložených právních událostí se nové osoby zobrazují ze zmrazených podkladů.",
+    "owners": "Vlastnické revize známé k zadanému okamžiku",
+    "totals": {
+      "principal_receivable_cents": "Jistina",
+      "accessory_receivable_cents": "Evidované příslušenství"
+    },
+    "aging": {
+      "not_due": "Před splatností",
+      "1_30": "Po splatnosti 1 až 30 dnů",
+      "31_90": "Po splatnosti 31 až 90 dnů",
+      "91_plus": "Po splatnosti přes 90 dnů"
+    },
+    "modes": {
+      "individual": "Samostatná odpovědnost",
+      "solidary": "Solidární odpovědnost"
+    },
+    "bases": {
+      "individual_title": "Samostatný titul",
+      "sjm_713": "SJM (§ 713)",
+      "joint_act_1127": "Společné jednání (§ 1127)",
+      "documented_title": "Doložený titul"
+    },
+    "decisions": {
+      "transfer_confirmed": "Doložený přechod dluhu",
+      "transfer_not_applicable": "Dluh nepřechází",
+      "review_required": "Vyžaduje právní posouzení",
+      "superseding_correction": "Doložená oprava právní historie"
+    },
+    "acquisition": {
+      "kind": "Druh nabytí",
+      "applicable_law": "Použitelná právní úprava",
+      "legal_basis": "Právní titul přechodu",
+      "evidence": "Doklad nabytí",
+      "knowledge_evidence": "Doklad zjistitelnosti dluhu",
+      "guarantee_evidence": "Doklad rozsahu ručení"
+    },
+    "certificateFields": {
+      "authority_evidence": "Oprávnění žadatele",
+      "purpose": "Účel potvrzení",
+      "coverage_acknowledgement": "Výslovné vymezení neúplného rozsahu"
+    }
   }
 }

@@ -46,7 +46,7 @@ final class IssuanceCaseIdentity
         return Input::hash([$supplier,$unit,self::canonical($identity['case_ref']),self::canonical($identity['occurrence_ref'])]);
     }
 
-    public static function families(array $charges): array
+    public static function families(iterable $charges): array
     {
         $families = [];
         foreach ($charges as $charge) {
@@ -65,6 +65,7 @@ final class IssuanceCaseIdentity
                 $old = $families[$key];
                 if ($charge['revision_no'] !== $old['latest_revision']+1 || $charge['previous_charge_id'] !== $old['latest_charge_id']
                     || Input::hash([$identity,$distinction]) !== Input::hash([$old['case_identity'],$old['case_distinction']])) self::corrupt();
+                unset($old);
             }
             $family = &$families[$key];
             $family['latest_charge_id'] = $charge['id']; $family['latest_revision'] = $charge['revision_no'];

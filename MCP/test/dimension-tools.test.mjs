@@ -11,6 +11,20 @@ async function call(name, args) {
   return request;
 }
 
+test('saldo SVJ zachová oba časy, kurzor a neúplné nebo neurčité částky', async () => {
+  const name = 'list_property_saldo';
+  const tool = TOOLS_BY_NAME.get(name);
+  const args = { as_of: '2026-10-17T12:34:56.123456+02:00', known_at: '2026-10-18T00:00:00Z', cursor: 'opaque-unit-page', limit: 25 };
+  assert.equal(tool.write, false);
+  assert.deepEqual(validateToolArguments(tool, args), args);
+  assert.deepEqual(await call(name, args), { path: '/property/catalog/payments/saldo', query: args, tool: name });
+  const result = { items: [{ unit_id: 7, remaining_cents: null }], next_cursor: 'opaque-next', coverage: { complete: false }, consistency: 'request_snapshot' };
+  assert.equal(await tool.run({ get: async () => result }, args, name), result);
+  for (const invalid of [{ ...args, known_at: undefined }, { ...args, as_of: '2026-10-17' }, { ...args, limit: 0 }, { ...args, limit: 101 }, { ...args, cursor: 7 }, { ...args, supplier_id: 9 }]) {
+    assert.throws(() => validateToolArguments(tool, invalid));
+  }
+});
+
 test('vydané předpisy SVJ mají pouze kurátorované čtecí nástroje', async () => {
   assert.equal((await call('list_property_charge_issues', {})).path, '/property/catalog/charges/issues');
   assert.equal((await call('get_property_charge_issue', { id: 42 })).path, '/property/catalog/charges/issues/42');

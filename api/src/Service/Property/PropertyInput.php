@@ -43,11 +43,33 @@ final class PropertyInput
 
     public static function hash(array $payload): string
     {
+        return hash('sha256',self::canonicalJson($payload));
+    }
+
+    public static function hashLists(array $payload,array $lists): string
+    {
+        if(array_is_list($payload)) return self::hash($payload);
+        ksort($payload,SORT_STRING);
+        if(array_is_list($payload)) return self::hash($payload);
+        $hash=hash_init('sha256');hash_update($hash,'{');$separator='';
+        foreach($payload as $key=>$value) {
+            hash_update($hash,$separator.json_encode((string)$key,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE).':');$separator=',';
+            if(in_array($key,$lists,true)&&is_array($value)&&array_is_list($value)) {
+                hash_update($hash,'[');$itemSeparator='';
+                foreach($value as $item){hash_update($hash,$itemSeparator.self::canonicalJson($item,510));$itemSeparator=',';}
+                hash_update($hash,']');
+            } else hash_update($hash,self::canonicalJson($value,511));
+        }
+        hash_update($hash,'}');return hash_final($hash);
+    }
+
+    private static function canonicalJson(mixed $payload,int $depth=512): string
+    {
         $sort = static function (mixed $value) use (&$sort): mixed {
             if (!is_array($value)) return $value;
             if (!array_is_list($value)) ksort($value, SORT_STRING);
             return array_map($sort, $value);
         };
-        return hash('sha256', json_encode($sort($payload), JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION));
+        return json_encode($sort($payload), JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION,$depth);
     }
 }

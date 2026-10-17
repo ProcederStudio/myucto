@@ -11,10 +11,27 @@ final class FinancialHistoryRepository
     public function __construct(private readonly Connection $db){}
     public function read(int $supplier,bool $currentRead=false):array
     {
+        return $this->readHistory($supplier,$currentRead,false);
+    }
+    public function readProjection(int $supplier,bool $currentRead=false):array
+    {
+        return $this->readHistory($supplier,$currentRead,true);
+    }
+    private function readHistory(int $supplier,bool $currentRead,bool $projection):array
+    {
         if($currentRead&&!$this->db->pdo()->inTransaction())throw new \LogicException('Current financial history requires owner transaction.');
-        $rows=fn(string $table)=>$this->rows($table,$supplier,$currentRead);
-        $charges=array_column((new \MyInvoice\Repository\Property\Charges\Issuance\IssuanceReadRepository($this->db))->charges($supplier,$currentRead),null,'id');
-        return $this->project($charges,$rows);
+        $pdo=$this->db->pdo();$owned=!$pdo->inTransaction();
+        if($owned){$pdo->exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');$pdo->exec('START TRANSACTION READ ONLY');}
+        try {
+            $charges=[];
+            foreach((new \MyInvoice\Repository\Property\Charges\Issuance\IssuanceReadRepository($this->db))->stream($supplier,$currentRead) as $charge) {
+                $charges[$charge['id']]=array_intersect_key($charge,array_flip(['id','unit_id','accounting_date','snapshot_hash']));
+                $charges[$charge['id']]['snapshot']=array_intersect_key($charge['snapshot'],array_flip(['liability_groups','claim_origin_at','due_date','reason']));
+            }
+            unset($charge);
+            $result=$this->project($charges,fn(string $table)=>$this->rows($table,$supplier,$currentRead),$projection);
+            if($owned)$pdo->commit();return $result;
+        }catch(\Throwable $e){if($owned&&$pdo->inTransaction())$pdo->rollBack();throw $e;}
     }
     public function readForDebts(int $supplier,array $debtIds):array
     {
@@ -39,7 +56,11 @@ final class FinancialHistoryRepository
             }
         }
     }
-    private function project(array $charges,callable $rows):array
+    public function reduceReadHistory(array $charges,callable $rows):array
+    {
+        return $this->project($charges,$rows,true);
+    }
+    private function project(array $charges,callable $rows,bool $projection=false):array
     {
         $chargeAudit=[];
         foreach($rows('unit_charge_issue_audit') as $r){self::decode($r,'payload');if($r['action']==='posted')$chargeAudit[$r['charge_id']]=$r['recorded_at'];}
@@ -48,7 +69,7 @@ final class FinancialHistoryRepository
             if(!hash_equals($r['request_hash'],PropertyInput::hash(['charge_id'=>(int)$r['charge_id'],'request'=>$request,'idempotency_key'=>$r['idempotency_key'],'actor'=>(int)$r['created_by']])))ReceivableException::reject('history_corrupt');
             if($r['kind']==='reversal'){if(isset($adjustments[$r['charge_id']]))ReceivableException::reject('history_corrupt');$adjustments[$r['charge_id']]=$r;}
         }
-        $debts=[];$lineDebt=[];$chargeLines=array_column($rows('unit_charge_lines'),null,'id');
+        $debts=[];$lineDebt=[];$chargeLines=[];foreach($rows('unit_charge_lines') as $r)$chargeLines[$r['id']]=$r;
         foreach($rows('unit_payment_debts') as $r){
             $fact=self::decode($r);self::request($r);$charge=$charges[$r['charge_id']]??null;
             if(!$charge)ReceivableException::reject('history_corrupt');$chargeFact=$charge['snapshot'];
@@ -61,6 +82,7 @@ final class FinancialHistoryRepository
             $debts[(int)$r['id']]=['id'=>(int)$r['id'],'unit_id'=>$fact['unit_id'],'snapshot'=>$fact,'snapshot_hash'=>$r['snapshot_hash'],'events'=>$events];
             $principal='0';foreach($fact['lines'] as $line){$actual=$chargeLines[$line['id']]??null;if(!$actual||(int)$actual['charge_id']!==(int)$r['charge_id']||PropertyInput::hash(json_decode($actual['line_json'],true,flags:JSON_THROW_ON_ERROR))!==PropertyInput::hash($line['line'])||isset($lineDebt[$line['id']]))ReceivableException::reject('history_corrupt');$principal=bcadd($principal,$line['line']['amount_cents'],0);$lineDebt[$line['id']]=(int)$r['id'];}
             if($principal!==$fact['amount_cents'])ReceivableException::reject('history_corrupt');
+            if($projection)$debts[(int)$r['id']]['snapshot']=['liability_groups'=>$fact['liability_groups']===$chargeFact['liability_groups']?$chargeFact['liability_groups']:$fact['liability_groups'],'due_date'=>$fact['due_date'],'title_ref'=>$fact['title_ref']];
         }
         $accessories=[];
         foreach($rows('unit_claim_accessory_receipts') as $r){
@@ -72,7 +94,12 @@ final class FinancialHistoryRepository
         foreach($rows('unit_payment_operations') as $r){
             $r['snapshot']=self::decode($r);$r['request']=self::request($r);
             if(PropertyInput::hash($r['request'])!==PropertyInput::hash($r['snapshot']['request'])||$r['kind']!==$r['request']['kind']||$r['amount_cents']!==$r['request']['amount_cents']||$r['accounting_date']!==$r['request']['accounting_date'])ReceivableException::reject('history_corrupt');
-            if($r['status']==='pending')continue;$operations[(int)$r['id']]=$r;
+            if($r['status']==='pending')continue;
+            $r=array_intersect_key($r,array_flip(['id','kind','status','original_operation_id','journal_entry_id','reversal_entry_id','amount_cents','accounting_date','recorded_at','snapshot_hash','snapshot','request']));
+            $r['snapshot']=array_intersect_key($r['snapshot'],array_flip(['allocations','credit','original_operation_id','original_snapshot_hash']));
+            $r['request']=array_intersect_key($r['request'],array_flip(['legal_effective_at','payment']));
+            if(isset($r['request']['payment']))$r['request']['payment']=array_intersect_key($r['request']['payment'],array_flip(['received_at','third_party','payer_id']));
+            $operations[(int)$r['id']]=$r;
             if($r['kind']==='reversal'){if(isset($reversals[(int)$r['original_operation_id']]))ReceivableException::reject('history_corrupt');$reversals[(int)$r['original_operation_id']]=$r;}
         }
         foreach($reversals as $id=>$reverse){$original=$operations[$id]??null;
@@ -94,11 +121,11 @@ final class FinancialHistoryRepository
             $id=(int)$r['debt_id'];if(!isset($debts[$id]))ReceivableException::reject('history_corrupt');
             $events=$operationEvents($op,'allocation:'.$r['id'],'paid',$r['amount_cents']);
             foreach($events as &$e){$e['group_key']=$r['liability_group'];$e['payer_id']=($op['request']['payment']['third_party']['basis']??null)==='guarantor'?($op['request']['payment']['payer_id']??null):null;}unset($e);
-            array_push($debts[$id]['events'],...$events);$allocations[(int)$r['id']]=$r;
+            array_push($debts[$id]['events'],...$events);$allocations[(int)$r['id']]=array_intersect_key($r,array_flip(['id','debt_id','liability_group']));
         }
         foreach($operations as $id=>$operation)if(PropertyInput::hash($operation['snapshot']['allocations']??[])!==PropertyInput::hash($allocationFacts[$id]??[]))ReceivableException::reject('history_corrupt');
-        $audit=$rows('unit_payment_audit');$correctionReversals=[];
-        foreach($audit as $r){$fact=self::decode($r,'payload');if($r['object_kind']==='correction'&&$r['action']==='reversed')$correctionReversals[$r['object_id']]=['request'=>$fact['request'],'recorded_at'=>$r['recorded_at']];}
+        $audit=[];$correctionReversals=[];
+        foreach($rows('unit_payment_audit') as $r){$fact=self::decode($r,'payload');if($r['object_kind']==='correction'&&$r['action']==='reversed')$correctionReversals[$r['object_id']]=['request'=>$fact['request'],'recorded_at'=>$r['recorded_at']];$audit[]=array_intersect_key($r,array_flip(['id','object_kind','object_id','action','recorded_at']));}
         $anchored=[];foreach($rows('unit_payment_corrections') as $r){
             $fact=self::decode($r);$request=self::request($r);if($r['status']==='pending')continue;
             $changes=[];
@@ -112,8 +139,8 @@ final class FinancialHistoryRepository
         $creditParties=[];foreach($rows('unit_credit_parties') as $r){$party=json_decode($r['party_json'],true,flags:JSON_THROW_ON_ERROR);if($party['id']!==(int)$r['client_id'])ReceivableException::reject('history_corrupt');$creditParties[(int)$r['credit_id']][$party['id']]=$party;}
         $credits=[];
         foreach($rows('unit_credit_lots') as $r){$fact=self::decode($r);$op=$operations[(int)$r['operation_id']]??null;if(!$op||PropertyInput::hash($op['snapshot']['credit'])!==$r['snapshot_hash']||$fact['unit_id']!==(int)$r['unit_id']||$fact['amount_cents']!==$r['amount_cents']||$fact['due_date']!==$r['due_date']||PropertyInput::hash(array_column($fact['parties'],null,'id'))!==PropertyInput::hash($creditParties[(int)$r['id']]??[]))ReceivableException::reject('history_corrupt');$credits[(int)$r['id']]=['id'=>(int)$r['id'],'unit_id'=>(int)$r['unit_id'],'snapshot'=>$fact,'snapshot_hash'=>$r['snapshot_hash'],'events'=>$operationEvents($op,'credit:'.$r['id'],'credit',$r['amount_cents'])];}
-        $creditEvents=$rows('unit_credit_events');foreach($creditEvents as $r){$op=$operations[(int)$r['operation_id']]??null;$id=(int)$r['credit_id'];if(!$op||!isset($credits[$id])||$r['amount_cents']!=='-'.$op['amount_cents']||$op['snapshot']['credit']['id']!==$id)ReceivableException::reject('history_corrupt');array_push($credits[$id]['events'],...$operationEvents($op,'credit-use:'.$r['id'],'credit',$r['amount_cents']));}
-        $reservations=array_column($rows('unit_credit_reservations'),null,'id');
+        $creditEvents=[];foreach($rows('unit_credit_events') as $r)$creditEvents[]=$r;foreach($creditEvents as $r){$op=$operations[(int)$r['operation_id']]??null;$id=(int)$r['credit_id'];if(!$op||!isset($credits[$id])||$r['amount_cents']!=='-'.$op['amount_cents']||$op['snapshot']['credit']['id']!==$id)ReceivableException::reject('history_corrupt');array_push($credits[$id]['events'],...$operationEvents($op,'credit-use:'.$r['id'],'credit',$r['amount_cents']));}
+        $reservations=[];foreach($rows('unit_credit_reservations') as $r)$reservations[$r['id']]=$r;
         foreach($reservations as $r){$request=json_decode($r['request_json'],true,flags:JSON_THROW_ON_ERROR);if(!isset($credits[(int)$r['credit_id']])||$r['amount_cents']!==$request['request']['amount_cents']||!hash_equals($r['request_hash'],PropertyInput::hash(['credit_id'=>(int)$r['credit_id'],'expected_version'=>$request['expected_version'],'request'=>$request['request'],'token'=>$r['idempotency_key'],'actor'=>(int)$r['created_by']])))ReceivableException::reject('history_corrupt');}
 
         foreach($audit as $r)if($r['object_kind']==='reservation'&&in_array($r['action'],['reserved','cancelled'],true)){
@@ -143,7 +170,21 @@ final class FinancialHistoryRepository
         }
         return ['debts'=>$debts,'credits'=>$credits,'unregistered_claims'=>$unregistered,'unregistered_charge_line_ids'=>array_column($unregistered,'charge_line_id'),'unresolved_negative_charge_line_ids'=>$unresolved,'unresolved_negative_charge_lines'=>$unresolvedLines];
     }
-    private function rows(string $table,int $supplier,bool $current):array{$q=$this->db->pdo()->prepare('SELECT * FROM '.$table.' WHERE supplier_id=? ORDER BY '.($table==='unit_credit_parties'?'credit_id,client_id':'id').($current?' FOR UPDATE':''));$q->execute([$supplier]);return $q->fetchAll(PDO::FETCH_ASSOC);}
+    private function rows(string $table,int $supplier,bool $current):\Generator
+    {
+        $after=0;$client=0;$parties=$table==='unit_credit_parties';
+        do {
+            $where=$parties?' AND (credit_id>? OR (credit_id=? AND client_id>?))':' AND id>?';
+            $args=$parties?[$supplier,$after,$after,$client]:[$supplier,$after];
+            $q=$this->db->pdo()->prepare('SELECT * FROM '.$table.' WHERE supplier_id=?'.$where.' ORDER BY '.($parties?'credit_id,client_id':'id').' LIMIT 500'.($current?' FOR UPDATE':''));
+            $q->execute($args);$count=0;
+            while($row=$q->fetch(PDO::FETCH_ASSOC)) {
+                $after=(int)$row[$parties?'credit_id':'id'];if($parties)$client=(int)$row['client_id'];
+                $count++;yield $row;
+            }
+            $q->closeCursor();
+        }while($count===500);
+    }
     public static function decode(array $row,string $key='snapshot'):array{$value=json_decode($row[$key.'_json'],true,flags:JSON_THROW_ON_ERROR);if(!hash_equals($row[$key.'_hash'],PropertyInput::hash($value)))ReceivableException::reject('history_corrupt');return $value;}
     private static function request(array $row):array{$request=json_decode($row['request_json'],true,flags:JSON_THROW_ON_ERROR);if(!hash_equals($row['request_hash'],PropertyInput::hash(['request'=>$request,'token'=>$row['idempotency_key'],'actor'=>(int)$row['created_by']])))ReceivableException::reject('history_corrupt');return $request;}
     public static function instant(string $sql):string{return PropertyInstant::normalize(str_replace(' ','T',$sql).'Z');}

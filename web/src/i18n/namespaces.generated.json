@@ -120,6 +120,7 @@
     "propertyIssuance",
     "propertyPayments",
     "propertyRegistry",
+    "propertySaldo",
     "public_holidays",
     "purchase_invoice",
     "purchase_submissions",
@@ -897,7 +898,8 @@
     ],
     "property-payments": [
       "propertyPayments",
-      "propertyRegistry"
+      "propertyRegistry",
+      "propertySaldo"
     ],
     "property-charge-issues": [
       "propertyIssuance",

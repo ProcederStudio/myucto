@@ -9,11 +9,11 @@ import PropertyPartyPicker from '@/components/property/PropertyPartyPicker.vue'
 import { useBusyScope } from './busy'
 import { failureMessage, moneyText, partyNames, propertyUnitLabel } from './format'
 import { boxClass, inputClass } from './ui'
-const props = defineProps<{ supplier: number; asOf: string; units: PropertyObject[] }>()
+const props = defineProps<{ supplier: number; asOf: string; units: PropertyObject[]; initialUnitId?: number; initialKnownAt?: string }>()
 const { t } = useI18n()
 const scope = useBusyScope()
-const knownAt = ref(new Date().toISOString())
-const unitId = ref(0)
+const knownAt = ref(props.initialKnownAt ?? new Date().toISOString())
+const unitId = ref(props.initialUnitId ?? 0)
 const clientId = ref<number | null>(null)
 const card = ref<PropertyCard | null>(null)
 const loading = ref(false)
@@ -51,7 +51,7 @@ const actions = () => [{ key: 'card-load', label: t('propertyPayments.card.load'
     <form ref="form" class="space-y-3" @submit.prevent="load">
       <fieldset :disabled="loading" class="flex flex-wrap items-end gap-3">
         <div data-field="card-known-at"><PropertyInstantInput v-model="knownAt" :label="t('propertyPayments.card.knownAt')" required /></div>
-        <label class="min-w-48">{{ t('propertyPayments.alloc.unitFilter') }}<select v-model="unitId" :class="inputClass" data-field="card-unit"><option :value="0">{{ t('propertyPayments.alloc.allUnits') }}</option><option v-for="u in units" :key="u.id" :value="u.id">{{ propertyUnitLabel(u, number => t('propertyPayments.unitNumber', { number })) }}</option></select></label>
+        <label class="min-w-48">{{ t('propertyPayments.alloc.unitFilter') }}<select v-model="unitId" :class="inputClass" data-field="card-unit"><option :value="0">{{ t('propertyPayments.alloc.allUnits') }}</option><option v-if="unitId && !units.some(u => u.id === unitId)" :value="unitId">{{ t('propertyPayments.unitNumber', { number: unitId }) }}</option><option v-for="u in units" :key="u.id" :value="u.id">{{ propertyUnitLabel(u, number => t('propertyPayments.unitNumber', { number })) }}</option></select></label>
         <div class="min-w-60" data-field="card-client"><span class="text-sm font-medium">{{ t('propertyPayments.card.person') }}</span><PropertyPartyPicker :supplier-id="supplier" :model-value="clientId" @update:model-value="clientId = $event" /></div>
       </fieldset>
       <ActionBar :actions="actions()" />

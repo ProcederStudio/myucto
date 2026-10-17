@@ -22,6 +22,21 @@ final class IssuanceReadRepository
         return $rows;
     }
 
+    public function stream(int $supplier,bool $current=false): \Generator
+    {
+        if(!$this->db->pdo()->inTransaction()) throw new \LogicException('Issuance stream requires a consistent transaction.');
+        $after=0;
+        do {
+            $stmt=$this->db->pdo()->prepare('SELECT * FROM unit_charges WHERE supplier_id=? AND id>? ORDER BY id LIMIT 500'.$this->lock($current));
+            $stmt->execute([$supplier,$after]); $charges=[];
+            while($row=$stmt->fetch(PDO::FETCH_ASSOC)) $charges[]=$this->decodeCharge($row);
+            $stmt->closeCursor();
+            $this->assertMaterialized($supplier,$charges,$current);
+            foreach($charges as $charge) { $after=$charge['id']; yield $charge; }
+            $count=count($charges); unset($charges,$charge,$row);
+        } while($count===500);
+    }
+
     public function find(int $supplier,int $id,bool $current = false): array
     {
         return $this->findMany($supplier,[$id],$current)[$id];

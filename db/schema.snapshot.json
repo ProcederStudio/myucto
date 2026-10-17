@@ -1020,7 +1020,11 @@
         "2036_unit_quantity_decimals.sql",
         "2037_simplified_document_series_and_customer.sql",
         "2038_invoice_edit_issued_permission.sql",
-        "2039_property_payment_permissions.sql"
+        "2039_property_payment_permissions.sql",
+        "2040_property_saldo_read_links.sql",
+        "2041_property_saldo_read_roots.sql",
+        "2042_property_saldo_read_source.sql",
+        "2043_property_receivable_permissions.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -24001,6 +24005,7 @@
                 "period_from": "date NOT NULL",
                 "period_to": "date NOT NULL",
                 "previous_charge_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "read_unit_id": "bigint(20) unsigned NULL DEFAULT NULL STORED GENERATED AS (json_value(`snapshot_json`,'$.unit_id'))",
                 "reversal_entry_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "revision_no": "int(10) unsigned NOT NULL",
                 "row_version": "int(10) unsigned NOT NULL DEFAULT 1",
@@ -24015,6 +24020,7 @@
             "indexes": {
                 "PRIMARY": "UNIQUE BTREE (id)",
                 "fk_issue_charge_previous": "BTREE (supplier_id, previous_charge_id)",
+                "ix_unit_charge_read_unit": "BTREE (supplier_id, read_unit_id, id)",
                 "uq_issue_charge_batch_unit": "UNIQUE BTREE (supplier_id, batch_id, unit_id)",
                 "uq_issue_charge_journal": "UNIQUE BTREE (supplier_id, journal_entry_id)",
                 "uq_issue_charge_reversal": "UNIQUE BTREE (supplier_id, reversal_entry_id)",
@@ -24115,6 +24121,7 @@
                 "due_date": "date NOT NULL",
                 "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
                 "operation_id": "bigint(20) unsigned NOT NULL",
+                "read_unit_id": "bigint(20) unsigned NULL DEFAULT NULL STORED GENERATED AS (json_value(`snapshot_json`,'$.unit_id'))",
                 "row_version": "int(10) unsigned NOT NULL DEFAULT 1",
                 "snapshot_hash": "char(64) NOT NULL COLLATE ascii_bin",
                 "snapshot_json": "longtext NOT NULL",
@@ -24124,6 +24131,7 @@
             "indexes": {
                 "PRIMARY": "UNIQUE BTREE (id)",
                 "fk_unit_credit_unit": "BTREE (supplier_id, unit_id)",
+                "ix_unit_credit_read_unit": "BTREE (supplier_id, read_unit_id, id)",
                 "uq_unit_credit_origin": "UNIQUE BTREE (supplier_id, operation_id)",
                 "uq_unit_credit_tenant": "UNIQUE BTREE (supplier_id, id)"
             },
@@ -24352,6 +24360,7 @@
                 "created_by": "bigint(20) unsigned NOT NULL",
                 "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
                 "idempotency_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "read_charge_id": "bigint(20) unsigned NULL DEFAULT NULL STORED GENERATED AS (json_value(`snapshot_json`,'$.charge_id'))",
                 "recorded_at": "datetime(6) NOT NULL",
                 "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
                 "request_json": "longtext NOT NULL",
@@ -24363,6 +24372,7 @@
                 "PRIMARY": "UNIQUE BTREE (id)",
                 "fk_unit_payment_debt_actor": "BTREE (created_by)",
                 "fk_unit_payment_debt_charge": "BTREE (supplier_id, charge_id)",
+                "ix_unit_debt_read_charge": "BTREE (supplier_id, read_charge_id, id)",
                 "uq_unit_payment_debt_tenant": "UNIQUE BTREE (supplier_id, id)",
                 "uq_unit_payment_debt_token": "UNIQUE BTREE (supplier_id, idempotency_key)"
             },
@@ -24445,6 +24455,8 @@
                 "journal_entry_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "kind": "varchar(24) NOT NULL",
                 "original_operation_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "read_links_json": "longtext NULL DEFAULT NULL STORED GENERATED AS (json_object('debt_ids',json_extract(`snapshot_json`,'$.allocations[*].debt_id'),'charge_ids',json_extract(`snapshot_json`,'$.allocations[*].charge_id'),'original_operation_id',json_extract(`snapshot_json`,'$.original_operation_id'),'credit_id',json_extract(`snapshot_json`,'$.credit.id'),'reservation_id',json_extract(`snapshot_json`,'$.reservation.id'),'correction_id',json_extract(`snapshot_json`,'$.correction_id'),'source_id',json_extract(`snapshot_json`,'$.source.id'),'credit_unit_id',json_extract(`snapshot_json`,'$.credit.unit_id')))",
+                "read_source_entry_id": "bigint(20) unsigned NULL DEFAULT NULL STORED GENERATED AS (json_value(`snapshot_json`,'$.source.receipt.ledger.entry.id'))",
                 "recorded_at": "datetime(6) NOT NULL",
                 "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
                 "request_json": "longtext NOT NULL",
@@ -24462,6 +24474,7 @@
                 "fk_unit_payment_operation_original": "BTREE (supplier_id, original_operation_id)",
                 "fk_unit_payment_operation_reverse": "BTREE (supplier_id, reversal_entry_id)",
                 "fk_unit_payment_operation_source": "BTREE (supplier_id, source_id)",
+                "ix_unit_payment_read_source": "BTREE (supplier_id, read_source_entry_id, id)",
                 "uq_unit_payment_operation_journal": "UNIQUE BTREE (supplier_id, journal_entry_id)",
                 "uq_unit_payment_operation_tenant": "UNIQUE BTREE (supplier_id, id)",
                 "uq_unit_payment_operation_token": "UNIQUE BTREE (supplier_id, idempotency_key)"

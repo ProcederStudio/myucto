@@ -29385,6 +29385,7 @@
       "snapshotTitle": "Server preview details",
       "tabs": {
         "card": "Card",
+        "saldo": "Balances and legal history",
         "corrections": "Corrections and history",
         "credits": "Credits",
         "debts": "Debts and credits",
@@ -36412,5 +36413,98 @@
     "case_reference": "Documented title reference",
     "case_add": "Add case portion",
     "reload_sources": "Reload sources and discard edits"
+  },
+  "propertySaldo": {
+    "title": "Unit balances",
+    "partial": "Only recorded S3/S4 charges and payments are included. Service settlements and opening balances are excluded. This is neither a complete financial position nor an unconditional no-debt certificate.",
+    "pagesHelp": "Each page uses its own consistent snapshot. Data may change between pages. Do not add pages into a certified company total.",
+    "pageSize": "Units per page",
+    "load": "Load balances",
+    "page": "Page {number}, units {count}",
+    "review": "Review required. An unknown amount is not zero.",
+    "reviewCounts": "Uncertain events: {uncertain}, legal reviews: {legal}, unresolved negative lines: {negative}.",
+    "detail": "Receivables and credits detail",
+    "legalHistory": "Legal history, transfers and certificates",
+    "empty": "No units on this page.",
+    "previous": "Previous page",
+    "next": "Next page",
+    "readProof": "Page source digest",
+    "readProofHelp": "The digest covers the financial closure of the displayed units only. It is neither write authority nor a whole-tenant digest.",
+    "personId": "Person #{id}",
+    "groupKey": "Group reference",
+    "role": "Role",
+    "mode": "Liability mode",
+    "basis": "Legal basis",
+    "members": "Liable persons",
+    "numerator": "Extent: numerator",
+    "denominator": "Extent: denominator",
+    "legalReason": "Legal reason",
+    "evidence": "Evidence",
+    "validFrom": "Valid from",
+    "validTo": "Valid until (optional)",
+    "preview": "Validate preview",
+    "confirmTransfer": "Confirm legal change",
+    "transfer": "Debt succession and guarantees",
+    "transferHelp": "Select debts and document the legal assessment. Ownership changes do not automatically transfer debts or credits. Preview and confirmation revalidate current sources; changed evidence requires a new preview.",
+    "effectiveAt": "Effective at",
+    "decision": "Decision",
+    "discoverable": "The acquirer had and could discover the debt",
+    "proposedGroups": "New liable persons and guarantees",
+    "previousGroups": "Previous liable persons and guarantees",
+    "addGroup": "Add liability group",
+    "reviewPreview": "Validated legal change preview",
+    "issuedCertificate": "Certificate #{id}",
+    "certificatePreview": "Certificate preview",
+    "recordedAt": "Recorded at",
+    "asOf": "Position as of",
+    "certificateScope": "This certificate covers recorded S3/S4 charges and payments only. It is not an unconditional no-debt certificate.",
+    "immutableHash": "Immutable certificate digest",
+    "certificates": "Recorded debt certificates",
+    "issueCertificate": "Issue immutable certificate",
+    "requester": "Requester",
+    "reload": "Reload sources",
+    "stale": "Sources changed or a legal change was saved. Reload the context, adjust the knowledge instant if needed, and prepare a new preview.",
+    "oneDebt": "A joint debt is counted once. Liability and guarantee extents are separate; multiple persons do not multiply a receivable.",
+    "currentNames": "Historical context names come from the current directory; person IDs identify the parties. New parties in previews and saved legal events are shown from frozen evidence.",
+    "owners": "Ownership revisions known at the selected instant",
+    "totals": {
+      "principal_receivable_cents": "Principal",
+      "accessory_receivable_cents": "Recorded accessories"
+    },
+    "aging": {
+      "not_due": "Not due",
+      "1_30": "Overdue 1 to 30 days",
+      "31_90": "Overdue 31 to 90 days",
+      "91_plus": "Overdue over 90 days"
+    },
+    "modes": {
+      "individual": "Individual liability",
+      "solidary": "Joint and several liability"
+    },
+    "bases": {
+      "individual_title": "Individual title",
+      "sjm_713": "Marital community (§ 713)",
+      "joint_act_1127": "Joint act (§ 1127)",
+      "documented_title": "Documented title"
+    },
+    "decisions": {
+      "transfer_confirmed": "Documented debt succession",
+      "transfer_not_applicable": "Debt does not transfer",
+      "review_required": "Legal review required",
+      "superseding_correction": "Documented legal history correction"
+    },
+    "acquisition": {
+      "kind": "Acquisition kind",
+      "applicable_law": "Applicable law",
+      "legal_basis": "Succession legal basis",
+      "evidence": "Acquisition evidence",
+      "knowledge_evidence": "Discoverability evidence",
+      "guarantee_evidence": "Guarantee extent evidence"
+    },
+    "certificateFields": {
+      "authority_evidence": "Requester authority",
+      "purpose": "Certificate purpose",
+      "coverage_acknowledgement": "Explicit acknowledgement of incomplete scope"
+    }
   }
 }

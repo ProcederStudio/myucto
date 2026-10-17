@@ -20,6 +20,8 @@ final class ErrorCatalog
     private const MAP = [
         'Zdroj majetku je navázán na doložené rozhodnutí o rezervě. Jeho finanční údaje a společné dimenze nelze přepsat.' => 'The asset source is linked to a documented reserve decision. Its financial data and joint dimensions cannot be changed.',
         'Vrácení kroku nesmí odstranit historii vlastní metody odložené daně. Změnu proveďte novým posouzením.' => 'Reverting the step must not erase the history of the deferred tax method. Make changes through a new assessment.',
+        'Přehled salda vyžaduje vlastní konzistentní transakci.' => 'The balance overview requires its own consistent transaction.',
+        'Právní přehled vyžaduje vlastní konzistentní transakci.' => 'The legal overview requires its own consistent transaction.',
         'Cizoměnový řádek nemá doloženou částku v cizí měně.' => 'The foreign-currency line has no evidenced amount in its foreign currency.',
         'Zdrojové rozdělení více dimenzí vyžaduje doložené společné alokační buňky.' => 'Source allocations across multiple dimensions require evidenced joint allocation cells.',
         'Zdrojové rozdělení dimenzí není úplné.' => 'The source dimension allocation is incomplete.',

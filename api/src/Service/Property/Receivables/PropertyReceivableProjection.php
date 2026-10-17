@@ -11,9 +11,21 @@ final class PropertyReceivableProjection
     {
         $asOf=PropertyInstant::normalize($asOf);$knownAt=PropertyInstant::normalize($knownAt);PropertyInput::fields($scope,['unit_id','client_id']);foreach($scope as $id)PropertyInput::id($id,'scope');
         if($currentRead&&!$this->db->pdo()->inTransaction())throw new \LogicException('Current projection requires owner period locks.');
-        $owned=!$this->db->pdo()->inTransaction();if($owned)$this->db->pdo()->beginTransaction();
+        $owned=!$this->db->pdo()->inTransaction();if($owned){$this->db->pdo()->exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');$this->db->pdo()->exec('START TRANSACTION READ ONLY');}
         try{
-            $history=(new FinancialHistoryRepository($this->db))->read($supplier,$currentRead);$events=(new PartyEventRepository($this->db))->history($supplier,$currentRead);
+            $history=(new FinancialHistoryRepository($this->db))->readProjection($supplier,$currentRead);$events=(new PartyEventRepository($this->db))->history($supplier,$currentRead);
+            $snapshot=self::reduceReadHistory($supplier,$asOf,$knownAt,$scope,$history,$events);
+            unset($history,$events);
+            if($owned)$this->db->pdo()->commit();return $snapshot+['snapshot_hash'=>PropertyInput::hashLists($snapshot,['claims','credits','current_party_heads'])];
+        }catch(\Throwable $e){if($owned&&$this->db->pdo()->inTransaction())$this->db->pdo()->rollBack();throw $e;}
+    }
+    public static function reduceReadHistory(int $supplier,string $asOf,string $knownAt,array $scope,array $history,array $events):array
+    {
+        return PropertyInstant::withNormalizationContext(fn()=>self::reducePreparedReadHistory($supplier,$asOf,$knownAt,$scope,$history,$events));
+    }
+    private static function reducePreparedReadHistory(int $supplier,string $asOf,string $knownAt,array $scope,array $history,array $events):array
+    {
+        $asOf=PropertyInstant::normalize($asOf);$knownAt=PropertyInstant::normalize($knownAt);
             // Neukotvená oprava nedokládá vazbu na osobu; client_id proto blokátory nezužuje.
             $unresolved=UnresolvedNegativeChargeScope::at($history,$asOf,$knownAt,$scope['unit_id']??null);
             $rows=[];$credits=[];$total=['gross_receivable_cents'=>'0','gross_credit_cents'=>'0','reserved_credit_cents'=>'0','available_credit_cents'=>'0','guarantee_exposure_cents'=>'0'];$complete=$unresolved===[];$precision='instant';
@@ -42,7 +54,8 @@ final class PropertyReceivableProjection
             $snapshot=['supplier_id'=>$supplier,'as_of'=>$asOf,'known_at'=>$knownAt,'scope'=>$scope,'claims'=>$rows,'credits'=>$credits,'totals'=>$total,'precision'=>$precision,
                 'coverage'=>['financial_complete'=>$complete,'service_settlements'=>'not_implemented','opening_import'=>'not_implemented','unresolved_negative_charge_line_ids'=>$unresolved,'scope'=>'recorded_s3_s4','complete'=>false],
                 'current_party_heads'=>array_map(fn($e)=>['id'=>$e['id'],'hash'=>$e['snapshot_hash']],$events)];
-            if($owned)$this->db->pdo()->commit();return $snapshot+['snapshot_hash'=>PropertyInput::hash($snapshot)];
-        }catch(\Throwable $e){if($owned&&$this->db->pdo()->inTransaction())$this->db->pdo()->rollBack();throw $e;}
+            unset($history,$debt,$credit);
+        return $snapshot;
     }
+
 }

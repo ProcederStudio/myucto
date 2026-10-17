@@ -2468,6 +2468,7 @@ final class Routes
         });
 
         $app->group('/api/property', function ($g) {
+            $g->get('/catalog/payments/saldo', \MyInvoice\Action\Property\Receivables\PropertySaldoPublicAction::class);
             $g->get('/catalog/payments/card', [\MyInvoice\Action\Property\Payments\PaymentPublicAction::class, 'card']);
             $g->get('/catalog/payments/operations', [\MyInvoice\Action\Property\Payments\PaymentPublicAction::class, 'operations']);
             $g->get('/catalog/payments/history', [\MyInvoice\Action\Property\Payments\PaymentPublicAction::class, 'history']);
@@ -2476,6 +2477,12 @@ final class Routes
             $g->get('/payments/{collection:debts|charges|credits|reservations|operations|corrections}/{id:[0-9]+}', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'detail']);
             $g->get('/payments/parties', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'parties']);
             $g->get('/payments/correction-options', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'correctionOptions']);
+            $g->get('/receivables/context', [\MyInvoice\Action\Property\Receivables\ReceivableWorkflowAction::class, 'context']);
+            $g->get('/receivables/certificates/{id:[0-9]+}', [\MyInvoice\Action\Property\Receivables\ReceivableWorkflowAction::class, 'certificate']);
+            $g->post('/receivables/transfers/preview', [\MyInvoice\Action\Property\Receivables\ReceivableWorkflowAction::class, 'transferPreview']);
+            $g->post('/receivables/transfers/confirm', [\MyInvoice\Action\Property\Receivables\ReceivableWorkflowAction::class, 'transferConfirm']);
+            $g->post('/receivables/certificates/preview', [\MyInvoice\Action\Property\Receivables\ReceivableWorkflowAction::class, 'certificatePreview']);
+            $g->post('/receivables/certificates/issue', [\MyInvoice\Action\Property\Receivables\ReceivableWorkflowAction::class, 'certificateIssue']);
             $g->get('/payments/card', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'card']);
             $g->get('/payments/bank-accounts', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'bankAccounts']);
             $g->get('/payments/accessory-candidates', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'accessoryCandidates']);

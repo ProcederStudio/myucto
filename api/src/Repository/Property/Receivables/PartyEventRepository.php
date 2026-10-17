@@ -42,7 +42,29 @@ final class PartyEventRepository
         $ids=array_map('intval',array_keys($selected));sort($ids,SORT_NUMERIC);
         return ['events'=>$events,'debt_ids'=>$ids];
     }
-    private function decodeHistory(array $rows,array $links,array $members):array
+    public function readHistoryForDebts(int $supplier,array $debtIds,array $unitIds=[]):array
+    {
+        if(!$this->db->pdo()->inTransaction())throw new \LogicException('Party current read requires owner transaction.');
+        foreach($debtIds as $id)PropertyInput::id($id,'debt_id');
+
+        foreach($unitIds as $id)PropertyInput::id($id,'unit_id');$unitList=$unitIds===[]?'NULL':implode(',',array_map('intval',$unitIds));
+        $selected=array_fill_keys($debtIds,true);$events=[];
+        do{
+            $before=count($selected);$ids=json_encode(array_map('intval',array_keys($selected)),JSON_THROW_ON_ERROR);
+            $linked=$this->all("SELECT l.event_id FROM property_claim_party_event_debts l JOIN JSON_TABLE(?,'$[*]' COLUMNS(id BIGINT PATH '$')) wanted ON wanted.id=l.debt_id WHERE l.supplier_id=? ORDER BY l.event_id",[$ids,$supplier]);
+            $linkedIds=json_encode(array_values(array_unique(array_map('intval',array_column($linked,'event_id')))),JSON_THROW_ON_ERROR);
+            $rows=$this->all("SELECT e.* FROM property_claim_party_events e WHERE e.supplier_id=? AND (EXISTS (SELECT 1 FROM JSON_TABLE(e.snapshot_json,'$.debts[*]' COLUMNS(debt_id BIGINT PATH '$.debt_id')) p JOIN JSON_TABLE(?,'$[*]' COLUMNS(id BIGINT PATH '$')) wanted ON wanted.id=p.debt_id) OR e.id IN (SELECT id FROM JSON_TABLE(?,'$[*]' COLUMNS(id BIGINT PATH '$')) wanted) OR e.unit_id IN (".$unitList.") OR JSON_VALUE(e.request_json,'$.unit_id') IN (".$unitList.")) ORDER BY e.id",[$supplier,$ids,$linkedIds]);
+            if(array_diff(array_column($linked,'event_id'),array_column($rows,'id'))!==[])ReceivableException::reject('history_corrupt');
+            $eventIds=json_encode(array_map('intval',array_column($rows,'id')),JSON_THROW_ON_ERROR);$links=[];$members=[];
+            foreach($this->all("SELECT l.* FROM property_claim_party_event_debts l JOIN JSON_TABLE(?,'$[*]' COLUMNS(id BIGINT PATH '$')) wanted ON wanted.id=l.event_id WHERE l.supplier_id=? ORDER BY l.event_id,l.debt_id",[$eventIds,$supplier]) as $r)$links[$r['event_id']][]=['debt_id'=>(int)$r['debt_id'],'predecessor_event_id'=>$r['predecessor_event_id']===null?null:(int)$r['predecessor_event_id'],'remaining_cents'=>$r['remaining_cents']];
+            foreach($this->all("SELECT l.* FROM property_claim_party_members l JOIN JSON_TABLE(?,'$[*]' COLUMNS(id BIGINT PATH '$')) wanted ON wanted.id=l.event_id WHERE l.supplier_id=? ORDER BY l.event_id,l.debt_id,l.group_key,l.client_id",[$eventIds,$supplier]) as $r)$members[$r['event_id']][]=['debt_id'=>(int)$r['debt_id'],'group_key'=>$r['group_key'],'role'=>$r['role'],'client_id'=>(int)$r['client_id']];
+            $events=$this->decodeHistory($rows,$links,$members);
+            foreach($events as $event)foreach($event['snapshot']['debts'] as $debt)$selected[$debt['debt_id']]=true;
+        }while(count($selected)!==$before);
+        $ids=array_map('intval',array_keys($selected));sort($ids,SORT_NUMERIC);
+        return ['events'=>$events,'debt_ids'=>$ids];
+    }
+    public function decodeHistory(array $rows,array $links,array $members):array
     {
         $out=[];foreach($rows as $r){
             $snapshot=FinancialHistoryRepository::decode($r);$request=json_decode($r['request_json'],true,flags:JSON_THROW_ON_ERROR);

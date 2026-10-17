@@ -106,6 +106,35 @@ Na záložce **Karta** zadejte stav poznání k okamžiku a případně omezte j
 
 Respektujte upozornění na neúplnost a přesnost jen na den. Hodnota **Neznámé** není nula. Karta pokrývá zaznamenané předpisy a platby; vyúčtování služeb ani počáteční import v ní nejsou zahrnuté. Samotná karta nenahrazuje potvrzení dluhu.
 
+### Stránkované saldo přes API a MCP
+
+Veřejné API `GET /api/v1/property/catalog/payments/saldo` a MCP nástroj `list_property_saldo` poskytují samostatný souhrn jednotek při oprávnění číst registr. Zadejte `as_of` a `known_at`; `limit` je 1 až 100 jednotek, výchozí hodnota 25. Pro další stránku předejte nezměněný `next_cursor` jako `cursor` a zachovejte oba časy i firmu. Jednotky včetně neaktivních a ukončených jsou řazeny podle stabilního ID.
+
+Souhrn odděluje hrubé pohledávky, evidované příslušenství, jistinu, kredity, rezervované a dostupné kredity. Příslušenství představuje doložené pohledávky po jejich úhradách, nikoli automaticky dopočítané úroky. Částky jsou haléřové řetězce; `null` znamená neznámý výsledek. Zohledněte také `precision`, `coverage` a počty nejistých událostí či právních podkladů k prověření. Vyúčtování služeb a počáteční import nejsou pokryté; souhrn nepotvrzuje úplnou finanční pozici.
+
+Každá stránka má vlastní konzistentní snapshot. Více stránek nemusí při souběžných změnách představovat jeden společný stav firmy. `read_scope_digest` se vztahuje k ověřeným finančním a právním návaznostem vybraných jednotek, není otiskem plné karty ani oprávněním zaúčtovat platbu. Podrobné historie poskytuje samostatná karta jednotky. Popisky jednotek jsou aktuální.
+
 ## Reset dat
 
 Reset se zachováním účtu a konfigurace firmy odstraní registr, jeho systémové dimenze jednotek a služeb i alokační klíče, které na ně odkazují. Vlastní dimenze a ostatní alokační klíče zachová. Pokud má zachovaná vlastní hodnota jako nadřazenou jednotku nebo službu registru, reset se zastaví před mazáním; nejprve opravte tuto vazbu.
+
+
+## Saldo a právní historie
+
+V **Úhrady SVJ → Saldo a právní historie** zvolte okamžik stavu a okamžik znalosti. Přehled načítá 25, 50 nebo 100 jednotek na stránce, včetně jednotek s historickými záznamy. Každá stránka má vlastní konzistentní snímek. Stránky proto nesčítejte jako ověřený souhrn celé firmy.
+
+Pohledávky, jistina, evidované příslušenství, kredity, rezervace a volné kredity se zobrazují odděleně. Neznámá částka není nula. Přehled upozorňuje na denní přesnost, nevyřešené záporné řádky a potřebné právní posouzení. Zahrnuje pouze evidované předpisy a úhrady S3/S4; vyúčtování služeb a počáteční stavy nejsou zahrnuty. Otisk stránky není oprávněním k zápisu ani potvrzením úplné finanční pozice.
+
+**Karta pohledávek a kreditů** přebírá vybranou jednotku a oba časové okamžiky. Načte se samostatně tlačítkem pro načtení karty. **Právní historie, převody a potvrzení** ukazuje vlastnické revize známé k okamžiku znalosti, přechody dluhů a předchozí i nové skupiny odpovědnosti. Společný dluh se počítá jednou, i když má více zavázaných osob. Ručení se neslučuje s pohledávkou. Jména v historickém přehledu pocházejí z aktuálního adresáře; identitu určuje číslo osoby. Nové osoby v uložené právní události pocházejí z jejích neměnných podkladů.
+
+### Přechod dluhu a ručení
+
+Pracovník s oprávněním připravovat přechody dluhů vybere dluhy, rozhodnutí, druh nabytí, použitelnou právní úpravu a důkazy nabytí, zjistitelnosti dluhu a ručení. U každého dluhu nastaví nové skupiny osob, právní základ, rozsah a platnost. Změna vlastníka sama dluh ani kredit nepřevádí. Nepoužitelnost přechodu a nevyřešené posouzení zachovávají dosavadní právní skupiny; potvrzení bez doložené změny není náhradou právního posouzení.
+
+Náhled ověřuje aktuální podklady, pořadí právních událostí a rozsahy odpovědnosti. Potvrzení vyžaduje samostatné oprávnění potvrzovat právní přechody dluhů. Při změně podkladů nebo po uložení je nutné přehled znovu načíst a podle potřeby upravit okamžik znalosti. Starý náhled nelze použít jako oprávnění k další změně.
+
+### Neměnné potvrzení
+
+Vydání potvrzení vyžaduje samostatné oprávnění, žadatele, doložené oprávnění žadatele, účel a výslovné vymezení neúplného rozsahu. Nejprve zkontrolujte náhled, potom potvrzení vydejte. Neúplné nebo nejisté podklady mohou vydání zablokovat.
+
+Uložené potvrzení se otevírá podle jeho čísla a zobrazuje původní časové okamžiky, podklady a kontrolní otisk. Pozdější převod jej nepřepočítá. Potvrzení se týká pouze evidovaných předpisů a úhrad, nikoli bezpodmínečné bezdlužnosti. Právní potvrzení a změny jsou dostupné pouze přihlášenému uživateli aplikace, ne prostřednictvím veřejného API nebo MCP.

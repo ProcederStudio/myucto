@@ -25,6 +25,10 @@ const read = (name, title, description, properties, required, run) => ({
 });
 
 export const DIMENSION_TOOLS = [
+  read('list_property_saldo', 'Stránkované saldo jednotek SVJ',
+    'Samostatný souhrn zaznamenaných S3/S4 pohledávek, příslušenství, kreditů a rezervací. Neúplné pokrytí není úplná finanční pozice. Zachovejte null, precision a coverage. Cursor je vázaný na firmu a oba časy; každá stránka má vlastní snapshot, stránky nejsou atomický součet firmy. read_scope_digest ověřuje pouze úplnou návaznost zdrojů vybraných jednotek a neautorizuje platbu. Detaily a úplné historie poskytuje property_receivable_card.',
+    { as_of: instant('Rozhodný okamžik s offsetem.'), known_at: instant('Okamžik znalosti s offsetem.'), cursor: str('Nezměněný next_cursor předchozí stránky.', { maxLength: 1000 }), limit: { type: 'integer', minimum: 1, maximum: 100, description: 'Počet jednotek; výchozí 25.' } }, ['as_of', 'known_at'],
+    (c, a, tool) => c.get('/property/catalog/payments/saldo', { as_of: a.as_of, known_at: a.known_at, cursor: a.cursor, limit: a.limit }, tool)),
   read('property_receivable_card', 'Saldo a karta jednotky SVJ',
     'Hrubé pohledávky a oddělené kredity jedné jednotky k as_of podle znalosti known_at, včetně doložených dlužníků a ručitelů. Popisky osob a jednotek jsou aktuální. Zachovejte null, precision a coverage; neúplné podklady nejsou nulový dluh. Čte celou historii firmy, výstup není stránkovaný. Otisk source_snapshot_hash patří původní doménové projekci, nikoli tomuto JSON. Nenahrazuje potvrzení dluhu ani oprávnění k platbě.',
     { unit_id: int('ID jednotky této firmy.'), as_of: instant('Rozhodný okamžik s offsetem.'), known_at: instant('Okamžik tehdejší znalosti s offsetem.') }, ['unit_id', 'as_of', 'known_at'],

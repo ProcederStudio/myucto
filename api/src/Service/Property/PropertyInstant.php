@@ -6,7 +6,32 @@ namespace MyInvoice\Service\Property;
 
 final class PropertyInstant
 {
+    private static ?\WeakMap $normalizationContexts = null;
+    private static ?object $mainExecution = null;
+
+    public static function withNormalizationContext(callable $work): mixed
+    {
+        $key = \Fiber::getCurrent() ?? (self::$mainExecution ??= new \stdClass());
+        self::$normalizationContexts ??= new \WeakMap();
+        if (isset(self::$normalizationContexts[$key])) return $work();
+        self::$normalizationContexts[$key] = new PropertyInstantNormalizationContext(self::normalizeUncached(...));
+        try { return $work(); }
+        finally {
+            unset(self::$normalizationContexts[$key]);
+            if (count(self::$normalizationContexts) === 0) self::$normalizationContexts = null;
+        }
+    }
+
     public static function normalize(mixed $input): string
+    {
+        if (self::$normalizationContexts !== null) {
+            $key = \Fiber::getCurrent() ?? (self::$mainExecution ??= new \stdClass());
+            if (isset(self::$normalizationContexts[$key])) return self::$normalizationContexts[$key]->normalize($input);
+        }
+        return self::normalizeUncached($input);
+    }
+
+    private static function normalizeUncached(mixed $input): string
     {
         if (!is_string($input) || !preg_match('/^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?:\.([0-9]{1,6}))?(Z|[+-][0-9]{2}:[0-9]{2})$/D', $input, $match)) self::invalid();
         $zone = $match[3] === 'Z' ? '+00:00' : $match[3];

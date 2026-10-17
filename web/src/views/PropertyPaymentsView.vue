@@ -16,6 +16,7 @@ import RefundPartForm from '@/components/property/payments/operations/RefundPart
 import DebtsCreditsTab from '@/components/property/payments/operations/DebtsCreditsTab.vue'
 import CorrectionsHistoryTab from '@/components/property/payments/operations/CorrectionsHistoryTab.vue'
 import CardPanel from '@/components/property/payments/operations/CardPanel.vue'
+import SaldoPanel from '@/components/property/payments/receivables/SaldoPanel.vue'
 import SnapshotView from '@/components/property/payments/operations/SnapshotView.vue'
 import { provideBusyScope } from '@/components/property/payments/operations/busy'
 import { failureMessage, formErrorKey } from '@/components/property/payments/operations/format'
@@ -182,7 +183,7 @@ async function confirm() {
 }
 const actions = computed<ActionItem[]>(() => [preview.value ? { key: 'confirm', label: t('propertyPayments.confirm'), icon: 'check', variant: 'success', tier: 'primary', disabled: anyBusy.value || !context.value?.capabilities.post, run: () => { void confirm() } } : { key: 'preview', label: t('propertyPayments.preview'), icon: 'eye', variant: 'primary', tier: 'primary', disabled: anyBusy.value || !context.value?.capabilities.manage || done.value, run: () => { void showPreview() } },
   { key: 'refresh', label: t('propertyPayments.refresh'), icon: 'cycle', tier: 'secondary', disabled: anyBusy.value, run: () => { void load() } }])
-const tabs = computed(() => ['receive', 'debts', 'corrections', 'card'].map(key => ({ key, label: t(`propertyPayments.tabs.${key}`) })))
+const tabs = computed(() => ['receive', 'debts', 'corrections', 'card', 'saldo'].map(key => ({ key, label: t(`propertyPayments.tabs.${key}`) })))
 function sourceLabel(c: PaymentWorkflowContext['candidates'][number]) { return [c.date, c.partner_name, c.description, `${c.amount} ${c.currency}`].filter(Boolean).join(' · ') }
 function unitLabel(u: PaymentWorkflowContext['units'][number]) { return u.revision && 'unit_no' in u.revision.state ? t('propertyPayments.unitNumber', { number: u.revision.state.unit_no }) : u.code }
 </script>
@@ -251,6 +252,7 @@ function unitLabel(u: PaymentWorkflowContext['units'][number]) { return u.revisi
     <PaymentSourceRevisionEditor v-if="tab === 'receive' && sourceDetails && supplier && context && !busy && context.capabilities.manage" :key="`${supplier}:${sourceDetails.source_id}`" :supplier="supplier" :source="sourceDetails" :dimensions="context.dimensions" :can-manage="context.capabilities.manage" :can-post="context.capabilities.post" @busy="revisionBusy = $event" @changed="loadSource" />
     <DebtsCreditsTab v-if="context && supplier && tab === 'debts'" :supplier="supplier" :units="context.units" :can-manage="context.capabilities.manage" :can-post="context.capabilities.post" />
     <CorrectionsHistoryTab v-else-if="context && supplier && tab === 'corrections'" :supplier="supplier" :units="context.units" :can-manage="context.capabilities.manage" :can-post="context.capabilities.post" :can-reverse="context.capabilities.reverse" />
+    <SaldoPanel v-else-if="context && supplier && tab === 'saldo'" :supplier="supplier" :as-of="asOf" :units="context.units" />
     <CardPanel v-else-if="context && supplier && tab === 'card'" :supplier="supplier" :as-of="asOf" :units="context.units" />
     <section v-if="tab === 'receive'" class="rounded-lg border border-neutral-200 p-4 space-y-2"><h2 class="font-semibold">{{ t('propertyPayments.history') }}</h2><article v-for="row in history" :key="row.id" class="flex flex-wrap gap-4 border-t border-neutral-200 py-2"><span>{{ row.date }}</span><span>{{ paymentDecimal(row.amount_cents) }} CZK</span><span>{{ t('propertyPayments.settled') }}: {{ paymentDecimal(row.settled_cents) }} CZK</span><span>{{ t('propertyPayments.remainingAtConfirmation') }}: {{ paymentDecimal(row.available_cents) }} CZK</span></article><div v-if="historyNextCursor !== null" class="flex flex-wrap"><PropertyButton icon="chevron" data-action="load-more-history" :disabled="historyLoadingMore" @click="loadMoreHistory">{{ t('propertyPayments.loadMore') }}</PropertyButton></div></section>
   </main>

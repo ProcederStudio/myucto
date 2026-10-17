@@ -73,15 +73,25 @@ final class ServiceNoticePolicy
 
     public static function changed(array $charges,int $unit,int $component,string $amount,string $frequency,string $periodFrom): bool
     {
-        $latest=null; $target=null;
-        foreach($charges as $charge) {
-            if($charge['unit_id']!==$unit||!in_array($charge['status'],['draft','posted','reversed'],true)||$charge['period_from']>$periodFrom) continue;
-            foreach($charge['snapshot']['lines'] as $line) if($line['component_id']===$component) {
-                $order=[$charge['period_from'],$charge['id']];
-                if($latest===null||$order>$latest) { $latest=$order; $target=[$line['target_cents'],$charge['snapshot']['frequency']]; }
-            }
+        $targets=[];
+        foreach($charges as $charge) if($charge['unit_id']===$unit) self::rememberTarget($targets,$charge,$periodFrom);
+        return self::targetChanged($targets[$unit][$component]??null,$amount,$frequency);
+    }
+
+    public static function rememberTarget(array &$targets,array $charge,string $periodFrom): void
+    {
+        if(!in_array($charge['status'],['draft','posted','reversed'],true)||$charge['period_from']>$periodFrom) return;
+        $unit=$charge['unit_id']; $order=[$charge['period_from'],$charge['id']];
+        foreach($charge['snapshot']['lines'] as $line) {
+            $component=$line['component_id'];
+            if(!isset($targets[$unit][$component])||$order>$targets[$unit][$component]['order'])
+                $targets[$unit][$component]=['order'=>$order,'target'=>[$line['target_cents'],$charge['snapshot']['frequency']]];
         }
-        return $target!==null&&$target!==[$amount,$frequency];
+    }
+
+    public static function targetChanged(?array $target,string $amount,string $frequency): bool
+    {
+        return $target!==null&&$target['target']!==[$amount,$frequency];
     }
 
     private static function reject(string $field): never

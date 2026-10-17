@@ -238,6 +238,70 @@ tags:
       pojišťovnu a zálohy na daň (§38a) vč. rozhodnutí FÚ (§174).
 
 paths:
+  /api/v1/property/catalog/payments/saldo:
+    get:
+      tags:
+      - Accounting
+      summary: Stránkovaný souhrn salda jednotek SVJ
+      description: Pouze property READ. Jednotky včetně neaktivních a historických,
+        stabilně podle ID. as_of a known_at určují finanční a právní výběr; unit_code
+        je aktuální popisek. Každý request má vlastní konzistentní snapshot. Převzatá transakce
+        je odmítnuta chybou 409 property_saldo_snapshot_required bez její změny. Cursor
+        je vázaný na firmu a oba časy. Více stránek není atomický tenant snapshot ani
+        potvrzení celkové finanční pozice. read_scope_digest zahrnuje úplnou relevantní
+        návaznost zdrojů vybraných jednotek včetně sdílených zdrojů a právních vazeb;
+        není source_snapshot_hash plné karty. Hrubé pohledávky se nekompenzují kredity.
+        Příslušenství znamená evidované accessory receipts po jejich alokacích; nejde
+        o automaticky dopočítané úroky. Částky jsou haléřové řetězce; při nejistotě
+        zůstávají null. Coverage je recorded_s3_s4 a complete=false. Podrobné historie
+        poskytuje payments/card.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - name: as_of
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date-time
+      - name: known_at
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date-time
+      - name: cursor
+        in: query
+        schema:
+          type: string
+          maxLength: 1000
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 25
+      responses:
+        '200':
+          description: Stránka souhrnů zaznamenaných pohledávek a kreditů.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PropertySaldoPage'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Neověřitelná návaznost zdrojů nebo neplatný vstup.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Neověřitelná návaznost zdrojů nebo neplatný vstup.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/property/catalog/payments/card:
     get:
       tags:
@@ -30869,6 +30933,227 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
 
   schemas:
+    PropertySaldoPage:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - as_of
+      - known_at
+      - items
+      - next_cursor
+      - read_scope_digest
+      - consistency
+      - proof_scope
+      - coverage
+      properties:
+        kind:
+          type: string
+          const: recorded_property_saldo_page
+        as_of:
+          type: string
+          format: date-time
+        known_at:
+          type: string
+          format: date-time
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/PropertySaldoUnit'
+        next_cursor:
+          type:
+          - string
+          - 'null'
+          maxLength: 1000
+        read_scope_digest:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+        consistency:
+          type: string
+          const: request_snapshot
+        proof_scope:
+          type: object
+          additionalProperties: false
+          required:
+          - kind
+          - unit_ids
+          - schema
+          properties:
+            kind:
+              type: string
+              const: selected_unit_financial_closure
+            unit_ids:
+              type: array
+              maxItems: 100
+              items:
+                type: integer
+                minimum: 1
+            schema:
+              type: integer
+              const: 1
+        coverage:
+          type: object
+          additionalProperties: false
+          required:
+          - scope
+          - complete
+          - service_settlements
+          - opening_import
+          properties:
+            scope:
+              type: string
+              const: recorded_s3_s4
+            complete:
+              type: boolean
+              const: false
+            service_settlements:
+              type: string
+              const: not_implemented
+            opening_import:
+              type: string
+              const: not_implemented
+    PropertySaldoUnit:
+      type: object
+      additionalProperties: false
+      required:
+      - unit_id
+      - unit_code
+      - totals
+      - aging
+      - precision
+      - coverage
+      - claim_count
+      - credit_count
+      - uncertain_event_count
+      - liability_review_count
+      properties:
+        unit_id:
+          type: integer
+          minimum: 1
+        unit_code:
+          type: string
+        totals:
+          type: object
+          additionalProperties: false
+          required:
+          - gross_receivable_cents
+          - gross_credit_cents
+          - reserved_credit_cents
+          - available_credit_cents
+          - guarantee_exposure_cents
+          - accessory_receivable_cents
+          - principal_receivable_cents
+          properties:
+            gross_receivable_cents:
+              type:
+              - string
+              - 'null'
+              pattern: ^-?(?:0|[1-9][0-9]*)$
+            gross_credit_cents:
+              type:
+              - string
+              - 'null'
+              pattern: ^-?(?:0|[1-9][0-9]*)$
+            reserved_credit_cents:
+              type:
+              - string
+              - 'null'
+              pattern: ^-?(?:0|[1-9][0-9]*)$
+            available_credit_cents:
+              type:
+              - string
+              - 'null'
+              pattern: ^-?(?:0|[1-9][0-9]*)$
+            guarantee_exposure_cents:
+              type:
+              - string
+              - 'null'
+              pattern: ^-?(?:0|[1-9][0-9]*)$
+            accessory_receivable_cents:
+              type:
+              - string
+              - 'null'
+              pattern: ^-?(?:0|[1-9][0-9]*)$
+            principal_receivable_cents:
+              type:
+              - string
+              - 'null'
+              pattern: ^-?(?:0|[1-9][0-9]*)$
+        aging:
+          type: object
+          additionalProperties: false
+          required:
+          - not_due
+          - '1_30'
+          - '31_90'
+          - 91_plus
+          properties:
+            not_due:
+              type:
+              - string
+              - 'null'
+              pattern: ^-?(?:0|[1-9][0-9]*)$
+            '1_30':
+              type:
+              - string
+              - 'null'
+              pattern: ^-?(?:0|[1-9][0-9]*)$
+            '31_90':
+              type:
+              - string
+              - 'null'
+              pattern: ^-?(?:0|[1-9][0-9]*)$
+            91_plus:
+              type:
+              - string
+              - 'null'
+              pattern: ^-?(?:0|[1-9][0-9]*)$
+        precision:
+          type: string
+          enum:
+          - instant
+          - day
+        coverage:
+          type: object
+          additionalProperties: false
+          required:
+          - scope
+          - financial_complete
+          - complete
+          - service_settlements
+          - opening_import
+          - unresolved_negative_charge_line_count
+          properties:
+            scope:
+              type: string
+              const: recorded_s3_s4
+            financial_complete:
+              type: boolean
+            complete:
+              type: boolean
+              const: false
+            service_settlements:
+              type: string
+              const: not_implemented
+            opening_import:
+              type: string
+              const: not_implemented
+            unresolved_negative_charge_line_count:
+              type: integer
+              minimum: 0
+        claim_count:
+          type: integer
+          minimum: 0
+        credit_count:
+          type: integer
+          minimum: 0
+        uncertain_event_count:
+          type: integer
+          minimum: 0
+        liability_review_count:
+          type: integer
+          minimum: 0
     PropertyPaymentParty:
       type: object
       additionalProperties: false

@@ -139,7 +139,7 @@ final class ChargeIssuanceCaseIdentityTest extends TestCase
     {
         $this->db->pdo()->exec('SAVEPOINT legacy_fixture');
         $modern=$this->issue($this->request);$tables=['unit_charge_batches','unit_charges','unit_charge_lines','unit_charge_parties','unit_charge_notices','unit_charge_issue_audit'];$rows=[];
-        foreach($tables as $table){$q=$this->db->pdo()->prepare('SELECT * FROM '.$table.' WHERE supplier_id=? ORDER BY id');$q->execute([$this->f['supplier']]);$rows[$table]=$q->fetchAll(\PDO::FETCH_ASSOC);}
+        foreach($tables as $table){$columns=$this->db->pdo()->prepare("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND (GENERATION_EXPRESSION IS NULL OR GENERATION_EXPRESSION='') ORDER BY ORDINAL_POSITION");$columns->execute([$table]);$names=$columns->fetchAll(\PDO::FETCH_COLUMN);self::assertNotEmpty($names);$q=$this->db->pdo()->prepare('SELECT `'.implode('`,`',$names).'` FROM '.$table.' WHERE supplier_id=? ORDER BY id');$q->execute([$this->f['supplier']]);$rows[$table]=$q->fetchAll(\PDO::FETCH_ASSOC);}
         $this->db->pdo()->exec('ROLLBACK TO SAVEPOINT legacy_fixture');$hashes=[];
         $strip=static function(array $charge):array{unset($charge['case_identity'],$charge['case_distinction'],$charge['case_candidates']);return $charge;};
         foreach($rows['unit_charges']as&$row){$old=$row['snapshot_hash'];$snapshot=$strip(json_decode($row['snapshot_json'],true,flags:JSON_THROW_ON_ERROR));$row['snapshot_json']=\MyInvoice\Service\Property\Charges\Issuance\IssuanceRequest::json($snapshot);$row['snapshot_hash']=\MyInvoice\Service\Property\PropertyInput::hash($snapshot);$hashes[$old]=$row['snapshot_hash'];}unset($row);
