@@ -31,8 +31,13 @@ final class DeleteClientAction
     public function __invoke(Request $request, Response $response, array $args): Response
     {
         $id = (int) ($args['id'] ?? 0);
-        if (!SupplierGuard::owns($request, $this->repo->find($id))) {
+        $client = $this->repo->find($id);
+        if (!SupplierGuard::owns($request, $client)) {
             return Json::error($response, 'not_found', 'Klient nenalezen.', 404);
+        }
+
+        if ((new \MyInvoice\Service\Property\PropertyHistoryUseGuard($this->db))->clientHasHistory((int) $client['supplier_id'], $id)) {
+            return Json::error($response, 'has_dependencies', 'Kontakt nelze smazat, je součástí právní historie SVJ. Místo toho jej archivujte.', 409);
         }
 
         $stmt = $this->db->pdo()->prepare('SELECT COUNT(*) FROM invoices WHERE client_id = ?');
@@ -55,7 +60,14 @@ final class DeleteClientAction
             );
         }
 
-        $this->db->pdo()->prepare('DELETE FROM clients WHERE id = ?')->execute([$id]);
+        try {
+            $this->db->pdo()->prepare('DELETE FROM clients WHERE id = ?')->execute([$id]);
+        } catch (\PDOException $failure) {
+            if ((int) ($failure->errorInfo[1] ?? 0) !== 1451) {
+                throw $failure;
+            }
+            return Json::error($response, 'has_dependencies', 'Kontakt nelze smazat, používají jej další záznamy. Místo toho jej archivujte.', 409);
+        }
 
         $user = (array) $request->getAttribute(AuthMiddleware::ATTR_USER, []);
         $ip = $this->ipMatcher->clientIpFromRequest($request->getServerParams());

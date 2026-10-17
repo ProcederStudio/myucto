@@ -360,6 +360,7 @@ export function createWorkspaceRoutes(): RouteRecordRaw[] {
       { path: 'eshop',               name: 'eshop',               component: () => import('@/pages/eshop/EshopPage.vue'),     meta: { requiresStock: true, requiresSupplier: true } },
       // Kniha jízd (logbook) — auta, jízdy, tankování
       { path: 'logbook',                name: 'logbook',          component: () => import('@/pages/logbook/LogbookPage.vue') },
+      { path: 'property/registry',      name: 'property-registry', component: () => import('@/views/PropertyRegistryView.vue'), meta: { requiresSupplier: true } },
       { path: 'group-stats', name: 'group-stats', component: () => import('@/pages/GroupStats.vue'), meta: { permission: 'dashboard.portfolio' } },
       { path: 'stats',                  name: 'stats',           component: () => import('@/pages/Stats.vue') },
       { path: 'purchase-stats',         name: 'purchase-stats',  component: () => import('@/pages/PurchaseStats.vue') },

@@ -6,12 +6,12 @@ namespace MyInvoice\Security;
 
 final class PermissionCatalog
 {
-    public const VERSION = '2026-10-payroll-personnel-v1';
+    public const VERSION = '2026-10-property-registry-v1';
 
     /** @var list<string> */
     private const GROUPS = [
         'dashboard', 'clients', 'projects', 'invoices', 'purchase_invoices', 'recurring',
-        'bank', 'documents', 'accounting', 'other_items', 'tax_evidence', 'reports', 'payroll', 'cash', 'assets',
+        'bank', 'documents', 'accounting', 'property', 'other_items', 'tax_evidence', 'reports', 'payroll', 'cash', 'assets',
         'stock', 'eshop', 'logbook', 'settings', 'utilities', 'profile',
     ];
 
@@ -83,6 +83,10 @@ final class PermissionCatalog
             ['accounting.periods.close_override', 'accounting', 'Uzavřít období přes nezaúčtované doklady', $staffOnly],
             ['accounting.offsets', 'accounting', 'Vzájemné zápočty', $staffOnly],
             ['accounting.templates', 'accounting', 'Účetní šablony', $staffOnly],
+            ['property', 'property', 'Registr SVJ', $staffOnly],
+            ['property.registry.manage', 'property', 'Spravovat podklady registru SVJ', $staffOnly],
+            ['property.registry.confirm', 'property', 'Potvrzovat právní podklady SVJ', $staffOnly],
+            ['property.export', 'property', 'Exportovat registr SVJ', $staffOnly],
             ['other_items', 'other_items', 'Ostatní pohledávky a závazky', $staffOnly],
             ['tax_evidence', 'tax_evidence', 'Daňová evidence', $staffOnly],
             ['tax_evidence.classification.write', 'tax_evidence', 'Klasifikovat pohyby', $staffOnly],
@@ -197,6 +201,7 @@ final class PermissionCatalog
                 // který si ho může kterékoli roli přidělit v editoru rolí.
                 'documents.inbox.delete',
                 'accounting.periods.close', 'accounting.periods.manage',
+                'property.registry.confirm',
                 'settings.ai_provider', 'settings.bank_accounts', 'settings.branding',
                 'settings.company.write', 'settings.domains', 'utilities.import',
                 'payroll.settings', 'payroll.person.read_sensitive', 'payroll.approve',
@@ -210,6 +215,7 @@ final class PermissionCatalog
             $read = [
                 'dashboard', 'dashboard.portfolio', 'tax_evidence', 'tax_evidence.export',
                 'reports.export', 'settings.company', 'utilities',
+                'property.export',
                 'utilities.export', 'utilities.archives', 'profile.tokens',
             ];
             $permissions = [];
@@ -224,7 +230,7 @@ final class PermissionCatalog
             'readonly' => [
                 'dashboard', 'dashboard.portfolio', 'clients', 'projects', 'invoices',
                 'purchase_invoices', 'purchase_invoices.approve', 'recurring', 'bank', 'documents', 'documents.requests', 'documents.inbox',
-                'accounting', 'other_items', 'tax_evidence', 'tax_evidence.export', 'reports', 'reports.export',
+                'accounting', 'property', 'other_items', 'tax_evidence', 'tax_evidence.export', 'reports', 'reports.export',
                 'cash', 'assets', 'stock', 'eshop', 'logbook', 'settings.company', 'utilities',
                 'utilities.export', 'utilities.archives', 'profile', 'profile.tokens',
             ],

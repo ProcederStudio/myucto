@@ -67,6 +67,14 @@ final class AccountingFrameworkRepository
         }, $stmt->fetchAll(PDO::FETCH_ASSOC));
     }
 
+    public function listForTenantForUpdate(int $supplierId): array
+    {
+        $this->assertTransaction();
+        $stmt = $this->db->pdo()->prepare('SELECT id,supplier_id,effective_from,accounting_framework FROM supplier_accounting_frameworks WHERE supplier_id=? ORDER BY effective_from,id FOR UPDATE');
+        $stmt->execute([$supplierId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
     /** Current read rámce k datu, odolný proti staršímu REPEATABLE READ snapshotu. */
     public function forDateForUpdate(int $supplierId, string $date): ?string
     {

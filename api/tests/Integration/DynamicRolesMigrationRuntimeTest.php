@@ -74,6 +74,20 @@ final class DynamicRolesMigrationRuntimeTest extends TestCase
             $stmt->execute([(int) $roles[$systemKey]]);
             self::assertSame($staffPermissions, $stmt->fetchAll(PDO::FETCH_COLUMN), $systemKey);
         }
+        $propertyPermissions = $db->query("SELECT r.system_key,rp.permission_key,rp.access_level FROM roles r JOIN role_permissions rp ON rp.role_id=r.id WHERE rp.permission_key LIKE 'property%' ORDER BY r.system_key,rp.permission_key")->fetchAll(PDO::FETCH_ASSOC);
+        $expectedProperty = [];
+        foreach (['accountant', 'admin', 'admin_plus', 'readonly'] as $systemKey) {
+            $preset = in_array($systemKey, ['admin', 'admin_plus'], true)
+                ? array_fill_keys($staffPermissions, 2)
+                : (new PermissionCatalog())->legacyPreset($systemKey);
+            foreach ($preset as $key => $level) {
+                if (str_starts_with($key, 'property')) $expectedProperty[$systemKey . ':' . $key] = $level;
+            }
+        }
+        $actualProperty = [];
+        foreach ($propertyPermissions as $permission) $actualProperty[$permission['system_key'] . ':' . $permission['permission_key']] = (int) $permission['access_level'];
+        ksort($expectedProperty);
+        self::assertSame($expectedProperty, $actualProperty);
 
         $templateDefaults = (int) $db->query('SELECT COUNT(*) FROM bank_rule_template_defaults')->fetchColumn();
         self::assertGreaterThan(0, $templateDefaults);
@@ -110,12 +124,14 @@ final class DynamicRolesMigrationRuntimeTest extends TestCase
         $permissionCount = (int) $db->query(
             'SELECT COUNT(*) FROM role_permissions WHERE role_id = ' . (int) $roles['accountant']
         )->fetchColumn();
+        $db->prepare("UPDATE role_permissions SET access_level=0 WHERE role_id=? AND permission_key='property.registry.confirm'")->execute([(int) $roles['admin']]);
         $db->exec(
             "DELETE FROM migrations WHERE filename IN (
                 '1074_dynamic_roles_permissions.sql',
                 '1747_predefined_admin_roles.sql',
                 '1748_bank_rule_templates_tenant_scope.sql',
-                '2014_client_ai_extraction.sql'
+                '2014_client_ai_extraction.sql',
+                '2023_property_registry.sql'
             )"
         );
         $this->runMigrator();
@@ -128,6 +144,7 @@ final class DynamicRolesMigrationRuntimeTest extends TestCase
         )->fetchColumn());
         self::assertSame(6, (int) $db->query('SELECT COUNT(*) FROM roles')->fetchColumn());
         self::assertSame(1, (int) $db->query('SELECT client_ai_extraction_enabled FROM supplier WHERE id = ' . $this->supplierA)->fetchColumn());
+        self::assertSame(0, (int) $db->query("SELECT access_level FROM role_permissions WHERE role_id=" . (int) $roles['admin'] . " AND permission_key='property.registry.confirm'")->fetchColumn());
     }
 
     private function createLegacyParentTables(PDO $db): void
@@ -178,7 +195,8 @@ final class DynamicRolesMigrationRuntimeTest extends TestCase
             'stock_media' => 'supplier_id INT UNSIGNED NOT NULL, stock_item_id BIGINT UNSIGNED NOT NULL',
             'stock_levels' => 'supplier_id INT UNSIGNED NOT NULL, stock_item_id BIGINT UNSIGNED NOT NULL',
             'dimension_types' => 'id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY',
-            'dimension_values' => 'id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY',
+            'dimension_values' => 'id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, supplier_id INT UNSIGNED NULL',
+            'clients' => 'id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, supplier_id INT UNSIGNED NOT NULL',
             'payroll_employees' => "id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
                 supplier_id INT UNSIGNED NOT NULL, UNIQUE KEY uq_payroll_employee_supplier_id (supplier_id, id)",
             'external_entity_map' => "id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -283,6 +301,7 @@ final class DynamicRolesMigrationRuntimeTest extends TestCase
                 '1962_payroll_personnel_file.sql',
                 '2014_client_ai_extraction.sql',
                 '2015_client_bank_permissions.sql',
+                '2023_property_registry.sql',
             ]),
         ];
         $env = getenv();

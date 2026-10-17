@@ -451,7 +451,6 @@ final class DimensionService
     public function saveDocument(int $supplierId, string $docType, int $docId, array $header, ?array $items, bool $forRepost = false, ?array $splits = null): array
     {
         $this->requireEnabled($supplierId);
-        $this->requireDocument($supplierId, $docType, $docId);
         return $this->atomically(function () use ($supplierId, $docType, $docId, $header, $items, $forRepost, $splits): array {
             $result = $this->applyDocument($supplierId, $docType, $docId, $header, $items, $splits);
             if (!$forRepost && $result['restamp']['needs_repost'] && $result['restamp']['locked']) {
@@ -490,7 +489,6 @@ final class DimensionService
     public function previewDocument(int $supplierId, string $docType, int $docId, array $header, ?array $items, ?array $splits = null): array
     {
         $this->requireEnabled($supplierId);
-        $this->requireDocument($supplierId, $docType, $docId);
         return $this->atomically(function () use ($supplierId, $docType, $docId, $header, $items, $splits): array {
             $result = $this->applyDocument($supplierId, $docType, $docId, $header, $items, $splits);
             $result['refused'] = $result['restamp']['needs_repost'] && $result['restamp']['locked'];
@@ -516,10 +514,10 @@ final class DimensionService
     private function applyDocument(int $supplierId, string $docType, int $docId, array $header, ?array $items, ?array $splits = null): array
     {
         $guard = new DimensionPeriodGuard($this->db);
-        $guard->lockPeriods($supplierId);
+        $context = (new DocumentDimensionContext($this->db))->lockCurrent($supplierId, $docType, $docId);
         $sources = $this->postingSources($supplierId, $docType, $docId, true);
         $cascade = $this->cascadeSources($supplierId, $docType, $docId, true);
-        $guard->lockSources($supplierId, [...$sources, ...$cascade]);
+        $lockedEntries = $guard->lockSources($supplierId, [...$sources, ...$cascade]);
         $current = $this->assignments->documentDimensions($supplierId, $docType, $docId, true);
         $currentSplits = $this->assignments->documentSplits($supplierId, $docType, $docId, true);
         $currentIds = array_values($current['header']);
@@ -570,12 +568,19 @@ final class DimensionService
         }
         $normSplits = array_filter($normSplits, static fn (array $byType): bool => $byType !== []);
         ksort($normSplits);
-        $prospective = self::documentAssignmentLines($normHeader, $normItems, $normSplits);
-        $previous = self::documentAssignmentLines($current['header'], $current['items'], $currentSplits, array_column($prospective, 'line_no'));
+        $itemNos = array_keys($context['items']);
+        $prospective = DocumentDimensionContext::identify(self::documentAssignmentLines($normHeader, $normItems, $normSplits, $itemNos), $context, $normHeader, $normItems, $normSplits);
+        $previous = DocumentDimensionContext::identify(self::documentAssignmentLines($current['header'], $current['items'], $currentSplits, $itemNos), $context, $current['header'], $current['items'], $currentSplits);
+        $sourceKeys = array_fill_keys(array_map(static fn (array $source): string => $source[0] . ':' . $source[1], $sources), true);
+        $dates = [];
+        foreach ($lockedEntries as $entry) {
+            if ($entry['reversed_by'] === null && isset($sourceKeys[$entry['source_type'] . ':' . $entry['source_id']])) $dates[(string) $entry['entry_date']] = (string) $entry['entry_date'];
+        }
+        if ($dates === []) $dates = [$context['date']];
         try {
             if ($normHeader != $current['header'] || $normItems != $current['items'] || $normSplits != $currentSplits) {
                 (new JointAllocationUseGuard($this->db))->assertSourcesMutable($supplierId, [...$sources, ...$cascade]);
-                (new SystemDimensionWritePolicy($this->db))->assertAssignments($supplierId, $prospective, null, $previous);
+                foreach ($dates as $date) (new SystemDimensionWritePolicy($this->db))->assertDocumentAssignments($supplierId, $prospective, $date, $previous);
             }
         } catch (PostingException|JointAllocationException $e) {
             throw new DimensionException($e->errorCode, $e->getMessage(), $e->httpStatus);
@@ -677,7 +682,7 @@ final class DimensionService
                   WHERE ip.invoice_id = ? AND ip.bank_transaction_id IS NOT NULL', [$supplierId, $docId]],
                 ['SELECT bank_transaction_id FROM payment_matches WHERE supplier_id = ? AND invoice_id = ?', [$supplierId, $docId]],
                 ['SELECT bt.id FROM bank_transactions bt JOIN bank_statements bs ON bs.id = bt.statement_id
-                  WHERE bt.matched_invoice_id = ? AND ' . BankStatementOwnershipResolver::sql(), [$docId, ...BankStatementOwnershipResolver::params($supplierId)]],
+                  WHERE bt.matched_invoice_id = ? AND ' . BankStatementOwnershipResolver::sql(currentRead: $forUpdate), [$docId, ...BankStatementOwnershipResolver::params($supplierId)]],
             ] as [$sql, $params]) {
                 $bank = $pdo->prepare($sql . $lock);
                 $bank->execute($params);
@@ -731,12 +736,35 @@ final class DimensionService
                JOIN other_item_schedule_occurrences o ON o.schedule_id = s.id AND o.supplier_id = s.supplier_id
                JOIN other_items oi ON oi.id = o.item_id AND oi.supplier_id = o.supplier_id
               WHERE s.supplier_id = ? AND s.source_item_id = ? AND o.item_id <> s.source_item_id
-                AND oi.status = 'draft' AND oi.deleted_at IS NULL"
+                AND oi.status = 'draft' AND oi.deleted_at IS NULL ORDER BY o.item_id FOR UPDATE"
         );
         $stmt->execute([$supplierId, $sourceItemId]);
-        foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $itemId) {
-            $this->assignments->deleteDocument($supplierId, 'other_item', (int) $itemId);
-            $this->assignments->copyDocument($supplierId, 'other_item', $sourceItemId, (int) $itemId);
+        $targets = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+        $source = $this->assignments->documentDimensions($supplierId, 'other_item', $sourceItemId, true);
+        $sourceSplits = $this->assignments->documentSplits($supplierId, 'other_item', $sourceItemId, true);
+        $guard = new DimensionPeriodGuard($this->db);
+        foreach ($targets as $itemId) {
+            $context = (new DocumentDimensionContext($this->db))->lockCurrent($supplierId, 'other_item', $itemId);
+            $entries = $guard->lockSources($supplierId, [['other_item', $itemId]]);
+            $dates = [];
+            foreach ($entries as $entry) if ($entry['reversed_by'] === null) {
+                $guard->assertMutable($entry);
+                $dates[(string) $entry['entry_date']] = (string) $entry['entry_date'];
+            }
+            if ($dates === []) $dates = [$context['date']];
+            $old = $this->assignments->documentDimensions($supplierId, 'other_item', $itemId, true);
+            $oldSplits = $this->assignments->documentSplits($supplierId, 'other_item', $itemId, true);
+            $lines = DocumentDimensionContext::identify(self::documentAssignmentLines($source['header'], $source['items'], $sourceSplits), $context, $source['header'], $source['items'], $sourceSplits);
+            $previous = DocumentDimensionContext::identify(self::documentAssignmentLines($old['header'], $old['items'], $oldSplits), $context, $old['header'], $old['items'], $oldSplits);
+            try {
+                foreach ($dates as $date) (new SystemDimensionWritePolicy($this->db))->assertDocumentAssignments($supplierId, $lines, $date, $previous);
+            } catch (PostingException $e) {
+                throw new DimensionException($e->errorCode, $e->getMessage(), $e->httpStatus);
+            }
+        }
+        foreach ($targets as $itemId) {
+            $this->assignments->deleteDocument($supplierId, 'other_item', $itemId);
+            $this->assignments->copyDocument($supplierId, 'other_item', $sourceItemId, $itemId);
         }
     }
 
@@ -918,6 +946,7 @@ final class DimensionService
 
     private function applyEntryLines(int $supplierId, int $entryId, array $lines, ?array $splits): int
     {
+        (new SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
         $guard = new DimensionPeriodGuard($this->db);
         $entries = $guard->lockEntries($supplierId, [$entryId]);
         $pdo = $this->db->pdo();

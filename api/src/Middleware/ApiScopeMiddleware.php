@@ -49,6 +49,7 @@ final class ApiScopeMiddleware implements MiddlewareInterface
      * @var list<string>
      */
     private const BEARER_ALLOWED = [
+        '#^/api/property/catalog/(profile|summary|houses|units|services)$#',
         // Systémové + dokumentace + connection-test
         '#^/api/health$#',
         '#^/api/version$#',
@@ -172,6 +173,7 @@ final class ApiScopeMiddleware implements MiddlewareInterface
      * @var list<string>
      */
     private const BEARER_READ_ONLY = [
+        '#^/api/property(/|$)#',
         // Účetní mutace, které historicky leží mimo /api/accounting. Široký
         // allowlist faktur a banky je nesmí omylem zpřístupnit read_write PAT.
         '#^/api/invoices/[0-9]+/book$#',

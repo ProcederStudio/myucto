@@ -1252,6 +1252,8 @@ final class SettingsAction
             'documents'          => 'dokumenty (DMS)',
             'income_tax_returns' => 'přiznání k dani z příjmů',
             'nonprofit_tax_assessments' => 'potvrzená daňová posouzení',
+            'property_objects' => 'registr domů, jednotek a služeb',
+            'property_module_profiles' => 'potvrzené profily SVJ',
             'tax_submissions'    => 'daňové výkazy (DPH/KH/SH)',
             'payment_orders'     => 'příkazy k úhradě',
             'bank_statements'    => 'bankovní výpisy',
@@ -1281,6 +1283,13 @@ final class SettingsAction
         // spustil ON DELETE CASCADE a nic nezůstalo osiřelé.
         $pdo->beginTransaction();
         try {
+            (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy($this->db))->lockContext($id);
+            $supplierLock = $pdo->prepare('SELECT id FROM supplier WHERE id = ? FOR UPDATE');
+            $supplierLock->execute([$id]);
+            if ((new \MyInvoice\Service\Property\PropertyHistoryUseGuard($this->db))->supplierHasHistory($id, true)) {
+                $pdo->rollBack();
+                return Json::error($response, 'has_dependencies', 'Firmu nelze smazat, obsahuje potvrzené podklady registru SVJ.', 409);
+            }
             $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
             try {
                 foreach ([

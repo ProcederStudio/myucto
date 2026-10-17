@@ -299,6 +299,7 @@ final class PostingService
         }
         try {
             $periodStatuses = (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+            (new SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
             if ($sourceType === 'bank' && $sourceId !== null) {
                 (new PayrollBankEvidenceGuard($this->db))->assertAvailableForBankPosting($sourceId);
             }
@@ -549,6 +550,7 @@ final class PostingService
         }
         try {
             $periodStatuses = (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+            (new SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
             $lockedUntil = $this->lockedUntilForUpdate($supplierId);
             $entry = $this->journal->findActiveBySourceForUpdate($supplierId, $sourceType, $sourceId);
             if ($entry === null || ($entry['posted_at'] ?? null) === null) {
@@ -652,7 +654,7 @@ final class PostingService
             $pdo->beginTransaction();
         }
         try {
-        (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+        (new SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
         $lockedUntil = $this->lockedUntilForUpdate($supplierId);
         $periodForDate = function (string $date) use ($supplierId, $meta): ?array {
             $period = $this->periods->findForDateForUpdate($supplierId, $date);

@@ -2467,6 +2467,23 @@ final class Routes
             $g->delete('/retention/policies/{category:[a-z_]+}', [PayrollRetentionAction::class, 'deletePolicy']);
         });
 
+        $app->group('/api/property', function ($g) {
+            $g->get('/catalog/profile', [\MyInvoice\Action\Property\PropertyAction::class, 'catalogProfile']);
+            $g->get('/catalog/summary', [\MyInvoice\Action\Property\PropertyAction::class, 'summary']);
+            $g->get('/catalog/{kind:houses|units|services}', [\MyInvoice\Action\Property\PropertyAction::class, 'catalogList']);
+            $g->get('/profile', [\MyInvoice\Action\Property\PropertyAction::class, 'profile']);
+            $g->post('/profile', [\MyInvoice\Action\Property\PropertyAction::class, 'saveProfile']);
+            $g->get('/summary', [\MyInvoice\Action\Property\PropertyAction::class, 'summary']);
+            $g->get('/export', [\MyInvoice\Action\Property\PropertyAction::class, 'export']);
+            $g->post('/import/preview', [\MyInvoice\Action\Property\PropertyAction::class, 'importPreview']);
+            $g->post('/import/apply', [\MyInvoice\Action\Property\PropertyAction::class, 'importApply']);
+            $g->get('/{kind:houses|units|services}', [\MyInvoice\Action\Property\PropertyAction::class, 'list']);
+            $g->post('/{kind:houses|units|services}', [\MyInvoice\Action\Property\PropertyAction::class, 'create']);
+            $g->get('/objects/{id:[0-9]+}', [\MyInvoice\Action\Property\PropertyAction::class, 'detail']);
+            $g->post('/objects/{id:[0-9]+}/revisions', [\MyInvoice\Action\Property\PropertyAction::class, 'revise']);
+            $g->post('/objects/{id:[0-9]+}/revisions/{revisionId:[0-9]+}/confirm', [\MyInvoice\Action\Property\PropertyAction::class, 'confirm']);
+        });
+
         // Podvojné účetnictví (Epic F1) — účtová osnova, období, deník, kontace.
         // Vše tenant-scoped (ATTR_CURRENT_ID). Zápisy = účetní|admin, GET = readonly+;
         // změna stavu období = admin (PermissionMiddleware + guard v Action).

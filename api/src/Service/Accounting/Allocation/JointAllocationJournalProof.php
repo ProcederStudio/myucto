@@ -27,7 +27,7 @@ final class JointAllocationJournalProof
 
     public function cancellation(int $supplierId, int $cancellationId): array
     {
-        (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+        (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
         $pdo = $this->db->pdo();
         $stmt = $pdo->prepare('SELECT * FROM joint_allocation_cancellations WHERE supplier_id = ? AND id = ? FOR UPDATE');
         $stmt->execute([$supplierId, $cancellationId]);

@@ -29,7 +29,7 @@ final class JointAllocationPreviewService
 
     public function forPendingBatchLocked(int $supplierId, int $batchId): array
     {
-        (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+        (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
         $stmt = $this->db->pdo()->prepare('SELECT * FROM joint_allocation_batches WHERE supplier_id = ? AND id = ? FOR UPDATE');
         $stmt->execute([$supplierId, $batchId]);
         $batch = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -49,7 +49,7 @@ final class JointAllocationPreviewService
     {
         JointAllocationKeyVersion::date($targetDate);
         $sourceLineIds = JointAllocationRequest::sourceIds($sourceLineIds);
-        (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+        (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
         $period = $this->targetPeriod($supplierId, $targetDate);
         $keys = new JointAllocationKeyRepository($this->db);
         $version = $keys->findForUpdate($supplierId, $versionId);
@@ -99,7 +99,7 @@ final class JointAllocationPreviewService
     public function targetPeriod(int $supplierId, string $date): array
     {
         JointAllocationKeyVersion::date($date);
-        (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+        (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
         if ((new AccountingFrameworkService($this->db, new AccountingFrameworkRepository($this->db)))->forDateForUpdate($supplierId, $date) !== AccountingFrameworkService::CZ_504) {
             throw new JointAllocationException('allocation_framework_unsupported', 'Datum přeúčtování musí patřit do účetního rámce 504.');
         }

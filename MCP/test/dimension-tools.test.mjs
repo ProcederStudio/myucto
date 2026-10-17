@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DIMENSION_TOOLS } from '../src/dimension-tools.mjs';
 import { TOOLS_BY_NAME } from '../src/tools.mjs';
+import { validateToolArguments } from '../src/tool-args.mjs';
 
 async function call(name, args) {
   let request;
@@ -15,6 +16,29 @@ test('všechny dimenzní nástroje jsou čtecí a zapojené do společného kata
     assert.equal(tool.write, false);
     assert.equal(TOOLS_BY_NAME.get(tool.name), tool);
     assert.equal(tool.inputSchema.additionalProperties, false);
+  }
+});
+
+test('registr SVJ předává přesný okamžik a kurátorovaný číselník bez zápisové cesty', async () => {
+  const as_of = '2026-10-17T12:34:56.123456+02:00';
+  const known_at = '2026-10-18T00:00:00Z';
+  for (const [name, path] of [['property_registry_profile', 'profile'], ['property_registry_summary', 'summary']]) {
+    const request = await call(name, { as_of, known_at });
+    assert.equal(request.path, `/property/catalog/${path}`);
+    assert.deepEqual(request.query, { as_of, known_at });
+    assert.deepEqual(TOOLS_BY_NAME.get(name).inputSchema.required, ['as_of']);
+  }
+  for (const kind of ['houses', 'units', 'services']) {
+    const request = await call('list_property_registry', { kind, as_of });
+    assert.equal(request.path, `/property/catalog/${kind}`);
+    assert.equal(request.query.as_of, as_of);
+    assert.equal(request.query.known_at, undefined);
+  }
+  assert.deepEqual(TOOLS_BY_NAME.get('list_property_registry').inputSchema.required, ['kind', 'as_of']);
+  const tool = TOOLS_BY_NAME.get('property_registry_profile');
+  assert.deepEqual(validateToolArguments(tool, { as_of, known_at }), { as_of, known_at });
+  for (const invalid of ['2026-10-17', '2026-10-17T12:34:56', '2026-10-17T12:34:56.1234567Z', `${known_at}\n`]) {
+    assert.throws(() => validateToolArguments(tool, { as_of: invalid }));
   }
 });
 

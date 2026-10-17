@@ -227,6 +227,7 @@ const hostingAttention = computed(() => hostingNavAttention(resolveHostingAction
 /** Outline icon paths — Heroicons style, stroke 2, viewBox 24, currentColor */
 const ICONS = {
   dashboard:  'M3 12l9-9 9 9M5 10v10h14V10',
+  property:   'M3 12l9-9 9 9M5 10v10h14V10M10 20v-5h4v5',
   invoices:   'M9 12h6m-6 4h6m2 5H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5.586a1 1 0 0 1 .707.293l5.414 5.414a1 1 0 0 1 .293.707V19a2 2 0 0 1-2 2z',
   proforma:   'M2.25 8.25h19.5M2.25 9v6.75A2.25 2.25 0 0 0 4.5 18h15a2.25 2.25 0 0 0 2.25-2.25V9A2.25 2.25 0 0 0 19.5 6.75h-15A2.25 2.25 0 0 0 2.25 9zM14 12a2 2 0 1 1-4 0 2 2 0 0 1 4 0z',
   recurring:  'M4 4v5h5M4 9a8 8 0 0 1 14.13-4.06M20 20v-5h-5M20 15a8 8 0 0 1-14.13 4.06',
@@ -512,6 +513,7 @@ const navSections = computed<NavSection[]>(() => {
         ...(auth.isSuperadmin ? [{ to: '/portal/purchase-invoice-submissions', label: t('nav.submit_documents'), icon: ICONS.documents, permission: 'documents.submit' as PermissionKey }] : []),
         { to: '/documents/scan-attach', label: t('scan_attach.nav'), icon: ICONS.documents, permission: 'documents.upload' },
         { to: '/logbook', label: t('nav.logbook'), icon: ICONS.logbook, newTo: '/logbook?tab=trips&new=trip' },
+        { to: '/property/registry', label: t('nav.property_registry'), icon: ICONS.property, permission: 'property' as PermissionKey },
       ],
     },
     ...(isStockEnabled ? [{
@@ -899,6 +901,7 @@ function navPermission(item: NavItem): PermissionKey | null {
   if (path.startsWith('/stock')) return 'stock'
   if (path.startsWith('/eshop')) return 'eshop'
   if (path.startsWith('/logbook')) return 'logbook'
+  if (path.startsWith('/property')) return 'property'
   if (path === '/templates') return 'accounting.templates'
   if (path === '/utilities') return 'utilities'
   if (path === '/admin/electronic-signatures') return 'settings.signing'

@@ -232,7 +232,7 @@ final class JointAllocationFoundationTest extends TestCase
         $before = (int) $pdo->query("SHOW SESSION STATUS LIKE 'Com_select'")->fetch()['Value'];
         $entry = $journal->insert(['supplier_id' => $this->supplier, 'period_id' => $this->period, 'entry_date' => '2096-06-01', 'source_type' => 'manual'], $lines);
         $queries = (int) $pdo->query("SHOW SESSION STATUS LIKE 'Com_select'")->fetch()['Value'] - $before;
-        self::assertLessThanOrEqual(8, $queries, 'Ownership checks must be bounded per journal batch, not per line.');
+        self::assertLessThanOrEqual(11, $queries, 'Current context and ownership checks must be bounded per journal batch, not per line.');
         $stmt = $pdo->prepare("SELECT COUNT(*), SUM(IF(l.side = 'debit', l.amount, -l.amount)) FROM journal_entry_lines l
             JOIN journal_entry_line_dimensions d ON d.line_id = l.id AND d.supplier_id = l.supplier_id
             WHERE l.entry_id = ? AND d.dimension_type_id = ? AND d.dimension_value_id = ? AND d.assignment_origin = 'explicit'");
@@ -760,6 +760,36 @@ final class JointAllocationFoundationTest extends TestCase
         $before = $this->state();
         $this->refused('allocation_changed', fn () => $this->preview->preview($this->supplier, $key['id'], '2096-06-30', [$this->sourceLine]));
         self::assertSame($before, $this->state());
+    }
+
+    public function testPropertyKeyIsStructuralButDatedTargetsRequireProfileAndExactCancellationRemainsPossible(): void
+    {
+        $actor=(int)$this->db->pdo()->query('SELECT id FROM users ORDER BY id LIMIT 1')->fetchColumn();
+        $profiles=new \MyInvoice\Repository\Property\PropertyProfileRepository($this->db);
+        $profile=['expected_revision'=>0,'effective_from'=>'2096-01-01T00:00:00+01:00','enabled'=>true,'reason'=>'Synthetic','title_ref'=>'SYN','idempotency_key'=>'first'];
+        $profiles->save($this->supplier,$profile,$actor);
+        $object=(new \MyInvoice\Repository\Property\PropertyRegistryRepository($this->db))->create($this->supplier,'service',[
+            'code'=>'WATER','expected_revision'=>0,'status'=>'confirmed','effective_from'=>'2096-01-01T00:00:00+01:00',
+            'state'=>['name'=>'Synthetic water','active'=>true,'measure'=>'unit','measure_label'=>''],'reason'=>'Synthetic','title_ref'=>'SYN','idempotency_key'=>'service'],$actor);
+        $value=(new \MyInvoice\Repository\Property\PropertyReadRepository($this->db))->find($this->supplier,$object['id'],'2096-06-01T00:00:00+02:00')['dimension_value_id'];
+        $q=$this->db->pdo()->prepare('SELECT type_id FROM dimension_values WHERE id=?');$q->execute([$value]);$type=(int)$q->fetchColumn();
+        $assignments=new DimensionAssignmentRepository($this->db);
+        $existing=$assignments->lineDimensions($this->supplier,[$this->sourceLine],true)[$this->sourceLine] ?? [];
+        $assignments->replaceLineDimensions($this->supplier,$this->sourceLine,$existing+[$type=>(int)$value]);
+        $version=$this->version();foreach ($version['cells'] as &$cell) $cell['additional_dimensions']=[$type=>(int)$value];unset($cell);
+        $key=$this->keys->create($this->supplier,'PROPERTY','Synthetic property key',$version);
+        $preview=$this->preview->preview($this->supplier,$key['id'],'2096-06-30',[$this->sourceLine]);
+        $batch=$this->allocations->apply($this->supplier,['key_version_id'=>$key['id'],'target_date'=>'2096-06-30','source_line_ids'=>[$this->sourceLine],
+            'preview_hash'=>$preview['preview_hash'],'idempotency_key'=>'property-apply','reason'=>'Synthetic']);
+        self::assertSame('applied',$batch['status']);
+        $profile['expected_revision']=1;$profile['enabled']=false;$profile['effective_from']='2096-07-01T00:00:00+02:00';$profile['idempotency_key']='disabled';$profiles->save($this->supplier,$profile,$actor);
+        $structural=$this->keys->create($this->supplier,'STRUCTURAL','Synthetic undated key',$version);
+        self::assertGreaterThan(0,$structural['id']);
+        $cancelled=$this->allocations->cancel($this->supplier,['batch_id'=>$batch['id'],'target_date'=>'2096-08-01','reason'=>'Synthetic correction','idempotency_key'=>'property-cancel']);
+        self::assertSame('cancelled',$cancelled['status']);
+        $before=$this->state();
+        $this->refused('property_profile_required',fn()=>$this->preview->preview($this->supplier,$structural['id'],'2096-08-01',[$this->sourceLine]));
+        self::assertSame($before,$this->state());
     }
 
     private function version(int $year = 2096): array

@@ -238,6 +238,114 @@ tags:
       pojišťovnu a zálohy na daň (§38a) vč. rozhodnutí FÚ (§174).
 
 paths:
+  /api/v1/property/catalog/profile:
+    get:
+      tags:
+      - Accounting
+      summary: Časově účinný profil registru SVJ
+      description: Pouze čtení v kontextu vybrané firmy s oprávněním property. Kurátorovaná projekce bez účastníků,
+        právní historie osob a platebních dispozic. Přesné zlomky jsou řetězce; výstupní okamžiky jsou normalizované
+        UTC. Přehled není potvrzením pohledávky ani právního nároku.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - name: as_of
+        in: query
+        required: true
+        description: Rozhodný okamžik ISO 8601 včetně času a offsetu; maximálně šest desetinných míst sekund.
+        schema:
+          type: string
+          format: date-time
+      - name: known_at
+        in: query
+        required: false
+        description: Volitelný okamžik tehdejší znalosti se stejným formátem.
+        schema:
+          type: string
+          format: date-time
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PropertyCatalogProfile'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/property/catalog/{kind}:
+    get:
+      tags:
+      - Accounting
+      summary: Číselník domů, jednotek nebo služeb SVJ
+      description: Pouze čtení v kontextu vybrané firmy s oprávněním property. Kurátorovaná projekce bez účastníků,
+        právní historie osob a platebních dispozic. Přesné zlomky jsou řetězce; výstupní okamžiky jsou normalizované
+        UTC. Přehled není potvrzením pohledávky ani právního nároku.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - name: kind
+        in: path
+        required: true
+        schema:
+          type: string
+          enum:
+          - houses
+          - units
+          - services
+      - name: as_of
+        in: query
+        required: true
+        description: Rozhodný okamžik ISO 8601 včetně času a offsetu; maximálně šest desetinných míst sekund.
+        schema:
+          type: string
+          format: date-time
+      - name: known_at
+        in: query
+        required: false
+        description: Volitelný okamžik tehdejší znalosti se stejným formátem.
+        schema:
+          type: string
+          format: date-time
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PropertyCatalogList'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/property/catalog/summary:
+    get:
+      tags:
+      - Accounting
+      summary: Úplnost evidence a přesný součet podílů SVJ
+      description: Pouze čtení v kontextu vybrané firmy s oprávněním property. Kurátorovaná projekce bez účastníků,
+        právní historie osob a platebních dispozic. Přesné zlomky jsou řetězce; výstupní okamžiky jsou normalizované
+        UTC. Přehled není potvrzením pohledávky ani právního nároku.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - name: as_of
+        in: query
+        required: true
+        description: Rozhodný okamžik ISO 8601 včetně času a offsetu; maximálně šest desetinných míst sekund.
+        schema:
+          type: string
+          format: date-time
+      - name: known_at
+        in: query
+        required: false
+        description: Volitelný okamžik tehdejší znalosti se stejným formátem.
+        schema:
+          type: string
+          format: date-time
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PropertyCatalogSummary'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /api/v1/accounting/periods/{id}/nonprofit-tax:
     get:
       tags:
@@ -30183,6 +30291,282 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
 
   schemas:
+    PropertyPublicRational:
+      type: object
+      additionalProperties: false
+      required:
+      - num
+      - den
+      properties:
+        num:
+          type: string
+          pattern: ^[0-9]+$
+        den:
+          type: string
+          pattern: ^[1-9][0-9]*$
+    PropertyPublicRevision:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - revision
+      - status
+      - effective_from
+      - effective_to
+      - recorded_at
+      - state
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        revision:
+          type: integer
+          minimum: 1
+        status:
+          type: string
+          enum:
+          - pending
+          - confirmed
+        effective_from:
+          type: string
+          format: date-time
+        effective_to:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        recorded_at:
+          type: string
+          format: date-time
+        state:
+          oneOf:
+          - type: object
+            additionalProperties: false
+            required:
+            - name
+            - active
+            - share_scope
+            - registry_complete
+            properties:
+              name:
+                type: string
+              active:
+                type: boolean
+              share_scope:
+                type: string
+              registry_complete:
+                type: boolean
+          - type: object
+            additionalProperties: false
+            required:
+            - unit_no
+            - kind
+            - active
+            - attributes
+            - services
+            properties:
+              unit_no:
+                type: string
+              kind:
+                type: string
+                enum:
+                - apartment
+                - non_residential
+                - garage
+                - studio
+                - other
+              active:
+                type: boolean
+              attributes:
+                type: object
+                additionalProperties:
+                  $ref: '#/components/schemas/PropertyPublicRational'
+              services:
+                type: array
+                items:
+                  type: integer
+                  minimum: 1
+          - type: object
+            additionalProperties: false
+            required:
+            - name
+            - active
+            - measure
+            - measure_label
+            properties:
+              name:
+                type: string
+              active:
+                type: boolean
+              measure:
+                type: string
+              measure_label:
+                type: string
+    PropertyPublicObject:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - kind
+      - code
+      - parent_id
+      - dimension_value_id
+      - revision
+      - pending_revisions
+      - review_required
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        kind:
+          type: string
+          enum:
+          - house
+          - unit
+          - service
+        code:
+          type: string
+        parent_id:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+        dimension_value_id:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+        revision:
+          anyOf:
+          - $ref: '#/components/schemas/PropertyPublicRevision'
+          - type: 'null'
+        pending_revisions:
+          type: integer
+          minimum: 0
+        review_required:
+          type: boolean
+    PropertyCatalogList:
+      type: object
+      additionalProperties: false
+      required:
+      - as_of
+      - known_at
+      - items
+      properties:
+        as_of:
+          type: string
+          format: date-time
+        known_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PropertyPublicObject'
+    PropertyCatalogProfile:
+      type: object
+      additionalProperties: false
+      required:
+      - as_of
+      - known_at
+      - profile
+      properties:
+        as_of:
+          type: string
+          format: date-time
+        known_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        profile:
+          anyOf:
+          - type: object
+            additionalProperties: false
+            required:
+            - revision_no
+            - enabled
+            - effective_from
+            - effective_to
+            - recorded_at
+            properties:
+              revision_no:
+                type: integer
+                minimum: 1
+              enabled:
+                type: boolean
+              effective_from:
+                type: string
+                format: date-time
+              effective_to:
+                type:
+                - string
+                - 'null'
+                format: date-time
+              recorded_at:
+                type: string
+                format: date-time
+          - type: 'null'
+    PropertyCatalogSummary:
+      type: object
+      additionalProperties: false
+      required:
+      - as_of
+      - known_at
+      - scopes
+      properties:
+        as_of:
+          type: string
+          format: date-time
+        known_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        scopes:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - scope
+            - houses
+            - units
+            - ownership_review_required
+            - declared_complete
+            - total_share
+            - share_complete
+            properties:
+              scope:
+                type: string
+              houses:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required:
+                  - id
+                  - name
+                  properties:
+                    id:
+                      type: integer
+                      minimum: 1
+                    name:
+                      type: string
+              units:
+                type: integer
+                minimum: 0
+              ownership_review_required:
+                type: integer
+                minimum: 0
+              declared_complete:
+                type: boolean
+              total_share:
+                $ref: '#/components/schemas/PropertyPublicRational'
+              share_complete:
+                type: boolean
     NonprofitTaxFinding:
       type: object
       required:

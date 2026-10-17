@@ -1,0 +1,32 @@
+<?php
+
+declare(strict_types=1);
+
+namespace MyInvoice\Service\Property;
+
+use MyInvoice\Infrastructure\Database\Connection;
+
+final class PropertyHistoryUseGuard
+{
+    public function __construct(private readonly Connection $db) {}
+
+    public function supplierHasHistory(int $supplierId, bool $currentRead = false): bool
+    {
+        foreach (['property_objects', 'property_module_profiles'] as $table) if ($this->exists($table, 'supplier_id = ?', [$supplierId], $currentRead)) return true;
+        return false;
+    }
+
+    public function clientHasHistory(int $supplierId, int $clientId, bool $currentRead = false): bool
+    {
+        foreach (['property_revision_members', 'property_revision_roles'] as $table) if ($this->exists($table, 'supplier_id = ? AND client_id = ?', [$supplierId, $clientId], $currentRead)) return true;
+        return false;
+    }
+
+    private function exists(string $table, string $where, array $parameters, bool $currentRead): bool
+    {
+        if ($currentRead && !$this->db->pdo()->inTransaction()) throw new \LogicException('Current property dependency checks require period-first owner locks.');
+        $stmt = $this->db->pdo()->prepare('SELECT 1 FROM ' . $table . ' WHERE ' . $where . ' LIMIT 1' . ($currentRead ? ' FOR UPDATE' : ''));
+        $stmt->execute($parameters);
+        return $stmt->fetchColumn() !== false;
+    }
+}

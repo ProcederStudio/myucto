@@ -21,6 +21,7 @@ final class AccountingFrameworkSsotGuardTest extends TestCase
             'forDate',
             'forDateForSuppliers',
             'listForTenant',
+            'listForTenantForUpdate',
             'forDateForUpdate',
             'nextChangeForUpdate',
         ],

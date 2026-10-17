@@ -516,7 +516,7 @@ final class JournalEntryRepository
 
     private function currentEntryForDimensionWrite(int $entryId, int $supplierId): ?array
     {
-        (new SystemDimensionWritePolicy($this->db))->lockPeriods($supplierId);
+        (new SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
         $entry = $this->findForUpdate($entryId, $supplierId);
         if ($entry === null) {
             return null;

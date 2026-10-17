@@ -249,6 +249,7 @@ final class DimensionStamper
     {
         $pdo = $this->db->pdo();
         $guard = new DimensionPeriodGuard($this->db);
+        (new SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
         $lockedEntries = $guard->lockSources($supplierId, [[$sourceType, $sourceId]]);
         $entryDates = [];
         foreach ($lockedEntries as $entryId => $entry) {

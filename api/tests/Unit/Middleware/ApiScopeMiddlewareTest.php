@@ -15,6 +15,18 @@ use Slim\Psr7\Factory\ServerRequestFactory;
 
 final class ApiScopeMiddlewareTest extends TestCase
 {
+    public function testPropertyTokenReadsOnlyCuratedCatalogAndNeverChangesRegistry(): void
+    {
+        foreach (['profile', 'summary', 'houses', 'units', 'services'] as $resource) {
+            $path = '/api/property/catalog/' . $resource;
+            self::assertSame(204, $this->middleware()->process($this->bearer('GET', $path, 'read'), $this->okHandler())->getStatusCode());
+            self::assertSame(403, $this->middleware()->process($this->bearer('POST', $path, 'read_write'), $this->okHandler())->getStatusCode());
+        }
+        foreach (['profile', 'export', 'objects/7', 'import/preview', 'units', 'catalog/units/7'] as $resource) {
+            self::assertSame(403, $this->middleware()->process($this->bearer('GET', '/api/property/' . $resource, 'read_write'), $this->okHandler())->getStatusCode());
+        }
+    }
+
     public function testCatalogReadPostHasExactReadScopeException(): void
     {
         foreach ([

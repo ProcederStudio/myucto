@@ -122,6 +122,15 @@ final class AnonymizationPolicy
 
     /** @var array<string, array<string,string>> */
     public const COLUMNS = [
+        'property_module_profiles' => ['reason' => 'keep', 'title_ref' => 'keep', 'idempotency_key' => 'keep', 'request_hash' => 'keep'],
+        'property_objects' => ['kind' => 'keep', 'code' => 'keep'],
+        'property_revisions' => ['status' => 'keep', 'state_json' => 'keep', 'state_hash' => 'keep', 'idempotency_key' => 'keep', 'request_hash' => 'keep', 'reason' => 'keep', 'title_ref' => 'keep'],
+        'property_revision_groups' => ['group_key' => 'keep', 'kind' => 'keep', 'share_num' => 'keep', 'share_den' => 'keep', 'title_ref' => 'keep'],
+        'property_revision_members' => [],
+        'property_revision_roles' => ['role' => 'keep', 'scopes_json' => 'keep', 'title_ref' => 'keep'],
+        'property_revision_identifiers' => ['kind' => 'keep', 'value' => 'keep', 'payment_scope' => 'keep', 'source' => 'keep', 'title_ref' => 'keep'],
+        'property_revision_services' => [],
+        'property_audit' => ['action' => 'keep', 'payload_json' => 'keep'],
         'joint_allocation_keys' => ['code' => 'keep', 'name' => 'keep'],
         'joint_allocation_key_versions' => ['basis' => 'keep', 'explanation' => 'keep', 'rounding_policy' => 'keep', 'cells_json' => 'keep', 'content_hash' => 'keep'],
         'joint_allocation_batches' => ['reason' => 'keep', 'idempotency_key' => 'keep', 'request_hash' => 'keep', 'preview_hash' => 'keep', 'snapshot_json' => 'keep'],

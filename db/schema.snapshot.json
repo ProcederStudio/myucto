@@ -1,6 +1,6 @@
 {
     "format": 1,
-    "database_collation": "utf8mb4_general_ci",
+    "database_collation": "utf8mb4_unicode_ci",
     "migrations": [
         "0001_init.sql",
         "0002_work_report_approval.sql",
@@ -1003,7 +1003,8 @@
         "2019_system_dimensions_provenance.sql",
         "2020_statement_framework_504.sql",
         "2021_joint_allocations.sql",
-        "2022_nonprofit_tax_assessments.sql"
+        "2022_nonprofit_tax_assessments.sql",
+        "2023_property_registry.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -3722,7 +3723,8 @@
                 "ix_clients_price_level": "BTREE (supplier_id, price_level_id)",
                 "ix_clients_related_party": "BTREE (supplier_id, related_party)",
                 "uq_clients_fakturoid": "UNIQUE BTREE (supplier_id, fakturoid_id)",
-                "uq_clients_idoklad": "UNIQUE BTREE (supplier_id, idoklad_id)"
+                "uq_clients_idoklad": "UNIQUE BTREE (supplier_id, idoklad_id)",
+                "uq_property_client_tenant": "UNIQUE BTREE (supplier_id, id)"
             },
             "foreign_keys": {
                 "fk_cli_country": "(country_id) -> countries (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
@@ -4392,7 +4394,8 @@
                 "idx_dimension_value_supplier": "BTREE (supplier_id, type_id)",
                 "uq_dimension_value_semantic": "UNIQUE BTREE (type_id, semantic_key)",
                 "uq_dimension_value_type_code": "UNIQUE BTREE (type_id, code)",
-                "uq_dimension_value_type_id": "UNIQUE BTREE (type_id, id)"
+                "uq_dimension_value_type_id": "UNIQUE BTREE (type_id, id)",
+                "uq_property_dimension_tenant": "UNIQUE BTREE (supplier_id, id)"
             },
             "foreign_keys": {
                 "fk_dimension_value_car": "(car_id) -> cars (id) ON UPDATE RESTRICT ON DELETE SET NULL",
@@ -18426,6 +18429,261 @@
             },
             "checks": []
         },
+        "property_audit": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "action": "varchar(32) NOT NULL",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "object_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "payload_json": "longtext NOT NULL",
+                "recorded_at": "datetime(6) NOT NULL",
+                "revision_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_property_audit_actor": "BTREE (created_by)",
+                "idx_property_audit_object": "BTREE (supplier_id, object_id, id)"
+            },
+            "foreign_keys": {
+                "fk_property_audit_actor": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_property_audit_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE"
+            },
+            "checks": {
+                "payload_json": "json_valid(`payload_json`)"
+            }
+        },
+        "property_module_profiles": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "effective_from": "datetime(6) NOT NULL",
+                "effective_to": "datetime(6) NULL DEFAULT NULL",
+                "enabled": "tinyint(1) NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "idempotency_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "reason": "text NOT NULL",
+                "recorded_at": "datetime(6) NOT NULL",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "revision_no": "int(10) unsigned NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "title_ref": "text NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_property_profile_actor": "BTREE (created_by)",
+                "uq_property_profile_request": "UNIQUE BTREE (supplier_id, idempotency_key)",
+                "uq_property_profile_revision": "UNIQUE BTREE (supplier_id, revision_no)"
+            },
+            "foreign_keys": {
+                "fk_property_profile_actor": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_property_profile_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE"
+            },
+            "checks": {
+                "chk_property_profile_enabled": "`enabled` in (0,1)",
+                "chk_property_profile_interval": "`effective_to` is null or `effective_to` > `effective_from`"
+            }
+        },
+        "property_objects": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "code": "varchar(80) NOT NULL",
+                "created_at": "datetime(6) NOT NULL",
+                "current_revision": "int(10) unsigned NOT NULL DEFAULT 0",
+                "dimension_value_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "kind": "varchar(16) NOT NULL",
+                "parent_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_property_object_dimension": "BTREE (supplier_id, dimension_value_id)",
+                "fk_property_object_parent": "BTREE (supplier_id, parent_id)",
+                "uq_property_object_code": "UNIQUE BTREE (supplier_id, kind, code)",
+                "uq_property_object_dimension": "UNIQUE BTREE (dimension_value_id)",
+                "uq_property_object_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "fk_property_object_dimension": "(supplier_id, dimension_value_id) -> dimension_values (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_property_object_parent": "(supplier_id, parent_id) -> property_objects (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_property_object_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE"
+            },
+            "checks": {
+                "chk_property_object_kind": "`kind` in ('house','unit','service')",
+                "chk_property_object_parent": "`kind` = 'unit' and `parent_id` is not null or `kind` <> 'unit' and `parent_id` is null"
+            }
+        },
+        "property_revision_groups": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "group_key": "varchar(80) NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "kind": "varchar(24) NOT NULL",
+                "revision_id": "bigint(20) unsigned NOT NULL",
+                "share_den": "varchar(18) NOT NULL COLLATE ascii_general_ci",
+                "share_num": "varchar(18) NOT NULL COLLATE ascii_general_ci",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "title_ref": "text NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_property_group_revision": "BTREE (supplier_id, revision_id)",
+                "uq_property_group_key": "UNIQUE BTREE (revision_id, group_key)",
+                "uq_property_group_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "fk_property_group_revision": "(supplier_id, revision_id) -> property_revisions (supplier_id, id) ON UPDATE RESTRICT ON DELETE CASCADE"
+            },
+            "checks": {
+                "chk_property_group_kind": "`kind` in ('single','coownership_share','marital_community')"
+            }
+        },
+        "property_revision_identifiers": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "kind": "varchar(16) NOT NULL",
+                "payment_scope": "varchar(80) NOT NULL",
+                "revision_id": "bigint(20) unsigned NOT NULL",
+                "source": "varchar(16) NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "title_ref": "text NOT NULL",
+                "value": "varchar(190) NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_property_identifier_revision": "BTREE (supplier_id, revision_id)",
+                "idx_property_identifier_lookup": "BTREE (supplier_id, kind, payment_scope, value)"
+            },
+            "foreign_keys": {
+                "fk_property_identifier_revision": "(supplier_id, revision_id) -> property_revisions (supplier_id, id) ON UPDATE RESTRICT ON DELETE CASCADE"
+            },
+            "checks": []
+        },
+        "property_revision_members": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "client_id": "bigint(20) unsigned NOT NULL",
+                "group_id": "bigint(20) unsigned NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (group_id, client_id)",
+                "fk_property_member_client": "BTREE (supplier_id, client_id)",
+                "fk_property_member_group": "BTREE (supplier_id, group_id)"
+            },
+            "foreign_keys": {
+                "fk_property_member_client": "(supplier_id, client_id) -> clients (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_property_member_group": "(supplier_id, group_id) -> property_revision_groups (supplier_id, id) ON UPDATE RESTRICT ON DELETE CASCADE"
+            },
+            "checks": []
+        },
+        "property_revision_roles": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "client_id": "bigint(20) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "revision_id": "bigint(20) unsigned NOT NULL",
+                "role": "varchar(24) NOT NULL",
+                "scopes_json": "longtext NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "title_ref": "text NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_property_role_client": "BTREE (supplier_id, client_id)",
+                "fk_property_role_revision": "BTREE (supplier_id, revision_id)",
+                "uq_property_role": "UNIQUE BTREE (revision_id, client_id, role)"
+            },
+            "foreign_keys": {
+                "fk_property_role_client": "(supplier_id, client_id) -> clients (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_property_role_revision": "(supplier_id, revision_id) -> property_revisions (supplier_id, id) ON UPDATE RESTRICT ON DELETE CASCADE"
+            },
+            "checks": {
+                "chk_property_role": "`role` in ('payer','representative','delivery')",
+                "scopes_json": "json_valid(`scopes_json`)"
+            }
+        },
+        "property_revision_services": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "revision_id": "bigint(20) unsigned NOT NULL",
+                "service_id": "bigint(20) unsigned NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (revision_id, service_id)",
+                "fk_property_service_object": "BTREE (supplier_id, service_id)",
+                "fk_property_service_revision": "BTREE (supplier_id, revision_id)"
+            },
+            "foreign_keys": {
+                "fk_property_service_object": "(supplier_id, service_id) -> property_objects (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_property_service_revision": "(supplier_id, revision_id) -> property_revisions (supplier_id, id) ON UPDATE RESTRICT ON DELETE CASCADE"
+            },
+            "checks": []
+        },
+        "property_revisions": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "effective_from": "datetime(6) NOT NULL",
+                "effective_to": "datetime(6) NULL DEFAULT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "idempotency_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "object_id": "bigint(20) unsigned NOT NULL",
+                "reason": "text NOT NULL",
+                "recorded_at": "datetime(6) NOT NULL",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "resolves_revision_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "revision_no": "int(10) unsigned NOT NULL",
+                "state_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "state_json": "longtext NOT NULL",
+                "status": "varchar(16) NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "title_ref": "text NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_property_revision_actor": "BTREE (created_by)",
+                "fk_property_revision_resolution": "BTREE (supplier_id, object_id, resolves_revision_id)",
+                "idx_property_revision_interval": "BTREE (supplier_id, object_id, effective_from, effective_to)",
+                "uq_property_revision_no": "UNIQUE BTREE (supplier_id, object_id, revision_no)",
+                "uq_property_revision_object": "UNIQUE BTREE (supplier_id, object_id, id)",
+                "uq_property_revision_request": "UNIQUE BTREE (supplier_id, idempotency_key)",
+                "uq_property_revision_resolution": "UNIQUE BTREE (resolves_revision_id)",
+                "uq_property_revision_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "fk_property_revision_actor": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_property_revision_object": "(supplier_id, object_id) -> property_objects (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_property_revision_resolution": "(supplier_id, object_id, resolves_revision_id) -> property_revisions (supplier_id, object_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "chk_property_revision_interval": "`effective_to` is null or `effective_to` > `effective_from`",
+                "chk_property_revision_status": "`status` in ('pending','confirmed')",
+                "state_json": "json_valid(`state_json`)"
+            }
+        },
         "public_holidays": {
             "type": "BASE TABLE",
             "engine": "InnoDB",
@@ -24257,6 +24515,23 @@
         "trg_payroll_wage_statement_revision_validate_insert": "BEFORE INSERT ON payroll_wage_statement_revisions #208a681079139d8f75c95cfa390776724beb9dae",
         "trg_pp_health_coverage_evidence_insert": "BEFORE INSERT ON payroll_person_health_coverage_history #6566c70eddc0ce561d894f5583ef58b7a1b8d725",
         "trg_pp_health_coverage_evidence_update": "BEFORE UPDATE ON payroll_person_health_coverage_history #6566c70eddc0ce561d894f5583ef58b7a1b8d725",
+        "trg_pr_audit_delete": "BEFORE DELETE ON property_audit #df35f2666dbc920bb225c5793487dfbf6e6cd61e",
+        "trg_pr_audit_update": "BEFORE UPDATE ON property_audit #df35f2666dbc920bb225c5793487dfbf6e6cd61e",
+        "trg_pr_module_profiles_delete": "BEFORE DELETE ON property_module_profiles #df35f2666dbc920bb225c5793487dfbf6e6cd61e",
+        "trg_pr_module_profiles_update": "BEFORE UPDATE ON property_module_profiles #df35f2666dbc920bb225c5793487dfbf6e6cd61e",
+        "trg_pr_revision_groups_delete": "BEFORE DELETE ON property_revision_groups #df35f2666dbc920bb225c5793487dfbf6e6cd61e",
+        "trg_pr_revision_groups_update": "BEFORE UPDATE ON property_revision_groups #df35f2666dbc920bb225c5793487dfbf6e6cd61e",
+        "trg_pr_revision_identifiers_delete": "BEFORE DELETE ON property_revision_identifiers #df35f2666dbc920bb225c5793487dfbf6e6cd61e",
+        "trg_pr_revision_identifiers_update": "BEFORE UPDATE ON property_revision_identifiers #df35f2666dbc920bb225c5793487dfbf6e6cd61e",
+        "trg_pr_revision_members_delete": "BEFORE DELETE ON property_revision_members #df35f2666dbc920bb225c5793487dfbf6e6cd61e",
+        "trg_pr_revision_members_update": "BEFORE UPDATE ON property_revision_members #df35f2666dbc920bb225c5793487dfbf6e6cd61e",
+        "trg_pr_revision_roles_delete": "BEFORE DELETE ON property_revision_roles #df35f2666dbc920bb225c5793487dfbf6e6cd61e",
+        "trg_pr_revision_roles_update": "BEFORE UPDATE ON property_revision_roles #df35f2666dbc920bb225c5793487dfbf6e6cd61e",
+        "trg_pr_revision_services_delete": "BEFORE DELETE ON property_revision_services #df35f2666dbc920bb225c5793487dfbf6e6cd61e",
+        "trg_pr_revision_services_update": "BEFORE UPDATE ON property_revision_services #df35f2666dbc920bb225c5793487dfbf6e6cd61e",
+        "trg_pr_revisions_delete": "BEFORE DELETE ON property_revisions #df35f2666dbc920bb225c5793487dfbf6e6cd61e",
+        "trg_pr_revisions_update": "BEFORE UPDATE ON property_revisions #df35f2666dbc920bb225c5793487dfbf6e6cd61e",
+        "trg_property_object_identity": "BEFORE UPDATE ON property_objects #971d7a4c0f3aa319be058874bd679288e68e266c",
         "trg_submission_defect_notice_guard": "BEFORE INSERT ON submission_defect_notices #a86513c4dc1c74e0b4cbe8de9a1bc593f16b17d9",
         "trg_submission_defect_notice_inbox_privacy": "BEFORE INSERT ON submission_defect_notices #8311952e7004cc589badcad747c0804d1de7b8c9",
         "trg_submission_defect_notice_update_guard": "BEFORE UPDATE ON submission_defect_notices #8caf5532dcdb8848b0a4c802df86cd71590a88f0",

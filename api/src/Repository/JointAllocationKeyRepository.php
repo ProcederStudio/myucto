@@ -73,7 +73,11 @@ final class JointAllocationKeyRepository
 
     public function findForUpdate(int $supplierId, int $versionId): array
     {
-        (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+        try { (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy($this->db))->lockContext($supplierId); }
+        catch (\MyInvoice\Service\Accounting\PostingException $e) {
+            if ($e->errorCode !== 'property_not_found') throw $e;
+            throw new JointAllocationException('allocation_key_not_found', 'Verze alokačního klíče nebyla nalezena.', 404);
+        }
         $stmt = $this->db->pdo()->prepare('SELECT v.*, k.code, k.name FROM joint_allocation_key_versions v
             JOIN joint_allocation_keys k ON k.id = v.key_id AND k.supplier_id = v.supplier_id
             WHERE v.supplier_id = ? AND v.id = ? FOR UPDATE');
@@ -92,7 +96,7 @@ final class JointAllocationKeyRepository
 
     private function lockAndValidate(int $supplierId, array $version): array
     {
-        (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+        (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
         $last = (new \DateTimeImmutable($version['valid_to']))->modify('-1 day')->format('Y-m-d');
         $frameworks = (new AccountingFrameworkService($this->db, new AccountingFrameworkRepository($this->db)))->forInterval($supplierId, $version['valid_from'], $last, true);
         if (array_unique(array_values($frameworks)) !== [AccountingFrameworkService::CZ_504]) {

@@ -4,6 +4,7 @@ const str = (description, extra = {}) => ({ type: 'string', description, ...extr
 const int = (description) => ({ type: 'integer', minimum: 1, description });
 const bool = (description) => ({ type: 'boolean', description });
 const date = (description) => str(description, { format: 'date' });
+const instant = (description) => str(description, { pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,6})?(?:Z|[+-][0-9]{2}:[0-9]{2})$', maxLength: 32 });
 const schema = (properties = {}, required = []) => ({ type: 'object', properties, required, additionalProperties: false });
 const flag = (value) => value === undefined ? undefined : value ? 1 : 0;
 const scope = str('Jedna firma, nebo dostupné firmy ve skupině pro globální dimenzi.', { enum: ['company', 'group'] });
@@ -24,6 +25,18 @@ const read = (name, title, description, properties, required, run) => ({
 });
 
 export const DIMENSION_TOOLS = [
+  read('property_registry_profile', 'Profil registru SVJ',
+    'Časově účinný profil registru SVJ bez právní historie osob. Samotný profil nevytváří pohledávku ani nárok na kredit.',
+    { as_of: instant('Rozhodný okamžik ISO 8601 včetně času a offsetu.'), known_at: instant('Volitelný okamžik tehdejší znalosti.') }, ['as_of'],
+    (c, a, tool) => c.get('/property/catalog/profile', { as_of: a.as_of, known_at: a.known_at }, tool)),
+  read('list_property_registry', 'Domy, jednotky a služby SVJ',
+    'Kurátorovaný časový pohled na číselník a systémové dimenze. Přesné zlomky zůstávají řetězce. Neobsahuje účastníky ani platební dispozice; review_required upozorňuje na neúplné podklady.',
+    { kind: str('Druh číselníku.', { enum: ['houses', 'units', 'services'] }), as_of: instant('Rozhodný okamžik ISO 8601 včetně času a offsetu.'), known_at: instant('Volitelný okamžik tehdejší znalosti.') }, ['kind', 'as_of'],
+    (c, a, tool) => c.get(`/property/catalog/${seg(a.kind)}`, { as_of: a.as_of, known_at: a.known_at }, tool)),
+  read('property_registry_summary', 'Úplnost registru SVJ',
+    'Součet přesných podílů, úplnost deklarovaného okruhu domů a počet jednotek vyžadujících doplnění podkladů. Nejde o saldo ani potvrzení dluhů.',
+    { as_of: instant('Rozhodný okamžik ISO 8601 včetně času a offsetu.'), known_at: instant('Volitelný okamžik tehdejší znalosti.') }, ['as_of'],
+    (c, a, tool) => c.get('/property/catalog/summary', { as_of: a.as_of, known_at: a.known_at }, tool)),
   read('nonprofit_tax_assessment', 'Daňové posouzení činností',
     'Účetní podklady 504 a poslední doložené posouzení. Jde o klasifikační most před obecnými úpravami základu daně, nikoli o výpočet nebo podání DPPO.',
     { period_id: int('ID účetního období.') }, ['period_id'],

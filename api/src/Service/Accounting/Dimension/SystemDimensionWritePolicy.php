@@ -20,10 +20,32 @@ final class SystemDimensionWritePolicy
         (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
     }
 
+    public function lockContext(int $supplierId): void
+    {
+        try { (new \MyInvoice\Service\Property\PropertyCatalog($this->db))->lockContext($supplierId); }
+        catch (\MyInvoice\Service\Property\PropertyException $e) { throw new PostingException($e->errorCode, $e->getMessage(), $e->httpStatus, $e->details); }
+    }
+
+    private function propertyAssignments(int $supplierId, array $lines, ?string $date, array $previousLines): void
+    {
+        try {
+            $policy = new \MyInvoice\Service\Property\PropertyDimensionPolicy($this->db);
+            $date === null ? $policy->assertStructural($supplierId, $lines, $previousLines) : $policy->assertAccountingDate($supplierId, $date, $lines, $previousLines);
+        } catch (\MyInvoice\Service\Property\PropertyException $e) { throw new PostingException($e->errorCode, $e->getMessage(), $e->httpStatus, $e->details); }
+    }
+
     public function assertJournal(array $header, array $lines, array $previousLines = []): void
     {
         $supplierId = (int) $header['supplier_id'];
         $this->lockJournalPeriod($header);
+        foreach ($lines as $line) {
+            if (($line['dimensions'] ?? []) !== [] || ($line['dimension_splits'] ?? []) !== []) {
+                try { (new \MyInvoice\Service\Property\PropertyCatalog($this->db))->lockAccountingContext($supplierId); }
+                catch (\MyInvoice\Service\Property\PropertyException $e) { throw new PostingException($e->errorCode, $e->getMessage(), $e->httpStatus, $e->details); }
+                break;
+            }
+        }
+        $this->propertyAssignments($supplierId, $lines, (string) $header['entry_date'], $previousLines);
         $types = $this->types($supplierId, $lines);
         if ($types === [] || !$this->is504($supplierId, (string) $header['entry_date'])) {
             return;
@@ -68,10 +90,20 @@ final class SystemDimensionWritePolicy
         if (!$this->db->pdo()->inTransaction()) {
             throw new \LogicException('System dimension validation requires period locks in a transaction.');
         }
+        $this->lockContext($supplierId);
+        $this->propertyAssignments($supplierId, $lines, $date, $previousLines);
         $types = $this->types($supplierId, $lines);
         if ($types !== [] && ($date === null || $this->is504($supplierId, $date))) {
             $this->assignments($supplierId, $lines, $types, $previousLines);
         }
+    }
+
+    public function assertDocumentAssignments(int $supplierId, array $lines, ?string $date, array $previousLines = []): void
+    {
+        $this->lockContext($supplierId);
+        $this->propertyAssignments($supplierId, $lines, $date, $previousLines);
+        $types = $this->types($supplierId, $lines);
+        if ($types !== []) $this->assignments($supplierId, $lines, $types, $previousLines);
     }
 
     public function lockJournalPeriod(array $header): void
