@@ -2468,6 +2468,10 @@ final class Routes
         });
 
         $app->group('/api/property', function ($g) {
+            $g->get('/catalog/payments/card', [\MyInvoice\Action\Property\Payments\PaymentPublicAction::class, 'card']);
+            $g->get('/catalog/payments/operations', [\MyInvoice\Action\Property\Payments\PaymentPublicAction::class, 'operations']);
+            $g->get('/catalog/payments/history', [\MyInvoice\Action\Property\Payments\PaymentPublicAction::class, 'history']);
+            $g->get('/catalog/payments/reconciliation', [\MyInvoice\Action\Property\Payments\PaymentPublicAction::class, 'reconciliation']);
             $g->get('/payments/{collection:debts|charges|credits|reservations|operations|corrections}', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'page']);
             $g->get('/payments/{collection:debts|charges|credits|reservations|operations|corrections}/{id:[0-9]+}', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'detail']);
             $g->get('/payments/parties', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'parties']);
@@ -2476,6 +2480,7 @@ final class Routes
             $g->get('/payments/bank-accounts', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'bankAccounts']);
             $g->get('/payments/accessory-candidates', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'accessoryCandidates']);
             $g->post('/payments/debts/{id:[0-9]+}/accessories', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'bindAccessory']);
+            $g->get('/payments/reservations/{id:[0-9]+}/abo-export', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'exportMetadata']);
             $g->post('/payments/reservations/abo/{id:[0-9]+}/download', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'exportDownload']);
             $g->post('/payments/reservations/abo/preview', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'exportPreview']);
             $g->post('/payments/reservations/abo/confirm', [\MyInvoice\Action\Property\Payments\PaymentOperationsAction::class, 'exportConfirm']);

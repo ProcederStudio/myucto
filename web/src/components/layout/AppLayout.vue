@@ -516,6 +516,7 @@ const navSections = computed<NavSection[]>(() => {
         { to: '/property/registry', label: t('nav.property_registry'), icon: ICONS.property, permission: 'property' as PermissionKey },
         { to: '/property/charges', label: t('nav.property_charges'), icon: ICONS.property, permission: 'property' as PermissionKey },
         { to: '/property/charges/issues', label: t('nav.property_issuance'), icon: ICONS.property, permission: 'property' as PermissionKey },
+        { to: '/property/payments', label: t('nav.property_payments'), icon: ICONS.payment_orders, permission: 'property' as PermissionKey },
       ],
     },
     ...(isStockEnabled ? [{

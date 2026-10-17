@@ -60,6 +60,52 @@ Nezaúčtovaný předpis lze zrušit. Zaúčtovaný předpis opravte doloženým
 
 Detail uchovává původní podklady a další doložené události, například doručení upomínky nebo posouzení odpovědnosti. Zápis doručení sám zprávu neodesílá. Kontakty použité v právní historii archivujte místo mazání. API a MCP poskytují finanční řádky, stav a účetní vazby předpisů bez osobních a právních podkladů.
 
+## Platby jednotek
+
+V nabídce **Platby jednotek** zpracujete úhrady předpisů, samostatné kredity a jejich vracení. Zvolte firmu a rozhodný okamžik registru, poté načtěte podklady. Přehledy mají filtry jednotky a tlačítko **Načíst další**. Čtení, správa plateb, jejich zaúčtování a storna vyžadují příslušná oprávnění; pořízení nebo zaúčtování bankovního či pokladního zdroje vyžaduje také oprávnění dané agendy. Tento postup používá Kč.
+
+### Dluhy a příslušenství
+
+Na záložce **Dluhy a kredity** otevřete **Registrace dluhu**. Vyberte předpis a jeho kladné dosud nezaregistrované řádky jistiny. Doplňte označení titulu, splatnost, právní základ, režim a zajištění. Jeden předpis může obsahovat více samostatných dluhů. Společný dluh více osob zůstává jedním dluhem; počet členů nezvyšuje jeho částku.
+
+V detailu dluhu lze navázat již zaúčtovanou samostatnou pohledávku jako příslušenství. Vyberte její složku a doložte titul i odpovědnou skupinu osob. Samotné navázání nový úrok nevypočítává.
+
+### Přijetí, výplata a rozpis platby
+
+Na záložce **Přijmout / vyplatit** vyberte bankovní nebo pokladní platbu, případně pořiďte nový pokladní doklad. Rozpis může obsahovat úhrady vybraných dluhů, doložené kredity a vratky rezervovaných kreditů.
+
+U úhrady určete skutečného plátce, dlužníka, okamžik přijetí a hrazené dluhy. Okamžik zahrnuje čas i časový posun a jeho místní datum musí odpovídat zdroji platby. Platí-li třetí osoba, doložte její právní důvod. Volbu dluhů dlužníkem, porovnání zajištění, doručené upomínky nebo zvláštní rozpis složek zadávejte podle podkladů; aplikace je neodhaduje z variabilního symbolu či jména plátce.
+
+Společné analytické zařazení rozdělte na přesné částky a úplné kombinace dimenzí. Nevyjasněnou jednotku ponechte nepřiřazenou. Tlačítkem **Zkontrolovat rozpis** připravte náhled a ověřte vypořádanou část i zbytek. **Potvrdit a zaúčtovat** uloží zdroj a rozpis společně. Po změně zadání je potřeba nový náhled.
+
+Nevyjasněný zbytek zůstává na zúčtování platby a sám nevytváří dluh jednotky ani kredit jiné osoby. Jeho volné analytické zařazení můžete opravit s doloženým důvodem do otevřeného data; již vypořádané části tím nepřepisujete. Historie potvrzených rozpisů uvádí částky platné při potvrzení, nikoli dnešní dostupný zůstatek.
+
+### Kredity, zápočet a rezervace
+
+Při vytvoření kreditu výslovně určete jednotku, všechny oprávněné osoby, doklad nároku a splatnost. Příjemce kreditu se neodvozuje automaticky z plátce ani z aktuálního vlastníka. Společný nárok více osob zůstává jednou částkou.
+
+V přehledu kreditů rozlišujte zůstatek, rezervovanou a dostupnou částku. Pro **Zápočet kreditu** vyberte dluhy téže oprávněné osoby nebo skupiny a doložte vzájemnost, způsobilost, projev zápočtu, jeho doručení a účinek. Po kontrole náhledu zápočet zaúčtujte.
+
+Pro vrácení nejprve vytvořte rezervaci: uveďte částku, určení vratky a způsob vyplacení. Pro bankovní vratku zadejte účet příjemce, pro hotovostní skutečného příjemce a jeho podklad. Rezervovanou částku už nelze souběžně použít jinak. Zrušení nevyplacené rezervace nebo uvolnění jejího nevyplaceného zbytku vyžaduje důvod.
+
+### Vratka a soubor ABO
+
+Vratku na záložce **Přijmout / vyplatit** navažte na rezervaci a skutečný odchozí zdroj. Při hotovostní výplatě doložte osobu, která hotovost převzala, její jméno a doklad převzetí. Samotná rezervace ani vytvoření příkazu neznamenají zaplacení.
+
+V části **Rezervace a vratky** označte bankovní rezervace ve stavu **Rezervováno**. Pro ABO vyberte účet firmy, splatnost a důvod; u každé platby zadejte variabilní symbol, nebo výslovně zvolte příkaz bez něj. Po kontrole a potvrzení stáhněte soubor a předejte jej bance. Vyřízení platby se dokládá následným bankovním pohybem.
+
+Existující export je u rezervace dostupný i po novém načtení stránky. Zobrazuje název souboru a aktuální stavy rezervací celé dávky; jeho stažení nevytváří nový příkaz. U dávky se zaplacenou nebo zrušenou rezervací se zobrazí archivní upozornění. Archivní soubor znovu neposílejte jako nový příkaz. Zjistí-li se změna stavu až při stahování, nejprve se zobrazí upozornění a stažení musíte znovu výslovně zvolit.
+
+Odmítnutý nebo zrušený bankovní příkaz řešte akcí pro zrušení předání s důvodem a dokladem. Ta neruší příkaz v bance; jeho stav nejprve ověřte a vyřešte také tam.
+
+### Opravy, storna a karta
+
+Na záložce **Opravy a historie** dohledáte operace i jejich detaily. Záporný rozdílový předpis navažte na původní řádky a doložte úlevu z konkrétních úhrad. Případný kredit musí mít určené oprávněné osoby. Storno vyžaduje datum a důvod, u opravy také okamžik účinnosti a podklad. Použitý či rezervovaný výsledný kredit může stornu bránit. Původní účetní zápisy se nepřepisují.
+
+Na záložce **Karta** zadejte stav poznání k okamžiku a případně omezte jednotku nebo osobu. Rozhodný okamžik určuje, k jakému stavu se díváte; okamžik znalosti určuje, které tehdy zaznamenané podklady smí výsledek použít. Karta odděluje hrubé pohledávky, kredity, rezervace, dostupné kredity a expozici z ručení. Dluh jednoho vlastníka se neskrývá kreditem jiného a kredit automaticky nepřechází na nového vlastníka. Popisky osob a jednotek jsou z aktuální evidence.
+
+Respektujte upozornění na neúplnost a přesnost jen na den. Hodnota **Neznámé** není nula. Karta pokrývá zaznamenané předpisy a platby; vyúčtování služeb ani počáteční import v ní nejsou zahrnuté. Samotná karta nenahrazuje potvrzení dluhu.
+
 ## Reset dat
 
 Reset se zachováním účtu a konfigurace firmy odstraní registr, jeho systémové dimenze jednotek a služeb i alokační klíče, které na ně odkazují. Vlastní dimenze a ostatní alokační klíče zachová. Pokud má zachovaná vlastní hodnota jako nadřazenou jednotku nebo službu registru, reset se zastaví před mazáním; nejprve opravte tuto vazbu.

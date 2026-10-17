@@ -68,6 +68,10 @@ final class PaymentOperationsAction
     {
         return $this->run($request,$response,'property.payments.manage',true,function(int $supplier)use($request):array{$body=$this->body($request,['request','preview_hash','idempotency_key']);return $this->exports->confirm($supplier,$this->input($body),$this->hash($body),$this->token($body),$this->userId($request));});
     }
+    public function exportMetadata(Request $request,Response $response,array $args):Response
+    {
+        return $this->run($request,$response,'property',false,fn(int $supplier):array=>['export'=>$this->exports->metadataForReservation($supplier,$this->integer($args,'id'))]);
+    }
     public function exportDownload(Request $request,Response $response,array $args):Response
     {
         return $this->run($request,$response,'property.payments.manage',true,fn(int $supplier):array=>$this->exports->find($supplier,$this->integer($args,'id')));

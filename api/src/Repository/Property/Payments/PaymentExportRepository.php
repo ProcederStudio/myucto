@@ -52,6 +52,27 @@ final class PaymentExportRepository
     {
         return $this->transaction($supplier,function()use($supplier,$id):array{$row=$this->one('SELECT * FROM unit_payment_exports WHERE supplier_id=? AND id=? FOR UPDATE',[$supplier,$id]);if(!$row)PaymentException::reject('export_not_found');return $this->result($supplier,$row);});
     }
+    public function metadataForReservation(int $supplier,int $id):?array
+    {
+        PropertyInput::id($id,'reservation_id');
+        return $this->transaction($supplier,function()use($supplier,$id):?array{
+            $reservation=$this->payments->reservation($supplier,$id);
+            $links=$this->all('SELECT export_id FROM unit_payment_export_items WHERE supplier_id=? AND reservation_id=? ORDER BY export_id FOR UPDATE',[$supplier,$id]);
+            $rows=$this->all("SELECT e.* FROM unit_payment_exports e WHERE e.supplier_id=? AND (EXISTS (SELECT 1 FROM unit_payment_export_items i WHERE i.supplier_id=e.supplier_id AND i.export_id=e.id AND i.reservation_id=?) OR EXISTS (SELECT 1 FROM JSON_TABLE(e.snapshot_json,'$.reservations[*]' COLUMNS(reservation_id BIGINT PATH '$.id')) p WHERE p.reservation_id=?)) ORDER BY e.id FOR UPDATE",[$supplier,$id,$id]);
+            $audit=$this->all("SELECT payload_json,payload_hash FROM unit_payment_audit WHERE supplier_id=? AND object_kind='reservation' AND object_id=? AND action='submitted' ORDER BY id FOR UPDATE",[$supplier,$id]);
+            $facts=[];
+            foreach($audit as $event){$fact=self::decode($event['payload_json']);self::hash($event['payload_hash'],$fact);$facts[]=$fact;}
+            if($rows===[]){if($links!==[]||$facts!==[]||$reservation['status']==='submitted')PaymentException::reject('export_receipt_missing');return null;}
+            if(count($rows)!==1||count($links)!==1||count($facts)!==1)PaymentException::reject('export_receipt_mismatch');
+            $row=$rows[0];$fact=$facts[0];
+            if((int)$links[0]['export_id']!==(int)$row['id']||($fact['export_id']??null)!==(int)$row['id']||($fact['snapshot_hash']??null)!==$row['snapshot_hash'])PaymentException::reject('export_receipt_mismatch');
+            $result=$this->result($supplier,$row);
+            $snapshot=self::decode($row['snapshot_json']);$selected=array_values(array_filter($snapshot['reservations'],fn($part)=>$part['id']===$id));
+            if(count($selected)!==1||($fact['amount_cents']??null)!==$selected[0]['amount_cents'])PaymentException::reject('export_receipt_mismatch');
+            foreach($result['reservation_statuses'] as $status)if(!in_array($status,['submitted','paid','cancelled'],true))PaymentException::reject('export_receipt_mismatch');
+            return array_intersect_key($result,array_flip(['id','filename','encoding','reservation_ids','reservation_statuses']));
+        });
+    }
     public function reservationStatusAfterReversal(int $supplier,array $reservation):string
     {
         if(!$this->db->pdo()->inTransaction())throw new \LogicException('Reservation restoration requires current payment context.');

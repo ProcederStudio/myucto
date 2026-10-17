@@ -238,6 +238,233 @@ tags:
       pojišťovnu a zálohy na daň (§38a) vč. rozhodnutí FÚ (§174).
 
 paths:
+  /api/v1/property/catalog/payments/card:
+    get:
+      tags:
+      - Accounting
+      summary: Saldo a karta jednotky SVJ
+      description: Pouze čtení s oprávněním property v kontextu vybrané firmy. Historická projekce k as_of podle tehdejší
+        znalosti known_at. Popisky osob a jednotek jsou z aktuálních číselníků; časový výběr se vztahuje na finanční
+        a právní stav. Hrubé pohledávky a kredity se nekompenzují. Zachovává null při nejistotě, přesnost, doložené
+        právní role a neúplné pokrytí. Částky v haléřích jsou řetězce. Raw snapshoty, důkazní texty, aktéři ani platební
+        dispozice se nevrací. Nejde o potvrzení dluhu nebo oprávnění k úhradě. Výstup není stránkovaný; i pro jednu
+        jednotku se interně načítá celá finanční a právní historie firmy. unit_id omezuje výstup, nikoli náklady projekce.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - name: unit_id
+        in: query
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+        description: Jednotka vybrané firmy; cizí nebo neexistující jednotka vrací 404.
+      - name: as_of
+        in: query
+        required: true
+        schema:
+          type: string
+          pattern: ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?(?:Z|[+-][0-9]{2}:[0-9]{2})$
+          maxLength: 32
+      - name: known_at
+        in: query
+        required: true
+        schema:
+          type: string
+          pattern: ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?(?:Z|[+-][0-9]{2}:[0-9]{2})$
+          maxLength: 32
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PropertyReceivableCard'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Jednotka neexistuje ve vybrané firmě.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Poškozené nebo neověřitelné podklady; výsledek se nenahrazuje nulou.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Neplatný vstup, rozsah nebo stránkování.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/property/catalog/payments/operations:
+    get:
+      tags:
+      - Accounting
+      summary: Operace úhrad a kreditů SVJ
+      description: Pouze čtení s oprávněním property v kontextu vybrané firmy. Aktuální stav zaznamenaných S4 operací
+        a jejich alokací s kontrolou uložených podkladů. Vzestupně dle ID; next_cursor předejte jako after_id. Nejvýše
+        100 operací na stránku, počet jejich vnořených alokací není tímto limitem omezen. Nepředstavuje historickou
+        projekci k as_of a neautorizuje zápis. Bez interních requestů a ABO dat.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - name: unit_id
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      - name: after_id
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+        description: Vzestupný kurzor next_cursor; vynechání nebo 0 načte první stránku.
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 25
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PropertyPaymentOperationPage'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Jednotka neexistuje ve vybrané firmě.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Poškozené nebo neověřitelné podklady; výsledek se nenahrazuje nulou.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Neplatný vstup, rozsah nebo stránkování.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/property/catalog/payments/history:
+    get:
+      tags:
+      - Accounting
+      summary: Historie potvrzených workflow úhrad SVJ
+      description: Pouze čtení s oprávněním property v kontextu vybrané firmy. Potvrzená bankovní a pokladní workflow
+        s ověřením otisku uloženého plánu. Částky odpovídají okamžiku potvrzení, nikoli dnešnímu dostupnému kreditu.
+        Sestupně dle ID; next_cursor předejte jako before_id. Nejvýše 100 položek. Bez interních plánů, požadavků,
+        osob a ABO souborů.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - name: before_id
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+        description: Sestupný kurzor next_cursor; vynechání nebo 0 načte první stránku.
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 25
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PropertyPaymentHistoryPage'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Jednotka neexistuje ve vybrané firmě.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Poškozené nebo neověřitelné podklady; výsledek se nenahrazuje nulou.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Neplatný vstup, rozsah nebo stránkování.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/property/catalog/payments/reconciliation:
+    get:
+      tags:
+      - Accounting
+      summary: Rekonciliace salda jednotky SVJ
+      description: Pouze čtení s oprávněním property v kontextu vybrané firmy. Srovnání účetní evidence jednotky s
+        účty 315 a 379.910 k účetnímu datu před uzavřením. knowledge_basis=current_ledger používá současnou znalost
+        účetnictví; nejde o rekonstrukci historické znalosti known_at z karty. Počáteční import není pokryt; matches=false
+        může znamenat i nedoloženou opravu. Interně se načítá finanční historie celé firmy, bez garance omezených
+        nákladů.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - name: unit_id
+        in: query
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+        description: Jednotka vybrané firmy; cizí nebo neexistující jednotka vrací 404.
+      - name: date
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PropertyReceivableReconciliation'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Jednotka neexistuje ve vybrané firmě.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Poškozené nebo neověřitelné podklady; výsledek se nenahrazuje nulou.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Neplatný vstup, rozsah nebo stránkování.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/property/catalog/charges/components:
     get:
       tags:
@@ -30603,6 +30830,604 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
 
   schemas:
+    PropertyPaymentParty:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - label
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        label:
+          type: string
+    PropertyPaymentCoverage:
+      type: object
+      additionalProperties: false
+      required:
+      - scope
+      - complete
+      - eligibility
+      properties:
+        scope:
+          type: string
+          enum:
+          - recorded_s3_s4
+        complete:
+          type: boolean
+          enum:
+          - false
+        eligibility:
+          type: string
+          enum:
+          - current_preview_required
+    PropertyPaymentAllocation:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - debt_id
+      - charge_line_id
+      - accessory_id
+      - amount_cents
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        debt_id:
+          type: integer
+          minimum: 1
+        charge_line_id:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+        accessory_id:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+        amount_cents:
+          type: string
+          pattern: ^-?(?:0|[1-9][0-9]*)$
+    PropertyPaymentOperation:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - kind
+      - status
+      - row_version
+      - amount_cents
+      - accounting_date
+      - reason
+      - source_label
+      - unit_labels
+      - credit_id
+      - allocations
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        kind:
+          type: string
+        status:
+          type: string
+        row_version:
+          type: integer
+          minimum: 1
+        amount_cents:
+          type: string
+          pattern: ^-?(?:0|[1-9][0-9]*)$
+        accounting_date:
+          type: string
+          format: date
+        reason:
+          type: string
+        source_label:
+          type:
+          - string
+          - 'null'
+        unit_labels:
+          type: array
+          items:
+            type: string
+        credit_id:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+        allocations:
+          type: array
+          items:
+            $ref: '#/components/schemas/PropertyPaymentAllocation'
+    PropertyPaymentOperationPage:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - next_cursor
+      - coverage
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PropertyPaymentOperation'
+        next_cursor:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+        coverage:
+          $ref: '#/components/schemas/PropertyPaymentCoverage'
+    PropertyPaymentHistoryItem:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - kind
+      - source_id
+      - date
+      - amount_cents
+      - settled_cents
+      - available_cents
+      - recorded_at
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        kind:
+          type: string
+          enum:
+          - bank
+          - cash
+        source_id:
+          type: integer
+          minimum: 1
+        date:
+          type: string
+          format: date
+        amount_cents:
+          type: string
+          pattern: ^-?(?:0|[1-9][0-9]*)$
+        settled_cents:
+          type: string
+          pattern: ^-?(?:0|[1-9][0-9]*)$
+        available_cents:
+          type: string
+          pattern: ^-?(?:0|[1-9][0-9]*)$
+        recorded_at:
+          type: string
+    PropertyPaymentHistoryPage:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - next_cursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PropertyPaymentHistoryItem'
+        next_cursor:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+    PropertyReceivableGroup:
+      type: object
+      additionalProperties: false
+      required:
+      - group_key
+      - role
+      - mode
+      - basis
+      - members
+      - extent
+      - valid_from
+      - valid_to
+      - remaining_cap_cents
+      properties:
+        group_key:
+          type: string
+        role:
+          type: string
+          enum:
+          - debtor
+          - guarantor
+        mode:
+          type: string
+        basis:
+          type: string
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/PropertyPaymentParty'
+        extent:
+          type: object
+          additionalProperties: false
+          required:
+          - num
+          - den
+          properties:
+            num:
+              type: string
+              pattern: ^-?(?:0|[1-9][0-9]*)$
+            den:
+              type: string
+              pattern: ^-?(?:0|[1-9][0-9]*)$
+        valid_from:
+          type: string
+          pattern: ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?(?:Z|[+-][0-9]{2}:[0-9]{2})$
+          maxLength: 32
+        valid_to:
+          type:
+          - string
+          - 'null'
+          pattern: ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?(?:Z|[+-][0-9]{2}:[0-9]{2})$
+          maxLength: 32
+        remaining_cap_cents:
+          type:
+          - string
+          - 'null'
+          pattern: ^-?(?:0|[1-9][0-9]*)$
+    PropertyReceivableLiability:
+      type: object
+      additionalProperties: false
+      required:
+      - event_id
+      - event_hash
+      - head_event_id
+      - complete
+      - review_required
+      - precision
+      - remaining_cents
+      properties:
+        event_id:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+        event_hash:
+          type:
+          - string
+          - 'null'
+          pattern: ^[a-f0-9]{64}$
+        head_event_id:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+        complete:
+          type: boolean
+        review_required:
+          type: boolean
+        precision:
+          type: string
+          enum:
+          - instant
+          - day
+        remaining_cents:
+          type:
+          - string
+          - 'null'
+          pattern: ^-?(?:0|[1-9][0-9]*)$
+    PropertyReceivableClaim:
+      type: object
+      additionalProperties: false
+      required:
+      - claim_key
+      - debt_id
+      - unit_id
+      - unit_label
+      - due_date
+      - title_ref
+      - amount_cents
+      - person_liability_cents
+      - precision
+      - complete
+      - source_hash
+      - groups
+      - liability
+      properties:
+        claim_key:
+          type: string
+        debt_id:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+        unit_id:
+          type: integer
+          minimum: 1
+        unit_label:
+          type: string
+        due_date:
+          type: string
+          format: date
+        title_ref:
+          type: string
+        amount_cents:
+          type:
+          - string
+          - 'null'
+          pattern: ^-?(?:0|[1-9][0-9]*)$
+        person_liability_cents:
+          type:
+          - string
+          - 'null'
+          pattern: ^-?(?:0|[1-9][0-9]*)$
+        precision:
+          type: string
+          enum:
+          - instant
+          - day
+        complete:
+          type: boolean
+        source_hash:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        groups:
+          type: array
+          items:
+            $ref: '#/components/schemas/PropertyReceivableGroup'
+        liability:
+          $ref: '#/components/schemas/PropertyReceivableLiability'
+    PropertyReceivableCredit:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - unit_id
+      - unit_label
+      - parties
+      - due_date
+      - source_hash
+      - complete
+      - precision
+      - uncertain_event_ids
+      - gross_credit_cents
+      - reserved_credit_cents
+      - available_credit_cents
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        unit_id:
+          type: integer
+          minimum: 1
+        unit_label:
+          type: string
+        parties:
+          type: array
+          items:
+            $ref: '#/components/schemas/PropertyPaymentParty'
+        due_date:
+          type: string
+          format: date
+        source_hash:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        complete:
+          type: boolean
+        precision:
+          type: string
+          enum:
+          - instant
+          - day
+        uncertain_event_ids:
+          type: array
+          items:
+            type: string
+        gross_credit_cents:
+          type:
+          - string
+          - 'null'
+          pattern: ^-?(?:0|[1-9][0-9]*)$
+        reserved_credit_cents:
+          type:
+          - string
+          - 'null'
+          pattern: ^-?(?:0|[1-9][0-9]*)$
+        available_credit_cents:
+          type:
+          - string
+          - 'null'
+          pattern: ^-?(?:0|[1-9][0-9]*)$
+    PropertyReceivableCoverage:
+      type: object
+      additionalProperties: false
+      required:
+      - financial_complete
+      - service_settlements
+      - opening_import
+      - unresolved_negative_charge_line_ids
+      - scope
+      - complete
+      properties:
+        financial_complete:
+          type: boolean
+        service_settlements:
+          type: string
+          enum:
+          - not_implemented
+        opening_import:
+          type: string
+          enum:
+          - not_implemented
+        unresolved_negative_charge_line_ids:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+        scope:
+          type: string
+          enum:
+          - recorded_s3_s4
+        complete:
+          type: boolean
+          enum:
+          - false
+    PropertyReceivableCard:
+      type: object
+      additionalProperties: false
+      required:
+      - as_of
+      - known_at
+      - scope
+      - totals
+      - precision
+      - coverage
+      - source_snapshot_hash
+      - claims
+      - credits
+      properties:
+        as_of:
+          type: string
+          pattern: ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?(?:Z|[+-][0-9]{2}:[0-9]{2})$
+          maxLength: 32
+        known_at:
+          type: string
+          pattern: ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?(?:Z|[+-][0-9]{2}:[0-9]{2})$
+          maxLength: 32
+        scope:
+          type: object
+          additionalProperties: false
+          required:
+          - unit_id
+          properties:
+            unit_id:
+              type: integer
+              minimum: 1
+        totals:
+          type: object
+          additionalProperties: false
+          required:
+          - gross_receivable_cents
+          - gross_credit_cents
+          - reserved_credit_cents
+          - available_credit_cents
+          - guarantee_exposure_cents
+          properties:
+            gross_receivable_cents:
+              type:
+              - string
+              - 'null'
+              pattern: ^-?(?:0|[1-9][0-9]*)$
+            gross_credit_cents:
+              type:
+              - string
+              - 'null'
+              pattern: ^-?(?:0|[1-9][0-9]*)$
+            reserved_credit_cents:
+              type:
+              - string
+              - 'null'
+              pattern: ^-?(?:0|[1-9][0-9]*)$
+            available_credit_cents:
+              type:
+              - string
+              - 'null'
+              pattern: ^-?(?:0|[1-9][0-9]*)$
+            guarantee_exposure_cents:
+              type:
+              - string
+              - 'null'
+              pattern: ^-?(?:0|[1-9][0-9]*)$
+        precision:
+          type: string
+          enum:
+          - instant
+          - day
+        coverage:
+          $ref: '#/components/schemas/PropertyReceivableCoverage'
+        source_snapshot_hash:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+          description: Otisk původní doménové projekce před kurátorováním a doplněním popisků. Není otiskem tohoto JSON
+            ani oprávněním k zápisu.
+        claims:
+          type: array
+          items:
+            $ref: '#/components/schemas/PropertyReceivableClaim'
+        credits:
+          type: array
+          items:
+            $ref: '#/components/schemas/PropertyReceivableCredit'
+    PropertyReceivableReconciliation:
+      type: object
+      additionalProperties: false
+      required:
+      - accounting_date
+      - knowledge_basis
+      - unit_id
+      - ledger_cents
+      - subledger_cents
+      - difference_cents
+      - matches
+      - view
+      - opening_import_coverage
+      properties:
+        accounting_date:
+          type: string
+          format: date
+        knowledge_basis:
+          type: string
+          enum:
+          - current_ledger
+        unit_id:
+          type: integer
+          minimum: 1
+        ledger_cents:
+          type: object
+          additionalProperties: false
+          required:
+          - receivable
+          - credit
+          properties:
+            receivable:
+              type: string
+              pattern: ^-?(?:0|[1-9][0-9]*)$
+            credit:
+              type: string
+              pattern: ^-?(?:0|[1-9][0-9]*)$
+        subledger_cents:
+          type: object
+          additionalProperties: false
+          required:
+          - receivable
+          - credit
+          properties:
+            receivable:
+              type: string
+              pattern: ^-?(?:0|[1-9][0-9]*)$
+            credit:
+              type: string
+              pattern: ^-?(?:0|[1-9][0-9]*)$
+        difference_cents:
+          type: object
+          additionalProperties: false
+          required:
+          - receivable
+          - credit
+          properties:
+            receivable:
+              type: string
+              pattern: ^-?(?:0|[1-9][0-9]*)$
+            credit:
+              type: string
+              pattern: ^-?(?:0|[1-9][0-9]*)$
+        matches:
+          type: boolean
+        view:
+          type: string
+          enum:
+          - before_closing
+        opening_import_coverage:
+          type: string
+          enum:
+          - not_implemented
     PropertyChargeIssueLine:
       type: object
       additionalProperties: false

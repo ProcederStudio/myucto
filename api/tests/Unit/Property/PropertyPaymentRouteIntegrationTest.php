@@ -51,6 +51,7 @@ final class PropertyPaymentRouteIntegrationTest extends TestCase
             ['GET', '/api/property/payments/bank-accounts', 'bankAccounts', 'property', AccessLevel::READ],
             ['GET', '/api/property/payments/accessory-candidates', 'accessoryCandidates', 'property', AccessLevel::READ],
             ['POST', '/api/property/payments/debts/7/accessories', 'bindAccessory', 'property.payments.manage', AccessLevel::WRITE],
+            ['GET', '/api/property/payments/reservations/7/abo-export', 'exportMetadata', 'property', AccessLevel::READ],
             ['POST', '/api/property/payments/reservations/abo/9/download', 'exportDownload', 'property.payments.manage', AccessLevel::WRITE],
             ['POST', '/api/property/payments/reservations/abo/preview', 'exportPreview', 'property.payments.manage', AccessLevel::WRITE],
             ['POST', '/api/property/payments/reservations/abo/confirm', 'exportConfirm', 'property.payments.manage', AccessLevel::WRITE],
@@ -113,6 +114,18 @@ final class PropertyPaymentRouteIntegrationTest extends TestCase
             : $action->$method($request, new Response());
         self::assertSame(403, $response->getStatusCode(), $method);
         self::assertSame('forbidden', json_decode((string) $response->getBody(), true)['error']['code'], $method);
+    }
+
+    public function testExportMetadataRejectsMissingReadPermissionBeforeDependencies(): void
+    {
+        $action = (new \ReflectionClass(PaymentOperationsAction::class))->newInstanceWithoutConstructor();
+        $request = (new ServerRequestFactory())->createServerRequest('GET', '/api/property/payments/reservations/7/abo-export')
+            ->withAttribute(AuthMiddleware::ATTR_METHOD, 'session')
+            ->withAttribute(AuthMiddleware::ATTR_USER, ['id' => 1, 'role' => 'accountant'])
+            ->withAttribute('auth.effective_role', new EffectiveRole(1, 'Synthetic no property read', 'staff', true, ['property.payments.manage' => 2]));
+        $response = $action->exportMetadata($request, new Response(), ['id' => '7']);
+        self::assertSame(403, $response->getStatusCode());
+        self::assertSame('forbidden', json_decode((string) $response->getBody(), true)['error']['code']);
     }
 
     public static function writers(): iterable
