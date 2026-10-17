@@ -181,7 +181,26 @@ final class FxLegacyCasePaymentProofTest extends TestCase
             if ($closedHome) {
                 $closedIds=$pdo->query("SELECT l.id FROM journal_entries e JOIN journal_entry_lines l ON l.entry_id=e.id WHERE e.supplier_id=$sid AND e.source_type='invoice' AND e.source_id=$closedHome AND l.currency_code='EUR' ORDER BY l.id")->fetchAll(\PDO::FETCH_COLUMN);
                 self::assertCount(2,$closedIds);
-                self::assertSame(array_map('intval',$closedIds),$proof['closed_home_source_line_ids']);
+                self::assertSameLineIds(array_map('intval',$closedIds),$proof['closed_home_source_line_ids']);
+                $period = $c->get(AccountingPeriodRepository::class)->findById($sid,$target);
+                $snapshot = $c->get(\MyInvoice\Repository\ClosingRepository::class)->fxCaseSnapshot($sid,$period);
+                $projector = new \MyInvoice\Service\Accounting\Closing\FxCaseCarryingProjection();
+                $original = $projector->project($snapshot,$period);
+                foreach ([1,-1] as $direction) {
+                    foreach ($snapshot['history'] as &$history) {
+                        usort($history['items'],static fn(array $a,array $b):int => strcmp($a['item']['doc_type'],$b['item']['doc_type'])
+                            ?: ($a['item']['doc_id'] <=> $b['item']['doc_id'])
+                            ?: $direction * ($a['item']['source_line_id'] <=> $b['item']['source_line_id']));
+                    }
+                    unset($history);
+                    $reordered = $projector->project($snapshot,$period);
+                    self::assertTrue($reordered['complete']);
+                    self::assertSame([],$reordered['findings']);
+                    self::assertSame($original['carrying'],$reordered['carrying']);
+                    self::assertSameLineIds(array_map('intval',$closedIds),$reordered['proof'][0]['closed_home_source_line_ids']);
+                    $reordered['proof'][0]['closed_home_source_line_ids'] = $original['proof'][0]['closed_home_source_line_ids'];
+                    self::assertSame($original['proof'],$reordered['proof']);
+                }
             }
             $version = fn (): int => (int) $pdo->query('SELECT row_version FROM accounting_periods WHERE id='.$target)->fetchColumn();
             $distribution = $closing->profitDistributionPreview($sid, $pid);
@@ -216,6 +235,13 @@ final class FxLegacyCasePaymentProofTest extends TestCase
                 $closing->fxPreview($sid,$target);
             }
         }
+    }
+
+    private static function assertSameLineIds(array $expected,array $actual): void
+    {
+        sort($expected,SORT_NUMERIC);
+        sort($actual,SORT_NUMERIC);
+        self::assertSame($expected,$actual);
     }
 
     private function priorState(int $sid,int $pid): array
