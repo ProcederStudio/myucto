@@ -18,6 +18,17 @@ final class ErrorCatalog
 {
     /** @var array<string,string> CZ → EN */
     private const MAP = [
+        'Zdroj krytí ztráty má více analytických účtů. Vyberte konkrétní účet.' => 'The loss coverage source has multiple analytical accounts. Choose a specific account.',
+        'Podklady rozhodnutí o výsledku se změnily. Načtěte náhled znovu.' => 'The result decision data has changed. Reload the preview.',
+        'Neplatné podklady rozhodnutí o výsledku hospodaření.' => 'Invalid result decision data.',
+        'Neplatný příděl výsledku hospodaření.' => 'Invalid result allocation.',
+        'Částka přídělu musí být kladná.' => 'The allocation amount must be positive.',
+        'Zdroj krytí ztráty nemá dostatečný zůstatek ve zvolené kombinaci dimenzí.' => 'The loss coverage source has an insufficient balance for the selected combination of dimensions.',
+        'Příděly musí přesně vypořádat každou kombinaci dimenzí výsledku hospodaření.' => 'Allocations must settle each combination of result dimensions exactly.',
+        'Není k dispozici výsledek hospodaření k vypořádání.' => 'There is no result available for settlement.',
+        'Datum rozhodnutí musí ležet v cílovém účetním období.' => 'The decision date must fall within the target accounting period.',
+        'Na účtu výsledku ve schvalovacím řízení zůstávají nevypořádané kombinace dimenzí. Nejprve zaznamenejte rozhodnutí o výsledku hospodaření.' => 'Unsettled dimension combinations remain on the pending result account. Record the result decision first.',
+        'Částka přídělu musí být kladné desetinné číslo v celých haléřích a rozsahu účetního deníku.' => 'The allocation amount must be a positive decimal in whole cents within the journal amount range.',
         'Uzavřené účetní knihy nelze měnit. Nejprve je znovu otevřete.' => 'Closed accounting books cannot be changed. Reopen them first.',
         'Výkazy 504 nelze porovnat: liší se období, rozsah nebo členění řádků.' => 'The Decree 504 statements cannot be compared because their accounting period, scope or row structure differs.',
         'Převod účetních výkazů podle vyhlášky 504 a jejich porovnání s jiným účetním programem zatím nejsou podporovány.' => 'Importing financial statements under Decree 504 and comparing them with another accounting system are not yet supported.',

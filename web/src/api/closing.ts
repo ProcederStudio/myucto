@@ -164,6 +164,7 @@ export interface ClosingStep {
 
 /** GET /periods/{id}/closing — období + kroky + odvozené flagy (§3.4). */
 export interface ClosingState {
+  accounting_framework?: 'cz_504'
   period: ClosingPeriod
   steps: ClosingStep[]
   can_start?: boolean
@@ -503,7 +504,8 @@ export interface IncomeTaxPreview {
 }
 
 // ── D10: rozdělení výsledku hospodaření ────────────────────────────────────
-export interface ProfitDistributionPreview {
+export interface ProfitDistribution500Preview {
+  accounting_framework?: 'cz_500'
   approved_period: { id: number; fiscal_year: number; status: string }
   target_period: { id: number; fiscal_year: number; row_version: number; starts_on: string; ends_on: string }
   balance_431: number
@@ -515,6 +517,43 @@ export interface ProfitDistributionPreview {
   withholding_rate: number
   existing_entry_id: number | null
 }
+
+export interface ResultDecision504Cell {
+  key: string
+  account_code: string
+  dimensions: Record<number, number>
+  cost_center: string | null
+  project_id: number | null
+  available: number
+  available_cents: number
+  source_line_ids: number[]
+}
+export type ResultDecision504Role = 'result.retained_profit' | 'result.funds' | 'result.own_equity'
+export interface ResultDecision504Allocation { cell_key: string; role: ResultDecision504Role; amount: number; account_code?: string }
+export interface ResultDecision504Payload {
+  decision_date: string
+  decision_reference: string
+  decision_authority: string
+  target_row_version: number
+  snapshot_hash: string
+  allocations: ResultDecision504Allocation[]
+}
+export interface ProfitDistribution504Preview {
+  accounting_framework: 'cz_504'
+  as_of: string
+  approved_period: ProfitDistribution500Preview['approved_period']
+  target_period: ProfitDistribution500Preview['target_period']
+  available_profit: number
+  pending_account: string
+  cells: ResultDecision504Cell[]
+  resources: ResultDecision504Cell[]
+  dimension_labels: Record<number, string>
+  snapshot_hash: string
+  target_roles: { role: ResultDecision504Role; account_code: string }[]
+  existing_entry_id: number | null
+  decision: (Omit<ResultDecision504Payload, 'target_row_version'> & { entry_id: number; target_period_id: number; cells: ResultDecision504Cell[] }) | null
+}
+export type ProfitDistributionPreview = ProfitDistribution500Preview | ProfitDistribution504Preview
 
 export interface ProfitDistributionAllocation {
   account_code: string
@@ -746,9 +785,11 @@ export const closingApi = {
   deferredRevenueAccrualPreview: (periodId: number) =>
     api.get<DeferredRevenueAccrualPreview>(`/accounting/periods/${periodId}/closing/deferred-revenue-accrual-preview`).then(r => r.data),
   // D10 — rozdělení výsledku hospodaření (431 → 428/429/364…).
-  profitDistributionPreview: (periodId: number) =>
-    api.get<ProfitDistributionPreview>(`/accounting/periods/${periodId}/profit-distribution/preview`).then(r => r.data),
-  profitDistribution: (periodId: number, payload: ProfitDistributionPayload) =>
+  profitDistributionPreview: (periodId: number, decisionDate?: string) =>
+    (decisionDate
+      ? api.get<ProfitDistributionPreview>(`/accounting/periods/${periodId}/profit-distribution/preview`, { params: { decision_date: decisionDate } })
+      : api.get<ProfitDistributionPreview>(`/accounting/periods/${periodId}/profit-distribution/preview`)).then(r => r.data),
+  profitDistribution: (periodId: number, payload: ProfitDistributionPayload | ResultDecision504Payload) =>
     api.post(`/accounting/periods/${periodId}/profit-distribution`, payload).then(r => r.data),
   profitDistributionRevert: (periodId: number, targetRowVersion: number) =>
     api.post(`/accounting/periods/${periodId}/profit-distribution/revert`, { target_row_version: targetRowVersion }).then(r => r.data),

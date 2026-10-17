@@ -550,7 +550,8 @@ final class ClosingAction
         $periodId = (int) ($args['id'] ?? 0);
 
         try {
-            $data = $this->closing->profitDistributionPreview($supplierId, $periodId);
+            $date = $this->nullableString($request->getQueryParams()['decision_date'] ?? null);
+            $data = $this->closing->profitDistributionPreview($supplierId, $periodId, $date);
         } catch (\Throwable $e) {
             return $this->mapError($response, $e, 'Náhled rozdělení výsledku hospodaření selhal');
         }

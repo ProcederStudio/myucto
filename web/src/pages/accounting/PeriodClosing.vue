@@ -18,7 +18,8 @@ import {
   type LegalProvisionSection,
   type ProvisionsPreview,
   type IncomeTaxPreview,
-  type ProfitDistributionPreview,
+  type ProfitDistribution500Preview as ProfitDistributionPreview,
+  type ProfitDistribution504Preview,
   type ProfitDistributionAllocation,
   type SmallAssetAccrualPreview,
   type SmallAssetAccrualMode,
@@ -36,6 +37,7 @@ import CheckFindings from '@/components/accounting/CheckFindings.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import DateInput from '@/components/ui/DateInput.vue'
 import PaginationBar from '@/components/ui/PaginationBar.vue'
+import ResultDecision504 from '@/components/accounting/ResultDecision504.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -639,6 +641,7 @@ watch(selected, (k) => {
 // ── D10: rozdělení výsledku hospodaření (431 → 428/429/364…) ────────────────
 const showProfitDistribution = ref(false)
 const pdPreview = ref<ProfitDistributionPreview | null>(null)
+const pd504Preview = ref<ProfitDistribution504Preview | null>(null)
 const pdAllocations = ref<ProfitDistributionAllocation[]>([])
 const pdDecisionDate = ref('')
 const pdWithholdingRate = ref(0.15)
@@ -649,7 +652,14 @@ const pdRemaining = computed(() => Math.abs(pdPreview.value?.available_profit ??
 async function openProfitDistribution() {
   showProfitDistribution.value = true
   try {
-    pdPreview.value = await closingApi.profitDistributionPreview(periodId)
+    const preview = await closingApi.profitDistributionPreview(periodId)
+    if (preview.accounting_framework === 'cz_504') {
+      pd504Preview.value = preview
+      pdPreview.value = null
+      return
+    }
+    pd504Preview.value = null
+    pdPreview.value = preview
     pdWithholdingRate.value = pdPreview.value.withholding_rate
     if (!pdAllocations.value.length) {
       pdAllocations.value = [{ account_code: pdPreview.value.is_loss ? '429' : '428', amount: 0, kind: pdPreview.value.is_loss ? 'loss_coverage' : 'retained' }]
@@ -1810,8 +1820,8 @@ const canOpenNextStage = computed(() => ['closed', 'reviewed', 'approved'].inclu
       class="bg-surface border border-neutral-200 rounded-lg shadow-sm p-5 mt-4 space-y-3">
       <div class="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h2 class="text-lg font-semibold">{{ t('accounting.closing.profit_distribution.title') }}</h2>
-          <p class="text-sm text-neutral-500 mt-0.5">{{ t('accounting.closing.profit_distribution.description') }}</p>
+          <h2 class="text-lg font-semibold">{{ t(state.accounting_framework === 'cz_504' ? 'accounting.result504.title' : 'accounting.closing.profit_distribution.title') }}</h2>
+          <p v-if="state.accounting_framework !== 'cz_504'" class="text-sm text-neutral-500 mt-0.5">{{ t('accounting.closing.profit_distribution.description') }}</p>
         </div>
         <button v-if="!showProfitDistribution" @click="openProfitDistribution" :disabled="busy" :class="btnOutline('primary')">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.coin" /></svg>
@@ -1819,6 +1829,7 @@ const canOpenNextStage = computed(() => ['closed', 'reviewed', 'approved'].inclu
         </button>
       </div>
 
+      <ResultDecision504 v-if="showProfitDistribution && pd504Preview" :period-id="periodId" :initial="pd504Preview" :can-write="auth.canWrite('accounting.periods.close')" @updated="load" />
       <template v-if="showProfitDistribution && pdPreview">
         <div class="text-sm flex flex-wrap gap-x-6 gap-y-1">
           <div>{{ t('accounting.closing.profit_distribution.target_period') }}: <strong>{{ pdPreview.target_period.fiscal_year }}</strong></div>

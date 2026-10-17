@@ -359,6 +359,10 @@ stránku uzávěrky pojmenován **Uzávěrka / rozdělení**.
 
 ## 72.7 Krok za krokem: rozdělení výsledku hospodaření
 
+V období vedeném podle vyhlášky 504 otevřete **Rozhodnutí o výsledku hospodaření**. Zvolte datum uvnitř cílového období, načtěte podklady a vyplňte označení rozhodnutí a oprávněný orgán. Každou zobrazenou kombinaci dimenzí vypořádejte do nevypořádaného výsledku 932, fondů 911 nebo vlastního jmění 901. Zisky a ztráty se posuzují odděleně; krytí ztráty fondem nebo vlastním jměním vyžaduje dostatečný zůstatek stejné kombinace. Pro krytí ztráty použijte skutečný účet fondu nebo vlastního jmění. Je-li ve stejné kombinaci více analytických účtů, vyberte konkrétní zdroj; zůstatky jiných účtů se na jeho krytí nepoužijí. Příděly musí souhlasit na haléř. Při změně podkladů načtěte nový náhled. Zrušení je dostupné v otevřeném nebo uzavíraném cílovém období bez navazujících pohybů.
+
+Následující kroky popisují rozdělení podle rámce 500.
+
 Po schválení závěrky (a po převodu výsledku hospodaření na účet 431 otevíracím zápisem) je na stránce uzávěrky
 dostupná karta **Rozdělení výsledku hospodaření**. Zápis se účtuje do otevřeného období (nikdy do uzavřeného,
 431 se řeší až v novém roce), proto je karta dostupná nad schváleným obdobím. Při otevření z následujícího období

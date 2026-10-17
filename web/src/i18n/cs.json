@@ -18907,6 +18907,33 @@
       "notes_subtitle": "Příloha podle § 29 a § 30 vyhlášky č. 504/2002 Sb.",
       "supplements_unavailable": "Závěrka podle vyhlášky 504 obsahuje rozvahu, výsledovku a přílohu. Dobrovolné přehledy peněžních toků a změn vlastního jmění současný kalkulátor pro tento rámec nepodporuje.",
       "package_hint": "Balíček používá vyhlášku 504 a poslední den vybraného účetního období. Přehledy kalkulované pouze pro vyhlášku 500 nejsou dostupné."
+    },
+    "result504": {
+      "title": "Rozhodnutí o výsledku hospodaření",
+      "description": "Vypořádejte výsledek podle doloženého rozhodnutí oprávněného orgánu. Příděly zachovávají společné kombinace dimenzí a oddělené zisky i ztráty.",
+      "date": "Datum rozhodnutí",
+      "reference": "Označení rozhodnutí",
+      "authority": "Oprávněný orgán",
+      "refresh": "Načíst podklady k datu",
+      "refresh_required": "Po zadání data načtěte aktuální podklady.",
+      "target": "Cíl vypořádání",
+      "amount": "Částka",
+      "profit": "Zisk",
+      "loss": "Ztráta",
+      "remaining": "Zbývá vypořádat",
+      "add": "Přidat příděl",
+      "remove": "Odebrat příděl",
+      "save": "Zaúčtovat rozhodnutí",
+      "no_dimensions": "Bez přiřazených dimenzí",
+      "framework_changed": "Účetní rámec se změnil. Načtěte stránku znovu.",
+      "roles": {
+        "retained_profit": "Nevypořádaný výsledek",
+        "funds": "Fondy",
+        "own_equity": "Vlastní jmění"
+      },
+      "resource_account": "Účet zdroje krytí",
+      "choose_resource": "Vyberte konkrétní účet",
+      "unique_resource": "Jediný dostupný účet: {account}"
     }
   },
   "support": {

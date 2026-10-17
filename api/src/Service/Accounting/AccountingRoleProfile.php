@@ -17,6 +17,7 @@ final readonly class AccountingRoleProfile
     {
         $accounts = $this->framework === AccountingFrameworkService::CZ_504
             ? ['closing.opening_balance' => '961', 'closing.final_balance' => '962', 'result.current' => '933', 'result.pending_approval' => '931', 'result.retained_profit' => '932', 'result.retained_loss' => '932',
+                'result.funds' => '911', 'result.own_equity' => '901',
                 'fx.loss' => '545', 'fx.gain' => '645', 'interest.expense' => '544', 'interest.income' => '644', 'bank.fee' => '549.100', 'rounding.loss' => '549', 'rounding.gain' => '649']
             : ['closing.opening_balance' => '701', 'closing.final_balance' => '702', 'result.current' => '710', 'result.pending_approval' => '431', 'result.retained_profit' => '428', 'result.retained_loss' => '429',
                 'fx.loss' => '563', 'fx.gain' => '663', 'interest.expense' => '562', 'interest.income' => '662', 'bank.fee' => '568', 'rounding.loss' => '548', 'rounding.gain' => '648'];

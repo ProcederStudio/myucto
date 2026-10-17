@@ -10,6 +10,7 @@ use MyInvoice\Service\Accounting\AccountingFrameworkException;
 use MyInvoice\Service\Accounting\AccountingFrameworkService;
 use MyInvoice\Service\Accounting\AccountingRoleProfile;
 use MyInvoice\Service\Accounting\FrameworkOperationPolicy;
+use MyInvoice\Service\Accounting\JournalLineComparison;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard;
@@ -250,7 +251,8 @@ final class ClosingService
             $stepList[] = $steps[$key];
         }
 
-        return [
+        $framework = $this->roleProfile($supplierId, (string) $period['ends_on'])->framework;
+        return ($framework === AccountingFrameworkService::CZ_504 ? ['accounting_framework' => $framework] : []) + [
             'period' => $period,
             'row_version' => (int) $period['row_version'],
             'steps' => $stepList,
@@ -455,6 +457,9 @@ final class ClosingService
             $pendingAccount = $profile->account('result.pending_approval');
             $retainedAccounts = implode('/', array_unique([$profile->account('result.retained_profit'), $profile->account('result.retained_loss')]));
             $balance431 = round($this->closing->accountBalance($supplierId, $pendingAccount, (string) $period['ends_on']), 2);
+            if (abs($balance431) < 0.005 && $profile->framework === AccountingFrameworkService::CZ_504 && $this->unresolvedResult504Cells($supplierId, $period, true) !== []) {
+                throw new ClosingException('profit_not_distributed', 'Na účtu výsledku ve schvalovacím řízení zůstávají nevypořádané kombinace dimenzí. Nejprve zaznamenejte rozhodnutí o výsledku hospodaření.', 422);
+            }
             if (abs($balance431) >= 0.005) {
                 throw new ClosingException(
                     'profit_not_distributed',
@@ -3234,7 +3239,7 @@ final class ClosingService
      *
      * @return array<string,mixed>
      */
-    public function profitDistributionPreview(int $supplierId, int $periodId): array
+    public function profitDistributionPreview(int $supplierId, int $periodId, ?string $decisionDate = null): array
     {
         $requested = $this->periods->findById($supplierId, $periodId);
         if ($requested === null) {
@@ -3245,10 +3250,17 @@ final class ClosingService
         $target = $context['target'];
         $sourceId = (int) $period['id'];
         $asOf = (string) $target['ends_on'];
-        $balance431 = round($this->closing->accountBalance($supplierId, $this->roleProfile($supplierId, $asOf)->account('result.pending_approval'), $asOf), 2);
+        if ($this->roleProfile($supplierId, $asOf)->framework === AccountingFrameworkService::CZ_504) {
+            if ($decisionDate !== null && (!self::isIsoDate($decisionDate) || $decisionDate < $target['starts_on'] || $decisionDate > $target['ends_on'])) {
+                throw new ClosingException('validation_failed', 'Datum rozhodnutí musí ležet v cílovém účetním období.', 422);
+            }
+            return $this->profitDistribution504Preview($supplierId, $period, $target, $decisionDate ?? $asOf);
+        }
+        $existing = $this->journal->findActiveBySource($supplierId, 'profit_distribution', $sourceId);
+        $snapshot = $this->closing->profitDistributionSnapshot($supplierId, $existing['id'] ?? null, $asOf);
+        $balance431 = $snapshot['balance_431'];
         $available = round(-$balance431, 2); // kladné = zisk k rozdělení, záporné = ztráta k úhradě
-        $existing = $this->journal->findBySource($supplierId, 'profit_distribution', $sourceId);
-        $resources = $this->distributableResources($supplierId, $asOf, $available, $sourceId);
+        $resources = $this->distributableResources($snapshot, $available);
 
         return [
             'approved_period' => ['id' => (int) $period['id'], 'fiscal_year' => (int) $period['fiscal_year'], 'status' => (string) $period['status']],
@@ -3278,7 +3290,7 @@ final class ClosingService
      * D 342). Tvrdá kontrola Σ přídělů = |zůstatek 431| a limitu rozdělitelných zdrojů.
      *
      * Idempotence (audit 2026-07 #3): zůstatek 431 se počítá s VYLOUČENÍM vlastního
-     * předchozího zápisu téhož source_id (accountBalance exclude*, vzor FX slotu 2) —
+     * aktivního předchozího zápisu téhož source_id (profitDistributionSnapshot) —
      * jinak by po prvním běhu 431 už nettoval na 0 a Σ přídělů by při re-runu vždy
      * selhala na distribution_mismatch (rewrite větev by byla nedosažitelná). Re-run
      * tak skutečně přepočítá „jako by se distribuce ještě nestala" a postDocument
@@ -3293,6 +3305,10 @@ final class ClosingService
      */
     public function runProfitDistribution(int $supplierId, int $periodId, array $body, array $meta = []): array
     {
+        $date = (string) ($body['decision_date'] ?? '');
+        if (self::isIsoDate($date) && $this->roleProfile($supplierId, $date)->framework === AccountingFrameworkService::CZ_504) {
+            return $this->runProfitDistribution504($supplierId, $periodId, $body, $meta);
+        }
         $decisionDate = trim((string) ($body['decision_date'] ?? ''));
         if (!self::isIsoDate($decisionDate)) {
             throw new ClosingException('validation_failed', 'Datum rozhodnutí valné hromady musí být YYYY-MM-DD.');
@@ -3308,11 +3324,12 @@ final class ClosingService
         $targetRowVersion = (int) ($body['target_row_version'] ?? 0);
 
         return $this->tx(function () use ($supplierId, $periodId, $decisionDate, $allocations, $withholdingRate, $targetRowVersion, $meta): array {
-            $requested = $this->periods->findById($supplierId, $periodId);
+            (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+            $requested = $this->periods->findForUpdate($periodId, $supplierId);
             if ($requested === null) {
                 throw new ClosingException('not_found', 'Účetní období #' . $periodId . ' neexistuje.', 404);
             }
-            $context = $this->profitDistributionContext($supplierId, $requested);
+            $context = $this->profitDistributionContext($supplierId, $requested, true);
             $period = $context['source'];
             $target = $context['target'];
             $sourceId = (int) $period['id'];
@@ -3336,10 +3353,12 @@ final class ClosingService
             $asOf = (string) $lockedTarget['ends_on'];
             // Vyloučit vlastní předchozí zápis (audit #3) — bez toho by re-run po prvním
             // zaúčtování viděl 431 už vynulovaný a distribution_mismatch by byla nedosažitelná.
-            $balance431 = round($this->closing->accountBalance($supplierId, '431', $asOf, 'profit_distribution', $sourceId), 2);
+            $existing = $this->journal->findActiveBySourceForUpdate($supplierId, 'profit_distribution', $sourceId);
+            $snapshot = $this->closing->profitDistributionSnapshot($supplierId, $existing['id'] ?? null, $asOf, true);
+            $balance431 = $snapshot['undistributed_balance_431'];
             $available = round(-$balance431, 2);
             $isLoss = $available < 0;
-            $resources = $this->distributableResources($supplierId, $asOf, $available, $sourceId);
+            $resources = $this->distributableResources($snapshot, $available);
 
             $sum = 0.0;
             $sharesGross = 0.0;
@@ -3407,7 +3426,8 @@ final class ClosingService
 
             $this->assertKnownCodes($supplierId, $lines);
 
-            $existing = $this->journal->findBySource($supplierId, 'profit_distribution', $sourceId);
+            $this->assertProfitDistributionUnsettled($supplierId, $sourceId, $decisionDate,
+                $this->posting->prepareDocumentLines($supplierId, 'profit_distribution', $sourceId, $lines, $decisionDate));
             $docNo = $existing !== null && $existing['document_no'] !== null
                 ? (string) $existing['document_no']
                 : $this->series->next($supplierId, 'manual', (int) $lockedTarget['fiscal_year']);
@@ -3450,6 +3470,119 @@ final class ClosingService
         });
     }
 
+    private function profitDistribution504Preview(int $supplierId, array $source, array $target, string $asOf, bool $forUpdate = false): array
+    {
+        $profile = $this->resultDecisionProfile($supplierId, $asOf, $forUpdate);
+        try {
+            $this->resultDecisionProfile($supplierId, (string) $source['ends_on'], $forUpdate)->assertCompatibleOpening($profile);
+        } catch (AccountingFrameworkException $e) {
+            throw new ClosingException($e->errorCode, $e->getMessage(), $e->httpStatus);
+        }
+        $cells = ProfitDistribution504Builder::cells($this->closing->pendingResultLines($supplierId, (int) $target['id'],
+            $asOf, $profile->account('result.pending_approval'), (int) $source['id'], $forUpdate));
+        $resources = [];
+        foreach (['result.funds', 'result.own_equity'] as $role) {
+            array_push($resources, ...ProfitDistribution504Builder::cells($this->closing->pendingResultLines($supplierId, (int) $target['id'],
+                $asOf, $profile->account($role), (int) $source['id'], $forUpdate)));
+        }
+        $existing = $this->journal->findActiveBySource($supplierId, 'profit_distribution', (int) $source['id'], $forUpdate);
+        $step = $this->closing->resultDecisionOpeningStep($supplierId, (int) $source['id'], $forUpdate);
+        return ['accounting_framework' => 'cz_504', 'as_of' => $asOf,
+            'approved_period' => ['id' => (int) $source['id'], 'fiscal_year' => (int) $source['fiscal_year'], 'status' => $source['status']],
+            'target_period' => ['id' => (int) $target['id'], 'fiscal_year' => (int) $target['fiscal_year'],
+                'row_version' => (int) $target['row_version'], 'starts_on' => $target['starts_on'], 'ends_on' => $target['ends_on']],
+            'pending_account' => $profile->account('result.pending_approval'), 'cells' => $cells,
+            'snapshot_hash' => ProfitDistribution504Builder::snapshot($cells), 'resources' => $resources,
+            'dimension_labels' => $this->closing->resultDecisionDimensionLabels($supplierId),
+            'available_profit' => array_sum(array_column($cells, 'available_cents')) / 100,
+            'target_roles' => array_map(static fn (string $role): array => ['role' => $role, 'account_code' => $profile->account($role)], ProfitDistribution504Builder::TARGET_ROLES),
+            'existing_entry_id' => $existing === null ? null : (int) $existing['id'],
+            'decision' => $existing !== null && (int) ($step['payload']['result_decision']['entry_id'] ?? 0) === (int) $existing['id']
+                ? $step['payload']['result_decision'] : null];
+    }
+
+    private function runProfitDistribution504(int $supplierId, int $periodId, array $body, array $meta): array
+    {
+        return $this->tx(fn (): array => (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $periodId, $body, $meta): array {
+            ['source' => $source, 'target' => $target] = $this->resultDecisionCurrentContext($supplierId, $periodId);
+            $target = $this->lockPeriod($supplierId, (int) $target['id'], (int) ($body['target_row_version'] ?? 0));
+            $this->assertStatus($target, self::PROFIT_DISTRIBUTION_TARGET_STATUSES);
+            $date = (string) $body['decision_date'];
+            if ($date < $target['starts_on'] || $date > $target['ends_on']) {
+                throw new ClosingException('validation_failed', 'Datum rozhodnutí musí ležet v cílovém účetním období.', 422);
+            }
+            $profile = $this->resultDecisionProfile($supplierId, $date, true);
+            try {
+                FrameworkOperationPolicy::assertAllowed($profile, 'profit_distribution', $body);
+            } catch (AccountingFrameworkException $e) {
+                throw new ClosingException($e->errorCode, $e->getMessage(), $e->httpStatus);
+            }
+            $preview = $this->profitDistribution504Preview($supplierId, $source, $target, $date, true);
+            $lines = ProfitDistribution504Builder::build($preview['cells'], $body, $profile, $preview['resources']);
+            $this->assertKnownCodes($supplierId, $lines);
+            $sourceId = (int) $source['id'];
+            $this->assertProfitDistributionUnsettled($supplierId, $sourceId, $date,
+                $this->posting->prepareDocumentLines($supplierId, 'profit_distribution', $sourceId, $lines, $date),
+                $profile->account('result.pending_approval'));
+            $existing = $this->journal->findActiveBySourceForUpdate($supplierId, 'profit_distribution', $sourceId);
+            $docNo = $existing['document_no'] ?? $this->series->next($supplierId, 'manual', (int) $target['fiscal_year']);
+            $entryId = $this->posting->postDocument($supplierId, 'profit_distribution', $sourceId, $lines, [
+                'entry_date' => $date, 'document_no' => $docNo, 'description' => 'Rozhodnutí o výsledku hospodaření ' . $source['fiscal_year'],
+                'posted' => true, 'allow_closing_period' => $target['status'] === 'closing'] + $meta);
+            $resolvedAllocations = [];
+            foreach (array_values($body['allocations']) as $index => $allocation) {
+                $resolvedAllocations[] = ['account_code' => $lines[$index * 2 + 1]['account_code']] + $allocation;
+            }
+            $decision = ['entry_id' => $entryId, 'decision_date' => $date, 'decision_reference' => trim($body['decision_reference']),
+                'decision_authority' => trim($body['decision_authority']), 'snapshot_hash' => $preview['snapshot_hash'],
+                'cells' => $preview['cells'], 'allocations' => $resolvedAllocations, 'target_period_id' => (int) $target['id']];
+            $step = $this->closing->resultDecisionOpeningStep($supplierId, $sourceId, true);
+            $payload = $step['payload'] ?? [];
+            $payload['result_decision'] = $decision;
+            $this->closing->upsertStep($supplierId, $sourceId, 'open_next', $step['status'] ?? 'pending', $payload, $step['note'] ?? null, $meta['user_id'] ?? null);
+            $this->bumpVersion($supplierId, (int) $target['id'], (int) $body['target_row_version']);
+            $this->audit($supplierId, 'accounting.profit_distributed', $sourceId, $decision, $meta);
+            return ['accounting_framework' => 'cz_504', 'entry_id' => $entryId, 'document_no' => $docNo,
+                'target_period_id' => (int) $target['id'], 'available_profit' => $preview['available_profit'],
+                'distributed' => array_sum(array_map(static fn (array $cell): int => abs($cell['available_cents']), $preview['cells'])) / 100,
+                'decision_date' => $date];
+        }));
+    }
+
+    private function unresolvedResult504Cells(int $supplierId, array $period, bool $forUpdate): array
+    {
+        return ProfitDistribution504Builder::cells($this->closing->pendingResultLines($supplierId, (int) $period['id'],
+            (string) $period['ends_on'], $this->resultDecisionProfile($supplierId, (string) $period['ends_on'], $forUpdate)->account('result.pending_approval'), null, $forUpdate));
+    }
+
+    private function resultDecisionCurrentContext(int $supplierId, int $periodId): array
+    {
+        (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+        $periods = $this->closing->resultDecisionPeriods($supplierId, true);
+        $source = $target = null;
+        foreach ($periods as $index => $period) {
+            if ((int) $period['id'] !== $periodId) continue;
+            if (in_array($period['status'], self::PROFIT_DISTRIBUTION_TARGET_STATUSES, true)) {
+                $source = $periods[$index - 1] ?? null;
+                $target = $period;
+            } else {
+                $source = $period;
+                $target = $periods[$index + 1] ?? null;
+            }
+        }
+        if ($source === null || $target === null || $source['status'] !== 'approved') {
+            throw new ClosingException('profit_distribution_requires_approved_period', 'Rozdělení výsledku hospodaření vyžaduje bezprostředně předchozí schválené období.', 422);
+        }
+        return ['source' => $source, 'target' => $target];
+    }
+
+    private function resultDecisionProfile(int $supplierId, string $date, bool $forUpdate): AccountingRoleProfile
+    {
+        if (!$forUpdate) return $this->roleProfile($supplierId, $date);
+        $frameworks = new AccountingFrameworkService($this->db, new \MyInvoice\Repository\AccountingFrameworkRepository($this->db));
+        return new AccountingRoleProfile($frameworks->forDateForUpdate($supplierId, $date));
+    }
+
     /**
      * Revert rozdělení VH — HARD DELETE zápisu s dumpem (vzor deleteClosingEntry),
      * jen dokud je cílové otevřené období open.
@@ -3472,7 +3605,9 @@ final class ClosingService
             if ($requested === null) {
                 throw new ClosingException('not_found', 'Účetní období #' . $periodId . ' neexistuje.', 404);
             }
-            $context = $this->profitDistributionContext($supplierId, $requested, true);
+            $is504 = $this->resultDecisionProfile($supplierId, (string) $requested['ends_on'], true)->framework === AccountingFrameworkService::CZ_504;
+            $context = $is504 ? $this->resultDecisionCurrentContext($supplierId, $periodId)
+                : $this->profitDistributionContext($supplierId, $requested, true);
             $period = $context['source'];
             $target = $context['target'];
             $sourceId = (int) $period['id'];
@@ -3481,30 +3616,23 @@ final class ClosingService
             // Symetrie s zaúčtováním: co jde zaúčtovat do 'closing', musí jít i vzít zpět.
             $this->assertStatus($lockedTarget, self::PROFIT_DISTRIBUTION_TARGET_STATUSES);
 
-            $existing = $this->findEntryWithLines($supplierId, 'profit_distribution', $sourceId, true);
+            $existing = $this->findEntryWithLines($supplierId, 'profit_distribution', $sourceId, true, true);
             if ($existing === null) {
                 throw new ClosingException('not_found', 'Žádné zaúčtované rozdělení VH k revertu.', 404);
             }
-            $pendingAccount = $this->roleProfile($supplierId, (string) $existing['entry_date'])->account('result.pending_approval');
-            $watchCodes = [];
-            foreach (($existing['lines'] ?? []) as $l) {
-                $code = (string) $l['account_code'];
-                if ($code !== $pendingAccount) {
-                    $watchCodes[$code] = true;
-                }
-            }
-            if ($watchCodes !== [] && $this->closing->hasFollowUpPostingsForUpdate($supplierId, array_keys($watchCodes), (string) $existing['entry_date'])) {
-                throw new ClosingException(
-                    'distribution_settled',
-                    'Na účty rozdělení VH (např. 364 — podíly společníků) navazují pozdější zaúčtované doklady '
-                        . '(výplata podílu, čerpání fondu apod.) — nejprve stornuj navazující platby, teprve pak vezmi rozdělení zpět.',
-                    422,
-                );
-            }
+            $this->assertProfitDistributionUnsettled($supplierId, $sourceId, pendingAccount: $this->roleProfile($supplierId, (string) $existing['entry_date'])->account('result.pending_approval'));
 
             $dump = $this->closing->deleteClosingEntry($supplierId, 'profit_distribution', $sourceId, $targetId, true);
             if ($dump === null) {
                 throw new ClosingException('not_found', 'Žádné zaúčtované rozdělení VH k revertu.', 404);
+            }
+            if ($this->roleProfile($supplierId, (string) $existing['entry_date'])->framework === AccountingFrameworkService::CZ_504) {
+                $step = $this->closing->resultDecisionOpeningStep($supplierId, $sourceId, true);
+                if ($step !== null) {
+                    $payload = $step['payload'];
+                    unset($payload['result_decision']);
+                    $this->closing->upsertStep($supplierId, $sourceId, 'open_next', $step['status'], $payload, $step['note'], $meta['user_id'] ?? null);
+                }
             }
             $this->bumpVersion($supplierId, $targetId, $targetRowVersion);
             $this->audit($supplierId, 'accounting.profit_distribution_reverted', $periodId, [
@@ -3515,13 +3643,24 @@ final class ClosingService
         });
     }
 
-    /**
-     * Zdrojové schválené a cílové otevřené období pro rozdělení VH. Volání nad
-     * otevřeným obdobím kanonicky dohledá jeho bezprostředně předchozí approved rok.
-     *
-     * @param array<string,mixed> $period
-     * @return array{source:array<string,mixed>,target:array<string,mixed>}
-     */
+    /** Přesný finanční retry je dovolen; změna nebo smazání nesmí opustit použité zdroje. */
+    public function assertProfitDistributionUnsettled(int $supplierId, int $sourcePeriodId, ?string $newDate = null, ?array $resolvedLines = null, string $pendingAccount = '431'): void
+    {
+        (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+        $existing = $this->findEntryWithLines($supplierId, 'profit_distribution', $sourcePeriodId, true, true);
+        if ($existing === null) return;
+        if ($newDate === $existing['entry_date'] && $resolvedLines !== null && JournalLineComparison::sameLines($resolvedLines, $existing['lines'])) return;
+        $watchCodes = [];
+        foreach ($existing['lines'] as $line) {
+            if (!str_starts_with($line['account_code'], $pendingAccount)) $watchCodes[$line['account_code']] = true;
+        }
+        if ($this->closing->hasFollowUpPostingsForUpdate($supplierId, array_keys($watchCodes), $existing['entry_date'], (int) $existing['id'])) {
+            throw new ClosingException('distribution_settled',
+                'Na účty rozdělení VH (např. 364 — podíly společníků) navazují pozdější zaúčtované doklady '
+                    . '(výplata podílu, čerpání fondu apod.) — nejprve stornuj navazující platby, teprve pak vezmi rozdělení zpět.', 422);
+        }
+    }
+
     /**
      * Dobová sazba srážkové daně §36 z podílu na zisku pro daný rok — z verzovaných
      * konstant, s fallbackem na {@see self::WITHHOLDING_RATE} pro roky bez klíče.
@@ -3541,6 +3680,13 @@ final class ClosingService
      */
     private const PROFIT_DISTRIBUTION_TARGET_STATUSES = ['open', 'closing'];
 
+    /**
+     * Zdrojové schválené a cílové otevřené období pro rozdělení VH. Volání nad
+     * otevřeným obdobím kanonicky dohledá jeho bezprostředně předchozí approved rok.
+     *
+     * @param array<string,mixed> $period
+     * @return array{source:array<string,mixed>,target:array<string,mixed>}
+     */
     private function profitDistributionContext(int $supplierId, array $period, bool $forUpdate = false): array
     {
         if (in_array((string) $period['status'], self::PROFIT_DISTRIBUTION_TARGET_STATUSES, true)) {
@@ -3578,10 +3724,10 @@ final class ClosingService
      *
      * @return array{retained_profit:float,uncovered_loss:float,limit:float}
      */
-    private function distributableResources(int $supplierId, string $asOf, float $currentProfit, int $sourcePeriodId): array
+    private function distributableResources(array $snapshot, float $currentProfit): array
     {
-        $balance428 = round($this->closing->accountBalance($supplierId, $this->roleProfile($supplierId, $asOf)->account('result.retained_profit'), $asOf, 'profit_distribution', $sourcePeriodId), 2);
-        $balance429 = round($this->closing->accountBalance($supplierId, $this->roleProfile($supplierId, $asOf)->account('result.retained_loss'), $asOf, 'profit_distribution', $sourcePeriodId), 2);
+        $balance428 = $snapshot['balance_428'];
+        $balance429 = $snapshot['balance_429'];
         $retainedProfit = max(0.0, round(-$balance428, 2));
         $uncoveredLoss = max(0.0, round($balance429, 2));
         return [
@@ -5503,10 +5649,12 @@ final class ClosingService
         ];
 
         $balance431 = round($this->closing->accountBalance($supplierId, $this->roleProfile($supplierId, $endsOn)->account('result.pending_approval'), $endsOn), 2);
+        $unresolved504 = $this->roleProfile($supplierId, $endsOn)->framework === AccountingFrameworkService::CZ_504
+            ? $this->unresolvedResult504Cells($supplierId, $period, $this->db->pdo()->inTransaction()) : [];
         $checks[] = [
             'key' => 'vh_431_undistributed',
             'severity' => 'error',
-            'ok' => abs($balance431) < 0.005,
+            'ok' => abs($balance431) < 0.005 && $unresolved504 === [],
             'value' => ['account' => $this->roleProfile($supplierId, $endsOn)->account('result.pending_approval'), 'balance' => $balance431],
         ];
 
@@ -5908,10 +6056,11 @@ final class ClosingService
      *
      * @return array<string,mixed>|null
      */
-    private function findEntryWithLines(int $supplierId, string $sourceType, int $sourceId, bool $forUpdate = false): ?array
+    private function findEntryWithLines(int $supplierId, string $sourceType, int $sourceId, bool $forUpdate = false, bool $activeOnly = false): ?array
     {
-        $entry = $forUpdate ? $this->journal->findBySourceForUpdate($supplierId, $sourceType, $sourceId)
-            : $this->journal->findBySource($supplierId, $sourceType, $sourceId);
+        $entry = $activeOnly ? $this->journal->findActiveBySource($supplierId, $sourceType, $sourceId, $forUpdate)
+            : ($forUpdate ? $this->journal->findBySourceForUpdate($supplierId, $sourceType, $sourceId)
+                : $this->journal->findBySource($supplierId, $sourceType, $sourceId));
         if ($entry === null) {
             return null;
         }

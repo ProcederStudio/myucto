@@ -14,6 +14,12 @@ final class FrameworkOperationPolicy
         if ($profile->framework === AccountingFrameworkService::CZ_500) {
             return true;
         }
+        if ($operation === 'profit_distribution') {
+            foreach (['decision_reference', 'decision_authority'] as $key) {
+                if (!is_string($context[$key] ?? null) || trim($context[$key]) === '' || mb_strlen($context[$key]) > 500) return false;
+            }
+            return true;
+        }
         return in_array($operation, ['reserve.legal', 'provision.legal'], true)
             && ($context['taxable_activity'] ?? null) === true
             && is_string($context['legal_basis'] ?? null)

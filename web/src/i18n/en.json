@@ -18907,6 +18907,33 @@
       "notes_subtitle": "Notes under Sections 29 and 30 of Decree No. 504/2002 Coll.",
       "supplements_unavailable": "Statements under Decree 504 comprise a balance sheet, income statement and notes. The current calculator does not support voluntary cash flow and equity movement statements for this framework.",
       "package_hint": "The package uses Decree 504 and the final day of the selected accounting period. Statements calculated only for Decree 500 are unavailable."
+    },
+    "result504": {
+      "title": "Decision on the accounting result",
+      "description": "Allocate the result under a documented decision of the authorised body. Allocations preserve joint dimension combinations and separate profits and losses.",
+      "date": "Decision date",
+      "reference": "Decision reference",
+      "authority": "Authorised body",
+      "refresh": "Load balances at date",
+      "refresh_required": "After entering a date, load the current balances.",
+      "target": "Allocation target",
+      "amount": "Amount",
+      "profit": "Profit",
+      "loss": "Loss",
+      "remaining": "Remaining to allocate",
+      "add": "Add allocation",
+      "remove": "Remove allocation",
+      "save": "Post decision",
+      "no_dimensions": "No assigned dimensions",
+      "framework_changed": "The accounting framework has changed. Reload the page.",
+      "roles": {
+        "retained_profit": "Retained result",
+        "funds": "Funds",
+        "own_equity": "Own equity"
+      },
+      "resource_account": "Loss coverage account",
+      "choose_resource": "Choose a specific account",
+      "unique_resource": "Only available account: {account}"
     }
   },
   "support": {

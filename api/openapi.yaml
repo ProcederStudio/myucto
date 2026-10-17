@@ -13816,23 +13816,40 @@ paths:
 
   /api/v1/accounting/periods/{id}/closing:
     get:
-      tags: [Accounting]
+      tags:
+      - Accounting
       summary: Stav uzávěrkového průvodce období (Epic F4)
-      description: |
-        Období + kroky (precheck…open_next, stav pending/done/skipped, payload) + odvozené flagy can_*.
-        `opening_takeover` (null po dokončení open_next) = počáteční stavy dalšího roku:
-        `status` to_create / match / mismatch / unavailable, převzaté zápisy `entries`,
-        tabulka rozdílů `diff` [{account_code, expected, existing, difference}],
-        `preliminary` = porovnání před uzavřením knih.
-        Účty kontrol vycházejí z historického rámce období; například kontrola
-        `vh_431_undistributed` uvádí v `value.account` účet 431 pro 500 a 931 pro 504.
-      parameters:
-        - $ref: '#/components/parameters/SupplierIdHeader'
-        - { in: path, name: id, required: true, schema: { type: integer } }
-      responses:
-        '200': { description: OK, content: { application/json: { schema: { type: object } } } }
-        '404': { $ref: '#/components/responses/NotFound' }
+      description: 'Období + kroky (precheck…open_next, stav pending/done/skipped, payload) + odvozené flagy can_*.
 
+        `opening_takeover` (null po dokončení open_next) = počáteční stavy dalšího roku:
+
+        `status` to_create / match / mismatch / unavailable, převzaté zápisy `entries`,
+
+        tabulka rozdílů `diff` [{account_code, expected, existing, difference}],
+
+        `preliminary` = porovnání před uzavřením knih.
+
+        Účty kontrol vycházejí z historického rámce období; například kontrola
+
+        `vh_431_undistributed` uvádí v `value.account` účet 431 pro 500 a 931 pro 504.
+
+        '
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountingClosingState'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/v1/accounting/periods/{id}/monthly-check:
     get:
       tags: [Accounting]
@@ -14248,80 +14265,195 @@ paths:
 
   /api/v1/accounting/periods/{id}/profit-distribution/preview:
     get:
-      tags: [Accounting]
-      summary: Náhled rozdělení výsledku hospodaření (D10)
-      description: |
-        Disponibilní zůstatek 431 v cílovém otevřeném období. Zdrojové období
-        musí být schválené; odpověď obsahuje i limit rozdělitelných zdrojů z 431/428/429.
+      tags:
+      - Accounting
+      summary: Náhled rozdělení výsledku podle historického účetního rámce
+      description: Rámec 500 vrací zůstatek 431 a dosavadní rozdělení. Rámec 504 vrací společné kombinace účtu 931, dostupné
+        fondy a vlastní jmění ke zvolenému datu. Každá kombinace zisku či ztráty se vypořádává samostatně; náhled obsahuje otisk
+        aktuálních podkladů.
       parameters:
-        - $ref: '#/components/parameters/SupplierIdHeader'
-        - { in: path, name: id, required: true, schema: { type: integer } }
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+      - in: query
+        name: decision_date
+        required: false
+        schema:
+          type: string
+          format: date
+        description: Pro rámec 504 datum uvnitř cílového období. Bez parametru se použije jeho poslední den.
       responses:
-        '200': { description: "OK {approved_period, target_period, balance_431, available_profit, retained_profit, uncovered_loss, distributable_resources, is_loss, withholding_rate}", content: { application/json: { schema: { type: object } } } }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '422': { $ref: '#/components/responses/ValidationFailed' }
-
+        '200':
+          description: Náhled příslušného rámce
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - $ref: '#/components/schemas/ProfitDistribution500Preview'
+                - $ref: '#/components/schemas/ProfitDistribution504Preview'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
   /api/v1/accounting/periods/{id}/profit-distribution:
     post:
-      tags: [Accounting]
-      summary: Zaúčtování rozdělení VH (D10, 431 → 428/429/364…)
-      description: |
-        Účetní/admin. Zisk: MD 431 / D {428, fondy, 364}; ztráta: MD {429, 428} / D 431.
+      tags:
+      - Accounting
+      summary: Zaúčtování doloženého rozhodnutí o výsledku hospodaření
+      description: 'Účetní/admin. Zisk: MD 431 / D {428, fondy, 364}; ztráta: MD {429, 428} / D 431.
+
         Každý řádek kind=shares představuje jednoho společníka; §36 srážková daň se
+
         počítá a zaokrouhluje dolů per společník (MD účet podílů / D 342). Kontrola
+
         Σ přídělů = |zůstatek 431| a limitu rozdělitelných zdrojů. Účtuje se do OTEVŘENÉHO období; idempotence source
+
         profit_distribution/approved_period_id.
-        Tento postup podporuje rámec 500. Pro 504 vrací 422
-        `accounting_framework_operation_not_supported`, dokud není dostupný
-        postup s právním titulem a členěním rozhodnutí podle činností.
+
+        Pro rámec 504 vyžaduje označení rozhodnutí, oprávněný orgán, datum, otisk podkladů a přesné příděly každé společné kombinace
+        do 932, 911 nebo 901. Krytí ztráty fondem či vlastním jměním nepřekročí zůstatek stejné kombinace. Podíly společníků
+        a srážková daň této varianty nejsou součástí.'
       parameters:
-        - $ref: '#/components/parameters/SupplierIdHeader'
-        - { in: path, name: id, required: true, schema: { type: integer } }
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - type: object
+                required:
+                - decision_date
+                - target_row_version
+                - allocations
+                properties:
+                  decision_date:
+                    type: string
+                    format: date
+                    description: Datum rozhodnutí valné hromady
+                  target_row_version:
+                    type: integer
+                    minimum: 1
+                    description: row_version cílového otevřeného období (CAS)
+                  withholding_rate:
+                    type: number
+                    minimum: 0
+                    maximum: 1
+                    default: 0.15
+                  allocations:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                      - account_code
+                      - amount
+                      properties:
+                        account_code:
+                          type: string
+                          example: '428'
+                        amount:
+                          type: number
+                          exclusiveMinimum: 0
+                        kind:
+                          type: string
+                          enum:
+                          - retained
+                          - fund
+                          - shares
+                          - loss_coverage
+              - $ref: '#/components/schemas/ResultDecision504Request'
+      responses:
+        '200':
+          description: Zaúčtované rozhodnutí
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - type: object
+                  required:
+                  - entry_id
+                  - distributed
+                  - withholding
+                  - target_period_id
+                  properties:
+                    entry_id:
+                      type: integer
+                    distributed:
+                      type: number
+                    withholding:
+                      type: number
+                    target_period_id:
+                      type: integer
+                - $ref: '#/components/schemas/ResultDecision504Result'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: version_conflict / result_decision_stale
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: distribution_mismatch / insufficient_distributable_resources / validation_failed / dimension_required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/accounting/periods/{id}/profit-distribution/revert:
+    post:
+      tags:
+      - Accounting
+      summary: Revert rozdělení VH (D10 — hard delete s dumpem)
+      description: Smaže rozhodnutí pouze v otevřeném nebo uzavíraném cílovém období bez navazujících zaúčtovaných pohybů. Aktuální
+        stav a auditní dump se ověřují zamykajícím čtením; vyžaduje oprávnění k uzavírání období.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [decision_date, target_row_version, allocations]
+              required:
+              - target_row_version
               properties:
-                decision_date: { type: string, format: date, description: "Datum rozhodnutí valné hromady" }
-                target_row_version: { type: integer, minimum: 1, description: "row_version cílového otevřeného období (CAS)" }
-                withholding_rate: { type: number, minimum: 0, maximum: 1, default: 0.15 }
-                allocations:
-                  type: array
-                  items:
-                    type: object
-                    required: [account_code, amount]
-                    properties:
-                      account_code: { type: string, example: "428" }
-                      amount: { type: number, exclusiveMinimum: 0 }
-                      kind: { type: string, enum: [retained, fund, shares, loss_coverage] }
+                target_row_version:
+                  type: integer
+                  minimum: 1
       responses:
-        '200': { description: "OK {entry_id, distributed, withholding, target_period_id}", content: { application/json: { schema: { type: object } } } }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { description: version_conflict, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
-        '422': { description: "distribution_mismatch / validation_failed", content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
-
-  /api/v1/accounting/periods/{id}/profit-distribution/revert:
-    post:
-      tags: [Accounting]
-      summary: Revert rozdělení VH (D10 — hard delete s dumpem)
-      description: Admin-only. Smaže zápis rozdělení, dokud je cílové otevřené období open.
-      parameters:
-        - $ref: '#/components/parameters/SupplierIdHeader'
-        - { in: path, name: id, required: true, schema: { type: integer } }
-      requestBody:
-        required: true
-        content: { application/json: { schema: { type: object, required: [target_row_version], properties: { target_row_version: { type: integer, minimum: 1 } } } } }
-      responses:
-        '200': { description: OK, content: { application/json: { schema: { type: object } } } }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { description: version_conflict, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
-        '422': { $ref: '#/components/responses/ValidationFailed' }
-
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: version_conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
   /api/v1/accounting/journal/transfer:
     post:
       tags: [Accounting]
@@ -29807,6 +29939,377 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
 
   schemas:
+    ResultDecision504Cell:
+      type: object
+      required:
+      - key
+      - account_code
+      - dimensions
+      - cost_center
+      - project_id
+      - available
+      - available_cents
+      - source_line_ids
+      properties:
+        key:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        account_code:
+          type: string
+        dimensions:
+          type: object
+          additionalProperties:
+            type: integer
+        cost_center:
+          type:
+          - string
+          - 'null'
+        project_id:
+          type:
+          - integer
+          - 'null'
+        available:
+          type: number
+        available_cents:
+          type: integer
+        source_line_ids:
+          type: array
+          items:
+            type: integer
+    ResultDecision504Allocation:
+      type: object
+      required:
+      - cell_key
+      - role
+      - amount
+      properties:
+        cell_key:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        role:
+          type: string
+          enum:
+          - result.retained_profit
+          - result.funds
+          - result.own_equity
+        account_code:
+          type: string
+          description: Skutečný účet ve skupině odpovídající zvolené roli. Krytí ztráty z více analytik vyžaduje jeho výběr.
+        amount:
+          oneOf:
+          - type: number
+            exclusiveMinimum: 0
+            maximum: 9999999999999.99
+            multipleOf: 0.01
+          - type: string
+            pattern: ^[0-9]{1,13}(\.[0-9]{1,2}0*)?$
+          description: Kladná částka v celých haléřích; necelý haléř ani exponentový řetězec se nepřijímá.
+    ResultDecision504Request:
+      type: object
+      required:
+      - decision_date
+      - decision_reference
+      - decision_authority
+      - target_row_version
+      - snapshot_hash
+      - allocations
+      properties:
+        decision_date:
+          type: string
+          format: date
+        decision_reference:
+          type: string
+          minLength: 1
+          maxLength: 500
+        decision_authority:
+          type: string
+          minLength: 1
+          maxLength: 500
+        target_row_version:
+          type: integer
+          minimum: 1
+        snapshot_hash:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        allocations:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ResultDecision504Allocation'
+    ResultDecision504Record:
+      type: object
+      required:
+      - decision_date
+      - decision_reference
+      - decision_authority
+      - snapshot_hash
+      - allocations
+      - entry_id
+      - target_period_id
+      - cells
+      properties:
+        decision_date:
+          type: string
+          format: date
+        decision_reference:
+          type: string
+          minLength: 1
+          maxLength: 500
+        decision_authority:
+          type: string
+          minLength: 1
+          maxLength: 500
+        snapshot_hash:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        allocations:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ResultDecision504Allocation'
+        entry_id:
+          type: integer
+        target_period_id:
+          type: integer
+        cells:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResultDecision504Cell'
+    ProfitDistribution500Preview:
+      type: object
+      required:
+      - approved_period
+      - target_period
+      - balance_431
+      - available_profit
+      - retained_profit
+      - uncovered_loss
+      - distributable_resources
+      - withholding_rate
+      - is_loss
+      - existing_entry_id
+      properties:
+        approved_period:
+          type: object
+          required:
+          - id
+          - fiscal_year
+          - status
+          properties:
+            id:
+              type: integer
+            fiscal_year:
+              type: integer
+            status:
+              type: string
+        target_period:
+          type: object
+          required:
+          - id
+          - fiscal_year
+          - row_version
+          - starts_on
+          - ends_on
+          properties:
+            id:
+              type: integer
+            fiscal_year:
+              type: integer
+            row_version:
+              type: integer
+            starts_on:
+              type: string
+              format: date
+            ends_on:
+              type: string
+              format: date
+        balance_431:
+          type: number
+        available_profit:
+          type: number
+        retained_profit:
+          type: number
+        uncovered_loss:
+          type: number
+        distributable_resources:
+          type: number
+        withholding_rate:
+          type: number
+        is_loss:
+          type: boolean
+        existing_entry_id:
+          type:
+          - integer
+          - 'null'
+    ProfitDistribution504Preview:
+      type: object
+      required:
+      - accounting_framework
+      - as_of
+      - approved_period
+      - target_period
+      - pending_account
+      - cells
+      - resources
+      - dimension_labels
+      - snapshot_hash
+      - available_profit
+      - target_roles
+      - existing_entry_id
+      - decision
+      properties:
+        accounting_framework:
+          type: string
+          const: cz_504
+        as_of:
+          type: string
+          format: date
+        approved_period:
+          type: object
+          required:
+          - id
+          - fiscal_year
+          - status
+          properties:
+            id:
+              type: integer
+            fiscal_year:
+              type: integer
+            status:
+              type: string
+        target_period:
+          type: object
+          required:
+          - id
+          - fiscal_year
+          - row_version
+          - starts_on
+          - ends_on
+          properties:
+            id:
+              type: integer
+            fiscal_year:
+              type: integer
+            row_version:
+              type: integer
+            starts_on:
+              type: string
+              format: date
+            ends_on:
+              type: string
+              format: date
+        pending_account:
+          type: string
+        cells:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResultDecision504Cell'
+        resources:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResultDecision504Cell'
+        dimension_labels:
+          type: object
+          additionalProperties:
+            type: string
+        snapshot_hash:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        available_profit:
+          type: number
+        target_roles:
+          type: array
+          items:
+            type: object
+            required:
+            - role
+            - account_code
+            properties:
+              role:
+                type: string
+                enum:
+                - result.retained_profit
+                - result.funds
+                - result.own_equity
+              account_code:
+                type: string
+        existing_entry_id:
+          type:
+          - integer
+          - 'null'
+        decision:
+          oneOf:
+          - $ref: '#/components/schemas/ResultDecision504Record'
+          - type: 'null'
+    ResultDecision504Result:
+      type: object
+      required:
+      - accounting_framework
+      - entry_id
+      - document_no
+      - target_period_id
+      - available_profit
+      - distributed
+      - decision_date
+      properties:
+        accounting_framework:
+          type: string
+          const: cz_504
+        entry_id:
+          type: integer
+        document_no:
+          type: string
+        target_period_id:
+          type: integer
+        available_profit:
+          type: number
+        distributed:
+          type: number
+        decision_date:
+          type: string
+          format: date
+    AccountingClosingState:
+      type: object
+      required:
+      - period
+      - steps
+      properties:
+        accounting_framework:
+          type: string
+          const: cz_504
+          description: Pouze pro rámec 504; historická odpověď 500 pole nepřidává.
+        period:
+          type: object
+        steps:
+          type: array
+          items:
+            type: object
+        can_start:
+          type: boolean
+        precheck_stale:
+          type: boolean
+        can_abort:
+          type: boolean
+        can_close:
+          type: boolean
+        can_open_next:
+          type: boolean
+        can_revert_fx_revaluation:
+          type: boolean
+        can_revert_stock:
+          type: boolean
+        can_revert_close_books:
+          type: boolean
+        can_revert_open_next:
+          type: boolean
+        stock_step_required:
+          type: boolean
+        depreciation_step_required:
+          type: boolean
+        opening_takeover:
+          type:
+          - object
+          - 'null'
     StatementAccount504Line:
       type: object
       required:

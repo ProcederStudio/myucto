@@ -233,17 +233,6 @@ final class SystemDimensionWritePolicy
 
     public static function sameLedgerLine(array $a, array $b): bool
     {
-        $normalize = static function (array $line): array {
-            $out = ['account_id' => (int) ($line['account_id'] ?? 0), 'side' => (string) ($line['side'] ?? ''),
-                'amount' => round((float) ($line['amount'] ?? 0), 2), 'is_red_storno' => (bool) ($line['is_red_storno'] ?? false)];
-            foreach (['currency_code', 'cost_center'] as $field) {
-                $out[$field] = $line[$field] ?? null;
-            }
-            foreach (['fx_rate', 'amount_foreign', 'project_id'] as $field) {
-                $out[$field] = isset($line[$field]) ? (float) $line[$field] : null;
-            }
-            return $out;
-        };
-        return $normalize($a) === $normalize($b);
+        return \MyInvoice\Service\Accounting\JournalLineComparison::sameLedgerLine($a, $b);
     }
 }
