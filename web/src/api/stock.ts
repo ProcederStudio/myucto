@@ -369,6 +369,8 @@ export interface StockQuoteLine {
   /** Cena bez DPH za ZVOLENOU jednotku; null = pro danou měnu karta cenu nemá. */
   unit_price: string | null
   base_unit_price: string
+  /** Ceníková cena bez DPH za zvolenou jednotku (standardní cena před slevou, hladinou i akcí); null = neznámá. */
+  list_unit_price?: string | null
   price_source: StockQuotePriceSource
   customer_price_id: number | null
   /** Sleva zákazníka nebo hladiny v % (price_source = customer_discount / price_level_discount). */

@@ -21471,6 +21471,11 @@
       "source_price_level_generic": "price level",
       "source_hint": "Price filled in automatically from the customer, currency and document date. A manually entered price is kept when the customer changes."
     },
+    "line_discount": {
+      "hint_discount": "List {price} · discount {pct} %",
+      "hint_markup": "List {price} · markup {pct} %",
+      "title": "List price of the stock card before discount. A manual price change keeps it and the discount is recalculated. The PDF itemises it when the option in Settings is on."
+    },
     "price_list_requires_context": "Select a customer and document currency before inserting a price list item.",
     "asset_sale": {
       "toggle": "Asset sale",
@@ -23911,6 +23916,8 @@
     "default_rounding_mode_hint": "Pre-fills the Rounding option on new invoices and credit notes in CZK, including invoices from the API, recurring billing and orders. Can be overridden per invoice; issued documents stay unchanged.",
     "invoice_pdf_show_issued_by": "Print who issued the invoice",
     "invoice_pdf_show_issued_by_hint": "The PDF gets an “Issued by” line with the name of the user who issued the document. Older documents without this record show the document's author. On already issued documents the line appears only after their PDF is regenerated.",
+    "invoice_pdf_line_discount": "Show the discount from the list price on the invoice PDF",
+    "invoice_pdf_line_discount_hint": "Items with a discount get the columns Unit price before discount, Discount and Unit price after discount. Only when the invoice has at least one such item; a markup is not itemised. The list price comes from pricing the stock card.",
     "default_hourly_rate": "Default hourly rate",
     "auto_send_reminders": "Send automatic reminders",
     "auto_send_reminders_hint": "When off, the cron will not send automatic reminders for this supplier. Manual send (single + bulk) always works.",

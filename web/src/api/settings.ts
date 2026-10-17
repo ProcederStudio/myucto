@@ -310,6 +310,8 @@ export interface Supplier {
   invoice_pdf_show_base_qty?: boolean
   /** Na PDF faktury tisknout řádek „Vystavil" (migrace 2017). */
   invoice_pdf_show_issued_by?: boolean
+  /** Na PDF faktury rozepsat slevu z ceníkové ceny (Cena/j před slevou, Sleva, Cena/j po slevě). Výchozí vypnuto. */
+  invoice_pdf_show_line_discount?: boolean
   // Auto-post hook (A2, migrace 1035) — auto-zaúčtování FV po vystavení / PF po přijetí;
   // účinek jen v režimu double_entry.
   auto_post_invoices?: boolean

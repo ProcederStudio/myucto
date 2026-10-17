@@ -110,6 +110,13 @@ export interface InvoiceItem {
   unit: string
   duration_minutes?: number | null
   unit_price_without_vat: number
+  /**
+   * Ceníková cena za jednotku před slevou (stejný základ jako unit_price_without_vat), informační údaj.
+   * Round-trip jako karta, jinak ji replaceItems (DELETE+INSERT) smaže.
+   */
+  list_unit_price?: number | null
+  /** Sleva z ceníkové ceny v %, dopočítá ji server (záporná = přirážka). Jen ke čtení. */
+  line_discount_pct?: number | null
   vat_rate_id: number
   vat_rate_snapshot?: number
   total_without_vat?: number
@@ -581,6 +588,7 @@ export interface InvoicePayload {
     unit: string
     duration_minutes?: number | null
     unit_price_without_vat: number
+    list_unit_price?: number | null
     vat_rate_id: number
     order_index: number
     stock_item_id?: number | null

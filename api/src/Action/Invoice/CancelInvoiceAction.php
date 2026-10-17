@@ -23,6 +23,7 @@ use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Invoice\AdvanceCycleLock;
 use MyInvoice\Service\Invoice\InvoiceIssuer;
 use MyInvoice\Service\Invoice\InvoiceCalculator;
+use MyInvoice\Service\Invoice\LineDiscount;
 use MyInvoice\Service\IpMatcher;
 use MyInvoice\Service\Oss\OssPeriod;
 use MyInvoice\Service\Stats\StatsRecomputer;
@@ -326,6 +327,7 @@ final class CancelInvoiceAction
         $supportsManualReview = $supportsOss
             && $this->db->hasColumn('invoice_items', 'oss_needs_manual_review');
         $supportsTracking = $this->db->hasColumn('invoice_items', 'tracking_json');
+        $supportsLineDiscount = $this->db->hasColumn('invoice_items', LineDiscount::LIST_COLUMN);
         $sourcePeriod = OssPeriod::quarterCode((string) ($invoice['tax_date'] ?? $invoice['issue_date'] ?? ''));
         $creditPeriod = OssPeriod::quarterCode(date('Y-m-d'));
         $defaultOriginalPeriod = $sourcePeriod !== null && $creditPeriod !== null && $sourcePeriod < $creditPeriod
@@ -397,6 +399,11 @@ final class CancelInvoiceAction
             // Dobropis vrací TYTÉŽ kusy (sériová čísla / šarže, 2016), vratka z nich vychází.
             if ($supportsTracking) {
                 $ossColumns[] = 'tracking_json';
+            }
+            // Ceníková cena řádku (2021): dobropis vrací totéž plnění za tutéž cenu.
+            if ($supportsLineDiscount) {
+                $ossColumns[] = LineDiscount::LIST_COLUMN;
+                $ossColumns[] = LineDiscount::PERCENT_COLUMN;
             }
             $itemStmt = $pdo->prepare(
                 'INSERT INTO invoice_items
@@ -482,6 +489,9 @@ final class CancelInvoiceAction
                 }
                 if ($supportsTracking) {
                     $params[] = \MyInvoice\Service\Stock\InvoiceItemTracking::storedJson($item);
+                }
+                if ($supportsLineDiscount) {
+                    array_push($params, ...LineDiscount::columns($item));
                 }
                 $itemStmt->execute($params);
             }

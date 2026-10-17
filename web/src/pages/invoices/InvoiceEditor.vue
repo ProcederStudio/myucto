@@ -41,6 +41,7 @@ import { defaultNoteFor, noteAfterLanguageChange } from '@/pages/invoices/invoic
 import StockDescriptionField from '@/components/ui/StockDescriptionField.vue'
 import InvoiceTrackingPicker from './InvoiceTrackingPicker.vue'
 import { isReturnRow, preselectFromSearch, takenByOtherRows, trackingChoices, trackingKey, type TrackingChoice, type TrackingMode, type TrackingUnit } from './invoiceTracking'
+import { legacyListPrice, lineDiscountPct, quotedListPrice } from './invoiceLineDiscount'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import ClientFormModal from '@/components/modals/ClientFormModal.vue'
 import ProjectFormModal from '@/components/modals/ProjectFormModal.vue'
@@ -496,17 +497,22 @@ function rowUsesQuote(item: InvoiceItem): boolean {
 
 /** Odběratel bez hladiny u karty bez funkcí: řádek dostane zpět původní cenu karty, jednotka zůstává. */
 function restoreLegacyStockPrice(item: InvoiceItem) {
-  const price = legacyRestorePrice(item.stock_item_id != null ? stockItemsCache.get(item.stock_item_id) : null)
+  const si = item.stock_item_id != null ? stockItemsCache.get(item.stock_item_id) : null
+  const price = legacyRestorePrice(si)
   if (price === null) return
   item.unit_price_without_vat = price
+  item.list_unit_price = si ? legacyListPrice(si) : null
   stockQuoteStates.set(item, { seq: ++stockQuoteSeq, autoPrice: price, source: null, discountPct: null, priceLevel: null })
 }
 
 function onStockSelect(rowIndex: number, itemId: number | null) {
   const item = form.value.items[rowIndex]
   if (!item) return
-  // Výběr kusů patří kartě: jiná karta (nebo žádná) ho ruší.
-  if (item.stock_item_id !== itemId) item.tracking_allocations = []
+  // Výběr kusů i ceníková cena patří kartě: jiná karta (nebo žádná) je ruší.
+  if (item.stock_item_id !== itemId) {
+    item.tracking_allocations = []
+    item.list_unit_price = null
+  }
   item.stock_item_id = itemId
   onItemUnitChange(item)
   if (itemId === null) {
@@ -539,6 +545,7 @@ function onStockSelect(rowIndex: number, itemId: number | null) {
       const price = si.effective_price ?? si.sale_price_without_vat
       if (price != null) {
         item.unit_price_without_vat = Number(price)
+        item.list_unit_price = legacyListPrice(si)
         stockQuoteStates.set(item, { seq: ++stockQuoteSeq, autoPrice: Number(price), source: null, discountPct: null, priceLevel: null })
       }
       if (si.promo_price != null) {
@@ -556,6 +563,7 @@ function onStockSelect(rowIndex: number, itemId: number | null) {
       item.unit = legacy.unit
       if (legacy.price != null) {
         item.unit_price_without_vat = legacy.price
+        item.list_unit_price = legacyListPrice(si)
         stockQuoteStates.set(item, { seq: ++stockQuoteSeq, autoPrice: legacy.price, source: null, discountPct: null, priceLevel: null })
       } else {
         stockQuoteStates.delete(item)
@@ -638,6 +646,8 @@ async function quoteStockRows(rows: InvoiceItem[], mode: QuoteMode, requestUnit?
           const converted = priceForMissingQuote(stockQuoteStates.get(item), quote.priceAtRequest, target.priceUnit, targetUnit, pack.base_unit, pack.units)
           if (converted !== null) {
             item.unit_price_without_vat = converted
+            // Ceník v měně dokladu karta nemá, sleva se nedá říct.
+            item.list_unit_price = null
             stockQuoteStates.set(item, { seq: quote.seq, autoPrice: converted, source: null, discountPct: null, priceLevel: null })
           }
         }
@@ -645,6 +655,8 @@ async function quoteStockRows(rows: InvoiceItem[], mode: QuoteMode, requestUnit?
       }
       if (unit !== null) item.unit = unit
       item.unit_price_without_vat = price
+      // Ceníková cena ve stejném základu jako cena řádku (migrace 2021).
+      item.list_unit_price = quotedListPrice(line)
       stockQuoteStates.set(item, {
         seq: quote.seq,
         autoPrice: price,
@@ -719,6 +731,17 @@ function stockRowBaseQtyText(item: InvoiceItem): string | null {
     qty: formatNumber(rowBaseQuantity(item), { maximumFractionDigits: 3 }),
     unit: pack.base_unit,
   })
+}
+
+/** Ceníková cena a sleva pod cenou řádku (migrace 2021); null bez ceníku nebo bez rozdílu. */
+function lineDiscountHint(item: InvoiceItem): string | null {
+  const pct = lineDiscountPct(item.list_unit_price, item.unit_price_without_vat)
+  if (pct === null || item.list_unit_price == null) return null
+  const params = {
+    price: formatNumber(Number(item.list_unit_price), { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+    pct: formatNumber(Math.abs(pct), { maximumFractionDigits: 2 }),
+  }
+  return pct > 0 ? t('invoice.line_discount.hint_discount', params) : t('invoice.line_discount.hint_markup', params)
 }
 
 /** Badge zdroje ceny, jen dokud je v řádku automaticky doplněná cena. */
@@ -2422,6 +2445,8 @@ async function submit() {
         duration_minutes: isTimeItem(it) ? (it.duration_minutes ?? null) : null,
         unit: it.unit,
         unit_price_without_vat: it.unit_price_without_vat,
+        // Ceníková cena (2021): round-trip, procento slevy dopočítá server.
+        list_unit_price: it.list_unit_price ?? null,
         vat_rate_id: it.vat_rate_id,
         order_index: i,
         // B5: MUSÍ se posílat zpět, jinak je InvoiceRepository::replaceItems (DELETE+INSERT) tiše smaže.
@@ -3086,6 +3111,8 @@ useWindowTitle(
               <td class="px-3 py-2">
                 <input v-model="item.unit_price_without_vat" v-math="isTimeItem(item) ? 6 : 2" type="text" inputmode="decimal"
                   :class="['w-full h-9 px-2 border rounded text-right font-mono text-sm', itemHasBothNegative(item) ? 'border-danger-400' : 'border-neutral-300']" />
+                <p v-if="lineDiscountHint(item)" data-test="line-discount-hint" :title="t('invoice.line_discount.title')"
+                  class="mt-1 text-xs text-neutral-500 text-right">{{ lineDiscountHint(item) }}</p>
               </td>
               <td v-if="supplierIsVatPayer" class="px-3 py-2">
                 <select v-model.number="item.vat_rate_id" class="w-full h-9 px-1 border border-neutral-300 rounded text-sm bg-surface">
@@ -3389,6 +3416,8 @@ useWindowTitle(
                 <label class="block text-xs font-medium text-neutral-600 mb-1">{{ unitPriceHeaderLabel }}</label>
                 <input v-model="item.unit_price_without_vat" v-math="isTimeItem(item) ? 6 : 2" type="text" inputmode="decimal"
                   :class="['w-full h-10 px-3 border rounded text-right font-mono text-sm', itemHasBothNegative(item) ? 'border-danger-400' : 'border-neutral-300']" />
+                <p v-if="lineDiscountHint(item)" data-test="line-discount-hint" :title="t('invoice.line_discount.title')"
+                  class="mt-1 text-xs text-neutral-500 text-right">{{ lineDiscountHint(item) }}</p>
               </div>
               <div v-if="supplierIsVatPayer">
                 <label class="block text-xs font-medium text-neutral-600 mb-1">{{ t('invoice.totals.vat') }}</label>

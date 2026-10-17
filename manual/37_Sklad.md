@@ -174,6 +174,10 @@ Průběh můžete bezpečně zavřít a znovu otevřít, dokončené dávky se n
 **Jak poznáte, že je hotovo:** při zapnuté automatické výdejce vznikne výdejka
 s původem **Vydaná faktura**. Přehled navázaných výdejek je na detailu faktury.
 
+Výběrem karty se řádek nacení a uloží si i ceníkovou cenu karty. Je-li cena řádku nižší
+(individuální cena, cenová hladina, akce nebo ruční sleva), editor pod cenou ukáže slevu
+a PDF ji může rozepsat, viz [§ 15.9.3](15_Faktura_editor.md#1593-polozky).
+
 Chybí-li zboží, vystavení skončí chybou „Nedostatek zásob pro výdej“ a faktura
 zůstane konceptem. Opravte množství či sklad, nebo napřed naskladněte.
 

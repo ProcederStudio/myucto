@@ -107,6 +107,17 @@ final class InvoiceRepository
 
     private ?bool $hasItemTracking = null;
 
+    private ?bool $hasLineDiscount = null;
+
+    /** Ceníková cena a sleva řádku (migrace 2021); starší instance je nemají. */
+    private function supportsLineDiscount(): bool
+    {
+        if ($this->hasLineDiscount === null) {
+            $this->hasLineDiscount = $this->db->hasColumn('invoice_items', \MyInvoice\Service\Invoice\LineDiscount::LIST_COLUMN);
+        }
+        return $this->hasLineDiscount;
+    }
+
     /** Sloupec výběru sériových čísel a šarží na řádku (migrace 2016); starší instance ho nemají. */
     private function supportsItemTracking(): bool
     {
@@ -618,6 +629,10 @@ final class InvoiceRepository
         // a replaceItems() (DELETE + INSERT) by ho při uložení zahodil.
         if ($this->supportsItemTracking()) {
             $ossSelect .= ', ii.tracking_json';
+        }
+        // Ceníková cena řádku taky: editor ji posílá zpět i po ruční změně ceny.
+        if ($this->supportsLineDiscount()) {
+            $ossSelect .= ', ii.list_unit_price, ii.line_discount_pct';
         }
         $stmt = $this->db->pdo()->prepare(
              'SELECT ii.id, ii.invoice_id, ii.description, ii.quantity, ii.duration_minutes, ii.unit,
@@ -1646,6 +1661,12 @@ final class InvoiceRepository
         if ($supportsTracking) {
             $ossColumns[] = 'tracking_json';
         }
+        // Ceníková cena a sleva řádku (2021), procento dopočítá LineDiscount.
+        $supportsLineDiscount = $this->supportsLineDiscount();
+        if ($supportsLineDiscount) {
+            $ossColumns[] = \MyInvoice\Service\Invoice\LineDiscount::LIST_COLUMN;
+            $ossColumns[] = \MyInvoice\Service\Invoice\LineDiscount::PERCENT_COLUMN;
+        }
 
         $stmt = $pdo->prepare(
             'INSERT INTO invoice_items
@@ -1778,6 +1799,9 @@ final class InvoiceRepository
             }
             if ($supportsTracking) {
                 $params[] = \MyInvoice\Service\Stock\InvoiceItemTracking::payloadJson($item);
+            }
+            if ($supportsLineDiscount) {
+                array_push($params, ...\MyInvoice\Service\Invoice\LineDiscount::columns($item));
             }
             $stmt->execute($params);
 
@@ -1965,6 +1989,9 @@ final class InvoiceRepository
             }
             if ($this->supportsItemTracking()) {
                 $params[] = null;   // slevový řádek nemá výběr sériových čísel
+            }
+            if ($this->supportsLineDiscount()) {
+                array_push($params, null, null);   // hlavičková sleva není sleva z ceníku
             }
             $stmt->execute($params);
         }
@@ -2815,6 +2842,9 @@ final class InvoiceRepository
         $row['quantity']               = (float) $row['quantity'];
         $row['duration_minutes']       = $row['duration_minutes'] !== null ? (int) $row['duration_minutes'] : null;
         $row['unit_price_without_vat'] = (float) $row['unit_price_without_vat'];
+        // Ceníková cena a sleva řádku (2021) jdou ven vždy, na starší instanci jako null.
+        $row['list_unit_price']        = isset($row['list_unit_price']) ? (float) $row['list_unit_price'] : null;
+        $row['line_discount_pct']      = isset($row['line_discount_pct']) ? (float) $row['line_discount_pct'] : null;
         $row['vat_rate_snapshot']      = (float) $row['vat_rate_snapshot'];
         foreach (['total_without_vat', 'total_vat', 'total_with_vat'] as $f) {
             $row[$f] = (float) $row[$f];
