@@ -35,6 +35,28 @@ use MyInvoice\Service\Currency\CnbExchangeRateClient;
  */
 final class FxRevaluationService
 {
+    private static function settlementFindingText(string $finding): string
+    {
+        return match ($finding) {
+            'document_missing', 'document_ledger_missing' => 'Doklad nebo jeho účetní zápis není dostupný.',
+            'payment_posting_reversed' => 'Platba je stále přiřazena k dokladu, ale její účetní zápis byl stornován.',
+            'document_currency_conflict', 'payment_currency_conflict', 'legacy_payment_currency_unproven',
+            'advance_document_currency_conflict', 'advance_receipt_currency_unproven' => 'Měny dokladu, úhrad a účetních zápisů nesouhlasí.',
+            'payment_representation_conflict', 'advance_receipt_representation_conflict' => 'Bankovní párování a evidence úhrady uvádějí rozdílné částky.',
+            'advance_receipt_pool_conflict' => 'Jedna platba je přiřazena ve vyšší částce, než skutečně obsahuje.',
+            'advance_lineage_missing', 'advance_parent_unproven', 'advance_receipt_bank_missing' => 'Záloha nemá doloženou vazbu na platbu a vyúčtování.',
+            'advance_final_membership_unproven', 'advance_receipt_entry_ambiguous', 'advance_receipt_account_unproven',
+            'advance_receipt_allocation_rounding_unproven', 'advance_receipt_bank_allocation_unproven',
+            'advance_original_allocation_unproven' => 'Rozdělení platby nebo zálohy mezi doklady není jednoznačně doloženo.',
+            'advance_refund_exceeds_receipts', 'advance_settlement_exceeds_receipts', 'advance_settlement_pair_unproven' => 'Zúčtování zálohy neodpovídá aktuálně zaúčtovaným platbám a vratkám.',
+            'advance_tax_currency_unproven', 'advance_tax_valuation_unproven', 'advance_partial_tax_settlement_unproven' => 'Zúčtování daně ze zálohy nelze přesně přiřadit k částce v cizí měně.',
+            'advance_rate_missing', 'advance_settlement_valuation_unproven' => 'Čerpání zálohy nelze přesně rozdělit podle doložených kurzů.',
+            'manual_allocation_unproven', 'manual_currency_conflict', 'manual_original_allocation_unproven',
+            'manual_settlement_amount_conflict' => 'Ruční vypořádání nemá jednoznačné přiřazení k dokladu, jeho částce a měně.',
+            default => 'Částky úhrad a zúčtovaných záloh nesouhlasí s doloženým zůstatkem dokladu.',
+        };
+    }
+
     private const FALLBACK_LOSS_ACCOUNT = '563';
     private const FALLBACK_GAIN_ACCOUNT = '663';
 
@@ -58,7 +80,7 @@ final class FxRevaluationService
      *     warnings: list<array<string,mixed>>
      * }
      */
-    public function preview(int $supplierId, array $period, array $bankRows = []): array
+    public function preview(int $supplierId, array $period, array $bankRows = [], bool $currentRead = false): array
     {
         $endsOn = (string) $period['ends_on'];
         $rates = [];
@@ -66,7 +88,8 @@ final class FxRevaluationService
         $detail = [];
         $desiredGroups = [];
 
-        foreach ($this->repo->openFxItems($supplierId, $endsOn) as $item) {
+        foreach ($this->repo->fxItemsWithSettlement($supplierId, $endsOn, $currentRead) as $projection) {
+            $item = $projection['item'];
             // EP-17: nepeněžní zálohy (314 poskytnuté / 324 přijaté zálohy na budoucí
             // dodání zboží/služby) NEJSOU peněžní položka podle §4 odst. 12 ZoÚ / ČÚS 006 —
             // vypořádají se PLNĚNÍM, ne penězi — a k rozvahovému dni se kurzem
@@ -83,32 +106,20 @@ final class FxRevaluationService
             }
 
             $currency = (string) $item['currency_code'];
-            $rateCnb = $this->rateFor($currency, $endsOn, $rates);
-
-            $ratio = $this->repo->paidRatioBefore(
-                $supplierId,
-                (string) $item['doc_type'],
-                (int) $item['doc_id'],
-                $endsOn,
-                (float) $item['total_with_vat'],
-            );
-            if ($ratio > 1.0) {
-                // Jednotka úhrad nejistá (platba v jiné měně než doklad apod.) —
-                // konzervativní fallback: přecenit celý doklad + warning (§8/6).
-                $warnings[] = [
-                    'key'      => 'fx_partial_payment_uncertain',
-                    'doc_type' => $item['doc_type'],
-                    'doc_id'   => $item['doc_id'],
-                    'ratio'    => round($ratio, 4),
-                ];
-                $ratio = 0.0;
+            $evidence = $projection['evidence'];
+            if (!$evidence['complete']) {
+                $label = $item['doc_type'] === 'invoice' ? 'Vydaná faktura' : 'Přijatá faktura';
+                throw new ClosingException('fx_settlement_unproven', self::settlementFindingText($evidence['findings'][0]) . ' ' . $label . ': #' . $item['doc_id'], 422);
             }
-
-            $remainingForeign = round((float) $item['amount_foreign'] * (1 - $ratio), 2);
+            foreach ($evidence['diagnostics'] ?? [] as $diagnostic) {
+                $warnings[] = ['code' => $diagnostic, 'doc_type' => $item['doc_type'], 'doc_id' => $item['doc_id']];
+            }
+            $remainingForeign = (float) $evidence['remaining_foreign'];
             if (self::cents($remainingForeign) === 0) {
                 continue;
             }
-            $bookedCzk = round($remainingForeign * (float) $item['fx_rate'], 2);
+            $rateCnb = $this->rateFor($currency, $endsOn, $rates);
+            $bookedCzk = (float) $evidence['booked_czk'];
             $newCzk = round($remainingForeign * $rateCnb, 2);
             $diff = round($newCzk - $bookedCzk, 2);
 

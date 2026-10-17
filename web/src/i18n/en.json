@@ -20592,7 +20592,9 @@
       "attachment_tax_date": "tax point on the attachment on another day",
       "attachment_amount": "amount on the attachment differs",
       "attachment_counterparty_ico": "counterparty company ID on the attachment differs",
-      "attachment_variable_symbol": "variable symbol on the attachment differs"
+      "attachment_variable_symbol": "variable symbol on the attachment differs",
+      "payment_header_divergence": "The document paid status differs from the documented payments. Revaluation uses payments evidenced as of the reporting date.",
+      "fx_settlement_unproven": "The document balance cannot be reliably determined for revaluation. Open the exchange-rate preview and correct the indicated links."
     },
     "open_list": "Open in list",
     "field": {

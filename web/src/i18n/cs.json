@@ -20592,7 +20592,9 @@
       "attachment_tax_date": "DUZP na příloze jiný den",
       "attachment_amount": "částka na příloze jiná",
       "attachment_counterparty_ico": "IČO protistrany na příloze jiné",
-      "attachment_variable_symbol": "VS na příloze jiný"
+      "attachment_variable_symbol": "VS na příloze jiný",
+      "payment_header_divergence": "Údaj o zaplacení dokladu se liší od doložených úhrad. Přecenění používá úhrady doložené k rozvahovému dni.",
+      "fx_settlement_unproven": "Zůstatek dokladu nelze pro přecenění spolehlivě určit. Otevřete náhled kurzových rozdílů a opravte uvedené vazby."
     },
     "open_list": "Otevřít v seznamu",
     "field": {

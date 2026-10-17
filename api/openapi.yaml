@@ -13811,13 +13811,16 @@ paths:
       description: |
         Saldokonto (open-item z dokladů, kurz ČNB k ends_on) + banka/pokladna dle
         volitelného `bank_rows` (JSON pole {account_code, currency_code, foreign_balance}).
-        Návrhy devizových zůstatků vrací v `proposals`.
+        Návrhy devizových zůstatků vrací v `proposals`. Zůstatek v měně dokladu vychází
+        z doložených úhrad a zúčtovaných záloh; bankovní a samostatná evidence téže
+        platby se započtou jednou. Rozdíl proti historickému údaji o zaplacení uvádí
+        `warnings`. Nedoložitelný zůstatek vrací HTTP 422 s kódem `fx_settlement_unproven`.
       parameters:
         - $ref: '#/components/parameters/SupplierIdHeader'
         - { in: path, name: id, required: true, schema: { type: integer } }
         - { in: query, name: bank_rows, schema: { type: string, description: "JSON pole bank řádků" } }
       responses:
-        '200': { description: "OK {rate_info, saldo, bank, totals, proposals}", content: { application/json: { schema: { type: object } } } }
+        '200': { description: "OK", content: { application/json: { schema: { $ref: '#/components/schemas/ClosingFxPreview' } } } }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
@@ -43290,6 +43293,70 @@ components:
           type: number
           minimum: 0
           maximum: 1
+    ClosingFxSettlementWarning:
+      type: object
+      required:
+      - code
+      - doc_type
+      - doc_id
+      properties:
+        code:
+          type: string
+          enum:
+          - payment_header_divergence
+        doc_type:
+          type: string
+          enum:
+          - invoice
+          - purchase_invoice
+        doc_id:
+          type: integer
+    ClosingFxPreview:
+      type: object
+      required:
+      - rate_info
+      - saldo
+      - bank
+      - totals
+      properties:
+        rate_info:
+          type: array
+          items:
+            type: object
+        saldo:
+          type: object
+          properties:
+            lines:
+              type: array
+              items:
+                type: object
+            detail:
+              type: array
+              items:
+                type: object
+        bank:
+          type: object
+        ledger:
+          type: object
+        proposals:
+          type: array
+          items:
+            type: object
+        totals:
+          type: object
+          required:
+          - loss
+          - gain
+          properties:
+            loss:
+              type: number
+            gain:
+              type: number
+        warnings:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClosingFxSettlementWarning'
+
     ClosingCheckFinding:
       type: object
       properties:

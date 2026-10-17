@@ -2432,26 +2432,7 @@ final class PostingService
      */
     private function postedAdvanceReceived(int $supplierId, int $proformaId): float
     {
-        $bank = $this->scalarFloat(
-            'SELECT COALESCE(SUM(ip.amount), 0)
-               FROM invoice_payments ip
-               JOIN journal_entries je
-                 ON je.supplier_id = ip.supplier_id AND je.source_type = :st
-                AND je.source_id = ip.bank_transaction_id AND je.reversed_by IS NULL
-              WHERE ip.supplier_id = :sid AND ip.invoice_id = :pid
-                AND ip.bank_transaction_id IS NOT NULL',
-            [':st' => 'bank', ':sid' => $supplierId, ':pid' => $proformaId],
-        );
-        $cash = $this->scalarFloat(
-            'SELECT COALESCE(SUM(cd.total_amount), 0)
-               FROM cash_documents cd
-               JOIN journal_entries je
-                 ON je.supplier_id = cd.supplier_id AND je.source_type = :st
-                AND je.source_id = cd.id AND je.reversed_by IS NULL
-              WHERE cd.supplier_id = :sid AND cd.invoice_id = :pid',
-            [':st' => 'cash', ':sid' => $supplierId, ':pid' => $proformaId],
-        );
-        return round($bank + $cash, 2);
+        return (new AdvanceSettlementEvidenceReader($this->db))->postedAdvanceReceived($supplierId, $proformaId);
     }
 
     /**
@@ -2472,50 +2453,7 @@ final class PostingService
      */
     private function postedAdvancePaid(int $supplierId, array $advance): float
     {
-        $advanceId = (int) $advance['id'];
-        $advanceCurrency = strtoupper((string) ($advance['currency_code'] ?? 'CZK'));
-        $txCurrency = "UPPER(COALESCE(NULLIF(bt.currency, ''), NULLIF(bs.currency, ''), 'CZK'))";
-        $stmt = $this->db->pdo()->prepare(
-            "SELECT {$txCurrency} AS currency, COALESCE(SUM(pm.amount), 0) AS amount
-               FROM payment_matches pm
-               JOIN bank_transactions bt ON bt.id = pm.bank_transaction_id
-               JOIN bank_statements bs ON bs.id = bt.statement_id
-               JOIN journal_entries je
-                 ON je.supplier_id = pm.supplier_id AND je.source_type = 'bank'
-                AND je.source_id = pm.bank_transaction_id AND je.reversed_by IS NULL
-              WHERE pm.supplier_id = ? AND pm.purchase_invoice_id = ?
-              GROUP BY {$txCurrency}
-             UNION ALL
-             SELECT UPPER(COALESCE(NULLIF(cd.currency_code, ''), 'CZK')), COALESCE(SUM(cd.total_amount), 0)
-               FROM cash_documents cd
-               JOIN journal_entries je
-                 ON je.supplier_id = cd.supplier_id AND je.source_type = 'cash'
-                AND je.source_id = cd.id AND je.reversed_by IS NULL
-              WHERE cd.supplier_id = ? AND cd.purchase_invoice_id = ?
-              GROUP BY UPPER(COALESCE(NULLIF(cd.currency_code, ''), 'CZK'))"
-        );
-        $stmt->execute([$supplierId, $advanceId, $supplierId, $advanceId]);
-
-        $czk = 0.0;
-        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            $amount = (float) $row['amount'];
-            if (self::cents($amount) === 0) {
-                continue;
-            }
-            $currency = (string) $row['currency'];
-            if ($currency === 'CZK') {
-                $czk += $amount;
-            } elseif ($currency === $advanceCurrency) {
-                $czk += round($amount * $this->fxRate($advance), 2);
-            } else {
-                throw new PostingException(
-                    'advance_settlement_ambiguous',
-                    'Úhrada poskytnuté zálohy #' . $advanceId . ' je v měně ' . $currency . ', jiné než měna zálohy ('
-                        . $advanceCurrency . ') i koruna — zúčtování zálohy nejde ocenit automaticky, zaúčtuj ho ručně.',
-                );
-            }
-        }
-        return round($czk, 2);
+        return (new AdvanceSettlementEvidenceReader($this->db))->postedAdvancePaid($supplierId, $advance, $this->fxRate(...));
     }
 
     /**

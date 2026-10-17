@@ -33,6 +33,7 @@ import { useToast } from '@/composables/useToast'
 import { formatMoney, formatDate } from '@/composables/useFormat'
 import { ICONS, btnFilled, btnOutline } from '@/components/ui/buttonStyles'
 import CheckFindings from '@/components/accounting/CheckFindings.vue'
+import FxSettlementWarnings from '@/components/accounting/FxSettlementWarnings.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import DateInput from '@/components/ui/DateInput.vue'
 import PaginationBar from '@/components/ui/PaginationBar.vue'
@@ -982,6 +983,8 @@ const canOpenNextStage = computed(() => ['closed', 'reviewed', 'approved'].inclu
                 </span>
               </div>
 
+              <FxSettlementWarnings :warnings="fxPreview.warnings ?? []" />
+
               <!-- Saldokonto -->
               <div v-if="fxPreview.saldo?.detail?.length" class="overflow-x-auto">
                 <table class="w-full text-sm">
@@ -1085,7 +1088,7 @@ const canOpenNextStage = computed(() => ['closed', 'reviewed', 'approved'].inclu
                   <span class="text-neutral-500">Σ 663:
                     <strong class="font-mono text-success-600">{{ formatMoney(fxPreview.totals?.gain) }}</strong></span>
                 </div>
-                <div class="flex gap-2">
+                <div class="flex flex-wrap gap-2">
                   <button @click="loadFxPreview(true)" :disabled="fxLoading" :class="btnOutline('neutral')">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.cycle" /></svg>
                     {{ t('accounting.closing.fx.recalc') }}

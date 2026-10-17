@@ -687,43 +687,47 @@ final class ClosingRepository
      *                    account_id:int, account_code:string, currency_code:string, fx_rate:float,
      *                    amount_foreign:float, total_with_vat:float, paid_at:?string, status:string}>
      */
-    public function openFxItems(int $supplierId, string $asOf): array
+    public function openFxItems(int $supplierId, string $asOf, bool $currentRead = false): array
     {
+        $lock = $currentRead ? ' FOR UPDATE' : '';
+        if ($currentRead) (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
         $stmt = $this->db->pdo()->prepare(
-            "SELECT 'invoice' AS doc_type, i.id AS doc_id, i.varsymbol,
+            "(SELECT 'invoice' AS doc_type, i.id AS doc_id, i.varsymbol,
                     i.issue_date AS doc_date, cl.company_name AS partner_name,
                     l.account_id, ca.account_code, l.currency_code, l.fx_rate,
-                    l.signed_amount_foreign AS amount_foreign,
+                    CASE WHEN l.side = 'debit' THEN l.signed_amount_foreign ELSE -l.signed_amount_foreign END AS amount_foreign,
                     i.total_with_vat, i.paid_at, i.status
                FROM journal_entry_lines l
                JOIN journal_entries e    ON e.id = l.entry_id AND e.source_type = 'invoice'
+               LEFT JOIN journal_entries rev ON rev.id=e.reversed_by AND rev.supplier_id=e.supplier_id
                JOIN chart_of_accounts ca ON ca.id = l.account_id
                JOIN invoices i           ON i.id = e.source_id AND i.supplier_id = l.supplier_id
                LEFT JOIN clients cl      ON cl.id = i.client_id
-              WHERE l.supplier_id = ? AND e.posted_at IS NOT NULL AND e.reversed_by IS NULL
+              WHERE l.supplier_id = ? AND e.posted_at IS NOT NULL AND (e.reversed_by IS NULL OR rev.entry_date > ?)
                 AND l.currency_code IS NOT NULL AND l.currency_code <> 'CZK'
                 AND e.entry_date <= ?
-                AND i.status NOT IN ('draft','cancelled')
-                AND (i.paid_at IS NULL OR i.paid_at > ?)
+                AND i.status <> 'draft'
+                AND (i.status <> 'cancelled' OR i.cancelled_at IS NULL OR DATE(i.cancelled_at) > ?){$lock})
              UNION ALL
-             SELECT 'purchase_invoice' AS doc_type, pi.id AS doc_id, pi.varsymbol,
+             (SELECT 'purchase_invoice' AS doc_type, pi.id AS doc_id, pi.varsymbol,
                     pi.issue_date AS doc_date, vn.company_name AS partner_name,
                     l.account_id, ca.account_code, l.currency_code, l.fx_rate,
-                    l.signed_amount_foreign AS amount_foreign,
+                    CASE WHEN l.side = 'credit' THEN l.signed_amount_foreign ELSE -l.signed_amount_foreign END AS amount_foreign,
                     pi.total_with_vat, pi.paid_at, pi.status
                FROM journal_entry_lines l
                JOIN journal_entries e    ON e.id = l.entry_id AND e.source_type = 'purchase_invoice'
+               LEFT JOIN journal_entries rev ON rev.id=e.reversed_by AND rev.supplier_id=e.supplier_id
                JOIN chart_of_accounts ca ON ca.id = l.account_id
                JOIN purchase_invoices pi ON pi.id = e.source_id AND pi.supplier_id = l.supplier_id
                LEFT JOIN clients vn      ON vn.id = pi.vendor_id
-              WHERE l.supplier_id = ? AND e.posted_at IS NOT NULL AND e.reversed_by IS NULL
+              WHERE l.supplier_id = ? AND e.posted_at IS NOT NULL AND (e.reversed_by IS NULL OR rev.entry_date > ?)
                 AND l.currency_code IS NOT NULL AND l.currency_code <> 'CZK'
                 AND e.entry_date <= ?
-                AND pi.status NOT IN ('draft','cancelled')
-                AND (pi.paid_at IS NULL OR pi.paid_at > ?)
+                AND pi.status <> 'draft'
+                AND (pi.status <> 'cancelled' OR pi.cancelled_at IS NULL OR DATE(pi.cancelled_at) > ?){$lock})
               ORDER BY doc_type, doc_id"
         );
-        $stmt->execute([$supplierId, $asOf, $asOf, $supplierId, $asOf, $asOf]);
+        $stmt->execute([$supplierId, $asOf, $asOf, $asOf, $supplierId, $asOf, $asOf, $asOf]);
         return array_map(static function (array $r): array {
             $r['doc_id'] = (int) $r['doc_id'];
             $r['account_id'] = (int) $r['account_id'];
@@ -812,31 +816,29 @@ final class ClosingRepository
         }, $stmt->fetchAll(PDO::FETCH_ASSOC));
     }
 
-    /**
-     * Poměr úhrad dokladu PŘED rozvahovým dnem: Σ payment_matches.amount
-     * (transakce s posted_at <= asOf) / total. Vrací SUROVÝ poměr (>= 0, bez
-     * horního clampu) — hodnota > 1 signalizuje nejistotu jednotky (platba
-     * v jiné měně než doklad, adversariál §8/6) a FxRevaluationService na ni
-     * reaguje konzervativním fallbackem ratio=0 + warning
-     * `fx_partial_payment_uncertain` (R10).
-     *
-     * @param 'invoice'|'purchase_invoice' $docType
-     */
-    public function paidRatioBefore(int $supplierId, string $docType, int $docId, string $asOf, float $total): float
+    public function fxItemsWithSettlement(int $supplierId, string $asOf, bool $currentRead = false): array
     {
-        if ($total <= 0.0) {
-            return 0.0;
+        $pdo = $this->db->pdo();
+        $ownTx = !$currentRead && !$pdo->inTransaction();
+        if ($ownTx) {
+            $pdo->exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+            $pdo->exec('SET TRANSACTION READ ONLY');
+            $pdo->beginTransaction();
         }
-        $fkColumn = $docType === 'purchase_invoice' ? 'purchase_invoice_id' : 'invoice_id';
-        $stmt = $this->db->pdo()->prepare(
-            "SELECT COALESCE(SUM(pm.amount), 0)
-               FROM payment_matches pm
-               JOIN bank_transactions bt ON bt.id = pm.bank_transaction_id AND bt.posted_at <= ?
-              WHERE pm.supplier_id = ? AND pm.{$fkColumn} = ?"
-        );
-        $stmt->execute([$asOf, $supplierId, $docId]);
-        $paid = (float) $stmt->fetchColumn();
-        return max(0.0, $paid / $total);
+        try {
+            $result = [];
+            foreach ($this->openFxItems($supplierId, $asOf, $currentRead) as $item) {
+                $result[] = ['item' => $item, 'evidence' => $this->fxSettlementEvidence($supplierId, $item, $asOf, $currentRead)];
+            }
+            return $result;
+        } finally {
+            if ($ownTx && $pdo->inTransaction()) $pdo->rollBack();
+        }
+    }
+
+    public function fxSettlementEvidence(int $supplierId, array $item, string $asOf, bool $currentRead = false): array
+    {
+        return (new FxSettlementEvidenceRepository($this->db, new SaldoRepository($this->db)))->read($supplierId, $item, $asOf, $currentRead);
     }
 
     /**

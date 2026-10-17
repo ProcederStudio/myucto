@@ -132,6 +132,8 @@ Administrátor může přecenění vzít zpět tlačítkem **Zrušit přeceněn�
 Pokud se v nastavení nevytváří storno přecenění na začátku nového roku, následující přecenění dopočítá jen
 rozdíl proti již zaúčtované účetní hodnotě; předchozí kurzový rozdíl se proto neúčtuje podruhé.
 
+U cizoměnových pohledávek a závazků se otevřená částka určuje v měně dokladu z doložených úhrad a zúčtovaných záloh. Bankovní párování a samostatná evidence téže platby se nezapočítávají dvakrát. Rozporné vazby, storno platby s ponechanou vazbou nebo nedoložitelné rozdělení zálohy vyžadují opravu evidence před přeceněním. Samotný historický údaj o zaplacení se použije jen bez konkrétní evidence úhrad; pokud evidence existuje, má přednost a rozdíl je uveden jako upozornění.
+
 ### 72.4.4 Kroky 4 a 5: Dohadné položky a časové rozlišení
 
 Oba kroky fungují stejně. Jde o asistenta pro ruční zaúčtování rozvahových položek k rozvahovému dni.
