@@ -477,6 +477,12 @@ final class DocumentLockTest extends TestCase
         self::assertSame(409, $res->getStatusCode(), 'Přesun data do podaného období: ' . (string) $res->getBody());
         self::assertSame('period_filed', $this->errorCode($res));
 
+        // effective_tax_date je generovaný sloupec, z těla se neukládá a kontrolu nesmí přebít.
+        $res = $this->sessionRequest('PUT', "/api/invoices/$openInvoice?force=1", $editor, $sid,
+            ['tax_date' => '2026-05-20', 'effective_tax_date' => '2026-06-15']);
+        self::assertSame(409, $res->getStatusCode(), 'Podvržené effective_tax_date: ' . (string) $res->getBody());
+        self::assertSame('period_filed', $this->errorCode($res));
+
         $res = $this->sessionRequest('PUT', "/api/invoices/$filedInvoice?force=1", $editor, $sid, ['note_below_items' => 'Jen poznámka']);
         self::assertSame(200, $res->getStatusCode(), 'Neúčetní úprava projde: ' . (string) $res->getBody());
 

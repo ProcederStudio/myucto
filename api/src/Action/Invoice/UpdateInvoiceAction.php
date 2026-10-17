@@ -118,6 +118,10 @@ final class UpdateInvoiceAction
         $canEditIssued = RequestAuthorization::canEditIssuedInvoice($request);
 
         $body = (array) ($request->getParsedBody() ?? []);
+        // effective_tax_date je generovaný sloupec (COALESCE(tax_date, issue_date)) a z těla se
+        // neukládá. invoiceRefDate() ho bere přednostně, takže podvržená hodnota by zámek
+        // období i kontrolu podaného DPH období vyhodnotila nad jiným datem, než se uloží.
+        unset($body['effective_tax_date']);
 
         // Generický `note` → `note_below_items` (issue #38). Musí být hned tady, ještě nad
         // guardy: force_mode="notes_only" i auditní diff čtou už konkrétní klíč.
