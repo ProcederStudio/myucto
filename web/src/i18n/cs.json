@@ -139,19 +139,66 @@
     "not_found": "Položka nebyla nalezena.",
     "form_hint": "Dokumenty připojíte po uložení položky v jejím detailu.",
     "side_label": "Směr",
-    "side": { "receivable": "Pohledávka", "payable": "Závazek" },
+    "side": {
+      "receivable": "Pohledávka",
+      "payable": "Závazek"
+    },
     "status_label": "Stav",
-    "status": { "draft": "Rozpracováno", "posted": "Zaúčtováno", "reversed": "Stornováno", "confirmed": "Potvrzeno", "cancelled": "Zrušeno", "paid": "Uhrazeno", "partial": "Částečně uhrazeno", "forecast": "Odhad", "open": "Otevřeno", "overdue": "Po splatnosti" },
+    "status": {
+      "draft": "Rozpracováno",
+      "posted": "Zaúčtováno",
+      "reversed": "Stornováno",
+      "confirmed": "Potvrzeno",
+      "cancelled": "Zrušeno",
+      "paid": "Uhrazeno",
+      "partial": "Částečně uhrazeno",
+      "forecast": "Odhad",
+      "open": "Otevřeno",
+      "overdue": "Po splatnosti"
+    },
     "source_label": "Zdroj",
     "search": "Hledat název, protistranu, číslo nebo VS",
     "due_from": "Splatnost od",
     "due_to": "Splatnost do",
-    "source": { "manual": "Ručně", "payroll": "Mzdy", "payroll_forecast": "Predikce mezd", "tax": "Daně", "tax_advance": "Daňová záloha", "vat_forecast": "Predikce DPH", "dppo_forecast": "Predikce DPPO", "payroll_payment": "Mzdy" },
+    "source": {
+      "manual": "Ručně",
+      "payroll": "Mzdy",
+      "payroll_forecast": "Predikce mezd",
+      "tax": "Daně",
+      "tax_advance": "Daňová záloha",
+      "vat_forecast": "Predikce DPH",
+      "dppo_forecast": "Predikce DPPO",
+      "payroll_payment": "Mzdy"
+    },
     "kind_label": "Druh",
-    "kind": { "other": "Ostatní", "rent": "Nájem", "loan": "Půjčka nebo splátka", "deposit": "Kauce", "insurance": "Pojištění", "fee": "Poplatek", "claim": "Nárok na náhradu" },
+    "kind": {
+      "other": "Ostatní",
+      "rent": "Nájem",
+      "loan": "Půjčka nebo splátka",
+      "deposit": "Kauce",
+      "insurance": "Pojištění",
+      "fee": "Poplatek",
+      "claim": "Nárok na náhradu"
+    },
     "kind_by_side": {
-      "receivable": { "other": "Jiná pohledávka", "rent": "Nájemné k inkasu", "loan": "Poskytnutá půjčka nebo splátka", "deposit": "Vratná kauce", "insurance": "Pojistné plnění", "fee": "Poplatek k inkasu", "claim": "Nárok na náhradu" },
-      "payable": { "other": "Jiný závazek", "rent": "Nájemné k úhradě", "loan": "Přijatá půjčka nebo splátka", "deposit": "Kauce k vrácení", "insurance": "Pojistné k úhradě", "fee": "Poplatek k úhradě", "claim": "Náhrada k úhradě" }
+      "receivable": {
+        "other": "Jiná pohledávka",
+        "rent": "Nájemné k inkasu",
+        "loan": "Poskytnutá půjčka nebo splátka",
+        "deposit": "Vratná kauce",
+        "insurance": "Pojistné plnění",
+        "fee": "Poplatek k inkasu",
+        "claim": "Nárok na náhradu"
+      },
+      "payable": {
+        "other": "Jiný závazek",
+        "rent": "Nájemné k úhradě",
+        "loan": "Přijatá půjčka nebo splátka",
+        "deposit": "Kauce k vrácení",
+        "insurance": "Pojistné k úhradě",
+        "fee": "Poplatek k úhradě",
+        "claim": "Náhrada k úhradě"
+      }
     },
     "open": "Otevřené",
     "item": "Položka",
@@ -6686,7 +6733,8 @@
           "work_injury_compensation_manual": "Jednorázovou náhradu podle § 271ca ZP aplikace do běhu nezakládá - chybí jí mzdová složka s ověřeným zařazením. Založte ji ručně a v odhlášce A2 uveďte jako jednorázovou náhradu.",
           "work_injury_compensation_ready": "Jednorázovou náhradu podle § 271ca ZP založte níže tlačítkem Založit náhradu - uveďte, kdo ji vyplácí (zaměstnavatel, nebo přímo pojišťovna) a kdy.",
           "severance_garnishment_multiple_missing": "U založeného odstupného chybí počet násobků průměru, ze kterých se počítají srážky (§ 299 odst. 4 o. s. ř.). Doplňte ho jako množství u vstupu odstupného v Mzdových vstupech.",
-          "severance_input_differs": "Založené odstupné ({input_amount_minor}) se liší od současného návrhu. Opravte vstup v Mzdových vstupech.",          "death_no_entitled_survivor": "Není zapsaná žádná osoba blízká ze společné domácnosti. Mzdová práva se pak stávají předmětem dědictví - vyplácejte až podle rozhodnutí o dědictví.",
+          "severance_input_differs": "Založené odstupné ({input_amount_minor}) se liší od současného návrhu. Opravte vstup v Mzdových vstupech.",
+          "death_no_entitled_survivor": "Není zapsaná žádná osoba blízká ze společné domácnosti. Mzdová práva se pak stávají předmětem dědictví - vyplácejte až podle rozhodnutí o dědictví.",
           "death_tax_assessment_missing": "Chybí daňové posouzení výplaty pozůstalým. Zapište ho níže, než výplatu provedete.",
           "death_enforcement_active": "Zaměstnanec má {count} živé exekuce nebo insolvence. Po úmrtí je ukončete a informujte plátce, soud nebo správce v Exekuce a insolvence.",
           "death_deduction_agreements_active": "Zaměstnanec má {count} aktivní dohody o srážkách. Pohledávky zaměstnavatele smrtí zanikají (§ 328 odst. 2 ZP) - ukončete je v Dohody o srážkách."
@@ -9470,7 +9518,11 @@
         },
         "annual_settlement_undecided": "{count} lidí s příjmem za rok {year} ještě nemá rozhodnuto, zda o zúčtování žádají"
       },
-      "awaiting_receipts": {"title": "Čeká na doručenku: {count} odeslaných zpráv", "done_title": "Doručenky načtené", "hint": "Zprávy do datových schránek odešly před víc než hodinou, ale doručenka ještě není načtená. Přehled pojišťovně je podaný doručením - po načtení doručenky se měsíc sám přepne na Doručeno / splněno."},
+      "awaiting_receipts": {
+        "title": "Čeká na doručenku: {count} odeslaných zpráv",
+        "done_title": "Doručenky načtené",
+        "hint": "Zprávy do datových schránek odešly před víc než hodinou, ale doručenka ještě není načtená. Přehled pojišťovně je podaný doručením - po načtení doručenky se měsíc sám přepne na Doručeno / splněno."
+      },
       "operational_health": {
         "title": "Provozní přehled mezd",
         "description": "Souhrn stavů, které vyžadují pozornost. Neobsahuje osobní ani detailní údaje.",
@@ -11426,9 +11478,20 @@
         "cssz_control_catalog_1_4_2_10": "Zdroj: Katalog kontrol měsíčního hlášení 1.4.2.10"
       },
       "steps": {
-        "jmhz_protocol_correction_guid_invalid": ["Na záložce Odesláno najděte řádné podání za stejné období, které ČSSZ přijala částečně.", "Opravné podání musí nést GUID tohoto řádného podání, ne nový GUID. Připravte opravu k řádnému podání znovu a odešlete ji.", "Podání s novým GUID ČSSZ jako opravu nepřijme, znovu ho neodesílejte."],
-        "jmhz_protocol_correction_form_unpaired": ["V protokolu najděte zaměstnance (IK MPSV a ID PPV), jehož formulář ČSSZ v předchozím podání zamítla nebo v něm nebyl uvedený.", "V opravném podání s GUID řádného podání se formulář takového zaměstnance posílá jako nový: s novým GUID součásti a typem řádný.", "Opravné podání připravte na záložce Odesláno znovu a odešlete."],
-        "jmhz_protocol_regular_submission_duplicate": ["Za toto období už ČSSZ eviduje řádné podání. Další řádné podání nepřijme a nezpracuje.", "Na záložce Odesláno otevřete původní řádné podání a změny pošlete jako opravné podání s jeho GUID."],
+        "jmhz_protocol_correction_guid_invalid": [
+          "Na záložce Odesláno najděte řádné podání za stejné období, které ČSSZ přijala částečně.",
+          "Opravné podání musí nést GUID tohoto řádného podání, ne nový GUID. Připravte opravu k řádnému podání znovu a odešlete ji.",
+          "Podání s novým GUID ČSSZ jako opravu nepřijme, znovu ho neodesílejte."
+        ],
+        "jmhz_protocol_correction_form_unpaired": [
+          "V protokolu najděte zaměstnance (IK MPSV a ID PPV), jehož formulář ČSSZ v předchozím podání zamítla nebo v něm nebyl uvedený.",
+          "V opravném podání s GUID řádného podání se formulář takového zaměstnance posílá jako nový: s novým GUID součásti a typem řádný.",
+          "Opravné podání připravte na záložce Odesláno znovu a odešlete."
+        ],
+        "jmhz_protocol_regular_submission_duplicate": [
+          "Za toto období už ČSSZ eviduje řádné podání. Další řádné podání nepřijme a nezpracuje.",
+          "Na záložce Odesláno otevřete původní řádné podání a změny pošlete jako opravné podání s jeho GUID."
+        ],
         "jmhz_protocol_tax_withholding_with_declaration": [
           "Na kartě zaměstnance v zákonné evidenci zkontrolujte prohlášení poplatníka. S podepsaným prohlášením se daň vybírá zálohou, ne srážkou podle zvláštní sazby.",
           "Opravte prohlášení nebo daňový režim pracovního vztahu a mzdový běh přepočítejte.",
@@ -12370,7 +12433,7 @@
       "registration_event_czech_residence_unverifiable": "Adresa pobytu v ČR se posílá jen zaměstnanci s trvalým pobytem mimo ČR, ale stát trvalého pobytu u osoby vyplněný není. Doplňte trvalou adresu se státem na kartě osoby, nebo ji ohlaste ve stejné změně.",
       "registration_event_birth_number_missing": "Změna nebo oprava registrace zaměstnance s českým státním občanstvím musí nést rodné číslo nebo EČP, jinak ji ČSSZ zamítne. Doplňte rodné číslo na kartě osoby a oznámení schvalte znovu.",
       "registration_event_foreign_insurance_missing": "Změna nebo oprava registrace zaměstnance s druhem činnosti „N“ (smluvní zaměstnanec) musí nést cizozemského nositele pojištění. Vyplňte ho v profilu registrace (A1), uložte a oznámení schvalte znovu.",
-      "registration_employer_variable_symbol_invalid":"Variabilní symbol zaměstnavatele není platný: nesouhlasí kontrolní číslice nebo nezačíná kódem okresní správy sociálního zabezpečení. ČSSZ by podání odmítla. Opište symbol přesně z oznámení ČSSZ v nastavení mezd zaměstnavatele (účtárna).",
+      "registration_employer_variable_symbol_invalid": "Variabilní symbol zaměstnavatele není platný: nesouhlasí kontrolní číslice nebo nezačíná kódem okresní správy sociálního zabezpečení. ČSSZ by podání odmítla. Opište symbol přesně z oznámení ČSSZ v nastavení mezd zaměstnavatele (účtárna).",
       "registration_cssz_workplace_code_invalid": "Kód správy sociálního zabezpečení není v číselníku okresních správ ČSSZ, takže ho ČSSZ odmítne. Opravte kód v nastavení mezd zaměstnavatele.",
       "registration_event_delta_variant_forbidden": "Oznámení obsahuje část, kterou datová věta pro tento druh činnosti nesmí nést (zakázaný element), takže by ho ČSSZ zamítla. Odeberte uvedené údaje z oznámení.",
       "registration_a3_underage": "Zaměstnanci je k novému datu nástupu méně než 14 let, ČSSZ takové podání zamítne na vstupu. Zkontrolujte datum narození a datum nástupu.",
@@ -12461,11 +12524,11 @@
       "nempri_care_days_missing": "Při trvání nebo ukončení péče musí žádost nést dny, kdy zaměstnanec pečoval. Doplňte je u případu.",
       "nempri_last_day_hours_without_worked": "Pracovní doba a odpracované hodiny posledního dne se u ošetřovného uvádějí jen tehdy, když zaměstnanec poslední den péče pracoval.",
       "nempri_date_in_future": "Datum narození dítěte nebo ošetřované osoby ani den převedení na jinou práci nesmí být pozdější než dnešek. Opravte ho u případu.",
-      "hzupn_within_wage_compensation_window":"Neschopnost nepřesáhla 14 kalendářních dnů, celou ji kryje náhrada mzdy a nemocenské z ní nevzniká. Hlášení HZUPN se proto nepodává.",
+      "hzupn_within_wage_compensation_window": "Neschopnost nepřesáhla 14 kalendářních dnů, celou ji kryje náhrada mzdy a nemocenské z ní nevzniká. Hlášení HZUPN se proto nepodává.",
       "hzupn_incapacity_in_protection_period": "Neschopnost vznikla až po skončení zaměstnání (v ochranné lhůtě). ČSSZ hlášení HZUPN v tomto případě nepožaduje; vyzve-li k němu OSSZ, podejte ho podle její výzvy.",
       "hzupn_employment_ended_during_incapacity": "Zaměstnání skončilo v průběhu neschopnosti. ČSSZ hlášení HZUPN v tomto případě nepožaduje; vyzve-li k němu OSSZ, podejte ho podle její výzvy.",
       "nempri_small_scope_income_missing": "Zaměstnanec pracuje na dohodu o provedení práce, takže oznámení nese započitatelný příjem z měsíce, v němž událost vznikla. Doplňte ho u případu.",
-      "hzupn_return_decision_missing":"Hlášení zaměstnavatele musí říct, zda se zaměstnanec po neschopnosti vrátil do práce (Ano s datem a hodinami posledního dne, nebo Ne s důvodem). Vyberte odpověď u případu.",
+      "hzupn_return_decision_missing": "Hlášení zaměstnavatele musí říct, zda se zaměstnanec po neschopnosti vrátil do práce (Ano s datem a hodinami posledního dne, nebo Ne s důvodem). Vyberte odpověď u případu.",
       "hzupn_last_day_hours_out_of_range": "Pracovní doba i odpracované hodiny posledního dne neschopnosti musí být v rozmezí 0 až 24 hodin.",
       "hzupn_issue_date_too_early": "Den vystavení hlášení musí být po 31. 12. 2019. Opravte ho u případu.",
       "hzupn_confirmation_number_format_invalid": "Číslo rozhodnutí v hlášení HZUPN musí mít formát platný od roku 2020: písmeno E až Z (kromě K) a 6 až 7 číslic, nebo elektronické pořadové číslo (10 číslic od 2001010000, případně s předsazeným IČPE).",
@@ -18820,6 +18883,30 @@
       "duplicate_period": "Účetní období pro tento rok už existuje.",
       "not_found": "Záznam nenalezen.",
       "forbidden": "Pro tuto akci nemáte oprávnění."
+    },
+    "statement504": {
+      "framework": "Vyhláška č. 504/2002 Sb.",
+      "full": "Plný rozsah",
+      "short": "Zkrácený rozsah",
+      "as_of": "Ke dni {date}",
+      "item": "Položka",
+      "assets": "Aktiva",
+      "liabilities": "Pasiva",
+      "income": "Výkaz zisku a ztráty",
+      "main": "Hlavní činnost",
+      "economic": "Hospodářská činnost",
+      "total": "Celkem",
+      "start": "Stav k prvnímu dni",
+      "end": "Stav k rozvahovému dni",
+      "opening_debit": "Počáteční zůstatek MD",
+      "closing_debit": "Konečný zůstatek MD",
+      "management": "Průběžný účetní přehled",
+      "management_hint": "Pracovní přehled zůstatků, nikoli závěrkový formulář. Kreditní zůstatky jsou záporné.",
+      "pending_result": "Výsledek ve schvalovacím řízení není vypořádán: {amount}.",
+      "unbalanced": "Účetní odsouhlasení vykazuje rozdíl. Zkontrolujte zůstatky a výsledek hospodaření.",
+      "notes_subtitle": "Příloha podle § 29 a § 30 vyhlášky č. 504/2002 Sb.",
+      "supplements_unavailable": "Závěrka podle vyhlášky 504 obsahuje rozvahu, výsledovku a přílohu. Dobrovolné přehledy peněžních toků a změn vlastního jmění současný kalkulátor pro tento rámec nepodporuje.",
+      "package_hint": "Balíček používá vyhlášku 504 a poslední den vybraného účetního období. Přehledy kalkulované pouze pro vyhlášku 500 nejsou dostupné."
     }
   },
   "support": {
@@ -19712,7 +19799,8 @@
     "col_sent_by": "Odeslal(a)",
     "col_sent_at": "Kdy",
     "col_document": "Dokument",
-    "view_document": "Zobrazit"
+    "view_document": "Zobrazit",
+    "section_income_ytd": "Výsledovka od začátku účetního období"
   },
   "vendor": {
     "title": "Dodavatelé",
@@ -26887,8 +26975,7 @@
         "running": "Běží",
         "completed": "Dokončeno",
         "failed": "Selhalo",
-        "cancelled": "Zrušeno"
-,
+        "cancelled": "Zrušeno",
         "completed_with_warnings": "Dokončeno s chybami"
       },
       "include_bank_accounts": "Bankovní účty",
@@ -26945,8 +27032,7 @@
       "test_success": "Připojení k Fakturoid funguje - account {name}.",
       "delete_confirm": "Opravdu odebrat přihlašovací údaje k Fakturoidu?",
       "deleted": "Fakturoid credentials odebrány",
-      "coming_hint": "—"
-,
+      "coming_hint": "—",
       "dry_run_hint": "Zkouška nanečisto projde stejné kontroly jako ostrý import (subjekty, sazby DPH, přepočet a shoda částek s Fakturoidem) a vypíše chyby, ale nic nezapíše."
     },
     "ai": {
@@ -27019,7 +27105,6 @@
     "client_extraction_enabled": "Povolit klientům AI vytěžování",
     "client_extraction_hint": "Klienti s oprávněním vytěžovat a zadávat přijaté faktury mohou použít AI této firmy. Aktivní poskytovatel musí být nakonfigurovaný. Vznikne koncept, který klient zkontroluje a označí jako přijatý stejně jako při ručním zadání.",
     "client_extraction_unavailable": "AI vytěžování pro tuto firmu není dostupné nebo k němu nemáte oprávnění. Požádejte účetní o povolení a nastavení AI.",
-
     "effort": "Míra uvažování AI",
     "effort_default": "Výchozí (podle modelu)",
     "effort_fast": "Rychle a levně",
@@ -31094,7 +31179,13 @@
     "tool_download_all": "Stáhnout vše (ZIP)",
     "tool_failed": "Exportní nástroj se nepodařilo stáhnout.",
     "file_help_title": "Co je v exportu",
-    "file_help_items": ["POHODA vede každý účetní rok samostatně. Převádějí se roky, které zaškrtnete v náhledu (jeden i víc najednou).", "Majetek a mzdy XML export POHODY neobsahuje. Karty majetku a drobného majetku převezme průvodce ze souboru 90_majetek.xml, který do exportu přidá exportní nástroj (viz manuál); mzdy ze souboru 91_mzdy.xml tento průvodce nezpracuje.", "ZIP může obsahovat podsložky. Průvodce v nich najde XML soubory všech agend a k převodu nabídne ty, které podle IČO patří firmě v MyÚčtu.", "Firma musí v MyÚčtu existovat a mít stejné IČO jako v POHODĚ. Převádí se do firmy, ve které právě pracujete; novou firmu nejdřív založte.", "Export obsahuje celé účetnictví firmy. Nahraný soubor aplikace po 24 hodinách bez práce s převodem sama smaže."],
+    "file_help_items": [
+      "POHODA vede každý účetní rok samostatně. Převádějí se roky, které zaškrtnete v náhledu (jeden i víc najednou).",
+      "Majetek a mzdy XML export POHODY neobsahuje. Karty majetku a drobného majetku převezme průvodce ze souboru 90_majetek.xml, který do exportu přidá exportní nástroj (viz manuál); mzdy ze souboru 91_mzdy.xml tento průvodce nezpracuje.",
+      "ZIP může obsahovat podsložky. Průvodce v nich najde XML soubory všech agend a k převodu nabídne ty, které podle IČO patří firmě v MyÚčtu.",
+      "Firma musí v MyÚčtu existovat a mít stejné IČO jako v POHODĚ. Převádí se do firmy, ve které právě pracujete; novou firmu nejdřív založte.",
+      "Export obsahuje celé účetnictví firmy. Nahraný soubor aplikace po 24 hodinách bez práce s převodem sama smaže."
+    ],
     "choose_file": "Soubor exportu (.zip)",
     "choose_file_first": "Nejdřív vyberte soubor exportu.",
     "upload": "Nahrát a načíst",
@@ -34261,7 +34352,6 @@
     "history": "Historie cyklů",
     "history_empty": "Žádná kontrola zatím neproběhla."
   },
-
   "purchase_approval": {
     "title": "Doklady ke schválení",
     "subtitle": "Přijaté doklady, které čekají na schválení odpovědné osoby střediska.",
@@ -34405,7 +34495,6 @@
       "action_failed": "Akci se nepodařilo dokončit. Zkuste to prosím znovu."
     }
   },
-
   "group_stats": {
     "related_parties": "Spojené osoby",
     "related_include": "Započítat",

@@ -1000,7 +1000,8 @@
         "2016_invoice_item_tracking.sql",
         "2017_supplier_accounting_frameworks.sql",
         "2018_supplier_legal_form.sql",
-        "2019_system_dimensions_provenance.sql"
+        "2019_system_dimensions_provenance.sql",
+        "2020_statement_framework_504.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -19877,12 +19878,16 @@
             "engine": "InnoDB",
             "collation": "utf8mb4_unicode_ci",
             "columns": {
+                "adis_row": "smallint(5) unsigned NULL DEFAULT NULL",
+                "adis_sentence": "char(2) NULL DEFAULT NULL",
                 "calc_key": "varchar(32) NULL DEFAULT NULL",
+                "display_code": "varchar(20) NULL DEFAULT NULL",
                 "id": "int(10) unsigned NOT NULL AUTO_INCREMENT",
                 "label": "varchar(255) NOT NULL",
                 "level": "tinyint(3) unsigned NOT NULL",
                 "parent_row_code": "varchar(20) NULL DEFAULT NULL",
                 "position": "smallint(5) unsigned NOT NULL",
+                "reduced_scope": "tinyint(1) NOT NULL DEFAULT 0",
                 "row_code": "varchar(20) NOT NULL",
                 "row_type": "enum('detail','subtotal','computed') NOT NULL DEFAULT 'detail'",
                 "section": "enum('assets','liabilities','profit_loss') NOT NULL",
@@ -19904,6 +19909,7 @@
             "collation": "utf8mb4_unicode_ci",
             "columns": {
                 "created_at": "timestamp NOT NULL DEFAULT current_timestamp()",
+                "framework": "enum('cz_500','cz_504') NOT NULL DEFAULT 'cz_500'",
                 "id": "smallint(5) unsigned NOT NULL AUTO_INCREMENT",
                 "statement_type": "enum('balance_sheet','income_statement','income_statement_purpose') NOT NULL",
                 "valid_from": "date NOT NULL",

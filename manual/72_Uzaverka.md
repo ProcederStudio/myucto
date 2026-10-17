@@ -417,6 +417,8 @@ s už existujícím dokladem skončí chybou uložení, ne tichým duplikátem.
 
 **Nastavení uzávěrky a výkazů:**
 
+Příloha k závěrce a uzávěrkový balíček respektují účetní rámec zvoleného období. Příloha podle vyhlášky 504/2002 Sb. obsahuje sekce podle § 29 a § 30, včetně dotací, fondů, darů, veřejných sbírek a použití daňových úlev. Zkrácený rozsah vynechává pouze údaje uvedené v § 30 odst. 7. Údaje, které se jednotky netýkají, označte výslovně v textu. Vyplnění sekce potvrzuje přítomnost textu, nikoli jeho věcnou správnost. Převzaté loňské texty před uložením zkontrolujte; vlastní text se nepřepisuje. Balíček 504 sestavuje výkazy k poslednímu dni účetního období, PDF v celých tisících Kč a pracovní XLSX v Kč. Nedostupné přehledy podle vyhlášky 500 nejsou v nabídce aktivní.
+
 1. Na stránce Účetní období klikněte na **Nastavení uzávěrky** (okno **Nastavení uzávěrky a výkazů**).
 2. Upravte firemní výchozí hodnoty a uložte.
 

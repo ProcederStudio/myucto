@@ -12186,8 +12186,8 @@ paths:
     get:
       tags:
       - Accounting
-      summary: Rozvaha (vyhl. 500/2002 Sb., brutto/korekce/netto + minulé období)
-      description: '`checks.negative_net_rows` vypisuje řádky aktiv se záporným netto (korekce vyšší
+      summary: Rozvaha podle historického účetního rámce 500 nebo 504
+      description: 'Historický rámec 504 vrací počáteční a konečné stavy; rámec 500 brutto, korekce a netto. Následující kontroly záporného netto se týkají rámce 500. `checks.negative_net_rows` vypisuje řádky aktiv se záporným netto (korekce vyšší
 
         než brutto) v běžném (`column: current`) i minulém (`previous`) období; mezisoučet
 
@@ -12229,7 +12229,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BalanceSheetReport'
+                oneOf:
+                - $ref: '#/components/schemas/BalanceSheetReport'
+                - $ref: '#/components/schemas/BalanceSheet504Report'
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -12240,13 +12242,10 @@ paths:
       tags:
       - Accounting
       summary: Export rozvahy (PDF / XLSX)
-      description: 'PDF je oficiální výkaz — vždy v celých tisících Kč (§4 odst. 3 vyhl.
-
-        500/2002 Sb.), zaokrouhlení po řádcích. XLSX je pracovní formát —
-
-        jednotku volí `unit` (default Kč).
-
-        '
+      description: "PDF je oficiální výkaz — vždy v celých tisících Kč (§4 odst. 3 vyhl.\n500/2002 Sb.), zaokrouhlení\
+        \ po řádcích. XLSX je pracovní formát —\njednotku volí `unit` (default Kč).\n Výkaz se sestavuje podle historického\
+        \ rámce 500 nebo 504. PDF 504 používá počáteční a konečné stavy rozvahy, případně hlavní/hospodářskou činnost\
+        \ výsledovky."
       parameters:
       - $ref: '#/components/parameters/SupplierIdHeader'
       - in: query
@@ -12305,6 +12304,7 @@ paths:
     get:
       tags: [Accounting]
       summary: Výkaz zisku a ztráty (druhové členění)
+      description: Historický rámec 504 vrací hlavní činnost, hospodářskou činnost a celkem; rámec 500 běžné a minulé období.
       parameters:
         - $ref: '#/components/parameters/SupplierIdHeader'
         - $ref: '#/components/parameters/DimensionValueId'
@@ -12313,55 +12313,122 @@ paths:
         - { in: query, name: as_of, schema: { type: string, format: date } }
         - { in: query, name: scope, schema: { type: string, enum: [auto, full, small, micro], default: auto } }
       responses:
-        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/IncomeStatementReport' } } } }
+        '200': { description: OK, content: { application/json: { schema: { oneOf: [{ $ref: '#/components/schemas/IncomeStatementReport' }, { $ref: '#/components/schemas/IncomeStatement504Report' }] } } } }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
   /api/v1/accounting/reports/income-statement/export:
     get:
-      tags: [Accounting]
+      tags:
+      - Accounting
       summary: Export výsledovky (PDF / XLSX)
-      description: |
-        PDF je oficiální výkaz — vždy v celých tisících Kč (§4 odst. 3 vyhl.
-        500/2002 Sb.), zaokrouhlení po řádcích. XLSX je pracovní formát —
-        jednotku volí `unit` (default Kč).
+      description: "PDF je oficiální výkaz — vždy v celých tisících Kč (§4 odst. 3 vyhl.\n500/2002 Sb.), zaokrouhlení\
+        \ po řádcích. XLSX je pracovní formát —\njednotku volí `unit` (default Kč).\n Výkaz se sestavuje podle historického\
+        \ rámce 500 nebo 504. PDF 504 používá počáteční a konečné stavy rozvahy, případně hlavní/hospodářskou činnost\
+        \ výsledovky."
       parameters:
-        - $ref: '#/components/parameters/SupplierIdHeader'
-        - $ref: '#/components/parameters/DimensionValueId'
-        - $ref: '#/components/parameters/DimensionDescendants'
-        - { in: query, name: period_id, required: true, schema: { type: integer } }
-        - { in: query, name: as_of, schema: { type: string, format: date } }
-        - { in: query, name: scope, schema: { type: string, enum: [auto, full, small, micro], default: auto } }
-        - { in: query, name: format, required: true, schema: { type: string, enum: [pdf, xlsx] } }
-        - { in: query, name: unit, description: "Jen XLSX; PDF je vždy v tis. Kč", schema: { type: string, enum: [czk, thousands], default: czk } }
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - $ref: '#/components/parameters/DimensionValueId'
+      - $ref: '#/components/parameters/DimensionDescendants'
+      - in: query
+        name: period_id
+        required: true
+        schema:
+          type: integer
+      - in: query
+        name: as_of
+        schema:
+          type: string
+          format: date
+      - in: query
+        name: scope
+        schema:
+          type: string
+          enum:
+          - auto
+          - full
+          - small
+          - micro
+          default: auto
+      - in: query
+        name: format
+        required: true
+        schema:
+          type: string
+          enum:
+          - pdf
+          - xlsx
+      - in: query
+        name: unit
+        description: Jen XLSX; PDF je vždy v tis. Kč
+        schema:
+          type: string
+          enum:
+          - czk
+          - thousands
+          default: czk
       responses:
-        '200': { description: Soubor výkazu, content: { application/octet-stream: { schema: { type: string, format: binary } } } }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '200':
+          description: Soubor výkazu
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
 
   /api/v1/accounting/reports/statement-accounts:
     get:
-      tags: [Accounting]
+      tags:
+      - Accounting
       summary: Rozvaha a výsledovka po účtech s hospodářským výsledkem
-      description: |
-        Konečné zůstatky účtů k `as_of` (default min(konec období, dnešek)) bez uzávěrkového
+      description: 'Konečné zůstatky účtů k `as_of` (default min(konec období, dnešek)) bez uzávěrkového
+
         zápisu, takže jsou stejné před uzavřením knih i po něm. `balance` = rozvahové účty
+
         tříd 0–4 po třídách, syntetiky s analytikami (`analytics`), MD a D bez kompenzace
+
         analytik; `balance.profit` = Σ MD − Σ D. `profit_loss.sections` dělí výsledkové účty
+
         podle mapy druhové VZZ na `operating`, `financial`, `unassigned` (účty mimo mapu),
+
         `tax` a `transfer`, s mezisoučty provozního a finančního VH, VH před a po zdanění
+
         a VH za účetní období. `checks.profit_matches` = VH z rozvahových účtů se shoduje
+
         s VH z výsledkových účtů.
+
+         Pro historický rámec 504 obsahuje balances počáteční/konečné debetní zůstatky, profit_loss řádky hlavní/hospodářské činnosti/celkem a checks diagnostiku účtu 931 a odsouhlasení. Jde o pracovní přehled. Implicitní datum rámce 504 se omezuje na hranice období, tedy nejdříve na jeho první den.'
       parameters:
-        - $ref: '#/components/parameters/SupplierIdHeader'
-        - $ref: '#/components/parameters/DimensionValueId'
-        - $ref: '#/components/parameters/DimensionDescendants'
-        - { in: query, name: period_id, required: true, schema: { type: integer } }
-        - { in: query, name: as_of, schema: { type: string, format: date } }
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - $ref: '#/components/parameters/DimensionValueId'
+      - $ref: '#/components/parameters/DimensionDescendants'
+      - in: query
+        name: period_id
+        required: true
+        schema:
+          type: integer
+      - in: query
+        name: as_of
+        schema:
+          type: string
+          format: date
       responses:
-        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/StatementAccountsReport' } } } }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - $ref: '#/components/schemas/StatementAccountsReport'
+                - $ref: '#/components/schemas/StatementAccounts504Report'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
 
   /api/v1/accounting/reports/statement-accounts/export:
     get:
@@ -12695,22 +12762,44 @@ paths:
 
   /api/v1/accounting/reports/monthly-report/preview:
     get:
-      tags: [Accounting]
+      tags:
+      - Accounting
       summary: Měsíční přehled klientovi — náhled dat (JSON)
-      description: |
-        PDF balíček pro klienta sestavený NAD existujícími sestavami (výsledovka
-        měsíc+YTD, rozvaha, top pohledávky/závazky po splatnosti ze saldokonta,
-        DPH k úhradě a termín podání pro plátce DPH, nadcházející daňové termíny).
-        Tento endpoint jen vrací data pro náhled; PDF viz /download.
+      description: "PDF balíček pro klienta sestavený NAD existujícími sestavami (výsledovka\nměsíc+YTD, rozvaha,\
+        \ top pohledávky/závazky po splatnosti ze saldokonta,\nDPH k úhradě a termín podání pro plátce DPH, nadcházející\
+        \ daňové termíny).\nTento endpoint jen vrací data pro náhled; PDF viz /download.\n Rámec 504 vrací hlavní/hospodářskou\
+        \ činnost/celkem a průběžný přehled zůstatků s nevypořádaným účtem 931. Měsíční částky jsou přesný rozdíl kumulativních výsledků od začátku účetního období,\
+        \ nikoli závěrkový formulář."
       parameters:
-        - $ref: '#/components/parameters/SupplierIdHeader'
-        - { in: query, name: year, required: true, schema: { type: integer } }
-        - { in: query, name: month, required: true, schema: { type: integer, minimum: 1, maximum: 12 } }
-        - { in: query, name: comment, description: "Volitelný komentář účetní (zobrazí se i v PDF/e-mailu)", schema: { type: string } }
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - in: query
+        name: year
+        required: true
+        schema:
+          type: integer
+      - in: query
+        name: month
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 12
+      - in: query
+        name: comment
+        description: Volitelný komentář účetní (zobrazí se i v PDF/e-mailu)
+        schema:
+          type: string
       responses:
-        '200': { description: OK, content: { application/json: { schema: { type: object } } } }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MonthlyReportData'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
 
   /api/v1/accounting/reports/monthly-report/download:
     get:
@@ -13765,30 +13854,57 @@ paths:
 
   /api/v1/accounting/periods/{id}/statement-notes:
     get:
-      tags: [Accounting]
-      summary: Příloha k účetní závěrce (§ 18/1/c ZoÚ, § 39/39a/39b vyhl. 500/2002)
-      description: Povinné sekce dle kategorie účetní jednotky a povinného auditu, jejich obsah a co chybí. Sekce se ukládají per fiskální rok — čtení i zápis fungují i nad uzavřeným obdobím.
+      tags:
+      - Accounting
+      summary: Příloha k účetní závěrce podle historického rámce 500 nebo 504
+      description: Povinné sekce dle kategorie účetní jednotky a povinného auditu, jejich obsah a co chybí. Sekce
+        se ukládají per fiskální rok — čtení i zápis fungují i nad uzavřeným obdobím. Rámec 504 používá § 29/30 vyhlášky
+        504 a samostatné klíče n504_*. Audit vynucuje plný rozsah.
       parameters:
-        - $ref: '#/components/parameters/SupplierIdHeader'
-        - { in: path, name: id, required: true, schema: { type: integer } }
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
       responses:
-        '200': { description: "OK {fiscal_year, category, scopes[], sections[], missing[], complete}", content: { application/json: { schema: { type: object } } } }
-        '404': { $ref: '#/components/responses/NotFound' }
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatementNotesReport'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/v1/accounting/periods/{id}/statement-notes/{section}:
     put:
-      tags: [Accounting]
+      tags:
+      - Accounting
       summary: Uložení textu sekce přílohy k závěrce
-      description: |
-        Prázdný/nullový `content` sekci smaže (vrátí se k případnému automatickému předvyplnění).
+      description: 'Prázdný/nullový `content` sekci smaže (vrátí se k případnému automatickému předvyplnění).
+
         Vrací čerstvý stav přílohy jako GET.
 
+
         Klíč `content` je povinný. Chybí-li, vrací 400 `validation_failed`; `null` nebo prázdný text
+
         sekci smaže.
+
+        '
       parameters:
-        - $ref: '#/components/parameters/SupplierIdHeader'
-        - { in: path, name: id, required: true, schema: { type: integer } }
-        - { in: path, name: section, required: true, schema: { type: string, pattern: '^[a-z0-9_]+$' } }
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+      - in: path
+        name: section
+        required: true
+        schema:
+          type: string
+          pattern: ^[a-z0-9_]+$
       requestBody:
         required: true
         content:
@@ -13796,19 +13912,32 @@ paths:
             schema:
               type: object
               properties:
-                content: { type: string, nullable: true }
+                content:
+                  type: string
+                  nullable: true
       responses:
         '403':
-          description: |
-            Zápis přes API token (`token_write_forbidden`). Účetní a daňová vrstva
+          description: 'Zápis přes API token (`token_write_forbidden`). Účetní a daňová vrstva
+
             je přes token jednosměrná — čtení ano, zápis jen z webového rozhraní,
+
             a to i tokenu se scope `read_write`.
+
+            '
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Error' }
-        '200': { description: OK, content: { application/json: { schema: { type: object } } } }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '422': { $ref: '#/components/responses/ValidationFailed' }
+              schema:
+                $ref: '#/components/schemas/Error'
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatementNotesReport'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
 
   /api/v1/accounting/periods/{id}/closing/start:
     post:
@@ -22541,23 +22670,38 @@ paths:
   # ── Uzávěrkový balíček (ZIP se všemi sestavami uzávěrky) ────────────────────
   /api/v1/reports/closing-package/preview:
     parameters:
-      - $ref: '#/components/parameters/SupplierIdHeader'
-      - { in: query, name: period_id, required: true, schema: { type: integer } }
+    - $ref: '#/components/parameters/SupplierIdHeader'
+    - in: query
+      name: period_id
+      required: true
+      schema:
+        type: integer
     get:
-      tags: [Reports]
+      tags:
+      - Reports
       summary: Náhled uzávěrkového balíčku — počty dostupných sestav
       description: Jen podvojné účetnictví (guard v Action).
       responses:
-        '200': { description: "OK {period_id, fiscal_year, counts}", content: { application/json: { schema: { type: object } } } }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClosingPackagePreview'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
   /api/v1/reports/closing-package/start:
     parameters:
       - $ref: '#/components/parameters/SupplierIdHeader'
     post:
       tags: [Reports]
       summary: Spustí uzávěrkový balíček (background job)
-      description: Vytvoří job (import_jobs) a spustí worker na pozadí. Vrátí 409, pokud už běží.
+      description: Vytvoří job (import_jobs) a spustí worker na pozadí. Vrátí 409, pokud už běží. Prázdný výběr použije části dostupné podle historického rámce. Pro 504 se implicitně vynechají cash_flow a equity_changes; explicitní požadavek na ně zůstává viditelným varováním v balíčku.
       requestBody:
         content:
           application/json:
@@ -22573,6 +22717,7 @@ paths:
         '400': { description: Neplatné parametry }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
         '409': { description: Export už běží (existing_job_id) }
   /api/v1/reports/closing-package/jobs:
     parameters:
@@ -22604,22 +22749,37 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
   /api/v1/reports/closing-package/jobs/{id}/download:
     parameters:
-      - $ref: '#/components/parameters/SupplierIdHeader'
-      - { in: path, name: id, required: true, schema: { type: integer, format: int64 } }
+    - $ref: '#/components/parameters/SupplierIdHeader'
+    - in: path
+      name: id
+      required: true
+      schema:
+        type: integer
+        format: int64
     get:
-      tags: [Reports]
+      tags:
+      - Reports
       summary: Stáhne hotový ZIP uzávěrkového balíčku
-      description: Ke stažení jsou joby ve stavu `completed` i `completed_with_warnings` (povinné jádro kompletní, doplňkové části selhaly).
+      description: Ke stažení jsou joby ve stavu `completed` i `completed_with_warnings` (povinné jádro kompletní,
+        doplňkové části selhaly). ZIP manifest rámce 504 obsahuje accounting_framework=cz_504 a statement_as_of rovné
+        poslednímu dni období. PDF a pracovní XLSX zachovávají strukturu tohoto rámce.
       responses:
         '200':
           description: ZIP archiv
           content:
             application/zip:
-              schema: { type: string, format: binary }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { description: 'Balíček ještě není připravený ke stažení' }
-        '410': { description: 'Soubor balíčku už není k dispozici' }
+              schema:
+                type: string
+                format: binary
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Balíček ještě není připravený ke stažení
+        '410':
+          description: Soubor balíčku už není k dispozici
+
   /api/v1/reports/closing-package/jobs/{id}/cancel:
     parameters:
       - $ref: '#/components/parameters/SupplierIdHeader'
@@ -25492,13 +25652,16 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Section18Statements'
+                oneOf:
+                - $ref: '#/components/schemas/Section18Statements'
+                - $ref: '#/components/schemas/Section18Statements504Unavailable'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
           $ref: '#/components/responses/ValidationFailed'
+
   /api/v1/accounting/reports/section18-statements/export:
     get:
       tags:
@@ -25541,6 +25704,9 @@ paths:
           $ref: '#/components/responses/NotFound'
         '422':
           $ref: '#/components/responses/ValidationFailed'
+      description: Kalkulátor podporuje rámec 500. Historický rámec 504 vrací 422 statement_supplement_unsupported.
+        Nejde o zákonný zákaz dobrovolného přehledu.
+
   /api/v1/accounting/vat-clearing:
     get:
       tags:
@@ -29641,6 +29807,612 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
 
   schemas:
+    StatementAccount504Line:
+      type: object
+      required:
+      - account_id
+      - code
+      - name
+      - account_type
+      - opening_debit_balance
+      - closing_debit_balance
+      properties:
+        account_id:
+          type: integer
+        code:
+          type: string
+        name:
+          type: string
+        account_type:
+          type: string
+        opening_debit_balance:
+          type: number
+        closing_debit_balance:
+          type: number
+    StatementAccounts504Report:
+      type: object
+      required:
+      - statement_type
+      - accounting_framework
+      - view_kind
+      - version_code
+      - as_of
+      - period
+      - entity
+      - dimension
+      - balances
+      - profit_loss
+      - checks
+      properties:
+        statement_type:
+          type: string
+          enum:
+          - account_view
+        accounting_framework:
+          type: string
+          enum:
+          - cz_504
+        view_kind:
+          type: string
+          enum:
+          - management
+        version_code:
+          type: string
+        as_of:
+          type: string
+          format: date
+        period:
+          $ref: '#/components/schemas/ReportPeriod'
+        entity:
+          $ref: '#/components/schemas/StatementEntity'
+        dimension:
+          anyOf:
+          - $ref: '#/components/schemas/ReportDimensionFilter'
+          - type: 'null'
+        balances:
+          type: array
+          items:
+            $ref: '#/components/schemas/StatementAccount504Line'
+        profit_loss:
+          type: array
+          items:
+            $ref: '#/components/schemas/IncomeStatement504Row'
+        checks:
+          type: object
+          required:
+          - unresolved_pending_result
+          - reconciliation_difference
+          properties:
+            unresolved_pending_result:
+              type: number
+            reconciliation_difference:
+              type: number
+    MonthlyReportCommon:
+      type: object
+      required:
+      - entity
+      - period
+      - generated_at
+      - comment
+      - receivables_overdue
+      - payables_overdue
+      - vat
+      - upcoming_deadlines
+      properties:
+        entity:
+          type: object
+          required:
+          - name
+          - ico
+          - address
+          properties:
+            name:
+              type: string
+            ico:
+              type: string
+              nullable: true
+            address:
+              type: string
+        period:
+          type: object
+          required:
+          - year
+          - month
+          - as_of
+          properties:
+            year:
+              type: integer
+            month:
+              type: integer
+              minimum: 1
+              maximum: 12
+            as_of:
+              type: string
+              format: date
+        generated_at:
+          type: string
+        comment:
+          type: string
+          nullable: true
+        receivables_overdue:
+          type: array
+          items: &id001
+            type: object
+            properties:
+              partner_name:
+                type: string
+              doc_type:
+                type: string
+              doc_id:
+                type: integer
+              doc_no:
+                type: string
+                nullable: true
+              issue_date:
+                type: string
+                format: date
+                nullable: true
+              due_date:
+                type: string
+                format: date
+              currency_code:
+                type: string
+              remaining_czk:
+                type: number
+              days_overdue:
+                type: integer
+        payables_overdue:
+          type: array
+          items: *id001
+        vat:
+          type: object
+          properties:
+            period:
+              type: string
+            period_type:
+              type: string
+              nullable: true
+            tax_due:
+              type: number
+            is_excess_deduction:
+              type: boolean
+            submission_deadline:
+              type: string
+              format: date
+          nullable: true
+        upcoming_deadlines:
+          type: array
+          items:
+            type: object
+            properties:
+              advance_kind:
+                type: string
+              due_date:
+                type: string
+                format: date
+              amount:
+                type: number
+              status:
+                type: string
+              is_overdue:
+                type: boolean
+    MonthlyReport500Data:
+      allOf:
+      - $ref: '#/components/schemas/MonthlyReportCommon'
+      - type: object
+        required:
+        - income_statement_ytd
+        - income_statement_month
+        - balance_sheet
+        properties:
+          accounting_framework:
+            type: string
+            enum:
+            - cz_500
+          income_statement_ytd:
+            $ref: '#/components/schemas/IncomeStatementReport'
+          income_statement_month:
+            type: array
+            items:
+              type: object
+              required:
+              - row_code
+              - display_code
+              - label
+              - level
+              - row_type
+              - amount
+              properties:
+                row_code:
+                  type: string
+                display_code:
+                  type: string
+                label:
+                  type: string
+                level:
+                  type: integer
+                row_type:
+                  type: string
+                amount:
+                  type: number
+          balance_sheet:
+            $ref: '#/components/schemas/BalanceSheetReport'
+    MonthlyReport504Data:
+      allOf:
+      - $ref: '#/components/schemas/MonthlyReportCommon'
+      - type: object
+        required:
+        - accounting_framework
+        - view_kind
+        - income_statement_ytd
+        - income_statement_month
+        - balance_sheet
+        properties:
+          accounting_framework:
+            type: string
+            enum:
+            - cz_504
+          view_kind:
+            type: string
+            enum:
+            - management
+          income_statement_ytd:
+            $ref: '#/components/schemas/IncomeStatement504Report'
+          income_statement_month:
+            type: array
+            items:
+              $ref: '#/components/schemas/IncomeStatement504Row'
+          balance_sheet:
+            $ref: '#/components/schemas/StatementAccounts504Report'
+    MonthlyReportData:
+      oneOf:
+      - $ref: '#/components/schemas/MonthlyReport500Data'
+      - $ref: '#/components/schemas/MonthlyReport504Data'
+    StatementNotesSection:
+      type: object
+      required:
+      - key
+      - label
+      - legal
+      - hint
+      - scope
+      - auto
+      - content
+      - filled
+      - carried_over_from_year
+      properties:
+        key:
+          type: string
+          description: Sekce 504 mají samostatné klíče n504_*.
+        label:
+          type: string
+        legal:
+          type: string
+        hint:
+          type: string
+          nullable: true
+        scope:
+          type: string
+          enum:
+          - all
+          - audited
+          - large
+          - full504
+        auto:
+          type: boolean
+        content:
+          type: string
+          nullable: true
+        filled:
+          type: boolean
+        carried_over_from_year:
+          type: integer
+          nullable: true
+    StatementNotesReport:
+      type: object
+      required:
+      - fiscal_year
+      - category
+      - category_label
+      - scopes
+      - sections
+      - missing
+      - complete
+      - carry_over
+      properties:
+        fiscal_year:
+          type: integer
+        category:
+          type: string
+        category_label:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        sections:
+          type: array
+          items:
+            $ref: '#/components/schemas/StatementNotesSection'
+        missing:
+          type: array
+          items:
+            type: string
+        complete:
+          type: boolean
+        carry_over:
+          type: object
+          required:
+          - source_year
+          - available
+          properties:
+            source_year:
+              type: integer
+            available:
+              type: integer
+        accounting_framework:
+          type: string
+          enum:
+          - cz_504
+          description: Pouze větev 504; odpověď 500 toto pole nepřidává.
+        legal_basis:
+          type: string
+        scope:
+          type: string
+          enum:
+          - full
+          - small
+        period:
+          type: object
+          required:
+          - id
+          - starts_on
+          - ends_on
+          properties:
+            id:
+              type: integer
+            starts_on:
+              type: string
+              format: date
+            ends_on:
+              type: string
+              format: date
+    ClosingPackagePreview:
+      type: object
+      required:
+      - period_id
+      - fiscal_year
+      - counts
+      properties:
+        period_id:
+          type: integer
+        fiscal_year:
+          type: integer
+        counts:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
+          description: Ve větvi 504 jsou cash_flow a equity_changes rovny 0.
+        accounting_framework:
+          type: string
+          enum:
+          - cz_504
+    Section18Statements504Unavailable:
+      type: object
+      required:
+      - accounting_framework
+      - available
+      - reason
+      - required
+      - cash_flow
+      - equity
+      properties:
+        accounting_framework:
+          type: string
+          enum:
+          - cz_504
+        available:
+          type: boolean
+          enum:
+          - false
+        reason:
+          type: string
+          enum:
+          - statement_supplement_unsupported
+        required:
+          type: boolean
+          enum:
+          - false
+        cash_flow:
+          type: object
+          nullable: true
+          enum:
+          - null
+        equity:
+          type: object
+          nullable: true
+          enum:
+          - null
+    Statement504Row:
+      type: object
+      required:
+      - row_code
+      - adis_sentence
+      - adis_row
+      - display_code
+      - label
+      properties:
+        row_code:
+          type: string
+        adis_sentence:
+          type: string
+          enum:
+          - UR
+          - US
+          - UT
+        adis_row:
+          type: integer
+        display_code:
+          type: string
+        label:
+          type: string
+    BalanceSheet504Row:
+      allOf:
+      - $ref: '#/components/schemas/Statement504Row'
+      - type: object
+        required:
+        - start
+        - end
+        properties:
+          start:
+            type:
+            - number
+            - 'null'
+          end:
+            type:
+            - number
+            - 'null'
+    IncomeStatement504Row:
+      allOf:
+      - $ref: '#/components/schemas/Statement504Row'
+      - type: object
+        required:
+        - main
+        - economic
+        - total
+        properties:
+          main:
+            type: number
+          economic:
+            type: number
+          total:
+            type: number
+    BalanceSheet504Report:
+      type: object
+      required:
+      - statement_type
+      - accounting_framework
+      - version_code
+      - as_of
+      - scope
+      - entity
+      - period
+      - dimension
+      - assets
+      - liabilities
+      - totals
+      - checks
+      properties:
+        statement_type:
+          type: string
+          const: balance_sheet
+        accounting_framework:
+          type: string
+          const: cz_504
+        version_code:
+          type: string
+          const: vyhl504-2002/2016
+        as_of:
+          type: string
+          format: date
+        scope:
+          $ref: '#/components/schemas/EffectiveScope'
+        entity:
+          $ref: '#/components/schemas/StatementEntity'
+        period:
+          $ref: '#/components/schemas/ReportPeriod'
+        dimension:
+          anyOf:
+          - $ref: '#/components/schemas/ReportDimensionFilter'
+          - type: 'null'
+        assets:
+          type: array
+          items:
+            $ref: '#/components/schemas/BalanceSheet504Row'
+        liabilities:
+          type: array
+          items:
+            $ref: '#/components/schemas/BalanceSheet504Row'
+        totals:
+          type: object
+          required:
+          - assets_start
+          - assets_end
+          - liabilities_start
+          - liabilities_end
+          properties:
+            assets_start:
+              type: number
+            assets_end:
+              type: number
+            liabilities_start:
+              type: number
+            liabilities_end:
+              type: number
+        checks:
+          type: object
+          required:
+          - profit_current
+          - profit_matches
+          - balanced
+          properties:
+            profit_current:
+              type: number
+            profit_matches:
+              type: boolean
+            balanced:
+              type: boolean
+    IncomeStatement504Report:
+      type: object
+      required:
+      - statement_type
+      - accounting_framework
+      - version_code
+      - as_of
+      - scope
+      - entity
+      - period
+      - dimension
+      - rows
+      - checks
+      properties:
+        statement_type:
+          type: string
+          const: income_statement
+        accounting_framework:
+          type: string
+          const: cz_504
+        version_code:
+          type: string
+          const: vyhl504-2002/2016
+        as_of:
+          type: string
+          format: date
+        scope:
+          $ref: '#/components/schemas/EffectiveScope'
+        entity:
+          $ref: '#/components/schemas/StatementEntity'
+        period:
+          $ref: '#/components/schemas/ReportPeriod'
+        dimension:
+          anyOf:
+          - $ref: '#/components/schemas/ReportDimensionFilter'
+          - type: 'null'
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/IncomeStatement504Row'
+        checks:
+          type: object
+          required:
+          - profit_current
+          - profit_matches
+          properties:
+            profit_current:
+              type: number
+            profit_matches:
+              type: boolean
     AiAssistantStatus:
       type: object
       required: [available, reason, provider, model, supports_files, models]

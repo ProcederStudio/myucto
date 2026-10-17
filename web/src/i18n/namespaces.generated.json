@@ -681,6 +681,7 @@
       "manualQueue"
     ],
     "accounting-monthly-report": [
+      "dimensions",
       "monthly_report"
     ],
     "accounting-assets": [

@@ -560,7 +560,7 @@ final class AnonymizationPolicy
         'statement_account_overrides' => ['account_prefix' => 'keep', 'follows_prefix' => 'keep', 'note' => 'text', 'row_code' => 'keep'],
         'statement_function_map' => ['account_prefix' => 'keep', 'note' => 'text'],
         'statement_notes' => ['content' => 'text', 'section_key' => 'keep'],
-        'statement_rows' => ['calc_key' => 'keep', 'label' => 'keep', 'parent_row_code' => 'keep', 'row_code' => 'keep'],
+        'statement_rows' => ['adis_sentence' => 'keep', 'calc_key' => 'keep', 'display_code' => 'keep', 'label' => 'keep', 'parent_row_code' => 'keep', 'row_code' => 'keep'],
         'statement_versions' => ['version_code' => 'keep'],
         'stereo_nx_import_map' => ['kind' => 'keep', 'source_hash' => 'keep', 'source_ico' => 'ico', 'source_key' => 'text'],
         'stock_attribute_i18n' => ['label' => 'keep', 'locale' => 'keep'],

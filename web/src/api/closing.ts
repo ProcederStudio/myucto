@@ -816,7 +816,7 @@ export interface StatementNotesSection {
   legal: string
   /** Upozornění k sekci: co aplikace nedopočítává a co proto musí doplnit účetní. */
   hint: string | null
-  scope: 'all' | 'audited' | 'large'
+  scope: 'all' | 'audited' | 'large' | 'full504'
   auto: boolean
   content: string | null
   filled: boolean
@@ -825,6 +825,10 @@ export interface StatementNotesSection {
 }
 
 export interface StatementNotes {
+  accounting_framework?: 'cz_504'
+  legal_basis?: string
+  scope?: 'full' | 'small'
+  period?: { id: number; starts_on: string; ends_on: string }
   fiscal_year: number
   category: string
   scopes: string[]

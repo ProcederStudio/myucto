@@ -19,6 +19,7 @@ use MyInvoice\Service\Tax\Return\DppoXmlBuilder;
 use MyInvoice\Service\Tax\Return\TaxReturnException;
 use MyInvoice\Service\Tax\Return\UnsupportedCaseDetector;
 use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 final class DppoAccountingFrameworkGuardTest extends TestCase
 {
@@ -93,6 +94,30 @@ final class DppoAccountingFrameworkGuardTest extends TestCase
     {
         $this->expectException(TaxReturnException::class);
         (new DppoXmlBuilder())->build(['financial_office_code' => '451'], 2026, [], ['accounting_decree' => '504']);
+    }
+
+    public static function unsupportedAppendices(): iterable
+    {
+        $balance = ['assets' => [['row_code' => 'UR.85', 'start' => 10000, 'end' => 12345.67]],
+            'liabilities' => [['row_code' => 'US.49', 'start' => 10000, 'end' => 12345.67]]];
+        $income = ['rows' => [['row_code' => 'UT.63', 'main' => 2345.67, 'economic' => 0, 'total' => 2345.67]]];
+        yield 'balance framework' => ['balance_sheet', ['accounting_framework' => 'cz_504'] + $balance];
+        yield 'income framework' => ['income_statement', ['accounting_framework' => 'cz_504'] + $income];
+        yield 'balance version' => ['balance_sheet', ['version_code' => 'vyhl504-2002/2016'] + $balance];
+        yield 'income version' => ['income_statement', ['version_code' => 'vyhl504-2002/2016'] + $income];
+    }
+
+    #[DataProvider('unsupportedAppendices')]
+    public function test500MetadataCannotHide504Appendix(string $key, array $statement): void
+    {
+        try {
+            (new DppoXmlBuilder())->build(['financial_office_code' => '451', 'tax_accounting_decree' => '500'], 2026, [],
+                ['accounting_decree' => '500'], [$key => $statement]);
+            self::fail('Výkaz 504 nesmí projít serializací přílohy 500.');
+        } catch (TaxReturnException $e) {
+            self::assertSame('dppo_accounting_framework_not_supported', $e->errorCode);
+            self::assertSame(422, $e->httpStatus);
+        }
     }
 
     public function testDetectorUsesEffectiveDecreeInsteadOfCurrentManualValue(): void

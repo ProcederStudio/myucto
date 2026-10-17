@@ -37,6 +37,8 @@ final class EntityCategoryService
         private readonly EntityCategoryHistoryRepository $history,
         private readonly TaxConstantsRepository $taxConstants,
         private readonly StatementMapResolver $maps,
+        private readonly StatementFrameworkResolver $frameworkResolver,
+        private readonly Statement504Service $statements504,
     ) {}
 
     /**
@@ -211,6 +213,10 @@ final class EntityCategoryService
      */
     private function criteriaFor(int $supplierId, array $period): array
     {
+        $context = $this->frameworkResolver->accountingContext($supplierId, (int) $period['id'], max($period['starts_on'], min($period['ends_on'], date('Y-m-d'))));
+        if ($context['framework'] === 'cz_504') {
+            return $this->statements504->criteria($supplierId, $period, $context['as_of']);
+        }
         $asOf = min((string) $period['ends_on'], date('Y-m-d'));
         $version = $this->definitions->findVersion('balance_sheet', $asOf);
         if ($version === null) {

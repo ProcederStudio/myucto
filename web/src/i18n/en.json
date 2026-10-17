@@ -139,19 +139,66 @@
     "not_found": "Item not found.",
     "form_hint": "You can attach documents after saving the item, from its detail page.",
     "side_label": "Side",
-    "side": { "receivable": "Receivable", "payable": "Payable" },
+    "side": {
+      "receivable": "Receivable",
+      "payable": "Payable"
+    },
     "status_label": "Status",
-    "status": { "draft": "Draft", "posted": "Posted", "reversed": "Reversed", "confirmed": "Confirmed", "cancelled": "Cancelled", "paid": "Paid", "partial": "Partly paid", "forecast": "Estimate", "open": "Open", "overdue": "Overdue" },
+    "status": {
+      "draft": "Draft",
+      "posted": "Posted",
+      "reversed": "Reversed",
+      "confirmed": "Confirmed",
+      "cancelled": "Cancelled",
+      "paid": "Paid",
+      "partial": "Partly paid",
+      "forecast": "Estimate",
+      "open": "Open",
+      "overdue": "Overdue"
+    },
     "source_label": "Source",
     "search": "Search title, counterparty, number or reference",
     "due_from": "Due from",
     "due_to": "Due to",
-    "source": { "manual": "Manual", "payroll": "Payroll", "payroll_forecast": "Payroll forecast", "tax": "Taxes", "tax_advance": "Tax advance", "vat_forecast": "VAT forecast", "dppo_forecast": "Corporate tax forecast", "payroll_payment": "Payroll" },
+    "source": {
+      "manual": "Manual",
+      "payroll": "Payroll",
+      "payroll_forecast": "Payroll forecast",
+      "tax": "Taxes",
+      "tax_advance": "Tax advance",
+      "vat_forecast": "VAT forecast",
+      "dppo_forecast": "Corporate tax forecast",
+      "payroll_payment": "Payroll"
+    },
     "kind_label": "Kind",
-    "kind": { "other": "Other", "rent": "Rent", "loan": "Loan or instalment", "deposit": "Deposit", "insurance": "Insurance", "fee": "Fee", "claim": "Compensation claim" },
+    "kind": {
+      "other": "Other",
+      "rent": "Rent",
+      "loan": "Loan or instalment",
+      "deposit": "Deposit",
+      "insurance": "Insurance",
+      "fee": "Fee",
+      "claim": "Compensation claim"
+    },
     "kind_by_side": {
-      "receivable": { "other": "Other receivable", "rent": "Rent receivable", "loan": "Loan granted or instalment", "deposit": "Refundable deposit", "insurance": "Insurance compensation", "fee": "Fee receivable", "claim": "Compensation claim" },
-      "payable": { "other": "Other payable", "rent": "Rent payable", "loan": "Loan received or instalment", "deposit": "Deposit to refund", "insurance": "Insurance premium payable", "fee": "Fee payable", "claim": "Compensation payable" }
+      "receivable": {
+        "other": "Other receivable",
+        "rent": "Rent receivable",
+        "loan": "Loan granted or instalment",
+        "deposit": "Refundable deposit",
+        "insurance": "Insurance compensation",
+        "fee": "Fee receivable",
+        "claim": "Compensation claim"
+      },
+      "payable": {
+        "other": "Other payable",
+        "rent": "Rent payable",
+        "loan": "Loan received or instalment",
+        "deposit": "Deposit to refund",
+        "insurance": "Insurance premium payable",
+        "fee": "Fee payable",
+        "claim": "Compensation payable"
+      }
     },
     "open": "Open",
     "item": "Item",
@@ -2234,7 +2281,7 @@
       "save_failed": "The taken-over months could not be saved."
     },
     "year_close": {
-      "title":"Payroll year close",
+      "title": "Payroll year close",
       "description": "Close the year only after all twelve payroll periods, corrections and submissions are complete. Liabilities still waiting for a bank statement do not prevent closing — they are only listed.",
       "year": "Year",
       "status": {
@@ -6686,7 +6733,8 @@
           "work_injury_compensation_manual": "The app does not add the Section 271ca lump-sum compensation to the run — it has no payroll component with a verified classification. Create it manually and report it in A2 as lump-sum compensation.",
           "work_injury_compensation_ready": "Create the Section 271ca lump-sum compensation below with Create compensation — state who pays it (the employer or directly the insurer) and when.",
           "severance_garnishment_multiple_missing": "The created severance pay has no number of multiples of average earnings for garnishment (Section 299(4) Civil Procedure Code). Add it as the quantity of the severance input in Payroll inputs.",
-          "severance_input_differs": "The created severance pay ({input_amount_minor}) differs from the current proposal. Correct the input in Payroll inputs.",          "death_no_entitled_survivor": "No close person from the shared household is recorded. The wage claims then become part of the estate — pay out only under the probate decision.",
+          "severance_input_differs": "The created severance pay ({input_amount_minor}) differs from the current proposal. Correct the input in Payroll inputs.",
+          "death_no_entitled_survivor": "No close person from the shared household is recorded. The wage claims then become part of the estate — pay out only under the probate decision.",
           "death_tax_assessment_missing": "The tax assessment of the payout to survivors is missing. Record it below before paying out.",
           "death_enforcement_active": "The employee has {count} active enforcement or insolvency cases. After death, end them and inform the payer, court or administrator in Enforcement and insolvency.",
           "death_deduction_agreements_active": "The employee has {count} active deduction agreements. The employer's claims end with death (Section 328(2) Labour Code) — end them in Deduction agreements."
@@ -9470,7 +9518,11 @@
         },
         "annual_settlement_undecided": "{count} people with income for {year} have not yet decided whether they request the settlement"
       },
-      "awaiting_receipts": {"title": "Waiting for delivery receipts: {count} sent messages", "done_title": "Delivery receipts loaded", "hint": "Data box messages were sent more than an hour ago but the delivery receipt has not been loaded yet. An insurer overview is filed by delivery — once the receipt is loaded, the month switches to Delivered / fulfilled on its own."},
+      "awaiting_receipts": {
+        "title": "Waiting for delivery receipts: {count} sent messages",
+        "done_title": "Delivery receipts loaded",
+        "hint": "Data box messages were sent more than an hour ago but the delivery receipt has not been loaded yet. An insurer overview is filed by delivery — once the receipt is loaded, the month switches to Delivered / fulfilled on its own."
+      },
       "operational_health": {
         "title": "Payroll operational overview",
         "description": "A summary of states that need attention. It contains no personal or detailed data.",
@@ -11426,9 +11478,20 @@
         "cssz_control_catalog_1_4_2_10": "Source: Monthly report control catalogue 1.4.2.10"
       },
       "steps": {
-        "jmhz_protocol_correction_guid_invalid": ["In Sent tab, find the regular submission for the same period that ČSSZ accepted partially.", "The corrective submission must carry the GUID of that regular submission, not a new GUID. Prepare the correction of the regular submission again and send it.", "ČSSZ will not accept a submission with a new GUID as a correction; do not send it again."],
-        "jmhz_protocol_correction_form_unpaired": ["In the protocol, find the employee (IK MPSV and ID PPV) whose form ČSSZ rejected in the previous submission or which was missing from it.", "In the corrective submission carrying the GUID of the regular submission, such an employee form is sent as new: with a new part GUID and type regular.", "Prepare the corrective submission again in Sent tab and send it."],
-        "jmhz_protocol_regular_submission_duplicate": ["ČSSZ already holds a regular submission for this period. It will neither accept nor process another regular submission.", "In Sent tab, open the original regular submission and send the changes as a corrective submission with its GUID."],
+        "jmhz_protocol_correction_guid_invalid": [
+          "In Sent tab, find the regular submission for the same period that ČSSZ accepted partially.",
+          "The corrective submission must carry the GUID of that regular submission, not a new GUID. Prepare the correction of the regular submission again and send it.",
+          "ČSSZ will not accept a submission with a new GUID as a correction; do not send it again."
+        ],
+        "jmhz_protocol_correction_form_unpaired": [
+          "In the protocol, find the employee (IK MPSV and ID PPV) whose form ČSSZ rejected in the previous submission or which was missing from it.",
+          "In the corrective submission carrying the GUID of the regular submission, such an employee form is sent as new: with a new part GUID and type regular.",
+          "Prepare the corrective submission again in Sent tab and send it."
+        ],
+        "jmhz_protocol_regular_submission_duplicate": [
+          "ČSSZ already holds a regular submission for this period. It will neither accept nor process another regular submission.",
+          "In Sent tab, open the original regular submission and send the changes as a corrective submission with its GUID."
+        ],
         "jmhz_protocol_tax_withholding_with_declaration": [
           "On the employee card, check the taxpayer declaration in the statutory evidence. With a signed declaration, tax is collected as an advance, not withheld at the special rate.",
           "Correct the declaration or the tax regime of the employment and recalculate the payroll run.",
@@ -12370,7 +12433,7 @@
       "registration_event_czech_residence_unverifiable": "The address of stay in the Czech Republic is sent only for an employee with permanent residence abroad, but the person has no country of permanent residence. Add the permanent address with its country on the person record, or report it in the same change.",
       "registration_event_birth_number_missing": "A change or correction of the registration of an employee with Czech citizenship must carry the birth number or the insured person's registration number, otherwise ČSSZ rejects it. Add the birth number on the person record and approve the notice again.",
       "registration_event_foreign_insurance_missing": "A change or correction of the registration of an employee with activity type “N” (contract employee) must carry the foreign insurance carrier. Fill it in the registration profile (A1), save it and approve the notice again.",
-      "registration_employer_variable_symbol_invalid":"The employer variable symbol is not valid: its check digit does not match or it does not start with a social security district office code. ČSSZ would reject the filing. Copy the symbol exactly from the ČSSZ notice into the employer payroll settings (accounting unit).",
+      "registration_employer_variable_symbol_invalid": "The employer variable symbol is not valid: its check digit does not match or it does not start with a social security district office code. ČSSZ would reject the filing. Copy the symbol exactly from the ČSSZ notice into the employer payroll settings (accounting unit).",
       "registration_cssz_workplace_code_invalid": "The social security office code is not in the ČSSZ district codebook, so ČSSZ rejects it. Correct the code in the employer payroll settings.",
       "registration_event_delta_variant_forbidden": "The notification contains a part that the data message must not carry for this activity type (forbidden element), so ČSSZ would reject it. Remove the listed data from the notification.",
       "registration_a3_underage": "The employee is younger than 14 on the new start date and ČSSZ rejects such a filing on entry. Check the date of birth and the start date.",
@@ -12414,7 +12477,7 @@
       "registration_prezec_p1_guid_missing": "The termination of a pre-registration (PREZEC P2) must reference the GUID of the original accepted partial registration (P1). Load the ČSSZ protocol for the accepted P1 first; without the correct GUID ČSSZ cannot process the termination and the pre-registration stays open.",
       "registration_prezec_identifier_required": "Neither the birth number nor the insured person's registration number is filled in. The pre-start partial registration (PREZEC) cannot be filed without one of them - fill it in on the person's record, or if the employee has neither, file a full REGZEC registration instead.",
       "registration_regzec_a1_foreign_insurance_missing": "The registration of an employee with activity type “N” (contract employee) must carry the foreign insurance carrier, otherwise ČSSZ will not accept it. Fill in the Foreign insurance carrier section of the registration profile (specification and country) and save it.",
-      "registration_regzec_a1_profile_conflict":"Someone else saved the registration profile in the meantime. Your draft changes will be lost, but they will not overwrite someone else's work.",
+      "registration_regzec_a1_profile_conflict": "Someone else saved the registration profile in the meantime. Your draft changes will be lost, but they will not overwrite someone else's work.",
       "registration_regzec_a1_source_scope_mismatch": "The start date changed on the employment record in the meantime, so the open form was pointing at a different day than the one the registration is being frozen to. Draft changes will be saved to the correct day.",
       "registration_regzec_a1_variant_data_incomplete": "The employee registration (REGZEC A1) does not yet have all the data ČSSZ requires for this activity type. A draft profile can be saved, but it can only be filed once completed - the Check button shows what is missing.",
       "registration_regzec_action_variant_unsupported": "The selected filing type cannot be submitted for this activity type - ČSSZ does not allow it. Check the activity type on the employment record, or choose a different notification type.",
@@ -12461,11 +12524,11 @@
       "nempri_care_days_missing": "When care continues or ends, the application must carry the days the employee provided care. Fill them in on the case.",
       "nempri_last_day_hours_without_worked": "For care benefit, the working time and hours worked on the last day are stated only if the employee worked on the last day of care.",
       "nempri_date_in_future": "The date of birth of the child or cared person and the date of transfer to other work must not be later than today. Correct it on the case.",
-      "hzupn_within_wage_compensation_window":"The incapacity did not exceed 14 calendar days; wage compensation covers all of it and no sickness benefit arises. The HZUPN report is therefore not filed.",
+      "hzupn_within_wage_compensation_window": "The incapacity did not exceed 14 calendar days; wage compensation covers all of it and no sickness benefit arises. The HZUPN report is therefore not filed.",
       "hzupn_incapacity_in_protection_period": "The incapacity arose only after the employment ended (in the protection period). ČSSZ does not require the HZUPN report in this case; if the OSSZ asks for it, file it as requested.",
       "hzupn_employment_ended_during_incapacity": "The employment ended during the incapacity. ČSSZ does not require the HZUPN report in this case; if the OSSZ asks for it, file it as requested.",
       "nempri_small_scope_income_missing": "The employee works under an agreement to perform work (DPP), so the notification carries the countable income for the month the event arose. Fill it in on the case.",
-      "hzupn_return_decision_missing":"The employer report must state whether the employee returned to work after the incapacity (Yes with the date and last-day hours, or No with the reason). Choose the answer in the case.",
+      "hzupn_return_decision_missing": "The employer report must state whether the employee returned to work after the incapacity (Yes with the date and last-day hours, or No with the reason). Choose the answer in the case.",
       "hzupn_last_day_hours_out_of_range": "Both the working time and the hours worked on the last day of incapacity must be between 0 and 24 hours.",
       "hzupn_issue_date_too_early": "The report issue date must be after 31 December 2019. Correct it in the case.",
       "hzupn_confirmation_number_format_invalid": "The decision number in the HZUPN report must use the format valid since 2020: a letter E to Z (except K) and 6 to 7 digits, or an electronic serial number (10 digits from 2001010000, optionally prefixed with the IČPE).",
@@ -18820,6 +18883,30 @@
       "duplicate_period": "A fiscal period for this year already exists.",
       "not_found": "Record not found.",
       "forbidden": "You are not allowed to perform this action."
+    },
+    "statement504": {
+      "framework": "Decree No. 504/2002 Coll.",
+      "full": "Full scope",
+      "short": "Abbreviated scope",
+      "as_of": "As of {date}",
+      "item": "Item",
+      "assets": "Assets",
+      "liabilities": "Equity and liabilities",
+      "income": "Income statement",
+      "main": "Main activity",
+      "economic": "Economic activity",
+      "total": "Total",
+      "start": "Opening balance",
+      "end": "Balance at reporting date",
+      "opening_debit": "Opening debit balance",
+      "closing_debit": "Closing debit balance",
+      "management": "Interim accounting overview",
+      "management_hint": "Working balance overview, not a statutory statement. Credit balances are negative.",
+      "pending_result": "The result pending approval has not been resolved: {amount}.",
+      "unbalanced": "Accounting reconciliation shows a difference. Check balances and the result for the period.",
+      "notes_subtitle": "Notes under Sections 29 and 30 of Decree No. 504/2002 Coll.",
+      "supplements_unavailable": "Statements under Decree 504 comprise a balance sheet, income statement and notes. The current calculator does not support voluntary cash flow and equity movement statements for this framework.",
+      "package_hint": "The package uses Decree 504 and the final day of the selected accounting period. Statements calculated only for Decree 500 are unavailable."
     }
   },
   "support": {
@@ -19712,7 +19799,8 @@
     "col_sent_by": "Sent by",
     "col_sent_at": "When",
     "col_document": "Document",
-    "view_document": "View"
+    "view_document": "View",
+    "section_income_ytd": "Income statement from the start of the accounting period"
   },
   "vendor": {
     "title": "Vendors",
@@ -26887,8 +26975,7 @@
         "running": "Running",
         "completed": "Completed",
         "failed": "Failed",
-        "cancelled": "Cancelled"
-,
+        "cancelled": "Cancelled",
         "completed_with_warnings": "Completed with errors"
       },
       "include_bank_accounts": "Bank accounts",
@@ -26945,8 +27032,7 @@
       "test_success": "Fakturoid connection works — account {name}.",
       "delete_confirm": "Really remove Fakturoid credentials?",
       "deleted": "Fakturoid credentials removed",
-      "coming_hint": "—"
-,
+      "coming_hint": "—",
       "dry_run_hint": "A dry run goes through the same checks as the real import (subjects, VAT rates, recalculation and matching the amounts with Fakturoid) and lists the errors, but writes nothing."
     },
     "ai": {
@@ -27019,7 +27105,6 @@
     "client_extraction_enabled": "Allow clients to extract documents with AI",
     "client_extraction_hint": "Clients with permission to extract and enter purchase invoices can use this company’s AI. The active provider must be configured. Extraction creates a draft for the client to review and mark as received, just like manual entry.",
     "client_extraction_unavailable": "AI extraction is unavailable for this company or you do not have permission. Ask your accountant to enable and configure AI.",
-
     "effort": "AI reasoning effort",
     "effort_default": "Default (per model)",
     "effort_fast": "Fast and cheap",
@@ -31094,7 +31179,13 @@
     "tool_download_all": "Download all (ZIP)",
     "tool_failed": "The export tool could not be downloaded.",
     "file_help_title": "What the export contains",
-    "file_help_items": ["POHODA keeps every fiscal year separately. The years you tick in the preview are transferred (one or several at once).", "The POHODA XML export does not contain assets or payroll. The wizard takes the fixed asset and small asset cards from the 90_majetek.xml file that the export tool adds to the export (see the manual); payroll from 91_mzdy.xml is not processed by this wizard.", "The ZIP may contain subfolders. The wizard finds the XML files of all agendas in them and offers for transfer those that belong to the MyÚčto company by company ID.", "The company must exist in MyÚčto with the same company ID as in POHODA. The transfer goes into the company you are working in; create a new company first.", "The export contains the company's entire accounting. The uploaded file is deleted automatically after 24 hours without any work on the migration."],
+    "file_help_items": [
+      "POHODA keeps every fiscal year separately. The years you tick in the preview are transferred (one or several at once).",
+      "The POHODA XML export does not contain assets or payroll. The wizard takes the fixed asset and small asset cards from the 90_majetek.xml file that the export tool adds to the export (see the manual); payroll from 91_mzdy.xml is not processed by this wizard.",
+      "The ZIP may contain subfolders. The wizard finds the XML files of all agendas in them and offers for transfer those that belong to the MyÚčto company by company ID.",
+      "The company must exist in MyÚčto with the same company ID as in POHODA. The transfer goes into the company you are working in; create a new company first.",
+      "The export contains the company's entire accounting. The uploaded file is deleted automatically after 24 hours without any work on the migration."
+    ],
     "choose_file": "Export file (.zip)",
     "choose_file_first": "Choose the export file first.",
     "upload": "Upload and read",
@@ -34261,7 +34352,6 @@
     "history": "Cycle history",
     "history_empty": "No check has been run yet."
   },
-
   "purchase_approval": {
     "title": "Documents awaiting approval",
     "subtitle": "Received documents waiting for the approval of the person responsible for the cost center.",
@@ -34405,7 +34495,6 @@
       "action_failed": "The action could not be completed. Please try again."
     }
   },
-
   "group_stats": {
     "related_parties": "Related parties",
     "related_include": "Include",

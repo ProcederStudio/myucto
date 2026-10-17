@@ -102,6 +102,7 @@ async function saveAll() {
 }
 
 function scopeBadge(scope: string): string | null {
+  if (scope === 'full504') return t('accounting.statement504.full')
   if (scope === 'audited') return t('accounting.statement_notes.scope_audited')
   if (scope === 'large') return t('accounting.statement_notes.scope_large')
   return null
@@ -115,7 +116,7 @@ onMounted(load)
     <div class="flex items-center justify-between mb-1 gap-3 flex-wrap">
       <div>
         <h1 class="text-2xl font-semibold">{{ t('accounting.statement_notes.title') }}</h1>
-        <p class="text-sm text-neutral-500 mt-0.5">{{ t('accounting.statement_notes.subtitle') }}</p>
+        <p class="text-sm text-neutral-500 mt-0.5">{{ notes?.accounting_framework === 'cz_504' ? t('accounting.statement504.notes_subtitle') : t('accounting.statement_notes.subtitle') }}</p>
         <p v-if="state" class="text-sm text-neutral-600 mt-1">
           {{ state.period.fiscal_year }} · {{ formatDate(state.period.starts_on) }} – {{ formatDate(state.period.ends_on) }}
         </p>

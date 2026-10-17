@@ -40,6 +40,7 @@ final class StatementOverrideService
         private readonly LedgerReportRepository $ledger,
         private readonly AccountingPeriodRepository $periods,
         private readonly FinancialStatementService $statements,
+        private readonly StatementFrameworkResolver $frameworkResolver,
     ) {}
 
     /**
@@ -59,6 +60,9 @@ final class StatementOverrideService
             throw new ReportException('period_not_found', 'Účetní období #' . $periodId . ' neexistuje.', 404);
         }
         $asOf = (string) $period['ends_on'];
+        if ($this->frameworkResolver->context($supplierId, $periodId, $asOf)['framework'] === 'cz_504') {
+            throw new ReportException('statement_mapping_editor_unsupported', 'Editor mapování výkazů pro rámec 504 zatím není k dispozici.');
+        }
         $version = $this->definitions->findVersion($type, $asOf);
         if ($version === null) {
             throw new ReportException('statement_version_missing', 'Pro rozvahový den ' . $asOf . ' neexistuje verze mapování výkazu.');
