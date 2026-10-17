@@ -222,6 +222,16 @@ lze v sekci **E-mail s fakturou** zvolit **Podle nastavení dodavatele**,
 volby ho pro daného klienta přepisují.
 Přiložení ISDOC je nezávislé na vložení ISDOC přílohy přímo do PDF.
 
+**Zaokrouhlení nových faktur** (výchozí **Automaticky pro hotovost v Kč**):
+
+1. Na záložce **Fakturace** vyberte v poli **Zaokrouhlení nových faktur** režim, který mají
+   dostávat nové faktury a dobropisy v Kč. Pro celé koruny na všech dokladech zvolte
+   **Na celé Kč** (platba kartou se nezaokrouhluje).
+2. Uložte.
+
+Režim jde u každé faktury v editoru změnit. Co který režim dělá, popisuje
+[Zaokrouhlení úhrady](15_Faktura_editor.md#zaokrouhleni-uhrady).
+
 **Vyúčtování s částkou k vyplacení** (ve výchozím stavu vypnuté):
 
 1. Na záložce **Fakturace** zapněte **Povolit vyúčtování s částkou k vyplacení**. Použijte ji, když vystavujete faktury, u kterých odpočty převáží plnění, například vrácené obaly nebo přeplatek záloh.

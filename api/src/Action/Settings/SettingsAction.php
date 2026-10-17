@@ -469,6 +469,8 @@ final class SettingsAction
             'default_hourly_rate', 'auto_send_reminders', 'reminder_days_after_due', 'auto_generate_recurring', 'embed_isdoc', 'public_isdoc_enabled', 'email_attach_isdoc',
             'invoice_qr_include_due_date', 'purchase_invoice_qr_include_due_date',
             'default_prices_include_vat',
+            // Výchozí zaokrouhlení nových faktur (migrace 2019), viz InvoiceRounding::supplierDefault().
+            'default_rounding_mode',
             // Pohoda kódy; `pohoda_accounting_code` = předkontace (migrace 1376) — bez ní
             // si Pohoda po importu dosadí vlastní default a doklad se zaúčtuje jinam.
             'pohoda_account_code', 'pohoda_centre_code', 'pohoda_activity_code', 'pohoda_contract_code',
@@ -539,6 +541,18 @@ final class SettingsAction
             DefaultInvoiceNote::ENABLED_COLUMN,
             ...array_values(DefaultInvoiceNote::COLUMNS),
         ];
+
+        if (array_key_exists('default_rounding_mode', $body)
+            && (!is_string($body['default_rounding_mode'])
+                || !in_array($body['default_rounding_mode'], \MyInvoice\Service\Invoice\InvoiceRounding::MODES, true))
+        ) {
+            return Json::error(
+                $response,
+                'validation_failed',
+                'default_rounding_mode musí být jedna z hodnot: ' . implode(', ', \MyInvoice\Service\Invoice\InvoiceRounding::MODES) . '.',
+                400,
+            );
+        }
 
         // ENUM validace volby data přijetí u importu (migrace 1848).
         if (array_key_exists('purchase_import_received_at', $body)
@@ -1300,6 +1314,7 @@ final class SettingsAction
         $row['reminder_days_after_due']  = (int) ($row['reminder_days_after_due'] ?? 3);
         $row['auto_generate_recurring']  = (bool) ($row['auto_generate_recurring'] ?? true);
         $row['default_prices_include_vat'] = (bool) ($row['default_prices_include_vat'] ?? false);
+        $row['default_rounding_mode'] = \MyInvoice\Service\Invoice\InvoiceRounding::orDefault($row['default_rounding_mode'] ?? null);
         $row['embed_isdoc']              = (bool) ($row['embed_isdoc'] ?? true);
         $row['public_isdoc_enabled']     = (bool) ($row['public_isdoc_enabled'] ?? false);
         $row['email_attach_isdoc']       = (bool) ($row['email_attach_isdoc'] ?? false);

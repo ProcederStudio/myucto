@@ -1045,7 +1045,8 @@ const form = ref<{
   advance_paid_amount: 0,
   discount_percent: 0,
   payment_method: 'bank_transfer',
-  rounding_mode: 'auto',
+  // Výchozí zaokrouhlení firmy (migrace 2019); úprava existující faktury ho přepíše uloženým režimem.
+  rounding_mode: supplierStore.currentSupplier?.default_rounding_mode ?? 'auto',
   cash_register_id: null,
   auto_send_reminders: true,
   exchange_rate: null,
@@ -1405,6 +1406,9 @@ onMounted(async () => {
     if (queryDocType.value) form.value.invoice_type = queryDocType.value
     // Výchozí režim cen z nastavení dodavatele (0 = bez DPH; 1 = ceny s DPH).
     form.value.prices_include_vat = supplierStore.currentSupplier?.default_prices_include_vat ?? false
+    // Výchozí zaokrouhlení firmy (migrace 2019) znovu tady: při tvrdém načtení stránky
+    // je supplier store v init form refu ještě prázdný.
+    form.value.rounding_mode = supplierStore.currentSupplier?.default_rounding_mode ?? 'auto'
     if (route.query.client_id) {
       form.value.client_id = Number(route.query.client_id)
       await ensureClientLoaded(form.value.client_id!)

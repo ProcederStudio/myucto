@@ -35930,9 +35930,9 @@ components:
         rounding_mode:
           type: string
           enum: [auto, none, whole_czk]
-          default: auto
           description: |
-            Nové faktury mají auto: hotovost v CZK na nejbližší celou korunu.
+            Chybí-li při založení, platí výchozí volba firmy (supplier.default_rounding_mode,
+            bez volby auto). auto zaokrouhlí hotovost v CZK na nejbližší celou korunu,
             none zaokrouhlení vypne, whole_czk ho zapne i pro dobírku nebo převod.
             Platí jen pro invoice/credit_note v CZK, nikdy pro card. Zaokrouhluje
             částku po odečtení zálohy, rozdíl je součást total_with_vat, mimo základ a DPH.
@@ -37318,6 +37318,10 @@ components:
         default_payment_due_days: { type: integer }
         default_payment_due_unit: { type: string, enum: [days, month] }
         default_prices_include_vat: { type: boolean }
+        default_rounding_mode:
+          type: string
+          enum: [auto, none, whole_czk]
+          description: "Režim zaokrouhlení, který dostane nová faktura bez pole rounding_mode (migrace 2019)."
         allow_refund_invoices: { type: boolean, default: false, description: "Vyúčtování s výsledkem k vyplacení (migrace 1937): faktura s aspoň jedním kladným řádkem smí skončit zápornou částkou k úhradě (dlužíme zákazníkovi). Proforma nikdy." }
         default_note_below_items_enabled: { type: boolean, default: false, description: "Předvyplňovat poznámku pod položkami na nově zakládaných vystavených dokladech (#79, migrace 1855). Text se vybírá podle jazyka dokladu, ne podle měny; doplní se jen tehdy, když POST /api/v1/invoices klíč `note_below_items` vůbec nepošle." }
         default_note_below_items_cs: { type: [string, "null"], maxLength: 5000, description: "Výchozí text poznámky pod položkami pro doklady v češtině. Prázdný text se ukládá jako null." }
@@ -37445,6 +37449,11 @@ components:
         default_payment_due_unit: { type: string, enum: [days, month] }
         default_hourly_rate: { type: number, format: double, multipleOf: 0.000001 }
         default_prices_include_vat: { type: boolean, description: "Default pro nové doklady (migrace 0083)" }
+        default_rounding_mode:
+          type: string
+          enum: [auto, none, whole_czk]
+          default: auto
+          description: "Režim zaokrouhlení nových faktur a dobropisů, když ho volající nepošle: API, MCP, pravidelná fakturace, faktura z objednávky; editor ho předvyplní (migrace 2019)."
         allow_refund_invoices: { type: boolean, default: false, description: "Vyúčtování s výsledkem k vyplacení (migrace 1937): faktura smí skončit zápornou částkou k úhradě, pokud má aspoň jeden kladný řádek." }
         default_note_below_items_enabled: { type: boolean, default: false, description: "Předvyplňovat poznámku pod položkami na nově zakládaných vystavených dokladech (#79, migrace 1855). Vypnuto = nic se nepředvyplňuje." }
         default_note_below_items_cs: { type: [string, "null"], maxLength: 5000, description: "Výchozí text poznámky pod položkami pro doklady v češtině (invoices.language='cs')." }

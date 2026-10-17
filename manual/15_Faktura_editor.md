@@ -255,9 +255,13 @@ Zálohová faktura nemá DUZP, daňový doklad k záloze se vystaví po platbě.
 #### Zaokrouhlení úhrady
 
 U pole **Zaokrouhlení** lze zvolit **Automaticky pro hotovost v Kč**, **Nezaokrouhlovat** nebo
-**Na celé Kč**. Nová faktura má automatický režim. Pro dobírku nebo převod lze celé koruny
-zapnout ručně. U dobírky tuto volbu používejte pouze při hotovostní úhradě. Platba kartou se
-nezaokrouhluje.
+**Na celé Kč**. Pro dobírku nebo převod lze celé koruny zapnout ručně. U dobírky tuto volbu
+používejte pouze při hotovostní úhradě. Platba kartou se nezaokrouhluje.
+
+Nová faktura dostane režim podle nastavení firmy: `Nastavení`, záložka **Fakturace**, volba
+**Zaokrouhlení nových faktur** (výchozí **Automaticky pro hotovost v Kč**). Stejný režim dostanou
+faktury založené přes API nebo MCP bez pole `rounding_mode`, faktury z pravidelné fakturace
+a faktury z objednávky. Změna volby firmy se netýká už založených dokladů.
 
 Zaokrouhlení platí pro faktury a dobropisy v CZK, nikoli pro zálohové faktury a daňové
 doklady k přijaté platbě. Při každém uložení se částka po odečtení zálohy matematicky
@@ -265,8 +269,9 @@ zaokrouhlí na nejbližší korunu: 916,44 Kč na 916 Kč, 9,70 Kč na 10 Kč. R
 samostatně v sumáři i PDF a je zahrnut v celkové částce. Základy položek, DPH a výkazy DPH
 se nemění.
 
-Režim je uložený na faktuře a přenáší se při kopírování i tvorbě dobropisu. Existující
-doklady mají zaokrouhlení vypnuté, dokud ho výslovně nezměníte.
+Režim je uložený na faktuře a přenáší se při kopírování i tvorbě dobropisu. Výpočet se řídí
+jen uloženým režimem, ne aktuálním nastavením firmy. Existující doklady mají zaokrouhlení
+vypnuté, dokud ho výslovně nezměníte.
 
 #### Číslo dokladu - ruční zadání (volitelné)
 

@@ -44,8 +44,8 @@ final class RecurringManualScheduleTest extends TestCase
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $columns = 'invoice_type, client_id, project_id, supplier_id, branding_profile_id, issue_date, tax_date, due_date, currency_id, reverse_charge, prices_include_vat, language, note_above_items, note_below_items, payment_method, discount_percent, recurring_template_id, revenue_category_id, payment_variable_symbol, rounding_mode, status, created_by';
         $pdo->exec('CREATE TABLE invoices (id INTEGER PRIMARY KEY, ' . $columns . ')');
-        $pdo->exec('CREATE TABLE supplier (id INTEGER PRIMARY KEY, is_vat_payer INTEGER, default_payment_due_unit TEXT)');
-        $pdo->exec('INSERT INTO supplier VALUES (7, 1, NULL)');
+        $pdo->exec('CREATE TABLE supplier (id INTEGER PRIMARY KEY, is_vat_payer INTEGER, default_payment_due_unit TEXT, default_rounding_mode TEXT)');
+        $pdo->exec("INSERT INTO supplier VALUES (7, 1, NULL, 'auto')");
         $pdo->exec('CREATE TABLE supplier_vat_status_history (id INTEGER, supplier_id INTEGER, effective_from TEXT, is_vat_payer INTEGER)');
         $pdo->exec('CREATE TABLE clients (id INTEGER PRIMARY KEY, supplier_id INTEGER, payment_due_unit TEXT)');
         $pdo->exec('INSERT INTO clients VALUES (8, 7, NULL)');

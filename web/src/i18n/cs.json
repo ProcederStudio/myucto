@@ -23902,6 +23902,8 @@
     "default_due_month_hint": "Kalendářní měsíc - 1. 2. → 1. 3., 31. 1. → 28. 2. (ne pevných 30 dnů).",
     "default_prices_include_vat": "Nové faktury s cenami včetně DPH",
     "default_prices_include_vat_hint": "Předvyplní u nových faktur režim „Ceny položek včetně DPH“ (B2C/účtenky). Lze přepsat per faktura.",
+    "default_rounding_mode": "Zaokrouhlení nových faktur",
+    "default_rounding_mode_hint": "Předvyplní u nových faktur a dobropisů v Kč volbu Zaokrouhlení. Platí i pro faktury z API, pravidelné fakturace a objednávek. Lze přepsat u každé faktury, vystavené doklady se nemění.",
     "default_hourly_rate": "Výchozí hodinová sazba",
     "auto_send_reminders": "Posílat automatické upomínky",
     "auto_send_reminders_hint": "Když je vypnuto, cron nebude posílat automatické upomínky pro tohoto dodavatele. Ruční odeslání (jednotlivé i hromadné) funguje vždy.",
