@@ -80,6 +80,7 @@ async function loadAll() {
       }
     } else {
       preview.value = null
+      loadedPeriod.value = null
     }
   } catch (e) {
     if (seq === loadSeq) error.value = apiErrorMessage(e)
@@ -284,6 +285,7 @@ watch([ready, year, month, effectivePeriod, variant, dZjist, reason], () => {
   if (!ready.value) {
     ++loadSeq
     preview.value = null
+    loadedPeriod.value = null
     loading.value = !settingsError.value
     return
   }

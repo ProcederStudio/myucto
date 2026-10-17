@@ -29,6 +29,7 @@ const error = ref('')
 // Filtr „Oddíl KH" (issue #142): prázdný = celá Kniha DPH, jinak soupis dokladů
 // oddílu sestavený stejnou logikou jako kontrolní hlášení.
 const khSection = ref<KhEvidenceSection | ''>('')
+// Filtr „Řádek přiznání" zužuje už načtenou Knihu DPH jen na klientu, server znovu nevolá.
 const dphLine = ref('')
 const khReport = ref<KhEvidenceReport | null>(null)
 const khSectionOptions: KhEvidenceSection[] = ['all', ...KH_EVIDENCE_SECTIONS]

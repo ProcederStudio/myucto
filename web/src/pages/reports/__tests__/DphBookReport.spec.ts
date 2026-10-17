@@ -156,6 +156,22 @@ describe('Kniha DPH – rozpis řádku přiznání a oddílu KH', () => {
     wrapper.unmount()
   })
 
+  it('změna řádku přiznání jen přefiltruje načtenou knihu a server znovu nevolá', async () => {
+    const wrapper = mountReport()
+    await flushPromises()
+    expect(m.api.dphBookPreview).toHaveBeenCalledTimes(1)
+    const filter = wrapper.get('select[aria-label="reports.dph_book.section_filter"]')
+    await filter.setValue('dph:1')
+    await flushPromises()
+    expect(wrapper.text()).toContain('SECTION_1')
+    expect(wrapper.text()).not.toContain('SECTION_43_FULL')
+    await filter.setValue('')
+    await flushPromises()
+    expect(wrapper.text()).toContain('SECTION_43_FULL')
+    expect(m.api.dphBookPreview).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
   it('v znovu použitém panelu převezme oddíl KH i s obdobím pro export', async () => {
     const wrapper = mountReport()
     await flushPromises()
@@ -220,6 +236,7 @@ describe('Kniha DPH – rozpis řádku přiznání a oddílu KH', () => {
     await flushPromises()
     expect(wrapper.findAll('h3').map(header => header.text()).join()).toContain('SECTION_51B')
     expect(wrapper.findAll('h3').map(header => header.text()).join()).not.toMatch(/SECTION_51\s/)
+    expect(m.api.dphBookPreview).toHaveBeenCalledTimes(1)
     wrapper.unmount()
   })
 

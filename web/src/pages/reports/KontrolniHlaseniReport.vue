@@ -135,6 +135,7 @@ watch([ready, year, month, effectivePeriod, variant, dZjist, cJedVyzvy], () => {
   if (!ready.value) {
     ++previewSeq
     preview.value = null
+    loadedPeriod.value = null
     loading.value = !settingsError.value
     return
   }
