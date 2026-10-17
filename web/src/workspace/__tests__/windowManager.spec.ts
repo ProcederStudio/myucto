@@ -78,7 +78,6 @@ interface Harness {
   store: ReturnType<typeof useWorkspaceStore>
   manager: WorkspaceWindowManager
   errors: unknown[]
-  confirmEviction: ReturnType<typeof vi.fn>
   attachPane: (id: PaneId) => PaneMount
   destroy: () => void
 }
@@ -105,7 +104,6 @@ function testRouter(slowGate?: { entered: Deferred<void>, release: Deferred<bool
 
 function createHarness(options: {
   panes?: PaneCount
-  allowEviction?: () => boolean
   slowGate?: { entered: Deferred<void>, release: Deferred<boolean> }
   authorize?: (router: Router) => Promise<boolean>
   supplier?: { id: number; name: string }
@@ -118,7 +116,6 @@ function createHarness(options: {
   const store = useWorkspaceStore(pinia)
   store.resetLayout(options.panes ?? 1, '/')
   const errors: unknown[] = []
-  const confirmEviction = vi.fn(() => options.allowEviction?.() ?? true)
   const mounts = new Map<PaneId, PaneMount>()
   const frameContainer = document.createElement('div')
   document.body.append(frameContainer)
@@ -126,7 +123,6 @@ function createHarness(options: {
     pinia,
     createRouter: options.routerFactory ?? (() => testRouter(options.slowGate)),
     authorize: options.authorize ?? vi.fn().mockResolvedValue(true),
-    confirmEviction,
     onError: error => { errors.push(error) },
     currentSupplier: () => options.supplier ?? { id: 0, name: '' },
     switchSupplier: options.switchSupplier,
@@ -166,7 +162,6 @@ function createHarness(options: {
     store,
     manager,
     errors,
-    confirmEviction,
     attachPane,
     destroy: () => {
       for (const mount of [...mounts.values()]) {
@@ -584,25 +579,16 @@ describe('workspace window manager', () => {
     expect(harness.store.windows.find(window => window.fullPath === '/editor/1')?.paneId).toBeNull()
   })
 
-  it('neotevře šestnácté okno při odmítnuté evikci a po souhlasu drží limit patnáct', async () => {
-    let allowEviction = false
-    const harness = createHarness({ allowEviction: () => allowEviction })
+  it('nad limit dvaceti oken bez ptaní zavře nejstarší skryté okno', async () => {
+    const harness = createHarness()
     harness.attachPane('primary')
-    for (let id = 1; id <= 15; id++) await harness.manager.open(`/editor/${id}`, 'primary')
+    for (let id = 1; id <= 20; id++) await harness.manager.open(`/editor/${id}`, 'primary')
 
     const oldest = editor(1)
-    await harness.manager.open('/editor/16', 'primary')
+    await harness.manager.open('/editor/21', 'primary')
 
-    expect(harness.confirmEviction).toHaveBeenCalledOnce()
-    expect(harness.store.windows).toHaveLength(15)
-    expect(document.querySelector('[data-editor-id="16"]')).toBeNull()
-    expect(oldest.isConnected).toBe(true)
-
-    allowEviction = true
-    await harness.manager.open('/editor/16', 'primary')
-
-    expect(harness.store.windows).toHaveLength(15)
-    expect(editor(16).isConnected).toBe(true)
+    expect(harness.store.windows).toHaveLength(20)
+    expect(editor(21).isConnected).toBe(true)
     expect(oldest.isConnected).toBe(false)
     expect(harness.store.windows.some(window => window.fullPath === '/editor/1')).toBe(false)
   })

@@ -83,7 +83,6 @@ const windows = createWindowManager({
     const result = await authorizationGuard(route, route, { allowGlobalSideEffects: false, onGlobalNavigation: globalNavigation })
     return result === true
   },
-  confirmEviction: title => window.confirm(t('workspace.evict_window', { title })),
   onError: () => toast.error(t('workspace.load_error')),
 })
 let syncingUrl = false

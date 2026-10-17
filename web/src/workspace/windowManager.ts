@@ -32,7 +32,6 @@ interface WindowManagerOptions {
   pinia: Pinia
   createRouter: () => Router
   authorize: (router: Router, state?: WorkspaceWindowState) => Promise<boolean>
-  confirmEviction: (title: string) => boolean
   onError: (error: unknown) => void
   frames?: boolean
   currentSupplier?: () => { id: number, name: string }
@@ -244,7 +243,7 @@ export function createWindowManager(options: WindowManagerOptions): WorkspaceWin
       return
     }
     const oldest = [...workspace.windows].reverse().find(window => !window.paneId)
-    if (runtimes.size >= MAX_WORKSPACE_WINDOWS && (!oldest || !options.confirmEviction(oldest.title))) return
+    if (runtimes.size >= MAX_WORKSPACE_WINDOWS && !oldest) return
     const currentGeneration = generation
     if (useFrame) {
       if (!resolved.matched.length || !await options.authorize(resolver, { id: '', fullPath, title: fullPath, paneId: null, supplierId: supplier.id })) return

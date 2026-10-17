@@ -229,6 +229,26 @@ final class InvoiceLineDiscountTest extends StockTestCase
         self::assertTrue($this->body($res)['invoice_pdf_show_line_discount']);
     }
 
+    public function testChangingPdfLineDiscountOptionInvalidatesCachedDraft(): void
+    {
+        $sid = $this->createSupplier();
+        $id = $this->createInvoice($sid, [$this->line('Kolo', 1, 900, 1000)]);
+        $this->db->pdo()->prepare(
+            "UPDATE invoices SET pdf_path = 'phpunit-line-discount-draft.pdf', pdf_generated_at = '2096-05-16 08:00:00' WHERE id = ?"
+        )->execute([$id]);
+
+        $res = $this->container->get(SettingsAction::class)->updateSupplier(
+            $this->request('PUT', $sid, ['invoice_pdf_show_line_discount' => true]),
+            new Psr7Response(),
+        );
+
+        self::assertSame(200, $res->getStatusCode(), (string) $res->getBody());
+        $stmt = $this->db->pdo()->prepare('SELECT pdf_path, pdf_generated_at FROM invoices WHERE id = ?');
+        $stmt->execute([$id]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        self::assertNull($row['pdf_path'], 'Přepnutí rozpisu slev ponechalo draft PDF cache platnou.');
+        self::assertNull($row['pdf_generated_at']);
+    }
     // ── pomocníci ───────────────────────────────────────────────────────────
 
     /** @return array<string,mixed> */
