@@ -62,7 +62,9 @@ final class PaymentHistoricalCarrierProof
         $openingItems=$openingIds===[]?[]:(new \MyInvoice\Service\Property\Opening\OpeningReadProof($db))->items($this->supplier,$openingIds,true);
         foreach($snapshot['debt_receipts']??[] as $detail){
             $entry=$detail['debt']['snapshot']['journal_entry_id'];
-            if(isset($detail['debt']['snapshot']['opening_item_id'])){
+            if(isset($detail['debt']['snapshot']['settlement_effect_id'])){
+                foreach($detail['debt']['snapshot']['lines'] as $part)$sources[]=$part['ledger_line'];
+            }elseif(isset($detail['debt']['snapshot']['opening_item_id'])){
                 $opening=$openingItems[$detail['debt']['snapshot']['opening_item_id']];
                 foreach($opening['components'] as $component)if($component['role']==='principal'){$line=$component['line'];$line['amount']=bcdiv($component['amount_cents'],'100',2);$sources[]=$line;}
             }else{$ledger=(new PaymentJournalProof($db))->current($this->supplier,$entry);foreach($ledger['lines'] as $line)if(substr($line['account_code'],0,3)==='315'&&$line['side']==='debit'&&!$line['is_red_storno'])$sources[]=$line;}

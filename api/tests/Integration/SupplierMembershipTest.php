@@ -290,7 +290,7 @@ final class SupplierMembershipTest extends TestCase
             'accounting_framework_effective_from' => '2098-01-01',
         ]);
         self::assertSame(409, $response->getStatusCode(), (string) $response->getBody());
-        self::assertSame('accounting_framework_not_available', $this->json($response)['error']['code'] ?? null);
+        self::assertSame('accounting_framework_period_start_required', $this->json($response)['error']['code'] ?? null);
 
         $name = $this->db->pdo()->query(
             'SELECT company_name FROM supplier WHERE id = ' . $this->supplierB
@@ -307,7 +307,7 @@ final class SupplierMembershipTest extends TestCase
             'INSERT INTO supplier_accounting_frameworks
                 (supplier_id, effective_from, accounting_framework, created_by)
              VALUES (?, ?, ?, ?)'
-        )->execute([$this->supplierB, '1900-01-01', 'cz_504', $userId]);
+        )->execute([$this->supplierB, '1900-01-01', 'cz_500', $userId]);
         $pdo->prepare(
             "INSERT INTO accounting_periods (supplier_id, fiscal_year, starts_on, ends_on, status)
              VALUES (?, 2098, '2098-01-01', '2098-12-31', 'open')"
@@ -315,13 +315,13 @@ final class SupplierMembershipTest extends TestCase
 
         $response = $this->request('PUT', '/api/suppliers/' . $this->supplierB, $token, $this->supplierB, [
             'company_name' => '__TEST framework committed atomically',
-            'accounting_framework' => 'cz_500',
+            'accounting_framework' => 'cz_504',
             'accounting_framework_effective_from' => '2098-01-01',
         ]);
         self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
         $body = $this->json($response);
         self::assertSame('__TEST framework committed atomically', $body['company_name'] ?? null);
-        self::assertSame('cz_500', $body['accounting_framework_history'][1]['accounting_framework'] ?? null);
+        self::assertSame('cz_504', $body['accounting_framework_history'][1]['accounting_framework'] ?? null);
 
         $audit = $pdo->prepare(
             "SELECT payload FROM activity_log
@@ -330,7 +330,7 @@ final class SupplierMembershipTest extends TestCase
         );
         $audit->execute([$this->supplierB, $userId]);
         $payload = json_decode((string) $audit->fetchColumn(), true);
-        self::assertSame('cz_500', $payload['accounting_framework'] ?? null);
+        self::assertSame('cz_504', $payload['accounting_framework'] ?? null);
         self::assertSame('2098-01-01', $payload['effective_from'] ?? null);
     }
 

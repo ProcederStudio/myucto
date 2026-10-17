@@ -222,6 +222,10 @@ final class OperationalOpeningPdo extends PDO
     public function prepare(string $query,array $options=[]):PDOStatement|false{return new OperationalOpeningStatement($this,$query);}
     public function run(string $sql,array $params):array
     {
+        if(preg_match('/\ASELECT DISTINCT application_id FROM property_service_settlement_effects WHERE supplier_id=\?(?: AND debt_id IN \(\?(?:,\?)*\))? ORDER BY application_id(?: FOR UPDATE)?\z/D',$sql)===1){
+            if(str_ends_with($sql,' FOR UPDATE')!==$this->inner->expectCurrent||count($params)!==substr_count($sql,'?')||$params[0]!==7)throw new \LogicException('Unexpected empty settlement graph query scope.');
+            return [];
+        }
         if(str_starts_with($sql,'SELECT id FROM unit_payment_debts WHERE supplier_id=? ORDER BY id FOR UPDATE'))return array_map(fn($r)=>['id'=>$r['id']],array_values($this->debts));
         if(str_starts_with($sql,'SELECT * FROM unit_payment_debts WHERE supplier_id=? AND id IN '))return array_values(array_filter($this->debts,fn($r)=>$r['supplier_id']===$params[0]&&in_array($r['id'],array_slice($params,1),true)));
         if(str_starts_with($sql,'SELECT id FROM supplier WHERE id=? FOR UPDATE'))return [['id'=>7]];

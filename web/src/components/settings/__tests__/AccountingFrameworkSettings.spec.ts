@@ -41,10 +41,11 @@ beforeEach(() => {
 })
 
 describe('AccountingFrameworkSettings', () => {
-  it('shows history and keeps unsupported framework disabled', () => {
+  it('shows history and offers framework 504 for testing', () => {
     const wrapper = render()
     expect(wrapper.text()).toContain('settings.accounting_framework.baseline')
-    expect(wrapper.get('option[value="cz_504"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('option[value="cz_504"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.find('[data-test="framework-testing-warning"]').exists()).toBe(false)
     expect(wrapper.get('[data-test="save-framework"]').attributes('disabled')).toBeDefined()
     expect(m.save).not.toHaveBeenCalled()
   })
@@ -57,6 +58,24 @@ describe('AccountingFrameworkSettings', () => {
     expect(m.save).toHaveBeenCalledExactlyOnceWith(42, 'cz_500', '2027-07-01')
     expect(m.refresh).toHaveBeenCalledOnce()
     expect(wrapper.emitted('updated')).toEqual([[state]])
+  })
+
+  it('warns prominently before saving 504 and keeps the warning for an active 504 company', async () => {
+    const wrapper = render()
+    await wrapper.get('select').setValue('cz_504')
+    const warning = wrapper.get('[data-test="framework-testing-warning"]')
+    expect(warning.text()).toContain('settings.accounting_framework.testing_warning_title')
+    expect(warning.text()).toContain('settings.accounting_framework.testing_warning')
+    expect(warning.classes()).toContain('border-warning-500')
+    expect(warning.classes()).toContain('bg-warning-50')
+    expect(warning.find('svg').exists()).toBe(true)
+    await wrapper.get('input').setValue('2027-01-01')
+    await wrapper.get('[data-test="save-framework"]').trigger('click')
+    await flushPromises()
+    expect(m.save).toHaveBeenCalledExactlyOnceWith(42, 'cz_504', '2027-01-01')
+    await wrapper.setProps({ supplier: { ...state, accounting_framework: 'cz_504' }, canChange: false })
+    await wrapper.get('select').setValue('cz_500')
+    expect(wrapper.find('[data-test="framework-testing-warning"]').exists()).toBe(true)
   })
 
   it('shows the backend refusal without claiming the change was saved', async () => {

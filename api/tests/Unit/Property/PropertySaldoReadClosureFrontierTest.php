@@ -24,7 +24,7 @@ final class PropertySaldoReadClosureFrontierTest extends TestCase
         self::assertCount(1,$selection->rows['unit_payment_correction_anchors']);
         self::assertCount(1,$selection->rows['unit_payment_reliefs']);
         self::assertSame(1,$pdo->openingSeeds);
-        self::assertLessThanOrEqual(33,$pdo->selects);
+        self::assertLessThanOrEqual(33,$pdo->selects-$pdo->serviceSelects);self::assertLessThanOrEqual(6,$pdo->serviceSelects);
         self::assertLessThanOrEqual(28,array_sum(array_map('count',$pdo->returned)));
         foreach(['unit_payment_debts','unit_payment_operations','unit_payment_corrections'] as $table){
             self::assertSame(count(array_unique($pdo->returned[$table])),count($pdo->returned[$table]),$table.' must not refetch already discovered immutable facts');
@@ -66,6 +66,7 @@ final class SaldoFrontierPdo extends PDO
     public int $openingSeeds=0;
     public array $returned=[];
     public int $selects=0;
+    public int $serviceSelects=0;
     public bool $transaction=true;
     public function __construct()
     {
@@ -96,12 +97,17 @@ final class SaldoFrontierPdo extends PDO
     private static function fact(array $row,array $fact):array{return $row+['snapshot_json'=>json_encode($fact,JSON_THROW_ON_ERROR),'snapshot_hash'=>PropertyInput::hash($fact)];}
     public function run(string $sql,array $params):array
     {
-        ++$this->selects;
+        ++$this->selects;if(str_contains($sql,'property_service_settlement'))++$this->serviceSelects;
         if(str_starts_with($sql,'SELECT d.id FROM unit_payment_debts d JOIN property_opening_items i ')){
             ++$this->openingSeeds;
             if(!preg_match('/i.unit_id IN \(([0-9,]+)\)/',$sql,$m))throw new \LogicException('Unexpected opening seed SQL');$units=array_map('intval',explode(',',$m[1]));$result=[];
             foreach($this->tables['unit_payment_debts']??[] as $debt)foreach($this->tables['property_opening_items']??[] as $item)if($debt['supplier_id']===$params[0]&&$item['supplier_id']===$debt['supplier_id']&&$item['id']===($debt['opening_item_id']??null)&&in_array($item['unit_id'],$units,true))$result[]=['id'=>$debt['id']];
             usort($result,fn($a,$b)=>$a['id']<=>$b['id']);return $result;
+        }
+        if(str_starts_with($sql,'SELECT DISTINCT a.document_id id FROM property_service_settlement_applications a JOIN property_service_settlements d ')){
+            preg_match('/d.unit_id IN \(([0-9,]+)\)/',$sql,$m);$units=isset($m[1])?array_map('intval',explode(',',$m[1])):[];$ids=[];
+            foreach($this->tables['property_service_settlement_applications']??[] as $app)foreach($this->tables['property_service_settlements']??[] as $doc)if($app['supplier_id']===$params[0]&&$doc['supplier_id']===$app['supplier_id']&&$doc['id']===$app['document_id']&&in_array($doc['unit_id'],$units,true))$ids[$doc['id']]=true;
+            ksort($ids,SORT_NUMERIC);return array_map(static fn($id)=>['id'=>$id],array_keys($ids));
         }
         if(str_starts_with($sql,'SELECT sibling.id')){
             preg_match('/selected.id IN \(([0-9,]+)\)/',$sql,$m);$ids=isset($m[1])?array_map('intval',explode(',',$m[1])):[];$result=[];

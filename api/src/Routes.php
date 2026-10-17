@@ -2468,6 +2468,19 @@ final class Routes
         });
 
         $app->group('/api/property', function ($g) {
+            $g->get('/service-settlements', [\MyInvoice\Action\Property\Services\Settlement\SettlementAction::class, 'list']);
+            $g->get('/service-settlements/catalog/{collection:s3|opening|costs}', [\MyInvoice\Action\Property\Services\Settlement\SettlementAction::class, 'catalog']);
+            $g->get('/service-settlements/{id:[0-9]+}', [\MyInvoice\Action\Property\Services\Settlement\SettlementAction::class, 'detail']);
+            $g->get('/service-settlements/{id:[0-9]+}/disposition', [\MyInvoice\Action\Property\Services\Settlement\SettlementAction::class, 'disposition']);
+            $g->get('/service-settlements/{id:[0-9]+}/current', [\MyInvoice\Action\Property\Services\Settlement\SettlementAction::class, 'current']);
+            $g->post('/service-settlements/prepare', [\MyInvoice\Action\Property\Services\Settlement\SettlementAction::class, 'prepare']);
+            $g->post('/service-settlements', [\MyInvoice\Action\Property\Services\Settlement\SettlementAction::class, 'save']);
+            $g->post('/service-settlements/{id:[0-9]+}/preview', [\MyInvoice\Action\Property\Services\Settlement\SettlementAction::class, 'preview']);
+            $g->post('/service-settlements/{id:[0-9]+}/apply', [\MyInvoice\Action\Property\Services\Settlement\SettlementAction::class, 'apply']);
+            $g->post('/service-settlements/applications/{id:[0-9]+}/reverse', [\MyInvoice\Action\Property\Services\Settlement\SettlementAction::class, 'reverse']);
+            $g->get('/catalog/service-settlements', [\MyInvoice\Action\Property\Services\Settlement\SettlementAction::class, 'publicList']);
+            $g->get('/catalog/service-settlements/{id:[0-9]+}', [\MyInvoice\Action\Property\Services\Settlement\SettlementAction::class, 'publicDetail']);
+            $g->get('/catalog/service-settlements/{id:[0-9]+}/current', [\MyInvoice\Action\Property\Services\Settlement\SettlementAction::class, 'publicCurrent']);
             $g->get('/openings', [\MyInvoice\Action\Property\Opening\OpeningAction::class, 'list']);
             $g->post('/openings/preview', [\MyInvoice\Action\Property\Opening\OpeningAction::class, 'preview']);
             $g->post('/openings/confirm', [\MyInvoice\Action\Property\Opening\OpeningAction::class, 'confirm']);

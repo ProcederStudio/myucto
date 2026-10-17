@@ -41,6 +41,14 @@ Správa opakovaně používaných fakturačních položek je kvůli návaznosti 
 
 Nastavení globálních položek smí měnit jen superadministrátor nebo administrátor; viz [§ 96.4](#964-krok-za-krokem-uzivatele-role-a-pristup-k-firmam).
 
+V **Nastavení / Účetní rámec** lze pro testování zvolit **Nevýdělečné organizace (vyhláška 504)**. Zadejte první den existujícího účetního období a použijte **Uložit účetní rámec samostatně**. Změna vyžaduje příslušné oprávnění a v dotčeném intervalu nesmějí být zaúčtované zápisy. Platnost změn je vidět v historii rámce.
+
+> [!WARNING]
+> Účetní rámec 504 je v testování a zatím není vhodný pro produkční účetnictví. Některé operace, například přiznání DPPO, zůstávají nepodporované. V této sekci se při výběru nebo používání rámce 504 zobrazuje žluté upozornění.
+
+
+Přepnutí rámce nepřevádí existující účtový rozvrh podle vyhlášky 500. Rozvrh podle vyhlášky 504 se inicializuje pouze tehdy, když je rozvrh prázdný. Pro testování proto použijte novou firmu s prázdným rozvrhem a rámec 504 nastavte před prvním zapnutím podvojného účetnictví.
+
 ## 96.3 Krok za krokem: číselníky
 
 Otevřete `Systém → Sazby a číselníky`. Stránka sdružuje systémové číselníky v záložkách **Sazby DPH**, **Klasifikace DPH**,

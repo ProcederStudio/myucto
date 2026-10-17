@@ -59,18 +59,18 @@ final class AccountingFrameworkServiceTest extends TestCase
         ]], $service->history(9));
     }
 
-    public function testCz504ActivationIsRejectedBeforePersistence(): void
+    public function testUnknownFrameworkIsRejectedBeforePersistence(): void
     {
         $repository = $this->createMock(AccountingFrameworkRepository::class);
         $repository->expects(self::never())->method('periodsOverlappingForUpdate');
         $service = new AccountingFrameworkService($this->createStub(Connection::class), $repository);
 
         try {
-            $service->changeFromPeriodStart(9, '2030-01-01', AccountingFrameworkService::CZ_504);
-            self::fail('Aktivace cz_504 měla být odmítnuta.');
+            $service->changeFromPeriodStart(9, '2030-01-01', 'cz_999');
+            self::fail('Neznámý rámec měl být odmítnut.');
         } catch (AccountingFrameworkException $e) {
-            self::assertSame('accounting_framework_not_available', $e->errorCode);
-            self::assertSame(409, $e->httpStatus);
+            self::assertSame('invalid_accounting_framework', $e->errorCode);
+            self::assertSame(422, $e->httpStatus);
         }
     }
 

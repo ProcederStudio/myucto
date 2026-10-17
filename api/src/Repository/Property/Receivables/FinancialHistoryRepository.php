@@ -29,7 +29,7 @@ final class FinancialHistoryRepository
                 $charges[$charge['id']]['snapshot']=array_intersect_key($charge['snapshot'],array_flip(['liability_groups','claim_origin_at','due_date','reason']));
             }
             unset($charge);
-            $result=$this->project($charges,fn(string $table)=>$this->rows($table,$supplier,$currentRead),$projection,$currentRead);
+            $result=$this->project($charges,fn(string $table)=>$this->rows($table,$supplier,$currentRead),$projection,$currentRead,$supplier);
             if($owned)$pdo->commit();return $result;
         }catch(\Throwable $e){if($owned&&$pdo->inTransaction())$pdo->rollBack();throw $e;}
     }
@@ -38,7 +38,7 @@ final class FinancialHistoryRepository
         $closure=(new SelectedFinancialClosure($this->db))->current($supplier,$debtIds);
         (new \MyInvoice\Repository\Property\Payments\DebtRepository($this->db))->currentMany($supplier,$closure['debt_ids']);
         $charges=(new \MyInvoice\Repository\Property\Charges\Issuance\IssuanceReadRepository($this->db))->findMany($supplier,$closure['charge_ids'],true);
-        $result=$this->project($charges,fn(string $table)=>$closure['rows'][$table]??[],false,true);
+        $result=$this->project($charges,fn(string $table)=>$closure['rows'][$table]??[],false,true,$supplier);
         $this->assertOperationLedgers($supplier,$closure['rows']['unit_payment_operations']);
         return $result;
     }
@@ -58,9 +58,11 @@ final class FinancialHistoryRepository
     }
     public function reduceReadHistory(array $charges,callable $rows):array
     {
-        return $this->project($charges,$rows,true);
+        $context=[];foreach(\MyInvoice\Service\Property\Services\Settlement\SettlementHistory::SELECTED_TABLES as $table){$selected=$rows($table);$context[$table]=is_array($selected)?$selected:iterator_to_array($selected,false);}
+        $supplier=\MyInvoice\Service\Property\Services\Settlement\SettlementHistory::selectedMaterializations($context);
+        return $this->project($charges,$rows,true,false,$supplier);
     }
-    private function project(array $charges,callable $rows,bool $projection=false,bool $currentRead=false):array
+    private function project(array $charges,callable $rows,bool $projection=false,bool $currentRead=false,?int $supplier=null):array
     {
         $chargeAudit=[];
         foreach($rows('unit_charge_issue_audit') as $r){self::decode($r,'payload');if($r['action']==='posted')$chargeAudit[$r['charge_id']]=$r['recorded_at'];}
@@ -72,6 +74,10 @@ final class FinancialHistoryRepository
         $debts=[];$openingDebts=[];$lineDebt=[];$chargeLines=[];foreach($rows('unit_charge_lines') as $r)$chargeLines[$r['id']]=$r;
         foreach($rows('unit_payment_debts') as $r){
             $fact=self::decode($r);self::request($r);
+            if(($r['settlement_effect_id']??null)!==null){
+                $history=new \MyInvoice\Service\Property\Services\Settlement\SettlementHistory($this->db);$application=$history->debt((int)$r['supplier_id'],$r,$currentRead);$events=$history->events((int)$r['supplier_id'],$application,'claim:'.$r['id'],'claim',$fact['amount_cents'],$currentRead);
+                $debts[(int)$r['id']]=['id'=>(int)$r['id'],'unit_id'=>$fact['unit_id'],'snapshot'=>$fact,'snapshot_hash'=>$r['snapshot_hash'],'events'=>$events];continue;
+            }
             if(($r['opening_item_id']??null)!==null){
                 $openingDebts[(int)$r['id']]=$r;$events=[];
                 $debts[(int)$r['id']]=['id'=>(int)$r['id'],'unit_id'=>$fact['unit_id'],'snapshot'=>$fact,'snapshot_hash'=>$r['snapshot_hash'],'events'=>$events];continue;
@@ -91,7 +97,7 @@ final class FinancialHistoryRepository
         }
         $openingReader=new \MyInvoice\Service\Property\Opening\OpeningOriginProof($this->db);$eventReader=new \MyInvoice\Service\Property\Opening\OpeningReadProof($this->db);$openingGroups=[];
         foreach($openingDebts as $row)$openingGroups[(int)$row['supplier_id']][]=$row;
-        foreach($openingGroups as $supplier=>$group)foreach($openingReader->debts($supplier,$group,$currentRead) as $id=>$opening)$debts[$id]['events']=$eventReader->events($opening,'claim:'.$id,'claim',$debts[$id]['snapshot']['amount_cents'],$currentRead);
+        foreach($openingGroups as $openingSupplier=>$group)foreach($openingReader->debts($openingSupplier,$group,$currentRead) as $id=>$opening)$debts[$id]['events']=$eventReader->events($opening,'claim:'.$id,'claim',$debts[$id]['snapshot']['amount_cents'],$currentRead);
         unset($openingGroups,$opening,$group);
         $accessories=[];$openingAccessories=[];$openingAccessoryAmounts=[];
         foreach($rows('unit_claim_accessory_receipts') as $r){
@@ -133,6 +139,7 @@ final class FinancialHistoryRepository
             if(!$op||!in_array($fact,$op['snapshot']['allocations']??[],true))ReceivableException::reject('history_corrupt');
             foreach(['debt_id','charge_id','charge_line_id','accessory_id','debtor_id','liability_group','amount_cents'] as $key)if((is_int($fact[$key])?(int)$r[$key]:$r[$key])!==$fact[$key])ReceivableException::reject('history_corrupt');
             if(($fact['opening_component_id']??null)!==(($r['opening_component_id']??null)===null?null:(int)$r['opening_component_id']))ReceivableException::reject('history_corrupt');
+            if(($fact['settlement_effect_id']??null)!==(($r['settlement_effect_id']??null)===null?null:(int)$r['settlement_effect_id']))ReceivableException::reject('history_corrupt');
             $allocationFacts[(int)$r['operation_id']][]=$fact;
             $id=(int)$r['debt_id'];if(!isset($debts[$id]))ReceivableException::reject('history_corrupt');
             $events=$operationEvents($op,'allocation:'.$r['id'],'paid',$r['amount_cents']);
@@ -152,10 +159,12 @@ final class FinancialHistoryRepository
                 if(isset($correctionReversals[$r['id']])){$reverse=$correctionReversals[$r['id']];$e=self::event($e['id'].':reversal',$kind,bcsub('0',$amount,0),$reverse['request']['accounting_date'],$reverse['request']['effective_at'],$reverse['recorded_at']);if($group!==null)$e['group_key']=$group;$debts[$debt]['events'][]=$e;}
             }
         }
+        if($supplier!==null)foreach((new \MyInvoice\Service\Property\Services\Settlement\SettlementHistory($this->db))->debtEvents($supplier,array_keys($debts),$currentRead) as $id=>$events)array_push($debts[$id]['events'],...$events);
         $creditParties=[];foreach($rows('unit_credit_parties') as $r){$party=json_decode($r['party_json'],true,flags:JSON_THROW_ON_ERROR);if($party['id']!==(int)$r['client_id'])ReceivableException::reject('history_corrupt');$creditParties[(int)$r['credit_id']][$party['id']]=$party;}
         $credits=[];$openingCredits=[];
         foreach($rows('unit_credit_lots') as $r){$fact=self::decode($r);
-            if(($r['opening_item_id']??null)!==null){$openingCredits[(int)$r['supplier_id']][]=$r;$creditOriginValid=true;$creditOriginEvents=[];}
+            if(($r['settlement_effect_id']??null)!==null){$serviceHistory=new \MyInvoice\Service\Property\Services\Settlement\SettlementHistory($this->db);$service=$serviceHistory->credit((int)$r['supplier_id'],$r,$currentRead);$creditOriginValid=true;$creditOriginEvents=$serviceHistory->events((int)$r['supplier_id'],$service,'credit:'.$r['id'],'credit',$r['amount_cents'],$currentRead);}
+            elseif(($r['opening_item_id']??null)!==null){$openingCredits[(int)$r['supplier_id']][]=$r;$creditOriginValid=true;$creditOriginEvents=[];}
             else{$op=$operations[(int)$r['operation_id']]??null;$creditOriginValid=$op&&PropertyInput::hash($op['snapshot']['credit'])===$r['snapshot_hash'];$creditOriginEvents=$op?$operationEvents($op,'credit:'.$r['id'],'credit',$r['amount_cents']):[];}
             if(!$creditOriginValid||$fact['unit_id']!==(int)$r['unit_id']||$fact['amount_cents']!==$r['amount_cents']||$fact['due_date']!==$r['due_date']||PropertyInput::hash(array_column($fact['parties'],null,'id'))!==PropertyInput::hash($creditParties[(int)$r['id']]??[]))ReceivableException::reject('history_corrupt');$credits[(int)$r['id']]=['id'=>(int)$r['id'],'unit_id'=>(int)$r['unit_id'],'snapshot'=>$fact,'snapshot_hash'=>$r['snapshot_hash'],'events'=>$creditOriginEvents];}
         foreach($openingCredits as $supplier=>$group)foreach($openingReader->credits($supplier,$group,$currentRead) as $id=>$opening)$credits[$id]['events']=$eventReader->events($opening,'credit:'.$id,'credit',$credits[$id]['snapshot']['amount_cents'],$currentRead);

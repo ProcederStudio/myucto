@@ -26,7 +26,7 @@ final class AccountingFrameworkSsotGuardTest extends TestCase
             'nextChangeForUpdate',
         ],
         'Service/Accounting/AccountingFrameworkService.php' => [
-            'recordCz500',
+            'recordFramework',
         ],
     ];
 

@@ -122,6 +122,7 @@
     "propertyPayments",
     "propertyRegistry",
     "propertySaldo",
+    "propertySettlements",
     "public_holidays",
     "purchase_invoice",
     "purchase_submissions",
@@ -898,6 +899,13 @@
     "property-charges": [
       "propertyCharges",
       "propertyRegistry"
+    ],
+    "property-service-settlements": [
+      "propertyOpening",
+      "propertyPayments",
+      "propertyRegistry",
+      "propertySaldo",
+      "propertySettlements"
     ],
     "property-openings": [
       "propertyOpening",

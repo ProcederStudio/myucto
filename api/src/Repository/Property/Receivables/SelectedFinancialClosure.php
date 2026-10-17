@@ -50,6 +50,8 @@ final class SelectedFinancialClosure
                 if(isset($fact['original_operation_id']))$sets['operations'][$fact['original_operation_id']]=true;
                 if(isset($fact['correction_id']))$sets['corrections'][$fact['correction_id']]=true;
             }
+            $serviceEffects=$this->select($supplier,'property_service_settlement_effects',['debt_id'=>$sets['debts'],'allocation_id'=>$sets['allocations']]);$serviceIds=array_fill_keys(array_column($serviceEffects,'id'),true);
+            foreach($this->select($supplier,'unit_credit_lots',['settlement_effect_id'=>$serviceIds]) as $credit)$sets['credits'][(int)$credit['id']]=true;
             $rows['unit_credit_lots']=$this->select($supplier,'unit_credit_lots',['id'=>$sets['credits'],'operation_id'=>$sets['operations']]);
             foreach($rows['unit_credit_lots'] as $row){$sets['credits'][(int)$row['id']]=true;if($row['operation_id']!==null)$sets['operations'][(int)$row['operation_id']]=true;}
             $rows['unit_credit_events']=$this->select($supplier,'unit_credit_events',['credit_id'=>$sets['credits'],'operation_id'=>$sets['operations'],'reservation_id'=>$sets['reservations']]);

@@ -56,7 +56,7 @@ final class PropertyResetCleanup
         }
         $pdo->beginTransaction();
         try {
-            foreach ([...self::TABLES, 'journal_entries', 'joint_allocation_batches'] as $table) {
+            foreach ([...self::TABLES, ...\MyInvoice\Service\Property\Services\Settlement\SettlementUseGuard::TABLES, 'journal_entries', 'joint_allocation_batches'] as $table) {
                 if ($pdo->query("SELECT 1 FROM {$table} LIMIT 1 FOR UPDATE")->fetchColumn() !== false) {
                     throw new \RuntimeException('Reset registru SVJ nebyl dokončen. Související dimenze zůstaly zachované.');
                 }

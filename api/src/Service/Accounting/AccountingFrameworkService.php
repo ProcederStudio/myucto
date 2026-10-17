@@ -96,16 +96,14 @@ final class AccountingFrameworkService
             return false;
         }
 
-        $this->recordCz500($supplierId, '1900-01-01', $userId);
+        $this->recordFramework($supplierId, '1900-01-01', self::CZ_500, $userId);
         return true;
     }
 
     /**
      * Změní rámec od prvního dne existujícího účetního období.
      *
-     * Dokud navazující účetní služby neumějí rámec 504, lze touto cestou pouze
-     * vrátit historicky uložený rámec na cz_500. Změna ovlivňuje interval od
-     * effectiveFrom do další uložené změny. Konzervativně zamyká chronologicky
+     * Změna ovlivňuje interval od effectiveFrom do další uložené změny. Konzervativně zamyká chronologicky
      * všechna období od effectiveFrom dál, aby zachovalo pořadí období -> deník,
      * které používá PostingService, i když hranici intervalu čte až pod zámkem.
      *
@@ -122,13 +120,6 @@ final class AccountingFrameworkService
             throw new AccountingFrameworkException(
                 'invalid_accounting_framework',
                 'Neznámý účetní rámec.',
-            );
-        }
-        if ($framework === self::CZ_504) {
-            throw new AccountingFrameworkException(
-                'accounting_framework_not_available',
-                'Účetní rámec podle vyhlášky 504 zatím nelze aktivovat.',
-                409,
             );
         }
 
@@ -196,7 +187,7 @@ final class AccountingFrameworkService
                 );
             }
 
-            $this->recordCz500($supplierId, $effectiveFrom, $userId);
+            $this->recordFramework($supplierId, $effectiveFrom, $framework, $userId);
             $this->finishTransaction($ownsTransaction);
             return true;
         } catch (\Throwable $e) {
@@ -213,16 +204,16 @@ final class AccountingFrameworkService
         }
     }
 
-    private function recordCz500(int $supplierId, string $effectiveFrom, ?int $userId): void
+    private function recordFramework(int $supplierId, string $effectiveFrom, string $framework, ?int $userId): void
     {
         $this->db->pdo()->prepare(
             "INSERT INTO supplier_accounting_frameworks
                 (supplier_id, effective_from, accounting_framework, created_by)
-             VALUES (?, ?, 'cz_500', ?)
+             VALUES (?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE
                 accounting_framework = VALUES(accounting_framework),
                 created_by = VALUES(created_by)"
-        )->execute([$supplierId, $effectiveFrom, $userId]);
+        )->execute([$supplierId, $effectiveFrom, $framework, $userId]);
     }
 
     private function finishTransaction(bool $ownsTransaction): void

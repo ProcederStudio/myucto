@@ -112,18 +112,29 @@ final class AccountingFrameworkServiceTest extends TestCase
         });
     }
 
-    public function testCz504CannotBeActivatedAtValidPeriodBoundary(): void
+    public function testCz504CanBeActivatedAtValidPeriodBoundaryAndChangedBack(): void
     {
         $this->createPeriod($this->supplierId, 2098, '2098-01-01', '2098-12-31');
+        self::assertTrue($this->service->changeFromPeriodStart($this->supplierId, '2098-01-01', AccountingFrameworkService::CZ_504));
+        self::assertSame(AccountingFrameworkService::CZ_500, $this->service->forDate($this->supplierId, '2097-12-31'));
+        self::assertSame(AccountingFrameworkService::CZ_504, $this->service->forDate($this->supplierId, '2098-01-01'));
+        self::assertSame(AccountingFrameworkService::CZ_500, $this->service->forDate($this->otherSupplierId, '2098-01-01'));
+        self::assertCount(2, $this->repository->listForTenant($this->supplierId));
+        self::assertFalse($this->service->changeFromPeriodStart($this->supplierId, '2098-01-01', AccountingFrameworkService::CZ_504));
+        self::assertTrue($this->service->changeFromPeriodStart($this->supplierId, '2098-01-01', AccountingFrameworkService::CZ_500));
+        self::assertSame(AccountingFrameworkService::CZ_500, $this->service->forDate($this->supplierId, '2098-01-01'));
+    }
 
-        $this->expectFrameworkError('accounting_framework_not_available', function (): void {
-            $this->service->changeFromPeriodStart(
-                $this->supplierId,
-                '2098-01-01',
-                AccountingFrameworkService::CZ_504,
-            );
-        });
-        self::assertCount(1, $this->repository->listForTenant($this->supplierId));
+    public function testCz504ActivationKeepsPeriodAndPostedJournalGuards(): void
+    {
+        $period = $this->createPeriod($this->supplierId, 2098, '2098-01-01', '2098-12-31');
+        $this->expectFrameworkError('accounting_framework_period_start_required', fn () =>
+            $this->service->changeFromPeriodStart($this->supplierId, '2098-02-01', AccountingFrameworkService::CZ_504));
+        $this->insertJournalEntry($this->supplierId, $period, '2098-03-01', true);
+        $this->expectFrameworkError('accounting_framework_period_has_posted_entries', fn () =>
+            $this->service->changeFromPeriodStart($this->supplierId, '2098-01-01', AccountingFrameworkService::CZ_504));
+        self::assertSame(AccountingFrameworkService::CZ_500, $this->service->forDate($this->supplierId, '2098-01-01'));
+        self::assertTrue($this->db->pdo()->inTransaction());
     }
 
     public function testPostedEntryBlocksFrameworkChange(): void

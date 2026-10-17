@@ -35,6 +35,7 @@ final class ReliefCorrectionRepository
                 $operation=$this->payments->operation($supplier,(int)$receipt['operation_id']);if($operation['status']!=='posted'||!in_array($operation['kind'],['allocation','setoff'],true))PaymentException::reject('relief_allocation');
                 if($operation['kind']==='setoff'){$this->payments->credit($supplier,$operation['snapshot']['credit']['id']);}else{$source=$operation['snapshot']['source']['receipt'];(new \MyInvoice\Service\Property\Payments\PaymentSourceProof($this->db))->current($supplier,$source['kind'],$source['id']);}
             }
+            (new \MyInvoice\Service\Property\Services\Settlement\SettlementUseGuard($this->db))->assertChargeLinesMutable($supplier,array_column($snapshot['anchors'],'original_line_id'));
             (new \MyInvoice\Service\Property\Receivables\PartyHistoryUseGuard($this->db))->assertChargeLinesMutable($supplier,array_column($snapshot['anchors'],'original_line_id'));
             $this->execute('INSERT INTO unit_payment_corrections (supplier_id,adjustment_charge_id,request_json,snapshot_json,request_hash,snapshot_hash,idempotency_key,created_by,recorded_at) VALUES (?,?,?,?,?,?,?,?,UTC_TIMESTAMP(6))',[$supplier,$request['adjustment_charge_id'],self::json($request),self::json($snapshot),$hash,$previewHash,$token,$actor]);$id=(int)$this->db->pdo()->lastInsertId();
             foreach($snapshot['anchors'] as $part)$this->execute('INSERT INTO unit_payment_correction_anchors (supplier_id,correction_id,adjustment_line_id,original_line_id,amount_cents) VALUES (?,?,?,?,?)',[$supplier,$id,$part['adjustment_line_id'],$part['original_line_id'],$part['amount_cents']]);
@@ -80,6 +81,7 @@ final class ReliefCorrectionRepository
             if($operation['kind']==='setoff')$this->payments->credit($supplier,$operation['snapshot']['credit']['id']);
             else{$source=$operation['snapshot']['source']['receipt'];(new \MyInvoice\Service\Property\Payments\PaymentSourceProof($db))->current($supplier,$source['kind'],$source['id']);}
         }
+        (new \MyInvoice\Service\Property\Services\Settlement\SettlementUseGuard($db))->assertChargeLinesMutable($supplier,array_column($snapshot['anchors'],'original_line_id'));
         (new \MyInvoice\Service\Property\Receivables\PartyHistoryUseGuard($db))->assertChargeLinesMutable($supplier,array_column($snapshot['anchors'],'original_line_id'));
         return ['id'=>$id,'supplier'=>$supplier,'snapshot'=>$snapshot,'snapshot_hash'=>$row['snapshot_hash'],'request_hash'=>$row['request_hash'],'actor'=>(int)$row['created_by']];
     }

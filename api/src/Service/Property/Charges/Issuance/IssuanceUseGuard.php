@@ -18,6 +18,7 @@ final class IssuanceUseGuard
     public function assertEntriesMutable(int $supplier,array $entryIds): void
     {
         $claims=$this->lockClaims($supplier);
+        (new \MyInvoice\Service\Property\Services\Settlement\SettlementUseGuard($this->db))->assertEntriesMutable($supplier,$entryIds);
         foreach($claims as $claim) foreach(['journal_entry_id','reversal_entry_id'] as $field) if($claim[$field]!==null&&in_array((int)$claim[$field],$entryIds,true)) self::reject((int)$claim['id']);
     }
 
@@ -28,6 +29,7 @@ final class IssuanceUseGuard
         foreach($lineIds as $id) \MyInvoice\Service\Property\PropertyInput::id($id,'line_id');
         $stmt=$this->db->pdo()->prepare('SELECT DISTINCT entry_id FROM journal_entry_lines WHERE supplier_id=? AND id IN ('.implode(',',array_fill(0,count($lineIds),'?')).') ORDER BY entry_id FOR UPDATE');
         $stmt->execute([$supplier,...$lineIds]); $entries=array_map('intval',$stmt->fetchAll(PDO::FETCH_COLUMN));
+        (new \MyInvoice\Service\Property\Services\Settlement\SettlementUseGuard($this->db))->assertEntriesMutable($supplier,$entries);
         foreach($claims as $claim) foreach(['journal_entry_id','reversal_entry_id'] as $field) if($claim[$field]!==null&&in_array((int)$claim[$field],$entries,true)) self::reject((int)$claim['id']);
     }
 
@@ -101,10 +103,8 @@ final class IssuanceUseGuard
         $lineIds = array_values(array_unique(array_map('intval', $lineIds)));
         sort($lineIds, SORT_NUMERIC);
         if ($lineIds === []) return;
-        $stmt = $this->db->pdo()->prepare('SELECT DISTINCT entry_id FROM journal_entry_lines WHERE supplier_id=? AND id IN ('.implode(',', array_fill(0, count($lineIds), '?')).') ORDER BY entry_id FOR UPDATE');
-        $stmt->execute([$supplier, ...$lineIds]);
-        $entryIds = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
         try {
+            $entryIds = (new \MyInvoice\Service\Property\Services\Settlement\SettlementUseGuard($this->db))->mutableAssignmentEntries($supplier,$lineIds);
             foreach ($claims as $claim) foreach (['journal_entry_id', 'reversal_entry_id'] as $field) {
                 if ($claim[$field] !== null && in_array((int) $claim[$field], $entryIds, true)) self::reject((int) $claim['id']);
             }

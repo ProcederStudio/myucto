@@ -1145,7 +1145,8 @@ final class ClosingRepository
         $entryId = (int) $entry['id'];
         try {
             (new \MyInvoice\Service\Accounting\Closing\AssetReserveSourceUseGuard($this->db, new JournalEntryRepository($this->db, new \MyInvoice\Service\ActivityLogger($this->db))))->assertEntriesMutable($supplierId, [$entryId]);
-        } catch (\MyInvoice\Service\Accounting\PostingException $e) {
+            (new \MyInvoice\Service\Property\Services\Settlement\SettlementUseGuard($this->db))->assertEntriesMutable($supplierId, [$entryId]);
+        } catch (\MyInvoice\Service\Accounting\PostingException|\MyInvoice\Service\Property\Charges\Issuance\IssuanceException $e) {
             throw new \MyInvoice\Service\Accounting\Closing\ClosingException($e->errorCode, $e->getMessage(), $e->httpStatus);
         }
 

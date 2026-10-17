@@ -30,7 +30,7 @@ final class PaymentUseGuard
     }
     public static function entryReferenceSql():string
     {
-        return \MyInvoice\Service\Property\Opening\OpeningUseGuard::entryReferenceSql()." OR EXISTS (SELECT 1 FROM unit_payment_sources s WHERE s.supplier_id=e.supplier_id AND s.journal_entry_id=e.id FOR UPDATE)
+        return \MyInvoice\Service\Property\Services\Settlement\SettlementUseGuard::entryReferenceSql()." OR ".\MyInvoice\Service\Property\Opening\OpeningUseGuard::entryReferenceSql()." OR EXISTS (SELECT 1 FROM unit_payment_sources s WHERE s.supplier_id=e.supplier_id AND s.journal_entry_id=e.id FOR UPDATE)
                 OR EXISTS (SELECT 1 FROM unit_payment_operations o WHERE o.supplier_id=e.supplier_id AND (o.journal_entry_id=e.id OR o.reversal_entry_id=e.id) FOR UPDATE)
                 OR EXISTS (SELECT 1 FROM unit_claim_accessory_receipts r WHERE r.supplier_id=e.supplier_id AND r.journal_entry_id=e.id FOR UPDATE)
                 OR EXISTS (SELECT 1 FROM unit_payment_source_revisions r WHERE r.supplier_id=e.supplier_id AND r.journal_entry_id=e.id FOR UPDATE)
@@ -71,12 +71,14 @@ final class PaymentUseGuard
     public function assertChargeCorrectable(int $supplier,int $charge):void
     {
         (new PaymentLocks($this->db))->acquire($supplier);
+        (new \MyInvoice\Service\Property\Services\Settlement\SettlementUseGuard($this->db))->assertChargeMutable($supplier,$charge);
         $q=$this->db->pdo()->prepare("SELECT a.id FROM unit_payment_allocations a JOIN unit_payment_operations o ON o.supplier_id=a.supplier_id AND o.id=a.operation_id WHERE a.supplier_id=? AND a.charge_id=? AND o.status='posted' ORDER BY a.id FOR UPDATE");$q->execute([$supplier,$charge]);if($q->fetchColumn()!==false)self::reject();
         $q=$this->db->pdo()->prepare("SELECT id FROM unit_payment_corrections WHERE supplier_id=? AND adjustment_charge_id=? AND status='posted' ORDER BY id FOR UPDATE");$q->execute([$supplier,$charge]);if($q->fetchColumn()!==false)self::reject();
     }
     public function assertOperationReversible(int $supplier,int $operation):void
     {
         (new PaymentLocks($this->db))->acquire($supplier);
+        (new \MyInvoice\Service\Property\Services\Settlement\SettlementUseGuard($this->db))->assertOperationReversible($supplier,$operation);
         $q=$this->db->pdo()->prepare("SELECT r.allocation_id FROM unit_payment_reliefs r JOIN unit_payment_corrections c ON c.supplier_id=r.supplier_id AND c.id=r.correction_id JOIN unit_payment_allocations a ON a.supplier_id=r.supplier_id AND a.id=r.allocation_id WHERE r.supplier_id=? AND a.operation_id=? AND c.status='posted' ORDER BY r.allocation_id FOR UPDATE");$q->execute([$supplier,$operation]);if($q->fetchColumn()!==false)PaymentException::reject('allocation_has_relief');
     }
     public function assertChargePostingAllowed(int $supplier,int $id):void

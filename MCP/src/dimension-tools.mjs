@@ -25,6 +25,19 @@ const read = (name, title, description, properties, required, run) => ({
 });
 
 export const DIMENSION_TOOLS = [
+  read('list_property_service_settlements', 'Vyúčtování služeb SVJ',
+    'Stránkované doložené S8 dokumenty s popisem jednotky/služby, obdobím a původními částkami. current_summary odděluje aktuální evidované S8 kredity a nové nároky; nejde o úplné saldo firmy ani oprávnění k zápisu. Bez právních podkladů, osob a finančních hashů.',
+    { after_id: { type: 'integer', minimum: 0 }, limit: { type: 'integer', minimum: 1, maximum: 100 }, unit_id: int('Volitelná jednotka.'), service_id: int('Volitelná služba.') }, [],
+    (c, a, tool) => c.get('/property/catalog/service-settlements', { after_id: a.after_id, limit: a.limit, unit_id: a.unit_id, service_id: a.service_id }, tool)),
+  read('get_property_service_settlement', 'Doklad vyúčtování služeb SVJ',
+    'Kurátorovaný S8 dokument. Původní prescribed/paid/actual jsou neměnné částky k cutoff, nikoli dnešní dostupná pohledávka nebo kredit. Nezpřístupňuje interní zdrojové důkazy ani mutace.',
+    { id: int('ID dokumentu z list_property_service_settlements.') }, ['id'],
+    (c, a, tool) => c.get(`/property/catalog/service-settlements/${seg(a.id)}`, null, tool)),
+  read('property_service_settlement_current', 'Aktuální S8 kredity a nové nároky',
+    'Aktuální vlastněné S8 kredity (balance/reserved/available) a nové nároky (principal/paid/accessories odděleně). Původní dluhy a ostatní operace nejsou součástí tohoto omezeného výřezu; complete_financial_position je false. Částky v centech ponechte jako řetězce.',
+    { id: int('ID dokumentu z list_property_service_settlements.') }, ['id'],
+    (c, a, tool) => c.get(`/property/catalog/service-settlements/${seg(a.id)}/current`, null, tool)),
+
   read('list_property_openings', 'Převzaté počáteční stavy SVJ',
     'Ověřené účetní dávky a hrubé role po jednotkách a službách bez právních podkladů osob. Historie zahrnuje i stornované dávky; částky nejsou dnešní dostupný kredit. next_cursor předávejte jako after_id. Nejde o úplnou finanční pozici ani oprávnění k zápisu.',
     { after_id: { type: 'integer', minimum: 0 }, limit: { type: 'integer', minimum: 1, maximum: 100 } }, [],

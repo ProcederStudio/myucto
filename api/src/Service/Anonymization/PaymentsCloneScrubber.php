@@ -13,7 +13,7 @@ final class PaymentsCloneScrubber
     private const TEXT=['case_ref','occurrence_ref','purpose_ref','counterpart_ref','allocation_ref','reason','title_ref','evidence','liability_evidence','disposition','debtor_evidence','creditor_consent','evidence_ref','legal_reason','basis_ref','description','name','unit_no','ref','recipient_evidence','mutuality_evidence','eligibility_evidence','declaration_evidence','delivery_evidence','effect_evidence','scope_1984_evidence','early_performance_evidence'];
     private array $hashes=[];
     public function __construct(private readonly Connection $db,private readonly TextScrubber $scrubber) {}
-    public function run(array $issuanceMap=[],array $registryMap=[]):array
+    public function run(array $issuanceMap=[],array $registryMap=[],array $settlementInputs=[]):array
     {
         $pdo=$this->db->pdo();$q=$pdo->prepare('SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('.implode(',',array_fill(0,count(self::TABLES),'?')).')');$q->execute(self::TABLES);$count=(int)$q->fetchColumn();
         if($count===0)return [];
@@ -33,6 +33,7 @@ final class PaymentsCloneScrubber
                 $q=$pdo->prepare('SELECT snapshot_hash FROM unit_charges WHERE supplier_id=? AND id=?');$q->execute([$r['supplier_id'],$owner['id']]);if($q->fetchColumn()!==$proof['after_snapshot_hash'])PaymentException::reject('clone_issuance_proof');
                 $this->hashes[$proof['before_snapshot_hash']]=$proof['after_snapshot_hash'];
             }}
+            foreach($issuanceMap as $supplier=>$proofs)foreach($proofs as $id=>$proof){$q=$pdo->prepare('SELECT snapshot_hash FROM unit_charges WHERE supplier_id=? AND id=?');$q->execute([$supplier,$id]);if($q->fetchColumn()!==$proof['after_snapshot_hash'])PaymentException::reject('clone_issuance_proof');$this->hashes[$proof['before_snapshot_hash']]=$proof['after_snapshot_hash'];}
             foreach($rows['unit_credit_reservations'] as $r){$data=self::decode($r['request_json']);self::hash($r['request_hash'],['credit_id'=>(int)$r['credit_id'],'expected_version'=>$data['expected_version'],'request'=>$data['request'],'token'=>$r['idempotency_key'],'actor'=>(int)$r['created_by']]);}
             (new OpeningCloneScrubber($this->db,$this->scrubber))->run($registryMap,fn(array $value):array=>$this->text($value),fn(array $value):array=>$this->references($value),fn(string $hash,array $value):string=>$this->map($hash,$value));
             $workflowClone=PaymentWorkflowCloneScrubber::capture($this->db,$this->scrubber,fn(array $value):array=>$this->text($value));
@@ -46,6 +47,7 @@ final class PaymentsCloneScrubber
             foreach($rows['unit_credit_events'] as $r)$this->update('unit_credit_events',$r,['event_json'=>self::json($this->references($this->text(self::decode($r['event_json']))))]);
             foreach($rows['unit_payment_audit'] as $r){$payload=$this->references($this->text(self::decode($r['payload_json'])));$this->update('unit_payment_audit',$r,['payload_json'=>self::json($payload),'payload_hash'=>PropertyInput::hash($payload)]);}
             $workflowClone?->finish($this->hashes,fn(array $value):array=>$this->references($value));
+            SettlementCloneScrubber::run($this->db,$this->scrubber,$registryMap,$this->hashes,fn(array $value):array=>$this->text($value),fn(string $hash,array $value):string=>$this->map($hash,$value),$settlementInputs);
             $suppliers=array_values(array_unique(array_merge(...array_values(array_map(fn($data)=>array_column($data,'supplier_id'),$rows)))));sort($suppliers,SORT_NUMERIC);
             foreach($suppliers as $supplier)(new PaymentLocks($this->db))->acquire((int)$supplier);
             foreach($rows['unit_payment_sources'] as $r)(new PaymentSourceProof($this->db))->current((int)$r['supplier_id'],$r['bank_transaction_id']!==null?'bank':'cash',(int)($r['bank_transaction_id']??$r['cash_document_id']));
@@ -85,7 +87,7 @@ final class PaymentsCloneScrubber
         }
         foreach($pdo->query('SELECT * FROM unit_credit_lots ORDER BY id')->fetchAll(PDO::FETCH_ASSOC) as $row){
             $snapshot=self::decode($row['snapshot_json']);foreach(['unit_id','amount_cents','due_date'] as $key)if((is_int($snapshot[$key])?(int)$row[$key]:$row[$key])!==$snapshot[$key])PaymentException::reject('history_corrupt');
-            if(($row['opening_item_id']??null)!==null)(new \MyInvoice\Service\Property\Opening\OpeningOriginProof($this->db))->credit((int)$row['supplier_id'],$row,true);else{$origin=$operations[$row['supplier_id']][$row['operation_id']]??null;if(!$origin||PropertyInput::hash($origin['snapshot']['credit']??[])!==$row['snapshot_hash'])PaymentException::reject('history_corrupt');}
+            if(($row['settlement_effect_id']??null)!==null)(new \MyInvoice\Service\Property\Services\Settlement\SettlementHistory($this->db))->credit((int)$row['supplier_id'],$row,true);elseif(($row['opening_item_id']??null)!==null)(new \MyInvoice\Service\Property\Opening\OpeningOriginProof($this->db))->credit((int)$row['supplier_id'],$row,true);else{$origin=$operations[$row['supplier_id']][$row['operation_id']]??null;if(!$origin||PropertyInput::hash($origin['snapshot']['credit']??[])!==$row['snapshot_hash'])PaymentException::reject('history_corrupt');}
             $q=$pdo->prepare('SELECT client_id,party_json FROM unit_credit_parties WHERE supplier_id=? AND credit_id=? ORDER BY client_id');$q->execute([$row['supplier_id'],$row['id']]);$parties=[];foreach($q->fetchAll(PDO::FETCH_ASSOC) as $party){$fact=self::decode($party['party_json']);if($fact['id']!==(int)$party['client_id'])PaymentException::reject('history_corrupt');$parties[]=$fact;}
             if(PropertyInput::hash($parties)!==PropertyInput::hash($snapshot['parties']))PaymentException::reject('history_corrupt');$credits[$row['supplier_id']][$row['id']]=$row;
         }
@@ -106,7 +108,7 @@ final class PaymentsCloneScrubber
         }
         $reserved=[];foreach($pdo->query('SELECT * FROM unit_credit_reservations ORDER BY id')->fetchAll(PDO::FETCH_ASSOC) as $row){$data=self::decode($row['request_json']);if($row['amount_cents']!==$data['request']['amount_cents']||$row['paid_cents']!==($paid[$row['id']]??'0'))PaymentException::reject('history_corrupt');
             if($row['status']==='paid'&&$row['paid_cents']!==$row['amount_cents'])PaymentException::reject('history_corrupt');if(in_array($row['status'],['reserved','submitted'],true))$reserved[$row['credit_id']]=bcadd($reserved[$row['credit_id']]??'0',bcsub($row['amount_cents'],$row['paid_cents'],0),0);}
-        foreach($credits as $supplier=>$lots)foreach($lots as $id=>$row){$active=($row['opening_item_id']??null)!==null?(new \MyInvoice\Service\Property\Opening\OpeningOriginProof($this->db))->credit((int)$supplier,$row,true)['active']:$operations[$supplier][$row['operation_id']]['status']!=='reversed';$balance=bcadd($active?$row['amount_cents']:'0',$effects[$id]??'0',0);if(bccomp($balance,$reserved[$id]??'0',0)<0)PaymentException::reject('history_corrupt');}
+        foreach($credits as $supplier=>$lots)foreach($lots as $id=>$row){$active=($row['settlement_effect_id']??null)!==null?(new \MyInvoice\Service\Property\Services\Settlement\SettlementHistory($this->db))->credit((int)$supplier,$row,true)['active']:(($row['opening_item_id']??null)!==null?(new \MyInvoice\Service\Property\Opening\OpeningOriginProof($this->db))->credit((int)$supplier,$row,true)['active']:$operations[$supplier][$row['operation_id']]['status']!=='reversed');$balance=bcadd($active?$row['amount_cents']:'0',$effects[$id]??'0',0);if(bccomp($balance,$reserved[$id]??'0',0)<0)PaymentException::reject('history_corrupt');}
     }
     private function references(array $data):array
     {

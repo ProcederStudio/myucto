@@ -46,6 +46,7 @@ final class JournalEntryRepository
      */
     public function insert(array $header, array $lines): int
     {
+        \MyInvoice\Service\Property\Services\Settlement\SettlementUseGuard::assertGenericInsert($header);
         $pdo = $this->db->pdo();
         $ownTx = !$pdo->inTransaction();
         if ($ownTx) {
@@ -117,6 +118,32 @@ final class JournalEntryRepository
         $stmt->execute([$entry, $intent->supplier, $intent->operationId]);
         if ($stmt->rowCount() !== 1) \MyInvoice\Service\Property\Payments\PaymentException::reject('settlement_intent');
         return $entry;
+    }
+
+    public function insertPropertyServiceSettlement(\MyInvoice\Service\Property\Services\Settlement\SettlementApplicationIntent $intent): int
+    {
+        $intent->claim($this->db);
+        return (new DimensionPeriodGuard($this->db))->transaction(function () use ($intent): int {
+            $proof = $intent->journal($this->db);
+            if ($proof['source_entry_id'] !== null) throw new \LogicException('An application cannot reverse a source.');
+            (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy($this->db))->assertPropertyServiceSettlementJournal($proof['header'], $proof['lines'], $intent->carrier($this->db));
+            \MyInvoice\Service\Accounting\PostingService::assertBalanced($proof['lines']);
+            $entry = $this->persistJournal($proof['header'], $proof['lines']);
+            $intent->complete($this->db, $entry);
+            return $entry;
+        });
+    }
+
+    public function insertPropertyServiceSettlementReversal(\MyInvoice\Service\Property\Services\Settlement\SettlementReversalIntent $intent): int
+    {
+        $intent->claim($this->db);
+        return (new DimensionPeriodGuard($this->db))->transaction(function () use ($intent): int {
+            $proof = $intent->journal($this->db);
+            if ($proof['source_entry_id'] === null) throw new \LogicException('A reversal requires its current source.');
+            $entry = $this->insertReversalLocked($proof['header'], $proof['lines'], $proof['source_entry_id']);
+            $intent->complete($this->db, $entry);
+            return $entry;
+        });
     }
 
     public function insertPropertySetoff(\MyInvoice\Service\Property\Payments\Workflow\PaymentSetoffIntent $intent): int
@@ -706,6 +733,7 @@ final class JournalEntryRepository
         }
         try {
             (new \MyInvoice\Service\Property\Opening\OpeningUseGuard($this->db))->assertDescriptionMutable($supplierId, $id);
+            (new \MyInvoice\Service\Property\Services\Settlement\SettlementUseGuard($this->db))->assertDescriptionMutable($supplierId,$id);
             // Zamkni řádek zápisu + načti guard stav (vč. stavu jeho období) a row_version.
             $stmt = $pdo->prepare(
                 'SELECT je.description, je.source_type, je.reversed_by, je.posted_at,

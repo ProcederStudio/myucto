@@ -158,6 +158,12 @@ final class AnonymizationPolicy
         'unit_payment_correction_anchors' => [],
         'unit_payment_reliefs' => [],
         'property_opening_batches' => ['status'=>'keep','mode'=>'keep','request_json'=>'keep','request_hash'=>'keep','snapshot_json'=>'keep','snapshot_hash'=>'keep','idempotency_key'=>'keep'],
+        'property_service_settlements' => ['segment_key'=>'keep','document_json'=>'service_settlement_json','document_hash'=>'keep','origin_receipt_json'=>'service_settlement_json','origin_receipt_hash'=>'keep','request_hash'=>'keep','idempotency_key'=>'keep'],
+        'property_service_settlement_origins' => [],
+        'property_service_settlement_requests' => ['request_json'=>'service_settlement_json','request_hash'=>'keep','preview_json'=>'service_settlement_json','preview_hash'=>'keep','idempotency_key'=>'keep'],
+        'property_service_settlement_heads' => [],
+        'property_service_settlement_applications' => ['receipt_json'=>'service_settlement_json','receipt_hash'=>'keep','request_hash'=>'keep','idempotency_key'=>'keep'],
+        'property_service_settlement_effects' => ['kind'=>'keep','effect_json'=>'service_settlement_json','effect_hash'=>'keep'],
         'property_opening_heads' => [],
         'property_opening_items' => ['case_key'=>'keep','kind'=>'keep','snapshot_json'=>'keep','snapshot_hash'=>'keep'],
         'property_opening_components' => ['component_key'=>'keep','role'=>'keep','fact_json'=>'keep','fact_hash'=>'keep'],
@@ -725,7 +731,7 @@ final class AnonymizationPolicy
     /** @return list<string> */
     public static function knownStrategies(): array
     {
-        return [...self::PHASE_STRUCTURED, ...self::PHASE_DERIVED, ...self::PHASE_TEXT, 'keep', 'sealed_companion'];
+        return [...self::PHASE_STRUCTURED, ...self::PHASE_DERIVED, ...self::PHASE_TEXT, 'keep', 'sealed_companion', 'service_settlement_json'];
     }
 
     public static function isSealed(string $strategy): bool

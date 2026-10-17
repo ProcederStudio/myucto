@@ -1025,7 +1025,9 @@
         "2041_property_saldo_read_roots.sql",
         "2042_property_saldo_read_source.sql",
         "2043_property_receivable_permissions.sql",
-        "2044_property_opening.sql"
+        "2044_property_opening.sql",
+        "2045_property_service_settlements.sql",
+        "2046_property_service_settlement_permissions.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -6711,7 +6713,7 @@
                 "reversed_by": "bigint(20) unsigned NULL DEFAULT NULL",
                 "row_version": "int(10) unsigned NOT NULL DEFAULT 1",
                 "source_id": "bigint(20) unsigned NULL DEFAULT NULL",
-                "source_type": "enum('invoice','purchase_invoice','bank','cash','asset','manual','closing','opening','depreciation','asset_disposal','fx_revaluation','stock','provision','income_tax','profit_distribution','offset','small_asset_accrual','prepaid_expense_accrual','settlement','deferred_tax','payroll','vat_clearing','payroll_payment','gopay','card_settlement','card_writeoff','other_item','payroll_accident_insurance','payroll_travel','deferred_revenue_accrual','unit_charge','unit_payment','unit_payment_revision') NOT NULL DEFAULT 'manual'",
+                "source_type": "enum('invoice','purchase_invoice','bank','cash','asset','manual','closing','opening','depreciation','asset_disposal','fx_revaluation','stock','provision','income_tax','profit_distribution','offset','small_asset_accrual','prepaid_expense_accrual','settlement','deferred_tax','payroll','vat_clearing','payroll_payment','gopay','card_settlement','card_writeoff','other_item','payroll_accident_insurance','payroll_travel','deferred_revenue_accrual','unit_charge','unit_payment','unit_payment_revision','property_service_settlement') NOT NULL DEFAULT 'manual'",
                 "supplier_id": "int(10) unsigned NOT NULL",
                 "updated_at": "timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE CURRENT_TIMESTAMP()"
             },
@@ -19064,6 +19066,222 @@
                 "state_json": "json_valid(`state_json`)"
             }
         },
+        "property_service_settlement_applications": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "accounting_date": "date NOT NULL",
+                "application_slot": "bigint(20) unsigned NULL DEFAULT NULL STORED GENERATED AS (ifnull(`reversal_of`,0))",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "document_id": "bigint(20) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "idempotency_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "journal_entry_id": "bigint(20) unsigned NOT NULL",
+                "period_id": "bigint(20) unsigned NOT NULL",
+                "receipt_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "receipt_json": "longtext NOT NULL",
+                "recorded_at": "datetime(6) NOT NULL",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "request_id": "bigint(20) unsigned NOT NULL",
+                "reversal_of": "bigint(20) unsigned NULL DEFAULT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "created_by": "BTREE (created_by)",
+                "supplier_id": "BTREE (supplier_id, period_id)",
+                "uq_service_application_document": "UNIQUE BTREE (supplier_id, document_id, application_slot)",
+                "uq_service_application_entry": "UNIQUE BTREE (supplier_id, journal_entry_id)",
+                "uq_service_application_request": "UNIQUE BTREE (supplier_id, request_id)",
+                "uq_service_application_reversal": "UNIQUE BTREE (supplier_id, reversal_of)",
+                "uq_service_application_tenant": "UNIQUE BTREE (supplier_id, id)",
+                "uq_service_application_token": "UNIQUE BTREE (supplier_id, idempotency_key)"
+            },
+            "foreign_keys": {
+                "fk_service_application_request": "(supplier_id, request_id) -> property_service_settlement_requests (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "property_service_settlement_applications_ibfk_1": "(supplier_id, document_id) -> property_service_settlements (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "property_service_settlement_applications_ibfk_2": "(supplier_id, reversal_of) -> property_service_settlement_applications (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "property_service_settlement_applications_ibfk_3": "(supplier_id, period_id) -> accounting_periods (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "property_service_settlement_applications_ibfk_4": "(supplier_id, journal_entry_id) -> journal_entries (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "property_service_settlement_applications_ibfk_5": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "receipt_json": "json_valid(`receipt_json`)"
+            }
+        },
+        "property_service_settlement_effects": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "allocation_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "amount_cents": "decimal(30,0) NOT NULL",
+                "application_id": "bigint(20) unsigned NOT NULL",
+                "charge_line_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "debt_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "effect_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "effect_json": "longtext NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "kind": "varchar(32) NOT NULL",
+                "opening_component_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "ordinal": "int(10) unsigned NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "supplier_id": "BTREE (supplier_id, debt_id)",
+                "supplier_id_2": "BTREE (supplier_id, charge_line_id)",
+                "supplier_id_3": "BTREE (supplier_id, opening_component_id)",
+                "supplier_id_4": "BTREE (supplier_id, allocation_id)",
+                "uq_service_effect_ordinal": "UNIQUE BTREE (supplier_id, application_id, ordinal)",
+                "uq_service_effect_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "property_service_settlement_effects_ibfk_1": "(supplier_id, application_id) -> property_service_settlement_applications (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "property_service_settlement_effects_ibfk_2": "(supplier_id, debt_id) -> unit_payment_debts (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "property_service_settlement_effects_ibfk_3": "(supplier_id, charge_line_id) -> unit_charge_lines (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "property_service_settlement_effects_ibfk_4": "(supplier_id, opening_component_id) -> property_opening_components (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "property_service_settlement_effects_ibfk_5": "(supplier_id, allocation_id) -> unit_payment_allocations (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "CONSTRAINT_1": "`amount_cents` > 0 and `kind` in ('advance_applied','claim_reduction','allocation_relief','opening_paid_credit','new_claim')",
+                "CONSTRAINT_2": "`kind` <> 'allocation_relief' or `allocation_id` is not null",
+                "effect_json": "json_valid(`effect_json`)"
+            }
+        },
+        "property_service_settlement_heads": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "application_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "document_id": "bigint(20) unsigned NOT NULL",
+                "row_version": "int(10) unsigned NOT NULL DEFAULT 0",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (supplier_id, document_id)",
+                "supplier_id": "BTREE (supplier_id, application_id)"
+            },
+            "foreign_keys": {
+                "property_service_settlement_heads_ibfk_1": "(supplier_id, document_id) -> property_service_settlements (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "property_service_settlement_heads_ibfk_2": "(supplier_id, application_id) -> property_service_settlement_applications (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": []
+        },
+        "property_service_settlement_origins": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "charge_line_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "debt_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "document_id": "bigint(20) unsigned NOT NULL",
+                "opening_advance_component_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "opening_component_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "ordinal": "int(10) unsigned NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (supplier_id, document_id, ordinal)",
+                "supplier_id": "BTREE (supplier_id, charge_line_id)",
+                "supplier_id_2": "BTREE (supplier_id, opening_component_id)",
+                "supplier_id_3": "BTREE (supplier_id, opening_advance_component_id)",
+                "supplier_id_4": "BTREE (supplier_id, debt_id)"
+            },
+            "foreign_keys": {
+                "property_service_settlement_origins_ibfk_1": "(supplier_id, document_id) -> property_service_settlements (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "property_service_settlement_origins_ibfk_2": "(supplier_id, charge_line_id) -> unit_charge_lines (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "property_service_settlement_origins_ibfk_3": "(supplier_id, opening_component_id) -> property_opening_components (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "property_service_settlement_origins_ibfk_4": "(supplier_id, opening_advance_component_id) -> property_opening_components (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "property_service_settlement_origins_ibfk_5": "(supplier_id, debt_id) -> unit_payment_debts (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "CONSTRAINT_1": "`charge_line_id` is not null and `opening_component_id` is null and `opening_advance_component_id` is null and `debt_id` is not null or `charge_line_id` is null and `opening_component_id` is not null and `opening_advance_component_id` is not null"
+            }
+        },
+        "property_service_settlement_requests": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "document_id": "bigint(20) unsigned NOT NULL",
+                "expected_version": "int(10) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "idempotency_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "preview_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "preview_json": "longtext NOT NULL",
+                "recorded_at": "datetime(6) NOT NULL",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "request_json": "longtext NOT NULL",
+                "reversal_of": "bigint(20) unsigned NULL DEFAULT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "created_by": "BTREE (created_by)",
+                "supplier_id": "BTREE (supplier_id, document_id)",
+                "supplier_id_2": "BTREE (supplier_id, reversal_of)",
+                "uq_service_request_tenant": "UNIQUE BTREE (supplier_id, id)",
+                "uq_service_request_token": "UNIQUE BTREE (supplier_id, idempotency_key)"
+            },
+            "foreign_keys": {
+                "property_service_settlement_requests_ibfk_1": "(supplier_id, document_id) -> property_service_settlements (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "property_service_settlement_requests_ibfk_2": "(supplier_id, reversal_of) -> property_service_settlement_applications (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "property_service_settlement_requests_ibfk_3": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "preview_json": "json_valid(`preview_json`)",
+                "request_json": "json_valid(`request_json`)"
+            }
+        },
+        "property_service_settlements": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "cost_line_id": "bigint(20) unsigned NOT NULL",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "document_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "document_json": "longtext NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "idempotency_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "origin_receipt_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "origin_receipt_json": "longtext NOT NULL",
+                "previous_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "recorded_at": "datetime(6) NOT NULL",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "revision_no": "int(10) unsigned NOT NULL",
+                "segment_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "service_id": "bigint(20) unsigned NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "unit_id": "bigint(20) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "created_by": "BTREE (created_by)",
+                "fk_service_settlement_cost": "BTREE (cost_line_id)",
+                "supplier_id": "BTREE (supplier_id, service_id)",
+                "supplier_id_2": "BTREE (supplier_id, previous_id)",
+                "uq_service_settlement_revision": "UNIQUE BTREE (supplier_id, unit_id, service_id, segment_key, revision_no)",
+                "uq_service_settlement_tenant": "UNIQUE BTREE (supplier_id, id)",
+                "uq_service_settlement_token": "UNIQUE BTREE (supplier_id, idempotency_key)"
+            },
+            "foreign_keys": {
+                "fk_service_settlement_cost": "(cost_line_id) -> journal_entry_lines (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "property_service_settlements_ibfk_1": "(supplier_id, unit_id) -> property_objects (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "property_service_settlements_ibfk_2": "(supplier_id, service_id) -> property_objects (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "property_service_settlements_ibfk_3": "(supplier_id, previous_id) -> property_service_settlements (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "property_service_settlements_ibfk_4": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "CONSTRAINT_1": "`revision_no` > 0",
+                "document_json": "json_valid(`document_json`)",
+                "origin_receipt_json": "json_valid(`origin_receipt_json`)"
+            }
+        },
         "public_holidays": {
             "type": "BASE TABLE",
             "engine": "InnoDB",
@@ -24361,6 +24579,7 @@
                 "operation_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "read_unit_id": "bigint(20) unsigned NULL DEFAULT NULL STORED GENERATED AS (json_value(`snapshot_json`,'$.unit_id'))",
                 "row_version": "int(10) unsigned NOT NULL DEFAULT 1",
+                "settlement_effect_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "snapshot_hash": "char(64) NOT NULL COLLATE ascii_bin",
                 "snapshot_json": "longtext NOT NULL",
                 "supplier_id": "int(10) unsigned NOT NULL",
@@ -24370,18 +24589,20 @@
                 "PRIMARY": "UNIQUE BTREE (id)",
                 "fk_unit_credit_unit": "BTREE (supplier_id, unit_id)",
                 "ix_unit_credit_read_unit": "BTREE (supplier_id, read_unit_id, id)",
+                "uq_credit_settlement_effect": "UNIQUE BTREE (supplier_id, settlement_effect_id)",
                 "uq_unit_credit_opening": "UNIQUE BTREE (supplier_id, opening_item_id)",
                 "uq_unit_credit_origin": "UNIQUE BTREE (supplier_id, operation_id)",
                 "uq_unit_credit_tenant": "UNIQUE BTREE (supplier_id, id)"
             },
             "foreign_keys": {
+                "fk_credit_settlement_effect": "(supplier_id, settlement_effect_id) -> property_service_settlement_effects (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
                 "fk_unit_credit_opening": "(supplier_id, opening_item_id) -> property_opening_items (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
                 "fk_unit_credit_operation": "(supplier_id, operation_id) -> unit_payment_operations (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
                 "fk_unit_credit_unit": "(supplier_id, unit_id) -> property_objects (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
             },
             "checks": {
                 "chk_unit_credit_amount": "`amount_cents` > 0",
-                "chk_unit_credit_origin": "`operation_id` is null <> (`opening_item_id` is null)",
+                "chk_unit_credit_origin": "(`operation_id` is not null) + (`opening_item_id` is not null) + (`settlement_effect_id` is not null) = 1",
                 "snapshot_json": "json_valid(`snapshot_json`)"
             }
         },
@@ -24458,10 +24679,12 @@
                 "liability_group": "varchar(80) NOT NULL",
                 "opening_component_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "operation_id": "bigint(20) unsigned NOT NULL",
+                "settlement_effect_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "supplier_id": "int(10) unsigned NOT NULL"
             },
             "indexes": {
                 "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_allocation_settlement_effect": "BTREE (supplier_id, settlement_effect_id)",
                 "fk_unit_allocation_accessory": "BTREE (supplier_id, accessory_id)",
                 "fk_unit_allocation_charge": "BTREE (supplier_id, charge_id)",
                 "fk_unit_allocation_debt": "BTREE (supplier_id, debt_id)",
@@ -24472,6 +24695,7 @@
                 "uq_unit_allocation_tenant": "UNIQUE BTREE (supplier_id, id)"
             },
             "foreign_keys": {
+                "fk_allocation_settlement_effect": "(supplier_id, settlement_effect_id) -> property_service_settlement_effects (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
                 "fk_unit_allocation_accessory": "(supplier_id, accessory_id) -> unit_claim_accessory_receipts (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
                 "fk_unit_allocation_charge": "(supplier_id, charge_id) -> unit_charges (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
                 "fk_unit_allocation_debt": "(supplier_id, debt_id) -> unit_payment_debts (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
@@ -24482,7 +24706,7 @@
             },
             "checks": {
                 "allocation_json": "json_valid(`allocation_json`)",
-                "chk_unit_allocation": "`amount_cents` > 0 and (`charge_line_id` is not null) + (`accessory_id` is not null) + (`opening_component_id` is not null) = 1 and (`opening_component_id` is null or `charge_id` is null)"
+                "chk_unit_allocation": "`amount_cents` > 0 and (`charge_line_id` is not null) + (`accessory_id` is not null) + (`opening_component_id` is not null) + (`settlement_effect_id` is not null) = 1 and (`opening_component_id` is null or `charge_id` is null) and (`settlement_effect_id` is null or `charge_id` is null)"
             }
         },
         "unit_payment_audit": {
@@ -24609,6 +24833,7 @@
                 "recorded_at": "datetime(6) NOT NULL",
                 "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
                 "request_json": "longtext NOT NULL",
+                "settlement_effect_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "snapshot_hash": "char(64) NOT NULL COLLATE ascii_bin",
                 "snapshot_json": "longtext NOT NULL",
                 "supplier_id": "int(10) unsigned NOT NULL"
@@ -24618,17 +24843,19 @@
                 "fk_unit_payment_debt_actor": "BTREE (created_by)",
                 "fk_unit_payment_debt_charge": "BTREE (supplier_id, charge_id)",
                 "ix_unit_debt_read_charge": "BTREE (supplier_id, read_charge_id, id)",
+                "uq_debt_settlement_effect": "UNIQUE BTREE (supplier_id, settlement_effect_id)",
                 "uq_unit_debt_opening": "UNIQUE BTREE (supplier_id, opening_item_id)",
                 "uq_unit_payment_debt_tenant": "UNIQUE BTREE (supplier_id, id)",
                 "uq_unit_payment_debt_token": "UNIQUE BTREE (supplier_id, idempotency_key)"
             },
             "foreign_keys": {
+                "fk_debt_settlement_effect": "(supplier_id, settlement_effect_id) -> property_service_settlement_effects (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
                 "fk_unit_debt_opening": "(supplier_id, opening_item_id) -> property_opening_items (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
                 "fk_unit_payment_debt_actor": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
                 "fk_unit_payment_debt_charge": "(supplier_id, charge_id) -> unit_charges (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
             },
             "checks": {
-                "chk_unit_debt_origin": "`charge_id` is null <> (`opening_item_id` is null)",
+                "chk_unit_debt_origin": "(`charge_id` is not null) + (`opening_item_id` is not null) + (`settlement_effect_id` is not null) = 1",
                 "request_json": "json_valid(`request_json`)",
                 "snapshot_json": "json_valid(`snapshot_json`)"
             }
@@ -25645,6 +25872,17 @@
         "property_opening_recipients_immutable_update": "BEFORE UPDATE ON property_opening_recipients #1bcf06636488a92e7603e6b4acce56c9e30702c7",
         "property_opening_states_immutable_delete": "BEFORE DELETE ON property_opening_states #1bcf06636488a92e7603e6b4acce56c9e30702c7",
         "property_opening_states_immutable_update": "BEFORE UPDATE ON property_opening_states #1bcf06636488a92e7603e6b4acce56c9e30702c7",
+        "property_service_settlement_applications_delete": "BEFORE DELETE ON property_service_settlement_applications #9eb08f28143c0e7b6470cfad4a16f5cfff5437be",
+        "property_service_settlement_applications_update": "BEFORE UPDATE ON property_service_settlement_applications #9eb08f28143c0e7b6470cfad4a16f5cfff5437be",
+        "property_service_settlement_cost_tenant_insert": "BEFORE INSERT ON property_service_settlements #1114720060e6ef466f30a9fbe76f281e323b50a4",
+        "property_service_settlement_effects_delete": "BEFORE DELETE ON property_service_settlement_effects #9eb08f28143c0e7b6470cfad4a16f5cfff5437be",
+        "property_service_settlement_effects_update": "BEFORE UPDATE ON property_service_settlement_effects #9eb08f28143c0e7b6470cfad4a16f5cfff5437be",
+        "property_service_settlement_origins_delete": "BEFORE DELETE ON property_service_settlement_origins #9eb08f28143c0e7b6470cfad4a16f5cfff5437be",
+        "property_service_settlement_origins_update": "BEFORE UPDATE ON property_service_settlement_origins #9eb08f28143c0e7b6470cfad4a16f5cfff5437be",
+        "property_service_settlement_requests_delete": "BEFORE DELETE ON property_service_settlement_requests #a121b513bf55b3a34f68fa43e36cd82018fa7aa3",
+        "property_service_settlement_requests_update": "BEFORE UPDATE ON property_service_settlement_requests #a121b513bf55b3a34f68fa43e36cd82018fa7aa3",
+        "property_service_settlements_delete": "BEFORE DELETE ON property_service_settlements #9eb08f28143c0e7b6470cfad4a16f5cfff5437be",
+        "property_service_settlements_update": "BEFORE UPDATE ON property_service_settlements #9eb08f28143c0e7b6470cfad4a16f5cfff5437be",
         "trg_bank_transaction_payroll_evidence_update": "BEFORE UPDATE ON bank_transactions #da55400d2c698d29640eddb4279b09463e94ed3e",
         "trg_cars_driver_tenant_insert": "BEFORE INSERT ON cars #6b50ae5916fea8bf1699ddcfd33d174e98fd57bf",
         "trg_cars_driver_tenant_update": "BEFORE UPDATE ON cars #769d98e4af1086fa290b8efb0ae2c3768b203c87",

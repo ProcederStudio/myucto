@@ -40,7 +40,9 @@ final class NonprofitTaxAssessmentTest extends TestCase
     protected function setUp(): void
     {
         $container = Bootstrap::buildContainer();
-        $this->db = $container->get(Connection::class);
+        $this->db = $this->name() === 'testHistoricalExportDoesNotHideUnexpectedDatabaseError'
+            ? Connection::withoutSharedTestConnection(static fn () => $container->get(Connection::class))
+            : $container->get(Connection::class);
         $this->pdo = $this->db->pdo();
         self::assertStringEndsWith('_test', (string) $this->pdo->query('SELECT DATABASE()')->fetchColumn());
         $this->pdo->beginTransaction();

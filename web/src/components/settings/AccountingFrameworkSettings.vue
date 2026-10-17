@@ -60,12 +60,19 @@ async function save() {
     <h2 class="text-sm font-semibold uppercase tracking-wide text-neutral-500 mb-4">{{ t('settings.accounting_framework.title') }}</h2>
     <p class="text-sm mb-2">{{ t('settings.accounting_framework.current') }}: {{ t(`settings.accounting_framework.${supplier.accounting_framework ?? 'cz_500'}`) }}</p>
     <p class="text-xs text-neutral-500 mb-4">{{ t('settings.accounting_framework.hint') }}</p>
+    <div v-if="framework === 'cz_504' || supplier.accounting_framework === 'cz_504'" class="mb-4 flex items-start gap-3 rounded-lg border-2 border-warning-500 bg-warning-50 p-4 text-warning-800" role="note" data-test="framework-testing-warning">
+      <svg class="h-6 w-6 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M5.07 19h13.86c1.54 0 2.5-1.67 1.73-3L13.73 4a2 2 0 0 0-3.46 0L3.34 16c-.77 1.33.19 3 1.73 3z" /></svg>
+      <div>
+        <p class="font-semibold">{{ t('settings.accounting_framework.testing_warning_title') }}</p>
+        <p class="mt-1 text-sm">{{ t('settings.accounting_framework.testing_warning') }}</p>
+      </div>
+    </div>
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-xl">
       <label class="block min-w-0 text-xs font-medium text-neutral-700">
         {{ t('settings.accounting_framework.title') }}
         <select v-model="framework" :disabled="saving || !canChange" class="mt-1 w-full h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 disabled:opacity-60">
           <option value="cz_500">{{ t('settings.accounting_framework.cz_500') }}</option>
-          <option value="cz_504" disabled>{{ t('settings.accounting_framework.cz_504_unavailable') }}</option>
+          <option value="cz_504">{{ t('settings.accounting_framework.cz_504') }}</option>
         </select>
       </label>
       <label class="block min-w-0 text-xs font-medium text-neutral-700">

@@ -65,7 +65,10 @@ final class CorrectionHistory
             }elseif($snapshot['relief_cents']!=='0')PaymentException::reject('history_corrupt');
         }
         (new IssuanceJournalProof($this->db))->assertEntries($supplier,$proofs);
-        return ['reductions'=>$reductions,'reliefs'=>$reliefs];
+        $services=(new \MyInvoice\Service\Property\Services\Settlement\SettlementHistory($this->db))->currentForDebts($supplier,$debtIds);
+        foreach($services['reductions'] as $id=>$amount)$reductions[$id]=bcadd($reductions[$id]??'0',$amount,0);
+        foreach($services['reliefs'] as $id=>$amount)$reliefs[$id]=bcadd($reliefs[$id]??'0',$amount,0);
+        return ['reductions'=>$reductions,'reliefs'=>$reliefs,'opening_reductions'=>$services['opening_reductions']];
     }
     private function rows(string $sql,array $params):array{$q=$this->db->pdo()->prepare($sql);$q->execute($params);return $q->fetchAll(PDO::FETCH_ASSOC);}
 }

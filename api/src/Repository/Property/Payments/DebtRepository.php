@@ -128,7 +128,12 @@ final class DebtRepository
         $opening=$openingRows===[]?[]:(new \MyInvoice\Service\Property\Opening\OpeningOriginProof($this->db))->currentDebts($supplier,$openingRows,$allocations,$receipts);
         foreach($rows as $row){
             $id=(int)$row['id'];
-            if(($row['opening_item_id']??null)!==null){$out[]=$opening[$id];continue;}
+            if(($row['settlement_effect_id']??null)!==null){$out[]=(new \MyInvoice\Service\Property\Services\Settlement\SettlementHistory($this->db))->currentDebt($supplier,$row,$allocations[$id]??[],$receipts[$id]??[]);continue;}
+            if(($row['opening_item_id']??null)!==null){
+                $openingDebt=$opening[$id];
+                foreach($allocations[$id]??[] as $a){$relief=$history['reliefs'][(int)$a['id']]??'0';if(bccomp($relief,$a['amount_cents'],0)>0)PaymentException::reject('history_corrupt');$key=$a['opening_component_id']!==null?'principal:'.$a['opening_component_id']:'accessory:'.$a['accessory_id'];$openingDebt['paid'][$key]=bcsub($openingDebt['paid'][$key],$relief,0);$openingDebt['group_paid'][$a['liability_group']]=bcsub($openingDebt['group_paid'][$a['liability_group']],$relief,0);}
+                $openingDebt['reductions']=$history['opening_reductions'];$out[]=$openingDebt;continue;
+            }
             $id=(int)$row['id'];$snapshot=json_decode($row['snapshot_json'],true,flags:JSON_THROW_ON_ERROR);$request=json_decode($row['request_json'],true,flags:JSON_THROW_ON_ERROR);
             if(!hash_equals($row['snapshot_hash'],PropertyInput::hash($snapshot))||!hash_equals($row['request_hash'],PropertyInput::hash(['request'=>$request,'token'=>$row['idempotency_key'],'actor'=>(int)$row['created_by']])))PaymentException::reject('history_corrupt');
             $charge=$charges[(int)$row['charge_id']];

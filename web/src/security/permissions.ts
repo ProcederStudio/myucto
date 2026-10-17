@@ -34,6 +34,7 @@ export const PERMISSION_KEYS = [
   'property.charges.manage', 'property.charges.confirm',
   'property.charges.issue', 'property.charges.post', 'property.charges.reverse',
   'property.receivables.manage', 'property.receivables.confirm', 'property.receivables.certificates',
+  'property.settlements.manage', 'property.settlements.post', 'property.settlements.reverse',
   'property.opening.manage', 'property.opening.post', 'property.opening.revise',
   'property.payments.manage', 'property.payments.post', 'property.payments.reverse',
   'settings.company', 'settings.company.write', 'settings.domains', 'settings.bank_accounts',

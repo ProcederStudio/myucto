@@ -254,3 +254,21 @@ Následující syntetický příklad zachycuje pohledávku 10 000 Kč a kredit j
   }
 }
 ```
+
+
+## Vyúčtování služeb SVJ
+
+V agendě **Vyúčtování služeb SVJ** připravíte dokument pro jednu jednotku, službu a doložený rozsah. Příprava dokumentu, jeho uložení a účetní aplikace jsou samostatné kroky. Agenda nemění aktivaci účetního rámce firmy.
+
+1. Zvolte jednotku a službu z registru, referenci vyúčtování a období. Vyplňte účetní datum, rozhodný okamžik úhrad, stav znalostí a reference podkladů. Příjemce vyberte z adresáře; nárok se neodvozuje automaticky z vlastnictví.
+2. Vyhledejte doložené zálohy mezi vystavenými předpisy nebo převzatými počátečními stavy. Katalog uvádí popis, datum, období a částku. U vystavených předpisů vyberte také odpovídající náklad 315.2; převzatý službový náklad je součástí příslušného počátečního stavu.
+3. Otevřete náhled dokumentu. Server stanoví **Z** (předepsané zálohy), **P** (úhrady k rozhodnému okamžiku) a **S** (doložené skutečné náklady). Teprve potom dokument uložte. Pozdější platby původní částky dokumentu nemění.
+4. Pro účetní aplikaci načtěte aktuální podklady k účetnímu datu. Přehled odděluje převzaté historické úhrady, současné fyzické platby a neuhrazený původní dluh. Pozdější platby jsou označené samostatně.
+5. Výslovně rozdělte použití záloh. Pokud vzniká kredit, zvolte konkrétní část převzatých úhrad nebo konkrétní fyzickou platbu, která se má uvolnit. Vyplňte příjemce, doložený titul, splatnost a účet z osnovy. Nový nárok vyžaduje dlužníky, právní titul a skupiny odpovědnosti odpovídající příjemcům dokumentu.
+6. Zkontrolujte serverový náhled účetní aplikace. Ukazuje použití záloh, snížení původního dluhu, zrušenou neuhrazenou část, uvolněné platby, kredit, nový nárok a účetní zápis. Zaúčtování vyžaduje samostatné oprávnění.
+
+Aktuální souhrn u dokumentu ukazuje pouze jeho navazující nové nároky a kredity. Jistinu, fyzické úhrady a příslušenství zobrazuje odděleně; u kreditu rozlišuje zůstatek, rezervaci a dostupnou část. Nejde o celkové saldo firmy ani úplný výrok o osobní odpovědnosti. Původní dluhy a celou finanční pozici ověřujte na kartě jednotky.
+
+Účetní storno se vztahuje ke konkrétní aplikaci. Před potvrzením zkontrolujte její dopady, datum a odůvodnění. Server odmítne storno, pokud tomu brání navazující použití. Dokument se nepřepisuje; po stornu připravte novou revizi se stejnou referencí. Historie zachovává původní dokumenty, aplikace a storna.
+
+Při změně podkladů nebo konfliktu verze obnovte data a vytvořte nový náhled. Aplikace zápis neopakuje automaticky s novým ověřením. Čtení, příprava, zaúčtování a storno respektují oddělená oprávnění; veřejné API a MCP poskytují pouze kurátorované čtení bez právních podkladů a zdrojových důkazů.
