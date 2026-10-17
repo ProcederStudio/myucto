@@ -24297,6 +24297,8 @@
     "branding_logo_too_large": "Soubor je příliš velký (max 1 MiB).",
     "branding_logo_show_name": "Zobrazit i název firmy vedle loga (v PDF)",
     "branding_logo_show_name_hint": "Ve výchozím stavu se v PDF faktuře ukáže jen logo. Zapněte, pokud je logo malé nebo neobsahuje název - vedle loga se pak vykreslí i obchodní (nebo firemní) název. Týká se jen PDF; v e-mailu se název vedle loga zobrazuje vždy.",
+    "branding_pdf_monochrome": "Úsporná černobílá faktura (PDF)",
+    "branding_pdf_monochrome_hint": "PDF faktury a výkazu víceprací bez barevných a tmavých ploch: černý text, tenké čáry, zvýraznění jen tučným písmem. Šetří toner a dobře se čte i z černobílé tiskárny. Nahrazuje akcentní barvu, platí i při vypnutém brandingu. Projeví se na konceptech a nově vytvořených PDF, už vygenerovaná PDF vystavených dokladů se nemění.",
     "branding_accent_color": "Akcent barva",
     "branding_accent_color_hint": "Barva loga „M\" (pokud nemáte vlastní logo) a odkazů v e-mailu. Default #3B2D83 (fialová MyÚčto).",
     "branding_accent_reset": "↺ default",

@@ -275,6 +275,7 @@ export interface Supplier {
   email_branding_enabled: boolean
   email_accent_color: string  // #RRGGBB
   pdf_logo_show_name: boolean // vedle loga v PDF zobrazit i název firmy (migrace 0058)
+  invoice_pdf_monochrome?: boolean // úsporná černobílá faktura (migrace 2023)
   branding_profiles_enabled: boolean
   has_email_logo?: boolean    // server flag (existence storage/supplier-logos/sup-{id}.png)
   // Děkovný e-mail za úhradu (issue #57)
@@ -447,6 +448,7 @@ export interface OperationalBrandingSettings {
   email_branding_enabled: boolean
   email_accent_color: string
   pdf_logo_show_name: boolean
+  invoice_pdf_monochrome?: boolean
   branding_profiles_enabled: boolean
   logo_path: string | null
   has_email_logo?: boolean

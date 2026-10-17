@@ -24297,6 +24297,8 @@
     "branding_logo_too_large": "File too large (max 1 MiB).",
     "branding_logo_show_name": "Show company name next to logo (in PDF)",
     "branding_logo_show_name_hint": "By default the invoice PDF shows the logo only. Enable this if the logo is small or has no name — the trade (or company) name will then be rendered next to the logo. Applies to the PDF only; e-mails always show the name next to the logo.",
+    "branding_pdf_monochrome": "Economy black-and-white invoice (PDF)",
+    "branding_pdf_monochrome_hint": "Invoice and work report PDFs without coloured or dark areas: black text, thin lines, emphasis by bold type only. Saves toner and stays legible on a monochrome printer. Replaces the accent colour and applies even with branding turned off. Applies to drafts and newly generated PDFs; PDFs already generated for issued documents stay as they are.",
     "branding_accent_color": "Accent color",
     "branding_accent_color_hint": "Color of the „M\" logo (if you have no custom logo) and of links in the email. Default #3B2D83 (MyÚčto purple).",
     "branding_accent_reset": "↺ default",

@@ -338,6 +338,20 @@ Vygenerované PDF obsahuje:
 > **Zobrazit i název firmy vedle loga**. Sémantické barvy zůstávají vždy stejné
 > (dobropis červená, storno šedá).
 
+**Úsporná černobílá faktura.** Pro tisk na černobílé tiskárně zapněte v `Firma → Branding`
+volbu **Úsporná černobílá faktura (PDF)**. PDF faktury i výkazu víceprací pak nemá žádné
+barevné ani tmavé plochy (hlavička tabulky položek, řádky **Celkem** a **K úhradě**, bloky
+dodavatele a odběratele, platební panel, poznámky, přepočet do CZK ani podbarvené sudé
+řádky). Text je černý, oddělení dělají tenké čáry, odběratele a platební panel ohraničuje
+rámeček a důležité údaje zvýrazňuje tučné písmo a velikost. Dobropis a storno poznáte podle
+názvu dokladu v hlavičce („Opravný daňový doklad“, „Storno (interní)“), ne podle barvy.
+Volba nahrazuje akcentovou barvu brandingu a platí i při vypnutém brandingu. Vlastní logo
+se tiskne tak, jak je nahrané (barevné logo zůstane barevné).
+
+- Ve výchozím stavu je volba vypnutá a PDF vypadá jako dosud.
+- Projeví se na konceptech a na PDF vytvořených po zapnutí. Už vygenerovaná PDF vystavených
+  dokladů (a jejich historie, [§ 16.10.13](#161013-historie-pdf)) se nemění.
+
 ### 16.10.5 Přepočet do CZK (faktury v cizí měně)
 
 Pokud je faktura v jiné měně než CZK a odběratel je z ČR, PDF obsahuje navíc:
