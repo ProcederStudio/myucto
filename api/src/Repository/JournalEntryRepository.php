@@ -6,6 +6,7 @@ namespace MyInvoice\Repository;
 
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Service\Accounting\Dimension\DimensionFilter;
+use MyInvoice\Service\Accounting\JournalLineAmount;
 use MyInvoice\Service\Accounting\PostingException;
 use MyInvoice\Service\ActivityLogger;
 use PDO;
@@ -417,11 +418,11 @@ final class JournalEntryRepository
                 $supplierId,
                 $line['account_id'],
                 $line['side'],
-                $line['amount'],
+                JournalLineAmount::decimal($line['amount']),
                 !empty($line['is_red_storno']) ? 1 : 0,
                 $line['currency_code'] ?? null,
                 $line['fx_rate'] ?? null,
-                $line['amount_foreign'] ?? null,
+                isset($line['amount_foreign']) ? JournalLineAmount::decimal($line['amount_foreign']) : null,
                 $line['cost_center'] ?? null,
                 isset($line['project_id']) && (int) $line['project_id'] > 0 ? (int) $line['project_id'] : null,
                 $line['line_no'] ?? $n,

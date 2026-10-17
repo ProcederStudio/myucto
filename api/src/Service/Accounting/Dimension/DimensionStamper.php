@@ -7,6 +7,7 @@ namespace MyInvoice\Service\Accounting\Dimension;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\DimensionAssignmentRepository;
 use MyInvoice\Repository\DimensionRepository;
+use MyInvoice\Service\Accounting\JournalLineAmount;
 use MyInvoice\Service\Accounting\Product\IssuedDiscountAllocation;
 use PDO;
 
@@ -469,7 +470,7 @@ final class DimensionStamper
                 $out[] = self::withDims($line, self::merge($header, $explicit));
                 continue;
             }
-            $cents = self::distributeCents((int) round(((float) $line['amount']) * 100), $weights);
+            $cents = self::distributeCents(JournalLineAmount::cents($line['amount']), $weights);
             foreach (array_values($combos) as $i => $combo) {
                 if ($cents[$i] === 0) {
                     continue;

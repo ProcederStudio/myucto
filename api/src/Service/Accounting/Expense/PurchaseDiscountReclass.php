@@ -10,6 +10,7 @@ use MyInvoice\Service\Accounting\Dimension\DimensionException;
 use MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard;
 use MyInvoice\Service\Accounting\PostingException;
 use MyInvoice\Service\Accounting\PostingService;
+use MyInvoice\Service\Accounting\JournalLineAmount;
 use MyInvoice\Service\Accounting\SmallAsset\SmallAssetService;
 use MyInvoice\Service\Accounting\TakenOverRecord;
 use PDO;
@@ -263,7 +264,7 @@ final class PurchaseDiscountReclass
                 if (($b['currency_code'] ?? null) === null
                     || $this->posting->redirectedAccountCode($supplierId, (string) $b['account_code']) !== $line['account_code']
                     || (string) $b['side'] !== (string) $line['side']
-                    || (int) round((float) $b['amount'] * 100) !== (int) round((float) $line['amount'] * 100)
+                    || JournalLineAmount::cents($b['amount']) !== JournalLineAmount::cents($line['amount'])
                 ) {
                     continue;
                 }
@@ -276,7 +277,9 @@ final class PurchaseDiscountReclass
                     } catch (DimensionException $e) {
                         throw new PostingException($e->errorCode, 'Uzavřené účetní knihy nelze měnit. Nejprve je znovu otevřete.', $e->httpStatus);
                     }
-                    $update->execute([$b['currency_code'], $b['fx_rate'] ?? null, $b['amount_foreign'] ?? null, (int) $line['id'], $supplierId]);
+                    $update->execute([$b['currency_code'], $b['fx_rate'] ?? null,
+                        isset($b['amount_foreign']) ? JournalLineAmount::decimal($b['amount_foreign']) : null,
+                        (int) $line['id'], $supplierId]);
                 }
                 $fixed++;
                 break;
