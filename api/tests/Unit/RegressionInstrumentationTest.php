@@ -46,6 +46,37 @@ final class RegressionInstrumentationTest extends TestCase
         self::assertSame(array_fill(0, 12, true), self::probe('union-syntax')['rejected']);
     }
 
+    public function testApprovedOldDatabaseSourcesRemainEquivalentUnderCurrentInstrumentation(): void
+    {
+        $original = self::approvedProbe('original');
+        $guarded = self::approvedProbe('guarded');
+        self::assertSame($original, $guarded);
+        self::assertSame(self::probe('sqlite-original')['rows'], $guarded['rows']);
+        self::assertSame(['driver'=>'sqlite','error_mode'=>\PDO::ERRMODE_EXCEPTION,'fetch_mode'=>\PDO::FETCH_ASSOC,'foreign_keys'=>0,'transaction'=>true], $guarded['session']);
+        self::assertFalse($guarded['transaction']);
+    }
+
+    public function testMutatedApprovedLoggingSourceIsStillRejected(): void
+    {
+        self::assertTrue(self::approvedProbe('mutated')['rejected']);
+    }
+
+    private static function approvedProbe(string $mode): array
+    {
+        $command = [PHP_BINARY, '-d', 'display_errors=0', '-d', 'disable_functions=' . implode(',', Network::FUNCTIONS), dirname(__DIR__) . '/Fixtures/regression-approved-database-probe.php', $mode];
+        $process = proc_open($command, [['pipe','r'],['pipe','w'],['pipe','w']], $pipes);
+        self::assertIsResource($process);
+        fclose($pipes[0]);
+        $stdout = stream_get_contents($pipes[1]);
+        $stderr = stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        $exit = proc_close($process);
+        self::assertSame('', $stderr);
+        self::assertSame(0, $exit, 'Approved-source probe failed: ' . $stdout);
+        return json_decode($stdout, true, 512, JSON_THROW_ON_ERROR);
+    }
+
     public static function probe(string $mode, string $database = ''): array
     {
         $command = [PHP_BINARY, '-d', 'display_errors=0', '-d', 'disable_functions=' . implode(',', Network::FUNCTIONS), dirname(__DIR__) . '/Fixtures/regression-probe.php', $mode, $database];

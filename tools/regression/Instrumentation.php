@@ -8,8 +8,8 @@ final class Instrumentation
 {
     private const SOURCES = [
         'Connection' => 'b7d1044875fad222611fc313bde683c8aeb7a4fddb5e15e46022de64a17750fb',
-        'LoggingPdo' => 'd10edbbbab05bdf41e29675ed131e9a64c5d61258bf16990472f69f06ea5cd81',
-        'LoggingPdoStatement' => '73585baf5a9f597f445e93ee9a0ffc1796e0cfc128722549318c6b3f674b904e',
+        'LoggingPdo' => ['d10edbbbab05bdf41e29675ed131e9a64c5d61258bf16990472f69f06ea5cd81', '2cfa564ed60e90271b63c9d694a7c4c9b7934abea77913d8b97ada3d4bab7903'],
+        'LoggingPdoStatement' => ['73585baf5a9f597f445e93ee9a0ffc1796e0cfc128722549318c6b3f674b904e', '8fb76dcc1168b0356412c72fe1ed5db2b870baf2fac1071ef4baebe85523d042'],
     ];
 
     public static function register(string $codeRoot, bool $preserveConfig = false): void
@@ -21,7 +21,7 @@ final class Instrumentation
                 throw new \RuntimeException('instrumentation_loaded_too_late');
             }
             $source = str_replace("\r\n", "\n", (string) file_get_contents($codeRoot . '/api/src/Infrastructure/Database/' . $name . '.php'));
-            if (!hash_equals($hash, hash('sha256', $source))) {
+            if (!in_array(hash('sha256', $source), (array) $hash, true)) {
                 throw new \RuntimeException('unsupported_database_source_signature');
             }
             $sources[$class] = self::transform($name, $source);
