@@ -73,6 +73,7 @@
     "expense_categories",
     "export",
     "foreign_income",
+    "fx504",
     "gopay",
     "group_stats",
     "imports",
@@ -707,6 +708,8 @@
     ],
     "accounting-period-closing": [
       "checks",
+      "dimensions",
+      "fx504",
       "nonprofitTax"
     ],
     "accounting-closing-package": [

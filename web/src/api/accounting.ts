@@ -1353,6 +1353,16 @@ export interface StatementRow {
   accounts: StatementRowAccount[]
 }
 
+export interface Statement504Component {
+  key: string
+  label: string
+  start?: number | null
+  end?: number | null
+  main?: number
+  economic?: number
+  total?: number
+}
+
 export interface Statement504Row {
   row_code: string
   display_code: string
@@ -1364,6 +1374,7 @@ export interface Statement504Row {
   main?: number
   economic?: number
   total?: number
+  components?: Statement504Component[]
 }
 
 export interface Statement504Report {
@@ -1376,6 +1387,7 @@ export interface Statement504Report {
   period: ReportPeriod
   dimension?: ReportDimensionFilter | null
   view_kind?: 'management'
+  deferred_tax_method?: { enabled: true; version: '504-deferred-own-v1'; reference: string; disclosure: string; faithful_image_reason: string; standard_departure_reason: string; presentation_reason: string; first_adoption: boolean; first_adoption_reason?: string }
   assets?: Statement504Row[]
   liabilities?: Statement504Row[]
   rows?: Statement504Row[]

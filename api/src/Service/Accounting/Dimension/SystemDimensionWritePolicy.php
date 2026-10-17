@@ -49,9 +49,30 @@ final class SystemDimensionWritePolicy
         $this->assertJournalCore($proof->header, $proof->lines, [], null, $proof);
     }
 
-    private function assertJournalCore(array $header, array $lines, array $previousLines, ?\MyInvoice\Service\Property\Payments\PaymentHistoricalCarrierProof $proof = null, ?\MyInvoice\Service\Accounting\Closing\ClosingCarryJournalProof $closingCarry = null): void
+    public function assertLegalClosing(\MyInvoice\Service\Accounting\Closing\ClosingLegal504Proof $proof): void
     {
-        $carried = $closingCarry?->indices($this->db, $header, $lines) ?? $proof?->indices($this->db, $header, $lines) ?? [];
+        $this->assertJournalCore($proof->header, $proof->lines, [], null, null, $proof);
+    }
+
+    public function assertAssetReserveCorrection(\MyInvoice\Service\Accounting\Closing\AssetReserveCorrection504Proof $proof): void
+    {
+        $this->assertJournalCore($proof->header, $proof->lines, [], null, null, $proof);
+    }
+
+    public function assertDeferredTax504(\MyInvoice\Service\Accounting\Closing\DeferredTax504Proof $proof): void
+    {
+        $this->assertJournalCore($proof->header, $proof->lines, [], null, null, $proof);
+    }
+
+    public function assertFx504(\MyInvoice\Service\Accounting\Closing\Fx504JournalProof $proof): void
+    {
+        $this->assertJournalCore($proof->header, $proof->lines, [], null, null, null, $proof);
+    }
+
+    private function assertJournalCore(array $header, array $lines, array $previousLines, ?\MyInvoice\Service\Property\Payments\PaymentHistoricalCarrierProof $proof = null, ?\MyInvoice\Service\Accounting\Closing\ClosingCarryJournalProof $closingCarry = null, \MyInvoice\Service\Accounting\Closing\ClosingLegal504Proof|\MyInvoice\Service\Accounting\Closing\AssetReserveCorrection504Proof|\MyInvoice\Service\Accounting\Closing\DeferredTax504Proof|null $assetCarry = null, ?\MyInvoice\Service\Accounting\Closing\Fx504JournalProof $fx = null): void
+    {
+        $carried = $assetCarry?->indices($this->db, $header, $lines) ?? $closingCarry?->indices($this->db, $header, $lines) ?? $proof?->indices($this->db, $header, $lines) ?? [];
+        $fxRetained = $fx?->assignments($this->db, $header, $lines) ?? [];
         $supplierId = (int) $header['supplier_id'];
         $this->lockJournalPeriod($header);
         foreach ($lines as $line) {
@@ -61,7 +82,19 @@ final class SystemDimensionWritePolicy
                 break;
             }
         }
-        if ($closingCarry !== null) {
+        if ($fx !== null) {
+            try { (new \MyInvoice\Service\Property\PropertyDimensionPolicy($this->db))->assertFx504Journal($header, $lines, $fx); }
+            catch (\MyInvoice\Service\Property\PropertyException $e) { throw new PostingException($e->errorCode, $e->getMessage(), $e->httpStatus, $e->details); }
+        } elseif ($assetCarry !== null) {
+            try {
+                $policy = new \MyInvoice\Service\Property\PropertyDimensionPolicy($this->db);
+                $assetCarry instanceof \MyInvoice\Service\Accounting\Closing\ClosingLegal504Proof
+                    ? $policy->assertLegalClosingJournal($header, $lines, $assetCarry)
+                    : ($assetCarry instanceof \MyInvoice\Service\Accounting\Closing\DeferredTax504Proof
+                        ? $policy->assertDeferredTax504Journal($header, $lines, $assetCarry)
+                        : $policy->assertAssetReserveCorrectionJournal($header, $lines, $assetCarry));
+            } catch (\MyInvoice\Service\Property\PropertyException $e) { throw new PostingException($e->errorCode, $e->getMessage(), $e->httpStatus, $e->details); }
+        } elseif ($closingCarry !== null) {
             try { (new \MyInvoice\Service\Property\PropertyDimensionPolicy($this->db))->assertClosingCarryJournal($header, $lines, $closingCarry); }
             catch (\MyInvoice\Service\Property\PropertyException $e) { throw new PostingException($e->errorCode, $e->getMessage(), $e->httpStatus, $e->details); }
         } elseif ($proof === null) {
@@ -74,7 +107,7 @@ final class SystemDimensionWritePolicy
         if ($types === [] || !$this->is504($supplierId, (string) $header['entry_date'])) {
             return;
         }
-        $this->assignments($supplierId, $lines, $types, $previousLines, $carried);
+        $this->assignments($supplierId, $lines, $types, $previousLines, $carried, $fxRetained);
         $stmt = $this->db->pdo()->prepare("SELECT r.id, r.dimension_type_id, r.account_mask, r.enforcement, r.valid_from, r.valid_to
             FROM dimension_account_rules r JOIN dimension_types t ON t.id = r.dimension_type_id
             WHERE r.supplier_id = ? AND r.is_active = 1 AND t.system_key IS NOT NULL ORDER BY r.id FOR UPDATE");
@@ -179,9 +212,9 @@ final class SystemDimensionWritePolicy
         return (new AccountingFrameworkService($this->db, new AccountingFrameworkRepository($this->db)))->forDateForUpdate($supplierId, $date) === AccountingFrameworkService::CZ_504;
     }
 
-    private function assignments(int $supplierId, array $lines, array $types, array $previousLines, array $carried = []): void
+    private function assignments(int $supplierId, array $lines, array $types, array $previousLines, array $carried = [], array $fxRetained = []): void
     {
-        $retained = self::retainedAssignments($lines, $previousLines);
+        $retained = $fxRetained + self::retainedAssignments($lines, $previousLines);
         $requested = [];
         foreach ($lines as $index => $line) {
             $fractional = 0;

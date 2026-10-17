@@ -45,6 +45,42 @@ final class PropertyDimensionPolicy
         $this->assertWindow((int) $header['supplier_id'], $start->format('Y-m-d\TH:i:sP'), $start->modify('+1 day')->format('Y-m-d\TH:i:sP'), $lines, [], $carried);
     }
 
+    public function assertDeferredTax504Journal(array $header, array $lines, \MyInvoice\Service\Accounting\Closing\DeferredTax504Proof $proof): void
+    {
+        $carried = $proof->indices($this->db, $header, $lines);
+        $date = (string) $header['entry_date'];
+        $start = \DateTimeImmutable::createFromFormat('!Y-m-d', $date, new \DateTimeZone('Europe/Prague'));
+        if ($start === false || $start->format('Y-m-d') !== $date) PropertyInput::invalid('entry_date');
+        $this->assertWindow((int) $header['supplier_id'], $start->format('Y-m-d\TH:i:sP'), $start->modify('+1 day')->format('Y-m-d\TH:i:sP'), $lines, [], $carried);
+    }
+
+    public function assertFx504Journal(array $header, array $lines, \MyInvoice\Service\Accounting\Closing\Fx504JournalProof $proof): void
+    {
+        $retained = $proof->assignments($this->db, $header, $lines);
+        $date = (string) $header['entry_date'];
+        $start = \DateTimeImmutable::createFromFormat('!Y-m-d', $date, new \DateTimeZone('Europe/Prague'));
+        if ($start === false || $start->format('Y-m-d') !== $date) PropertyInput::invalid('entry_date');
+        $this->assertWindow((int) $header['supplier_id'], $start->format('Y-m-d\TH:i:sP'), $start->modify('+1 day')->format('Y-m-d\TH:i:sP'), $lines, [], [], $retained);
+    }
+
+    public function assertLegalClosingJournal(array $header, array $lines, \MyInvoice\Service\Accounting\Closing\ClosingLegal504Proof $proof): void
+    {
+        $carried = $proof->indices($this->db, $header, $lines);
+        $date = (string) $header['entry_date'];
+        $start = \DateTimeImmutable::createFromFormat('!Y-m-d', $date, new \DateTimeZone('Europe/Prague'));
+        if ($start === false || $start->format('Y-m-d') !== $date) PropertyInput::invalid('entry_date');
+        $this->assertWindow((int) $header['supplier_id'], $start->format('Y-m-d\TH:i:sP'), $start->modify('+1 day')->format('Y-m-d\TH:i:sP'), $lines, [], $carried);
+    }
+
+    public function assertAssetReserveCorrectionJournal(array $header, array $lines, \MyInvoice\Service\Accounting\Closing\AssetReserveCorrection504Proof $proof): void
+    {
+        $carried = $proof->indices($this->db, $header, $lines);
+        $date = (string) $header['entry_date'];
+        $start = \DateTimeImmutable::createFromFormat('!Y-m-d', $date, new \DateTimeZone('Europe/Prague'));
+        if ($start === false || $start->format('Y-m-d') !== $date) PropertyInput::invalid('entry_date');
+        $this->assertWindow((int) $header['supplier_id'], $start->format('Y-m-d\TH:i:sP'), $start->modify('+1 day')->format('Y-m-d\TH:i:sP'), $lines, [], $carried);
+    }
+
     public function assertAt(int $supplierId, string $at, array $lines): void
     {
         $this->assertWindow($supplierId, $at, null, $lines);
@@ -56,7 +92,7 @@ final class PropertyDimensionPolicy
     }
 
     /** Owner locks periods before catalog/journal rows; this check must precede the first mutation. */
-    private function assertWindow(int $supplierId, ?string $from, ?string $to, array $lines, array $previousLines = [], array $carried = []): void
+    private function assertWindow(int $supplierId, ?string $from, ?string $to, array $lines, array $previousLines = [], array $carried = [], array $fxRetained = []): void
     {
         if (!$this->db->pdo()->inTransaction()) throw new \LogicException('Property dimensions require period-first transaction locks.');
         $from = $from === null ? null : PropertyInstant::normalize($from);
@@ -84,10 +120,10 @@ final class PropertyDimensionPolicy
             foreach ($line['dimension_splits'] ?? [] as $typeId => $shares) {
                 if (!isset($types[$typeId])) continue;
                 if (count($shares) > 1) ++$fractional;
-                foreach ($shares as $valueId => $share) { $key = $typeId . ':' . $valueId; $requested[$key] = [(int) $typeId, (int) $valueId, isset($retained[$index]) && ($requested[$key][2] ?? true)]; }
+                foreach ($shares as $valueId => $share) { $key = $typeId . ':' . $valueId; $requested[$key] = [(int) $typeId, (int) $valueId, (isset($retained[$index]) || isset($fxRetained[$index]['dimension_splits'][$typeId][$valueId])) && ($requested[$key][2] ?? true)]; }
             }
             if ($fractional > 1) throw new PropertyException('property_joint_required', 'Rozdělení jednotek i služeb vyžaduje výslovné společné řádky.', details: ['system_keys' => ['unit', 'service']]);
-            foreach ($line['dimensions'] ?? [] as $typeId => $valueId) if (isset($types[$typeId])) { $key = $typeId . ':' . $valueId; $requested[$key] = [(int) $typeId, (int) $valueId, isset($retained[$index]) && ($requested[$key][2] ?? true)]; }
+            foreach ($line['dimensions'] ?? [] as $typeId => $valueId) if (isset($types[$typeId])) { $key = $typeId . ':' . $valueId; $requested[$key] = [(int) $typeId, (int) $valueId, (isset($retained[$index]) || ($fxRetained[$index]['dimensions'][$typeId] ?? null) === (int) $valueId) && ($requested[$key][2] ?? true)]; }
         }
         if ($requested === []) return;
         $valueIds = array_values(array_unique(array_column($requested, 1)));

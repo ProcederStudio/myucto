@@ -2916,11 +2916,18 @@ final class Routes
             $g->post  ('/periods/{id:[0-9]+}/closing/start',                    [ClosingAction::class, 'start']);
             $g->post  ('/periods/{id:[0-9]+}/closing/abort',                    [ClosingAction::class, 'abort']);
             $g->get   ('/periods/{id:[0-9]+}/closing/fx-preview',               [ClosingAction::class, 'fxPreview']);
+            $g->post  ('/periods/{id:[0-9]+}/closing/fx-preview',               [ClosingAction::class, 'fxCasePreview']);
             $g->get   ('/periods/{id:[0-9]+}/closing/provisions-preview',       [ClosingAction::class, 'provisionsPreview']);
+            $g->get('/periods/{id:[0-9]+}/closing/asset-reserve/workspace', [ClosingAction::class, 'assetReserveWorkspace']);
+            $g->get('/periods/{id:[0-9]+}/closing/legal-provisions/workspace', [ClosingAction::class, 'legalProvisionsWorkspace']);
+            $g->post('/periods/{id:[0-9]+}/closing/asset-reserve/preview', [ClosingAction::class, 'assetReservePreview']);
+            $g->post('/periods/{id:[0-9]+}/closing/asset-reserve/correction-preview', [ClosingAction::class, 'assetReserveCorrectionPreview']);
+            $g->post('/periods/{id:[0-9]+}/closing/asset-reserve/correct', [ClosingAction::class, 'assetReserveCorrect']);
             $g->get   ('/periods/{id:[0-9]+}/closing/estimates-suggest',        [ClosingAction::class, 'estimatesSuggest']);
             $g->get   ('/periods/{id:[0-9]+}/closing/income-tax-preview',       [ClosingAction::class, 'incomeTaxPreview']);
             // ČÚS 003 — odložená daň (přechodné rozdíly, 592/481).
             $g->get   ('/periods/{id:[0-9]+}/closing/deferred-tax-preview',     [ClosingAction::class, 'deferredTaxPreview']);
+            $g->post  ('/periods/{id:[0-9]+}/closing/deferred-tax-504-preview', [ClosingAction::class, 'deferredTax504Preview']);
             $g->get   ('/periods/{id:[0-9]+}/closing/small-asset-accrual-preview', [ClosingAction::class, 'smallAssetAccrualPreview']);
             $g->get   ('/periods/{id:[0-9]+}/closing/prepaid-expense-accrual-preview', [ClosingAction::class, 'prepaidExpenseAccrualPreview']);
             $g->get   ('/periods/{id:[0-9]+}/closing/deferred-revenue-accrual-preview', [ClosingAction::class, 'deferredRevenueAccrualPreview']);

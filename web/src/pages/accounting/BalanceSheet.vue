@@ -312,8 +312,8 @@ onMounted(async () => {
 
     <EmptyState v-else-if="!hasData" boxed accent="neutral" icon="doc" :title="t('accounting.balance_sheet.empty')" />
 
-    <Statement504Table v-else-if="view === 'accounts' && accounts504" :report="accounts504" :format="fm" part="balance" />
-    <Statement504Table v-else-if="view === 'statement' && report504" :report="report504" :format="fm" />
+    <Statement504Table v-else-if="view === 'accounts' && accounts504" :report="accounts504" :format="fm" :unit="unit" part="balance" />
+    <Statement504Table v-else-if="view === 'statement' && report504" :report="report504" :format="fm" :unit="unit" />
     <template v-else-if="view === 'accounts' && accountsReport">
       <div class="text-xs text-neutral-500 mb-3">
         {{ accountsReport.entity.name }}<template v-if="accountsReport.entity.ico"> · IČO {{ accountsReport.entity.ico }}</template>

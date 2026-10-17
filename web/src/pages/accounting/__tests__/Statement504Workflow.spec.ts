@@ -64,3 +64,20 @@ it.each([BalanceSheet, IncomeStatement])('rounds a negative 504 half-thousand co
   const row = w.get('[data-test="statement-504"]').findAll('tr').find(row => row.text().includes('Synthetic loss'))!
   expect(row.findAll('td').at(-1)!.text()).toBe('-3')
 })
+
+it('shows separate current and deferred components and reconciles rounded amounts', async () => {
+  m.income.mockResolvedValue({ ...base, statement_type: 'income_statement',
+    deferred_tax_method: { enabled: true, first_adoption: false, version: '504-deferred-own-v1', reference: 'SYN-METHOD', disclosure: 'Synthetic own method', faithful_image_reason: 'Synthetic reason', standard_departure_reason: 'Synthetic own recognition', presentation_reason: 'Synthetic separate amounts' },
+    rows: [{ row_code: 'UT.38', display_code: 'A.VIII.29', label: 'Synthetic tax total', main: 0, economic: 1000.02, total: 1000.02,
+      components: [{ key: 'current_tax', label: 'Synthetic current tax', main: 0, economic: 500.01, total: 500.01 },
+        { key: 'deferred_tax', label: 'Synthetic deferred tax', main: 0, economic: 500.01, total: 500.01 }] }], checks: {} })
+  const w = mount(IncomeStatement, { global: { stubs } })
+  await flushPromises()
+  const table = w.get('[data-test="statement-504"]')
+  expect(table.text()).toContain('Synthetic current tax')
+  expect(table.text()).toContain('Synthetic deferred tax')
+  expect(table.text()).toContain('SYN-METHOD')
+  await w.findAll('button').find(button => button.text() === 'reports.unit_thousands')!.trigger('click')
+  const values = table.findAll('tbody tr').map(row => Number(row.findAll('td').at(-1)!.text()))
+  expect(values).toEqual([1, 0, 1])
+})

@@ -52,3 +52,12 @@ describe('CheckFindings FX', () => {
     expect(wrapper.text()).toContain('EUR')
   })
 })
+
+it.each([
+  [{ applicable: false, complete: false }, 'not_applicable'],
+  [{ applicable: true, complete: false }, 'pending'],
+  [{ applicable: true, complete: true }, 'completed'],
+])('shows deferred tax assessment state %j', (value, key) => {
+  const wrapper = mount(CheckFindings, { props: { checkKey: 'deferred_tax_assessment', label: 'Deferred tax', value } })
+  expect(wrapper.text()).toContain(`checks.value.${key}`)
+})

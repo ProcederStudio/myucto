@@ -320,6 +320,8 @@ final class AnonymizationService
                 'password' => $this->passwordHash,
                 'blob_pdf' => $old === '' ? $old : PlaceholderFiles::pdf(),
                 'blob_text' => $old === '' ? $old : PlaceholderFiles::content('txt'),
+                'json' => $old === '' ? $old : ($table === 'accounting_closing_steps' && $column === 'payload'
+                    ? AssetReserveSourceCloneScrubber::payload(Fx504CloneScrubber::payload($old), $scrubber) : $this->cached($scrubber, $strategy, $table === 'activity_log' && $column === 'payload' ? Fx504CloneScrubber::payload($old) : $old)),
                 default => $old === '' ? $old : $this->cached($scrubber, $strategy, $old),
             };
             if ($new !== null) {

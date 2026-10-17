@@ -1,6 +1,90 @@
 import { api } from './client'
 import type { AccountingPeriod, ReportingSettings } from './accounting'
 
+export interface DeferredTax504Method {
+  enabled: true
+  version: '504-deferred-own-v1'
+  first_adoption: boolean
+  reference: string
+  faithful_image_reason: string
+  standard_departure_reason: string
+  presentation_reason: string
+  first_adoption_reason?: string
+}
+export interface DeferredTax504Title {
+  reference: string
+  evidence: string
+  kind: 'taxable' | 'deductible'
+  difference: string | number
+  rate_percent: string | number
+  rate_basis: string
+  temporary_confirmed: boolean
+  recognized_difference?: string | number
+  recoverability_evidence?: string
+  dimensions: Record<number, number>
+  cost_center?: string | null
+  project_id?: number | null
+}
+export interface DeferredTax504Decision {
+  method: DeferredTax504Method
+  titles: DeferredTax504Title[]
+  opening_titles?: DeferredTax504Title[]
+  prepare_accounts?: boolean
+}
+export interface DeferredTax504ReviewedDecision extends DeferredTax504Decision {
+  source_hash: string
+}
+export interface DeferredTax504Cell {
+  dimensions: Record<number, number>
+  cost_center: string | null
+  project_id: number | null
+}
+export interface DeferredTax504Balance extends DeferredTax504Cell {
+  kind: 'asset' | 'liability'
+  balance_cents: number
+}
+export interface DeferredTax504AssessedTitle extends DeferredTax504Cell {
+  reference: string
+  evidence: string
+  kind: 'taxable' | 'deductible'
+  temporary_confirmed: true
+  difference_cents: number
+  recognized_difference_cents: number
+  rate_basis_points: number
+  rate_basis: string
+  recognized_tax_cents: number
+  unrecognized_tax_cents: number
+  recoverability_evidence: string | null
+}
+export interface DeferredTax504Phase {
+  titles: DeferredTax504AssessedTitle[]
+  cells: Record<string, DeferredTax504Balance> | []
+  liability_cents: number
+  asset_cents: number
+  unrecognized_asset_cents: number
+}
+export interface DeferredTax504Preview {
+  source_hash: string
+  accounting_framework: 'cz_504'
+  as_of: string
+  row_version: number
+  enabled: boolean
+  decision: DeferredTax504Decision | null
+  method: DeferredTax504Method | null
+  balances: DeferredTax504Balance[]
+  assessment_current: boolean
+  assessment: { enabled: false; method: null } | { enabled: true; method: DeferredTax504Method; opening: DeferredTax504Phase; closing: DeferredTax504Phase }
+  movements: { opening: DeferredTax504Movement[]; closing: DeferredTax504Movement[] }
+}
+export interface DeferredTax504Movement extends DeferredTax504Cell {
+  account_code: string
+  side: 'debit' | 'credit'
+  amount: number
+  dimensions: Record<number, number>
+}
+
+
+
 /**
  * Uzávěrka období, archiv, číselné řady a převody přes 261 (Epic F4) —
  * typovaný klient pro /api/accounting. Tenant-scoped přes X-Supplier-Id
@@ -43,6 +127,7 @@ export type ClosingStepKey =
   | 'deferrals'
   | 'provisions'
   | 'income_tax'
+  | 'deferred_tax'
   | 'stock'
   | 'close_books'
   | 'open_next'
@@ -770,6 +855,11 @@ export const closingApi = {
     return api.get<FxPreview>(`/accounting/periods/${periodId}/closing/fx-preview`, { params }).then(r => r.data)
   },
   // D9 — náhled OP k pohledávkám (aging 311 + návrh §8a/§8c).
+  deferredTax504Preview: (periodId: number, decision?: DeferredTax504Decision) =>
+    (decision ? api.post<DeferredTax504Preview>(`/accounting/periods/${periodId}/closing/deferred-tax-504-preview`, decision)
+      : api.get<DeferredTax504Preview>(`/accounting/periods/${periodId}/closing/deferred-tax-preview`)).then(r => r.data),
+  deferredTax504Run: (periodId: number, rowVersion: number, decision: DeferredTax504ReviewedDecision) =>
+    api.post(`/accounting/periods/${periodId}/closing/steps/deferred_tax/run`, { row_version: rowVersion, decision_504: decision }).then(r => r.data),
   provisionsPreview: (periodId: number, page = 1) =>
     api.get<ProvisionsPreview>(`/accounting/periods/${periodId}/closing/provisions-preview`, { params: { page } }).then(r => r.data),
   // K10 — návrh dohadných položek pasivních (opakující se náklad bez faktury k rozvahovému dni).
@@ -861,6 +951,7 @@ export const closingApi = {
 
 // ── Příloha k účetní závěrce (§ 18/1/c) ─────────────────────────────────────
 export interface StatementNotesSection {
+  readonly?: boolean
   key: string
   label: string
   legal: string

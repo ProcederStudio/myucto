@@ -20,6 +20,10 @@ final class FrameworkOperationPolicy
             }
             return true;
         }
+        if ($operation === 'deferred_tax') {
+            try { return \MyInvoice\Service\Accounting\Closing\DeferredTax504Builder::assessment($context)['enabled']; }
+            catch (\MyInvoice\Service\Accounting\Closing\ClosingException) { return false; }
+        }
         return in_array($operation, ['reserve.legal', 'provision.legal'], true)
             && ($context['taxable_activity'] ?? null) === true
             && is_string($context['legal_basis'] ?? null)

@@ -55,7 +55,12 @@ final class ClosingCarryPropertyIntegrationTest extends TestCase
         $this->closing->saveInventory($supplier,$period,$this->rv($period),['complete'=>true],$items,$meta);
         $this->closing->runPrecheck($supplier,$period,$this->rv($period),$meta);
         $this->closing->confirmStep($supplier,$period,'depreciation','skipped',null,$this->rv($period),$meta);
-        $this->closing->runFxRevaluation($supplier,$period,[],$this->rv($period),$meta);
+        $end=$this->db->pdo()->query('SELECT ends_on FROM accounting_periods WHERE id='.$period)->fetchColumn();
+        $this->db->pdo()->prepare("INSERT INTO exchange_rates(rate_date,currency_code,rate) VALUES (?,'EUR',25) ON DUPLICATE KEY UPDATE rate=25")->execute([$end]);
+        $initial=$this->closing->fxPreview($supplier,$period);
+        $accounts=array_filter($initial['positions'],static fn(array $p):bool=>$p['account_code']==='324')?['324'=>['classification'=>'nonmonetary','reason'=>'Synthetic documented advance']]:[];
+        $fx=$this->closing->fxPreview($supplier,$period,[],$accounts);
+        $this->closing->runFxRevaluation($supplier,$period,[],$this->rv($period),$meta,['snapshot_hash'=>$fx['snapshot_hash'],'account_decisions'=>$accounts]);
         foreach(['estimates','deferrals','provisions','income_tax']as $step)$this->closing->confirmStep($supplier,$period,$step,'skipped',null,$this->rv($period),$meta);
         $this->closing->runStockValuation($supplier,$period,$this->rv($period),$meta);
         NonprofitTaxAssessmentFixture::confirm($this->container,$supplier,$period,$this->f['actor']);

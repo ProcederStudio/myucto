@@ -76,10 +76,38 @@ final class FxPaymentTest extends BankPostingTestCase
             ->execute(['2098-07-01', $endsOn, $this->periodId]);
         $period = $this->periods->findById($this->supplierId, $this->periodId);
         $closing = $this->container->get(\MyInvoice\Service\Accounting\Closing\ClosingService::class);
-        $closing->runFxRevaluation($this->supplierId, $this->periodId, [
+        $bankPositions = [
             ['account_code' => '221', 'currency_code' => 'EUR', 'foreign_balance' => 100.0],
             ['account_code' => '211', 'currency_code' => 'EUR', 'foreign_balance' => 100.0],
-        ], (int) $period['row_version']);
+        ];
+        $decision = [];
+        if ($nonprofit) {
+            $map = $this->accounts->codeToIdMap($this->supplierId);
+            $this->journal->insert([
+                'supplier_id' => $this->supplierId, 'period_id' => $this->periodId, 'entry_date' => $endsOn,
+                'document_no' => 'SYN-FX-MONEY', 'source_type' => 'manual', 'source_id' => null,
+                'posted_at' => date('Y-m-d H:i:s'), 'posted_by' => $this->userId,
+            ], [
+                ['account_id' => $map['221']['id'], 'side' => 'debit', 'amount' => '2500.00', 'currency_code' => 'EUR', 'amount_foreign' => '100.00', 'fx_rate' => '25.00'],
+                ['account_id' => $map['211']['id'], 'side' => 'debit', 'amount' => '2500.00', 'currency_code' => 'EUR', 'amount_foreign' => '100.00', 'fx_rate' => '25.00'],
+                ['account_id' => $map['379']['id'], 'side' => 'credit', 'amount' => '5000.00'],
+            ]);
+            $catalog = (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionCatalog($this->db))->ensureForFramework($this->supplierId, $endsOn);
+            $this->db->pdo()->prepare('INSERT INTO dimension_values(supplier_id,type_id,code,name) VALUES (?,?,?,?)')
+                ->execute([$this->supplierId, $catalog['activity_kind']['id'], 'SYN_FX', 'Synthetic foreign currency activity']);
+            $dimensions = [$catalog['activity']['id'] => $catalog['activity']['values']['economic'],
+                $catalog['activity_kind']['id'] => (int) $this->db->pdo()->lastInsertId(), $catalog['tax_regime']['id'] => $catalog['tax_regime']['values']['subject']];
+            $preview = $closing->fxPreview($this->supplierId, $this->periodId);
+            $allocations = [];
+            foreach ($preview['positions'] as $position) {
+                if ($position['diff_cents'] === 0) continue;
+                $allocations[$position['key']] = ['reason' => 'Synthetic documented attribution of monetary revaluation',
+                    'cells' => [['amount' => \MyInvoice\Service\Accounting\Closing\Fx504Builder::decimal(abs($position['diff_cents'])), 'dimensions' => $dimensions]]];
+            }
+            $decision = ['snapshot_hash' => $preview['snapshot_hash'], 'case_decisions' => $preview['case_decisions'], 'decisions' => $allocations];
+            $bankPositions = [];
+        }
+        $closing->runFxRevaluation($this->supplierId, $this->periodId, $bankPositions, (int) $period['row_version'], [], $decision);
         $entry = $this->journal->findActiveBySourceForUpdate($this->supplierId, 'fx_revaluation', \MyInvoice\Service\Accounting\Closing\ClosingSourceId::fxSaldo($this->periodId));
         self::assertNotNull($entry);
         $lines = $this->linesByAccountCode((int) $entry['id']);
@@ -89,9 +117,9 @@ final class FxPaymentTest extends BankPostingTestCase
         $bank = $this->journal->findActiveBySourceForUpdate($this->supplierId, 'fx_revaluation', \MyInvoice\Service\Accounting\Closing\ClosingSourceId::fxBank($this->periodId));
         self::assertNotNull($bank);
         $bankLines = $this->linesByAccountCode((int) $bank['id']);
-        self::assertSame(5200.0, (float) ($bankLines[$expected]['credit'] ?? 0));
-        self::assertSame(2600.0, (float) $bankLines['211']['debit']);
-        self::assertSame(2600.0, (float) $bankLines['221']['debit']);
+        self::assertSame($nonprofit ? 200.0 : 5200.0, (float) ($bankLines[$expected]['credit'] ?? 0));
+        self::assertSame($nonprofit ? 100.0 : 2600.0, (float) $bankLines['211']['debit']);
+        self::assertSame($nonprofit ? 100.0 : 2600.0, (float) $bankLines['221']['debit']);
         $this->assertBalanced((int) $bank['id']);
     }
 

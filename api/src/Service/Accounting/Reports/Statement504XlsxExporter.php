@@ -32,6 +32,7 @@ final class Statement504XlsxExporter
             array_push($rows, ...$table['rows']);
         }
         if ($view['rounding_note'] !== null) $rows[] = [$view['rounding_note']];
+        if (isset($view['deferred_tax_note'])) $rows[] = [$view['deferred_tax_note']];
         foreach ($rows as $r => $row) foreach ($row as $c => $value) {
             if ($value === null) continue;
             $sheet->setCellValueExplicit([$c + 1, $r + 1], $value, is_int($value) || is_float($value) ? DataType::TYPE_NUMERIC : DataType::TYPE_STRING);

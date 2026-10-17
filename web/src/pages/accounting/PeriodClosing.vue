@@ -40,6 +40,10 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import DateInput from '@/components/ui/DateInput.vue'
 import PaginationBar from '@/components/ui/PaginationBar.vue'
 import ResultDecision504 from '@/components/accounting/ResultDecision504.vue'
+import DeferredTax504Panel from '@/components/accounting/DeferredTax504Panel.vue'
+import AssetReserve504 from '@/components/accounting/AssetReserve504.vue'
+import LegalProvisions504 from '@/components/accounting/LegalProvisions504.vue'
+import FxRevaluation504 from '@/components/accounting/FxRevaluation504.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -49,11 +53,13 @@ const pageId = useId()
 
 const periodId = Number(route.params.id)
 
-const STEP_ORDER: ClosingStepKey[] = [
+const BASE_STEP_ORDER: ClosingStepKey[] = [
   'precheck', 'depreciation', 'fx_revaluation', 'estimates', 'deferrals', 'provisions', 'income_tax', 'stock', 'close_books', 'open_next',
 ]
 
 const state = ref<ClosingState | null>(null)
+const stepOrder = computed<ClosingStepKey[]>(() => state.value?.accounting_framework === 'cz_504'
+  ? BASE_STEP_ORDER.flatMap(key => key === 'income_tax' ? [key, 'deferred_tax'] : [key]) : BASE_STEP_ORDER)
 const loading = ref(false)
 const busy = ref(false)
 const selected = ref<ClosingStepKey>('precheck')
@@ -115,7 +121,7 @@ async function load() {
   try {
     state.value = await closingApi.state(periodId)
     // Předvyber první nehotový krok — nerelevantní kroky přeskoč.
-    const firstPending = STEP_ORDER.find(
+    const firstPending = stepOrder.value.find(
       k => stepApplicable(k) && (stepsByKey.value[k]?.status ?? 'pending') === 'pending',
     )
     if (firstPending && (stepsByKey.value[selected.value]?.status ?? 'pending') !== 'pending') {
@@ -317,6 +323,7 @@ function validBankRows() {
 }
 
 async function loadFxPreview(withRows: boolean) {
+  if (state.value?.accounting_framework === 'cz_504') return
   fxLoading.value = true
   try {
     fxPreview.value = await closingApi.fxPreview(periodId, withRows ? validBankRows() : undefined)
@@ -632,7 +639,7 @@ function bookIncomeTax() {
 }
 
 watch(selected, (k) => {
-  if (k === 'provisions' && !provisionsPreview.value) loadProvisions()
+  if (k === 'provisions' && state.value?.accounting_framework !== 'cz_504' && !provisionsPreview.value) loadProvisions()
   if (k === 'income_tax' && !incomeTaxPreview.value) loadIncomeTax()
   if (k === 'deferrals' && !peAccrualPreview.value) loadPrepaidExpenseAccrual()
   if (k === 'deferrals' && !drAccrualPreview.value) loadDeferredRevenueAccrual()
@@ -796,7 +803,7 @@ function stepIcon(key: ClosingStepKey): string {
   const st = step(key)?.status ?? 'pending'
   if (st === 'done') return '✓'
   if (st === 'skipped') return '–'
-  return String(STEP_ORDER.indexOf(key) + 1)
+  return String(stepOrder.value.indexOf(key) + 1)
 }
 function stepIconClass(key: ClosingStepKey): string {
   if (!stepApplicable(key)) return 'bg-neutral-100 text-neutral-400'
@@ -865,7 +872,7 @@ const canOpenNextStage = computed(() => ['closed', 'reviewed', 'approved'].inclu
     <div v-else-if="state" class="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-4">
       <!-- Levý sloupec: kroky -->
       <div class="bg-surface border border-neutral-200 rounded-lg shadow-sm p-2 h-fit">
-        <button v-for="key in STEP_ORDER" :key="key" @click="selected = key"
+        <button v-for="key in stepOrder" :key="key" @click="selected = key"
           class="cursor-pointer w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-left text-sm"
           :class="selected === key ? 'bg-primary-50 text-primary-700 font-medium' : 'hover:bg-neutral-50'">
           <span class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold shrink-0"
@@ -986,7 +993,10 @@ const canOpenNextStage = computed(() => ['closed', 'reviewed', 'approved'].inclu
 
         <!-- 3) Kurzové rozdíly -->
         <template v-else-if="selected === 'fx_revaluation'">
-          <div v-if="!isClosing && step('fx_revaluation')?.status === 'pending'" class="text-sm text-neutral-500">
+          <FxRevaluation504 v-if="state.accounting_framework === 'cz_504'" :supplier-id="state.period.supplier_id" :period-id="state.period.id"
+            :row-version="rowVersion" :ends-on="state.period.ends_on" :can-write="isClosing && auth.canWrite('accounting.periods.close')"
+            :can-revert="!!state.can_revert_fx_revaluation" @updated="load" />
+          <div v-else-if="!isClosing && step('fx_revaluation')?.status === 'pending'" class="text-sm text-neutral-500">
             {{ t('accounting.closing.fx.needs_closing') }}
           </div>
           <template v-else>
@@ -1382,10 +1392,12 @@ const canOpenNextStage = computed(() => ['closed', 'reviewed', 'approved'].inclu
 
         <!-- D9) Opravné položky k pohledávkám -->
         <template v-else-if="selected === 'provisions'">
-          <div v-if="!isClosing && step('provisions')?.status === 'pending'" class="text-sm text-neutral-500">
+          <AssetReserve504 v-if="state?.accounting_framework === 'cz_504' && auth.can('assets')" :period-id="periodId" :row-version="rowVersion" :can-write="auth.canWrite('accounting.periods.close')" :is-closing="isClosing" @updated="load" />
+          <LegalProvisions504 v-if="state?.accounting_framework === 'cz_504'" :period-id="periodId" :row-version="rowVersion" :can-write="auth.canWrite('accounting.periods.close')" :is-closing="isClosing" @updated="load" />
+          <div v-if="state?.accounting_framework !== 'cz_504' && !isClosing && step('provisions')?.status === 'pending'" class="text-sm text-neutral-500">
             {{ t('accounting.closing.assist.needs_closing') }}
           </div>
-          <template v-else>
+          <template v-else-if="state?.accounting_framework !== 'cz_504'">
             <div class="flex flex-wrap items-center gap-2">
               <button @click="loadProvisions()" :disabled="busy || provisionsLoading" :class="btnOutline('neutral')">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.cycle" /></svg>
@@ -1486,6 +1498,10 @@ const canOpenNextStage = computed(() => ['closed', 'reviewed', 'approved'].inclu
               {{ t('accounting.closing.step_done_at', { date: formatDate(step('provisions')?.done_at) }) }}
             </div>
           </template>
+        </template>
+
+        <template v-else-if="selected === 'deferred_tax' && state?.accounting_framework === 'cz_504'">
+          <DeferredTax504Panel :period-id="periodId" :row-version="rowVersion" :can-write="isClosing && auth.canWrite('accounting.periods.close') && !busy" @updated="load" />
         </template>
 
         <!-- D11) Splatná daň z příjmů -->

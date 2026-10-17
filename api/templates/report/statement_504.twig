@@ -28,4 +28,5 @@ td, th { padding: 1.3mm; border-bottom: 0.3pt solid #ddd; vertical-align: top; }
 {% for cell in row %}<td{% if loop.index > 2 %} class="number"{% endif %}>{% if loop.index > 2 %}{% if cell is not null %}{{ cell|number_format(unit_label == 'v Kč' ? 2 : 0, ',', ' ') }}{% endif %}{% else %}{{ cell }}{% endif %}</td>{% endfor %}
 </tr>{% endfor %}</tbody></table>{% endfor %}
 {% if rounding_note %}<div class="note">{{ rounding_note }}</div>{% endif %}
+{% if deferred_tax_note is defined %}<div class="note">{{ deferred_tax_note|nl2br }}</div>{% endif %}
 </body></html>

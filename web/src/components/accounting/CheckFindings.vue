@@ -381,7 +381,10 @@ function docLink(f: Finding): RouteLocationRaw | null {
 <template>
   <!-- Kontrola bez nálezů nevypisuje NIC. Stav už nese badge vedle; vypisovat
        {"count":0,"items":[]} byl jen šum, který uživateli nic neříkal. -->
-  <template v-if="findings.length > 0 || total > 0">
+  <span v-if="checkKey === 'deferred_tax_assessment'" class="text-sm text-neutral-600">
+    {{ t((value as { applicable?: boolean; complete?: boolean })?.applicable === false ? 'checks.value.not_applicable' : (value as { complete?: boolean })?.complete ? 'checks.value.completed' : 'checks.value.pending') }}
+  </span>
+  <template v-else-if="findings.length > 0 || total > 0">
     <button type="button" class="text-primary-600 hover:underline text-sm" @click="openDetail">
       {{ t('checks.findings_count', { count: total }) }}
     </button>

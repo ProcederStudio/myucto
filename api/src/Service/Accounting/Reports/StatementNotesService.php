@@ -166,6 +166,7 @@ final class StatementNotesService
         private readonly AccountingPeriodRepository $periods,
         private readonly FinancialStatementService $statements,
         private readonly StatementSupplementPolicy $frameworks,
+        private readonly DeferredTax504Statement $deferredTax,
     ) {}
 
     /**
@@ -228,6 +229,8 @@ final class StatementNotesService
                 'carried_over_from_year' => $storedRows[$key]['carried_over_from_year'] ?? null,
             ];
         }
+
+        if ($is504 && ($deferredNote = $this->deferredTax->note($supplierId, $period)) !== null) $sections[] = $deferredNote;
 
         // Nabídka převzetí: má smysl jen tehdy, když loni něco vyplněného je a letos
         // je aspoň jedna neautomatická sekce prázdná.

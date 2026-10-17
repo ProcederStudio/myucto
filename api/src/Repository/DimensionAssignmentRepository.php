@@ -301,7 +301,7 @@ final class DimensionAssignmentRepository
     public function replaceLineSplits(int $supplierId, int $lineId, array $splits, array $origins = []): bool
     {
         return (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $lineId, $splits, $origins): bool {
-            (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+            (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
             (new IssuanceUseGuard($this->db))->lockClaims($supplierId);
             (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->acquire($supplierId);
             return $this->replaceLineSplitsLocked($supplierId, $lineId, $splits, $origins);
@@ -315,6 +315,7 @@ final class DimensionAssignmentRepository
         (new IssuanceUseGuard($this->db))->assertDimensionLinesMutable($supplierId, [$lineId]);
         (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->assertLinesMutable($supplierId, [$lineId]);
         (new JointAllocationUseGuard($this->db))->assertLinesMutable($supplierId, [$lineId]);
+        (new \MyInvoice\Service\Accounting\Closing\AssetReserveSourceUseGuard($this->db, new JournalEntryRepository($this->db, new \MyInvoice\Service\ActivityLogger($this->db))))->assertLinesMutable($supplierId, [$lineId]);
         $oldOrigins = $this->lineSplitOrigins($supplierId, [$lineId], $this->db->pdo()->inTransaction())[$lineId] ?? [];
         foreach ($splits as $typeId => $shares) {
             foreach ($shares as $valueId => $share) {
@@ -464,7 +465,7 @@ final class DimensionAssignmentRepository
     public function replaceLineDimensions(int $supplierId, int $lineId, array $dims, array $origins = []): bool
     {
         return (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $lineId, $dims, $origins): bool {
-            (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+            (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
             (new IssuanceUseGuard($this->db))->lockClaims($supplierId);
             (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->acquire($supplierId);
             return $this->replaceLineDimensionsLocked($supplierId, $lineId, $dims, $origins);
@@ -481,6 +482,7 @@ final class DimensionAssignmentRepository
         (new IssuanceUseGuard($this->db))->assertDimensionLinesMutable($supplierId, [$lineId]);
         (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->assertLinesMutable($supplierId, [$lineId]);
         (new JointAllocationUseGuard($this->db))->assertLinesMutable($supplierId, [$lineId]);
+        (new \MyInvoice\Service\Accounting\Closing\AssetReserveSourceUseGuard($this->db, new JournalEntryRepository($this->db, new \MyInvoice\Service\ActivityLogger($this->db))))->assertLinesMutable($supplierId, [$lineId]);
         $oldOrigins = $this->lineOrigins($supplierId, [$lineId], $this->db->pdo()->inTransaction())[$lineId] ?? [];
         foreach ($dims as $typeId => $valueId) {
             if (($current[$typeId] ?? null) === $valueId) $origins[$typeId] = $oldOrigins[$typeId] ?? [];

@@ -637,6 +637,46 @@ final class ApiScopeMiddlewareTest extends TestCase
         }
     }
 
+    public function testClosingDecisionWorkspacesRequireSessionBeforeHandler(): void
+    {
+        $handler = new class implements RequestHandlerInterface {
+            public int $calls = 0;
+
+            public function handle(ServerRequestInterface $request): ResponseInterface
+            {
+                ++$this->calls;
+                return (new ResponseFactory())->createResponse(204);
+            }
+        };
+        foreach (['asset-reserve', 'legal-provisions'] as $workspace) {
+            $path = '/api/accounting/periods/7/closing/' . $workspace . '/workspace';
+            foreach (['GET', 'HEAD'] as $method) {
+                foreach (['read', 'read_write'] as $scope) {
+                    $response = $this->middleware()->process($this->bearer($method, $path, $scope), $handler);
+                    self::assertSame(403, $response->getStatusCode(), "$scope $method $path");
+                    self::assertSame('token_endpoint_forbidden', $this->errorCode($response));
+                    self::assertSame(0, $handler->calls);
+                }
+            }
+            $session = (new ServerRequestFactory())->createServerRequest('GET', $path)
+                ->withAttribute(AuthMiddleware::ATTR_METHOD, 'session');
+            self::assertSame(204, $this->middleware()->process($session, $this->okHandler())->getStatusCode());
+        }
+    }
+
+    public function testClosingPublicPreviewsRemainAvailableToReadTokens(): void
+    {
+        foreach (['fx-preview', 'deferred-tax-preview', 'provisions-preview'] as $preview) {
+            foreach (['read', 'read_write'] as $scope) {
+                $response = $this->middleware()->process(
+                    $this->bearer('GET', '/api/accounting/periods/7/closing/' . $preview, $scope),
+                    $this->okHandler(),
+                );
+                self::assertSame(204, $response->getStatusCode(), "$scope $preview");
+            }
+        }
+    }
+
     private function middleware(): ApiScopeMiddleware
     {
         return new ApiScopeMiddleware(new ResponseFactory());

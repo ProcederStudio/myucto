@@ -8,6 +8,7 @@ use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\AccountingFrameworkRepository;
 use MyInvoice\Repository\ClosingCarryReadRepository;
 use MyInvoice\Service\Accounting\AccountingFrameworkService;
+use MyInvoice\Service\Accounting\AccountingPeriodStatus;
 use MyInvoice\Service\Accounting\AccountingRoleProfile;
 use MyInvoice\Service\Accounting\PostingException;
 use PDO;
@@ -53,11 +54,11 @@ final class ClosingCarryJournalProof
         if ($date < $target['starts_on'] || $date > $target['ends_on']) throw $read::changed();
         if ($step === 'close_books') {
             if ((int) $target['id'] !== $periodId || $date !== $source['ends_on']
-                || !in_array($source['status'], $written ? ['closing', 'closed', 'approved'] : ['closing'], true)) throw $read::changed();
+                || ($source['status'] !== 'closing' && (!$written || !AccountingPeriodStatus::isClosed((string) $source['status'])))) throw $read::changed();
         } else {
             if ($target['starts_on'] !== (new \DateTimeImmutable($source['ends_on']))->modify('+1 day')->format('Y-m-d')
                 || !in_array($target['status'], ['open'], true)
-                || !in_array($source['status'], ['closed', 'approved'], true)
+                || !AccountingPeriodStatus::isClosed((string) $source['status'])
                 || $date !== $target['starts_on']) throw $read::changed();
         }
         $framework = new AccountingFrameworkService($db, new AccountingFrameworkRepository($db));

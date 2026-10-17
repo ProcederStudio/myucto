@@ -27,6 +27,21 @@ final class Statement504PeriodComparisonTest extends TestCase
         self::assertSame(-0.01,$row['total']);
     }
 
+    public function testMethodComponentsAreMonthlyDifferencesIncludingFirstRecognition(): void
+    {
+        $previous = $this->snapshot('2024-12-31', 0, 10);
+        $current = $this->snapshot('2025-01-31', 0, 25);
+        $current['rows'][0]['row_code'] = $previous['rows'][0]['row_code'] = 'UT.38';
+        $part = static fn (string $key, float $amount): array => ['key' => $key, 'label' => $key, 'main' => 0.0, 'economic' => $amount, 'total' => $amount];
+        $current['rows'][0]['components'] = [$part('current_tax', 15), $part('deferred_tax', 10)];
+        $row = Statement504PeriodComparison::difference($current, $previous)[0];
+        self::assertSame([5.0, 10.0], array_column($row['components'], 'total'));
+        self::assertSame($row['total'], array_sum(array_column($row['components'], 'total')));
+        $previous['rows'][0]['components'] = [$part('current_tax', 6), $part('deferred_tax', 4)];
+        $row = Statement504PeriodComparison::difference($current, $previous)[0];
+        self::assertSame([9.0, 6.0], array_column($row['components'], 'total'));
+    }
+
     #[DataProvider('invalidCases')]
     public function testIncompatibleOrIncompleteSnapshotsFailClosed(string $case): void
     {

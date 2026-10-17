@@ -102,49 +102,53 @@ final class AssetService
      */
     public function update(int $supplierId, int $id, array $data, array $meta = []): array
     {
-        $existing = $this->assets->find($supplierId, $id);
-        if ($existing === null) {
-            throw new AssetException('not_found', 'Majetek nenalezen.', 404);
-        }
-        if ($existing['status'] === 'disposed') {
-            throw new AssetException('asset_locked', 'Vyřazený majetek nelze upravovat — nejdřív vraťte vyřazení.');
-        }
-
-        // stav a vyřazení se mění výhradně lifecycle metodami, ne přes update.
-        // `sale_invoice_id` patří do TÉŽE skupiny (píše ho jen dispose()/revertDisposal()),
-        // ale ve výčtu chybělo — a protože normalize() staví kartu nad `SELECT *` existující
-        // řádky, prošlo z těla requestu do whitelistu AssetRepository::COLUMNS bez jediné
-        // kontroly vlastnictví. Cizí `invoices.id` se tak dal natrvalo zapsat na vlastní
-        // kartu (CWE-639, externí report 2026-08 R2 — třída, kterou sweep u /assets minul).
-        // Stejně vazba vyřazení na zápis deníku a účet souhrnné karty: píší je jen
-        // disposeFromJournal() a AccountSummaryCardService.
-        unset(
-            $data['status'],
-            $data['disposal_date'],
-            $data['disposal_type'],
-            $data['disposal_price'],
-            $data['sale_invoice_id'],
-            $data['disposal_entry_id'],
-            $data['summary_account_code'],
-        );
-        $card = $this->normalize($data, $existing);
-        $this->assertLocks($existing, $card, $data);
-        [$card, $warnings] = $this->validateCard($supplierId, $card, false);
-
-        unset($card['created_by']);
-        try {
-            $this->assets->update($supplierId, $id, $card);
-        } catch (\PDOException $e) {
-            if (($e->errorInfo[0] ?? null) === '23000') {
-                throw new AssetException(
-                    'duplicate_inventory_number',
-                    'Inventární číslo "' . $card['inventory_number'] . '" už ve firmě existuje.',
-                );
+        return (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $id, $data, $meta): array {
+            (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
+            $existing = $this->assets->findForUpdate($supplierId, $id);
+            if ($existing === null) {
+                throw new AssetException('not_found', 'Majetek nenalezen.', 404);
             }
-            throw $e;
-        }
+            if ($existing['status'] === 'disposed') {
+                throw new AssetException('asset_locked', 'Vyřazený majetek nelze upravovat — nejdřív vraťte vyřazení.');
+            }
 
-        return ['asset' => $this->get($supplierId, $id), 'warnings' => $warnings];
+            // stav a vyřazení se mění výhradně lifecycle metodami, ne přes update.
+            // `sale_invoice_id` patří do TÉŽE skupiny (píše ho jen dispose()/revertDisposal()),
+            // ale ve výčtu chybělo — a protože normalize() staví kartu nad `SELECT *` existující
+            // řádky, prošlo z těla requestu do whitelistu AssetRepository::COLUMNS bez jediné
+            // kontroly vlastnictví. Cizí `invoices.id` se tak dal natrvalo zapsat na vlastní
+            // kartu (CWE-639, externí report 2026-08 R2 — třída, kterou sweep u /assets minul).
+            // Stejně vazba vyřazení na zápis deníku a účet souhrnné karty: píší je jen
+            // disposeFromJournal() a AccountSummaryCardService.
+            unset(
+                $data['status'],
+                $data['disposal_date'],
+                $data['disposal_type'],
+                $data['disposal_price'],
+                $data['sale_invoice_id'],
+                $data['disposal_entry_id'],
+                $data['summary_account_code'],
+            );
+            $card = $this->normalize($data, $existing);
+            $this->assertLocks($existing, $card, $data);
+            [$card, $warnings] = $this->validateCard($supplierId, $card, false);
+
+            (new \MyInvoice\Service\Accounting\Closing\AssetReserveSourceUseGuard($this->db, $this->journal))->assertAssetChange($supplierId, $id, $card);
+            unset($card['created_by']);
+            try {
+                $this->assets->update($supplierId, $id, $card);
+            } catch (\PDOException $e) {
+                if (($e->errorInfo[0] ?? null) === '23000') {
+                    throw new AssetException(
+                        'duplicate_inventory_number',
+                        'Inventární číslo "' . $card['inventory_number'] . '" už ve firmě existuje.',
+                    );
+                }
+                throw $e;
+            }
+
+            return ['asset' => $this->get($supplierId, $id), 'warnings' => $warnings];
+        });
     }
 
     /**
@@ -205,9 +209,10 @@ final class AssetService
             $pdo->beginTransaction();
         }
         try {
-            (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+            (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
             (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->lockClaims($supplierId);
             $asset = $this->assets->findForUpdate($supplierId, $id);
+            (new \MyInvoice\Service\Accounting\Closing\AssetReserveSourceUseGuard($this->db, $this->journal))->assertAssetChange($supplierId, $id, null);
             if ($asset === null) {
                 throw new AssetException('not_found', 'Majetek nenalezen.', 404);
             }
@@ -439,79 +444,87 @@ final class AssetService
      */
     public function addImprovement(int $supplierId, int $id, array $data, array $meta = []): array
     {
-        $asset = $this->assets->find($supplierId, $id);
-        if ($asset === null) {
-            throw new AssetException('not_found', 'Majetek nenalezen.', 404);
-        }
-        if ($asset['status'] !== 'in_use') {
-            throw new AssetException('invalid_status', 'Technické zhodnocení lze přidat jen k majetku v užívání.');
-        }
-        if ($asset['tax_method'] === 'extraordinary') {
-            throw new AssetException(
-                'improvement_not_allowed_30a',
-                'TZ nezvyšuje vstupní cenu majetku odpisovaného dle §30a — založte pro TZ samostatnou kartu (odpisuje se samostatně jako HM ve skupině 2).',
-            );
-        }
-        $completedOn = (string) ($data['completed_on'] ?? '');
-        if (!self::isDate($completedOn)) {
-            throw new AssetException('validation_failed', 'Neplatné datum dokončení TZ (YYYY-MM-DD).');
-        }
-        if ($completedOn < (string) $asset['put_into_use_date']) {
-            throw new AssetException('validation_failed', 'Datum dokončení TZ nesmí předcházet datu zařazení do užívání.');
-        }
-        $amount = round((float) ($data['amount'] ?? 0), 2);
-        if ($amount <= 0) {
-            throw new AssetException('validation_failed', 'Částka TZ musí být kladná.');
-        }
-        $year = $this->fiscalYearOf($supplierId, $completedOn);
-        $this->assertTaxEvidenceYearOpenIfTaxEvidence($supplierId, $year);
-        $this->assertYearNotConfirmed($id, $year);
-        $this->assertNoLaterConfirmedYear($id, $year);
-        $piId = isset($data['purchase_invoice_id']) && $data['purchase_invoice_id'] !== null
-            ? (int) $data['purchase_invoice_id']
-            : null;
-        $this->assertPurchaseInvoiceOwned($supplierId, $piId);
-
-        $impId = $this->assets->insertImprovement($supplierId, $id, [
-            'completed_on' => $completedOn,
-            'amount' => $amount,
-            'description' => isset($data['description']) && $data['description'] !== '' ? (string) $data['description'] : null,
-            'purchase_invoice_id' => $piId,
-        ]);
-
-        $warnings = [];
-        $yearTotal = 0.0;
-        foreach ($this->assets->improvements($id) as $imp) {
-            if ($this->fiscalYearOf($supplierId, (string) $imp['completed_on']) === $year) {
-                $yearTotal += (float) $imp['amount'];
+        return (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $id, $data, $meta): array {
+            (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
+            $asset = $this->assets->findForUpdate($supplierId, $id);
+            if ($asset === null) {
+                throw new AssetException('not_found', 'Majetek nenalezen.', 404);
             }
-        }
-        $assetLimit = (float) ($this->constants->forYear($year)['fixed_asset_limit'] ?? 80000);
-        if (round($yearTotal, 2) <= $assetLimit) {
-            $warnings[] = [
-                'code' => 'tz_below_80k',
-                'message' => 'Úhrn TZ za rok ' . $year . ' nepřesahuje ' . number_format($assetLimit, 0, ',', ' ') . ' Kč — nejde o povinné TZ dle §33, zvažte jednorázový náklad.',
-            ];
-        }
+            if ($asset['status'] !== 'in_use') {
+                throw new AssetException('invalid_status', 'Technické zhodnocení lze přidat jen k majetku v užívání.');
+            }
+            if ($asset['tax_method'] === 'extraordinary') {
+                throw new AssetException(
+                    'improvement_not_allowed_30a',
+                    'TZ nezvyšuje vstupní cenu majetku odpisovaného dle §30a — založte pro TZ samostatnou kartu (odpisuje se samostatně jako HM ve skupině 2).',
+                );
+            }
+            $completedOn = (string) ($data['completed_on'] ?? '');
+            if (!self::isDate($completedOn)) {
+                throw new AssetException('validation_failed', 'Neplatné datum dokončení TZ (YYYY-MM-DD).');
+            }
+            if ($completedOn < (string) $asset['put_into_use_date']) {
+                throw new AssetException('validation_failed', 'Datum dokončení TZ nesmí předcházet datu zařazení do užívání.');
+            }
+            $amount = round((float) ($data['amount'] ?? 0), 2);
+            if ($amount <= 0) {
+                throw new AssetException('validation_failed', 'Částka TZ musí být kladná.');
+            }
+            $year = $this->fiscalYearOf($supplierId, $completedOn);
+            $this->assertTaxEvidenceYearOpenIfTaxEvidence($supplierId, $year);
+            $this->assertYearNotConfirmed($id, $year);
+            $this->assertNoLaterConfirmedYear($id, $year);
+            $piId = isset($data['purchase_invoice_id']) && $data['purchase_invoice_id'] !== null
+                ? (int) $data['purchase_invoice_id']
+                : null;
+            $this->assertPurchaseInvoiceOwned($supplierId, $piId);
 
-        return ['improvement' => $this->assets->findImprovement($supplierId, $impId), 'warnings' => $warnings];
+            (new \MyInvoice\Service\Accounting\Closing\AssetReserveSourceUseGuard($this->db, $this->journal))->assertImprovementChange($supplierId, $id, 0, ['completed_on' => $completedOn, 'amount' => $amount]);
+            $impId = $this->assets->insertImprovement($supplierId, $id, [
+                'completed_on' => $completedOn,
+                'amount' => $amount,
+                'description' => isset($data['description']) && $data['description'] !== '' ? (string) $data['description'] : null,
+                'purchase_invoice_id' => $piId,
+            ]);
+
+            $warnings = [];
+            $yearTotal = 0.0;
+            foreach ($this->assets->improvements($id) as $imp) {
+                if ($this->fiscalYearOf($supplierId, (string) $imp['completed_on']) === $year) {
+                    $yearTotal += (float) $imp['amount'];
+                }
+            }
+            $assetLimit = (float) ($this->constants->forYear($year)['fixed_asset_limit'] ?? 80000);
+            if (round($yearTotal, 2) <= $assetLimit) {
+                $warnings[] = [
+                    'code' => 'tz_below_80k',
+                    'message' => 'Úhrn TZ za rok ' . $year . ' nepřesahuje ' . number_format($assetLimit, 0, ',', ' ') . ' Kč — nejde o povinné TZ dle §33, zvažte jednorázový náklad.',
+                ];
+            }
+
+            return ['improvement' => $this->assets->findImprovement($supplierId, $impId), 'warnings' => $warnings];
+        });
     }
 
     public function deleteImprovement(int $supplierId, int $id, int $improvementId): void
     {
-        $asset = $this->assets->find($supplierId, $id);
-        if ($asset === null) {
-            throw new AssetException('not_found', 'Majetek nenalezen.', 404);
-        }
-        $imp = $this->assets->findImprovement($supplierId, $improvementId);
-        if ($imp === null || $imp['asset_id'] !== $id) {
-            throw new AssetException('not_found', 'Technické zhodnocení nenalezeno.', 404);
-        }
-        $impYear = $this->fiscalYearOf($supplierId, (string) $imp['completed_on']);
-        $this->assertTaxEvidenceYearOpenIfTaxEvidence($supplierId, $impYear);
-        $this->assertYearNotConfirmed($id, $impYear);
-        $this->assertNoLaterConfirmedYear($id, $impYear);
-        $this->assets->deleteImprovement($supplierId, $improvementId);
+        (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $id, $improvementId): void {
+            (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
+            $asset = $this->assets->findForUpdate($supplierId, $id);
+            if ($asset === null) {
+                throw new AssetException('not_found', 'Majetek nenalezen.', 404);
+            }
+            $imp = $this->assets->findImprovement($supplierId, $improvementId);
+            if ($imp === null || $imp['asset_id'] !== $id) {
+                throw new AssetException('not_found', 'Technické zhodnocení nenalezeno.', 404);
+            }
+            $impYear = $this->fiscalYearOf($supplierId, (string) $imp['completed_on']);
+            $this->assertTaxEvidenceYearOpenIfTaxEvidence($supplierId, $impYear);
+            $this->assertYearNotConfirmed($id, $impYear);
+            $this->assertNoLaterConfirmedYear($id, $impYear);
+            (new \MyInvoice\Service\Accounting\Closing\AssetReserveSourceUseGuard($this->db, $this->journal))->assertImprovementChange($supplierId, $id, $improvementId, null);
+            $this->assets->deleteImprovement($supplierId, $improvementId);
+        });
     }
 
     /**
@@ -549,6 +562,7 @@ final class AssetService
             $pdo->beginTransaction();
         }
         try {
+            (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
             $lockedAsset = $this->assets->findForUpdate($supplierId, $id);
             if ($lockedAsset === null) {
                 throw new AssetException('not_found', 'Majetek nenalezen.', 404);
@@ -556,6 +570,7 @@ final class AssetService
             if ($lockedAsset['status'] !== 'in_use') {
                 throw new AssetException('invalid_status', 'Vyřadit lze jen majetek v užívání.');
             }
+            (new \MyInvoice\Service\Accounting\Closing\AssetReserveSourceUseGuard($this->db, $this->journal))->assertAssetLifecycleChange($supplierId, $id, $lockedAsset, 'disposed', $date);
             $asset = $lockedAsset;
 
             // kontext s datem vyřazení (karta ho v DB ještě nemá)
@@ -743,10 +758,12 @@ final class AssetService
             $pdo->beginTransaction();
         }
         try {
+            (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
             $lockedAsset = $this->assets->findForUpdate($supplierId, $id);
             if ($lockedAsset === null || $lockedAsset['status'] !== 'in_use') {
                 throw new AssetException('invalid_status', 'Vyřadit lze jen majetek v užívání.');
             }
+            (new \MyInvoice\Service\Accounting\Closing\AssetReserveSourceUseGuard($this->db, $this->journal))->assertAssetLifecycleChange($supplierId, $id, $lockedAsset, 'disposed', $date);
             $assetView = $lockedAsset;
             $assetView['disposal_date'] = $date;
             $ctx = $this->depreciationPosting->buildContext($assetView);
@@ -973,8 +990,14 @@ final class AssetService
             $pdo->beginTransaction();
         }
         try {
-            (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+            (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
             (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->lockClaims($supplierId);
+            $lockedAsset = $this->assets->findForUpdate($supplierId, $id);
+            if ($lockedAsset === null || $lockedAsset['status'] !== 'disposed' || $lockedAsset['disposal_date'] !== $disposalDate) {
+                throw new AssetException('invalid_status', 'Stav vyřazení majetku se změnil. Obnovte kartu.');
+            }
+            (new \MyInvoice\Service\Accounting\Closing\AssetReserveSourceUseGuard($this->db, $this->journal))->assertAssetLifecycleChange($supplierId, $id, $lockedAsset, 'in_use', null);
+            $asset = $lockedAsset;
             $reverseMeta = [
                 'entry_date' => $disposalDate,
                 'posted_by' => $meta['posted_by'] ?? null,

@@ -1065,38 +1065,42 @@ final class ClosingRepository
      */
     public function deleteClosingEntry(int $supplierId, string $sourceType, int $sourceId, ?int $periodId = null, bool $forUpdate = false): ?array
     {
-        // Tvrdě mazat lze jen zápisy generované uzávěrkovým průvodcem / asistenty (revert
-        // kroku = čistý úklid s auditním dumpem, ne §35 storno externího dokladu):
-        // closing/opening/fx_revaluation (bilanční, vč. slotů zásob způsobu B), provision
-        // (OP k pohledávkám, D9), income_tax (splatná daň, D11), profit_distribution
-        // (rozdělení VH, D10). Ostatní source_type (invoice/purchase/bank/cash/manual…) NIKDY.
-        $allowed = ['closing', 'opening', 'fx_revaluation', 'provision', 'income_tax', 'profit_distribution', 'small_asset_accrual', 'prepaid_expense_accrual', 'deferred_revenue_accrual'];
-        if (!in_array($sourceType, $allowed, true)) {
-            return null;
-        }
-        $pdo = $this->db->pdo();
-        $stmt = $pdo->prepare(
-            "SELECT id, supplier_id, period_id, entry_date, document_date, document_no, description,
-                    source_type, source_id, posted_at, posted_by, reversed_by, row_version
-               FROM journal_entries
-              WHERE supplier_id = ? AND source_type = ? AND source_id = ?
-              " . ($sourceType === 'profit_distribution' ? 'AND reversed_by IS NULL ' : '')
-                . ($forUpdate ? 'ORDER BY id DESC LIMIT 1 FOR UPDATE' : 'LIMIT 1')
-        );
-        $stmt->execute([$supplierId, $sourceType, $sourceId]);
-        $entry = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($entry === false) {
-            return null;
-        }
-        if ($periodId !== null && (int) $entry['period_id'] !== $periodId) {
-            return null;
-        }
-        return $this->hardDeleteWithDump(
-            $supplierId,
-            $entry,
-            $sourceType === 'closing' && $sourceId === (int) $entry['period_id'],
-            $forUpdate,
-        );
+        return (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $sourceType, $sourceId, $periodId, $forUpdate): ?array {
+            (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
+            $forUpdate = true;
+            // Tvrdě mazat lze jen zápisy generované uzávěrkovým průvodcem / asistenty (revert
+            // kroku = čistý úklid s auditním dumpem, ne §35 storno externího dokladu):
+            // closing/opening/fx_revaluation (bilanční, vč. slotů zásob způsobu B), provision
+            // (OP k pohledávkám, D9), income_tax (splatná daň, D11), profit_distribution
+            // (rozdělení VH, D10). Ostatní source_type (invoice/purchase/bank/cash/manual…) NIKDY.
+            $allowed = ['closing', 'opening', 'fx_revaluation', 'provision', 'income_tax', 'deferred_tax', 'profit_distribution', 'small_asset_accrual', 'prepaid_expense_accrual', 'deferred_revenue_accrual'];
+            if (!in_array($sourceType, $allowed, true)) {
+                return null;
+            }
+            $pdo = $this->db->pdo();
+            $stmt = $pdo->prepare(
+                "SELECT id, supplier_id, period_id, entry_date, document_date, document_no, description,
+                        source_type, source_id, posted_at, posted_by, reversed_by, row_version
+                   FROM journal_entries
+                  WHERE supplier_id = ? AND source_type = ? AND source_id = ?
+                  " . ($sourceType === 'profit_distribution' ? 'AND reversed_by IS NULL ' : '')
+                    . ($forUpdate ? 'ORDER BY id DESC LIMIT 1 FOR UPDATE' : 'LIMIT 1')
+            );
+            $stmt->execute([$supplierId, $sourceType, $sourceId]);
+            $entry = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($entry === false) {
+                return null;
+            }
+            if ($periodId !== null && (int) $entry['period_id'] !== $periodId) {
+                return null;
+            }
+            return $this->hardDeleteWithDump(
+                $supplierId,
+                $entry,
+                $sourceType === 'closing' && $sourceId === (int) $entry['period_id'],
+                $forUpdate,
+            );
+        });
     }
 
     /**
@@ -1109,16 +1113,19 @@ final class ClosingRepository
      */
     public function deleteOpeningEntry(int $supplierId, int $entryId): ?array
     {
-        $stmt = $this->db->pdo()->prepare(
-            "SELECT id, supplier_id, period_id, entry_date, document_date, document_no, description,
-                    source_type, source_id, posted_at, posted_by, reversed_by, row_version
-               FROM journal_entries
-              WHERE supplier_id = ? AND id = ? AND source_type = 'opening'
-              LIMIT 1"
-        );
-        $stmt->execute([$supplierId, $entryId]);
-        $entry = $stmt->fetch(PDO::FETCH_ASSOC);
-        return $entry === false ? null : $this->hardDeleteWithDump($supplierId, $entry, false);
+        return (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $entryId): ?array {
+            (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
+            $stmt = $this->db->pdo()->prepare(
+                "SELECT id, supplier_id, period_id, entry_date, document_date, document_no, description,
+                        source_type, source_id, posted_at, posted_by, reversed_by, row_version
+                   FROM journal_entries
+                  WHERE supplier_id = ? AND id = ? AND source_type = 'opening'
+                  LIMIT 1"
+            );
+            $stmt->execute([$supplierId, $entryId]);
+            $entry = $stmt->fetch(PDO::FETCH_ASSOC);
+            return $entry === false ? null : $this->hardDeleteWithDump($supplierId, $entry, false);
+        });
     }
 
     /**
@@ -1136,6 +1143,11 @@ final class ClosingRepository
             throw new \MyInvoice\Service\Accounting\Closing\ClosingException('period_not_open', 'Zápis uzavřeného období nelze smazat.', 409);
         }
         $entryId = (int) $entry['id'];
+        try {
+            (new \MyInvoice\Service\Accounting\Closing\AssetReserveSourceUseGuard($this->db, new JournalEntryRepository($this->db, new \MyInvoice\Service\ActivityLogger($this->db))))->assertEntriesMutable($supplierId, [$entryId]);
+        } catch (\MyInvoice\Service\Accounting\PostingException $e) {
+            throw new \MyInvoice\Service\Accounting\Closing\ClosingException($e->errorCode, $e->getMessage(), $e->httpStatus);
+        }
 
         $linesStmt = $pdo->prepare(
             'SELECT id, entry_id, supplier_id, account_id, side, amount, currency_code, fx_rate,
@@ -1175,7 +1187,7 @@ final class ClosingRepository
                  WHERE supplier_id = ? AND posted_at IS NOT NULL
                    AND ((source_type = 'closing' AND source_id IN (?, ?, ?, ?))
                         OR (source_type = 'fx_revaluation' AND source_id IN (?, ?, ?))
-                        OR (source_type IN ('provision', 'income_tax') AND period_id = ?)
+                        OR (source_type IN ('provision', 'income_tax', 'deferred_tax') AND period_id = ?)
                         OR (source_type = 'small_asset_accrual' AND period_id = ? AND source_id < ?)
                         OR (source_type = 'prepaid_expense_accrual' AND period_id = ? AND source_id < ?)
                         OR (source_type = 'deferred_revenue_accrual' AND period_id = ? AND source_id < ?))

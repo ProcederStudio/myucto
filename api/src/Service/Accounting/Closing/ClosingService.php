@@ -98,6 +98,7 @@ final class ClosingService
         'vh_431_undistributed',
         'inventory_unresolved',
         'nonprofit_tax_assessment',
+        'deferred_tax_assessment',
     ];
 
     /**
@@ -732,7 +733,7 @@ final class ClosingService
      */
     public function confirmStep(int $supplierId, int $periodId, string $stepKey, string $status, ?string $note, int $rowVersion, array $meta = []): array
     {
-        if (!in_array($stepKey, ['depreciation', 'estimates', 'deferrals', 'provisions', 'income_tax'], true)) {
+        if (!in_array($stepKey, ['depreciation', 'estimates', 'deferrals', 'provisions', 'income_tax', 'deferred_tax'], true)) {
             throw new ClosingException('unknown_step', 'Krok "' . $stepKey . '" nelze potvrdit tímto způsobem.');
         }
         if (!in_array($status, ['done', 'skipped'], true)) {
@@ -798,8 +799,11 @@ final class ClosingService
      * @param list<array{account_code:string, currency_code:string, foreign_balance:float|int|string}> $bankRows
      * @return array<string,mixed>
      */
-    public function fxPreview(int $supplierId, int $periodId, array $bankRows = []): array
+    public function fxPreview(int $supplierId, int $periodId, array $bankRows = [], ?array $accountDecisions = null, ?array $caseDecisions = null): array
     {
+        $jointFx = new Fx504Service($this->db, $this->journal, $this->series, $this->closing, $this->posting, $this->activity);
+        if ($jointFx->handles($supplierId, $periodId)) return $jointFx->preview($supplierId, $periodId, $accountDecisions, false, $caseDecisions);
+        if ($accountDecisions !== null || $caseDecisions !== null) throw new ClosingException('fx_case_framework_unsupported', 'Podrobné posouzení kurzových případů je dostupné pouze pro účetní rámec 504.', 422);
         $period = $this->periods->findById($supplierId, $periodId);
         if ($period === null) {
             throw new ClosingException('not_found', 'Účetní období #' . $periodId . ' neexistuje.', 404);
@@ -818,8 +822,11 @@ final class ClosingService
      * @param array{user_id?:?int, posted_by?:?int, ip?:?string, user_agent?:?string} $meta
      * @return array<string,mixed>
      */
-    public function runFxRevaluation(int $supplierId, int $periodId, array $bankRows, int $rowVersion, array $meta = []): array
+    public function runFxRevaluation(int $supplierId, int $periodId, array $bankRows, int $rowVersion, array $meta = [], array $jointDecision = []): array
     {
+        $jointFx = new Fx504Service($this->db, $this->journal, $this->series, $this->closing, $this->posting, $this->activity);
+        if ($jointFx->handles($supplierId, $periodId, true)) return $jointFx->run($supplierId, $periodId, $jointDecision, $rowVersion, $meta);
+        if (array_intersect(['snapshot_hash', 'account_decisions', 'case_decisions', 'decisions'], array_keys($jointDecision)) !== []) throw new ClosingException('fx_case_framework_unsupported', 'Podrobné posouzení kurzových případů je dostupné pouze pro účetní rámec 504.', 422);
         return (new DimensionPeriodGuard($this->db))->transaction(fn (): array => $this->tx(function () use ($supplierId, $periodId, $bankRows, $rowVersion, $meta): array {
             $period = $this->lockPeriod($supplierId, $periodId, $rowVersion);
             $this->assertStatus($period, ['closing']);
@@ -1058,6 +1065,10 @@ final class ClosingService
             $period = $this->lockPeriod($supplierId, $periodId, $rowVersion);
             $this->assertStatus($period, ['closing']);
 
+            if ($stepKey === 'provisions' && $this->roleProfile($supplierId, (string) $period['ends_on'])->framework === AccountingFrameworkService::CZ_504) {
+                return (new DimensionPeriodGuard($this->db))->transaction(fn (): array => $this->createLegalReserve504($supplierId, $period, $body, $meta));
+            }
+
             $rule = $this->rules->resolve($supplierId, $ruleKey);
             if ($rule === null) {
                 throw new ClosingException('posting_rule_missing', 'Kontace "' . $ruleKey . '" není naseedovaná v posting_rules.');
@@ -1111,6 +1122,134 @@ final class ClosingService
         });
     }
 
+    public function assetReservePreview(int $supplierId, int $periodId, array $source, mixed $amount): array
+    {
+        $pdo = $this->db->pdo();
+        $own = !$pdo->inTransaction();
+        if ($own) $pdo->exec('START TRANSACTION READ ONLY');
+        try {
+            $period = $this->periods->findById($supplierId, $periodId);
+            if ($period === null || $this->roleProfile($supplierId, (string) $period['ends_on'])->framework !== AccountingFrameworkService::CZ_504) throw AssetReserveSourceDecision::invalid();
+            $receipt = (new AssetReserveSourceRepository($this->db, false))->evidence($supplierId, (string) $period['ends_on'], $source);
+            return ['source' => $receipt, 'allocations' => AssetReserveSourceDecision::allocations($receipt, ProfitDistribution504Builder::allocationCents($amount))];
+        } finally {
+            if ($own && $pdo->inTransaction()) $pdo->rollBack();
+        }
+    }
+
+    public function assetReserveSourceState(int $supplierId, int $periodId, int $assetId): array
+    {
+        return $this->assetSourceRead($supplierId, $periodId, static fn (AssetReserveSourceRepository $source, array $period): array => $source->sourceState($supplierId, $assetId, $period['ends_on']));
+    }
+
+    public function assetReserveCorrectionPreview(int $supplierId, int $periodId, array $body): array
+    {
+        return $this->assetSourceRead($supplierId, $periodId, static fn (AssetReserveSourceRepository $source, array $period): array => $source->correctionEvidence($supplierId, $period['ends_on'], $body));
+    }
+
+    private function assetSourceRead(int $supplierId, int $periodId, callable $read): array
+    {
+        $pdo = $this->db->pdo();
+        $own = !$pdo->inTransaction();
+        if ($own) $pdo->exec('START TRANSACTION READ ONLY');
+        try {
+            $period = $this->periods->findById($supplierId, $periodId);
+            if ($period === null || $this->roleProfile($supplierId, $period['ends_on'])->framework !== AccountingFrameworkService::CZ_504) throw AssetReserveSourceDecision::invalid();
+            return $read(new AssetReserveSourceRepository($this->db, false), $period);
+        } finally {
+            if ($own && $pdo->inTransaction()) $pdo->rollBack();
+        }
+    }
+
+    public function correctAssetReserveSource(int $supplierId, int $periodId, array $body, array $meta = []): array
+    {
+        return (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $periodId, $body, $meta): array {
+            if (($body['mode'] ?? null) === 'prospective_closed_history') return $this->correctClosedAssetReserveSource($supplierId, $periodId, $body, $meta);
+            $period = $this->lockPeriod($supplierId, $periodId, (int) ($body['row_version'] ?? 0));
+            $this->assertStatus($period, ['closing']);
+            if ($this->roleProfile($supplierId, $period['ends_on'])->framework !== AccountingFrameworkService::CZ_504) throw AssetReserveSourceDecision::invalid();
+            $source = AssetReserveSourceDecision::normalize($body['reserve_source'] ?? null);
+            $proof = (new AssetReserveSourceRepository($this->db))->correctionEvidence($supplierId, $period['ends_on'], $body);
+            if (!hash_equals($source['source_hash'], $proof['source']['source_hash'])) throw AssetReserveSourceDecision::changed();
+            $revision = AssetReserveSourceDecision::sealRevision(['version' => 'asset-reserve-revision-v1', 'period_id' => $periodId,
+                'effective_on' => $period['ends_on'], 'revision_number' => $proof['revision_number'], 'previous_hash' => $proof['previous']['source_hash'],
+                'previous_source_evidence' => $proof['previous'], 'source_evidence' => $proof['source'], 'reason' => $proof['reason'],
+                'continued_use_evidence' => $source['continued_use_evidence'],
+                'created_at' => date('Y-m-d H:i:s'), 'created_by' => $meta['user_id'] ?? null]);
+            $step = (new LegalClosing504Repository($this->db, $this->journal))->step($supplierId, $periodId, 'provisions');
+            $payload = $step['payload'];
+            $payload['asset_source_revisions'][] = $revision;
+            $this->closing->upsertStep($supplierId, $periodId, 'provisions', $step['status'], $payload, $step['note'], $meta['user_id'] ?? null);
+            $this->bumpVersion($supplierId, $periodId, (int) $body['row_version']);
+            return ['revision_number' => $revision['revision_number'], 'revision_hash' => $revision['revision_hash'], 'source_hash' => $source['source_hash']];
+        });
+    }
+
+    private function correctClosedAssetReserveSource(int $supplierId, int $periodId, array $body, array $meta): array
+    {
+        (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
+        $step = (new LegalClosing504Repository($this->db, $this->journal))->step($supplierId, $periodId, 'provisions');
+        $payload = $step['payload'];
+        $pending = $payload['asset_correction_pending'] ?? null;
+        if (!is_array($pending) || ($pending['status'] ?? null) !== 'written' || ($pending['body'] ?? null) !== $body) {
+            $period = $this->lockPeriod($supplierId, $periodId, (int) ($body['row_version'] ?? 0));
+            $this->assertStatus($period, ['closing']);
+            $payload['asset_correction_pending'] = ['status' => 'pending', 'expected_version' => (int) $body['row_version'],
+                'body' => $body, 'document_no' => $this->series->next($supplierId, 'manual', (int) $period['fiscal_year']),
+                'posted_at' => date('Y-m-d H:i:s'), 'meta' => $meta];
+            $this->closing->upsertStep($supplierId, $periodId, 'provisions', $step['status'], $payload, $step['note'], $meta['user_id'] ?? null);
+        }
+        $revision = $this->journal->insertCurrentAssetReserveCorrection($supplierId, $periodId, (int) $body['row_version']);
+        return ['revision_number' => $revision['revision_number'], 'revision_hash' => $revision['revision_hash'],
+            'source_hash' => $revision['source_evidence']['source_hash'], 'entry_id' => $revision['entry_id']];
+    }
+
+    private function createLegalReserve504(int $supplierId, array $period, array $body, array $meta): array
+    {
+        $profile = $this->roleProfile($supplierId, (string) $period['ends_on']);
+        $remaining = null;
+        $assetSource = ($body['rule_key'] ?? '') === 'reserve.repairs.create' && isset($body['legal_decision']['reserve_source']);
+        if (($body['rule_key'] ?? '') === 'reserve.repairs.release' || $assetSource) {
+            $step = (new LegalClosing504Repository($this->db, $this->journal))->step($supplierId, (int) $period['id'], 'provisions');
+            $payload = $step['payload'] ?? [];
+            $docNo = $this->series->next($supplierId, 'manual', (int) $period['fiscal_year']);
+            $payload['legal_pending'] = ['operation' => $assetSource ? 'reserve_asset_source' : 'reserve_release', 'status' => 'pending', 'expected_version' => (int) $body['row_version'],
+                'body' => $body, 'document_no' => $docNo, 'posted_at' => date('Y-m-d H:i:s'), 'posted_by' => $meta['posted_by'] ?? null, 'meta' => $meta];
+            $this->closing->upsertStep($supplierId, (int) $period['id'], 'provisions', $step['status'], $payload, $step['note'], $meta['user_id'] ?? null);
+            $entryId = $this->journal->insertCurrentLegalClosing($supplierId, (int) $period['id'], (int) $body['row_version']);
+            return ['entry_id' => $entryId, 'document_no' => $docNo];
+        }
+        $built = LegalClosing504Builder::reserve($profile, $body, $remaining);
+        $lines = LegalClosing504Builder::withDecisionOrigins($built['lines'], $built['decision']);
+        $this->assertKnownCodes($supplierId, $lines);
+        $this->assert504PreparedLines($supplierId, 'manual', null, $lines, (string) $period['ends_on']);
+        $docNo = $this->series->next($supplierId, 'manual', (int) $period['fiscal_year']);
+        $entryId = $this->posting->postDocument($supplierId, 'manual', null, $lines, [
+            'entry_date' => (string) $period['ends_on'], 'document_no' => $docNo,
+            'description' => trim((string) $body['description']), 'posted' => true,
+            'posted_by' => $meta['posted_by'] ?? null, 'user_id' => $meta['user_id'] ?? null,
+            'ip' => $meta['ip'] ?? null, 'user_agent' => $meta['user_agent'] ?? null, 'allow_closing_period' => true,
+        ]);
+        $step = (new LegalClosing504Repository($this->db, $this->journal))->step($supplierId, (int) $period['id'], 'provisions');
+        $payload = $step['payload'] ?? [];
+        $payload['entries'][] = ['entry_id' => $entryId, 'document_no' => $docNo, 'rule_key' => $body['rule_key'],
+            'amount' => ProfitDistribution504Builder::allocationCents($body['amount']) / 100,
+            'description' => trim((string) $body['description']), 'legal_decision' => $built['decision'],
+            'created_at' => date('Y-m-d H:i:s')];
+        $this->closing->upsertStep($supplierId, (int) $period['id'], 'provisions', $step['status'], $payload, $step['note'], $meta['user_id'] ?? null);
+        $this->bumpVersion($supplierId, (int) $period['id'], (int) $body['row_version']);
+        return ['entry_id' => $entryId, 'document_no' => $docNo];
+    }
+
+    private function assert504PreparedLines(int $supplierId, string $sourceType, ?int $sourceId, array $lines, string $date): void
+    {
+        $prepared = $this->posting->prepareDocumentLines($supplierId, $sourceType, $sourceId, $lines, $date);
+        $expected = (new LegalClosing504Repository($this->db, $this->journal))->resolveAccounts($supplierId, $lines);
+        if (!JournalLineComparison::sameLines($expected, $prepared)) {
+            throw new ClosingException('legal_closing_account_mapping_changed', 'Kontace nebo výchozí dimenze mění potvrzené rozhodnutí. Upravte účtový rozvrh nebo doplňte výslovné společné alokace.', 422);
+        }
+    }
+
     /**
      * Storno asistovaného zápisu (R12 výjimka: manual zápisy se NIKDY nemažou,
      * reverzují se standardním stornem s R7 flagem). Id se v payloadu přesune
@@ -1125,7 +1264,8 @@ final class ClosingService
             $period = $this->lockPeriod($supplierId, $periodId, $rowVersion);
             $this->assertStatus($period, ['closing']);
 
-            $steps = $this->stepsMap($supplierId, $periodId);
+            $is504 = $this->roleProfile($supplierId, (string) $period['ends_on'])->framework === AccountingFrameworkService::CZ_504;
+            $steps = $this->stepsMap($supplierId, $periodId, $is504);
             $stepKey = null;
             $entryIdx = null;
             foreach (array_keys(self::ASSIST_RULES) as $key) {
@@ -1141,26 +1281,44 @@ final class ClosingService
                 throw new ClosingException('entry_not_in_step', 'Zápis #' . $entryId . ' není evidovaný v asistentovi tohoto období.', 404);
             }
 
-            $reversalId = $this->posting->reverse($supplierId, $entryId, [
-                'entry_date' => (string) $period['ends_on'],
-                'posted_by' => $meta['posted_by'] ?? null,
-                'user_id' => $meta['user_id'] ?? null,
-                'ip' => $meta['ip'] ?? null,
-                'user_agent' => $meta['user_agent'] ?? null,
-                'allow_closing_period' => true,
-            ]);
+            $work = function () use ($supplierId, $periodId, $entryId, $rowVersion, $meta, $period, $steps, $stepKey, $entryIdx, $is504): array {
+                $record = $steps[$stepKey]['payload']['entries'][$entryIdx];
+                if ($is504 && ($record['legal_decision']['version'] ?? null) === '504-legal-v1' && ($record['rule_key'] ?? '') === 'reserve.repairs.create') {
+                    (new LegalClosing504Repository($this->db, $this->journal))->assertReserveReversible($supplierId, $record, (string) $period['ends_on']);
+                }
 
-            $step = $steps[$stepKey];
-            $payload = $step['payload'] ?? [];
-            $record = $payload['entries'][$entryIdx];
-            $record['reversal_entry_id'] = $reversalId;
-            $record['reversed_at'] = date('Y-m-d H:i:s');
-            array_splice($payload['entries'], $entryIdx, 1);
-            $payload['entries'] = array_values($payload['entries']);
-            $payload['reversed'][] = $record;
-            $this->closing->upsertStep($supplierId, $periodId, $stepKey, $step['status'], $payload, $step['note'], $meta['user_id'] ?? null);
-            $this->bumpVersion($supplierId, $periodId, $rowVersion);
-            return ['entry_id' => $entryId, 'reversal_entry_id' => $reversalId, 'step' => $stepKey];
+                if ($is504 && ($record['rule_key'] ?? '') === 'allowance.receivable.legal.change') {
+                    $invoiceId = (int) $record['invoice_id'];
+                    $remaining = 0;
+                    foreach ($this->openReceivables($supplierId, $periodId, (string) $period['ends_on'], [$invoiceId], true) as $row) {
+                        $remaining = LegalClosing504Builder::targetCents($row['remaining']);
+                    }
+                    $after = (new LegalClosing504Repository($this->db, $this->journal))->provisionAfterReversal($supplierId, $record, (string) $period['ends_on']);
+                    if ($after > $remaining) throw new ClosingException('provision_exceeds_receivable', 'Storno by obnovilo opravnou položku nad aktuální hodnotu pohledávky.', 422);
+                }
+
+                $reversalId = $this->posting->reverse($supplierId, $entryId, [
+                    'entry_date' => (string) $period['ends_on'],
+                    'posted_by' => $meta['posted_by'] ?? null,
+                    'user_id' => $meta['user_id'] ?? null,
+                    'ip' => $meta['ip'] ?? null,
+                    'user_agent' => $meta['user_agent'] ?? null,
+                    'allow_closing_period' => true,
+                ]);
+
+                $step = $steps[$stepKey];
+                $payload = $step['payload'] ?? [];
+                $record = $payload['entries'][$entryIdx];
+                $record['reversal_entry_id'] = $reversalId;
+                $record['reversed_at'] = date('Y-m-d H:i:s');
+                array_splice($payload['entries'], $entryIdx, 1);
+                $payload['entries'] = array_values($payload['entries']);
+                $payload['reversed'][] = $record;
+                $this->closing->upsertStep($supplierId, $periodId, $stepKey, $step['status'], $payload, $step['note'], $meta['user_id'] ?? null);
+                $this->bumpVersion($supplierId, $periodId, $rowVersion);
+                return ['entry_id' => $entryId, 'reversal_entry_id' => $reversalId, 'step' => $stepKey];
+            };
+            return $is504 ? (new DimensionPeriodGuard($this->db))->transaction($work) : $work();
         });
     }
 
@@ -2451,6 +2609,9 @@ final class ClosingService
             throw new ClosingException('not_found', 'Účetní období #' . $periodId . ' neexistuje.', 404);
         }
         $endsOn = (string) $period['ends_on'];
+        if ($this->roleProfile($supplierId, $endsOn)->framework === AccountingFrameworkService::CZ_504) {
+            return $this->buildLegalProvisionsPreview504($supplierId, $period, $page, $perPage);
+        }
         $c = $this->taxConstants->forYear((int) $period['fiscal_year']);
         $months8a50 = (int) ($c['bad_debt_provision_8a_50pct_months'] ?? self::PROVISION_8A_50_MONTHS);
         $months8a100 = (int) ($c['bad_debt_provision_8a_100pct_months'] ?? self::PROVISION_8A_100_MONTHS);
@@ -2600,6 +2761,67 @@ final class ClosingService
         ];
     }
 
+    private function buildLegalProvisionsPreview504(int $supplierId, array $period, int $page, int $perPage): array
+    {
+        $asOf = (string) $period['ends_on'];
+        $repository = new LegalClosing504Repository($this->db, $this->journal, false);
+        $states = $repository->provisionStates($supplierId, $asOf);
+        $receivables = [];
+        foreach ($this->openReceivables($supplierId, (int) $period['id'], $asOf) as $row) $receivables[$row['invoice_id']] = $row;
+        $missing = array_diff(array_keys($states), array_keys($receivables));
+        if ($missing !== []) {
+            $stmt = $this->db->pdo()->prepare('SELECT i.id AS invoice_id,i.varsymbol AS document_no,i.client_id AS partner_id,c.company_name AS partner_name,
+                i.issue_date,i.due_date FROM invoices i LEFT JOIN clients c ON c.id=i.client_id AND c.supplier_id=i.supplier_id
+                WHERE i.supplier_id=? AND i.id IN (' . implode(',', array_fill(0, count($missing), '?')) . ') ORDER BY i.id');
+            $stmt->execute([$supplierId, ...$missing]);
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) $receivables[(int) $row['invoice_id']] = $row + ['remaining' => 0.0, 'currency_code' => 'CZK'];
+            if (array_diff($missing, array_keys($receivables)) !== []) throw new ClosingException('legal_closing_source_changed', 'Pohledávka doložené opravné položky již není dostupná.', 409);
+        }
+        ksort($receivables);
+        $items = [];
+        $totals = ['remaining' => 0, 'existing_legal' => 0];
+        foreach ($receivables as $id => $row) {
+            $cells = $states[$id] ?? [];
+            $existing = array_sum(array_column($cells, 'available_cents'));
+            $remaining = LegalClosing504Builder::targetCents($row['remaining']);
+            $allocations = [];
+            foreach ($cells as $cell) {
+                $cell['amount'] = $cell['available_cents'] / 100;
+                unset($cell['available_cents']);
+                $allocations[] = $cell;
+            }
+            $items[] = $row + ['legal_account' => '559', 'balance_account' => '391',
+                'existing' => $existing === 0 ? null : ['legal_amount' => $existing / 100, 'allocations' => $allocations],
+                'required_action' => $existing > $remaining ? 'release_required' : 'review',
+                'evidence_required' => true, 'joint_allocation_required' => true];
+            $totals['remaining'] += $remaining;
+            $totals['existing_legal'] += $existing;
+        }
+        $perPage = min(200, max(1, $perPage));
+        $page = min(max(1, $page), max(1, (int) ceil(count($items) / $perPage)));
+        $pageItems = array_slice($items, ($page - 1) * $perPage, $perPage);
+        foreach ($pageItems as &$item) {
+            $item['source_joint'] = ['available' => false, 'requires_confirmation' => true, 'payment_allocation' => 'proportional', 'cells' => []];
+            if ($item['remaining'] <= 0) continue;
+            try {
+                $source = $repository->receivableSource($supplierId, (int) $item['invoice_id'], $asOf);
+                $item['source_joint']['available'] = true;
+                $item['source_joint']['cells'] = array_values($source['cells']);
+            } catch (ClosingException $e) {
+                $item['source_joint']['finding'] = ['code' => $e->errorCode, 'message' => $e->getMessage()];
+            }
+        }
+        unset($item);
+        return ['accounting_framework' => AccountingFrameworkService::CZ_504, 'as_of' => $asOf,
+            'period' => ['id' => (int) $period['id'], 'fiscal_year' => (int) $period['fiscal_year']],
+            'items' => $pageItems,
+            'reserves' => $repository->reserveSources($supplierId, $asOf),
+            'totals' => array_map(static fn (int $cents): float => $cents / 100, $totals),
+            'pagination' => ['page' => $page, 'per_page' => $perPage, 'total' => count($items)],
+            'totals_scope' => 'all', 'accounting_provisions_available' => false, 'advisory' => true,
+            'disclaimer' => 'Zákonnou opravnou položku lze vytvořit pouze při doloženém splnění zákonných podmínek a vazbě na zdanitelnou činnost. Potvrďte konečný stav a jeho společné rozdělení. Účetní opravné položky tento rámec nepřipouští.'];
+    }
+
     /**
      * Deklarativní zaúčtování OP k pohledávkám (POST steps/provisions/run). `$items`
      * je úplný účetní-potvrzený konečný stav OP. Účtuje se změna proti dosavadnímu
@@ -2623,6 +2845,10 @@ final class ClosingService
             $this->assertStatus($period, ['closing']);
             $endsOn = (string) $period['ends_on'];
             $fiscalYear = (int) $period['fiscal_year'];
+
+            if ($this->roleProfile($supplierId, $endsOn)->framework === AccountingFrameworkService::CZ_504) {
+                return (new DimensionPeriodGuard($this->db))->transaction(fn (): array => $this->runLegalProvisions504($supplierId, $period, $items, $rowVersion, $meta));
+            }
 
             if ($partial && count($items) > 200) {
                 throw new ClosingException('validation_failed', 'Dávka opravných položek smí obsahovat nejvýše 200 položek.', 422);
@@ -2772,6 +2998,71 @@ final class ClosingService
             $this->audit($supplierId, 'accounting.closing_step_done', $periodId, ['step' => 'provisions', 'status' => 'done'], $meta);
             return ['entries' => $entries, 'removed' => $removed, 'count' => count($entries)];
         });
+    }
+
+    private function runLegalProvisions504(int $supplierId, array $period, array $items, int $rowVersion, array $meta): array
+    {
+        if ($items === [] || count($items) > 200) throw new ClosingException('validation_failed', 'Vyberte jednu až 200 pohledávek s doloženým rozhodnutím.', 422);
+        $endsOn = (string) $period['ends_on'];
+        $periodId = (int) $period['id'];
+        $profile = $this->roleProfile($supplierId, $endsOn);
+        $read = new LegalClosing504Repository($this->db, $this->journal);
+        $remaining = [];
+        foreach ($this->openReceivables($supplierId, $periodId, $endsOn, array_map(static fn (array $row): int => (int) ($row['invoice_id'] ?? 0), $items), true) as $row) {
+            $remaining[$row['invoice_id']] = (int) round($row['remaining'] * 100);
+        }
+        $step = $read->step($supplierId, $periodId, 'provisions');
+        $payload = $step['payload'];
+        $entries = [];
+        $version = $rowVersion;
+        $seen = [];
+        foreach ($items as $raw) {
+            $invoiceId = (int) ($raw['invoice_id'] ?? 0);
+            if ($invoiceId <= 0 || isset($seen[$invoiceId])) throw new ClosingException('validation_failed', 'Každá pohledávka musí mít platné a jedinečné invoice_id.', 422);
+            $seen[$invoiceId] = true;
+            if (LegalClosing504Builder::targetCents($raw['acct_amount'] ?? 0) !== 0) {
+                FrameworkOperationPolicy::assertAllowed($profile, 'provision.accounting');
+            }
+            $target = LegalClosing504Builder::targetCents($raw['legal_amount'] ?? null);
+            $decision = LegalClosing504Builder::decision($profile, 'provision.legal', $raw['legal_decision'] ?? null, $raw['legal_amount'] ?? null, true);
+            if ($target > ($remaining[$invoiceId] ?? 0)) throw new ClosingException('provision_exceeds_receivable', 'Cílová opravná položka přesahuje aktuální neuhrazenou hodnotu pohledávky.', 422);
+            $current = $read->provisionCells($supplierId, $invoiceId, $endsOn);
+            if ($current === [] && !isset($remaining[$invoiceId])) throw new ClosingException('invoice_not_open_receivable', 'Pohledávka nemá otevřený zůstatek ani doloženou opravnou položku této firmy.', 422);
+            $movements = LegalClosing504Builder::provisionMovements($decision, $current);
+            $lines = LegalClosing504Builder::provisionMovementLines($profile, $movements);
+            $entryId = null;
+            $docNo = null;
+            $releaseOnly = $movements !== [] && count(array_filter($movements, static fn (array $cell): bool => $cell['direction'] === 'release')) === count($movements);
+            $sourceJoint = $movements !== [] && ($decision['allocation_basis'] ?? '') === 'source_joint';
+            if ($releaseOnly || $sourceJoint) {
+                $docNo = $this->series->next($supplierId, 'manual', (int) $period['fiscal_year']);
+                $payload['legal_pending'] = ['operation' => $releaseOnly ? 'provision_release' : 'provision_source', 'status' => 'pending', 'expected_version' => $version,
+                    'body' => $raw + ['description' => 'Změna zákonné opravné položky k pohledávce #' . $invoiceId],
+                    'document_no' => $docNo, 'posted_at' => date('Y-m-d H:i:s'), 'posted_by' => $meta['posted_by'] ?? null, 'meta' => $meta];
+                $this->closing->upsertStep($supplierId, $periodId, 'provisions', $step['status'], $payload, $step['note'], $meta['user_id'] ?? null);
+                $entryId = $this->journal->insertCurrentLegalClosing($supplierId, $periodId, $version++);
+                $payload = $read->step($supplierId, $periodId, 'provisions')['payload'];
+            } elseif ($lines !== []) {
+                $lines = LegalClosing504Builder::withDecisionOrigins($lines, $decision);
+                $this->assertKnownCodes($supplierId, $lines);
+                $this->assert504PreparedLines($supplierId, 'manual', null, $lines, $endsOn);
+                $docNo = $this->series->next($supplierId, 'manual', (int) $period['fiscal_year']);
+                $entryId = $this->posting->postDocument($supplierId, 'manual', null, $lines, [
+                    'entry_date' => $endsOn, 'document_no' => $docNo, 'description' => 'Zákonná opravná položka k pohledávce #' . $invoiceId,
+                    'posted' => true, 'posted_by' => $meta['posted_by'] ?? null, 'user_id' => $meta['user_id'] ?? null,
+                    'ip' => $meta['ip'] ?? null, 'user_agent' => $meta['user_agent'] ?? null, 'allow_closing_period' => true,
+                ]);
+                $payload['entries'][] = ['entry_id' => $entryId, 'document_no' => $docNo, 'rule_key' => 'allowance.receivable.legal.change',
+                    'invoice_id' => $invoiceId, 'legal_amount' => $target / 100, 'legal_decision' => $decision,
+                    'movement_allocations' => $movements, 'created_at' => date('Y-m-d H:i:s')];
+            }
+            $entries[] = ['invoice_id' => $invoiceId, 'entry_id' => $entryId, 'document_no' => $docNo,
+                'legal_amount' => $target / 100, 'acct_amount' => 0.0, 'total' => $target / 100];
+        }
+        $this->closing->upsertStep($supplierId, $periodId, 'provisions', 'done', $payload, $step['note'], $meta['user_id'] ?? null);
+        if ($version === $rowVersion) $this->bumpVersion($supplierId, $periodId, $rowVersion);
+        $this->audit($supplierId, 'accounting.closing_step_done', $periodId, ['step' => 'provisions', 'status' => 'done'], $meta);
+        return ['accounting_framework' => 'cz_504', 'entries' => $entries, 'removed' => [], 'count' => count($entries)];
     }
 
     /**
@@ -3076,6 +3367,9 @@ final class ClosingService
         if ($period === null) {
             throw new ClosingException('not_found', 'Účetní období #' . $periodId . ' neexistuje.', 404);
         }
+        if ($this->roleProfile($supplierId, (string) $period['ends_on'])->framework === AccountingFrameworkService::CZ_504) {
+            return $this->deferredTax504Preview($supplierId, $periodId);
+        }
         $endsOn = (string) $period['ends_on'];
         $fiscalYear = (int) $period['fiscal_year'];
 
@@ -3106,6 +3400,16 @@ final class ClosingService
             'existing_entry_id' => $existing !== null ? (int) $existing['id'] : null,
             'existing_amount' => $step['payload']['amount'] ?? null,
         ];
+    }
+
+    public function deferredTax504Preview(int $supplierId, int $periodId, array $decision = []): array
+    {
+        return (new DeferredTax504Service($this->db, $this->journal, $this->periods, $this->closing, $this->series))->preview($supplierId, $periodId, $decision);
+    }
+
+    public function runDeferredTax504(int $supplierId, int $periodId, array $decision, int $rowVersion, array $meta = []): array
+    {
+        return (new DeferredTax504Service($this->db, $this->journal, $this->periods, $this->closing, $this->series))->run($supplierId, $periodId, $decision, $rowVersion, $meta);
     }
 
     /**
@@ -3328,7 +3632,7 @@ final class ClosingService
         $targetRowVersion = (int) ($body['target_row_version'] ?? 0);
 
         return $this->tx(function () use ($supplierId, $periodId, $decisionDate, $allocations, $withholdingRate, $targetRowVersion, $meta): array {
-            (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+            (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
             $requested = $this->periods->findForUpdate($periodId, $supplierId);
             if ($requested === null) {
                 throw new ClosingException('not_found', 'Účetní období #' . $periodId . ' neexistuje.', 404);
@@ -3588,7 +3892,7 @@ final class ClosingService
 
     private function resultDecisionCurrentContext(int $supplierId, int $periodId): array
     {
-        (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+        (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
         $periods = $this->closing->resultDecisionPeriods($supplierId, true);
         $source = $target = null;
         foreach ($periods as $index => $period) {
@@ -3631,7 +3935,7 @@ final class ClosingService
     public function revertProfitDistribution(int $supplierId, int $periodId, int $targetRowVersion, array $meta = []): array
     {
         return $this->tx(function () use ($supplierId, $periodId, $targetRowVersion, $meta): array {
-            (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+            (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
             $requested = $this->periods->findForUpdate($periodId, $supplierId);
             if ($requested === null) {
                 throw new ClosingException('not_found', 'Účetní období #' . $periodId . ' neexistuje.', 404);
@@ -3677,7 +3981,7 @@ final class ClosingService
     /** Přesný finanční retry je dovolen; změna nebo smazání nesmí opustit použité zdroje. */
     public function assertProfitDistributionUnsettled(int $supplierId, int $sourcePeriodId, ?string $newDate = null, ?array $resolvedLines = null, string $pendingAccount = '431'): void
     {
-        (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+        (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
         $existing = $this->findEntryWithLines($supplierId, 'profit_distribution', $sourcePeriodId, true, true);
         if ($existing === null) return;
         if ($newDate === $existing['entry_date'] && $resolvedLines !== null && JournalLineComparison::sameLines($resolvedLines, $existing['lines'])) return;
@@ -3786,6 +4090,11 @@ final class ClosingService
             (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
             $period = $this->lockPeriod($supplierId, $periodId, $rowVersion);
             $this->assertStatus($period, ['closing']);
+            if ($this->roleProfile($supplierId, (string) $period['ends_on'])->framework === AccountingFrameworkService::CZ_504
+                && !(new DeferredTax504Service($this->db, $this->journal, $this->periods, $this->closing, $this->series))->closingCheck($supplierId, $periodId, true)['complete']) {
+                throw new ClosingException('deferred_tax_assessment_required', 'Před uzavřením potvrďte aktuální posouzení zvolené metody odložené daně pro toto období.', 422);
+            }
+
 
             $taxAssessment = $this->nonprofitTaxAssessment->closingCheck($supplierId, $periodId, true);
             if (!$taxAssessment['complete']) {
@@ -4090,7 +4399,10 @@ final class ClosingService
             $fxReversalId = null;
             $settings = $this->settings->get($supplierId);
             $slot1 = null;
-            if ((bool) ($settings['fx_reversal_at_open'] ?? true)) {
+            $jointFx = new Fx504Service($this->db, $this->journal, $this->series, $this->closing, $this->posting, $this->activity);
+            $jointFxHandled = $jointFx->handles($supplierId, $periodId, true);
+            if ($jointFxHandled) $fxReversalId = $jointFx->reverseAtOpen($supplierId, $periodId, $nextId, $rowVersion, $meta);
+            if (!$jointFxHandled && (bool) ($settings['fx_reversal_at_open'] ?? true)) {
                 $slot1 = $this->findEntryWithLines($supplierId, 'fx_revaluation', ClosingSourceId::fxSaldo($periodId));
                 if ($slot1 !== null && $slot1['posted_at'] !== null && ($slot1['lines'] ?? []) !== []) {
                     $saldoLines = [];
@@ -4322,6 +4634,18 @@ final class ClosingService
      */
     public function revertStep(int $supplierId, int $periodId, string $stepKey, int $rowVersion, array $meta = []): array
     {
+        if (in_array($stepKey, ['fx_revaluation', 'open_next'], true)) {
+            $jointFx = new Fx504Service($this->db, $this->journal, $this->series, $this->closing, $this->posting, $this->activity);
+            if ($jointFx->handles($supplierId, $periodId, true)) {
+                if ($stepKey === 'fx_revaluation') return $jointFx->revert($supplierId, $periodId, $rowVersion, $meta);
+                return (new DimensionPeriodGuard($this->db))->transaction(fn (): array => $this->revertStepBody($supplierId, $periodId, $stepKey, $rowVersion, $meta));
+            }
+        }
+        return $this->revertStepBody($supplierId, $periodId, $stepKey, $rowVersion, $meta);
+    }
+
+    private function revertStepBody(int $supplierId, int $periodId, string $stepKey, int $rowVersion, array $meta): array
+    {
         if (!in_array($stepKey, self::STEP_KEYS, true)) {
             throw new ClosingException('unknown_step', 'Neznámý krok uzávěrky "' . $stepKey . '".');
         }
@@ -4334,6 +4658,12 @@ final class ClosingService
                 );
             }
             $steps = $this->stepsMap($supplierId, $periodId);
+            if ($stepKey === 'deferred_tax'
+                && $this->roleProfile($supplierId, (string) $period['ends_on'])->framework === AccountingFrameworkService::CZ_504
+                && (($steps['deferred_tax']['payload']['deferred504_decisions'] ?? []) !== []
+                    || isset($steps['deferred_tax']['payload']['deferred504_pending']))) {
+                throw new ClosingException('deferred_tax_revert_required', 'Vrácení kroku nesmí odstranit historii vlastní metody odložené daně. Změnu proveďte novým posouzením.', 409);
+            }
             $userId = $meta['user_id'] ?? null;
             $dumps = [];
             $result = ['step' => $stepKey];
@@ -4373,9 +4703,12 @@ final class ClosingService
                             $dumps['opening'] = $dump;
                         }
                     }
-                    $dump = $this->closing->deleteClosingEntry($supplierId, 'fx_revaluation', ClosingSourceId::fxReversal($periodId));
-                    if ($dump !== null) {
-                        $dumps['fx_reversal'] = $dump;
+                    $jointFx = new Fx504Service($this->db, $this->journal, $this->series, $this->closing, $this->posting, $this->activity);
+                    if ($jointFx->handles($supplierId, $periodId, true)) {
+                        $result['fx_cancellation_entry_id'] = $jointFx->cancelOpeningReversal($supplierId, $periodId, $meta);
+                    } else {
+                        $dump = $this->closing->deleteClosingEntry($supplierId, 'fx_revaluation', ClosingSourceId::fxReversal($periodId));
+                        if ($dump !== null) $dumps['fx_reversal'] = $dump;
                     }
                     $dump = $this->closing->deleteClosingEntry($supplierId, 'closing', ClosingSourceId::stockOpening($periodId));
                     if ($dump !== null) {
@@ -4486,6 +4819,15 @@ final class ClosingService
                             'Nejprve proveď revert kroku close_books (vynucené pořadí R12).',
                         );
                     }
+                    if ($this->roleProfile($supplierId, (string) $period['ends_on'])->framework === AccountingFrameworkService::CZ_504) {
+                        $legalStep = (new LegalClosing504Repository($this->db, $this->journal))->step($supplierId, $periodId, 'provisions');
+                        if (($legalStep['payload']['entries'] ?? []) !== []) {
+                            throw new ClosingException('legal_closing_revert_required', 'Nejprve stornujte jednotlivá doložená rozhodnutí kroku. Historie zdrojů zůstane zachována.', 409);
+                        }
+                        $this->closing->upsertStep($supplierId, $periodId, 'provisions', 'pending', $legalStep['payload'], $legalStep['note'], $meta['user_id'] ?? null);
+                        $this->bumpVersion($supplierId, $periodId, $rowVersion);
+                        break;
+                    }
                     foreach (($steps['provisions']['payload']['entries'] ?? []) as $e) {
                         $invId = (int) ($e['invoice_id'] ?? 0);
                         $dump = $this->closing->deleteClosingEntry($supplierId, 'provision', $this->closing->provisionSourceId($supplierId, $periodId, $invId), $periodId);
@@ -4498,6 +4840,7 @@ final class ClosingService
                     break;
 
                 case 'income_tax':
+                case 'deferred_tax':
                     $this->assertStatus($period, ['closing']);
                     if ($steps['close_books']['status'] === 'done'
                         || $this->journal->findBySource($supplierId, 'closing', $periodId) !== null) {
@@ -4506,11 +4849,11 @@ final class ClosingService
                             'Nejprve proveď revert kroku close_books (vynucené pořadí R12).',
                         );
                     }
-                    $dump = $this->closing->deleteClosingEntry($supplierId, 'income_tax', $periodId);
+                    $dump = $this->closing->deleteClosingEntry($supplierId, $stepKey, $periodId);
                     if ($dump !== null) {
-                        $dumps['income_tax'] = $dump;
+                        $dumps[$stepKey] = $dump;
                     }
-                    $this->closing->resetStep($supplierId, $periodId, 'income_tax');
+                    $this->closing->resetStep($supplierId, $periodId, $stepKey);
                     $this->bumpVersion($supplierId, $periodId, $rowVersion);
                     break;
 
@@ -5758,6 +6101,10 @@ final class ClosingService
             ],
         ];
 
+        if ($this->roleProfile($supplierId, $endsOn)->framework === AccountingFrameworkService::CZ_504) {
+            $deferred = (new DeferredTax504Service($this->db, $this->journal, $this->periods, $this->closing, $this->series))->closingCheck($supplierId, $periodId, $currentRead);
+            if ($deferred['applicable']) $checks[] = ['key' => 'deferred_tax_assessment', 'severity' => 'error', 'ok' => $deferred['complete'], 'value' => $deferred];
+        }
         $taxAssessment = $this->nonprofitTaxAssessment->closingCheck($supplierId, $periodId, $currentRead);
         if ($taxAssessment['applicable']) {
             $checks[] = ['key' => 'nonprofit_tax_assessment', 'severity' => 'error',
@@ -5827,7 +6174,7 @@ final class ClosingService
      */
     private function lockPeriod(int $supplierId, int $periodId, int $rowVersion): array
     {
-        (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+        (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
         $period = $this->periods->findForUpdate($periodId, $supplierId);
         if ($period === null) {
             throw new ClosingException('not_found', 'Účetní období #' . $periodId . ' neexistuje.', 404);

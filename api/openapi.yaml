@@ -14804,10 +14804,16 @@ paths:
         nedoložená historie vrací HTTP 422 `fx_case_history_unproven`. `diff` porovnává hodnotu
         s původním dokladem; `incremental_signed` je skutečný zisk (kladný) nebo ztráta (záporná)
         běžného období po odečtení doloženého `carrying_before`.
+        Rámec 504 vrací samostatný kontrakt s `accounting_decree: '504'`, přesnými desetinnými
+        řetězci, úplnými zdrojovými dimenzemi a doloženými účetními případy. Nejednoznačné
+        podklady jsou v `case_unresolved` a `case_findings`; neúplné součty zahrnují pouze
+        vyřešené položky. Historická přiřazení jsou uzamčená. GET nic nepotvrzuje ani neúčtuje.
+        Interní POST náhled s rozhodnutími vyžaduje přihlášenou relaci a není veřejnou mutací.
       parameters:
         - $ref: '#/components/parameters/SupplierIdHeader'
         - { in: path, name: id, required: true, schema: { type: integer } }
         - { in: query, name: bank_rows, schema: { type: string, description: "JSON pole bank řádků" } }
+        - { in: query, name: account_decisions, schema: { type: string, description: "JSON objekt posouzení účtů rámce 504: účet -> classification (monetary|nonmonetary), reason" } }
       responses:
         '200': { description: "OK", content: { application/json: { schema: { $ref: '#/components/schemas/ClosingFxPreview' } } } }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -26974,7 +26980,7 @@ paths:
       tags:
       - Accounting
       summary: Náhled odložené daně bez zaúčtování
-      description: Rámec se určuje k poslednímu dni období. Pro rámec 504 je applicable false a computation null; automatický výpočet pro 500 se nepoužije.
+      description: Rámec se určuje pro účetní období. Rámec 500 vrací dosavadní výpočet; rámec 504 vrací oddělený stav výslovně doložené vlastní metody včetně aktuálnosti posouzení a otisku podkladů. GET nic neúčtuje ani nepřipravuje účty.
       parameters:
       - $ref: '#/components/parameters/SupplierIdHeader'
       - in: path
@@ -26996,7 +27002,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DeferredTaxPreview'
+                oneOf:
+                - $ref: '#/components/schemas/DeferredTaxPreview'
+                - $ref: '#/components/schemas/DeferredTax504Preview'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
@@ -33585,6 +33593,8 @@ components:
       - profit_loss
       - checks
       properties:
+        deferred_tax_method:
+          $ref: '#/components/schemas/DeferredTax504StatementMethod'
         statement_type:
           type: string
           enum:
@@ -33822,6 +33832,9 @@ components:
       - filled
       - carried_over_from_year
       properties:
+        readonly:
+          type: boolean
+          description: Automatically generated section which cannot be edited.
         key:
           type: string
           description: Sekce 504 mají samostatné klíče n504_*.
@@ -33975,6 +33988,33 @@ components:
           nullable: true
           enum:
           - null
+    DeferredTax504StatementMethod:
+      type: object
+      description: Explicitly documented own accounting method; not an automatic current income tax assessment.
+      required: [enabled, version, first_adoption, reference, faithful_image_reason, standard_departure_reason, presentation_reason, disclosure]
+      properties:
+        enabled: { type: boolean, const: true }
+        version: { type: string, const: 504-deferred-own-v1 }
+        first_adoption: { type: boolean }
+        reference: { type: string }
+        faithful_image_reason: { type: string }
+        standard_departure_reason: { type: string }
+        presentation_reason: { type: string }
+        first_adoption_reason: { type: string }
+        disclosure: { type: string }
+    Statement504Component:
+      type: object
+      required: [key, label]
+      properties:
+        key:
+          type: string
+          enum: [current_tax, deferred_tax, other_receivables, deferred_tax_asset, other_liabilities, deferred_tax_liability]
+        label: { type: string }
+        start: { type: [number, 'null'] }
+        end: { type: [number, 'null'] }
+        main: { type: number }
+        economic: { type: number }
+        total: { type: number }
     Statement504Row:
       type: object
       required:
@@ -33984,6 +34024,11 @@ components:
       - display_code
       - label
       properties:
+        components:
+          type: array
+          description: Gross own-method detail; numeric columns match the parent statement row and sum to its amount.
+          items:
+            $ref: '#/components/schemas/Statement504Component'
         row_code:
           type: string
         adis_sentence:
@@ -34045,6 +34090,8 @@ components:
       - totals
       - checks
       properties:
+        deferred_tax_method:
+          $ref: '#/components/schemas/DeferredTax504StatementMethod'
         statement_type:
           type: string
           const: balance_sheet
@@ -34118,6 +34165,8 @@ components:
       - rows
       - checks
       properties:
+        deferred_tax_method:
+          $ref: '#/components/schemas/DeferredTax504StatementMethod'
         statement_type:
           type: string
           const: income_statement
@@ -48275,9 +48324,291 @@ components:
           type: array
           items:
             type: string
+    DeferredTax504Method:
+      type: object
+      required:
+      - enabled
+      - version
+      - first_adoption
+      - reference
+      - faithful_image_reason
+      - standard_departure_reason
+      - presentation_reason
+      properties:
+        enabled:
+          type: boolean
+          const: true
+        version:
+          type: string
+          const: 504-deferred-own-v1
+        first_adoption: &c504id006
+          type: boolean
+        reference: &c504id001
+          type: string
+        faithful_image_reason: *c504id001
+        standard_departure_reason: *c504id001
+        presentation_reason: *c504id001
+        first_adoption_reason: *c504id001
+    DeferredTax504Title:
+      type: object
+      required:
+      - reference
+      - evidence
+      - kind
+      - difference
+      - rate_percent
+      - rate_basis
+      - temporary_confirmed
+      - dimensions
+      properties:
+        reference: *c504id001
+        evidence: *c504id001
+        kind:
+          type: string
+          enum:
+          - taxable
+          - deductible
+        difference:
+          type:
+          - string
+          - number
+        rate_percent:
+          type:
+          - string
+          - number
+        rate_basis: *c504id001
+        temporary_confirmed:
+          type: boolean
+          const: true
+        recognized_difference:
+          type:
+          - string
+          - number
+        recoverability_evidence: *c504id001
+        dimensions: &c504id003
+          oneOf:
+          - type: object
+            additionalProperties: &c504id002
+              type: integer
+          - type: array
+            maxItems: 0
+            items: *c504id002
+        cost_center: &c504id004
+          type:
+          - string
+          - 'null'
+        project_id: &c504id005
+          type:
+          - integer
+          - 'null'
+    DeferredTax504AssessedTitle:
+      type: object
+      required:
+      - reference
+      - evidence
+      - kind
+      - temporary_confirmed
+      - difference_cents
+      - recognized_difference_cents
+      - rate_basis_points
+      - recognized_tax_cents
+      - unrecognized_tax_cents
+      - rate_basis
+      - recoverability_evidence
+      - dimensions
+      - cost_center
+      - project_id
+      properties:
+        reference: *c504id001
+        evidence: *c504id001
+        kind:
+          type: string
+          enum:
+          - taxable
+          - deductible
+        temporary_confirmed:
+          type: boolean
+          const: true
+        difference_cents: *c504id002
+        recognized_difference_cents: *c504id002
+        rate_basis_points: *c504id002
+        recognized_tax_cents: *c504id002
+        unrecognized_tax_cents: *c504id002
+        rate_basis: *c504id001
+        recoverability_evidence:
+          type:
+          - string
+          - 'null'
+        dimensions: *c504id003
+        cost_center: *c504id004
+        project_id: *c504id005
+    DeferredTax504Balance:
+      type: object
+      required:
+      - dimensions
+      - cost_center
+      - project_id
+      - kind
+      - balance_cents
+      properties:
+        dimensions: *c504id003
+        cost_center: *c504id004
+        project_id: *c504id005
+        kind:
+          type: string
+          enum:
+          - asset
+          - liability
+        balance_cents: *c504id002
+    DeferredTax504Phase:
+      type: object
+      required:
+      - titles
+      - cells
+      - liability_cents
+      - asset_cents
+      - unrecognized_asset_cents
+      properties:
+        titles:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeferredTax504AssessedTitle'
+        cells:
+          oneOf:
+          - type: object
+            additionalProperties:
+              $ref: '#/components/schemas/DeferredTax504Balance'
+          - type: array
+            maxItems: 0
+            items:
+              $ref: '#/components/schemas/DeferredTax504Balance'
+        liability_cents: *c504id002
+        asset_cents: *c504id002
+        unrecognized_asset_cents: *c504id002
+    DeferredTax504Decision:
+      type: object
+      required:
+      - method
+      - titles
+      properties:
+        method:
+          $ref: '#/components/schemas/DeferredTax504Method'
+        titles:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeferredTax504Title'
+        opening_titles:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeferredTax504Title'
+        prepare_accounts: *c504id006
+    DeferredTax504Assessment:
+      oneOf:
+      - type: object
+        required:
+        - enabled
+        - method
+        properties:
+          enabled:
+            type: boolean
+            const: false
+          method:
+            type: 'null'
+      - type: object
+        required:
+        - enabled
+        - method
+        - opening
+        - closing
+        properties:
+          enabled:
+            type: boolean
+            const: true
+          method:
+            $ref: '#/components/schemas/DeferredTax504Method'
+          opening:
+            $ref: '#/components/schemas/DeferredTax504Phase'
+          closing:
+            $ref: '#/components/schemas/DeferredTax504Phase'
+    DeferredTax504Movement:
+      type: object
+      required:
+      - account_code
+      - side
+      - amount
+      - dimensions
+      - cost_center
+      - project_id
+      properties:
+        account_code: *c504id001
+        side:
+          type: string
+          enum:
+          - debit
+          - credit
+        amount:
+          type: number
+        dimensions: *c504id003
+        cost_center: *c504id004
+        project_id: *c504id005
+    DeferredTax504Preview:
+      type: object
+      required:
+      - accounting_framework
+      - as_of
+      - enabled
+      - method
+      - assessment
+      - balances
+      - source_hash
+      - decision
+      - assessment_current
+      - movements
+      - row_version
+      properties:
+        accounting_framework:
+          type: string
+          const: cz_504
+        as_of:
+          type: string
+          format: date
+        enabled: *c504id006
+        method:
+          anyOf:
+          - $ref: '#/components/schemas/DeferredTax504Method'
+          - type: 'null'
+        assessment:
+          $ref: '#/components/schemas/DeferredTax504Assessment'
+        balances:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeferredTax504Balance'
+        source_hash:
+          type: string
+          minLength: 1
+        decision:
+          anyOf:
+          - $ref: '#/components/schemas/DeferredTax504Decision'
+          - type: 'null'
+        assessment_current: *c504id006
+        movements:
+          type: object
+          required:
+          - opening
+          - closing
+          properties:
+            opening:
+              type: array
+              items:
+                $ref: '#/components/schemas/DeferredTax504Movement'
+            closing:
+              type: array
+              items:
+                $ref: '#/components/schemas/DeferredTax504Movement'
+        row_version: *c504id002
     DeferredTaxPreview:
       type: object
-      description: Pro rámec 504 k poslednímu dni období je applicable false a computation null. Historická období rámce 500 zachovávají dosavadní výpočet.
+      description: Náhled odložené daně pro účetní rámec 500.
       required:
       - as_of
       - period
@@ -54050,7 +54381,7 @@ components:
           - purchase_invoice
         doc_id:
           type: integer
-    ClosingFxPreview:
+    ClosingFx500Preview:
       type: object
       required:
       - rate_info
@@ -54107,3 +54438,429 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ClosingFxCaseHistoryProof'
+
+    ClosingFxPreview:
+      oneOf:
+      - $ref: '#/components/schemas/ClosingFx500Preview'
+      - $ref: '#/components/schemas/ClosingFx504Preview'
+    ClosingFx504Origin:
+      oneOf:
+      - type: object
+        required:
+        - kind
+        - doc_type
+        - doc_id
+        properties:
+          kind:
+            const: document
+            type: string
+          doc_type:
+            type: string
+            enum:
+            - invoice
+            - purchase_invoice
+          doc_id:
+            type: integer
+      - type: object
+        required:
+        - kind
+        - origin_line_id
+        - reference
+        properties:
+          kind:
+            const: declared_title
+            type: string
+          origin_line_id:
+            type: integer
+          reference:
+            type: string
+      - type: object
+        required:
+        - kind
+        - account_id
+        - currency_code
+        properties:
+          kind:
+            const: cash_account
+            type: string
+          account_id:
+            type: integer
+          currency_code:
+            type: string
+    ClosingFx504CaseDecision:
+      type: object
+      required:
+      - origin
+      - reason
+      - contributions
+      properties:
+        origin:
+          $ref: '#/components/schemas/ClosingFx504Origin'
+        reason:
+          type: string
+        contributions:
+          type: array
+          items:
+            type: object
+            required:
+            - cell_key
+            - czk_signed
+            - foreign_signed
+            properties:
+              cell_key:
+                type: string
+              czk_signed:
+                type: string
+                pattern: ^-?\d+\.\d{2}$
+              foreign_signed:
+                type: string
+                pattern: ^-?\d+\.\d{2}$
+    ClosingFx504AccountDecision:
+      type: object
+      required:
+      - classification
+      - reason
+      properties:
+        classification:
+          type: string
+          enum:
+          - monetary
+          - nonmonetary
+        reason:
+          type: string
+    ClosingFx504Decision:
+      type: object
+      required:
+      - reason
+      - cells
+      properties:
+        reason:
+          type: string
+        cells:
+          type: array
+          items:
+            type: object
+            required:
+            - amount
+            - dimensions
+            properties:
+              amount:
+                type: string
+                pattern: ^-?\d+\.\d{2}$
+              dimensions:
+                oneOf:
+                - type: object
+                  additionalProperties:
+                    type: integer
+                - type: array
+                  maxItems: 0
+    ClosingFx504Position:
+      type: object
+      required:
+      - key
+      - account_code
+      - currency_code
+      - dimensions
+      - booked_czk
+      - foreign_balance
+      - diff
+      - finding
+      properties:
+        key:
+          type: string
+        account_id:
+          type: integer
+        account_code:
+          type: string
+        currency_code:
+          type: string
+        dimensions:
+          oneOf:
+          - type: object
+            additionalProperties:
+              type: integer
+          - type: array
+            maxItems: 0
+        source_line_ids:
+          type: array
+          items:
+            type: integer
+        cost_center:
+          anyOf:
+          - type: string
+          - type: 'null'
+        project_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+        booked_czk:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+        foreign_balance:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+        new_czk:
+          anyOf:
+          - type: string
+            pattern: ^-?\d+\.\d{2}$
+          - type: 'null'
+        diff:
+          anyOf:
+          - type: string
+            pattern: ^-?\d+\.\d{2}$
+          - type: 'null'
+        rate:
+          anyOf:
+          - type: string
+          - type: 'null'
+        classification:
+          anyOf:
+          - type: string
+            enum:
+            - monetary
+            - nonmonetary
+            - securities
+          - type: 'null'
+        finding:
+          anyOf:
+          - type: string
+            enum:
+            - monetary_title_required
+            - profit_dimensions_required
+            - rate_required
+            - securities_valuation_required
+            - case_evidence_required
+          - type: 'null'
+        case_origin:
+          anyOf:
+          - $ref: '#/components/schemas/ClosingFx504Origin'
+          - type: 'null'
+    ClosingFx504SourceCell:
+      type: object
+      required:
+      - cell_key
+      - line_id
+      - entry_id
+      - line_no
+      - account_id
+      - account_code
+      - currency_code
+      - dimensions
+      - czk_signed
+      - foreign_signed
+      - candidates
+      properties:
+        cell_key:
+          type: string
+        line_id:
+          type: integer
+        entry_id:
+          type: integer
+        line_no:
+          type: integer
+        entry_version:
+          type: integer
+        account_id:
+          type: integer
+        account_code:
+          type: string
+        currency_code:
+          type: string
+        dimensions:
+          oneOf:
+          - type: object
+            additionalProperties:
+              type: integer
+          - type: array
+            maxItems: 0
+        cost_center:
+          anyOf:
+          - type: string
+          - type: 'null'
+        project_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+        czk_signed:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+        foreign_signed:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+        candidates:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClosingFx504Origin'
+    ClosingFx504Preview:
+      type: object
+      required:
+      - accounting_decree
+      - snapshot_hash
+      - complete
+      - positions
+      - totals
+      - required_types
+      - dimension_types
+      - dimension_values
+      - case_decisions
+      - case_source_cells
+      - case_unresolved
+      - case_locked_cell_keys
+      - case_findings
+      - case_source_hash
+      - account_decisions
+      - saved_decisions
+      - rate_info
+      properties:
+        accounting_decree:
+          type: string
+          const: '504'
+        snapshot_hash:
+          type: string
+        complete:
+          type: boolean
+        positions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClosingFx504Position'
+        totals:
+          type: object
+          required:
+          - loss
+          - gain
+          properties:
+            loss:
+              type: string
+              pattern: ^-?\d+\.\d{2}$
+            gain:
+              type: string
+              pattern: ^-?\d+\.\d{2}$
+        required_types:
+          type: array
+          items:
+            type: integer
+        dimension_types:
+          type: array
+          items:
+            type: object
+            required:
+            - id
+            - code
+            - name
+            - system_key
+            - is_active
+            properties:
+              id:
+                type: integer
+              code:
+                type: string
+              name:
+                type: string
+              system_key:
+                anyOf:
+                - type: string
+                - type: 'null'
+              is_active:
+                oneOf:
+                - type: boolean
+                - type: integer
+                  enum:
+                  - 0
+                  - 1
+        dimension_values:
+          type: array
+          items:
+            type: object
+            required:
+            - id
+            - type_id
+            - code
+            - name
+            - semantic_key
+            - is_active
+            properties:
+              id:
+                type: integer
+              type_id:
+                type: integer
+              code:
+                type: string
+              name:
+                type: string
+              semantic_key:
+                anyOf:
+                - type: string
+                - type: 'null'
+              is_active:
+                oneOf:
+                - type: boolean
+                - type: integer
+                  enum:
+                  - 0
+                  - 1
+        case_decisions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClosingFx504CaseDecision'
+        case_source_cells:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClosingFx504SourceCell'
+        case_unresolved:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClosingFx504SourceCell'
+        case_locked_cell_keys:
+          type: array
+          items:
+            type: string
+        case_findings:
+          type: array
+          items:
+            type: object
+            required:
+            - code
+            properties:
+              code:
+                type: string
+              entry_id:
+                type: integer
+              line_id:
+                type: integer
+              step_id:
+                type: integer
+        case_source_hash:
+          type: string
+        account_decisions:
+          oneOf:
+          - type: object
+            additionalProperties:
+              $ref: '#/components/schemas/ClosingFx504AccountDecision'
+          - type: array
+            maxItems: 0
+        saved_decisions:
+          oneOf:
+          - type: object
+            additionalProperties:
+              $ref: '#/components/schemas/ClosingFx504Decision'
+          - type: array
+            maxItems: 0
+        rate_info:
+          type: array
+          items:
+            type: object
+            required:
+            - currency
+            - rate
+            - rate_date
+            - fallback_used
+            properties:
+              currency:
+                type: string
+              rate:
+                type: string
+              rate_date:
+                type: string
+                format: date
+              fallback_used:
+                type: boolean

@@ -264,7 +264,8 @@ final class ProfitDistribution504Test extends TestCase
         $this->service->saveInventory($this->supplier,$this->target,$rv(),['complete'=>true],$items);
         $this->service->runPrecheck($this->supplier,$this->target,$rv());
         $this->service->confirmStep($this->supplier,$this->target,'depreciation','skipped',null,$rv());
-        $this->service->runFxRevaluation($this->supplier,$this->target,[],$rv());
+        $fx=$this->service->fxPreview($this->supplier,$this->target);
+        $this->service->runFxRevaluation($this->supplier,$this->target,[],$rv(),[],['snapshot_hash'=>$fx['snapshot_hash']]);
         foreach(['estimates','deferrals','provisions','income_tax'] as $step) $this->service->confirmStep($this->supplier,$this->target,$step,'skipped',null,$rv());
         $actor = (int) $this->db->pdo()->query('SELECT id FROM users ORDER BY id LIMIT 1')->fetchColumn();
         \MyInvoice\Tests\Support\NonprofitTaxAssessmentFixture::confirm(Bootstrap::buildContainer(), $this->supplier, $this->target, $actor);

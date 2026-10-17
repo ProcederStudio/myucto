@@ -15,34 +15,51 @@ final class Statement504Service
         private readonly StatementDefinitionRepository $definitions,
         private readonly StatementMapResolver $maps,
         private readonly Statement504CategoryCriteria $categoryCriteria,
+        private readonly DeferredTax504Statement $deferredTax,
     ) {}
 
     public function build(string $type, int $supplierId, array $context, string $scope, ?DimensionFilter $dimension): array
+    {
+        return $this->deferredTax->read(fn (): array => $this->buildSnapshot($type, $supplierId, $context, $scope, $dimension));
+    }
+
+    private function buildSnapshot(string $type, int $supplierId, array $context, string $scope, ?DimensionFilter $dimension): array
     {
         if ($type === FinancialStatementService::TYPE_PURPOSE) {
             throw new ReportException('statement_purpose_unsupported', 'Vyhláška 504 nestanoví účelovou výsledovku.');
         }
         $period = $context['period'];
-        $builder = $this->builder($supplierId, $period, $context['as_of']);
+        $deferred = $this->deferredTax->context($supplierId, $context['as_of']);
+        $builder = $this->builder($supplierId, $period, $context['as_of'], $deferred);
         $profit = $this->data->profitLines($supplierId, $period['starts_on'], $context['as_of'], $dimension);
+        $balances = $type === 'balance_sheet' ? $this->data->balances($supplierId, $period['starts_on'], $context['as_of'], $dimension) : [];
         $out = $type === 'balance_sheet'
-            ? $builder->balanceSheet($this->data->balances($supplierId, $period['starts_on'], $context['as_of'], $dimension), $profit, $scope)
+            ? $builder->balanceSheet($balances, $profit, $scope)
             : $builder->incomeStatement($profit, $scope);
-        return $this->metadata($type, $context, $dimension) + ['scope' => $scope] + $out;
+        return $this->metadata($type, $context, $dimension) + ['scope' => $scope] + DeferredTax504Statement::decorate($out, $profit, $balances, $deferred);
     }
 
     public function criteria(int $supplierId, array $period, string $asOf): array
     {
-        $builder = $period['starts_on'] < '2024-01-01' ? null : $this->builder($supplierId, $period, $asOf);
-        return $this->categoryCriteria->calculate($supplierId, $period, $asOf, $builder);
+        return $this->deferredTax->read(function () use ($supplierId, $period, $asOf): array {
+            $builder = $period['starts_on'] < '2024-01-01' ? null : $this->builder($supplierId, $period, $asOf, $this->deferredTax->context($supplierId, $asOf));
+            return $this->categoryCriteria->calculate($supplierId, $period, $asOf, $builder);
+        });
     }
 
     public function accountView(int $supplierId, array $context, ?DimensionFilter $dimension): array
     {
+        return $this->deferredTax->read(fn (): array => $this->accountSnapshot($supplierId, $context, $dimension));
+    }
+
+    private function accountSnapshot(int $supplierId, array $context, ?DimensionFilter $dimension): array
+    {
         $period = $context['period'];
-        $builder = $this->builder($supplierId, $period, $context['as_of']);
+        $deferred = $this->deferredTax->context($supplierId, $context['as_of']);
+        $builder = $this->builder($supplierId, $period, $context['as_of'], $deferred);
         $balances = $this->data->balances($supplierId, $period['starts_on'], $context['as_of'], $dimension);
-        $profit = $builder->incomeStatement($this->data->profitLines($supplierId, $period['starts_on'], $context['as_of'], $dimension), 'full');
+        $profitLines = $this->data->profitLines($supplierId, $period['starts_on'], $context['as_of'], $dimension);
+        $profit = DeferredTax504Statement::decorate($builder->incomeStatement($profitLines, 'full'), $profitLines, [], $deferred);
         $pending = 0;
         $total = 0;
         $out = [];
@@ -53,14 +70,14 @@ final class Statement504Service
                 'account_type' => $balance['account_type'], 'opening_debit_balance' => $balance['opening_cents'] / 100.0,
                 'closing_debit_balance' => $balance['closing_cents'] / 100.0];
         }
-        return $this->metadata('account_view', $context, $dimension) + [
+        return $this->metadata('account_view', $context, $dimension) + array_intersect_key($profit, ['deferred_tax_method' => true]) + [
             'view_kind' => 'management', 'balances' => $out, 'profit_loss' => $profit['rows'],
             'checks' => ['unresolved_pending_result' => $pending / 100.0,
                 'reconciliation_difference' => round($total / 100.0 - $profit['checks']['profit_current'], 2)],
         ];
     }
 
-    private function builder(int $supplierId, array $period, string $asOf): Statement504Builder
+    private function builder(int $supplierId, array $period, string $asOf, ?array $deferred): Statement504Builder
     {
         $rows = [];
         $maps = [];
@@ -92,7 +109,7 @@ final class Statement504Service
                 throw new ReportException('statement_version_missing', 'Definice výkazu 504 není úplná.');
             }
         }
-        return new Statement504Builder($rows, $maps);
+        return new Statement504Builder($rows, DeferredTax504Statement::maps($maps, $deferred));
     }
 
     private function metadata(string $type, array $context, ?DimensionFilter $dimension): array

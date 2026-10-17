@@ -155,12 +155,13 @@ final class FrameworkClosingIntegrationTest extends TestCase
         self::assertSame(0, (int) $stmt->fetchColumn());
     }
 
-    public function test504DeferredTaxIsNeitherProposedNorPosted(): void
+    public function test504DefaultDeferredMethodIsOffAndRejectsAutomatic500Posting(): void
     {
         $this->framework('2024-07-01', 'cz_504');
         $preview = $this->closing->deferredTaxPreview($this->supplierId, $this->periodId);
-        self::assertFalse($preview['applicable']);
-        self::assertNull($preview['computation']);
+        self::assertSame('cz_504', $preview['accounting_framework']);
+        self::assertFalse($preview['enabled']);
+        self::assertSame(['opening' => [], 'closing' => []], $preview['movements']);
         $this->closing->start($this->supplierId, $this->periodId, $this->rv(), $this->meta());
         try {
             $this->closing->runDeferredTax($this->supplierId, $this->periodId, 25.0, $this->rv(), $this->meta());
@@ -225,7 +226,9 @@ final class FrameworkClosingIntegrationTest extends TestCase
         $this->closing->saveInventory($sid, $pid, $this->rv(), ['complete' => true], $items, $this->meta());
         $this->closing->runPrecheck($sid, $pid, $this->rv(), $this->meta());
         $this->closing->confirmStep($sid, $pid, 'depreciation', 'skipped', null, $this->rv(), $this->meta());
-        $this->closing->runFxRevaluation($sid, $pid, [], $this->rv(), $this->meta());
+        $fx = $this->closing->fxPreview($sid, $pid);
+        $fxDecision = isset($fx['snapshot_hash']) ? ['snapshot_hash' => $fx['snapshot_hash']] : [];
+        $this->closing->runFxRevaluation($sid, $pid, [], $this->rv(), $this->meta(), $fxDecision);
         foreach (['estimates', 'deferrals', 'provisions', 'income_tax'] as $step) {
             $this->closing->confirmStep($sid, $pid, $step, 'skipped', null, $this->rv(), $this->meta());
         }

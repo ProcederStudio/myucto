@@ -115,6 +115,19 @@ Nebyl-li v období žádný odpisovaný majetek, krok se přeskočí sám.
 
 ### 72.4.3 Krok 3: Kurzové rozdíly
 
+**Účetní rámec 504:** Náhled vychází z doložených účetních případů a jejich aktuálních zůstatků.
+U nejednoznačných zápisů vyberte skutečný původ, doložte podklady a rozepište přesné částky v Kč i cizí měně.
+Potom obnovte náhled. Potvrzená historická přiřazení jsou uzamčená a nelze je v dalším roce přepsat.
+Chybějící výsledkové dimenze doplňte společnými buňkami s odůvodněním; částky musí přesně pokrýt kurzový rozdíl.
+Systém automaticky nedoplňuje hlavní činnost ani daňový režim. Neúplný náhled sčítá pouze vyřešené položky.
+Zaúčtování vyžaduje aktuální podklady, aktivní účet a úplné rozhodnutí. Přenesené historické dimenze mohou
+zůstat uzavřené, nově doplněné hodnoty musí být aktivní. Kurzové zisky a ztráty se zachovávají po jednotlivých
+případech i při uzavření a otevření knih. Cenné papíry vyžadují samostatné doložené ocenění.
+
+U doložené korunové hotovostní úhrady cizoměnového dokladu systém načítá nominál z propojené evidence platby. Chybějící nebo nejednoznačná vazba se zobrazí jako nevyřešený podklad a zabrání zaúčtování. Ověřte zdrojový doklad, platbu a její účetní zápis a obnovte náhled.
+
+Následující přehled polí Saldokonto a Devizové účty popisuje průvodce pro účetní rámec 500.
+
 Krok se zpřístupní až po zahájení uzávěrky. Zobrazí přecenění cizoměnových položek kurzem ČNB k rozvahovému
 dni (§ 24 odst. 6 a 7 zákona o účetnictví, ČÚS 006 pro rámec 500 a ČÚS 404 pro rámec 504).
 
@@ -596,7 +609,7 @@ přeúčtování i stornu dokladů starších než zamčené datum, i když je o
 
 ### 72.12.4 Pořadí kroků uzávěrky
 
-Uzávěrkový průvodce má deset kroků v pevném, závazném pořadí (viz tabulka v [§ 72.4](#724-krok-za-krokem-uzaverka-roku-pruvodce)).
+Uzávěrkový průvodce má v rámci 500 deset kroků v pevném, závazném pořadí. V rámci 504 navíc obsahuje krok Odložená daň podle výslovně zvolené vlastní metody (viz tabulka v [§ 72.4](#724-krok-za-krokem-uzaverka-roku-pruvodce)).
 Každý krok musí být před uzavřením knih buď dokončený, nebo vědomě přeskočený. Krok Zásoby je podmíněný: jen firma
 se skladem účtovaným způsobem B, jinak se automaticky přeskočí. Kroky Opravné položky a Daň z příjmů musí být před
 uzavřením knih dokončené nebo vědomě přeskočené, protože ovlivňují výsledek hospodaření.
@@ -652,7 +665,42 @@ Historii a podklady konkrétní revize lze stáhnout jako PDF, XLSX nebo struktu
 
 Potvrzenou volbu osvobození daru nelze zpětně změnit ani jeho rozdělením do nových alokačních řádků. Části stejného původního daru musejí mít jednotný právní titul a volbu osvobození. Pokud z dřívějšího zdroje čerpá další potvrzené období, nejprve doloženě přehodnoťte navazující posouzení. Ochranu zachovává i nahrazení starého posouzení, při němž zdroj dostane jiný právní titul.
 
-## 72.14 Související kapitoly
+### 72.13.1 Zákonné opravné položky a rezervy
+
+V kroku **Opravné položky** uzávěrky rámce 504 jsou samostatné formuláře pro zákonnou opravnou položku, tvorbu rezervy na opravu majetku a její čerpání. Rozhodnutí potvrzuje uživatel s právem provádět uzávěrku. Uživatel s právem číst účetnictví může prohlížet podklady a ověřovat náhledy. Zápis vyžaduje probíhající uzávěrku. Práce s konkrétním zdrojem majetku navíc vyžaduje oprávnění číst majetek; běžné podklady zákonných opravných položek toto právo nepotřebují.
+
+U pohledávky zadejte **konečný stav zákonné opravné položky** po společných buňkách. Každá buňka zachovává současně činnost, druh činnosti, daňový režim i další členění zdroje. Můžete potvrdit doložené řádky pohledávky s poměrným vypořádáním úhrad nebo výslovně zdůvodnit nové rozdělení. Doplňte označení rozhodnutí, právní základ a doklad splnění podmínek včetně vazby na zdanitelnou činnost. Účtuje se pouze změna proti dosavadnímu stavu na 559/391. Nulový konečný stav opravnou položku rozpouští. Účetní opravná položka se v tomto rámci nenabízí.
+
+Pro **tvorbu rezervy na opravu** vyhledejte kartu majetku, doložte jeho trvající užívání a vyberte podklad pořízení. U zařazení z karty se dohledá původní zápis. U doloženého přiřazení vyberte konkrétní účetní řádky a částku přiřazenou z každého z nich; jejich součet musí odpovídat pořizovací hodnotě včetně doložených technických zhodnocení. Rozpočet opravy je samostatná částka a může být vyšší než pořizovací hodnota. Režim zařazení z karty pokrývá původní pořizovací zápis bez technických zhodnocení. Při evidovaném a zaúčtovaném technickém zhodnocení použijte doložené přiřazení obou druhů řádků. Například zařazení 100 000 Kč a technické zhodnocení 90 000 Kč vyžadují přiřazení 190 000 Kč; rozpočet rezervy může být samostatně 150 000 Kč. Neúplné přiřazení aplikace odmítne.
+
+Doplňte rozhodnutí, právní titul, popis a důkazy splnění zákonných podmínek. Po volbě **Ověřit a zobrazit náhled** zkontrolujte celé společné rozdělení. **Potvrdit zápis** vytvoří 556/941. Změna údajů zruší předchozí náhled; podklady se při potvrzení znovu ověřují.
+
+Pro čerpání nebo rozpuštění vyberte původní doloženou rezervu a částky v jejích společných buňkách. Zápis 941/556 nesmí překročit dostupný zůstatek žádné buňky. Seznam zápisů aktuálního období umožňuje doložené storno; při navazujícím čerpání je nutné nejprve stornovat čerpání a až poté tvorbu.
+
+### 72.13.2 Oprava zdroje rezervy majetku
+
+Opravu zahajte u stejné karty majetku v uzávěrce a uveďte důvod i správné pořizovací podklady. Formulář rozlišuje dvě situace:
+
+- **Oprava zdroje ve stejném období:** nejprve stornujte navazující čerpání a tvorbu úplnými protizápisy ve stejném období. Samotný opačný součet na účtu nestačí. Náhled musí potvrdit celý původní společný zápis a průkaznost nového zdroje. Po potvrzení opravy lze rezervu znovu vytvořit ze správného zdroje.
+- **Oprava zdroje při uzavřené historii:** původní tvorba ani čerpání se nestornují. Doložte původní dokument s datem, označením a důkazem, že šlo od začátku o stejný majetek i účel opravy. V aktuálním období se převede pouze zbývající rezerva mezi společnými buňkami zápisem 941/941. Historie a její původní zdroje zůstávají chráněné.
+
+Například při tvorbě **150 000 Kč** a čerpání **30 000 Kč** se při opravě uzavřené historie převádí **120 000 Kč**. Náhled ukáže převáděný zůstatek a obě strany společného rozdělení. Změněný zdroj, nesouhlasný účel, překročený zůstatek nebo zastaralý stav období potvrzení zablokují.
+
+Majetek navázaný na doloženou rezervu nelze zpětně vyřadit způsobem, který by popřel jeho užívání v doloženém období. Obdobně nelze zrušením již neplatného zpětného vyřazení obcházet ochranu zdroje. Pozdější vyřazení a jeho zrušení jsou možné, pokud zachovají průkazný historický stav.
+
+## 72.14 Odložená daň podle vlastní metody v rámci 504
+
+Krok **Odložená daň** je ve výchozím stavu vypnutý. Jeho výslovná volba vyžaduje odkaz na schválené rozhodnutí, důvod věrného a poctivého obrazu, rozsah odchylky a důvod odděleného vykázání. Jde o vlastní účetní metodu podle § 7 odst. 2 a § 36 zákona o účetnictví, nikoli automatické posouzení splatné daně. Daňové posouzení činností zůstává samostatným podkladem.
+
+Zadejte doložené tituly a celý požadovaný konečný přechodný rozdíl, sazbu a její právní podklad. U pohledávky určete prokazatelně využitelnou část a doložte pravděpodobnost uplatnění. Každý titul zachovává společné přiřazení dimenzí. Odebrání titulu rozpouští jeho dosavadní zůstatek; nový přírůstek potřebuje aktivní přiřazení. Samostatná volba prvního zavedení minulých rozdílů vyžaduje další důvod a používá účet 932.
+
+Spusťte **Ověřit rozhodnutí a zobrazit zápisy**, zkontrolujte hrubý závazek, uznanou pohledávku, neuznanou část a navržené zápisy. Potvrzení účtuje přesně ověřené rozhodnutí nad stejnými podklady. Úprava rozhodnutí, změna verze období nebo podkladů vyžaduje nový náhled. Každé další období vyžaduje nové posouzení i při nulové změně částky. Příprava chybějících účtů 349, 592 a 959.100 vyžaduje zvláštní souhlas; existující nekompatibilní účty se nepřepisují.
+
+Vrácením kroku nelze vymazat historii již potvrzeného posouzení ani zaúčtované zápisy. Změnu konečných rozdílů proveďte novým doloženým posouzením; historie předchozích rozhodnutí zůstává zachovaná i při nulovém zůstatku.
+
+Závazek a pohledávka se vzájemně nezapočítávají. Rozvaha, výsledovka, PDF i XLSX zachovávají zákonné řádky a uvnitř nich oddělují běžnou a odloženou část. Příloha automaticky uvádí doloženou metodu, hrubé počáteční a konečné zůstatky, výsledkový dopad, neuznanou část a důkazy využitelnosti. Tato automatická sekce je pouze ke čtení. Při zobrazení v tisících se podpoložky dorovnají na zaokrouhlený rodičovský řádek.
+
+## 72.15 Související kapitoly
 
 - [Účetní kontroly a inventarizace](46_Ucetni_kontroly_a_inventarizace.md)
 - [Inventarizace účtů](69_Inventarizace_rozvahovych_uctu.md)
