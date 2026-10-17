@@ -18,6 +18,7 @@ final class ErrorCatalog
 {
     /** @var array<string,string> CZ → EN */
     private const MAP = [
+        'Uzavřené účetní knihy nelze měnit. Nejprve je znovu otevřete.' => 'Closed accounting books cannot be changed. Reopen them first.',
         'Vlastní účet nemá ověřenou vazbu na účetní rámec.' => 'The custom account has no verified binding to the accounting framework.',
         'Systémovou dimenzi ani význam použité hodnoty nelze změnit. Pro nový význam založte novou hodnotu.' => 'A system dimension or the meaning of a used value cannot be changed. Create a new value for a new meaning.',
         'Kód systémové dimenze již používá vlastní typ. Vlastní typ nelze automaticky převést.' => 'A custom type already uses the system dimension code. A custom type cannot be converted automatically.',
