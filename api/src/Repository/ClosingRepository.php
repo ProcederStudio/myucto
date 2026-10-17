@@ -41,6 +41,53 @@ final class ClosingRepository
 
     public function __construct(private readonly Connection $db) {}
 
+    public function adjacentPeriodForUpdate(int $supplierId, string $boundary, bool $previous): ?array
+    {
+        $predicate = $previous ? 'ends_on < ? ORDER BY ends_on DESC' : 'starts_on = DATE_ADD(?, INTERVAL 1 DAY)';
+        $stmt = $this->db->pdo()->prepare('SELECT id, supplier_id, fiscal_year, starts_on, ends_on, status, row_version
+            FROM accounting_periods WHERE supplier_id = ? AND ' . $predicate . ' LIMIT 1 FOR UPDATE');
+        $stmt->execute([$supplierId, $boundary]);
+        $period = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $period === false ? null : $period;
+    }
+
+    /**
+     * Aktuální návazné zápisy po period-first zámku volajícího (včetně staršího RR snapshotu).
+     * Existuje na některý z $accountCodes zaúčtovaný zápis mimo profit_distribution
+     * s entry_date > $afterDate? Guard pro revert rozdělení VH (audit #2) — prefix-match
+     * jako {@see ClosingRepository::accountBalance}, aby chytil i analytiky.
+     *
+     * @param list<string> $accountCodes
+     */
+    public function hasFollowUpPostingsForUpdate(int $supplierId, array $accountCodes, string $afterDate): bool
+    {
+        if ($accountCodes === []) {
+            return false;
+        }
+        $conditions = [];
+        $params = [$supplierId];
+        foreach ($accountCodes as $code) {
+            $conditions[] = '(a.account_code LIKE CONCAT(?, \'%\') OR COALESCE(p.account_code, a.account_code) LIKE CONCAT(?, \'%\'))';
+            $params[] = $code;
+            $params[] = $code;
+        }
+        $params[] = $afterDate;
+        $stmt = $this->db->pdo()->prepare(
+            'SELECT 1
+               FROM journal_entry_lines l
+               JOIN journal_entries e ON e.id = l.entry_id
+               JOIN chart_of_accounts a ON a.id = l.account_id
+               LEFT JOIN chart_of_accounts p ON p.id = a.parent_id
+              WHERE l.supplier_id = ? AND e.posted_at IS NOT NULL
+                AND e.source_type <> \'profit_distribution\'
+                AND (' . implode(' OR ', $conditions) . ')
+                AND e.entry_date > ?
+              LIMIT 1 FOR UPDATE'
+        );
+        $stmt->execute($params);
+        return $stmt->fetchColumn() !== false;
+    }
+
     public function provisionSourceId(int $supplierId, int $periodId, int $invoiceId): int
     {
         $pdo = $this->db->pdo();
@@ -869,7 +916,7 @@ final class ClosingRepository
      *
      * @return array{entry: array<string,mixed>, lines: list<array<string,mixed>>}|null
      */
-    public function deleteClosingEntry(int $supplierId, string $sourceType, int $sourceId, ?int $periodId = null): ?array
+    public function deleteClosingEntry(int $supplierId, string $sourceType, int $sourceId, ?int $periodId = null, bool $forUpdate = false): ?array
     {
         // Tvrdě mazat lze jen zápisy generované uzávěrkovým průvodcem / asistenty (revert
         // kroku = čistý úklid s auditním dumpem, ne §35 storno externího dokladu):
@@ -886,7 +933,7 @@ final class ClosingRepository
                     source_type, source_id, posted_at, posted_by, reversed_by, row_version
                FROM journal_entries
               WHERE supplier_id = ? AND source_type = ? AND source_id = ?
-              LIMIT 1"
+              " . ($forUpdate ? 'ORDER BY id DESC LIMIT 1 FOR UPDATE' : 'LIMIT 1')
         );
         $stmt->execute([$supplierId, $sourceType, $sourceId]);
         $entry = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -900,6 +947,7 @@ final class ClosingRepository
             $supplierId,
             $entry,
             $sourceType === 'closing' && $sourceId === (int) $entry['period_id'],
+            $forUpdate,
         );
     }
 
@@ -929,7 +977,7 @@ final class ClosingRepository
      * @param array<string,mixed> $entry
      * @return array{entry: array<string,mixed>, lines: list<array<string,mixed>>}
      */
-    private function hardDeleteWithDump(int $supplierId, array $entry, bool $allowClosedPeriod): array
+    private function hardDeleteWithDump(int $supplierId, array $entry, bool $allowClosedPeriod, bool $forUpdate = false): array
     {
         $pdo = $this->db->pdo();
         $status = $pdo->prepare('SELECT status FROM accounting_periods WHERE supplier_id = ? AND id = ? FOR UPDATE');
@@ -946,7 +994,7 @@ final class ClosingRepository
                     amount_foreign, cost_center, line_no
                FROM journal_entry_lines
               WHERE entry_id = ? AND supplier_id = ?
-              ORDER BY line_no ASC, id ASC'
+              ORDER BY line_no ASC, id ASC' . ($forUpdate ? ' FOR UPDATE' : '')
         );
         $linesStmt->execute([$entryId, $supplierId]);
         $lines = $linesStmt->fetchAll(PDO::FETCH_ASSOC);
