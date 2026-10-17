@@ -22122,11 +22122,13 @@ paths:
       tags: [Tax]
       summary: Pravidla bankovních pohybů v daňové evidenci
       description: |
-        Pravidlo podle směru, protiúčtu, variabilního symbolu, textu a částky označí nespárovaný
+        Pravidlo podle směru, protiúčtu, variabilního a konstantního symbolu, textu a částky označí nespárovaný
         pohyb jako ignorovaný (`action_ignore`) a/nebo ho zařadí v peněžním deníku (`tax_bucket`,
         stejné hodnoty jako ruční zařazení). Jen v daňové evidenci, jinak 403 `wrong_accounting_mode`.
         Protiúčet může obsahovat číslo účtu bez omezení banky (`1000000005`), účet a banku
         (`1000000005/5050`) nebo libovolný účet dané banky (`*/5050`).
+        Konstantní symbol může být jediným kritériem; má 1–4 číslice a při porovnání se
+        ignorují vodicí nuly (`0308` odpovídá `308`). Všechny vyplněné podmínky musí platit zároveň.
       responses:
         '200':
           description: OK
@@ -38377,6 +38379,12 @@ components:
           description: Číslo účtu bez omezení banky, číslo/kód banky nebo */kód banky (čtyři číslice).
           examples: ["1000000005", "1000000005/5050", "*/5050"]
         variable_symbol: { type: [string, "null"] }
+        constant_symbol:
+          type: [string, "null"]
+          maxLength: 4
+          pattern: '^[0-9]{1,4}$'
+          description: Konstantní symbol; NULL = bez omezení. Porovnává se bez vodicích nul, chybějící symbol podmínku nesplní.
+          examples: ["0308", "0"]
         text_contains: { type: [string, "null"], description: Hledá se ve zprávě a názvu protistrany }
         amount_min: { type: [number, "null"] }
         amount_max: { type: [number, "null"] }
