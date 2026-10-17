@@ -172,7 +172,8 @@ oba, má přednost před rokem) a **Klasifikaci**. Výchozí volba **Všechny kl
 osvobozený nebo nedaňový příjem, daňový nebo nedaňový výdaj, převod, soukromý pohyb a **Nezařazeno**. Výběr se řídí
 štítkem ve sloupci **Klasifikace**. Pohyb s více daňovými složkami se nerozděluje do dalších řádků.
 
-Po změně se sestava přenačte automaticky. Aktivní klasifikaci ukazuje odstranitelný štítek; jeho zrušením zachováte
+Po změně filtru nebo zařazení pohybu se údaje obnoví přímo v tabulce. Během obnovy zůstává dosavadní tabulka viditelná;
+export a další změny zařazení jsou do dokončení obnovy pozastavené. Aktivní klasifikaci ukazuje odstranitelný štítek; jeho zrušením zachováte
 zvolené období. Filtr je uložený v adrese stránky, takže jej zachová otevření odkazu i návrat v historii prohlížeče.
 Na mobilu lze další ovládací prvky rozbalit tlačítkem **Filtry**. Při aktivní klasifikaci vidíte nad tabulkou počet zobrazených pohybů z celkového
 počtu za období. Prázdný výsledek filtru nabízí jeho zrušení.
