@@ -670,6 +670,7 @@ async function saveSupplier() {
       // Doplňky pro DPH/KH XML VetaP
       street_number_pop: (supplier.value as any).street_number_pop ?? null,
       street_number_orient: (supplier.value as any).street_number_orient ?? null,
+      person_title: supplier.value.person_title ?? null,
       opr_jmeno: (supplier.value as any).opr_jmeno ?? null,
       opr_prijmeni: (supplier.value as any).opr_prijmeni ?? null,
       opr_postaveni: (supplier.value as any).opr_postaveni ?? null,
@@ -2283,9 +2284,14 @@ async function confirmTaxRepDelete() {
             </div>
           </div>
 
-          <h4 class="text-xs font-semibold uppercase tracking-wide text-neutral-500 mt-5 mb-2">{{ t('settings.opr_section') }}</h4>
-          <p class="text-xs text-neutral-500 mb-3">{{ t('settings.opr_hint') }}</p>
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <h4 class="text-xs font-semibold uppercase tracking-wide text-neutral-500 mt-5 mb-2">{{ t(supplier.taxpayer_type !== 'po' ? 'settings.person_section' : 'settings.opr_section') }}</h4>
+          <p class="text-xs text-neutral-500 mb-3">{{ t(supplier.taxpayer_type !== 'po' ? 'settings.person_hint' : 'settings.opr_hint') }}</p>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3" data-test="tax-person-details">
+            <div v-if="supplier.taxpayer_type !== 'po'">
+              <label class="block text-xs font-medium text-neutral-700 mb-1" for="person-title">{{ t('settings.person_title') }}</label>
+              <input id="person-title" v-model="supplier.person_title" type="text" maxlength="10"
+                class="w-full h-9 px-3 border border-neutral-300 rounded-md text-sm" />
+            </div>
             <div>
               <label class="block text-xs font-medium text-neutral-700 mb-1">{{ t('settings.opr_jmeno') }}</label>
               <input v-model="supplier.opr_jmeno" type="text" maxlength="60"
@@ -2296,7 +2302,7 @@ async function confirmTaxRepDelete() {
               <input v-model="supplier.opr_prijmeni" type="text" maxlength="60"
                 class="w-full h-9 px-3 border border-neutral-300 rounded-md text-sm" />
             </div>
-            <div>
+            <div v-if="supplier.taxpayer_type === 'po' || supplier.opr_postaveni">
               <label class="block text-xs font-medium text-neutral-700 mb-1">{{ t('settings.opr_postaveni') }}</label>
               <input v-model="supplier.opr_postaveni" type="text" maxlength="60" placeholder="jednatel"
                 class="w-full h-9 px-3 border border-neutral-300 rounded-md text-sm" />

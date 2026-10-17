@@ -31,6 +31,7 @@ use MyInvoice\Service\Supplier\SupplierCreator;
 use MyInvoice\Service\Supplier\SupplierDirectory;
 use MyInvoice\Service\Supplier\SupplierDirectoryQuery;
 use MyInvoice\Service\Supplier\SupplierInitializer;
+use MyInvoice\Service\Supplier\SupplierPersonTitle;
 use MyInvoice\Service\Tax\Return\TaxpayerTypeCodebook;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -335,6 +336,13 @@ final class SettingsAction
         $assignCreator = !RequestAuthorization::isSuperadmin($request);
 
         $b = (array) ($request->getParsedBody() ?? []);
+        if (array_key_exists('person_title', $b)) {
+            try {
+                $b['person_title'] = SupplierPersonTitle::normalize($b['person_title']);
+            } catch (\InvalidArgumentException $e) {
+                return Json::error($response, 'validation_failed', $e->getMessage(), 400);
+            }
+        }
 
         $required = ['company_name', 'street', 'city', 'zip', 'email'];
         foreach ($required as $f) {
@@ -429,6 +437,14 @@ final class SettingsAction
             return Json::error($response, 'not_found', 'Supplier nenalezen.', 404);
         }
 
+        if (array_key_exists('person_title', $body)) {
+            try {
+                $body['person_title'] = SupplierPersonTitle::normalize($body['person_title']);
+            } catch (\InvalidArgumentException $e) {
+                return Json::error($response, 'validation_failed', $e->getMessage(), 400);
+            }
+        }
+
         if (!empty($body['dimensions_enabled']) && LicenseMiddleware::state($request)?->hasCommercialFeatures() === false) {
             $current = $this->db->pdo()->prepare('SELECT dimensions_enabled FROM supplier WHERE id = ?');
             $current->execute([$id]);
@@ -509,7 +525,7 @@ final class SettingsAction
             'sest_jmeno', 'sest_prijmeni', 'sest_telefon', 'sest_email', 'sest_funkce',
             // Doplňky pro DPH/KH XML VetaP (migrace 0043)
             'street_number_pop', 'street_number_orient',
-            'opr_jmeno', 'opr_prijmeni', 'opr_postaveni',
+            'opr_jmeno', 'opr_prijmeni', 'opr_postaveni', 'person_title',
             // Děkovný e-mail za úhradu (issue #57)
             'payment_thanks_enabled', 'payment_thanks_auto_send', 'payment_thanks_default_checked', 'payment_thanks_attach_paid_pdf',
             // Kopie odchozích e-mailů dodavateli (migrace 0102) — JSON, validace níže

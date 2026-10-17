@@ -25,6 +25,7 @@ use MyInvoice\Service\Accounting\Reports\FinancialStatementService;
 use MyInvoice\Service\Accounting\Reports\ReportException;
 use MyInvoice\Service\Accounting\Reports\StatementOverrideService;
 use MyInvoice\Service\Tax\Return\TaxpayerTypeCodebook;
+use MyInvoice\Service\Supplier\SupplierPersonTitle;
 use PDO;
 
 /**
@@ -182,6 +183,14 @@ final class CompanyProfileImporter
         foreach ($this->known('tax_profile', $data, CompanyProfileFormat::TAX_PROFILE_COLUMNS) as $column => $value) {
             if (in_array($column, self::TAX_PROFILE_FLAGS, true)) {
                 $values[$column] = self::flag($value, $column) ? 1 : 0;
+                continue;
+            }
+            if ($column === 'person_title') {
+                try {
+                    $values[$column] = SupplierPersonTitle::normalize($value);
+                } catch (\InvalidArgumentException $e) {
+                    throw new CompanyProfileException('validation_failed', $e->getMessage());
+                }
                 continue;
             }
             $text = trim((string) ($value ?? ''));
