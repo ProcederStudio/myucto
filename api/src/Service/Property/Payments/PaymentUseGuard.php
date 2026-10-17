@@ -30,9 +30,17 @@ final class PaymentUseGuard
     }
     public static function entryReferenceSql():string
     {
-        return "EXISTS (SELECT 1 FROM unit_payment_sources s WHERE s.supplier_id=e.supplier_id AND s.journal_entry_id=e.id FOR UPDATE)
+        return \MyInvoice\Service\Property\Opening\OpeningUseGuard::entryReferenceSql()." OR EXISTS (SELECT 1 FROM unit_payment_sources s WHERE s.supplier_id=e.supplier_id AND s.journal_entry_id=e.id FOR UPDATE)
                 OR EXISTS (SELECT 1 FROM unit_payment_operations o WHERE o.supplier_id=e.supplier_id AND (o.journal_entry_id=e.id OR o.reversal_entry_id=e.id) FOR UPDATE)
                 OR EXISTS (SELECT 1 FROM unit_claim_accessory_receipts r WHERE r.supplier_id=e.supplier_id AND r.journal_entry_id=e.id FOR UPDATE)
+                OR EXISTS (SELECT 1 FROM unit_payment_source_revisions r WHERE r.supplier_id=e.supplier_id AND r.journal_entry_id=e.id FOR UPDATE)
+                OR EXISTS (SELECT 1 FROM unit_charges c JOIN unit_payment_allocations a ON a.supplier_id=c.supplier_id AND a.charge_id=c.id JOIN unit_payment_operations o ON o.supplier_id=a.supplier_id AND o.id=a.operation_id WHERE c.supplier_id=e.supplier_id AND c.journal_entry_id=e.id AND o.status='posted' FOR UPDATE)";
+    }
+    public static function externalOpeningReferencesSql():string
+    {
+        return "EXISTS (SELECT 1 FROM unit_payment_sources s WHERE s.supplier_id=e.supplier_id AND s.journal_entry_id=e.id FOR UPDATE)
+                OR EXISTS (SELECT 1 FROM unit_payment_operations o WHERE o.supplier_id=e.supplier_id AND (o.journal_entry_id=e.id OR o.reversal_entry_id=e.id) FOR UPDATE)
+                OR EXISTS (SELECT 1 FROM unit_claim_accessory_receipts r WHERE r.supplier_id=e.supplier_id AND r.journal_entry_id=e.id AND r.opening_component_id IS NULL FOR UPDATE)
                 OR EXISTS (SELECT 1 FROM unit_payment_source_revisions r WHERE r.supplier_id=e.supplier_id AND r.journal_entry_id=e.id FOR UPDATE)
                 OR EXISTS (SELECT 1 FROM unit_charges c JOIN unit_payment_allocations a ON a.supplier_id=c.supplier_id AND a.charge_id=c.id JOIN unit_payment_operations o ON o.supplier_id=a.supplier_id AND o.id=a.operation_id WHERE c.supplier_id=e.supplier_id AND c.journal_entry_id=e.id AND o.status='posted' FOR UPDATE)";
     }

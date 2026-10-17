@@ -60,7 +60,7 @@ const actions = () => [{ key: 'card-load', label: t('propertyPayments.card.load'
     <p v-if="loading">{{ t('propertyPayments.loading') }}</p>
     <div v-if="card" class="space-y-3" data-section="card-result">
       <p v-if="card.precision === 'day'" class="text-sm text-warning-600" data-flag="day-precision">{{ t('propertyPayments.card.dayPrecision') }}</p>
-      <p class="text-sm text-warning-600" data-flag="coverage">{{ t('propertyPayments.card.coverage') }}<template v-if="!card.coverage.financial_complete"> {{ t('propertyPayments.card.financialIncomplete') }}</template><template v-if="card.coverage.service_settlements === 'not_implemented'"> {{ t('propertyPayments.card.servicesMissing') }}</template><template v-if="card.coverage.opening_import === 'not_implemented'"> {{ t('propertyPayments.card.openingMissing') }}</template></p>
+      <p class="text-sm text-warning-600" data-flag="coverage">{{ t('propertyPayments.card.coverage') }}<template v-if="!card.coverage.financial_complete"> {{ t('propertyPayments.card.financialIncomplete') }}</template><template v-if="card.coverage.service_settlements === 'not_implemented'"> {{ t('propertyPayments.card.servicesMissing') }}</template><template v-if="card.coverage.opening_import !== 'verified_recorded_batches'"> {{ t('propertyPayments.card.openingMissing') }}</template></p>
       <dl class="grid gap-x-3 gap-y-1 text-sm sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]" data-section="card-totals">
         <template v-for="[key, value] in totals" :key="key"><dt>{{ t(`propertyPayments.card.totals.${key}`) }}</dt><dd :data-total="key" :data-unknown="value === null">{{ money(value) }}</dd></template>
       </dl>

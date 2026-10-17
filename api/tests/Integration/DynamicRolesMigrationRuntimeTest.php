@@ -136,7 +136,8 @@ final class DynamicRolesMigrationRuntimeTest extends TestCase
                 '2023_property_registry.sql',
                 '2024_property_charge_versions.sql',
                 '2025_property_charge_issuance.sql',
-                '2039_property_payment_permissions.sql'
+                '2039_property_payment_permissions.sql',
+                '2044_property_opening.sql'
             )"
         );
         $this->runMigrator();
@@ -189,6 +190,9 @@ final class DynamicRolesMigrationRuntimeTest extends TestCase
                 CONSTRAINT fk_usersup_supplier FOREIGN KEY (supplier_id) REFERENCES supplier(id) ON DELETE CASCADE",
             'documents' => 'id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY',
             'bank_transactions' => 'id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY',
+            'cash_documents' => 'id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY',
+            'journal_entry_lines' => 'id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY',
+            'accounting_periods' => 'id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, supplier_id INT UNSIGNED NOT NULL, UNIQUE KEY uq_period_tenant (supplier_id,id)',
             'purchase_invoices' => 'id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, supplier_id INT UNSIGNED NOT NULL',
             'document_requests' => 'id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, purchase_invoice_id BIGINT UNSIGNED NULL',
             'warehouses' => 'id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, is_active TINYINT(1) NOT NULL DEFAULT 1',
@@ -313,9 +317,11 @@ final class DynamicRolesMigrationRuntimeTest extends TestCase
                 '2023_property_registry.sql',
                 '2024_property_charge_versions.sql',
                 '2025_property_charge_issuance.sql',
+                '2026_unit_payments.sql',
                 '2038_invoice_edit_issued_permission.sql',
                 '2039_property_payment_permissions.sql',
                 '2043_property_receivable_permissions.sql',
+                '2044_property_opening.sql',
             ]),
         ];
         $env = getenv();

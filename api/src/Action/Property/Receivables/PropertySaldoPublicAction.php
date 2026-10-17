@@ -22,6 +22,6 @@ final class PropertySaldoPublicAction
             if(is_bool($limit)||!is_scalar($limit)||filter_var($limit,FILTER_VALIDATE_INT)===false||(int)$limit<1||(int)$limit>100)PropertyInput::invalid('limit');
             if(array_key_exists('cursor',$q)&&!is_string($q['cursor']))PropertyInput::invalid('cursor');
             return Json::ok($response,$this->read->page($this->currentSupplierId($request),$asOf,$knownAt,(int)$limit,$q['cursor']??null));
-        }catch(PropertyException|\MyInvoice\Service\Property\Charges\Issuance\IssuanceException|\MyInvoice\Service\Property\Payments\PaymentException $e){return Json::error($response,$e->errorCode,$e->getMessage(),$e->httpStatus,['details'=>$e->details]);}
+        }catch(PropertyException|\MyInvoice\Service\Property\Opening\OpeningException|\MyInvoice\Service\Property\Charges\Issuance\IssuanceException|\MyInvoice\Service\Property\Payments\PaymentException $e){return Json::error($response,$e->errorCode,$e->getMessage(),$e->httpStatus,['details'=>$e->details]);}
     }
 }

@@ -25,8 +25,12 @@ const read = (name, title, description, properties, required, run) => ({
 });
 
 export const DIMENSION_TOOLS = [
+  read('list_property_openings', 'Převzaté počáteční stavy SVJ',
+    'Ověřené účetní dávky a hrubé role po jednotkách a službách bez právních podkladů osob. Historie zahrnuje i stornované dávky; částky nejsou dnešní dostupný kredit. next_cursor předávejte jako after_id. Nejde o úplnou finanční pozici ani oprávnění k zápisu.',
+    { after_id: { type: 'integer', minimum: 0 }, limit: { type: 'integer', minimum: 1, maximum: 100 } }, [],
+    (c, a, tool) => c.get('/property/catalog/openings', { after_id: a.after_id, limit: a.limit }, tool)),
   read('list_property_saldo', 'Stránkované saldo jednotek SVJ',
-    'Samostatný souhrn zaznamenaných S3/S4 pohledávek, příslušenství, kreditů a rezervací. Neúplné pokrytí není úplná finanční pozice. Zachovejte null, precision a coverage. Cursor je vázaný na firmu a oba časy; každá stránka má vlastní snapshot, stránky nejsou atomický součet firmy. read_scope_digest ověřuje pouze úplnou návaznost zdrojů vybraných jednotek a neautorizuje platbu. Detaily a úplné historie poskytuje property_receivable_card.',
+    'Samostatný souhrn zaznamenaných S3/S4/S6 pohledávek, příslušenství, kreditů a rezervací. Neúplné pokrytí není úplná finanční pozice. Zachovejte null, precision a coverage. Cursor je vázaný na firmu a oba časy; každá stránka má vlastní snapshot, stránky nejsou atomický součet firmy. read_scope_digest ověřuje pouze úplnou návaznost zdrojů vybraných jednotek a neautorizuje platbu. Detaily a úplné historie poskytuje property_receivable_card.',
     { as_of: instant('Rozhodný okamžik s offsetem.'), known_at: instant('Okamžik znalosti s offsetem.'), cursor: str('Nezměněný next_cursor předchozí stránky.', { maxLength: 1000 }), limit: { type: 'integer', minimum: 1, maximum: 100, description: 'Počet jednotek; výchozí 25.' } }, ['as_of', 'known_at'],
     (c, a, tool) => c.get('/property/catalog/payments/saldo', { as_of: a.as_of, known_at: a.known_at, cursor: a.cursor, limit: a.limit }, tool)),
   read('property_receivable_card', 'Saldo a karta jednotky SVJ',
@@ -42,7 +46,7 @@ export const DIMENSION_TOOLS = [
     { before_id: { type: 'integer', minimum: 0, description: 'next_cursor předchozí stránky; výchozí 0.' }, limit: { type: 'integer', minimum: 1, maximum: 100, description: 'Velikost stránky; výchozí 25.' } }, [],
     (c, a, tool) => c.get('/property/catalog/payments/history', { before_id: a.before_id, limit: a.limit }, tool)),
   read('property_receivable_reconciliation', 'Rekonciliace salda jednotky SVJ',
-    'Porovnání evidence pohledávek s účty 315 a 379.910 jedné jednotky k účetnímu datu před uzavřením. knowledge_basis=current_ledger používá dnešní znalost účetnictví; nejde o historický snapshot podle known_at. Počáteční import a vyúčtování služeb nejsou pokryty. Čte celou finanční historii firmy.',
+    'Porovnání evidence pohledávek s účty 315 a 379.910 jedné jednotky k účetnímu datu před uzavřením. knowledge_basis=current_ledger používá dnešní znalost účetnictví; nejde o historický snapshot podle known_at. Pokrytí počátečních stavů dokládá opening_import_coverage; technická 315.2xx SVJ není osobním dluhem. Vyúčtování služeb není pokryto. Čte celou finanční historii firmy.',
     { unit_id: int('ID jednotky této firmy.'), date: date('Účetní datum rekonsiliace.') }, ['unit_id', 'date'],
     (c, a, tool) => c.get('/property/catalog/payments/reconciliation', { unit_id: a.unit_id, date: a.date }, tool)),
 

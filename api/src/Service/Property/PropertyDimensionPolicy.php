@@ -36,6 +36,13 @@ final class PropertyDimensionPolicy
         $this->assertWindow((int) $header['supplier_id'], $start->format('Y-m-d\TH:i:sP'), $start->modify('+1 day')->format('Y-m-d\TH:i:sP'), $lines, [], $carried);
     }
 
+    public function assertOpeningJournal(array $header,array $lines,Opening\OpeningOwnerProof $proof,string $part):void
+    {
+        $carried=$proof->indices($this->db,$header,$lines,$part);
+        $start=new \DateTimeImmutable($header['entry_date'],new \DateTimeZone('Europe/Prague'));
+        $this->assertWindow((int)$header['supplier_id'],$start->format('c'),$start->modify('+1 day')->format('c'),$lines,[],$carried);
+    }
+
     public function assertClosingCarryJournal(array $header, array $lines, \MyInvoice\Service\Accounting\Closing\ClosingCarryJournalProof $proof): void
     {
         $carried = $proof->indices($this->db, $header, $lines);

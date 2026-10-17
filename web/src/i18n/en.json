@@ -13964,7 +13964,8 @@
     "terms": "Terms of Service",
     "updates": "Updates",
     "users": "Users",
-    "vendors": "Vendors"
+    "vendors": "Vendors",
+    "property_openings": "Property opening balances"
   },
   "nonprofitTax": {
     "acknowledgement": "I reviewed the facts and evidence. I am confirming the tax assessment, not a completed corporate tax return.",
@@ -36506,5 +36507,67 @@
       "purpose": "Certificate purpose",
       "coverage_acknowledgement": "Explicit acknowledgement of incomplete scope"
     }
+  },
+  "propertyOpening": {
+    "title": "Property opening balances",
+    "help": "Take over documented receivables, credits, advances and service balances in the MyÚčto structured format. Each case identifies its parties, period and accounting role. Check the journal preview before confirmation. Prepare the evidence according to the manual.",
+    "invalidFile": "Choose a valid myucto.property.opening.v1 JSON file up to 5 MB.",
+    "saved": "Opening balances confirmed.",
+    "confirm": "Confirm opening balances",
+    "preview": "Validate and preview",
+    "download": "Download evidence",
+    "refresh": "Refresh",
+    "file": "Structured evidence",
+    "mode": "Takeover mode",
+    "modes": {
+      "post_new": "New opening journal",
+      "bind_existing": "Bind existing opening journal",
+      "revision": "Atomic revision",
+      "reversal": "Reversal"
+    },
+    "accountingDate": "Accounting date",
+    "effectiveAt": "Takeover effective time",
+    "revision": "Revision",
+    "journal": "Journal entry",
+    "journalVersion": "Journal version",
+    "evidence": "Reconciliation evidence",
+    "reason": "Reason",
+    "case": "Case identity",
+    "kind": "Category",
+    "unit": "Unit",
+    "service": "Service",
+    "roles": "Accounting roles and amounts",
+    "cents": "minor currency units",
+    "kinds": {
+      "debt": "Receivable",
+      "credit": "Credit",
+      "advance": "Advance",
+      "service_carry": "Service balance"
+    },
+    "rolesList": {
+      "principal": "Principal",
+      "determined_cost": "Determined costs",
+      "default_interest": "Default interest",
+      "interest": "Interest",
+      "credit": "Credit",
+      "long_term_advance": "Long-term advance",
+      "admin_advance": "Administration advance",
+      "service_advance": "Service advance",
+      "service_cost": "Technical service costs",
+      "accrual_receivable": "Accrued receivable",
+      "accrual_payable": "Accrued payable"
+    },
+    "previewHelp": "The preview verifies current accounts, historical relationships, legal parties and takeover coverage. Changed evidence requires a new preview.",
+    "reversal": "Reversal journal",
+    "debit": "Debit",
+    "credit": "Credit",
+    "history": "Takeover history",
+    "statuses": {
+      "pending": "Pending",
+      "posted": "Confirmed",
+      "reversed": "Reversed"
+    },
+    "revise": "Prepare revision",
+    "reverse": "Prepare reversal"
   }
 }

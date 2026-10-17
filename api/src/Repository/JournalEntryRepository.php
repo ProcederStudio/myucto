@@ -67,6 +67,25 @@ final class JournalEntryRepository
         }
     }
 
+    public function insertPropertyOpening(\MyInvoice\Service\Property\Opening\OpeningOwnerProof $proof):array
+    {
+            $original=$proof->original($this->db);$journals=[];
+            foreach($proof->parts($this->db) as $part){
+                $journal=$proof->journal($this->db,$part);
+                (new SystemDimensionWritePolicy($this->db))->assertPropertyOpening($journal['header'],$journal['lines'],$proof,$part);
+                $journals[$part]=$journal;
+            }
+            $result=['journal_entry_id'=>null,'reversal_entry_id'=>null];
+            foreach($journals as $part=>$journal){
+                $entry=$this->persistJournal($journal['header'],$journal['lines']);
+                if($part==='reversal'){
+                    if($original===null||!$this->setReversedByLocked($original['entry']['id'],$proof->supplier,$entry))\MyInvoice\Service\Property\Opening\OpeningException::reject('reversal_conflict');
+                    $result['reversal_entry_id']=$entry;
+                }else $result['journal_entry_id']=$entry;
+            }
+            return $result;
+    }
+
     public function insertPropertyClearing(\MyInvoice\Service\Property\Payments\Workflow\PaymentClearingIntent $intent, ?string $documentNumber = null): int
     {
         $intent->assertConnection($this->db);
@@ -686,6 +705,7 @@ final class JournalEntryRepository
             $pdo->beginTransaction();
         }
         try {
+            (new \MyInvoice\Service\Property\Opening\OpeningUseGuard($this->db))->assertDescriptionMutable($supplierId, $id);
             // Zamkni řádek zápisu + načti guard stav (vč. stavu jeho období) a row_version.
             $stmt = $pdo->prepare(
                 'SELECT je.description, je.source_type, je.reversed_by, je.posted_at,

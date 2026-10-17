@@ -71,7 +71,10 @@ final class PaymentPublicApiTest extends TestCase
         $reconciliation = $action->reconciliation($http->withQueryParams(['unit_id' => $unit, 'date' => '2026-02-02']), new Response());
         self::assertSame(200, $reconciliation->getStatusCode());
         $actual = json_decode((string) $reconciliation->getBody(), true, flags: JSON_THROW_ON_ERROR);
-        self::assertSame((new PropertyReconciliation($this->db))->at($supplier, '2026-02-02', $unit), $actual);
+        $expectedReconciliation = (new PropertyReconciliation($this->db))->at($supplier, '2026-02-02', $unit);
+        unset($expectedReconciliation['opening']['states']);
+        self::assertSame($expectedReconciliation, $actual);
+        self::assertArrayNotHasKey('states', $actual['opening']);
         self::assertSame('current_ledger', $actual['knowledge_basis']);
         $foreignSupplier = $this->createIsolatedSupplier($this->db->pdo(), $supplier);
         $foreign = $http->withAttribute(SupplierScopeMiddleware::ATTR_CURRENT_ID, $foreignSupplier);

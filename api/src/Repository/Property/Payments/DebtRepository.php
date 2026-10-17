@@ -56,6 +56,13 @@ final class DebtRepository
             return $this->current($supplier,$id);
         });
     }
+    public static function accessoryOwnedEntrySql(bool $currentRead=false):string
+    {
+        $lock=$currentRead?' FOR UPDATE':'';
+        return '(EXISTS (SELECT 1 FROM unit_charges c WHERE c.supplier_id=e.supplier_id AND c.journal_entry_id=e.id'.$lock.')'
+            .' OR EXISTS (SELECT 1 FROM unit_payment_operations o WHERE o.supplier_id=e.supplier_id AND o.journal_entry_id=e.id'.$lock.')'
+            .' OR EXISTS (SELECT 1 FROM property_opening_batches ob WHERE ob.supplier_id=e.supplier_id AND (ob.journal_entry_id=e.id OR ob.reversal_entry_id=e.id)'.$lock.'))';
+    }
     public function bindAccessory(int $supplier,int $debtId,array $request,int $actor):array
     {
         return (new DimensionPeriodGuard($this->db))->transaction(function()use($supplier,$debtId,$request,$actor):array{
@@ -67,7 +74,7 @@ final class DebtRepository
             PropertyInput::text($request['evidence']??null,'evidence',4000);PropertyInput::text($request['liability_evidence']??null,'liability_evidence',4000);
             $entry=PropertyInput::id($request['journal_entry_id']??null,'journal_entry_id');$lineId=PropertyInput::id($request['journal_line_id']??null,'journal_line_id');
             $ledger=(new \MyInvoice\Service\Property\Payments\PaymentJournalProof($this->db))->current($supplier,$entry);
-            if($ledger['entry']['reversed_by']!==null||$this->one('SELECT id FROM unit_charges WHERE supplier_id=? AND journal_entry_id=? FOR UPDATE',[$supplier,$entry])||$this->one('SELECT id FROM unit_payment_operations WHERE supplier_id=? AND journal_entry_id=? FOR UPDATE',[$supplier,$entry]))PaymentException::reject('accessory_owned_elsewhere');
+            if($ledger['entry']['reversed_by']!==null||$this->one('SELECT e.id FROM journal_entries e WHERE e.supplier_id=? AND e.id=? AND '.self::accessoryOwnedEntrySql(true).' FOR UPDATE',[$supplier,$entry]))PaymentException::reject('accessory_owned_elsewhere');
             $line=null;foreach($ledger['lines'] as $candidate)if($candidate['id']===$lineId)$line=$candidate;
             if($line===null||$line['side']!=='debit'||!str_starts_with($line['account_code'],'3')||$line['is_red_storno']||$line['amount_foreign']!==null||$line['currency_code']!==null||$line['fx_rate']!==null||bccomp($line['amount'],'0',2)<=0)PaymentException::reject('accessory_requires_receivable');
             $account=$this->one('SELECT account_type FROM chart_of_accounts WHERE supplier_id=? AND account_code=? FOR UPDATE',[$supplier,$line['account_code']]);if(($account['account_type']??null)!=='asset')PaymentException::reject('accessory_requires_receivable');
@@ -106,7 +113,7 @@ final class DebtRepository
         }
         if(count($rows)!==count($debtIds))PaymentException::reject('debt_not_found');
         if($rows===[])return [];
-        $charges=(new IssuanceReadRepository($this->db))->findMany($supplier,array_map('intval',array_column($rows,'charge_id')),true);$proofs=[];
+        $charges=(new IssuanceReadRepository($this->db))->findMany($supplier,array_map('intval',array_column(array_filter($rows,fn($row)=>$row['charge_id']!==null),'charge_id')),true);$proofs=[];
         foreach($charges as $charge){
             if($charge['status']!=='reversed'&&($charge['status']!=='posted'||bccomp($charge['amount_cents'],'0',0)<=0))PaymentException::reject('posted_positive_claim_required');
             $proofs[]=['entry_id'=>$charge['journal_entry_id'],'charge'=>$charge,'reversal'=>false];
@@ -115,9 +122,13 @@ final class DebtRepository
         (new IssuanceJournalProof($this->db))->assertEntries($supplier,$proofs);
         $historyReader=new \MyInvoice\Service\Property\Payments\CorrectionHistory($this->db);
         $history=$selected?$historyReader->currentForDebts($supplier,$debtIds):$historyReader->current($supplier);
-        $entryIds=[];foreach($receipts as $debtReceipts)foreach($debtReceipts as $receipt){$fact=json_decode($receipt['receipt_json'],true,flags:JSON_THROW_ON_ERROR);$entryIds[]=$fact['ledger']['entry']['id'];}
+        $entryIds=[];foreach($receipts as $debtReceipts)foreach($debtReceipts as $receipt){if(($receipt['opening_component_id']??null)!==null)continue;$fact=json_decode($receipt['receipt_json'],true,flags:JSON_THROW_ON_ERROR);$entryIds[]=$fact['ledger']['entry']['id'];}
         $ledgers=(new \MyInvoice\Service\Property\Payments\PaymentJournalProof($this->db))->currentMany($supplier,$entryIds);$out=[];
+        $openingRows=array_values(array_filter($rows,fn($row)=>($row['opening_item_id']??null)!==null));
+        $opening=$openingRows===[]?[]:(new \MyInvoice\Service\Property\Opening\OpeningOriginProof($this->db))->currentDebts($supplier,$openingRows,$allocations,$receipts);
         foreach($rows as $row){
+            $id=(int)$row['id'];
+            if(($row['opening_item_id']??null)!==null){$out[]=$opening[$id];continue;}
             $id=(int)$row['id'];$snapshot=json_decode($row['snapshot_json'],true,flags:JSON_THROW_ON_ERROR);$request=json_decode($row['request_json'],true,flags:JSON_THROW_ON_ERROR);
             if(!hash_equals($row['snapshot_hash'],PropertyInput::hash($snapshot))||!hash_equals($row['request_hash'],PropertyInput::hash(['request'=>$request,'token'=>$row['idempotency_key'],'actor'=>(int)$row['created_by']])))PaymentException::reject('history_corrupt');
             $charge=$charges[(int)$row['charge_id']];
@@ -144,7 +155,8 @@ final class DebtRepository
     }
     public function allCurrent(int $supplier):array
     {
-        $out=[];foreach($this->all('SELECT id FROM unit_payment_debts WHERE supplier_id=? ORDER BY id FOR UPDATE',[$supplier]) as $row)$out[]=$this->current($supplier,(int)$row['id']);return $out;
+        $ids=array_map('intval',array_column($this->all('SELECT id FROM unit_payment_debts WHERE supplier_id=? ORDER BY id FOR UPDATE',[$supplier]),'id'));
+        if($ids===[])return [];(new PaymentLocks($this->db))->acquire($supplier);return $this->readMany($supplier,$ids,false);
     }
     private function assertCharge(int $supplier,array $charge):void
     {

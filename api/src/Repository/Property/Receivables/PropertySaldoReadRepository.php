@@ -38,6 +38,7 @@ final class PropertySaldoReadRepository
                 foreach($closure->rows as $table=>$rows)foreach($rows as $row)$provenance[$table][]=PropertyInput::hash($row);
                 foreach($charges as $charge)$provenance['unit_charges'][]=PropertyInput::hash($charge);
                 foreach($party['events'] as $event)$provenance['party_events'][]=PropertyInput::hash($event);
+                $provenance['financial_history'][]=PropertyInput::hash($history);
                 unset($closure,$charges);
                 $histories=new PropertyReceivableHistoryByUnit($history);unset($history);
                 foreach($units as $unit){$id=(int)$unit['id'];$card=PropertyReceivableProjection::reduceReadHistory($supplier,$asOf,$knownAt,['unit_id'=>$id],$histories->forUnit($id),$party['events']);$items[]=PropertySaldoSummary::fromCard($card,$accessoryAllocations)+['unit_code'=>$unit['code']];}
@@ -45,7 +46,7 @@ final class PropertySaldoReadRepository
             $digest=PropertyInput::hash(['schema'=>1,'supplier_id'=>$supplier,'as_of'=>$asOf,'known_at'=>$knownAt,'unit_ids'=>$ids,'provenance'=>$provenance]);
             $result=['kind'=>'recorded_property_saldo_page','as_of'=>$asOf,'known_at'=>$knownAt,'items'=>$items,'next_cursor'=>$more?PropertySaldoCursor::encode($supplier,$asOf,$knownAt,$ids[array_key_last($ids)]):null,
                 'read_scope_digest'=>$digest,'proof_scope'=>['kind'=>'selected_unit_financial_closure','unit_ids'=>$ids,'schema'=>1],
-                'consistency'=>'request_snapshot','coverage'=>['scope'=>'recorded_s3_s4','complete'=>false,'service_settlements'=>'not_implemented','opening_import'=>'not_implemented']];
+                'consistency'=>'request_snapshot','coverage'=>['scope'=>'recorded_s3_s4_s6','complete'=>false,'service_settlements'=>'not_implemented','opening_import'=>'verified_recorded_batches']];
             return $result;
     }
 }

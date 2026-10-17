@@ -52,7 +52,7 @@ final class PropertyReceivableProjection
             }
             if(!$complete)foreach($total as &$value)$value=null;unset($value);
             $snapshot=['supplier_id'=>$supplier,'as_of'=>$asOf,'known_at'=>$knownAt,'scope'=>$scope,'claims'=>$rows,'credits'=>$credits,'totals'=>$total,'precision'=>$precision,
-                'coverage'=>['financial_complete'=>$complete,'service_settlements'=>'not_implemented','opening_import'=>'not_implemented','unresolved_negative_charge_line_ids'=>$unresolved,'scope'=>'recorded_s3_s4','complete'=>false],
+                'coverage'=>['financial_complete'=>$complete,'service_settlements'=>'not_implemented','opening_import'=>'verified_recorded_batches','unresolved_negative_charge_line_ids'=>$unresolved,'scope'=>'recorded_s3_s4_s6','complete'=>false],
                 'current_party_heads'=>array_map(fn($e)=>['id'=>$e['id'],'hash'=>$e['snapshot_hash']],$events)];
             unset($history,$debt,$credit);
         return $snapshot;

@@ -40,7 +40,7 @@ final class DebtCertificateRepository
         $parties=$reader->parties($supplier,[PropertyInput::id($request['requester_id']??null,'requester_id')],true);if(count($parties)!==1)ReceivableException::reject('foreign_party');
         $projection=(new PropertyReceivableProjection($this->db))->at($supplier,$at,$known,['unit_id'=>$request['unit_id']],true);
         if(!$projection['coverage']['financial_complete']||array_any($projection['claims'],fn($row)=>!$row['liability']['complete']))ReceivableException::reject('certificate_review');
-        $snapshot=['request'=>$request,'projection'=>$projection,'registry'=>$unit,'requester'=>$parties[0],'statement_scope'=>'recorded_s3_s4','unconditional_no_debt'=>false];
+        $snapshot=['request'=>$request,'projection'=>$projection,'registry'=>$unit,'requester'=>$parties[0],'statement_scope'=>$projection['coverage']['scope'],'unconditional_no_debt'=>false];
         return ['snapshot'=>$snapshot,'preview_hash'=>PropertyInput::hash($snapshot)];
     }
     private function transaction(int $supplier,callable $work):mixed{return (new DimensionPeriodGuard($this->db))->transaction(function()use($supplier,$work){(new PaymentLocks($this->db))->acquire($supplier);return $work();});}

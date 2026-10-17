@@ -62,7 +62,7 @@ final class PaymentRepository
             if(PropertyInput::hash(PaymentJournalProof::canonicalLines($snapshot['lines']))!==PropertyInput::hash(PaymentJournalProof::canonicalLines($actual['lines'])))PaymentException::reject('posted_ledger_mismatch');
             $creditId=null;
             if($request['kind']==='allocation') {
-                foreach($snapshot['allocations'] as $allocation)$this->execute('INSERT INTO unit_payment_allocations (supplier_id,operation_id,debt_id,charge_id,charge_line_id,accessory_id,debtor_id,liability_group,amount_cents,allocation_json) VALUES (?,?,?,?,?,?,?,?,?,?)',[$supplier,$id,$allocation['debt_id'],$allocation['charge_id'],$allocation['charge_line_id'],$allocation['accessory_id'],$allocation['debtor_id'],$allocation['liability_group'],$allocation['amount_cents'],self::json($allocation)]);
+                foreach($snapshot['allocations'] as $allocation)$this->execute('INSERT INTO unit_payment_allocations (supplier_id,operation_id,debt_id,charge_id,charge_line_id,opening_component_id,accessory_id,debtor_id,liability_group,amount_cents,allocation_json) VALUES (?,?,?,?,?,?,?,?,?,?,?)',[$supplier,$id,$allocation['debt_id'],$allocation['charge_id'],$allocation['charge_line_id'],$allocation['opening_component_id']??null,$allocation['accessory_id'],$allocation['debtor_id'],$allocation['liability_group'],$allocation['amount_cents'],self::json($allocation)]);
                 $credit=$snapshot['credit'];
                 if($credit!==null) {
                 $this->execute('INSERT INTO unit_credit_lots (supplier_id,operation_id,unit_id,amount_cents,due_date,snapshot_json,snapshot_hash) VALUES (?,?,?,?,?,?,?)',[$supplier,$id,$credit['unit_id'],$credit['amount_cents'],$credit['due_date'],self::json($credit),PropertyInput::hash($credit)]);
@@ -309,7 +309,8 @@ final class PaymentRepository
             $reservation=$this->reservationLocked($supplier,PropertyInput::id($request['reservation_id']??null,'reservation_id'));
             if($reservation['row_version']!==($request['expected_reservation_version']??null))PaymentException::reject('reservation_version_conflict');
             if(!in_array($reservation['status'],['reserved','submitted'],true)||bccomp($amount,bcsub($reservation['amount_cents'],$reservation['paid_cents'],0),0)>0)PaymentException::reject('reservation_capacity');
-            $credit=$this->creditLocked($supplier,$reservation['credit_id']);if(bccomp($amount,$credit['balance_cents'],0)>0)PaymentException::reject('credit_capacity');
+            // Refund sources prove an accounting day; their exact payment instant remains unknown.
+            $credit=$this->creditLocked($supplier,$reservation['credit_id']);\MyInvoice\Service\Property\Opening\OpeningPaymentAvailability::assertAvailable($credit,$date);if(bccomp($amount,$credit['balance_cents'],0)>0)PaymentException::reject('credit_capacity');
             $receipt=$source['receipt'];
             if($receipt['kind']!==($reservation['request']['delivery_method']??'bank'))PaymentException::reject('refund_recipient_mismatch');
             if($receipt['kind']==='bank'){
@@ -355,11 +356,11 @@ final class PaymentRepository
         $row=$this->one('SELECT * FROM unit_credit_lots WHERE supplier_id=? AND id=? FOR UPDATE',[$supplier,$id]);if(!$row)PaymentException::reject('credit_not_found');
         $snapshot=self::decode($row['snapshot_json']);self::hash($row['snapshot_hash'],$snapshot);
         foreach(['unit_id','amount_cents','due_date'] as $key)if((is_int($snapshot[$key])?(int)$row[$key]:$row[$key])!==$snapshot[$key])PaymentException::reject('history_corrupt');
-        $origin=$this->operationLocked($supplier,(int)$row['operation_id']);if(!in_array($origin['status'],['posted','reversed'],true)||PropertyInput::hash($origin['snapshot']['credit'])!==$row['snapshot_hash'])PaymentException::reject('credit_origin');
+        if(($row['opening_item_id']??null)!==null){$opening=(new \MyInvoice\Service\Property\Opening\OpeningOriginProof($this->db))->credit($supplier,$row,true);$originStatus=$opening['active']?'posted':'reversed';}else{$origin=$this->operationLocked($supplier,(int)$row['operation_id']);if(!in_array($origin['status'],['posted','reversed'],true)||PropertyInput::hash($origin['snapshot']['credit'])!==$row['snapshot_hash'])PaymentException::reject('credit_origin');$originStatus=$origin['status'];}
         $parties=$this->all('SELECT client_id,party_json FROM unit_credit_parties WHERE supplier_id=? AND credit_id=? ORDER BY client_id FOR UPDATE',[$supplier,$id]);
         $actual=[];foreach($parties as $party){$fact=self::decode($party['party_json']);if($fact['id']!==(int)$party['client_id'])PaymentException::reject('history_corrupt');$actual[]=$fact;}
         if(PropertyInput::hash($actual)!==PropertyInput::hash($snapshot['parties']))PaymentException::reject('history_corrupt');
-        $balance=$origin['status']==='reversed'?'0':$row['amount_cents'];
+        $balance=$originStatus==='reversed'?'0':$row['amount_cents'];
         foreach($this->all('SELECT * FROM unit_credit_events WHERE supplier_id=? AND credit_id=? ORDER BY id FOR UPDATE',[$supplier,$id]) as $event) {
             $op=$this->operationLocked($supplier,(int)$event['operation_id']);if($op['status']==='posted')$balance=bcadd($balance,$event['amount_cents'],0);
             if($event['kind']!==$op['kind']||!in_array($event['kind'],['refund','setoff'],true)||$event['amount_cents']!=='-'.$op['amount_cents']||$op['snapshot']['credit']['id']!==$id)PaymentException::reject('history_corrupt');
@@ -369,7 +370,7 @@ final class PaymentRepository
         }
         $reserved='0';foreach($this->all('SELECT id FROM unit_credit_reservations WHERE supplier_id=? AND credit_id=? ORDER BY id FOR UPDATE',[$supplier,$id]) as $r){$r=$this->reservationLocked($supplier,(int)$r['id']);if(in_array($r['status'],['reserved','submitted'],true))$reserved=bcadd($reserved,bcsub($r['amount_cents'],$r['paid_cents'],0),0);}
         if(bccomp($balance,$reserved,0)<0)PaymentException::reject('credit_capacity_corrupt');
-        return ['id'=>$id,'row_version'=>(int)$row['row_version'],'snapshot'=>$snapshot,'balance_cents'=>$balance,'reserved_cents'=>$reserved,'available_cents'=>bcsub($balance,$reserved,0)];
+        return ['id'=>$id,'row_version'=>(int)$row['row_version'],'snapshot'=>$snapshot,'balance_cents'=>$balance,'reserved_cents'=>$reserved,'available_cents'=>bcsub($balance,$reserved,0)]+(isset($opening)?['opening_accounting_date'=>$opening['batch']['accounting_date'],'opening_effective_at'=>$opening['batch']['effective_at']]:[]);
     }
 
     private function reservationLocked(int $supplier,int $id): array

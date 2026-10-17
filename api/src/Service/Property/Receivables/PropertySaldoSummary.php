@@ -30,7 +30,7 @@ final class PropertySaldoSummary
             'principal_receivable_cents'=>$card['totals']['gross_receivable_cents']===null||$accessoryTotal===null?null:bcsub($card['totals']['gross_receivable_cents'],$accessoryTotal,0)],
             'aging'=>$aging,'claim_count'=>count($card['claims']),'credit_count'=>count($card['credits']),
             'precision'=>$card['precision'],'uncertain_event_count'=>count($uncertain),'liability_review_count'=>$liabilityReview,
-            'coverage'=>['scope'=>'recorded_s3_s4','financial_complete'=>$complete,'complete'=>false,
+            'coverage'=>['scope'=>$card['coverage']['scope'],'financial_complete'=>$complete,'complete'=>false,
                 'service_settlements'=>$card['coverage']['service_settlements'],'opening_import'=>$card['coverage']['opening_import'],
                 'unresolved_negative_charge_line_count'=>count($card['coverage']['unresolved_negative_charge_line_ids'])]];
     }

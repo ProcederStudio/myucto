@@ -43,8 +43,9 @@ final class ClaimAllocationPlanner
         catch(\MyInvoice\Service\Property\PropertyException $e){PaymentException::reject('liability_review',['reason'=>$e->errorCode]+$e->details);}
         $claims=[];$details=[];$bound=[];
         foreach($all as $debt) {
-            $fact=$debt['snapshot'];foreach($fact['lines'] as $line)$bound[$line['id']]=true;
+            $fact=$debt['snapshot'];if($fact['charge_id']!==null)foreach($fact['lines'] as $line)$bound[$line['id']]=true;
             if(!$debt['active']){if(in_array($debt['id'],$wanted,true))PaymentException::reject('inactive_debt');continue;}
+            if(isset($debt['opening_accounting_date'])&&!\MyInvoice\Service\Property\Opening\OpeningPaymentAvailability::available($debt,$request['accounting_date'],$at)){if(in_array($debt['id'],$wanted,true))PaymentException::reject('backdated_payment');continue;}
             $group=null;
             foreach(($liabilities[$debt['id']]['groups']??$fact['liability_groups']) as $candidate)if($candidate['role']==='debtor'&&in_array($debtor,$candidate['members'],true))$group=$candidate;
             if($group===null)continue;
@@ -68,7 +69,8 @@ final class ClaimAllocationPlanner
             if($choice===null&&$cap!=='0'&&!in_array($debt['id'],$wanted,true))PaymentException::reject('debt_inventory_incomplete');
             if(!in_array($debt['id'],$wanted,true))continue;
             $reminder=null;
-            foreach($payment['reminders']??[] as $notice)if(($notice['debt_id']??null)===$debt['id']){
+            $importedReminders=array_filter($fact['reminders']??[],fn($r)=>in_array($debtor,$r['recipient_ids']??[],true));
+            foreach(array_merge($payment['reminders']??[],array_map(fn($r)=>$r+['debt_id'=>$debt['id']],$importedReminders)) as $notice)if(($notice['debt_id']??null)===$debt['id']){
                 PropertyInput::text($notice['evidence']??null,'reminder.evidence',4000);
                 if(!in_array($debtor,$notice['recipient_ids']??[],true))PaymentException::reject('reminder_recipient_unproven');
                 $time=PropertyInstant::normalize($notice['delivered_at']??null);if($time<$at&&($reminder===null||$time<$reminder))$reminder=$time;
@@ -95,9 +97,9 @@ final class ClaimAllocationPlanner
             try{$distribution=ClaimPortionAllocator::distribute($principal,array_column($detail['lines'],'remaining_cents','id'),$declared);}catch(\DomainException $e){PaymentException::reject('principal_'.$e->getMessage(),['debt_id'=>$id,'principal_cents'=>$principal]);}
             $seen=[];
             foreach($detail['lines'] as $sourceLine){$lineId=$sourceLine['id'];$value=$distribution[$lineId]??'0';$seen[$lineId]=true;if(bccomp($value,$sourceLine['remaining_cents'],0)>0)PaymentException::reject('principal_distribution_capacity');if($value==='0')continue;
-                $fact=$sourceLine['line'];$origins=[];foreach($fact['dimensions'] as $type=>$dimension)$origins[$type]=['origin'=>'module','ref'=>'unit_charge:'.$detail['debt']['snapshot']['charge_id']];
+                $fact=$sourceLine['line'];$origins=[];foreach($fact['dimensions'] as $type=>$dimension)$origins[$type]=['origin'=>'module','ref'=>isset($detail['debt']['snapshot']['opening_item_id'])?'property_opening:'.$detail['debt']['snapshot']['opening_item_id']:'unit_charge:'.$detail['debt']['snapshot']['charge_id']];
                 $journal[]=['account_code'=>$fact['account']['receivable_account'],'side'=>'credit','amount'=>bcdiv($value,'100',2),'dimensions'=>$fact['dimensions'],'dimension_origins'=>$origins];
-                $allocations[]=['debt_id'=>$id,'charge_id'=>$detail['debt']['snapshot']['charge_id'],'charge_line_id'=>$lineId,'accessory_id'=>null,'debtor_id'=>$debtor,'liability_group'=>$detail['group']['group_key'],'amount_cents'=>$value,'component'=>'principal'];
+                $allocations[]=['debt_id'=>$id,'charge_id'=>$detail['debt']['snapshot']['charge_id'],'charge_line_id'=>isset($detail['debt']['snapshot']['opening_item_id'])?null:$lineId,'accessory_id'=>null,'debtor_id'=>$debtor,'liability_group'=>$detail['group']['group_key'],'amount_cents'=>$value,'component'=>'principal'];if(isset($detail['debt']['snapshot']['opening_item_id']))$allocations[array_key_last($allocations)]['opening_component_id']=$lineId;
             }
             if(array_diff_key($distribution,$seen)!==[])PaymentException::reject('foreign_charge_line');
             foreach(['determined_cost','default_interest','interest'] as $component){

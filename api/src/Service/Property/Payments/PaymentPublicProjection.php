@@ -10,7 +10,7 @@ final class PaymentPublicProjection
     {
         $result = self::only($operation, ['id', 'kind', 'status', 'row_version', 'amount_cents', 'accounting_date', 'reason', 'source_label', 'unit_labels', 'credit_id']);
         $result['allocations'] = array_map(static fn (array $allocation): array => self::only($allocation,
-            ['id', 'debt_id', 'charge_line_id', 'accessory_id', 'amount_cents']), $operation['allocations']);
+            ['id', 'debt_id', 'charge_line_id', 'accessory_id', 'opening_component_id', 'amount_cents']), $operation['allocations']);
         return $result;
     }
 

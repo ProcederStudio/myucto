@@ -2468,6 +2468,11 @@ final class Routes
         });
 
         $app->group('/api/property', function ($g) {
+            $g->get('/openings', [\MyInvoice\Action\Property\Opening\OpeningAction::class, 'list']);
+            $g->post('/openings/preview', [\MyInvoice\Action\Property\Opening\OpeningAction::class, 'preview']);
+            $g->post('/openings/confirm', [\MyInvoice\Action\Property\Opening\OpeningAction::class, 'confirm']);
+            $g->post('/openings/revise', [\MyInvoice\Action\Property\Opening\OpeningAction::class, 'revise']);
+            $g->get('/catalog/openings', [\MyInvoice\Action\Property\Opening\OpeningAction::class, 'catalog']);
             $g->get('/catalog/payments/saldo', \MyInvoice\Action\Property\Receivables\PropertySaldoPublicAction::class);
             $g->get('/catalog/payments/card', [\MyInvoice\Action\Property\Payments\PaymentPublicAction::class, 'card']);
             $g->get('/catalog/payments/operations', [\MyInvoice\Action\Property\Payments\PaymentPublicAction::class, 'operations']);

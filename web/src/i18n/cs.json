@@ -13964,7 +13964,8 @@
     "terms": "Obchodní podmínky",
     "updates": "Aktualizace",
     "users": "Uživatelé",
-    "vendors": "Dodavatelé"
+    "vendors": "Dodavatelé",
+    "property_openings": "Počáteční stavy SVJ"
   },
   "nonprofitTax": {
     "acknowledgement": "Zkontroloval/a jsem uvedené skutečnosti a podklady. Potvrzuji daňové posouzení, nikoli dokončené DPPO.",
@@ -36506,5 +36507,67 @@
       "purpose": "Účel potvrzení",
       "coverage_acknowledgement": "Výslovné vymezení neúplného rozsahu"
     }
+  },
+  "propertyOpening": {
+    "title": "Počáteční stavy SVJ",
+    "help": "Převezměte doložené pohledávky, kredity, zálohy a služební zůstatky ve vlastním strukturovaném formátu MyÚčto. Každý případ má vlastní identitu, účastníky, období a účetní roli. Před potvrzením zkontrolujte účetní náhled. Podklady připravte podle manuálu.",
+    "invalidFile": "Vyberte platný soubor myucto.property.opening.v1 ve formátu JSON do 5 MB.",
+    "saved": "Převzetí bylo potvrzeno.",
+    "confirm": "Potvrdit převzetí",
+    "preview": "Ověřit a zobrazit náhled",
+    "download": "Stáhnout podklady",
+    "refresh": "Obnovit",
+    "file": "Strukturované podklady",
+    "mode": "Způsob převzetí",
+    "modes": {
+      "post_new": "Nový otevírací zápis",
+      "bind_existing": "Vazba na existující otevírací zápis",
+      "revision": "Atomická revize",
+      "reversal": "Storno"
+    },
+    "accountingDate": "Účetní datum",
+    "effectiveAt": "Účinnost převzetí",
+    "revision": "Revize",
+    "journal": "Účetní zápis",
+    "journalVersion": "Verze účetního zápisu",
+    "evidence": "Doklad o odsouhlasení",
+    "reason": "Důvod",
+    "case": "Identita případu",
+    "kind": "Kategorie",
+    "unit": "Jednotka",
+    "service": "Služba",
+    "roles": "Účetní role a částky",
+    "cents": "haléřů",
+    "kinds": {
+      "debt": "Pohledávka",
+      "credit": "Kredit",
+      "advance": "Záloha",
+      "service_carry": "Služební zůstatek"
+    },
+    "rolesList": {
+      "principal": "Jistina",
+      "determined_cost": "Určené náklady",
+      "default_interest": "Úrok z prodlení",
+      "interest": "Úrok",
+      "credit": "Kredit",
+      "long_term_advance": "Dlouhodobá záloha",
+      "admin_advance": "Záloha na správu",
+      "service_advance": "Záloha na služby",
+      "service_cost": "Technické zúčtování nákladů",
+      "accrual_receivable": "Aktivní dohad",
+      "accrual_payable": "Pasivní dohad"
+    },
+    "previewHelp": "Náhled ověřuje aktuální účty, historické vazby, právní účastníky i úplnost převzetí. Změna podkladů vyžaduje nový náhled.",
+    "reversal": "Stornovací zápis",
+    "debit": "MD",
+    "credit": "Dal",
+    "history": "Historie převzetí",
+    "statuses": {
+      "pending": "Rozpracováno",
+      "posted": "Potvrzeno",
+      "reversed": "Stornováno"
+    },
+    "revise": "Připravit revizi",
+    "reverse": "Připravit storno"
   }
 }

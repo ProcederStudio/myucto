@@ -121,7 +121,7 @@ final class PaymentOperationsAction
         if($write&&!RequestAuthorization::isSessionAuth($request))return Json::sessionRequired($response);
         if(!RequestAuthorization::allows($request,$permission,$write?AccessLevel::WRITE:AccessLevel::READ))return Json::error($response,'forbidden','Pro tuto operaci nemáte oprávnění.',403);
         try{return Json::ok($response,$work($this->currentSupplierId($request)));}
-        catch(PaymentException|PropertyException|\MyInvoice\Service\Property\Receivables\ReceivableException|\MyInvoice\Service\Property\Charges\Issuance\IssuanceException $e){return Json::error($response,$e->errorCode,$e->getMessage(),$e->httpStatus,['details'=>$e->details]);}
+        catch(PaymentException|\MyInvoice\Service\Property\Opening\OpeningException|PropertyException|\MyInvoice\Service\Property\Receivables\ReceivableException|\MyInvoice\Service\Property\Charges\Issuance\IssuanceException $e){return Json::error($response,$e->errorCode,$e->getMessage(),$e->httpStatus,['details'=>$e->details]);}
         catch(\MyInvoice\Service\Accounting\PostingException|\MyInvoice\Service\Accounting\Dimension\DimensionException $e){return Json::error($response,$e->errorCode,$e->getMessage(),$e->httpStatus);}
     }
     private function body(Request $request,?array $fields=null):array {$body=$request->getParsedBody();if(!is_array($body))PropertyInput::invalid('body');if($fields!==null)PropertyInput::fields($body,$fields);return $body;}

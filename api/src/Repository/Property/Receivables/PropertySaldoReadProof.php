@@ -8,20 +8,22 @@ final class PropertySaldoReadProof
     public static function materializations(array $rows,array $charges=[]):void
     {
         $bindings=[];foreach($rows['unit_payment_debt_lines'] as $r)$bindings[(int)$r['debt_id']][]=(int)$r['charge_line_id'];
-        foreach($rows['unit_payment_debts'] as $r){$fact=FinancialHistoryRepository::decode($r);$expected=array_column($fact['lines'],'id');sort($expected,SORT_NUMERIC);$actual=$bindings[(int)$r['id']]??[];sort($actual,SORT_NUMERIC);if($expected!==$actual)ReceivableException::reject('history_corrupt');if($charges!==[]&&(!isset($charges[(int)$r['charge_id']])||$fact['unit_id']!==$charges[(int)$r['charge_id']]['unit_id']))ReceivableException::reject('history_corrupt');}
+        foreach($rows['unit_payment_debts'] as $r){$fact=FinancialHistoryRepository::decode($r);if(($r['opening_item_id']??null)!==null){if($r['charge_id']!==null||($bindings[(int)$r['id']]??[])!==[]||($fact['opening_item_id']??null)!==(int)$r['opening_item_id'])ReceivableException::reject('history_corrupt');continue;}$expected=array_column($fact['lines'],'id');sort($expected,SORT_NUMERIC);$actual=$bindings[(int)$r['id']]??[];sort($actual,SORT_NUMERIC);if($expected!==$actual)ReceivableException::reject('history_corrupt');if($charges!==[]&&(!isset($charges[(int)$r['charge_id']])||$fact['unit_id']!==$charges[(int)$r['charge_id']]['unit_id']))ReceivableException::reject('history_corrupt');}
         foreach(['anchors'=>['unit_payment_correction_anchors',['adjustment_line_id','original_line_id','amount_cents']],'reliefs'=>['unit_payment_reliefs',['allocation_id','amount_cents']]] as $key=>[$table,$fields]){
             $actual=[];foreach($rows[$table] as $r){$part=[];foreach($fields as $field)$part[$field]=$field==='amount_cents'?$r[$field]:(int)$r[$field];$actual[(int)$r['correction_id']][]=$part;}
             foreach($rows['unit_payment_corrections'] as $r){$fact=FinancialHistoryRepository::decode($r);if(PropertyInput::hash($fact[$key])!==PropertyInput::hash($actual[(int)$r['id']]??[]))ReceivableException::reject('history_corrupt');}
         }
         $debts=array_column($rows['unit_payment_debts'],null,'id');$accessories=array_column($rows['unit_claim_accessory_receipts']??[],null,'id');
         foreach($accessories as $r){$fact=FinancialHistoryRepository::decode($r,'receipt');$debt=$debts[(int)$r['debt_id']]??null;
-            if(!$debt||$fact['debt_id']!==(int)$r['debt_id']||(int)$debt['charge_id']!==(int)$r['charge_id']||$fact['request']['component']!==$r['component']||$fact['line']['id']!==(int)$r['journal_line_id']||$fact['ledger']['entry']['id']!==(int)$r['journal_entry_id']||bcmul($fact['line']['amount'],'100',0)!==$r['amount_cents'])ReceivableException::reject('history_corrupt');
+            if(($r['opening_component_id']??null)!==null){if(!$debt)ReceivableException::reject('history_corrupt');\MyInvoice\Service\Property\Opening\OpeningOriginProof::accessoryMaterialization((int)$r['supplier_id'],$debt,$r);continue;}
+            if(!$debt||$fact['debt_id']!==(int)$r['debt_id']||(int)$debt['charge_id']!==(int)$r['charge_id']||$fact['request']['component']!==$r['component']||(($r['opening_component_id']??null)===null?$fact['line']['id']!==(int)$r['journal_line_id']:($r['journal_line_id']!==null||($fact['opening_component_id']??null)!==(int)$r['opening_component_id']))||$fact['ledger']['entry']['id']!==(int)$r['journal_entry_id']||bcmul($fact['line']['amount'],'100',0)!==$r['amount_cents'])ReceivableException::reject('history_corrupt');
         }
         foreach($rows['unit_payment_allocations']??[] as $r){
             if($r['accessory_id']!==null){$accessory=$accessories[(int)$r['accessory_id']]??null;if(!$accessory||(int)$accessory['debt_id']!==(int)$r['debt_id']||$r['charge_line_id']!==null)ReceivableException::reject('history_corrupt');}
+            elseif(($r['opening_component_id']??null)!==null){$debt=$debts[(int)$r['debt_id']]??null;$fact=$debt?FinancialHistoryRepository::decode($debt):null;if(!$fact||$r['charge_id']!==null||$r['charge_line_id']!==null||!isset($fact['opening_item_id'])||!in_array((int)$r['opening_component_id'],array_column($fact['lines'],'id'),true))ReceivableException::reject('history_corrupt');}
             elseif(!in_array((int)$r['charge_line_id'],$bindings[(int)$r['debt_id']]??[],true))ReceivableException::reject('history_corrupt');
         }
-        $credits=[];foreach($rows['unit_credit_lots'] as $r)$credits[(int)$r['operation_id']]=$r;
+        $credits=[];foreach($rows['unit_credit_lots'] as $r)if($r['operation_id']!==null)$credits[(int)$r['operation_id']]=$r;
         $sources=[];foreach($rows['unit_payment_sources'] as $r){$receipt=FinancialHistoryRepository::decode($r,'receipt');if($receipt['amount_cents']!==$r['amount_cents']||$receipt['direction']!==$r['direction']||$receipt['ledger']['entry']['id']!==(int)$r['journal_entry_id'])ReceivableException::reject('history_corrupt');$sources[(int)$r['id']]=$r;}
         foreach($rows['unit_payment_operations'] as $r){
             $fact=FinancialHistoryRepository::decode($r);

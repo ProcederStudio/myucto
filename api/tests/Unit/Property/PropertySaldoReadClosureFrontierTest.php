@@ -23,7 +23,8 @@ final class PropertySaldoReadClosureFrontierTest extends TestCase
         self::assertSame([1,2,3,4],self::sorted($selection->debtIds));
         self::assertCount(1,$selection->rows['unit_payment_correction_anchors']);
         self::assertCount(1,$selection->rows['unit_payment_reliefs']);
-        self::assertLessThanOrEqual(32,$pdo->selects);
+        self::assertSame(1,$pdo->openingSeeds);
+        self::assertLessThanOrEqual(33,$pdo->selects);
         self::assertLessThanOrEqual(28,array_sum(array_map('count',$pdo->returned)));
         foreach(['unit_payment_debts','unit_payment_operations','unit_payment_corrections'] as $table){
             self::assertSame(count(array_unique($pdo->returned[$table])),count($pdo->returned[$table]),$table.' must not refetch already discovered immutable facts');
@@ -62,6 +63,7 @@ final class PropertySaldoReadClosureFrontierTest extends TestCase
 final class SaldoFrontierPdo extends PDO
 {
     public array $tables=[];
+    public int $openingSeeds=0;
     public array $returned=[];
     public int $selects=0;
     public bool $transaction=true;
@@ -95,6 +97,12 @@ final class SaldoFrontierPdo extends PDO
     public function run(string $sql,array $params):array
     {
         ++$this->selects;
+        if(str_starts_with($sql,'SELECT d.id FROM unit_payment_debts d JOIN property_opening_items i ')){
+            ++$this->openingSeeds;
+            if(!preg_match('/i.unit_id IN \(([0-9,]+)\)/',$sql,$m))throw new \LogicException('Unexpected opening seed SQL');$units=array_map('intval',explode(',',$m[1]));$result=[];
+            foreach($this->tables['unit_payment_debts']??[] as $debt)foreach($this->tables['property_opening_items']??[] as $item)if($debt['supplier_id']===$params[0]&&$item['supplier_id']===$debt['supplier_id']&&$item['id']===($debt['opening_item_id']??null)&&in_array($item['unit_id'],$units,true))$result[]=['id'=>$debt['id']];
+            usort($result,fn($a,$b)=>$a['id']<=>$b['id']);return $result;
+        }
         if(str_starts_with($sql,'SELECT sibling.id')){
             preg_match('/selected.id IN \(([0-9,]+)\)/',$sql,$m);$ids=isset($m[1])?array_map('intval',explode(',',$m[1])):[];$result=[];
             foreach($this->tables['unit_charges'] as $selected)if($selected['supplier_id']===$params[0]&&in_array($selected['id'],$ids,true))foreach($this->tables['unit_charges'] as $sibling)if($sibling['supplier_id']===$selected['supplier_id']&&$sibling['unit_id']===$selected['unit_id']&&$sibling['source_key']===$selected['source_key'])$result[]=['id'=>$sibling['id']];

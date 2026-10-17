@@ -153,6 +153,11 @@ final class OpeningBalanceService
         return $this->closingRepo->openingEntriesInPeriod($supplierId, (int) $period['id']) !== [];
     }
 
+    public function postPropertyOpening(\MyInvoice\Service\Property\Opening\OpeningOwnerProof $proof):array
+    {
+        return (new \MyInvoice\Repository\JournalEntryRepository($this->db,new \MyInvoice\Service\ActivityLogger($this->db)))->insertPropertyOpening($proof);
+    }
+
     public function post(int $supplierId, string $startsOn, array $meta): array
     {
         $draft = $this->draft($supplierId);

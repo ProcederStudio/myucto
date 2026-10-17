@@ -318,6 +318,7 @@ final class GlobalSeedTables
         'unit_payment_sources', 'unit_payment_operations', 'unit_claim_accessory_receipts', 'unit_payment_allocations',
         'unit_credit_lots', 'unit_credit_parties', 'unit_credit_reservations', 'unit_credit_events', 'unit_payment_audit',
         'unit_payment_debts', 'unit_payment_debt_lines', 'unit_payment_corrections', 'unit_payment_correction_anchors', 'unit_payment_reliefs',
+        'property_opening_batches', 'property_opening_heads', 'property_opening_items', 'property_opening_components', 'property_opening_parties', 'property_opening_states', 'property_opening_case_links', 'property_opening_recipients',
         'property_claim_party_events', 'property_claim_party_event_debts', 'property_claim_party_members', 'property_debt_certificates',
         'unit_payment_workflows', 'unit_payment_workflow_operations', 'unit_payment_source_revisions', 'unit_payment_source_heads',
         'unit_payment_exports', 'unit_payment_export_items',

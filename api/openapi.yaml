@@ -238,6 +238,44 @@ tags:
       pojišťovnu a zálohy na daň (§38a) vč. rozhodnutí FÚ (§174).
 
 paths:
+  /api/v1/property/catalog/openings:
+    get:
+      tags:
+      - Accounting
+      summary: Doložené převzetí počátečních stavů SVJ
+      description: Pouze property READ. Kurátorovaná historie převzatých dávek a účetních
+        rolí, bez právních podkladů, osob a interních snapshotů. Nejde o potvrzení úplné
+        finanční pozice. Mutace jsou dostupné pouze přihlášené obsluze v interním rozhraní.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - name: after_id
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 25
+      responses:
+        '200':
+          description: Stránka doložených dávek.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PropertyOpeningCatalog'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Neověřitelný původ nebo účetní návaznost.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/property/catalog/payments/saldo:
     get:
       tags:
@@ -253,7 +291,7 @@ paths:
         není source_snapshot_hash plné karty. Hrubé pohledávky se nekompenzují kredity.
         Příslušenství znamená evidované accessory receipts po jejich alokacích; nejde
         o automaticky dopočítané úroky. Částky jsou haléřové řetězce; při nejistotě
-        zůstávají null. Coverage je recorded_s3_s4 a complete=false. Podrobné historie
+        zůstávají null. Coverage je recorded_s3_s4_s6 a complete=false. Podrobné historie
         poskytuje payments/card.
       parameters:
       - $ref: '#/components/parameters/SupplierIdHeader'
@@ -31003,7 +31041,7 @@ components:
           properties:
             scope:
               type: string
-              const: recorded_s3_s4
+              const: recorded_s3_s4_s6
             complete:
               type: boolean
               const: false
@@ -31012,7 +31050,7 @@ components:
               const: not_implemented
             opening_import:
               type: string
-              const: not_implemented
+              const: verified_recorded_batches
     PropertySaldoUnit:
       type: object
       additionalProperties: false
@@ -31127,7 +31165,7 @@ components:
           properties:
             scope:
               type: string
-              const: recorded_s3_s4
+              const: recorded_s3_s4_s6
             financial_complete:
               type: boolean
             complete:
@@ -31138,7 +31176,7 @@ components:
               const: not_implemented
             opening_import:
               type: string
-              const: not_implemented
+              const: verified_recorded_batches
             unresolved_negative_charge_line_count:
               type: integer
               minimum: 0
@@ -31193,6 +31231,7 @@ components:
       - id
       - debt_id
       - charge_line_id
+      - opening_component_id
       - accessory_id
       - amount_cents
       properties:
@@ -31203,6 +31242,11 @@ components:
           type: integer
           minimum: 1
         charge_line_id:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+        opening_component_id:
           type:
           - integer
           - 'null'
@@ -31579,7 +31623,7 @@ components:
         opening_import:
           type: string
           enum:
-          - not_implemented
+          - verified_recorded_batches
         unresolved_negative_charge_line_ids:
           type: array
           items:
@@ -31588,7 +31632,7 @@ components:
         scope:
           type: string
           enum:
-          - recorded_s3_s4
+          - recorded_s3_s4_s6
         complete:
           type: boolean
           enum:
@@ -31691,6 +31735,7 @@ components:
       - difference_cents
       - matches
       - view
+      - opening
       - opening_import_coverage
       properties:
         accounting_date:
@@ -31751,7 +31796,10 @@ components:
         opening_import_coverage:
           type: string
           enum:
-          - not_implemented
+          - complete
+          - incomplete
+        opening:
+          $ref: '#/components/schemas/PropertyOpeningReconciliation'
     PropertyChargeIssueLine:
       type: object
       additionalProperties: false
@@ -55149,3 +55197,171 @@ components:
                 format: date
               fallback_used:
                 type: boolean
+
+    PropertyOpeningCatalog:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - next_cursor
+      - scope
+      - complete_financial_position
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - id
+            - revision_no
+            - status
+            - mode
+            - accounting_date
+            - effective_at
+            - recorded_at
+            - journal_entry_id
+            - reversal_entry_id
+            - previous_id
+            - items
+            properties:
+              id:
+                type: integer
+                minimum: 1
+              revision_no:
+                type: integer
+                minimum: 1
+              status:
+                type: string
+                enum:
+                - posted
+                - reversed
+              mode:
+                type: string
+                enum:
+                - post_new
+                - bind_existing
+                - revision
+                - reversal
+              accounting_date:
+                type: string
+                format: date
+              effective_at:
+                type: string
+                format: date-time
+              recorded_at:
+                type: string
+                format: date-time
+              journal_entry_id:
+                type: integer
+                minimum: 1
+              reversal_entry_id:
+                type:
+                - integer
+                - 'null'
+                minimum: 1
+              previous_id:
+                type:
+                - integer
+                - 'null'
+                minimum: 1
+              items:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required:
+                  - id
+                  - kind
+                  - unit_id
+                  - service_id
+                  - amount_cents
+                  - roles
+                  properties:
+                    id:
+                      type: integer
+                      minimum: 1
+                    kind:
+                      type: string
+                      enum:
+                      - debt
+                      - credit
+                      - advance
+                      - service_carry
+                    unit_id:
+                      type: integer
+                      minimum: 1
+                    service_id:
+                      type:
+                      - integer
+                      - 'null'
+                      minimum: 1
+                    amount_cents:
+                      type: string
+                      pattern: ^-?(?:0|[1-9][0-9]*)$
+                    roles:
+                      type: array
+                      items:
+                        type: object
+                        additionalProperties: false
+                        required:
+                        - role
+                        - account_code
+                        - amount_cents
+                        properties:
+                          role:
+                            type: string
+                            enum:
+                            - principal
+                            - interest
+                            - default_interest
+                            - determined_cost - credit
+                            - long_term_advance
+                            - admin_advance
+                            - service_advance
+                            - service_cost
+                            - accrual_receivable
+                            - accrual_payable
+                          account_code:
+                            type: string
+                          amount_cents:
+                            type: string
+                            pattern: ^-?(?:0|[1-9][0-9]*)$
+        next_cursor:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+        scope:
+          const: recorded_opening_batches
+          type: string
+        complete_financial_position:
+          type: boolean
+          const: false
+    PropertyOpeningReconciliation:
+      type: object
+      additionalProperties: false
+      required:
+      - coverage
+      - uncovered_line_ids
+      - role_cents
+      - scope
+      properties:
+        coverage:
+          type: string
+          enum:
+          - complete
+          - incomplete
+        uncovered_line_ids:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+        role_cents:
+          type: object
+          additionalProperties:
+            type: string
+            pattern: ^-?(?:0|[1-9][0-9]*)$
+        scope:
+          type: string
+          const: opening_journals_only

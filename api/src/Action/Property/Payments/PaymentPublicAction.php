@@ -76,7 +76,7 @@ final class PaymentPublicAction
             $unit = $this->integer($q, 'unit_id', minimum: 1);
             $date = PropertyInput::text($q['date'] ?? null, 'date', 10);
             $now = PartyEventRepository::now(); $this->unit($supplier, $unit, $now, $now);
-            return $this->reconciliation->at($supplier, $date, $unit);
+            $result=$this->reconciliation->at($supplier, $date, $unit);unset($result['opening']['states']);return $result;
         });
     }
 
@@ -99,6 +99,6 @@ final class PaymentPublicAction
     {
         if (!RequestAuthorization::allows($request, 'property', AccessLevel::READ)) return Json::error($response, 'forbidden', 'Pro tuto operaci nemáte oprávnění.', 403);
         try { return Json::ok($response, $work($this->currentSupplierId($request))); }
-        catch (PropertyException|PaymentException $e) { return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus, ['details' => $e->details]); }
+        catch (PropertyException|\MyInvoice\Service\Property\Opening\OpeningException|PaymentException $e) { return Json::error($response, $e->errorCode, $e->getMessage(), $e->httpStatus, ['details' => $e->details]); }
     }
 }

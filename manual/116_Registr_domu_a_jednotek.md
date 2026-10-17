@@ -104,13 +104,13 @@ Na záložce **Opravy a historie** dohledáte operace i jejich detaily. Záporn�
 
 Na záložce **Karta** zadejte stav poznání k okamžiku a případně omezte jednotku nebo osobu. Rozhodný okamžik určuje, k jakému stavu se díváte; okamžik znalosti určuje, které tehdy zaznamenané podklady smí výsledek použít. Karta odděluje hrubé pohledávky, kredity, rezervace, dostupné kredity a expozici z ručení. Dluh jednoho vlastníka se neskrývá kreditem jiného a kredit automaticky nepřechází na nového vlastníka. Popisky osob a jednotek jsou z aktuální evidence.
 
-Respektujte upozornění na neúplnost a přesnost jen na den. Hodnota **Neznámé** není nula. Karta pokrývá zaznamenané předpisy a platby; vyúčtování služeb ani počáteční import v ní nejsou zahrnuté. Samotná karta nenahrazuje potvrzení dluhu.
+Respektujte upozornění na neúplnost a přesnost jen na den. Hodnota **Neznámé** není nula. Karta pokrývá zaznamenané předpisy, platby a doložené převzetí počátečních osobních pohledávek a kreditů. Vyúčtování služeb není zahrnuté. Samotná karta nenahrazuje potvrzení dluhu.
 
 ### Stránkované saldo přes API a MCP
 
 Veřejné API `GET /api/v1/property/catalog/payments/saldo` a MCP nástroj `list_property_saldo` poskytují samostatný souhrn jednotek při oprávnění číst registr. Zadejte `as_of` a `known_at`; `limit` je 1 až 100 jednotek, výchozí hodnota 25. Pro další stránku předejte nezměněný `next_cursor` jako `cursor` a zachovejte oba časy i firmu. Jednotky včetně neaktivních a ukončených jsou řazeny podle stabilního ID.
 
-Souhrn odděluje hrubé pohledávky, evidované příslušenství, jistinu, kredity, rezervované a dostupné kredity. Příslušenství představuje doložené pohledávky po jejich úhradách, nikoli automaticky dopočítané úroky. Částky jsou haléřové řetězce; `null` znamená neznámý výsledek. Zohledněte také `precision`, `coverage` a počty nejistých událostí či právních podkladů k prověření. Vyúčtování služeb a počáteční import nejsou pokryté; souhrn nepotvrzuje úplnou finanční pozici.
+Souhrn odděluje hrubé pohledávky, evidované příslušenství, jistinu, kredity, rezervované a dostupné kredity. Příslušenství představuje doložené pohledávky po jejich úhradách, nikoli automaticky dopočítané úroky. Částky jsou haléřové řetězce; `null` znamená neznámý výsledek. Zohledněte také `precision`, `coverage` a počty nejistých událostí či právních podkladů k prověření. Doložené počáteční pohledávky a kredity jsou zahrnuté. Vyúčtování služeb není pokryté; souhrn nepotvrzuje úplnou finanční pozici.
 
 Každá stránka má vlastní konzistentní snapshot. Více stránek nemusí při souběžných změnách představovat jeden společný stav firmy. `read_scope_digest` se vztahuje k ověřeným finančním a právním návaznostem vybraných jednotek, není otiskem plné karty ani oprávněním zaúčtovat platbu. Podrobné historie poskytuje samostatná karta jednotky. Popisky jednotek jsou aktuální.
 
@@ -123,7 +123,7 @@ Reset se zachováním účtu a konfigurace firmy odstraní registr, jeho systém
 
 V **Úhrady SVJ → Saldo a právní historie** zvolte okamžik stavu a okamžik znalosti. Přehled načítá 25, 50 nebo 100 jednotek na stránce, včetně jednotek s historickými záznamy. Každá stránka má vlastní konzistentní snímek. Stránky proto nesčítejte jako ověřený souhrn celé firmy.
 
-Pohledávky, jistina, evidované příslušenství, kredity, rezervace a volné kredity se zobrazují odděleně. Neznámá částka není nula. Přehled upozorňuje na denní přesnost, nevyřešené záporné řádky a potřebné právní posouzení. Zahrnuje pouze evidované předpisy a úhrady S3/S4; vyúčtování služeb a počáteční stavy nejsou zahrnuty. Otisk stránky není oprávněním k zápisu ani potvrzením úplné finanční pozice.
+Pohledávky, jistina, evidované příslušenství, kredity, rezervace a volné kredity se zobrazují odděleně. Neznámá částka není nula. Přehled upozorňuje na denní přesnost, nevyřešené záporné řádky a potřebné právní posouzení. Zahrnuje evidované předpisy, úhrady a doložené počáteční stavy S3/S4/S6; vyúčtování služeb není zahrnuto. Otisk stránky není oprávněním k zápisu ani potvrzením úplné finanční pozice.
 
 **Karta pohledávek a kreditů** přebírá vybranou jednotku a oba časové okamžiky. Načte se samostatně tlačítkem pro načtení karty. **Právní historie, převody a potvrzení** ukazuje vlastnické revize známé k okamžiku znalosti, přechody dluhů a předchozí i nové skupiny odpovědnosti. Společný dluh se počítá jednou, i když má více zavázaných osob. Ručení se neslučuje s pohledávkou. Jména v historickém přehledu pocházejí z aktuálního adresáře; identitu určuje číslo osoby. Nové osoby v uložené právní události pocházejí z jejích neměnných podkladů.
 
@@ -137,4 +137,120 @@ Náhled ověřuje aktuální podklady, pořadí právních událostí a rozsahy 
 
 Vydání potvrzení vyžaduje samostatné oprávnění, žadatele, doložené oprávnění žadatele, účel a výslovné vymezení neúplného rozsahu. Nejprve zkontrolujte náhled, potom potvrzení vydejte. Neúplné nebo nejisté podklady mohou vydání zablokovat.
 
-Uložené potvrzení se otevírá podle jeho čísla a zobrazuje původní časové okamžiky, podklady a kontrolní otisk. Pozdější převod jej nepřepočítá. Potvrzení se týká pouze evidovaných předpisů a úhrad, nikoli bezpodmínečné bezdlužnosti. Právní potvrzení a změny jsou dostupné pouze přihlášenému uživateli aplikace, ne prostřednictvím veřejného API nebo MCP.
+Uložené potvrzení se otevírá podle jeho čísla a zobrazuje původní časové okamžiky, podklady a kontrolní otisk. Pozdější převod jej nepřepočítá. Potvrzení se týká pouze evidovaných předpisů, úhrad a doložených počátečních stavů, nikoli bezpodmínečné bezdlužnosti. Právní potvrzení a změny jsou dostupné pouze přihlášenému uživateli aplikace, ne prostřednictvím veřejného API nebo MCP.
+
+## Převzetí počátečních stavů SVJ
+
+V části **Počáteční stavy SVJ** převezmete vlastní strukturované účetní podklady ve formátu `myucto.property.opening.v1`. Soubor JSON obsahuje pole `format` s tímto označením a objekt `request`. Nejde o import formátu jiného účetního programu. ID jednotek, služeb a osob musí odpovídat registru vybrané firmy; historický původ každé položky musí mít doloženou platnou vazbu jednotky a služby.
+
+Zadejte účetní datum, okamžik účinnosti v témže českém kalendářním dni, důvod a podklad převzetí. Úhrada převzaté pohledávky a použití převzatého kreditu v zápočtu nesmí předcházet účinnosti převzetí. Historické datum vzniku původního dluhu tuto hranici neposouvá. Rozlište čtyři kategorie:
+
+- Osobní pohledávka: jediný právní případ s jistinou a případným doloženým příslušenstvím. Více spoludlužníků nevytváří více částek. Předejte právní titul, splatnost, pravidla odpovědnosti, právní režim alokace, zajištění a doložené upomínky.
+- Kredit: hrubý závazek na 379.910 s výslovně určenými oprávněnými osobami. Může náležet bývalému vlastníkovi. Převzetí kreditu nevytváří bankovní ani pokladní platbu. Rezervace, zápočet a skutečná vratka používají stejnou evidenci jako ostatní kredity.
+- Záloha: dlouhodobá 955 nebo 955.100, správní 324.200 nebo službová 324.1xx. Doložte účel, termín vypořádání, předepsáno, zaplaceno, použito a vazby nezaplacených částek na konkrétní převzaté osobní případy. Zůstatek je předepsáno minus použito.
+- Přenesené služby: technické náklady 315.2xx a párové dohady 388.2xx / 389.1xx podle jednotky, služby a období. Předejte profil účtování, příjemce služby, podklad rozdělení, protistranu a předepsané, zaplacené, vypořádané a zrušené neuhrazené částky. Technický účet 315.2xx sám není osobním dluhem.
+
+Částky se předávají jako řetězce celých haléřů. Každý případ má doložené `case_ref` a `occurrence_ref`; jednotlivé složky mají jedinečný `key`, účetní `role`, `account_code` a `amount_cents`. Vazba nezaplacené částky obsahuje stejné reference osobního případu a částku. Všechny zálohy a služby mají samostatně ověřené relační vazby; podklad nezakládá automatické vyúčtování následujícího roku.
+
+Použijte **Nové otevření**, pokud deník ještě neobsahuje otevření. Úplná sestava včetně `other_balances` musí být účetně vyrovnaná. **Navázat existující** vyžaduje ID otevření, jeho aktuální verzi a u každé složky `source_line_id`; nevytváří další účetní částku. Relevantní řádky otevření musí být pokryté celé a přesně jednou. Náhled zobrazí skutečné účetní řádky a aktuální revizi. Potvrzení odmítne mezitím změněný podklad.
+
+Převzetí se eviduje v jednom počátečním období firmy. Běžné otevření dalšího roku nevytváří znovu osobní pohledávky ani kredity. Historii lze stáhnout ve vlastním formátu. Oprava vyžaduje **Revizi** s podkladem, důvodem, novým datem účinnosti a očekávanou revizí; v jedné transakci obrátí původní účetní zápis a vytvoří náhradu. **Storno** vytvoří doložený opačný zápis. Historické původy se nemažou. Navázané úhrady, rezervace či právní události opravu blokují.
+
+Karta rozlišuje rozhodný okamžik a okamžik znalosti: pozdější doložená revize nemění to, co bylo známo dříve. Rekonciliace odděluje osobní pohledávky a kredity od technických služeb. Pokrytí `opening_journals_only` potvrzuje pouze vazby otevření; `complete_financial_position=false` nadále neznamená potvrzení celé finanční pozice.
+
+Veřejné čtení `GET /api/v1/property/catalog/openings` a MCP `list_property_openings` poskytují stránkované účetní role a částky bez právních podkladů a osob. Použijte `after_id` podle `next_cursor` a limit 1 až 100. Zápis, potvrzení a revize vyžadují přihlášenou obsluhu a samostatná oprávnění.
+
+### Příklad vlastního souboru
+
+Následující syntetický příklad zachycuje pohledávku 10 000 Kč a kredit jiné osoby 10 000 Kč. ID, data a označení podkladů nahraďte skutečně doloženými údaji vybrané firmy. Účty musí existovat v její osnově. Příklad nepředstavuje doporučení právního režimu konkrétního případu.
+
+```json
+{
+  "format": "myucto.property.opening.v1",
+  "request": {
+    "mode": "post_new",
+    "accounting_date": "2026-01-01",
+    "effective_at": "2026-01-01T00:00:00+01:00",
+    "expected_revision": 0,
+    "evidence_ref": "Podepsané převzetí",
+    "reason": "Převzetí účetních stavů",
+    "items": [
+      {
+        "unit_id": 1,
+        "service_id": null,
+        "origin_at": "2026-01-01T00:00:00+01:00",
+        "period_from": "2026-01-01",
+        "period_to": "2026-01-01",
+        "due_date": "2026-01-02",
+        "occurrence_ref": "2026",
+        "title_ref": "Doložený právní titul",
+        "evidence_ref": "Doložená inventura",
+        "case_ref": "pohledavka-A",
+        "kind": "debt",
+        "components": [
+          {
+            "key": "principal",
+            "role": "principal",
+            "account_code": "315.100",
+            "amount_cents": "1000000"
+          }
+        ],
+        "liability_groups": [
+          {
+            "group_key": "A",
+            "role": "debtor",
+            "mode": "individual",
+            "basis": "documented_title",
+            "members": [
+              1
+            ],
+            "extent": {
+              "num": "1",
+              "den": "1"
+            },
+            "evidence_ref": "Doložený titul",
+            "legal_reason": "Doložený osobní závazek",
+            "valid_from": "2026-01-01T00:00:00+01:00",
+            "valid_to": null
+          }
+        ],
+        "legal": {
+          "basis": "legal_act",
+          "legal_act_date": "2025-12-15",
+          "evidence": "Doložené rozhodnutí",
+          "regime": "general"
+        },
+        "security": {
+          "kind": "unsecured",
+          "evidence": "Doložené posouzení"
+        }
+      },
+      {
+        "unit_id": 1,
+        "service_id": null,
+        "origin_at": "2026-01-01T00:00:00+01:00",
+        "period_from": "2026-01-01",
+        "period_to": "2026-01-01",
+        "due_date": "2026-01-02",
+        "occurrence_ref": "2026",
+        "title_ref": "Doložený právní titul",
+        "evidence_ref": "Doložená inventura",
+        "case_ref": "kredit-B",
+        "kind": "credit",
+        "components": [
+          {
+            "key": "credit",
+            "role": "credit",
+            "account_code": "379.910",
+            "amount_cents": "1000000"
+          }
+        ],
+        "creditor_ids": [
+          2
+        ]
+      }
+    ],
+    "other_balances": []
+  }
+}
+```

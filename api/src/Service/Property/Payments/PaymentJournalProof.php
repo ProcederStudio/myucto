@@ -14,14 +14,23 @@ final class PaymentJournalProof
     {
         return $this->currentMany($supplier,[$id])[$id];
     }
+    public function snapshot(int $supplier,int $id,bool $currentRead=false):array
+    {
+        return $this->readMany($supplier,[$id],$currentRead)[$id];
+    }
     public function currentMany(int $supplier,array $entryIds): array
     {
+        return $this->readMany($supplier,$entryIds,true);
+    }
+    private function readMany(int $supplier,array $entryIds,bool $currentRead):array
+    {
+        $suffix=$currentRead?' FOR UPDATE':'';
         if(!$this->db->pdo()->inTransaction()) throw new \LogicException('Payment ledger proof requires period-first owner locks.');
         foreach($entryIds as $id)PropertyInput::id($id,'journal_entry_id');
         $entryIds=array_values(array_unique($entryIds));sort($entryIds,SORT_NUMERIC);$out=[];
         foreach(array_chunk($entryIds,500) as $chunk){
             $marks=implode(',',array_fill(0,count($chunk),'?'));
-            $s=$this->db->pdo()->prepare('SELECT id,period_id,entry_date,source_type,source_id,posted_at,reversed_by FROM journal_entries WHERE supplier_id=? AND id IN ('.$marks.') ORDER BY id FOR UPDATE');$s->execute([$supplier,...$chunk]);
+            $s=$this->db->pdo()->prepare('SELECT id,period_id,entry_date,source_type,source_id,posted_at,reversed_by FROM journal_entries WHERE supplier_id=? AND id IN ('.$marks.') ORDER BY id'.$suffix);$s->execute([$supplier,...$chunk]);
             $entries=$s->fetchAll(PDO::FETCH_ASSOC);
             if(count($entries)!==count($chunk))PaymentException::reject('ledger_unposted');
             foreach($entries as $entry){
@@ -29,9 +38,9 @@ final class PaymentJournalProof
                 foreach(['id','period_id','source_id','reversed_by'] as $key)if($entry[$key]!==null)$entry[$key]=(int)$entry[$key];
                 unset($entry['posted_at']);$out[$entry['id']]=['entry'=>$entry,'lines'=>[]];
             }
-            $s=$this->db->pdo()->prepare('SELECT l.*,a.account_code FROM journal_entry_lines l JOIN chart_of_accounts a ON a.supplier_id=l.supplier_id AND a.id=l.account_id WHERE l.supplier_id=? AND l.entry_id IN ('.$marks.') ORDER BY l.entry_id,l.line_no,l.id FOR UPDATE');$s->execute([$supplier,...$chunk]);$lines=$s->fetchAll(PDO::FETCH_ASSOC);
+            $s=$this->db->pdo()->prepare('SELECT l.*,a.account_code FROM journal_entry_lines l JOIN chart_of_accounts a ON a.supplier_id=l.supplier_id AND a.id=l.account_id WHERE l.supplier_id=? AND l.entry_id IN ('.$marks.') ORDER BY l.entry_id,l.line_no,l.id'.$suffix);$s->execute([$supplier,...$chunk]);$lines=$s->fetchAll(PDO::FETCH_ASSOC);
             $repo=new DimensionAssignmentRepository($this->db);$ids=array_column($lines,'id');
-            $dims=$repo->lineDimensions($supplier,$ids,true);$splits=$repo->lineSplits($supplier,$ids,true);$origins=$repo->lineOrigins($supplier,$ids,true);$splitOrigins=$repo->lineSplitOrigins($supplier,$ids,true);
+            $dims=$repo->lineDimensions($supplier,$ids,$currentRead);$splits=$repo->lineSplits($supplier,$ids,$currentRead);$origins=$repo->lineOrigins($supplier,$ids,$currentRead);$splitOrigins=$repo->lineSplitOrigins($supplier,$ids,$currentRead);
             foreach($lines as $l)$out[(int)$l['entry_id']]['lines'][]=['id'=>(int)$l['id'],'account_code'=>$l['account_code'],'side'=>$l['side'],'amount'=>JournalLineAmount::decimal($l['amount']),
                 'currency_code'=>$l['currency_code'],'amount_foreign'=>$l['amount_foreign'],'fx_rate'=>$l['fx_rate'],'is_red_storno'=>(bool)$l['is_red_storno'],
                 'dimensions'=>$dims[$l['id']]??[],'dimension_splits'=>$splits[$l['id']]??[],'dimension_origins'=>$origins[$l['id']]??[],'dimension_split_origins'=>$splitOrigins[$l['id']]??[]]+self::legacyContext($l);

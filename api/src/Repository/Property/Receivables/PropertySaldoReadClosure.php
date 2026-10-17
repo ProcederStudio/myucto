@@ -36,21 +36,22 @@ final class PropertySaldoReadClosure
         $sets=['debts'=>array_fill_keys($debtIds,true),'charges'=>[],'lines'=>[],'allocations'=>[],'operations'=>[],'corrections'=>[],'credits'=>[],'reservations'=>[],'sources'=>[],'source_entries'=>[]];$rows=[];
         $seed=$this->select($supplier,'unit_charges',['unit_id'=>array_fill_keys($unitIds,true),'read_unit_id'=>array_fill_keys($unitIds,true)]);foreach($seed as $r)$sets['charges'][(int)$r['id']]=true;
         $seed=$this->select($supplier,'unit_credit_lots',['unit_id'=>array_fill_keys($unitIds,true),'read_unit_id'=>array_fill_keys($unitIds,true)]);foreach($seed as $r)$sets['credits'][(int)$r['id']]=true;
+        $params=[$supplier];$condition=$this->condition('i.unit_id',array_fill_keys($unitIds,true),$params);$seed=$this->query('SELECT d.id FROM unit_payment_debts d JOIN property_opening_items i ON i.id=d.opening_item_id AND i.supplier_id=d.supplier_id WHERE d.supplier_id=? AND '.$condition.' ORDER BY d.id',$params);foreach($seed as $r)$sets['debts'][(int)$r['id']]=true;
         do{
             $before=array_map('count',$sets);$unused=[];
             $familyDelta=array_diff_key($sets['charges'],$familyQueried);$familyQueried=$sets['charges'];
             $family=$familyDelta===[]?[]:$this->query('SELECT sibling.id FROM unit_charges selected JOIN unit_charges sibling ON sibling.supplier_id=selected.supplier_id AND sibling.unit_id=selected.unit_id AND sibling.source_key=selected.source_key WHERE selected.supplier_id=? AND '.$this->condition('selected.id',$familyDelta,$unused).' ORDER BY sibling.id',[$supplier]);foreach($family as $r)$sets['charges'][(int)$r['id']]=true;
             $rows['unit_payment_debts']=$discover('unit_payment_debts',['id'=>$sets['debts'],'charge_id'=>$sets['charges'],'read_charge_id'=>$sets['charges']]);
             foreach($rows['unit_payment_debts'] as $row){
-                $sets['debts'][(int)$row['id']]=true;$sets['charges'][(int)$row['charge_id']]=true;
+                $sets['debts'][(int)$row['id']]=true;if($row['charge_id']!==null)$sets['charges'][(int)$row['charge_id']]=true;
                 $fact=FinancialHistoryRepository::decode($row);
-                foreach($fact['lines'] as $line)$sets['lines'][$line['id']]=true;
+                if($row['charge_id']!==null)foreach($fact['lines'] as $line)$sets['lines'][$line['id']]=true;
             }
             $rows['unit_charge_lines']=$discover('unit_charge_lines',['id'=>$sets['lines'],'charge_id'=>$sets['charges']]);
-            foreach($rows['unit_charge_lines'] as $row){$sets['lines'][(int)$row['id']]=true;$sets['charges'][(int)$row['charge_id']]=true;}
+            foreach($rows['unit_charge_lines'] as $row){$sets['lines'][(int)$row['id']]=true;if($row['charge_id']!==null)$sets['charges'][(int)$row['charge_id']]=true;}
             $rows['unit_payment_allocations']=$discover('unit_payment_allocations',['id'=>$sets['allocations'],'debt_id'=>$sets['debts'],'operation_id'=>$sets['operations']],['allocation_json'=>['$.debt_id'=>$sets['debts'],'$.charge_line_id'=>$sets['lines']]]);
             foreach($rows['unit_payment_allocations'] as $row){
-                $sets['allocations'][(int)$row['id']]=true;$sets['operations'][(int)$row['operation_id']]=true;$sets['debts'][(int)$row['debt_id']]=true;$sets['charges'][(int)$row['charge_id']]=true;
+                $sets['allocations'][(int)$row['id']]=true;if($row['operation_id']!==null)$sets['operations'][(int)$row['operation_id']]=true;$sets['debts'][(int)$row['debt_id']]=true;if($row['charge_id']!==null)$sets['charges'][(int)$row['charge_id']]=true;
             }
             $anchors=$discover('unit_payment_correction_anchors',['correction_id'=>$sets['corrections'],'original_line_id'=>$sets['lines']],[],'correction_id,adjustment_line_id,original_line_id');
             foreach($anchors as $row){$sets['corrections'][(int)$row['correction_id']]=true;$sets['lines'][(int)$row['original_line_id']]=true;$sets['lines'][(int)$row['adjustment_line_id']]=true;}
@@ -68,7 +69,7 @@ final class PropertySaldoReadClosure
                 $sets['operations'][(int)$row['id']]=true;if($row['source_id']!==null)$sets['sources'][(int)$row['source_id']]=true;if($row['original_operation_id']!==null)$sets['operations'][(int)$row['original_operation_id']]=true;
                 $fact=FinancialHistoryRepository::decode($row);
                 if(isset($fact['source']['id']))$sets['sources'][$fact['source']['id']]=true;if(isset($fact['source']['receipt']['ledger']['entry']['id']))$sets['source_entries'][$fact['source']['receipt']['ledger']['entry']['id']]=true;
-                foreach($fact['allocations']??[] as $part){$sets['debts'][$part['debt_id']]=true;$sets['charges'][$part['charge_id']]=true;}
+                foreach($fact['allocations']??[] as $part){$sets['debts'][$part['debt_id']]=true;if($part['charge_id']!==null)$sets['charges'][$part['charge_id']]=true;}
                 if(isset($fact['credit']['id']))$sets['credits'][$fact['credit']['id']]=true;
                 if(isset($fact['reservation']['id']))$sets['reservations'][$fact['reservation']['id']]=true;
                 if(isset($fact['original_operation_id']))$sets['operations'][$fact['original_operation_id']]=true;
@@ -76,9 +77,9 @@ final class PropertySaldoReadClosure
             }
             $rows['unit_payment_sources']=$discover('unit_payment_sources',['id'=>$sets['sources'],'journal_entry_id'=>$sets['source_entries']]);foreach($rows['unit_payment_sources'] as $r){$sets['sources'][(int)$r['id']]=true;$sets['source_entries'][(int)$r['journal_entry_id']]=true;}
             $rows['unit_credit_lots']=$discover('unit_credit_lots',['id'=>$sets['credits'],'operation_id'=>$sets['operations']]);
-            foreach($rows['unit_credit_lots'] as $row){$sets['credits'][(int)$row['id']]=true;$sets['operations'][(int)$row['operation_id']]=true;}
+            foreach($rows['unit_credit_lots'] as $row){$sets['credits'][(int)$row['id']]=true;if($row['operation_id']!==null)$sets['operations'][(int)$row['operation_id']]=true;}
             $rows['unit_credit_events']=$discover('unit_credit_events',['credit_id'=>$sets['credits'],'operation_id'=>$sets['operations'],'reservation_id'=>$sets['reservations']]);
-            foreach($rows['unit_credit_events'] as $row){$sets['credits'][(int)$row['credit_id']]=true;$sets['operations'][(int)$row['operation_id']]=true;if($row['reservation_id']!==null)$sets['reservations'][(int)$row['reservation_id']]=true;}
+            foreach($rows['unit_credit_events'] as $row){$sets['credits'][(int)$row['credit_id']]=true;if($row['operation_id']!==null)$sets['operations'][(int)$row['operation_id']]=true;if($row['reservation_id']!==null)$sets['reservations'][(int)$row['reservation_id']]=true;}
             $rows['unit_credit_reservations']=$discover('unit_credit_reservations',['id'=>$sets['reservations'],'credit_id'=>$sets['credits']]);
             foreach($rows['unit_credit_reservations'] as $row){$sets['reservations'][(int)$row['id']]=true;$sets['credits'][(int)$row['credit_id']]=true;}
         }while(array_map('count',$sets)!==$before);

@@ -118,6 +118,7 @@
     "project",
     "propertyCharges",
     "propertyIssuance",
+    "propertyOpening",
     "propertyPayments",
     "propertyRegistry",
     "propertySaldo",
@@ -894,6 +895,10 @@
     ],
     "property-charges": [
       "propertyCharges",
+      "propertyRegistry"
+    ],
+    "property-openings": [
+      "propertyOpening",
       "propertyRegistry"
     ],
     "property-payments": [

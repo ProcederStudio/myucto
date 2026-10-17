@@ -58,10 +58,14 @@ final class PaymentHistoricalCarrierProof
             $receipt=$snapshot['source']['receipt'];
             foreach($snapshot['source']['clearing_cells']??$receipt['clearing_cells']??[['line'=>$receipt['clearing_line']]] as $cell)$sources[]=$cell['line'];
         }
+        $openingIds=[];foreach($snapshot['debt_receipts']??[] as $detail)if(isset($detail['debt']['snapshot']['opening_item_id']))$openingIds[]=$detail['debt']['snapshot']['opening_item_id'];
+        $openingItems=$openingIds===[]?[]:(new \MyInvoice\Service\Property\Opening\OpeningReadProof($db))->items($this->supplier,$openingIds,true);
         foreach($snapshot['debt_receipts']??[] as $detail){
             $entry=$detail['debt']['snapshot']['journal_entry_id'];
-            $ledger=(new PaymentJournalProof($db))->current($this->supplier,$entry);
-            foreach($ledger['lines'] as $line)if(substr($line['account_code'],0,3)==='315'&&$line['side']==='debit'&&!$line['is_red_storno'])$sources[]=$line;
+            if(isset($detail['debt']['snapshot']['opening_item_id'])){
+                $opening=$openingItems[$detail['debt']['snapshot']['opening_item_id']];
+                foreach($opening['components'] as $component)if($component['role']==='principal'){$line=$component['line'];$line['amount']=bcdiv($component['amount_cents'],'100',2);$sources[]=$line;}
+            }else{$ledger=(new PaymentJournalProof($db))->current($this->supplier,$entry);foreach($ledger['lines'] as $line)if(substr($line['account_code'],0,3)==='315'&&$line['side']==='debit'&&!$line['is_red_storno'])$sources[]=$line;}
             foreach($detail['accessories']??[] as $accessory)if(substr($accessory['receipt']['line']['account_code'],0,3)==='315')$sources[]=$accessory['receipt']['line'];
         }
         if(in_array($snapshot['request']['kind'],['refund','setoff'],true))$sources[]=$snapshot['credit']['snapshot']['line'];

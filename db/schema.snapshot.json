@@ -1024,7 +1024,8 @@
         "2040_property_saldo_read_links.sql",
         "2041_property_saldo_read_roots.sql",
         "2042_property_saldo_read_source.sql",
-        "2043_property_receivable_permissions.sql"
+        "2043_property_receivable_permissions.sql",
+        "2044_property_opening.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -18668,6 +18669,238 @@
                 "chk_property_object_parent": "`kind` = 'unit' and `parent_id` is not null or `kind` <> 'unit' and `parent_id` is null"
             }
         },
+        "property_opening_batches": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "accounting_date": "date NOT NULL",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "effective_at": "datetime(6) NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "idempotency_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "journal_entry_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "mode": "varchar(24) NOT NULL",
+                "period_id": "bigint(20) unsigned NOT NULL",
+                "previous_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "recorded_at": "datetime(6) NOT NULL",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "request_json": "longtext NOT NULL",
+                "reversal_entry_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "revision_no": "int(10) unsigned NOT NULL",
+                "snapshot_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "snapshot_json": "longtext NOT NULL",
+                "status": "varchar(16) NOT NULL DEFAULT 'pending'",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_property_opening_actor": "BTREE (created_by)",
+                "fk_property_opening_entry": "BTREE (supplier_id, journal_entry_id)",
+                "fk_property_opening_previous": "BTREE (supplier_id, previous_id)",
+                "fk_property_opening_reversal": "BTREE (supplier_id, reversal_entry_id)",
+                "uq_property_opening_revision": "UNIQUE BTREE (supplier_id, period_id, revision_no)",
+                "uq_property_opening_tenant": "UNIQUE BTREE (supplier_id, id)",
+                "uq_property_opening_token": "UNIQUE BTREE (supplier_id, idempotency_key)"
+            },
+            "foreign_keys": {
+                "fk_property_opening_actor": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_property_opening_entry": "(supplier_id, journal_entry_id) -> journal_entries (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_property_opening_period": "(supplier_id, period_id) -> accounting_periods (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_property_opening_previous": "(supplier_id, previous_id) -> property_opening_batches (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_property_opening_reversal": "(supplier_id, reversal_entry_id) -> journal_entries (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_property_opening_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "chk_property_opening_status": "`status` in ('pending','posted','reversed') and `mode` in ('post_new','bind_existing','revision','reversal')",
+                "request_json": "json_valid(`request_json`)",
+                "snapshot_json": "json_valid(`snapshot_json`)"
+            }
+        },
+        "property_opening_case_links": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "amount_cents": "decimal(30,0) NOT NULL",
+                "debt_item_id": "bigint(20) unsigned NOT NULL",
+                "item_id": "bigint(20) unsigned NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (supplier_id, item_id, debt_item_id)",
+                "fk_property_opening_link_debt": "BTREE (supplier_id, debt_item_id)"
+            },
+            "foreign_keys": {
+                "fk_property_opening_link_debt": "(supplier_id, debt_item_id) -> property_opening_items (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_property_opening_link_item": "(supplier_id, item_id) -> property_opening_items (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "chk_property_opening_link": "`amount_cents` > 0 and `item_id` <> `debt_item_id`"
+            }
+        },
+        "property_opening_components": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "amount_cents": "decimal(30,0) NOT NULL",
+                "component_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "fact_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "fact_json": "longtext NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "item_id": "bigint(20) unsigned NOT NULL",
+                "journal_entry_id": "bigint(20) unsigned NOT NULL",
+                "journal_line_id": "bigint(20) unsigned NOT NULL",
+                "role": "varchar(32) NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_property_opening_component_entry": "BTREE (supplier_id, journal_entry_id)",
+                "fk_property_opening_component_line": "BTREE (journal_line_id)",
+                "ix_property_opening_line": "BTREE (supplier_id, journal_line_id)",
+                "uq_property_opening_component": "UNIQUE BTREE (supplier_id, item_id, component_key)",
+                "uq_property_opening_component_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "fk_property_opening_component_entry": "(supplier_id, journal_entry_id) -> journal_entries (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_property_opening_component_item": "(supplier_id, item_id) -> property_opening_items (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_property_opening_component_line": "(journal_line_id) -> journal_entry_lines (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "chk_property_opening_component": "`amount_cents` > 0",
+                "fact_json": "json_valid(`fact_json`)"
+            }
+        },
+        "property_opening_heads": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "batch_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "period_id": "bigint(20) unsigned NOT NULL",
+                "row_version": "int(10) unsigned NOT NULL DEFAULT 0",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (supplier_id, period_id)",
+                "fk_property_opening_head_batch": "BTREE (supplier_id, batch_id)"
+            },
+            "foreign_keys": {
+                "fk_property_opening_head_batch": "(supplier_id, batch_id) -> property_opening_batches (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_property_opening_head_period": "(supplier_id, period_id) -> accounting_periods (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": []
+        },
+        "property_opening_items": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "amount_cents": "decimal(30,0) NOT NULL",
+                "batch_id": "bigint(20) unsigned NOT NULL",
+                "case_key": "char(64) NOT NULL COLLATE ascii_bin",
+                "due_date": "date NULL DEFAULT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "kind": "varchar(24) NOT NULL",
+                "origin_at": "datetime(6) NOT NULL",
+                "period_from": "date NOT NULL",
+                "period_to": "date NOT NULL",
+                "service_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "snapshot_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "snapshot_json": "longtext NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "unit_id": "bigint(20) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_property_opening_item_service": "BTREE (supplier_id, service_id)",
+                "ix_property_opening_unit": "BTREE (supplier_id, unit_id, batch_id)",
+                "uq_property_opening_case": "UNIQUE BTREE (supplier_id, batch_id, case_key)",
+                "uq_property_opening_item_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "fk_property_opening_item_batch": "(supplier_id, batch_id) -> property_opening_batches (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_property_opening_item_service": "(supplier_id, service_id) -> property_objects (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_property_opening_item_unit": "(supplier_id, unit_id) -> property_objects (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "chk_property_opening_item": "`amount_cents` > 0 and `period_to` >= `period_from` and `kind` in ('debt','credit','advance','service_carry')",
+                "snapshot_json": "json_valid(`snapshot_json`)"
+            }
+        },
+        "property_opening_parties": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "client_id": "bigint(20) unsigned NOT NULL",
+                "fact_json": "longtext NOT NULL",
+                "group_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "item_id": "bigint(20) unsigned NOT NULL",
+                "role": "varchar(16) NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (supplier_id, item_id, group_key, client_id)",
+                "fk_property_opening_party_client": "BTREE (supplier_id, client_id)"
+            },
+            "foreign_keys": {
+                "fk_property_opening_party_client": "(supplier_id, client_id) -> clients (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_property_opening_party_item": "(supplier_id, item_id) -> property_opening_items (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "chk_property_opening_party": "`role` in ('debtor','guarantor','creditor')",
+                "fact_json": "json_valid(`fact_json`)"
+            }
+        },
+        "property_opening_recipients": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "client_id": "bigint(20) unsigned NOT NULL",
+                "item_id": "bigint(20) unsigned NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (supplier_id, item_id, client_id)",
+                "fk_property_opening_recipient_client": "BTREE (supplier_id, client_id)"
+            },
+            "foreign_keys": {
+                "fk_property_opening_recipient_client": "(supplier_id, client_id) -> clients (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_property_opening_recipient_item": "(supplier_id, item_id) -> property_opening_items (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": []
+        },
+        "property_opening_states": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "cancelled_unpaid_cents": "decimal(30,0) NOT NULL",
+                "counterpart_ref": "text NULL DEFAULT NULL",
+                "item_id": "bigint(20) unsigned NOT NULL",
+                "paid_cents": "decimal(30,0) NOT NULL",
+                "prescribed_cents": "decimal(30,0) NOT NULL",
+                "profile": "varchar(32) NULL DEFAULT NULL",
+                "purpose_ref": "text NOT NULL",
+                "settled_cents": "decimal(30,0) NOT NULL",
+                "settlement_due_on": "date NULL DEFAULT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "used_cents": "decimal(30,0) NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (supplier_id, item_id)"
+            },
+            "foreign_keys": {
+                "fk_property_opening_state_item": "(supplier_id, item_id) -> property_opening_items (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "chk_property_opening_state": "`prescribed_cents` >= 0 and `paid_cents` >= 0 and `used_cents` >= 0 and `settled_cents` >= 0 and `cancelled_unpaid_cents` >= 0 and `paid_cents` <= `prescribed_cents`"
+            }
+        },
         "property_revision_groups": {
             "type": "BASE TABLE",
             "engine": "InnoDB",
@@ -24048,13 +24281,14 @@
             "collation": "utf8mb4_unicode_ci",
             "columns": {
                 "amount_cents": "decimal(30,0) NOT NULL",
-                "charge_id": "bigint(20) unsigned NOT NULL",
+                "charge_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "component": "varchar(32) NOT NULL",
                 "created_by": "bigint(20) unsigned NOT NULL",
                 "debt_id": "bigint(20) unsigned NOT NULL",
                 "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
                 "journal_entry_id": "bigint(20) unsigned NOT NULL",
-                "journal_line_id": "bigint(20) unsigned NOT NULL",
+                "journal_line_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "opening_component_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "receipt_hash": "char(64) NOT NULL COLLATE ascii_bin",
                 "receipt_json": "longtext NOT NULL",
                 "recorded_at": "datetime(6) NOT NULL",
@@ -24067,6 +24301,7 @@
                 "fk_unit_accessory_debt": "BTREE (supplier_id, debt_id)",
                 "fk_unit_accessory_journal": "BTREE (supplier_id, journal_entry_id)",
                 "uq_unit_accessory_line": "UNIQUE BTREE (journal_line_id)",
+                "uq_unit_accessory_opening": "UNIQUE BTREE (supplier_id, opening_component_id)",
                 "uq_unit_accessory_tenant": "UNIQUE BTREE (supplier_id, id)"
             },
             "foreign_keys": {
@@ -24074,10 +24309,12 @@
                 "fk_unit_accessory_charge": "(supplier_id, charge_id) -> unit_charges (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
                 "fk_unit_accessory_debt": "(supplier_id, debt_id) -> unit_payment_debts (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
                 "fk_unit_accessory_journal": "(supplier_id, journal_entry_id) -> journal_entries (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
-                "fk_unit_accessory_line": "(journal_line_id) -> journal_entry_lines (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+                "fk_unit_accessory_line": "(journal_line_id) -> journal_entry_lines (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_accessory_opening": "(supplier_id, opening_component_id) -> property_opening_components (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
             },
             "checks": {
                 "chk_unit_accessory": "`amount_cents` > 0 and `component` in ('determined_cost','default_interest','interest')",
+                "chk_unit_accessory_origin": "`journal_line_id` is null <> (`opening_component_id` is null)",
                 "receipt_json": "json_valid(`receipt_json`)"
             }
         },
@@ -24120,7 +24357,8 @@
                 "amount_cents": "decimal(30,0) NOT NULL",
                 "due_date": "date NOT NULL",
                 "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
-                "operation_id": "bigint(20) unsigned NOT NULL",
+                "opening_item_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "operation_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "read_unit_id": "bigint(20) unsigned NULL DEFAULT NULL STORED GENERATED AS (json_value(`snapshot_json`,'$.unit_id'))",
                 "row_version": "int(10) unsigned NOT NULL DEFAULT 1",
                 "snapshot_hash": "char(64) NOT NULL COLLATE ascii_bin",
@@ -24132,15 +24370,18 @@
                 "PRIMARY": "UNIQUE BTREE (id)",
                 "fk_unit_credit_unit": "BTREE (supplier_id, unit_id)",
                 "ix_unit_credit_read_unit": "BTREE (supplier_id, read_unit_id, id)",
+                "uq_unit_credit_opening": "UNIQUE BTREE (supplier_id, opening_item_id)",
                 "uq_unit_credit_origin": "UNIQUE BTREE (supplier_id, operation_id)",
                 "uq_unit_credit_tenant": "UNIQUE BTREE (supplier_id, id)"
             },
             "foreign_keys": {
+                "fk_unit_credit_opening": "(supplier_id, opening_item_id) -> property_opening_items (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
                 "fk_unit_credit_operation": "(supplier_id, operation_id) -> unit_payment_operations (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
                 "fk_unit_credit_unit": "(supplier_id, unit_id) -> property_objects (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
             },
             "checks": {
                 "chk_unit_credit_amount": "`amount_cents` > 0",
+                "chk_unit_credit_origin": "`operation_id` is null <> (`opening_item_id` is null)",
                 "snapshot_json": "json_valid(`snapshot_json`)"
             }
         },
@@ -24209,12 +24450,13 @@
                 "accessory_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "allocation_json": "longtext NOT NULL",
                 "amount_cents": "decimal(30,0) NOT NULL",
-                "charge_id": "bigint(20) unsigned NOT NULL",
+                "charge_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "charge_line_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "debt_id": "bigint(20) unsigned NOT NULL",
                 "debtor_id": "bigint(20) unsigned NOT NULL",
                 "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
                 "liability_group": "varchar(80) NOT NULL",
+                "opening_component_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "operation_id": "bigint(20) unsigned NOT NULL",
                 "supplier_id": "int(10) unsigned NOT NULL"
             },
@@ -24225,6 +24467,7 @@
                 "fk_unit_allocation_debt": "BTREE (supplier_id, debt_id)",
                 "fk_unit_allocation_debtor": "BTREE (supplier_id, debtor_id)",
                 "fk_unit_allocation_line": "BTREE (supplier_id, charge_line_id)",
+                "fk_unit_allocation_opening": "BTREE (supplier_id, opening_component_id)",
                 "fk_unit_allocation_operation": "BTREE (supplier_id, operation_id)",
                 "uq_unit_allocation_tenant": "UNIQUE BTREE (supplier_id, id)"
             },
@@ -24234,11 +24477,12 @@
                 "fk_unit_allocation_debt": "(supplier_id, debt_id) -> unit_payment_debts (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
                 "fk_unit_allocation_debtor": "(supplier_id, debtor_id) -> clients (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
                 "fk_unit_allocation_line": "(supplier_id, charge_line_id) -> unit_charge_lines (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_unit_allocation_opening": "(supplier_id, opening_component_id) -> property_opening_components (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
                 "fk_unit_allocation_operation": "(supplier_id, operation_id) -> unit_payment_operations (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
             },
             "checks": {
                 "allocation_json": "json_valid(`allocation_json`)",
-                "chk_unit_allocation": "`amount_cents` > 0 and `charge_line_id` is null <> (`accessory_id` is null)"
+                "chk_unit_allocation": "`amount_cents` > 0 and (`charge_line_id` is not null) + (`accessory_id` is not null) + (`opening_component_id` is not null) = 1 and (`opening_component_id` is null or `charge_id` is null)"
             }
         },
         "unit_payment_audit": {
@@ -24356,10 +24600,11 @@
             "engine": "InnoDB",
             "collation": "utf8mb4_unicode_ci",
             "columns": {
-                "charge_id": "bigint(20) unsigned NOT NULL",
+                "charge_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "created_by": "bigint(20) unsigned NOT NULL",
                 "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
                 "idempotency_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "opening_item_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "read_charge_id": "bigint(20) unsigned NULL DEFAULT NULL STORED GENERATED AS (json_value(`snapshot_json`,'$.charge_id'))",
                 "recorded_at": "datetime(6) NOT NULL",
                 "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
@@ -24373,14 +24618,17 @@
                 "fk_unit_payment_debt_actor": "BTREE (created_by)",
                 "fk_unit_payment_debt_charge": "BTREE (supplier_id, charge_id)",
                 "ix_unit_debt_read_charge": "BTREE (supplier_id, read_charge_id, id)",
+                "uq_unit_debt_opening": "UNIQUE BTREE (supplier_id, opening_item_id)",
                 "uq_unit_payment_debt_tenant": "UNIQUE BTREE (supplier_id, id)",
                 "uq_unit_payment_debt_token": "UNIQUE BTREE (supplier_id, idempotency_key)"
             },
             "foreign_keys": {
+                "fk_unit_debt_opening": "(supplier_id, opening_item_id) -> property_opening_items (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
                 "fk_unit_payment_debt_actor": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
                 "fk_unit_payment_debt_charge": "(supplier_id, charge_id) -> unit_charges (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
             },
             "checks": {
+                "chk_unit_debt_origin": "`charge_id` is null <> (`opening_item_id` is null)",
                 "request_json": "json_valid(`request_json`)",
                 "snapshot_json": "json_valid(`snapshot_json`)"
             }
@@ -25383,6 +25631,20 @@
         }
     },
     "triggers": {
+        "property_opening_batches_immutable_delete": "BEFORE DELETE ON property_opening_batches #1bcf06636488a92e7603e6b4acce56c9e30702c7",
+        "property_opening_batches_immutable_update": "BEFORE UPDATE ON property_opening_batches #691154cd1453e8d6bdce540a495ce740b5673f3c",
+        "property_opening_components_immutable_delete": "BEFORE DELETE ON property_opening_components #1bcf06636488a92e7603e6b4acce56c9e30702c7",
+        "property_opening_components_immutable_update": "BEFORE UPDATE ON property_opening_components #1bcf06636488a92e7603e6b4acce56c9e30702c7",
+        "property_opening_items_immutable_delete": "BEFORE DELETE ON property_opening_items #1bcf06636488a92e7603e6b4acce56c9e30702c7",
+        "property_opening_items_immutable_update": "BEFORE UPDATE ON property_opening_items #1bcf06636488a92e7603e6b4acce56c9e30702c7",
+        "property_opening_links_immutable_delete": "BEFORE DELETE ON property_opening_case_links #1bcf06636488a92e7603e6b4acce56c9e30702c7",
+        "property_opening_links_immutable_update": "BEFORE UPDATE ON property_opening_case_links #1bcf06636488a92e7603e6b4acce56c9e30702c7",
+        "property_opening_parties_immutable_delete": "BEFORE DELETE ON property_opening_parties #1bcf06636488a92e7603e6b4acce56c9e30702c7",
+        "property_opening_parties_immutable_update": "BEFORE UPDATE ON property_opening_parties #1bcf06636488a92e7603e6b4acce56c9e30702c7",
+        "property_opening_recipients_immutable_delete": "BEFORE DELETE ON property_opening_recipients #1bcf06636488a92e7603e6b4acce56c9e30702c7",
+        "property_opening_recipients_immutable_update": "BEFORE UPDATE ON property_opening_recipients #1bcf06636488a92e7603e6b4acce56c9e30702c7",
+        "property_opening_states_immutable_delete": "BEFORE DELETE ON property_opening_states #1bcf06636488a92e7603e6b4acce56c9e30702c7",
+        "property_opening_states_immutable_update": "BEFORE UPDATE ON property_opening_states #1bcf06636488a92e7603e6b4acce56c9e30702c7",
         "trg_bank_transaction_payroll_evidence_update": "BEFORE UPDATE ON bank_transactions #da55400d2c698d29640eddb4279b09463e94ed3e",
         "trg_cars_driver_tenant_insert": "BEFORE INSERT ON cars #6b50ae5916fea8bf1699ddcfd33d174e98fd57bf",
         "trg_cars_driver_tenant_update": "BEFORE UPDATE ON cars #769d98e4af1086fa290b8efb0ae2c3768b203c87",
@@ -25796,6 +26058,7 @@
         "unit_credit_events_immutable_update": "BEFORE UPDATE ON unit_credit_events #c504061195b9df06cb80f0f5716c48353216dfdf",
         "unit_credit_lots_immutable_delete": "BEFORE DELETE ON unit_credit_lots #c504061195b9df06cb80f0f5716c48353216dfdf",
         "unit_credit_lots_immutable_update": "BEFORE UPDATE ON unit_credit_lots #ce5e138dee071d22987a4af0e4af62ff52e25d66",
+        "unit_credit_opening_origin_immutable": "BEFORE UPDATE ON unit_credit_lots #d88cc93c6c249b6957da0b77d584a0bbb03a400a",
         "unit_credit_parties_immutable_delete": "BEFORE DELETE ON unit_credit_parties #c504061195b9df06cb80f0f5716c48353216dfdf",
         "unit_credit_parties_immutable_update": "BEFORE UPDATE ON unit_credit_parties #c504061195b9df06cb80f0f5716c48353216dfdf",
         "unit_credit_reservations_immutable_delete": "BEFORE DELETE ON unit_credit_reservations #c504061195b9df06cb80f0f5716c48353216dfdf",
