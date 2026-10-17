@@ -146,14 +146,6 @@ final class UpdateInvoiceAction
         if ($deny = $this->denyIfLocked($request, $response, $lock, 'invoice', $id)) {
             return $deny;
         }
-        $newRefDate = DocumentLockService::invoiceRefDate($body) ?? DocumentLockService::invoiceRefDate($existing);
-        if ($newRefDate !== null) {
-            $newLock = $this->locks->forDate((int) $existing['supplier_id'], $newRefDate);
-            if ($deny = $this->denyIfLocked($request, $response, $newLock, 'invoice', $id)) {
-                return $deny;
-            }
-        }
-
         if ($existing['status'] !== 'draft') {
             // Vynucená úprava vystaveného dokladu (u zaúčtovaného přeúčtuje deník) jen z relace.
             if ($isForce
@@ -235,75 +227,6 @@ final class UpdateInvoiceAction
                     409,
                 );
             }
-        }
-
-        // B11 (audit 2026-07): force-edit dokladu s AKTIVNÍM zaúčtovaným zápisem v UZAVŘENÉM
-        // období rozejde doklad × deník (zápis v closed období nelze přepsat). Sem dojde jen
-        // správce, uzavřené období ostatním odmítne už denyIfLocked(). Vynucená volba:
-        //   reconcile  → doklad se opraví a zápis se stornuje + přeúčtuje do běžného období
-        //   notes_only → povolena jen neúčetní pole (poznámky/projekt/jazyk)
-        $forceMode = null;
-        if ($canEditIssued && $isForce && $lock->inClosedPeriod && $lock->posted) {
-            $forceMode = trim((string) ($request->getQueryParams()['force_mode'] ?? $body['force_mode'] ?? ''));
-            if (!in_array($forceMode, ['reconcile', 'notes_only'], true)) {
-                return Json::error(
-                    $response,
-                    'force_mode_required',
-                    'Doklad má aktivní zaúčtovaný zápis v uzavřeném období. Zvolte force_mode: '
-                        . '"reconcile" (doklad se opraví, původní zápis se stornuje a doklad se přeúčtuje do '
-                        . 'aktuálního otevřeného období — čísla uzavřeného roku zůstanou nedotčena), nebo '
-                        . '"notes_only" (povolí změnu jen neúčetních polí: poznámky, projekt, jazyk).',
-                    422,
-                );
-            }
-            if ($forceMode === 'notes_only') {
-                $changed = self::financialFieldsChanged($body, $existing);
-                if ($changed !== []) {
-                    return Json::error(
-                        $response,
-                        'financial_change_not_allowed',
-                        'force_mode="notes_only" povoluje jen neúčetní pole. Účetní/částková/DPH pole ke změně: '
-                            . implode(', ', $changed) . '. Pro opravu účetních polí použijte force_mode="reconcile".',
-                        422,
-                    );
-                }
-            }
-        }
-        $repostOpenForceEdit = $canEditIssued
-            && (bool) $isForce
-            && $lock->posted
-            && !$lock->inClosedPeriod
-            && self::financialFieldsChanged($body, $existing) !== [];
-        // Finanční změna zaúčtovaného dokladu přeúčtuje deník. Role s právem upravit vystavenou
-        // fakturu, ale bez práva zaúčtovat, ji neprovede; neúčetní změny projdou. Před
-        // přečíslováním a zápisem, ať odmítnutí nic nezmění.
-        if (($repostOpenForceEdit || $forceMode === 'reconcile')
-            && !RequestAuthorization::canRepostIssuedInvoice($request)) {
-            return Json::error(
-                $response,
-                'journal_post_forbidden',
-                'Změna částek, DPH nebo položek zaúčtované faktury přeúčtuje deník. K tomu je potřeba '
-                    . 'i oprávnění „Zaúčtovat doklad“; bez něj lze měnit jen neúčetní údaje (texty, poznámky, splatnost).',
-                403,
-            );
-        }
-
-        // Podané DPH období (přiznání, KH, u OSS dokladu i OSS) mění jen správce: delegovaná role
-        // s právem upravit vystavenou fakturu v něm nezmění částky, data ani položky, a to ani
-        // přesunem data do podaného období. Oprava podaného období jde opravným nebo dodatečným
-        // tvrzením. Stejná brána jako import vystaveného dokladu a hromadná změna OSS.
-        if ($existing['status'] !== 'draft'
-            && $isForce
-            && !RequestAuthorization::canChangeFiledVatPeriod($request)
-            && self::financialFieldsChanged($body, $existing) !== []
-            && ($filed = $this->filedPeriodOf($existing, $body)) !== null) {
-            return Json::error(
-                $response,
-                'period_filed',
-                'Období faktury už bylo podáno (' . $filed . '). Částky, data ani položky v něm může změnit '
-                    . 'jen správce firmy; opravu podaného období řešte opravným nebo dodatečným tvrzením.',
-                409,
-            );
         }
 
         // parent_invoice_id se nikdy nemění při update (vazba dobropisu na původní doklad).
@@ -406,8 +329,10 @@ final class UpdateInvoiceAction
         $simplified = array_key_exists('is_simplified', $body)
             ? filter_var($body['is_simplified'], FILTER_VALIDATE_BOOLEAN)
             : !empty($existing['is_simplified']);
+        $walkInClient = null;
         if (array_key_exists('client_id', $body) && empty($body['client_id']) && $simplified) {
-            $body['client_id'] = $this->clients->findOrCreateWalkInCustomer(SupplierGuard::currentId($request));
+            $walkInClient = $this->clients->prepareWalkInCustomer(SupplierGuard::currentId($request));
+            $body['client_id'] = (int) $walkInClient['id'];
         }
         // BOLA guard (security report 2026-08, R2 #1) — cizí klíče z TĚLA requestu musí
         // patřit volajícímu. Nutně PŘED defaults->resolve(): resolve() sice vynucuje
@@ -443,7 +368,7 @@ final class UpdateInvoiceAction
         }
 
         try {
-            $body = $this->defaults->resolve($body);
+            $body = $this->defaults->resolve($body, resolvedClient: $walkInClient);
         } catch (\InvalidArgumentException $e) {
             return Json::error($response, 'integrity_violation', $e->getMessage(), 400);
         }
@@ -457,7 +382,94 @@ final class UpdateInvoiceAction
         // takže payload bez `oss_*` klíčů vyrobil z OSS řádku tuzemský. Že to nespadlo na
         // validaci, není záruka — guard „zahraniční sazba jen v OSS" stojí na
         // `vat_rates.country`, a ten je u zákazníkovy „PL-23" sazby vyplněný jako CZ.
-        $ossNotes = $this->deriveMissingOssColumns($body, SupplierGuard::currentId($request));
+        $ossNotes = $this->deriveMissingOssColumns(
+            $body,
+            SupplierGuard::currentId($request),
+            $walkInClient !== null && (int) $walkInClient['id'] === 0
+                ? \MyInvoice\Service\Oss\OssClientContext::fromArray($walkInClient)
+                : null,
+        );
+
+        $newRefDate = DocumentLockService::invoiceRefDate($body) ?? DocumentLockService::invoiceRefDate($existing);
+        if ($newRefDate !== null) {
+            $newLock = $this->locks->forDate((int) $existing['supplier_id'], $newRefDate);
+            if ($deny = $this->denyIfLocked($request, $response, $newLock, 'invoice', $id)) {
+                return $deny;
+            }
+        }
+
+        // B11 (audit 2026-07): force-edit dokladu s AKTIVNÍM zaúčtovaným zápisem v UZAVŘENÉM
+        // období rozejde doklad × deník (zápis v closed období nelze přepsat). Sem dojde jen
+        // správce, uzavřené období ostatním odmítne už denyIfLocked(). Vynucená volba:
+        //   reconcile  → doklad se opraví a zápis se stornuje + přeúčtuje do běžného období
+        //   notes_only → povolena jen neúčetní pole (poznámky/projekt/jazyk)
+        $forceMode = null;
+        if ($canEditIssued && $isForce && $lock->inClosedPeriod && $lock->posted) {
+            $forceMode = trim((string) ($request->getQueryParams()['force_mode'] ?? $body['force_mode'] ?? ''));
+            if (!in_array($forceMode, ['reconcile', 'notes_only'], true)) {
+                return Json::error(
+                    $response,
+                    'force_mode_required',
+                    'Doklad má aktivní zaúčtovaný zápis v uzavřeném období. Zvolte force_mode: '
+                        . '"reconcile" (doklad se opraví, původní zápis se stornuje a doklad se přeúčtuje do '
+                        . 'aktuálního otevřeného období — čísla uzavřeného roku zůstanou nedotčena), nebo '
+                        . '"notes_only" (povolí změnu jen neúčetních polí: poznámky, projekt, jazyk).',
+                    422,
+                );
+            }
+            if ($forceMode === 'notes_only') {
+                $changed = self::financialFieldsChanged($body, $existing);
+                if ($changed !== []) {
+                    return Json::error(
+                        $response,
+                        'financial_change_not_allowed',
+                        'force_mode="notes_only" povoluje jen neúčetní pole. Účetní/částková/DPH pole ke změně: '
+                            . implode(', ', $changed) . '. Pro opravu účetních polí použijte force_mode="reconcile".',
+                        422,
+                    );
+                }
+            }
+        }
+        $repostOpenForceEdit = $canEditIssued
+            && (bool) $isForce
+            && $lock->posted
+            && !$lock->inClosedPeriod
+            && self::financialFieldsChanged($body, $existing) !== [];
+        // Finanční změna zaúčtovaného dokladu přeúčtuje deník. Role s právem upravit vystavenou
+        // fakturu, ale bez práva zaúčtovat, ji neprovede; neúčetní změny projdou. Před
+        // přečíslováním a zápisem, ať odmítnutí nic nezmění.
+        if (($repostOpenForceEdit || $forceMode === 'reconcile')
+            && !RequestAuthorization::canRepostIssuedInvoice($request)) {
+            return Json::error(
+                $response,
+                'journal_post_forbidden',
+                'Změna částek, DPH nebo položek zaúčtované faktury přeúčtuje deník. K tomu je potřeba '
+                    . 'i oprávnění „Zaúčtovat doklad“; bez něj lze měnit jen neúčetní údaje (texty, poznámky, splatnost).',
+                403,
+            );
+        }
+
+        // Podané DPH období (přiznání, KH, u OSS dokladu i OSS) mění jen správce: delegovaná role
+        // s právem upravit vystavenou fakturu v něm nezmění částky, data ani položky, a to ani
+        // přesunem data do podaného období. Oprava podaného období jde opravným nebo dodatečným
+        // tvrzením. Stejná brána jako import vystaveného dokladu a hromadná změna OSS.
+        if ($existing['status'] !== 'draft'
+            && $isForce
+            && !RequestAuthorization::canChangeFiledVatPeriod($request)
+            && self::financialFieldsChanged($body, $existing) !== []
+            && ($filed = $this->filedPeriodOf($existing, $body)) !== null) {
+            return Json::error(
+                $response,
+                'period_filed',
+                'Období faktury už bylo podáno (' . $filed . '). Částky, data ani položky v něm může změnit '
+                    . 'jen správce firmy; opravu podaného období řešte opravným nebo dodatečným tvrzením.',
+                409,
+            );
+        }
+
+        if ($walkInClient !== null && (int) $body['client_id'] === 0) {
+            $body['client_id'] = $this->clients->findOrCreateWalkInCustomer(SupplierGuard::currentId($request), prepared: $walkInClient);
+        }
 
         // Tuzemsko se bere ze země DODAVATELE, ne z natvrdo zapsané 'CZ' — táž definice,
         // se kterou pracuje derivace OSS ({@see OssItemDeriver::domesticCountry()}).

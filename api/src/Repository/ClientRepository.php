@@ -413,18 +413,17 @@ final class ClientRepository
      * daňového dokladu (§ 30 ZDPH) vystaveného bez údajů o zákazníkovi. Jeden na firmu,
      * skrytý v seznamu i vyhledávání, bez e-mailu a upomínek. Idempotentní.
      */
-    public function findOrCreateWalkInCustomer(int $supplierId, ?int $currencyId = null): int
+    public function prepareWalkInCustomer(int $supplierId, ?int $currencyId = null): array
     {
         $stmt = $this->db->pdo()->prepare(
-            'SELECT id FROM clients WHERE supplier_id = ? AND is_walk_in = 1 ORDER BY id LIMIT 1'
+            'SELECT * FROM clients WHERE supplier_id = ? AND is_walk_in = 1 ORDER BY id LIMIT 1'
         );
         $stmt->execute([$supplierId]);
-        $id = $stmt->fetchColumn();
-        if ($id !== false) {
-            return (int) $id;
+        $existing = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($existing !== false) {
+            return $existing;
         }
 
-        // Měna klienta je jen výchozí měna nových dokladů: faktury dokladu, jinak výchozí měna firmy.
         if ($currencyId === null) {
             $cur = $this->db->pdo()->prepare(
                 "SELECT id FROM currencies WHERE supplier_id = ? ORDER BY is_default DESC, (code = 'CZK') DESC, id LIMIT 1"
@@ -432,19 +431,34 @@ final class ClientRepository
             $cur->execute([$supplierId]);
             $currencyId = (int) $cur->fetchColumn() ?: null;
         }
+        $country = $this->db->pdo()->query("SELECT iso2, is_eu FROM countries WHERE iso2 = 'CZ' LIMIT 1")->fetch(PDO::FETCH_ASSOC);
 
-        $id = $this->create([
+        return [
+            'id' => 0,
+            'supplier_id' => $supplierId,
             'company_name' => self::WALK_IN_CUSTOMER_NAME,
             'currency_default_id' => $currencyId,
-            'street'       => '',
-            'city'         => '',
-            'zip'          => '',
-            'main_email'   => '',
-            'country_iso2' => 'CZ',
-            'is_customer'  => true,
-            'is_vendor'    => false,
+            'street' => '',
+            'city' => '',
+            'zip' => '',
+            'main_email' => '',
+            'country_iso2' => (string) ($country['iso2'] ?? 'CZ'),
+            'is_eu' => !empty($country['is_eu']),
+            'is_customer' => true,
+            'is_vendor' => false,
             'is_vat_payer' => false,
-        ], $supplierId);
+            'language' => 'cs',
+            'reverse_charge' => false,
+        ];
+    }
+
+    public function findOrCreateWalkInCustomer(int $supplierId, ?int $currencyId = null, ?array $prepared = null): int
+    {
+        $data = $prepared ?? $this->prepareWalkInCustomer($supplierId, $currencyId);
+        if ((int) $data['id'] > 0) {
+            return (int) $data['id'];
+        }
+        $id = $this->create($data, $supplierId);
         $this->db->pdo()->prepare(
             'UPDATE clients SET is_walk_in = 1, auto_send_reminders = 0 WHERE id = ? AND supplier_id = ?'
         )->execute([$id, $supplierId]);
