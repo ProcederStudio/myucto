@@ -1012,7 +1012,7 @@ final class ClosingRepository
         // closing/opening/fx_revaluation (bilanční, vč. slotů zásob způsobu B), provision
         // (OP k pohledávkám, D9), income_tax (splatná daň, D11), profit_distribution
         // (rozdělení VH, D10). Ostatní source_type (invoice/purchase/bank/cash/manual…) NIKDY.
-        $allowed = ['closing', 'opening', 'fx_revaluation', 'provision', 'income_tax', 'profit_distribution', 'small_asset_accrual', 'prepaid_expense_accrual', 'deferred_revenue_accrual'];
+        $allowed = ['closing', 'opening', 'fx_revaluation', 'provision', 'income_tax', 'deferred_tax', 'profit_distribution', 'small_asset_accrual', 'prepaid_expense_accrual', 'deferred_revenue_accrual'];
         if (!in_array($sourceType, $allowed, true)) {
             return null;
         }
@@ -1117,7 +1117,7 @@ final class ClosingRepository
                  WHERE supplier_id = ? AND posted_at IS NOT NULL
                    AND ((source_type = 'closing' AND source_id IN (?, ?, ?, ?))
                         OR (source_type = 'fx_revaluation' AND source_id IN (?, ?, ?))
-                        OR (source_type IN ('provision', 'income_tax') AND period_id = ?)
+                        OR (source_type IN ('provision', 'income_tax', 'deferred_tax') AND period_id = ?)
                         OR (source_type = 'small_asset_accrual' AND period_id = ? AND source_id < ?)
                         OR (source_type = 'prepaid_expense_accrual' AND period_id = ? AND source_id < ?)
                         OR (source_type = 'deferred_revenue_accrual' AND period_id = ? AND source_id < ?))

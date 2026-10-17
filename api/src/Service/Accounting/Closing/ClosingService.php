@@ -698,7 +698,7 @@ final class ClosingService
      */
     public function confirmStep(int $supplierId, int $periodId, string $stepKey, string $status, ?string $note, int $rowVersion, array $meta = []): array
     {
-        if (!in_array($stepKey, ['depreciation', 'estimates', 'deferrals', 'provisions', 'income_tax'], true)) {
+        if (!in_array($stepKey, ['depreciation', 'estimates', 'deferrals', 'provisions', 'income_tax', 'deferred_tax'], true)) {
             throw new ClosingException('unknown_step', 'Krok "' . $stepKey . '" nelze potvrdit tímto způsobem.');
         }
         if (!in_array($status, ['done', 'skipped'], true)) {
@@ -4269,6 +4269,7 @@ final class ClosingService
                     break;
 
                 case 'income_tax':
+                case 'deferred_tax':
                     $this->assertStatus($period, ['closing']);
                     if ($steps['close_books']['status'] === 'done'
                         || $this->journal->findBySource($supplierId, 'closing', $periodId) !== null) {
@@ -4277,11 +4278,11 @@ final class ClosingService
                             'Nejprve proveď revert kroku close_books (vynucené pořadí R12).',
                         );
                     }
-                    $dump = $this->closing->deleteClosingEntry($supplierId, 'income_tax', $periodId);
+                    $dump = $this->closing->deleteClosingEntry($supplierId, $stepKey, $periodId);
                     if ($dump !== null) {
-                        $dumps['income_tax'] = $dump;
+                        $dumps[$stepKey] = $dump;
                     }
-                    $this->closing->resetStep($supplierId, $periodId, 'income_tax');
+                    $this->closing->resetStep($supplierId, $periodId, $stepKey);
                     $this->bumpVersion($supplierId, $periodId, $rowVersion);
                     break;
 
