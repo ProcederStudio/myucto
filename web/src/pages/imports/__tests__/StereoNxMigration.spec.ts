@@ -6,14 +6,14 @@ const m = vi.hoisted(() => ({
   uploads: vi.fn(), upload: vi.fn(), preview: vi.fn(), run: vi.fn(), remove: vi.fn(), fillCompanyProfile: vi.fn(),
   toastError: vi.fn(), supplierStore: undefined as any,
   // Stránka job spustí (`start`) a sleduje (`follow`); testy dál pracují s jedním `run`.
-  jobs: new Map<number, [string, number, string, boolean]>(),
+  jobs: new Map<number, [string, number, string, boolean, boolean]>(),
 }))
 
 vi.mock('@/api/stereoNx', () => ({ stereoNxApi: {
   uploads: m.uploads, upload: m.upload, preview: m.preview, run: m.run, remove: m.remove, fillCompanyProfile: m.fillCompanyProfile,
-  start: async (token: string, company: number, mode: string, blank: boolean) => {
+  start: async (token: string, company: number, mode: string, blank: boolean, match: boolean = false) => {
     const id = m.jobs.size + 1
-    m.jobs.set(id, [token, company, mode, blank])
+    m.jobs.set(id, [token, company, mode, blank, match])
     return id
   },
   follow: async (_token: string, id: number, onJob?: (job: object) => void) => {
@@ -88,6 +88,57 @@ beforeEach(() => {
 afterEach(() => vi.clearAllMocks())
 
 describe('Stereo NX migration wizard', () => {
+  it('requires bank-series approval, sends it and restores it after returning', async () => {
+    const bank = { requires_confirmation: true, ambiguous: false, assignments: [{ account_index: 0, account_label: 'Synthetic bank', series: 'SYN' }], missing_accounts: 1, unmatched_series: ['SYN'] }
+    m.preview.mockResolvedValue({ ...preview, companies: [{ ...company, bank_account_series: bank }] })
+    const wrapper = await mountPage()
+    await openExisting(wrapper)
+    expect(primaryButton(wrapper, 'continue').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="stereo-bank-series"]').text()).toContain('Synthetic bank → SYN')
+    const checkbox = wrapper.get('[data-testid="stereo-bank-series-confirm"]')
+    expect((checkbox.element as HTMLInputElement).checked).toBe(false)
+    await checkbox.setValue(true)
+    await primaryButton(wrapper, 'continue').trigger('click')
+    await primaryButton(wrapper, 'dry_run').trigger('click')
+    await flushPromises()
+    expect(m.jobs.get(1)?.[4]).toBe(true)
+    expect(JSON.parse(sessionStorage.getItem('myucto.stereo-nx.job')!).matchBankAccountSeries).toBe(true)
+    wrapper.unmount()
+    const resumed = await mountPage()
+    await resumed.get('[data-testid="stereo-step-2"]').trigger('click')
+    expect((resumed.get('[data-testid="stereo-bank-series-confirm"]').element as HTMLInputElement).checked).toBe(true)
+    await resumed.get('[data-testid="stereo-bank-series-confirm"]').setValue(false)
+    expect(resumed.get('[data-testid="stereo-step-4"]').attributes('disabled')).toBeDefined()
+    expect(primaryButton(resumed, 'continue').attributes('disabled')).toBeDefined()
+    resumed.unmount()
+  })
+
+  it('blocks ambiguous bank series and requires correction in Stereo', async () => {
+    m.preview.mockResolvedValue({ ...preview, companies: [{ ...company, bank_account_series: { requires_confirmation: false, ambiguous: true, assignments: [], missing_accounts: 0, unmatched_series: ['SYN'] } }] })
+    const wrapper = await mountPage()
+    await openExisting(wrapper)
+    expect(wrapper.get('[data-testid="stereo-bank-series"]').text()).toContain('stereo_nx.bank_series_ambiguous')
+    expect(wrapper.get('[data-testid="stereo-bank-series"]').text()).not.toContain('stereo_nx.bank_series_missing')
+    expect(wrapper.find('[data-testid="stereo-bank-series-confirm"]').exists()).toBe(false)
+    expect(primaryButton(wrapper, 'continue').attributes('disabled')).toBeDefined()
+    wrapper.unmount()
+  })
+
+  it('resets bank-series approval on company changes and repeated preview', async () => {
+    const bank = { requires_confirmation: true, ambiguous: false, assignments: [{ account_index: 0, account_label: 'Synthetic bank', series: 'SYN' }], missing_accounts: 1, unmatched_series: ['SYN'] }
+    m.preview.mockResolvedValue({ ...preview, companies: [{ ...company, bank_account_series: bank }, { ...company, index: 1, bank_account_series: bank }] })
+    const wrapper = await mountPage()
+    await openExisting(wrapper)
+    await wrapper.get('[data-testid="stereo-bank-series-confirm"]').setValue(true)
+    await wrapper.get('[data-testid="stereo-company-select"]').setValue('1')
+    expect((wrapper.get('[data-testid="stereo-bank-series-confirm"]').element as HTMLInputElement).checked).toBe(false)
+    await wrapper.get('[data-testid="stereo-bank-series-confirm"]').setValue(true)
+    await primaryButton(wrapper, 'read_again').trigger('click')
+    await flushPromises()
+    expect((wrapper.get('[data-testid="stereo-bank-series-confirm"]').element as HTMLInputElement).checked).toBe(false)
+    wrapper.unmount()
+  })
+
   it('after returning to the page resumes the dry run and allows the transfer', async () => {
     const first = await mountPage()
     await reachDryRun(first)

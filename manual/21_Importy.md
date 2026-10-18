@@ -795,6 +795,14 @@ protistrany určeno není. Vyplněné firemní údaje ze zálohy nejsou předem 
 Převzetí údajů používá oprávnění ke správě firmy a při souběžné změně vyžádá nový
 náhled. IČO, režim účetnictví a plátcovství se tím nemění.
 
+Pokud vlastnímu bankovnímu účtu chybí dokladová řada, průvodce na to upozorní
+při výběru firmy. Obsahuje-li záloha jediný účet a jedinou řadu bankovních
+výpisů, nabídne jejich přiřazení k výslovnému potvrzení. Potvrzení platí jen
+pro převod; původní zálohu nemění a přiřazení zůstane uvedené v protokolu.
+Změna této volby vyžaduje novou zkoušku nanečisto. Při více možných účtech,
+řadách nebo rozporném nastavení se vazba neodhaduje: doplňte správné řady
+účtů ve Stereo NX a nahrajte novou zálohu.
+
 Zkouška i převod běží na pozadí, průvodce průběžně ukazuje stav a druhý převod
 téže firmy se nespustí, dokud první neskončí. Název ZIPu nemusí odpovídat všem
 rokům obsaženým v záloze. Smaže se pouze nahraná kopie ZIPu po potvrzeném zápisu

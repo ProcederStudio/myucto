@@ -33756,6 +33756,11 @@
     }
   },
   "stereo_nx": {
+    "bank_series_title": "Bank account series assignments",
+    "bank_series_missing": "The backup has bank accounts without a document series: {count}.",
+    "bank_series_hint": "The suggested account assignment to a bank statement document series can be used for this import. This is a temporary interpretation for this import only; the source ZIP remains unchanged.",
+    "bank_series_confirm": "I confirm the suggested bank account series assignment for this import.",
+    "bank_series_ambiguous": "The accounts and series cannot be matched unambiguously. Fill in the bank account document series in Stereo and upload a new backup. Correct the source before continuing.",
     "open_review_records": "Open records requiring review",
     "title": "Migration from Stereo NX",
     "intro": "Upload the encrypted backup, select a company with the matching company ID, and run a dry run first. Ambiguous documents will be created as drafts for manual review.",

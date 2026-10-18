@@ -96,6 +96,7 @@ final class StereoNxImportJobService extends AbstractImportJobService
         $mode = ($params['mode'] ?? '') === 'import' ? 'import' : 'dry_run';
         $dryRun = $mode === 'dry_run';
         $blankCountryIsCz = ($params['blank_country_is_cz'] ?? false) === true;
+        $matchBankAccountSeries = ($params['match_bank_account_series'] ?? false) === true;
         $hash = (string) ($params['sha256'] ?? '');
         $accountingMode = (string) ($params['accounting_mode'] ?? 'tax_evidence');
 
@@ -118,13 +119,15 @@ final class StereoNxImportJobService extends AbstractImportJobService
         $this->jobs->appendLog($jobId, ($dryRun ? 'Zkouška nanečisto' : 'Ostrý převod') . " firmy č. {$company} ze zálohy Stereo NX.");
 
         try {
-            $backup = StereoNxBackup::open(StereoNxUploads::archive($supplierId, $token), $company, $password);
-            $report = StereoNxUploads::locked($supplierId, $token, function (array $locked) use ($jobId, $supplierId, $userId, $token, $company, $mode, $dryRun, $backup, $hash, $blankCountryIsCz, $accountingMode): array {
+            $backup = StereoNxBackup::open(StereoNxUploads::archive($supplierId, $token), $company, $password)
+                ->withBankAccountSeriesMatching($matchBankAccountSeries);
+            $report = StereoNxUploads::locked($supplierId, $token, function (array $locked) use ($jobId, $supplierId, $userId, $token, $company, $mode, $dryRun, $backup, $hash, $blankCountryIsCz, $matchBankAccountSeries, $accountingMode): array {
                 if (($locked['status'] ?? '') !== 'ready' || $hash === '' || !hash_equals((string) ($locked['sha256'] ?? ''), $hash)) {
                     throw new StereoNxException('upload_changed', 'Nahraná záloha se změnila.');
                 }
                 if ($mode === 'import' && (($locked['dry_run_company'] ?? null) !== $company
                     || ($locked['dry_run_blank_country_is_cz'] ?? null) !== $blankCountryIsCz
+                    || ($locked['dry_run_match_bank_account_series'] ?? false) !== $matchBankAccountSeries
                     || ($locked['dry_run_accounting_mode'] ?? 'tax_evidence') !== $accountingMode)) {
                     throw new StereoNxException('dry_run_required', 'Před převodem spusťte úspěšnou zkoušku nanečisto.');
                 }
@@ -138,10 +141,12 @@ final class StereoNxImportJobService extends AbstractImportJobService
                     $locked['dry_run_company'] = ($report['ok'] ?? false) === true ? $company : null;
                     $locked['dry_run_accounting_mode'] = ($report['ok'] ?? false) === true ? $accountingMode : null;
                     $locked['dry_run_blank_country_is_cz'] = ($report['ok'] ?? false) === true ? $blankCountryIsCz : null;
+                    $locked['dry_run_match_bank_account_series'] = ($report['ok'] ?? false) === true ? $matchBankAccountSeries : null;
                 } else {
                     $locked['dry_run_company'] = null;
                     $locked['dry_run_accounting_mode'] = null;
                     $locked['dry_run_blank_country_is_cz'] = null;
+                    $locked['dry_run_match_bank_account_series'] = null;
                     $locked['imported_at'] = time();
                 }
                 StereoNxUploads::save($supplierId, $token, $locked);

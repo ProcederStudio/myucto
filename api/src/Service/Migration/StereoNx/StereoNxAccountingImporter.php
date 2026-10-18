@@ -42,6 +42,8 @@ final class StereoNxAccountingImporter
             'review_movements' => [], 'movement_review_reasons' => []];
         try {
             StereoNxCompanyCompatibility::assertAccountingMode($backup->companyIdentity(), 'double_entry');
+            $backup->assertBankAccountSeriesReady();
+            array_push($report['warnings'], ...$backup->bankAccountSeriesWarnings());
             $inventory = $backup->inventory();
             foreach ($inventory as $table) {
                 if ($table['status'] !== 'ok') {

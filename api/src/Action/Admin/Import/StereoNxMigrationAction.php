@@ -38,7 +38,7 @@ use Psr\Log\LoggerInterface;
  *   GET    /api/admin/imports/stereo-nx/uploads/{token}
  *   POST   /api/admin/imports/stereo-nx/uploads/{token}/preview            {password?}
  *   POST   /api/admin/imports/stereo-nx/uploads/{token}/company-profile    {company, fields, expected_values}
- *   POST   /api/admin/imports/stereo-nx/uploads/{token}/run                {company, mode, blank_country_is_cz, password?} → {job_id}
+ *   POST   /api/admin/imports/stereo-nx/uploads/{token}/run                {company, mode, blank_country_is_cz, match_bank_account_series?, password?} → {job_id}
  *   GET    /api/admin/imports/stereo-nx/uploads/{token}/runs/{jobId}       výsledek doběhlého jobu
  *   DELETE /api/admin/imports/stereo-nx/uploads/{token}
  */
@@ -180,6 +180,7 @@ final class StereoNxMigrationAction
                 foreach ($suggestions as $field => $_) $current[$field] = trim((string) ($profile[$field] ?? ''));
                 $items[] = ['index' => $company['index'], 'label' => $company['label'],
                     'profile_suggestions' => $suggestions, 'profile_current' => $current,
+                    'bank_account_series' => $backup->bankAccountSeriesPlan(),
                     'identity' => $identity, 'matches_target' => $identity['ico'] === $target['ico']];
             }
             return Json::ok($response, ['companies' => $items, 'target' => $target]);
@@ -223,6 +224,10 @@ final class StereoNxMigrationAction
         $company = filter_var($body['company'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
         $mode = (string) ($body['mode'] ?? '');
         $blankCountryIsCz = ($body['blank_country_is_cz'] ?? false) === true;
+        $matchBankAccountSeries = ($body['match_bank_account_series'] ?? false) === true;
+        if (array_key_exists('match_bank_account_series', $body) && !is_bool($body['match_bank_account_series'])) {
+            return Json::error($response, 'invalid_selection', 'Potvrzení přiřazení bankovní řady musí být ano nebo ne.', 422);
+        }
         if (!is_int($company) || !in_array($mode, ['dry_run', 'import'], true)) {
             return Json::error($response, 'invalid_selection', 'Vyberte firmu a režim převodu.', 422);
         }
@@ -232,7 +237,9 @@ final class StereoNxMigrationAction
             $token = $args['token'];
             $state = $this->ready($sid, $token, $uid);
             $password = $this->password($request);
-            $backup = StereoNxBackup::open(StereoNxUploads::archive($sid, $token), $company, $password);
+            $backup = StereoNxBackup::open(StereoNxUploads::archive($sid, $token), $company, $password)
+                ->withBankAccountSeriesMatching($matchBankAccountSeries);
+            $backup->assertBankAccountSeriesReady();
             $identity = $backup->companyIdentity();
             $target = $this->target($sid);
             StereoNxCompanyCompatibility::assertAccountingMode($identity, $target['accounting_mode']);
@@ -249,6 +256,7 @@ final class StereoNxMigrationAction
             }
             if ($mode === 'import' && (($state['dry_run_company'] ?? null) !== $company
                 || ($state['dry_run_blank_country_is_cz'] ?? null) !== $blankCountryIsCz
+                || ($state['dry_run_match_bank_account_series'] ?? false) !== $matchBankAccountSeries
                 || ($state['dry_run_accounting_mode'] ?? 'tax_evidence') !== $target['accounting_mode'])) {
                 return Json::error($response, 'dry_run_required', 'Před převodem spusťte úspěšnou zkoušku nanečisto pro zvolenou firmu.', 409);
             }
@@ -267,7 +275,8 @@ final class StereoNxMigrationAction
                     ['existing_job_id' => $existing['id']]);
             }
         }
-        $params = ['token' => $token, 'company' => $company, 'mode' => $mode, 'blank_country_is_cz' => $blankCountryIsCz, 'sha256' => $hash, 'accounting_mode' => $target['accounting_mode']];
+        $params = ['token' => $token, 'company' => $company, 'mode' => $mode, 'blank_country_is_cz' => $blankCountryIsCz,
+            'match_bank_account_series' => $matchBankAccountSeries, 'sha256' => $hash, 'accounting_mode' => $target['accounting_mode']];
         if ($password !== null) {
             $params['password_enc'] = $this->secrets->encryptFor($password, StereoNxImportJobService::passwordContext($sid, $token));
         }

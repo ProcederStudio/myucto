@@ -609,6 +609,61 @@ final class StereoNxImportTest extends TestCase
         self::assertFileDoesNotExist(StereoNxUploads::archive($this->supplierId, $token));
     }
 
+    public function testBankSeriesSuggestionRequiresConfirmationAndBindsBothJobChecksToDryRun(): void
+    {
+        $tables = SyntheticStereoNxTables::tables();
+        $tables['LFirmaUc'][0]['DoklRada'] = '';
+        $this->backup($tables);
+        $bytes = file_get_contents($this->tmp . '/backup.zip');
+        $init = $this->call('init', ['file_name' => 'synthetic.zip', 'size' => strlen($bytes)]);
+        $token = $this->json($init)['token'];
+        $this->tokens[] = $token;
+        self::assertSame(200, $this->chunk($token, 0, $bytes)->getStatusCode());
+        self::assertSame(200, $this->call('complete', [], $token)->getStatusCode());
+        $body = ['company' => 0, 'password' => self::PASSWORD, 'mode' => 'dry_run'];
+        $plan = $this->json($this->call('preview', $body, $token))['companies'][0]['bank_account_series'] ?? null;
+        self::assertIsArray($plan);
+        self::assertTrue($plan['requires_confirmation']);
+        self::assertFalse($plan['ambiguous']);
+        self::assertSame('B', $plan['assignments'][0]['series']);
+        $before = $this->snapshot();
+        foreach ([null, 'true', 1] as $invalidConfirmation) {
+            self::assertSame(422, $this->call('run', ['match_bank_account_series' => $invalidConfirmation] + $body, $token)->getStatusCode());
+        }
+        $denied = $this->call('run', $body, $token);
+        self::assertSame(422, $denied->getStatusCode());
+        self::assertSame('bank_account_series_confirmation_required', $this->json($denied)['error']['code']);
+        $body['match_bank_account_series'] = true;
+        $dry = $this->runJob($body, $token);
+        self::assertTrue($dry['report']['ok'], json_encode($dry));
+        self::assertContains('bank_account_series_confirmed', array_column($dry['report']['warnings'], 'code'));
+        self::assertSame($before, $this->snapshot());
+        self::assertTrue(StereoNxUploads::state($this->supplierId, $token)['dry_run_match_bank_account_series']);
+        $body['mode'] = 'import';
+        // HTTP preflight must reject a different interpretation of the same ZIP.
+        $state = StereoNxUploads::state($this->supplierId, $token);
+        $state['dry_run_match_bank_account_series'] = false;
+        StereoNxUploads::save($this->supplierId, $token, $state);
+        self::assertSame(409, $this->call('run', $body, $token)->getStatusCode());
+        $state['dry_run_match_bank_account_series'] = true;
+        StereoNxUploads::save($this->supplierId, $token, $state);
+        $started = $this->call('run', $body, $token);
+        self::assertSame(202, $started->getStatusCode());
+        $jobId = $this->json($started)['job_id'];
+        // The worker repeats the same check after the request has returned.
+        $state['dry_run_match_bank_account_series'] = false;
+        StereoNxUploads::save($this->supplierId, $token, $state);
+        Bootstrap::buildContainer()->get(StereoNxImportJobService::class)->run($jobId);
+        $job = Bootstrap::buildContainer()->get(ImportJobRepository::class)->find($jobId, $this->supplierId);
+        self::assertSame('failed', $job['status']);
+        self::assertSame($before, $this->snapshot());
+        $this->runJob(['mode' => 'dry_run'] + $body, $token);
+        $import = $this->runJob($body, $token);
+        self::assertTrue($import['report']['ok'], json_encode($import));
+        self::assertSame(1, $import['report']['written']['bank_statements']);
+        self::assertSame('', iterator_to_array(StereoNxBackup::open(StereoNxUploads::archive($this->supplierId, $token), 0, self::PASSWORD)->rows('LFirmaUc'), false)[0]['DoklRada']);
+    }
+
     public function testCompanyProfileAppliesSelectedFieldsAndKeepsSettingsAuthorization(): void
     {
         $this->backup();

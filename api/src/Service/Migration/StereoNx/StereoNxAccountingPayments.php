@@ -22,6 +22,7 @@ final class StereoNxAccountingPayments
     /** @return array<string,mixed> */
     public function prepare(StereoNxBackup $backup, ?FiscalCalendar $calendar = null): array
     {
+        $backup->assertBankAccountSeriesReady();
         $calendar ??= FiscalCalendar::calendar();
         $available = array_flip($backup->tableNames());
         $read = static function (string $name) use ($backup, $available): array {
@@ -29,6 +30,7 @@ final class StereoNxAccountingPayments
         };
         $accountsBySeries = [];
         foreach ($read('LFirmaUc') as $row) {
+            if (trim((string) ($row['DoklRada'] ?? '')) === '') continue;
             $series = self::required($row, 'DoklRada');
             if (isset($accountsBySeries[$series])) throw new StereoNxException('bank_account_duplicate', 'Bankovní řada nemá jednoznačný účet.');
             $accountsBySeries[$series] = [

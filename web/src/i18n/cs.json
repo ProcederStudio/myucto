@@ -33756,6 +33756,11 @@
     }
   },
   "stereo_nx": {
+    "bank_series_title": "Přiřazení bankovních účtů k řadám",
+    "bank_series_missing": "V záloze chybí dokladová řada u bankovních účtů: {count}.",
+    "bank_series_hint": "Pro import lze použít navržené přiřazení účtu k dokladové řadě bankovních výpisů. Jde pouze o dočasný výklad pro tento import; zdrojový ZIP zůstane beze změny.",
+    "bank_series_confirm": "Potvrzuji navržené přiřazení řady bankovnímu účtu pro tento import.",
+    "bank_series_ambiguous": "Účty a řady nelze jednoznačně přiřadit. Doplňte dokladové řady bankovních účtů ve Stereo a nahrajte novou zálohu. Bez opravy nelze pokračovat.",
     "open_review_records": "Otevřít záznamy ke kontrole",
     "title": "Přechod ze Stereo NX",
     "intro": "Nahrajte šifrovanou zálohu, vyberte firmu se shodným IČO a nejdříve spusťte zkoušku nanečisto. Nejasné doklady vzniknou jako koncepty k ruční kontrole.",

@@ -45,6 +45,7 @@ final class StereoNxSourcePlan
     /** @return array<string,mixed> */
     public static function build(StereoNxBackup $backup, bool $blankCountryIsCz = false): array
     {
+        $backup->assertBankAccountSeriesReady();
         $inventory = $backup->inventory();
         $supportedPopulated = [
             'CBanka', 'CBankap', 'Cdenik', 'CPokl', 'Cpz', 'CPZZ', 'SPFH', 'Spfp', 'Svfh', 'Svfp', 'ZAZPVDPH',
@@ -383,6 +384,8 @@ final class StereoNxSourcePlan
         $accounts = [];
         $accountBySeries = [];
         foreach ($tables['LFirmaUc'] as $row) {
+            // Účet bez řady a bez navázaných výpisů nevytváří peněžní pohyby.
+            if (trim((string) ($row['DoklRada'] ?? '')) === '') continue;
             $key = self::nonempty($row, 'DoklRada');
             if (isset($accounts[$key])) throw new StereoNxException('bank_account_duplicate', 'Bankovní řada nemá jednoznačný účet.');
             $accounts[$key] = ['source_key' => $key, 'row' => $row,

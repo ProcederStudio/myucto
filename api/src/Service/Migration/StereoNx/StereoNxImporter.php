@@ -235,6 +235,8 @@ final class StereoNxImporter
         ];
         try {
             StereoNxCompanyCompatibility::assertAccountingMode($backup->companyIdentity(), 'tax_evidence');
+            $backup->assertBankAccountSeriesReady();
+            array_push($report['warnings'], ...$backup->bankAccountSeriesWarnings());
             $plan = $this->sourcePlan->build($backup, $blankCountryIsCz);
             $report['counts'] = $plan['counts'] ?? [];
             $reviewReasons = [];

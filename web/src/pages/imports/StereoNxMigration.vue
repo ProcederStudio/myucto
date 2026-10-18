@@ -34,6 +34,7 @@ const deleteAfterImport = ref(false)
 const cleanupWarning = ref('')
 const reportCompany = ref<{ name: string; ico: string } | null>(null)
 const blankCountryIsCz = ref(false)
+const matchBankAccountSeries = ref(false)
 const profileFilled = ref<string[]>([])
 const selectedProfileFields = ref<string[]>([])
 // Zkouška i převod běží na serveru jako job; stav jobu pro ukazatel průběhu.
@@ -44,7 +45,7 @@ const error = ref('')
  * Job spuštěný z průvodce: zkouška i převod běží na serveru dál, i když uživatel stránku
  * opustí. Po návratu ho průvodce podle tohoto záznamu naváže, i s volbami, se kterými běžel.
  */
-interface StoredRun { supplierId: number; token: string; jobId: number; mode: 'dry_run' | 'import'; company: number; blankCountryIsCz: boolean; deleteAfterImport: boolean }
+interface StoredRun { supplierId: number; token: string; jobId: number; mode: 'dry_run' | 'import'; company: number; blankCountryIsCz: boolean; matchBankAccountSeries?: boolean; deleteAfterImport: boolean }
 const RUN_KEY = 'myucto.stereo-nx.job'
 function readRun(): StoredRun | null {
   try {
@@ -60,6 +61,9 @@ function writeRun(stored: StoredRun | null): void {
 }
 
 const selectedCompany = computed(() => companies.value.find(item => item.index === selected.value))
+const bankAccountSeries = computed(() => selectedCompany.value?.bank_account_series)
+const bankSeriesAllowed = computed(() => !bankAccountSeries.value?.ambiguous && (!bankAccountSeries.value?.requires_confirmation || matchBankAccountSeries.value))
+watch(selected, () => { matchBankAccountSeries.value = false }, { flush: 'sync' })
 const modeMismatch = computed(() => !!selectedCompany.value?.identity.accounting_mode && !!target.value?.accounting_mode && selectedCompany.value.identity.accounting_mode !== target.value.accounting_mode)
 function modeLabel(mode: string | null | undefined): string {
   return mode === 'tax_evidence' || mode === 'double_entry' ? t(`stereo_nx.accounting_modes.${mode}`) : t('stereo_nx.accounting_modes.unknown')
@@ -72,7 +76,7 @@ const profileSuggestions = computed(() => profileFields.flatMap(field => {
 watch([selected, companies], () => {
   selectedProfileFields.value = profileSuggestions.value.filter(item => !item.current.trim()).map(item => item.field)
 })
-const canRun = computed(() => !!token.value && selectedCompany.value?.matches_target === true && selectedCompany.value.identity.vat_payer && ['tax_evidence', 'double_entry'].includes(target.value?.accounting_mode ?? '') && !modeMismatch.value && target.value?.vat_payer)
+const canRun = computed(() => bankSeriesAllowed.value && !!token.value && selectedCompany.value?.matches_target === true && selectedCompany.value.identity.vat_payer && ['tax_evidence', 'double_entry'].includes(target.value?.accounting_mode ?? '') && !modeMismatch.value && target.value?.vat_payer)
 const canImport = computed(() => canRun.value && dryReport.value?.ok === true && confirmed.value)
 const backupHelpItems = computed(() => {
   const items = tm('stereo_nx.upload_help_items') as unknown
@@ -131,6 +135,7 @@ function resetSelection(): void {
   cleanupWarning.value = ''
   reportCompany.value = null
   blankCountryIsCz.value = false
+  matchBankAccountSeries.value = false
   profileFilled.value = []
   error.value = ''
 }
@@ -171,6 +176,7 @@ async function resumeRun(): Promise<void> {
   if (token.value !== stored.token || !companies.value.some(item => item.index === stored.company)) return
   selected.value = stored.company
   blankCountryIsCz.value = stored.blankCountryIsCz
+  matchBankAccountSeries.value = stored.matchBankAccountSeries === true
   deleteAfterImport.value = stored.deleteAfterImport
   currentStep.value = stored.mode === 'dry_run' ? 3 : 4
   await run(stored.mode, stored.jobId)
@@ -199,6 +205,7 @@ function onFile(event: Event): void {
   cleanupWarning.value = ''
   reportCompany.value = null
   blankCountryIsCz.value = false
+  matchBankAccountSeries.value = false
   profileFilled.value = []
 }
 
@@ -260,6 +267,7 @@ async function openUpload(upload: StereoUpload): Promise<void> {
   cleanupWarning.value = ''
   reportCompany.value = null
   blankCountryIsCz.value = false
+  matchBankAccountSeries.value = false
   profileFilled.value = []
   writeRun(null)
   await preview()
@@ -272,6 +280,8 @@ async function preview(): Promise<void> {
   busy.value = true
   error.value = ''
   cleanupWarning.value = ''
+  matchBankAccountSeries.value = false
+  invalidateDryRun()
   try {
     const result = await stereoNxApi.preview(uploadToken)
     if (supplier.currentSupplierId !== supplierId || token.value !== uploadToken) return
@@ -305,6 +315,7 @@ async function fillCompanyProfile(): Promise<void> {
     if (supplier.currentSupplierId !== supplierId || token.value !== uploadToken || selected.value !== companyIndex) return
     const refreshed = await stereoNxApi.preview(uploadToken)
     if (supplier.currentSupplierId !== supplierId || token.value !== uploadToken || selected.value !== companyIndex) return
+    matchBankAccountSeries.value = false
     companies.value = refreshed.companies
     target.value = refreshed.target
     invalidateDryRun()
@@ -332,8 +343,8 @@ async function run(mode: 'dry_run' | 'import', resumeJobId: number | null = null
   error.value = ''
   cleanupWarning.value = ''
   try {
-    const jobId = resumeJobId ?? await stereoNxApi.start(uploadToken, company, mode, blankCountryIsCz.value)
-    if (supplierId) writeRun({ supplierId, token: uploadToken, jobId, mode, company, blankCountryIsCz: blankCountryIsCz.value, deleteAfterImport: deleteAfterImport.value })
+    const jobId = resumeJobId ?? await stereoNxApi.start(uploadToken, company, mode, blankCountryIsCz.value, matchBankAccountSeries.value)
+    if (supplierId) writeRun({ supplierId, token: uploadToken, jobId, mode, company, blankCountryIsCz: blankCountryIsCz.value, matchBankAccountSeries: matchBankAccountSeries.value, deleteAfterImport: deleteAfterImport.value })
     const report = await stereoNxApi.follow(uploadToken, jobId, current => {
       if (supplier.currentSupplierId === supplierId && token.value === uploadToken) job.value = current
     })
@@ -574,6 +585,18 @@ const importProtocol = computed(() => importReport.value ? asProtocol(importRepo
         <RouterLink :to="{ name: 'admin-settings', query: { tab: 'accounting' } }" class="mt-2 inline-flex text-primary-700 underline hover:text-primary-800">{{ t('stereo_nx.open_accounting_settings') }}</RouterLink>
       </div>
       <p v-if="target && !target.vat_payer" class="mt-3 text-sm text-danger-600">{{ t('stereo_nx.target_vat_required') }}</p>
+      <div v-if="bankAccountSeries && (bankAccountSeries.requires_confirmation || bankAccountSeries.ambiguous)" data-testid="stereo-bank-series" class="mt-4 rounded-lg border border-warning-500/30 bg-warning-50 px-4 py-3 text-sm text-warning-700" role="alert">
+        <h3 class="font-medium">{{ t('stereo_nx.bank_series_title') }}</h3>
+        <p v-if="bankAccountSeries.missing_accounts > 0" class="mt-1">{{ t('stereo_nx.bank_series_missing', { count: bankAccountSeries.missing_accounts }) }}</p>
+        <p v-if="bankAccountSeries.ambiguous" class="mt-2">{{ t('stereo_nx.bank_series_ambiguous') }}</p>
+        <template v-else>
+          <p class="mt-2">{{ t('stereo_nx.bank_series_hint') }}</p>
+          <ul class="mt-2 list-disc space-y-1 pl-5">
+            <li v-for="assignment in bankAccountSeries.assignments" :key="assignment.account_index" class="break-words">{{ assignment.account_label }} → {{ assignment.series }}</li>
+          </ul>
+          <label class="mt-3 flex cursor-pointer items-start gap-3"><input v-model="matchBankAccountSeries" data-testid="stereo-bank-series-confirm" type="checkbox" class="mt-1" :disabled="busy" @change="invalidateDryRun" />{{ t('stereo_nx.bank_series_confirm') }}</label>
+        </template>
+      </div>
       <div v-if="selectedCompany?.matches_target && profileSuggestions.length" class="mt-5 rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm" data-testid="stereo-profile-suggestions">
         <h3 class="font-medium">{{ t('stereo_nx.profile_suggestions_title') }}</h3>
         <p class="mt-1 text-neutral-600">{{ t('stereo_nx.profile_suggestions_hint') }}</p>
