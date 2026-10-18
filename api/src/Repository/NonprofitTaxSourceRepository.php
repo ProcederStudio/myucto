@@ -34,8 +34,12 @@ final class NonprofitTaxSourceRepository
 
     public function snapshot(int $supplierId, int $periodId, bool $currentRead = false): array
     {
-        $memo = [];
-        return $this->buildSnapshot($supplierId, $periodId, $currentRead, $memo);
+        $guard = new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db);
+        return $guard->transaction(function () use ($guard, $supplierId, $periodId): array {
+            $guard->lockPeriods($supplierId);
+            $memo = [];
+            return $this->buildSnapshot($supplierId, $periodId, true, $memo);
+        });
     }
 
     private function buildSnapshot(int $supplierId, int $periodId, bool $currentRead, array &$memo): array

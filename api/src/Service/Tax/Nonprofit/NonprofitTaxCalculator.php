@@ -37,10 +37,6 @@ final class NonprofitTaxCalculator
             }
             $group = $kind . ':' . $cohort;
             $row = $source + ['decision' => $decision, 'group' => $group];
-            $owner = $source['svj_owner_facts'] ?? null;
-            if ($owner !== null && ($assertedProfile !== 'svj' || ($owner['kind'] ?? null) !== $source['kind'])) NonprofitTaxRules::invalid('Nativní titul služby nesouhlasí s právním profilem nebo druhem zdroje.');
-            if ($source['kind'] === 'revenue' && (($decision['title'] ?? '') === 'svj_service_payment') !== ($owner !== null)) NonprofitTaxRules::invalid('Platba služby SVJ vyžaduje přesný nativní právní titul.');
-            if ($source['kind'] === 'expense' && $owner !== null && ($decision['deductible_cents'] ?? null) !== 0) NonprofitTaxRules::invalid('Náklad služby mimo předmět daně nemůže být daňově uznatelný.');
             if ($source['kind'] === 'revenue') {
                 $row['classification'] = $manual ? NonprofitTaxRules::documentedClassification($decision, 'revenue') : NonprofitTaxRules::revenue($profile, $decision);
                 if ($row['classification']['method'] === 'final_withholding') {
@@ -69,6 +65,7 @@ final class NonprofitTaxCalculator
             } else {
                 NonprofitTaxRules::invalid('Neznámý druh zdrojového řádku.');
             }
+            $row['classification'] = NonprofitTaxRules::svjClassification($source, $decision, $row['classification'], $assertedProfile);
             if (isset($rows[$id])) NonprofitTaxRules::invalid('Duplicitní zdrojový řádek.');
             $rows[$id] = $row;
             if ($row['classification']['regime'] === 'pending') $groups[$group] = ['activity_kind_id' => $kind, 'cohort' => $cohort, 'revenue_cents' => 0, 'cost_cents' => 0];
