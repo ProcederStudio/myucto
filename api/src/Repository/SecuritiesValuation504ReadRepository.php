@@ -115,6 +115,8 @@ final class SecuritiesValuation504ReadRepository
         $snapshot = ['origins' => $originSnapshot['origins'], 'origin_facts_hash' => $originSnapshot['facts_hash'], 'all_source_rows' => $history, 'current_source_rows' => $current, 'cells' => array_values($cells), 'entries' => $proofEntries, 'rates' => $rates, 'findings' => $findings,
             'opening_entry_ids' => array_keys($openings), 'cancelled_entry_ids' => array_keys($removed), 'as_of' => $period['ends_on'], 'profile_snapshot' => $profileSnapshot];
         $hashSnapshot = $snapshot;
+        $hashSnapshot['category_source_rows'] = array_values(array_filter($rows, static fn (array $row): bool => in_array($row['account_type'], ['expense', 'revenue'], true)
+            && $row['posted_at'] !== null && $row['entry_date'] <= $period['ends_on'] && $row['source_type'] !== 'closing'));
         $hashSnapshot['entries'] = array_filter($proofEntries, static fn (array $entry): bool => $entry['entry_date'] <= $period['ends_on']
             && !($entry['source_type'] === 'closing' && (int) $entry['period_id'] === (int) $period['id']));
         $snapshot['hash'] = hash('sha256', json_encode([$hashSnapshot, $steps], JSON_THROW_ON_ERROR));
