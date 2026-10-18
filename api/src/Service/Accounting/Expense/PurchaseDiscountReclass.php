@@ -132,7 +132,7 @@ final class PurchaseDiscountReclass
                 return $report;
             }
 
-            $built = $this->posting->buildFromPurchaseInvoice($supplierId, $purchaseInvoiceId);
+            $built = $this->posting->buildFromPurchaseInvoice($supplierId, $purchaseInvoiceId, ['entry_date' => (string) $live['entry_date']]);
             $report['before'] = $this->describe($this->liveLines($supplierId, (int) $live['id']));
             $report['after'] = $this->describe($built, true, $supplierId);
             $report['posting_changes'] = $this->key($report['before']) !== $this->key($report['after']);

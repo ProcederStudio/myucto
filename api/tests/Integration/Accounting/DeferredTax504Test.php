@@ -77,6 +77,32 @@ final class DeferredTax504Test extends TestCase
         self::assertSame('504-deferred-own-v1', $preview['method']['version']);
     }
 
+    private function enableDatedAccountDefinitions(): void
+    {
+        $p=$this->db->pdo();$p->prepare("UPDATE accounting_periods SET status='open' WHERE id=?")->execute([$this->period]);
+        $q=$p->prepare("SELECT id FROM chart_of_accounts WHERE supplier_id=? AND account_code='518'");$q->execute([$this->supplier]);$id=(int)$q->fetchColumn();$definitions=new \MyInvoice\Repository\AccountDefinitionRepository($this->db);
+        $definitions->change($this->supplier,$id,'2096-07-01',['name'=>'Synthetic dated deferred account context'],$definitions->stateHash($this->supplier,$id),null,'Synthetic explicit account history');
+        $p->prepare("UPDATE accounting_periods SET status='closing' WHERE id=?")->execute([$this->period]);
+    }
+
+    public function testDatedFirstAdoptionAccountsExistAtTheActualOpeningDate(): void
+    {
+        $this->enableDatedAccountDefinitions();$body=$this->body();$body['method']['first_adoption']=true;$body['method']['first_adoption_reason']='Synthetic initial temporary differences';$body['opening_titles']=$body['titles'];
+        $result=Bootstrap::buildContainer()->get(DeferredTax504Service::class)->run($this->supplier,$this->period,$body,$this->version());self::assertCount(1,$result['entry_ids']);
+        $q=$this->db->pdo()->prepare('SELECT entry_date FROM journal_entries WHERE id=? AND supplier_id=?');$q->execute([$result['entry_ids'][0],$this->supplier]);self::assertSame('2096-07-01',$q->fetchColumn());
+        $definitions=new \MyInvoice\Repository\AccountDefinitionRepository($this->db);$rows=array_column($definitions->listForDate($this->supplier,'2096-07-01'),null,'account_code');
+        foreach(['349','592','959.100']as$code)self::assertArrayHasKey($code,$rows,'An opening account is missing at its actual posting date.');
+        $q=$this->db->pdo()->prepare('SELECT COUNT(*) FROM journal_entry_lines l LEFT JOIN '.\MyInvoice\Repository\AccountDefinitionRepository::relation('2096-07-01',$this->supplier).' a ON a.id=l.account_id AND a.supplier_id=l.supplier_id WHERE l.entry_id=? AND a.id IS NULL');$q->execute([$result['entry_ids'][0]]);self::assertSame(0,(int)$q->fetchColumn());
+    }
+
+    public function testFirstAdoptionCannotUseAccountsBornOnlyAtPeriodEnd(): void
+    {
+        $this->enableDatedAccountDefinitions();$chart=new \MyInvoice\Repository\ChartOfAccountsRepository($this->db);$parent=$chart->findByCode($this->supplier,'959','2097-06-30');
+        foreach([['349','asset','debit',null,'deductible'],['592','expense','debit',null,'non_deductible'],['959.100','liability','credit',(int)$parent['id'],'deductible']]as[$code,$type,$side,$parentId,$tax])$chart->insert($this->supplier,['account_code'=>$code,'name'=>'Synthetic future deferred account','account_type'=>$type,'normal_side'=>$side,'parent_id'=>$parentId,'tax_deductibility'=>$tax,'is_synthetic'=>$parentId===null],'2097-06-30');
+        $body=$this->body();$body['prepare_accounts']=false;$body['method']['first_adoption']=true;$body['method']['first_adoption_reason']='Synthetic initial temporary differences';$body['opening_titles']=$body['titles'];
+        try{Bootstrap::buildContainer()->get(DeferredTax504Service::class)->run($this->supplier,$this->period,$body,$this->version());self::fail('The opening used accounts before their effective birth.');}catch(ClosingException $e){self::assertSame('deferred_tax_accounts_required',$e->errorCode);}self::assertSame(0,$this->journalCount());
+    }
+
     public function testMissingActivityRollsBackAccountPreparationAndPendingDecision(): void
     {
         $body = $this->body();

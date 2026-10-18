@@ -19,7 +19,7 @@ final class ClearingRevisionJournalPlan
         (new PaymentPostingDate($this->db))->assertOpen($supplier, $date);
         $q = $this->db->pdo()->prepare('SELECT id FROM accounting_periods WHERE supplier_id=? AND starts_on<=? AND ends_on>=? ORDER BY starts_on,id FOR UPDATE');
         $q->execute([$supplier, $date, $date]); $period = (int) $q->fetchColumn();
-        $q = $this->db->pdo()->prepare("SELECT id,account_code,account_type,is_active FROM chart_of_accounts WHERE supplier_id=? AND account_code='379.900' FOR UPDATE");
+        $q = $this->db->pdo()->prepare('SELECT id,account_code,account_type,is_active FROM ' . \MyInvoice\Repository\AccountDefinitionRepository::relation($date, $supplier, true) . " a WHERE supplier_id=? AND account_code='379.900' FOR UPDATE");
         $q->execute([$supplier]); $account = $q->fetch(PDO::FETCH_ASSOC);
         if (!$account || !(bool) $account['is_active'] || $account['account_type'] !== 'liability') PaymentException::reject('workflow_account_invalid', ['account_code' => '379.900']);
         $lines = $provedPlan['lines'];

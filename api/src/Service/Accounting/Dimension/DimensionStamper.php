@@ -299,7 +299,7 @@ final class DimensionStamper
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
             // Řádek rozdělený při zaúčtování mohla účtotvorná dimenze rozeslat na různé
             // analytiky téže syntetiky — sourozence proto počítá syntetika, ne analytika.
-            $siblingAccount = $router->siblingAccounts($supplierId, $entryDate, $singleAnalytics);
+            $siblingAccount = $router->siblingAccounts($supplierId, $entryDate, $singleAnalytics, true);
             $siblingKey = static fn (array $l): string
                 => ($siblingAccount[(int) $l['account_id']] ?? (int) $l['account_id']) . '|' . $l['side'];
             $siblings = [];
@@ -364,7 +364,7 @@ final class DimensionStamper
             foreach ($originalSplits as $lineId => $byType) {
                 $old[$lineId]['dimension_splits'] = $byType;
             }
-            $projected = $router->projectForEntry($supplierId, $entryDate, array_values($restamped), $singleAnalytics, $old);
+            $projected = $router->projectForEntry($supplierId, $entryDate, array_values($restamped), $singleAnalytics, $old, true);
             $restamped = $projected['lines'];
             if ($projected['conflicts'] !== []) {
                 $needsRepost = true;

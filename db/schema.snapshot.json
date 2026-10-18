@@ -1035,7 +1035,8 @@
         "2051_property_funding.sql",
         "2052_accounting_securities_debt.sql",
         "2053_nonprofit_funding_sources.sql",
-        "2054_nonprofit_capital_sources.sql"
+        "2054_nonprofit_capital_sources.sql",
+        "2055_account_definition_history.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -1118,6 +1119,46 @@
             },
             "checks": {
                 "protocol": "`protocol` is null or json_valid(`protocol`)"
+            }
+        },
+        "accounting_account_definition_history": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "account_id": "bigint(20) unsigned NOT NULL",
+                "created_by": "bigint(20) unsigned NULL DEFAULT NULL",
+                "definition_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "definition_json": "longtext NOT NULL",
+                "effective_from": "date NOT NULL",
+                "evidence": "varchar(1000) NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "is_active": "tinyint(1) NOT NULL",
+                "name": "varchar(190) NOT NULL",
+                "normal_side": "enum('debit','credit') NULL DEFAULT NULL",
+                "recorded_at": "datetime(6) NOT NULL",
+                "row_version": "int(10) unsigned NOT NULL DEFAULT 1",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "tax_deductibility": "enum('deductible','non_deductible') NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "created_by": "BTREE (created_by)",
+                "uq_account_definition_date": "UNIQUE BTREE (supplier_id, account_id, effective_from)"
+            },
+            "foreign_keys": {
+                "accounting_account_definition_history_ibfk_1": "(supplier_id, account_id) -> chart_of_accounts (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "accounting_account_definition_history_ibfk_2": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "CONSTRAINT_1": "`is_active` in (0,1)",
+                "CONSTRAINT_2": "cast(`name` as char charset binary) = cast(json_value(`definition_json`,'$.name') as char charset binary)",
+                "CONSTRAINT_3": "`normal_side` <=> json_value(`definition_json`,'$.normal_side')",
+                "CONSTRAINT_4": "`tax_deductibility` = json_value(`definition_json`,'$.tax_deductibility')",
+                "CONSTRAINT_5": "`is_active` = cast(json_value(`definition_json`,'$.is_active') as unsigned)",
+                "CONSTRAINT_6": "cast(`definition_hash` as char charset binary) = cast(sha2(concat(`supplier_id`,':',`account_id`,':',`effective_from`,':',`definition_json`),256) as char charset binary)",
+                "chk_account_definition_payload": "json_contains_path(`definition_json`,'all','$.name','$.normal_side','$.tax_deductibility','$.is_active') = 1 and json_type(json_extract(`definition_json`,'$.name')) = 'STRING' and json_type(json_extract(`definition_json`,'$.normal_side')) in ('STRING','NULL') and json_type(json_extract(`definition_json`,'$.tax_deductibility')) = 'STRING' and json_type(json_extract(`definition_json`,'$.is_active')) = 'INTEGER'",
+                "definition_json": "json_valid(`definition_json`)"
             }
         },
         "accounting_archives": {

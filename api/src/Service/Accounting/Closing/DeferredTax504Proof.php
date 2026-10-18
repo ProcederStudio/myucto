@@ -44,7 +44,7 @@ final class DeferredTax504Proof
         if (!is_string($pending['body']['source_hash'] ?? null) || !hash_equals($pending['body']['source_hash'], DeferredTax504Repository::sourceHash($db, $supplierId, $periodId, true))) throw self::changed();
         $assessment = DeferredTax504Builder::assessment($pending['body']);
         if (!$assessment['enabled']) throw self::changed();
-        $ids = DeferredTax504Service::assertAccounts($db, $supplierId);
+        $ids = DeferredTax504Service::assertAccounts($db, $supplierId, DeferredTax504Service::accountDate($period, $assessment));
         if ($ids !== $pending['account_ids']) throw self::changed();
         $state = (new DeferredTax504Repository($db, $journal))->state($supplierId, $period['ends_on']);
         $read = new LegalClosing504Repository($db, $journal);
@@ -79,12 +79,10 @@ final class DeferredTax504Proof
         $stmt = $db->pdo()->prepare('SELECT locked_until FROM accounting_supplier_settings WHERE supplier_id=? FOR UPDATE');
         $stmt->execute([$supplierId]);
         $lockedUntil = $stmt->fetchColumn();
-        $stmt = $db->pdo()->prepare('SELECT id,is_active,account_type,parent_id FROM chart_of_accounts WHERE supplier_id=? ORDER BY id FOR UPDATE');
-        $stmt->execute([$supplierId]);
-        $accounts = array_column($stmt->fetchAll(PDO::FETCH_ASSOC), null, 'id');
-        $parents = array_filter(array_column($accounts, 'parent_id'));
         foreach ($batches as $batch) {
             $date = $batch['header']['entry_date'];
+            $accounts = array_column((new \MyInvoice\Repository\AccountDefinitionRepository($db))->listForDate($supplierId, $date, true), null, 'id');
+            $parents = array_filter(array_column($accounts, 'parent_id'));
             if ($lockedUntil && $date <= $lockedUntil) throw new PostingException('date_locked', 'Datum zápisu leží v uzamčené části účetnictví.', 422);
             foreach ($batch['lines'] as $line) {
                 $account = $accounts[$line['account_id']] ?? null;

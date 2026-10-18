@@ -29,9 +29,9 @@ final class SettlementApplicationRepository
         foreach(['reliefs','opening_credits'] as $collection)foreach($request[$collection] as $i=>$part){
             $key=$collection==='reliefs'?($allocations[$part['allocation_id']]['origin_key']??null):($part['origin_key']??null);
             if(!isset($sourceByKey[$key]))SettlementEvidence::reject('origin_scope');
-            $normalized[$collection][$i]['entitlement']=$this->entitlement($supplier,$part['entitlement'],$sourceByKey[$key]['advance_line'],false,$parties);
+            $normalized[$collection][$i]['entitlement']=$this->entitlement($supplier,$part['entitlement'],$sourceByKey[$key]['advance_line'],false,$parties,$request['accounting_date']);
         }
-        if($request['new_claim']!==null)$normalized['new_claim']=$this->entitlement($supplier,$request['new_claim'],$facts['cost']['line'],true,$parties);
+        if($request['new_claim']!==null)$normalized['new_claim']=$this->entitlement($supplier,$request['new_claim'],$facts['cost']['line'],true,$parties,$request['accounting_date']);
         $references=[];$currentOrigins=[];$partyHead=null;
         foreach($live['origins'] as $source){$key=$source['kind'].':'.$source['id'];$evidence=$live['evidence'][$key];
             $currentOrigins[]=['source'=>$source,'version'=>1,'financial_head'=>PropertyInput::hash($evidence),'party_head'=>$partyHead,'prior_reduction_cents'=>'0','advance_available_cents'=>$source['prescribed_cents'],'active'=>true];
@@ -141,11 +141,11 @@ final class SettlementApplicationRepository
         $lines=array_map(fn($line)=>JournalLineAmount::reversal($line),$app['receipt']['preview']['plan']['lines']);
         return ['document_id'=>$app['document_id'],'application_id'=>$id,'expected_version'=>$expected,'application_hash'=>$app['receipt_hash'],'source_entry_id'=>$app['journal_entry_id'],'plan'=>['lines'=>$lines],'header'=>['supplier_id'=>$supplier,'period_id'=>(int)$period['id'],'entry_date'=>$date,'document_date'=>$date,'source_type'=>'property_service_settlement','source_id'=>null]];
     }
-    private function entitlement(int $supplier,array $ent,array $source,bool $claim,array &$parties):array
+    private function entitlement(int $supplier,array $ent,array $source,bool $claim,array &$parties,string $date):array
     {
         SettlementEvidence::fields($ent,['party_ids','evidence','due_date','account_code']);
         foreach($ent['party_ids'] as $id)PropertyInput::id($id,'party_id');$found=(new PropertyReadRepository($this->db))->parties($supplier,$ent['party_ids'],true);if(count($found)!==count($ent['party_ids']))SettlementEvidence::reject('foreign_party');foreach($found as $party)$parties[$party['id']]=$party;
-        $account=$this->one('SELECT * FROM chart_of_accounts WHERE supplier_id=? AND account_code=? FOR UPDATE',[$supplier,$ent['account_code']]);
+        $account=$this->one('SELECT * FROM '.\MyInvoice\Repository\AccountDefinitionRepository::relation($date,$supplier,true).' a WHERE supplier_id=? AND account_code=? FOR UPDATE',[$supplier,$ent['account_code']]);
         if(!$account||!(bool)$account['is_active']||$account['account_type']!==($claim?'asset':'liability')||($claim?substr($account['account_code'],0,3)!=='315':$account['account_code']!=='379.910'))SettlementEvidence::reject('destination_account');
         $line=$source;$line['account_id']=(int)$account['id'];$line['account_code']=$account['account_code'];
         return ['party_ids'=>$ent['party_ids'],'evidence'=>$ent['evidence'],'due_date'=>$ent['due_date'],'line'=>$line];
@@ -163,7 +163,7 @@ final class SettlementApplicationRepository
     }
     private function validateJournal(array $header,array $lines):void
     {
-        PostingService::assertBalanced($lines);foreach($lines as $line){$account=$this->one('SELECT * FROM chart_of_accounts WHERE supplier_id=? AND id=? FOR UPDATE',[$header['supplier_id'],$line['account_id']]);if(!$account||!$account['is_active']||$account['account_code']!==$line['account_code'])SettlementEvidence::reject('account_unavailable');}
+        PostingService::assertBalanced($lines);foreach($lines as $line){$account=$this->one('SELECT * FROM '.\MyInvoice\Repository\AccountDefinitionRepository::relation($header['entry_date'],(int)$header['supplier_id'],true).' a WHERE supplier_id=? AND id=? FOR UPDATE',[$header['supplier_id'],$line['account_id']]);if(!$account||!$account['is_active']||$account['account_code']!==$line['account_code'])SettlementEvidence::reject('account_unavailable');}
     }
     private function request(int $supplier,int $document,?int $reversal,int $expected,array $request,array $preview,string $token,int $actor):int
     {

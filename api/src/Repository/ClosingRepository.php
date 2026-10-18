@@ -619,12 +619,13 @@ final class ClosingRepository
      */
     public function accountsOnUnusualSide(int $supplierId, int $periodId, string $asOf): array
     {
+        $accountDefinitions=AccountDefinitionRepository::relation($asOf,$supplierId);
         $stmt = $this->db->pdo()->prepare(
             "SELECT a.id AS account_id, a.account_code, a.name, a.normal_side,
                     SUM(CASE WHEN l.side = 'debit' THEN l.signed_amount ELSE -l.signed_amount END) AS bal
                FROM journal_entry_lines l
                JOIN journal_entries e   ON e.id = l.entry_id
-               JOIN chart_of_accounts a ON a.id = l.account_id
+               JOIN {$accountDefinitions} a ON a.id = l.account_id
               WHERE l.supplier_id = ? AND e.posted_at IS NOT NULL
                 AND e.entry_date <= ?
                 AND a.normal_side IS NOT NULL

@@ -264,6 +264,7 @@ final class AnonymizationPolicy
         'catalog_job_items' => ['after_json' => 'json', 'before_json' => 'json', 'error_code' => 'keep', 'input_json' => 'json'],
         'catalog_job_lanes' => ['kind' => 'keep'],
         'catalog_jobs' => ['error_code' => 'keep', 'input_json' => 'json', 'kind' => 'keep', 'lease_token' => 'keep', 'report_json' => 'json'],
+        'accounting_account_definition_history' => ['name'=>'keep','definition_json'=>'keep','definition_hash'=>'keep','evidence'=>'keep'],
         'chart_of_accounts' => ['account_code' => 'keep', 'name' => 'text'],
         'client_ai_extraction_usage' => ['period' => 'keep'],
         'client_bank_accounts' => ['account_key' => 'account_key', 'account_number' => 'bank_account', 'bank_code' => 'keep', 'bank_key' => 'keep', 'iban' => 'iban'],

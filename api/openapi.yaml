@@ -11331,6 +11331,8 @@ paths:
         musí označovat týž účet. Číselný kód bez tečky, který začíná kódem rodiče,
         se doplní tečkou (`378800` → `378.800`). Dostupné i přes API token se scope
         `read_write` (zápisová výjimka z read-only účetní vrstvy).
+        V datovaném rozvrhu vzniká nová analytika k dnešnímu dni; před datem
+        vzniku není použitelná. Fyzický kód zůstává rezervovaný i mimo svou účinnost.
       parameters:
         - $ref: '#/components/parameters/SupplierIdHeader'
       requestBody:
@@ -11380,6 +11382,10 @@ paths:
         BEZ jediného použití lze i smazat (viz DELETE níž). API token se scope
         `read_write` smí upravit jen analytiku; syntetický účet odmítne
         `403 token_write_forbidden`.
+
+        V rozvrhu s historií definic platí změna od dne provedení. Historické
+        výkazy zůstávají datované; změna zasahující do zaúčtovaných řádků,
+        uzavřeného období nebo kolidující verze vrací 409.
       parameters:
         - $ref: '#/components/parameters/SupplierIdHeader'
         - { in: path, name: id, required: true, schema: { type: integer } }
@@ -11395,6 +11401,7 @@ paths:
               schema: { $ref: '#/components/schemas/ChartAccount' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Změna datované definice zasahuje do účetní historie nebo koliduje s aktuální verzí, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         '422': { $ref: '#/components/responses/ValidationFailed' }
     delete:
       tags: [Accounting]
@@ -11403,7 +11410,8 @@ paths:
         Smazat jde POUZE analytika, kterou nic nepoužívá — ani deník, ani doklady,
         kontace, karty majetku či mzdové nastavení. Syntetický účet z osnovy se
         smazat nedá (`account_synthetic`), použitá analytika vrátí `account_in_use`
-        se seznamem míst; místo mazání ji deaktivujte přes PATCH.
+        se seznamem míst; místo mazání ji deaktivujte přes PATCH. Analytika s datovanou
+        historií vrací `account_definition_delete_forbidden` a zůstává zachovaná.
       parameters:
         - $ref: '#/components/parameters/SupplierIdHeader'
         - { in: path, name: id, required: true, schema: { type: integer } }
@@ -38679,7 +38687,7 @@ components:
 
     ChartAccountCreate:
       type: object
-      description: Nová analytika. Zadejte `parent_id`, nebo `parent_code`.
+      description: Nová analytika. Zadejte `parent_id`, nebo `parent_code`. V datovaném rozvrhu vzniká k dnešnímu dni a nemění starší výkazy.
       required: [account_code, name]
       properties:
         parent_id: { type: integer, minimum: 1, description: "ID syntetického účtu" }

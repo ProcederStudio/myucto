@@ -165,7 +165,7 @@ final class FundingService
     {
         $q=$this->db->pdo()->prepare("SELECT v.id FROM dimension_values v JOIN dimension_types t ON t.id=v.type_id AND t.supplier_id=v.supplier_id WHERE v.supplier_id=? AND t.system_key='activity_kind'".($lock?' FOR UPDATE':''));$q->execute([$supplier]);$ids=array_map('intval',$q->fetchAll(PDO::FETCH_COLUMN));
         if(array_diff($policy['activity_kind_ids'],$ids)!==[])FundingPolicy::invalid('Druh činnosti není součástí této firmy.');
-        $q=$this->db->pdo()->prepare("SELECT account_code FROM chart_of_accounts WHERE supplier_id=? AND account_code LIKE '5%' AND is_active=1".($lock?' FOR UPDATE':''));$q->execute([$supplier]);$codes=$q->fetchAll(PDO::FETCH_COLUMN);
+        $q=$this->db->pdo()->prepare('SELECT account_code FROM '.\MyInvoice\Repository\AccountDefinitionRepository::relation($policy['valid_from'],$supplier,$lock)." a WHERE supplier_id=? AND account_code LIKE '5%' AND is_active=1".($lock?' FOR UPDATE':''));$q->execute([$supplier]);$codes=$q->fetchAll(PDO::FETCH_COLUMN);
         foreach($policy['account_prefixes']as$prefix){$found=false;foreach($codes as$code)if(str_starts_with($code,$prefix))$found=true;if(!$found)FundingPolicy::invalid('Způsobilý nákladový účet není součástí této firmy.');}
     }
     private function provider(int $supplier,int $provider,bool $lock): array

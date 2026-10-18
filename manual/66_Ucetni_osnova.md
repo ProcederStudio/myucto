@@ -60,6 +60,8 @@ předkontacích a šablonách.
 > či mzdového nastavení. Používaný účet místo mazání deaktivujte. Kód účtu je součást průkazné
 > účetní stopy.
 
+Má-li firma datované definice účtů, změna názvu nebo aktivity platí od dne provedení. Starší výkazy používají definici odpovídající svému účetnímu datu. Změnu zasahující do již zaúčtovaných řádků nebo uzamčeného období aplikace odmítne. Nový účet vzniká k datu založení a nenabízí se pro starší zápisy. Analytiku s datovanou historií nelze smazat; pro ukončení jejího používání ji deaktivujte.
+
 ## 66.5 Krok za krokem: import a export osnovy
 
 Tlačítka **Export XLSX** a **Import** pracují s XLSX nebo CSV. Export zahrnuje i neaktivní účty,

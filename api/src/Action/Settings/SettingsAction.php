@@ -1288,6 +1288,7 @@ final class SettingsAction
             'invoices'           => 'vydané faktury',
             'purchase_invoices'  => 'přijaté faktury',
             'journal_entries'    => 'účetní deník',
+            'accounting_account_definition_history' => 'historii definic účetního rozvrhu',
             'cash_documents'     => 'pokladní doklady',
             'cash_registers'     => 'pokladny',
             'assets'             => 'majetek',
@@ -1338,6 +1339,10 @@ final class SettingsAction
             if ((new \MyInvoice\Service\Property\PropertyHistoryUseGuard($this->db))->supplierHasHistory($id, true)) {
                 $pdo->rollBack();
                 return Json::error($response, 'has_dependencies', 'Firmu nelze smazat, obsahuje potvrzené podklady registru SVJ.', 409);
+            }
+            if ((new \MyInvoice\Repository\AccountDefinitionRepository($this->db))->hasHistory($id, null, true)) {
+                $pdo->rollBack();
+                return Json::error($response, 'has_dependencies', 'Firmu nelze smazat, obsahuje historii definic účetního rozvrhu.', 409);
             }
             $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
             try {

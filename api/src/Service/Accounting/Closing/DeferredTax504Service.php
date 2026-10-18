@@ -75,7 +75,7 @@ final class DeferredTax504Service
             $assessment = DeferredTax504Builder::assessment($body);
             if (!$assessment['enabled']) throw new ClosingException('deferred_tax_method_required', 'Před účtováním výslovně zvolte vlastní metodu odložené daně.', 422);
             \MyInvoice\Service\Accounting\FrameworkOperationPolicy::assertAllowed(new AccountingRoleProfile(AccountingFrameworkService::CZ_504), 'deferred_tax', $body);
-            $accountIds = self::prepareAccounts($this->db, $supplierId, ($body['prepare_accounts'] ?? false) === true);
+            $accountIds = self::prepareAccounts($this->db, $supplierId, ($body['prepare_accounts'] ?? false) === true, self::accountDate($period, $assessment));
             $read = new LegalClosing504Repository($this->db, $this->journal);
             $step = $read->step($supplierId, $periodId, 'deferred_tax');
             $payload = $step['payload'];
@@ -89,17 +89,20 @@ final class DeferredTax504Service
         });
     }
 
-    public static function assertAccounts(Connection $db, int $supplierId): array
+    public static function accountDate(array $period, array $assessment): string
     {
-        return self::prepareAccounts($db, $supplierId, false);
+        return $assessment['method']['first_adoption'] ? $period['starts_on'] : $period['ends_on'];
     }
 
-    private static function prepareAccounts(Connection $db, int $supplierId, bool $create): array
+    public static function assertAccounts(Connection $db, int $supplierId, string $date): array
+    {
+        return self::prepareAccounts($db, $supplierId, false, $date);
+    }
+
+    private static function prepareAccounts(Connection $db, int $supplierId, bool $create, string $date): array
     {
         if (!$db->pdo()->inTransaction()) throw new \LogicException('Account preparation requires caller period-first locks.');
-        $stmt = $db->pdo()->prepare('SELECT * FROM chart_of_accounts WHERE supplier_id=? ORDER BY id FOR UPDATE');
-        $stmt->execute([$supplierId]);
-        $accounts = array_column($stmt->fetchAll(PDO::FETCH_ASSOC), null, 'account_code');
+        $accounts = array_column((new \MyInvoice\Repository\AccountDefinitionRepository($db))->listForDate($supplierId,$date,true), null, 'account_code');
         $profile = new AccountingRoleProfile(AccountingFrameworkService::CZ_504);
         $definitions = [
             'asset' => ['name' => 'Odložená daňová pohledávka podle vlastní metody', 'account_type' => 'asset', 'normal_side' => 'debit'],
@@ -115,7 +118,7 @@ final class DeferredTax504Service
             if ($account === null) {
                 if (!$create) throw self::accountError();
                 $ids[$code] = (new ChartOfAccountsRepository($db))->insert($supplierId, $definition + ['account_code' => $code,
-                    'is_synthetic' => $role !== 'liability', 'parent_id' => $parent['id'] ?? null, 'tax_deductibility' => $role === 'expense' ? 'non_deductible' : 'deductible']);
+                    'is_synthetic' => $role !== 'liability', 'parent_id' => $parent['id'] ?? null, 'tax_deductibility' => $role === 'expense' ? 'non_deductible' : 'deductible'],$date);
             } else {
                 if (!$account['is_active'] || $account['account_type'] !== $definition['account_type'] || $account['normal_side'] !== $definition['normal_side']
                     || ($role === 'expense' && $account['tax_deductibility'] !== 'non_deductible')

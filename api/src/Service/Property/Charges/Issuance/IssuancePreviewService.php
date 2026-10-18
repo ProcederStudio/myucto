@@ -55,10 +55,10 @@ final class IssuancePreviewService
         }
         $parties=$registry->parties($supplier,$clientIds,$current); $partyIds=array_column($parties,'id');
         if(count(array_unique($clientIds))!==count($partyIds)) throw new IssuanceException('property_charge_issue_party_unavailable','Osoba nepatří do této firmy.',422);
-        $stmt=$this->db->pdo()->prepare('SELECT id,account_code,account_type,is_active FROM chart_of_accounts WHERE supplier_id=? ORDER BY id'.($current?' FOR UPDATE':''));
+        $stmt=$this->db->pdo()->prepare('SELECT id,account_code,account_type,is_active FROM '.\MyInvoice\Repository\AccountDefinitionRepository::relation($request['accounting_date'],$supplier,$current).' a WHERE supplier_id=? ORDER BY id'.($current?' FOR UPDATE':''));
         $stmt->execute([$supplier]); $accounts=array_column($stmt->fetchAll(PDO::FETCH_ASSOC),null,'account_code');
         $configured=array_column($request['accounts'],null,'component_id');
-        $container=\MyInvoice\Bootstrap::buildContainer();$container->set(Connection::class,$this->db);$redirects=$container->get(\MyInvoice\Service\Accounting\PostingService::class)->singleAnalyticRedirects($supplier);
+        $container=\MyInvoice\Bootstrap::buildContainer();$container->set(Connection::class,$this->db);$redirects=$container->get(\MyInvoice\Service\Accounting\PostingService::class)->singleAnalyticRedirects($supplier, $request['accounting_date'], $current);
         foreach($configured as &$selection)foreach(['receivable_account','counter_account'] as $accountField)$selection[$accountField]=$redirects[$selection[$accountField]]??$selection[$accountField];unset($selection);
         $stmt=$this->db->pdo()->prepare("SELECT t.id type_id,v.id value_id,t.system_key FROM dimension_values v JOIN dimension_types t ON t.id=v.type_id WHERE (t.supplier_id=? OR t.supplier_id IS NULL) AND (v.supplier_id=? OR v.supplier_id IS NULL) AND t.is_active=1 AND v.is_active=1 ORDER BY t.id,v.id".($current?' FOR UPDATE':''));
         $stmt->execute([$supplier,$supplier]); $values=[];

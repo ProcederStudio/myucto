@@ -106,6 +106,7 @@ final class AnonymizationService
                 $paymentMap = (new PaymentsCloneScrubber($targetConnection, $this->scrubber))->run($issuanceMap,$registryMap,$settlementInputs);
                 (new ReceivablesCloneScrubber($targetConnection, $this->scrubber))->run($registryMap, $issuanceMap, $paymentMap);
                 SecuritiesDebt504CloneScrubber::run($targetConnection, $this->scrubber, $securitiesDebtInputs);
+                AccountDefinitionCloneScrubber::run($targetConnection, $this->scrubber);
                 CapitalCloneScrubber::run($targetConnection, $this->scrubber, $capitalInputs);
                 NonprofitFundingCloneScrubber::run($targetConnection, $this->scrubber, $nonprofitInputs);
             } finally {

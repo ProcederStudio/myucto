@@ -3080,7 +3080,7 @@ final class ClosingService
      */
     private function openReceivables(int $supplierId, int $periodId, string $asOf, ?array $invoiceIds = null, bool $currentRead = false): \Generator
     {
-        $account = $this->saldo->resolveAccount($supplierId, '311');
+        $account = $this->saldo->resolveAccount($supplierId, '311', $asOf);
         if ($account === null) {
             return;
         }
@@ -5339,7 +5339,7 @@ final class ClosingService
             $checks[] = $this->checkDimensionAccountUnmapped($supplierId, $rangeFrom, $rangeTo);
         }
         if ($wants('dimension_account_map_invalid')) {
-            $checks[] = $this->checkDimensionAccountMapInvalid($supplierId);
+            $checks[] = $this->checkDimensionAccountMapInvalid($supplierId, $rangeTo);
         }
 
         if ($wants('small_asset_cards_incomplete')) {
@@ -5858,11 +5858,11 @@ final class ClosingService
      *
      * @return array{key:string,severity:string,ok:bool,value:array<string,mixed>}
      */
-    private function checkDimensionAccountMapInvalid(int $supplierId): array
+    private function checkDimensionAccountMapInvalid(int $supplierId, string $date): array
     {
         $repo = new DimensionAccountMapRepository($this->db);
         $type = $repo->drivingType($supplierId);
-        $accounts = $type === null ? [] : $repo->invalidRows($supplierId, $type['id']);
+        $accounts = $type === null ? [] : $repo->invalidRows($supplierId, $type['id'], $date);
         return [
             'key' => 'dimension_account_map_invalid',
             'severity' => 'warning',

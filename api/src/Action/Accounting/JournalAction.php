@@ -871,8 +871,9 @@ final class JournalAction
 
         try {
             $lines = $sourceType === 'invoice'
-                ? $this->posting->buildFromInvoice($supplierId, $docId)
+                ? $this->posting->buildFromInvoice($supplierId, $docId, ['entry_date' => $docDate])
                 : $this->posting->buildFromPurchaseInvoice($supplierId, $docId, array_filter([
+                    'entry_date' => $docDate,
                     'debit_account_code' => $aiOverride,
                 ], static fn (mixed $value): bool => $value !== null));
         } catch (\Throwable $e) {
@@ -1100,8 +1101,9 @@ final class JournalAction
 
         try {
             $lines = $customLines ?? ($sourceType === 'invoice'
-                ? $this->posting->buildFromInvoice($supplierId, $docId)
+                ? $this->posting->buildFromInvoice($supplierId, $docId, ['entry_date' => $entryDate ?? $docDate])
                 : $this->posting->buildFromPurchaseInvoice($supplierId, $docId, array_filter([
+                    'entry_date' => $entryDate ?? $docDate,
                     'debit_account_code' => $this->aiOverrides->debitOverrideForPurchase($supplierId, $docId),
                 ], static fn (mixed $value): bool => $value !== null)));
 
