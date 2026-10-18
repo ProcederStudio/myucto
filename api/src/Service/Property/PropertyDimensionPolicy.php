@@ -68,7 +68,7 @@ final class PropertyDimensionPolicy
         $this->assertWindow((int)$header['supplier_id'],$start->format('c'),$start->modify('+1 day')->format('c'),$lines,[],$carried);
     }
 
-    public function assertClosingCarryJournal(array $header, array $lines, \MyInvoice\Service\Accounting\Closing\ClosingCarryJournalProof $proof): void
+    public function assertClosingCarryJournal(array $header, array $lines, \MyInvoice\Service\Accounting\Closing\ClosingCarryJournalProof|\MyInvoice\Service\Accounting\Conversion\FrameworkConversionJournalProof $proof): void
     {
         $carried = $proof->indices($this->db, $header, $lines);
         $date = (string) $header['entry_date'];

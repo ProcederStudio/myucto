@@ -731,7 +731,7 @@ final class LedgerReportRepository
      * zaúčtované uzávěrky → volající nechává kumulativní okno (dnešní chování).
      * Počítá se jednou per volání sestavy (žádný N+1).
      */
-    public function openingAnchor(int $supplierId, string $date): ?string
+    public function openingAnchor(int $supplierId, string $date, bool $currentRead = false): ?string
     {
         $stmt = $this->db->pdo()->prepare(
             "SELECT MAX(p.starts_on)
@@ -739,7 +739,7 @@ final class LedgerReportRepository
               WHERE p.supplier_id = ? AND p.starts_on <= ?
                 AND EXISTS (SELECT 1 FROM journal_entries e
                              WHERE e.supplier_id = p.supplier_id AND e.period_id = p.id
-                               AND e.source_type = 'opening' AND e.posted_at IS NOT NULL)"
+                               AND e.source_type = 'opening' AND e.posted_at IS NOT NULL)" . ($currentRead ? ' FOR UPDATE' : '')
         );
         $stmt->execute([$supplierId, $date]);
         $val = $stmt->fetchColumn();

@@ -33,6 +33,7 @@ final class PaymentMutationContext
     {
         (new \MyInvoice\Service\Nonprofit\Capital\CapitalUseGuard($this->db))->assertEntriesMutable($supplier, $ids);
         (new \MyInvoice\Service\Accounting\Closing\SecuritiesDebt504UseGuard($this->db))->assertEntriesMutable($supplier, $ids);
+        (new \MyInvoice\Service\Accounting\Conversion\FrameworkConversionUseGuard($this->db))->assertEntriesMutable($supplier, $ids);
         if (!$this->acquire($supplier)) return;
         try {
             (new PaymentUseGuard($this->db))->assertEntriesMutable($supplier, $ids);
@@ -45,6 +46,7 @@ final class PaymentMutationContext
     {
         (new \MyInvoice\Service\Nonprofit\Capital\CapitalUseGuard($this->db))->assertSourceMutable($supplier, $kind, $id);
         (new \MyInvoice\Service\Accounting\Closing\SecuritiesDebt504UseGuard($this->db))->assertSourceMutable($supplier, $kind, $id);
+        (new \MyInvoice\Service\Accounting\Conversion\FrameworkConversionUseGuard($this->db))->assertSourceMutable($supplier, $kind, $id);
         if (!$this->acquire($supplier)) return;
         try {
             (new PaymentUseGuard($this->db))->assertSourceMutable($supplier, $kind, $id);
@@ -57,6 +59,7 @@ final class PaymentMutationContext
     {
         (new \MyInvoice\Service\Nonprofit\Capital\CapitalUseGuard($this->db))->assertBankStatementMutable($supplier, $id);
         (new \MyInvoice\Service\Accounting\Closing\SecuritiesDebt504UseGuard($this->db))->assertBankStatementMutable($supplier, $id);
+        (new \MyInvoice\Service\Accounting\Conversion\FrameworkConversionUseGuard($this->db))->assertBankStatementMutable($supplier, $id);
         if (!$this->acquire($supplier)) return;
         try {
             (new PaymentUseGuard($this->db))->assertBankStatementMutable($supplier, $id);
@@ -69,6 +72,7 @@ final class PaymentMutationContext
     {
         (new \MyInvoice\Service\Nonprofit\Capital\CapitalUseGuard($this->db))->assertLinesMutable($supplier, $ids);
         (new \MyInvoice\Service\Accounting\Closing\SecuritiesDebt504UseGuard($this->db))->assertLinesMutable($supplier, $ids);
+        (new \MyInvoice\Service\Accounting\Conversion\FrameworkConversionUseGuard($this->db))->assertLinesMutable($supplier, $ids);
         if (!$this->acquire($supplier)) return;
         try {
             (new PaymentUseGuard($this->db))->assertLinesMutable($supplier, $ids);

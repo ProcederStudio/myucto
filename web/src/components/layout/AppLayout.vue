@@ -2,6 +2,7 @@
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { frameworkConversionMessages } from '@/components/accounting/frameworkConversionMessages'
 import { useAuthStore } from '@/stores/auth'
 import { canUsePurchaseAiExtraction } from '@/security/purchaseAiExtraction'
 import { useSupplierStore } from '@/stores/supplier'
@@ -42,6 +43,8 @@ import { manualChapter, manualChapterPath } from '@/config/manualChapters'
 import { canFitCompactNavigation, prefersCompactNavigation, shouldUseAutomaticSideNavigation } from '@/utils/navigationLayout'
 
 const { t, locale } = useI18n()
+const conversionI18n = useI18n({ useScope: 'local', inheritLocale: true, messages: frameworkConversionMessages })
+const conversionLabel = (key: keyof typeof frameworkConversionMessages.cs.conversion) => conversionI18n.t(`conversion.${key}`)
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -614,6 +617,7 @@ const navSections = computed<NavSection[]>(() => {
         ...(dimensionsEnabled ? [{ to: '/accounting/dimension-profit', label: t('nav.accounting_dimension_profit'), icon: ICONS.tax_income, permission: 'accounting' as PermissionKey }] : []),
         { to: '/accounting/statement-mapping', label: t('nav.accounting_statement_mapping'), icon: ICONS.codebooks, permission: 'accounting' },
           { to: '/accounting/securities/debt', label: t('securitiesDebt.title'), icon: ICONS.accounting, permission: 'accounting' as PermissionKey },
+        { to: '/accounting/framework-conversion', label: conversionLabel('title'), icon: ICONS.accounting, permission: 'accounting' as PermissionKey },
         { to: '/accounting/saldo',            label: t('nav.accounting_saldo'),            icon: ICONS.coin },
         { to: '/other-items', label: t('nav.other_items'), icon: ICONS.crm, permission: 'other_items' as PermissionKey, newTo: '/other-items/new' },
         { to: '/accounting/document-completeness', label: t('nav.accounting_document_completeness'), icon: ICONS.approvals, permission: 'accounting' },

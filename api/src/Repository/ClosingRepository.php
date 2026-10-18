@@ -24,6 +24,7 @@ use PDO;
  */
 final class ClosingRepository
 {
+    public const FRAMEWORK_CONVERSION_CURRENT_READ_VERSION = 1;
     /**
      * Haléřová tolerance nerozpuštěného dohadu (ČÚS 019). Odhad se od doručené faktury
      * o pár haléřů liší běžně a rozdíl se doúčtuje do nákladu — hlásit ho jako
@@ -262,8 +263,9 @@ final class ClosingRepository
      *
      * @return list<array{account_id:int, account_code:string, name:string, bal:float}>
      */
-    public function plBalances(int $supplierId, int $periodId, string $startsOn, string $endsOn): array
+    public function plBalances(int $supplierId, int $periodId, string $startsOn, string $endsOn, bool $currentRead = false): array
     {
+        if ($currentRead && !$this->db->pdo()->inTransaction()) throw new \LogicException('Current native balances require caller locks.');
         $stmt = $this->db->pdo()->prepare(
             "SELECT l.account_id, a.account_code, a.name,
                     SUM(CASE WHEN l.side = 'debit' THEN l.signed_amount ELSE -l.signed_amount END) AS bal
@@ -276,7 +278,7 @@ final class ClosingRepository
                 AND NOT (e.source_type = 'closing' AND e.period_id = ? AND e.source_id <=> ?)
               GROUP BY l.account_id, a.account_code, a.name
              HAVING bal <> 0
-              ORDER BY a.account_code"
+              ORDER BY a.account_code" . ($currentRead ? ' FOR UPDATE' : '')
         );
         $stmt->execute([$supplierId, $startsOn, $endsOn, $periodId, $periodId]);
         return array_map(self::castBalance(...), $stmt->fetchAll(PDO::FETCH_ASSOC));
@@ -290,9 +292,9 @@ final class ClosingRepository
      *
      * @return list<array{account_id:int, account_code:string, name:string, bal:float}>
      */
-    public function bsBalances(int $supplierId, int $periodId, string $endsOn): array
+    public function bsBalances(int $supplierId, int $periodId, string $endsOn, bool $currentRead = false): array
     {
-        $anchor = (new LedgerReportRepository($this->db))->openingAnchor($supplierId, $endsOn);
+        $anchor = (new LedgerReportRepository($this->db))->openingAnchor($supplierId, $endsOn, $currentRead);
         $where = "e.entry_date <= ? AND a.account_type IN ('asset','liability','equity')
                   AND NOT (e.source_type = 'closing' AND e.period_id = ? AND e.source_id <=> ?)";
         $params = [$endsOn, $periodId, $periodId];
@@ -304,6 +306,7 @@ final class ClosingRepository
             $supplierId,
             $where,
             $params,
+            $currentRead,
         );
     }
 
@@ -326,8 +329,9 @@ final class ClosingRepository
         );
     }
 
-    private function balancesWithDimensions(int $supplierId, string $where, array $params): array
+    private function balancesWithDimensions(int $supplierId, string $where, array $params, bool $currentRead = false): array
     {
+        if ($currentRead && !$this->db->pdo()->inTransaction()) throw new \LogicException('Current native balances require caller locks.');
         $stmt = $this->db->pdo()->prepare(
             "SELECT l.account_id, a.account_code, a.name, l.cost_center, l.project_id,
                     d.dimensions, s.splits,
@@ -353,7 +357,7 @@ final class ClosingRepository
               GROUP BY l.account_id, a.account_code, a.name, l.cost_center, l.project_id,
                        d.dimensions, s.splits, split_amount
              HAVING bal <> 0
-              ORDER BY a.account_code, l.cost_center, l.project_id, d.dimensions, s.splits, split_amount"
+              ORDER BY a.account_code, l.cost_center, l.project_id, d.dimensions, s.splits, split_amount" . ($currentRead ? ' FOR UPDATE' : '')
         );
         $stmt->execute([$supplierId, $supplierId, $supplierId, ...$params]);
         $balances = [];

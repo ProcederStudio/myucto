@@ -85,6 +85,7 @@ final class AnonymizationService
                 $payrollInputs = PayrollCostCenterCloneScrubber::capture($captureConnection);
                 $settlementInputs = SettlementCloneScrubber::captureInputs($captureConnection);
                 $securitiesDebtInputs = SecuritiesDebt504CloneScrubber::captureInputs($captureConnection);
+                $frameworkConversionInputs = FrameworkConversionCloneScrubber::captureInputs($captureConnection);
                 $capitalInputs = CapitalCloneScrubber::capture($captureConnection);
                 $nonprofitInputs = NonprofitFundingCloneScrubber::capture($captureConnection);
             }
@@ -107,6 +108,7 @@ final class AnonymizationService
                 (new ReceivablesCloneScrubber($targetConnection, $this->scrubber))->run($registryMap, $issuanceMap, $paymentMap);
                 SecuritiesDebt504CloneScrubber::run($targetConnection, $this->scrubber, $securitiesDebtInputs);
                 AccountDefinitionCloneScrubber::run($targetConnection, $this->scrubber);
+                FrameworkConversionCloneScrubber::run($targetConnection, $this->scrubber, $frameworkConversionInputs);
                 CapitalCloneScrubber::run($targetConnection, $this->scrubber, $capitalInputs);
                 NonprofitFundingCloneScrubber::run($targetConnection, $this->scrubber, $nonprofitInputs);
             } finally {

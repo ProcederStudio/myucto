@@ -309,6 +309,7 @@ final class GlobalSeedTables
      */
     public const RESET_KEEP_USERS_SUPPLIER_WIPES = [
         ...\MyInvoice\Service\Property\Funds\FundingUseGuard::TABLES,
+        ...\MyInvoice\Service\Accounting\Conversion\FrameworkConversionResetCleanup::TABLES,
         \MyInvoice\Service\Anonymization\ServiceLifecycleCloneScrubber::COMMANDS, ...\MyInvoice\Service\Anonymization\ServiceLifecycleCloneScrubber::TABLES,
         ...\MyInvoice\Repository\Property\Services\Settlement\SettlementDossierRepository::TABLES, ...\MyInvoice\Service\Property\Services\Settlement\SettlementUseGuard::TABLES,
         ...\MyInvoice\Service\Nonprofit\Capital\CapitalRepository::TABLES,

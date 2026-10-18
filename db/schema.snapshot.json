@@ -1036,7 +1036,8 @@
         "2052_accounting_securities_debt.sql",
         "2053_nonprofit_funding_sources.sql",
         "2054_nonprofit_capital_sources.sql",
-        "2055_account_definition_history.sql"
+        "2055_account_definition_history.sql",
+        "2056_accounting_framework_conversion.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -1404,6 +1405,139 @@
                 "fk_fxr_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE"
             },
             "checks": []
+        },
+        "accounting_framework_conversion_cells": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "cell_key": "char(64) NOT NULL COLLATE ascii_bin",
+                "conversion_id": "bigint(20) unsigned NOT NULL",
+                "opening_line_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "source_json": "longtext NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "target_json": "longtext NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (supplier_id, conversion_id, cell_key)",
+                "opening_line_id": "BTREE (opening_line_id)",
+                "uq_framework_conversion_line": "UNIQUE BTREE (supplier_id, opening_line_id)"
+            },
+            "foreign_keys": {
+                "accounting_framework_conversion_cells_ibfk_1": "(supplier_id, conversion_id) -> accounting_framework_conversions (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "accounting_framework_conversion_cells_ibfk_2": "(opening_line_id) -> journal_entry_lines (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "source_json": "json_valid(`source_json`)",
+                "target_json": "json_valid(`target_json`)"
+            }
+        },
+        "accounting_framework_conversion_commands": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "command_token": "varchar(190) NOT NULL COLLATE ascii_bin",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "recorded_at": "datetime(6) NOT NULL",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "response_json": "longtext NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (supplier_id, command_token)",
+                "created_by": "BTREE (created_by)"
+            },
+            "foreign_keys": {
+                "accounting_framework_conversion_commands_ibfk_1": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "accounting_framework_conversion_commands_ibfk_2": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "response_json": "json_valid(`response_json`)"
+            }
+        },
+        "accounting_framework_conversion_decisions": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "accounting_date": "date NOT NULL",
+                "conversion_id": "bigint(20) unsigned NOT NULL",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "journal_entry_id": "bigint(20) unsigned NOT NULL",
+                "receipt_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "receipt_json": "longtext NOT NULL",
+                "recorded_at": "datetime(6) NOT NULL",
+                "request_json": "longtext NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "created_by": "BTREE (created_by)",
+                "journal_entry_id": "BTREE (journal_entry_id)",
+                "uq_conversion_result_decision": "UNIQUE BTREE (supplier_id, conversion_id)"
+            },
+            "foreign_keys": {
+                "accounting_framework_conversion_decisions_ibfk_1": "(supplier_id, conversion_id) -> accounting_framework_conversions (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "accounting_framework_conversion_decisions_ibfk_2": "(journal_entry_id) -> journal_entries (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "accounting_framework_conversion_decisions_ibfk_3": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "receipt_json": "json_valid(`receipt_json`)",
+                "request_json": "json_valid(`request_json`)"
+            }
+        },
+        "accounting_framework_conversions": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "active_slot": "tinyint(4) NULL DEFAULT NULL STORED GENERATED AS (case when `status` = 'cancelled' then NULL else 1 end)",
+                "cancelled_at": "datetime(6) NULL DEFAULT NULL",
+                "cancelled_by": "bigint(20) unsigned NULL DEFAULT NULL",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "effective_from": "date NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "opening_entry_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "receipt_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "receipt_json": "longtext NOT NULL",
+                "recorded_at": "datetime(6) NOT NULL",
+                "request_json": "longtext NOT NULL",
+                "source_entry_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "source_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "source_period_id": "bigint(20) unsigned NOT NULL",
+                "status": "enum('pending','applied','cancelled') NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "target_period_id": "bigint(20) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "cancelled_by": "BTREE (cancelled_by)",
+                "created_by": "BTREE (created_by)",
+                "opening_entry_id": "BTREE (opening_entry_id)",
+                "source_entry_id": "BTREE (source_entry_id)",
+                "source_period_id": "BTREE (source_period_id)",
+                "target_period_id": "BTREE (target_period_id)",
+                "uq_framework_conversion_source": "UNIQUE BTREE (supplier_id, source_period_id, active_slot)",
+                "uq_framework_conversion_target": "UNIQUE BTREE (supplier_id, target_period_id, active_slot)",
+                "uq_framework_conversion_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "accounting_framework_conversions_ibfk_1": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "accounting_framework_conversions_ibfk_2": "(source_period_id) -> accounting_periods (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "accounting_framework_conversions_ibfk_3": "(target_period_id) -> accounting_periods (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "accounting_framework_conversions_ibfk_4": "(source_entry_id) -> journal_entries (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "accounting_framework_conversions_ibfk_5": "(opening_entry_id) -> journal_entries (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "accounting_framework_conversions_ibfk_6": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "accounting_framework_conversions_ibfk_7": "(cancelled_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "CONSTRAINT_1": "`source_period_id` <> `target_period_id`",
+                "CONSTRAINT_2": "`status` = 'cancelled' = (`cancelled_at` is not null)",
+                "receipt_json": "json_valid(`receipt_json`)",
+                "request_json": "json_valid(`request_json`)"
+            }
         },
         "accounting_opening_balances": {
             "type": "BASE TABLE",

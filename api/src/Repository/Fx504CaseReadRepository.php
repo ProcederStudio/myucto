@@ -83,6 +83,8 @@ final class Fx504CaseReadRepository
         }
         $history = array_values(array_filter($rows, static fn (array $row): bool => !isset($removed[$row['entry_id']])
             && $row['source_type'] !== 'closing' && !isset($openings[$row['entry_id']])));
+        $conversion=(new \MyInvoice\Service\Accounting\Conversion\FrameworkConversionFxAdapter($this->db))->project($supplierId,$period,$history,$origins,$currentRead);
+        $history=$conversion['rows'];$origins=$conversion['origins'];
         $current = array_values(array_filter($rows, static fn (array $row): bool => ($anchor === null || $row['entry_date'] >= $anchor)
             && $row['source_type'] !== 'closing'));
         if (self::balances($history) !== self::balances($current)) $findings[] = ['code' => 'case_opening_reconciliation'];
@@ -93,7 +95,7 @@ final class Fx504CaseReadRepository
             if ($decision['contributions'] !== []) $prior[] = $decision;
         }
         return ['rows' => $history, 'origins' => $origins, 'prior_decisions' => $prior, 'findings' => $findings,
-            'hash' => hash('sha256', json_encode([$native['facts_hash'], $steps, $removed, $openings, $history, $origins], JSON_THROW_ON_ERROR))];
+            'hash' => hash('sha256', json_encode([$native['facts_hash'], $steps, $removed, $openings, $history, $origins,$conversion['proof']], JSON_THROW_ON_ERROR))];
     }
 
     public static function same(array $row, array $expected): bool

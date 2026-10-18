@@ -43,6 +43,7 @@ final class AnonymizationPolicy
      */
     public const TRUNCATE = [
         'accounting_securities_debt_commands' => 'původní idempotentní odpovědi obsahují soukromé podklady instrumentů',
+        'accounting_framework_conversion_commands'=>'original conversion command tokens',
         'property_service_lifecycle_commands' => 'původní idempotentní odpovědi nelze přehrát nad pseudonymizovanými podklady bez původního požadavku',
         'abra_flexi_connections' => 'šifrované připojení ke zdrojové účetní firmě',
         'ai_assistant_conversations' => 'osobní historie dotazů AI asistenta (názvy z dotazů)',
@@ -128,6 +129,9 @@ final class AnonymizationPolicy
         'nonprofit_capital_commands' => ['idempotency_key'=>'keep','request_json'=>'keep','request_hash'=>'keep'],
         'nonprofit_capital_events' => ['parent_hash'=>'keep','snapshot_json'=>'keep','receipt_json'=>'keep','record_hash'=>'keep'],
         'nonprofit_funding_revisions' => ['source_key'=>'keep','parent_hash'=>'keep','policy_json'=>'keep','basis_json'=>'keep','request_json'=>'keep','reason'=>'keep','idempotency_key'=>'keep','request_hash'=>'keep','record_hash'=>'keep'],
+        'accounting_framework_conversions'=>['source_hash'=>'keep','request_json'=>'keep','receipt_json'=>'keep','receipt_hash'=>'keep'],
+        'accounting_framework_conversion_cells'=>['cell_key'=>'keep','source_json'=>'keep','target_json'=>'keep'],
+        'accounting_framework_conversion_decisions'=>['request_json'=>'keep','receipt_json'=>'keep','receipt_hash'=>'keep'],
         'property_module_profiles' => ['reason' => 'keep', 'title_ref' => 'keep', 'idempotency_key' => 'keep', 'request_hash' => 'keep'],
         'property_objects' => ['kind' => 'keep', 'code' => 'keep'],
         'property_revisions' => ['status' => 'keep', 'state_json' => 'keep', 'state_hash' => 'keep', 'idempotency_key' => 'keep', 'request_hash' => 'keep', 'reason' => 'keep', 'title_ref' => 'keep'],

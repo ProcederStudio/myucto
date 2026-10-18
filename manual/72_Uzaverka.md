@@ -661,6 +661,19 @@ potvrzení správnosti; k významným varováním uchovejte podklad a zdůvodně
 - Znovuotevření uzavřeného období je zablokované, dokud existují zaúčtované uzávěrkové nebo otevírací zápisy. Nejprve je nutné vzít zpět kroky Otevření nového roku a Uzavření knih v průvodci.
 - Číselné řady se nikdy nedorovnávají po smazaných dokladech. Jedinečnost a souvislost číslování je vyžadována zákonem, ne estetika bez mezer.
 
+### 72.12.7 Přechod mezi účetními rámci
+
+Při přechodu z vyhlášky 500 na 504 použijte samostatný řízený převod v Účetnictví. Běžné otevření
+účetních knih nemění účetní rámec. Řízený převod vychází z ověřené nativní uzávěrky 500 a uchovává
+původní výkazy.
+
+Výsledek převzatý na 931 se vypořádává akcí Rozhodnutí o výsledku v detailu převodu. Zdrojové výkazy
+musí být schválené. Vyberte datum, uveďte příslušný orgán a referenci rozhodnutí a výslovně potvrďte
+částky jednotlivých buněk. Nabízený postup převádí výsledek na nerozdělený výsledek minulých let
+932. Účelové převody vyžadují příslušný samostatný podklad evidence. Nevypořádané buňky 931 brání
+zahájení další uzávěrky, i pokud se jejich zisky a ztráty v součtu rovnají nule. Cizoměnové bankovní
+zůstatky si zachovávají doložený původ pro následné kurzové přecenění.
+
 ## 72.13 Daňové posouzení činností v rámci 504
 
 V průvodci uzávěrkou otevřete **Daňové posouzení činností**. Podklady vycházejí ze zaúčtovaných výsledkových řádků, jejich doloženého členění a společných alokací. Chybějící členění nebo neprůkaznou alokaci nejprve opravte v účetnictví.

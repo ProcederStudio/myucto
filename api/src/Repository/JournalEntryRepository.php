@@ -45,6 +45,31 @@ final class JournalEntryRepository
      * } $header
      * @param list<array{account_id:int, side:'debit'|'credit', amount:float|string, is_red_storno?:bool, cost_center?:?string, project_id?:?int, line_no?:int}> $lines
      */
+    public const FRAMEWORK_CONVERSION_OWNER_VERSION = 1;
+
+    public function cancelFrameworkConversion(int $supplier,int $conversion,int $actor,string $receiptHash):void
+    {
+        (new DimensionPeriodGuard($this->db))->transaction(function()use($supplier,$conversion,$actor,$receiptHash):void{
+            $proof=\MyInvoice\Service\Accounting\Conversion\FrameworkConversionCancellationProof::current($this->db,$supplier,$conversion);
+            \MyInvoice\Service\Accounting\Conversion\FrameworkConversionException::need(hash_equals($proof->row['receipt_hash'],$receiptHash),'conversion_preview_stale');
+            $entry=(int)$proof->row['opening_entry_id'];
+            $q=$this->db->pdo()->prepare('UPDATE accounting_framework_conversion_cells SET opening_line_id=NULL WHERE supplier_id=? AND conversion_id=?');$q->execute([$supplier,$conversion]);
+            $q=$this->db->pdo()->prepare("UPDATE accounting_framework_conversions SET status='cancelled',opening_entry_id=NULL,source_entry_id=NULL,cancelled_by=?,cancelled_at=UTC_TIMESTAMP(6) WHERE supplier_id=? AND id=? AND opening_entry_id=? AND status='applied'");$q->execute([$actor,$supplier,$conversion,$entry]);
+            \MyInvoice\Service\Accounting\Conversion\FrameworkConversionException::need($q->rowCount()===1,'conversion_write_conflict');
+            $this->deleteLines($entry,$supplier);$q=$this->db->pdo()->prepare('DELETE FROM journal_entries WHERE supplier_id=? AND id=?');$q->execute([$supplier,$entry]);
+            \MyInvoice\Service\Accounting\Conversion\FrameworkConversionException::need($q->rowCount()===1,'conversion_write_conflict');
+        });
+    }
+
+    public function insertFrameworkConversion(int $supplier,int $conversion):int
+    {
+        return (new DimensionPeriodGuard($this->db))->transaction(function()use($supplier,$conversion):int{
+            $proof=\MyInvoice\Service\Accounting\Conversion\FrameworkConversionJournalProof::pending($this->db,$supplier,$conversion);
+            (new SystemDimensionWritePolicy($this->db))->assertClosingCarry($proof);
+            return $this->persistJournal($proof->header,$proof->lines);
+        });
+    }
+
     public function insert(array $header, array $lines): int
     {
         \MyInvoice\Service\Property\Services\Settlement\SettlementUseGuard::assertGenericInsert($header);

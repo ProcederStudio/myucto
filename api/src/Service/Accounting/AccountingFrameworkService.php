@@ -153,6 +153,7 @@ final class AccountingFrameworkService
                 );
             }
 
+            (new \MyInvoice\Service\Accounting\Conversion\FrameworkConversionUseGuard($this->db))->assertFrameworkMutable($supplierId,$effectiveFrom);
             $current = $this->frameworks->forDateForUpdate($supplierId, $effectiveFrom) ?? self::CZ_500;
             $nextChange = $this->frameworks->nextChangeForUpdate($supplierId, $effectiveFrom);
             if ($current === $framework) {

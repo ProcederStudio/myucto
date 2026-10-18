@@ -4654,6 +4654,7 @@ final class ClosingService
         }
         return $this->tx(function () use ($supplierId, $periodId, $stepKey, $rowVersion, $meta): array {
             $period = $this->lockPeriod($supplierId, $periodId, $rowVersion);
+            (new \MyInvoice\Service\Accounting\Conversion\FrameworkConversionUseGuard($this->db))->assertPeriodMutable($supplierId,$periodId);
             if ($period['status'] === 'approved') {
                 throw new ClosingException(
                     'invalid_status_transition',
