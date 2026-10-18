@@ -115,24 +115,42 @@ final class SnapshotBuilder
             'commercial_register' => $row['commercial_register'] ?? null,
         ];
 
-        if ($brandingProfileId === null) {
+        $profile = $this->effectiveBrandingProfile($supplierId, $brandingProfileId);
+        if ($profile === null) {
             return $snapshot;
-        }
-
-        $profileStmt = $this->db->pdo()->prepare(
-            'SELECT bp.* FROM branding_profiles bp
-               JOIN supplier s ON s.id = bp.supplier_id AND s.branding_profiles_enabled = 1
-              WHERE bp.id = ? AND bp.supplier_id = ? AND bp.is_active = 1'
-        );
-        $profileStmt->execute([$brandingProfileId, $supplierId]);
-        $profile = $profileStmt->fetch(PDO::FETCH_ASSOC);
-        if (!$profile) {
-            throw new \InvalidArgumentException("Brandingový profil #$brandingProfileId nenalezen.");
         }
 
         $snapshot = \MyInvoice\Service\Branding\BrandingProfileOverlay::apply($snapshot, $profile);
         $snapshot['branding_profile_name'] = $profile['name'];
         return $snapshot;
+    }
+
+    /**
+     * Profil, se kterým se doklad skutečně vykreslí a vystaví. Koncept si drží
+     * branding_profile_id i poté, co profil někdo deaktivoval nebo vypnul celý
+     * modul; vystavení, opakovaná faktura ani náhled kvůli tomu nesmí spadnout.
+     * Nepoužitelný profil nahradí aktivní výchozí profil firmy, jinak se doklad
+     * vykreslí bez profilu (stejně jako koncept bez profilu).
+     *
+     * @return array<string,mixed>|null surový řádek branding_profiles
+     */
+    public function effectiveBrandingProfile(int $supplierId, ?int $brandingProfileId): ?array
+    {
+        if ($brandingProfileId === null || $brandingProfileId <= 0) {
+            return null;
+        }
+
+        $stmt = $this->db->pdo()->prepare(
+            'SELECT bp.* FROM supplier s
+               JOIN branding_profiles bp ON bp.supplier_id = s.id AND bp.is_active = 1
+                                        AND bp.id IN (?, COALESCE(s.default_branding_profile_id, 0))
+              WHERE s.id = ? AND s.branding_profiles_enabled = 1
+              ORDER BY bp.id = ? DESC
+              LIMIT 1'
+        );
+        $stmt->execute([$brandingProfileId, $supplierId, $brandingProfileId]);
+        $profile = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $profile === false ? null : $profile;
     }
 
     private function bankSnapshot(int $currencyId): ?array
