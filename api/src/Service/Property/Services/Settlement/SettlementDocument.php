@@ -23,8 +23,9 @@ final readonly class SettlementDocument
             if(bccomp($byOrigin[$key],$origins[$key]['receivable_cents'],0)>0)SettlementEvidence::reject('cutoff_capacity');
         }
         if($paid!==$facts['paid_cents'])SettlementEvidence::reject('cutoff_margin');ksort($allocations,SORT_NUMERIC);$facts['cutoff_allocations']=array_values($allocations);
-        $cost=$facts['cost'];SettlementEvidence::fields($cost,['source_id','source_hash','amount_cents','line']);PropertyInput::id($cost['source_id'],'cost_source_id');SettlementEvidence::hash($cost['source_hash']);SettlementEvidence::line($cost['line']);
+        $cost=SettlementEvidence::cost($facts['cost']);
         if($cost['amount_cents']!==$facts['actual_cents'])SettlementEvidence::reject('cost_margin');
+        if(isset($cost['sources']))foreach($cost['sources'] as $part){$provenance=$part['provenance'];$scope=$provenance['kind']==='lifecycle'?($provenance['source_input']['case']??null):($provenance['source_input']['document']['document']??null);if(!is_array($scope))SettlementEvidence::reject('composite_cost_provenance');foreach(['supplier_id','unit_id','service_id','period_from','period_to'] as $key)if(($scope[$key]??null)!==$facts[$key])SettlementEvidence::reject('composite_cost_scope');}
         if(array_key_exists('external_dossier',$facts)){if(!is_array($facts['external_dossier']))PropertyInput::invalid('external_dossier');$facts['external_dossier']=SettlementDossier::normalize($facts['external_dossier'],$facts['period_from'],$facts['period_to']);if(SettlementDossier::recipientIds($facts['external_dossier'])!==$facts['recipient_ids'])SettlementEvidence::reject('dossier_recipient_scope');}
         return new self($facts+['amounts'=>$amounts]);
     }

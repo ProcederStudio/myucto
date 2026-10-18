@@ -874,6 +874,7 @@
       "checks": {
         "property_reconciliation": "Property subledger reconciles to the general ledger",
         "property_funding_reconciliation": "Owner advances and income reconcile to the general ledger",
+        "property_service_reconciliation": "Property services reconcile to the general ledger",
         "deferred_tax_assessment": "Current documented deferred tax assessment",
         "accounts_unusual_side": "Accounts with a balance on the unusual side (per account type)",
         "acquisition_04x_open": "Non-zero balances of 041/042 — assets under construction",

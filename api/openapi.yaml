@@ -14943,6 +14943,9 @@ paths:
         (měsíc/kvartál/vlastní od-do), kdykoli, BEZ zahájení uzávěrky. Read-only,
         nemění stav ani kroky. `date_from`/`date_to` volitelné (default = celé
         fiskální období); musí ležet uvnitř `starts_on`–`ends_on` období.
+        V evidenci SVJ podle rámce 504 kontrola `property_service_reconciliation`
+        porovnává služby s hlavní knihou k poslednímu dni rozsahu. Neúplný zdroj
+        nebo nedokončená operace vrací `ok: false` i při nulovém čistém rozdílu.
       parameters:
         - $ref: '#/components/parameters/SupplierIdHeader'
         - { in: path, name: id, required: true, schema: { type: integer } }
@@ -38982,7 +38985,10 @@ components:
               key: { type: string }
               severity: { type: string }
               ok: { type: boolean }
-              value: { type: [object, "null"], additionalProperties: true }
+              value:
+                type: [object, "null"]
+                description: U property_service_reconciliation obsahuje matches, coverage (complete nebo incomplete), účetní datum a částky v haléřových řetězcích; při chybě zdrojového důkazu také reason.
+                additionalProperties: true
         ran_at: { type: string, format: date-time }
 
     BulkPostReport:
@@ -48770,7 +48776,7 @@ components:
           type: boolean
         value:
           description: Podklad kontroly; kontroly se seznamem nesou count, findings a truncated. Skalární kontrola může vrátit číslo nebo
-            boolean.
+            boolean. Kontrola property_service_reconciliation obsahuje matches, coverage (complete nebo incomplete), účetní datum, haléřové částky a případný reason neplatného zdroje.
           anyOf:
           - type: object
             properties:

@@ -21,6 +21,8 @@ final class SettlementHistory
         $reversed=$this->one('SELECT id,journal_entry_id FROM property_service_settlement_applications WHERE supplier_id=? AND reversal_of=?'.$suffix,[$supplier,$id]);
         $ledger=(new PaymentJournalProof($this->db))->snapshot($supplier,(int)$row['journal_entry_id'],$current);$expected=$receipt['ledger'];$expected['entry']['reversed_by']=$reversed?(int)$reversed['journal_entry_id']:null;
         if(PropertyInput::hash($ledger)!==PropertyInput::hash($expected)||$ledger['entry']['source_type']!=='property_service_settlement'||$ledger['entry']['source_id']!==($row['reversal_of']===null?(int)$row['request_id']:null)||$ledger['entry']['entry_date']!==$row['accounting_date']||$ledger['entry']['period_id']!==(int)$row['period_id']||PropertyInput::hash(PaymentJournalProof::canonicalLines($ledger['lines']))!==PropertyInput::hash(PaymentJournalProof::canonicalLines($preview['plan']['lines'])))SettlementEvidence::reject('ledger_mismatch');
+        if($row['reversal_of']===null&&isset($preview['plan']['document']['cost']['sources'])){$plan=$preview['plan'];$input=$plan['document'];unset($input['amounts']);$canonical=SettlementPlanner::calculate(SettlementDocument::fromEvidence($input),$plan['current'],$plan['request']);if(PropertyInput::hash($canonical)!==PropertyInput::hash($plan))SettlementEvidence::reject('history_corrupt');$container=\MyInvoice\Bootstrap::buildContainer();$container->set(Connection::class,$this->db);(new SettlementCostProof($this->db))->assertRecorded($supplier,$input['unit_id'],$input['service_id'],$row['accounting_date'],['from'=>$input['period_from'],'to'=>$input['period_to']],$input['cost'],$container->get(SettlementOriginAdapter::class));}
+
         $expectedEffects=$row['reversal_of']===null?self::effects($preview,$receipt['ledger']):[];
         if(PropertyInput::hash($expectedEffects)!==PropertyInput::hash($receipt['effects']))SettlementEvidence::reject('history_corrupt');
         $effects=$this->rows('SELECT * FROM property_service_settlement_effects WHERE supplier_id=? AND application_id=? ORDER BY ordinal'.$suffix,[$supplier,$id]);if(count($effects)!==count($expectedEffects))SettlementEvidence::reject('history_corrupt');
@@ -56,7 +58,7 @@ final class SettlementHistory
     }
     public function assertCostAvailable(int $supplier,int $cost):void
     {
-        $rows=$this->rows('SELECT a.id FROM property_service_settlement_applications a JOIN property_service_settlements d ON d.supplier_id=a.supplier_id AND d.id=a.document_id WHERE a.supplier_id=? AND d.cost_line_id=? AND a.reversal_of IS NULL ORDER BY a.id FOR UPDATE',[$supplier,$cost]);
+        $rows=$this->rows("SELECT a.id FROM property_service_settlement_applications a JOIN property_service_settlements d ON d.supplier_id=a.supplier_id AND d.id=a.document_id WHERE a.supplier_id=? AND (d.cost_line_id=? OR EXISTS (SELECT 1 FROM JSON_TABLE(d.document_json,'$.cost.sources[*]' COLUMNS(line_id BIGINT PATH '$.source_id')) cs WHERE cs.line_id=?)) AND a.reversal_of IS NULL ORDER BY a.id FOR UPDATE",[$supplier,$cost,$cost]);
         foreach($rows as $row)if($this->application($supplier,(int)$row['id'],true)['active'])SettlementEvidence::reject('cost_already_disposed');
     }
     public const SELECTED_TABLES=['property_service_settlements','property_service_settlement_origins','property_service_settlement_applications','property_service_settlement_requests','property_service_settlement_effects','property_service_settlement_ledgers','unit_payment_debts','unit_payment_debt_lines','unit_credit_lots','unit_credit_parties','unit_charge_lines','unit_charges','property_opening_components','property_opening_items','property_opening_batches'];
@@ -83,8 +85,7 @@ final class SettlementHistory
                     if(!$advanceItem||!$principalItem||$advanceItem['batch_id']!==$principalItem['batch_id']||!isset($batches[(int)$advanceItem['batch_id']])||PropertyInput::hash($evidence['state'])!==$source['opening_state_hash'])SettlementEvidence::reject('history_corrupt');
                 }
             }
-            $cost=null;foreach($ledgers as $ledger)foreach($ledger['snapshot']['lines'] as $line)if($line['id']===$facts['cost']['source_id']){$cost=$line;if($ledger['snapshot']['entry']['reversed_by']!==null)SettlementEvidence::reject('ledger_mismatch');}
-            if(!$cost||PropertyInput::hash($cost)!==$facts['cost']['source_hash'])SettlementEvidence::reject('ledger_mismatch');
+            foreach(SettlementEvidence::costSources($facts['cost']) as $part){$cost=null;foreach($ledgers as $ledger)foreach($ledger['snapshot']['lines'] as $line)if($line['id']===$part['source_id']){$cost=$line;if($ledger['snapshot']['entry']['reversed_by']!==null)SettlementEvidence::reject('ledger_mismatch');}if(!$cost||PropertyInput::hash($cost)!==$part['source_hash'])SettlementEvidence::reject('ledger_mismatch');}
         }
         $receipts=[];$byApplication=[];$reversals=[];
         foreach($effects as $effect){if(!isset($applications[(int)$effect['application_id']]))SettlementEvidence::reject('history_corrupt');$byApplication[(int)$effect['application_id']][(int)$effect['ordinal']]=$effect;}
@@ -170,14 +171,14 @@ final class SettlementHistory
     }
     public static function effects(array $preview,array $ledger):array
     {
-        $plan=$preview['plan'];$sources=[];foreach($plan['document']['origins'] as $source)$sources[$source['kind'].':'.$source['id']]=$source;$out=[];
+        $plan=$preview['plan'];$starts=SettlementPlanner::journal($plan['movements'])['starts'];$sources=[];foreach($plan['document']['origins'] as $source)$sources[$source['kind'].':'.$source['id']]=$source;$out=[];
         foreach($plan['movements'] as $index=>$movement){$source=$sources[$movement['origin_key']]??null;$kind=match($movement['kind']){'advance_application'=>'advance_applied','principal_reduction'=>'claim_reduction','allocation_release'=>'allocation_relief','opening_paid_credit'=>'opening_paid_credit','new_claim'=>'new_claim'};
             $effect=['kind'=>$kind,'debt_id'=>$source['debt_id']??null,'charge_line_id'=>($source['kind']??null)==='s3_line'?$source['id']:null,'opening_component_id'=>($source['kind']??null)==='opening_component'?$source['id']:null,'allocation_id'=>$movement['allocation_id'],'amount_cents'=>$movement['amount_cents'],'movement_index'=>$index];
             if(in_array($kind,['allocation_relief','opening_paid_credit'],true)){
                 $matches=array_values(array_filter($plan['credits'],fn($c)=>$kind==='allocation_relief'?$c['allocation_id']===$movement['allocation_id']:($c['origin_key']??null)===$movement['origin_key']));if(count($matches)!==1)SettlementEvidence::reject('credit_origin');$c=$matches[0];
-                $effect['credit']=['unit_id'=>$plan['document']['unit_id'],'amount_cents'=>$c['amount_cents'],'due_date'=>$c['due_date'],'parties'=>array_values(array_filter($preview['parties'],fn($p)=>in_array($p['id'],$c['party_ids'],true))),'line'=>$ledger['lines'][$index*2+1],'entitlement'=>['basis'=>'documented_service_settlement','evidence'=>$c['evidence']]];
+                $effect['credit']=['unit_id'=>$plan['document']['unit_id'],'amount_cents'=>$c['amount_cents'],'due_date'=>$c['due_date'],'parties'=>array_values(array_filter($preview['parties'],fn($p)=>in_array($p['id'],$c['party_ids'],true))),'line'=>$ledger['lines'][$starts[$index]+1],'entitlement'=>['basis'=>'documented_service_settlement','evidence'=>$c['evidence']]];
             }
-            if($kind==='new_claim')$effect['claim']=['unit_id'=>$plan['document']['unit_id'],'amount_cents'=>$movement['amount_cents'],'due_date'=>$plan['new_claim']['due_date'],'line'=>$ledger['lines'][$index*2],'title'=>$preview['claim_title']];
+            if($kind==='new_claim')$effect['claim']=['unit_id'=>$plan['document']['unit_id'],'amount_cents'=>$movement['amount_cents'],'due_date'=>$plan['new_claim']['due_date'],'line'=>$ledger['lines'][$starts[$index]],'title'=>$preview['claim_title']];
             $out[]=$effect;
         }
         return $out;

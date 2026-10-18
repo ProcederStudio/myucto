@@ -86,6 +86,8 @@ kroku se zobrazí datum potvrzení. Administrátor může dokončený krok vrát
 
 Kontrolují se mimo jiné:
 
+- **služby SVJ** v rámci 504: shoda záloh, dohadů, skutečných nákladů a vyúčtování s hlavní knihou; nedokončená návaznost nebo nedoložený zdroj blokují uzavření knih i při nulovém rozdílu (viz [Registr domů a jednotek](116_Registr_domu_a_jednotek.md#kontrola-shody-salda)),
+
 - zda je **předchozí období uzavřené**,
 - **nezaúčtované koncepty** v deníku období a nevyrovnaný deník (Σ MD ≠ Σ Dal),
 - **vydané a přijaté faktury** období bez účetního zápisu,

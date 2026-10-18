@@ -144,7 +144,7 @@ final class SettlementReadRepository
                         if ($kind === 's3') {
                             $history->assertOriginAvailable($supplier, ['kind' => 's3_line','id' => $after,'opening_advance_component_id' => null]);
                         } elseif ($kind === 'costs') {
-                            (new ServiceLifecycleRepository($this->db))->assertCostReady($supplier, $unit, $service, $after, $date, null, $costPeriod);
+                            try{(new ServiceLifecycleRepository($this->db))->assertCostReady($supplier,$unit,$service,$after,$date,null,$costPeriod);}catch(\DomainException $failure){if(!in_array($failure->getMessage(),['settlement_lifecycle_final_proof_required','settlement_lifecycle_final_after_settlement'],true))throw $failure;$composite=$this->compositeSelector($supplier,$unit,$service,$date,$after,$costPeriod,$selector);if($composite===null)throw $failure;$selector=$composite;}
                             $history->assertCostAvailable($supplier, $after);
                         }
                     } catch (\DomainException $e) {
@@ -156,6 +156,7 @@ final class SettlementReadRepository
                     $proof = $this->origins->current($supplier, $unit, $service, $date, [$selector]);
                     $source = $proof['origins'][0];
                     $cost = $kind === 's3' ? null : array_values($proof['costs'])[0];
+                    if(isset($cost['sources'])){try{foreach(SettlementEvidence::costSources($cost) as $part)$history->assertCostAvailable($supplier,$part['source_id']);}catch(\DomainException $failure){if($failure->getMessage()!=='settlement_cost_already_disposed')throw $failure;continue;}}
                     if ($kind === 'opening') {
                         try {
                             $history->assertOriginAvailable($supplier, $source);
@@ -168,6 +169,7 @@ final class SettlementReadRepository
                         }
                     }
                     $items[] = ['id' => $after,'selector' => $selector,'unit' => $labels[$unit],'service' => $labels[$service],'description' => $row['description'] ?? ($labels[$unit]['label'].' / '.$labels[$service]['label']),'document_no' => $row['document_no'] ?? null,'accounting_date' => $row['accounting_date'],'period_from' => $row['period_from'] ?? null,'period_to' => $row['period_to'] ?? null,'prescribed_cents' => $source['prescribed_cents'],'carried_paid_cents' => $source['carried_paid_cents'],'cost_source_id' => $cost['source_id'] ?? null,'cost_cents' => $cost['amount_cents'] ?? null];
+                    if(isset($cost['sources'])){$parts=[];foreach($cost['sources'] as $part){if($part['provenance']['kind']==='lifecycle'){$scope=$part['provenance']['source_input']['case'];$items[array_key_last($items)]['period_from']=$scope['period_from'];$items[array_key_last($items)]['period_to']=$scope['period_to'];}$entry=$this->rows('SELECT e.entry_date FROM journal_entry_lines l JOIN journal_entries e ON e.supplier_id=l.supplier_id AND e.id=l.entry_id WHERE l.supplier_id=? AND l.id=?',[$supplier,$part['source_id']]);$parts[]=['amount_cents'=>$part['amount_cents'],'accounting_date'=>$entry[0]['entry_date']];}$items[array_key_last($items)]['cost_parts']=$parts;}
                     $cursors[] = ['after_id' => $after,'after_service_id' => $afterService];
                     if (count($items) > $limit) {
                         array_pop($items);
@@ -201,7 +203,12 @@ final class SettlementReadRepository
                 $matches[] = $state['final']['cost_line_id'];
             }
         }
-        return count($matches) === 1 ? $selector + ['cost_line_id' => $matches[0]] : null;
+        if(count($matches)===1)return $selector+['cost_line_id'=>$matches[0]];$known=array_values(array_filter($carry['components'],fn($part)=>$part['role']==='service_cost'));if(count($known)!==1||$snapshot['service_state']['profile']!=='service_balance_sheet')return null;$composites=[];foreach($cases as $case){$state=$owner->current($supplier,(int)$case['id']);if($state['final']===null||$state['case']['policy']!=='service_balance_sheet'||$state['final']['accounting_date']>$date)continue;$candidate=$this->compositeSelector($supplier,$unit,$service,$date,$known[0]['line']['id'],['from'=>$state['case']['period_from'],'to'=>$state['case']['period_to']],$selector);if($candidate!==null)$composites[]=$candidate;}return count($composites)===1?$composites[0]:null;
+    }
+    private function compositeSelector(int $supplier,int $unit,int $service,string $date,int $line,array $period,array $selector):?array
+    {
+        $rows=$this->rows("SELECT d.id FROM property_service_settlements d WHERE d.supplier_id=? AND d.unit_id=? AND d.service_id=? AND d.cost_line_id=? AND JSON_CONTAINS_PATH(d.document_json,'one','$.cost.sources')=0 AND NOT EXISTS (SELECT 1 FROM property_service_settlements n WHERE n.supplier_id=d.supplier_id AND n.unit_id=d.unit_id AND n.service_id=d.service_id AND n.segment_key=d.segment_key AND n.revision_no>d.revision_no) ORDER BY d.id FOR UPDATE",[$supplier,$unit,$service,$line]);$known=[];foreach($rows as $row){$doc=$this->documents->find($supplier,(int)$row['id'],true);$fact=$doc['document'];if($fact['period_from']===$period['from']&&$fact['period_to']===$period['to']&&!(new SettlementHistory($this->db))->hasActiveApplicationForDocument($supplier,(int)$row['id']))$known[]=(int)$row['id'];}if(count($known)!==1)return null;
+        $cases=$this->rows("SELECT id FROM property_service_lifecycle_cases WHERE supplier_id=? AND unit_id=? AND service_id=? AND period_from=? AND period_to=? AND policy='service_balance_sheet' ORDER BY id FOR UPDATE",[$supplier,$unit,$service,$period['from'],$period['to']]);$final=[];foreach($cases as $case){$current=(new ServiceLifecycleRepository($this->db))->current($supplier,(int)$case['id']);if($current['final']!==null&&$current['final']['accounting_date']<=$date)$final[]=(int)$case['id'];}if(count($final)!==1)return null;unset($selector['cost_line_id']);return $selector+['cost_sources'=>[['kind'=>'document','id'=>$known[0]],['kind'=>'lifecycle','id'=>$final[0]]]];
     }
     private function compatibleOpeningPair(array $advance, array $carry): bool
     {

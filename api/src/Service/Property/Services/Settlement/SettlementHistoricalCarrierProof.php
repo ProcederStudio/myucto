@@ -22,7 +22,7 @@ final class SettlementHistoricalCarrierProof
     {
         $snapshot=$this->current($db);$journal=$snapshot['journal'];
         if(PropertyInput::hash($header)!==PropertyInput::hash($journal['header'])||PropertyInput::hash($lines)!==PropertyInput::hash($journal['lines']))SettlementEvidence::reject('carrier_target_mismatch');
-        $document=$snapshot['preview']['plan']['document']??null;if($document===null)SettlementEvidence::reject('carrier_source_missing');$tuples=[PropertyInput::hash(self::tuple($document['cost']['line']))=>true];
+        $document=$snapshot['preview']['plan']['document']??null;if($document===null)SettlementEvidence::reject('carrier_source_missing');$tuples=[];foreach(SettlementEvidence::costSources($document['cost']) as $part)$tuples[PropertyInput::hash(self::tuple($part['line']))]=true;
         foreach($document['origins'] as $origin)foreach(['advance_line','receivable_line'] as $key)if($origin[$key]!==null)$tuples[PropertyInput::hash(self::tuple($origin[$key]))]=true;
         $indices=[];foreach($lines as $index=>$line){if(!isset($tuples[PropertyInput::hash(self::tuple($line))]))SettlementEvidence::reject('carrier_source_tuple');$indices[$index]=true;}return $indices;
     }

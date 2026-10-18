@@ -267,6 +267,8 @@ V agendě **Vyúčtování služeb SVJ** připravíte dokument pro jednu jednotk
 5. Výslovně rozdělte použití záloh. Pokud vzniká kredit, zvolte konkrétní část převzatých úhrad nebo konkrétní fyzickou platbu, která se má uvolnit. Vyplňte příjemce, doložený titul, splatnost a účet z osnovy. Nový nárok vyžaduje dlužníky, právní titul a skupiny odpovědnosti odpovídající příjemcům dokumentu.
 6. Zkontrolujte serverový náhled účetní aplikace. Ukazuje použití záloh, snížení původního dluhu, zrušenou neuhrazenou část, uvolněné platby, kredit, nový nárok a účetní zápis. Zaúčtování vyžaduje samostatné oprávnění.
 
+Katalog nákladů nabízí také ověřený souhrnný zdroj pro doloženou rozvahovou metodu služby. Původní náklad 80 000 Kč a konečná faktura 52 000 Kč tak vytvoří jediné vyúčtování 132 000 Kč. Dohad 50 000 Kč nejprve zrušte přes návaznost služby. Původní střediska a dimenze každé části nákladu zůstávají zachované. Zdroj použitý v aktivním vyúčtování nelze použít znovu; při nahrazení dřívějšího samostatného vyúčtování jej nejprve celé stornujte.
+
 Aktuální souhrn u dokumentu ukazuje pouze jeho navazující nové nároky a kredity. Jistinu, fyzické úhrady a příslušenství zobrazuje odděleně; u kreditu rozlišuje zůstatek, rezervaci a dostupnou část. Nejde o celkové saldo firmy ani úplný výrok o osobní odpovědnosti. Původní dluhy a celou finanční pozici ověřujte na kartě jednotky.
 
 Účetní storno se vztahuje ke konkrétní aplikaci. Před potvrzením zkontrolujte její dopady, datum a odůvodnění. Server odmítne storno, pokud tomu brání navazující použití. Dokument se nepřepisuje; po stornu připravte novou revizi se stejnou referencí. Historie zachovává původní dokumenty, aplikace a storna.
@@ -295,3 +297,5 @@ Konečný náklad doložený v této agendě lze vybrat v katalogu zdrojů vyú�
 ## Kontrola shody salda
 
 Měsíční kontrola a precheck účetní uzávěrky porovnávají hrubé pohledávky a osobní kredity SVJ s hlavní knihou k poslednímu dni zvoleného rozsahu. Kontrolují také doložení převzatých počátečních položek. Rozdíl nebo neúplné převzetí vyžadují nápravu před uzavřením knih. Rezervovaná vratka se nepovažuje za provedenou úhradu.
+
+Kontrola služeb porovnává předpisy záloh, doložené počáteční stavy, dohady, konečné náklady, vyúčtování a jejich storna s hlavní knihou k účetnímu datu. Rozvahové pohyby sleduje od jejich vzniku, výsledkové pohyby v příslušném účetním období. Nedokončená operace nebo řádek bez doloženého zdroje znamenají neúplnou evidenci i při nulovém čistém rozdílu a blokují uzavření knih. Tato kontrola pracuje s aktuálně evidovanými podklady.

@@ -45,6 +45,13 @@ final class SettlementEvidence
         foreach(['currency_code','amount_foreign','fx_rate'] as $key)if($line[$key]!==null)self::reject('fx_unsupported');
         PropertyInput::hash($line);return $line;
     }
+    public static function cost(array $cost):array
+    {
+        self::fields($cost,['source_id','source_hash','amount_cents','line',...(array_key_exists('sources',$cost)?['sources']:[])]);PropertyInput::id($cost['source_id'],'cost_source_id');self::hash($cost['source_hash']);self::cents($cost['amount_cents']);self::line($cost['line']);
+        if(array_key_exists('sources',$cost)){$parts=PropertyInput::list($cost['sources'],'cost_sources',100);if(count($parts)<2)self::reject('composite_cost_sources');$sum='0';$last=0;foreach($parts as $part){if(!is_array($part))PropertyInput::invalid('cost_sources');self::fields($part,['source_id','source_hash','amount_cents','line','provenance']);$single=$part;unset($single['provenance']);self::cost($single);if($part['source_id']<=$last||$part['amount_cents']==='0')self::reject('composite_cost_duplicate');$last=$part['source_id'];$provenance=$part['provenance'];self::fields($provenance,['kind','id','source_hash','source_input']);if(!in_array($provenance['kind'],['document','lifecycle'],true))self::reject('composite_cost_kind');PropertyInput::id($provenance['id'],'cost_provenance_id');self::hash($provenance['source_hash']);if(!is_array($provenance['source_input'])||PropertyInput::hash($provenance['source_input'])!==$provenance['source_hash'])self::reject('composite_cost_provenance');$sum=bcadd($sum,$part['amount_cents'],0);}$first=$parts[0];if($cost['source_id']!==$first['source_id']||$cost['source_hash']!==$first['source_hash']||PropertyInput::hash($cost['line'])!==PropertyInput::hash($first['line'])||$sum!==$cost['amount_cents'])self::reject('composite_cost_margin');}
+        return $cost;
+    }
+    public static function costSources(array $cost):array{return $cost['sources']??[$cost];}
     public static function origin(array $source,int $supplier,int $unit,int $service):string
     {
         self::fields($source,['kind','source_period','id','debt_id','supplier_id','unit_id','service_id','prescribed_cents','carried_paid_cents','receivable_cents','opening_advance_component_id','opening_state_hash','receivable_line','advance_line']);

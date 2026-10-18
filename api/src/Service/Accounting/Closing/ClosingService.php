@@ -101,6 +101,7 @@ final class ClosingService
         'deferred_tax_assessment',
         'property_reconciliation',
         'property_funding_reconciliation',
+        'property_service_reconciliation',
     ];
 
     /**
@@ -6120,6 +6121,13 @@ final class ClosingService
                 'ok' => $reconciliation['matches'] && $reconciliation['opening_import_coverage'] === 'complete', 'value' => $reconciliation];
             $funding = (new \MyInvoice\Service\Property\Funds\FundingRead($this->db))->at($supplierId, null, $date);
             $checks[] = ['key' => 'property_funding_reconciliation', 'severity' => 'error', 'ok' => $funding['matches'], 'value' => $funding];
+            try {
+                $services = (new \MyInvoice\Service\Property\Services\Reconciliation\ServiceReconciliation($this->db))->at($supplierId, $date);
+            } catch (\DomainException | \MyInvoice\Service\Property\Opening\OpeningException | \MyInvoice\Service\Property\Payments\PaymentException | \MyInvoice\Service\Property\Charges\Issuance\IssuanceException | \MyInvoice\Service\Property\PropertyException $e) {
+                $services = ['matches' => false, 'coverage' => 'incomplete', 'reason' => $e->errorCode ?? 'property_service_reconciliation_source_invalid'];
+            }
+            $checks[] = ['key' => 'property_service_reconciliation', 'severity' => 'error',
+                'ok' => $services['matches'] && $services['coverage'] === 'complete', 'value' => $services];
         }
         return $checks;
     }
