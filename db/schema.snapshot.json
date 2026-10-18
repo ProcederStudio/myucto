@@ -1030,7 +1030,8 @@
         "2046_property_service_settlement_permissions.sql",
         "2047_supplier_person_title.sql",
         "2048_property_service_lifecycle.sql",
-        "2049_property_service_lifecycle_commands.sql"
+        "2049_property_service_lifecycle_commands.sql",
+        "2050_property_service_settlement_dossier_events.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -19226,6 +19227,44 @@
                 "receipt_json": "json_valid(`receipt_json`)"
             }
         },
+        "property_service_settlement_dossier_events": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "document_id": "bigint(20) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "idempotency_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "previous_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "recorded_at": "datetime(6) NOT NULL",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "request_json": "longtext NOT NULL",
+                "revision_no": "int(10) unsigned NOT NULL",
+                "snapshot_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "snapshot_json": "longtext NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_settlement_dossier_actor": "BTREE (created_by)",
+                "fk_settlement_dossier_previous": "BTREE (supplier_id, document_id, previous_id)",
+                "uq_settlement_dossier_parent": "UNIQUE BTREE (supplier_id, document_id, id)",
+                "uq_settlement_dossier_revision": "UNIQUE BTREE (supplier_id, document_id, revision_no)",
+                "uq_settlement_dossier_tenant": "UNIQUE BTREE (supplier_id, id)",
+                "uq_settlement_dossier_token": "UNIQUE BTREE (supplier_id, idempotency_key)"
+            },
+            "foreign_keys": {
+                "fk_settlement_dossier_actor": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_settlement_dossier_document": "(supplier_id, document_id) -> property_service_settlements (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_settlement_dossier_previous": "(supplier_id, document_id, previous_id) -> property_service_settlement_dossier_events (supplier_id, document_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "chk_settlement_dossier_revision": "`revision_no` > 0 and (`revision_no` = 1 and `previous_id` is null or `revision_no` > 1 and `previous_id` is not null)",
+                "request_json": "json_valid(`request_json`)",
+                "snapshot_json": "json_valid(`snapshot_json`)"
+            }
+        },
         "property_service_settlement_effects": {
             "type": "BASE TABLE",
             "engine": "InnoDB",
@@ -26000,6 +26039,8 @@
         "property_service_settlement_requests_update": "BEFORE UPDATE ON property_service_settlement_requests #a121b513bf55b3a34f68fa43e36cd82018fa7aa3",
         "property_service_settlements_delete": "BEFORE DELETE ON property_service_settlements #9eb08f28143c0e7b6470cfad4a16f5cfff5437be",
         "property_service_settlements_update": "BEFORE UPDATE ON property_service_settlements #9eb08f28143c0e7b6470cfad4a16f5cfff5437be",
+        "settlement_dossier_events_immutable_delete": "BEFORE DELETE ON property_service_settlement_dossier_events #828b085531b9b0f2e54b493d7095d82ad72e5841",
+        "settlement_dossier_events_immutable_update": "BEFORE UPDATE ON property_service_settlement_dossier_events #828b085531b9b0f2e54b493d7095d82ad72e5841",
         "trg_bank_transaction_payroll_evidence_update": "BEFORE UPDATE ON bank_transactions #da55400d2c698d29640eddb4279b09463e94ed3e",
         "trg_cars_driver_tenant_insert": "BEFORE INSERT ON cars #6b50ae5916fea8bf1699ddcfd33d174e98fd57bf",
         "trg_cars_driver_tenant_update": "BEFORE UPDATE ON cars #769d98e4af1086fa290b8efb0ae2c3768b203c87",

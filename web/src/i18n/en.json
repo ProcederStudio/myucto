@@ -36872,6 +36872,71 @@
       "new_credit_cents": "New credit",
       "remaining_old_claim_cents": "Remaining original claim",
       "retained_paid_cents": "Retained payments"
+    },
+    "dossier": {
+      "title": "External settlement dossier",
+      "help": "Accept documented evidence from the external allocation tool. Segments must exactly cover the stated period; select service recipients by segment and legal title.",
+      "metadataOnly": "Delivery and legal evidence are recorded separately. Appending evidence does not change accounting dates, amounts, debtors or credit entitlement. Financial changes require the relevant accounting procedure.",
+      "reference": "External dossier reference and version",
+      "issuer": "Settlement provider",
+      "issuedAt": "Actual time of issue",
+      "allocation": "Documented allocation rule or source",
+      "segment": "Segment {number}",
+      "validFrom": "Segment start, including time",
+      "validTo": "Segment end, exclusive",
+      "recipientBasis": "Legal basis for service recipient",
+      "addSegment": "Add recipient segment",
+      "personChanges": "Legal evidence of changes of persons",
+      "addChange": "Add evidence of a person change",
+      "role": "Capacity of person",
+      "changeBasis": "Legal basis for change",
+      "fromPersons": "Previous persons",
+      "toPersons": "New persons",
+      "effectiveAt": "Documented effective time",
+      "changeEvidence": "Specific legal title and evidence of change",
+      "issuedTo": "Settlement issued to",
+      "deliveredTo": "Actually delivered to",
+      "deliveryStatus": "Delivery evidence status",
+      "pending": "Delivery evidence pending",
+      "delivered": "Delivery evidenced",
+      "deliveredAt": "Actual delivery time for this person",
+      "method": "Delivery method",
+      "receiptEvidence": "Delivery receipt or other evidence",
+      "recipientAuthority": "Evidence of representation or authority of another person",
+      "due": "Documented due date for this person",
+      "dueBasis": "Agreement or other specific basis for due date",
+      "notRecorded": "Not evidenced yet",
+      "recordDelivery": "Append a delivery receipt",
+      "notAccepted": "No external dossier has been accepted. It can be added without reversing financial history.",
+      "accept": "Accept external dossier",
+      "attach": "Accept an external dossier with this document",
+      "reason": "Reason for appending or correcting evidence",
+      "acknowledgement": "I have verified these facts and their evidence. I am appending an immutable record without changing financial history.",
+      "append": "Append immutable record",
+      "history": "Accepted evidence history",
+      "conflict": "Reload the current evidence and verify the facts again. The write was not automatically retried.",
+      "roles": {
+        "service_recipient": "Service recipient",
+        "creditor": "Creditor under documented title",
+        "debtor": "Debtor under documented title"
+      },
+      "bases": {
+        "agreement": "Documented agreement",
+        "assignment": "Assignment or assumption under specific title",
+        "inheritance": "Inheritance",
+        "other": "Other documented legal title"
+      },
+      "methods": {
+        "data_box": "Data box",
+        "post": "Post",
+        "personal": "Personal delivery",
+        "other": "Other documented method"
+      },
+      "events": {
+        "acceptance": "External dossier accepted",
+        "delivery": "New delivery receipt",
+        "legal_metadata": "Legal evidence appended"
+      }
     }
   },
   "propertyServiceLifecycle": {

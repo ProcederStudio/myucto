@@ -273,6 +273,18 @@ Aktuální souhrn u dokumentu ukazuje pouze jeho navazující nové nároky a kr
 
 Při změně podkladů nebo konfliktu verze obnovte data a vytvořte nový náhled. Aplikace zápis neopakuje automaticky s novým ověřením. Čtení, příprava, zaúčtování a storno respektují oddělená oprávnění; veřejné API a MCP poskytují pouze kurátorované čtení bez právních podkladů a zdrojových důkazů.
 
+### Externí dossier, příjemci a doručení
+
+Rozúčtování a odeslání vyúčtování provádí externí nástroj. V dokumentu lze přijmout jeho doložený dossier s referencí a verzí, zpracovatelem, skutečným okamžikem vystavení a podkladem rozúčtování. Dossier lze také výslovně přijmout později v detailu již zaúčtovaného dokumentu.
+
+Příjemce služby vybírejte po časových segmentech. Segmenty musí bez mezer a překryvů pokrývat období dokumentu. U každého uveďte konkrétní titul příjemce a podklad rozúčtování. Při změně příjemců je nutný doložený právní podklad se stejným okamžikem účinnosti. Příjemce služby se automaticky nepovažuje za dlužníka, věřitele ani dnešního vlastníka jednotky. Účetní nárok a nárok na kredit mají vlastní výslovné podklady v aplikační dispozici.
+
+Doručení se eviduje samostatně pro každého příjemce v segmentu. Rozlišujte osobu, pro kterou bylo vyúčtování vystaveno, osobu, které bylo skutečně doručeno, a případný titul zastoupení. Dokud doručenku nemáte, ponechte stav **Doručení dosud nedoloženo**. Skutečný čas, způsob a důkaz doručení nevyplňujte odhadem. Doloženou splatnost a její konkrétní titul zadejte zvlášť; aplikace ji nedopočítává z účetního data, data vystavení ani domnělého globálního data doručení.
+
+V detailu připojíte nový doklad doručení nebo právní podklad změny osoby. Zkontrolujte údaje, uveďte důvod a potvrďte připojení neměnného záznamu. Pozdější oprava doručenky výslovně navazuje na aktuální záznam a původní doručenka zůstává v historii. Doplnění důkazů nemění původní dokument ani jeho účetní historii a nevyžaduje účetní storno či přeúčtování stejné částky v dalším roce. Samotné metadata události také nepřepisují dlužníka ani příjemce finančního kreditu. Změna skutečného účtovacího podkladu se řeší příslušným účetním postupem.
+
+Při souběžné změně načtěte aktuální evidenci a zadání znovu ověřte. Zápis se automaticky neopakuje s novou revizí. Připojování podkladů vyžaduje právo správy vyúčtování; veřejné API ani MCP neposkytují mutace, osobní údaje a právní dossier.
+
 
 ## Dohady a konečné náklady služeb
 

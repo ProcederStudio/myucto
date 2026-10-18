@@ -401,6 +401,111 @@ final class SettlementHttpTest extends TestCase
         self::assertFalse($sources['write_authorization']);
     }
 
+    private function externalDossier(array $f, bool $changed = false): array
+    {
+        $recipient = $f['clients'][1];
+        $segments = [['ordinal' => 1,'valid_from' => '2026-01-01T00:00:00+01:00','valid_to' => $changed ? '2026-07-01T00:00:00+02:00' : '2027-01-01T00:00:00+01:00','recipient_ids' => [$recipient],'basis_ref' => 'Synthetic service recipient agreement','allocation_ref' => 'Synthetic external key A']];
+        $changes = [];
+        if ($changed) {
+            $segments[] = ['ordinal' => 2,'valid_from' => '2026-07-01T00:00:00+02:00','valid_to' => '2027-01-01T00:00:00+01:00','recipient_ids' => [$f['clients'][2]],'basis_ref' => 'Synthetic successor recipient agreement','allocation_ref' => 'Synthetic external key B'];
+            $changes[] = ['role' => 'service_recipient','from_ids' => [$recipient],'to_ids' => [$f['clients'][2]],'effective_at' => '2026-07-01T00:00:00+02:00','basis' => 'agreement','evidence' => 'Synthetic documented transfer of service recipient'];
+        }
+        $deliveries = []; foreach ($segments as $segment) foreach ($segment['recipient_ids'] as $id) $deliveries[] = ['segment_ordinal' => $segment['ordinal'],'recipient_id' => $id,'issued_to_id' => $id,'delivered_to_id' => null,'recipient_evidence' => '','status' => 'pending','delivered_at' => null,'method' => null,'delivery_evidence' => '','due' => ['date' => null,'basis_ref' => '']];
+        return ['schema' => 1,'ref' => 'Synthetic external dossier 2026','issuer' => ['name' => 'Synthetic settlement provider'],'issued_at' => '2027-04-20T10:00:00+02:00','allocation_ref' => 'Synthetic external documented allocation','segments' => $segments,'deliveries' => $deliveries,'person_changes' => $changes];
+    }
+    private function financialFingerprint(int $supplier): array
+    {
+        $out = []; foreach (['property_service_settlements','property_service_settlement_origins','property_service_settlement_requests','property_service_settlement_applications','property_service_settlement_effects','property_service_settlement_heads','unit_payment_debts','unit_payment_allocations','unit_credit_lots','unit_credit_parties','journal_entries','journal_entry_lines'] as $table) {
+            $q = $this->db->pdo()->prepare('SELECT * FROM '.$table.' WHERE supplier_id=? ORDER BY 1,2'); $q->execute([$supplier]);
+            $out[$table] = \MyInvoice\Service\Property\PropertyInput::hash($q->fetchAll(PDO::FETCH_ASSOC));
+        } return $out;
+    }
+    public function testExternalDossierKeepsPerSegmentRecipientsDeliveryAndDueSeparateFromAccounting(): void
+    {
+        $f = $this->openingFixture(); $request = $this->documentRequest($f); $request['recipient_ids'] = [$f['clients'][2],$f['clients'][1]]; sort($request['recipient_ids']);
+        $request['known_at'] = '2027-04-21T12:00:00+02:00'; $request['external_dossier'] = $this->externalDossier($f, true);
+        [$saved,$prepared] = $this->saveHttp($request, 'external-dossier');
+        self::assertCount(2, $saved['document']['external_dossier']['segments']); self::assertSame('2026-12-31', $saved['origin_receipt']['request']['accounting_date']);
+        self::assertSame('pending', $saved['document']['external_dossier']['deliveries'][0]['status']);
+        [$status,$detail] = $this->http('GET', '/api/property/service-settlements/'.$saved['id']); self::assertSame(200,$status); self::assertSame(0,$detail['dossier']['revision_no']);
+        self::assertSame($saved['document_hash'], $detail['dossier']['document_hash']);
+        [$status,$public] = $this->http('GET','/api/v1/property/catalog/service-settlements/'.$saved['id'], [], null, true); self::assertSame(200,$status); $this->assertPublicDocument($public); self::assertArrayNotHasKey('dossier',$public); self::assertArrayNotHasKey('external_dossier',$public);
+        $bad = $request; $bad['external_dossier']['person_changes'] = [];
+        [$status,$error] = $this->http('POST','/api/property/service-settlements/prepare',['request'=>$bad,'expected_revision'=>0]); self::assertSame(409,$status); self::assertSame('settlement_dossier_recipient_change_title_required',$error['error']['code']);
+    }
+    public function testDossierDeliveryAndLegalEventsAfterActiveApplicationNeverRewriteFinancialHistory(): void
+    {
+        extract($this->appliedFixture()); $before = $this->financialFingerprint($f['supplier']); $baseHash = $saved['document_hash'];
+        $url = '/api/property/service-settlements/'.$saved['id'].'/dossier-events';
+        $accept = ['event'=>['type'=>'acceptance','dossier'=>$this->externalDossier($f)],'expected_revision'=>0,'reason'=>'Synthetic explicit external dossier acceptance','idempotency_key'=>'dossier-acceptance'];
+        [$status,$accepted] = $this->http('POST',$url,$accept); self::assertSame(200,$status,json_encode($accepted)); self::assertFalse($accepted['financial_history_changed']);
+        $delivery = $accept['event']['dossier']['deliveries'][0]; $delivery = array_replace($delivery,['status'=>'delivered','delivered_to_id'=>$f['clients'][2],'recipient_evidence'=>'Synthetic authority to receive for recipient','delivered_at'=>'2027-05-03T09:30:00+02:00','method'=>'data_box','delivery_evidence'=>'Synthetic external receipt A','due'=>['date'=>'2027-06-20','basis_ref'=>'Synthetic individually documented due agreement']]);
+        $append = ['event'=>['type'=>'delivery','delivery'=>$delivery,'supersedes_event_id'=>$accepted['id']],'expected_revision'=>1,'reason'=>'Synthetic receipt appended after financial application','idempotency_key'=>'dossier-delivery'];
+        [$status,$receipt] = $this->http('POST',$url,$append); self::assertSame(200,$status,json_encode($receipt));
+        [$status,$retry] = $this->http('POST',$url,$append); self::assertSame(200,$status); self::assertSame($receipt,$retry);
+        $stale = $append; $stale['idempotency_key'] = 'dossier-stale'; [$status,$error] = $this->http('POST',$url,$stale); self::assertSame(409,$status); self::assertSame('settlement_dossier_revision_conflict',$error['error']['code']);
+        $conflict = $append; $conflict['reason'] = 'Changed token payload'; [$status,$error] = $this->http('POST',$url,$conflict); self::assertSame(409,$status); self::assertSame('settlement_dossier_idempotency_conflict',$error['error']['code']);
+        $legal = ['event'=>['type'=>'legal_metadata','person_change'=>['role'=>'creditor','from_ids'=>[$f['clients'][1]],'to_ids'=>[$f['clients'][2]],'effective_at'=>'2027-05-04T10:00:00+02:00','basis'=>'assignment','evidence'=>'Synthetic creditor assignment evidence only']],'expected_revision'=>2,'reason'=>'Synthetic legal evidence supplement without financial entitlement mutation','idempotency_key'=>'dossier-legal'];
+        [$status,$legalReceipt] = $this->http('POST',$url,$legal); self::assertSame(200,$status,json_encode($legalReceipt));
+        [$status,$read] = $this->http('GET','/api/property/service-settlements/'.$saved['id'].'/dossier'); self::assertSame(200,$status,json_encode($read)); self::assertSame(3,$read['revision_no']); self::assertCount(3,$read['events']); self::assertSame($baseHash,$read['document_hash']);
+        self::assertSame('2027-05-03T07:30:00.000000Z',$read['dossier']['deliveries'][0]['delivered_at']); self::assertSame('2027-06-20',$read['dossier']['deliveries'][0]['due']['date']); self::assertSame($f['clients'][1],$read['dossier']['deliveries'][0]['recipient_id']); self::assertSame($f['clients'][2],$read['dossier']['deliveries'][0]['delivered_to_id']);
+        $corrected = $append; $corrected['expected_revision'] = 3; $corrected['idempotency_key'] = 'dossier-explicit-receipt-correction'; $corrected['event']['supersedes_event_id'] = $receipt['id']; $corrected['event']['delivery']['delivered_at'] = '2027-05-04T09:30:00+02:00'; $corrected['reason'] = 'Synthetic explicit correction of external receipt time';
+        [$status,$correctedReceipt] = $this->http('POST',$url,$corrected); self::assertSame(200,$status,json_encode($correctedReceipt));
+        [$status,$history] = $this->http('GET','/api/property/service-settlements/'.$saved['id'].'/dossier'); self::assertSame(200,$status); self::assertCount(4,$history['events']); self::assertSame('2027-05-03T07:30:00.000000Z',$history['events'][1]['event']['delivery']['delivered_at']); self::assertSame('2027-05-04T07:30:00.000000Z',$history['dossier']['deliveries'][0]['delivered_at']);
+        $wrongReceipt = $corrected; $wrongReceipt['expected_revision'] = 4; $wrongReceipt['idempotency_key'] = 'dossier-wrong-receipt-parent';
+        [$status,$error] = $this->http('POST',$url,$wrongReceipt); self::assertSame(409,$status); self::assertSame('settlement_dossier_receipt_conflict',$error['error']['code']);
+        foreach (['UPDATE property_service_settlement_dossier_events SET request_hash=request_hash WHERE supplier_id=? AND id=?','DELETE FROM property_service_settlement_dossier_events WHERE supplier_id=? AND id=?'] as $sql) {
+            try { $this->db->pdo()->prepare($sql)->execute([$f['supplier'],$receipt['id']]); self::fail('Immutable dossier event was changed'); } catch (\PDOException $e) { self::assertSame('45000',$e->getCode()); }
+        }
+        self::assertSame($before,$this->financialFingerprint($f['supplier']));
+        foreach ([[true,true,$this->permissions(),403],[false,false,$this->permissions(),403],[false,true,$this->permissions(1),403],[false,true,$this->permissions(0),403]] as [$bearer,$csrf,$permissions,$expectedStatus]) { [$status] = $this->http('POST',$url,$legal,$permissions,$bearer,$csrf); self::assertSame($expectedStatus,$status); }
+        $foreign = $this->openingFixture(); $this->f = $f;
+        [$status] = $this->http('POST',$url,$legal,null,false,true,[],$foreign['supplier']); self::assertSame(404,$status);
+        $foreignParty = $legal; $foreignParty['event']['person_change']['to_ids'] = [$foreign['clients'][2]]; $foreignParty['expected_revision'] = 4; $foreignParty['idempotency_key'] = 'dossier-foreign'; [$status] = $this->http('POST',$url,$foreignParty); self::assertSame(422,$status);
+        $financial = $legal; $financial['event']['amount_cents'] = '1'; [$status] = $this->http('POST',$url,$financial); self::assertSame(422,$status);
+        self::assertSame($before,$this->financialFingerprint($f['supplier']));
+    }
+    public static function dossierContactKinds(): array
+    {
+        return [['accepted'],['representative'],['legal_metadata']];
+    }
+    #[\PHPUnit\Framework\Attributes\DataProvider('dossierContactKinds')]
+    public function testNativeClientDeleteRetainsDossierOnlyPersonsIncludingSupersededEvidence(string $kind): void
+    {
+        $f = $this->openingFixture();
+        $country = (int)$this->db->pdo()->query("SELECT id FROM countries WHERE iso2='CZ'")->fetchColumn();
+        $currency = (int)$this->db->pdo()->query("SELECT id FROM currencies WHERE code='CZK' ORDER BY id LIMIT 1")->fetchColumn(); $people = [];
+        foreach (['evidenced','successor','unrelated'] as $label) {
+            $this->db->pdo()->prepare('INSERT INTO clients (supplier_id,company_name,street,city,zip,country_id,main_email,currency_default_id) VALUES (?,?,?,?,?,?,?,?)')->execute([$f['supplier'],'Synthetic dossier '.$label,'Synthetic','Synthetic','10000',$country,'dossier-'.$label.'@example.test',$currency]); $people[$label] = (int)$this->db->pdo()->lastInsertId();
+        }
+        $request = $this->documentRequest($f); $dossier = $this->externalDossier($f);
+        $delivery = array_replace($dossier['deliveries'][0], ['status'=>'delivered','delivered_to_id'=>$people['evidenced'],'recipient_evidence'=>'Synthetic representative authority','delivered_at'=>'2027-05-03T09:00:00+02:00','method'=>'post','delivery_evidence'=>'Synthetic original personal receipt']);
+        if ($kind === 'accepted') { $dossier['deliveries'][0] = $delivery; $request['external_dossier'] = $dossier; $request['known_at'] = '2027-05-04T10:00:00+02:00'; }
+        [$saved] = $this->saveHttp($request,'dossier-retention-document');
+        $repo = $this->container()->get(\MyInvoice\Repository\Property\Services\Settlement\SettlementDossierRepository::class);
+        if ($kind !== 'accepted') {
+            $accepted = $repo->append($f['supplier'],$saved['id'],['type'=>'acceptance','dossier'=>$dossier],0,'Synthetic acceptance','dossier-retention-accept',$f['actor']);
+            if ($kind === 'representative') {
+                $first = $repo->append($f['supplier'],$saved['id'],['type'=>'delivery','delivery'=>$delivery,'supersedes_event_id'=>$accepted['id']],1,'Synthetic original receipt','dossier-retention-receipt',$f['actor']);
+                $delivery['delivered_to_id'] = $people['successor'];
+                $repo->append($f['supplier'],$saved['id'],['type'=>'delivery','delivery'=>$delivery,'supersedes_event_id'=>$first['id']],2,'Synthetic explicitly corrected representative','dossier-retention-successor',$f['actor']);
+            } else {
+                $change = ['role'=>'creditor','from_ids'=>[$f['clients'][1]],'to_ids'=>[$people['evidenced']],'effective_at'=>'2027-05-03T09:00:00+02:00','basis'=>'assignment','evidence'=>'Synthetic legal change to independent metadata-only contact'];
+                $repo->append($f['supplier'],$saved['id'],['type'=>'legal_metadata','person_change'=>$change],1,'Synthetic original legal evidence','dossier-retention-legal',$f['actor']);
+                $change['from_ids'] = [$people['evidenced']]; $change['to_ids'] = [$people['successor']];
+                $repo->append($f['supplier'],$saved['id'],['type'=>'legal_metadata','person_change'=>$change],2,'Synthetic subsequent legal evidence','dossier-retention-legal-next',$f['actor']);
+            }
+        }
+        $references = new \MyInvoice\Service\Property\Services\Settlement\SettlementDossierReferences($this->db);
+        self::assertContains($people['evidenced'],$references->allPartyIds($f['supplier'],true)); self::assertNotContains($people['unrelated'],$references->allPartyIds($f['supplier'],true));
+        $foreign = $this->openingFixture(); $this->f = $f;
+        self::assertFalse($references->clientHasHistory($foreign['supplier'],$people['evidenced'],true));
+        [$status] = $this->http('DELETE','/api/clients/'.$people['evidenced'],[],null,false,true,[],$foreign['supplier']); self::assertSame(404,$status);
+        [$status,$deleted] = $this->http('DELETE','/api/clients/'.$people['unrelated']); self::assertSame(200,$status,json_encode($deleted)); self::assertTrue($deleted['deleted']);
+        [$status,$blocked] = $this->http('DELETE','/api/clients/'.$people['evidenced']); self::assertSame(409,$status,json_encode($blocked)); self::assertSame('has_dependencies',$blocked['error']['code']);
+        self::assertSame(1,(int)$this->db->pdo()->query('SELECT COUNT(*) FROM clients WHERE id='.$people['evidenced'])->fetchColumn());
+        $read = $repo->read($f['supplier'],$saved['id']); self::assertContains($people['evidenced'],array_column($read['parties'],'id'));
+    }
     public static function releasedCatalogs(): array
     {
         return [['s3'], ['costs']];

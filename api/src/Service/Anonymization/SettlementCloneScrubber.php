@@ -32,7 +32,7 @@ final class SettlementCloneScrubber
     }
     private function capture():void
     {
-        foreach(SettlementUseGuard::TABLES as $table){
+        foreach([...SettlementUseGuard::TABLES,...\MyInvoice\Repository\Property\Services\Settlement\SettlementDossierRepository::TABLES] as $table){
             $order=$table==='property_service_settlement_origins'?'supplier_id,document_id,ordinal':($table==='property_service_settlement_heads'?'supplier_id,document_id':'supplier_id,id');
             $this->rows[$table]=$this->db->pdo()->query('SELECT * FROM '.$table.' ORDER BY '.$order.' FOR UPDATE')->fetchAll(PDO::FETCH_ASSOC);
             foreach($this->rows[$table] as $row)foreach($row as $key=>$value)if(str_ends_with($key,'_json')){
@@ -74,7 +74,7 @@ final class SettlementCloneScrubber
     }
     private function rewrite():void
     {
-        foreach(['property_service_settlements','property_service_settlement_requests','property_service_settlement_applications','property_service_settlement_effects'] as $table)foreach($this->rows[$table] as $row){
+        foreach(['property_service_settlements','property_service_settlement_requests','property_service_settlement_applications','property_service_settlement_effects','property_service_settlement_dossier_events'] as $table)foreach($this->rows[$table] as $row){
             $changes=[];foreach($row as $key=>$value)if(str_ends_with($key,'_json')){$data=$this->transform(json_decode($value,true,flags:JSON_THROW_ON_ERROR));$changes[$key]=self::json($data);$hashKey=substr($key,0,-5).'_hash';if(isset($row[$hashKey])){$changes[$hashKey]=($this->map)($row[$hashKey],$data);$expected=$this->hash($row[$hashKey]);if($changes[$hashKey]!==$expected)throw new \LogicException('Settlement clone hash materialization mismatch.');}}
             if($table==='property_service_settlements'){$receipt=json_decode($changes['origin_receipt_json'],true,flags:JSON_THROW_ON_ERROR);$changes['request_hash']=($this->map)($row['request_hash'],$receipt['request']);}
             if($table==='property_service_settlement_applications')$changes['request_hash']=$this->hash($row['request_hash']);
@@ -90,6 +90,8 @@ final class SettlementCloneScrubber
             foreach($doc['origin_receipt']['current']['evidence'] as $evidence){if(isset($evidence['charge_id'])){$q=$this->db->pdo()->prepare('SELECT snapshot_hash FROM unit_charges WHERE supplier_id=? AND id=? FOR UPDATE');$q->execute([$supplier,$evidence['charge_id']]);if($q->fetchColumn()!==$evidence['snapshot_hash'])throw new \LogicException('Settlement clone issued source mismatch.');}else foreach(['advance'=>'advance_item_id','service'=>'service_item_id'] as $kind=>$field){$q=$this->db->pdo()->prepare('SELECT snapshot_hash FROM property_opening_items WHERE supplier_id=? AND id=? FOR UPDATE');$q->execute([$supplier,$evidence['state'][$field]]);if($q->fetchColumn()!==$evidence[$kind.'_hash'])throw new \LogicException('Settlement clone opening source mismatch.');}}
         }
         foreach($this->rows['property_service_settlement_applications'] as $row)$history->application((int)$row['supplier_id'],(int)$row['id'],true);
+        $dossiers=$container->get(\MyInvoice\Repository\Property\Services\Settlement\SettlementDossierRepository::class);foreach($this->rows['property_service_settlements'] as $row)$dossiers->readLocked((int)$row['supplier_id'],(int)$row['id']);
+        foreach(array_unique(array_column($this->rows['property_service_settlements'],'supplier_id')) as $supplier){$ids=(new \MyInvoice\Service\Property\Services\Settlement\SettlementDossierReferences($this->db))->allPartyIds((int)$supplier,true);if(count((new \MyInvoice\Repository\Property\PropertyReadRepository($this->db))->parties((int)$supplier,$ids,true))!==count($ids))throw new \LogicException('Settlement clone dossier party source missing.');}
     }
     private static function json(array $data):string{return json_encode($data,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE|JSON_PRESERVE_ZERO_FRACTION);}
 }

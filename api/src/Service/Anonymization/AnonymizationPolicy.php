@@ -163,6 +163,7 @@ final class AnonymizationPolicy
         'property_service_lifecycle_events' => ['event_key'=>'keep','request_json'=>'service_settlement_json','request_hash'=>'keep','receipt_json'=>'service_settlement_json','receipt_hash'=>'keep'],
         'property_service_lifecycle_claims' => ['claim_role'=>'keep'],
         'property_service_settlements' => ['segment_key'=>'keep','document_json'=>'service_settlement_json','document_hash'=>'keep','origin_receipt_json'=>'service_settlement_json','origin_receipt_hash'=>'keep','request_hash'=>'keep','idempotency_key'=>'keep'],
+        'property_service_settlement_dossier_events' => ['request_json'=>'service_settlement_json','request_hash'=>'keep','snapshot_json'=>'service_settlement_json','snapshot_hash'=>'keep','idempotency_key'=>'keep'],
         'property_service_settlement_origins' => [],
         'property_service_settlement_requests' => ['request_json'=>'service_settlement_json','request_hash'=>'keep','preview_json'=>'service_settlement_json','preview_hash'=>'keep','idempotency_key'=>'keep'],
         'property_service_settlement_heads' => [],

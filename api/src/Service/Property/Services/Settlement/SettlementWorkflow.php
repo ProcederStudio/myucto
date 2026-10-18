@@ -35,7 +35,7 @@ final class SettlementWorkflow
                 $stored = $this->documents->find($supplier, (int)$old, true);
                 $facts = $stored['document'];
                 unset($facts['amounts']);
-                $prior = array_intersect_key($facts, array_flip(['unit_id','service_id','segment_key','period_from','period_to','cutoff_at','known_at','recipient_ids','evidence']));
+                $prior = array_intersect_key($facts, array_flip(['unit_id','service_id','segment_key','period_from','period_to','cutoff_at','known_at','recipient_ids','evidence','external_dossier']));
                 $prior += ['selectors' => $stored['origin_receipt']['request']['selectors'],'accounting_date' => $stored['origin_receipt']['request']['accounting_date'],'cost_source_id' => $facts['cost']['source_id']];
                 if (PropertyInput::hash($request) !== PropertyInput::hash($prior)) {
                     SettlementEvidence::reject('idempotency_conflict');
@@ -50,15 +50,16 @@ final class SettlementWorkflow
     }
     private function normalize(array $request): array
     {
-        SettlementEvidence::fields($request, ['unit_id','service_id','accounting_date','selectors','cost_source_id','segment_key','period_from','period_to','cutoff_at','known_at','recipient_ids','evidence']);
+        SettlementEvidence::fields($request, ['unit_id','service_id','accounting_date','selectors','cost_source_id','segment_key','period_from','period_to','cutoff_at','known_at','recipient_ids','evidence',...(array_key_exists('external_dossier',$request)?['external_dossier']:[])]);
         $request['recipient_ids'] = SettlementEvidence::ids($request['recipient_ids']);
+        if(array_key_exists('external_dossier',$request)){if(!is_array($request['external_dossier']))PropertyInput::invalid('external_dossier');$request['external_dossier']=SettlementDossier::normalize($request['external_dossier'],$request['period_from'],$request['period_to']);}
         foreach (['cutoff_at','known_at'] as $key) {
             $request[$key] = PropertyInstant::normalize($request[$key]);
         }return $request;
     }
     private function assemble(int $supplier, array $request): SettlementDocument
     {
-        SettlementEvidence::fields($request, ['unit_id','service_id','accounting_date','selectors','cost_source_id','segment_key','period_from','period_to','cutoff_at','known_at','recipient_ids','evidence']);
+        SettlementEvidence::fields($request, ['unit_id','service_id','accounting_date','selectors','cost_source_id','segment_key','period_from','period_to','cutoff_at','known_at','recipient_ids','evidence',...(array_key_exists('external_dossier',$request)?['external_dossier']:[])]);
         $unit = PropertyInput::id($request['unit_id'], 'unit_id');
         $service = PropertyInput::id($request['service_id'], 'service_id');
         $date = SettlementEvidence::date($request['accounting_date']);
@@ -77,6 +78,10 @@ final class SettlementWorkflow
         if (count((new PropertyReadRepository($this->db))->parties($supplier, $parties, true)) !== count($parties)) {
             PropertyInput::invalid('recipient_ids');
         }
+        if(isset($request['external_dossier'])){
+            $dossierParties=SettlementDossier::partyIds($request['external_dossier']);
+            if(count((new PropertyReadRepository($this->db))->parties($supplier,$dossierParties,true))!==count($dossierParties))PropertyInput::invalid('dossier_parties');
+        }
         $prescribed = '0';
         $paid = '0';
         foreach ($current['origins'] as $source) {
@@ -89,7 +94,7 @@ final class SettlementWorkflow
                 $paid = bcadd($paid, $allocation['amount_cents'], 0);
             }
         }
-        $facts = array_intersect_key($request, array_flip(['segment_key','period_from','period_to','cutoff_at','known_at','evidence']));
+        $facts = array_intersect_key($request, array_flip(['segment_key','period_from','period_to','cutoff_at','known_at','evidence','external_dossier']));
         return SettlementDocument::fromEvidence($facts + ['supplier_id' => $supplier,'unit_id' => $unit,'service_id' => $service,'recipient_ids' => $parties,'prescribed_cents' => $prescribed,'paid_cents' => $paid,'actual_cents' => $costs[0]['amount_cents'],'origins' => $current['origins'],'cutoff_allocations' => $allocations,'cost' => $costs[0]]);
     }
     private function digest(array $request, int $expected, SettlementDocument $document): string

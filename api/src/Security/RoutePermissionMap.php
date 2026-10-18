@@ -678,6 +678,7 @@ final class RoutePermissionMap
         ['POST', '#^/api/property/service-lifecycles/(preview|commands)/finalize$#', 'property.settlements.post', AccessLevel::WRITE],
         ['GET', '#^/api/property/(service-settlements|catalog/service-settlements)(/|$)#', 'property', AccessLevel::READ],
         ['POST', '#^/api/property/service-settlements(/prepare|/[0-9]+/preview)?$#', 'property.settlements.manage', AccessLevel::WRITE],
+        ['POST', '#^/api/property/service-settlements/[0-9]+/dossier-events$#', 'property.settlements.manage', AccessLevel::WRITE],
         ['POST', '#^/api/property/service-settlements/[0-9]+/apply$#', 'property.settlements.post', AccessLevel::WRITE],
         ['POST', '#^/api/property/service-settlements/applications/[0-9]+/reverse$#', 'property.settlements.reverse', AccessLevel::WRITE],
         ['GET', '#^/api/property/(openings|catalog/openings)$#', 'property', AccessLevel::READ],

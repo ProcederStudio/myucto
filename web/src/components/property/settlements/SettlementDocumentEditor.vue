@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import SettlementDossierForm from './SettlementDossierForm.vue'
+import { blankDossier, dossierRecipients, dossierCopy } from './dossierForm'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { propertySettlementsApi as api, type SettlementCapabilities, type SettlementDetail, type SettlementCatalogItem, type SettlementDocumentRequest, type SettlementFacts } from '@/api/propertySettlements'
@@ -14,6 +16,7 @@ const props = defineProps<{ supplier: number; capabilities: SettlementCapabiliti
 const emit = defineEmits<{ saved: [id: number]; cancel: [] }>()
 const { t } = useI18n()
 const blank = (): SettlementDocumentRequest => ({ unit_id: 0, service_id: 0, segment_key: '', accounting_date: '', period_from: '', period_to: '', cutoff_at: '', known_at: '', recipient_ids: [], evidence: '', selectors: [], cost_source_id: 0 })
+const externalDossier = ref(blankDossier()), attachDossier = ref(false)
 const form = reactive(blank()), units = ref<PropertyObject[]>([]), services = ref<PropertyObject[]>([])
 const sources = ref<SettlementCatalogItem[]>([]), costs = ref<SettlementCatalogItem[]>([]), selected = ref<SettlementCatalogItem[]>([])
 const kind = ref<'s3' | 'opening'>('s3'), cost = ref<SettlementCatalogItem | null>(null), cursor = ref<{ after_id: number; after_service_id: number } | null>(null), costCursor = ref<{ after_id: number; after_service_id: number } | null>(null)
@@ -25,12 +28,13 @@ const expected = computed(() => props.revision?.revision_no ?? 0)
 const key = (v: SettlementCatalogItem) => JSON.stringify(v.selector)
 const label = (v: PropertyObject) => v.kind === 'unit' ? (v.revision?.state as UnitState | undefined)?.unit_no || v.code : (v.revision?.state as ServiceState | undefined)?.name || v.code
 function invalidate() { epoch++; preview.value = null; submitted = null; token = crypto.randomUUID() }
-watch([form, selected, cost], invalidate, { deep: true, flush: 'sync' })
+watch([form, selected, cost, externalDossier, attachDossier], invalidate, { deep: true, flush: 'sync' })
 onBeforeUnmount(() => { epoch++; registryEpoch++ })
 watch(() => [props.supplier, props.revision?.id], () => {
- invalidate(); Object.assign(form, blank()); sources.value = []; selected.value = []; costs.value = []; cost.value = null; error.value = ''; busy.value = false
+ invalidate(); externalDossier.value = blankDossier(); attachDossier.value = false; Object.assign(form, blank()); sources.value = []; selected.value = []; costs.value = []; cost.value = null; error.value = ''; busy.value = false
  const old = props.revision
  if (old) {
+  const priorDossier = old.dossier?.dossier || old.document.external_dossier; if (priorDossier) { externalDossier.value = dossierCopy(priorDossier); attachDossier.value = true }
   Object.assign(form, old.document, { selectors: old.origin_receipt.request.selectors, accounting_date: old.origin_receipt.request.accounting_date, cost_source_id: old.document.cost.source_id })
   selected.value = old.document.origins.map((origin, i) => ({ id: origin.id, selector: old.origin_receipt.request.selectors[i]!, unit: old.unit, service: old.service, description: `${old.unit.label} / ${old.service.label}`, document_no: null, accounting_date: form.accounting_date, period_from: form.period_from, period_to: form.period_to, prescribed_cents: origin.prescribed_cents, carried_paid_cents: origin.carried_paid_cents, cost_source_id: null, cost_cents: null }))
   cost.value = { ...selected.value[0]!, id: old.document.cost.source_id, description: `${old.unit.label} / ${old.service.label}`, cost_source_id: old.document.cost.source_id, cost_cents: old.document.actual_cents }
@@ -58,11 +62,11 @@ async function catalog(more = false, forCosts = false) {
 }
 function request(): SettlementDocumentRequest {
  const selectedCost = cost.value
- if (!selected.value.length || !selectedCost?.cost_source_id || !form.recipient_ids.length) throw new Error('selection_required')
+ if (!selected.value.length || !selectedCost?.cost_source_id || !(attachDossier.value ? dossierRecipients(externalDossier.value).length : form.recipient_ids.length)) throw new Error('selection_required')
  let attached = false
  const selectors = selected.value.map(v => { const s = { ...v.selector }; if (s.kind === 's3_line' && !attached) { s.cost_line_id = selectedCost.cost_source_id!; attached = true }; return s })
  if (!attached && !selected.value.some(v => v.cost_source_id === cost.value!.cost_source_id) && !props.revision) throw new Error('cost_scope')
- return { unit_id: form.unit_id, service_id: form.service_id, segment_key: form.segment_key, accounting_date: form.accounting_date, period_from: form.period_from, period_to: form.period_to, cutoff_at: form.cutoff_at, known_at: form.known_at, recipient_ids: [...form.recipient_ids], evidence: form.evidence, selectors, cost_source_id: selectedCost.cost_source_id }
+ return { unit_id: form.unit_id, service_id: form.service_id, segment_key: form.segment_key, accounting_date: form.accounting_date, period_from: form.period_from, period_to: form.period_to, cutoff_at: form.cutoff_at, known_at: form.known_at, recipient_ids: attachDossier.value ? dossierRecipients(externalDossier.value) : [...form.recipient_ids], evidence: form.evidence, selectors, cost_source_id: selectedCost.cost_source_id, ...(attachDossier.value ? { external_dossier: dossierCopy(externalDossier.value) } : {}) }
 }
 async function prepare() {
  if (busy.value || !props.capabilities.manage || !html.value?.reportValidity()) return
@@ -91,7 +95,7 @@ const actions = computed<ActionItem[]>(() => [{ key: preview.value ? 'save-docum
  <label>{{ t('propertySettlements.periodFrom') }}<DateInput v-model="form.period_from" required data-field="period-from" /></label><label>{{ t('propertySettlements.periodTo') }}<DateInput v-model="form.period_to" required data-field="period-to" /></label><label>{{ t('propertySettlements.accountingDate') }}<DateInput v-model="form.accounting_date" required data-field="document-date" @update:model-value="scopeChanged" /></label>
  <PropertyInstantInput v-model="form.cutoff_at" :label="t('propertySettlements.cutoff')" required data-field="cutoff" /><PropertyInstantInput v-model="form.known_at" :label="t('propertySettlements.knownAt')" required data-field="known" /><label>{{ t('propertySettlements.evidence') }}<input v-model="form.evidence" required :class="input" data-field="document-evidence" /></label>
  </div><PropertyButton icon="cycle" @click="registry">{{ t('propertySettlements.refreshRegistry') }}</PropertyButton>
- <fieldset class="space-y-2"><legend>{{ t('propertySettlements.recipients') }}</legend><div class="flex flex-wrap gap-2"><span v-for="id in form.recipient_ids" :key="id" class="flex items-center gap-2 rounded border p-2 text-sm">{{ names[id] || t('propertySettlements.selectedPerson') }}<PropertyButton icon="trash" variant="danger" @click="form.recipient_ids.splice(form.recipient_ids.indexOf(id), 1)">{{ t('propertySettlements.remove') }}</PropertyButton></span></div><PropertyPartyPicker v-model="person" :supplier-id="supplier" @selected="addPerson" /></fieldset>
+ <label class="flex flex-wrap items-center gap-2"><input v-model="attachDossier" type="checkbox" data-field="attach-dossier" />{{ t('propertySettlements.dossier.attach') }}</label><SettlementDossierForm v-if="attachDossier" v-model="externalDossier" :supplier="supplier" :labels="Object.fromEntries(revision?.dossier?.parties.map(p => [p.id, p.name]) ?? [])" :period-from="form.period_from" :period-to="form.period_to" /><fieldset v-else class="space-y-2"><legend>{{ t('propertySettlements.recipients') }}</legend><div class="flex flex-wrap gap-2"><span v-for="id in form.recipient_ids" :key="id" class="flex items-center gap-2 rounded border p-2 text-sm">{{ names[id] || t('propertySettlements.selectedPerson') }}<PropertyButton icon="trash" variant="danger" @click="form.recipient_ids.splice(form.recipient_ids.indexOf(id), 1)">{{ t('propertySettlements.remove') }}</PropertyButton></span></div><PropertyPartyPicker v-model="person" :supplier-id="supplier" @selected="addPerson" /></fieldset>
  <div class="space-y-2"><h3 class="font-medium">{{ t('propertySettlements.sources') }}</h3><div class="flex flex-wrap items-end gap-3"><label>{{ t('propertySettlements.sourceKind') }}<select v-model="kind" :class="input"><option value="s3">{{ t('propertySettlements.s3') }}</option><option value="opening">{{ t('propertySettlements.opening') }}</option></select></label><PropertyButton icon="search" data-action="load-sources" @click="catalog()">{{ t('propertySettlements.loadSources') }}</PropertyButton></div>
  <label v-for="v in sources" :key="key(v)" class="flex flex-wrap items-center gap-3 rounded border p-3"><input type="checkbox" :checked="selected.some(s => key(s) === key(v))" data-field="source-select" @change="toggle(v)" /><span>{{ v.description }} · {{ v.document_no }} · {{ v.accounting_date }} · {{ v.period_from }} - {{ v.period_to }}</span><span>{{ money(v.prescribed_cents) }}</span></label><PropertyButton v-if="cursor" icon="plus" @click="catalog(true)">{{ t('propertySettlements.more') }}</PropertyButton>
  <p v-for="v in selected" :key="key(v)" class="flex flex-wrap items-center gap-2 text-sm">{{ t('propertySettlements.selectedSource') }}: {{ v.description }} · {{ v.accounting_date }} · {{ money(v.prescribed_cents) }}<PropertyButton icon="trash" variant="danger" @click="toggle(v)">{{ t('propertySettlements.remove') }}</PropertyButton></p></div>

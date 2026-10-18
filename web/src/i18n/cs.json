@@ -36872,6 +36872,71 @@
       "new_credit_cents": "Nový kredit",
       "remaining_old_claim_cents": "Zbývající původní dluh",
       "retained_paid_cents": "Ponechané úhrady"
+    },
+    "dossier": {
+      "title": "Externí dossier vyúčtování",
+      "help": "Přijměte doložený podklad externího rozúčtování. Segmenty musí přesně pokrýt uvedené období; příjemce služby určujte podle příslušného segmentu a jeho titulu.",
+      "metadataOnly": "Doručení a právní podklady jsou samostatná evidence. Doplnění nemění účetní datum, částky, dlužníka ani nárok na kredit. Finanční změna vyžaduje příslušný účetní postup.",
+      "reference": "Reference a verze externího dossieru",
+      "issuer": "Zpracovatel vyúčtování",
+      "issuedAt": "Skutečný okamžik vystavení",
+      "allocation": "Doložené pravidlo nebo podklad rozúčtování",
+      "segment": "Segment {number}",
+      "validFrom": "Začátek segmentu včetně času",
+      "validTo": "Konec segmentu bez tohoto okamžiku",
+      "recipientBasis": "Právní podklad příjemce služby",
+      "addSegment": "Přidat segment příjemce",
+      "personChanges": "Právní podklady změny osob",
+      "addChange": "Doplnit podklad změny osoby",
+      "role": "Postavení osoby",
+      "changeBasis": "Právní podklad změny",
+      "fromPersons": "Dosavadní osoby",
+      "toPersons": "Nové osoby",
+      "effectiveAt": "Doložená účinnost změny",
+      "changeEvidence": "Konkrétní právní titul a důkazy změny",
+      "issuedTo": "Vyúčtování vystaveno pro",
+      "deliveredTo": "Skutečně doručeno osobě",
+      "deliveryStatus": "Stav doložení doručení",
+      "pending": "Doručení dosud nedoloženo",
+      "delivered": "Doručení doloženo",
+      "deliveredAt": "Skutečný okamžik doručení této osobě",
+      "method": "Způsob doručení",
+      "receiptEvidence": "Doručenka nebo jiný důkaz doručení",
+      "recipientAuthority": "Podklad zastoupení nebo oprávnění jiné osoby",
+      "due": "Doložená splatnost této osoby",
+      "dueBasis": "Dohoda nebo jiný konkrétní titul splatnosti",
+      "notRecorded": "Dosud nedoloženo",
+      "recordDelivery": "Připojit nový doklad doručení",
+      "notAccepted": "Externí dossier dosud nebyl přijat. Lze jej doplnit bez storna finanční historie.",
+      "accept": "Přijmout externí dossier",
+      "attach": "Přijmout externí dossier spolu s dokumentem",
+      "reason": "Důvod připojení nebo opravy evidence",
+      "acknowledgement": "Ověřil/a jsem údaje a jejich podklady. Připojuji nový neměnný záznam bez změny finanční historie.",
+      "append": "Připojit neměnný záznam",
+      "history": "Historie přijatých podkladů",
+      "conflict": "Načtěte aktuální evidenci a údaje znovu ověřte. Záznam nebyl automaticky opakován.",
+      "roles": {
+        "service_recipient": "Příjemce služby",
+        "creditor": "Věřitel podle doloženého titulu",
+        "debtor": "Dlužník podle doloženého titulu"
+      },
+      "bases": {
+        "agreement": "Doložená dohoda",
+        "assignment": "Postoupení nebo převzetí podle konkrétního titulu",
+        "inheritance": "Dědictví",
+        "other": "Jiný doložený právní titul"
+      },
+      "methods": {
+        "data_box": "Datová schránka",
+        "post": "Pošta",
+        "personal": "Osobně",
+        "other": "Jiný doložený způsob"
+      },
+      "events": {
+        "acceptance": "Přijetí externího dossieru",
+        "delivery": "Nový doklad doručení",
+        "legal_metadata": "Doplnění právního podkladu"
+      }
     }
   },
   "propertyServiceLifecycle": {

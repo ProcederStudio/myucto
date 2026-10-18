@@ -15,7 +15,7 @@ use MyInvoice\Repository\Property\PropertyReadRepository;
 
 final class SettlementReadRepository
 {
-    public function __construct(private readonly Connection $db, private readonly SettlementDocumentRepository $documents, private readonly SettlementOriginAdapter $origins, private readonly PaymentRepository $payments)
+    public function __construct(private readonly Connection $db, private readonly SettlementDocumentRepository $documents, private readonly SettlementOriginAdapter $origins, private readonly PaymentRepository $payments, private readonly SettlementDossierRepository $dossiers)
     {
     }
     public function page(int $supplier, int $after, int $limit, ?int $unit = null, ?int $service = null): array
@@ -42,7 +42,7 @@ final class SettlementReadRepository
     }
     public function detail(int $supplier, int $id, bool $public = false): array
     {
-        return $this->transaction($supplier, fn () => $public ? SettlementPublicView::document($this->detailLocked($supplier, $id)) : $this->detailLocked($supplier, $id));
+        return $this->transaction($supplier, fn () => $public ? SettlementPublicView::document($this->detailLocked($supplier, $id)) : $this->detailLocked($supplier, $id) + ['dossier' => $this->dossiers->readLocked($supplier, $id)]);
     }
     public function current(int $supplier, int $id): array
     {

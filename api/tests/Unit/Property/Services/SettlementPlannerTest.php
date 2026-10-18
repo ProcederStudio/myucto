@@ -25,6 +25,15 @@ final class SettlementPlannerTest extends TestCase
         if($z==='0'){$doc['origins']=[];$current['origins']=[];$request['advances']=[];}
         return [$doc,$current,$request];
     }
+    public function testOptionalDossierPreservesLegacyDocumentRequestAndReceiptHashes():void
+    {
+        [$raw,$current,$request]=$this->fixture();$document=SettlementDocument::fromEvidence($raw);$receipt=SettlementPlanner::plan($document,$current,$request);
+        self::assertArrayNotHasKey('external_dossier',$document->snapshot());
+        self::assertSame('a9827433dd629f366baf630c8f0b76e25c77a9e0723114acb52d0880f7b6db5b',$document->hash());
+        self::assertSame('59615bf3e5e459619cb763f6b2ae13e67f2f61e184286eb1504d314137444849',PropertyInput::hash($request));
+        self::assertSame('1102c3bcd5f6e8a1895b8bdecf7f39bdd25c8f736da0f912619a3936d68922e5',$receipt->hash());
+        $receipt->assertCurrent($document,$current,$request);
+    }
     public function testLatePaymentKeepsDocumentAndProducesExactAnchoredThreeMovements():void
     {
         [$raw,$current,$request]=$this->fixture();$doc=SettlementDocument::fromEvidence($raw);$before=$doc->hash();$receipt=SettlementPlanner::plan($doc,$current,$request);$p=$receipt->snapshot();

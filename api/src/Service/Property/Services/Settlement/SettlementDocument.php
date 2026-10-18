@@ -8,7 +8,7 @@ final readonly class SettlementDocument
     public static function fromEvidence(array $facts):self
     {
         $facts=SettlementEvidence::detached($facts);
-        SettlementEvidence::fields($facts,['supplier_id','unit_id','service_id','segment_key','period_from','period_to','cutoff_at','known_at','recipient_ids','evidence','prescribed_cents','paid_cents','actual_cents','origins','cutoff_allocations','cost']);
+        SettlementEvidence::fields($facts,['supplier_id','unit_id','service_id','segment_key','period_from','period_to','cutoff_at','known_at','recipient_ids','evidence','prescribed_cents','paid_cents','actual_cents','origins','cutoff_allocations','cost',...(array_key_exists('external_dossier',$facts)?['external_dossier']:[])]);
         foreach(['supplier_id','unit_id','service_id'] as $key)PropertyInput::id($facts[$key],$key);PropertyInput::text($facts['segment_key'],'segment_key');PropertyInput::text($facts['evidence'],'evidence',4000);
         foreach(['period_from','period_to'] as $key)SettlementEvidence::date($facts[$key]);if($facts['period_from']>$facts['period_to'])SettlementEvidence::reject('period');
         foreach(['cutoff_at','known_at'] as $key)$facts[$key]=PropertyInstant::normalize($facts[$key]);
@@ -25,6 +25,7 @@ final readonly class SettlementDocument
         if($paid!==$facts['paid_cents'])SettlementEvidence::reject('cutoff_margin');ksort($allocations,SORT_NUMERIC);$facts['cutoff_allocations']=array_values($allocations);
         $cost=$facts['cost'];SettlementEvidence::fields($cost,['source_id','source_hash','amount_cents','line']);PropertyInput::id($cost['source_id'],'cost_source_id');SettlementEvidence::hash($cost['source_hash']);SettlementEvidence::line($cost['line']);
         if($cost['amount_cents']!==$facts['actual_cents'])SettlementEvidence::reject('cost_margin');
+        if(array_key_exists('external_dossier',$facts)){if(!is_array($facts['external_dossier']))PropertyInput::invalid('external_dossier');$facts['external_dossier']=SettlementDossier::normalize($facts['external_dossier'],$facts['period_from'],$facts['period_to']);if(SettlementDossier::recipientIds($facts['external_dossier'])!==$facts['recipient_ids'])SettlementEvidence::reject('dossier_recipient_scope');}
         return new self($facts+['amounts'=>$amounts]);
     }
     public function snapshot():array{return $this->facts;}

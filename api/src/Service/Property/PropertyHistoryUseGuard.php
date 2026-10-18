@@ -25,7 +25,7 @@ final class PropertyHistoryUseGuard
             WHERE delivery.recipient_id = ?)", [$supplierId, $clientId], $currentRead)) return true;
         if ($this->exists('unit_charge_evidence_events', "supplier_id = ? AND kind = 'reminder'
             AND JSON_VALUE(request_json, '$.facts.recipient_id') = ?", [$supplierId, $clientId], $currentRead)) return true;
-        return false;
+        return (new \MyInvoice\Service\Property\Services\Settlement\SettlementDossierReferences($this->db))->clientHasHistory($supplierId, $clientId, $currentRead);
     }
 
     private function exists(string $table, string $where, array $parameters, bool $currentRead): bool

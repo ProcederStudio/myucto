@@ -15,7 +15,7 @@ use Psr\Http\Message\{ServerRequestInterface as Request,ResponseInterface as Res
 final class SettlementAction
 {
     use AccountingActionSupport;
-    public function __construct(private readonly SettlementReadRepository $read, private readonly SettlementWorkflow $workflow, private readonly SettlementApplicationRepository $owner, private readonly \MyInvoice\Repository\Property\Services\Settlement\SettlementDispositionReadRepository $dispositions)
+    public function __construct(private readonly SettlementReadRepository $read, private readonly SettlementWorkflow $workflow, private readonly SettlementApplicationRepository $owner, private readonly \MyInvoice\Repository\Property\Services\Settlement\SettlementDispositionReadRepository $dispositions, private readonly \MyInvoice\Repository\Property\Services\Settlement\SettlementDossierRepository $dossiers)
     {
     }
     public function list(Request $q, Response $r): Response
@@ -52,6 +52,22 @@ final class SettlementAction
             if (!$public) {
                 $read['capabilities'] = $this->capabilities($q);
             }return $read;
+        });
+    }
+    public function dossier(Request $q, Response $r, array $args): Response
+    {
+        return $this->run($q, $r, 'property', false, false, function (int $supplier) use ($q,$args): array {
+            $this->query($q, $supplier, []);
+            return $this->dossiers->read($supplier, $this->id($args));
+        });
+    }
+    public function appendDossierEvent(Request $q, Response $r, array $args): Response
+    {
+        return $this->run($q, $r, 'property.settlements.manage', true, false, function (int $supplier) use ($q,$args): array {
+            $body = $q->getParsedBody(); if (!is_array($body)) PropertyInput::invalid('body');
+            SettlementEvidence::fields($body, ['event','expected_revision','reason','idempotency_key']);
+            if (!is_array($body['event'])) PropertyInput::invalid('event');
+            return $this->dossiers->append($supplier, $this->id($args), $body['event'], $this->integer($body['expected_revision'], 'expected_revision'), PropertyInput::text($body['reason'], 'reason', 4000), PropertyInput::code($body['idempotency_key'], 'idempotency_key'), PropertyInput::id($this->userId($q), 'actor'));
         });
     }
     public function disposition(Request $q, Response $r, array $args): Response
