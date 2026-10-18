@@ -238,6 +238,65 @@ tags:
       pojišťovnu a zálohy na daň (§38a) vč. rozhodnutí FÚ (§174).
 
 paths:
+  /api/v1/accounting/catalog/context:
+    get:
+      tags:
+      - Accounting
+      summary: Účetní kontext účinný k datu podle současné znalosti
+      description: Pouze accounting READ. Povinné date vybere nativní účetní rámec, metodu a datované definice účtů.
+        Intervaly jsou [effective_from,effective_until), null znamená neznámou nebo neomezenou hranici podle temporal_source.
+        Účty bez historie vracejí platnou current_base hodnotu s finding a complete=false; účty před doloženým založením
+        se nevracejí. Kódy a identity rolí vycházejí z nativního resolveru, chybějící účet má account_id=null. Metadata
+        revision obsahuje jen ID, row_version a otisk definice, nikoli JSON, evidence nebo autora. Systémové dimenze
+        v cz_504 vracejí jen současné immutable identity, nikoli historické názvy a aktivitu; tato mezera je explicitní
+        finding. Role profile používá pouze datovaný rámec a aktuální katalog rolí; nečte právní profil ani property
+        flags. Historické verze katalogu pravidel nejsou evidované. complete není potvrzení tehdejšího právního
+        stavu ani právní nebo daňové způsobilosti. GET nic neinicializuje. Jeden konzistentní storage snapshot;
+        převzatá transakce musí mít REPEATABLE READ. known_at není podporováno a vrací 409 accounting_context_known_at_unsupported.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - name: date
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date
+          pattern: ^[0-9]{4}-[0-9]{2}-[0-9]{2}$
+        description: Účetní datum nejdříve 1900-01-01. Bez výchozího dnešního data.
+      - name: known_at
+        in: query
+        schema:
+          type: string
+        description: Nepodporovaný historický okamžik znalosti. Jakákoli přítomnost vrací 409 accounting_context_known_at_unsupported.
+      responses:
+        '200':
+          description: Kurátorované účetní role a metadata s explicitní historickou úplností.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountingCatalogContext'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Firma neexistuje v dostupném kontextu.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: accounting_context_known_at_unsupported nebo accounting_context_snapshot_required; neověřitelná
+            definice účtu vrací account_definition_corrupt. Odpověď neobsahuje částečný účetní kontext.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: 'accounting_context_query_invalid nebo account_definition_date_invalid: chybějící/neplatné
+            datum či neznámé query pole.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/property/catalog/service-settlements:
     get:
       tags:
@@ -31173,6 +31232,327 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
 
   schemas:
+    AccountingCatalogContext:
+      type: object
+      additionalProperties: false
+      required:
+      - date
+      - temporal_basis
+      - consistency
+      - complete
+      - findings
+      - framework
+      - method
+      - accounts
+      - role_profile
+      - account_roles
+      - system_dimensions
+      properties:
+        date:
+          type: string
+          format: date
+        temporal_basis:
+          type: string
+          const: current_knowledge_effective_date
+        consistency:
+          type: string
+          const: transaction_snapshot
+        complete:
+          type: boolean
+          description: Úplné pokrytí účinného rámce, metody, metadat a vazeb rolí v rozsahu aktuálního katalogu
+            pravidel. Neprokazuje tehdejší verzi pravidel ani právní způsobilost; false není neplatná osnova ani
+            nulová hodnota.
+        findings:
+          type: array
+          items:
+            $ref: '#/components/schemas/AccountingCatalogContextFinding'
+        framework:
+          $ref: '#/components/schemas/AccountingCatalogContextFramework'
+        method:
+          $ref: '#/components/schemas/AccountingCatalogContextMethod'
+        accounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/AccountingCatalogContextAccount'
+        role_profile:
+          type: object
+          additionalProperties: false
+          required:
+          - basis
+          - historical_rule_versions_available
+          - legal_profile_used
+          - property_flags_used
+          - legal_basis_assessed
+          properties:
+            basis:
+              type: string
+              const: dated_framework_current_role_catalog
+            historical_rule_versions_available:
+              type: boolean
+              const: false
+            legal_profile_used:
+              type: boolean
+              const: false
+            property_flags_used:
+              type: boolean
+              const: false
+            legal_basis_assessed:
+              type: boolean
+              const: false
+        account_roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/AccountingCatalogContextAccountRole'
+        system_dimensions:
+          type: array
+          items:
+            $ref: '#/components/schemas/AccountingCatalogContextSystemDimension'
+    AccountingCatalogContextFinding:
+      type: object
+      additionalProperties: false
+      required:
+      - code
+      - scope
+      properties:
+        code:
+          type: string
+          enum:
+          - framework_default_not_historized
+          - accounting_method_not_historized
+          - account_definition_not_historized
+          - role_account_missing
+          - system_dimension_missing
+          - system_dimension_ambiguous
+          - system_dimension_value_missing
+          - system_dimension_value_ambiguous
+          - system_dimension_state_not_historized
+        scope:
+          type: string
+          enum:
+          - framework
+          - method
+          - accounts
+          - account_roles
+          - system_dimensions
+        id:
+          type: integer
+          minimum: 1
+        role:
+          type: string
+    AccountingCatalogContextFramework:
+      type: object
+      additionalProperties: false
+      required:
+      - value
+      - id
+      - effective_from
+      - effective_until
+      - temporal_source
+      properties:
+        value:
+          type: string
+          enum:
+          - cz_500
+          - cz_504
+        id:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+        effective_from:
+          type:
+          - string
+          - 'null'
+          format: date
+        effective_until:
+          type:
+          - string
+          - 'null'
+          format: date
+        temporal_source:
+          type: string
+          enum:
+          - dated_history
+          - default
+          - current_supplier
+    AccountingCatalogContextMethod:
+      type: object
+      additionalProperties: false
+      required:
+      - value
+      - id
+      - effective_from
+      - effective_until
+      - temporal_source
+      properties:
+        value:
+          type: string
+          enum:
+          - tax_evidence
+          - double_entry
+        id:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+        effective_from:
+          type:
+          - string
+          - 'null'
+          format: date
+        effective_until:
+          type:
+          - string
+          - 'null'
+          format: date
+        temporal_source:
+          type: string
+          enum:
+          - dated_history
+          - default
+          - current_supplier
+    AccountingCatalogContextAccount:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - account_code
+      - account_type
+      - parent_id
+      - is_synthetic
+      - normal_side
+      - tax_deductibility
+      - is_active
+      - temporal_source
+      - effective_from
+      - effective_until
+      - metadata_revision
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        account_code:
+          type: string
+        account_type:
+          type: string
+        parent_id:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+        is_synthetic:
+          type: boolean
+        normal_side:
+          type:
+          - string
+          - 'null'
+          enum:
+          - debit
+          - credit
+          - null
+        tax_deductibility:
+          type: string
+          enum:
+          - deductible
+          - non_deductible
+        is_active:
+          type: boolean
+        temporal_source:
+          type: string
+          enum:
+          - dated_history
+          - current_base
+        effective_from:
+          type:
+          - string
+          - 'null'
+          format: date
+        effective_until:
+          type:
+          - string
+          - 'null'
+          format: date
+        metadata_revision:
+          oneOf:
+          - $ref: '#/components/schemas/AccountingCatalogContextMetadataRevision'
+          - type: 'null'
+    AccountingCatalogContextMetadataRevision:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - row_version
+      - definition_hash
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        row_version:
+          type: integer
+          minimum: 1
+        definition_hash:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+    AccountingCatalogContextAccountRole:
+      type: object
+      additionalProperties: false
+      required:
+      - role
+      - account_code
+      - account_id
+      properties:
+        role:
+          type: string
+        account_code:
+          type: string
+        account_id:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+    AccountingCatalogContextSystemDimension:
+      type: object
+      additionalProperties: false
+      required:
+      - role
+      - type_id
+      - value_roles
+      - temporal_source
+      - historical_state_available
+      properties:
+        role:
+          type: string
+          enum:
+          - activity
+          - activity_kind
+          - tax_regime
+        type_id:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+        value_roles:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - role
+            - value_id
+            properties:
+              role:
+                type: string
+              value_id:
+                type:
+                - integer
+                - 'null'
+                minimum: 1
+        temporal_source:
+          type: string
+          const: current_identity
+        historical_state_available:
+          type: boolean
+          const: false
     PropertySaldoPage:
       type: object
       additionalProperties: false

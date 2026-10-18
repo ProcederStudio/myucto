@@ -1289,6 +1289,15 @@ vypnout přes `MYUCTO_INSECURE_TLS=1`. Server na to při startu hlasitě upozorn
 Na produkci to nepoužívejte: bez ověření certifikátu jde spojení odposlechnout
 i podvrhnout, a token v hlavičce je to první, co útočník získá.
 
+### 106.8.14 Účetní kontext k datu
+
+Nástroj `get_accounting_context` čte účetní rámec, metodu, role účtů a
+identifikátory metadat k povinnému `date`. Zachovává `complete`, `findings`,
+`temporal_source` i `null`; neúplná historie není nula ani neplatný účet.
+Používá současnou znalost evidence. Nepřijímá `known_at`, neinicializuje
+osnovu nebo dimenze a nemění účetnictví. Podrobnosti jsou v kapitole
+[REST API](104_API.md).
+
 ## 106.9 Související kapitoly
 
 - [REST API](104_API.md) - tokeny, limity a práva
