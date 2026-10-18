@@ -368,7 +368,7 @@ final class InvoicePaymentService
 
         $this->pdf->invalidate($invoiceId, 'invalidate_mark_paid');
         if (!$pdo->inTransaction()) {
-            $this->stats->recomputeForInvoiceId($invoiceId);
+            $this->stats->recomputeAfterCommit($invoiceId);
         }
         return true;
     }
@@ -694,17 +694,31 @@ final class InvoicePaymentService
         ];
     }
 
-    /** Side-effecty po commitu: PDF cache (UHRAZENO stamp / QR) + dashboard stats. */
+    /**
+     * Side-effecty po commitu: PDF cache (UHRAZENO stamp / QR) + dashboard stats.
+     *
+     * Ve vlastní transakci je platba v tu chvíli už uložená, takže chyba úklidu cache
+     * nesmí změnit výsledek: volající by ji ohlásil jako odmítnutou platbu a klient API
+     * by ji poslal znovu (duplicitní úhrada). V transakci volajícího se nic nepolyká.
+     */
     private function afterTransition(int $invoiceId, array $transition): void
     {
-        if ($transition['became_paid']) {
-            $this->pdf->invalidate($invoiceId, 'invalidate_mark_paid');
-        } elseif ($transition['became_unpaid']) {
-            $this->pdf->invalidate($invoiceId, 'invalidate_unmark_paid');
-        } else {
-            // I bez status flipu se mění obsah PDF — řádek „Uhrazeno / Zbývá uhradit"
-            // a QR na zbývající částku. Cached PDF by jinak chtělo starou částku.
-            $this->pdf->invalidate($invoiceId, 'invalidate_payment_change');
+        $committed = !$this->db->pdo()->inTransaction();
+        try {
+            if ($transition['became_paid']) {
+                $this->pdf->invalidate($invoiceId, 'invalidate_mark_paid');
+            } elseif ($transition['became_unpaid']) {
+                $this->pdf->invalidate($invoiceId, 'invalidate_unmark_paid');
+            } else {
+                // I bez status flipu se mění obsah PDF — řádek „Uhrazeno / Zbývá uhradit"
+                // a QR na zbývající částku. Cached PDF by jinak chtělo starou částku.
+                $this->pdf->invalidate($invoiceId, 'invalidate_payment_change');
+            }
+        } catch (\Throwable $e) {
+            if (!$committed) {
+                throw $e;
+            }
+            error_log('Invalidace PDF faktury #' . $invoiceId . ' po změně plateb selhala: ' . $e->getMessage());
         }
         // Pohledávkové agregace (po splatnosti, aging) pracují s amount_to_pay - paid_total,
         // takže přepočet je vhodný i bez změny lifecycle statusu. StatsRecomputer si ale
@@ -712,8 +726,8 @@ final class InvoicePaymentService
         // bank unmatch) by spadl na „already an active transaction". Vnořené volání
         // recompute přeskočí (shodné s dosavadním chováním bankovního párování;
         // cache se dopočte při nejbližší přímé akci / cronu).
-        if (!$this->db->pdo()->inTransaction()) {
-            $this->stats->recomputeForInvoiceId($invoiceId);
+        if ($committed) {
+            $this->stats->recomputeAfterCommit($invoiceId);
         }
     }
 

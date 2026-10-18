@@ -80,6 +80,8 @@ final class MarkPaidAction
                     (int) $invoice['supplier_id'],
                     $paidAt,
                 );
+            } catch (\PDOException $e) {
+                throw $e;
             } catch (\RuntimeException $e) {
                 return Json::error($response, 'invalid_payment', $e->getMessage(), 409);
             }
@@ -89,6 +91,9 @@ final class MarkPaidAction
                     'source'     => 'mark_paid',
                     'created_by' => (int) ($user['id'] ?? 0),
                 ]);
+            } catch (\PDOException $e) {
+                // Chyba databáze není neplatná platba, viz CreatePaymentAction.
+                throw $e;
             } catch (\RuntimeException $e) {
                 return Json::error($response, 'invalid_payment', $e->getMessage(), 409);
             }
@@ -102,7 +107,7 @@ final class MarkPaidAction
             // Cached PDF má embedded status (UHRAZENO stamp, QR skip) — bez invalidace by
             // se servíroval starý soubor s výzvou k platbě i po označení za zaplacené.
             $this->pdf->invalidate($id, 'invalidate_mark_paid');
-            $this->stats->recomputeForInvoiceId($id);
+            $this->stats->recomputeAfterCommit($id);
         }
 
         $ip = $this->ipMatcher->clientIpFromRequest($request->getServerParams());

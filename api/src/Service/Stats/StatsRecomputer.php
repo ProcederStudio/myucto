@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Stats;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use PDO;
 
 /**
@@ -130,6 +131,27 @@ final class StatsRecomputer
         $this->recomputeClient((int) $row['client_id']);
         if (!empty($row['project_id'])) {
             $this->recomputeProject((int) $row['project_id']);
+        }
+    }
+
+    /**
+     * Přepočet po už potvrzeném zápisu dokladu (vystavení, úhrada). Cache je odvozená
+     * a dopočte ji i příští přepočet, takže její chyba nesmí změnit výsledek operace,
+     * která je už uložená: volající by vrátil chybu a klient API by doklad nebo úhradu
+     * poslal znovu. Odvolaný přepočet (1020/1213) se zopakuje, jiná chyba se zaloguje.
+     * Uvnitř cizí transakce se odvolání předá dál, protože je odvolaná i ta transakce.
+     */
+    public function recomputeAfterCommit(int $invoiceId): void
+    {
+        $pdo = $this->db->pdo();
+        $outer = $pdo->inTransaction();
+        try {
+            TransactionFailure::retrying($pdo, fn () => $this->recomputeForInvoiceId($invoiceId));
+        } catch (\Throwable $e) {
+            if ($outer && TransactionFailure::aborted($e)) {
+                throw $e;
+            }
+            error_log('Přepočet statistik k faktuře #' . $invoiceId . ' selhal: ' . $e->getMessage());
         }
     }
 
