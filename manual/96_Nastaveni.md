@@ -621,6 +621,10 @@ Provozní nastavení firmy má pět samostatných oprávnění: **Odesílací pr
 samostatně zakázat nebo povolit pro zápis. V `Firma → Nastavení firmy` se zobrazí jen povolené záložky; totéž platí
 pro přímý odkaz a pro vlastní klientskou doménu. Samotné **Nastavení firmy** přístup do těchto editorů nezapíná.
 Právo **Měnit nastavení firmy** zůstává interní správě právních, daňových a účetních údajů.
+Interní role mají branding v položce `Firma → Branding`, platební QR a e-mailové šablony v `Firma → Nastavení`
+a superadmin odesílací profily v `Systém → E-maily a certifikáty`. Položka `Firma → Nastavení firmy` se jim proto
+v menu ukáže jen kvůli oblasti, kterou jinde nenajdou: odesílacím profilům, nebo platebnímu QR a e-mailovým šablonám
+u role bez práva **Měnit nastavení firmy**.
 
 Klient s právem spravovat firemní podpisové profily může pro firmu nahrát certifikát P12/PFX a nastavit jeho použití
 pro PDF výstupy. Pro propojení profilu s odesílacím profilem potřebuje také správu odesílacích profilů. Správa se týká

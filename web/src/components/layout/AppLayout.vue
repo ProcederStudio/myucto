@@ -923,8 +923,17 @@ function filterNavigation(sections: NavSection[]): NavSection[] {
     ...section,
     items: section.items.filter(item => {
       if (item.external) return true
-      if (item.to.startsWith('/portal/settings')) return OPERATIONAL_SETTINGS_KEYS.some(permission =>
-        (permission !== 'settings.signing_profiles' || auth.isClientRole) && auth.canWrite(permission))
+      if (item.to.startsWith('/portal/settings')) {
+        const allowed = OPERATIONAL_SETTINGS_KEYS.some(permission =>
+          (permission !== 'settings.signing_profiles' || auth.isClientRole) && auth.canWrite(permission))
+        if (!allowed || clientExperience.value) return allowed
+        // Interní menu má Branding samostatně, QR a šablony v Nastavení firmy
+        // a superadmin odesílací profily v Systém → E-maily. Druhá položka se
+        // ukáže jen kvůli oblasti, kterou role jinde v menu nenajde.
+        if (auth.isSuperadmin) return false
+        return auth.canWrite('settings.email_profiles') || (!auth.canWrite('settings.company.write')
+          && (auth.canWrite('settings.payment_qr') || auth.canWrite('settings.email_templates')))
+      }
       const permission = navPermission(item)
       if (item.to.startsWith('/admin/settings') || item.to.startsWith('/admin/integrations')) return auth.canWrite('settings.company.write')
       if (item.to.startsWith('/admin/branding')) return auth.canWrite('settings.branding')

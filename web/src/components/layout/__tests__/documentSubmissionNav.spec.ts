@@ -64,6 +64,39 @@ describe('AppLayout document submission navigation', () => {
   })
 })
 
+describe('AppLayout company settings navigation', () => {
+  const portal = 'a[href="/portal/settings"]'
+
+  it('neukazuje superadminovi druhé Nastavení firmy vedle plného nastavení', () => {
+    const wrapper = renderNavigation('superadmin')
+    expect(wrapper.find('a[href="/admin/settings"]').exists()).toBe(true)
+    expect(wrapper.find(portal).exists()).toBe(false)
+  })
+
+  it('ukazuje internímu správci firmy delegované nastavení jen kvůli odesílacím profilům', () => {
+    expect(renderNavigation('admin').find(portal).exists()).toBe(true)
+    const withoutProfiles = renderNavigation('admin', { 'settings.email_profiles': false })
+    expect(withoutProfiles.find('a[href="/admin/settings"]').exists()).toBe(true)
+    expect(withoutProfiles.find('a[href="/admin/branding"]').exists()).toBe(true)
+    expect(withoutProfiles.find(portal).exists()).toBe(false)
+  })
+
+  it('ukazuje interní roli bez zápisu do Nastavení provozní oblasti, které jinde nenajde', () => {
+    const none = Object.fromEntries(OPERATIONAL_SETTINGS_KEYS.map(key => [key, false]))
+    const base = { ...none, 'settings.company.write': false }
+    expect(renderNavigation('accountant', base).find(portal).exists()).toBe(false)
+    expect(renderNavigation('accountant', { ...base, 'settings.branding': true }).find(portal).exists()).toBe(false)
+    expect(renderNavigation('accountant', { ...base, 'settings.payment_qr': true }).find(portal).exists()).toBe(true)
+    expect(renderNavigation('accountant', { ...base, 'settings.email_templates': true }).find(portal).exists()).toBe(true)
+  })
+
+  it('klientovi nechává Nastavení firmy s kteroukoli delegovanou oblastí', () => {
+    const none = Object.fromEntries(OPERATIONAL_SETTINGS_KEYS.map(key => [key, false]))
+    expect(renderNavigation('client', none).find(portal).exists()).toBe(false)
+    expect(renderNavigation('client', { ...none, 'settings.branding': true }).find(portal).exists()).toBe(true)
+  })
+})
+
 describe('AppLayout price list navigation', () => {
   it.each<Role>(['admin', 'accountant', 'client'])('%s sees the price list only with its own permission', role => {
     for (const allowed of [false, true]) {
