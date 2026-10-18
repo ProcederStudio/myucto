@@ -119,6 +119,14 @@ final class SettingsBlankFieldsAndCurrencyTest extends TestCase
         self::assertStringContainsString('validation_failed', (string) $response->getBody());
     }
 
+    /** Nulový odkaz na číselník by prošel jako „nezáporné číslo" a spadl na cizím klíči. */
+    public function testZeroReferenceIdIsValidationError(): void
+    {
+        $response = $this->saveSupplier(['country_id' => 0]);
+        self::assertSame(400, $response->getStatusCode(), (string) $response->getBody());
+        self::assertStringContainsString('validation_failed', (string) $response->getBody());
+    }
+
     public static function missingLabels(): iterable
     {
         yield 'null' => [null];

@@ -1544,10 +1544,14 @@ final class SettingsAction
             }
             $value = is_string($body[$field]) ? trim($body[$field]) : $body[$field];
             if ($value !== null && $value !== '') {
+                // Odkaz na číselník (`*_id`) nulu neunese, skončil by na cizím klíči.
+                $isReference = str_ends_with($field, '_id');
                 if (in_array($field, self::SUPPLIER_BLANK_KEEPS_CURRENT, true)
-                    && (is_bool($value) || filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]) === false)
+                    && (is_bool($value) || filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => $isReference ? 1 : 0]]) === false)
                 ) {
-                    return "Pole '$field' musí být nezáporné celé číslo.";
+                    return $isReference
+                        ? "Pole '$field' musí být kladné celé číslo."
+                        : "Pole '$field' musí být nezáporné celé číslo.";
                 }
                 continue;
             }
