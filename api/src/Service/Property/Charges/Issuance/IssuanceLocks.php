@@ -23,7 +23,7 @@ final class IssuanceLocks
         ] as $sql) {
             $stmt=$this->db->pdo()->prepare($sql); $stmt->execute([$supplier]); $stmt->fetchAll();
         }
-        (new PropertyReadRepository($this->db))->objects($supplier,null,true);
+        (new PropertyReadRepository($this->db))->lockObjects($supplier);
     }
 
     public function assertFramework(int $supplier,string $date): void

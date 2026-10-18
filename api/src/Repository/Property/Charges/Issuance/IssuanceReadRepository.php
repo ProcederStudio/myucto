@@ -129,7 +129,7 @@ final class IssuanceReadRepository
             foreach($charge['snapshot']['liability_groups'] as $group) foreach($group['members'] as $client) $expected['parties'][$group['role'].':'.$client]=[
                 'client_id'=>$client,'group_key'=>$group['group_key'],'role'=>$group['role'],'group'=>$group];
             foreach($charge['snapshot']['notices'] as $notice) $expected['notices'][$notice['component_id']]=$notice['notice'];
-            foreach($expected as $kind=>$rows) if(PropertyInput::hash($rows)!==PropertyInput::hash($actual[$kind][$charge['id']]??[])) self::corrupt();
+            foreach($expected as $kind=>$rows) if(!PropertyInput::sameJsonGraph($rows,$actual[$kind][$charge['id']]??[])) self::corrupt();
         }
     }
 

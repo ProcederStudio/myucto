@@ -300,7 +300,7 @@ final class PostingService
         try {
             $periodStatuses = (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
             (new SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
-        (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->lockClaims($supplierId);
+        (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->lockContext($supplierId);
             (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->acquire($supplierId);
             if ($sourceType === 'bank' && $sourceId !== null) {
                 (new PayrollBankEvidenceGuard($this->db))->assertAvailableForBankPosting($sourceId);

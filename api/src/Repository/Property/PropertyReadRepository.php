@@ -15,6 +15,13 @@ final class PropertyReadRepository
 {
     public function __construct(private readonly Connection $db) {}
 
+    public function lockObjects(int $supplierId): void
+    {
+        $this->assertCurrent(true);
+        $stmt=$this->db->pdo()->prepare('SELECT id FROM property_objects WHERE supplier_id = ? ORDER BY id FOR UPDATE');
+        $stmt->execute([$supplierId]);$stmt->fetchAll(PDO::FETCH_COLUMN);
+    }
+
     public function objects(int $supplierId, ?string $kind = null, bool $currentRead = false): array
     {
         $this->assertCurrent($currentRead);

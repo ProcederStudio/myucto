@@ -63,6 +63,19 @@ final class PropertyInput
         hash_update($hash,'}');return hash_final($hash);
     }
 
+    public static function sameJsonGraph(array $expected,array $actual): bool
+    {
+        self::assertJsonGraph($expected,512);self::assertJsonGraph($actual,512);
+        $flags=JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE|JSON_PRESERVE_ZERO_FRACTION;
+        $left=json_encode($expected,$flags,512);$right=json_encode($actual,$flags,512);
+        if($left===$right)return true;
+        return self::hash($expected)===self::hash($actual);
+    }
+    private static function assertJsonGraph(array $value,int $remaining): void
+    {
+        if($remaining<1)throw new \JsonException('Maximum stack depth exceeded',JSON_ERROR_DEPTH);
+        foreach($value as $item){if(is_scalar($item)||$item===null)continue;if(!is_array($item))throw new \InvalidArgumentException('Canonical materialization requires decoded JSON values.');self::assertJsonGraph($item,$remaining-1);}
+    }
     private static function canonicalJson(mixed $payload,int $depth=512): string
     {
         $sort = static function (mixed $value) use (&$sort): mixed {
