@@ -20,6 +20,7 @@
     "purchase_approval",
     "scan_attach",
     "search",
+    "securitiesDebt",
     "session_lock",
     "status",
     "supplier",
@@ -908,6 +909,9 @@
       "propertyRegistry",
       "propertySaldo",
       "propertySettlements"
+    ],
+    "accounting-securities-debt": [
+      "securities504"
     ],
     "property-service-lifecycles": [
       "propertyServiceLifecycle"

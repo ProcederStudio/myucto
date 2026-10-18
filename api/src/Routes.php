@@ -384,6 +384,7 @@ final class Routes
     {
         \MyInvoice\Routes\ServiceLifecycleRoutes::register($app);
         \MyInvoice\Routes\FundingRoutes::register($app);
+        \MyInvoice\Routes\SecuritiesDebt504Routes::register($app);
         $app->get('/api/health',  HealthAction::class);
         $app->get('/api/version', VersionAction::class);
 

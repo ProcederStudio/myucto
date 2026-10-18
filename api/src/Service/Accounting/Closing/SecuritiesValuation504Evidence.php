@@ -21,7 +21,8 @@ final class SecuritiesValuation504Evidence
         $assessment = self::evaluate($selected, $evidence, $snapshot['required_types']);
         $selectedCells = array_column($selected['cells'], null, 'cell_key');
         $caseCells = Fx504CaseProjection::cells($snapshot['case_snapshot']['rows']);
-        $inventoryOrigins = array_replace($selected['origins'], $snapshot['case_snapshot']['origins']);
+        $inventoryOrigins = array_replace($selected['origins'], $snapshot['case_snapshot']['origins'], $selected['debt_lifecycle']['origins'] ?? []);
+        $snapshot['case_snapshot']['origins'] = array_replace($snapshot['case_snapshot']['origins'], $selected['debt_lifecycle']['origins'] ?? []);
         $sourceRows = array_column($selected['all_source_rows'], null, 'id');
         foreach ($assessment['cells'] as &$cell) $cell['case_origins'] = $inventoryOrigins[$cell['line_id']] ?? [];
         unset($cell);
@@ -34,7 +35,8 @@ final class SecuritiesValuation504Evidence
                 $origins = $inventoryOrigins[$cell['line_id']] ?? [];
                 $origin = $member['case_origin'];
                 $whole = $member['book_czk'] === $cell['book_czk'] && $member['book_foreign'] === $cell['book_foreign'];
-                self::need($origins === [] ? $origin['kind'] === 'declared_title' : ($whole && in_array($origin, $origins, true)), 'securities_monetary_allocation_unproven');
+                $nativeDebt = self::nativeDebtMember($selected, $member, $cell);
+                self::need($origins === [] ? $origin['kind'] === 'declared_title' : (($whole || $nativeDebt) && in_array($origin, $origins, true)), 'securities_monetary_allocation_unproven');
                 self::need($origins !== [] || in_array($sourceRows[$cell['line_id']]['source_type'] ?? null, ['manual', 'opening'], true), 'securities_monetary_allocation_unproven');
                 try { Fx504CaseProjection::assertOriginForCell($cell, $selectedCells, $inventoryOrigins, $origin); }
                 catch (ClosingException) { throw new \DomainException('securities_monetary_allocation_unproven'); }
@@ -43,8 +45,9 @@ final class SecuritiesValuation504Evidence
                 $monetary[$key] ??= [0, 0];
                 $monetary[$key][0] += self::money($member['book_czk']);
                 $monetary[$key][1] += self::money($member['book_foreign']);
-                $generated[] = ['origin' => $origin, 'reason' => $member['contract_reference'], 'contributions' => [
-                    ['cell_key' => $key, 'czk_signed' => $member['book_czk'], 'foreign_signed' => $member['book_foreign']]]];
+                $originKey=hash('sha256',json_encode($origin,JSON_THROW_ON_ERROR));
+                $generated[$originKey] ??= ['origin'=>$origin,'reason'=>$member['contract_reference'],'contributions'=>[]];
+                $generated[$originKey]['contributions'][]=['cell_key'=>$key,'czk_signed'=>$member['book_czk'],'foreign_signed'=>$member['book_foreign']];
                 $monetaryKeys[$key] = true;
             }
         } catch (\DomainException $e) {
@@ -72,7 +75,7 @@ final class SecuritiesValuation504Evidence
         };
         $snapshot['case_snapshot']['rows'] = $rows;
         $snapshot['case_snapshot']['prior_decisions'] = $filter($snapshot['case_snapshot']['prior_decisions']);
-        $decisions = [...$filter($caseDecisions ?? $snapshot['case_snapshot']['prior_decisions']), ...$generated];
+        $decisions = [...$filter($caseDecisions ?? $snapshot['case_snapshot']['prior_decisions']), ...array_values($generated)];
         $codes = array_column($rows, 'account_code');
         $accountDecisions = array_intersect_key($accountDecisions, array_flip($codes));
         $preview = Fx504CaseProjection::preview($snapshot, $accountDecisions, $decisions, array_keys($monetaryKeys));
@@ -97,6 +100,11 @@ final class SecuritiesValuation504Evidence
                 array_push($result['findings'], ...$result['debt_basis']['findings']);
             }
         }
+        $nativeDebt = $snapshot['debt_lifecycle'] ?? ['lots'=>[], 'findings'=>[]];
+        array_push($result['findings'], ...$nativeDebt['findings']);
+        $result['debt_lifecycle'] = $nativeDebt;
+        $result['debt_treatments'] = [];
+        if ($evidence === null && $nativeDebt['lots'] !== []) $evidence = ['valuations'=>[]];
         if ($snapshot['cells'] === [] && ($evidence === null || (($evidence['valuations'] ?? []) === [] && ($evidence['non_security_members'] ?? []) === []))) {
             $result['complete'] = $result['findings'] === [];
             return $result;
@@ -109,7 +117,7 @@ final class SecuritiesValuation504Evidence
             $valuations = $evidence['valuations'] ?? null;
             self::need(is_array($valuations) && array_is_list($valuations), 'securities_evidence_required');
             $profile = $valuations === [] ? null : self::profile($snapshot, $evidence['profile'] ?? null);
-            $fair = $profile !== null && $profile['scope'] === 'full' && ($profile['category'] !== 'micro' || $profile['micro_exception'] !== 'none');
+            $fair = $profile !== null && self::fairValueEligible($snapshot, $profile);
             $cells = array_column($snapshot['cells'], null, 'cell_key');
             $used = $proofUsed = $claims = [];
             $identities = [];
@@ -175,6 +183,25 @@ final class SecuritiesValuation504Evidence
                     'book_czk' => Fx504Builder::decimal($base), 'target_czk' => Fx504Builder::decimal($target),
                     'change_czk' => Fx504Builder::decimal($target - $base), 'components' => array_map(static fn (array $component): array => ['kind' => $component['kind'], 'route' => $component['route'], 'amount_czk' => Fx504Builder::decimal($component['amount'])], $components)];
             }
+            foreach ($nativeDebt['lots'] as $lot) {
+                $fairDebt = $lot['terms']['classification'] === 'trading' && self::fairValueEligible($snapshot, $evidence['profile'] ?? []);
+                $result['debt_treatments'][] = ['lot_id'=>$lot['id'],'fair_value'=>$fairDebt];
+                if ($fairDebt) self::need($lot['valued_on'] === $snapshot['as_of'] || $lot['principal_balance'] === '0.00', 'debt_valuation_required');
+                foreach ($lot['lines'] as $lineId => $part) {
+                    $matches = array_values(array_filter($cells, static fn ($cell) => $cell['line_id'] === (int) $lineId));
+                    self::need(count($matches) === 1, 'debt_inventory_changed'); $cell = $matches[0]; $key = $cell['cell_key'];
+                    $czk = self::money(bcadd($part['principal_czk'], $part['interest_czk'], 2));
+                    $native = self::money(bcadd($part['principal_native'], $part['interest_native'], 2));
+                    self::need($czk === $cell['czk_cents'] && ($lot['currency'] === 'CZK' || $native === $cell['foreign_cents']), 'debt_inventory_changed');
+                    $used[$key] ??= [0, 0]; $used[$key][0] += $cell['czk_cents']; $used[$key][1] += $cell['foreign_cents'];
+                    $monetaryCzk = $fairDebt ? $part['interest_czk'] : Fx504Builder::decimal($cell['czk_cents']);
+                    $monetaryForeign = $fairDebt ? $part['interest_native'] : Fx504Builder::decimal($cell['foreign_cents']);
+                    if ($lot['currency'] !== 'CZK' && ($monetaryCzk !== '0.00' || $monetaryForeign !== '0.00')) $result['monetary_members'][] = [
+                        'source_cell_hash'=>$key, 'book_czk'=>$monetaryCzk, 'book_foreign'=>$monetaryForeign,
+                        'native_debt_lot_id'=>$lot['id'], 'native_debt_fair'=>$fairDebt, 'nature'=>'monetary',
+                        'contract_reference'=>$lot['terms']['contract_reference'], 'case_origin'=>$lot['origin']];
+                }
+            }
             $monetaryMembers = $evidence['non_security_members'] ?? [];
             self::need(is_array($monetaryMembers) && array_is_list($monetaryMembers), 'securities_monetary_evidence_invalid');
             foreach ($monetaryMembers as $member) {
@@ -238,6 +265,26 @@ final class SecuritiesValuation504Evidence
         return $entries;
     }
 
+    private static function nativeDebtMember(array $snapshot,array $member,array $cell): bool
+    {
+        if (!isset($member['native_debt_lot_id'])) return false;
+        foreach ($snapshot['debt_lifecycle']['lots'] ?? [] as $lot) {
+            if ($lot['id'] !== $member['native_debt_lot_id'] || !isset($lot['lines'][$cell['line_id']])) continue;
+            $part = $lot['lines'][$cell['line_id']];
+            $czk = !empty($member['native_debt_fair']) ? $part['interest_czk'] : bcadd($part['principal_czk'],$part['interest_czk'],2);
+            $native = !empty($member['native_debt_fair']) ? $part['interest_native'] : bcadd($part['principal_native'],$part['interest_native'],2);
+            return $member['book_czk'] === $czk && $member['book_foreign'] === $native
+                && $member['case_origin'] === $lot['origin'];
+        }
+        return false;
+    }
+
+    public static function fairValueEligible(array $snapshot, array $profile): bool
+    {
+        $profile = self::profile($snapshot, $profile);
+        return $profile['scope'] === 'full' && ($profile['category'] !== 'micro' || $profile['micro_exception'] !== 'none');
+    }
+
     private static function profile(array $snapshot, mixed $profile): array
     {
         $exceptions = ['none', 'securities_dealer', 'foreign_securities_dealer_branch', 'payment_institution', 'foreign_payment_institution_branch',
@@ -289,6 +336,15 @@ final class SecuritiesValuation504Evidence
         return $profile;
     }
 
+    public static function assertMarketBasis(array $facts,string $asOf,string $currency): void
+    {
+        self::need(self::text($facts['market'] ?? null) && self::text($facts['market_reference'] ?? null)
+            && ($facts['market_type'] ?? null) === 'regulated' && ($facts['quote_currency'] ?? null) === $currency
+            && self::text($facts['market_calendar_reference'] ?? null) && ($facts['market_calendar_as_of'] ?? null) === $asOf
+            && self::date($facts['last_trading_date'] ?? null) && $facts['last_trading_date'] === $facts['valuation_date'], 'securities_market_basis_required');
+        self::need($facts['valuation_date'] <= $asOf, 'securities_market_basis_required');
+    }
+
     private static function target(array $instrument, array $facts, array $profile, bool $fair, int $base, int $foreign, string $rate, string $asOf, string $currency): array
     {
         $method = $instrument['method'] ?? null;
@@ -321,10 +377,7 @@ final class SecuritiesValuation504Evidence
         }
         if ($method === 'fair_value_market') {
             self::need($fair && (($kind === 'equity' && in_array($classification, ['trading', 'available_for_sale'], true)) || ($kind === 'debt' && $classification === 'trading')), 'securities_method_ineligible');
-            self::need(self::text($facts['market'] ?? null) && self::text($facts['market_reference'] ?? null)
-                && ($facts['market_type'] ?? null) === 'regulated' && ($facts['quote_currency'] ?? null) === $currency
-                && self::text($facts['market_calendar_reference'] ?? null) && ($facts['market_calendar_as_of'] ?? null) === $asOf
-                && self::date($facts['last_trading_date'] ?? null) && $facts['last_trading_date'] === $facts['valuation_date'], 'securities_market_basis_required');
+            self::assertMarketBasis($facts, $asOf, $currency);
             $price = self::decimal($facts['unit_price_foreign'] ?? null);
             $market = JournalLineAmount::cents(bcmul(bcmul($quantity, $price, 16), $rate, 16));
             if ($kind === 'debt') self::need(false, ($instrument['debt_type'] ?? null) === 'coupon' ? 'securities_coupon_basis_unsupported' : 'securities_discounted_trading_unsupported');

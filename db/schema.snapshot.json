@@ -1032,7 +1032,8 @@
         "2048_property_service_lifecycle.sql",
         "2049_property_service_lifecycle_commands.sql",
         "2050_property_service_settlement_dossier_events.sql",
-        "2051_property_funding.sql"
+        "2051_property_funding.sql",
+        "2052_accounting_securities_debt.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -1491,6 +1492,154 @@
             "checks": {
                 "after_json": "json_valid(`after_json`)",
                 "before_json": "json_valid(`before_json`)"
+            }
+        },
+        "accounting_securities_debt_claims": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "amount_cents": "decimal(30,0) NOT NULL",
+                "component": "varchar(24) NOT NULL COLLATE ascii_bin",
+                "event_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "line_id": "bigint(20) unsigned NOT NULL",
+                "lot_id": "bigint(20) unsigned NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (supplier_id, line_id)",
+                "line_id": "BTREE (line_id)",
+                "supplier_id": "BTREE (supplier_id, lot_id)",
+                "supplier_id_2": "BTREE (supplier_id, event_id)"
+            },
+            "foreign_keys": {
+                "accounting_securities_debt_claims_ibfk_1": "(supplier_id, lot_id) -> accounting_securities_debt_lots (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "accounting_securities_debt_claims_ibfk_2": "(supplier_id, event_id) -> accounting_securities_debt_events (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "accounting_securities_debt_claims_ibfk_3": "(line_id) -> journal_entry_lines (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "CONSTRAINT_1": "`component` in ('acquisition','coupon_receipt','principal_redemption','fx_carry')",
+                "CONSTRAINT_2": "`amount_cents` > 0"
+            }
+        },
+        "accounting_securities_debt_commands": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "idempotency_key": "varchar(190) NOT NULL COLLATE ascii_bin",
+                "recorded_at": "datetime(6) NOT NULL",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "response_json": "longtext NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (supplier_id, idempotency_key)",
+                "created_by": "BTREE (created_by)"
+            },
+            "foreign_keys": {
+                "accounting_securities_debt_commands_ibfk_1": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "accounting_securities_debt_commands_ibfk_2": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "response_json": "json_valid(`response_json`)"
+            }
+        },
+        "accounting_securities_debt_events": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "accounting_date": "date NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "journal_entry_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "lot_id": "bigint(20) unsigned NOT NULL",
+                "operation": "varchar(32) NOT NULL COLLATE ascii_bin",
+                "receipt_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "receipt_json": "longtext NOT NULL",
+                "recorded_at": "datetime(6) NOT NULL",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "request_json": "longtext NOT NULL",
+                "reversal_of": "bigint(20) unsigned NULL DEFAULT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "idx_securities_debt_lot": "BTREE (supplier_id, lot_id, accounting_date, id)",
+                "journal_entry_id": "BTREE (journal_entry_id)",
+                "uq_securities_debt_event_tenant": "UNIQUE BTREE (supplier_id, id)",
+                "uq_securities_debt_reversal": "UNIQUE BTREE (supplier_id, reversal_of)"
+            },
+            "foreign_keys": {
+                "accounting_securities_debt_events_ibfk_1": "(supplier_id, lot_id) -> accounting_securities_debt_lots (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "accounting_securities_debt_events_ibfk_2": "(supplier_id, reversal_of) -> accounting_securities_debt_events (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "accounting_securities_debt_events_ibfk_3": "(journal_entry_id) -> journal_entries (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "CONSTRAINT_1": "`operation` in ('accrual','amortisation','valuation','coupon_receipt','principal_redemption','reverse')",
+                "receipt_json": "json_valid(`receipt_json`)",
+                "request_json": "json_valid(`request_json`)"
+            }
+        },
+        "accounting_securities_debt_fx_carries": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "accounting_date": "date NOT NULL",
+                "journal_entry_id": "bigint(20) unsigned NOT NULL",
+                "lot_id": "bigint(20) unsigned NOT NULL",
+                "period_id": "bigint(20) unsigned NOT NULL",
+                "receipt_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "receipt_json": "longtext NOT NULL",
+                "slot": "varchar(16) NOT NULL COLLATE ascii_bin",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (supplier_id, lot_id, period_id, slot)",
+                "idx_securities_debt_fx_entry": "BTREE (supplier_id, journal_entry_id)",
+                "journal_entry_id": "BTREE (journal_entry_id)",
+                "period_id": "BTREE (period_id)"
+            },
+            "foreign_keys": {
+                "accounting_securities_debt_fx_carries_ibfk_1": "(supplier_id, lot_id) -> accounting_securities_debt_lots (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "accounting_securities_debt_fx_carries_ibfk_2": "(period_id) -> accounting_periods (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "accounting_securities_debt_fx_carries_ibfk_3": "(journal_entry_id) -> journal_entries (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "CONSTRAINT_1": "`slot` in ('saldo','reversal')",
+                "receipt_json": "json_valid(`receipt_json`)"
+            }
+        },
+        "accounting_securities_debt_lots": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "acquired_on": "date NOT NULL",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "facts_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "facts_json": "longtext NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "lot_reference": "varchar(190) NOT NULL",
+                "maturity_on": "date NOT NULL",
+                "recorded_at": "datetime(6) NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "created_by": "BTREE (created_by)",
+                "uq_securities_debt_lot": "UNIQUE BTREE (supplier_id, lot_reference)",
+                "uq_securities_debt_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "accounting_securities_debt_lots_ibfk_1": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "accounting_securities_debt_lots_ibfk_2": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "CONSTRAINT_1": "`acquired_on` < `maturity_on`",
+                "facts_json": "json_valid(`facts_json`)"
             }
         },
         "accounting_setup_proposals": {

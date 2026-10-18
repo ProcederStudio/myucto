@@ -31,6 +31,7 @@ final class PaymentMutationContext
 
     public function assertEntriesMutable(int $supplier, array $ids): void
     {
+        (new \MyInvoice\Service\Accounting\Closing\SecuritiesDebt504UseGuard($this->db))->assertEntriesMutable($supplier, $ids);
         if (!$this->acquire($supplier)) return;
         try {
             (new PaymentUseGuard($this->db))->assertEntriesMutable($supplier, $ids);
@@ -41,6 +42,7 @@ final class PaymentMutationContext
 
     public function assertSourceMutable(int $supplier, string $kind, int $id): void
     {
+        (new \MyInvoice\Service\Accounting\Closing\SecuritiesDebt504UseGuard($this->db))->assertSourceMutable($supplier, $kind, $id);
         if (!$this->acquire($supplier)) return;
         try {
             (new PaymentUseGuard($this->db))->assertSourceMutable($supplier, $kind, $id);
@@ -51,6 +53,7 @@ final class PaymentMutationContext
 
     public function assertBankStatementMutable(int $supplier, int $id): void
     {
+        (new \MyInvoice\Service\Accounting\Closing\SecuritiesDebt504UseGuard($this->db))->assertBankStatementMutable($supplier, $id);
         if (!$this->acquire($supplier)) return;
         try {
             (new PaymentUseGuard($this->db))->assertBankStatementMutable($supplier, $id);
@@ -61,6 +64,7 @@ final class PaymentMutationContext
 
     public function assertLinesMutable(int $supplier, array $ids): void
     {
+        (new \MyInvoice\Service\Accounting\Closing\SecuritiesDebt504UseGuard($this->db))->assertLinesMutable($supplier, $ids);
         if (!$this->acquire($supplier)) return;
         try {
             (new PaymentUseGuard($this->db))->assertLinesMutable($supplier, $ids);

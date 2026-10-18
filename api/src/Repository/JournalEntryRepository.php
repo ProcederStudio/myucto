@@ -29,6 +29,7 @@ use PDO;
  */
 final class JournalEntryRepository
 {
+    public const int SECURITIES_DEBT_GUARD_VERSION = 1;
     public function __construct(
         private readonly Connection $db,
         private readonly ActivityLogger $activity,
@@ -345,6 +346,7 @@ final class JournalEntryRepository
                 $entryId = $this->persistJournal($header, $proof->lines);
             } else {
                 $entryId = (int) $previous['id'];
+                (new \MyInvoice\Service\Accounting\Closing\SecuritiesDebt504UseGuard($this->db))->assertEntriesMutable($supplierId, [$entryId]);
                 (new JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, [$entryId]);
                 $stmt = $this->db->pdo()->prepare('UPDATE journal_entries SET document_no = ?, description = ?, posted_at = ?, posted_by = ?, row_version = row_version + 1
                     WHERE supplier_id = ? AND id = ? AND period_id = ? AND entry_date = ? AND row_version = ? AND reversed_by IS NULL');
@@ -513,6 +515,7 @@ final class JournalEntryRepository
     private function insertReversalLocked(array $header, array $lines, int $sourceEntryId): int
     {
         $supplierId = (int) $header['supplier_id'];
+        (new \MyInvoice\Service\Accounting\Closing\SecuritiesDebt504UseGuard($this->db))->assertEntriesMutable($supplierId, [$sourceEntryId]);
         $source = $this->currentEntryForDimensionWrite($sourceEntryId, $supplierId);
         (new JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, [$sourceEntryId]);
         (new \MyInvoice\Service\Accounting\Closing\AssetReserveSourceUseGuard($this->db, $this))->assertReversal($supplierId, $sourceEntryId);
@@ -757,6 +760,7 @@ final class JournalEntryRepository
             $pdo->beginTransaction();
         }
         try {
+            (new \MyInvoice\Service\Accounting\Closing\SecuritiesDebt504UseGuard($this->db))->assertEntriesMutable($supplierId, [$id]);
             (new \MyInvoice\Service\Property\Opening\OpeningUseGuard($this->db))->assertDescriptionMutable($supplierId, $id);
             (new \MyInvoice\Service\Property\Services\Settlement\SettlementUseGuard($this->db))->assertDescriptionMutable($supplierId,$id);
             try { \MyInvoice\Service\Property\Funds\FundingUseGuard::assertEntriesMutable($this->db,$supplierId,[$id]); }

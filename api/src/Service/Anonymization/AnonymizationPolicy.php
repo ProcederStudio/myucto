@@ -42,6 +42,7 @@ final class AnonymizationPolicy
      * @var array<string,string> tabulka → důvod
      */
     public const TRUNCATE = [
+        'accounting_securities_debt_commands' => 'původní idempotentní odpovědi obsahují soukromé podklady instrumentů',
         'property_service_lifecycle_commands' => 'původní idempotentní odpovědi nelze přehrát nad pseudonymizovanými podklady bez původního požadavku',
         'nonprofit_tax_assessments' => 'potvrzené podklady obsahují původní doklady a jejich otisky',
         'abra_flexi_connections' => 'šifrované připojení ke zdrojové účetní firmě',
@@ -159,6 +160,10 @@ final class AnonymizationPolicy
         'unit_payment_correction_anchors' => [],
         'unit_payment_reliefs' => [],
         'property_opening_batches' => ['status'=>'keep','mode'=>'keep','request_json'=>'keep','request_hash'=>'keep','snapshot_json'=>'keep','snapshot_hash'=>'keep','idempotency_key'=>'keep'],
+        'accounting_securities_debt_lots' => ['lot_reference'=>'keep','facts_json'=>'keep','facts_hash'=>'keep'],
+        'accounting_securities_debt_events' => ['operation'=>'keep','request_json'=>'keep','request_hash'=>'keep','receipt_json'=>'keep','receipt_hash'=>'keep'],
+        'accounting_securities_debt_claims' => ['component'=>'keep'],
+        'accounting_securities_debt_fx_carries' => ['slot'=>'keep','receipt_json'=>'keep','receipt_hash'=>'keep'],
         'property_funding_heads' => [],
         'property_funding_operations' => ['kind'=>'keep','request_json'=>'service_settlement_json','request_hash'=>'keep','snapshot_json'=>'service_settlement_json','snapshot_hash'=>'keep','receipt_json'=>'service_settlement_json','receipt_hash'=>'keep','idempotency_key'=>'keep'],
         'property_funding_effects' => ['account_code'=>'keep','source_kind'=>'keep','parties_json'=>'service_settlement_json'],

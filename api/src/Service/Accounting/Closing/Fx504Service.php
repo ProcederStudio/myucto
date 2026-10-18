@@ -71,6 +71,7 @@ final class Fx504Service
             if (isset($body['securities_evidence']) && !is_array($body['securities_evidence'])) throw Fx504JournalProof::changed();
             $preview = SecuritiesValuation504Evidence::preview($snapshot, $body['account_decisions'] ?? [], $body['case_decisions'] ?? null, $body['securities_evidence'] ?? null);
             $built = Fx504Builder::build($preview, $body['decisions'] ?? [], $snapshot['required_types']);
+            (new SecuritiesDebt504FxCarryRegistrar($this->db))->beginRefresh($supplierId, $periodId);
             $record = ['expected_version' => $rowVersion, 'snapshot_hash' => $snapshot['snapshot_hash'],
                 'account_decisions' => $body['account_decisions'] ?? [], 'decisions' => $body['decisions'] ?? [],
                 'securities_evidence' => $body['securities_evidence'] ?? null, 'securities_inventory_hash' => $snapshot['securities_snapshot']['hash'],
@@ -100,6 +101,7 @@ final class Fx504Service
             $bump = $this->db->pdo()->prepare('UPDATE accounting_periods SET row_version = row_version + 1 WHERE supplier_id = ? AND id = ? AND row_version = ?');
             $bump->execute([$supplierId, $periodId, $rowVersion]);
             if ($bump->rowCount() !== 1) throw Fx504JournalProof::changed();
+            (new SecuritiesDebt504FxCarryRegistrar($this->db))->synchronize($supplierId, $periodId);
             $result = ['entry_ids' => $ids, 'totals' => $preview['totals'], 'snapshot_hash' => $snapshot['snapshot_hash']];
             $this->audit($supplierId, 'accounting.fx_revalued', $periodId, $result + ['fx504' => $record], $meta);
             return $result;
@@ -120,7 +122,11 @@ final class Fx504Service
             $original = $this->journal->findActiveBySourceForUpdate($supplierId, 'fx_revaluation', ClosingSourceId::fxSaldo($periodId));
             $existing = $this->journal->findActiveBySourceForUpdate($supplierId, 'fx_revaluation', ClosingSourceId::fxReversal($periodId));
             if ($enabled === 0 || $enabled === '0' || $original === null) {
-                if ($existing !== null) $this->posting->reverse($supplierId, (int) $existing['id'], ['entry_date' => $target['starts_on']] + $meta);
+                if ($existing !== null) {
+                    (new SecuritiesDebt504FxCarryRegistrar($this->db))->beginRefresh($supplierId, $periodId);
+                    $this->posting->reverse($supplierId, (int) $existing['id'], ['entry_date' => $target['starts_on']] + $meta);
+                    (new SecuritiesDebt504FxCarryRegistrar($this->db))->synchronize($supplierId, $periodId);
+                }
                 return null;
             }
             $stmt = $this->db->pdo()->prepare("SELECT * FROM accounting_closing_steps WHERE supplier_id=? AND period_id=? AND step_key='fx_revaluation' FOR UPDATE");
@@ -130,6 +136,7 @@ final class Fx504Service
             $payload = json_decode($step['payload'], true, 512, JSON_THROW_ON_ERROR);
             if (!is_array($payload['fx504'] ?? null)) throw Fx504JournalProof::changed();
             $sourceLines = Fx504JournalProof::sourceLines($this->db, $this->journal, $supplierId, (int) $original['id']);
+            (new SecuritiesDebt504FxCarryRegistrar($this->db))->beginRefresh($supplierId, $periodId);
             $payload['fx504']['slots']['reversal'] = ['status' => 'pending', 'expected_version' => $expectedVersion, 'target_period_id' => $targetId,
                 'source_entry_id' => (int) $original['id'], 'source_entry_version' => (int) $original['row_version'], 'source_hash' => Fx504JournalProof::sourceHash($sourceLines),
                 'previous_entry_id' => $existing === null ? null : (int) $existing['id'], 'previous_entry_version' => $existing === null ? null : (int) $existing['row_version'],
@@ -139,6 +146,7 @@ final class Fx504Service
             $stmt->execute([json_encode($payload, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE), $supplierId, $step['id'], $step['payload']]);
             if ($stmt->rowCount() !== 1) throw Fx504JournalProof::changed();
             $entryId = $this->journal->upsertCurrentFx504($supplierId, (int) $step['id'], 'reversal', $expectedVersion);
+            (new SecuritiesDebt504FxCarryRegistrar($this->db))->synchronize($supplierId, $periodId);
             $this->audit($supplierId, 'accounting.fx_opening_reversed', $periodId, ['entry_id' => $entryId, 'reversal' => $payload['fx504']['slots']['reversal']], $meta);
             return $entryId;
         });
@@ -149,7 +157,11 @@ final class Fx504Service
         return (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $periodId, $meta): ?int {
             (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
             $entry = $this->journal->findActiveBySourceForUpdate($supplierId, 'fx_revaluation', ClosingSourceId::fxReversal($periodId));
-            return $entry === null ? null : $this->posting->reverse($supplierId, (int) $entry['id'], ['entry_date' => $entry['entry_date']] + $meta);
+            if ($entry === null) return null;
+            (new SecuritiesDebt504FxCarryRegistrar($this->db))->beginRefresh($supplierId, $periodId);
+            $result = $this->posting->reverse($supplierId, (int) $entry['id'], ['entry_date' => $entry['entry_date']] + $meta);
+            (new SecuritiesDebt504FxCarryRegistrar($this->db))->synchronize($supplierId, $periodId);
+            return $result;
         });
     }
 
@@ -168,6 +180,7 @@ final class Fx504Service
                 || $this->journal->findActiveBySourceForUpdate($supplierId, 'fx_revaluation', ClosingSourceId::fxReversal($periodId)) !== null) {
                 throw new ClosingException('revert_order_violation', 'Nejprve zrušte otevření následujícího období a uzavření knih.', 422);
             }
+            (new SecuritiesDebt504FxCarryRegistrar($this->db))->beginRefresh($supplierId, $periodId);
             $ids = [];
             foreach (['saldo' => ClosingSourceId::fxSaldo($periodId), 'bank' => ClosingSourceId::fxBank($periodId)] as $slot => $sourceId) {
                 $entry = $this->journal->findActiveBySourceForUpdate($supplierId, 'fx_revaluation', $sourceId);

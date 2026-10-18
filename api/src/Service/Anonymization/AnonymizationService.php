@@ -81,7 +81,10 @@ final class AnonymizationService
         try {
             $cloner->copyTables($plan, $options->target, $log);
             $captureConnection = Connection::withoutSharedTestConnection(fn () => new Connection($this->targetConfig($options->target)));
-            try { $settlementInputs = SettlementCloneScrubber::captureInputs($captureConnection); }
+            try {
+                $settlementInputs = SettlementCloneScrubber::captureInputs($captureConnection);
+                $securitiesDebtInputs = SecuritiesDebt504CloneScrubber::captureInputs($captureConnection);
+            }
             finally { $captureConnection->close(); }
             $report = $this->anonymize($pdo, $options, $log);
             $log('Vypínám odchozí integrace…');
@@ -96,6 +99,7 @@ final class AnonymizationService
                 $issuanceMap = (new IssuanceCloneScrubber($targetConnection, $this->scrubber))->run($registryMap, $versionMap);
                 $paymentMap = (new PaymentsCloneScrubber($targetConnection, $this->scrubber))->run($issuanceMap,$registryMap,$settlementInputs);
                 (new ReceivablesCloneScrubber($targetConnection, $this->scrubber))->run($registryMap, $issuanceMap, $paymentMap);
+                SecuritiesDebt504CloneScrubber::run($targetConnection, $this->scrubber, $securitiesDebtInputs);
             } finally {
                 $targetConnection->close();
             }
