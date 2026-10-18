@@ -901,6 +901,16 @@ historické odpisy, karty zaměstnanců a pracovní vztahy, sklady, skladové ka
 a vozidla. Tyto evidence nevytvářejí další účetní zápisy vedle převzatého
 deníku. Dostupnost některých evidencí závisí na zapnutých modulech cílové firmy.
 
+U nehmotného majetku pořízeného od roku 2021 lze převzít také zdrojový způsob
+daňového odpisování **M** a účetní způsob **R**, pokud úplný měsíční účetní plán
+přesně odpovídá daňovým odpisům po zdaňovacích obdobích cílové firmy. Nestačí
+samotné označení metody: převod ověřuje částky, návaznost měsíců, uplatněné
+odpisy a jejich shodu s kartou. Technické zhodnocení se touto cestou nepřevádí.
+Uplatněné odpisy zůstanou v počátečních oprávkách bez dalšího účtování historie.
+Budoucí odpisy pokračují přesnými částkami zdrojového plánu, včetně odlišné
+částky posledního měsíce. Neověřený nebo nepodporovaný plán se nepřevezme
+a protokol vysvětlí důvod.
+
 Ověřené historické mzdy standardního hlavního pracovního poměru se přebírají do
 `Mzdy → Importy → Převzaté mzdy` se zdrojem Stereo NX. Přenáší se měsíční hrubá
 a čistá mzda, základy a pojistné, zálohová daň, odpracovaná doba, sražené částky
