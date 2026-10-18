@@ -71,6 +71,24 @@ final class SecuritiesValuation504Test extends TestCase
         }
     }
 
+    public function testCurrentPureProfitAndLossTurnoverMembershipInvalidatesReviewedSnapshot(): void
+    {
+        $evidence = $this->evidence();
+        $before = $this->preview($evidence);
+        self::assertTrue($before['complete']);
+        $this->db->pdo()->prepare("UPDATE accounting_periods SET status='closing' WHERE supplier_id=? AND id=?")->execute([$this->supplier, $this->period]);
+        $posting = Bootstrap::buildContainer()->get(PostingService::class);
+        $posting->postDocument($this->supplier, 'manual', null, [
+            ['account_code' => '549', 'side' => 'debit', 'amount' => '1000.00', 'dimensions' => $this->dims],
+            ['account_code' => '649', 'side' => 'credit', 'amount' => '1000.00', 'dimensions' => $this->dims],
+        ], ['entry_date' => '2025-12-30', 'posted' => true, 'allow_closing_period' => true]);
+        $after = $this->service->preview($this->supplier, $this->period, [], true, null, $evidence);
+        self::assertNotSame($before['snapshot_hash'], $after['snapshot_hash']);
+        self::assertNotSame($before['securities']['inventory_hash'], $after['securities']['inventory_hash']);
+        $this->expectException(\MyInvoice\Service\Accounting\Closing\ClosingException::class);
+        $this->service->run($this->supplier, $this->period, ['snapshot_hash' => $before['snapshot_hash'], 'securities_evidence' => $evidence], 1);
+    }
+
     public function testProvenZeroCostEquityValuationCompletesNativeFxPreview(): void
     {
         $initial = $this->service->preview($this->supplier, $this->period);

@@ -105,8 +105,8 @@ final class SecuritiesValuation504ReadRepository
         $from = (new \DateTimeImmutable($period['ends_on']))->modify('-7 days')->format('Y-m-d');
         foreach (array_unique(array_map(static fn (array $row): string => $row['currency_code'] ?? 'CZK', $history)) as $currency) {
             if ($currency === 'CZK') continue;
-            $rate = $this->rows('SELECT rate,rate_date FROM exchange_rates WHERE currency_code=? AND rate_date>=? AND rate_date<=? ORDER BY rate_date DESC LIMIT 1', [$currency, $from, $period['ends_on']], $currentRead);
-            if ($rate !== []) $rates[$currency] = $rate[0];
+            $rate = $this->rateAt($currency, $period['ends_on'], $currentRead);
+            if ($rate !== null) $rates[$currency] = $rate;
         }
         $proofEntries = [];
         foreach ($entries as $id => $entry) if (array_any($entry['lines'], static fn (array $line): bool => in_array($line['account_type'], ['asset', 'liability', 'equity'], true))) $proofEntries[$id] = $entry;
@@ -114,7 +114,10 @@ final class SecuritiesValuation504ReadRepository
         $originSnapshot = (new FxCaseOriginReadRepository($this->db))->snapshot($supplierId, $originRows, $currentRead);
         $snapshot = ['origins' => $originSnapshot['origins'], 'origin_facts_hash' => $originSnapshot['facts_hash'], 'all_source_rows' => $history, 'current_source_rows' => $current, 'cells' => array_values($cells), 'entries' => $proofEntries, 'rates' => $rates, 'findings' => $findings,
             'opening_entry_ids' => array_keys($openings), 'cancelled_entry_ids' => array_keys($removed), 'as_of' => $period['ends_on'], 'profile_snapshot' => $profileSnapshot];
+        $snapshot['debt_lifecycle'] = (new SecuritiesDebt504Repository($this->db,$currentRead))->closingProof($supplierId,$period['ends_on']);
         $hashSnapshot = $snapshot;
+        $hashSnapshot['category_source_rows'] = array_values(array_filter($rows, static fn (array $row): bool => in_array($row['account_type'], ['expense', 'revenue'], true)
+            && $row['posted_at'] !== null && $row['entry_date'] <= $period['ends_on'] && $row['source_type'] !== 'closing'));
         $hashSnapshot['entries'] = array_filter($proofEntries, static fn (array $entry): bool => $entry['entry_date'] <= $period['ends_on']
             && !($entry['source_type'] === 'closing' && (int) $entry['period_id'] === (int) $period['id']));
         $snapshot['hash'] = hash('sha256', json_encode([$hashSnapshot, $steps], JSON_THROW_ON_ERROR));
@@ -134,6 +137,13 @@ final class SecuritiesValuation504ReadRepository
         foreach ($snapshot['cells'] as $cell) if (str_starts_with($cell['account_code'], '255')) { $snapshot['findings'][] = ['code' => 'securities_own_instrument_unsupported']; break; }
         $snapshot['available_accounts'] = array_values($available);
         return $snapshot;
+    }
+
+    public function rateAt(string $currency, string $date, bool $currentRead = false): ?array
+    {
+        $from = (new \DateTimeImmutable($date))->modify('-7 days')->format('Y-m-d');
+        $rate = $this->rows('SELECT rate,rate_date FROM exchange_rates WHERE currency_code=? AND rate_date>=? AND rate_date<=? ORDER BY rate_date DESC LIMIT 1', [$currency, $from, $date], $currentRead);
+        return $rate[0] ?? null;
     }
 
     public function profileSnapshot(int $supplierId, array $period, bool $currentRead = false): array

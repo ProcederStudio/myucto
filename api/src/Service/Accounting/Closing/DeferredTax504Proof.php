@@ -44,7 +44,7 @@ final class DeferredTax504Proof
         if (!is_string($pending['body']['source_hash'] ?? null) || !hash_equals($pending['body']['source_hash'], DeferredTax504Repository::sourceHash($db, $supplierId, $periodId, true))) throw self::changed();
         $assessment = DeferredTax504Builder::assessment($pending['body']);
         if (!$assessment['enabled']) throw self::changed();
-        $ids = DeferredTax504Service::assertAccounts($db, $supplierId);
+        $ids = DeferredTax504Service::assertAccounts($db, $supplierId, $period['ends_on']);
         if ($ids !== $pending['account_ids']) throw self::changed();
         $state = (new DeferredTax504Repository($db, $journal))->state($supplierId, $period['ends_on']);
         $read = new LegalClosing504Repository($db, $journal);

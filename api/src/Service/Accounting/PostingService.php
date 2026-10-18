@@ -211,12 +211,12 @@ final class PostingService
     }
 
     /** @return list<array<string,mixed>> */
-    public function prepareDocumentLines(int $supplierId, string $sourceType, ?int $sourceId, array $lines, string $entryDate): array
+    public function prepareDocumentLines(int $supplierId, string $sourceType, ?int $sourceId, array $lines, string $entryDate, bool $currentRead = false): array
     {
         // 1) překlad CODE → account_id (v rámci osnovy firmy) + kontrola vyváženosti.
         //    Vyváženost se ověřuje na RESOLVED řádcích (částky zaokr. na 2 des. místa),
         //    tj. přesně na tom, co se uloží — ne na surovém vstupu.
-        $codeMap = $this->accounts->codeToIdMap($supplierId);
+        $codeMap = $this->accounts->codeToIdMap($supplierId, $entryDate, $currentRead);
         $resolved = $this->resolveLines($supplierId, $lines, $codeMap, $sourceType);
         $resolved = $this->stampProjectDimension($supplierId, $sourceType, $sourceId, $resolved);
         $resolved = $this->dimensionStamper()->stamp(
@@ -273,7 +273,6 @@ final class PostingService
             $this->assertPayrollPostingContext($supplierId, $sourceId);
         }
 
-        $resolved = $this->prepareDocumentLines($supplierId, $sourceType, $sourceId, $lines, $entryDate);
 
         // R7 (Epic F4): flag allow_closing_period smí nastavit VÝHRADNĚ ClosingService —
         // závěrkové zápisy k ends_on se účtují do období ve stavu 'closing' (nikdy closed/approved).
@@ -355,6 +354,8 @@ final class PostingService
                 );
             }
 
+            $resolved = $this->prepareDocumentLines($supplierId, $sourceType, $sourceId, $lines, $entryDate, true);
+
             // Přeúčtování ručními řádky přebírá aktuální stopu i ze stornovaného zdroje.
             // Čtení patří až za zámky období a nastavení, stejně jako ostatní čtení deníku.
             if (!empty($meta['inherit_line_trace_from'])) {
@@ -362,6 +363,7 @@ final class PostingService
                     $supplierId,
                     $this->journal->linesForEntry((int) $meta['inherit_line_trace_from'], $supplierId, true),
                     $resolved,
+                    $entryDate,
                 );
             }
 
@@ -422,7 +424,7 @@ final class PostingService
                 $existing['lines'] = $this->journal->linesForEntry((int) $existing['id'], $supplierId, true);
                 if ($taxNeutralRewrite) {
                     $this->assertTaxNeutralRewrite($supplierId, $existing, $entryDate, $resolved);
-                    $resolved = $this->inheritLineTrace($supplierId, $existing['lines'], $resolved);
+                    $resolved = $this->inheritLineTrace($supplierId, $existing['lines'], $resolved, $entryDate);
                 }
                 $entryId = $this->rewriteExisting(
                     $supplierId,
@@ -585,7 +587,7 @@ final class PostingService
                 $removedCents += JournalLineAmount::signedCents($line) * ($line['side'] === 'debit' ? 1 : -1);
             }
 
-            $codeMap = $this->accounts->codeToIdMap($supplierId);
+            $codeMap = $this->accounts->codeToIdMap($supplierId, $entryDate, true);
             $resolved = $addLines === [] ? [] : $this->resolveLines($supplierId, $addLines, $codeMap, $sourceType);
             if ($resolved !== []) {
                 $resolved = $this->stampProjectDimension($supplierId, $sourceType, $sourceId, $resolved);
@@ -998,7 +1000,7 @@ final class PostingService
             $violation = TaxNeutralReclassification::violation(
                 $existing['lines'] ?? [],
                 $resolved,
-                $this->accounts->idToAccountMap($supplierId),
+                $this->accounts->idToAccountMap($supplierId, $entryDate, true),
                 $this->incomeTaxFiledForYear($supplierId, (int) substr($entryDate, 0, 4)),
             );
             $reason = $violation === null ? null : TaxNeutralReclassification::describe($violation);
@@ -1047,7 +1049,7 @@ final class PostingService
      * @param list<array<string,mixed>> $resolved
      * @return list<array<string,mixed>>
      */
-    private function inheritLineTrace(int $supplierId, array $existingLines, array $resolved): array
+    private function inheritLineTrace(int $supplierId, array $existingLines, array $resolved, string $entryDate): array
     {
         [$resolved, $pool, $matched] = self::carryOverExactTrace($existingLines, $resolved);
         $pool = array_values(array_filter($pool, static fn (array $l): bool => ($l['currency_code'] ?? null) !== null
@@ -1055,7 +1057,7 @@ final class PostingService
         if ($pool === []) {
             return $resolved;
         }
-        $accounts = $this->accounts->idToAccountMap($supplierId);
+        $accounts = $this->accounts->idToAccountMap($supplierId, $entryDate, true);
         foreach ($resolved as $i => $line) {
             if (isset($matched[$i]) || ($line['currency_code'] ?? null) !== null) {
                 continue;
@@ -2794,7 +2796,7 @@ final class PostingService
         if ($context === null || $lines === []) {
             return [];
         }
-        $codeMap = $this->accounts->codeToIdMap($supplierId);
+        $codeMap = $this->accounts->codeToIdMap($supplierId, $entryDate);
         $resolved = $this->resolveLines($supplierId, $lines, $codeMap, $sourceType);
         $resolved = $this->dimensionStamper()->stamp(
             $supplierId,
@@ -3121,7 +3123,7 @@ final class PostingService
         }
         $posted = $this->postedAccountAmounts($supplierId, $sourceType, $sourceId);
         $accounts = $mapRepo->accounts($supplierId);
-        $codeMap = $this->accounts->codeToIdMap($supplierId);
+        $codeMap = $this->accounts->codeToIdMap($supplierId, $entryDate);
         $single = $this->singleAnalyticMap($supplierId);
         $origins = [];
         foreach ($single as $synthetic => $analytic) {

@@ -21,6 +21,7 @@ use MyInvoice\Service\Accounting\ChartOfAccountsTemplate504;
 final class ChartOfAccountsImportService extends AbstractCodebookImportService
 {
     private ?string $accountingDate = null;
+    private ?int $metadataActor = null;
 
     /** normalizovaný alias => kanonický account_type */
     private const TYPE_ALIASES = [
@@ -49,11 +50,16 @@ final class ChartOfAccountsImportService extends AbstractCodebookImportService
     public function import(int $supplierId, ?int $userId, string $content, string $filename, bool $dryRun, ?string $date = null): array
     {
         $previousDate = $this->accountingDate;
+        $previousActor = $this->metadataActor;
+        $this->metadataActor = $userId;
         $this->accountingDate = $date;
         try {
             return parent::import($supplierId, $userId, $content, $filename, $dryRun);
+        } catch (\MyInvoice\Service\Accounting\AccountDefinitionException $e) {
+            throw new CodebookImportException($e->errorCode,$e->getMessage(),$e->httpStatus);
         } finally {
             $this->accountingDate = $previousDate;
+            $this->metadataActor = $previousActor;
         }
     }
 
@@ -87,9 +93,10 @@ final class ChartOfAccountsImportService extends AbstractCodebookImportService
         $framework = (new AccountingFrameworkService($this->db, new AccountingFrameworkRepository($this->db)))
             ->forDate($supplierId, $this->accountingDate ?? date('Y-m-d'));
 
+        $physicalCodes=$this->accounts->physicalCodeMap($supplierId);
         $dbByCode = [];
         $dbById = [];
-        foreach ($this->accounts->listForTenant($supplierId, true) as $acc) {
+        foreach ($this->accounts->listForTenant($supplierId, true, $this->accountingDate) as $acc) {
             $dbByCode[(string) $acc['account_code']] = $acc;
             $dbById[(int) $acc['id']] = $acc;
         }
@@ -119,6 +126,7 @@ final class ChartOfAccountsImportService extends AbstractCodebookImportService
         foreach ($parsed as $line => $p) {
             $code = $p['code'];
             $row = ['line' => $line, 'key' => $code, 'status' => 'skip'];
+            if(isset($physicalCodes[$code])&&!isset($dbByCode[$code])){$reportRows[$line]=$this->err($row,'Účet existuje až od pozdějšího data. Zvolte odpovídající datum importu.');continue;}
 
             if ($code === '') {
                 $reportRows[$line] = $this->err($row, 'Chybí kód účtu.');
@@ -255,7 +263,7 @@ final class ChartOfAccountsImportService extends AbstractCodebookImportService
         ];
         $availableSynthetic[$code] = ['type' => $p['type'], 'side' => $p['side']];
         $writers[] = function () use ($supplierId, $data, $code, &$idResolver): void {
-            $idResolver[$code] = $this->accounts->insert($supplierId, $data);
+            $idResolver[$code] = $this->accounts->insert($supplierId, $data, $this->accountingDate, $this->metadataActor);
         };
         $row['status'] = 'create';
         return $row;
@@ -319,7 +327,7 @@ final class ChartOfAccountsImportService extends AbstractCodebookImportService
         $writers[] = function () use ($supplierId, $data, $parentCode, &$idResolver): void {
             $d = $data;
             $d['parent_id'] = $idResolver[$parentCode] ?? null;
-            $this->accounts->insert($supplierId, $d);
+            $this->accounts->insert($supplierId, $d, $this->accountingDate, $this->metadataActor);
         };
         $row['status'] = 'create';
         if ($message !== null) {
@@ -367,7 +375,7 @@ final class ChartOfAccountsImportService extends AbstractCodebookImportService
 
         $id = (int) $existing['id'];
         $writers[] = function () use ($supplierId, $id, $data): void {
-            $this->accounts->update($supplierId, $id, $data);
+            $this->accounts->update($supplierId, $id, $data, $this->accountingDate, null, $this->metadataActor);
         };
         return $row;
     }

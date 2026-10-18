@@ -612,6 +612,7 @@ const navSections = computed<NavSection[]>(() => {
         { to: '/accounting/income-statement-by-function', label: t('nav.accounting_income_statement_by_function'), icon: ICONS.tax_income },
         ...(dimensionsEnabled ? [{ to: '/accounting/dimension-profit', label: t('nav.accounting_dimension_profit'), icon: ICONS.tax_income, permission: 'accounting' as PermissionKey }] : []),
         { to: '/accounting/statement-mapping', label: t('nav.accounting_statement_mapping'), icon: ICONS.codebooks, permission: 'accounting' },
+          { to: '/accounting/securities/debt', label: t('securitiesDebt.title'), icon: ICONS.accounting, permission: 'accounting' as PermissionKey },
         { to: '/accounting/saldo',            label: t('nav.accounting_saldo'),            icon: ICONS.coin },
         { to: '/other-items', label: t('nav.other_items'), icon: ICONS.crm, permission: 'other_items' as PermissionKey, newTo: '/other-items/new' },
         { to: '/accounting/document-completeness', label: t('nav.accounting_document_completeness'), icon: ICONS.approvals, permission: 'accounting' },

@@ -550,6 +550,7 @@ final class StatementOverrideService
      */
     private function accounts(int $supplierId, string $type, array $ctx, array $map): array
     {
+        $accountDefinitions=\MyInvoice\Repository\AccountDefinitionRepository::relation($ctx['as_of'],$supplierId);
         $types = self::ACCOUNT_TYPES[$type];
         $balances = $this->ledger->syntheticBalances(
             $supplierId,
@@ -573,8 +574,8 @@ final class StatementOverrideService
         $stmt = $this->db->pdo()->prepare(
             "SELECT a.account_code, a.name, a.account_type, a.is_synthetic, a.is_active,
                     p.account_code AS parent_code
-               FROM chart_of_accounts a
-          LEFT JOIN chart_of_accounts p ON p.id = a.parent_id
+               FROM {$accountDefinitions} a
+          LEFT JOIN {$accountDefinitions} p ON p.id = a.parent_id
               WHERE a.supplier_id = ? AND a.account_type IN ({$ph})
               ORDER BY a.account_code"
         );
