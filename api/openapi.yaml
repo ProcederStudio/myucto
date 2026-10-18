@@ -21801,6 +21801,165 @@ paths:
         '200': { description: OK }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { description: 'Kategorie má navázané jízdy' }
+  /api/v1/logbook/trip-templates:
+    parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+    get:
+      tags: [Logbook]
+      summary: Pravidelné cesty (šablony jízd)
+      parameters:
+        - { in: query, name: include_archived, schema: { type: boolean, default: false } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/TripTemplate' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Logbook]
+      summary: Vytvoří pravidelnou cestu
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TripTemplateInput' }
+      responses:
+        '201':
+          description: Vytvořeno
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TripTemplate' }
+        '400': { description: 'validation_failed / invalid_reference' }
+  /api/v1/logbook/trip-templates/{id}:
+    parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - in: path
+        name: id
+        required: true
+        schema: { type: integer, format: int64 }
+    put:
+      tags: [Logbook]
+      summary: Upraví pravidelnou cestu
+      description: |
+        Částečná aktualizace: vynechaný klíč zachová uloženou hodnotu, `null` nebo `""` vymaže
+        nullable sloupec a sloučený záznam musí být platný (400 `validation_failed`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TripTemplateInput' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TripTemplate' }
+        '400': { description: 'validation_failed / invalid_reference' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Logbook]
+      summary: Smaže pravidelnou cestu
+      description: Jízdy si šablonu nepamatují, smazání je nezmění.
+      responses:
+        '200': { description: OK }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/logbook/odometer-readings:
+    parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+    get:
+      tags: [Logbook]
+      summary: Stavy tachometru (od nejnovějšího, max 200)
+      parameters:
+        - { in: query, name: car_id, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/OdometerReading' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Logbook]
+      summary: Zapíše stav tachometru
+      description: |
+        Jeden stav na auto, den a zdroj — opakovaný zápis téhož dne stav přepíše. Stav nesmí být
+        nižší než dřívější stav nebo konec jízdy ani vyšší než pozdější stav auta
+        (422 `odometer_regression`, odpověď nese `before` a `after`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OdometerReadingInput' }
+      responses:
+        '201':
+          description: Uloženo
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OdometerReading' }
+        '400': { description: validation_failed }
+        '422': { description: odometer_regression }
+  /api/v1/logbook/odometer-readings/{id}:
+    parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - in: path
+        name: id
+        required: true
+        schema: { type: integer, format: int64 }
+    delete:
+      tags: [Logbook]
+      summary: Smaže stav tachometru
+      responses:
+        '200': { description: OK }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/logbook/odometer-gaps:
+    parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+    get:
+      tags: [Logbook]
+      summary: Km k doplnění podle stavů tachometru
+      description: |
+        Pro každý stav tachometru, který převyšuje konec zapsaných jízd (a předchozí stav),
+        vrátí mezeru s rozsahem dat a stavů. Jízdy bez stavu tachometru pokrytí neposunou.
+      parameters:
+        - { in: query, name: car_id, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/OdometerGap' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/logbook/odometer-gaps/fill:
+    parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+    post:
+      tags: [Logbook]
+      summary: Doplní km k doplnění jízdami
+      description: |
+        Vytvoří navazující jízdy od začátku mezery. Řádek s `template_id` převezme hodnoty
+        pravidelné cesty a vlastní pole je přepíší. Součet km nesmí přesáhnout mezeru
+        (422 `exceeds_gap`); s `remainder_private` dorovná zbytek soukromá jízda končící
+        přesně na stavu tachometru, jinak zůstane zbytek k doplnění.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OdometerGapFill' }
+      responses:
+        '201':
+          description: Vytvořeno
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  trip_ids: { type: array, items: { type: integer } }
+                  gap: { $ref: '#/components/schemas/OdometerGap' }
+        '400': { description: 'validation_failed / invalid_reference / no_private_category' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: no_gap }
+        '422': { description: exceeds_gap }
   /api/v1/logbook/trips/import:
     parameters:
       - $ref: '#/components/parameters/SupplierIdHeader'
@@ -39153,6 +39312,95 @@ components:
         display_order: { type: integer }
         is_archived: { type: boolean }
         trips_count: { type: [integer, "null"] }
+    TripTemplate:
+      type: object
+      properties:
+        id: { type: integer }
+        car_id: { type: [integer, "null"], description: 'NULL = libovolné auto' }
+        car_registration: { type: [string, "null"] }
+        car_name: { type: [string, "null"] }
+        label: { type: string }
+        origin: { type: [string, "null"] }
+        destination: { type: [string, "null"] }
+        purpose: { type: [string, "null"] }
+        distance_km: { type: number }
+        category_id: { type: [integer, "null"] }
+        category_label: { type: [string, "null"] }
+        category_is_private: { type: [boolean, "null"] }
+        time_start: { type: [string, "null"], example: '07:30' }
+        time_end: { type: [string, "null"], example: '08:10' }
+        display_order: { type: integer }
+        is_archived: { type: boolean }
+    TripTemplateInput:
+      type: object
+      required: [label, distance_km]
+      properties:
+        car_id: { type: [integer, "null"] }
+        label: { type: string, maxLength: 120 }
+        origin: { type: [string, "null"] }
+        destination: { type: [string, "null"] }
+        purpose: { type: [string, "null"] }
+        distance_km: { type: number, exclusiveMinimum: 0 }
+        category_id: { type: [integer, "null"] }
+        time_start: { type: [string, "null"], description: 'HH:MM' }
+        time_end: { type: [string, "null"], description: 'HH:MM' }
+        display_order: { type: integer }
+        is_archived: { type: boolean }
+    OdometerReading:
+      type: object
+      properties:
+        id: { type: integer }
+        car_id: { type: integer }
+        car_registration: { type: [string, "null"] }
+        car_name: { type: [string, "null"] }
+        reading_date: { type: string, format: date }
+        reading_time: { type: [string, "null"] }
+        odometer: { type: integer }
+        source: { type: string, enum: [manual] }
+        note: { type: [string, "null"] }
+        created_at: { type: string }
+    OdometerReadingInput:
+      type: object
+      required: [car_id, reading_date, odometer]
+      properties:
+        car_id: { type: integer }
+        reading_date: { type: string, format: date }
+        reading_time: { type: [string, "null"], description: 'HH:MM' }
+        odometer: { type: number, minimum: 0, description: 'Zaokrouhlí se na celé km' }
+        note: { type: [string, "null"] }
+    OdometerGap:
+      type: object
+      properties:
+        car_id: { type: integer }
+        car_registration: { type: string }
+        car_name: { type: [string, "null"] }
+        reading_id: { type: integer }
+        date_from: { type: [string, "null"], format: date, description: 'Datum posledního známého stavu; NULL = bez dolní meze' }
+        date_to: { type: string, format: date }
+        odometer_from: { type: integer }
+        odometer_to: { type: integer }
+        km: { type: integer }
+    OdometerGapFill:
+      type: object
+      required: [reading_id]
+      properties:
+        reading_id: { type: integer }
+        trips:
+          type: array
+          items:
+            type: object
+            properties:
+              template_id: { type: [integer, "null"] }
+              trip_date: { type: string, format: date }
+              time_start: { type: [string, "null"] }
+              time_end: { type: [string, "null"] }
+              distance_km: { type: number }
+              category_id: { type: [integer, "null"] }
+              purpose: { type: [string, "null"] }
+              origin: { type: [string, "null"] }
+              destination: { type: [string, "null"] }
+        remainder_private: { type: boolean, default: false }
+        remainder_purpose: { type: [string, "null"], description: 'Účel soukromé jízdy, výchozí „Soukromá jízda"' }
     LogbookSummary:
       type: object
       properties:

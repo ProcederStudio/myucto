@@ -1009,6 +1009,7 @@
         "2037_simplified_document_series_and_customer.sql",
         "2038_invoice_edit_issued_permission.sql",
         "2047_supplier_person_title.sql",
+        "2048_logbook_trip_templates_odometer_readings.sql",
         "2055_activity_log_deferred_seal.sql"
     ],
     "tables": {
@@ -7365,6 +7366,35 @@
                 "cc": "json_valid(`cc`)",
                 "sent_to": "json_valid(`sent_to`)"
             }
+        },
+        "odometer_readings": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "car_id": "int(10) unsigned NOT NULL",
+                "created_at": "timestamp NOT NULL DEFAULT current_timestamp()",
+                "created_by": "bigint(20) unsigned NULL DEFAULT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "note": "varchar(255) NULL DEFAULT NULL",
+                "odometer": "int(10) unsigned NOT NULL",
+                "reading_date": "date NOT NULL",
+                "reading_time": "time NULL DEFAULT NULL",
+                "source": "enum('manual') NOT NULL DEFAULT 'manual'",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_odometer_readings_user": "BTREE (created_by)",
+                "idx_odometer_readings_supplier": "BTREE (supplier_id, car_id, reading_date)",
+                "uq_odometer_readings_day": "UNIQUE BTREE (car_id, reading_date, source)"
+            },
+            "foreign_keys": {
+                "fk_odometer_readings_car": "(car_id) -> cars (id) ON UPDATE RESTRICT ON DELETE CASCADE",
+                "fk_odometer_readings_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE",
+                "fk_odometer_readings_user": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE SET NULL"
+            },
+            "checks": []
         },
         "offset_agreement_items": {
             "type": "BASE TABLE",
@@ -22944,6 +22974,42 @@
             },
             "foreign_keys": {
                 "fk_tripcat_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE"
+            },
+            "checks": []
+        },
+        "trip_templates": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "car_id": "int(10) unsigned NULL DEFAULT NULL",
+                "category_id": "smallint(5) unsigned NULL DEFAULT NULL",
+                "created_at": "timestamp NOT NULL DEFAULT current_timestamp()",
+                "created_by": "bigint(20) unsigned NULL DEFAULT NULL",
+                "destination": "varchar(255) NULL DEFAULT NULL",
+                "display_order": "smallint(5) unsigned NOT NULL DEFAULT 0",
+                "distance_km": "decimal(8,1) NOT NULL DEFAULT 0.0",
+                "id": "int(10) unsigned NOT NULL AUTO_INCREMENT",
+                "is_archived": "tinyint(1) NOT NULL DEFAULT 0",
+                "label": "varchar(120) NOT NULL",
+                "origin": "varchar(255) NULL DEFAULT NULL",
+                "purpose": "varchar(255) NULL DEFAULT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "time_end": "time NULL DEFAULT NULL",
+                "time_start": "time NULL DEFAULT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_trip_templates_user": "BTREE (created_by)",
+                "idx_trip_templates_car": "BTREE (car_id)",
+                "idx_trip_templates_category": "BTREE (category_id)",
+                "idx_trip_templates_supplier": "BTREE (supplier_id, is_archived, display_order)"
+            },
+            "foreign_keys": {
+                "fk_trip_templates_car": "(car_id) -> cars (id) ON UPDATE RESTRICT ON DELETE CASCADE",
+                "fk_trip_templates_category": "(category_id) -> trip_categories (id) ON UPDATE RESTRICT ON DELETE SET NULL",
+                "fk_trip_templates_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE",
+                "fk_trip_templates_user": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE SET NULL"
             },
             "checks": []
         },

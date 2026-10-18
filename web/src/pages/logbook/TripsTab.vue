@@ -13,6 +13,8 @@ import { ICONS, btnFilled, btnOutline } from '@/components/ui/buttonStyles'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import { appIsoDate } from '@/utils/date'
 import DateInput from '@/components/ui/DateInput.vue'
+import OdometerGapsPanel from './OdometerGapsPanel.vue'
+import { useTripTemplates } from '@/composables/useTripTemplates'
 
 const { t, locale } = useI18n()
 const toast = useToast()
@@ -45,6 +47,8 @@ const perPage = 25
 const years = ref<number[]>([])
 const purposes = ref<string[]>([])
 const places = ref<string[]>([])
+const { templates, loadTemplates } = useTripTemplates()
+const gapsPanel = ref<InstanceType<typeof OdometerGapsPanel> | null>(null)
 
 const monthOptions = computed(() => {
   const loc = locale.value === 'en' ? 'en-US' : 'cs-CZ'
@@ -122,10 +126,11 @@ async function load() {
     categories.value = categoriesRes
     logbookApi.tripPurposes().then(p => { purposes.value = p }).catch(() => {})
     logbookApi.tripPlaces().then(p => { places.value = p }).catch(() => {})
+    void loadTemplates()
   } finally { loading.value = false; maybeOpenNew() }
 }
 // Reset na 1. stranu (změna filtru / po uložení). goToPage = navigace v rámci pageru.
-function reload() { page.value = 1; load() }
+function reload() { page.value = 1; load(); gapsPanel.value?.reload() }
 function goToPage(p: number) {
   const np = Math.min(Math.max(1, p), pages.value)
   if (np !== page.value) { page.value = np; load() }
@@ -187,6 +192,21 @@ function newTrip() {
   open.value = true
 }
 
+// Pravidelné cesty pro auto jízdy (bez auta = pro libovolné auto).
+const tripTemplates = computed(() => templates.value.filter(tt => tt.car_id === null || tt.car_id === Number(draft.car_id)))
+function applyTemplate(e: Event) {
+  const select = e.target as HTMLSelectElement
+  const tt = templates.value.find(x => x.id === Number(select.value))
+  select.value = ''
+  if (!tt) return
+  Object.assign(draft, {
+    origin: tt.origin ?? '', destination: tt.destination ?? '', purpose: tt.purpose ?? '',
+    time_start: tt.time_start ?? draft.time_start, time_end: tt.time_end ?? draft.time_end,
+    category_id: tt.category_id ?? draft.category_id, distance_km: tt.distance_km,
+  })
+  recomputeEndFromDistance()
+}
+
 // Konečný stav tachometru před úpravou: když se změní, nabídneme přepočet navazujících jízd.
 let editedOdometerEnd: number | null = null
 
@@ -223,6 +243,7 @@ async function save() {
     }
     if (wasNew) page.value = 1 // nová jízda je nejnovější → skoč na 1. stranu (řazení date DESC)
     await load()
+    gapsPanel.value?.reload()
   } catch (e: any) {
     toast.error(e?.response?.data?.error?.message ?? t('common.error'))
   } finally { saving.value = false }
@@ -234,6 +255,7 @@ async function removeTrip(tr: Trip) {
     await logbookApi.deleteTrip(tr.id)
     toast.success(t('common.deleted'))
     await load()
+    gapsPanel.value?.reload()
     // Smazání poslední položky na poslední straně → posuň se o stranu zpět.
     if (trips.value.length === 0 && page.value > 1) goToPage(page.value - 1)
   } catch (e: any) { toast.error(e?.response?.data?.error?.message ?? t('common.error')) }
@@ -247,6 +269,7 @@ async function recalculate(body: { after_trip_id: number } | { car_id: number })
   try {
     const r = await logbookApi.recalculateOdometer(body)
     toast.success(t('logbook.recalc_done', { n: r.updated }))
+    gapsPanel.value?.reload()
   } catch (e: any) {
     toast.error(e?.response?.data?.error?.message ?? t('common.error'))
   } finally { recalculating.value = false }
@@ -411,6 +434,11 @@ function fmtKm(n: number | null): string { return n == null ? '—' : n.toLocale
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.upload" /></svg>
           {{ t('logbook.import') }}
         </button>
+        <button v-if="cars.length > 0" @click="gapsPanel?.openReadings(filterCar || null)"
+          :class="btnOutline('primary')" class="whitespace-nowrap">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.gauge" /></svg>
+          {{ t('logbook.readings_button') }}
+        </button>
         <button v-if="auth.canWrite('logbook.write')" @click="recalculateCar" :disabled="total === 0 || recalculating"
           :title="t('logbook.recalc_odometer_hint')" :class="btnOutline('warning')" class="whitespace-nowrap">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.cycle" /></svg>
@@ -424,6 +452,8 @@ function fmtKm(n: number | null): string { return n == null ? '—' : n.toLocale
         </button>
       </template>
     </FilterBar>
+
+    <OdometerGapsPanel v-if="cars.length > 0" ref="gapsPanel" :cars="cars" :categories="categories" @changed="reload" />
 
     <EmptyState v-if="cars.length === 0 && !loading" icon="box" :title="t('logbook.no_cars_hint')" dense boxed />
     <div v-else-if="loading" class="text-center text-neutral-500 py-12 text-sm">{{ t('common.loading') }}</div>
@@ -554,6 +584,13 @@ function fmtKm(n: number | null): string { return n == null ? '—' : n.toLocale
       <div class="bg-surface rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <form @submit.prevent="save" class="p-5 space-y-4">
           <h2 class="text-lg font-semibold">{{ draft.id ? t('logbook.trip_edit') : t('logbook.trip_new') }}</h2>
+          <div v-if="!draft.id && tripTemplates.length">
+            <label class="block text-sm font-medium text-neutral-700 mb-1">{{ t('logbook.trip_from_template') }}</label>
+            <select @change="applyTemplate" class="w-full h-10 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
+              <option value="">{{ t('logbook.trip_from_template_placeholder') }}</option>
+              <option v-for="tt in tripTemplates" :key="tt.id" :value="tt.id">{{ tt.label }} ({{ fmtKm(tt.distance_km) }} km)</option>
+            </select>
+          </div>
           <div class="grid grid-cols-2 gap-3">
             <div>
               <label class="block text-sm font-medium text-neutral-700 mb-1">{{ t('logbook.car') }} *</label>
