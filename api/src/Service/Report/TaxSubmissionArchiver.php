@@ -167,6 +167,13 @@ final class TaxSubmissionArchiver
             true,
             date('Y-m-d'),
         );
+        // Zúčtování, které selhalo nečekanou chybou (typicky odvolaná transakce 1020/1213),
+        // se musí dát zopakovat. Zámek data konce období by to znemožnil (`date_locked`),
+        // takže se posune až s příštím podáním nebo ručně. `skipped` (zavřené období,
+        // zámek) je naopak vědomý stav a zámek neblokuje.
+        if (($clearing['status'] ?? null) === 'error') {
+            $lockDate = null;
+        }
         if ($lockDate !== null) {
             try {
                 $this->settings->advanceLockedUntil($supplierId, $lockDate);
