@@ -22400,6 +22400,7 @@
     "pdf_delete_failed": "PDF delete failed.",
     "statement_delete": "Delete statement",
     "statement_delete_hint": "Delete this e-mail-notice statement and its transactions. Allowed only when it has no matched items (the official GPC statement took the matches over).",
+    "statement_delete_has_matches": "The notice statement has matched items. You can delete it once the official statement takes them over or after you unmatch them.",
     "statement_delete_confirm": "Really delete this e-mail-notice statement including its transactions?",
     "statement_deleted": "Statement deleted.",
     "statement_delete_failed": "Statement delete failed.",
@@ -22554,8 +22555,11 @@
       "manual": "Manual",
       "ignored": "Ignored",
       "unmatched": "Unmatched",
-      "outside_saldo": "No document"
+      "outside_saldo": "No document",
+      "superseded": "Replaced by statement"
     },
+    "notice_superseded_hint": "The same transaction is on the official bank statement, which carries the payment. The notice is resolved and is not matched automatically again.",
+    "notice_superseded_chip": "Replaced by statement: {count}",
     "outside_saldo_hint": "Posted outside receivable/payable accounts (tax, levy, fee, loan repayment) — this transaction has no document.",
     "match_badge_hint": "Click to match with a document",
     "match_reason_title": "Why automatic matching left this transaction unmatched",

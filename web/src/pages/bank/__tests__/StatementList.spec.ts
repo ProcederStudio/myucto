@@ -603,3 +603,47 @@ describe('StatementList counterparty lookup', () => {
   })
 
 })
+
+describe('StatementList.vue — avíza převzatá výpisem a jejich mazání', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  function noticeStatement(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 50, source: 'email_notice', file_name: 'avizo-2026-03',
+      account_number: '1000000005', bank_code: '0100', currency: 'CZK',
+      statement_date: '2026-03-01', curr_balance: null, prev_balance: null,
+      transaction_count: 3, matched_count: 0, superseded_count: 3, ignored_count: 0,
+      unposted_count: 0, has_file: false, has_pdf: false,
+      ...overrides,
+    }
+  }
+
+  it('převzatá avíza počítá badge jako vyřešená', async () => {
+    m.list.mockResolvedValue({ ...emptyPage(), total: 1, items: [noticeStatement({ matched_count: 1, superseded_count: 2 })] })
+    const wrapper = mount(StatementList, { global: { stubs } })
+    await flushPromises()
+    const badge = wrapper.findAll('span').find(s => s.text() === '3 / 3')
+    expect(badge).toBeTruthy()
+    expect(badge!.classes()).toContain('bg-success-50')
+    wrapper.unmount()
+  })
+
+  it('avízový výpis smaže i ne-admin s bankou k zápisu; se spárovanou položkou je tlačítko neaktivní', async () => {
+    m.list.mockResolvedValue({ ...emptyPage(), total: 3, items: [
+      noticeStatement({ id: 51 }),
+      noticeStatement({ id: 52, matched_count: 1, superseded_count: 2 }),
+      { ...noticeStatement({ id: 53, source: 'gpc', file_name: 'vypis.gpc', superseded_count: 0 }) },
+    ] })
+    const wrapper = mount(StatementList, { global: { stubs } })
+    await flushPromises()
+    const buttons = wrapper.findAll('[data-testid="statement-delete"]')
+    expect(buttons).toHaveLength(2)
+    expect(buttons[0]!.attributes('disabled')).toBeUndefined()
+    expect(buttons[1]!.attributes('disabled')).toBeDefined()
+    expect(buttons[1]!.attributes('title')).toBe('bank.statement_delete_has_matches')
+    expect(wrapper.findAll('[data-testid="statement-delete-mobile"]')).toHaveLength(2)
+    wrapper.unmount()
+  })
+})

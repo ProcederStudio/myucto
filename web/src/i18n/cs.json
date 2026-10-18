@@ -22400,6 +22400,7 @@
     "pdf_delete_failed": "Smazání PDF selhalo.",
     "statement_delete": "Smazat výpis",
     "statement_delete_hint": "Smazat tento avízo-výpis i s jeho transakcemi. Lze jen když nemá žádnou spárovanou položku (párování převzal oficiální GPC výpis).",
+    "statement_delete_has_matches": "Avízo-výpis má spárované položky. Smazat ho lze, až je převezme oficiální výpis nebo je rozpárujete.",
     "statement_delete_confirm": "Opravdu smazat tento avízo-výpis včetně jeho transakcí?",
     "statement_deleted": "Výpis smazán.",
     "statement_delete_failed": "Smazání výpisu selhalo.",
@@ -22554,9 +22555,12 @@
       "manual": "Ručně",
       "ignored": "Ignorováno",
       "unmatched": "Nespárováno",
-      "outside_saldo": "Bez dokladu"
+      "outside_saldo": "Bez dokladu",
+      "superseded": "Nahrazeno výpisem"
     },
     "outside_saldo_hint": "Zaúčtováno mimo saldokontní účty (daň, odvod, poplatek, splátka) - pohyb doklad nemá.",
+    "notice_superseded_hint": "Tentýž pohyb je v oficiálním bankovním výpisu a úhradu nese on. Avízo je vyřešené a automaticky se znovu nepáruje.",
+    "notice_superseded_chip": "Nahrazeno výpisem: {count}",
     "match_badge_hint": "Klikněte pro spárování s dokladem",
     "match_reason_title": "Proč automatické párování pohyb nespárovalo",
     "match_reason": {
