@@ -4,11 +4,13 @@ import { installTableViewportScroll, type TableViewportScrollBar } from '@/utils
 let queue: Map<number, FrameRequestCallback>
 let nextFrame: number
 let resizeCallback: ResizeObserverCallback
+let resizeTargets: Set<Element>
 const disposals: (() => void)[] = []
 
 beforeEach(() => {
   queue = new Map()
   nextFrame = 0
+  resizeTargets = new Set()
   vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
     queue.set(++nextFrame, callback)
     return nextFrame
@@ -16,8 +18,8 @@ beforeEach(() => {
   vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(id => { queue.delete(id) })
   vi.spyOn(window, 'ResizeObserver').mockImplementation(class {
     constructor(callback: ResizeObserverCallback) { resizeCallback = callback }
-    observe() {}
-    unobserve() {}
+    observe(target: Element) { resizeTargets.add(target) }
+    unobserve(target: Element) { resizeTargets.delete(target) }
     disconnect() {}
   })
   Object.defineProperty(window, 'innerHeight', { configurable: true, value: 800 })
@@ -71,7 +73,7 @@ function flush() {
 }
 
 async function mutations() {
-  await new Promise(resolve => setTimeout(resolve, 0))
+  await new Promise(resolve => setTimeout(resolve, 150))
   flush()
 }
 
@@ -292,7 +294,7 @@ describe('viewport table scroll controller', () => {
     expect(state.bars).toEqual([])
     metric(source, 'scrollWidth', 1800)
     resizeCallback([], {} as ResizeObserver)
-    flush()
+    await mutations()
     expect(state.bars).toHaveLength(1)
     const sourceId = source.id
     source.remove()
@@ -359,4 +361,148 @@ describe('viewport table scroll controller', () => {
     expect(child.source.scrollLeft).toBe(200)
     expect(parent.source.scrollLeft).toBe(0)
   })
+
+  it('ignores unrelated text, class and style changes without scheduling a scan or measurement', async () => {
+    table()
+    const toast = document.createElement('div')
+    const text = document.createTextNode('10')
+    toast.append(text)
+    document.body.append(toast)
+    start()
+    const css = vi.spyOn(window, 'getComputedStyle')
+    const queries = vi.spyOn(document, 'querySelectorAll')
+    text.data = '9'
+    toast.className = 'focused'
+    toast.style.transform = 'translateX(10px)'
+    await mutations()
+    expect(css).not.toHaveBeenCalled()
+    expect(queries).not.toHaveBeenCalled()
+    expect(queue.size).toBe(0)
+  })
+
+  it('ignores scrolling menus and measures only the affected table for a source scroll', () => {
+    const a = table()
+    const b = table(undefined, 0, 10, 450)
+    const menu = document.createElement('aside')
+    document.body.append(menu)
+    start()
+    const aRect = vi.spyOn(a.source, 'getBoundingClientRect')
+    const bRect = vi.spyOn(b.source, 'getBoundingClientRect')
+    const css = vi.spyOn(window, 'getComputedStyle')
+    const queries = vi.spyOn(document, 'querySelectorAll')
+    menu.dispatchEvent(new Event('scroll'))
+    expect(queue.size).toBe(0)
+    a.source.dispatchEvent(new Event('scroll'))
+    flush()
+    expect(aRect).toHaveBeenCalled()
+    expect(bRect).not.toHaveBeenCalled()
+    expect(css).not.toHaveBeenCalled()
+    expect(queries).not.toHaveBeenCalled()
+  })
+
+  it('does no layout reads or animation frames on scroll when no table overflows', () => {
+    const { source } = table()
+    metric(source, 'scrollWidth', 600)
+    start()
+    const width = vi.fn(() => 600)
+    Object.defineProperty(source, 'scrollWidth', { configurable: true, get: width })
+    const rect = vi.spyOn(source, 'getBoundingClientRect')
+    const css = vi.spyOn(window, 'getComputedStyle')
+    for (let i = 0; i < 30; i++) document.dispatchEvent(new Event('scroll'))
+    flush()
+    expect(width).not.toHaveBeenCalled()
+    expect(rect).not.toHaveBeenCalled()
+    expect(css).not.toHaveBeenCalled()
+    expect(queue.size).toBe(0)
+  })
+
+  it('observes only table content, scroll owners and the sticky footer rather than page ancestors', () => {
+    const panel = document.createElement('section')
+    document.body.append(panel)
+    const { source, table: element } = table(panel)
+    const footer = document.createElement('footer')
+    footer.className = 'sticky'
+    footer.style.position = 'sticky'
+    document.body.append(footer)
+    start()
+    expect(resizeTargets).toEqual(new Set([source, element, footer]))
+    expect(resizeTargets.has(document.body)).toBe(false)
+    expect(resizeTargets.has(document.documentElement)).toBe(false)
+    expect(resizeTargets.has(panel)).toBe(false)
+  })
+
+  it('batches a burst of mounted tables without rescanning the document table list', async () => {
+    const state = start()
+    const queries = vi.spyOn(document, 'querySelectorAll')
+    const sources = Array.from({ length: 10 }, () => table().source)
+    expect(state.bars).toEqual([])
+    expect(queue.size).toBe(0)
+    await mutations()
+    expect(state.bars).toHaveLength(10)
+    expect(queries.mock.calls.filter(([selector]) => selector === 'table')).toHaveLength(0)
+    expect(queries.mock.calls.filter(([selector]) => selector === 'footer.sticky')).toHaveLength(1)
+    expect(queries.mock.calls.filter(([selector]) => selector.includes('aria-modal'))).toHaveLength(1)
+    sources.forEach(source => expect(source.id).not.toBe(''))
+  })
+
+  it('detects content growth inside a fixed-size scroll wrapper through the table observer', async () => {
+    const { source } = table()
+    metric(source, 'scrollWidth', 600)
+    const state = start()
+    expect(state.bars).toEqual([])
+    metric(source, 'scrollWidth', 1800)
+    resizeCallback([], {} as ResizeObserver)
+    await mutations()
+    expect(state.bars).toHaveLength(1)
+  })
+
+  it('updates cached visibility when a semantic modal opens and closes', async () => {
+    table()
+    const modal = document.createElement('dialog')
+    modal.hidden = true
+    document.body.append(modal)
+    box(modal, 0, 0, 1000, 800)
+    const state = start()
+    expect(state.bars).toHaveLength(1)
+    modal.hidden = false
+    modal.setAttribute('open', '')
+    await mutations()
+    expect(state.bars).toEqual([])
+    modal.removeAttribute('open')
+    await mutations()
+    expect(state.bars).toHaveLength(1)
+  })
+
+
+  it('ignores animated controls inside cells and cancels queued discovery on destroy', async () => {
+    const { table: element } = table()
+    const button = document.createElement('button')
+    element.insertRow().insertCell().append(button)
+    const state = start()
+    const css = vi.spyOn(window, 'getComputedStyle')
+    button.dispatchEvent(new Event('transitionend', { bubbles: true }))
+    button.dispatchEvent(new Event('animationend', { bubbles: true }))
+    expect(queue.size).toBe(0)
+    expect(css).not.toHaveBeenCalled()
+    table()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    state.controller.destroy()
+    await mutations()
+    expect(css).not.toHaveBeenCalled()
+    expect(queue.size).toBe(0)
+  })
+
+
+  it('refreshes cached totals when a footer becomes visible without changing table size', async () => {
+    const { table: element } = table()
+    const footer = element.createTFoot()
+    box(footer, 100, 760, 1800, 40)
+    footer.style.visibility = 'hidden'
+    const state = start()
+    expect(state.bars[0].top).toBe(784)
+    footer.style.visibility = 'visible'
+    await mutations()
+    expect(state.bars[0].top).toBe(744)
+  })
+
 })
