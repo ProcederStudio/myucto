@@ -1,4 +1,5 @@
 import { api } from './client'
+import { downloadApiFile } from '@/utils/downloadFile'
 import { uploadChunked, type ChunkedUploadProgress } from './chunkedUpload'
 import { fetchImportJob, type FileImportJob } from './imports'
 import type { MoneyS3ProtocolData, MoneyS3RunStatus } from './moneyS3'
@@ -80,6 +81,8 @@ export interface StereoProtocolRun {
 }
 
 export const stereoNxApi = {
+  downloadProtocol: (token: string, jobId: number, language: 'cs' | 'en' = 'cs') =>
+    downloadApiFile(`${BASE}/uploads/${token}/runs/${jobId}/pdf?lang=${language}`, `stereo-nx-protocol-${jobId}.pdf`),
   uploads: async (): Promise<StereoUpload[]> =>
     (await api.get<{ uploads: StereoUpload[] }>(`${BASE}/uploads`)).data.uploads,
   upload: (file: File, onProgress?: ChunkedUploadProgress, onStarted?: (token: string) => void) =>

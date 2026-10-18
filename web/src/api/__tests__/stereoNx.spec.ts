@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-const { post, get, fetchImportJob } = vi.hoisted(() => ({ post: vi.fn(), get: vi.fn(), fetchImportJob: vi.fn() }))
+const { post, get, fetchImportJob, download } = vi.hoisted(() => ({ post: vi.fn(), get: vi.fn(), fetchImportJob: vi.fn(), download: vi.fn() }))
 vi.mock('../client', () => ({ api: { post, get } }))
+vi.mock('@/utils/downloadFile', () => ({ downloadApiFile: download }))
 vi.mock('../imports', () => ({ fetchImportJob }))
 
 import { stereoNxApi } from '../stereoNx'
@@ -9,6 +10,12 @@ import { stereoNxApi } from '../stereoNx'
 const job = (status: string) => ({ id: 8, status, total_items: 1, processed: 0, created_count: 0, skipped_count: 0, failed_count: 0, current_step: null, log_text: null, last_error: null })
 
 describe('stereoNxApi.run', () => {
+  it.each(['cs', 'en'] as const)('downloads the server PDF for the exact report via the authenticated file helper (%s)', async language => {
+    download.mockResolvedValue({})
+    await stereoNxApi.downloadProtocol('synthetic-token', 17, language)
+    expect(download).toHaveBeenCalledWith(`/admin/imports/stereo-nx/uploads/synthetic-token/runs/17/pdf?lang=${language}`, 'stereo-nx-protocol-17.pdf')
+  })
+
   afterEach(() => {
     vi.useRealTimers()
     vi.resetAllMocks()

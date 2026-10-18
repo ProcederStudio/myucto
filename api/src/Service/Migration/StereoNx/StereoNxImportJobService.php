@@ -46,6 +46,7 @@ final class StereoNxImportJobService extends AbstractImportJobService
         private readonly LoggerInterface $log,
         ActivityLogger $logger,
         private readonly MigrationCompanyLock $companyLock,
+        private readonly StereoNxRunReportStore $runReports,
     ) {
         parent::__construct($jobs, null, $logger);
     }
@@ -151,6 +152,8 @@ final class StereoNxImportJobService extends AbstractImportJobService
                 }
                 StereoNxUploads::save($supplierId, $token, $locked);
                 StereoNxUploads::saveResult($supplierId, $token, $jobId, $report);
+                $stored = $this->runReports->save($supplierId, $jobId, $report);
+                $this->jobs->setResult($jobId, $stored['path'], $stored['name'], $stored['size'], $stored['mime']);
                 return $report;
             });
         } catch (StereoNxException $e) {

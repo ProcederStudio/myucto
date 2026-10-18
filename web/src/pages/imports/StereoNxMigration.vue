@@ -42,12 +42,47 @@ const selectedProfileFields = ref<string[]>([])
 // Zkouška i převod běží na serveru jako job; stav jobu pro ukazatel průběhu.
 const job = ref<FileImportJob | null>(null)
 const error = ref('')
+interface ReportReference { supplierId: number; token: string; jobId: number }
+const dryReportReference = ref<ReportReference | null>(null)
+const importReportReference = ref<ReportReference | null>(null)
+const downloadingPdf = ref(false)
+const pdfError = ref('')
+let pdfRequest = 0
+const downloadReference = computed(() => {
+  const reference = currentStep.value === 3 && dryReport.value ? dryReportReference.value
+    : currentStep.value === 4 ? (importReport.value ? importReportReference.value : dryReport.value ? dryReportReference.value : null) : null
+  return reference?.supplierId === supplier.currentSupplierId ? reference : null
+})
+watch(downloadReference, () => {
+  pdfRequest++
+  downloadingPdf.value = false
+  pdfError.value = ''
+}, { flush: 'sync' })
+watch(dryReport, value => { if (!value) dryReportReference.value = null }, { flush: 'sync' })
+watch(importReport, value => { if (!value) importReportReference.value = null }, { flush: 'sync' })
+
+async function downloadProtocol(): Promise<void> {
+  const reference = downloadReference.value
+  if (!reference || downloadingPdf.value || busy.value) return
+  const requestId = ++pdfRequest
+  downloadingPdf.value = true
+  pdfError.value = ''
+  try {
+    await stereoNxApi.downloadProtocol(reference.token, reference.jobId, locale.value === 'en' ? 'en' : 'cs')
+  } catch {
+    if (requestId !== pdfRequest || downloadReference.value !== reference) return
+    pdfError.value = t('stereo_nx.pdf_download_failed')
+    toast.error(pdfError.value)
+  } finally {
+    if (requestId === pdfRequest) downloadingPdf.value = false
+  }
+}
 
 /**
  * Job spuštěný z průvodce: zkouška i převod běží na serveru dál, i když uživatel stránku
  * opustí. Po návratu ho průvodce podle tohoto záznamu naváže, i s volbami, se kterými běžel.
  */
-interface StoredRun { supplierId: number; token: string; jobId: number; mode: 'dry_run' | 'import'; company: number; blankCountryIsCz: boolean; matchBankAccountSeries?: boolean; deleteAfterImport: boolean }
+interface StoredRun { supplierId: number; token: string; jobId: number; mode: 'dry_run' | 'import'; company: number; blankCountryIsCz: boolean; matchBankAccountSeries?: boolean; deleteAfterImport: boolean; reportCompany?: { name: string; ico: string } | null }
 const RUN_KEY = 'myucto.stereo-nx.job'
 function readRun(): StoredRun | null {
   try {
@@ -169,17 +204,17 @@ watch(() => supplier.currentSupplierId, async () => {
 async function resumeRun(): Promise<void> {
   const stored = readRun()
   if (!stored || stored.supplierId !== supplier.currentSupplierId) return
-  if (!uploads.value.some(item => item.token === stored.token && item.complete)) {
-    writeRun(null)
-    return
-  }
   token.value = stored.token
-  await preview()
-  if (token.value !== stored.token || !companies.value.some(item => item.index === stored.company)) return
+  const hasUpload = uploads.value.some(item => item.token === stored.token && item.complete)
+  if (hasUpload) {
+    await preview()
+    if (token.value !== stored.token || !companies.value.some(item => item.index === stored.company)) return
+  }
   selected.value = stored.company
   blankCountryIsCz.value = stored.blankCountryIsCz
   matchBankAccountSeries.value = stored.matchBankAccountSeries === true
-  deleteAfterImport.value = stored.deleteAfterImport
+  deleteAfterImport.value = hasUpload && stored.deleteAfterImport
+  reportCompany.value = stored.reportCompany ?? null
   currentStep.value = stored.mode === 'dry_run' ? 3 : 4
   await run(stored.mode, stored.jobId)
 }
@@ -346,26 +381,27 @@ async function run(mode: 'dry_run' | 'import', resumeJobId: number | null = null
   cleanupWarning.value = ''
   try {
     const jobId = resumeJobId ?? await stereoNxApi.start(uploadToken, company, mode, blankCountryIsCz.value, matchBankAccountSeries.value)
-    if (supplierId) writeRun({ supplierId, token: uploadToken, jobId, mode, company, blankCountryIsCz: blankCountryIsCz.value, matchBankAccountSeries: matchBankAccountSeries.value, deleteAfterImport: deleteAfterImport.value })
+    if (supplierId) writeRun({ supplierId, token: uploadToken, jobId, mode, company, blankCountryIsCz: blankCountryIsCz.value, matchBankAccountSeries: matchBankAccountSeries.value, deleteAfterImport: deleteAfterImport.value, reportCompany: selectedCompany.value ? { name: selectedCompany.value.identity.name, ico: selectedCompany.value.identity.ico } : reportCompany.value })
     const report = await stereoNxApi.follow(uploadToken, jobId, current => {
       if (supplier.currentSupplierId === supplierId && token.value === uploadToken) job.value = current
     })
     if (supplier.currentSupplierId !== supplierId || token.value !== uploadToken) return
-    reportCompany.value = selectedCompany.value ? { name: selectedCompany.value.identity.name, ico: selectedCompany.value.identity.ico } : null
+    reportCompany.value = selectedCompany.value ? { name: selectedCompany.value.identity.name, ico: selectedCompany.value.identity.ico } : reportCompany.value
     if (mode === 'dry_run') {
       dryReport.value = report
+      dryReportReference.value = supplierId ? { supplierId, token: uploadToken, jobId } : null
       importReport.value = null
       confirmed.value = false
       currentStep.value = 3
     } else {
       importReport.value = report
+      importReportReference.value = supplierId ? { supplierId, token: uploadToken, jobId } : null
       dryReport.value = null
       confirmed.value = false
       currentStep.value = 4
       if (report.ok && report.database_writes === true && report.partial !== true && deleteAfterImport.value) {
         try {
           await stereoNxApi.remove(uploadToken)
-          writeRun(null)
           if (supplier.currentSupplierId !== supplierId || token.value !== uploadToken) return
           token.value = null
           file.value = null
@@ -403,13 +439,16 @@ async function removeUpload(upload: StereoUpload): Promise<void> {
   error.value = ''
   try {
     await stereoNxApi.remove(upload.token)
-    if (readRun()?.token === upload.token) writeRun(null)
+    const retainReport = importReport.value?.ok && importReportReference.value?.token === upload.token
+    if (readRun()?.token === upload.token && !retainReport) writeRun(null)
     if (supplier.currentSupplierId !== supplierId) return
     if (token.value === upload.token) {
       const successfulReport = importReport.value?.ok ? importReport.value : null
       const successfulCompany = reportCompany.value
+      const successfulReference = importReportReference.value
       resetSelection()
       importReport.value = successfulReport
+      importReportReference.value = successfulReport ? successfulReference : null
       reportCompany.value = successfulCompany
       if (successfulReport) currentStep.value = 4
     }
@@ -661,7 +700,11 @@ const importProtocol = computed(() => importReport.value ? asProtocol(importRepo
         <label class="mt-3 flex cursor-pointer items-start gap-3 rounded-lg border border-neutral-200 p-4 text-sm"><input v-model="deleteAfterImport" data-testid="stereo-delete-after-import" type="checkbox" class="mt-1" :disabled="busy || dryReport?.partial === true" />{{ t('stereo_nx.delete_after_import') }}</label>
       </template>
     </section>
-    <div data-testid="stereo-actions" class="flex flex-wrap justify-end"><ActionBar :actions="actions" /></div>
+    <div data-testid="stereo-actions" class="flex flex-wrap items-center justify-end gap-3">
+      <button v-if="downloadReference" data-testid="stereo-protocol-pdf" type="button" :class="btnOutline('neutral')" class="mr-auto whitespace-nowrap" :disabled="busy || downloadingPdf" @click="downloadProtocol"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="ICONS.download" /></svg>{{ t(downloadingPdf ? 'stereo_nx.pdf_downloading' : 'stereo_nx.download_pdf') }}</button>
+      <ActionBar :actions="actions" />
+    </div>
+    <p v-if="pdfError" class="rounded-lg border border-danger-300 bg-danger-50 p-3 text-sm text-danger-600" role="alert">{{ pdfError }}</p>
     <p v-if="error" class="rounded-lg border border-danger-300 bg-danger-50 p-3 text-sm text-danger-600">{{ error }}</p>
 
     <CompanyProfileBox variant="migration" />

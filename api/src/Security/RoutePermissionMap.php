@@ -938,7 +938,7 @@ final class RoutePermissionMap
         // Smazání protokolu zkoušky nanečisto (AbstractMigrationAction::deleteRun) - stejné právo jako spuštění.
         ['DELETE', '#^/api/admin/imports/(money-s3|pohoda|premier)/runs/[0-9]+$#', 'utilities.import', AccessLevel::WRITE],
         ['POST',   '#^/api/admin/imports/stereo-nx/uploads(/chunked|/[a-f0-9]{32}/(chunks|complete|preview|run))$#', 'utilities.import', AccessLevel::WRITE],
-        ['GET',    '#^/api/admin/imports/stereo-nx/uploads(/[a-f0-9]{32}(/runs/[0-9]+)?)?$#', 'utilities.import', AccessLevel::READ],
+        ['GET',    '#^/api/admin/imports/stereo-nx/uploads(/[a-f0-9]{32}(/runs/[0-9]+(/pdf)?)?)?$#', 'utilities.import', AccessLevel::READ],
         ['DELETE', '#^/api/admin/imports/stereo-nx/uploads/[a-f0-9]{32}$#', 'utilities.import', AccessLevel::WRITE],
         // Credentials importních integrací — {Idoklad,Fakturoid}CredentialsAction hlídají
         // WRITE i u `status` (odpověď prozrazuje, že je integrace nastavená).

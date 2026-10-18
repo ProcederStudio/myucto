@@ -817,6 +817,14 @@ kroku převodu. Řádky, jejichž všechny uvedené počty jsou nulové, jsou sk
 a zobrazíte je volbou **Zobrazit vše**. Pomlčka skrytí řádku nebrání. Důvody
 nepřevedení a upozornění zůstávají ve zprávách protokolu.
 Období obsažené v záloze se zobrazuje ve formátu data podle jazyka aplikace.
+Prázdná tabulka kontroly dokladů proti deníku se nezobrazuje; výsledky ostatních
+kontrol rekonciliace zůstávají uvedené.
+
+Tlačítkem **Stáhnout protokol PDF** uložíte výsledek dokončené zkoušky nebo
+importu, včetně neúspěšného běhu. PDF obsahuje všechny uvedené počty včetně nul,
+zprávy, důvody ruční kontroly a rekonciliaci; není omezené filtrem tabulky.
+Protokol zůstává dostupný i po odstranění nahraného ZIPu. Zkouška nanečisto
+v PDF zřetelně označuje plánovaný zápis, nikoli vytvořené záznamy.
 
 #### 21.9.15.1 Daňová evidence
 

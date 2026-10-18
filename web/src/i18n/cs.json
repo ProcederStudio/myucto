@@ -33756,6 +33756,9 @@
     }
   },
   "stereo_nx": {
+    "download_pdf": "Stáhnout protokol PDF",
+    "pdf_downloading": "Stahuji protokol PDF…",
+    "pdf_download_failed": "Protokol PDF se nepodařilo stáhnout. Zkuste to znovu.",
     "summary": {
       "show_all": "Zobrazit vše",
       "agendas_title": "Přehled agend",

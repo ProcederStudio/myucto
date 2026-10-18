@@ -17,6 +17,7 @@ use MyInvoice\Service\Migration\StereoNx\StereoNxImporter;
 use MyInvoice\Service\Migration\StereoNx\StereoNxImportJobService;
 use MyInvoice\Service\Migration\StereoNx\StereoNxImportMap;
 use MyInvoice\Service\Migration\StereoNx\StereoNxSourcePlan;
+use MyInvoice\Service\Migration\StereoNx\StereoNxRunReportStore;
 use MyInvoice\Service\Migration\StereoNx\StereoNxUploads;
 use MyInvoice\Service\Migration\Shared\MigrationCompanyLock;
 use MyInvoice\Service\Report\VatLedgerService;
@@ -46,6 +47,7 @@ final class StereoNxImportTest extends TestCase
     private int $userId;
     private string $tmp;
     private array $tokens = [];
+    private array $runReportPaths = [];
     private const PASSWORD = 'Synthetic-NX-test-password';
 
     protected function setUp(): void
@@ -80,6 +82,10 @@ final class StereoNxImportTest extends TestCase
 
     protected function tearDown(): void
     {
+        foreach ($this->runReportPaths as $path) {
+            $absolute = \MyInvoice\Infrastructure\Config\RuntimePaths::storage($path);
+            if (is_file($absolute) && !is_link($absolute)) unlink($absolute);
+        }
         foreach ($this->tokens as $token) {
             $dir = StereoNxUploads::dir($this->supplierId, $token);
             foreach (glob($dir . '/*') ?: [] as $path) if (is_file($path)) unlink($path);
@@ -760,9 +766,15 @@ final class StereoNxImportTest extends TestCase
         $jobs = $container->get(ImportJobRepository::class);
         self::assertStringNotContainsString(self::PASSWORD, json_encode($jobs->find($jobId, $this->supplierId)['params']));
         $container->get(StereoNxImportJobService::class)->run($jobId);
-        self::assertArrayNotHasKey('password_enc', $jobs->find($jobId, $this->supplierId)['params']);
+        $job = $jobs->find($jobId, $this->supplierId);
+        self::assertArrayNotHasKey('password_enc', $job['params']);
+        self::assertSame('application/json', $job['result_mime']);
+        self::assertSame('import-jobs/' . $this->supplierId . '/reports/stereo-nx-' . $jobId . '.json', $job['result_path']);
+        $this->runReportPaths[] = $job['result_path'];
         $result = $this->action->result($this->request([]), (new ResponseFactory())->createResponse(), ['token' => $token, 'id' => (string) $jobId]);
         self::assertSame(200, $result->getStatusCode(), (string) $result->getBody());
+        self::assertSame($this->json($result)['report'],
+            $container->get(StereoNxRunReportStore::class)->read($this->supplierId, $jobId, $job['result_path']));
         return $this->json($result);
     }
 

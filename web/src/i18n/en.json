@@ -33756,6 +33756,9 @@
     }
   },
   "stereo_nx": {
+    "download_pdf": "Download PDF report",
+    "pdf_downloading": "Downloading PDF report…",
+    "pdf_download_failed": "The PDF report could not be downloaded. Please try again.",
     "summary": {
       "show_all": "Show all",
       "agendas_title": "Agenda overview",

@@ -3028,6 +3028,7 @@ final class Routes
         $app->post   ('/api/admin/imports/stereo-nx/uploads/{token:[a-f0-9]{32}}/company-profile', [\MyInvoice\Action\Admin\Import\StereoNxMigrationAction::class, 'fillCompanyProfile']);
         $app->post   ('/api/admin/imports/stereo-nx/uploads/{token:[a-f0-9]{32}}/run', [\MyInvoice\Action\Admin\Import\StereoNxMigrationAction::class, 'run']);
         $app->get    ('/api/admin/imports/stereo-nx/uploads/{token:[a-f0-9]{32}}/runs/{id:[0-9]+}', [\MyInvoice\Action\Admin\Import\StereoNxMigrationAction::class, 'result']);
+        $app->get    ('/api/admin/imports/stereo-nx/uploads/{token:[a-f0-9]{32}}/runs/{id:[0-9]+}/pdf', [\MyInvoice\Action\Admin\Import\StereoNxMigrationAction::class, 'resultPdf']);
         $app->delete ('/api/admin/imports/stereo-nx/uploads/{token:[a-f0-9]{32}}', [\MyInvoice\Action\Admin\Import\StereoNxMigrationAction::class, 'delete']);
 
         $app->get    ('/api/admin/imports/abra-flexi/connection', [\MyInvoice\Action\Admin\Import\AbraMigrationAction::class, 'status']);
