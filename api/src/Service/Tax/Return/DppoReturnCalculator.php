@@ -262,7 +262,7 @@ final class DppoReturnCalculator
         $baseAfterDeductions = $baseAfterRnd - $eduApplied;
         $reduction=0;
         if ($nonprofit !== null) {
-            $limit=\MyInvoice\Service\Tax\Nonprofit\NonprofitDppoReduction::limit((int)max(0,$baseAfterDeductions),$nonprofit['reduction_band']);
+            $limit=\MyInvoice\Service\Tax\Nonprofit\NonprofitDppoReduction::limit((int)max(0,$baseAfterDeductions),$nonprofit['reduction_band'],$c);
             $reduction=$nonprofit['reduction_claim_kc'];
             if ($reduction>$limit) throw new TaxReturnException('nonprofit_dppo_reduction_exceeded','Snížení podle §20 odst.7 překračuje zákonný limit po všech odpočtech§34.',422);
             $nonprofit['reduction_limit_kc']=$limit;

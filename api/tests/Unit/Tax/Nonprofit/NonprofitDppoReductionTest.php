@@ -25,7 +25,7 @@ final class NonprofitDppoReductionTest extends TestCase
     #[DataProvider('limits')]
     public function testStatutoryPercentageFloorAndCap(int $base, string $band, int $expected): void
     {
-        self::assertSame($expected, NonprofitDppoReduction::limit($base, $band));
+        self::assertSame($expected, NonprofitDppoReduction::limit($base, $band, \MyInvoice\Service\Tax\TaxConstants::forYear(2026)));
     }
 
     public static function addbacks(): array
@@ -44,7 +44,7 @@ final class NonprofitDppoReductionTest extends TestCase
     public function testUnsupportedCategoryCannotReceiveAStandardAllowance(): void
     {
         $this->expectException(TaxReturnException::class);
-        NonprofitDppoReduction::limit(100000, 'unknown');
+        NonprofitDppoReduction::limit(100000, 'unknown', \MyInvoice\Service\Tax\TaxConstants::forYear(2026));
     }
 
     public function testUseBeyondActualSavingIsRejected(): void

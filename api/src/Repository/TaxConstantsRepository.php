@@ -52,9 +52,10 @@ final class TaxConstantsRepository
     }
 
     /** Konstanty pro daňové přiznání bez meziričního fallbacku. */
-    public function forExactYear(int $year): array
+    public function forExactYear(int $year, bool $currentRead = false): array
     {
-        $override = $this->override($year);
+        if ($currentRead && !$this->db->pdo()->inTransaction()) throw new \LogicException('Current tax constants require a caller transaction.');
+        $override = $this->override($year, $currentRead);
         if (in_array($year, TaxConstants::availableYears(), true)) {
             $default = TaxConstants::forYear($year);
             return $override !== null ? $this->merge($default, $override, $year) : $default;
@@ -236,9 +237,9 @@ final class TaxConstantsRepository
      */
     public function mergeWithOverride(int $year, array $data): array
     {
-        $stored = $this->override($year);
-        if ($stored === null) {
-            return $data;
+        $stored = $this->override($year) ?? [];
+        if (in_array($year, TaxConstants::availableYears(), true)) {
+            $stored = $this->merge(TaxConstants::forYear($year), $stored, $year);
         }
         if (array_key_exists('pausal_annual', $data) && !array_key_exists('pausal_monthly', $data)) {
             unset($stored['pausal_monthly']);
