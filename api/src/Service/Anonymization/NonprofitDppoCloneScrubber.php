@@ -60,9 +60,14 @@ final class NonprofitDppoCloneScrubber
         $walk=static function(array $before,array $value,string $parent='')use(&$walk,$hashes):array{
             foreach($before as$key=>$item){
                 if(is_array($item)){$value[$key]=$walk($item,$value[$key],(string)$key);continue;}
-                if(!is_string($item)){$value[$key]=$item;continue;}
-                if(isset($hashes[$item])){$value[$key]=$hashes[$item];continue;}
-                if(preg_match('/^(?:[a-f0-9]{64}|-?[0-9]+(?:\.[0-9]+)?|[0-9]{4}-[0-9]{2}-[0-9]{2}(?:[T ][0-9:.+Z-]+)?)$/D',$item)===1
+                if(!is_string($item))continue;
+                $field=(string)$key;$hashField=str_ends_with($field,'_hash')||in_array($field,['source_sha256','xml_sha256','hash'],true);
+                if($hashField&&isset($hashes[$item])){$value[$key]=$hashes[$item];continue;}
+                $amountField=in_array($field,['amount','amount_foreign','fx_rate'],true)||str_ends_with($field,'_cents')||str_ends_with($field,'_kc');
+                $dateField=in_array($field,['date','entry_date','document_date','starts_on','ends_on','effective_from','effective_to','created_at','posted_at'],true);
+                if(($hashField&&preg_match('/^[a-f0-9]{64}$/D',$item)===1)
+                    ||($amountField&&preg_match('/^-?[0-9]+(?:\.[0-9]+)?$/D',$item)===1)
+                    ||($dateField&&preg_match('/^[0-9]{4}-[0-9]{2}-[0-9]{2}(?:[T ][0-9:.+Z-]+)?$/D',$item)===1)
                     ||in_array($key,['kind','owner','entity_type','ruleset','reduction_band','regime','method','mode','scope','status','final_regime','final_method','tax_regime','activity','account_code','currency_code','assignment_origin','semantic_key','saving_qualified_purpose','income_treatment'],true)
                     ||in_array($parent,['account_prefixes','source_members','allowed_purposes'],true)
                     ||($key==='legal_basis'&&preg_match('/^(?:zdp|zou|vyhl)_[a-z0-9_]+$/D',$item)===1))$value[$key]=$item;
