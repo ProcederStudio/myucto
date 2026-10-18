@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Tests\Integration;
 
 use MyInvoice\Infrastructure\Config\Config;
+use MyInvoice\Service\System\GlobalSeedTables;
 use PDO;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
@@ -90,6 +91,10 @@ final class PriceListPermissionsMigrationTest extends TestCase
         $roles->update(3, $accountant['name'], true, [], (string) $accountant['updated_at']);
         $connection->close();
         self::assertSame([1 => 2, 2 => 1, 4 => 0], $this->catalogPermissions());
+        $this->db->exec("INSERT INTO app_meta (k, v) VALUES ('latest_version', 'synthetic-cache')");
+        self::assertArrayHasKey('app_meta', GlobalSeedTables::RESET_PARTIAL);
+        $this->db->exec('DELETE FROM app_meta WHERE ' . GlobalSeedTables::RESET_PARTIAL['app_meta']);
+        self::assertSame(['rbac_price_list_defaults_initialized'], $this->db->query('SELECT k FROM app_meta ORDER BY k')->fetchAll(PDO::FETCH_COLUMN));
         $this->db->exec("DELETE FROM migrations WHERE filename = '" . self::MIGRATION . "'");
         $this->runMigrator();
         self::assertSame([1 => 2, 2 => 1, 4 => 0], $this->catalogPermissions());

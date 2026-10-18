@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Tests\Integration;
 
 use MyInvoice\Infrastructure\Config\Config;
+use MyInvoice\Service\System\GlobalSeedTables;
 use PDO;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
@@ -100,6 +101,10 @@ final class OperationalSettingsPermissionsMigrationTest extends TestCase
         $connection->close();
         $expected = array_filter($expected, static fn ($key) => !str_starts_with($key, '1:'), ARRAY_FILTER_USE_KEY);
         self::assertSame($expected, $this->operationalPermissions());
+        $this->db->exec("INSERT INTO app_meta (k, v) VALUES ('latest_version', 'synthetic-cache')");
+        self::assertArrayHasKey('app_meta', GlobalSeedTables::RESET_PARTIAL);
+        $this->db->exec('DELETE FROM app_meta WHERE ' . GlobalSeedTables::RESET_PARTIAL['app_meta']);
+        self::assertSame(['rbac_operational_settings_initialized'], $this->db->query('SELECT k FROM app_meta ORDER BY k')->fetchAll(PDO::FETCH_COLUMN));
         $this->db->exec("DELETE FROM migrations WHERE filename = '" . self::MIGRATION . "'");
         $this->runMigrator();
         self::assertSame($expected, $this->operationalPermissions());
