@@ -384,6 +384,7 @@ final class Routes
     {
         \MyInvoice\Routes\ServiceLifecycleRoutes::register($app);
         \MyInvoice\Routes\FundingRoutes::register($app);
+        \MyInvoice\Routes\PropertyAccountingCatalogRoutes::register($app);
         \MyInvoice\Routes\SecuritiesDebt504Routes::register($app);
         \MyInvoice\Routes\FrameworkConversionRoutes::register($app);
         $app->get('/api/health',  HealthAction::class);
@@ -2576,6 +2577,11 @@ final class Routes
         // změna stavu období = admin (PermissionMiddleware + guard v Action).
         $app->group('/api/accounting', function ($g) {
             $g->get('/catalog/context', [\MyInvoice\Action\Accounting\Catalog\AccountingContextAction::class, 'get']);
+            $g->get('/catalog/nonprofit-funding', [\MyInvoice\Action\Nonprofit\Catalog\NonprofitResourceCatalogAction::class, 'funding']);
+            $g->get('/catalog/nonprofit-funding/{id:[0-9]+}', [\MyInvoice\Action\Nonprofit\Catalog\NonprofitResourceCatalogAction::class, 'funding']);
+            $g->get('/catalog/nonprofit-capital', [\MyInvoice\Action\Nonprofit\Catalog\NonprofitResourceCatalogAction::class, 'capital']);
+            $g->get('/catalog/nonprofit-capital/{id:[0-9]+}', [\MyInvoice\Action\Nonprofit\Catalog\NonprofitResourceCatalogAction::class, 'capital']);
+            $g->get('/catalog/nonprofit-capital/{id:[0-9]+}/events', [\MyInvoice\Action\Nonprofit\Catalog\NonprofitResourceCatalogAction::class, 'events']);
             // AI asistent účetní — odpověď a návrhy zápisů, nic se tu nezaúčtuje
             $g->get   ('/ai-assistant/status', [\MyInvoice\Action\Accounting\AiAssistantAction::class, 'status']);
             $g->post  ('/ai-assistant/ask',    [\MyInvoice\Action\Accounting\AiAssistantAction::class, 'ask']);

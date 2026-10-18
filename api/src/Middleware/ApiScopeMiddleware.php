@@ -51,6 +51,8 @@ final class ApiScopeMiddleware implements MiddlewareInterface
     private const BEARER_ALLOWED = [
         '#^/api/property/catalog/openings$#',
         '#^/api/property/catalog/service-settlements(/[0-9]+(/current)?)?$#',
+        '#^/api/property/catalog/service-lifecycles(/(?:[0-9]+|reconciliation))?$#',
+        '#^/api/property/catalog/funds/(operations|balances)$#',
         '#^/api/property/catalog/payments/(card|operations|history|reconciliation|saldo)$#',
         '#^/api/property/catalog/charges/(components|versions(/[0-9]+)?|issues(/[0-9]+)?)$#',
         '#^/api/property/catalog/(profile|summary|houses|units|services)$#',
@@ -154,6 +156,8 @@ final class ApiScopeMiddleware implements MiddlewareInterface
      * @var list<string>
      */
     private const BEARER_SESSION_ONLY = [
+        '#^/api/accounting/nonprofit-(funding|capital)(/|$)#',
+        '#^/api/accounting/periods/[0-9]+/nonprofit-(funding|capital)/choices$#',
         '#^/api/eshop/bulk(/|$)#',
         '#^/api/accounting/payroll(/|$)#',
         '#^/api/accounting/reports/payroll-sheet$#',
