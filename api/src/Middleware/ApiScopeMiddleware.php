@@ -49,6 +49,7 @@ final class ApiScopeMiddleware implements MiddlewareInterface
      * @var list<string>
      */
     private const BEARER_ALLOWED = [
+        '#^/api/property/catalog/openings$#',
         '#^/api/property/catalog/service-settlements(/[0-9]+(/current)?)?$#',
         '#^/api/property/catalog/payments/(card|operations|history|reconciliation|saldo)$#',
         '#^/api/property/catalog/charges/(components|versions(/[0-9]+)?|issues(/[0-9]+)?)$#',
