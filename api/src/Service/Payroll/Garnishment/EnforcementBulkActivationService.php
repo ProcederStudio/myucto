@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Payroll\Garnishment;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\Payroll\PayrollEnforcementFactsRepository;
 use MyInvoice\Repository\Payroll\PayrollEnforcementRepository;
 use PDO;
@@ -157,6 +158,9 @@ final readonly class EnforcementBulkActivationService
                 $nested ? $pdo->exec('RELEASE SAVEPOINT enforcement_bulk_activation') : $pdo->commit();
                 $results[] = ['case_id' => $caseId, 'status' => 'activated', 'message' => null];
             } catch (\Throwable $e) {
+                if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                    throw $e;
+                }
                 if ($nested && $pdo->inTransaction()) {
                     $pdo->exec('ROLLBACK TO SAVEPOINT enforcement_bulk_activation');
                     $pdo->exec('RELEASE SAVEPOINT enforcement_bulk_activation');

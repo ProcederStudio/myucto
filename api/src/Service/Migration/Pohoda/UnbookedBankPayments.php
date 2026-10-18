@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Migration\Pohoda;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\BankPostingSuggestionRepository;
 use MyInvoice\Repository\JournalEntryRepository;
 use MyInvoice\Repository\PohodaImportRepository;
@@ -288,6 +289,9 @@ final class UnbookedBankPayments
             $pdo->exec('RELEASE SAVEPOINT pohoda_pair');
             return true;
         } catch (\PDOException $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             $pdo->exec('ROLLBACK TO SAVEPOINT pohoda_pair');
             $pdo->exec('RELEASE SAVEPOINT pohoda_pair');
             throw $e;

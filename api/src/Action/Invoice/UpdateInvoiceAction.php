@@ -14,6 +14,7 @@ use MyInvoice\Http\SessionOnlyAccountingAct;
 use MyInvoice\Http\SupplierGuard;
 use MyInvoice\Http\TenantReferenceGuard;
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Repository\InvoiceRepository;
 use MyInvoice\Security\RequestAuthorization;
@@ -534,6 +535,7 @@ final class UpdateInvoiceAction
             try {
                 $newVs = $this->varsymbol->next($renumberScope['supplier_id'], $renumberScope['new_series'], $newDate, $newClient, $newCategory);
             } catch (\InvalidArgumentException | \RuntimeException $e) {
+                if (TransactionFailure::rollbackIfAborted($pdo, $e)) throw $e;
                 if ($renumberTx && $pdo->inTransaction()) $pdo->rollBack();
                 return Json::error($response, 'varsymbol_failed', $e->getMessage(), 500);
             }

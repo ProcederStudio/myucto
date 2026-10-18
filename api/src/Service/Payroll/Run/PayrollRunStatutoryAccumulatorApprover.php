@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Payroll\Run;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\Payroll\PayrollStatutoryAccumulatorRepository;
 use MyInvoice\Repository\Payroll\PayrollStatutoryAccumulatorUnavailableException;
 use MyInvoice\Repository\Payroll\PayrollStatutoryResultRepository;
@@ -389,6 +390,9 @@ final class PayrollRunStatutoryAccumulatorApprover
 
             return $result;
         } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             if ($nested) {
                 $pdo->exec('ROLLBACK TO SAVEPOINT ' . self::SAVEPOINT);
                 $pdo->exec('RELEASE SAVEPOINT ' . self::SAVEPOINT);

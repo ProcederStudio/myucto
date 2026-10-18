@@ -6,6 +6,7 @@ namespace MyInvoice\Service\Migration\Pohoda;
 
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Infrastructure\Database\TableStatistics;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Repository\PohodaImportRepository;
 use MyInvoice\Service\Accounting\FiscalCalendar;
@@ -261,6 +262,9 @@ final class PohodaImporter
                     $dryRun ? $fn() : $this->transactional($fn);
                     $protocol->finish($key);
                 } catch (\Throwable $e) {
+                    // Odvolaná transakce (1020/1213) nesmí zůstat viset jako otevřená:
+                    // savepoint zkušebního běhu i zbytek převodu by jinak pracovaly naslepo.
+                    TransactionFailure::rollbackIfAborted($pdo, $e);
                     if ($e instanceof PohodaException) {
                         $protocol->error($key, $e->errorCode, $e->getMessage());
                     } else {
@@ -288,7 +292,7 @@ final class PohodaImporter
             }
             $protocol->set('automation', $automation);
         } finally {
-            if ($savepoint) {
+            if ($savepoint && $pdo->inTransaction()) {
                 $pdo->exec('ROLLBACK TO SAVEPOINT pohoda_dry_run');
             } elseif ($dryRun && $pdo->inTransaction()) {
                 $pdo->rollBack();

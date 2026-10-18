@@ -7,6 +7,7 @@ namespace MyInvoice\Service\Payroll;
 use DateTimeImmutable;
 use InvalidArgumentException;
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\Payroll\PayrollEmploymentLifecycleSql;
 use MyInvoice\Repository\Payroll\PayrollPersonNotFoundException;
 use MyInvoice\Repository\Payroll\PayrollPersonStatutoryEvidenceConflictException;
@@ -317,7 +318,13 @@ final class PayrollStatutoryEvidenceBulkDefaults
                 'effective_from' => $effectiveFrom,
             ]];
         } catch (\Exception $exception) {
-            $this->rollback($owns);
+            // Odvolaná transakce (1020/1213) savepoint nemá. Vlastní transakce osoby je tím
+            // vrácená, cizí musí dostat její vlastník.
+            if (!TransactionFailure::rollbackIfAborted($this->db->pdo(), $exception)) {
+                $this->rollback($owns);
+            } elseif (!$owns) {
+                throw $exception;
+            }
 
             return ['status' => 'failed', 'detail' => [
                 'message' => $this->failureMessage($exception),

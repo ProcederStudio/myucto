@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Repository\Payroll;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Payroll\CzechBirthNumber;
 use MyInvoice\Service\Payroll\Net\PayrollPartnerSettlement;
@@ -402,6 +403,9 @@ final class PayrollPersonProfileRepository
                 $pdo->exec('RELEASE SAVEPOINT payroll_person_profile_save');
             }
         } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             if ($ownsTransaction) {
                 $this->rollBackOwnedTransaction($pdo);
             } elseif (!$ownsTransaction) {

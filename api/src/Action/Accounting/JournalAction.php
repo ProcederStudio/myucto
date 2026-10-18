@@ -8,6 +8,7 @@ use MyInvoice\Action\Accounting\Reports\DimensionFilterParam;
 use MyInvoice\Http\GuardsAccountingMode;
 use MyInvoice\Http\Json;
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Repository\AccountingSupplierSettingsRepository;
 use MyInvoice\Repository\ChartOfAccountsRepository;
@@ -779,7 +780,11 @@ final class JournalAction
             );
             $ownTx ? $pdo->commit() : $pdo->exec('RELEASE SAVEPOINT repost_with_dimensions');
         } catch (\Throwable $e) {
-            if ($pdo->inTransaction()) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                if (!$ownTx) {
+                    throw $e;
+                }
+            } elseif ($pdo->inTransaction()) {
                 $ownTx ? $pdo->rollBack() : $pdo->exec('ROLLBACK TO SAVEPOINT repost_with_dimensions');
             }
             if ($e instanceof DimensionException) {

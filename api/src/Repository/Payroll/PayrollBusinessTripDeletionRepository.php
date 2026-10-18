@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MyInvoice\Repository\Payroll;
 
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use PDO;
 
 /**
@@ -163,6 +164,9 @@ final class PayrollBusinessTripDeletionRepository extends PayrollRowDeletionRepo
 
             return $changed;
         } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             if ($owns) {
                 $pdo->rollBack();
             } elseif ($pdo->inTransaction()) {

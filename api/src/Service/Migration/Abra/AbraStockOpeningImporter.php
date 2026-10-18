@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Migration\Abra;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\AbraImportRepository;
 use MyInvoice\Service\Stock\StockDocumentService;
 use PDO;
@@ -212,6 +213,9 @@ final class AbraStockOpeningImporter
                 $nested ? $pdo->exec('RELEASE SAVEPOINT abra_stock_opening') : $pdo->commit();
                 $result['documents']++;
             } catch (\Throwable $error) {
+                if (TransactionFailure::rollbackIfAborted($pdo, $error)) {
+                    throw $error;
+                }
                 if ($nested) {
                     $pdo->exec('ROLLBACK TO SAVEPOINT abra_stock_opening');
                     $pdo->exec('RELEASE SAVEPOINT abra_stock_opening');

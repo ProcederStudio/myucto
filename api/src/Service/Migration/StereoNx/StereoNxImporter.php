@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Migration\StereoNx;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\MovementClassificationRepository;
 use MyInvoice\Repository\SupplierBankAccountRepository;
 use MyInvoice\Service\Migration\MoneyS3\ImportProtocol;
@@ -358,6 +359,9 @@ final class StereoNxImporter
                     unset($reviewDocument);
                 }
             } catch (Throwable $e) {
+                if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                    throw $e;
+                }
                 if ($nested) $pdo->exec('ROLLBACK TO SAVEPOINT stereo_nx_import');
                 elseif ($pdo->inTransaction()) $pdo->rollBack();
                 throw $e;

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Repository\Payroll;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Service\Payroll\Net\DeductionAgreementCommand;
 use MyInvoice\Service\Payroll\Net\DeductionAgreementStatus;
 use MyInvoice\Service\Payroll\Net\DeductionAgreementTerms;
@@ -668,6 +669,9 @@ final class PayrollDeductionAgreementRepository
 
             return $result;
         } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             if ($nested && $pdo->inTransaction()) {
                 $pdo->exec('ROLLBACK TO SAVEPOINT ' . self::SAVEPOINT);
                 $pdo->exec('RELEASE SAVEPOINT ' . self::SAVEPOINT);

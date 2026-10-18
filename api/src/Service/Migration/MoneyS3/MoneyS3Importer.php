@@ -6,6 +6,7 @@ namespace MyInvoice\Service\Migration\MoneyS3;
 
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Infrastructure\Database\TableStatistics;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Repository\MoneyS3ImportRepository;
 use MyInvoice\Service\Accounting\FiscalCalendar;
@@ -347,6 +348,9 @@ final class MoneyS3Importer
                     }
                     $protocol->finish($key);
                 } catch (\Throwable $e) {
+                    // Odvolaná transakce (1020/1213) nesmí zůstat viset jako otevřená:
+                    // savepoint zkušebního běhu i zbytek převodu by jinak pracovaly naslepo.
+                    TransactionFailure::rollbackIfAborted($pdo, $e);
                     if ($e instanceof MoneyS3Exception) {
                         $protocol->error($key, $e->errorCode, $e->getMessage());
                     } else {
@@ -375,7 +379,7 @@ final class MoneyS3Importer
             }
             $protocol->set('automation', $automation);
         } finally {
-            if ($savepoint) {
+            if ($savepoint && $pdo->inTransaction()) {
                 $pdo->exec('ROLLBACK TO SAVEPOINT money_s3_dry_run');
             } elseif ($dryRun && $pdo->inTransaction()) {
                 $pdo->rollBack();

@@ -7,6 +7,7 @@ namespace MyInvoice\Repository\Payroll;
 use DateTimeImmutable;
 use InvalidArgumentException;
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Payroll\IncomeTax\TaxpayerCreditEntitlement;
 use MyInvoice\Service\Payroll\PayrollApprovedPeriodFreeze;
@@ -661,6 +662,9 @@ final class PayrollPersonStatutoryEvidenceRepository
 
             return $view;
         } catch (\Throwable $exception) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $exception)) {
+                throw $exception;
+            }
             if ($owns) {
                 if ($pdo->inTransaction()) {
                     $pdo->rollBack();

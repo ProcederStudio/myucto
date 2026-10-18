@@ -6,6 +6,7 @@ namespace MyInvoice\Service\Migration\Abra;
 
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Infrastructure\Database\TableStatistics;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\AbraImportRepository;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Repository\ChartOfAccountsRepository;
@@ -410,6 +411,9 @@ final class AbraAccountingImporter
                 }
             }
         } catch (Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             if ($nested && $pdo->inTransaction()) {
                 $pdo->exec('ROLLBACK TO SAVEPOINT abra_accounting_import');
                 $pdo->exec('RELEASE SAVEPOINT abra_accounting_import');

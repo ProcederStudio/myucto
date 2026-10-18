@@ -6,6 +6,7 @@ namespace MyInvoice\Action\Admin\Import;
 
 use MyInvoice\Bootstrap;
 use MyInvoice\Action\Settings\SettingsAction;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Service\Migration\StereoNx\StereoNxCompanyCompatibility;
 use MyInvoice\Service\Migration\StereoNx\StereoNxCompanyProfile;
 use MyInvoice\Http\Json;
@@ -403,6 +404,9 @@ final class StereoNxMigrationAction
             else $pdo->exec('RELEASE SAVEPOINT stereo_company_profile');
             return Json::ok($response, ['filled_fields' => array_keys($values)]);
         } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             if ($transactionStarted && $pdo->inTransaction()) {
                 if ($ownsTransaction) $pdo->rollBack();
                 else {

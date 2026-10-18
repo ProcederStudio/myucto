@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Migration\Premier;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Service\Accounting\AccountingPeriodStatus;
 use MyInvoice\Service\Accounting\FiscalCalendar;
@@ -74,6 +75,9 @@ final class ClosingImporter
             $p->count(self::STEP, 'closed');
             $p->info(self::STEP, 'year_closed', "Rok {$ctx->year} je uzavřený (702/710) a počáteční stavy roku " . ($ctx->year + 1) . ' navazují.');
         } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             $pdo->exec('ROLLBACK TO SAVEPOINT premier_closing');
             $known = $e instanceof PremierException || $e instanceof ClosingException;
             $message = $known ? $e->getMessage() : 'neočekávaná chyba, podrobnosti jsou v logu serveru';

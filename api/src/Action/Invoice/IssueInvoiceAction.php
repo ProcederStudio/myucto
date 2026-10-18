@@ -8,6 +8,7 @@ use MyInvoice\Http\GuardsDocumentLock;
 use MyInvoice\Http\Json;
 use MyInvoice\Http\SupplierGuard;
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Service\Report\KontrolniHlaseniBuilder;
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Repository\ClientRepository;
@@ -431,6 +432,7 @@ final class IssueInvoiceAction
                         (int) ($invoice['revenue_category_id'] ?? 0),
                     );
                 } catch (\InvalidArgumentException | \RuntimeException $e) {
+                    if (TransactionFailure::rollbackIfAborted($pdo, $e)) throw $e;
                     if ($ownTransaction && $pdo->inTransaction()) $pdo->rollBack();
                     return Json::error($response, 'varsymbol_failed', $e->getMessage(), 500);
                 }

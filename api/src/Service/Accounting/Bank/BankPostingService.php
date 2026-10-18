@@ -2643,11 +2643,13 @@ final class BankPostingService
         try {
             $this->reconcileLegacyIncoming($supplierId, $tx);
             return $this->buildMatched($supplierId, $tx)['lines'];
+        } catch (\Throwable $e) {
+            // Odvolaná transakce savepoint nemá; ROLLBACK TO ve finally by ji přemaskoval.
+            TransactionFailure::rollbackIfAborted($pdo, $e);
+            throw $e;
         } finally {
-            if ($ownTx) {
-                $pdo->rollBack();
-            } else {
-                $pdo->exec('ROLLBACK TO SAVEPOINT preview_legacy_reconcile');
+            if ($pdo->inTransaction()) {
+                $ownTx ? $pdo->rollBack() : $pdo->exec('ROLLBACK TO SAVEPOINT preview_legacy_reconcile');
             }
         }
     }

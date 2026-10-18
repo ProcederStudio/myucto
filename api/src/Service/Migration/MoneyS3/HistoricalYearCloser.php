@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Migration\MoneyS3;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\ClosingRepository;
 use MyInvoice\Repository\MoneyS3ImportRepository;
 use MyInvoice\Service\Accounting\Closing\ClosingService;
@@ -118,6 +119,9 @@ final class HistoricalYearCloser
                     $withoutMoneyClosing[] = $year;
                 }
             } catch (\Throwable $e) {
+                if (TransactionFailure::rollbackIfAborted($this->db->pdo(), $e)) {
+                    throw $e;
+                }
                 if ($savepoint) {
                     $this->db->pdo()->exec('ROLLBACK TO SAVEPOINT money_s3_close_year');
                 } else {
@@ -167,6 +171,9 @@ final class HistoricalYearCloser
             $ctx->protocol->count(self::STEP, 'closed');
             return ['year' => $year, 'status' => 'next_opened'];
         } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             if ($savepoint) {
                 $pdo->exec('ROLLBACK TO SAVEPOINT money_s3_open_next');
             }

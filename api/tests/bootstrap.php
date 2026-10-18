@@ -247,6 +247,7 @@ require __DIR__ . '/../vendor/autoload.php';
     '*/api/src/Repository/TaxSubmissionRepository.php',
     '*/api/src/Repository/AccountingSupplierSettingsRepository.php',
     '*/api/src/Service/Validation/XmlSchemaValidator.php',
+    '*/api/src/Repository/Payroll/PayrollPaymentSettlementSignalRepository.php',
 ]);
 \DG\BypassFinals::enable();
 

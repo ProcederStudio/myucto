@@ -6,6 +6,7 @@ namespace MyInvoice\Action\Payroll;
 
 use MyInvoice\Http\Json;
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Repository\Payroll\PayrollPersonNotFoundException;
 use MyInvoice\Repository\Payroll\PayrollPersonProfileConflictException;
@@ -173,7 +174,7 @@ final class PayrollPersonProfileAction
             $this->rollBackRehearsal($rehearsal, $rehearsalOwnsTransaction);
             return Json::error($response, 'validation_failed', $e->getMessage(), 422);
         } catch (\Throwable $e) {
-            $this->rollBackRehearsal($rehearsal, $rehearsalOwnsTransaction);
+            $this->rollBackRehearsal($rehearsal, $rehearsalOwnsTransaction, $e);
             throw $e;
         }
         $this->rollBackRehearsal($rehearsal, $rehearsalOwnsTransaction);
@@ -197,9 +198,11 @@ final class PayrollPersonProfileAction
         if (!$dryRun) {
             try {
                 $this->payoutDefaults->applyDefaults($supplierId, $employeeId);
-            } catch (\Throwable) {
+            } catch (\Throwable $e) {
                 // Nejednoznačná karta = pravidlo se nezaloží a zůstane ruční
-                // cesta. Uložení karty to nesmí shodit.
+                // cesta. Uložení karty to nesmí shodit; odvolanou transakci
+                // (1020/1213) ale nesmí nechat viset jako otevřenou.
+                TransactionFailure::rollbackIfAborted($this->db->pdo(), $e);
             }
         }
 
@@ -233,13 +236,14 @@ final class PayrollPersonProfileAction
         return is_string($start) && $start !== '' ? substr($start, 0, 10) : date('Y-m-d');
     }
 
-    private function rollBackRehearsal(bool $rehearsal, bool $ownsTransaction): void
+    private function rollBackRehearsal(bool $rehearsal, bool $ownsTransaction, ?\Throwable $cause = null): void
     {
         if (!$rehearsal) {
             return;
         }
         $pdo = $this->db->pdo();
-        if (!$pdo->inTransaction()) {
+        // Odvolaná transakce (1020/1213) savepoint nemá; ROLLBACK TO by ji přemaskoval.
+        if ($cause !== null && TransactionFailure::rollbackIfAborted($pdo, $cause) || !$pdo->inTransaction()) {
             return;
         }
         if ($ownsTransaction) {

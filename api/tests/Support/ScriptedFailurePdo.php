@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MyInvoice\Tests\Support;
 
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use PDO;
 use PDOException;
 use PDOStatement;
@@ -12,6 +13,10 @@ use PDOStatement;
  * SQLite v paměti se skutečnými transakcemi, kterému lze předepsat, že příkaz
  * obsahující daný text napoprvé selže zadanou výjimkou (typicky odvolanou
  * transakcí 1020/1213). Funkce NOW() je doplněná kvůli SQL psanému pro MariaDB.
+ *
+ * Odvolání se chová jako v MariaDB: `inTransaction()` dál vrací true, savepointy ale
+ * zmizely, takže `ROLLBACK TO SAVEPOINT` i `RELEASE SAVEPOINT` skončí chybou 1305.
+ * Stav ukončí až `rollBack()`.
  */
 final class ScriptedFailurePdo extends \Pdo\Sqlite
 {
@@ -20,6 +25,8 @@ final class ScriptedFailurePdo extends \Pdo\Sqlite
 
     /** @var array<string,int> */
     public array $calls = [];
+
+    private bool $serverAborted = false;
 
     public function __construct()
     {
@@ -33,6 +40,16 @@ final class ScriptedFailurePdo extends \Pdo\Sqlite
         $this->calls[$needle] = 0;
     }
 
+    /** Server odvolal transakci; vrátí výjimku, kterou volající vyhodí. */
+    public function abortWith(PDOException $failure): PDOException
+    {
+        if (TransactionFailure::aborted($failure) && parent::inTransaction()) {
+            $this->serverAborted = true;
+        }
+
+        return $failure;
+    }
+
     public function prepare(string $query, array $options = []): PDOStatement|false
     {
         $this->fail($query);
@@ -42,9 +59,21 @@ final class ScriptedFailurePdo extends \Pdo\Sqlite
 
     public function exec(string $statement): int|false
     {
+        if ($this->serverAborted && preg_match('/^\s*(ROLLBACK\s+TO|RELEASE)\s+SAVEPOINT\b/i', $statement) === 1) {
+            $missing = new PDOException('SQLSTATE[42000]: SAVEPOINT does not exist');
+            $missing->errorInfo = ['42000', 1305, 'SAVEPOINT does not exist'];
+            throw $missing;
+        }
         $this->fail($statement);
 
         return parent::exec($statement);
+    }
+
+    public function rollBack(): bool
+    {
+        $this->serverAborted = false;
+
+        return parent::rollBack();
     }
 
     private function fail(string $sql): void
@@ -55,7 +84,7 @@ final class ScriptedFailurePdo extends \Pdo\Sqlite
             }
             $this->calls[$step['needle']]++;
             if ($step['failures'] !== []) {
-                throw array_shift($this->script[$i]['failures']);
+                throw $this->abortWith(array_shift($this->script[$i]['failures']));
             }
         }
     }

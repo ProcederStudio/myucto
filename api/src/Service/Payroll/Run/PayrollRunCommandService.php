@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Payroll\Run;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\Payroll\PayrollRunConflictException;
 use MyInvoice\Repository\Payroll\PayrollRunDeletionException;
 use MyInvoice\Repository\Payroll\PayrollRunIdempotencyException;
@@ -267,6 +268,9 @@ final class PayrollRunCommandService
                 $calculated->outcome,
             );
         } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             if ($nestedTransaction) {
                 if ($pdo->inTransaction()) {
                     $pdo->exec('ROLLBACK TO SAVEPOINT ' . self::COMBINED_SAVEPOINT);
@@ -653,7 +657,7 @@ final class PayrollRunCommandService
 
             $this->finishDeleteTransaction($pdo, $nestedTransaction);
         } catch (\Throwable $e) {
-            $this->rollbackDeleteTransaction($pdo, $nestedTransaction);
+            $this->rollbackDeleteTransaction($pdo, $nestedTransaction, $e);
             throw $e;
         }
     }
@@ -1217,7 +1221,7 @@ final class PayrollRunCommandService
                 $outcome,
             );
         } catch (\Throwable $e) {
-            $this->rollbackCommandTransaction($pdo, $nestedTransaction);
+            $this->rollbackCommandTransaction($pdo, $nestedTransaction, $e);
             throw $e;
         }
     }
@@ -1552,7 +1556,13 @@ final class PayrollRunCommandService
     private function rollbackCommandTransaction(
         PDO $pdo,
         bool $nestedTransaction,
+        \Throwable $cause,
     ): void {
+        // Odvolaná transakce (1020/1213) už savepoint nemá; ROLLBACK TO by původní
+        // chybu přemaskoval chybou 1305.
+        if (TransactionFailure::rollbackIfAborted($pdo, $cause)) {
+            return;
+        }
         if ($nestedTransaction) {
             $pdo->exec('ROLLBACK TO SAVEPOINT ' . self::COMMAND_SAVEPOINT);
             $pdo->exec('RELEASE SAVEPOINT ' . self::COMMAND_SAVEPOINT);
@@ -1575,7 +1585,13 @@ final class PayrollRunCommandService
     private function rollbackDeleteTransaction(
         PDO $pdo,
         bool $nestedTransaction,
+        \Throwable $cause,
     ): void {
+        // Odvolaná transakce (1020/1213) už savepoint nemá; ROLLBACK TO by původní
+        // chybu přemaskoval chybou 1305.
+        if (TransactionFailure::rollbackIfAborted($pdo, $cause)) {
+            return;
+        }
         if ($nestedTransaction) {
             $pdo->exec('ROLLBACK TO SAVEPOINT ' . self::DELETE_SAVEPOINT);
             $pdo->exec('RELEASE SAVEPOINT ' . self::DELETE_SAVEPOINT);
