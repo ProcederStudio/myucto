@@ -4,9 +4,10 @@ declare(strict_types=1);
 
 namespace MyInvoice\Tests\Integration\Stock;
 
-use MyInvoice\Action\Stock\{StockItemAction, WarehouseAction, StockTrackingAction, StockQuantityAction, FulfillmentAction};
+use MyInvoice\Action\Stock\{StockItemAction, StockItemCustomerPriceAction, WarehouseAction, StockTrackingAction, StockQuantityAction, FulfillmentAction};
 use MyInvoice\Middleware\{AuthMiddleware, SupplierScopeMiddleware};
 use MyInvoice\Security\EffectiveRole;
+use MyInvoice\Service\Stock\StockItemCustomerPriceService;
 use PHPUnit\Framework\Attributes\Group;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Slim\Psr7\Factory\ServerRequestFactory;
@@ -140,6 +141,37 @@ final class StockDelegatedClientActionTest extends StockTestCase
         self::assertSame(403, $action->create($this->request($sid, ['stock' => 1]), new Response())->getStatusCode());
         $other = $this->createSupplier();
         self::assertSame(404, $action->get($this->request($other, ['stock' => 1]), new Response(), ['id' => $task['id']])->getStatusCode());
+    }
+
+    public function testClientCustomerPricesOnStockCardRequirePriceListPermission(): void
+    {
+        $sid = $this->createSupplier();
+        $id = $this->item($sid, 'SYNTHETIC-CUSTOMER-PRICE');
+        $customer = $this->client($sid, 'Synthetic customer price client');
+        $row = ['client_id' => $customer, 'currency_code' => 'CZK', 'price_type' => 'fixed', 'fixed_price' => '90.00'];
+        $this->container->get(StockItemCustomerPriceService::class)->save($sid, $id, [$row]);
+        $action = $this->container->get(StockItemCustomerPriceAction::class);
+        $stored = fn (): array => $this->db->pdo()->query('SELECT fixed_price FROM stock_item_customer_prices WHERE supplier_id = ' . $sid . ' AND stock_item_id = ' . $id)
+            ->fetchAll(\PDO::FETCH_COLUMN);
+
+        self::assertSame(403, $action->get($this->request($sid, ['stock' => 1]), new Response(), ['id' => $id])->getStatusCode());
+        $response = $action->get($this->request($sid, ['stock' => 1, 'price_list' => 1]), new Response(), ['id' => $id]);
+        self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        self::assertSame($customer, $this->data($response)[0]['client_id']);
+
+        $changed = [['price_type' => 'fixed', 'fixed_price' => '80.00'] + $row];
+        foreach ([['stock' => 1, 'stock.items.write' => 2], ['stock' => 1, 'stock.items.write' => 2, 'price_list' => 1], ['stock' => 1, 'price_list' => 2]] as $permissions) {
+            $denied = $action->put($this->request($sid, $permissions)->withParsedBody($changed), new Response(), ['id' => $id]);
+            self::assertSame(403, $denied->getStatusCode(), json_encode($permissions) . ': ' . (string) $denied->getBody());
+        }
+        self::assertSame(['90.00'], $stored());
+        $response = $action->put($this->request($sid, ['stock' => 1, 'stock.items.write' => 2, 'price_list' => 2])->withParsedBody($changed), new Response(), ['id' => $id]);
+        self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        self::assertSame(['80.00'], $stored());
+
+        // Interní role se řídí skladem jako dosud; podmínka platí jen pro klienta.
+        $staff = $this->request($sid, ['stock' => 1])->withAttribute('auth.effective_role', new EffectiveRole(101, 'Synthetic stock staff', 'staff', true, ['stock' => 1]));
+        self::assertSame(200, $action->get($staff, new Response(), ['id' => $id])->getStatusCode());
     }
 
     private function request(int $supplierId, array $permissions = ['stock' => 1, 'stock.items.write' => 2]): Request

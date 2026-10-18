@@ -60,6 +60,8 @@ Klientské roli lze v editoru rolí zapnout **Sklad – čtení** a samostatně
 čtení skladu. Výchozí klientská role tato práva nemá. Klient s právem ke kartám
 spravuje jejich základní údaje, prodejní cenu, minimální zásobu a aktivitu v
 jednoduchém editoru. Účetní nastavení karty ani obsah e-shopu se tím nemění.
+Individuální ceny zákazníků na kartě patří k ceníku: klient je vidí jen s právem
+**Ceník – čtení** a mění jen s právem **Ceník – zápis**.
 Při souběžné změně se uložení zastaví a kartu je potřeba znovu načíst.
 
 Vychystání a expedice dovolují převzít připravený výdejní koncept nebo prodejní

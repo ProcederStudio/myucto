@@ -18066,6 +18066,8 @@ paths:
     get:
       tags: [Stock]
       summary: Individuální ceny zákazníků na skladové kartě
+      description: |
+        Klientská role potřebuje kromě čtení skladu i čtení ceníku (`price_list`).
       responses:
         '200':
           description: OK
@@ -18074,6 +18076,7 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/StockItemCustomerPrice' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
     put:
       tags: [Stock]
@@ -18081,6 +18084,7 @@ paths:
       description: |
         Kompletní náhrada sady karty. Pro jednoho odběratele a měnu smí mít karta jen
         jednu cenu (`customer_price_duplicate`); odběratel musí patřit firmě (`invalid_client`).
+        Klientská role potřebuje kromě úprav skladových karet i zápis do ceníku (`price_list`).
       requestBody:
         required: true
         content:
@@ -18097,6 +18101,7 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/StockItemCustomerPrice' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
   /api/v1/stock/items/{id}/price-levels:
