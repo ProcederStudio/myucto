@@ -397,24 +397,10 @@ final class TaxReturnService
                 return $this->finalizeInTransaction($supplierId, $year, $type, $expectedRowVersion, $userId, $variant, $variantSeq, $expectedNonprofitFilingProofHash);
             });
         }
-        $pdo = $this->db->pdo();
-        $ownTx = !$pdo->inTransaction();
-        if ($ownTx) {
-            $pdo->exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
-            $pdo->beginTransaction();
-        }
-        try {
-            $result = $this->finalizeInTransaction($supplierId, $year, $type, $expectedRowVersion, $userId, $variant, $variantSeq);
-            if ($ownTx) {
-                $pdo->commit();
-            }
-            return $result;
-        } catch (\Throwable $e) {
-            if ($ownTx && $pdo->inTransaction()) {
-                $pdo->rollBack();
-            }
-            throw $e;
-        }
+        if (!$this->db->pdo()->inTransaction()) $this->db->pdo()->exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+        return (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->transaction(fn (): array =>
+            $this->finalizeInTransaction($supplierId, $year, $type, $expectedRowVersion, $userId, $variant, $variantSeq)
+        );
     }
 
     private function finalizeInTransaction(int $supplierId, int $year, string $type, int $expectedRowVersion, ?int $userId, string $variant, int $variantSeq, ?string $expectedNonprofitFilingProofHash = null): array
@@ -422,8 +408,9 @@ final class TaxReturnService
         $this->assertType($type);
         $this->assertSupplierType($supplierId, $type);
         $this->assertVariant($variant);
+        $this->losses->lockNativeContext($supplierId, $type);
         $seq = $this->resolveSeq($supplierId, $year, $type, $variant, $variantSeq);
-        $row = $this->returns->find($supplierId, $year, $type, $variant, $seq);
+        $row = $this->returns->find($supplierId, $year, $type, $variant, $seq, true);
         if ($row === null) {
             $row = $this->returns->create($supplierId, $year, $type, [], $userId, $variant, $seq);
             $expectedRowVersion = (int) $row['row_version'];
@@ -436,6 +423,11 @@ final class TaxReturnService
         if ($nonprofit && (($userId ?? 0) <= 0 || !is_string($expectedNonprofitFilingProofHash) || !hash_equals($computation['podklady']['nonprofit_calculation']['filing_proof_hash'], $expectedNonprofitFilingProofHash))) {
             throw new TaxReturnException('nonprofit_dppo_filing_proof_changed', 'Podklady přiznání se změnily. Načtěte výpočet a znovu potvrďte jeho aktuální důkaz.', 409);
         }
+        $lastBefore = $this->returns->findLastFinalized($supplierId, $year, $type, null, true);
+        $previousOwnerId = $lastBefore === null ? null : (int) $lastBefore['id'];
+        [, $candidateLoss] = $this->lossFigures($type, $computation['result']);
+        $candidatePlan = $this->losses->allocationPlan($supplierId, $type, $year, $candidateLoss, $previousOwnerId, (int) $row['id']);
+        $this->losses->assertExact($candidatePlan);
         $preFinalize = $this->preFinalizeChecks->run($supplierId, $year, $type, (array) $row['inputs'], $computation);
         $snapshot = [
             'computed' => $computation['result'],
@@ -479,7 +471,6 @@ final class TaxReturnService
         )));
         $effectiveResult = $computation['result'];
         $effectiveReturnId = (int) ($row['id'] ?? 0) ?: null;
-        $lastBefore = $this->returns->findLastFinalized($supplierId, $year, $type);
         if ($lastBefore !== null && $this->variantPosition((string) $lastBefore['variant'], (int) $lastBefore['variant_seq'])
             > $this->variantPosition($variant, $seq)) {
             $previousSnapshot = (array) ($lastBefore['computed'] ?? []);
@@ -497,6 +488,10 @@ final class TaxReturnService
         } catch (\DomainException $e) {
             throw new TaxReturnException('loss_already_applied', $e->getMessage(), 409);
         }
+        $effectiveChanged = $effectiveReturnId === (int) $row['id'];
+        $effectivePlan = $effectiveChanged ? $candidatePlan
+            : $this->losses->currentAllocationPlan($supplierId, $type, $year, $appliedLoss, $previousOwnerId);
+        if ($effectiveChanged) $this->losses->reconcileExact($effectivePlan, $yearLoss);
         $snapshotId = null;
         if ($snapshotXml !== null) {
             $snapshotId = $this->returns->createSnapshot(
@@ -524,7 +519,7 @@ final class TaxReturnService
         if ($updated === null) {
             throw new TaxReturnException('version_conflict', 'Přiznání bylo mezitím změněno — načtěte znovu.', 409);
         }
-        $this->losses->reconcileFinalize($supplierId, $type, $year, $yearLoss, $appliedLoss, $effectiveReturnId);
+        $this->losses->assertPersistedPlan($effectivePlan);
         if ($nonprofitEffective) (new \MyInvoice\Service\Tax\Nonprofit\NonprofitTaxSavingsLedger($this->db))->registerFinal($supplierId, (int) $snapshotId, (int) $userId);
 
         if ($variant === 'radne') {
@@ -900,7 +895,9 @@ final class TaxReturnService
                 return $this->reopenInTransaction($supplierId, $year, $type, $expectedRowVersion, $userId, $variant, $variantSeq);
             });
         }
-        return $this->reopenInTransaction($supplierId, $year, $type, $expectedRowVersion, $userId, $variant, $variantSeq);
+        return (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->transaction(fn (): array =>
+            $this->reopenInTransaction($supplierId, $year, $type, $expectedRowVersion, $userId, $variant, $variantSeq)
+        );
     }
 
     private function reopenInTransaction(int $supplierId, int $year, string $type, int $expectedRowVersion, ?int $userId, string $variant, int $variantSeq): array
@@ -909,16 +906,19 @@ final class TaxReturnService
         $this->assertType($type);
         $this->assertSupplierType($supplierId, $type);
         $this->assertVariant($variant);
+        $this->losses->lockNativeContext($supplierId, $type);
         $seq = $this->resolveSeq($supplierId, $year, $type, $variant, $variantSeq);
-        $row = $this->returns->find($supplierId, $year, $type, $variant, $seq);
+        $row = $this->returns->find($supplierId, $year, $type, $variant, $seq, true);
         if ($row === null || $row['status'] !== 'final') {
             throw new TaxReturnException('not_final', 'Přiznání není ve finálním stavu.', 409);
         }
-        $lastFinal = $this->returns->findLastFinalized($supplierId, $year, $type, (int) $row['id']);
+        $lastFinal = $this->returns->findLastFinalized($supplierId, $year, $type, (int) $row['id'], true);
+        $effectiveBefore = $this->returns->findLastFinalized($supplierId, $year, $type, null, true);
         $previousYearLoss = 0.0;
+        $previousAppliedLoss = 0.0;
         if ($lastFinal !== null) {
             $snapshot = (array) ($lastFinal['computed'] ?? []);
-            [$previousYearLoss] = $this->lossFigures($type, (array) ($snapshot['computed'] ?? []));
+            [$previousYearLoss, $previousAppliedLoss] = $this->lossFigures($type, (array) ($snapshot['computed'] ?? []));
         }
         try {
             $this->losses->assertLossAmountCanBeSet($supplierId, $type, $year, $previousYearLoss);
@@ -936,26 +936,19 @@ final class TaxReturnService
                 $current = $this->returns->findLastFinalized($supplierId, $year, $type);
                 if ((int) ($current['id'] ?? 0) === (int) $row['id']) (new \MyInvoice\Service\Tax\Nonprofit\NonprofitTaxSavingsService($this->db))->preparePeriodReplacement($supplierId, (int) $row['computed']['podklady']['period']['id'], (int) $userId, 'reopen-' . $row['id'] . '-' . $expectedRowVersion);
             }
+            $previousOwnerId = $effectiveBefore === null ? null : (int) $effectiveBefore['id'];
+            $nextOwnerId = $lastFinal === null ? null : (int) $lastFinal['id'];
+            $effectiveChanged = $previousOwnerId !== $nextOwnerId;
+            $plan = $effectiveChanged
+                ? $this->losses->allocationPlan($supplierId, $type, $year, $previousAppliedLoss, $previousOwnerId, $nextOwnerId)
+                : $this->losses->currentAllocationPlan($supplierId, $type, $year, $previousAppliedLoss, $previousOwnerId);
+            if ($effectiveChanged) $this->losses->reconcileExact($plan, $previousYearLoss);
             $updated = $this->returns->reopen($supplierId, $year, $type, $expectedRowVersion, $variant, $seq);
             if ($updated === null) {
                 throw new TaxReturnException('version_conflict', 'Přiznání bylo mezitím změněno — načtěte znovu.', 409);
             }
-            $this->losses->releaseReturn($supplierId, $type, $year);
             if ($nonprofit) (new \MyInvoice\Service\Tax\Nonprofit\NonprofitTaxSavingsService($this->db))->restoreEffective($supplierId, $year, (int) $userId, 'reopen-' . $row['id'] . '-' . $expectedRowVersion);
-            if ($lastFinal !== null) {
-                $snapshot = (array) ($lastFinal['computed'] ?? []);
-                [$yearLoss, $appliedLoss] = $this->lossFigures($type, (array) ($snapshot['computed'] ?? []));
-                $this->losses->reconcileFinalize(
-                    $supplierId,
-                    $type,
-                    $year,
-                    $yearLoss,
-                    $appliedLoss,
-                    (int) ($lastFinal['id'] ?? 0) ?: null
-                );
-            } else {
-                $this->losses->reconcileFinalize($supplierId, $type, $year, 0.0, 0.0, null);
-            }
+            $this->losses->assertPersistedPlan($plan);
             if ($ownTx) {
                 $pdo->commit();
             }
