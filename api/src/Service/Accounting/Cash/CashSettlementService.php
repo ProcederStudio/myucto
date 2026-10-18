@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Accounting\Cash;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\CashRegisterRepository;
 use MyInvoice\Repository\InvoiceRepository;
 use MyInvoice\Repository\PurchaseInvoiceRepository;
@@ -106,10 +107,12 @@ final class CashSettlementService
         ?string $ip = null,
         ?string $userAgent = null,
     ): array {
+        $pdo = $this->db->pdo();
+        $foreign = $pdo->inTransaction();
         try {
-            $result = $kind === 'invoice'
-                ? $this->syncInvoice($supplierId, $documentId, $userId)
-                : $this->syncPurchase($supplierId, $documentId, $userId);
+            // Storno starého a založení nového dokladu je jedna jednotka. Odvolanou
+            // transakci (1020/1213) zopakuje vlastník; jinak by vyrovnání tiše chybělo.
+            $result = TransactionFailure::retrying($pdo, fn (): array => $this->syncAtomically($supplierId, $kind, $documentId, $userId));
         } catch (CashException $e) {
             $this->logFailure($supplierId, $kind, $documentId, $userId, $e->errorCode, $e->getMessage(), $ip, $userAgent);
 
@@ -122,6 +125,9 @@ final class CashSettlementService
 
             return self::result(self::FAILED, null, null, $code) + ['message' => $e->getMessage()];
         } catch (\Throwable $e) {
+            if ($foreign && TransactionFailure::aborted($e)) {
+                throw $e;
+            }
             $this->logFailure($supplierId, $kind, $documentId, $userId, 'internal', $e->getMessage(), $ip, $userAgent);
 
             return self::result(self::FAILED, null, null, 'internal') + ['message' => $e->getMessage()];
@@ -141,6 +147,30 @@ final class CashSettlementService
         }
 
         return $result;
+    }
+
+    /** @return array{status:string, cash_document_id:?int, doc_number:?string, reason:?string} */
+    private function syncAtomically(int $supplierId, string $kind, int $documentId, ?int $userId): array
+    {
+        $pdo = $this->db->pdo();
+        $own = !$pdo->inTransaction();
+        if ($own) {
+            $pdo->beginTransaction();
+        }
+        try {
+            $result = $kind === 'invoice'
+                ? $this->syncInvoice($supplierId, $documentId, $userId)
+                : $this->syncPurchase($supplierId, $documentId, $userId);
+            if ($own) {
+                $pdo->commit();
+            }
+            return $result;
+        } catch (\Throwable $e) {
+            if (!TransactionFailure::rollbackIfAborted($pdo, $e) && $own && $pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
     }
 
     private function logFailure(

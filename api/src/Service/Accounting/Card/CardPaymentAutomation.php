@@ -52,6 +52,18 @@ final class CardPaymentAutomation
         if (empty($this->regime->settings($supplierId)['enabled'])) {
             return $out;
         }
+        // Všechny kroky jsou idempotentní, takže odvolanou transakci (1020/1213) lze
+        // celou zopakovat, pokud ji automatika vlastní. V cizí transakci ji dostane vlastník.
+        return TransactionFailure::retrying(
+            $this->db->pdo(),
+            fn (): array => $this->afterPurchaseReadyOnce($supplierId, $purchaseInvoiceId, $userId),
+        );
+    }
+
+    /** @return array{matched_transaction_id:?int, settlements:int} */
+    private function afterPurchaseReadyOnce(int $supplierId, int $purchaseInvoiceId, ?int $userId): array
+    {
+        $out = ['matched_transaction_id' => null, 'settlements' => 0];
         try {
             $stmt = $this->db->pdo()->prepare(
                 "SELECT pi.status,

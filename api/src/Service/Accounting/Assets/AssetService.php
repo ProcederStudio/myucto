@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Accounting\Assets;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Repository\AssetRepository;
 use MyInvoice\Repository\ChartOfAccountsRepository;
@@ -345,6 +346,15 @@ final class AssetService
      */
     public function putIntoUse(int $supplierId, int $id, string $date, bool $bookEntry, array $meta): array
     {
+        return TransactionFailure::retrying(
+            $this->db->pdo(),
+            fn (): array => $this->putIntoUseOnce($supplierId, $id, $date, $bookEntry, $meta),
+        );
+    }
+
+    /** @param array{user_id?:?int, posted_by?:?int, ip?:?string, user_agent?:?string} $meta */
+    private function putIntoUseOnce(int $supplierId, int $id, string $date, bool $bookEntry, array $meta): array
+    {
         $asset = $this->assets->find($supplierId, $id);
         if ($asset === null) {
             throw new AssetException('not_found', 'Majetek nenalezen.', 404);
@@ -520,6 +530,18 @@ final class AssetService
      * @return array{asset: array<string,mixed>, warnings: list<array{code:string, message:string}>}
      */
     public function dispose(int $supplierId, int $id, array $data, array $meta): array
+    {
+        return TransactionFailure::retrying(
+            $this->db->pdo(),
+            fn (): array => $this->disposeOnce($supplierId, $id, $data, $meta),
+        );
+    }
+
+    /**
+     * @param array{date?:mixed, type?:mixed, price?:mixed} $data
+     * @param array{user_id?:?int, posted_by?:?int, ip?:?string, user_agent?:?string} $meta
+     */
+    private function disposeOnce(int $supplierId, int $id, array $data, array $meta): array
     {
         $asset = $this->assets->find($supplierId, $id);
         if ($asset === null) {
@@ -942,6 +964,15 @@ final class AssetService
      * @return array{asset: array<string,mixed>, warnings: list<array{code:string, message:string}>}
      */
     public function revertDisposal(int $supplierId, int $id, array $meta = []): array
+    {
+        return TransactionFailure::retrying(
+            $this->db->pdo(),
+            fn (): array => $this->revertDisposalOnce($supplierId, $id, $meta),
+        );
+    }
+
+    /** @param array{user_id?:?int, posted_by?:?int, ip?:?string, user_agent?:?string} $meta */
+    private function revertDisposalOnce(int $supplierId, int $id, array $meta): array
     {
         $asset = $this->assets->find($supplierId, $id);
         if ($asset === null) {

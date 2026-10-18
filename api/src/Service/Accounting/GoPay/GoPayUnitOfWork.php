@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MyInvoice\Service\Accounting\GoPay;
 
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use PDO;
 
 /**
@@ -31,8 +32,12 @@ trait GoPayUnitOfWork
         $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
     }
 
-    private function rollbackUnit(PDO $pdo, bool $ownTx, string $savepoint): void
+    private function rollbackUnit(PDO $pdo, bool $ownTx, string $savepoint, \Throwable $cause): void
     {
+        // Odvolaná transakce už savepoint nemá; ROLLBACK TO by původní chybu přemaskoval.
+        if (TransactionFailure::rollbackIfAborted($pdo, $cause)) {
+            return;
+        }
         if ($ownTx) {
             if ($pdo->inTransaction()) {
                 $pdo->rollBack();

@@ -112,7 +112,7 @@ final class GoPayPendingService
             $movementId = (int) $pdo->lastInsertId();
             $this->commitUnit($pdo, $ownTx, 'gopay_pending');
         } catch (\Throwable $e) {
-            $this->rollbackUnit($pdo, $ownTx, 'gopay_pending');
+            $this->rollbackUnit($pdo, $ownTx, 'gopay_pending', $e);
             throw $e;
         }
 
@@ -266,7 +266,7 @@ final class GoPayPendingService
                 $this->commitUnit($pdo, $ownTx, 'gopay_adopt');
                 $adopted++;
             } catch (\Throwable $e) {
-                $this->rollbackUnit($pdo, $ownTx, 'gopay_adopt');
+                $this->rollbackUnit($pdo, $ownTx, 'gopay_adopt', $e);
                 throw $e;
             }
         }

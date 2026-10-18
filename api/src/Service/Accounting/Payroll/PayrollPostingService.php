@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Accounting\Payroll;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\PayrollEmployeeRepository;
 use MyInvoice\Repository\PayrollMonthlyRecordRepository;
 use MyInvoice\Repository\TaxConstantsRepository;
+use MyInvoice\Service\Accounting\PostingException;
 use MyInvoice\Service\Accounting\PostingService;
 use MyInvoice\Service\Payroll\PayrollPeriodOwnedException;
 use MyInvoice\Service\Payroll\PayrollPeriodOwnershipService;
@@ -202,6 +204,29 @@ final class PayrollPostingService
         ?int $employeeId = null,
         bool $taxpayerCredit = false,
         int $childCount = 0,
+    ): array {
+        // Odvolanou transakci (1020/1213) zopakuje, jen když ji vlastní. Cron by jinak
+        // nahlásil chybu a mzda by zůstala nezaúčtovaná.
+        return TransactionFailure::retrying(
+            $this->db->pdo(),
+            fn (): array => $this->postOnce($supplierId, $year, $month, $gross, $taxpayerType, $meta, $employeeId, $taxpayerCredit, $childCount),
+        );
+    }
+
+    /**
+     * @param array<string,mixed> $meta
+     * @return array{journal_entry_id:int, source_id:int, breakdown:array<string,int>}
+     */
+    private function postOnce(
+        int $supplierId,
+        int $year,
+        int $month,
+        float $gross,
+        string $taxpayerType,
+        array $meta,
+        ?int $employeeId,
+        bool $taxpayerCredit,
+        int $childCount,
     ): array {
         $pdo = $this->db->pdo();
         $ownsTransaction = !$pdo->inTransaction();
