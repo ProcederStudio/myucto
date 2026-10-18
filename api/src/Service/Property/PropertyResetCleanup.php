@@ -56,7 +56,7 @@ final class PropertyResetCleanup
         }
         $pdo->beginTransaction();
         try {
-            foreach ([...\MyInvoice\Service\Property\Funds\FundingUseGuard::TABLES, \MyInvoice\Service\Anonymization\ServiceLifecycleCloneScrubber::COMMANDS, ...\MyInvoice\Service\Anonymization\ServiceLifecycleCloneScrubber::TABLES, ...self::TABLES, 'nonprofit_legal_profiles', 'nonprofit_tax_saving_sources', 'nonprofit_tax_saving_commands', 'nonprofit_tax_saving_events', ...\MyInvoice\Repository\Property\Services\Settlement\SettlementDossierRepository::TABLES, ...\MyInvoice\Service\Property\Services\Settlement\SettlementUseGuard::TABLES, 'journal_entries', 'joint_allocation_batches'] as $table) {
+            foreach ([...\MyInvoice\Service\Property\Funds\FundingUseGuard::TABLES, \MyInvoice\Service\Anonymization\ServiceLifecycleCloneScrubber::COMMANDS, ...\MyInvoice\Service\Anonymization\ServiceLifecycleCloneScrubber::TABLES, ...self::TABLES, 'nonprofit_legal_profiles', 'nonprofit_tax_saving_sources', 'nonprofit_tax_saving_commands', 'nonprofit_tax_saving_events', 'nonprofit_tax_saving_cost_bindings', ...\MyInvoice\Repository\Property\Services\Settlement\SettlementDossierRepository::TABLES, ...\MyInvoice\Service\Property\Services\Settlement\SettlementUseGuard::TABLES, 'journal_entries', 'joint_allocation_batches'] as $table) {
                 if ($pdo->query("SELECT 1 FROM {$table} LIMIT 1 FOR UPDATE")->fetchColumn() !== false) {
                     throw new \RuntimeException('Reset registru SVJ nebyl dokončen. Související dimenze zůstaly zachované.');
                 }

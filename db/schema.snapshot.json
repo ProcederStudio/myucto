@@ -1038,7 +1038,8 @@
         "2054_nonprofit_capital_sources.sql",
         "2055_account_definition_history.sql",
         "2056_accounting_framework_conversion.sql",
-        "2057_nonprofit_dppo_profiles_savings.sql"
+        "2057_nonprofit_dppo_profiles_savings.sql",
+        "2058_nonprofit_tax_saving_cost_bindings.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -8176,6 +8177,27 @@
                 "request_json": "json_valid(`request_json`)"
             }
         },
+        "nonprofit_tax_saving_cost_bindings": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "cost_line_id": "bigint(20) unsigned NOT NULL",
+                "event_id": "bigint(20) unsigned NOT NULL",
+                "source_id": "bigint(20) unsigned NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (supplier_id, event_id)",
+                "ix_ntscb_cost": "BTREE (supplier_id, cost_line_id)",
+                "supplier_id": "BTREE (supplier_id, source_id, event_id)"
+            },
+            "foreign_keys": {
+                "nonprofit_tax_saving_cost_bindings_ibfk_1": "(supplier_id, source_id, event_id) -> nonprofit_tax_saving_events (supplier_id, source_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_tax_saving_cost_bindings_ibfk_2": "(supplier_id, cost_line_id) -> journal_entry_lines (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": []
+        },
         "nonprofit_tax_saving_events": {
             "type": "BASE TABLE",
             "engine": "InnoDB",
@@ -8213,8 +8235,7 @@
                 "nonprofit_tax_saving_events_ibfk_3": "(supplier_id, command_id) -> nonprofit_tax_saving_commands (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
                 "nonprofit_tax_saving_events_ibfk_4": "(supplier_id, source_id, previous_id) -> nonprofit_tax_saving_events (supplier_id, source_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
                 "nonprofit_tax_saving_events_ibfk_5": "(supplier_id, source_id, original_id) -> nonprofit_tax_saving_events (supplier_id, source_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
-                "nonprofit_tax_saving_events_ibfk_6": "(supplier_id, period_id) -> accounting_periods (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
-                "nonprofit_tax_saving_events_ibfk_7": "(supplier_id, cost_line_id) -> journal_entry_lines (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+                "nonprofit_tax_saving_events_ibfk_6": "(supplier_id, period_id) -> accounting_periods (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
             },
             "checks": {
                 "chk_ntse_operation": "`operation` = 'use' and `original_id` is null and `period_id` is not null and `cost_line_id` is not null and `amount_cents` > 0 or `operation` = 'reverse_use' and `original_id` is not null and `period_id` is not null and `cost_line_id` is not null and `amount_cents` > 0 or `operation` in ('void','restore') and `original_id` is null and `period_id` is null and `cost_line_id` is null and `amount_cents` = 0",
@@ -26905,6 +26926,9 @@
         "trg_nonprofit_tax_insert": "BEFORE INSERT ON nonprofit_tax_assessments #4e66f08f4b1f04a9c040cdde16a122b7ffcc8f1b",
         "trg_ntsc_immutable_delete": "BEFORE DELETE ON nonprofit_tax_saving_commands #14114d6f757030293ceadac8f5ac999e5e0188fa",
         "trg_ntsc_immutable_update": "BEFORE UPDATE ON nonprofit_tax_saving_commands #14114d6f757030293ceadac8f5ac999e5e0188fa",
+        "trg_ntscb_immutable_update": "BEFORE UPDATE ON nonprofit_tax_saving_cost_bindings #14114d6f757030293ceadac8f5ac999e5e0188fa",
+        "trg_ntscb_native_insert": "BEFORE INSERT ON nonprofit_tax_saving_cost_bindings #92a9ba735ef3fd2a5ca4c334030c18b926df65f4",
+        "trg_ntscb_reverse_delete": "BEFORE DELETE ON nonprofit_tax_saving_cost_bindings #f4cbd4427ae4c18d47c80a9b88c8cd27ba1399e2",
         "trg_ntse_immutable_delete": "BEFORE DELETE ON nonprofit_tax_saving_events #14114d6f757030293ceadac8f5ac999e5e0188fa",
         "trg_ntse_immutable_update": "BEFORE UPDATE ON nonprofit_tax_saving_events #14114d6f757030293ceadac8f5ac999e5e0188fa",
         "trg_ntss_immutable_delete": "BEFORE DELETE ON nonprofit_tax_saving_sources #14114d6f757030293ceadac8f5ac999e5e0188fa",

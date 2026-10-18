@@ -89,7 +89,8 @@ final class AnonymizationService
                 $capitalInputs = CapitalCloneScrubber::capture($captureConnection);
                 $dppoInputs = NonprofitDppoCloneScrubber::capture($captureConnection);
                 if ($dppoInputs['snapshots'] !== [] || $dppoInputs['sources'] !== [] || $dppoInputs['events'] !== []
-                    || $captureConnection->pdo()->query('SELECT 1 FROM nonprofit_tax_saving_commands LIMIT 1')->fetchColumn() !== false) {
+                    || $captureConnection->pdo()->query('SELECT 1 FROM nonprofit_tax_saving_commands LIMIT 1')->fetchColumn() !== false
+                    || $captureConnection->pdo()->query('SELECT 1 FROM nonprofit_tax_saving_cost_bindings LIMIT 1')->fetchColumn() !== false) {
                     throw new \RuntimeException('Anonymizace finančního archivu DPPO 504 a daňových úspor není podporována. Zdrojová databáze zůstala zachovaná.');
                 }
                 $nonprofitInputs = NonprofitFundingCloneScrubber::capture($captureConnection);

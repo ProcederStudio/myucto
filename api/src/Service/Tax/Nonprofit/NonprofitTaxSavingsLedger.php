@@ -70,6 +70,9 @@ final class NonprofitTaxSavingsLedger
             if(bccomp($used,$owner['saving_cents'],0)>0||bccomp($used,'0',0)<0)$this->changed();
             $out[]=$row;$byId[$row['id']]=$row;$previous=$row;
         }
+        $expected=[];foreach($out as$event)if($event['operation']==='use'&&!isset($reversed[$event['id']]))$expected[]=['source_id'=>$source,'event_id'=>$event['id'],'cost_line_id'=>$event['cost_line_id']];
+        $q=$this->db->pdo()->prepare('SELECT source_id,event_id,cost_line_id FROM nonprofit_tax_saving_cost_bindings WHERE supplier_id=? AND source_id=? ORDER BY event_id FOR UPDATE');$q->execute([$supplier,$source]);$bindings=$q->fetchAll(PDO::FETCH_ASSOC);foreach($bindings as&$binding)foreach($binding as&$value)$value=(int)$value;unset($binding,$value);
+        if($bindings!==$expected)$this->changed();
         return$out;
     }
 

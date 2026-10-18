@@ -83,6 +83,34 @@ final class NonprofitDppoStoredArchiveGuardTest extends TestCase
         catch(\MyInvoice\Service\Accounting\PostingException $e){self::assertSame('nonprofit_tax_saving_cost_in_use',$e->errorCode);}
         self::assertSame($before,$assignments->lineDimensions($this->supplier,[$f['line']]));
     }
+    public function testReversedHistoricalUseAllowsNativeReplaceAndKeepsExactReceiptAndSource():void
+    {
+        $f=$this->savingFixture();$use=$this->appendHistoricalUse($f);$owner=new NonprofitTaxSavingsService($this->db);$source=$f['source']['source'];
+        $preview=$owner->previewReverse($this->supplier,$source['id'],$use['id'],'Synthetic corrected historical cost-use');$owner->confirmReverse($this->supplier,$source['id'],$use['id'],'Synthetic corrected historical cost-use',$preview['preview_hash'],$preview['head_hash'],'historical-fk-reverse',$this->actor);
+        $ledger=new \MyInvoice\Service\Tax\Nonprofit\NonprofitTaxSavingsLedger($this->db);$before=$ledger->events($this->supplier,$source['id']);$sourceBefore=$ledger->source($this->supplier,$source['id']);self::assertCount(2,$before);$raw=$this->db->pdo()->prepare('SELECT * FROM nonprofit_tax_saving_events WHERE supplier_id=? AND source_id=? ORDER BY id');$raw->execute([$this->supplier,$source['id']]);$bytesBefore=$raw->fetchAll(\PDO::FETCH_ASSOC);
+        $assessment=$this->container->get(\MyInvoice\Repository\NonprofitTaxAssessmentRepository::class)->latest($this->supplier,$f['next'],true);$this->container->get(\MyInvoice\Service\Tax\Nonprofit\J6FundingCapacity::class)->assertCurrentReceipt($this->supplier,$assessment);
+        (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->lockPeriods($this->supplier);$journal=$this->container->get(\MyInvoice\Repository\JournalEntryRepository::class);$entry=$journal->findForUpdate($f['entry'],$this->supplier);$assignments=new \MyInvoice\Repository\DimensionAssignmentRepository($this->db);$ids=array_column($entry['lines'],'id');$dims=$assignments->lineDimensions($this->supplier,$ids,true);$origins=$assignments->lineOrigins($this->supplier,$ids,true);$lines=$entry['lines'];
+        foreach($lines as&$line){$line['amount']='90000.00';$line['dimensions']=$dims[$line['id']]??[];$line['dimension_origins']=$origins[$line['id']]??[];}unset($line);
+        $journal->replace($f['entry'],$entry,$lines);$after=$journal->findForUpdate($f['entry'],$this->supplier);self::assertNotContains($f['line'],array_column($after['lines'],'id'));self::assertSame(90000.0,$after['lines'][0]['amount']);
+        self::assertSame($before,$ledger->events($this->supplier,$source['id']));self::assertSame($sourceBefore,$ledger->source($this->supplier,$source['id']));self::assertSame($f['line'],$before[0]['cost_line_id']);self::assertSame($f['line'],$before[1]['cost_line_id']);self::assertSame([],$ledger->costClaims($this->supplier,$f['line']));$raw->execute([$this->supplier,$source['id']]);self::assertSame($bytesBefore,$raw->fetchAll(\PDO::FETCH_ASSOC));
+        $this->container->get(\MyInvoice\Service\Tax\Nonprofit\J6FundingCapacity::class)->assertHistoricalReceipt($this->supplier,$assessment);
+        try{$this->container->get(\MyInvoice\Service\Tax\Nonprofit\J6FundingCapacity::class)->assertCurrentReceipt($this->supplier,$assessment);self::fail('Old J6 receipt became current after native replacement');}catch(\MyInvoice\Service\Tax\Nonprofit\NonprofitTaxAssessmentException $e){self::assertSame('nonprofit_tax_funding_changed',$e->errorCode);}
+        $classification=$dims[$f['line']];$newEntry=$this->container->get(\MyInvoice\Service\Accounting\PostingService::class)->postDocument($this->supplier,'manual',null,[['account_code'=>'518','side'=>'debit','amount'=>'10.00','dimensions'=>$classification,'dimension_origins'=>$origins[$f['line']]],['account_code'=>'221','side'=>'credit','amount'=>'10.00','dimensions'=>$classification,'dimension_origins'=>$origins[$f['line']]]],['entry_date'=>'2026-08-02','posted_by'=>$this->actor]);self::assertGreaterThan(0,$newEntry);self::assertNotNull($journal->findForUpdate($newEntry,$this->supplier)['posted_at']);
+    }
+    public function testActiveBindingRestrictsNativeLineDeletionAndCannotBeReleasedBeforeExactReversal():void
+    {
+        $f=$this->savingFixture();$use=$this->appendHistoricalUse($f);$pdo=$this->db->pdo();$q=$pdo->prepare('SELECT cost_line_id FROM nonprofit_tax_saving_cost_bindings WHERE supplier_id=? AND event_id=?');$q->execute([$this->supplier,$use['id']]);self::assertSame($f['line'],(int)$q->fetchColumn());
+        try{$pdo->prepare('DELETE FROM journal_entry_lines WHERE supplier_id=? AND id=?')->execute([$this->supplier,$f['line']]);self::fail('Active use lost its native cost line');}catch(\PDOException $e){self::assertSame(1451,(int)$e->errorInfo[1]);}
+        try{$pdo->prepare('DELETE FROM nonprofit_tax_saving_cost_bindings WHERE supplier_id=? AND event_id=?')->execute([$this->supplier,$use['id']]);self::fail('Unreversed use lost its active binding');}catch(\PDOException $e){self::assertSame('45000',$e->getCode());self::assertStringContainsString('nonprofit_tax_saving_binding_in_use',$e->getMessage());}
+        self::assertSame('2000000',(new \MyInvoice\Service\Accounting\Funding\CostCoverage($this->db))->claimed($this->supplier,$f['line']));
+    }
+    public function testCanonicalReceiptRejectsMissingActiveBindingWithoutChangingHistoricalProof():void
+    {
+        $f=$this->savingFixture();$this->appendHistoricalUse($f);$source=$f['source']['source'];$pdo=$this->db->pdo();$pdo->exec('CREATE TEMPORARY TABLE nonprofit_tax_saving_cost_bindings(supplier_id INT UNSIGNED NOT NULL,source_id BIGINT UNSIGNED NOT NULL,event_id BIGINT UNSIGNED NOT NULL,cost_line_id BIGINT UNSIGNED NOT NULL,PRIMARY KEY(supplier_id,event_id)) ENGINE=InnoDB');
+        try{try{(new \MyInvoice\Service\Tax\Nonprofit\NonprofitTaxSavingsLedger($this->db))->events($this->supplier,$source['id']);self::fail('Missing active projection was ignored');}catch(TaxReturnException $e){self::assertSame('nonprofit_tax_saving_proof_changed',$e->errorCode);}self::assertTrue($pdo->inTransaction());}
+        finally{$pdo->exec('DROP TEMPORARY TABLE nonprofit_tax_saving_cost_bindings');}
+        self::assertCount(1,(new \MyInvoice\Service\Tax\Nonprofit\NonprofitTaxSavingsLedger($this->db))->events($this->supplier,$source['id']));
+    }
     public function testPublicTaxReturnRemainsClosedWithValidSavedArchive():void
     {
         $this->savingFixture();
