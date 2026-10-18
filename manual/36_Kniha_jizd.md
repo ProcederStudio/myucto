@@ -34,8 +34,13 @@ finanční úřad odpočet neuzná. Najdete ji v menu `Dokumenty → Kniha jízd
 
 ## 36.2 Než začnete
 
-- **Oprávnění.** Zápis jízd, aut a tankování vyžaduje právo zápisu do knihy jízd. Tlačítko
-  **Z pokladny** vidí jen ten, kdo smí číst pokladnu.
+- **Oprávnění.** Knihu jízd lze zpřístupnit interním i klientským rolím. Čtení
+  umožňuje prohlížení; zápis jízd, aut a tankování vyžaduje samostatné oprávnění
+  k zápisu. Import a mazání mají vlastní oprávnění a lze je povolit nezávisle.
+- **Zdrojové doklady.** Tlačítko **Z pokladny** vyžaduje čtení pokladny,
+  **Z faktur** čtení přijatých faktur. Také vyhledání a změna vazby na bankovní
+  pohyb nebo účetní zápis vyžadují čtení příslušné evidence. Bez něj se vazby
+  a jejich popisky nezobrazují; při běžné úpravě tankování zůstávají uložené.
 - **Auto.** Bez založeného auta nelze zapsat jízdu ani tankování (**Nejprve přidejte
   automobil v záložce Automobily.**).
 - **Dodavatel stanice.** Aby se faktury od čerpacích a nabíjecích stanic nabízely ke

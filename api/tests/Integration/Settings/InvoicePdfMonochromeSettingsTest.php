@@ -10,6 +10,7 @@ use MyInvoice\Bootstrap;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Middleware\SupplierScopeMiddleware;
+use MyInvoice\Security\EffectiveRole;
 use MyInvoice\Tests\Support\IsolatedSupplierTrait;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
@@ -58,6 +59,32 @@ final class InvoicePdfMonochromeSettingsTest extends TestCase
 
             $other = $request->withAttribute(SupplierScopeMiddleware::ATTR_CURRENT_ID, $otherId);
             self::assertFalse($this->read($settings->getSupplier($other, new Response()))['invoice_pdf_monochrome']);
+        } finally {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+        }
+    }
+
+    public function testDelegatedBrandingCanSaveMonochromeWithoutCompanyWrite(): void
+    {
+        $container = Bootstrap::buildContainer();
+        $pdo = $container->get(Connection::class)->pdo();
+        $branding = $container->get(ClientBrandingSettingsAction::class);
+        $pdo->beginTransaction();
+        try {
+            $supplierId = $this->createIsolatedSupplier($pdo, 1);
+            $request = (new ServerRequestFactory())->createServerRequest('PUT', '/api/settings/client/branding')
+                ->withAttribute(SupplierScopeMiddleware::ATTR_CURRENT_ID, $supplierId)
+                ->withAttribute(AuthMiddleware::ATTR_USER, ['id' => 1])
+                ->withAttribute('auth.effective_role', new EffectiveRole(100, 'Synthetic delegated branding', 'client', true, ['settings.branding' => 2]))
+                ->withParsedBody(['invoice_pdf_monochrome' => true]);
+            $response = $branding->update($request, new Response());
+            self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+            self::assertTrue($this->read($response)['invoice_pdf_monochrome']);
+
+            $denied = $request->withAttribute('auth.effective_role', new EffectiveRole(101, 'Synthetic revoked branding', 'client', true, ['settings.company' => 2]))
+                ->withParsedBody(['invoice_pdf_monochrome' => false]);
+            self::assertSame(403, $branding->update($denied, new Response())->getStatusCode());
+            self::assertTrue($this->read($branding->get($request, new Response()))['invoice_pdf_monochrome']);
         } finally {
             if ($pdo->inTransaction()) $pdo->rollBack();
         }

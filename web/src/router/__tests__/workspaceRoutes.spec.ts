@@ -131,12 +131,14 @@ describe('workspace route factory', () => {
     expect(byName.get('admin-bank-rule-templates')?.meta?.superadminOnly).not.toBe(true)
     expect(byName.get('admin-suppliers')?.meta).toMatchObject({ adminPlusOnly: true })
     expect(byName.get('admin-suppliers')?.meta?.superadminOnly).not.toBe(true)
-    for (const name of ['admin-price-list', 'admin-price-list-new', 'admin-price-list-edit']) {
+    for (const name of ['admin-price-list', 'admin-price-list-view', 'admin-price-list-new', 'admin-price-list-edit']) {
       expect(byName.get(name)?.meta).toMatchObject({
-        companyAdminOnly: true,
+        permission: 'price_list',
+        access: ['admin-price-list-new', 'admin-price-list-edit'].includes(name) ? 'write' : 'read',
         requiresNoStock: true,
       })
       expect(byName.get(name)?.meta?.superadminOnly).not.toBe(true)
+      expect(byName.get(name)?.meta?.companyAdminOnly).not.toBe(true)
     }
   })
 })

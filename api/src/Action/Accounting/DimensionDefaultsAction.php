@@ -6,6 +6,7 @@ namespace MyInvoice\Action\Accounting;
 
 use MyInvoice\Http\Json;
 use MyInvoice\Security\AccessLevel;
+use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Service\Accounting\Dimension\DimensionException;
 use MyInvoice\Service\Accounting\Dimension\DimensionService;
 use MyInvoice\Service\Accounting\Product\ProductPostingDefaults;
@@ -53,11 +54,14 @@ final class DimensionDefaultsAction
 
     public function getProject(Request $request, Response $response, array $args): Response
     {
+        // Delegování zakázky nezahrnuje účetní výchozí hodnoty (stejně jako její kategorii tržeb).
+        if (RequestAuthorization::isClientType($request)) return Json::error($response, 'forbidden_permission', 'Účetní dimenze spravuje interní role.', 403);
         return $this->read($request, $response, 'project', (int) ($args['id'] ?? 0));
     }
 
     public function saveProject(Request $request, Response $response, array $args): Response
     {
+        if (RequestAuthorization::isClientType($request)) return Json::error($response, 'forbidden_permission', 'Účetní dimenze spravuje interní role.', 403);
         return $this->save($request, $response, 'project', (int) ($args['id'] ?? 0));
     }
 

@@ -11,6 +11,7 @@ use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Repository\PriceListItemRepository;
 use MyInvoice\Security\RequestAuthorization;
+use MyInvoice\Security\AccessLevel;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Invoice\PriceListItemResolver;
 use MyInvoice\Service\Invoice\PriceListResolutionException;
@@ -32,6 +33,7 @@ final class PriceListItemAction
 
     public function list(Request $request, Response $response): Response
     {
+        if (!$this->canRead($request)) return $this->forbidden($response);
         $supplierId = SupplierGuard::currentId($request);
         if ($unavailable = $this->unavailableForStock($supplierId, $response)) return $unavailable;
         $q = $request->getQueryParams();
@@ -134,17 +136,20 @@ final class PriceListItemAction
 
     public function get(Request $request, Response $response, array $args): Response
     {
+        if (!$this->canRead($request)) return $this->forbidden($response);
         $supplierId = SupplierGuard::currentId($request);
         if ($unavailable = $this->unavailableForStock($supplierId, $response)) return $unavailable;
         $item = $this->repo->find((int) ($args['id'] ?? 0), $supplierId);
         if ($item === null) return Json::error($response, 'not_found', 'Ceníková položka nebyla nalezena.', 404);
-        $item['customer_overrides'] = $this->repo->customerOverrides($supplierId, (int) $item['id']);
+        if (RequestAuthorization::allows($request, 'price_list')) {
+            $item['customer_overrides'] = $this->repo->customerOverrides($supplierId, (int) $item['id']);
+        }
         return Json::ok($response, $item);
     }
 
     public function create(Request $request, Response $response): Response
     {
-        if (!$this->isAdmin($request)) return $this->adminOnly($response);
+        if (!RequestAuthorization::allows($request, 'price_list', AccessLevel::WRITE)) return $this->forbidden($response);
         $supplierId = SupplierGuard::currentId($request);
         if ($unavailable = $this->unavailableForStock($supplierId, $response)) return $unavailable;
         $body = $this->normalizeBody((array) ($request->getParsedBody() ?? []));
@@ -173,7 +178,7 @@ final class PriceListItemAction
 
     public function update(Request $request, Response $response, array $args): Response
     {
-        if (!$this->isAdmin($request)) return $this->adminOnly($response);
+        if (!RequestAuthorization::allows($request, 'price_list', AccessLevel::WRITE)) return $this->forbidden($response);
         $supplierId = SupplierGuard::currentId($request);
         if ($unavailable = $this->unavailableForStock($supplierId, $response)) return $unavailable;
         $id = (int) ($args['id'] ?? 0);
@@ -204,7 +209,7 @@ final class PriceListItemAction
 
     public function delete(Request $request, Response $response, array $args): Response
     {
-        if (!$this->isAdmin($request)) return $this->adminOnly($response);
+        if (!RequestAuthorization::allows($request, 'price_list', AccessLevel::WRITE)) return $this->forbidden($response);
         $supplierId = SupplierGuard::currentId($request);
         if ($unavailable = $this->unavailableForStock($supplierId, $response)) return $unavailable;
         $id = (int) ($args['id'] ?? 0);
@@ -218,7 +223,7 @@ final class PriceListItemAction
 
     public function upsertPrice(Request $request, Response $response, array $args): Response
     {
-        if (!$this->isAdmin($request)) return $this->adminOnly($response);
+        if (!RequestAuthorization::allows($request, 'price_list', AccessLevel::WRITE)) return $this->forbidden($response);
         $supplierId = SupplierGuard::currentId($request);
         if ($unavailable = $this->unavailableForStock($supplierId, $response)) return $unavailable;
         $id = (int) ($args['id'] ?? 0);
@@ -242,6 +247,7 @@ final class PriceListItemAction
 
     public function prices(Request $request, Response $response, array $args): Response
     {
+        if (!$this->canRead($request)) return $this->forbidden($response);
         $supplierId = SupplierGuard::currentId($request);
         if ($unavailable = $this->unavailableForStock($supplierId, $response)) return $unavailable;
         $item = $this->repo->find((int) ($args['id'] ?? 0), $supplierId);
@@ -251,7 +257,7 @@ final class PriceListItemAction
 
     public function deletePrice(Request $request, Response $response, array $args): Response
     {
-        if (!$this->isAdmin($request)) return $this->adminOnly($response);
+        if (!RequestAuthorization::allows($request, 'price_list', AccessLevel::WRITE)) return $this->forbidden($response);
         $supplierId = SupplierGuard::currentId($request);
         if ($unavailable = $this->unavailableForStock($supplierId, $response)) return $unavailable;
         $id = (int) ($args['id'] ?? 0);
@@ -272,6 +278,7 @@ final class PriceListItemAction
 
     public function customerOverrides(Request $request, Response $response, array $args): Response
     {
+        if (!RequestAuthorization::allows($request, 'price_list')) return $this->forbidden($response);
         $supplierId = SupplierGuard::currentId($request);
         if ($unavailable = $this->unavailableForStock($supplierId, $response)) return $unavailable;
         $id = (int) ($args['id'] ?? 0);
@@ -283,7 +290,7 @@ final class PriceListItemAction
 
     public function upsertCustomerOverride(Request $request, Response $response, array $args): Response
     {
-        if (!$this->isAdmin($request)) return $this->adminOnly($response);
+        if (!RequestAuthorization::allows($request, 'price_list', AccessLevel::WRITE)) return $this->forbidden($response);
         $supplierId = SupplierGuard::currentId($request);
         if ($unavailable = $this->unavailableForStock($supplierId, $response)) return $unavailable;
         $id = (int) ($args['id'] ?? 0);
@@ -316,7 +323,7 @@ final class PriceListItemAction
 
     public function deleteCustomerOverride(Request $request, Response $response, array $args): Response
     {
-        if (!$this->isAdmin($request)) return $this->adminOnly($response);
+        if (!RequestAuthorization::allows($request, 'price_list', AccessLevel::WRITE)) return $this->forbidden($response);
         $supplierId = SupplierGuard::currentId($request);
         if ($unavailable = $this->unavailableForStock($supplierId, $response)) return $unavailable;
         $id = (int) ($args['id'] ?? 0);
@@ -336,6 +343,7 @@ final class PriceListItemAction
 
     public function resolve(Request $request, Response $response, array $args): Response
     {
+        if (!$this->canRead($request)) return $this->forbidden($response);
         $supplierId = SupplierGuard::currentId($request);
         if ($unavailable = $this->unavailableForStock($supplierId, $response)) return $unavailable;
         $id = (int) ($args['id'] ?? 0);
@@ -444,9 +452,10 @@ final class PriceListItemAction
         return preg_match('/^[A-Z]{3}$/', $code) === 1;
     }
 
-    private function isAdmin(Request $request): bool
+    private function canRead(Request $request): bool
     {
-        return RequestAuthorization::isCompanyAdmin($request);
+        return array_any(['price_list', 'invoices', 'recurring'],
+            static fn (string $key): bool => RequestAuthorization::allows($request, $key));
     }
 
     private function unavailableForStock(int $supplierId, Response $response): ?Response
@@ -465,9 +474,9 @@ final class PriceListItemAction
         );
     }
 
-    private function adminOnly(Response $response): Response
+    private function forbidden(Response $response): Response
     {
-        return Json::error($response, 'forbidden', 'Ceník může spravovat pouze administrátor.', 403);
+        return Json::error($response, 'forbidden_permission', 'Pro tuto akci nemáš oprávnění k ceníku.', 403);
     }
 
     private function log(Request $request, string $action, int $entityId, array $details): void

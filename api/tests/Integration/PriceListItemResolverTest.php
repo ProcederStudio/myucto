@@ -15,6 +15,7 @@ use MyInvoice\Service\Invoice\PriceListItemResolver;
 use MyInvoice\Service\Invoice\PriceListResolutionException;
 use MyInvoice\Service\Invoice\RecurringPriceListService;
 use PDO;
+use MyInvoice\Security\EffectiveRole;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Slim\Psr7\Factory\ServerRequestFactory;
@@ -30,6 +31,7 @@ final class PriceListItemResolverTest extends TestCase
     private PriceListItemAction $action;
     private int $supplierId;
     private int $clientId;
+    private bool $createdClient = false;
     private int $currencyId;
     private string $currencyCode;
     private int $vatRateId;
@@ -54,18 +56,21 @@ final class PriceListItemResolverTest extends TestCase
         }
 
         $context = $this->db->pdo()->query(
-            "SELECT s.id AS supplier_id, c.id AS client_id, cur.id AS currency_id,
+            "SELECT s.id AS supplier_id, cur.id AS currency_id,
                     cur.code AS currency_code
                FROM supplier s
-               JOIN clients c ON c.supplier_id = s.id AND c.is_customer = 1
                JOIN currencies cur ON cur.supplier_id = s.id AND cur.is_active = 1
-              ORDER BY s.id, c.id, cur.is_default DESC, cur.id
+              ORDER BY s.id, cur.is_default DESC, cur.id
               LIMIT 1"
         )->fetch(PDO::FETCH_ASSOC);
         if (!$context) $this->markTestSkipped('Missing supplier/client/currency test context');
 
         $this->supplierId = (int) $context['supplier_id'];
-        $this->clientId = (int) $context['client_id'];
+        $countryId = (int) $this->db->pdo()->query('SELECT MIN(id) FROM countries')->fetchColumn();
+        $this->db->pdo()->prepare('INSERT INTO clients (supplier_id, company_name, street, city, zip, country_id, main_email, currency_default_id, is_customer) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)')
+            ->execute([$this->supplierId, 'Synthetic price list customer', 'Test 1', 'Test', '11000', $countryId, 'price-list@example.invalid', (int) $context['currency_id']]);
+        $this->clientId = (int) $this->db->pdo()->lastInsertId();
+        $this->createdClient = true;
         $this->currencyId = (int) $context['currency_id'];
         $this->currencyCode = (string) $context['currency_code'];
         $this->vatRateId = (int) $this->db->pdo()->query(
@@ -95,6 +100,9 @@ final class PriceListItemResolverTest extends TestCase
         }
         if (isset($this->db) && $this->createdItemId !== null) {
             $this->db->pdo()->prepare('DELETE FROM price_list_items WHERE id = ?')->execute([$this->createdItemId]);
+        }
+        if (isset($this->db) && $this->createdClient) {
+            $this->db->pdo()->prepare('DELETE FROM clients WHERE id = ?')->execute([$this->clientId]);
         }
         if (isset($this->db)) $this->db->close();
     }
@@ -285,6 +293,7 @@ final class PriceListItemResolverTest extends TestCase
             $request = (new ServerRequestFactory())
                 ->createServerRequest('GET', '/api/price-list-items')
                 ->withAttribute(SupplierScopeMiddleware::ATTR_CURRENT_ID, $this->supplierId)
+                ->withAttribute(AuthMiddleware::ATTR_USER, ['id' => 1, 'role' => 'client'])
                 ->withQueryParams(['client_id' => (string) $this->clientId, 'currency' => $this->currencyCode, 'currency_id' => $this->currencyId]);
             self::assertSame(200, $this->action->list($request, new Psr7Response())->getStatusCode());
             $resolved = $this->action->resolve($request, new Psr7Response(), ['id' => $this->createdItemId]);
@@ -295,6 +304,57 @@ final class PriceListItemResolverTest extends TestCase
         } finally {
             $pdo->rollBack();
         }
+    }
+
+    public function testDelegatedClientCanManageCatalogWithoutInvoiceOrCompanyAdminRights(): void
+    {
+        $role = new EffectiveRole(50, 'Synthetic catalog manager', 'client', true, ['price_list' => 2]);
+        $this->createdItemId = $this->createItem(false, 1250.00);
+        $request = $this->catalogRequest($role);
+        $response = $this->action->upsertPrice($request->withParsedBody(['unit_price' => 1400]), new Psr7Response(), ['id' => $this->createdItemId, 'currencyCode' => $this->currencyCode]);
+        self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        self::assertSame(1400.00, $this->items->find($this->createdItemId, $this->supplierId)['prices'][0]['unit_price']);
+        $response = $this->action->upsertCustomerOverride($request->withParsedBody(['unit_price' => 900]), new Psr7Response(), ['id' => $this->createdItemId, 'clientId' => $this->clientId, 'currencyCode' => $this->currencyCode]);
+        self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        self::assertCount(1, $this->items->customerOverrides($this->supplierId, $this->createdItemId));
+        $otherSupplier = (int) $this->db->pdo()->query('SELECT id FROM supplier WHERE id <> ' . $this->supplierId . ' LIMIT 1')->fetchColumn();
+        self::assertGreaterThan(0, $otherSupplier, 'Cross-tenant fixture must exist');
+        $foreign = $request->withAttribute(SupplierScopeMiddleware::ATTR_CURRENT_ID, $otherSupplier);
+        self::assertSame(404, $this->action->get($foreign, new Psr7Response(), ['id' => $this->createdItemId])->getStatusCode());
+        self::assertSame(404, $this->action->delete($foreign, new Psr7Response(), ['id' => $this->createdItemId])->getStatusCode());
+        self::assertNotNull($this->items->find($this->createdItemId, $this->supplierId));
+    }
+
+    public function testReadOnlyAndPickerRolesCannotMutateOrReadAllCustomerOverrides(): void
+    {
+        $this->createdItemId = $this->createItem(false, 1250.00);
+        $this->items->upsertCustomerOverride($this->supplierId, $this->createdItemId, $this->clientId, $this->currencyCode, 900.00);
+        $args = ['id' => $this->createdItemId, 'currencyCode' => $this->currencyCode, 'clientId' => $this->clientId];
+        foreach (['staff', 'client'] as $type) {
+            foreach ([[], ['price_list' => 1], ['invoices' => 2], ['recurring' => 2]] as $permissions) {
+                $request = $this->catalogRequest(new EffectiveRole(51, 'Synthetic limited role', $type, true, $permissions));
+                foreach (['create', 'update', 'delete', 'upsertPrice', 'deletePrice', 'upsertCustomerOverride', 'deleteCustomerOverride'] as $method) {
+                    self::assertSame(403, $this->action->$method($request, new Psr7Response(), $args)->getStatusCode(), "$type $method");
+                }
+                $detail = $this->action->get($request, new Psr7Response(), $args);
+                self::assertSame($permissions === [] ? 403 : 200, $detail->getStatusCode());
+                if ($permissions !== []) {
+                    $payload = json_decode((string) $detail->getBody(), true, flags: JSON_THROW_ON_ERROR);
+                    if (isset($permissions['price_list'])) self::assertCount(1, $payload['customer_overrides']);
+                    else self::assertArrayNotHasKey('customer_overrides', $payload);
+                }
+                self::assertSame(isset($permissions['price_list']) ? 200 : 403, $this->action->customerOverrides($request, new Psr7Response(), $args)->getStatusCode());
+            }
+        }
+        self::assertSame(1250.00, $this->items->find($this->createdItemId, $this->supplierId)['prices'][0]['unit_price']);
+        self::assertCount(1, $this->items->customerOverrides($this->supplierId, $this->createdItemId));
+    }
+
+    private function catalogRequest(EffectiveRole $role): \Psr\Http\Message\ServerRequestInterface
+    {
+        return (new ServerRequestFactory())->createServerRequest('GET', '/api/price-list-items')
+            ->withAttribute(SupplierScopeMiddleware::ATTR_CURRENT_ID, $this->supplierId)
+            ->withAttribute('auth.effective_role', $role);
     }
 
     private function createItem(bool $pricesIncludeVat, float $price): int

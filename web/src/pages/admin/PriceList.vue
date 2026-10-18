@@ -1,17 +1,20 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { priceListApi, type PriceListItem } from '@/api/priceList'
 import { apiErrorMessage } from '@/api/errors'
 import { useToast } from '@/composables/useToast'
 import { codebooksApi, type Currency } from '@/api/codebooks'
+import { useAuthStore } from '@/stores/auth'
 import EmptyState from '@/components/ui/EmptyState.vue'
-import { btnFilled, ICONS } from '@/components/ui/buttonStyles'
+import { btnFilled, btnOutline, ICONS } from '@/components/ui/buttonStyles'
 
 const { t } = useI18n()
 const router = useRouter()
 const toast = useToast()
+const auth = useAuthStore()
+const canWrite = computed(() => auth.canWrite('price_list'))
 
 const items = ref<PriceListItem[]>([])
 const loading = ref(false)
@@ -46,15 +49,15 @@ function usageCount(item: PriceListItem) {
 }
 
 function createItem() {
-  router.push({ name: 'admin-price-list-new' })
+  if (canWrite.value) router.push({ name: 'admin-price-list-new' })
 }
 
 function editItem(item: PriceListItem) {
-  router.push({ name: 'admin-price-list-edit', params: { id: item.id } })
+  router.push({ name: canWrite.value ? 'admin-price-list-edit' : 'admin-price-list-view', params: { id: item.id } })
 }
 
 async function removeItem(item: PriceListItem) {
-  if (!window.confirm(t('price_list.delete_confirm', { name: item.name }))) return
+  if (!canWrite.value || !window.confirm(t('price_list.delete_confirm', { name: item.name }))) return
   try {
     const result = await priceListApi.delete(item.id)
     toast.success(result.archived ? t('price_list.archived') : t('price_list.deleted'))
@@ -77,7 +80,7 @@ onMounted(async () => {
         <h1 class="text-2xl font-semibold">{{ t('price_list.title') }}</h1>
         <p class="mt-1 text-sm text-neutral-500">{{ t('price_list.subtitle') }}</p>
       </div>
-      <button type="button" :class="btnFilled('primary')" @click="createItem">
+      <button v-if="canWrite" type="button" :class="btnFilled('primary')" @click="createItem">
         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.plus" /></svg>
         {{ t('price_list.new') }}
       </button>
@@ -88,10 +91,10 @@ onMounted(async () => {
     </div>
 
     <div class="mb-4 w-full border border-neutral-200 bg-surface p-3 shadow-sm rounded-lg">
-      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div class="flex flex-1 gap-2">
+      <div class="flex flex-wrap flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div class="flex flex-wrap flex-1 gap-2">
           <input v-model="query" type="search" :placeholder="t('price_list.search')" class="h-9 w-full max-w-lg px-3 border border-neutral-300 rounded-md bg-surface text-sm focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none" @keyup.enter="load" />
-          <button type="button" class="cursor-pointer inline-flex items-center justify-center h-9 px-3 border border-neutral-300 bg-surface hover:bg-neutral-50 text-sm font-medium rounded-md" @click="load">{{ t('common.search') }}</button>
+          <button type="button" :class="btnOutline('neutral')" @click="load"><svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path :d="ICONS.search" /></svg>{{ t('common.search') }}</button>
         </div>
         <div class="flex flex-wrap gap-2">
           <select v-model="currency" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm" @change="load">
@@ -109,7 +112,7 @@ onMounted(async () => {
 
     <div v-if="loading" class="py-12 text-center text-neutral-400">…</div>
     <EmptyState v-else-if="items.length === 0" boxed icon="tag" :title="t('price_list.empty')"
-      :cta="t('price_list.new')" @action="createItem" />
+      :cta="canWrite ? t('price_list.new') : undefined" @action="createItem" />
 
     <section v-else class="w-full overflow-hidden border border-neutral-200 bg-surface shadow-sm rounded-lg">
       <div class="hidden overflow-x-auto md:block">
@@ -150,8 +153,8 @@ onMounted(async () => {
                 </span>
               </td>
               <td class="px-4 py-3 text-right whitespace-nowrap">
-                <button type="button" class="cursor-pointer text-primary-700 hover:text-primary-800" @click="editItem(item)">{{ t('common.edit') }}</button>
-                <button type="button" class="cursor-pointer ml-3 text-danger-600 hover:text-danger-700" @click="removeItem(item)">{{ t('common.remove') }}</button>
+                <button type="button" :class="btnOutline('primary')" @click="editItem(item)"><svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path :d="canWrite ? ICONS.edit : ICONS.eye" /></svg>{{ canWrite ? t('common.edit') : t('common.detail') }}</button>
+                <button v-if="canWrite" type="button" :class="[btnOutline('danger'), 'ml-2']" @click="removeItem(item)"><svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path :d="ICONS.trash" /></svg>{{ t('common.remove') }}</button>
               </td>
             </tr>
           </tbody>
@@ -181,9 +184,9 @@ onMounted(async () => {
           </div>
           <div class="flex items-center justify-between border-t border-neutral-100 pt-3 text-sm">
             <span class="text-neutral-500">{{ t('price_list.usage') }}: <span class="font-mono text-neutral-700">{{ usageCount(item) }}</span></span>
-            <div class="flex items-center gap-3">
-              <button type="button" class="cursor-pointer text-primary-700 hover:text-primary-800" @click="editItem(item)">{{ t('common.edit') }}</button>
-              <button type="button" class="cursor-pointer text-danger-600 hover:text-danger-700" @click="removeItem(item)">{{ t('common.remove') }}</button>
+            <div class="flex flex-wrap items-center gap-3">
+              <button type="button" :class="btnOutline('primary')" @click="editItem(item)"><svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path :d="canWrite ? ICONS.edit : ICONS.eye" /></svg>{{ canWrite ? t('common.edit') : t('common.detail') }}</button>
+              <button v-if="canWrite" type="button" :class="btnOutline('danger')" @click="removeItem(item)"><svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path :d="ICONS.trash" /></svg>{{ t('common.remove') }}</button>
             </div>
           </div>
         </article>

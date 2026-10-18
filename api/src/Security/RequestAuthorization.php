@@ -157,7 +157,8 @@ final class RequestAuthorization
         AccessLevel $minimum = AccessLevel::READ,
     ): bool {
         $role = self::effectiveRole($request);
-        if ($permission === 'bank' || str_starts_with($permission, 'bank.')) {
+        if ($permission === 'bank' || str_starts_with($permission, 'bank.')
+            || $permission === 'stock' || str_starts_with($permission, 'stock.')) {
             self::$catalog ??= new PermissionCatalog();
             self::$checker ??= new PermissionChecker(self::$catalog);
             return self::$checker->allows($role, $permission, $minimum);

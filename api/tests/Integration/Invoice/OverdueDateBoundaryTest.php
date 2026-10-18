@@ -13,6 +13,7 @@ use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Middleware\SupplierScopeMiddleware;
 use MyInvoice\Repository\InvoiceRepository;
 use MyInvoice\Repository\PurchaseInvoiceRepository;
+use MyInvoice\Security\EffectiveRole;
 use MyInvoice\Service\Invoice\OverduePolicy;
 use MyInvoice\Service\Invoice\ReminderService;
 use MyInvoice\Service\Mail\Mailer;
@@ -168,7 +169,10 @@ final class OverdueDateBoundaryTest extends TestCase
     private function assertSummary(string $actionClass, int $id, int $count): void
     {
         $request = new ServerRequestFactory()->createServerRequest('GET', '/')
-            ->withAttribute(SupplierScopeMiddleware::ATTR_CURRENT_ID, $this->supplierId);
+            ->withAttribute(SupplierScopeMiddleware::ATTR_CURRENT_ID, $this->supplierId)
+            ->withAttribute('auth.effective_role', new EffectiveRole(0, 'Synthetic summary reader', 'staff', true, [
+                'clients' => 1, 'projects' => 1, 'invoices' => 1,
+            ]));
         $response = ($this->container->get($actionClass))($request, new Response(), ['id' => $id]);
         self::assertSame(200, $response->getStatusCode());
         $data = json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);

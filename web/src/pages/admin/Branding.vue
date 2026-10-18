@@ -34,9 +34,7 @@ async function bumpPreview() {
 async function load() {
   loading.value = true
   try {
-    supplier.value = props.clientScoped
-      ? await settingsApi.getClientBranding()
-      : await settingsApi.getSupplier()
+    supplier.value = await settingsApi.getClientBranding()
     await bumpPreview()
     setTimeout(() => { watching = true }, 0)
   } finally {
@@ -58,9 +56,7 @@ async function saveBranding(silent = false) {
       pdf_logo_show_name: supplier.value.pdf_logo_show_name,
       invoice_pdf_monochrome: !!supplier.value.invoice_pdf_monochrome,
     }
-    const updated = props.clientScoped
-      ? await settingsApi.updateClientBranding(payload)
-      : await settingsApi.updateSupplier(payload)
+    const updated = await settingsApi.updateClientBranding(payload)
     supplier.value = { ...supplier.value, ...updated }
     if (!silent) toast.success(t('common.saved'))
     await bumpPreview()

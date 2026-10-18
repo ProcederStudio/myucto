@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { OPERATIONAL_SETTINGS_KEYS } from '@/security/permissions'
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -317,8 +318,8 @@ function sectionIcon(section: NavSection): string {
 }
 
 const navSections = computed<NavSection[]>(() => {
-  // Role client (Epic F6): samostatný, minimální nav. Sekce Firma se přidá jen
-  // při `settings.company = WRITE`; vše ostatní drží BE deny-by-default.
+  const isStockEnabled = auth.hasCommercialFeatures && supplierStore.currentSupplier?.stock_enabled === true
+  // Klientská navigace zobrazuje jen agendy povolené pro aktuální firmu.
   if (clientExperience.value) {
     return filterNavigation([
       { key: 'dashboard', title: t('nav.dashboard'), accent: 'teal', items: [{ to: '/portal', label: t('nav.portal'), icon: ICONS.dashboard }] },
@@ -329,6 +330,8 @@ const navSections = computed<NavSection[]>(() => {
         items: [
           { to: '/invoices',  label: t('nav.invoices'),  icon: ICONS.invoices,  newTo: '/invoices/new' },
           { to: '/recurring', label: t('nav.recurring'), icon: ICONS.recurring, newTo: '/recurring/new' },
+          { to: '/projects', label: t('nav.projects'), icon: ICONS.projects, newTo: '/projects/new' },
+          ...(!isStockEnabled ? [{ to: '/admin/price-list', label: t('nav.price_list'), icon: ICONS.price_list, permission: 'price_list' as PermissionKey }] : []),
         ],
       },
       {
@@ -342,6 +345,7 @@ const navSections = computed<NavSection[]>(() => {
       },
       { key: 'bank_cash', title: t('nav.section_bank_cash'), accent: 'success', items: [
         { to: '/bank', label: t('nav.bank_accounts'), icon: ICONS.bank, permission: 'bank' as PermissionKey },
+        { to: '/logbook', label: t('nav.logbook'), icon: ICONS.logbook },
       ] },
       {
         key: 'contacts',
@@ -361,6 +365,12 @@ const navSections = computed<NavSection[]>(() => {
           { to: '/portal/document-requests', label: t('nav.document_requests'), icon: ICONS.requestDoc, permission: 'documents.submit' as PermissionKey },
         ],
       },
+      ...(isStockEnabled ? [{
+        key: 'stock', title: t('nav.section_stock'), accent: 'warning' as const, items: [
+          { to: '/stock/items', label: t('nav.stock_items'), icon: ICONS.stock_items, newTo: '/stock/items/new' },
+          { to: '/stock/fulfillment', label: t('nav.stock_fulfillment'), icon: ICONS.stock_items },
+        ],
+      }] : []),
       {
         key: 'company',
         title: t('nav.section_company'),
@@ -369,7 +379,6 @@ const navSections = computed<NavSection[]>(() => {
           to: '/portal/settings',
           label: t('nav.company_settings'),
           icon: ICONS.settings,
-          permission: 'settings.company' as PermissionKey,
           access: 'write',
         }],
       },
@@ -398,7 +407,6 @@ const navSections = computed<NavSection[]>(() => {
   // Daňová evidence (Epic DE) — zrcadlo isDoubleEntry; sekce jen pro režim daňové evidence.
   const isTaxEvidence = accountingEnabled && supplierStore.currentSupplier?.accounting_mode === 'tax_evidence'
   // Sklad (Epic SKLAD) — nezávislé na accounting_mode (funguje i pro tax_evidence).
-  const isStockEnabled = auth.hasCommercialFeatures && supplierStore.currentSupplier?.stock_enabled === true
   // Firma → Dimenze (migrace 1860) — opt-in; vypnuté nesmí v menu nic přidat.
   const dimensionsEnabled = auth.hasCommercialFeatures && supplierStore.currentSupplier?.dimensions_enabled === true
   const sections: NavSection[] = [
@@ -430,12 +438,12 @@ const navSections = computed<NavSection[]>(() => {
         { to: '/invoices',         label: t('nav.invoices'),   icon: ICONS.invoices,  newTo: '/invoices/new' },
         ...(isStockEnabled ? [{ to: '/stock/sales-orders', label: t('nav.stock_sales_orders'), icon: ICONS.stock_documents, newTo: '/stock/sales-orders/new', newPermission: 'stock.orders.write' as PermissionKey }] : []),
         { to: '/recurring',        label: t('nav.recurring'),  icon: ICONS.recurring, newTo: '/recurring/new' },
-        ...(auth.isCompanyAdminRole && !isStockEnabled ? [{
+        ...(!isStockEnabled ? [{
           to: '/admin/price-list',
           label: t('nav.price_list'),
           icon: ICONS.price_list,
-          permission: 'settings.company.write' as PermissionKey,
-          access: 'write' as const,
+          permission: 'price_list' as PermissionKey,
+          access: 'read' as const,
         }] : []),
         { to: '/clients',          label: t('nav.clients'),    icon: ICONS.clients,   newTo: '/clients/new' },
         { to: '/projects',         label: t('nav.projects'),   icon: ICONS.projects },
@@ -762,6 +770,7 @@ const navSections = computed<NavSection[]>(() => {
     accent: 'warning',
     items: [
       { to: '/admin/settings',              label: t('nav.settings'),        icon: ICONS.settings },
+      { to: '/portal/settings', label: t('nav.company_settings'), icon: ICONS.settings },
       { to: '/admin/integrations',          label: t('nav.integrations'),    icon: ICONS.api_tokens },
       { to: '/admin/integrations?tab=ai',   label: t('nav.ai_settings'),     icon: ICONS.ai },
       { to: '/admin/branding',              label: t('nav.branding'),        icon: ICONS.branding },
@@ -914,6 +923,17 @@ function filterNavigation(sections: NavSection[]): NavSection[] {
     ...section,
     items: section.items.filter(item => {
       if (item.external) return true
+      if (item.to.startsWith('/portal/settings')) {
+        const allowed = OPERATIONAL_SETTINGS_KEYS.some(permission =>
+          (permission !== 'settings.signing_profiles' || auth.isClientRole) && auth.canWrite(permission))
+        if (!allowed || clientExperience.value) return allowed
+        // Interní menu má Branding samostatně, QR a šablony v Nastavení firmy
+        // a superadmin odesílací profily v Systém → E-maily. Druhá položka se
+        // ukáže jen kvůli oblasti, kterou role jinde v menu nenajde.
+        if (auth.isSuperadmin) return false
+        return auth.canWrite('settings.email_profiles') || (!auth.canWrite('settings.company.write')
+          && (auth.canWrite('settings.payment_qr') || auth.canWrite('settings.email_templates')))
+      }
       const permission = navPermission(item)
       if (item.to.startsWith('/admin/settings') || item.to.startsWith('/admin/integrations')) return auth.canWrite('settings.company.write')
       if (item.to.startsWith('/admin/branding')) return auth.canWrite('settings.branding')

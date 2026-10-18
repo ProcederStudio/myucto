@@ -10113,6 +10113,18 @@
         "recipient_account_placeholder": "Vyberte ověřený účet",
         "recipient_account_not_effective": "K tomuto dni není k dispozici ověřený účet příjemce.",
         "roles": {
+    "operational_permissions": {
+      "email_profiles": "Odesílací profily firmy",
+      "email_templates": "E-mailové šablony firmy",
+      "branding": "Branding firmy",
+      "payment_qr": "Platební QR firmy",
+      "signing_profiles": "Firemní podpisové profily a PDF podpisy"
+    },
+    "stock_permissions": {
+      "stock": "Prohlížet sklad",
+      "stock_items_write": "Spravovat skladové karty",
+      "stock_fulfillment_write": "Provádět expedici"
+    },
           "court": "Soud",
           "executor": "Exekutor",
           "beneficiary": "Oprávněný"
@@ -19795,6 +19807,7 @@
     "email": "E-mail"
   },
   "price_list": {
+    "detail": "Detail ceníkové položky",
     "title": "Ceníkové položky",
     "subtitle": "Správa opakovaně používaných položek, cen v různých měnách a individuálních cen zákazníků.",
     "new": "Nová položka",
@@ -25020,6 +25033,18 @@
     "is_default_account_hint": "Výchozí účet pro tuto měnu (per kód lze mít vždy jen jeden)"
   },
   "roles": {
+    "operational_permissions": {
+      "email_profiles": "Odesílací profily firmy",
+      "email_templates": "E-mailové šablony firmy",
+      "branding": "Branding firmy",
+      "payment_qr": "Platební QR firmy",
+      "signing_profiles": "Firemní podpisové profily a PDF podpisy"
+    },
+    "stock_permissions": {
+      "stock": "Prohlížet sklad",
+      "stock_items_write": "Spravovat skladové karty",
+      "stock_fulfillment_write": "Provádět expedici"
+    },
     "bank_permissions": {
       "bank": "Prohlížet banku",
       "bank_import": "Nahrávat výpisy",
@@ -25058,6 +25083,7 @@
   },
   "permissions": {
     "groups": {
+      "price_list": "Ceník",
       "dashboard": "Přehled",
       "clients": "Klienti a dodavatelé",
       "projects": "Zakázky",

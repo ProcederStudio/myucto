@@ -23,6 +23,15 @@ jednorázové faktury (poradenství, licence).
 
 ## 19.2 Než začnete
 
+- **Oprávnění.** Zakázky lze zpřístupnit interním i klientským rolím. Čtení
+  umožňuje prohlížení, zápis úpravy; vytvoření a archivace mají samostatná
+  oprávnění. Nová zakázka navíc vyžaduje čtení klientů, protože k jednomu z nich
+  musí patřit. Stávající zakázku lze upravovat i bez přístupu do seznamu klientů.
+- **Faktury a ekonomika.** Obraty, počty faktur, pohledávky a seznam faktur se
+  zobrazují jen s oprávněním číst vydané faktury. Ekonomika zakázky a změny
+  výchozí kategorie tržby jsou určeny interním rolím. Klientská role si těmito
+  oprávněními neotevře účetní sestavy.
+
 - Zakázka vždy patří ke konkrétnímu klientovi, nejdřív proto musíte mít
   [klienta](18_Klienti.md).
 - Chcete-li posílat fakturační e-maily mimo klienta, mějte připravené adresy

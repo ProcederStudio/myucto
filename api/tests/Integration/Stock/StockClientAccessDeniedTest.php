@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Tests\Integration\Stock;
 
 use MyInvoice\Security\EffectiveRole;
+use MyInvoice\Security\ClientStockRoutePolicy;
 use MyInvoice\Security\PermissionCatalog;
 use MyInvoice\Security\PermissionChecker;
 use MyInvoice\Security\RoutePermissionMap;
@@ -34,7 +35,16 @@ final class StockClientAccessDeniedTest extends TestCase
         foreach ([
             ['GET', '/api/stock/documents'],
             ['POST', '/api/stock/items'],
-            ['GET', '/api/stock/warehouses'],
+            ['GET', '/api/stock/reports/valuation'],
+            ['POST', '/api/stock/takes'],
+            ['POST', '/api/stock/documents'],
+            ['POST', '/api/stock/warehouses'],
+            ['GET', '/api/stock/items/1/movements'],
+            ['GET', '/api/stock/items/1/posting-defaults'],
+            ['PUT', '/api/stock/items/1/posting-defaults'],
+            ['POST', '/api/stock/opening-stock-import/preview'],
+            ['GET', '/api/stock/sales-orders'],
+            ['GET', '/api/stock/purchase-orders'],
         ] as [$method, $path]) {
             self::assertFalse($this->allows($method, $path, $this->client), "$method $path");
         }
@@ -53,6 +63,26 @@ final class StockClientAccessDeniedTest extends TestCase
         }
     }
 
+    public function testClientStockReadAndDedicatedActionsAreOptInAndStayNarrow(): void
+    {
+        foreach ([0, 1, 2] as $stock) {
+            foreach ([0, 1, 2] as $items) {
+                foreach ([0, 1, 2] as $fulfillment) {
+                    $role = new EffectiveRole(9, 'Synthetic stock role', 'client', true, ['stock' => $stock, 'stock.items.write' => $items, 'stock.fulfillment.write' => $fulfillment]);
+                    foreach (['/api/stock/items', '/api/stock/items/1', '/api/stock/items/search', '/api/stock/items/1/packaging', '/api/stock/items/1/customer-prices', '/api/stock/items/1/tracking', '/api/stock/warehouses', '/api/stock/locations', '/api/stock/quantities', '/api/stock/fulfillment/tasks'] as $path) {
+                        self::assertSame($stock > 0, $this->allows('GET', $path, $role), $path);
+                    }
+                    self::assertSame($stock > 0 && $items === 2, $this->allows('POST', '/api/stock/items', $role));
+                    self::assertSame($stock > 0 && $fulfillment === 2, $this->allows('POST', '/api/stock/fulfillment/tasks', $role));
+                    self::assertFalse($this->allows('POST', '/api/stock/documents', $role));
+                    self::assertFalse($this->allows('GET', '/api/stock/items/1/movements', $role));
+                }
+            }
+        }
+        $catalog = new PermissionCatalog();
+        foreach (['stock', 'stock.items.write', 'stock.fulfillment.write'] as $permission) self::assertArrayNotHasKey($permission, $catalog->legacyPreset('client'));
+    }
+
     public function testSuperadminBypassesStockMatrix(): void
     {
         $superadmin = new EffectiveRole(1, 'Superadmin', 'superadmin', true, [], 'superadmin');
@@ -63,6 +93,7 @@ final class StockClientAccessDeniedTest extends TestCase
     {
         $route = $this->routes->match($method, $path);
         self::assertNotNull($route, "$method $path");
-        return $route->key !== null && $this->checker->allows($role, $route->key, $route->minimum);
+        return $route->key !== null && $this->checker->allows($role, $route->key, $route->minimum)
+            && (!$role->isClientType() || ClientStockRoutePolicy::allows($method, $path, $route->key));
     }
 }

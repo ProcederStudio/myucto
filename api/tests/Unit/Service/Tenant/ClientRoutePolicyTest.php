@@ -24,9 +24,9 @@ final class ClientRoutePolicyTest extends TestCase
         $names = array_column($routes, 'name');
         $patterns = array_column($routes, 'path_pattern');
 
-        self::assertCount(44, $routes);
-        self::assertCount(44, array_unique($names));
-        self::assertCount(44, array_unique($patterns));
+        self::assertCount(58, $routes);
+        self::assertCount(58, array_unique($names));
+        self::assertCount(58, array_unique($patterns));
         self::assertContains('data-exchange', $names);
         self::assertContains('admin-export', $names);
         self::assertContains('admin-import', $names);
@@ -36,11 +36,12 @@ final class ClientRoutePolicyTest extends TestCase
     {
         $catalog = new PermissionCatalog();
         foreach ($this->policy->routes() as $route) {
-            if (!isset($route['permission'])) continue;
-            self::assertTrue(
-                $catalog->allowsRoleType((string) $route['permission'], 'client'),
-                sprintf('%s používá permission mimo client role type.', $route['name'] ?? '?'),
-            );
+            foreach ($route['permission_any'] ?? (isset($route['permission']) ? [$route['permission']] : []) as $permission) {
+                self::assertTrue(
+                    $catalog->allowsRoleType((string) $permission, 'client'),
+                    sprintf('%s používá permission mimo client role type.', $route['name'] ?? '?'),
+                );
+            }
         }
     }
 
@@ -56,6 +57,8 @@ final class ClientRoutePolicyTest extends TestCase
         foreach ([
             '/',
             '/portal',
+            '/projects', '/projects/new', '/projects/42', '/projects/42/edit', '/logbook',
+            '/stock/items', '/stock/items/new', '/stock/items/42', '/stock/items/42/edit', '/stock/fulfillment',
             '/bank',
             '/bank/42',
             '/portal/document-requests',
@@ -108,7 +111,7 @@ final class ClientRoutePolicyTest extends TestCase
     public static function deniedWebPaths(): iterable
     {
         foreach ([
-            '/projects',
+            '/projects/private',
             '/purchase-invoices/incoming',
             '/purchase-invoices/payment-orders',
             '/documents',
@@ -148,7 +151,7 @@ final class ClientRoutePolicyTest extends TestCase
             '//attacker.example',
             '/\\attacker.example',
             '/clients/../admin/settings',
-            '/projects',
+            '/projects/private',
             '/login',
             '/invoice/public-token',
             '/x%252f..%252fportal',
@@ -194,6 +197,10 @@ final class ClientRoutePolicyTest extends TestCase
     public function testApiPolicyIsDerivedFromClientRoleTypeAndKeepsPublicRoutesSeparate(): void
     {
         foreach ([
+            ['GET', '/api/projects'],
+            ['POST', '/api/settings/email-profiles'],
+            ['GET', '/api/settings/email-templates'],
+            ['POST', '/api/settings/email-branding/logo'],
             ['GET', '/api/auth/setup-status'],
             ['GET', '/api/auth/domain-context'],
             ['POST', '/api/auth/domain-login/start'],
@@ -240,7 +247,6 @@ final class ClientRoutePolicyTest extends TestCase
             ['DELETE', '/api/auth/webauthn/credentials/7'],
             ['GET', '/api/health'],
             ['GET', '/api/public/invoice/token'],
-            ['GET', '/api/projects'],
             ['GET', '/api/purchase-invoices/payment-orders'],
             ['POST', '/api/purchase-invoices/scan-inbox'],
             ['POST', '/api/bank-statements/scan'],
@@ -250,10 +256,7 @@ final class ClientRoutePolicyTest extends TestCase
             ['GET', '/api/auth/tokens'],
             ['POST', '/api/settings'],
             ['PUT', '/api/settings/supplier'],
-            ['POST', '/api/settings/email-profiles'],
-            ['GET', '/api/settings/email-templates'],
             ['PUT', '/api/admin/email-templates/invoice_send/cs'],
-            ['POST', '/api/settings/email-branding/logo'],
         ] as [$method, $path]) {
             self::assertFalse($this->policy->allowsApiRequest($method, $path), "$method $path");
         }

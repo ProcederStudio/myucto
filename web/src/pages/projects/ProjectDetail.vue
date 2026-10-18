@@ -84,9 +84,10 @@ async function load() {
   try {
     const [p, grouped] = await Promise.all([
       projectsApi.get(id),
-      invoicesApi.listGrouped({ project_id: id, page: 1 }),
+      auth.canRead('invoices') ? invoicesApi.listGrouped({ project_id: id, page: 1 }) : null,
     ])
     project.value = p
+    if (!grouped) return
     invoices.value = grouped.data.flatMap(g => g.invoices)
     invoicesTotal.value = grouped.meta.total
     invoicesPages.value = grouped.meta.pages ?? 1
@@ -111,6 +112,7 @@ async function loadMoreInvoices() {
 }
 
 async function loadProfit() {
+  if (auth.isClientRole || !auth.canRead('invoices')) return
   const id = Number(route.params.id)
   profitLoading.value = true
   try {
@@ -131,7 +133,7 @@ async function archive() {
   if (!project.value) return
   if (!confirm(t('project.archive_confirm'))) return
   await projectsApi.archive(project.value.id)
-  router.push(`/clients/${project.value.client_id}`)
+  router.push(auth.canRead('clients') ? `/clients/${project.value.client_id}` : '/projects')
 }
 
 async function deleteProject() {
@@ -139,7 +141,7 @@ async function deleteProject() {
   if (!confirm(t('project.delete_warning', { name: project.value.name }))) return
   try {
     await projectsApi.delete(project.value.id)
-    router.push(`/clients/${project.value.client_id}`)
+    router.push(auth.canRead('clients') ? `/clients/${project.value.client_id}` : '/projects')
   } catch (e: any) {
     toast.error(e?.response?.data?.error?.message || t('project.delete_failed'))
   }
@@ -156,11 +158,11 @@ const projectActions = computed<ActionItem[]>(() => {
     { key: 'edit', label: t('project.edit_project'), icon: 'edit', tier: 'secondary', variant: 'success',
       show: w, to: `/projects/${p.id}/edit` },
     { key: 'client', label: t('project.client_detail'), icon: 'user', tier: 'secondary', variant: 'warning',
-      to: `/clients/${p.client_id}` },
+      show: auth.canRead('clients'), to: `/clients/${p.client_id}` },
     { key: 'edit-client', label: t('project.edit_client'), icon: 'edit', tier: 'overflow', variant: 'neutral',
-      show: w, to: `/clients/${p.client_id}/edit` },
+      show: auth.canWrite('clients'), to: `/clients/${p.client_id}/edit` },
     { key: 'wr-link', label: t('workReportTracking.button'), icon: 'link', tier: 'overflow', variant: 'primary',
-      show: w, run: () => { showWrLinkModal.value = true } },
+      show: w && !auth.isClientRole, run: () => { showWrLinkModal.value = true } },
     { key: 'delete', label: t('common.delete'), icon: 'trash', tier: 'overflow', variant: 'danger',
       show: canDelete.value && w, run: deleteProject },
     { key: 'archive', label: t('common.archive'), icon: 'archive', tier: 'advanced', variant: 'warning',
@@ -175,7 +177,7 @@ const projectActions = computed<ActionItem[]>(() => {
   <div v-else-if="project" class="space-y-6">
     <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3 md:gap-4">
       <div class="min-w-0">
-        <RouterLink :to="`/clients/${project.client_id}`" class="text-sm text-neutral-600 hover:text-neutral-900">
+        <RouterLink v-if="auth.canRead('clients')" :to="`/clients/${project.client_id}`" class="text-sm text-neutral-600 hover:text-neutral-900">
           ← {{ project.client_company_name }}
         </RouterLink>
         <h1 class="text-2xl font-semibold mt-1">{{ project.name }}</h1>
@@ -253,7 +255,7 @@ const projectActions = computed<ActionItem[]>(() => {
       <p class="text-sm text-neutral-700 whitespace-pre-wrap">{{ project.note }}</p>
     </div>
 
-    <EntityDimensionDefaults entity="projects" :entity-id="project.id" mode="summary" />
+    <EntityDimensionDefaults v-if="!auth.isClientRole" entity="projects" :entity-id="project.id" mode="summary" />
 
     <!-- KPI: nezaplaceno + po splatnosti -->
     <div v-if="(project.unpaid_summary?.length ?? 0) > 0" class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -375,7 +377,7 @@ const projectActions = computed<ActionItem[]>(() => {
     </div>
 
     <!-- Faktury -->
-    <div class="bg-surface border border-neutral-200 rounded-lg shadow-sm">
+    <div v-if="auth.canRead('invoices')" class="bg-surface border border-neutral-200 rounded-lg shadow-sm">
       <div class="px-5 py-3 border-b border-neutral-200 flex items-center justify-between">
         <h3 class="font-semibold">{{ t('nav.invoices') }} <span v-if="invoicesTotal" class="text-neutral-400 font-normal">({{ invoicesTotal }})</span></h3>
         <RouterLink v-if="(project.status === 'active') && auth.canWrite('invoices.create')"
@@ -463,8 +465,8 @@ const projectActions = computed<ActionItem[]>(() => {
         </button>
       </div>
     </div>
-    <LinkedDocumentsPanel v-if="project" class="mt-4 block" entity-type="project" :entity-id="project.id" />
+    <LinkedDocumentsPanel v-if="project && auth.canRead('documents')" class="mt-4 block" entity-type="project" :entity-id="project.id" />
 
-    <SendWorkReportLinkModal v-if="project" :open="showWrLinkModal" scope="project" :entity-id="project.id" @close="showWrLinkModal = false" />
+    <SendWorkReportLinkModal v-if="project && !auth.isClientRole" :open="showWrLinkModal" scope="project" :entity-id="project.id" @close="showWrLinkModal = false" />
   </div>
 </template>

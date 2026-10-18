@@ -8,6 +8,7 @@ export const PERMISSION_KEYS = [
   'purchase_invoices', 'purchase_invoices.create', 'purchase_invoices.transition',
   'purchase_invoices.scan', 'purchase_invoices.extract', 'purchase_invoices.payment_orders', 'purchase_invoices.delete',
   'purchase_invoices.approve',
+  'price_list',
   'recurring', 'recurring.create', 'recurring.run', 'recurring.pause', 'recurring.delete',
   'bank', 'bank.import', 'bank.match', 'bank.ignore', 'bank.post', 'bank.unpost', 'bank.rules',
   'documents', 'documents.upload', 'documents.move', 'documents.delete',
@@ -31,6 +32,7 @@ export const PERMISSION_KEYS = [
   'eshop', 'eshop.write', 'eshop.integrations',
   'logbook', 'logbook.write', 'logbook.import', 'logbook.delete',
   'settings.company', 'settings.company.write', 'settings.domains', 'settings.bank_accounts',
+  'settings.email_profiles', 'settings.email_templates', 'settings.payment_qr', 'settings.signing_profiles',
   'settings.branding', 'settings.ai_provider', 'settings.signing',
   'utilities', 'utilities.export', 'utilities.import', 'utilities.archives',
   'profile', 'profile.tokens',
@@ -48,9 +50,14 @@ export const CLIENT_PERMISSION_KEYS = [
   'invoices.delete', 'invoices.approval',
   'purchase_invoices', 'purchase_invoices.create', 'purchase_invoices.transition',
   'purchase_invoices.delete', 'purchase_invoices.extract',
+  'price_list',
   'recurring', 'recurring.create', 'recurring.run', 'recurring.pause', 'recurring.delete',
   'bank', 'bank.import', 'bank.match', 'bank.ignore',
-  'documents.submit', 'settings.company', 'profile',
+  'documents.submit', 'settings.company', 'settings.branding',
+  'settings.email_profiles', 'settings.email_templates', 'settings.payment_qr', 'settings.signing_profiles',
+  'projects', 'projects.create', 'projects.archive',
+  'logbook', 'logbook.write', 'logbook.import', 'logbook.delete',
+  'stock', 'stock.items.write', 'stock.fulfillment.write', 'profile',
 ] as const satisfies readonly PermissionKey[]
 
 const CLIENT_PERMISSION_SET = new Set<PermissionKey>(CLIENT_PERMISSION_KEYS)
@@ -64,17 +71,26 @@ export const accessLevelValue: Record<AccessLevel, PermissionValue> = {
   write: 2,
 }
 
+export const CLIENT_STOCK_ACTION_KEYS = ['stock.items.write', 'stock.fulfillment.write'] as const
+
 export const CLIENT_BANK_ACTION_KEYS = ['bank.import', 'bank.match', 'bank.ignore'] as const
 
 /** Client bank actions always include bank read access. Removing read removes the actions. */
 export function setRolePermission(
   permissions: Record<string, PermissionValue>, roleType: 'staff' | 'client', key: string, level: PermissionValue,
 ): void {
-  permissions[key] = roleType === 'client' && key === 'bank' && level > 0 ? 1 : level
+  permissions[key] = roleType === 'client' && (key === 'bank' || key === 'stock') && level > 0 ? 1 : level
   if (roleType !== 'client') return
+  if (key === 'stock' && level === 0) {
+    for (const action of CLIENT_STOCK_ACTION_KEYS) permissions[action] = 0
+  } else if ((CLIENT_STOCK_ACTION_KEYS as readonly string[]).includes(key) && level > 0) {
+    permissions.stock = Math.max(1, permissions.stock ?? 0) as PermissionValue
+  }
   if (key === 'bank' && level === 0) {
     for (const action of CLIENT_BANK_ACTION_KEYS) permissions[action] = 0
   } else if ((CLIENT_BANK_ACTION_KEYS as readonly string[]).includes(key) && level > 0) {
     permissions.bank = Math.max(1, permissions.bank ?? 0) as PermissionValue
   }
 }
+
+export const OPERATIONAL_SETTINGS_KEYS = ['settings.email_profiles', 'settings.email_templates', 'settings.branding', 'settings.payment_qr', 'settings.signing_profiles'] as const satisfies readonly PermissionKey[]

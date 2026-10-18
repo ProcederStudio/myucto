@@ -183,6 +183,7 @@ watch(() => draft.odometer_start, () => {
 watch(() => props.resetToken, () => { resetFilters() })
 
 function newTrip() {
+  if (!auth.canWrite('logbook.write') && !auth.isDemo) return
   const defCar = cars.value.find(c => c.is_default) ?? cars.value[0]
   Object.assign(draft, {
     id: 0, car_id: defCar?.id ?? 0, trip_date: appIsoDate(),
@@ -429,7 +430,7 @@ function fmtKm(n: number | null): string { return n == null ? '—' : n.toLocale
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.download" /></svg>
           {{ t('logbook.export') }}
         </button>
-        <button v-if="auth.canWrite('logbook.write')" @click="importOpen = true; importReport = null"
+        <button v-if="auth.canWrite('logbook.import')" @click="importOpen = true; importReport = null"
           :class="btnOutline('primary')">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.upload" /></svg>
           {{ t('logbook.import') }}
@@ -525,12 +526,12 @@ function fmtKm(n: number | null): string { return n == null ? '—' : n.toLocale
                 <td class="px-3 py-2 text-right font-mono">{{ fmtKm(tr.odometer_start) }}</td>
                 <td class="px-3 py-2 text-right font-mono">{{ fmtKm(tr.distance_km) }}</td>
                 <td class="px-3 py-2">
-                  <div v-if="auth.canWrite('logbook.write')" class="flex justify-end gap-1.5">
-                    <button @click="editTrip(tr)" class="cursor-pointer inline-flex items-center gap-1 h-7 px-2 text-xs border border-neutral-300 rounded-md hover:bg-neutral-50">
+                  <div v-if="auth.canWrite('logbook.write') || auth.canWrite('logbook.delete')" class="flex justify-end gap-1.5">
+                    <button v-if="auth.canWrite('logbook.write')" @click="editTrip(tr)" class="cursor-pointer inline-flex items-center gap-1 h-7 px-2 text-xs border border-neutral-300 rounded-md hover:bg-neutral-50">
                       <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-5m-1.414-9.414a2 2 0 1 1 2.828 2.828L11.828 15H9v-2.828z"/></svg>
                       {{ t('common.edit') }}
                     </button>
-                    <button @click="removeTrip(tr)" class="cursor-pointer inline-flex items-center gap-1 h-7 px-2 text-xs border border-neutral-300 text-danger-600 rounded-md hover:bg-danger-50">
+                    <button v-if="auth.canWrite('logbook.delete')" @click="removeTrip(tr)" class="cursor-pointer inline-flex items-center gap-1 h-7 px-2 text-xs border border-neutral-300 text-danger-600 rounded-md hover:bg-danger-50">
                       <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0 1 16.138 21H7.862a2 2 0 0 1-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v3M4 7h16"/></svg>
                       {{ t('common.delete') }}
                     </button>
@@ -553,12 +554,12 @@ function fmtKm(n: number | null): string { return n == null ? '—' : n.toLocale
               <span class="truncate">{{ tr.purpose || '—' }} · {{ tr.car_registration }}</span>
               <span v-if="tr.category_label" class="shrink-0 px-1.5 py-0.5 rounded" :class="tr.category_is_private ? 'bg-warning-50 text-warning-600' : 'bg-success-50 text-success-600'">{{ tr.category_label }}</span>
             </div>
-            <div v-if="auth.canWrite('logbook.write')" class="flex gap-2 mt-2">
-              <button @click="editTrip(tr)" class="cursor-pointer inline-flex items-center gap-1 h-7 px-2 text-xs border border-neutral-300 rounded-md hover:bg-neutral-50">
+            <div v-if="auth.canWrite('logbook.write') || auth.canWrite('logbook.delete')" class="flex gap-2 mt-2">
+              <button v-if="auth.canWrite('logbook.write')" @click="editTrip(tr)" class="cursor-pointer inline-flex items-center gap-1 h-7 px-2 text-xs border border-neutral-300 rounded-md hover:bg-neutral-50">
                 <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-5m-1.414-9.414a2 2 0 1 1 2.828 2.828L11.828 15H9v-2.828z"/></svg>
                 {{ t('common.edit') }}
               </button>
-              <button @click="removeTrip(tr)" class="cursor-pointer inline-flex items-center gap-1 h-7 px-2 text-xs border border-neutral-300 text-danger-600 rounded-md hover:bg-danger-50 ml-auto">
+              <button v-if="auth.canWrite('logbook.delete')" @click="removeTrip(tr)" class="cursor-pointer inline-flex items-center gap-1 h-7 px-2 text-xs border border-neutral-300 text-danger-600 rounded-md hover:bg-danger-50 ml-auto">
                 <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0 1 16.138 21H7.862a2 2 0 0 1-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v3M4 7h16"/></svg>
                 {{ t('common.delete') }}
               </button>

@@ -9,6 +9,7 @@ use MyInvoice\Http\Json;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\StockTrackingRepository;
 use MyInvoice\Security\AccessLevel;
+use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Service\Stock\ExactUnitConversion;
 use MyInvoice\Service\Stock\StockException;
 use Psr\Http\Message\ResponseInterface as Response;
@@ -35,7 +36,7 @@ final class StockTrackingAction
             'base_unit' => $item['unit'],
             'units' => $this->tracking->units($supplierId, (int) $item['id']),
             'inventory' => $this->tracking->inventory($supplierId, (int) $item['id']),
-            'history' => $this->tracking->history($supplierId, (int) $item['id']),
+            'history' => RequestAuthorization::isClientType($request) ? [] : $this->tracking->history($supplierId, (int) $item['id']),
         ]);
     }
 
