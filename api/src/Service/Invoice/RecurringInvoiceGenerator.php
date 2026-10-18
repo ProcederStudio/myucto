@@ -125,6 +125,14 @@ final class RecurringInvoiceGenerator
                     $this->performIssue($invoiceId, $template, $userId, $issuerId, $ip, $ua);
             } catch (StockException $e) {
                 $this->failIssueOnStock($e, $templateId, $template, $issueDate, $advanceSchedule);
+            } catch (\Throwable $e) {
+                // Vystavení se mohlo potvrdit a selhat až krok za ním (zaúčtování, odeslání).
+                // generate() období nehledá (na rozdíl od issuePeriod), takže bez posunu plánu
+                // by příští běh cronu vystavil druhou fakturu za totéž období.
+                if ($advanceSchedule && ($this->invoices->find($invoiceId)['status'] ?? 'draft') !== 'draft') {
+                    $this->advanceTemplateSchedule($templateId, $template, $issueDate);
+                }
+                throw $e;
             }
         }
 
@@ -822,7 +830,6 @@ final class RecurringInvoiceGenerator
             throw $e;
         }
 
-        $this->stats->recomputeForInvoiceId($invoiceId);
         $this->pdfRenderer->invalidate($invoiceId, 'invalidate_recurring_issue');
 
         $this->logger->log('invoice.issued', $userId, 'invoice', $invoiceId, [
@@ -834,6 +841,8 @@ final class RecurringInvoiceGenerator
         // cronem ze šablony musí být zaúčtovaná stejně jako ta vystavená z UI. Chybu
         // DocumentAutoPoster jen zaloguje, generaci nesmí shodit.
         $this->autoPoster->maybeAutoPost($supplierId, 'invoice', $invoiceId, $userId, $ip, $ua);
+        // Cache statistik až za zaúčtováním; její chyba vystavení neshodí.
+        $this->stats->recomputeAfterCommit($invoiceId);
 
         return $varsymbol;
     }

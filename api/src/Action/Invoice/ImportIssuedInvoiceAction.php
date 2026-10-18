@@ -344,7 +344,6 @@ final class ImportIssuedInvoiceAction
             'source'    => 'api',
         ], $ip, $ua);
 
-        $this->stats->recomputeForInvoiceId($id);
         $this->autoPoster->maybeAutoPost($supplierId, 'invoice', $id, $userId, $ip, $ua);
 
         // Zápočet dobropisu proti opravované faktuře — měkce, stejně jako při vystavení.
@@ -357,6 +356,9 @@ final class ImportIssuedInvoiceAction
                 ], $ip, $ua);
             }
         }
+
+        // Stejně jako po vystavení: cache až za zaúčtováním a její chyba import neshodí.
+        $this->stats->recomputeAfterCommit($id);
 
         return Json::ok($response, $this->repo->find($id), 201);
     }

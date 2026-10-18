@@ -497,7 +497,6 @@ final class IssueInvoiceAction
             ], $ip, $request->getHeaderLine('User-Agent'));
         }
 
-        $this->stats->recomputeForInvoiceId($id);
         // Smaž cached draft PDF (Faktura-draft-NN.pdf) — po vystavení má faktura nový
         // varsymbol a snapshoty, takže staré cached PDF už neodpovídá.
         $this->pdfRenderer->invalidate($id, 'invalidate_issue');
@@ -558,6 +557,10 @@ final class IssueInvoiceAction
                 ], $ip, $request->getHeaderLine('User-Agent'));
             }
         }
+
+        // Cache statistik až za zaúčtováním a úhradami: její chyba (deadlock při souběžném
+        // vystavování) nesmí přeskočit auto-post ani změnit výsledek vystavení.
+        $this->stats->recomputeAfterCommit($id);
 
         $issued = $this->repo->find($id);
         if ($settlement['status'] !== CashSettlementService::NOOP) {

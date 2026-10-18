@@ -114,7 +114,6 @@ final class AutoIssueAndSendService
                 'varsymbol'   => $invoice['varsymbol'],
                 'auto_reason' => 'work_report_approved',
             ], $ip, $ua);
-            $this->stats->recomputeForInvoiceId($invoiceId);
             // Re-invalidate i po flipu na 'issued' — kdyby si někdo mezi alokací VS
             // a tímto blokem vyrenderoval Faktura-VS.pdf jako draft (bez "issued"
             // metadat), nahradíme ho čerstvým renderem.
@@ -124,6 +123,8 @@ final class AutoIssueAndSendService
             // vystavená faktura musí být zaúčtovaná stejně jako ta z UI. Chyba se jen
             // zaloguje (DocumentAutoPoster ji spolkne), odeslání emailu tím neblokujeme.
             $this->autoPoster->maybeAutoPost($supplierId, 'invoice', $invoiceId, $userId, $ip, $ua);
+            // Cache statistik až za zaúčtováním; její chyba vystavení ani odeslání neshodí.
+            $this->stats->recomputeAfterCommit($invoiceId);
 
             $invoice = $this->repo->find($invoiceId);
         }
