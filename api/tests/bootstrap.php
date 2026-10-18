@@ -238,6 +238,15 @@ require __DIR__ . '/../vendor/autoload.php';
     '*/api/src/Service/Submission/IsdsMobileCredentialService.php',
     '*/api/src/Service/Submission/SubmissionCredentialService.php',
     '*/api/src/Service/Submission/SubmissionOutboxService.php',
+    '*/api/src/Service/Accounting/Cash/CashDocumentService.php',
+    '*/api/src/Repository/CashRegisterRepository.php',
+    '*/api/src/Repository/AssetRepository.php',
+    '*/api/src/Repository/AccountingPeriodRepository.php',
+    '*/api/src/Service/Accounting/Card/CardClearingRegime.php',
+    '*/api/src/Service/Accounting/Vat/VatClearingService.php',
+    '*/api/src/Repository/TaxSubmissionRepository.php',
+    '*/api/src/Repository/AccountingSupplierSettingsRepository.php',
+    '*/api/src/Service/Validation/XmlSchemaValidator.php',
 ]);
 \DG\BypassFinals::enable();
 

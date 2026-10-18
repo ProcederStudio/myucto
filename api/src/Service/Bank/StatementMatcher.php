@@ -91,8 +91,10 @@ final class StatementMatcher
 
     /**
      * Zaloguj spárování platby proti dokladu (vystavená 'invoice' / přijatá
-     * 'purchase_invoice'), ať je auto-úhrada vidět v aktivitě dokladu. Volá se AŽ
-     * PO commitu (mimo transakci). Best-effort — logging nikdy nesmí shodit párování.
+     * 'purchase_invoice'), ať je auto-úhrada vidět v aktivitě dokladu. Volá se UVNITŘ
+     * transakce párování (doMatch), aby záznam a úhrada vznikly nebo zanikly spolu.
+     * Běžná chyba zápisu shodí jen svůj příkaz a párování pokračuje; odvolanou transakci
+     * (1020/1213) ale spolknout nelze, další zápisy by běžely v autocommitu.
      */
     private function logPaymentMatch(
         string $entityType,
@@ -127,8 +129,10 @@ final class StatementMatcher
                 // explicitně; pro 'invoice' se doplní auto z entity (může být null).
                 $supplierId,
             );
-        } catch (\Throwable) {
-            // logging nesmí rozbít párování
+        } catch (\Throwable $e) {
+            if (TransactionFailure::aborted($e)) {
+                throw $e;
+            }
         }
     }
 
@@ -472,17 +476,21 @@ final class StatementMatcher
             return $recorded ? $this->recordedResult($transactionId, $row, false)
                 : ['status' => 'unmatched', 'reason' => 'unknown_supplier_for_account'];
         }
-        $this->begin($pdo);
-        try {
-            $current = (new BankTransactionContext($this->db))->lock($supplierId, $transactionId);
-            $result = $current === null
-                ? ['status' => 'unmatched', 'reason' => 'transaction_not_found']
-                : $this->doMatchCurrent($transactionId, $allowAmountDateFallback, $current, $supplierId);
-            $this->commit($pdo);
-        } catch (\Throwable $e) {
-            $this->rollBackIfOpen($pdo, $e);
-            throw $e;
-        }
+        // Odvolanou transakci (1020/1213) zopakuje, jen když ji vlastní; v cizí ji dostane vlastník.
+        $result = TransactionFailure::retrying($pdo, function () use ($pdo, $transactionId, $allowAmountDateFallback, $supplierId): array {
+            $this->begin($pdo);
+            try {
+                $current = (new BankTransactionContext($this->db))->lock($supplierId, $transactionId);
+                $result = $current === null
+                    ? ['status' => 'unmatched', 'reason' => 'transaction_not_found']
+                    : $this->doMatchCurrent($transactionId, $allowAmountDateFallback, $current, $supplierId);
+                $this->commit($pdo);
+                return $result;
+            } catch (\Throwable $e) {
+                $this->rollBackIfOpen($pdo, $e);
+                throw $e;
+            }
+        });
         if (!$pdo->inTransaction() && !empty($result['invoice_id'])) {
             try {
                 $this->paymentThanks?->flushDeferred((int) $result['invoice_id']);
