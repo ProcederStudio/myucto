@@ -17657,6 +17657,11 @@
       "err_recurring_prepaid_tax_evidence": "Časové rozlišení ročního předplatného se v daňové evidenci nevede."
     },
     "assets": {
+      "imported_plan": {
+        "title": "Převzatý odpisový plán",
+        "source": "Zdroj: {program}. Daňová metoda ve zdroji: {tax}; účetní metoda ve zdroji: {accounting}.",
+        "locked_hint": "Odpisy se řídí přesným převzatým plánem. Parametry pořízení a odpisování, počáteční oprávky, technické zhodnocení, přerušení a ruční přepis odpisů nelze měnit. Upravit můžete inventární číslo, název a popis."
+      },
       "title": "Majetek",
       "subtitle": "Karty dlouhodobého majetku, daňové a účetní odpisy (§26–33 ZDP, ČÚS 013).",
       "empty": "Žádné karty majetku odpovídající filtru.",
@@ -17802,6 +17807,7 @@
         "col_status": "Stav",
         "col_month": "Měsíc",
         "status_planned": "Plán",
+        "status_imported": "Převzatý plán",
         "status_confirmed": "Potvrzeno",
         "status_posted": "Zaúčtováno",
         "badge_half": "Půlodpis §26/7",

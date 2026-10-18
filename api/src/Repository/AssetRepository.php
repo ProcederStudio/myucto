@@ -28,7 +28,7 @@ final class AssetRepository
         'depreciator_ground', 'co_ownership_share', 'depreciator_note',
         'opening_tax_years', 'opening_tax_amount', 'opening_acc_months', 'opening_acc_amount',
         'acc_useful_life_months', 'acc_method', 'acc_residual_value', 'created_by',
-        'summary_account_code',
+        'summary_account_code', 'imported_depreciation_plan',
     ];
 
     /**
@@ -141,7 +141,8 @@ final class AssetRepository
         foreach (self::COLUMNS as $col) {
             if (array_key_exists($col, $data)) {
                 $cols[] = $col;
-                $params[] = $data[$col];
+                $params[] = $col === 'imported_depreciation_plan' && $data[$col] !== null
+                    ? json_encode($data[$col], JSON_THROW_ON_ERROR) : $data[$col];
             }
         }
         $place = implode(', ', array_fill(0, count($cols), '?'));
@@ -162,7 +163,8 @@ final class AssetRepository
         foreach (self::COLUMNS as $col) {
             if (array_key_exists($col, $data)) {
                 $set[] = $col . ' = ?';
-                $params[] = $data[$col];
+                $params[] = $col === 'imported_depreciation_plan' && $data[$col] !== null
+                    ? json_encode($data[$col], JSON_THROW_ON_ERROR) : $data[$col];
             }
         }
         if ($set === []) {
@@ -323,6 +325,8 @@ final class AssetRepository
 
     private function cast(array $r): array
     {
+        $r['imported_depreciation_plan'] = ($r['imported_depreciation_plan'] ?? null) === null
+            ? null : json_decode($r['imported_depreciation_plan'], true, 512, JSON_THROW_ON_ERROR);
         $r['id'] = (int) $r['id'];
         $r['supplier_id'] = (int) $r['supplier_id'];
         $r['purchase_invoice_id'] = $r['purchase_invoice_id'] === null ? null : (int) $r['purchase_invoice_id'];

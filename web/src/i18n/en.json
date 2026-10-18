@@ -17657,6 +17657,11 @@
       "err_recurring_prepaid_tax_evidence": "Prepaid annual subscriptions are not accrued in tax evidence."
     },
     "assets": {
+      "imported_plan": {
+        "title": "Imported depreciation schedule",
+        "source": "Source: {program}. Source tax method: {tax}; source accounting method: {accounting}.",
+        "locked_hint": "Depreciation follows the exact imported schedule. Acquisition and depreciation parameters, opening balances, technical improvements, suspension and manual depreciation overrides cannot be changed. You can edit the inventory number, name and description."
+      },
       "title": "Fixed assets",
       "subtitle": "Fixed asset cards, tax and accounting depreciation (Czech ITA §26–33, CAS 013).",
       "empty": "No asset cards match the filter.",
@@ -17802,6 +17807,7 @@
         "col_status": "Status",
         "col_month": "Month",
         "status_planned": "Planned",
+        "status_imported": "Imported schedule",
         "status_confirmed": "Confirmed",
         "status_posted": "Posted",
         "badge_half": "Half-year depreciation §26/7",
