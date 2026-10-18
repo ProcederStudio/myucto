@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MyInvoice\Action\Logbook;
 
+use MyInvoice\Http\IsoDate;
 use MyInvoice\Http\Json;
 use MyInvoice\Http\SupplierGuard;
 use MyInvoice\Http\TenantReferenceGuard;
@@ -114,7 +115,7 @@ final class OdometerGapsAction
         }
 
         $date = trim((string) ($row['trip_date'] ?? ''));
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) return 'Neplatné datum (formát YYYY-MM-DD).';
+        if (!IsoDate::isValid($date)) return 'Neplatné datum (formát YYYY-MM-DD).';
         if ($date > $gap['date_to'] || ($gap['date_from'] !== null && $date < $gap['date_from'])) {
             return 'Datum musí ležet v období km k doplnění.';
         }

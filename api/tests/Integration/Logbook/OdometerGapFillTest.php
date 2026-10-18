@@ -9,6 +9,7 @@ use MyInvoice\Action\Logbook\OdometerReadingsAction;
 use MyInvoice\Action\Logbook\TripTemplatesAction;
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Middleware\SupplierScopeMiddleware;
+use MyInvoice\Repository\TripRepository;
 use MyInvoice\Service\Logbook\LogbookSummaryService;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
@@ -151,6 +152,38 @@ final class OdometerGapFillTest extends TestCase
 
         self::assertSame('odometer_regression', $this->json($earlierHigher)['error']['code']);
         self::assertSame('odometer_regression', $this->json($laterLower)['error']['code']);
+    }
+
+    public function testReadingBelowEarlierTripEndIsRejected(): void
+    {
+        $car = $this->carWithStart($this->supplierA, 'TST0009', 500, null);
+        $this->container->get(TripRepository::class)->create($this->supplierA, [
+            'car_id' => $car, 'trip_date' => '2099-03-01', 'odometer_start' => 500, 'odometer_end' => 700,
+            'distance_km' => 200, 'purpose' => 'Klient',
+        ], null);
+
+        $res = $this->call(OdometerReadingsAction::class, 'create', 'POST', ['car_id' => $car, 'reading_date' => '2099-03-02', 'odometer' => 650]);
+
+        self::assertSame(422, $res->getStatusCode(), (string) $res->getBody());
+        self::assertSame('odometer_regression', $this->json($res)['error']['code']);
+    }
+
+    public function testImpossibleCalendarDatesAreRejected(): void
+    {
+        $car = $this->carWithStart($this->supplierA, 'TST0010', 500, '2099-02-01');
+        $reading = $this->json($this->call(OdometerReadingsAction::class, 'create', 'POST', [
+            'car_id' => $car, 'reading_date' => '2099-03-05', 'odometer' => 550,
+        ]));
+
+        $badReading = $this->call(OdometerReadingsAction::class, 'create', 'POST', ['car_id' => $car, 'reading_date' => '2099-02-31', 'odometer' => 520]);
+        self::assertSame(400, $badReading->getStatusCode(), (string) $badReading->getBody());
+
+        $badFill = $this->call(OdometerGapsAction::class, 'fill', 'POST', [
+            'reading_id' => $reading['id'],
+            'trips' => [['trip_date' => '2099-02-31', 'distance_km' => 10]],
+        ]);
+        self::assertSame(400, $badFill->getStatusCode(), (string) $badFill->getBody());
+        self::assertSame(0, $this->tripCount($car));
     }
 
     public function testSameDayReadingIsOverwritten(): void

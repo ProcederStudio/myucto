@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MyInvoice\Action\Logbook;
 
+use MyInvoice\Http\IsoDate;
 use MyInvoice\Http\Json;
 use MyInvoice\Http\SupplierGuard;
 use MyInvoice\Middleware\AuthMiddleware;
@@ -46,7 +47,7 @@ final class OdometerReadingsAction
             return Json::error($response, 'validation_failed', 'Vyberte auto.', 400);
         }
         $date = trim((string) ($body['reading_date'] ?? ''));
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+        if (!IsoDate::isValid($date)) {
             return Json::error($response, 'validation_failed', 'Neplatné datum (formát YYYY-MM-DD).', 400);
         }
         $time = trim((string) ($body['reading_time'] ?? ''));
