@@ -704,6 +704,71 @@ final class RbacHttpRoleMatrixTest extends TestCase
     }
 
     /**
+     * Výběr brandingového profilu v kartě klienta čte `/api/branding-profiles`
+     * (stačí `profile`), takže ho účetní bez `settings.branding` dál má. Správa
+     * profilů včetně jejich úplného výpisu zůstává za `settings.branding`.
+     */
+    public function testAccountantKeepsBrandingProfilePickerButCannotManageProfiles(): void
+    {
+        $pdo = $this->db->pdo();
+        $accountantRole = (int) $pdo->query("SELECT id FROM roles WHERE system_key = 'accountant'")->fetchColumn();
+        if ($accountantRole <= 0) self::markTestSkipped('Chybí systémová role účetní.');
+        $grants = $pdo->prepare('SELECT permission_key, access_level FROM role_permissions WHERE role_id = ?');
+        $grants->execute([$accountantRole]);
+        $grants = $grants->fetchAll(\PDO::FETCH_KEY_PAIR);
+        self::assertGreaterThanOrEqual(1, (int) ($grants['clients'] ?? 0), 'Účetní pracuje s klienty.');
+        self::assertArrayNotHasKey('settings.branding', $grants, 'Test ověřuje účetní bez práva spravovat branding.');
+
+        $pdo->prepare('INSERT INTO users (email, password_hash, name, role, role_id, locale, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)')
+            ->execute([
+                '__test_rbac_matrix_' . bin2hex(random_bytes(6)) . '@example.test',
+                '$2y$12$abcdefghijklmnopqrstuvABCDEFGHIJKLMNOPQRSTUVWXYZ01234',
+                '__TEST RBAC accountant', 'readonly', $accountantRole, 'cs',
+            ]);
+        $accountantId = (int) $pdo->lastInsertId();
+        $this->userIds[] = $accountantId;
+        $pdo->prepare('INSERT INTO user_suppliers (user_id, supplier_id) VALUES (?, ?)')->execute([$accountantId, $this->supplierId]);
+        $accountant = $this->createSession($accountantId);
+        $admin = $this->createSession($this->createUser('superadmin', 'superadmin', 2, true));
+
+        $flag = $pdo->prepare('SELECT branding_profiles_enabled FROM supplier WHERE id = ?');
+        $flag->execute([$this->supplierId]);
+        $previousFlag = (int) $flag->fetchColumn();
+        $pdo->prepare('UPDATE supplier SET branding_profiles_enabled = 1 WHERE id = ?')->execute([$this->supplierId]);
+        $brandingId = 0;
+        try {
+            $created = $this->request('POST', '/api/settings/branding-profiles', $admin, [
+                'name' => '__TEST branding picker',
+                'code' => 'brand-picker-' . bin2hex(random_bytes(5)),
+            ]);
+            self::assertSame(201, $created->getStatusCode(), (string) $created->getBody());
+            $brandingId = (int) ($this->json($created)['id'] ?? 0);
+
+            $picker = $this->request('GET', '/api/branding-profiles', $accountant);
+            self::assertSame(200, $picker->getStatusCode(), (string) $picker->getBody());
+            self::assertContains($brandingId, array_map(static fn (array $row): int => (int) $row['id'], $this->json($picker)));
+
+            $denied = [
+                ['GET', '/api/settings/branding-profiles', null],
+                ['POST', '/api/settings/branding-profiles', ['name' => '__TEST denied', 'code' => 'brand-denied-' . bin2hex(random_bytes(4))]],
+                ['PUT', "/api/settings/branding-profiles/{$brandingId}", ['name' => '__TEST denied rename']],
+                ['POST', "/api/settings/branding-profiles/{$brandingId}/default", []],
+                ['DELETE', "/api/settings/branding-profiles/{$brandingId}", null],
+            ];
+            foreach ($denied as [$method, $path, $body]) {
+                $this->assertPermissionDecision($this->request($method, $path, $accountant, $body), false, "accountant: {$method} {$path}");
+            }
+            $name = $pdo->prepare('SELECT name FROM branding_profiles WHERE id = ?');
+            $name->execute([$brandingId]);
+            self::assertSame('__TEST branding picker', $name->fetchColumn());
+        } finally {
+            if ($brandingId > 0) $pdo->prepare('DELETE FROM branding_profiles WHERE id = ?')->execute([$brandingId]);
+            $pdo->prepare("DELETE FROM branding_profiles WHERE supplier_id = ? AND name = '__TEST denied'")->execute([$this->supplierId]);
+            $pdo->prepare('UPDATE supplier SET branding_profiles_enabled = ? WHERE id = ?')->execute([$previousFlag, $this->supplierId]);
+        }
+    }
+
+    /**
      * Zákaz editace staff profilu musí platit i „zvenčí": klient si nesmí
      * vlastním profilem s `is_default` sesadit profil s S/MIME nebo sendmailem.
      */

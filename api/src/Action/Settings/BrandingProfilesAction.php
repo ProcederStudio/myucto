@@ -33,8 +33,9 @@ final class BrandingProfilesAction
 
     public function list(Request $request, Response $response): Response
     {
-        // Původní staff/demo GET zůstává kompatibilní. Klientská role však smí
-        // profilová data číst až se stejným WRITE právem, které vyžadují mutace.
+        // Úplný výpis pro správu hlídá mapa rout stejným `settings.branding` WRITE
+        // jako mutace. Výběr profilu v dokladech a kartě klienta čte publicList().
+        // Kontrola klientské role je druhá vrstva pro volání mimo middleware.
         if (RequestAuthorization::isClientType($request) && !$this->canManage($request)) {
             return Json::error($response, 'forbidden', 'Nemáš oprávnění spravovat branding.', 403);
         }
