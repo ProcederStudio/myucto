@@ -872,6 +872,7 @@
         }
       },
       "checks": {
+        "property_reconciliation": "Shoda salda SVJ s hlavní knihou",
         "deferred_tax_assessment": "Aktuální doložené posouzení odložené daně",
         "accounts_unusual_side": "Účty se zůstatkem na neobvyklé straně (dle typu účtu)",
         "acquisition_04x_open": "Nenulové zůstatky 041/042 - nedokončené pořízení majetku",

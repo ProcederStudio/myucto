@@ -99,6 +99,7 @@ final class ClosingService
         'inventory_unresolved',
         'nonprofit_tax_assessment',
         'deferred_tax_assessment',
+        'property_reconciliation',
     ];
 
     /**
@@ -4921,7 +4922,7 @@ final class ClosingService
         };
 
         $checks = $wants(...self::ERROR_CHECK_KEYS)
-            ? $this->buildErrorChecks($supplierId, $period)
+            ? $this->buildErrorChecks($supplierId, $period, false, $rangeTo)
             : [];
 
         $balanceCodes = [];
@@ -6020,7 +6021,7 @@ final class ClosingService
      * @param array<string,mixed> $period
      * @return list<array{key:string, severity:'error'|'warning', ok:bool, value:mixed}>
      */
-    private function buildErrorChecks(int $supplierId, array $period, bool $currentRead = false): array
+    private function buildErrorChecks(int $supplierId, array $period, bool $currentRead = false, ?string $asOf = null): array
     {
         $periodId = (int) $period['id'];
         $startsOn = (string) $period['starts_on'];
@@ -6109,6 +6110,13 @@ final class ClosingService
         if ($taxAssessment['applicable']) {
             $checks[] = ['key' => 'nonprofit_tax_assessment', 'severity' => 'error',
                 'ok' => $taxAssessment['complete'], 'value' => $taxAssessment];
+        }
+        $date = $asOf ?? $endsOn;
+        if ($this->roleProfile($supplierId, $date)->framework === AccountingFrameworkService::CZ_504
+            && (new \MyInvoice\Service\Property\PropertyHistoryUseGuard($this->db))->supplierHasHistory($supplierId, $currentRead)) {
+            $reconciliation = (new \MyInvoice\Service\Property\Receivables\PropertyReconciliation($this->db))->at($supplierId, $date);
+            $checks[] = ['key' => 'property_reconciliation', 'severity' => 'error',
+                'ok' => $reconciliation['matches'] && $reconciliation['opening_import_coverage'] === 'complete', 'value' => $reconciliation];
         }
         return $checks;
     }

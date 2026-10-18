@@ -15,7 +15,7 @@ final class OpeningReconciliation
             $owner=null;$reversal=false;foreach($owners as $candidate)if((int)($candidate['reversal_entry_id']??0)===(int)$entry['id']){$owner=$candidate;$reversal=true;break;}
             if($owner===null)foreach($owners as $candidate)if((int)$candidate['journal_entry_id']===(int)$entry['id']){$owner=$candidate;break;}
             $q=$this->db->pdo()->prepare('SELECT l.id,l.amount,c.account_code FROM journal_entry_lines l JOIN chart_of_accounts c ON c.id=l.account_id AND c.supplier_id=l.supplier_id WHERE l.supplier_id=? AND l.entry_id=? ORDER BY l.id');$q->execute([$supplier,$entry['id']]);$lines=$q->fetchAll(PDO::FETCH_ASSOC);
-            if($owner===null){foreach($lines as $line)if(OpeningRolePolicy::relevant($line['account_code']))$uncovered[]=(int)$line['id'];continue;}
+            if($owner===null){if((new \MyInvoice\Service\Accounting\Closing\AnnualOpeningReadProof($this->db))->matches($supplier,(int)$entry['id']))continue;foreach($lines as $line)if(OpeningRolePolicy::relevant($line['account_code']))$uncovered[]=(int)$line['id'];continue;}
             $q=$this->db->pdo()->prepare('SELECT id FROM property_opening_items WHERE supplier_id=? AND batch_id=? ORDER BY id');$q->execute([$supplier,$owner['id']]);$claims=[];
             foreach((new OpeningReadProof($this->db))->items($supplier,array_map('intval',$q->fetchAll(PDO::FETCH_COLUMN)),false) as $item){
                 foreach($item['components'] as $part){$lineId=$part['line']['id'];$claims[$lineId]=bcadd($claims[$lineId]??'0',$part['amount_cents'],0);if($unit===null||$item['snapshot']['unit_id']===$unit)$roles[$part['role']]=bcadd($roles[$part['role']]??'0',($reversal?'-':'').$part['amount_cents'],0);}

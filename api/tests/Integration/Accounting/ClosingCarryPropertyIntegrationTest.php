@@ -82,6 +82,23 @@ final class ClosingCarryPropertyIntegrationTest extends TestCase
     {
         $this->retire();$closed=$this->close($this->period);$this->assertBalances($closed['entry_id']);
         $opened=$this->closing->openNext($this->f['supplier'],$this->period,$this->rv($this->period));$this->assertBalances($opened['entry_id']);
+        $annual=new \MyInvoice\Service\Accounting\Closing\AnnualOpeningReadProof($this->db);
+        self::assertTrue($annual->matches($this->f['supplier'],$opened['entry_id']));
+        foreach([$opened['entry_id'],$closed['entry_id'],$this->entry] as $mutatedEntry)foreach(['amount','amount_foreign'] as $field){
+            $this->db->pdo()->exec('SAVEPOINT invalid_annual_opening');
+            $q=$this->db->pdo()->prepare('UPDATE journal_entry_lines SET '.$field.'='.$field.'+0.01 WHERE supplier_id=? AND entry_id=?');
+            $q->execute([$this->f['supplier'],$mutatedEntry]);
+            self::assertFalse($annual->matches($this->f['supplier'],$opened['entry_id']));
+            $coverage=(new \MyInvoice\Service\Property\Opening\OpeningReconciliation($this->db))->at($this->f['supplier'],'2027-01-01','2027-12-31');
+            self::assertSame('incomplete',$coverage['coverage']);self::assertNotSame([],$coverage['uncovered_line_ids']);
+            $this->db->pdo()->exec('ROLLBACK TO SAVEPOINT invalid_annual_opening');
+        }
+        $this->db->pdo()->exec('SAVEPOINT rename_annual_account');
+        $accounts=new \MyInvoice\Repository\ChartOfAccountsRepository($this->db);
+        $account=$accounts->findByCode($this->f['supplier'],'324');
+        self::assertTrue($accounts->update($this->f['supplier'],$account['id'],['name'=>'Synthetic renamed advance']));
+        self::assertTrue($annual->matches($this->f['supplier'],$opened['entry_id']));
+        $this->db->pdo()->exec('ROLLBACK TO SAVEPOINT rename_annual_account');
         $q=$this->db->pdo()->prepare('SELECT id FROM accounting_periods WHERE supplier_id=? AND fiscal_year=2027');$q->execute([$this->f['supplier']]);$next=['id'=>(int)$q->fetchColumn()];
         $closedNext=$this->close((int)$next['id']);$this->assertBalances($closedNext['entry_id']);
         $openedNext=$this->closing->openNext($this->f['supplier'],(int)$next['id'],$this->rv((int)$next['id']));$this->assertBalances($openedNext['entry_id']);

@@ -75,6 +75,11 @@ final class ClosingCarryReadRepository
         return $built + ['source_hash' => hash('sha256', json_encode($rows, JSON_THROW_ON_ERROR)), 'source_line_ids' => array_map('intval', array_column($rows, 'id'))];
     }
 
+    public function entryLines(int $supplierId, int $entryId): array
+    {
+        return $this->rows($supplierId, 'e.id = ?', [$entryId]);
+    }
+
     private static function balances(array $rows): array
     {
         $accounts = array_column($rows, null, 'account_code');
