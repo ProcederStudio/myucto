@@ -53,9 +53,12 @@ final class OpeningSaldoPublicHttpTest extends TestCase
     protected function tearDown():void{$this->cleanup();}
     private function cleanup():void
     {
-        if(isset($this->db)){if($this->db->pdo()->inTransaction())$this->db->pdo()->rollBack();$this->db->close();}
-        if(isset($this->server)&&$this->server->created!==null){self::assertMatchesRegularExpression('/^myucto_s6_saldo_http_[a-f0-9]{20}_test$/D',$this->owned);self::assertSame($this->owned,$this->server->created);$this->server->exec('DROP DATABASE '.DatabaseCloner::quote($this->owned));$this->server->created=null;$q=$this->server->prepare('SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME=?');$q->execute([$this->owned]);self::assertSame(0,(int)$q->fetchColumn());}
-        if(isset($this->priorDatabase))putenv($this->priorDatabase===false?'MYINVOICE_DB_NAME':'MYINVOICE_DB_NAME='.$this->priorDatabase);
+        try{
+            if(isset($this->db)){if($this->db->pdo()->inTransaction())$this->db->pdo()->rollBack();$this->db->close();}
+            if(isset($this->server)&&$this->server->created!==null){self::assertMatchesRegularExpression('/^myucto_s6_saldo_http_[a-f0-9]{20}_test$/D',$this->owned);self::assertSame($this->owned,$this->server->created);\MyInvoice\Tests\Support\OwnedTestDatabaseCleanup::drop($this->server,$this->owned,[$this->server->created]);$this->server->created=null;$q=$this->server->prepare('SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME=?');$q->execute([$this->owned]);self::assertSame(0,(int)$q->fetchColumn());}
+        }finally{
+            if(isset($this->priorDatabase))putenv($this->priorDatabase===false?'MYINVOICE_DB_NAME':'MYINVOICE_DB_NAME='.$this->priorDatabase);
+        }
     }
     private function get(string $path,array $query,array $attributes=[]):array
     {
