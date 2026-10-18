@@ -224,11 +224,61 @@ final class InvoicePaymentService
             throw new \RuntimeException('Faktura k vyplacení nepřijímá platby. Vrácení peněz označte jako vyplacené.');
         }
 
+        // Vlastní transakci odvolanou MariaDB (deadlock 1213, konflikt snapshotu 1020) jde
+        // zopakovat celou, v transakci volajícího ji retrying() neopakuje.
+        [$paymentId, $amount, $transition, $documents] = TransactionFailure::retrying(
+            $pdo,
+            fn (): array => $this->insertPaymentLocked($pdo, $invoiceId, $invoice, $amount, $paidOn, $opts),
+        );
+
+        if (GoPayPendingService::sessionFromReference($opts['bank_reference'] ?? null) !== null) {
+            // Úhrada kartou přes GoPay se účtuje dnem platby (MD GoPay / D 311).
+            // Úhrada je v tu chvíli už uložená; chyba účtování ji nesmí shodit —
+            // zůstane vidět v GoPay jako čekající pohyb s chybou k doúčtování.
+            // Odvolaná transakce (deadlock při souběžných úhradách) by pohyb nezaložila vůbec,
+            // takže by v GoPay nebyl vidět ani s chybou; založení je idempotentní, proto se opakuje.
+            try {
+                TransactionFailure::retrying($pdo, fn (): ?int => $this->goPayPending->recordForPayment(
+                    $paymentId,
+                    isset($opts['created_by']) && (int) $opts['created_by'] > 0 ? (int) $opts['created_by'] : null,
+                ));
+            } catch (\Throwable $e) {
+                error_log('GoPay čekající pohyb k úhradě #' . $paymentId . ' nevznikl: ' . $e->getMessage());
+            }
+        }
+
+        $this->afterTransition($invoiceId, $transition);
+
+        return [
+            'payment_id'  => $paymentId,
+            'amount'      => $amount,
+            'became_paid' => $transition['became_paid'],
+            'remaining'   => $transition['remaining'],
+            'final_draft_id' => $documents['final_draft_id'],
+            'tax_document_id' => $documents['tax_document_id'],
+        ];
+    }
+
+    /**
+     * Zápis platby a přepočet faktury v jedné transakci (vlastní, nebo volajícího).
+     *
+     * Faktura se zamyká jako PRVNÍ krok: INSERT platby bere přes cizí klíč sdílený zámek
+     * řádku faktury a přepočet paid_total pak výlučný. Dvě souběžné úhrady téže faktury,
+     * které by obě nejdřív vložily platbu, by na sebe čekaly a skončily deadlockem.
+     * Se zámkem předem druhá úhrada čeká ve frontě a nic přitom nedrží.
+     *
+     * @param array<string,mixed> $invoice
+     * @param array<string,mixed> $opts
+     * @return array{0: int, 1: float, 2: array{became_paid: bool, became_unpaid: bool, remaining: float, paid_total: float}, 3: array{final_draft_id: int|null, tax_document_id: int|null}}
+     */
+    private function insertPaymentLocked(PDO $pdo, int $invoiceId, array $invoice, float $amount, string $paidOn, array $opts): array
+    {
         $ownsTransaction = !$pdo->inTransaction();
         if ($ownsTransaction) {
             $pdo->beginTransaction();
         }
         try {
+            $pdo->prepare('SELECT id FROM invoices WHERE id = ? FOR UPDATE')->execute([$invoiceId]);
             if (($opts['source'] ?? '') === 'bank') {
                 $amount = $this->settleableBankAmount($pdo, $invoiceId, $amount);
             }
@@ -284,32 +334,7 @@ final class InvoicePaymentService
             throw $e;
         }
 
-        if (GoPayPendingService::sessionFromReference($opts['bank_reference'] ?? null) !== null) {
-            // Úhrada kartou přes GoPay se účtuje dnem platby (MD GoPay / D 311).
-            // Úhrada je v tu chvíli už uložená; chyba účtování ji nesmí shodit —
-            // zůstane vidět v GoPay jako čekající pohyb s chybou k doúčtování.
-            // Odvolaná transakce (deadlock při souběžných úhradách) by pohyb nezaložila vůbec,
-            // takže by v GoPay nebyl vidět ani s chybou; založení je idempotentní, proto se opakuje.
-            try {
-                TransactionFailure::retrying($pdo, fn (): ?int => $this->goPayPending->recordForPayment(
-                    $paymentId,
-                    isset($opts['created_by']) && (int) $opts['created_by'] > 0 ? (int) $opts['created_by'] : null,
-                ));
-            } catch (\Throwable $e) {
-                error_log('GoPay čekající pohyb k úhradě #' . $paymentId . ' nevznikl: ' . $e->getMessage());
-            }
-        }
-
-        $this->afterTransition($invoiceId, $transition);
-
-        return [
-            'payment_id'  => $paymentId,
-            'amount'      => $amount,
-            'became_paid' => $transition['became_paid'],
-            'remaining'   => $transition['remaining'],
-            'final_draft_id' => $documents['final_draft_id'],
-            'tax_document_id' => $documents['tax_document_id'],
-        ];
+        return [$paymentId, $amount, $transition, $documents];
     }
 
     /** @deprecated Použij {@see markRefunded()}; zůstává kvůli volajícím z doby jen dobropisů. */
