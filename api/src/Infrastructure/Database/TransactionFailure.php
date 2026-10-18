@@ -36,4 +36,33 @@ final class TransactionFailure
 
         return true;
     }
+
+    /**
+     * Spustí operaci, která si sama otevírá transakci, a když ji MariaDB odvolá (1020/1213),
+     * zkusí ji znovu s novou transakcí, tedy i s novým snapshotem.
+     *
+     * Typicky jde o hlavu hash řetězu auditní stopy: je to jeden řádek pro celou instanci
+     * a pod REPEATABLE READ se `innodb_snapshot_isolation` končí jeho zamykací čtení chybou
+     * 1020, kdykoli ho mezi začátkem transakce a zapečetěním posune souběžný požadavek.
+     * Uvnitř cizí transakce se neopakuje nic: odvolaná je i ta vnější, takže chybu musí
+     * dostat její vlastník.
+     *
+     * @template T
+     * @param callable():T $operation
+     * @return T
+     */
+    public static function retrying(PDO $pdo, callable $operation, int $attempts = 4): mixed
+    {
+        $outer = $pdo->inTransaction();
+        for ($attempt = 1; ; $attempt++) {
+            try {
+                return $operation();
+            } catch (\Throwable $e) {
+                if ($outer || $attempt >= $attempts || !self::rollbackIfAborted($pdo, $e)) {
+                    throw $e;
+                }
+                usleep(random_int(10_000, 50_000) * $attempt);
+            }
+        }
+    }
 }

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Invoice;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\ClientBankAccountRepository;
 use MyInvoice\Service\Accounting\GoPay\GoPayPendingService;
 use MyInvoice\Service\Pdf\InvoicePdfRenderer;
@@ -287,11 +288,13 @@ final class InvoicePaymentService
             // Úhrada kartou přes GoPay se účtuje dnem platby (MD GoPay / D 311).
             // Úhrada je v tu chvíli už uložená; chyba účtování ji nesmí shodit —
             // zůstane vidět v GoPay jako čekající pohyb s chybou k doúčtování.
+            // Odvolaná transakce (deadlock při souběžných úhradách) by pohyb nezaložila vůbec,
+            // takže by v GoPay nebyl vidět ani s chybou; založení je idempotentní, proto se opakuje.
             try {
-                $this->goPayPending->recordForPayment(
+                TransactionFailure::retrying($pdo, fn (): ?int => $this->goPayPending->recordForPayment(
                     $paymentId,
                     isset($opts['created_by']) && (int) $opts['created_by'] > 0 ? (int) $opts['created_by'] : null,
-                );
+                ));
             } catch (\Throwable $e) {
                 error_log('GoPay čekající pohyb k úhradě #' . $paymentId . ' nevznikl: ' . $e->getMessage());
             }
