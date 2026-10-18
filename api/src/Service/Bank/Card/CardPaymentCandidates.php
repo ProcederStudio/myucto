@@ -6,6 +6,7 @@ namespace MyInvoice\Service\Bank\Card;
 
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\BankStatementOwnershipResolver;
+use MyInvoice\Service\Bank\BankNoticeLifecycle;
 use MyInvoice\Support\Sql\PurchaseSettledExpr;
 use PDO;
 
@@ -135,6 +136,7 @@ final class CardPaymentCandidates
                JOIN bank_statements bs ON bs.id = bt.statement_id
               WHERE bt.id <> ?
                 AND bt.match_status = 'unmatched'
+                AND " . BankNoticeLifecycle::activeSql('bt') . "
                 AND bt.amount < 0
                 AND ABS(ABS(bt.amount) - ?) < 0.005
                 AND bt.card_last4 IS NOT NULL

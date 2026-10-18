@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Payroll\Import\Jmhz;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\Payroll\PayrollDependantRepository;
 use MyInvoice\Repository\Payroll\PayrollEmploymentRepository;
 use MyInvoice\Repository\Payroll\PayrollPersonStatutoryEvidenceRepository;
@@ -62,7 +63,7 @@ final class JmhzReportWriter
         $operations = [];
         $notes = [];
 
-        $this->atomic('jmhz_import_form', function () use (
+        $form = function () use (
             $supplierId,
             $environment,
             $item,
@@ -77,6 +78,8 @@ final class JmhzReportWriter
             &$operations,
             &$notes,
         ): void {
+            $operations = [];
+            $notes = [];
             $identifiers = $steps['identifiers'];
             if ($identifiers['person'] !== null || $identifiers['employment'] !== null) {
                 $this->optional('Identifikátory ČSSZ', $notes, $operations, 'identifiers', fn () => $this->writeIdentifiers(
@@ -162,7 +165,10 @@ final class JmhzReportWriter
                     $userAgent,
                 ));
             }
-        });
+        };
+        // Odvolanou transakci (1020/1213) zopakuje celou: rollback vrátil všechny skupiny
+        // formuláře a každá si stav čte znovu těsně před zápisem.
+        TransactionFailure::retrying($this->db->pdo(), fn () => $this->atomic('jmhz_import_form', $form));
 
         return [
             'status' => 'applied',
@@ -397,6 +403,11 @@ final class JmhzReportWriter
             $this->atomic('jmhz_import_step', $work);
             $operations[] = $operation;
         } catch (\Exception $e) {
+            // Odvolaná transakce nevrátila jen tuhle skupinu, ale celý formulář: další
+            // skupiny by se zapsaly v autocommitu bez identifikátorů a prohlášení.
+            if (TransactionFailure::aborted($e) || !$this->db->pdo()->inTransaction()) {
+                throw $e;
+            }
             $notes[] = "{$label}: {$e->getMessage()}";
         }
     }
@@ -425,13 +436,19 @@ final class JmhzReportWriter
 
             return $result;
         } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e) || !$pdo->inTransaction()) {
+                throw $e;
+            }
             if ($owns) {
-                if ($pdo->inTransaction()) {
-                    $pdo->rollBack();
-                }
-            } elseif ($pdo->inTransaction()) {
+                $pdo->rollBack();
+                throw $e;
+            }
+            try {
                 $pdo->exec('ROLLBACK TO SAVEPOINT ' . $name);
                 $pdo->exec('RELEASE SAVEPOINT ' . $name);
+            } catch (\PDOException) {
+                // Savepoint zmizel s transakcí, kterou MariaDB odvolala pod přebalenou chybou.
+                $pdo->rollBack();
             }
             throw $e;
         }

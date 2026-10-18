@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Action\Invoice;
 
 use MyInvoice\Service\Oss\OssItemPlan;
+use MyInvoice\Service\Oss\OssClientContext;
 
 /**
  * OSS sloupce pro řádky, které je NEPOSLALY — tedy pro API klienty, ne pro editor.
@@ -55,11 +56,11 @@ trait DerivesMissingOssColumns
      * @return list<array{item:int, manual_review:bool, message:string}> poznámky k řádkům
      *         pro `_warning_meta`; `item` je pořadové číslo položky od 1
      */
-    private function deriveMissingOssColumns(array &$body, int $supplierId): array
+    private function deriveMissingOssColumns(array &$body, int $supplierId, ?OssClientContext $clientContext = null): array
     {
         $clientId = (int) ($body['client_id'] ?? 0);
         $items = $body['items'] ?? null;
-        if ($clientId <= 0 || !is_array($items) || $items === []) {
+        if (($clientId <= 0 && $clientContext === null) || !is_array($items) || $items === []) {
             return [];
         }
         // Přeindexovat hned: níž se zapisuje podle pořadového indexu, a payload z API
@@ -76,7 +77,7 @@ trait DerivesMissingOssColumns
 
         // Kontext odběratele JEDNOU za doklad — planner by si ho jinak vyžádal za každý
         // řádek a doklady z e-shopu chodí po stovkách.
-        $client = $this->ossPlanner->clientContext($clientId);
+        $client = $clientContext ?? $this->ossPlanner->clientContext($clientId);
 
         $notes = [];
         foreach ($items as $index => $item) {

@@ -9,6 +9,7 @@ use MyInvoice\Http\RequestPath;
 use MyInvoice\Repository\PurchaseInvoiceApprovalRepository;
 use MyInvoice\Security\PermissionChecker;
 use MyInvoice\Security\ClientBankRoutePolicy;
+use MyInvoice\Security\ClientStockRoutePolicy;
 use MyInvoice\Security\PermissionResolver;
 use MyInvoice\Security\RoutePermissionMap;
 use MyInvoice\Service\Tenant\SupplierAccessResolver;
@@ -89,8 +90,10 @@ final class PermissionMiddleware implements MiddlewareInterface
         $permission = $role->isClientType() && $method === 'POST'
             && preg_match('#^/api/bank-transactions/[0-9]+/unmatch$#D', $path) === 1
             ? 'bank.match' : $route->key;
-        if ($permission !== null && $this->checker->allows($role, $permission, $route->minimum)) {
-            if ($role->isClientType() && !ClientBankRoutePolicy::allows($method, $path, $route->key)) {
+        if ($permission !== null && array_any([$permission, ...$route->alternativeKeys],
+            fn (string $key): bool => $this->checker->allows($role, $key, $route->minimum))) {
+            if ($role->isClientType() && (!ClientBankRoutePolicy::allows($method, $path, $route->key)
+                || !ClientStockRoutePolicy::allows($method, $path, $route->key))) {
                 return $this->forbidden($request);
             }
             return $handler->handle($this->withEffectiveRole($request, $role));

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\PurchaseInvoice;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\BankEmailAttachmentIngestRepository;
 use MyInvoice\Repository\PurchaseInvoiceSubmissionRepository;
 use MyInvoice\Service\ActivityLogger;
@@ -127,6 +128,9 @@ final class PurchaseInvoiceSubmissionTransferService
             if ($ownTransaction) $pdo->commit();
             else $pdo->exec('RELEASE SAVEPOINT submission_move');
         } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             if ($ownTransaction && $pdo->inTransaction()) {
                 $pdo->rollBack();
             } elseif (!$ownTransaction && $pdo->inTransaction()) {

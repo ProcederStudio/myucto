@@ -15,6 +15,10 @@ final class PermissionChecker
         if (!$this->catalog->allowsRoleType($key, $role->type)) return false;
         if ($role->isClientType() && in_array($key, ['bank.import', 'bank.match', 'bank.ignore'], true)
             && !$role->level('bank')->allows(AccessLevel::READ)) return false;
+        if ($role->isClientType() && ($key === 'stock' || str_starts_with($key, 'stock.'))) {
+            if ($key === 'stock' && $minimum === AccessLevel::WRITE) return false;
+            if ($key !== 'stock' && !$role->level('stock')->allows(AccessLevel::READ)) return false;
+        }
         return $role->level($key)->allows($minimum);
     }
 

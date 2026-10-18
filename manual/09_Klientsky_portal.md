@@ -43,7 +43,7 @@ Kapitolu otevřete, když:
 1. **Účet superadmina.** Klientské uživatele zakládá jen superadmin v `Systém → Uživatelé`.
 2. **Aktivní role typu client.** Role se vybírá při zakládání uživatele. Role typu **readonly** je něco jiného: je to interní pracovník, který smí jen číst. Klient je externí osoba, která smí vystavovat a upravovat vlastní doklady, ale nevidí účetnictví, reporty ani nastavení systému; banku vidí jen s výslovně přidělenými bankovními oprávněními (viz [§ 96.2.2 Role](96_Nastaveni.md#96164-role-a-opravneni)).
 3. **Firma, ke které klient patří.** Bez přiřazené firmy klient po přihlášení uvidí jen prázdný stav. Přístup je záměrně zamčený: žádná firma mu není vidět, dokud ji superadmin nepřiřadí.
-4. **Pro klientské nastavení firmy** musí mít jeho role u položky **Nastavení firmy** úroveň **Zápis**.
+4. **Pro klientské nastavení firmy** musí mít jeho role právo **Zápis** alespoň u jedné provozní oblasti: odesílací profily, e-mailové šablony, branding, platební QR nebo firemní podpisové profily a PDF podpisy.
 5. **Pro vlastní doménu** musí správce serveru zapnout funkci v konfiguraci (viz [§ 9.11.11](#91111-vlastni-domena-pravidla)).
 
 ## 9.3 Krok za krokem: Založení klientského účtu
@@ -141,11 +141,11 @@ Odmítnutí vždy vyžaduje důvod, který klient uvidí. Originál zůstane v D
 
 Provede superadmin a potom klient. Samostatná role Client Admin není potřeba.
 
-1. Superadmin vytvoří nebo duplikuje běžnou roli typu **client** a u položky **Nastavení firmy** zvolí **Zápis**.
+1. Superadmin vytvoří nebo duplikuje běžnou roli typu **client** a zvolí **Zápis** u konkrétních provozních oprávnění, která chce delegovat (například **Branding firmy**).
 2. Roli přiřadí klientovi. Lze ji přiřadit jako přepis jen u jedné firmy: ve firmě A může mít klient roli se zápisem, ve firmě B zůstane u běžné klientské role.
 3. Klient otevře `Firma → Nastavení firmy` a upraví povolené oblasti. Firemní podpisové profily jsou dostupné v samostatné části této stránky; lze v ní nastavit podpis PDF a propojit profil s odesílacím profilem pro podepisování e-mailů.
 
-**Jak poznáte, že je hotovo:** klientovi se v menu objeví sekce **Nastavení firmy**. Při úrovni **Pouze čtení** se nezobrazí vůbec. Po přepnutí firmy se menu i oprávnění ihned přepočítají.
+**Jak poznáte, že je hotovo:** klientovi se v menu objeví sekce **Nastavení firmy**. Zobrazí se pouze povolené záložky; bez konkrétního oprávnění k zápisu se editor nezobrazí. Po přepnutí firmy se menu i oprávnění ihned přepočítají.
 
 Co klient smí měnit, popisuje [§ 9.11.2](#9112-delegovane-nastaveni-firmy).
 
@@ -173,7 +173,7 @@ Postup ověření a aktivace popisuje [§ 96.16 Vlastní domény](96_Nastaveni.m
 | Badge **Zaúčtováno**, chybí úprava, storno a mazání | Doklad je zaúčtovaný nebo spadá do uzavřeného období | Změnu a storno vyřídí účetní (viz [§ 9.11.5](#9115-zamek-zauctovanych-dokladu)) |
 | Klient nevidí Banku | Bankovní oprávnění jsou ve výchozím stavu vypnutá | Administrátor může v klientské roli povolit prohlížení banky a jednotlivé bankovní akce |
 | Klient nevidí Sklad, Reporty ani Nastavení | Role client je záměrně omezená | Je to správně; přímý odkaz klienta přesměruje na portál |
-| Klient nevidí **Nastavení firmy** | Role nemá u této položky úroveň **Zápis** | Superadmin upraví roli (viz [§ 9.8](#98-krok-za-krokem-nastaveni-firmy-klientem)) |
+| Klient nevidí **Nastavení firmy** | Role nemá **Zápis** u žádné provozní oblasti | Superadmin upraví roli (viz [§ 9.8](#98-krok-za-krokem-nastaveni-firmy-klientem)) |
 | „Nově předáno: X, již evidováno: Y" | Stejný soubor už byl předán | Nic, shodný soubor se nerozmnoží |
 | Soubor nejde nahrát jako náhrada | Shodný soubor nelze vydávat za opravený | Nahrajte opravený (jiný) soubor |
 | Přijatou fakturu nejde převést do stavu **Zaúčtováno** | Tento přechod patří jen účetní a adminovi | Požádejte účetní |
@@ -205,11 +205,11 @@ Uvnitř povolených sekcí klient **není v režimu jen pro čtení**. Smí, pok
 - **Pravidelná fakturace** - správa šablon (šablony nejsou účetní doklad, takže se nikdy nezamykají).
 - **Kontakty** - zákazníci i dodavatelé, včetně vyhledání firmy přes ARES a VIES.
 
-Citlivější podsekce zůstávají klientovi nedostupné: platební příkazy (bankovní ABO a KPC soubory, ověřování účtů), sken e-mailové schránky účetní, zakázky a DMS dokumenty k přijatým fakturám. Sklad, e-shop, daňová evidence, účetní deník a bankovní výpisy jsou zavřené úplně.
+Citlivější podsekce zůstávají klientovi nedostupné: platební příkazy (bankovní ABO a KPC soubory, ověřování účtů), sken e-mailové schránky účetní a DMS dokumenty k přijatým fakturám. Zakázky a knihu jízd lze povolit jejich vlastními oprávněními. U skladu lze delegovat čtení, správu skladových karet a expedici; inventury a uzávěrky zůstávají interní správě. Bankovní výpisy se řídí samostatnými bankovními oprávněními. E-shop, daňová evidence a účetní deník zůstávají klientovi zavřené.
 
 ### 9.11.2 Delegované nastavení firmy
 
-Klient s úrovní **Zápis** u položky **Nastavení firmy** spravuje jen výslovně povolené provozní oblasti aktuální firmy:
+Každá provozní oblast má samostatné oprávnění **Zápis**. Klient vidí a spravuje pouze povolené záložky aktuální firmy:
 
 - odesílací profily, odesílatele, Reply-To, DKIM a SMTP/IMAP nastavení firmy,
 - firemní podpisové profily s podporovaným nativním backendem a šifrovaně uloženým heslem k certifikátu; klientský správce může nahrát P12/PFX, nastavit použití pro PDF a vybrat profil v odesílacím profilu pro S/MIME e-mail,
@@ -332,7 +332,7 @@ Přihlášení zahájené na vlastní doméně přihlásí uživatele do portál
 
 Po odhlášení portál zobrazí přihlašovací obrazovku a zůstane odhlášený i po obnovení stránky. Další přihlášení zahájí až tlačítko **Přihlásit se**. Pokud je uživatel stále samostatně přihlášený na hlavní adrese, může se toto přihlášení při návratu do portálu použít bez dalšího zadávání hesla.
 
-Na canonical adrese probíhá také **správa přístupových klíčů** a vynucené první nastavení MFA. WebAuthn klíče jsou svázané s RP ID a originem z `app.url`, takže vlastní doména tyto obrazovky neotevře s nefunkčním bezpečnostním dialogem. Místo toho zahájí jednorázový přechod na canonical adresu a po dokončení se vrátí na předchozí bezpečnou stránku vlastní domény. Cílová firma i hostname jsou po celou dobu svázané se serverovým požadavkem a nelze je změnit parametrem návratové URL.
+Na canonical adrese probíhá také **správa přístupových klíčů** a vynucené první nastavení MFA. WebAuthn klíče jsou svázané s RP ID a originem z `app.url`, takže vlastní doména tyto obrazovky neotevře s nefunkčním bezpečnostním dialogem. Místo toho zahájí jednorázový přechod na canonical adresu a po dokončení se vrátí na předchozí bezpečnou stránku vlastní domény. Po úspěšném přidání klíče proběhne návrat automaticky a dočasná relace na hlavní adrese se ukončí. Bez přidání klíče se vraťte tlačítkem **Vrátit se do klientského rozhraní**. Pokud návrat selže, obrazovka zobrazí chybu a umožní jej zopakovat. Cílová firma i hostname jsou po celou dobu svázané se serverovým požadavkem a nelze je změnit parametrem návratové URL.
 
 Při zamčení session server na vlastní doméně odmítne přímé WebAuthn options i verify. Zamykací obrazovka zahájí nové ověření na canonical originu a po jednorázovém PKCE návratu vytvoří novou host-only session, přičemž zachová aktuální klientskou stránku. Vlastní doména je originem celého klientského rozhraní, ne druhým originem interních agend účetní a správce. Povolení se neurčuje podle prefixu `/portal`, ale podle stejného katalogu klientských oprávnění, který řídí menu, router i API. Staré adresy `/exchange`, `/admin/export` a `/admin/import` se nejprve převedou na skutečný klientský cíl, prefix `/admin` jim tedy přístup ani nedává, ani nebere.
 

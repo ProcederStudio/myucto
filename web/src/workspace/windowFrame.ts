@@ -1,6 +1,6 @@
 import { computed, createApp, defineComponent, h, nextTick, provide, ref, Fragment } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
-import { RouterView, type RouteLocationRaw, type Router } from 'vue-router'
+import { RouterView, type RouteLocationRaw } from 'vue-router'
 import { i18n, ensureInitialLocaleReady, ensureLocaleLoaded } from '@/i18n'
 import { vMath } from '@/directives/vMath'
 import { vSelectOnFocus } from '@/directives/vSelectOnFocus'
@@ -11,11 +11,12 @@ import { createPaneRouter } from '@/router/createPaneRouter'
 import { setForbiddenPermissionHandler } from '@/api/client'
 import { shortcutFromEvent, useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts'
 import { paneCountFromShortcut, panelIndexFromShortcut } from '@/workspace/panelShortcuts'
-import { installFrameNavigation } from '@/workspace/frameNavigation'
+import { installFrameNavigation, internalAnchorNavigation } from '@/workspace/frameNavigation'
 import { windowContextKey } from '@/workspace/windowContext'
 import Toaster from '@/components/Toaster.vue'
 import WebAuthnCeremonyPrompt from '@/components/WebAuthnCeremonyPrompt.vue'
-import { internalRouteFromAnchor, internalRouteFromElement } from '@/workspace/panelLinks'
+import TableViewportScrollbars from '@/components/ui/TableViewportScrollbars.vue'
+import { internalRouteFromAnchor } from '@/workspace/panelLinks'
 import {
   isWindowFrameParentMessage,
   postWindowFrameMessage,
@@ -28,19 +29,24 @@ import {
 } from '@/workspace/frameProtocol'
 
 let appearanceSequence = 0
+
+function toggleClass(element: HTMLElement, name: string, enabled = true): void {
+  if (element.classList.contains(name) !== enabled) element.classList.toggle(name, enabled)
+}
+
 async function applyAppearance(theme: WindowFrameTheme, locale: WindowFrameLocale, accent = 'primary', singlePanel = false): Promise<void> {
   const sequence = ++appearanceSequence
-  document.documentElement.classList.toggle('dark', theme === 'dark')
-  document.documentElement.classList.add('workspace-window-frame')
-  document.body.classList.add('workspace-window-frame')
-  document.body.classList.toggle('workspace-window-single', singlePanel)
+  toggleClass(document.documentElement, 'dark', theme === 'dark')
+  toggleClass(document.documentElement, 'workspace-window-frame')
+  toggleClass(document.body, 'workspace-window-frame')
+  toggleClass(document.body, 'workspace-window-single', singlePanel)
   const shellMain = window.frameElement?.closest('main')
-  document.body.classList.toggle('workspace-window-single-padded', singlePanel
+  toggleClass(document.body, 'workspace-window-single-padded', singlePanel
     && (!shellMain || window.parent.getComputedStyle(shellMain).paddingTop === '0px'))
-  document.body.dataset.accent = accent
+  if (document.body.dataset.accent !== accent) document.body.dataset.accent = accent
   if (i18n.global.locale.value !== locale) await ensureLocaleLoaded(locale)
   if (sequence !== appearanceSequence) return
-  document.documentElement.lang = locale
+  if (document.documentElement.lang !== locale) document.documentElement.lang = locale
   i18n.global.locale.value = locale
 }
 
@@ -55,23 +61,6 @@ function keyboardPayload(event: KeyboardEvent) {
     isComposing: event.isComposing,
     repeat: event.repeat,
     editable: event.target instanceof HTMLElement && (event.target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target.tagName)),
-  }
-}
-
-function internalAnchorNavigation(
-  router: Router,
-  event: MouseEvent,
-  canOpenRight: boolean,
-): { to: RouteLocationRaw; newPane?: boolean } | null {
-  if (event.defaultPrevented || event.button !== 0 || event.altKey || event.metaKey || event.shiftKey) return null
-  const newPane = event.ctrlKey
-  if (newPane && !canOpenRight) return null
-  const to = event.target instanceof Element ? internalRouteFromElement(event.target) : null
-  if (!to) return null
-  try {
-    return router.resolve(to).matched.length ? { to, ...(newPane ? { newPane: true } : {}) } : null
-  } catch {
-    return null
   }
 }
 
@@ -96,6 +85,7 @@ export async function startWindowFrame(frame: WindowFrameBootstrap): Promise<voi
   const active = ref(init.active)
   const paneId = ref<WindowFramePaneId | null>(init.paneId ?? null)
   const canOpenRight = ref(init.canOpenRight === true)
+  const canOpenRightWithSplit = ref(init.canOpenRightWithSplit === true)
   const globalShortcuts = ref(new Set(init.globalShortcuts ?? []))
   const pinia = createPinia()
   setActivePinia(pinia)
@@ -127,6 +117,7 @@ export async function startWindowFrame(frame: WindowFrameBootstrap): Promise<voi
   let suppliedTitle = ''
   let suppliedSubtitle: string | null = null
   let routeMessageQueued = false
+  let lastRouteMessage: { fullPath: string; title: string; subtitle: string | null } | undefined
   const mountElement = document.getElementById('app')
   if (!mountElement) throw new Error('Missing window frame mount element.')
   const root: HTMLElement = mountElement
@@ -137,12 +128,16 @@ export async function startWindowFrame(frame: WindowFrameBootstrap): Promise<voi
     routeMessageQueued = false
     const route = router.currentRoute.value
     const heading = root.querySelector('h1')?.textContent?.trim()
+    const message = { fullPath: route.fullPath, title: suppliedTitle || heading || route.fullPath, subtitle: suppliedSubtitle }
+    // Teleport anchors and report rows also trigger the title observer. Sending
+    // unchanged metadata makes the shell unnecessarily reapply the frame state.
+    if (lastRouteMessage?.fullPath === message.fullPath && lastRouteMessage.title === message.title
+      && lastRouteMessage.subtitle === message.subtitle) return
+    lastRouteMessage = message
     postWindowFrameMessage({
       type: 'myucto-window-route',
       id: frame.id,
-      fullPath: route.fullPath,
-      title: suppliedTitle || heading || route.fullPath,
-      subtitle: suppliedSubtitle,
+      ...message,
     })
   }
 
@@ -170,7 +165,7 @@ export async function startWindowFrame(frame: WindowFrameBootstrap): Promise<voi
         },
       }
       provide(windowContextKey, context)
-      return () => h(Fragment, [h(RouterView), h(Toaster), h(WebAuthnCeremonyPrompt)])
+      return () => h(Fragment, [h(RouterView), h(Toaster), h(WebAuthnCeremonyPrompt), h(TableViewportScrollbars)])
     },
   })
 
@@ -208,6 +203,7 @@ export async function startWindowFrame(frame: WindowFrameBootstrap): Promise<voi
     const state: WindowFrameParentMessage = event.data
     active.value = state.active
     if (state.paneId !== undefined) paneId.value = state.paneId
+    if (state.canOpenRightWithSplit !== undefined) canOpenRightWithSplit.value = state.canOpenRightWithSplit
     if (state.canOpenRight !== undefined) canOpenRight.value = state.canOpenRight
     void applyAppearance(state.theme, state.locale, state.accent, state.singlePanel).catch(() => {
       postWindowFrameMessage({ type: 'myucto-window-error', id: frame.id, code: 'locale-failed' })
@@ -246,11 +242,11 @@ export async function startWindowFrame(frame: WindowFrameBootstrap): Promise<voi
   }
 
   document.addEventListener('click', (event) => {
-    const navigation = internalAnchorNavigation(router, event, canOpenRight.value)
+    const navigation = internalAnchorNavigation(router, event, canOpenRight.value, canOpenRightWithSplit.value)
     if (!navigation) return
     event.preventDefault()
     event.stopImmediatePropagation()
-    if (!navigation.newPane && router.resolve(navigation.to).path === router.currentRoute.value.path) void router.push(navigation.to)
+    if (!navigation.newPane && !navigation.placement && router.resolve(navigation.to).path === router.currentRoute.value.path) void router.push(navigation.to)
     else postWindowFrameMessage({ type: 'myucto-window-navigate', id: frame.id, ...navigation })
   }, true)
 

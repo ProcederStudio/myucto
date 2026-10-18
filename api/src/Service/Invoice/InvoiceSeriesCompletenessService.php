@@ -38,7 +38,8 @@ use PDO;
  *
  * Scope se sbírá za všechny tři osy číslování, které zná
  * {@see VarsymbolGenerator::resolveTemplateAndPeriod()} — dodavatel, klient s vlastní
- * šablonou a kategorie tržby s vlastní šablonou.
+ * šablonou a kategorie tržby s vlastní šablonou. K nim případná vlastní řada
+ * zjednodušených daňových dokladů firmy (typ `simplified`, migrace 2037).
  *
  * Do KTERÉ řady doklad patří, se ale NEURČUJE podle jeho aktuálního `client_id` /
  * `revenue_category_id`, nýbrž podle toho, jestli jeho VS fakticky odpovídá vzoru té řady.
@@ -226,9 +227,12 @@ final class InvoiceSeriesCompletenessService
     {
         $pdo = $this->db->pdo();
 
+        $simplifiedColumn = $this->db->hasColumn('supplier', 'simplified_number_format')
+            ? 'simplified_number_format' : 'NULL';
         $stmt = $pdo->prepare(
-            'SELECT invoice_number_format, credit_note_number_format, invoice_number_period
-               FROM supplier WHERE id = ? LIMIT 1'
+            "SELECT invoice_number_format, credit_note_number_format, invoice_number_period,
+                    {$simplifiedColumn} AS simplified_number_format
+               FROM supplier WHERE id = ? LIMIT 1"
         );
         $stmt->execute([$supplierId]);
         $sup = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
@@ -254,6 +258,20 @@ final class InvoiceSeriesCompletenessService
                 'revenue_category_name' => null,
                 'period'                => $supplierPeriod,
                 'templates'             => $supplierTemplates,
+            ];
+        }
+
+        // Vlastní řada zjednodušených daňových dokladů (migrace 2037), jen na úrovni firmy,
+        // s obdobím firmy, stejně jako ji vyhodnocuje generátor. Bez šablony žádná není.
+        $simplifiedTemplate = trim((string) ($sup['simplified_number_format'] ?? ''));
+        if ($simplifiedTemplate !== '') {
+            $scopes[] = [
+                'client_id'             => 0,
+                'client_name'           => null,
+                'revenue_category_id'   => 0,
+                'revenue_category_name' => null,
+                'period'                => $supplierPeriod,
+                'templates'             => [VarsymbolGenerator::SIMPLIFIED => $simplifiedTemplate],
             ];
         }
 
@@ -552,29 +570,53 @@ final class InvoiceSeriesCompletenessService
      */
     private function ownerOf(array $row, string $invoiceType, array $byPriority): ?int
     {
-        foreach ($byPriority as $group) {
-            if (!in_array($invoiceType, $group['types'], true)) {
-                continue;
-            }
-            // Řada klienta bere jen doklady toho klienta, řada kategorie jen doklady té
-            // kategorie; dodavatelská řada (obojí 0) je fallback, ta bere cokoli.
-            if ($group['client_id'] > 0 && $group['client_id'] !== (int) $row['client_id']) {
-                continue;
-            }
-            if ($group['revenue_category_id'] > 0
-                && $group['revenue_category_id'] !== (int) $row['revenue_category_id']) {
-                continue;
-            }
-            $regex = $this->regexFor(
-                $group['template_by_type'][$invoiceType],
-                self::bucketKeyForDate((string) $row['issue_date'], $group['period']),
-                $group['period'],
-            );
-            if ($regex !== null && preg_match($regex, (string) $row['varsymbol']) === 1) {
-                return (int) $group['id'];
+        foreach (self::candidateSeriesTypes($row, $invoiceType) as $type) {
+            foreach ($byPriority as $group) {
+                if (!in_array($type, $group['types'], true)) {
+                    continue;
+                }
+                // Řada klienta bere jen doklady toho klienta, řada kategorie jen doklady té
+                // kategorie; dodavatelská řada (obojí 0) je fallback, ta bere cokoli.
+                if ($group['client_id'] > 0 && $group['client_id'] !== (int) $row['client_id']) {
+                    continue;
+                }
+                if ($group['revenue_category_id'] > 0
+                    && $group['revenue_category_id'] !== (int) $row['revenue_category_id']) {
+                    continue;
+                }
+                $regex = $this->regexFor(
+                    $group['template_by_type'][$type],
+                    self::bucketKeyForDate((string) $row['issue_date'], $group['period']),
+                    $group['period'],
+                );
+                if ($regex !== null && preg_match($regex, (string) $row['varsymbol']) === 1) {
+                    return (int) $group['id'];
+                }
             }
         }
         return null; // VS neodpovídá žádné známé řadě (ruční číslo, import) — nikam se nepočítá
+    }
+
+    /**
+     * Řady, do kterých faktura může patřit, v pořadí, ve kterém se zkouší. Faktura
+     * se může ocitnout v řadě faktur i v řadě zjednodušených dokladů (migrace 2037):
+     * číslo dostala dřív, než firma řadu zavedla, nebo jí někdo příznak `is_simplified`
+     * přepnul až po vystavení. Rozhoduje tvar čísla jako všude jinde v reportu; příznak
+     * jen určí, která z obou řad má přednost, kdyby VS vyhověl oběma vzorům.
+     *
+     * @param array<string,mixed> $row
+     * @return list<string>
+     */
+    private static function candidateSeriesTypes(array $row, string $invoiceType): array
+    {
+        if (($row['invoice_type'] ?? null) !== 'invoice'
+            || !in_array($invoiceType, ['invoice', VarsymbolGenerator::SIMPLIFIED], true)
+        ) {
+            return [$invoiceType];
+        }
+        return !empty($row['is_simplified'])
+            ? [VarsymbolGenerator::SIMPLIFIED, 'invoice']
+            : ['invoice', VarsymbolGenerator::SIMPLIFIED];
     }
 
     /**
@@ -596,10 +638,15 @@ final class InvoiceSeriesCompletenessService
 
         // Řada faktur nese i doklady bez vlastní řady (daňový doklad k platbě, penalizace,
         // platební kalendář); jejich čísla jsou v řadě obsazená stejně jako faktury.
-        $types = VarsymbolGenerator::documentTypesInSeries($invoiceType);
+        // Řada zjednodušených dokladů čísluje jen faktury; které z nich do ní patří,
+        // rozhodne tvar čísla ({@see ownerOf()}), ne příznak.
+        $types = $invoiceType === VarsymbolGenerator::SIMPLIFIED
+            ? ['invoice']
+            : VarsymbolGenerator::documentTypesInSeries($invoiceType);
         $in = implode(',', array_fill(0, count($types), '?'));
+        $simplifiedColumn = $this->db->hasColumn('invoices', 'is_simplified') ? 'is_simplified' : '0 AS is_simplified';
         $stmt = $this->db->pdo()->prepare(
-            "SELECT varsymbol, client_id, revenue_category_id, issue_date
+            "SELECT varsymbol, invoice_type, {$simplifiedColumn}, client_id, revenue_category_id, issue_date
                  FROM invoices
                 WHERE supplier_id = ? AND invoice_type IN ($in)
                   AND varsymbol IS NOT NULL AND varsymbol <> ''

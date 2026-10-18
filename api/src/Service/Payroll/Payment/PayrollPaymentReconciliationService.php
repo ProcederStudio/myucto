@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Payroll\Payment;
 
 use DomainException;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\Payroll\PayrollPaymentMatchRepository;
 use MyInvoice\Repository\Payroll\PayrollPaymentSettlementSignalRepository;
 
@@ -48,8 +49,12 @@ final class PayrollPaymentReconciliationService
         }
         try {
             $this->signals?->resolveForLiability($supplierId, $liabilityId, $matchId);
-        } catch (\PDOException) {
-            // Starší schéma bez tabulky signálů.
+        } catch (\PDOException $e) {
+            // Starší schéma bez tabulky signálů. Běží uvnitř transakce spárování, takže
+            // odvolanou transakci (1020/1213) spolknout nelze: zbytek by běžel v autocommitu.
+            if (TransactionFailure::aborted($e)) {
+                throw $e;
+            }
         }
     }
 

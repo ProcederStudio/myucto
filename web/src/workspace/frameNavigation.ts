@@ -1,5 +1,6 @@
 import { nextTick } from 'vue'
-import type { Router } from 'vue-router'
+import type { Router, RouteLocationRaw } from 'vue-router'
+import { internalRouteFromElement } from './panelLinks'
 
 export function installFrameNavigation(router: Router, traverse: (direction: -1 | 1) => void, resetScroll: () => void): void {
   const history = router.options.history
@@ -25,4 +26,45 @@ export function installFrameNavigation(router: Router, traverse: (direction: -1 
   router.afterEach((to, from, failure) => {
     if (!failure && to.path !== from.path) void nextTick(resetScroll)
   })
+}
+
+export function internalAnchorNavigation(
+  router: Router,
+  event: MouseEvent,
+  canOpenRight: boolean,
+  canOpenRightWithSplit = false,
+): { to: RouteLocationRaw; newPane?: boolean; placement?: 'beside' | 'right' } | null {
+  if (event.defaultPrevented || event.button !== 0 || event.altKey || event.metaKey) return null
+  if (event.shiftKey && (event.ctrlKey || !canOpenRightWithSplit)) return null
+  const newPane = event.ctrlKey
+  if (newPane && !canOpenRight) return null
+  const to = event.target instanceof Element ? internalRouteFromElement(event.target) : null
+  if (!to) return null
+  try {
+    const beside = !newPane && !event.shiftKey && event.target instanceof Element
+      && event.target.closest('a[data-workspace-open="beside"]') !== null
+    return router.resolve(to).matched.length
+      ? { to, ...(newPane ? { newPane: true } : {}), ...(event.shiftKey ? { placement: 'right' as const } : {}), ...(beside ? { placement: 'beside' as const } : {}) } : null
+  } catch {
+    return null
+  }
+}
+
+export function installShiftClickNavigation(
+  router: Router,
+  canOpen: (event: MouseEvent) => boolean,
+  open: (to: RouteLocationRaw, event: MouseEvent) => void,
+  target: Document = document,
+): () => void {
+  const click = (event: MouseEvent) => {
+    if (!event.shiftKey) return
+    const navigation = internalAnchorNavigation(router, event, false, canOpen(event))
+    if (navigation?.placement !== 'right'
+      || !router.resolve(navigation.to).matched.some(record => record.meta.requiresAuth)) return
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    open(navigation.to, event)
+  }
+  target.addEventListener('click', click, true)
+  return () => target.removeEventListener('click', click, true)
 }

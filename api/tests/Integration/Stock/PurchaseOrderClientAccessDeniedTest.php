@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Tests\Integration\Stock;
 
 use MyInvoice\Security\AccessLevel;
+use MyInvoice\Security\ClientStockRoutePolicy;
 use MyInvoice\Security\EffectiveRole;
 use MyInvoice\Security\PermissionCatalog;
 use MyInvoice\Security\PermissionChecker;
@@ -138,6 +139,7 @@ final class PurchaseOrderClientAccessDeniedTest extends TestCase
         $route = $this->routes->match($method, $path);
         self::assertNotNull($route, "$method $path");
 
-        return $route->key !== null && $this->checker->allows($role, $route->key, $route->minimum);
+        return $route->key !== null && $this->checker->allows($role, $route->key, $route->minimum)
+            && (!$role->isClientType() || ClientStockRoutePolicy::allows($method, $path, $route->key));
     }
 }

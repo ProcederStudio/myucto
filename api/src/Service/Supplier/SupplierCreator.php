@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Supplier;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Service\License\LicenseCapacityGate;
 
 /**
@@ -38,6 +39,7 @@ final class SupplierCreator
      */
     public function create(array $b, int $creatorUserId, bool $assignCreator): int
     {
+        $b['person_title'] = SupplierPersonTitle::normalize($b['person_title'] ?? null);
         $pdo = $this->db->pdo();
 
         // Country (default CZ)
@@ -93,10 +95,10 @@ final class SupplierCreator
                 $stmt = $pdo->prepare(
                     'INSERT INTO supplier (company_name, display_name, street, city, zip, country_id,
                                            ic, dic, is_vat_payer, is_identified, email, phone, web, tagline, commercial_register,
-                                           taxpayer_type, accounting_mode, vat_period,
+                                           taxpayer_type, accounting_mode, vat_period, person_title,
                                            default_currency_id, default_vat_rate_id,
                                            default_payment_due_days, default_payment_due_unit, default_hourly_rate)
-                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
                 );
                 $stmt->execute([
                     (string) $b['company_name'],
@@ -117,6 +119,7 @@ final class SupplierCreator
                     $taxpayerType,
                     $accountingMode,
                     $vatPeriod,
+                    $b['person_title'],
                     $bootstrapCurId ?: 0,
                     $defaultVatId ?: 1,
                     (int) ($b['default_payment_due_days'] ?? 14),
@@ -185,6 +188,9 @@ final class SupplierCreator
                 }
                 return $newSupplierId;
             } catch (\Throwable $e) {
+                if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                    throw $e;
+                }
                 if ($ownsTransaction) {
                     if ($pdo->inTransaction()) $pdo->rollBack();
                 } else {

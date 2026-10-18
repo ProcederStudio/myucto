@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Repository\Payroll;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use PDO;
 
 /**
@@ -275,6 +276,9 @@ final class PayrollDocumentAccessLinkRepository
             $claim['lease_token'] = $lease;
             return $claim;
         } catch (\Throwable $exception) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $exception)) {
+                throw $exception;
+            }
             if ($ownsTransaction) {
                 $pdo->inTransaction() && $pdo->rollBack();
             } else {

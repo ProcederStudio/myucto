@@ -7,6 +7,7 @@ namespace MyInvoice\Action\Accounting;
 use MyInvoice\Http\GuardsAccountingMode;
 use MyInvoice\Http\Json;
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\Payroll\PayrollDeletionException;
 use MyInvoice\Repository\Payroll\PayrollEmployeeDeletionRepository;
 use MyInvoice\Repository\Payroll\PayrollEmploymentNotFoundException;
@@ -287,6 +288,9 @@ final class PayrollEmployeeAction
                 $pdo->exec('RELEASE SAVEPOINT legacy_employee_delete');
             }
         } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             if ($ownsTransaction) {
                 if ($pdo->inTransaction()) $pdo->rollBack();
             } elseif ($pdo->inTransaction()) {

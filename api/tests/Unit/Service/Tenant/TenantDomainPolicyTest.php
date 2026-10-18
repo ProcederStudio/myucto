@@ -80,11 +80,17 @@ final class TenantDomainPolicyTest extends TestCase
         self::assertNull($this->policy->denial($context, 'GET', '/invoices/new'));
         self::assertNull($this->policy->denial($context, 'GET', '/purchase-invoices/42'));
         self::assertNull($this->policy->denial($context, 'GET', '/recurring/42/edit'));
+        self::assertNull($this->policy->denial($context, 'GET', '/projects'));
+        self::assertNull($this->policy->denial($context, 'GET', '/admin/price-list'));
+        self::assertNull($this->policy->denial($context, 'GET', '/logbook'));
+        self::assertNull($this->policy->denial($context, 'GET', '/stock/items'));
+        self::assertNull($this->policy->denial($context, 'GET', '/stock/fulfillment'));
         self::assertNull($this->policy->denial($context, 'GET', '/profile/password'));
         self::assertNull($this->policy->denial($context, 'GET', '/exchange'));
         self::assertNull($this->policy->denial($context, 'GET', '/admin/export'));
         self::assertNull($this->policy->denial($context, 'GET', '/admin/import'));
         self::assertNull($this->policy->denial($context, 'GET', '/api/clients'));
+        self::assertNull($this->policy->denial($context, 'GET', '/api/projects'));
     }
 
     public function testPortalDomainRejectsStaffAndUnauthenticatedSurfaces(): void
@@ -92,13 +98,15 @@ final class TenantDomainPolicyTest extends TestCase
         $context = $this->context(TenantDomainContext::CUSTOM, 'portal');
 
         foreach ([
-            ['GET', '/projects'],
+            ['GET', '/accounting/journal'],
+            ['GET', '/stock/reports'],
             ['GET', '/purchase-invoices/payment-orders'],
             ['GET', '/admin/settings'],
             ['GET', '/profile/api-tokens'],
             ['GET', '/forgot'],
             ['POST', '/api/auth/login'],
-            ['GET', '/api/projects'],
+            ['GET', '/api/accounting/journal'],
+            ['GET', '/api/stock/reports'],
             ['GET', '/api/admin/users'],
             ['GET', '/api/admin/export'],
             ['POST', '/api/admin/import'],

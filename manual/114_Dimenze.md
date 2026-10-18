@@ -9,8 +9,15 @@ vozidlo, lokalita, obchodní případ nebo vlastní typ. Každý doklad i každ�
 deníku může nést hodnotu každého typu (nejvýš jednu za typ) a sestavy pak ukážou
 výnosy a náklady po hodnotách.
 
-Dimenze nemění účty, částky ani období. Jde jen o analytiku, proto je lze doplnit
-nebo změnit i u zaúčtovaného dokladu a v uzavřeném období.
+Dimenze lze doplnit nebo změnit i u zaúčtovaného dokladu, dokud nejsou uzavřené
+účetní knihy. V uzavřeném, zkontrolovaném nebo schváleném období se nemění ani
+hodnoty dimenzí, jejich rozpady a podíly, ani zakázka či středisko na řádcích.
+Stejné hodnoty lze uložit znovu beze změny. Pro opravu nejprve znovu otevřete knihy
+v průvodci uzávěrkou. Samotný zámek data v otevřeném období změnu analytiky dovoluje.
+
+Při uzavření knih a otevření nového roku se členění rozvahových zůstatků přenáší včetně kombinací dimenzí
+a procentních rozpadů. Počáteční stavy tak zachovávají zůstatky jednotlivých středisek a projektů,
+i když je celý účet v součtu nulový. Podrobnosti jsou v [Uzávěrce](72_Uzaverka.md#7252-krok-10-otevreni-noveho-roku).
 
 ## 114.1 Kdy to potřebujete
 
@@ -174,7 +181,7 @@ Podrobnosti v [§ 114.11.10](#1141110-pravidla-dimenzi-podle-uctu).
 | Doklad v cizí měně se vždy schvaluje | Doklad nemá kurz, nejde ocenit a limit se neuplatní | Doplňte kurz |
 | Odkaz ke schválení nefunguje | Platí 14 dní a jen pro jedno rozhodnutí, nová připomínka vydá nový odkaz | Použijte nejnovější e-mail nebo `Nákup → Ke schválení` |
 | Zaúčtování skončilo chybou s názvem účtu produktu | Účet produktu zmizel z rozvrhu nebo se deaktivoval | Opravte účet na kartě produktu nebo ho znovu aktivujte |
-| Změna dimenze u dokladu v uzavřeném období je odmítnutá | Změna by přesunula řádek na jinou analytiku | Úprava přímo na řádku deníku, která by měnila účet, se také odmítne; doklad přeúčtujte |
+| Změna dimenze v uzavřeném období je odmítnutá | Dimenzované závěrkové a počáteční zůstatky musí navazovat | Nejprve znovu otevřete účetní knihy v průvodci uzávěrkou; ochrana platí i pro řádky deníku a podíly rozpadů |
 | Rozvaha po dimenzi nesedí | Hodnotu nenesou obě strany zápisů, například úhrada v bance bez projektu | Doplňte dimenzi na bankovní pohyb |
 
 ## 114.11 Podrobnosti a pravidla
@@ -209,6 +216,12 @@ hodnotu sečte celou její větev. Hodnotu lze:
 
 Kód hodnoty se po založení nemění.
 
+Větev použitou v uzavřeném, zkontrolovaném nebo schváleném účetním období nelze
+přesunout pod jinou nadřízenou hodnotu. Platí to i tehdy, když jsou použité jen
+její podřízené hodnoty nebo podíly v rozpadu. U globálního typu se kontroluje
+použití ve všech firmách. Názvy, poznámky a odpovědnou osobu lze dál upravovat;
+nevyužité větve a vlastní dimenze použité pouze v otevřených obdobích lze přesouvat.
+
 K hodnotě lze uvést **odpovědnou osobu** (uživatele firmy nebo text). Je to údaj
 o hodnotě: do účetního deníku se nekopíruje, zápisy nesou jen odkaz na hodnotu.
 
@@ -225,6 +238,13 @@ Nová hodnota typu Středisko si středisko se stejným kódem v číselníku na
 ho založí. Uzavření hodnoty středisko deaktivuje. Řádky deníku, které nesou jen
 kód střediska (mzdy, starší ruční zápisy), se v sestavách po středisku započítají
 k hodnotě navázané na to středisko.
+
+U existující hodnoty nelze změnit vazbu na středisko, pokud by se tím změnilo
+členění uzavřené historie. Kontroluje se dosavadní i nové středisko včetně starších
+řádků, které nesou jen jeho textový kód. Takovou historickou hodnotu, její typ ani navázané středisko
+nelze odstranit; běžné uzavření hodnoty ji v sestavách zachová. Stejnou vazbu lze
+uložit znovu. Ochrana platí také při nahrání profilu firmy. Pro strukturální opravu
+nejprve znovu otevřete dotčené účetní knihy.
 
 Hodnota projektu navázaná na zakázku doplní zakázku i na řádky deníku, takže se
 promítne do ziskovosti zakázky.
@@ -285,7 +305,7 @@ protistranou. Dimenze se nastavují v nabídce **…** u pohybu položkou **Dime
 (nebo kliknutím na štítky), která pod pohybem otevře výběr dimenzí; tlačítko
 **Uložit dimenze** je uloží. Zaúčtování pohybu je zapíše na všechny řádky jeho
 zápisu v deníku. Změna dimenzí už zaúčtovaného pohybu se do řádků deníku promítne
-hned, i v uzavřeném období, protože mění jen analytické členění.
+hned, pokud neleží v uzavřeném období. V uzavřeném období se změna odmítne celá.
 
 #### Jak se dimenze dostanou do deníku
 
@@ -464,8 +484,8 @@ ze které vznikla: dimenze nebo rozpad její položky, jinak výchozí dimenze p
 položky, jinak hlavičku faktury. Změna dimenzí faktury se pak promítne i do zápisů
 takové karty. Karta s vlastními dimenzemi se fakturou nemění.
 
-Změna dimenzí karty se promítne do všech už zaúčtovaných zápisů majetku, i v
-uzavřeném období, protože mění jen analytické členění. Přepíší se jen typy, které
+Změna dimenzí karty se promítne do jejích už zaúčtovaných zápisů majetku. Pokud by
+změnila zápis uzavřeného období, odmítne se celé uložení karty. Přepíší se jen typy, které
 karta určuje: dimenze jiného typu zadaná ručně na řádku zápisu (například projekt
 u odpisu) zůstane. Totéž platí pro ostatní pohledávky a závazky a pro zápočty.
 Drobný majetek dimenze nese z přijaté faktury nákupu; časové rozlišení drobného
@@ -606,8 +626,10 @@ jedinou hodnotu. Když typu později vyberete jedinou hodnotu, rozpad se zruší
 
 Řádek zápisu se rozpadem nedělí, zůstává jeden se svou částkou. Rozpad se ukládá
 jako podíly a všechny sestavy ho počítají poměrem po haléřích: každý díl se
-zaokrouhlí na haléře a zbytek dostane největší podíl (při shodě hodnota založená
-dřív). Výkazy po dimenzi i výkazy s filtrem na dimenzi tak dávají pro hodnotu
+zaokrouhlí na haléře. Kladný zbytek dostane největší podíl (při shodě hodnota
+založená dřív). Záporný zbytek se odečítá od největších podílů postupně, nejvýše
+do výše jejich dílu. Kladná částka tak nikdy nevytvoří záporný díl.
+Výkazy po dimenzi i výkazy s filtrem na dimenzi tak dávají pro hodnotu
 stejné číslo a součet po hodnotách sedí na výsledek firmy. Rozpad dokladu se při
 zaúčtování přenese na řádky zápisu. Storno zápisu přenese stejný rozpad, takže
 odečte přesně to, co původní zápis přičetl. Rozpad splní i povinnou dimenzi

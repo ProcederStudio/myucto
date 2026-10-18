@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { reportsApi, type OssPreview } from '@/api/reports'
@@ -11,6 +11,8 @@ import {
 } from '@/api/ossFiling'
 import { apiErrorMessage } from '@/api/errors'
 import { useYearOptions } from '@/composables/useYearOptions'
+import { useVatReportPeriod } from '@/composables/useVatReportPeriod'
+import { btnOutline, ICONS } from '@/components/ui/buttonStyles'
 import EmptyState from '@/components/ui/EmptyState.vue'
 
 const { t, locale } = useI18n()
@@ -28,28 +30,36 @@ function switchTab(tab: TabKey) {
   router.replace({ query: { ...route.query, tab } })
 }
 
-const now = new Date()
-const year = ref(now.getFullYear())
-const quarter = ref(Math.ceil((now.getMonth() + 1) / 3))
+const { year, month, ready, settingsError, initialize } = useVatReportPeriod('oss')
+const quarter = computed({ get: () => Math.ceil(month.value / 3), set: (value: number) => { month.value = value * 3 } })
 const preview = ref<OssPreview | null>(null)
 const archive = ref<OssArchivedSubmission[]>([])
 const reconciliation = ref<OssReconciliation | null>(null)
 const evidence = ref<OssEvidence | null>(null)
-const loading = ref(false)
+const loading = ref(true)
 const error = ref('')
 
 const yearOptions = useYearOptions('invoices', year)
 const quarterOptions = [1, 2, 3, 4]
+let previewSeq = 0
+let tabSeq = 0
+onBeforeUnmount(() => { ++previewSeq; ++tabSeq })
 
 async function loadPreview() {
+  if (!ready.value) return
+  const seq = ++previewSeq
+  const requestedYear = year.value
+  const requestedQuarter = quarter.value
   loading.value = true
   error.value = ''
+  preview.value = null
   try {
-    preview.value = await reportsApi.ossPreview(year.value, quarter.value)
+    const result = await reportsApi.ossPreview(requestedYear, requestedQuarter)
+    if (seq === previewSeq && ready.value) preview.value = result
   } catch (e) {
-    error.value = apiErrorMessage(e)
+    if (seq === previewSeq && ready.value) error.value = apiErrorMessage(e)
   } finally {
-    loading.value = false
+    if (seq === previewSeq) loading.value = false
   }
 }
 
@@ -60,26 +70,39 @@ const tabLoading = ref(false)
 const tabError = ref('')
 
 async function loadTab(tab: TabKey) {
-  if (tab === 'nahled') return
+  if (!ready.value || tab === 'nahled') return
+  const seq = ++tabSeq
+  const requestedYear = year.value
+  const requestedQuarter = quarter.value
   tabLoading.value = true
   tabError.value = ''
   try {
-    if (tab === 'archiv') archive.value = (await ossFilingApi.archive()).submissions
-    if (tab === 'rekonciliace') reconciliation.value = await ossFilingApi.reconciliation(year.value, quarter.value)
-    if (tab === 'evidence') evidence.value = await ossFilingApi.evidence(year.value, quarter.value)
+    if (tab === 'archiv') {
+      const result = await ossFilingApi.archive()
+      if (seq === tabSeq && ready.value) archive.value = result.submissions
+    }
+    if (tab === 'rekonciliace') {
+      const result = await ossFilingApi.reconciliation(requestedYear, requestedQuarter)
+      if (seq === tabSeq && ready.value) reconciliation.value = result
+    }
+    if (tab === 'evidence') {
+      const result = await ossFilingApi.evidence(requestedYear, requestedQuarter)
+      if (seq === tabSeq && ready.value) evidence.value = result
+    }
   } catch (e) {
-    tabError.value = apiErrorMessage(e)
+    if (seq === tabSeq && ready.value) tabError.value = apiErrorMessage(e)
   } finally {
-    tabLoading.value = false
+    if (seq === tabSeq) tabLoading.value = false
   }
 }
 
 function downloadXml() {
-  if (!preview.value) return
+  if (!ready.value || loading.value || !preview.value) return
   window.open(reportsApi.ossDownloadUrl(year.value, quarter.value), '_blank')
 }
 
 function exportEvidence(format: 'csv' | 'json') {
+  if (!ready.value || tabLoading.value || !evidence.value) return
   window.open(ossFilingApi.evidenceExportUrl(year.value, quarter.value, format), '_blank')
 }
 
@@ -171,7 +194,19 @@ const changeTone: Record<string, string> = {
   changed: 'text-warning-700',
 }
 
-watch([year, quarter], () => {
+watch([ready, year, quarter], () => {
+  if (!ready.value) {
+    ++previewSeq
+    ++tabSeq
+    preview.value = null
+    archive.value = []
+    reconciliation.value = null
+    evidence.value = null
+    loading.value = !settingsError.value
+    tabLoading.value = false
+    return
+  }
+  ++tabSeq
   loadPreview()
   // Období se změnilo → stará odpověď za jiné čtvrtletí by lhala. Zahodit, ne přepočítat:
   // přepočet by proběhl i pro tab, na který se uživatel nedívá.
@@ -185,8 +220,10 @@ watch(activeTab, tab => {
   if (tab === 'evidence' && evidence.value === null) loadTab(tab)
 })
 onMounted(() => {
-  loadPreview()
-  loadTab(activeTab.value)
+  void initialize()
+})
+watch(settingsError, value => {
+  if (value) { error.value = apiErrorMessage(value); loading.value = false }
 })
 </script>
 
@@ -198,10 +235,10 @@ onMounted(() => {
         <p class="text-sm text-neutral-500 mt-0.5">{{ t('reports.oss.subtitle') }}</p>
       </div>
       <div class="flex items-center gap-2 flex-wrap">
-        <select v-model.number="quarter" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
+        <select v-model.number="quarter" :disabled="!ready" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
           <option v-for="q in quarterOptions" :key="q" :value="q">Q{{ q }}</option>
         </select>
-        <select v-model.number="year" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
+        <select v-model.number="year" :disabled="!ready" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
           <option v-for="y in yearOptions" :key="y" :value="y">{{ y }}</option>
         </select>
         <button type="button" @click="downloadXml" :disabled="loading || !preview"
@@ -216,6 +253,14 @@ onMounted(() => {
          v aplikaci MOSS/OSS. Stažení XML je proto celá cesta, kterou umíme nabídnout. -->
     <div class="mb-4 rounded-lg border border-primary-500/25 bg-primary-50 p-3 text-sm text-primary-900">
       {{ t('reports.oss.filing_channel_hint') }}
+    </div>
+
+    <div v-if="settingsError" class="mb-4 flex flex-wrap items-center gap-3 rounded-md border border-danger-500/40 bg-danger-50 p-3 text-sm text-danger-600">
+      <span>{{ apiErrorMessage(settingsError) }}</span>
+      <button type="button" :class="btnOutline('neutral')" @click="initialize()">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.cycle" /></svg>
+        {{ t('common.retry') }}
+      </button>
     </div>
 
     <div class="flex gap-1 border-b border-neutral-200 overflow-x-auto overflow-y-hidden mb-4">

@@ -75,6 +75,94 @@ export interface TripCategoryPayload {
   is_archived?: boolean
 }
 
+/** Pravidelná cesta — šablona jízdy; car_id null = libovolné auto. */
+export interface TripTemplate {
+  id: number
+  car_id: number | null
+  car_registration: string | null
+  car_name: string | null
+  label: string
+  origin: string | null
+  destination: string | null
+  purpose: string | null
+  distance_km: number
+  category_id: number | null
+  category_label: string | null
+  category_is_private: boolean | null
+  time_start: string | null
+  time_end: string | null
+  display_order: number
+  is_archived: boolean
+}
+
+export interface TripTemplatePayload {
+  car_id?: number | null
+  label: string
+  origin?: string | null
+  destination?: string | null
+  purpose?: string | null
+  distance_km: number
+  category_id?: number | null
+  time_start?: string | null
+  time_end?: string | null
+  display_order?: number
+  is_archived?: boolean
+}
+
+export interface OdometerReading {
+  id: number
+  car_id: number
+  car_registration: string | null
+  car_name: string | null
+  reading_date: string
+  reading_time: string | null
+  odometer: number
+  source: 'manual'
+  note: string | null
+  created_at: string
+}
+
+export interface OdometerReadingPayload {
+  car_id: number
+  reading_date: string
+  reading_time?: string | null
+  odometer: number
+  note?: string | null
+}
+
+/** Km k doplnění: stav tachometru převyšuje konec zapsaných jízd. */
+export interface OdometerGap {
+  car_id: number
+  car_registration: string
+  car_name: string | null
+  reading_id: number
+  /** Datum posledního známého stavu; null = bez dolní meze. */
+  date_from: string | null
+  date_to: string
+  odometer_from: number
+  odometer_to: number
+  km: number
+}
+
+export interface OdometerGapTripRow {
+  template_id?: number | null
+  trip_date: string
+  time_start?: string | null
+  time_end?: string | null
+  distance_km?: number
+  category_id?: number | null
+  purpose?: string | null
+  origin?: string | null
+  destination?: string | null
+}
+
+export interface OdometerGapFillPayload {
+  reading_id: number
+  trips: OdometerGapTripRow[]
+  remainder_private?: boolean
+  remainder_purpose?: string | null
+}
+
 export interface Trip {
   id: number
   car_id: number
@@ -461,8 +549,25 @@ export const logbookApi = {
   updateCategory: (id: number, data: TripCategoryPayload) => api.put<TripCategory>(`/logbook/trip-categories/${id}`, data).then(r => r.data),
   deleteCategory: (id: number) => api.delete<{ deleted: boolean; archived: boolean; usage_count?: number }>(`/logbook/trip-categories/${id}`).then(r => r.data),
 
+  // Trip templates (pravidelné cesty)
+  listTemplates: (includeArchived = false) =>
+    api.get<TripTemplate[]>('/logbook/trip-templates', { params: includeArchived ? { include_archived: 1 } : undefined }).then(r => r.data),
+  createTemplate: (data: TripTemplatePayload) => api.post<TripTemplate>('/logbook/trip-templates', data).then(r => r.data),
+  updateTemplate: (id: number, data: Partial<TripTemplatePayload>) => api.put<TripTemplate>(`/logbook/trip-templates/${id}`, data).then(r => r.data),
+  deleteTemplate: (id: number) => api.delete<{ deleted: boolean }>(`/logbook/trip-templates/${id}`).then(r => r.data),
+
+  // Odometer readings + km k doplnění
+  listReadings: (carId?: number | null) =>
+    api.get<OdometerReading[]>('/logbook/odometer-readings', { params: carId ? { car_id: carId } : undefined }).then(r => r.data),
+  createReading: (data: OdometerReadingPayload) => api.post<OdometerReading>('/logbook/odometer-readings', data).then(r => r.data),
+  deleteReading: (id: number) => api.delete<{ deleted: boolean }>(`/logbook/odometer-readings/${id}`).then(r => r.data),
+  listGaps: (carId?: number | null) =>
+    api.get<OdometerGap[]>('/logbook/odometer-gaps', { params: carId ? { car_id: carId } : undefined }).then(r => r.data),
+  fillGap: (data: OdometerGapFillPayload) =>
+    api.post<{ trip_ids: number[]; gap: OdometerGap }>('/logbook/odometer-gaps/fill', data).then(r => r.data),
+
   // Trips
-  listTrips: (params?: Record<string, string | number>) => api.get<TripListResponse>('/logbook/trips', { params }).then(r => r.data),
+  listTrips:(params?: Record<string, string | number>) => api.get<TripListResponse>('/logbook/trips', { params }).then(r => r.data),
   tripPurposes: () => api.get<string[]>('/logbook/trips/purposes').then(r => r.data),
   tripPlaces: () => api.get<string[]>('/logbook/trips/places').then(r => r.data),
   getTrip: (id: number) => api.get<Trip>(`/logbook/trips/${id}`).then(r => r.data),

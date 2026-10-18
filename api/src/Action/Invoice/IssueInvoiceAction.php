@@ -8,6 +8,7 @@ use MyInvoice\Http\GuardsDocumentLock;
 use MyInvoice\Http\Json;
 use MyInvoice\Http\SupplierGuard;
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Service\Report\KontrolniHlaseniBuilder;
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Repository\ClientRepository;
@@ -20,6 +21,8 @@ use MyInvoice\Service\Accounting\DocumentAutoPoster;
 use MyInvoice\Service\Accounting\DocumentLockService;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Invoice\AdvanceCycleLock;
+use MyInvoice\Service\Invoice\InvoiceIssuer;
+use MyInvoice\Service\Invoice\InvoiceItemKind;
 use MyInvoice\Service\Invoice\SnapshotBuilder;
 use MyInvoice\Service\Invoice\VarsymbolGenerator;
 use MyInvoice\Service\IpMatcher;
@@ -110,7 +113,8 @@ final class IssueInvoiceAction
         if ($deny = $this->denyIfLocked($request, $response, $this->locks->forInvoice($invoice), 'invoice', $id)) {
             return $deny;
         }
-        if (count($invoice['items']) === 0) {
+        // Textové řádky (InvoiceItemKind::TEXT) nejsou plnění: doklad jen z nich se nevystaví.
+        if (!InvoiceItemKind::hasAmountLine((array) $invoice['items'])) {
             return Json::error($response, 'no_items', 'Faktura musí obsahovat alespoň jednu položku.', 422);
         }
         if (
@@ -408,7 +412,7 @@ final class IssueInvoiceAction
             if ($allocated && !$ownTransaction) {
                 $this->varsymbol->releaseIfLatest(
                     $supplierId,
-                    (string) $invoice['invoice_type'],
+                    VarsymbolGenerator::seriesTypeFor($invoice),
                     (string) $varsymbol,
                     $issueDate,
                     (int) $invoice['client_id'],
@@ -419,14 +423,16 @@ final class IssueInvoiceAction
         try {
             if ($varsymbol === null) {
                 try {
+                    // Zjednodušený doklad má vlastní řadu, je-li ve firmě nastavená.
                     $varsymbol = $this->varsymbol->next(
                         $supplierId,
-                        $invoice['invoice_type'],
+                        VarsymbolGenerator::seriesTypeFor($invoice),
                         $issueDate,
                         (int) $invoice['client_id'],
                         (int) ($invoice['revenue_category_id'] ?? 0),
                     );
                 } catch (\InvalidArgumentException | \RuntimeException $e) {
+                    if (TransactionFailure::rollbackIfAborted($pdo, $e)) throw $e;
                     if ($ownTransaction && $pdo->inTransaction()) $pdo->rollBack();
                     return Json::error($response, 'varsymbol_failed', $e->getMessage(), 500);
                 }
@@ -439,6 +445,7 @@ final class IssueInvoiceAction
                 $releaseAllocated();
                 return Json::error($response, 'race_condition', 'Faktura byla mezitím změněna.', 409);
             }
+            InvoiceIssuer::record($pdo, $id, isset($user['id']) ? (int) $user['id'] : null);
             if ($stockEnabled) $this->stockIssue->issueForInvoice(
                 $supplierId,
                 array_merge($invoice, ['varsymbol' => $varsymbol]),
@@ -492,7 +499,6 @@ final class IssueInvoiceAction
             ], $ip, $request->getHeaderLine('User-Agent'));
         }
 
-        $this->stats->recomputeForInvoiceId($id);
         // Smaž cached draft PDF (Faktura-draft-NN.pdf) — po vystavení má faktura nový
         // varsymbol a snapshoty, takže staré cached PDF už neodpovídá.
         $this->pdfRenderer->invalidate($id, 'invalidate_issue');
@@ -553,6 +559,10 @@ final class IssueInvoiceAction
                 ], $ip, $request->getHeaderLine('User-Agent'));
             }
         }
+
+        // Cache statistik až za zaúčtováním a úhradami: její chyba (deadlock při souběžném
+        // vystavování) nesmí přeskočit auto-post ani změnit výsledek vystavení.
+        $this->stats->recomputeAfterCommit($id);
 
         $issued = $this->repo->find($id);
         if ($settlement['status'] !== CashSettlementService::NOOP) {

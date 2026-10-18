@@ -69,7 +69,7 @@ final class ClientPaymentQrSettingsActionTest extends TestCase
             $ipMatcher,
         );
         $role = new EffectiveRole(4, 'Klient admin', 'client', true, [
-            'settings.company' => AccessLevel::WRITE->value,
+            'settings.payment_qr' => AccessLevel::WRITE->value,
         ]);
         $request = (new ServerRequestFactory())
             ->createServerRequest('PUT', '/api/settings/client/payment-qr', ['REMOTE_ADDR' => '127.0.0.1'])
@@ -155,11 +155,28 @@ final class ClientPaymentQrSettingsActionTest extends TestCase
         self::assertSame(200, $response->getStatusCode());
     }
 
+    public function testCompanyWriteOrQrReadCannotChangePaymentQrSettings(): void
+    {
+        $connection = $this->createMock(Connection::class);
+        $connection->expects(self::never())->method('pdo');
+        $pdf = $this->createMock(InvoicePdfRenderer::class);
+        $pdf->expects(self::never())->method('invalidatePaymentQrBySupplier');
+        $logger = $this->createMock(ActivityLogger::class);
+        $logger->expects(self::never())->method('log');
+        $action = $this->action($connection, $pdf, $logger);
+
+        foreach ([['settings.company' => 2], ['settings.payment_qr' => 1], []] as $permissions) {
+            $request = $this->request(['invoice_qr_include_due_date' => false])
+                ->withAttribute('auth.effective_role', new EffectiveRole(4, 'Synthetic restricted client', 'client', true, $permissions));
+            self::assertSame(403, $action->update($request, new Response())->getStatusCode());
+        }
+    }
+
     /** @param array<string,bool> $body */
     private function request(array $body): \Psr\Http\Message\ServerRequestInterface
     {
         $role = new EffectiveRole(4, 'Klient admin', 'client', true, [
-            'settings.company' => AccessLevel::WRITE->value,
+            'settings.payment_qr' => AccessLevel::WRITE->value,
         ]);
         return (new ServerRequestFactory())
             ->createServerRequest('PUT', '/api/settings/client/payment-qr', ['REMOTE_ADDR' => '127.0.0.1'])

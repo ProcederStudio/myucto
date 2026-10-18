@@ -9,6 +9,7 @@ use MyInvoice\Infrastructure\Cache\EntityCache;
 use MyInvoice\Infrastructure\Config\Config;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Infrastructure\Database\NamedLockName;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Service\System\InstanceEntitlement;
 use MyInvoice\Service\System\TelemetryPayloadBuilder;
 use Psr\Log\LoggerInterface;
@@ -1298,6 +1299,9 @@ final class LicenseService
                 $pdo->exec('RELEASE SAVEPOINT ' . self::PURCHASE_PERSIST_SAVEPOINT);
             }
         } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             if ($ownsTransaction && $pdo->inTransaction()) {
                 $pdo->rollBack();
             } elseif (!$ownsTransaction) {

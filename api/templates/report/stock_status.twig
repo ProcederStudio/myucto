@@ -16,15 +16,11 @@
     table.book tfoot td { font-weight: bold; font-size: 8pt; padding: 1.5mm 1.5mm; border-top: 0.5pt solid #333; }
     .num { text-align: right; }
     /* Pevné šířky všech sloupců: dlouhá sestava se sází po kusech (ChunkedHtmlWriter)
-       a kusy i hlavička stránky musí lícovat, proto procenta se součtem 100 %. */
-    .col-wh { width: 7%; }
-    .col-sku { width: 12%; }
-    .col-name { width: 35%; }
-    .col-type { width: 9%; }
-    .col-unit { width: 5%; }
-    .col-qty { width: 11%; }
-    .col-cost { width: 10%; }
-    .col-value { width: 11%; }
+       a kusy i hlavička stránky musí lícovat, proto procenta se součtem 100 %.
+       Šířky podle zvolených sloupců počítá StockStatusColumns (výchozí = původních osm). */
+{% for col in layout %}
+    .col-{{ col.key }} { width: {{ col.width }}%; }
+{% endfor %}
     .below-min { color: #b91c1c; font-weight: bold; }
 </style>
 </head>
@@ -35,37 +31,44 @@
 {% if items is empty %}
     <p style="text-align:center; color:#888; padding: 10mm 0;">Žádné skladové zásoby neodpovídají zvoleným filtrům.</p>
 {% else %}
+{% set value_index = null %}
+{% for col in layout %}{% if col.key == 'value_total' %}{% set value_index = loop.index0 %}{% endif %}{% endfor %}
 <table class="book">
     <thead>
         <tr>
-            <th class="thl col-wh">Sklad</th>
-            <th class="thl col-sku">SKU</th>
-            <th class="thl col-name">Název</th>
-            <th class="thl col-type">Typ</th>
-            <th class="thl col-unit">MJ</th>
-            <th class="col-qty">Množství</th>
-            <th class="col-cost">Prům. cena</th>
-            <th class="col-value">Hodnota</th>
+            {% for col in layout %}
+            <th class="{{ col.numeric ? '' : 'thl ' }}col-{{ col.key }}">{{ col.label }}</th>
+            {% endfor %}
         </tr>
     </thead>
     <tbody>
         {% for row in items %}
             <tr>
-                <td class="col-wh">{{ row.warehouse_code }}</td>
-                <td class="col-sku">{{ row.sku }}</td>
-                <td class="col-name">{{ row.name|slice(0, 55) }}</td>
-                <td class="col-type">{{ row.item_type }}</td>
-                <td class="col-unit">{{ row.unit }}</td>
+                {% for col in layout %}
+                {% if col.key == 'name' %}
+                <td class="col-name">{{ row.name|slice(0, name_chars) }}</td>
+                {% elseif col.key == 'qty' %}
                 <td class="num col-qty {{ row.min_qty and row.qty < row.min_qty ? 'below-min' : '' }}">{{ row.qty|cz_money }}</td>
-                <td class="num col-cost">{{ row.avg_unit_cost|cz_money }}</td>
-                <td class="num col-value">{{ row.value_total|cz_money }}</td>
+                {% elseif col.key == 'note' %}
+                <td class="col-note">{{ row.note is null ? '' : row.note|slice(0, 120) }}</td>
+                {% elseif col.numeric %}
+                <td class="num col-{{ col.key }}">{{ row[col.key] is null ? '' : row[col.key]|cz_money }}</td>
+                {% else %}
+                <td class="col-{{ col.key }}">{{ row[col.key] }}</td>
+                {% endif %}
+                {% endfor %}
             </tr>
         {% endfor %}
     </tbody>
     <tfoot>
         <tr>
-            <td colspan="7">CELKEM ({{ totals.count }} položek)</td>
+            {% if value_index is null %}
+            <td colspan="{{ layout|length }}">CELKEM ({{ totals.count }} položek)</td>
+            {% else %}
+            <td colspan="{{ value_index }}">CELKEM ({{ totals.count }} položek)</td>
             <td class="num">{{ totals.value_total|cz_money }}</td>
+            {% if value_index + 1 < layout|length %}<td colspan="{{ layout|length - value_index - 1 }}"></td>{% endif %}
+            {% endif %}
         </tr>
     </tfoot>
 </table>

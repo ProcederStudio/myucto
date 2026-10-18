@@ -6,6 +6,7 @@ namespace MyInvoice\Service\Automation;
 
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Infrastructure\Database\NamedLockName;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use PDO;
 use Throwable;
 
@@ -161,6 +162,9 @@ final class AutomationRecommendationCache
                 if ($ownTransaction) $pdo->commit();
                 else $pdo->exec('RELEASE SAVEPOINT automation_recommendation_swap');
             } catch (Throwable $e) {
+                if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                    throw $e;
+                }
                 if ($ownTransaction && $pdo->inTransaction()) $pdo->rollBack();
                 elseif (!$ownTransaction) $pdo->exec('ROLLBACK TO SAVEPOINT automation_recommendation_swap');
                 throw $e;

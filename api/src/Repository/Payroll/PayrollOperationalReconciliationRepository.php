@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Repository\Payroll;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Service\Payroll\Ruleset\CanonicalJson;
 use PDO;
 
@@ -710,6 +711,9 @@ final class PayrollOperationalReconciliationRepository
 
             return $result;
         } catch (\Throwable $exception) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $exception)) {
+                throw $exception;
+            }
             if ($owns && $pdo->inTransaction()) {
                 $pdo->rollBack();
             } elseif ($savepoint !== null) {

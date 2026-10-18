@@ -67,6 +67,9 @@ final class ActionTenantReferenceTest extends TestCase
         'CarsAction.php' => ['driver_employee_id'],
         // R2 #7 / sweep F3 — POST + PUT /api/logbook/trips
         'TripsAction.php' => ['category_id'],
+        // Pravidelné cesty a doplnění km (migrace 2058) — kategorie šablony i tvořených jízd.
+        'TripTemplatesAction.php' => ['category_id'],
+        'OdometerGapsAction.php' => ['category_id'],
         // R2 #8 / sweep F2 — POST /api/reports/related-parties/adjustments
         'RelatedPartyAction.php' => ['client_id'],
         // R2 #9 / sweep F6 — PUT /api/invoices/{id}/work-report/materials
@@ -102,6 +105,8 @@ final class ActionTenantReferenceTest extends TestCase
         // volají cars->find($carId, $supplierId). Guardem duplicitně netaháme.
         'TripsAction.php:car_id'     => 'cars->find($carId, $supplierId) v prepare()',
         'FuelingsAction.php:car_id'  => 'cars->find($carId, $supplierId) ve validate()',
+        'TripTemplatesAction.php:car_id'    => 'cars->find($carId, $supplierId) ve validate()',
+        'OdometerReadingsAction.php:car_id' => 'cars->find($carId, $supplierId) v create()',
 
         // Přijaté faktury — `vendor_id` váže SupplierGuard::owns() nad řádkem klienta
         // (CreatePurchaseInvoiceAction ř. ~68, UpdatePurchaseInvoiceAction ř. ~156).

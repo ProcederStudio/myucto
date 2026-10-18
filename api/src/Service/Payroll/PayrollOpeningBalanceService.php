@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Payroll;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\Payroll\PayrollStatutoryAccumulatorRepository;
 use MyInvoice\Service\Payroll\Import\OpeningBalance\OpeningBalanceMonthValidator;
 use MyInvoice\Service\Payroll\Migration\PayrollTakeoverCoverage;
@@ -620,6 +621,9 @@ final readonly class PayrollOpeningBalanceService
                 $pdo->commit();
             }
         } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             if ($nested) {
                 $pdo->exec('ROLLBACK TO SAVEPOINT ' . self::SAVEPOINT);
                 $pdo->exec('RELEASE SAVEPOINT ' . self::SAVEPOINT);

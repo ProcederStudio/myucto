@@ -242,7 +242,8 @@ function syncRow(
   const unit = defaultUnit.value
   const desc = newTitle.trim()
   const match = (origTitle || '').trim() || desc
-  const canRepurpose = (item: any) => ![item.stock_item_id, item.small_asset_id, item.asset_id]
+  // Textový řádek (item_kind 'text') se na položku výkazu nepřepisuje: server by ho vynuloval.
+  const canRepurpose = (item: any) => item.item_kind !== 'text' && ![item.stock_item_id, item.small_asset_id, item.asset_id]
     .some(id => Number(id) > 0)
   let idx = match !== '' ? items.findIndex(it => canRepurpose(it) && (it.description || '').trim() === match) : -1
   if (idx < 0 && desc !== '') idx = items.findIndex(it => canRepurpose(it) && (it.description || '').trim() === desc)

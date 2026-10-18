@@ -410,8 +410,24 @@ function statementDateLabel(s: BankStatement): string {
     : formatDate(s.statement_date)
 }
 
+// Avízo převzaté oficiálním výpisem je vyřešené: jeho pohyb už nese výpis.
 function resolvedCount(s: BankStatement): number {
-  return s.matched_count + (s.non_invoice_count ?? 0)
+  return s.matched_count + (s.non_invoice_count ?? 0) + (s.superseded_count ?? 0)
+}
+
+function isNoticeStatement(s: BankStatement): boolean {
+  return s.source === 'email_notice' || s.source === 'idoklad'
+}
+
+// Avízový výpis smaže stejně jako backend každý s bankou k zápisu (ne klient); dokud
+// na něm visí spárovaná položka, backend smazání odmítne, proto je tlačítko neaktivní.
+function canDeleteStatement(s: BankStatement): boolean {
+  if (s.api_month) return false
+  return isNoticeStatement(s) ? !authStore.isClientRole && authStore.canWrite('bank') : isAdmin.value
+}
+
+function deleteBlocked(s: BankStatement): boolean {
+  return isNoticeStatement(s) && s.matched_count > 0
 }
 
 function isFullyResolved(s: BankStatement): boolean {
@@ -870,7 +886,7 @@ useWindowRefresh(['bank', 'bank-statements', 'bank-transactions', 'bank-match-su
               </span>
             </td>
             <td class="px-3 py-2 text-right whitespace-nowrap">
-              <div class="inline-flex flex-wrap items-center gap-1.5">
+              <div class="inline-flex flex-wrap items-center gap-1.5" @click.stop>
                 <button v-if="statementHasGpc(s)" type="button" data-testid="statement-gpc"
                    @click.stop="downloadStatementFile(statementGpcUrl(s), 'vypis.gpc')"
                    :aria-disabled="!statementGpcUrl(s) || undefined" :tabindex="statementGpcUrl(s) ? undefined : -1"
@@ -887,9 +903,10 @@ useWindowRefresh(['bank', 'bank-statements', 'bank-transactions', 'bank-match-su
                   <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                   PDF
                 </button>
-                <button v-if="isAdmin && !s.api_month" type="button" @click="onDelete(s, $event)"
-                   :title="t('bank.delete')"
-                   class="cursor-pointer inline-flex w-7 h-7 items-center justify-center text-neutral-400 hover:text-danger-500 hover:bg-danger-50 border border-transparent hover:border-danger-200 rounded">
+                <button v-if="canDeleteStatement(s)" type="button" data-testid="statement-delete" @click="onDelete(s, $event)"
+                   :disabled="deleteBlocked(s)"
+                   :title="deleteBlocked(s) ? t('bank.statement_delete_has_matches') : t('bank.delete')"
+                   class="cursor-pointer inline-flex w-7 h-7 items-center justify-center text-neutral-400 hover:text-danger-500 hover:bg-danger-50 border border-transparent hover:border-danger-200 rounded disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-neutral-400 disabled:hover:border-transparent">
                   <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3"/></svg>
                 </button>
               </div>
@@ -944,7 +961,7 @@ useWindowRefresh(['bank', 'bank-statements', 'bank-transactions', 'bank-match-su
           <div v-if="s.processing_failed" class="mt-1 text-xs text-warning-600 font-medium">
             {{ t('bank.processing_failed_badge_hint', { count: s.unprocessed_count ?? 0 }) }}
           </div>
-          <div class="flex flex-wrap items-center gap-1.5 mt-2">
+          <div class="flex flex-wrap items-center gap-1.5 mt-2" @click.stop>
             <button v-if="statementHasGpc(s)" type="button" data-testid="statement-gpc"
                @click.stop="downloadStatementFile(statementGpcUrl(s), 'vypis.gpc')"
                :aria-disabled="!statementGpcUrl(s) || undefined" :tabindex="statementGpcUrl(s) ? undefined : -1"
@@ -961,8 +978,10 @@ useWindowRefresh(['bank', 'bank-statements', 'bank-transactions', 'bank-match-su
               <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
               PDF
             </button>
-            <button v-if="isAdmin && !s.api_month" type="button" @click="onDelete(s, $event)"
-               class="cursor-pointer inline-flex items-center gap-1 px-2 h-7 text-xs border border-danger-500/40 text-danger-600 hover:bg-danger-50 rounded">
+            <button v-if="canDeleteStatement(s)" type="button" data-testid="statement-delete-mobile" @click="onDelete(s, $event)"
+               :disabled="deleteBlocked(s)"
+               :title="deleteBlocked(s) ? t('bank.statement_delete_has_matches') : undefined"
+               class="cursor-pointer inline-flex items-center gap-1 px-2 h-7 text-xs border border-danger-500/40 text-danger-600 hover:bg-danger-50 rounded disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent">
               <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3"/></svg>
               {{ t('bank.delete') }}
             </button>

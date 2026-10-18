@@ -153,7 +153,7 @@ final class UnmatchedBankExportService
     private function unmatchedWhere(int $supplierId, int $statementId): string
     {
         return StatementTransactionScope::sql($statementId)
-            . " AND bt.match_status = 'unmatched' AND NOT "
+            . " AND bt.match_status = 'unmatched' AND " . BankNoticeLifecycle::activeSql('bt') . " AND NOT "
             . NonInvoiceBankTransactionScope::sql($supplierId, 'bt.id');
     }
 

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Accounting\GoPay;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\JournalEntryRepository;
 use MyInvoice\Service\Accounting\PostingException;
 use MyInvoice\Service\Accounting\PostingService;
@@ -27,7 +28,27 @@ final class GoPayMovementPoster
         private readonly JournalEntryRepository $journal,
     ) {}
 
+    /**
+     * Odvolanou transakci (1020/1213) zopakuje, pokud ji vlastní; uvnitř cizí transakce
+     * ji předá jejímu vlastníkovi. Pohyb dostane stav `error` až po vyčerpání pokusů.
+     */
     public function post(int $supplierId, int $movementId, ?int $userId): void
+    {
+        $pdo = $this->db->pdo();
+        $foreign = $pdo->inTransaction();
+        try {
+            TransactionFailure::retrying($pdo, function () use ($supplierId, $movementId, $userId): void {
+                $this->postOnce($supplierId, $movementId, $userId);
+            });
+        } catch (\Throwable $e) {
+            if ($foreign || !TransactionFailure::aborted($e)) {
+                throw $e;
+            }
+            $this->markFailed($supplierId, $movementId, $e);
+        }
+    }
+
+    private function postOnce(int $supplierId, int $movementId, ?int $userId): void
     {
         $pdo = $this->db->pdo();
         $ownTx = $this->beginUnit($pdo, 'gopay_movement');
@@ -105,16 +126,24 @@ final class GoPayMovementPoster
             ]);
             $this->commitUnit($pdo, $ownTx, 'gopay_movement');
         } catch (\Throwable $e) {
-            $this->rollbackUnit($pdo, $ownTx, 'gopay_movement');
-            $status = $e instanceof GoPayException ? 'unmatched' : 'error';
-            $code = $e instanceof GoPayException ? $e->errorCode
-                : ($e instanceof PostingException ? $e->errorCode : 'processing_failed');
-            $message = mb_substr($e->getMessage(), 0, 500);
-            $pdo->prepare(
-                'UPDATE gopay_movements SET status=?,issue_code=?,issue_message=?,processed_at=NOW()
-                  WHERE id=? AND supplier_id=? AND status<>"posted"'
-            )->execute([$status, $code, $message, $movementId, $supplierId]);
+            $this->rollbackUnit($pdo, $ownTx, 'gopay_movement', $e);
+            if (TransactionFailure::aborted($e)) {
+                throw $e;
+            }
+            $this->markFailed($supplierId, $movementId, $e);
         }
+    }
+
+    private function markFailed(int $supplierId, int $movementId, \Throwable $e): void
+    {
+        $status = $e instanceof GoPayException ? 'unmatched' : 'error';
+        $code = $e instanceof GoPayException ? $e->errorCode
+            : ($e instanceof PostingException ? $e->errorCode : 'processing_failed');
+        $message = mb_substr($e->getMessage(), 0, 500);
+        $this->db->pdo()->prepare(
+            'UPDATE gopay_movements SET status=?,issue_code=?,issue_message=?,processed_at=NOW()
+              WHERE id=? AND supplier_id=? AND status<>"posted"'
+        )->execute([$status, $code, $message, $movementId, $supplierId]);
     }
 
     /**

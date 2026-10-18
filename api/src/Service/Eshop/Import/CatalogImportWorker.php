@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Eshop\Import;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\CatalogJobItemRepository;
 use MyInvoice\Service\Eshop\CatalogJobService;
 use MyInvoice\Service\Eshop\EshopException;
@@ -102,7 +103,11 @@ final class CatalogImportWorker
                 $error = $e->errorCode;
             } catch (\InvalidArgumentException $e) {
                 $error = preg_match('/^[a-z0-9_]{1,100}$/D', $e->getMessage()) ? $e->getMessage() : 'import_validation_failed';
-            } catch (\PDOException) {
+            } catch (\PDOException $e) {
+                // Odvolaná transakce (1020/1213) není vada řádku: celá dávka je pryč.
+                if (TransactionFailure::aborted($e)) {
+                    throw $e;
+                }
                 $error = 'import_database_validation_failed';
             }
             $this->items->append($supplierId, $job['id'], [['ordinal' => $checkpoint,
@@ -135,9 +140,15 @@ final class CatalogImportWorker
         $pdo->exec('SAVEPOINT catalog_import_trial');
         try {
             return $this->writer->write($supplierId, $profile, $values, $before['id'] ?? null, $before['row_version'] ?? null);
+        } catch (\Throwable $e) {
+            // Odvolaná transakce savepoint nemá; ROLLBACK TO ve finally by ji přemaskoval.
+            TransactionFailure::rollbackIfAborted($pdo, $e);
+            throw $e;
         } finally {
-            $pdo->exec('ROLLBACK TO SAVEPOINT catalog_import_trial');
-            $pdo->exec('RELEASE SAVEPOINT catalog_import_trial');
+            if ($pdo->inTransaction()) {
+                $pdo->exec('ROLLBACK TO SAVEPOINT catalog_import_trial');
+                $pdo->exec('RELEASE SAVEPOINT catalog_import_trial');
+            }
         }
     }
 
@@ -164,11 +175,16 @@ final class CatalogImportWorker
                 }
                 $this->items->finish($supplierId, $job['id'], $item['ordinal'], 'applied', $item['before'], $after);
             } catch (\Throwable $e) {
+                if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                    throw $e;
+                }
                 $pdo->exec('ROLLBACK TO SAVEPOINT catalog_import_apply');
                 $code = $e instanceof EshopException || $e instanceof PricingInputException ? $e->errorCode : 'import_write_failed';
                 $this->items->finish($supplierId, $job['id'], $item['ordinal'], in_array($code, ['version_conflict', 'import_input_changed'], true) ? 'conflict' : 'failed', $item['before'], $item['after'], $code);
             } finally {
-                $pdo->exec('RELEASE SAVEPOINT catalog_import_apply');
+                if ($pdo->inTransaction()) {
+                    $pdo->exec('RELEASE SAVEPOINT catalog_import_apply');
+                }
             }
         }
         $checkpoint = $batch === [] ? $job['checkpoint'] : end($batch)['ordinal'];

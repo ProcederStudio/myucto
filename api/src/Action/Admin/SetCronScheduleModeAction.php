@@ -98,7 +98,7 @@ final class SetCronScheduleModeAction
 
     private function nextStep(string $mode): string
     {
-        $isDocker = is_file('/.dockerenv') || is_file(DockerCrontabGenerator::WRAPPER);
+        $isDocker = DockerCrontabGenerator::runningInContainer();
 
         if ($isDocker) {
             return 'Restartuj kontejner — plán úloh se při startu vygeneruje podle nového režimu. '

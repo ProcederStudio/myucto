@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Payroll\Time;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\Payroll\PayrollAttendanceImportRepository;
 use MyInvoice\Repository\Payroll\PayrollTimeConflictException;
 use MyInvoice\Repository\Payroll\PayrollTimeLockedException;
@@ -189,6 +190,9 @@ final class PayrollTimeImportSummaryWriter
 
             return $result;
         } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             if ($owns) {
                 if ($pdo->inTransaction()) {
                     $pdo->rollBack();

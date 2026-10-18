@@ -105,6 +105,20 @@ final class CrmBankUnmatchedNonInvoiceTest extends TestCase
         self::assertNotContains($regular, $this->nonInvoiceIds());
     }
 
+    /** Avízo, jehož úhradu převzal oficiální výpis, už na spárování nečeká. */
+    public function testPrevzateAvizoNeniNesparovanaPlatba(): void
+    {
+        $before = $this->bankUnmatchedCount();
+
+        $notice = $this->insertIncoming();
+        $this->db->pdo()->prepare("UPDATE bank_transactions SET source = 'email_notice', ignore_origin = 'superseded' WHERE id = ?")
+            ->execute([$notice]);
+        self::assertSame($before, $this->bankUnmatchedCount());
+
+        $this->db->pdo()->prepare('UPDATE bank_transactions SET ignore_origin = NULL WHERE id = ?')->execute([$notice]);
+        self::assertSame($before + 1, $this->bankUnmatchedCount());
+    }
+
     private function bankUnmatchedCount(): int
     {
         foreach ($this->crm->actionItems($this->supplierId, null)['items'] as $item) {

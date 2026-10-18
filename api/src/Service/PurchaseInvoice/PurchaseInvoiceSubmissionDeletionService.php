@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\PurchaseInvoice;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\DocumentRepository;
 use MyInvoice\Repository\DocumentRequestRepository;
 use MyInvoice\Repository\PurchaseInvoiceSubmissionRepository;
@@ -68,6 +69,9 @@ final class PurchaseInvoiceSubmissionDeletionService
             else $pdo->exec('RELEASE SAVEPOINT submission_delete');
             return ['ok' => true, 'document_id' => (int) $deleted['document_id']];
         } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             if ($ownTransaction && $pdo->inTransaction()) $pdo->rollBack();
             elseif (!$ownTransaction && $pdo->inTransaction()) {
                 $pdo->exec('ROLLBACK TO SAVEPOINT submission_delete');

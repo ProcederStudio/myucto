@@ -29,3 +29,25 @@ export function groupInvoiceStockAvailability(
     itemIds: [...itemIds],
   }))
 }
+
+export interface StockSearchBadge {
+  qty: string
+  unit: string
+  /** neutral = skladem; warning = nula nebo minus (karta se nevydá). */
+  tone: 'neutral' | 'warning'
+}
+
+/**
+ * Stav skladu v nabídce karet (GET /stock/items/search s `warehouse_id` řádku).
+ * `qty` je v základní jednotce karty, stejně jako dostupnost řádku po výběru.
+ * Neskladová karta (`is_stocked` false) a odpověď bez `qty` badge nemají.
+ */
+export function stockSearchBadge(
+  result: { unit: string; qty?: string | null; is_stocked?: boolean },
+  formatQty: (qty: number) => string,
+): StockSearchBadge | null {
+  if (result.is_stocked === false || result.qty == null) return null
+  const qty = Number(result.qty)
+  if (!Number.isFinite(qty)) return null
+  return { qty: formatQty(qty), unit: result.unit, tone: qty > 0 ? 'neutral' : 'warning' }
+}

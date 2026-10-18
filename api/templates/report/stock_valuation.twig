@@ -29,6 +29,36 @@
 
 <div class="header-title">Ocenění zásob k {{ date|cz_date }}</div>
 
+{% if category_groups is defined and category_groups is not null %}
+{# Souhrn podle kategorií (StockValuationCategoryGroups); popisky a poznámku dodává renderer. #}
+<table class="book" style="width: 60%; margin-bottom: 4mm;">
+    <thead>
+        <tr>
+            <th class="thl" style="width: 64%;">Kategorie{% if category_groups.parent %}: {{ category_groups.parent.name }}{% endif %}</th>
+            <th style="width: 14%;">Položek</th>
+            <th style="width: 22%;">Hodnota</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for group in category_groups.groups %}
+            <tr>
+                <td>{{ group_labels[loop.index0] }}</td>
+                <td class="num">{{ group.count }}</td>
+                <td class="num">{{ group.value_total|cz_money }}</td>
+            </tr>
+        {% endfor %}
+    </tbody>
+    <tfoot>
+        <tr>
+            <td>CELKEM</td>
+            <td class="num">{{ category_groups.count }}</td>
+            <td class="num">{{ category_groups.value_total|cz_money }}</td>
+        </tr>
+    </tfoot>
+</table>
+<p style="font-size: 7pt; color: #555; margin: 0 0 4mm 0;">{{ group_note }}</p>
+{% endif %}
+
 {% if items is empty %}
     <p style="text-align:center; color:#888; padding: 10mm 0;">K tomuto datu neexistuje žádný nenulový stav zásob.</p>
 {% else %}

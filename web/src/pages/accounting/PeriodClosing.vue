@@ -33,6 +33,8 @@ import { useToast } from '@/composables/useToast'
 import { formatMoney, formatDate } from '@/composables/useFormat'
 import { ICONS, btnFilled, btnOutline } from '@/components/ui/buttonStyles'
 import CheckFindings from '@/components/accounting/CheckFindings.vue'
+import FxSettlementWarnings from '@/components/accounting/FxSettlementWarnings.vue'
+import FxSaldoDetails from '@/components/accounting/FxSaldoDetails.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import DateInput from '@/components/ui/DateInput.vue'
 import PaginationBar from '@/components/ui/PaginationBar.vue'
@@ -982,35 +984,10 @@ const canOpenNextStage = computed(() => ['closed', 'reviewed', 'approved'].inclu
                 </span>
               </div>
 
+              <FxSettlementWarnings :warnings="fxPreview.warnings ?? []" />
+
               <!-- Saldokonto -->
-              <div v-if="fxPreview.saldo?.detail?.length" class="overflow-x-auto">
-                <table class="w-full text-sm">
-                  <thead class="bg-neutral-50 text-xs text-neutral-500 uppercase tracking-wide">
-                    <tr>
-                      <th class="px-3 py-2 text-left font-medium">{{ t('accounting.closing.fx.col_document') }}</th>
-                      <th class="px-3 py-2 text-left font-medium w-20">{{ t('accounting.closing.fx.col_currency') }}</th>
-                      <th class="px-3 py-2 text-right font-medium w-32">{{ t('accounting.closing.fx.col_remaining') }}</th>
-                      <th class="px-3 py-2 text-right font-medium w-28">{{ t('accounting.closing.fx.col_doc_rate') }}</th>
-                      <th class="px-3 py-2 text-right font-medium w-28">{{ t('accounting.closing.fx.col_cnb_rate') }}</th>
-                      <th class="px-3 py-2 text-right font-medium w-32">{{ t('accounting.closing.fx.col_diff') }}</th>
-                    </tr>
-                  </thead>
-                  <tbody class="divide-y divide-neutral-100">
-                    <tr v-for="(d, i) in fxPreview.saldo.detail" :key="i">
-                      <td class="px-3 py-1.5">
-                        {{ t(`accounting.closing.fx.doc_type.${d.doc_type}`) }} {{ d.varsymbol || `#${d.doc_id}` }}
-                      </td>
-                      <td class="px-3 py-1.5">{{ d.currency_code }}</td>
-                      <td class="px-3 py-1.5 text-right font-mono">{{ formatMoney(d.remaining_foreign, d.currency_code) }}</td>
-                      <td class="px-3 py-1.5 text-right font-mono">{{ d.fx_rate }}</td>
-                      <td class="px-3 py-1.5 text-right font-mono">{{ d.rate_cnb }}</td>
-                      <td class="px-3 py-1.5 text-right font-mono" :class="d.diff >= 0 ? 'text-success-600' : 'text-danger-500'">
-                        {{ formatMoney(d.diff) }}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+              <FxSaldoDetails v-if="fxPreview.saldo?.detail?.length" :rows="fxPreview.saldo.detail" />
               <EmptyState v-else dense accent="neutral" icon="swap" :title="t('accounting.closing.fx.no_open_items')" />
 
               <!-- Banka / valutová pokladna -->
@@ -1085,7 +1062,7 @@ const canOpenNextStage = computed(() => ['closed', 'reviewed', 'approved'].inclu
                   <span class="text-neutral-500">Σ 663:
                     <strong class="font-mono text-success-600">{{ formatMoney(fxPreview.totals?.gain) }}</strong></span>
                 </div>
-                <div class="flex gap-2">
+                <div class="flex flex-wrap gap-2">
                   <button @click="loadFxPreview(true)" :disabled="fxLoading" :class="btnOutline('neutral')">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.cycle" /></svg>
                     {{ t('accounting.closing.fx.recalc') }}
@@ -1759,8 +1736,13 @@ const canOpenNextStage = computed(() => ['closed', 'reviewed', 'approved'].inclu
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="row in openingTakeover.diff" :key="row.account_code" class="border-b border-neutral-100">
-                      <td class="py-1 pr-3 font-mono">{{ row.account_code }}</td>
+                    <tr v-for="(row, index) in openingTakeover.diff" :key="index" class="border-b border-neutral-100">
+                      <td class="py-1 pr-3">
+                        <span class="font-mono">{{ row.account_code }}</span>
+                        <div v-for="label in row.dimension_labels" :key="label" class="text-xs text-neutral-500">{{ label }}</div>
+                        <div v-if="row.cost_center" class="text-xs text-neutral-500">{{ t('accounting.closing.opening_takeover.cost_center') }}: {{ row.cost_center }}</div>
+                        <div v-if="row.project_name" class="text-xs text-neutral-500">{{ t('accounting.closing.opening_takeover.project') }}: {{ row.project_name }}</div>
+                      </td>
                       <td class="py-1 pr-3 font-mono text-right whitespace-nowrap">{{ formatMoney(row.expected) }}</td>
                       <td class="py-1 pr-3 font-mono text-right whitespace-nowrap">{{ formatMoney(row.existing) }}</td>
                       <td class="py-1 font-mono text-right whitespace-nowrap text-danger-600">{{ formatMoney(row.difference) }}</td>

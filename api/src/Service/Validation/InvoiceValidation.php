@@ -8,6 +8,7 @@ use MyInvoice\Repository\InvoiceRepository;
 use MyInvoice\Service\Oss\OssItemDecision;
 use MyInvoice\Service\Oss\OssPeriod;
 use MyInvoice\Support\PaymentMethods;
+use MyInvoice\Service\Invoice\InvoiceItemKind;
 use MyInvoice\Service\Invoice\InvoiceRounding;
 
 final class InvoiceValidation
@@ -93,7 +94,12 @@ final class InvoiceValidation
                     $err["items.{$i}"][] = 'Neplatná položka';
                     continue;
                 }
-                $err = array_merge($err, InvoiceAmountPolicy::validateItem($item, $i));
+                $err = array_merge($err, InvoiceAmountPolicy::validateItem($item, $i, allowText: true));
+                // Textový řádek nic nevykazuje: sazba, OSS ani časové rozlišení se na něm
+                // nekontrolují, zápis je vynuluje ({@see InvoiceItemKind::normalize()}).
+                if (InvoiceItemKind::isText($item)) {
+                    continue;
+                }
 
                 // Časové rozlišení výnosu (384): obě data, nebo žádné; od <= do.
                 $accrualFrom = trim((string) ($item['accrual_from'] ?? ''));

@@ -258,7 +258,7 @@ const calendarDraft = (overrides = {}) => ({
   items: [
     {
       id: 101, description: 'Nájem kanceláře', quantity: 12, duration_minutes: null, unit: 'měs',
-      unit_price_without_vat: 1000, vat_rate_id: 1, order_index: 0, item_kind: 'standard',
+      unit_price_without_vat: 1000, list_unit_price: 1200, line_discount_pct: 16.667, vat_rate_id: 1, order_index: 0, item_kind: 'standard',
       vat_classification_code: '1', stock_item_id: null, warehouse_id: null,
       small_asset_id: null, asset_id: null, accrual_from: '2026-10-01', accrual_to: '2027-09-30',
       oss_applicable: false, oss_consumer_country: null, total_with_vat: 14520,
@@ -299,7 +299,7 @@ test('rozpis plateb pošle celou hlavičku i položky se skrytými poli', async 
   assert.equal(body.items.length, 1);
   assert.deepEqual(body.items[0], {
     description: 'Nájem kanceláře', quantity: 12, duration_minutes: null, unit: 'měs',
-    unit_price_without_vat: 1000, vat_rate_id: 1, order_index: 0, vat_classification_code: '1',
+    unit_price_without_vat: 1000, list_unit_price: 1200, vat_rate_id: 1, order_index: 0, item_kind: 'standard', vat_classification_code: '1',
     stock_item_id: null, warehouse_id: null, small_asset_id: null, asset_id: null,
     accrual_from: '2026-10-01', accrual_to: '2027-09-30',
     oss_applicable: false, oss_consumer_country: null,

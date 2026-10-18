@@ -10,6 +10,8 @@ use MyInvoice\Service\Bank\VariableSymbolNormalizer;
 use MyInvoice\Service\Invoice\CzkRecap;
 use MyInvoice\Service\Invoice\InvoiceRounding;
 use MyInvoice\Service\Invoice\InvoiceCalculator;
+use MyInvoice\Service\Invoice\InvoiceHeaderDiscount;
+use MyInvoice\Service\Invoice\InvoiceItemKind;
 use MyInvoice\Service\Invoice\OverduePolicy;
 use MyInvoice\Service\Invoice\TimeBilling;
 use MyInvoice\Service\Report\VatLedgerService;
@@ -25,6 +27,13 @@ use PDO;
  */
 final class InvoiceRepository
 {
+    /**
+     * Jednotka řádku, který klíč `unit` vůbec nepošle (nebo pošle null). Sdílí ji
+     * kontrola desetinných míst ({@see \MyInvoice\Service\Codebook\UnitPrecision}),
+     * aby kontrolovala tutéž jednotku, se kterou se řádek uloží.
+     */
+    public const DEFAULT_ITEM_UNIT = 'ks';
+
     public function __construct(
         private readonly Connection $db,
         private readonly TaxConstantsRepository $taxConstants,
@@ -83,6 +92,38 @@ final class InvoiceRepository
     }
 
     /**
+     * Volba „netisknout odběratele" na zjednodušeném dokladu (migrace 2037). Bez sloupce
+     * se odběratel tiskne jako dosud.
+     */
+    private function supportsHideCustomer(): bool
+    {
+        return $this->db->hasColumn('invoices', 'hide_customer_on_pdf');
+    }
+
+    /**
+     * Výchozí hodnota volby pro nový doklad: platí jen pro zjednodušený doklad a bere se
+     * z nastavení firmy, pokud ji volající neposlal sám.
+     *
+     * @param array<string,mixed> $data
+     */
+    private function hideCustomerForNewDraft(array $data, int $supplierId): int
+    {
+        // Běžná faktura odběratele nést musí (§ 29), volba se u ní neukládá.
+        if (empty($data['is_simplified'])) {
+            return 0;
+        }
+        if (array_key_exists('hide_customer_on_pdf', $data)) {
+            return !empty($data['hide_customer_on_pdf']) ? 1 : 0;
+        }
+        if (!$this->db->hasColumn('supplier', 'simplified_hide_customer_default')) {
+            return 0;
+        }
+        $stmt = $this->db->pdo()->prepare('SELECT simplified_hide_customer_default FROM supplier WHERE id = ?');
+        $stmt->execute([$supplierId]);
+        return (int) (bool) $stmt->fetchColumn();
+    }
+
+    /**
      * Cache existence sloupce price_level_id (migrace 1880, cenová hladina dokladu). Bez
      * sloupce se doklad uloží bez hladiny; ceny řádků jsou uložené samostatně, hladina
      * je jen pomůcka pro nacenění v editoru.
@@ -105,6 +146,17 @@ final class InvoiceRepository
     private ?bool $hasOssItemColumns = null;
 
     private ?bool $hasItemTracking = null;
+
+    private ?bool $hasLineDiscount = null;
+
+    /** Ceníková cena a sleva řádku (migrace 2035); starší instance je nemají. */
+    private function supportsLineDiscount(): bool
+    {
+        if ($this->hasLineDiscount === null) {
+            $this->hasLineDiscount = $this->db->hasColumn('invoice_items', \MyInvoice\Service\Invoice\LineDiscount::LIST_COLUMN);
+        }
+        return $this->hasLineDiscount;
+    }
 
     /** Sloupec výběru sériových čísel a šarží na řádku (migrace 2016); starší instance ho nemají. */
     private function supportsItemTracking(): bool
@@ -617,6 +669,10 @@ final class InvoiceRepository
         // a replaceItems() (DELETE + INSERT) by ho při uložení zahodil.
         if ($this->supportsItemTracking()) {
             $ossSelect .= ', ii.tracking_json';
+        }
+        // Ceníková cena řádku taky: editor ji posílá zpět i po ruční změně ceny.
+        if ($this->supportsLineDiscount()) {
+            $ossSelect .= ', ii.list_unit_price, ii.line_discount_pct';
         }
         $stmt = $this->db->pdo()->prepare(
              'SELECT ii.id, ii.invoice_id, ii.description, ii.quantity, ii.duration_minutes, ii.unit,
@@ -1225,6 +1281,7 @@ final class InvoiceRepository
         $hasExempt = $this->supportsIncomeTaxExempt();
         $hasReminders = $this->supportsAutoSendReminders();
         $hasSimplified = $this->supportsSimplified();
+        $hasHideCustomer = $hasSimplified && $this->supportsHideCustomer();
         $hasPriceLevel = $this->supportsPriceLevel() && array_key_exists('price_level_id', $data);
         $sql = 'INSERT INTO invoices
             (invoice_type, parent_invoice_id, client_id, project_id, supplier_id, branding_profile_id,
@@ -1235,12 +1292,14 @@ final class InvoiceRepository
             . ($hasExempt ? ' income_tax_exempt, income_tax_exempt_reason,' : '')
             . ($hasReminders ? ' auto_send_reminders,' : '')
             . ($hasSimplified ? ' is_simplified,' : '')
+            . ($hasHideCustomer ? ' hide_customer_on_pdf,' : '')
             . ($hasPriceLevel ? ' price_level_id,' : '')
             . ' created_by)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "draft", ?, ?, ?,'
             . ($hasExempt ? ' ?, ?,' : '')
             . ($hasReminders ? ' ?,' : '')
             . ($hasSimplified ? ' ?,' : '')
+            . ($hasHideCustomer ? ' ?,' : '')
             . ($hasPriceLevel ? ' ?,' : '')
             . ' ?)';
 
@@ -1280,6 +1339,9 @@ final class InvoiceRepository
         }
         if ($hasSimplified) {
             $params[] = !empty($data['is_simplified']) ? 1 : 0;
+        }
+        if ($hasHideCustomer) {
+            $params[] = $this->hideCustomerForNewDraft($data, $supplierId);
         }
         if ($hasPriceLevel) {
             $params[] = self::normalizePriceLevelId($data['price_level_id']);
@@ -1344,7 +1406,15 @@ final class InvoiceRepository
         // Stejně jako `is_simplified`: jen když klíč v payloadu je, jinak by ho ostatní cesty
         // ukládající doklad (import, opakovaná fakturace) tiše smazaly.
         $hasPriceLevel = $this->supportsPriceLevel() && array_key_exists('price_level_id', $data);
-        $currentStmt = $this->db->pdo()->prepare('SELECT supplier_id, branding_profile_id FROM invoices WHERE id = ?');
+        // Volba „netisknout odběratele" (migrace 2037), taky jen když klíč v payloadu je,
+        // nebo když se mění příznak zjednodušeného dokladu: bez něj se volba ruší.
+        $hasHideCustomer = $this->supportsHideCustomer()
+            && (array_key_exists('hide_customer_on_pdf', $data) || $hasSimplified);
+        $currentStmt = $this->db->pdo()->prepare(
+            'SELECT supplier_id, branding_profile_id'
+            . ($hasHideCustomer ? ', is_simplified, hide_customer_on_pdf' : '')
+            . ' FROM invoices WHERE id = ?'
+        );
         $currentStmt->execute([$id]);
         $current = $currentStmt->fetch(PDO::FETCH_ASSOC);
         if ($current === false) {
@@ -1364,6 +1434,7 @@ final class InvoiceRepository
               . ($hasExempt ? ', income_tax_exempt = ?, income_tax_exempt_reason = ?' : '')
               . ($hasReminders ? ', auto_send_reminders = ?' : '')
               . ($hasSimplified ? ', is_simplified = ?' : '')
+              . ($hasHideCustomer ? ', hide_customer_on_pdf = ?' : '')
               . ($hasPriceLevel ? ', price_level_id = ?' : '')
               . ($hasVarsymbol ? ', varsymbol = ?' : '')
               . ($hasPaymentVs ? ', payment_variable_symbol = ?' : '')
@@ -1401,6 +1472,13 @@ final class InvoiceRepository
             $params[] = array_key_exists('auto_send_reminders', $data) ? ((int) (bool) $data['auto_send_reminders']) : 1;
         }
         if ($hasSimplified) $params[] = !empty($data['is_simplified']) ? 1 : 0;
+        if ($hasHideCustomer) {
+            $finalSimplified = $hasSimplified ? !empty($data['is_simplified']) : !empty($current['is_simplified']);
+            $hide = array_key_exists('hide_customer_on_pdf', $data)
+                ? !empty($data['hide_customer_on_pdf'])
+                : !empty($current['hide_customer_on_pdf']);
+            $params[] = $finalSimplified && $hide ? 1 : 0;
+        }
         if ($hasPriceLevel) $params[] = self::normalizePriceLevelId($data['price_level_id']);
         if ($hasVarsymbol) $params[] = $manualVarsymbol;
         if ($hasPaymentVs) $params[] = $paymentVs;
@@ -1576,12 +1654,42 @@ final class InvoiceRepository
         return $pair !== null ? [$pair['from'], $pair['to']] : [null, null];
     }
 
+    /**
+     * Slevové řádky pro výpočet před uložením, se stejným seskupením a
+     * zaokrouhlením jako replaceItems(). Staré systémové slevové řádky ignoruje.
+     *
+     * @param list<array<string,mixed>> $items normalized source rows, not generated discounts
+     * @return list<array{quantity:float,unit_price_without_vat:float,vat_rate_snapshot:float,item_kind:string}>
+     */
+    public function previewHeaderDiscountItems(array $items, float $discountPercent): array
+    {
+        $supportsOss = $this->supportsOssItemColumns();
+        $supportsManualReview = $this->supportsOssManualReview();
+        $vatRates = $this->loadVatRates();
+        $discountItems = [];
+        foreach (array_values($items) as $item) {
+            if (!is_array($item) || InvoiceItemKind::of($item) !== InvoiceItemKind::STANDARD) {
+                continue;
+            }
+            $rateId = (int) ($item['vat_rate_id'] ?? 0);
+            $oss = $supportsOss ? self::ossItemParams($item, $supportsManualReview) : [];
+            $discountItems[] = array_replace($item, [
+                'vat_rate_snapshot' => (float) ($vatRates[$rateId] ?? $item['vat_rate_snapshot'] ?? 0),
+                '_header_discount_oss_params' => $oss,
+            ]);
+        }
+        $groups = InvoiceHeaderDiscount::groups($discountItems, $supportsOss);
+        return InvoiceHeaderDiscount::calculationItems($groups, self::clampDiscountPercent($discountPercent));
+    }
+
     public function replaceItems(int $invoiceId, array $items): void
     {
         $pdo = $this->db->pdo();
 
+        // Textový řádek (InvoiceItemKind::TEXT) se zapisuje vždy vynulovaný: popis + sazba,
+        // nic dalšího. Normalizace před TimeBilling, ať z něj nevznikne časová položka.
         $items = array_map(
-            static fn (array $item): array => TimeBilling::normalizeInvoiceItem($item),
+            static fn (array $item): array => TimeBilling::normalizeInvoiceItem(InvoiceItemKind::normalize($item)),
             array_values($items),
         );
 
@@ -1602,8 +1710,8 @@ final class InvoiceRepository
         $revenueAccounts = [];
         $productDefaults = new \MyInvoice\Service\Accounting\Product\ProductPostingDefaults($this->db);
         foreach ($items as $i => $item) {
-            if (($item['item_kind'] ?? 'standard') === 'discount') {
-                continue;   // slevový řádek se generuje níž, účet dědí
+            if (InvoiceItemKind::of($item) !== InvoiceItemKind::STANDARD) {
+                continue;   // slevový řádek se generuje níž, účet dědí; textový žádný nemá
             }
             try {
                 $revenueAccounts[$i] = $productDefaults->validateAccount(
@@ -1643,6 +1751,12 @@ final class InvoiceRepository
         if ($supportsTracking) {
             $ossColumns[] = 'tracking_json';
         }
+        // Ceníková cena a sleva řádku (2035), procento dopočítá LineDiscount.
+        $supportsLineDiscount = $this->supportsLineDiscount();
+        if ($supportsLineDiscount) {
+            $ossColumns[] = \MyInvoice\Service\Invoice\LineDiscount::LIST_COLUMN;
+            $ossColumns[] = \MyInvoice\Service\Invoice\LineDiscount::PERCENT_COLUMN;
+        }
 
         $stmt = $pdo->prepare(
             'INSERT INTO invoice_items
@@ -1657,6 +1771,7 @@ final class InvoiceRepository
         );
 
         $vatRates = $this->loadVatRates();
+        $textRateId = InvoiceItemKind::textRowRateId($items, $pdo, $vatRates);
 
         // Reverse charge + země klienta + jazyk + sleva — z hlavičky.
         //   Klasifikační kód: CZ klient → '1'/'2'/'3' (tuzemsko podle sazby)
@@ -1682,15 +1797,37 @@ final class InvoiceRepository
         $docYear = !empty($meta['doc_date']) ? (int) substr((string) $meta['doc_date'], 0, 4) : (int) date('Y');
         $standardRate = $this->taxConstants->vatRateStandard($docYear);
 
-        // Slevu agregujeme po (vat_rate_id, vat_rate_snapshot, code) — báze = součet
-        // round(qty*price, 2) jednotlivých řádků (stejné zaokrouhlení jako InvoiceMath).
-        $discountGroups = [];
+        // Skupiny slevy připravuje společná čistá kalkulace, kterou používá i preflight limitů.
+        $discountSourceItems = [];
         $maxOrder = -1;
         $accrualPeriods = [];
 
         foreach (array_values($items) as $i => $item) {
             // Systémové slevové řádky z UI ignorujeme — generují se z header pole níže.
             if (($item['item_kind'] ?? 'standard') === 'discount') {
+                continue;
+            }
+            if (InvoiceItemKind::isText($item)) {
+                // Textový řádek: jen popis na svém místě. Bez klasifikace, OSS, skladu,
+                // majetku, účtu a období; do slevy ani do období slevy nevstupuje.
+                $vatRateId = $textRateId;
+                $orderIndex = (int) ($item['order_index'] ?? $i);
+                $params = [
+                    $invoiceId, (string) $item['description'], 0.0, null, '', 0.0,
+                    $vatRateId, $vatRates[$vatRateId] ?? 0.0, $orderIndex, InvoiceItemKind::TEXT,
+                    null, null, null, null, null, null, null, null,
+                ];
+                if ($supportsOss) {
+                    $params = array_merge($params, self::ossItemParams($item, $supportsManualReview));
+                }
+                if ($supportsTracking) {
+                    $params[] = null;
+                }
+                if ($supportsLineDiscount) {
+                    array_push($params, null, null);
+                }
+                $stmt->execute($params);
+                $maxOrder = max($maxOrder, $orderIndex);
                 continue;
             }
             $vatRateId = (int) ($item['vat_rate_id'] ?? 0);
@@ -1732,7 +1869,7 @@ final class InvoiceRepository
                 (string) ($item['description'] ?? ''),
                 (float) ($item['quantity'] ?? 1),
                 $item['duration_minutes'],
-                (string) ($item['unit'] ?? 'ks'),
+                (string) ($item['unit'] ?? self::DEFAULT_ITEM_UNIT),
                 (float) ($item['unit_price_without_vat'] ?? 0),
                 $vatRateId,
                 $rate,
@@ -1755,41 +1892,23 @@ final class InvoiceRepository
             if ($supportsTracking) {
                 $params[] = \MyInvoice\Service\Stock\InvoiceItemTracking::payloadJson($item);
             }
+            if ($supportsLineDiscount) {
+                array_push($params, ...\MyInvoice\Service\Invoice\LineDiscount::columns($item));
+            }
             $stmt->execute($params);
 
             $maxOrder = max($maxOrder, $orderIndex);
             if ($discountPercent > 0) {
-                $base = TimeBilling::invoiceAmount($item);
                 $oss = $supportsOss ? self::ossItemParams($item, $supportsManualReview) : [];
-                $key = $vatRateId . '|' . ($code ?? '');
-                if ($supportsOss) {
-                    $ossKey = $oss;
-                    $ossKey[6] = null;
-                    $ossKey[7] = null;
-                    $key .= '|' . implode('|', array_map(static fn ($v) => $v === null ? '' : (string) $v, $ossKey));
-                }
-                if (!isset($discountGroups[$key])) {
-                    $discountGroups[$key] = [
-                        'vat_rate_id' => $vatRateId,
-                        'snapshot'    => $rate,
-                        'code'        => $code,
-                        'base'        => 0.0,
-                    ];
-                    if ($supportsOss) {
-                        $discountGroups[$key]['oss'] = $oss;
-                    }
-                } elseif ($supportsOss) {
-                    foreach ([6, 7] as $amountIndex) {
-                        if ($oss[$amountIndex] !== null) {
-                            $discountGroups[$key]['oss'][$amountIndex] =
-                                (float) ($discountGroups[$key]['oss'][$amountIndex] ?? 0.0) + (float) $oss[$amountIndex];
-                        }
-                    }
-                }
-                $discountGroups[$key]['base'] += $base;
+                $discountSourceItems[] = array_replace($item, [
+                    'vat_rate_snapshot' => $rate,
+                    'vat_classification_code' => $code,
+                    '_header_discount_oss_params' => $oss,
+                ]);
             }
         }
 
+        $discountGroups = InvoiceHeaderDiscount::groups($discountSourceItems, $supportsOss);
         if ($discountPercent > 0 && $discountGroups !== []) {
             $this->materializeDiscountLines(
                 $stmt,
@@ -1900,11 +2019,8 @@ final class InvoiceRepository
     ): void {
         $label = self::discountLabel($discountPercent, $language);
         $order = $startOrder;
-        foreach ($groups as $g) {
-            $disc = round($g['base'] * $discountPercent / 100.0, 2);
-            if ($disc == 0.0) {
-                continue;
-            }
+        foreach (InvoiceHeaderDiscount::discountGroups($groups, $discountPercent) as $g) {
+            $disc = (float) $g['discount'];
             $params = [
                 $invoiceId,
                 $label,
@@ -1941,6 +2057,9 @@ final class InvoiceRepository
             }
             if ($this->supportsItemTracking()) {
                 $params[] = null;   // slevový řádek nemá výběr sériových čísel
+            }
+            if ($this->supportsLineDiscount()) {
+                array_push($params, null, null);   // hlavičková sleva není sleva z ceníku
             }
             $stmt->execute($params);
         }
@@ -2327,6 +2446,7 @@ final class InvoiceRepository
         // Vždy klíč vrátit, i na instalaci bez migrace 1170 — editor by jinak checkbox
         // po načtení dokladu tiše zrušil (undefined → false → uložení jako běžný doklad).
         $row['is_simplified']       = isset($row['is_simplified']) ? (bool) $row['is_simplified'] : false;
+        $row['hide_customer_on_pdf'] = isset($row['hide_customer_on_pdf']) ? (bool) $row['hide_customer_on_pdf'] : false;
         $row['price_level_id']      = isset($row['price_level_id']) ? (int) $row['price_level_id'] : null;
         $row['prices_include_vat']  = isset($row['prices_include_vat']) ? (bool) $row['prices_include_vat'] : false;
         if (array_key_exists('income_tax_exempt', $row)) {
@@ -2791,6 +2911,9 @@ final class InvoiceRepository
         $row['quantity']               = (float) $row['quantity'];
         $row['duration_minutes']       = $row['duration_minutes'] !== null ? (int) $row['duration_minutes'] : null;
         $row['unit_price_without_vat'] = (float) $row['unit_price_without_vat'];
+        // Ceníková cena a sleva řádku (2035) jdou ven vždy, na starší instanci jako null.
+        $row['list_unit_price']        = isset($row['list_unit_price']) ? (float) $row['list_unit_price'] : null;
+        $row['line_discount_pct']      = isset($row['line_discount_pct']) ? (float) $row['line_discount_pct'] : null;
         $row['vat_rate_snapshot']      = (float) $row['vat_rate_snapshot'];
         foreach (['total_without_vat', 'total_vat', 'total_with_vat'] as $f) {
             $row[$f] = (float) $row[$f];
@@ -2833,7 +2956,8 @@ final class InvoiceRepository
     private function buildVatBreakdown(array $items): array
     {
         $bd = [];
-        foreach ($items as $item) {
+        // Textový řádek nezakládá řádek rekapitulace (InvoiceItemKind).
+        foreach (InvoiceItemKind::amountLines($items) as $item) {
             $rate = (float) $item['vat_rate_snapshot'];
             $key = number_format($rate, 2, '.', '');
             if (!isset($bd[$key])) {

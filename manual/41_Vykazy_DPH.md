@@ -4,6 +4,12 @@
 
 Výkazy najdete v menu **Daně**, archiv podání jako poslední bod téhož menu (`Daně → EPO podání a archív`). Související výkazy a exporty mají vlastní kapitoly: [Kniha DPH](42_Kniha_DPH.md) (interní žurnál), [Souhrnné hlášení](44_Souhrnne_hlaseni.md) (EU dodání B2B) a [Hromadný export](48_Hromadny_export.md) (ZIP balíček pro účetní). Rozdíl mezi staženým a skutečně podaným XML vysvětluje [Archiv podání a daňová rekonciliace](49_Archiv_podani_a_rekonciliace.md).
 
+**Volba období:** Přiznání DPH, kontrolní hlášení i Kniha DPH přebírají výchozí měsíční nebo čtvrtletní režim z nastavení firmy. Souhrnné hlášení se řídí druhem plnění, proto začíná měsíčně a svůj přepínač Měsíčně / Kvartálně si pamatuje samostatně. Bez zapamatované volby se otevře poslední celé uzavřené období: například 15. října září, u čtvrtletní firmy třetí čtvrtletí. V lednu jde o prosinec nebo čtvrté čtvrtletí předchozího roku.
+
+Vybrané období se pamatuje pro konkrétního uživatele a firmu v rámci karty prohlížeče, včetně pracovních panelů a obnovení stránky. Přechodem do dalšího výkazu se zachová; odhlášení tuto volbu vymaže. Již otevřený výkaz v jiném panelu se sám nepřepne. Odkaz s konkrétním obdobím má před zapamatovanou volbou přednost. Pokud prohlížeč ukládání nepovoluje, zůstane k dispozici výchozí poslední uzavřené období a ruční výběr.
+
+Kontrolní hlášení právnické osoby zůstává měsíční. Měsíční náhledy oprav § 74b a obnov § 46 sdílejí jednu společnou volbu, čtvrtletní OSS si pamatuje vlastní; při prvním otevření mohou převzít rok a měsíc ze společného výběru DPH. Jejich pevná periodicita nepřepíše režim ostatních výkazů. Roční koeficient, roční seznamy oprav, data doručení a období jednotlivých evidovaných oprav zůstávají samostatná. Automatický výběr období se neřídí stavem podání v archivu.
+
 ## 41.1 Kdy to potřebujete
 
 - Skončil měsíc nebo čtvrtletí a musíte podat přiznání k DPH a kontrolní hlášení.
@@ -32,7 +38,7 @@ Výkazy najdete v menu **Daně**, archiv podání jako poslední bod téhož men
 ## 41.2 Než začnete
 
 1. **Daňové nastavení firmy.** V `Nastavení → Daně a účetnictví`, v boxu **Daňové nastavení (EPO výkazy DPH/KH)**, vyplňte **Typ poplatníka** (fyzická osoba nebo právnická osoba), **Perioda DPH přiznání** (měsíční nebo kvartální), **Kód finančního úřadu** a případně **Kód územního pracoviště (ÚzP)**. Povinné je také **DIČ** v identifikaci firmy. Volitelně doplňte **CZ-NACE klasifikaci**, datovou schránku a **Sestavitel přiznání (účetní)**. Přehled všech polí je v [§ 41.13.1](#41131-pole-epo-a-vetap).
-2. **Oprávněná osoba.** U právnické osoby je povinná: jméno, příjmení a postavení osoby, která přiznání podepisuje (typicky jednatel).
+2. **Údaje podnikatele nebo oprávněné osoby.** U fyzické osoby zkontrolujte v `Nastavení → Daně a účetnictví` část **Osobní údaje podnikatele**. U právnické osoby vyplňte v části **Oprávněná osoba (jednatel / podpisující)** jméno, příjmení a postavení osoby, která přiznání podepisuje (typicky jednatel).
 3. **Plátcovství DPH.** Rozhoduje stav ke konci období výkazu, ne dnešní stav. Historii plátcovství vedete v témže nastavení v bloku **Plátcovství DPH**.
 4. **Doklady.** Doklady za období musí být vystavené nebo přijaté (ne koncepty) a mít správnou **Klasifikaci DPH**. Chybějící klasifikaci doplní automatika, viz [§ 41.13.10](#411310-automaticke-prirazeni-klasifikace).
 5. **OSS.** Stránka `Daně → OSS přiznání` se objeví až po zapnutí režimu OSS v `Nastavení → Daně a účetnictví`, viz [Režim OSS](45_OSS.md).
@@ -50,7 +56,7 @@ Lhůta: zpravidla 25. den po skončení měsíce, u čtvrtletního plátce po sk
 3. V poli **Typ podání** nechte **Řádné**.
 4. Přečtěte upozornění nad kartami (sekce **Upozornění**, žlutý a červený rámeček). Odstraňte jejich příčiny, než budete pokračovat. Typicky jde o koncepty, doklady čekající na schválení nebo nesoulad s kontrolním hlášením (viz [§ 41.12](#4112-kdyz-neco-nejde)).
 5. Zkontrolujte čtyři karty: **DPH na výstupu**, **DPH na vstupu**, **Daň k odvodu** (nebo **Nadměrný odpočet**) a **Termín podání** s odpočtem dnů.
-6. Projděte tabulky **DPH na výstupu (řádky 1-29)** a **DPH na vstupu (řádky 40+)**. U každého řádku vidíte kód, popis, základ a DPH. Porovnejte součty se seznamem faktur za období.
+6. Projděte tabulky **DPH na výstupu (řádky 1-29)** a **DPH na vstupu (řádky 40+)**. U každého řádku vidíte kód, popis, základ a DPH. Nabídka **…** v posledním sloupci řádku otevře Knihu DPH za stejné období, omezenou na odpovídající sekce. Informační řádky bez dokladové sekce tuto akci nemají. Porovnejte součty se seznamem faktur za období.
 7. Pod kartami je přehled **Vývoj DPH (12 měsíců)** pro rychlé porovnání s předchozími obdobími. Žlutá **Predikce** ukazuje odhad včetně konceptů. Do přiznání se promítne až po dokončení konceptů.
 8. Klikněte na **Stáhnout XML**. Stránka najde-li nesoulad s kontrolním nebo souhrnným hlášením, nebo s účtem 343, zeptá se na potvrzení. Po stažení se otevře `Daně → EPO podání a archív`.
 9. Podání dokončete na portálu EPO podle [§ 41.6](#416-krok-za-krokem-podani-na-portalu-epo-a-dolozeni).
@@ -69,7 +75,7 @@ Lhůta: stejná jako u přiznání. Identifikovaná osoba kontrolní hlášení 
 2. Zvolte období. Právnická osoba má jen měsíc a rok. Fyzická osoba může přepínačem **Měsíčně / Kvartálně** zvolit čtvrtletí.
 3. V poli **Typ podání** nechte **Řádné**.
 4. Přečtěte upozornění. Doklady čekající na schválení nebo zamítnuté stránka vyjmenuje a u dokladů se samovyměřením (sekce A.2 a B.1) vyžaduje při stažení potvrzení.
-5. Zkontrolujte kartu **Termín podání** a počty řádků v sekcích: **A.1**, **A.2**, **A.4**, **A.5** (vystavené) a **B.1**, **B.2**, **B.3** (přijaté). Sekce A.5 a B.3 jsou sumace (**agregováno**).
+5. Zkontrolujte kartu **Termín podání** a počty řádků v sekcích: **A.1**, **A.2**, **A.4**, **A.5** (vystavené) a **B.1**, **B.2**, **B.3** (přijaté). Nabídka **…** v posledním sloupci oddílu otevře soupis jeho dokladů za stejné období. Sekce A.5 a B.3 jsou sumace (**agregováno**); soupis zobrazí jejich jednotlivé doklady. Rychlé odpovědi na výzvu bez oddílů tyto akce nenabízejí.
 6. Klikněte na **Stáhnout XML**. Po stažení se otevře `Daně → EPO podání a archív`.
 7. Podání dokončete podle [§ 41.6](#416-krok-za-krokem-podani-na-portalu-epo-a-dolozeni).
 
@@ -77,6 +83,8 @@ Lhůta: stejná jako u přiznání. Identifikovaná osoba kontrolní hlášení 
 
 > [!TIP]
 > Přiznání a kontrolní hlášení se sestavují ze stejných dat. Nejdřív podejte přiznání, které zkontroluje shodu s hlášením (viz [§ 41.13.5](#41135-krizova-kontrola-s-kh-sh-a-uctem-343)), pak hlášení.
+
+Odkazy z řádků přiznání a oddílů hlášení otevírají podklady v pravém pracovním panelu, pokud je dostupný. Při jediném panelu se podklady otevřou v něm. Odkaz nese období, za které je výkaz právě načtený, a Kniha DPH ho zobrazí; zapamatovanou volbu období ostatních výkazů tím nezmění. Kniha DPH je pracovní přehled aktuálních dat včetně konceptů; neukazuje rozdíl dodatečného přiznání ani uložené podání. Pro kontrolu skutečně podaného KH použijte soupis z [Archivu podání](49_Archiv_podani_a_rekonciliace.md).
 
 ## 41.5 Krok za krokem: oprava už podaného přiznání nebo hlášení
 
@@ -240,7 +248,7 @@ Používáte ji jako věřitel: opravujete základ daně u pohledávky, kterou d
 
 ### 41.13.1 Pole EPO a VetaP
 
-Tato část mapuje pole z `Nastavení → Daně a účetnictví`, box **Daňové nastavení (EPO výkazy DPH/KH)**, na atributy v EPO XML (DPHDP3 a DPHKH1). Vyplňte je všechny, jinak EPO portál podání odmítne nebo bude výkaz formálně neúplný.
+Tato část mapuje pole z `Nastavení → Daně a účetnictví`, box **Daňové nastavení (EPO výkazy DPH/KH)**, na atributy v EPO XML (DPHDP3 a DPHKH1). Vyplňte údaje potřebné pro právní formu a podání; některá pole jsou volitelná.
 
 #### Identifikace finančního úřadu
 
@@ -279,18 +287,20 @@ EPO rozděluje uliční adresu na tři samostatné atributy (`ulice`, `c_pop`, `
 
 #### Osobní údaje (jen fyzická osoba, OSVČ)
 
+Vyplňte je v `Nastavení → Daně a účetnictví` v části **Osobní údaje podnikatele**. Pole **Titul** je nepovinné a může obsahovat více titulů, například `Ing. Ph.D.`; limit je 10 znaků. EPO údaje o podnikateli používá v přiznání k DPH, kontrolním i souhrnném hlášení. Stejné údaje se používají také v přiznání DPFO a ve mzdových EPO formulářích, které titul podporují.
+
 <!-- cols: 26 18 56 -->
 | Pole v UI | XML atribut | Popis |
 |---|---|---|
-| Titul | `titul` | Před jménem (Bc., Ing., Mgr.), nepovinné. |
+| **Titul** | `titul` | Titul nebo kombinace titulů, například `Ing.`, `Ph.D.` či `Ing. Ph.D.`; nepovinné, nejvýše 10 znaků. |
 | Jméno | `jmeno` | Křestní jméno plátce. |
 | Příjmení | `prijmeni` | Příjmení plátce. |
 
 Právnické osoby tato pole nevyplňují. Místo nich se použije `zkrobchjm` z firmy.
 
-#### Oprávněná osoba k podpisu
+#### Oprávněná osoba k podpisu (právnická osoba)
 
-Pole `opr_*` identifikují fyzickou osobu, která je u právnické osoby oprávněná přiznání podepsat (typicky jednatel, předseda představenstva). Pro právnickou osobu jsou povinná.
+V `Nastavení → Daně a účetnictví` vyplňte část **Oprávněná osoba (jednatel / podpisující)**. Pole `opr_*` identifikují fyzickou osobu, která je u právnické osoby oprávněná přiznání podepsat (typicky jednatel, předseda představenstva). Pro právnickou osobu jsou povinná.
 
 <!-- cols: 34 18 48 -->
 | Pole v UI (blok **Oprávněná osoba (jednatel / podpisující)**) | XML atribut | Popis |
@@ -299,7 +309,7 @@ Pole `opr_*` identifikují fyzickou osobu, která je u právnické osoby oprávn
 | **Příjmení** | `opr_prijmeni` | Příjmení. |
 | **Postavení (např. jednatel)** | `opr_postaveni` | Funkce, typicky `jednatel`, `majitel`, `předseda představenstva`. |
 
-U OSVČ zůstávají pole volitelná. Vyplňte vlastní jméno a příjmení pro přesné rozdělení v EPO výkazech, jinak se odvodí z názvu (včetně odstranění akademických titulů).
+U OSVČ se údaje o podnikateli zadávají v části **Osobní údaje podnikatele**. Nevyplněné jméno a příjmení se odvodí z názvu (včetně odstranění akademických titulů).
 
 #### Zastoupení a podepisující osoba
 

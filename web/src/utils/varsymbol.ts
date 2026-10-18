@@ -86,3 +86,12 @@ export function templatesCollide(a: string | null | undefined, b: string | null 
   if (ta === tb) return true
   return digitSkeleton(ta) === digitSkeleton(tb)
 }
+
+/**
+ * Řada, ze které doklad bere číslo, zrcadlo PHP VarsymbolGenerator::seriesTypeFor().
+ * Zjednodušený daňový doklad (§ 30 ZDPH) je faktura s příznakem; může mít vlastní
+ * řadu firmy. Bez ní ho backend čísluje řadou faktur, náhled to zohlední sám.
+ */
+export function varsymbolSeriesType(invoiceType: string, isSimplified: boolean | null | undefined): string {
+  return invoiceType === 'invoice' && isSimplified === true ? 'simplified' : invoiceType
+}

@@ -537,8 +537,8 @@ test('úpravy konceptu jsou zápisové a odebrání položky vyžaduje potvrzen�
   }
   assert.equal(tool('remove_invoice_item').destructive, true);
   assert.equal(tool('update_invoice_item').destructive, undefined);
-  assert.deepEqual(tool('add_invoice_item').inputSchema.required,
-    ['description', 'quantity', 'unit_price_without_vat', 'vat_rate_id']);
+  // Textový řádek (`kind: "text"`) potřebuje jen popis; ostatní pole hlídá nástroj sám.
+  assert.deepEqual(tool('add_invoice_item').inputSchema.required, ['description']);
   assert.ok(tool('remove_invoice_item').inputSchema.properties.confirm);
 });
 
@@ -560,7 +560,7 @@ test('změna ceny jedné položky zachová ostatní řádky i jejich skrytá pol
   assert.equal(body.items.length, 3);
   assert.deepEqual(body.items[0], {
     description: 'Licence', quantity: 1, duration_minutes: null, unit: 'ks',
-    unit_price_without_vat: 1800, vat_rate_id: 1, order_index: 0, vat_classification_code: '1',
+    unit_price_without_vat: 1800, vat_rate_id: 1, order_index: 0, item_kind: 'standard', vat_classification_code: '1',
     stock_item_id: null, warehouse_id: null, small_asset_id: null, asset_id: null,
     accrual_from: '2026-10-01', accrual_to: '2027-09-30',
     oss_applicable: false, oss_consumer_country: null,
@@ -640,6 +640,73 @@ test('odebrání položky s potvrzením pošle zbylé řádky beze změny', asyn
   assert.deepEqual(body.items.map((item) => item.description), ['Licence', 'Konzultace']);
   assert.equal(body.items[0].accrual_from, '2026-10-01');
   assert.equal(result.removed.description, 'E-kniha');
+});
+
+const textRow = (overrides = {}) => ({
+  id: 104, description: 'Oddíl B: montáž', quantity: 0, duration_minutes: null, unit: '',
+  unit_price_without_vat: 0, vat_rate_id: 1, order_index: 3, item_kind: 'text',
+  vat_classification_code: null, stock_item_id: null, warehouse_id: null,
+  small_asset_id: null, asset_id: null, accrual_from: null, accrual_to: null,
+  oss_applicable: false, oss_consumer_country: null, ...overrides,
+});
+
+test('textový řádek přežije úpravu jiné položky jako textový', async () => {
+  const invoice = draftInvoice();
+  invoice.items = [...invoice.items, textRow()];
+  const client = draftClient(invoice);
+  await tool('update_invoice_item').run(client, { invoice_id: 42, row: 1, unit_price_without_vat: 1800 }, 'update_invoice_item');
+
+  const body = putOf(client);
+  assert.equal(body.items.length, 4);
+  assert.equal(body.items[3].item_kind, 'text');
+  assert.equal(body.items[3].description, 'Oddíl B: montáž');
+});
+
+test('textový řádek se přidá jen s popisem na zadané místo', async () => {
+  const client = draftClient();
+  const result = await tool('add_invoice_item').run(client, {
+    invoice_id: 42, kind: 'text', description: '  Materiál  ', position: 2,
+  }, 'add_invoice_item');
+
+  const body = putOf(client);
+  assert.deepEqual(body.items[1], { item_kind: 'text', description: 'Materiál', order_index: 1 });
+  assert.equal(body.items.length, 4);
+  assert.equal(result.added.row, 2);
+});
+
+test('běžná položka bez množství, ceny nebo sazby se nepřidá', async () => {
+  for (const missing of ['quantity', 'unit_price_without_vat', 'vat_rate_id']) {
+    const args = { invoice_id: 42, description: 'Doprava', quantity: 1, unit_price_without_vat: 350, vat_rate_id: 1 };
+    delete args[missing];
+    const client = draftClient();
+    await assert.rejects(tool('add_invoice_item').run(client, args, 'add_invoice_item'), new RegExp(missing === 'quantity' ? 'Množství' : missing === 'vat_rate_id' ? 'sazb' : 'cen', 'i'), missing);
+    assert.equal(client.calls.some((call) => call.method === 'PUT'), false, missing);
+  }
+});
+
+test('textovému řádku jde změnit jen text', async () => {
+  const invoice = draftInvoice();
+  invoice.items = [...invoice.items, textRow()];
+  const client = draftClient(invoice);
+  await assert.rejects(
+    tool('update_invoice_item').run(client, { invoice_id: 42, row: 4, quantity: 2 }, 'update_invoice_item'),
+    /Textový řádek/,
+  );
+  assert.equal(client.calls.some((call) => call.method === 'PUT'), false);
+
+  await tool('update_invoice_item').run(client, { invoice_id: 42, row: 4, description: 'Oddíl C' }, 'update_invoice_item');
+  assert.equal(putOf(client).items[3].description, 'Oddíl C');
+});
+
+test('poslední položku vedle textových řádků odebrat nejde', async () => {
+  const invoice = draftInvoice();
+  invoice.items = [invoice.items[0], textRow()];
+  const client = draftClient(invoice);
+  await assert.rejects(
+    tool('remove_invoice_item').run(client, { invoice_id: 42, row: 1, confirm: true }, 'remove_invoice_item'),
+    /jen tuto položku/,
+  );
+  assert.equal(client.calls.some((call) => call.method === 'PUT'), false);
 });
 
 test('jedinou položku odebrat nejde', async () => {

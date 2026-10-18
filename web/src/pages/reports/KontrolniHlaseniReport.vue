@@ -2,31 +2,25 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
-import { reportsApi, type DphSettings, type KhVariant } from '@/api/reports'
+import { reportsApi, type KhVariant } from '@/api/reports'
 import { apiErrorMessage } from '@/api/errors'
 import { useYearOptions } from '@/composables/useYearOptions'
-import { useReportPeriodQuery } from '@/composables/useReportPeriodQuery'
+import { useVatReportPeriod } from '@/composables/useVatReportPeriod'
 import { ICONS, btnOutline } from '@/components/ui/buttonStyles'
 import { useAuthStore } from '@/stores/auth'
 import { downloadApiFile } from '@/utils/downloadFile'
 import DateInput from '@/components/ui/DateInput.vue'
 import PendingApprovalVatNotice from '@/components/reports/PendingApprovalVatNotice.vue'
+import VatBookSectionActions from '@/components/reports/VatBookSectionActions.vue'
 
 const { t, locale } = useI18n()
 const router = useRouter()
 const auth = useAuthStore()
 
-const { year, month, periodOverride } = useReportPeriodQuery()
+const { year, month, periodOverride, effectivePeriod, settings, ready, settingsError, initialize } = useVatReportPeriod('kh')
 
-const settings = ref<DphSettings | null>(null)
-
-// PO musí vždy měsíčně (§ 101e/1); FO může kvartálně (§ 101e/2)
+// PO musí vždy měsíčně (§ 101e/1); FO může kvartálně (§ 101e/2).
 const isLegalEntity = computed(() => settings.value?.taxpayer_type === 'po')
-const effectivePeriod = computed<'monthly' | 'quarterly'>(() => {
-  if (isLegalEntity.value) return 'monthly'
-  if (periodOverride.value) return periodOverride.value
-  return (settings.value?.vat_period as 'monthly' | 'quarterly') || 'monthly'
-})
 const currentQuarter = computed(() => Math.ceil(month.value / 3))
 
 function setQuarter(q: number) {
@@ -34,7 +28,14 @@ function setQuarter(q: number) {
 }
 
 const preview = ref<Awaited<ReturnType<typeof reportsApi.khPreview>> | null>(null)
-const loading = ref(false)
+// Odkaz do Knihy DPH nese období, za které je náhled skutečně načtený.
+const loadedPeriod = ref<{ year: number; month: number; period: 'monthly' | 'quarterly' } | null>(null)
+function sectionBookRoute(section: string) {
+  // Rychlá odpověď na výzvu jen potvrzuje podání nebo posílá nulové KH, doklady za ní nejsou.
+  if (!loadedPeriod.value || preview.value?.summary.is_vyzva_odpoved) return null
+  return { path: '/reports/dph-book', query: { ...loadedPeriod.value, kh_section: section, remember: '0' } }
+}
+const loading = ref(true)
 const error = ref('')
 
 type KhSectionRow = {
@@ -67,19 +68,23 @@ const isVyzvaOdpoved = computed(() => variant.value === 'vyzva_nulove' || varian
 const needsVyzvaRef = computed(() => isFollowUp.value || isVyzvaOdpoved.value)
 
 let previewSeq = 0
-let initialized = false
 async function loadPreview() {
+  if (!ready.value) return
   const seq = ++previewSeq
+  const requestedPeriod = { year: year.value, month: month.value, period: effectivePeriod.value }
   loading.value = true
   error.value = ''
   try {
     const result = await reportsApi.khPreview(
-      year.value, month.value, effectivePeriod.value,
+      requestedPeriod.year, requestedPeriod.month, requestedPeriod.period,
       variant.value,
       isFollowUp.value ? dZjist.value : undefined,
       needsVyzvaRef.value ? cJedVyzvy.value : undefined,
     )
-    if (seq === previewSeq) preview.value = result
+    if (seq === previewSeq) {
+      preview.value = result
+      loadedPeriod.value = requestedPeriod
+    }
   } catch (e) {
     if (seq === previewSeq) error.value = apiErrorMessage(e)
   } finally {
@@ -91,6 +96,7 @@ const crossCheck = computed(() => preview.value?.cross_check ?? [])
 const hasBlockingCrossCheck = computed(() => crossCheck.value.some(f => f.blocking))
 
 async function downloadXml() {
+  if (!ready.value || !preview.value || loading.value) return
   const acknowledge = hasBlockingCrossCheck.value
     ? confirm(t('reports.pending_approval.confirm_download_anyway'))
     : false
@@ -125,14 +131,28 @@ const daysToDeadline = computed(() => {
   return Math.ceil((d.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
 })
 
-watch([year, month, effectivePeriod, variant, dZjist, cJedVyzvy], () => {
-  if (initialized) void loadPreview()
-})
-onMounted(async () => {
-  try { settings.value = await reportsApi.dphSettings() } catch {}
-  initialized = true
+watch([ready, year, month, effectivePeriod, variant, dZjist, cJedVyzvy], () => {
+  if (!ready.value) {
+    ++previewSeq
+    preview.value = null
+    loadedPeriod.value = null
+    loading.value = !settingsError.value
+    return
+  }
   void loadPreview()
 })
+watch(settingsError, value => {
+  if (value) {
+    error.value = apiErrorMessage(value)
+    loading.value = false
+  }
+})
+function retrySettings() {
+  loading.value = true
+  error.value = ''
+  void initialize()
+}
+onMounted(() => { void initialize() })
 </script>
 
 <template>
@@ -146,28 +166,28 @@ onMounted(async () => {
       <div class="flex items-center gap-2 flex-wrap">
         <!-- Period toggle — pouze pro FO (PO musí vždy měsíčně) -->
         <div v-if="!isLegalEntity" class="flex rounded-md border border-neutral-300 overflow-hidden text-sm">
-          <button type="button" @click="periodOverride = 'monthly'"
+          <button type="button" :disabled="!ready" @click="periodOverride = 'monthly'"
             :class="effectivePeriod === 'monthly' ? 'bg-primary-600 text-white' : 'bg-surface text-neutral-700 hover:bg-neutral-50'"
             class="cursor-pointer px-3 h-9">{{ t('reports.dph.monthly') }}</button>
-          <button type="button" @click="periodOverride = 'quarterly'"
+          <button type="button" :disabled="!ready" @click="periodOverride = 'quarterly'"
             :class="effectivePeriod === 'quarterly' ? 'bg-primary-600 text-white' : 'bg-surface text-neutral-700 hover:bg-neutral-50'"
             class="cursor-pointer px-3 h-9 border-l border-neutral-300">{{ t('reports.dph.quarterly') }}</button>
         </div>
         <!-- Quarter selector (quarterly) nebo month selector (monthly) -->
         <template v-if="effectivePeriod === 'quarterly'">
-          <select v-model.number="year" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
+          <select :disabled="!ready" v-model.number="year" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
             <option v-for="y in yearOptions" :key="y" :value="y">{{ y }}</option>
           </select>
-          <select :value="currentQuarter" @change="setQuarter(Number(($event.target as HTMLSelectElement).value))"
+          <select :disabled="!ready" :value="currentQuarter" @change="setQuarter(Number(($event.target as HTMLSelectElement).value))"
             class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
             <option v-for="q in 4" :key="q" :value="q">Q{{ q }}</option>
           </select>
         </template>
         <template v-else>
-          <select v-model.number="month" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
+          <select :disabled="!ready" v-model.number="month" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
             <option v-for="(label, i) in monthOptions" :key="i + 1" :value="i + 1">{{ label }}</option>
           </select>
-          <select v-model.number="year" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
+          <select :disabled="!ready" v-model.number="year" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
             <option v-for="y in yearOptions" :key="y" :value="y">{{ y }}</option>
           </select>
         </template>
@@ -207,7 +227,13 @@ onMounted(async () => {
     </div>
 
     <div v-if="loading" class="bg-surface border border-neutral-200 rounded-lg shadow-sm p-8 text-center text-neutral-400">{{ t('common.loading') }}…</div>
-    <div v-else-if="error" class="bg-danger-50 border border-danger-500/40 text-danger-500 rounded-md p-3 text-sm">{{ error }}</div>
+    <div v-else-if="error" class="bg-danger-50 border border-danger-500/40 text-danger-500 rounded-md p-3 text-sm flex flex-wrap items-center gap-3">
+      <span>{{ error }}</span>
+      <button v-if="settingsError" type="button" @click="retrySettings" :class="btnOutline('neutral')">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.cycle" /></svg>
+        {{ t('common.retry') }}
+      </button>
+    </div>
 
     <div v-else-if="preview" class="space-y-4">
       <!-- Warnings -->
@@ -240,6 +266,9 @@ onMounted(async () => {
           <h3 class="text-sm font-semibold uppercase tracking-wide text-neutral-700">{{ t('reports.kh.section_a_title') }}</h3>
         </header>
         <table class="w-full text-sm">
+          <thead class="sr-only">
+            <tr><th>{{ t('reports.dph.description') }}</th><th>{{ t('reports.kh.rows') }}</th><th>{{ t('common.actions') }}</th></tr>
+          </thead>
           <tbody class="divide-y divide-neutral-100">
             <tr v-for="section in sectionARows" :key="section.code">
               <td class="px-5 py-2.5 text-neutral-700">
@@ -247,6 +276,9 @@ onMounted(async () => {
               </td>
               <td class="px-5 py-2.5 text-right font-mono">
                 {{ section.count }} {{ t(section.aggregated ? 'reports.kh.aggregated' : 'reports.kh.rows') }}
+              </td>
+              <td class="w-12 px-3 py-2.5 text-right">
+                <VatBookSectionActions :to="sectionBookRoute(section.code)" :label="t('reports.dph_book.open_section_beside', { section: section.code })" />
               </td>
             </tr>
           </tbody>
@@ -259,6 +291,9 @@ onMounted(async () => {
           <h3 class="text-sm font-semibold uppercase tracking-wide text-neutral-700">{{ t('reports.kh.section_b_title') }}</h3>
         </header>
         <table class="w-full text-sm">
+          <thead class="sr-only">
+            <tr><th>{{ t('reports.dph.description') }}</th><th>{{ t('reports.kh.rows') }}</th><th>{{ t('common.actions') }}</th></tr>
+          </thead>
           <tbody class="divide-y divide-neutral-100">
             <tr v-for="section in sectionBRows" :key="section.code">
               <td class="px-5 py-2.5 text-neutral-700">
@@ -266,6 +301,9 @@ onMounted(async () => {
               </td>
               <td class="px-5 py-2.5 text-right font-mono">
                 {{ section.count }} {{ t(section.aggregated ? 'reports.kh.aggregated' : 'reports.kh.rows') }}
+              </td>
+              <td class="w-12 px-3 py-2.5 text-right">
+                <VatBookSectionActions :to="sectionBookRoute(section.code)" :label="t('reports.dph_book.open_section_beside', { section: section.code })" />
               </td>
             </tr>
           </tbody>

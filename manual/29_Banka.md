@@ -37,7 +37,7 @@ Klient potřebuje pro párování i jeho zrušení čtení všech dotčených do
 
 1. **Bankovní účet.** Číslo účtu z výpisu musí patřit některé z měn firmy. Účty zadáte v `Peníze → Bankovní účty`, záložka **Měny a účty** (viz [Bankovní účty](30_Bankovni_ucty.md)).
 2. **Zaúčtované doklady.** Aby se platba v podvojném účetnictví zaúčtovala přímo, musí mít faktura svůj zaúčtovaný předpis (viz [§ 29.13.13](#291313-automaticke-zauctovani-sparovanych-plateb-jen-podvojne-ucetnictvi)).
-3. **Oprávnění.** Párování vyžaduje zápis párování. Klient navíc potřebuje čtení banky, čtení dotčených dokladů a výše uvedená oprávnění měnit jejich úhrady. Smazání výpisu smí jen administrátor. Poznámku u pohybu přidává administrátor nebo účetní.
+3. **Oprávnění.** Párování vyžaduje zápis párování. Klient navíc potřebuje čtení banky, čtení dotčených dokladů a výše uvedená oprávnění měnit jejich úhrady. Smazání výpisu smí jen administrátor, avízový výpis každý se zápisem do banky. Poznámku u pohybu přidává administrátor nebo účetní.
 4. **Podvojné účetnictví** pro záložky **K zaúčtování** a pravidla účtování. Daňová evidence žádný deník nemá, tyto záložky ani tlačítka se v ní nezobrazují a banka funguje jen jako párování plateb.
 
 ## 29.3 Krok za krokem: nahrání výpisu
@@ -150,6 +150,12 @@ Je-li přijatá faktura uhrazená nižší platbou, než zbývá, nabídne aplik
 ## 29.8 Krok za krokem: zaúčtování pohybů (podvojné účetnictví)
 
 Spárovaná platba faktury se zaúčtuje sama (viz [§ 29.13.13](#291313-automaticke-zauctovani-sparovanych-plateb-jen-podvojne-ucetnictvi)). Pohyby bez faktury (poplatky, úroky, odvody, převody) vyřídíte ve frontě.
+
+V detailu výpisu otevřete u pohybu **Otevřít v účetním deníku**. Odkaz je dostupný, když má pohyb účetní zápis a máte právo deník číst. Deník otevře konkrétní zápis s rozbaleným detailem, zvýrazní ho a podle potřeby na něj odskroluje.
+
+V daňové evidenci otevřete u pohybu nabídku **…** a zvolte **Otevřít v peněžním deníku**. Zobrazí se rok bankovního pohybu a odpovídající řádky se zvýrazní; sestava zachovává ostatní řádky i zůstatky za celé období. Pokud pohyb v peněžním deníku není, zobrazí se oznámení.
+
+Při více pracovních panelech se deník otevře vpravo od panelu s výpisem, pokud je tam další panel. Při jediném panelu se otevře v něm. Obsah výpisu zůstane dostupný mezi okny aplikace.
 
 1. Otevřete `Peníze → Bankovní účty`, záložku **K zaúčtování**. Odznáček na záložce ukazuje počet čekajících položek.
 2. Výchozí podzáložka **Nezaúčtované pohyby** obsahuje všechny skutečné pohyby bez aktivního zápisu, tedy i ty, pro které automatika žádný návrh kontace nevytvořila.
@@ -291,12 +297,12 @@ Filtry prohledávají všechny příchozí i odchozí platby a kombinují se; v�
 | Měna | CZK / EUR / … |
 | Příchozí | Suma kreditních transakcí |
 | Odchozí | Suma debetních transakcí |
-| Spárováno | `12/14`: 12 ze 14 transakcí spárováno na faktury |
+| Spárováno | `12/14`: 12 ze 14 transakcí vyřešeno (spárováno na faktury, bez dokladu nebo u avíza nahrazeno výpisem) |
 | Importováno | Datum + uživatel |
 
 Protistranu lze vyhledat psaním do filtru. Nabídka ukazuje nejvýše 50 shod; další najdete upřesněním hledání. Vybraná protistrana zůstává součástí odkazu i uloženého filtru.
 
-**Smazání výpisu** (jen administrátor) smaže výpis i s jeho transakcemi. Každý spárovaný pohyb se předtím uvolní stejně jako při **Zrušit spárování**: platba vzniklá párováním se z faktury odebere, faktura se vrátí do stavu podle zbývajících plateb a zaúčtovaný pohyb se v podvojném účetnictví stornuje. Opětovný import téhož výpisu pak pohyby spáruje a zaúčtuje znovu, bez dvojí úhrady. Smazání se odmítne, když by po něm v evidenci něco nesedělo:
+**Smazání výpisu** (jen administrátor; avízový výpis smí smazat každý se zápisem do banky, viz [§ 30.11.16](30_Bankovni_ucty.md#301116-nesparovana-aviza)) smaže výpis i s jeho transakcemi. Každý spárovaný pohyb se předtím uvolní stejně jako při **Zrušit spárování**: platba vzniklá párováním se z faktury odebere, faktura se vrátí do stavu podle zbývajících plateb a zaúčtovaný pohyb se v podvojném účetnictví stornuje. Opětovný import téhož výpisu pak pohyby spáruje a zaúčtuje znovu, bez dvojí úhrady. Smazání se odmítne, když by po něm v evidenci něco nesedělo:
 
 - pohyb je zaúčtovaný v uzavřeném nebo zamčeném období, takže jeho zápis nejde stornovat,
 - k platbě z pohybu je vystavený daňový doklad k přijaté platbě (nejdřív ho smažte nebo stornujte),
@@ -377,6 +383,11 @@ Filtr **Nespárováno** v detailu výpisu ukazuje pohyby, které skutečně ček
 Skóre je dohledatelné složení signálů, nikoli odhad AI. Automatické potvrzení vyžaduje skóre nejméně **85 %**, náskok alespoň **15 procentních bodů** před druhým kandidátem a deterministické jádro: přesný VS, známý ověřený účet nebo jednoznačný součet více dokladů. Návrh od **35 %** se může zobrazit k ručnímu posouzení. Překlep ve VS, přeplatek, rozdíl odpovídající poplatku, rozdílná měna nebo proforma automatické potvrzení vždy blokují bez ohledu na skóre.
 
 Pole **Vyhledat jiný doklad** hledá podle čísla dokladu, platebního VS, dodavatele či odběratele nebo přesné částky dokladu či zbývající úhrady. Ruční hledání zahrnuje i starší doklady mimo časové okno automatických návrhů a respektuje směr platby včetně dobropisů.
+
+Vratky vydaných a přijatých dobropisů i vydané faktury k vyplacení zohledňují
+již spárované částečné vratky. Automatické párování hledá zbývající částku,
+ruční párování přidělí nejvýše tento zbytek. Přijatý dobropis se páruje s příchozí
+platbou. Částečná vratka sama doklad neoznačí jako plně vypořádaný.
 
 Párování z detailu faktury (**Spárovat s bankou**): seznam lze hledat podle protistrany, VS, popisu nebo přesné částky. Pohyb přidělený jinému dokladu, mzdám, daním nebo vlastnímu převodu se nenabídne; dostupnost se znovu kontroluje při potvrzení. U ostatních pohledávek a závazků použijte **Připojit úhradu**.
 

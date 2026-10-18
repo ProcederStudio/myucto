@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Migration\Premier;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\Payroll\PayrollEmploymentRepository;
 use MyInvoice\Repository\PremierImportRepository;
 use MyInvoice\Service\Geo\CountryNameMatcher;
@@ -1172,9 +1173,15 @@ final class PayrollImporter
             $pdo->exec('RELEASE SAVEPOINT ' . self::SAVEPOINT);
             return $result;
         } catch (PremierException|\PDOException $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             $pdo->exec('ROLLBACK TO SAVEPOINT ' . self::SAVEPOINT);
             throw $e;
         } catch (\InvalidArgumentException|\DomainException|\RuntimeException $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             $pdo->exec('ROLLBACK TO SAVEPOINT ' . self::SAVEPOINT);
             $pdo->exec('RELEASE SAVEPOINT ' . self::SAVEPOINT);
             $ctx->protocol->count(self::STEP, 'failed');
@@ -1194,9 +1201,15 @@ final class PayrollImporter
             }
             $pdo->exec('RELEASE SAVEPOINT premier_payroll_detail');
         } catch (\PDOException $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             $pdo->exec('ROLLBACK TO SAVEPOINT premier_payroll_detail');
             throw $e;
         } catch (\InvalidArgumentException|\DomainException|\RuntimeException $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             $pdo->exec('ROLLBACK TO SAVEPOINT premier_payroll_detail');
             $pdo->exec('RELEASE SAVEPOINT premier_payroll_detail');
             $ctx->protocol->count(self::STEP, 'details_failed');

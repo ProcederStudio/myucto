@@ -293,8 +293,7 @@ final class CronJobsAction
         $dataDir = is_string($dataDir) && trim($dataDir) !== '' ? trim($dataDir) : null;
         // V Docker image plánuje úlohy vestavěný cron generovaný z CronCatalog
         // (DockerCrontabGenerator) — admin tam nemá co nastavovat, jen ověřit.
-        // @: na sdíleném hostingu s open_basedir by každý dotaz mimo web vypsal warning.
-        $isDocker = @is_file('/.dockerenv') || @is_file(DockerCrontabGenerator::WRAPPER);
+        $isDocker = DockerCrontabGenerator::runningInContainer();
 
         $windows = PHP_OS_FAMILY === 'Windows';
         $sep = $windows ? '\\' : '/';
@@ -330,7 +329,7 @@ final class CronJobsAction
         $candidates = ($m[2] ?? '') !== '' ? ['php' . $m[2], 'php.exe', 'php'] : ['php.exe', 'php'];
         foreach ($candidates as $candidate) {
             $path = $dir . DIRECTORY_SEPARATOR . $candidate;
-            if (@is_file($path)) {
+            if (\MyInvoice\Support\OpenBasedir::isFile($path)) {
                 return $path;
             }
         }

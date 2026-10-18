@@ -84,11 +84,11 @@ final class ClosingEntryBuilder
             $amount = abs($cents) / 100;
             $code = (string) $row['account_code'];
             if ($cents > 0) {
-                $lines[] = self::line(self::ACCOUNT_CLOSING, 'debit', $amount);
-                $lines[] = self::line($code, 'credit', $amount);
+                $lines[] = self::line(self::ACCOUNT_CLOSING, 'debit', $amount, $row);
+                $lines[] = self::line($code, 'credit', $amount, $row);
             } else {
-                $lines[] = self::line($code, 'debit', $amount);
-                $lines[] = self::line(self::ACCOUNT_CLOSING, 'credit', $amount);
+                $lines[] = self::line($code, 'debit', $amount, $row);
+                $lines[] = self::line(self::ACCOUNT_CLOSING, 'credit', $amount, $row);
             }
         }
 
@@ -117,11 +117,11 @@ final class ClosingEntryBuilder
             $amount = abs($cents) / 100;
             $code = (string) $row['account_code'];
             if ($cents > 0) {
-                $lines[] = self::line($code, 'debit', $amount);
-                $lines[] = self::line(self::ACCOUNT_OPENING, 'credit', $amount);
+                $lines[] = self::line($code, 'debit', $amount, $row);
+                $lines[] = self::line(self::ACCOUNT_OPENING, 'credit', $amount, $row);
             } else {
-                $lines[] = self::line(self::ACCOUNT_OPENING, 'debit', $amount);
-                $lines[] = self::line($code, 'credit', $amount);
+                $lines[] = self::line(self::ACCOUNT_OPENING, 'debit', $amount, $row);
+                $lines[] = self::line($code, 'credit', $amount, $row);
             }
         }
 
@@ -182,10 +182,11 @@ final class ClosingEntryBuilder
     /**
      * @return array{account_code:string, side:'debit'|'credit', amount:float}
      */
-    private static function line(string $code, string $side, float $amount): array
+    private static function line(string $code, string $side, float $amount, array $balance = []): array
     {
         /** @var array{account_code:string, side:'debit'|'credit', amount:float} */
-        return ['account_code' => $code, 'side' => $side, 'amount' => round($amount, 2)];
+        return ['account_code' => $code, 'side' => $side, 'amount' => round($amount, 2)]
+            + array_intersect_key($balance, ['dimensions' => true, 'dimension_splits' => true, 'cost_center' => true, 'project_id' => true]);
     }
 
     /** Peníze → haléře (int); vstup je zaokrouhlený DECIMAL(x,2) ↔ float. */

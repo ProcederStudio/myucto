@@ -14,6 +14,15 @@ export type FirstYearIncrease = 'none' | 'p10' | 'p15' | 'p20'
 export type AccMethod = 'straight_line' | 'by_tax'
 export type DisposalType = 'sold' | 'liquidated' | 'donated' | 'damaged'
 
+export interface ImportedDepreciationPlan {
+  version: 1
+  source_program: string
+  source_tax_method: string
+  source_accounting_method: string
+  accounting: Array<{ month: string; amount_cents: number }>
+  tax: Array<{ fiscal_year: number; amount_cents: number }>
+}
+
 export interface Asset {
   id: number
   supplier_id: number
@@ -51,6 +60,7 @@ export interface Asset {
   acc_useful_life_months: number | null
   acc_method: AccMethod
   acc_residual_value: number
+  readonly imported_depreciation_plan?: ImportedDepreciationPlan | null
   created_at: string
   updated_at: string
 }
@@ -189,7 +199,7 @@ export interface DepreciationPlanRow {
   is_paused: boolean | number
   months_count: number | null
   months: { month: string; amount: number }[] | null
-  source: 'confirmed' | 'computed'
+  source: 'confirmed' | 'computed' | 'imported'
   note: string | null
   depreciation_entry_id?: number | null
   journal_entry_id?: number | null
@@ -262,7 +272,7 @@ export const assetsApi = {
     api.get<AssetDetail>(`/accounting/assets/${id}`).then(r => r.data),
   create: (payload: AssetPayload) =>
     api.post<AssetSaveResult>('/accounting/assets', payload).then(r => r.data),
-  update: (id: number, payload: AssetPayload) =>
+  update: (id: number, payload: Partial<AssetPayload>) =>
     api.put<AssetSaveResult>(`/accounting/assets/${id}`, payload).then(r => r.data),
   remove: (id: number) =>
     api.delete(`/accounting/assets/${id}`).then(r => r.data),

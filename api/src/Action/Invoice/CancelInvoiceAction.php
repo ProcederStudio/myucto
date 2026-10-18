@@ -21,7 +21,9 @@ use MyInvoice\Service\Accounting\DocumentLockService;
 use MyInvoice\Service\Accounting\PostingException;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Invoice\AdvanceCycleLock;
+use MyInvoice\Service\Invoice\InvoiceIssuer;
 use MyInvoice\Service\Invoice\InvoiceCalculator;
+use MyInvoice\Service\Invoice\LineDiscount;
 use MyInvoice\Service\IpMatcher;
 use MyInvoice\Service\Oss\OssPeriod;
 use MyInvoice\Service\Stats\StatsRecomputer;
@@ -214,6 +216,7 @@ final class CancelInvoiceAction
                 $userId,
             ]);
             $cancellationId = (int) $pdo->lastInsertId();
+            InvoiceIssuer::record($pdo, $cancellationId, $userId);
 
             // 2. Označ původní fakturu jako cancelled. Optimistický zámek L1 (Epic F6):
             // pro klienta UPDATE podmíněný booked_at IS NULL — účetní mohla zaúčtovat
@@ -324,6 +327,7 @@ final class CancelInvoiceAction
         $supportsManualReview = $supportsOss
             && $this->db->hasColumn('invoice_items', 'oss_needs_manual_review');
         $supportsTracking = $this->db->hasColumn('invoice_items', 'tracking_json');
+        $supportsLineDiscount = $this->db->hasColumn('invoice_items', LineDiscount::LIST_COLUMN);
         $sourcePeriod = OssPeriod::quarterCode((string) ($invoice['tax_date'] ?? $invoice['issue_date'] ?? ''));
         $creditPeriod = OssPeriod::quarterCode(date('Y-m-d'));
         $defaultOriginalPeriod = $sourcePeriod !== null && $creditPeriod !== null && $sourcePeriod < $creditPeriod
@@ -396,14 +400,19 @@ final class CancelInvoiceAction
             if ($supportsTracking) {
                 $ossColumns[] = 'tracking_json';
             }
+            // Ceníková cena řádku (2035): dobropis vrací totéž plnění za tutéž cenu.
+            if ($supportsLineDiscount) {
+                $ossColumns[] = LineDiscount::LIST_COLUMN;
+                $ossColumns[] = LineDiscount::PERCENT_COLUMN;
+            }
             $itemStmt = $pdo->prepare(
                 'INSERT INTO invoice_items
                    (invoice_id, description, quantity, duration_minutes, unit, unit_price_without_vat,
                     vat_rate_id, vat_rate_snapshot,
-                    total_without_vat, total_vat, total_with_vat, order_index, vat_classification_code,
+                    total_without_vat, total_vat, total_with_vat, order_index, item_kind, vat_classification_code,
                     stock_item_id, warehouse_id, revenue_account_code'
                 . ($ossColumns !== [] ? ', ' . implode(', ', $ossColumns) : '')
-                . ') VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?, ?'
+                . ') VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?, ?, ?'
                 . str_repeat(', ?', count($ossColumns))
                 . ')'
             );
@@ -412,7 +421,10 @@ final class CancelInvoiceAction
                 array_map(static fn (array $it): int => (int) ($it['stock_item_id'] ?? 0), $invoice['items']),
             );
             foreach ($invoice['items'] as $item) {
-                $code = $item['vat_classification_code']
+                // Textový řádek jde na dobropis jako textový, bez částky a bez klasifikace.
+                // Ostatní řádky (i slevový) jdou jako běžné, jako dřív.
+                $isText = \MyInvoice\Service\Invoice\InvoiceItemKind::isText($item);
+                $code = $isText ? null : $item['vat_classification_code']
                     ?? \MyInvoice\Repository\InvoiceRepository::defaultSaleClassificationCode(
                         (float) $item['vat_rate_snapshot'],
                         (bool) ($invoice['reverse_charge'] ?? false),
@@ -430,6 +442,7 @@ final class CancelInvoiceAction
                     $item['vat_rate_id'],
                     $item['vat_rate_snapshot'],
                     $item['order_index'],
+                    $isText ? \MyInvoice\Service\Invoice\InvoiceItemKind::TEXT : \MyInvoice\Service\Invoice\InvoiceItemKind::STANDARD,
                     $code !== null ? (string) $code : null,
                     // Vazba na skladovou kartu z parent faktury (Epic SKLAD §5.3) —
                     // bez ní by vratka při vystavení dobropisu neuměla napárovat výdej.
@@ -476,6 +489,9 @@ final class CancelInvoiceAction
                 }
                 if ($supportsTracking) {
                     $params[] = \MyInvoice\Service\Stock\InvoiceItemTracking::storedJson($item);
+                }
+                if ($supportsLineDiscount) {
+                    array_push($params, ...LineDiscount::columns($item));
                 }
                 $itemStmt->execute($params);
             }

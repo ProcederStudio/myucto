@@ -6,6 +6,7 @@ namespace MyInvoice\Action\Payroll;
 
 use MyInvoice\Http\Json;
 use MyInvoice\Middleware\AuthMiddleware;
+use MyInvoice\Repository\Payroll\PayrollOfficeRegistrationConflictException;
 use MyInvoice\Repository\Payroll\PayrollOfficeRegistrationRepository;
 use MyInvoice\Security\AccessLevel;
 use MyInvoice\Security\RequestAuthorization;
@@ -69,6 +70,15 @@ final class PayrollOfficeRegistrationAction
         }
         try {
             $registration = $this->registrations->add($this->currentSupplierId($request), (int) $args['officeId'], $date, $symbol, $source, $this->userId($request));
+        } catch (PayrollOfficeRegistrationConflictException $exception) {
+            return Json::error(
+                $response,
+                'office_registration_effective_from_conflict',
+                'Datum účinnosti musí navazovat za poslední uloženou verzi (účinná od '
+                    . $exception->latestEffectiveFrom . ').',
+                409,
+                ['latest_effective_from' => $exception->latestEffectiveFrom],
+            );
         } catch (\PDOException $exception) {
             if (!in_array((string) $exception->getCode(), ['23000', '45000'], true)) {
                 throw $exception;

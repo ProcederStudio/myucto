@@ -615,6 +615,8 @@ Poslední řádek pokrývá karetní úhrady, které VS ani protiúčet nenesou.
 > [!WARNING]
 > Karetní **blokace** se může od finálně zúčtované částky lišit. Pak se částky neshodují, převzetí neproběhne a platbu je potřeba přepárovat ručně.
 
+Převzaté avízo zůstane ve svém výpisu se štítkem **Nahrazeno výpisem** a je vyřešené. Seznam výpisů ho počítá mezi spárované, filtr **Nespárováno**, export a odeslání nespárovaných pohybů ani nástěnka ho neukazují a nenabízí se v návrzích párování ani v přehledu plateb kartou. Automatické párování ani **Přepárovat výpis** ho znovu nespárují, jinak by vedle úhrady na výpisu vznikla druhá. Ručně ho spárovat můžete, například když oficiální výpis smažete.
+
 ### 30.11.16 Nespárovaná avíza
 
 Karetní výdaje, bankovní poplatky a výběry se nemají s čím párovat, takže zůstanou v avízu jako nespárované a předchozí odstavec na ně nedosáhne - převzít u nich není co. Aby tentýž pohyb nezůstal v seznamu dvakrát, označí je import výpisu (a stejně tak tlačítko **Přepárovat výpis**) za **nahrazené oficiálním výpisem**: avízo dostane stav *Ignorováno* s poznámkou a v evidenci zůstane jediný pohyb - ten z výpisu. Kolik avíz se takhle odklidilo, ukáže hlášení po přepárování.
@@ -626,7 +628,9 @@ Podmínky jsou přísnější než u převzetí, protože tu chybí doklad, na k
 - den avíza musí spadat do **období, které importovaný výpis opravdu pokrývá** (jinak by výpis od 3. do 30. „nahradil“ avízo z 1., které v něm vůbec není),
 - kandidát musí být **právě jeden**; dvě nerozlišitelná avíza zůstanou obě.
 
-Nic se nepřepojuje, takže je to vratné: v detailu pohybu zrušte ignorování a avízo se vrátí mezi nespárované.
+Nic se nepřepojuje. Avízo nese štítek **Nahrazeno výpisem** a platí pro něj totéž co pro převzaté avízo v předchozí kapitole.
+
+**Smazání avízového výpisu** (e-mailová avíza i iDoklad) smí každý, kdo má zápis do banky a není klient. Jde to, jen když na výpisu nezůstala žádná spárovaná položka, typicky poté, co úhrady převzal oficiální výpis. Do té doby je tlačítko **Smazat výpis** neaktivní a vysvětlí proč.
 
 ### 30.11.17 Cron pro e-mailová avíza
 

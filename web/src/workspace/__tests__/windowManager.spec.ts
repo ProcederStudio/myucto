@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { flushPromises } from '@vue/test-utils'
 import { defineComponent, h, nextTick, ref, watch } from 'vue'
 import { createPinia, setActivePinia, type Pinia } from 'pinia'
 import {
@@ -77,7 +78,6 @@ interface Harness {
   store: ReturnType<typeof useWorkspaceStore>
   manager: WorkspaceWindowManager
   errors: unknown[]
-  confirmEviction: ReturnType<typeof vi.fn>
   attachPane: (id: PaneId) => PaneMount
   destroy: () => void
 }
@@ -104,7 +104,6 @@ function testRouter(slowGate?: { entered: Deferred<void>, release: Deferred<bool
 
 function createHarness(options: {
   panes?: PaneCount
-  allowEviction?: () => boolean
   slowGate?: { entered: Deferred<void>, release: Deferred<boolean> }
   authorize?: (router: Router) => Promise<boolean>
   supplier?: { id: number; name: string }
@@ -117,7 +116,6 @@ function createHarness(options: {
   const store = useWorkspaceStore(pinia)
   store.resetLayout(options.panes ?? 1, '/')
   const errors: unknown[] = []
-  const confirmEviction = vi.fn(() => options.allowEviction?.() ?? true)
   const mounts = new Map<PaneId, PaneMount>()
   const frameContainer = document.createElement('div')
   document.body.append(frameContainer)
@@ -125,7 +123,6 @@ function createHarness(options: {
     pinia,
     createRouter: options.routerFactory ?? (() => testRouter(options.slowGate)),
     authorize: options.authorize ?? vi.fn().mockResolvedValue(true),
-    confirmEviction,
     onError: error => { errors.push(error) },
     currentSupplier: () => options.supplier ?? { id: 0, name: '' },
     switchSupplier: options.switchSupplier,
@@ -165,7 +162,6 @@ function createHarness(options: {
     store,
     manager,
     errors,
-    confirmEviction,
     attachPane,
     destroy: () => {
       for (const mount of [...mounts.values()]) {
@@ -288,6 +284,101 @@ describe('workspace window manager', () => {
     expect(harness.store.companySwitching).toBe(false)
   })
 
+  it.each([1, 2] as const)('Shift navigace z posledního z %i panelů přidá pravý panel a zachová původní frame', async panes => {
+    vi.spyOn(HTMLIFrameElement.prototype, 'src', 'set').mockImplementation(() => undefined)
+    const harness = createHarness({ panes, frames: true, supplier: { id: 1, name: 'Firma A' } })
+    harness.store.setMaximumPaneCount(3)
+    for (const pane of harness.store.panes) harness.attachPane(pane.id)
+    const sourceId = harness.store.panes[panes - 1]!.id
+    await harness.manager.open('/editor/1', sourceId)
+    const original = harness.store.windows[0]!
+    const iframe = document.querySelector<HTMLIFrameElement>('iframe')!
+    const root = iframe.parentElement!
+    const parent = root.parentElement
+    window.dispatchEvent(new MessageEvent('message', { origin: window.location.origin, source: iframe.contentWindow, data: {
+      type: 'myucto-window-navigate', id: original.id, to: '/editor/2?tab=detail#row', placement: 'right',
+    } }))
+    await vi.waitFor(() => expect(harness.store.windows).toHaveLength(2))
+    const targetId = panes === 1 ? 'secondary-2' : 'secondary-3'
+    expect(harness.store.paneCount).toBe(panes + 1)
+    expect(harness.store.windows.find(window => window.id === original.id)?.paneId).toBe(sourceId)
+    expect(harness.store.windows.find(window => window.fullPath === '/editor/2?tab=detail#row')?.paneId).toBe(targetId)
+    expect(harness.store.activePaneId).toBe(targetId)
+    expect(root.parentElement).toBe(parent)
+    expect(root.hidden).toBe(false)
+    expect(harness.errors).toEqual([])
+  })
+
+  it('otevření vpravo z menu použije sousední panel a zachová rozpracovaný formulář', async () => {
+    const harness = createHarness({ panes: 3 })
+    harness.store.setMaximumPaneCount(3)
+    const primary = harness.attachPane('primary')
+    harness.attachPane('secondary-2')
+    harness.attachPane('secondary-3')
+    await harness.manager.open('/editor/1', 'primary')
+    await harness.manager.open('/editor/2', 'secondary-2')
+    const input = primary.target.querySelector<HTMLInputElement>('input')!
+    input.value = 'Rozpracovaný obsah'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await harness.manager.openRight('/editor/3', 'primary')
+    expect(harness.store.paneCount).toBe(3)
+    expect(harness.store.activePaneId).toBe('secondary-2')
+    expect(primary.target.querySelector('input')).toBe(input)
+    expect(input.value).toBe('Rozpracovaný obsah')
+    expect(harness.store.panes[1]?.fullPath).toBe('/editor/3')
+    expect(harness.store.windows.find(window => window.fullPath === '/editor/2')?.paneId).toBeNull()
+  })
+
+  it('na úzkém okně ani za posledním podporovaným panelem rozložení nerozšíří', async () => {
+    const harness = createHarness()
+    harness.attachPane('primary')
+    await harness.manager.open('/editor/1', 'primary')
+    await harness.manager.openRight('/editor/2', 'primary')
+    expect(harness.store.paneCount).toBe(1)
+    expect(harness.store.windows).toHaveLength(1)
+    harness.store.resizeLayout(2)
+    harness.store.setMaximumPaneCount(2)
+    harness.attachPane('secondary-2')
+    await harness.manager.openRight('/editor/2', 'secondary-2')
+    expect(harness.store.paneCount).toBe(2)
+    expect(harness.store.windows).toHaveLength(1)
+  })
+
+  it('Shift otevře cíl vpravo, i když už je stejná stránka vidět ve zdrojovém panelu', async () => {
+    const harness = createHarness()
+    harness.store.setMaximumPaneCount(2)
+    const primary = harness.attachPane('primary')
+    await harness.manager.open('/editor/1', 'primary')
+    const editor = primary.target.querySelector('[data-testid="editor"]')
+    await harness.manager.openRight('/editor/1', 'primary')
+    expect(harness.store.panes.map(pane => pane.fullPath)).toEqual(['/editor/1', '/editor/1'])
+    expect(harness.store.activePaneId).toBe('secondary-2')
+    expect(harness.store.windows).toHaveLength(2)
+    expect(primary.target.querySelector('[data-testid="editor"]')).toBe(editor)
+  })
+
+  it.each([true, false])('Shift navigace dodrží firmu zdroje a její autorizaci (povoleno: %s)', async allowed => {
+    const supplier = { id: 1, name: 'Firma A' }
+    const authorize = vi.fn().mockResolvedValue(true)
+    const switchSupplier = vi.fn(async (id: number) => { supplier.id = id; return true })
+    const harness = createHarness({ frames: true, supplier, switchSupplier, authorize })
+    vi.spyOn(HTMLIFrameElement.prototype, 'src', 'set').mockImplementation(() => undefined)
+    harness.store.setMaximumPaneCount(2)
+    harness.attachPane('primary')
+    await harness.manager.open('/editor/1', 'primary')
+    const originalId = harness.store.windows[0]!.id
+    supplier.id = 2
+    authorize.mockResolvedValue(allowed)
+    await harness.manager.openRight('/editor/2', 'primary')
+    expect(switchSupplier).toHaveBeenCalledWith(1)
+    expect(harness.store.paneCount).toBe(allowed ? 2 : 1)
+    expect(harness.store.windows).toHaveLength(allowed ? 2 : 1)
+    if (allowed) {
+      expect(harness.store.windows.find(window => window.id === originalId)?.paneId).toBe('primary')
+      expect(harness.store.windows.find(window => window.fullPath === '/editor/2')).toMatchObject({ supplierId: 1, paneId: 'secondary-2' })
+    }
+  })
+
   it('ponechá iframe v původním rodiči při parkování i přesunu do jiného panelu', async () => {
     vi.spyOn(HTMLIFrameElement.prototype, 'src', 'set').mockImplementation(function (this: HTMLIFrameElement, value: string) {
       this.dataset.testSrc = value
@@ -310,6 +401,82 @@ describe('workspace window manager', () => {
     expect(frame.parentElement).toBe(root)
     expect(root.parentElement).toBe(parent)
     expect(harness.store.windows.find(window => window.id === firstId)?.paneId).toBe('secondary-2')
+  })
+
+  it.each([1, 2, 3] as const)('otevře detail z frame při %i panelech a zachová původní report', async panes => {
+    vi.spyOn(HTMLIFrameElement.prototype, 'src', 'set').mockImplementation(() => undefined)
+    const harness = createHarness({ panes, frames: true, supplier: { id: 1, name: 'Firma A' } })
+    for (const pane of harness.store.panes) harness.attachPane(pane.id)
+    const sourcePane = harness.store.panes[panes - 1]!.id
+    await harness.manager.open('/editor/1', sourcePane)
+    const original = harness.store.windows[0]!
+    const iframe = document.querySelector<HTMLIFrameElement>('iframe')!
+    harness.store.activatePane('primary')
+    const send = (origin = window.location.origin, source: MessageEventSource | null = iframe.contentWindow) => {
+      window.dispatchEvent(new MessageEvent('message', { origin, source, data: {
+        type: 'myucto-window-navigate', id: original.id, to: '/editor/2?tx=42&detail=1', placement: 'beside',
+      } }))
+    }
+    send('https://foreign.example')
+    send(window.location.origin, window)
+    await harness.manager.open('/editor/1', sourcePane)
+    expect(harness.store.windows).toHaveLength(1)
+    send()
+    await vi.waitFor(() => expect(harness.store.windows).toHaveLength(2))
+    expect(harness.store.windows.find(window => window.id === original.id)?.paneId).toBe(panes === 1 ? null : sourcePane)
+    expect(harness.store.windows.find(window => window.fullPath.includes('detail=1'))?.paneId).toBe(panes === 3 ? 'secondary-2' : 'primary')
+    expect(harness.store.paneCount).toBe(panes)
+    expect(harness.errors).toEqual([])
+  })
+
+  it.each([true, false])('při frame navigaci vedle ověří firmu zdroje (přepnutí: %s)', async allowed => {
+    vi.spyOn(HTMLIFrameElement.prototype, 'src', 'set').mockImplementation(() => undefined)
+    const supplier = { id: 1, name: 'Firma A' }
+    const switchSupplier = vi.fn(async (id: number) => {
+      if (allowed) { supplier.id = id; supplier.name = `Firma ${id}` }
+      return allowed
+    })
+    const harness = createHarness({ panes: 2, frames: true, supplier, switchSupplier })
+    harness.attachPane('primary')
+    harness.attachPane('secondary-2')
+    await harness.manager.open('/editor/1', 'primary')
+    const original = harness.store.windows[0]!
+    const iframe = document.querySelector<HTMLIFrameElement>('iframe')!
+    supplier.id = 2
+    supplier.name = 'Firma B'
+    window.dispatchEvent(new MessageEvent('message', { origin: window.location.origin, source: iframe.contentWindow, data: {
+      type: 'myucto-window-navigate', id: original.id, to: '/editor/2', placement: 'beside', supplierId: 999,
+    } }))
+    await vi.waitFor(() => expect(switchSupplier).toHaveBeenCalledWith(1))
+    if (allowed) {
+      await vi.waitFor(() => expect(harness.store.windows).toHaveLength(2))
+      expect(harness.store.windows.find(window => window.fullPath === '/editor/2')).toMatchObject({ supplierId: 1, paneId: 'secondary-2' })
+      expect(harness.store.windows.find(window => window.id === original.id)?.paneId).toBe('primary')
+    } else {
+      await flushPromises()
+      expect(harness.store.windows.some(window => window.fullPath === '/editor/2')).toBe(false)
+    }
+    expect(harness.errors).toEqual([])
+  })
+
+  it('při zamítnuté autorizaci frame detail neotevře', async () => {
+    vi.spyOn(HTMLIFrameElement.prototype, 'src', 'set').mockImplementation(() => undefined)
+    const authorize = vi.fn().mockResolvedValue(true)
+    const harness = createHarness({ panes: 2, frames: true, supplier: { id: 1, name: 'Firma A' }, authorize })
+    harness.attachPane('primary')
+    harness.attachPane('secondary-2')
+    await harness.manager.open('/editor/1', 'primary')
+    const original = harness.store.windows[0]!
+    const iframe = document.querySelector<HTMLIFrameElement>('iframe')!
+    authorize.mockClear().mockResolvedValue(false)
+    window.dispatchEvent(new MessageEvent('message', { origin: window.location.origin, source: iframe.contentWindow, data: {
+      type: 'myucto-window-navigate', id: original.id, to: '/editor/2', placement: 'beside',
+    } }))
+    await vi.waitFor(() => expect(authorize).toHaveBeenCalled())
+    await flushPromises()
+    expect(harness.store.windows).toHaveLength(1)
+    expect(harness.store.windows[0]?.paneId).toBe('primary')
+    expect(harness.store.panes[1]?.fullPath).toBeNull()
   })
 
   it('respektuje odsazení obou panelů', async () => {
@@ -420,6 +587,23 @@ describe('workspace window manager', () => {
     expect(editor(7)).toBe(first)
   })
 
+  it('otevře jiné query zdrojového detailu jako nové okno a zachová report vedle', async () => {
+    const harness = createHarness({ panes: 2 })
+    const primary = harness.attachPane('primary')
+    const secondary = harness.attachPane('secondary-2')
+    await harness.manager.open('/editor/1', 'primary')
+    const report = editor(1)
+    await harness.manager.open('/editor/2?clearing=A', 'secondary-2')
+    const firstDetail = secondary.target.querySelector<HTMLElement>('[data-editor-id="2"]')!
+    await harness.manager.open('/editor/2?clearing=B', 'secondary-2')
+    const secondDetail = secondary.target.querySelector<HTMLElement>('[data-editor-id="2"]')!
+    expect(secondDetail.dataset.instance).not.toBe(firstDetail.dataset.instance)
+    expect(harness.store.windows).toHaveLength(3)
+    expect(primary.target.contains(report)).toBe(true)
+    expect(harness.store.windows.find(window => window.paneId === 'secondary-2')?.fullPath).toBe('/editor/2?clearing=B')
+    expect(firstDetail.isConnected).toBe(true)
+  })
+
   it('při výběru už viditelného okna zaměří jeho panel bez přesunu DOM', async () => {
     const harness = createHarness({ panes: 2 })
     const primary = harness.attachPane('primary')
@@ -490,25 +674,16 @@ describe('workspace window manager', () => {
     expect(harness.store.windows.find(window => window.fullPath === '/editor/1')?.paneId).toBeNull()
   })
 
-  it('neotevře šestnácté okno při odmítnuté evikci a po souhlasu drží limit patnáct', async () => {
-    let allowEviction = false
-    const harness = createHarness({ allowEviction: () => allowEviction })
+  it('nad limit dvaceti oken bez ptaní zavře nejstarší skryté okno', async () => {
+    const harness = createHarness()
     harness.attachPane('primary')
-    for (let id = 1; id <= 15; id++) await harness.manager.open(`/editor/${id}`, 'primary')
+    for (let id = 1; id <= 20; id++) await harness.manager.open(`/editor/${id}`, 'primary')
 
     const oldest = editor(1)
-    await harness.manager.open('/editor/16', 'primary')
+    await harness.manager.open('/editor/21', 'primary')
 
-    expect(harness.confirmEviction).toHaveBeenCalledOnce()
-    expect(harness.store.windows).toHaveLength(15)
-    expect(document.querySelector('[data-editor-id="16"]')).toBeNull()
-    expect(oldest.isConnected).toBe(true)
-
-    allowEviction = true
-    await harness.manager.open('/editor/16', 'primary')
-
-    expect(harness.store.windows).toHaveLength(15)
-    expect(editor(16).isConnected).toBe(true)
+    expect(harness.store.windows).toHaveLength(20)
+    expect(editor(21).isConnected).toBe(true)
     expect(oldest.isConnected).toBe(false)
     expect(harness.store.windows.some(window => window.fullPath === '/editor/1')).toBe(false)
   })

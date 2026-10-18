@@ -9,6 +9,7 @@ export interface ClientDomainRouteDefinition {
   path_pattern: string
   kind: ClientDomainRouteKind
   permission?: PermissionKey
+  permission_any?: PermissionKey[]
   access?: AccessLevel
   redirect_to?: string
   redirect_destinations?: string[]

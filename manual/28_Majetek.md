@@ -325,6 +325,20 @@ Plán se počítá průběžně: minulé roky vycházejí z potvrzených a zaú�
 parametrů karty. Změníte-li parametr, který ovlivňuje výpočet (například přidáte technické zhodnocení), plán pro nepotvrzené roky
 se přepočítá okamžitě.
 
+**Převzatý odpisový plán.** Ověřený import může u nehmotného majetku pořízeného od roku 2021
+převzít přesné budoucí měsíční účetní částky a shodné roční daňové součty. Řádky mají označení
+**Převzatý plán** a měsíční rozpis zachovává i rozdílnou poslední splátku. Historické odpisy
+zůstávají v počátečních oprávkách; import je znovu neúčtuje. Zaúčtování roku pracuje s převzatými
+částkami a je opakovatelné bez duplicitních zápisů.
+
+U této karty lze upravit inventární číslo, název a popis. Částky, účty, data, metody, životnost
+ani počáteční oprávky měnit nelze; nejsou dostupná technická zhodnocení, přerušení ani ruční
+přepis odpisu. Koncept lze zařadit s původním datem bez nového zápisu pořízení. Vyřazení zachová
+přesné částky do měsíce vyřazení a jeho vrácení obnoví původní plán. Vyřazení nesmí zasáhnout
+historické měsíce počátečních oprávek. U vyřazení již zaúčtovaného ručně v deníku musí potvrzené
+odpisy souhlasit se zkráceným plánem; před vrácením takového vyřazení je třeba odstranit potvrzený
+odpis, který by odporoval obnovenému celému roku.
+
 ### 28.12.5 Zařazení do užívání a mazání karty
 
 Kartu lze **smazat** nejen ve stavu Koncept, ale také po chybném zařazení do užívání. U karty v užívání se spolu s kartou atomicky

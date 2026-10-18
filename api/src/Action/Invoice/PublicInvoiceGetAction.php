@@ -150,7 +150,10 @@ final class PublicInvoiceGetAction
                 'is_vat_payer', 'commercial_register', 'email', 'web',
             ]),
             // Koncový zákazník zjednodušeného dokladu (§ 30) se nezobrazuje, stejně jako v PDF.
-            'client'   => !empty($client['is_walk_in']) ? null : $pick($client, [
+            // Totéž platí pro zjednodušený doklad s volbou „netisknout odběratele".
+            'client'   => !empty($client['is_walk_in'])
+                    || \MyInvoice\Service\Invoice\SimplifiedDocumentPolicy::hidesCustomer($invoice, $supplier)
+                ? null : $pick($client, [
                 'company_name', 'first_name', 'last_name', 'street', 'city', 'zip',
                 'country_name_cs', 'country_name_en', 'country_iso2',
                 'ic', 'dic', 'tax_number',

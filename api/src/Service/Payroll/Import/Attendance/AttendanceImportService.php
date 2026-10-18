@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Payroll\Import\Attendance;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\Payroll\PayrollAttendanceImportRepository;
 use MyInvoice\Repository\Payroll\PayrollComponentRepository;
 use MyInvoice\Repository\Payroll\PayrollDeductionAgreementConflictException;
@@ -2158,6 +2159,9 @@ final class AttendanceImportService
 
             return $result;
         } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             if ($owns) {
                 $pdo->rollBack();
             } elseif ($pdo->inTransaction()) {

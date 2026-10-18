@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Accounting\Assets;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Repository\AssetRepository;
 use MyInvoice\Repository\ChartOfAccountsRepository;
@@ -75,8 +76,30 @@ final class AssetService
      */
     public function create(int $supplierId, array $data, array $meta = []): array
     {
+        self::assertNoImportedPlanInput($data);
+        return $this->createCard($supplierId, $data, $meta);
+    }
+
+    /** Interní vstup importérů; nepoužívá se z HTTP payloadu běžné karty. */
+    public function createImported(int $supplierId, array $data, array $plan, array $meta = []): array
+    {
+        self::assertNoImportedPlanInput($data);
+        return $this->createCard($supplierId, $data + ['imported_depreciation_plan' => $plan], $meta);
+    }
+
+    private function createCard(int $supplierId, array $data, array $meta): array
+    {
         $card = $this->normalize($data, null);
         [$card, $warnings] = $this->validateCard($supplierId, $card, true);
+        if ($card['imported_depreciation_plan'] !== null) {
+            if ($card['kind'] !== 'intangible' || $card['tax_method'] !== 'by_accounting'
+                || $card['acc_method'] !== 'straight_line' || $card['acquisition_date'] < '2021-01-01'
+                || $card['tax_first_year_increase'] !== 'none' || $card['accumulated_account_code'] === null) {
+                throw new AssetException('imported_plan_invalid', 'Převzatý plán je podporován pro novější nehmotný majetek s daňovými odpisy podle účetních.');
+            }
+            $context = DepreciationContext::fromAsset($card, $this->periods->fiscalCalendar($supplierId));
+            $card['imported_depreciation_plan'] = ImportedDepreciationPlan::validate($card['imported_depreciation_plan'], $context);
+        }
         $card['created_by'] = $meta['user_id'] ?? null;
 
         try {
@@ -102,6 +125,7 @@ final class AssetService
      */
     public function update(int $supplierId, int $id, array $data, array $meta = []): array
     {
+        self::assertNoImportedPlanInput($data);
         $existing = $this->assets->find($supplierId, $id);
         if ($existing === null) {
             throw new AssetException('not_found', 'Majetek nenalezen.', 404);
@@ -128,6 +152,13 @@ final class AssetService
             $data['summary_account_code'],
         );
         $card = $this->normalize($data, $existing);
+        if (($existing['imported_depreciation_plan'] ?? null) !== null) {
+            $normalized = $this->normalize([], $existing);
+            foreach ($data as $field => $_value) {
+                if (!in_array($field, ['inventory_number', 'name', 'description'], true)
+                    && ($card[$field] ?? null) !== ($normalized[$field] ?? null)) self::assertNativePlan($existing);
+            }
+        }
         $this->assertLocks($existing, $card, $data);
         [$card, $warnings] = $this->validateCard($supplierId, $card, false);
 
@@ -345,10 +376,21 @@ final class AssetService
      */
     public function putIntoUse(int $supplierId, int $id, string $date, bool $bookEntry, array $meta): array
     {
+        return TransactionFailure::retrying(
+            $this->db->pdo(),
+            fn (): array => $this->putIntoUseOnce($supplierId, $id, $date, $bookEntry, $meta),
+        );
+    }
+
+    /** @param array{user_id?:?int, posted_by?:?int, ip?:?string, user_agent?:?string} $meta */
+    private function putIntoUseOnce(int $supplierId, int $id, string $date, bool $bookEntry, array $meta): array
+    {
         $asset = $this->assets->find($supplierId, $id);
         if ($asset === null) {
             throw new AssetException('not_found', 'Majetek nenalezen.', 404);
         }
+        if (($asset['imported_depreciation_plan'] ?? null) !== null
+            && ($bookEntry || $date !== $asset['put_into_use_date'])) self::assertNativePlan($asset);
         if ($asset['status'] !== 'draft') {
             throw new AssetException('invalid_status', 'Do užívání lze zařadit jen kartu ve stavu koncept.');
         }
@@ -439,6 +481,7 @@ final class AssetService
         if ($asset === null) {
             throw new AssetException('not_found', 'Majetek nenalezen.', 404);
         }
+        self::assertNativePlan($asset);
         if ($asset['status'] !== 'in_use') {
             throw new AssetException('invalid_status', 'Technické zhodnocení lze přidat jen k majetku v užívání.');
         }
@@ -499,6 +542,7 @@ final class AssetService
         if ($asset === null) {
             throw new AssetException('not_found', 'Majetek nenalezen.', 404);
         }
+        self::assertNativePlan($asset);
         $imp = $this->assets->findImprovement($supplierId, $improvementId);
         if ($imp === null || $imp['asset_id'] !== $id) {
             throw new AssetException('not_found', 'Technické zhodnocení nenalezeno.', 404);
@@ -520,6 +564,18 @@ final class AssetService
      * @return array{asset: array<string,mixed>, warnings: list<array{code:string, message:string}>}
      */
     public function dispose(int $supplierId, int $id, array $data, array $meta): array
+    {
+        return TransactionFailure::retrying(
+            $this->db->pdo(),
+            fn (): array => $this->disposeOnce($supplierId, $id, $data, $meta),
+        );
+    }
+
+    /**
+     * @param array{date?:mixed, type?:mixed, price?:mixed} $data
+     * @param array{user_id?:?int, posted_by?:?int, ip?:?string, user_agent?:?string} $meta
+     */
+    private function disposeOnce(int $supplierId, int $id, array $data, array $meta): array
     {
         $asset = $this->assets->find($supplierId, $id);
         if ($asset === null) {
@@ -747,6 +803,11 @@ final class AssetService
             $assetView['disposal_date'] = $date;
             $ctx = $this->depreciationPosting->buildContext($assetView);
             $this->assertDisposalChronology($supplierId, $lockedAsset, $ctx, $year);
+            if ($ctx->importedPlan !== null) {
+                // Tato cesta účetní deník nepřepisuje; jiný již potvrzený roční
+                // odpis musí účetní nejprve opravit, jinak by karta ztratila soulad.
+                $this->calculator->plan($ctx, (string) $lockedAsset['tax_method'], (string) $lockedAsset['acc_method']);
+            }
 
             $existingTax = $this->entries->findYear($id, 'tax', $year);
             if ($existingTax === null) {
@@ -892,6 +953,11 @@ final class AssetService
         if ($date < (string) $asset['put_into_use_date']) {
             throw new AssetException('validation_failed', 'Datum vyřazení nesmí předcházet datu zařazení do užívání.');
         }
+        if (($asset['imported_depreciation_plan'] ?? null) !== null) {
+            ImportedDepreciationPlan::assertDisposalDate(DepreciationContext::fromAsset(
+                array_replace($asset, ['disposal_date' => $date]), $this->periods->fiscalCalendar($supplierId),
+            ));
+        }
         $type = (string) ($data['type'] ?? '');
         if (!isset(self::DISPOSAL_RULES[$type])) {
             throw new AssetException('validation_failed', 'Neplatný typ vyřazení (sold|liquidated|donated|damaged).');
@@ -943,6 +1009,15 @@ final class AssetService
      */
     public function revertDisposal(int $supplierId, int $id, array $meta = []): array
     {
+        return TransactionFailure::retrying(
+            $this->db->pdo(),
+            fn (): array => $this->revertDisposalOnce($supplierId, $id, $meta),
+        );
+    }
+
+    /** @param array{user_id?:?int, posted_by?:?int, ip?:?string, user_agent?:?string} $meta */
+    private function revertDisposalOnce(int $supplierId, int $id, array $meta): array
+    {
         $asset = $this->assets->find($supplierId, $id);
         if ($asset === null) {
             throw new AssetException('not_found', 'Majetek nenalezen.', 404);
@@ -978,6 +1053,12 @@ final class AssetService
             ];
 
             $disposalEntry = $this->journal->findBySource($supplierId, 'asset_disposal', $id);
+            if ($disposalEntry === null && ($asset['imported_depreciation_plan'] ?? null) !== null) {
+                // Ručně účtované odpisy při vrácení vyřazení zachováváme. Nesmějí
+                // proto odporovat obnovenému celoročnímu převzatému plánu.
+                $restored = $this->depreciationPosting->buildContext(array_replace($asset, ['disposal_date' => null]));
+                ImportedDepreciationPlan::rows($restored, 'accounting');
+            }
             if ($disposalEntry !== null) {
                 if (($disposalEntry['reversed_by'] ?? null) === null) {
                     $this->posting->reverse($supplierId, (int) $disposalEntry['id'], $reverseMeta);
@@ -1087,6 +1168,7 @@ final class AssetService
         if ($asset === null) {
             throw new AssetException('not_found', 'Majetek nenalezen.', 404);
         }
+        self::assertNativePlan($asset);
         if (!in_array($asset['tax_method'], ['straight', 'accelerated'], true)) {
             throw new AssetException(
                 'pause_not_allowed',
@@ -1162,6 +1244,7 @@ final class AssetService
         if ($asset === null) {
             throw new AssetException('not_found', 'Majetek nenalezen.', 404);
         }
+        self::assertNativePlan($asset);
         $row = $this->entries->findYear($id, 'tax', $fiscalYear);
         if ($row === null || !$row['is_paused']) {
             throw new AssetException('not_found', 'Pro rok ' . $fiscalYear . ' neexistuje přerušení odpisu.', 404);
@@ -1206,6 +1289,7 @@ final class AssetService
         if ($asset === null) {
             throw new AssetException('not_found', 'Majetek nenalezen.', 404);
         }
+        self::assertNativePlan($asset);
         $this->assertTaxYearEditable($supplierId, $fiscalYear);
 
         $pdo = $this->db->pdo();
@@ -1270,6 +1354,7 @@ final class AssetService
         if ($asset === null) {
             throw new AssetException('not_found', 'Majetek nenalezen.', 404);
         }
+        self::assertNativePlan($asset);
         $this->assertTaxYearEditable($supplierId, $fiscalYear);
         $pdo = $this->db->pdo();
         $ownTx = !$pdo->inTransaction();
@@ -1405,6 +1490,7 @@ final class AssetService
     private function normalize(array $data, ?array $existing): array
     {
         $base = $existing ?? [
+            'imported_depreciation_plan' => null,
             'inventory_number' => '',
             'name' => '',
             'description' => null,
@@ -1717,6 +1803,20 @@ final class AssetService
         return [$card, $warnings];
     }
 
+    private static function assertNoImportedPlanInput(array $data): void
+    {
+        if (array_key_exists('imported_depreciation_plan', $data)) {
+            throw new AssetException('imported_plan_internal_only', 'Převzatý plán lze uložit pouze ověřeným importem.');
+        }
+    }
+
+    private static function assertNativePlan(array $asset): void
+    {
+        if (($asset['imported_depreciation_plan'] ?? null) !== null) {
+            throw new AssetException('imported_plan_locked', 'Tato změna by přepsala převzatý odpisový plán; upravit lze jen označení a popis karty.');
+        }
+    }
+
     /**
      * Zámky R13: po prvním potvrzeném daňovém řádku nelze měnit tax_* a
      * input_price; po zařazení do užívání input_price, acquisition_date a
@@ -1976,10 +2076,7 @@ final class AssetService
         }
 
         $calendar = $this->supplierCalendar($supplierId);
-        $firstYear = $asset['put_into_use_date'] !== null
-            ? $calendar->fiscalYearOfDate((string) $asset['put_into_use_date'])
-            : $year;
-        $systemStartYear = $firstYear + (int) $asset['opening_tax_years'];
+        $systemStartYear = $ctx->firstSystemYear($year);
         $priorYear = $year - 1;
         if ($priorYear < $systemStartYear
             || $this->entries->findYear($assetId, 'tax', $priorYear) !== null

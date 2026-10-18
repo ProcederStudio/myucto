@@ -8,6 +8,7 @@ import { clientsApi, type Client } from '@/api/clients'
 import { codebooksApi, type Currency } from '@/api/codebooks'
 import { revenueCategoriesApi, type RevenueCategory } from '@/api/revenueCategories'
 import { useToast } from '@/composables/useToast'
+import { useAuthStore } from '@/stores/auth'
 import { useSupplierStore } from '@/stores/supplier'
 import EntityDimensionDefaults from '@/components/dimensions/EntityDimensionDefaults.vue'
 
@@ -35,6 +36,7 @@ const projectId = computed(() => (isEdit.value ? Number(route.params.id) : null)
 const dimensionDefaults = ref<InstanceType<typeof EntityDimensionDefaults> | null>(null)
 const initialClientId = ref<number | null>(null)
 
+const auth = useAuthStore()
 const toast = useToast()
 const supplierStore = useSupplierStore()
 const client = ref<Client | null>(null)
@@ -112,7 +114,7 @@ const projectDuePreset = computed<ProjectDuePreset>({
 
 onMounted(async () => {
   currencies.value = await codebooksApi.currencies()
-  revenueCategories.value = await revenueCategoriesApi.list(false).catch(() => [] as RevenueCategory[])
+  if (!auth.isClientRole) revenueCategories.value = await revenueCategoriesApi.list(false).catch(() => [] as RevenueCategory[])
   if (form.value.currency_id === 0) {
     const def = currencies.value.find(c => c.is_default && c.code === 'CZK') || currencies.value[0]
     if (def) form.value.currency_id = def.id
@@ -121,7 +123,7 @@ onMounted(async () => {
   if (isEdit.value && projectId.value) {
     const p = await projectsApi.get(projectId.value)
     Object.assign(form.value, sanitize(p))
-    client.value = await clientsApi.get(p.client_id)
+    if (auth.canRead('clients')) client.value = await clientsApi.get(p.client_id)
     // Naplň billing inputy (usages null/prázdné = všechny typy zpráv)
     for (let i = 0; i < 3; i++) {
       const found = p.billing_emails.find((b) => b.position === ((i + 1) as 1 | 2 | 3))
@@ -191,6 +193,7 @@ async function submit() {
 
     if (isEdit.value && projectId.value) {
       const { client_id, ...rest } = form.value
+      if (auth.isClientRole) delete rest.default_revenue_category_id
       void client_id
       const updated = await projectsApi.update(projectId.value, rest)
       await dimensionDefaults.value?.save(projectId.value)
@@ -201,7 +204,9 @@ async function submit() {
       if (props.embedded) { emit('created', updated); return }
       router.push(`/projects/${projectId.value}`)
     } else {
-      const created = await projectsApi.create(form.value)
+      const payload = { ...form.value }
+      if (auth.isClientRole) delete payload.default_revenue_category_id
+      const created = await projectsApi.create(payload)
       await dimensionDefaults.value?.save(created.id)
       if (props.embedded) { emit('created', created); return }
       router.push(`/projects/${created.id}`)
@@ -366,7 +371,7 @@ async function submit() {
         </div>
 
         <!-- Výchozí kategorie tržby zakázky (přednost před klientem) -->
-        <div>
+        <div v-if="!auth.isClientRole">
           <label class="block text-sm font-medium text-neutral-700 mb-1">{{ t('project.default_revenue_category') }}</label>
           <select v-model="form.default_revenue_category_id"
             class="w-full h-10 px-3 border border-neutral-300 rounded-md bg-surface focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none">
@@ -378,7 +383,7 @@ async function submit() {
           <p class="text-xs text-neutral-500 mt-1">{{ t('project.default_revenue_category_hint') }}</p>
         </div>
 
-        <EntityDimensionDefaults ref="dimensionDefaults" entity="projects" :entity-id="projectId" />
+        <EntityDimensionDefaults v-if="!auth.isClientRole" ref="dimensionDefaults" entity="projects" :entity-id="projectId" />
 
         <div>
           <label class="block text-sm font-medium text-neutral-700 mb-1">{{ t('project.note') }}</label>

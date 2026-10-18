@@ -12,6 +12,8 @@ use MyInvoice\Middleware\SupplierScopeMiddleware;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Repository\InvoiceRepository;
 use MyInvoice\Repository\JournalEntryRepository;
+use MyInvoice\Security\AccessLevel;
+use MyInvoice\Security\EffectiveRole;
 use MyInvoice\Service\Accounting\ChartOfAccountsSeeder;
 use MyInvoice\Service\Accounting\DocumentJournalSync;
 use MyInvoice\Service\Accounting\PostingService;
@@ -183,6 +185,21 @@ final class ForceEditReconcileTest extends TestCase
         self::assertStringContainsString('items', (string) ($res['body']['error']['message'] ?? ''));
     }
 
+    /**
+     * „Netisknout odběratele" (migrace 2037) mění tištěný daňový doklad, takže v uzavřeném
+     * období neprojde jako čistě poznámková úprava.
+     */
+    public function testNotesOnlyWithHiddenCustomerChangeReturns422(): void
+    {
+        $invoiceId = $this->postedInvoiceInClosedPeriod('FV-B11-HC1');
+
+        $res = $this->invoke($invoiceId, ['hide_customer_on_pdf' => true], ['force' => '1', 'force_mode' => 'notes_only']);
+
+        self::assertSame(422, $res['status'], 'notes_only se změnou tisku odběratele → 422.');
+        self::assertSame('financial_change_not_allowed', $res['body']['error']['code'] ?? null);
+        self::assertStringContainsString('hide_customer_on_pdf', (string) ($res['body']['error']['message'] ?? ''));
+    }
+
     public function testFinancialFieldsChangedDecision(): void
     {
         $ref = new \ReflectionMethod(UpdateInvoiceAction::class, 'financialFieldsChanged');
@@ -285,6 +302,46 @@ final class ForceEditReconcileTest extends TestCase
         self::assertSame(1, $this->activeEntryCount('invoice', $invoiceId));
     }
 
+    /**
+     * Role s právem úpravy vystavené faktury, ale bez práva zaúčtovat, nesmí finanční
+     * změnou zaúčtovaného dokladu přepsat zápis v deníku. Odmítnutí přijde dřív, než se
+     * doklad nebo deník změní; neúčetní změna projde a role se zaúčtováním projde i s částkou.
+     */
+    public function testEditIssuedRoleNeedsJournalPostToRepostFinancialChange(): void
+    {
+        $client = $this->client('Odběratel role s.r.o.');
+        $invoiceId = $this->sale('FV-ROLE-R1', $client, 1000.00, 210.00, 21.00, $this->openYear . '-06-15');
+        $lines = $this->posting->buildFromInvoice($this->supplierId, $invoiceId);
+        $entryId = $this->posting->postDocument($this->supplierId, 'invoice', $invoiceId, $lines, [
+            'entry_date' => $this->openYear . '-06-15', 'posted_by' => $this->userId, 'user_id' => $this->userId,
+        ]);
+        $editor = new EffectiveRole(90, 'Úprava vystavených', 'staff', true, [
+            'invoices' => AccessLevel::WRITE->value,
+            'invoices.edit_issued' => AccessLevel::WRITE->value,
+        ]);
+        $financial = ['items' => [[
+            'description' => 'Změněná položka', 'quantity' => 1, 'unit' => 'ks',
+            'unit_price_without_vat' => 2000.00, 'vat_rate_id' => $this->vatRateId,
+        ]]];
+
+        $res = $this->invoke($invoiceId, $financial, ['force' => '1'], $editor);
+        self::assertSame(403, $res['status'], json_encode($res['body'], JSON_UNESCAPED_UNICODE));
+        self::assertSame('journal_post_forbidden', $res['body']['error']['code'] ?? null);
+        self::assertEqualsWithDelta(1210.00, (float) $this->invoices->find($invoiceId)['total_with_vat'], 0.001, 'Doklad se nezměnil.');
+        self::assertSame(1, $this->activeEntryCount('invoice', $invoiceId));
+        self::assertSame($entryId, (int) $this->journal->findBySource($this->supplierId, 'invoice', $invoiceId)['id']);
+
+        $res = $this->invoke($invoiceId, ['note_below_items' => 'Opravená poznámka'], ['force' => '1'], $editor);
+        self::assertSame(200, $res['status'], 'Neúčetní změna projde: ' . json_encode($res['body'], JSON_UNESCAPED_UNICODE));
+
+        $poster = new EffectiveRole(91, 'Úprava a zaúčtování', 'staff', true, $editor->permissions + [
+            'accounting.journal.post' => AccessLevel::WRITE->value,
+        ]);
+        $res = $this->invoke($invoiceId, $financial, ['force' => '1'], $poster);
+        self::assertNotSame('journal_post_forbidden', $res['body']['error']['code'] ?? null,
+            'Role s právem zaúčtovat přeúčtování smí: ' . json_encode($res['body'], JSON_UNESCAPED_UNICODE));
+    }
+
     // ── helpers ────────────────────────────────────────────────────────────────
 
     private function postedInvoiceInClosedPeriod(string $varsymbol): int
@@ -351,7 +408,7 @@ final class ForceEditReconcileTest extends TestCase
      * @param array<string,string> $query
      * @return array{status:int, body:array<mixed>}
      */
-    private function invoke(int $invoiceId, array $body, array $query): array
+    private function invoke(int $invoiceId, array $body, array $query, ?EffectiveRole $role = null): array
     {
         $req = (new ServerRequestFactory())
             ->createServerRequest('PUT', '/api/invoices/' . $invoiceId)
@@ -360,6 +417,9 @@ final class ForceEditReconcileTest extends TestCase
             ->withAttribute(AuthMiddleware::ATTR_METHOD, 'session')
             ->withParsedBody($body)
             ->withQueryParams($query);
+        if ($role !== null) {
+            $req = $req->withAttribute('auth.effective_role', $role);
+        }
         $resp = ($this->updateInvoice)($req, new Psr7Response(), ['id' => (string) $invoiceId]);
         $resp->getBody()->rewind();
         $decoded = json_decode((string) $resp->getBody(), true);

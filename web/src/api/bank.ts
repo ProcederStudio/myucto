@@ -50,7 +50,10 @@ export interface BankStatement {
   matched_count: number
   /** Nespárované pohyby, u kterých se faktura nečeká (vlastní převod, mzda). */
   non_invoice_count?: number
+  /** Ignorované pohyby kromě avíz převzatých výpisem (ta nese superseded_count). */
   ignored_count?: number
+  /** Avíza, jejichž pohyb převzal oficiální výpis — vyřešená, nepárují se znovu. */
+  superseded_count?: number
   /** Počet skutečných pohybů bez aktivního účetního zápisu (ignorované položky se nepočítají). */
   unposted_count: number
   /** Pohyby, které import uložil, ale jejich zpracování (párování, zaúčtování) selhalo. */
@@ -126,6 +129,8 @@ export interface BankTransaction {
   matched_purchase_invoices?: MatchedPurchaseInvoice[]
   ignore_origin?: string | null
   ignore_note?: string | null
+  /** Avízo, jehož pohyb převzal oficiální výpis (jen detail výpisu). */
+  notice_superseded?: boolean
   resolution?: 'payroll' | 'transfer' | 'outside_saldo' | null
   match_available?: boolean
   ignore_available?: boolean

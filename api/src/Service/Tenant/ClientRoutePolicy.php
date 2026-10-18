@@ -7,6 +7,7 @@ namespace MyInvoice\Service\Tenant;
 use MyInvoice\Http\RequestPath;
 use MyInvoice\Security\PermissionCatalog;
 use MyInvoice\Security\ClientBankRoutePolicy;
+use MyInvoice\Security\ClientStockRoutePolicy;
 use MyInvoice\Security\RoutePermissionMap;
 use MyInvoice\Service\Auth\WebAuthnOperationPolicy;
 
@@ -163,7 +164,8 @@ final class ClientRoutePolicy
         }
 
         return $this->catalog->allowsRoleType($permission->key, 'client')
-            && ClientBankRoutePolicy::allows($method, $path, $permission->key);
+            && ClientBankRoutePolicy::allows($method, $path, $permission->key)
+            && ClientStockRoutePolicy::allows($method, $path, $permission->key);
     }
 
     /** @return list<array<string,mixed>> */

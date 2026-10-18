@@ -192,9 +192,10 @@ final class PurchaseSettledExpr
      *
      * @param string $alias alias tabulky `purchase_invoices` v okolním dotazu
      */
-    public static function offsetSettledAsOf(string $alias = 'pi'): string
+    public static function offsetSettledAsOf(string $alias = 'pi', bool $currentRead = false): string
     {
         $a = $alias === '' ? '' : $alias . '.';
+        $lock = $currentRead ? ' FOR UPDATE' : '';
 
         // „Byl zápočet k asOf ještě živý?" — buď platí dosud, nebo ho protizápis zrušil až potom.
         $liveAsOf = static fn (string $head): string =>
@@ -204,23 +205,24 @@ final class PurchaseSettledExpr
                            JOIN journal_entries orev ON orev.id = oe.reversed_by
                           WHERE oe.id = {$head}.journal_entry_id
                             AND oe.supplier_id = {$head}.supplier_id
-                            AND orev.entry_date > ?))";
+                            AND orev.entry_date > ?{$lock}))";
 
         return sprintf(
             'COALESCE((SELECT SUM(oi.amount) FROM offset_agreement_items oi
                         JOIN offset_agreements oa ON oa.id = oi.agreement_id
                        WHERE oi.supplier_id = %1$ssupplier_id AND oi.doc_type = %2$s
-                         AND oi.doc_id = %1$sid AND oa.agreement_date <= ? AND %3$s), 0)
+                         AND oi.doc_id = %1$sid AND oa.agreement_date <= ? AND %3$s%5$s), 0)
            + COALESCE((SELECT SUM(s.amount) FROM invoice_settlements s
                        WHERE s.supplier_id = %1$ssupplier_id AND s.doc_type = %2$s
-                         AND s.doc_id = %1$sid AND s.settled_on <= ? AND %4$s), 0)
+                         AND s.doc_id = %1$sid AND s.settled_on <= ? AND %4$s%5$s), 0)
            + COALESCE((SELECT SUM(cno.amount) FROM credit_note_offsets cno
                        WHERE cno.supplier_id = %1$ssupplier_id AND cno.doc_type = %2$s
-                         AND cno.invoice_id = %1$sid AND cno.offset_on <= ?), 0)',
+                         AND cno.invoice_id = %1$sid AND cno.offset_on <= ?%5$s), 0)',
             $a,
             "'purchase_invoice'",
             $liveAsOf('oa'),
             $liveAsOf('s'),
+            $lock,
         );
     }
 

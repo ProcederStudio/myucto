@@ -7,6 +7,7 @@ namespace MyInvoice\Service\Bank\Card;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\BankStatementOwnershipResolver;
 use MyInvoice\Repository\PaymentCardRepository;
+use MyInvoice\Service\Bank\BankNoticeLifecycle;
 use PDO;
 
 /**
@@ -60,6 +61,7 @@ final class CardPaymentOverview
               WHERE " . ($creditCardAccountId === null ? 'cca.id IS NULL AND bt.card_last4 IS NOT NULL' : 'cca.id = ?') . "
                 AND bt.amount < 0
                 AND bt.match_status = 'unmatched'
+                AND " . BankNoticeLifecycle::activeSql('bt') . "
                 AND bt.posted_at BETWEEN ? AND ?
                 AND NOT EXISTS (
                     SELECT 1 FROM payment_matches pm
@@ -200,6 +202,7 @@ final class CardPaymentOverview
                FROM bank_transactions bt
                JOIN bank_statements bs ON bs.id = bt.statement_id
               WHERE bt.id = ?
+                AND " . BankNoticeLifecycle::activeSql('bt') . "
                 AND " . BankStatementOwnershipResolver::sql('bs')
         );
         $stmt->execute(array_merge([$supplierId, $transactionId], BankStatementOwnershipResolver::params($supplierId)));

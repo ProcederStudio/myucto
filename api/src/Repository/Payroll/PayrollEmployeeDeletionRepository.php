@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Repository\Payroll;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Service\ActivityLogger;
 use PDO;
 
@@ -475,6 +476,9 @@ final class PayrollEmployeeDeletionRepository
 
             return $result;
         } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             if ($owns) {
                 $pdo->rollBack();
             } elseif ($pdo->inTransaction()) {

@@ -135,9 +135,9 @@ describe('navigace podle RBAC oprávnění', () => {
     expect(appLayout).toContain("if (item.to.startsWith('/admin/suppliers')) return auth.isSuperadmin || auth.isAdminPlusRole")
   })
 
-  it('ukazuje firemní ceník předdefinovaným správcům firmy', () => {
-    expect(appLayout).toContain('...(auth.isCompanyAdminRole && !isStockEnabled ? [{')
+  it('filtruje firemní ceník samostatným oprávněním místo role správce firmy', () => {
+    expect(appLayout).not.toContain('...(auth.isCompanyAdminRole && !isStockEnabled ? [{')
     expect(appLayout).toContain("to: '/admin/price-list'")
-    expect(appLayout).toContain("permission: 'settings.company.write' as PermissionKey")
+    expect(appLayout).toContain("permission: 'price_list' as PermissionKey")
   })
 })

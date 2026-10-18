@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Accounting;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\DimensionAssignmentRepository;
 use MyInvoice\Repository\OtherItemRepository;
 use PDO;
@@ -208,6 +209,9 @@ final class OtherItemScheduleService
             if ($ownTx) $pdo->commit();
             else $pdo->exec('RELEASE SAVEPOINT other_item_schedule_generate');
         } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             if ($ownTx && $pdo->inTransaction()) $pdo->rollBack();
             elseif (!$ownTx && $pdo->inTransaction()) $pdo->exec('ROLLBACK TO SAVEPOINT other_item_schedule_generate');
             throw $e;

@@ -223,6 +223,28 @@ final class StereoXmlExporterTest extends TestCase
         ])]);
     }
 
+    /**
+     * Textový řádek nemá v DocumentPacku účetní význam ani ověřený tvar, export ho
+     * vynechá: neovlivní Typ DPH dokladu (jinak by klasifikace '2' u nulového řádku
+     * export shodila jako smíšený), počet řádků ani tabulku sazeb.
+     */
+    public function testTextRowIsLeftOut(): void
+    {
+        $xml = $this->exporter->buildXml([$this->invoice([
+            'items' => [
+                $this->item(['item_kind' => 'text', 'description' => 'Zakazka 42', 'quantity' => 0.0, 'unit' => '',
+                    'unit_price_without_vat' => 0.0, 'vat_rate_snapshot' => 12.0, 'vat_classification_code' => '2',
+                    'total_without_vat' => 0.0, 'total_vat' => 0.0, 'total_with_vat' => 0.0]),
+                $this->item(['vat_classification_code' => '1']),
+            ],
+        ])]);
+
+        self::assertSame('1', $this->xpathOne($xml, '//DocumentTotals/NumberOfLines'));
+        self::assertSame('1', $this->xpathOne($xml, '//DocumentTotals/NumberOfVATRates'));
+        self::assertSame('Vyvoj systemu', $this->xpathOne($xml, '//Rows/Row[1]/LineText'));
+        self::assertStringNotContainsString('Zakazka 42', $xml);
+    }
+
     public function testNonOssInvoiceStillExports(): void
     {
         $xml = $this->exporter->buildXml([$this->invoice()]);

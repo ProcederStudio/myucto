@@ -111,9 +111,9 @@ async function removeCategory(c: TripCategory) {
               </td>
               <td class="px-3 py-2 text-right font-mono">{{ c.trips_count ?? 0 }}</td>
               <td class="px-3 py-2 text-right text-xs whitespace-nowrap">
-                <template v-if="auth.canWrite('logbook.write')">
-                  <button @click="editCategory(c)" class="cursor-pointer text-primary-600 hover:text-primary-700 mr-3">{{ t('common.edit') }}</button>
-                  <button @click="removeCategory(c)" :disabled="(c.trips_count ?? 0) > 0" :title="(c.trips_count ?? 0) > 0 ? t('logbook.cat_delete_blocked') : ''" class="cursor-pointer text-danger-500 hover:text-danger-600 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-danger-500">{{ t('common.delete') }}</button>
+                <template v-if="auth.canWrite('logbook.write') || auth.canWrite('logbook.delete')">
+                  <button v-if="auth.canWrite('logbook.write')" @click="editCategory(c)" class="cursor-pointer text-primary-600 hover:text-primary-700 mr-3">{{ t('common.edit') }}</button>
+                  <button v-if="auth.canWrite('logbook.delete')" @click="removeCategory(c)" :disabled="(c.trips_count ?? 0) > 0" :title="(c.trips_count ?? 0) > 0 ? t('logbook.cat_delete_blocked') : ''" class="cursor-pointer text-danger-500 hover:text-danger-600 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-danger-500">{{ t('common.delete') }}</button>
                 </template>
               </td>
             </tr>
@@ -137,9 +137,9 @@ async function removeCategory(c: TripCategory) {
             <span class="font-mono">{{ c.code }}</span>
             <span>{{ t('logbook.tab_trips') }}: {{ c.trips_count ?? 0 }}</span>
           </div>
-          <div v-if="auth.canWrite('logbook.write')" class="flex gap-4 mt-2 text-xs">
-            <button @click="editCategory(c)" class="cursor-pointer text-primary-600 hover:text-primary-700">{{ t('common.edit') }}</button>
-            <button @click="removeCategory(c)" :disabled="(c.trips_count ?? 0) > 0" :title="(c.trips_count ?? 0) > 0 ? t('logbook.cat_delete_blocked') : ''" class="cursor-pointer ml-auto text-danger-500 hover:text-danger-600 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-danger-500">{{ t('common.delete') }}</button>
+          <div v-if="auth.canWrite('logbook.write') || auth.canWrite('logbook.delete')" class="flex gap-4 mt-2 text-xs">
+            <button v-if="auth.canWrite('logbook.write')" @click="editCategory(c)" class="cursor-pointer text-primary-600 hover:text-primary-700">{{ t('common.edit') }}</button>
+            <button v-if="auth.canWrite('logbook.delete')" @click="removeCategory(c)" :disabled="(c.trips_count ?? 0) > 0" :title="(c.trips_count ?? 0) > 0 ? t('logbook.cat_delete_blocked') : ''" class="cursor-pointer ml-auto text-danger-500 hover:text-danger-600 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-danger-500">{{ t('common.delete') }}</button>
           </div>
         </div>
       </div>

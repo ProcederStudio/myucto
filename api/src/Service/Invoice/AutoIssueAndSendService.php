@@ -52,11 +52,13 @@ final class AutoIssueAndSendService
     /**
      * @param int      $invoiceId
      * @param ?int     $userId   user, který akci spustil (může být null pro public approval)
+     * @param bool     $userIsIssuer false = $userId je jen auditní (pravidelná fakturace z cronu
+     *                 dosazuje autora šablony); doklad pak vystavitele nemá ({@see InvoiceIssuer})
      * @param string   $ip       IP pro audit log
      * @param string   $ua       User-Agent pro audit log
      * @return array{issued: bool, sent_to: list<string>, varsymbol: string|null}
      */
-    public function run(int $invoiceId, ?int $userId, string $ip, string $ua): array
+    public function run(int $invoiceId, ?int $userId, string $ip, string $ua, bool $userIsIssuer = true): array
     {
         $invoice = $this->repo->find($invoiceId);
         if ($invoice === null) {
@@ -94,6 +96,7 @@ final class AutoIssueAndSendService
                 if ($issue->rowCount() === 0) {
                     throw new \RuntimeException('Faktura byla mezitím změněna.');
                 }
+                InvoiceIssuer::record($pdo, $invoiceId, $userIsIssuer ? $userId : null);
                 if ($stockEnabled) $this->stockIssue->issueForInvoice($supplierId, $invoice, $userId);
                 $this->clients->markAsCustomer((int) $invoice['client_id'], $supplierId);
                 if ($ownTransaction) $pdo->commit();
@@ -111,7 +114,6 @@ final class AutoIssueAndSendService
                 'varsymbol'   => $invoice['varsymbol'],
                 'auto_reason' => 'work_report_approved',
             ], $ip, $ua);
-            $this->stats->recomputeForInvoiceId($invoiceId);
             // Re-invalidate i po flipu na 'issued' — kdyby si někdo mezi alokací VS
             // a tímto blokem vyrenderoval Faktura-VS.pdf jako draft (bez "issued"
             // metadat), nahradíme ho čerstvým renderem.
@@ -121,6 +123,8 @@ final class AutoIssueAndSendService
             // vystavená faktura musí být zaúčtovaná stejně jako ta z UI. Chyba se jen
             // zaloguje (DocumentAutoPoster ji spolkne), odeslání emailu tím neblokujeme.
             $this->autoPoster->maybeAutoPost($supplierId, 'invoice', $invoiceId, $userId, $ip, $ua);
+            // Cache statistik až za zaúčtováním; její chyba vystavení ani odeslání neshodí.
+            $this->stats->recomputeAfterCommit($invoiceId);
 
             $invoice = $this->repo->find($invoiceId);
         }
@@ -239,7 +243,7 @@ final class AutoIssueAndSendService
         try {
             $varsymbol = $this->varsymbol->next(
                 $supplierId,
-                $invoice['invoice_type'],
+                VarsymbolGenerator::seriesTypeFor($invoice),
                 $issueDate,
                 (int) $invoice['client_id'],
                 (int) ($invoice['revenue_category_id'] ?? 0),
@@ -265,7 +269,7 @@ final class AutoIssueAndSendService
                 } else {
                     $this->varsymbol->releaseIfLatest(
                         $supplierId,
-                        (string) $invoice['invoice_type'],
+                        VarsymbolGenerator::seriesTypeFor($invoice),
                         $varsymbol,
                         $issueDate,
                         (int) $invoice['client_id'],

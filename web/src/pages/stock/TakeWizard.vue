@@ -13,6 +13,8 @@ import { appIsoDate } from '@/utils/date'
 import DateInput from '@/components/ui/DateInput.vue'
 import { catalogJobsApi, type CatalogJob } from '@/api/catalogJobs'
 import CatalogJobProgress from '@/components/stock/CatalogJobProgress.vue'
+import { eshopApi, type Category } from '@/api/eshop'
+import { indentedCategoryLabel } from '@/utils/categoryLabel'
 
 const { t } = useI18n()
 const auth = useAuthStore()
@@ -59,11 +61,13 @@ const createForm = reactive({
 const creating = ref(false)
 const cycleOpen = ref(false)
 const cycle = ref<StockCycleCount | null>(null)
-const cycleForm = reactive({ warehouse_id: null as number | null, location_id: null as number | null, take_date: appIsoDate(), note: '' })
+const cycleForm = reactive({ warehouse_id: null as number | null, location_id: null as number | null, category_id: null as number | null, take_date: appIsoDate(), note: '' })
+// Rozsah cyklické inventury: kategorie včetně podkategorií (archivované se nenabízejí).
+const categories = ref<Category[]>([])
 async function createCycle() {
   if (!cycleForm.warehouse_id) return
   try {
-    cycle.value = await stockApi.createCycleCount({ warehouse_id: cycleForm.warehouse_id, location_id: cycleForm.location_id, take_date: cycleForm.take_date, note: cycleForm.note || undefined })
+    cycle.value = await stockApi.createCycleCount({ warehouse_id: cycleForm.warehouse_id, location_id: cycleForm.location_id, category_id: cycleForm.category_id, take_date: cycleForm.take_date, note: cycleForm.note || undefined })
     cycleOpen.value = true
     await loadList()
   } catch (e: any) { toast.error(e?.response?.data?.error?.message || t('common.error')) }
@@ -246,6 +250,8 @@ async function closeTake() {
 
 onMounted(async () => {
   try { [warehouses.value, locations.value] = await Promise.all([stockApi.listWarehouses(true), stockApi.listLocations()]) } catch { warehouses.value = []; locations.value = [] }
+  // Strom kategorií čte e-shop endpoint; bez práva číst e-shop výběr kategorie chybí (žádné 403).
+  if (auth.canRead('eshop')) eshopApi.listCategories().then(list => { categories.value = list.filter(c => !c.archived) }).catch(() => { categories.value = [] })
   if (id.value) await loadTake()
   else await loadList()
 })
@@ -325,14 +331,15 @@ const STATUS_BADGE: Record<string, string> = {
         <div class="px-5 py-3 border-b border-neutral-200 flex flex-wrap items-center justify-between gap-2">
           <div><h2 class="text-sm font-semibold uppercase tracking-wide text-neutral-500">{{ t('stock.cycles.title') }}</h2><p class="text-xs text-neutral-400 mt-0.5">{{ t('stock.cycles.hint') }}</p></div>
           <div class="flex flex-wrap gap-2">
-            <select v-model="cycleForm.warehouse_id" class="h-9 px-2 border border-neutral-300 rounded-md bg-surface text-sm"><option :value="null">{{ t('stock.takes.field_warehouse') }}</option><option v-for="w in warehouses" :key="w.id" :value="w.id">{{ w.name }}</option></select>
+            <select v-model="cycleForm.warehouse_id" data-testid="cycle-warehouse" class="h-9 px-2 border border-neutral-300 rounded-md bg-surface text-sm"><option :value="null">{{ t('stock.takes.field_warehouse') }}</option><option v-for="w in warehouses" :key="w.id" :value="w.id">{{ w.name }}</option></select>
             <select v-model="cycleForm.location_id" :disabled="!cycleForm.warehouse_id" class="h-9 px-2 border border-neutral-300 rounded-md bg-surface text-sm"><option :value="null">{{ t('stock.cycles.all_locations') }}</option><option v-for="location in locations.filter(l => l.is_active && l.warehouse_id === cycleForm.warehouse_id)" :key="location.id" :value="location.id">{{ location.code }} - {{ location.name }}</option></select>
-            <button v-if="auth.canWrite('stock.take')" type="button" @click="createCycle" :disabled="!cycleForm.warehouse_id" :class="btnFilled('primary')"><svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.plus" /></svg>{{ t('stock.cycles.new') }}</button>
+            <select v-if="categories.length" v-model="cycleForm.category_id" data-testid="cycle-category" :title="t('stock.cycles.category_scope')" :aria-label="t('stock.cycles.category_scope')" class="h-9 max-w-56 px-2 border border-neutral-300 rounded-md bg-surface text-sm"><option :value="null">{{ t('stock.cycles.all_categories') }}</option><option v-for="c in categories" :key="c.id" :value="c.id">{{ indentedCategoryLabel(c) }}</option></select>
+            <button v-if="auth.canWrite('stock.take')" type="button" data-testid="cycle-create" @click="createCycle" :disabled="!cycleForm.warehouse_id" :class="btnFilled('primary')"><svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.plus" /></svg>{{ t('stock.cycles.new') }}</button>
           </div>
         </div>
         <div v-if="cycles.length === 0" class="px-5 py-5 text-sm text-neutral-400">{{ t('stock.cycles.empty') }}</div>
-        <button v-for="row in cycles" :key="row.id" type="button" @click="openCycle(row)" class="w-full px-5 py-3 border-t border-neutral-100 flex flex-wrap items-center justify-between gap-2 text-left hover:bg-neutral-50">
-          <span>{{ warehouseName(row.warehouse_id) }} · {{ formatDate(row.take_date) }}</span><span class="text-xs px-2 py-0.5 rounded bg-neutral-100 text-neutral-600">{{ t(`stock.cycles.status.${row.status}`) }}</span>
+        <button v-for="row in cycles" :key="row.id" type="button" data-testid="cycle-row" @click="openCycle(row)" class="w-full px-5 py-3 border-t border-neutral-100 flex flex-wrap items-center justify-between gap-2 text-left hover:bg-neutral-50">
+          <span>{{ warehouseName(row.warehouse_id) }} · {{ formatDate(row.take_date) }}<span v-if="row.category_name" class="text-neutral-500"> · {{ t('stock.cycles.scope_category', { name: row.category_name }) }}</span></span><span class="text-xs px-2 py-0.5 rounded bg-neutral-100 text-neutral-600">{{ t(`stock.cycles.status.${row.status}`) }}</span>
         </button>
       </div>
 
@@ -385,7 +392,7 @@ const STATUS_BADGE: Record<string, string> = {
       </div>
       <div v-if="cycleOpen && cycle" class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" @click.self="cycleOpen = false">
         <div class="bg-surface rounded-xl shadow-lg max-w-4xl w-full p-5 max-h-[90vh] overflow-auto">
-          <div class="flex flex-wrap items-center justify-between gap-2 mb-3"><h3 class="text-lg font-semibold">{{ t('stock.cycles.title') }} #{{ cycle.id }}</h3><button type="button" @click="openCycle(cycle)" :class="btnOutline('neutral')">{{ t('common.refresh') }}</button></div>
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-3"><div><h3 class="text-lg font-semibold">{{ t('stock.cycles.title') }} #{{ cycle.id }}</h3><p class="text-sm text-neutral-500" data-testid="cycle-scope">{{ warehouseName(cycle.warehouse_id) }} · {{ formatDate(cycle.take_date) }}<template v-if="cycle.category_name"> · {{ t('stock.cycles.scope_category', { name: cycle.category_name }) }}</template></p></div><button type="button" @click="openCycle(cycle)" :class="btnOutline('neutral')">{{ t('common.refresh') }}</button></div>
           <CatalogJobProgress v-if="cycle.preparation_job && ['queued', 'running', 'failed', 'cancelled'].includes(cycle.preparation_job.status)" class="mb-3" :job="cycle.preparation_job" :can-cancel="false" />
           <p v-if="cycle.status !== 'counting' && cycle.status !== 'closed'" class="text-sm text-neutral-500 py-5">{{ t('stock.cycles.preparing') }}</p>
           <div v-else class="space-y-2">

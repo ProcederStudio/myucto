@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Repository\Payroll;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Service\Payroll\Payment\PayrollPaymentBatchDiscardScope;
 use MyInvoice\Service\Payroll\PayrollYearCloseGuard;
 use PDO;
@@ -47,6 +48,9 @@ final class PayrollPaymentMatchRepository
 
             return $result;
         } catch (\Throwable $exception) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $exception)) {
+                throw $exception;
+            }
             if ($ownsTransaction) {
                 $pdo->rollBack();
             } elseif ($savepoint !== null) {

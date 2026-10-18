@@ -37,14 +37,60 @@ final class LinkedManualSettlementSql
         string $accountPredicate,
         string $supplierExpr = '?',
         string $asOfExpr = '?',
+        bool $currentRead = false,
+    ): string {
+        return self::projection($docType, $settleSide, $accountPredicate, $supplierExpr, $asOfExpr, $currentRead, false);
+    }
+
+    public static function membersSql(
+        string $docType,
+        string $settleSide,
+        string $accountPredicate,
+        string $supplierExpr = '?',
+        string $asOfExpr = '?',
+        bool $currentRead = false,
+    ): string {
+        return self::projection($docType, $settleSide, $accountPredicate, $supplierExpr, $asOfExpr, $currentRead, true);
+    }
+
+    public static function lifecycleMembersSql(string $docType, string $settleSide, string $accountPredicate, bool $currentRead = false): string
+    {
+        return self::projection($docType, $settleSide, $accountPredicate, '?', '?', $currentRead, true, true);
+    }
+
+    private static function projection(
+        string $docType,
+        string $settleSide,
+        string $accountPredicate,
+        string $supplierExpr,
+        string $asOfExpr,
+        bool $currentRead,
+        bool $members,
+        bool $lifecycle = false,
     ): string {
         if (!in_array($docType, ['invoice', 'purchase_invoice'], true)
             || !in_array($settleSide, ['credit', 'debit'], true)) {
             throw new \InvalidArgumentException('linked_manual_settlement_invalid');
         }
 
-        return "SELECT dl.doc_id,
-                       SUM(CASE WHEN l.side = '{$settleSide}' THEN l.signed_amount ELSE -l.signed_amount END) AS settled
+        $lock = $currentRead ? ' FOR UPDATE' : '';
+        $unique = "NOT EXISTS (
+                       SELECT 1 FROM journal_entry_document_links other
+                        WHERE other.supplier_id = dl.supplier_id AND other.entry_id = dl.entry_id
+                          AND other.doc_type = dl.doc_type AND other.doc_id <> dl.doc_id{$lock}
+                   )";
+        $select = $members
+            ? "dl.doc_id, e.id AS entry_id, e.entry_date, l.id AS line_id, l.account_id, l.currency_code,
+                       CASE WHEN l.side = '{$settleSide}' THEN l.signed_amount ELSE -l.signed_amount END AS settled,
+                       CASE WHEN l.side = '{$settleSide}' THEN COALESCE(l.signed_amount_foreign, 0) ELSE -COALESCE(l.signed_amount_foreign, 0) END AS settled_foreign,
+                       ({$unique}) AS allocation_complete"
+            : "dl.doc_id,
+                       SUM(CASE WHEN l.side = '{$settleSide}' THEN l.signed_amount ELSE -l.signed_amount END) AS settled";
+        $tail = $members ? 'ORDER BY dl.doc_id, e.id, l.line_no, l.id' : "AND {$unique}
+                 GROUP BY dl.doc_id";
+        $effective = $lifecycle ? '' : " AND e.entry_date <= {$asOfExpr}
+                   AND (e.reversed_by IS NULL OR rev.entry_date > {$asOfExpr})";
+        return "SELECT {$select}
                   FROM journal_entry_document_links dl
                   JOIN journal_entries e ON e.id = dl.entry_id AND e.supplier_id = dl.supplier_id
                   JOIN journal_entry_lines l ON l.entry_id = e.id AND l.supplier_id = e.supplier_id
@@ -53,15 +99,9 @@ final class LinkedManualSettlementSql
                   LEFT JOIN journal_entries rev ON rev.id = e.reversed_by
                  WHERE dl.supplier_id = {$supplierExpr} AND dl.doc_type = '{$docType}'
                    AND e.source_type = 'manual'
-                   AND e.posted_at IS NOT NULL AND e.entry_date <= {$asOfExpr}
-                   AND (e.reversed_by IS NULL OR rev.entry_date > {$asOfExpr})
+                   AND e.posted_at IS NOT NULL{$effective}
                    AND ({$accountPredicate})
-                   AND NOT EXISTS (
-                       SELECT 1 FROM journal_entry_document_links other
-                        WHERE other.supplier_id = dl.supplier_id AND other.entry_id = dl.entry_id
-                          AND other.doc_type = dl.doc_type AND other.doc_id <> dl.doc_id
-                   )
-                 GROUP BY dl.doc_id";
+                   {$tail}{$lock}";
     }
 
     /** Podmínka „řádek je na saldokontním účtu s tímto prefixem" (vč. analytik). */

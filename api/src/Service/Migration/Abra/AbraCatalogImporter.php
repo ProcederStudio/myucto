@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Migration\Abra;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\AbraImportRepository;
 use MyInvoice\Repository\StockCurrencyRepository;
 use MyInvoice\Repository\StockItemPriceRepository;
@@ -88,6 +89,9 @@ final class AbraCatalogImporter
             }
             $nested ? $pdo->exec('RELEASE SAVEPOINT abra_catalog_page') : $pdo->commit();
         } catch (\Throwable $error) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $error)) {
+                throw $error;
+            }
             $this->configuredCurrencies = [];
             if ($nested && $pdo->inTransaction()) {
                 $pdo->exec('ROLLBACK TO SAVEPOINT abra_catalog_page');

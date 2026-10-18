@@ -64,6 +64,9 @@ final class DocumentLockTest extends TestCase
     private array $userIds = [];
     /** @var list<string> */
     private array $sessionTokens = [];
+    /** @var list<int> */
+    private array $roleIds = [];
+    private array $ossVatRateIds = [];
 
     protected function setUp(): void
     {
@@ -123,6 +126,7 @@ final class DocumentLockTest extends TestCase
             $pdo->prepare('DELETE FROM journal_entry_lines WHERE supplier_id = ?')->execute([$sid]);
             $pdo->prepare('DELETE FROM journal_entries WHERE supplier_id = ?')->execute([$sid]);
             $pdo->prepare('DELETE FROM accounting_periods WHERE supplier_id = ?')->execute([$sid]);
+            $pdo->prepare('DELETE FROM tax_submissions WHERE supplier_id = ?')->execute([$sid]);
             $pdo->prepare('DELETE FROM chart_of_accounts WHERE supplier_id = ?')->execute([$sid]);
             $pdo->prepare('DELETE FROM invoice_payments WHERE supplier_id = ?')->execute([$sid]);
             $pdo->prepare('DELETE FROM invoices WHERE supplier_id = ?')->execute([$sid]);
@@ -140,9 +144,18 @@ final class DocumentLockTest extends TestCase
             $pdo->prepare("DELETE FROM api_tokens WHERE user_id IN ($place)")->execute($this->userIds);
             $pdo->prepare("DELETE FROM users WHERE id IN ($place)")->execute($this->userIds);
         }
+        foreach ($this->roleIds as $roleId) {
+            $pdo->prepare('DELETE FROM role_permissions WHERE role_id = ?')->execute([$roleId]);
+            $pdo->prepare('DELETE FROM roles WHERE id = ?')->execute([$roleId]);
+        }
+
+        foreach ($this->ossVatRateIds as $rateId) {
+            $pdo->prepare('DELETE FROM vat_rates WHERE id = ?')->execute([$rateId]);
+        }
+        $this->ossVatRateIds = [];
 
         $this->supplierIds = $this->currencyIds = $this->clientIds = $this->ownerIds = [];
-        $this->userIds = $this->sessionTokens = [];
+        $this->userIds = $this->sessionTokens = $this->roleIds = [];
         $this->db->close();
         $this->app = null;
     }
@@ -401,6 +414,289 @@ final class DocumentLockTest extends TestCase
         self::assertSame(403, $res->getStatusCode(), 'closing zamyká klienta');
         $res = $this->request('PUT', "/api/invoices/$invoiceId", $accountant, $sid, $body);
         self::assertSame(200, $res->getStatusCode(), 'closing účetní nebrzdí: ' . (string) $res->getBody());
+    }
+
+    /**
+     * Úpravu vystavené faktury (?force=1) smí kromě správce i interní role s právem
+     * `invoices.edit_issued`. Uzavřené období dál přebíjí jen správce a výchozí účetní
+     * právo nemá.
+     */
+    public function testEditIssuedPermissionAllowsForceEditOnlyInOpenPeriod(): void
+    {
+        $sid = $this->mkSupplier('double_entry');
+        $this->mkPeriod($sid, 2024, 'closed');
+        $this->mkPeriod($sid, 2026, 'open');
+        $openInvoice = $this->mkInvoice($sid, 'issued', '2026-05-01', 'P13-OPEN-1');
+        $closedInvoice = $this->mkInvoice($sid, 'issued', '2024-06-15', 'P13-CLOSED-1');
+
+        $editorRole = $this->mkCustomRole('__TEST úprava vystavených', [
+            'invoices' => 2,
+            'invoices.edit_issued' => 2,
+        ]);
+        $editor = $this->mkSessionUserWithRole($editorRole, $sid);
+        $accountant = $this->mkSessionUser('accountant', $sid);
+        $openBody = $this->invoiceBody($sid, '2026-05-01');
+
+        $res = $this->sessionRequest('PUT', "/api/invoices/$openInvoice", $editor, $sid, $openBody);
+        self::assertSame(409, $res->getStatusCode(), 'Bez ?force=1 zůstává vystavená faktura needitovatelná.');
+        self::assertSame('not_editable', $this->errorCode($res));
+
+        $res = $this->sessionRequest('PUT', "/api/invoices/$openInvoice?force=1", $accountant, $sid, $openBody);
+        self::assertSame(409, $res->getStatusCode(), 'Výchozí účetní právo úpravy vystavené faktury nemá.');
+        self::assertSame('not_editable', $this->errorCode($res));
+
+        $res = $this->sessionRequest('PUT', "/api/invoices/$openInvoice?force=1", $editor, $sid, $openBody);
+        self::assertSame(200, $res->getStatusCode(), 'Role s právem upraví vystavenou fakturu: ' . (string) $res->getBody());
+
+        $res = $this->sessionRequest('PUT', "/api/invoices/$closedInvoice?force=1", $editor, $sid, $this->invoiceBody($sid, '2024-06-15'));
+        self::assertSame(409, $res->getStatusCode(), 'Uzavřené období přebíjí jen správce.');
+        self::assertSame('period_closed', $this->errorCode($res));
+    }
+
+    /**
+     * Podané přiznání k DPH (nebo KH) uzavírá období jen pro delegovanou roli: částky,
+     * data ani položky vystavené faktury v něm role s `invoices.edit_issued` nezmění,
+     * a to ani přesunem data do podaného období. Neúčetní úprava projde a správce
+     * zůstává beze změny.
+     */
+    public function testEditIssuedPermissionCannotChangeFinancialFieldsInFiledVatPeriod(): void
+    {
+        $sid = $this->mkSupplier('double_entry');
+        $this->mkPeriod($sid, 2026, 'open');
+        $filedInvoice = $this->mkInvoice($sid, 'issued', '2026-05-01', 'P13-FILED-1');
+        $openInvoice = $this->mkInvoice($sid, 'issued', '2026-06-01', 'P13-FILED-2');
+        $this->fileVatReturn($sid, 2026, 5);
+
+        $editorRole = $this->mkCustomRole('__TEST úprava vystavených v podaném období', [
+            'invoices' => 2,
+            'invoices.edit_issued' => 2,
+        ]);
+        $editor = $this->mkSessionUserWithRole($editorRole, $sid);
+        $admin = $this->mkSessionUser('admin', $sid);
+
+        $res = $this->sessionRequest('PUT', "/api/invoices/$filedInvoice?force=1", $editor, $sid, ['due_date' => '2026-07-31']);
+        self::assertSame(409, $res->getStatusCode(), 'Finanční změna v podaném období: ' . (string) $res->getBody());
+        self::assertSame('period_filed', $this->errorCode($res));
+        self::assertStringContainsString('přiznání k DPH za 5/2026', (string) $res->getBody());
+
+        $res = $this->sessionRequest('PUT', "/api/invoices/$openInvoice?force=1", $editor, $sid, ['tax_date' => '2026-05-20']);
+        self::assertSame(409, $res->getStatusCode(), 'Přesun data do podaného období: ' . (string) $res->getBody());
+        self::assertSame('period_filed', $this->errorCode($res));
+
+        // effective_tax_date je generovaný sloupec, z těla se neukládá a kontrolu nesmí přebít.
+        $res = $this->sessionRequest('PUT', "/api/invoices/$openInvoice?force=1", $editor, $sid,
+            ['tax_date' => '2026-05-20', 'effective_tax_date' => '2026-06-15']);
+        self::assertSame(409, $res->getStatusCode(), 'Podvržené effective_tax_date: ' . (string) $res->getBody());
+        self::assertSame('period_filed', $this->errorCode($res));
+
+        $res = $this->sessionRequest('PUT', "/api/invoices/$filedInvoice?force=1", $editor, $sid, ['note_below_items' => 'Jen poznámka']);
+        self::assertSame(200, $res->getStatusCode(), 'Neúčetní úprava projde: ' . (string) $res->getBody());
+
+        $res = $this->sessionRequest('PUT', "/api/invoices/$filedInvoice?force=1", $admin, $sid, ['due_date' => '2026-07-31']);
+        self::assertSame(200, $res->getStatusCode(), 'Správce zůstává beze změny: ' . (string) $res->getBody());
+    }
+
+    public function testDerivedOssCannotEnterFiledQuarterThroughUnchangedReplacementItems(): void
+    {
+        [$sid, $invoiceId, $item] = $this->ossGuardFixture();
+        $this->fileOssReturn($sid);
+        $editor = $this->ossGuardEditor($sid);
+        $before = $this->db->pdo()->query("SELECT * FROM invoice_items WHERE invoice_id = $invoiceId")->fetchAll(\PDO::FETCH_ASSOC);
+        $res = $this->sessionRequest('PUT', "/api/invoices/$invoiceId?force=1", $editor, $sid, ['items' => [$item]]);
+        self::assertSame(409, $res->getStatusCode(), (string) $res->getBody());
+        self::assertSame('period_filed', $this->errorCode($res));
+        self::assertSame($before, $this->db->pdo()->query("SELECT * FROM invoice_items WHERE invoice_id = $invoiceId")->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    public function testDerivedOssCannotMoveIntoFiledQuarter(): void
+    {
+        [$sid, $invoiceId, $item] = $this->ossGuardFixture('2026-07-15');
+        $this->fileOssReturn($sid);
+        $editor = $this->ossGuardEditor($sid);
+        $res = $this->sessionRequest('PUT', "/api/invoices/$invoiceId?force=1", $editor, $sid,
+            ['tax_date' => '2026-05-15', 'items' => [$item]]);
+        self::assertSame(409, $res->getStatusCode(), (string) $res->getBody());
+        self::assertSame('period_filed', $this->errorCode($res));
+        self::assertSame('2026-07-15', $this->db->pdo()->query("SELECT tax_date FROM invoices WHERE id = $invoiceId")->fetchColumn());
+    }
+
+    public function testFiledOssAllowsExplicitNonOssAndHeaderOnlyNote(): void
+    {
+        [$sid, $invoiceId, $item] = $this->ossGuardFixture();
+        $this->fileOssReturn($sid);
+        $editor = $this->ossGuardEditor($sid);
+        $res = $this->sessionRequest('PUT', "/api/invoices/$invoiceId?force=1", $editor, $sid, ['note_below_items' => 'Poznámka']);
+        self::assertSame(200, $res->getStatusCode(), (string) $res->getBody());
+        $item['oss_applicable'] = false;
+        $item['unit_price_without_vat'] = 200;
+        $res = $this->sessionRequest('PUT', "/api/invoices/$invoiceId?force=1", $editor, $sid, ['items' => [$item]]);
+        self::assertSame(200, $res->getStatusCode(), (string) $res->getBody());
+        $row = $this->db->pdo()->query("SELECT oss_applicable, unit_price_without_vat FROM invoice_items WHERE invoice_id = $invoiceId")->fetch(\PDO::FETCH_ASSOC);
+        self::assertSame(0, (int) $row['oss_applicable']);
+        self::assertSame(200.0, (float) $row['unit_price_without_vat']);
+    }
+
+    public function testAdminCanPersistDerivedOssInFiledQuarter(): void
+    {
+        [$sid, $invoiceId, $item] = $this->ossGuardFixture();
+        $this->fileOssReturn($sid);
+        $admin = $this->mkSessionUser('admin', $sid);
+        $res = $this->sessionRequest('PUT', "/api/invoices/$invoiceId?force=1", $admin, $sid, ['items' => [$item]]);
+        self::assertSame(200, $res->getStatusCode(), (string) $res->getBody());
+        $row = $this->db->pdo()->query("SELECT oss_applicable, oss_consumer_country, vat_rate_id FROM invoice_items WHERE invoice_id = $invoiceId")->fetch(\PDO::FETCH_ASSOC);
+        self::assertSame(1, (int) $row['oss_applicable']);
+        self::assertSame('PL', $row['oss_consumer_country']);
+        self::assertNotSame($item['vat_rate_id'], (int) $row['vat_rate_id']);
+        $rate = $this->db->pdo()->prepare('SELECT country, rate_percent FROM vat_rates WHERE id = ?');
+        $rate->execute([(int) $row['vat_rate_id']]);
+        $resolved = $rate->fetch(\PDO::FETCH_ASSOC);
+        self::assertSame('PL', $resolved['country']);
+        self::assertSame(23.0, (float) $resolved['rate_percent']);
+    }
+
+    public function testDerivedOssRequiresRepostPermissionForUnchangedRawItems(): void
+    {
+        [$sid, $invoiceId, $item] = $this->ossGuardFixture();
+        $period = $this->mkPeriod($sid, 2026, 'open');
+        $entryId = $this->mkPostedEntry($sid, 'invoice', $invoiceId, $period, '2026-05-15', true);
+        $editor = $this->ossGuardEditor($sid);
+        $res = $this->sessionRequest('PUT', "/api/invoices/$invoiceId?force=1", $editor, $sid, ['items' => [$item]]);
+        self::assertSame(403, $res->getStatusCode(), (string) $res->getBody());
+        self::assertSame('journal_post_forbidden', $this->errorCode($res));
+        self::assertSame(0, (int) $this->db->pdo()->query("SELECT oss_applicable FROM invoice_items WHERE invoice_id = $invoiceId")->fetchColumn());
+        self::assertNotNull($this->db->pdo()->query("SELECT posted_at FROM journal_entries WHERE id = $entryId")->fetchColumn());
+    }
+
+    public function testNotesOnlyRejectsDerivedOssForUnchangedRawItems(): void
+    {
+        [$sid, $invoiceId, $item] = $this->ossGuardFixture();
+        $period = $this->mkPeriod($sid, 2026, 'closed');
+        $this->mkPostedEntry($sid, 'invoice', $invoiceId, $period, '2026-05-15', true);
+        $admin = $this->mkSessionUser('admin', $sid);
+        $res = $this->sessionRequest('PUT', "/api/invoices/$invoiceId?force=1&force_mode=notes_only", $admin, $sid, ['items' => [$item]]);
+        self::assertSame(422, $res->getStatusCode(), (string) $res->getBody());
+        self::assertSame('financial_change_not_allowed', $this->errorCode($res));
+        self::assertSame(0, (int) $this->db->pdo()->query("SELECT oss_applicable FROM invoice_items WHERE invoice_id = $invoiceId")->fetchColumn());
+    }
+
+    public function testDerivedOssUsesDefaultedTaxDateForFiledQuarter(): void
+    {
+        [$sid, $invoiceId, $item] = $this->ossGuardFixture('2025-05-15');
+        $this->fileOssReturn($sid, (int) date('Y'), (int) ceil((int) date('n') / 3));
+        $editor = $this->ossGuardEditor($sid);
+        $res = $this->sessionRequest('PUT', "/api/invoices/$invoiceId?force=1", $editor, $sid,
+            ['tax_date' => null, 'items' => [$item]]);
+        self::assertSame(409, $res->getStatusCode(), (string) $res->getBody());
+        self::assertSame('period_filed', $this->errorCode($res));
+        self::assertSame('2025-05-15', $this->db->pdo()->query("SELECT tax_date FROM invoices WHERE id = $invoiceId")->fetchColumn());
+    }
+
+    public function testWalkInOssGuardRejectsBeforeCreatingCustomer(): void
+    {
+        [$sid, $invoiceId, $item] = $this->ossGuardFixture();
+        $pdo = $this->db->pdo();
+        $pdo->prepare("UPDATE supplier SET country_id = (SELECT id FROM countries WHERE iso2 = 'PL'), oss_identification_country = 'PL' WHERE id = ?")->execute([$sid]);
+        $item['vat_rate_id'] = (int) $pdo->query("SELECT id FROM vat_rates WHERE country = 'CZ' AND rate_percent = 21 AND is_reverse_charge = 0 ORDER BY id LIMIT 1")->fetchColumn();
+        self::assertGreaterThan(0, $item['vat_rate_id']);
+        $this->fileOssReturn($sid);
+        $editor = $this->ossGuardEditor($sid);
+        $before = (int) $pdo->query("SELECT COUNT(*) FROM clients WHERE supplier_id = $sid")->fetchColumn();
+        $res = $this->sessionRequest('PUT', "/api/invoices/$invoiceId?force=1", $editor, $sid,
+            ['client_id' => null, 'is_simplified' => true, 'items' => [$item]]);
+        self::assertSame(409, $res->getStatusCode(), (string) $res->getBody());
+        self::assertSame('period_filed', $this->errorCode($res));
+        self::assertSame($before, (int) $pdo->query("SELECT COUNT(*) FROM clients WHERE supplier_id = $sid")->fetchColumn());
+        self::assertSame($this->clientIds[$sid], (int) $pdo->query("SELECT client_id FROM invoices WHERE id = $invoiceId")->fetchColumn());
+    }
+
+    public function testWalkInNonOssForceEditStillCreatesOneCustomer(): void
+    {
+        [$sid, $invoiceId, $item] = $this->ossGuardFixture();
+        $this->fileOssReturn($sid);
+        $editor = $this->ossGuardEditor($sid);
+        $item['oss_applicable'] = false;
+        $item['vat_rate_id'] = (int) $this->db->pdo()->query("SELECT id FROM vat_rates WHERE country = 'CZ' AND rate_percent = 21 AND is_reverse_charge = 0 ORDER BY id LIMIT 1")->fetchColumn();
+        $body = ['client_id' => null, 'is_simplified' => true, 'items' => [$item]];
+        foreach ([1, 2] as $attempt) {
+            $res = $this->sessionRequest('PUT', "/api/invoices/$invoiceId?force=1", $editor, $sid, $body);
+            self::assertSame(200, $res->getStatusCode(), (string) $res->getBody());
+            self::assertSame(1, (int) $this->db->pdo()->query("SELECT COUNT(*) FROM clients WHERE supplier_id = $sid AND is_walk_in = 1")->fetchColumn());
+            self::assertSame(0, (int) $this->db->pdo()->query("SELECT oss_applicable FROM invoice_items WHERE invoice_id = $invoiceId")->fetchColumn());
+        }
+    }
+
+    public function testFiledOssCannotBeRemovedByExplicitFalse(): void
+    {
+        [$sid, $invoiceId, $item, $plRate] = $this->ossGuardFixture();
+        $this->db->pdo()->prepare("UPDATE invoice_items SET oss_applicable = 1, oss_consumer_country = 'PL', oss_rate_type = 'standard', oss_supply_type = 'goods', vat_rate_id = ? WHERE invoice_id = ?")->execute([$plRate, $invoiceId]);
+        $this->fileOssReturn($sid);
+        $editor = $this->ossGuardEditor($sid);
+        $item['oss_applicable'] = false;
+        $res = $this->sessionRequest('PUT', "/api/invoices/$invoiceId?force=1", $editor, $sid, ['items' => [$item]]);
+        self::assertSame(409, $res->getStatusCode(), (string) $res->getBody());
+        self::assertSame('period_filed', $this->errorCode($res));
+        self::assertSame(1, (int) $this->db->pdo()->query("SELECT oss_applicable FROM invoice_items WHERE invoice_id = $invoiceId")->fetchColumn());
+    }
+
+    public function testNotesOnlyAllowsUnchangedExplicitNonOssItems(): void
+    {
+        [$sid, $invoiceId, $item] = $this->ossGuardFixture();
+        $period = $this->mkPeriod($sid, 2026, 'closed');
+        $entryId = $this->mkPostedEntry($sid, 'invoice', $invoiceId, $period, '2026-05-15', true);
+        $admin = $this->mkSessionUser('admin', $sid);
+        $item['oss_applicable'] = false;
+        $res = $this->sessionRequest('PUT', "/api/invoices/$invoiceId?force=1&force_mode=notes_only", $admin, $sid,
+            ['items' => [$item], 'note_below_items' => 'Poznámka']);
+        self::assertSame(200, $res->getStatusCode(), (string) $res->getBody());
+        self::assertSame(0, (int) $this->db->pdo()->query("SELECT oss_applicable FROM invoice_items WHERE invoice_id = $invoiceId")->fetchColumn());
+        self::assertNotNull($this->db->pdo()->query("SELECT posted_at FROM journal_entries WHERE id = $entryId")->fetchColumn());
+    }
+
+    public function testFiledDerivedOssRejectionDoesNotRenumberInvoice(): void
+    {
+        [$sid, $invoiceId, $item] = $this->ossGuardFixture();
+        $this->fileOssReturn($sid);
+        $editor = $this->ossGuardEditor($sid);
+        $pdo = $this->db->pdo();
+        $before = $pdo->query("SELECT invoice_type, varsymbol FROM invoices WHERE id = $invoiceId")->fetch(\PDO::FETCH_ASSOC);
+        $counters = $pdo->query("SELECT * FROM invoice_counters WHERE supplier_id = $sid ORDER BY invoice_type, period, client_id, revenue_category_id")->fetchAll(\PDO::FETCH_ASSOC);
+        $res = $this->sessionRequest('PUT', "/api/invoices/$invoiceId?force=1", $editor, $sid,
+            ['invoice_type' => 'proforma', 'items' => [$item]]);
+        self::assertSame(409, $res->getStatusCode(), (string) $res->getBody());
+        self::assertSame('period_filed', $this->errorCode($res));
+        self::assertSame($before, $pdo->query("SELECT invoice_type, varsymbol FROM invoices WHERE id = $invoiceId")->fetch(\PDO::FETCH_ASSOC));
+        self::assertSame($counters, $pdo->query("SELECT * FROM invoice_counters WHERE supplier_id = $sid ORDER BY invoice_type, period, client_id, revenue_category_id")->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    private function ossGuardFixture(string $date = '2026-05-15'): array
+    {
+        $sid = $this->mkSupplier('double_entry');
+        $pdo = $this->db->pdo();
+        $pdo->prepare("UPDATE supplier SET country_id = (SELECT id FROM countries WHERE iso2 = 'CZ'), oss_enabled = 1, oss_valid_from = '2020-01-01', oss_valid_to = NULL, oss_identification_country = 'CZ' WHERE id = ?")->execute([$sid]);
+        $pdo->prepare("UPDATE clients SET country_id = (SELECT id FROM countries WHERE iso2 = 'PL'), dic = NULL, is_vat_payer = 0 WHERE id = ?")->execute([$this->clientIds[$sid]]);
+        $rates = [];
+        foreach (['CZ', 'PL'] as $country) {
+            $code = 'LOCK-OSS-' . $country . '-' . bin2hex(random_bytes(4));
+            $pdo->prepare("INSERT INTO vat_rates (code, rate_percent, country, label_cs, label_en, is_default, is_reverse_charge, valid_from, display_order) VALUES (?, 23, ?, ?, ?, 0, 0, '2026-01-01', 10000)")
+                ->execute([$code, $country, $code, $code]);
+            $rates[$country] = (int) $pdo->lastInsertId();
+            $this->ossVatRateIds[] = $rates[$country];
+        }
+        $invoiceId = $this->mkInvoice($sid, 'issued', $date, 'TEST-OSS-' . bin2hex(random_bytes(4)), 123);
+        $pdo->prepare("INSERT INTO invoice_items (invoice_id, description, quantity, unit, unit_price_without_vat, vat_rate_id, vat_rate_snapshot, total_without_vat, total_vat, total_with_vat, order_index) VALUES (?, 'Položka OSS', 1, 'ks', 100, ?, 23, 100, 23, 123, 0)")->execute([$invoiceId, $rates['CZ']]);
+        $item = ['description' => 'Položka OSS', 'quantity' => 1, 'unit' => 'ks', 'unit_price_without_vat' => 100, 'vat_rate_id' => $rates['CZ']];
+        return [$sid, $invoiceId, $item, $rates['PL']];
+    }
+
+    private function ossGuardEditor(int $sid): array
+    {
+        return $this->mkSessionUserWithRole($this->mkCustomRole('__TEST OSS edit', ['invoices' => 2, 'invoices.edit_issued' => 2]), $sid);
+    }
+
+    private function fileOssReturn(int $sid, int $year = 2026, int $quarter = 2): void
+    {
+        $this->db->pdo()->prepare("INSERT INTO tax_submissions (supplier_id, form_code, period_year, period_month, period_quarter, form_variant, xml_content, xml_size_bytes, xml_sha256, validation_status, status, submitted_at, summary_json, generated_by) VALUES (?, 'ossei1', ?, NULL, ?, 'B', '<test/>', 7, ?, 'passed', 'submitted', NOW(), '{}', NULL)")
+            ->execute([$sid, $year, $quarter, hash('sha256', 'test')]);
     }
 
     /** Scénář 5 (H1): create/issue/přesun data do zavřeného období. */
@@ -749,6 +1045,17 @@ final class DocumentLockTest extends TestCase
         return (int) $pdo->lastInsertId();
     }
 
+    private function fileVatReturn(int $sid, int $year, int $month): void
+    {
+        $this->db->pdo()->prepare(
+            "INSERT INTO tax_submissions
+                (supplier_id, form_code, period_year, period_month, period_quarter, form_variant,
+                 xml_content, xml_size_bytes, xml_sha256, validation_status, status, submitted_at,
+                 summary_json, generated_by)
+             VALUES (?, 'dphdp3', ?, ?, NULL, 'B', '<test/>', 7, ?, 'passed', 'submitted', NOW(), '{}', NULL)"
+        )->execute([$sid, $year, $month, hash('sha256', 'test')]);
+    }
+
     private function addInvoiceItem(int $sid, int $invoiceId): void
     {
         $vatRateId = (int) $this->db->pdo()->query('SELECT id FROM vat_rates ORDER BY id LIMIT 1')->fetchColumn();
@@ -837,6 +1144,38 @@ final class DocumentLockTest extends TestCase
     private function mkSessionUser(string $role, int $sid): array
     {
         $userId = $this->mkUser($role);
+        $this->db->pdo()->prepare('INSERT INTO user_suppliers (user_id, supplier_id, role_id) VALUES (?, ?, NULL)')
+            ->execute([$userId, $sid]);
+        $out = $this->sessions->create($userId, '127.0.0.1', '__test_f6_lock');
+        $this->sessionTokens[] = (string) $out['token'];
+        return ['token' => $out['token'], 'csrf_token' => $out['csrf_token']];
+    }
+
+    /** @param array<string,int> $permissions */
+    private function mkCustomRole(string $name, array $permissions): int
+    {
+        $pdo = $this->db->pdo();
+        $pdo->prepare("INSERT INTO roles (system_key, name, role_type, is_active) VALUES (NULL, ?, 'staff', 1)")
+            ->execute([$name . ' ' . bin2hex(random_bytes(3))]);
+        $roleId = (int) $pdo->lastInsertId();
+        $this->roleIds[] = $roleId;
+        $stmt = $pdo->prepare('INSERT INTO role_permissions (role_id, permission_key, access_level) VALUES (?, ?, ?)');
+        foreach ($permissions as $key => $level) {
+            $stmt->execute([$roleId, $key, $level]);
+        }
+        return $roleId;
+    }
+
+    /** @return array{token:string, csrf_token:string} */
+    private function mkSessionUserWithRole(int $roleId, int $sid): array
+    {
+        $email = '__test_f6_lock_' . bin2hex(random_bytes(6)) . '@example.com';
+        $this->db->pdo()->prepare(
+            "INSERT INTO users (email, password_hash, name, role_id, locale, is_active)
+             VALUES (?, '\$2y\$10\$abcdefghijklmnopqrstuvABCDEFGHIJKLMNOPQRSTUVWXYZ01234', '__TEST F6 lock', ?, 'cs', 1)"
+        )->execute([$email, $roleId]);
+        $userId = (int) $this->db->pdo()->lastInsertId();
+        $this->userIds[] = $userId;
         $this->db->pdo()->prepare('INSERT INTO user_suppliers (user_id, supplier_id, role_id) VALUES (?, ?, NULL)')
             ->execute([$userId, $sid]);
         $out = $this->sessions->create($userId, '127.0.0.1', '__test_f6_lock');

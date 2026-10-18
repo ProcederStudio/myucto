@@ -10,6 +10,7 @@ Kapitolu otevřete, když:
 
 - pořizujete firemní nebo soukromé vozidlo používané pro podnikání a chcete ho evidovat,
 - jste se vrátili z cesty a potřebujete zapsat jízdu,
+- jezdíte opakovaně stejné trasy a chcete jízdy doplnit podle stavu tachometru jedním klikem,
 - máte účtenku nebo fakturu za pohonné hmoty a chcete ji rozpadnout na tankování,
 - máte evidenci jízd v tabulce a chcete ji nahrát najednou,
 - se blíží konec roku a potřebujete doložit najeté kilometry, spotřebu a stav tachometru,
@@ -25,14 +26,21 @@ finanční úřad odpočet neuzná. Najdete ji v menu `Dokumenty → Kniha jízd
 |---|---|---|
 | jednou při pořízení vozidla | Založit auto s počátečním stavem tachometru | záložka **Automobily** |
 | po každé cestě | Zapsat jízdu s konkrétním účelem | záložka **Kniha jízd**, **Nový záznam** |
+| jednou, při změně tras | Založit pravidelné cesty | záložka **Pravidelné cesty** |
+| průběžně (třeba týdně) | Zapsat stav tachometru a doplnit km z pravidelných cest | záložka **Kniha jízd**, **Stav tachometru** a panel **Km k doplnění** |
 | po každém tankování nebo nabití | Zapsat tankování, nebo nechat vzniknout z dokladu | záložka **Tankování** |
 | měsíčně | Projít upozornění k tankování | záložka **Tankování**, panel **Upozornění k tankování** |
 | na konci roku | Zkontrolovat souhrn a vyexportovat ho k daňové evidenci | záložka **Souhrny** |
 
 ## 36.2 Než začnete
 
-- **Oprávnění.** Zápis jízd, aut a tankování vyžaduje právo zápisu do knihy jízd. Tlačítko
-  **Z pokladny** vidí jen ten, kdo smí číst pokladnu.
+- **Oprávnění.** Knihu jízd lze zpřístupnit interním i klientským rolím. Čtení
+  umožňuje prohlížení; zápis jízd, aut a tankování vyžaduje samostatné oprávnění
+  k zápisu. Import a mazání mají vlastní oprávnění a lze je povolit nezávisle.
+- **Zdrojové doklady.** Tlačítko **Z pokladny** vyžaduje čtení pokladny,
+  **Z faktur** čtení přijatých faktur. Také vyhledání a změna vazby na bankovní
+  pohyb nebo účetní zápis vyžadují čtení příslušné evidence. Bez něj se vazby
+  a jejich popisky nezobrazují; při běžné úpravě tankování zůstávají uložené.
 - **Auto.** Bez založeného auta nelze zapsat jízdu ani tankování (**Nejprve přidejte
   automobil v záložce Automobily.**).
 - **Dodavatel stanice.** Aby se faktury od čerpacích a nabíjecích stanic nabízely ke
@@ -41,8 +49,8 @@ finanční úřad odpočet neuzná. Najdete ji v menu `Dokumenty → Kniha jízd
   vyberte u vozidla **Řidiče** a kartu veďte v [Platebních kartách](31_Platebni_karty.md)
   s držitelem vybraným ze zaměstnanců.
 
-Kniha jízd má pět záložek: **Kniha jízd** (jednotlivé jízdy), **Automobily**,
-**Tankování**, **Kategorie cest** a **Souhrny**.
+Kniha jízd má šest záložek: **Kniha jízd** (jednotlivé jízdy), **Automobily**,
+**Tankování**, **Pravidelné cesty**, **Kategorie cest** a **Souhrny**.
 
 ## 36.3 Krok za krokem: zapsat jízdu
 
@@ -90,6 +98,41 @@ stavem auta. Jízdy se řadí podle data a času odjezdu.
 
 **Jak poznáte, že je hotovo:** zobrazí se počet přepočítaných jízd a sloupec stavu
 tachometru v seznamu na sebe navazuje.
+
+### 36.3.4 Zapsat jízdu z pravidelné cesty
+
+1. Na záložce **Pravidelné cesty** klikněte na **Nová pravidelná cesta**.
+2. Vyplňte **Odkud** a **Kam** (název se z nich navrhne sám), **Účel cesty**, **Ujeto (km)**
+   a **Kategorii**. Volitelně **Obvyklý čas odjezdu** a **příjezdu** a **Auto**; bez auta
+   se cesta nabízí u všech aut.
+3. Uložte. Cestu tam a zpět zadejte jako dvě pravidelné cesty, nebo jednu s km za obě
+   cesty.
+4. Při zápisu jízdy zvolte v okně **Nový záznam** pole **Z pravidelné cesty**. Vyplní se
+   odkud, kam, účel, kategorie, časy a ujeté km a tachometr (konec) se dopočítá.
+
+**Jak poznáte, že je hotovo:** pravidelná cesta je v seznamu a formulář nové jízdy ji
+nabízí. Jízdy si cestu nepamatují, úprava nebo smazání pravidelné cesty je nezmění.
+
+### 36.3.5 Doplnit km podle stavu tachometru
+
+Nechcete zapisovat každou jízdu hned? Stačí čas od času opsat stav tachometru a
+kilometry pak rozdělit na jízdy.
+
+1. Na záložce **Kniha jízd** klikněte na **Stav tachometru**.
+2. Vyberte **Auto**, zadejte **Datum** a **Stav tachometru (km)** a klikněte na
+   **Zapsat stav**. Druhý zápis téhož dne stav přepíše.
+3. Nad seznamem jízd se objeví žlutý panel **Km k doplnění** s obdobím, autem a počtem km.
+   U řádku klikněte na **Doplnit**.
+4. Tlačítky pravidelných cest přidejte jízdy (každé kliknutí jednu). U jízdy můžete změnit
+   datum v rámci období, km, kategorii, odkud, kam a účel. Tlačítkem **Jiná jízda**
+   přidáte jízdu bez pravidelné cesty.
+5. Nechte zaškrtnuté **Zbytek zapsat jako soukromou jízdu**, chcete-li zbývající km
+   zapsat jako soukromé. Bez zaškrtnutí zbytek zůstane k doplnění na později.
+6. Klikněte na **Uložit jízdy**.
+
+**Jak poznáte, že je hotovo:** v seznamu přibyly jízdy, které na sebe navazují stavem
+tachometru a poslední končí přesně na zapsaném stavu, a řádek v panelu **Km k doplnění**
+zmizel.
 
 ## 36.4 Krok za krokem: přidat auto
 
@@ -194,6 +237,10 @@ souhrn je vyexportovaný.
 | Řádek importu skončil **chybou** | Neznámá SPZ, chybí datum nebo částka | Opravte řádek v souboru a nahrajte znovu |
 | **Tankování se nepodařilo rozpoznat.** | Faktura má nečitelný formát | Zapište tankování ručně |
 | Tlačítko **Z pokladny** chybí | Nemáte právo číst pokladnu | Požádejte administrátora o oprávnění |
+| **Stav tachometru nenavazuje na ostatní stavy auta** | Stav je nižší než dřívější stav nebo konec dřívější jízdy, nebo vyšší než pozdější stav | Zkontrolujte číslo a datum, případně opravte dřívější stav nebo jízdu |
+| **Km k doplnění** se ukazují i za období, kde jízdy jsou | Jízdy nemají vyplněný stav tachometru, takže kniha jízd neví, kde na tachometru leží | Doplňte u jízd tachometr, případně použijte **Přepočítat tachometr** (viz [§ 36.3.3](#3633-prepocitat-stav-tachometru)) |
+| **Zbytek zapsat jako soukromou jízdu** nejde zaškrtnout | Chybí kategorie cest označená jako soukromá jízda | Založte ji na záložce **Kategorie cest** |
+| **Jízdy mají víc km, než kolik je k doplnění.** | Součet km jízd přesahuje rozdíl stavů tachometru | Snižte km u některé jízdy nebo jízdu odeberte |
 
 ## 36.8 Podrobnosti a pravidla
 
@@ -432,6 +479,31 @@ po měsících a kumulativně. Vše vyexportujete do XLSX nebo PDF.
   jednotku kWh a spotřeba se počítá v kWh/100 km. Dobíjení doma na domovní elektřinu, které
   nejde oddělit od fakturace za domácnost, zadávejte ručně (odhad kWh z rozdílu tachometru
   a spotřeby).
+
+### 36.8.9 Pravidelné cesty a km k doplnění
+
+**Km k doplnění** jsou rozdíl mezi zapsaným stavem tachometru a tím, co pokrývají zapsané
+jízdy. U každého stavu tachometru se vezme nejvyšší z těchto hodnot:
+
+- konec poslední jízdy téhož auta s datem do data stavu,
+- předchozí zapsaný stav tachometru,
+- počáteční stav auta.
+
+Co stav tachometru převyšuje, je k doplnění. Období začíná datem té hodnoty a končí dnem
+zápisu stavu. Zapisujete-li stav každý den, dostanete km k doplnění rozložené po dnech.
+Jízdy bez stavu tachometru pokrytí neposunou. První stav auta bez jízd a bez počátečního
+stavu je jen výchozí bod a km k doplnění netvoří.
+
+Doplněné jízdy se seřadí podle data a času odjezdu stejně jako při přepočtu tachometru
+a v souhrnu.
+Jízda bez času je v daném dni první. První jízda začíná na stavu, kde období začíná, každá
+další navazuje na konec předchozí a poslední končí přesně na zapsaném stavu. Tachometr je
+v celých km, ujeté km s desetinou. Konce se proto zaokrouhlují ze součtu, aby se
+nepřesnost nesčítala. Soukromá jízda na zbytek nemá čas odjezdu. Dostane první
+nearchivovanou kategorii označenou jako soukromá jízda a účel „Soukromá jízda".
+
+Účel u pravidelné cesty pište stejně konkrétně jako u jednotlivé jízdy. Finanční úřad
+posuzuje každou jízdu zvlášť, i když vznikla z pravidelné cesty.
 
 ## 36.9 Související kapitoly
 

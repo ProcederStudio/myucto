@@ -7,6 +7,8 @@ namespace MyInvoice\Tests\Integration\Stock;
 use MyInvoice\Action\Stock\StockItemAction;
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Middleware\SupplierScopeMiddleware;
+use MyInvoice\Security\AccessLevel;
+use MyInvoice\Security\EffectiveRole;
 use PHPUnit\Framework\Attributes\Group;
 use Slim\Psr7\Factory\ServerRequestFactory;
 use Slim\Psr7\Response as Psr7Response;
@@ -159,6 +161,66 @@ final class StockCatalogListTest extends StockTestCase
         self::assertSame([$incomplete], array_column($rows, 'id'));
     }
 
+    public function testListCanProjectOneAttributeAsDisplayColumn(): void
+    {
+        $sid = $this->createSupplier();
+        $numeric = $this->item($sid, 'KAT-PARAM-NUM');
+        $multi = $this->item($sid, 'KAT-PARAM-ENUM');
+        $empty = $this->item($sid, 'KAT-PARAM-NONE');
+        $numberAttribute = $this->insertAttribute($sid, 'KAT-PARAM-N');
+        $this->db->pdo()->prepare(
+            'INSERT INTO stock_attributes (supplier_id, code, name, data_type, is_multivalue)
+             VALUES (?, "KAT-PARAM-E", "Barva", "enum", 1)'
+        )->execute([$sid]);
+        $enumAttribute = (int) $this->db->pdo()->lastInsertId();
+        $options = [];
+        foreach (['Modrá' => 20, 'Bílá' => 10] as $label => $order) {
+            $this->db->pdo()->prepare(
+                'INSERT INTO stock_attribute_options (supplier_id, attribute_id, code, label, display_order) VALUES (?, ?, ?, ?, ?)'
+            )->execute([$sid, $enumAttribute, 'OPT-' . $order, $label, $order]);
+            $options[$label] = (int) $this->db->pdo()->lastInsertId();
+        }
+        $value = $this->db->pdo()->prepare(
+            'INSERT INTO stock_item_attribute_values
+                (supplier_id, stock_item_id, attribute_id, option_id, value_num, display_order)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        );
+        $value->execute([$sid, $numeric, $numberAttribute, null, '12.500000', 0]);
+        $value->execute([$sid, $multi, $enumAttribute, $options['Modrá'], null, 1]);
+        $value->execute([$sid, $multi, $enumAttribute, $options['Bílá'], null, 0]);
+
+        $byId = static fn (array $rows): array => array_column($rows, 'display_attribute_value', 'id');
+
+        [$numberRows] = $this->itemsRepo->listPaged($sid, ['display_attribute_id' => $numberAttribute], 50, 0);
+        self::assertSame('12.5', $byId($numberRows)[$numeric]);
+        self::assertNull($byId($numberRows)[$empty]);
+
+        $api = $this->callList($sid, ['display_attribute_id' => (string) $enumAttribute, 'sort' => 'sku']);
+        self::assertSame(200, $api['status']);
+        self::assertSame('Bílá, Modrá', $byId($api['body']['data'])[$multi]);
+        self::assertNull($byId($api['body']['data'])[$numeric]);
+
+        $plain = $this->callList($sid, []);
+        self::assertArrayNotHasKey('display_attribute_value', $plain['body']['data'][0]);
+
+        $invalid = $this->callList($sid, ['display_attribute_id' => 'abc']);
+        self::assertSame(400, $invalid['status']);
+
+        // Parametr jiné firmy hodnotu nevrátí.
+        $foreignAttribute = $this->insertAttribute($this->createSupplier(), 'KAT-PARAM-FOREIGN');
+        $this->db->pdo()->prepare('UPDATE stock_item_attribute_values SET attribute_id = ? WHERE supplier_id = ? AND stock_item_id = ?')
+            ->execute([$foreignAttribute, $sid, $numeric]);
+        $foreign = $this->callList($sid, ['display_attribute_id' => (string) $foreignAttribute]);
+        self::assertSame(200, $foreign['status']);
+        self::assertNull($byId($foreign['body']['data'])[$numeric]);
+
+        // Parametry spravuje e-shop: bez práva ho číst se sloupec ignoruje.
+        $stockOnly = new EffectiveRole(0, 'Skladník', 'staff', true, ['stock' => AccessLevel::READ->value]);
+        $withoutEshop = $this->callList($sid, ['display_attribute_id' => (string) $enumAttribute], $stockOnly);
+        self::assertSame(200, $withoutEshop['status']);
+        self::assertArrayNotHasKey('display_attribute_value', $withoutEshop['body']['data'][0]);
+    }
+
     public function testApiRejectsUnknownSortAndMalformedFilters(): void
     {
         $sid = $this->createSupplier();
@@ -177,13 +239,16 @@ final class StockCatalogListTest extends StockTestCase
     }
 
     /** @param array<string,mixed> $query @return array{status:int,body:array<string,mixed>} */
-    private function callList(int $supplierId, array $query): array
+    private function callList(int $supplierId, array $query, ?EffectiveRole $role = null): array
     {
         $request = (new ServerRequestFactory())
             ->createServerRequest('GET', '/api/stock/items')
             ->withAttribute(SupplierScopeMiddleware::ATTR_CURRENT_ID, $supplierId)
             ->withAttribute(AuthMiddleware::ATTR_USER, ['id' => $this->userId, 'role' => 'accountant'])
             ->withQueryParams($query);
+        if ($role !== null) {
+            $request = $request->withAttribute('auth.effective_role', $role);
+        }
         $response = $this->action->list($request, new Psr7Response());
         $response->getBody()->rewind();
         $body = json_decode((string) $response->getBody(), true);

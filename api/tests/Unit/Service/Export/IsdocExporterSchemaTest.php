@@ -410,6 +410,39 @@ final class IsdocExporterSchemaTest extends TestCase
     /**
      * Vrátí textový obsah prvního uzlu pro XPath výraz (namespace `i:`), nebo null.
      */
+    /**
+     * Textový řádek není plnění: v <InvoiceLines> by ho příjemce naimportoval jako
+     * nulovou položku. Jde proto do <Note> dokladu, řádky se číslují bez něj a
+     * rozšíření o časové položce ukazuje na přečíslovaný řádek.
+     */
+    public function testTextRowGoesToNoteAndLineIdsStaySequential(): void
+    {
+        $xml = $this->exporter->buildXml($this->invoice([
+            'items' => [
+                $this->item(['item_kind' => 'text', 'description' => 'Zakázka: montáž', 'quantity' => 0.0,
+                    'unit' => '', 'unit_price_without_vat' => 0.0, 'total_without_vat' => 0.0,
+                    'total_vat' => 0.0, 'total_with_vat' => 0.0]),
+                $this->item(['description' => 'Konzultace', 'duration_minutes' => 90, 'quantity' => 1.5, 'unit' => 'h',
+                    'unit_price_without_vat' => 1680.0]),
+                $this->item(['item_kind' => 'text', 'description' => "Materiál\ndodán na stavbu", 'quantity' => 0.0,
+                    'unit' => '', 'unit_price_without_vat' => 0.0, 'total_without_vat' => 0.0,
+                    'total_vat' => 0.0, 'total_with_vat' => 0.0]),
+            ],
+        ]));
+
+        $this->assertValidIsdoc($xml);
+        self::assertSame(1, $this->xpathCount($xml, '//i:InvoiceLines/i:InvoiceLine'));
+        self::assertSame('1', $this->xpathOne($xml, '//i:InvoiceLine/i:ID'));
+        self::assertSame('Konzultace', $this->xpathOne($xml, '//i:InvoiceLine/i:Item/i:Description'));
+        self::assertSame("Zakázka: montáž\nMateriál\ndodán na stavbu", $this->xpathOne($xml, '/i:Invoice/i:Note'));
+        self::assertStringContainsString('<myi:Line id="1" durationMinutes="90"/>', $xml);
+    }
+
+    public function testInvoiceWithoutTextRowHasNoNote(): void
+    {
+        self::assertSame(0, $this->xpathCount($this->exporter->buildXml($this->invoice()), '/i:Invoice/i:Note'));
+    }
+
     private function xpathOne(string $xml, string $expr): ?string
     {
         $dom = new \DOMDocument();

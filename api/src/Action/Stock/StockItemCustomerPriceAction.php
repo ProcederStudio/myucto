@@ -8,6 +8,7 @@ use MyInvoice\Action\Accounting\AccountingActionSupport;
 use MyInvoice\Http\Json;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Security\AccessLevel;
+use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\IpMatcher;
 use MyInvoice\Service\Stock\StockException;
@@ -35,6 +36,7 @@ final class StockItemCustomerPriceAction
 
     public function get(Request $request, Response $response, array $args): Response
     {
+        if (!$this->guardClientPriceList($request, $response, AccessLevel::READ, $err)) return $err;
         $supplierId = $this->currentSupplierId($request);
         if (!$this->guardStockEnabled($this->db, $supplierId, $response, $err)) return $err;
         try {
@@ -47,6 +49,7 @@ final class StockItemCustomerPriceAction
     public function put(Request $request, Response $response, array $args): Response
     {
         if (!$this->requirePermission($request, $response, 'stock.items.write', AccessLevel::WRITE, $err)) return $err;
+        if (!$this->guardClientPriceList($request, $response, AccessLevel::WRITE, $err)) return $err;
         $supplierId = $this->currentSupplierId($request);
         if (!$this->guardStockEnabled($this->db, $supplierId, $response, $err)) return $err;
         $itemId = (int) $args['id'];
@@ -66,5 +69,18 @@ final class StockItemCustomerPriceAction
             $supplierId,
         );
         return Json::ok($response, $saved);
+    }
+
+    /**
+     * Zákaznické ceny jsou pro klienta součást ceníku, ne skladu: celý seznam
+     * výjimek v ceníku chce `price_list` (RoutePermissionMap), proto ho sklad
+     * klientovi sám neotevře. Výsledná cena pro konkrétního odběratele při
+     * vystavení dokladu (quote) zůstává dostupná jako u výběru z ceníku.
+     */
+    private function guardClientPriceList(Request $request, Response $response, AccessLevel $minimum, ?Response &$err): bool
+    {
+        $err = null;
+        if (!RequestAuthorization::isClientType($request)) return true;
+        return $this->requirePermission($request, $response, 'price_list', $minimum, $err);
     }
 }

@@ -17,35 +17,38 @@ namespace MyInvoice\Service\Tax\Return;
  */
 final class JournalTaxOrigin
 {
-    public static function cte(int $supplierId): string
+    public static function cte(int $supplierId, bool $currentRead = false): string
     {
+        $parentLock = $currentRead ? ' FOR UPDATE' : '';
         return self::fromRoots($supplierId, "SELECT e.id, e.source_type, e.source_id, e.reversed_by
               FROM journal_entries e
              WHERE e.supplier_id = {$supplierId}
                AND e.reversed_by IS NOT NULL
                AND NOT EXISTS (
                    SELECT 1 FROM journal_entries parent
-                    WHERE parent.supplier_id = {$supplierId} AND parent.reversed_by = e.id
-               )");
+                    WHERE parent.supplier_id = {$supplierId} AND parent.reversed_by = e.id{$parentLock}
+               )", $currentRead);
     }
 
-    public static function provisionsBeforeCte(int $supplierId): string
+    public static function provisionsBeforeCte(int $supplierId, bool $currentRead = false): string
     {
         return self::fromRoots($supplierId, "SELECT e.id, e.source_type, e.source_id, e.reversed_by
               FROM journal_entries e
              WHERE e.supplier_id = {$supplierId} AND e.source_type = 'provision'
-               AND e.source_id IS NOT NULL AND e.entry_date < ?");
+               AND e.source_id IS NOT NULL AND e.entry_date < ?", $currentRead);
     }
 
-    private static function fromRoots(int $supplierId, string $roots): string
+    private static function fromRoots(int $supplierId, string $roots, bool $currentRead = false): string
     {
+        $open = $currentRead ? '(' : '';
+        $close = $currentRead ? ' FOR UPDATE)' : '';
         return "tax_journal_origins AS (
-            {$roots}
+            {$open}{$roots}{$close}
             UNION ALL
-            SELECT reversal.id, origin.source_type, origin.source_id, reversal.reversed_by
+            {$open}SELECT reversal.id, origin.source_type, origin.source_id, reversal.reversed_by
               FROM tax_journal_origins origin
               JOIN journal_entries reversal ON reversal.id = origin.reversed_by
-             WHERE reversal.supplier_id = {$supplierId}
+             WHERE reversal.supplier_id = {$supplierId}{$close}
         )";
     }
 

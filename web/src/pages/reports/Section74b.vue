@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { reportsApi, type S74bPreview } from '@/api/reports'
 import { apiErrorMessage } from '@/api/errors'
 import { useYearOptions } from '@/composables/useYearOptions'
+import { useVatReportPeriod } from '@/composables/useVatReportPeriod'
 import { useAuthStore } from '@/stores/auth'
 import ActionBar, { type ActionItem } from '@/components/ui/ActionBar.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -12,34 +13,45 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 const { t, locale } = useI18n()
 const auth = useAuthStore()
 
-const now = new Date()
-const year = ref(now.getFullYear())
-const month = ref(now.getMonth() + 1)
+const { year, month, ready, settingsError, initialize } = useVatReportPeriod('monthly')
 
 const preview = ref<S74bPreview | null>(null)
-const loading = ref(false)
+const loading = ref(true)
 const recording = ref(false)
 const error = ref('')
 const recordedMsg = ref('')
 
 const canRecord = computed(() => auth.canWrite('reports.finalize'))
+let previewSeq = 0
+onBeforeUnmount(() => { ++previewSeq })
 
 async function loadPreview() {
+  if (!ready.value) {
+    loading.value = true
+    error.value = ''
+    await initialize()
+    return
+  }
+  const seq = ++previewSeq
+  const requestedYear = year.value
+  const requestedMonth = month.value
+  const current = () => seq === previewSeq && ready.value && requestedYear === year.value && requestedMonth === month.value
   loading.value = true
+  preview.value = null
   error.value = ''
   recordedMsg.value = ''
   try {
-    preview.value = await reportsApi.s74bPreview(year.value, month.value)
+    const result = await reportsApi.s74bPreview(requestedYear, requestedMonth)
+    if (current()) preview.value = result
   } catch (e) {
-    error.value = apiErrorMessage(e)
-    preview.value = null
+    if (current()) error.value = apiErrorMessage(e)
   } finally {
-    loading.value = false
+    if (seq === previewSeq) loading.value = false
   }
 }
 
 async function record() {
-  if (!canRecord.value) return
+  if (!ready.value || loading.value || !canRecord.value) return
   if (!confirm(t('reports.s74b.record_confirm'))) return
   recording.value = true
   error.value = ''
@@ -105,8 +117,14 @@ const actions = computed<ActionItem[]>(() => [
   },
 ])
 
-watch([year, month], loadPreview)
-onMounted(loadPreview)
+watch([ready, year, month], () => {
+  if (ready.value) void loadPreview()
+  else { ++previewSeq; preview.value = null; loading.value = !settingsError.value }
+})
+watch(settingsError, value => {
+  if (value) { error.value = apiErrorMessage(value); loading.value = false }
+})
+onMounted(() => { void initialize() })
 </script>
 
 <template>
@@ -118,10 +136,10 @@ onMounted(loadPreview)
         <p class="text-sm text-neutral-500 mt-0.5">{{ t('reports.s74b.subtitle') }}</p>
       </div>
       <div class="flex items-center gap-2 flex-wrap">
-        <select v-model.number="month" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
+        <select v-model.number="month" :disabled="!ready || recording" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
           <option v-for="(label, i) in monthOptions" :key="i + 1" :value="i + 1">{{ label }}</option>
         </select>
-        <select v-model.number="year" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
+        <select v-model.number="year" :disabled="!ready || recording" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
           <option v-for="y in yearOptions" :key="y" :value="y">{{ y }}</option>
         </select>
       </div>

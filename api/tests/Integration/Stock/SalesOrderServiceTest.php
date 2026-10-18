@@ -375,6 +375,27 @@ final class SalesOrderServiceTest extends StockTestCase
         )->fetchColumn());
     }
 
+    /** Faktura z objednávky dostane výchozí zaokrouhlení firmy (migrace 2031). */
+    public function testInvoiceFromOrderTakesCompanyRoundingDefault(): void
+    {
+        $supplierId = $this->createSupplier();
+        $this->db->pdo()->prepare("UPDATE supplier SET default_rounding_mode = 'whole_czk' WHERE id = ?")->execute([$supplierId]);
+        $clientId = $this->client($supplierId);
+        $warehouseId = $this->warehouse($supplierId);
+        $itemId = $this->item($supplierId, 'SO-ROUNDING');
+        $this->receiveStock($supplierId, $warehouseId, $itemId, '1.000', 20.0, date('Y-m-d', strtotime('-1 day')));
+        $order = $this->orders->create(
+            $supplierId,
+            $this->draft($supplierId, $clientId, $warehouseId, $itemId, 'TEST-SO-ROUNDING'),
+            $this->userId,
+        );
+        $this->orders->confirm($supplierId, (int) $order['id'], 'confirm-rounding');
+
+        $invoice = $this->orderInvoices->createDraft($supplierId, (int) $order['id'], $this->userId, 'invoice-rounding');
+
+        self::assertSame('whole_czk', $invoice['rounding_mode']);
+    }
+
     public function testCommitmentsCountStandaloneFulfillmentButDoNotDoubleCountOrderTask(): void
     {
         $supplierId = $this->createSupplier();

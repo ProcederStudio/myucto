@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Action\Project;
 
 use MyInvoice\Http\Json;
+use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Http\SupplierGuard;
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Repository\ClientRepository;
@@ -27,6 +28,12 @@ final class CreateProjectAction
     public function __invoke(Request $request, Response $response): Response
     {
         $body = (array) ($request->getParsedBody() ?? []);
+        if (!RequestAuthorization::allows($request, 'clients')) {
+            return Json::error($response, 'forbidden_permission', 'Vytvoření zakázky vyžaduje čtení klientů.', 403);
+        }
+        if (RequestAuthorization::isClientType($request) && !empty($body['default_revenue_category_id'])) {
+            return Json::error($response, 'forbidden_permission', 'Klasifikaci tržeb spravuje interní role.', 403);
+        }
 
         $errors = Validation::project($body);
         if (!empty($errors)) {

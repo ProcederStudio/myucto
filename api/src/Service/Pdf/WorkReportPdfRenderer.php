@@ -58,7 +58,8 @@ final class WorkReportPdfRenderer
 
         $cssPath = Bootstrap::rootDir() . '/styles/invoice.css';
         $css = is_file($cssPath) ? (string) file_get_contents($cssPath) : '';
-        $css .= PdfBranding::accentCss($supplier);
+        // Akcent, nebo úsporná černobílá varianta, stejně jako faktura (PdfBranding::themeCss).
+        $css .= PdfBranding::themeCss($supplier);
 
         $locale = (string) ($invoice['language'] ?? 'cs');
         $this->locale = $locale;

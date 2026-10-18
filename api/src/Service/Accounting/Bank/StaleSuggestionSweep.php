@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Accounting\Bank;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\BankPostingSuggestionRepository;
 use MyInvoice\Service\Accounting\AutoPostingPolicyService;
 use PDO;
@@ -82,7 +83,7 @@ final class StaleSuggestionSweep
 
         // Dry-run: engine umí zapisovat jen doopravdy, takže se všechno na konci roluje
         // zpět. Nested-safe stejně jako {@see BankPostingBackfill::run()} — pod testovací
-        // transakcí se izoluje SAVEPOINTem, vnější transakci nikdy nezruší.
+        // transakcí se izoluje SAVEPOINTem a při běžném dokončení vrátí jen vlastní změny.
         $pdo = $this->db->pdo();
         $ownTx = $dryRun && !$pdo->inTransaction();
         $useSavepoint = $dryRun && $pdo->inTransaction();
@@ -95,10 +96,13 @@ final class StaleSuggestionSweep
             foreach ($candidates as $candidate) {
                 $this->handle($candidate, $report);
             }
+        } catch (\Throwable $e) {
+            TransactionFailure::rollbackIfAborted($pdo, $e);
+            throw $e;
         } finally {
-            if ($ownTx) {
+            if ($ownTx && $pdo->inTransaction()) {
                 $pdo->rollBack();
-            } elseif ($useSavepoint) {
+            } elseif ($useSavepoint && $pdo->inTransaction()) {
                 $pdo->exec('ROLLBACK TO SAVEPOINT stale_sweep_dry');
             }
         }
@@ -156,6 +160,9 @@ final class StaleSuggestionSweep
             $report['refreshed']++;
             $this->tallySupplier($report, $supplierId, 'refreshed');
         } catch (\Throwable $e) {
+            if (TransactionFailure::aborted($e)) {
+                throw $e;
+            }
             $this->tallySkip($report, 'error');
             $report['errors'][] = ['tx_id' => $txId, 'message' => mb_substr($e->getMessage(), 0, 300)];
         }

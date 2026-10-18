@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Accounting\Assets;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Repository\AssetRepository;
 use MyInvoice\Repository\DepreciationEntryRepository;
@@ -75,95 +76,17 @@ final class DepreciationPostingService
         [$periodStart, $periodEnd] = $this->bookingWindow($supplierId, $fiscalYear, $taxEvidence);
 
         $pdo = $this->db->pdo();
+        $foreign = $pdo->inTransaction();
         foreach ($this->assets->listForBooking($supplierId, $fiscalYear, $periodStart, $periodEnd) as $asset) {
             $assetId = (int) $asset['id'];
-            $ownTx = !$pdo->inTransaction();
-            if ($ownTx) {
-                $pdo->beginTransaction();
-            }
             try {
-                $lockedAsset = $this->assets->findForUpdate($supplierId, $assetId);
-                if ($lockedAsset === null) {
-                    throw new PostingException('not_found', 'Majetek během účtování odpisů zanikl.', 404);
-                }
-                $asset = $lockedAsset;
-                $ctx = $this->buildContext($asset);
-                $bookedSomething = false;
-                $accAmount = 0.0;
-                $taxAmount = 0.0;
-
-                // Chronologický zámek (audit 2026-07 B9): neúčtuj rok N, pokud bezprostředně
-                // předchozí IN-SYSTEM rok (N-1) nemá potvrzený ani přerušený daňový řádek a
-                // majetek v něm ještě měl nenulovou daňovou ZC. Migrační počáteční stavy
-                // (opening_tax_years) posunou první in-system rok, takže roky kryté migrací
-                // (< systemStartYear) guard nezablokuje.
-                $firstYear = $asset['put_into_use_date'] !== null
-                    ? $calendar->fiscalYearOfDate((string) $asset['put_into_use_date'])
-                    : $fiscalYear;
-                $systemStartYear = $firstYear + (int) $asset['opening_tax_years'];
-                $priorYear = $fiscalYear - 1;
-                if ($priorYear >= $systemStartYear
-                    && $this->entries->findYear($assetId, 'tax', $priorYear) === null
-                ) {
-                    $probe = $this->calculator->taxYearRow($ctx, (string) $asset['tax_method'], $fiscalYear);
-                    if ($probe !== null
-                        && (round((float) ($probe['full_amount'] ?? 0), 2) > 0.0
-                            || round((float) ($probe['residual_end'] ?? 0), 2) > 0.0)
-                    ) {
-                        throw new PostingException(
-                            'prior_year_not_confirmed',
-                            'Rok ' . $priorYear . ' (předchozí zdaňovací období) nemá potvrzený ani přerušený '
-                                . 'daňový odpis, přitom majetek má nenulovou zůstatkovou cenu — nejdřív zaúčtuj '
-                                . 'nebo přeruš rok ' . $priorYear . ', teprve pak rok ' . $fiscalYear . '.',
-                        );
-                    }
-                }
-
-                // 1) účetní řádek roku → upsert (posted) + journal 551/oprávky. Rok, jehož
-                //    odpisy zaúčtoval deník převzatý z jiného programu, se znovu neúčtuje.
-                $accRow = $this->accountingRowToBook($asset, $ctx, $fiscalYear, $taxEvidence);
-                if ($accRow !== null) {
-                    // Zaúčtování k poslednímu dni ZDAŇOVACÍHO OBDOBÍ (reálné hranice
-                    // z hlavičky bookYear — hospodářský rok posunut).
-                    $entryDate = $periodEnd;
-                    if ($asset['disposal_date'] !== null && $asset['disposal_date'] < $entryDate) {
-                        $entryDate = (string) $asset['disposal_date'];
-                    }
-                    $this->postAccountingEntry($supplierId, $asset, $accRow, $entryDate, $meta, $allowClosingPeriod);
-                    $accAmount = round((float) $accRow['amount'], 2);
-                    $bookedSomething = true;
-                }
-
-                // 2) daňový řádek roku → upsert confirmed; existující pauza (R14) i ručně
-                //    přepsaný odpis roku se nechají být
-                $existingTax = $this->entries->findYear($assetId, 'tax', $fiscalYear);
-                if (self::taxRowIsRecomputed($existingTax)) {
-                    $taxRow = $this->calculator->taxYearRow($ctx, (string) $asset['tax_method'], $fiscalYear);
-                    if ($taxRow !== null) {
-                        $this->entries->upsert([
-                            'supplier_id' => $supplierId,
-                            'asset_id' => $assetId,
-                            'kind' => 'tax',
-                            'fiscal_year' => $fiscalYear,
-                            'amount' => (float) $taxRow['amount'],
-                            'full_amount' => (float) $taxRow['full_amount'],
-                            'residual_value_end' => (float) $taxRow['residual_end'],
-                            'is_paused' => (bool) $taxRow['is_paused'],
-                            'is_half' => (bool) $taxRow['is_half'],
-                            'months_count' => $taxRow['months_count'] ?? null,
-                            'detail' => isset($taxRow['months']) && $taxRow['months'] !== null
-                                ? json_encode($taxRow['months'], JSON_UNESCAPED_UNICODE)
-                                : null,
-                            'status' => 'confirmed',
-                        ]);
-                        $taxAmount = round((float) $taxRow['amount'], 2);
-                        $bookedSomething = true;
-                    }
-                }
-
-                if ($ownTx) {
-                    $pdo->commit();
-                }
+                // Odvolanou transakci (1020/1213) karta zopakuje, pokud ji vlastní. V cizí
+                // transakci (uzávěrka) ji dostane vlastník: další karty by jinak běžely
+                // v autocommitu.
+                [$bookedSomething, $accAmount, $taxAmount] = TransactionFailure::retrying(
+                    $pdo,
+                    fn (): array => $this->bookAsset($supplierId, $assetId, $fiscalYear, $calendar, $periodEnd, $taxEvidence, $meta, $allowClosingPeriod),
+                );
                 if ($bookedSomething) {
                     $result['booked']++;
                     $result['total_accounting'] = round($result['total_accounting'] + $accAmount, 2);
@@ -172,9 +95,6 @@ final class DepreciationPostingService
                     $result['skipped']++;
                 }
             } catch (PostingException $e) {
-                if ($ownTx && $pdo->inTransaction()) {
-                    $pdo->rollBack();
-                }
                 $this->logger->warning('bookYear: zaúčtování odpisu majetku selhalo', [
                     'supplier_id' => $supplierId,
                     'asset_id' => $assetId,
@@ -184,8 +104,8 @@ final class DepreciationPostingService
                 ]);
                 $result['errors'][] = ['asset_id' => $assetId, 'code' => $e->errorCode];
             } catch (\Throwable $e) {
-                if ($ownTx && $pdo->inTransaction()) {
-                    $pdo->rollBack();
+                if ($foreign && TransactionFailure::aborted($e)) {
+                    throw $e;
                 }
                 $this->logger->error('bookYear: neočekávaná chyba u majetku', [
                     'supplier_id' => $supplierId,
@@ -198,6 +118,116 @@ final class DepreciationPostingService
         }
 
         return $result;
+    }
+
+    /**
+     * Odpisy roku jedné karty v jedné transakci.
+     *
+     * @param array{user_id?:?int, posted_by?:?int, ip?:?string, user_agent?:?string} $meta
+     * @return array{0:bool,1:float,2:float} zaúčtováno něco, účetní a daňový odpis
+     */
+    private function bookAsset(
+        int $supplierId,
+        int $assetId,
+        int $fiscalYear,
+        FiscalCalendar $calendar,
+        string $periodEnd,
+        bool $taxEvidence,
+        array $meta,
+        bool $allowClosingPeriod,
+    ): array {
+        $pdo = $this->db->pdo();
+        $ownTx = !$pdo->inTransaction();
+        if ($ownTx) {
+            $pdo->beginTransaction();
+        }
+        try {
+            $lockedAsset = $this->assets->findForUpdate($supplierId, $assetId);
+            if ($lockedAsset === null) {
+                throw new PostingException('not_found', 'Majetek během účtování odpisů zanikl.', 404);
+            }
+            $asset = $lockedAsset;
+            $ctx = $this->buildContext($asset);
+            $bookedSomething = false;
+            $accAmount = 0.0;
+            $taxAmount = 0.0;
+
+            // Chronologický zámek (audit 2026-07 B9): neúčtuj rok N, pokud bezprostředně
+            // předchozí IN-SYSTEM rok (N-1) nemá potvrzený ani přerušený daňový řádek a
+            // majetek v něm ještě měl nenulovou daňovou ZC. Migrační počáteční stavy
+            // (opening_tax_years) posunou první in-system rok, takže roky kryté migrací
+            // (< systemStartYear) guard nezablokuje.
+            $systemStartYear = $ctx->firstSystemYear($fiscalYear);
+            $priorYear = $fiscalYear - 1;
+            if ($priorYear >= $systemStartYear
+                && $this->entries->findYear($assetId, 'tax', $priorYear) === null
+            ) {
+                $probe = $this->calculator->taxYearRow($ctx, (string) $asset['tax_method'], $fiscalYear);
+                if ($probe !== null
+                    && (round((float) ($probe['full_amount'] ?? 0), 2) > 0.0
+                        || round((float) ($probe['residual_end'] ?? 0), 2) > 0.0)
+                ) {
+                    throw new PostingException(
+                        'prior_year_not_confirmed',
+                        'Rok ' . $priorYear . ' (předchozí zdaňovací období) nemá potvrzený ani přerušený '
+                            . 'daňový odpis, přitom majetek má nenulovou zůstatkovou cenu — nejdřív zaúčtuj '
+                            . 'nebo přeruš rok ' . $priorYear . ', teprve pak rok ' . $fiscalYear . '.',
+                    );
+                }
+            }
+
+            // 1) účetní řádek roku → upsert (posted) + journal 551/oprávky. Rok, jehož
+            //    odpisy zaúčtoval deník převzatý z jiného programu, se znovu neúčtuje.
+            $accRow = $this->accountingRowToBook($asset, $ctx, $fiscalYear, $taxEvidence);
+            if ($accRow !== null) {
+                // Zaúčtování k poslednímu dni ZDAŇOVACÍHO OBDOBÍ (reálné hranice
+                // z hlavičky bookYear — hospodářský rok posunut).
+                $entryDate = $periodEnd;
+                if ($asset['disposal_date'] !== null && $asset['disposal_date'] < $entryDate) {
+                    $entryDate = (string) $asset['disposal_date'];
+                }
+                $this->postAccountingEntry($supplierId, $asset, $accRow, $entryDate, $meta, $allowClosingPeriod);
+                $accAmount = round((float) $accRow['amount'], 2);
+                $bookedSomething = true;
+            }
+
+            // 2) daňový řádek roku → upsert confirmed; existující pauza (R14) i ručně
+            //    přepsaný odpis roku se nechají být
+            $existingTax = $this->entries->findYear($assetId, 'tax', $fiscalYear);
+            if (self::taxRowIsRecomputed($existingTax)) {
+                $taxRow = $this->calculator->taxYearRow($ctx, (string) $asset['tax_method'], $fiscalYear);
+                if ($taxRow !== null) {
+                    $this->entries->upsert([
+                        'supplier_id' => $supplierId,
+                        'asset_id' => $assetId,
+                        'kind' => 'tax',
+                        'fiscal_year' => $fiscalYear,
+                        'amount' => (float) $taxRow['amount'],
+                        'full_amount' => (float) $taxRow['full_amount'],
+                        'residual_value_end' => (float) $taxRow['residual_end'],
+                        'is_paused' => (bool) $taxRow['is_paused'],
+                        'is_half' => (bool) $taxRow['is_half'],
+                        'months_count' => $taxRow['months_count'] ?? null,
+                        'detail' => isset($taxRow['months']) && $taxRow['months'] !== null
+                            ? json_encode($taxRow['months'], JSON_UNESCAPED_UNICODE)
+                            : null,
+                        'status' => 'confirmed',
+                    ]);
+                    $taxAmount = round((float) $taxRow['amount'], 2);
+                    $bookedSomething = true;
+                }
+            }
+
+            if ($ownTx) {
+                $pdo->commit();
+            }
+            return [$bookedSomething, $accAmount, $taxAmount];
+        } catch (\Throwable $e) {
+            if ($ownTx && $pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
     }
 
     /**
@@ -406,27 +436,7 @@ final class DepreciationPostingService
 
         $calendar = $this->supplierCalendar((int) $asset['supplier_id']);
 
-        return new DepreciationContext(
-            inputPrice: (float) $asset['input_price'],
-            taxGroup: $asset['tax_group'] === null ? null : (int) $asset['tax_group'],
-            firstYearIncrease: (string) $asset['tax_first_year_increase'],
-            isFirstOwner: (bool) $asset['is_first_owner'],
-            // §30e platí jen pro vozidla pořízená od 1. 1. 2024 (zákon 349/2023 Sb.);
-            // u starších M1 se limit 2 mil. neaplikuje.
-            isM1Vehicle: (bool) $asset['is_m1_vehicle'] && (string) $asset['acquisition_date'] >= '2024-01-01',
-            m1LimitException: (bool) $asset['m1_limit_exception'],
-            putIntoUseDate: $asset['put_into_use_date'] === null ? null : (string) $asset['put_into_use_date'],
-            disposalDate: $asset['disposal_date'] === null ? null : (string) $asset['disposal_date'],
-            accUsefulLifeMonths: $asset['acc_useful_life_months'] === null ? null : (int) $asset['acc_useful_life_months'],
-            accResidualValue: (float) $asset['acc_residual_value'],
-            openingTaxYears: (int) $asset['opening_tax_years'],
-            openingTaxAmount: (float) $asset['opening_tax_amount'],
-            openingAccMonths: (int) $asset['opening_acc_months'],
-            openingAccAmount: (float) $asset['opening_acc_amount'],
-            improvements: $improvements,
-            confirmedEntries: $confirmed,
-            calendar: $calendar,
-        );
+        return DepreciationContext::fromAsset($asset, $calendar, $improvements, $confirmed);
     }
 
     /** @var array<int, FiscalCalendar> memo režimu firmy v rámci běhu */

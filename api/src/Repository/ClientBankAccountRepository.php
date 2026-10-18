@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Repository;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Service\Bank\AccountNumberNormalizer;
 use MyInvoice\Service\Payment\IbanValidator;
 use PDO;
@@ -97,8 +98,11 @@ final class ClientBankAccountRepository
                 bankStatement: true,
                 transactionId: $transactionId,
             );
-        } catch (\Throwable) {
-            return;
+        } catch (\Throwable $e) {
+            // Volá se uvnitř transakce párování: odvolanou transakci nelze spolknout.
+            if (TransactionFailure::aborted($e)) {
+                throw $e;
+            }
         }
     }
 
@@ -131,8 +135,11 @@ final class ClientBankAccountRepository
                 bankStatement: true,
                 transactionId: $transactionId,
             );
-        } catch (\Throwable) {
-            return;
+        } catch (\Throwable $e) {
+            // Volá se uvnitř transakce párování: odvolanou transakci nelze spolknout.
+            if (TransactionFailure::aborted($e)) {
+                throw $e;
+            }
         }
     }
 

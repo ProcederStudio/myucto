@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Stock;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Service\Codebook\UnitPrecision;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Repository\StockDocumentRepository;
 use MyInvoice\Repository\StockItemRepository;
@@ -69,6 +70,7 @@ final class StockDocumentService
         private readonly FulfillmentSourceClaimGuard $fulfillmentClaims,
         private readonly TrackingAllocationService $tracking,
         private readonly StockCommitmentService $commitments,
+        private readonly UnitPrecision $unitPrecision,
     ) {}
 
     // ── CRUD draftu ──────────────────────────────────────────────────────────────
@@ -77,14 +79,18 @@ final class StockDocumentService
      * Založí draft dokladu (hlavička + řádky). B10: neaktivní karta blokuje
      * NOVÉ řádky draftu (422) — post existujícího draftu neblokuje.
      *
+     * `checkUnitDecimals` zapíná kontrolu desetinných míst množství podle jednotky
+     * karty (2036). Zapíná ji jen ruční zadání (HTTP); automatické doklady k fakturám,
+     * importy, inventury a kompletace převádějí už vzniklá data a zůstávají beze změny.
+     *
      * @param array<string,mixed> $body
      * @return array<string,mixed> doklad vč. řádků
      */
-    public function create(int $supplierId, array $body, ?int $userId, bool $blockInactiveItems = true): array
+    public function create(int $supplierId, array $body, ?int $userId, bool $blockInactiveItems = true, bool $checkUnitDecimals = false): array
     {
         // blockInactiveItems=false: auto-výdejka k FV (B10/§5.7 — deaktivovaná karta
         // ve starém draftu vystavení NEblokuje, jen post vrátí warning).
-        [$header, $lines] = $this->validateBody($supplierId, $body, blockInactiveItems: $blockInactiveItems);
+        [$header, $lines] = $this->validateBody($supplierId, $body, blockInactiveItems: $blockInactiveItems, checkUnitDecimals: $checkUnitDecimals);
         $header['created_by'] = $userId;
 
         return $this->runInTransaction(function () use ($supplierId, $header, $lines): array {
@@ -107,9 +113,9 @@ final class StockDocumentService
      * @param array<string,mixed> $body
      * @return array<string,mixed>
      */
-    public function updateDraft(int $supplierId, int $id, array $body, ?int $userId): array
+    public function updateDraft(int $supplierId, int $id, array $body, ?int $userId, bool $checkUnitDecimals = false): array
     {
-        return $this->runInTransaction(function () use ($supplierId, $id, $body): array {
+        return $this->runInTransaction(function () use ($supplierId, $id, $body, $checkUnitDecimals): array {
             $existing = $this->docs->lockForPost($supplierId, $id);
             if ($existing === null) {
                 throw new StockException('not_found', 'Skladový doklad nenalezen.', 404);
@@ -131,7 +137,8 @@ final class StockDocumentService
             if (!$linesSent) {
                 $body['lines'] = $this->docs->lines($supplierId, $id);
             }
-            [$header, $lines] = $this->validateBody($supplierId, $body, blockInactiveItems: $linesSent);
+            // Desetinná místa (2036) jen u poslaných řádků, uložené zůstávají, jak jsou.
+            [$header, $lines] = $this->validateBody($supplierId, $body, blockInactiveItems: $linesSent, checkUnitDecimals: $checkUnitDecimals && $linesSent);
             $persistedCosts = $this->landedCosts->listForDocument($supplierId, $id);
             if (!$this->docs->updateDraftHeader($supplierId, $id, $header)) {
                 throw new StockException('not_draft', 'Doklad se během úpravy změnil.', 409);
@@ -571,7 +578,7 @@ final class StockDocumentService
             }
         }
         if ($shortages !== []) {
-            throw new StockException('insufficient_stock', 'Nedostatek zásob pro výdej.', 409, $shortages);
+            throw new StockException('insufficient_stock', 'Nedostatek zásob pro výdej.', 409, StockShortageDetails::enrich($this->db->pdo(), $supplierId, $sourceWarehouseId, $shortages));
         }
     }
 
@@ -728,7 +735,7 @@ final class StockDocumentService
      * @param array<string,mixed> $body
      * @return array{0:array<string,mixed>, 1:list<array<string,mixed>>} [hlavička, řádky]
      */
-    private function validateBody(int $supplierId, array $body, bool $blockInactiveItems): array
+    private function validateBody(int $supplierId, array $body, bool $blockInactiveItems, bool $checkUnitDecimals = false): array
     {
         $docType = (string) ($body['doc_type'] ?? '');
         if (!in_array($docType, self::DOC_TYPES, true)) {
@@ -774,6 +781,21 @@ final class StockDocumentService
             }
         }
         $meta = $this->itemsMeta($supplierId, array_values(array_unique($itemIds)));
+
+        // Desetinná místa množství podle jednotky karty (2036): množství řádku je
+        // v základní jednotce karty, `stock_items.unit` je volný text párovaný
+        // s číselníkem bez ohledu na velikost písmen. Nic se nezaokrouhluje.
+        if ($checkUnitDecimals) {
+            $rows = [];
+            foreach ($rawLines as $rl) {
+                $id = is_array($rl) ? (int) ($rl['stock_item_id'] ?? 0) : 0;
+                $rows[] = is_array($rl) ? ['qty' => $rl['qty'] ?? null, 'unit' => $meta[$id]['unit'] ?? '', 'stock_item_id' => $id] : null;
+            }
+            $tooPrecise = $this->unitPrecision->check($rows, 'qty');
+            if ($tooPrecise !== []) {
+                throw new StockException('quantity_decimals', UnitPrecision::ERROR_MESSAGE, 400, $tooPrecise);
+            }
+        }
 
         $lines    = [];
         $lineNo   = 1;
@@ -919,7 +941,7 @@ final class StockDocumentService
      * (StockItemRepository je paralelní task; fallback dle zadání epicu).
      *
      * @param list<int> $itemIds
-     * @return array<int,array{sku:string, name:string, is_active:bool, item_type:string}>
+     * @return array<int,array{sku:string, name:string, is_active:bool, item_type:string, unit:string}>
      */
     private function itemsMeta(int $supplierId, array $itemIds): array
     {
@@ -929,7 +951,7 @@ final class StockDocumentService
         }
         $place = implode(',', array_fill(0, count($ids), '?'));
         $stmt = $this->db->pdo()->prepare(
-            "SELECT id, sku, name, item_type, is_active, supplier_id
+            "SELECT id, sku, name, item_type, is_active, supplier_id, unit
                FROM stock_items WHERE supplier_id = ? AND id IN ($place)"
         );
         $stmt->execute(array_merge([$supplierId], $ids));
@@ -940,6 +962,7 @@ final class StockDocumentService
                 'name'      => (string) $r['name'],
                 'is_active' => (bool) $r['is_active'],
                 'item_type' => (string) $r['item_type'],
+                'unit'      => (string) $r['unit'],
             ];
         }
         return $out;

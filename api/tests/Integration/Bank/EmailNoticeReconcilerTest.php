@@ -530,6 +530,7 @@ final class EmailNoticeReconcilerTest extends TestCase
             "SELECT match_status FROM bank_transactions WHERE id = $idokladTx"
         )->fetchColumn();
         self::assertSame('ignored', $status);
+        self::assertSame('superseded', $this->ignoreOrigin($idokladTx));
         self::assertSame(0, $this->paymentCountForTx($idokladTx));
     }
 
@@ -905,6 +906,8 @@ final class EmailNoticeReconcilerTest extends TestCase
         self::assertSame($emailTx, $this->reconciler->supersedeUnmatchedEmailNotice($gpcTx));
         self::assertSame('ignored', $this->matchStatus($emailTx));
         self::assertNotSame('', (string) $this->ignoreNote($emailTx));
+        self::assertSame('superseded', $this->ignoreOrigin($emailTx));
+        self::assertTrue(\MyInvoice\Service\Bank\BankNoticeLifecycle::isSuperseded($this->db->pdo(), $emailTx));
         // Autoritativní pohyb zůstává nedotčený — nahrazuje se avízo, ne výpis.
         self::assertSame('unmatched', $this->matchStatus($gpcTx));
     }
@@ -953,6 +956,151 @@ final class EmailNoticeReconcilerTest extends TestCase
     private function matchStatus(int $txId): string
     {
         return (string) $this->db->pdo()->query("SELECT match_status FROM bank_transactions WHERE id = $txId")->fetchColumn();
+    }
+
+    private function ignoreOrigin(int $txId): ?string
+    {
+        $origin = $this->db->pdo()->query("SELECT ignore_origin FROM bank_transactions WHERE id = $txId")->fetchColumn();
+        return $origin === false || $origin === null ? null : (string) $origin;
+    }
+
+    // ── Převzaté avízo není aktivním zdrojem ────────────────────────────────
+
+    /**
+     * Avízo s částečnou úhradou převezme výpis; avízo zůstane `unmatched` s markerem.
+     *
+     * @return array{invoice:int,emailStatement:int,emailTx:int,gpcTx:int}
+     */
+    private function supersededPartialNotice(string $tag): array
+    {
+        $invoice = $this->insertInvoice(self::VS_A, 2000.00);
+        [$emailStatement, $emailTx] = $this->insertStatementWithTx('email_notice', 1000.00, self::VS_A, $tag . '-e');
+        $this->payments->recordPayment($invoice, 1000.00, '2099-06-15', [
+            'source' => 'bank', 'bank_transaction_id' => $emailTx, 'created_by' => $this->userId,
+        ]);
+        $this->markTxMatched($emailTx, $invoice);
+        [, $gpcTx] = $this->insertStatementWithTx('gpc', 1000.00, self::VS_A, $tag . '-g');
+        self::assertNotNull($this->reconciler->takeOverFromEmailNotice($gpcTx));
+        self::assertSame('unmatched', $this->matchStatus($emailTx));
+        self::assertSame('superseded', $this->ignoreOrigin($emailTx));
+        return ['invoice' => $invoice, 'emailStatement' => $emailStatement, 'emailTx' => $emailTx, 'gpcTx' => $gpcTx];
+    }
+
+    private function paidTotal(int $invoiceId): float
+    {
+        return (float) $this->db->pdo()->query("SELECT paid_total FROM invoices WHERE id = $invoiceId")->fetchColumn();
+    }
+
+    /** @return array<string,mixed> */
+    private function callAction(string $action, array $query = [], ?int $statementId = null): array
+    {
+        $request = (new \Slim\Psr7\Factory\ServerRequestFactory())->createServerRequest($action === 'rematch' ? 'POST' : 'GET', '/api/bank-statements')
+            ->withQueryParams($query)
+            ->withAttribute(\MyInvoice\Middleware\SupplierScopeMiddleware::ATTR_CURRENT_ID, $this->supplierId)
+            ->withAttribute(\MyInvoice\Middleware\AuthMiddleware::ATTR_USER, ['id' => $this->userId, 'role' => 'admin']);
+        $handler = Bootstrap::buildContainer()->get(\MyInvoice\Action\Bank\BankStatementAction::class);
+        $response = $statementId === null
+            ? $handler->{$action}($request, new \Slim\Psr7\Response())
+            : $handler->{$action}($request, new \Slim\Psr7\Response(), ['id' => (string) $statementId]);
+        self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        return json_decode((string) $response->getBody(), true, flags: JSON_THROW_ON_ERROR);
+    }
+
+    /**
+     * Rematch avízového výpisu po převzetí nesmí z avíza založit druhou úhradu:
+     * faktura má ještě otevřený zůstatek, který avízo částkou i VS přesně pokrývá.
+     */
+    public function testRematchDoesNotPayAgainFromSupersededNotice(): void
+    {
+        $case = $this->supersededPartialNotice('sup-rematch');
+        self::assertSame(1000.0, $this->paidTotal($case['invoice']));
+
+        $body = $this->callAction('rematch', [], $case['emailStatement']);
+        self::assertSame(0, $body['considered']);
+        self::assertSame(0, $body['newly_matched']);
+
+        $batch = $this->matcher->matchBatch([$case['emailTx']]);
+        $result = $this->matcher->match($case['emailTx']);
+
+        self::assertSame(0, $this->paymentCountForTx($case['emailTx']));
+        self::assertSame(1, $this->paymentCountForTx($case['gpcTx']));
+        self::assertSame(1000.0, $this->paidTotal($case['invoice']));
+        self::assertSame('unmatched', $this->matchStatus($case['emailTx']));
+        self::assertSame('notice_superseded', $batch[$case['emailTx']]['reason'] ?? null);
+        self::assertSame('notice_superseded', $result['reason'] ?? null);
+    }
+
+    /** Export nespárovaných, kandidáti úhrad i návrhy párování převzaté avízo nevidí. */
+    public function testSupersededNoticeIsNotOfferedAsUnmatchedSource(): void
+    {
+        $case = $this->supersededPartialNotice('sup-scope');
+        $pdo = $this->db->pdo();
+        $container = Bootstrap::buildContainer();
+
+        $export = $container->get(\MyInvoice\Service\Bank\UnmatchedBankExportService::class);
+        self::assertSame(0, $export->preview($this->supplierId, $case['emailStatement'])['count']);
+
+        $scope = $pdo->prepare('SELECT COUNT(*) FROM bank_transactions bt WHERE bt.id = ? AND '
+            . \MyInvoice\Service\Bank\BankPaymentCandidateScope::sql($this->supplierId));
+        $scope->execute([$case['emailTx']]);
+        self::assertSame(0, (int) $scope->fetchColumn());
+
+        $tx = $pdo->query("SELECT bt.*, 'CZK' AS statement_currency FROM bank_transactions bt WHERE bt.id = {$case['emailTx']}")->fetch(PDO::FETCH_ASSOC);
+        $provider = $container->get(\MyInvoice\Service\Bank\Match\MatchCandidateProvider::class);
+        self::assertSame([], $provider->candidatesFor($this->supplierId, $tx));
+
+        $pdo->prepare(
+            "INSERT INTO bank_match_suggestions
+                (supplier_id, bank_transaction_id, kind, reason, candidates_json, top_score, margin, deterministic_core, status)
+             VALUES (?, ?, 'single', 'no_vs', ?, 0.9, NULL, 0, 'pending')"
+        )->execute([$this->supplierId, $case['emailTx'], json_encode([['type' => 'invoice', 'invoice_id' => $case['invoice'], 'score' => 0.9]])]);
+        $suggestions = $container->get(\MyInvoice\Service\Bank\Match\MatchSuggestionService::class);
+        self::assertSame([], $suggestions->listForStatement($case['emailStatement'], $this->supplierId));
+    }
+
+    /** Převzaté karetní avízo nečeká na doklad ani nekonkuruje pohybu výpisu. */
+    public function testSupersededCardNoticeLeavesCardOverview(): void
+    {
+        [, $emailTx] = $this->insertStatementWithTx('email_notice', -1499.00, '', 'sup-card-e');
+        [, $gpcTx] = $this->insertStatementWithTx('gpc', -1499.00, '', 'sup-card-g');
+        $this->db->pdo()->prepare("UPDATE bank_transactions SET card_last4 = '4242' WHERE id IN (?, ?)")->execute([$emailTx, $gpcTx]);
+        $this->insertPaymentMatch($emailTx, $this->insertPurchaseInvoice(1499.00), 1499.00);
+        $this->markTxMatched($emailTx, null);
+        self::assertNotNull($this->reconciler->takeOverFromEmailNotice($gpcTx));
+        self::assertSame('unmatched', $this->matchStatus($emailTx));
+
+        $container = Bootstrap::buildContainer();
+        $overview = $container->get(\MyInvoice\Service\Bank\Card\CardPaymentOverview::class);
+        $listed = [];
+        foreach ($overview->unmatched($this->supplierId, '2099-06-01', '2099-06-30')['groups'] as $group) {
+            foreach ($group['transactions'] as $row) $listed[] = (int) $row['id'];
+        }
+        self::assertNotContains($emailTx, $listed);
+        self::assertNull($overview->findCardTransaction($this->supplierId, $emailTx));
+
+        $candidates = $container->get(\MyInvoice\Service\Bank\Card\CardPaymentCandidates::class);
+        $this->db->pdo()->prepare("UPDATE bank_transactions SET match_status = 'unmatched' WHERE id = ?")->execute([$gpcTx]);
+        self::assertSame(0, $candidates->competingTransactions($this->supplierId, $gpcTx, '4242', 1499.00, '2099-06-15', true));
+    }
+
+    /** Přehled i detail avízového výpisu počítají převzatá avíza jako vyřešená. */
+    public function testStatementListAndDetailCountSupersededNotices(): void
+    {
+        $case = $this->supersededPartialNotice('sup-count');
+
+        $list = $this->callAction('list', ['filter' => ['year' => '2099']]);
+        $rows = array_values(array_filter($list['items'],static fn (array $r): bool => (int) $r['id'] === $case['emailStatement']));
+        self::assertCount(1, $rows);
+        self::assertSame(1, $rows[0]['superseded_count']);
+        self::assertSame(0, $rows[0]['ignored_count']);
+        self::assertSame(0, $rows[0]['matched_count']);
+
+        $detail = $this->callAction('detail', [], $case['emailStatement']);
+        self::assertSame(1, $detail['superseded_count']);
+        self::assertTrue($detail['transactions'][0]['notice_superseded']);
+
+        $unmatched = $this->callAction('detail', ['status' => 'unmatched'], $case['emailStatement']);
+        self::assertSame([], $unmatched['transactions']);
     }
 
     private function ignoreNote(int $txId): ?string

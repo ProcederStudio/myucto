@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Tax\Return;
 
 use MyInvoice\Service\Bank\AccountNumberNormalizer;
+use MyInvoice\Service\Accounting\Reports\NetTurnoverProjection;
+use MyInvoice\Service\Accounting\Reports\EntityCategoryPeriodPolicy;
 use MyInvoice\Service\Report\EpoEnvelope;
 use MyInvoice\Service\Report\EpoSupplierBlockBuilder;
 use MyInvoice\Service\Tax\TaxConstants;
@@ -379,17 +381,6 @@ final class DppoXmlBuilder
         return ['assets' => $assets, 'liabilities' => $liabilities];
     }
 
-    /**
-     * Řádky VZZ (druhové členění), které tvoří „roční úhrn čistého obratu" podle § 1d
-     * odst. 2 zákona o účetnictví — VetaS/kc_dpp_i1 (chyba EPO 1703). 'I.' = Tržby
-     * z prodeje výrobků a služeb (účty 601+602), 'II.' = Tržby za prodej zboží (účet 604).
-     * Shodné s {@see \MyInvoice\Service\Accounting\Reports\EntityCategoryService::TURNOVER_CODES}
-     * (601/602/604), který stejnou dvojici řádků používá pro kategorizaci ÚJ podle §1b —
-     * jde o tentýž zákonný pojem. Řádek 'OBRAT' z {@see \MyInvoice\Service\Accounting\Reports\FinancialStatementService}
-     * je od období započatých 1. 1. 2024 tatáž veličina (I. + II.); pro dřívější období
-     * ale sčítá I.–VII. podle původního znění, proto se sem nebere.
-     */
-    private const NET_TURNOVER_ROW_CODES = ['I.', 'II.'];
 
     /**
      * @param array<string,mixed> $supplier row ze supplier (loadSupplier v service)
@@ -1555,15 +1546,39 @@ final class DppoXmlBuilder
         // kc_dpp_i1: jen když je k dispozici VZZ (příloha účetní závěrky).
         $incomeStatement = (array) ($appendix['income_statement'] ?? []);
         if ($incomeStatement !== []) {
-            $byCode = [];
-            foreach ((array) ($incomeStatement['rows'] ?? []) as $row) {
-                $byCode[(string) $row['row_code']] = $row;
+            $turnover = NetTurnoverProjection::fromStatementDecimal($incomeStatement);
+            if ($turnover['finding'] === null) {
+                $period = $incomeStatement['period'] ?? null;
+                if (!is_array($period) || !is_string($period['starts_on'] ?? null) || !is_string($period['ends_on'] ?? null)) {
+                    $turnover['finding'] = 'net_turnover_period_invalid';
+                } else {
+                    try {
+                        $turnover['amount'] = EntityCategoryPeriodPolicy::annualTurnoverWhole($turnover['amount'], $period['starts_on'], $period['ends_on']);
+                    } catch (\InvalidArgumentException) {
+                        $turnover['finding'] = 'net_turnover_period_invalid';
+                    }
+                    if ($turnover['finding'] === null && array_key_exists('as_of', $incomeStatement) && $incomeStatement['as_of'] !== $period['ends_on']) {
+                        $turnover['finding'] = 'net_turnover_period_incomplete';
+                    }
+                    if ($turnover['finding'] === null && (bccomp($turnover['amount'], '99999999999999', 0) > 0 || bccomp($turnover['amount'], '-99999999999999', 0) < 0)) {
+                        $turnover['finding'] = 'net_turnover_xml_range';
+                    }
+                }
             }
-            $turnover = 0.0;
-            foreach (self::NET_TURNOVER_ROW_CODES as $rowCode) {
-                $turnover += (float) ($byCode[$rowCode]['amount'] ?? 0.0);
+            if ($turnover['finding'] === null) {
+                $vetaS->setAttribute('kc_dpp_i1', $turnover['amount']);
+            } else {
+                $warnings[] = 'Roční úhrn čistého obratu (kc_dpp_i1) nebyl vyplněn: '
+                    . match ($turnover['finding']) {
+                        'net_turnover_conflict' => 'souhrnné údaje čistého obratu ve výsledovce si odporují.',
+                        'net_turnover_invalid' => 'souhrnný údaj čistého obratu ve výsledovce není platná částka.',
+                        'net_turnover_period_invalid' => 've výsledovce chybí platný začátek nebo konec účetního období pro roční přepočet.',
+                        'net_turnover_period_incomplete' => 'výsledovka není sestavena ke konci účetního období.',
+                        'net_turnover_xml_range' => 'roční úhrn čistého obratu přesahuje rozsah 14 číslic formuláře.',
+                        default => 've výsledovce chybí doložený souhrnný údaj čistého obratu.',
+                    }
+                    . ' Ověřte výkaz a přiznání vygenerujte znovu; povinné pole EPO 1703 zůstalo prázdné.';
             }
-            $vetaS->setAttribute('kc_dpp_i1', (string) (int) round($turnover));
         } else {
             $warnings[] = 'Roční úhrn čistého obratu (kc_dpp_i1) nebyl vyplněn — příloha účetní '
                 . 'závěrky (výkaz zisku a ztráty) nebyla k dispozici; EPO to vytkne jako chybu '

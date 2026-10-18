@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Invoice;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\InvoiceRepository;
 use MyInvoice\Service\Currency\ExchangeRateApplier;
 use MyInvoice\Service\Oss\OssItemCarryOver;
@@ -360,6 +361,10 @@ final class PaymentTaxDocumentCreator
             }
             throw new \RuntimeException('Daňový doklad k platbě se nepodařilo atomicky vytvořit.');
         } catch (\Throwable $e) {
+            // Odvolaná transakce (1020/1213) savepoint nemá; ROLLBACK TO by ji přemaskoval.
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             if ($ownsTransaction && $pdo->inTransaction()) {
                 $pdo->rollBack();
             } elseif ($savepoint !== null && $pdo->inTransaction()) {
@@ -383,6 +388,8 @@ final class PaymentTaxDocumentCreator
                     $proforma['project_id'] !== null ? [(int) $proforma['project_id']] : [],
                 );
             } catch (\Throwable $e) {
+                // Přepočet si řídí vlastní transakci; odvolanou nesmí nechat viset jako otevřenou.
+                TransactionFailure::rollbackIfAborted($pdo, $e);
                 error_log('PaymentTaxDocumentCreator: recompute stats cache selhal: ' . $e->getMessage());
             }
         }

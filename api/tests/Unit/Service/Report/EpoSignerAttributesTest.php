@@ -25,7 +25,7 @@ final class EpoSignerAttributesTest extends TestCase
         return $overrides + [
             'company_name' => 'Ukázková firma s.r.o.', 'street' => 'Zkušební 123/4',
             'city' => 'Vzorov', 'zip' => '100 00', 'country_iso2' => 'CZ',
-            'dic' => 'CZ12345678', 'taxpayer_type' => 'po',
+            'dic' => 'CZ12345678', 'taxpayer_type' => 'po', 'person_title' => null,
             'financial_office_code' => '451', 'workplace_code' => '',
             'email' => '', 'phone' => '',
             'street_number_pop' => '', 'street_number_orient' => '',

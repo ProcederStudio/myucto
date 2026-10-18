@@ -58,7 +58,7 @@ final class ReportPdfRenderersLargeExportTest extends TestCase
         $r = new StockItemMovementsPdfRenderer();
         yield 'skladová karta' => [$base($r, 'stock_item_movements.twig', self::stockMovements()), fn () => $r->render(self::stockMovements())];
         $r = new StockStatusPdfRenderer();
-        yield 'stav zásob' => [$base($r, 'stock_status.twig', self::stockItems()), fn () => $r->render(self::stockItems())];
+        yield 'stav zásob' => [fn () => $r->html(self::stockItems()), fn () => $r->render(self::stockItems())];
         $r = new StockValuationPdfRenderer();
         yield 'ocenění zásob' => [$base($r, 'stock_valuation.twig', self::stockItems()), fn () => $r->render(self::stockItems())];
         yield 'kniha jízd' => [fn () => self::callPrivate(TripExportService::class, 'pdfHtml', self::trips()), fn () => self::callPrivate(TripExportService::class, 'pdf', self::trips())];

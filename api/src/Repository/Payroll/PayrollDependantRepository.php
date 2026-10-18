@@ -6,6 +6,7 @@ namespace MyInvoice\Repository\Payroll;
 
 use DateTimeImmutable;
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Payroll\IncomeTax\ChildCreditClaimWindow;
 use MyInvoice\Service\Payroll\PayrollApprovedPeriodFreeze;
@@ -1448,6 +1449,9 @@ final class PayrollDependantRepository
 
             return $view;
         } catch (\Throwable $exception) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $exception)) {
+                throw $exception;
+            }
             if ($owns) {
                 if ($pdo->inTransaction()) {
                     $pdo->rollBack();

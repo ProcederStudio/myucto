@@ -303,8 +303,8 @@ final class EmailNoticeReconciler
         }
 
         $pdo->prepare(
-            "UPDATE bank_transactions SET match_status = 'ignored', ignore_note = ? WHERE id = ?"
-        )->execute([self::SUPERSEDED_NOTE, $matches[0]]);
+            "UPDATE bank_transactions SET match_status = 'ignored', ignore_origin = ?, ignore_note = ? WHERE id = ?"
+        )->execute([BankNoticeLifecycle::SUPERSEDED, self::SUPERSEDED_NOTE, $matches[0]]);
 
         return $matches[0];
     }
@@ -520,8 +520,8 @@ final class EmailNoticeReconciler
             $matches[] = (int) $candidate['id'];
         }
         if (count($matches) !== 1) return null;
-        $pdo->prepare("UPDATE bank_transactions SET match_status = 'ignored' WHERE id = ?")
-            ->execute([$secondaryTxId]);
+        $pdo->prepare("UPDATE bank_transactions SET match_status = 'ignored', ignore_origin = ? WHERE id = ?")
+            ->execute([BankNoticeLifecycle::SUPERSEDED, $secondaryTxId]);
         return $matches[0];
     }
 

@@ -83,10 +83,11 @@ Checkbox **Reverse charge** je skrytý, když je dodavatel neplátce DPH. Výjim
 
 1. V editoru faktury zaškrtněte **Zjednodušený daňový doklad (§ 30 ZDPH)**.
 2. Odběratele vyberte, jen pokud ho na dokladu chcete mít. Pro prodej neznámému zákazníkovi (maloobchod, pokladní prodej) nechte pole **Klient** prázdné.
-3. Vyplňte položky. Celkem včetně daně nesmí přesáhnout 10 000 Kč.
-4. Doklad vystavte.
+3. Prodáváte-li stálému klientovi, ale jeho údaje na dokladu mít nechcete, zaškrtněte **Netisknout odběratele na dokladu**. Klient na dokladu zůstane (statistiky, cenová hladina), jen se nevytiskne.
+4. Vyplňte položky. Celkem včetně daně nesmí přesáhnout 10 000 Kč.
+5. Doklad vystavte.
 
-**Jak poznáte, že je hotovo:** Doklad nese nadpis **Zjednodušený daňový doklad**. Bez vybraného klienta se vystaví pro systémového **koncového zákazníka** firmy, který se v adresáři klientů neukazuje a na PDF ani webové faktuře se jako odběratel netiskne. Odmítne-li aplikace doklad, hláška uvede důvod (viz [§ 40.8](#408-kdyz-neco-nejde)).
+**Jak poznáte, že je hotovo:** Doklad nese nadpis **Zjednodušený daňový doklad**. Bez vybraného klienta se vystaví pro systémového **koncového zákazníka** firmy, který se v adresáři klientů neukazuje a na PDF ani webové faktuře se jako odběratel netiskne. Má-li firma nastavenou řadu zjednodušených dokladů, dostane doklad číslo z ní (viz [§ 40.9.10](#40910-zjednoduseny-danovy-doklad-30-zdph)). Odmítne-li aplikace doklad, hláška uvede důvod (viz [§ 40.8](#408-kdyz-neco-nejde)).
 
 ## 40.6 Krok za krokem: zahraniční fakturace a OSS
 
@@ -328,6 +329,29 @@ odběratele. Aplikace zjednodušený doklad **odmítne** ve třech případech, 
 | Doklad je **nad 10 000 Kč** včetně daně | § 30 odst. 1 |
 | Doklad je v **přenesené daňové povinnosti** | § 30 odst. 2, odběratel potřebuje na dokladu své DIČ, jinak plnění vypadne z kontrolního hlášení |
 | Jde o **dodání zboží do jiného členského státu** | § 30 odst. 2, bez identifikace odběratele nelze plnění vykázat v souhrnném hlášení |
+
+**Vlastní číselná řada.** Zjednodušené doklady se standardně číslují řadou faktur. Chcete-li je
+číslovat zvlášť (například účtenky z pokladního prodeje), vyplňte v `Firma → Nastavení` na záložce
+**Číslování faktur** pole **Šablona pro zjednodušený daňový doklad**. Řada má vlastní počítadlo
+a přednost i před řadou zákazníka a kategorie tržby. Prázdné pole vrací dosavadní chování. Číslo
+zůstává v řadě, ze které ho doklad dostal, i když se příznak zjednodušeného dokladu později změní;
+kontrola úplnosti řady proto nehlásí falešné mezery (podrobnosti v
+[§ 95.13.3](95_Multi_supplier.md#95133-ciselne-rady-faktur)).
+
+**Netisknout odběratele.** Zjednodušený doklad údaje o odběrateli nevyžaduje, takže je smíte
+vynechat i u vybraného klienta. Volba **Netisknout odběratele na dokladu** je v editoru pod
+zaškrtávátkem zjednodušeného dokladu; výchozí hodnotu pro nové doklady nastavíte v
+`Firma → Nastavení` na záložce **Fakturace**. Volba se ukládá na doklad, takže pozdější změna
+nastavení firmy vystavená PDF nemění. Platí pro PDF i webovou fakturu, ISDOC odběratele nese dál
+(strukturovaná data pro účetnictví příjemce), a to i ISDOC vložený přímo do PDF, takže odběratel
+v souboru PDF zůstává, jen není vidět. Klient na dokladu zůstává, takže se počítá do
+statistik i obratu a uplatní se jeho cenová hladina. Běžná faktura odběratele nést musí (§ 29),
+u ní se volba neuloží. Změna volby u vystaveného dokladu archivuje dosavadní PDF a v uzavřeném
+období ji nejde provést jako úpravu jen poznámek.
+
+Úprava vystaveného zjednodušeného dokladu správcem prochází stejnými kontrolami jako vystavení:
+doklad nad 10 000 Kč, v přenesené daňové povinnosti nebo s dodáním do jiného členského státu
+aplikace odmítne.
 
 ### 40.9.11 Storno vs. dobropis
 

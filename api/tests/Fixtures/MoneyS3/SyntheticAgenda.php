@@ -263,7 +263,12 @@ final class SyntheticAgenda
             'ROK.002/UcPrKont.DAT' => Ms3FixtureWriter::table(self::RULE_FIELDS, $rules),
             'ROK.002/SzUcPokl.DAT' => Ms3FixtureWriter::table(self::REGISTER_FIELDS, $registers),
             'ROK.002/UcDenik.DAT' => Ms3FixtureWriter::table(self::JOURNAL_FIELDS, [
-                ['Cislo' => -1, 'Zdroj' => 'XP', 'Datum' => '2025-01-01', 'Popis' => 'Počáteční stav roku 2025', 'UcMD' => '211000', 'UcD' => '701000', 'Castka' => 8500.0],
+                ['Cislo' => -1, 'Zdroj' => 'XP', 'Datum' => '2025-01-01', 'Popis' => 'Počáteční stav roku 2025', 'UcMD' => '211000', 'UcD' => '701000', 'Castka' => 10000.0],
+                ['Cislo' => -101, 'Zdroj' => 'XP', 'Datum' => '2025-01-01', 'Popis' => 'Počáteční stav střediska a vozidla', 'UcMD' => '701000', 'UcD' => '211000', 'Castka' => 1500.0, 'Stred' => 'REZIE', 'Zakazka' => '1AB2345'],
+                ['Cislo' => -102, 'Zdroj' => 'XP', 'Datum' => '2025-01-01', 'Popis' => 'Počáteční stav zakázky', 'UcMD' => '311000', 'UcD' => '701000', 'Castka' => 20000.0, 'Zakazka' => 'ZAK02'],
+                ['Cislo' => -103, 'Zdroj' => 'XP', 'Datum' => '2025-01-01', 'Popis' => 'Počáteční stav bez zakázky', 'UcMD' => '701000', 'UcD' => '311000', 'Castka' => 20000.0],
+                ['Cislo' => -104, 'Zdroj' => 'XP', 'Datum' => '2025-01-01', 'Popis' => 'Počáteční stav střediska a zakázky', 'UcMD' => '701000', 'UcD' => '321000', 'Castka' => 10000.0, 'Stred' => 'REZIE', 'Zakazka' => 'ZAK01'],
+                ['Cislo' => -105, 'Zdroj' => 'XP', 'Datum' => '2025-01-01', 'Popis' => 'Počáteční stav bez střediska a zakázky', 'UcMD' => '321000', 'UcD' => '701000', 'Castka' => 10000.0],
                 ['Cislo' => -2, 'Zdroj' => 'XP', 'Datum' => '2025-01-01', 'Popis' => 'Počáteční stav roku 2025', 'UcMD' => '221001', 'UcD' => '701000', 'Castka' => 62150.0],
                 ['Cislo' => -3, 'Zdroj' => 'XP', 'Datum' => '2025-01-01', 'Popis' => 'Počáteční stav roku 2025', 'UcMD' => '343100', 'UcD' => '701000', 'Castka' => 2100.0],
                 ['Cislo' => -4, 'Zdroj' => 'XP', 'Datum' => '2025-01-01', 'Popis' => 'Počáteční stav roku 2025', 'UcMD' => '701000', 'UcD' => '343200', 'Castka' => 4200.0],
@@ -478,6 +483,40 @@ final class SyntheticAgenda
         return $files;
     }
 
+    public static function filesWithoutOpeningDimensions(): array
+    {
+        $files = self::files();
+        $path = 'ROK.002/UcDenik.DAT';
+        $rows = iterator_to_array(Ms3Table::fromString($files[$path], 'UCDENIK')->rows(), false);
+        foreach ($rows as &$row) {
+            if ($row['Zdroj'] === 'XP') {
+                $row['Stred'] = '';
+                $row['Zakazka'] = '';
+            }
+        }
+        unset($row);
+        $files[$path] = Ms3FixtureWriter::table(self::JOURNAL_FIELDS, $rows);
+        return $files;
+    }
+
+    public static function filesWithChangedDimensions(int $year = 2024): array
+    {
+        $files = self::files();
+        $path = $year === 2024 ? 'ROK.001/UcDenik.DAT' : 'ROK.002/UcDenik.DAT';
+        $rows = iterator_to_array(Ms3Table::fromString($files[$path], 'UCDENIK')->rows(), false);
+        foreach ($rows as &$row) {
+            if ($row['Stred'] === 'REZIE') {
+                $row['Stred'] = 'NOVE1';
+            }
+            if ($row['Zakazka'] === 'ZAK01') {
+                $row['Zakazka'] = 'ZAK99';
+            }
+        }
+        unset($row);
+        $files[$path] = Ms3FixtureWriter::table(self::JOURNAL_FIELDS, $rows);
+        return $files;
+    }
+
     /**
      * Agenda, ve které roky v Money nenavazují: počáteční stavy 2025 přesouvají 100 Kč
      * z pokladny na účet (ruční přepis PS v Money), konečné stavy 2024 zůstávají.
@@ -490,7 +529,7 @@ final class SyntheticAgenda
         $rows = iterator_to_array(Ms3Table::fromString($files['ROK.002/UcDenik.DAT'], 'UCDENIK')->rows(), false);
         foreach ($rows as &$r) {
             if ($r['Zdroj'] === 'XP' && $r['UcMD'] === '211000') {
-                $r['Castka'] = 8400.0;
+                $r['Castka'] = 9900.0;
             } elseif ($r['Zdroj'] === 'XP' && $r['UcMD'] === '221001') {
                 $r['Castka'] = 62250.0;
             }
@@ -923,6 +962,31 @@ final class SyntheticAgenda
             iterator_to_array(Ms3Table::fromString($files['ROK.002/PFaktury.DAT'], 'PFAKTURY')->rows(), false),
         );
         $files['ROK.002/PFaktury.DAT'] = Ms3FixtureWriter::table(self::PURCHASE_FIELDS, $rows);
+        return $files;
+    }
+
+    /**
+     * Agenda vedená v Money jako daňová evidence: rok má místo účetního deníku peněžní deník
+     * (`UcPenDen`, dva živé a jeden smazaný řádek) a `UcDenik` je prázdná tabulka.
+     * `$doubleEntryFrom2025` = firma v roce 2025 přešla na podvojné účetnictví, deník 2025 zůstává.
+     *
+     * @return array<string,string>
+     */
+    public static function filesWithTaxRecords(bool $doubleEntryFrom2025 = false): array
+    {
+        $files = self::files();
+        $fields = [['Cislo', 'L', 4], ['Datum', 'D', 2], ['Doklad', 'C', 10], ['Popis', 'C', 50], ['Castka', 'E', 10], ['Del', 'B', 1]];
+        foreach (['ROK.001' => 2024, 'ROK.002' => 2025] as $dir => $year) {
+            if ($doubleEntryFrom2025 && $year === 2025) {
+                continue;
+            }
+            $files[$dir . '/UcDenik.DAT'] = Ms3FixtureWriter::table(self::JOURNAL_FIELDS, []);
+            $files[$dir . '/UcPenDen.DAT'] = Ms3FixtureWriter::table($fields, [
+                ['Cislo' => 1, 'Datum' => "{$year}-02-10", 'Doklad' => 'BP001', 'Popis' => 'Tržba za služby', 'Castka' => 12100.0],
+                ['Cislo' => 2, 'Datum' => "{$year}-04-01", 'Doklad' => 'PV001', 'Popis' => 'Nákup materiálu', 'Castka' => 1500.0],
+                ['Cislo' => 3, 'Datum' => "{$year}-04-02", 'Doklad' => 'PV002', 'Popis' => 'Smazaný pohyb', 'Castka' => 999.0, 'Del' => 1],
+            ]);
+        }
         return $files;
     }
 

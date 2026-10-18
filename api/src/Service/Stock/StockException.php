@@ -8,7 +8,8 @@ namespace MyInvoice\Service\Stock;
  * Skladovou operaci nelze provést (nedostatek zásob, zamčené období, otevřená
  * inventura, přeplnění příjmu…). Nese strojový kód pro i18n + HTTP status a
  * volitelný strukturovaný detail (`$details`) — zejména výčet chybějících položek
- * u `insufficient_stock` (A3): [{stock_item_id, sku, name, requested, available}].
+ * u `insufficient_stock` (A3): [{stock_item_id, sku, name, requested, available,
+ * warehouse_id, warehouse_name, unit}] ({@see StockShortageDetails}).
  *
  * Stejný vzor jako Cash\CashException / Closing\ClosingException — navazující
  * Action ji přeloží na Json::error bez ztráty kontextu.

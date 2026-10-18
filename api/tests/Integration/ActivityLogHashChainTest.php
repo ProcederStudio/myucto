@@ -32,7 +32,8 @@ final class ActivityLogHashChainTest extends TestCase
     private Connection $db;
     private ActivityLogger $logger;
     private ActivityLogHashChain $chain;
-    private bool $inTx = false;
+    private bool $cleanup = false;
+    private int $deferredFrom = 0;
     /** Id, od kterého se ověřuje — cizí záznamy v sadě jsou pro tenhle test šum. */
     private int $from = 0;
 
@@ -54,23 +55,32 @@ final class ActivityLogHashChainTest extends TestCase
             $this->markTestSkipped('Migrace 1157 neproběhla.');
         }
 
-        $this->db->pdo()->beginTransaction();
-        $this->inTx = true;
+        if (!$this->db->hasColumn('activity_log_chain_head', 'deferred_from_id')) {
+            $this->markTestSkipped('Migrace 2055 neproběhla.');
+        }
 
-        // Do `activity_log` zapisují i jiné testy sady, a to v transakcích, které se
-        // rollbacknou — článek, na který mezitím navázal jiný, pak zmizí. Globální
-        // ověření by proto hlásilo porušení tam, kde v reálném provozu žádné není.
-        $this->from = 1 + (int) $this->db->pdo()->query('SELECT COALESCE(MAX(id), 0) FROM activity_log')->fetchColumn();
+        // Pečetí se až po commitu, takže testy zapisují mimo transakci a po sobě uklidí.
+        // Do `activity_log` zapisují i jiné testy sady; ověřuje se proto jen úsek od `from`.
+        $pdo = $this->db->pdo();
+        $this->from = 1 + (int) $pdo->query('SELECT COALESCE(MAX(id), 0) FROM activity_log')->fetchColumn();
+        $this->deferredFrom = (int) $pdo->query('SELECT deferred_from_id FROM activity_log_chain_head WHERE id = 1')->fetchColumn();
+        $this->cleanup = true;
     }
 
     protected function tearDown(): void
     {
-        if (isset($this->db) && $this->inTx) {
-            if ($this->db->pdo()->inTransaction()) {
-                $this->db->pdo()->rollBack();
-            }
-            $this->db->close();
+        if (!isset($this->db)) {
+            return;
         }
+        $pdo = $this->db->pdo();
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        if ($this->cleanup) {
+            $pdo->prepare('DELETE FROM activity_log WHERE id >= ?')->execute([$this->from]);
+            $pdo->prepare('UPDATE activity_log_chain_head SET deferred_from_id = ? WHERE id = 1')->execute([$this->deferredFrom]);
+        }
+        $this->db->close();
     }
 
     /** Nový záznam dostane hash — bez toho by řetěz nevznikl. */
@@ -156,14 +166,121 @@ final class ActivityLogHashChainTest extends TestCase
      */
     public function testUnprotectedHistoryIsReportedSeparately(): void
     {
-        $this->db->pdo()->prepare(
+        $pdo = $this->db->pdo();
+        $pdo->prepare(
             "INSERT INTO activity_log (supplier_id, user_id, action, hash) VALUES (NULL, NULL, 'test.legacy', NULL)"
         )->execute();
+        $legacy = (int) $pdo->lastInsertId();
+        // Záznam pod hranicí pečetění po commitu = historie před zavedením řetězu.
+        $pdo->prepare('UPDATE activity_log_chain_head SET deferred_from_id = ? WHERE id = 1')->execute([$legacy + 1]);
         $this->write('test.new');
 
         $r = $this->chain->verify($this->from);
         self::assertGreaterThan(0, $r['unprotected']);
+        self::assertSame(0, $r['pending']);
+        self::assertNull($this->row($legacy)['hash'], 'Historie se zpětně nepečetí.');
         self::assertTrue($r['ok'], 'Chybějící hash u historie není porušení řetězu.');
+    }
+
+    /**
+     * Záznam zapsaný v transakci dostane hash až po commitu a obchodní transakce mezitím
+     * hlavu řetězu nedrží. Dokud ji držela, řadily se za ni všechny auditované zápisy
+     * instance a pod snapshot isolation končily chybou 1020.
+     */
+    public function testRecordWrittenInTransactionIsSealedAfterCommitWithoutHoldingTheHead(): void
+    {
+        $pdo = $this->db->pdo();
+        $other = Connection::withoutSharedTestConnection(static fn (): Connection => Bootstrap::buildContainer()->get(Connection::class));
+        try {
+            $pdo->beginTransaction();
+            $id = $this->write('test.in_tx');
+            self::assertNull($this->row($id)['hash'], 'Uvnitř transakce se ještě nepečetí.');
+
+            $otherPdo = $other->pdo();
+            $otherPdo->beginTransaction();
+            $head = $otherPdo->query('SELECT last_hash FROM activity_log_chain_head WHERE id = 1 FOR UPDATE NOWAIT');
+            self::assertNotFalse($head, 'Hlava řetězu není zamčená probíhající obchodní transakcí.');
+            $otherPdo->rollBack();
+
+            $pdo->commit();
+            self::assertNotNull($this->row($id)['hash'], 'Commit záznam zapečetí.');
+            self::assertTrue($this->chain->verify($this->from)['ok']);
+        } finally {
+            $other->close();
+        }
+    }
+
+    /** Vrácený záznam v řetězu nezanechá díru ani článek. */
+    public function testRolledBackRecordDoesNotBreakTheChain(): void
+    {
+        $pdo = $this->db->pdo();
+        $this->write('test.before');
+        $pdo->beginTransaction();
+        $this->write('test.rolled_back');
+        $pdo->rollBack();
+        $this->write('test.after');
+
+        $r = $this->chain->verify($this->from);
+        self::assertTrue($r['ok']);
+        self::assertSame(0, $r['pending']);
+        self::assertSame(2, $r['checked']);
+    }
+
+    /**
+     * Transakce se commitují v jiném pořadí, než dostaly id. Řetěz se proto řadí podle
+     * pořadí zapečetění, ne podle id, a ověření musí projít.
+     */
+    public function testOutOfOrderCommitsKeepTheChainValid(): void
+    {
+        $pdo = $this->db->pdo();
+        $otherContainer = Connection::withoutSharedTestConnection(static function () {
+            $container = Bootstrap::buildContainer();
+            $container->get(Connection::class);
+            return $container;
+        });
+        $other = $otherContainer->get(Connection::class);
+        try {
+            $pdo->beginTransaction();
+            $earlier = $this->write('test.long_tx');
+
+            $otherContainer->get(ActivityLogger::class)->log('test.short_tx');
+            $later = (int) $other->pdo()->query("SELECT MAX(id) FROM activity_log WHERE action = 'test.short_tx'")->fetchColumn();
+            self::assertGreaterThan($earlier, $later);
+            // Hlavní spojení drží snapshot své transakce, cizí commit čte druhé spojení.
+            $laterHash = $other->pdo()->prepare('SELECT hash FROM activity_log WHERE id = ?');
+            $laterHash->execute([$later]);
+            self::assertNotNull($laterHash->fetchColumn() ?: null, 'Kratší transakce se zapečetí hned po svém commitu.');
+
+            $pdo->commit();
+            self::assertSame($this->row($later)['hash'], $this->row($earlier)['prev_hash'], 'Později commitnutý záznam navazuje na dříve zapečetěný.');
+            $r = $this->chain->verify($this->from);
+            self::assertTrue($r['ok'], (string) json_encode($r['broken'], JSON_UNESCAPED_UNICODE));
+            self::assertSame(2, $r['checked']);
+        } finally {
+            $other->close();
+        }
+    }
+
+    /**
+     * Záznam vložený mimo logger (cron zapisuje přímým INSERTem) nad hranicí čeká na
+     * zapečetění: ověření ho hlásí zvlášť, ne jako porušení, a další pečetění ho doplní.
+     */
+    public function testDirectInsertIsPendingUntilNextSeal(): void
+    {
+        $pdo = $this->db->pdo();
+        $pdo->prepare("INSERT INTO activity_log (action, payload) VALUES ('test.cron', NULL)")->execute();
+        $id = (int) $pdo->lastInsertId();
+
+        $before = $this->chain->verify($this->from);
+        self::assertTrue($before['ok']);
+        self::assertSame(1, $before['pending']);
+        self::assertSame(0, $before['unprotected']);
+
+        self::assertSame(1, $this->chain->sealPending());
+        self::assertNotNull($this->row($id)['hash']);
+        $after = $this->chain->verify($this->from);
+        self::assertTrue($after['ok']);
+        self::assertSame(0, $after['pending']);
     }
 
     /**

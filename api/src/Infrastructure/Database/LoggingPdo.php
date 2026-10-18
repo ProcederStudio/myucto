@@ -42,9 +42,55 @@ final class LoggingPdo extends PDO
 
     private readonly ?SlowQueryLog $slowLog;
 
+    /** @var array<string,\Closure():void> */
+    private array $afterCommit = [];
+
     public function databaseName(): string
     {
         return $this->databaseName;
+    }
+
+    /**
+     * Spustí krok po commitu probíhající transakce, mimo ni hned. Rollback ho zahodí.
+     * Týž klíč se v jedné transakci zaregistruje jen jednou.
+     * Chyba kroku se nevyhazuje: commit už proběhl a volající ho má hlásit jako úspěch.
+     */
+    public function afterCommit(string $key, \Closure $callback): void
+    {
+        if (!$this->inTransaction()) {
+            $this->runAfterCommit([$callback]);
+            return;
+        }
+        $this->afterCommit[$key] ??= $callback;
+    }
+
+    public function commit(): bool
+    {
+        $result = parent::commit();
+        $callbacks = $this->afterCommit;
+        $this->afterCommit = [];
+        $this->runAfterCommit($callbacks);
+
+        return $result;
+    }
+
+    public function rollBack(): bool
+    {
+        $this->afterCommit = [];
+
+        return parent::rollBack();
+    }
+
+    /** @param array<array-key,\Closure():void> $callbacks */
+    private function runAfterCommit(array $callbacks): void
+    {
+        foreach ($callbacks as $callback) {
+            try {
+                $callback();
+            } catch (\Throwable $e) {
+                $this->logger->error('Krok po commitu selhal: ' . $e->getMessage(), ['exception' => $e::class]);
+            }
+        }
     }
 
     private function noteSchemaStatement(string $sql): void

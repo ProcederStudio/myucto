@@ -46,6 +46,8 @@ final class TypeChangeRenumberTest extends TestCase
     private \DateTimeImmutable $date;
     /** @var int[] */
     private array $created = [];
+    private ?string $originalSimplifiedFormat = null;
+    private bool $simplifiedFormatTouched = false;
 
     protected function setUp(): void
     {
@@ -105,6 +107,23 @@ final class TypeChangeRenumberTest extends TestCase
         $this->created = [];
         $pdo->prepare("DELETE FROM invoice_counters WHERE supplier_id = ? AND period LIKE '2099%'")
             ->execute([$this->supplierId]);
+        if ($this->simplifiedFormatTouched) {
+            $pdo->prepare('UPDATE supplier SET simplified_number_format = ? WHERE id = ?')
+                ->execute([$this->originalSimplifiedFormat, $this->supplierId]);
+            $this->simplifiedFormatTouched = false;
+        }
+    }
+
+    /** Vlastní řada zjednodušených dokladů (migrace 2037), v cleanup se vrátí původní. */
+    private function useSimplifiedSeries(string $template): void
+    {
+        $pdo = $this->db->pdo();
+        $this->originalSimplifiedFormat = ($v = $pdo->query(
+            "SELECT simplified_number_format FROM supplier WHERE id = {$this->supplierId}"
+        )->fetchColumn()) === false ? null : $v;
+        $this->simplifiedFormatTouched = true;
+        $pdo->prepare('UPDATE supplier SET simplified_number_format = ? WHERE id = ?')
+            ->execute([$template, $this->supplierId]);
     }
 
     /** Vloží vystavenou proformu s daným counterem; vrátí [id, varsymbol]. */
@@ -183,6 +202,44 @@ final class TypeChangeRenumberTest extends TestCase
         self::assertSame(0, $this->counterFor('proforma'), 'Proforma counter byl uvolněn (release).');
         // Nové číslo je v řadě faktur (counter se inkrementoval).
         self::assertGreaterThan(0, $this->counterFor('invoice'), 'Faktura dostala číslo z řady faktur.');
+    }
+
+    public function testSimplifiedProformaToInvoiceTakesNumberFromSimplifiedSeries(): void
+    {
+        $this->useSimplifiedSeries('ZS{YYYY}{CCCC}');
+        [$id] = $this->insertIssuedProforma(1);
+
+        $resp = $this->forcePut($id, $this->body('invoice') + ['is_simplified' => true]);
+        self::assertSame(200, $resp->getStatusCode(), (string) $resp->getBody());
+
+        $vs = (string) $this->db->pdo()->query("SELECT varsymbol FROM invoices WHERE id = {$id}")->fetchColumn();
+        self::assertSame('ZS20990001', $vs, 'Zjednodušený doklad dostal číslo z vlastní řady.');
+        self::assertSame(1, $this->counterFor('simplified'));
+        self::assertSame(0, $this->counterFor('invoice'), 'Řada faktur zůstala nedotčená.');
+        self::assertSame(0, $this->counterFor('proforma'), 'Staré číslo se vrátilo do řady záloh.');
+    }
+
+    public function testSimplifiedInvoiceToProformaReleasesSimplifiedNumber(): void
+    {
+        $this->useSimplifiedSeries('ZS{YYYY}{CCCC}');
+        $pdo = $this->db->pdo();
+        $vs = $this->gen->next($this->supplierId, 'simplified', $this->date);
+        $d = $this->date->format('Y-m-d');
+        $pdo->prepare(
+            "INSERT INTO invoices
+                (invoice_type, is_simplified, varsymbol, client_id, supplier_id, issue_date, tax_date, due_date,
+                 currency_id, status, total_without_vat, total_with_vat, created_by)
+             VALUES ('invoice', 1, ?, ?, ?, ?, ?, ?, ?, 'issued', 100, 121, ?)"
+        )->execute([$vs, $this->clientId, $this->supplierId, $d, $d, $d, $this->currencyId, $this->userId]);
+        $id = (int) $pdo->lastInsertId();
+        $this->created[] = $id;
+        self::assertSame(1, $this->counterFor('simplified'));
+
+        $resp = $this->forcePut($id, $this->body('proforma'));
+        self::assertSame(200, $resp->getStatusCode(), (string) $resp->getBody());
+
+        self::assertSame(0, $this->counterFor('simplified'), 'Číslo se vrátilo do řady zjednodušených dokladů.');
+        self::assertSame(1, $this->counterFor('proforma'));
     }
 
     public function testLinkedFinalBlocksConversion(): void

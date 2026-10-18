@@ -28,6 +28,15 @@ function storeFor(locked: boolean) {
   return store
 }
 describe('odhlášení vlastní domény', () => {
+  it('ukončí zapamatované období DPH a ponechá ostatní data sezení', async () => {
+    const store = storeFor(false)
+    sessionStorage.setItem('myinvoice.vat-report-period.1.2.vat', JSON.stringify({ year: 2025, month: 9, periodOverride: 'quarterly' }))
+    sessionStorage.setItem('other.session.preference', 'keep')
+    await store.logout()
+    expect(sessionStorage.getItem('myinvoice.vat-report-period.1.2.vat')).toBeNull()
+    expect(sessionStorage.getItem('other.session.preference')).toBe('keep')
+  })
+
   it('úspěch uloží marker a zruší dosavadní PKCE callback', async () => {
     const store = storeFor(true); const callback = pendingCallback()
     expect(callback()).not.toBeNull(); await store.logout()

@@ -6,6 +6,7 @@ namespace MyInvoice\Action\Payroll;
 
 use MyInvoice\Http\Json;
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Repository\DocumentRepository;
 use MyInvoice\Repository\DocumentViewerContext;
@@ -1060,6 +1061,9 @@ final class PayrollEnforcementAction
             }
             return $result;
         } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             if ($nested && $pdo->inTransaction()) {
                 $pdo->exec('ROLLBACK TO SAVEPOINT ' . self::SAVEPOINT);
                 $pdo->exec('RELEASE SAVEPOINT ' . self::SAVEPOINT);

@@ -5,13 +5,18 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Accounting\Closing;
 
 use MyInvoice\Service\Accounting\AccountingPeriodStatus;
+use MyInvoice\Service\Accounting\JournalLineComparison;
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
+use MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Repository\AccountingSupplierSettingsRepository;
 use MyInvoice\Repository\AssetRepository;
 use MyInvoice\Repository\ChartOfAccountsRepository;
 use MyInvoice\Repository\ClosingRepository;
 use MyInvoice\Repository\DimensionAccountMapRepository;
+use MyInvoice\Repository\DimensionAssignmentRepository;
+use MyInvoice\Repository\DimensionRepository;
 use MyInvoice\Repository\JournalEntryRepository;
 use MyInvoice\Repository\PostingRuleRepository;
 use MyInvoice\Repository\SmallAssetRepository;
@@ -295,9 +300,10 @@ final class ClosingService
             return ['status' => 'to_create'] + $base;
         }
         try {
-            $cmp = OpeningTakeoverComparison::compare(
+            $cmp = $this->compareOpeningBalances(
+                $supplierId,
+                (int) $next['id'],
                 $this->expectedOpeningLines($supplierId, $period, $steps),
-                $this->closing->openingBalancesInPeriod($supplierId, (int) $next['id']),
             );
         } catch (ClosingException $e) {
             // Nevyvážené zůstatky (rozbitý deník) hlásí precheck; stav průvodce kvůli
@@ -305,6 +311,50 @@ final class ClosingService
             return ['status' => 'unavailable', 'message' => $e->getMessage()] + $base;
         }
         return ['status' => $cmp['diff'] === [] ? 'match' : 'mismatch', 'diff' => $cmp['diff'], 'accounts' => $cmp['accounts']] + $base;
+    }
+
+    private function compareOpeningBalances(int $supplierId, int $nextPeriodId, array $expectedLines): array
+    {
+        $linkedTypes = [];
+        $dimensions = new DimensionRepository($this->db);
+        $types = array_column($dimensions->listTypes($supplierId), null, 'id');
+        foreach ($types as $type) {
+            if (in_array($type['kind'], ['cost_center', 'project'], true)) {
+                $linkedTypes[(int) $type['id']] = $type['kind'];
+            }
+        }
+        $comparison = OpeningTakeoverComparison::compareWithDimensions(
+            $expectedLines,
+            $this->closing->openingBalancesWithDimensionsInPeriod($supplierId, $nextPeriodId),
+            $linkedTypes,
+        );
+        if ($comparison['diff'] !== []) {
+            $values = array_column($dimensions->listValues($supplierId), null, 'id');
+            $projectName = $this->db->pdo()->prepare(
+                'SELECT p.name FROM projects p JOIN clients c ON c.id = p.client_id WHERE p.id = ? AND c.supplier_id = ?'
+            );
+            foreach ($comparison['diff'] as &$row) {
+                $row['dimension_labels'] = [];
+                $assignments = array_map(static fn (int $valueId): array => [$valueId => null], $row['dimensions'] ?? []);
+                $assignments = array_replace($assignments, $row['dimension_allocations'] ?? []);
+                foreach ($assignments as $typeId => $parts) {
+                    foreach ($parts as $valueId => $part) {
+                        if (isset($types[$typeId], $values[$valueId])) {
+                            $share = $part === null ? '' : ' ('
+                                . rtrim(rtrim(number_format(100 * $part / $row['allocation_amount'], 4, '.', ''), '0'), '.') . ' %)';
+                            $row['dimension_labels'][] = $types[$typeId]['name'] . ': '
+                                . $values[$valueId]['code'] . ' ' . $values[$valueId]['name'] . $share;
+                        }
+                    }
+                }
+                if (!empty($row['project_id'])) {
+                    $projectName->execute([(int) $row['project_id'], $supplierId]);
+                    $row['project_name'] = $projectName->fetchColumn() ?: null;
+                }
+            }
+            unset($row);
+        }
+        return $comparison;
     }
 
     /**
@@ -335,7 +385,7 @@ final class ClosingService
                     'account_code' => (string) $l['account_code'],
                     'name' => (string) ($l['account_name'] ?? ''),
                     'bal' => $l['side'] === 'credit' ? (float) $l['amount'] : -(float) $l['amount'],
-                ];
+                ] + array_intersect_key($l, ['dimensions' => true, 'dimension_splits' => true, 'cost_center' => true, 'project_id' => true]);
             }
         } else {
             $pl = $this->closing->plBalances($supplierId, $periodId, (string) $period['starts_on'], (string) $period['ends_on']);
@@ -648,7 +698,7 @@ final class ClosingService
      */
     public function confirmStep(int $supplierId, int $periodId, string $stepKey, string $status, ?string $note, int $rowVersion, array $meta = []): array
     {
-        if (!in_array($stepKey, ['depreciation', 'estimates', 'deferrals', 'provisions', 'income_tax'], true)) {
+        if (!in_array($stepKey, ['depreciation', 'estimates', 'deferrals', 'provisions', 'income_tax', 'deferred_tax'], true)) {
             throw new ClosingException('unknown_step', 'Krok "' . $stepKey . '" nelze potvrdit tímto způsobem.');
         }
         if (!in_array($status, ['done', 'skipped'], true)) {
@@ -736,13 +786,13 @@ final class ClosingService
      */
     public function runFxRevaluation(int $supplierId, int $periodId, array $bankRows, int $rowVersion, array $meta = []): array
     {
-        return $this->tx(function () use ($supplierId, $periodId, $bankRows, $rowVersion, $meta): array {
+        return (new DimensionPeriodGuard($this->db))->transaction(fn (): array => $this->tx(function () use ($supplierId, $periodId, $bankRows, $rowVersion, $meta): array {
             $period = $this->lockPeriod($supplierId, $periodId, $rowVersion);
             $this->assertStatus($period, ['closing']);
             $endsOn = (string) $period['ends_on'];
             $fiscalYear = (int) $period['fiscal_year'];
 
-            $preview = $this->fx->preview($supplierId, $period, $bankRows);
+            $preview = $this->fx->preview($supplierId, $period, $bankRows, true);
             $entries = $this->fx->buildEntries($supplierId, $preview);
 
             $slots = [
@@ -781,6 +831,8 @@ final class ClosingService
             $payload = [
                 'rate_info' => $preview['rate_info'] ?? [],
                 'detail' => $preview['saldo']['detail'] ?? [],
+                'case_projection_version' => $preview['case_projection_version'],
+                'case_history_proof' => $preview['case_history_proof'],
                 'saldo_lines' => $preview['saldo']['lines'] ?? [],
                 'bank_rows' => $bankRows,
                 'bank_lines' => $preview['bank']['lines'] ?? [],
@@ -793,7 +845,7 @@ final class ClosingService
             $this->bumpVersion($supplierId, $periodId, $rowVersion);
             $this->audit($supplierId, 'accounting.fx_revalued', $periodId, ['entry_ids' => $entryIds, 'totals' => $preview['totals'] ?? []], $meta);
             return ['entry_ids' => $entryIds, 'deleted' => $deleted, 'totals' => $preview['totals'] ?? []];
-        });
+        }));
     }
 
     // ── krok 6: zásoby — uzávěrka způsobem B (SKLAD §3.4) ─────────────────────
@@ -2541,9 +2593,9 @@ final class ClosingService
             if ($partial && count($items) > 200) {
                 throw new ClosingException('validation_failed', 'Dávka opravných položek smí obsahovat nejvýše 200 položek.', 422);
             }
-            $openingByInvoice = $this->closing->provisionOpeningState($supplierId, (string) $period['starts_on'], $endsOn);
+            $openingByInvoice = $this->closing->provisionOpeningState($supplierId, (string) $period['starts_on'], $endsOn, true);
             $prevByInvoice = $openingByInvoice;
-            foreach (($this->stepsMap($supplierId, $periodId)['provisions']['payload']['entries'] ?? []) as $e) {
+            foreach (($this->stepsMap($supplierId, $periodId, true)['provisions']['payload']['entries'] ?? []) as $e) {
                 $prevByInvoice[(int) ($e['invoice_id'] ?? 0)] = $e;
             }
 
@@ -2556,7 +2608,7 @@ final class ClosingService
                 }
             }
             $remainingByInvoice = [];
-            foreach ($this->openReceivables($supplierId, $periodId, $endsOn, $invoiceIds) as $r) {
+            foreach ($this->openReceivables($supplierId, $periodId, $endsOn, $invoiceIds, true) as $r) {
                 $remainingByInvoice[$r['invoice_id']] = $r['remaining'];
             }
             foreach ($items as &$item) {
@@ -2595,7 +2647,7 @@ final class ClosingService
                 $legal = round(max(0.0, (float) ($raw['legal_amount'] ?? 0)), 2);
                 $acct = round(max(0.0, (float) ($raw['acct_amount'] ?? 0)), 2);
                 $total = round($legal + $acct, 2);
-                $sourceId = $this->closing->provisionSourceId($supplierId, $periodId, $invoiceId);
+                $sourceId = $this->closing->provisionSourceId($supplierId, $periodId, $invoiceId, true);
                 $legalDelta = round($legal - (float) ($openingByInvoice[$invoiceId]['legal_amount'] ?? 0), 2);
                 $acctDelta = round($acct - (float) ($openingByInvoice[$invoiceId]['acct_amount'] ?? 0), 2);
                 $delta = round($legalDelta + $acctDelta, 2);
@@ -2642,7 +2694,7 @@ final class ClosingService
                 }
                 $this->assertKnownCodes($supplierId, $lines);
 
-                $existing = $this->journal->findBySource($supplierId, 'provision', $sourceId);
+                $existing = $this->journal->findActiveBySourceForUpdate($supplierId, 'provision', $sourceId);
                 $note = trim((string) ($raw['note'] ?? ''));
                 $receivableNo = trim((string) ($raw['document_no'] ?? ''));
                 if ($lines === []) {
@@ -2698,14 +2750,14 @@ final class ClosingService
      *     partner_name:string, issue_date:?string, due_date:string, days_overdue:int,
      *     remaining:float, currency_code:?string}>
      */
-    private function openReceivables(int $supplierId, int $periodId, string $asOf, ?array $invoiceIds = null): \Generator
+    private function openReceivables(int $supplierId, int $periodId, string $asOf, ?array $invoiceIds = null, bool $currentRead = false): \Generator
     {
         $account = $this->saldo->resolveAccount($supplierId, '311');
         if ($account === null) {
             return;
         }
         $normalSide = $account['normal_side'] ?? (in_array($account['account_type'], ['asset', 'expense'], true) ? 'debit' : 'credit');
-        foreach ($this->saldo->iterateOpenInvoiceItems($supplierId, $account['id'], $asOf, $invoiceIds) as $it) {
+        foreach ($this->saldo->iterateOpenInvoiceItems($supplierId, $account['id'], $asOf, $invoiceIds, $currentRead) as $it) {
             $booked = $normalSide === 'debit' ? $it['booked_signed'] : -$it['booked_signed'];
             $remaining = SaldoRepository::settlementAmounts($booked, (float) $it['paid_ratio'])['remaining'];
             if ($remaining <= 0) {
@@ -3168,10 +3220,11 @@ final class ClosingService
         $target = $context['target'];
         $sourceId = (int) $period['id'];
         $asOf = (string) $target['ends_on'];
-        $balance431 = round($this->closing->accountBalance($supplierId, '431', $asOf), 2);
+        $existing = $this->journal->findActiveBySource($supplierId, 'profit_distribution', $sourceId);
+        $snapshot = $this->closing->profitDistributionSnapshot($supplierId, $existing['id'] ?? null, $asOf);
+        $balance431 = $snapshot['balance_431'];
         $available = round(-$balance431, 2); // kladné = zisk k rozdělení, záporné = ztráta k úhradě
-        $existing = $this->journal->findBySource($supplierId, 'profit_distribution', $sourceId);
-        $resources = $this->distributableResources($supplierId, $asOf, $available, $sourceId);
+        $resources = $this->distributableResources($snapshot, $available);
 
         return [
             'approved_period' => ['id' => (int) $period['id'], 'fiscal_year' => (int) $period['fiscal_year'], 'status' => (string) $period['status']],
@@ -3201,7 +3254,7 @@ final class ClosingService
      * D 342). Tvrdá kontrola Σ přídělů = |zůstatek 431| a limitu rozdělitelných zdrojů.
      *
      * Idempotence (audit 2026-07 #3): zůstatek 431 se počítá s VYLOUČENÍM vlastního
-     * předchozího zápisu téhož source_id (accountBalance exclude*, vzor FX slotu 2) —
+     * aktivního předchozího zápisu téhož source_id (profitDistributionSnapshot) —
      * jinak by po prvním běhu 431 už nettoval na 0 a Σ přídělů by při re-runu vždy
      * selhala na distribution_mismatch (rewrite větev by byla nedosažitelná). Re-run
      * tak skutečně přepočítá „jako by se distribuce ještě nestala" a postDocument
@@ -3231,11 +3284,12 @@ final class ClosingService
         $targetRowVersion = (int) ($body['target_row_version'] ?? 0);
 
         return $this->tx(function () use ($supplierId, $periodId, $decisionDate, $allocations, $withholdingRate, $targetRowVersion, $meta): array {
-            $requested = $this->periods->findById($supplierId, $periodId);
+            (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+            $requested = $this->periods->findForUpdate($periodId, $supplierId);
             if ($requested === null) {
                 throw new ClosingException('not_found', 'Účetní období #' . $periodId . ' neexistuje.', 404);
             }
-            $context = $this->profitDistributionContext($supplierId, $requested);
+            $context = $this->profitDistributionContext($supplierId, $requested, true);
             $period = $context['source'];
             $target = $context['target'];
             $sourceId = (int) $period['id'];
@@ -3253,10 +3307,12 @@ final class ClosingService
             $asOf = (string) $lockedTarget['ends_on'];
             // Vyloučit vlastní předchozí zápis (audit #3) — bez toho by re-run po prvním
             // zaúčtování viděl 431 už vynulovaný a distribution_mismatch by byla nedosažitelná.
-            $balance431 = round($this->closing->accountBalance($supplierId, '431', $asOf, 'profit_distribution', $sourceId), 2);
+            $existing = $this->journal->findActiveBySourceForUpdate($supplierId, 'profit_distribution', $sourceId);
+            $snapshot = $this->closing->profitDistributionSnapshot($supplierId, $existing['id'] ?? null, $asOf, true);
+            $balance431 = $snapshot['undistributed_balance_431'];
             $available = round(-$balance431, 2);
             $isLoss = $available < 0;
-            $resources = $this->distributableResources($supplierId, $asOf, $available, $sourceId);
+            $resources = $this->distributableResources($snapshot, $available);
 
             $sum = 0.0;
             $sharesGross = 0.0;
@@ -3324,7 +3380,8 @@ final class ClosingService
 
             $this->assertKnownCodes($supplierId, $lines);
 
-            $existing = $this->journal->findBySource($supplierId, 'profit_distribution', $sourceId);
+            $this->assertProfitDistributionUnsettled($supplierId, $sourceId, $decisionDate,
+                $this->posting->prepareDocumentLines($supplierId, 'profit_distribution', $sourceId, $lines, $decisionDate));
             $docNo = $existing !== null && $existing['document_no'] !== null
                 ? (string) $existing['document_no']
                 : $this->series->next($supplierId, 'manual', (int) $lockedTarget['fiscal_year']);
@@ -3384,11 +3441,12 @@ final class ClosingService
     public function revertProfitDistribution(int $supplierId, int $periodId, int $targetRowVersion, array $meta = []): array
     {
         return $this->tx(function () use ($supplierId, $periodId, $targetRowVersion, $meta): array {
-            $requested = $this->periods->findById($supplierId, $periodId);
+            (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+            $requested = $this->periods->findForUpdate($periodId, $supplierId);
             if ($requested === null) {
                 throw new ClosingException('not_found', 'Účetní období #' . $periodId . ' neexistuje.', 404);
             }
-            $context = $this->profitDistributionContext($supplierId, $requested);
+            $context = $this->profitDistributionContext($supplierId, $requested, true);
             $period = $context['source'];
             $target = $context['target'];
             $sourceId = (int) $period['id'];
@@ -3397,27 +3455,13 @@ final class ClosingService
             // Symetrie s zaúčtováním: co jde zaúčtovat do 'closing', musí jít i vzít zpět.
             $this->assertStatus($lockedTarget, self::PROFIT_DISTRIBUTION_TARGET_STATUSES);
 
-            $existing = $this->findEntryWithLines($supplierId, 'profit_distribution', $sourceId);
+            $existing = $this->findEntryWithLines($supplierId, 'profit_distribution', $sourceId, true, true);
             if ($existing === null) {
                 throw new ClosingException('not_found', 'Žádné zaúčtované rozdělení VH k revertu.', 404);
             }
-            $watchCodes = [];
-            foreach (($existing['lines'] ?? []) as $l) {
-                $code = (string) $l['account_code'];
-                if ($code !== '431') {
-                    $watchCodes[$code] = true;
-                }
-            }
-            if ($watchCodes !== [] && $this->hasFollowUpPostings($supplierId, array_keys($watchCodes), (string) $existing['entry_date'])) {
-                throw new ClosingException(
-                    'distribution_settled',
-                    'Na účty rozdělení VH (např. 364 — podíly společníků) navazují pozdější zaúčtované doklady '
-                        . '(výplata podílu, čerpání fondu apod.) — nejprve stornuj navazující platby, teprve pak vezmi rozdělení zpět.',
-                    422,
-                );
-            }
+            $this->assertProfitDistributionUnsettled($supplierId, $sourceId);
 
-            $dump = $this->closing->deleteClosingEntry($supplierId, 'profit_distribution', $sourceId);
+            $dump = $this->closing->deleteClosingEntry($supplierId, 'profit_distribution', $sourceId, $targetId, true);
             if ($dump === null) {
                 throw new ClosingException('not_found', 'Žádné zaúčtované rozdělení VH k revertu.', 404);
             }
@@ -3430,49 +3474,24 @@ final class ClosingService
         });
     }
 
-    /**
-     * Existuje na některý z $accountCodes zaúčtovaný zápis (jiný než $excludeSourceType)
-     * s entry_date > $afterDate? Guard pro revert rozdělení VH (audit #2) — prefix-match
-     * jako {@see ClosingRepository::accountBalance}, aby chytil i analytiky.
-     *
-     * @param list<string> $accountCodes
-     */
-    private function hasFollowUpPostings(int $supplierId, array $accountCodes, string $afterDate): bool
+    /** Přesný finanční retry je dovolen; změna nebo smazání nesmí opustit použité zdroje. */
+    public function assertProfitDistributionUnsettled(int $supplierId, int $sourcePeriodId, ?string $newDate = null, ?array $resolvedLines = null, string $pendingAccount = '431'): void
     {
-        if ($accountCodes === []) {
-            return false;
+        (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+        $existing = $this->findEntryWithLines($supplierId, 'profit_distribution', $sourcePeriodId, true, true);
+        if ($existing === null) return;
+        if ($newDate === $existing['entry_date'] && $resolvedLines !== null && JournalLineComparison::sameLines($resolvedLines, $existing['lines'])) return;
+        $watchCodes = [];
+        foreach ($existing['lines'] as $line) {
+            if (!str_starts_with($line['account_code'], $pendingAccount)) $watchCodes[$line['account_code']] = true;
         }
-        $conditions = [];
-        $params = [$supplierId];
-        foreach ($accountCodes as $code) {
-            $conditions[] = '(a.account_code LIKE CONCAT(?, \'%\') OR COALESCE(p.account_code, a.account_code) LIKE CONCAT(?, \'%\'))';
-            $params[] = $code;
-            $params[] = $code;
+        if ($this->closing->hasFollowUpPostingsForUpdate($supplierId, array_keys($watchCodes), $existing['entry_date'], (int) $existing['id'])) {
+            throw new ClosingException('distribution_settled',
+                'Na účty rozdělení VH (např. 364 — podíly společníků) navazují pozdější zaúčtované doklady '
+                    . '(výplata podílu, čerpání fondu apod.) — nejprve stornuj navazující platby, teprve pak vezmi rozdělení zpět.', 422);
         }
-        $params[] = $afterDate;
-        $stmt = $this->db->pdo()->prepare(
-            'SELECT 1
-               FROM journal_entry_lines l
-               JOIN journal_entries e ON e.id = l.entry_id
-               JOIN chart_of_accounts a ON a.id = l.account_id
-               LEFT JOIN chart_of_accounts p ON p.id = a.parent_id
-              WHERE l.supplier_id = ? AND e.posted_at IS NOT NULL
-                AND e.source_type <> \'profit_distribution\'
-                AND (' . implode(' OR ', $conditions) . ')
-                AND e.entry_date > ?
-              LIMIT 1'
-        );
-        $stmt->execute($params);
-        return $stmt->fetchColumn() !== false;
     }
 
-    /**
-     * Zdrojové schválené a cílové otevřené období pro rozdělení VH. Volání nad
-     * otevřeným obdobím kanonicky dohledá jeho bezprostředně předchozí approved rok.
-     *
-     * @param array<string,mixed> $period
-     * @return array{source:array<string,mixed>,target:array<string,mixed>}
-     */
     /**
      * Dobová sazba srážkové daně §36 z podílu na zisku pro daný rok — z verzovaných
      * konstant, s fallbackem na {@see self::WITHHOLDING_RATE} pro roky bez klíče.
@@ -3492,10 +3511,18 @@ final class ClosingService
      */
     private const PROFIT_DISTRIBUTION_TARGET_STATUSES = ['open', 'closing'];
 
-    private function profitDistributionContext(int $supplierId, array $period): array
+    /**
+     * Zdrojové schválené a cílové otevřené období pro rozdělení VH. Volání nad
+     * otevřeným obdobím kanonicky dohledá jeho bezprostředně předchozí approved rok.
+     *
+     * @param array<string,mixed> $period
+     * @return array{source:array<string,mixed>,target:array<string,mixed>}
+     */
+    private function profitDistributionContext(int $supplierId, array $period, bool $forUpdate = false): array
     {
         if (in_array((string) $period['status'], self::PROFIT_DISTRIBUTION_TARGET_STATUSES, true)) {
-            $source = $this->previousPeriod($supplierId, (string) $period['starts_on']);
+            $source = $forUpdate ? $this->closing->adjacentPeriodForUpdate($supplierId, (string) $period['starts_on'], true)
+                : $this->previousPeriod($supplierId, (string) $period['starts_on']);
             if ($source === null || (string) $source['status'] !== 'approved') {
                 throw new ClosingException(
                     'profit_distribution_requires_approved_period',
@@ -3511,7 +3538,8 @@ final class ClosingService
                 'Rozdělení výsledku hospodaření je dostupné jen pro schválené (approved), otevřené nebo uzavírané období (stav: ' . $period['status'] . ').',
             );
         }
-        $next = $this->periods->nextPeriod($supplierId, (string) $period['ends_on']);
+        $next = $forUpdate ? $this->closing->adjacentPeriodForUpdate($supplierId, (string) $period['ends_on'], false)
+            : $this->periods->nextPeriod($supplierId, (string) $period['ends_on']);
         if ($next === null) {
             throw new ClosingException('next_period_missing', 'Následující období (kam se rozdělení účtuje) neexistuje — nejprve otevři nový rok.');
         }
@@ -3527,10 +3555,10 @@ final class ClosingService
      *
      * @return array{retained_profit:float,uncovered_loss:float,limit:float}
      */
-    private function distributableResources(int $supplierId, string $asOf, float $currentProfit, int $sourcePeriodId): array
+    private function distributableResources(array $snapshot, float $currentProfit): array
     {
-        $balance428 = round($this->closing->accountBalance($supplierId, '428', $asOf, 'profit_distribution', $sourcePeriodId), 2);
-        $balance429 = round($this->closing->accountBalance($supplierId, '429', $asOf, 'profit_distribution', $sourcePeriodId), 2);
+        $balance428 = $snapshot['balance_428'];
+        $balance429 = $snapshot['balance_429'];
         $retainedProfit = max(0.0, round(-$balance428, 2));
         $uncoveredLoss = max(0.0, round($balance429, 2));
         return [
@@ -3733,7 +3761,7 @@ final class ClosingService
         if ($replaceTakenOverReason === '') {
             $replaceTakenOverReason = null;
         }
-        return $this->tx(function () use ($supplierId, $periodId, $rowVersion, $meta, $replaceTakenOverReason): array {
+        return $this->tx(fn (): array => (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $periodId, $rowVersion, $meta, $replaceTakenOverReason): array {
             $period = $this->lockPeriod($supplierId, $periodId, $rowVersion);
             // Past #37: open_next musí jít i nad 'approved' obdobím. Je to čistě technický
             // přenos počátečních zůstatků do NÁSLEDUJÍCÍHO období (N+1, open) — do knih
@@ -3781,7 +3809,7 @@ final class ClosingService
             $takenOverIds = [];
             $takenOverAccounts = 0;
             if ($takenOver !== []) {
-                $cmp = OpeningTakeoverComparison::compare($lines, $this->closing->openingBalancesInPeriod($supplierId, $nextId));
+                $cmp = $this->compareOpeningBalances($supplierId, $nextId, $lines);
                 if ($replaceTakenOverReason !== null) {
                     $replacedDumps = [];
                     foreach ($takenOver as $entry) {
@@ -3806,7 +3834,7 @@ final class ClosingService
                     throw new ClosingException(
                         'opening_takeover_mismatch',
                         'Následující rok už má převzaté počáteční stavy a ' . count($cmp['diff'])
-                            . ' účtů nesouhlasí s konečnými stavy (např. ' . $cmp['diff'][0]['account_code'] . ') — '
+                            . ' zůstatků účtů nebo dimenzí nesouhlasí s konečnými stavy (např. ' . $cmp['diff'][0]['account_code'] . ') — '
                             . 'rozdíly vyřeš, nebo převzaté stavy výslovně nahraď vypočtenými.',
                     );
                 }
@@ -3847,7 +3875,7 @@ final class ClosingService
                             'side' => (string) $l['side'],
                             'amount' => (float) $l['amount'],
                             'is_red_storno' => (bool) ($l['is_red_storno'] ?? false),
-                        ];
+                        ] + array_intersect_key($l, ['cost_center' => true, 'project_id' => true, 'dimensions' => true, 'dimension_splits' => true]);
                         if (($l['currency_code'] ?? null) !== null) {
                             $line['currency_code'] = $l['currency_code'];
                             $line['fx_rate'] = $l['fx_rate'];
@@ -4047,7 +4075,7 @@ final class ClosingService
                 'taken_over_entry_ids' => $takenOverIds,
             ], $meta);
             return $payload;
-        });
+        }));
     }
 
     // ── revert kroků (R12) ────────────────────────────────────────────────────
@@ -4241,6 +4269,7 @@ final class ClosingService
                     break;
 
                 case 'income_tax':
+                case 'deferred_tax':
                     $this->assertStatus($period, ['closing']);
                     if ($steps['close_books']['status'] === 'done'
                         || $this->journal->findBySource($supplierId, 'closing', $periodId) !== null) {
@@ -4249,11 +4278,11 @@ final class ClosingService
                             'Nejprve proveď revert kroku close_books (vynucené pořadí R12).',
                         );
                     }
-                    $dump = $this->closing->deleteClosingEntry($supplierId, 'income_tax', $periodId);
+                    $dump = $this->closing->deleteClosingEntry($supplierId, $stepKey, $periodId);
                     if ($dump !== null) {
-                        $dumps['income_tax'] = $dump;
+                        $dumps[$stepKey] = $dump;
                     }
-                    $this->closing->resetStep($supplierId, $periodId, 'income_tax');
+                    $this->closing->resetStep($supplierId, $periodId, $stepKey);
                     $this->bumpVersion($supplierId, $periodId, $rowVersion);
                     break;
 
@@ -4499,12 +4528,24 @@ final class ClosingService
         // řádků (např. 311 a 343), proto se řádky slučují na doklad; jinak by se počet
         // nálezů rozcházel s počtem dokladů v tabulce.
         if ($wants('fx_open_items')) {
-            $fxItems = $this->closing->openFxItems($supplierId, $rangeTo);
+            $fxItems = $this->closing->fxItemsWithSettlement($supplierId, $rangeTo);
             $fxByDoc = [];
-            foreach ($fxItems as $it) {
+            foreach ($fxItems as $projection) {
+                $it = $projection['item'];
+                $evidence = $projection['evidence'];
+                $complete = $evidence['complete'];
+                if ($complete && bccomp($evidence['remaining_foreign'], '0', 2) === 0) continue;
+                $remaining = $complete ? (float) $evidence['remaining_foreign'] : null;
+                $issues = $complete ? ($evidence['diagnostics'] ?? []) : ['fx_settlement_unproven'];
                 $docKey = $it['doc_type'] . '#' . $it['doc_id'];
                 if (isset($fxByDoc[$docKey])) {
-                    $fxByDoc[$docKey]['amount_foreign'] += (float) $it['amount_foreign'];
+                    $row = &$fxByDoc[$docKey];
+                    $row['amount'] = $row['amount'] !== null && $remaining !== null ? round($row['amount'] + $remaining, 2) : null;
+                    $row['issues'] = array_values(array_unique([...$row['issues'], ...$issues]));
+                    $row['detail']['settlement_complete'] = $row['detail']['settlement_complete'] && $complete;
+                    $row['detail']['remaining_foreign'] = $row['amount'];
+                    $row['detail']['settlement_findings'] = array_values(array_unique([...$row['detail']['settlement_findings'], ...$evidence['findings']]));
+                    unset($row);
                     continue;
                 }
                 $fxByDoc[$docKey] = [
@@ -4513,9 +4554,15 @@ final class ClosingService
                     'doc_no'       => (string) ($it['varsymbol'] ?? ''),
                     'doc_date'     => $it['doc_date'] ?? null,
                     'partner_name' => $it['partner_name'] ?? null,
-                    'amount'       => round((float) $it['total_with_vat'], 2),
+                    'amount'       => $remaining,
                     'currency'     => (string) $it['currency_code'],
-                    'amount_foreign' => (float) $it['amount_foreign'],
+                    'issues'       => $issues,
+                    'detail'       => [
+                        'settlement_complete' => $complete,
+                        'settlement_findings' => $evidence['findings'],
+                        'remaining_foreign' => $remaining,
+                        'document_total_foreign' => round((float) $it['total_with_vat'], 2),
+                    ],
                 ];
             }
             $fxRows = array_values($fxByDoc);
@@ -5531,7 +5578,7 @@ final class ClosingService
             }
             throw new ClosingException($e->errorCode, $e->getMessage(), $e->httpStatus);
         } catch (\Throwable $e) {
-            if ($ownTx && $pdo->inTransaction()) {
+            if (!TransactionFailure::rollbackIfAborted($pdo, $e) && $ownTx && $pdo->inTransaction()) {
                 $pdo->rollBack();
             }
             throw $e;
@@ -5545,6 +5592,7 @@ final class ClosingService
      */
     private function lockPeriod(int $supplierId, int $periodId, int $rowVersion): array
     {
+        (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
         $period = $this->periods->findForUpdate($periodId, $supplierId);
         if ($period === null) {
             throw new ClosingException('not_found', 'Účetní období #' . $periodId . ' neexistuje.', 404);
@@ -5627,13 +5675,13 @@ final class ClosingService
      *
      * @return array<string, array{step_key:string, status:string, payload:?array<string,mixed>, note:?string, done_at:?string, done_by:?int}>
      */
-    private function stepsMap(int $supplierId, int $periodId): array
+    private function stepsMap(int $supplierId, int $periodId, bool $currentRead = false): array
     {
         $map = [];
         foreach (self::STEP_KEYS as $key) {
             $map[$key] = ['step_key' => $key, 'status' => 'pending', 'payload' => null, 'note' => null, 'done_at' => null, 'done_by' => null];
         }
-        foreach ($this->closing->steps($periodId) as $row) {
+        foreach ($this->closing->steps($periodId, $currentRead) as $row) {
             $key = (string) $row['step_key'];
             if (!isset($map[$key])) {
                 continue;
@@ -5854,20 +5902,22 @@ final class ClosingService
      *
      * @return array<string,mixed>|null
      */
-    private function findEntryWithLines(int $supplierId, string $sourceType, int $sourceId): ?array
+    private function findEntryWithLines(int $supplierId, string $sourceType, int $sourceId, bool $forUpdate = false, bool $activeOnly = false): ?array
     {
-        $entry = $this->journal->findBySource($supplierId, $sourceType, $sourceId);
+        $entry = $activeOnly ? $this->journal->findActiveBySource($supplierId, $sourceType, $sourceId, $forUpdate)
+            : ($forUpdate ? $this->journal->findBySourceForUpdate($supplierId, $sourceType, $sourceId)
+                : $this->journal->findBySource($supplierId, $sourceType, $sourceId));
         if ($entry === null) {
             return null;
         }
         $stmt = $this->db->pdo()->prepare(
             'SELECT l.id, l.account_id, l.side, l.amount, l.is_red_storno,
                     l.currency_code, l.fx_rate, l.amount_foreign,
-                    l.cost_center, l.line_no, a.account_code, a.name AS account_name, a.account_type
+                    l.cost_center, l.project_id, l.line_no, a.account_code, a.name AS account_name, a.account_type
                FROM journal_entry_lines l
                JOIN chart_of_accounts a ON a.id = l.account_id
               WHERE l.entry_id = ? AND l.supplier_id = ?
-              ORDER BY l.line_no ASC, l.id ASC'
+              ORDER BY l.line_no ASC, l.id ASC' . ($forUpdate ? ' FOR UPDATE' : '')
         );
         $stmt->execute([(int) $entry['id'], $supplierId]);
         $entry['lines'] = array_map(static function (array $r): array {
@@ -5879,6 +5929,18 @@ final class ClosingService
             $r['amount_foreign'] = $r['amount_foreign'] === null ? null : (float) $r['amount_foreign'];
             return $r;
         }, $stmt->fetchAll(PDO::FETCH_ASSOC));
+        $assignments = new DimensionAssignmentRepository($this->db);
+        $dimensions = $assignments->entryLineDimensions($supplierId, (int) $entry['id'], $forUpdate);
+        $splits = $assignments->entryLineSplits($supplierId, (int) $entry['id'], $forUpdate);
+        foreach ($entry['lines'] as &$line) {
+            if (isset($dimensions[$line['id']])) {
+                $line['dimensions'] = $dimensions[$line['id']];
+            }
+            if (isset($splits[$line['id']])) {
+                $line['dimension_splits'] = $splits[$line['id']];
+            }
+        }
+        unset($line);
         return $entry;
     }
 

@@ -12,8 +12,17 @@ use MyInvoice\Action\Invoice\BulkReissueAction;
 use MyInvoice\Service\Accounting\PostingService;
 use MyInvoice\Service\Report\VatLedgerService;
 use MyInvoice\Service\Pdf\InvoicePdfRenderer;
+use MyInvoice\Action\Invoice\CreateInvoiceAction;
+use MyInvoice\Action\Settings\SettingsAction;
+use MyInvoice\Middleware\AuthMiddleware;
+use MyInvoice\Middleware\SupplierScopeMiddleware;
+use MyInvoice\Service\Invoice\RecurringInvoiceGenerator;
+use MyInvoice\Repository\RecurringTemplateRepository;
 use MyInvoice\Tests\Integration\Stock\StockTestCase;
 use PHPUnit\Framework\Attributes\Group;
+use Psr\Http\Message\ResponseInterface;
+use Slim\Psr7\Factory\ServerRequestFactory;
+use Slim\Psr7\Response as Psr7Response;
 
 #[Group('integration')]
 final class InvoiceRoundingTest extends StockTestCase
@@ -173,5 +182,106 @@ final class InvoiceRoundingTest extends StockTestCase
             ]));
             self::assertEqualsWithDelta($expected, $inv['amount_to_pay'], 0.001, "$method/$mode/$type");
         }
+    }
+
+    public function testNewInvoiceWithoutModeTakesCompanyDefault(): void
+    {
+        $sid = $this->createSupplier(stockEnabled: false);
+        $this->db->pdo()->prepare("UPDATE supplier SET default_rounding_mode = 'whole_czk' WHERE id = ?")->execute([$sid]);
+        $body = [
+            'client_id' => $this->client($sid), 'currency_id' => $this->currencyIdFor($sid),
+            'issue_date' => '2099-06-10', 'tax_date' => '2099-06-10', 'due_date' => '2099-06-24',
+            'payment_method' => 'bank_transfer', 'prices_include_vat' => true,
+            'items' => [[
+                'description' => 'Syntetická položka', 'quantity' => 1,
+                'unit_price_without_vat' => 916.44, 'vat_rate_id' => $this->vatRateId,
+            ]],
+        ];
+        $create = $this->container->get(CreateInvoiceAction::class);
+
+        $res = $create($this->request('POST', $sid, $body), new Psr7Response());
+        self::assertSame(201, $res->getStatusCode(), (string) $res->getBody());
+        $inv = $this->recompute((int) $this->json($res)['id']);
+        self::assertSame('whole_czk', $inv['rounding_mode']);
+        self::assertEqualsWithDelta(916.0, $inv['amount_to_pay'], 0.001);
+
+        $res = $create($this->request('POST', $sid, $body + ['rounding_mode' => 'none']), new Psr7Response());
+        self::assertSame(201, $res->getStatusCode(), (string) $res->getBody());
+        self::assertSame('none', $this->recompute((int) $this->json($res)['id'])['rounding_mode'], 'Výslovný režim má přednost.');
+    }
+
+    public function testCompanyWithoutChoiceKeepsAutoForNewInvoices(): void
+    {
+        $sid = $this->createSupplier(stockEnabled: false);
+        $res = $this->container->get(CreateInvoiceAction::class)($this->request('POST', $sid, [
+            'client_id' => $this->client($sid), 'currency_id' => $this->currencyIdFor($sid),
+            'issue_date' => '2099-06-10', 'tax_date' => '2099-06-10', 'due_date' => '2099-06-24',
+        ]), new Psr7Response());
+        self::assertSame(201, $res->getStatusCode(), (string) $res->getBody());
+        self::assertSame('auto', $this->recompute((int) $this->json($res)['id'])['rounding_mode']);
+    }
+
+    public function testRecurringInvoiceTakesCompanyDefault(): void
+    {
+        $sid = $this->createSupplier(stockEnabled: false);
+        $this->db->pdo()->prepare("UPDATE supplier SET default_rounding_mode = 'whole_czk' WHERE id = ?")->execute([$sid]);
+        $templates = $this->container->get(RecurringTemplateRepository::class);
+        $tplId = $templates->create([
+            'supplier_id' => $sid, 'client_id' => $this->client($sid), 'name' => 'Syntetická šablona',
+            'frequency' => 'monthly', 'end_of_month' => false, 'anchor_date' => '2099-06-10',
+            'next_run_date' => '2099-06-10', 'invoice_type' => 'invoice', 'currency_id' => $this->currencyIdFor($sid),
+            'language' => 'cs', 'payment_method' => 'bank_transfer', 'payment_due_days' => 14,
+            'auto_issue' => false, 'auto_send_email' => false, 'status' => 'active',
+        ], $this->userId);
+        $templates->replaceItems($tplId, [[
+            'description' => 'Syntetický paušál', 'quantity' => 1.0, 'unit' => 'ks',
+            'unit_price_without_vat' => 9.70, 'vat_rate_id' => $this->vatRateId, 'order_index' => 0,
+        ]]);
+
+        try {
+            $res = $this->container->get(RecurringInvoiceGenerator::class)->generate($tplId, null, $this->userId, '127.0.0.1', 'phpunit');
+
+            self::assertSame('whole_czk', $this->container->get(InvoiceRepository::class)->find((int) $res['invoice_id'])['rounding_mode']);
+        } finally {
+            // Šablona drží klienta cizím klíčem, úklid StockTestCase by ho jinak nesmazal.
+            $this->db->pdo()->prepare('DELETE FROM recurring_invoice_templates WHERE id = ?')->execute([$tplId]);
+        }
+    }
+
+    public function testCompanyDefaultIsSavedValidatedAndExposed(): void
+    {
+        $sid = $this->createSupplier(stockEnabled: false);
+        $settings = $this->container->get(SettingsAction::class);
+
+        $res = $settings->getSupplier($this->request('GET', $sid), new Psr7Response());
+        self::assertSame('auto', $this->json($res)['default_rounding_mode']);
+
+        $res = $settings->updateSupplier($this->request('PUT', $sid, ['default_rounding_mode' => 'whole_czk']), new Psr7Response());
+        self::assertSame(200, $res->getStatusCode(), (string) $res->getBody());
+        self::assertSame('whole_czk', $this->json($res)['default_rounding_mode']);
+
+        foreach (['ceil', 'whole_czk_all', null, 1] as $invalid) {
+            $res = $settings->updateSupplier($this->request('PUT', $sid, ['default_rounding_mode' => $invalid]), new Psr7Response());
+            self::assertSame(400, $res->getStatusCode(), var_export($invalid, true));
+        }
+        $stored = $this->db->pdo()->prepare('SELECT default_rounding_mode FROM supplier WHERE id = ?');
+        $stored->execute([$sid]);
+        self::assertSame('whole_czk', $stored->fetchColumn());
+    }
+
+    private function request(string $method, int $supplierId, ?array $body = null): \Psr\Http\Message\ServerRequestInterface
+    {
+        $request = (new ServerRequestFactory())
+            ->createServerRequest($method, '/api/test')
+            ->withAttribute(SupplierScopeMiddleware::ATTR_CURRENT_ID, $supplierId)
+            ->withAttribute(AuthMiddleware::ATTR_USER, ['id' => $this->userId, 'role' => 'admin']);
+        return $body !== null ? $request->withParsedBody($body) : $request;
+    }
+
+    /** @return array<string,mixed> */
+    private function json(ResponseInterface $response): array
+    {
+        $response->getBody()->rewind();
+        return json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);
     }
 }

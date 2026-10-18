@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Accounting\GoPay;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\JournalEntryRepository;
 use MyInvoice\Repository\MovementClassificationRepository;
 use MyInvoice\Service\ActivityLogger;
@@ -494,7 +495,7 @@ final class GoPayService
                         ? (int) $clearing['bank_journal_entry_id'] : null,
             ];
         } catch (\Throwable $e) {
-            $this->rollbackUnit($pdo, $ownTx, 'gopay_delete');
+            $this->rollbackUnit($pdo, $ownTx, 'gopay_delete', $e);
             throw $e;
         }
     }
@@ -588,7 +589,7 @@ final class GoPayService
             }
             $this->commitUnit($pdo, $ownTx, 'gopay_import');
         } catch (\Throwable $e) {
-            $this->rollbackUnit($pdo, $ownTx, 'gopay_import');
+            $this->rollbackUnit($pdo, $ownTx, 'gopay_import', $e);
             if ($e instanceof PDOException && ($e->errorInfo[0] ?? null) === '23000') {
                 $existing = $this->findExistingClearing($supplierId, $parsed['clearing_id'], $hash);
                 if ($existing !== null && hash_equals((string) $existing['file_hash'], $hash)) {
@@ -705,7 +706,7 @@ final class GoPayService
             $this->refreshClearingStatus($supplierId, $clearingId);
             $this->commitUnit($pdo, $ownTx, 'gopay_payout_associate');
         } catch (\Throwable $e) {
-            $this->rollbackUnit($pdo, $ownTx, 'gopay_payout_associate');
+            $this->rollbackUnit($pdo, $ownTx, 'gopay_payout_associate', $e);
             throw $e;
         }
 
@@ -765,6 +766,31 @@ final class GoPayService
     }
 
     private function matchPayout(int $supplierId, int $clearingId, ?int $userId): void
+    {
+        $pdo = $this->db->pdo();
+        $foreign = $pdo->inTransaction();
+        try {
+            TransactionFailure::retrying($pdo, function () use ($supplierId, $clearingId, $userId): void {
+                $this->matchPayoutOnce($supplierId, $clearingId, $userId);
+            });
+        } catch (\Throwable $e) {
+            if ($foreign || !TransactionFailure::aborted($e)) {
+                throw $e;
+            }
+            $this->markPayoutFailed($supplierId, $clearingId, $e);
+        }
+    }
+
+    private function markPayoutFailed(int $supplierId, int $clearingId, \Throwable $e): void
+    {
+        $code = $e instanceof GoPayException ? $e->errorCode
+            : ($e instanceof PostingException ? $e->errorCode : 'payout_processing_failed');
+        $this->db->pdo()->prepare(
+            'UPDATE gopay_clearings SET payout_issue_code=?,payout_issue_message=? WHERE id=? AND supplier_id=?'
+        )->execute([$code, mb_substr($e->getMessage(), 0, 500), $clearingId, $supplierId]);
+    }
+
+    private function matchPayoutOnce(int $supplierId, int $clearingId, ?int $userId): void
     {
         $pdo = $this->db->pdo();
         $ownTx = $this->beginUnit($pdo, 'gopay_payout');
@@ -881,12 +907,11 @@ final class GoPayService
             )->execute([$userId, $txId]);
             $this->commitUnit($pdo, $ownTx, 'gopay_payout');
         } catch (\Throwable $e) {
-            $this->rollbackUnit($pdo, $ownTx, 'gopay_payout');
-            $code = $e instanceof GoPayException ? $e->errorCode
-                : ($e instanceof PostingException ? $e->errorCode : 'payout_processing_failed');
-            $pdo->prepare(
-                'UPDATE gopay_clearings SET payout_issue_code=?,payout_issue_message=? WHERE id=? AND supplier_id=?'
-            )->execute([$code, mb_substr($e->getMessage(), 0, 500), $clearingId, $supplierId]);
+            $this->rollbackUnit($pdo, $ownTx, 'gopay_payout', $e);
+            if (TransactionFailure::aborted($e)) {
+                throw $e;
+            }
+            $this->markPayoutFailed($supplierId, $clearingId, $e);
         }
     }
 

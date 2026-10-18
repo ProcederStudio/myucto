@@ -14,6 +14,8 @@ import PostingRowActions from './PostingRowActions.vue'
 import RuleFormModal from './RuleFormModal.vue'
 import RepostModal from '@/components/accounting/RepostModal.vue'
 import PostingStatusBadge from './PostingStatusBadge.vue'
+import BankTransactionJournalLink from './BankTransactionJournalLink.vue'
+import { useBankJournalNavigation } from './useBankJournalNavigation'
 import MatchSuggestionPanel from './MatchSuggestionPanel.vue'
 import WhyChip from '@/components/automation/WhyChip.vue'
 import LinkedDocumentsPanel from '@/components/documents/LinkedDocumentsPanel.vue'
@@ -63,6 +65,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const auth = useAuthStore()
+const journalNavigation = useBankJournalNavigation()
 
 /** Spárovaná faktura → návrh dimenzí pohybu (její dimenze, jinak výchozí zakázky/klienta). */
 const dimensionPrefill = computed(() => props.tx.matched_invoice_id
@@ -108,16 +111,23 @@ const ownTransfer = computed(() => props.tx.match_status === 'unmatched' && (pro
 // neexistuje a nikdy nebude, takže „Nespárováno" je tu jen falešný poplach.
 const outsideSaldo = computed(() => props.tx.match_status === 'unmatched'
   && (props.tx.resolution === 'outside_saldo' || props.tx.posting?.outside_saldo === true))
-const noInvoiceExpected = computed(() => payrollMatched.value || ownTransfer.value || outsideSaldo.value)
-const statusText = computed(() => payrollMatched.value
-  ? t('bank.match_status.payroll')
-  : ownTransfer.value ? t('bank.match_status.transfer')
-    : outsideSaldo.value ? t('bank.match_status.outside_saldo') : statusLabel(props.tx.match_status))
+// Avízo, jehož pohyb převzal oficiální výpis: je vyřešené, úhradu nese výpis.
+const supersededNotice = computed(() => props.tx.notice_superseded === true)
+const noInvoiceExpected = computed(() => payrollMatched.value || ownTransfer.value || outsideSaldo.value || supersededNotice.value)
+const statusText = computed(() => supersededNotice.value
+  ? t('bank.match_status.superseded')
+  : payrollMatched.value ? t('bank.match_status.payroll')
+    : ownTransfer.value ? t('bank.match_status.transfer')
+      : outsideSaldo.value ? t('bank.match_status.outside_saldo') : statusLabel(props.tx.match_status))
+const statusBadgeClass = computed(() => statusBadge(supersededNotice.value || outsideSaldo.value
+  ? 'ignored'
+  : noInvoiceExpected.value ? 'auto_exact' : props.tx.match_status))
 // Štítek „Nespárováno" je zkratka k párování — stejná podmínka jako akce „Spárovat" v menu.
 const badgeMatchable = computed(() => !noInvoiceExpected.value && props.actions.canRunDetailAction(props.tx, 'match'))
-const statusTitle = computed(() => outsideSaldo.value
-  ? t('bank.outside_saldo_hint')
-  : badgeMatchable.value ? t('bank.match_badge_hint') : undefined)
+const statusTitle = computed(() => supersededNotice.value
+  ? t('bank.notice_superseded_hint')
+  : outsideSaldo.value ? t('bank.outside_saldo_hint')
+    : badgeMatchable.value ? t('bank.match_badge_hint') : undefined)
 // Dialog přeúčtování drží řádek, ne PostingRowActions: řádek se vykresluje ve
 // dvou podobách (tabulka i karta) a dvě instance dialogu by si přebíjely stav.
 const repostTx = ref<RowTx | null>(null)
@@ -234,8 +244,14 @@ function onPosted(payload: { result: PostResult; debit: string; credit: string }
 // Řádkové akce párování banky → 2 tlačítka inline, zbytek do „…" popupu (RowActionsMenu).
 function matchActions(tx: BankTransaction): RowAction[] {
   const st = tx.match_status
+  const cashJournal = journalNavigation.cashTarget(tx)
   const canMatch = props.actions.canRunDetailAction(tx, 'match')
   return [
+    {
+      key: 'open-cash-journal', label: t('bank.open_cash_journal'), icon: 'doc', variant: 'neutral',
+      to: cashJournal ?? undefined, show: !!cashJournal, menuOnly: true, workspaceOpen: 'beside',
+      onNavigate: event => { void journalNavigation.open(event, cashJournal) },
+    },
     {
       key: 'open-inv', label: t('bank.open'), icon: 'doc', variant: 'neutral',
       to: tx.matched_invoice_id ? `/invoices/${tx.matched_invoice_id}` : undefined,
@@ -394,8 +410,8 @@ function candidateReject() {
       </td>
       <td class="px-3 py-2 text-center">
         <component :is="badgeMatchable ? 'button' : 'span'" :type="badgeMatchable ? 'button' : undefined"
-          class="text-xs px-2 py-0.5 rounded font-medium"
-          :class="[statusBadge(outsideSaldo ? 'ignored' : noInvoiceExpected ? 'auto_exact' : tx.match_status),
+          class="text-xs px-2 py-0.5 rounded font-medium" data-testid="tx-status-badge"
+          :class="[statusBadgeClass,
             badgeMatchable ? 'cursor-pointer hover:brightness-95 hover:underline' : '']"
           :title="statusTitle" @click="badgeMatchable && startMatch(tx)">
           {{ statusText }}
@@ -428,7 +444,8 @@ function candidateReject() {
         {{ tx.posting?.counter_account_codes?.join(', ') || '-' }}
       </td>
       <td class="px-3 py-2 text-right text-xs whitespace-nowrap">
-        <div class="flex items-center justify-end gap-1">
+        <div class="flex flex-wrap items-center justify-end gap-1">
+          <BankTransactionJournalLink :tx="tx" />
           <PostingRowActions v-if="isDoubleEntry"
             :tx="tx" :currency="currency()"
             @changed="emit('changed')" @posted="onPosted" />
@@ -467,8 +484,8 @@ function candidateReject() {
       </div>
       <div class="flex flex-col items-end gap-1">
         <component :is="badgeMatchable ? 'button' : 'span'" :type="badgeMatchable ? 'button' : undefined"
-          class="text-xs px-2 py-0.5 rounded font-medium whitespace-nowrap"
-          :class="[statusBadge(outsideSaldo ? 'ignored' : noInvoiceExpected ? 'auto_exact' : tx.match_status),
+          class="text-xs px-2 py-0.5 rounded font-medium whitespace-nowrap" data-testid="tx-status-badge"
+          :class="[statusBadgeClass,
             badgeMatchable ? 'cursor-pointer hover:brightness-95 hover:underline' : '']"
           :title="statusTitle" @click="badgeMatchable && startMatch(tx)">
           {{ statusText }}
@@ -587,6 +604,7 @@ function candidateReject() {
          stavově relevantní — Otevřít u spárovaného pohybu, Spárovat u ostatních
          — takže na očích zůstane to, co uživatel na daném řádku opravdu chce. -->
     <div class="flex flex-wrap items-center justify-end gap-1.5 pt-1">
+      <BankTransactionJournalLink :tx="tx" />
       <PostingRowActions v-if="isDoubleEntry"
         :tx="tx" :currency="currency()"
         @changed="emit('changed')" @posted="onPosted" />

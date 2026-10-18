@@ -145,14 +145,19 @@ final class SecurityFixesTest extends TestCase
             self::assertNotFalse($start, "$method() metoda musí existovat");
             $end = strpos($code, "\n    }", $start);
             $body = substr($code, $start, $end - $start);
-            self::assertStringContainsString('lockOwnedTransaction(', $body,
+            self::assertStringContainsString(in_array($method, ['manualMatch', 'unmatch'], true) ? 'withCurrentBankSource(' : 'lockOwnedTransaction(', $body,
                 "$method() musí uzamknout a ověřit vlastnictví pohybu");
         }
         $lockStart = strpos($code, 'private function lockOwnedTransaction(');
         $lockEnd = strpos($code, "\n    }", $lockStart);
         $lockBody = substr($code, $lockStart, $lockEnd - $lockStart);
-        self::assertStringContainsString('FOR UPDATE', $lockBody);
-        self::assertStringContainsString('txBelongsToCurrentSupplier(', $lockBody);
+        self::assertStringContainsString('bankPosting->lockTransaction(SupplierGuard::currentId($request), $txId)', $lockBody);
+        $contextStart = strpos($code, 'private function withCurrentBankSource(');
+        self::assertNotFalse($contextStart);
+        $contextEnd = strpos($code, "\n    }", $contextStart);
+        $contextBody = substr($code, $contextStart, $contextEnd - $contextStart);
+        self::assertStringContainsString('bankPosting->lockTransaction($supplierId, $id)', $contextBody);
+        self::assertStringContainsString('bankPosting->lockStatement($supplierId, $id)', $contextBody);
         foreach (['performManualMatch', 'performUnmatch'] as $method) {
             $start = strpos($code, "private function $method(");
             $end = strpos($code, "\n    }", $start);

@@ -372,6 +372,25 @@ final class ForeignIncomeXmlBuilderTest extends TestCase
         );
     }
 
+    public function testNaturalPersonTitleIsOmittedFromFormsWithoutTitleAttribute(): void
+    {
+        $supplier = array_replace($this->supplier(), [
+            'taxpayer_type' => 'fo', 'person_title' => 'Ing.', 'company_name' => 'Jan Novák',
+        ]);
+        $builder = new ForeignIncomeXmlBuilder();
+        foreach ([
+            'dpshl1' => $builder->buildIncomeNotice($supplier, $this->royaltyNotice())['xml'],
+            'dpszd1' => $builder->buildSecurityNotice($supplier, $this->securityNotice())['xml'],
+        ] as $schema => $xml) {
+            $dom = new \DOMDocument();
+            $dom->loadXML($xml);
+            $payer = $dom->getElementsByTagName('VetaP')->item(0);
+            self::assertFalse($payer?->hasAttribute('titul'), $schema . ' nepovoluje titul.');
+            self::assertSame('Jan', $payer?->getAttribute('jmeno'));
+            $this->assertXsdPasses($schema, $xml);
+        }
+    }
+
     public function testIncomeNoticePassesXsd(): void
     {
         $this->assertXsdPasses('dpshl1', (new ForeignIncomeXmlBuilder())

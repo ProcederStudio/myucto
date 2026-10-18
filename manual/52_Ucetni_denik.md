@@ -40,6 +40,8 @@ Deník je dostupný jen firmám v podvojném účetnictví. Firmy na [daňové e
 > [!TIP]
 > Zápisy se většinou zakládají samy z dokladů. Deník je tedy hlavně místo, kde výsledek kontrolujete. Rychlá cesta z dokladu do deníku: na detailu zaúčtované faktury klikněte na **Zobrazit v deníku**. Deník se otevře s filtrem na doklad a zápis bude rozbalený.
 
+Z bankovního výpisu použijte u pohybu **Otevřít v účetním deníku**. Otevře se konkrétní účetní zápis s rozbaleným detailem, zvýrazněním a odskrolováním na jeho řádek. Při více panelech dostane přednost panel vpravo od výpisu, pokud je dostupný.
+
 ## 52.3 Krok za krokem: najděte zápis a jeho zdroj
 
 1. Otevřete `Účetnictví → Účetní deník`. Zápisy jsou seřazené od nejnovějších a načítají se po 50 (další při posunu dolů, nebo tlačítkem **Načíst další**).

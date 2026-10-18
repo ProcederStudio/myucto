@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Migration\Pohoda\Payroll;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\Payroll\PayrollAnnualSettlementRepository;
 use MyInvoice\Service\Migration\MoneyS3\ImportProtocol;
 use MyInvoice\Service\Migration\Pohoda\PohodaXml;
@@ -723,6 +724,9 @@ final class PohodaPayrollJmhzWriter
                 $pdo->exec('RELEASE SAVEPOINT ' . self::SAVEPOINT);
             }
         } catch (\Exception $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             if ($owns) {
                 $pdo->rollBack();
             } elseif ($pdo->inTransaction()) {

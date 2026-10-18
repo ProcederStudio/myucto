@@ -46,7 +46,7 @@ final class SavedFilterAction
         'trial_balance', 'clients', 'assets', 'bank_statements', 'projects', 'recurring', 'documents',
         'cash_documents', 'cash_book', 'cash_journal', 'receivables_payables', 'saldo',
         'bank_posting_suggestions', 'bank_posting_rules', 'automation_feed', 'automation_rules',
-        'stock-items', 'stock-documents', 'stock-purchase-orders',
+        'stock-items', 'stock-documents', 'stock-purchase-orders', 'stock-report-status',
         'payroll-documents', 'payroll-payments', 'payroll-quick-inputs',
         'payroll-recurring-components', 'payroll-retention',
         'payroll-health-notifications', 'payroll-time', 'payroll-inputs',
@@ -222,7 +222,11 @@ final class SavedFilterAction
                     'UPDATE saved_filters SET ' . implode(', ', $set)
                     . ' WHERE id = ? AND user_id = ? AND supplier_id = ?'
                 );
-                $upd->execute($params);
+                // Přejmenování na existující název je stejně očekávané jako u create (→ 409).
+                \MyInvoice\Infrastructure\Database\DbErrorLogger::expectingDuplicates(
+                    ['uq_sf_user_supplier_page_name'],
+                    fn () => $upd->execute($params),
+                );
             }
 
             if ($isDefault) {

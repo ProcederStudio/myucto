@@ -119,7 +119,7 @@ V nastavení firmy najdete záložku **Číslování faktur** se šablonami pro 
 pořadové číslo resetuje.
 
 1. Otevřete `Firma → Nastavení`, záložku **Číslování faktur**.
-2. Vyplňte šablonu pro fakturu, zálohovou fakturu a dobropis. Pod každým polem je živý náhled příštího čísla (například „Náhled: `JD2026-001`").
+2. Vyplňte šablonu pro fakturu, zálohovou fakturu a dobropis. Pod každým polem je živý náhled příštího čísla (například „Náhled: `JD2026-001`"). Chcete-li číslovat zjednodušené daňové doklady zvlášť, vyplňte i **Šablonu pro zjednodušený daňový doklad**; prázdná znamená, že se číslují řadou faktur.
 3. V poli **Reset číselné řady** zvolte **Roční (1. ledna)**, **Měsíční (1. dne v měsíci)**, nebo **Bez resetu (souvislá řada)**.
 4. Uložte nastavení.
 5. Navazujete-li na rozjetou číselnou řadu (typicky při přechodu z jiného programu), zadejte do pole **Příští číslo** číslo, kterým má řada pokračovat, a klikněte na **Nastavit počítadlo**. Ukáže se náhled výsledného čísla. Šablonu uložte před nastavením počítadla.
@@ -143,6 +143,9 @@ dodavatele, takže odpovědi klientů jdou rovnou na firemní poštu. Vlastní l
 3. Nahrajte **Logo** (PNG, JPG nebo SVG, nejvýše 1 MiB, ideálně do 200 KiB). Logo vyměníte tlačítkem **Nahradit logo**, odstraníte tlačítkem **Odebrat**.
 4. Zvolte **Akcent barvu** (hex `#RRGGBB`, color picker nebo textové pole; odkaz **↺ default** vrací výchozí).
 5. Zkontrolujte živý náhled e-mailu (přepínač jazyka **CS / EN**, tlačítko **↻** pro ruční obnovení).
+6. Pokud doklady tisknete černobíle, zapněte **Úsporná černobílá faktura (PDF)**. PDF faktury a výkazu pak
+   nemá barevné ani tmavé plochy a akcent barvu nahradí černá ([§ 16.10.4](16_Faktura_PDF.md#16104-pdf-struktura)).
+   Volba je na brandingu nezávislá, funguje i při vypnutém **Použít vlastní branding**.
 
 ![Branding e-mailů - toggle, logo, akcent barva, live preview](img/14_branding.webp)
 
@@ -197,9 +200,17 @@ záměrně neposílá, o úhradě dodavatel ví.
 | **Předzaškrtnout při ručním označení jako zaplacené** | V okně ručního označení faktury jako zaplacené bude volba „Odeslat zákazníkovi poděkování“ předem zaškrtnutá (jinak prázdná). |
 | **Přiložit PDF faktury (se stavem Uhrazeno)** | K e-mailu se připojí PDF faktury označené jako uhrazené. |
 
-Poděkování jde poslat i ručně v detailu faktury nebo hromadně v seznamu faktur při označování plateb. Je
-idempotentní (k jedné faktuře se odešle jen jednou), neposílá se u storna ani u faktury bez e-mailu příjemce
-a selhání e-mailu nikdy nezablokuje samotné označení platby. Vše se zapisuje do activity logu.
+Poděkování jde poslat i ručně v detailu faktury nebo hromadně v seznamu faktur při označování plateb.
+Automatické poděkování se neopakuje; vědomé ruční odeslání může zprávu poslat znovu. U storna,
+neuhrazené faktury nebo chybějícího příjemce se neodesílá. Požadavek na poděkování se uloží
+společně s úhradou. Pokud se úhradu nebo požadavek nepodaří uložit, párování se neprovede
+a poděkování se neodešle.
+
+Po potvrzení platby se poděkování odešle nebo zůstane ve frontě. Úloha `cron-payment-thanks`
+každou minutu zpracovává potvrzené požadavky a odloženou poštu. Při samostatném plánování úloh
+ji musí správce instalace zapnout. Stav **Zařazeno do fronty** neznamená doručení. Při zpracování
+se znovu ověří firma, úhrada a nastavení poděkování. Selhání odeslání po potvrzení platby úhradu
+nevrací zpět; fronta provede nejvýše pět pokusů s patnáctiminutovým odstupem.
 
 **Samostatný soubor ISDOC v e-mailech** (ve výchozím stavu vypnutý):
 
@@ -214,6 +225,16 @@ lze v sekci **E-mail s fakturou** zvolit **Podle nastavení dodavatele**,
 volby ho pro daného klienta přepisují.
 Přiložení ISDOC je nezávislé na vložení ISDOC přílohy přímo do PDF.
 
+**Zaokrouhlení nových faktur** (výchozí **Automaticky pro hotovost v Kč**):
+
+1. Na záložce **Fakturace** vyberte v poli **Zaokrouhlení nových faktur** režim, který mají
+   dostávat nové faktury a dobropisy v Kč. Pro celé koruny na všech dokladech zvolte
+   **Na celé Kč** (platba kartou se nezaokrouhluje).
+2. Uložte.
+
+Režim jde u každé faktury v editoru změnit. Co který režim dělá, popisuje
+[Zaokrouhlení úhrady](15_Faktura_editor.md#zaokrouhleni-uhrady).
+
 **Vyúčtování s částkou k vyplacení** (ve výchozím stavu vypnuté):
 
 1. Na záložce **Fakturace** zapněte **Povolit vyúčtování s částkou k vyplacení**. Použijte ji, když vystavujete faktury, u kterých odpočty převáží plnění, například vrácené obaly nebo přeplatek záloh.
@@ -224,6 +245,15 @@ Se zapnutou volbou smí faktura s aspoň jedním kladným řádkem skončit záp
 v [Platebních příkazech](26_Platebni_prikazy.md) a doklad placený hotově se zvolenou pokladnou se vyplatí
 výdajovým pokladním dokladem; v [Pokladně](32_Pokladna.md) jde výdajový doklad s účelem „Úhrada faktury"
 navázat na doklad k vyplacení. Bez volby se nic z toho nenabízí a editor dál vyžaduje kladnou částku k úhradě.
+
+**Kdo fakturu vystavil** (ve výchozím stavu vypnuté):
+
+1. Na záložce **Fakturace** zapněte **Tisknout na faktuře, kdo ji vystavil**.
+2. Uložte.
+
+PDF faktury pak v hlavičce s daty tiskne řádek **Vystavil** se jménem uživatele, který doklad
+vystavil (viz [§ 16.10.4](16_Faktura_PDF.md#16104-pdf-struktura)). Náhledy konceptů se
+přegenerují hned. U už vystavených faktur se řádek objeví až po přegenerování jejich PDF.
 
 **Jak poznáte, že je hotovo:** Volby jsou uloženy a při dalším odeslání dokladu nebo zaplacení faktury se chovají podle nastavení.
 
@@ -333,6 +363,7 @@ Každý dodavatel má vlastní:
 | Šablona pro fakturu | například `{YY}{MM}{CCC}` → `2605001` (výchozí) nebo `JD{YYYY}-{CCC}` → `JD2026-001` |
 | Šablona pro zálohovou | například `9{YY}{MM}{CCC}` → `92605001` (prefix 9 = záloha) |
 | Šablona pro dobropis | například `7{YY}{MM}{CCC}` → `72605001` (prefix 7 = dobropis) |
+| Šablona pro zjednodušený daňový doklad | například `8{YY}{CCCCC}` → `82600001`; prázdné = řada faktur (výchozí) |
 
 Placeholdery:
 
@@ -399,6 +430,13 @@ nezaplňuje, tu ukáže sestava Úplnost číselné řady. Stejně se chová i i
 | 3. Dodavatel | Nastavení firmy | Standardní řada firmy |
 | 4. Konfigurace instalace (`cfg.varsymbol.templates`) | Konfigurace instalace | Záloha, když není vyplněné nic |
 
+**Řada zjednodušených daňových dokladů** (§ 30 ZDPH) stojí mimo tohle pořadí: je jen na úrovni firmy a má-li
+vyplněnou šablonu, dostane z ní číslo každý zjednodušený doklad bez ohledu na zákazníka a kategorii tržby
+(pokladní prodej jde jednou řadou). Bez šablony se zjednodušený doklad čísluje přesně jako faktura, včetně
+řady zákazníka a kategorie. Počítadlo má vlastní, pole **Příští číslo** se u ní objeví po uložení šablony.
+Do které řady číslo patří, pozná kontrola úplnosti podle tvaru čísla, takže doklad očíslovaný před zavedením
+řady (nebo s dodatečně přepnutým příznakem) se počítá do řady, ze které číslo dostal.
+
 Každá vyhrávající úroveň má **vlastní počítadlo**: dvě kategorie tržeb s vlastní šablonou se navzájem
 nepřečíslovávají a řada dodavatele jimi neproběhne. Nevyplněná pole se dědí, takže kategorie může mít vlastní
 řadu jen pro faktury a proformy nechat na dodavateli. Protože je počítadlo vlastní, dá se navázat na rozjetou
@@ -427,6 +465,7 @@ ručně, viz [Číslo dokladu - ruční zadání](15_Faktura_editor.md#cislo-dok
 | **Použít vlastní branding** | Přepínač vpravo nahoře (výchozí vypnuto = MyÚčto branding). Pokud je zapnutý, hlavička e-mailů i PDF se sestaví z polí níže. |
 | **Logo** | Nahrání PNG / JPG / SVG (nejvýše 1 MiB, ideálně do 200 KiB). Pro raster je ideální výška 240 px (v e-mailu se zobrazí jako 48 px pro 5× retinu). SVG: originál se uloží pro PDF (vektor = ostré v libovolném zoomu), pro e-mail se na serveru převede na průhledné PNG (Outlook a Gmail SVG odstraňují), primárně přes PHP rozšíření `Imagick` (Windows i Linux), záložně přes nástroj `rsvg-convert` (`librsvg2-bin`). Logo se v e-mailu připojí jako CID inline obrázek, takže se zobrazí bez výzvy „Display images" v Gmailu a Outlooku. |
 | **Akcent barva** | Hex `#RRGGBB`: akcentová barva celého e-mailu (částky, tlačítka, odkazy, náhradní „M" box) i PDF faktury (linka pod hlavičkou, hlavička tabulky položek, řádky „Celkem" a „K úhradě", popisky, QR a banky, nadpis a odkaz výkazu víceprací). Uplatní se jen při zapnutém brandingu; jinak výchozí `#3B2D83` (fialová MyÚčto). Sémantické barvy (dobropis červená, zelené „Schválit" a „Uhrazeno", oranžová „po splatnosti") zůstávají. Color picker, textové pole a odkaz **↺ default**. |
+| **Úsporná černobílá faktura (PDF)** | Výchozí vypnuto. Zapnutá volba připojí k PDF faktury a výkazu černobílý stylopis místo akcent barvy: bez plných ploch, černý text, tenké čáry, dobropis a storno rozlišené textem. Platí pro koncepty a nově vytvořená PDF, nezávisle na přepínači brandingu. Logo zůstává, jak je nahrané. |
 
 V hlavičce se pak vykreslí logo vlevo (místo fialového „M" boxu, `max-height: 48px`), **název** dodavatele
 (zobrazované jméno, záložně název firmy) a **podtitulek** (tagline dodavatele, pokud je vyplněn).

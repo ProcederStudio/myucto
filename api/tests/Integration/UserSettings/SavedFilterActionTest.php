@@ -203,6 +203,64 @@ final class SavedFilterActionTest extends TestCase
         self::assertSame(201, $other['status'], 'Stejné jméno na jiné stránce projde.');
     }
 
+    /**
+     * Duplicitní název je ošetřený stav (409), v produkčním logu nesmí stát ERROR.
+     * Vlastní spojení s vlastním loggerem: sdílené testovací PDO má logger toho,
+     * kdo ho otevřel první.
+     */
+    public function testDuplicateNameOnCreateAndRenameIsNotLoggedAsError(): void
+    {
+        $logger = new class extends \Psr\Log\AbstractLogger {
+            /** @var list<array{0:string,1:string}> */
+            public array $records = [];
+
+            public function log($level, string|\Stringable $message, array $context = []): void
+            {
+                $this->records[] = [(string) $level, (string) $message];
+            }
+        };
+        $config = Bootstrap::buildContainer()->get(\MyInvoice\Infrastructure\Config\Config::class);
+        $connection = Connection::withoutSharedTestConnection(static fn () => new Connection($config, $logger));
+        $action = new SavedFilterAction($connection);
+        $pdo = $connection->pdo();
+        $pdo->beginTransaction();
+        try {
+            $call = function (string $method, string $httpMethod, array $body, array $args = []) use ($action): array {
+                $req = (new ServerRequestFactory())
+                    ->createServerRequest($httpMethod, '/api/user/filters')
+                    ->withAttribute(SupplierScopeMiddleware::ATTR_CURRENT_ID, $this->supplierId)
+                    ->withAttribute(AuthMiddleware::ATTR_USER, ['id' => $this->userId, 'role' => 'accountant'])
+                    ->withParsedBody($body);
+                $resp = $args === []
+                    ? $action->{$method}($req, new Psr7Response())
+                    : $action->{$method}($req, new Psr7Response(), $args);
+                $resp->getBody()->rewind();
+                $decoded = json_decode((string) $resp->getBody(), true);
+                return ['status' => $resp->getStatusCode(), 'body' => is_array($decoded) ? $decoded : []];
+            };
+
+            $first = $call('create', 'POST', ['page_key' => 'invoices', 'name' => 'Log A', 'payload' => ['a' => '1']]);
+            $second = $call('create', 'POST', ['page_key' => 'invoices', 'name' => 'Log B', 'payload' => ['a' => '2']]);
+            self::assertSame(201, $first['status']);
+            self::assertSame(201, $second['status']);
+
+            $dup = $call('create', 'POST', ['page_key' => 'invoices', 'name' => 'Log A', 'payload' => ['a' => '3']]);
+            self::assertSame(409, $dup['status']);
+
+            $rename = $call('update', 'PUT', ['name' => 'Log A'], ['id' => (string) $second['body']['id']]);
+            self::assertSame(409, $rename['status']);
+            self::assertSame('filter_name_exists', $rename['body']['error']['code']);
+        } finally {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            $connection->close();
+        }
+
+        $errors = array_filter($logger->records, static fn (array $r): bool => $r[0] === 'error');
+        self::assertSame([], array_values($errors));
+    }
+
     public function testInvalidPageKey422(): void
     {
         $c = $this->create(['page_key' => 'nonexistent', 'name' => 'X', 'payload' => ['a' => '1']]);

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Accounting\AssetSale;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Service\Accounting\Assets\AssetService;
 use MyInvoice\Service\Accounting\SmallAsset\SmallAssetService;
 use MyInvoice\Service\ActivityLogger;
@@ -75,6 +76,11 @@ final class InvoiceAssetSaleService
                     }
                 }
             } catch (\Throwable $e) {
+                // Odvolanou transakci zopakoval vlastník (AssetService::dispose); uvnitř cizí
+                // transakce ji musí dostat její vlastník, jinak by další zápisy běžely v autocommitu.
+                if (TransactionFailure::aborted($e) && $this->db->pdo()->inTransaction()) {
+                    throw $e;
+                }
                 // Karta zůstane v užívání a faktura vystavená — účetní to uvidí v auditu i
                 // v soupisu majetku (věc, kterou firma prodala, ale karta ji pořád eviduje).
                 $this->activity->log(
@@ -214,6 +220,9 @@ final class InvoiceAssetSaleService
                     }
                 }
             } catch (\Throwable $e) {
+                if (TransactionFailure::aborted($e) && $this->db->pdo()->inTransaction()) {
+                    throw $e;
+                }
                 $this->activity->log(
                     'asset_sale.revert_failed',
                     $meta['user_id'] ?? null,

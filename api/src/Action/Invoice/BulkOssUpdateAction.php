@@ -13,6 +13,7 @@ use MyInvoice\Security\AccessLevel;
 use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Service\Accounting\DocumentLockService;
 use MyInvoice\Service\ActivityLogger;
+use MyInvoice\Service\Invoice\InvoiceItemKind;
 use MyInvoice\Service\IpMatcher;
 use MyInvoice\Service\Oss\OssDocumentCoherence;
 use MyInvoice\Service\Oss\OssItemDeriver;
@@ -428,7 +429,11 @@ final class BulkOssUpdateAction
                 'Datum plnění ' . $refDate . ' leží mimo platnost registrace k OSS.');
         }
 
+        // Textový řádek (InvoiceItemKind::TEXT) není plnění, OSS se na něm nemění.
         $matched = array_values(array_filter($items, static function (array $it) use ($scope): bool {
+            if (InvoiceItemKind::isText($it)) {
+                return false;
+            }
             return match ($scope) {
                 'needs_review'      => (bool) $it['oss_needs_manual_review'],
                 'missing_rate_type' => (bool) $it['oss_applicable']
@@ -629,7 +634,7 @@ final class BulkOssUpdateAction
 
         $lines = [];
         foreach ($items as $item) {
-            if ((string) ($item['item_kind'] ?? 'standard') === 'discount') {
+            if (InvoiceItemKind::of($item) !== InvoiceItemKind::STANDARD) {
                 continue;
             }
             $id = (int) $item['id'];

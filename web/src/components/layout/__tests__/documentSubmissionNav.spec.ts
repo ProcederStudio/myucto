@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import ts from 'typescript'
 import { canUsePurchaseAiExtraction } from '@/security/purchaseAiExtraction'
+import { OPERATIONAL_SETTINGS_KEYS } from '@/security/permissions'
 
 type NavSection = { key: string; items: { to: string; label: string }[] }
 type Role = 'superadmin' | 'admin' | 'accountant' | 'client'
@@ -29,19 +30,20 @@ const navigationCode = ts.transpileModule(declarations.map(declaration => declar
   compilerOptions: { target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.None },
 }).outputText
 
-function renderNavigation(role: Role) {
+function renderNavigation(role: Role, permissionOverrides: Record<string, boolean> = {}) {
   const profile = profiles[role]
-  const can = (permission: string) => profile.isSuperadmin || (permission === 'documents.submit' ? profile.isClientRole : true)
+  const can = (permission: string) => profile.isSuperadmin
+    || (permissionOverrides[permission] ?? (permission === 'documents.submit' ? profile.isClientRole : true))
   const auth = {
     ...profile,
     isAdminPlusRole: false, hasCommercialFeatures: true, hasPayrollFeatures: true,
     isManagedInstallation: false, isDemo: false, can, canRead: can, canWrite: can,
   }
   const evaluate = new Function('computed', 'auth', 'supplierStore', 'clientExperience', 't', 'ICONS',
-    'approvalCount', 'accountantSigningProfilesEnabled', 'hostingAttention', 'automationStore', 'canUsePurchaseAiExtraction', `${navigationCode}\nreturn navSections;`)
+    'approvalCount', 'accountantSigningProfilesEnabled', 'hostingAttention', 'automationStore', 'canUsePurchaseAiExtraction', 'OPERATIONAL_SETTINGS_KEYS', `${navigationCode}\nreturn navSections;`)
   const sections = evaluate(computed, auth, { currentSupplier: { accounting_mode: 'double_entry', accounting_enabled: true } },
     ref(auth.isClientRole), (key: string) => key, new Proxy({}, { get: (_, key) => String(key) }),
-    { pending: ref(0) }, ref(false), ref(null), { actionable: 0 }, canUsePurchaseAiExtraction) as ComputedRef<NavSection[]>
+    { pending: ref(0) }, ref(false), ref(null), { actionable: 0 }, canUsePurchaseAiExtraction, OPERATIONAL_SETTINGS_KEYS) as ComputedRef<NavSection[]>
   return mount(defineComponent({
     setup: () => () => h('nav', sections.value.map(section => h('section', { 'data-section': section.key },
       section.items.map(item => h('a', { href: item.to }, item.label))))),
@@ -59,5 +61,48 @@ describe('AppLayout document submission navigation', () => {
     const wrapper = renderNavigation(role)
     expect(wrapper.findAll('a[href="/portal/purchase-invoice-submissions"]')).toHaveLength(0)
     expect(wrapper.find('a[href="/purchase-invoices/incoming"]').exists()).toBe(true)
+  })
+})
+
+describe('AppLayout company settings navigation', () => {
+  const portal = 'a[href="/portal/settings"]'
+
+  it('neukazuje superadminovi druhé Nastavení firmy vedle plného nastavení', () => {
+    const wrapper = renderNavigation('superadmin')
+    expect(wrapper.find('a[href="/admin/settings"]').exists()).toBe(true)
+    expect(wrapper.find(portal).exists()).toBe(false)
+  })
+
+  it('ukazuje internímu správci firmy delegované nastavení jen kvůli odesílacím profilům', () => {
+    expect(renderNavigation('admin').find(portal).exists()).toBe(true)
+    const withoutProfiles = renderNavigation('admin', { 'settings.email_profiles': false })
+    expect(withoutProfiles.find('a[href="/admin/settings"]').exists()).toBe(true)
+    expect(withoutProfiles.find('a[href="/admin/branding"]').exists()).toBe(true)
+    expect(withoutProfiles.find(portal).exists()).toBe(false)
+  })
+
+  it('ukazuje interní roli bez zápisu do Nastavení provozní oblasti, které jinde nenajde', () => {
+    const none = Object.fromEntries(OPERATIONAL_SETTINGS_KEYS.map(key => [key, false]))
+    const base = { ...none, 'settings.company.write': false }
+    expect(renderNavigation('accountant', base).find(portal).exists()).toBe(false)
+    expect(renderNavigation('accountant', { ...base, 'settings.branding': true }).find(portal).exists()).toBe(false)
+    expect(renderNavigation('accountant', { ...base, 'settings.payment_qr': true }).find(portal).exists()).toBe(true)
+    expect(renderNavigation('accountant', { ...base, 'settings.email_templates': true }).find(portal).exists()).toBe(true)
+  })
+
+  it('klientovi nechává Nastavení firmy s kteroukoli delegovanou oblastí', () => {
+    const none = Object.fromEntries(OPERATIONAL_SETTINGS_KEYS.map(key => [key, false]))
+    expect(renderNavigation('client', none).find(portal).exists()).toBe(false)
+    expect(renderNavigation('client', { ...none, 'settings.branding': true }).find(portal).exists()).toBe(true)
+  })
+})
+
+describe('AppLayout price list navigation', () => {
+  it.each<Role>(['admin', 'accountant', 'client'])('%s sees the price list only with its own permission', role => {
+    for (const allowed of [false, true]) {
+      const wrapper = renderNavigation(role, { price_list: allowed })
+      expect(wrapper.find('a[href="/admin/price-list"]').exists()).toBe(allowed)
+      wrapper.unmount()
+    }
   })
 })

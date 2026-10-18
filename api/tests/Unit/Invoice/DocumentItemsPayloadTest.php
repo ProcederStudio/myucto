@@ -235,4 +235,30 @@ final class DocumentItemsPayloadTest extends TestCase
         $other[0]['tracking_json'] = '[{"quantity":"1.000","serial_number":"VIN-B","lot_code":null,"expires_on":null}]';
         self::assertTrue(DocumentItemsPayload::changed($stored, $other), 'Jiné sériové číslo je změna položky.');
     }
+    /**
+     * Textový řádek se ukládá vynulovaný (jen popis a sazba). Otisk ho proto porovnává
+     * jen podle druhu a textu: editor smí poslat cokoli jiného (jednotku, sazbu, množství)
+     * a „jen poznámková" úprava vystaveného dokladu nesmí spadnout na změně položek.
+     * Změna textu, druhu nebo pořadí řádků změnou je.
+     */
+    public function testTextRowFingerprintIsKindAndDescription(): void
+    {
+        $stored = [
+            ['description' => 'Licence', 'quantity' => 1.0, 'unit' => 'ks', 'unit_price_without_vat' => 100.0, 'vat_rate_id' => 1],
+            ['description' => 'Oddíl B', 'item_kind' => 'text', 'quantity' => 0.0, 'unit' => '', 'unit_price_without_vat' => 0.0, 'vat_rate_id' => 1],
+        ];
+        $sameText = $stored;
+        $sameText[1] = ['description' => ' Oddíl B ', 'item_kind' => 'text', 'quantity' => 1, 'unit' => 'ks', 'unit_price_without_vat' => 0, 'vat_rate_id' => 2];
+        self::assertFalse(DocumentItemsPayload::changed($stored, $sameText));
+
+        $otherText = $sameText;
+        $otherText[1]['description'] = 'Oddíl C';
+        self::assertTrue(DocumentItemsPayload::changed($stored, $otherText));
+
+        $asStandard = $stored;
+        $asStandard[1]['item_kind'] = 'standard';
+        self::assertTrue(DocumentItemsPayload::changed($stored, $asStandard));
+
+        self::assertTrue(DocumentItemsPayload::changed($stored, [$stored[0]]));
+    }
 }

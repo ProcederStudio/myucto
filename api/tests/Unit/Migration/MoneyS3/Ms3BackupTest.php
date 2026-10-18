@@ -128,6 +128,40 @@ final class Ms3BackupTest extends TestCase
         self::assertSame(9, $info->partners);
         self::assertSame(4, $info->years[0]['opening_rows']);
         self::assertSame(4, $info->years[0]['purchase_invoices']);
+        self::assertSame([0, 0], array_column($info->years, 'cashbook_rows'));
+        self::assertFalse($info->taxRecordsOnly());
         self::assertSame([], $info->warnings);
+    }
+
+    /**
+     * Daňová evidence vede v Money místo účetního deníku peněžní deník. Náhled to u roku
+     * řekne (ne jen „rok nemá účetní deník") a pozná agendu, kterou převod nepřevede.
+     * Agenda, která na podvojné účetnictví přešla, převoditelná zůstává.
+     */
+    public function testAgendaInfoRecognizesTaxRecordsYears(): void
+    {
+        $agenda = function (string $name, array $files): AgendaInfo {
+            SyntheticAgenda::writeLzFiles($this->tmp . "/{$name}.lz", $files);
+            return AgendaInfo::fromBackup(Ms3Backup::extract($this->tmp . "/{$name}.lz", $this->tmp . "/{$name}"));
+        };
+
+        $taxRecords = $agenda('tax', SyntheticAgenda::filesWithTaxRecords());
+        self::assertTrue($taxRecords->taxRecordsOnly());
+        self::assertSame([0, 0], array_column($taxRecords->years, 'journal_rows'));
+        self::assertSame([2, 2], array_column($taxRecords->years, 'cashbook_rows'));
+        self::assertSame(['tax_records_year', 'tax_records_year'], array_column($taxRecords->warnings, 'code'));
+        self::assertStringStartsWith('Rok v adresáři ROK.002 nemá účetní deník, ale peněžní deník', $taxRecords->warnings[1]['message']);
+        // Náhled z meta.json bez nového údaje není úplný - průvodce ho přečte znovu ze zálohy.
+        $stored = $taxRecords->toArray();
+        self::assertTrue(AgendaInfo::isComplete($stored));
+        self::assertTrue(AgendaInfo::fromArray($stored)->taxRecordsOnly());
+        unset($stored['years'][0]['cashbook_rows']);
+        self::assertFalse(AgendaInfo::isComplete($stored));
+
+        $switched = $agenda('switched', SyntheticAgenda::filesWithTaxRecords(true));
+        self::assertFalse($switched->taxRecordsOnly());
+        self::assertSame([null, 2025], array_column($switched->years, 'fiscal_year'));
+        self::assertSame(['tax_records_year'], array_column($switched->warnings, 'code'));
+        self::assertStringStartsWith('Rok v adresáři ROK.001 nemá účetní deník, ale peněžní deník', $switched->warnings[0]['message']);
     }
 }

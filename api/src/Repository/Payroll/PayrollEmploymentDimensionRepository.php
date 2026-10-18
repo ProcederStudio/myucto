@@ -9,12 +9,6 @@ use PDO;
 
 final class PayrollEmploymentDimensionRepository
 {
-    private const COLUMNS = <<<'SQL'
-        ed.id, ed.supplier_id, ed.employment_id, ed.dimension_id,
-        ed.share_percent, ed.valid_from, ed.valid_to, ed.created_by,
-        ed.updated_by, ed.row_version, ed.created_at, ed.updated_at
-        SQL;
-
     private const JOINED_COLUMNS = <<<'SQL'
         ed.id, ed.supplier_id, ed.employment_id, ed.dimension_id,
         ed.share_percent, ed.valid_from, ed.valid_to, ed.created_by,
@@ -41,8 +35,10 @@ final class PayrollEmploymentDimensionRepository
     public function find(int $supplierId, int $id): ?array
     {
         $stmt = $this->db->pdo()->prepare(
-            'SELECT ' . self::COLUMNS . '
+            'SELECT ' . self::JOINED_COLUMNS . '
                FROM payroll_employment_dimensions ed
+               JOIN payroll_dimensions d
+                 ON d.supplier_id = ed.supplier_id AND d.id = ed.dimension_id
               WHERE ed.supplier_id = ? AND ed.id = ?',
         );
         $stmt->execute([$supplierId, $id]);
