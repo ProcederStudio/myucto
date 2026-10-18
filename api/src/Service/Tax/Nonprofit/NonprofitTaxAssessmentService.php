@@ -15,6 +15,7 @@ final class NonprofitTaxAssessmentService
         private readonly NonprofitTaxAssessmentRepository $assessments,
         private readonly NonprofitTaxCalculator $calculator,
         private readonly DimensionPeriodGuard $periodGuard,
+        private readonly J6FundingCapacity $fundingCapacity,
     ) {}
 
     public function read(int $supplierId, int $periodId): array
@@ -83,6 +84,7 @@ final class NonprofitTaxAssessmentService
         if ($result['accounting_result_cents'] !== $snapshot['accounting_result_cents']) {
             throw new NonprofitTaxAssessmentException('nonprofit_tax_reconciliation_failed', 'Posouzení nesouhlasí s výsledkem účetního deníku.');
         }
+        $this->fundingCapacity->assertAssessment((int) $snapshot['supplier_id'], $snapshot, $assessment, $result);
         return $result;
     }
 

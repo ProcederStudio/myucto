@@ -991,6 +991,27 @@ paths:
                 $ref: '#/components/schemas/PropertyCatalogSummary'
         '403':
           $ref: '#/components/responses/Forbidden'
+  /api/v1/accounting/periods/{id}/nonprofit-legal-profile:
+    get:
+      tags: [Accounting]
+      summary: Potvrzený právní profil504 a připravenost nativníhoDPPO
+      description: Pouze čtení. Potvrzení právního profilu je interní session operace s CAS a neměnnou historií.
+      parameters:
+        - $ref: '#/components/parameters/SupplierIdHeader'
+        - { in: path, name: id, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/NonprofitLegalProfileRead' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/accounting/nonprofit-tax-savings:
+    get:
+      tags: [Accounting]
+      summary: Skutečné daňové úspory§20(7), historie a způsobilé náklady
+      description: Pouze čtení. Čerpání i odvolání vyžaduje interní session, přesný serverový preview, head CAS a idempotency token. Stejný náklad nelze financovat opakovaně jiným vlastníkem.
+      parameters:
+        - $ref: '#/components/parameters/SupplierIdHeader'
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/NonprofitTaxSavingsRead' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /api/v1/accounting/periods/{id}/nonprofit-tax:
     get:
       tags:
@@ -24281,7 +24302,7 @@ paths:
         zúčtovaných mezd nabídnutý mzdovou agendou pro ruční vstup `inputs.s7_payroll_gross`
         (null = agenda za rok nic nevykazuje). Zrušený jednořádkový vstup `inputs.s10_other`
         se při čtení i uložení převádí na jednu položku `inputs.s10_items[]`.
-        DPPO za období s účetním rámcem 504 vrací 422 `dppo_accounting_framework_not_supported`. Historická období s rámcem 500 zůstávají dostupná.
+        Nativní DPPO504 vyžaduje celý jednotný účetní rámec504, výslovný právní profil a aktuální potvrzené posouzení J6. Vrací nonprofit_filing_proof_hash pro potvrzení přesně zobrazených podkladů. Finální504 vždy ověřuje původní uložený výpočet a XML; chybějící důkaz se živým přepočtem nenahrazuje.
       responses:
         '200':
           description: OK
@@ -24290,12 +24311,18 @@ paths:
               schema:
                 type: object
                 properties:
-                  computed: { type: object, description: Výpočet; u final uložený bez přepočtu s výjimkou rekonstrukce staršího DPPO. }
+                  nonprofit_filing_proof_hash: { type: string, pattern: '^[a-f0-9]{64}$', readOnly: true, description: Přítomný jen u nativního504; váže úplné účetní a právní podklady i aktuální volby. }
+                  computed:
+                    type: object
+                    properties:
+                      nonprofit: { $ref: '#/components/schemas/NonprofitDppoComputation' }
                   warnings: { type: array, items: { type: string }, description: Poradní nálezy včetně rekonstrukce nebo neúspěšné validace; finalizaci ani export nezakazují. }
                   podklady:
                     type: object
                     properties:
                       accounting_decree: { type: string, readOnly: true, description: "Účetní vyhláška účinná pro zdaňovací období DPPO." }
+                      nonprofit: { type: object, readOnly: true, description: Kanonický právní profil a potvrzené posouzení J6 včetně účetního můstku. }
+                      source_manifest: { type: object, readOnly: true, description: Identita a hashe skutečných nativních účetních a právních podkladů. }
                       legal_provisions: { $ref: '#/components/schemas/LegalProvisionLedgerSummary' }
                   snapshot:
                     nullable: true
@@ -24303,7 +24330,7 @@ paths:
                       - $ref: '#/components/schemas/TaxReturnSnapshotMetadata'
         '400': { description: Neplatný typ/rok/variant }
         '403': { $ref: '#/components/responses/Forbidden' }
-        '422': { description: "DPPO podle vyhlášky 504 není podporováno (`dppo_accounting_framework_not_supported`).", content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '422': { description: "Podklady504 nejsou úplné nebo průkazné; je nutné potvrdit právní profil a aktuální J6.", content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
 
   /api/v1/tax-return/{type}/{year}/inputs:
     parameters:
@@ -24316,7 +24343,7 @@ paths:
       tags: [TaxReturn]
       summary: Uloží ruční vstupy přiznání (draft)
       description: |
-        Účetní/admin. `row_version` chrání proti souběžné úpravě (optimistic lock).
+        Účetní/admin. Zápis504 je povolen pouze z přihlášené uživatelské relace, nikdy přes bearer/MCP. `row_version` chrání proti souběžné úpravě (optimistic lock).
 
         Částečná aktualizace (viz úvod). Vynechaný klíč zachová uloženou hodnotu. Vnořené objekty
         (`s6_employment`, `s8_capital`, `s9_rental`, `s10_other`, `filed_source`) se slučují po
@@ -24332,7 +24359,10 @@ paths:
               type: object
               required: [inputs, row_version]
               properties:
-                inputs: { type: object }
+                inputs:
+                  type: object
+                  properties:
+                    nonprofit: { $ref: '#/components/schemas/NonprofitDppoInputs' }
                 row_version: { type: integer }
       responses:
         '200': { description: OK, content: { application/json: { schema: { type: object } } } }
@@ -24354,7 +24384,7 @@ paths:
         Vyžaduje oprávnění `reports.finalize`. Pro DPFO i DPPO uloží neměnný výpočet
         a XML včetně příloh s výsledkem XSD kontroly. Neúspěšné XSD a obsahové
         kontroly se uloží jako varování a finalizaci nezakazují. Nová finalizace
-        po znovuotevření vytváří další revizi snapshotu.
+        po znovuotevření vytváří další revizi snapshotu. Nativní504 navíc vyžaduje session, shodný nonprofit_filing_proof_hash z posledního výpočtu a úspěšné nativní XSD. Změna jakéhokoli právního či účetního důkazu vrací409. Skutečná úspora§20(7) se ukládá atomicky se snapshotem.
       requestBody:
         required: true
         content:
@@ -24364,6 +24394,7 @@ paths:
               required: [row_version]
               properties:
                 row_version: { type: integer }
+                nonprofit_filing_proof_hash: { type: string, pattern: '^[a-f0-9]{64}$', description: Povinný pro504; přesný důkaz vrácený aktuálním GET. }
       responses:
         '200': { description: OK, content: { application/json: { schema: { type: object } } } }
         '400': { description: Neplatný typ/rok/variant }
@@ -24415,16 +24446,16 @@ paths:
   /api/v1/tax-return/{type}/{year}/xml/preview:
     parameters:
       - $ref: '#/components/parameters/SupplierIdHeader'
-      - { in: path, name: type, required: true, schema: { type: string, enum: [fo] } }
+      - { in: path, name: type, required: true, schema: { type: string, enum: [fo, po] } }
       - { in: path, name: year, required: true, schema: { type: integer } }
       - { in: query, name: variant, schema: { type: string, enum: [radne, opravne, dodatecne], default: radne } }
       - { in: query, name: seq, schema: { type: integer, minimum: 0, default: 0 } }
     get:
       tags: [TaxReturn]
-      summary: Stáhne nearchivovaný pracovní náhled EPO XML DPFO
-      description: Náhled lze vytvořit z draftu; není určen k podání a nemění finální snapshot ani archiv podání.
+      summary: Stáhne nearchivovaný pracovní náhled EPO XML DPFO nebo nativního DPPO 504
+      description: Náhled lze vytvořit z draftu; není určen k podání a nemění finální snapshot ani archiv podání. Typ po je dostupný pro úplný nativní výpočet podle vyhlášky 504 s potvrzeným právním profilem, aktuálním J6 a skutečnými výkazy UR, US a UT.
       responses:
-        '200': { description: Pracovní XML DPFO, content: { application/xml: {} } }
+        '200': { description: Pracovní XML DPFO nebo nativního DPPO 504, content: { application/xml: {} } }
         '400': { description: Neplatný typ/rok/variant }
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
@@ -32659,6 +32690,8 @@ components:
       - axes
       - origin
       properties:
+        svj_owner_facts:
+          $ref: '#/components/schemas/NonprofitSvjOwnerFacts'
         id:
           type: string
         line_id:
@@ -32735,6 +32768,12 @@ components:
       - findings
       - accounting_result_cents
       properties:
+        legal_profile:
+          $ref: '#/components/schemas/NonprofitLegalProfileProof'
+        svj_module_proof:
+          type: array
+          description: Potvrzené historické podklady aktivace modulu SVJ; samy neurčují právní formu.
+          items: { type: object }
         supplier_id:
           type: integer
         period:
@@ -32853,7 +32892,12 @@ components:
               - narrow_vpp
               - broad_vpp
               - non_vpp
+              - svj
               - documented
+            entity_kind:
+              type: string
+              enum: [narrow_vpp, broad_vpp, non_vpp, svj]
+              description: Výslovná právní identita v documented_manual režimu; musí odpovídat potvrzenému profilu období.
             evidence:
               type: string
         activities:
@@ -35111,6 +35155,133 @@ components:
           additionalProperties: { type: number }
         allowance_split_reliable: { type: boolean }
         allowance_created_split_reliable: { type: boolean }
+    NonprofitDppoInputs:
+      type: object
+      additionalProperties: false
+      properties:
+        reduction_kc: { type: integer, minimum: 0, description: Výslovně uplatněné snížení§20(7) po všech odpočtech§34. }
+        reduction_evidence: { type: string, maxLength: 2000 }
+        documented_lines:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              line: { type: integer, enum: [100, 101, 109, 110] }
+              evidence: { type: string, maxLength: 2000 }
+        adjustments:
+          type: array
+          items:
+            type: object
+            properties:
+              kind: { type: string, enum: [expense_addback, depreciation] }
+              source_id: { type: string, description: Přesný ID původního řádku J6 proexpense_addback. }
+              amount_cents: { type: integer, minimum: 1 }
+              asset_id: { type: integer, minimum: 1 }
+              tax_entry_id: { type: integer, minimum: 1 }
+              book_source_ids: { type: array, items: { type: string } }
+              tax_deductible_cents: { type: integer, minimum: 0 }
+              legal_basis: { type: string, maxLength: 2000 }
+              evidence: { type: string, maxLength: 2000 }
+    NonprofitDppoComputation:
+      type: object
+      readOnly: true
+      properties:
+        proof_hash: { type: string, pattern: '^[a-f0-9]{64}$' }
+        legal_profile: { type: object }
+        assessment: { type: object, description: Přesná identita potvrzeného J6 včetně input_hash a request_hash. }
+        reduction_claim_kc: { type: integer }
+        reduction_limit_kc: { type: integer }
+        filing_obligation:
+          type: object
+          properties:
+            required: { type: boolean, description: Povinnost§38mb plyne z povahy příjmů; nezávisí na nulové dani. }
+            legal_basis: { type: string }
+            taxable_sources: { type: array, items: { type: string } }
+            unused_reduction_addback_kc: { type: integer }
+        saving:
+          type: object
+          properties:
+            base_before_reduction_kc: { type: integer }
+            reduction_kc: { type: integer }
+            saving_kc: { type: integer }
+            tax_without_reduction_kc: { type: integer }
+            tax_with_reduction_kc: { type: integer }
+            credits_entitlement_kc: { type: integer }
+            rate_numerator: { type: integer }
+            rate_denominator: { type: integer }
+            rounding_kc: { type: integer }
+    NonprofitSvjOwnerFacts:
+      type: object
+      description: Nativně ověřený titul vyúčtování služeb SVJ s přesnou vazbou na výsledkový řádek; nevzniká pouhou volbou účtu 649.
+      required: [owner, kind, legal_basis, case_id, event_id, entry_id, line_id, ledger_hash]
+      properties:
+        owner: { type: string, enum: [property_service_lifecycle] }
+        kind: { type: string, enum: [revenue, expense] }
+        legal_basis: { type: string, enum: [zdp_18_2f_3] }
+        case_id: { type: integer }
+        unit_id: { type: integer }
+        service_id: { type: integer }
+        period_from: { type: string, format: date }
+        period_to: { type: string, format: date }
+        event_id: { type: integer }
+        entry_id: { type: integer }
+        line_id: { type: integer }
+        ledger_hash: { type: string, pattern: '^[a-f0-9]{64}$' }
+        case_hash: { type: string, pattern: '^[a-f0-9]{64}$' }
+    NonprofitLegalProfileProof:
+      type: object
+      required: [id, revision_no, profile, record_hash, request_hash, module_proof]
+      properties:
+        id: { type: integer }
+        revision_no: { type: integer, minimum: 1 }
+        record_hash: { type: string, pattern: '^[a-f0-9]{64}$' }
+        request_hash: { type: string, pattern: '^[a-f0-9]{64}$' }
+        module_proof: { type: array, items: { type: object } }
+        profile:
+          type: object
+          required: [kind, entity_type, main_activity_nonbusiness, evidence, legal_basis, reduction_band, ruleset]
+          properties:
+            kind: { type: string, enum: [narrow_vpp, broad_vpp, non_vpp, svj] }
+            entity_type: { type: string, description: Výslovně potvrzená právní forma ze serverového číselníku. }
+            main_activity_nonbusiness: { type: boolean }
+            evidence: { type: string }
+            legal_basis: { type: string }
+            reduction_band: { type: string, enum: [standard, university_research, ineligible] }
+            ruleset: { type: string }
+    NonprofitLegalProfileRead:
+      type: object
+      properties:
+        period: { type: object }
+        latest: { type: object, nullable: true, description: Výslovně potvrzený neměnný právní profil období; null se automaticky nedovozuje z modulu SVJ. }
+        kinds: { type: array, items: { type: string, enum: [narrow_vpp, broad_vpp, non_vpp, svj] } }
+        entity_types: { type: array, items: { type: string } }
+        capabilities:
+          type: object
+          properties:
+            can_confirm: { type: boolean }
+            can_edit_reduction: { type: boolean }
+            session_only: { type: boolean }
+            native_dppo: { type: boolean }
+            filing_ready: { type: boolean }
+            preparation_findings: { type: array, items: { type: object } }
+    NonprofitTaxSavingsRead:
+      type: object
+      properties:
+        sources:
+          type: array
+          items:
+            type: object
+            properties:
+              source: { type: object, description: Neměnná identita úspory vázaná na skutečný finální nativní snapshot. }
+              events: { type: array, items: { type: object } }
+              remaining_cents: { type: string, pattern: '^[0-9]+$' }
+              head_hash: { type: string, pattern: '^[a-f0-9]{64}$' }
+              void: { type: boolean }
+              next_period: { type: object, nullable: true }
+              eligibility: { type: object }
+              eligible_costs: { type: array, items: { type: object } }
+              cost_findings: { type: array, items: { type: object } }
+        capabilities: { type: object }
     TaxReturnSnapshotMetadata:
       type: object
       description: Neměnná revize finalizovaného DPFO nebo DPPO včetně XML.

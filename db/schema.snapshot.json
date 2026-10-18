@@ -1031,7 +1031,14 @@
         "2047_supplier_person_title.sql",
         "2048_property_service_lifecycle.sql",
         "2049_property_service_lifecycle_commands.sql",
-        "2050_property_service_settlement_dossier_events.sql"
+        "2050_property_service_settlement_dossier_events.sql",
+        "2051_property_funding.sql",
+        "2052_accounting_securities_debt.sql",
+        "2053_nonprofit_funding_sources.sql",
+        "2054_nonprofit_capital_sources.sql",
+        "2055_account_definition_history.sql",
+        "2056_accounting_framework_conversion.sql",
+        "2057_nonprofit_dppo_profiles_savings.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -1114,6 +1121,46 @@
             },
             "checks": {
                 "protocol": "`protocol` is null or json_valid(`protocol`)"
+            }
+        },
+        "accounting_account_definition_history": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "account_id": "bigint(20) unsigned NOT NULL",
+                "created_by": "bigint(20) unsigned NULL DEFAULT NULL",
+                "definition_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "definition_json": "longtext NOT NULL",
+                "effective_from": "date NOT NULL",
+                "evidence": "varchar(1000) NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "is_active": "tinyint(1) NOT NULL",
+                "name": "varchar(190) NOT NULL",
+                "normal_side": "enum('debit','credit') NULL DEFAULT NULL",
+                "recorded_at": "datetime(6) NOT NULL",
+                "row_version": "int(10) unsigned NOT NULL DEFAULT 1",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "tax_deductibility": "enum('deductible','non_deductible') NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "created_by": "BTREE (created_by)",
+                "uq_account_definition_date": "UNIQUE BTREE (supplier_id, account_id, effective_from)"
+            },
+            "foreign_keys": {
+                "accounting_account_definition_history_ibfk_1": "(supplier_id, account_id) -> chart_of_accounts (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "accounting_account_definition_history_ibfk_2": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "CONSTRAINT_1": "`is_active` in (0,1)",
+                "CONSTRAINT_2": "cast(`name` as char charset binary) = cast(json_value(`definition_json`,'$.name') as char charset binary)",
+                "CONSTRAINT_3": "`normal_side` <=> json_value(`definition_json`,'$.normal_side')",
+                "CONSTRAINT_4": "`tax_deductibility` = json_value(`definition_json`,'$.tax_deductibility')",
+                "CONSTRAINT_5": "`is_active` = cast(json_value(`definition_json`,'$.is_active') as unsigned)",
+                "CONSTRAINT_6": "cast(`definition_hash` as char charset binary) = cast(sha2(concat(`supplier_id`,':',`account_id`,':',`effective_from`,':',`definition_json`),256) as char charset binary)",
+                "chk_account_definition_payload": "json_contains_path(`definition_json`,'all','$.name','$.normal_side','$.tax_deductibility','$.is_active') = 1 and json_type(json_extract(`definition_json`,'$.name')) = 'STRING' and json_type(json_extract(`definition_json`,'$.normal_side')) in ('STRING','NULL') and json_type(json_extract(`definition_json`,'$.tax_deductibility')) = 'STRING' and json_type(json_extract(`definition_json`,'$.is_active')) = 'INTEGER'",
+                "definition_json": "json_valid(`definition_json`)"
             }
         },
         "accounting_archives": {
@@ -1360,6 +1407,107 @@
             },
             "checks": []
         },
+        "accounting_framework_conversion_cells": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "cell_key": "char(64) NOT NULL COLLATE ascii_bin",
+                "conversion_id": "bigint(20) unsigned NOT NULL",
+                "opening_line_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "source_json": "longtext NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "target_json": "longtext NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (supplier_id, conversion_id, cell_key)",
+                "opening_line_id": "BTREE (opening_line_id)",
+                "uq_framework_conversion_line": "UNIQUE BTREE (supplier_id, opening_line_id)"
+            },
+            "foreign_keys": {
+                "accounting_framework_conversion_cells_ibfk_1": "(supplier_id, conversion_id) -> accounting_framework_conversions (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "accounting_framework_conversion_cells_ibfk_2": "(opening_line_id) -> journal_entry_lines (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "source_json": "json_valid(`source_json`)",
+                "target_json": "json_valid(`target_json`)"
+            }
+        },
+        "accounting_framework_conversion_commands": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "command_token": "varchar(190) NOT NULL COLLATE ascii_bin",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "recorded_at": "datetime(6) NOT NULL",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "response_json": "longtext NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (supplier_id, command_token)",
+                "created_by": "BTREE (created_by)"
+            },
+            "foreign_keys": {
+                "accounting_framework_conversion_commands_ibfk_1": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "accounting_framework_conversion_commands_ibfk_2": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "response_json": "json_valid(`response_json`)"
+            }
+        },
+        "accounting_framework_conversions": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "active_slot": "tinyint(4) NULL DEFAULT NULL STORED GENERATED AS (case when `status` = 'cancelled' then NULL else 1 end)",
+                "cancelled_at": "datetime(6) NULL DEFAULT NULL",
+                "cancelled_by": "bigint(20) unsigned NULL DEFAULT NULL",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "effective_from": "date NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "opening_entry_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "receipt_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "receipt_json": "longtext NOT NULL",
+                "recorded_at": "datetime(6) NOT NULL",
+                "request_json": "longtext NOT NULL",
+                "source_entry_id": "bigint(20) unsigned NOT NULL",
+                "source_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "source_period_id": "bigint(20) unsigned NOT NULL",
+                "status": "enum('pending','applied','cancelled') NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "target_period_id": "bigint(20) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "cancelled_by": "BTREE (cancelled_by)",
+                "created_by": "BTREE (created_by)",
+                "opening_entry_id": "BTREE (opening_entry_id)",
+                "source_entry_id": "BTREE (source_entry_id)",
+                "source_period_id": "BTREE (source_period_id)",
+                "target_period_id": "BTREE (target_period_id)",
+                "uq_framework_conversion_source": "UNIQUE BTREE (supplier_id, source_period_id, active_slot)",
+                "uq_framework_conversion_target": "UNIQUE BTREE (supplier_id, target_period_id, active_slot)",
+                "uq_framework_conversion_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "accounting_framework_conversions_ibfk_1": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "accounting_framework_conversions_ibfk_2": "(source_period_id) -> accounting_periods (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "accounting_framework_conversions_ibfk_3": "(target_period_id) -> accounting_periods (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "accounting_framework_conversions_ibfk_4": "(source_entry_id) -> journal_entries (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "accounting_framework_conversions_ibfk_5": "(opening_entry_id) -> journal_entries (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "accounting_framework_conversions_ibfk_6": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "accounting_framework_conversions_ibfk_7": "(cancelled_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "CONSTRAINT_1": "`source_period_id` <> `target_period_id`",
+                "CONSTRAINT_2": "`status` = 'cancelled' = (`cancelled_at` is not null)",
+                "receipt_json": "json_valid(`receipt_json`)",
+                "request_json": "json_valid(`request_json`)"
+            }
+        },
         "accounting_opening_balances": {
             "type": "BASE TABLE",
             "engine": "InnoDB",
@@ -1415,6 +1563,7 @@
                 "PRIMARY": "UNIQUE BTREE (id)",
                 "idx_period_supplier": "BTREE (supplier_id)",
                 "uq_ap_supplier_id": "UNIQUE BTREE (supplier_id, id)",
+                "uq_dppo_period_tenant": "UNIQUE BTREE (supplier_id, id)",
                 "uq_period_supplier_year": "UNIQUE BTREE (supplier_id, fiscal_year)"
             },
             "foreign_keys": {
@@ -1490,6 +1639,154 @@
             "checks": {
                 "after_json": "json_valid(`after_json`)",
                 "before_json": "json_valid(`before_json`)"
+            }
+        },
+        "accounting_securities_debt_claims": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "amount_cents": "decimal(30,0) NOT NULL",
+                "component": "varchar(24) NOT NULL COLLATE ascii_bin",
+                "event_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "line_id": "bigint(20) unsigned NOT NULL",
+                "lot_id": "bigint(20) unsigned NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (supplier_id, line_id)",
+                "line_id": "BTREE (line_id)",
+                "supplier_id": "BTREE (supplier_id, lot_id)",
+                "supplier_id_2": "BTREE (supplier_id, event_id)"
+            },
+            "foreign_keys": {
+                "accounting_securities_debt_claims_ibfk_1": "(supplier_id, lot_id) -> accounting_securities_debt_lots (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "accounting_securities_debt_claims_ibfk_2": "(supplier_id, event_id) -> accounting_securities_debt_events (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "accounting_securities_debt_claims_ibfk_3": "(line_id) -> journal_entry_lines (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "CONSTRAINT_1": "`component` in ('acquisition','coupon_receipt','principal_redemption','fx_carry')",
+                "CONSTRAINT_2": "`amount_cents` > 0"
+            }
+        },
+        "accounting_securities_debt_commands": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "idempotency_key": "varchar(190) NOT NULL COLLATE ascii_bin",
+                "recorded_at": "datetime(6) NOT NULL",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "response_json": "longtext NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (supplier_id, idempotency_key)",
+                "created_by": "BTREE (created_by)"
+            },
+            "foreign_keys": {
+                "accounting_securities_debt_commands_ibfk_1": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "accounting_securities_debt_commands_ibfk_2": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "response_json": "json_valid(`response_json`)"
+            }
+        },
+        "accounting_securities_debt_events": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "accounting_date": "date NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "journal_entry_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "lot_id": "bigint(20) unsigned NOT NULL",
+                "operation": "varchar(32) NOT NULL COLLATE ascii_bin",
+                "receipt_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "receipt_json": "longtext NOT NULL",
+                "recorded_at": "datetime(6) NOT NULL",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "request_json": "longtext NOT NULL",
+                "reversal_of": "bigint(20) unsigned NULL DEFAULT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "idx_securities_debt_lot": "BTREE (supplier_id, lot_id, accounting_date, id)",
+                "journal_entry_id": "BTREE (journal_entry_id)",
+                "uq_securities_debt_event_tenant": "UNIQUE BTREE (supplier_id, id)",
+                "uq_securities_debt_reversal": "UNIQUE BTREE (supplier_id, reversal_of)"
+            },
+            "foreign_keys": {
+                "accounting_securities_debt_events_ibfk_1": "(supplier_id, lot_id) -> accounting_securities_debt_lots (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "accounting_securities_debt_events_ibfk_2": "(supplier_id, reversal_of) -> accounting_securities_debt_events (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "accounting_securities_debt_events_ibfk_3": "(journal_entry_id) -> journal_entries (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "CONSTRAINT_1": "`operation` in ('accrual','amortisation','valuation','coupon_receipt','principal_redemption','reverse')",
+                "receipt_json": "json_valid(`receipt_json`)",
+                "request_json": "json_valid(`request_json`)"
+            }
+        },
+        "accounting_securities_debt_fx_carries": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "accounting_date": "date NOT NULL",
+                "journal_entry_id": "bigint(20) unsigned NOT NULL",
+                "lot_id": "bigint(20) unsigned NOT NULL",
+                "period_id": "bigint(20) unsigned NOT NULL",
+                "receipt_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "receipt_json": "longtext NOT NULL",
+                "slot": "varchar(16) NOT NULL COLLATE ascii_bin",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (supplier_id, lot_id, period_id, slot)",
+                "idx_securities_debt_fx_entry": "BTREE (supplier_id, journal_entry_id)",
+                "journal_entry_id": "BTREE (journal_entry_id)",
+                "period_id": "BTREE (period_id)"
+            },
+            "foreign_keys": {
+                "accounting_securities_debt_fx_carries_ibfk_1": "(supplier_id, lot_id) -> accounting_securities_debt_lots (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "accounting_securities_debt_fx_carries_ibfk_2": "(period_id) -> accounting_periods (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "accounting_securities_debt_fx_carries_ibfk_3": "(journal_entry_id) -> journal_entries (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "CONSTRAINT_1": "`slot` in ('saldo','reversal')",
+                "receipt_json": "json_valid(`receipt_json`)"
+            }
+        },
+        "accounting_securities_debt_lots": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "acquired_on": "date NOT NULL",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "facts_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "facts_json": "longtext NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "lot_reference": "varchar(190) NOT NULL",
+                "maturity_on": "date NOT NULL",
+                "recorded_at": "datetime(6) NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "created_by": "BTREE (created_by)",
+                "uq_securities_debt_lot": "UNIQUE BTREE (supplier_id, lot_reference)",
+                "uq_securities_debt_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "accounting_securities_debt_lots_ibfk_1": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "accounting_securities_debt_lots_ibfk_2": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "CONSTRAINT_1": "`acquired_on` < `maturity_on`",
+                "facts_json": "json_valid(`facts_json`)"
             }
         },
         "accounting_setup_proposals": {
@@ -2102,7 +2399,8 @@
                 "idx_assets_sale_invoice": "BTREE (sale_invoice_id)",
                 "idx_assets_summary_account": "BTREE (supplier_id, summary_account_code)",
                 "idx_assets_supplier_status": "BTREE (supplier_id, status)",
-                "uq_assets_supplier_invno": "UNIQUE BTREE (supplier_id, inventory_number)"
+                "uq_assets_supplier_invno": "UNIQUE BTREE (supplier_id, inventory_number)",
+                "uq_assets_tenant_id": "UNIQUE BTREE (supplier_id, id)"
             },
             "foreign_keys": {
                 "fk_assets_disposal_entry": "(disposal_entry_id) -> journal_entries (id) ON UPDATE RESTRICT ON DELETE SET NULL",
@@ -4227,7 +4525,8 @@
             "indexes": {
                 "PRIMARY": "UNIQUE BTREE (id)",
                 "idx_de_supplier_year": "BTREE (supplier_id, fiscal_year, kind)",
-                "uq_de_asset_kind_year": "UNIQUE BTREE (asset_id, kind, fiscal_year)"
+                "uq_de_asset_kind_year": "UNIQUE BTREE (asset_id, kind, fiscal_year)",
+                "uq_depreciation_tenant_id": "UNIQUE BTREE (supplier_id, id)"
             },
             "foreign_keys": {
                 "fk_de_asset": "(asset_id) -> assets (id) ON UPDATE RESTRICT ON DELETE CASCADE",
@@ -5737,6 +6036,7 @@
             "indexes": {
                 "PRIMARY": "UNIQUE BTREE (id)",
                 "idx_income_tax_snapshot_supplier": "BTREE (supplier_id, tax_return_id, id)",
+                "uq_dppo_snapshot_tenant": "UNIQUE BTREE (supplier_id, id)",
                 "uq_income_tax_snapshot_revision": "UNIQUE BTREE (tax_return_id, revision_no)"
             },
             "foreign_keys": {
@@ -6717,7 +7017,7 @@
                 "reversed_by": "bigint(20) unsigned NULL DEFAULT NULL",
                 "row_version": "int(10) unsigned NOT NULL DEFAULT 1",
                 "source_id": "bigint(20) unsigned NULL DEFAULT NULL",
-                "source_type": "enum('invoice','purchase_invoice','bank','cash','asset','manual','closing','opening','depreciation','asset_disposal','fx_revaluation','stock','provision','income_tax','profit_distribution','offset','small_asset_accrual','prepaid_expense_accrual','settlement','deferred_tax','payroll','vat_clearing','payroll_payment','gopay','card_settlement','card_writeoff','other_item','payroll_accident_insurance','payroll_travel','deferred_revenue_accrual','unit_charge','unit_payment','unit_payment_revision','property_service_settlement','property_service_lifecycle') NOT NULL DEFAULT 'manual'",
+                "source_type": "enum('invoice','purchase_invoice','bank','cash','asset','manual','closing','opening','depreciation','asset_disposal','fx_revaluation','stock','provision','income_tax','profit_distribution','offset','small_asset_accrual','prepaid_expense_accrual','settlement','deferred_tax','payroll','vat_clearing','payroll_payment','gopay','card_settlement','card_writeoff','other_item','payroll_accident_insurance','payroll_travel','deferred_revenue_accrual','unit_charge','unit_payment','unit_payment_revision','property_service_settlement','property_service_lifecycle','property_funding','nonprofit_capital') NOT NULL DEFAULT 'manual'",
                 "supplier_id": "int(10) unsigned NOT NULL",
                 "updated_at": "timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE CURRENT_TIMESTAMP()"
             },
@@ -6879,7 +7179,8 @@
                 "idx_jel_supplier_account": "BTREE (supplier_id, account_id)",
                 "idx_jel_supplier_entry": "BTREE (supplier_id, entry_id)",
                 "ix_jel_closing_by_account": "BTREE (supplier_id, account_id, entry_id, side, amount)",
-                "ix_jel_closing_by_entry": "BTREE (supplier_id, entry_id, account_id, side, amount)"
+                "ix_jel_closing_by_entry": "BTREE (supplier_id, entry_id, account_id, side, amount)",
+                "uq_capital_line_tenant": "UNIQUE BTREE (supplier_id, id)"
             },
             "foreign_keys": {
                 "fk_jel_account_supplier": "(supplier_id, account_id) -> chart_of_accounts (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
@@ -7562,6 +7863,214 @@
                 "sent_to": "json_valid(`sent_to`)"
             }
         },
+        "nonprofit_capital_commands": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "created_at": "datetime(6) NOT NULL DEFAULT current_timestamp(6)",
+                "created_by": "bigint(20) unsigned NULL DEFAULT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "idempotency_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "request_json": "longtext NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "created_by": "BTREE (created_by)",
+                "uq_ncc_tenant": "UNIQUE BTREE (supplier_id, id)",
+                "uq_ncc_token": "UNIQUE BTREE (supplier_id, idempotency_key)"
+            },
+            "foreign_keys": {
+                "nonprofit_capital_commands_ibfk_1": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_capital_commands_ibfk_2": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "request_json": "json_valid(`request_json`)"
+            }
+        },
+        "nonprofit_capital_events": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "amount_cents": "bigint(20) unsigned NOT NULL",
+                "command_id": "bigint(20) unsigned NOT NULL",
+                "cost_line_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "depreciation_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "entry_id": "bigint(20) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "operation": "enum('release','reverse') NOT NULL",
+                "original_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "parent_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "previous_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "receipt_json": "longtext NOT NULL",
+                "record_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "snapshot_json": "longtext NOT NULL",
+                "source_id": "bigint(20) unsigned NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "supplier_id": "BTREE (supplier_id, source_id, previous_id)",
+                "supplier_id_2": "BTREE (supplier_id, source_id, original_id)",
+                "supplier_id_3": "BTREE (supplier_id, depreciation_id)",
+                "supplier_id_4": "BTREE (supplier_id, cost_line_id)",
+                "uq_nce_chain": "UNIQUE BTREE (supplier_id, source_id, id)",
+                "uq_nce_command": "UNIQUE BTREE (supplier_id, command_id)",
+                "uq_nce_entry": "UNIQUE BTREE (supplier_id, entry_id)",
+                "uq_nce_reverse": "UNIQUE BTREE (supplier_id, original_id)",
+                "uq_nce_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "nonprofit_capital_events_ibfk_1": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_capital_events_ibfk_2": "(supplier_id, source_id) -> nonprofit_capital_sources (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_capital_events_ibfk_3": "(supplier_id, command_id) -> nonprofit_capital_commands (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_capital_events_ibfk_4": "(supplier_id, source_id, previous_id) -> nonprofit_capital_events (supplier_id, source_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_capital_events_ibfk_5": "(supplier_id, source_id, original_id) -> nonprofit_capital_events (supplier_id, source_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_capital_events_ibfk_6": "(supplier_id, entry_id) -> journal_entries (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_capital_events_ibfk_7": "(supplier_id, depreciation_id) -> depreciation_entries (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_capital_events_ibfk_8": "(supplier_id, cost_line_id) -> journal_entry_lines (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "CONSTRAINT_1": "`amount_cents` > 0",
+                "CONSTRAINT_2": "`operation` = 'release' and `original_id` is null or `operation` = 'reverse' and `original_id` is not null",
+                "CONSTRAINT_3": "`depreciation_id` is null or `cost_line_id` is null",
+                "receipt_json": "json_valid(`receipt_json`)",
+                "snapshot_json": "json_valid(`snapshot_json`)"
+            }
+        },
+        "nonprofit_capital_sources": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "amount_cents": "bigint(20) unsigned NOT NULL",
+                "asset_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "basis_json": "longtext NOT NULL",
+                "command_id": "bigint(20) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "kind": "enum('investment','fund') NOT NULL",
+                "policy_json": "longtext NOT NULL",
+                "provider_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "record_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "source_line_id": "bigint(20) unsigned NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "supplier_id": "BTREE (supplier_id, asset_id)",
+                "supplier_id_2": "BTREE (supplier_id, provider_id)",
+                "uq_ncs_command": "UNIQUE BTREE (supplier_id, command_id)",
+                "uq_ncs_line": "UNIQUE BTREE (supplier_id, source_line_id)",
+                "uq_ncs_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "nonprofit_capital_sources_ibfk_1": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_capital_sources_ibfk_2": "(supplier_id, command_id) -> nonprofit_capital_commands (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_capital_sources_ibfk_3": "(supplier_id, source_line_id) -> journal_entry_lines (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_capital_sources_ibfk_4": "(supplier_id, asset_id) -> assets (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_capital_sources_ibfk_5": "(supplier_id, provider_id) -> clients (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "CONSTRAINT_1": "`amount_cents` > 0",
+                "CONSTRAINT_2": "`kind` = 'investment' and `asset_id` is not null and `provider_id` is not null or `kind` = 'fund' and `asset_id` is null",
+                "basis_json": "json_valid(`basis_json`)",
+                "policy_json": "json_valid(`policy_json`)"
+            }
+        },
+        "nonprofit_funding_revisions": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "assessment_id": "bigint(20) unsigned NOT NULL",
+                "basis_json": "longtext NOT NULL",
+                "created_at": "datetime NOT NULL DEFAULT current_timestamp()",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "idempotency_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "parent_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "period_id": "bigint(20) unsigned NOT NULL",
+                "policy_json": "longtext NOT NULL",
+                "previous_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "provider_id": "bigint(20) unsigned NOT NULL",
+                "reason": "text NOT NULL",
+                "record_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "request_json": "longtext NOT NULL",
+                "revision_no": "int(10) unsigned NOT NULL",
+                "source_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_nfr_actor": "BTREE (created_by)",
+                "fk_nfr_assessment": "BTREE (supplier_id, assessment_id)",
+                "fk_nfr_period": "BTREE (supplier_id, period_id)",
+                "fk_nfr_previous": "BTREE (supplier_id, source_key, previous_id)",
+                "fk_nfr_provider": "BTREE (supplier_id, provider_id)",
+                "uq_nfr_chain": "UNIQUE BTREE (supplier_id, source_key, id)",
+                "uq_nfr_revision": "UNIQUE BTREE (supplier_id, source_key, revision_no)",
+                "uq_nfr_tenant": "UNIQUE BTREE (supplier_id, id)",
+                "uq_nfr_token": "UNIQUE BTREE (supplier_id, idempotency_key)"
+            },
+            "foreign_keys": {
+                "fk_nfr_actor": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_nfr_assessment": "(supplier_id, assessment_id) -> nonprofit_tax_assessments (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_nfr_period": "(supplier_id, period_id) -> accounting_periods (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_nfr_previous": "(supplier_id, source_key, previous_id) -> nonprofit_funding_revisions (supplier_id, source_key, id) ON UPDATE RESTRICT ON DELETE CASCADE",
+                "fk_nfr_provider": "(supplier_id, provider_id) -> clients (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_nfr_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE"
+            },
+            "checks": {
+                "basis_json": "json_valid(`basis_json`)",
+                "chk_nfr_revision": "`revision_no` > 0",
+                "policy_json": "json_valid(`policy_json`)",
+                "request_json": "json_valid(`request_json`)"
+            }
+        },
+        "nonprofit_legal_profiles": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "created_at": "datetime(6) NOT NULL DEFAULT current_timestamp(6)",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "idempotency_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "module_proof_json": "longtext NOT NULL",
+                "period_id": "bigint(20) unsigned NOT NULL",
+                "previous_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "profile_json": "longtext NOT NULL",
+                "reason": "text NOT NULL",
+                "record_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "revision_no": "int(10) unsigned NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "created_by": "BTREE (created_by)",
+                "supplier_id": "BTREE (supplier_id, period_id, previous_id)",
+                "uq_nlp_key": "UNIQUE BTREE (supplier_id, idempotency_key)",
+                "uq_nlp_period": "UNIQUE BTREE (supplier_id, period_id, id)",
+                "uq_nlp_revision": "UNIQUE BTREE (supplier_id, period_id, revision_no)",
+                "uq_nlp_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "nonprofit_legal_profiles_ibfk_1": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_legal_profiles_ibfk_2": "(supplier_id, period_id) -> accounting_periods (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_legal_profiles_ibfk_3": "(supplier_id, period_id, previous_id) -> nonprofit_legal_profiles (supplier_id, period_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_legal_profiles_ibfk_4": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "CONSTRAINT_1": "`revision_no` > 0",
+                "module_proof_json": "json_valid(`module_proof_json`)",
+                "profile_json": "json_valid(`profile_json`)"
+            }
+        },
         "nonprofit_tax_assessments": {
             "type": "BASE TABLE",
             "engine": "InnoDB",
@@ -7606,6 +8115,116 @@
                 "chk_nonprofit_tax_status": "`status` in ('confirmed','withdrawn')",
                 "result_json": "json_valid(`result_json`)",
                 "snapshot_json": "json_valid(`snapshot_json`)"
+            }
+        },
+        "nonprofit_tax_saving_commands": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "created_at": "datetime(6) NOT NULL DEFAULT current_timestamp(6)",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "idempotency_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "request_json": "longtext NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "created_by": "BTREE (created_by)",
+                "uq_ntsc_key": "UNIQUE BTREE (supplier_id, idempotency_key)",
+                "uq_ntsc_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "nonprofit_tax_saving_commands_ibfk_1": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_tax_saving_commands_ibfk_2": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "request_json": "json_valid(`request_json`)"
+            }
+        },
+        "nonprofit_tax_saving_events": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "amount_cents": "bigint(20) unsigned NOT NULL",
+                "command_id": "bigint(20) unsigned NOT NULL",
+                "cost_line_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "operation": "enum('use','reverse_use','void','restore') NOT NULL",
+                "original_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "parent_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "period_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "previous_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "proof_json": "longtext NOT NULL",
+                "receipt_json": "longtext NOT NULL",
+                "record_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "source_id": "bigint(20) unsigned NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "ix_ntse_cost": "BTREE (supplier_id, cost_line_id, operation)",
+                "supplier_id": "BTREE (supplier_id, source_id, previous_id)",
+                "supplier_id_2": "BTREE (supplier_id, source_id, original_id)",
+                "supplier_id_3": "BTREE (supplier_id, period_id)",
+                "uq_ntse_command": "UNIQUE BTREE (supplier_id, command_id)",
+                "uq_ntse_reverse": "UNIQUE BTREE (supplier_id, original_id)",
+                "uq_ntse_source": "UNIQUE BTREE (supplier_id, source_id, id)",
+                "uq_ntse_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "nonprofit_tax_saving_events_ibfk_1": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_tax_saving_events_ibfk_2": "(supplier_id, source_id) -> nonprofit_tax_saving_sources (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_tax_saving_events_ibfk_3": "(supplier_id, command_id) -> nonprofit_tax_saving_commands (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_tax_saving_events_ibfk_4": "(supplier_id, source_id, previous_id) -> nonprofit_tax_saving_events (supplier_id, source_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_tax_saving_events_ibfk_5": "(supplier_id, source_id, original_id) -> nonprofit_tax_saving_events (supplier_id, source_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_tax_saving_events_ibfk_6": "(supplier_id, period_id) -> accounting_periods (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_tax_saving_events_ibfk_7": "(supplier_id, cost_line_id) -> journal_entry_lines (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "chk_ntse_operation": "`operation` = 'use' and `original_id` is null and `period_id` is not null and `cost_line_id` is not null and `amount_cents` > 0 or `operation` = 'reverse_use' and `original_id` is not null and `period_id` is not null and `cost_line_id` is not null and `amount_cents` > 0 or `operation` in ('void','restore') and `original_id` is null and `period_id` is null and `cost_line_id` is null and `amount_cents` = 0",
+                "proof_json": "json_valid(`proof_json`)",
+                "receipt_json": "json_valid(`receipt_json`)"
+            }
+        },
+        "nonprofit_tax_saving_sources": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "basis_json": "longtext NOT NULL",
+                "created_at": "datetime(6) NOT NULL DEFAULT current_timestamp(6)",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "legal_profile_id": "bigint(20) unsigned NOT NULL",
+                "period_id": "bigint(20) unsigned NOT NULL",
+                "record_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "reduction_kc": "bigint(20) unsigned NOT NULL",
+                "saving_cents": "bigint(20) unsigned NOT NULL",
+                "snapshot_id": "bigint(20) unsigned NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "created_by": "BTREE (created_by)",
+                "supplier_id": "BTREE (supplier_id, period_id)",
+                "supplier_id_2": "BTREE (supplier_id, legal_profile_id)",
+                "uq_ntss_snapshot": "UNIQUE BTREE (supplier_id, snapshot_id)",
+                "uq_ntss_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "nonprofit_tax_saving_sources_ibfk_1": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_tax_saving_sources_ibfk_2": "(supplier_id, period_id) -> accounting_periods (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_tax_saving_sources_ibfk_3": "(supplier_id, snapshot_id) -> income_tax_return_snapshots (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_tax_saving_sources_ibfk_4": "(supplier_id, legal_profile_id) -> nonprofit_legal_profiles (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_tax_saving_sources_ibfk_5": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "CONSTRAINT_1": "`reduction_kc` > 0",
+                "basis_json": "json_valid(`basis_json`)"
             }
         },
         "offset_agreement_items": {
@@ -18610,6 +19229,124 @@
                 "snapshot_json": "json_valid(`snapshot_json`)"
             }
         },
+        "property_funding_claims": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "amount_cents": "bigint(20) unsigned NOT NULL",
+                "claim_role": "varchar(20) NOT NULL COLLATE ascii_bin",
+                "operation_id": "bigint(20) unsigned NOT NULL",
+                "source_id": "bigint(20) unsigned NOT NULL",
+                "source_kind": "varchar(20) NOT NULL COLLATE ascii_bin",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (supplier_id, operation_id, source_kind, source_id, claim_role)",
+                "ix_funding_claim_source": "BTREE (supplier_id, source_kind, source_id, claim_role)"
+            },
+            "foreign_keys": {
+                "property_funding_claims_ibfk_1": "(supplier_id, operation_id) -> property_funding_operations (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "CONSTRAINT_1": "`amount_cents` > 0"
+            }
+        },
+        "property_funding_effects": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "account_code": "varchar(50) NOT NULL",
+                "amount_cents": "bigint(20) NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "operation_id": "bigint(20) unsigned NOT NULL",
+                "parties_json": "longtext NULL DEFAULT NULL",
+                "source_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "source_kind": "varchar(20) NULL DEFAULT NULL COLLATE ascii_bin",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "unit_id": "bigint(20) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "ix_funding_effect_source": "BTREE (supplier_id, source_kind, source_id)",
+                "supplier_id": "BTREE (supplier_id, operation_id)",
+                "supplier_id_2": "BTREE (supplier_id, unit_id)",
+                "uq_funding_effect_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "property_funding_effects_ibfk_1": "(supplier_id, operation_id) -> property_funding_operations (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "property_funding_effects_ibfk_2": "(supplier_id, unit_id) -> property_objects (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "CONSTRAINT_1": "`amount_cents` <> 0",
+                "parties_json": "`parties_json` is null or json_valid(`parties_json`)"
+            }
+        },
+        "property_funding_heads": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "house_id": "bigint(20) unsigned NOT NULL",
+                "revision": "bigint(20) unsigned NOT NULL DEFAULT 0",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (supplier_id, house_id)"
+            },
+            "foreign_keys": {
+                "property_funding_heads_ibfk_1": "(supplier_id, house_id) -> property_objects (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": []
+        },
+        "property_funding_operations": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "accounting_date": "date NOT NULL",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "effective_at": "datetime(6) NOT NULL",
+                "house_id": "bigint(20) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "idempotency_key": "varchar(100) NOT NULL COLLATE ascii_bin",
+                "journal_entry_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "kind": "varchar(20) NOT NULL COLLATE ascii_bin",
+                "receipt_hash": "char(64) NULL DEFAULT NULL COLLATE ascii_bin",
+                "receipt_json": "longtext NULL DEFAULT NULL",
+                "recorded_at": "datetime(6) NOT NULL",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "request_json": "longtext NOT NULL",
+                "reversal_of": "bigint(20) unsigned NULL DEFAULT NULL",
+                "revision": "bigint(20) unsigned NOT NULL",
+                "snapshot_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "snapshot_json": "longtext NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "created_by": "BTREE (created_by)",
+                "journal_entry_id": "BTREE (journal_entry_id)",
+                "uq_funding_key": "UNIQUE BTREE (supplier_id, idempotency_key)",
+                "uq_funding_reversal": "UNIQUE BTREE (supplier_id, reversal_of)",
+                "uq_funding_revision": "UNIQUE BTREE (supplier_id, house_id, revision)",
+                "uq_funding_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "property_funding_operations_ibfk_1": "(supplier_id, house_id) -> property_objects (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "property_funding_operations_ibfk_2": "(supplier_id, reversal_of) -> property_funding_operations (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "property_funding_operations_ibfk_3": "(journal_entry_id) -> journal_entries (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "property_funding_operations_ibfk_4": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "CONSTRAINT_1": "`kind` in ('draw','income','transfer','payout','reverse')",
+                "CONSTRAINT_2": "`receipt_json` is null and `receipt_hash` is null and `journal_entry_id` is null or `receipt_json` is not null and `receipt_hash` is not null and `journal_entry_id` is not null",
+                "receipt_json": "`receipt_json` is null or json_valid(`receipt_json`)",
+                "request_json": "json_valid(`request_json`)",
+                "snapshot_json": "json_valid(`snapshot_json`)"
+            }
+        },
         "property_module_profiles": {
             "type": "BASE TABLE",
             "engine": "InnoDB",
@@ -26120,9 +26857,26 @@
         "trg_jmhz_scn_requirement_bu": "BEFORE UPDATE ON payroll_jmhz_field_requirements #b71c659e5b0a7a47ecbc804e6ae742279b0b9208",
         "trg_journal_payroll_batch_insert": "BEFORE INSERT ON journal_entries #f75c2f92cf4c2bec4dae140c18d6e95f50264967",
         "trg_journal_payroll_immutable_update": "BEFORE UPDATE ON journal_entries #3635d1e00151830cb61416104ed79cfa05bc025f",
+        "trg_ncc_immutable_delete": "BEFORE DELETE ON nonprofit_capital_commands #f1b059c1fa4cf0b0d29ad9a4cdf2f80b3264f070",
+        "trg_ncc_immutable_update": "BEFORE UPDATE ON nonprofit_capital_commands #f1b059c1fa4cf0b0d29ad9a4cdf2f80b3264f070",
+        "trg_nce_immutable_delete": "BEFORE DELETE ON nonprofit_capital_events #f1b059c1fa4cf0b0d29ad9a4cdf2f80b3264f070",
+        "trg_nce_immutable_update": "BEFORE UPDATE ON nonprofit_capital_events #f1b059c1fa4cf0b0d29ad9a4cdf2f80b3264f070",
+        "trg_ncs_immutable_delete": "BEFORE DELETE ON nonprofit_capital_sources #f1b059c1fa4cf0b0d29ad9a4cdf2f80b3264f070",
+        "trg_ncs_immutable_update": "BEFORE UPDATE ON nonprofit_capital_sources #f1b059c1fa4cf0b0d29ad9a4cdf2f80b3264f070",
+        "trg_nfr_immutable_delete": "BEFORE DELETE ON nonprofit_funding_revisions #c7eaa2db7bdd66ae584c709efe931229740ea451",
+        "trg_nfr_immutable_update": "BEFORE UPDATE ON nonprofit_funding_revisions #c7eaa2db7bdd66ae584c709efe931229740ea451",
+        "trg_nfr_insert": "BEFORE INSERT ON nonprofit_funding_revisions #a4cfb416ed7d2d9fab5b38cc9b1ffea62d28548d",
+        "trg_nlp_immutable_delete": "BEFORE DELETE ON nonprofit_legal_profiles #14114d6f757030293ceadac8f5ac999e5e0188fa",
+        "trg_nlp_immutable_update": "BEFORE UPDATE ON nonprofit_legal_profiles #14114d6f757030293ceadac8f5ac999e5e0188fa",
         "trg_nonprofit_tax_immutable_delete": "BEFORE DELETE ON nonprofit_tax_assessments #f38c1e13859ea670801b2496d566bdd872f4cb06",
         "trg_nonprofit_tax_immutable_update": "BEFORE UPDATE ON nonprofit_tax_assessments #f38c1e13859ea670801b2496d566bdd872f4cb06",
         "trg_nonprofit_tax_insert": "BEFORE INSERT ON nonprofit_tax_assessments #4e66f08f4b1f04a9c040cdde16a122b7ffcc8f1b",
+        "trg_ntsc_immutable_delete": "BEFORE DELETE ON nonprofit_tax_saving_commands #14114d6f757030293ceadac8f5ac999e5e0188fa",
+        "trg_ntsc_immutable_update": "BEFORE UPDATE ON nonprofit_tax_saving_commands #14114d6f757030293ceadac8f5ac999e5e0188fa",
+        "trg_ntse_immutable_delete": "BEFORE DELETE ON nonprofit_tax_saving_events #14114d6f757030293ceadac8f5ac999e5e0188fa",
+        "trg_ntse_immutable_update": "BEFORE UPDATE ON nonprofit_tax_saving_events #14114d6f757030293ceadac8f5ac999e5e0188fa",
+        "trg_ntss_immutable_delete": "BEFORE DELETE ON nonprofit_tax_saving_sources #14114d6f757030293ceadac8f5ac999e5e0188fa",
+        "trg_ntss_immutable_update": "BEFORE UPDATE ON nonprofit_tax_saving_sources #14114d6f757030293ceadac8f5ac999e5e0188fa",
         "trg_oss_filing_evidence_no_delete": "BEFORE DELETE ON oss_filing_evidence #4307481f6d74af201895e7a19831c30cc145081f",
         "trg_oss_filing_evidence_no_update": "BEFORE UPDATE ON oss_filing_evidence #6abb792aa68c037daacd2bb6ef980c6181fcd46b",
         "trg_other_item_allocation_insert": "BEFORE INSERT ON other_item_allocations #4a852e7af4ad9e755b9dcbb5d78c28499a7f3c26",

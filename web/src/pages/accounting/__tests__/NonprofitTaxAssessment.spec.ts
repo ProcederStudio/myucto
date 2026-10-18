@@ -76,4 +76,13 @@ describe('nonprofit assessment workflow', () => {
     expect(wrapper.find('input[type="checkbox"]').exists()).toBe(false)
     wrapper.unmount()
   })
+  it('shows confirmed SVJ choices and requires an explicit profile selection', async () => {
+    mocks.read.mockResolvedValue({ snapshot: { ...snapshot, legal_profile: { id: 4, revision_no: 2, record_hash: 'proof', profile: { kind: 'svj', entity_type: 'svj', reduction_band: 'ineligible' } } }, latest: null })
+    const wrapper = render()
+    await flushPromises()
+    expect(wrapper.findAll('select')[0]!.findAll('option').map(option => option.attributes('value'))).toEqual(['', 'svj'])
+    expect((wrapper.get('select').element as HTMLSelectElement).value).toBe('')
+    expect(wrapper.text()).toContain('nonprofitTaxNative.confirmedProfile')
+    wrapper.unmount()
+  })
 })

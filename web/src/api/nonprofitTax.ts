@@ -13,6 +13,7 @@ export interface TaxSource {
   mandatory_non_deductible: boolean
   axes: Record<string, { name: string; code: string; value_id: number }> | []
   origin: { line_id: number; type: string; id: number | null }
+  svj_owner_facts?: { owner: 'property_service_lifecycle' | 'property_funding'; kind: 'revenue' | 'expense'; legal_basis: string; case_id?: number; operation_id?: number; covered_cost_cents?: number }
 }
 export interface TaxDecision {
   final_regime?: 'subject' | 'exempt' | 'out_of_scope' | ''
@@ -32,7 +33,7 @@ export interface TaxPool {
 }
 export interface TaxAssessment {
   method?: { mode: 'documented_manual'; valid_from: string; valid_to: string; legal_basis: string; evidence: string }
-  profile: { kind: string; evidence: string }
+  profile: { kind: string; evidence: string; entity_kind?: string }
   activities: Record<string, { evidence: string; cohorts?: Record<string, string> }>
   decisions: Record<string, TaxDecision>
   funding: { source_id: string; cost_id: string; amount_cents: number; evidence: string; deductible_funded_cents?: number }[]
@@ -60,6 +61,8 @@ export interface TaxResult {
   external_adjustments: { funding_anchor: string; evidence: string; legal_basis: string; adjustment_cents: number; included_in_bridge: false }[]
 }
 export interface TaxSnapshot {
+  legal_profile?: { id: number; revision_no: number; record_hash: string; profile: { kind: 'narrow_vpp' | 'broad_vpp' | 'non_vpp' | 'svj'; entity_type: string; reduction_band: string } }
+  svj_module_proof?: { id: number; revision_no: number }[]
   assessment_support?: { automatic: boolean; documented_manual: boolean; automatic_from: string; automatic_to: string }
   period: { id: number; fiscal_year: number; starts_on: string; ends_on: string }
   input_hash: string

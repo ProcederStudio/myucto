@@ -17,9 +17,12 @@ final class NonprofitTaxAssessmentFixture
         Assert::assertSame([], $snapshot['findings']);
         $assessment = ['profile' => ['kind' => 'narrow_vpp', 'evidence' => 'Synthetic statutes and taxpayer assessment'],
             'activities' => [], 'decisions' => [], 'funding' => []];
+        $entityKind = $snapshot['legal_profile']['profile']['kind'] ?? (($snapshot['svj_module_proof'] ?? []) !== [] ? 'svj' : 'narrow_vpp');
+        $assessment['profile']['kind'] = $entityKind;
         $manual = !$snapshot['assessment_support']['automatic'];
         if ($manual) {
             $assessment['profile']['kind'] = 'documented';
+            $assessment['profile']['entity_kind'] = $entityKind;
             $assessment['method'] = ['mode' => 'documented_manual', 'valid_from' => $snapshot['period']['starts_on'], 'valid_to' => $snapshot['period']['ends_on'],
                 'legal_basis' => 'Synthetic legislation applicable to this fiscal period', 'evidence' => 'Synthetic complete classification working paper'];
         }
@@ -28,9 +31,13 @@ final class NonprofitTaxAssessmentFixture
             $assessment['decisions'][$source['id']] = ['title' => $source['kind'] === 'revenue' ? 'rent' : 'cost',
                 'evidence' => 'Synthetic source decision', 'legal_basis' => 'zdp_24_1',
                 'deductible_cents' => $source['mandatory_non_deductible'] ? 0 : $source['amount_cents']];
+            if (isset($source['svj_owner_facts'])) {
+                $assessment['decisions'][$source['id']]['title'] = $source['kind'] === 'revenue' ? 'svj_service_payment' : 'excluded_cost';
+                $assessment['decisions'][$source['id']]['deductible_cents'] = 0;
+            }
             if ($manual) {
-                $assessment['decisions'][$source['id']]['final_regime'] = 'subject';
-                if ($source['kind'] === 'revenue') $assessment['decisions'][$source['id']]['final_method'] = 'return';
+                $assessment['decisions'][$source['id']]['final_regime'] = isset($source['svj_owner_facts']) && $source['kind'] === 'revenue' ? 'out_of_scope' : 'subject';
+                if ($source['kind'] === 'revenue') $assessment['decisions'][$source['id']]['final_method'] = isset($source['svj_owner_facts']) ? 'none' : 'return';
             }
         }
         return $service->confirm($supplier, $period, $assessment, $snapshot['input_hash'],

@@ -94,6 +94,7 @@
     "monthly_report",
     "myucto_import",
     "nonprofitTax",
+    "nonprofitTaxNative",
     "oss_rates",
     "other_items",
     "pamica",
@@ -669,7 +670,8 @@
       "dimensions"
     ],
     "accounting-nonprofit-tax": [
-      "nonprofitTax"
+      "nonprofitTax",
+      "nonprofitTaxNative"
     ],
     "accounting-statement-mapping": [
       "settings"

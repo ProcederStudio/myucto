@@ -37002,5 +37002,25 @@
     "estimateNotUnwound": "Nejdřív přesně stornujte všechny doložené dohady tohoto případu.",
     "finalExists": "Tento krok už byl proveden. Obnovte stav; další konečná faktura se v jednom případu nepodporuje.",
     "sourceReversed": "Vybraný původ byl stornován. Vyberte aktuální doložený zdroj."
+  },
+  "nonprofitTaxNative": {
+    "svjProfile": "Společenství vlastníků jednotek",
+    "confirmedProfile": "Potvrzený právní profil: {profile}, revize {revision}.",
+    "underlyingIdentity": "Doložené právní postavení pro ruční posouzení",
+    "profileConflict": "Zvolené postavení nesouhlasí s potvrzeným právním profilem období.",
+    "profileRequired": "Vyberte doložené právní postavení pro ruční posouzení.",
+    "ownerEvidence": "Titul je doložen nativním vyúčtováním nebo použitím příspěvků vlastníků. Posuďte stejně i související náklady.",
+    "qualifiedPurpose": "Doložený účel nákladu pro použití daňové úspory",
+    "titles": {
+      "svj_service_payment": "Platby vlastníků na služby SVJ (§ 18 odst. 2 písm. f)",
+      "svj_management_payment": "Příspěvky vlastníků na správu domu a pozemku (§ 18 odst. 2 písm. f)"
+    },
+    "purposes": {
+      "education": "Vzdělávání",
+      "science": "Věda",
+      "research": "Výzkum",
+      "development": "Vývoj",
+      "art": "Umělecká činnost"
+    }
   }
 }

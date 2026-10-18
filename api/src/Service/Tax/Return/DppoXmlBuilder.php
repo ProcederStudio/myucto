@@ -70,6 +70,7 @@ final class DppoXmlBuilder
         242 => 'kc_ii_242',
         243 => 'kc_ii_243',
         250 => 'kc_ii230_250',
+        251 => 'kc_ii231_251',
         260 => 'kc_ii240_260',
         270 => 'kc_ii260_270',
         290 => 'kc_ii280_290',
@@ -405,12 +406,18 @@ final class DppoXmlBuilder
      */
     public function build(array $supplier, int $year, array $calc, array $meta = [], array $appendix = []): array
     {
-        AccountingDecreeService::assertSupportedDecree((string) ($meta['accounting_decree'] ?? $supplier['tax_accounting_decree'] ?? '500'));
+        $native504 = ($meta['accounting_decree'] ?? $supplier['tax_accounting_decree'] ?? '500') === '504';
+        if ($native504) {
+            if (!is_array($meta['nonprofit_calculation'] ?? null)) throw new TaxReturnException('nonprofit_dppo_stored_proof_invalid', 'Nativní XML504 vyžaduje úplný důkaz výpočtu.',422);
+            \MyInvoice\Service\Tax\Nonprofit\NonprofitDppoStoredProof::assertCalculation($calc,$meta['nonprofit_calculation']);
+            (new \MyInvoice\Service\Tax\Nonprofit\NonprofitDppoStatementRows())->build($appendix['balance_sheet']??[],$appendix['income_statement']??[]);
+        } else AccountingDecreeService::assertSupportedDecree((string) ($meta['accounting_decree'] ?? $supplier['tax_accounting_decree'] ?? '500'));
+
         foreach (['balance_sheet', 'income_statement'] as $key) {
             $statement = $appendix[$key] ?? [];
             if (($statement['accounting_framework'] ?? '') === 'cz_504'
                 || str_starts_with((string) ($statement['version_code'] ?? ''), 'vyhl504-')) {
-                AccountingDecreeService::assertSupportedDecree('504');
+                if (!$native504) AccountingDecreeService::assertSupportedDecree('504');
             }
         }
         $warnings = [];
@@ -505,7 +512,13 @@ final class DppoXmlBuilder
         $vetaD->setAttribute('kc_v_4', (string) (-(int) round((float) ($calc['balance_due'] ?? 0))));
 
         $hasAppendix = !empty($appendix['balance_sheet']) && !empty($appendix['income_statement']);
-        if ($hasAppendix) {
+        $nonprofit = ($meta['accounting_decree'] ?? '') === '504';
+        if ($nonprofit) {
+            $vetaD->setAttribute('uc_zav', 'A');
+            $vetaD->setAttribute('audit', !empty($appendix['settings']['statutory_audit']) ? 'A' : 'N');
+            foreach (['uv_vyhl'=>'504','uv_rozsah_rozv'=>'P','uv_rozsah_vzz'=>'P','uv_rozsah'=>'P','uv_mena'=>'CZK','uz_dle_mus'=>'N','uz_rad'=>'T'] as $attribute=>$value) $vetaD->setAttribute($attribute, $value);
+            $vetaD->setAttribute('d_uv', $this->formatDate($appendix['balance_sheet']['period']['ends_on']));
+        } elseif ($hasAppendix) {
             $this->applyAppendixMetaToVetaD(
                 $vetaD,
                 (array) ($appendix['category'] ?? []),
@@ -649,7 +662,10 @@ final class DppoXmlBuilder
         // nestavíme) — tedy před VetaUZ, ne za ni. Je NEZÁVISLÁ na appendixu (staví se,
         // i když se příloha účetní závěrky vůbec negeneruje) — $vetaAList je už sestavený
         // výš (sam_pr na VetaD ho potřeboval dřív), sem se jen vkládá na svou sekvenční pozici.
-        if ($hasAppendix) {
+        if ($nonprofit) {
+            (new \MyInvoice\Service\Tax\Nonprofit\NonprofitDppoStatementRows())->append($dom, $root, (new \MyInvoice\Service\Tax\Nonprofit\NonprofitDppoStatementRows())->build($appendix['balance_sheet'], $appendix['income_statement']));
+            foreach ($vetaAList as $vetaA) $root->appendChild($vetaA);
+        } elseif ($hasAppendix) {
             $balanceSheet = (array) $appendix['balance_sheet'];
             $incomeStatement = (array) $appendix['income_statement'];
             // VZZ se počítá JEDNOU (computeVzzThousands) a sdílí se s VetaUD: 'VH' musí
@@ -1551,6 +1567,11 @@ final class DppoXmlBuilder
         // tabulky K. Multi-currency účetnictví zatím nemáme (shodně s VetaD/uv_mena).
         $vetaS->setAttribute('cisobr_mena', 'CZK');
 
+        if (($meta['accounting_decree'] ?? '') === '504') {
+            if (!is_int($meta['net_turnover_annual_kc'] ?? null) || abs($meta['net_turnover_annual_kc']) > 99999999999999) throw new TaxReturnException('nonprofit_dppo_turnover_required', 'Čistý obrat 504 musí pocházet z nativního výpočtu podle § 1d odst. 5 ZoÚ.', 422);
+            $vetaS->setAttribute('kc_dpp_i1', (string) $meta['net_turnover_annual_kc']);
+            return $vetaS;
+        }
         // kc_dpp_i1: jen když je k dispozici VZZ (příloha účetní závěrky).
         $incomeStatement = (array) ($appendix['income_statement'] ?? []);
         if ($incomeStatement !== []) {

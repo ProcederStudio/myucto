@@ -37002,5 +37002,25 @@
     "estimateNotUnwound": "First exactly unwind every evidenced estimate in this case.",
     "finalExists": "This step has already completed. Refresh the state; one case does not support another final invoice.",
     "sourceReversed": "The selected origin was reversed. Select a current evidenced source."
+  },
+  "nonprofitTaxNative": {
+    "svjProfile": "Unit owners association (SVJ)",
+    "confirmedProfile": "Confirmed legal profile: {profile}, revision {revision}.",
+    "underlyingIdentity": "Documented legal status for manual assessment",
+    "profileConflict": "The selected status conflicts with the confirmed legal profile for this period.",
+    "profileRequired": "Select the documented legal status for the manual assessment.",
+    "ownerEvidence": "The title is supported by a native service allocation or use of owner contributions. Apply the same treatment to related costs.",
+    "qualifiedPurpose": "Documented cost purpose for use of the tax saving",
+    "titles": {
+      "svj_service_payment": "SVJ owner payments for services (Income Tax Act section 18(2)(f))",
+      "svj_management_payment": "Owner contributions to building and land administration (section 18(2)(f))"
+    },
+    "purposes": {
+      "education": "Education",
+      "science": "Science",
+      "research": "Research",
+      "development": "Development",
+      "art": "Artistic activities"
+    }
   }
 }

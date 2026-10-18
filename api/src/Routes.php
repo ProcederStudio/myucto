@@ -2926,6 +2926,13 @@ final class Routes
             // celá rodina closing/close/open-next/revert běží na právu accounting.periods.close
             // (RoutePermissionMap + Action requireClose), /status na accounting.periods.manage.
             $g->get   ('/periods/{id:[0-9]+}/closing',                          [ClosingAction::class, 'state']);
+            $g->get('/periods/{id:[0-9]+}/nonprofit-legal-profile', [\MyInvoice\Action\Accounting\Closing\NonprofitDppoAction::class, 'profile']);
+            $g->post('/periods/{id:[0-9]+}/nonprofit-legal-profile/confirm', [\MyInvoice\Action\Accounting\Closing\NonprofitDppoAction::class, 'confirmProfile']);
+            $g->get('/nonprofit-tax-savings', [\MyInvoice\Action\Accounting\Closing\NonprofitDppoAction::class, 'savings']);
+            $g->post('/nonprofit-tax-savings/sources/{id:[0-9]+}/preview', [\MyInvoice\Action\Accounting\Closing\NonprofitDppoAction::class, 'previewUse']);
+            $g->post('/nonprofit-tax-savings/sources/{id:[0-9]+}/confirm', [\MyInvoice\Action\Accounting\Closing\NonprofitDppoAction::class, 'confirmUse']);
+            $g->post('/nonprofit-tax-savings/sources/{id:[0-9]+}/events/{event:[0-9]+}/reverse-preview', [\MyInvoice\Action\Accounting\Closing\NonprofitDppoAction::class, 'previewReverse']);
+            $g->post('/nonprofit-tax-savings/sources/{id:[0-9]+}/events/{event:[0-9]+}/reverse-confirm', [\MyInvoice\Action\Accounting\Closing\NonprofitDppoAction::class, 'confirmReverse']);
             $g->get('/periods/{id:[0-9]+}/nonprofit-tax', [\MyInvoice\Action\Accounting\Closing\NonprofitTaxAssessmentAction::class, 'read']);
             $g->get('/periods/{id:[0-9]+}/nonprofit-tax/history', [\MyInvoice\Action\Accounting\Closing\NonprofitTaxAssessmentAction::class, 'history']);
             $g->post('/periods/{id:[0-9]+}/nonprofit-tax/preview', [\MyInvoice\Action\Accounting\Closing\NonprofitTaxAssessmentAction::class, 'preview']);

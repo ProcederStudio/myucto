@@ -12,6 +12,9 @@ final class NonprofitTaxCalculator
         $manual = array_key_exists('method', $assessment);
         $profile = $manual ? NonprofitTaxRules::documentedProfile($assessment, $snapshot['period'])
             : NonprofitTaxRules::profile($assessment['profile'] ?? [], $snapshot['period']);
+        $assertedProfile = $manual ? ($assessment['profile']['entity_kind'] ?? 'documented') : $profile;
+        if (isset($snapshot['legal_profile']) && ($snapshot['legal_profile']['profile']['kind'] ?? null) !== $assertedProfile) NonprofitTaxRules::invalid('Postavení posouzení musí souhlasit s potvrzeným právním profilem období.');
+        if (($snapshot['svj_module_proof'] ?? []) !== [] && $assertedProfile !== 'svj') NonprofitTaxRules::invalid('Potvrzený profil SVJ nelze posuzovat jako veřejně prospěšného poplatníka.');
         $decisions = $assessment['decisions'] ?? [];
         $rows = [];
         $groups = [];
@@ -34,6 +37,10 @@ final class NonprofitTaxCalculator
             }
             $group = $kind . ':' . $cohort;
             $row = $source + ['decision' => $decision, 'group' => $group];
+            $owner = $source['svj_owner_facts'] ?? null;
+            if ($owner !== null && ($assertedProfile !== 'svj' || ($owner['kind'] ?? null) !== $source['kind'])) NonprofitTaxRules::invalid('Nativní titul služby nesouhlasí s právním profilem nebo druhem zdroje.');
+            if ($source['kind'] === 'revenue' && (($decision['title'] ?? '') === 'svj_service_payment') !== ($owner !== null)) NonprofitTaxRules::invalid('Platba služby SVJ vyžaduje přesný nativní právní titul.');
+            if ($source['kind'] === 'expense' && $owner !== null && ($decision['deductible_cents'] ?? null) !== 0) NonprofitTaxRules::invalid('Náklad služby mimo předmět daně nemůže být daňově uznatelný.');
             if ($source['kind'] === 'revenue') {
                 $row['classification'] = $manual ? NonprofitTaxRules::documentedClassification($decision, 'revenue') : NonprofitTaxRules::revenue($profile, $decision);
                 if ($row['classification']['method'] === 'final_withholding') {
@@ -54,7 +61,7 @@ final class NonprofitTaxCalculator
                 $title = $decision['title'] ?? '';
                 if (!in_array($title, ['cost', 'nonbusiness_cost', 'excluded_cost', 'withholding_interest_cost'], true)) NonprofitTaxRules::invalid('Náklad nemá podporovaný účel.');
                 if ($title === 'excluded_cost' && $allowed !== 0) NonprofitTaxRules::invalid('Vyloučený náklad nemůže být daňově uznatelný.');
-                if ($title === 'withholding_interest_cost' && $profile === 'non_vpp') NonprofitTaxRules::invalid('Výjimka nákladů na srážkové úroky vyžaduje veřejně prospěšného poplatníka.');
+                if ($title === 'withholding_interest_cost' && !in_array($profile, ['narrow_vpp', 'broad_vpp'], true)) NonprofitTaxRules::invalid('Výjimka nákladů na srážkové úroky vyžaduje veřejně prospěšného poplatníka.');
                 $row['classification'] = $manual ? NonprofitTaxRules::documentedClassification($decision, 'expense')
                     : ['regime' => $title === 'nonbusiness_cost' && $profile === 'narrow_vpp' ? 'pending' : 'subject',
                         'method' => 'cost', 'legal_basis' => $decision['legal_basis']];
@@ -300,6 +307,18 @@ final class NonprofitTaxCalculator
         }
         return ['excluded' => array_map(static fn (array $cost): int => $cost['excluded'] ?? 0, $costs),
             'usage' => $usage, 'external_adjustments' => $external];
+    }
+
+    public function fundingIncomePools(array $result,array $snapshot,array $assessment):array
+    {
+        $rows=array_column($result['rows'],null,'id');
+        return $this->pools($rows+($snapshot['funding_reference_sources']??[]),$assessment['funding_sources']??[],'revenue',$rows,($assessment['funding']??[])!==[]);
+    }
+
+    public function fundingCostPools(array $result,array $assessment):array
+    {
+        $rows=array_column($result['rows'],null,'id');
+        return $this->pools($rows,$assessment['funding_costs']??[],'expense',$rows,($assessment['funding']??[])!==[]);
     }
 
     private function pools(array $catalog, array $declared, string $kind, array $currentRows, bool $hasFunding): array

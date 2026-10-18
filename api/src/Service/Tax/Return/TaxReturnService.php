@@ -103,6 +103,11 @@ final class TaxReturnService
             $row = $this->returns->find($supplierId, $year, $type, $variant, $seq) ?? $row;
         }
 
+        if ($this->isNonprofit($supplierId,$year,$type) && $row['status'] === 'final') {
+            $native = $row['final_snapshot_id'] === null ? null : $this->returns->snapshot($supplierId,(int)$row['final_snapshot_id']);
+            if ($native === null || \MyInvoice\Service\Tax\Nonprofit\NonprofitTaxRules::hash((array)$row['computed']) !== \MyInvoice\Service\Tax\Nonprofit\NonprofitTaxRules::hash((array)$native['snapshot_json'])) throw new TaxReturnException('nonprofit_dppo_stored_proof_invalid','Finální přiznání504 vyžaduje úplný shodný nativní snapshot.',409);
+            \MyInvoice\Service\Tax\Nonprofit\NonprofitDppoStoredProof::verify($native['snapshot_json'],$native['source_manifest'],$native['xml_content']);
+        }
         $stored = is_array($row['computed'] ?? null) ? (array) $row['computed'] : [];
         if ($row['status'] === 'final' && $type !== 'po' && !is_array($stored['computed'] ?? null)) {
             throw new TaxReturnException('final_snapshot_required', 'Finální přiznání nemá uložený výpočet. Vraťte ho do rozpracovaného stavu, ověřte a znovu finalizujte.', 409);
@@ -117,6 +122,7 @@ final class TaxReturnService
 
         if ($type === 'po' && $row['status'] === 'final'
             && ($row['final_snapshot_id'] === null || $this->returns->snapshot($supplierId, (int) $row['final_snapshot_id']) === null)) {
+            if ($this->isNonprofit($supplierId,$year,$type)) throw new TaxReturnException('nonprofit_dppo_stored_proof_invalid','Finální504 nelze rekonstruovat bez původního nativního důkazu.',409);
             $computation = $this->legacyDppoComputation($supplierId, $year, $row, $variant);
         }
 
@@ -147,6 +153,7 @@ final class TaxReturnService
                 ? $this->snapshotMetadata($supplierId, (int) $row['final_snapshot_id'])
                 : null,
             'constants_year' => $year,
+            ...isset($computation['podklady']['nonprofit_calculation']) ? ['nonprofit_filing_proof_hash' => $computation['podklady']['nonprofit_calculation']['filing_proof_hash']] : [],
         ];
     }
 
@@ -300,6 +307,17 @@ final class TaxReturnService
      */
     public function saveInputs(int $supplierId, int $year, string $type, array $inputs, int $expectedRowVersion, ?int $userId, string $variant = 'radne', int $variantSeq = 1, bool $partial = false): array
     {
+        if ($type === 'po' && (new AccountingDecreeService($this->db))->forYear($supplierId, $year) === '504') {
+            return (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $year, $type, $inputs, $expectedRowVersion, $userId, $variant, $variantSeq, $partial): array {
+                (new \MyInvoice\Service\Property\Payments\PaymentLocks($this->db))->acquire($supplierId);
+                return $this->saveInputsInTransaction($supplierId, $year, $type, $inputs, $expectedRowVersion, $userId, $variant, $variantSeq, $partial);
+            });
+        }
+        return $this->saveInputsInTransaction($supplierId, $year, $type, $inputs, $expectedRowVersion, $userId, $variant, $variantSeq, $partial);
+    }
+
+    private function saveInputsInTransaction(int $supplierId, int $year, string $type, array $inputs, int $expectedRowVersion, ?int $userId, string $variant, int $variantSeq, bool $partial): array
+    {
         $this->assertAccountingDecree($supplierId, $year, $type);
         $this->assertType($type);
         $this->assertSupplierType($supplierId, $type);
@@ -310,6 +328,11 @@ final class TaxReturnService
             $inputs = self::mergeStoredInputs((array) ($existing['inputs'] ?? []), $inputs);
         }
         $clean = $this->sanitizeInputs($type, $inputs, $variant);
+        if ($type === 'po' && (new AccountingDecreeService($this->db))->forYear($supplierId, $year) === '504') {
+            if (($userId ?? 0) <= 0) throw new TaxReturnException('nonprofit_dppo_session_required', 'Přiznání 504 vyžaduje oprávněnou uživatelskou relaci.', 403);
+            $clean['puz_to_registry'] = false;
+            $this->compute($supplierId, $year, $type, $clean, $variant);
+        }
 
         if ($existing === null) {
             if ($expectedRowVersion !== 0) {
@@ -365,9 +388,15 @@ final class TaxReturnService
      *
      * @return array<string,mixed>
      */
-    public function finalize(int $supplierId, int $year, string $type, int $expectedRowVersion, ?int $userId, string $variant = 'radne', int $variantSeq = 1): array
+    public function finalize(int $supplierId, int $year, string $type, int $expectedRowVersion, ?int $userId, string $variant = 'radne', int $variantSeq = 1, ?string $expectedNonprofitFilingProofHash = null): array
     {
         $this->assertAccountingDecree($supplierId, $year, $type);
+        if ($type === 'po' && (new AccountingDecreeService($this->db))->forYear($supplierId, $year) === '504') {
+            return (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $year, $type, $expectedRowVersion, $userId, $variant, $variantSeq, $expectedNonprofitFilingProofHash): array {
+                (new \MyInvoice\Service\Property\Payments\PaymentLocks($this->db))->acquire($supplierId);
+                return $this->finalizeInTransaction($supplierId, $year, $type, $expectedRowVersion, $userId, $variant, $variantSeq, $expectedNonprofitFilingProofHash);
+            });
+        }
         $pdo = $this->db->pdo();
         $ownTx = !$pdo->inTransaction();
         if ($ownTx) {
@@ -388,7 +417,7 @@ final class TaxReturnService
         }
     }
 
-    private function finalizeInTransaction(int $supplierId, int $year, string $type, int $expectedRowVersion, ?int $userId, string $variant, int $variantSeq): array
+    private function finalizeInTransaction(int $supplierId, int $year, string $type, int $expectedRowVersion, ?int $userId, string $variant, int $variantSeq, ?string $expectedNonprofitFilingProofHash = null): array
     {
         $this->assertType($type);
         $this->assertSupplierType($supplierId, $type);
@@ -403,6 +432,10 @@ final class TaxReturnService
             throw new TaxReturnException('already_final', 'Přiznání je již finální.', 409);
         }
         $computation = $this->compute($supplierId, $year, $type, (array) $row['inputs'], $variant);
+        $nonprofit = isset($computation['podklady']['nonprofit_calculation']);
+        if ($nonprofit && (($userId ?? 0) <= 0 || !is_string($expectedNonprofitFilingProofHash) || !hash_equals($computation['podklady']['nonprofit_calculation']['filing_proof_hash'], $expectedNonprofitFilingProofHash))) {
+            throw new TaxReturnException('nonprofit_dppo_filing_proof_changed', 'Podklady přiznání se změnily. Načtěte výpočet a znovu potvrďte jeho aktuální důkaz.', 409);
+        }
         $preFinalize = $this->preFinalizeChecks->run($supplierId, $year, $type, (array) $row['inputs'], $computation);
         $snapshot = [
             'computed' => $computation['result'],
@@ -435,6 +468,7 @@ final class TaxReturnService
             $xsd = $this->xmlValidator->validate($snapshotXml, 'dppdp9');
         }
         $snapshot['xml_validation'] = $xsd;
+        if ($nonprofit && $xsd['status'] !== 'passed') throw new TaxReturnException('nonprofit_dppo_xml_invalid', 'Nativní přiznání 504 musí projít úplnou kontrolou XSD.', 422);
         $validationErrors = array_merge($businessErrors, (array) $xsd['errors']);
         $snapshot['warnings'] = array_values(array_unique(array_merge(
             $snapshot['warnings'],
@@ -452,6 +486,11 @@ final class TaxReturnService
             $effectiveResult = (array) ($previousSnapshot['computed'] ?? []);
             $effectiveReturnId = (int) ($lastBefore['id'] ?? 0) ?: null;
         }
+        $nonprofitEffective = $nonprofit && $effectiveReturnId === (int) $row['id'];
+        if ($nonprofitEffective) {
+            (new \MyInvoice\Service\Tax\Nonprofit\NonprofitTaxSavingsService($this->db))->preparePeriodReplacement($supplierId, (int) $computation['podklady']['period']['id'], (int) $userId, 'finalize-' . $row['id'] . '-' . $expectedRowVersion);
+        }
+        if ($nonprofit) \MyInvoice\Service\Tax\Nonprofit\NonprofitDppoStoredProof::verify($snapshot, $computation['podklady']['source_manifest'], $snapshotXml);
         [$yearLoss, $appliedLoss] = $this->lossFigures($type, $effectiveResult);
         try {
             $this->losses->assertLossAmountCanBeSet($supplierId, $type, $year, $yearLoss);
@@ -486,6 +525,7 @@ final class TaxReturnService
             throw new TaxReturnException('version_conflict', 'Přiznání bylo mezitím změněno — načtěte znovu.', 409);
         }
         $this->losses->reconcileFinalize($supplierId, $type, $year, $yearLoss, $appliedLoss, $effectiveReturnId);
+        if ($nonprofitEffective) (new \MyInvoice\Service\Tax\Nonprofit\NonprofitTaxSavingsLedger($this->db))->registerFinal($supplierId, (int) $snapshotId, (int) $userId);
 
         if ($variant === 'radne') {
             // E9 — z finalizovaného řádného přiznání vygeneruj předpisy záloh na příští rok
@@ -852,6 +892,18 @@ final class TaxReturnService
     /** Vrátí finální přiznání zpět do draftu. @return array<string,mixed> */
     public function reopen(int $supplierId, int $year, string $type, int $expectedRowVersion, ?int $userId, string $variant = 'radne', int $variantSeq = 1): array
     {
+        if ($type === 'po' && (new AccountingDecreeService($this->db))->forYear($supplierId, $year) === '504') {
+            return (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $year, $type, $expectedRowVersion, $userId, $variant, $variantSeq): array {
+                (new \MyInvoice\Service\Property\Payments\PaymentLocks($this->db))->acquire($supplierId);
+                if (($userId ?? 0) <= 0) throw new TaxReturnException('nonprofit_dppo_session_required', 'Změna přiznání vyžaduje oprávněnou uživatelskou relaci.', 403);
+                return $this->reopenInTransaction($supplierId, $year, $type, $expectedRowVersion, $userId, $variant, $variantSeq);
+            });
+        }
+        return $this->reopenInTransaction($supplierId, $year, $type, $expectedRowVersion, $userId, $variant, $variantSeq);
+    }
+
+    private function reopenInTransaction(int $supplierId, int $year, string $type, int $expectedRowVersion, ?int $userId, string $variant, int $variantSeq): array
+    {
         $this->assertAccountingDecree($supplierId, $year, $type);
         $this->assertType($type);
         $this->assertSupplierType($supplierId, $type);
@@ -878,11 +930,17 @@ final class TaxReturnService
             $pdo->beginTransaction();
         }
         try {
+            $nonprofit = $type === 'po' && (new AccountingDecreeService($this->db))->forYear($supplierId, $year) === '504';
+            if ($nonprofit) {
+                $current = $this->returns->findLastFinalized($supplierId, $year, $type);
+                if ((int) ($current['id'] ?? 0) === (int) $row['id']) (new \MyInvoice\Service\Tax\Nonprofit\NonprofitTaxSavingsService($this->db))->preparePeriodReplacement($supplierId, (int) $row['computed']['podklady']['period']['id'], (int) $userId, 'reopen-' . $row['id'] . '-' . $expectedRowVersion);
+            }
             $updated = $this->returns->reopen($supplierId, $year, $type, $expectedRowVersion, $variant, $seq);
             if ($updated === null) {
                 throw new TaxReturnException('version_conflict', 'Přiznání bylo mezitím změněno — načtěte znovu.', 409);
             }
             $this->losses->releaseReturn($supplierId, $type, $year);
+            if ($nonprofit) (new \MyInvoice\Service\Tax\Nonprofit\NonprofitTaxSavingsService($this->db))->restoreEffective($supplierId, $year, (int) $userId, 'reopen-' . $row['id'] . '-' . $expectedRowVersion);
             if ($lastFinal !== null) {
                 $snapshot = (array) ($lastFinal['computed'] ?? []);
                 [$yearLoss, $appliedLoss] = $this->lossFigures($type, (array) ($snapshot['computed'] ?? []));
@@ -934,6 +992,24 @@ final class TaxReturnService
         $this->assertAccountingDecree($supplierId, $year, $type);
         $this->assertType($type);
         $this->assertSupplierType($supplierId, $type);
+        if ($this->isNonprofit($supplierId, $year, $type)) {
+            return (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $year, $type, $variant, $variantSeq): array {
+                (new \MyInvoice\Service\Property\Payments\PaymentLocks($this->db))->acquire($supplierId);
+                $this->assertVariant($variant);
+                $seq = $this->resolveSeq($supplierId, $year, $type, $variant, $variantSeq);
+                $row = $this->returns->find($supplierId, $year, $type, $variant, $seq);
+                $inputs = (array) ($row['inputs'] ?? []);
+                $computation = $this->compute($supplierId, $year, $type, $inputs, $variant);
+                $built = $this->buildDppoXml($supplierId, $year, $inputs, $computation, $variant, $seq);
+                $xsd = $this->xmlValidator->validate($built['xml'], 'dppdp9');
+                $built['form_code'] = 'dppdp9-preview';
+                $built['filename'] = sprintf('dppdp9-%04d-pracovni.xml', $year);
+                $built['xsd_status'] = $xsd['status'];
+                $built['business_errors'] = [];
+                $built['warnings'] = array_values(array_unique(array_merge($built['warnings'], $xsd['errors'])));
+                return ['computation' => $computation, 'built' => $built];
+            });
+        }
         if ($type !== 'fo') {
             throw new TaxReturnException('preview_not_supported', 'Pracovní XML je určeno pro DPFO.', 400);
         }
@@ -996,6 +1072,7 @@ final class TaxReturnService
         $row = $this->returns->find($supplierId, $year, $type, $variant, $seq);
         if ($type === 'po' && $row !== null && $row['status'] === 'final'
             && ($row['final_snapshot_id'] === null || $this->returns->snapshot($supplierId, (int) $row['final_snapshot_id']) === null)) {
+            if ($this->isNonprofit($supplierId,$year,$type)) throw new TaxReturnException('nonprofit_dppo_stored_proof_invalid','Finální504 nelze rekonstruovat bez původního nativního důkazu.',409);
             $computation = $this->legacyDppoComputation($supplierId, $year, $row, $variant);
             return [
                 'built' => $this->buildDppoXml($supplierId, $year, (array) $row['inputs'], $computation, $variant, $seq),
@@ -1070,7 +1147,7 @@ final class TaxReturnService
         $row = $this->returns->find($supplierId, $year, $type, $variant, $seq);
         $isFinal = $row !== null && $row['status'] === 'final';
 
-        $source = $type === 'fo' && !$isFinal
+        $source = ($type === 'fo' || $this->isNonprofit($supplierId, $year, $type)) && !$isFinal
             ? $this->previewXmlWithComputation($supplierId, $year, $type, $variant, $seq)
             : $this->buildXmlWithComputation($supplierId, $year, $type, $variant, $seq);
         $built = $source['built'];
@@ -1140,10 +1217,17 @@ final class TaxReturnService
             // nepodporovaných případů na to u rizikové firmy upozorní.
             + ['typ_popldpp' => TaxpayerTypeCodebook::normalize($supplier['epo_taxpayer_code'] ?? null)
                 ?? TaxpayerTypeCodebook::DEFAULT_CODE];
-        $appendix = $this->buildDppoAppendix($supplierId, (array) ($computation['podklady']['period'] ?? []), $year);
-        $appendixWarnings = (array) ($appendix['warnings'] ?? []);
-        unset($appendix['warnings']);
-        $built = $this->dppoXml->build($supplier, $year, $computation['result'], $meta, $appendix);
+        if ($supplier['tax_accounting_decree'] === '504') {
+            $record = $computation['podklady']['nonprofit_calculation'];
+            $supplier = $record['entity_proof']['supplier'] + ['tax_accounting_decree' => '504'];
+            $built = (new \MyInvoice\Service\Tax\Nonprofit\NonprofitDppoArchiveBuilder($this->dppoXml, $this->statementNotesPdf))->build($record, $computation['result'], $meta);
+            $appendixWarnings = [];
+        } else {
+            $appendix = $this->buildDppoAppendix($supplierId, (array) ($computation['podklady']['period'] ?? []), $year);
+            $appendixWarnings = (array) ($appendix['warnings'] ?? []);
+            unset($appendix['warnings']);
+            $built = $this->dppoXml->build($supplier, $year, $computation['result'], $meta, $appendix);
+        }
         $formCode = 'dppdp9';
 
         $unsupported = UnsupportedCaseDetector::detectForSupplier(
@@ -1198,6 +1282,10 @@ final class TaxReturnService
      */
     public function generateXml(int $supplierId, int $year, string $type, ?int $userId, string $variant = 'radne', int $variantSeq = 1): array
     {
+        if ($this->isNonprofit($supplierId,$year,$type)) {
+            $row=$this->returns->find($supplierId,$year,$type,$variant,$this->resolveSeq($supplierId,$year,$type,$variant,$variantSeq));
+            if (($row['status']??null)!=='final') throw new TaxReturnException('final_snapshot_required','Archivace504 vyžaduje potvrzené finální přiznání. Pro kontrolu použijte pracovní náhled.',409);
+        }
         $built = $this->buildXml($supplierId, $year, $type, $variant, $variantSeq);
         $seq = (int) $built['variant_seq'];
         $row = $this->returns->find($supplierId, $year, $type, $variant, $seq);
@@ -1510,6 +1598,7 @@ final class TaxReturnService
      */
     private function buildStatementNotesAttachment(int $supplierId, int $periodId, array $period): array
     {
+        $decree = (new AccountingDecreeService($this->db))->forYear($supplierId, (int) ($period['fiscal_year'] ?? substr($period['ends_on'], 0, 4)));
         $path = sprintf(
             'Účetnictví → Uzávěrka a přiznání → Příloha v účetní závěrce (/accounting/periods/%d/statement-notes).',
             $periodId,
@@ -1546,7 +1635,7 @@ final class TaxReturnService
         return ['file' => [
             'content'  => $pdf,
             'filename' => sprintf('priloha-ucetni-zaverky-%d.pdf', $fiscalYear),
-            'label'    => sprintf('Příloha v účetní závěrce za rok %d (§ 39 vyhl. 500/2002 Sb.)', $fiscalYear),
+            'label'    => sprintf('Příloha v účetní závěrce za rok %d (vyhl. %s/2002 Sb.)', $fiscalYear, $decree),
         ], 'warning' => null];
     }
 
@@ -1736,6 +1825,14 @@ final class TaxReturnService
 
     // ── Interní ────────────────────────────────────────────────────────────
 
+    public function isNonprofit(int $supplierId, int $year, string $type): bool
+    {return $type === 'po' && (new AccountingDecreeService($this->db))->forYear($supplierId, $year) === '504';}
+
+    public function nonprofitEntityProof(int $supplierId, int $periodId): array
+    {
+        return ['supplier' => $this->loadSupplier($supplierId), 'representation' => $this->representationMeta($supplierId, null), 'settings' => $this->supplierSettings->get($supplierId), 'notes' => $this->statementNotes->build($supplierId, $periodId), 'entity_header' => $this->statements->entityHeader($supplierId)];
+    }
+
     private function assertAccountingDecree(int $supplierId, int $year, string $type): void
     {
         if ($type === 'po') {
@@ -1778,6 +1875,11 @@ final class TaxReturnService
                 'bank_account' => $data['bank_account'] ?? null,
                 'bank_accounts' => $data['bank_accounts'] ?? [],
             ];
+            if ($data['accounting_decree'] === '504') {
+                $capture = \MyInvoice\Service\Tax\Nonprofit\NonprofitDppoStoredProof::capture($data, $inputs, $const, $this->nonprofitEntityProof($supplierId, (int) $data['period']['id']));
+                $podklady += ['nonprofit' => $data['nonprofit'], 'statements' => $data['statements'], 'nonprofit_calculation' => $capture];
+                $podklady['source_manifest'] = $data['source_manifest'] + ['nonprofit_filing_proof_hash' => $capture['filing_proof_hash'], 'nonprofit_data_manifest_hash' => \MyInvoice\Service\Tax\Nonprofit\NonprofitTaxRules::hash($data['source_manifest'])];
+            }
             $warnings = array_merge($data['warnings'], $result['warnings']);
         } else {
             // DPFO — §6–§10, Příloha 1 §7 (kasová báze / paušál / VH pro double_entry).
@@ -1900,6 +2002,11 @@ final class TaxReturnService
         $out['notes'] = $this->text($inputs['notes'] ?? '', 2000);
 
         if ($type === 'po') {
+            if (array_key_exists('nonprofit', $inputs)) {
+                $n = $inputs['nonprofit'];
+                if (!is_array($n) || array_diff(array_keys($n), ['reduction_kc','reduction_evidence','documented_lines','adjustments']) !== [] || (isset($n['reduction_kc']) && (!is_int($n['reduction_kc']) || $n['reduction_kc'] < 0)) || (isset($n['reduction_evidence']) && !is_string($n['reduction_evidence'])) || (isset($n['documented_lines']) && !is_array($n['documented_lines'])) || (isset($n['adjustments']) && (!is_array($n['adjustments']) || !array_is_list($n['adjustments'])))) throw new TaxReturnException('nonprofit_dppo_inputs_invalid', 'Volby 504 musí obsahovat přesné doložené údaje.', 422);
+                $out['nonprofit'] = $n;
+            }
             $out['manual_increase_items'] = $this->items($inputs['manual_increase_items'] ?? [], DppoReturnCalculator::INCREASE_ITEM_LINES);
             $out['manual_decrease_items'] = $this->items($inputs['manual_decrease_items'] ?? [], DppoReturnCalculator::DECREASE_ITEM_LINES);
             $out['loss_carryforward'] = $this->money($inputs['loss_carryforward'] ?? 0);
