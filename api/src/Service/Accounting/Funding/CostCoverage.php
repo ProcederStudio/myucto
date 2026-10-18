@@ -36,7 +36,8 @@ final class CostCoverage
             if(isset($context['j6_period_id'])){$q=$this->db->pdo()->prepare('SELECT e.period_id FROM journal_entry_lines l JOIN journal_entries e ON e.supplier_id=l.supplier_id AND e.id=l.entry_id WHERE l.supplier_id=? AND l.id=? FOR UPDATE');$q->execute([$supplier,$line]);if((int)$q->fetchColumn()!==$context['j6_period_id'])throw new \InvalidArgumentException('Coverage context does not own this cost.');}
             $c=Bootstrap::buildContainer();$c->set(Connection::class,$this->db);
             try{$svj=(new FundingRepository($this->db))->costClaims($supplier,$line);}catch(FundingException $e){throw new PostingException($e->errorCode,$e->getMessage(),$e->httpStatus);}
-            $providers=['svj'=>$svj,'j6'=>$this->readJ6(fn()=>$c->get(J6FundingCapacity::class)->costClaims($supplier,$line,$context['j6_period_id']??null))];$total='0';foreach($providers as$claims)foreach($claims as$claim)$total=bcadd($total,$claim['amount_cents'],0);
+            try{$capital=(new \MyInvoice\Service\Nonprofit\Capital\CapitalCapacity($this->db))->costClaims($supplier,$line);}catch(\MyInvoice\Service\Nonprofit\Capital\CapitalException $e){throw new PostingException($e->errorCode,$e->getMessage(),$e->httpStatus);}
+            $providers=['capital'=>$capital,'svj'=>$svj,'j6'=>$this->readJ6(fn()=>$c->get(J6FundingCapacity::class)->costClaims($supplier,$line,$context['j6_period_id']??null))];$total='0';foreach($providers as$claims)foreach($claims as$claim)$total=bcadd($total,$claim['amount_cents'],0);
             return ['claimed_cents'=>$total,'providers'=>$providers];
         });
     }

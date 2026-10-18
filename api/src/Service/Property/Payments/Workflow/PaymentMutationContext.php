@@ -31,6 +31,7 @@ final class PaymentMutationContext
 
     public function assertEntriesMutable(int $supplier, array $ids): void
     {
+        (new \MyInvoice\Service\Nonprofit\Capital\CapitalUseGuard($this->db))->assertEntriesMutable($supplier, $ids);
         (new \MyInvoice\Service\Accounting\Closing\SecuritiesDebt504UseGuard($this->db))->assertEntriesMutable($supplier, $ids);
         if (!$this->acquire($supplier)) return;
         try {
@@ -42,6 +43,7 @@ final class PaymentMutationContext
 
     public function assertSourceMutable(int $supplier, string $kind, int $id): void
     {
+        (new \MyInvoice\Service\Nonprofit\Capital\CapitalUseGuard($this->db))->assertSourceMutable($supplier, $kind, $id);
         (new \MyInvoice\Service\Accounting\Closing\SecuritiesDebt504UseGuard($this->db))->assertSourceMutable($supplier, $kind, $id);
         if (!$this->acquire($supplier)) return;
         try {
@@ -53,6 +55,7 @@ final class PaymentMutationContext
 
     public function assertBankStatementMutable(int $supplier, int $id): void
     {
+        (new \MyInvoice\Service\Nonprofit\Capital\CapitalUseGuard($this->db))->assertBankStatementMutable($supplier, $id);
         (new \MyInvoice\Service\Accounting\Closing\SecuritiesDebt504UseGuard($this->db))->assertBankStatementMutable($supplier, $id);
         if (!$this->acquire($supplier)) return;
         try {
@@ -64,6 +67,7 @@ final class PaymentMutationContext
 
     public function assertLinesMutable(int $supplier, array $ids): void
     {
+        (new \MyInvoice\Service\Nonprofit\Capital\CapitalUseGuard($this->db))->assertLinesMutable($supplier, $ids);
         (new \MyInvoice\Service\Accounting\Closing\SecuritiesDebt504UseGuard($this->db))->assertLinesMutable($supplier, $ids);
         if (!$this->acquire($supplier)) return;
         try {
@@ -75,7 +79,6 @@ final class PaymentMutationContext
 
     public function assertSourcesMutable(int $supplier, array $sources): void
     {
-        if (!$this->acquire($supplier)) return;
         $entries = (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->lockSources($supplier, $sources);
         $this->assertEntriesMutable($supplier, array_map('intval', array_keys($entries)));
     }

@@ -49,6 +49,7 @@ final class JournalEntryRepository
     {
         \MyInvoice\Service\Property\Services\Settlement\SettlementUseGuard::assertGenericInsert($header);
         \MyInvoice\Service\Property\Funds\FundingUseGuard::assertGenericInsert($header);
+        \MyInvoice\Service\Nonprofit\Capital\CapitalUseGuard::assertGenericInsert($header);
         $pdo = $this->db->pdo();
         $ownTx = !$pdo->inTransaction();
         if ($ownTx) {
@@ -120,6 +121,17 @@ final class JournalEntryRepository
         $stmt->execute([$entry, $intent->supplier, $intent->operationId]);
         if ($stmt->rowCount() !== 1) \MyInvoice\Service\Property\Payments\PaymentException::reject('settlement_intent');
         return $entry;
+    }
+
+    public function insertNonprofitCapital(\MyInvoice\Service\Nonprofit\Capital\CapitalJournalProof $proof):int
+    {
+        return(new DimensionPeriodGuard($this->db))->transaction(function()use($proof):int{
+            $journal=$proof->journal($this->db);
+            (new SystemDimensionWritePolicy($this->db))->assertNonprofitCapital($journal['header'],$journal['lines'],$proof);
+            \MyInvoice\Service\Accounting\PostingService::assertBalanced($journal['lines']);
+            $entry=$journal['source_entry_id']===null?$this->persistJournal($journal['header'],$journal['lines']):$this->insertReversalLocked($journal['header'],$journal['lines'],$journal['source_entry_id']);
+            $proof->complete($this->db,$entry);return $entry;
+        });
     }
 
     public function insertPropertyFunding(\MyInvoice\Service\Property\Funds\FundingProof $proof):int
@@ -573,7 +585,6 @@ final class JournalEntryRepository
     public function replace(int $id, array $header, array $lines): void
     {
         (new IssuanceUseGuard($this->db))->assertPostingEntriesMutable((int) $header['supplier_id'], [$id]);
-        (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->assertEntriesMutable((int) $header['supplier_id'], [$id]);
         $previous = $this->currentEntryForDimensionWrite($id, (int) $header['supplier_id']);
         (new JointAllocationUseGuard($this->db))->assertEntriesMutable((int) $header['supplier_id'], [$id]);
         if ($previous === null || $previous['reversed_by'] !== null) {
@@ -582,6 +593,8 @@ final class JournalEntryRepository
         if ((new \MyInvoice\Service\Accounting\Closing\AssetReserveSourceUseGuard($this->db, $this))->assertEntryChange(
             (int) $header['supplier_id'], $id, $lines, $header['entry_date'], $header,
         )) return;
+        if ((new \MyInvoice\Service\Nonprofit\Capital\CapitalUseGuard($this->db, $this))->assertEntryChange((int) $header['supplier_id'], $id, $lines, $header['entry_date'], $header)) return;
+        (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->assertEntriesMutable((int) $header['supplier_id'], [$id]);
         if (($header['posted_at'] ?? null) !== null) (new \MyInvoice\Service\Accounting\Funding\NativeCostCoverage($this->db))->assertCreditNotePosting($header);
         $validationPrevious = SystemDimensionWritePolicy::canRetainEntryAssignments($header, $previous) ? $previous['lines'] : [];
         (new SystemDimensionWritePolicy($this->db))->assertJournal($header, $lines, $validationPrevious);
@@ -647,7 +660,6 @@ final class JournalEntryRepository
     public function replaceSomeLines(int $entryId, int $supplierId, int $expectedRowVersion, array $removeLineIds, array $addLines): void
     {
         (new IssuanceUseGuard($this->db))->assertPostingEntriesMutable($supplierId, [$entryId]);
-        (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->assertEntriesMutable($supplierId, [$entryId]);
         $entry = $this->currentEntryForDimensionWrite($entryId, $supplierId);
         (new JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, [$entryId]);
         if ($entry === null || $entry['reversed_by'] !== null || (int) $entry['row_version'] !== $expectedRowVersion) {
@@ -663,6 +675,8 @@ final class JournalEntryRepository
         }
         if ((new \MyInvoice\Service\Accounting\Closing\AssetReserveSourceUseGuard($this->db, $this))->assertEntryChange(
             $supplierId, $entryId, [...$retained, ...$addLines], $entry['entry_date'], $entry)) return;
+        if ((new \MyInvoice\Service\Nonprofit\Capital\CapitalUseGuard($this->db, $this))->assertEntryChange($supplierId, $entryId, [...$retained, ...$addLines], $entry['entry_date'], $entry)) return;
+        (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->assertEntriesMutable($supplierId, [$entryId]);
         (new SystemDimensionWritePolicy($this->db))->assertJournal($entry, [...$retained, ...$addLines], $retained);
         $pdo = $this->db->pdo();
         $stmt = $pdo->prepare(
@@ -832,6 +846,7 @@ final class JournalEntryRepository
                 return ['before' => $before, 'after' => $text, 'posted' => $posted, 'changed' => false];
             }
 
+            (new \MyInvoice\Service\Nonprofit\Capital\CapitalUseGuard($this->db, $this))->assertEntriesMutable($supplierId, [$id]);
             $pdo->prepare(
                 'UPDATE journal_entries SET description = ?, row_version = row_version + 1
                   WHERE id = ? AND supplier_id = ?'
@@ -881,7 +896,6 @@ final class JournalEntryRepository
         }
         try {
             (new IssuanceUseGuard($this->db))->assertPostingEntriesMutable($supplierId, [$id]);
-            (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->assertEntriesMutable($supplierId, [$id]);
             $entry = $this->currentEntryForDimensionWrite($id, $supplierId);
             (new JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, [$id]);
             if ($entry !== null && $entry['posted_at'] !== null
@@ -890,6 +904,13 @@ final class JournalEntryRepository
                 if ($ownTx) $pdo->commit();
                 return false;
             }
+            if ($entry !== null && $entry['posted_at'] !== null
+                && (new \MyInvoice\Service\Nonprofit\Capital\CapitalUseGuard($this->db, $this))->assertEntryChange(
+                    $supplierId, $id, $entry['lines'], $entry['entry_date'], $entry)) {
+                if ($ownTx) $pdo->commit();
+                return false;
+            }
+            (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->assertEntriesMutable($supplierId, [$id]);
             if ($entry !== null) (new \MyInvoice\Service\Accounting\Funding\NativeCostCoverage($this->db))->assertCreditNotePosting($entry);
             if ($entry !== null && $entry['posted_at'] === null) {
                 (new SystemDimensionWritePolicy($this->db))->assertJournal($entry, $entry['lines']);

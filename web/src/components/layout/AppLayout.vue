@@ -657,6 +657,7 @@ const navSections = computed<NavSection[]>(() => {
         // Uzávěrka — účetní období vytažená ze záložky Nástrojů do vlastní top-level
         // položky menu (jen podvojné účetnictví).
         { to: '/accounting/periods', label: t('nav.section_closing'), icon: ICONS.approvals },
+        { to: '/accounting/nonprofit-capital', label: t('nonprofitCapital.title'), icon: ICONS.approvals },
         { to: '/accounting/nonprofit-funding', label: t('nonprofitFunding.title'), icon: ICONS.approvals },
         // EPO podání a archív se přesunulo dolů do sekce Daně — archív podání patří
         // k výkazům, které se jím podávají, ne mezi setup nástroje.

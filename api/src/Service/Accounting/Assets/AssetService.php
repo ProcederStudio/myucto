@@ -133,6 +133,7 @@ final class AssetService
             $this->assertLocks($existing, $card, $data);
             [$card, $warnings] = $this->validateCard($supplierId, $card, false);
 
+            (new \MyInvoice\Service\Nonprofit\Capital\CapitalUseGuard($this->db, $this->journal))->assertAssetChange($supplierId, $id, $card);
             (new \MyInvoice\Service\Accounting\Closing\AssetReserveSourceUseGuard($this->db, $this->journal))->assertAssetChange($supplierId, $id, $card);
             unset($card['created_by']);
             try {
@@ -212,6 +213,7 @@ final class AssetService
             (new \MyInvoice\Service\Accounting\Dimension\SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
             (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->lockClaims($supplierId);
             $asset = $this->assets->findForUpdate($supplierId, $id);
+            (new \MyInvoice\Service\Nonprofit\Capital\CapitalUseGuard($this->db, $this->journal))->assertAssetChange($supplierId, $id, null);
             (new \MyInvoice\Service\Accounting\Closing\AssetReserveSourceUseGuard($this->db, $this->journal))->assertAssetChange($supplierId, $id, null);
             if ($asset === null) {
                 throw new AssetException('not_found', 'Majetek nenalezen.', 404);
@@ -479,6 +481,7 @@ final class AssetService
                 : null;
             $this->assertPurchaseInvoiceOwned($supplierId, $piId);
 
+            (new \MyInvoice\Service\Nonprofit\Capital\CapitalUseGuard($this->db, $this->journal))->assertAssetChange($supplierId, $id, null);
             (new \MyInvoice\Service\Accounting\Closing\AssetReserveSourceUseGuard($this->db, $this->journal))->assertImprovementChange($supplierId, $id, 0, ['completed_on' => $completedOn, 'amount' => $amount]);
             $impId = $this->assets->insertImprovement($supplierId, $id, [
                 'completed_on' => $completedOn,
@@ -522,6 +525,7 @@ final class AssetService
             $this->assertTaxEvidenceYearOpenIfTaxEvidence($supplierId, $impYear);
             $this->assertYearNotConfirmed($id, $impYear);
             $this->assertNoLaterConfirmedYear($id, $impYear);
+            (new \MyInvoice\Service\Nonprofit\Capital\CapitalUseGuard($this->db, $this->journal))->assertAssetChange($supplierId, $id, null);
             (new \MyInvoice\Service\Accounting\Closing\AssetReserveSourceUseGuard($this->db, $this->journal))->assertImprovementChange($supplierId, $id, $improvementId, null);
             $this->assets->deleteImprovement($supplierId, $improvementId);
         });

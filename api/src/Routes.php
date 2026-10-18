@@ -2928,6 +2928,10 @@ final class Routes
             // celá rodina closing/close/open-next/revert běží na právu accounting.periods.close
             // (RoutePermissionMap + Action requireClose), /status na accounting.periods.manage.
             $g->get   ('/periods/{id:[0-9]+}/closing',                          [ClosingAction::class, 'state']);
+            $g->get('/nonprofit-capital', [\MyInvoice\Action\Nonprofit\CapitalAction::class, 'read']);
+            $g->get('/periods/{id:[0-9]+}/nonprofit-capital/choices', [\MyInvoice\Action\Nonprofit\CapitalAction::class, 'choices']);
+            $g->post('/nonprofit-capital/preview', [\MyInvoice\Action\Nonprofit\CapitalAction::class, 'preview']);
+            $g->post('/nonprofit-capital/confirm', [\MyInvoice\Action\Nonprofit\CapitalAction::class, 'confirm']);
             $g->get('/nonprofit-funding', [\MyInvoice\Action\Nonprofit\FundingAction::class, 'read']);
             $g->get('/periods/{id:[0-9]+}/nonprofit-funding/choices', [\MyInvoice\Action\Nonprofit\FundingAction::class, 'choices']);
             $g->post('/periods/{id:[0-9]+}/nonprofit-funding/preview', [\MyInvoice\Action\Nonprofit\FundingAction::class, 'preview']);

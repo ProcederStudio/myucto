@@ -1034,7 +1034,8 @@
         "2050_property_service_settlement_dossier_events.sql",
         "2051_property_funding.sql",
         "2052_accounting_securities_debt.sql",
-        "2053_nonprofit_funding_sources.sql"
+        "2053_nonprofit_funding_sources.sql",
+        "2054_nonprofit_capital_sources.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -2253,7 +2254,8 @@
                 "idx_assets_sale_invoice": "BTREE (sale_invoice_id)",
                 "idx_assets_summary_account": "BTREE (supplier_id, summary_account_code)",
                 "idx_assets_supplier_status": "BTREE (supplier_id, status)",
-                "uq_assets_supplier_invno": "UNIQUE BTREE (supplier_id, inventory_number)"
+                "uq_assets_supplier_invno": "UNIQUE BTREE (supplier_id, inventory_number)",
+                "uq_assets_tenant_id": "UNIQUE BTREE (supplier_id, id)"
             },
             "foreign_keys": {
                 "fk_assets_disposal_entry": "(disposal_entry_id) -> journal_entries (id) ON UPDATE RESTRICT ON DELETE SET NULL",
@@ -4378,7 +4380,8 @@
             "indexes": {
                 "PRIMARY": "UNIQUE BTREE (id)",
                 "idx_de_supplier_year": "BTREE (supplier_id, fiscal_year, kind)",
-                "uq_de_asset_kind_year": "UNIQUE BTREE (asset_id, kind, fiscal_year)"
+                "uq_de_asset_kind_year": "UNIQUE BTREE (asset_id, kind, fiscal_year)",
+                "uq_depreciation_tenant_id": "UNIQUE BTREE (supplier_id, id)"
             },
             "foreign_keys": {
                 "fk_de_asset": "(asset_id) -> assets (id) ON UPDATE RESTRICT ON DELETE CASCADE",
@@ -6868,7 +6871,7 @@
                 "reversed_by": "bigint(20) unsigned NULL DEFAULT NULL",
                 "row_version": "int(10) unsigned NOT NULL DEFAULT 1",
                 "source_id": "bigint(20) unsigned NULL DEFAULT NULL",
-                "source_type": "enum('invoice','purchase_invoice','bank','cash','asset','manual','closing','opening','depreciation','asset_disposal','fx_revaluation','stock','provision','income_tax','profit_distribution','offset','small_asset_accrual','prepaid_expense_accrual','settlement','deferred_tax','payroll','vat_clearing','payroll_payment','gopay','card_settlement','card_writeoff','other_item','payroll_accident_insurance','payroll_travel','deferred_revenue_accrual','unit_charge','unit_payment','unit_payment_revision','property_service_settlement','property_service_lifecycle','property_funding') NOT NULL DEFAULT 'manual'",
+                "source_type": "enum('invoice','purchase_invoice','bank','cash','asset','manual','closing','opening','depreciation','asset_disposal','fx_revaluation','stock','provision','income_tax','profit_distribution','offset','small_asset_accrual','prepaid_expense_accrual','settlement','deferred_tax','payroll','vat_clearing','payroll_payment','gopay','card_settlement','card_writeoff','other_item','payroll_accident_insurance','payroll_travel','deferred_revenue_accrual','unit_charge','unit_payment','unit_payment_revision','property_service_settlement','property_service_lifecycle','property_funding','nonprofit_capital') NOT NULL DEFAULT 'manual'",
                 "supplier_id": "int(10) unsigned NOT NULL",
                 "updated_at": "timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE CURRENT_TIMESTAMP()"
             },
@@ -7030,7 +7033,8 @@
                 "idx_jel_supplier_account": "BTREE (supplier_id, account_id)",
                 "idx_jel_supplier_entry": "BTREE (supplier_id, entry_id)",
                 "ix_jel_closing_by_account": "BTREE (supplier_id, account_id, entry_id, side, amount)",
-                "ix_jel_closing_by_entry": "BTREE (supplier_id, entry_id, account_id, side, amount)"
+                "ix_jel_closing_by_entry": "BTREE (supplier_id, entry_id, account_id, side, amount)",
+                "uq_capital_line_tenant": "UNIQUE BTREE (supplier_id, id)"
             },
             "foreign_keys": {
                 "fk_jel_account_supplier": "(supplier_id, account_id) -> chart_of_accounts (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
@@ -7711,6 +7715,123 @@
             "checks": {
                 "cc": "json_valid(`cc`)",
                 "sent_to": "json_valid(`sent_to`)"
+            }
+        },
+        "nonprofit_capital_commands": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "created_at": "datetime(6) NOT NULL DEFAULT current_timestamp(6)",
+                "created_by": "bigint(20) unsigned NULL DEFAULT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "idempotency_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "request_json": "longtext NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "created_by": "BTREE (created_by)",
+                "uq_ncc_tenant": "UNIQUE BTREE (supplier_id, id)",
+                "uq_ncc_token": "UNIQUE BTREE (supplier_id, idempotency_key)"
+            },
+            "foreign_keys": {
+                "nonprofit_capital_commands_ibfk_1": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_capital_commands_ibfk_2": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "request_json": "json_valid(`request_json`)"
+            }
+        },
+        "nonprofit_capital_events": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "amount_cents": "bigint(20) unsigned NOT NULL",
+                "command_id": "bigint(20) unsigned NOT NULL",
+                "cost_line_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "depreciation_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "entry_id": "bigint(20) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "operation": "enum('release','reverse') NOT NULL",
+                "original_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "parent_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "previous_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "receipt_json": "longtext NOT NULL",
+                "record_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "snapshot_json": "longtext NOT NULL",
+                "source_id": "bigint(20) unsigned NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "supplier_id": "BTREE (supplier_id, source_id, previous_id)",
+                "supplier_id_2": "BTREE (supplier_id, source_id, original_id)",
+                "supplier_id_3": "BTREE (supplier_id, depreciation_id)",
+                "supplier_id_4": "BTREE (supplier_id, cost_line_id)",
+                "uq_nce_chain": "UNIQUE BTREE (supplier_id, source_id, id)",
+                "uq_nce_command": "UNIQUE BTREE (supplier_id, command_id)",
+                "uq_nce_entry": "UNIQUE BTREE (supplier_id, entry_id)",
+                "uq_nce_reverse": "UNIQUE BTREE (supplier_id, original_id)",
+                "uq_nce_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "nonprofit_capital_events_ibfk_1": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_capital_events_ibfk_2": "(supplier_id, source_id) -> nonprofit_capital_sources (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_capital_events_ibfk_3": "(supplier_id, command_id) -> nonprofit_capital_commands (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_capital_events_ibfk_4": "(supplier_id, source_id, previous_id) -> nonprofit_capital_events (supplier_id, source_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_capital_events_ibfk_5": "(supplier_id, source_id, original_id) -> nonprofit_capital_events (supplier_id, source_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_capital_events_ibfk_6": "(supplier_id, entry_id) -> journal_entries (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_capital_events_ibfk_7": "(supplier_id, depreciation_id) -> depreciation_entries (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_capital_events_ibfk_8": "(supplier_id, cost_line_id) -> journal_entry_lines (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "CONSTRAINT_1": "`amount_cents` > 0",
+                "CONSTRAINT_2": "`operation` = 'release' and `original_id` is null or `operation` = 'reverse' and `original_id` is not null",
+                "CONSTRAINT_3": "`depreciation_id` is null or `cost_line_id` is null",
+                "receipt_json": "json_valid(`receipt_json`)",
+                "snapshot_json": "json_valid(`snapshot_json`)"
+            }
+        },
+        "nonprofit_capital_sources": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "amount_cents": "bigint(20) unsigned NOT NULL",
+                "asset_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "basis_json": "longtext NOT NULL",
+                "command_id": "bigint(20) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "kind": "enum('investment','fund') NOT NULL",
+                "policy_json": "longtext NOT NULL",
+                "provider_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "record_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "source_line_id": "bigint(20) unsigned NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "supplier_id": "BTREE (supplier_id, asset_id)",
+                "supplier_id_2": "BTREE (supplier_id, provider_id)",
+                "uq_ncs_command": "UNIQUE BTREE (supplier_id, command_id)",
+                "uq_ncs_line": "UNIQUE BTREE (supplier_id, source_line_id)",
+                "uq_ncs_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "nonprofit_capital_sources_ibfk_1": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_capital_sources_ibfk_2": "(supplier_id, command_id) -> nonprofit_capital_commands (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_capital_sources_ibfk_3": "(supplier_id, source_line_id) -> journal_entry_lines (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_capital_sources_ibfk_4": "(supplier_id, asset_id) -> assets (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_capital_sources_ibfk_5": "(supplier_id, provider_id) -> clients (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "CONSTRAINT_1": "`amount_cents` > 0",
+                "CONSTRAINT_2": "`kind` = 'investment' and `asset_id` is not null and `provider_id` is not null or `kind` = 'fund' and `asset_id` is null",
+                "basis_json": "json_valid(`basis_json`)",
+                "policy_json": "json_valid(`policy_json`)"
             }
         },
         "nonprofit_funding_revisions": {
@@ -26440,6 +26561,12 @@
         "trg_jmhz_scn_requirement_bu": "BEFORE UPDATE ON payroll_jmhz_field_requirements #b71c659e5b0a7a47ecbc804e6ae742279b0b9208",
         "trg_journal_payroll_batch_insert": "BEFORE INSERT ON journal_entries #f75c2f92cf4c2bec4dae140c18d6e95f50264967",
         "trg_journal_payroll_immutable_update": "BEFORE UPDATE ON journal_entries #3635d1e00151830cb61416104ed79cfa05bc025f",
+        "trg_ncc_immutable_delete": "BEFORE DELETE ON nonprofit_capital_commands #f1b059c1fa4cf0b0d29ad9a4cdf2f80b3264f070",
+        "trg_ncc_immutable_update": "BEFORE UPDATE ON nonprofit_capital_commands #f1b059c1fa4cf0b0d29ad9a4cdf2f80b3264f070",
+        "trg_nce_immutable_delete": "BEFORE DELETE ON nonprofit_capital_events #f1b059c1fa4cf0b0d29ad9a4cdf2f80b3264f070",
+        "trg_nce_immutable_update": "BEFORE UPDATE ON nonprofit_capital_events #f1b059c1fa4cf0b0d29ad9a4cdf2f80b3264f070",
+        "trg_ncs_immutable_delete": "BEFORE DELETE ON nonprofit_capital_sources #f1b059c1fa4cf0b0d29ad9a4cdf2f80b3264f070",
+        "trg_ncs_immutable_update": "BEFORE UPDATE ON nonprofit_capital_sources #f1b059c1fa4cf0b0d29ad9a4cdf2f80b3264f070",
         "trg_nfr_immutable_delete": "BEFORE DELETE ON nonprofit_funding_revisions #c7eaa2db7bdd66ae584c709efe931229740ea451",
         "trg_nfr_immutable_update": "BEFORE UPDATE ON nonprofit_funding_revisions #c7eaa2db7bdd66ae584c709efe931229740ea451",
         "trg_nfr_insert": "BEFORE INSERT ON nonprofit_funding_revisions #a4cfb416ed7d2d9fab5b38cc9b1ffea62d28548d",

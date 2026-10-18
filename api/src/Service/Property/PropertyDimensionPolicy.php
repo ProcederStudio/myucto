@@ -27,6 +27,14 @@ final class PropertyDimensionPolicy
         $this->assertWindow($supplierId, $start->format('Y-m-d\TH:i:sP'), $start->modify('+1 day')->format('Y-m-d\TH:i:sP'), $lines, $previousLines);
     }
 
+    public function assertNonprofitCapitalJournal(array $header,array $lines,\MyInvoice\Service\Nonprofit\Capital\CapitalJournalProof $proof):void
+    {
+        $carried=$proof->indices($this->db,$header,$lines);$date=(string)$header['entry_date'];
+        $start=\DateTimeImmutable::createFromFormat('!Y-m-d',$date,new \DateTimeZone('Europe/Prague'));
+        if($start===false||$start->format('Y-m-d')!==$date)PropertyInput::invalid('entry_date');
+        $this->assertWindow((int)$header['supplier_id'],$start->format('Y-m-d\TH:i:sP'),$start->modify('+1 day')->format('Y-m-d\TH:i:sP'),$lines,[],$carried);
+    }
+
     public function assertFundingJournal(array $header,array $lines,Funds\FundingProof $proof):void
     {
         $carried=$proof->indices($this->db,$header,$lines);

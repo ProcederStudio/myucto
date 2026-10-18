@@ -84,9 +84,13 @@ final class SystemDimensionWritePolicy
         $this->assertJournalCore($proof->header, $proof->lines, [], null, null, null, $proof);
     }
 
-    private function assertJournalCore(array $header, array $lines, array $previousLines, ?\MyInvoice\Service\Property\Payments\PaymentHistoricalCarrierProof $proof = null, ?\MyInvoice\Service\Accounting\Closing\ClosingCarryJournalProof $closingCarry = null, \MyInvoice\Service\Accounting\Closing\ClosingLegal504Proof|\MyInvoice\Service\Accounting\Closing\AssetReserveCorrection504Proof|\MyInvoice\Service\Accounting\Closing\DeferredTax504Proof|null $assetCarry = null, ?\MyInvoice\Service\Accounting\Closing\Fx504JournalProof $fx = null, ?\MyInvoice\Service\Property\Opening\OpeningOwnerProof $opening = null, string $openingPart = 'journal', ?\MyInvoice\Service\Property\Services\Settlement\SettlementHistoricalCarrierProof $settlement = null, ?\MyInvoice\Service\Property\Services\Settlement\ServiceLifecycleProof $lifecycle = null, ?\MyInvoice\Service\Property\Funds\FundingProof $funding = null): void
+    public function assertNonprofitCapital(array $header,array $lines,\MyInvoice\Service\Nonprofit\Capital\CapitalJournalProof $proof):void
+    {$this->assertJournalCore($header,$lines,[],capital:$proof);}
+
+    private function assertJournalCore(array $header, array $lines, array $previousLines, ?\MyInvoice\Service\Property\Payments\PaymentHistoricalCarrierProof $proof = null, ?\MyInvoice\Service\Accounting\Closing\ClosingCarryJournalProof $closingCarry = null, \MyInvoice\Service\Accounting\Closing\ClosingLegal504Proof|\MyInvoice\Service\Accounting\Closing\AssetReserveCorrection504Proof|\MyInvoice\Service\Accounting\Closing\DeferredTax504Proof|null $assetCarry = null, ?\MyInvoice\Service\Accounting\Closing\Fx504JournalProof $fx = null, ?\MyInvoice\Service\Property\Opening\OpeningOwnerProof $opening = null, string $openingPart = 'journal', ?\MyInvoice\Service\Property\Services\Settlement\SettlementHistoricalCarrierProof $settlement = null, ?\MyInvoice\Service\Property\Services\Settlement\ServiceLifecycleProof $lifecycle = null, ?\MyInvoice\Service\Property\Funds\FundingProof $funding = null, ?\MyInvoice\Service\Nonprofit\Capital\CapitalJournalProof $capital = null): void
     {
-        $carried = $funding?->indices($this->db,$header,$lines) ?? $lifecycle?->indices($this->db,$header,$lines) ?? $settlement?->indices($this->db,$header,$lines) ?? $opening?->indices($this->db,$header,$lines,$openingPart) ?? $assetCarry?->indices($this->db, $header, $lines) ?? $closingCarry?->indices($this->db, $header, $lines) ?? $proof?->indices($this->db, $header, $lines) ?? [];
+        if($capital===null)\MyInvoice\Service\Nonprofit\Capital\CapitalUseGuard::assertGenericInsert($header);
+        $carried = $capital?->indices($this->db,$header,$lines) ?? $funding?->indices($this->db,$header,$lines) ?? $lifecycle?->indices($this->db,$header,$lines) ?? $settlement?->indices($this->db,$header,$lines) ?? $opening?->indices($this->db,$header,$lines,$openingPart) ?? $assetCarry?->indices($this->db, $header, $lines) ?? $closingCarry?->indices($this->db, $header, $lines) ?? $proof?->indices($this->db, $header, $lines) ?? [];
         $fxRetained = $fx?->assignments($this->db, $header, $lines) ?? [];
         $supplierId = (int) $header['supplier_id'];
         $this->lockJournalPeriod($header);
@@ -98,7 +102,9 @@ final class SystemDimensionWritePolicy
                 break;
             }
         }
-        if($funding!==null){
+        if($capital!==null){
+            (new \MyInvoice\Service\Property\PropertyDimensionPolicy($this->db))->assertNonprofitCapitalJournal($header,$lines,$capital);
+        } elseif($funding!==null){
             (new \MyInvoice\Service\Property\PropertyDimensionPolicy($this->db))->assertFundingJournal($header,$lines,$funding);
         } elseif($lifecycle!==null){
             (new \MyInvoice\Service\Property\PropertyDimensionPolicy($this->db))->assertServiceLifecycleJournal($header,$lines,$lifecycle);
