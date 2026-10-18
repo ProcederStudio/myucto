@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 import EmailProfiles from '@/pages/admin/EmailProfiles.vue'
 import Branding from '@/pages/admin/Branding.vue'
 import ClientSigningProfiles from '@/components/settings/ClientSigningProfiles.vue'
@@ -13,21 +14,30 @@ type SettingsTab = 'email-profiles' | 'branding' | 'payment-qr' | 'signing-profi
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
-const tabs: SettingsTab[] = ['email-profiles', 'branding', 'payment-qr', 'signing-profiles', 'email-templates']
+const auth = useAuthStore()
+const tabs = computed<SettingsTab[]>(() => {
+  const allowed: SettingsTab[] = []
+  if (auth.canWrite('settings.email_profiles')) allowed.push('email-profiles')
+  if (auth.canWrite('settings.branding')) allowed.push('branding')
+  if (auth.canWrite('settings.payment_qr')) allowed.push('payment-qr')
+  if (auth.isClientRole && auth.canWrite('settings.signing_profiles')) allowed.push('signing-profiles')
+  if (auth.canWrite('settings.email_templates')) allowed.push('email-templates')
+  return allowed
+})
 
-function tabFromQuery(value: unknown): SettingsTab {
+function tabFromQuery(value: unknown): SettingsTab | undefined {
   const candidate = String(value ?? '') as SettingsTab
-  return tabs.includes(candidate) ? candidate : 'email-profiles'
+  return tabs.value.includes(candidate) ? candidate : tabs.value[0]
 }
 
-const activeTab = ref<SettingsTab>(tabFromQuery(route.query.tab))
+const activeTab = ref<SettingsTab | undefined>(tabFromQuery(route.query.tab))
 
-watch(() => route.query.tab, value => {
+watch(() => [route.query.tab, tabs.value] as const, ([value]) => {
   activeTab.value = tabFromQuery(value)
 })
 
 function switchTab(tab: SettingsTab) {
-  if (activeTab.value === tab) return
+  if (!tabs.value.includes(tab) || activeTab.value === tab) return
   activeTab.value = tab
   void router.replace({ query: { ...route.query, tab } })
 }
@@ -47,7 +57,7 @@ function switchTab(tab: SettingsTab) {
         type="button"
         class="-mb-px cursor-pointer whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition-colors"
         :class="activeTab === 'email-profiles' ? 'border-primary-600 text-primary-700' : 'border-transparent text-neutral-500 hover:text-neutral-700'"
-        @click="switchTab('email-profiles')"
+        v-if="tabs.includes('email-profiles')" @click="switchTab('email-profiles')"
       >
         {{ t('nav.email_profiles') }}
       </button>
@@ -55,7 +65,7 @@ function switchTab(tab: SettingsTab) {
         type="button"
         class="-mb-px cursor-pointer whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition-colors"
         :class="activeTab === 'branding' ? 'border-primary-600 text-primary-700' : 'border-transparent text-neutral-500 hover:text-neutral-700'"
-        @click="switchTab('branding')"
+        v-if="tabs.includes('branding')" @click="switchTab('branding')"
       >
         {{ t('nav.branding') }}
       </button>
@@ -63,25 +73,25 @@ function switchTab(tab: SettingsTab) {
         type="button"
         class="-mb-px cursor-pointer whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition-colors"
         :class="activeTab === 'payment-qr' ? 'border-primary-600 text-primary-700' : 'border-transparent text-neutral-500 hover:text-neutral-700'"
-        @click="switchTab('payment-qr')"
+        v-if="tabs.includes('payment-qr')" @click="switchTab('payment-qr')"
       >
         {{ t('settings.payment_qr_tab') }}
       </button>
       <button type="button"
         class="-mb-px cursor-pointer whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition-colors"
         :class="activeTab === 'signing-profiles' ? 'border-primary-600 text-primary-700' : 'border-transparent text-neutral-500 hover:text-neutral-700'"
-        @click="switchTab('signing-profiles')">
+        v-if="tabs.includes('signing-profiles')" @click="switchTab('signing-profiles')">
         {{ t('settings.signing_profiles_title') }}
       </button>
       <button type="button" class="-mb-px cursor-pointer whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition-colors"
         :class="activeTab === 'email-templates' ? 'border-primary-600 text-primary-700' : 'border-transparent text-neutral-500 hover:text-neutral-700'"
-        @click="switchTab('email-templates')">{{ t('users.email_templates_title') }}</button>
+        v-if="tabs.includes('email-templates')" @click="switchTab('email-templates')">{{ t('users.email_templates_title') }}</button>
     </nav>
 
     <EmailProfiles v-if="activeTab === 'email-profiles'" client-scoped />
     <Branding v-else-if="activeTab === 'branding'" client-scoped />
     <ClientSigningProfiles v-else-if="activeTab === 'signing-profiles'" />
     <CompanyEmailTemplates v-else-if="activeTab === 'email-templates'" client-scoped />
-    <ClientPaymentQrSettings v-else />
+    <ClientPaymentQrSettings v-else-if="activeTab === 'payment-qr'" />
   </div>
 </template>

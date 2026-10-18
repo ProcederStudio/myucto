@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ClientItems from './ClientItems.vue'
 import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -60,6 +61,7 @@ function onDetailTabKey(event: KeyboardEvent, current: DetailTab) {
 }
 
 async function loadProductContext() {
+  if (auth.isClientRole) return
   const current = ++contextGeneration
   try {
     const value = await productMastersApi.getProductContext(id.value)
@@ -167,6 +169,7 @@ const salePriceWithVat = computed<number | null>(() => {
 // pro dobu, než se odpověď vrátí.
 const quantities = ref<StockQuantityRow | null>(null)
 async function loadQuantities() {
+  if (auth.isClientRole) return
   try {
     const r = await purchaseOrdersApi.quantities([id.value])
     quantities.value = r.items[0] ?? null
@@ -185,6 +188,7 @@ const movLimit = 50
 const movHasMore = ref(true)
 
 async function loadItem() {
+  if (auth.isClientRole) return
   loading.value = true
   try {
     item.value = await stockApi.getItem(id.value)
@@ -197,6 +201,7 @@ async function loadItem() {
 }
 
 async function loadPackaging() {
+  if (auth.isClientRole) return
   try {
     packaging.value = await stockApi.getItemPackaging(id.value)
   } catch {
@@ -205,6 +210,7 @@ async function loadPackaging() {
 }
 
 async function loadMovements(reset = false) {
+  if (auth.isClientRole) return
   if (reset) { movements.value = []; movOffset.value = 0; movHasMore.value = true }
   if (!movHasMore.value) return
   movLoading.value = true
@@ -222,6 +228,7 @@ async function loadMovements(reset = false) {
 }
 
 onMounted(async () => {
+  if (auth.isClientRole) return
   await loadItem()
   void loadPackaging()
   void loadWarehouseLevels()
@@ -338,7 +345,8 @@ const openingBalanceNum = computed(() => Number(openingBalance.value))
 </script>
 
 <template>
-  <div>
+  <ClientItems v-if="auth.isClientRole" mode="detail" />
+  <div v-else>
     <div v-if="loading" class="text-center text-neutral-500 py-12 text-sm">{{ t('common.loading') }}</div>
     <template v-else-if="item">
       <div class="flex flex-wrap items-start justify-between gap-3 mb-4">

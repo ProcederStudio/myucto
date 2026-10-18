@@ -14,6 +14,7 @@ use MyInvoice\Middleware\LicenseMiddleware;
 use MyInvoice\Middleware\SupplierScopeMiddleware;
 use MyInvoice\Repository\SupplierPaymentQrSettingsRepository;
 use MyInvoice\Security\AccessLevel;
+use MyInvoice\Security\OperationalSettingsAccess;
 use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Bank\OwnBankAccountRegistrar;
@@ -485,6 +486,27 @@ final class SettingsAction
 
         if ($this->membershipDenies($request, $id)) {
             return Json::error($response, 'not_found', 'Supplier nenalezen.', 404);
+        }
+
+        // Široká správa firmy nesmí obnovit odvolané provozní oprávnění.
+        // Starší formuláře posílají i nezměněné hodnoty; ty odstraňujeme z UPDATE.
+        foreach ([
+            [OperationalSettingsAccess::paymentQr($request), SupplierPaymentQrSettingsRepository::FIELDS],
+            [OperationalSettingsAccess::branding($request), ['email_branding_enabled', 'email_accent_color', 'pdf_logo_show_name', 'invoice_pdf_monochrome', 'branding_profiles_enabled']],
+        ] as [$allowedArea, $fields]) {
+            if ($allowedArea) continue;
+            $postedFields = array_values(array_intersect($fields, array_keys($body)));
+            if ($postedFields === []) continue;
+            $current = $this->db->pdo()->prepare('SELECT ' . implode(', ', $postedFields) . ' FROM supplier WHERE id = ?');
+            $current->execute([$id]);
+            $stored = $current->fetch(\PDO::FETCH_ASSOC);
+            foreach ($postedFields as $field) {
+                $same = $stored !== false && ($field === 'email_accent_color'
+                    ? strtoupper((string) $body[$field]) === strtoupper((string) $stored[$field])
+                    : (bool) $body[$field] === (bool) $stored[$field]);
+                if (!$same) return Json::error($response, 'forbidden_permission', 'Nemáš oprávnění měnit toto provozní nastavení firmy.', 403);
+                unset($body[$field]);
+            }
         }
 
         if (array_key_exists('person_title', $body)) {

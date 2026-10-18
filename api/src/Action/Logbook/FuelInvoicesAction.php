@@ -8,6 +8,8 @@ use MyInvoice\Http\Json;
 use MyInvoice\Http\SupplierGuard;
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Repository\CarRepository;
+use MyInvoice\Security\AccessLevel;
+use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Repository\FuelingRepository;
 use MyInvoice\Repository\FuelScanRepository;
 use MyInvoice\Repository\PurchaseInvoiceRepository;
@@ -40,6 +42,9 @@ final class FuelInvoicesAction
     /** Položky faktury (detail pro přehled „Načíst z faktur"). */
     public function items(Request $request, Response $response, array $args): Response
     {
+        if (!RequestAuthorization::allows($request, 'purchase_invoices', AccessLevel::READ)) {
+            return Json::error($response, 'forbidden_permission', 'Tankování z faktur vyžaduje právo číst přijaté faktury.', 403);
+        }
         $supplierId = SupplierGuard::currentId($request);
         $invoiceId = (int) ($args['id'] ?? 0);
         $invoice = $this->invoices->find($invoiceId, $supplierId);
@@ -70,6 +75,9 @@ final class FuelInvoicesAction
 
     public function list(Request $request, Response $response): Response
     {
+        if (!RequestAuthorization::allows($request, 'purchase_invoices', AccessLevel::READ)) {
+            return Json::error($response, 'forbidden_permission', 'Tankování z faktur vyžaduje právo číst přijaté faktury.', 403);
+        }
         $supplierId = SupplierGuard::currentId($request);
         $q = $request->getQueryParams();
         $filters = [];
@@ -87,6 +95,9 @@ final class FuelInvoicesAction
 
     public function assign(Request $request, Response $response, array $args): Response
     {
+        if (!RequestAuthorization::allows($request, 'purchase_invoices', AccessLevel::READ)) {
+            return Json::error($response, 'forbidden_permission', 'Tankování z faktur vyžaduje právo číst přijaté faktury.', 403);
+        }
         $supplierId = SupplierGuard::currentId($request);
         $invoiceId = (int) ($args['id'] ?? 0);
         $body = (array) ($request->getParsedBody() ?? []);
@@ -113,6 +124,9 @@ final class FuelInvoicesAction
 
     public function backfill(Request $request, Response $response): Response
     {
+        if (!RequestAuthorization::allows($request, 'purchase_invoices', AccessLevel::READ)) {
+            return Json::error($response, 'forbidden_permission', 'Tankování z faktur vyžaduje právo číst přijaté faktury.', 403);
+        }
         $supplierId = SupplierGuard::currentId($request);
         $body = (array) ($request->getParsedBody() ?? []);
         $limit = isset($body['limit']) ? max(1, min(100, (int) $body['limit'])) : 25;

@@ -24,6 +24,10 @@ const props = withDefaults(defineProps<{ clientScoped?: boolean }>(), {
  * stojí SPF. Vlastní SMTP/sendmail transport se proto nenabízí, ale pole se
  * NESKRÝVÁ: uživatel musí vidět, proč tam volba není. Backend odmítá i bez UI.
  */
+const canSelectSigningProfile = computed(() => props.clientScoped
+  ? auth.canWrite('settings.signing_profiles')
+  : auth.canRead('settings.signing'))
+
 const transportLocked = computed(() => auth.isManagedInstallation)
 const transportLockedHint = computed(() =>
   transportLocked.value ? t('settings.email_profile_transport_managed') : undefined,
@@ -230,7 +234,7 @@ async function load() {
   try {
     const [profileRows, signingRows] = await Promise.all([
       settingsApi.listEmailProfiles(props.clientScoped),
-      settingsApi.listSigningProfiles(props.clientScoped),
+      canSelectSigningProfile.value ? settingsApi.listSigningProfiles(props.clientScoped) : Promise.resolve([]),
     ])
     profiles.value = profileRows
     signingProfiles.value = signingRows
@@ -393,6 +397,7 @@ function payload(): EmailProfilePayload {
     is_default: draft.is_default,
     is_active: draft.is_active,
   }
+  if (!canSelectSigningProfile.value) delete data.signing_profile_id
   if (props.clientScoped) {
     delete data.sendmail_command
   }
@@ -741,7 +746,7 @@ function certificateCommonName(subject: string | null | undefined): string | nul
           {{ t('settings.email_profile_from_name') }}
           <input v-model="draft.from_name" class="mt-1 w-full rounded-md border border-neutral-300 bg-surface px-3 py-2 text-sm" />
         </label>
-        <label class="block text-xs font-medium text-neutral-600">
+        <label v-if="canSelectSigningProfile" class="block text-xs font-medium text-neutral-600">
           {{ t('settings.email_profile_signing_profile') }}
           <select v-model="draft.signing_profile_id" class="mt-1 w-full rounded-md border border-neutral-300 bg-surface px-3 py-2 text-sm">
             <option :value="null">{{ t('settings.email_profile_signing_none') }}</option>

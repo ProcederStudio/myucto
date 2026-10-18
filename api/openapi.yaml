@@ -1883,6 +1883,8 @@ paths:
       tags: [Projects]
       summary: Seznam zakázek
       description: |
+        Fakturační agregáty seznamu vyžadují čtení invoices.
+
         Vrátí stránkovaný seznam **neArchivovaných** zakázek v rámci aktuálního
         supplier-a. Filtrování přes `filter[status]` a `filter[client_id]`.
       parameters:
@@ -1958,6 +1960,8 @@ paths:
       tags: [Projects]
       summary: Detail zakázky se statistikami
       description: |
+        Fakturační agregáty detailu vyžadují čtení invoices.
+
         Vrátí celý záznam zakázky + odvozené metriky:
         - `invoices_count` — kolik faktur zakázka má,
         - `revenue_by_month` — obrat po měsících za posledních 24 měsíců (per currency),
@@ -2066,6 +2070,8 @@ paths:
       tags: [Projects]
       summary: Agregované statistiky zakázek (pro dashboard a stránku Grafy)
       description: |
+        Vyžaduje také čtení invoices.
+
         Vrací agregace pro vizualizace na stránce **Grafy** (`/stats`):
 
         - **top_this_year / top_prev_year** — top 12 zakázek + agregovaná položka „Ostatní"
@@ -2089,6 +2095,8 @@ paths:
       tags: [Projects]
       summary: Výnosy, náklady a marže zakázek
       description: |
+        Dostupné pouze interním rolím.
+
         Manažerský přehled pouze ke čtení. V podvojném účetnictví vychází
         ze zaúčtovaného deníku; v daňové evidenci z dokladů. Vrací také počet
         nezaúčtovaných dokladů, aby nulový výsledek nebyl zaměněn za úplná data.
@@ -2117,6 +2125,7 @@ paths:
     get:
       tags: [Projects]
       summary: Výnosy, náklady a marže jedné zakázky
+      description: "Dostupné pouze interním rolím."
       parameters:
         - $ref: '#/components/parameters/SupplierIdHeader'
         - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
@@ -16986,7 +16995,8 @@ paths:
         cenami zákazníků (nezaměňovat se skladovými kartami). Bez `currency` vrací stránku
         položek. Se `currency` vrací jen položky použitelné v dané měně (pro odběratele
         `client_id` i s jeho individuálními cenami) a u každé doplní `resolved_price` stejně
-        jako `/resolve`; stránkuje se až vyhodnocená množina. Veřejně jen ke čtení.
+        jako `/resolve`; stránkuje se až vyhodnocená množina. Vyžaduje čtení `price_list`,
+        `invoices` nebo `recurring`. Veřejně jen ke čtení.
       parameters:
         - in: query
           name: q
@@ -17042,7 +17052,7 @@ paths:
     get:
       tags: [PriceList]
       summary: Detail položky ceníku
-      description: Položka včetně cen po měnách (`prices`), použití v šablonách pravidelné fakturace (`usage`) a individuálních cen zákazníků (`customer_overrides`).
+      description: Položka včetně cen po měnách (`prices`) a použití v šablonách (`usage`). Individuální ceny zákazníků (`customer_overrides`) jsou přítomny jen s oprávněním `price_list` alespoň ke čtení.
       responses:
         '200':
           description: OK
@@ -17054,6 +17064,7 @@ paths:
                   - type: object
                     properties:
                       customer_overrides:
+                        description: Individuální ceny; dostupné jen s oprávněním price_list alespoň ke čtení.
                         type: array
                         items: { $ref: '#/components/schemas/PriceListCustomerOverride' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -17089,6 +17100,7 @@ paths:
     get:
       tags: [PriceList]
       summary: Individuální ceny zákazníků u položky ceníku
+      description: Vyžaduje oprávnění `price_list` alespoň ke čtení; samotná oprávnění k fakturám nebo pravidelné fakturaci nestačí.
       responses:
         '200':
           description: OK
@@ -17210,7 +17222,7 @@ paths:
       summary: Seznam skladů
       description: |
         Číselník skladů vč. aktuální hodnoty (`value`) každého skladu. Filtr `active=1`
-        vrátí jen aktivní sklady.
+        vrátí jen aktivní sklady. Klientská role s oprávněním stock READ dostává číselník bez value.
       parameters:
         - in: query
           name: active
@@ -17255,7 +17267,7 @@ paths:
     get:
       tags: [Stock]
       summary: Detail skladu
-      description: Vč. aktuální hodnoty skladu (`value`).
+      description: Vč. aktuální hodnoty skladu (`value`); klientským rolím se value nevrací.
       responses:
         '200': { description: OK }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -17774,6 +17786,8 @@ paths:
         Stránkuje se `page` / `per_page` (obálka `data` + `meta`). Řazení a agregace se
         vyhodnocují nad celým filtrovaným katalogem. Kategorie zahrnuje podstrom. Druhým
         řadicím klíčem je ID. Neznámý query parametr vrátí 400.
+        Klientská role s oprávněním stock READ dostává pouze provozní údaje a prodejní ceny;
+        ocenění zásob, účetní a e-shop pole se nevracejí. Řazení podle value je klientovi odmítnuto.
     post:
       tags:
       - Stock
@@ -17868,6 +17882,7 @@ paths:
     get:
       tags: [Stock]
       summary: Detail skladové karty
+      description: Klientským rolím se vrací pouze provozní údaje karty a prodejní ceny; účty, ocenění zásob a e-shop nastavení jsou vynechány.
       responses:
         '200':
           description: Skladová karta včetně obsahového životního cyklu.
@@ -17879,6 +17894,7 @@ paths:
     put:
       tags: [Stock]
       summary: Úprava skladové karty
+      description: Klientská role s oprávněním stock.items.write WRITE smí měnit jen základní provozní údaje; row_version je povinná aktuální verze. Účty, dimenze, Intrastat a e-shop pole jsou klientovi odmítnuty.
       requestBody:
         required: true
         content:
@@ -17902,6 +17918,7 @@ paths:
                 intrastat_supplementary_unit_coefficient: { type: [string, number, "null"], exclusiveMinimum: 0 }
                 is_active: { type: boolean }
                 note: { type: [string, "null"] }
+                row_version: { type: integer, description: Aktuální verze karty; pro klientský zápis povinná. }
                 revenue_account_code: { $ref: '#/components/schemas/ProductRevenueAccountCode' }
                 expense_account_code: { $ref: '#/components/schemas/ProductExpenseAccountCode' }
       responses:
@@ -17929,6 +17946,7 @@ paths:
     get:
       tags: [Stock]
       summary: Šarže, série, expirace a historie skladové karty
+      description: Klientská role dostává aktuální kusy a umístění; pole history je prázdné.
       responses:
         '200':
           description: Režim sledování, přesné převodní jednotky, aktuální alokace a úplná historie.
@@ -18285,6 +18303,7 @@ paths:
       tags: [Stock]
       summary: Množství ve třech dimenzích (skladem / rezervováno / na cestě)
       description: |
+        Klientským rolím se vrací souhrnná množství bez in_transit_orders a vendor_offers.
         Nadmnožina `/stock/availability` (to zůstává beze změny jako legacy pro
         editor faktury a MCP). Pro každou kartu vrací:
 
@@ -22039,6 +22058,7 @@ paths:
         Chybějící stav tachometru, nesouvislá řada stavů (nižší než u předchozího tankování
         nebo pod počátečním stavem vozidla) a nesoulad odpočtu DPH navázaného dokladu
         s nastavením vozidla. Řada se posuzuje z celé historie, `year` jen filtruje výpis.
+        Nesoulady odpočtu DPH se vrací pouze se čtením purchase_invoices i cash.
       parameters:
         - { in: query, name: car_id, schema: { type: integer } }
         - { in: query, name: year, schema: { type: integer } }
@@ -22053,6 +22073,7 @@ paths:
       description: |
         Pokladní doklady, bankovní pohyby (výdaje) nebo účetní zápisy firmy kolem data
         tankování (±10 dní), seřazené podle shody částky a vzdálenosti data.
+        Vyžaduje čtení vybrané zdrojové evidence: cash, bank nebo accounting.
       parameters:
         - in: query
           name: type
@@ -22136,6 +22157,8 @@ paths:
       tags: [Logbook]
       summary: Zpětné dávkové vytěžení historie tankování z faktur
       description: |
+        Vyžaduje také čtení purchase_invoices.
+
         Projde historické přijaté faktury od benzínek (is_fuel_station) a vytěží
         z nich tankování. `limit` omezuje počet zpracovaných faktur na jedno volání
         (1–100, default 25).
@@ -22155,6 +22178,8 @@ paths:
       tags: [Logbook]
       summary: Přehled faktur od benzínek
       description: |
+        Vyžaduje také čtení purchase_invoices.
+
         Nespárované faktury vrací všechny, spárované jen posledních `scanned_limit`
         (default 10, 0 = žádné). `only_unscanned=1` zobrazí jen dosud nevytěžené.
       parameters:
@@ -22180,6 +22205,8 @@ paths:
       tags: [Logbook]
       summary: Položky faktury od benzínky (detail pro vytěžení)
       description: |
+        Vyžaduje také čtení purchase_invoices.
+
         Detail položek faktury s příznakem `is_fuel` (rozpoznání paliva dle klíčových slov).
       responses:
         '200': { description: OK }
@@ -22195,6 +22222,8 @@ paths:
       tags: [Logbook]
       summary: Vytěží fakturu a přiřadí ji autu
       description: |
+        Vyžaduje také čtení purchase_invoices.
+
         Vytěží položky faktury (i opakovaně — force režim doplní dříve chybějící
         litry) a přiřadí vzniklá tankování zvolenému autu. Reassign přepíše auto
         u všech tankování navázaných na tuto fakturu. `car_id: null` = zruší přiřazení.
@@ -27828,6 +27857,7 @@ paths:
       tags:
       - Stock
       summary: Historie vychystávacích úloh
+      description: Klientské role vidí provozní identifikátory, kusy a doručovací údaje; nákupní ocenění a obchodní podrobnosti zdroje se vynechávají.
       operationId: publicStockFulfillmentTasksGet
       parameters:
       - $ref: '#/components/parameters/SupplierIdHeader'
@@ -27895,6 +27925,7 @@ paths:
       tags:
       - Stock
       summary: Detail vychystávací úlohy
+      description: Klientské role vidí provozní identifikátory, kusy a doručovací údaje; nákupní ocenění a obchodní podrobnosti zdroje se vynechávají.
       operationId: publicStockFulfillmentTasksIdGet
       parameters:
       - $ref: '#/components/parameters/SupplierIdHeader'
@@ -31038,6 +31069,7 @@ components:
           - string
           - 'null'
     StockWarehouse:
+      description: Číselník skladu; pole value se klientským rolím nevrací.
       type: object
       properties:
         id: { type: integer }
@@ -31052,6 +31084,7 @@ components:
         value: { type: string }
         note: { type: [string, 'null'] }
     CatalogProduct:
+      description: Klientské skladové API vrací pouze základní provozní údaje, množství a prodejní ceny; účetní, oceňovací a e-shop pole jsou vynechána.
       type: object
       properties:
         availability:
@@ -36174,6 +36207,7 @@ components:
         archived_at: { type: [string, "null"], format: date-time }
 
     Project:
+      description: "Agregáty revenue, invoice_count a last_invoice_date jsou v seznamu dostupné pouze s právem invoices (čtení)."
       allOf:
         - $ref: '#/components/schemas/ProjectBrief'
         - type: object
@@ -36181,6 +36215,9 @@ components:
             client_id: { type: integer, format: int64 }
             client_company_name: { type: string }
             client_main_email: { type: [string, "null"], format: email }
+            revenue: { type: number, description: "Obrat v seznamu; pouze s právem invoices (čtení)." }
+            invoice_count: { type: integer, description: "Počet faktur v seznamu; pouze s právem invoices (čtení)." }
+            last_invoice_date: { type: [string, "null"], format: date, description: "Poslední faktura v seznamu; pouze s právem invoices (čtení)." }
             supplier_id: { type: integer }
             note: { type: [string, "null"] }
             requires_work_report_approval: { type: boolean }
@@ -36197,6 +36234,7 @@ components:
             updated_at: { type: string, format: date-time }
 
     ProjectDetail:
+      description: "Fakturační agregáty invoices_count, revenue_by_month, revenue_by_year a unpaid_summary jsou vynechány bez práva invoices (čtení)."
       allOf:
         - $ref: '#/components/schemas/Project'
         - type: object
@@ -39084,6 +39122,7 @@ components:
         destination: { type: [string, "null"] }
         note: { type: [string, "null"] }
     Fueling:
+      description: "Vazby na zdrojové doklady a jejich popisky jsou null bez čtení příslušné evidence (purchase_invoices, cash, bank, accounting). card_last4 vyžaduje bank, raw_text čtení původní evidence. Upozornění na odpočet DPH vyžaduje čtení přijatých faktur i pokladny."
       type: object
       properties:
         id: { type: integer, format: int64 }
@@ -39117,11 +39156,13 @@ components:
         source_journal_entry_id: { type: [integer, "null"], description: Obecná vazba na účetní zápis }
         source_journal_entry_number: { type: [string, "null"] }
         receipt_number: { type: [string, "null"] }
+        raw_text: { type: [string, "null"], description: "Vytěžený text; vyžaduje čtení původní evidence." }
         note: { type: [string, "null"] }
         odometer_warning: { type: [string, "null"], enum: [missing, regression, null], description: 'Chybějící tachometr / nižší než u předchozího tankování vozidla' }
         vat_warning: { type: [string, "null"], enum: [over, under, null], description: 'Doklad uplatňuje vyšší / nižší odpočet DPH, než dovoluje nastavení vozidla' }
         created_at: { type: string, format: date-time }
     FuelingInput:
+      description: "Zápis neprázdné zdrojové vazby vyžaduje čtení příslušné evidence. Při PUT musí nepřístupné vazby zůstat vynechané; zaslání null existující vazbu nemaže bez oprávnění."
       type: object
       required: [fueled_date, amount_with_vat]
       properties:
@@ -45106,6 +45147,7 @@ components:
               vat_rate_id:
                 type: integer
     FulfillmentTask:
+      description: Klientské role dostávají source_snapshot pouze s identifikací zdroje, názvem zákazníka a shipping_snapshot; component_snapshot obsahuje provozní údaje kusů bez ocenění.
       type: object
       required:
       - id
@@ -46323,6 +46365,7 @@ components:
         returned_qty:
           type: string
     FulfillmentShipmentItem:
+      description: Klientským rolím se nevrací unit_cost_snapshot; provozní kusy a tracking_snapshot zůstávají dostupné.
       type: object
       required:
       - id

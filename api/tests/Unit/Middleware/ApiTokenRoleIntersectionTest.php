@@ -49,6 +49,20 @@ final class ApiTokenRoleIntersectionTest extends TestCase
         self::assertSame(204, $response->getStatusCode());
     }
 
+    public function testPriceListTokenScopeAndRoleAreBothRequired(): void
+    {
+        foreach (['staff', 'client'] as $type) {
+            foreach (['read', 'read_write'] as $scope) {
+                foreach ([0, 1, 2] as $level) {
+                    $pipeline = $this->pipeline(new EffectiveRole(9, 'Synthetic catalog token role', $type, true, ['price_list' => $level]));
+                    $request = $this->request($scope)->withUri(new \Slim\Psr7\Uri('http', 'localhost', null, '/api/price-list-items'));
+                    self::assertSame($scope === 'read_write' && $level === 2 ? 204 : 403, $pipeline->handle($request)->getStatusCode());
+                    self::assertSame($level >= 1 ? 204 : 403, $pipeline->handle($request->withMethod('GET'))->getStatusCode());
+                }
+            }
+        }
+    }
+
     private function pipeline(EffectiveRole $role): RequestHandlerInterface
     {
         $roles = $this->createStub(PermissionResolver::class);

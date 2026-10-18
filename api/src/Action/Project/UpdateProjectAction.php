@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Action\Project;
 
 use MyInvoice\Http\Json;
+use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Http\SupplierGuard;
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Repository\ProjectRepository;
@@ -31,6 +32,12 @@ final class UpdateProjectAction
         }
 
         $body = (array) ($request->getParsedBody() ?? []);
+        if (RequestAuthorization::isClientType($request) && array_key_exists('default_revenue_category_id', $body)
+            && (int) $body['default_revenue_category_id'] !== (int) ($existing['default_revenue_category_id'] ?? 0)) {
+            return Json::error($response, 'forbidden_permission', 'Klasifikaci tržeb spravuje interní role.', 403);
+        }
+        if (RequestAuthorization::isClientType($request)) unset($body['default_revenue_category_id']);
+
         // client_id se nemění při update — vždy z existujícího záznamu
         $body['client_id'] = $existing['client_id'];
 

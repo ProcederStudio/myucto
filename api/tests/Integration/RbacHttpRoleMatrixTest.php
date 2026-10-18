@@ -186,13 +186,68 @@ final class RbacHttpRoleMatrixTest extends TestCase
         }
     }
 
-    public function testClientCompanyWriteUsesOnlyTheOperationalSettingsAllowlist(): void
+    public function testClientOperationalGrantsAreIndependentAndRevocable(): void
+    {
+        $foreign = $this->db->pdo()->prepare("INSERT INTO supplier (company_name, street, city, zip, country_id, email, default_currency_id, default_vat_rate_id)
+            SELECT '__TEST independent operational supplier', street, city, zip, country_id, email, default_currency_id, default_vat_rate_id FROM supplier WHERE id = ?");
+        $foreign->execute([$this->supplierId]);
+        $foreignId = (int) $this->db->pdo()->lastInsertId();
+        $this->supplierIds[] = $foreignId;
+        $areas = [
+            'settings.email_profiles' => '/api/settings/client/email-profiles',
+            'settings.email_templates' => '/api/settings/client/email-templates',
+            'settings.branding' => '/api/settings/client/branding',
+            'settings.payment_qr' => '/api/settings/client/payment-qr',
+            'settings.signing_profiles' => '/api/settings/client/signing/profiles',
+        ];
+        foreach ($areas as $permission => $path) {
+            $userId = $this->createUser('isolated_' . $permission, 'client', 2, true);
+            $roleId = end($this->roleIds);
+            $this->db->pdo()->prepare('DELETE FROM role_permissions WHERE role_id = ? AND permission_key LIKE ? AND permission_key <> ?')
+                ->execute([$roleId, 'settings.%', $permission]);
+            // Keep the old source grant to prove it cannot restore a revoked area.
+            $this->db->pdo()->prepare('INSERT INTO role_permissions (role_id, permission_key, access_level) VALUES (?, ?, 2)')
+                ->execute([$roleId, 'settings.company']);
+            $session = $this->createSession($userId);
+            foreach ($areas as $otherPermission => $otherPath) {
+                $response = $this->request('GET', $otherPath, $session);
+                self::assertSame($permission === $otherPermission ? 200 : 403, $response->getStatusCode(), "$permission: $otherPath " . (string) $response->getBody());
+            }
+            self::assertSame(403, $this->request('GET', $path, $session, null, [], $foreignId)->getStatusCode(), 'Delegation must not grant another supplier.');
+            $this->db->pdo()->prepare('DELETE FROM role_permissions WHERE role_id = ? AND permission_key = ?')->execute([$roleId, $permission]);
+            // A fresh app represents the next HTTP request after the role was saved.
+            $this->app = null;
+            self::assertSame(403, $this->request('GET', $path, $session)->getStatusCode(), "Revoked $permission");
+        }
+    }
+
+    public function testCompanyWriteCannotBypassRevokedOperationalSettings(): void
+    {
+        $userId = $this->createUser('staff_revoked_operational', 'staff', 2, true);
+        $roleId = end($this->roleIds);
+        $this->db->pdo()->prepare('DELETE FROM role_permissions WHERE role_id = ? AND permission_key IN (?, ?)')
+            ->execute([$roleId, 'settings.payment_qr', 'settings.branding']);
+        $session = $this->createSession($userId);
+        $stored = $this->db->pdo()->query('SELECT invoice_qr_include_due_date, purchase_invoice_qr_include_due_date, email_branding_enabled, email_accent_color, invoice_pdf_monochrome FROM supplier WHERE id = ' . $this->supplierId)
+            ->fetch(\PDO::FETCH_ASSOC);
+        foreach (['invoice_qr_include_due_date', 'purchase_invoice_qr_include_due_date', 'email_branding_enabled', 'invoice_pdf_monochrome'] as $field) {
+            $response = $this->request('PUT', '/api/settings/supplier', $session, [$field => !(bool) $stored[$field]]);
+            self::assertSame(403, $response->getStatusCode(), $field . ': ' . (string) $response->getBody());
+        }
+        $response = $this->request('PUT', '/api/settings/supplier', $session, ['email_accent_color' => '#012345' === $stored['email_accent_color'] ? '#543210' : '#012345']);
+        self::assertSame(403, $response->getStatusCode(), (string) $response->getBody());
+        $after = $this->db->pdo()->query('SELECT invoice_qr_include_due_date, purchase_invoice_qr_include_due_date, email_branding_enabled, email_accent_color, invoice_pdf_monochrome FROM supplier WHERE id = ' . $this->supplierId)
+            ->fetch(\PDO::FETCH_ASSOC);
+        self::assertSame($stored, $after);
+    }
+
+    public function testClientOperationalGrantsUseOnlyTheOperationalSettingsAllowlist(): void
     {
         $readerId = $this->createUser('client_operational_settings_read', 'client', 1, true);
         $readerSession = $this->createSession($readerId);
         $readerProfiles = $this->request('GET', '/api/settings/branding-profiles', $readerSession);
         self::assertSame(403, $readerProfiles->getStatusCode());
-        self::assertSame('forbidden', $this->json($readerProfiles)['error']['code'] ?? null);
+        self::assertSame('forbidden_permission', $this->json($readerProfiles)['error']['code'] ?? null);
         $readerPaymentQr = $this->request('GET', '/api/settings/client/payment-qr', $readerSession);
         self::assertSame(403, $readerPaymentQr->getStatusCode());
 
@@ -828,7 +883,7 @@ final class RbacHttpRoleMatrixTest extends TestCase
         $this->backupTemplate('supplier_email_templates', ['supplier_id' => $this->supplierId, 'code' => 'invoice_send', 'locale' => 'cs']);
         $template = ['subject' => 'Synthetic {{ invoice.varsymbol }}', 'body_html' => '<p>Synthetic {{ invoice.varsymbol }}</p>', 'body_text' => 'Synthetic {{ invoice.varsymbol }}'];
         foreach (['/api/settings/email-templates', '/api/settings/client/email-templates'] as $prefix) {
-            $allowed = ($variant === 'superadmin') || ($hasSupplier && $level === 2 && ($roleType === 'staff' || str_contains($prefix, '/client/')));
+            $allowed = ($variant === 'superadmin') || ($hasSupplier && $level === 2);
             foreach ([['GET', '', null], ['GET', '/invoice_send/cs', null], ['POST', '/invoice_send/cs/preview', $template], ['PUT', '/invoice_send/cs', $template], ['DELETE', '/invoice_send/cs', null]] as [$method, $suffix, $body]) {
                 $response = $this->request($method, $prefix . $suffix, $session, $body);
                 self::assertSame($allowed ? 200 : 403, $response->getStatusCode(), "$variant $method $prefix$suffix: " . $response->getBody());
@@ -925,8 +980,8 @@ final class RbacHttpRoleMatrixTest extends TestCase
             $roleId = (int) $this->db->pdo()->lastInsertId();
             $this->roleIds[] = $roleId;
             $keys = $roleType === 'client'
-                ? ['clients', 'clients.create', 'invoices', 'invoices.send', 'purchase_invoices', 'purchase_invoices.create', 'settings.company']
-                : ['clients', 'clients.create', 'invoices', 'invoices.send', 'purchase_invoices', 'purchase_invoices.create', 'documents', 'bank', 'accounting', 'reports', 'settings.company', 'settings.company.write', 'settings.branding'];
+                ? ['clients', 'clients.create', 'invoices', 'invoices.send', 'purchase_invoices', 'purchase_invoices.create', 'settings.company', 'settings.branding', 'settings.email_profiles', 'settings.email_templates', 'settings.payment_qr', 'settings.signing_profiles']
+                : ['clients', 'clients.create', 'invoices', 'invoices.send', 'purchase_invoices', 'purchase_invoices.create', 'documents', 'bank', 'accounting', 'reports', 'settings.company', 'settings.company.write', 'settings.branding', 'settings.email_profiles', 'settings.email_templates', 'settings.payment_qr'];
             $insert = $this->db->pdo()->prepare('INSERT INTO role_permissions (role_id, permission_key, access_level) VALUES (?, ?, ?)');
             foreach ($keys as $key) $insert->execute([$roleId, $key, $level]);
         }

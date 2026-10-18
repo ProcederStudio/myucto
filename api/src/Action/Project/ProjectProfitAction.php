@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Action\Project;
 
 use MyInvoice\Http\Json;
+use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Middleware\SupplierScopeMiddleware;
 use MyInvoice\Service\Accounting\Reports\ProjectProfitService;
 use Psr\Http\Message\ResponseInterface as Response;
@@ -26,6 +27,9 @@ final class ProjectProfitAction
 
     public function overview(Request $request, Response $response): Response
     {
+        if (RequestAuthorization::isClientType($request)) {
+            return Json::error($response, 'forbidden_permission', 'Ekonomika zakázky je dostupná pouze interním rolím.', 403);
+        }
         $q = $request->getQueryParams();
         return Json::ok($response, $this->profit->overview(self::supplierId($request), [
             'date_from'        => $q['date_from'] ?? null,
@@ -36,6 +40,9 @@ final class ProjectProfitAction
 
     public function detail(Request $request, Response $response, array $args): Response
     {
+        if (RequestAuthorization::isClientType($request)) {
+            return Json::error($response, 'forbidden_permission', 'Ekonomika zakázky je dostupná pouze interním rolím.', 403);
+        }
         $id = (int) ($args['id'] ?? 0);
         if ($id <= 0) {
             return Json::error($response, 'invalid_id', 'Neplatné ID zakázky.', 400);

@@ -82,6 +82,9 @@ final class GlobalSeedTables
         'submission_recipients'       => 'supplier_id IS NOT NULL',
         'role_permissions'            => 'role_id NOT IN (SELECT id FROM roles WHERE system_key IS NOT NULL)',
         'roles'                       => 'system_key IS NULL',
+        // Předdefinované role zůstávají i se změněnými granty. Značky brání jejich
+        // opětovnému rozšíření při přehrání migrací; ostatní metadata reset dál čistí.
+        'app_meta'                    => "k NOT IN ('rbac_price_list_defaults_initialized', 'rbac_operational_settings_initialized')",
     ];
 
     /**
