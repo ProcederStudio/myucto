@@ -4,7 +4,7 @@ import type { LiabilityGroup } from './propertyReceivables'
 export type Cents = string
 export interface SettlementCapabilities { manage: boolean; post: boolean; reverse: boolean }
 export interface SettlementAmounts { advance_applied_cents: Cents; new_claim_cents: Cents; cancelled_unpaid_cents: Cents; new_credit_cents: Cents; remaining_old_claim_cents: Cents }
-export type SettlementSelector = { kind: 's3_line'; id: number; cost_line_id?: number } | { kind: 'opening'; advance_item_id: number; service_item_id: number }
+export type SettlementSelector = { kind: 's3_line'; id: number; cost_line_id?: number } | { kind: 'opening'; advance_item_id: number; service_item_id: number; cost_line_id?: number }
 export interface SettlementLabel { id: number; code: string; label: string }
 export interface SettlementCurrent { document_id: number; row_version: number; application_id: number | null; active: boolean; accounting_date: string | null; credits: Array<{ id: number; balance_cents: Cents; reserved_cents: Cents; available_cents: Cents }>; claims: Array<{ id: number; active: boolean; principal_cents: Cents; paid_cents: Cents; accessories: Array<{ component: string; amount_cents: Cents }> }>; scope: string; complete_financial_position: false }
 export interface SettlementCard { id: number; revision_no: number; unit: SettlementLabel; service: SettlementLabel; segment_key: string; period_from: string; period_to: string; cutoff_at: string; prescribed_cents: Cents; paid_at_cutoff_cents: Cents; actual_cents: Cents; amounts: SettlementAmounts; current_summary: SettlementCurrent }

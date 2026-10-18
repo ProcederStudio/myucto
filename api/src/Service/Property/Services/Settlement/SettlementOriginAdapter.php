@@ -34,7 +34,7 @@ final class SettlementOriginAdapter
             $origin=$result['origin'];$key=SettlementEvidence::origin($origin,$supplier,$unit,$service);
             if(isset($origins[$key]))SettlementEvidence::reject('duplicate_origin');$origins[$key]=$origin;
             foreach($result['allocations'] as $allocation){if(isset($allocations[$allocation['id']]))SettlementEvidence::reject('duplicate_allocation');$allocations[$allocation['id']]=$allocation;}
-            $evidence[$key]=$result['evidence'];if(isset($selector['cost_line_id']))$result['cost']=$this->cost($supplier,$unit,$service,PropertyInput::id($selector['cost_line_id'],'cost_line_id'),$date);if(isset($result['cost'])){$hashInputs[]=$result['cost']['hash_input'];unset($result['cost']['hash_input']);$costs[$key]=$result['cost'];}
+            $evidence[$key]=$result['evidence'];if(isset($selector['cost_line_id']))$result['cost']=$this->cost($supplier,$unit,$service,PropertyInput::id($selector['cost_line_id'],'cost_line_id'),$date,$origin['source_period']);if(isset($result['cost'])){$hashInputs[]=$result['cost']['hash_input'];unset($result['cost']['hash_input']);$costs[$key]=$result['cost'];}
         }
         if($origins===[])SettlementEvidence::reject('origin_missing');ksort($origins);ksort($allocations);ksort($evidence);ksort($costs);
         $facts=['supplier_id'=>$supplier,'unit_id'=>$unit,'service_id'=>$service,'accounting_date'=>$date,'period_id'=>(int)$period['id'],'origins'=>array_values($origins),'allocations'=>array_values($allocations),'costs'=>$costs,'evidence'=>$evidence,'hash_inputs'=>$hashInputs];
@@ -60,16 +60,18 @@ final class SettlementOriginAdapter
     }
     private function opening(int $supplier,int $unit,int $service,string $date,array $selector):array
     {
-        SettlementEvidence::fields($selector,['kind','advance_item_id','service_item_id']);
+        SettlementEvidence::fields($selector,array_key_exists('cost_line_id',$selector)?['kind','advance_item_id','service_item_id','cost_line_id']:['kind','advance_item_id','service_item_id']);
         $proof=new OpeningReadProof($this->db);$advance=$proof->item($supplier,PropertyInput::id($selector['advance_item_id'],'advance_item_id'),true);$serviceItem=$proof->item($supplier,PropertyInput::id($selector['service_item_id'],'service_item_id'),true);
         foreach([$advance,$serviceItem] as $item)if(!$item['active']||$item['snapshot']['unit_id']!==$unit||$item['snapshot']['service_id']!==$service||$item['batch']['accounting_date']>$date)SettlementEvidence::reject('origin_scope');
         if($advance['batch']['id']!==$serviceItem['batch']['id']||$advance['snapshot']['kind']!=='advance'||$serviceItem['snapshot']['kind']!=='service_carry')SettlementEvidence::reject('source_role');
         $a=$advance['snapshot']['advance_state'];$s=$serviceItem['snapshot']['service_state'];
-        if($s['profile']!=='service_balance_sheet'||$a['used_cents']!=='0'||$s['settled_cents']!=='0'||$s['cancelled_unpaid_cents']!=='0'||$a['prescribed_cents']!==$s['prescribed_cents']||$a['paid_cents']!==$s['paid_cents']||PropertyInput::hash($a['unpaid_cases'])!==PropertyInput::hash($s['unpaid_cases']))SettlementEvidence::reject('opening_state');
-        $advancePart=$this->part($advance,'service_advance');$costPart=$this->part($serviceItem,'service_cost');
+        if((!isset($selector['cost_line_id'])&&$s['profile']!=='service_balance_sheet')||$a['used_cents']!=='0'||$s['settled_cents']!=='0'||$s['cancelled_unpaid_cents']!=='0'||$a['prescribed_cents']!==$s['prescribed_cents']||$a['paid_cents']!==$s['paid_cents']||PropertyInput::hash($a['unpaid_cases'])!==PropertyInput::hash($s['unpaid_cases']))SettlementEvidence::reject('opening_state');
+        $advancePart=$this->part($advance,'service_advance');
+        if(isset($selector['cost_line_id'])){$nativeCost=$this->cost($supplier,$unit,$service,PropertyInput::id($selector['cost_line_id'],'cost_line_id'),$date,['from'=>$serviceItem['snapshot']['period_from'],'to'=>$serviceItem['snapshot']['period_to']],$serviceItem['id']);$lifecycle=(new \MyInvoice\Repository\Property\Services\Settlement\ServiceLifecycleRepository($this->db))->assertCostReady($supplier,$unit,$service,$selector['cost_line_id'],$date,$serviceItem['id']);if($lifecycle===null||$lifecycle['case']['policy']!==$s['profile'])SettlementEvidence::reject('lifecycle_opening_scope');$costPart=['line'=>$nativeCost['hash_input'],'amount_cents'=>$nativeCost['amount_cents']];}
+        else $costPart=$this->part($serviceItem,'service_cost');
         $this->role($supplier,$advancePart['line'],'liability','324','credit');$this->role($supplier,$costPart['line'],'asset','315','debit');
         if(!str_starts_with(str_replace('.','',$costPart['line']['account_code']),'3152'))SettlementEvidence::reject('source_role');
-        $this->sameDimensions($advancePart['line'],$costPart['line']);
+        if(!isset($selector['cost_line_id']))$this->sameDimensions($advancePart['line'],$costPart['line']);
         $unpaid=bcsub($a['prescribed_cents'],$a['paid_cents'],0);$links=$this->all('SELECT debt_item_id,amount_cents FROM property_opening_case_links WHERE supplier_id=? AND item_id=? ORDER BY debt_item_id FOR UPDATE',[$supplier,$advance['id']]);
         $debt=null;$receivable=null;$part=null;$allocations=[];
         if($unpaid!=='0'){
@@ -85,12 +87,13 @@ final class SettlementOriginAdapter
         $cost=['source_id'=>$costPart['line']['id'],'source_hash'=>PropertyInput::hash($costPart['line']),'amount_cents'=>$costPart['amount_cents'],'line'=>$this->line($supplier,$costPart['line']),'hash_input'=>$costPart['line']];
         return ['origin'=>$origin,'allocations'=>$allocations,'cost'=>$cost,'evidence'=>['advance_hash'=>$advance['snapshot_hash'],'service_hash'=>$serviceItem['snapshot_hash'],'state'=>$state,'debt'=>$debt]];
     }
-    private function cost(int $supplier,int $unit,int $service,int $id,string $date):array
+    private function cost(int $supplier,int $unit,int $service,int $id,string $date,?array $sourcePeriod=null,?int $openingItem=null):array
     {
         $row=$this->one('SELECT entry_id FROM journal_entry_lines WHERE supplier_id=? AND id=? FOR UPDATE',[$supplier,$id]);if(!$row)SettlementEvidence::reject('cost_source_not_found');
         $ledger=(new PaymentJournalProof($this->db))->current($supplier,(int)$row['entry_id']);if($ledger['entry']['reversed_by']!==null||$ledger['entry']['entry_date']>$date)SettlementEvidence::reject('cost_source_changed');
         $line=array_values(array_filter($ledger['lines'],fn($line)=>$line['id']===$id))[0];$this->role($supplier,$line,'asset','315','debit');if(!str_starts_with(str_replace('.','',$line['account_code']),'3152'))SettlementEvidence::reject('source_role');
         foreach([$unit,$service] as $object){$value=$this->one('SELECT d.type_id,d.id FROM property_objects o JOIN dimension_values d ON d.supplier_id=o.supplier_id AND d.id=o.dimension_value_id WHERE o.supplier_id=? AND o.id=? FOR UPDATE',[$supplier,$object]);if(!$value||($line['dimensions'][(int)$value['type_id']]??null)!==(int)$value['id'])SettlementEvidence::reject('source_tuple');}
+        (new \MyInvoice\Repository\Property\Services\Settlement\ServiceLifecycleRepository($this->db))->assertCostReady($supplier,$unit,$service,$id,$date,$openingItem,$sourcePeriod);
         return ['source_id'=>$id,'source_hash'=>PropertyInput::hash($line),'amount_cents'=>bcmul($line['amount'],'100',0),'line'=>$this->line($supplier,$line),'hash_input'=>$line];
     }
     private function allocations(int $supplier,int $debt,string $column,int $id,string $key,string $date):array

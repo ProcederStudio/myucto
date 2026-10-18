@@ -65,6 +65,8 @@ final class DimensionStamper
     /** @var array<int,bool> */
     private array $enabledCache = [];
 
+    private array $serviceCostCandidates = [];
+
     private ?DimensionRuleService $rules = null;
 
     private ?DimensionDefaults $defaults = null;
@@ -127,7 +129,7 @@ final class DimensionStamper
             : [[], [], [], [], [], []];
         if ($header !== [] || $items !== [] || $hasExplicit) {
             $resolved = self::expandSplits(
-                self::assign($resolved, $header, $items, $this->accountTypes($supplierId), true, $headerOrigins)['lines'],
+                self::assign($resolved, $header, $items, $this->accountTypes($supplierId), true, $headerOrigins,$this->serviceCostAccounts($supplierId, $sourceType, $entryDate, $resolved))['lines'],
                 $splits,
                 $splitOrigins,
             );
@@ -320,7 +322,7 @@ final class DimensionStamper
             if ($sourceType === 'cash') {
                 $lines = $this->allocateCashDocuments($supplierId, $sourceId, $lines);
             }
-            $result = self::assign($lines, $header, $items, $types, false, $headerOrigins);
+            $result = self::assign($lines, $header, $items, $types, false, $headerOrigins,$this->serviceCostAccounts($supplierId, $sourceType, $entryDate, $lines));
             $needsRepost = $needsRepost || $result['needs_split'];
             $restamped = $this->rules()->applyDefaults(
                 $supplierId,
@@ -470,7 +472,7 @@ final class DimensionStamper
      * @param array<int,string> $accountTypes id účtu => account_type
      * @return array{lines:list<array<string,mixed>>, needs_split:bool}
      */
-    public static function assign(array $lines, array $header, array $items, array $accountTypes, bool $allowSplit, array $headerOrigins = []): array
+    public static function assign(array $lines, array $header, array $items, array $accountTypes, bool $allowSplit, array $headerOrigins = [], array $serviceCostAccounts = []): array
     {
         $out = [];
         $needsSplit = false;
@@ -478,7 +480,7 @@ final class DimensionStamper
             $explicit = array_map('intval', (array) ($line['dimensions'] ?? []));
             $type = $accountTypes[(int) $line['account_id']] ?? null;
             $combos = [];
-            if ($items !== [] && in_array($type, ['revenue', 'expense'], true)) {
+            if ($items !== [] && (in_array($type, ['revenue', 'expense'], true)||isset($serviceCostAccounts[(int)$line['account_id']]))) {
                 $relevant = array_values(array_filter(
                     $items,
                     static fn (array $it): bool => $it['account_id'] === null || $it['account_id'] === (int) $line['account_id'],
@@ -950,14 +952,27 @@ final class DimensionStamper
         return array_values($items);
     }
 
-    /** @return array<int,string> */
+    private function serviceCostAccounts(int $supplierId, string $sourceType, ?string $date, ?array $lines = null): array
+    {
+        if ($sourceType !== 'purchase_invoice' || $date === null) return [];
+        if (!isset($this->serviceCostCandidates[$supplierId])) $this->accountTypes($supplierId);
+        $candidates = $this->serviceCostCandidates[$supplierId];
+        if ($lines !== null) $candidates = array_intersect_key($candidates, array_fill_keys(array_column($lines, 'account_id'), true));
+        if ($candidates === []) return [];
+        return \MyInvoice\Service\Accounting\AccountRoleResolver::fromConnection($this->db)->forDate($supplierId, $date)->framework === 'cz_504' ? $candidates : [];
+    }
+
     private function accountTypes(int $supplierId): array
     {
-        $stmt = $this->db->pdo()->prepare('SELECT id, account_type FROM chart_of_accounts WHERE supplier_id = ?');
+        $stmt = $this->db->pdo()->prepare('SELECT id, account_type, account_code FROM chart_of_accounts WHERE supplier_id = ?');
         $stmt->execute([$supplierId]);
         $out = [];
+        $this->serviceCostCandidates[$supplierId] = [];
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
             $out[(int) $r['id']] = (string) $r['account_type'];
+            if ($r['account_type'] === 'asset' && preg_match(\MyInvoice\Service\Property\Opening\OpeningRolePolicy::ROLES['service_cost'][2], $r['account_code']) === 1) {
+                $this->serviceCostCandidates[$supplierId][(int) $r['id']] = true;
+            }
         }
         return $out;
     }

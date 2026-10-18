@@ -120,6 +120,17 @@ final class JournalEntryRepository
         return $entry;
     }
 
+    public function insertPropertyServiceLifecycle(\MyInvoice\Service\Property\Services\Settlement\ServiceLifecycleProof $proof):int
+    {
+        return(new DimensionPeriodGuard($this->db))->transaction(function()use($proof):int{
+            $journal=$proof->journal($this->db);
+            (new SystemDimensionWritePolicy($this->db))->assertPropertyServiceLifecycle($journal['header'],$journal['lines'],$proof);
+            \MyInvoice\Service\Accounting\PostingService::assertBalanced($journal['lines']);
+            $entry=$journal['source_entry_id']===null?$this->persistJournal($journal['header'],$journal['lines']):$this->insertReversalLocked($journal['header'],$journal['lines'],$journal['source_entry_id']);
+            $proof->complete($this->db,$entry);return $entry;
+        });
+    }
+
     public function insertPropertyServiceSettlement(\MyInvoice\Service\Property\Services\Settlement\SettlementApplicationIntent $intent): int
     {
         $intent->claim($this->db);

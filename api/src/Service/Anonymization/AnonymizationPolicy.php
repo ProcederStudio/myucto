@@ -42,6 +42,7 @@ final class AnonymizationPolicy
      * @var array<string,string> tabulka → důvod
      */
     public const TRUNCATE = [
+        'property_service_lifecycle_commands' => 'původní idempotentní odpovědi nelze přehrát nad pseudonymizovanými podklady bez původního požadavku',
         'nonprofit_tax_assessments' => 'potvrzené podklady obsahují původní doklady a jejich otisky',
         'abra_flexi_connections' => 'šifrované připojení ke zdrojové účetní firmě',
         'ai_assistant_conversations' => 'osobní historie dotazů AI asistenta (názvy z dotazů)',
@@ -158,6 +159,9 @@ final class AnonymizationPolicy
         'unit_payment_correction_anchors' => [],
         'unit_payment_reliefs' => [],
         'property_opening_batches' => ['status'=>'keep','mode'=>'keep','request_json'=>'keep','request_hash'=>'keep','snapshot_json'=>'keep','snapshot_hash'=>'keep','idempotency_key'=>'keep'],
+        'property_service_lifecycle_cases' => ['policy'=>'keep','facts_json'=>'service_settlement_json','facts_hash'=>'keep'],
+        'property_service_lifecycle_events' => ['event_key'=>'keep','request_json'=>'service_settlement_json','request_hash'=>'keep','receipt_json'=>'service_settlement_json','receipt_hash'=>'keep'],
+        'property_service_lifecycle_claims' => ['claim_role'=>'keep'],
         'property_service_settlements' => ['segment_key'=>'keep','document_json'=>'service_settlement_json','document_hash'=>'keep','origin_receipt_json'=>'service_settlement_json','origin_receipt_hash'=>'keep','request_hash'=>'keep','idempotency_key'=>'keep'],
         'property_service_settlement_origins' => [],
         'property_service_settlement_requests' => ['request_json'=>'service_settlement_json','request_hash'=>'keep','preview_json'=>'service_settlement_json','preview_hash'=>'keep','idempotency_key'=>'keep'],

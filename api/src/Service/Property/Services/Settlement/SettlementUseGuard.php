@@ -11,11 +11,11 @@ final class SettlementUseGuard
     public function __construct(private readonly Connection $db){}
     public static function assertGenericInsert(array $header):void
     {
-        if(($header['source_type']??null)==='property_service_settlement')throw new \MyInvoice\Service\Accounting\PostingException('property_service_settlement_owner_required','Vyúčtování služeb musí zaúčtovat jeho vlastník.',409);
+        if(in_array($header['source_type']??null,['property_service_settlement','property_service_lifecycle'],true))throw new \MyInvoice\Service\Accounting\PostingException('property_service_settlement_owner_required','Vyúčtování služeb musí zaúčtovat jeho vlastník.',409);
     }
     public static function entryReferenceSql():string
     {
-        return "EXISTS (SELECT 1 FROM property_service_settlement_applications sa WHERE sa.supplier_id=e.supplier_id AND sa.journal_entry_id=e.id FOR UPDATE)
+        return "EXISTS (SELECT 1 FROM property_service_lifecycle_events le WHERE le.supplier_id=e.supplier_id AND le.journal_entry_id=e.id FOR UPDATE) OR EXISTS (SELECT 1 FROM property_service_lifecycle_claims lc JOIN journal_entry_lines ll ON ll.id=lc.line_id AND ll.supplier_id=lc.supplier_id WHERE lc.supplier_id=e.supplier_id AND ll.entry_id=e.id FOR UPDATE) OR EXISTS (SELECT 1 FROM property_service_settlement_applications sa WHERE sa.supplier_id=e.supplier_id AND sa.journal_entry_id=e.id FOR UPDATE)
         OR EXISTS (SELECT 1 FROM property_service_settlements sd JOIN journal_entry_lines sl ON sl.supplier_id=sd.supplier_id AND sl.id=sd.cost_line_id JOIN property_service_settlement_applications sa ON sa.supplier_id=sd.supplier_id AND sa.document_id=sd.id WHERE sd.supplier_id=e.supplier_id AND sl.entry_id=e.id FOR UPDATE)
         OR EXISTS (SELECT 1 FROM property_service_settlement_origins so JOIN property_service_settlement_applications sa ON sa.supplier_id=so.supplier_id AND sa.document_id=so.document_id JOIN unit_charge_lines cl ON cl.supplier_id=so.supplier_id AND cl.id=so.charge_line_id JOIN unit_charges c ON c.supplier_id=cl.supplier_id AND c.id=cl.charge_id WHERE so.supplier_id=e.supplier_id AND c.journal_entry_id=e.id FOR UPDATE)
         OR EXISTS (SELECT 1 FROM property_service_settlement_origins so JOIN property_service_settlement_applications sa ON sa.supplier_id=so.supplier_id AND sa.document_id=so.document_id JOIN property_opening_components pc ON pc.supplier_id=so.supplier_id AND pc.id=so.opening_advance_component_id JOIN property_opening_items pi ON pi.supplier_id=pc.supplier_id AND pi.id=pc.item_id JOIN property_opening_batches pb ON pb.supplier_id=pi.supplier_id AND pb.id=pi.batch_id WHERE so.supplier_id=e.supplier_id AND pb.journal_entry_id=e.id FOR UPDATE)";

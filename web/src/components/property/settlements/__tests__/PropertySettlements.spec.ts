@@ -36,14 +36,26 @@ beforeEach(() => {
  calls.disposition.mockResolvedValue({ accounts: [], document_id: 4, row_version: 0, accounting_date: request.accounting_date, current_paid_cents: '90000', amounts: { ...amounts, new_credit_cents: '10000' }, origins: [{ origin_key: 'opening_component:10', kind: 'opening_component', prescribed_cents: '100000', carried_paid_cents: '60000', principal_cents: '40000', paid_cents: '30000', unpaid_cents: '10000' }], allocations: [{ id: 45, origin_key: 'opening_component:10', accounting_date: '2026-02-01', amount_cents: '30000', active: true, at_cutoff: false }], write_authorization: false })
 })
 describe('native settlement UI workflow', () => {
- it('selects labelled registry, recipient and source cards, previews server amounts and saves the exact request', async () => {
+ it.each([{ name: 'opening', proof: selector }, { name: 'finalized lifecycle opening', proof: { ...selector, cost_line_id: 99 } }])('selects $name from server-labelled cards and preserves its exact proof and cost through preview/save', async ({ proof }) => {
+  const expectedRequest = { ...request, selectors: [proof] }
+  calls.catalog.mockResolvedValue({ items: [{ id: 10, selector: proof, description: 'Synthetic opening water', accounting_date: '2026-01-01', period_from: '2026-01-01', period_to: '2026-12-31', prescribed_cents: '100000', carried_paid_cents: '60000', cost_source_id: 99, cost_cents: '80000' }], next_cursor: null })
   const w = mount(DocumentEditor, { props: { supplier: 1, capabilities }, global: global() }); await flushPromises()
   await w.get('[data-field=unit]').setValue('7'); await w.get('[data-field=service]').setValue('8'); await w.get('[data-field=segment]').setValue(request.segment_key)
   for (const [field, value] of [['period-from', request.period_from], ['period-to', request.period_to], ['document-date', request.accounting_date], ['cutoff', request.cutoff_at], ['known', request.known_at]] as const) await w.get(`[data-field=${field}] input`).setValue(value)
   await w.get('[data-field=document-evidence]').setValue(request.evidence); await w.get('[data-action=pick-party]').trigger('click')
   const selects = w.findAll('select'); await selects[2]!.setValue('opening'); await w.get('[data-action=load-sources]').trigger('click'); await flushPromises(); expect(w.text()).toContain('Synthetic opening water'); await w.get('[data-field=source-select]').setValue(true); await w.get('[data-field=cost-select]').setValue(true)
-  await w.get('[data-action=prepare-document]').trigger('click'); await flushPromises(); expect(calls.prepare).toHaveBeenCalledWith(1, request, 0); expect(w.text()).not.toContain('server-document-hash'); expect(w.find('textarea').exists()).toBe(false)
-  await w.get('[data-action=save-document]').trigger('click'); await flushPromises(); expect(calls.save).toHaveBeenCalledWith(1, request, 0, 'server-document-hash', expect.any(String)); expect(w.emitted('saved')).toEqual([[4]]); w.unmount()
+  await w.get('[data-action=prepare-document]').trigger('click'); await flushPromises(); expect(calls.prepare).toHaveBeenCalledWith(1, expectedRequest, 0); expect(w.text()).not.toContain('server-document-hash'); expect(w.find('textarea').exists()).toBe(false)
+  await w.get('[data-action=save-document]').trigger('click'); await flushPromises(); expect(calls.save).toHaveBeenCalledWith(1, expectedRequest, 0, 'server-document-hash', expect.any(String)); expect(w.emitted('saved')).toEqual([[4]]); w.unmount()
+ })
+ it('retains the server opening final-cost proof and cost source when preparing a revision', async () => {
+  const previous = detail(), proof = { ...selector, cost_line_id: 99 }
+  previous.origin_receipt.request.selectors = [proof]
+  const w = mount(DocumentEditor, { props: { supplier: 1, capabilities, revision: previous }, global: global() }); await flushPromises()
+  await w.get('[data-action=prepare-document]').trigger('click'); await flushPromises()
+  expect(calls.prepare).toHaveBeenCalledWith(1, { ...request, selectors: [proof] }, previous.revision_no)
+  await w.get('[data-action=save-document]').trigger('click'); await flushPromises()
+  expect(calls.save).toHaveBeenCalledWith(1, { ...request, selectors: [proof] }, previous.revision_no, 'server-document-hash', expect.any(String))
+  expect(previous.origin_receipt.request.selectors).toEqual([proof]); expect(calls.catalog).not.toHaveBeenCalled(); w.unmount()
  })
  it('uses actual late allocation choices and discards a stale application preview without automatically writing again', async () => {
   const w = mount(DispositionEditor, { props: { supplier: 1, detail: detail() }, global: global({ SettlementEntitlementEditor: entitlementStub }) }); await w.get('[data-action=load-current]').trigger('click'); await flushPromises(); expect(w.text()).toContain('Pozdější platba'); expect(w.text()).toContain('300,00')

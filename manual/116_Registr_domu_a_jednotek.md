@@ -272,3 +272,10 @@ Aktuální souhrn u dokumentu ukazuje pouze jeho navazující nové nároky a kr
 Účetní storno se vztahuje ke konkrétní aplikaci. Před potvrzením zkontrolujte její dopady, datum a odůvodnění. Server odmítne storno, pokud tomu brání navazující použití. Dokument se nepřepisuje; po stornu připravte novou revizi se stejnou referencí. Historie zachovává původní dokumenty, aplikace a storna.
 
 Při změně podkladů nebo konfliktu verze obnovte data a vytvořte nový náhled. Aplikace zápis neopakuje automaticky s novým ověřením. Čtení, příprava, zaúčtování a storno respektují oddělená oprávnění; veřejné API a MCP poskytují pouze kurátorované čtení bez právních podkladů a zdrojových důkazů.
+
+
+## Dohady a konečné náklady služeb
+
+V agendě Dohady a konečné náklady služeb založte případ pro jednotku, službu a období. Vyberte schválenou rozvahovou nebo výsledkovou metodu, doložte její podklad a zvolte technický účet služeb. Nativní dohad připojte výběrem skutečných účetních zápisů; výsledková metoda vyžaduje oba nezávislé zápisy. U převzatého stavu S6 vyberte doloženou službovou položku. Výsledkový převzatý dohad potřebuje původní nákladový a výnosový účet, jejich dimenze a podklad v service_state.accrual_unwind; systém je nedoplňuje odhadem. Proveďte náhled, zkontrolujte jej a výslovně potvrďte registraci. Přesné storno dohadu a potvrzení skutečné konečné přijaté faktury jsou další samostatně potvrzované kroky s vlastním účetním datem a oprávněním. Jednomu případu lze přiřadit jednu konečnou fakturu. Při změně podkladů vytvořte nový náhled. Při neurčitém síťovém výsledku můžete výslovně zopakovat stejné potvrzení; aplikace zachová stejný klíč a finanční operaci neopakuje automaticky.
+
+Konečný náklad doložený v této agendě lze vybrat v katalogu zdrojů vyúčtování S8. U převzatého stavu aplikace zachová vazbu na původní službovou položku a doložený konečný náklad. Zdroj i náklad vybíráte podle popisu v katalogu.

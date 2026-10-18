@@ -44,6 +44,9 @@ final class PropertyDimensionPolicy
         $this->assertWindow((int)$header['supplier_id'],$start->format('c'),$start->modify('+1 day')->format('c'),$lines,[],$carried);
     }
 
+    public function assertServiceLifecycleJournal(array $header,array $lines,Services\Settlement\ServiceLifecycleProof $proof):void
+    {$carried=$proof->indices($this->db,$header,$lines);$start=new \DateTimeImmutable($header['entry_date'],new \DateTimeZone('Europe/Prague'));$this->assertWindow((int)$header['supplier_id'],$start->format('c'),$start->modify('+1 day')->format('c'),$lines,[],$carried);}
+
     public function assertOpeningJournal(array $header,array $lines,Opening\OpeningOwnerProof $proof,string $part):void
     {
         $carried=$proof->indices($this->db,$header,$lines,$part);

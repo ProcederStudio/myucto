@@ -57,11 +57,12 @@ async function catalog(more = false, forCosts = false) {
  } catch (e) { if (ticket === epoch) error.value = propertyError(e, t) } finally { if (ticket === epoch) busy.value = false }
 }
 function request(): SettlementDocumentRequest {
- if (!selected.value.length || !cost.value?.cost_source_id || !form.recipient_ids.length) throw new Error('selection_required')
+ const selectedCost = cost.value
+ if (!selected.value.length || !selectedCost?.cost_source_id || !form.recipient_ids.length) throw new Error('selection_required')
  let attached = false
- const selectors = selected.value.map(v => { const s = { ...v.selector }; if (s.kind === 's3_line' && !attached) { s.cost_line_id = cost.value!.cost_source_id!; attached = true }; return s })
+ const selectors = selected.value.map(v => { const s = { ...v.selector }; if (s.kind === 's3_line' && !attached) { s.cost_line_id = selectedCost.cost_source_id!; attached = true }; return s })
  if (!attached && !selected.value.some(v => v.cost_source_id === cost.value!.cost_source_id) && !props.revision) throw new Error('cost_scope')
- return { unit_id: form.unit_id, service_id: form.service_id, segment_key: form.segment_key, accounting_date: form.accounting_date, period_from: form.period_from, period_to: form.period_to, cutoff_at: form.cutoff_at, known_at: form.known_at, recipient_ids: [...form.recipient_ids], evidence: form.evidence, selectors, cost_source_id: cost.value.cost_source_id }
+ return { unit_id: form.unit_id, service_id: form.service_id, segment_key: form.segment_key, accounting_date: form.accounting_date, period_from: form.period_from, period_to: form.period_to, cutoff_at: form.cutoff_at, known_at: form.known_at, recipient_ids: [...form.recipient_ids], evidence: form.evidence, selectors, cost_source_id: selectedCost.cost_source_id }
 }
 async function prepare() {
  if (busy.value || !props.capabilities.manage || !html.value?.reportValidity()) return

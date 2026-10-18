@@ -11992,6 +11992,19 @@ paths:
           - deferred_tax
           - payroll
           - vat_clearing
+          - payroll_payment
+          - gopay
+          - card_settlement
+          - card_writeoff
+          - other_item
+          - payroll_accident_insurance
+          - payroll_travel
+          - deferred_revenue_accrual
+          - unit_charge
+          - unit_payment
+          - unit_payment_revision
+          - property_service_settlement
+          - property_service_lifecycle
       - in: query
         name: source_id
         schema:
@@ -13975,6 +13988,19 @@ paths:
           - deferred_tax
           - payroll
           - vat_clearing
+          - payroll_payment
+          - gopay
+          - card_settlement
+          - card_writeoff
+          - other_item
+          - payroll_accident_insurance
+          - payroll_travel
+          - deferred_revenue_accrual
+          - unit_charge
+          - unit_payment
+          - unit_payment_revision
+          - property_service_settlement
+          - property_service_lifecycle
       - in: query
         name: source_id
         schema:
@@ -38766,7 +38792,7 @@ components:
           - 'null'
         source_type:
           type: string
-          enum: [invoice, purchase_invoice, bank, cash, asset, manual, closing, opening, depreciation, asset_disposal, fx_revaluation, stock, provision, income_tax, profit_distribution, offset, small_asset_accrual, prepaid_expense_accrual, settlement, deferred_tax, payroll, vat_clearing, unit_charge, payroll_payment, gopay, card_settlement, card_writeoff, other_item, payroll_accident_insurance, payroll_travel, deferred_revenue_accrual, unit_payment, unit_payment_revision, property_service_settlement]
+          enum: [invoice, purchase_invoice, bank, cash, asset, manual, closing, opening, depreciation, asset_disposal, fx_revaluation, stock, provision, income_tax, profit_distribution, offset, small_asset_accrual, prepaid_expense_accrual, settlement, deferred_tax, payroll, vat_clearing, unit_charge, payroll_payment, gopay, card_settlement, card_writeoff, other_item, payroll_accident_insurance, payroll_travel, deferred_revenue_accrual, unit_payment, unit_payment_revision, property_service_settlement, property_service_lifecycle]
           description: Původ zápisu. Doména odpovídá sloupci `journal_entries.source_type` v aktuálním otisku migrací.
         source_id:
           type:

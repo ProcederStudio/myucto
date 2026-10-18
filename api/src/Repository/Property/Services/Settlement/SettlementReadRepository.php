@@ -103,6 +103,7 @@ final class SettlementReadRepository
             $cursors = [];
             $verified = [];
             $window = max(25, $limit + 1);
+            $costPeriod = null;
             if ($kind === 'costs') {
                 PropertyInput::id($s3Line, 's3_line_id');
                 try {
@@ -113,6 +114,8 @@ final class SettlementReadRepository
                     }
                     return $this->catalogPage([], null);
                 }
+                $origin = $this->origins->current($supplier, $unit, $service, $date, [['kind' => 's3_line','id' => $s3Line]]);
+                $costPeriod = $origin['origins'][0]['source_period'];
             }
             do {
                 $rows = $this->catalogRows($supplier, $kind, $unit, $service, $date, $after, $afterService, $window);
@@ -131,17 +134,21 @@ final class SettlementReadRepository
                         'opening' => ['kind' => 'opening','advance_item_id' => $after,'service_item_id' => $afterService],
                         'costs' => ['kind' => 's3_line','id' => $s3Line,'cost_line_id' => $after]
                     };
-                    if ($kind === 'opening' && !$this->compatibleOpeningPair($verified[$after], $verified[$afterService])) {
-                        continue;
+                    if ($kind === 'opening') {
+                        $selector = $this->openingSelector($supplier, $unit, $service, $verified[$after], $verified[$afterService], $selector, $date);
+                        if ($selector === null) {
+                            continue;
+                        }
                     }
                     try {
                         if ($kind === 's3') {
                             $history->assertOriginAvailable($supplier, ['kind' => 's3_line','id' => $after,'opening_advance_component_id' => null]);
                         } elseif ($kind === 'costs') {
+                            (new ServiceLifecycleRepository($this->db))->assertCostReady($supplier, $unit, $service, $after, $date, null, $costPeriod);
                             $history->assertCostAvailable($supplier, $after);
                         }
                     } catch (\DomainException $e) {
-                        if (!in_array($e->getMessage(), ['settlement_origin_already_disposed','settlement_cost_already_disposed'], true)) {
+                        if (!in_array($e->getMessage(), ['settlement_origin_already_disposed','settlement_cost_already_disposed','settlement_lifecycle_final_proof_required','settlement_lifecycle_final_after_settlement'], true)) {
                             throw $e;
                         }
                         continue;
@@ -176,11 +183,31 @@ final class SettlementReadRepository
     {
         return ['items' => $items,'next_cursor' => $cursor,'scope' => 'current_owner_verified_candidates','write_authorization' => false];
     }
+    private function openingSelector(int $supplier, int $unit, int $service, array $advance, array $carry, array $selector, string $date): ?array
+    {
+        if (!$this->compatibleOpeningPair($advance, $carry)) {
+            return null;
+        }
+        $snapshot = $carry['snapshot'];
+        $cases = $this->rows('SELECT id FROM property_service_lifecycle_cases WHERE supplier_id=? AND unit_id=? AND service_id=? AND period_from<=? AND period_to>=? ORDER BY id FOR UPDATE', [$supplier,$unit,$service,$snapshot['period_to'],$snapshot['period_from']]);
+        if ($cases === []) {
+            return $snapshot['service_state']['profile'] === 'service_balance_sheet' ? $selector : null;
+        }
+        $owner = new ServiceLifecycleRepository($this->db);
+        $matches = [];
+        foreach ($cases as $case) {
+            $state = $owner->current($supplier, (int)$case['id']);
+            if ($state['final'] !== null && $state['final']['accounting_date'] <= $date && ($state['estimate']['opening_item_id'] ?? null) === $carry['id'] && $state['case']['policy'] === $snapshot['service_state']['profile']) {
+                $matches[] = $state['final']['cost_line_id'];
+            }
+        }
+        return count($matches) === 1 ? $selector + ['cost_line_id' => $matches[0]] : null;
+    }
     private function compatibleOpeningPair(array $advance, array $carry): bool
     {
         $a = $advance['snapshot']['advance_state'];
         $s = $carry['snapshot']['service_state'];
-        return $s['profile'] === 'service_balance_sheet' && $a['used_cents'] === '0' && $s['settled_cents'] === '0' && $s['cancelled_unpaid_cents'] === '0'
+        return $a['used_cents'] === '0' && $s['settled_cents'] === '0' && $s['cancelled_unpaid_cents'] === '0'
             && $a['prescribed_cents'] === $s['prescribed_cents'] && $a['paid_cents'] === $s['paid_cents']
             && PropertyInput::hash($a['unpaid_cases']) === PropertyInput::hash($s['unpaid_cases']);
     }
@@ -193,7 +220,7 @@ final class SettlementReadRepository
         if ($kind === 'opening') {
             return $this->rows("SELECT a.id,c.id service_item_id,b.accounting_date,a.period_from,a.period_to FROM property_opening_items a JOIN property_opening_items c ON c.supplier_id=a.supplier_id AND c.batch_id=a.batch_id AND c.unit_id=a.unit_id AND c.service_id=a.service_id AND c.kind='service_carry' JOIN property_opening_batches b ON b.supplier_id=a.supplier_id AND b.id=a.batch_id JOIN property_opening_heads h ON h.supplier_id=b.supplier_id AND h.batch_id=b.id WHERE a.supplier_id=? AND a.unit_id=? AND a.service_id=? AND b.accounting_date<=? AND a.kind='advance' AND b.status='posted' AND (a.id>? OR(a.id=? AND c.id>?)) ORDER BY a.id,c.id LIMIT ".$limit.' FOR UPDATE', [...$args,$after,$after,$afterService]);
         }
-        return $this->rows("SELECT l.id,e.entry_date accounting_date,e.description,e.document_no FROM journal_entry_lines l JOIN journal_entries e ON e.supplier_id=l.supplier_id AND e.id=l.entry_id JOIN chart_of_accounts c ON c.supplier_id=l.supplier_id AND c.id=l.account_id JOIN property_objects u ON u.supplier_id=l.supplier_id AND u.id=? JOIN property_objects s ON s.supplier_id=l.supplier_id AND s.id=? JOIN journal_entry_line_dimensions du ON du.supplier_id=l.supplier_id AND du.line_id=l.id AND du.dimension_value_id=u.dimension_value_id JOIN journal_entry_line_dimensions ds ON ds.supplier_id=l.supplier_id AND ds.line_id=l.id AND ds.dimension_value_id=s.dimension_value_id WHERE l.supplier_id=? AND e.entry_date<=? AND e.source_type='manual' AND e.posted_at IS NOT NULL AND e.reversed_by IS NULL AND l.side='debit' AND l.amount>0 AND l.is_red_storno=0 AND c.account_type='asset' AND l.currency_code IS NULL AND l.amount_foreign IS NULL AND l.fx_rate IS NULL AND REPLACE(c.account_code,'.','') LIKE '3152%' AND l.id>? ORDER BY l.id LIMIT ".$limit.' FOR UPDATE', [$unit,$service,$supplier,$date,$after]);
+        return $this->rows("SELECT l.id,e.entry_date accounting_date,e.description,e.document_no FROM journal_entry_lines l JOIN journal_entries e ON e.supplier_id=l.supplier_id AND e.id=l.entry_id JOIN chart_of_accounts c ON c.supplier_id=l.supplier_id AND c.id=l.account_id JOIN property_objects u ON u.supplier_id=l.supplier_id AND u.id=? JOIN property_objects s ON s.supplier_id=l.supplier_id AND s.id=? JOIN journal_entry_line_dimensions du ON du.supplier_id=l.supplier_id AND du.line_id=l.id AND du.dimension_value_id=u.dimension_value_id JOIN journal_entry_line_dimensions ds ON ds.supplier_id=l.supplier_id AND ds.line_id=l.id AND ds.dimension_value_id=s.dimension_value_id WHERE l.supplier_id=? AND e.entry_date<=? AND (e.source_type='manual' OR (e.source_type IN ('purchase_invoice','property_service_lifecycle') AND EXISTS (SELECT 1 FROM property_service_lifecycle_events le JOIN property_service_lifecycle_cases lc ON lc.supplier_id=le.supplier_id AND lc.id=le.case_id WHERE le.supplier_id=l.supplier_id AND lc.unit_id=u.id AND lc.service_id=s.id AND le.event_key='final' AND JSON_VALUE(le.receipt_json,'$.cost_line_id')=l.id))) AND e.posted_at IS NOT NULL AND e.reversed_by IS NULL AND l.side='debit' AND l.amount>0 AND l.is_red_storno=0 AND c.account_type='asset' AND l.currency_code IS NULL AND l.amount_foreign IS NULL AND l.fx_rate IS NULL AND REPLACE(c.account_code,'.','') LIKE '3152%' AND l.id>? ORDER BY l.id LIMIT ".$limit.' FOR UPDATE', [$unit,$service,$supplier,$date,$after]);
     }
     private function labels(int $supplier, array $ids): array
     {

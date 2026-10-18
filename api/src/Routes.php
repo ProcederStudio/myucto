@@ -382,6 +382,7 @@ final class Routes
 {
     public static function register(App $app): void
     {
+        \MyInvoice\Routes\ServiceLifecycleRoutes::register($app);
         $app->get('/api/health',  HealthAction::class);
         $app->get('/api/version', VersionAction::class);
 

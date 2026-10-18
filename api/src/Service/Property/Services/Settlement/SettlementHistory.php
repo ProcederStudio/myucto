@@ -9,6 +9,8 @@ final class SettlementHistory
 {
     use SettlementSql;
     public function __construct(private readonly Connection $db){}
+    public function lifecycle(int $supplier,int $case):array
+    {return(new \MyInvoice\Repository\Property\Services\Settlement\ServiceLifecycleRepository($this->db))->current($supplier,$case);}
     public function application(int $supplier,int $id,bool $current):array
     {
         if(!$this->db->pdo()->inTransaction())throw new \LogicException('Settlement history requires a stable transaction.');$suffix=$current?' FOR UPDATE':'';

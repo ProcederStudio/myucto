@@ -18,7 +18,7 @@ final class SettlementCloneScrubber
     public static function run(Connection $db,TextScrubber $scrubber,array $registryMap,array $hashes,callable $text,callable $map,array $inputs=[]):void
     {
         $pdo=$db->pdo();if(!$pdo->inTransaction()||(int)$pdo->query('SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA=DATABASE()')->fetchColumn()!==0)throw new \LogicException('Settlement clone requires the payment clone transaction before trigger installation.');
-        $owner=new self($db,$scrubber,$registryMap,$hashes,\Closure::fromCallable($text),\Closure::fromCallable($map));$owner->capture();foreach($inputs as $input)$owner->index($input);$owner->rewrite();$owner->verify();
+        $hashes=ServiceLifecycleCloneScrubber::run($db,$scrubber,$hashes,$text,$map,$inputs)+$hashes;$owner=new self($db,$scrubber,$registryMap,$hashes,\Closure::fromCallable($text),\Closure::fromCallable($map));$owner->capture();foreach($inputs as $input)$owner->index($input);$owner->rewrite();$owner->verify();
     }
     public static function captureInputs(Connection $db):array
     {
@@ -27,7 +27,7 @@ final class SettlementCloneScrubber
             $rows=$pdo->query('SELECT DISTINCT c.supplier_id,c.journal_entry_id FROM property_service_settlement_origins o JOIN unit_charge_lines l ON l.supplier_id=o.supplier_id AND l.id=o.charge_line_id JOIN unit_charges c ON c.supplier_id=l.supplier_id AND c.id=l.charge_id ORDER BY c.supplier_id,c.journal_entry_id FOR UPDATE')->fetchAll(PDO::FETCH_ASSOC);$groups=[];$inputs=[];
             foreach($rows as $row)$groups[(int)$row['supplier_id']][]=(int)$row['journal_entry_id'];
             foreach($groups as $supplier=>$ids){(new \MyInvoice\Service\Property\Payments\PaymentLocks($db))->acquire($supplier);foreach((new \MyInvoice\Service\Property\Payments\PaymentJournalProof($db))->currentMany($supplier,$ids) as $ledger){$inputs[]=$ledger;}}
-            $pdo->commit();return $inputs;
+            $inputs=[...$inputs,...ServiceLifecycleCloneScrubber::captureInputs($db)];$pdo->commit();return $inputs;
         }catch(\Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw $e;}
     }
     private function capture():void
