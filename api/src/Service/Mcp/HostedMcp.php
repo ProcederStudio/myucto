@@ -8,6 +8,7 @@ use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Service\PhpCliLocator;
 use MyInvoice\Service\System\ManagedModeGuard;
 use MyInvoice\Service\Tenant\TenantUrlResolver;
+use MyInvoice\Support\OpenBasedir;
 
 final class HostedMcp
 {
@@ -88,7 +89,7 @@ final class HostedMcp
         if ($configured !== '') return $configured;
         $name = PHP_OS_FAMILY === 'Windows' ? 'php.exe' : 'php';
         $nearby = dirname(PHP_BINARY) . DIRECTORY_SEPARATOR . $name;
-        return is_file($nearby) ? $nearby : PHP_BINDIR . DIRECTORY_SEPARATOR . $name;
+        return OpenBasedir::isFile($nearby) ? $nearby : PHP_BINDIR . DIRECTORY_SEPARATOR . $name;
     }
 
     public function nodeAvailable(): bool
@@ -97,10 +98,10 @@ final class HostedMcp
             return function_exists('proc_open') && $this->relayPhpBinary() !== null;
         }
         if (!function_exists('proc_open')) return false;
-        if (!is_file($this->phpBinary()) || !is_executable($this->phpBinary())) return false;
+        if (!OpenBasedir::isExecutableFile($this->phpBinary())) return false;
         $binary = $this->nodeBinary();
         if (str_contains($binary, '/') || str_contains($binary, '\\')) {
-            return is_file($binary) && is_executable($binary);
+            return OpenBasedir::isExecutableFile($binary);
         }
 
         $path = (string) getenv('PATH');
@@ -108,7 +109,7 @@ final class HostedMcp
         foreach (explode(PATH_SEPARATOR, $path) as $directory) {
             foreach ($suffixes as $suffix) {
                 $candidate = rtrim($directory, '/\\') . DIRECTORY_SEPARATOR . $binary . $suffix;
-                if (is_file($candidate) && is_executable($candidate)) {
+                if (OpenBasedir::isExecutableFile($candidate)) {
                     return true;
                 }
             }
