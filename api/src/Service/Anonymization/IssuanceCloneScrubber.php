@@ -140,7 +140,8 @@ final class IssuanceCloneScrubber
     private function text(array $payload,int $supplier): array
     {
         foreach($payload as $key=>&$value) {
-            if($key==='case_identity'&&is_array($value)) {
+            if($key==='cost_center'&&is_string($value)) $value=$this->scrubber->byStrategy('cost_center',$value);
+            elseif($key==='case_identity'&&is_array($value)) {
                 foreach(['case_ref','occurrence_ref','decision_ref'] as $field)
                     $value[$field]=$this->caseReferences[$supplier][$field][IssuanceCaseIdentity::canonical($value[$field])]??throw new \RuntimeException('Issuance identity reference has no verified source.');
                 foreach(['title_ref','evidence_ref'] as $field) $value[$field]=$this->scrubber->scrub($value[$field]);

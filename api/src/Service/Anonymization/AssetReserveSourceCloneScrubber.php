@@ -69,7 +69,8 @@ final class AssetReserveSourceCloneScrubber
     private static function receiptText(array $receipt, TextScrubber $scrubber): array
     {
         foreach ($receipt as $key => $value) {
-            if (is_array($value)) $receipt[$key] = self::receiptText($value, $scrubber);
+            if ($key === 'cost_center' && is_string($value)) $receipt[$key] = $scrubber->byStrategy('cost_center', $value);
+            elseif (is_array($value)) $receipt[$key] = self::receiptText($value, $scrubber);
             elseif (is_string($value) && in_array($key, ['reference', 'evidence', 'cost_center'], true)) $receipt[$key] = $scrubber->scrub($value);
         }
         return $receipt;

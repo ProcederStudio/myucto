@@ -158,6 +158,7 @@ final class JointAllocationCloneScrubberTest extends TestCase
                 ->execute([$scrubber->scrub(self::EMAIL), $this->supplier, self::EMAIL]);
             self::assertGreaterThan(0, (int) $pdo->query('SELECT COUNT(*) FROM ' . $table . " WHERE supplier_id = {$this->supplier} AND assignment_origin = 'explicit'")->fetchColumn());
         }
+        \MyInvoice\Service\Anonymization\LegacyCostCenterCloneScrubber::run($pdo,$scrubber);
         $before = $this->state($pdo);
         $helper = new JointAllocationCloneScrubber($pdo, $scrubber);
         $original = $before['joint_allocation_batches'][0];
@@ -228,12 +229,12 @@ final class JointAllocationCloneScrubberTest extends TestCase
             self::assertSame('800.00', $snapshot['source_lines'][0]['amount_foreign']);
             self::assertSame(1, $snapshot['source_lines'][0]['is_red_storno']);
             $originalBatch = array_column($before['joint_allocation_batches'], null, 'id')[$batch['id']];
-            $expectedPlan = json_decode(str_replace(self::EMAIL, $scrubber->scrub(self::EMAIL), $originalBatch['snapshot_json']), true, flags: JSON_THROW_ON_ERROR)['plan'];
+            $expectedPlan = json_decode(str_replace([self::EMAIL,'POOL-ORIGINAL','POOL-CHANGED'], [$scrubber->scrub(self::EMAIL),$scrubber->byStrategy('cost_center','POOL-ORIGINAL'),$scrubber->byStrategy('cost_center','POOL-CHANGED')], $originalBatch['snapshot_json']), true, flags: JSON_THROW_ON_ERROR)['plan'];
             self::assertSame($expectedPlan, $snapshot['plan']);
             self::assertSame(['origin' => 'explicit', 'ref' => $scrubber->scrub(self::EMAIL)], array_values($snapshot['source_lines'][0]['dimension_origins'])[0]);
             self::assertSame(['origin' => 'explicit', 'ref' => $scrubber->scrub(self::EMAIL)], array_values(array_values($snapshot['source_lines'][0]['dimension_split_origins'])[0])[0]);
             self::assertSame($originalBatch['idempotency_key'], $batch['idempotency_key']);
-            self::assertSame($batch['id'] === $first['id'] ? 'POOL-ORIGINAL' : 'POOL-CHANGED', $snapshot['source_lines'][0]['cost_center']);
+            self::assertSame($scrubber->byStrategy('cost_center',$batch['id'] === $first['id'] ? 'POOL-ORIGINAL' : 'POOL-CHANGED'), $snapshot['source_lines'][0]['cost_center']);
         }
         $versions = array_column($after['joint_allocation_key_versions'], null, 'id');
         $batches = array_column($after['joint_allocation_batches'], null, 'id');

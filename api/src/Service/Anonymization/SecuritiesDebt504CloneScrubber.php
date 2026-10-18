@@ -89,7 +89,7 @@ final class SecuritiesDebt504CloneScrubber
     }
     private static function text(array $data,TextScrubber $scrubber): array
     {
-        foreach($data as $key=>&$value){if(is_array($value))$value=self::text($value,$scrubber);elseif(is_string($value)&&in_array((string)$key,self::TEXT,true))$value=$scrubber->scrub($value);}unset($value);return $data;
+        foreach($data as $key=>&$value){if($key==='cost_center'&&is_string($value))$value=$scrubber->byStrategy('cost_center',$value);elseif(is_array($value))$value=self::text($value,$scrubber);elseif(is_string($value)&&in_array((string)$key,self::TEXT,true))$value=$scrubber->scrub($value);}unset($value);return $data;
     }
     private static function financial(array $data): array
     {

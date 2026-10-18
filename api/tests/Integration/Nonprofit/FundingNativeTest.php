@@ -88,7 +88,8 @@ final class FundingNativeTest extends TestCase
         $expense=str_starts_with($code,'5');
         $this->pdo->prepare("INSERT INTO journal_entries(supplier_id,period_id,entry_date,source_type) VALUES (?,?,?,'manual')")->execute([$this->supplier,$this->period,$date]);$entry=(int)$this->pdo->lastInsertId();$first=0;
         foreach([[$code,$expense?'debit':'credit'],['221',$expense?'credit':'debit']]as$no=>[$account,$side]){
-            $this->pdo->prepare('INSERT INTO journal_entry_lines(supplier_id,entry_id,line_no,account_id,side,amount,is_red_storno) VALUES (?,?,?,?,?,?,?)')->execute([$this->supplier,$entry,$no,$this->accounts[$account],$side,$amount,(int)$red]);
+            $center=$this->name()==='testFullClonePreservesPurposeUseAndTaxElectionWithoutOriginalPrivateEvidence'?'synthetic.center@example.invalid':null;
+            $this->pdo->prepare('INSERT INTO journal_entry_lines(supplier_id,entry_id,line_no,account_id,side,amount,is_red_storno,cost_center) VALUES (?,?,?,?,?,?,?,?)')->execute([$this->supplier,$entry,$no,$this->accounts[$account],$side,$amount,(int)$red,$center]);
             if($no===0){$first=(int)$this->pdo->lastInsertId();foreach(['activity'=>$this->catalog['activity']['values']['main'],'activity_kind'=>$this->kind,'tax_regime'=>$this->catalog['tax_regime']['values']['exempt']]as$axis=>$value)$this->pdo->prepare("INSERT INTO journal_entry_line_dimensions(supplier_id,line_id,dimension_type_id,dimension_value_id,assignment_origin) VALUES (?,?,?,?,'explicit')")->execute([$this->supplier,$first,$this->catalog[$axis]['id'],$value]);}
         }
         $this->pdo->prepare('UPDATE journal_entries SET posted_at=NOW() WHERE id=?')->execute([$entry]);return $first;
@@ -211,6 +212,7 @@ final class FundingNativeTest extends TestCase
             $dump=json_encode($target->pdo()->query('SELECT policy_json,basis_json,request_json,reason FROM nonprofit_funding_revisions')->fetchAll(PDO::FETCH_ASSOC),JSON_THROW_ON_ERROR);
             $dump.=json_encode($target->pdo()->query('SELECT snapshot_json,assessment_json,result_json,reason FROM nonprofit_tax_assessments')->fetchAll(PDO::FETCH_ASSOC),JSON_THROW_ON_ERROR);
             self::assertStringNotContainsString('donor@example.test',$dump);self::assertStringNotContainsString('Synthetic donor',$dump);
+            self::assertStringNotContainsString('synthetic.center@example.invalid',$dump);$centers=$target->pdo()->query('SELECT DISTINCT cost_center FROM journal_entry_lines WHERE cost_center IS NOT NULL')->fetchAll(PDO::FETCH_COLUMN);self::assertNotEmpty($centers);foreach($centers as$center)self::assertMatchesRegularExpression('/^CC[0-9A-F]{48}$/D',$center);
             self::assertTrue($originalRows[1]['basis']['source_rows']['line:'.$this->income]['decision']['facts']['claim_exemption']);
             $tax=$c->get(NonprofitTaxAssessmentService::class);
             $snap=$tax->read($this->supplier,$this->period)['snapshot'];

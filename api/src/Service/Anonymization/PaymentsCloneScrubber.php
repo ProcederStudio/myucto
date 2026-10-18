@@ -67,7 +67,8 @@ final class PaymentsCloneScrubber
     {
         $out=[];
         foreach($data as $key=>$value){
-            if(is_array($value))$out[$key]=$this->text($value);
+            if($key==='cost_center'&&is_string($value))$out[$key]=$this->scrubber->byStrategy('cost_center',$value);
+            elseif(is_array($value))$out[$key]=$this->text($value);
             elseif(is_string($value)&&in_array((string)$key,self::TEXT,true))$out[$key]=$this->scrubber->scrub($value);
             elseif(is_string($value)&&in_array((string)$key,['company_name','first_name','last_name','main_email','counterparty_account','recipient_account','partner_name','recipient_name'],true)){
                 $name=$key==='recipient_account'?'bank_account':$key;$decoded=self::decode($this->scrubber->scrubJson(self::json([$name=>$value])));$out[$key]=$decoded[$name];

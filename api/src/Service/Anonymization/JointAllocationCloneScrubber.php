@@ -86,7 +86,9 @@ final class JointAllocationCloneScrubber
     private function scrubFields(array $value, array $hashes = []): array
     {
         foreach ($value as $key => $item) {
-            if (is_array($item) && in_array($key, ['dimension_origins', 'dimension_split_origins'], true)) {
+            if ($key === 'cost_center' && is_string($item)) {
+                $value[$key] = $this->scrubber->byStrategy('cost_center', $item);
+            } elseif (is_array($item) && in_array($key, ['dimension_origins', 'dimension_split_origins'], true)) {
                 $value[$key] = $this->scrubOrigins($item, $key === 'dimension_split_origins');
             } elseif (is_array($item)) {
                 $value[$key] = $this->scrubFields($item, $hashes);

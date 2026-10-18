@@ -82,6 +82,7 @@ final class AnonymizationService
             $cloner->copyTables($plan, $options->target, $log);
             $captureConnection = Connection::withoutSharedTestConnection(fn () => new Connection($this->targetConfig($options->target)));
             try {
+                $payrollInputs = PayrollCostCenterCloneScrubber::capture($captureConnection);
                 $settlementInputs = SettlementCloneScrubber::captureInputs($captureConnection);
                 $securitiesDebtInputs = SecuritiesDebt504CloneScrubber::captureInputs($captureConnection);
                 $capitalInputs = CapitalCloneScrubber::capture($captureConnection);
@@ -93,6 +94,9 @@ final class AnonymizationService
             foreach (AnonymizationPolicy::POST_SQL as $sql) {
                 $pdo->exec($sql);
             }
+            LegacyCostCenterCloneScrubber::run($pdo, $this->scrubber);
+            $payrollConnection = Connection::withoutSharedTestConnection(fn () => new Connection($this->targetConfig($options->target)));
+            try { PayrollCostCenterCloneScrubber::run($payrollConnection, $this->scrubber, $payrollInputs); } finally { $payrollConnection->close(); }
             (new JointAllocationCloneScrubber($pdo, $this->scrubber))->run();
             $registryMap = (new PropertyCloneScrubber($pdo, $this->scrubber))->run();
             $versionMap = (new ChargesCloneScrubber($pdo, $this->scrubber))->run($registryMap);
