@@ -269,12 +269,25 @@ U ř. 20, 30, 109 až 112 a 140 se text položky přenese i do zvláštní pří
 #### Daňové ztráty (§ 34)
 
 Na kartě **Úpravy a odpočty** je přehled **Daňové ztráty (§ 34)**: každá ztráta z minulých let
-(rok vzniku, stanovená výše, kolik už bylo uplatněno, zbývající zůstatek a **rok expirace** =
+(rok vzniku, evidovaná výše, kolik už bylo uplatněno, zbývající zůstatek a **rok expirace** =
 rok vzniku + 5). Ztráta vzniká **automaticky** při finalizaci přiznání se záporným základem
 (FO i PO) a v následujících **5 obdobích** ji lze uplatnit. Systém nabídne **návrh uplatnění
 (FIFO** - od nejstarší ztráty) tlačítkem **Uplatnit návrh**; uplatnění se eviduje k roku
 uplatnění (při vrácení přiznání do rozpracovaného stavu se automaticky uvolní). Poplatník
 uplatňující ztrátu přikládá k přiznání **samostatnou přílohu podle § 34 odst. 1**.
+
+Finalizace ověřuje, že lze celý vypočtený odpočet přiřadit k dostupným evidovaným
+ztrátám. Pokud evidence nestačí nebo nelze ověřit vlastníka dosavadního uplatnění,
+přiznání zůstane rozpracované a archiv ani evidence ztrát se nezmění. Opravte výši
+odpočtu nebo doplňte průkazné podklady. Uvolňuje se jen uplatnění nahrazovaného
+účinného přiznání; práce s nižší variantou nemění uplatnění vyšší finální varianty.
+
+Přesná alokace u DPPO podporuje doložený řetězec kalendářních zdaňovacích období.
+Pokud podklady obsahují hospodářské, zkrácené nebo neúplně doložené období, nelze
+přiznání s odpočtem ztráty finalizovat. Přiznání bez odpočtu ztráty tato kontrola
+neblokuje. Počáteční ztrátu přebíranou pouze rokem zadávejte touto cestou jen pro
+kalendářní zdaňovací období. U DPFO není pro kalendářní období vyžadováno založení
+podvojného účetnictví.
 
 ### 43.11.4 Náhled přiznání
 
