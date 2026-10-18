@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Payroll\Migration;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\Payroll\PayrollInputRepository;
 use MyInvoice\Service\Migration\MoneyS3\ImportProtocol;
 use MyInvoice\Service\Payroll\Time\PayrollTimeService;
@@ -32,6 +33,7 @@ final class PayrollTakeoverRepeatedMonth
 {
     /** Stavy běhu, ve kterých vstupy měsíce ještě nikdo nezamkl. */
     private const OPEN_RUN_STATUSES = ['draft', 'cancelled'];
+    private const SAVEPOINT = 'payroll_takeover_superseded_input';
 
     public function __construct(
         private readonly Connection $db,
@@ -148,18 +150,28 @@ final class PayrollTakeoverRepeatedMonth
         $stmt->execute([$supplierId, ...$previousBatchIds, $period . '-01', $supplierId, $newBatchId]);
         $cancelled = [];
         $failed = 0;
+        $outer = $pdo->inTransaction();
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            $id = (int) $row['id'];
-            $version = (int) $row['row_version'];
             try {
-                if ($row['status'] === 'approved') {
-                    $this->inputs->revertToDraft($supplierId, $id, $version);
-                    $version++;
-                }
-                $this->inputs->cancel($supplierId, $id, $version);
+                // Vrácení do konceptu a zrušení jdou spolu: vstup nesmí zůstat napůl.
+                TransactionFailure::retrying($pdo, fn () => $this->atomic($pdo, function () use ($supplierId, $row): void {
+                    $id = (int) $row['id'];
+                    $version = (int) $row['row_version'];
+                    if ($row['status'] === 'approved') {
+                        $this->inputs->revertToDraft($supplierId, $id, $version);
+                        $version++;
+                    }
+                    $this->inputs->cancel($supplierId, $id, $version);
+                }));
                 $code = (string) $row['code'];
                 $cancelled[$code] = ($cancelled[$code] ?? 0) + 1;
             } catch (\Throwable $e) {
+                // Odvolaná transakce (1020/1213) nevrátila jen tenhle vstup, ale i dávku
+                // docházky volajícího. Zbytek převodu by běžel v autocommitu a varování
+                // by tvrdilo, že vstupy vstoupily do běhu.
+                if (TransactionFailure::aborted($e) || ($outer && !$pdo->inTransaction())) {
+                    throw $e;
+                }
                 $failed++;
             }
         }
@@ -191,5 +203,32 @@ final class PayrollTakeoverRepeatedMonth
         ), ['period' => $period]);
 
         return $total;
+    }
+
+    /** @param callable():void $work */
+    private function atomic(PDO $pdo, callable $work): void
+    {
+        $owns = !$pdo->inTransaction();
+        $owns ? $pdo->beginTransaction() : $pdo->exec('SAVEPOINT ' . self::SAVEPOINT);
+        try {
+            $work();
+            $owns ? $pdo->commit() : $pdo->exec('RELEASE SAVEPOINT ' . self::SAVEPOINT);
+        } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e) || !$pdo->inTransaction()) {
+                throw $e;
+            }
+            if ($owns) {
+                $pdo->rollBack();
+                throw $e;
+            }
+            try {
+                $pdo->exec('ROLLBACK TO SAVEPOINT ' . self::SAVEPOINT);
+                $pdo->exec('RELEASE SAVEPOINT ' . self::SAVEPOINT);
+            } catch (\PDOException) {
+                // Savepoint zmizel s transakcí, kterou MariaDB odvolala pod přebalenou chybou.
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
     }
 }
