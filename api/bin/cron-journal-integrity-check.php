@@ -127,4 +127,11 @@ echo "  done ({$ms} ms): suppliers={$report['suppliers']}, with_findings={$repor
 $pdo->prepare("INSERT INTO activity_log (action, payload) VALUES ('cron.journal_integrity', ?)")
     ->execute([json_encode($report, JSON_UNESCAPED_UNICODE)]);
 
+// Pojistka § 33a: záznamy commitnuté těsně před pádem procesu čekají na zapečetění
+// do dalšího zápisu; na tiché instanci by to mohlo trvat dlouho.
+$sealed = $container->get(\MyInvoice\Service\ActivityLogHashChain::class)->sealPending();
+if ($sealed > 0) {
+    echo "  auditní stopa: dopečetěno {$sealed} záznamů\n";
+}
+
 $run->finish($report['errors'] > 0 ? 'error' : 'ok', $report);

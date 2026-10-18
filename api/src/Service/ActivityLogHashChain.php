@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace MyInvoice\Service;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\LoggingPdo;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 
 /**
  * Zřetězení auditní stopy hashem — § 33a ZoÚ.
@@ -24,6 +26,16 @@ use MyInvoice\Infrastructure\Database\Connection;
  * vytvořilo řetěz, který nedokazuje nic — hash spočtený dnes nad daty, která mohla být
  * kdykoli změněna, jen dodává zdání důvěryhodnosti. {@see verify()} proto historii
  * výslovně odlišuje od chráněné části.
+ *
+ * ── Proč se pečetí až po commitu ────────────────────────────────────────────────────
+ * Záznam vzniká v téže transakci jako zapisovaná mutace a s ní i zaniká, takže stopa
+ * nemá díru u provedené změny ani článek u změny vrácené. Hlava řetězu je ale jeden
+ * řádek pro celou instanci: dokud se zamykala uvnitř obchodní transakce, řadily se za
+ * ni všechny auditované zápisy instance a pod REPEATABLE READ se snapshot isolation
+ * končily chybou 1020 (vystavené faktury zůstávaly nezaúčtované). Hash proto doplní až
+ * krátká samostatná transakce po commitu ({@see sealPending()}); pořadí řetězu určuje
+ * `seal_seq`, ne `id`. Mezi commitem a zapečetěním je záznam bez hashe — normálně
+ * milisekundy, po pádu procesu do dalšího pečetění (kterýkoli další zápis, cron).
  */
 final class ActivityLogHashChain
 {
@@ -32,6 +44,9 @@ final class ActivityLogHashChain
         'id', 'supplier_id', 'user_id', 'action', 'entity_type', 'entity_id',
         'payload', 'ip', 'user_agent', 'created_at',
     ];
+
+    /** Kolik záznamů zapečetí jedna krátká transakce. */
+    private const SEAL_BATCH = 500;
 
     /**
      * `created_at` je TIMESTAMP, takže ho MariaDB renderuje podle zóny SESSION —
@@ -52,6 +67,8 @@ final class ActivityLogHashChain
 
     private ?int $watermark = null;
     private bool $watermarkResolved = false;
+    private bool $sealing = false;
+    private bool $shutdownSweep = false;
 
     public function __construct(private readonly Connection $db) {}
 
@@ -73,28 +90,137 @@ final class ActivityLogHashChain
         return $this->db->hasColumn('activity_log', 'hash');
     }
 
+    /** Pečetí se po commitu (migrace 2055)? */
+    private function isDeferred(): bool
+    {
+        return $this->db->hasColumn('activity_log', 'seal_seq')
+            && $this->db->hasColumn('activity_log_chain_head', 'deferred_from_id');
+    }
+
     /**
-     * Doplní hash čerstvě vloženému záznamu. Volá se hned po INSERT, uvnitř téže
-     * transakce jako zapisovaná mutace.
-     *
-     * Předchozí článek se čte pod zámkem: bez něj by dvě souběžné transakce přečetly týž
-     * `prev_hash` a řetěz by se rozvětvil — ověření by pak hlásilo porušení tam, kde žádné
-     * není. Zámek se drží do commitu VNĚJŠÍ transakce, jinak by okno pro rozvětvení
-     * zůstalo otevřené (nezacommitovaný článek další transakce nevidí).
-     *
-     * Zamyká se JEDEN ZNÁMÝ ŘÁDEK hlavy řetězu (`activity_log_chain_head`, migrace 1171),
-     * ne poslední záznam nalezený přes `ORDER BY id DESC LIMIT 1`. Ten dotaz skenoval
-     * ROZSAH, takže v REPEATABLE READ bral gap locky a spolu s insert-intention zámkem
-     * nového řádku se dvě transakce zaklesly — naměřeno jako
-     * `SQLSTATE[40001] 1213 Deadlock`. Bodový zámek nad primárním klíčem má vždy stejné
-     * pořadí, takže souběh je FRONTA, ne deadlock. U sériového řetězu je fronta správné
-     * chování; deadlock ne.
+     * Zapečetí čerstvě vložený záznam: mimo transakci hned, v transakci až po jejím
+     * commitu. Hlavu řetězu obchodní transakce nezamyká, takže souběžné zápisy na ni
+     * nečekají a pod snapshot isolation nekončí chybou 1020.
      */
     public function seal(int $id): void
     {
         if (!$this->isAvailable()) {
             return;
         }
+        if (!$this->isDeferred()) {
+            $this->sealInTransaction($id);
+            return;
+        }
+        $pdo = $this->db->pdo();
+        if ($pdo instanceof LoggingPdo) {
+            $pdo->afterCommit(self::class, function (): void {
+                $this->sealPending();
+            });
+            return;
+        }
+        if (!$pdo->inTransaction()) {
+            $this->sealPending();
+            return;
+        }
+        // Spojení bez háčku po commitu: dopečetí se na konci procesu, jinak dalším zápisem.
+        if (!$this->shutdownSweep) {
+            $this->shutdownSweep = true;
+            register_shutdown_function(function (): void {
+                $this->sealPending();
+            });
+        }
+    }
+
+    /**
+     * Zapečetí všechny commitnuté záznamy bez hashe od hranice `deferred_from_id`,
+     * v pořadí id, každou dávku ve vlastní krátké transakci pod zámkem hlavy.
+     *
+     * READ COMMITTED: zámek hlavy čte poslední commitnutou verzi (pod REPEATABLE READ
+     * by tu vznikla táž 1020) a nezacommitované záznamy cizích transakcí nejsou vidět,
+     * zapečetí je až jejich vlastní commit. Uvnitř cizí transakce nedělá nic.
+     *
+     * @return int počet zapečetěných záznamů
+     */
+    public function sealPending(): int
+    {
+        if ($this->sealing || !$this->isAvailable() || !$this->isDeferred()) {
+            return 0;
+        }
+        $pdo = $this->db->pdo();
+        if ($pdo->inTransaction()) {
+            return 0;
+        }
+
+        $this->sealing = true;
+        try {
+            $sealed = 0;
+            do {
+                $batch = TransactionFailure::retrying($pdo, fn (): int => $this->sealBatch($pdo));
+                $sealed += $batch;
+            } while ($batch === self::SEAL_BATCH);
+
+            return $sealed;
+        } finally {
+            $this->sealing = false;
+        }
+    }
+
+    private function sealBatch(\PDO $pdo): int
+    {
+        $pdo->exec('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+        $pdo->beginTransaction();
+        try {
+            $head = $pdo->query(
+                'SELECT last_hash, last_seq, deferred_from_id FROM activity_log_chain_head WHERE id = 1 FOR UPDATE'
+            )->fetch(\PDO::FETCH_ASSOC);
+            if ($head === false || $head['deferred_from_id'] === null) {
+                $pdo->commit();
+                return 0;
+            }
+
+            $rows = $pdo->prepare(
+                'SELECT ' . self::selectList() . ' FROM activity_log
+                  WHERE hash IS NULL AND id >= ? ORDER BY id LIMIT ' . self::SEAL_BATCH
+            );
+            $rows->execute([(int) $head['deferred_from_id']]);
+
+            $prevHash = $head['last_hash'] === null ? null : (string) $head['last_hash'];
+            $seq = (int) $head['last_seq'];
+            $lastId = null;
+            $count = 0;
+            $update = $pdo->prepare('UPDATE activity_log SET prev_hash = ?, hash = ?, seal_seq = ? WHERE id = ? AND hash IS NULL');
+            foreach ($rows->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+                $hash = self::hashOf($row, $prevHash);
+                $update->execute([$prevHash, $hash, ++$seq, (int) $row['id']]);
+                $prevHash = $hash;
+                $lastId = (int) $row['id'];
+                $count++;
+            }
+            if ($count > 0) {
+                $pdo->prepare('UPDATE activity_log_chain_head SET last_id = ?, last_hash = ?, last_seq = ? WHERE id = 1')
+                    ->execute([$lastId, $prevHash, $seq]);
+            }
+            $pdo->commit();
+
+            return $count;
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
+    }
+
+    /**
+     * Pečetění uvnitř zapisující transakce — instalace bez migrace 2055.
+     *
+     * Předchozí článek se čte pod zámkem: bez něj by dvě souběžné transakce přečetly týž
+     * `prev_hash` a řetěz by se rozvětvil. Zamyká se jeden známý řádek hlavy řetězu
+     * (`activity_log_chain_head`, migrace 1171), ne poslední záznam přes
+     * `ORDER BY id DESC LIMIT 1`: ten dotaz bral gap locky a končil deadlockem 1213.
+     */
+    private function sealInTransaction(int $id): void
+    {
         $pdo = $this->db->pdo();
         $inTx = $pdo->inTransaction();
         $useHead = $this->db->hasColumn('activity_log_chain_head', 'last_hash');
@@ -140,31 +266,51 @@ final class ActivityLogHashChain
     }
 
     /**
-     * Ověří zapečetěný řetěz.
+     * Ověří zapečetěný řetěz v pořadí zapečetění.
      *
      * `$fromId` omezí ověření na úsek od daného záznamu. Používá se v testech, kde do
      * `activity_log` zapisují i jiné testy v transakcích, které se rollbacknou — článek,
      * na který mezitím navázal jiný, pak zmizí a globální ověření by hlásilo porušení
      * tam, kde v reálném provozu žádné není. Produkční ověření běží bez omezení.
      *
+     * `pending` = commitnuté záznamy, které na zapečetění teprve čekají (nad hranicí
+     * `deferred_from_id`); nejsou porušením ani nechráněnou historií.
+     *
      * @return array{
-     *   checked:int, unprotected:int, first_protected_id:?int,
+     *   checked:int, unprotected:int, pending:int, first_protected_id:?int,
      *   broken:list<array{id:int, reason:string}>, ok:bool
      * }
      */
     public function verify(?int $fromId = null): array
     {
         if (!$this->isAvailable()) {
-            return ['checked' => 0, 'unprotected' => 0, 'first_protected_id' => null, 'broken' => [], 'ok' => true];
+            return ['checked' => 0, 'unprotected' => 0, 'pending' => 0, 'first_protected_id' => null, 'broken' => [], 'ok' => true];
         }
         $pdo = $this->db->pdo();
+        $deferred = $this->isDeferred();
 
         $where = $fromId === null ? '' : ' AND id >= ' . (int) $fromId;
-        $unprotected = (int) $pdo->query('SELECT COUNT(*) FROM activity_log WHERE hash IS NULL' . $where)->fetchColumn();
+        $deferredFrom = $deferred
+            ? $pdo->query('SELECT deferred_from_id FROM activity_log_chain_head WHERE id = 1')->fetchColumn()
+            : false;
+        $deferredFrom = $deferredFrom === false || $deferredFrom === null ? null : (int) $deferredFrom;
+        $unprotectedWhere = $deferredFrom === null ? '' : ' AND id < ' . $deferredFrom;
+        $unprotected = (int) $pdo->query('SELECT COUNT(*) FROM activity_log WHERE hash IS NULL' . $where . $unprotectedWhere)->fetchColumn();
+        $pending = $deferredFrom === null
+            ? 0
+            : (int) $pdo->query('SELECT COUNT(*) FROM activity_log WHERE hash IS NULL AND id >= ' . $deferredFrom . $where)->fetchColumn();
 
+        $chainWhere = $where;
+        if ($deferred && $fromId !== null) {
+            $fromSeq = $pdo->query('SELECT seal_seq FROM activity_log WHERE id = ' . (int) $fromId)->fetchColumn();
+            if ($fromSeq !== false && $fromSeq !== null) {
+                $chainWhere = ' AND seal_seq >= ' . (int) $fromSeq;
+            }
+        }
         $stmt = $pdo->query(
             'SELECT ' . self::selectList() . ', prev_hash, hash
-               FROM activity_log WHERE hash IS NOT NULL' . $where . ' ORDER BY id'
+               FROM activity_log WHERE hash IS NOT NULL' . $chainWhere
+            . ($deferred ? ' ORDER BY seal_seq, id' : ' ORDER BY id')
         );
 
         $checked = 0;
@@ -194,6 +340,7 @@ final class ActivityLogHashChain
         return [
             'checked' => $checked,
             'unprotected' => $unprotected,
+            'pending' => $pending,
             'first_protected_id' => $firstId,
             'broken' => $broken,
             'ok' => $broken === [],

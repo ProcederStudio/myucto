@@ -1008,7 +1008,8 @@
         "2036_unit_quantity_decimals.sql",
         "2037_simplified_document_series_and_customer.sql",
         "2038_invoice_edit_issued_permission.sql",
-        "2047_supplier_person_title.sql"
+        "2047_supplier_person_title.sql",
+        "2055_activity_log_deferred_seal.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -1624,6 +1625,7 @@
                 "ip": "varbinary(16) NULL DEFAULT NULL",
                 "payload": "longtext NULL DEFAULT NULL COLLATE utf8mb4_bin",
                 "prev_hash": "char(64) NULL DEFAULT NULL",
+                "seal_seq": "bigint(20) unsigned NULL DEFAULT NULL",
                 "supplier_id": "int(10) unsigned NULL DEFAULT NULL",
                 "user_agent": "varchar(255) NULL DEFAULT NULL",
                 "user_id": "bigint(20) unsigned NULL DEFAULT NULL"
@@ -1634,7 +1636,8 @@
                 "idx_al_action": "BTREE (action, created_at)",
                 "idx_al_entity": "BTREE (entity_type, entity_id, created_at)",
                 "idx_al_supplier": "BTREE (supplier_id, created_at)",
-                "idx_al_user": "BTREE (user_id, created_at)"
+                "idx_al_user": "BTREE (user_id, created_at)",
+                "uq_activity_seal_seq": "UNIQUE BTREE (seal_seq)"
             },
             "foreign_keys": [],
             "checks": {
@@ -1646,9 +1649,11 @@
             "engine": "InnoDB",
             "collation": "utf8mb4_unicode_ci",
             "columns": {
+                "deferred_from_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "id": "tinyint(3) unsigned NOT NULL DEFAULT 1",
                 "last_hash": "char(64) NULL DEFAULT NULL",
                 "last_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "last_seq": "bigint(20) unsigned NOT NULL DEFAULT 0",
                 "updated_at": "timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE CURRENT_TIMESTAMP()",
                 "utc_created_at_from_id": "bigint(20) unsigned NULL DEFAULT NULL"
             },

@@ -155,17 +155,28 @@ final class AutoPostSnapshotConflictTest extends TestCase
         self::assertTrue($this->dbA->pdo()->query('SELECT 1')->fetchColumn() !== false);
     }
 
-    public function testPersistentConflictGivesUpCleanlyAndAudits(): void
+    /**
+     * Zaúčtování hlavu řetězu vůbec nezamyká (pečetí se po commitu), takže souběžný
+     * zápis do auditní stopy ho neodvolá ani napoprvé — opakování je jen pojistka.
+     */
+    public function testConcurrentAuditWriteDoesNotAbortPostingAtAll(): void
     {
+        if (!$this->dbA->hasColumn('activity_log_chain_head', 'deferred_from_id')) {
+            self::markTestSkipped('Migrace 2055 neproběhla.');
+        }
         $invoiceId = $this->issuedInvoice('SNAP-2099-2');
         $this->interferences = 100;
 
         $this->autoPoster->maybeAutoPost($this->supplier, 'invoice', $invoiceId, $this->user);
 
-        self::assertNull($this->journal->findBySource($this->supplier, 'invoice', $invoiceId));
-        self::assertFalse($this->dbA->pdo()->inTransaction(), 'Po vyčerpání pokusů nezůstane otevřená transakce.');
-        self::assertSame(1, $this->auditCount('accounting.auto_post_failed', $invoiceId));
-        self::assertLessThan(100, $this->interferences, 'Opakování má strop.');
+        self::assertNotNull($this->journal->findBySource($this->supplier, 'invoice', $invoiceId));
+        self::assertSame(99, $this->interferences, 'Zaúčtování proběhlo napoprvé, bez opakování.');
+        self::assertSame(0, $this->auditCount('accounting.auto_post_failed', $invoiceId));
+        $hash = $this->dbA->pdo()->prepare(
+            "SELECT COUNT(*) FROM activity_log WHERE supplier_id = ? AND action = 'accounting.posted' AND hash IS NULL"
+        );
+        $hash->execute([$this->supplier]);
+        self::assertSame(0, (int) $hash->fetchColumn(), 'Záznam zaúčtování je po commitu zapečetěný.');
     }
 
     private function issuedInvoice(string $varsymbol): int
