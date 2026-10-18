@@ -101,13 +101,13 @@ watch(() => [route.name, route.params.id, supplier.currentSupplierId], () => { p
   <div class="w-full">
     <header class="mb-4 flex flex-wrap items-center justify-between gap-3">
       <h1 class="text-2xl font-semibold">{{ mode === 'list' ? t('stock.items.title') : mode === 'editor' ? itemId ? t('stock.items.edit_title') : t('stock.items.new_title') : item?.name }}</h1>
-      <button v-if="mode === 'list' && canWrite" type="button" :class="btnFilled('primary')" @click="router.push({ name: 'stock-item-new' })"><svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path :d="ICONS.plus" /></svg>{{ t('stock.items.new_title') }}</button>
+      <button v-if="mode === 'list' && canWrite" type="button" :class="btnFilled('primary')" @click="router.push({ name: 'stock-item-new' })"><svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path :d="ICONS.plus" /></svg>{{ t('stock.items.new_title') }}</button>
       <ActionBar v-if="mode !== 'list'" :actions="actions" />
     </header>
     <div v-if="error" class="mb-4 rounded-lg border border-danger-300 bg-danger-50 p-4 text-sm text-danger-700">{{ error }}</div>
     <form v-if="mode === 'list'" class="mb-4 flex flex-wrap gap-2" @submit.prevent="page = 1; load()">
       <input v-model="query" :placeholder="t('stock.items.filter_q_placeholder')" class="h-10 w-full max-w-lg rounded-md border border-neutral-300 bg-surface px-3" />
-      <button :class="btnOutline('neutral')" type="submit"><svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path :d="ICONS.search" /></svg>{{ t('common.search') }}</button>
+      <button :class="btnOutline('neutral')" type="submit"><svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path :d="ICONS.search" /></svg>{{ t('common.search') }}</button>
     </form>
     <div v-if="loading" class="py-12 text-center text-neutral-400">{{ t('common.loading') }}</div>
     <template v-else-if="mode === 'list'">
@@ -115,10 +115,10 @@ watch(() => [route.name, route.params.id, supplier.currentSupplierId], () => { p
       <div v-else class="divide-y divide-neutral-200 rounded-lg border border-neutral-200 bg-surface shadow-sm">
         <article v-for="row in items" :key="row.id" class="flex flex-wrap items-center justify-between gap-3 p-4">
           <div><div class="text-xs font-mono text-neutral-500">{{ row.sku }}</div><h2 class="font-medium">{{ row.name }}</h2><div class="mt-1 text-sm text-neutral-500">{{ t('stock.items.col_qty') }}: {{ row.qty }} {{ row.unit }} · {{ t('stock.items.col_sale_price') }}: {{ row.effective_price ?? row.sale_price_without_vat }}</div></div>
-          <button type="button" :class="btnOutline('primary')" @click="router.push({ name: 'stock-item-detail', params: { id: row.id } })"><svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path :d="ICONS.eye" /></svg>{{ t('common.detail') }}</button>
+          <button type="button" :class="btnOutline('primary')" @click="router.push({ name: 'stock-item-detail', params: { id: row.id } })"><svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path :d="ICONS.eye" /></svg>{{ t('common.detail') }}</button>
         </article>
       </div>
-      <div v-if="pages > 1" class="mt-4 flex flex-wrap items-center justify-end gap-3"><button :class="btnOutline('neutral')" :disabled="page <= 1" @click="page--; load()"><svg class="h-4 w-4 rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path :d="ICONS.chevron" /></svg>{{ t('common.previous') }}</button><span>{{ page }} / {{ pages }}</span><button :class="btnOutline('neutral')" :disabled="page >= pages" @click="page++; load()">{{ t('common.next') }}<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path :d="ICONS.chevron" /></svg></button></div>
+      <div v-if="pages > 1" class="mt-4 flex flex-wrap items-center justify-end gap-3"><button :class="btnOutline('neutral')" :disabled="page <= 1" @click="page--; load()"><svg class="h-4 w-4 rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path :d="ICONS.chevron" /></svg>{{ t('common.previous') }}</button><span>{{ page }} / {{ pages }}</span><button :class="btnOutline('neutral')" :disabled="page >= pages" @click="page++; load()">{{ t('common.next') }}<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path :d="ICONS.chevron" /></svg></button></div>
     </template>
     <form v-else-if="mode === 'editor' || item" class="rounded-lg border border-neutral-200 bg-surface p-5 shadow-sm" @submit.prevent="save">
       <fieldset :disabled="mode !== 'editor' || !canWrite" class="grid gap-4 sm:grid-cols-2">

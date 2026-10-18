@@ -29,6 +29,15 @@ describe('delegated client stock cards', () => {
     expect(wrapper.text()).not.toContain('stock.items.col_value')
     expect(m.getItem).not.toHaveBeenCalled()
   })
+  it('draws button icons with the shared stroke width', async () => {
+    m.write = true
+    m.listItems.mockResolvedValue({ data: [item], meta: { pages: 2 } })
+    const wrapper = mount(ClientItems, { ...options, props: { mode: 'list' } })
+    await flushPromises()
+    const icons = wrapper.findAll('button svg')
+    expect(icons.length).toBeGreaterThanOrEqual(5)
+    for (const icon of icons) expect(icon.attributes('stroke-width')).toBe('2')
+  })
   it('keeps detail disabled and rejects submitting a reader form', async () => {
     const wrapper = mount(ClientItems, { ...options, props: { mode: 'detail' } })
     await flushPromises()
