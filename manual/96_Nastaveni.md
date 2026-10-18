@@ -984,9 +984,10 @@ jeho počáteční zápis a obnoví jeho vlastní změny konfigurace. Původní 
 Pokud již existuje navazující účtování, rozhodnutí o výsledku, párování nebo samostatná změna
 konfigurace, zrušení se zablokuje.
 
-Po zrušení převodu lze samostatně vrátit i původní uzávěrku. Pokud byla zdrojová uzávěrka takto
-vrácena, anonymizovaný klon s historickým převodem vyžaduje samostatně doloženou původní historii.
-Systém klonování v tomto případě zastaví, aby historický převod nepřepsal novými účetními podklady.
+Po zrušení převodu lze samostatně vrátit a opravit i původní uzávěrku. Anonymizovaný klon
+zachovává zrušený převod jako samostatnou historii včetně původních částek a identit účetních zápisů.
+Osobní texty v historických podkladech se anonymizují; novější opravy původní historie se s převodem
+nesměšují. Neprůkazný nebo změněný historický podklad klonování zastaví.
 
 ## 96.17 Související kapitoly
 
