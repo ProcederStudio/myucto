@@ -198,7 +198,7 @@ final class TripsAction
         if ($this->cars->find($carId, $supplierId) === null) return 'Auto neexistuje.';
 
         $date = trim((string) ($body['trip_date'] ?? ''));
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) return 'Neplatné datum (formát YYYY-MM-DD).';
+        if (!\MyInvoice\Http\IsoDate::isValid($date)) return 'Neplatné datum (formát YYYY-MM-DD).';
 
         $odoStart = $this->intOrNull($body['odometer_start'] ?? null);
         $odoEnd   = $this->intOrNull($body['odometer_end'] ?? null);

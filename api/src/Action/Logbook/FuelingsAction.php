@@ -257,7 +257,7 @@ final class FuelingsAction
     private function validate(int $supplierId, array $body): ?string
     {
         $date = trim((string) ($body['fueled_date'] ?? ''));
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) return 'Neplatné datum tankování (YYYY-MM-DD).';
+        if (!\MyInvoice\Http\IsoDate::isValid($date)) return 'Neplatné datum tankování (YYYY-MM-DD).';
         if (!isset($body['amount_with_vat']) || (float) $body['amount_with_vat'] <= 0) {
             return 'Celková částka musí být kladná.';
         }

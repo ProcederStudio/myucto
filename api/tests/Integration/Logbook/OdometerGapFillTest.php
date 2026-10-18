@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace MyInvoice\Tests\Integration\Logbook;
 
+use MyInvoice\Action\Logbook\FuelingsAction;
 use MyInvoice\Action\Logbook\OdometerGapsAction;
 use MyInvoice\Action\Logbook\OdometerReadingsAction;
 use MyInvoice\Action\Logbook\TripTemplatesAction;
+use MyInvoice\Action\Logbook\TripsAction;
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Middleware\SupplierScopeMiddleware;
 use MyInvoice\Repository\TripRepository;
@@ -184,6 +186,23 @@ final class OdometerGapFillTest extends TestCase
         ]);
         self::assertSame(400, $badFill->getStatusCode(), (string) $badFill->getBody());
         self::assertSame(0, $this->tripCount($car));
+    }
+
+    /** Totéž pravidlo platí pro ruční jízdu i tankování, které stejné datum přijímají. */
+    public function testImpossibleCalendarDateIsRejectedForTripAndFueling(): void
+    {
+        $car = $this->carWithStart($this->supplierA, 'TST0011', 500, null);
+
+        $trip = $this->call(TripsAction::class, 'create', 'POST', [
+            'car_id' => $car, 'trip_date' => '2099-02-31', 'odometer_start' => 500, 'odometer_end' => 510,
+        ]);
+        self::assertSame(400, $trip->getStatusCode(), (string) $trip->getBody());
+        self::assertSame(0, $this->tripCount($car));
+
+        $fueling = $this->call(FuelingsAction::class, 'create', 'POST', [
+            'car_id' => $car, 'fueled_date' => '2099-02-31', 'liters' => 40, 'total_price' => 1500,
+        ]);
+        self::assertSame(400, $fueling->getStatusCode(), (string) $fueling->getBody());
     }
 
     public function testSameDayReadingIsOverwritten(): void
