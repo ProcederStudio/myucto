@@ -966,6 +966,31 @@ final class SyntheticAgenda
     }
 
     /**
+     * Agenda vedená v Money jako daňová evidence: rok má místo účetního deníku peněžní deník
+     * (`UcPenDen`, dva živé a jeden smazaný řádek) a `UcDenik` je prázdná tabulka.
+     * `$doubleEntryFrom2025` = firma v roce 2025 přešla na podvojné účetnictví, deník 2025 zůstává.
+     *
+     * @return array<string,string>
+     */
+    public static function filesWithTaxRecords(bool $doubleEntryFrom2025 = false): array
+    {
+        $files = self::files();
+        $fields = [['Cislo', 'L', 4], ['Datum', 'D', 2], ['Doklad', 'C', 10], ['Popis', 'C', 50], ['Castka', 'E', 10], ['Del', 'B', 1]];
+        foreach (['ROK.001' => 2024, 'ROK.002' => 2025] as $dir => $year) {
+            if ($doubleEntryFrom2025 && $year === 2025) {
+                continue;
+            }
+            $files[$dir . '/UcDenik.DAT'] = Ms3FixtureWriter::table(self::JOURNAL_FIELDS, []);
+            $files[$dir . '/UcPenDen.DAT'] = Ms3FixtureWriter::table($fields, [
+                ['Cislo' => 1, 'Datum' => "{$year}-02-10", 'Doklad' => 'BP001', 'Popis' => 'Tržba za služby', 'Castka' => 12100.0],
+                ['Cislo' => 2, 'Datum' => "{$year}-04-01", 'Doklad' => 'PV001', 'Popis' => 'Nákup materiálu', 'Castka' => 1500.0],
+                ['Cislo' => 3, 'Datum' => "{$year}-04-02", 'Doklad' => 'PV002', 'Popis' => 'Smazaný pohyb', 'Castka' => 999.0, 'Del' => 1],
+            ]);
+        }
+        return $files;
+    }
+
+    /**
      * Agenda se mzdami v roce 2025, jak je nese mzdový modul Money: mzdové doklady
      * (`KnihZav`, `IntDokl` s `MZTyp`, `MZRok`, `MZMesic`, `MZDI_Zauct`) za leden až březen
      * a jejich řádky v deníku, měsíční úhrn daně (`VYUCDPFO`) a zbytek čitelných mezd

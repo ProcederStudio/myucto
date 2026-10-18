@@ -13,8 +13,11 @@ final class AgendaInfo
     /** Verze Money, na kterých je čtení formátu ověřené proti sestavám z Money. */
     public const VERIFIED_VERSIONS = ['26.600'];
 
+    public const TEXT_TAX_RECORDS_NOT_SUPPORTED = 'Agenda vede v Money daňovou evidenci (peněžní deník), ne podvojné účetnictví (účetní deník). '
+        . 'Převod z Money S3 přenáší jen účetní deník podvojného účetnictví, daňovou evidenci tímto průvodcem převést zatím nedokáže.';
+
     /**
-     * @param list<array{dir:string,fiscal_year:?int,journal_rows:int,opening_rows:int,first_date:?string,last_date:?string,purchase_invoices:int,issued_invoices:int,cash_documents:int,bank_documents:int}> $years
+     * @param list<array{dir:string,fiscal_year:?int,journal_rows:int,cashbook_rows:int,opening_rows:int,first_date:?string,last_date:?string,purchase_invoices:int,issued_invoices:int,cash_documents:int,bank_documents:int}> $years
      * @param list<array{code:string,message:string}> $warnings
      */
     public function __construct(
@@ -45,6 +48,10 @@ final class AgendaInfo
                 'dir' => basename($dir),
                 'fiscal_year' => $summary['fiscal_year'],
                 'journal_rows' => $summary['rows'],
+                // Počet živých (nesmazaných) řádků peněžního deníku roku (`UcPenDen`).
+                // Pokud rok daňové evidence ho má nenulový a `journal_rows` nulový,
+                // pak Money v něm vede peněžní deník místo podvojného účetnictví.
+                'cashbook_rows' => self::count($backup, 'UcPenDen', $dir),
                 'opening_rows' => $summary['opening_rows'],
                 'first_date' => $summary['first_date'],
                 'last_date' => $summary['last_date'],
@@ -66,13 +73,19 @@ final class AgendaInfo
             $warnings[] = ['code' => 'no_years', 'message' => 'Záloha neobsahuje žádný účetní rok.'];
         }
         foreach ($years as $y) {
-            if ($y['journal_rows'] === 0) {
+            if ($y['journal_rows'] === 0 && $y['cashbook_rows'] > 0) {
+                $warnings[] = ['code' => 'tax_records_year', 'message' => "Rok v adresáři {$y['dir']} nemá účetní deník, ale peněžní deník "
+                    . '(daňová evidence). Peněžní deník převod z Money S3 zatím nepodporuje, rok se nepřevede.'];
+            } elseif ($y['journal_rows'] === 0) {
                 $warnings[] = ['code' => 'empty_year', 'message' => "Rok v adresáři {$y['dir']} nemá účetní deník."];
             }
         }
         $seen = [];
         foreach ($years as $y) {
-            if ($y['fiscal_year'] !== null && isset($seen[$y['fiscal_year']])) {
+            if ($y['fiscal_year'] === null) {
+                continue;
+            }
+            if (isset($seen[$y['fiscal_year']])) {
                 $warnings[] = ['code' => 'duplicate_year', 'message' => "Účetní rok {$y['fiscal_year']} je v záloze dvakrát."];
             }
             $seen[$y['fiscal_year']] = true;
@@ -138,11 +151,27 @@ final class AgendaInfo
             }
         }
         foreach ($data['years'] as $y) {
-            if (!is_array($y) || array_diff(['dir', 'fiscal_year', 'journal_rows', 'opening_rows', 'first_date', 'last_date', 'purchase_invoices', 'issued_invoices', 'cash_documents', 'bank_documents'], array_keys($y)) !== []) {
+            if (!is_array($y) || array_diff(['dir', 'fiscal_year', 'journal_rows', 'cashbook_rows', 'opening_rows', 'first_date', 'last_date', 'purchase_invoices', 'issued_invoices', 'cash_documents', 'bank_documents'], array_keys($y)) !== []) {
                 return false;
             }
         }
         return true;
+    }
+
+    /**
+     * Agenda vede v Money jen daňovou evidenci: žádný rok nemá účetní deník a aspoň jeden
+     * má peněžní deník. Převod z Money S3 přenáší jen podvojné účetnictví.
+     */
+    public function taxRecordsOnly(): bool
+    {
+        $cashbook = false;
+        foreach ($this->years as $y) {
+            if ((int) ($y['journal_rows'] ?? 0) > 0) {
+                return false;
+            }
+            $cashbook = $cashbook || (int) ($y['cashbook_rows'] ?? 0) > 0;
+        }
+        return $cashbook;
     }
 
     /** @return list<int> */

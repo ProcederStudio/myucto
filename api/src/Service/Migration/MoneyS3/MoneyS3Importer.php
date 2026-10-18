@@ -206,7 +206,9 @@ final class MoneyS3Importer
         }
 
         $plan = $journalPreview['plan'] ?? $this->journal->plan($backup, $options, $calendar);
-        if ($plan === [] && $options->fromYear !== null) {
+        if ($plan === [] && $agenda->taxRecordsOnly()) {
+            $add('error', 'tax_records_not_supported', AgendaInfo::TEXT_TAX_RECORDS_NOT_SUPPORTED);
+        } elseif ($plan === [] && $options->fromYear !== null) {
             $add('error', 'from_year_empty', "Od roku {$options->fromYear} záloha nemá žádný účetní rok — není co převést.", ['from_year' => $options->fromYear]);
         } elseif ($plan === []) {
             $add('error', 'no_journal', 'Záloha neobsahuje účetní deník — není co převést.');

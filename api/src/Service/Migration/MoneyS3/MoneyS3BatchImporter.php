@@ -96,6 +96,11 @@ final class MoneyS3BatchImporter
             if ($ico === '') {
                 throw new MoneyS3Exception('agenda_ico_missing', 'Záloha nenese IČO firmy, dávka ji k firmě nepřiřadí. Převeďte ji průvodcem jedné firmy.');
             }
+            if ($agenda->taxRecordsOnly()) {
+                // Agenda vede v Money jen daňovou evidenci → převod nemá co převést, skončit chybou
+                // ještě před založením firmy.
+                throw new MoneyS3Exception('tax_records_not_supported', AgendaInfo::TEXT_TAX_RECORDS_NOT_SUPPORTED);
+            }
 
             $existing = $this->companies->findExisting($ico, $actor->allowedSupplierIds);
             if ($existing['access'] === MigrationCompanyResolver::ACCESS_FORBIDDEN) {
