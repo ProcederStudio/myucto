@@ -28,7 +28,7 @@ final class StereoNxProtocolPdfRenderer extends ReportPdfRendererBase
     private function view(array $data): array
     {
         $lang = ($data['language'] ?? '') === 'en' ? 'en' : 'cs';
-        $catalog = json_decode((string) file_get_contents(Bootstrap::rootDir() . '/api/resources/migration/stereo-nx-protocol.' . $lang . '.json'), true, flags: JSON_THROW_ON_ERROR);
+        $catalog = json_decode((string) file_get_contents(Bootstrap::rootDir() . '/api/resources/pdf/stereo-nx-protocol.' . $lang . '.json'), true, flags: JSON_THROW_ON_ERROR);
         $labels = $catalog['ui'];
         $report = is_array($data['report'] ?? null) ? $data['report'] : [];
         $mode = ($data['mode'] ?? '') === 'import' ? 'import' : 'dry_run';
