@@ -74,7 +74,7 @@ final class RegistrationImportWriter
         $notes = [];
         $officeId ??= $this->lookup->defaultOfficeId($supplierId);
 
-        $this->atomic('registration_import_record', function () use (
+        $sentence = function () use (
             $supplierId,
             $environment,
             $plan,
@@ -89,6 +89,10 @@ final class RegistrationImportWriter
             &$operations,
             &$notes,
         ): void {
+            $employeeId = $plan['_employee_id'];
+            $employmentId = $plan['_employment_id'];
+            $operations = [];
+            $notes = [];
             if (is_array($steps['create_person'])) {
                 $input = $steps['create_person'];
                 $workload = $input['workload'] ?? null;
@@ -340,7 +344,10 @@ final class RegistrationImportWriter
                     $userId,
                 ));
             }
-        });
+        };
+        // Odvolanou transakci (1020/1213) zopakuje celou: rollback vrátil založení osoby
+        // i všechny skupiny věty a každá skupina si stav čte znovu těsně před zápisem.
+        TransactionFailure::retrying($this->db->pdo(), fn () => $this->atomic('registration_import_record', $sentence));
 
         return [
             'status' => 'applied',
@@ -938,6 +945,11 @@ final class RegistrationImportWriter
             $this->atomic('registration_import_step', $work);
             $operations[] = $operation;
         } catch (\Exception $e) {
+            // Odvolaná transakce nevrátila jen tuhle skupinu, ale celou větu včetně hlavního
+            // kroku: další skupiny by se zapsaly v autocommitu k osobě, která nevznikla.
+            if (TransactionFailure::aborted($e) || !$this->db->pdo()->inTransaction()) {
+                throw $e;
+            }
             $notes[] = "{$label}: {$e->getMessage()}";
         }
     }
@@ -966,16 +978,19 @@ final class RegistrationImportWriter
 
             return $result;
         } catch (\Throwable $e) {
-            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e) || !$pdo->inTransaction()) {
                 throw $e;
             }
             if ($owns) {
-                if ($pdo->inTransaction()) {
-                    $pdo->rollBack();
-                }
-            } elseif ($pdo->inTransaction()) {
+                $pdo->rollBack();
+                throw $e;
+            }
+            try {
                 $pdo->exec('ROLLBACK TO SAVEPOINT ' . $name);
                 $pdo->exec('RELEASE SAVEPOINT ' . $name);
+            } catch (\PDOException) {
+                // Savepoint zmizel s transakcí, kterou MariaDB odvolala pod přebalenou chybou.
+                $pdo->rollBack();
             }
             throw $e;
         }

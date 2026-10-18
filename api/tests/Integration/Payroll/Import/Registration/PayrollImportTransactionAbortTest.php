@@ -149,6 +149,34 @@ final class PayrollImportTransactionAbortTest extends TestCase
         self::assertSame(0, $this->rows('payroll_person_tax_child_claims', $employeeId));
     }
 
+    public function testRegistrationRetriedAfterDeadlockCreatesPersonOnce(): void
+    {
+        $this->abortOn('payroll_person_external_ids');
+
+        $result = $this->applyRegistration();
+
+        self::assertSame(0, $this->remainingAborts(), 'Odvolání se musí opravdu vyvolat.');
+        self::assertSame('applied', $result['status'], (string) $result['message']);
+        self::assertNull($result['message'], 'Opakovaná věta nesmí hlásit nezapsanou skupinu.');
+        self::assertContains('person_created', $result['operations']);
+        self::assertContains('identifiers', $result['operations']);
+        self::assertCount(count(array_unique($result['operations'])), $result['operations']);
+        self::assertSame(1, $this->supplierRows('payroll_employees'));
+        self::assertSame((int) $result['employee_id'], $this->singleEmployeeId());
+    }
+
+    public function testRegistrationDeadlockedEveryTimeLeavesNoPerson(): void
+    {
+        $this->abortOn('payroll_person_external_ids', 10);
+
+        $result = $this->applyRegistration();
+
+        self::assertSame('failed', $result['status'], json_encode($result, JSON_UNESCAPED_UNICODE));
+        self::assertStringContainsString('Deadlock', (string) $result['message']);
+        self::assertFalse($this->db->pdo()->inTransaction());
+        self::assertSame(0, $this->supplierRows('payroll_employees'), 'Osoba bez identifikátorů se nesmí zapsat.');
+    }
+
     /** @return array{0:int,1:int} */
     private function registerEmployee(): array
     {
