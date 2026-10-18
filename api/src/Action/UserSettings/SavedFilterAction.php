@@ -222,7 +222,11 @@ final class SavedFilterAction
                     'UPDATE saved_filters SET ' . implode(', ', $set)
                     . ' WHERE id = ? AND user_id = ? AND supplier_id = ?'
                 );
-                $upd->execute($params);
+                // Přejmenování na existující název je stejně očekávané jako u create (→ 409).
+                \MyInvoice\Infrastructure\Database\DbErrorLogger::expectingDuplicates(
+                    ['uq_sf_user_supplier_page_name'],
+                    fn () => $upd->execute($params),
+                );
             }
 
             if ($isDefault) {
