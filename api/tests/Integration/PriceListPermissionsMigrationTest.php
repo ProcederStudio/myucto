@@ -13,7 +13,7 @@ use PHPUnit\Framework\TestCase;
 #[Group('integration')]
 final class PriceListPermissionsMigrationTest extends TestCase
 {
-    private const MIGRATION = '2048_price_list_role_permissions.sql';
+    private const MIGRATION = '2056_price_list_role_permissions.sql';
 
     private ?PDO $server = null;
     private ?PDO $db = null;
