@@ -10,7 +10,7 @@ final class NonprofitTaxRules
     public const PROFILES = ['narrow_vpp', 'broad_vpp', 'non_vpp', 'svj'];
     public const AUTOMATIC_FROM = '2024-01-01';
     public const AUTOMATIC_TO = '2026-12-31';
-    public const REVENUE_TITLES = ['business', 'other_taxable', 'nonbusiness', 'rent', 'advertising', 'membership', 'gift', 'public_operating_grant', 'public_investment_grant', 'bank_interest', 'svj_service_payment'];
+    public const REVENUE_TITLES = ['business', 'other_taxable', 'nonbusiness', 'rent', 'advertising', 'membership', 'gift', 'public_operating_grant', 'public_investment_grant', 'bank_interest', 'svj_service_payment', 'svj_management_payment'];
 
     public static function assessment(array $assessment): void
     {
@@ -114,6 +114,7 @@ final class NonprofitTaxRules
             'public_operating_grant' => self::publicGrant($profile, $facts, false, $ordinary),
             'public_investment_grant' => self::publicGrant($profile, $facts, true, $ordinary),
             'bank_interest' => self::interest($profile, $facts, $ordinary),
+            'svj_management_payment' => $profile === 'svj' ? ['regime' => 'out_of_scope', 'method' => 'none', 'legal_basis' => 'zdp_18_2f_2'] : throw new NonprofitTaxAssessmentException('nonprofit_tax_facts_incomplete', 'Příspěvek správy vyžaduje doložené SVJ.'),
             'svj_service_payment' => $profile === 'svj' ? ['regime' => 'out_of_scope', 'method' => 'none', 'legal_basis' => 'zdp_18_2f_3'] : throw new NonprofitTaxAssessmentException('nonprofit_tax_facts_incomplete', 'Právní titul služby vyžaduje doložené SVJ.'),
             default => throw new NonprofitTaxAssessmentException('nonprofit_tax_facts_incomplete', 'Příjem nemá podporovaný a doložený právní titul.'),
         };
@@ -164,6 +165,21 @@ final class NonprofitTaxRules
             return ['regime' => 'exempt', 'method' => 'none', 'legal_basis' => 'zdp_19_1r'];
         }
         return ['regime' => 'subject', 'method' => 'final_withholding', 'legal_basis' => 'zdp_36_5'];
+    }
+
+    public static function svjClassification(array $source,array $decision,array $classification,string $profile):array
+    {
+        $owner=$source['svj_owner_facts']??null;$title=$decision['title']??'';
+        if($owner===null){if(in_array($title,['svj_service_payment','svj_management_payment'],true))self::invalid('Platba SVJ vyžaduje přesný nativní právní podklad.');return$classification;}
+        if($profile!=='svj'||($owner['kind']??null)!==$source['kind'])self::invalid('Právní podklad SVJ nesouhlasí s postavením nebo druhem zdroje.');
+        $legal=$owner['legal_basis']??null;$expected=match($legal){'zdp_18_2f_2'=>'svj_management_payment','zdp_18_2f_3'=>'svj_service_payment',default=>throw new NonprofitTaxAssessmentException('nonprofit_tax_facts_incomplete','Právní podklad SVJ nemá podporovaný zákonný titul.')};
+        if($source['kind']==='revenue'){
+            if($title!==$expected||$classification['regime']!=='out_of_scope'||$classification['method']!=='none')self::invalid('Doloženou platbu správy nebo služby SVJ nelze posoudit jako zdanitelný příjem.');
+            return['regime'=>'out_of_scope','method'=>'none','legal_basis'=>$legal];
+        }
+        $related=$owner['related_out_of_scope_cents']??abs($source['amount_cents']);
+        if(!is_int($related)||$related!==abs($source['amount_cents'])||($decision['deductible_cents']??null)!==0)self::invalid('Celý doložený náklad správy nebo služby mimo předmět daně je daňově neuznatelný bez ohledu na čerpání záloh.');
+        return$classification;
     }
 
     public static function cumulativeFundingOverlap(int $funded, int $excluded, int $cost, int $deductible): void

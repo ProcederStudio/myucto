@@ -803,6 +803,18 @@ nedostupné. Obrazovka ukazuje příslušné omezení a podklady pro samostatné
 Přehled daňových úspor zobrazuje doložené uložené záznamy podle oprávnění uživatele.
 Právní profily a interní podklady úspor jsou přístupné pouze v přihlášeném webovém rozhraní.
 
+U SVJ jsou doložené příspěvky vlastníků na správu domu a pozemku a úhrady služeb
+vedeny odděleně jako příjmy mimo předmět daně. Toto zařazení nelze změnit ani ručním
+posouzením historického období. Původ příspěvků musí navazovat na skutečný předpis
+nebo na úplné převzetí záloh s doloženým účelem, vlastníky a účetní návazností.
+Samotný zůstatek účtu dlouhodobých záloh není daňovým podkladem.
+
+Celý doložený náklad správy je daňově neuznatelný, i když byla čerpána pouze část záloh
+nebo bylo čerpání stornováno. Náklad související také s vlastním zdanitelným příjmem SVJ
+musí být předem průkazně rozdělen na samostatné účelové řádky. Nejasné rozdělení aplikace
+odmítne; zbývající částku nelze určit podle výše nevyčerpaných záloh. Úroky z bankovního
+účtu, přijaté sankce a příjmy vlastníků ze společných částí se posuzují samostatně.
+
 ## 43.12 Související kapitoly
 
 - [Archiv podání a daňová rekonciliace](49_Archiv_podani_a_rekonciliace.md)
