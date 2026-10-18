@@ -59,6 +59,52 @@ final class SettingsAction
 
     private const UNIT_DECIMALS_ERROR = 'Desetinná místa množství musí být 0 až 3, nebo prázdné (bez omezení).';
 
+    /**
+     * Číselné a datumové sloupce `supplier`, které formulář nastavení pošle jako
+     * prázdný řetězec, když uživatel pole vymaže. Striktní MariaDB '' do INT/DECIMAL/DATE
+     * odmítne (1366 Incorrect value) a celé uložení firmy spadne na 500.
+     * Hodnota v mapě je to, co se místo prázdného pole uloží (nullable sloupec → NULL).
+     */
+    private const SUPPLIER_BLANK_VALUES = [
+        'default_hourly_rate' => '0',
+        'oss_valid_from' => null,
+        'oss_valid_to' => null,
+        'tax_entity_status_date' => null,
+    ];
+
+    /** NOT NULL sloupce bez smysluplné prázdné hodnoty: prázdné pole nechá uloženou hodnotu. */
+    private const SUPPLIER_BLANK_KEEPS_CURRENT = [
+        'country_id', 'default_currency_id', 'default_vat_rate_id',
+        'default_payment_due_days', 'reminder_days_after_due', 'fiscal_year_start_month',
+    ];
+
+    /**
+     * Sloupce s FK RESTRICT na `currencies`, které brání smazání měny. Seznam musí
+     * pokrýt všechny RESTRICT reference, jinak DELETE skončí chybou DB (hlídá test).
+     * Klíč skupiny určuje hlášku uživateli.
+     *
+     * @var array<string, array<string, list<string>>>
+     */
+    public const CURRENCY_DELETE_BLOCKERS = [
+        'documents' => [
+            'invoices' => ['currency_id'],
+            'purchase_invoices' => ['currency_id', 'payment_currency_id'],
+            'projects' => ['currency_id'],
+            'recurring_invoice_templates' => ['currency_id'],
+            'purchase_orders' => ['currency_id'],
+            'sales_orders' => ['currency_id'],
+        ],
+        'clients' => ['clients' => ['currency_default_id']],
+        'supplier' => ['supplier' => ['default_currency_id']],
+        'bank_connections' => ['bank_connections' => ['currency_id']],
+    ];
+
+    /** Odvozené cache s FK RESTRICT na `currencies`: přepočítají se z dokladů, při smazání nevyužité měny se zahodí. */
+    public const CURRENCY_DELETE_CACHES = [
+        'client_revenue_cache' => 'currency_id',
+        'project_revenue_cache' => 'currency_id',
+    ];
+
     public function __construct(
         private readonly Connection $db,
         private readonly ActivityLogger $logger,
@@ -401,6 +447,10 @@ final class SettingsAction
             && (!is_int($body['client_ai_extraction_monthly_limit']) || $body['client_ai_extraction_monthly_limit'] < 0 || $body['client_ai_extraction_monthly_limit'] > 100000)) {
             return Json::error($response, 'validation_failed', 'Měsíční limit klientského AI vytěžení musí být celé číslo od 0 do 100000.', 400);
         }
+        $blankError = self::normalizeSupplierBlankFields($body);
+        if ($blankError !== null) {
+            return Json::error($response, 'validation_failed', $blankError, 400);
+        }
 
         if (!$this->db->hasColumn('supplier', 'oss_enabled')) {
             $ossFields = ['oss_enabled', 'oss_valid_from', 'oss_valid_to', 'oss_identification_country', 'oss_return_currency'];
@@ -618,13 +668,9 @@ final class SettingsAction
             $body[$column] = $text === '' ? null : $text;
         }
 
-        // default_hourly_rate je DECIMAL NOT NULL: prázdné pole z formuláře ('') by
-        // striktní MariaDB odmítla (Incorrect decimal value) a uložení firmy by spadlo.
+        // Prázdnou sazbu už převedl normalizeSupplierBlankFields(); tady se čistí zápis čísla.
         if (array_key_exists('default_hourly_rate', $body)) {
             $rate = str_replace([' ', "\u{00A0}", ','], ['', '', '.'], trim((string) $body['default_hourly_rate']));
-            if ($rate === '') {
-                $rate = '0';
-            }
             if (!is_numeric($rate) || (float) $rate < 0) {
                 return Json::error($response, 'validation_failed', 'Výchozí hodinová sazba musí být nezáporné číslo.', 400);
             }
@@ -1483,6 +1529,38 @@ final class SettingsAction
     }
 
     /**
+     * Prázdná číselná a datumová pole firmy převede na hodnotu, kterou sloupec unese
+     * (viz SUPPLIER_BLANK_VALUES / SUPPLIER_BLANK_KEEPS_CURRENT). Vyplněné celočíselné
+     * pole musí být nezáporné celé číslo, jinak by UPDATE spadl na téže chybě DB.
+     *
+     * @param array<string, mixed> $body
+     * @return string|null chybová hláška, nebo null
+     */
+    private static function normalizeSupplierBlankFields(array &$body): ?string
+    {
+        foreach ([...array_keys(self::SUPPLIER_BLANK_VALUES), ...self::SUPPLIER_BLANK_KEEPS_CURRENT] as $field) {
+            if (!array_key_exists($field, $body)) {
+                continue;
+            }
+            $value = is_string($body[$field]) ? trim($body[$field]) : $body[$field];
+            if ($value !== null && $value !== '') {
+                if (in_array($field, self::SUPPLIER_BLANK_KEEPS_CURRENT, true)
+                    && (is_bool($value) || filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]) === false)
+                ) {
+                    return "Pole '$field' musí být nezáporné celé číslo.";
+                }
+                continue;
+            }
+            if (array_key_exists($field, self::SUPPLIER_BLANK_VALUES)) {
+                $body[$field] = self::SUPPLIER_BLANK_VALUES[$field];
+            } else {
+                unset($body[$field]);
+            }
+        }
+        return null;
+    }
+
+    /**
      * F7 — má daný provider u suppliera nakonfigurovaný API klíč (`*_enc` non-null)?
      * Používá se jen pro non-blocking warning při přepnutí ai_provider.
      */
@@ -1555,7 +1633,7 @@ final class SettingsAction
             return $claimed;
         }
         // label je NOT NULL; prázdný název by níž spadl na chybě DB (500).
-        if (array_key_exists('label', $body) && trim((string) $body['label']) === '') {
+        if (array_key_exists('label', $body) && (!is_scalar($body['label']) || trim((string) $body['label']) === '')) {
             return Json::error($response, 'validation_failed', 'Název účtu je povinný.', 400,
                 ['fields' => ['label' => ['Název účtu je povinný.']]]);
         }
@@ -1898,30 +1976,37 @@ final class SettingsAction
         if ($ownerSid === 0) return Json::error($response, 'not_found', 'Měna nenalezena.', 404);
         if ($ownerSid !== $sid) return Json::error($response, 'wrong_supplier', 'Tato měna patří jinému supplier.', 403);
 
-        // Použití napříč doklady (vydané, přijaté vč. platební měny, zakázky, pravidelné fakturace).
-        $stmt = $pdo->prepare(
-            'SELECT (
-                (SELECT COUNT(*) FROM invoices WHERE currency_id = ?)
-              + (SELECT COUNT(*) FROM purchase_invoices WHERE currency_id = ? OR payment_currency_id = ?)
-              + (SELECT COUNT(*) FROM projects WHERE currency_id = ?)
-              + (SELECT COUNT(*) FROM recurring_invoice_templates WHERE currency_id = ?)
-            ) AS cnt'
-        );
-        $stmt->execute([$id, $id, $id, $id, $id]);
-        $deps = (int) $stmt->fetchColumn();
-        if ($deps > 0) {
-            return Json::error($response, 'has_dependencies', "Měnu nelze smazat — je použita na $deps dokladech.", 409);
+        // Použití se zjišťuje předem pro všechny RESTRICT reference: chyba FK z DELETE
+        // by se zapsala do logu jako ERROR, i když ji níž převedeme na 409.
+        $usage = $this->currencyUsage($id);
+        $messages = [
+            'documents' => static fn (int $n): string => "Měnu nelze smazat — je použita na $n dokladech.",
+            'clients' => static fn (int $n): string => "Měnu nelze smazat — je výchozí měnou u $n klientů.",
+            'supplier' => static fn (int $n): string => 'Měnu nelze smazat — je výchozí měnou firmy.',
+            'bank_connections' => static fn (int $n): string => 'Měnu nelze smazat — je na ni napojené bankovní spojení.',
+        ];
+        foreach ($messages as $group => $message) {
+            if (($usage[$group] ?? 0) > 0) {
+                return Json::error($response, 'has_dependencies', $message($usage[$group]), 409, ['usage' => $usage]);
+            }
         }
-        $stmt = $pdo->prepare('SELECT COUNT(*) FROM clients WHERE currency_default_id = ?');
-        $stmt->execute([$id]);
-        $clientDeps = (int) $stmt->fetchColumn();
-        if ($clientDeps > 0) {
-            return Json::error($response, 'has_dependencies', "Měnu nelze smazat — je výchozí měnou u $clientDeps klientů.", 409);
-        }
+        $ownsTransaction = !$pdo->inTransaction();
         try {
+            if ($ownsTransaction) {
+                $pdo->beginTransaction();
+            }
+            foreach (self::CURRENCY_DELETE_CACHES as $table => $column) {
+                $pdo->prepare("DELETE FROM $table WHERE $column = ?")->execute([$id]);
+            }
             $pdo->prepare('DELETE FROM currencies WHERE id = ?')->execute([$id]);
+            if ($ownsTransaction) {
+                $pdo->commit();
+            }
         } catch (\PDOException $e) {
-            // Pojistka pro ostatní FK (cache přepočtů, výchozí měna klienta/dodavatele apod.).
+            if ($ownsTransaction && $pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            // Pojistka pro referenci, která vznikla mezi kontrolou a smazáním.
             if ($e->getCode() === '23000') {
                 return Json::error($response, 'has_dependencies', 'Měnu nelze smazat — je použita v jiných záznamech.', 409);
             }
@@ -1929,6 +2014,30 @@ final class SettingsAction
         }
         $this->log($request, 'currency.deleted', $id, []);
         return Json::ok($response, ['deleted' => true]);
+    }
+
+    /**
+     * Počet záznamů, které měnu drží přes FK RESTRICT, po skupinách CURRENCY_DELETE_BLOCKERS.
+     * Doklad s měnou i platební měnou se počítá jednou.
+     *
+     * @return array<string, int>
+     */
+    private function currencyUsage(int $currencyId): array
+    {
+        $parts = [];
+        $params = [];
+        foreach (self::CURRENCY_DELETE_BLOCKERS as $group => $tables) {
+            $counts = [];
+            foreach ($tables as $table => $columns) {
+                $counts[] = "(SELECT COUNT(*) FROM $table WHERE "
+                    . implode(' OR ', array_map(static fn (string $c): string => "$c = ?", $columns)) . ')';
+                array_push($params, ...array_fill(0, count($columns), $currencyId));
+            }
+            $parts[] = '(' . implode(' + ', $counts) . ") AS $group";
+        }
+        $stmt = $this->db->pdo()->prepare('SELECT ' . implode(', ', $parts));
+        $stmt->execute($params);
+        return array_map('intval', (array) $stmt->fetch(\PDO::FETCH_ASSOC));
     }
 
     // ============================================================================
