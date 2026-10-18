@@ -74,8 +74,8 @@ nejprve sjet až na poslední řádek. Jakmile je běžný posuvník pod tabulko
 náhradní lišta se skryje, aby se nezobrazovaly dva posuvníky současně.
 Souhrnnou patičku tabulky nepřekrývá; podle potřeby se posune nad ni.
 
-Přetáhněte úchyt myší nebo dotykem, případně klikněte do dráhy. Po zaměření
-klávesou **Tab** lze použít šipky vlevo a vpravo, **Page Up / Page Down** pro větší
+Přetáhněte úchyt myší nebo dotykem, případně klikněte do dráhy. Po kliknutí na
+posuvník lze použít šipky vlevo a vpravo, **Page Up / Page Down** pro větší
 posun a **Home / End** pro začátek či konec. Běžné posouvání tabulky a tento
 posuvník jsou propojené. Každý pracovní panel používá vlastní posuvník; u tabulky,
 která se do šířky vejde, se nezobrazuje. Při tisku se nezobrazuje.

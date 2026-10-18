@@ -193,7 +193,7 @@ Pravidla dávky včetně příkazové řádky jsou v
 | Co vidíte | Proč | Co udělat |
 |---|---|---|
 | Kontrola před převodem hlásí chybu | Jiné IČO, zápisy v období, uzavřené období, nebo agenda vede jiný účetní rok než firma | Opravte příčinu a nahrajte zálohu znovu; u účetního roku nastavte ve firmě měsíc z hlášení (**Účetní rok začíná**) a převod spusťte znovu |
-| Kontrola před převodem hlásí, že agenda vede daňovou evidenci | Money vede agendu jako daňovou evidenci (peněžní deník), ne podvojné účetnictví | Převod z Money S3 ji nepřevede. Faktury převezměte [importem](21_Importy.md), nebo se obraťte na podporu |
+| Kontrola před převodem hlásí, že agenda vede daňovou evidenci | Money vede agendu jako daňovou evidenci (peněžní deník), ne podvojné účetnictví | Převod z Money S3 ji nepřevede. Faktury vyexportujte z Money jako ISDOC a převezměte [importem](21_Importy.md), nebo se obraťte na podporu |
 | Nahrávání se přerušilo | Výpadek spojení | Vyberte soubor a nahrajte ho znovu |
 | Zkouška selhala jen na rozdílech k přijetí | Doklad se nepřevedl nebo výsledek nesedí na Money | Zaškrtněte **Převést i přes rozdíly**, nebo rozdíl opravte a zkoušku zopakujte |
 | Rok se neuzavřel | Konečné stavy nesedí na počáteční stavy dalšího roku | Rok zůstává otevřený; důvod je v protokolu, rozdíl opravte a převod zopakujte |
