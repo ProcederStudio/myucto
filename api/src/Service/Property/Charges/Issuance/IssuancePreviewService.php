@@ -58,6 +58,8 @@ final class IssuancePreviewService
         $stmt=$this->db->pdo()->prepare('SELECT id,account_code,account_type,is_active FROM chart_of_accounts WHERE supplier_id=? ORDER BY id'.($current?' FOR UPDATE':''));
         $stmt->execute([$supplier]); $accounts=array_column($stmt->fetchAll(PDO::FETCH_ASSOC),null,'account_code');
         $configured=array_column($request['accounts'],null,'component_id');
+        $container=\MyInvoice\Bootstrap::buildContainer();$container->set(Connection::class,$this->db);$redirects=$container->get(\MyInvoice\Service\Accounting\PostingService::class)->singleAnalyticRedirects($supplier);
+        foreach($configured as &$selection)foreach(['receivable_account','counter_account'] as $accountField)$selection[$accountField]=$redirects[$selection[$accountField]]??$selection[$accountField];unset($selection);
         $stmt=$this->db->pdo()->prepare("SELECT t.id type_id,v.id value_id,t.system_key FROM dimension_values v JOIN dimension_types t ON t.id=v.type_id WHERE (t.supplier_id=? OR t.supplier_id IS NULL) AND (v.supplier_id=? OR v.supplier_id IS NULL) AND t.is_active=1 AND v.is_active=1 ORDER BY t.id,v.id".($current?' FOR UPDATE':''));
         $stmt->execute([$supplier,$supplier]); $values=[];
         foreach($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) $values[(int)$row['value_id']]=['type_id'=>(int)$row['type_id'],'system_key'=>$row['system_key']];
@@ -89,7 +91,7 @@ final class IssuancePreviewService
                 if(bccomp($amount,'0',0)<0) throw new IssuanceException('property_charge_issue_negative_target','Předpis nemůže vytvářet záporný nárok. Doložte snížení do nuly nebo samostatný závazek z kreditu.');
                 if($request['issue_mode']==='difference') $amount=bcsub($amount,$oldLines[$componentId]??'0',0);
                 $account=$configured[$componentId]??throw new IssuanceException('property_charge_issue_account_required','Potvrďte účty a právní podklad všech složek.');
-                $this->account($component,$account,$accounts,$request['accounting_date']);
+                $this->account($component,$account,$accounts,$request['accounting_date'],$redirects);
                 $dims=$account['dimensions'];
                 foreach($dims as $typeId=>$valueId) if(!isset($values[$valueId])||$values[$valueId]['type_id']!==(int)$typeId||in_array($values[$valueId]['system_key'],['unit','service'],true)) throw new IssuanceException('property_charge_issue_dimension_invalid','Použijte platné dimenze firmy; jednotku a službu určuje předpis.');
                 if($object['dimension_value_id']===null||($component['service_id']!==null&&(!isset($objects[$component['service_id']]['dimension_value_id'])
@@ -178,16 +180,17 @@ final class IssuancePreviewService
         if($request['claim_origin_at']>$request['issued_at']) throw new IssuanceException('property_charge_issue_origin_after_issue','Vznik pohledávky nesmí následovat po vyhotovení předpisu.');
     }
 
-    private function account(array $component,array $profile,array $accounts,string $date): void
+    private function account(array $component,array $profile,array $accounts,string $date,array $redirects): void
     {
         $receivable=$accounts[$profile['receivable_account']]??null; $counter=$accounts[$profile['counter_account']]??null;
         if(!$receivable||!$counter||!$receivable['is_active']||!$counter['is_active']||$receivable['account_type']!=='asset'||substr($profile['receivable_account'],0,3)!=='315')
             throw new IssuanceException('property_charge_issue_account_invalid','Předpis vyžaduje aktivní pohledávkový účet 315 a doložený protiúčet.');
+        if($component['kind']==='service_advance'&&str_starts_with($profile['counter_account'],'324.2'))throw new IssuanceException('property_charge_issue_account_invalid','Záloha na službu nemůže být přesměrována na účet záloh správy. Vyberte samostatnou analytiku služby.');
         $expected=match($component['kind']) {'service_advance','admin_advance'=>'324','long_term_advance'=>
             $profile['settlement_due_on']!==null&&$profile['settlement_due_on']>(new \DateTimeImmutable($date))->modify('+1 year')->format('Y-m-d')?'955':'324',default=>null};
         if(($expected!==null&&(substr($profile['counter_account'],0,3)!==$expected||$counter['account_type']!=='liability'))
             ||($component['kind']==='contribution'&&$counter['account_type']!=='revenue')
-            ||($component['account_code']!==''&&$component['account_code']!==$profile['counter_account']))
+            ||($component['account_code']!==''&&($redirects[$component['account_code']]??$component['account_code'])!==$profile['counter_account']))
             throw new IssuanceException('property_charge_issue_account_invalid','Účet neodpovídá potvrzenému druhu složky a době vypořádání.');
     }
 }
