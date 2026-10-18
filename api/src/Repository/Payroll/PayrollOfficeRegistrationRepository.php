@@ -54,6 +54,16 @@ final class PayrollOfficeRegistrationRepository
             if ($office->fetchColumn() === false) {
                 throw new \OutOfBoundsException('Mzdová účtárna neexistuje.');
             }
+            // Pod zámkem účtárny: souběžné přidání čeká, kontrola i INSERT vidí týž stav.
+            $latest = $pdo->prepare(
+                'SELECT MAX(effective_from) FROM payroll_office_registration_versions
+                  WHERE supplier_id = ? AND office_id = ?',
+            );
+            $latest->execute([$supplierId, $officeId]);
+            $latestFrom = $latest->fetchColumn();
+            if (is_string($latestFrom) && $latestFrom >= $effectiveFrom) {
+                throw new PayrollOfficeRegistrationConflictException($latestFrom);
+            }
             $insert = $pdo->prepare(
                 'INSERT INTO payroll_office_registration_versions
                     (supplier_id, office_id, effective_from, social_security_variable_symbol,

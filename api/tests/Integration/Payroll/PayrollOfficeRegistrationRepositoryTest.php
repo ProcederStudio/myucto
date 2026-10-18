@@ -6,6 +6,7 @@ namespace MyInvoice\Tests\Integration\Payroll;
 
 use MyInvoice\Bootstrap;
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Repository\Payroll\PayrollOfficeRegistrationConflictException;
 use MyInvoice\Repository\Payroll\PayrollOfficeRegistrationRepository;
 use MyInvoice\Tests\Support\IsolatedSupplierTrait;
 use PHPUnit\Framework\Attributes\Group;
@@ -46,11 +47,29 @@ final class PayrollOfficeRegistrationRepositoryTest extends TestCase
             self::assertSame('0012345678', $registrations->effective($supplierId, $officeId, '2026-09-15')['social_security_variable_symbol']);
             self::assertSame([], $registrations->list($otherSupplierId, $officeId));
 
+            // Navazování se ověří předem: očekávané odmítnutí nesmí dojít až
+            // k triggeru, jehož SIGNAL by logovací PDO zapsalo jako ERROR.
+            foreach (['2026-09-15', '2026-10-01'] as $overlapping) {
+                try {
+                    $registrations->add($supplierId, $officeId, $overlapping, '0012345680', 'synthetic-overlap', $actorId);
+                    self::fail('Backdated effective interval must be rejected.');
+                } catch (PayrollOfficeRegistrationConflictException $conflict) {
+                    self::assertSame('2026-10-01', $conflict->latestEffectiveFrom);
+                }
+            }
+            self::assertNotSame($first['id'], $second['id']);
+            self::assertCount(2, $registrations->list($supplierId, $officeId));
+
+            // Trigger zůstává pojistkou pro zápis mimo repository.
             try {
-                $registrations->add($supplierId, $officeId, '2026-09-15', '0012345680', 'synthetic-overlap', $actorId);
-                self::fail('Backdated effective interval must be rejected.');
-            } catch (\PDOException) {
-                self::assertNotSame($first['id'], $second['id']);
+                $pdo->prepare(
+                    "INSERT INTO payroll_office_registration_versions
+                        (supplier_id, office_id, effective_from, social_security_variable_symbol, source_reference)
+                     VALUES (?, ?, '2026-09-20', '0012345681', 'synthetic-direct')"
+                )->execute([$supplierId, $officeId]);
+                self::fail('Trigger must reject a backdated version.');
+            } catch (\PDOException $exception) {
+                self::assertSame('45000', (string) $exception->getCode());
             }
             $this->expectException(\PDOException::class);
             $pdo->prepare('UPDATE payroll_office_registration_versions SET source_reference = ? WHERE id = ?')
