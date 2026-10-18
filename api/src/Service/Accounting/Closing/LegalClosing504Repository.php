@@ -319,7 +319,7 @@ final class LegalClosing504Repository
         $principal = array_sum(array_column($cells, 'available_cents'));
         if ($principal <= 0) throw self::changed();
         $saldo = new \MyInvoice\Repository\SaldoRepository($this->db);
-        $account = $saldo->resolveAccount($supplierId, '311');
+        $account = $saldo->resolveAccount($supplierId, '311', $asOf);
         if ($account === null) throw self::changed();
         $normalSide = $account['normal_side'] ?? (in_array($account['account_type'], ['asset', 'expense'], true) ? 'debit' : 'credit');
         $remaining = null;
@@ -338,7 +338,7 @@ final class LegalClosing504Repository
     {
         $this->assertTransaction($supplierId);
         $saldo = new \MyInvoice\Repository\SaldoRepository($this->db);
-        $account = $saldo->resolveAccount($supplierId, '311');
+        $account = $saldo->resolveAccount($supplierId, '311', $asOf);
         if ($account === null) return 0;
         $normalSide = $account['normal_side'] ?? (in_array($account['account_type'], ['asset', 'expense'], true) ? 'debit' : 'credit');
         foreach ($saldo->iterateOpenInvoiceItems($supplierId, (int) $account['id'], $asOf, [$invoiceId], $this->currentRead) as $item) {

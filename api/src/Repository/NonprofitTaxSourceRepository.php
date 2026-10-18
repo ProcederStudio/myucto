@@ -220,7 +220,7 @@ final class NonprofitTaxSourceRepository
                 ' . JournalTaxOrigin::sourceTypeSql() . ' AS origin_type, ' . JournalTaxOrigin::sourceIdSql() . ' AS origin_id,
                 ' . NonDeductibleCostsService::predicate() . ' AS mandatory_non_deductible
             FROM journal_entry_lines l JOIN journal_entries e ON e.id = l.entry_id AND e.supplier_id = l.supplier_id
-            JOIN chart_of_accounts a ON a.id = l.account_id AND a.supplier_id = l.supplier_id
+            ' . AccountDefinitionRepository::journalJoin($supplierId, $currentRead) . '
             ' . JournalTaxOrigin::join() . '
             LEFT JOIN purchase_invoices pi ON ' . JournalTaxOrigin::sourceTypeSql() . " = 'purchase_invoice'
                 AND pi.id = " . JournalTaxOrigin::sourceIdSql() . ' AND pi.supplier_id = e.supplier_id

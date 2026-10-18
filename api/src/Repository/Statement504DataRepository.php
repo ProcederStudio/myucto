@@ -18,6 +18,7 @@ final class Statement504DataRepository
 
     public function balances(int $supplierId, string $startsOn, string $asOf, ?DimensionFilter $dimension = null): array
     {
+        $accountDefinitions=AccountDefinitionRepository::relation($asOf,$supplierId);
         $anchor = $this->ledger->openingAnchor($supplierId, $startsOn);
         [$source, $params] = $dimension?->lineSource($supplierId, 'l') ?? ['journal_entry_lines l', []];
         $origin = JournalTaxOrigin::sourceTypeSql();
@@ -28,7 +29,7 @@ final class Statement504DataRepository
                 CAST(SUM(CASE WHEN l.side = 'debit' THEN l.signed_amount ELSE -l.signed_amount END) * 100 AS SIGNED) AS closing_cents
             FROM {$source} JOIN journal_entries e ON e.id = l.entry_id AND e.supplier_id = l.supplier_id
             " . JournalTaxOrigin::join() . "
-            JOIN chart_of_accounts a ON a.id = l.account_id AND a.supplier_id = l.supplier_id
+            JOIN {$accountDefinitions} a ON a.id = l.account_id AND a.supplier_id = l.supplier_id
             WHERE l.supplier_id = ? AND e.posted_at IS NOT NULL AND e.entry_date <= ?
                 AND (? IS NULL OR e.entry_date >= ?) AND a.account_type IN ('asset','liability','equity')
                 AND " . JournalTaxOrigin::includedSql() . '
@@ -43,6 +44,7 @@ final class Statement504DataRepository
 
     public function profitLines(int $supplierId, string $from, string $to, ?DimensionFilter $dimension = null): array
     {
+        $accountDefinitions=AccountDefinitionRepository::relation($to,$supplierId);
         $stmt = $this->db->pdo()->prepare("SELECT id FROM dimension_types WHERE supplier_id = ? AND system_key = 'activity'");
         $stmt->execute([$supplierId]);
         $typeId = (int) $stmt->fetchColumn();
@@ -55,7 +57,7 @@ final class Statement504DataRepository
                 (SELECT SUM(s.share) FROM journal_entry_line_dimension_splits s WHERE s.line_id = l.id AND s.dimension_type_id = ?) AS split_share
             FROM journal_entry_lines l JOIN journal_entries e ON e.id = l.entry_id AND e.supplier_id = l.supplier_id
             " . JournalTaxOrigin::join() . "
-            JOIN chart_of_accounts a ON a.id = l.account_id AND a.supplier_id = l.supplier_id
+            JOIN {$accountDefinitions} a ON a.id = l.account_id AND a.supplier_id = l.supplier_id
             LEFT JOIN journal_entry_line_dimensions d ON d.line_id = l.id AND d.dimension_type_id = ? AND d.supplier_id = l.supplier_id
             LEFT JOIN dimension_values v ON v.id = d.dimension_value_id AND v.type_id = d.dimension_type_id AND v.supplier_id = l.supplier_id
             WHERE l.supplier_id = ? AND e.posted_at IS NOT NULL AND e.entry_date BETWEEN ? AND ?

@@ -3079,7 +3079,7 @@ final class ClosingService
      */
     private function openReceivables(int $supplierId, int $periodId, string $asOf, ?array $invoiceIds = null, bool $currentRead = false): \Generator
     {
-        $account = $this->saldo->resolveAccount($supplierId, '311');
+        $account = $this->saldo->resolveAccount($supplierId, '311', $asOf);
         if ($account === null) {
             return;
         }
