@@ -75,6 +75,7 @@ export const MANUAL_CHAPTERS: ManualChapterRule[] = [
   [/^\/accounting\/balance-inventory(?:\/|$)/, '69_Inventarizace_rozvahovych_uctu'],
   [/^\/accounting\/section18-statements(?:\/|$)/, '70_Vykazy_podle_paragrafu_18'],
   [/^\/reports\/related-parties(?:\/|$)/, '71_Propojene_osoby'],
+  [/^\/accounting\/nonprofit-funding(?:\/|$)/, '117_Granty_a_ucelove_dary'],
   [/^\/accounting\/periods(?:\/|$)/, '72_Uzaverka'],
   [/^\/accounting\/journal(?:\/|$)/, '52_Ucetni_denik'],
   [/^\/accounting(?:\/|$)|^\/utilities(?:\/|$)/, '73_Ucetni_nastroje'],

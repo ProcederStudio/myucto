@@ -84,6 +84,7 @@ final class AnonymizationService
             try {
                 $settlementInputs = SettlementCloneScrubber::captureInputs($captureConnection);
                 $securitiesDebtInputs = SecuritiesDebt504CloneScrubber::captureInputs($captureConnection);
+                $nonprofitInputs = NonprofitFundingCloneScrubber::capture($captureConnection);
             }
             finally { $captureConnection->close(); }
             $report = $this->anonymize($pdo, $options, $log);
@@ -100,6 +101,7 @@ final class AnonymizationService
                 $paymentMap = (new PaymentsCloneScrubber($targetConnection, $this->scrubber))->run($issuanceMap,$registryMap,$settlementInputs);
                 (new ReceivablesCloneScrubber($targetConnection, $this->scrubber))->run($registryMap, $issuanceMap, $paymentMap);
                 SecuritiesDebt504CloneScrubber::run($targetConnection, $this->scrubber, $securitiesDebtInputs);
+                NonprofitFundingCloneScrubber::run($targetConnection, $this->scrubber, $nonprofitInputs);
             } finally {
                 $targetConnection->close();
             }

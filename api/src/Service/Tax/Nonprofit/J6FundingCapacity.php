@@ -23,7 +23,7 @@ final class J6FundingCapacity
             foreach($this->assessments->effectiveOtherPeriods($supplier,$excludePeriod??0,true)as$row){
                 if($row['status']!=='confirmed')continue;
                 $links=array_values(array_filter($row['assessment']['funding']??[],static fn(array $link):bool=>$link['cost_id']==='line:'.$line));
-                if($links===[])continue;$this->validateReceipt($supplier,$row);$total='0';
+                if($links===[])continue;$this->assertCurrentReceipt($supplier,$row);$total='0';
                 foreach($links as$link){if(!is_int($link['amount_cents'])||$link['amount_cents']<=0)self::changed();$total=bcadd($total,(string)$link['amount_cents'],0);}
                 $claims[]=['assessment_id'=>$row['id'],'period_id'=>$row['period_id'],'cost_line_id'=>$line,'amount_cents'=>$total,'input_hash'=>$row['input_hash'],'request_hash'=>$row['request_hash'],'links'=>$links];
             }
@@ -38,7 +38,7 @@ final class J6FundingCapacity
             foreach($this->assessments->effectiveOtherPeriods($supplier,$excludePeriod??0,true)as$row){
                 if($row['status']!=='confirmed')continue;$declared=null;
                 foreach($row['assessment']['funding_costs']??[]as$pool)if(in_array('line:'.$line,$pool['members']??[],true))$declared=$pool;
-                if($declared===null)continue;$this->validateReceipt($supplier,$row);if($found!==null)self::changed();
+                if($declared===null)continue;$this->assertCurrentReceipt($supplier,$row);if($found!==null)self::changed();
                 $rows=array_column($row['result']['rows'],null,'id');$pools=(new NonprofitTaxCalculator())->fundingCostPools($row['result'],$row['assessment']);$pool=$pools[$declared['anchor']]??null;if($pool===null)self::changed();$amounts=[];
                 foreach($pool['members']as$id)$amounts[(int)$rows[$id]['line_id']]=$rows[$id]['amount_cents'];ksort($amounts,SORT_NUMERIC);
                 $found=['assessment_id'=>$row['id'],'period_id'=>$row['period_id'],'anchor'=>(int)$rows[$pool['id']]['line_id'],'members'=>array_keys($amounts),'line_amounts'=>$amounts,'net_cents'=>$pool['amount_cents'],'proof'=>['input_hash'=>$row['input_hash'],'request_hash'=>$row['request_hash'],'declared'=>$declared,'rows'=>array_intersect_key($rows,array_flip($pool['members']))]];
@@ -69,11 +69,16 @@ final class J6FundingCapacity
             }catch(PostingException $e){throw new NonprofitTaxAssessmentException($e->errorCode,$e->getMessage(),$e->httpStatus);}
         });
     }
-    private function validateReceipt(int $supplier,array $row):void
+    public function assertCurrentReceipt(int $supplier,array $row):void
     {
-        $input=$row['snapshot'];unset($input['input_hash']);$request=['action'=>'confirm','period_id'=>$row['period_id'],'assessment'=>$row['assessment'],'input_hash'=>$row['input_hash'],'reason'=>$row['reason'],'actor'=>$row['created_by'],'expected_assessment_id'=>$row['previous_id']];
-        if($row['ruleset']!==NonprofitTaxRules::VERSION||NonprofitTaxRules::hash($input)!==$row['input_hash']||($row['snapshot']['input_hash']??null)!==$row['input_hash']||NonprofitTaxRules::hash($request)!==$row['request_hash']||NonprofitTaxRules::hash((new NonprofitTaxCalculator())->calculate($row['snapshot'],$row['assessment']))!==NonprofitTaxRules::hash($row['result']))self::changed();
-        $current=$this->sources->snapshot($supplier,$row['period_id'],true);if($current['findings']!==[]||!hash_equals($row['input_hash'],$current['input_hash']))self::changed();
+        $guard=new DimensionPeriodGuard($this->db);
+        $guard->transaction(function()use($guard,$supplier,$row):void{
+            $guard->lockPeriods($supplier);
+            if($row['supplier_id']!==$supplier || $row['status']!=='confirmed' || ($row['snapshot']['supplier_id']??null)!==$supplier || (int)($row['snapshot']['period']['id']??0)!==$row['period_id'])self::changed();
+            $input=$row['snapshot'];unset($input['input_hash']);$request=['action'=>'confirm','period_id'=>$row['period_id'],'assessment'=>$row['assessment'],'input_hash'=>$row['input_hash'],'reason'=>$row['reason'],'actor'=>$row['created_by'],'expected_assessment_id'=>$row['previous_id']];
+            if($row['ruleset']!==NonprofitTaxRules::VERSION||NonprofitTaxRules::hash($input)!==$row['input_hash']||($row['snapshot']['input_hash']??null)!==$row['input_hash']||NonprofitTaxRules::hash($request)!==$row['request_hash']||NonprofitTaxRules::hash((new NonprofitTaxCalculator())->calculate($row['snapshot'],$row['assessment']))!==NonprofitTaxRules::hash($row['result']))self::changed();
+            $current=$this->sources->snapshot($supplier,$row['period_id'],true);if($current['findings']!==[]||!hash_equals($row['input_hash'],$current['input_hash']))self::changed();
+        });
     }
     private function overcovered():never{throw new NonprofitTaxAssessmentException('nonprofit_funding_cost_overcovered','Součet potvrzeného financování převyšuje skutečný náklad po opravách a přímém krytí.',422);}
     private static function changed():never{throw new NonprofitTaxAssessmentException('nonprofit_tax_funding_changed','Dříve potvrzené financování nákladu vyžaduje nové posouzení účetních podkladů.',409);}

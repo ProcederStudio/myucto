@@ -44,7 +44,6 @@ final class AnonymizationPolicy
     public const TRUNCATE = [
         'accounting_securities_debt_commands' => 'původní idempotentní odpovědi obsahují soukromé podklady instrumentů',
         'property_service_lifecycle_commands' => 'původní idempotentní odpovědi nelze přehrát nad pseudonymizovanými podklady bez původního požadavku',
-        'nonprofit_tax_assessments' => 'potvrzené podklady obsahují původní doklady a jejich otisky',
         'abra_flexi_connections' => 'šifrované připojení ke zdrojové účetní firmě',
         'ai_assistant_conversations' => 'osobní historie dotazů AI asistenta (názvy z dotazů)',
         'ai_assistant_messages' => 'dotazy a odpovědi AI asistenta nad skutečnými doklady',
@@ -124,6 +123,8 @@ final class AnonymizationPolicy
 
     /** @var array<string, array<string,string>> */
     public const COLUMNS = [
+        'nonprofit_tax_assessments' => ['status'=>'keep','reason'=>'keep','ruleset'=>'keep','input_hash'=>'keep','request_hash'=>'keep','idempotency_key'=>'keep','snapshot_json'=>'keep','assessment_json'=>'keep','result_json'=>'keep'],
+        'nonprofit_funding_revisions' => ['source_key'=>'keep','parent_hash'=>'keep','policy_json'=>'keep','basis_json'=>'keep','request_json'=>'keep','reason'=>'keep','idempotency_key'=>'keep','request_hash'=>'keep','record_hash'=>'keep'],
         'property_module_profiles' => ['reason' => 'keep', 'title_ref' => 'keep', 'idempotency_key' => 'keep', 'request_hash' => 'keep'],
         'property_objects' => ['kind' => 'keep', 'code' => 'keep'],
         'property_revisions' => ['status' => 'keep', 'state_json' => 'keep', 'state_hash' => 'keep', 'idempotency_key' => 'keep', 'request_hash' => 'keep', 'reason' => 'keep', 'title_ref' => 'keep'],

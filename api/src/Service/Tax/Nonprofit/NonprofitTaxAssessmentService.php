@@ -7,6 +7,7 @@ namespace MyInvoice\Service\Tax\Nonprofit;
 use MyInvoice\Repository\NonprofitTaxAssessmentRepository;
 use MyInvoice\Repository\NonprofitTaxSourceRepository;
 use MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard;
+use MyInvoice\Service\Nonprofit\Funding\FundingEligibilityGuard;
 
 final class NonprofitTaxAssessmentService
 {
@@ -16,6 +17,7 @@ final class NonprofitTaxAssessmentService
         private readonly NonprofitTaxCalculator $calculator,
         private readonly DimensionPeriodGuard $periodGuard,
         private readonly J6FundingCapacity $fundingCapacity,
+        private readonly FundingEligibilityGuard $fundingEligibility,
     ) {}
 
     public function read(int $supplierId, int $periodId): array
@@ -49,7 +51,7 @@ final class NonprofitTaxAssessmentService
             if ($existing = $this->retry($supplierId, $key, $requestHash)) return $existing;
             $snapshot = $this->sources->snapshot($supplierId, $periodId, true);
             if (!hash_equals($snapshot['input_hash'], $inputHash)) throw new NonprofitTaxAssessmentException('nonprofit_tax_sources_changed', 'Účetní podklady se změnily. Je nutné nové posouzení.', 409);
-            $result = $this->calculate($snapshot, $assessment);
+            $result = $this->calculate($snapshot, $assessment, true);
             $history = $this->assessments->history($supplierId, $periodId, true);
             $previous = $history === [] ? null : $history[array_key_last($history)];
             if (($previous['id'] ?? null) !== $expectedAssessmentId) throw new NonprofitTaxAssessmentException('nonprofit_tax_assessment_changed', 'Mezitím vzniklo jiné posouzení. Je nutné zkontrolovat aktuální revizi.', 409);
@@ -77,13 +79,14 @@ final class NonprofitTaxAssessmentService
         });
     }
 
-    private function calculate(array $snapshot, array $assessment): array
+    private function calculate(array $snapshot, array $assessment, bool $currentRead = false): array
     {
         if ($snapshot['findings'] !== []) throw new NonprofitTaxAssessmentException('nonprofit_tax_sources_incomplete', 'Chybí průkazné sémantické členění nebo společná alokace účetních podkladů.');
         $result = $this->calculator->calculate($snapshot, $assessment);
         if ($result['accounting_result_cents'] !== $snapshot['accounting_result_cents']) {
             throw new NonprofitTaxAssessmentException('nonprofit_tax_reconciliation_failed', 'Posouzení nesouhlasí s výsledkem účetního deníku.');
         }
+        $this->fundingEligibility->assertAssessment((int) $snapshot['supplier_id'], $snapshot, $assessment, $result, $currentRead);
         $this->fundingCapacity->assertAssessment((int) $snapshot['supplier_id'], $snapshot, $assessment, $result);
         return $result;
     }

@@ -311,6 +311,7 @@ final class GlobalSeedTables
         ...\MyInvoice\Service\Property\Funds\FundingUseGuard::TABLES,
         \MyInvoice\Service\Anonymization\ServiceLifecycleCloneScrubber::COMMANDS, ...\MyInvoice\Service\Anonymization\ServiceLifecycleCloneScrubber::TABLES,
         ...\MyInvoice\Repository\Property\Services\Settlement\SettlementDossierRepository::TABLES, ...\MyInvoice\Service\Property\Services\Settlement\SettlementUseGuard::TABLES,
+        ...\MyInvoice\Repository\Nonprofit\FundingRepository::TABLES,
         'nonprofit_tax_assessments',
         'property_module_profiles', 'property_objects', 'property_revisions', 'property_revision_groups',
         'property_revision_members', 'property_revision_roles', 'property_revision_identifiers',

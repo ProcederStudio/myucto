@@ -1033,7 +1033,8 @@
         "2049_property_service_lifecycle_commands.sql",
         "2050_property_service_settlement_dossier_events.sql",
         "2051_property_funding.sql",
-        "2052_accounting_securities_debt.sql"
+        "2052_accounting_securities_debt.sql",
+        "2053_nonprofit_funding_sources.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -7710,6 +7711,57 @@
             "checks": {
                 "cc": "json_valid(`cc`)",
                 "sent_to": "json_valid(`sent_to`)"
+            }
+        },
+        "nonprofit_funding_revisions": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "assessment_id": "bigint(20) unsigned NOT NULL",
+                "basis_json": "longtext NOT NULL",
+                "created_at": "datetime NOT NULL DEFAULT current_timestamp()",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "idempotency_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "parent_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "period_id": "bigint(20) unsigned NOT NULL",
+                "policy_json": "longtext NOT NULL",
+                "previous_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "provider_id": "bigint(20) unsigned NOT NULL",
+                "reason": "text NOT NULL",
+                "record_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "request_json": "longtext NOT NULL",
+                "revision_no": "int(10) unsigned NOT NULL",
+                "source_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_nfr_actor": "BTREE (created_by)",
+                "fk_nfr_assessment": "BTREE (supplier_id, assessment_id)",
+                "fk_nfr_period": "BTREE (supplier_id, period_id)",
+                "fk_nfr_previous": "BTREE (supplier_id, source_key, previous_id)",
+                "fk_nfr_provider": "BTREE (supplier_id, provider_id)",
+                "uq_nfr_chain": "UNIQUE BTREE (supplier_id, source_key, id)",
+                "uq_nfr_revision": "UNIQUE BTREE (supplier_id, source_key, revision_no)",
+                "uq_nfr_tenant": "UNIQUE BTREE (supplier_id, id)",
+                "uq_nfr_token": "UNIQUE BTREE (supplier_id, idempotency_key)"
+            },
+            "foreign_keys": {
+                "fk_nfr_actor": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_nfr_assessment": "(supplier_id, assessment_id) -> nonprofit_tax_assessments (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_nfr_period": "(supplier_id, period_id) -> accounting_periods (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_nfr_previous": "(supplier_id, source_key, previous_id) -> nonprofit_funding_revisions (supplier_id, source_key, id) ON UPDATE RESTRICT ON DELETE CASCADE",
+                "fk_nfr_provider": "(supplier_id, provider_id) -> clients (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_nfr_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE"
+            },
+            "checks": {
+                "basis_json": "json_valid(`basis_json`)",
+                "chk_nfr_revision": "`revision_no` > 0",
+                "policy_json": "json_valid(`policy_json`)",
+                "request_json": "json_valid(`request_json`)"
             }
         },
         "nonprofit_tax_assessments": {
@@ -26388,6 +26440,9 @@
         "trg_jmhz_scn_requirement_bu": "BEFORE UPDATE ON payroll_jmhz_field_requirements #b71c659e5b0a7a47ecbc804e6ae742279b0b9208",
         "trg_journal_payroll_batch_insert": "BEFORE INSERT ON journal_entries #f75c2f92cf4c2bec4dae140c18d6e95f50264967",
         "trg_journal_payroll_immutable_update": "BEFORE UPDATE ON journal_entries #3635d1e00151830cb61416104ed79cfa05bc025f",
+        "trg_nfr_immutable_delete": "BEFORE DELETE ON nonprofit_funding_revisions #c7eaa2db7bdd66ae584c709efe931229740ea451",
+        "trg_nfr_immutable_update": "BEFORE UPDATE ON nonprofit_funding_revisions #c7eaa2db7bdd66ae584c709efe931229740ea451",
+        "trg_nfr_insert": "BEFORE INSERT ON nonprofit_funding_revisions #a4cfb416ed7d2d9fab5b38cc9b1ffea62d28548d",
         "trg_nonprofit_tax_immutable_delete": "BEFORE DELETE ON nonprofit_tax_assessments #f38c1e13859ea670801b2496d566bdd872f4cb06",
         "trg_nonprofit_tax_immutable_update": "BEFORE UPDATE ON nonprofit_tax_assessments #f38c1e13859ea670801b2496d566bdd872f4cb06",
         "trg_nonprofit_tax_insert": "BEFORE INSERT ON nonprofit_tax_assessments #4e66f08f4b1f04a9c040cdde16a122b7ffcc8f1b",

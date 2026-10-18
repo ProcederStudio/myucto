@@ -106,6 +106,7 @@ nasazuje). Zbytek je psaný pro běžného uživatele — bez programátorského
 63. [Měsíční přehled](63_Mesicni_report.md)
 111. [Souběh se starým systémem](111_Soubeh_se_starym_systemem.md)
 64. [Mzdová rekapitulace a mzdový list](64_Mzdy.md)
+117. [Granty a účelové dary](117_Granty_a_ucelove_dary.md)
 
 ### Nástroje
 
