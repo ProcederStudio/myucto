@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
+import { KeepAlive, defineComponent, h } from 'vue'
 import type { Car, OdometerGap, TripCategory, TripTemplate } from '@/api/logbook'
 
 const m = vi.hoisted(() => ({
@@ -11,13 +12,14 @@ const m = vi.hoisted(() => ({
   deleteReading: vi.fn(),
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
+  denied: [] as string[],
 }))
 
 vi.mock('@/api/logbook', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/api/logbook')>()),
   logbookApi: { ...m },
 }))
-vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ canWrite: () => true }) }))
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ canWrite: (p: string) => !m.denied.includes(p) }) }))
 vi.mock('@/composables/useToast', () => ({ useToast: () => ({ success: m.toastSuccess, error: m.toastError }) }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key, locale: { value: 'cs' } }) }))
 vi.mock('@/composables/useFormat', () => ({ formatDate: (d: string) => d }))
@@ -50,6 +52,7 @@ function mountPanel(cats: TripCategory[] = categories) {
 describe('OdometerGapsPanel.vue', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    m.denied = []
     m.listGaps.mockResolvedValue([gap])
     m.listTemplates.mockResolvedValue([template, otherCarTemplate])
     m.fillGap.mockResolvedValue({ trip_ids: [1, 2, 3], gap })
@@ -128,5 +131,45 @@ describe('OdometerGapsPanel.vue', () => {
 
     expect(m.createReading).toHaveBeenCalledWith(expect.objectContaining({ car_id: 3, odometer: 1200 }))
     expect(m.listGaps).toHaveBeenCalledTimes(2)
+  })
+
+  it('offers deleting a reading only with the delete permission', async () => {
+    m.listReadings.mockResolvedValue([{ id: 5, car_id: 3, reading_date: '2099-03-02', odometer: 1087 }])
+    const open = async () => {
+      const w = mountPanel()
+      await flushPromises()
+      await (w.vm as unknown as { openReadings: (id?: number) => Promise<void> }).openReadings(3)
+      await flushPromises()
+      return w
+    }
+
+    expect((await open()).findAll('button[title="common.delete"]')).toHaveLength(1)
+    m.denied = ['logbook.delete']
+    const readOnly = await open()
+    expect(readOnly.text()).toContain('2099-03-02')
+    expect(readOnly.findAll('button[title="common.delete"]')).toHaveLength(0)
+  })
+
+  it('reloads regular trips and gaps when the tab is shown again', async () => {
+    const Host = defineComponent({
+      props: { show: Boolean },
+      setup: (p) => () => h(KeepAlive, null, [p.show ? h(OdometerGapsPanel, { cars, categories }) : h('div')]),
+    })
+    const w = mount(Host, {
+      props: { show: true },
+      global: { stubs: { DateInput: { props: ['modelValue'], template: '<input :value="modelValue" />' } } },
+    })
+    await flushPromises()
+    expect(m.listTemplates).toHaveBeenCalledTimes(1)
+
+    m.listTemplates.mockResolvedValue([template, { ...template, id: 9, label: 'Nová pravidelná cesta' }])
+    await w.setProps({ show: false })
+    await w.setProps({ show: true })
+    await flushPromises()
+
+    expect(m.listTemplates).toHaveBeenCalledTimes(2)
+    expect(m.listGaps).toHaveBeenCalledTimes(2)
+    await w.find('li button').trigger('click')
+    expect(w.text()).toContain('Nová pravidelná cesta')
   })
 })

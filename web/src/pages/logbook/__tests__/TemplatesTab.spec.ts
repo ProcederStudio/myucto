@@ -13,13 +13,14 @@ const m = vi.hoisted(() => ({
   tripPlaces: vi.fn(),
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
+  denied: [] as string[],
 }))
 
 vi.mock('@/api/logbook', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/api/logbook')>()),
   logbookApi: { ...m },
 }))
-vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ canWrite: () => true }) }))
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ canWrite: (p: string) => !m.denied.includes(p) }) }))
 vi.mock('@/composables/useToast', () => ({ useToast: () => ({ success: m.toastSuccess, error: m.toastError }) }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 
@@ -34,6 +35,7 @@ const template: TripTemplate = {
 describe('TemplatesTab.vue', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    m.denied = []
     m.listTemplates.mockResolvedValue([template])
     m.listCars.mockResolvedValue([])
     m.listCategories.mockResolvedValue([{ id: 1, code: 'business', label: 'Služební', is_private: false, is_default: true, display_order: 10, is_archived: false }])
@@ -80,5 +82,26 @@ describe('TemplatesTab.vue', () => {
 
     expect(m.createTemplate).not.toHaveBeenCalled()
     expect(m.toastError).toHaveBeenCalledWith('logbook.tpl_required')
+  })
+
+  it('row actions are buttons with an icon and a semantic colour', async () => {
+    const w = mount(TemplatesTab)
+    await flushPromises()
+
+    const edits = w.findAll('button').filter(b => b.text() === 'common.edit')
+    const deletes = w.findAll('button').filter(b => b.text() === 'common.delete')
+    expect(edits).toHaveLength(2)
+    expect(deletes).toHaveLength(2)
+    for (const b of [...edits, ...deletes]) expect(b.find('svg').exists()).toBe(true)
+    for (const b of deletes) expect(b.classes()).toContain('border-danger-500/50')
+  })
+
+  it('offers Delete only with the delete permission', async () => {
+    m.denied = ['logbook.delete']
+    const w = mount(TemplatesTab)
+    await flushPromises()
+
+    expect(w.findAll('button').filter(b => b.text() === 'common.edit')).toHaveLength(2)
+    expect(w.findAll('button').filter(b => b.text() === 'common.delete')).toHaveLength(0)
   })
 })

@@ -10,6 +10,7 @@ import { useAuthStore } from '@/stores/auth'
 import { ICONS, btnFilled, btnOutline, btnOutlineSm } from '@/components/ui/buttonStyles'
 import DateInput from '@/components/ui/DateInput.vue'
 import { appIsoDate } from '@/utils/date'
+import { useTripTemplates } from '@/composables/useTripTemplates'
 
 const { t } = useI18n()
 const toast = useToast()
@@ -18,15 +19,13 @@ const props = defineProps<{ cars: Car[]; categories: TripCategory[] }>()
 const emit = defineEmits<{ changed: [] }>()
 
 const gaps = ref<OdometerGap[]>([])
-const templates = ref<TripTemplate[]>([])
 const canWrite = computed(() => auth.canWrite('logbook.write'))
+const canDelete = computed(() => auth.canWrite('logbook.delete'))
 
 async function loadGaps() {
   try { gaps.value = await logbookApi.listGaps() } catch { gaps.value = [] }
 }
-async function loadTemplates() {
-  try { templates.value = await logbookApi.listTemplates() } catch { templates.value = [] }
-}
+const { templates, loadTemplates } = useTripTemplates(loadGaps)
 onMounted(() => { loadGaps(); loadTemplates() })
 
 const fmtKm = (n: number) => n.toLocaleString('cs-CZ', { maximumFractionDigits: 1 })
@@ -293,7 +292,7 @@ defineExpose({ openReadings, reload: () => { loadGaps(); loadTemplates() } })
             <div v-for="r in readings" :key="r.id" class="flex items-center justify-between gap-2 px-3 py-2">
               <span>{{ formatDate(r.reading_date) }}</span>
               <span class="font-mono ml-auto">{{ fmtKm(r.odometer) }} km</span>
-              <button v-if="canWrite" @click="removeReading(r)" :title="t('common.delete')" class="cursor-pointer text-danger-500 hover:text-danger-600">
+              <button v-if="canDelete" @click="removeReading(r)" :title="t('common.delete')" class="cursor-pointer text-danger-500 hover:text-danger-600">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.trash" /></svg>
               </button>
             </div>

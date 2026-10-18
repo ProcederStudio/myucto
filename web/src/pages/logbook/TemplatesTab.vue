@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted, watch, useId } from 'vue'
+import { ref, reactive, computed, onMounted, watch, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useToast } from '@/composables/useToast'
 import { logbookApi, type Car, type TripCategory, type TripTemplate, type TripTemplatePayload } from '@/api/logbook'
 import { useAuthStore } from '@/stores/auth'
-import { ICONS, btnFilled } from '@/components/ui/buttonStyles'
+import { ICONS, btnFilled, btnOutlineSm } from '@/components/ui/buttonStyles'
 import EmptyState from '@/components/ui/EmptyState.vue'
 
 const { t } = useI18n()
@@ -12,6 +12,8 @@ const toast = useToast()
 const auth = useAuthStore()
 const props = defineProps<{ resetToken?: number }>()
 const pageId = useId()
+const canWrite = computed(() => auth.canWrite('logbook.write'))
+const canDelete = computed(() => auth.canWrite('logbook.delete'))
 
 const templates = ref<TripTemplate[]>([])
 const cars = ref<Car[]>([])
@@ -105,7 +107,7 @@ const timeRange = (tt: TripTemplate) => tt.time_start ? `${tt.time_start}${tt.ti
         <input v-model="showArchived" type="checkbox" class="rounded border-neutral-300 text-primary-600" @change="load" />
         {{ t('logbook.show_archived') }}
       </label>
-      <button v-if="auth.canWrite('logbook.write')" @click="newTemplate" class="whitespace-nowrap" :class="btnFilled('primary')">
+      <button v-if="canWrite" @click="newTemplate" class="whitespace-nowrap" :class="btnFilled('primary')">
         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.plus" /></svg>
         {{ t('logbook.tpl_new') }}
       </button>
@@ -127,7 +129,7 @@ const timeRange = (tt: TripTemplate) => tt.time_start ? `${tt.time_start}${tt.ti
               <th class="px-3 py-2 text-left font-medium">{{ t('logbook.purpose') }}</th>
               <th class="px-3 py-2 text-left font-medium">{{ t('logbook.car') }}</th>
               <th class="px-3 py-2 text-right font-medium">{{ t('logbook.distance_km') }}</th>
-              <th class="px-3 py-2 w-24"></th>
+              <th class="px-3 py-2 w-px"></th>
             </tr>
           </thead>
           <tbody class="divide-y divide-neutral-100">
@@ -143,11 +145,17 @@ const timeRange = (tt: TripTemplate) => tt.time_start ? `${tt.time_start}${tt.ti
               <td class="px-3 py-2 text-neutral-700">{{ tt.purpose || '—' }}</td>
               <td class="px-3 py-2 text-neutral-600">{{ carLabel(tt) }}</td>
               <td class="px-3 py-2 text-right font-mono">{{ tt.distance_km.toLocaleString('cs-CZ') }}</td>
-              <td class="px-3 py-2 text-right text-xs whitespace-nowrap">
-                <template v-if="auth.canWrite('logbook.write')">
-                  <button @click="editTemplate(tt)" class="cursor-pointer text-primary-600 hover:text-primary-700 mr-3">{{ t('common.edit') }}</button>
-                  <button @click="removeTemplate(tt)" class="cursor-pointer text-danger-500 hover:text-danger-600">{{ t('common.delete') }}</button>
-                </template>
+              <td class="px-3 py-2">
+                <div class="flex flex-wrap justify-end gap-1.5">
+                  <button v-if="canWrite" @click="editTemplate(tt)" :class="btnOutlineSm('neutral')">
+                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.edit" /></svg>
+                    {{ t('common.edit') }}
+                  </button>
+                  <button v-if="canDelete" @click="removeTemplate(tt)" :class="btnOutlineSm('danger')">
+                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.trash" /></svg>
+                    {{ t('common.delete') }}
+                  </button>
+                </div>
               </td>
             </tr>
           </tbody>
@@ -167,9 +175,15 @@ const timeRange = (tt: TripTemplate) => tt.time_start ? `${tt.time_start}${tt.ti
             <span>{{ carLabel(tt) }}</span>
             <span v-if="timeRange(tt)" class="font-mono">{{ timeRange(tt) }}</span>
           </div>
-          <div v-if="auth.canWrite('logbook.write')" class="flex gap-4 mt-2 text-xs">
-            <button @click="editTemplate(tt)" class="cursor-pointer text-primary-600 hover:text-primary-700">{{ t('common.edit') }}</button>
-            <button @click="removeTemplate(tt)" class="cursor-pointer ml-auto text-danger-500 hover:text-danger-600">{{ t('common.delete') }}</button>
+          <div v-if="canWrite || canDelete" class="flex flex-wrap gap-2 mt-2">
+            <button v-if="canWrite" @click="editTemplate(tt)" :class="btnOutlineSm('neutral')">
+              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.edit" /></svg>
+              {{ t('common.edit') }}
+            </button>
+            <button v-if="canDelete" @click="removeTemplate(tt)" :class="btnOutlineSm('danger')" class="ml-auto">
+              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.trash" /></svg>
+              {{ t('common.delete') }}
+            </button>
           </div>
         </div>
       </div>

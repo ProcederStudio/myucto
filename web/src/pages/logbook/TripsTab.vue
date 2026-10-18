@@ -5,7 +5,7 @@ import { useToast } from '@/composables/useToast'
 import { formatDate, formatMonth } from '@/composables/useFormat'
 import {
   logbookApi, type Car, type Trip, type TripPayload,
-  type TripCategory, type TripImportReport, type TripTemplate,
+  type TripCategory, type TripImportReport,
 } from '@/api/logbook'
 import { useAuthStore } from '@/stores/auth'
 import FilterBar, { type FilterChip } from '@/components/ui/FilterBar.vue'
@@ -14,6 +14,7 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import { appIsoDate } from '@/utils/date'
 import DateInput from '@/components/ui/DateInput.vue'
 import OdometerGapsPanel from './OdometerGapsPanel.vue'
+import { useTripTemplates } from '@/composables/useTripTemplates'
 
 const { t, locale } = useI18n()
 const toast = useToast()
@@ -46,7 +47,7 @@ const perPage = 25
 const years = ref<number[]>([])
 const purposes = ref<string[]>([])
 const places = ref<string[]>([])
-const templates = ref<TripTemplate[]>([])
+const { templates, loadTemplates } = useTripTemplates()
 const gapsPanel = ref<InstanceType<typeof OdometerGapsPanel> | null>(null)
 
 const monthOptions = computed(() => {
@@ -125,7 +126,7 @@ async function load() {
     categories.value = categoriesRes
     logbookApi.tripPurposes().then(p => { purposes.value = p }).catch(() => {})
     logbookApi.tripPlaces().then(p => { places.value = p }).catch(() => {})
-    logbookApi.listTemplates().then(p => { templates.value = p }).catch(() => {})
+    void loadTemplates()
   } finally { loading.value = false; maybeOpenNew() }
 }
 // Reset na 1. stranu (změna filtru / po uložení). goToPage = navigace v rámci pageru.
