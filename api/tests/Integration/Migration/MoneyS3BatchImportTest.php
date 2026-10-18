@@ -203,6 +203,22 @@ final class MoneyS3BatchImportTest extends TestCase
         self::assertStringContainsString('zakládat firmy nemáte', (string) $results[0]['error']);
     }
 
+    /**
+     * Agendu vedenou v Money jako daňová evidence převod nepřevede. Dávka ji proto odmítne
+     * s vysvětlením dřív, než firmu založí - jinak by po ní zůstala prázdná firma.
+     */
+    public function testTaxRecordsAgendaIsRefusedBeforeCompanyIsCreated(): void
+    {
+        SyntheticAgenda::writeLzFiles($this->tmp . '/evidence.lz',
+            SyntheticAgenda::forCompany(SyntheticAgenda::filesWithTaxRecords(), self::ICO_A, 'Dávková evidence s.r.o.'));
+
+        $results = $this->runBatch(['evidence.lz'], $this->options(self::LIVE));
+
+        self::assertSame(MigrationBatchRunner::FAILED, $results[0]['status'], json_encode($results[0], JSON_UNESCAPED_UNICODE) ?: '');
+        self::assertStringContainsString('daňovou evidenci', (string) $results[0]['error']);
+        self::assertSame(0, $this->rows('supplier', null, "TRIM(LEADING '0' FROM ic) = '" . self::ICO_A . "'"));
+    }
+
     public function testFiledDppoGivesIdentityAndIsTakenOverAfterConversion(): void
     {
         $xml = $this->filedXml(2024, self::ICO_A);

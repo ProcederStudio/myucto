@@ -26,23 +26,26 @@
 
 ## 103.2 Než začnete
 
-1. **Cílová firma.** Vyberte (nebo založte) firmu v MyÚčtu, do které se bude
-   převádět. Firma, která dosud vede daňovou evidenci, se převodem přepne na
-   podvojné účetnictví. Má-li se skupina firem sdílet jako projekty, založte
-   skupinu před převodem.
-2. **Účetní rok.** Vede-li firma v Money hospodářský rok, nastavte před
+1. **Podvojné účetnictví v Money.** Převod přenáší účetní deník podvojného
+   účetnictví. Agendu, kterou Money vede jako daňovou evidenci (peněžní deník),
+   převést nejde, viz [§ 103.10.10](#1031010-omezeni).
+2. **Cílová firma.** Vyberte (nebo založte) firmu v MyÚčtu, do které se bude
+   převádět. Firma, která v MyÚčtu dosud vede daňovou evidenci, se převodem
+   přepne na podvojné účetnictví. Má-li se skupina firem sdílet jako projekty,
+   založte skupinu před převodem.
+3. **Účetní rok.** Vede-li firma v Money hospodářský rok, nastavte před
    převodem v `Firma → Nastavení` na záložce **Daně a účetnictví** pole
    **Účetní rok začíná** na měsíc, kterým rok v Money začíná. Každý účetní rok Money se převede jako jedno
    účetní období firmy (například srpen 2024 až červenec 2025 jako období 2024).
-3. **Oprávnění.** Zkoušku nanečisto spustí uživatel s oprávněním k zápisu
+4. **Oprávnění.** Zkoušku nanečisto spustí uživatel s oprávněním k zápisu
    importů. Ostrý převod zapisuje účetní deník, mění nastavení firmy a
    uzavírá roky, proto vyžaduje navíc zápis do účetního deníku, do nastavení
    firmy a uzavírání období. Chybějící oprávnění průvodce ukáže a převod
    nespustí. Položka je v menu Systém, které vidí administrátor; jiný
    uživatel otevře průvodce přímým odkazem `/imports/money-s3`.
-4. **Klid ve firmě.** Zkouška nanečisto drží zámky převáděných období,
+5. **Klid ve firmě.** Zkouška nanečisto drží zámky převáděných období,
    spouštějte ji mimo běžnou práci.
-5. **Volné místo na disku** pro zálohu (až 4 GB).
+6. **Volné místo na disku** pro zálohu (až 4 GB).
 
 > [!TIP]
 > Převod je určen pro menší množství dat. Převody z jiných systémů jejich
@@ -96,8 +99,8 @@ Instalace Money se zálohou nijak nemění.
 **S upozorněními** a rekonciliace nehlásí chybu. Selže-li zkouška jen na
 **Rozdílech k přijetí**, rozhodnete se podle [§ 103.10.5.1](#1031051-chyby-upozorneni-a-rozdily-k-prijeti).
 
-Kontrola před převodem zastaví převod, když záloha patří firmě s jiným IČO, účetní
-období v MyÚčtu už obsahuje zápisy, které nevznikly převodem, období je
+Kontrola před převodem zastaví převod, když agenda vede v Money daňovou evidenci,
+záloha patří firmě s jiným IČO, účetní období v MyÚčtu už obsahuje zápisy, které nevznikly převodem, období je
 uzavřené, nebo by se účetní rok Money rozdělil do dvou účetních období firmy
 (agenda vede jiný účetní rok, než má firma nastavený; hlášení navrhne měsíc
 pro nastavení **Účetní rok začíná**). Chybí-li
@@ -190,6 +193,7 @@ Pravidla dávky včetně příkazové řádky jsou v
 | Co vidíte | Proč | Co udělat |
 |---|---|---|
 | Kontrola před převodem hlásí chybu | Jiné IČO, zápisy v období, uzavřené období, nebo agenda vede jiný účetní rok než firma | Opravte příčinu a nahrajte zálohu znovu; u účetního roku nastavte ve firmě měsíc z hlášení (**Účetní rok začíná**) a převod spusťte znovu |
+| Kontrola před převodem hlásí, že agenda vede daňovou evidenci | Money vede agendu jako daňovou evidenci (peněžní deník), ne podvojné účetnictví | Převod z Money S3 ji nepřevede. Faktury převezměte [importem](21_Importy.md), nebo se obraťte na podporu |
 | Nahrávání se přerušilo | Výpadek spojení | Vyberte soubor a nahrajte ho znovu |
 | Zkouška selhala jen na rozdílech k přijetí | Doklad se nepřevedl nebo výsledek nesedí na Money | Zaškrtněte **Převést i přes rozdíly**, nebo rozdíl opravte a zkoušku zopakujte |
 | Rok se neuzavřel | Konečné stavy nesedí na počáteční stavy dalšího roku | Rok zůstává otevřený; důvod je v protokolu, rozdíl opravte a převod zopakujte |
@@ -236,8 +240,9 @@ firmy a uzavírá roky, proto navíc vyžaduje zápis do účetního deníku
 s uzávěrkou historických let i uzavírání období (`accounting.periods.close`).
 Chybějící oprávnění průvodce ukáže a převod nespustí.
 
-Průvodce je dostupný i firmě, která zatím vede daňovou evidenci: převod ji sám
-přepne do podvojného účetnictví.
+Průvodce je dostupný i firmě, která v MyÚčtu zatím vede daňovou evidenci: převod
+ji sám přepne do podvojného účetnictví. Agenda v Money ale musí vést podvojné
+účetnictví, viz [§ 103.10.10](#1031010-omezeni).
 
 ### 103.10.2 Co převod přenese
 
@@ -410,6 +415,7 @@ bankovních účtech nebo ve dvou pokladnách.
    u velké zálohy i několik minut; obnovení stránky mezitím průvodce nepřeruší.
 2. **Náhled a volby.** Zkontrolujte firmu, IČO, verzi Money a účetní roky.
    Kontrola před převodem zastaví převod, když:
+   - agenda vede v Money daňovou evidenci, ne podvojné účetnictví,
    - záloha patří firmě s jiným IČO,
    - účetní období v MyÚčtu už obsahuje zápisy, které nevznikly převodem,
    - období je v MyÚčtu uzavřené,
@@ -659,6 +665,11 @@ MyÚčto s výstupy Money nebo s novou zálohou agendy na stránce
 
 ### 103.10.10 Omezení
 
+- Převod přenáší jen podvojné účetnictví. Rok, který Money vede jako daňovou
+  evidenci (peněžní deník místo účetního deníku), převod vynechá i s jeho
+  doklady a náhled ho vypíše v upozornění. Agendu vedenou celou jako daňová
+  evidence kontrola před převodem zastaví a dávka ji odmítne dřív, než firmu
+  založí.
 - Formát dat Money není veřejně dokumentovaný. Čtení je ověřené na verzi
   Money S3 26.600; u jiné verze průvodce upozorní a výsledek je o to důležitější
   porovnat se sestavami z Money.
