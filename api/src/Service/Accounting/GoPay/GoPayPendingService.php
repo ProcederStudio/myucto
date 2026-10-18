@@ -53,16 +53,28 @@ final class GoPayPendingService
         $pdo = $this->db->pdo();
         $ownTx = $this->beginUnit($pdo, 'gopay_pending');
         try {
+            // Zamyká se jen úhrada. Firma a nastavení GoPay se ověří zvlášť bez zámku: JOIN
+            // ve FOR UPDATE by výlučně zamkl i řádek firmy a serializoval celou firmu
+            // (každý zápis s cizím klíčem na firmu na něm drží sdílený zámek).
             $stmt = $pdo->prepare(
-                'SELECT ip.id,ip.supplier_id,ip.invoice_id,ip.paid_on,ip.amount,ip.currency,ip.bank_reference
-                   FROM invoice_payments ip
-                   JOIN supplier s ON s.id=ip.supplier_id AND s.accounting_mode="double_entry"
-                   JOIN gopay_settings gs ON gs.supplier_id=ip.supplier_id AND gs.currency=ip.currency
-                  WHERE ip.id=? AND ip.bank_reference LIKE "GOPAY:%"
+                'SELECT id,supplier_id,invoice_id,paid_on,amount,currency,bank_reference
+                   FROM invoice_payments
+                  WHERE id=? AND bank_reference LIKE "GOPAY:%"
                   FOR UPDATE'
             );
             $stmt->execute([$paymentId]);
             $payment = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (is_array($payment)) {
+                $configured = $pdo->prepare(
+                    'SELECT 1 FROM supplier s
+                       JOIN gopay_settings gs ON gs.supplier_id=s.id AND gs.currency=?
+                      WHERE s.id=? AND s.accounting_mode="double_entry"'
+                );
+                $configured->execute([(string) $payment['currency'], (int) $payment['supplier_id']]);
+                if ($configured->fetchColumn() === false) {
+                    $payment = false;
+                }
+            }
             $session = is_array($payment) ? self::sessionFromReference((string) $payment['bank_reference']) : null;
             if (!is_array($payment) || $session === null) {
                 $this->commitUnit($pdo, $ownTx, 'gopay_pending');
