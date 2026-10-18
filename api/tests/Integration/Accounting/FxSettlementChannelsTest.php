@@ -484,9 +484,10 @@ final class FxSettlementChannelsTest extends TestCase
     {
         $id = $this->document('invoice');
         $this->settle('invoice', $id, 'bank', 500);
-        $before = $this->financialSnapshot();
         $this->db->pdo()->commit();
         $this->committed = true;
+        // Až po commitu: ten auditní stopu zapečetí, náhled pak už nesmí měnit nic.
+        $before = $this->financialSnapshot();
         self::assertSame('500.00', $this->evidence('invoice', $id, '2098-12-31')['remaining_foreign']);
         self::assertFalse($this->db->pdo()->inTransaction());
         $this->db->pdo()->exec('SET TRANSACTION READ ONLY');
