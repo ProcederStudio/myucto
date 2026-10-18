@@ -4,20 +4,20 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "2ab04c6d246a2bb0a8a16d445ba5ed89",
+    "content-hash": "148527b1f88ef0ace722326f7e55c8e1",
     "packages": [
         {
             "name": "blondak/nx1-reader",
-            "version": "v0.1.0",
+            "version": "v0.1.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/blondak/nx1-reader.git",
-                "reference": "72bd2030ef2c105e66e1bd8b44a04bd5b98de965"
+                "reference": "c24d8995b0992a905f33971bdb34aef4ca6eeccc"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/blondak/nx1-reader/zipball/72bd2030ef2c105e66e1bd8b44a04bd5b98de965",
-                "reference": "72bd2030ef2c105e66e1bd8b44a04bd5b98de965",
+                "url": "https://api.github.com/repos/blondak/nx1-reader/zipball/c24d8995b0992a905f33971bdb34aef4ca6eeccc",
+                "reference": "c24d8995b0992a905f33971bdb34aef4ca6eeccc",
                 "shasum": ""
             },
             "require": {
@@ -65,10 +65,10 @@
                 "zip"
             ],
             "support": {
-                "source": "https://github.com/blondak/nx1-reader/tree/v0.1.0",
+                "source": "https://github.com/blondak/nx1-reader/tree/v0.1.1",
                 "issues": "https://github.com/blondak/nx1-reader/issues"
             },
-            "time": "2026-09-22T11:54:31+00:00"
+            "time": "2026-10-18T19:36:59+00:00"
         },
         {
             "name": "brick/math",
