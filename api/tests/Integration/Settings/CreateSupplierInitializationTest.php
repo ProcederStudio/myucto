@@ -146,6 +146,36 @@ final class CreateSupplierInitializationTest extends TestCase
         self::assertSame(0, (int) $row['auto_post_invoices'], 'daňová evidence deník nevede');
     }
 
+    public function testNaturalPersonTitleIsStoredAndLoadedForEpo(): void
+    {
+        $id = $this->create([
+            'company_name' => '__TEST Titul OSVČ', 'taxpayer_type' => 'fo',
+            'person_title' => ' Ing. ', 'is_vat_payer' => false,
+        ]);
+        self::assertSame('Ing.', $this->supplierRow($id)['person_title']);
+        $supplier = \MyInvoice\Service\Report\EpoSupplierBlockBuilder::loadSupplier($this->db->pdo(), $id);
+        self::assertSame('Ing.', $supplier['person_title']);
+    }
+
+    public function testCreatingSupplierRejectsOverlongTitle(): void
+    {
+        $before = (int) $this->db->pdo()->query('SELECT COUNT(*) FROM supplier')->fetchColumn();
+        $response = $this->settings->createSupplier(
+            $this->request('POST', '/api/suppliers')->withParsedBody([
+                'company_name' => '__TEST Dlouhý titul', 'street' => 'Testovací 1',
+                'city' => 'Zkušební Lhota', 'zip' => '11111', 'email' => 'titul@example.test',
+                'person_title' => str_repeat('Ž', 11),
+            ]), new Psr7Response(),
+        );
+        $json = json_decode((string) $response->getBody(), true, flags: JSON_THROW_ON_ERROR);
+        if ($response->getStatusCode() === 201) {
+            $this->created[] = (int) ($json['data']['id'] ?? $json['id']);
+        }
+        self::assertSame(400, $response->getStatusCode());
+        self::assertSame('validation_failed', $json['error']['code']);
+        self::assertSame($before, (int) $this->db->pdo()->query('SELECT COUNT(*) FROM supplier')->fetchColumn());
+    }
+
     public function testQuarterlyVatPeriodChoiceIsKept(): void
     {
         $id = $this->create([

@@ -131,6 +131,7 @@ onBeforeUnmount(() => {
 <template>
   <section
     ref="paneElement"
+    :data-workspace-pane="paneId"
     class="workspace-pane h-full min-w-0 min-h-0 focus:outline-none"
     :class="single
       ? ''

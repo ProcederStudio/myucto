@@ -1,9 +1,76 @@
 import { describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { installFrameNavigation, internalAnchorNavigation } from '../frameNavigation'
+import { installFrameNavigation, installShiftClickNavigation, internalAnchorNavigation } from '../frameNavigation'
 
 describe('navigace uvnitř pracovního okna', () => {
+  it('Shift klik přesměruje do pravého panelu i bez aktivního rozdělení', () => {
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/invoices/:id', component: { render: () => null } }] })
+    const anchor = document.createElement('a')
+    anchor.href = '/invoices/42?tab=payments#detail'
+    const event = new MouseEvent('click', { button: 0, shiftKey: true })
+    Object.defineProperty(event, 'target', { value: anchor })
+    expect(internalAnchorNavigation(router, event, false, true)).toEqual({ to: '/invoices/42?tab=payments#detail', placement: 'right' })
+    expect(internalAnchorNavigation(router, event, false, false)).toBeNull()
+  })
+
+  it('zachytí Shift klik na odkazy menu i obsah, odstraní listener a vynechá odkazy prohlížeče', () => {
+    const router = createRouter({ history: createMemoryHistory(), routes: [
+      { path: '/invoices/:id', component: { render: () => null }, meta: { requiresAuth: true } },
+      { path: '/login', component: { render: () => null } },
+    ] })
+    const open = vi.fn()
+    let supported = true
+    const remove = installShiftClickNavigation(router, () => supported, open)
+    const anchor = document.createElement('a')
+    anchor.href = '/invoices/42'
+    const text = document.createElement('span')
+    anchor.append(text)
+    document.body.append(anchor)
+    let preventedBeforeCleanup: boolean | undefined
+    anchor.addEventListener('click', event => {
+      preventedBeforeCleanup = event.defaultPrevented
+      event.preventDefault()
+    })
+    const click = (options: MouseEventInit = {}) => {
+      preventedBeforeCleanup = undefined
+      const event = new MouseEvent('click', { bubbles: true, cancelable: true, shiftKey: true, ...options })
+      text.dispatchEvent(event)
+      return { defaultPrevented: preventedBeforeCleanup ?? event.defaultPrevented }
+    }
+    try {
+      expect(click().defaultPrevented).toBe(true)
+      expect(open).toHaveBeenCalledExactlyOnceWith('/invoices/42', expect.any(MouseEvent))
+      open.mockClear()
+      for (const options of [{ ctrlKey: true }, { metaKey: true }, { altKey: true }, { button: 1 }, { shiftKey: false }]) {
+        expect(click(options).defaultPrevented).toBe(false)
+      }
+      supported = false
+      expect(click().defaultPrevented).toBe(false)
+      supported = true
+      anchor.download = 'export.csv'
+      expect(click().defaultPrevented).toBe(false)
+      anchor.removeAttribute('download')
+      anchor.target = '_blank'
+      expect(click().defaultPrevented).toBe(false)
+      anchor.removeAttribute('target')
+      for (const href of ['https://example.com/invoices/42', '/login', '/unknown']) {
+        anchor.href = href
+        expect(click().defaultPrevented).toBe(false)
+      }
+      anchor.href = '/invoices/42'
+      const prevented = new MouseEvent('click', { bubbles: true, cancelable: true, shiftKey: true })
+      prevented.preventDefault()
+      text.dispatchEvent(prevented)
+      expect(open).not.toHaveBeenCalled()
+      remove()
+      expect(click().defaultPrevented).toBe(false)
+      expect(open).not.toHaveBeenCalled()
+    } finally {
+      remove()
+      anchor.remove()
+    }
+  })
   it('označený odkaz otevře vedle i z posledního panelu; Ctrl klik ponechá původní chování', () => {
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/:pathMatch(.*)*', component: { render: () => null } }] })
     const anchor = document.createElement('a')

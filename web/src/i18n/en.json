@@ -22342,6 +22342,8 @@
     "default_revenue_category_backfilled": "Default revenue category applied to {count} project invoices without a category."
   },
   "bank": {
+    "open_cash_journal": "Open in cash journal",
+    "open_accounting_journal": "Open in accounting journal",
     "imported_to_other_company": "Statements for other companies' accounts imported there: {n} ({companies}).",
     "counter_account": "Counter-account",
     "gpc_calculated_hint": "The export in the standard GPC (ABO) format includes all recorded booked account transactions in this period, excluding notices. This is a MyÚčto export, not an original bank statement. Calculated balances assume complete transaction records. Long bank references are included in the description.",
@@ -24529,7 +24531,10 @@
     "street_number_orient": "Orientation number",
     "street_number_hint": "If empty, parsed automatically from the Street field.",
     "opr_section": "Authorized signatory (executive)",
-    "opr_hint": "Required for legal entities — the person signing tax returns. Optional for sole traders: fill in your own first and last name for a precise split in EPO filings (otherwise derived from the business name, academic titles stripped).",
+    "person_section": "Sole trader personal details",
+    "person_hint": "Personal details for tax filings. Enter your own first and last name for an accurate split in returns; otherwise they are derived from the business name. Academic title is optional.",
+    "person_title": "Academic title",
+    "opr_hint": "Required for legal entities — the person signing tax returns.",
     "opr_jmeno": "First name",
     "opr_prijmeni": "Last name",
     "opr_postaveni": "Position (e.g. executive)",
@@ -25945,6 +25950,15 @@
       }
     },
     "dph_book": {
+      "section_filter": "VAT return line / control statement section",
+      "all_sections": "Full VAT ledger",
+      "dph_lines": "VAT return lines",
+      "line_filter_option": "Line {line}",
+      "filtered_line": "Documents for VAT return line {line}",
+      "filtered_line_note": "Only sections for the selected line and their subtotals are shown. Clear the filter to view full-period totals or download the full ledger PDF.",
+      "current_book_note": "The ledger shows current documents including drafts, rather than amendment differences or a saved filing. Drafts are excluded from the VAT return. Rounding or partial deductions may also cause amounts to differ.",
+      "open_line_beside": "Open documents for line {line} in the VAT ledger",
+      "open_section_beside": "Open the document list for section {section}",
       "nil_row_note": "Zero base and VAT (typically settlement of a fully paid advance)",
       "nil_kh": "not reported",
       "nil_kh_hint": "A document with zero base and VAT is not included in the control statement. The supply is reported on the tax document for the received payment.",
@@ -26518,6 +26532,7 @@
       "form_active": "Active"
     },
     "cash_journal": {
+      "source_not_found": "This bank movement is not in the cash journal for the selected period.",
       "col_actions": "Actions",
       "open_source": "Go to details",
       "all_classifications": "All classifications",

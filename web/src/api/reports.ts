@@ -129,7 +129,8 @@ export interface DphDraftsPrediction {
 
 export interface DphBookRow {
   invoice_id: number
-  direction: 'issued' | 'received'
+  direction: 'issued' | 'received' | 'correction'
+  document_kind?: string | null
   doc_number: string | null
   original_doc_number: string | null
   tax_date: string | null

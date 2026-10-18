@@ -151,6 +151,12 @@ Je-li přijatá faktura uhrazená nižší platbou, než zbývá, nabídne aplik
 
 Spárovaná platba faktury se zaúčtuje sama (viz [§ 29.13.13](#291313-automaticke-zauctovani-sparovanych-plateb-jen-podvojne-ucetnictvi)). Pohyby bez faktury (poplatky, úroky, odvody, převody) vyřídíte ve frontě.
 
+V detailu výpisu otevřete u pohybu **Otevřít v účetním deníku**. Odkaz je dostupný, když má pohyb účetní zápis a máte právo deník číst. Deník otevře konkrétní zápis s rozbaleným detailem, zvýrazní ho a podle potřeby na něj odskroluje.
+
+V daňové evidenci otevřete u pohybu nabídku **…** a zvolte **Otevřít v peněžním deníku**. Zobrazí se rok bankovního pohybu a odpovídající řádky se zvýrazní; sestava zachovává ostatní řádky i zůstatky za celé období. Pokud pohyb v peněžním deníku není, zobrazí se oznámení.
+
+Při více pracovních panelech se deník otevře vpravo od panelu s výpisem, pokud je tam další panel. Při jediném panelu se otevře v něm. Obsah výpisu zůstane dostupný mezi okny aplikace.
+
 1. Otevřete `Peníze → Bankovní účty`, záložku **K zaúčtování**. Odznáček na záložce ukazuje počet čekajících položek.
 2. Výchozí podzáložka **Nezaúčtované pohyby** obsahuje všechny skutečné pohyby bez aktivního zápisu, tedy i ty, pro které automatika žádný návrh kontace nevytvořila.
 3. U návrhu zkontrolujte kontaci (MD/D) a stručné **Proč** (název pravidla nebo shoda platby).

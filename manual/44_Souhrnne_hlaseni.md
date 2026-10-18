@@ -31,7 +31,7 @@ v přiznání DPH, případně v kontrolním hlášení.
 ## 44.3 Krok za krokem: řádné souhrnné hlášení
 
 1. Otevřete `Daně → Souhrnné hlášení`.
-2. Zvolte období. Přepínač **Měsíčně / Kvartálně** nastavuje druh období, pak vyberte měsíc a rok, případně čtvrtletí (Q1-Q4) a rok.
+2. Zvolte období. Souhrnné hlášení začíná měsíčně bez ohledu na periodicitu DPH firmy, protože čtvrtletní podání závisí na druhu plnění. Rok a měsíc při prvním otevření převezme z ostatních výkazů DPH v rámci sezení, volbu Měsíčně / Kvartálně si pamatuje samostatně a ostatní výkazy neovlivní. Bez uložené volby se otevře poslední uzavřený měsíc. Přepínač **Měsíčně / Kvartálně** nastavuje druh období, pak vyberte měsíc a rok, případně čtvrtletí (Q1-Q4) a rok. Před podáním ověřte také vhodnost měsíčního či čtvrtletního režimu podle typu plnění (upozornění níže).
 3. V poli **Typ podání** nechte **Řádné**.
 4. Zkontrolujte upozornění nad náhledem a údaje nahoře: **Počet řádků**, **Celkem v EU** a **Termín podání**.
 5. V tabulce **Řádky výkazu** porovnejte stát, DIČ kupujícího, protistranu, kód, typ plnění, počet dokladů a hodnotu se zdrojovými doklady. Jeden řádek může zastupovat více faktur.

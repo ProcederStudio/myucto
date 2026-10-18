@@ -4,6 +4,8 @@ import { flushPromises, mount } from '@vue/test-utils'
 import type { BankTransaction } from '@/api/bank'
 import type { BankTransactionActions } from '@/composables/useBankTransactionActions'
 
+vi.mock('@/composables/useWorkspaceNavigation', () => ({ useWorkspaceNavigation: () => ({ openBeside: vi.fn() }) }))
+vi.mock('@/stores/supplier', () => ({ useSupplierStore: () => ({ currentSupplier: null }) }))
 const m = vi.hoisted(() => ({ enabled: true }))
 
 // Dimenze zapnuté: typ Projekt (1) s hodnotou 5 (Firma → Dimenze).
@@ -15,7 +17,7 @@ vi.mock('@/composables/useDimensions', () => ({
     load: () => Promise.resolve(),
   }),
 }))
-vi.mock('vue-router', () => ({ RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } }))
+vi.mock('vue-router', () => ({ useRouter: () => ({}), RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ canRead: () => true, canWrite: () => true }) }))
 vi.mock('@/composables/useFormat', () => ({ formatDate: (v: string) => v, formatMoney: (v: number) => String(v) }))
@@ -47,7 +49,7 @@ function mountRow(layout: 'desktop' | 'mobile', row: BankTransaction) {
     props: { tx: row, actions: actions(), layout, isDoubleEntry: true },
     global: {
       stubs: {
-        RowActionsMenu: true, PostingStatusBadge: true, WhyChip: true, PostingRowActions: true,
+        BankTransactionJournalLink: true, RowActionsMenu: true, PostingStatusBadge: true, WhyChip: true, PostingRowActions: true,
         MatchSuggestionPanel: true, LinkedDocumentsPanel: true, DimensionChips: true, DocumentDimensionsPanel: true,
       },
     },

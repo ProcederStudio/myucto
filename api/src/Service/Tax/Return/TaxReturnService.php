@@ -2216,7 +2216,7 @@ final class TaxReturnService
                     s.ic, s.dic, s.taxpayer_type, s.financial_office_code,
                     s.workplace_code, s.cz_nace_code, s.phone, s.email,
                     s.street_number_pop, s.street_number_orient,
-                    s.opr_jmeno, s.opr_prijmeni, s.opr_postaveni,
+                    s.opr_jmeno, s.opr_prijmeni, s.opr_postaveni, s.person_title,
                     -- Vědomé příznaky poplatníka (migrace 1782) — čte je
                     -- {@see UnsupportedCaseDetector} i typ poplatníka do XML.
                     s.epo_taxpayer_code, s.tax_entity_status, s.tax_entity_status_date,
@@ -2243,7 +2243,7 @@ final class TaxReturnService
                     s.dic, s.email, s.phone, s.data_box_id,
                     s.street_number_pop, s.street_number_orient,
                     s.cssz_vsdp, s.cssz_ossz_code, s.health_insurance_number,
-                    s.opr_jmeno, s.opr_prijmeni
+                    s.opr_jmeno, s.opr_prijmeni, s.person_title
                FROM supplier s
           LEFT JOIN countries c ON c.id = s.country_id
               WHERE s.id = ?"

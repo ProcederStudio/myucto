@@ -62,6 +62,64 @@ final class EpoSupplierBlockBuilderTest extends TestCase
         $this->assertSame('Novák', $v->getAttribute('prijmeni'));
     }
 
+    public function testNaturalPersonTitleIsExportedSeparatelyFromName(): void
+    {
+        $v = $this->fillFor([
+            'taxpayer_type' => 'fo', 'company_name' => 'MUDr. Josef Novák',
+            'person_title' => ' Ing. ', 'opr_jmeno' => 'Josef', 'opr_prijmeni' => 'Novák',
+        ]);
+        self::assertSame('Ing.', $v->getAttribute('titul'));
+        self::assertSame('Josef', $v->getAttribute('jmeno'));
+        self::assertSame('Novák', $v->getAttribute('prijmeni'));
+    }
+
+    #[DataProvider('titlesToOmit')]
+    public function testTitleIsOmittedForEmptyFieldOrLegalPerson(array $fields): void
+    {
+        self::assertFalse($this->fillFor($fields)->hasAttribute('titul'));
+    }
+
+    public static function titlesToOmit(): iterable
+    {
+        yield 'nevyplněný' => [['person_title' => null]];
+        yield 'mezery' => [['person_title' => '   ']];
+        yield 'bez odhadu z názvu' => [['company_name' => 'MUDr. Josef Novák']];
+        yield 'právnická osoba' => [['taxpayer_type' => 'po', 'person_title' => 'Ing.']];
+    }
+
+    #[DataProvider('vatSchemas')]
+    public function testNaturalPersonTitlePassesEverySharedVatSchema(string $schema, array $vetaD): void
+    {
+        $dom = new \DOMDocument('1.0', 'UTF-8');
+        $root = $dom->appendChild($dom->createElement('Pisemnost'));
+        $form = $root->appendChild($dom->createElement(strtoupper($schema)));
+        $d = $form->appendChild($dom->createElement('VetaD'));
+        foreach ($vetaD as $key => $value) {
+            $d->setAttribute($key, $value);
+        }
+        $v = $form->appendChild($dom->importNode($this->fillFor([
+            'person_title' => 'Ing. Ph.D.', 'company_name' => 'Jan Novák',
+        ], includeContact: $schema !== 'dphshv'), true));
+        self::assertSame('Ing. Ph.D.', $v->getAttribute('titul'));
+        $previous = libxml_use_internal_errors(true);
+        libxml_clear_errors();
+        try {
+            $valid = $dom->schemaValidate(dirname(__DIR__, 4) . '/xsd/' . $schema . '.xsd');
+            $errors = array_map(static fn (\LibXMLError $e): string => trim($e->message), libxml_get_errors());
+            self::assertTrue($valid, implode("\n", $errors));
+        } finally {
+            libxml_clear_errors();
+            libxml_use_internal_errors($previous);
+        }
+    }
+
+    public static function vatSchemas(): iterable
+    {
+        yield 'DPH' => ['dphdp3', ['k_uladis' => 'DPH', 'dokument' => 'DP3', 'rok' => '2025', 'mesic' => '7', 'dapdph_forma' => 'B', 'typ_platce' => 'P']];
+        yield 'KH' => ['dphkh1', ['k_uladis' => 'DPH', 'dokument' => 'KH1', 'rok' => '2025', 'mesic' => '7', 'khdph_forma' => 'B']];
+        yield 'SH' => ['dphshv', ['k_uladis' => 'DPH', 'dokument' => 'SHV', 'rok' => '2025', 'mesic' => '7', 'shvies_forma' => 'R']];
+    }
+
     /** Právnická osoba → celý název do zkrobchjm, jmeno/prijmeni prázdné. */
     public function testPravnickaOsobaUsesCompanyName(): void
     {

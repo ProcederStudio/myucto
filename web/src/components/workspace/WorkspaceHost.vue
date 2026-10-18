@@ -9,7 +9,7 @@ import { useToast } from '@/composables/useToast'
 import { authApi } from '@/api/auth'
 import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts'
 import { useTheme } from '@/composables/useTheme'
-import { useWorkspaceStore } from '@/stores/workspace'
+import { useWorkspaceStore, type PaneId } from '@/stores/workspace'
 import { useWorkspaceNavigation } from '@/composables/useWorkspaceNavigation'
 import { authorizationGuard, applyAuthorizationMeta } from '@/router'
 import { createPaneRouter } from '@/router/createPaneRouter'
@@ -18,6 +18,8 @@ import { createWindowManager } from '@/workspace/windowManager'
 import { mirrorWindowLocation } from '@/workspace/windowHistory'
 import { resizePaneFractions } from '@/workspace/panelSizing'
 import { paneCountFromShortcut, panelIndexFromShortcut } from '@/workspace/panelShortcuts'
+import { rightPanePlan } from '@/workspace/panelLinks'
+import { installShiftClickNavigation } from '@/workspace/frameNavigation'
 import WorkspacePane from './WorkspacePane.vue'
 
 const props = defineProps<{ accentFor?: (fullPath: string) => string }>()
@@ -85,6 +87,15 @@ const windows = createWindowManager({
   },
   onError: () => toast.error(t('workspace.load_error')),
 })
+function sourcePaneForClick(event: MouseEvent): PaneId {
+  const id = event.target instanceof Element
+    ? event.target.closest<HTMLElement>('[data-workspace-pane]')?.dataset.workspacePane
+    : undefined
+  return workspace.panes.find(pane => pane.id === id)?.id ?? workspace.activePaneId
+}
+const removeShiftClick = installShiftClickNavigation(primaryRouter,
+  event => rightPanePlan(sourcePaneForClick(event), workspace.panes, workspace.maximumPaneCount) !== null,
+  (to, event) => { void windows.openRight(to, sourcePaneForClick(event)) })
 let syncingUrl = false
 let mirrorTask = Promise.resolve()
 let stopped = false
@@ -220,6 +231,7 @@ watch(width, () => { void enforceSupportedLayout() })
 watch(() => workspace.paneCount, () => { resetFractions(); void nextTick(() => { measureViewport(); windows.updateFrames() }) }, { immediate: true })
 watch([allowTwo, allowThree], () => {
   workspace.setMaximumPaneCount(allowThree.value ? 3 : allowTwo.value ? 2 : 1)
+  windows.updateFrames()
 }, { immediate: true })
 
 onMounted(() => {
@@ -239,6 +251,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  removeShiftClick()
   document.documentElement.classList.remove('workspace-shell')
   window.removeEventListener('myucto:shortcuts-changed', reloadShortcuts)
   stopped = true

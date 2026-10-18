@@ -22342,6 +22342,8 @@
     "default_revenue_category_backfilled": "Výchozí kategorie tržby doplněna do {count} faktur zakázky bez kategorie."
   },
   "bank": {
+    "open_cash_journal": "Otevřít v peněžním deníku",
+    "open_accounting_journal": "Otevřít v účetním deníku",
     "imported_to_other_company": "Výpisy k účtům jiných firem naimportovány do nich: {n} ({companies}).",
     "counter_account": "Protiúčet",
     "gpc_calculated_hint": "Export ve standardním formátu GPC (ABO) obsahuje všechny evidované zaúčtované pohyby účtu za uvedené období, bez avíz. Jde o export MyÚčta, nikoli originální výpis banky. Vypočtený zůstatek předpokládá úplnou evidenci pohybů. Dlouhé bankovní reference se přenášejí do popisu.",
@@ -24529,7 +24531,10 @@
     "street_number_orient": "Číslo orientační",
     "street_number_hint": "Pokud necháte prázdné, vyparsuje se z pole Ulice automaticky.",
     "opr_section": "Oprávněná osoba (jednatel / podpisující)",
-    "opr_hint": "Povinné u právnických osob - osoba podepisující daňová přiznání. U OSVČ volitelné: vyplňte vlastní jméno a příjmení pro přesné rozdělení do EPO výkazů (jinak se odvodí z názvu, včetně odstranění akademických titulů).",
+    "person_section": "Osobní údaje podnikatele",
+    "person_hint": "Údaje podnikatele pro daňová podání. Vyplňte vlastní jméno a příjmení pro přesné rozdělení do výkazů; jinak se odvodí z názvu firmy. Titul je nepovinný.",
+    "person_title": "Titul",
+    "opr_hint": "Povinné u právnických osob - osoba podepisující daňová přiznání.",
     "opr_jmeno": "Jméno",
     "opr_prijmeni": "Příjmení",
     "opr_postaveni": "Postavení (např. jednatel)",
@@ -25945,6 +25950,15 @@
       }
     },
     "dph_book": {
+      "section_filter": "Řádek přiznání / oddíl KH",
+      "all_sections": "Celá kniha DPH",
+      "dph_lines": "Řádky DPH přiznání",
+      "line_filter_option": "Řádek {line}",
+      "filtered_line": "Doklady k řádku {line} přiznání",
+      "filtered_line_note": "Zobrazeny jsou jen sekce vybraného řádku s jejich mezisoučty. Celkové součty a PDF celé knihy jsou dostupné po zrušení filtru.",
+      "current_book_note": "Kniha ukazuje aktuální podklady včetně konceptů, nikoli rozdíl dodatečného přiznání ani uložené podání. Koncepty do přiznání nevstupují. Částky se mohou lišit také zaokrouhlením nebo krácením odpočtu.",
+      "open_line_beside": "Otevřít doklady řádku {line} v knize DPH",
+      "open_section_beside": "Otevřít soupis dokladů oddílu {section}",
       "nil_row_note": "Nulový základ i daň (typicky vyúčtování plně uhrazené zálohy)",
       "nil_kh": "nevykazuje se",
       "nil_kh_hint": "Doklad s nulovým základem i daní se do kontrolního hlášení neuvádí. Plnění je vykázané na daňovém dokladu k přijaté platbě.",
@@ -26518,6 +26532,7 @@
       "form_active": "Aktivní"
     },
     "cash_journal": {
+      "source_not_found": "Tento bankovní pohyb není v peněžním deníku za vybrané období.",
       "col_actions": "Akce",
       "open_source": "Přejít na detail",
       "all_classifications": "Všechny klasifikace",
