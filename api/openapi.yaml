@@ -35631,17 +35631,17 @@ components:
       type: object
       required: [company_name, street, city, zip]
       properties:
-        company_name: { type: string }
-        first_name: { type: [string, "null"] }
-        last_name: { type: [string, "null"] }
+        company_name: { type: string, maxLength: 190, description: "Delší textová pole než uvedené maxLength = 400 `validation_failed`." }
+        first_name: { type: [string, "null"], maxLength: 60 }
+        last_name: { type: [string, "null"], maxLength: 60 }
         ic: { type: [string, "null"], description: "IČO — 8 číslic" }
-        dic: { type: [string, "null"], description: "DIČ / VAT ID s country prefixem (u SK = IČ DPH)" }
-        tax_number: { type: [string, "null"], description: "Národní daňové číslo bez prefixu (SK DIČ, DE/AT Steuernummer, PL NIP, HU Adószám)" }
-        street: { type: string }
-        city: { type: string }
-        zip: { type: string }
+        dic: { type: [string, "null"], maxLength: 20, description: "DIČ / VAT ID s country prefixem (u SK = IČ DPH)" }
+        tax_number: { type: [string, "null"], maxLength: 30, description: "Národní daňové číslo bez prefixu (SK DIČ, DE/AT Steuernummer, PL NIP, HU Adószám)" }
+        street: { type: string, maxLength: 190 }
+        city: { type: string, maxLength: 120 }
+        zip: { type: string, maxLength: 10 }
         country_iso2: { type: string, default: CZ, description: "ISO2 kód země (resolvuje se na country_id). POZOR: vstup je `country_iso2`, ne `country_id`." }
-        main_email: { type: [string, "null"], format: email, description: "Volitelný hlavní e-mail (backend pole `main_email`, ne `email`)." }
+        main_email: { type: [string, "null"], format: email, maxLength: 190, description: "Volitelný hlavní e-mail (backend pole `main_email`, ne `email`)." }
         phone: { type: [string, "null"], maxLength: 40 }
         language: { type: string, enum: [cs, en], default: cs }
         currency_default_id: { type: [integer, "null"], description: "Výchozí měna klienta. Pokud chybí, použije se výchozí měna supplier-a." }

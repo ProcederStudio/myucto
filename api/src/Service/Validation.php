@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MyInvoice\Service;
 
+use MyInvoice\Service\Client\ClientFieldLimits;
 use MyInvoice\Service\Mail\ClientEmailFormat;
 use MyInvoice\Service\Mail\ClientIsdocPreference;
 
@@ -30,23 +31,16 @@ final class Validation
         }
         if (empty($data['zip']) || trim((string) $data['zip']) === '') {
             $err['zip'][] = 'PSČ je povinné';
-        } elseif (mb_strlen(trim((string) $data['zip'])) > 10) {
-            // Sloupec clients.zip je VARCHAR(10); bez kontroly padá uložení na chybě DB.
-            $err['zip'][] = 'PSČ může mít nejvýše 10 znaků (město patří do pole Město)';
         }
-        foreach (['company_name' => 190, 'street' => 190, 'city' => 120] as $field => $max) {
-            if (is_string($data[$field] ?? null) && mb_strlen(trim($data[$field])) > $max) {
-                $err[$field][] = "Text je příliš dlouhý (nejvýše {$max} znaků)";
-            }
+        // Délky sloupců clients: ručně zadaná delší hodnota je chyba vstupu, ne pád DB.
+        foreach (ClientFieldLimits::errors($data) as $field => $messages) {
+            $err[$field] = array_merge($err[$field] ?? [], $messages);
         }
         // Hlavní e-mail je nepovinný (#221) — historické doklady ho často nemají.
         // Když ale vyplněný je, musí být platný.
         $mainEmail = trim((string) ($data['main_email'] ?? ''));
         if ($mainEmail !== '' && !filter_var($mainEmail, FILTER_VALIDATE_EMAIL)) {
             $err['main_email'][] = 'Hlavní email musí být platný';
-        }
-        if (!empty($data['phone']) && strlen((string) $data['phone']) > 40) {
-            $err['phone'][] = 'Telefon je příliš dlouhý';
         }
         if (!empty($data['ic']) && !preg_match('/^\d{8}$/', (string) $data['ic'])) {
             $err['ic'][] = 'IČO musí mít 8 číslic';
