@@ -690,18 +690,11 @@ final class InvoicePdfRenderer
     private function applyLiveBrandingProfile(array $supplier, array $invoice): array
     {
         if (empty($invoice['branding_profile_id'])) return $supplier;
-        $stmt = $this->db->pdo()->prepare(
-            'SELECT bp.* FROM supplier s
-               JOIN branding_profiles bp ON bp.id = ?
-                                        AND bp.supplier_id = s.id AND bp.is_active = 1
-              WHERE s.id = ? AND s.branding_profiles_enabled = 1'
-        );
-        $stmt->execute([
-            (int) $invoice['branding_profile_id'],
+        $profile = $this->snapshots->effectiveBrandingProfile(
             (int) ($invoice['supplier_id'] ?? 0),
-        ]);
-        $profile = $stmt->fetch(\PDO::FETCH_ASSOC);
-        if ($profile === false) return $supplier;
+            (int) $invoice['branding_profile_id'],
+        );
+        if ($profile === null) return $supplier;
         return \MyInvoice\Service\Branding\BrandingProfileOverlay::apply($supplier, $profile);
     }
 

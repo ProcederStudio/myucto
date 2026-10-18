@@ -8,6 +8,7 @@ use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Service\Accounting\AccountingFrameworkException;
 use MyInvoice\Service\Accounting\AccountingFrameworkImportGuard;
 use MyInvoice\Infrastructure\Database\TableStatistics;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Repository\MoneyS3ImportRepository;
 use MyInvoice\Service\Accounting\FiscalCalendar;
@@ -211,7 +212,9 @@ final class MoneyS3Importer
             try { (new AccountingFrameworkImportGuard($this->db))->assertCz500Periods($supplierId, $plan); }
             catch (AccountingFrameworkException $e) { $add('error', $e->errorCode, $e->getMessage()); }
         }
-        if ($plan === [] && $options->fromYear !== null) {
+        if ($plan === [] && $agenda->taxRecordsOnly()) {
+            $add('error', 'tax_records_not_supported', AgendaInfo::TEXT_TAX_RECORDS_NOT_SUPPORTED);
+        } elseif ($plan === [] && $options->fromYear !== null) {
             $add('error', 'from_year_empty', "Od roku {$options->fromYear} záloha nemá žádný účetní rok — není co převést.", ['from_year' => $options->fromYear]);
         } elseif ($plan === []) {
             $add('error', 'no_journal', 'Záloha neobsahuje účetní deník — není co převést.');
@@ -360,6 +363,9 @@ final class MoneyS3Importer
                     }
                     $protocol->finish($key);
                 } catch (\Throwable $e) {
+                    // Odvolaná transakce (1020/1213) nesmí zůstat viset jako otevřená:
+                    // savepoint zkušebního běhu i zbytek převodu by jinak pracovaly naslepo.
+                    TransactionFailure::rollbackIfAborted($pdo, $e);
                     if ($e instanceof MoneyS3Exception || $e instanceof AccountingFrameworkException) {
                         $protocol->error($key, $e->errorCode, $e->getMessage());
                     } else {
@@ -391,7 +397,7 @@ final class MoneyS3Importer
             $protocol->error(self::STEP_PREFLIGHT, $e->errorCode, $e->getMessage());
             $protocol->fail(self::STEP_PREFLIGHT);
         } finally {
-            if ($savepoint) {
+            if ($savepoint && $pdo->inTransaction()) {
                 $pdo->exec('ROLLBACK TO SAVEPOINT money_s3_dry_run');
             } elseif ($dryRun && $pdo->inTransaction()) {
                 $pdo->rollBack();

@@ -19,7 +19,7 @@ final class OpeningOperationalBatchTest extends TestCase
             $p=new OperationalOpeningPdo($size);$p->inner->expectCurrent=$current;$reader=new OpeningOriginProof(self::connection($p));
             $out=self::debts($reader,$p->debts,$current);self::assertCount($size,$out);
             self::assertSame(1,$p->inner->counts['batch']);self::assertSame(1,$p->inner->counts['ledger']);self::assertSame($size,$p->inner->lineRows);
-            self::assertSame(7*$size+7,array_sum($p->inner->counts));
+            self::assertSame(14,array_sum($p->inner->counts));
         }
     }
     public function testCurrentDebtResultsAreExactlyTheStandaloneResults():void
@@ -224,6 +224,10 @@ final class OperationalOpeningPdo extends PDO
     {
         if(preg_match('/\ASELECT DISTINCT application_id FROM property_service_settlement_effects WHERE supplier_id=\?(?: AND debt_id IN \(\?(?:,\?)*\))? ORDER BY application_id(?: FOR UPDATE)?\z/D',$sql)===1){
             if(str_ends_with($sql,' FOR UPDATE')!==$this->inner->expectCurrent||count($params)!==substr_count($sql,'?')||$params[0]!==7)throw new \LogicException('Unexpected empty settlement graph query scope.');
+            return [];
+        }
+        if($sql==='SELECT id FROM property_objects WHERE supplier_id = ? ORDER BY id FOR UPDATE'){
+            if($params!==[7]||!$this->inner->expectCurrent)throw new \LogicException('Unexpected empty property catalog lock scope.');
             return [];
         }
         if(str_starts_with($sql,'SELECT id FROM unit_payment_debts WHERE supplier_id=? ORDER BY id FOR UPDATE'))return array_map(fn($r)=>['id'=>$r['id']],array_values($this->debts));

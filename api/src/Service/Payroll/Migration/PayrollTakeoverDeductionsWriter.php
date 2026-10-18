@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Payroll\Migration;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\Payroll\PayrollDeductionAgreementRepository;
 use MyInvoice\Repository\Payroll\PayrollEnforcementRepository;
 use MyInvoice\Repository\Payroll\PayrollInstitutionAccountRepository;
@@ -721,6 +722,9 @@ final class PayrollTakeoverDeductionsWriter
                 $pdo->exec('RELEASE SAVEPOINT ' . self::SAVEPOINT);
             }
         } catch (\Exception $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             if ($owns) {
                 $pdo->rollBack();
             } elseif ($pdo->inTransaction()) {

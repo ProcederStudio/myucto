@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace MyInvoice\Service\Payroll\Import\Registration;
 
+use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\Payroll\PayrollEmploymentRepository;
 use MyInvoice\Service\License\LicensePayrollLimitExceeded;
 use MyInvoice\Service\Payroll\Import\ImportFiles;
@@ -82,6 +84,7 @@ final class RegistrationImportService
         private readonly OzuspojXmlReader $ozuspojReader,
         private readonly OzuspojImportPlanner $ozuspojPlanner,
         private readonly OzuspojPredecessorIntentImporter $ozuspojImporter,
+        private readonly Connection $db,
     ) {}
 
     /** @return array<string,mixed> */
@@ -355,10 +358,12 @@ final class RegistrationImportService
                     );
                     continue;
                 }
+                $outer = $this->db->pdo()->inTransaction();
                 try {
                     $applied = $this->jmhzWriter->apply($supplierId, $environment, $plan, $userId, $ip, $userAgent);
                     $results[$key] = ['key' => $key] + $applied;
                 } catch (\Exception $e) {
+                    $this->rethrowOuterAbort($outer, $e);
                     $results[$key] = $this->result($key, 'failed', $e->getMessage(), $plan);
                 } finally {
                     $this->jmhzPlanner->forget();
@@ -626,6 +631,7 @@ final class RegistrationImportService
         if (!$plan['selectable']) {
             return $this->result($key, 'skipped', 'Věta nemá co zapsat — evidence už odpovídá.', $plan);
         }
+        $outer = $this->db->pdo()->inTransaction();
         try {
             return ['key' => $key]
                 + $this->writer->apply($supplierId, $environment, $plan, $officeId, $userId, $ip, $userAgent)
@@ -634,6 +640,7 @@ final class RegistrationImportService
             return $this->result($key, 'failed', 'Dalšího aktivního zaměstnance lze přidat až po '
                 . 'rozšíření mzdového doplňku.', $plan);
         } catch (\Exception $e) {
+            $this->rethrowOuterAbort($outer, $e);
             return $this->result($key, 'failed', $e->getMessage(), $plan);
         }
     }
@@ -666,6 +673,7 @@ final class RegistrationImportService
         $failed = [];
         foreach (array_keys($employmentIds) as $employmentId) {
             foreach ($this->employments->pendingChecklistItemsSince($supplierId, $employmentId, 'change', $since) as $item) {
+                $outer = $this->db->pdo()->inTransaction();
                 try {
                     $this->employments->updateChecklist(
                         $supplierId,
@@ -680,6 +688,7 @@ final class RegistrationImportService
                     );
                     $completed++;
                 } catch (\Exception $e) {
+                    $this->rethrowOuterAbort($outer, $e);
                     $failed[] = [
                         'employment_id' => $employmentId,
                         'item_key' => $item['item_key'],
@@ -930,10 +939,26 @@ final class RegistrationImportService
             return $this->result($key, 'skipped', 'Věta nemá co zapsat - evidence už odpovídá.', $plan);
         }
 
+        $outer = $this->db->pdo()->inTransaction();
         try {
             return ['key' => $key] + $this->sicknessWriter->apply($supplierId, $environment, $plan, $userId);
         } catch (\Exception $e) {
+            $this->rethrowOuterAbort($outer, $e);
             return $this->result($key, 'failed', $e->getMessage(), $plan);
+        }
+    }
+
+    /**
+     * Věta, která selže, se zapíše jako neúspěšná a dávka pokračuje. Odvolanou transakci
+     * (1020/1213) ale MariaDB vrátila celou, i s dřívějšími větami: běží-li import uvnitř
+     * cizí transakce (zkušební převod), zbytek dávky by se zapsal v autocommitu. Chybu
+     * pak dostane vlastník transakce. Transakci, kterou zápis vlastnil sám, už vrátil
+     * a po vyčerpání opakování může dávka pokračovat další větou.
+     */
+    private function rethrowOuterAbort(bool $outer, \Exception $e): void
+    {
+        if ($outer && TransactionFailure::aborted($e)) {
+            throw $e;
         }
     }
 

@@ -331,7 +331,7 @@ final class SystemDimensionHistoryTest extends TestCase
         $this->rules->check($this->supplier, 'depreciation', $this->lines(null), '2096-05-10');
     }
 
-    public function test500PolicyHasConstantTwoCurrentReadsRegardlessOfLineCount(): void
+    public function test500PolicyHasConstantCurrentReadsRegardlessOfLineCount(): void
     {
         $this->db->pdo()->prepare('UPDATE dimension_types SET system_key = NULL WHERE id = ?')->execute([$this->type]);
         $this->db->pdo()->prepare("UPDATE supplier_accounting_frameworks SET accounting_framework = 'cz_500' WHERE supplier_id = ?")->execute([$this->supplier]);
@@ -341,7 +341,7 @@ final class SystemDimensionHistoryTest extends TestCase
             $before = (int) $this->db->pdo()->query("SHOW SESSION STATUS LIKE 'Com_select'")->fetch(\PDO::FETCH_NUM)[1];
             $policy->assertJournal($this->header(), $lines);
             $after = (int) $this->db->pdo()->query("SHOW SESSION STATUS LIKE 'Com_select'")->fetch(\PDO::FETCH_NUM)[1];
-            self::assertSame(2, $after - $before);
+            self::assertSame(5, $after - $before, 'Conversion adds three constant current reads for the target period, supplier and applied conversion.');
             self::assertSame(0, $this->countEntries());
         }
     }

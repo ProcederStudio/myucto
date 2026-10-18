@@ -427,6 +427,7 @@ final class DeferredTax504Test extends TestCase
     {
         $service = Bootstrap::buildContainer()->get(DeferredTax504Service::class);
         $service->run($this->supplier, $this->period, $this->body(), $this->version());
+        $body = $this->body();
         $pdo = $this->db->pdo();
         $pdo->commit();
         $this->committed = true;
@@ -439,12 +440,12 @@ final class DeferredTax504Test extends TestCase
             return $container;
         });
         self::assertNotSame($pdo->query('SELECT CONNECTION_ID()')->fetchColumn(), $this->other->get(Connection::class)->pdo()->query('SELECT CONNECTION_ID()')->fetchColumn());
-        $otherBody = $this->body();
+        $otherBody = $body;
         $otherBody['titles'][0]['difference'] = '500.00';
         $this->other->get(DeferredTax504Service::class)->run($this->supplier, $this->period, $otherBody, $this->version());
         $version = (int) $this->other->get(AccountingPeriodRepository::class)->findById($this->supplier, $this->period)['row_version'];
         try {
-            $result = $service->run($this->supplier, $this->period, $this->body(), $version);
+            $result = $service->run($this->supplier, $this->period, $body, $version);
             self::assertFalse($isolation);
             self::assertCount(1, $result['entry_ids']);
             $stmt = $pdo->prepare("SELECT l.side,l.signed_amount FROM journal_entry_lines l JOIN chart_of_accounts a ON a.id=l.account_id WHERE l.supplier_id=? AND a.account_code='959.100' ORDER BY l.id FOR UPDATE");

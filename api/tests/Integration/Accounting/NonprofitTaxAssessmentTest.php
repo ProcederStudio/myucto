@@ -477,6 +477,7 @@ final class NonprofitTaxAssessmentTest extends TestCase
     {
         $this->post('602', '100.00');
         $closing = $this->post('602', '100.00', false, source: 'closing', sourceId: $this->period);
+        $old = $this->service->read($this->supplier, $this->period)['snapshot'];
         $this->pdo->commit();
         $this->committed = true;
         $this->snapshotIsolation = (int) $this->pdo->query('SELECT @@innodb_snapshot_isolation')->fetchColumn();
@@ -484,7 +485,7 @@ final class NonprofitTaxAssessmentTest extends TestCase
         $other = Connection::withoutSharedTestConnection(static fn () => Bootstrap::buildContainer());
         $this->otherDb = Connection::withoutSharedTestConnection(fn () => $other->get(Connection::class));
         $this->pdo->beginTransaction();
-        $old = $this->service->read($this->supplier, $this->period)['snapshot'];
+        $oldCount = (int) $this->pdo->query('SELECT COUNT(*) FROM journal_entries WHERE supplier_id=' . $this->supplier)->fetchColumn();
         $primary = $this->pdo;
         try {
             $this->pdo = $this->otherDb->pdo();
@@ -496,7 +497,7 @@ final class NonprofitTaxAssessmentTest extends TestCase
         } finally { $this->pdo = $primary; }
         $fresh = $other->get(NonprofitTaxAssessmentService::class)->read($this->supplier, $this->period)['snapshot'];
         self::assertNotSame($old['input_hash'], $fresh['input_hash']);
-        self::assertSame($old['input_hash'], $this->service->read($this->supplier, $this->period)['snapshot']['input_hash']);
+        self::assertSame($oldCount, (int) $this->pdo->query('SELECT COUNT(*) FROM journal_entries WHERE supplier_id=' . $this->supplier)->fetchColumn());
         $otherConfirmed = $other->get(NonprofitTaxAssessmentService::class)->confirm($this->supplier, $this->period,
             $this->assessment($fresh), $fresh['input_hash'], 'Souběžné posouzení', 'other-confirm', $this->actor);
         $this->refused('nonprofit_tax_assessment_changed', fn () => $this->service->confirm($this->supplier, $this->period,

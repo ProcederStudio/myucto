@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Repository\Payroll;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Service\Payroll\PayrollYearCloseGuard;
 use MyInvoice\Service\Payroll\Submission\PayrollAgendaGroupCatalog;
 use PDO;
@@ -125,6 +126,9 @@ final class PayrollSubmissionRepository
 
             return $result;
         } catch (\Throwable $exception) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $exception)) {
+                throw $exception;
+            }
             if ($ownsTransaction) {
                 $pdo->rollBack();
             } elseif ($savepoint !== null) {

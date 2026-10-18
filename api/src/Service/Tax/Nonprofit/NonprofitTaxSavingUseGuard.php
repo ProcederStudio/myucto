@@ -38,7 +38,7 @@ final class NonprofitTaxSavingUseGuard
     {$entries=(new DimensionPeriodGuard($this->db))->lockSources($supplier,[[$kind,$id]]);$this->assertEntriesMutable($supplier,array_map('intval',array_keys($entries)));}
     public function assertBankStatementMutable(int $supplier,int $id):void
     {
-        (new DimensionPeriodGuard($this->db))->lockPeriods($supplier);$q=$this->db->pdo()->prepare("SELECT e.id FROM journal_entries e JOIN bank_transactions b ON b.supplier_id=e.supplier_id AND e.source_type='bank' AND e.source_id=b.id WHERE e.supplier_id=? AND b.statement_id=? ORDER BY e.id FOR UPDATE");$q->execute([$supplier,$id]);$this->assertEntriesMutable($supplier,array_map('intval',$q->fetchAll(\PDO::FETCH_COLUMN)));
+        (new DimensionPeriodGuard($this->db))->lockPeriods($supplier);$ownership=\MyInvoice\Repository\BankStatementOwnershipResolver::sql('s',true);$q=$this->db->pdo()->prepare("SELECT e.id FROM journal_entries e JOIN bank_transactions b ON e.source_type='bank' AND e.source_id=b.id JOIN bank_statements s ON s.id=b.statement_id WHERE e.supplier_id=? AND s.id=? AND {$ownership} ORDER BY e.id FOR UPDATE");$q->execute([$supplier,$id,...\MyInvoice\Repository\BankStatementOwnershipResolver::params($supplier)]);$this->assertEntriesMutable($supplier,array_map('intval',$q->fetchAll(\PDO::FETCH_COLUMN)));
     }
     private function used():never
     {throw new PostingException('nonprofit_tax_saving_cost_in_use','Náklad prokazuje použití daňové úspory. Nejprve odvolejte příslušné použití.',409);}

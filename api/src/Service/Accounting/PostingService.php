@@ -262,6 +262,18 @@ final class PostingService
      */
     public function postDocument(int $supplierId, string $sourceType, ?int $sourceId, array $lines, array $meta): int
     {
+        return TransactionFailure::retrying(
+            $this->db->pdo(),
+            fn (): int => $this->postDocumentOnce($supplierId, $sourceType, $sourceId, $lines, $meta),
+        );
+    }
+
+    /**
+     * @param list<array{account_code:string, side:'debit'|'credit', amount:float|int|string, cost_center?:?string}> $lines
+     * @param array<string,mixed> $meta
+     */
+    private function postDocumentOnce(int $supplierId, string $sourceType, ?int $sourceId, array $lines, array $meta): int
+    {
         if ($lines === []) {
             throw new PostingException('empty_entry', 'Účetní zápis nemá žádné řádky.');
         }
@@ -547,6 +559,26 @@ final class PostingService
         array $addLines,
         array $meta = [],
     ): int {
+        return TransactionFailure::retrying(
+            $this->db->pdo(),
+            fn (): int => $this->replaceEntryLinesOnce($supplierId, $sourceType, $sourceId, $expectedRowVersion, $removeLineIds, $addLines, $meta),
+        );
+    }
+
+    /**
+     * @param list<int> $removeLineIds
+     * @param list<array{account_code:string, side:'debit'|'credit', amount:float|int|string, cost_center?:?string}> $addLines
+     * @param array{user_id?:?int, ip?:?string, user_agent?:?string} $meta
+     */
+    private function replaceEntryLinesOnce(
+        int $supplierId,
+        string $sourceType,
+        int $sourceId,
+        int $expectedRowVersion,
+        array $removeLineIds,
+        array $addLines,
+        array $meta,
+    ): int {
         $pdo = $this->db->pdo();
         $ownTx = !$pdo->inTransaction();
         if ($ownTx) {
@@ -653,6 +685,15 @@ final class PostingService
      * @throws PostingException zápis neexistuje / už stornován / období storna není otevřené
      */
     public function reverse(int $supplierId, int $entryId, array $meta = []): int
+    {
+        return TransactionFailure::retrying(
+            $this->db->pdo(),
+            fn (): int => $this->reverseOnce($supplierId, $entryId, $meta),
+        );
+    }
+
+    /** @param array{entry_date?:string, description?:?string, posted_by?:?int, user_id?:?int, ip?:?string, user_agent?:?string} $meta */
+    private function reverseOnce(int $supplierId, int $entryId, array $meta): int
     {
         $pdo = $this->db->pdo();
         $ownTx = !$pdo->inTransaction();

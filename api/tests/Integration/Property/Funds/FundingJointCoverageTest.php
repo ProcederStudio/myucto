@@ -20,8 +20,15 @@ final class FundingJointCoverageTest extends TestCase
     }
     private function assessment(int $cost,int $gift,?int $correction=null):array
     {
-        $tax=$this->container->get(NonprofitTaxAssessmentService::class);$period=$this->container->get(\MyInvoice\Repository\AccountingPeriodRepository::class)->findByYear($this->f['supplier'],2026)['id'];$snapshot=$tax->read($this->f['supplier'],$period)['snapshot'];self::assertSame([],$snapshot['findings']);$a=['profile'=>['kind'=>'non_vpp','evidence'=>'Synthetic owner association tax profile'],'activities'=>[],'decisions'=>[],'funding'=>[['source_id'=>'line:'.$gift,'cost_id'=>'line:'.$cost,'amount_cents'=>40000,'evidence'=>'Synthetic documented independent gift use']]];
-        foreach($snapshot['sources']as$row){$a['activities'][$row['activity_kind_id']]=['evidence'=>'Synthetic documented source activity'];$a['decisions'][$row['id']]=$row['kind']==='expense'?['title'=>'cost','deductible_cents'=>!empty($row['mandatory_non_deductible'])?0:$row['amount_cents'],'legal_basis'=>'zdp_24_1','evidence'=>'Synthetic native expense']:($row['line_id']===$gift?['title'=>'gift','facts'=>['claim_exemption'=>false,'income_treatment'=>'separate_taxable_income','income_attribution_evidence'=>'Synthetic separate taxable gift'],'evidence'=>'Synthetic actual gift']:['title'=>'other_taxable','evidence'=>'Synthetic explicit revenue assessment']);}
+        $tax=$this->container->get(NonprofitTaxAssessmentService::class);$period=$this->container->get(\MyInvoice\Repository\AccountingPeriodRepository::class)->findByYear($this->f['supplier'],2026)['id'];$snapshot=$tax->read($this->f['supplier'],$period)['snapshot'];self::assertSame([],$snapshot['findings']);$a=['profile'=>['kind'=>'svj','evidence'=>'Synthetic owner association tax profile'],'activities'=>[],'decisions'=>[],'funding'=>[['source_id'=>'line:'.$gift,'cost_id'=>'line:'.$cost,'amount_cents'=>40000,'evidence'=>'Synthetic documented independent gift use']]];
+        foreach($snapshot['sources']as$row){
+            $a['activities'][$row['activity_kind_id']]=['evidence'=>'Synthetic documented source activity'];$owner=$row['svj_owner_facts']??null;
+            if($owner!==null){
+                $a['decisions'][$row['id']]=$row['kind']==='expense'?['title'=>'cost','deductible_cents'=>0,'legal_basis'=>'zdp_25_1i','evidence'=>'Synthetic native management expense']:['title'=>match($owner['legal_basis']){'zdp_18_2f_2'=>'svj_management_payment','zdp_18_2f_3'=>'svj_service_payment'},'evidence'=>'Synthetic native owner contribution'];
+            }else{
+                $a['decisions'][$row['id']]=$row['kind']==='expense'?['title'=>'cost','deductible_cents'=>!empty($row['mandatory_non_deductible'])?0:$row['amount_cents'],'legal_basis'=>'zdp_24_1','evidence'=>'Synthetic native expense']:($row['line_id']===$gift?['title'=>'gift','facts'=>['claim_exemption'=>false,'income_treatment'=>'separate_taxable_income','income_attribution_evidence'=>'Synthetic separate taxable gift'],'evidence'=>'Synthetic actual gift']:['title'=>'other_taxable','evidence'=>'Synthetic explicit revenue assessment']);
+            }
+        }
         if($correction!==null)$a['funding_costs']=[['anchor'=>'line:'.$cost,'members'=>['line:'.$cost,'line:'.$correction],'evidence'=>'Synthetic signed cost correction']];return [$tax,$period,$snapshot,$a];
     }
     public function testS9CannotReuseCostAlreadyClaimedByJ6():void

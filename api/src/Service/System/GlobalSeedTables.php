@@ -82,6 +82,9 @@ final class GlobalSeedTables
         'submission_recipients'       => 'supplier_id IS NOT NULL',
         'role_permissions'            => 'role_id NOT IN (SELECT id FROM roles WHERE system_key IS NOT NULL)',
         'roles'                       => 'system_key IS NULL',
+        // Předdefinované role zůstávají i se změněnými granty. Značky brání jejich
+        // opětovnému rozšíření při přehrání migrací; ostatní metadata reset dál čistí.
+        'app_meta'                    => "k NOT IN ('rbac_price_list_defaults_initialized', 'rbac_operational_settings_initialized', 'rbac_property_funds_defaults_initialized')",
     ];
 
     /**
@@ -395,6 +398,7 @@ final class GlobalSeedTables
         'migration_batch_items', 'migration_parallel_checks',
         'money_s3_import_map', 'money_s3_imports',
         'monthly_report_sends',
+        'odometer_readings',
         'offset_agreement_items', 'offset_agreements',
         'oss_filing_evidence',
         'other_item_allocations', 'other_item_installments', 'other_item_posting_lines',
@@ -529,7 +533,7 @@ final class GlobalSeedTables
         'tax_loss_applications', 'tax_losses', 'tax_related_party_adjustments', 'tax_submission_artifacts',
         'tax_submission_attempts', 'tax_submission_status_events', 'tax_submissions',
         'tax_unpaid_liability_addbacks',
-        'trips',
+        'trip_templates', 'trips',
         'vat_clearing_runs', 'vat_deduction_adjustment_years', 'vat_deduction_adjustments',
         'vat_registration_corrections', 'vat_s43_corrections', 'vat_s46_corrections', 'vat_s74b_corrections',
         'warehouse_locations',

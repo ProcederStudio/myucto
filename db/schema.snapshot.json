@@ -1036,10 +1036,15 @@
         "2052_accounting_securities_debt.sql",
         "2053_nonprofit_funding_sources.sql",
         "2054_nonprofit_capital_sources.sql",
-        "2055_account_definition_history.sql",
-        "2056_accounting_framework_conversion.sql",
-        "2057_nonprofit_dppo_profiles_savings.sql",
-        "2058_nonprofit_tax_saving_cost_bindings.sql"
+        "2055_activity_log_deferred_seal.sql",
+        "2056_price_list_role_permissions.sql",
+        "2057_operational_settings_role_permissions.sql",
+        "2058_logbook_trip_templates_odometer_readings.sql",
+        "2059_account_definition_history.sql",
+        "2060_accounting_framework_conversion.sql",
+        "2061_nonprofit_dppo_profiles_savings.sql",
+        "2062_nonprofit_tax_saving_cost_bindings.sql",
+        "2063_property_funds_role_defaults.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -1977,6 +1982,7 @@
                 "ip": "varbinary(16) NULL DEFAULT NULL",
                 "payload": "longtext NULL DEFAULT NULL COLLATE utf8mb4_bin",
                 "prev_hash": "char(64) NULL DEFAULT NULL",
+                "seal_seq": "bigint(20) unsigned NULL DEFAULT NULL",
                 "supplier_id": "int(10) unsigned NULL DEFAULT NULL",
                 "user_agent": "varchar(255) NULL DEFAULT NULL",
                 "user_id": "bigint(20) unsigned NULL DEFAULT NULL"
@@ -1987,7 +1993,8 @@
                 "idx_al_action": "BTREE (action, created_at)",
                 "idx_al_entity": "BTREE (entity_type, entity_id, created_at)",
                 "idx_al_supplier": "BTREE (supplier_id, created_at)",
-                "idx_al_user": "BTREE (user_id, created_at)"
+                "idx_al_user": "BTREE (user_id, created_at)",
+                "uq_activity_seal_seq": "UNIQUE BTREE (seal_seq)"
             },
             "foreign_keys": [],
             "checks": {
@@ -1999,9 +2006,11 @@
             "engine": "InnoDB",
             "collation": "utf8mb4_unicode_ci",
             "columns": {
+                "deferred_from_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "id": "tinyint(3) unsigned NOT NULL DEFAULT 1",
                 "last_hash": "char(64) NULL DEFAULT NULL",
                 "last_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "last_seq": "bigint(20) unsigned NOT NULL DEFAULT 0",
                 "updated_at": "timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE CURRENT_TIMESTAMP()",
                 "utc_created_at_from_id": "bigint(20) unsigned NULL DEFAULT NULL"
             },
@@ -8279,6 +8288,35 @@
                 "CONSTRAINT_1": "`reduction_kc` > 0",
                 "basis_json": "json_valid(`basis_json`)"
             }
+        },
+        "odometer_readings": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "car_id": "int(10) unsigned NOT NULL",
+                "created_at": "timestamp NOT NULL DEFAULT current_timestamp()",
+                "created_by": "bigint(20) unsigned NULL DEFAULT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "note": "varchar(255) NULL DEFAULT NULL",
+                "odometer": "int(10) unsigned NOT NULL",
+                "reading_date": "date NOT NULL",
+                "reading_time": "time NULL DEFAULT NULL",
+                "source": "enum('manual') NOT NULL DEFAULT 'manual'",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_odometer_readings_user": "BTREE (created_by)",
+                "idx_odometer_readings_supplier": "BTREE (supplier_id, car_id, reading_date)",
+                "uq_odometer_readings_day": "UNIQUE BTREE (car_id, reading_date, source)"
+            },
+            "foreign_keys": {
+                "fk_odometer_readings_car": "(car_id) -> cars (id) ON UPDATE RESTRICT ON DELETE CASCADE",
+                "fk_odometer_readings_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE",
+                "fk_odometer_readings_user": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE SET NULL"
+            },
+            "checks": []
         },
         "offset_agreement_items": {
             "type": "BASE TABLE",
@@ -24980,6 +25018,42 @@
             },
             "checks": []
         },
+        "trip_templates": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "car_id": "int(10) unsigned NULL DEFAULT NULL",
+                "category_id": "smallint(5) unsigned NULL DEFAULT NULL",
+                "created_at": "timestamp NOT NULL DEFAULT current_timestamp()",
+                "created_by": "bigint(20) unsigned NULL DEFAULT NULL",
+                "destination": "varchar(255) NULL DEFAULT NULL",
+                "display_order": "smallint(5) unsigned NOT NULL DEFAULT 0",
+                "distance_km": "decimal(8,1) NOT NULL DEFAULT 0.0",
+                "id": "int(10) unsigned NOT NULL AUTO_INCREMENT",
+                "is_archived": "tinyint(1) NOT NULL DEFAULT 0",
+                "label": "varchar(120) NOT NULL",
+                "origin": "varchar(255) NULL DEFAULT NULL",
+                "purpose": "varchar(255) NULL DEFAULT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "time_end": "time NULL DEFAULT NULL",
+                "time_start": "time NULL DEFAULT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "fk_trip_templates_user": "BTREE (created_by)",
+                "idx_trip_templates_car": "BTREE (car_id)",
+                "idx_trip_templates_category": "BTREE (category_id)",
+                "idx_trip_templates_supplier": "BTREE (supplier_id, is_archived, display_order)"
+            },
+            "foreign_keys": {
+                "fk_trip_templates_car": "(car_id) -> cars (id) ON UPDATE RESTRICT ON DELETE CASCADE",
+                "fk_trip_templates_category": "(category_id) -> trip_categories (id) ON UPDATE RESTRICT ON DELETE SET NULL",
+                "fk_trip_templates_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE",
+                "fk_trip_templates_user": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE SET NULL"
+            },
+            "checks": []
+        },
         "trips": {
             "type": "BASE TABLE",
             "engine": "InnoDB",
@@ -26918,7 +26992,7 @@
         "trg_ncs_immutable_update": "BEFORE UPDATE ON nonprofit_capital_sources #f1b059c1fa4cf0b0d29ad9a4cdf2f80b3264f070",
         "trg_nfr_immutable_delete": "BEFORE DELETE ON nonprofit_funding_revisions #c7eaa2db7bdd66ae584c709efe931229740ea451",
         "trg_nfr_immutable_update": "BEFORE UPDATE ON nonprofit_funding_revisions #c7eaa2db7bdd66ae584c709efe931229740ea451",
-        "trg_nfr_insert": "BEFORE INSERT ON nonprofit_funding_revisions #a4cfb416ed7d2d9fab5b38cc9b1ffea62d28548d",
+        "trg_nfr_insert": "BEFORE INSERT ON nonprofit_funding_revisions #8ef193715bd5844a87d770d92e7eb9b550d9c2eb",
         "trg_nlp_immutable_delete": "BEFORE DELETE ON nonprofit_legal_profiles #14114d6f757030293ceadac8f5ac999e5e0188fa",
         "trg_nlp_immutable_update": "BEFORE UPDATE ON nonprofit_legal_profiles #14114d6f757030293ceadac8f5ac999e5e0188fa",
         "trg_nonprofit_tax_immutable_delete": "BEFORE DELETE ON nonprofit_tax_assessments #f38c1e13859ea670801b2496d566bdd872f4cb06",

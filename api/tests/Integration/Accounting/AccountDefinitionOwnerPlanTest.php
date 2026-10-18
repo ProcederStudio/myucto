@@ -34,7 +34,9 @@ final class AccountDefinitionOwnerPlanTest extends TestCase
     {
         $this->c=Bootstrap::buildContainer();$this->db=$this->c->get(Connection::class);
         self::assertStringEndsWith('_test',(string)$this->db->pdo()->query('SELECT DATABASE()')->fetchColumn());
-        $this->db->pdo()->beginTransaction();$this->f=$this->issuanceFixture($this->db);
+        $this->db->pdo()->beginTransaction();
+        $this->f=in_array($this->name(),['testFundingRegistrationUsesPolicyStartAfterFutureDeactivation','testFundingRejectsAccountInactiveAtPolicyStart','testFundingCannotConfirmAccountNotYetBornAtPolicyStart'],true)
+            ? $this->nonprofitFundingFixture() : $this->issuanceFixture($this->db);
         $s=$this->f['supplier'];$chart=new ChartOfAccountsRepository($this->db);
         foreach(['315.100'=>'315','379.900'=>'379','518.007'=>'518'] as $code=>$parent)if(!$chart->findByCode($s,$code,'2026-01-01')){$a=$chart->findByCode($s,$parent,'2026-01-01');$chart->insert($s,['account_code'=>$code,'name'=>'Synthetic owner '.$code,'account_type'=>$a['account_type'],'normal_side'=>$a['normal_side'],'parent_id'=>$a['id']],'2026-01-01',$this->f['actor']);}
         $this->ids=array_column($chart->listForTenant($s,true,'2026-01-01'),'id','account_code');$definitions=new AccountDefinitionRepository($this->db);if(!$definitions->hasHistory($s,$this->ids['518.007'],true))$definitions->initializeCreated($s,$this->ids['518.007'],'2026-01-01',$this->f['actor']);
@@ -42,6 +44,21 @@ final class AccountDefinitionOwnerPlanTest extends TestCase
         $this->catalog=$this->c->get(SystemDimensionCatalog::class)->ensureForFramework($s,'2026-01-01');
         $this->db->pdo()->prepare("INSERT INTO dimension_values(type_id,supplier_id,code,name)VALUES(?,?,'SYNTHETIC-OWNER','Synthetic accounting scope')")->execute([$this->catalog['activity_kind']['id'],$s]);$this->kind=(int)$this->db->pdo()->lastInsertId();
         $this->dimensions=[$this->catalog['activity']['id']=>$this->catalog['activity']['values']['main'],$this->catalog['activity_kind']['id']=>$this->kind,$this->catalog['tax_regime']['id']=>$this->catalog['tax_regime']['values']['exempt']];
+    }
+    private function nonprofitFundingFixture():array
+    {
+        $pdo=$this->db->pdo();$supplier=$this->createIsolatedSupplier($pdo,(int)$pdo->query('SELECT id FROM supplier ORDER BY id LIMIT 1')->fetchColumn());
+        $actor=(int)$pdo->query('SELECT id FROM users ORDER BY id LIMIT 1')->fetchColumn();
+        $pdo->prepare("UPDATE supplier SET accounting_mode='double_entry' WHERE id=?")->execute([$supplier]);
+        $pdo->prepare("INSERT INTO supplier_accounting_frameworks(supplier_id,effective_from,accounting_framework)VALUES(?,'1900-01-01','cz_504')")->execute([$supplier]);
+        $this->c->get(AccountingPeriodRepository::class)->create($supplier,2026,'2026-01-01','2026-12-31');
+        (new \MyInvoice\Service\Accounting\ChartOfAccountsSeeder($this->db))->seedForSupplier($supplier,'2026-01-01');
+        $country=(int)$pdo->query("SELECT id FROM countries WHERE iso2='CZ'")->fetchColumn();
+        $currency=(int)$pdo->query("SELECT id FROM currencies WHERE code='CZK' ORDER BY id LIMIT 1")->fetchColumn();
+        $pdo->prepare('INSERT INTO clients(supplier_id,company_name,street,city,zip,country_id,main_email,currency_default_id)VALUES(?,?,?,?,?,?,?,?)')
+            ->execute([$supplier,'Synthetic NNO provider','Synthetic','Synthetic','10000',$country,'nno-provider@example.test',$currency]);
+        $clients=[(int)$pdo->lastInsertId()];
+        return compact('supplier','actor','clients');
     }
     protected function tearDown():void{if(isset($this->db)&&$this->db->pdo()->inTransaction())$this->db->pdo()->rollBack();}
     private function deactivate(string $code):void{$d=new AccountDefinitionRepository($this->db);$d->change($this->f['supplier'],$this->ids[$code],'2026-07-01',['is_active'=>false],$d->stateHash($this->f['supplier'],$this->ids[$code]),$this->f['actor'],'Synthetic future deactivation');}

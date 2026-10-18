@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Eshop\Pricing;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\CatalogJobItemRepository;
 use MyInvoice\Repository\StockItemRepository;
 use MyInvoice\Service\Eshop\CatalogJobService;
@@ -190,11 +191,17 @@ final class PriceMatrixWorker
         } catch (PricingInputException $e) {
             $this->db->pdo()->exec('ROLLBACK TO SAVEPOINT price_matrix_item');
             $this->items->finish($supplierId, $job['id'], $entry['ordinal'], 'failed', $before, $desired, $e->errorCode);
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            // Odvolaná transakce (1020/1213) savepoint nemá a celá dávka je pryč.
+            if (TransactionFailure::rollbackIfAborted($this->db->pdo(), $e)) {
+                throw $e;
+            }
             $this->db->pdo()->exec('ROLLBACK TO SAVEPOINT price_matrix_item');
             $this->items->finish($supplierId, $job['id'], $entry['ordinal'], 'failed', $before, $desired, 'write_failed');
         } finally {
-            $this->db->pdo()->exec('RELEASE SAVEPOINT price_matrix_item');
+            if ($this->db->pdo()->inTransaction()) {
+                $this->db->pdo()->exec('RELEASE SAVEPOINT price_matrix_item');
+            }
         }
     }
 

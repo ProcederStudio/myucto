@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Stats;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use PDO;
 
 /**
@@ -17,7 +18,7 @@ use PDO;
  *    (status IN issued/sent/reminded/paid, type != cancellation). Reflektuje, kdy se na
  *    projektu naposled něco dělo, ne jen finální fakturace.
  *
- * Idempotentní — vždy mažeme všechny existující řádky pro danou entity a re-insertujeme.
+ * Idempotentní — řádky entity se přepíší upsertem a měny bez dokladu se smažou.
  */
 final class StatsRecomputer
 {
@@ -28,53 +29,7 @@ final class StatsRecomputer
      */
     public function recomputeProject(int $projectId): void
     {
-        if ($projectId <= 0) return;
-        $pdo = $this->db->pdo();
-
-        // Volající smí přepočet pustit uvnitř vlastní transakce (IssueInvoiceAction to
-        // výslovně podporuje), pak se jeho transakce nezakládá ani nepotvrzuje tady.
-        $owns = !$pdo->inTransaction();
-        if ($owns) $pdo->beginTransaction();
-        try {
-            $pdo->prepare('DELETE FROM project_revenue_cache WHERE project_id = ?')
-                ->execute([$projectId]);
-
-            $stmt = $pdo->prepare(
-                "SELECT i.currency_id,
-                        SUM(CASE WHEN i.invoice_type IN ('invoice', 'credit_note', 'tax_document')
-                                  THEN CASE WHEN s.is_vat_payer = 1 THEN i.total_without_vat ELSE i.total_with_vat END
-                                  ELSE 0 END) AS revenue,
-                        SUM(CASE WHEN i.invoice_type IN ('invoice', 'credit_note', 'tax_document')
-                                  THEN 1 ELSE 0 END) AS cnt,
-                        MAX(COALESCE(i.tax_date, i.issue_date)) AS last_date
-                   FROM invoices i
-                   JOIN supplier s ON s.id = i.supplier_id
-                  WHERE i.project_id = ?
-                    AND i.status IN ('issued', 'sent', 'reminded', 'paid')
-                    AND i.invoice_type != 'cancellation'
-               GROUP BY i.currency_id"
-            );
-            $stmt->execute([$projectId]);
-            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-            $insert = $pdo->prepare(
-                'INSERT INTO project_revenue_cache (project_id, currency_id, revenue, last_invoice_date, invoice_count)
-                 VALUES (?, ?, ?, ?, ?)'
-            );
-            foreach ($rows as $r) {
-                $insert->execute([
-                    $projectId,
-                    (int) $r['currency_id'],
-                    (float) $r['revenue'],
-                    $r['last_date'] ?: null,
-                    (int) $r['cnt'],
-                ]);
-            }
-            if ($owns) $pdo->commit();
-        } catch (\Throwable $e) {
-            if ($owns && $pdo->inTransaction()) $pdo->rollBack();
-            throw $e;
-        }
+        $this->recompute('project_revenue_cache', 'project_id', $projectId);
     }
 
     /**
@@ -82,14 +37,37 @@ final class StatsRecomputer
      */
     public function recomputeClient(int $clientId): void
     {
-        if ($clientId <= 0) return;
+        $this->recompute('client_revenue_cache', 'client_id', $clientId);
+    }
+
+    /**
+     * Zapisuje jen konkrétní klíče (entita, měna): upsert spočtených řádků a smazání
+     * měn, ve kterých entita už žádný doklad nemá. Plošný `DELETE … WHERE entita = ?`
+     * bral pod REPEATABLE READ zámky i na mezery mezi klíči, takže souběžně vystavené
+     * faktury končily deadlockem 1213. Vlastní transakce proto běží pod READ COMMITTED.
+     *
+     * Stávající klíče se čtou PŘED agregací: smazat smí jen měnu, kterou agregace
+     * z dokladů stejně čerstvých nebo novějších nenašla.
+     *
+     * @param 'project_revenue_cache'|'client_revenue_cache' $table
+     * @param 'project_id'|'client_id' $column
+     */
+    private function recompute(string $table, string $column, int $id): void
+    {
+        if ($id <= 0) return;
         $pdo = $this->db->pdo();
 
+        // Volající smí přepočet pustit uvnitř vlastní transakce (IssueInvoiceAction to
+        // výslovně podporuje), pak se jeho transakce nezakládá ani nepotvrzuje tady.
         $owns = !$pdo->inTransaction();
-        if ($owns) $pdo->beginTransaction();
+        if ($owns) {
+            $pdo->exec('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+            $pdo->beginTransaction();
+        }
         try {
-            $pdo->prepare('DELETE FROM client_revenue_cache WHERE client_id = ?')
-                ->execute([$clientId]);
+            $existing = $pdo->prepare("SELECT currency_id FROM {$table} WHERE {$column} = ?");
+            $existing->execute([$id]);
+            $stale = array_fill_keys(array_map('intval', $existing->fetchAll(PDO::FETCH_COLUMN)), true);
 
             $stmt = $pdo->prepare(
                 "SELECT i.currency_id,
@@ -101,26 +79,35 @@ final class StatsRecomputer
                         MAX(COALESCE(i.tax_date, i.issue_date)) AS last_date
                    FROM invoices i
                    JOIN supplier s ON s.id = i.supplier_id
-                  WHERE i.client_id = ?
+                  WHERE i.{$column} = ?
                     AND i.status IN ('issued', 'sent', 'reminded', 'paid')
                     AND i.invoice_type != 'cancellation'
                GROUP BY i.currency_id"
             );
-            $stmt->execute([$clientId]);
+            $stmt->execute([$id]);
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            $insert = $pdo->prepare(
-                'INSERT INTO client_revenue_cache (client_id, currency_id, revenue, last_invoice_date, invoice_count)
-                 VALUES (?, ?, ?, ?, ?)'
+            $upsert = $pdo->prepare(
+                "INSERT INTO {$table} ({$column}, currency_id, revenue, last_invoice_date, invoice_count)
+                 VALUES (?, ?, ?, ?, ?)
+                 ON DUPLICATE KEY UPDATE revenue = VALUES(revenue),
+                                         last_invoice_date = VALUES(last_invoice_date),
+                                         invoice_count = VALUES(invoice_count)"
             );
             foreach ($rows as $r) {
-                $insert->execute([
-                    $clientId,
+                unset($stale[(int) $r['currency_id']]);
+                $upsert->execute([
+                    $id,
                     (int) $r['currency_id'],
                     (float) $r['revenue'],
                     $r['last_date'] ?: null,
                     (int) $r['cnt'],
                 ]);
+            }
+
+            $delete = $pdo->prepare("DELETE FROM {$table} WHERE {$column} = ? AND currency_id = ?");
+            foreach (array_keys($stale) as $currencyId) {
+                $delete->execute([$id, $currencyId]);
             }
             if ($owns) $pdo->commit();
         } catch (\Throwable $e) {
@@ -148,6 +135,27 @@ final class StatsRecomputer
     }
 
     /**
+     * Přepočet po už potvrzeném zápisu dokladu (vystavení, úhrada). Cache je odvozená
+     * a dopočte ji i příští přepočet, takže její chyba nesmí změnit výsledek operace,
+     * která je už uložená: volající by vrátil chybu a klient API by doklad nebo úhradu
+     * poslal znovu. Odvolaný přepočet (1020/1213) se zopakuje, jiná chyba se zaloguje.
+     * Uvnitř cizí transakce se odvolání předá dál, protože je odvolaná i ta transakce.
+     */
+    public function recomputeAfterCommit(int $invoiceId): void
+    {
+        $pdo = $this->db->pdo();
+        $outer = $pdo->inTransaction();
+        try {
+            TransactionFailure::retrying($pdo, fn () => $this->recomputeForInvoiceId($invoiceId));
+        } catch (\Throwable $e) {
+            if ($outer && TransactionFailure::aborted($e)) {
+                throw $e;
+            }
+            error_log('Přepočet statistik k faktuře #' . $invoiceId . ' selhal: ' . $e->getMessage());
+        }
+    }
+
+    /**
      * Recompute pro klienta + projekt z předaných ID (potřebné po DELETE,
      * kdy už řádek faktury neexistuje).
      */
@@ -164,7 +172,7 @@ final class StatsRecomputer
      *
      * Volat MÍSTO opakovaného `recomputeForInvoiceId()`/`recomputeClient()` po každém
      * dokladu — dávka stovek dokladů nad týmiž klienty by jinak znamenala stovky
-     * zbytečných DELETE+INSERT nad stejnými řádky cache.
+     * zbytečných přepisů stejných řádků cache.
      *
      * @param iterable<int> $clientIds
      * @param iterable<int> $projectIds

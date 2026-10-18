@@ -19,7 +19,7 @@ final class IssuanceBatchLedgerProofTest extends TestCase
     private IssuanceRepository $owner;
     protected function setUp():void
     {
-        $container=Bootstrap::buildContainer();$this->db=$container->get(Connection::class);self::assertStringEndsWith('_test',$this->db->pdo()->query('SELECT DATABASE()')->fetchColumn());$this->db->pdo()->beginTransaction();$this->f=$this->issuanceFixture($this->db);$this->owner=$container->get(IssuanceRepository::class);$preview=(new IssuancePreviewService($this->db))->preview($this->f['supplier'],$this->f['issue_request']);$this->batch=$this->owner->issue($this->f['supplier'],['request'=>$this->f['issue_request'],'preview_hash'=>$preview['preview_hash'],'idempotency_key'=>'batch-ledger-proof'],$this->f['actor']);
+        $container=Bootstrap::buildContainer();$this->db=Connection::withoutSharedTestConnection(static fn()=>$container->get(Connection::class));self::assertStringEndsWith('_test',$this->db->pdo()->query('SELECT DATABASE()')->fetchColumn());$this->db->pdo()->beginTransaction();$this->f=$this->issuanceFixture($this->db);$this->owner=$container->get(IssuanceRepository::class);$preview=(new IssuancePreviewService($this->db))->preview($this->f['supplier'],$this->f['issue_request']);$this->batch=$this->owner->issue($this->f['supplier'],['request'=>$this->f['issue_request'],'preview_hash'=>$preview['preview_hash'],'idempotency_key'=>'batch-ledger-proof'],$this->f['actor']);
     }
     protected function tearDown():void
     {

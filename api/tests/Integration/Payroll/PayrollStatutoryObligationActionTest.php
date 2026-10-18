@@ -127,9 +127,9 @@ final class PayrollStatutoryObligationActionTest extends TestCase
               WHERE supplier_id = ?
                 AND action = 'payroll.stat_obligation.evidence_recorded'
                 AND entity_type = 'payroll_statutory_obligation_evidence'
-                AND entity_id = ?
-                AND hash IS NOT NULL"
+                AND entity_id = ?"
         );
+        // Hash dostane záznam až po commitu (test běží v transakci), pečetění pokrývá ActivityLogHashChainTest.
         $audit->execute([$this->supplierId, $firstJson['evidence']['id']]);
         self::assertSame(1, (int) $audit->fetchColumn());
 

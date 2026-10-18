@@ -29,8 +29,8 @@ final class NonprofitSvjTaxRulesTest extends TestCase
     private function serviceAssessment(int $allowed=0,string $title='svj_service_payment'):array
     {
         $snapshot=['period'=>['starts_on'=>'2026-01-01','ends_on'=>'2026-12-31'],'sources'=>[
-            ['id'=>'income','kind'=>'revenue','amount_cents'=>10000,'activity_kind_id'=>1,'svj_owner_facts'=>['kind'=>'revenue','case_id'=>1]],
-            ['id'=>'cost','kind'=>'expense','amount_cents'=>10000,'activity_kind_id'=>1,'svj_owner_facts'=>['kind'=>'expense','case_id'=>1]]]];
+            ['id'=>'income','kind'=>'revenue','amount_cents'=>10000,'activity_kind_id'=>1,'svj_owner_facts'=>['kind'=>'revenue','case_id'=>1,'legal_basis'=>'zdp_18_2f_3']],
+            ['id'=>'cost','kind'=>'expense','amount_cents'=>10000,'activity_kind_id'=>1,'svj_owner_facts'=>['kind'=>'expense','case_id'=>1,'legal_basis'=>'zdp_18_2f_3']]]];
         $assessment=['profile'=>['kind'=>'svj','evidence'=>'Synthetic statutes'],'activities'=>[1=>['evidence'=>'Synthetic service']],'decisions'=>[
             'income'=>['title'=>$title,'evidence'=>'Synthetic native service'],'cost'=>['title'=>'excluded_cost','evidence'=>'Synthetic native service cost','legal_basis'=>'zdp_25_1_i','deductible_cents'=>$allowed]],'funding'=>[]];
         return[$snapshot,$assessment];

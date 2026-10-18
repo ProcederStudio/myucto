@@ -8,6 +8,7 @@ use MyInvoice\Action\Accounting\Reports\DimensionFilterParam;
 use MyInvoice\Http\GuardsAccountingMode;
 use MyInvoice\Http\Json;
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Repository\AccountingSupplierSettingsRepository;
 use MyInvoice\Repository\ChartOfAccountsRepository;
@@ -488,34 +489,48 @@ final class JournalAction
         // Opt-in číselná řada ID pro ruční zápisy (Epic F4, R13) — výdej čísla drží
         // FOR UPDATE zámek, proto transakce obepíná i postDocument (mezera po rollbacku
         // nevzniká). Vnější transakci (testy) respektuje stejně jako PostingService.
+        // Řada ID je horký řádek firmy a roku: souběžný zápis ho pod REPEATABLE READ posune
+        // a zámek skončí chybou 1020. Vlastní transakce se proto při odvolání zopakuje celá,
+        // s původním $meta (bez čísla z odvolaného pokusu).
         $pdo = $this->db->pdo();
-        $ownTx = !$pdo->inTransaction();
-        if ($ownTx) {
-            $pdo->beginTransaction();
-        }
+        $foreign = $pdo->inTransaction();
         try {
-            if ($meta['document_no'] === null && !empty($this->settings->get($supplierId)['manual_doc_series'])) {
-                $period = $this->periods->findForDate($supplierId, $entryDate);
-                $fiscalYear = (int) ($period['fiscal_year'] ?? substr($entryDate, 0, 4));
-                $meta['document_no'] = $this->series->next($supplierId, 'manual', $fiscalYear);
-            }
-            $entryId = $this->posting->postDocument($supplierId, 'manual', null, $lines, $meta);
-            foreach ($links as $link) {
-                $this->documentLinks->add(
-                    $entryId,
-                    $supplierId,
-                    $link['doc_type'],
-                    $link['doc_id'],
-                    $link['note'],
-                    $meta['user_id'] ?? null
-                );
-            }
-            if ($ownTx) {
-                $pdo->commit();
-            }
+            $entryId = TransactionFailure::retrying($pdo, function () use ($pdo, $supplierId, $entryDate, $lines, $meta, $links): int {
+                $ownTx = !$pdo->inTransaction();
+                if ($ownTx) {
+                    $pdo->beginTransaction();
+                }
+                try {
+                    if ($meta['document_no'] === null && !empty($this->settings->get($supplierId)['manual_doc_series'])) {
+                        $period = $this->periods->findForDate($supplierId, $entryDate);
+                        $fiscalYear = (int) ($period['fiscal_year'] ?? substr($entryDate, 0, 4));
+                        $meta['document_no'] = $this->series->next($supplierId, 'manual', $fiscalYear);
+                    }
+                    $entryId = $this->posting->postDocument($supplierId, 'manual', null, $lines, $meta);
+                    foreach ($links as $link) {
+                        $this->documentLinks->add(
+                            $entryId,
+                            $supplierId,
+                            $link['doc_type'],
+                            $link['doc_id'],
+                            $link['note'],
+                            $meta['user_id'] ?? null
+                        );
+                    }
+                    if ($ownTx) {
+                        $pdo->commit();
+                    }
+                    return $entryId;
+                } catch (\Throwable $e) {
+                    if (!TransactionFailure::rollbackIfAborted($pdo, $e) && $ownTx && $pdo->inTransaction()) {
+                        $pdo->rollBack();
+                    }
+                    throw $e;
+                }
+            });
         } catch (\Throwable $e) {
-            if ($ownTx && $pdo->inTransaction()) {
-                $pdo->rollBack();
+            if ($foreign && TransactionFailure::aborted($e)) {
+                throw $e;
             }
             return $this->mapPostingError($response, $e);
         }
@@ -787,7 +802,11 @@ final class JournalAction
             );
             $ownTx ? $pdo->commit() : $pdo->exec('RELEASE SAVEPOINT repost_with_dimensions');
         } catch (\Throwable $e) {
-            if ($pdo->inTransaction()) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                if (!$ownTx) {
+                    throw $e;
+                }
+            } elseif ($pdo->inTransaction()) {
                 $ownTx ? $pdo->rollBack() : $pdo->exec('ROLLBACK TO SAVEPOINT repost_with_dimensions');
             }
             if ($e instanceof DimensionException) {

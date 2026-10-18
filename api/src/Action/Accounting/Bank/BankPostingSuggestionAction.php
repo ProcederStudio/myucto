@@ -8,6 +8,7 @@ use MyInvoice\Action\Accounting\AccountingActionSupport;
 use MyInvoice\Http\GuardsAccountingMode;
 use MyInvoice\Http\Json;
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\BankPostingRuleRepository;
 use MyInvoice\Repository\BankPostingSuggestionRepository;
 use MyInvoice\Service\Accounting\Bank\BankPostingService;
@@ -210,10 +211,14 @@ final class BankPostingSuggestionAction
                 $approved++;
                 $approvedIds[] = $id;
             } catch (\MyInvoice\Service\Accounting\PostingException $e) {
-                if ($itemTxStarted) $this->rollbackItem($pdo, $savepoint);
+                if ($itemTxStarted) $this->rollbackItem($pdo, $savepoint, $e);
                 $failed[] = ['id' => $id, 'code' => $e->errorCode];
             } catch (\Throwable $e) {
-                if ($itemTxStarted) $this->rollbackItem($pdo, $savepoint);
+                if ($itemTxStarted) {
+                    $this->rollbackItem($pdo, $savepoint, $e);
+                } elseif ($savepoint && TransactionFailure::aborted($e)) {
+                    throw $e;
+                }
                 $failed[] = ['id' => $id, 'code' => 'error'];
             }
         }
@@ -376,7 +381,11 @@ final class BankPostingSuggestionAction
                 $pdo->exec('RELEASE SAVEPOINT bulk_undo_batch');
             }
         } catch (\Throwable $e) {
-            if ($ownTx && $pdo->inTransaction()) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                if (!$ownTx) {
+                    throw $e;
+                }
+            } elseif ($ownTx && $pdo->inTransaction()) {
                 $pdo->rollBack();
             } elseif (!$ownTx && $pdo->inTransaction()) {
                 $pdo->exec('ROLLBACK TO SAVEPOINT bulk_undo_batch');
@@ -404,8 +413,16 @@ final class BankPostingSuggestionAction
         )));
     }
 
-    private function rollbackItem(\PDO $pdo, bool $savepoint): void
+    private function rollbackItem(\PDO $pdo, bool $savepoint, \Throwable $cause): void
     {
+        // Odvolaná transakce (1020/1213) savepoint nemá. Vlastní transakce položky je tím
+        // vrácená a dávka pokračuje; uvnitř cizí transakce ji musí dostat její vlastník.
+        if (TransactionFailure::rollbackIfAborted($pdo, $cause)) {
+            if ($savepoint) {
+                throw $cause;
+            }
+            return;
+        }
         if (!$pdo->inTransaction()) return;
         if ($savepoint) {
             $pdo->exec('ROLLBACK TO SAVEPOINT bulk_approve_item');

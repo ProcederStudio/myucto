@@ -254,6 +254,41 @@ final class MoneyS3ImportAccountingTest extends MoneyS3ImportTestCase
     }
 
     /**
+     * Agenda vedená v Money jako daňová evidence má místo účetního deníku peněžní deník.
+     * Kontrola před převodem to musí říct, ne jen „záloha neobsahuje účetní deník" - uživatel
+     * jinak hledá chybu v záloze. Platí i pro náhled z meta.json.
+     */
+    public function testTaxRecordsAgendaIsRejectedWithExplanation(): void
+    {
+        $supplierId = $this->supplier();
+        SyntheticAgenda::writeLzFiles($this->tmp . '/evidence.lz', SyntheticAgenda::filesWithTaxRecords());
+        $backup = Ms3Backup::extract($this->tmp . '/evidence.lz', $this->tmp . '/evidence');
+        $roundTrip = static fn (array $data): array => (array) json_decode((string) json_encode($data), true);
+
+        foreach ([
+            'záloha' => $this->importer->preflight($supplierId, $backup, AgendaInfo::fromBackup($backup), new ImportOptions()),
+            'meta.json' => $this->importer->preflight($supplierId, $backup, AgendaInfo::fromArray($roundTrip(AgendaInfo::fromBackup($backup)->toArray())),
+                new ImportOptions(), $roundTrip($this->importer->journalPreview($backup))),
+        ] as $source => $preflight) {
+            $byCode = array_column($preflight, null, 'code');
+            self::assertSame('error', $byCode['tax_records_not_supported']['level'] ?? null, $source . ': ' . (json_encode($preflight, JSON_UNESCAPED_UNICODE) ?: ''));
+            self::assertStringContainsString('daňovou evidenci', $byCode['tax_records_not_supported']['message']);
+            self::assertArrayNotHasKey('no_journal', $byCode, $source);
+            self::assertArrayNotHasKey('empty_year', $byCode, $source);
+            self::assertSame('warning', $byCode['tax_records_year']['level'] ?? null, $source);
+        }
+
+        // Agenda bez účetního i peněžního deníku dál hlásí obecnou chybu.
+        $files = SyntheticAgenda::files();
+        unset($files['ROK.001/UcDenik.DAT'], $files['ROK.002/UcDenik.DAT']);
+        SyntheticAgenda::writeLzFiles($this->tmp . '/empty.lz', $files);
+        $empty = Ms3Backup::extract($this->tmp . '/empty.lz', $this->tmp . '/empty');
+        $codes = array_column($this->importer->preflight($supplierId, $empty, AgendaInfo::fromBackup($empty), new ImportOptions()), 'code');
+        self::assertContains('no_journal', $codes);
+        self::assertNotContains('tax_records_not_supported', $codes);
+    }
+
+    /**
      * „Převést od roku": starší roky i jejich doklady se vynechají, první převedený rok
      * s počátečními stavy začíná 1. 1. a převod je bez chyb.
      */

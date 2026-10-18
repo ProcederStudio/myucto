@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Accounting;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Service\ActivityLogger;
 use PDO;
@@ -109,6 +110,9 @@ final class FiscalYearStartChanger
                 $pdo->exec('RELEASE SAVEPOINT fiscal_year_start');
             }
         } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             if ($own && $pdo->inTransaction()) {
                 $pdo->rollBack();
             } elseif (!$own && $pdo->inTransaction()) {

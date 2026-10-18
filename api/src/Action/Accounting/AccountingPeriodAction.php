@@ -7,6 +7,7 @@ namespace MyInvoice\Action\Accounting;
 use MyInvoice\Http\GuardsAccountingMode;
 use MyInvoice\Http\Json;
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Repository\ClosingRepository;
 use MyInvoice\Service\Accounting\Reports\EntityCategoryService;
@@ -281,6 +282,10 @@ final class AccountingPeriodAction
                 try {
                     $this->categories->ensureFrozen($supplierId, $id);
                 } catch (\Throwable $e) {
+                    // Odvolaná transakce (1020/1213) není chybějící kategorie.
+                    if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                        throw $e;
+                    }
                     if ($ownTx && $pdo->inTransaction()) {
                         $pdo->rollBack();
                     }

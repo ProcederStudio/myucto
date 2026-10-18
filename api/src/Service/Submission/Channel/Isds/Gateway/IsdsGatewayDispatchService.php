@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Submission\Channel\Isds\Gateway;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\Submission\IsdsGatewaySessionRepository;
 use MyInvoice\Repository\Submission\SubmissionOutboxAttemptRepository;
 use MyInvoice\Repository\Submission\SubmissionOutboxRepository;
@@ -677,6 +678,9 @@ final readonly class IsdsGatewayDispatchService
 
             return $result;
         } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             if ($ownsTransaction) {
                 $pdo->rollBack();
             } else {

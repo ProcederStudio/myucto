@@ -37,7 +37,7 @@ Klient potřebuje pro párování i jeho zrušení čtení všech dotčených do
 
 1. **Bankovní účet.** Číslo účtu z výpisu musí patřit některé z měn firmy. Účty zadáte v `Peníze → Bankovní účty`, záložka **Měny a účty** (viz [Bankovní účty](30_Bankovni_ucty.md)).
 2. **Zaúčtované doklady.** Aby se platba v podvojném účetnictví zaúčtovala přímo, musí mít faktura svůj zaúčtovaný předpis (viz [§ 29.13.13](#291313-automaticke-zauctovani-sparovanych-plateb-jen-podvojne-ucetnictvi)).
-3. **Oprávnění.** Párování vyžaduje zápis párování. Klient navíc potřebuje čtení banky, čtení dotčených dokladů a výše uvedená oprávnění měnit jejich úhrady. Smazání výpisu smí jen administrátor. Poznámku u pohybu přidává administrátor nebo účetní.
+3. **Oprávnění.** Párování vyžaduje zápis párování. Klient navíc potřebuje čtení banky, čtení dotčených dokladů a výše uvedená oprávnění měnit jejich úhrady. Smazání výpisu smí jen administrátor, avízový výpis každý se zápisem do banky. Poznámku u pohybu přidává administrátor nebo účetní.
 4. **Podvojné účetnictví** pro záložky **K zaúčtování** a pravidla účtování. Daňová evidence žádný deník nemá, tyto záložky ani tlačítka se v ní nezobrazují a banka funguje jen jako párování plateb.
 
 ## 29.3 Krok za krokem: nahrání výpisu
@@ -297,12 +297,12 @@ Filtry prohledávají všechny příchozí i odchozí platby a kombinují se; v�
 | Měna | CZK / EUR / … |
 | Příchozí | Suma kreditních transakcí |
 | Odchozí | Suma debetních transakcí |
-| Spárováno | `12/14`: 12 ze 14 transakcí spárováno na faktury |
+| Spárováno | `12/14`: 12 ze 14 transakcí vyřešeno (spárováno na faktury, bez dokladu nebo u avíza nahrazeno výpisem) |
 | Importováno | Datum + uživatel |
 
 Protistranu lze vyhledat psaním do filtru. Nabídka ukazuje nejvýše 50 shod; další najdete upřesněním hledání. Vybraná protistrana zůstává součástí odkazu i uloženého filtru.
 
-**Smazání výpisu** (jen administrátor) smaže výpis i s jeho transakcemi. Každý spárovaný pohyb se předtím uvolní stejně jako při **Zrušit spárování**: platba vzniklá párováním se z faktury odebere, faktura se vrátí do stavu podle zbývajících plateb a zaúčtovaný pohyb se v podvojném účetnictví stornuje. Opětovný import téhož výpisu pak pohyby spáruje a zaúčtuje znovu, bez dvojí úhrady. Smazání se odmítne, když by po něm v evidenci něco nesedělo:
+**Smazání výpisu** (jen administrátor; avízový výpis smí smazat každý se zápisem do banky, viz [§ 30.11.16](30_Bankovni_ucty.md#301116-nesparovana-aviza)) smaže výpis i s jeho transakcemi. Každý spárovaný pohyb se předtím uvolní stejně jako při **Zrušit spárování**: platba vzniklá párováním se z faktury odebere, faktura se vrátí do stavu podle zbývajících plateb a zaúčtovaný pohyb se v podvojném účetnictví stornuje. Opětovný import téhož výpisu pak pohyby spáruje a zaúčtuje znovu, bez dvojí úhrady. Smazání se odmítne, když by po něm v evidenci něco nesedělo:
 
 - pohyb je zaúčtovaný v uzavřeném nebo zamčeném období, takže jeho zápis nejde stornovat,
 - k platbě z pohybu je vystavený daňový doklad k přijaté platbě (nejdřív ho smažte nebo stornujte),

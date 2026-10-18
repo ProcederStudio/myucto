@@ -202,6 +202,45 @@ final class PurchaseMatchActivityLogTest extends TestCase
         self::assertSame(1, $logCount, 'Auto-spárování platby musí zapsat aktivitu purchase_invoice.payment_matched.');
     }
 
+    public function testAbortedActivityLogRollsBackMatchInsteadOfContinuingInAutocommit(): void
+    {
+        $this->seed(2500.00);
+        $c = Bootstrap::buildContainer();
+        $logger = new class($this->db) extends ActivityLogger {
+            public function log(
+                string $action,
+                ?int $userId = null,
+                ?string $entityType = null,
+                ?int $entityId = null,
+                ?array $payload = null,
+                ?string $ip = null,
+                ?string $userAgent = null,
+                ?int $supplierId = null,
+            ): void {
+                $e = new \PDOException('SQLSTATE[40001]: Deadlock found when trying to get lock');
+                $e->errorInfo = ['40001', 1213, 'Deadlock found when trying to get lock'];
+                throw $e;
+            }
+        };
+        $matcher = new StatementMatcher($this->db, $c->get(FinalFromProformaCreator::class), null, null, null, $logger);
+
+        try {
+            $matcher->match($this->transactionId);
+            self::fail('Odvolaná transakce se nesmí spolknout v auditním zápisu párování.');
+        } catch (\PDOException $e) {
+            self::assertSame(1213, $e->errorInfo[1] ?? null);
+        }
+
+        $pdo = $this->db->pdo();
+        self::assertFalse($pdo->inTransaction());
+        self::assertSame(0, (int) $pdo->query(
+            "SELECT COUNT(*) FROM payment_matches WHERE bank_transaction_id = {$this->transactionId}"
+        )->fetchColumn());
+        self::assertSame('received', $pdo->query(
+            "SELECT status FROM purchase_invoices WHERE id = {$this->purchaseId}"
+        )->fetchColumn());
+    }
+
     public function testUnmatchRemovesPurchaseAllocationAndRestoresInvoice(): void
     {
         $this->seed(2500.00);

@@ -58,7 +58,7 @@ final class OpeningReadProofBatchTest extends TestCase
     }
     protected function tearDown():void{if(isset($this->db)&&$this->db->pdo()->inTransaction())$this->db->pdo()->rollBack();}
     private function ids():array{return array_column($this->f['batch']['items'],'id');}
-    private function id(string $kind):int{foreach($this->f['batch']['items'] as $item)if($item['kind']===$kind)return $item['id'];throw new \RuntimeException('Missing fixture item');}
+    private function openingItemId(string $kind):int{foreach($this->f['batch']['items'] as $item)if($item['kind']===$kind)return $item['id'];throw new \RuntimeException('Missing fixture item');}
     private function execute(string $sql,array $args=[]):void{$q=$this->db->pdo()->prepare($sql);$q->execute($args);}
     public static function reads():array{return [[false],[true]];}
     #[DataProvider('reads')]
@@ -80,7 +80,7 @@ final class OpeningReadProofBatchTest extends TestCase
     #[DataProvider('mutations')]
     public function testEveryNativeFactAndPhysicalProofRemainsRequired(string $mutation):void
     {
-        $s=$this->f['supplier'];$debt=$this->id('debt');$advance=$this->id('advance');$service=$this->id('service_carry');$credit=$this->id('credit');
+        $s=$this->f['supplier'];$debt=$this->openingItemId('debt');$advance=$this->openingItemId('advance');$service=$this->openingItemId('service_carry');$credit=$this->openingItemId('credit');
         match($mutation){
             'component'=>$this->execute('DELETE FROM property_opening_components WHERE supplier_id=? AND item_id=?',[$s,$debt]),
             'party'=>$this->execute('DELETE FROM property_opening_parties WHERE supplier_id=? AND item_id=?',[$s,$debt]),
@@ -110,7 +110,7 @@ final class OpeningReadProofBatchTest extends TestCase
     }
     public function testCurrentProofSeesCommittedChangeBeyondStaleRepeatableRead():void
     {
-        $s=$this->f['supplier'];$id=$this->id('debt');$a=$this->db->pdo();$q=$a->prepare('SELECT snapshot_hash FROM property_opening_items WHERE supplier_id=? AND id=?');$q->execute([$s,$id]);$old=$q->fetchColumn();$b=$this->other();
+        $s=$this->f['supplier'];$id=$this->openingItemId('debt');$a=$this->db->pdo();$q=$a->prepare('SELECT snapshot_hash FROM property_opening_items WHERE supplier_id=? AND id=?');$q->execute([$s,$id]);$old=$q->fetchColumn();$b=$this->other();
         try{$u=$b->pdo()->prepare('UPDATE property_opening_items SET snapshot_hash=? WHERE supplier_id=? AND id=?');$u->execute([str_repeat('0',64),$s,$id]);$q->execute([$s,$id]);self::assertSame($old,$q->fetchColumn());(new PaymentLocks($this->db))->acquire($s);try{(new OpeningReadProof($this->db))->items($s,[$id],true);self::fail('Current proof cannot hide committed corruption');}catch(OpeningException $e){self::assertSame('property_opening_history_corrupt',$e->errorCode);}}
         finally{$a->rollBack();$u->execute([$old,$s,$id]);$b->close();}
     }

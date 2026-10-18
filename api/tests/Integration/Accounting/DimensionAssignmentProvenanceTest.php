@@ -135,7 +135,7 @@ final class DimensionAssignmentProvenanceTest extends TestCase
         $line = $this->plainLines()[0] + ['dimensions' => [$this->typeId => $this->valueA]];
         $before = $count();
         $policy->assertJournal($this->header(true), [$line]);
-        self::assertSame(5, $count() - $before, 'Explicit IDs add current framework, supplier and selected property-type reads.');
+        self::assertSame(8, $count() - $before, 'Explicit IDs and conversion require current context and target-period reads.');
         $this->enable504ActivityKind();
         $before = $count();
         $policy->assertJournal($this->header(true), [$line]);
@@ -143,7 +143,7 @@ final class DimensionAssignmentProvenanceTest extends TestCase
         $before = $count();
         $policy->assertJournal($this->header(true), array_fill(0, 1000, $line));
         self::assertSame($single, $count() - $before, 'Repeated pairs must be deduplicated in one current value query.');
-        self::assertLessThanOrEqual(9, $single);
+        self::assertLessThanOrEqual(12, $single, 'Conversion adds three constant reads to the nine-read system-value budget.');
     }
 
     public function testCurrentRetainedPolicyDoesNotAuthorizeAnotherRowValueOrChangedAmount(): void

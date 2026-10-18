@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Accounting\Setup;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\AccountingSetupRepository;
 use MyInvoice\Repository\ImportJobRepository;
 use MyInvoice\Service\Accounting\Expense\ExpenseClassificationService;
@@ -297,7 +298,7 @@ final class AccountingHistoryReclassificationService
             self::commitDocumentTransaction($pdo, $ownTransaction);
             return $entryId;
         } catch (\Throwable $e) {
-            self::rollBackDocumentTransaction($pdo, $ownTransaction);
+            self::rollBackDocumentTransaction($pdo, $ownTransaction, $e);
             throw $e;
         }
     }
@@ -383,7 +384,7 @@ final class AccountingHistoryReclassificationService
                     self::commitDocumentTransaction($pdo, $ownTransaction);
                     $done++;
                 } catch (\Throwable $e) {
-                    self::rollBackDocumentTransaction($pdo, $ownTransaction);
+                    self::rollBackDocumentTransaction($pdo, $ownTransaction, $e);
                     throw $e;
                 }
             } catch (\Throwable $e) {
@@ -686,9 +687,10 @@ final class AccountingHistoryReclassificationService
         $pdo->exec('RELEASE SAVEPOINT accounting_setup_reclassification');
     }
 
-    private static function rollBackDocumentTransaction(PDO $pdo, bool $ownTransaction): void
+    private static function rollBackDocumentTransaction(PDO $pdo, bool $ownTransaction, \Throwable $cause): void
     {
-        if (!$pdo->inTransaction()) {
+        // Odvolaná transakce (1020/1213) savepoint nemá; ROLLBACK TO by původní chybu přemaskoval.
+        if (TransactionFailure::rollbackIfAborted($pdo, $cause) || !$pdo->inTransaction()) {
             return;
         }
         if ($ownTransaction) {

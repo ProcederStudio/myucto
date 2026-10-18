@@ -99,8 +99,30 @@ final class AssetReserveCorrectionPropertyCarrierTest extends TestCase
             foreach ($propertyFixture['property'] as $row) self::assertSame((int) $row['dimension_value_id'], $tuple[(int) $row['type_id']]);
         }
         self::assertSame(12000000, array_sum($fixture['repo']->reserveRemaining($this->supplier, $fixture['created']['entry_id'], '2098-12-31')));
-        self::assertSame('closed', $this->container->get(AccountingPeriodRepository::class)->findById($this->supplier, $this->period)['status']);
+        self::assertSame('approved', $this->container->get(AccountingPeriodRepository::class)->findById($this->supplier, $this->period)['status']);
         self::assertSame($corrected, $service->correctAssetReserveSource($this->supplier, $next, $request));
+    }
+
+    #[\PHPUnit\Framework\Attributes\TestWith(['created'])]
+    #[\PHPUnit\Framework\Attributes\TestWith(['used'])]
+    public function testServiceReconciliationRejectsChangedNativeReserveBeforeSkippingIt(string $record): void
+    {
+        $this->propertyFixture();
+        $fixture = $this->closedFixture(prepareCorrection: false);
+        $reconciliation = new \MyInvoice\Service\Property\Services\Reconciliation\ServiceReconciliation($this->db);
+        $before = $reconciliation->at($this->supplier, '2097-12-31');
+        self::assertSame('complete', $before['coverage']);
+        self::assertTrue($before['matches']);
+        $entry = (int) $fixture[$record]['entry_id'];
+        $line = $this->db->pdo()->prepare("SELECT l.id FROM journal_entry_lines l JOIN chart_of_accounts a ON a.id=l.account_id AND a.supplier_id=l.supplier_id WHERE l.supplier_id=? AND l.entry_id=? AND a.account_type='expense' ORDER BY l.id");
+        $line->execute([$this->supplier, $entry]);
+        $lineId = (int) $line->fetchColumn();
+        self::assertGreaterThan(0, $lineId);
+        $change = $this->db->pdo()->prepare('UPDATE journal_entry_lines SET amount=amount+0.01 WHERE supplier_id=? AND id=?');
+        $change->execute([$this->supplier, $lineId]);
+        self::assertSame(1, $change->rowCount());
+        $this->expectException(\MyInvoice\Service\Accounting\Closing\ClosingException::class);
+        $reconciliation->at($this->supplier, '2097-12-31');
     }
 
     public function testPendingCorrectionPropertyConsumerRejectsChangedAmountAndTenant(): void
@@ -208,7 +230,7 @@ final class AssetReserveCorrectionPropertyCarrierTest extends TestCase
         return ['property' => $property, 'actor' => $actor];
     }
 
-    private function closedFixture(bool $anotherReserve = false, bool $unusedCard = false, bool $reversedUse = false, bool $jointSource = false): array
+    private function closedFixture(bool $anotherReserve = false, bool $unusedCard = false, bool $reversedUse = false, bool $jointSource = false, bool $prepareCorrection = true): array
     {
         [$asset] = $this->asset(false);
         $oldDimensions = $this->dimensions;
@@ -257,9 +279,14 @@ final class AssetReserveCorrectionPropertyCarrierTest extends TestCase
         $usageReversal = null;
         if ($reversedUse) $usageReversal = $this->container->get(\MyInvoice\Service\Accounting\PostingService::class)->reverse(
             $this->supplier, $used['entry_id'], ['entry_date' => '2097-12-31', 'allow_closing_period' => true]);
+        if (!$prepareCorrection) return compact('created', 'used');
+        $incomeTypes = $this->db->pdo()->prepare("SELECT id FROM dimension_types WHERE supplier_id=? AND system_key IN ('activity','activity_kind','tax_regime') ORDER BY id");
+        $incomeTypes->execute([$this->supplier]);
+        $incomeDimensions = array_intersect_key($oldDimensions, array_fill_keys(array_map('intval', $incomeTypes->fetchAll(\PDO::FETCH_COLUMN)), true));
+        self::assertCount(3, $incomeDimensions);
         $this->container->get(\MyInvoice\Service\Accounting\PostingService::class)->postDocument($this->supplier, 'manual', null, [
-            ['account_code' => '221', 'side' => 'debit', 'amount' => $anotherReserve ? '270000.00' : ($reversedUse ? '150000.00' : ($jointSource ? '120000.01' : '120000.00')), 'dimensions' => $oldDimensions, 'dimension_origins' => array_map(static fn (): array => ['origin' => 'explicit', 'ref' => 'synthetic-test'], $oldDimensions)],
-            ['account_code' => '602', 'side' => 'credit', 'amount' => $anotherReserve ? '270000.00' : ($reversedUse ? '150000.00' : ($jointSource ? '120000.01' : '120000.00')), 'dimensions' => $oldDimensions, 'dimension_origins' => array_map(static fn (): array => ['origin' => 'explicit', 'ref' => 'synthetic-test'], $oldDimensions)],
+            ['account_code' => '221', 'side' => 'debit', 'amount' => $anotherReserve ? '270000.00' : ($reversedUse ? '150000.00' : ($jointSource ? '120000.01' : '120000.00')), 'dimensions' => $incomeDimensions, 'dimension_origins' => array_map(static fn (): array => ['origin' => 'explicit', 'ref' => 'synthetic-test'], $incomeDimensions)],
+            ['account_code' => '602', 'side' => 'credit', 'amount' => $anotherReserve ? '270000.00' : ($reversedUse ? '150000.00' : ($jointSource ? '120000.01' : '120000.00')), 'dimensions' => $incomeDimensions, 'dimension_origins' => array_map(static fn (): array => ['origin' => 'explicit', 'ref' => 'synthetic-test'], $incomeDimensions)],
         ], ['entry_date' => '2097-12-31', 'posted' => true, 'allow_closing_period' => true]);
         $inventory = [];
         foreach ($service->inventoryPreview($this->supplier, $this->period)['rows'] as $row) {
@@ -272,13 +299,33 @@ final class AssetReserveCorrectionPropertyCarrierTest extends TestCase
         }
         $fx = $service->fxPreview($this->supplier, $this->period);
         $service->runFxRevaluation($this->supplier, $this->period, [], $this->sourceBody([])['row_version'], [], ['snapshot_hash' => $fx['snapshot_hash']]);
-        $this->db->pdo()->prepare('UPDATE dimension_values SET is_active=0 WHERE id=?')->execute([$this->kind]);
         \MyInvoice\Tests\Support\NonprofitTaxAssessmentFixture::confirm($this->container, $this->supplier, $this->period, (int) $this->db->pdo()->query('SELECT id FROM users ORDER BY id LIMIT 1')->fetchColumn());
         $closed = $service->closeBooks($this->supplier, $this->period, $this->sourceBody([])['row_version']);
         self::assertGreaterThan(0, $closed['entry_id']);
+        $actor = (int) $this->db->pdo()->query('SELECT id FROM users ORDER BY id LIMIT 1')->fetchColumn();
+        $approval = (new \Slim\Psr7\Factory\ServerRequestFactory())->createServerRequest('POST', '/api/accounting/periods/' . $this->period . '/status')
+            ->withAttribute(\MyInvoice\Middleware\SupplierScopeMiddleware::ATTR_CURRENT_ID, $this->supplier)
+            ->withAttribute(\MyInvoice\Middleware\AuthMiddleware::ATTR_METHOD, 'session')
+            ->withAttribute(\MyInvoice\Middleware\AuthMiddleware::ATTR_USER, ['id' => $actor, 'role' => 'admin'])
+            ->withParsedBody(['status' => 'approved', 'confirm' => true, 'row_version' => $this->sourceBody([])['row_version'],
+                'approval_body' => 'Synthetic authorised body', 'approval_decision_ref' => 'SYN-ASSET-CARRIER-APPROVAL']);
+        $approved = $this->container->get(\MyInvoice\Action\Accounting\AccountingPeriodAction::class)->status(
+            $approval, new \Slim\Psr7\Response(), ['id' => (string) $this->period]);
+        self::assertSame(200, $approved->getStatusCode(), (string) $approved->getBody());
         $service->openNext($this->supplier, $this->period, $this->sourceBody([])['row_version']);
         $nextRow = $this->container->get(AccountingPeriodRepository::class)->findForDate($this->supplier, '2098-01-01');
         $next = (int) $nextRow['id'];
+        $decision = $service->profitDistributionPreview($this->supplier, $this->period, '2098-01-01');
+        self::assertNotEmpty($decision['cells']);
+        self::assertSame(0, array_sum(array_column($decision['cells'], 'available_cents')));
+        $service->runProfitDistribution($this->supplier, $this->period, [
+            'decision_date' => '2098-01-01', 'decision_reference' => 'SYN-ASSET-CARRIER-RESULT',
+            'decision_authority' => 'Synthetic authorised body', 'target_row_version' => $decision['target_period']['row_version'],
+            'snapshot_hash' => $decision['snapshot_hash'], 'allocations' => array_map(static fn (array $cell): array => [
+                'cell_key' => $cell['key'], 'role' => 'result.retained_profit', 'amount' => abs($cell['available'])], $decision['cells']),
+        ], ['user_id' => $actor]);
+        $this->db->pdo()->prepare('UPDATE dimension_values SET is_active=0 WHERE id=?')->execute([$this->kind]);
+        $nextRow = $this->container->get(AccountingPeriodRepository::class)->findById($this->supplier, $next);
         $service->start($this->supplier, $next, $nextRow['row_version']);
         $repo = new \MyInvoice\Service\Accounting\Closing\LegalClosing504Repository($this->db,
             $this->container->get(\MyInvoice\Repository\JournalEntryRepository::class));

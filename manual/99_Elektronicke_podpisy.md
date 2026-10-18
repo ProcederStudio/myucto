@@ -34,7 +34,7 @@ Kde funkci najdete, závisí na roli:
 
 - **admin**: správu podpisů najdete jako záložku **Certifikáty a elektronické podpisy** uvnitř stránky `Systém → E-maily a certifikáty` (vedle záložek **Odeslané e-maily**, **E-mail šablony**, **Odesílací profily** a **SMTP log analýza**).
 - **accountant** (účetní): pokud admin zapnul přepínač **Povolit uživatelům správu vlastních podpisových profilů**, objeví se účetnímu v postranním menu samostatná položka `Systém → Certifikáty a elektronické podpisy`. Bez zapnutého přepínače účetní tuto položku v menu nevidí a přímý přístup na adresu ho přesměruje na úvodní stránku.
-- **Klientský správce**: uživatel s klientskou rolí, který má pro danou firmu **Nastavení firmy – Zápis**, spravuje firemní podpisové profily v nastavení firmy na klientském portálu. Tato cesta je určená pro provozní správu podpisu dané firmy; osobní profily ani certifikáty v osobním trezoru zde nejsou dostupné.
+- **Klientský správce**: uživatel s klientskou rolí, který má pro danou firmu **Firemní podpisové profily a PDF podpisy – Zápis**, spravuje firemní podpisové profily v nastavení firmy na klientském portálu. Tato cesta je určená pro provozní správu podpisu dané firmy; osobní profily ani certifikáty v osobním trezoru zde nejsou dostupné.
 
 <!-- cols: 22 78 -->
 | Role | Co může |
@@ -46,7 +46,7 @@ Kde funkci najdete, závisí na roli:
 
 Admin povolí uživatelské profily přepínačem **Povolit uživatelům správu vlastních podpisových profilů** (na záložce
 Certifikáty a elektronické podpisy v `Systém → E-maily a certifikáty`). Tím zpřístupní účetním jejich vlastní profily.
-Klientský správce toto povolení nepotřebuje; rozhoduje jeho klientská role a přístup **Nastavení firmy – Zápis** pro
+Klientský správce toto povolení nepotřebuje; rozhoduje jeho klientská role a přístup **Firemní podpisové profily a PDF podpisy – Zápis** pro
 aktuální firmu.
 
 Základní pojmy:
@@ -133,7 +133,7 @@ Nový soubor PFX pak nahrajte do trezoru stejným postupem.
 
 ### 99.4.1 Firemní podpisový profil v klientském portálu
 
-Tento postup je pro klientského správce s přístupem **Nastavení firmy – Zápis**. Otevřete `Firma → Nastavení firmy`
+Tento postup je pro klientského správce s přístupem **Firemní podpisové profily a PDF podpisy – Zápis**. Otevřete `Firma → Nastavení firmy`
 a záložku **Podpisové profily**.
 
 1. Zvolte **Vytvořit profil**, vyplňte **Název** a **Kód**, vyberte použití **PDF** a/nebo **S/MIME e-mail** a profil uložte.

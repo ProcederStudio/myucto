@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Payroll\Import\Jmhz;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Service\Payroll\Import\Registration\RegistrationImportLookup;
 use MyInvoice\Service\Payroll\Migration\PayrollMigrationReferenceTotals;
 use MyInvoice\Service\Payroll\Migration\PayrollMigrationReferenceTotalsWriter;
@@ -180,11 +181,19 @@ final class JmhzTakeoverPlanner
                 ),
             ];
             foreach ($steps as $step => $work) {
+                $outer = $this->db->pdo()->inTransaction();
                 try {
-                    foreach ($this->inSavepoint($work) as $key => $count) {
+                    $stepCounts = TransactionFailure::retrying($this->db->pdo(), fn (): array => $this->inSavepoint($work));
+                    foreach ($stepCounts as $key => $count) {
                         $counts[$key] = ($counts[$key] ?? 0) + $count;
                     }
                 } catch (\InvalidArgumentException|\DomainException|\RuntimeException $e) {
+                    // PDOException je RuntimeException. Odvolaná transakce (1020/1213) nevrátila
+                    // jen tenhle krok, ale vše, co volající zapsal před ním; další kroky by
+                    // běžely v autocommitu.
+                    if (TransactionFailure::aborted($e) || ($outer && !$this->db->pdo()->inTransaction())) {
+                        throw $e;
+                    }
                     $skipped[] = ['period' => null, 'label' => $label, 'reason' => "{$step}: {$e->getMessage()}"];
                 }
             }
@@ -389,11 +398,19 @@ final class JmhzTakeoverPlanner
 
             return $result;
         } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e) || !$pdo->inTransaction()) {
+                throw $e;
+            }
             if ($own) {
                 $pdo->rollBack();
-            } else {
+                throw $e;
+            }
+            try {
                 $pdo->exec('ROLLBACK TO SAVEPOINT ' . self::SAVEPOINT);
                 $pdo->exec('RELEASE SAVEPOINT ' . self::SAVEPOINT);
+            } catch (\PDOException) {
+                // Savepoint zmizel s transakcí, kterou MariaDB odvolala pod přebalenou chybou.
+                $pdo->rollBack();
             }
             throw $e;
         }

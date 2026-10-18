@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Supplier;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Service\License\LicenseCapacityGate;
 
 /**
@@ -188,6 +189,9 @@ final class SupplierCreator
                 }
                 return $newSupplierId;
             } catch (\Throwable $e) {
+                if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                    throw $e;
+                }
                 if ($ownsTransaction) {
                     if ($pdo->inTransaction()) $pdo->rollBack();
                 } else {

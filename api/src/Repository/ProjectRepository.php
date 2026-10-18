@@ -49,7 +49,7 @@ final class ProjectRepository
         return array_map(fn (array $r) => $this->cast($r), $rows);
     }
 
-    public function listAll(array $filters = [], int $page = 1, int $perPage = 50, string $sort = 'name'): array
+    public function listAll(array $filters = [], int $page = 1, int $perPage = 50, string $sort = 'name', bool $includeInvoices = true): array
     {
         $where = ['p.archived_at IS NULL'];
         $params = [];
@@ -73,6 +73,8 @@ final class ProjectRepository
         $stmt->execute($params);
         $total = (int) $stmt->fetchColumn();
 
+        if (!$includeInvoices && in_array($sort, ['revenue', 'last_activity'], true)) $sort = 'name';
+
         // Whitelist řazení (defense proti SQLi přes user input)
         $orderBy = match ($sort) {
             'revenue'       => 'revenue DESC, p.name',
@@ -83,16 +85,15 @@ final class ProjectRepository
 
         $offset = max(0, ($page - 1) * $perPage);
         // Cache `project_revenue_cache` per měnu projektu (přepočítáváno přes StatsRecomputer)
+        $invoiceColumns = $includeInvoices ? ', COALESCE(prc.revenue, 0) AS revenue, prc.last_invoice_date, COALESCE(prc.invoice_count, 0) AS invoice_count' : '';
+        $invoiceJoin = $includeInvoices ? 'LEFT JOIN project_revenue_cache prc ON prc.project_id = p.id AND prc.currency_id = p.currency_id' : '';
         $sql = "SELECT p.*, c.company_name AS client_company_name,
                        c.main_email AS client_main_email,
-                       cur.code AS currency,
-                       COALESCE(prc.revenue, 0) AS revenue,
-                       prc.last_invoice_date,
-                       COALESCE(prc.invoice_count, 0) AS invoice_count
+                       cur.code AS currency $invoiceColumns
                   FROM projects p
                   JOIN clients   c   ON c.id   = p.client_id
                   JOIN currencies cur ON cur.id = p.currency_id
-             LEFT JOIN project_revenue_cache prc ON prc.project_id = p.id AND prc.currency_id = p.currency_id
+                  $invoiceJoin
                  WHERE $whereSql
                  ORDER BY $orderBy
                  LIMIT ? OFFSET ?";
@@ -109,7 +110,8 @@ final class ProjectRepository
         $emailsByProject = $this->billingEmailsForMany(array_map(static fn (array $r) => (int) $r['id'], $rows));
 
         return [
-            'data' => array_map(function (array $r) use ($emailsByProject) {
+            'data' => array_map(function (array $r) use ($emailsByProject, $includeInvoices) {
+                if (!$includeInvoices) unset($r['revenue'], $r['last_invoice_date'], $r['invoice_count']);
                 $r = $this->cast($r);
                 $r['billing_emails'] = $emailsByProject[(int) $r['id']] ?? [];
                 return $r;

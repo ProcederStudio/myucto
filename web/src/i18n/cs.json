@@ -4500,7 +4500,8 @@
       "outside_saldo": "Bez dokladu",
       "payroll": "Spárováno se mzdami",
       "transfer": "Převod mezi účty",
-      "unmatched": "Nespárováno"
+      "unmatched": "Nespárováno",
+      "superseded": "Nahrazeno výpisem"
     },
     "match_v2": {
       "accept": "Spárovat",
@@ -4859,7 +4860,10 @@
       "processing_failed_batch": "Výpisy uložené bez dokončeného párování pohybů: {count}. Otevřete je a použijte „Přepárovat výpis“.",
       "transactions_skipped_as_duplicate": "Ve výpisu bylo {parsed} pohybů, založeno {inserted}. {skipped} pohybů se shoduje s už evidovanými (překrývající se výpis) a nebylo založeno - zkontrolujte prosím, že jde skutečně o duplicity.",
       "transactions_skipped_as_duplicate_batch": "Z nahraných výpisů bylo přeskočeno {count} pohybů jako duplicity s už evidovanými - zkontrolujte prosím, že jde skutečně o duplicity."
-    }
+    },
+    "statement_delete_has_matches": "Avízo-výpis má spárované položky. Smazat ho lze, až je převezme oficiální výpis nebo je rozpárujete.",
+    "notice_superseded_hint": "Tentýž pohyb je v oficiálním bankovním výpisu a úhradu nese on. Avízo je vyřešené a automaticky se znovu nepáruje.",
+    "notice_superseded_chip": "Nahrazeno výpisem: {count}"
   },
   "bank_accounts": {
     "account_added": "Bankovní účet přidán.",
@@ -6312,7 +6316,8 @@
     "year": "Rok",
     "yearly": "Roční",
     "yes": "Ano",
-    "yes_short": "✓"
+    "yes_short": "✓",
+    "tableHorizontalScroll": "Vodorovné posouvání tabulky"
   },
   "company_email_templates": {
     "company": "Firma: {company}",
@@ -12852,7 +12857,47 @@
     "trip_new": "Nový záznam",
     "trips_deleted": "Smazáno jízd: {n}",
     "trips_selected": "Označeno jízd: {n}",
-    "trips_summary": "{count} jízd · celkem {km} km"
+    "trips_summary": "{count} jízd · celkem {km} km",
+    "tab_templates": "Pravidelné cesty",
+    "templates_hint": "Cesty, které jezdíte opakovaně. Z pravidelné cesty se jedním klikem vyplní nová jízda i doplnění km podle stavu tachometru.",
+    "no_templates": "Zatím nemáte žádnou pravidelnou cestu.",
+    "tpl_new": "Nová pravidelná cesta",
+    "tpl_edit": "Upravit pravidelnou cestu",
+    "tpl_label": "Název",
+    "tpl_time_start": "Obvyklý čas odjezdu",
+    "tpl_time_end": "Obvyklý čas příjezdu",
+    "tpl_any_car": "Libovolné auto",
+    "tpl_required": "Vyplňte název a ujeté km.",
+    "tpl_confirm_delete": "Smazat pravidelnou cestu „{label}“? Zapsané jízdy zůstanou beze změny.",
+    "trip_from_template": "Z pravidelné cesty",
+    "trip_from_template_placeholder": "Vyberte pravidelnou cestu…",
+    "readings_button": "Stav tachometru",
+    "readings_title": "Stavy tachometru",
+    "readings_hint": "Zapište stav tachometru z palubní desky. Kilometry nad koncem zapsaných jízd se ukážou jako km k doplnění.",
+    "readings_empty": "U tohoto auta zatím není zapsaný žádný stav tachometru.",
+    "reading_odometer": "Stav tachometru (km)",
+    "reading_save": "Zapsat stav",
+    "reading_required": "Vyberte auto a vyplňte stav tachometru.",
+    "reading_regression": "Stav tachometru nenavazuje na ostatní stavy auta (dřívější nejvýše {before} km, pozdější nejméně {after} km).",
+    "reading_confirm_delete": "Smazat stav tachometru {km} km ze dne {date}?",
+    "gaps_title": "Km k doplnění",
+    "gaps_hint": "Stav tachometru je vyšší než konec zapsaných jízd. Doplňte jízdy z pravidelných cest, zbytek můžete zapsat jako soukromou jízdu.",
+    "gap_fill": "Doplnit",
+    "gap_fill_title": "Doplnit km",
+    "gap_add_template": "Přidat pravidelnou cestu",
+    "gap_add_custom": "Jiná jízda",
+    "gap_no_templates": "Pravidelné cesty založíte na záložce Pravidelné cesty.",
+    "gap_sum": "Jízdy {rows} km z {gap} km",
+    "gap_remainder": "Zbývá {km} km",
+    "gap_remainder_private": "Zbytek zapsat jako soukromou jízdu",
+    "gap_no_private_category": "Chybí kategorie cest označená jako soukromá jízda, založte ji na záložce Kategorie cest.",
+    "gap_partial_hint": "Zbývající km zůstanou k doplnění.",
+    "gap_save": "Uložit jízdy",
+    "gap_exceeds": "Jízdy mají víc km, než kolik je k doplnění.",
+    "gap_row_km_required": "U každé jízdy vyplňte ujeté km.",
+    "gap_nothing": "Přidejte aspoň jednu jízdu.",
+    "gap_private_purpose": "Soukromá jízda",
+    "gap_filled": "Jízdy byly doplněny."
   },
   "logbook_fuel": {
     "actions": "Akce tankování",
@@ -17142,7 +17187,19 @@
         "roles": {
           "beneficiary": "Oprávněný",
           "court": "Soud",
-          "executor": "Exekutor"
+          "executor": "Exekutor",
+          "operational_permissions": {
+            "email_profiles": "Odesílací profily firmy",
+            "email_templates": "E-mailové šablony firmy",
+            "branding": "Branding firmy",
+            "payment_qr": "Platební QR firmy",
+            "signing_profiles": "Firemní podpisové profily a PDF podpisy"
+          },
+          "stock_permissions": {
+            "stock": "Prohlížet sklad",
+            "stock_items_write": "Spravovat skladové karty",
+            "stock_fulfillment_write": "Provádět expedici"
+          }
         },
         "save_failed": "Právní údaj se nepodařilo uložit.",
         "source_document": "Zdrojový dokument",
@@ -27413,7 +27470,8 @@
       "settings": "Nastavení firmy",
       "stock": "Sklad",
       "tax_evidence": "Daňová evidence",
-      "utilities": "Nástroje"
+      "utilities": "Nástroje",
+      "price_list": "Ceník"
     },
     "items": []
   },
@@ -28473,7 +28531,8 @@
     "unit": "Měrná jednotka",
     "unit_price": "Jednotková cena",
     "usage": "Použití",
-    "vat_rate": "Sazba DPH"
+    "vat_rate": "Sazba DPH",
+    "detail": "Detail ceníkové položky"
   },
   "product_posting": {
     "by_document": "podle dokladu",
@@ -32047,7 +32106,19 @@
       "staff": "Interní",
       "superadmin": "Superadmin"
     },
-    "usage": "Uživatelé: {users}, role u firem: {overrides}"
+    "usage": "Uživatelé: {users}, role u firem: {overrides}",
+    "operational_permissions": {
+      "email_profiles": "Odesílací profily firmy",
+      "email_templates": "E-mailové šablony firmy",
+      "branding": "Branding firmy",
+      "payment_qr": "Platební QR firmy",
+      "signing_profiles": "Firemní podpisové profily a PDF podpisy"
+    },
+    "stock_permissions": {
+      "stock": "Prohlížet sklad",
+      "stock_items_write": "Spravovat skladové karty",
+      "stock_fulfillment_write": "Provádět expedici"
+    }
   },
   "sales_orders": {
     "add_line": "Přidat řádek",
@@ -37308,26 +37379,26 @@
     },
     "costAvailable": "Dosud nekrytá část skutečného nákladu: {amount}."
   },
-    "nonprofitTaxNative": {
-      "svjProfile": "Společenství vlastníků jednotek",
-      "confirmedProfile": "Potvrzený právní profil: {profile}, revize {revision}.",
-      "underlyingIdentity": "Doložené právní postavení pro ruční posouzení",
-      "profileConflict": "Zvolené postavení nesouhlasí s potvrzeným právním profilem období.",
-      "profileRequired": "Vyberte doložené právní postavení pro ruční posouzení.",
-      "ownerEvidence": "Titul je doložen nativním vyúčtováním nebo použitím příspěvků vlastníků. Posuďte stejně i související náklady.",
-      "qualifiedPurpose": "Doložený účel nákladu pro použití daňové úspory",
-      "titles": {
-        "svj_service_payment": "Platby vlastníků na služby SVJ (§ 18 odst. 2 písm. f)",
-        "svj_management_payment": "Příspěvky vlastníků na správu domu a pozemku (§ 18 odst. 2 písm. f)"
-      },
-      "purposes": {
-        "education": "Vzdělávání",
-        "science": "Věda",
-        "research": "Výzkum",
-        "development": "Vývoj",
-        "art": "Umělecká činnost"
-      }
+  "nonprofitTaxNative": {
+    "svjProfile": "Společenství vlastníků jednotek",
+    "confirmedProfile": "Potvrzený právní profil: {profile}, revize {revision}.",
+    "underlyingIdentity": "Doložené právní postavení pro ruční posouzení",
+    "profileConflict": "Zvolené postavení nesouhlasí s potvrzeným právním profilem období.",
+    "profileRequired": "Vyberte doložené právní postavení pro ruční posouzení.",
+    "ownerEvidence": "Titul je doložen nativním vyúčtováním nebo použitím příspěvků vlastníků. Posuďte stejně i související náklady.",
+    "qualifiedPurpose": "Doložený účel nákladu pro použití daňové úspory",
+    "titles": {
+      "svj_service_payment": "Platby vlastníků na služby SVJ (§ 18 odst. 2 písm. f)",
+      "svj_management_payment": "Příspěvky vlastníků na správu domu a pozemku (§ 18 odst. 2 písm. f)"
     },
+    "purposes": {
+      "education": "Vzdělávání",
+      "science": "Věda",
+      "research": "Výzkum",
+      "development": "Vývoj",
+      "art": "Umělecká činnost"
+    }
+  },
   "nonprofitDppo": {
     "title": "DPPO neziskové organizace",
     "intro": "Právní profil období, ověřené podklady přiznání a použití daňové úspory.",

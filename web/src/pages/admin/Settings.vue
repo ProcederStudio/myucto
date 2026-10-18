@@ -91,7 +91,9 @@ const TAXPAYER_CODES = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'] as con
 const ACCOUNTING_DECREES = ['500', '501', '502', '503', '504', '325', '410'] as const
 const ENTITY_STATUSES = ['normal', 'liquidation', 'insolvency', 'transformation'] as const
 type SettingsTab = 'company' | 'documents' | 'numbering' | 'accounting' | 'email-templates'
-const tabs: SettingsTab[] = ['company', 'documents', 'numbering', 'accounting', 'email-templates']
+const tabs = computed<SettingsTab[]>(() => auth.canWrite('settings.email_templates')
+  ? ['company', 'documents', 'numbering', 'accounting', 'email-templates']
+  : ['company', 'documents', 'numbering', 'accounting'])
 // Na záložku se dá odkázat zvenčí (?tab=accounting) — odjinud v aplikaci sem
 // vedou rady typu „zapněte účetnictví v Nastavení", a ty musí skončit u toho
 // přepínače, ne na první záložce.
@@ -108,14 +110,14 @@ function tabFromQuery(q: unknown): SettingsTab {
   if (v === 'advanced') {
     return 'accounting'
   }
-  return tabs.includes(v as SettingsTab) ? v as SettingsTab : 'company'
+  return tabs.value.includes(v as SettingsTab) ? v as SettingsTab : 'company'
 }
 const tab = ref<SettingsTab>(tabFromQuery(router.currentRoute.value.query.tab))
 
-watch(() => router.currentRoute.value.query.tab, q => { tab.value = tabFromQuery(q) })
+watch(() => [router.currentRoute.value.query.tab, tabs.value] as const, ([q]) => { tab.value = tabFromQuery(q) })
 
 function switchTab(v: SettingsTab) {
-  if (tab.value === v) return
+  if (!tabs.value.includes(v) || tab.value === v) return
   tab.value = v
   void router.replace({ query: { ...router.currentRoute.value.query, tab: v } })
 }
@@ -620,8 +622,10 @@ async function saveSupplier() {
       // Datum přijetí u importovaných přijatých dokladů (migrace 1848) — chybějící
       // hodnota (nedoběhlá migrace) se posílá jako výchozí, ne prázdná.
       purchase_import_received_at: supplier.value.purchase_import_received_at ?? 'issue_date',
-      invoice_qr_include_due_date: supplier.value.invoice_qr_include_due_date,
-      purchase_invoice_qr_include_due_date: supplier.value.purchase_invoice_qr_include_due_date,
+      ...(auth.canWrite('settings.payment_qr') ? {
+        invoice_qr_include_due_date: supplier.value.invoice_qr_include_due_date,
+        purchase_invoice_qr_include_due_date: supplier.value.purchase_invoice_qr_include_due_date,
+      } : {}),
       proforma_payment_document: supplier.value.proforma_payment_document,
       pohoda_account_code: supplier.value.pohoda_account_code,
       pohoda_centre_code: supplier.value.pohoda_centre_code,
@@ -1085,7 +1089,7 @@ async function confirmTaxRepDelete() {
     <div v-if="loading" class="text-center text-neutral-500 py-12 text-sm">{{ t('common.loading') }}</div>
 
     <div v-else-if="supplier" class="space-y-6">
-      <CompanyEmailTemplates v-if="tab === 'email-templates'" />
+      <CompanyEmailTemplates v-if="tab === 'email-templates' && auth.canWrite('settings.email_templates')" />
       <!-- Supplier -->
       <section v-if="tab === 'company' || tab === 'documents'" class="bg-surface border border-neutral-200 rounded-lg p-5 shadow-sm">
         <h2 class="text-sm font-semibold uppercase tracking-wide text-neutral-500 mb-4">
@@ -1243,7 +1247,7 @@ async function confirmTaxRepDelete() {
               <p class="md:col-span-2 text-xs text-neutral-500">{{ t('invoice_default_note.language_hint') }}</p>
             </div>
           </div>
-          <div class="md:col-span-2 border-t border-neutral-200 pt-4 space-y-3">
+          <div v-if="auth.canWrite('settings.payment_qr')" class="md:col-span-2 border-t border-neutral-200 pt-4 space-y-3">
             <div>
               <h3 class="text-sm font-semibold text-neutral-700">{{ t('settings.payment_qr_due_date_title') }}</h3>
               <p class="text-xs text-neutral-500 mt-1">{{ t('settings.payment_qr_due_date_hint') }}</p>

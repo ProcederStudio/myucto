@@ -7,10 +7,12 @@ import { clientsApi, type Client } from '@/api/clients'
 import TableSkeleton from '@/components/ui/TableSkeleton.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import SearchableSelect from '@/components/ui/SearchableSelect.vue'
+import { useAuthStore } from '@/stores/auth'
 import { formatMoney, formatDate } from '@/composables/useFormat'
 
 const { t } = useI18n()
 
+const auth = useAuthStore()
 const router = useRouter()
 const route = useRoute()
 const items = ref<Project[]>([])
@@ -62,6 +64,7 @@ async function load(reset = true) {
 }
 
 async function loadClients() {
+  if (!auth.canRead('clients')) return
   const r = await clientsApi.list({ archived: false, per_page: 200, role: 'customers' })
   clients.value = r.data
 }
@@ -87,7 +90,7 @@ watch([status, clientId, sort], () => load(true))
       <h1 class="text-2xl font-semibold">{{ t('project.title') }}</h1>
     </div>
 
-    <div class="mb-4 rounded-md border border-primary-500/30 bg-primary-50 px-4 py-2.5 text-sm text-primary-700 flex items-start gap-2">
+    <div v-if="auth.canRead('clients') && auth.canWrite('projects.create')" class="mb-4 rounded-md border border-primary-500/30 bg-primary-50 px-4 py-2.5 text-sm text-primary-700 flex items-start gap-2">
       <svg class="w-5 h-5 flex-shrink-0 mt-0.5 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/></svg>
       <i18n-t keypath="project.info_create_in_client" tag="div">
         <template #default><RouterLink to="/clients" class="underline font-medium hover:text-primary-800">{{ t('nav.clients') }}</RouterLink></template>
@@ -103,7 +106,7 @@ watch([status, clientId, sort], () => load(true))
           <option value="paused">{{ t('project.status_paused') }}</option>
           <option value="closed">{{ t('project.status_closed') }}</option>
         </select>
-        <div class="min-w-48 flex-1 max-w-xs">
+        <div v-if="auth.canRead('clients')" class="min-w-48 flex-1 max-w-xs">
           <SearchableSelect
             :model-value="clientId === '' ? null : clientId"
             @update:model-value="(v) => clientId = v === null ? '' : v"
@@ -115,8 +118,8 @@ watch([status, clientId, sort], () => load(true))
           :title="t('common.sort_by')">
           <option value="name">{{ t('common.sort_name') }}</option>
           <option value="client">{{ t('common.sort_client') }}</option>
-          <option value="revenue">{{ t('common.sort_revenue') }}</option>
-          <option value="last_activity">{{ t('common.sort_last_activity') }}</option>
+          <option v-if="auth.canRead('invoices')" value="revenue">{{ t('common.sort_revenue') }}</option>
+          <option v-if="auth.canRead('invoices')" value="last_activity">{{ t('common.sort_last_activity') }}</option>
         </select>
       </div>
 
@@ -135,8 +138,8 @@ watch([status, clientId, sort], () => load(true))
             <th class="text-left px-4 py-2.5 font-medium">{{ t('project.name') }}</th>
             <th class="text-left px-4 py-2.5 font-medium">{{ t('nav.clients') }}</th>
             <th class="text-left px-4 py-2.5 font-medium">{{ t('project.status') }}</th>
-            <th class="text-right px-4 py-2.5 font-medium">{{ t('common.revenue') }}</th>
-            <th class="text-left px-4 py-2.5 font-medium">{{ t('common.last_activity') }}</th>
+            <th v-if="auth.canRead('invoices')" class="text-right px-4 py-2.5 font-medium">{{ t('common.revenue') }}</th>
+            <th v-if="auth.canRead('invoices')" class="text-left px-4 py-2.5 font-medium">{{ t('common.last_activity') }}</th>
             <th class="text-right px-4 py-2.5 font-medium">{{ t('project.rate') }}</th>
           </tr>
         </thead>
@@ -162,12 +165,12 @@ watch([status, clientId, sort], () => load(true))
                 {{ p.status === 'active' ? t('common.active') : p.status === 'paused' ? t('project.status_paused') : t('project.status_closed') }}
               </span>
             </td>
-            <td class="px-4 py-3 text-right font-mono">
+            <td v-if="auth.canRead('invoices')" class="px-4 py-3 text-right font-mono">
               <span v-if="p.revenue && p.revenue > 0">{{ formatMoney(p.revenue, p.currency) }}</span>
               <span v-else class="text-neutral-300">—</span>
             </td>
-            <td class="px-4 py-3 text-neutral-600 text-xs">
-              <span v-if="p.last_invoice_date">{{ formatDate(p.last_invoice_date) }}</span>
+            <td v-if="auth.canRead('invoices')" class="px-4 py-3 text-neutral-600 text-xs">
+              <span v-if="auth.canRead('invoices') && p.last_invoice_date">{{ formatDate(p.last_invoice_date) }}</span>
               <span v-else class="text-neutral-300">—</span>
             </td>
             <td class="px-4 py-3 text-right font-mono whitespace-nowrap">{{ p.hourly_rate.toLocaleString('cs', { maximumFractionDigits: 6 }) }} {{ p.currency }}/h</td>
@@ -185,7 +188,7 @@ watch([status, clientId, sort], () => load(true))
         >
           <div class="flex items-baseline justify-between gap-2">
             <RouterLink class="row-link font-medium text-neutral-900 truncate" :to="`/projects/${p.id}`" @click.stop @auxclick.stop>{{ p.name }}</RouterLink>
-            <div class="font-mono text-sm whitespace-nowrap">
+            <div v-if="auth.canRead('invoices')" class="font-mono text-sm whitespace-nowrap">
               <span v-if="p.revenue && p.revenue > 0">{{ formatMoney(p.revenue, p.currency) }}</span>
               <span v-else class="text-neutral-300">—</span>
             </div>
@@ -201,7 +204,7 @@ watch([status, clientId, sort], () => load(true))
               {{ p.status === 'active' ? t('common.active') : p.status === 'paused' ? t('project.status_paused') : t('project.status_closed') }}
             </span>
             <div class="flex items-center gap-2 text-neutral-600">
-              <span v-if="p.last_invoice_date">{{ formatDate(p.last_invoice_date) }}</span>
+              <span v-if="auth.canRead('invoices') && p.last_invoice_date">{{ formatDate(p.last_invoice_date) }}</span>
               <span class="font-mono whitespace-nowrap">{{ p.hourly_rate.toLocaleString('cs', { maximumFractionDigits: 6 }) }} {{ p.currency }}/h</span>
             </div>
           </div>

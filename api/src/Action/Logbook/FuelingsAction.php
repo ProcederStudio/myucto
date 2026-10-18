@@ -10,6 +10,7 @@ use MyInvoice\Http\SupplierGuard;
 use MyInvoice\Http\TenantReferenceGuard;
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Repository\CarRepository;
+use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Repository\FuelingRepository;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\IpMatcher;
@@ -66,6 +67,7 @@ final class FuelingsAction
         [$rows, $total] = $this->repo->listPaged($supplierId, $filters, $p['per_page'], $p['offset']);
         $rows = $this->odometer->annotate($supplierId, $rows);
         $rows = $this->warnings->annotate($supplierId, $rows);
+        $rows = array_map(static fn (array $row): array => FuelingSourceAccess::redact($request, $row), $rows);
         $carId = !empty($filters['car_id']) ? (int) $filters['car_id'] : null;
         $years = $this->repo->distinctYears($supplierId, $carId);
         return Json::ok($response, array_merge(
@@ -80,7 +82,7 @@ final class FuelingsAction
         $f = $this->repo->find((int) ($args['id'] ?? 0), $supplierId);
         if ($f === null) return Json::error($response, 'not_found', 'Tankování nenalezeno.', 404);
         $rows = $this->warnings->annotate($supplierId, $this->odometer->annotate($supplierId, [$f]));
-        return Json::ok($response, $rows[0]);
+        return Json::ok($response, FuelingSourceAccess::redact($request, $rows[0]));
     }
 
     public function warnings(Request $request, Response $response): Response
@@ -90,6 +92,12 @@ final class FuelingsAction
         $carId = !empty($q['car_id']) ? (int) $q['car_id'] : null;
         $year = !empty($q['year']) ? (int) $q['year'] : null;
         $result = $this->warnings->forTenant($supplierId, $carId, $year);
+
+        if (!RequestAuthorization::allows($request, 'purchase_invoices') || !RequestAuthorization::allows($request, 'cash')) {
+            foreach ($result['cars'] as &$car) $car['vat_mismatches'] = [];
+            unset($car);
+            $result['totals']['vat_mismatches'] = 0;
+        }
 
         // Kolik chybějících stavů jde doplnit odhadem, a u vozu, kde nejde, proč.
         $byCar = [];
@@ -145,6 +153,10 @@ final class FuelingsAction
     {
         $supplierId = SupplierGuard::currentId($request);
         $q = $request->getQueryParams();
+        $permission = FuelingSourceAccess::candidatePermission((string) ($q['type'] ?? ''));
+        if ($permission !== null && !RequestAuthorization::allows($request, $permission)) {
+            return Json::error($response, 'forbidden_permission', 'Chybí oprávnění číst zdrojovou evidenci.', 403);
+        }
         $amount = isset($q['amount']) && is_numeric($q['amount']) ? (float) $q['amount'] : null;
         return Json::ok($response, $this->linkCandidates->find(
             $supplierId,
@@ -159,6 +171,9 @@ final class FuelingsAction
     {
         $supplierId = SupplierGuard::currentId($request);
         $body = (array) ($request->getParsedBody() ?? []);
+        if (FuelingSourceAccess::forbiddenChange($request, $body)) {
+            return Json::error($response, 'forbidden_permission', 'Chybí oprávnění číst zdrojovou evidenci.', 403);
+        }
         $err = $this->validate($supplierId, $body);
         if ($err !== null) return Json::error($response, 'validation_failed', $err, 400);
         if ($ref = $this->tenantRefError($supplierId, $body)) {
@@ -169,7 +184,7 @@ final class FuelingsAction
         $id = $this->repo->create($supplierId, $body, $this->userId($request));
         $this->assignVehicle($supplierId, $id, $body, null);
         $this->log($request, 'fueling.created', $id, $body);
-        return Json::ok($response, $this->repo->find($id, $supplierId), 201);
+        return Json::ok($response, FuelingSourceAccess::redact($request, $this->repo->find($id, $supplierId) ?? []), 201);
     }
 
     public function update(Request $request, Response $response, array $args): Response
@@ -181,6 +196,9 @@ final class FuelingsAction
             return Json::error($response, 'not_found', 'Tankování nenalezeno.', 404);
         }
         $body = (array) ($request->getParsedBody() ?? []);
+        if (FuelingSourceAccess::forbiddenChange($request, $body, $before)) {
+            return Json::error($response, 'forbidden_permission', 'Chybí oprávnění číst zdrojovou evidenci.', 403);
+        }
         // Vynechaný klíč = ponechat uloženou hodnotu; poslaný null / "" = vymazat.
         $merged = $body + array_intersect_key($before, array_flip(self::UPDATABLE));
         $this->rescaleVatSplit($body, $before, $merged);
@@ -196,7 +214,7 @@ final class FuelingsAction
         $this->repo->setLinks($id, $supplierId, array_intersect_key($body, array_flip(self::LINK_COLUMNS)));
         $this->assignVehicle($supplierId, $id, $merged + $body, $before);
         $this->log($request, 'fueling.updated', $id, $body);
-        return Json::ok($response, $this->repo->find($id, $supplierId));
+        return Json::ok($response, FuelingSourceAccess::redact($request, $this->repo->find($id, $supplierId) ?? []));
     }
 
     public function delete(Request $request, Response $response, array $args): Response
@@ -239,7 +257,7 @@ final class FuelingsAction
     private function validate(int $supplierId, array $body): ?string
     {
         $date = trim((string) ($body['fueled_date'] ?? ''));
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) return 'Neplatné datum tankování (YYYY-MM-DD).';
+        if (!\MyInvoice\Http\IsoDate::isValid($date)) return 'Neplatné datum tankování (YYYY-MM-DD).';
         if (!isset($body['amount_with_vat']) || (float) $body['amount_with_vat'] <= 0) {
             return 'Celková částka musí být kladná.';
         }

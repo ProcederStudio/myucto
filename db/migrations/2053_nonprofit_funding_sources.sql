@@ -34,7 +34,7 @@ ALTER TABLE nonprofit_funding_revisions ADD COLUMN IF NOT EXISTS request_json LO
 DELIMITER $$
 CREATE OR REPLACE TRIGGER trg_nfr_insert BEFORE INSERT ON nonprofit_funding_revisions FOR EACH ROW
 BEGIN
-    DECLARE period_status VARCHAR(16);
+    DECLARE period_status VARCHAR(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
     SELECT status INTO period_status FROM accounting_periods WHERE supplier_id=NEW.supplier_id AND id=NEW.period_id FOR UPDATE;
     IF period_status IS NULL OR period_status NOT IN ('open','closing') THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='nonprofit_funding_period_locked';

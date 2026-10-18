@@ -35,7 +35,7 @@ vi.mock('@/api/codebooks', () => ({
 }))
 vi.mock('@/api/expenseCategories', () => ({ expenseCategoriesApi: { list: vi.fn(async () => []) } }))
 vi.mock('@/api/revenueCategories', () => ({ revenueCategoriesApi: { list: vi.fn(async () => []) } }))
-vi.mock('@/api/settings', () => ({ settingsApi: { listBrandingProfiles: vi.fn(async () => []) } }))
+vi.mock('@/api/settings', () => ({ settingsApi: { listAvailableBrandingProfiles: vi.fn(async () => []) } }))
 vi.mock('@/composables/useToast', () => ({
   useToast: () => ({ error: vi.fn(), warning: vi.fn(), success: vi.fn() }),
 }))

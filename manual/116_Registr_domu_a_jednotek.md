@@ -299,3 +299,5 @@ Konečný náklad doložený v této agendě lze vybrat v katalogu zdrojů vyú�
 Měsíční kontrola a precheck účetní uzávěrky porovnávají hrubé pohledávky a osobní kredity SVJ s hlavní knihou k poslednímu dni zvoleného rozsahu. Kontrolují také doložení převzatých počátečních položek. Rozdíl nebo neúplné převzetí vyžadují nápravu před uzavřením knih. Rezervovaná vratka se nepovažuje za provedenou úhradu.
 
 Kontrola služeb porovnává předpisy záloh, doložené počáteční stavy, dohady, konečné náklady, vyúčtování a jejich storna s hlavní knihou k účetnímu datu. Rozvahové pohyby sleduje od jejich vzniku, výsledkové pohyby v příslušném účetním období. Nedokončená operace nebo řádek bez doloženého zdroje znamenají neúplnou evidenci i při nulovém čistém rozdílu a blokují uzavření knih. Tato kontrola pracuje s aktuálně evidovanými podklady.
+
+Účetní tvorba a rozpuštění rezervy na opravy s ověřeným aktivním zdrojem se nezahrnují do skutečných nákladů služeb. Systém ověří původní rozhodnutí, částky a účetní návaznosti; nesoulad podkladů kontrolu zastaví.

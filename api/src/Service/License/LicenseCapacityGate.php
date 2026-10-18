@@ -6,6 +6,7 @@ namespace MyInvoice\Service\License;
 
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Infrastructure\Database\NamedLockName;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 
 /**
  * Jediná atomická brána pro mutace, které mohou změnit licenční kapacitu.
@@ -163,6 +164,9 @@ final class LicenseCapacityGate
 
             return $result;
         } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             if ($ownsTransaction) {
                 $pdo->rollBack();
             } else {

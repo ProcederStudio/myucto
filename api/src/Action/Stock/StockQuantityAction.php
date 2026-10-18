@@ -6,6 +6,7 @@ namespace MyInvoice\Action\Stock;
 
 use MyInvoice\Action\Accounting\AccountingActionSupport;
 use MyInvoice\Http\Json;
+use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Service\Stock\InTransitService;
 use MyInvoice\Service\Stock\ReplenishmentService;
@@ -54,6 +55,12 @@ final class StockQuantityAction
             self::MAX_ITEMS,
         );
 
+        if (RequestAuthorization::isClientType($request)) {
+            $items = array_map(static function (array $item): array {
+                unset($item['in_transit_orders'], $item['vendor_offers']);
+                return $item;
+            }, $items);
+        }
         return Json::ok($response, ['items' => $items, 'total' => count($items)]);
     }
 

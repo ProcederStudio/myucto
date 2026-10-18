@@ -94,8 +94,8 @@ const canWrite = computed(() => auth.canWrite('logbook.write'))
 const toolbarActions = computed<ActionItem[]>(() => [
   { key: 'new', label: t('logbook.fueling_new'), icon: 'plus', tier: 'primary', variant: 'primary',
     show: canWrite.value || auth.isDemo, run: newFueling },
-  { key: 'import', label: t('logbook_fuel.import'), icon: 'upload', variant: 'neutral', show: canWrite.value, run: openImport },
-  { key: 'invoices', label: t('logbook.from_invoices'), icon: 'doc', variant: 'neutral', show: canWrite.value, run: openInvoices },
+  { key: 'import', label: t('logbook_fuel.import'), icon: 'upload', variant: 'neutral', show: auth.canWrite('logbook.import'), run: openImport },
+  { key: 'invoices', label: t('logbook.from_invoices'), icon: 'doc', variant: 'neutral', show: canWrite.value && auth.canRead('purchase_invoices'), run: openInvoices },
   // Pokladní doklady čte jen ten, kdo smí číst pokladnu (backend to vynucuje taky).
   { key: 'cash', label: t('logbook_fuel.from_cash'), icon: 'coin', variant: 'neutral', show: canWrite.value && auth.canRead('cash'), run: openCash },
   { key: 'export', label: t('logbook.export'), icon: 'download', tier: 'overflow', variant: 'primary',
@@ -192,19 +192,19 @@ function estimateBadge(f: Fueling): string {
 interface RowLink { key: string; to?: string; href?: string; label: string; title: string }
 function rowLinks(f: Fueling): RowLink[] {
   const out: RowLink[] = []
-  if (f.source_purchase_invoice_id) {
+  if (auth.canRead('purchase_invoices') && f.source_purchase_invoice_id) {
     out.push({ key: 'pi', to: `/purchase-invoices/${f.source_purchase_invoice_id}`, title: t('logbook.open_invoice'),
       label: f.source_invoice_number ? `${t('logbook.invoice_link')} ${f.source_invoice_number}` : t('logbook.invoice_link') })
   }
-  if (f.source_cash_document_id) {
+  if (auth.canRead('cash') && f.source_cash_document_id) {
     out.push({ key: 'cash', href: cashApi.documentPdfUrl(f.source_cash_document_id), title: t('logbook_fuel.open_cash_document'),
       label: t('logbook_fuel.cash_label', { n: f.source_cash_document_number ?? f.source_cash_document_id }) })
   }
-  if (f.source_bank_transaction_id && f.source_bank_statement_id) {
+  if (auth.canRead('bank') && f.source_bank_transaction_id && f.source_bank_statement_id) {
     out.push({ key: 'bank', to: `/bank/${f.source_bank_statement_id}`, title: t('logbook_fuel.open_bank'),
       label: t('logbook_fuel.bank_label', { date: f.source_bank_posted_at ? formatDate(f.source_bank_posted_at) : '' }) })
   }
-  if (f.source_journal_entry_id) {
+  if (auth.canRead('accounting') && f.source_journal_entry_id) {
     out.push({ key: 'je', to: `/accounting/journal?entry_id=${f.source_journal_entry_id}`, title: t('logbook_fuel.open_journal'),
       label: t('logbook_fuel.journal_label', { n: f.source_journal_entry_number ?? f.source_journal_entry_id }) })
   }
@@ -272,7 +272,11 @@ const draft = reactive<FuelingPayload & { id: number }>({
 
 // Vazba na doklad v editoru — přijatá faktura se jen zobrazuje (vzniká vytěžením faktury).
 type LinkKind = '' | Exclude<FuelingLinkType, 'purchase_invoice'>
-const linkKinds: Exclude<LinkKind, ''>[] = ['cash_document', 'bank_transaction', 'journal_entry']
+const linkKinds = computed<Exclude<LinkKind, ''>[]>(() => [
+  ...(auth.canRead('cash') ? ['cash_document' as const] : []),
+  ...(auth.canRead('bank') ? ['bank_transaction' as const] : []),
+  ...(auth.canRead('accounting') ? ['journal_entry' as const] : []),
+])
 const linkKind = ref<LinkKind>('')
 const linkId = ref<number | null>(null)
 const linkLabel = ref('')
@@ -291,9 +295,9 @@ function initLinks(f: Fueling | null) {
   linkLabel.value = ''
   if (!f) return
   const link = rowLinks(f).find(l => l.key === 'cash' || l.key === 'bank' || l.key === 'je')
-  if (f.source_cash_document_id) { linkKind.value = 'cash_document'; linkId.value = f.source_cash_document_id }
+  if (auth.canRead('cash') && f.source_cash_document_id) { linkKind.value = 'cash_document'; linkId.value = f.source_cash_document_id }
   else if (f.source_bank_transaction_id) { linkKind.value = 'bank_transaction'; linkId.value = f.source_bank_transaction_id }
-  else if (f.source_journal_entry_id) { linkKind.value = 'journal_entry'; linkId.value = f.source_journal_entry_id }
+  else if (auth.canRead('accounting') && f.source_journal_entry_id) { linkKind.value = 'journal_entry'; linkId.value = f.source_journal_entry_id }
   linkLabel.value = link?.label ?? ''
 }
 function onLinkKindChange() {
@@ -331,6 +335,7 @@ function unitForCar(carId: number | null): string {
 }
 
 function newFueling() {
+  if (!auth.canWrite('logbook.write') && !auth.isDemo) return
   const defCar = cars.value.find(c => c.is_default) ?? (cars.value.length === 1 ? cars.value[0] : null)
   Object.assign(draft, {
     id: 0, car_id: defCar?.id ?? null, fueled_date: appIsoDate(), fueled_time: '',
@@ -372,9 +377,9 @@ async function save() {
       amount_with_vat: Number(draft.amount_with_vat), currency: draft.currency || 'CZK',
       odometer: draft.odometer != null && draft.odometer !== ('' as any) ? Number(draft.odometer) : null,
       station: draft.station || null, note: draft.note || null,
-      source_cash_document_id: linkKind.value === 'cash_document' ? linkId.value : null,
-      source_bank_transaction_id: linkKind.value === 'bank_transaction' ? linkId.value : null,
-      source_journal_entry_id: linkKind.value === 'journal_entry' ? linkId.value : null,
+      ...(auth.canRead('cash') ? { source_cash_document_id: linkKind.value === 'cash_document' ? linkId.value : null } : {}),
+      ...(auth.canRead('bank') ? { source_bank_transaction_id: linkKind.value === 'bank_transaction' ? linkId.value : null } : {}),
+      ...(auth.canRead('accounting') ? { source_journal_entry_id: linkKind.value === 'journal_entry' ? linkId.value : null } : {}),
     }
     const wasNew = !draft.id
     if (draft.id) await logbookApi.updateFueling(draft.id, payload)
@@ -709,12 +714,12 @@ const WARN_ICON = 'M12 9v4m0 4h.01M10.29 3.86l-8.48 14.7A1 1 0 0 0 2.67 20h18.66
                 <td class="px-3 py-2 text-right font-mono">{{ fmtMoney(f.amount_with_vat, f.currency) }}</td>
                 <td class="px-3 py-2 text-xs text-neutral-500 truncate max-w-[12rem]">{{ f.station || f.vendor_name || '—' }}</td>
                 <td class="px-3 py-2">
-                  <div v-if="auth.canWrite('logbook.write')" class="flex justify-end gap-1.5">
-                    <button @click="editFueling(f)" class="cursor-pointer inline-flex items-center gap-1 h-7 px-2 text-xs border border-neutral-300 rounded-md hover:bg-neutral-50">
+                  <div v-if="auth.canWrite('logbook.write') || auth.canWrite('logbook.delete')" class="flex justify-end gap-1.5">
+                    <button v-if="auth.canWrite('logbook.write')" @click="editFueling(f)" class="cursor-pointer inline-flex items-center gap-1 h-7 px-2 text-xs border border-neutral-300 rounded-md hover:bg-neutral-50">
                       <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-5m-1.414-9.414a2 2 0 1 1 2.828 2.828L11.828 15H9v-2.828z"/></svg>
                       {{ t('common.edit') }}
                     </button>
-                    <button @click="removeFueling(f)" class="cursor-pointer inline-flex items-center gap-1 h-7 px-2 text-xs border border-neutral-300 text-danger-600 rounded-md hover:bg-danger-50">
+                    <button v-if="auth.canWrite('logbook.delete')" @click="removeFueling(f)" class="cursor-pointer inline-flex items-center gap-1 h-7 px-2 text-xs border border-neutral-300 text-danger-600 rounded-md hover:bg-danger-50">
                       <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0 1 16.138 21H7.862a2 2 0 0 1-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v3M4 7h16"/></svg>
                       {{ t('common.delete') }}
                     </button>
@@ -752,12 +757,12 @@ const WARN_ICON = 'M12 9v4m0 4h.01M10.29 3.86l-8.48 14.7A1 1 0 0 0 2.67 20h18.66
                 <a v-else :href="l.href" target="_blank" rel="noopener" class="text-xs text-primary-600 hover:underline">{{ l.label }} ↗</a>
               </template>
             </div>
-            <div v-if="auth.canWrite('logbook.write')" class="flex gap-2 mt-2">
-              <button @click="editFueling(f)" class="cursor-pointer inline-flex items-center gap-1 h-7 px-2 text-xs border border-neutral-300 rounded-md hover:bg-neutral-50">
+            <div v-if="auth.canWrite('logbook.write') || auth.canWrite('logbook.delete')" class="flex gap-2 mt-2">
+              <button v-if="auth.canWrite('logbook.write')" @click="editFueling(f)" class="cursor-pointer inline-flex items-center gap-1 h-7 px-2 text-xs border border-neutral-300 rounded-md hover:bg-neutral-50">
                 <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-5m-1.414-9.414a2 2 0 1 1 2.828 2.828L11.828 15H9v-2.828z"/></svg>
                 {{ t('common.edit') }}
               </button>
-              <button @click="removeFueling(f)" class="cursor-pointer inline-flex items-center gap-1 h-7 px-2 text-xs border border-neutral-300 text-danger-600 rounded-md hover:bg-danger-50 ml-auto">
+              <button v-if="auth.canWrite('logbook.delete')" @click="removeFueling(f)" class="cursor-pointer inline-flex items-center gap-1 h-7 px-2 text-xs border border-neutral-300 text-danger-600 rounded-md hover:bg-danger-50 ml-auto">
                 <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0 1 16.138 21H7.862a2 2 0 0 1-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v3M4 7h16"/></svg>
                 {{ t('common.delete') }}
               </button>

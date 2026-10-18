@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { ref } from 'vue'
 
@@ -48,6 +48,8 @@ function preview(overrides: Record<string, unknown> = {}) {
 const MOUNT = { global: { stubs: { teleport: true } } }
 
 describe('PayrollWorkplaceBulkFillDialog', () => {
+  beforeEach(() => vi.clearAllMocks())
+
   it('načte náhled, předvybere nejčastější pracoviště a odešle apply na chybějící vztahy', async () => {
     m.workplaceBulkPreview.mockResolvedValue(preview())
     m.workplaceBulkApply.mockResolvedValue({

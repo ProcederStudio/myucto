@@ -32,6 +32,9 @@ $r = $chain->verify();
 echo 'Auditní stopa (§ 33a) — zřetězení hashem', PHP_EOL, PHP_EOL;
 echo '  Ověřeno záznamů: ', $r['checked'], PHP_EOL;
 echo '  Bez ochrany (před zavedením řetězu): ', $r['unprotected'], PHP_EOL;
+if ($r['pending'] > 0) {
+    echo '  Čeká na zapečetění (commitnuté, hash doplní další pečetění): ', $r['pending'], PHP_EOL;
+}
 if ($r['first_protected_id'] !== null) {
     echo '  Řetěz začíná záznamem #', $r['first_protected_id'], PHP_EOL;
 }

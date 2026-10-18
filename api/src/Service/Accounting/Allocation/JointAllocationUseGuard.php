@@ -49,7 +49,8 @@ final class JointAllocationUseGuard
         (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->assertAssignmentInsertsAfterPeriodPreflight($supplierId, $lineIds);
         $paymentReference = \MyInvoice\Service\Property\Payments\PaymentUseGuard::entryReferenceSql();
         $assetReserveEvidence = \MyInvoice\Service\Accounting\Closing\AssetReserveSourceRepository::assignmentEvidenceSql();
-        $current = $pdo->prepare("SELECT l.id, e.id AS entry_id, e.period_id, c.batch_id AS source_batch_id, b.id AS allocation_batch_id, x.id AS cancellation_id, ({$paymentReference}) AS property_payment_in_use, ({$assetReserveEvidence}) AS asset_reserve_evidence_exists
+        $capitalEvidence = \MyInvoice\Service\Nonprofit\Capital\CapitalUseGuard::assignmentEvidenceSql();
+        $current = $pdo->prepare("SELECT l.id, e.id AS entry_id, e.period_id, c.batch_id AS source_batch_id, b.id AS allocation_batch_id, x.id AS cancellation_id, ({$paymentReference}) AS property_payment_in_use, ({$assetReserveEvidence}) AS asset_reserve_evidence_exists, ({$capitalEvidence}) AS capital_evidence_exists
             FROM journal_entry_lines l JOIN journal_entries e ON e.id = l.entry_id AND e.supplier_id = l.supplier_id
             LEFT JOIN joint_allocation_source_claims c ON c.line_id = l.id AND c.supplier_id = l.supplier_id
             LEFT JOIN joint_allocation_batches b ON b.journal_entry_id = e.id AND b.supplier_id = e.supplier_id
@@ -72,6 +73,9 @@ final class JointAllocationUseGuard
                 throw new PostingException('allocation_source_in_use', 'Zdroj je součástí aktivní alokace. Před jeho změnou nejprve zrušte alokaci.', 409,
                     ['claims' => [['line_id' => (int) $row['id'], 'batch_id' => (int) $row['source_batch_id']]]]);
             }
+        }
+        if (array_filter(array_column($rows, 'capital_evidence_exists')) !== []) {
+            (new \MyInvoice\Service\Nonprofit\Capital\CapitalUseGuard($this->db))->assertAssignmentEntriesMutable($supplierId, array_column($rows, 'entry_id'));
         }
         if (array_filter(array_column($rows, 'asset_reserve_evidence_exists')) !== []) {
             (new \MyInvoice\Service\Accounting\Closing\AssetReserveSourceUseGuard($this->db,

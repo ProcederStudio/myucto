@@ -10,6 +10,7 @@ final class BankPaymentCandidateScope
     {
         if ($supplierId <= 0) throw new \InvalidArgumentException('Neplatná firma.');
         return "(bt.match_status = 'unmatched' AND bt.matched_invoice_id IS NULL
+            AND " . BankNoticeLifecycle::activeSql('bt') . "
             AND NOT " . NonInvoiceBankTransactionScope::sql($supplierId, 'bt.id') . "
             AND NOT EXISTS (SELECT 1 FROM invoice_payments ip WHERE ip.bank_transaction_id = bt.id)
             AND NOT EXISTS (SELECT 1 FROM payment_matches pm WHERE pm.bank_transaction_id = bt.id)

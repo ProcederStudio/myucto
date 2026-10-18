@@ -6,6 +6,7 @@ namespace MyInvoice\Action\Payroll;
 
 use MyInvoice\Http\Json;
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Repository\DocumentRepository;
 use MyInvoice\Repository\Payroll\PayrollEnforcementFactsRepository;
@@ -259,6 +260,9 @@ final class PayrollEnforcementFactsAction
             $owns ? $pdo->commit() : $pdo->exec('RELEASE SAVEPOINT payroll_enforcement_facts');
             return $result;
         } catch (\Throwable $exception) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $exception)) {
+                throw $exception;
+            }
             if ($pdo->inTransaction()) {
                 if ($owns) {
                     $pdo->rollBack();

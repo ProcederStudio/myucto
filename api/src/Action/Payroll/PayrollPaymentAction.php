@@ -6,6 +6,7 @@ namespace MyInvoice\Action\Payroll;
 
 use MyInvoice\Http\Json;
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Repository\Payroll\PayrollPaymentExportRepository;
 use MyInvoice\Security\AccessLevel;
@@ -2243,6 +2244,9 @@ final class PayrollPaymentAction
 
             return $result;
         } catch (\Throwable $exception) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $exception)) {
+                throw $exception;
+            }
             if ($ownsTransaction) {
                 $pdo->rollBack();
             } elseif ($savepoint !== null) {

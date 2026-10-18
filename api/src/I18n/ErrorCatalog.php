@@ -596,6 +596,10 @@ final class ErrorCatalog
         'Ruční vypořádání nemá jednoznačné přiřazení k dokladu, jeho částce a měně. Přijatá faktura: ' => 'The manual settlement is not unambiguously assigned to the document, its amount and currency. Purchase invoice: ',
         'Částky úhrad a zúčtovaných záloh nesouhlasí s doloženým zůstatkem dokladu. Vydaná faktura: ' => 'Payments and settled advances do not agree with the evidenced document balance. Issued invoice: ',
         'Částky úhrad a zúčtovaných záloh nesouhlasí s doloženým zůstatkem dokladu. Přijatá faktura: ' => 'Payments and settled advances do not agree with the evidenced document balance. Purchase invoice: ',
+        'Název účtu je povinný.' => 'Account name is required.',
+        'Měnu nelze smazat — je výchozí měnou firmy.' => 'The currency cannot be deleted because it is the company default currency.',
+        'Měnu nelze smazat — je na ni napojené bankovní spojení.' => 'The currency cannot be deleted because a bank connection is linked to it.',
+        'Měnu nelze smazat — je použita v jiných záznamech.' => 'The currency cannot be deleted because other records use it.',
     ];
 
     /**

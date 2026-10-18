@@ -534,6 +534,7 @@ export function createWorkspaceRoutes(): RouteRecordRaw[] {
       { path: 'admin/price-list',       name: 'admin-price-list', component: () => import('@/pages/admin/PriceList.vue'), meta: { requiresSupplier: true, requiresNoStock: true } },
       { path: 'admin/price-list/new',   name: 'admin-price-list-new', component: () => import('@/pages/admin/PriceListForm.vue'), meta: { requiresSupplier: true, requiresNoStock: true } },
       { path: 'admin/price-list/:id(\\d+)/edit', name: 'admin-price-list-edit', component: () => import('@/pages/admin/PriceListForm.vue'), meta: { requiresSupplier: true, requiresNoStock: true } },
+      { path: 'admin/price-list/:id(\\d+)', name: 'admin-price-list-view', component: () => import('@/pages/admin/PriceListForm.vue'), meta: { requiresSupplier: true, requiresNoStock: true } },
       { path: 'recurring',              name: 'recurring',        component: () => import('@/pages/recurring/RecurringList.vue'), meta: {  } },
       { path: 'recurring/new',          name: 'recurring-new',    component: () => import('@/pages/recurring/RecurringForm.vue'), meta: { requiresSupplier: true } },
       { path: 'recurring/:id(\\d+)',    name: 'recurring-detail', component: () => import('@/pages/recurring/RecurringDetail.vue'), meta: {  } },

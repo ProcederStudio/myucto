@@ -13,6 +13,8 @@ import { ICONS, btnFilled, btnOutline } from '@/components/ui/buttonStyles'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import { appIsoDate } from '@/utils/date'
 import DateInput from '@/components/ui/DateInput.vue'
+import OdometerGapsPanel from './OdometerGapsPanel.vue'
+import { useTripTemplates } from '@/composables/useTripTemplates'
 
 const { t, locale } = useI18n()
 const toast = useToast()
@@ -45,6 +47,8 @@ const perPage = 25
 const years = ref<number[]>([])
 const purposes = ref<string[]>([])
 const places = ref<string[]>([])
+const { templates, loadTemplates } = useTripTemplates()
+const gapsPanel = ref<InstanceType<typeof OdometerGapsPanel> | null>(null)
 
 const monthOptions = computed(() => {
   const loc = locale.value === 'en' ? 'en-US' : 'cs-CZ'
@@ -122,10 +126,11 @@ async function load() {
     categories.value = categoriesRes
     logbookApi.tripPurposes().then(p => { purposes.value = p }).catch(() => {})
     logbookApi.tripPlaces().then(p => { places.value = p }).catch(() => {})
+    void loadTemplates()
   } finally { loading.value = false; maybeOpenNew() }
 }
 // Reset na 1. stranu (změna filtru / po uložení). goToPage = navigace v rámci pageru.
-function reload() { page.value = 1; load() }
+function reload() { page.value = 1; load(); gapsPanel.value?.reload() }
 function goToPage(p: number) {
   const np = Math.min(Math.max(1, p), pages.value)
   if (np !== page.value) { page.value = np; load() }
@@ -178,6 +183,7 @@ watch(() => draft.odometer_start, () => {
 watch(() => props.resetToken, () => { resetFilters() })
 
 function newTrip() {
+  if (!auth.canWrite('logbook.write') && !auth.isDemo) return
   const defCar = cars.value.find(c => c.is_default) ?? cars.value[0]
   Object.assign(draft, {
     id: 0, car_id: defCar?.id ?? 0, trip_date: appIsoDate(),
@@ -185,6 +191,21 @@ function newTrip() {
     category_id: (categories.value.find(c => c.is_default) ?? categories.value[0])?.id ?? null, purpose: '', origin: '', destination: '', note: '',
   })
   open.value = true
+}
+
+// Pravidelné cesty pro auto jízdy (bez auta = pro libovolné auto).
+const tripTemplates = computed(() => templates.value.filter(tt => tt.car_id === null || tt.car_id === Number(draft.car_id)))
+function applyTemplate(e: Event) {
+  const select = e.target as HTMLSelectElement
+  const tt = templates.value.find(x => x.id === Number(select.value))
+  select.value = ''
+  if (!tt) return
+  Object.assign(draft, {
+    origin: tt.origin ?? '', destination: tt.destination ?? '', purpose: tt.purpose ?? '',
+    time_start: tt.time_start ?? draft.time_start, time_end: tt.time_end ?? draft.time_end,
+    category_id: tt.category_id ?? draft.category_id, distance_km: tt.distance_km,
+  })
+  recomputeEndFromDistance()
 }
 
 // Konečný stav tachometru před úpravou: když se změní, nabídneme přepočet navazujících jízd.
@@ -223,6 +244,7 @@ async function save() {
     }
     if (wasNew) page.value = 1 // nová jízda je nejnovější → skoč na 1. stranu (řazení date DESC)
     await load()
+    gapsPanel.value?.reload()
   } catch (e: any) {
     toast.error(e?.response?.data?.error?.message ?? t('common.error'))
   } finally { saving.value = false }
@@ -234,6 +256,7 @@ async function removeTrip(tr: Trip) {
     await logbookApi.deleteTrip(tr.id)
     toast.success(t('common.deleted'))
     await load()
+    gapsPanel.value?.reload()
     // Smazání poslední položky na poslední straně → posuň se o stranu zpět.
     if (trips.value.length === 0 && page.value > 1) goToPage(page.value - 1)
   } catch (e: any) { toast.error(e?.response?.data?.error?.message ?? t('common.error')) }
@@ -247,6 +270,7 @@ async function recalculate(body: { after_trip_id: number } | { car_id: number })
   try {
     const r = await logbookApi.recalculateOdometer(body)
     toast.success(t('logbook.recalc_done', { n: r.updated }))
+    gapsPanel.value?.reload()
   } catch (e: any) {
     toast.error(e?.response?.data?.error?.message ?? t('common.error'))
   } finally { recalculating.value = false }
@@ -406,10 +430,15 @@ function fmtKm(n: number | null): string { return n == null ? '—' : n.toLocale
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.download" /></svg>
           {{ t('logbook.export') }}
         </button>
-        <button v-if="auth.canWrite('logbook.write')" @click="importOpen = true; importReport = null"
+        <button v-if="auth.canWrite('logbook.import')" @click="importOpen = true; importReport = null"
           :class="btnOutline('primary')">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.upload" /></svg>
           {{ t('logbook.import') }}
+        </button>
+        <button v-if="cars.length > 0" @click="gapsPanel?.openReadings(filterCar || null)"
+          :class="btnOutline('primary')" class="whitespace-nowrap">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.gauge" /></svg>
+          {{ t('logbook.readings_button') }}
         </button>
         <button v-if="auth.canWrite('logbook.write')" @click="recalculateCar" :disabled="total === 0 || recalculating"
           :title="t('logbook.recalc_odometer_hint')" :class="btnOutline('warning')" class="whitespace-nowrap">
@@ -424,6 +453,8 @@ function fmtKm(n: number | null): string { return n == null ? '—' : n.toLocale
         </button>
       </template>
     </FilterBar>
+
+    <OdometerGapsPanel v-if="cars.length > 0" ref="gapsPanel" :cars="cars" :categories="categories" @changed="reload" />
 
     <EmptyState v-if="cars.length === 0 && !loading" icon="box" :title="t('logbook.no_cars_hint')" dense boxed />
     <div v-else-if="loading" class="text-center text-neutral-500 py-12 text-sm">{{ t('common.loading') }}</div>
@@ -495,12 +526,12 @@ function fmtKm(n: number | null): string { return n == null ? '—' : n.toLocale
                 <td class="px-3 py-2 text-right font-mono">{{ fmtKm(tr.odometer_start) }}</td>
                 <td class="px-3 py-2 text-right font-mono">{{ fmtKm(tr.distance_km) }}</td>
                 <td class="px-3 py-2">
-                  <div v-if="auth.canWrite('logbook.write')" class="flex justify-end gap-1.5">
-                    <button @click="editTrip(tr)" class="cursor-pointer inline-flex items-center gap-1 h-7 px-2 text-xs border border-neutral-300 rounded-md hover:bg-neutral-50">
+                  <div v-if="auth.canWrite('logbook.write') || auth.canWrite('logbook.delete')" class="flex justify-end gap-1.5">
+                    <button v-if="auth.canWrite('logbook.write')" @click="editTrip(tr)" class="cursor-pointer inline-flex items-center gap-1 h-7 px-2 text-xs border border-neutral-300 rounded-md hover:bg-neutral-50">
                       <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-5m-1.414-9.414a2 2 0 1 1 2.828 2.828L11.828 15H9v-2.828z"/></svg>
                       {{ t('common.edit') }}
                     </button>
-                    <button @click="removeTrip(tr)" class="cursor-pointer inline-flex items-center gap-1 h-7 px-2 text-xs border border-neutral-300 text-danger-600 rounded-md hover:bg-danger-50">
+                    <button v-if="auth.canWrite('logbook.delete')" @click="removeTrip(tr)" class="cursor-pointer inline-flex items-center gap-1 h-7 px-2 text-xs border border-neutral-300 text-danger-600 rounded-md hover:bg-danger-50">
                       <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0 1 16.138 21H7.862a2 2 0 0 1-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v3M4 7h16"/></svg>
                       {{ t('common.delete') }}
                     </button>
@@ -523,12 +554,12 @@ function fmtKm(n: number | null): string { return n == null ? '—' : n.toLocale
               <span class="truncate">{{ tr.purpose || '—' }} · {{ tr.car_registration }}</span>
               <span v-if="tr.category_label" class="shrink-0 px-1.5 py-0.5 rounded" :class="tr.category_is_private ? 'bg-warning-50 text-warning-600' : 'bg-success-50 text-success-600'">{{ tr.category_label }}</span>
             </div>
-            <div v-if="auth.canWrite('logbook.write')" class="flex gap-2 mt-2">
-              <button @click="editTrip(tr)" class="cursor-pointer inline-flex items-center gap-1 h-7 px-2 text-xs border border-neutral-300 rounded-md hover:bg-neutral-50">
+            <div v-if="auth.canWrite('logbook.write') || auth.canWrite('logbook.delete')" class="flex gap-2 mt-2">
+              <button v-if="auth.canWrite('logbook.write')" @click="editTrip(tr)" class="cursor-pointer inline-flex items-center gap-1 h-7 px-2 text-xs border border-neutral-300 rounded-md hover:bg-neutral-50">
                 <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-5m-1.414-9.414a2 2 0 1 1 2.828 2.828L11.828 15H9v-2.828z"/></svg>
                 {{ t('common.edit') }}
               </button>
-              <button @click="removeTrip(tr)" class="cursor-pointer inline-flex items-center gap-1 h-7 px-2 text-xs border border-neutral-300 text-danger-600 rounded-md hover:bg-danger-50 ml-auto">
+              <button v-if="auth.canWrite('logbook.delete')" @click="removeTrip(tr)" class="cursor-pointer inline-flex items-center gap-1 h-7 px-2 text-xs border border-neutral-300 text-danger-600 rounded-md hover:bg-danger-50 ml-auto">
                 <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0 1 16.138 21H7.862a2 2 0 0 1-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v3M4 7h16"/></svg>
                 {{ t('common.delete') }}
               </button>
@@ -554,6 +585,13 @@ function fmtKm(n: number | null): string { return n == null ? '—' : n.toLocale
       <div class="bg-surface rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <form @submit.prevent="save" class="p-5 space-y-4">
           <h2 class="text-lg font-semibold">{{ draft.id ? t('logbook.trip_edit') : t('logbook.trip_new') }}</h2>
+          <div v-if="!draft.id && tripTemplates.length">
+            <label class="block text-sm font-medium text-neutral-700 mb-1">{{ t('logbook.trip_from_template') }}</label>
+            <select @change="applyTemplate" class="w-full h-10 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
+              <option value="">{{ t('logbook.trip_from_template_placeholder') }}</option>
+              <option v-for="tt in tripTemplates" :key="tt.id" :value="tt.id">{{ tt.label }} ({{ fmtKm(tt.distance_km) }} km)</option>
+            </select>
+          </div>
           <div class="grid grid-cols-2 gap-3">
             <div>
               <label class="block text-sm font-medium text-neutral-700 mb-1">{{ t('logbook.car') }} *</label>

@@ -38,6 +38,16 @@ final class DockerCrontabGenerator
     public const WRAPPER = '/usr/local/bin/myucto-cron-run';
 
     /**
+     * Běží instalace v Docker image (úlohy plánuje vestavěný cron)? Cesty leží
+     * mimo `open_basedir` sdíleného hostingu, proto přes {@see \MyInvoice\Support\OpenBasedir}.
+     */
+    public static function runningInContainer(): bool
+    {
+        return \MyInvoice\Support\OpenBasedir::isFile('/.dockerenv')
+            || \MyInvoice\Support\OpenBasedir::isFile(self::WRAPPER);
+    }
+
+    /**
      * @param CronJobGate|null $gate Bez brány se vygenerují všechny úlohy z katalogu
      *                               (build-time fallback). S bránou jen ty, které
      *                               u téhle instalace mají smysl plánovat.

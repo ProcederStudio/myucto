@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Action\Project;
 
 use MyInvoice\Http\Json;
+use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Middleware\SupplierScopeMiddleware;
 use MyInvoice\Repository\ProjectRepository;
@@ -28,6 +29,9 @@ final class GetProjectAction
         $project = $this->repo->find($id);
         if ($project === null || (int) ($project['supplier_id'] ?? 0) !== $sid) {
             return Json::error($response, 'not_found', 'Zakázka nenalezena.', 404);
+        }
+        if (!RequestAuthorization::allows($request, 'invoices')) {
+            return Json::ok($response, $project);
         }
         $pdo = $this->db->pdo();
         $stmt = $pdo->prepare('SELECT COUNT(*) FROM invoices WHERE project_id = ?');

@@ -322,10 +322,10 @@ final class Fx504RevaluationTest extends TestCase
     public function testPublicPreviewRunsInsideNativeReadOnlyTransaction(): void
     {
         $pdo = $this->db->pdo();
-        $before = $this->state();
         $pdo->commit();
         $this->committed = true;
         $pdo->exec('START TRANSACTION READ ONLY');
+        $before = $this->state();
         $preview = Bootstrap::buildContainer()->get(ClosingService::class)->fxPreview($this->supplier, $this->period, [], null, $this->caseEvidence());
         self::assertSame('1000.00', $preview['totals']['gain']);
         self::assertTrue($pdo->inTransaction());
@@ -539,11 +539,11 @@ final class Fx504RevaluationTest extends TestCase
     public function testCasePostPreviewRunsInsideReadOnlyTransaction(): void
     {
         $body = ['account_decisions' => [], 'case_decisions' => $this->caseEvidence()];
-        $before = $this->state();
         $pdo = $this->db->pdo();
         $pdo->commit();
         $this->committed = true;
         $pdo->exec('START TRANSACTION READ ONLY');
+        $before = $this->state();
         $request = (new \Slim\Psr7\Factory\ServerRequestFactory())->createServerRequest('POST', '/api/test')
             ->withAttribute(\MyInvoice\Middleware\SupplierScopeMiddleware::ATTR_CURRENT_ID, $this->supplier)
             ->withAttribute(\MyInvoice\Middleware\AuthMiddleware::ATTR_METHOD, 'session')

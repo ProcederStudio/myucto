@@ -17,6 +17,8 @@ export interface MoneyS3YearInfo {
   period_start?: string
   period_end?: string
   journal_rows: number
+  /** Živé řádky peněžního deníku daňové evidence. Pokud firma vede podvojné účetnictví, je hodnota nulová, protože peněžní deník se v něm nevede. */
+  cashbook_rows: number
   opening_rows: number
   first_date: string | null
   last_date: string | null

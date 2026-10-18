@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Accounting\Cash;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\CashDocumentRepository;
 use MyInvoice\Repository\CashRegisterRepository;
 use MyInvoice\Repository\ChartOfAccountsRepository;
@@ -83,6 +84,18 @@ final class CashDocumentService
      * @return array{id:int, doc_number:?string, journal_entry_id:?int, status:string, warnings:list<string>}
      */
     public function create(int $supplierId, array $data, ?int $userId): array
+    {
+        // Výdej čísla zamyká horký řádek řady PPD/VPD (firma × řada × rok). Souběžný doklad
+        // ho pod REPEATABLE READ posune a zámek skončí chybou 1020; vlastní transakce se
+        // proto při odvolání zopakuje celá. V cizí transakci chybu dostane její vlastník.
+        return TransactionFailure::retrying(
+            $this->db->pdo(),
+            fn (): array => $this->createOnce($supplierId, $data, $userId),
+        );
+    }
+
+    /** @return array<string,mixed> */
+    private function createOnce(int $supplierId, array $data, ?int $userId): array
     {
         $doc = $this->fillPartnerFromLinkedDocument($supplierId, $this->normalize($data));
         $register = $this->requireActiveRegister($supplierId, $doc['register_id']);
@@ -423,6 +436,16 @@ final class CashDocumentService
     }
 
     public function post(int $supplierId, int $id, ?int $userId): array
+    {
+        // Viz create(): výdej čísla řady je horký řádek, odvolanou vlastní transakci zopakuje.
+        return TransactionFailure::retrying(
+            $this->db->pdo(),
+            fn (): array => $this->postOnce($supplierId, $id, $userId),
+        );
+    }
+
+    /** @return array{doc_number:string, journal_entry_id:?int, warnings:list<string>} */
+    private function postOnce(int $supplierId, int $id, ?int $userId): array
     {
         $pdo = $this->db->pdo();
         $ownTx = !$pdo->inTransaction();

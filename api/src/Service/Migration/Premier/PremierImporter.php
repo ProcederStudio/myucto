@@ -8,6 +8,7 @@ use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Service\Accounting\AccountingFrameworkException;
 use MyInvoice\Service\Accounting\AccountingFrameworkImportGuard;
 use MyInvoice\Infrastructure\Database\TableStatistics;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Repository\PremierImportRepository;
 use MyInvoice\Service\Migration\MoneyS3\AccountingUnitSwitch;
@@ -275,6 +276,9 @@ final class PremierImporter
                     });
                     $protocol->finish($key);
                 } catch (\Throwable $e) {
+                    // Odvolaná transakce (1020/1213) nesmí zůstat viset jako otevřená:
+                    // savepoint zkušebního běhu i zbytek převodu by jinak pracovaly naslepo.
+                    TransactionFailure::rollbackIfAborted($pdo, $e);
                     if ($e instanceof PremierException || $e instanceof AccountingFrameworkException) {
                         $protocol->error($key, $e->errorCode, $e->getMessage());
                     } else {
@@ -304,7 +308,7 @@ final class PremierImporter
             $protocol->error(self::STEP_PREFLIGHT, $e->errorCode, $e->getMessage());
             $protocol->fail(self::STEP_PREFLIGHT);
         } finally {
-            if ($savepoint) {
+            if ($savepoint && $pdo->inTransaction()) {
                 $pdo->exec('ROLLBACK TO SAVEPOINT premier_dry_run');
             } elseif ($dryRun && $pdo->inTransaction()) {
                 $pdo->rollBack();

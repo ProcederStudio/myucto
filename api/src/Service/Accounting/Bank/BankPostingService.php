@@ -250,6 +250,22 @@ final class BankPostingService
         ?int $activationSupplierId = null,
     ): array
     {
+        // Odvolanou transakci (1020/1213) zopakuje, jen když ji vlastní. Jinak by pohyb
+        // z importu zůstal nezaúčtovaný a výpis by hlásil přerušené zpracování.
+        return TransactionFailure::retrying(
+            $this->db->pdo(),
+            fn (): array => $this->handleTransactionOnce($txId, $userId, $suggestOnly, $activationSupplierId),
+        );
+    }
+
+    /** @return array{action:string, reason?:string, message?:string, entry_id?:int, suggestion_id?:int} */
+    private function handleTransactionOnce(
+        int $txId,
+        ?int $userId,
+        bool $suggestOnly,
+        ?int $activationSupplierId,
+    ): array
+    {
         $pdo = $this->db->pdo();
         $ownTx = !$pdo->inTransaction();
         $savepoint = 'bank_posting_' . max(0, $txId);
@@ -2640,11 +2656,13 @@ final class BankPostingService
         try {
             $this->reconcileLegacyIncoming($supplierId, $tx);
             return $this->buildMatched($supplierId, $tx)['lines'];
+        } catch (\Throwable $e) {
+            // Odvolaná transakce savepoint nemá; ROLLBACK TO ve finally by ji přemaskoval.
+            TransactionFailure::rollbackIfAborted($pdo, $e);
+            throw $e;
         } finally {
-            if ($ownTx) {
-                $pdo->rollBack();
-            } else {
-                $pdo->exec('ROLLBACK TO SAVEPOINT preview_legacy_reconcile');
+            if ($pdo->inTransaction()) {
+                $ownTx ? $pdo->rollBack() : $pdo->exec('ROLLBACK TO SAVEPOINT preview_legacy_reconcile');
             }
         }
     }

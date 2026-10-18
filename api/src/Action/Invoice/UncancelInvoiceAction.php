@@ -211,7 +211,7 @@ final class UncancelInvoiceAction
         $this->cashSettlement->maybeSettle($supplierId, 'invoice', $id, $userId, $ip, $request->getHeaderLine('User-Agent'));
 
         $this->pdf->invalidate($id, 'invalidate_manual');
-        $this->stats->recomputeForInvoiceId($id);
+        $this->stats->recomputeAfterCommit($id);
 
         $restored = $this->repo->find($id);
         if ($assetSaleWarnings !== []) {

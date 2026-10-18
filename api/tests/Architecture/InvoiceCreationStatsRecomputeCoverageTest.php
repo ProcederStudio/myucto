@@ -68,6 +68,7 @@ final class InvoiceCreationStatsRecomputeCoverageTest extends TestCase
     private const EVIDENCE = [
         '->recomputeMany(',
         '->recomputeForInvoiceId(',
+        '->recomputeAfterCommit(',
         '->recomputeForIds(',
         '->recomputeClient(',
         '->recomputeProject(',

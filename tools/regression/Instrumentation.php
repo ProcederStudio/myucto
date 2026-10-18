@@ -8,7 +8,7 @@ final class Instrumentation
 {
     private const SOURCES = [
         'Connection' => 'b7d1044875fad222611fc313bde683c8aeb7a4fddb5e15e46022de64a17750fb',
-        'LoggingPdo' => ['d10edbbbab05bdf41e29675ed131e9a64c5d61258bf16990472f69f06ea5cd81', '2cfa564ed60e90271b63c9d694a7c4c9b7934abea77913d8b97ada3d4bab7903'],
+        'LoggingPdo' => ['d10edbbbab05bdf41e29675ed131e9a64c5d61258bf16990472f69f06ea5cd81', '2cfa564ed60e90271b63c9d694a7c4c9b7934abea77913d8b97ada3d4bab7903', '63e08f8bf35a7047338850ce22284fb474ea1bd37fca867e3477cf23bcc8c6e8'],
         'LoggingPdoStatement' => ['73585baf5a9f597f445e93ee9a0ffc1796e0cfc128722549318c6b3f674b904e', '8fb76dcc1168b0356412c72fe1ed5db2b870baf2fac1071ef4baebe85523d042'],
     ];
 

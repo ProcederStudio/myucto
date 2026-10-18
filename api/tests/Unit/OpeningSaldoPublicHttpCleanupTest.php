@@ -35,9 +35,11 @@ final class OpeningSaldoPublicHttpCleanupTest extends TestCase
         $server = new OpeningSaldoCleanupPdo(self::SCHEMA, $error, $failures);
         $outer = getenv('MYINVOICE_DB_NAME');
         try {
+            putenv($prior === false ? 'MYINVOICE_DB_NAME' : 'MYINVOICE_DB_NAME=' . $prior);
+            $capturedPrior = getenv('MYINVOICE_DB_NAME');
             putenv('MYINVOICE_DB_NAME=' . self::SCHEMA);
             $test = new OpeningSaldoPublicHttpTest('testOpeningFlowsThroughCuratedKeysetPageWithTemporalPersonalAndUncertainCoverage');
-            foreach (['server' => $server, 'owned' => self::SCHEMA, 'priorDatabase' => $prior] as $name => $value) {
+            foreach (['server' => $server, 'owned' => self::SCHEMA, 'priorDatabase' => $capturedPrior] as $name => $value) {
                 (new \ReflectionProperty($test, $name))->setValue($test, $value);
             }
             $caught = null;
@@ -46,7 +48,7 @@ final class OpeningSaldoPublicHttpCleanupTest extends TestCase
             } catch (PDOException $actual) {
                 $caught = $actual;
             }
-            self::assertSame($prior, getenv('MYINVOICE_DB_NAME'));
+            self::assertSame($capturedPrior, getenv('MYINVOICE_DB_NAME'));
             self::assertSame($throws ? $error : null, $caught);
             self::assertSame(array_fill(0, $attempts, 'DROP DATABASE IF EXISTS `' . self::SCHEMA . '`'), $server->statements);
             self::assertSame($throws ? self::SCHEMA : null, $server->created);

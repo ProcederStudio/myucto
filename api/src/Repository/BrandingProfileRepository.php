@@ -119,11 +119,52 @@ final class BrandingProfileRepository
         if ($sets === []) return $this->findForSupplier($id, $supplierId) !== null;
         $params[] = $id;
         $params[] = $supplierId;
-        $stmt = $this->db->pdo()->prepare(
-            'UPDATE branding_profiles SET ' . implode(', ', $sets) . ' WHERE id = ? AND supplier_id = ?'
-        );
-        $stmt->execute($params);
+        $pdo = $this->db->pdo();
+        $deactivating = array_key_exists('is_active', $data) && $this->normalizeValue('is_active', $data['is_active']) === 0;
+        $pdo->beginTransaction();
+        try {
+            $stmt = $pdo->prepare(
+                'UPDATE branding_profiles SET ' . implode(', ', $sets) . ' WHERE id = ? AND supplier_id = ?'
+            );
+            $stmt->execute($params);
+            if ($deactivating) {
+                $this->reassignDrafts($id, $supplierId);
+            }
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
         return $stmt->rowCount() > 0 || $this->findForSupplier($id, $supplierId) !== null;
+    }
+
+    /**
+     * Koncepty faktur a šablony opakovaných faktur, které profil používají, přepne
+     * na aktivní výchozí profil firmy (nebo na žádný, když výchozí není nebo jde
+     * o tentýž profil). Bez toho by po smazání (FK ON DELETE SET NULL) koncept tiše
+     * ztratil branding a po deaktivaci odkazoval na profil, který nejde vystavit.
+     * Vystavené doklady se nemění: profil mají zamrzlý ve snapshotu.
+     */
+    private function reassignDrafts(int $id, int $supplierId): void
+    {
+        $stmt = $this->db->pdo()->prepare(
+            'SELECT bp.id FROM supplier s
+               JOIN branding_profiles bp ON bp.id = s.default_branding_profile_id
+                                        AND bp.supplier_id = s.id AND bp.is_active = 1
+              WHERE s.id = ? AND bp.id <> ?'
+        );
+        $stmt->execute([$supplierId, $id]);
+        $target = $stmt->fetchColumn();
+        $target = $target === false ? null : (int) $target;
+
+        $this->db->pdo()->prepare(
+            "UPDATE invoices SET branding_profile_id = ?
+              WHERE supplier_id = ? AND branding_profile_id = ? AND status = 'draft'"
+        )->execute([$target, $supplierId, $id]);
+        $this->db->pdo()->prepare(
+            'UPDATE recurring_invoice_templates SET branding_profile_id = ?
+              WHERE supplier_id = ? AND branding_profile_id = ?'
+        )->execute([$target, $supplierId, $id]);
     }
 
     public function delete(int $id, int $supplierId): bool
@@ -133,6 +174,7 @@ final class BrandingProfileRepository
         try {
             $pdo->prepare('UPDATE supplier SET default_branding_profile_id = NULL WHERE id = ? AND default_branding_profile_id = ?')
                 ->execute([$supplierId, $id]);
+            $this->reassignDrafts($id, $supplierId);
             $stmt = $pdo->prepare('DELETE FROM branding_profiles WHERE id = ? AND supplier_id = ?');
             $stmt->execute([$id, $supplierId]);
             $deleted = $stmt->rowCount() > 0;

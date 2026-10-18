@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Accounting;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Repository\JournalEntryRepository;
 use MyInvoice\Service\Accounting\Bank\BankPostingService;
@@ -257,7 +258,13 @@ final class AdvancePaymentRelink
             }
             return ['status' => 'fixed', 'bank_entry_id' => $entryId, 'settlement' => $sync['action']] + $c;
         } catch (\Throwable $e) {
-            if ($own && $pdo->inTransaction()) {
+            // Odvolaná transakce (1020/1213) savepoint nemá; uvnitř cizí transakce ji musí
+            // dostat vlastník, vlastní transakce je vrácená a případ se nahlásí jako selhaný.
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                if (!$own) {
+                    throw $e;
+                }
+            } elseif ($own && $pdo->inTransaction()) {
                 $pdo->rollBack();
             } elseif (!$own && $pdo->inTransaction()) {
                 $pdo->exec('ROLLBACK TO SAVEPOINT ' . $savepoint);

@@ -19,6 +19,31 @@ final class CapitalUseGuard
     {
         if(!$this->db->pdo()->inTransaction())throw new \LogicException('Capital mutation guard requires a caller transaction.');
         (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->lockPeriods($supplier);
+        $protected=$this->protectedEntries($supplier);
+        if(!isset($protected[$entry]))return false;
+        $current=$this->journal->findForUpdate($entry,$supplier);if(!$current||$replacementLines===null||$replacementDate!==$current['entry_date'])self::used();
+        $repo=new DimensionAssignmentRepository($this->db);$ids=array_column($current['lines'],'id');$dims=$repo->lineDimensions($supplier,$ids,true);$splits=$repo->lineSplits($supplier,$ids,true);
+        foreach($current['lines']as&$line){$line['dimensions']=$dims[$line['id']]??[];$line['dimension_splits']=$splits[$line['id']]??[];}unset($line);
+        if(!JournalLineComparison::sameLines($current['lines'],$replacementLines))self::used();
+        if($replacementHeader!==null){foreach(['period_id','source_type','source_id','document_date','document_no','description']as$key)if((string)($replacementHeader[$key]??'')!==(string)($current[$key]??''))self::used();if(($replacementHeader['posted_at']??null)===null)self::used();}
+        return true;
+    }
+    public function assertEntriesMutable(int $supplier,array $entries):void
+    {
+        if($entries===[])return;
+        (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->lockPeriods($supplier);
+        $this->assertAssignmentEntriesMutable($supplier,$entries);
+    }
+    public static function assignmentEvidenceSql():string
+    {return 'EXISTS (SELECT 1 FROM nonprofit_capital_sources capital_assignment_source WHERE capital_assignment_source.supplier_id=e.supplier_id FOR UPDATE)';}
+    public function assertAssignmentEntriesMutable(int $supplier,array $entries):void
+    {
+        if(!$this->db->pdo()->inTransaction())throw new \LogicException('Capital assignment guard requires caller transaction and assignment preflight.');
+        if($entries===[])return;
+        if(array_intersect_key(array_fill_keys(array_map('intval',$entries),true),$this->protectedEntries($supplier))!==[])self::used();
+    }
+    private function protectedEntries(int $supplier):array
+    {
         $protected=[];
         foreach((new CapitalRepository($this->db))->sources($supplier)as$source)$protected[$source['basis']['source']['entry_id']]=true;
         foreach((new CapitalService($this->db))->canonicalEvents($supplier)as$event){
@@ -28,15 +53,8 @@ final class CapitalUseGuard
                 foreach($event['snapshot']['depreciation']['history']??[]as$native)$protected[$native['entry']['id']]=true;
             }
         }
-        if(!isset($protected[$entry]))return false;
-        $current=$this->journal->findForUpdate($entry,$supplier);if(!$current||$replacementLines===null||$replacementDate!==$current['entry_date'])self::used();
-        $repo=new DimensionAssignmentRepository($this->db);$ids=array_column($current['lines'],'id');$dims=$repo->lineDimensions($supplier,$ids,true);$splits=$repo->lineSplits($supplier,$ids,true);
-        foreach($current['lines']as&$line){$line['dimensions']=$dims[$line['id']]??[];$line['dimension_splits']=$splits[$line['id']]??[];}unset($line);
-        if(!JournalLineComparison::sameLines($current['lines'],$replacementLines))self::used();
-        if($replacementHeader!==null){foreach(['period_id','source_type','source_id','document_date','document_no','description']as$key)if((string)($replacementHeader[$key]??'')!==(string)($current[$key]??''))self::used();if(($replacementHeader['posted_at']??null)===null)self::used();}
-        return true;
+        return $protected;
     }
-    public function assertEntriesMutable(int $supplier,array $entries):void{foreach(array_unique(array_map('intval',$entries))as$entry)$this->assertEntryChange($supplier,$entry,null,null);}
     public function assertAssetChange(int $supplier,int $asset,?array $replacement):void
     {
         (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->lockPeriods($supplier);
@@ -50,8 +68,11 @@ final class CapitalUseGuard
     }
     public function assertLinesMutable(int $supplier,array $ids):void
     {
+        if($ids===[])return;
         (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->lockPeriods($supplier);
-        foreach(array_unique(array_map('intval',$ids))as$id){$q=$this->db->pdo()->prepare('SELECT entry_id FROM journal_entry_lines WHERE supplier_id=? AND id=? FOR UPDATE');$q->execute([$supplier,$id]);$entry=$q->fetchColumn();if($entry!==false)$this->assertEntriesMutable($supplier,[(int)$entry]);}
+        $ids=array_values(array_unique(array_map('intval',$ids)));sort($ids,SORT_NUMERIC);$entries=[];
+        foreach(array_chunk($ids,1000)as$chunk){$marks=implode(',',array_fill(0,count($chunk),'?'));$q=$this->db->pdo()->prepare("SELECT DISTINCT entry_id FROM journal_entry_lines WHERE supplier_id=? AND id IN ($marks) ORDER BY entry_id FOR UPDATE");$q->execute([$supplier,...$chunk]);array_push($entries,...$q->fetchAll(\PDO::FETCH_COLUMN));}
+        $this->assertAssignmentEntriesMutable($supplier,$entries);
     }
     public function assertSourceMutable(int $supplier,string $kind,int $id):void
     {
@@ -61,7 +82,8 @@ final class CapitalUseGuard
     public function assertBankStatementMutable(int $supplier,int $id):void
     {
         (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->lockPeriods($supplier);
-        $q=$this->db->pdo()->prepare("SELECT e.id FROM journal_entries e JOIN bank_transactions b ON b.supplier_id=e.supplier_id AND e.source_type='bank' AND e.source_id=b.id WHERE e.supplier_id=? AND b.statement_id=? ORDER BY e.id FOR UPDATE");$q->execute([$supplier,$id]);
+        $ownership=\MyInvoice\Repository\BankStatementOwnershipResolver::sql('s',true);
+        $q=$this->db->pdo()->prepare("SELECT e.id FROM journal_entries e JOIN bank_transactions b ON e.source_type='bank' AND e.source_id=b.id JOIN bank_statements s ON s.id=b.statement_id WHERE e.supplier_id=? AND s.id=? AND {$ownership} ORDER BY e.id FOR UPDATE");$q->execute([$supplier,$id,...\MyInvoice\Repository\BankStatementOwnershipResolver::params($supplier)]);
         $this->assertEntriesMutable($supplier,array_map('intval',$q->fetchAll(\PDO::FETCH_COLUMN)));
     }
     public function assertReversal(int $supplier,int $entry):void{$this->assertEntryChange($supplier,$entry,null,null);}

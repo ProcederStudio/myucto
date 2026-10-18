@@ -3969,6 +3969,17 @@ final class Routes
         $app->put   ('/api/logbook/trip-categories/{id:[0-9]+}',  [\MyInvoice\Action\Logbook\TripCategoriesAction::class, 'update']);
         $app->delete('/api/logbook/trip-categories/{id:[0-9]+}',  [\MyInvoice\Action\Logbook\TripCategoriesAction::class, 'delete']);
 
+        $app->get   ('/api/logbook/trip-templates',               [\MyInvoice\Action\Logbook\TripTemplatesAction::class, 'list']);
+        $app->post  ('/api/logbook/trip-templates',               [\MyInvoice\Action\Logbook\TripTemplatesAction::class, 'create']);
+        $app->put   ('/api/logbook/trip-templates/{id:[0-9]+}',   [\MyInvoice\Action\Logbook\TripTemplatesAction::class, 'update']);
+        $app->delete('/api/logbook/trip-templates/{id:[0-9]+}',   [\MyInvoice\Action\Logbook\TripTemplatesAction::class, 'delete']);
+
+        $app->get   ('/api/logbook/odometer-readings',              [\MyInvoice\Action\Logbook\OdometerReadingsAction::class, 'list']);
+        $app->post  ('/api/logbook/odometer-readings',              [\MyInvoice\Action\Logbook\OdometerReadingsAction::class, 'create']);
+        $app->delete('/api/logbook/odometer-readings/{id:[0-9]+}',  [\MyInvoice\Action\Logbook\OdometerReadingsAction::class, 'delete']);
+        $app->get   ('/api/logbook/odometer-gaps',                  [\MyInvoice\Action\Logbook\OdometerGapsAction::class, 'list']);
+        $app->post  ('/api/logbook/odometer-gaps/fill',             [\MyInvoice\Action\Logbook\OdometerGapsAction::class, 'fill']);
+
         $app->post  ('/api/logbook/trips/import',         \MyInvoice\Action\Logbook\ImportTripsAction::class);
         $app->post  ('/api/logbook/trips/bulk-delete',    [\MyInvoice\Action\Logbook\TripsAction::class, 'bulkDelete']);
         $app->post  ('/api/logbook/trips/recalculate-odometer', [\MyInvoice\Action\Logbook\TripsAction::class, 'recalculateOdometer']);

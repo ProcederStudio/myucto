@@ -107,7 +107,7 @@ final class AssetReserveSourceCloneTest extends TestCase
         self::assertNotSame($revision['revision_hash'], $result['revision_hash']);
         self::assertSame($result['previous_hash'], $copy['asset_correction_pending']['body']['previous_hash']);
         self::assertSame($result['source_evidence']['source_hash'], $copy['asset_correction_pending']['body']['reserve_source']['source_hash']);
-        self::assertSame($scrubber->scrub('source@example.com'), $result['pinned_entries'][0]['lines'][0]['cost_center']);
+        self::assertSame($scrubber->byStrategy('cost_center', 'source@example.com'), $result['pinned_entries'][0]['lines'][0]['cost_center']);
         self::assertSame($result['pinned_entries'][0]['lines'][0]['cost_center'], $result['transfers'][0]['before'][0]['cost_center']);
         self::assertSame('999999999.99', $result['pinned_entries'][0]['lines'][0]['amount']);
         self::assertSame('0.00', $result['pinned_entries'][0]['lines'][0]['amount_foreign']);

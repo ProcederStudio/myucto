@@ -383,10 +383,12 @@ async function onDeletePdf() {
   }
 }
 
-// Smazání avízo-výpisu (e-mailová bankovní avíza). Nabízí se jen když na něm
-// nezbývá žádná spárovaná položka — typicky poté, co párování převzal oficiální
-// GPC výpis. Backend mazání je admin-only a guarduje matched_count > 0.
+// Smazání avízo-výpisu (e-mailová avíza, iDoklad) smí každý s bankou k zápisu, kdo
+// není klient — stejně jako backend. Backend ho odmítne, dokud na výpisu visí živě
+// spárovaná položka (typicky před převzetím oficiálním výpisem); tlačítko je pak
+// neaktivní s vysvětlením.
 const deletingStatement = ref(false)
+const noticeDeleteBlocked = computed(() => isVirtual.value && (statement.value?.matched_count ?? 0) > 0)
 async function onDeleteStatement() {
   if (!statement.value) return
   if (!confirm(t(statement.value.api_evidence ? 'bank.statement_delete_evidence_confirm' : 'bank.statement_delete_confirm'))) return
@@ -529,9 +531,10 @@ const statementActions = computed<ActionItem[]>(() => {
       icon: 'trash',
       tier: 'advanced',
       variant: 'danger',
-      show: !auth.isClientRole && auth.isCompanyAdminRole && (s.api_evidence === true || (isVirtual.value && s.matched_count === 0)),
+      show: !auth.isClientRole && (isVirtual.value ? auth.canWrite('bank') : auth.isCompanyAdminRole && s.api_evidence === true),
       title: t(s.api_evidence ? 'bank.statement_delete_evidence_hint' : 'bank.statement_delete_hint'),
-      disabled: deletingStatement.value,
+      disabled: deletingStatement.value || noticeDeleteBlocked.value,
+      disabledReason: noticeDeleteBlocked.value ? t('bank.statement_delete_has_matches') : undefined,
       loading: deletingStatement.value,
       run: () => { void onDeleteStatement() },
     },
@@ -662,6 +665,11 @@ useWindowRefresh(['bank', 'bank-statements', 'bank-transactions', 'bank-match-su
           <span v-if="isDoubleEntry && pendingPostingCount > 0"
             class="inline-flex items-center bg-warning-50 text-warning-600 rounded-full px-2 py-0.5 text-xs normal-case font-medium">
             {{ t('bank.posting.pending_chip', { count: pendingPostingCount }) }}
+          </span>
+          <span v-if="isVirtual && (statement.superseded_count ?? 0) > 0" data-testid="statement-superseded-chip"
+            :title="t('bank.notice_superseded_hint')"
+            class="inline-flex items-center bg-neutral-100 text-neutral-500 rounded-full px-2 py-0.5 text-xs normal-case font-medium">
+            {{ t('bank.notice_superseded_chip', { count: statement.superseded_count }) }}
           </span>
         </h2>
         <div class="flex flex-wrap items-center gap-2">

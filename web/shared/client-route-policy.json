@@ -5,7 +5,7 @@
     { "name": "portal", "path_pattern": "^/portal/?$", "kind": "permission", "permission": "profile", "access": "read" },
     { "name": "portal-document-requests", "path_pattern": "^/portal/document-requests/?$", "kind": "permission", "permission": "documents.submit", "access": "read" },
     { "name": "portal-purchase-invoice-submissions", "path_pattern": "^/portal/purchase-invoice-submissions/?$", "kind": "permission", "permission": "documents.submit", "access": "read" },
-    { "name": "portal-company-settings", "path_pattern": "^/portal/settings/?$", "kind": "permission", "permission": "settings.company", "access": "write" },
+    { "name": "portal-company-settings", "path_pattern": "^/portal/settings/?$", "kind": "permission", "permission_any": ["settings.email_profiles", "settings.email_templates", "settings.branding", "settings.payment_qr", "settings.signing_profiles"], "access": "write" },
 
     { "name": "admin-codebooks", "path_pattern": "^/admin/codebooks/?$", "kind": "permission", "permission": "settings.company", "access": "read" },
     { "name": "admin-approvals", "path_pattern": "^/admin/approvals/?$", "kind": "permission", "permission": "invoices.approval", "access": "read" },
@@ -18,6 +18,18 @@
     { "name": "client-new", "path_pattern": "^/clients/new/?$", "kind": "permission", "permission": "clients.create", "access": "write" },
     { "name": "client-detail", "path_pattern": "^/clients/[0-9]+/?$", "kind": "permission", "permission": "clients", "access": "read" },
     { "name": "client-edit", "path_pattern": "^/clients/[0-9]+/edit/?$", "kind": "permission", "permission": "clients", "access": "write" },
+
+    { "name": "projects", "path_pattern": "^/projects/?$", "kind": "permission", "permission": "projects", "access": "read" },
+    { "name": "project-new", "path_pattern": "^/projects/new/?$", "kind": "permission", "permission": "projects.create", "access": "write" },
+    { "name": "project-detail", "path_pattern": "^/projects/[0-9]+/?$", "kind": "permission", "permission": "projects", "access": "read" },
+    { "name": "project-edit", "path_pattern": "^/projects/[0-9]+/edit/?$", "kind": "permission", "permission": "projects", "access": "write" },
+    { "name": "logbook", "path_pattern": "^/logbook/?$", "kind": "permission", "permission": "logbook", "access": "read" },
+
+    { "name": "stock-items", "path_pattern": "^/stock/items/?$", "kind": "permission", "permission": "stock", "access": "read" },
+    { "name": "stock-item-new", "path_pattern": "^/stock/items/new/?$", "kind": "permission", "permission": "stock.items.write", "access": "write" },
+    { "name": "stock-item-detail", "path_pattern": "^/stock/items/[0-9]+/?$", "kind": "permission", "permission": "stock", "access": "read" },
+    { "name": "stock-item-edit", "path_pattern": "^/stock/items/[0-9]+/edit/?$", "kind": "permission", "permission": "stock.items.write", "access": "write" },
+    { "name": "stock-fulfillment", "path_pattern": "^/stock/fulfillment/?$", "kind": "permission", "permission": "stock", "access": "read" },
 
     { "name": "invoices", "path_pattern": "^/invoices/?$", "kind": "permission", "permission": "invoices", "access": "read" },
     { "name": "invoice-ai-import", "path_pattern": "^/invoices/ai-import/?$", "kind": "permission", "permission": "invoices.create", "access": "write" },
@@ -35,6 +47,11 @@
     { "name": "purchase-invoice-new", "path_pattern": "^/purchase-invoices/new/?$", "kind": "permission", "permission": "purchase_invoices.create", "access": "write" },
     { "name": "purchase-invoice-detail", "path_pattern": "^/purchase-invoices/[0-9]+/?$", "kind": "permission", "permission": "purchase_invoices", "access": "read" },
     { "name": "purchase-invoice-edit", "path_pattern": "^/purchase-invoices/[0-9]+/edit/?$", "kind": "permission", "permission": "purchase_invoices", "access": "write" },
+
+    { "name": "admin-price-list", "path_pattern": "^/admin/price-list/?$", "kind": "permission", "permission": "price_list", "access": "read" },
+    { "name": "admin-price-list-view", "path_pattern": "^/admin/price-list/[0-9]+/?$", "kind": "permission", "permission": "price_list", "access": "read" },
+    { "name": "admin-price-list-new", "path_pattern": "^/admin/price-list/new/?$", "kind": "permission", "permission": "price_list", "access": "write" },
+    { "name": "admin-price-list-edit", "path_pattern": "^/admin/price-list/[0-9]+/edit/?$", "kind": "permission", "permission": "price_list", "access": "write" },
 
     { "name": "recurring", "path_pattern": "^/recurring/?$", "kind": "permission", "permission": "recurring", "access": "read" },
     { "name": "recurring-new", "path_pattern": "^/recurring/new/?$", "kind": "permission", "permission": "recurring.create", "access": "write" },

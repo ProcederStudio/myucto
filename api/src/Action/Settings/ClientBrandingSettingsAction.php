@@ -17,8 +17,8 @@ use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
 /**
- * Úzký supplier-scoped výřez brandingu pro klientské role s
- * `settings.company = WRITE`. Záměrně nesdílí mass-assignment se SettingsAction.
+ * Úzký supplier-scoped výřez brandingu s oprávněním
+ * `settings.branding = WRITE`. Záměrně nesdílí mass-assignment se SettingsAction.
  */
 final class ClientBrandingSettingsAction
 {

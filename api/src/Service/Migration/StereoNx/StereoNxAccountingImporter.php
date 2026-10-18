@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Migration\StereoNx;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Service\Accounting\AccountingFrameworkException;
 use MyInvoice\Service\Accounting\AccountingFrameworkImportGuard;
 use MyInvoice\Service\Accounting\FiscalCalendar;
@@ -246,6 +247,9 @@ final class StereoNxAccountingImporter
                 }
                 $report['ok'] = true;
             } catch (Throwable $e) {
+                if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                    throw $e;
+                }
                 if ($nested) {
                     $pdo->exec('ROLLBACK TO SAVEPOINT stereo_nx_accounting');
                     $pdo->exec('RELEASE SAVEPOINT stereo_nx_accounting');

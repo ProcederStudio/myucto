@@ -15,6 +15,7 @@ import { installFrameNavigation, internalAnchorNavigation } from '@/workspace/fr
 import { windowContextKey } from '@/workspace/windowContext'
 import Toaster from '@/components/Toaster.vue'
 import WebAuthnCeremonyPrompt from '@/components/WebAuthnCeremonyPrompt.vue'
+import TableViewportScrollbars from '@/components/ui/TableViewportScrollbars.vue'
 import { internalRouteFromAnchor } from '@/workspace/panelLinks'
 import {
   isWindowFrameParentMessage,
@@ -28,19 +29,24 @@ import {
 } from '@/workspace/frameProtocol'
 
 let appearanceSequence = 0
+
+function toggleClass(element: HTMLElement, name: string, enabled = true): void {
+  if (element.classList.contains(name) !== enabled) element.classList.toggle(name, enabled)
+}
+
 async function applyAppearance(theme: WindowFrameTheme, locale: WindowFrameLocale, accent = 'primary', singlePanel = false): Promise<void> {
   const sequence = ++appearanceSequence
-  document.documentElement.classList.toggle('dark', theme === 'dark')
-  document.documentElement.classList.add('workspace-window-frame')
-  document.body.classList.add('workspace-window-frame')
-  document.body.classList.toggle('workspace-window-single', singlePanel)
+  toggleClass(document.documentElement, 'dark', theme === 'dark')
+  toggleClass(document.documentElement, 'workspace-window-frame')
+  toggleClass(document.body, 'workspace-window-frame')
+  toggleClass(document.body, 'workspace-window-single', singlePanel)
   const shellMain = window.frameElement?.closest('main')
-  document.body.classList.toggle('workspace-window-single-padded', singlePanel
+  toggleClass(document.body, 'workspace-window-single-padded', singlePanel
     && (!shellMain || window.parent.getComputedStyle(shellMain).paddingTop === '0px'))
-  document.body.dataset.accent = accent
+  if (document.body.dataset.accent !== accent) document.body.dataset.accent = accent
   if (i18n.global.locale.value !== locale) await ensureLocaleLoaded(locale)
   if (sequence !== appearanceSequence) return
-  document.documentElement.lang = locale
+  if (document.documentElement.lang !== locale) document.documentElement.lang = locale
   i18n.global.locale.value = locale
 }
 
@@ -111,6 +117,7 @@ export async function startWindowFrame(frame: WindowFrameBootstrap): Promise<voi
   let suppliedTitle = ''
   let suppliedSubtitle: string | null = null
   let routeMessageQueued = false
+  let lastRouteMessage: { fullPath: string; title: string; subtitle: string | null } | undefined
   const mountElement = document.getElementById('app')
   if (!mountElement) throw new Error('Missing window frame mount element.')
   const root: HTMLElement = mountElement
@@ -121,12 +128,16 @@ export async function startWindowFrame(frame: WindowFrameBootstrap): Promise<voi
     routeMessageQueued = false
     const route = router.currentRoute.value
     const heading = root.querySelector('h1')?.textContent?.trim()
+    const message = { fullPath: route.fullPath, title: suppliedTitle || heading || route.fullPath, subtitle: suppliedSubtitle }
+    // Teleport anchors and report rows also trigger the title observer. Sending
+    // unchanged metadata makes the shell unnecessarily reapply the frame state.
+    if (lastRouteMessage?.fullPath === message.fullPath && lastRouteMessage.title === message.title
+      && lastRouteMessage.subtitle === message.subtitle) return
+    lastRouteMessage = message
     postWindowFrameMessage({
       type: 'myucto-window-route',
       id: frame.id,
-      fullPath: route.fullPath,
-      title: suppliedTitle || heading || route.fullPath,
-      subtitle: suppliedSubtitle,
+      ...message,
     })
   }
 
@@ -154,7 +165,7 @@ export async function startWindowFrame(frame: WindowFrameBootstrap): Promise<voi
         },
       }
       provide(windowContextKey, context)
-      return () => h(Fragment, [h(RouterView), h(Toaster), h(WebAuthnCeremonyPrompt)])
+      return () => h(Fragment, [h(RouterView), h(Toaster), h(WebAuthnCeremonyPrompt), h(TableViewportScrollbars)])
     },
   })
 

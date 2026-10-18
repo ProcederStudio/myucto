@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Stock;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\CatalogJobItemRepository;
 use MyInvoice\Service\Eshop\CatalogJobService;
 use MyInvoice\Service\Eshop\EshopException;
@@ -112,7 +113,11 @@ final class OpeningStockImportWorker
                 $error = $e->errorCode;
             } catch (\InvalidArgumentException $e) {
                 $error = preg_match('/^[a-z0-9_]{1,100}$/D', $e->getMessage()) ? $e->getMessage() : 'opening_import_validation_failed';
-            } catch (\PDOException) {
+            } catch (\PDOException $e) {
+                // Odvolaná transakce (1020/1213) není vada řádku: celá dávka je pryč.
+                if (TransactionFailure::aborted($e)) {
+                    throw $e;
+                }
                 $error = 'opening_import_database_validation_failed';
             }
             $this->items->append($supplierId, $job['id'], [[
@@ -159,9 +164,15 @@ final class OpeningStockImportWorker
             $document = $this->documents->create($supplierId, $this->documentBody($profile, [$values + ['stock_item_id' => $item['id']]], 0), null);
             $posted = $this->documents->post($supplierId, (int) $document['id'], null);
             return $this->canonical($posted, $posted['lines'][0]);
+        } catch (\Throwable $e) {
+            // Odvolaná transakce savepoint nemá; ROLLBACK TO ve finally by ji přemaskoval.
+            TransactionFailure::rollbackIfAborted($pdo, $e);
+            throw $e;
         } finally {
-            $pdo->exec('ROLLBACK TO SAVEPOINT opening_import_trial');
-            $pdo->exec('RELEASE SAVEPOINT opening_import_trial');
+            if ($pdo->inTransaction()) {
+                $pdo->exec('ROLLBACK TO SAVEPOINT opening_import_trial');
+                $pdo->exec('RELEASE SAVEPOINT opening_import_trial');
+            }
         }
     }
 
@@ -219,13 +230,18 @@ final class OpeningStockImportWorker
                     $this->items->finish($supplierId, $job['id'], $item['ordinal'], 'applied', $item['before'], $after);
                 }
             } catch (\Throwable $e) {
+                if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                    throw $e;
+                }
                 $pdo->exec('ROLLBACK TO SAVEPOINT opening_import_apply');
                 $code = $e instanceof StockException || $e instanceof EshopException ? $e->errorCode : 'opening_import_write_failed';
                 foreach ($ready as $item) {
                     $this->items->finish($supplierId, $job['id'], $item['ordinal'], 'conflict', $item['before'], $item['after'], $code);
                 }
             } finally {
-                $pdo->exec('RELEASE SAVEPOINT opening_import_apply');
+                if ($pdo->inTransaction()) {
+                    $pdo->exec('RELEASE SAVEPOINT opening_import_apply');
+                }
             }
         }
         $checkpoint = $batch === [] ? $job['checkpoint'] : end($batch)['ordinal'];

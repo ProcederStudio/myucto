@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Action\Project;
 
 use MyInvoice\Http\Json;
+use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Infrastructure\Config\Config;
 use MyInvoice\Middleware\SupplierScopeMiddleware;
 use MyInvoice\Repository\ClientRepository;
@@ -41,8 +42,10 @@ final class ListProjectsAction
         $page = max(1, (int) ($q['page'] ?? 1));
         $default = (int) $this->config->get('pagination.projects_per_page', 50);
         $perPage = min(200, max(5, (int) ($q['per_page'] ?? $default)));
+        $includeInvoices = RequestAuthorization::allows($request, 'invoices');
         $sort = (string) ($q['sort'] ?? 'name');
 
-        return Json::ok($response, $this->repo->listAll($filters, $page, $perPage, $sort));
+        if (!$includeInvoices && in_array($sort, ['revenue', 'last_activity'], true)) $sort = 'name';
+        return Json::ok($response, $this->repo->listAll($filters, $page, $perPage, $sort, $includeInvoices));
     }
 }

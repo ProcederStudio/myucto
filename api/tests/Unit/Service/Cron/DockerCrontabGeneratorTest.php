@@ -246,7 +246,10 @@ final class DockerCrontabGeneratorTest extends TestCase
         }
     }
 
-    /** Detekce běhu v Dockeru nesmí mít jméno wrapperu opsané druhou rukou. */
+    /**
+     * Detekce běhu v Dockeru nesmí mít jméno wrapperu opsané druhou rukou: obě akce
+     * volají sdílenou detekci, ta se ptá na konstantu (a mimo open_basedir vůbec ne).
+     */
     public function testDockerDetectionUsesTheSharedConstant(): void
     {
         $root = dirname(__DIR__, 5);
@@ -255,8 +258,10 @@ final class DockerCrontabGeneratorTest extends TestCase
             'api/src/Action/Admin/SetCronScheduleModeAction.php',
         ] as $path) {
             $contents = (string) file_get_contents($root . '/' . $path);
-            self::assertStringContainsString('DockerCrontabGenerator::WRAPPER', $contents, $path);
-            self::assertStringNotContainsString('/usr/local/bin/myinvoice-cron-run', $contents, $path);
+            self::assertStringContainsString('DockerCrontabGenerator::runningInContainer()', $contents, $path);
+            self::assertStringNotContainsString('-cron-run', $contents, $path);
         }
+        $generator = (string) file_get_contents($root . '/api/src/Service/Cron/DockerCrontabGenerator.php');
+        self::assertStringContainsString('OpenBasedir::isFile(self::WRAPPER)', $generator);
     }
 }

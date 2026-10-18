@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ClientItems from './ClientItems.vue'
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick, useId } from 'vue'
 import { useRoute, useRouter, RouterLink, onBeforeRouteLeave } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -1189,6 +1190,7 @@ function prepareEditorRows() {
 }
 
 onMounted(async () => {
+  if (auth.isClientRole) return
   try {
     await loadCodebooks()
     if (isEdit.value && itemId.value) {
@@ -1284,8 +1286,9 @@ function onBeforeUnload(event: BeforeUnloadEvent) {
   event.preventDefault()
   event.returnValue = ''
 }
-onBeforeRouteLeave(() => confirmDiscard())
+onBeforeRouteLeave(() => auth.isClientRole || confirmDiscard())
 onMounted(() => {
+  if (auth.isClientRole) return
   window.addEventListener('beforeunload', onBeforeUnload)
   window.addEventListener('resize', showActiveTab)
 })
@@ -1464,7 +1467,8 @@ function onImgError(e: Event) {
 </script>
 
 <template>
-  <div class="max-w-7xl">
+  <ClientItems v-if="auth.isClientRole" mode="editor" />
+  <div v-else class="max-w-7xl">
     <div class="flex items-center justify-between mb-4">
       <h1 class="text-2xl font-semibold">{{ isEdit ? t('stock.items.edit_title') : t('stock.items.new_title') }}</h1>
       <RouterLink to="/stock/items" class="text-sm text-neutral-600 hover:text-neutral-900">{{ t('stock.item_detail.back_to_list') }}</RouterLink>

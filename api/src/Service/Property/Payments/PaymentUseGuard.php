@@ -14,7 +14,6 @@ final class PaymentUseGuard
     }
     public function assertAssignmentInsertsMutable(int $supplier,array $lineIds):void
     {
-        (new \MyInvoice\Service\Nonprofit\Capital\CapitalUseGuard($this->db))->assertLinesMutable($supplier,$lineIds);
         (new \MyInvoice\Service\Accounting\Allocation\JointAllocationUseGuard($this->db))->assertAssignmentInsertsMutable($supplier,$lineIds);
     }
     private function assertCurrentReferences(int $supplier,array $ids,bool $lines):void

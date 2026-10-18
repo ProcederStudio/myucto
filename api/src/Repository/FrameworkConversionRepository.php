@@ -35,7 +35,8 @@ final class FrameworkConversionRepository
         E::need($source!==null&&$target!==null,'conversion_period_missing',404);
         E::need(in_array($source['status'],['closed','reviewed','approved'],true),'conversion_native_close_required');
         E::need($target['starts_on']===(new \DateTimeImmutable($source['ends_on']))->modify('+1 day')->format('Y-m-d'),'conversion_contiguous_period_required');
-        $frameworks=$this->rows('SELECT id,supplier_id,effective_from,accounting_framework FROM supplier_accounting_frameworks WHERE supplier_id=? ORDER BY effective_from,id',[$supplier],$current);
+        $frameworkRepository=new AccountingFrameworkRepository($this->db);
+        $frameworks=$current?$frameworkRepository->listForTenantForUpdate($supplier):array_map(static fn(array $row):array=>array_intersect_key($row,array_flip(['id','supplier_id','effective_from','accounting_framework'])),$frameworkRepository->listForTenant($supplier));
         $framework='cz_500';foreach($frameworks as $row)if($row['effective_from']<=$source['ends_on'])$framework=$row['accounting_framework'];
         E::need($framework==='cz_500','conversion_source_500_required');
         $atStart='cz_500';foreach($frameworks as $history)if($history['effective_from']<=$source['starts_on'])$atStart=$history['accounting_framework'];E::need($atStart==='cz_500','conversion_source_500_required');

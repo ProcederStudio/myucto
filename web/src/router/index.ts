@@ -11,7 +11,7 @@ import { hasPendingCanonicalDomainLoginCleanup, pendingCanonicalDomainLoginQuery
 import type { DomainContext } from '@/api/auth'
 import { useSupplierStore } from '@/stores/supplier'
 import { useSessionSecurityStore } from '@/stores/sessionSecurity'
-import type { AccessLevel, PermissionKey } from '@/security/permissions'
+import { OPERATIONAL_SETTINGS_KEYS, type AccessLevel, type PermissionKey } from '@/security/permissions'
 import { ensureNamespaces, namespacesForRoute } from '@/i18n'
 import { createWorkspaceRoutes } from './workspaceRoutes'
 import { workspaceShellRoutes } from './workspaceShellRoutes'
@@ -27,6 +27,7 @@ import {
 declare module 'vue-router' {
   interface RouteMeta {
     permission?: PermissionKey
+    permissionAny?: readonly PermissionKey[]
     additionalPermissions?: PermissionKey[]
     access?: AccessLevel
     staffOnly?: boolean
@@ -84,9 +85,11 @@ const routes: RouteRecordRaw[] = [
   },
 ]
 
-const routePermissions: Record<string, [PermissionKey, AccessLevel?]> = {
+const routePermissions: Record<string, [PermissionKey | readonly PermissionKey[], AccessLevel?]> = {
+  'admin-price-list': ['price_list'], 'admin-price-list-view': ['price_list'],
+  'admin-price-list-new': ['price_list', 'write'], 'admin-price-list-edit': ['price_list', 'write'],
   home: ['dashboard'], portal: ['profile'], 'portal-document-requests': ['documents.submit'],
-  'portal-purchase-invoice-submissions': ['documents.submit'], 'portal-company-settings': ['settings.company', 'write'],
+  'portal-purchase-invoice-submissions': ['documents.submit'], 'portal-company-settings': [OPERATIONAL_SETTINGS_KEYS, 'write'],
   clients: ['clients'], 'client-new': ['clients.create', 'write'], 'client-detail': ['clients'], 'client-edit': ['clients', 'write'],
   projects: ['projects'], 'project-new': ['projects.create', 'write'], 'project-detail': ['projects'], 'project-edit': ['projects', 'write'],
   invoices: ['invoices'], 'invoice-new': ['invoices.create', 'write'], 'invoice-detail': ['invoices'], 'invoice-edit': ['invoices', 'write'],
@@ -219,7 +222,7 @@ const superadminRouteNames = new Set([
 ])
 
 const adminPlusRouteNames = new Set(['admin-suppliers'])
-const companyAdminRouteNames = new Set(['admin-price-list', 'admin-price-list-new', 'admin-price-list-edit'])
+const companyAdminRouteNames = new Set([] as string[])
 
 // Routy, které projdou deny-by-default guardem (:361) bez permission meta jinak než
 // přes routePermissions — musí být zrcadleny se `selfServiceRoute` v beforeEach.
@@ -259,10 +262,16 @@ export function applyAuthorizationMeta(records: RouteRecordRaw[], inheritedRequi
     if (record.meta?.requiresDoubleEntry || record.meta?.requiresStock || commercialOnlyRouteNames.has(name)) {
       record.meta = { ...record.meta, commercialOnly: true }
     }
+    if (name === 'admin-branding') record.meta = { ...record.meta, staffOnly: true }
+    if (name.startsWith('stock-') && !['stock-items', 'stock-item-new', 'stock-item-detail', 'stock-item-edit', 'stock-fulfillment'].includes(name)) {
+      record.meta = { ...record.meta, staffOnly: true }
+    }
     const rule = routePermissions[name]
     if (rule) {
       const mayRenderWithoutSupplier = rule[0] === 'dashboard' || rule[0] === 'profile' || rule[0] === 'profile.tokens'
-      record.meta = { ...record.meta, permission: rule[0], access: rule[1] ?? 'read', requiresSupplier: !mayRenderWithoutSupplier }
+      record.meta = { ...record.meta,
+        ...(Array.isArray(rule[0]) ? { permissionAny: rule[0] } : { permission: rule[0] as PermissionKey }),
+        access: rule[1] ?? 'read', requiresSupplier: !mayRenderWithoutSupplier }
     }
     // Dev-time pojistka proti P1.5b (5b v REAL_data_followup_UX.md): route bez záznamu
     // v routePermissions projde deny-by-default guardem tiše na homepage — bez chyby,
@@ -521,19 +530,20 @@ export async function authorizationGuard(
     return denyFallback(to.name, auth)
   }
 
-  const permissionMeta = [...to.matched].reverse().find(r => r.meta.permission)?.meta
+  const permissionMeta = [...to.matched].reverse().find(r => r.meta.permission || r.meta.permissionAny)?.meta
   const additionalPermissionDenied = to.matched.some(record =>
     record.meta.additionalPermissions?.some(permission => !auth.can(permission, 'read')),
   )
   if ((permissionMeta?.permission
       && !auth.can(permissionMeta.permission, permissionMeta.access ?? 'read'))
+    || (permissionMeta?.permissionAny && !permissionMeta.permissionAny.some(permission => auth.can(permission, permissionMeta.access ?? 'read')))
     || additionalPermissionDenied
   ) {
     return denyFallback(to.name, auth)
   }
   const selfServiceRoute = mfaSetupRoute
     || (typeof to.name === 'string' && selfServiceRouteNames.has(to.name))
-  if (requiresAuth && !permissionMeta?.permission && !superadminOnly && !adminPlusOnly && !companyAdminOnly && !selfServiceRoute) {
+  if (requiresAuth && !permissionMeta?.permission && !permissionMeta?.permissionAny && !superadminOnly && !adminPlusOnly && !companyAdminOnly && !selfServiceRoute) {
     return denyFallback(to.name, auth)
   }
 

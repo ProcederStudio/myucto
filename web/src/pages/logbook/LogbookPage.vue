@@ -6,14 +6,19 @@ import TripsTab from './TripsTab.vue'
 import CarsTab from './CarsTab.vue'
 import FuelingsTab from './FuelingsTab.vue'
 import CategoriesTab from './CategoriesTab.vue'
+import TemplatesTab from './TemplatesTab.vue'
 import SummariesTab from './SummariesTab.vue'
 
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 
-type Tab = 'trips' | 'cars' | 'fuel' | 'categories' | 'summary'
-const tabs: Tab[] = ['trips', 'cars', 'fuel', 'categories', 'summary']
+type Tab = 'trips' | 'cars' | 'fuel' | 'templates' | 'categories' | 'summary'
+const tabs: Tab[] = ['trips', 'cars', 'fuel', 'templates', 'categories', 'summary']
+const tabLabelKey: Record<Tab, string> = {
+  trips: 'logbook.tab_trips', cars: 'logbook.tab_cars', fuel: 'logbook.tab_fuel',
+  templates: 'logbook.tab_templates', categories: 'logbook.tab_categories', summary: 'logbook.tab_summary',
+}
 const tab = ref<Tab>((tabs as string[]).includes(String(route.query.tab)) ? (route.query.tab as Tab) : 'trips')
 
 watch(tab, (v) => {
@@ -66,7 +71,7 @@ watch(() => route.query, (q) => {
         :class="tab === tt
           ? 'border-primary-600 text-primary-700 font-medium'
           : 'border-transparent text-neutral-600 hover:text-neutral-900'">
-        {{ tt === 'trips' ? t('logbook.tab_trips') : tt === 'cars' ? t('logbook.tab_cars') : tt === 'fuel' ? t('logbook.tab_fuel') : tt === 'categories' ? t('logbook.tab_categories') : t('logbook.tab_summary') }}
+        {{ t(tabLabelKey[tt]) }}
       </button>
     </div>
 
@@ -74,6 +79,7 @@ watch(() => route.query, (q) => {
       <TripsTab v-if="tab === 'trips'" :reset-token="resetToken" :open-new-token="openNewTripToken" />
       <CarsTab v-else-if="tab === 'cars'" :reset-token="resetToken" />
       <FuelingsTab v-else-if="tab === 'fuel'" :reset-token="resetToken" :open-new-token="openNewFuelToken" />
+      <TemplatesTab v-else-if="tab === 'templates'" :reset-token="resetToken" />
       <CategoriesTab v-else-if="tab === 'categories'" :reset-token="resetToken" />
       <SummariesTab v-else :reset-token="resetToken" />
     </KeepAlive>

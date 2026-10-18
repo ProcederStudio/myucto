@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Repository\Payroll;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Service\Payroll\Net\PayrollPayoutRuleInput;
 use PDO;
 use PDOException;
@@ -395,6 +396,9 @@ final class PayrollPayoutRuleRepository
 
             return $result;
         } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             if ($nested && $pdo->inTransaction()) {
                 $pdo->exec('ROLLBACK TO SAVEPOINT ' . $savepoint);
                 $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);

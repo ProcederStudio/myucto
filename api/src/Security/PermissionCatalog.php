@@ -6,11 +6,11 @@ namespace MyInvoice\Security;
 
 final class PermissionCatalog
 {
-    public const VERSION = '2026-10-property-funding-v1';
+    public const VERSION = '2026-10-property-operational-settings-v1';
 
     /** @var list<string> */
     private const GROUPS = [
-        'dashboard', 'clients', 'projects', 'invoices', 'purchase_invoices', 'recurring',
+        'dashboard', 'clients', 'projects', 'invoices', 'purchase_invoices', 'recurring', 'price_list',
         'bank', 'documents', 'accounting', 'property', 'other_items', 'tax_evidence', 'reports', 'payroll', 'cash', 'assets',
         'stock', 'eshop', 'logbook', 'settings', 'utilities', 'profile',
     ];
@@ -33,9 +33,9 @@ final class PermissionCatalog
             ['clients.create', 'clients', 'Vytvořit klienta', $both],
             ['clients.archive', 'clients', 'Archivovat klienta', $both],
             ['clients.public_links', 'clients', 'Veřejné odkazy', $staffOnly],
-            ['projects', 'projects', 'Zakázky', $staffOnly],
-            ['projects.create', 'projects', 'Vytvořit zakázku', $staffOnly],
-            ['projects.archive', 'projects', 'Archivovat zakázku', $staffOnly],
+            ['projects', 'projects', 'Zakázky', $both],
+            ['projects.create', 'projects', 'Vytvořit zakázku', $both],
+            ['projects.archive', 'projects', 'Archivovat zakázku', $both],
             ['invoices', 'invoices', 'Vydané faktury', $both],
             ['invoices.create', 'invoices', 'Vytvořit fakturu', $both],
             ['invoices.issue', 'invoices', 'Vydat fakturu', $both],
@@ -55,6 +55,7 @@ final class PermissionCatalog
             ['purchase_invoices.payment_orders', 'purchase_invoices', 'Platební příkazy', $staffOnly],
             ['purchase_invoices.delete', 'purchase_invoices', 'Smazat přijatou fakturu', $both],
             ['purchase_invoices.approve', 'purchase_invoices', 'Schvalovat přijaté doklady', $staffOnly],
+            ['price_list', 'price_list', 'Ceník', $both],
             ['recurring', 'recurring', 'Pravidelná fakturace', $both],
             ['recurring.create', 'recurring', 'Vytvořit šablonu', $both],
             ['recurring.run', 'recurring', 'Spustit fakturaci', $both],
@@ -147,10 +148,10 @@ final class PermissionCatalog
             ['assets.write', 'assets', 'Spravovat majetek', $staffOnly],
             ['assets.depreciation', 'assets', 'Odpisy', $staffOnly],
             ['assets.dispose', 'assets', 'Vyřadit majetek', $staffOnly],
-            ['stock', 'stock', 'Sklad', $staffOnly],
-            ['stock.items.write', 'stock', 'Skladové karty', $staffOnly],
+            ['stock', 'stock', 'Sklad', $both],
+            ['stock.items.write', 'stock', 'Skladové karty', $both],
             ['stock.documents.write', 'stock', 'Skladové doklady', $staffOnly],
-            ['stock.fulfillment.write', 'stock', 'Vychystání a expedice', $staffOnly],
+            ['stock.fulfillment.write', 'stock', 'Vychystání a expedice', $both],
             ['stock.fulfillment.override', 'stock', 'Odchylky při vychystání', $staffOnly],
             ['stock.orders.write', 'stock', 'Objednávky dodavatelům', $staffOnly],
             ['stock.vendors.write', 'stock', 'Nabídky dodavatelů', $staffOnly],
@@ -159,15 +160,19 @@ final class PermissionCatalog
             ['eshop', 'eshop', 'E-shop číselníky', $staffOnly],
             ['eshop.write', 'eshop', 'Spravovat e-shop číselníky', $staffOnly],
             ['eshop.integrations', 'eshop', 'Spravovat integrace e-shopu', $staffOnly],
-            ['logbook', 'logbook', 'Kniha jízd', $staffOnly],
-            ['logbook.write', 'logbook', 'Spravovat knihu jízd', $staffOnly],
-            ['logbook.import', 'logbook', 'Importovat jízdy', $staffOnly],
-            ['logbook.delete', 'logbook', 'Mazat jízdy', $staffOnly],
+            ['logbook', 'logbook', 'Kniha jízd', $both],
+            ['logbook.write', 'logbook', 'Spravovat knihu jízd', $both],
+            ['logbook.import', 'logbook', 'Importovat jízdy', $both],
+            ['logbook.delete', 'logbook', 'Mazat jízdy', $both],
             ['settings.company', 'settings', 'Nastavení firmy', $both],
             ['settings.company.write', 'settings', 'Měnit nastavení firmy', $staffOnly],
             ['settings.domains', 'settings', 'Spravovat klientské domény', $staffOnly],
             ['settings.bank_accounts', 'settings', 'Bankovní účty firmy', $staffOnly],
-            ['settings.branding', 'settings', 'Branding firmy', $staffOnly],
+            ['settings.email_profiles', 'settings', 'Odesílací profily firmy', $both],
+            ['settings.email_templates', 'settings', 'E-mailové šablony firmy', $both],
+            ['settings.payment_qr', 'settings', 'Platební QR firmy', $both],
+            ['settings.signing_profiles', 'settings', 'Firemní podpisové profily a PDF podpisy', $clientOnly],
+            ['settings.branding', 'settings', 'Branding firmy', $both],
             ['settings.ai_provider', 'settings', 'AI poskytovatel', $staffOnly],
             ['settings.signing', 'utilities', 'Elektronické podepisování', $staffOnly],
             ['utilities', 'utilities', 'Nástroje', $staffOnly],
@@ -185,7 +190,7 @@ final class PermissionCatalog
                 'group' => $group,
                 'label' => $label,
                 'description' => $key === 'settings.company'
-                    ? 'Čtení zpřístupní firemní kontext; zápis klientské roli otevře pouze delegované provozní nastavení (odesílací a firemní podpisové profily, PDF podpisy, e-mailové šablony, branding a platební QR), nikoli daňové ani právní údaje.'
+                    ? 'Zpřístupňuje firemní kontext a číselníky. Provozní nastavení má samostatná oprávnění; právní, daňové a účetní údaje mění pouze interní oprávnění Měnit nastavení firmy.'
                     : (str_contains($key, '.')
                         ? 'Povoluje akci „' . $label . '“.'
                         : 'Zpřístupňuje modul „' . $label . '“.'),
@@ -226,7 +231,7 @@ final class PermissionCatalog
                 'accounting.periods.close', 'accounting.periods.manage',
                 'property.registry.confirm', 'property.receivables.confirm', 'property.charges.confirm', 'property.charges.reverse', 'property.payments.reverse', 'property.opening.revise', 'property.settlements.reverse', 'property.funds.reverse',
                 'settings.ai_provider', 'settings.bank_accounts', 'settings.branding',
-                'settings.company.write', 'settings.domains', 'utilities.import',
+                'settings.company.write', 'settings.domains', 'settings.email_profiles', 'settings.email_templates', 'settings.payment_qr', 'utilities.import',
                 'payroll.settings', 'payroll.person.read_sensitive', 'payroll.approve',
                 'payroll.reopen', 'payroll.health_evidence', 'payroll.enforcement', 'payroll.enforcement.cooperation', 'payroll.insolvency', 'payroll.rulesets',
                 // Výmaz osobních údajů je nevratný a právně významný — patří ke
@@ -237,7 +242,7 @@ final class PermissionCatalog
             ];
             $read = [
                 'dashboard', 'dashboard.portfolio', 'tax_evidence', 'tax_evidence.export',
-                'reports.export', 'settings.company', 'utilities',
+                'reports.export', 'settings.company', 'price_list', 'utilities',
                 'property.export',
                 'utilities.export', 'utilities.archives', 'profile.tokens',
             ];
@@ -252,7 +257,7 @@ final class PermissionCatalog
         $keys = match ($systemKey) {
             'readonly' => [
                 'dashboard', 'dashboard.portfolio', 'clients', 'projects', 'invoices',
-                'purchase_invoices', 'purchase_invoices.approve', 'recurring', 'bank', 'documents', 'documents.requests', 'documents.inbox',
+                'purchase_invoices', 'purchase_invoices.approve', 'recurring', 'price_list', 'bank', 'documents', 'documents.requests', 'documents.inbox',
                 'accounting', 'property', 'other_items', 'tax_evidence', 'tax_evidence.export', 'reports', 'reports.export',
                 'cash', 'assets', 'stock', 'eshop', 'logbook', 'settings.company', 'utilities',
                 'utilities.export', 'utilities.archives', 'profile', 'profile.tokens',

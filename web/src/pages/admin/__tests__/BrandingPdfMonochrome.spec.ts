@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
 const m = vi.hoisted(() => ({
@@ -35,9 +35,11 @@ async function mountBranding(clientScoped: boolean) {
 }
 
 describe('úsporná černobílá faktura v Brandingu', () => {
-  it('jde zapnout i bez brandingu a ukládá se do nastavení firmy', async () => {
-    m.getSupplier.mockResolvedValue(supplier())
-    m.updateSupplier.mockImplementation(async (payload: object) => ({ ...supplier(), ...payload }))
+  beforeEach(() => vi.clearAllMocks())
+
+  it('jde zapnout i bez brandingu a interní role používá cílené oprávnění brandingu', async () => {
+    m.getClientBranding.mockResolvedValue(supplier())
+    m.updateClientBranding.mockImplementation(async (payload: object) => ({ ...supplier(), ...payload }))
     const wrapper = await mountBranding(false)
 
     const toggle = wrapper.get('[data-testid="branding-invoice-pdf-monochrome"]')
@@ -46,7 +48,10 @@ describe('úsporná černobílá faktura v Brandingu', () => {
     await toggle.setValue(true)
     await flushPromises()
 
-    expect(m.updateSupplier).toHaveBeenCalledWith(expect.objectContaining({ invoice_pdf_monochrome: true }))
+    expect(m.updateClientBranding).toHaveBeenCalledWith(expect.objectContaining({ invoice_pdf_monochrome: true }))
+    expect(m.getSupplier).not.toHaveBeenCalled()
+    expect(m.updateSupplier).not.toHaveBeenCalled()
+    wrapper.unmount()
   })
 
   it('klientská role ji ukládá přes brandingový výřez', async () => {
@@ -58,5 +63,6 @@ describe('úsporná černobílá faktura v Brandingu', () => {
     await flushPromises()
 
     expect(m.updateClientBranding).toHaveBeenCalledWith(expect.objectContaining({ invoice_pdf_monochrome: true }))
+    wrapper.unmount()
   })
 })

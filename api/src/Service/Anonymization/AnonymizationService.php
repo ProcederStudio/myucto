@@ -498,6 +498,21 @@ final class AnonymizationService
             return;
         }
         $pdo = $connection->pdo();
+        if ($connection->hasColumn('activity_log_chain_head', 'deferred_from_id')) {
+            // Chráněná část se vrátí mezi čekající a zapečetí znovu od první zapečetěné
+            // řádky; nechráněná historie pod ní zůstane bez hashe jako v originálu.
+            $from = $pdo->query('SELECT MIN(id) FROM activity_log WHERE hash IS NOT NULL')->fetchColumn();
+            if ($from === false || $from === null) {
+                return;
+            }
+            $count = (int) $pdo->query('SELECT COUNT(*) FROM activity_log WHERE hash IS NOT NULL')->fetchColumn();
+            $log(sprintf('Znovu pečetím auditní stopu (%d záznamů)…', $count));
+            $pdo->exec('UPDATE activity_log SET prev_hash = NULL, hash = NULL, seal_seq = NULL WHERE hash IS NOT NULL');
+            $pdo->prepare('UPDATE activity_log_chain_head SET last_hash = NULL, last_id = NULL, last_seq = 0, deferred_from_id = ? WHERE id = 1')
+                ->execute([(int) $from]);
+            $chain->sealPending();
+            return;
+        }
         if ($connection->hasTable('activity_log_chain_head')) {
             $pdo->exec('UPDATE activity_log_chain_head SET last_hash = NULL, last_id = NULL WHERE id = 1');
         }

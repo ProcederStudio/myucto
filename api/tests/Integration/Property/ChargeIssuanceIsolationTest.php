@@ -115,20 +115,36 @@ final class ChargeIssuanceIsolationTest extends TestCase
         $f = $this->issuanceFixture($b);
         $writer = $this->writer($b);
         $preview = (new IssuancePreviewService($b))->preview($f['supplier'], $f['issue_request']);
-        $writer->issue($f['supplier'], ['request' => $f['issue_request'], 'preview_hash' => $preview['preview_hash'], 'idempotency_key' => 'lock-prefix'], $f['actor']);
-        $q = $b->pdo()->prepare("SELECT id FROM chart_of_accounts WHERE supplier_id=? AND account_code='315'");
-        $q->execute([$f['supplier']]); $account = (int) $q->fetchColumn();
-        $q = $b->pdo()->prepare('SELECT id FROM accounting_periods WHERE supplier_id=?');
-        $q->execute([$f['supplier']]); $period = (int) $q->fetchColumn();
+        $batch = $writer->issue($f['supplier'], ['request' => $f['issue_request'], 'preview_hash' => $preview['preview_hash'], 'idempotency_key' => 'lock-prefix'], $f['actor']);
         $journal = new \MyInvoice\Repository\JournalEntryRepository($b, new \MyInvoice\Service\ActivityLogger($b));
-        $entry = $journal->insert(['supplier_id' => $f['supplier'], 'period_id' => $period, 'entry_date' => '2026-03-01', 'source_type' => 'cash', 'source_id' => 987654], [
-            ['account_id' => $account, 'side' => 'debit', 'amount' => '0.01'],
-            ['account_id' => $account, 'side' => 'credit', 'amount' => '0.01'],
-        ]);
+        $chargeId = null;
+        if (in_array($path, ['replace', 'assignment', 'j5_preview'], true)) {
+            $posted = $writer->post($f['supplier'], $batch['id'], array_map(fn ($charge) => ['id' => $charge['id'], 'row_version' => 1], $batch['charges']), $f['actor']);
+            $chargeId = (int) $posted['charges'][0]['id'];
+            $entry = (int) $posted['charges'][0]['journal_entry_id'];
+            self::assertGreaterThan(0, $chargeId);
+            self::assertGreaterThan(0, $entry);
+        } else {
+            $q = $b->pdo()->prepare("SELECT id FROM chart_of_accounts WHERE supplier_id=? AND account_code='315'");
+            $q->execute([$f['supplier']]); $account = (int) $q->fetchColumn();
+            $q = $b->pdo()->prepare('SELECT id FROM accounting_periods WHERE supplier_id=?');
+            $q->execute([$f['supplier']]); $period = (int) $q->fetchColumn();
+            $entry = $journal->insert(['supplier_id' => $f['supplier'], 'period_id' => $period, 'entry_date' => '2026-03-01', 'source_type' => 'cash', 'source_id' => 987654], [
+                ['account_id' => $account, 'side' => 'debit', 'amount' => '0.01'],
+                ['account_id' => $account, 'side' => 'credit', 'amount' => '0.01'],
+            ]);
+        }
         $before = $journal->findForUpdate($entry, $f['supplier']);
+        self::assertNotEmpty($before['lines']);
         $b->pdo()->commit();
         $b->pdo()->beginTransaction();
-        $b->pdo()->prepare('SELECT id FROM unit_charges WHERE supplier_id=? ORDER BY id FOR UPDATE')->execute([$f['supplier']]);
+        if ($chargeId !== null) {
+            $claim = $b->pdo()->prepare('SELECT id FROM unit_charges WHERE supplier_id=? AND id=? AND journal_entry_id=? FOR UPDATE');
+            $claim->execute([$f['supplier'], $chargeId, $entry]);
+            self::assertSame($chargeId, (int) $claim->fetchColumn());
+        } else {
+            $b->pdo()->prepare('SELECT id FROM unit_charges WHERE supplier_id=? ORDER BY id FOR UPDATE')->execute([$f['supplier']]);
+        }
         $a->pdo()->exec('SET SESSION innodb_lock_wait_timeout=1');
         $a->pdo()->beginTransaction();
         try {
@@ -146,7 +162,7 @@ final class ChargeIssuanceIsolationTest extends TestCase
         self::assertSame($entry, (int) $q->fetchColumn(), 'Writer must not retain a later source lock while waiting for claims.');
         $q = $b->pdo()->prepare('SELECT id FROM journal_entry_lines WHERE supplier_id=? AND entry_id=? ORDER BY id FOR UPDATE NOWAIT');
         $q->execute([$f['supplier'], $entry]);
-        self::assertCount(2, $q->fetchAll());
+        self::assertCount(count($before['lines']), $q->fetchAll());
     }
 
     public static function frameworks(): array { return [['cz_500'], ['cz_504']]; }

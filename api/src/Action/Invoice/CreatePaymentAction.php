@@ -69,6 +69,10 @@ final class CreatePaymentAction
                 'source'          => 'manual',
                 'created_by'      => (int) ($user['id'] ?? 0),
             ]);
+        } catch (\PDOException $e) {
+            // Chyba databáze není odmítnutá platba: 409 invalid_payment by klient API
+            // bral jako neplatná data, i kdyby šlo o souběh, po kterém má zkusit znovu.
+            throw $e;
         } catch (\RuntimeException $e) {
             return Json::error($response, 'invalid_payment', $e->getMessage(), 409);
         }

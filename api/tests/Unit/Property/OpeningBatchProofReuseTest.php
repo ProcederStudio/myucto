@@ -19,9 +19,9 @@ final class OpeningBatchProofReuseTest extends TestCase
         self::assertSame(1,$pdo->counts['ledger']);
         self::assertSame(1,$pdo->counts['lines']);
         self::assertSame(4,$pdo->counts['dimensions']);
-        foreach(['item','components','parties','state','recipients','links','link_count'] as $kind)self::assertSame(24,$pdo->counts[$kind],$kind);
+        foreach(['item','components','parties','state','recipients','links','link_count'] as $kind)self::assertSame(1,$pdo->counts[$kind],$kind);
         self::assertSame(24,$pdo->lineRows);
-        self::assertSame(175,array_sum($pdo->counts));
+        self::assertSame(14,array_sum($pdo->counts));
         self::assertTrue($pdo->transaction);
     }
     public function testCatalogBatchSeamReturnsExactKeyedItemsAndOneCurrentLedger():void
@@ -48,7 +48,7 @@ final class OpeningBatchProofReuseTest extends TestCase
         foreach([12,24,48] as $size){
             $pdo=new OpeningBatchProofPdo($size);self::validate(new OpeningReadProof(self::connection($pdo)),array_keys($pdo->items));
             self::assertSame(1,$pdo->counts['batch']);self::assertSame(1,$pdo->counts['ledger']);self::assertSame($size,$pdo->lineRows);
-            self::assertSame(7*$size+7,array_sum($pdo->counts));
+            self::assertSame(14,array_sum($pdo->counts));
         }
     }
     public function testSingleItemOutputIsCopyOnWriteAndCannotPoisonNextScope():void
@@ -183,6 +183,21 @@ final class OpeningBatchProofPdo extends PDO
     {
         if(str_ends_with($sql,' FOR UPDATE')!==$this->expectCurrent)throw new \LogicException('Unexpected proof lock policy.');
         if($params[0]!==7)return [];
+        if(str_contains($sql,' IN (')&&preg_match('/ FROM property_opening_(items|components|parties|states|recipients|case_links)(?: l)? /',$sql,$table)===1){
+            if(count($params)!==substr_count($sql,'?'))throw new \LogicException('Unexpected batch proof parameter scope.');
+            $ids=array_values(array_unique(array_slice($params,1)));sort($ids,SORT_NUMERIC);$rows=[];
+            $kind=match($table[1]){'items'=>'item','states'=>'state','case_links'=>str_contains($sql,'case_links l ')?'links':'link_count',default=>$table[1]};
+            foreach($ids as $item){
+                if($kind==='item'){if(isset($this->items[$item]))$rows[]=$this->items[$item];continue;}
+                if($kind==='state'){if(isset($this->states[$item]))$rows[]=['item_id'=>$item]+$this->states[$item];continue;}
+                if($kind==='link_count'){
+                    for($n=0;$n<($this->linkCounts[$item]??0);++$n){$link=$this->links[$item][$n]??null;$debt=array_search($link['case_key']??null,array_column($this->items,'case_key','id'),true);$rows[]=['item_id'=>$item,'debt_item_id'=>$debt===false?0:$debt,'amount_cents'=>$link['amount_cents']??'0'];}
+                    continue;
+                }
+                foreach($this->{$kind}[$item]??[] as $row)$rows[]=['item_id'=>$item]+$row;
+            }
+            $this->counts[$kind]=($this->counts[$kind]??0)+1;return $rows;
+        }
         $id=$params[1];
         if(str_contains($sql,' FROM property_opening_batches ')){$kind='batch';$rows=isset($this->batches[$id])?[$this->batches[$id]]:[];}
         elseif(str_contains($sql,' FROM property_opening_items ')){$kind='item';$rows=isset($this->items[$id])?[$this->items[$id]]:[];}

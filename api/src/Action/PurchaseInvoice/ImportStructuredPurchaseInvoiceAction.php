@@ -184,7 +184,7 @@ final class ImportStructuredPurchaseInvoiceAction
             $buyerIc = preg_replace('/\D+/', '', (string) ($invoice['client']['ic'] ?? ''));
             if ($buyerIc === null || $buyerIc === '') {
                 $this->logger->log(
-                    'purchase_invoice.structured_import_without_buyer_ic',
+                    'purchase_invoice.structured_no_buyer_ic',
                     $userId,
                     'purchase_invoice',
                     null,

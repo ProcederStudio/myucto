@@ -127,6 +127,8 @@ final class DynamicRolesMigrationRuntimeTest extends TestCase
         $db->prepare("UPDATE role_permissions SET access_level=0 WHERE role_id=? AND permission_key='property.registry.confirm'")->execute([(int) $roles['admin']]);
         $db->prepare("UPDATE role_permissions SET access_level=0 WHERE role_id=? AND permission_key='property.charges.confirm'")->execute([(int) $roles['admin']]);
         $db->prepare("UPDATE role_permissions SET access_level=0 WHERE role_id=? AND permission_key='property.charges.reverse'")->execute([(int) $roles['admin']]);
+        $db->prepare("UPDATE role_permissions SET access_level=0 WHERE role_id=? AND permission_key='property.funds.post'")->execute([(int) $roles['admin']]);
+        $db->prepare("UPDATE role_permissions SET access_level=0 WHERE role_id=? AND permission_key='property.funds.reverse'")->execute([(int) $roles['admin']]);
         $db->exec(
             "DELETE FROM migrations WHERE filename IN (
                 '1074_dynamic_roles_permissions.sql',
@@ -137,7 +139,8 @@ final class DynamicRolesMigrationRuntimeTest extends TestCase
                 '2024_property_charge_versions.sql',
                 '2025_property_charge_issuance.sql',
                 '2039_property_payment_permissions.sql',
-                '2044_property_opening.sql'
+                '2044_property_opening.sql',
+                '2063_property_funds_role_defaults.sql'
             )"
         );
         $this->runMigrator();
@@ -153,6 +156,16 @@ final class DynamicRolesMigrationRuntimeTest extends TestCase
         self::assertSame(0, (int) $db->query("SELECT access_level FROM role_permissions WHERE role_id=" . (int) $roles['admin'] . " AND permission_key='property.registry.confirm'")->fetchColumn());
         self::assertSame(0, (int) $db->query("SELECT access_level FROM role_permissions WHERE role_id=" . (int) $roles['admin'] . " AND permission_key='property.charges.confirm'")->fetchColumn());
         self::assertSame(0, (int) $db->query("SELECT access_level FROM role_permissions WHERE role_id=" . (int) $roles['admin'] . " AND permission_key='property.charges.reverse'")->fetchColumn());
+        self::assertSame(1, (int) $db->query("SELECT COUNT(*) FROM role_permissions WHERE role_id=" . (int) $roles['admin'] . " AND permission_key='property.funds.post'")->fetchColumn());
+        self::assertSame(0, (int) $db->query("SELECT access_level FROM role_permissions WHERE role_id=" . (int) $roles['admin'] . " AND permission_key='property.funds.post'")->fetchColumn());
+        self::assertSame(0, (int) $db->query("SELECT access_level FROM role_permissions WHERE role_id=" . (int) $roles['admin'] . " AND permission_key='property.funds.reverse'")->fetchColumn());
+
+        $db->prepare("DELETE FROM role_permissions WHERE role_id=? AND permission_key='property.funds.post'")->execute([(int) $roles['admin']]);
+        $db->exec("DELETE FROM migrations WHERE filename='2063_property_funds_role_defaults.sql'");
+        $this->runMigrator();
+
+        self::assertSame(0, (int) $db->query("SELECT COUNT(*) FROM role_permissions WHERE role_id=" . (int) $roles['admin'] . " AND permission_key='property.funds.post'")->fetchColumn());
+        self::assertSame(0, (int) $db->query("SELECT access_level FROM role_permissions WHERE role_id=" . (int) $roles['admin'] . " AND permission_key='property.funds.reverse'")->fetchColumn());
     }
 
     private function createLegacyParentTables(PDO $db): void
@@ -302,6 +315,7 @@ final class DynamicRolesMigrationRuntimeTest extends TestCase
             '--no-backfills',
             '--no-analyze',
             '--only=' . implode(',', [
+                '0017_app_meta.sql',
                 '1074_dynamic_roles_permissions.sql',
                 '1186_payroll_module_foundation.sql',
                 '1404_purchase_invoice_submissions.sql',
@@ -323,6 +337,9 @@ final class DynamicRolesMigrationRuntimeTest extends TestCase
                 '2043_property_receivable_permissions.sql',
                 '2044_property_opening.sql',
                 '2046_property_service_settlement_permissions.sql',
+                '2056_price_list_role_permissions.sql',
+                '2057_operational_settings_role_permissions.sql',
+                '2063_property_funds_role_defaults.sql',
             ]),
         ];
         $env = getenv();

@@ -420,8 +420,10 @@ final class AbraAccountingImporter
                 }
             }
         } catch (Throwable $e) {
-            $aborted = TransactionFailure::rollbackIfAborted($pdo, $e);
-            if (!$aborted && $nested && $pdo->inTransaction()) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
+            if ($nested && $pdo->inTransaction()) {
                 $pdo->exec('ROLLBACK TO SAVEPOINT abra_accounting_import');
                 $pdo->exec('RELEASE SAVEPOINT abra_accounting_import');
             } elseif ($pdo->inTransaction()) {

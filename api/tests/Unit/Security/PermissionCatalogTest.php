@@ -48,6 +48,17 @@ final class PermissionCatalogTest extends TestCase
             ->withAttribute('auth.effective_role', new EffectiveRole(99, 'Synthetic inconsistent role', $type, true, [$key => 2]));
         self::assertFalse(\MyInvoice\Security\RequestAuthorization::allows($request, $key, AccessLevel::WRITE));
     }
+
+    public function testPriceListCanBeDelegatedWithoutGivingItToClientsByDefault(): void
+    {
+        $catalog = new PermissionCatalog();
+        self::assertTrue($catalog->allowsRoleType('price_list', 'staff'));
+        self::assertTrue($catalog->allowsRoleType('price_list', 'client'));
+        self::assertSame(1, $catalog->legacyPreset('accountant')['price_list']);
+        self::assertSame(1, $catalog->legacyPreset('readonly')['price_list']);
+        self::assertArrayNotHasKey('price_list', $catalog->legacyPreset('client'));
+    }
+
     public function testDefinitionsAreUniqueAndInternallyValid(): void
     {
         $catalog = new PermissionCatalog();

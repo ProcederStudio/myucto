@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Migration\Pohoda\Payroll;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\Payroll\PayrollEmploymentConflictException;
 use MyInvoice\Repository\Payroll\PayrollImportLinkRepository;
 use MyInvoice\Service\Codebook\HealthInsurers;
@@ -188,6 +189,9 @@ final class PohodaPayrollRelations
                     $number, $employeeId, $employmentId, $userId);
                 $owns ? $pdo->commit() : $pdo->exec('RELEASE SAVEPOINT ' . self::SAVEPOINT);
             } catch (\InvalidArgumentException|\DomainException|PayrollEmploymentConflictException|LicensePayrollLimitExceeded|\PDOException $e) {
+                if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                    throw $e;
+                }
                 if ($owns) {
                     $pdo->rollBack();
                 } elseif ($pdo->inTransaction()) {

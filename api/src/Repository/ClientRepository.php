@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Repository;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Service\Client\ClientFieldLimits;
 use MyInvoice\Service\Client\VendorDuplicateFinder;
 use MyInvoice\Service\Invoice\InvoiceNumberFormat;
 use MyInvoice\Service\Mail\ClientEmailFormat;
@@ -248,6 +249,7 @@ final class ClientRepository
 
     public function create(array $data, int $supplierId): int
     {
+        $data = ClientFieldLimits::fit($data);
         $emailAttachIsdoc = ClientIsdocPreference::toDatabase($data['email_attach_isdoc'] ?? null);
         $countryId = $this->countryIdFromIso2((string) ($data['country_iso2'] ?? 'CZ'));
         $currencyId = $this->resolveCurrencyId($data, $supplierId);
@@ -535,6 +537,7 @@ final class ClientRepository
         if ($stored !== null) {
             $data = $this->mergeWithStored($stored, $data);
         }
+        $data = ClientFieldLimits::fit($data);
 
         $emailAttachIsdoc = ClientIsdocPreference::toDatabase($data['email_attach_isdoc'] ?? null);
 

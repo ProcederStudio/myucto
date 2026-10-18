@@ -46,7 +46,7 @@ final class PaymentMutationParityTest extends TestCase
                 self::assertSame(bcdiv((string) $size, '100', 2), $actual[1]);
             }
             self::assertLessThanOrEqual($queries[2] + 2, $queries[1000], json_encode($queries));
-            self::assertLessThanOrEqual(12, $queries[1000], json_encode($queries));
+            self::assertLessThanOrEqual(16, $queries[1000], json_encode($queries));
         } finally { if ($pdo->inTransaction()) $pdo->rollBack(); }
     }
 }

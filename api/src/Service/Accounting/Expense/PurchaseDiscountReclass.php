@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Accounting\Expense;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Service\Accounting\DocumentRepostService;
 use MyInvoice\Service\Accounting\Dimension\DimensionException;
 use MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard;
@@ -169,8 +170,13 @@ final class PurchaseDiscountReclass
         } catch (PostingException $e) {
             $report['message'] = $e->getMessage();
             return $report;
+        } catch (\Throwable $e) {
+            // Odvolaná transakce (1020/1213) savepoint nemá; ROLLBACK TO ve finally by
+            // původní chybu přemaskoval chybou 1305.
+            TransactionFailure::rollbackIfAborted($pdo, $e);
+            throw $e;
         } finally {
-            if ($apply) {
+            if ($apply && $pdo->inTransaction()) {
                 if ($ownTx) {
                     $commit ? $pdo->commit() : $pdo->rollBack();
                 } else {

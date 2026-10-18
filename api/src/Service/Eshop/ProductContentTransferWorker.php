@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Eshop;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\CatalogJobItemRepository;
 use MyInvoice\Repository\ProductMasterRepository;
 use MyInvoice\Service\ActivityLogger;
@@ -92,11 +93,17 @@ final class ProductContentTransferWorker
                     $this->db->pdo()->exec('ROLLBACK TO SAVEPOINT product_content_transfer_item');
                     $this->items->finish($supplierId, $job['id'], $item['ordinal'],
                         $e->errorCode === 'version_conflict' ? 'conflict' : 'failed', null, $after, $e->errorCode);
-                } catch (\Throwable) {
+                } catch (\Throwable $e) {
+                    // Odvolaná transakce (1020/1213) savepoint nemá a celá dávka je pryč.
+                    if (TransactionFailure::rollbackIfAborted($this->db->pdo(), $e)) {
+                        throw $e;
+                    }
                     $this->db->pdo()->exec('ROLLBACK TO SAVEPOINT product_content_transfer_item');
                     $this->items->finish($supplierId, $job['id'], $item['ordinal'], 'failed', null, $after, 'write_failed');
                 } finally {
-                    $this->db->pdo()->exec('RELEASE SAVEPOINT product_content_transfer_item');
+                    if ($this->db->pdo()->inTransaction()) {
+                        $this->db->pdo()->exec('RELEASE SAVEPOINT product_content_transfer_item');
+                    }
                 }
             }
         }

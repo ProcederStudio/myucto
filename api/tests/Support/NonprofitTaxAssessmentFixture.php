@@ -32,7 +32,7 @@ final class NonprofitTaxAssessmentFixture
                 'evidence' => 'Synthetic source decision', 'legal_basis' => 'zdp_24_1',
                 'deductible_cents' => $source['mandatory_non_deductible'] ? 0 : $source['amount_cents']];
             if (isset($source['svj_owner_facts'])) {
-                $assessment['decisions'][$source['id']]['title'] = $source['kind'] === 'revenue' ? 'svj_service_payment' : 'excluded_cost';
+                $assessment['decisions'][$source['id']]['title'] = $source['kind'] === 'revenue' ? match ($source['svj_owner_facts']['legal_basis']) {'zdp_18_2f_2' => 'svj_management_payment', 'zdp_18_2f_3' => 'svj_service_payment'} : 'excluded_cost';
                 $assessment['decisions'][$source['id']]['deductible_cents'] = 0;
             }
             if ($manual) {

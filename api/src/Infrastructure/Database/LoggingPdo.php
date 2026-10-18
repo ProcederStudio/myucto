@@ -52,6 +52,9 @@ final class LoggingPdo extends PDO
 
     private readonly ?SlowQueryLog $slowLog;
 
+    /** @var array<string,\Closure():void> */
+    private array $afterCommit = [];
+
     public function databaseName(): string
     {
         return $this->databaseName;
@@ -75,15 +78,34 @@ final class LoggingPdo extends PDO
         return $ok;
     }
 
+    /**
+     * Spustí krok po commitu probíhající transakce, mimo ni hned. Rollback ho zahodí.
+     * Týž klíč se v jedné transakci zaregistruje jen jednou.
+     * Chyba kroku se nevyhazuje: commit už proběhl a volající ho má hlásit jako úspěch.
+     */
+    public function afterCommit(string $key, \Closure $callback): void
+    {
+        if (!$this->inTransaction()) {
+            $this->runAfterCommit([$callback]);
+            return;
+        }
+        $this->afterCommit[$key] ??= $callback;
+    }
+
     public function commit(): bool
     {
-        $ok = parent::commit();
-        if ($ok) $this->transactions->boundary(parent::inTransaction());
-        return $ok;
+        $result = parent::commit();
+        if ($result) $this->transactions->boundary(parent::inTransaction());
+        $callbacks = $this->afterCommit;
+        $this->afterCommit = [];
+        $this->runAfterCommit($callbacks);
+
+        return $result;
     }
 
     public function rollBack(): bool
     {
+        $this->afterCommit = [];
         $ok = parent::rollBack();
         if ($ok) $this->transactions->boundary(parent::inTransaction());
         return $ok;
@@ -101,6 +123,18 @@ final class LoggingPdo extends PDO
                 $this->transactions->boundary(parent::inTransaction());
             } elseif ($attribute === PDO::ATTR_AUTOCOMMIT && (!$before || !parent::inTransaction())) {
                 $this->transactions->boundary(parent::inTransaction());
+            }
+        }
+    }
+
+    /** @param array<array-key,\Closure():void> $callbacks */
+    private function runAfterCommit(array $callbacks): void
+    {
+        foreach ($callbacks as $callback) {
+            try {
+                $callback();
+            } catch (\Throwable $e) {
+                $this->logger->error('Krok po commitu selhal: ' . $e->getMessage(), ['exception' => $e::class]);
             }
         }
     }

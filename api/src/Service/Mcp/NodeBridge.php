@@ -26,7 +26,7 @@ final class NodeBridge
         if (!function_exists('proc_open')) {
             throw new \RuntimeException('PHP má vypnutou funkci proc_open.');
         }
-        if (!is_file($this->hosted->phpBinary()) || !is_executable($this->hosted->phpBinary())) {
+        if (!\MyInvoice\Support\OpenBasedir::isExecutableFile($this->hosted->phpBinary())) {
             throw new \RuntimeException('PHP CLI není dostupné; nastavte MYINVOICE_MCP_PHP_BINARY.');
         }
         if (!$this->hosted->nodeAvailable()) {

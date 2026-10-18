@@ -325,7 +325,7 @@ onMounted(async () => {
     codebooksApi.currencies(),
     expenseCategoriesApi.list(false).catch(() => [] as ExpenseCategory[]),  // jen aktivní
     revenueCategoriesApi.list(false).catch(() => [] as RevenueCategory[]),  // jen aktivní
-    settingsApi.listBrandingProfiles().catch(() => [] as BrandingProfile[]),
+    settingsApi.listAvailableBrandingProfiles().catch(() => [] as BrandingProfile[]),
   ])
   countries.value = c
   currencies.value = cur
