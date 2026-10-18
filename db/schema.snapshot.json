@@ -1009,8 +1009,10 @@
         "2037_simplified_document_series_and_customer.sql",
         "2038_invoice_edit_issued_permission.sql",
         "2047_supplier_person_title.sql",
-        "2048_logbook_trip_templates_odometer_readings.sql",
-        "2055_activity_log_deferred_seal.sql"
+        "2055_activity_log_deferred_seal.sql",
+        "2056_price_list_role_permissions.sql",
+        "2057_operational_settings_role_permissions.sql",
+        "2058_logbook_trip_templates_odometer_readings.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
