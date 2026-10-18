@@ -10074,6 +10074,18 @@
         "recipient_account_placeholder": "Select a verified account",
         "recipient_account_not_effective": "No verified recipient account is effective on this date.",
         "roles": {
+    "operational_permissions": {
+      "email_profiles": "Company sender profiles",
+      "email_templates": "Company email templates",
+      "branding": "Company branding",
+      "payment_qr": "Company payment QR codes",
+      "signing_profiles": "Company signing profiles and PDF signing"
+    },
+    "stock_permissions": {
+      "stock": "View stock",
+      "stock_items_write": "Manage stock items",
+      "stock_fulfillment_write": "Process fulfillment"
+    },
           "court": "Court",
           "executor": "Enforcement officer",
           "beneficiary": "Beneficiary"
@@ -24890,6 +24902,18 @@
     "is_default_account_hint": "Default account for this currency (only one per code)"
   },
   "roles": {
+    "operational_permissions": {
+      "email_profiles": "Company sender profiles",
+      "email_templates": "Company email templates",
+      "branding": "Company branding",
+      "payment_qr": "Company payment QR codes",
+      "signing_profiles": "Company signing profiles and PDF signing"
+    },
+    "stock_permissions": {
+      "stock": "View stock",
+      "stock_items_write": "Manage stock items",
+      "stock_fulfillment_write": "Process fulfillment"
+    },
     "bank_permissions": {
       "bank": "View bank",
       "bank_import": "Upload statements",

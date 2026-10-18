@@ -8,6 +8,7 @@ use MyInvoice\Action\Accounting\AccountingActionSupport;
 use MyInvoice\Http\Json;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Security\AccessLevel;
+use MyInvoice\Security\ClientStockItemPolicy;
 use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\IpMatcher;
@@ -34,7 +35,7 @@ final class FulfillmentAction
             return $err;
         }
         $limit = max(1, min(500, (int) ($request->getQueryParams()['limit'] ?? 100)));
-        return Json::ok($response, ['items' => $this->service->history($this->currentSupplierId($request), $limit)]);
+        return Json::ok($response, $this->visible($request, ['items' => $this->service->history($this->currentSupplierId($request), $limit)]));
     }
 
     public function get(Request $request, Response $response, array $args): Response
@@ -45,12 +46,14 @@ final class FulfillmentAction
         $task = $this->service->find($this->currentSupplierId($request), (int) $args['id']);
         return $task === null
             ? Json::error($response, 'stock.error.fulfillment_task_not_found', 'Vychystávací úloha nebyla nalezena.', 404)
-            : Json::ok($response, $task);
+            : Json::ok($response, $this->visible($request, $task));
     }
 
     public function create(Request $request, Response $response): Response
     {
         return $this->write($request, $response, function (int $supplierId, array $body) use ($request): array {
+            // Oprávnění k vychystání zahrnuje převzetí připraveného výdejního zdroje
+            // v aktuální firmě; účetní doklady a obchodní editace zdroje neotevírá.
             $result = $this->service->createTask(
                 $supplierId,
                 (string) ($body['source_type'] ?? 'stock_issue_draft'),
@@ -109,13 +112,18 @@ final class FulfillmentAction
         }
         try {
             [$data, $status] = $operation($this->currentSupplierId($request), (array) ($request->getParsedBody() ?? []));
-            return Json::ok($response, $data, $status);
+            return Json::ok($response, $this->visible($request, $data), $status);
         } catch (\Throwable $e) {
             if ($e instanceof StockException) {
                 return Json::error($response, 'stock.error.' . $e->errorCode, $e->getMessage(), $e->httpStatus, ['items' => $e->details]);
             }
             throw $e;
         }
+    }
+
+    private function visible(Request $request, array $data): array
+    {
+        return RequestAuthorization::isClientType($request) ? ClientStockItemPolicy::fulfillment($data) : $data;
     }
 
     private function enabled(Request $request, Response $response, ?Response &$err): bool

@@ -177,7 +177,7 @@ describe('router guard vynuceného nastavení MFA', () => {
     'pustí systémovou roli %s do firemního ceníku',
     async (systemKey) => {
       const auth = signIn({ role: { type: 'staff', system_key: systemKey } })
-      auth.permissions = { 'settings.company.write': 2 }
+      auth.permissions = { price_list: 2 }
       useSupplierStore().setAvailable([{
         id: 7,
         accounting_mode: 'double_entry',
@@ -207,6 +207,19 @@ describe('router guard vynuceného nastavení MFA', () => {
       await expect(authorizationGuard(resolveTarget({ name: 'admin-price-list' }))).resolves.not.toBe(true)
     },
   )
+
+  it.each(['client', 'staff'])('opens operational settings for independent %s grants and denies read/revocation', async (roleType) => {
+    const auth = signIn({ role: { type: roleType } })
+    useSupplierStore().setAvailable([{ id: 7, accounting_mode: 'double_entry', stock_enabled: false }] as never, 7)
+    for (const permission of ['settings.email_profiles', 'settings.email_templates', 'settings.branding', 'settings.payment_qr']) {
+      auth.permissions = { [permission]: 2 }
+      await expect(authorizationGuard(resolveTarget({ name: 'portal-company-settings' }))).resolves.toBe(true)
+      auth.permissions = { [permission]: 1, 'settings.company': 2 }
+      await expect(authorizationGuard(resolveTarget({ name: 'portal-company-settings' }))).resolves.not.toBe(true)
+    }
+    auth.permissions = { 'settings.company': 2 }
+    await expect(authorizationGuard(resolveTarget({ name: 'portal-company-settings' }))).resolves.not.toBe(true)
+  })
 
   it('oddlužení vyžaduje zároveň oprávnění k exekucím', async () => {
     const auth = signIn()
@@ -277,7 +290,7 @@ describe('oddělení klientské a interní domény', () => {
   it('přesměruje neklientské obrazovky na canonical origin a zachová cestu', () => {
     for (const [location, expected] of [
       [{ name: 'admin-settings', query: { tab: 'company' }, hash: '#domains' }, 'https://ucto.example.test/admin/settings?tab=company#domains'],
-      [{ name: 'projects' }, 'https://ucto.example.test/projects'],
+      [{ name: 'admin-electronic-signatures' }, 'https://ucto.example.test/admin/electronic-signatures'],
       [{ name: 'purchase-invoices-payment-orders' }, 'https://ucto.example.test/purchase-invoices/payment-orders'],
       [{ name: 'profile-api-tokens' }, 'https://ucto.example.test/profile/api-tokens'],
     ] as const) {

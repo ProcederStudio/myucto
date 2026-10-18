@@ -73,7 +73,7 @@ final class SigningProfilesAction
     public function client(Request $request, Response $response, array $args): Response
     {
         if (!RequestAuthorization::isSessionAuth($request)
-            || !OperationalSettingsAccess::clientCompanyWrite($request)
+            || !OperationalSettingsAccess::clientSigningProfiles($request)
             || $this->supplierId($request) <= 0
         ) {
             return Json::error($response, 'forbidden', 'Pro tuto akci nemáš oprávnění.', 403);
@@ -1132,7 +1132,7 @@ final class SigningProfilesAction
         return RequestAuthorization::isCompanyAdmin($request)
             || ($request->getAttribute(self::ATTR_CLIENT_MANAGEMENT) === true
                 && RequestAuthorization::isSessionAuth($request)
-                && OperationalSettingsAccess::clientCompanyWrite($request));
+                && OperationalSettingsAccess::clientSigningProfiles($request));
     }
 
     private function isAccountant(Request $request): bool

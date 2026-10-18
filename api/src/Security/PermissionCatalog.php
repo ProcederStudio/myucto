@@ -6,7 +6,7 @@ namespace MyInvoice\Security;
 
 final class PermissionCatalog
 {
-    public const VERSION = '2026-10-price-list-v1';
+    public const VERSION = '2026-10-operational-settings-v1';
 
     /** @var list<string> */
     private const GROUPS = [
@@ -33,9 +33,9 @@ final class PermissionCatalog
             ['clients.create', 'clients', 'Vytvořit klienta', $both],
             ['clients.archive', 'clients', 'Archivovat klienta', $both],
             ['clients.public_links', 'clients', 'Veřejné odkazy', $staffOnly],
-            ['projects', 'projects', 'Zakázky', $staffOnly],
-            ['projects.create', 'projects', 'Vytvořit zakázku', $staffOnly],
-            ['projects.archive', 'projects', 'Archivovat zakázku', $staffOnly],
+            ['projects', 'projects', 'Zakázky', $both],
+            ['projects.create', 'projects', 'Vytvořit zakázku', $both],
+            ['projects.archive', 'projects', 'Archivovat zakázku', $both],
             ['invoices', 'invoices', 'Vydané faktury', $both],
             ['invoices.create', 'invoices', 'Vytvořit fakturu', $both],
             ['invoices.issue', 'invoices', 'Vydat fakturu', $both],
@@ -124,10 +124,10 @@ final class PermissionCatalog
             ['assets.write', 'assets', 'Spravovat majetek', $staffOnly],
             ['assets.depreciation', 'assets', 'Odpisy', $staffOnly],
             ['assets.dispose', 'assets', 'Vyřadit majetek', $staffOnly],
-            ['stock', 'stock', 'Sklad', $staffOnly],
-            ['stock.items.write', 'stock', 'Skladové karty', $staffOnly],
+            ['stock', 'stock', 'Sklad', $both],
+            ['stock.items.write', 'stock', 'Skladové karty', $both],
             ['stock.documents.write', 'stock', 'Skladové doklady', $staffOnly],
-            ['stock.fulfillment.write', 'stock', 'Vychystání a expedice', $staffOnly],
+            ['stock.fulfillment.write', 'stock', 'Vychystání a expedice', $both],
             ['stock.fulfillment.override', 'stock', 'Odchylky při vychystání', $staffOnly],
             ['stock.orders.write', 'stock', 'Objednávky dodavatelům', $staffOnly],
             ['stock.vendors.write', 'stock', 'Nabídky dodavatelů', $staffOnly],
@@ -136,15 +136,19 @@ final class PermissionCatalog
             ['eshop', 'eshop', 'E-shop číselníky', $staffOnly],
             ['eshop.write', 'eshop', 'Spravovat e-shop číselníky', $staffOnly],
             ['eshop.integrations', 'eshop', 'Spravovat integrace e-shopu', $staffOnly],
-            ['logbook', 'logbook', 'Kniha jízd', $staffOnly],
-            ['logbook.write', 'logbook', 'Spravovat knihu jízd', $staffOnly],
-            ['logbook.import', 'logbook', 'Importovat jízdy', $staffOnly],
-            ['logbook.delete', 'logbook', 'Mazat jízdy', $staffOnly],
+            ['logbook', 'logbook', 'Kniha jízd', $both],
+            ['logbook.write', 'logbook', 'Spravovat knihu jízd', $both],
+            ['logbook.import', 'logbook', 'Importovat jízdy', $both],
+            ['logbook.delete', 'logbook', 'Mazat jízdy', $both],
             ['settings.company', 'settings', 'Nastavení firmy', $both],
             ['settings.company.write', 'settings', 'Měnit nastavení firmy', $staffOnly],
             ['settings.domains', 'settings', 'Spravovat klientské domény', $staffOnly],
             ['settings.bank_accounts', 'settings', 'Bankovní účty firmy', $staffOnly],
-            ['settings.branding', 'settings', 'Branding firmy', $staffOnly],
+            ['settings.email_profiles', 'settings', 'Odesílací profily firmy', $both],
+            ['settings.email_templates', 'settings', 'E-mailové šablony firmy', $both],
+            ['settings.payment_qr', 'settings', 'Platební QR firmy', $both],
+            ['settings.signing_profiles', 'settings', 'Firemní podpisové profily a PDF podpisy', $clientOnly],
+            ['settings.branding', 'settings', 'Branding firmy', $both],
             ['settings.ai_provider', 'settings', 'AI poskytovatel', $staffOnly],
             ['settings.signing', 'utilities', 'Elektronické podepisování', $staffOnly],
             ['utilities', 'utilities', 'Nástroje', $staffOnly],
@@ -162,7 +166,7 @@ final class PermissionCatalog
                 'group' => $group,
                 'label' => $label,
                 'description' => $key === 'settings.company'
-                    ? 'Čtení zpřístupní firemní kontext; zápis klientské roli otevře pouze delegované provozní nastavení (odesílací a firemní podpisové profily, PDF podpisy, e-mailové šablony, branding a platební QR), nikoli daňové ani právní údaje.'
+                    ? 'Zpřístupňuje firemní kontext a číselníky. Provozní nastavení má samostatná oprávnění; právní, daňové a účetní údaje mění pouze interní oprávnění Měnit nastavení firmy.'
                     : (str_contains($key, '.')
                         ? 'Povoluje akci „' . $label . '“.'
                         : 'Zpřístupňuje modul „' . $label . '“.'),
@@ -199,7 +203,7 @@ final class PermissionCatalog
                 'documents.inbox.delete',
                 'accounting.periods.close', 'accounting.periods.manage',
                 'settings.ai_provider', 'settings.bank_accounts', 'settings.branding',
-                'settings.company.write', 'settings.domains', 'utilities.import',
+                'settings.company.write', 'settings.domains', 'settings.email_profiles', 'settings.email_templates', 'settings.payment_qr', 'utilities.import',
                 'payroll.settings', 'payroll.person.read_sensitive', 'payroll.approve',
                 'payroll.reopen', 'payroll.health_evidence', 'payroll.enforcement', 'payroll.enforcement.cooperation', 'payroll.insolvency', 'payroll.rulesets',
                 // Výmaz osobních údajů je nevratný a právně významný — patří ke

@@ -14,6 +14,7 @@ use MyInvoice\Repository\StockPackagingUnitRepository;
 use MyInvoice\Repository\StockTrackingRepository;
 use MyInvoice\Service\Stock\StockItemPackagingService;
 use MyInvoice\Security\AccessLevel;
+use MyInvoice\Security\ClientStockItemPolicy;
 use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Service\Accounting\Product\ProductPostingDefaults;
 use MyInvoice\Service\ActivityLogger;
@@ -102,6 +103,9 @@ final class StockItemAction
             return $err;
         }
         $q = $request->getQueryParams();
+        if (RequestAuthorization::isClientType($request) && ($q['sort'] ?? '') === 'value') {
+            return Json::error($response, 'forbidden_fields', 'Klientská role nemá přístup k ocenění zásob.', 403);
+        }
         try {
             $filters = CatalogFilter::normalize($q);
         } catch (\InvalidArgumentException $e) {
@@ -111,7 +115,7 @@ final class StockItemAction
         $p = Pagination::fromQuery($q, 50);
         [$rows, $total] = $this->items->listPaged($supplierId, $filters, $p['per_page'], $p['offset']);
         $rows = $this->withSearchMatch($supplierId, $this->withEffectivePrice($supplierId, $rows), (string) ($filters['q'] ?? ''));
-        return Json::ok($response, Pagination::envelope($this->withSetFlag($supplierId, $rows), $total, $p['page'], $p['per_page']));
+        return Json::ok($response, Pagination::envelope(array_map(fn (array $row): array => $this->visibleItem($request, $row), $this->withSetFlag($supplierId, $rows)), $total, $p['page'], $p['per_page']));
     }
 
     /**
@@ -149,11 +153,12 @@ final class StockItemAction
         $limit = max(1, min(200, (int) ($q['limit'] ?? 50)));
         $term = trim((string) ($q['q'] ?? ''));
         $rows = $this->items->search($supplierId, $term, $limit);
-        return Json::ok($response, $this->withSearchMatch(
+        $rows = $this->withSearchMatch(
             $supplierId,
             $this->withPackaging($supplierId, $this->withEffectivePrice($supplierId, $rows), $term),
             $term,
-        ));
+        );
+        return Json::ok($response, array_map(fn (array $row): array => $this->visibleItem($request, $row), $rows));
     }
 
     /**
@@ -222,12 +227,12 @@ final class StockItemAction
         if ($item === null) {
             return Json::error($response, 'not_found', 'Skladová karta nenalezena.', 404);
         }
-        return Json::ok($response, $this->withSetFlag($supplierId, $this->withPackaging($supplierId, $this->withEffectivePrice($supplierId, [$item]), ''))[0]);
+        return Json::ok($response, $this->visibleItem($request, $this->withSetFlag($supplierId, $this->withPackaging($supplierId, $this->withEffectivePrice($supplierId, [$item]), ''))[0]));
     }
 
     public function create(Request $request, Response $response): Response
     {
-        if (!$this->requireWrite($request, $response, $err)) {
+        if (!$this->requireItemWrite($request, $response, $err)) {
             return $err;
         }
         $supplierId = $this->currentSupplierId($request);
@@ -235,6 +240,9 @@ final class StockItemAction
             return $err;
         }
         $body = (array) ($request->getParsedBody() ?? []);
+        if (RequestAuthorization::isClientType($request) && ClientStockItemPolicy::forbiddenFields($body) !== []) {
+            return Json::error($response, 'forbidden_fields', 'Klientská role může měnit pouze provozní údaje skladové karty.', 403);
+        }
         [$data, $validationErr] = $this->validate($response, $body);
         if ($validationErr !== null) {
             return $validationErr;
@@ -247,14 +255,14 @@ final class StockItemAction
             return $accountErr;
         }
         $id = $this->items->insert($supplierId, $data);
-        $this->items->updatePostingAccounts($supplierId, $id, $accounts);
+        if (!RequestAuthorization::isClientType($request)) $this->items->updatePostingAccounts($supplierId, $id, $accounts);
         $this->log($request, 'stock.item_created', $id, ['sku' => $data['sku']]);
-        return Json::ok($response, $this->items->find($supplierId, $id), 201);
+        return Json::ok($response, $this->visibleItem($request, $this->items->find($supplierId, $id)), 201);
     }
 
     public function update(Request $request, Response $response, array $args): Response
     {
-        if (!$this->requireWrite($request, $response, $err)) {
+        if (!$this->requireItemWrite($request, $response, $err)) {
             return $err;
         }
         $supplierId = $this->currentSupplierId($request);
@@ -267,6 +275,9 @@ final class StockItemAction
             return Json::error($response, 'not_found', 'Skladová karta nenalezena.', 404);
         }
         $body = (array) ($request->getParsedBody() ?? []);
+        if (RequestAuthorization::isClientType($request) && ClientStockItemPolicy::forbiddenFields($body) !== []) {
+            return Json::error($response, 'forbidden_fields', 'Klientská role může měnit pouze provozní údaje skladové karty.', 403);
+        }
         [$data, $validationErr] = $this->validate($response, $body, $existing);
         if ($validationErr !== null) {
             return $validationErr;
@@ -304,10 +315,13 @@ final class StockItemAction
         if ($accountErr !== null) {
             return $accountErr;
         }
-        $this->items->update($supplierId, $id, $data);
-        $this->items->updatePostingAccounts($supplierId, $id, $accounts);
+        $expectedVersion = RequestAuthorization::isClientType($request) ? (int) ($body['row_version'] ?? 0) : null;
+        if (!$this->items->update($supplierId, $id, $data, $expectedVersion)) {
+            return Json::error($response, 'version_conflict', 'Skladová karta se změnila; načtěte ji znovu.', 409);
+        }
+        if (!RequestAuthorization::isClientType($request)) $this->items->updatePostingAccounts($supplierId, $id, $accounts);
         $this->log($request, 'stock.item_updated', $id, ['sku' => $data['sku']] + $accounts);
-        return Json::ok($response, $this->items->find($supplierId, $id));
+        return Json::ok($response, $this->visibleItem($request, $this->items->find($supplierId, $id)));
     }
 
     /**
@@ -340,7 +354,7 @@ final class StockItemAction
 
     public function delete(Request $request, Response $response, array $args): Response
     {
-        if (!$this->requireWrite($request, $response, $err)) {
+        if (!$this->requireItemWrite($request, $response, $err)) {
             return $err;
         }
         $supplierId = $this->currentSupplierId($request);
@@ -690,6 +704,20 @@ final class StockItemAction
         } catch (\InvalidArgumentException $e) {
             return [[], Json::error($response, 'invalid_account', $e->getMessage(), 400)];
         }
+    }
+
+    private function requireItemWrite(Request $request, Response $response, ?Response &$err): bool
+    {
+        // Interní zápis si ponechává účetní bránu, protože podporuje také účty.
+        // Klient zapisuje jen provozní allowlist bez účetních a e-shop polí.
+        return RequestAuthorization::isClientType($request)
+            ? $this->requirePermission($request, $response, 'stock.items.write', AccessLevel::WRITE, $err)
+            : $this->requireWrite($request, $response, $err);
+    }
+
+    private function visibleItem(Request $request, array $item): array
+    {
+        return RequestAuthorization::isClientType($request) ? ClientStockItemPolicy::item($item) : $item;
     }
 
     private function nullable(mixed $v): ?string

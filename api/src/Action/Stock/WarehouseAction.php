@@ -6,6 +6,7 @@ namespace MyInvoice\Action\Stock;
 
 use MyInvoice\Action\Accounting\AccountingActionSupport;
 use MyInvoice\Http\Json;
+use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\StockLevelRepository;
 use MyInvoice\Repository\WarehouseRepository;
@@ -46,7 +47,7 @@ final class WarehouseAction
         $activeOnly = !empty($q['active']);
         $rows = $this->warehouses->listForSupplier($supplierId, $activeOnly);
         foreach ($rows as &$r) {
-            $r['value'] = $this->levels->warehouseValue($supplierId, $r['id']);
+            if (!RequestAuthorization::isClientType($request)) $r['value'] = $this->levels->warehouseValue($supplierId, $r['id']);
         }
         unset($r);
         return Json::ok($response, $rows);
@@ -62,7 +63,7 @@ final class WarehouseAction
         if ($warehouse === null) {
             return Json::error($response, 'not_found', 'Sklad nenalezen.', 404);
         }
-        $warehouse['value'] = $this->levels->warehouseValue($supplierId, $warehouse['id']);
+        if (!RequestAuthorization::isClientType($request)) $warehouse['value'] = $this->levels->warehouseValue($supplierId, $warehouse['id']);
         return Json::ok($response, $warehouse);
     }
 

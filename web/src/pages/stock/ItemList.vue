@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ClientItems from './ClientItems.vue'
 import { ref, reactive, computed, onMounted, watch, onBeforeUnmount } from 'vue'
 import StockSearchMatchHint from '@/components/stock/StockSearchMatchHint.vue'
 import { indentedCategoryLabel } from '@/utils/categoryLabel'
@@ -250,6 +251,7 @@ function clearFilter(key: string) {
 }
 
 async function load(reset = true) {
+  if (auth.isClientRole) return
   const version = ++requestVersion
   requestController?.abort()
   requestController = new AbortController()
@@ -427,6 +429,7 @@ function navigateQuickDetail(id: number) {
 }
 
 onMounted(async () => {
+  if (auth.isClientRole) return
   const [wh, mf, cat, tg, attr] = await Promise.all([
     stockApi.listWarehouses(true).catch(() => [] as Warehouse[]),
     eshopApi.listManufacturers().catch(() => [] as Manufacturer[]),
@@ -458,7 +461,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div>
+  <ClientItems v-if="auth.isClientRole" mode="list" />
+  <div v-else>
     <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
       <div>
         <h1 class="text-2xl font-semibold">{{ t('stock.items.title') }}</h1>

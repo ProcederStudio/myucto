@@ -608,7 +608,7 @@ final class StockItemRepository
      *              vat_rate_id?:?int, sale_price_without_vat?:?string, min_qty?:?string,
      *              is_active?:bool, note?:?string} $data
      */
-    public function update(int $supplierId, int $id, array $data): bool
+    public function update(int $supplierId, int $id, array $data, ?int $expectedVersion = null): bool
     {
         $stmt = $this->db->pdo()->prepare(
             'UPDATE stock_items SET
@@ -621,7 +621,7 @@ final class StockItemRepository
                 intrastat_supplementary_unit_coefficient = CASE WHEN ? THEN ? ELSE intrastat_supplementary_unit_coefficient END,
                 is_active = CASE WHEN lifecycle_status = \'ready\' THEN ? ELSE 0 END, note = ?,
                 row_version = row_version + 1
-              WHERE id = ? AND supplier_id = ?'
+              WHERE id = ? AND supplier_id = ?' . ($expectedVersion === null ? '' : ' AND row_version = ?')
         );
         $stmt->execute([
             (string) $data['sku'],
@@ -648,6 +648,7 @@ final class StockItemRepository
             $data['note'] ?? null,
             $id,
             $supplierId,
+            ...($expectedVersion === null ? [] : [$expectedVersion]),
         ]);
         return $stmt->rowCount() > 0;
     }

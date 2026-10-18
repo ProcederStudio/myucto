@@ -271,6 +271,7 @@ final class DynamicRolesMigrationRuntimeTest extends TestCase
             '--no-backfills',
             '--no-analyze',
             '--only=' . implode(',', [
+                '0017_app_meta.sql',
                 '1074_dynamic_roles_permissions.sql',
                 '1186_payroll_module_foundation.sql',
                 '1404_purchase_invoice_submissions.sql',
@@ -283,6 +284,8 @@ final class DynamicRolesMigrationRuntimeTest extends TestCase
                 '1962_payroll_personnel_file.sql',
                 '2014_client_ai_extraction.sql',
                 '2015_client_bank_permissions.sql',
+                '2017_price_list_role_permissions.sql',
+                '2018_operational_settings_role_permissions.sql',
             ]),
         ];
         $env = getenv();

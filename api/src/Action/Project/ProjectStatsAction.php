@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Action\Project;
 
 use MyInvoice\Http\Json;
+use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Middleware\SupplierScopeMiddleware;
 use Psr\Http\Message\ResponseInterface as Response;
@@ -23,6 +24,9 @@ final class ProjectStatsAction
 
     public function __invoke(Request $request, Response $response): Response
     {
+        if (!RequestAuthorization::allows($request, 'invoices')) {
+            return Json::error($response, 'forbidden_permission', 'Statistiky zakázek vyžadují čtení faktur.', 403);
+        }
         $pdo = $this->db->pdo();
         $thisYear = (int) date('Y');
         $prevYear = $thisYear - 1;

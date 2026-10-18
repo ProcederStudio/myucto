@@ -4,64 +4,76 @@ declare(strict_types=1);
 
 namespace MyInvoice\Tests\Unit\Security;
 
-use MyInvoice\Security\AccessLevel;
 use MyInvoice\Security\EffectiveRole;
 use MyInvoice\Security\OperationalSettingsAccess;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Slim\Psr7\Factory\ServerRequestFactory;
 
 final class OperationalSettingsAccessTest extends TestCase
 {
-    public function testClientNeedsCompanyWriteForDelegatedAreas(): void
-    {
-        $reader = $this->request(new EffectiveRole(4, 'Klient', 'client', true, [
-            'settings.company' => AccessLevel::READ->value,
-        ]));
-        self::assertFalse(OperationalSettingsAccess::emailProfiles($reader));
-        self::assertFalse(OperationalSettingsAccess::branding($reader));
-        self::assertFalse(OperationalSettingsAccess::paymentQr($reader));
+    private const AREAS = [
+        'emailProfiles' => 'settings.email_profiles',
+        'emailTemplates' => 'settings.email_templates',
+        'branding' => 'settings.branding',
+        'paymentQr' => 'settings.payment_qr',
+        'clientSigningProfiles' => 'settings.signing_profiles',
+    ];
 
-        $writer = $this->request(new EffectiveRole(4, 'Klient', 'client', true, [
-            'settings.company' => AccessLevel::WRITE->value,
-        ]));
-        self::assertTrue(OperationalSettingsAccess::emailProfiles($writer));
-        self::assertTrue(OperationalSettingsAccess::branding($writer));
-        self::assertTrue(OperationalSettingsAccess::paymentQr($writer));
+    public static function grants(): iterable
+    {
+        foreach (['client', 'staff'] as $type) {
+            foreach (self::AREAS as $area => $permission) {
+                foreach ([0, 1, 2] as $level) yield "$type $area $level" => [$type, $area, $permission, $level];
+            }
+        }
     }
 
-    public function testClientCannotSubstituteStaffOnlyPermissions(): void
+    #[DataProvider('grants')]
+    public function testOnlyTargetedWriteGrantOpensEachEditor(string $type, string $area, string $permission, int $level): void
+    {
+        $request = $this->request(new EffectiveRole(4, 'Delegovaná role', $type, true, [
+            'settings.company' => 2,
+            'settings.company.write' => 2,
+            'settings.signing' => 2,
+            $permission => $level,
+        ]));
+        foreach (self::AREAS as $checkedArea => $checkedPermission) {
+            self::assertSame(
+                $checkedPermission === $permission && $level === 2 && ($checkedArea !== 'clientSigningProfiles' || $type === 'client'),
+                OperationalSettingsAccess::$checkedArea($request),
+                $checkedArea,
+            );
+        }
+    }
+
+    public function testRevocationCannotFallBackToBroadCompanyPermission(): void
     {
         $request = $this->request(new EffectiveRole(4, 'Klient', 'client', true, [
-            'settings.company' => AccessLevel::READ->value,
-            'settings.company.write' => AccessLevel::WRITE->value,
-            'settings.branding' => AccessLevel::WRITE->value,
+            'settings.company' => 2,
+            'settings.company.write' => 2,
+            'settings.signing' => 2,
         ]));
-
-        self::assertFalse(OperationalSettingsAccess::emailProfiles($request));
-        self::assertFalse(OperationalSettingsAccess::branding($request));
-        self::assertFalse(OperationalSettingsAccess::paymentQr($request));
+        foreach (self::AREAS as $area => $_) self::assertFalse(OperationalSettingsAccess::$area($request));
     }
 
-    public function testStaffAndSuperadminKeepTheirExistingPermissions(): void
+    public function testInactiveRoleCannotOpenEditors(): void
     {
-        $staff = $this->request(new EffectiveRole(2, 'Správce', 'staff', true, [
-            'settings.company.write' => AccessLevel::WRITE->value,
-            'settings.branding' => AccessLevel::WRITE->value,
-        ]));
-        self::assertTrue(OperationalSettingsAccess::emailProfiles($staff));
-        self::assertTrue(OperationalSettingsAccess::branding($staff));
-        self::assertTrue(OperationalSettingsAccess::paymentQr($staff));
+        $request = $this->request(new EffectiveRole(4, 'Klient', 'client', false, array_fill_keys(array_values(self::AREAS), 2)));
+        foreach (self::AREAS as $area => $_) self::assertFalse(OperationalSettingsAccess::$area($request));
+    }
 
-        $superadmin = $this->request(new EffectiveRole(1, 'Superadmin', 'superadmin', true, [], 'superadmin'));
-        self::assertTrue(OperationalSettingsAccess::emailProfiles($superadmin));
-        self::assertTrue(OperationalSettingsAccess::branding($superadmin));
-        self::assertTrue(OperationalSettingsAccess::paymentQr($superadmin));
+    public function testSuperadminKeepsNativeSettingsAccess(): void
+    {
+        $request = $this->request(new EffectiveRole(1, 'Superadmin', 'superadmin', true, [], 'superadmin'));
+        foreach (self::AREAS as $area => $_) {
+            self::assertSame($area !== 'clientSigningProfiles', OperationalSettingsAccess::$area($request));
+        }
     }
 
     private function request(EffectiveRole $role): \Psr\Http\Message\ServerRequestInterface
     {
-        return (new ServerRequestFactory())
-            ->createServerRequest('GET', '/api/settings/client/branding')
+        return (new ServerRequestFactory())->createServerRequest('GET', '/api/settings/client/branding')
             ->withAttribute('auth.effective_role', $role);
     }
 }

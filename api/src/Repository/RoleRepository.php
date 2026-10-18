@@ -191,6 +191,13 @@ final class RoleRepository
             }
             if ($level !== AccessLevel::NONE) $out[(string) $key] = $level->value;
         }
+        if ($roleType === 'client') {
+            // Klientský sklad nemá obecný zápis; správa karet a expedice jsou
+            // samostatné akce, které potřebují čtení jejich podkladů.
+            if (isset($out['stock']) || isset($out['stock.items.write']) || isset($out['stock.fulfillment.write'])) {
+                $out['stock'] = AccessLevel::READ->value;
+            }
+        }
         return $out;
     }
 

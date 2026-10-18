@@ -108,6 +108,32 @@ final class PermissionMiddlewareTest extends TestCase
         }
     }
 
+    public function testProjectPublicLinksRequireInternalPublicLinkGrant(): void
+    {
+        $policy = new \MyInvoice\Service\Tenant\ClientRoutePolicy();
+        $roles = [
+            [new EffectiveRole(8, 'Delegovaný klient', 'client', true, ['projects' => 2]), false, false],
+            [new EffectiveRole(9, 'Interní projekty', 'staff', true, ['projects' => 2]), false, false],
+            [new EffectiveRole(10, 'Čtenář odkazů', 'staff', true, ['clients.public_links' => 1]), true, false],
+            [new EffectiveRole(11, 'Správce odkazů', 'staff', true, ['clients.public_links' => 2]), true, true],
+        ];
+        foreach ($roles as [$role, $canRead, $canWrite]) {
+            $middleware = $this->middleware($role, new SupplierAccess(1, false, null));
+            foreach ([
+                ['GET', '/api/projects/7/work-report-link'],
+                ['GET', '/api/projects/7/work-report-link/recipients'],
+                ['POST', '/api/projects/7/work-report-link/send'],
+                ['DELETE', '/api/projects/7/work-report-link'],
+            ] as [$method, $path]) {
+                $allowed = $method === 'GET' ? $canRead : $canWrite;
+                self::assertSame($allowed ? 204 : 403,
+                    $middleware->process($this->request($method, $path), $this->handler())->getStatusCode(),
+                    "$role->name: $method $path");
+                self::assertFalse($policy->allowsApiRequest($method, $path), "$method $path");
+            }
+        }
+    }
+
     public function testUnknownRouteFailsClosed(): void
     {
         $response = $this->middleware(new EffectiveRole(2, 'Staff', 'staff', true), new SupplierAccess(1, false, null))

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Action\Project;
 
 use MyInvoice\Http\Json;
+use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Http\SupplierGuard;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Middleware\AuthMiddleware;
@@ -42,7 +43,9 @@ final class DeleteProjectAction
             return Json::error(
                 $response,
                 'has_invoices',
-                "Zakázku nelze smazat — má {$count} navázaných faktur. Místo toho ji archivuj.",
+                RequestAuthorization::allows($request, 'invoices')
+                    ? "Zakázku nelze smazat — má {$count} navázaných faktur. Místo toho ji archivuj."
+                    : 'Zakázku nelze smazat kvůli navázaným dokladům. Místo toho ji archivuj.',
                 409,
             );
         }

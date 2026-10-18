@@ -58,11 +58,13 @@ final class RoutePermissionMap
      * @var list<array{0:string,1:string,2:string,3:AccessLevel}>
      */
     private const RULES = [
-        // Přesný allowlist provozních nastavení delegovatelných klientovi. Musí být
-        // před obecným /api/settings fallbackem: `settings.company = WRITE` nikdy
-        // nesmí otevřít PUT /api/settings/supplier ani účetní/daňové konfigurace.
-        ['*', '#^/api/settings/client/(email-profiles|email-templates|branding|payment-qr|signing|pdf-signing)(/|$)#', 'settings.company', AccessLevel::WRITE],
-        ['*', '#^/api/settings/email-templates(/|$)#', 'settings.company.write', AccessLevel::WRITE],
+        // Provozní editory mají stejnou cílenou bránu pro GET i mutace.
+        ['*', '#^/api/settings/(client/)?email-profiles(/|$)#', 'settings.email_profiles', AccessLevel::WRITE],
+        ['*', '#^/api/settings/(client/)?email-templates(/|$)#', 'settings.email_templates', AccessLevel::WRITE],
+        ['*', '#^/api/settings/client/branding(/|$)#', 'settings.branding', AccessLevel::WRITE],
+        ['*', '#^/api/settings/branding-profiles(/|$)#', 'settings.branding', AccessLevel::WRITE],
+        ['*', '#^/api/settings/client/payment-qr(/|$)#', 'settings.payment_qr', AccessLevel::WRITE],
+        ['*', '#^/api/settings/client/(signing|pdf-signing)(/|$)#', 'settings.signing_profiles', AccessLevel::WRITE],
         ['GET', '#^/api/settings/domains(/|$)#', 'settings.domains', AccessLevel::READ],
         ['*', '#^/api/settings/domains(/|$)#', 'settings.domains', AccessLevel::WRITE],
         ['GET', '#^/api/auth/tokens(/|$)#', 'profile.tokens', AccessLevel::READ],
@@ -142,6 +144,9 @@ final class RoutePermissionMap
         ['*', '#^/api/clients/[0-9]+/work-report-link(/|$)#', 'clients.public_links', AccessLevel::WRITE],
         ['GET', '#^/api/clients(/|$)#', 'clients', AccessLevel::READ],
         ['*', '#^/api/clients(/|$)#', 'clients', AccessLevel::WRITE],
+        // Veřejné odkazy sdílejí pravomoc s klientskými odkazy, nikoli provozní správou zakázek.
+        ['GET', '#^/api/projects/[0-9]+/work-report-link(/|$)#', 'clients.public_links', AccessLevel::READ],
+        ['*', '#^/api/projects/[0-9]+/work-report-link(/|$)#', 'clients.public_links', AccessLevel::WRITE],
         ['POST', '#^/api/projects$#', 'projects.create', AccessLevel::WRITE],
         ['DELETE', '#^/api/projects/[0-9]+$#', 'projects.archive', AccessLevel::WRITE],
         ['*', '#^/api/projects/[0-9]+/(archive|restore)$#', 'projects.archive', AccessLevel::WRITE],
@@ -1010,7 +1015,8 @@ final class RoutePermissionMap
                 $picker ? ['invoices', 'recurring'] : []);
         }
         if ($method === 'GET' && preg_match('#^/api/codebooks/(currencies|units|vat-rates)$#D', $path) === 1) {
-            return new RoutePermission(self::PERMISSION, 'settings.company', AccessLevel::READ, ['price_list']);
+            return new RoutePermission(self::PERMISSION, 'settings.company', AccessLevel::READ,
+                $path === '/api/codebooks/currencies' ? ['price_list', 'stock', 'projects'] : ['price_list', 'stock']);
         }
         if ($method === 'POST' && $path === '/api/suppliers') {
             return new RoutePermission(self::ADMIN_PLUS);

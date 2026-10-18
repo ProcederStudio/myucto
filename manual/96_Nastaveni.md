@@ -597,15 +597,22 @@ smazat ani upravit jejich matici:
 | **Admin** | Může dělat vše v přidělených firmách a pracovat s více firmami, které mu přidělí superadmin. Nemění celosystémové položky v menu Systém. |
 | **Admin Plus** | Má práva role Admin a navíc může v `Systém → Firmy` založit novou firmu. K nové firmě automaticky získá práva Admin. |
 
-U klientské role má položka **Nastavení firmy** záměrně užší význam než interní právo **Měnit nastavení firmy**. Úroveň
-**Zápis** otevře v klientském menu odesílací profily firmy, firemní podpisové profily, e-mailové šablony, branding a dvě volby data
-splatnosti v QR vystavených a přijatých dokladů; neotevře právní, daňové ani účetní údaje dodavatele. Klientský správce
-může pro firmu nahrát certifikát P12/PFX, nastavit jeho použití pro PDF výstupy a propojit podpisový profil s e-mailovým
-odesílacím profilem. Správa se týká firemních profilů s podporovaným nativním backendem a šifrovaným uložením hesla;
-osobní profily a osobní trezor certifikátů zůstávají součástí interní správy. Podrobnosti a omezení jsou v [kapitole
-99](99_Elektronicke_podpisy.md). Díky přepisu role u konkrétní
-firmy lze stejného uživatele nechat spravovat provozní nastavení firmy A a ve firmě B mu ponechat běžný klientský
-přístup. Podrobný rozsah popisuje [§ 9.11.2 Delegované nastavení firmy](09_Klientsky_portal.md#9112-delegovane-nastaveni-firmy).
+Provozní nastavení firmy má pět samostatných oprávnění: **Odesílací profily firmy**, **E-mailové šablony firmy**,
+**Branding firmy**, **Platební QR firmy** a klientské **Firemní podpisové profily a PDF podpisy**. Každou oblast lze
+samostatně zakázat nebo povolit pro zápis. V `Firma → Nastavení firmy` se zobrazí jen povolené záložky; totéž platí
+pro přímý odkaz a pro vlastní klientskou doménu. Samotné **Nastavení firmy** přístup do těchto editorů nezapíná.
+Právo **Měnit nastavení firmy** zůstává interní správě právních, daňových a účetních údajů.
+
+Klient s právem spravovat firemní podpisové profily může pro firmu nahrát certifikát P12/PFX a nastavit jeho použití
+pro PDF výstupy. Pro propojení profilu s odesílacím profilem potřebuje také správu odesílacích profilů. Správa se týká
+firemních profilů s nativním backendem a šifrovaným uložením hesla; osobní profily a osobní trezor certifikátů zůstávají
+součástí interní správy. Podrobnosti jsou v [kapitole 99](99_Elektronicke_podpisy.md).
+Díky přepisu role u konkrétní firmy lze stejnému uživateli povolit například branding ve firmě A a ve firmě B mu jej
+zakázat. Podrobný rozsah popisuje [§ 9.11.2 Delegované nastavení firmy](09_Klientsky_portal.md#9112-delegovane-nastaveni-firmy).
+
+Klientským rolím lze přidělit také existující práva **Zakázky**, **Vytvořit zakázku**, **Archivovat zakázku** a práva
+pro **Knihu jízd**, její správu, import a mazání. U skladu lze povolit čtení, správu skladových karet a expedici;
+provozní akce vyžadují i čtení skladu. Tyto oblasti se běžné klientské roli automaticky nezapínají.
 
 Předávání originálů používá záměrně oddělená práva. Klientské **Předávat doklady účetní** dovolí pouze vložit a sledovat
 vlastní podání aktuální firmy. Interní **Příchozí doklady** dovolí účetní frontu číst nebo zpracovávat, včetně nahrání

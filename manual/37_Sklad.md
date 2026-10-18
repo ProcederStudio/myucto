@@ -55,6 +55,19 @@ přílohy k produktu).
 4. **Dodavatelé v adresáři.** Pro objednávky potřebujete klienty s rolí
    dodavatele (viz [Klienti](18_Klienti.md)).
 
+Klientské roli lze v editoru rolí zapnout **Sklad – čtení** a samostatně
+**Skladové karty – zápis** nebo **Vychystání a expedice – zápis**. Akce vyžadují
+čtení skladu. Výchozí klientská role tato práva nemá. Klient s právem ke kartám
+spravuje jejich základní údaje, prodejní cenu, minimální zásobu a aktivitu v
+jednoduchém editoru. Účetní nastavení karty ani obsah e-shopu se tím nemění.
+Při souběžné změně se uložení zastaví a kartu je potřeba znovu načíst.
+
+Vychystání a expedice dovolují převzít připravený výdejní koncept nebo prodejní
+objednávku, vychystat kusy, zabalit a expedovat zásilku a přijmout vratku.
+Klient vidí údaje potřebné k expedici; nákupní ocenění, skladové pohyby,
+inventury, uzávěrky, účetní výchozí hodnoty a správu skladových dokladů tato
+oprávnění neotevírají. Odchylky při vychystání jsou vyhrazené interním rolím.
+
 ## 37.3 Krok za krokem: zapnout sklad a založit karty
 
 ### 37.3.1 Zapnutí skladu

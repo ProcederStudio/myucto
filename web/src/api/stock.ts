@@ -77,6 +77,8 @@ export interface StockItem extends StockItemEffectivePrice {
 }
 
 export interface StockItemPayload {
+  /** Aktuální verze karty pro klientský zápis. */
+  row_version?: number
   sku?: string
   name: string
   item_type: StockItemType

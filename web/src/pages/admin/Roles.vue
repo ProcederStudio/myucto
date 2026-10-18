@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { rolesApi, type PermissionCatalogResponse, type RoleDetail, type RoleListItem } from '@/api/roles'
-import { CLIENT_BANK_ACTION_KEYS, setRolePermission, type PermissionValue } from '@/security/permissions'
+import { CLIENT_BANK_ACTION_KEYS, CLIENT_STOCK_ACTION_KEYS, OPERATIONAL_SETTINGS_KEYS, setRolePermission, type PermissionValue } from '@/security/permissions'
 import { useToast } from '@/composables/useToast'
 import { btnFilled, btnOutline, btnOutlineSm, ICONS } from '@/components/ui/buttonStyles'
 
@@ -28,6 +28,8 @@ const applicableGroups = computed(() => Object.entries(catalog.value?.groups ?? 
 })).filter(group => group.permissions.length > 0))
 
 function permissionLabel(permission: { key: string; label: string }): string {
+  if ((OPERATIONAL_SETTINGS_KEYS as readonly string[]).includes(permission.key)) return t(`roles.operational_permissions.${permission.key.slice(9)}`)
+  if (permission.key === 'stock' || (CLIENT_STOCK_ACTION_KEYS as readonly string[]).includes(permission.key)) return t(`roles.stock_permissions.${permission.key.replaceAll('.', '_')}`)
   if (permission.key === 'price_list') return t('permissions.groups.price_list')
   if (permission.key === 'bank' || (CLIENT_BANK_ACTION_KEYS as readonly string[]).includes(permission.key)) return t(`roles.bank_permissions.${permission.key.replace('.', '_')}`)
   if (locale.value === 'cs') return permission.label
@@ -36,7 +38,9 @@ function permissionLabel(permission: { key: string; label: string }): string {
 }
 
 function permissionLevels(key: string): readonly PermissionValue[] {
-  if (form.role_type === 'client' && key === 'bank') return [0, 1]
+  if ((OPERATIONAL_SETTINGS_KEYS as readonly string[]).includes(key)) return [0, 2]
+  if (form.role_type === 'client' && (key === 'bank' || key === 'stock')) return [0, 1]
+  if (form.role_type === 'client' && (CLIENT_STOCK_ACTION_KEYS as readonly string[]).includes(key)) return [0, 2]
   if (form.role_type === 'client' && (CLIENT_BANK_ACTION_KEYS as readonly string[]).includes(key)) return [0, 2]
   return [0, 1, 2]
 }
