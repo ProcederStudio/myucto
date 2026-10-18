@@ -33756,6 +33756,37 @@
     }
   },
   "stereo_nx": {
+    "summary": {
+      "show_all": "Zobrazit vše",
+      "agendas_title": "Přehled agend",
+      "agenda": "Agenda",
+      "source": "Ve zdroji",
+      "ready": "K převodu",
+      "skipped": "Nepřevedeno",
+      "review": "Ke kontrole",
+      "hint": "Pomlčka znamená, že zdroj tento počet neuvádí. Počty ke kontrole se mohou překrývat s převáděnými záznamy; sloupce se nesčítají.",
+      "details_title": "Další počty a výsledek zápisu",
+      "stage": "Fáze",
+      "metric": "Ukazatel",
+      "count": "Počet",
+      "agendas": {
+        "assets": "Dlouhodobý majetek",
+        "small_assets": "Drobný majetek",
+        "employees": "Zaměstnanci",
+        "historical_payroll": "Historické mzdy",
+        "warehouses": "Sklady",
+        "stock_items": "Skladové karty",
+        "cars": "Vozidla",
+        "route_templates": "Opakované trasy",
+        "children": "Děti zaměstnanců",
+        "tax_items": "Mzdové daňové údaje",
+        "leave_records": "Záznamy dovolené",
+        "average_records": "Mzdové průměry",
+        "documents_review": "Doklady vyžadující koncept",
+        "movements_source_review": "Peněžní pohyby ke kontrole ve zdroji",
+        "movements_review": "Výsledné peněžní pohyby ke kontrole"
+      }
+    },
     "bank_series_title": "Přiřazení bankovních účtů k řadám",
     "bank_series_missing": "V záloze chybí dokladová řada u bankovních účtů: {count}.",
     "bank_series_hint": "Pro import lze použít navržené přiřazení účtu k dokladové řadě bankovních výpisů. Jde pouze o dočasný výklad pro tento import; zdrojový ZIP zůstane beze změny.",

@@ -120,6 +120,7 @@ function levelClass(level: string): string {
       <span v-if="protocol.error"> - {{ protocol.error }}</span>
     </div>
 
+    <slot name="steps" :steps="protocol.steps">
     <section>
       <h4 class="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-500">{{ t(k('protocol.steps_title')) }}</h4>
       <div class="overflow-x-auto rounded-lg border border-neutral-200">
@@ -136,6 +137,8 @@ function levelClass(level: string): string {
         </table>
       </div>
     </section>
+
+    </slot>
 
     <section v-if="messages.length">
       <h4 class="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-500">{{ t(k('protocol.messages')) }}</h4>

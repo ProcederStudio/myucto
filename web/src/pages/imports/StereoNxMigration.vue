@@ -3,11 +3,13 @@ import { computed, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useToast } from '@/composables/useToast'
+import { formatDate } from '@/composables/useFormat'
 import { stereoNxApi, type StereoCompany, type StereoPreview, type StereoProtocolRun, type StereoReport, type StereoUpload } from '@/api/stereoNx'
 import type { MoneyS3Step } from '@/api/moneyS3'
 import { btnOutline, ICONS } from '@/components/ui/buttonStyles'
 import ActionBar, { type ActionItem } from '@/components/ui/ActionBar.vue'
 import MoneyS3Protocol from '@/components/migration/MoneyS3Protocol.vue'
+import StereoNxSummary from '@/components/migration/StereoNxSummary.vue'
 import ImportJobProgress from '@/components/exchange/ImportJobProgress.vue'
 import CompanyProfileBox from '@/components/settings/CompanyProfileBox.vue'
 import type { FileImportJob } from '@/api/imports'
@@ -471,7 +473,7 @@ function asProtocol(report: StereoReport, mode: 'dry_run' | 'import'): StereoPro
   }
   const steps: MoneyS3Step[] = [
     { key: 'source_summary', status: report.ok ? 'ok' : 'error', counts: report.counts ?? {}, messages },
-    { key: 'review', status: reviewMessages.length ? 'warning' : 'ok', counts: { requires_draft: report.counts?.requires_draft ?? 0, requires_movement_review: report.counts?.requires_movement_review ?? 0 }, messages: reviewMessages },
+    { key: 'review', status: reviewMessages.length ? 'warning' : 'ok', counts: {}, messages: reviewMessages },
   ]
   if (report.written) steps.push({ key: mode === 'dry_run' ? 'would_write' : 'written', status: report.ok ? 'ok' : 'error', counts: report.written, messages: [] })
   const status = !report.ok ? 'failed' : messages.some(item => item.level === 'warning') || reviewMessages.length ? 'completed_with_warnings' : 'completed'
@@ -619,8 +621,10 @@ const importProtocol = computed(() => importReport.value ? asProtocol(importRepo
         counts-key="stereo_nx.job_counts" background-hint-key="stereo_nx.background_hint" running-key="stereo_nx.dry_run_running" />
       <p v-else-if="busy" class="text-sm text-primary-700" role="status">{{ t('stereo_nx.working') }}</p>
       <template v-if="dryReport">
-        <p v-if="dryReport.date_bounds" class="mb-4 text-sm text-neutral-600">{{ t('stereo_nx.date_bounds', dryReport.date_bounds) }}</p>
-        <MoneyS3Protocol v-if="dryProtocol" :run="dryProtocol" prefix="stereo_nx" />
+        <p v-if="dryReport.date_bounds" class="mb-4 text-sm text-neutral-600">{{ t('stereo_nx.date_bounds', { from: formatDate(dryReport.date_bounds.from), to: formatDate(dryReport.date_bounds.to) }) }}</p>
+        <MoneyS3Protocol v-if="dryProtocol" :run="dryProtocol" prefix="stereo_nx">
+          <template #steps="{ steps: protocolSteps }"><StereoNxSummary :steps="protocolSteps" /></template>
+        </MoneyS3Protocol>
       </template>
     </section>
 
@@ -629,8 +633,10 @@ const importProtocol = computed(() => importReport.value ? asProtocol(importRepo
       <ImportJobProgress v-if="busy && job" class="mb-4" :job="job" :percent="null" :cancelling="false" :show-cancel="false"
         counts-key="stereo_nx.job_counts" background-hint-key="stereo_nx.background_hint" running-key="stereo_nx.import_running" />
       <template v-if="importReport">
-        <p v-if="importReport.date_bounds" class="mb-4 text-sm text-neutral-600">{{ t('stereo_nx.date_bounds', importReport.date_bounds) }}</p>
-        <MoneyS3Protocol v-if="importProtocol" :run="importProtocol" prefix="stereo_nx" />
+        <p v-if="importReport.date_bounds" class="mb-4 text-sm text-neutral-600">{{ t('stereo_nx.date_bounds', { from: formatDate(importReport.date_bounds.from), to: formatDate(importReport.date_bounds.to) }) }}</p>
+        <MoneyS3Protocol v-if="importProtocol" :run="importProtocol" prefix="stereo_nx">
+          <template #steps="{ steps: protocolSteps }"><StereoNxSummary :steps="protocolSteps" /></template>
+        </MoneyS3Protocol>
         <div v-if="importReport.ok && importReport.database_writes && ((importReport.written?.historical_payroll_created ?? 0) + (importReport.written?.historical_payroll_existing ?? 0) > 0)" class="mt-4 flex flex-wrap gap-2">
           <RouterLink to="/payroll/imports?tab=takeover" :class="btnOutline('neutral')" class="whitespace-nowrap" data-testid="stereo-payroll-link"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="ICONS.eye" /></svg>{{ t('stereo_nx.open_payroll') }}</RouterLink>
         </div>
@@ -646,8 +652,10 @@ const importProtocol = computed(() => importReport.value ? asProtocol(importRepo
       </template>
       <template v-else>
         <p class="mb-4 text-sm text-neutral-500">{{ t('stereo_nx.import_hint') }}</p>
-        <p v-if="dryReport?.date_bounds" class="mb-4 text-sm text-neutral-600">{{ t('stereo_nx.date_bounds', dryReport.date_bounds) }}</p>
-        <MoneyS3Protocol v-if="dryProtocol" :run="dryProtocol" prefix="stereo_nx" />
+        <p v-if="dryReport?.date_bounds" class="mb-4 text-sm text-neutral-600">{{ t('stereo_nx.date_bounds', { from: formatDate(dryReport.date_bounds.from), to: formatDate(dryReport.date_bounds.to) }) }}</p>
+        <MoneyS3Protocol v-if="dryProtocol" :run="dryProtocol" prefix="stereo_nx">
+          <template #steps="{ steps: protocolSteps }"><StereoNxSummary :steps="protocolSteps" /></template>
+        </MoneyS3Protocol>
         <label class="mt-5 flex cursor-pointer items-start gap-3 rounded-lg border border-warning-500/30 bg-warning-50 p-4 text-sm text-warning-700"><input v-model="confirmed" data-testid="stereo-import-confirm" type="checkbox" class="mt-1" :disabled="busy" />{{ t('stereo_nx.confirm') }}</label>
         <p v-if="dryReport?.partial" class="mt-3 text-sm text-warning-700">{{ t('stereo_nx.partial_backup_kept') }}</p>
         <label class="mt-3 flex cursor-pointer items-start gap-3 rounded-lg border border-neutral-200 p-4 text-sm"><input v-model="deleteAfterImport" data-testid="stereo-delete-after-import" type="checkbox" class="mt-1" :disabled="busy || dryReport?.partial === true" />{{ t('stereo_nx.delete_after_import') }}</label>

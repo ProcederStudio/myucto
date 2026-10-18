@@ -810,6 +810,14 @@ dokladů; zkouška nanečisto ani neúspěšný převod ji nemažou. Pokud odstr
 selže, import zůstává dokončený a zálohu lze odstranit ze seznamu. Převod zálohu
 pouze čte, původní data ani instalaci Stereo NX nemění.
 
+Souhrn zkoušky i importu zobrazuje počty v tabulkách. U podporovaných agend
+porovnáte sloupce **Ve zdroji**, **K převodu**, **Nepřevedeno** a **Ke kontrole**;
+pomlčka označuje údaj, který report neuvádí. Další počty jsou rozepsané podle
+kroku převodu. Řádky, jejichž všechny uvedené počty jsou nulové, jsou skryté
+a zobrazíte je volbou **Zobrazit vše**. Pomlčka skrytí řádku nebrání. Důvody
+nepřevedení a upozornění zůstávají ve zprávách protokolu.
+Období obsažené v záloze se zobrazuje ve formátu data podle jazyka aplikace.
+
 #### 21.9.15.1 Daňová evidence
 
 Převádí se adresář, vydané faktury s položkami, přijaté faktury, bankovní výpisy

@@ -4,7 +4,7 @@ import StereoNxMigration from '../StereoNxMigration.vue'
 
 const m = vi.hoisted(() => ({
   uploads: vi.fn(), upload: vi.fn(), preview: vi.fn(), run: vi.fn(), remove: vi.fn(), fillCompanyProfile: vi.fn(),
-  toastError: vi.fn(), supplierStore: undefined as any,
+  locale: { value: 'cs' }, toastError: vi.fn(), supplierStore: undefined as any,
   // Stránka job spustí (`start`) a sleduje (`follow`); testy dál pracují s jedním `run`.
   jobs: new Map<number, [string, number, string, boolean, boolean]>(),
 }))
@@ -26,10 +26,11 @@ vi.mock('@/stores/supplier', async () => {
   m.supplierStore = reactive({ currentSupplierId: 1 })
   return { useSupplierStore: () => m.supplierStore }
 })
+vi.mock('@/i18n', () => ({ i18n: { global: { locale: m.locale } } }))
 vi.mock('@/composables/useToast', () => ({ useToast: () => ({ error: m.toastError }) }))
 vi.mock('@/components/settings/CompanyProfileBox.vue', () => ({ default: { template: '<div />' } }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({
-  t: (key: string) => key, te: () => true, tm: () => ['Synthetic backup instruction'],
+  t: (key: string, params?: Record<string, unknown>) => key === 'stereo_nx.date_bounds' ? `${params?.from} až ${params?.to}` : key, te: () => true, tm: () => ['Synthetic backup instruction'],
   rt: (value: string) => value, locale: { value: 'cs' },
 }) }))
 
@@ -75,6 +76,7 @@ async function reachDryRun(wrapper: Awaited<ReturnType<typeof mountPage>>) {
 beforeEach(() => {
   vi.resetAllMocks()
   m.jobs.clear()
+  m.locale.value = 'cs'
   sessionStorage.clear()
   m.supplierStore.currentSupplierId = 1
   m.uploads.mockResolvedValue([upload])
@@ -88,6 +90,47 @@ beforeEach(() => {
 afterEach(() => vi.clearAllMocks())
 
 describe('Stereo NX migration wizard', () => {
+  it.each([['cs', '23. 12. 2025 až 31. 08. 2026'], ['en', '12/23/2025 až 08/31/2026']])('formats report date bounds using %s locale in all wizard report views', async (locale, expected) => {
+    m.locale.value = locale
+    m.run.mockImplementation(async (_token: string, _company: number, mode: string) => ({ ...(mode === 'dry_run' ? dryReport : importReport), date_bounds: { from: '2025-12-23', to: '2026-08-31' } }))
+    const wrapper = await mountPage()
+    await reachDryRun(wrapper)
+    expect(wrapper.text()).toContain(expected)
+    expect(wrapper.text()).not.toContain('2025-12-23')
+    await primaryButton(wrapper, 'continue').trigger('click')
+    expect(wrapper.text()).toContain(expected)
+    await wrapper.get('[data-testid="stereo-import-confirm"]').setValue(true)
+    await primaryButton(wrapper, 'import').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain(expected)
+    wrapper.unmount()
+  })
+
+  it('renders source, ready and skipped agenda counts in columns and preserves every other metric once per stage', async () => {
+    const counts = { assets_source: 1, assets_ready: 0, assets_skipped: 1, requires_draft: 3, requires_movement_review: 2, custom_metric: 7 }
+    m.run.mockResolvedValue({ ...dryReport, counts, written: { assets_created: 0, custom_metric: 9 } })
+    const wrapper = await mountPage()
+    await reachDryRun(wrapper)
+    const summary = wrapper.get('[data-testid="stereo-counts-summary"]')
+    await summary.get('[data-testid="stereo-counts-show-all"]').setValue(true)
+    const asset = summary.get('[data-agenda="assets"]').findAll('td').map(cell => cell.text())
+    expect(asset).toEqual(['1', '0', '1', '—'])
+    expect(summary.get('[data-count-key="assets_skipped"]').classes()).toContain('text-warning-700')
+    expect(summary.findAll('[data-count-key]')).toHaveLength(Object.keys(counts).length + 2)
+    expect(summary.get('[data-agenda="documents_review"]').findAll('td').map(cell => cell.text())).toEqual(['—', '—', '—', '3'])
+    expect(summary.get('[data-agenda="movements_review"]').findAll('td').map(cell => cell.text())).toEqual(['—', '—', '—', '2'])
+    expect(summary.findAll('[data-count-key="requires_draft"]')).toHaveLength(1)
+    expect(summary.findAll('[data-count-key="requires_movement_review"]')).toHaveLength(1)
+    const details = summary.get('[data-testid="stereo-counts-details"]')
+    expect(details.findAll('tbody tr').map(row => row.findAll('td').map(cell => cell.text()))).toEqual([
+      ['stereo_nx.steps.source_summary', 'stereo_nx.counts.custom_metric', '7'],
+      ['stereo_nx.steps.would_write', 'stereo_nx.counts.assets_created', '0'],
+      ['stereo_nx.steps.would_write', 'stereo_nx.counts.custom_metric', '9'],
+    ])
+    expect(wrapper.text()).toContain('stereo_nx.review_count')
+    wrapper.unmount()
+  })
+
   it('requires bank-series approval, sends it and restores it after returning', async () => {
     const bank = { requires_confirmation: true, ambiguous: false, assignments: [{ account_index: 0, account_label: 'Synthetic bank', series: 'SYN' }], missing_accounts: 1, unmatched_series: ['SYN'] }
     m.preview.mockResolvedValue({ ...preview, companies: [{ ...company, bank_account_series: bank }] })
