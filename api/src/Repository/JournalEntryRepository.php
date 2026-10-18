@@ -429,6 +429,7 @@ final class JournalEntryRepository
         if (!$pdo->inTransaction()) {
             throw new \LogicException('Journal persistence requires a transaction.');
         }
+        if (($header['posted_at'] ?? null) !== null) (new \MyInvoice\Service\Accounting\Funding\NativeCostCoverage($this->db))->assertCreditNotePosting($header);
         $pdo->prepare(
             'INSERT INTO journal_entries
                 (supplier_id, period_id, entry_date, document_date, document_no, description,
@@ -567,6 +568,7 @@ final class JournalEntryRepository
         if ((new \MyInvoice\Service\Accounting\Closing\AssetReserveSourceUseGuard($this->db, $this))->assertEntryChange(
             (int) $header['supplier_id'], $id, $lines, $header['entry_date'], $header,
         )) return;
+        if (($header['posted_at'] ?? null) !== null) (new \MyInvoice\Service\Accounting\Funding\NativeCostCoverage($this->db))->assertCreditNotePosting($header);
         $validationPrevious = SystemDimensionWritePolicy::canRetainEntryAssignments($header, $previous) ? $previous['lines'] : [];
         (new SystemDimensionWritePolicy($this->db))->assertJournal($header, $lines, $validationPrevious);
         $retained = SystemDimensionWritePolicy::retainedAssignments($lines, $previous['lines']);
@@ -637,6 +639,7 @@ final class JournalEntryRepository
         if ($entry === null || $entry['reversed_by'] !== null || (int) $entry['row_version'] !== $expectedRowVersion) {
             throw new PostingException('version_conflict', 'Zápis #' . $entryId . ' se mezitím změnil nebo byl stornován — načtěte aktuální stav.', 409);
         }
+        if ($entry['posted_at'] !== null) (new \MyInvoice\Service\Accounting\Funding\NativeCostCoverage($this->db))->assertCreditNotePosting($entry);
         $remove = array_fill_keys(array_map('intval', $removeLineIds), true);
         $retained = array_values(array_filter($entry['lines'], static fn (array $line): bool => !isset($remove[(int) $line['id']])));
         $nextLineNo = $retained === [] ? 0 : max(array_column($retained, 'line_no')) + 1;
@@ -870,6 +873,7 @@ final class JournalEntryRepository
                 if ($ownTx) $pdo->commit();
                 return false;
             }
+            if ($entry !== null) (new \MyInvoice\Service\Accounting\Funding\NativeCostCoverage($this->db))->assertCreditNotePosting($entry);
             if ($entry !== null && $entry['posted_at'] === null) {
                 (new SystemDimensionWritePolicy($this->db))->assertJournal($entry, $entry['lines']);
             }

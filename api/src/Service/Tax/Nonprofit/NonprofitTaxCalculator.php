@@ -302,6 +302,18 @@ final class NonprofitTaxCalculator
             'usage' => $usage, 'external_adjustments' => $external];
     }
 
+    public function fundingIncomePools(array $result,array $snapshot,array $assessment):array
+    {
+        $rows=array_column($result['rows'],null,'id');
+        return $this->pools($rows+($snapshot['funding_reference_sources']??[]),$assessment['funding_sources']??[],'revenue',$rows,($assessment['funding']??[])!==[]);
+    }
+
+    public function fundingCostPools(array $result,array $assessment):array
+    {
+        $rows=array_column($result['rows'],null,'id');
+        return $this->pools($rows,$assessment['funding_costs']??[],'expense',$rows,($assessment['funding']??[])!==[]);
+    }
+
     private function pools(array $catalog, array $declared, string $kind, array $currentRows, bool $hasFunding): array
     {
         $eligible = static fn (array $row): bool => $row['kind'] === $kind && ($kind === 'expense'
