@@ -41,10 +41,22 @@ use Psr\Log\LoggerInterface;
  *   "{YY}{CCCC}"         → "260042"         (per-client, period=year)
  *
  * Prefix se píše rovnou do template stringu (žádný separátní `prefix` field).
+ *
+ * Zjednodušený daňový doklad se čísluje řadou {@see self::SIMPLIFIED}: s vyplněnou
+ * `supplier.simplified_number_format` má vlastní počítadlo a přednost před klientem
+ * i kategorií, bez ní se vyhodnotí přesně jako faktura. Řadu dokladu určuje
+ * {@see self::seriesTypeFor()}.
  */
 final class VarsymbolGenerator
 {
-    private const SUPPORTED_TYPES = ['invoice', 'proforma', 'credit_note'];
+    /**
+     * Řada zjednodušených daňových dokladů (§ 30 ZDPH, migrace 2037). Není to typ dokladu
+     * (zjednodušený doklad je faktura s příznakem `is_simplified`), jen řada, do které
+     * se čísluje. Bez `supplier.simplified_number_format` je totožná s řadou faktur.
+     */
+    public const SIMPLIFIED = 'simplified';
+
+    private const SUPPORTED_TYPES = ['invoice', 'proforma', 'credit_note', self::SIMPLIFIED];
     private const VALID_PERIODS   = ['year', 'month', 'none'];
     private const DEFAULT_PERIOD  = 'month';
 
@@ -65,6 +77,23 @@ final class VarsymbolGenerator
     private static function normalizeType(string $invoiceType): string
     {
         return in_array($invoiceType, self::INVOICE_SERIES_ALIASES, true) ? 'invoice' : $invoiceType;
+    }
+
+    /**
+     * Řada, ze které doklad bere číslo: zjednodušený daňový doklad (faktura
+     * s `is_simplified`) → {@see self::SIMPLIFIED}, jinak jeho typ. Volají ji VŠICHNI,
+     * kdo číslo přidělují, vracejí nebo ukazují v náhledu, ať se doklad nikdy
+     * neočísluje z jiné řady, než do které se číslo vrací.
+     *
+     * Zda je to opravdu samostatná řada, rozhoduje až generátor podle nastavení firmy
+     * (bez vlastní šablony padá zjednodušený doklad do řady faktur).
+     *
+     * @param array<string,mixed> $invoice alespoň `invoice_type`, případně `is_simplified`
+     */
+    public static function seriesTypeFor(array $invoice): string
+    {
+        $type = (string) ($invoice['invoice_type'] ?? 'invoice');
+        return $type === 'invoice' && !empty($invoice['is_simplified']) ? self::SIMPLIFIED : $type;
     }
 
     /**
@@ -123,7 +152,7 @@ final class VarsymbolGenerator
             throw new \InvalidArgumentException("Nepodporovaný typ pro varsymbol: {$invoiceType}");
         }
 
-        [$template, $period, $counterClientId, $counterCategoryId] =
+        [$template, $period, $counterClientId, $counterCategoryId, $invoiceType] =
             $this->resolveTemplateAndPeriod($supplierId, $invoiceType, $clientId, $revenueCategoryId);
         if ($template === '') {
             throw new \InvalidArgumentException(
@@ -212,7 +241,7 @@ final class VarsymbolGenerator
             return 0;
         }
 
-        [$template, $period, $counterClientId, $counterCategoryId] =
+        [$template, $period, $counterClientId, $counterCategoryId, $invoiceType] =
             $this->resolveTemplateAndPeriod($supplierId, $invoiceType, $clientId, $revenueCategoryId);
         if ($template === '' || !$this->hasCounterPlaceholder($template)) {
             return 0;
@@ -279,8 +308,17 @@ final class VarsymbolGenerator
             );
         }
 
-        [$template, $period, $counterClientId, $counterCategoryId] =
+        $requestedType = $invoiceType;
+        [$template, $period, $counterClientId, $counterCategoryId, $invoiceType] =
             $this->resolveTemplateAndPeriod($supplierId, $invoiceType, $clientId, $revenueCategoryId);
+        // Bez vlastní šablony zjednodušené doklady čerpají z řady faktur. Zápis by tiše
+        // posunul počítadlo faktur, i když uživatel nastavoval jinou řadu.
+        if ($requestedType === self::SIMPLIFIED && $invoiceType !== self::SIMPLIFIED) {
+            throw new \InvalidArgumentException(
+                'Zjednodušené daňové doklady nemají vlastní řadu, číslují se řadou faktur,'
+                . ' takže počítadlo se nastavuje tam.'
+            );
+        }
         if ($clientId > 0 && $counterClientId !== $clientId) {
             throw new \InvalidArgumentException(
                 "Klient #{$clientId} nemá vlastní šablonu pro {$invoiceType} — čísluje se řadou dodavatele,"
@@ -459,7 +497,7 @@ final class VarsymbolGenerator
         $invoiceType = self::normalizeType($invoiceType);
         if (!in_array($invoiceType, self::SUPPORTED_TYPES, true)) return '';
 
-        [$template, $period, $counterClientId, $counterCategoryId] =
+        [$template, $period, $counterClientId, $counterCategoryId, $invoiceType] =
             $this->resolveTemplateAndPeriod($supplierId, $invoiceType, $clientId, $revenueCategoryId);
         if ($template === '') return '';
 
@@ -500,7 +538,7 @@ final class VarsymbolGenerator
             return false;
         }
 
-        [$template, $period, $counterClientId, $counterCategoryId] =
+        [$template, $period, $counterClientId, $counterCategoryId, $invoiceType] =
             $this->resolveTemplateAndPeriod($supplierId, $invoiceType, $clientId, $revenueCategoryId);
         if ($template === '') return false;
 
@@ -558,25 +596,41 @@ final class VarsymbolGenerator
      * Tím supplier-wide řada zůstane konzistentní napříč klienty i kategoriemi, které
      * vlastní formát nemají, a obě specifičtější osy mají nezávislý counter.
      *
-     * @return array{0: string, 1: string, 2: int, 3: int}
+     * Pátá hodnota je typ řádku počítadla (`invoice_counters.invoice_type`). Liší se od
+     * požadovaného typu jen u {@see self::SIMPLIFIED}: s vlastní šablonou firmy má řada
+     * vlastní počítadlo a přednost před klientem i kategorií (pokladní prodej se čísluje
+     * jednou řadou bez ohledu na to, komu se prodalo); bez ní se vyhodnotí přesně jako
+     * faktura, takže dosavadní číslování zůstane beze změny.
+     *
+     * @return array{0: string, 1: string, 2: int, 3: int, 4: string}
      */
     private function resolveTemplateAndPeriod(int $supplierId, string $invoiceType, int $clientId, int $revenueCategoryId): array
     {
+        $simplifiedColumn = $this->db->hasColumn('supplier', 'simplified_number_format')
+            ? 'simplified_number_format' : 'NULL';
         $supStmt = $this->db->pdo()->prepare(
-            'SELECT invoice_number_format, proforma_number_format, credit_note_number_format,
-                    invoice_number_period
-               FROM supplier WHERE id = ? LIMIT 1'
+            "SELECT invoice_number_format, proforma_number_format, credit_note_number_format,
+                    {$simplifiedColumn} AS simplified_number_format, invoice_number_period
+               FROM supplier WHERE id = ? LIMIT 1"
         );
         $supStmt->execute([$supplierId]);
         $supRow = $supStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+        $supplierPeriod = (string) ($supRow['invoice_number_period'] ?? self::DEFAULT_PERIOD);
+
+        if ($invoiceType === self::SIMPLIFIED) {
+            $simplifiedTemplate = trim((string) ($supRow['simplified_number_format'] ?? ''));
+            if ($simplifiedTemplate !== '') {
+                return [$simplifiedTemplate, $this->normalizePeriod(null, $supplierPeriod), 0, 0, self::SIMPLIFIED];
+            }
+            $invoiceType = 'invoice';
+        }
 
         $col = match ($invoiceType) {
             'invoice'     => 'invoice_number_format',
             'proforma'    => 'proforma_number_format',
             'credit_note' => 'credit_note_number_format',
         };
-
-        $supplierPeriod = (string) ($supRow['invoice_number_period'] ?? self::DEFAULT_PERIOD);
 
         $clientTemplate = '';
         $clientPeriod = null;
@@ -592,7 +646,7 @@ final class VarsymbolGenerator
         }
 
         if ($clientTemplate !== '') {
-            return [$clientTemplate, $this->normalizePeriod($clientPeriod, $supplierPeriod), $clientId, 0];
+            return [$clientTemplate, $this->normalizePeriod($clientPeriod, $supplierPeriod), $clientId, 0, $invoiceType];
         }
 
         // Kategorie tržby — druhá nejspecifičtější osa. Čte se VÝHRADNĚ v rámci
@@ -606,7 +660,7 @@ final class VarsymbolGenerator
             $catRow = $catStmt->fetch(PDO::FETCH_ASSOC) ?: [];
             $catTemplate = trim((string) ($catRow['tpl'] ?? ''));
             if ($catTemplate !== '') {
-                return [$catTemplate, $this->normalizePeriod($catRow['period'] ?? null, $supplierPeriod), 0, $revenueCategoryId];
+                return [$catTemplate, $this->normalizePeriod($catRow['period'] ?? null, $supplierPeriod), 0, $revenueCategoryId, $invoiceType];
             }
         }
 
@@ -615,7 +669,7 @@ final class VarsymbolGenerator
             ? $supplierTemplate
             : (string) $this->config->get("varsymbol.templates.{$invoiceType}", '');
 
-        return [$template, $this->normalizePeriod(null, $supplierPeriod), 0, 0];
+        return [$template, $this->normalizePeriod(null, $supplierPeriod), 0, 0, $invoiceType];
     }
 
     /** Override období, jinak supplier-level; nesmysl padá na legacy default 'month'. */

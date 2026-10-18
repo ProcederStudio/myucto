@@ -37,3 +37,18 @@ describe('CheckFindings — nález marked_paid_unposted', () => {
     expect(wrapper.text()).not.toContain('marked_paid_unposted_payable')
   })
 })
+
+describe('CheckFindings FX', () => {
+  it('nedoložený zůstatek zůstane neznámý a ukáže přeložitelný důvod', async () => {
+    const wrapper = mount(CheckFindings, {
+      props: { checkKey: 'fx_open_items', label: 'FX', value: { kind: 'document', count: 1,
+        findings: [{ doc_type: 'invoice', doc_id: 7, amount: null, currency: 'EUR', issues: ['fx_settlement_unproven'] }] } },
+      global: { stubs: { RouterLink: { template: '<a><slot /></a>' }, Modal: { template: '<div><slot /></div>' } } },
+    })
+    await wrapper.find('button').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('checks.issue.fx_settlement_unproven')
+    expect(wrapper.text()).not.toContain('0,00')
+    expect(wrapper.text()).toContain('EUR')
+  })
+})

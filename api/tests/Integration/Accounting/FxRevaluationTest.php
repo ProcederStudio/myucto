@@ -230,8 +230,9 @@ final class FxRevaluationTest extends TestCase
 
     public function testOrdinaryInvoiceAndRedCreditNoteAreRevaluedAsSignedNet(): void
     {
-        $this->postEurInvoice(1000.00, 24.50, 'invoice', 'FV-2098-EUR-MIX');
-        $this->postEurInvoice(-400.00, 24.50, 'credit_note', 'DOB-2098-EUR-MIX');
+        $invoice = $this->postEurInvoice(1000.00, 24.50, 'invoice', 'FV-2098-EUR-MIX');
+        $credit = $this->postEurInvoice(-400.00, 24.50, 'credit_note', 'DOB-2098-EUR-MIX');
+        $this->db->pdo()->prepare('UPDATE invoices c JOIN invoices p ON p.id=? AND p.supplier_id=c.supplier_id SET c.parent_invoice_id=p.id,c.client_id=p.client_id WHERE c.supplier_id=? AND c.id=?')->execute([$invoice,$this->supplierId,$credit]);
 
         $this->closing->start($this->supplierId, $this->periodId, $this->rv(), $this->meta());
         $preview = $this->closing->fxPreview($this->supplierId, $this->periodId);
@@ -261,6 +262,26 @@ final class FxRevaluationTest extends TestCase
     }
 
     // ── I9: FX storno k 1. dni dle fx_reversal_at_open (R11) ────────────────
+
+    #[\PHPUnit\Framework\Attributes\TestWith(['tuple'])]
+    #[\PHPUnit\Framework\Attributes\TestWith(['wrong_client'])]
+    public function testCreditNoteNettingRequiresSameProvenCaseAndTuple(string $mode): void
+    {
+        $invoice = $this->postEurInvoice(1000, 24.50, 'invoice', 'SYN-PARENT');
+        $credit = $this->postEurInvoice(-400, 24.50, 'credit_note', 'SYN-CREDIT');
+        $this->db->pdo()->prepare('UPDATE invoices SET parent_invoice_id=? WHERE supplier_id=? AND id=?')->execute([$invoice,$this->supplierId,$credit]);
+        if ($mode === 'wrong_client') {
+            $this->expectException(ClosingException::class);
+            $this->expectExceptionMessage(\MyInvoice\Service\Accounting\Closing\FxCaseCarryingProjection::findingMessage('case_document_lineage_unproven'));
+        } else {
+            $this->db->pdo()->prepare('UPDATE invoices c JOIN invoices p ON p.id=? SET c.client_id=p.client_id WHERE c.supplier_id=? AND c.id=?')->execute([$invoice,$this->supplierId,$credit]);
+            $this->db->pdo()->prepare("UPDATE journal_entry_lines l JOIN journal_entries e ON e.id=l.entry_id SET l.cost_center='CREDIT-CELL' WHERE e.supplier_id=? AND e.source_type='invoice' AND e.source_id=? AND l.currency_code='EUR'")->execute([$this->supplierId,$credit]);
+        }
+        $preview = $this->closing->fxPreview($this->supplierId,$this->periodId);
+        if ($mode === 'wrong_client') return;
+        self::assertSame(['loss'=>240.0,'gain'=>600.0],$preview['totals']);
+        self::assertCount(2,$preview['saldo']['lines']);
+    }
 
     public function testI9OpenNextCreatesSaldoReversalOnlyWhenEnabled(): void
     {
@@ -325,20 +346,13 @@ final class FxRevaluationTest extends TestCase
         ]);
 
         $this->closing->start($this->supplierId, $this->periodId, $this->rv(), $this->meta());
-        $this->closing->runFxRevaluation($this->supplierId, $this->periodId, [], $this->rv(), $this->meta());
-
-        $current = $this->journal->findBySource(
-            $this->supplierId,
-            'fx_revaluation',
-            ClosingSourceId::fxSaldo($this->periodId),
-        );
-        self::assertNotNull($current);
-        $byCode = $this->linesByAccountCode((int) $current['id']);
-        self::assertSame(
-            self::cents(400.00),
-            self::cents($byCode['311']['debit']),
-            'K přecenění 600 Kč se po ponechané starší úpravě 200 Kč doúčtuje jen 400 Kč.',
-        );
+        try {
+            $this->closing->runFxRevaluation($this->supplierId, $this->periodId, [], $this->rv(), $this->meta());
+            self::fail('A synthetic FX slot without a historical case proof must not be allocated to the invoice.');
+        } catch (ClosingException $e) {
+            self::assertSame(\MyInvoice\Service\Accounting\Closing\FxCaseCarryingProjection::findingMessage('historical_fx_entry_unattributed'), $e->getMessage());
+            self::assertTrue($this->db->pdo()->inTransaction());
+        }
     }
 
     public function testM8ClearsPriorUnreversedAdjustmentWhenItemIsNoLongerOpen(): void
@@ -365,17 +379,13 @@ final class FxRevaluationTest extends TestCase
             ->execute([self::YEAR . '-11-30', $invoiceId]);
 
         $this->closing->start($this->supplierId, $this->periodId, $this->rv(), $this->meta());
-        $this->closing->runFxRevaluation($this->supplierId, $this->periodId, [], $this->rv(), $this->meta());
-
-        $current = $this->journal->findBySource(
-            $this->supplierId,
-            'fx_revaluation',
-            ClosingSourceId::fxSaldo($this->periodId),
-        );
-        self::assertNotNull($current);
-        $byCode = $this->linesByAccountCode((int) $current['id']);
-        self::assertSame(self::cents(200.00), self::cents($byCode['311']['credit']));
-        self::assertSame(self::cents(200.00), self::cents($byCode['563']['debit']));
+        try {
+            $this->closing->runFxRevaluation($this->supplierId, $this->periodId, [], $this->rv(), $this->meta());
+            self::fail('A synthetic FX slot without a historical case proof must not be allocated to the invoice.');
+        } catch (ClosingException $e) {
+            self::assertSame(\MyInvoice\Service\Accounting\Closing\FxCaseCarryingProjection::findingMessage('historical_fx_entry_unattributed'), $e->getMessage());
+            self::assertTrue($this->db->pdo()->inTransaction());
+        }
     }
 
     public function testI10RerunRewritesInPlaceWithNewRate(): void
@@ -579,6 +589,351 @@ final class FxRevaluationTest extends TestCase
             'posted_by'  => $this->userId,
             'allow_closing_period' => true,
         ]);
+    }
+
+    #[\PHPUnit\Framework\Attributes\TestWith([false, false])]
+    #[\PHPUnit\Framework\Attributes\TestWith([true, false])]
+    #[\PHPUnit\Framework\Attributes\TestWith([true, true])]
+    public function testNativeGrossOpeningPreservesCompleteTupleAcrossTwoYears(bool $retired, bool $red): void
+    {
+        $pdo = $this->db->pdo();
+        $sid = $this->supplierId;
+        $this->seedRate(self::YEAR . '-06-15', 'EUR', 24.50);
+        $this->seedRate('2099-12-31', 'EUR', 26.00);
+        $this->seedRate('2100-12-31', 'EUR', 27.00);
+        $invoice = $this->postEurInvoice(1000.01, 24.50);
+        $pdo->prepare('INSERT INTO projects(client_id,name,currency_id) SELECT client_id,?,currency_id FROM invoices WHERE id=?')
+            ->execute(['Synthetic FX project', $invoice]);
+        $projectId = (int) $pdo->lastInsertId();
+        $pdo->prepare('UPDATE supplier SET dimensions_enabled=1 WHERE id=?')->execute([$sid]);
+        $dims = $splits = $valueIds = [];
+        foreach (['ONE', 'SPLIT_A', 'SPLIT_B'] as $index => $code) {
+            $pdo->prepare('INSERT INTO dimension_types(supplier_id,code,name) VALUES (?,?,?)')->execute([$sid, $code, 'Synthetic ' . $code]);
+            $typeId = (int) $pdo->lastInsertId();
+            $values = [];
+            foreach (['A', 'B'] as $value) {
+                $pdo->prepare('INSERT INTO dimension_values(supplier_id,type_id,code,name) VALUES (?,?,?,?)')->execute([$sid, $typeId, $value, 'Synthetic ' . $value]);
+                $values[] = (int) $pdo->lastInsertId();
+            }
+            array_push($valueIds, ...$values);
+            if ($index === 0) $dims[$typeId] = $values[0];
+            else $splits[$typeId] = [$values[0] => $index === 1 ? 0.25 : 0.6, $values[1] => $index === 1 ? 0.75 : 0.4];
+        }
+        $entry = $this->journal->findBySource($sid, 'invoice', $invoice);
+        $assignments = new \MyInvoice\Repository\DimensionAssignmentRepository($this->db);
+        foreach ($this->journal->linesForEntry((int) $entry['id'], $sid) as $line) {
+            $pdo->prepare('UPDATE journal_entry_lines SET cost_center=?,project_id=? WHERE id=?')->execute(['FX-ORIGINAL', $projectId, $line['id']]);
+            $assignments->insertLineDimensions($sid, (int) $line['id'], $dims);
+            $assignments->insertLineSplits($sid, (int) $line['id'], $splits);
+        }
+        $originalLines = $this->journal->linesForEntry((int) $entry['id'], $sid);
+        for ($year = 2098; $year <= 2099; ++$year) {
+            if ($year === 2099) $this->manual([self::l('431', 'debit', 25100.25), self::l('428', 'credit', 25100.25)], '2099-06-01');
+            $pid = $this->periodId;
+            $this->closing->start($sid, $pid, $this->rv(), $this->meta());
+            $this->closing->runPrecheck($sid, $pid, $this->rv(), $this->meta());
+            $fx = $this->closing->runFxRevaluation($sid, $pid, [], $this->rv(), $this->meta());
+            $fxId = (int) $fx['entry_ids']['saldo'];
+            if ($red) {
+                $redLines = $this->journal->linesForEntry($fxId, $sid);
+                $fxDims = $assignments->entryLineDimensions($sid, $fxId);
+                $fxSplits = $assignments->entryLineSplits($sid, $fxId);
+                foreach ($redLines as &$line) {
+                    $line['account_code'] = $this->accounts->findById($sid, (int) $line['account_id'])['account_code'];
+                    $line['side'] = $line['side'] === 'debit' ? 'credit' : 'debit';
+                    $line['is_red_storno'] = true;
+                    $line['dimensions'] = $fxDims[$line['id']] ?? [];
+                    $line['dimension_splits'] = $fxSplits[$line['id']] ?? [];
+                }
+                unset($line);
+                $this->posting->postDocument($sid, 'fx_revaluation', ClosingSourceId::fxSaldo($pid), $redLines, [
+                    'entry_date' => $year . '-12-31', 'posted' => true, 'allow_closing_period' => true,
+                ]);
+            }
+            foreach (['depreciation', 'estimates', 'deferrals', 'provisions', 'income_tax'] as $step) {
+                $this->closing->confirmStep($sid, $pid, $step, 'skipped', null, $this->rv(), $this->meta());
+            }
+            $this->completeInventory($sid, $pid, $this->userId);
+            $this->closing->closeBooks($sid, $pid, $this->rv(), $this->meta());
+            self::assertSame('closed', $this->periods->findById($sid, $pid)['status']);
+            if ($retired) $pdo->exec('UPDATE dimension_values SET is_active=0 WHERE id IN (' . implode(',', $valueIds) . ')');
+            $sourceLines = $this->journal->linesForEntry($fxId, $sid);
+            self::assertCount(2, $sourceLines);
+            $opened = $this->closing->openNext($sid, $pid, $this->rv(), $this->meta());
+            $reversalId = (int) $opened['fx_reversal_entry_id'];
+            $nextId = (int) $opened['next_period_id'];
+            // This is the actual N+1 consumer that rejected the native opening journal.
+            $preview = $this->closing->fxPreview($sid, $nextId);
+            self::assertCount(1, $preview['saldo']['detail']);
+            self::assertSame($year === 2098 ? 1500.01 : 2500.02, $preview['totals']['gain']);
+            $reversal = $this->journal->linesForEntry($reversalId, $sid);
+            self::assertCount(count($sourceLines), $reversal, 'No Cartesian expansion of independent split axes.');
+            $revDims = $assignments->entryLineDimensions($sid, $reversalId);
+            $revSplits = $assignments->entryLineSplits($sid, $reversalId);
+            foreach ($sourceLines as $index => $source) {
+                $mirror = $reversal[$index];
+                self::assertNotSame($source['id'], $mirror['id']);
+                foreach (['account_id', 'amount', 'currency_code', 'fx_rate', 'amount_foreign', 'cost_center', 'project_id'] as $field) self::assertSame($source[$field], $mirror[$field], $field);
+                self::assertSame($red ? $source['side'] : ($source['side'] === 'debit' ? 'credit' : 'debit'), $mirror['side']);
+                self::assertFalse((bool) $mirror['is_red_storno']);
+                self::assertSame($dims, $revDims[$mirror['id']] ?? []);
+                self::assertSame($splits, $revSplits[$mirror['id']] ?? []);
+            }
+            self::assertSame($sourceLines, $this->journal->linesForEntry($fxId, $sid), 'The closed source remains physically unchanged.');
+            self::assertSame($originalLines, $this->journal->linesForEntry((int) $entry['id'], $sid));
+            $this->periodId = $nextId;
+        }
+    }
+
+    #[\PHPUnit\Framework\Attributes\TestWith([false, false])]
+    #[\PHPUnit\Framework\Attributes\TestWith([true, false])]
+    #[\PHPUnit\Framework\Attributes\TestWith([false, true])]
+    #[\PHPUnit\Framework\Attributes\TestWith([true, true])]
+    public function testNativeGrossRetainedOpeningGroupAcrossTwoYears(bool $reverse, bool $foreign): void
+    {
+        $this->settings->upsert($this->supplierId, null, null, null, null, $reverse);
+        $pdo = $this->db->pdo();
+        $sid = $this->supplierId;
+        $this->seedRate(self::YEAR . '-06-15', 'EUR', 24.50);
+        $this->seedRate('2099-12-31', 'EUR', 26.00);
+        $this->seedRate('2100-12-31', 'EUR', 27.00);
+        $invoice = $this->postEurInvoice(1000.01, 24.50);
+        $pdo->prepare('INSERT INTO projects(client_id,name,currency_id) SELECT client_id,?,currency_id FROM invoices WHERE id=?')
+            ->execute(['Synthetic FX project', $invoice]);
+        $projectId = (int) $pdo->lastInsertId();
+        $pdo->prepare('UPDATE supplier SET dimensions_enabled=1 WHERE id=?')->execute([$sid]);
+        $dims = $splits = $valueIds = [];
+        foreach (['ONE', 'SPLIT_A', 'SPLIT_B'] as $index => $code) {
+            $pdo->prepare('INSERT INTO dimension_types(supplier_id,code,name) VALUES (?,?,?)')->execute([$sid, $code, 'Synthetic ' . $code]);
+            $typeId = (int) $pdo->lastInsertId();
+            $values = [];
+            foreach (['A', 'B'] as $value) {
+                $pdo->prepare('INSERT INTO dimension_values(supplier_id,type_id,code,name) VALUES (?,?,?,?)')->execute([$sid, $typeId, $value, 'Synthetic ' . $value]);
+                $values[] = (int) $pdo->lastInsertId();
+            }
+            array_push($valueIds, ...$values);
+            if ($index === 0) $dims[$typeId] = $values[0];
+            else $splits[$typeId] = [$values[0] => $index === 1 ? 0.25 : 0.6, $values[1] => $index === 1 ? 0.75 : 0.4];
+        }
+        $entry = $this->journal->findBySource($sid, 'invoice', $invoice);
+        $assignments = new \MyInvoice\Repository\DimensionAssignmentRepository($this->db);
+        foreach ($this->journal->linesForEntry((int) $entry['id'], $sid) as $line) {
+            $pdo->prepare('UPDATE journal_entry_lines SET cost_center=?,project_id=? WHERE id=?')->execute(['FX-ORIGINAL', $projectId, $line['id']]);
+            $assignments->insertLineDimensions($sid, (int) $line['id'], $dims);
+            $assignments->insertLineSplits($sid, (int) $line['id'], $splits);
+        }
+        $originalLines = $this->journal->linesForEntry((int) $entry['id'], $sid);
+        for ($year = 2098; $year <= 2099; ++$year) {
+            if ($year === 2099) $this->manual([self::l('431', 'debit', 25100.25), self::l('428', 'credit', 25100.25)], '2099-06-01');
+            $pid = $this->periodId;
+            $this->closing->start($sid, $pid, $this->rv(), $this->meta());
+            $this->closing->runPrecheck($sid, $pid, $this->rv(), $this->meta());
+            $fx = $this->closing->runFxRevaluation($sid, $pid, [], $this->rv(), $this->meta());
+            $fxId = (int) $fx['entry_ids']['saldo'];
+            foreach (['depreciation', 'estimates', 'deferrals', 'provisions', 'income_tax'] as $step) {
+                $this->closing->confirmStep($sid, $pid, $step, 'skipped', null, $this->rv(), $this->meta());
+            }
+            $this->completeInventory($sid, $pid, $this->userId);
+            $this->closing->closeBooks($sid, $pid, $this->rv(), $this->meta());
+            self::assertSame('closed', $this->periods->findById($sid, $pid)['status']);
+            $sourceLines = $this->journal->linesForEntry($fxId, $sid);
+            self::assertCount(2, $sourceLines);
+            $nextYear = $year + 1;
+            $nextPeriod = $this->periods->create($sid, $nextYear, $nextYear . '-01-01', $nextYear . '-12-31');
+            $steps = array_column($this->closingRepo->steps($pid), null, 'step_key');
+            $expected = (new \ReflectionMethod(ClosingService::class, 'expectedOpeningLines'))->invoke($this->closing, $sid, $this->periods->findById($sid, $pid), $steps);
+            $retainedIds = [];
+            $retainedLines = [];
+            $foreignAssigned = false;
+            for ($part = 0; $part < 2; ++$part) {
+                $importLines = [];
+                foreach (array_chunk($expected, 2) as $pairIndex => $pair) {
+                    if ($pairIndex % 2 === $part) array_push($importLines, ...$pair);
+                }
+                if ($foreign) foreach ($importLines as &$importLine) {
+                    if ($importLine['account_code'] !== '311') continue;
+                    $importLine['currency_code'] = 'EUR';
+                    $importLine['amount_foreign'] = $foreignAssigned ? '0.00' : '1000.01';
+                    $importLine['fx_rate'] = '25.100000';
+                    $foreignAssigned = true;
+                }
+                unset($importLine);
+                $retainedId = $this->posting->postDocument($sid, 'opening', null, $importLines, [
+                    'entry_date' => $nextYear . ($part === 0 ? '-01-03' : '-01-07'), 'posted' => true,
+                ]);
+                $retainedIds[] = $retainedId;
+                $retainedLines[$retainedId] = $this->journal->linesForEntry($retainedId, $sid);
+            }
+            self::assertCount(2, array_unique($retainedIds));
+            self::assertSame([], (new \ReflectionMethod(ClosingService::class, 'compareOpeningBalances'))->invoke($this->closing, $sid, $nextPeriod, $expected)['diff']);
+            $pdo->exec('UPDATE dimension_values SET is_active=0 WHERE id IN (' . implode(',', $valueIds) . ')');
+            $opened = $this->closing->openNext($sid, $pid, $this->rv(), $this->meta());
+
+            self::assertNull($opened['entry_id']);
+            self::assertSame('taken_over', $opened['opening_source']);
+            self::assertSame($retainedIds, $opened['taken_over_entry_ids']);
+            foreach ($retainedLines as $retainedId => $keptLines) self::assertSame($keptLines, $this->journal->linesForEntry($retainedId, $sid));
+
+            $reversalId = (int) $opened['fx_reversal_entry_id'];
+            $nextId = (int) $opened['next_period_id'];
+            // This is the actual N+1 consumer that rejected the native opening journal.
+            $preview = $this->closing->fxPreview($sid, $nextId);
+            self::assertCount(1, $preview['saldo']['detail']);
+            self::assertSame($reverse ? ($year === 2098 ? 1500.01 : 2500.02) : ($year === 2098 ? 900.01 : 1000.01), $preview['totals']['gain']);
+            $snapshot = (new \MyInvoice\Repository\FxCaseHistoryRepository($this->db, $this->closingRepo))->snapshot($sid, $this->periods->findById($sid, $nextId));
+            $projection = (new \MyInvoice\Service\Accounting\Closing\FxCaseCarryingProjection())->project($snapshot, $this->periods->findById($sid, $nextId));
+            self::assertTrue($projection['complete']);
+            $lastProof = $projection['proof'][array_key_last($projection['proof'])];
+            self::assertNull($lastProof['opening_entry_id']);
+            self::assertSame($retainedIds, $lastProof['opening_entry_ids']);
+            $foreignTenantSnapshot = $snapshot;
+            $foreignTenantSnapshot['entries'][$retainedIds[0]]['supplier_id'] = 2;
+            self::assertFalse((new \MyInvoice\Service\Accounting\Closing\FxCaseCarryingProjection())->project($foreignTenantSnapshot, $this->periods->findById($sid, $nextId))['complete']);
+            if ($year === 2099) {
+                $incompleteLedger = $snapshot;
+                $firstGroupId = $projection['proof'][0]['opening_entry_ids'][0];
+                foreach ($incompleteLedger['ledger'] as $index => $ledgerLine) {
+                    if ((int) $ledgerLine['entry_id'] === $firstGroupId) { unset($incompleteLedger['ledger'][$index]); break; }
+                }
+                self::assertFalse((new \MyInvoice\Service\Accounting\Closing\FxCaseCarryingProjection())->project($incompleteLedger, $this->periods->findById($sid, $nextId))['complete']);
+            }
+            $this->assertRetainedOpeningTamperRefused($sid, $pid, $nextId, $retainedIds);
+            self::assertSame($originalLines, $this->journal->linesForEntry((int) $entry['id'], $sid));
+            if (!$reverse) { $this->periodId = $nextId; continue; }
+            $reversal = $this->journal->linesForEntry($reversalId, $sid);
+            self::assertCount(count($sourceLines), $reversal, 'No Cartesian expansion of independent split axes.');
+            $revDims = $assignments->entryLineDimensions($sid, $reversalId);
+            $revSplits = $assignments->entryLineSplits($sid, $reversalId);
+            foreach ($sourceLines as $index => $source) {
+                $mirror = $reversal[$index];
+                self::assertNotSame($source['id'], $mirror['id']);
+                foreach (['account_id', 'amount', 'currency_code', 'fx_rate', 'amount_foreign', 'cost_center', 'project_id'] as $field) self::assertSame($source[$field], $mirror[$field], $field);
+                self::assertSame($source['side'] === 'debit' ? 'credit' : 'debit', $mirror['side']);
+                self::assertFalse((bool) $mirror['is_red_storno']);
+                self::assertSame($dims, $revDims[$mirror['id']] ?? []);
+                self::assertSame($splits, $revSplits[$mirror['id']] ?? []);
+            }
+            self::assertSame($sourceLines, $this->journal->linesForEntry($fxId, $sid), 'The closed source remains physically unchanged.');
+            self::assertSame($originalLines, $this->journal->linesForEntry((int) $entry['id'], $sid));
+            $this->periodId = $nextId;
+        }
+    }
+
+    public function testRetainedOpeningReversalMembershipUsesCurrentNestedRead(): void
+    {
+        $pdo = $this->db->pdo();
+        $pdo->rollBack();
+        $this->inTx = false;
+        $snapshotIsolation = (int) $pdo->query('SELECT @@innodb_snapshot_isolation')->fetchColumn();
+        $pdo->exec('SET SESSION innodb_snapshot_isolation=OFF');
+        $sid = 0;
+        $other = null;
+        try {
+            $pdo->exec("INSERT INTO supplier(company_name,street,city,zip,email,country_id,default_currency_id,default_vat_rate_id)
+                SELECT 'Synthetic retained current read','Test','Test','10000','retained@example.com',country_id,default_currency_id,default_vat_rate_id
+                FROM supplier ORDER BY id LIMIT 1");
+            $sid = (int) $pdo->lastInsertId();
+            $pid = $this->periods->create($sid, 2098, '2098-01-01', '2098-12-31');
+            $insert = $pdo->prepare("INSERT INTO journal_entries(supplier_id,period_id,entry_date,source_type,posted_at) VALUES (?,?,'2098-01-03',?,NOW())");
+            $insert->execute([$sid, $pid, 'opening']);
+            $openingId = (int) $pdo->lastInsertId();
+            $insert->execute([$sid, $pid, 'manual']);
+            $manualId = (int) $pdo->lastInsertId();
+            $otherContainer = Connection::withoutSharedTestConnection(static fn () => Bootstrap::buildContainer());
+            $other = Connection::withoutSharedTestConnection(fn () => $otherContainer->get(Connection::class));
+            $repo = new \MyInvoice\Repository\FxCaseHistoryRepository($this->db, $this->closingRepo);
+            $period = $this->periods->findById($sid, $pid);
+            $pdo->exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+            $pdo->beginTransaction();
+            self::assertSame(0, (int) $repo->snapshot($sid, $period)['entries'][$openingId]['is_reversal']);
+            $other->pdo()->prepare('UPDATE journal_entries SET reversed_by=? WHERE id=?')->execute([$openingId, $manualId]);
+            self::assertSame(0, (int) $repo->snapshot($sid, $period)['entries'][$openingId]['is_reversal'], 'Default read retains its established RR snapshot.');
+            self::assertSame(1, (int) $repo->snapshot($sid, $period, true)['entries'][$openingId]['is_reversal'], 'Outer FOR UPDATE alone must not read a stale negative subquery.');
+            $pdo->rollBack();
+            $pdo->exec('SET TRANSACTION READ ONLY');
+            $pdo->beginTransaction();
+            self::assertSame(1, (int) $repo->snapshot($sid, $period)['entries'][$openingId]['is_reversal']);
+            $pdo->rollBack();
+        } finally {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            $other?->close();
+            if ($sid) {
+                $pdo->prepare('UPDATE journal_entries SET reversed_by=NULL WHERE supplier_id=?')->execute([$sid]);
+                $pdo->prepare('DELETE FROM journal_entries WHERE supplier_id=?')->execute([$sid]);
+                $pdo->prepare('DELETE FROM supplier WHERE id=?')->execute([$sid]);
+            }
+            $pdo->exec('SET SESSION innodb_snapshot_isolation=' . $snapshotIsolation);
+            $this->db->close();
+        }
+    }
+
+    private function assertRetainedOpeningTamperRefused(int $sid, int $pid, int $nextId, array $ids): void
+    {
+        $pdo = $this->db->pdo();
+        $steps = array_column($this->closingRepo->steps($pid), null, 'step_key');
+        $payload = $steps['open_next']['payload'];
+        $mutations = [];
+        foreach ([[$ids[0]], [$ids[0], $ids[0]], [$ids[0], 0]] as $badIds) {
+            $bad = $payload;
+            $bad['taken_over_entry_ids'] = $badIds;
+            $mutations[] = ['UPDATE accounting_closing_steps SET payload=? WHERE id=?', [json_encode($bad, JSON_THROW_ON_ERROR), $steps['open_next']['id']]];
+        }
+        foreach ([['posted_at', null], ['source_type', 'manual'], ['period_id', $pid], ['entry_date', '2097-12-31'], ['reversed_by', $ids[1]]] as [$field, $value]) {
+            $mutations[] = ['UPDATE journal_entries SET ' . $field . '=? WHERE id=?', [$value, $ids[0]]];
+        }
+        $mutations[] = ['UPDATE journal_entry_lines SET cost_center=? WHERE entry_id=? AND account_id=?', ['CHANGED', $ids[0], $this->accounts->findByCode($sid, '311')['id']]];
+        $mutations[] = ["UPDATE journal_entry_lines SET currency_code='EUR',amount_foreign=999.99 WHERE entry_id=? AND account_id=?", [$ids[0], $this->accounts->findByCode($sid, '311')['id']]];
+        $pdo->exec('SAVEPOINT retained_reversal_origin');
+        try {
+            $manualId = $this->posting->postDocument($sid, 'manual', null, [self::l('221', 'debit', 10), self::l('411', 'credit', 10)], [
+                'entry_date' => $this->periods->findById($sid, $nextId)['starts_on'], 'posted' => true,
+            ]);
+            $pdo->prepare('UPDATE journal_entries SET reversed_by=? WHERE id=?')->execute([$ids[0], $manualId]);
+            try {
+                $this->closing->fxPreview($sid, $nextId);
+                self::fail('A retained opening cannot be the reversal of a source outside the FX history subset.');
+            } catch (ClosingException $e) {
+                self::assertSame(\MyInvoice\Service\Accounting\Closing\FxCaseCarryingProjection::findingMessage('historical_carry_chain_unproven'), $e->getMessage());
+            }
+        } finally {
+            $pdo->exec('ROLLBACK TO SAVEPOINT retained_reversal_origin');
+            $pdo->exec('RELEASE SAVEPOINT retained_reversal_origin');
+        }
+        $pdo->exec('SAVEPOINT retained_extra');
+        try {
+            $this->posting->postDocument($sid, 'opening', null, [self::l('221', 'debit', 10), self::l('701', 'credit', 10)], [
+                'entry_date' => $this->periods->findById($sid, $nextId)['starts_on'], 'posted' => true,
+            ]);
+            try {
+                $this->closing->fxPreview($sid, $nextId);
+                self::fail('An unclaimed physical opening member must not disappear outside the FX account subset.');
+            } catch (ClosingException $e) {
+                self::assertSame(\MyInvoice\Service\Accounting\Closing\FxCaseCarryingProjection::findingMessage('historical_carry_chain_unproven'), $e->getMessage());
+            }
+        } finally {
+            $pdo->exec('ROLLBACK TO SAVEPOINT retained_extra');
+            $pdo->exec('RELEASE SAVEPOINT retained_extra');
+        }
+        foreach ($mutations as [$sql, $params]) {
+            $pdo->exec('SAVEPOINT retained_tamper');
+            try {
+                $statement = $pdo->prepare($sql);
+                $statement->execute($params);
+                self::assertGreaterThan(0, $statement->rowCount());
+                try {
+                    $this->closing->fxPreview($sid, $nextId);
+                    self::fail('Changed physical retained opening must be rejected: ' . $sql);
+                } catch (ClosingException $e) {
+                    self::assertContains($e->getMessage(), [
+                        \MyInvoice\Service\Accounting\Closing\FxCaseCarryingProjection::findingMessage('historical_carry_chain_unproven'),
+                        \MyInvoice\Service\Accounting\Closing\FxCaseCarryingProjection::findingMessage('historical_opening_anchor_mismatch'),
+                    ]);
+                }
+            } finally {
+                $pdo->exec('ROLLBACK TO SAVEPOINT retained_tamper');
+                $pdo->exec('RELEASE SAVEPOINT retained_tamper');
+            }
+        }
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────

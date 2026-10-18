@@ -226,8 +226,8 @@ oprávněními otevře průvodce přímým odkazem `/imports/money-s3`.
   data má. Stránku nechte během nahrávání otevřenou.
 - Elektronický archiv dokumentů z Money záloha nepřenese (Money ho ukládá
   šifrovaně). Skeny dokladů připojíte zvlášť v `Dokumenty → Skeny k dokladům`.
-- Záloha obsahuje celé účetnictví firmy. Nahraný soubor aplikace po 7 dnech bez
-  práce s převodem sama smaže.
+- Záloha obsahuje celé účetnictví firmy. Nahraný soubor aplikace po 24 hodinách
+  bez práce s převodem sama smaže.
 
 Průvodce vidí a zkoušku nanečisto spouští uživatel s oprávněním
 `utilities.import` pro zápis. Ostrý převod zapisuje účetní deník, mění nastavení
@@ -354,9 +354,11 @@ s daným typem nesou tutéž; hlavičku, kterou už někdo vyplnil, převod nem�
 - Fakturační zakázky (`Zakázky`) ani klienty převod ze zakázek Money nezakládá.
 - Činnost z Money se nepřevádí.
 
-Dimenze dostanou i zápisy z let, která převod uzavřel už dříve; obraty ani výkazy
-se tím nemění. U řádků převzatých z Money platí Money: opakovaný převod přepíše
-středisko, projekt nebo vozidlo, které jste u nich změnili ručně.
+Dimenze se doplní před uzavřením převáděného roku. V již uzavřeném roce opakovaný
+převod zachová uložené středisko, projekt, vozidlo i rozpady. Pokud nová záloha
+obsahuje jiné hodnoty, protokol na zachované dimenze upozorní. Shodný opakovaný
+převod toto upozornění nevytváří. V otevřeném období platí Money: opakovaný převod
+přepíše ruční změnu spravovaných dimenzí.
 
 **Popisy zápisů se dogenerují.** Money veze v řádku deníku jen pole `Popis`, které
 je u celé řady dokladů shodné. Po navázání dokladů proto převod popisy přeskládá do
@@ -668,7 +670,7 @@ MyÚčto s výstupy Money nebo s novou zálohou agendy na stránce
 - Převod čte jen zálohu agendy, nikdy živou instalaci Money. Z archivu rozbalí
   jen datové soubory agendy s omezeným počtem i velikostí.
 - Nahraná záloha zůstává na serveru pro další běh. Po úspěšném ostrém převodu
-  se smaže, jinak ji denní úklid smaže po týdnu bez práce s ní.
+  se smaže, jinak ji denní úklid smaže po 24 hodinách bez práce s ní.
 
 ## 103.11 Související kapitoly
 

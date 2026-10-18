@@ -1,5 +1,6 @@
 import { api, setCsrfToken } from './client'
 import type { LicenseSummary } from './license'
+import type { InvoiceRoundingMode } from './invoices'
 
 export interface User {
   id: number
@@ -54,8 +55,12 @@ export interface SupplierBrief {
   default_payment_due_unit: 'days' | 'month'
   /** Výchozí režim cen u nových faktur (false = bez DPH, true = ceny s DPH). */
   default_prices_include_vat: boolean
+  /** Výchozí zaokrouhlení nových faktur (migrace 2031); `undefined` = starší backend. */
+  default_rounding_mode?: InvoiceRoundingMode
   /** Vyúčtování s výsledkem k vyplacení (migrace 1937): editor povolí zápornou fakturu. */
   allow_refund_invoices: boolean
+  /** Výchozí „netisknout odběratele" na zjednodušeném dokladu (migrace 2037). */
+  simplified_hide_customer_default?: boolean
   /**
    * Výchozí poznámka pod položkami na nových dokladech (#79, migrace 1855) — editor
    * ji předvyplní podle jazyka dokladu. Chodí přes `/me`, protože editor faktury běží

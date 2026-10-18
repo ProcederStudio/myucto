@@ -32,30 +32,39 @@ final class StockReportXlsxExporter
         $sheet->setCellValue('A1', 'Stav zásob k ' . (new \DateTimeImmutable())->format('d.m.Y'));
         $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
 
-        $headers = ['Sklad', 'SKU', 'Název', 'Typ', 'MJ', 'Množství', 'Prům. cena', 'Hodnota'];
+        // Sloupce podle výběru v sestavě; bez výběru původních osm (StockStatusColumns).
+        $layout = StockStatusColumns::layout($data);
+        $headers = array_column($layout, 'label');
         $cols = count($headers);
         $head = 3;
         $this->headerRow($sheet, $head, $headers);
 
         $r = $head + 1;
-        foreach ($data['items'] ?? [] as $row) {
-            $sheet->setCellValueExplicit([1, $r], (string) $row['warehouse_code'], DataType::TYPE_STRING);
-            $sheet->setCellValueExplicit([2, $r], (string) $row['sku'], DataType::TYPE_STRING);
-            $sheet->setCellValueExplicit([3, $r], (string) $row['name'], DataType::TYPE_STRING);
-            $sheet->setCellValueExplicit([4, $r], (string) $row['item_type'], DataType::TYPE_STRING);
-            $sheet->setCellValueExplicit([5, $r], (string) $row['unit'], DataType::TYPE_STRING);
-            $sheet->setCellValue([6, $r], (float) $row['qty']);
-            $sheet->setCellValue([7, $r], (float) $row['avg_unit_cost']);
-            $sheet->setCellValue([8, $r], (float) $row['value_total']);
+        foreach (StockStatusColumns::exportItems($data) as $row) {
+            foreach ($layout as $i => $column) {
+                $value = $row[$column['key']] ?? null;
+                if ($value === null) {
+                    continue;
+                }
+                if ($column['numeric']) {
+                    $sheet->setCellValue([$i + 1, $r], (float) $value);
+                } else {
+                    $sheet->setCellValueExplicit([$i + 1, $r], (string) $value, DataType::TYPE_STRING);
+                }
+            }
             $r++;
         }
 
         $t = $data['totals'] ?? [];
         $sheet->setCellValue([1, $r], 'CELKEM (' . (int) ($t['count'] ?? 0) . ' položek)');
-        $sheet->setCellValue([8, $r], (float) ($t['value_total'] ?? 0));
+        $valueCol = array_search('value_total', array_column($layout, 'key'), true);
+        if ($valueCol !== false) {
+            $sheet->setCellValue([$valueCol + 1, $r], (float) ($t['value_total'] ?? 0));
+        }
         $this->boldRow($sheet, $r, $cols);
 
-        $this->finishTable($sheet, $head, $r, $cols, 6);
+        $numeric = array_keys(array_filter($layout, static fn (array $c): bool => $c['numeric']));
+        $this->finishTable($sheet, $head, $r, $cols, min($numeric) + 1, max($numeric) + 1);
 
         return $this->out($ss, 'stav-zasob-' . (new \DateTimeImmutable())->format('Y-m-d') . '.xlsx');
     }
@@ -96,7 +105,63 @@ final class StockReportXlsxExporter
 
         $this->finishTable($sheet, $head, $r, $cols, 5);
 
+        if (is_array($data['category_groups'] ?? null)) {
+            $this->valuationCategorySheet($ss, $data['category_groups'], $date);
+            $ss->setActiveSheetIndex(0);
+        }
+
         return $this->out($ss, 'oceneni-zasob-' . $date . '.xlsx');
+    }
+
+    /**
+     * List „Podle kategorií“: skupiny ocenění (StockValuationCategoryGroups),
+     * součtový řádek = celkové ocenění a poznámka o dnešním zařazení karet.
+     *
+     * @param array<string,mixed> $grouping
+     */
+    private function valuationCategorySheet(Spreadsheet $ss, array $grouping, string $date): void
+    {
+        $sheet = $ss->createSheet();
+        $sheet->setTitle('Podle kategorií');
+        $parent = $grouping['parent'] ?? null;
+        $sheet->setCellValue('A1', 'Ocenění zásob k ' . $this->czDate($date) . ' podle kategorií'
+            . (is_array($parent) ? ': ' . $parent['name'] : ''));
+        $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
+
+        $head = 3;
+        $this->headerRow($sheet, $head, ['Kategorie', 'Položek', 'Hodnota']);
+        $r = $head + 1;
+        foreach ($grouping['groups'] ?? [] as $group) {
+            $sheet->setCellValueExplicit([1, $r], self::valuationGroupLabel($group, $parent), DataType::TYPE_STRING);
+            $sheet->setCellValue([2, $r], (int) $group['count']);
+            $sheet->setCellValue([3, $r], (float) $group['value_total']);
+            $r++;
+        }
+        $sheet->setCellValue([1, $r], 'CELKEM');
+        $sheet->setCellValue([2, $r], (int) ($grouping['count'] ?? 0));
+        $sheet->setCellValue([3, $r], (float) ($grouping['value_total'] ?? 0));
+        $this->boldRow($sheet, $r, 3);
+        $this->finishTable($sheet, $head, $r, 3, 2);
+        $sheet->setCellValue([1, $r + 2], self::VALUATION_GROUPS_NOTE);
+    }
+
+    /** Poznámka k seskupení ocenění (stejný text v PDF). */
+    public const VALUATION_GROUPS_NOTE = 'Karty jsou zařazené podle dnešních kategorií, ne podle kategorií k datu ocenění. '
+        . 'Karta ve více kategoriích se počítá jen jednou (primární kategorie, jinak první v pořadí karty).';
+
+    /**
+     * Popisek skupiny ocenění pro export.
+     *
+     * @param array<string,mixed> $group
+     * @param array<string,mixed>|null $parent
+     */
+    public static function valuationGroupLabel(array $group, ?array $parent): string
+    {
+        return match ($group['kind'] ?? '') {
+            'parent' => 'Přímo v kategorii ' . (string) ($parent['name'] ?? ''),
+            'uncategorized' => is_array($parent) ? 'Mimo kategorii ' . (string) $parent['name'] : 'Bez kategorie',
+            default => (string) ($group['name'] ?? ''),
+        };
     }
 
     /**
@@ -241,7 +306,8 @@ final class StockReportXlsxExporter
         $sheet->getStyle("A{$row}:{$last}{$row}")->getFont()->setBold(true);
     }
 
-    private function finishTable(Worksheet $sheet, int $headRow, int $lastRow, int $cols, int $firstNumCol): void
+    /** Čísla zarovná doprava od `$firstNumCol` do `$lastNumCol` (výchozí poslední sloupec). */
+    private function finishTable(Worksheet $sheet, int $headRow, int $lastRow, int $cols, int $firstNumCol, ?int $lastNumCol = null): void
     {
         if ($lastRow < $headRow) {
             $lastRow = $headRow;
@@ -249,7 +315,8 @@ final class StockReportXlsxExporter
         $last = Coordinate::stringFromColumnIndex($cols);
         $sheet->getStyle("A{$headRow}:{$last}{$lastRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN);
         $numFirst = Coordinate::stringFromColumnIndex($firstNumCol);
-        $sheet->getStyle("{$numFirst}{$headRow}:{$last}{$lastRow}")->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT);
+        $numLast = Coordinate::stringFromColumnIndex($lastNumCol ?? $cols);
+        $sheet->getStyle("{$numFirst}{$headRow}:{$numLast}{$lastRow}")->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT);
         for ($i = 1; $i <= $cols; $i++) {
             $sheet->getColumnDimension(Coordinate::stringFromColumnIndex($i))->setAutoSize(true);
         }

@@ -104,6 +104,22 @@ describe('templates from source documents', () => {
     expect(wrapper.emitted('saved')).toHaveLength(1)
   })
 
+  it('offers invoice item texts and fills the matching text from the pick', async () => {
+    const wrapper = mount(ExpenseRuleTemplateModal, { props: { vendorId: 12, vendorName: 'Synthetic vendor', descriptionOptions: ['Hosting  web', 'Licence', 'Licence', ' '] }, global })
+    await flushPromises()
+    const pick = wrapper.find('select[id$="-description-pick"]')
+    expect(pick.findAll('option').map(o => o.attributes('value'))).toEqual(['', 'Hosting web', 'Licence'])
+    expect((wrapper.find('input[id$="-description"]').element as HTMLInputElement).value).toBe('')
+    await pick.setValue('Licence')
+    expect((wrapper.find('input[id$="-description"]').element as HTMLInputElement).value).toBe('Licence')
+  })
+
+  it('prefills the only invoice item text', async () => {
+    const wrapper = mount(ExpenseRuleTemplateModal, { props: { vendorId: 12, vendorName: 'Synthetic vendor', descriptionOptions: ['Kancelářský materiál'] }, global })
+    await flushPromises()
+    expect((wrapper.find('input[id$="-description"]').element as HTMLInputElement).value).toBe('Kancelářský materiál')
+  })
+
   it.each(['invoices', 'purchase-invoices'])('connects the %s menu to the original posting rule dialog and permission', source => {
     const page = readFileSync(`src/pages/${source}/InvoiceDetail.vue`, 'utf8')
     expect(page).toContain("const RuleFormModal = defineAsyncComponent(() => import('@/components/bank/RuleFormModal.vue'))")

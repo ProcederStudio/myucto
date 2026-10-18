@@ -55,6 +55,20 @@ final class StereoNxUploadsTest extends TestCase
         self::assertTrue(StereoNxUploads::prepareRoom(123));
     }
 
+    public function testDailyCleanupRemovesIdleBackupsOfAllTenants(): void
+    {
+        $idle = str_repeat('a', 32);
+        $recent = str_repeat('b', 32);
+        $this->makeUpload($idle, 6);
+        $this->makeUpload($recent, 6);
+        file_put_contents(StereoNxUploads::archive(123, $idle), 'ABCDEF');
+        foreach (['state.json', 'backup.zip'] as $name) touch(StereoNxUploads::dir(123, $idle) . '/' . $name, time() - 25 * 3600);
+
+        self::assertSame(1, StereoNxUploads::purgeStaleAll());
+        self::assertDirectoryDoesNotExist(StereoNxUploads::dir(123, $idle));
+        self::assertDirectoryExists(StereoNxUploads::dir(123, $recent));
+    }
+
     public function testInvalidTokenCannotEscapeStorage(): void
     {
         $this->assertCode('upload_not_found', fn () => StereoNxUploads::dir(123, '../other'));

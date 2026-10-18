@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { ref } from 'vue'
+import { reactive, ref } from 'vue'
 
 const m = vi.hoisted(() => ({
   listItems: vi.fn(),
@@ -13,6 +13,7 @@ const m = vi.hoisted(() => ({
   listClients: vi.fn(),
   canWrite: vi.fn(),
   savedConfig: undefined as any,
+  tableOptions: {} as Record<string, unknown>,
 }))
 
 vi.mock('@/api/stock', () => ({
@@ -33,9 +34,14 @@ vi.mock('@/composables/useToast', () => ({ useToast: () => ({ error: vi.fn() }) 
 vi.mock('@/composables/useFormat', () => ({ formatMoney: (value: string) => value }))
 vi.mock('@/composables/useRowLink', () => ({ useRowLink: () => vi.fn() }))
 vi.mock('@/composables/useTablePrefs', () => ({
-  useTablePrefs: () => ({
-    sort: ref(null), densityClass: ref(''), isVisible: () => true, toggleSort: vi.fn(),
-  }),
+  useTablePrefs: () => {
+    const options = reactive(m.tableOptions)
+    return {
+      sort: ref(null), densityClass: ref(''), isVisible: () => true, toggleSort: vi.fn(),
+      option: (key: string, fallback: unknown) => options[key] ?? fallback,
+      setOption: (key: string, value: unknown) => { options[key] = value },
+    }
+  },
 }))
 vi.mock('@/composables/useSavedFilters', () => ({
   useSavedFilters: (_key: string, config: any) => {
@@ -55,6 +61,7 @@ const filterBar = { template: '<div><slot name="primary" /><slot /><slot name="a
 describe('ItemList catalog filters', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    for (const key of Object.keys(m.tableOptions)) delete m.tableOptions[key]
     m.canWrite.mockReturnValue(false)
     m.listItems.mockResolvedValue({ data: [], meta: { total: 0, pages: 1 } })
     m.listWarehouses.mockResolvedValue([])
@@ -106,6 +113,45 @@ describe('ItemList catalog filters', () => {
       attribute_filters: [],
       page: 1,
     }), expect.anything())
+  })
+
+  it('shows the chosen parameter in its own column and asks the server only for that value', async () => {
+    m.listAttributes.mockResolvedValue([
+      { id: 14, name: 'Colour', data_type: 'enum', is_filterable: true, archived: false },
+      { id: 17, name: 'Power', data_type: 'number', unit: 'kW', is_filterable: false, archived: false },
+    ])
+    m.listItems.mockResolvedValue({ data: [{ id: 51, sku: 'PARAM-51', name: 'Param item', item_type: 'goods', unit: 'ks', is_active: true, min_qty: null, display_attribute_value: '12.5' }], meta: { total: 1, pages: 1 } })
+    const wrapper = mount(ItemList, { global: { stubs: { FilterBar: filterBar, SavedFiltersMenu: true, ColumnPicker: true, DensityToggle: true, SortableTh: true, EmptyState: true, RouterLink: { template: '<a><slot /></a>' } } } })
+    await flushPromises()
+
+    expect(m.listItems).toHaveBeenLastCalledWith(expect.objectContaining({ display_attribute_id: undefined }), expect.anything())
+    const select = wrapper.get('select[data-test="display-attribute"]')
+    expect(select.findAll('option').map(option => option.text())).toContain('Power')
+    await select.setValue('17')
+    await flushPromises()
+
+    expect(m.tableOptions.display_attribute_id).toBe(17)
+    expect(m.listItems).toHaveBeenLastCalledWith(expect.objectContaining({ display_attribute_id: 17, page: 1 }), expect.anything())
+    expect(wrapper.get('[data-test="display-attribute-value"]').text()).toBe('12.5 kW')
+  })
+
+  it('translates a yes/no parameter column from the neutral API value', async () => {
+    m.listAttributes.mockResolvedValue([{ id: 18, name: 'New', data_type: 'bool', is_filterable: false, archived: false }])
+    m.listItems.mockResolvedValue({ data: [{ id: 52, sku: 'PARAM-52', name: 'Bool item', item_type: 'goods', unit: 'ks', is_active: true, min_qty: null, display_attribute_value: 'true, false' }], meta: { total: 1, pages: 1 } })
+    m.tableOptions.display_attribute_id = 18
+    const wrapper = mount(ItemList, { global: { stubs: { FilterBar: filterBar, SavedFiltersMenu: true, ColumnPicker: true, DensityToggle: true, SortableTh: true, EmptyState: true, RouterLink: { template: '<a><slot /></a>' } } } })
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="display-attribute-value"]').text()).toBe('common.yes, common.no')
+  })
+
+  it('drops a remembered parameter column choice when the parameter no longer exists', async () => {
+    m.tableOptions.display_attribute_id = 99
+    mount(ItemList, { global: { stubs: { FilterBar: filterBar, SavedFiltersMenu: true, ColumnPicker: true, DensityToggle: true, SortableTh: true, EmptyState: true, RouterLink: true } } })
+    await flushPromises()
+
+    expect(m.tableOptions.display_attribute_id).toBeNull()
+    expect(m.listItems).toHaveBeenLastCalledWith(expect.objectContaining({ display_attribute_id: undefined }), expect.anything())
   })
 
   it('keeps an attribute value restored from a saved view and lazily loads its options', async () => {

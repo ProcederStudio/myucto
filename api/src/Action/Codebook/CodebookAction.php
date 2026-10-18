@@ -63,7 +63,7 @@ final class CodebookAction
     public function units(Request $request, Response $response): Response
     {
         $rows = $this->db->pdo()->query(
-            'SELECT id, code, label_cs, label_en, is_default, display_order
+            'SELECT id, code, label_cs, label_en, is_default, display_order, quantity_decimals
                FROM units ORDER BY display_order, code'
         )->fetchAll(\PDO::FETCH_ASSOC);
         return Json::ok($response, array_map(fn (array $r) => [
@@ -73,6 +73,8 @@ final class CodebookAction
             'label_en'      => $r['label_en'],
             'is_default'    => (bool) $r['is_default'],
             'display_order' => (int) $r['display_order'],
+            // Desetinná místa množství (2036), null = bez omezení.
+            'quantity_decimals' => $r['quantity_decimals'] !== null ? (int) $r['quantity_decimals'] : null,
         ], $rows));
     }
 

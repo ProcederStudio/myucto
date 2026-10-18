@@ -25,12 +25,12 @@ final class DimensionAssignmentRepository
     /**
      * @return array{header:array<int,int>, items:array<int,array<int,int>>}
      */
-    public function documentDimensions(int $supplierId, string $docType, int $docId): array
+    public function documentDimensions(int $supplierId, string $docType, int $docId, bool $forUpdate = false): array
     {
         $stmt = $this->db->pdo()->prepare(
             'SELECT item_no, dimension_type_id, dimension_value_id FROM document_dimensions
               WHERE supplier_id = ? AND doc_type = ? AND doc_id = ?
-              ORDER BY item_no, dimension_type_id'
+              ORDER BY item_no, dimension_type_id' . ($forUpdate ? ' FOR UPDATE' : '')
         );
         $stmt->execute([$supplierId, $docType, $docId]);
         $out = ['header' => [], 'items' => []];
@@ -130,12 +130,12 @@ final class DimensionAssignmentRepository
     // platí buď jediná hodnota, nebo rozpad — validaci dělá DimensionService::normalizeSplits().
 
     /** @return array<int,array<int,array<int,float>>> pořadí položky (0 = hlavička) => typ => hodnota => podíl */
-    public function documentSplits(int $supplierId, string $docType, int $docId): array
+    public function documentSplits(int $supplierId, string $docType, int $docId, bool $forUpdate = false): array
     {
         $stmt = $this->db->pdo()->prepare(
             'SELECT item_no, dimension_type_id, dimension_value_id, share FROM document_dimension_splits
               WHERE supplier_id = ? AND doc_type = ? AND doc_id = ?
-              ORDER BY item_no, dimension_type_id, dimension_value_id'
+              ORDER BY item_no, dimension_type_id, dimension_value_id' . ($forUpdate ? ' FOR UPDATE' : '')
         );
         $stmt->execute([$supplierId, $docType, $docId]);
         $out = [];
@@ -172,7 +172,7 @@ final class DimensionAssignmentRepository
      * @param list<int> $lineIds
      * @return array<int,array<int,array<int,float>>> řádek => typ => hodnota => podíl
      */
-    public function lineSplits(int $supplierId, array $lineIds): array
+    public function lineSplits(int $supplierId, array $lineIds, bool $forUpdate = false): array
     {
         $lineIds = array_values(array_unique(array_map('intval', $lineIds)));
         $out = [];
@@ -181,7 +181,7 @@ final class DimensionAssignmentRepository
             $stmt = $this->db->pdo()->prepare(
                 "SELECT line_id, dimension_type_id, dimension_value_id, share FROM journal_entry_line_dimension_splits
                   WHERE supplier_id = ? AND line_id IN ({$marks})
-                  ORDER BY line_id, dimension_type_id, dimension_value_id"
+                  ORDER BY line_id, dimension_type_id, dimension_value_id" . ($forUpdate ? ' FOR UPDATE' : '')
             );
             $stmt->execute([$supplierId, ...$chunk]);
             foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
@@ -192,14 +192,14 @@ final class DimensionAssignmentRepository
     }
 
     /** @return array<int,array<int,array<int,float>>> řádek => typ => hodnota => podíl */
-    public function entryLineSplits(int $supplierId, int $entryId): array
+    public function entryLineSplits(int $supplierId, int $entryId, bool $forUpdate = false): array
     {
         $stmt = $this->db->pdo()->prepare(
             'SELECT s.line_id, s.dimension_type_id, s.dimension_value_id, s.share
                FROM journal_entry_lines l
                STRAIGHT_JOIN journal_entry_line_dimension_splits s ON s.line_id = l.id
               WHERE l.supplier_id = ? AND l.entry_id = ?
-              ORDER BY s.line_id, s.dimension_type_id, s.dimension_value_id'
+              ORDER BY s.line_id, s.dimension_type_id, s.dimension_value_id' . ($forUpdate ? ' FOR UPDATE' : '')
         );
         $stmt->execute([$supplierId, $entryId]);
         $out = [];
@@ -210,14 +210,14 @@ final class DimensionAssignmentRepository
     }
 
     /**
-     * Přepíše rozpad řádku deníku (jen analytika, smí i nad uzavřeným obdobím).
+     * Přepíše rozpad řádku deníku. Volající ověřuje období přes DimensionPeriodGuard.
      *
      * @param array<int,array<int,float>> $splits typ => hodnota => podíl
      * @return bool zda se něco změnilo
      */
     public function replaceLineSplits(int $supplierId, int $lineId, array $splits): bool
     {
-        $current = $this->lineSplits($supplierId, [$lineId])[$lineId] ?? [];
+        $current = $this->lineSplits($supplierId, [$lineId], $this->db->pdo()->inTransaction())[$lineId] ?? [];
         if (self::sameSplits($current, $splits)) {
             return false;
         }
@@ -315,7 +315,7 @@ final class DimensionAssignmentRepository
      * @param list<int> $lineIds
      * @return array<int,array<int,int>> řádek => typ => hodnota
      */
-    public function lineDimensions(int $supplierId, array $lineIds): array
+    public function lineDimensions(int $supplierId, array $lineIds, bool $forUpdate = false): array
     {
         $lineIds = array_values(array_unique(array_map('intval', $lineIds)));
         if ($lineIds === []) {
@@ -326,7 +326,7 @@ final class DimensionAssignmentRepository
             $marks = implode(',', array_fill(0, count($chunk), '?'));
             $stmt = $this->db->pdo()->prepare(
                 "SELECT line_id, dimension_type_id, dimension_value_id FROM journal_entry_line_dimensions FORCE INDEX (PRIMARY)
-                  WHERE supplier_id = ? AND line_id IN ({$marks})"
+                  WHERE supplier_id = ? AND line_id IN ({$marks})" . ($forUpdate ? ' FOR UPDATE' : '')
             );
             $stmt->execute([$supplierId, ...$chunk]);
             foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
@@ -337,13 +337,13 @@ final class DimensionAssignmentRepository
     }
 
     /** @return array<int,array<int,int>> řádek => typ => hodnota */
-    public function entryLineDimensions(int $supplierId, int $entryId): array
+    public function entryLineDimensions(int $supplierId, int $entryId, bool $forUpdate = false): array
     {
         $stmt = $this->db->pdo()->prepare(
             'SELECT d.line_id, d.dimension_type_id, d.dimension_value_id
                FROM journal_entry_lines l
                STRAIGHT_JOIN journal_entry_line_dimensions d ON d.line_id = l.id
-              WHERE l.supplier_id = ? AND l.entry_id = ?'
+              WHERE l.supplier_id = ? AND l.entry_id = ?' . ($forUpdate ? ' FOR UPDATE' : '')
         );
         $stmt->execute([$supplierId, $entryId]);
         $out = [];
@@ -354,15 +354,14 @@ final class DimensionAssignmentRepository
     }
 
     /**
-     * Přepíše dimenze řádku deníku. Mění jen analytické členění — účet, strana,
-     * částka ani období řádku se nemění, proto smí i nad uzavřeným obdobím.
+     * Přepíše dimenze řádku deníku. Volající ověřuje období přes DimensionPeriodGuard.
      *
      * @param array<int,int> $dims typ => hodnota
      * @return bool zda se něco změnilo
      */
     public function replaceLineDimensions(int $supplierId, int $lineId, array $dims): bool
     {
-        $current = $this->lineDimensions($supplierId, [$lineId])[$lineId] ?? [];
+        $current = $this->lineDimensions($supplierId, [$lineId], $this->db->pdo()->inTransaction())[$lineId] ?? [];
         ksort($current);
         ksort($dims);
         if ($current === array_map('intval', $dims)) {

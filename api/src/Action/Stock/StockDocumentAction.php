@@ -102,7 +102,8 @@ final class StockDocumentAction
         }
         $body = (array) ($request->getParsedBody() ?? []);
         try {
-            $result = $this->service->create($supplierId, $body, $this->userId($request));
+            // Ruční zadání: hlídá desetinná místa množství podle jednotky karty (2036).
+            $result = $this->service->create($supplierId, $body, $this->userId($request), checkUnitDecimals: true);
             $this->log($request, 'stock.document_created', (int) $result['id'], ['doc_type' => $result['doc_type'] ?? null]);
             return Json::ok($response, $result, 201);
         } catch (\Throwable $e) {
@@ -122,7 +123,7 @@ final class StockDocumentAction
         $id = (int) $args['id'];
         $body = (array) ($request->getParsedBody() ?? []);
         try {
-            $result = $this->service->updateDraft($supplierId, $id, $body, $this->userId($request));
+            $result = $this->service->updateDraft($supplierId, $id, $body, $this->userId($request), checkUnitDecimals: true);
             $this->log($request, 'stock.document_updated', $id, []);
             return Json::ok($response, $result);
         } catch (\Throwable $e) {

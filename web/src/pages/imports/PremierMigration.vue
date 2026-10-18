@@ -56,6 +56,7 @@ const {
   // Předvybrané všechny roky zálohy s IČO firmy.
   onReady: () => { selectedYears.value = [...years.value] },
   onReset: () => { selectedYears.value = [] },
+  restoreParams: params => { selectedYears.value = [...params.years] },
 })
 
 const steps = computed(() => [1, 2, 3, 4].map(number => ({ number, label: tt(`step${number}`) })))

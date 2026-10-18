@@ -998,8 +998,19 @@
         "2014_client_ai_extraction.sql",
         "2015_client_bank_permissions.sql",
         "2016_invoice_item_tracking.sql",
-        "2017_price_list_role_permissions.sql",
-        "2018_operational_settings_role_permissions.sql"
+        "2029_tax_evidence_bank_rules_constant_symbol.sql",
+        "2030_stock_cycle_count_category.sql",
+        "2031_invoice_rounding_default.sql",
+        "2032_invoice_issued_by.sql",
+        "2033_supplier_invoice_pdf_monochrome.sql",
+        "2034_invoice_item_text_row.sql",
+        "2035_invoice_item_line_discount.sql",
+        "2036_unit_quantity_decimals.sql",
+        "2037_simplified_document_series_and_customer.sql",
+        "2038_invoice_edit_issued_permission.sql",
+        "2047_supplier_person_title.sql",
+        "2048_price_list_role_permissions.sql",
+        "2049_operational_settings_role_permissions.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -6038,7 +6049,7 @@
             "columns": {
                 "client_id": "bigint(20) unsigned NOT NULL DEFAULT 0",
                 "floor_number": "int(10) unsigned NOT NULL DEFAULT 0",
-                "invoice_type": "enum('invoice','proforma','credit_note') NOT NULL",
+                "invoice_type": "enum('invoice','proforma','credit_note','simplified') NOT NULL",
                 "last_number": "int(10) unsigned NOT NULL DEFAULT 0",
                 "period": "varchar(10) NOT NULL",
                 "revenue_category_id": "int(10) unsigned NOT NULL DEFAULT 0",
@@ -6064,8 +6075,10 @@
                 "duration_minutes": "int(11) NULL DEFAULT NULL",
                 "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
                 "invoice_id": "bigint(20) unsigned NOT NULL",
-                "item_kind": "enum('standard','discount') NOT NULL DEFAULT 'standard'",
+                "item_kind": "enum('standard','discount','text') NOT NULL DEFAULT 'standard'",
+                "line_discount_pct": "decimal(7,3) NULL DEFAULT NULL",
                 "linked_work_report_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "list_unit_price": "decimal(16,6) NULL DEFAULT NULL",
                 "order_index": "int(11) NOT NULL DEFAULT 0",
                 "oss_applicable": "tinyint(1) NOT NULL DEFAULT 0",
                 "oss_consumer_country": "char(2) NULL DEFAULT NULL",
@@ -6284,6 +6297,7 @@
                 "exchange_rate": "decimal(14,6) NULL DEFAULT NULL",
                 "exchange_rate_date": "date NULL DEFAULT NULL",
                 "fakturoid_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "hide_customer_on_pdf": "tinyint(1) NOT NULL DEFAULT 0",
                 "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
                 "idoklad_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "import_batch_id": "varchar(32) NULL DEFAULT NULL",
@@ -6297,6 +6311,8 @@
                 "invoice_type": "enum('invoice','proforma','credit_note','cancellation','tax_document','penalty','payment_calendar') NOT NULL",
                 "is_simplified": "tinyint(1) NOT NULL DEFAULT 0",
                 "issue_date": "date NOT NULL",
+                "issued_by": "bigint(20) unsigned NULL DEFAULT NULL",
+                "issued_by_name": "varchar(120) NULL DEFAULT NULL",
                 "language": "enum('cs','en') NOT NULL DEFAULT 'cs'",
                 "last_reminder_at": "timestamp NULL DEFAULT NULL",
                 "note_above_items": "text NULL DEFAULT NULL",
@@ -6344,6 +6360,7 @@
                 "PRIMARY": "UNIQUE BTREE (id)",
                 "fk_inv_cash_register": "BTREE (cash_register_id)",
                 "fk_inv_currency": "BTREE (currency_id)",
+                "fk_inv_issued_by": "BTREE (issued_by)",
                 "fk_inv_user": "BTREE (created_by)",
                 "fk_invoices_branding_profile": "BTREE (branding_profile_id)",
                 "idx_inv_approval_reminder": "BTREE (approval_status, approval_reminder_at, approval_requested_at)",
@@ -6378,6 +6395,7 @@
                 "fk_inv_cash_register": "(cash_register_id) -> cash_registers (id) ON UPDATE RESTRICT ON DELETE SET NULL",
                 "fk_inv_client": "(client_id) -> clients (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
                 "fk_inv_currency": "(currency_id) -> currencies (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "fk_inv_issued_by": "(issued_by) -> users (id) ON UPDATE RESTRICT ON DELETE SET NULL",
                 "fk_inv_parent": "(parent_invoice_id) -> invoices (id) ON UPDATE RESTRICT ON DELETE CASCADE",
                 "fk_inv_project": "(project_id) -> projects (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
                 "fk_inv_recurring": "(recurring_template_id) -> recurring_invoice_templates (id) ON UPDATE RESTRICT ON DELETE SET NULL",
@@ -18767,6 +18785,7 @@
                 "description_source": "varchar(16) NOT NULL DEFAULT 'template'",
                 "duration_minutes": "int(11) NULL DEFAULT NULL",
                 "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "item_kind": "enum('standard','text') NOT NULL DEFAULT 'standard'",
                 "order_index": "int(11) NOT NULL DEFAULT 0",
                 "oss_applicable": "tinyint(1) NOT NULL DEFAULT 0",
                 "oss_consumer_country": "char(2) NULL DEFAULT NULL",
@@ -20139,6 +20158,7 @@
             "engine": "InnoDB",
             "collation": "utf8mb4_unicode_ci",
             "columns": {
+                "category_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "closed_at": "timestamp NULL DEFAULT NULL",
                 "closed_by": "int(10) unsigned NULL DEFAULT NULL",
                 "created_at": "timestamp NOT NULL DEFAULT current_timestamp()",
@@ -20158,11 +20178,13 @@
             "indexes": {
                 "PRIMARY": "UNIQUE BTREE (id)",
                 "fk_scc_location": "BTREE (supplier_id, warehouse_id, location_id)",
+                "ix_cycle_category": "BTREE (category_id)",
                 "ix_cycle_preparation_job": "BTREE (supplier_id, preparation_job_id)",
                 "ix_cycle_tenant_status": "BTREE (supplier_id, status, id)",
                 "uq_cycle_supplier_id": "UNIQUE BTREE (supplier_id, id)"
             },
             "foreign_keys": {
+                "fk_scc_category": "(category_id) -> stock_categories (id) ON UPDATE RESTRICT ON DELETE SET NULL",
                 "fk_scc_location": "(supplier_id, warehouse_id, location_id) -> warehouse_locations (supplier_id, warehouse_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
                 "fk_scc_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE",
                 "fk_scc_warehouse": "(supplier_id, warehouse_id) -> warehouses (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
@@ -21798,6 +21820,7 @@
                 "default_payment_due_days": "int(10) unsigned NOT NULL DEFAULT 7",
                 "default_payment_due_unit": "enum('days','month') NOT NULL DEFAULT 'days'",
                 "default_prices_include_vat": "tinyint(1) NOT NULL DEFAULT 0",
+                "default_rounding_mode": "enum('auto','none','whole_czk') NOT NULL DEFAULT 'auto'",
                 "default_vat_rate_id": "int(10) unsigned NOT NULL",
                 "dic": "varchar(20) NULL DEFAULT NULL",
                 "dimensions_enabled": "tinyint(1) NOT NULL DEFAULT 0",
@@ -21834,7 +21857,10 @@
                 "integration_sample_seeded_at": "datetime NULL DEFAULT NULL",
                 "invoice_number_format": "varchar(60) NULL DEFAULT NULL",
                 "invoice_number_period": "enum('year','month','none') NOT NULL DEFAULT 'month'",
+                "invoice_pdf_monochrome": "tinyint(1) NOT NULL DEFAULT 0",
                 "invoice_pdf_show_base_qty": "tinyint(1) NOT NULL DEFAULT 1",
+                "invoice_pdf_show_issued_by": "tinyint(1) NOT NULL DEFAULT 0",
+                "invoice_pdf_show_line_discount": "tinyint(1) NOT NULL DEFAULT 0",
                 "invoice_qr_include_due_date": "tinyint(1) NOT NULL DEFAULT 0",
                 "is_identified": "tinyint(1) NOT NULL DEFAULT 0",
                 "is_vat_payer": "tinyint(1) NOT NULL DEFAULT 1",
@@ -21862,6 +21888,7 @@
                 "payroll_attendance_sample_seeded_at": "datetime NULL DEFAULT NULL",
                 "payroll_enabled": "tinyint(1) NOT NULL DEFAULT 0",
                 "pdf_logo_show_name": "tinyint(1) NOT NULL DEFAULT 0",
+                "person_title": "varchar(10) NULL DEFAULT NULL",
                 "phone": "varchar(40) NULL DEFAULT NULL",
                 "pohoda_account_code": "varchar(20) NULL DEFAULT NULL",
                 "pohoda_accounting_code": "varchar(20) NULL DEFAULT NULL",
@@ -21887,6 +21914,8 @@
                 "sest_prijmeni": "varchar(100) NULL DEFAULT NULL",
                 "sest_telefon": "varchar(40) NULL DEFAULT NULL",
                 "signature_path": "varchar(255) NULL DEFAULT NULL",
+                "simplified_hide_customer_default": "tinyint(1) NOT NULL DEFAULT 0",
+                "simplified_number_format": "varchar(60) NULL DEFAULT NULL",
                 "stock_auto_issue": "tinyint(1) NOT NULL DEFAULT 1",
                 "stock_enabled": "tinyint(1) NOT NULL DEFAULT 0",
                 "stock_in_transit_from": "enum('sent','confirmed') NOT NULL DEFAULT 'sent'",
@@ -22310,6 +22339,7 @@
                 "action_ignore": "tinyint(1) NOT NULL DEFAULT 0",
                 "amount_max": "decimal(15,2) NULL DEFAULT NULL",
                 "amount_min": "decimal(15,2) NULL DEFAULT NULL",
+                "constant_symbol": "varchar(4) NULL DEFAULT NULL",
                 "counterparty_account": "varchar(64) NULL DEFAULT NULL",
                 "created_at": "timestamp NOT NULL DEFAULT current_timestamp()",
                 "created_by": "int(11) NULL DEFAULT NULL",
@@ -22335,7 +22365,7 @@
             },
             "checks": {
                 "chk_tebr_action": "`action_ignore` = 1 or `tax_bucket` is not null",
-                "chk_tebr_criteria": "`counterparty_account` is not null or `variable_symbol` is not null or `text_contains` is not null"
+                "chk_tebr_criteria": "`counterparty_account` is not null or `variable_symbol` is not null or `constant_symbol` is not null or `text_contains` is not null"
             }
         },
         "tax_evidence_closings": {
@@ -22988,6 +23018,7 @@
                 "is_default": "tinyint(1) NOT NULL DEFAULT 0",
                 "label_cs": "varchar(60) NOT NULL",
                 "label_en": "varchar(60) NOT NULL",
+                "quantity_decimals": "tinyint(3) unsigned NULL DEFAULT NULL",
                 "updated_at": "timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE CURRENT_TIMESTAMP()"
             },
             "indexes": {
@@ -22995,7 +23026,9 @@
                 "uq_units_code": "UNIQUE BTREE (code)"
             },
             "foreign_keys": [],
-            "checks": []
+            "checks": {
+                "quantity_decimals": "`quantity_decimals` is null or `quantity_decimals` <= 3"
+            }
         },
         "user_preferences": {
             "type": "BASE TABLE",

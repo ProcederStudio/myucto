@@ -21,9 +21,13 @@ import { apiErrorMessage } from '@/api/errors'
 import { stockApi, type StockDocument } from '@/api/stock'
 import { formatMoney, formatHourlyRate, formatDate, formatNumber, formatPercent, statusLabel, typeLabel, statusBadgeClass, displayStatus } from '@/composables/useFormat'
 import { durationTotal, formatDuration, isTimeItem, itemQuantity, workRowTotal } from '@/utils/timeBilling'
+import { invoiceIssuedBy } from '@/pages/invoices/invoiceIssuedBy'
 import { useAuthStore } from '@/stores/auth'
 import { useSupplierStore } from '@/stores/supplier'
 import { pdfFileName, savePdfToCompanyFolder } from '@/composables/useCompanyPdfSave'
+import { printPdf } from '@/composables/usePrintPdf'
+import InsufficientStockDialog from '@/components/stock/InsufficientStockDialog.vue'
+import { insufficientStockItems, type InsufficientStockItem } from '@/components/stock/insufficientStock'
 import { useHotkey } from '@/composables/useHotkey'
 import { useToast } from '@/composables/useToast'
 import { useAccountingPeriodToast } from '@/composables/useAccountingPeriodToast'
@@ -106,6 +110,8 @@ const wrModalOpen = ref(false)
 const loading = ref(true)
 const error = ref('')
 const busy = ref<string | null>(null)
+/** Výčet chybějících zásob z neúspěšného vystavení (okno místo toastu). */
+const insufficientStock = ref<InsufficientStockItem[] | null>(null)
 let loadGeneration = 0
 
 // V režimu „ceny s DPH" nese unit_price_without_vat brutto (kvůli haléřově přesnému
@@ -242,7 +248,8 @@ const canEditAccrual = computed(() => !!invoice.value
 function startAccrualEdit() {
   for (const key of Object.keys(accrualDraft)) delete accrualDraft[Number(key)]
   for (const item of invoice.value?.items ?? []) {
-    if (item.id == null || item.item_kind === 'discount') continue
+    // Slevový ani textový řádek vlastní výnos k rozlišení nemá.
+    if (item.id == null || item.item_kind === 'discount' || item.item_kind === 'text') continue
     accrualDraft[item.id] = { from: item.accrual_from ?? null, to: item.accrual_to ?? null }
   }
   accrualEditing.value = true
@@ -893,10 +900,11 @@ async function issue() {
     }
   } catch (e: any) {
     const code = e?.response?.data?.error?.code
-    if (code === 'stock.error.insufficient_stock') {
-      const items = (e?.response?.data?.error?.items ?? []) as Array<{ sku: string; name: string; requested: string; available: string }>
-      const lines = items.map(it => t('stock.documents.insufficient_stock_line', it)).join('; ')
-      toast.error(`${t('invoice.insufficient_stock_toast')} ${lines}`)
+    const shortage = insufficientStockItems(e)
+    if (shortage) {
+      insufficientStock.value = shortage
+    } else if (code === 'stock.error.insufficient_stock') {
+      toast.error(e?.response?.data?.error?.message || t('invoice.issue_failed'))
     } else if (code === 'stock.error.tracking_selection_required') {
       const items = (e?.response?.data?.error?.items ?? []) as Array<{ sku: string | null; name: string | null; selected: string; required: string }>
       const qty = (v: string) => formatNumber(Number(v), { maximumFractionDigits: 3 })
@@ -946,6 +954,7 @@ async function markPaid() {
     toast.success( t('invoice.marked_paid_at', { date: paidAtInput.value }))
     const pt = invoice.value.payment_thanks
     if (pt?.status === 'sent') toast.success(t('invoice.payment_thanks_sent'))
+    else if (pt?.status === 'queued') toast.success(t('invoice.payment_thanks_queued'))
     else if (pt?.status === 'failed') toast.warning(t('invoice.payment_thanks_failed'))
     else if (pt?.status === 'skipped' && pt.reason === 'no_recipient') toast.warning(t('invoice.payment_thanks_no_recipient'))
   } catch (e: any) {
@@ -1215,6 +1224,19 @@ function viewPdf() {
   window.open(invoicesApi.pdfUrl(invoice.value.id, false), '_blank', 'noopener')
 }
 
+// Tisk stejného PDF jako „Zobrazit PDF" bez odbočky do nové záložky (usePrintPdf).
+// Selhání (stažení, načtení, tisk) nabídne v toastu běžné zobrazení PDF: nové okno
+// se otevře až kliknutím, po asynchronním čekání by ho zastavil blokátor oken.
+async function printInvoicePdf() {
+  if (!invoice.value) return
+  const id = invoice.value.id
+  try {
+    await printPdf(`/invoices/${id}/pdf`, invoicesApi.pdfUrl(id, false))
+  } catch {
+    toast.error(t('invoice.print_failed'), { label: t('invoice.view_pdf'), handler: viewPdf })
+  }
+}
+
 async function sendTest() {
   if (!invoice.value) return
   busy.value = 'send-test'
@@ -1383,9 +1405,11 @@ const canIssueFinal = computed(() => isProforma.value
   && (invoice.value?.status === 'paid' || Number(invoice.value?.paid_total ?? 0) > 0)
   && !invoice.value?.final_invoice)
 const isIssued = computed(() => invoice.value && ['issued', 'sent', 'reminded'].includes(invoice.value.status))
-// Admin „force" edit už vystaveného dokladu — viz tlačítko „Upravit (admin)".
+// Úprava už vystaveného dokladu (?force=1): správce nebo role s právem invoices.edit_issued,
+// stejně jako RequestAuthorization::canEditIssuedInvoice na serveru.
 const canAdminEdit = computed(() =>
-  isAdmin.value && !isDraft.value && invoice.value?.invoice_type !== 'cancellation')
+  (isAdmin.value || auth.canWrite('invoices.edit_issued'))
+  && !isDraft.value && invoice.value?.invoice_type !== 'cancellation')
 const hasPositiveAmountToPay = computed(() => {
   if (!invoice.value) return false
   if (!['invoice', 'proforma'].includes(invoice.value.invoice_type)) return true
@@ -1760,6 +1784,8 @@ const invoiceActions = computed<ActionItem[]>(() => {
       disabled: b, loading: busy.value === 'clone', run: cloneInvoice },
     { key: 'view-pdf', label: t('invoice.view_pdf'), icon: 'eye', tier: 'overflow', variant: 'neutral',
       show: !isDraft.value || inv.items.length > 0, run: viewPdf },
+    { key: 'print', label: t('invoice.print'), icon: 'printer', tier: 'overflow', variant: 'neutral',
+      show: !isDraft.value || inv.items.length > 0, run: printInvoicePdf },
     { key: 'pdf', label: t('invoice.download_pdf'), icon: 'doc', tier: 'overflow', variant: 'neutral',
       show: !isDraft.value || inv.items.length > 0,
       title: invoiceWillBeSigned.value ? (t('invoice.download_pdf_tooltip_signed') as string) : undefined,
@@ -2305,6 +2331,10 @@ useWindowRefresh(['invoices', 'clients', 'bank', 'bank-transactions', 'cash', 'a
               <dt class="text-neutral-500">{{ t('invoice.supplier_order_number') }}</dt>
               <dd class="font-mono text-right">{{ invoice.supplier_order_number }}</dd>
             </div>
+            <div v-if="invoiceIssuedBy(invoice)" class="flex justify-between gap-3" data-test="invoice-issued-by">
+              <dt class="text-neutral-500">{{ t('invoice.issued_by') }}</dt>
+              <dd class="text-right">{{ invoiceIssuedBy(invoice) }}</dd>
+            </div>
             <div v-if="invoice.paid_at" class="flex justify-between"><dt class="text-neutral-500">{{ t('status.paid') }}</dt><dd>{{ formatDate(invoice.paid_at) }}</dd></div>
           </dl>
         </div>
@@ -2397,7 +2427,12 @@ useWindowRefresh(['invoices', 'clients', 'bank', 'bank-transactions', 'cash', 'a
             </tr>
           </thead>
           <tbody class="divide-y divide-neutral-100">
-            <tr v-for="item in invoice.items" :key="item.id" :class="item.item_kind === 'discount' ? 'text-warning-700' : ''">
+            <template v-for="item in invoice.items" :key="item.id">
+            <!-- Textový řádek: jen text přes celou šířku, bez částek. -->
+            <tr v-if="item.item_kind === 'text'" data-test="invoice-text-row">
+              <td :colspan="supplierIsVatPayer ? 7 : 5" class="px-4 py-2.5 whitespace-pre-wrap font-medium text-neutral-800">{{ item.description }}</td>
+            </tr>
+            <tr v-else :class="item.item_kind === 'discount' ? 'text-warning-700' : ''">
               <td class="px-4 py-2.5 whitespace-pre-wrap">
                 {{ item.description }}
                 <!-- OSS je vlastnost ŘÁDKU, ne dokladu — dole v doložce je jen souhrn zemí,
@@ -2426,6 +2461,7 @@ useWindowRefresh(['invoices', 'clients', 'bank', 'bank-transactions', 'cash', 'a
               <td v-if="supplierIsVatPayer" class="px-4 py-2.5 text-right font-mono">{{ formatMoney(item.total_without_vat ?? 0, invoice.currency) }}</td>
               <td class="px-4 py-2.5 text-right font-mono font-medium">{{ formatMoney(supplierIsVatPayer ? (item.total_with_vat ?? 0) : (item.total_without_vat ?? 0), invoice.currency) }}</td>
             </tr>
+            </template>
           </tbody>
         </table>
         </div>
@@ -2433,6 +2469,8 @@ useWindowRefresh(['invoices', 'clients', 'bank', 'bank-transactions', 'cash', 'a
         <!-- Mobile: stack karet -->
         <div class="md:hidden divide-y divide-neutral-100">
           <div v-for="item in invoice.items" :key="`m-${item.id}`" class="p-3 space-y-1.5">
+            <div v-if="item.item_kind === 'text'" class="text-sm whitespace-pre-wrap font-medium text-neutral-800" data-test="invoice-text-row-mobile">{{ item.description }}</div>
+            <template v-else>
             <div class="text-sm whitespace-pre-wrap" :class="item.item_kind === 'discount' ? 'text-warning-700' : 'text-neutral-900'">
               {{ item.description }}
               <span v-if="item.oss_applicable"
@@ -2467,6 +2505,7 @@ useWindowRefresh(['invoices', 'clients', 'bank', 'bank-transactions', 'cash', 'a
               <span class="text-xs text-neutral-500">{{ supplierIsVatPayer ? t('invoice.items_table.with_vat') : t('invoice.totals.total') }}</span>
               <span class="font-mono font-semibold">{{ formatMoney(supplierIsVatPayer ? (item.total_with_vat ?? 0) : (item.total_without_vat ?? 0), invoice.currency) }}</span>
             </div>
+            </template>
           </div>
         </div>
       </div>
@@ -3430,6 +3469,7 @@ useWindowRefresh(['invoices', 'clients', 'bank', 'bank-transactions', 'cash', 'a
         @close="postingRuleOpen = false" @saved="postingRuleOpen = false" />
     </WorkspaceTeleport>
     <LockedPeriodAckModal :ref="(el: any) => { lockedAck.modal.value = el }" />
+    <InsufficientStockDialog v-if="insufficientStock" :items="insufficientStock" @close="insufficientStock = null" />
   </div>
     <WorkspaceTeleport>
       <InvoiceBankMatchModal v-if="bankMatchTarget" doc-type="invoice" :doc-id="bankMatchTarget.id" :doc-ref="bankMatchTarget.ref"

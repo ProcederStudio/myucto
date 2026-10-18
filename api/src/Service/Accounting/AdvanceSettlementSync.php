@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Accounting;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\ChartOfAccountsRepository;
 use MyInvoice\Repository\JournalEntryRepository;
 use MyInvoice\Service\ActivityLogger;
@@ -30,8 +31,9 @@ use PDO;
  * nebo zamčené období, souběžná změna zápisu a úhrada z jiného roku než konečná faktura
  * se nepřepisují — jen se zaloguje `accounting.advance_settlement_stale`.
  *
- * Volá se best-effort (nikdy nevyhazuje) z cest, které mění zaúčtovanou úhradu zálohy:
+ * Volá se best-effort z cest, které mění zaúčtovanou úhradu zálohy:
  * bankovní párování a jeho zrušení, pokladní úhrada a její storno.
+ * Chyba rušící celou transakci se propaguje, protože zrušila i samotnou úhradu.
  */
 final class AdvanceSettlementSync
 {
@@ -73,8 +75,8 @@ final class AdvanceSettlementSync
     }
 
     /**
-     * Best-effort dorovnání konečných faktur daných záloh. Nikdy nevyhazuje: úhrada
-     * zálohy proběhla a její zaúčtování nesmí shodit chyba v zápisu jiného dokladu.
+     * Best-effort dorovnání konečných faktur daných záloh. Běžná chyba v zápisu
+     * jiného dokladu nesmí shodit úhradu; zrušení celé transakce musí volající vědět.
      *
      * @param array{purchase?:list<int>, sale?:list<int>} $advances
      */
@@ -295,6 +297,9 @@ final class AdvanceSettlementSync
                 $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
             }
         } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             if ($inTx && $pdo->inTransaction()) {
                 $pdo->exec('ROLLBACK TO SAVEPOINT ' . $savepoint);
                 $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
@@ -308,7 +313,10 @@ final class AdvanceSettlementSync
                     ['reason' => 'error', 'message' => $e->getMessage()],
                     supplierId: $supplierId,
                 );
-            } catch (\Throwable) {
+            } catch (\Throwable $auditFailure) {
+                if (TransactionFailure::rollbackIfAborted($pdo, $auditFailure)) {
+                    throw $auditFailure;
+                }
             }
         }
     }

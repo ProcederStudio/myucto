@@ -77,18 +77,30 @@ final class DppoXmlBuilderVetaSTest extends TestCase
         self::assertNotEmpty($matches, 'chybí varování o chybějícím počtu zaměstnanců (EPO 1704)');
     }
 
-    /** kc_dpp_i1 = součet řádků VZZ 'I.' (výrobky a služby) + 'II.' (zboží), ne 'OBRAT'. */
-    public function testKcDppI1SumsTurnoverRowsFromIncomeStatement(): void
+    /** XML přebírá doložený souhrn výkazu včetně dalších výnosů obchodního modelu. */
+    public function testKcDppI1UsesAuthoritativeTurnoverFromIncomeStatement(): void
     {
-        $appendix = ['income_statement' => ['rows' => [
+        $appendix = ['income_statement' => ['period' => ['starts_on' => '2025-01-01', 'ends_on' => '2025-12-31'], 'checks' => ['net_turnover' => 9999999.0], 'rows' => [
             ['row_code' => 'I.', 'amount' => 1000000.0, 'prev_amount' => 0.0],
             ['row_code' => 'II.', 'amount' => 200000.0, 'prev_amount' => 0.0],
-            // Širší 'OBRAT' (I.–VII.) MUSÍ se ignorovat — jiný pojem než čistý obrat §1d.
             ['row_code' => 'OBRAT', 'amount' => 9999999.0, 'prev_amount' => 0.0],
         ]]];
         $result = $this->build([], $appendix);
-        self::assertStringContainsString('kc_dpp_i1="1200000"', $result['xml']);
+        self::assertStringContainsString('kc_dpp_i1="9999999"', $result['xml']);
         self::assertStringContainsString('cisobr_mena="CZK"', $result['xml']);
+    }
+
+    public function testMissingOrConflictingTurnoverDoesNotProduceInventedZero(): void
+    {
+        foreach ([
+            ['rows' => [['row_code' => 'I.', 'amount' => 123.0]]],
+            ['checks' => ['net_turnover' => 123], 'rows' => [['row_code' => 'OBRAT', 'amount' => 456]]],
+            ['checks' => ['net_turnover' => null]],
+        ] as $statement) {
+            $result = $this->build([], ['income_statement' => $statement]);
+            self::assertStringNotContainsString('kc_dpp_i1=', $result['xml']);
+            self::assertNotEmpty(array_filter($result['warnings'], static fn(string $warning): bool => str_contains($warning, '1703')));
+        }
     }
 
     /**

@@ -111,6 +111,11 @@ final class DocumentItemsPayload
                 if (!is_array($item)) {
                     return [];
                 }
+                // Textový řádek se ukládá vynulovaný ({@see InvoiceItemKind::normalize()}),
+                // obsahem je jen jeho text. Jednotka, sazba ani množství z editoru nic nemění.
+                if (InvoiceItemKind::isText($item)) {
+                    return [InvoiceItemKind::TEXT, trim((string) ($item['description'] ?? ''))];
+                }
                 try {
                     $duration = TimeBilling::durationMinutes($item);
                     $durationKey = $duration !== null ? ['minutes', $duration] : null;

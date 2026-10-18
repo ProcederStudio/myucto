@@ -289,6 +289,77 @@ final class ClosingDeferredTaxTest extends TestCase
         return $assetId;
     }
 
+    public function testDeferredTaxCanBeSkippedWithoutPosting(): void
+    {
+        $this->startClosing();
+        $version = $this->rowVersion();
+        $result = $this->closing->confirmStep($this->supplierId, $this->periodId, 'deferred_tax', 'skipped', 'Synthetic no temporary differences', $version, $this->meta());
+
+        self::assertSame('deferred_tax', $result['step']);
+        self::assertSame('skipped', $result['status']);
+        self::assertSame($version + 1, $this->rowVersion());
+        self::assertNull($this->journal->findBySource($this->supplierId, 'deferred_tax', $this->periodId));
+        $stmt = $this->db->pdo()->prepare("SELECT status,note FROM accounting_closing_steps WHERE supplier_id=? AND period_id=? AND step_key='deferred_tax'");
+        $stmt->execute([$this->supplierId, $this->periodId]);
+        self::assertSame(['status' => 'skipped', 'note' => 'Synthetic no temporary differences'], $stmt->fetch(\PDO::FETCH_ASSOC));
+    }
+
+    public function testRevertDeferredLiabilityRemovesPostedJournalAndAuditsItsLines(): void
+    {
+        $this->assertDeferredTaxRevert(42000.0);
+    }
+
+    public function testRevertDeferredAssetRemovesPostedJournalAndAuditsItsLines(): void
+    {
+        $this->assertDeferredTaxRevert(-18000.0);
+    }
+
+    public function testAbortRejectsPostedDeferredTaxEntry(): void
+    {
+        $this->startClosing();
+        $this->closing->runDeferredTax($this->supplierId, $this->periodId, 42000.0, $this->rowVersion(), $this->meta());
+
+        try {
+            $this->closing->abort($this->supplierId, $this->periodId, $this->rowVersion(), $this->meta());
+            self::fail('Zaúčtovaná odložená daň musí přerušení uzávěrky blokovat.');
+        } catch (ClosingException $e) {
+            self::assertSame('closing_entries_exist', $e->errorCode);
+        }
+        self::assertNotNull($this->journal->findBySource($this->supplierId, 'deferred_tax', $this->periodId));
+        self::assertSame('closing', $this->periods->findById($this->supplierId, $this->periodId)['status']);
+    }
+
+    private function assertDeferredTaxRevert(float $amount): void
+    {
+        $this->startClosing();
+        $posted = $this->closing->runDeferredTax($this->supplierId, $this->periodId, $amount, $this->rowVersion(), $this->meta(), null, $amount < 0);
+        $repository = new \MyInvoice\Repository\ClosingRepository($this->db);
+        self::assertEqualsWithDelta(-$amount, $repository->accountBalance($this->supplierId, '481', self::ENDS_ON), 0.01);
+        self::assertEqualsWithDelta($amount, $repository->accountBalance($this->supplierId, '592', self::ENDS_ON), 0.01);
+        $rowVersion = $this->rowVersion();
+        $result = $this->closing->revertStep($this->supplierId, $this->periodId, 'deferred_tax', $rowVersion, $this->meta());
+
+        self::assertNull($this->journal->findBySource($this->supplierId, 'deferred_tax', $this->periodId), 'Vrácení nativního kroku musí odstranit jím vytvořený zápis.');
+        self::assertEqualsWithDelta(0.0, $repository->accountBalance($this->supplierId, '481', self::ENDS_ON), 0.01);
+        self::assertEqualsWithDelta(0.0, $repository->accountBalance($this->supplierId, '592', self::ENDS_ON), 0.01);
+        self::assertSame($rowVersion + 1, $this->rowVersion());
+        self::assertSame($posted['entry_id'], (int) $result['dumps']['deferred_tax']['entry']['id']);
+        self::assertCount(2, $result['dumps']['deferred_tax']['lines']);
+        $stmt = $this->db->pdo()->prepare('SELECT COUNT(*) FROM journal_entry_lines WHERE entry_id = ?');
+        $stmt->execute([$posted['entry_id']]);
+        self::assertSame(0, (int) $stmt->fetchColumn());
+        $stmt = $this->db->pdo()->prepare("SELECT status, payload FROM accounting_closing_steps WHERE supplier_id = ? AND period_id = ? AND step_key = 'deferred_tax'");
+        $stmt->execute([$this->supplierId, $this->periodId]);
+        self::assertSame(['status' => 'pending', 'payload' => null], $stmt->fetch(\PDO::FETCH_ASSOC));
+        $stmt = $this->db->pdo()->prepare("SELECT payload FROM activity_log WHERE supplier_id = ? AND entity_id = ? AND action = 'accounting.closing_step_reverted' ORDER BY id DESC LIMIT 1");
+        $stmt->execute([$this->supplierId, $this->periodId]);
+        $audit = json_decode((string) $stmt->fetchColumn(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame('deferred_tax', $audit['step']);
+        self::assertSame($result['dumps'], $audit['entry_dump']);
+        $aborted = $this->closing->abort($this->supplierId, $this->periodId, $this->rowVersion(), $this->meta());
+        self::assertSame('open', $aborted['status']);
+    }
+
     private function startClosing(): void
     {
         $this->closing->start($this->supplierId, $this->periodId, $this->rowVersion(), $this->meta());

@@ -57,13 +57,14 @@ const fieldErrors = ref<Record<string, string>>({})
 function emptyForm(): TaxEvidenceBankRulePayload {
   return {
     name: '', priority: 100, is_active: true, direction: 'any',
-    counterparty_account: null, variable_symbol: null, text_contains: null,
+    counterparty_account: null, variable_symbol: null, constant_symbol: null, text_contains: null,
     amount_min: null, amount_max: null, action_ignore: true, tax_bucket: null,
   }
 }
 const form = ref<TaxEvidenceBankRulePayload>(emptyForm())
 const validForm = computed(() => form.value.name.trim() !== ''
-  && !!(form.value.counterparty_account || form.value.variable_symbol || form.value.text_contains)
+  && !!(form.value.counterparty_account || form.value.variable_symbol || form.value.constant_symbol || form.value.text_contains)
+  && (!form.value.constant_symbol || /^[0-9]{1,4}$/.test(form.value.constant_symbol))
   && (form.value.action_ignore || form.value.tax_bucket !== null))
 
 async function load() {
@@ -96,10 +97,11 @@ async function save() {
   busy.value = true
   fieldErrors.value = {}
   try {
+    const payload = { ...form.value, constant_symbol: form.value.constant_symbol || null }
     if (editingId.value === null) {
-      await taxEvidenceBankRulesApi.create(form.value)
+      await taxEvidenceBankRulesApi.create(payload)
     } else {
-      await taxEvidenceBankRulesApi.update(editingId.value, form.value)
+      await taxEvidenceBankRulesApi.update(editingId.value, payload)
     }
     toast.success(t('common.saved'))
     showForm.value = false
@@ -187,6 +189,7 @@ function onBucket(value: string) {
                 <div>{{ t(DIRECTION_KEY[r.direction]) }}</div>
                 <div v-if="r.counterparty_account" class="font-mono">{{ r.counterparty_account }}</div>
                 <div v-if="r.variable_symbol" class="font-mono">VS {{ r.variable_symbol }}</div>
+                <div v-if="r.constant_symbol" class="font-mono">{{ t('tax_evidence.bank_rules.criteria_ks', { symbol: r.constant_symbol }) }}</div>
                 <div v-if="r.text_contains" class="italic">„{{ r.text_contains }}"</div>
               </td>
               <td class="px-3 py-2 whitespace-nowrap">
@@ -232,10 +235,16 @@ function onBucket(value: string) {
           <div>
             <label :for="`${pageId}-account`" class="block text-xs font-medium text-neutral-500 mb-1">{{ t('tax_evidence.bank_rules.form_account') }}</label>
             <input :id="`${pageId}-account`" v-model="form.counterparty_account" placeholder="19-123456789" class="w-full h-9 px-2 border border-neutral-300 rounded-md text-sm font-mono bg-surface" />
+            <p class="mt-1 text-xs text-neutral-500">{{ t('tax_evidence.bank_rules.form_account_hint') }}</p>
           </div>
           <div>
             <label :for="`${pageId}-vs`" class="block text-xs font-medium text-neutral-500 mb-1">{{ t('tax_evidence.bank_rules.form_vs') }}</label>
             <input :id="`${pageId}-vs`" v-model="form.variable_symbol" class="w-full h-9 px-2 border border-neutral-300 rounded-md text-sm font-mono bg-surface" />
+          </div>
+          <div>
+            <label :for="`${pageId}-ks`" class="block text-xs font-medium text-neutral-500 mb-1">{{ t('tax_evidence.bank_rules.form_ks') }}</label>
+            <input :id="`${pageId}-ks`" v-model="form.constant_symbol" inputmode="numeric" maxlength="4" pattern="[0-9]{1,4}" :aria-invalid="fieldErrors.constant_symbol ? true : undefined" :aria-describedby="`${pageId}-ks-hint`" class="w-full h-9 px-2 border border-neutral-300 rounded-md text-sm font-mono bg-surface" />
+            <p :id="`${pageId}-ks-hint`" class="mt-1 text-xs" :class="fieldErrors.constant_symbol ? 'text-danger-500' : 'text-neutral-500'">{{ t('tax_evidence.bank_rules.form_ks_hint') }}</p>
           </div>
           <div>
             <label :for="`${pageId}-text`" class="block text-xs font-medium text-neutral-500 mb-1">{{ t('tax_evidence.bank_rules.form_text') }}</label>

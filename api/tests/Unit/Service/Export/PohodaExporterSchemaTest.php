@@ -468,6 +468,33 @@ final class PohodaExporterSchemaTest extends TestCase
 
     // ─── Helpers ───
 
+    /**
+     * Textový řádek jde do Pohody jako textová položka: jen <inv:text>, bez množství,
+     * sazby a cen. Delší text než 90 znaků (limit invoice.xsd) se rozdělí na víc
+     * textových položek, aby se neztratil.
+     */
+    public function testTextRowIsExportedAsTextOnlyItem(): void
+    {
+        $long = str_repeat('Montáž na stavbě ', 7); // 119 znaků
+        $xml = $this->exporter->buildXml([$this->issuedInvoice(['items' => [
+            $this->item(),
+            $this->item(['item_kind' => 'text', 'description' => trim($long), 'quantity' => 0.0, 'unit' => '',
+                'unit_price_without_vat' => 0.0, 'vat_rate_snapshot' => 12.0,
+                'total_without_vat' => 0.0, 'total_vat' => 0.0, 'total_with_vat' => 0.0]),
+        ]])], $this->issuedCfg());
+
+        $this->assertValidPohoda($xml);
+        self::assertSame(3, $this->xpathCount($xml, '//inv:invoiceDetail/inv:invoiceItem'));
+        self::assertSame(2, $this->xpathCount($xml, '//inv:invoiceItem[not(inv:quantity)]'));
+        self::assertSame(0, $this->xpathCount($xml, '//inv:invoiceItem[not(inv:quantity)]/*[local-name() != "text"]'));
+        $parts = [];
+        foreach ($this->xpath($xml)->query('//inv:invoiceItem[not(inv:quantity)]/inv:text') ?: [] as $node) {
+            self::assertLessThanOrEqual(90, mb_strlen($node->textContent));
+            $parts[] = $node->textContent;
+        }
+        self::assertSame(trim($long), trim(implode(' ', array_map('trim', $parts))));
+    }
+
     private function assertValidPohoda(string $dataPackXml): void
     {
         $dom = new \DOMDocument();

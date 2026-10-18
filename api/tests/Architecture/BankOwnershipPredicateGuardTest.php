@@ -72,7 +72,7 @@ final class BankOwnershipPredicateGuardTest extends TestCase
             'postManual() zná supplier ze session — vlastnictví se nesmí odvozovat z čísla účtu (R4).'
         );
         self::assertStringContainsString(
-            'txOwnedBySupplier',
+            'lockTransaction($supplierId, $txId)',
             $body,
             'postManual() musí ověřit vlastnictví přes BankStatementOwnershipResolver.'
         );
@@ -82,8 +82,17 @@ final class BankOwnershipPredicateGuardTest extends TestCase
     {
         $body = self::methodBody(self::src('Service/Accounting/Bank/BankPostingService.php'), 'txOwnedBySupplier');
 
-        self::assertStringContainsString('BankStatementOwnershipResolver::sql(', $body);
-        self::assertStringContainsString('BankStatementOwnershipResolver::params(', $body);
+        self::assertStringContainsString('(new BankStatementOwnershipResolver($this->db))->transactionOwned($txId, $supplierId, $currentRead)', $body);
+        $postingLock = self::methodBody(self::src('Service/Accounting/Bank/BankPostingService.php'), 'lockTransaction');
+        self::assertStringContainsString('(new BankTransactionContext($this->db))->lock($supplierId, $txId)', $postingLock);
+        $contextLock = self::methodBody(self::src('Service/Bank/BankTransactionContext.php'), 'lock');
+        self::assertStringContainsString('transactionOwned($txId, $supplierId, true)', $contextLock);
+        self::assertStringContainsString('$this->lockContext($supplierId)', $contextLock);
+        self::assertStringContainsString('$this->find($txId, true)', $contextLock);
+        $resolver = self::methodBody(self::src('Repository/BankStatementOwnershipResolver.php'), 'transactionOwned');
+        self::assertStringContainsString('self::sql(\'bs\', $currentRead)', $resolver);
+        self::assertStringContainsString('self::params($supplierId)', $resolver);
+        self::assertStringContainsString('$currentRead ? \' FOR UPDATE\' : \'\'', $resolver);
     }
 
     public function testJournalTransferBankCandidatesCarryTenantPredicateInSql(): void

@@ -12,7 +12,7 @@ use PHPUnit\Framework\TestCase;
 #[Group('integration')]
 final class OperationalSettingsPermissionsMigrationTest extends TestCase
 {
-    private const MIGRATION = '2018_operational_settings_role_permissions.sql';
+    private const MIGRATION = '2049_operational_settings_role_permissions.sql';
 
     private ?PDO $server = null;
     private ?PDO $db = null;

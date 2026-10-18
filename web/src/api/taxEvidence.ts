@@ -15,6 +15,8 @@ export type CashBucket =
   | 'transfer' | 'private' | 'nezarazeno'
 
 export interface CashJournalRow {
+  /** Zdrojový výpis bankovního pohybu; u ostatních zdrojů null. */
+  bank_statement_id?: number | null
   source_type: string
   source_id: number
   invoice_id: number | null
@@ -111,6 +113,10 @@ export interface CashJournalChecks {
 }
 
 export interface CashJournalReport {
+  classification: CashBucket | null
+  total_rows: number
+  filtered_rows: number
+  blocking_unclassified_count: number
   from: string
   to: string
   year: number
@@ -125,6 +131,7 @@ export interface CashJournalReport {
 }
 
 export interface CashJournalParams {
+  classification?: CashBucket | ''
   year?: number
   from?: string
   to?: string

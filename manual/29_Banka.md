@@ -151,6 +151,12 @@ Je-li přijatá faktura uhrazená nižší platbou, než zbývá, nabídne aplik
 
 Spárovaná platba faktury se zaúčtuje sama (viz [§ 29.13.13](#291313-automaticke-zauctovani-sparovanych-plateb-jen-podvojne-ucetnictvi)). Pohyby bez faktury (poplatky, úroky, odvody, převody) vyřídíte ve frontě.
 
+V detailu výpisu otevřete u pohybu **Otevřít v účetním deníku**. Odkaz je dostupný, když má pohyb účetní zápis a máte právo deník číst. Deník otevře konkrétní zápis s rozbaleným detailem, zvýrazní ho a podle potřeby na něj odskroluje.
+
+V daňové evidenci otevřete u pohybu nabídku **…** a zvolte **Otevřít v peněžním deníku**. Zobrazí se rok bankovního pohybu a odpovídající řádky se zvýrazní; sestava zachovává ostatní řádky i zůstatky za celé období. Pokud pohyb v peněžním deníku není, zobrazí se oznámení.
+
+Při více pracovních panelech se deník otevře vpravo od panelu s výpisem, pokud je tam další panel. Při jediném panelu se otevře v něm. Obsah výpisu zůstane dostupný mezi okny aplikace.
+
 1. Otevřete `Peníze → Bankovní účty`, záložku **K zaúčtování**. Odznáček na záložce ukazuje počet čekajících položek.
 2. Výchozí podzáložka **Nezaúčtované pohyby** obsahuje všechny skutečné pohyby bez aktivního zápisu, tedy i ty, pro které automatika žádný návrh kontace nevytvořila.
 3. U návrhu zkontrolujte kontaci (MD/D) a stručné **Proč** (název pravidla nebo shoda platby).
@@ -377,6 +383,11 @@ Filtr **Nespárováno** v detailu výpisu ukazuje pohyby, které skutečně ček
 Skóre je dohledatelné složení signálů, nikoli odhad AI. Automatické potvrzení vyžaduje skóre nejméně **85 %**, náskok alespoň **15 procentních bodů** před druhým kandidátem a deterministické jádro: přesný VS, známý ověřený účet nebo jednoznačný součet více dokladů. Návrh od **35 %** se může zobrazit k ručnímu posouzení. Překlep ve VS, přeplatek, rozdíl odpovídající poplatku, rozdílná měna nebo proforma automatické potvrzení vždy blokují bez ohledu na skóre.
 
 Pole **Vyhledat jiný doklad** hledá podle čísla dokladu, platebního VS, dodavatele či odběratele nebo přesné částky dokladu či zbývající úhrady. Ruční hledání zahrnuje i starší doklady mimo časové okno automatických návrhů a respektuje směr platby včetně dobropisů.
+
+Vratky vydaných a přijatých dobropisů i vydané faktury k vyplacení zohledňují
+již spárované částečné vratky. Automatické párování hledá zbývající částku,
+ruční párování přidělí nejvýše tento zbytek. Přijatý dobropis se páruje s příchozí
+platbou. Částečná vratka sama doklad neoznačí jako plně vypořádaný.
 
 Párování z detailu faktury (**Spárovat s bankou**): seznam lze hledat podle protistrany, VS, popisu nebo přesné částky. Pohyb přidělený jinému dokladu, mzdám, daním nebo vlastnímu převodu se nenabídne; dostupnost se znovu kontroluje při potvrzení. U ostatních pohledávek a závazků použijte **Připojit úhradu**.
 

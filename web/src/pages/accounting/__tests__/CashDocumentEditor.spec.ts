@@ -480,6 +480,106 @@ describe('CashDocumentEditor.vue', () => {
   })
 })
 
+// ── Plátce na úhradě faktury: předvyplní se z faktury, jde upravit a odejde v payloadu ──
+describe('CashDocumentEditor: partner u úhrady faktury', () => {
+  const unpaid = {
+    id: 5, kind: 'invoice', number: 'FV-1', partner_name: 'Klient s.r.o.', partner_ic: '12345679', partner_dic: 'CZ12345679',
+    total: 100, paid: 0, remaining: 100, currency_code: 'CZK', issued_on: '2093-01-01',
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    for (const key of Object.keys(m.routeParams)) delete m.routeParams[key]
+    m.listRegisters.mockResolvedValue([register()])
+    m.listRulePresets.mockResolvedValue([])
+    m.listAccounts.mockResolvedValue([])
+    m.listPostingRules.mockResolvedValue({})
+    m.taxList.mockResolvedValue([taxYear(new Date().getFullYear(), 10000)])
+    m.clientsList.mockResolvedValue({ data: [] })
+    m.createDocument.mockResolvedValue({ id: 1, doc_number: 'PPD-1', journal_entry_id: 1, status: 'posted', warnings: [] })
+  })
+
+  it('výběr faktury předvyplní název, IČ i DIČ a uložení je pošle', async () => {
+    const wrapper = await mountEditor()
+    const vm = wrapper.vm as any
+    vm.form.purpose = 'invoice_payment'
+    await flushPromises()
+
+    vm.pickUnpaid(unpaid)
+    await flushPromises()
+    expect(vm.form.partner_ic).toBe('12345679')
+    expect(vm.form.partner_dic).toBe('CZ12345679')
+
+    await vm.save(true)
+    expect(m.createDocument).toHaveBeenCalledWith(expect.objectContaining({
+      invoice_id: 5, partner_name: 'Klient s.r.o.', partner_ic: '12345679', partner_dic: 'CZ12345679',
+    }))
+  })
+
+  it('partner úhrady je ve formuláři a jde přepsat na skutečného plátce', async () => {
+    const wrapper = await mountEditor()
+    const vm = wrapper.vm as any
+    vm.form.purpose = 'invoice_payment'
+    await flushPromises()
+    vm.pickUnpaid(unpaid)
+    await flushPromises()
+
+    const input = wrapper.find('input[list$="-cash-partners"]')
+    expect(input.exists()).toBe(true)
+    await input.setValue('Jan Plátce')
+    vm.form.partner_ic = ''
+    vm.form.partner_dic = ''
+
+    await vm.save(true)
+    expect(m.createDocument).toHaveBeenCalledWith(expect.objectContaining({
+      partner_name: 'Jan Plátce', partner_ic: null, partner_dic: null,
+    }))
+  })
+
+  it('úhrada přijaté faktury nabízí v našeptávači partnera dodavatele', async () => {
+    const wrapper = await mountEditor()
+    const vm = wrapper.vm as any
+    vm.form.purpose = 'purchase_payment'
+    await flushPromises()
+
+    expect(m.clientsList.mock.calls.at(-1)?.[0].role).toBe('vendors')
+  })
+
+  it('změna účelu partnera vymaže, ať na jiném dokladu nezůstane cizí plátce', async () => {
+    const wrapper = await mountEditor()
+    const vm = wrapper.vm as any
+    vm.form.purpose = 'invoice_payment'
+    await flushPromises()
+    vm.pickUnpaid(unpaid)
+    await flushPromises()
+
+    vm.form.purpose = 'sale'
+    await flushPromises()
+    expect(vm.form.partner_name).toBe('')
+    expect(vm.form.partner_ic).toBe('')
+    expect(vm.form.partner_dic).toBe('')
+  })
+
+  it('draft úhrady si při načtení partnera nechá', async () => {
+    m.routeParams.id = '42'
+    m.getDocument.mockResolvedValue({
+      id: 42, register_id: 1, doc_type: 'in', purpose: 'invoice_payment', doc_number: null,
+      issue_date: '2093-03-01', tax_date: null, partner_name: 'Klient s.r.o.', partner_ic: '12345679', partner_dic: null,
+      description: 'Úhrada', total_amount: 100, currency_code: 'CZK', vat_mode: 'none', vat_lines: [],
+      invoice_id: 5, purchase_invoice_id: null, rule_key: null, counter_account_code: null,
+      status: 'draft', journal_entry_id: null, reversal_entry_id: null, created_by: null, created_at: '2093-03-01',
+    })
+    m.updateDocument.mockResolvedValue({})
+    const wrapper = await mountEditor()
+    const vm = wrapper.vm as any
+
+    await vm.save(false)
+    expect(m.updateDocument).toHaveBeenCalledWith(42, expect.objectContaining({
+      invoice_id: 5, partner_name: 'Klient s.r.o.', partner_ic: '12345679', partner_dic: null,
+    }))
+  })
+})
+
 // ── #21: našeptávač partnera hledá na serveru a doplní IČO/DIČ ───────────────
 describe('CashDocumentEditor — našeptávač partnera', () => {
   function client(id: number, company_name: string, ic: string | null, dic: string | null) {

@@ -60,16 +60,21 @@ záznam s adresami příjemců. V sekci **Historie PDF** je u odeslané verze ze
 Příloha navíc k PDF (smlouva, předávací protokol) se přidává v sekci **Přílohy
 e-mailu** na detailu, viz [§ 16.10.9](#16109-prilohy-e-mailu).
 
-## 16.4 Krok za krokem: Zobrazit nebo stáhnout PDF
+## 16.4 Krok za krokem: Zobrazit, vytisknout nebo stáhnout PDF
 
 1. Otevřete detail faktury (`Prodej → Vydané faktury`, klik na číslo).
-2. Klikněte na **Zobrazit PDF** (otevře fakturu v nové záložce bez dialogu pro uložení)
-   nebo na **Stáhnout PDF**.
+2. Klikněte na **Zobrazit PDF** (otevře fakturu v nové záložce bez dialogu pro uložení),
+   na **Tisk** nebo na **Stáhnout PDF**.
+   **Tisk** otevře rovnou tiskový dialog prohlížeče s PDF faktury, bez odbočky do nové
+   záložky. Prohlížeč bez vestavěného prohlížeče PDF (typicky v mobilu) otevře PDF
+   v nové záložce a vytisknete ho odtud. Když se tisk nepodaří připravit, aplikace
+   to oznámí a v hlášce nabídne **Zobrazit PDF**.
 3. V Chrome a Edge se u **Stáhnout PDF** otevře dialog Uložit jako. Poprvé zvolte
    složku, kam PDF dané firmy ukládáte. Prohlížeč si složku pamatuje zvlášť pro
    každou firmu a příště dialog otevře rovnou v ní.
 
-**Jak poznáte, že je hotovo:** PDF je otevřené v záložce, případně uložené ve vámi zvolené složce.
+**Jak poznáte, že je hotovo:** PDF je otevřené v záložce, odeslané na tiskárnu, případně
+uložené ve vámi zvolené složce.
 
 > [!TIP]
 > Firefox a Safari dialog Uložit jako nepodporují, PDF se tam stáhne do výchozí
@@ -141,7 +146,8 @@ objeví štítek **Zobrazeno klientem**.
 ## 16.8 Krok za krokem: Opravit nebo zrušit vystavenou fakturu
 
 Preferované řešení chyby je vždy **dobropis** nebo **storno + nová faktura**.
-Úpravy a smazání jsou výjimečné a jen pro admina.
+Úpravy a smazání jsou výjimečné. Upravit vystavenou fakturu smí admin a role
+s právem **Upravit vystavenou fakturu**, smazat jen admin.
 
 1. Otevřete detail faktury a v nabídce **Další akce** klikněte na **Storno / dobropis**.
 2. V okně **Storno / Dobropis** zvolte jednu z možností:
@@ -149,7 +155,8 @@ Preferované řešení chyby je vždy **dobropis** nebo **storno + nová faktura
      dobropisu se zápornými položkami, klient dostane oficiální opravu.
    - **Pouze interní storno** - jen interní označení, klient nedostane nic.
    - **Smazat fakturu (admin, force-delete)** - nevratné smazání, jen výjimečně.
-3. Překlep v ještě neodeslané faktuře opraví admin tlačítkem **Upravit (admin)**.
+3. Překlep v ještě neodeslané faktuře opraví admin (nebo role s právem **Upravit
+   vystavenou fakturu**) tlačítkem **Upravit vystavenou**.
 4. Fakturu označenou omylem jako zaplacenou vrátíte tlačítkem **Nezaplacené**.
 5. Fakturu stornovanou omylem obnovíte tlačítkem **Zrušit storno** v menu **Další akce**.
 
@@ -207,7 +214,7 @@ Akční tlačítka vpravo nahoře závisí na stavu faktury:
 
 | Stav | Dostupné akce |
 |---|---|
-| Vystaveno | Zobrazit PDF, Stáhnout PDF, Odeslat klientovi, Web faktura, Označit zaplaceno, Částečná úhrada, Storno / dobropis, Test odeslání, Test upomínky, **Upravit (admin)**, Zaúčtovat\* |
+| Vystaveno | Zobrazit PDF, Stáhnout PDF, Odeslat klientovi, Web faktura, Označit zaplaceno, Částečná úhrada, Storno / dobropis, Test odeslání, Test upomínky, **Upravit vystavenou**, Zaúčtovat\* |
 | Odesláno | Zobrazit PDF, Stáhnout PDF, Odeslat klientovi (znovu), Web faktura, Označit zaplaceno, Částečná úhrada, Odeslat upomínku (po splatnosti), Storno / dobropis, Zaúčtovat\* |
 | Upomínka | Zobrazit PDF, Stáhnout PDF, Odeslat upomínku (další, s odstupem 14 dní), Web faktura, Označit zaplaceno, Částečná úhrada, Zaúčtovat\* |
 | Zaplaceno | Zobrazit PDF, Stáhnout PDF, Web faktura, Storno / dobropis (dobropis pro vrácení peněz), Zaúčtovat\* |
@@ -316,11 +323,28 @@ Vygenerované PDF obsahuje:
    (u neplátce jen IČO a DIČ), německý nebo rakouský Steuernummer, polský NIP,
    maďarský Adószám (viz [§ 18.7.3](18_Klienti.md#1873-slovensky-klient-a-narodni-danova-cisla)).
 3. **Číslo faktury** a **typ** (Faktura, Proforma, Dobropis, Storno).
-4. **Data** - vystaveno, DUZP, splatnost.
+4. **Data** - vystaveno, DUZP, splatnost. Se zapnutou volbou **Tisknout na faktuře,
+   kdo ji vystavil** (Nastavení → Fakturace) přibude řádek **Vystavil** se jménem
+   uživatele, který doklad vystavil. Jméno se uloží při vystavení, takže pozdější
+   přejmenování uživatele už vystavený doklad nezmění. Doklad vystavený před zapnutím
+   této evidence, převzatý importem nebo zobrazený jako koncept ukáže autora dokladu.
+   Doklad vystavený bez přihlášeného uživatele (schválení výkazu klientem přes odkaz
+   nebo pravidelná fakturace spuštěná automaticky) ukáže také autora. Stejné jméno vidíte
+   v detailu faktury. U už vystavených dokladů se řádek objeví až po přegenerování
+   jejich PDF (například po úpravě dokladu nebo aktualizaci aplikace), dříve vytvořené
+   PDF se samo nemění.
 5. **Bankovní spojení** - číslo účtu nebo IBAN, BIC, banka, variabilní symbol.
 6. **Položky** - tabulka (Popis, Množství, Cena, DPH, Celkem). U položky s vybranými
    kusy skladové karty se pod popisem vypíšou sériová čísla („Výr. č.: …“, například VIN)
    nebo šarže s expirací a množstvím („Šarže: …“), viz [§ 37.5.1](37_Sklad.md#3751-vydej-fakturou).
+   Textový řádek ([§ 15.9.3](15_Faktura_editor.md#1593-polozky)) se tiskne přes celou
+   šířku tabulky, bez množství a cen.
+   Se zapnutou volbou **Na PDF faktury rozepsat slevu z ceníkové ceny** (`Nastavení → Doklady`,
+   výchozí vypnuto) má tabulka místo sloupce Cena/j sloupce **Cena/j před slevou**, **Sleva**
+   a **Cena/j po slevě**, pokud má faktura aspoň jednu položku se slevou z ceníkové ceny.
+   Položka bez ceníkové ceny nebo s přirážkou ukáže jen výslednou cenu. U faktury s cenami
+   včetně DPH jsou obě ceny bez DPH. Ceníková cena nemění částky dokladu ani export ISDOC
+   a POHODA.
 7. **Sumář** - mezisoučet, sleva, rozpis DPH, **CELKEM**.
 8. **Přepočet do CZK** (EUR a cizí měna) - u českého odběratele kurz ČNB a tabulka
    základů a DPH v CZK; u zahraničního odběratele pouze česká DPH v CZK, pokud na
@@ -337,6 +361,20 @@ Vygenerované PDF obsahuje:
 > světlá podbarvení). Když je logo malé nebo neobsahuje název firmy, zapněte
 > **Zobrazit i název firmy vedle loga**. Sémantické barvy zůstávají vždy stejné
 > (dobropis červená, storno šedá).
+
+**Úsporná černobílá faktura.** Pro tisk na černobílé tiskárně zapněte v `Firma → Branding`
+volbu **Úsporná černobílá faktura (PDF)**. PDF faktury i výkazu víceprací pak nemá žádné
+barevné ani tmavé plochy (hlavička tabulky položek, řádky **Celkem** a **K úhradě**, bloky
+dodavatele a odběratele, platební panel, poznámky, přepočet do CZK ani podbarvené sudé
+řádky). Text je černý, oddělení dělají tenké čáry, odběratele a platební panel ohraničuje
+rámeček a důležité údaje zvýrazňuje tučné písmo a velikost. Dobropis a storno poznáte podle
+názvu dokladu v hlavičce („Opravný daňový doklad“, „Storno (interní)“), ne podle barvy.
+Volba nahrazuje akcentovou barvu brandingu a platí i při vypnutém brandingu. Vlastní logo
+se tiskne tak, jak je nahrané (barevné logo zůstane barevné).
+
+- Ve výchozím stavu je volba vypnutá a PDF vypadá jako dosud.
+- Projeví se na konceptech a na PDF vytvořených po zapnutí. Už vygenerovaná PDF vystavených
+  dokladů (a jejich historie, [§ 16.10.13](#161013-historie-pdf)) se nemění.
 
 ### 16.10.5 Přepočet do CZK (faktury v cizí měně)
 
@@ -560,14 +598,14 @@ neodstraňujte doklad o tom, co klient skutečně obdržel.
 ### 16.10.14 Admin akce nad vystavenou fakturou
 
 Sekce **Další akce** v detailu faktury skrývá nástroje přístupné jen adminovi,
-používané v krajních případech.
+používané v krajních případech. Výjimkou je editace vystavené faktury, kterou admin
+může svěřit i jiné interní roli (viz níže).
 
 #### Editace vystavené faktury (force=1)
 
-V krajní nouzi (admin udělal ve vystavené faktuře překlep a klient ji ještě
-nedostal):
+V krajní nouzi (ve vystavené faktuře je překlep a klient ji ještě nedostal):
 
-1. Na detailu faktury klikněte na **Upravit (admin)**.
+1. Na detailu faktury klikněte na **Upravit vystavenou**.
 2. Otevře se editor s adresou `?force=1`.
 3. Změny se uloží, původní PDF se zneplatní a v activity logu vznikne záznam o
    vynucené úpravě.
@@ -576,6 +614,16 @@ nedostal):
 > Editace vystavené faktury obecně není doporučená. Změny snapshotů mohou být
 > v rozporu s tím, co klient dostal e-mailem. Preferujte **storno + novou fakturu**
 > nebo **dobropis**.
+
+Akci má admin a interní role s právem **Upravit vystavenou fakturu** (úroveň
+**Zápis**, viz [§ 96.16.4](96_Nastaveni.md#96164-role-a-opravneni)). Výchozí role
+účetní ho nemá. Stejné právo platí pro úpravu a smazání výkazu práce vystavené
+faktury. Doklad v uzavřeném účetním období upraví i s tímto právem jen admin a
+skladová omezení níže platí pro všechny. U zaúčtované faktury přeúčtuje změna částek,
+DPH nebo položek zápis v deníku, proto k ní role kromě tohoto práva potřebuje i
+**Zaúčtovat doklad**. Bez něj úpravu odmítne a dovolí změnit jen neúčetní údaje
+(texty, poznámky, splatnost). Úpravu ani výkaz vystavené faktury nejde vynutit
+přes API token, jen v aplikaci.
 
 Variabilní symbol je neměnný, úprava ho nezmění. Chcete-li číslo změnit, vystavte
 storno nebo dobropis a fakturu znovu pod novým číslem.

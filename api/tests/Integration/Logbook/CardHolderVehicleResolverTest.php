@@ -124,7 +124,10 @@ final class CardHolderVehicleResolverTest extends TestCase
         self::assertSame($this->carDriven, (int) $row['car_id']);
         self::assertSame('card', $row['car_assigned_by']);
         self::assertSame('4242', $row['card_last4']);
-        self::assertStringNotContainsString('0012', json_encode($row, JSON_THROW_ON_ERROR));
+        self::assertNull($row['raw_text']);
+        $stored = json_encode($row, JSON_THROW_ON_ERROR);
+        self::assertStringNotContainsString('4000 0012 3456 4242', $stored);
+        self::assertStringNotContainsString('4000001234564242', $stored);
     }
 
     public function testCashDocumentWithMaskedCardUsesHolderVehicle(): void

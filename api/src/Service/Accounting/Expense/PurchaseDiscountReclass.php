@@ -6,8 +6,11 @@ namespace MyInvoice\Service\Accounting\Expense;
 
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Service\Accounting\DocumentRepostService;
+use MyInvoice\Service\Accounting\Dimension\DimensionException;
+use MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard;
 use MyInvoice\Service\Accounting\PostingException;
 use MyInvoice\Service\Accounting\PostingService;
+use MyInvoice\Service\Accounting\JournalLineAmount;
 use MyInvoice\Service\Accounting\SmallAsset\SmallAssetService;
 use MyInvoice\Service\Accounting\TakenOverRecord;
 use PDO;
@@ -105,9 +108,12 @@ final class PurchaseDiscountReclass
         }
         $commit = false;
         try {
+            if ($apply) {
+                (new DimensionPeriodGuard($this->db))->lockSources($supplierId, [['purchase_invoice', $purchaseInvoiceId]]);
+            }
             $live = null;
             $reversed = false;
-            foreach ($this->entries($supplierId, $purchaseInvoiceId) as $entry) {
+            foreach ($this->entries($supplierId, $purchaseInvoiceId, $apply) as $entry) {
                 if ($entry['reversed_by'] === null) {
                     $live = $entry;
                 } else {
@@ -193,12 +199,12 @@ final class PurchaseDiscountReclass
     }
 
     /** @return list<array<string,mixed>> */
-    private function entries(int $supplierId, int $purchaseInvoiceId): array
+    private function entries(int $supplierId, int $purchaseInvoiceId, bool $currentRead = false): array
     {
         $stmt = $this->db->pdo()->prepare(
             "SELECT id, entry_date, description, reversed_by FROM journal_entries
               WHERE supplier_id = ? AND source_type = 'purchase_invoice' AND source_id = ?
-              ORDER BY id"
+              ORDER BY id" . ($currentRead ? ' FOR UPDATE' : '')
         );
         $stmt->execute([$supplierId, $purchaseInvoiceId]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -244,11 +250,13 @@ final class PurchaseDiscountReclass
     private function fillForeignTrace(int $supplierId, int $entryId, array $built, bool $apply): int
     {
         $fixed = 0;
+        $guard = new DimensionPeriodGuard($this->db);
+        $entry = $apply ? ($guard->lockEntries($supplierId, [$entryId])[$entryId] ?? null) : null;
         $update = $this->db->pdo()->prepare(
             'UPDATE journal_entry_lines SET currency_code = ?, fx_rate = ?, amount_foreign = ?
               WHERE id = ? AND supplier_id = ? AND currency_code IS NULL'
         );
-        foreach ($this->liveLines($supplierId, $entryId) as $line) {
+        foreach ($this->liveLines($supplierId, $entryId, $apply) as $line) {
             if ($line['currency_code'] !== null) {
                 continue;
             }
@@ -256,12 +264,22 @@ final class PurchaseDiscountReclass
                 if (($b['currency_code'] ?? null) === null
                     || $this->posting->redirectedAccountCode($supplierId, (string) $b['account_code']) !== $line['account_code']
                     || (string) $b['side'] !== (string) $line['side']
-                    || (int) round((float) $b['amount'] * 100) !== (int) round((float) $line['amount'] * 100)
+                    || JournalLineAmount::cents($b['amount']) !== JournalLineAmount::cents($line['amount'])
                 ) {
                     continue;
                 }
                 if ($apply) {
-                    $update->execute([$b['currency_code'], $b['fx_rate'] ?? null, $b['amount_foreign'] ?? null, (int) $line['id'], $supplierId]);
+                    if ($entry === null) {
+                        throw new PostingException('entry_not_found', 'Účetní zápis nenalezen.', 404);
+                    }
+                    try {
+                        $guard->assertMutable($entry);
+                    } catch (DimensionException $e) {
+                        throw new PostingException($e->errorCode, 'Uzavřené účetní knihy nelze měnit. Nejprve je znovu otevřete.', $e->httpStatus);
+                    }
+                    $update->execute([$b['currency_code'], $b['fx_rate'] ?? null,
+                        isset($b['amount_foreign']) ? JournalLineAmount::decimal($b['amount_foreign']) : null,
+                        (int) $line['id'], $supplierId]);
                 }
                 $fixed++;
                 break;
@@ -271,14 +289,14 @@ final class PurchaseDiscountReclass
     }
 
     /** @return list<array<string,mixed>> */
-    private function liveLines(int $supplierId, int $entryId): array
+    private function liveLines(int $supplierId, int $entryId, bool $currentRead = false): array
     {
         $stmt = $this->db->pdo()->prepare(
             'SELECT l.id, a.account_code, l.side, l.amount, l.currency_code, l.fx_rate, l.amount_foreign
                FROM journal_entry_lines l
                JOIN chart_of_accounts a ON a.id = l.account_id
               WHERE l.entry_id = ? AND l.supplier_id = ?
-              ORDER BY l.line_no, l.id'
+              ORDER BY l.line_no, l.id' . ($currentRead ? ' FOR UPDATE' : '')
         );
         $stmt->execute([$entryId, $supplierId]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);

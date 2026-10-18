@@ -126,6 +126,22 @@ final class ChunkedUploadStoreTest extends TestCase
         self::assertDirectoryDoesNotExist($dir);
     }
 
+    public function testDailyCleanupRemovesUploadsIdleForMoreThanDay(): void
+    {
+        $idle = $this->store->dir(self::SUPPLIER, str_repeat('1', 16));
+        $recent = $this->store->dir(self::SUPPLIER, str_repeat('2', 16));
+        foreach ([$idle => time() - 25 * 3600, $recent => time() - 23 * 3600] as $dir => $mtime) {
+            mkdir($dir, 0755, true);
+            file_put_contents($dir . '/meta.json', '{}');
+            touch($dir . '/meta.json', $mtime);
+            @touch($dir, $mtime);
+        }
+
+        self::assertSame(1, $this->store->purgeStaleAll());
+        self::assertDirectoryDoesNotExist($idle);
+        self::assertDirectoryExists($recent);
+    }
+
     public function testMakeRoomKeepsNewestIdleAndBusyUploads(): void
     {
         $dirs = [];

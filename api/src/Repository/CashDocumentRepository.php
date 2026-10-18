@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Repository;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Service\Accounting\JournalLineAmount;
 use PDO;
 
 /**
@@ -49,10 +50,10 @@ final class CashDocumentRepository
             $data['partner_dic'] ?? null,
             (string) $data['description'],
             (string) $data['vat_mode'],
-            (float) $data['total_amount'],
+            JournalLineAmount::decimal($data['total_amount']),
             (string) ($data['currency_code'] ?? 'CZK'),
             (float) ($data['fx_rate'] ?? 1),
-            isset($data['amount_foreign']) && $data['amount_foreign'] !== null ? (float) $data['amount_foreign'] : null,
+            isset($data['amount_foreign']) && $data['amount_foreign'] !== null ? JournalLineAmount::decimal($data['amount_foreign']) : null,
             $data['rule_key'] ?? null,
             $data['counter_account_code'] ?? null,
             isset($data['project_id']) && (int) $data['project_id'] > 0 ? (int) $data['project_id'] : null,
@@ -89,10 +90,10 @@ final class CashDocumentRepository
             $data['partner_dic'] ?? null,
             (string) $data['description'],
             (string) $data['vat_mode'],
-            (float) $data['total_amount'],
+            JournalLineAmount::decimal($data['total_amount']),
             (string) ($data['currency_code'] ?? 'CZK'),
             (float) ($data['fx_rate'] ?? 1),
-            isset($data['amount_foreign']) && $data['amount_foreign'] !== null ? (float) $data['amount_foreign'] : null,
+            isset($data['amount_foreign']) && $data['amount_foreign'] !== null ? JournalLineAmount::decimal($data['amount_foreign']) : null,
             $data['rule_key'] ?? null,
             $data['counter_account_code'] ?? null,
             isset($data['project_id']) && (int) $data['project_id'] > 0 ? (int) $data['project_id'] : null,
@@ -131,8 +132,8 @@ final class CashDocumentRepository
             $stmt->execute([
                 $cashDocumentId,
                 (float) $l['vat_rate'],
-                (float) $l['base_amount'],
-                (float) $l['vat_amount'],
+                JournalLineAmount::decimal($l['base_amount']),
+                JournalLineAmount::decimal($l['vat_amount']),
                 $l['vat_classification_code'] ?? null,
                 (string) ($l['vat_deduction'] ?? 'full'),
                 (float) ($l['vat_deduction_percent'] ?? 100.0),

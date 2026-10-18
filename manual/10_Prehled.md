@@ -105,7 +105,7 @@ Na menší obrazovce klikněte ve spodní liště na **Menu vlevo** (kompaktní 
 1. V horní liště (mezi šířkami 1 024 a 1 535 px ve spodní liště) zvolte rozložení s jedním, dvěma nebo třemi panely.
 2. Kliknutím do panelu ho aktivujete. Další položka menu se otevře v aktivním panelu.
 3. Šířku panelů změníte tažením předělu.
-4. Ikonou **Okna** vlevo od přepínače rozložení nebo klávesami **Alt+W** otevřete posledních 15 oken. Návrat do rozepsané faktury zachová zadané hodnoty i firmu.
+4. Ikonou **Okna** vlevo od přepínače rozložení nebo klávesami **Alt+W** otevřete posledních 20 oken. Návrat do rozepsané faktury zachová zadané hodnoty i firmu.
 
 Dva panely jsou dostupné od šířky pracovního prostoru 1 100 px, tři od 1 600 px. Pravidla jsou v [§ 10.10.10](#101010-vice-panelu-pracovniho-prostoru).
 
@@ -301,11 +301,22 @@ Zvýšení počtu panelů zachová jejich otevřený obsah, přidá nový prázd
 
 Všechna tlačítka **+** v menu a rychlé přidání v horní liště otevřou nové čisté okno v aktivním panelu, i když už máte stejný formulář rozepsaný. Stejně fungují klávesové zkratky pro vytvoření a rychlé akce v paletě příkazů. Původní rozepsané okno zůstane dostupné v přepínači **Okna**.
 
-Přepínač **Okna** najdete vlevo od volby rozložení, na mobilu ve spodní liště vedle přepínače světlého a tmavého režimu. Ukazuje nejvýše 15 oken podle posledního použití, jejich názvy, firmu a případné číslo panelu. U vydaných a přijatých faktur uvádí také číslo dokladu a zákazníka nebo dodavatele; u klientských karet jejich název. Domovská obrazovka má označení **Homepage**. Okno lze vyhledat podle těchto údajů, vybrat šipkami a potvrdit klávesou **Enter**; **Esc** přepínač zavře. Výchozí zkratky jsou **Alt+W** pro přepínač, **Alt+PageUp** pro předchozí okno v historii, **Alt+PageDown** pro další a **Alt+Shift+W** pro střídání posledních dvou oken. Fungují také při psaní do formuláře a lze je změnit v **Klávesových zkratkách**. Na macOS se místo Alt používá Option.
+Přepínač **Okna** najdete vlevo od volby rozložení, na mobilu ve spodní liště vedle přepínače světlého a tmavého režimu. Ukazuje nejvýše 20 oken podle posledního použití, jejich názvy, firmu a případné číslo panelu. U vydaných a přijatých faktur uvádí také číslo dokladu a zákazníka nebo dodavatele; u klientských karet jejich název. Domovská obrazovka má označení **Homepage**. Okno lze vyhledat podle těchto údajů, vybrat šipkami a potvrdit klávesou **Enter**; **Esc** přepínač zavře. Výchozí zkratky jsou **Alt+W** pro přepínač, **Alt+PageUp** pro předchozí okno v historii, **Alt+PageDown** pro další a **Alt+Shift+W** pro střídání posledních dvou oken. Fungují také při psaní do formuláře a lze je změnit v **Klávesových zkratkách**. Na macOS se místo Alt používá Option.
 
 Při otevření šestnáctého okna aplikace požádá o potvrzení zavření nejstaršího skrytého okna. Odmítnutím zachováte všechna rozpracovaná data. Obsah oken se uchovává pouze v paměti této záložky. Obnovení stránky, zavření záložky nebo odhlášení jej vymaže; po obnovení se otevře jeden panel na adrese prvního panelu. Okna nenahrazují ukládání dokladů.
 
 Každé okno si pamatuje vlastní firmu. Výběr okna jiné firmy automaticky přepne aktivní firmu; rozpracovaná okna předchozí firmy zůstanou v přepínači. Zobrazované panely patří vždy aktivní firmě. Ruční přepnutí firmy obnoví její poslední otevřené okno, případně Homepage, pokud ještě žádné nemá. Prakticky lze například ponechat seznam přijatých faktur v prvním panelu, otevřít detail dokladu ve druhém a účetní deník ve třetím. **Ctrl+klik** na interní odkaz uvnitř panelu jej otevře v prvním prázdném panelu napravo a tento panel aktivuje. Po zaplnění všech panelů napravo se další odkaz otevře v bezprostředním panelu **+1**. Ctrl+klik v posledním panelu, Cmd+klik a prostřední tlačítko myši zachovávají běžné otevření nové záložky prohlížeče.
+
+**Shift+klik** na interní odkaz nebo navigovatelný řádek otevře cíl v bezprostředním
+panelu napravo a aktivuje jej. Funguje také na odkazy v hlavním menu; jejich cílový
+panel se určuje podle právě aktivního panelu. Pokud pravý panel ještě nemáte,
+aplikace ho přidá, dovoluje-li to šířka pracovního prostoru. Z jednoho panelu tak
+vzniknou dva, ze dvou mohou vzniknout tři. Původní stránka i rozpracované formuláře
+zůstanou otevřené. Je-li cílová stránka už vidět v jiném panelu, otevře se její
+samostatné okno vpravo. Na úzkém okně nebo za posledním podporovaným panelem si
+Shift+klik zachová běžné chování prohlížeče. Stejně se chovají externí odkazy,
+stahování a odkazy s výslovným cílem do nové záložky. Kombinace s dalšími
+modifikačními klávesami tato zkratka nepřebírá.
 
 ### 10.10.11 Klávesové zkratky
 

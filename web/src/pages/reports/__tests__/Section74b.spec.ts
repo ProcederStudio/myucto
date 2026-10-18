@@ -23,6 +23,15 @@ vi.mock('@/api/errors', () => ({
   apiErrorMessage: (e: unknown) => String((e as { message?: string })?.message ?? e),
 }))
 
+vi.mock('@/composables/useVatReportPeriod', async () => {
+  const { ref } = await import('vue')
+  return { useVatReportPeriod: () => {
+    const ready = ref(false)
+    return { year: ref(2026), month: ref(7), ready, settingsError: ref(null),
+      initialize: async () => { ready.value = true; return true } }
+  } }
+})
+
 // vue-router — RouterLink jako jednoduchý stub (proklik na detail dokladu).
 vi.mock('vue-router', () => ({
   RouterLink: { name: 'RouterLink', props: ['to'], template: '<a><slot /></a>' },

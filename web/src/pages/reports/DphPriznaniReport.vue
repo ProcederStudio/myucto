@@ -2,12 +2,12 @@
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
-import { reportsApi, type DphPriznaniPreview, type DphSettings, type DphTrendRow, type DphDraftsPrediction, type DphVariant, type DphCrossCheckDocument, type DphCrossCheckFinding, type DphCrossCheck343Reason } from '@/api/reports'
+import { reportsApi, type DphPriznaniPreview, type DphTrendRow, type DphDraftsPrediction, type DphVariant, type DphCrossCheckDocument, type DphCrossCheckFinding, type DphCrossCheck343Reason } from '@/api/reports'
 import { vatClearingApi, type VatClearingStatus } from '@/api/vatClearing'
 import { apiErrorMessage } from '@/api/errors'
 import { formatMoney, formatDate } from '@/composables/useFormat'
 import { useYearOptions } from '@/composables/useYearOptions'
-import { useReportPeriodQuery } from '@/composables/useReportPeriodQuery'
+import { useVatReportPeriod } from '@/composables/useVatReportPeriod'
 import { ICONS, btnOutline, btnFilled } from '@/components/ui/buttonStyles'
 import { useAuthStore } from '@/stores/auth'
 import PaginationBar from '@/components/ui/PaginationBar.vue'
@@ -15,24 +15,24 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import { downloadApiFile } from '@/utils/downloadFile'
 import DateInput from '@/components/ui/DateInput.vue'
 import PendingApprovalVatNotice from '@/components/reports/PendingApprovalVatNotice.vue'
+import VatBookSectionActions from '@/components/reports/VatBookSectionActions.vue'
 
 const { t, locale } = useI18n()
 const router = useRouter()
 const auth = useAuthStore()
 
-const { year, month, periodOverride } = useReportPeriodQuery()
-
-const settings = ref<DphSettings | null>(null)
+const { year, month, periodOverride, effectivePeriod, settings, ready, settingsError, initialize } = useVatReportPeriod()
 const preview = ref<DphPriznaniPreview | null>(null)
+const loadedPeriod = ref<{ year: number; month: number; period: 'monthly' | 'quarterly' } | null>(null)
+function lineBookRoute(line: string) {
+  // Informativní korekce (ř. 33/34) nemají v Knize DPH vlastní oddíl dokladů.
+  if (!loadedPeriod.value || !/^(?:[1-8]|1[0-3]|2[0-6]|30|31|4[0-4]k?|47|50|51b?)$/.test(line)) return null
+  return { path: '/reports/dph-book', query: { ...loadedPeriod.value, dph_line: line, remember: '0' } }
+}
 const trend = ref<DphTrendRow[]>([])
 const draftsPrediction = ref<DphDraftsPrediction | null>(null)
-const loading = ref(false)
+const loading = ref(true)
 const error = ref('')
-
-const effectivePeriod = computed<'monthly' | 'quarterly'>(() => {
-  if (periodOverride.value) return periodOverride.value
-  return (settings.value?.vat_period as 'monthly' | 'quarterly') || 'monthly'
-})
 
 const isQuarterly = computed(() => effectivePeriod.value === 'quarterly')
 
@@ -50,23 +50,22 @@ const amendmentReady = computed(() => !isAmendment.value || dZjist.value !== '')
 
 let loadSeq = 0
 async function loadAll() {
+  if (!ready.value) return
   const seq = ++loadSeq
   const requestedYear = year.value
   const requestedMonth = month.value
-  const requestedPeriod = periodOverride.value || undefined
+  const requestedPeriod = effectivePeriod.value
   const requestedVariant = variant.value
   const requestedDate = isAmendment.value ? dZjist.value : undefined
   const requestedReason = isAmendment.value ? reason.value : undefined
   loading.value = true
   error.value = ''
   try {
-    const [s, tr, dp] = await Promise.all([
-      reportsApi.dphSettings(),
+    const [tr, dp] = await Promise.all([
       reportsApi.dphTrend(12),
       reportsApi.dphDraftsPrediction(requestedYear, requestedMonth, requestedPeriod).catch(() => null),
     ])
     if (seq !== loadSeq) return
-    settings.value = s
     trend.value = tr
     draftsPrediction.value = dp
     // Dodatečné bez data zjištění nelze spočítat — počkáme, až uživatel datum zadá.
@@ -75,9 +74,13 @@ async function loadAll() {
         requestedYear, requestedMonth, requestedPeriod,
         requestedVariant, requestedDate, requestedReason,
       )
-      if (seq === loadSeq) preview.value = result
+      if (seq === loadSeq) {
+        preview.value = result
+        loadedPeriod.value = { year: requestedYear, month: requestedMonth, period: result?.summary?.period_type ?? requestedPeriod }
+      }
     } else {
       preview.value = null
+      loadedPeriod.value = null
     }
   } catch (e) {
     if (seq === loadSeq) error.value = apiErrorMessage(e)
@@ -98,7 +101,7 @@ const clearingDone = ref('')
 async function loadClearing() {
   clearing.value = null
   clearingError.value = ''
-  if (!auth.canRead('accounting')) return
+  if (!ready.value || !auth.canRead('accounting')) return
   try {
     clearing.value = await vatClearingApi.status(year.value, month.value)
   } catch {
@@ -201,7 +204,7 @@ function formatCrossAmount(value: number | null): string {
 }
 
 async function downloadXml() {
-  if (!preview.value) return
+  if (!ready.value || !preview.value || loading.value) return
   const acknowledge = blockingCrossCheck.value.length > 0
     ? confirm(blockingCrossCheckShown.value.length > 0
       ? t('reports.dph.cross_check.confirm_download_anyway')
@@ -210,7 +213,7 @@ async function downloadXml() {
   if (blockingCrossCheck.value.length > 0 && !acknowledge) return
   try {
     await downloadApiFile(reportsApi.dphDownloadUrl(
-      year.value, month.value, periodOverride.value || undefined, acknowledge,
+      year.value, month.value, effectivePeriod.value, acknowledge,
       variant.value, isAmendment.value ? dZjist.value : undefined,
       isAmendment.value ? reason.value : undefined,
     ))
@@ -237,14 +240,14 @@ function setQuarter(q: number) {
 }
 
 const linesSorted = computed(() => {
-  if (!preview.value) return []
+  if (!ready.value || !preview.value || loading.value) return []
   return Object.entries(preview.value.summary.lines)
     .map(([line, data]) => ({ line, ...data }))
-    .sort((a, b) => Number(a.line) - Number(b.line))
+    .sort((a, b) => parseInt(a.line, 10) - parseInt(b.line, 10) || a.line.localeCompare(b.line))
 })
 
-const outputLines = computed(() => linesSorted.value.filter(l => Number(l.line) < 40))
-const inputLines = computed(() => linesSorted.value.filter(l => Number(l.line) >= 40))
+const outputLines = computed(() => linesSorted.value.filter(l => parseInt(l.line, 10) < 40))
+const inputLines = computed(() => linesSorted.value.filter(l => parseInt(l.line, 10) >= 40))
 
 // Vývoj DPH řazený sestupně dle data — nejnovější měsíc nahoře.
 const trendSorted = computed(() => [...trend.value].sort((a, b) => b.period.localeCompare(a.period)))
@@ -278,17 +281,32 @@ const daysToDeadline = computed(() => {
   return Math.ceil((deadline.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
 })
 
-watch([year, month, periodOverride, variant, dZjist, reason], () => {
+watch([ready, year, month, effectivePeriod, variant, dZjist, reason], () => {
+  if (!ready.value) {
+    ++loadSeq
+    preview.value = null
+    loadedPeriod.value = null
+    loading.value = !settingsError.value
+    return
+  }
   postFilingPage.value = 1
   clearingDone.value = ''
   for (const key of Object.keys(crossCheckPages)) delete crossCheckPages[key]
   void loadAll()
   void loadClearing()
 })
-onMounted(() => {
-  void loadAll()
-  void loadClearing()
+watch(settingsError, value => {
+  if (value) {
+    error.value = apiErrorMessage(value)
+    loading.value = false
+  }
 })
+function retrySettings() {
+  loading.value = true
+  error.value = ''
+  void initialize()
+}
+onMounted(() => { void initialize() })
 </script>
 
 <template>
@@ -307,12 +325,12 @@ onMounted(() => {
       <div class="flex items-center gap-2 flex-wrap">
         <!-- Period toggle (override settings.vat_period) -->
         <div class="flex rounded-md border border-neutral-300 overflow-hidden text-sm">
-          <button type="button" @click="periodOverride = 'monthly'"
+          <button type="button" :disabled="!ready" @click="periodOverride = 'monthly'"
             :class="effectivePeriod === 'monthly' ? 'bg-primary-600 text-white' : 'bg-surface text-neutral-700 hover:bg-neutral-50'"
             class="px-3 h-9 cursor-pointer">
             {{ t('reports.dph.monthly') }}
           </button>
-          <button type="button" @click="periodOverride = 'quarterly'"
+          <button type="button" :disabled="!ready" @click="periodOverride = 'quarterly'"
             :class="effectivePeriod === 'quarterly' ? 'bg-primary-600 text-white' : 'bg-surface text-neutral-700 hover:bg-neutral-50'"
             class="px-3 h-9 cursor-pointer border-l border-neutral-300">
             {{ t('reports.dph.quarterly') }}
@@ -320,14 +338,14 @@ onMounted(() => {
         </div>
 
         <!-- Quarter picker pokud quarterly, jinak month -->
-        <select v-if="isQuarterly" :value="currentQuarter" @change="setQuarter(Number(($event.target as HTMLSelectElement).value))"
+        <select :disabled="!ready" v-if="isQuarterly" :value="currentQuarter" @change="setQuarter(Number(($event.target as HTMLSelectElement).value))"
           class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
           <option v-for="q in quarterOptions" :key="q" :value="q">Q{{ q }}</option>
         </select>
-        <select v-else v-model.number="month" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
+        <select v-else :disabled="!ready" v-model.number="month" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
           <option v-for="(label, i) in monthOptions" :key="i + 1" :value="i + 1">{{ label }}</option>
         </select>
-        <select v-model.number="year" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
+        <select :disabled="!ready" v-model.number="year" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
           <option v-for="y in yearOptions" :key="y" :value="y">{{ y }}</option>
         </select>
         <button v-if="auth.canRead('reports.export')" type="button" @click="downloadXml" :disabled="loading || !preview"
@@ -369,8 +387,12 @@ onMounted(() => {
       {{ t('common.loading') }}…
     </div>
 
-    <div v-else-if="error" class="bg-danger-50 border border-danger-500/40 text-danger-500 rounded-md p-3 text-sm">
-      {{ error }}
+    <div v-else-if="error" class="bg-danger-50 border border-danger-500/40 text-danger-500 rounded-md p-3 text-sm flex flex-wrap items-center gap-3">
+      <span>{{ error }}</span>
+      <button v-if="settingsError" type="button" @click="retrySettings" :class="btnOutline('neutral')">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.cycle" /></svg>
+        {{ t('common.retry') }}
+      </button>
     </div>
 
     <div v-else-if="preview" class="space-y-4">
@@ -657,6 +679,7 @@ onMounted(() => {
               <th class="text-left px-3 py-2">{{ t('reports.dph.description') }}</th>
               <th class="text-right px-3 py-2">{{ t('reports.dph.base') }}</th>
               <th class="text-right px-5 py-2">{{ t('reports.dph.vat') }}</th>
+              <th class="w-12 px-3 py-2 text-right"><span class="sr-only">{{ t('common.actions') }}</span></th>
             </tr>
           </thead>
           <tbody class="divide-y divide-neutral-100">
@@ -665,6 +688,9 @@ onMounted(() => {
               <td class="px-3 py-2.5 text-neutral-700">{{ l.label }}</td>
               <td class="px-3 py-2.5 text-right font-mono">{{ formatMoney(l.base, 'CZK') }}</td>
               <td class="px-5 py-2.5 text-right font-mono">{{ formatMoney(l.vat, 'CZK') }}</td>
+              <td class="w-12 px-3 py-2.5 text-right">
+                <VatBookSectionActions :to="lineBookRoute(l.line)" :label="t('reports.dph_book.open_line_beside', { line: l.line })" />
+              </td>
             </tr>
           </tbody>
         </table>
@@ -684,6 +710,7 @@ onMounted(() => {
               <th class="text-left px-3 py-2">{{ t('reports.dph.description') }}</th>
               <th class="text-right px-3 py-2">{{ t('reports.dph.base') }}</th>
               <th class="text-right px-5 py-2">{{ t('reports.dph.vat') }}</th>
+              <th class="w-12 px-3 py-2 text-right"><span class="sr-only">{{ t('common.actions') }}</span></th>
             </tr>
           </thead>
           <tbody class="divide-y divide-neutral-100">
@@ -692,6 +719,9 @@ onMounted(() => {
               <td class="px-3 py-2.5 text-neutral-700">{{ l.label }}</td>
               <td class="px-3 py-2.5 text-right font-mono">{{ formatMoney(l.base, 'CZK') }}</td>
               <td class="px-5 py-2.5 text-right font-mono">{{ formatMoney(l.vat, 'CZK') }}</td>
+              <td class="w-12 px-3 py-2.5 text-right">
+                <VatBookSectionActions :to="lineBookRoute(l.line)" :label="t('reports.dph_book.open_line_beside', { line: l.line })" />
+              </td>
             </tr>
           </tbody>
         </table>

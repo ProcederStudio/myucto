@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Accounting;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Repository\ChartOfAccountsRepository;
 use MyInvoice\Repository\JournalEntryRepository;
@@ -14,6 +15,7 @@ use MyInvoice\Repository\DimensionAssignmentRepository;
 use MyInvoice\Service\Accounting\Bank\BankDocumentNumber;
 use MyInvoice\Service\Accounting\Dimension\DimensionAccountRouter;
 use MyInvoice\Service\Accounting\Dimension\DimensionStamper;
+use MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard;
 use MyInvoice\Service\Accounting\Expense\ExpenseClassificationService;
 use MyInvoice\Service\Accounting\Expense\ExpenseAutoClassifier;
 use MyInvoice\Service\Accounting\Expense\ExpenseKind;
@@ -207,34 +209,9 @@ final class PostingService
         ]);
     }
 
-    /**
-     * Sestaví a zapíše vyvážený účetní zápis. Vrací id zápisu (existující při
-     * re-postu, nový jinak).
-     *
-     * @param 'invoice'|'purchase_invoice'|'bank'|'cash'|'asset'|'manual'|'closing'|'opening'|'payroll'|'vat_clearing' $sourceType
-     * @param list<array{account_code:string, side:'debit'|'credit', amount:float|int|string, cost_center?:?string}> $lines
-     * @param array{
-     *     entry_date:string, document_date?:?string, document_no?:?string, description?:?string,
-     *     posted?:bool, posted_at?:?string, posted_by?:?int, user_id?:?int, ip?:?string, user_agent?:?string,
-     *     expected_row_version?:?int
-     * } $meta
-     *
-     * @throws UnbalancedEntryException když Σ MD ≠ Σ D
-     * @throws PostingException při chybějícím účtu / zavřeném / chybějícím období
-     */
-    public function postDocument(int $supplierId, string $sourceType, ?int $sourceId, array $lines, array $meta): int
+    /** @return list<array<string,mixed>> */
+    public function prepareDocumentLines(int $supplierId, string $sourceType, ?int $sourceId, array $lines, string $entryDate): array
     {
-        if ($lines === []) {
-            throw new PostingException('empty_entry', 'Účetní zápis nemá žádné řádky.');
-        }
-        $entryDate = (string) ($meta['entry_date'] ?? '');
-        if ($entryDate === '') {
-            throw new PostingException('missing_entry_date', 'Chybí datum účetního případu (meta.entry_date).');
-        }
-        if ($sourceType === 'payroll') {
-            $this->assertPayrollPostingContext($supplierId, $sourceId);
-        }
-
         // 1) překlad CODE → account_id (v rámci osnovy firmy) + kontrola vyváženosti.
         //    Vyváženost se ověřuje na RESOLVED řádcích (částky zaokr. na 2 des. místa),
         //    tj. přesně na tom, co se uloží — ne na surovém vstupu.
@@ -264,16 +241,38 @@ final class PostingService
         $this->dimensionWarnings = $this->dimensionStamper()->rules()->check($supplierId, $sourceType, $resolved, $entryDate);
         self::assertBalanced($resolved); // v haléřích; UnbalancedEntryException při nerovnosti
 
-        // Přeúčtování ručně zadanými řádky (DocumentRepostService): dialog cizoměnovou
-        // stopu saldokontních řádků nezná, převezme se z opravovaného zápisu — i když se
-        // mezitím stornoval a oprava jde novým zápisem.
-        if (!empty($meta['inherit_line_trace_from'])) {
-            $resolved = $this->inheritLineTrace(
-                $supplierId,
-                $this->journal->linesForEntry((int) $meta['inherit_line_trace_from'], $supplierId),
-                $resolved,
-            );
+        return $resolved;
+    }
+
+    /**
+     * Sestaví a zapíše vyvážený účetní zápis. Vrací id zápisu (existující při
+     * re-postu, nový jinak).
+     *
+     * @param 'invoice'|'purchase_invoice'|'bank'|'cash'|'asset'|'manual'|'closing'|'opening'|'payroll'|'vat_clearing' $sourceType
+     * @param list<array{account_code:string, side:'debit'|'credit', amount:float|int|string, cost_center?:?string}> $lines
+     * @param array{
+     *     entry_date:string, document_date?:?string, document_no?:?string, description?:?string,
+     *     posted?:bool, posted_at?:?string, posted_by?:?int, user_id?:?int, ip?:?string, user_agent?:?string,
+     *     expected_row_version?:?int
+     * } $meta
+     *
+     * @throws UnbalancedEntryException když Σ MD ≠ Σ D
+     * @throws PostingException při chybějícím účtu / zavřeném / chybějícím období
+     */
+    public function postDocument(int $supplierId, string $sourceType, ?int $sourceId, array $lines, array $meta): int
+    {
+        if ($lines === []) {
+            throw new PostingException('empty_entry', 'Účetní zápis nemá žádné řádky.');
         }
+        $entryDate = (string) ($meta['entry_date'] ?? '');
+        if ($entryDate === '') {
+            throw new PostingException('missing_entry_date', 'Chybí datum účetního případu (meta.entry_date).');
+        }
+        if ($sourceType === 'payroll') {
+            $this->assertPayrollPostingContext($supplierId, $sourceId);
+        }
+
+        $resolved = $this->prepareDocumentLines($supplierId, $sourceType, $sourceId, $lines, $entryDate);
 
         // R7 (Epic F4): flag allow_closing_period smí nastavit VÝHRADNĚ ClosingService —
         // závěrkové zápisy k ends_on se účtují do období ve stavu 'closing' (nikdy closed/approved).
@@ -290,14 +289,15 @@ final class PostingService
         //   uzávěrka počká, nebo uzávěrka commitne přechod na 'closing'/'closed' a tento zápis
         //   pak POD zámkem uvidí nový stav a odmítne (period_not_open). Dřív se stav ověřoval
         //   PŘED začátkem transakce, takže zápis mohl propadnout do právě uzavíraného období.
-        //   Pořadí zámků je vždy období → řádky deníku (shodné s ClosingService::lockPeriod →
-        //   postDocument), takže nevzniká cyklus (deadlock).
+        //   Původní zápis může ležet v jiném období než nové datum. Proto se před deníkem
+        //   zamknou období firmy a pro přepis se zachovají jejich aktuální stavy.
         $pdo = $this->db->pdo();
         $ownTx = !$pdo->inTransaction();
         if ($ownTx) {
             $pdo->beginTransaction();
         }
         try {
+            $periodStatuses = (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
             if ($sourceType === 'bank' && $sourceId !== null) {
                 (new PayrollBankEvidenceGuard($this->db))->assertAvailableForBankPosting($sourceId);
             }
@@ -327,6 +327,7 @@ final class PostingService
                         . '" — do uzavřeného období nelze účtovat (§35 ZoÚ).',
                 );
             }
+            $periodStatuses[(int) $period['id']] = (string) $period['status'];
 
             // B8 (audit 2026-07): měkký zámek k datu (soft-close) — jemnější než celý rok.
             // Datum <= locked_until je zamčené (podané DPH přiznání / ruční zámek). Zámek je
@@ -347,6 +348,16 @@ final class PostingService
                     'Datum účetního případu ' . $entryDate . ' je uzamčené k ' . $lockedUntil
                         . ' (podané daňové přiznání / ruční zámek období) — do zamčeného data nelze účtovat. '
                         . 'Zámek posuň v nastavení účetnictví (jen admin).',
+                );
+            }
+
+            // Přeúčtování ručními řádky přebírá aktuální stopu i ze stornovaného zdroje.
+            // Čtení patří až za zámky období a nastavení, stejně jako ostatní čtení deníku.
+            if (!empty($meta['inherit_line_trace_from'])) {
+                $resolved = $this->inheritLineTrace(
+                    $supplierId,
+                    $this->journal->linesForEntry((int) $meta['inherit_line_trace_from'], $supplierId, true),
+                    $resolved,
                 );
             }
 
@@ -404,7 +415,7 @@ final class PostingService
                 if ($bankDocument && $this->bankDocumentNumber()->isTakenOver($supplierId, (int) $existing['id'])) {
                     $header['document_no'] = $existing['document_no'];
                 }
-                $existing['lines'] = $this->journal->linesForEntry((int) $existing['id'], $supplierId);
+                $existing['lines'] = $this->journal->linesForEntry((int) $existing['id'], $supplierId, true);
                 if ($taxNeutralRewrite) {
                     $this->assertTaxNeutralRewrite($supplierId, $existing, $entryDate, $resolved);
                     $resolved = $this->inheritLineTrace($supplierId, $existing['lines'], $resolved);
@@ -414,6 +425,8 @@ final class PostingService
                     $existing,
                     $header,
                     $resolved,
+                    $periodStatuses,
+                    $lockedUntil,
                     $allowClosing,
                     isset($meta['expected_row_version']) ? (int) $meta['expected_row_version'] : null,
                     $taxNeutralRewrite,
@@ -456,12 +469,14 @@ final class PostingService
                             'Zaúčtovaný mzdový předpis je neměnný; oprava patří do nové revize.',
                         );
                     }
-                    $raced['lines'] = $this->journal->linesForEntry((int) $raced['id'], $supplierId);
+                    $raced['lines'] = $this->journal->linesForEntry((int) $raced['id'], $supplierId, true);
                     $entryId = $this->rewriteExisting(
                         $supplierId,
                         $raced,
                         $header,
                         $resolved,
+                        $periodStatuses,
+                        $lockedUntil,
                         $allowClosing,
                         isset($meta['expected_row_version']) ? (int) $meta['expected_row_version'] : null,
                     );
@@ -490,7 +505,7 @@ final class PostingService
             }
             return $entryId;
         } catch (\Throwable $e) {
-            if ($ownTx && $pdo->inTransaction()) {
+            if (!TransactionFailure::rollbackIfAborted($pdo, $e) && $ownTx && $pdo->inTransaction()) {
                 $pdo->rollBack();
             }
             throw $e;
@@ -510,7 +525,7 @@ final class PostingService
      * dimenzemi dokladu stejně jako při zaúčtování.
      *
      * @param list<int> $removeLineIds řádky zápisu, které se odeberou
-     * @param list<array{account_code:string, side:'debit'|'credit', amount:float, cost_center?:?string}> $addLines
+     * @param list<array{account_code:string, side:'debit'|'credit', amount:float|int|string, cost_center?:?string}> $addLines
      * @param array{user_id?:?int, ip?:?string, user_agent?:?string} $meta
      * @return int id zápisu
      *
@@ -531,6 +546,8 @@ final class PostingService
             $pdo->beginTransaction();
         }
         try {
+            $periodStatuses = (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+            $lockedUntil = $this->lockedUntilForUpdate($supplierId);
             $entry = $this->journal->findActiveBySourceForUpdate($supplierId, $sourceType, $sourceId);
             if ($entry === null || ($entry['posted_at'] ?? null) === null) {
                 throw new PostingException('entry_not_found', 'Doklad nemá živý zaúčtovaný zápis.', 404);
@@ -539,12 +556,10 @@ final class PostingService
             if ((int) ($entry['row_version'] ?? -1) !== $expectedRowVersion) {
                 throw new PostingException('version_conflict', 'Zápis #' . $entryId . ' se mezitím změnil — načtěte aktuální stav.', 409);
             }
-            $period = $this->periods->findById($supplierId, (int) $entry['period_id']);
-            if ($period === null || (string) $period['status'] !== 'open') {
+            if (($periodStatuses[(int) $entry['period_id']] ?? null) !== 'open') {
                 throw new PostingException('period_not_open', 'Zápis #' . $entryId . ' je v období, které není otevřené (§35 ZoÚ).');
             }
             $entryDate = (string) $entry['entry_date'];
-            $lockedUntil = $this->lockedUntilForUpdate($supplierId);
             if ($lockedUntil !== null && $entryDate <= $lockedUntil) {
                 throw new PostingException('date_locked', 'Zápis #' . $entryId . ' má datum ' . $entryDate . ' v zamčeném období (zámek k ' . $lockedUntil . ').');
             }
@@ -580,7 +595,7 @@ final class PostingService
             }
             $addedCents = 0;
             foreach ($resolved as $line) {
-                $addedCents += self::cents((float) $line['amount']) * (!empty($line['is_red_storno']) ? -1 : 1)
+                $addedCents += JournalLineAmount::signedCents($line)
                     * ($line['side'] === 'debit' ? 1 : -1);
             }
             if ($addedCents !== $removedCents) {
@@ -610,7 +625,7 @@ final class PostingService
             }
             return $entryId;
         } catch (\Throwable $e) {
-            if ($ownTx && $pdo->inTransaction()) {
+            if (!TransactionFailure::rollbackIfAborted($pdo, $e) && $ownTx && $pdo->inTransaction()) {
                 $pdo->rollBack();
             }
             throw $e;
@@ -635,6 +650,21 @@ final class PostingService
             $pdo->beginTransaction();
         }
         try {
+        (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+        $lockedUntil = $this->lockedUntilForUpdate($supplierId);
+        $periodForDate = function (string $date) use ($supplierId, $meta): ?array {
+            $period = $this->periods->findForDateForUpdate($supplierId, $date);
+            if ($period === null) {
+                $this->provisioner()->ensureOpenPeriodForDate(
+                    $supplierId,
+                    $date,
+                    AccountingPeriodProvisioner::REASON_POSTING,
+                    isset($meta['user_id']) ? (int) $meta['user_id'] : null,
+                );
+                $period = $this->periods->findForDateForUpdate($supplierId, $date);
+            }
+            return $period;
+        };
         $original = $this->journal->findForUpdate($entryId, $supplierId);
         if ($original === null) {
             throw new PostingException('entry_not_found', 'Účetní zápis #' . $entryId . ' neexistuje.', 404);
@@ -671,18 +701,12 @@ final class PostingService
         // R7 (Epic F4): storno dohadu/čas. rozlišení z uzávěrkového průvodce ve stavu 'closing'.
         $allowedStatuses = !empty($meta['allow_closing_period']) ? ['open', 'closing'] : ['open'];
 
-        $period = $this->provisioner()->ensureOpenPeriodForDate(
-            $supplierId,
-            $reversalDate,
-            AccountingPeriodProvisioner::REASON_POSTING,
-            isset($meta['user_id']) ? (int) $meta['user_id'] : null,
-        );
+        $period = $periodForDate($reversalDate);
         if ($period === null) {
             throw self::noPeriodException($reversalDate, 'Pro datum storna ' . $reversalDate . ' neexistuje účetní období.');
         }
         $periodOpen = in_array($period['status'], $allowedStatuses, true);
 
-        $lockedUntil = $this->lockedUntil($supplierId);
         if ($periodOpen && $lockedUntil !== null && $reversalDate <= $lockedUntil) {
             if ($explicitDate !== null) {
                 throw new PostingException(
@@ -700,12 +724,7 @@ final class PostingService
                 );
             }
             $reversalDate = $today;
-            $period = $this->provisioner()->ensureOpenPeriodForDate(
-                $supplierId,
-                $reversalDate,
-                AccountingPeriodProvisioner::REASON_POSTING,
-                isset($meta['user_id']) ? (int) $meta['user_id'] : null,
-            );
+            $period = $periodForDate($reversalDate);
             if ($period === null) {
                 // Auto-posun protizápisu na dnešek, ale pro dnešní datum není založené
                 // účetní období a ani ho nelze automaticky otevřít (řada dnešek přeskakuje
@@ -731,8 +750,8 @@ final class PostingService
         // tam, kam původní řádek přičetl.
         $assignments = new DimensionAssignmentRepository($this->db);
         $origLineIds = array_map(static fn (array $l): int => (int) ($l['id'] ?? 0), $origLines);
-        $origDims = $assignments->lineDimensions($supplierId, $origLineIds);
-        $origSplits = $assignments->lineSplits($supplierId, $origLineIds);
+        $origDims = $assignments->lineDimensions($supplierId, $origLineIds, true);
+        $origSplits = $assignments->lineSplits($supplierId, $origLineIds, true);
         $mirror = [];
         foreach ($origLines as $line) {
             $reversalLine = JournalLineAmount::reversal($line);
@@ -803,7 +822,7 @@ final class PostingService
             }
             return $reversalId;
         } catch (\Throwable $e) {
-            if ($ownTx && $pdo->inTransaction()) {
+            if (!TransactionFailure::rollbackIfAborted($pdo, $e) && $ownTx && $pdo->inTransaction()) {
                 $pdo->rollBack();
             }
             throw $e;
@@ -868,13 +887,16 @@ final class PostingService
      *
      * @param array<string,mixed> $existing zápis z findBySource (+ načtené 'lines')
      * @param array<string,mixed> $header
-     * @param list<array{account_id:int, side:'debit'|'credit', amount:float, cost_center:?string}> $resolved
+     * @param list<array{account_id:int, side:'debit'|'credit', amount:float|string, cost_center:?string}> $resolved
+     * @param array<int,string> $periodStatuses stavy načtené pod zámkem před deníkem
      */
     private function rewriteExisting(
         int $supplierId,
         array $existing,
         array $header,
         array $resolved,
+        array $periodStatuses,
+        ?string $lockedUntil,
         bool $allowClosing = false,
         ?int $expectedRowVersion = null,
         bool $taxNeutralRewrite = false,
@@ -902,7 +924,6 @@ final class PostingService
         // hlídá se PŮVODNÍ datum zápisu (existing.entry_date). Oprava zamčeného zápisu
         // se dělá výhradně přes storno + nový zápis do otevřeného data. Výjimkou je daňově
         // neutrální přesun mezi účty, který postDocument ověřil (assertTaxNeutralRewrite).
-        $lockedUntil = $this->lockedUntil($supplierId);
         $origDate = (string) ($existing['entry_date'] ?? '');
         if (!$taxNeutralRewrite && $lockedUntil !== null && $origDate !== '' && $origDate <= $lockedUntil) {
             throw new PostingException(
@@ -915,11 +936,11 @@ final class PostingService
 
         // R7 (Epic F4): re-run závěrkového kroku přepisuje zápis v období 'closing'.
         $allowedStatuses = $allowClosing ? ['open', 'closing'] : ['open'];
-        $currentPeriod = $this->periods->findById($supplierId, (int) $existing['period_id']);
-        if ($currentPeriod !== null && !in_array($currentPeriod['status'], $allowedStatuses, true)) {
+        $currentStatus = $periodStatuses[(int) $existing['period_id']] ?? null;
+        if (!in_array($currentStatus, $allowedStatuses, true)) {
             throw new PostingException(
                 'period_not_open',
-                'Zápis #' . $entryId . ' je v období "' . $currentPeriod['status']
+                'Zápis #' . $entryId . ' je v období "' . $currentStatus
                     . '" — do uzavřeného období nelze zasahovat (§35 ZoÚ).',
             );
         }
@@ -935,7 +956,7 @@ final class PostingService
      * volajícího sám nestačí a mezi náhledem a potvrzením se zápis mohl změnit.
      *
      * @param array<string,mixed> $existing zápis včetně načtených 'lines'
-     * @param list<array{account_id:int, side:string, amount:float}> $resolved
+     * @param list<array{account_id:int, side:string, amount:float|string}> $resolved
      */
     private function assertTaxNeutralRewrite(int $supplierId, array $existing, string $entryDate, array $resolved): void
     {
@@ -2411,26 +2432,7 @@ final class PostingService
      */
     private function postedAdvanceReceived(int $supplierId, int $proformaId): float
     {
-        $bank = $this->scalarFloat(
-            'SELECT COALESCE(SUM(ip.amount), 0)
-               FROM invoice_payments ip
-               JOIN journal_entries je
-                 ON je.supplier_id = ip.supplier_id AND je.source_type = :st
-                AND je.source_id = ip.bank_transaction_id AND je.reversed_by IS NULL
-              WHERE ip.supplier_id = :sid AND ip.invoice_id = :pid
-                AND ip.bank_transaction_id IS NOT NULL',
-            [':st' => 'bank', ':sid' => $supplierId, ':pid' => $proformaId],
-        );
-        $cash = $this->scalarFloat(
-            'SELECT COALESCE(SUM(cd.total_amount), 0)
-               FROM cash_documents cd
-               JOIN journal_entries je
-                 ON je.supplier_id = cd.supplier_id AND je.source_type = :st
-                AND je.source_id = cd.id AND je.reversed_by IS NULL
-              WHERE cd.supplier_id = :sid AND cd.invoice_id = :pid',
-            [':st' => 'cash', ':sid' => $supplierId, ':pid' => $proformaId],
-        );
-        return round($bank + $cash, 2);
+        return (new AdvanceSettlementEvidenceReader($this->db))->postedAdvanceReceived($supplierId, $proformaId);
     }
 
     /**
@@ -2451,50 +2453,7 @@ final class PostingService
      */
     private function postedAdvancePaid(int $supplierId, array $advance): float
     {
-        $advanceId = (int) $advance['id'];
-        $advanceCurrency = strtoupper((string) ($advance['currency_code'] ?? 'CZK'));
-        $txCurrency = "UPPER(COALESCE(NULLIF(bt.currency, ''), NULLIF(bs.currency, ''), 'CZK'))";
-        $stmt = $this->db->pdo()->prepare(
-            "SELECT {$txCurrency} AS currency, COALESCE(SUM(pm.amount), 0) AS amount
-               FROM payment_matches pm
-               JOIN bank_transactions bt ON bt.id = pm.bank_transaction_id
-               JOIN bank_statements bs ON bs.id = bt.statement_id
-               JOIN journal_entries je
-                 ON je.supplier_id = pm.supplier_id AND je.source_type = 'bank'
-                AND je.source_id = pm.bank_transaction_id AND je.reversed_by IS NULL
-              WHERE pm.supplier_id = ? AND pm.purchase_invoice_id = ?
-              GROUP BY {$txCurrency}
-             UNION ALL
-             SELECT UPPER(COALESCE(NULLIF(cd.currency_code, ''), 'CZK')), COALESCE(SUM(cd.total_amount), 0)
-               FROM cash_documents cd
-               JOIN journal_entries je
-                 ON je.supplier_id = cd.supplier_id AND je.source_type = 'cash'
-                AND je.source_id = cd.id AND je.reversed_by IS NULL
-              WHERE cd.supplier_id = ? AND cd.purchase_invoice_id = ?
-              GROUP BY UPPER(COALESCE(NULLIF(cd.currency_code, ''), 'CZK'))"
-        );
-        $stmt->execute([$supplierId, $advanceId, $supplierId, $advanceId]);
-
-        $czk = 0.0;
-        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            $amount = (float) $row['amount'];
-            if (self::cents($amount) === 0) {
-                continue;
-            }
-            $currency = (string) $row['currency'];
-            if ($currency === 'CZK') {
-                $czk += $amount;
-            } elseif ($currency === $advanceCurrency) {
-                $czk += round($amount * $this->fxRate($advance), 2);
-            } else {
-                throw new PostingException(
-                    'advance_settlement_ambiguous',
-                    'Úhrada poskytnuté zálohy #' . $advanceId . ' je v měně ' . $currency . ', jiné než měna zálohy ('
-                        . $advanceCurrency . ') i koruna — zúčtování zálohy nejde ocenit automaticky, zaúčtuj ho ručně.',
-                );
-            }
-        }
-        return round($czk, 2);
+        return (new AdvanceSettlementEvidenceReader($this->db))->postedAdvancePaid($supplierId, $advance, $this->fxRate(...));
     }
 
     /**
@@ -3010,20 +2969,18 @@ final class PostingService
         }
     }
 
-    /** Peníze → haléře (int). Vstup je float zaokr. na 2 des. místa (viz money repr.). */
+    /** Peníze → haléře (int). */
     private static function cents(float|int|string $amount): int
     {
-        return (int) round(((float) $amount) * 100.0);
+        return JournalLineAmount::cents($amount);
     }
 
     /**
      * Přepíše zakázku na řádcích JIŽ zaúčtovaného dokladu (issue #29).
      *
-     * Proč to smí obejít §35: `project_id` je čistě analytická dimenze — nemění účet,
-     * stranu, částku ani období, takže deník zůstává co do účetního obsahu totožný a
-     * není co opravovat protizápisem. Zařazení dokladu k akci navíc typicky přijde AŽ
-     * po zaúčtování (účetní zaúčtuje došlou fakturu, projekťák ji pak přiřadí k akci);
-     * kdyby to šlo jen přeúčtováním, výsledovka po zakázkách by v praxi zůstala prázdná.
+     * Zařazení dokladu k zakázce může přijít až po zaúčtování. Před uzavřením
+     * knih se promítne i přes zámek účetního data. Uzavřené knihy ale uchovávají
+     * dimenzované závěrkové a počáteční zůstatky, proto se jejich zakázka nemění.
      *
      * Vědomé omezení: storna (`source_id` je u nich ZÁMĚRNĚ NULL, viz reverse()) se
      * nepřerazítkují. Stornovaný doklad se k jiné zakázce nepřeřazuje — ruší se.
@@ -3036,27 +2993,34 @@ final class PostingService
         if (!isset(self::PROJECT_DIMENSION_SOURCES[$sourceType])) {
             return 0;
         }
-        $stmt = $this->db->pdo()->prepare(
-            'UPDATE journal_entry_lines jel
-               JOIN journal_entries je ON je.id = jel.entry_id
-                SET jel.project_id = ?
-              WHERE je.supplier_id = ? AND je.source_type = ? AND je.source_id = ?
-                AND jel.supplier_id = ?'
-        );
-        $stmt->execute([
-            $projectId !== null && $projectId > 0 ? $projectId : null,
-            $supplierId,
-            $sourceType,
-            $sourceId,
-            $supplierId,
-        ]);
-        return $stmt->rowCount();
+        $guard = new DimensionPeriodGuard($this->db);
+        return $guard->transaction(function () use ($guard, $supplierId, $sourceType, $sourceId, $projectId): int {
+            $projectId = $projectId !== null && $projectId > 0 ? $projectId : null;
+            $entries = $guard->lockSources($supplierId, [[$sourceType, $sourceId]]);
+            $find = $this->db->pdo()->prepare(
+                'SELECT id, project_id FROM journal_entry_lines WHERE supplier_id = ? AND entry_id = ? FOR UPDATE'
+            );
+            $update = $this->db->pdo()->prepare('UPDATE journal_entry_lines SET project_id = ? WHERE supplier_id = ? AND id = ?');
+            $changed = 0;
+            foreach ($entries as $entryId => $entry) {
+                $find->execute([$supplierId, $entryId]);
+                foreach ($find->fetchAll(PDO::FETCH_ASSOC) as $line) {
+                    $before = $line['project_id'] === null ? null : (int) $line['project_id'];
+                    if ($before === $projectId) {
+                        continue;
+                    }
+                    $guard->assertMutable($entry);
+                    $update->execute([$projectId, $supplierId, (int) $line['id']]);
+                    $changed += $update->rowCount();
+                }
+            }
+            return $changed;
+        });
     }
 
     /**
      * Promítne změněné dimenze dokladu do jeho už zaúčtovaných řádků (Firma → Dimenze).
-     * Stejná výjimka z §35 jako {@see restampProjectDimension()}: mění jen analytické
-     * členění, ne účet, stranu, částku ani období.
+     * Stejně jako {@see restampProjectDimension()} zachovává dimenze uzavřených knih.
      *
      * `$keepLineTypes` a `$released` viz {@see DimensionStamper::restamp()}.
      *
@@ -3327,7 +3291,7 @@ final class PostingService
      * @param list<array{account_code:string, side:'debit'|'credit', amount:float|int|string, cost_center?:?string}> $lines
      * @param array<string, array{id:int, is_active:bool, account_type:string}> $codeMap
      * @param 'invoice'|'purchase_invoice'|'bank'|'cash'|'asset'|'manual'|'closing'|'opening'|'payroll'|'vat_clearing' $sourceType
-     * @return list<array{account_id:int, side:'debit'|'credit', amount:float, cost_center:?string}>
+     * @return list<array{account_id:int, side:'debit'|'credit', amount:string, cost_center:?string}>
      */
     private function resolveLines(int $supplierId, array $lines, array $codeMap, string $sourceType): array
     {
@@ -3370,8 +3334,17 @@ final class PostingService
             if ($side !== 'debit' && $side !== 'credit') {
                 throw new PostingException('invalid_side', 'Neplatná strana řádku #' . $i . ': ' . (string) $side . '.');
             }
-            $amount = round((float) $line['amount'], 2);
-            if (self::cents($amount) <= 0) {
+            try {
+                $rawAmount = $line['amount'] ?? null;
+                if (!is_float($rawAmount) && !is_int($rawAmount) && !is_string($rawAmount)) {
+                    throw new \InvalidArgumentException('Invalid amount type.');
+                }
+                $amount = JournalLineAmount::decimal($rawAmount);
+                $cents = self::cents($amount);
+            } catch (\InvalidArgumentException) {
+                throw new PostingException('nonpositive_amount', 'Řádek #' . $i . ' (' . $code . ') nemá platnou kladnou částku.');
+            }
+            if ($cents <= 0) {
                 throw new PostingException('nonpositive_amount', 'Řádek #' . $i . ' (' . $code . ') má nekladnou částku ' . $amount . '.');
             }
             $resolvedLine = [

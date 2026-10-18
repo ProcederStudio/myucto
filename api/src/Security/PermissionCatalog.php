@@ -6,7 +6,7 @@ namespace MyInvoice\Security;
 
 final class PermissionCatalog
 {
-    public const VERSION = '2026-10-operational-settings-v1';
+    public const VERSION = '2026-10-operational-settings-edit-issued-v2';
 
     /** @var list<string> */
     private const GROUPS = [
@@ -46,6 +46,7 @@ final class PermissionCatalog
             ['invoices.clone', 'invoices', 'Klonovat fakturu', $both],
             ['invoices.delete', 'invoices', 'Smazat fakturu', $both],
             ['invoices.approval', 'invoices', 'Schvalování faktur', $both],
+            ['invoices.edit_issued', 'invoices', 'Upravit vystavenou fakturu', $staffOnly],
             ['purchase_invoices', 'purchase_invoices', 'Přijaté faktury', $both],
             ['purchase_invoices.create', 'purchase_invoices', 'Vytvořit přijatou fakturu', $both],
             ['purchase_invoices.transition', 'purchase_invoices', 'Změnit stav přijaté faktury', $both],
@@ -201,6 +202,9 @@ final class PermissionCatalog
                 // Neměnný originál je auditní stopa; trvalé vyřazení je zásah pro správce,
                 // který si ho může kterékoli roli přidělit v editoru rolí.
                 'documents.inbox.delete',
+                // Úprava vystavené faktury mění doklad, který už odběratel dostal; roli ji
+                // přidělí správce v editoru rolí, výchozí účetní ji nemá.
+                'invoices.edit_issued',
                 'accounting.periods.close', 'accounting.periods.manage',
                 'settings.ai_provider', 'settings.bank_accounts', 'settings.branding',
                 'settings.company.write', 'settings.domains', 'settings.email_profiles', 'settings.email_templates', 'settings.payment_qr', 'utilities.import',

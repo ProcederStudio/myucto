@@ -6,6 +6,7 @@ namespace MyInvoice\Service\Accounting\Dimension;
 
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\DimensionAccountMapRepository;
+use MyInvoice\Service\Accounting\JournalLineAmount;
 
 /**
  * Účtotvorná dimenze: hodnota dimenze určí analytický účet (Firma → Dimenze, migrace 1952).
@@ -508,6 +509,6 @@ final class DimensionAccountRouter
 
     private static function cents(mixed $amount): int
     {
-        return (int) round(((float) $amount) * 100);
+        return JournalLineAmount::cents($amount);
     }
 }

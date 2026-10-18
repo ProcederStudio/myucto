@@ -483,7 +483,7 @@ final class SaldoRepository
         return iterator_to_array($this->iterateDefinitiveOpenRows($sql, $params, $map, $limit), false);
     }
 
-    private function iterateDefinitiveOpenRows(string $sql, callable $params, callable $map, ?int $limit): \Generator
+    private function iterateDefinitiveOpenRows(string $sql, callable $params, callable $map, ?int $limit, bool $currentRead = false, bool $componentsOnly = false): \Generator
     {
         $pageSize = $limit === null
             ? $this->candidatePageSize
@@ -491,14 +491,14 @@ final class SaldoRepository
         $offset = 0;
         $count = 0;
         do {
-            $pageSql = $sql . self::limitSql($pageSize, $offset);
+            $pageSql = $sql . self::limitSql($pageSize, $offset) . ($currentRead ? ' FOR UPDATE' : '');
             $stmt = $this->db->pdo()->prepare($pageSql);
             $stmt->execute($params($pageSql));
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
             $stmt->closeCursor();
             foreach ($rows as $row) {
                 $item = $map($row);
-                if (!self::settlementAmounts((float) $item['booked_signed'], (float) $item['paid_ratio'])['open']) {
+                if (!$componentsOnly && !self::settlementAmounts((float) $item['booked_signed'], (float) $item['paid_ratio'])['open']) {
                     continue;
                 }
                 yield $item;
@@ -510,12 +510,25 @@ final class SaldoRepository
         } while (count($rows) === $pageSize);
     }
 
-    public function iterateOpenInvoiceItems(int $supplierId, int $accountId, string $asOf, ?array $invoiceIds = null): \Generator
+    public function settlementComponents(int $supplierId, string $docType, int $docId, int $accountId, string $asOf, bool $currentRead = false): ?array
+    {
+        if ($currentRead && !$this->db->pdo()->inTransaction()) throw new \LogicException('Current settlement reads require caller period-first locks and a transaction.');
+        $rows = match ($docType) {
+            'invoice' => iterator_to_array($this->fetchOpenInvoices($supplierId, $accountId, $asOf, null, stream: true, invoiceIds: [$docId], currentRead: $currentRead, componentsOnly: true), false),
+            'purchase_invoice' => $this->fetchOpenPurchases($supplierId, $accountId, $asOf, null, currentRead: $currentRead, componentsOnly: true, documentId: $docId),
+            default => throw new \InvalidArgumentException('Invalid settlement document type.'),
+        };
+        if (count($rows) > 1) throw new \LogicException('Ambiguous document settlement components.');
+        return $rows[0] ?? null;
+    }
+
+    public function iterateOpenInvoiceItems(int $supplierId, int $accountId, string $asOf, ?array $invoiceIds = null, bool $currentRead = false): \Generator
     {
         if ($invoiceIds === []) {
             return;
         }
         $pdo = $this->db->pdo();
+        if ($currentRead && !$pdo->inTransaction()) throw new \LogicException('Current saldo reads require caller period-first locks and a transaction.');
         $ownsSnapshot = !$pdo->inTransaction();
         if ($ownsSnapshot) {
             $pdo->exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
@@ -524,10 +537,10 @@ final class SaldoRepository
         }
         try {
             if ($invoiceIds === null) {
-                yield from $this->fetchOpenInvoices($supplierId, $accountId, $asOf, null, stream: true);
+                yield from $this->fetchOpenInvoices($supplierId, $accountId, $asOf, null, stream: true, currentRead: $currentRead);
             } else {
                 foreach (array_chunk(array_values(array_unique(array_map('intval', $invoiceIds))), 500) as $chunk) {
-                    yield from $this->fetchOpenInvoices($supplierId, $accountId, $asOf, null, stream: true, invoiceIds: $chunk);
+                    yield from $this->fetchOpenInvoices($supplierId, $accountId, $asOf, null, stream: true, invoiceIds: $chunk, currentRead: $currentRead);
                 }
             }
         } finally {
@@ -549,7 +562,7 @@ final class SaldoRepository
      * navíc uvnitř dalšího poddotazu na každý řádek sestavy); teď je to jedna agregace
      * přes bankovní zápisy firmy. Obsahuje JEDEN placeholder: asOf.
      */
-    private static function bankSettleCte(int $supplierId): string
+    private static function bankSettleCte(int $supplierId, bool $currentRead = false): string
     {
         return
             "SELECT be.source_id AS bank_transaction_id, MIN(be.entry_date) AS settled_on
@@ -557,7 +570,7 @@ final class SaldoRepository
                LEFT JOIN journal_entries brev ON brev.id = be.reversed_by
               WHERE be.supplier_id = {$supplierId} AND be.source_type = 'bank' AND be.posted_at IS NOT NULL
                 AND (be.reversed_by IS NULL OR brev.entry_date > ?)
-              GROUP BY be.source_id";
+              GROUP BY be.source_id" . ($currentRead ? ' FOR UPDATE' : '');
     }
 
     /**
@@ -965,10 +978,13 @@ final class SaldoRepository
         bool $orderByDue = false,
         bool $stream = false,
         ?array $invoiceIds = null,
+        bool $currentRead = false,
+        bool $componentsOnly = false,
     ): array|\Generator
     {
         $invoiceFilter = $invoiceIds === null ? '' : ' AND d.id IN (' . implode(',', array_map('intval', $invoiceIds)) . ')';
-        $advanceCte = $this->advanceOnAccountCte('credit', $supplierId, $accountId);
+        $lock = $currentRead ? ' FOR UPDATE' : '';
+        $advanceCte = $this->advanceOnAccountCte('credit', $supplierId, $accountId, $currentRead);
 
         $paidExpr    = 'COALESCE(paid.paid_sum, 0)';
         $advanceExpr = 'ROUND(COALESCE(adv.advance_sum, 0), 2)';
@@ -992,11 +1008,12 @@ final class SaldoRepository
             'credit',
             LinkedManualSettlementSql::accountIdPredicate($accountId),
             (string) $supplierId,
+            currentRead: $currentRead,
         );
 
         $sql =
             "WITH bank_settle AS (
-                " . self::bankSettleCte($supplierId) . "
+                " . self::bankSettleCte($supplierId, $currentRead) . "
             ), man AS (
                 {$manualCte}
             ), paid AS (
@@ -1006,7 +1023,7 @@ final class SaldoRepository
                   LEFT JOIN bank_settle bs ON bs.bank_transaction_id = ip.bank_transaction_id
                  WHERE ip.supplier_id = {$supplierId}
                    AND COALESCE(bs.settled_on, DATE(ipbt.posted_at), ip.paid_on) <= ?
-                 GROUP BY ip.invoice_id
+                 GROUP BY ip.invoice_id{$lock}
             ), advances AS (
                 {$advanceCte}
             )
@@ -1042,14 +1059,15 @@ final class SaldoRepository
              GROUP BY d.id, doc_no, d.issue_date, d.due_date, d.status, d.invoice_type, d.paid_at, d.parent_invoice_id,
                       cl.id, cl.company_name, cur.code, d.amount_to_pay,
                       paid.paid_sum, adv.advance_sum, man.settled
-            HAVING " . self::openFilterSql($bookedExpr, $ratio) . "
+            HAVING " . ($componentsOnly ? '1=1' : self::openFilterSql($bookedExpr, $ratio)) . "
              " . ($stream ? ' ORDER BY cl.id, d.due_date, d.id' : self::orderSql('d', $orderByDue));
 
         $fetch = $stream ? 'iterateDefinitiveOpenRows' : 'fetchDefinitiveOpenRows';
         return $this->$fetch(
             $sql,
             static fn (string $pageSql): array => self::asOfParams($pageSql, $asOf),
-            function (array $r) use ($asOf): array {
+            function (array $r) use ($asOf, $componentsOnly): array {
+                if ($componentsOnly) return $r;
                 // Předplacení z proformy uhrazené PŘÍMO na tenhle účet (viz advanceOnAccountCte):
                 // vstupuje do čitatele i jmenovatele poměru. `amount_to_pay` finální faktury je
                 // o zálohu snížené (u plně předplacené je nulové), takže bez téhle korekce vyjde
@@ -1089,6 +1107,7 @@ final class SaldoRepository
                 ];
             },
             $limit,
+            ...($stream ? [$currentRead, $componentsOnly] : []),
         );
     }
 
@@ -1144,15 +1163,16 @@ final class SaldoRepository
      * @param 'credit'|'debit' $side strana, na kterou úhrada zálohy dopadá na daném účtu
      *                               (311 pohledávka → credit, 321 závazek → debit)
      */
-    private function advanceOnAccountCte(string $side, int $supplierId, int $accountId): string
+    private function advanceOnAccountCte(string $side, int $supplierId, int $accountId, bool $currentRead = false): string
     {
+        $lock = $currentRead ? ' FOR UPDATE' : '';
         if ($side === 'credit') {
             $key = 'pip.invoice_id';
             $from = "FROM invoice_payments pip
                      JOIN invoices pf ON pf.id = pip.invoice_id AND pf.supplier_id = pip.supplier_id
                                      AND pf.invoice_type = 'proforma'";
             $childExists = "EXISTS (SELECT 1 FROM invoices ch
-                                     WHERE ch.supplier_id = pf.supplier_id AND ch.parent_invoice_id = pf.id)";
+                                     WHERE ch.supplier_id = pf.supplier_id AND ch.parent_invoice_id = pf.id{$lock})";
             $cashLink = 'cd.invoice_payment_id = pip.id';
         } else {
             $key = 'pip.purchase_invoice_id';
@@ -1160,7 +1180,7 @@ final class SaldoRepository
                      JOIN purchase_invoices pf ON pf.id = pip.purchase_invoice_id AND pf.supplier_id = pip.supplier_id
                                               AND pf.document_kind = 'advance'";
             $childExists = "EXISTS (SELECT 1 FROM purchase_invoices ch
-                                     WHERE ch.supplier_id = pf.supplier_id AND ch.advance_purchase_invoice_id = pf.id)";
+                                     WHERE ch.supplier_id = pf.supplier_id AND ch.advance_purchase_invoice_id = pf.id{$lock})";
             $cashLink = 'cd.purchase_invoice_id = pf.id';
         }
 
@@ -1187,7 +1207,7 @@ final class SaldoRepository
                           FROM journal_entries pe
                           {$postedOnAccount}
                            AND pe.supplier_id = pip.supplier_id
-                           AND pe.source_type = 'bank' AND pe.source_id = pip.bank_transaction_id
+                           AND pe.source_type = 'bank' AND pe.source_id = pip.bank_transaction_id{$lock}
                     ))
                     OR EXISTS (
                         SELECT 1
@@ -1195,10 +1215,10 @@ final class SaldoRepository
                           JOIN journal_entries pe ON pe.supplier_id = cd.supplier_id
                                                  AND pe.source_type = 'cash' AND pe.source_id = cd.id
                           {$postedOnAccount}
-                           AND cd.supplier_id = pip.supplier_id AND {$cashLink}
+                           AND cd.supplier_id = pip.supplier_id AND {$cashLink}{$lock}
                     )
                 )
-              GROUP BY {$key}";
+              GROUP BY {$key}{$lock}";
     }
 
     /**
@@ -1221,10 +1241,15 @@ final class SaldoRepository
         ?int $partnerId = null,
         ?string $dueBefore = null,
         bool $orderByDue = false,
+        bool $currentRead = false,
+        bool $componentsOnly = false,
+        ?int $documentId = null,
     ): array
     {
-        $advanceCte = $this->advanceOnAccountCte('debit', $supplierId, $accountId);
-        $offsets = PurchaseSettledExpr::offsetSettledAsOf('d');
+        $lock = $currentRead ? ' FOR UPDATE' : '';
+        $documentFilter = $documentId === null ? '' : ' AND d.id = ' . $documentId;
+        $advanceCte = $this->advanceOnAccountCte('debit', $supplierId, $accountId, $currentRead);
+        $offsets = PurchaseSettledExpr::offsetSettledAsOf('d', $currentRead);
 
         $settlementDate = 'COALESCE(bs.settled_on, DATE(bt.posted_at))';
         $matchAmount    = PurchaseSettledExpr::bankAmountSql('pm', 'bt', 'mbs', 'mpi', 'mdc');
@@ -1268,11 +1293,12 @@ final class SaldoRepository
             'debit',
             LinkedManualSettlementSql::accountIdPredicate($accountId),
             (string) $supplierId,
+            currentRead: $currentRead,
         );
 
         $sql =
             "WITH bank_settle AS (
-                " . self::bankSettleCte($supplierId) . "
+                " . self::bankSettleCte($supplierId, $currentRead) . "
             ), matches AS (
                 SELECT pm.purchase_invoice_id AS doc_id,
                        SUM(CASE WHEN {$settlementDate} <= ? THEN {$matchAmount} ELSE 0 END) AS matched_sum,
@@ -1284,7 +1310,7 @@ final class SaldoRepository
                   JOIN currencies mdc ON mdc.id = mpi.currency_id
                   LEFT JOIN bank_settle bs ON bs.bank_transaction_id = pm.bank_transaction_id
                  WHERE pm.supplier_id = {$supplierId} AND pm.purchase_invoice_id IS NOT NULL
-                 GROUP BY pm.purchase_invoice_id
+                 GROUP BY pm.purchase_invoice_id{$lock}
             ), cash AS (
                 -- Pokladní úhrady k asOf (vratka odečítá). Stornovaný doklad se počítá,
                 -- dokud jeho protizápis k asOf ještě nenastal — stejně jako u zápočtů.
@@ -1296,7 +1322,7 @@ final class SaldoRepository
                  WHERE cd.supplier_id = {$supplierId} AND cd.purchase_invoice_id IS NOT NULL
                    AND cd.issue_date <= ?
                    AND (cd.status = 'posted' OR (cd.status = 'reversed' AND crev.entry_date > ?))
-                 GROUP BY cd.purchase_invoice_id
+                 GROUP BY cd.purchase_invoice_id{$lock}
             ), advances AS (
                 {$advanceCte}
             ), man AS (
@@ -1334,21 +1360,21 @@ final class SaldoRepository
                AND (ca.id = {$accountId} OR ca.parent_id = {$accountId})
                AND d.status <> 'draft'
                AND (d.status <> 'cancelled' OR d.cancelled_at IS NULL OR DATE(d.cancelled_at) > ?)
-               " . self::partnerSql($partnerId) . self::dueBeforeSql('d', $dueBefore) . "
+               " . self::partnerSql($partnerId) . self::dueBeforeSql('d', $dueBefore) . $documentFilter . "
              GROUP BY d.id, d.supplier_id, doc_no, d.issue_date, d.due_date, d.status, d.paid_at,
                       cl.id, cl.company_name, cur.code, d.amount_to_pay,
                       m.matched_sum, m.matched_after, ch.cash_sum, adv.advance_sum, man.settled
-            HAVING " . self::openFilterSql($bookedExpr, self::withManualSettlementSql(
-                $ratioFor(PurchaseSettledExpr::offsetSettledAsOf('d')),
+            HAVING " . ($componentsOnly ? '1=1' : self::openFilterSql($bookedExpr, self::withManualSettlementSql(
+                $ratioFor(PurchaseSettledExpr::offsetSettledAsOf('d', $currentRead)),
                 $manualExpr,
                 "-({$bookedExpr})",
-            )) . "
+            ))) . "
              " . self::orderSql('d', $orderByDue);
 
-        return $this->fetchDefinitiveOpenRows(
+        return iterator_to_array($this->iterateDefinitiveOpenRows(
             $sql,
             static fn (string $pageSql): array => self::asOfParams($pageSql, $asOf),
-            function (array $r) use ($asOf): array {
+            function (array $r) use ($asOf, $componentsOnly): array {
                 // `status='paid'` je stav DOKLADU (kdy ho účetní odkliká), ne datum, ke kterému
                 // úhradu zná HLAVNÍ KNIHA. Když k dokladu existuje bankovní párování, které deník
                 // uznává AŽ PO rozvahovém dni (PF vystavená 31. 12., zaplacená v lednu, ale
@@ -1372,6 +1398,7 @@ final class SaldoRepository
                     && $signal > 0.005
                     && abs(self::settlementAmounts($booked, $this->paidRatio(false, $signal, $toPay))['remaining'])
                         > self::SHORTFALL_TOLERANCE_CZK;
+                if ($componentsOnly) return [...$r, 'fully_paid_as_of' => $paidByStatusAsOf && !$shortfall];
                 return [
                     'doc_type'       => 'purchase_invoice',
                     'doc_id'         => (int) $r['doc_id'],
@@ -1397,7 +1424,9 @@ final class SaldoRepository
                 ];
             },
             $limit,
-        );
+            $currentRead,
+            $componentsOnly,
+        ), false);
     }
 
     /**

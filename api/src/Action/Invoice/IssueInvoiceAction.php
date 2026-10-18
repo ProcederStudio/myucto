@@ -20,6 +20,8 @@ use MyInvoice\Service\Accounting\DocumentAutoPoster;
 use MyInvoice\Service\Accounting\DocumentLockService;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Invoice\AdvanceCycleLock;
+use MyInvoice\Service\Invoice\InvoiceIssuer;
+use MyInvoice\Service\Invoice\InvoiceItemKind;
 use MyInvoice\Service\Invoice\SnapshotBuilder;
 use MyInvoice\Service\Invoice\VarsymbolGenerator;
 use MyInvoice\Service\IpMatcher;
@@ -110,7 +112,8 @@ final class IssueInvoiceAction
         if ($deny = $this->denyIfLocked($request, $response, $this->locks->forInvoice($invoice), 'invoice', $id)) {
             return $deny;
         }
-        if (count($invoice['items']) === 0) {
+        // Textové řádky (InvoiceItemKind::TEXT) nejsou plnění: doklad jen z nich se nevystaví.
+        if (!InvoiceItemKind::hasAmountLine((array) $invoice['items'])) {
             return Json::error($response, 'no_items', 'Faktura musí obsahovat alespoň jednu položku.', 422);
         }
         if (
@@ -408,7 +411,7 @@ final class IssueInvoiceAction
             if ($allocated && !$ownTransaction) {
                 $this->varsymbol->releaseIfLatest(
                     $supplierId,
-                    (string) $invoice['invoice_type'],
+                    VarsymbolGenerator::seriesTypeFor($invoice),
                     (string) $varsymbol,
                     $issueDate,
                     (int) $invoice['client_id'],
@@ -419,9 +422,10 @@ final class IssueInvoiceAction
         try {
             if ($varsymbol === null) {
                 try {
+                    // Zjednodušený doklad má vlastní řadu, je-li ve firmě nastavená.
                     $varsymbol = $this->varsymbol->next(
                         $supplierId,
-                        $invoice['invoice_type'],
+                        VarsymbolGenerator::seriesTypeFor($invoice),
                         $issueDate,
                         (int) $invoice['client_id'],
                         (int) ($invoice['revenue_category_id'] ?? 0),
@@ -439,6 +443,7 @@ final class IssueInvoiceAction
                 $releaseAllocated();
                 return Json::error($response, 'race_condition', 'Faktura byla mezitím změněna.', 409);
             }
+            InvoiceIssuer::record($pdo, $id, isset($user['id']) ? (int) $user['id'] : null);
             if ($stockEnabled) $this->stockIssue->issueForInvoice(
                 $supplierId,
                 array_merge($invoice, ['varsymbol' => $varsymbol]),

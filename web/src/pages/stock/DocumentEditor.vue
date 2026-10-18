@@ -15,6 +15,10 @@ import ActionBar, { type ActionItem } from '@/components/ui/ActionBar.vue'
 import { ICONS, btnFilled, btnOutline } from '@/components/ui/buttonStyles'
 import { appIsoDate } from '@/utils/date'
 import DateInput from '@/components/ui/DateInput.vue'
+import { codebooksApi, type Unit } from '@/api/codebooks'
+import { useUnitDecimals } from '@/composables/useUnitDecimals'
+import InsufficientStockDialog from '@/components/stock/InsufficientStockDialog.vue'
+import { insufficientStockItems, type InsufficientStockItem } from '@/components/stock/insufficientStock'
 
 const { t } = useI18n()
 const auth = useAuthStore()
@@ -27,8 +31,13 @@ const docId = computed(() => (isEdit.value ? Number(route.params.id) : null))
 const doc = ref<StockDocument | null>(null)
 const loading = ref(false)
 const error = ref('')
+/** Výčet chybějících zásob ze zaúčtování nebo storna (okno místo toastu). */
+const insufficientStock = ref<InsufficientStockItem[] | null>(null)
 
 const warehouses = ref<Warehouse[]>([])
+// Desetinná místa množství podle jednotky karty (2036): krok pole a upozornění, nic se nezaokrouhluje.
+const units = ref<Unit[]>([])
+const { decimalsFor: unitDecimalsFor, tooPrecise: quantityTooPrecise, stepFor: quantityStepFor } = useUnitDecimals(units)
 
 interface LineRow {
   stock_item_id: number | null
@@ -36,6 +45,8 @@ interface LineRow {
   unit_cost: string
   extra_cost: string
   note: string
+  /** Základní jednotka karty, v ní je `qty`. */
+  unit: string
   option: { value: number; label: string; secondary?: string } | null
   // H2: vazba na PF řádek (načtená příjemka) — MUSÍ se přenášet zpět, jinak update
   // vynuluje remaining-qty / over-receipt / „Přijato X/Y" / PF-changed warning.
@@ -48,7 +59,7 @@ interface LineRow {
 }
 function blankLine(): LineRow {
   return {
-    stock_item_id: null, qty: '1', unit_cost: '', extra_cost: '', note: '', option: null,
+    stock_item_id: null, qty: '1', unit_cost: '', extra_cost: '', note: '', unit: '', option: null,
     purchase_invoice_item_id: null, source_description: null, source_qty: null,
     tracking_mode: 'none', tracking_allocations: [], tracking_units: [],
   }
@@ -119,6 +130,7 @@ const isReceipt = computed(() => form.doc_type === 'receipt')
 async function loadRefData() {
   try { warehouses.value = await stockApi.listWarehouses(true) } catch { warehouses.value = [] }
   try { locations.value = await stockApi.listLocations() } catch { locations.value = [] }
+  try { units.value = await codebooksApi.units() } catch { units.value = [] }
 }
 
 async function onSearch(rowIndex: number, q: string) {
@@ -144,10 +156,11 @@ function onSelect(rowIndex: number, itemId: number | null) {
   const row = lines.value[rowIndex]
   if (!row) return
   row.stock_item_id = itemId
-  if (itemId === null) { row.option = null; row.tracking_mode = 'none'; row.tracking_allocations = []; row.tracking_units = []; return }
+  if (itemId === null) { row.option = null; row.unit = ''; row.tracking_mode = 'none'; row.tracking_allocations = []; row.tracking_units = []; return }
   const si = itemsCache.get(itemId)
   if (si) {
     row.option = { value: si.id, label: `${si.sku} - ${si.name}`, secondary: si.unit }
+    row.unit = si.unit
     row.tracking_mode = si.tracking_mode ?? 'none'
     row.tracking_allocations = []
     void loadTrackingUnits(row, itemId)
@@ -199,6 +212,7 @@ async function loadDocument() {
         unit_cost: l.unit_cost != null ? String(l.unit_cost) : '',
         extra_cost: l.extra_cost != null ? String(l.extra_cost) : '',
         note: l.note ?? '',
+        unit: l.unit ?? '',
         option: l.sku ? { value: l.stock_item_id, label: `${l.sku} - ${l.name}`, secondary: l.unit } : null,
         purchase_invoice_item_id: l.purchase_invoice_item_id ?? null,
         source_description: l.source_description ?? null,
@@ -296,6 +310,9 @@ function validate(): boolean {
   if (lines.value.filter(l => l.stock_item_id != null && Number(l.qty) > 0).length === 0) {
     error.value = t('stock.documents.no_lines'); return false
   }
+  if (lines.value.some(l => l.stock_item_id != null && quantityTooPrecise(l.qty, l.unit))) {
+    error.value = t('stock.error.quantity_decimals'); return false
+  }
   return true
 }
 
@@ -339,8 +356,14 @@ async function post() {
     }
     await loadDocument()
   } catch (e: any) {
-    error.value = mapError(e)
-    toast.error(error.value)
+    // Nedostatek ukáže jen okno s výčtem, bez chybového pruhu a toastu.
+    const shortage = insufficientStockItems(e)
+    if (shortage) {
+      insufficientStock.value = shortage
+    } else {
+      error.value = mapError(e)
+      toast.error(error.value)
+    }
   } finally {
     posting.value = false
   }
@@ -357,7 +380,13 @@ async function reverse() {
     reverseOpen.value = false
     await loadDocument()
   } catch (e: any) {
-    toast.error(mapError(e))
+    const shortage = insufficientStockItems(e)
+    if (shortage) {
+      reverseOpen.value = false
+      insufficientStock.value = shortage
+    } else {
+      toast.error(mapError(e))
+    }
   } finally {
     reversing.value = false
   }
@@ -518,8 +547,11 @@ onMounted(async () => {
             </div>
             <div class="sm:col-span-2">
               <label class="block text-xs font-medium text-neutral-500 mb-1 sm:hidden">{{ t('stock.documents.col_qty') }}</label>
-              <input v-model="row.qty" v-select-on-focus type="number" step="0.001" min="0" :readonly="readOnly"
-                class="w-full h-10 px-2 border border-neutral-300 rounded-md text-right font-mono text-sm disabled:bg-neutral-50" :disabled="readOnly" />
+              <input v-model="row.qty" v-select-on-focus type="number" :step="quantityStepFor(row.unit)" min="0" :readonly="readOnly"
+                :class="['w-full h-10 px-2 border rounded-md text-right font-mono text-sm disabled:bg-neutral-50', !readOnly && quantityTooPrecise(row.qty, row.unit) ? 'border-danger-400' : 'border-neutral-300']" :disabled="readOnly" />
+              <p v-if="!readOnly && quantityTooPrecise(row.qty, row.unit)" data-test="qty-decimals-warning" class="mt-1 text-xs text-danger-600">
+                {{ t('invoice.quantity_decimals_warning', { unit: row.unit, n: unitDecimalsFor(row.unit) }) }}
+              </p>
             </div>
             <div class="sm:col-span-2">
               <label class="block text-xs font-medium text-neutral-500 mb-1 sm:hidden">{{ t('stock.documents.col_unit_cost') }}</label>
@@ -628,5 +660,6 @@ onMounted(async () => {
         <RouterLink to="/stock/documents" class="text-sm text-neutral-500 hover:text-neutral-700">{{ t('common.cancel') }}</RouterLink>
       </div>
     </template>
+    <InsufficientStockDialog v-if="insufficientStock" :items="insufficientStock" @close="insufficientStock = null" />
   </div>
 </template>

@@ -2033,6 +2033,7 @@ useWindowRefresh(['purchase-invoices', 'clients', 'bank', 'bank-transactions', '
 
     <ExpenseRuleTemplateModal v-if="expenseRuleTemplateOpen && invoice"
       :vendor-id="invoice.vendor_id" :vendor-name="invoice.vendor_company_name"
+      :description-options="invoice.items.map(it => it.description)"
       :rule-id="editingExpenseRuleId"
       @close="expenseRuleTemplateOpen = false"
       @saved="() => { expenseRuleTemplateOpen = false; load() }" />

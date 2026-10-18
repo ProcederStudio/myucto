@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
+import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import { nextTick, reactive } from 'vue'
 import { routeLocationKey, routerKey, type LocationQuery } from 'vue-router'
 import type { TaxSubmission } from '@/api/epoSubmissions'
@@ -110,6 +110,25 @@ async function mountPage(query: LocationQuery = {}, rows = [submission(1, 'downl
   return wrapper
 }
 
+function expectOpenRow(wrapper: VueWrapper, openIndex: number | null) {
+  const rows = wrapper.findAll('tbody > tr')
+  const cards = wrapper.findAll('.md\\:hidden > button')
+  expect(cards).toHaveLength(rows.length)
+  rows.forEach((row, index) => {
+    const open = index === openIndex
+    expect(row.classes().includes('bg-primary-50')).toBe(open)
+    expect(row.classes().includes('hover:bg-primary-50')).toBe(open)
+    expect(row.classes().includes('hover:bg-neutral-50')).toBe(!open)
+    expect(row.find('td').classes().includes('shadow-[inset_3px_0_0_var(--color-primary-500)]')).toBe(open)
+    const card = cards[index]!
+    expect(card.classes().includes('bg-primary-50')).toBe(open)
+    expect(card.classes().includes('bg-surface')).toBe(!open)
+    expect(card.classes().includes('border-primary-500')).toBe(open)
+    expect(card.classes().includes('border-neutral-200')).toBe(!open)
+    expect(card.attributes('aria-expanded')).toBe(String(open))
+  })
+}
+
 describe('TaxSubmissions.vue — serverový filtr a stránkování', () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -126,9 +145,28 @@ describe('TaxSubmissions.vue — serverový filtr a stránkování', () => {
     vi.useRealTimers()
   })
 
+  it('zvýraznění v tabulce i kartách sleduje otevřený detail a po zavření zmizí', async () => {
+    const wrapper = await mountPage({}, [submission(1, 'downloaded'), submission(2, 'downloaded')])
+    expect(wrapper.find('section').exists()).toBe(false)
+
+    await wrapper.findAll('tbody > tr')[0]!.trigger('click')
+    expectOpenRow(wrapper, 0)
+    expect(wrapper.find('section').text()).toContain('reports.submissions.snapshot #1')
+
+    await wrapper.findAll('.md\\:hidden > button')[1]!.trigger('click')
+    expectOpenRow(wrapper, 1)
+    expect(wrapper.find('section').text()).toContain('reports.submissions.snapshot #2')
+
+    await wrapper.findAll('.md\\:hidden > button')[1]!.trigger('click')
+    expectOpenRow(wrapper, null)
+    expect(wrapper.find('section').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('otevře konkrétní podání z kalendáře i mimo první stránku archivu', async () => {
     const wrapper = await mountPage({ submission_id: '990' }, [submission(990, 'downloaded')])
     expect((wrapper.vm as unknown as { expandedId: number }).expandedId).toBe(990)
+    expectOpenRow(wrapper, 0)
     expect(wrapper.find('input[type=search]').exists()).toBe(false)
     expect(m.list).toHaveBeenLastCalledWith(expect.objectContaining({ submission_id: 990, offset: 0 }))
     m.list.mockResolvedValue(respond([submission(991, 'submitted')], 1))
@@ -138,6 +176,7 @@ describe('TaxSubmissions.vue — serverový filtr a stránkování', () => {
     expect(m.list).toHaveBeenLastCalledWith(expect.objectContaining({ submission_id: 991, offset: 0 }))
     expect(vm.expandedId).toBe(991)
     expect(vm.selected.id).toBe(991)
+    expectOpenRow(wrapper, 0)
     wrapper.unmount()
   })
 

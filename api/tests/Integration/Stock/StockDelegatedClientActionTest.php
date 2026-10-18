@@ -85,6 +85,35 @@ final class StockDelegatedClientActionTest extends StockTestCase
         self::assertArrayNotHasKey('in_transit_orders', $quantities[0]);
     }
 
+    public function testClientSearchRetainsAvailabilityWithoutExposingProtectedCardFields(): void
+    {
+        $sid = $this->createSupplier();
+        $firstWarehouse = $this->warehouse($sid, 'SEARCH-A');
+        $secondWarehouse = $this->warehouse($sid, 'SEARCH-B', false);
+        $id = $this->item($sid, 'SYNTHETIC-SEARCH-STOCKED');
+        $nonStocked = $this->item($sid, 'SYNTHETIC-SEARCH-SERVICE');
+        $this->db->pdo()->prepare('UPDATE stock_items SET is_stocked = 0 WHERE supplier_id = ? AND id = ?')->execute([$sid, $nonStocked]);
+        $this->levels->setLevel($sid, $firstWarehouse, $id, 2_000, 3_000);
+        $this->levels->setLevel($sid, $secondWarehouse, $id, 3_000, 4_500);
+        $action = $this->container->get(StockItemAction::class);
+        $request = $this->request($sid, ['stock' => 1])->withQueryParams(['q' => 'SYNTHETIC-SEARCH']);
+
+        $response = $action->search($request, new Response());
+        self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        $rows = array_column($this->data($response), null, 'id');
+        self::assertSame('5.000', $rows[$id]['qty']);
+        self::assertNull($rows[$nonStocked]['qty']);
+        self::assertFalse($rows[$nonStocked]['is_stocked']);
+        foreach (['value_total', 'avg_unit_cost', 'revenue_account_code', 'expense_account_code', 'pricing_base', 'export_eshop'] as $key) {
+            self::assertArrayNotHasKey($key, $rows[$id]);
+        }
+
+        $response = $action->search($request->withQueryParams(['q' => 'SYNTHETIC-SEARCH', 'warehouse_id' => $firstWarehouse]), new Response());
+        self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        $rows = array_column($this->data($response), null, 'id');
+        self::assertSame('2.000', $rows[$id]['qty']);
+    }
+
     public function testClientCanFulfillPreparedIssueWithoutOverrideOrUnderlyingDocumentAccess(): void
     {
         $sid = $this->createSupplier();

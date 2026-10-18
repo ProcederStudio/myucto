@@ -152,6 +152,7 @@ const {
   filterRuns: items => items.filter(r => (r.kind ?? 'accounting') === kind.value),
   // Kontroly mezd závisí na začátku vedení mezd, který převod nastavuje nebo posouvá.
   refreshPreview: true,
+  restoreParams,
 })
 
 const steps = computed(() => [1, 2, 3, 4].map(number => ({ number, label: tt(`step${number}`) })))
@@ -384,6 +385,19 @@ async function downloadTool(name: string | null): Promise<void> {
   } finally {
     toolDownloading.value = null
   }
+}
+
+/** Volby jobu, ke kterému se průvodce po návratu na stránku vrací ({@link start}). */
+function restoreParams(params: PohodaStartParams): void {
+  selectedYears.value = [...params.years]
+  confirmIdentifiers.value = params.confirm_identifiers ?? false
+  approveTakenOver.value = params.approve_taken_over ?? true
+  periodFrom.value = params.period_from ?? ''
+  periodTo.value = params.period_to ?? ''
+  startDecision.value = params.start_decision ?? 'advance'
+  keepStartConfirmed.value = params.start_decision === 'keep'
+  stockEnabled.value = params.stock !== undefined
+  if (params.stock) stockChoices.value = { ...params.stock.warehouses }
 }
 
 async function start(mode: 'dry_run' | 'import'): Promise<void> {

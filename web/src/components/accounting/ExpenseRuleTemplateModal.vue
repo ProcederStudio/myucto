@@ -11,6 +11,7 @@ defineProps<{
   vendorId: number
   vendorName?: string | null
   initialDescription?: string | null
+  descriptionOptions?: string[]
   ruleId?: number | null
 }>()
 const emit = defineEmits<{ close: []; saved: [] }>()
@@ -18,6 +19,6 @@ const emit = defineEmits<{ close: []; saved: [] }>()
 
 <template>
   <ExpenseRules
-    :initial-draft="{ vendorId, vendorName, description: initialDescription, ruleId: ruleId ?? undefined }"
+    :initial-draft="{ vendorId, vendorName, description: initialDescription, descriptionOptions, ruleId: ruleId ?? undefined }"
     @close="emit('close')" @saved="emit('saved')" />
 </template>

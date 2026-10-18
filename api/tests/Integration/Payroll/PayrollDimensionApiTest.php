@@ -167,6 +167,9 @@ final class PayrollDimensionApiTest extends TestCase
         );
         self::assertSame(201, $first->getStatusCode());
         $firstAssignment = $this->row($this->json($first)['dimension'] ?? null);
+        self::assertSame('cost_center', $firstAssignment['dimension_type'] ?? null);
+        self::assertSame('CC-A', $firstAssignment['dimension_code'] ?? null);
+        self::assertSame($ccOne['name'], $firstAssignment['dimension_name'] ?? null);
 
         $overlap = $this->assignmentAction->create(
             $this->request('POST', $this->supplierId)->withParsedBody([

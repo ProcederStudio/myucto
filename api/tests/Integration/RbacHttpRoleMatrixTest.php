@@ -228,15 +228,15 @@ final class RbacHttpRoleMatrixTest extends TestCase
         $this->db->pdo()->prepare('DELETE FROM role_permissions WHERE role_id = ? AND permission_key IN (?, ?)')
             ->execute([$roleId, 'settings.payment_qr', 'settings.branding']);
         $session = $this->createSession($userId);
-        $stored = $this->db->pdo()->query('SELECT invoice_qr_include_due_date, purchase_invoice_qr_include_due_date, email_branding_enabled, email_accent_color FROM supplier WHERE id = ' . $this->supplierId)
+        $stored = $this->db->pdo()->query('SELECT invoice_qr_include_due_date, purchase_invoice_qr_include_due_date, email_branding_enabled, email_accent_color, invoice_pdf_monochrome FROM supplier WHERE id = ' . $this->supplierId)
             ->fetch(\PDO::FETCH_ASSOC);
-        foreach (['invoice_qr_include_due_date', 'purchase_invoice_qr_include_due_date', 'email_branding_enabled'] as $field) {
+        foreach (['invoice_qr_include_due_date', 'purchase_invoice_qr_include_due_date', 'email_branding_enabled', 'invoice_pdf_monochrome'] as $field) {
             $response = $this->request('PUT', '/api/settings/supplier', $session, [$field => !(bool) $stored[$field]]);
             self::assertSame(403, $response->getStatusCode(), $field . ': ' . (string) $response->getBody());
         }
         $response = $this->request('PUT', '/api/settings/supplier', $session, ['email_accent_color' => '#012345' === $stored['email_accent_color'] ? '#543210' : '#012345']);
         self::assertSame(403, $response->getStatusCode(), (string) $response->getBody());
-        $after = $this->db->pdo()->query('SELECT invoice_qr_include_due_date, purchase_invoice_qr_include_due_date, email_branding_enabled, email_accent_color FROM supplier WHERE id = ' . $this->supplierId)
+        $after = $this->db->pdo()->query('SELECT invoice_qr_include_due_date, purchase_invoice_qr_include_due_date, email_branding_enabled, email_accent_color, invoice_pdf_monochrome FROM supplier WHERE id = ' . $this->supplierId)
             ->fetch(\PDO::FETCH_ASSOC);
         self::assertSame($stored, $after);
     }

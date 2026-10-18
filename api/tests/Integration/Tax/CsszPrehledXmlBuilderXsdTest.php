@@ -94,6 +94,19 @@ final class CsszPrehledXmlBuilderXsdTest extends TestCase
         self::assertStringContainsString('tit="MUDr."', $xml);
     }
 
+    public function testPersonTitleFromSettingsTakesPrecedence(): void
+    {
+        $supplier = $this->sampleSupplier();
+        $supplier['person_title'] = 'Ing.';
+        $xml = (new CsszPrehledXmlBuilder())->build($supplier, 2025, $this->sampleSummary(), [])['xml'];
+        self::assertStringContainsString('tit="Ing."', $xml);
+
+        $supplier['company_name'] = 'MUDr. Josef Novák';
+        $xml = (new CsszPrehledXmlBuilder())->build($supplier, 2025, $this->sampleSummary(), [])['xml'];
+        self::assertStringContainsString('tit="Ing."', $xml);
+        self::assertStringContainsString('sur="Novák"', $xml);
+    }
+
     public function testMaximumAssessmentBaseIsReflectedInCsszXml(): void
     {
         $summary = $this->sampleSummary();

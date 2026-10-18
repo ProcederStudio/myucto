@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MyInvoice\Service\Validation;
 
+use MyInvoice\Service\Invoice\InvoiceItemKind;
 use MyInvoice\Service\Invoice\InvoiceMath;
 use MyInvoice\Service\Invoice\InvoiceRounding;
 use MyInvoice\Service\Invoice\RefundDocument;
@@ -70,6 +71,7 @@ final class InvoiceAmountPolicy
         foreach ($items as $item) {
             if (
                 !is_array($item)
+                || InvoiceItemKind::isText($item)
                 || !isset($item['quantity'], $item['unit_price_without_vat'], $item['vat_rate_id'])
                 || !is_numeric($item['quantity'])
                 || !is_numeric($item['unit_price_without_vat'])
@@ -208,14 +210,26 @@ final class InvoiceAmountPolicy
     }
 
     /**
-     * Sdílená per-item validace (volaná z InvoiceValidation i RecurringTemplateAction).
+     * Sdílená per-item validace (volaná z InvoiceValidation, RecurringTemplateAction
+     * a přijatých faktur). `$allowText` povoluje textový řádek (jen vydaná strana).
      * Caller odpovídá za is_array($item) check.
      *
      * @return array<string, string[]> err keyed by "items.{$index}.{field}"
      */
-    public static function validateItem(array $item, int $index): array
+    public static function validateItem(array $item, int $index, bool $allowText = false): array
     {
         $err = [];
+
+        // Textový řádek (InvoiceItemKind::TEXT) nese jen popis: množství, cenu ani sazbu
+        // nemá, zápis je stejně vynuluje. Jen tam, kde ho zápis zná ($allowText: vydaná
+        // faktura a šablona pravidelné fakturace). Přijatá faktura item_kind nezná
+        // a uloží řádek jako běžnou položku, takže se tam kontroluje celý.
+        if ($allowText && InvoiceItemKind::isText($item)) {
+            if (trim((string) ($item['description'] ?? '')) === '') {
+                $err["items.{$index}.description"][] = 'Textový řádek potřebuje text';
+            }
+            return $err;
+        }
 
         $normalizedItem = null;
         try {

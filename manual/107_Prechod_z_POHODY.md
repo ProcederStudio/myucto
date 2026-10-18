@@ -281,7 +281,7 @@ Export jen čte. Do POHODY nic nezapisuje a nic v ní nemění.
 - Firma musí v MyÚčtu existovat a mít vyplněné stejné IČO jako v POHODĚ.
   Převádí se do firmy, ve které právě pracujete; novou firmu nejdřív založte
   (kapitola [Multi supplier](95_Multi_supplier.md)).
-- Export obsahuje celé účetnictví firmy. Nahraný soubor aplikace po 7 dnech
+- Export obsahuje celé účetnictví firmy. Nahraný soubor aplikace po 24 hodinách
   bez práce s převodem sama smaže, po úspěšném ostrém převodu hned.
 - Soubor může mít až 2 GB. Průvodce ho posílá po částech a ukazuje průběh
   v procentech; při výpadku spojení část zopakuje a naváže tam, kde server
@@ -811,7 +811,7 @@ ostrém převodu ho nahrajte zpět, viz [§ 96.13](96_Nastaveni.md#9613-krok-za-
   protokolem. Agenda roku musí mít IČO firmy v MyÚčtu.
 - Nahraný export zůstává na serveru pro další běh. Smaže se po úspěšném
   ostrém převodu, který prošel všechny agendy firmy v exportu, jinak ho
-  aplikace smaže po týdnu bez práce s ním.
+  aplikace smaže po 24 hodinách bez práce s ním.
   Obsahuje-li export i `91_mzdy.xml`, nahrajte ho beze změny i do průvodce
   [Přechod z PAMICA](108_Prechod_z_PAMICA.md) - mzdy tento průvodce
   nepřevede.

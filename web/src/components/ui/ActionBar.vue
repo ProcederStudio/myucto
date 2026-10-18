@@ -60,6 +60,8 @@ export interface ActionItem {
 
 const props = defineProps<{
   actions: ActionItem[]
+  // Výjimka z desktopového stropu pro stránky s krátkými popisky (detail skladové karty).
+  desktopInline?: number
 }>()
 
 const { t } = useI18n()
@@ -84,7 +86,7 @@ const mobileInlineKeys = computed(() => new Set(
   inlineOrder.value.slice(0, MOBILE_INLINE).map(a => a.key),
 ))
 const desktopInlineKeys = computed(() => new Set(
-  inlineOrder.value.slice(0, DESKTOP_INLINE).map(a => a.key),
+  inlineOrder.value.slice(0, props.desktopInline ?? DESKTOP_INLINE).map(a => a.key),
 ))
 // sekundární, které zůstávají inline i na mobilu (jsou mezi prvními 2)
 const secondaryMobile = computed(() => secondary.value.filter(a => mobileInlineKeys.value.has(a.key)))

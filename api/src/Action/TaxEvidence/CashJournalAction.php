@@ -9,10 +9,12 @@ use MyInvoice\Http\GuardsAccountingMode;
 use MyInvoice\Http\Json;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\CashJournalNoteRepository;
+use MyInvoice\Repository\BankStatementOwnershipResolver;
 use MyInvoice\Service\Accounting\Reports\ReportXlsxExporter;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\IpMatcher;
 use MyInvoice\Service\Pdf\TaxEvidenceCashJournalPdfRenderer;
+use MyInvoice\Service\TaxEvidence\CashJournalClassificationFilter;
 use MyInvoice\Service\TaxEvidence\CashJournalService;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -24,7 +26,8 @@ use Psr\Log\LoggerInterface;
  *   GET /api/tax-evidence/cash-journal        — deník + totály + checks{} + warnings[]
  *   GET /api/tax-evidence/cash-journal/export — PDF / XLSX (?format=pdf|xlsx)
  *
- * Params: `year` (celý rok) NEBO `from`+`to` (YYYY-MM-DD). Bez parametrů = aktuální rok.
+ * Params: `year` (celý rok) NEBO `from`+`to` (YYYY-MM-DD), volitelně `classification`.
+ * Bez období = aktuální rok. Filtr klasifikace vybírá jen řádky, ne souhrny a kontroly.
  */
 final class CashJournalAction
 {
@@ -40,6 +43,8 @@ final class CashJournalAction
         private readonly LoggerInterface $log,
         private readonly Connection $db,
         private readonly CashJournalNoteRepository $notes,
+        private readonly CashJournalClassificationFilter $classificationFilter,
+        private readonly BankStatementOwnershipResolver $bankOwnership,
     ) {}
 
     public function get(Request $request, Response $response): Response
@@ -51,6 +56,7 @@ final class CashJournalAction
 
         try {
             $data = $this->service->build($supplierId, $params['from'], $params['to'], $params['opts']);
+            $data = $this->classificationFilter->apply($data, $params['classification']);
         } catch (\Throwable $e) {
             $this->log->error('Peněžní deník se nepodařilo sestavit: ' . $e->getMessage(), ['exception' => $e]);
             return Json::error($response, 'build_failed', 'Deník se nepodařilo vytvořit.', 500);
@@ -59,11 +65,14 @@ final class CashJournalAction
         // Poznámky a počty příloh pohybů (jen pro obrazovku, export je nenese).
         $notes = $this->notes->briefForSupplier($supplierId);
         $attachments = $this->notes->attachmentCounts($supplierId);
+        $bankTransactionIds = array_column(array_filter($data['rows'], static fn (array $row): bool => $row['source_type'] === 'bank'), 'source_id');
+        $bankStatements = $this->bankOwnership->statementIdsForTransactions($supplierId, $bankTransactionIds);
         foreach ($data['rows'] as &$row) {
             $key = $row['source_type'] . ':' . $row['source_id'];
             $row['notes'] = $notes[$key] ?? [];
             $row['attachment_entity'] = CashJournalNoteRepository::ATTACHMENT_ENTITY[$row['source_type']] ?? null;
             $row['attachment_count'] = $attachments[$key] ?? 0;
+            $row['bank_statement_id'] = $row['source_type'] === 'bank' ? ($bankStatements[(int) $row['source_id']] ?? null) : null;
         }
         unset($row);
 
@@ -84,6 +93,7 @@ final class CashJournalAction
 
         try {
             $data = $this->service->build($supplierId, $params['from'], $params['to'], $params['opts']);
+            $data = $this->classificationFilter->apply($data, $params['classification']);
             $out = $format === 'pdf'
                 ? [
                     'bytes'    => $this->pdf->render($data),
@@ -110,11 +120,17 @@ final class CashJournalAction
     }
 
     /**
-     * @return array{from:string, to:string, opts:array{year:int}}|null
+     * @return array{from:string, to:string, opts:array{year:int}, classification:?string}|null
      */
     private function validateParams(Request $request, Response $response, ?Response &$err): ?array
     {
         $q = $request->getQueryParams();
+        try {
+            $classification = CashJournalClassificationFilter::normalize(array_key_exists('classification', $q) ? $q['classification'] : '');
+        } catch (\InvalidArgumentException $e) {
+            $err = Json::error($response, 'validation_failed', $e->getMessage(), 422);
+            return null;
+        }
 
         $from = trim((string) ($q['from'] ?? ''));
         $to   = trim((string) ($q['to'] ?? ''));
@@ -131,7 +147,7 @@ final class CashJournalAction
                 return null;
             }
             $err = null;
-            return ['from' => $from, 'to' => $to, 'opts' => ['year' => (int) substr($from, 0, 4)]];
+            return ['from' => $from, 'to' => $to, 'opts' => ['year' => (int) substr($from, 0, 4)], 'classification' => $classification];
         }
 
         $year = (int) ($q['year'] ?? date('Y'));
@@ -144,6 +160,7 @@ final class CashJournalAction
             'from' => sprintf('%04d-01-01', $year),
             'to'   => sprintf('%04d-12-31', $year),
             'opts' => ['year' => $year],
+            'classification' => $classification,
         ];
     }
 

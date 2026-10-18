@@ -51,17 +51,19 @@ nesmí změnit výsledek DPH. Viz [Výkazy DPH](41_Vykazy_DPH.md).
 
 1. Otevřete `Daňová evidence → Peněžní deník`.
 2. Vyberte **Rok** (aktuální a 5 předchozích) nebo vyplňte **Od** a **Do** (vlastní rozsah má přednost před rokem). Sestava se po každé změně přenačte.
-3. Zkontrolujte panel **Souhrn** a řádek **Daňový základ (příjem - výdaj)**. To je číslo, které se má shodovat s podklady pro přiznání k dani z příjmů.
-4. Projděte červené upozornění nad souhrnem (viz [§ 74.4](#744-krok-za-krokem-zaradit-nezarazeny-pohyb)) a řádky s klasifikací **Nezařazeno**.
+3. Zkontrolujte panel **Souhrn za celé období** a řádek **Daňový základ (příjem - výdaj)**. To je číslo, které se má shodovat s podklady pro přiznání k dani z příjmů.
+4. Projděte červené upozornění nad souhrnem (viz [§ 74.4](#744-krok-za-krokem-zaradit-nezarazeny-pohyb)). Tlačítkem **Zobrazit nezařazené** nebo filtrem **Klasifikace → Nezařazeno** vyberte příslušné řádky.
 5. Případně rozbalte panel **Kontrola vůči přiznanému příjmu** a porovnejte daňový příjem s ročním příjmem z faktur (viz [§ 74.9.7](#7497-kontrola-vuci-priznanemu-prijmu)).
 6. Pro předání účetní klikněte na **Export PDF** nebo **Export XLSX**.
 
-**Jak poznáte, že je hotovo:** panel **Souhrn** nehlásí **Nezařazeno** a nad ním není červené upozornění. Export se uloží jako
+**Jak poznáte, že je hotovo:** panel **Souhrn za celé období** nehlásí **Nezařazeno** a nad ním není červené upozornění. Export se uloží jako
 `penezni-denik-{rok}.pdf` nebo `.xlsx`.
 
 Přes **Výběr sloupců** a hustotu řádků přizpůsobíte tabulku (stejné ovládací prvky jako u ostatních tabulek, nastavení se ukládá
 pro uživatele). Sloupce **Zdroj**, **Základ** a **DPH** jsou ve výchozím zobrazení skryté, zapněte je pro kontrolu, jak se DPH
 rozpočítalo u pohybů s vazbou na plátcovskou fakturu.
+
+Z bankovního výpisu sem přejdete volbou **Otevřít v peněžním deníku** v nabídce **…** u pohybu. Deník nastaví rok pohybu, zvýrazní odpovídající řádky a podle potřeby na ně odskroluje. Ostatní řádky i zůstatky za období zůstávají zobrazené.
 
 Po převzetí úhrady z avíza do bankovního výpisu nese peněžní tok pouze pohyb výpisu. Převzaté avízo se do peněžního deníku
 znovu nezapočítá ani při rozdílném datu přes hranici roku nebo po pozdějším odstranění výpisu. Pokud avízo po odstranění
@@ -69,7 +71,7 @@ výpisu znovu spárujete s dokladem, nese úhradu opět avízo a do peněžního
 
 ## 74.4 Krok za krokem: zařadit nezařazený pohyb
 
-1. V peněžním deníku najděte řádek se štítkem **Nezařazeno** (červeně podbarvený).
+1. V peněžním deníku zvolte filtr **Klasifikace → Nezařazeno** a najděte příslušný červeně podbarvený řádek.
 2. Pokud pohyb patří k faktuře nebo pokladnímu dokladu, opravte zdrojový doklad: spárujte bankovní pohyb s fakturou, nebo upravte
    účel pokladního dokladu či příznaky uznatelnosti a osvobození na faktuře.
 3. Pokud k pohybu doklad neexistuje, v řádku zvolte klasifikaci ve výběru **Zařadit...** (například soukromý vklad či výběr).
@@ -167,13 +169,30 @@ podvojné účetnictví, přesměruje vás aplikace na úvodní stránku (přech
 
 ### 74.9.2 Peněžní deník: filtry a rozsah
 
-Horní panel nabízí tři filtry: **Rok** (posledních šest let, přednastaven aktuální), **Od** a **Do** (vlastní rozsah, pokud vyplníte
-oba, má přednost před rokem). Po každé změně filtru se sestava přenačte automaticky. Vpravo nahoře je **Výběr sloupců**,
-hustota řádků a **Export PDF** / **Export XLSX** za aktuálně zvolený rozsah.
+Horní lišta nabízí **Rok** (posledních šest let, přednastaven aktuální), **Od** a **Do** (vlastní rozsah, pokud vyplníte
+oba, má přednost před rokem) a **Klasifikaci**. Výchozí volba **Všechny klasifikace** zobrazí celý deník. Vybrat lze daňový,
+osvobozený nebo nedaňový příjem, daňový nebo nedaňový výdaj, převod, soukromý pohyb a **Nezařazeno**. Výběr se řídí
+štítkem ve sloupci **Klasifikace**. Pohyb s více daňovými složkami se nerozděluje do dalších řádků.
+
+Po změně filtru nebo zařazení pohybu se údaje obnoví přímo v tabulce. Během obnovy zůstává dosavadní tabulka viditelná;
+export a další změny zařazení jsou do dokončení obnovy pozastavené. Aktivní klasifikaci ukazuje odstranitelný štítek; jeho zrušením zachováte
+zvolené období. Filtr je uložený v adrese stránky, takže jej zachová otevření odkazu i návrat v historii prohlížeče.
+Na mobilu lze další ovládací prvky rozbalit tlačítkem **Filtry**. Při aktivní klasifikaci vidíte nad tabulkou počet zobrazených pohybů z celkového
+počtu za období. Prázdný výsledek filtru nabízí jeho zrušení.
+
+**Souhrn za celé období**, zůstatky peněžních prostředků, kontrola příjmů i varování vždy zahrnují celé zvolené období.
+Také zůstatek u jednotlivého řádku odpovídá úplnému chronologickému deníku, včetně právě skrytých pohybů.
+Filtrem proto nelze skrýt blokující upozornění ani změnit daňový základ. Po ručním přeřazení pohybu zůstává filtr aktivní;
+pohyb, který už vybrané klasifikaci neodpovídá, ze seznamu zmizí.
+
+Vpravo nahoře je **Výběr sloupců**, hustota řádků a **Export PDF** / **Export XLSX**. Export respektuje období i klasifikaci.
+Při aktivní klasifikaci je označený **Filtrovaný přehled**, uvádí vybranou klasifikaci a počet vybraných pohybů. Souhrny,
+zůstatky a varování v exportu zůstávají za celé období stejně jako na obrazovce. Pro úplný export zvolte
+**Všechny klasifikace**.
 
 ### 74.9.3 Souhrn (počáteční a konečný zůstatek, totály)
 
-Nad tabulkou pohybů je panel **Souhrn** s běžným zůstatkem a rozpadem do daňových kbelíků za celé zvolené období:
+Nad tabulkou pohybů je panel **Souhrn za celé období** s běžným zůstatkem a rozpadem do daňových kbelíků za celé zvolené období:
 
 <!-- cols: 30 70 -->
 | Položka | Význam |
@@ -219,6 +238,16 @@ Hlavní tabulka řadí všechny pohyby chronologicky a pro každý zobrazuje bě
 | Základ *(skrytý)* | Daňový základ pohybu (bez složky DPH) |
 | DPH *(skrytý)* | Složka DPH pohybu |
 | Poznámky a přílohy | Tlačítko otevře poznámky a přílohy pohybu (viz [§ 74.9.18](#74918-poznamky-a-prilohy-k-pohybum)), u řádku je vidět první poznámka a počet poznámek a příloh |
+| Akce | Ikona oka otevře detail zdrojového záznamu; při více panelech vedle deníku |
+
+V posledním sloupci tabulky, který nemá viditelný nadpis, je u dohledatelného zdroje ikona oka **Přejít na detail**. U bankovního pohybu otevře původní výpis
+rovnou s detailem konkrétní transakce (včetně protistrany, účtu, platebních symbolů a zprávy), i když je pohyb rozdělený do
+více řádků deníku. U pokladny otevře pokladní doklad, u samostatné úhrady příslušnou fakturu a u GoPay navázané vyúčtování.
+Odkaz se zobrazí jen s oprávněním ke čtení cílové agendy.
+
+Máte-li vedle sebe více panelů aplikace, detail se otevře přednostně v panelu vpravo: v prázdném, pokud tam je, jinak v následujícím. Z posledního panelu se použije jiný dostupný panel.
+Peněžní deník tak zůstává otevřený s původními filtry a pozicí. Předchozí obsah cílového panelu zůstane dostupný mezi okny
+aplikace. Při jednom panelu se detail otevře v něm; zpět do deníku se vrátíte navigací panelu.
 
 ### 74.9.5 Daňová klasifikace pohybů
 
@@ -527,8 +556,14 @@ Pohyby bez dokladu se opakují: bankovní poplatky, převody mezi vlastními ú�
 zařazování každého pohybu v peněžním deníku (§ 74.4) si v menu `Daňová evidence → Pravidla bankovních pohybů` založte
 pravidlo.
 
-- **Podmínky:** směr (příchozí, odchozí), protiúčet, variabilní symbol, text ve zprávě nebo názvu protistrany a rozpětí
-  částky. Vyplnit je potřeba aspoň protiúčet, variabilní symbol nebo text, platit musí všechny vyplněné.
+- **Podmínky:** směr (příchozí, odchozí), protiúčet, variabilní symbol, konstantní symbol, text ve zprávě nebo názvu
+  protistrany a rozpětí částky. Vyplnit je potřeba aspoň protiúčet, variabilní symbol, konstantní symbol nebo text;
+  platit musí všechny vyplněné. Konstantní symbol (KS) je volitelný a může být jedinou podmínkou. Zadává se jako
+  1 až 4 číslice; při porovnání se úvodní nuly ignorují, takže `0308` odpovídá i `308`. Prázdný KS podmínku vypne;
+  `0000` je platná hodnota a neodpovídá pohybu bez KS.
+  Protiúčet zadejte ve tvaru `1000000005/5050`, pokud má odpovídat účet i banka. `*/5050` vybere libovolný účet
+  s kódem banky `5050`; `1000000005` vybere tento účet bez ohledu na banku. Kód banky má čtyři číslice;
+  pohyby bez známého kódu banky neodpovídají podmínce, která kód banky obsahuje.
 - **Akce:** **Ignorovat** (pohyb se nepáruje s doklady a nenabízí se k párování) a **Zařazení v peněžním deníku**
   (stejné volby jako ruční zařazení). Výdaj zařazený jako daňový nebo nedaňový určuje daňovou uznatelnost stejně jako
   pravidla nákladů (§ 74.9.15).

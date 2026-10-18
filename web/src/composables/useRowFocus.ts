@@ -17,3 +17,20 @@ export function focusLastRow(selector: string, root: ParentNode = document): voi
     els[els.length - 1]?.focus()
   })
 }
+
+/**
+ * Zaměří pole řádku `index` (pořadí ve viditelném rozložení) a vrátí, zda existuje.
+ * Rychlé zadávání položek: výběr karty → množství, Enter v množství → popis dalšího
+ * řádku. Každý řádek má pole s daným markerem právě jednou v každém rozložení,
+ * takže pořadí viditelných polí = pořadí řádků. Textové pole se zároveň označí,
+ * aby napsané číslo přepsalo předvyplněnou hodnotu.
+ */
+export async function focusRowField(selector: string, index: number, root: ParentNode = document): Promise<boolean> {
+  await nextTick()
+  const el = Array.from(root.querySelectorAll<HTMLElement>(selector))
+    .filter(e => e.offsetParent !== null)[index]
+  if (!el) return false
+  el.focus()
+  if (el instanceof HTMLInputElement) el.select()
+  return true
+}

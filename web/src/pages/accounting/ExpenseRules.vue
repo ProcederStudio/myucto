@@ -29,7 +29,7 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 // embedded = vykresleno jako záložka pod Šablony (menší nadpis, stránka má vlastní hlavičku).
 const props = defineProps<{
   embedded?: boolean
-  initialDraft?: { vendorId: number | null; vendorName?: string | null; description?: string | null; ruleId?: number; rule?: Partial<ExpenseRulePayload> }
+  initialDraft?: { vendorId: number | null; vendorName?: string | null; description?: string | null; descriptionOptions?: string[]; ruleId?: number; rule?: Partial<ExpenseRulePayload> }
 }>()
 const emit = defineEmits<{ close: []; saved: [] }>()
 
@@ -195,6 +195,10 @@ const hasCriteria = computed(() =>
   form.description_contains.trim() !== '',
 )
 const recommendationCreate = computed(() => !!props.initialDraft && !props.initialDraft.ruleId)
+// Texty položek dokladu, ze kterých se pravidlo zakládá — výběr místo opisování.
+const descriptionOptions = computed(() => [...new Set(
+  (props.initialDraft?.descriptionOptions ?? []).map(d => d.replace(/\s+/g, ' ').trim()).filter(d => d !== ''),
+)])
 const validCriteria = computed(() => recommendationCreate.value
   ? form.description_contains.trim() !== '' && (!bindVendor.value || form.vendor_client_id != null || form.vendor_name_contains.trim() !== '')
   : hasCriteria.value)
@@ -305,7 +309,8 @@ onMounted(async () => {
   openNew()
   form.vendor_client_id = props.initialDraft.vendorId
   form.name = props.initialDraft.vendorName || ''
-  form.description_contains = props.initialDraft.description || ''
+  form.description_contains = props.initialDraft.description
+    || (descriptionOptions.value.length === 1 ? descriptionOptions.value[0] : '')
   if (props.initialDraft.rule) {
     Object.assign(form, props.initialDraft.rule)
     form.vendor_name_contains = props.initialDraft.rule.vendor_name_contains ?? ''
@@ -476,6 +481,14 @@ onMounted(async () => {
             </div>
             <div>
           <label :for="`${pageId}-description`" class="block text-xs font-medium text-neutral-500 mb-1">{{ t('accounting.expense_rules.form_description_contains') }}{{ recommendationCreate ? ' *' : '' }}</label>
+          <select v-if="descriptionOptions.length > 0" :id="`${pageId}-description-pick`"
+            :value="descriptionOptions.includes(form.description_contains) ? form.description_contains : ''"
+            :aria-label="t('accounting.template.expense_description_pick')"
+            class="w-full h-9 px-2 mb-2 border border-neutral-300 rounded-md text-sm bg-surface"
+            @change="e => { const v = (e.target as HTMLSelectElement).value; if (v) form.description_contains = v }">
+            <option value="">{{ t('accounting.template.expense_description_pick') }}</option>
+            <option v-for="d in descriptionOptions" :key="d" :value="d">{{ d }}</option>
+          </select>
           <input :id="`${pageId}-description`" v-model="form.description_contains" :required="recommendationCreate" :placeholder="recommendationCreate ? t('accounting.template.expense_description_placeholder') : undefined" class="w-full h-9 px-2 border border-neutral-300 rounded-md text-sm bg-surface" />
             </div>
           </div>

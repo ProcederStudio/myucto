@@ -7,7 +7,8 @@ namespace MyInvoice\Service\TaxEvidence;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\CashJournalRepository;
 use MyInvoice\Repository\MovementClassificationRepository;
-use MyInvoice\Service\Bank\AccountNumberNormalizer;
+use MyInvoice\Service\Bank\ConstantSymbolCriterion;
+use MyInvoice\Service\Bank\CounterpartyAccountCriterion;
 use PDO;
 
 /**
@@ -15,7 +16,7 @@ use PDO;
  *
  * Daňová evidence nemá účty, takže pravidla zaúčtování z podvojného účetnictví tu nedávají
  * smysl. Pohyb bez dokladu (poplatek, převod mezi vlastními účty, vklad z osobních peněz)
- * se ale opakuje a dosud se musel zařadit ručně. Pravidlo ho podle protiúčtu, VS, textu
+ * se ale opakuje a dosud se musel zařadit ručně. Pravidlo ho podle protiúčtu, VS, KS, textu
  * a částky:
  *   - označí jako ignorovaný (nepáruje se s doklady),
  *   - a/nebo zařadí v peněžním deníku stejnou cestou jako ruční zařazení
@@ -30,7 +31,7 @@ final class TaxEvidenceBankRules
     public const DIRECTIONS = ['any', 'incoming', 'outgoing'];
 
     private const COLUMNS = ['name', 'priority', 'is_active', 'direction', 'counterparty_account',
-        'variable_symbol', 'text_contains', 'amount_min', 'amount_max', 'action_ignore', 'tax_bucket'];
+        'variable_symbol', 'constant_symbol', 'text_contains', 'amount_min', 'amount_max', 'action_ignore', 'tax_bucket'];
 
     public function __construct(
         private readonly Connection $db,
@@ -74,6 +75,14 @@ final class TaxEvidenceBankRules
             if ($v === null || $v === '') return null;
             return is_numeric($v) ? round(abs((float) $v), 2) : null;
         };
+        $constantSymbol = $body['constant_symbol'] ?? null;
+        if (is_string($constantSymbol) || is_int($constantSymbol)) {
+            $constantSymbol = trim((string) $constantSymbol);
+            $constantSymbol = $constantSymbol === '' ? null : $constantSymbol;
+        }
+        if ($constantSymbol !== null && ConstantSymbolCriterion::key($constantSymbol) === null) {
+            $errors['constant_symbol'] = 'Konstantní symbol musí obsahovat 1 až 4 číslice.';
+        }
         $data = [
             'name'                 => $text($body['name'] ?? null, 120),
             'priority'             => max(0, min(65535, (int) ($body['priority'] ?? 100))),
@@ -81,20 +90,25 @@ final class TaxEvidenceBankRules
             'direction'            => (string) ($body['direction'] ?? 'any'),
             'counterparty_account' => $text($body['counterparty_account'] ?? null, 64),
             'variable_symbol'      => $text($body['variable_symbol'] ?? null, 20),
+            'constant_symbol'      => is_string($constantSymbol) ? $constantSymbol : null,
             'text_contains'        => $text($body['text_contains'] ?? null, 255),
             'amount_min'           => $amount($body['amount_min'] ?? null),
             'amount_max'           => $amount($body['amount_max'] ?? null),
             'action_ignore'        => filter_var($body['action_ignore'] ?? false, FILTER_VALIDATE_BOOL) ? 1 : 0,
             'tax_bucket'           => $text($body['tax_bucket'] ?? null, 32),
         ];
+        if ($data['counterparty_account'] !== null && (mb_strlen(trim((string) $body['counterparty_account'])) > 64
+            || !CounterpartyAccountCriterion::isValid((string) $body['counterparty_account']))) {
+            $errors['counterparty_account'] = 'Zadejte číslo účtu, číslo účtu/kód banky nebo */kód banky (4 číslice).';
+        }
         if ($data['name'] === null) {
             $errors['name'] = 'Vyplňte název pravidla.';
         }
         if (!in_array($data['direction'], self::DIRECTIONS, true)) {
             $errors['direction'] = 'Neplatný směr pohybu.';
         }
-        if ($data['counterparty_account'] === null && $data['variable_symbol'] === null && $data['text_contains'] === null) {
-            $errors['criteria'] = 'Vyplňte aspoň protiúčet, variabilní symbol nebo text.';
+        if ($data['counterparty_account'] === null && $data['variable_symbol'] === null && $data['constant_symbol'] === null && $data['text_contains'] === null) {
+            $errors['criteria'] = 'Vyplňte aspoň protiúčet, variabilní symbol, konstantní symbol nebo text.';
         }
         if ($data['tax_bucket'] !== null && !in_array($data['tax_bucket'], MovementClassificationRepository::TAX_BUCKETS, true)) {
             $errors['tax_bucket'] = 'Neplatné zařazení v peněžním deníku.';
@@ -171,7 +185,7 @@ final class TaxEvidenceBankRules
         $in = implode(',', array_map('intval', $statementIds));
         $pdo = $this->db->pdo();
         $txs = $pdo->query(
-            "SELECT bt.id, bt.amount, bt.counterparty_account, bt.variable_symbol, bt.description,
+            "SELECT bt.id, bt.amount, bt.counterparty_account, bt.counterparty_bank, bt.variable_symbol, bt.constant_symbol, bt.description,
                     bt.counterparty_name, bt.match_status
                FROM bank_transactions bt
               WHERE bt.statement_id IN ({$in})
@@ -228,16 +242,16 @@ final class TaxEvidenceBankRules
         if ($rule['amount_min'] !== null && $abs < (float) $rule['amount_min'] - 0.005) return false;
         if ($rule['amount_max'] !== null && $abs > (float) $rule['amount_max'] + 0.005) return false;
 
-        if ($rule['counterparty_account'] !== null) {
-            $want = AccountNumberNormalizer::normalize((string) $rule['counterparty_account']);
-            $have = AccountNumberNormalizer::normalize((string) ($tx['counterparty_account'] ?? ''));
-            if ($want === '' || $want !== $have) return false;
-        }
+        if ($rule['counterparty_account'] !== null && !CounterpartyAccountCriterion::matches(
+            (string) $rule['counterparty_account'], $tx['counterparty_account'] ?? null, $tx['counterparty_bank'] ?? null,
+        )) return false;
         if ($rule['variable_symbol'] !== null) {
             $want = ltrim(preg_replace('/\D/', '', (string) $rule['variable_symbol']) ?? '', '0');
             $have = ltrim(preg_replace('/\D/', '', (string) ($tx['variable_symbol'] ?? '')) ?? '', '0');
             if ($want === '' || $want !== $have) return false;
         }
+        if (($rule['constant_symbol'] ?? null) !== null
+            && !ConstantSymbolCriterion::matches($rule['constant_symbol'], $tx['constant_symbol'] ?? null)) return false;
         if ($rule['text_contains'] !== null) {
             $needle = mb_strtolower((string) $rule['text_contains']);
             $haystack = mb_strtolower(((string) ($tx['description'] ?? '')) . ' ' . ((string) ($tx['counterparty_name'] ?? '')));

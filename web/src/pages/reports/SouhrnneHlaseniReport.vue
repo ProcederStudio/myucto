@@ -6,7 +6,7 @@ import { reportsApi, type ShvVariant } from '@/api/reports'
 import { apiErrorMessage } from '@/api/errors'
 import { formatMoney } from '@/composables/useFormat'
 import { useYearOptions } from '@/composables/useYearOptions'
-import { useReportPeriodQuery } from '@/composables/useReportPeriodQuery'
+import { useVatReportPeriod } from '@/composables/useVatReportPeriod'
 import { ICONS, btnOutline } from '@/components/ui/buttonStyles'
 import { useAuthStore } from '@/stores/auth'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -17,9 +17,8 @@ const { t, locale } = useI18n()
 const router = useRouter()
 const auth = useAuthStore()
 
-const { year, month, periodOverride } = useReportPeriodQuery()
+const { year, month, periodOverride, effectivePeriod, ready, settingsError, initialize } = useVatReportPeriod('sh')
 
-const effectivePeriod = computed<'monthly' | 'quarterly'>(() => periodOverride.value || 'monthly')
 const currentQuarter = computed(() => Math.ceil(month.value / 3))
 
 function setQuarter(q: number) {
@@ -33,11 +32,12 @@ const dZjist = ref('')
 const isFollowUp = computed(() => variant.value === 'nasledne')
 
 const preview = ref<Awaited<ReturnType<typeof reportsApi.shvPreview>> | null>(null)
-const loading = ref(false)
+const loading = ref(true)
 const error = ref('')
 
 let previewSeq = 0
 async function loadPreview() {
+  if (!ready.value) return
   const seq = ++previewSeq
   loading.value = true
   error.value = ''
@@ -55,6 +55,7 @@ async function loadPreview() {
 }
 
 async function downloadXml() {
+  if (!ready.value || !preview.value || loading.value) return
   try {
     await downloadApiFile(reportsApi.shvDownloadUrl(
       year.value, month.value, effectivePeriod.value,
@@ -91,8 +92,27 @@ function shTypeLabel(code: string): string {
   return label === key ? code : label
 }
 
-watch([year, month, effectivePeriod, variant, dZjist], loadPreview)
-onMounted(loadPreview)
+watch([ready, year, month, effectivePeriod, variant, dZjist], () => {
+  if (!ready.value) {
+    ++previewSeq
+    preview.value = null
+    loading.value = !settingsError.value
+    return
+  }
+  void loadPreview()
+})
+watch(settingsError, value => {
+  if (value) {
+    error.value = apiErrorMessage(value)
+    loading.value = false
+  }
+})
+function retrySettings() {
+  loading.value = true
+  error.value = ''
+  void initialize()
+}
+onMounted(() => { void initialize() })
 </script>
 
 <template>
@@ -106,28 +126,28 @@ onMounted(loadPreview)
       <div class="flex items-center gap-2 flex-wrap">
         <!-- Period toggle (SH: kvartálně jen pro čistě servisní dodávky) -->
         <div class="flex rounded-md border border-neutral-300 overflow-hidden text-sm">
-          <button type="button" @click="periodOverride = 'monthly'"
+          <button type="button" :disabled="!ready" @click="periodOverride = 'monthly'"
             :class="effectivePeriod === 'monthly' ? 'bg-primary-600 text-white' : 'bg-surface text-neutral-700 hover:bg-neutral-50'"
             class="cursor-pointer px-3 h-9">{{ t('reports.dph.monthly') }}</button>
-          <button type="button" @click="periodOverride = 'quarterly'"
+          <button type="button" :disabled="!ready" @click="periodOverride = 'quarterly'"
             :class="effectivePeriod === 'quarterly' ? 'bg-primary-600 text-white' : 'bg-surface text-neutral-700 hover:bg-neutral-50'"
             class="cursor-pointer px-3 h-9 border-l border-neutral-300">{{ t('reports.dph.quarterly') }}</button>
         </div>
         <!-- Quarter selector (quarterly) nebo month selector (monthly) -->
         <template v-if="effectivePeriod === 'quarterly'">
-          <select v-model.number="year" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
+          <select :disabled="!ready" v-model.number="year" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
             <option v-for="y in yearOptions" :key="y" :value="y">{{ y }}</option>
           </select>
-          <select :value="currentQuarter" @change="setQuarter(Number(($event.target as HTMLSelectElement).value))"
+          <select :disabled="!ready" :value="currentQuarter" @change="setQuarter(Number(($event.target as HTMLSelectElement).value))"
             class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
             <option v-for="q in 4" :key="q" :value="q">Q{{ q }}</option>
           </select>
         </template>
         <template v-else>
-          <select v-model.number="month" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
+          <select :disabled="!ready" v-model.number="month" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
             <option v-for="(label, i) in monthOptions" :key="i + 1" :value="i + 1">{{ label }}</option>
           </select>
-          <select v-model.number="year" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
+          <select :disabled="!ready" v-model.number="year" class="h-9 px-3 border border-neutral-300 rounded-md bg-surface text-sm">
             <option v-for="y in yearOptions" :key="y" :value="y">{{ y }}</option>
           </select>
         </template>
@@ -155,7 +175,13 @@ onMounted(loadPreview)
     </div>
 
     <div v-if="loading" class="bg-surface border border-neutral-200 rounded-lg shadow-sm p-8 text-center text-neutral-400">{{ t('common.loading') }}…</div>
-    <div v-else-if="error" class="bg-danger-50 border border-danger-500/40 text-danger-500 rounded-md p-3 text-sm">{{ error }}</div>
+    <div v-else-if="error" class="bg-danger-50 border border-danger-500/40 text-danger-500 rounded-md p-3 text-sm flex flex-wrap items-center gap-3">
+      <span>{{ error }}</span>
+      <button v-if="settingsError" type="button" @click="retrySettings" :class="btnOutline('neutral')">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.cycle" /></svg>
+        {{ t('common.retry') }}
+      </button>
+    </div>
 
     <div v-else-if="preview" class="space-y-4">
       <!-- Warnings -->

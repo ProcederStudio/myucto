@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Accounting;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Repository\ChartOfAccountsRepository;
 use MyInvoice\Repository\JournalEntryRepository;
@@ -282,7 +283,7 @@ final class DocumentRepostService
             // Bankovní invarianty se ověřují UVNITŘ transakce a PŘED stornem: jinak by
             // vadné řádky shodily operaci až po zrušení původního zápisu.
             if ($sourceType === 'bank') {
-                $lines = $this->bankPosting->prepareRepostLines($supplierId, $docId, $lines);
+                $lines = $this->bankPosting->prepareRepostLines($supplierId, $docId, $lines, true);
             }
 
             // Plán se počítá ZNOVU uvnitř transakce: mezi náhledem a potvrzením mohla
@@ -378,6 +379,9 @@ final class DocumentRepostService
                 'items_synced'      => $itemsSynced,
             ];
         } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             if ($ownTx && $pdo->inTransaction()) {
                 $pdo->rollBack();
             }

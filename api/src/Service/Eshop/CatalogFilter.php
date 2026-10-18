@@ -9,7 +9,7 @@ use MyInvoice\Repository\StockItemRepository;
 final class CatalogFilter
 {
     private const FILTER_KEYS = ['type', 'active', 'q', 'only_below_min', 'warehouse_id', 'manufacturer_id', 'category_id', 'vendor_id', 'tag_ids', 'missing', 'availability', 'qty_min', 'qty_max', 'attribute_filters', 'sort', 'direction', 'export_eshop'];
-    private const TRANSPORT_KEYS = ['page', 'per_page', 'limit', 'offset', 'supplier_id'];
+    private const TRANSPORT_KEYS = ['page', 'per_page', 'limit', 'offset', 'supplier_id', 'display_attribute_id'];
 
     /** @param array<string,mixed> $input @return array<string,mixed> */
     public static function normalize(array $input): array

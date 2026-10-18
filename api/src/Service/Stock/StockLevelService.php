@@ -184,13 +184,13 @@ final class StockLevelService
                 'insufficient_stock',
                 'Nedostatek zásob pro výdej.',
                 409,
-                [[
+                StockShortageDetails::enrich($this->db->pdo(), $supplierId, $warehouseId, [[
                     'stock_item_id' => $stockItemId,
                     'sku'           => $context['sku'] ?? null,
                     'name'          => $context['name'] ?? null,
                     'requested'     => StockValuation::tToDecimal($qtyOutT),
                     'available'     => StockValuation::tToDecimal($cur['qtyT']),
-                ]],
+                ]]),
             );
         }
 

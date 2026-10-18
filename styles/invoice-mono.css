@@ -1,0 +1,168 @@
+/* ─── Úsporná černobílá varianta (supplier.invoice_pdf_monochrome, migrace 2033) ───
+   Připojuje se ZA invoice.css MÍSTO brandingového akcentu (PdfBranding::themeCss),
+   platí pro fakturu i výkaz víceprací. Selektory zrcadlí base stylopis (stejná
+   specificita, pozdější pořadí vyhrává):
+   - žádné plné plochy: každé pozadí z base je tu bílé,
+   - černý text, hierarchii nesou tučné písmo a velikost,
+   - tenké černé čáry místo ploch (šedá na laserové tiskárně rastruje),
+   - dobropis a storno odliší text v hlavičce („Opravný daňový doklad",
+     „Storno (interní)"), ne barva.
+   Úplnost hlídá InvoicePdfMonochromeTest: nová plocha nebo barva v invoice.css
+   bez protějšku tady test shodí. */
+
+body { color: #000000; }
+
+/* Hlavička */
+.head { border-bottom: 1pt solid #000000; }
+.head.credit-note { border-bottom-color: #000000; }
+.head.credit-note .brand-name,
+.head.credit-note .doc-type { color: #000000; }
+.head.cancellation { border-bottom-color: #000000; }
+.head.cancellation .brand-name,
+.head.cancellation .doc-type { color: #000000; }
+td.logo-name { color: #000000; }
+.brand-name { color: #000000; }
+.doc-type { color: #000000; }
+.varsymbol-big { color: #000000; }
+.parent-ref { color: #000000; }
+.isdoc-badge {
+    color: #000000;
+    background: #FFFFFF;
+    border: 0.4pt solid #000000;
+}
+
+/* Strany: odběratele zvýrazní rámeček místo podbarvení */
+.parties td { background: #FFFFFF; }
+.parties td.party-customer {
+    background: #FFFFFF;
+    border: 0.5pt solid #000000;
+}
+.parties h2 { color: #000000; }
+.party-name { color: #000000; }
+.ic-dic { color: #000000; }
+
+/* Metadata */
+.meta-grid td { border-bottom: 0.2pt solid #000000; }
+td.meta-label { color: #000000; }
+
+/* Položky: hlavička tabulky jako text mezi dvěma čarami */
+table.items th {
+    background: #FFFFFF;
+    color: #000000;
+    border-top: 0.8pt solid #000000;
+    border-bottom: 0.8pt solid #000000;
+}
+table.items td { border-bottom: 0.2pt solid #000000; }
+table.items tr:nth-child(even) td { background: #FFFFFF; }
+table.items tr.text-row td { color: #000000; }
+
+/* Součty */
+td.tot-label { color: #000000; }
+table.totals-table tr.subtotal td { border-top: 0.3pt solid #000000; }
+table.totals-table tr.grand td {
+    background: #FFFFFF;
+    color: #000000;
+    border-top: 1pt solid #000000;
+    border-bottom: 1pt solid #000000;
+}
+table.totals-table tr.grand td.tot-label { color: #000000; }
+table.totals-table tr.advance td { color: #000000; }
+table.totals-table tr.to-pay td {
+    border-top: 1pt solid #000000;
+    background: #FFFFFF;
+    color: #000000;
+}
+table.totals-table tr.vat-czk-required td {
+    border-top: 0.3pt solid #000000;
+    color: #000000;
+}
+table.totals-table tr.rate-note td.rate-note-cell { color: #000000; }
+
+/* Přepočet do CZK: rámeček místo šedé plochy */
+table.czk-recap {
+    background: #FFFFFF;
+    border: 0.3pt solid #000000;
+}
+table.czk-recap td { background: #FFFFFF; }
+table.czk-recap td.czk-recap-title {
+    color: #000000;
+    border-bottom: 0.3pt solid #000000;
+}
+.czk-recap-rate { color: #000000; }
+table.czk-recap td.tot-label { color: #000000; }
+table.czk-recap tr.subtotal td {
+    border-top: 0.3pt solid #000000;
+    background: #FFFFFF;
+}
+table.czk-recap tr.grand td {
+    background: #FFFFFF;
+    color: #000000;
+    border-top: 0.6pt solid #000000;
+}
+
+/* Platební panel: rámeček místo podbarvení, UHRAZENO nese text */
+.pay-panel {
+    background: #FFFFFF;
+    border: 0.5pt solid #000000;
+}
+.pay-panel.pay-panel-paid {
+    background: #FFFFFF;
+    border-color: #000000;
+}
+.bank-label.paid-mark,
+.bank-value.paid-mark { color: #000000; }
+.bank-label { color: #000000; }
+.bank-value { color: #000000; }
+.bank-meta-line { color: #000000; }
+
+/* Poznámky a doložky: svislá čára místo plochy, doložky zůstávají tučné */
+.note {
+    background: #FFFFFF;
+    border-left: 1pt solid #000000;
+    color: #000000;
+}
+.rc-note {
+    background: #FFFFFF;
+    border-left: 1pt solid #000000;
+    color: #000000;
+}
+.oss-note {
+    background: #FFFFFF;
+    border-left: 1pt solid #000000;
+    color: #000000;
+}
+
+/* Platební kalendář */
+.schedule-title {
+    color: #000000;
+    border-bottom: 0.6pt solid #000000;
+}
+.schedule-legal { color: #000000; }
+.schedule-th {
+    color: #000000;
+    border-bottom: 0.4pt solid #000000;
+}
+.schedule-td {
+    color: #000000;
+    border-bottom: 0.2pt solid #000000;
+}
+.schedule-total { background: #FFFFFF; }
+.schedule-empty { color: #000000; }
+
+/* Patička */
+.footer {
+    border-top: 0.3pt solid #000000;
+    color: #000000;
+}
+.footer-name { color: #000000; }
+.footer-dot { color: #000000; }
+.commercial-register { color: #000000; }
+.page-attribution { color: #000000; }
+.page-attribution a { color: #000000; }
+
+/* Výkaz víceprací */
+.wr-title { color: #000000; }
+.wr-report-title { color: #000000; }
+.wr-link { color: #000000; }
+tr.wr-total { background: #FFFFFF; }
+tr.wr-total td { border-top: 0.6pt solid #000000; }

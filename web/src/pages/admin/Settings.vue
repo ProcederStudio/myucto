@@ -45,7 +45,9 @@ function syncSupplierStore(s: Supplier) {
     default_payment_due_days: s.default_payment_due_days,
     default_payment_due_unit: s.default_payment_due_unit,
     default_prices_include_vat: s.default_prices_include_vat,
+    default_rounding_mode: s.default_rounding_mode ?? 'auto',
     allow_refund_invoices: s.allow_refund_invoices ?? false,
+    simplified_hide_customer_default: s.simplified_hide_customer_default ?? false,
     default_note_below_items_enabled: s.default_note_below_items_enabled ?? false,
     default_note_below_items_cs: s.default_note_below_items_cs ?? null,
     default_note_below_items_en: s.default_note_below_items_en ?? null,
@@ -202,6 +204,10 @@ const proformaPreview       = computed(() => validateAndPreview(supplier.value?.
 const proformaFormatError   = computed(() => validateAndPreview(supplier.value?.proforma_number_format ?? null).error)
 const creditNotePreview     = computed(() => validateAndPreview(supplier.value?.credit_note_number_format ?? null).preview)
 const creditNoteFormatError = computed(() => validateAndPreview(supplier.value?.credit_note_number_format ?? null).error)
+// Zjednodušené daňové doklady (migrace 2037): prázdné pole = řada faktur, žádný fallback.
+const simplifiedPreview     = computed(() => validateAndPreview(supplier.value?.simplified_number_format ?? null).preview)
+const simplifiedFormatError = computed(() => validateAndPreview(supplier.value?.simplified_number_format ?? null).error)
+const hasSimplifiedSeries   = computed(() => (supplier.value?.simplified_number_format ?? '').trim() !== '')
 // Přijaté faktury nemají cfg fallback: prázdné pole = vestavěná šablona (náhled ji ukáže).
 const purchasePreview       = computed(() => validateAndPreview(
   (supplier.value?.purchase_invoice_number_format ?? '').trim() || supplier.value?.cfg_varsymbol_fallback?.purchase || '{PP}{YY}{MM}{CCC}',
@@ -230,6 +236,7 @@ function purchaseSeriesCheck(field: PurchaseSeriesField, fallback: string) {
 // a kategorie tržby); tady se jen dopočítá EFEKTIVNÍ šablona, protože prázdné pole
 // jede na cfg fallback úplně stejně jako na backendu.
 function counterTemplate(type: InvoiceCounterType): string {
+  if (type === 'simplified') return (supplier.value?.simplified_number_format ?? '').trim()
   const own = (supplier.value?.[`${type}_number_format`] ?? '').trim()
   return own !== '' ? own : (supplier.value?.cfg_varsymbol_fallback?.[type] ?? '')
 }
@@ -249,7 +256,7 @@ const employerIdentifiersInPayroll = computed(() =>
 // Sloučeno a odduplikováno podle (typ/klient) páru, ať se stejná kolize neukáže dvakrát.
 interface SeriesWarning { key: string; aLabel: string; bLabel: string }
 
-function numberSeriesTypeLabel(type: 'invoice' | 'proforma' | 'credit_note'): string {
+function numberSeriesTypeLabel(type: NumberSeriesSide['type']): string {
   return t(`settings.numbering_type_${type}`)
 }
 
@@ -277,10 +284,12 @@ const numberSeriesWarnings = computed<SeriesWarning[]>(() => {
     const trimmed = (tpl ?? '').trim()
     return trimmed !== '' ? trimmed : (fallback ?? '')
   }
-  const live: Array<{ type: 'invoice' | 'proforma' | 'credit_note'; template: string }> = [
+  const live: Array<{ type: NumberSeriesSide['type']; template: string }> = [
     { type: 'invoice', template: effective(supplier.value?.invoice_number_format, fb?.invoice) },
     { type: 'proforma', template: effective(supplier.value?.proforma_number_format, fb?.proforma) },
     { type: 'credit_note', template: effective(supplier.value?.credit_note_number_format, fb?.credit_note) },
+    // Bez vlastní šablony zjednodušené doklady žádnou samostatnou řadu nemají.
+    { type: 'simplified', template: (supplier.value?.simplified_number_format ?? '').trim() },
   ]
   for (let i = 0; i < live.length; i++) {
     for (let j = i + 1; j < live.length; j++) {
@@ -571,7 +580,9 @@ async function saveSupplier() {
       default_payment_due_days: supplier.value.default_payment_due_days,
       default_payment_due_unit: supplier.value.default_payment_due_unit,
       default_prices_include_vat: supplier.value.default_prices_include_vat,
+      default_rounding_mode: supplier.value.default_rounding_mode ?? 'auto',
       allow_refund_invoices: supplier.value.allow_refund_invoices ?? false,
+      invoice_pdf_show_issued_by: supplier.value.invoice_pdf_show_issued_by ?? false,
       // Výchozí poznámka pod položkami (#79) — prázdné pole ukládá server jako NULL.
       default_note_below_items_enabled: supplier.value.default_note_below_items_enabled ?? false,
       default_note_below_items_cs: supplier.value.default_note_below_items_cs ?? null,
@@ -604,6 +615,11 @@ async function saveSupplier() {
       invoice_number_format: supplier.value.invoice_number_format,
       proforma_number_format: supplier.value.proforma_number_format,
       credit_note_number_format: supplier.value.credit_note_number_format,
+      // Chybějící hodnota (nedoběhlá migrace 2037) se neposílá, aby uložení nespadlo.
+      ...(supplier.value.simplified_hide_customer_default !== undefined ? {
+        simplified_number_format: supplier.value.simplified_number_format ?? null,
+        simplified_hide_customer_default: supplier.value.simplified_hide_customer_default,
+      } : {}),
       purchase_invoice_number_format: supplier.value.purchase_invoice_number_format,
       // Chybějící hodnota (nedoběhlá migrace 2001) se neposílá, aby uložení nespadlo.
       ...(supplier.value.purchase_invoice_numbering !== undefined ? {
@@ -619,6 +635,7 @@ async function saveSupplier() {
       stock_auto_issue: supplier.value.stock_auto_issue ?? true,
       stock_in_transit_from: supplier.value.stock_in_transit_from ?? 'sent',
       invoice_pdf_show_base_qty: supplier.value.invoice_pdf_show_base_qty ?? true,
+      invoice_pdf_show_line_discount: supplier.value.invoice_pdf_show_line_discount ?? false,
       // Tax settings (EPO výkazy DPH/KH)
       // Účetní režim posíláme jen když ho uživatel opravdu přepnul. Server na
       // něm má navěšenou historii režimu i kontrolu právní formy, takže
@@ -657,6 +674,7 @@ async function saveSupplier() {
       // Doplňky pro DPH/KH XML VetaP
       street_number_pop: (supplier.value as any).street_number_pop ?? null,
       street_number_orient: (supplier.value as any).street_number_orient ?? null,
+      person_title: supplier.value.person_title ?? null,
       opr_jmeno: (supplier.value as any).opr_jmeno ?? null,
       opr_prijmeni: (supplier.value as any).opr_prijmeni ?? null,
       opr_postaveni: (supplier.value as any).opr_postaveni ?? null,
@@ -1144,12 +1162,43 @@ async function confirmTaxRepDelete() {
             </label>
             <p class="text-xs text-neutral-500 mt-1 ml-6">{{ t('settings.default_prices_include_vat_hint') }}</p>
           </div>
+          <div v-if="supplier.is_vat_payer && supplier.simplified_hide_customer_default !== undefined" class="md:col-span-2">
+            <label class="flex items-center gap-2 text-sm">
+              <input v-model="supplier.simplified_hide_customer_default" type="checkbox" class="rounded border-neutral-300 text-primary-600" data-test="simplified-hide-customer-default" />
+              <span class="font-medium">{{ t('settings.simplified_hide_customer_default') }}</span>
+            </label>
+            <p class="text-xs text-neutral-500 mt-1 ml-6">{{ t('settings.simplified_hide_customer_default_hint') }}</p>
+          </div>
+          <div class="md:col-span-2">
+            <label class="block text-sm font-medium text-neutral-700 mb-1">{{ t('settings.default_rounding_mode') }}</label>
+            <select v-model="supplier.default_rounding_mode" class="w-full md:w-1/2 h-10 px-3 border border-neutral-300 rounded-md bg-surface text-sm" data-test="default-rounding-mode">
+              <option value="auto">{{ t('invoice.rounding.auto') }}</option>
+              <option value="none">{{ t('invoice.rounding.none') }}</option>
+              <option value="whole_czk">{{ t('invoice.rounding.whole_czk') }}</option>
+            </select>
+            <p class="text-xs text-neutral-500 mt-1">{{ t('settings.default_rounding_mode_hint') }}</p>
+          </div>
           <div class="md:col-span-2">
             <label class="flex items-center gap-2 text-sm">
               <input v-model="supplier.allow_refund_invoices" type="checkbox" class="rounded border-neutral-300 text-primary-600" data-test="allow-refund-invoices" />
               <span class="font-medium">{{ t('refundInvoice.settings_label') }}</span>
             </label>
             <p class="text-xs text-neutral-500 mt-1 ml-6">{{ t('refundInvoice.settings_hint') }}</p>
+          </div>
+          <div class="md:col-span-2">
+            <label class="flex items-center gap-2 text-sm">
+              <input v-model="supplier.invoice_pdf_show_issued_by" type="checkbox" class="rounded border-neutral-300 text-primary-600" data-test="invoice-pdf-show-issued-by" />
+              <span class="font-medium">{{ t('settings.invoice_pdf_show_issued_by') }}</span>
+            </label>
+            <p class="text-xs text-neutral-500 mt-1 ml-6">{{ t('settings.invoice_pdf_show_issued_by_hint') }}</p>
+          </div>
+          <div class="md:col-span-2">
+            <label class="flex items-center gap-2 text-sm">
+              <input :checked="supplier.invoice_pdf_show_line_discount ?? false" @change="supplier.invoice_pdf_show_line_discount = ($event.target as HTMLInputElement).checked"
+                type="checkbox" class="rounded border-neutral-300 text-primary-600" data-test="invoice-pdf-line-discount" />
+              <span class="font-medium">{{ t('settings.invoice_pdf_line_discount') }}</span>
+            </label>
+            <p class="text-xs text-neutral-500 mt-1 ml-6">{{ t('settings.invoice_pdf_line_discount_hint') }}</p>
           </div>
           <div class="md:col-span-2 border-t border-neutral-200 pt-4 space-y-3">
             <div>
@@ -1427,6 +1476,21 @@ async function confirmTaxRepDelete() {
               </p>
               <p v-else class="text-xs text-neutral-400 mt-1">{{ t('settings.numbering_preview') }}: {{ t('settings.numbering_preview_fallback') }}</p>
               <InvoiceCounterField type="credit_note" :template="counterTemplate('credit_note')"
+                :period="supplier.invoice_number_period" />
+            </div>
+            <div data-test="simplified-number-format">
+              <label class="block text-xs font-medium text-neutral-700 mb-1">{{ t('settings.simplified_number_format') }}</label>
+              <input v-model="supplier.simplified_number_format" type="text"
+                :placeholder="supplier.invoice_number_format || supplier.cfg_varsymbol_fallback?.invoice || ''" maxlength="60"
+                :disabled="supplier.simplified_hide_customer_default === undefined"
+                class="w-full h-9 px-3 border rounded-md text-sm font-mono disabled:opacity-60"
+                :class="simplifiedFormatError ? 'border-danger-500 bg-danger-50' : 'border-neutral-300'" />
+              <p v-if="simplifiedFormatError" class="text-xs text-danger-500 mt-1">{{ simplifiedFormatError }}</p>
+              <p v-else-if="simplifiedPreview" class="text-xs text-success-600 mt-1">
+                {{ t('settings.numbering_preview') }}: <code class="font-mono font-semibold">{{ simplifiedPreview }}</code>
+              </p>
+              <p class="text-xs text-neutral-400 mt-1">{{ t('settings.simplified_number_format_hint') }}</p>
+              <InvoiceCounterField v-if="hasSimplifiedSeries" type="simplified" :template="counterTemplate('simplified')"
                 :period="supplier.invoice_number_period" />
             </div>
           </div>
@@ -2224,9 +2288,14 @@ async function confirmTaxRepDelete() {
             </div>
           </div>
 
-          <h4 class="text-xs font-semibold uppercase tracking-wide text-neutral-500 mt-5 mb-2">{{ t('settings.opr_section') }}</h4>
-          <p class="text-xs text-neutral-500 mb-3">{{ t('settings.opr_hint') }}</p>
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <h4 class="text-xs font-semibold uppercase tracking-wide text-neutral-500 mt-5 mb-2">{{ t(supplier.taxpayer_type !== 'po' ? 'settings.person_section' : 'settings.opr_section') }}</h4>
+          <p class="text-xs text-neutral-500 mb-3">{{ t(supplier.taxpayer_type !== 'po' ? 'settings.person_hint' : 'settings.opr_hint') }}</p>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3" data-test="tax-person-details">
+            <div v-if="supplier.taxpayer_type !== 'po'">
+              <label class="block text-xs font-medium text-neutral-700 mb-1" for="person-title">{{ t('settings.person_title') }}</label>
+              <input id="person-title" v-model="supplier.person_title" type="text" maxlength="10"
+                class="w-full h-9 px-3 border border-neutral-300 rounded-md text-sm" />
+            </div>
             <div>
               <label class="block text-xs font-medium text-neutral-700 mb-1">{{ t('settings.opr_jmeno') }}</label>
               <input v-model="supplier.opr_jmeno" type="text" maxlength="60"
@@ -2237,7 +2306,7 @@ async function confirmTaxRepDelete() {
               <input v-model="supplier.opr_prijmeni" type="text" maxlength="60"
                 class="w-full h-9 px-3 border border-neutral-300 rounded-md text-sm" />
             </div>
-            <div>
+            <div v-if="supplier.taxpayer_type === 'po' || supplier.opr_postaveni">
               <label class="block text-xs font-medium text-neutral-700 mb-1">{{ t('settings.opr_postaveni') }}</label>
               <input v-model="supplier.opr_postaveni" type="text" maxlength="60" placeholder="jednatel"
                 class="w-full h-9 px-3 border border-neutral-300 rounded-md text-sm" />

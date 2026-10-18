@@ -14,7 +14,7 @@ use Psr\Http\Message\StreamInterface;
  * Záloha se nahraje jednou, rozbalí se a průvodce nad ní pouští náhled, zkoušku
  * nanečisto i ostrý převod. Po úspěšném ostrém převodu se adresář smaže. Záloha po
  * zkoušce nanečisto nebo po neúspěšném převodu zůstává pro další běh a denní úklid ji
- * smaže po týdnu bez práce s ní ({@see purgeStaleAll()}).
+ * smaže po 24 hodinách bez práce s ní ({@see purgeStaleAll()}).
  *
  * Velká záloha přichází po částech do `backup.lz.part` a job na pozadí z ní rozbalí
  * agendu do `agenda/`. Uspořádání, zámky a úklid jsou společné s ostatními převody

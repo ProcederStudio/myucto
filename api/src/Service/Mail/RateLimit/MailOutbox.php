@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Mail\RateLimit;
 
 use DateTimeImmutable;
+use MyInvoice\Service\Mail\PaymentThanksOutbox;
 use PDO;
 use Psr\Log\LoggerInterface;
 use Throwable;
@@ -124,13 +125,14 @@ final class MailOutbox
             $stmt = $this->pdo->prepare(
                 'SELECT id, template, locale, attempts, payload
                    FROM mail_outbox
-                  WHERE status = :status AND not_before <= :now
+                  WHERE status = :status AND not_before <= :now AND template <> :intent_template
                   ORDER BY not_before, id
                   LIMIT ' . $limit
             );
             $stmt->execute([
                 'status' => self::STATUS_PENDING,
                 'now'    => $now->format(MailSendCounter::SQL_FORMAT),
+                'intent_template' => PaymentThanksOutbox::TEMPLATE,
             ]);
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
         } catch (Throwable) {

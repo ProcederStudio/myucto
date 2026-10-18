@@ -19,28 +19,71 @@ final class StockLevelRepository
 
     /**
      * Stavy zásob s kartou a skladem (list Stav skladu).
-     * Filtry: warehouse_id, item_type, below_min (bool), active (bool), q, item_ids (list<int>).
+     * Filtry: warehouse_id, item_type, below_min (bool), active (bool), q, item_ids (list<int>),
+     * category_id (kategorie včetně podkategorií).
+     *
+     * Volitelné údaje karty pro sestavu Stav zásob (bez nich je řádek beze změny):
+     * `sale_price` a `note` přidají prodejní cenu bez DPH a poznámku karty,
+     * `$attribute` (id + data_type) přidá `attribute_value` = hodnoty parametru karty
+     * spojené čárkou v pořadí karty. Hodnoty se předpočítají jedním seskupeným
+     * dotazem pro celý parametr a připojí JOINem, ne dotazem na každý řádek.
      *
      * @param array<string,mixed> $filters
+     * @param list<string> $extraColumns podmnožina ['sale_price', 'note']
+     * @param array{id:int,data_type:string}|null $attribute
      * @return list<array<string,mixed>>
      */
-    public function levels(int $supplierId, array $filters): array
+    public function levels(int $supplierId, array $filters, array $extraColumns = [], ?array $attribute = null): array
     {
         [$where, $params] = $this->buildLevelsWhereClause($supplierId, $filters);
+
+        $select = '';
+        $join = '';
+        $joinParams = [];
+        if (in_array('sale_price', $extraColumns, true)) {
+            $select .= ', si.sale_price_without_vat AS sale_price';
+        }
+        if (in_array('note', $extraColumns, true)) {
+            $select .= ', si.note';
+        }
+        if ($attribute !== null) {
+            $select .= ', av.attribute_value';
+            $join = ' LEFT JOIN (
+                    SELECT siav.stock_item_id, ' . StockAttributeDisplayValue::AGGREGATE_SQL . ' AS attribute_value
+                      FROM stock_item_attribute_values siav' . StockAttributeDisplayValue::JOINS_SQL . '
+                     WHERE siav.supplier_id = ? AND siav.attribute_id = ?
+                     GROUP BY siav.stock_item_id
+               ) av ON av.stock_item_id = sl.stock_item_id';
+            $joinParams = [$supplierId, (int) $attribute['id']];
+        }
 
         $stmt = $this->db->pdo()->prepare(
             'SELECT sl.warehouse_id, sl.stock_item_id, sl.qty, sl.value_total, sl.avg_unit_cost,
                     si.sku, si.name, si.unit, si.item_type, si.min_qty, si.is_active,
-                    w.code AS warehouse_code, w.name AS warehouse_name
+                    w.code AS warehouse_code, w.name AS warehouse_name' . $select . '
                FROM stock_levels sl
                JOIN stock_items si ON si.id = sl.stock_item_id AND si.supplier_id = sl.supplier_id
-               JOIN warehouses w ON w.id = sl.warehouse_id AND w.supplier_id = sl.supplier_id
+               JOIN warehouses w ON w.id = sl.warehouse_id AND w.supplier_id = sl.supplier_id' . $join . '
               WHERE ' . implode(' AND ', $where) . '
               ORDER BY w.code ASC, si.sku ASC'
         );
-        $stmt->execute($params);
+        $stmt->execute([...$joinParams, ...$params]);
 
-        return array_map([self::class, 'castLevel'], $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []);
+        $rows = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $r) {
+            $row = self::castLevel($r);
+            if (in_array('sale_price', $extraColumns, true)) {
+                $row['sale_price'] = $r['sale_price'] !== null ? (string) $r['sale_price'] : null;
+            }
+            if (in_array('note', $extraColumns, true)) {
+                $row['note'] = $r['note'] !== null && $r['note'] !== '' ? (string) $r['note'] : null;
+            }
+            if ($attribute !== null) {
+                $row['attribute_value'] = $r['attribute_value'] !== null && $r['attribute_value'] !== '' ? (string) $r['attribute_value'] : null;
+            }
+            $rows[] = $row;
+        }
+        return $rows;
     }
 
     /**
@@ -113,6 +156,10 @@ final class StockLevelRepository
             $where[]  = '(si.sku LIKE ? OR si.name LIKE ?)';
             $params[] = $q . '%';
             $params[] = '%' . $q . '%';
+        }
+        if (!empty($filters['category_id'])) {
+            $where[]  = StockItemRepository::categorySubtreeSql('si');
+            $params[] = (int) $filters['category_id'];
         }
         if (!empty($filters['item_ids'])) {
             $ids = array_values(array_unique(array_map('intval', (array) $filters['item_ids'])));

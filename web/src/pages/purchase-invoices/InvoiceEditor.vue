@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useWindowTitle } from '@/composables/useWindowTitle'
-import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch, useId } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch, useId, defineAsyncComponent } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 // RouterLink se používá i v Add Currency modalu — import už pokrývá
 import { useI18n } from 'vue-i18n'
@@ -953,6 +953,12 @@ function accrualVisible(it: PurchaseInvoiceItem, i: number): boolean {
 // aby se řádek vešel na jeden řádek; rozbalené zůstávají, dokud je uživatel nezavře.
 const itemDetailsOpen = reactive(new Set<PurchaseInvoiceItem>())
 const showItemAccount = computed(() => !auth.isClientRole && supplierStore.currentSupplier?.accounting_mode === 'double_entry')
+const ExpenseRuleTemplateModal = defineAsyncComponent(() => import('@/components/accounting/ExpenseRuleTemplateModal.vue'))
+const expenseRuleTemplateOpen = ref(false)
+// Stejné podmínky jako akce „Vytvořit nákladovou šablonu“ v detailu dokladu.
+const canCreateExpenseTemplate = computed(() => auth.hasCommercialFeatures
+  && supplierStore.currentSupplier?.accounting_mode === 'double_entry'
+  && auth.canWrite('accounting') && (form.value.vendor_id ?? 0) > 0)
 function itemClassDiffers(it: PurchaseInvoiceItem): boolean {
   const header = form.value.vat_classification_code
   return !!it.vat_classification_code && !!header && it.vat_classification_code !== header
@@ -2425,6 +2431,10 @@ useWindowTitle(
         <div class="px-5 py-3 border-b border-neutral-100 flex items-center justify-between gap-3">
           <h2 class="text-sm font-medium text-neutral-700">{{ t('purchase_invoice.vat_recap.title') }}</h2>
           <div class="flex flex-wrap items-center justify-end gap-3">
+            <button v-if="canCreateExpenseTemplate" type="button" @click="expenseRuleTemplateOpen = true"
+              class="cursor-pointer text-xs text-primary-700 hover:underline whitespace-nowrap">
+              {{ t('accounting.template.create_expense') }}
+            </button>
             <button type="button" @click="showAccrual = !showAccrual"
               :title="t('purchase_invoice.items.accrual_hint')"
               class="cursor-pointer text-xs hover:underline whitespace-nowrap"
@@ -2800,6 +2810,12 @@ useWindowTitle(
       :defaults="{ is_vendor: true, is_customer: false }"
       @created="onVendorCreated"
       @close="vendorModalOpen = false" />
+    <ExpenseRuleTemplateModal v-if="expenseRuleTemplateOpen && form.vendor_id"
+      :vendor-id="form.vendor_id"
+      :vendor-name="windowVendor?.id === form.vendor_id ? windowVendor.name : null"
+      :description-options="form.items.map(it => it.description)"
+      @close="expenseRuleTemplateOpen = false"
+      @saved="expenseRuleTemplateOpen = false" />
   </div>
   <DocumentSidePreview
     v-if="pdfSideBySide"

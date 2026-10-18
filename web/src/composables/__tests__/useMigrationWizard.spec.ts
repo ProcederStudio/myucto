@@ -50,6 +50,29 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers())
 
 describe('useMigrationWizard', () => {
+  it('po návratu na stránku naváže doběhlou zkoušku nanečisto i s jejími volbami', async () => {
+    const runs: Run[] = [{ id: 11, job_id: 7, mode: 'dry_run', status: 'completed', agenda_year: 2024 }]
+    const client = api(runs)
+    client.show.mockResolvedValue({ token: 'tok', agendas: [2024, 2025] })
+    m.fetchImportJob.mockResolvedValue({ id: 7, status: 'running', processed: 0, total_items: 1 })
+    const first = mountWizard(true, client)
+    await flushPromises()
+    first.wizard().upload.value = { token: 'tok', agendas: [2024, 2025] }
+    sessionStorage.setItem('test.migration.token', 'tok')
+    await first.wizard().start('dry_run', { mode: 'dry_run', years: [2024] } as any)
+    first.wrapper.unmount()
+
+    m.fetchImportJob.mockResolvedValue({ id: 7, status: 'completed', processed: 1, total_items: 1 })
+    const restoreParams = vi.fn()
+    const { wizard } = mountWizard(true, client, { restoreParams })
+    await flushPromises()
+
+    expect(restoreParams).toHaveBeenCalledWith({ mode: 'dry_run', years: [2024] })
+    expect(wizard().currentStep.value).toBe(3)
+    expect(wizard().dryRunPassed.value).toBe(true)
+    expect(wizard().canGoTo(4)).toBe(true)
+  })
+
   it('u převodu víc roků načte všechny běhy jobu vzestupně a úspěch bere ze stavu jobu', async () => {
     const runs: Run[] = [
       { id: 12, job_id: 7, mode: 'dry_run', status: 'failed', agenda_year: 2025 },

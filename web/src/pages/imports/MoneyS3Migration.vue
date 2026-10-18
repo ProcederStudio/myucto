@@ -66,6 +66,12 @@ const {
   text: (key, params) => t(`money_s3.${key}`, params ?? {}),
   multiYear: false,
   onReady: () => { confirmIco.value = false },
+  restoreParams: params => {
+    closeHistory.value = params.close_history
+    firstPeriodStart.value = params.first_period_start ?? ''
+    confirmIco.value = params.confirm_ico ?? false
+    fromYear.value = params.from_year ?? null
+  },
 })
 
 const steps = computed(() => [1, 2, 3, 4].map(number => ({ number, label: t(`money_s3.step${number}`) })))

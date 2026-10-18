@@ -1,6 +1,6 @@
 import { computed, createApp, defineComponent, h, nextTick, provide, ref, Fragment } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
-import { RouterView, type RouteLocationRaw, type Router } from 'vue-router'
+import { RouterView, type RouteLocationRaw } from 'vue-router'
 import { i18n, ensureInitialLocaleReady, ensureLocaleLoaded } from '@/i18n'
 import { vMath } from '@/directives/vMath'
 import { vSelectOnFocus } from '@/directives/vSelectOnFocus'
@@ -11,11 +11,11 @@ import { createPaneRouter } from '@/router/createPaneRouter'
 import { setForbiddenPermissionHandler } from '@/api/client'
 import { shortcutFromEvent, useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts'
 import { paneCountFromShortcut, panelIndexFromShortcut } from '@/workspace/panelShortcuts'
-import { installFrameNavigation } from '@/workspace/frameNavigation'
+import { installFrameNavigation, internalAnchorNavigation } from '@/workspace/frameNavigation'
 import { windowContextKey } from '@/workspace/windowContext'
 import Toaster from '@/components/Toaster.vue'
 import WebAuthnCeremonyPrompt from '@/components/WebAuthnCeremonyPrompt.vue'
-import { internalRouteFromAnchor, internalRouteFromElement } from '@/workspace/panelLinks'
+import { internalRouteFromAnchor } from '@/workspace/panelLinks'
 import {
   isWindowFrameParentMessage,
   postWindowFrameMessage,
@@ -58,23 +58,6 @@ function keyboardPayload(event: KeyboardEvent) {
   }
 }
 
-function internalAnchorNavigation(
-  router: Router,
-  event: MouseEvent,
-  canOpenRight: boolean,
-): { to: RouteLocationRaw; newPane?: boolean } | null {
-  if (event.defaultPrevented || event.button !== 0 || event.altKey || event.metaKey || event.shiftKey) return null
-  const newPane = event.ctrlKey
-  if (newPane && !canOpenRight) return null
-  const to = event.target instanceof Element ? internalRouteFromElement(event.target) : null
-  if (!to) return null
-  try {
-    return router.resolve(to).matched.length ? { to, ...(newPane ? { newPane: true } : {}) } : null
-  } catch {
-    return null
-  }
-}
-
 async function initialMessage(frame: WindowFrameBootstrap): Promise<WindowFrameInitMessage> {
   return await new Promise((resolve) => {
     const receive = (event: MessageEvent<unknown>) => {
@@ -96,6 +79,7 @@ export async function startWindowFrame(frame: WindowFrameBootstrap): Promise<voi
   const active = ref(init.active)
   const paneId = ref<WindowFramePaneId | null>(init.paneId ?? null)
   const canOpenRight = ref(init.canOpenRight === true)
+  const canOpenRightWithSplit = ref(init.canOpenRightWithSplit === true)
   const globalShortcuts = ref(new Set(init.globalShortcuts ?? []))
   const pinia = createPinia()
   setActivePinia(pinia)
@@ -208,6 +192,7 @@ export async function startWindowFrame(frame: WindowFrameBootstrap): Promise<voi
     const state: WindowFrameParentMessage = event.data
     active.value = state.active
     if (state.paneId !== undefined) paneId.value = state.paneId
+    if (state.canOpenRightWithSplit !== undefined) canOpenRightWithSplit.value = state.canOpenRightWithSplit
     if (state.canOpenRight !== undefined) canOpenRight.value = state.canOpenRight
     void applyAppearance(state.theme, state.locale, state.accent, state.singlePanel).catch(() => {
       postWindowFrameMessage({ type: 'myucto-window-error', id: frame.id, code: 'locale-failed' })
@@ -246,11 +231,11 @@ export async function startWindowFrame(frame: WindowFrameBootstrap): Promise<voi
   }
 
   document.addEventListener('click', (event) => {
-    const navigation = internalAnchorNavigation(router, event, canOpenRight.value)
+    const navigation = internalAnchorNavigation(router, event, canOpenRight.value, canOpenRightWithSplit.value)
     if (!navigation) return
     event.preventDefault()
     event.stopImmediatePropagation()
-    if (!navigation.newPane && router.resolve(navigation.to).path === router.currentRoute.value.path) void router.push(navigation.to)
+    if (!navigation.newPane && !navigation.placement && router.resolve(navigation.to).path === router.currentRoute.value.path) void router.push(navigation.to)
     else postWindowFrameMessage({ type: 'myucto-window-navigate', id: frame.id, ...navigation })
   }, true)
 

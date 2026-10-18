@@ -127,8 +127,11 @@ final class JournalDescriptionBuilder
             return null;
         }
 
+        // Textový řádek (item_kind 'text') není plnění, popis bere první skutečná položka.
+        $textFilter = $this->db->hasColumn('invoice_items', 'item_kind') ? " AND item_kind <> 'text'" : '';
         $detail = self::clean($detail) ?? $this->firstItemText(
-            'SELECT description FROM invoice_items WHERE invoice_id = ? ORDER BY order_index ASC, id ASC LIMIT 1',
+            'SELECT description FROM invoice_items WHERE invoice_id = ?' . $textFilter
+                . ' ORDER BY order_index ASC, id ASC LIMIT 1',
             [$invoiceId],
         );
 

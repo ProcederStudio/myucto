@@ -6,7 +6,7 @@ REM
 REM  Smaze: login_attempts >24h, expirovane sessions, pouzite password_resets,
 REM         ARES/VIES cache >30 dni, PDF cache >90 dni, log files nad max_files,
 REM         nahrane soubory davek skenu (opustene >48 h, skoncene >7 dni),
-REM         nahrane zalohy agend Money S3 po 7 dnech bez prace s nimi.
+REM         soubory nahrane do prevodu a importu na pozadi po 24 h bez prace s nimi.
 REM
 REM  Task Scheduler:
 REM    schtasks /create /tn "MyUcto Cleanup" ^

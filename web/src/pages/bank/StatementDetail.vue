@@ -261,52 +261,92 @@ async function refreshTransactions() {
   }
 }
 
-onMounted(() => { void load(true).then(highlightLinkedTx) })
+let linkedTxGeneration = 0
+let disposed = false
+let linkedStatementKey = ''
 
-/*
- * Přechod na JINÝ výpis přes odkaz „Druhá noha" mění jen parametr routy, takže
- * vue-router komponentu recykluje a `onMounted` se znovu nespustí. Bez tohohle
- * watcheru se přepsala URL, ale obsah zůstal ze starého výpisu — klik vypadal,
- * že nedělá vůbec nic.
- */
-watch(() => route.params.id, (id, previous) => {
-  if (id === previous) return
+function wantsLinkedTxDetail(): boolean {
+  const id = Number(route.query.tx)
+  return route.query.detail === '1' && Number.isInteger(id) && id > 0
+}
+
+function currentStatementKey(): string {
+  return `${supplierStore.currentSupplierId}:${route.params.id}`
+}
+
+async function loadLinkedStatement(): Promise<void> {
+  const generation = ++linkedTxGeneration
+  linkedStatementKey = currentStatementKey()
   statement.value = null
-  load(true).then(highlightLinkedTx)
-})
-watch(() => route.query.tx, (id, previous) => {
-  if (id === previous || !statement.value) return
-  void highlightLinkedTx()
+  bankActions.textDetail.value = null
+  // Odkaz na konkrétní pohyb musí fungovat i s dříve zapamatovaným filtrem.
+  if (wantsLinkedTxDetail()) {
+    statusFilter.value = ''
+    postingFilter.value = ''
+  }
+  try {
+    await load(true)
+    if (!disposed && generation === linkedTxGeneration) await highlightLinkedTx()
+  } catch (error) {
+    if (!disposed && generation === linkedTxGeneration) toast.error(apiErrorMessage(error))
+  }
+}
+
+async function focusLinkedTx(): Promise<void> {
+  const generation = ++linkedTxGeneration
+  bankActions.textDetail.value = null
+  try {
+    await highlightLinkedTx()
+  } catch (error) {
+    if (!disposed && generation === linkedTxGeneration) toast.error(apiErrorMessage(error))
+  }
+}
+
+onMounted(() => { void loadLinkedStatement() })
+
+// Router recykluje stránku výpisu i při navigaci uvnitř aplikačního panelu.
+// Celé načtení jen při změně výpisu; jiný pohyb téhož výpisu se jen dohledá.
+watch([() => route.params.id, () => route.query.tx, () => route.query.detail,
+  () => supplierStore.currentSupplierId], () => {
+  const sameStatement = statement.value !== null && linkedStatementKey === currentStatementKey()
+  const filtersHideDetail = wantsLinkedTxDetail() && (statusFilter.value !== '' || postingFilter.value !== '')
+  if (sameStatement && !filtersHideDetail) void focusLinkedTx()
+  else void loadLinkedStatement()
 })
 
-/**
- * `?tx=` z odkazu „Druhá noha" — doskroluje na protějšek a probleskne ho.
- * Bez toho uživatel přistál na výpisu, kde nešlo poznat, který ze čtyř řádků
- * je ten hledaný, a proklik vypadal k ničemu.
- */
+/** `?tx=` zvýrazní řádek; `&detail=1` navíc otevře jeho existující detail. */
 async function highlightLinkedTx(): Promise<void> {
   const id = Number(route.query.tx)
   if (!Number.isInteger(id) || id <= 0) return
-  while (!paneDom.querySelector<HTMLElement>(`[data-tx-id="${id}"]`) && txPage.value < txPages.value) {
-    if (refreshing.value) return
-    if (Number(route.query.tx) !== id) return
+  const generation = linkedTxGeneration
+  const statementId = route.params.id
+  const supplierId = supplierStore.currentSupplierId
+  const detail = route.query.detail
+  const isCurrent = () => !disposed && generation === linkedTxGeneration
+    && statementId === route.params.id && supplierId === supplierStore.currentSupplierId
+    && Number(route.query.tx) === id && route.query.detail === detail
+  let tx = statement.value?.transactions.find(tx => tx.id === id)
+  while (!tx && txPage.value < txPages.value) {
+    if (!isCurrent() || refreshing.value) return
+    const previousPage = txPage.value
     await load(false)
-    await nextTick()
+    // Chyba či zneplatněný request nesmí vyvolat další hledání téže stránky.
+    if (!isCurrent() || txPage.value <= previousPage) return
+    tx = statement.value?.transactions.find(tx => tx.id === id)
   }
   await nextTick()
+  if (!isCurrent() || !tx) return
+  if (detail === '1') bankActions.textDetail.value = tx
   const row = paneDom.querySelector<HTMLElement>(`[data-tx-id="${id}"]`)
   if (!row) return
   row.scrollIntoView({ block: 'center', behavior: 'smooth' })
   row.classList.add('row-flash')
-  // Třídu je nutné sundat, jinak by se animace nespustila při druhém příchodu
-  // na tentýž řádek (CSS animace se přehraje jen při nasazení třídy).
   setTimeout(() => row.classList.remove('row-flash'), 2000)
 }
 
 // Změna filtru stavu spárování → reset na 1. stránku (server-side filtr).
 watch([statusFilter, postingFilter, txSort.sort, () => route.params.id, () => supplierStore.currentSupplierId], () => { loadGeneration++ }, { flush: 'sync' })
-onUnmounted(() => { loadGeneration++ })
-watch(() => supplierStore.currentSupplierId, () => { statement.value = null; void load(true) })
+onUnmounted(() => { disposed = true; loadGeneration++; linkedTxGeneration++ })
 watch([statusFilter, postingFilter, txSort.sort], () => {
   if (statement.value) load(true)
 })

@@ -209,6 +209,14 @@ table.items .center { text-align: center; }
 /* DPH sloupec je užší (místo dostal Cena/j) — sazba „21 %" / „12,5 %" o stupínek
    menší, aby se vešla bez zalomení. */
 table.items .vat { font-size: 8.5pt; }
+/* Textový řádek mezi položkami: popis přes celou šířku, bez částek. */
+table.items tr.text-row td { font-weight: 600; color: #3B2D83; }
+/* Sleva z ceníkové ceny (volba firmy): o tři sloupce víc, proto užší odsazení
+   a menší písmo, aby se částky v řádu milionů vešly bez zalomení. */
+table.items-ld th { font-size: 7pt; letter-spacing: 0; padding-left: 1.5mm; padding-right: 1.5mm; }
+table.items-ld td { padding-left: 1.5mm; padding-right: 1.5mm; }
+table.items-ld td.num { font-size: 8pt; }
+table.items-ld th.vat { font-size: 7pt; }
 
 /* ─── SUMACE ─── */
 .totals {
@@ -345,6 +353,13 @@ table.czk-recap tr.grand td {
 .pay-panel.pay-panel-paid {
     background: #EAF6EC;
     border-color: #BFE0C6;
+}
+/* UHRAZENO / VRÁCENO v platebním panelu. Třída místo inline stylu: inline styl
+   by úsporná černobílá varianta (invoice-mono.css) nepřebila, mPDF `!important`
+   zahazuje. Dvě třídy přebijí i branding override `.bank-label`. */
+.bank-label.paid-mark,
+.bank-value.paid-mark {
+    color: #2E7D32;
 }
 /* QR uvnitř panelu — bez vlastního rámečku/paddingu, splývá s podbarvením. */
 .pay-panel td.pay-qr {
@@ -500,6 +515,16 @@ table.czk-recap tr.grand td {
     font-weight: bold;
     color: #3B2D83;
     margin-bottom: 1mm;
+}
+/* Nadpis samostatného výkazu a jeho materiálu (work_report.twig). Branding ho
+   nepřebarvuje (na rozdíl od .wr-title), drží výchozí fialovou. */
+.wr-report-title {
+    color: #3B2D83;
+}
+/* Součtové řádky výkazu (práce, materiál). */
+tr.wr-total {
+    background: #F4F2F8;
+    font-weight: bold;
 }
 /* Proklikávací popis položky faktury → odkaz na stránku s výkazem (podtržený). */
 .wr-link {

@@ -45,9 +45,9 @@ final class BankStatementOwnershipResolver
      * {@see PARAM_COUNT} placeholderů — hodnoty dodá {@see params()} ve stejném
      * pořadí, v jakém se výraz v SQL objeví.
      */
-    public static function sql(string $alias = 'bs'): string
+    public static function sql(string $alias = 'bs', bool $currentRead = false): string
     {
-        return self::predicate('?', $alias);
+        return self::predicate('?', $alias, $currentRead);
     }
 
     /**
@@ -60,8 +60,9 @@ final class BankStatementOwnershipResolver
         return self::predicate($supplierColumn, $alias);
     }
 
-    private static function predicate(string $supplier, string $alias): string
+    private static function predicate(string $supplier, string $alias, bool $currentRead = false): string
     {
+        $lock = $currentRead ? ' FOR UPDATE' : '';
         $stmtAccount = self::normalizedAccount($alias . '.account_number');
         $curAccount  = self::normalizedAccount('bso_cur.account_number');
         $allAccount  = self::normalizedAccount('bso_own.account_number');
@@ -72,13 +73,13 @@ final class BankStatementOwnershipResolver
                         SELECT 1 FROM currencies bso_cur
                          WHERE bso_cur.supplier_id = $supplier
                            AND $curAccount = $stmtAccount
-                           AND " . self::bankCodeMatch('bso_cur', $alias) . "
+                           AND " . self::bankCodeMatch('bso_cur', $alias) . $lock . "
                     )
                     AND (
                         SELECT COUNT(DISTINCT bso_own.supplier_id) FROM currencies bso_own
                          WHERE bso_own.supplier_id IS NOT NULL
                            AND $allAccount = $stmtAccount
-                           AND " . self::bankCodeMatch('bso_own', $alias) . "
+                           AND " . self::bankCodeMatch('bso_own', $alias) . $lock . "
                     ) = 1
                 ) END)";
     }
@@ -111,7 +112,7 @@ final class BankStatementOwnershipResolver
      * Patří bankovní transakce supplieru? `bank_transactions` vlastní sloupec
      * supplier_id nemá — vlastnictví se dědí z hlavičky výpisu.
      */
-    public function transactionOwned(int $transactionId, int $supplierId): bool
+    public function transactionOwned(int $transactionId, int $supplierId, bool $currentRead = false): bool
     {
         if ($transactionId <= 0 || $supplierId <= 0) {
             return false;
@@ -120,11 +121,42 @@ final class BankStatementOwnershipResolver
             'SELECT 1
                FROM bank_transactions bt
                JOIN bank_statements bs ON bs.id = bt.statement_id
-              WHERE bt.id = ? AND ' . self::sql() . ' LIMIT 1'
+              WHERE bt.id = ? AND ' . self::sql('bs', $currentRead) . ' LIMIT 1' . ($currentRead ? ' FOR UPDATE' : '')
         );
         $stmt->execute(array_merge([$transactionId], self::params($supplierId)));
 
         return $stmt->fetchColumn() !== false;
+    }
+
+    /**
+     * Dávkový read-only odkaz z pohybů na přístupné výpisy (např. peněžní deník).
+     * Stejné vlastnictví jako detail výpisu; žádné účetní částky se zde nepočítají.
+     *
+     * @param list<int> $transactionIds
+     * @return array<int,int> ID transakce => ID výpisu
+     */
+    public function statementIdsForTransactions(int $supplierId, array $transactionIds): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $transactionIds), static fn (int $id): bool => $id > 0)));
+        if ($supplierId <= 0 || $ids === []) {
+            return [];
+        }
+
+        $result = [];
+        // Omezení počtu parametrů i pro deník s desítkami tisíc pohybů.
+        foreach (array_chunk($ids, 1000) as $chunk) {
+            $placeholders = implode(',', array_fill(0, count($chunk), '?'));
+            $stmt = $this->db->pdo()->prepare(
+                'SELECT bt.id, bt.statement_id FROM bank_transactions bt
+                  JOIN bank_statements bs ON bs.id = bt.statement_id
+                 WHERE bt.id IN (' . $placeholders . ') AND ' . self::sql() . ' ORDER BY bt.id'
+            );
+            $stmt->execute([...$chunk, ...self::params($supplierId)]);
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $result[(int) $row['id']] = (int) $row['statement_id'];
+            }
+        }
+        return $result;
     }
 
     /**

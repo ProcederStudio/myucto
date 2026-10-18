@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Accounting\Bank;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Repository\BankPostingRuleRepository;
 use MyInvoice\Repository\BankPostingSuggestionRepository;
@@ -13,6 +14,7 @@ use MyInvoice\Repository\JournalEntryRepository;
 use MyInvoice\Repository\PostingRuleRepository;
 use MyInvoice\Repository\TaxAdvanceScheduleRepository;
 use MyInvoice\Service\Accounting\AdvanceSettlementSync;
+use MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard;
 use MyInvoice\Service\Accounting\AutoPostingPolicyService;
 use MyInvoice\Service\Accounting\ForeignCurrencyAccountPolicy;
 use MyInvoice\Service\Accounting\JournalLineAmount;
@@ -31,6 +33,7 @@ use MyInvoice\Service\Accounting\Learning\RulePromotionService;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Bank\AccountNumberNormalizer;
 use MyInvoice\Service\Bank\BankTransactionPostingScope;
+use MyInvoice\Service\Bank\BankTransactionContext;
 use MyInvoice\Service\Bank\FxPaymentSettlement;
 use MyInvoice\Service\Bank\VariableSymbolNormalizer;
 use MyInvoice\Service\Currency\CnbExchangeRateClient;
@@ -51,7 +54,7 @@ use PDO;
  * (guard předpisu H1), opakované platby bez dokladu → pravidla (suggest/auto) nebo
  * naučený návrh (learned). Zaúčtování VÝHRADNĚ přes {@see PostingService}
  * (source_type='bank', idempotence na ('bank', bt.id)). handleTransaction je
- * best-effort hook (nikdy nevyhazuje — loguje), Action cesty (approve/reject/post/
+ * best-effort hook (běžné chyby loguje, abort celé transakce propaguje), Action cesty (approve/reject/post/
  * unpost) chyby propagují jako {@see PostingException}.
  *
  * CZK-only v1, avíza se nikdy neúčtují, saldokonta mimo automatiku (blacklist H2).
@@ -131,7 +134,7 @@ final class BankPostingService
     }
 
     /**
-     * Dorovná zúčtování zálohy na konečných fakturách daných záloh. Nikdy nevyhazuje.
+     * Dorovná zúčtování zálohy; chybu rušící celou transakci předá volajícímu.
      *
      * @param array{purchase?:list<int>, sale?:list<int>} $advances
      */
@@ -230,7 +233,8 @@ final class BankPostingService
     // ── hlavní hook ─────────────────────────────────────────────────────────────
 
     /**
-     * Hlavní hook po každém (re)match/importu. Nikdy nevyhazuje (best-effort, loguje).
+     * Hlavní hook po každém (re)match/importu. Běžné chyby loguje (best-effort),
+     * zrušení celé transakce předá volajícímu.
      *
      * Při výjimce vrací `reason='error'` a NAVÍC `message` s textem výjimky. Bez toho
      * je dávkový běh slepý: 14 transakcí padalo na chybějící sloupec z neaplikované
@@ -262,6 +266,9 @@ final class BankPostingService
             }
             return $result;
         } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             if ($ownTx && $pdo->inTransaction()) {
                 $pdo->rollBack();
             } elseif ($pdo->inTransaction()) {
@@ -271,7 +278,10 @@ final class BankPostingService
             try {
                 $this->activity->log('bank_posting.error', $userId, 'bank_transaction', $txId,
                     ['message' => $e->getMessage()]);
-            } catch (\Throwable) {
+            } catch (\Throwable $auditFailure) {
+                if (TransactionFailure::rollbackIfAborted($pdo, $auditFailure)) {
+                    throw $auditFailure;
+                }
             }
             return ['action' => 'skipped', 'reason' => 'error', 'message' => $e->getMessage()];
         }
@@ -305,6 +315,10 @@ final class BankPostingService
             $activationBackfill = $suggestOnly && $activationSupplierId === $supplierId;
             if ($this->supplierMode($supplierId) !== 'double_entry' && !$activationBackfill) {
                 return ['action' => 'skipped', 'reason' => 'not_double_entry'];
+            }
+            $tx = $this->lockTransaction($supplierId, $txId);
+            if ($tx === null) {
+                return ['action' => 'skipped', 'reason' => 'transaction_not_found'];
             }
             // 3) avízo je provizorní duplikát — nikdy se neúčtuje (GPC takeover doúčtuje GPC tx).
             if ((string) ($tx['source'] ?? 'statement') !== 'statement') {
@@ -378,7 +392,7 @@ final class BankPostingService
             $pdo->beginTransaction();
         }
         try {
-            $tx = $this->loadTx($txId);
+            $tx = $this->lockTransaction($supplierId, $txId);
             if ($tx === null) {
                 if ($ownTx) {
                     $pdo->commit();
@@ -391,6 +405,9 @@ final class BankPostingService
             }
             return $res['action'] === 'posted' ? ($res['entry_id'] ?? null) : null;
         } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             if ($ownTx && $pdo->inTransaction()) {
                 $pdo->rollBack();
             }
@@ -1928,7 +1945,7 @@ final class BankPostingService
         return $count;
     }
 
-    /** Po zaúčtování bankovního zápisu pohybu kartou dorovná vypořádání. Nikdy nevyhazuje. */
+    /** Dorovná vypořádání karty; abort celé transakce propaguje. */
     private function afterCardBankPosted(int $supplierId, int $txId, ?int $userId): void
     {
         if ($this->cardSettlement === null || $this->liveCardClearingLine($supplierId, $txId) === null) {
@@ -1946,6 +1963,9 @@ final class BankPostingService
                 $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
             }
         } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             if ($inTx && $pdo->inTransaction()) {
                 $pdo->exec('ROLLBACK TO SAVEPOINT ' . $savepoint);
                 $pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
@@ -1953,7 +1973,10 @@ final class BankPostingService
             try {
                 $this->activity->log('card_settlement.error', $userId, 'bank_transaction', $txId,
                     ['message' => $e->getMessage()], supplierId: $supplierId);
-            } catch (\Throwable) {
+            } catch (\Throwable $auditFailure) {
+                if (TransactionFailure::rollbackIfAborted($pdo, $auditFailure)) {
+                    throw $auditFailure;
+                }
             }
         }
     }
@@ -2069,7 +2092,14 @@ final class BankPostingService
      */
     public function applyRules(int $supplierId, int $txId, ?int $userId = null, bool $suggestOnly = false): array
     {
-        $tx = $this->loadTx($txId);
+        return (new DimensionPeriodGuard($this->db))->transaction(
+            fn (): array => $this->applyRulesLocked($supplierId, $txId, $userId, $suggestOnly),
+        );
+    }
+
+    private function applyRulesLocked(int $supplierId, int $txId, ?int $userId = null, bool $suggestOnly = false): array
+    {
+        $tx = $this->lockTransaction($supplierId, $txId);
         if ($tx === null) {
             return ['action' => 'skipped', 'reason' => 'transaction_not_found'];
         }
@@ -2146,6 +2176,17 @@ final class BankPostingService
         int $ruleId,
         ?int $userId = null,
     ): array {
+        return (new DimensionPeriodGuard($this->db))->transaction(
+            fn (): array => $this->suggestRuleForBackfillLocked($supplierId, $txId, $ruleId, $userId),
+        );
+    }
+
+    private function suggestRuleForBackfillLocked(
+        int $supplierId,
+        int $txId,
+        int $ruleId,
+        ?int $userId = null,
+    ): array {
         $rule = $this->rules->find($supplierId, $ruleId);
         if ($rule === null) {
             return ['action' => 'skipped', 'reason' => 'rule_not_found'];
@@ -2154,7 +2195,7 @@ final class BankPostingService
             return ['action' => 'skipped', 'reason' => 'rule_inactive'];
         }
 
-        $tx = $this->loadTx($txId);
+        $tx = $this->lockTransaction($supplierId, $txId);
         if ($tx === null || (int) ($tx['statement_supplier_id'] ?? 0) !== $supplierId) {
             return ['action' => 'skipped', 'reason' => 'transaction_not_found'];
         }
@@ -2213,10 +2254,14 @@ final class BankPostingService
      */
     public function applyRuleToTransaction(int $supplierId, int $txId, int $ruleId, ?int $userId = null): array
     {
-        if (!$this->txOwnedBySupplier($txId, $supplierId)) {
-            return ['status' => 'skipped', 'reason' => 'transaction_not_found'];
-        }
-        $tx = $this->loadTx($txId);
+        return (new DimensionPeriodGuard($this->db))->transaction(
+            fn (): array => $this->applyRuleToTransactionLocked($supplierId, $txId, $ruleId, $userId),
+        );
+    }
+
+    private function applyRuleToTransactionLocked(int $supplierId, int $txId, int $ruleId, ?int $userId = null): array
+    {
+        $tx = $this->lockTransaction($supplierId, $txId);
         $rule = $this->rules->find($supplierId, $ruleId);
         if ($tx === null || $rule === null) {
             return ['status' => 'skipped', 'reason' => $tx === null ? 'transaction_not_found' : 'rule_not_found'];
@@ -2611,7 +2656,7 @@ final class BankPostingService
             if ((string) ($tx['source'] ?? 'statement') !== 'statement') {
                 throw new PostingException('email_notice_provisional', 'Avízo se neúčtuje.');
             }
-            $this->assertPostableTx($tx, true);
+            $this->assertPostableTx($tx, true, false);
             if (!$matched) return $result;
             $lines = $this->previewMatchedLines($supplierId, $tx);
             PostingService::assertBalanced($lines);
@@ -2663,7 +2708,7 @@ final class BankPostingService
         }
 
         if ($source === 'payment_match') {
-            $this->assertPostableTx($tx, true);
+            $this->assertPostableTx($tx, true, false);
             $lines = (string) ($sug['note'] ?? '') === 'fee_gap'
                 ? $this->buildIncomingFeeGap($supplierId, $tx, (float) $sug['amount'])['lines']
                 : $this->buildMatched($supplierId, $tx)['lines'];
@@ -2688,7 +2733,7 @@ final class BankPostingService
             $isForeignRule = $currency !== 'CZK'
                 && $rule !== null
                 && strtoupper((string) ($rule['applies_currency'] ?? 'CZK')) === $currency;
-            $this->assertPostableTx($tx, $isForeignRule);
+            $this->assertPostableTx($tx, $isForeignRule, false);
             $debit = (string) $sug['debit_account_code'];
             $credit = (string) $sug['credit_account_code'];
             $this->assertSaldoBlacklist((float) $tx['amount'], $debit, $credit);
@@ -2746,7 +2791,16 @@ final class BankPostingService
             $pdo->beginTransaction();
         }
         try {
+            $candidate = $this->suggestions->find($supplierId, $suggestionId);
+            $txId = (int) ($candidate['bank_transaction_id'] ?? 0);
+            $tx = $this->lockTransaction($supplierId, $txId);
+            if ($tx === null) {
+                throw new PostingException('not_found', 'Transakce nenalezena.', 404);
+            }
             $sug = $this->suggestions->findForUpdate($supplierId, $suggestionId);
+            if ($sug !== null && (int) $sug['bank_transaction_id'] !== $txId) {
+                throw new PostingException('not_found', 'Transakce nenalezena.', 404);
+            }
             if ($sug === null) {
                 throw new PostingException('not_found', 'Návrh nenalezen.', 404);
             }
@@ -2800,7 +2854,6 @@ final class BankPostingService
                 return $entryId;
             }
             $txId = (int) $sug['bank_transaction_id'];
-            $tx = $this->loadTx($txId);
             if ($tx === null) {
                 throw new PostingException('not_found', 'Transakce nenalezena.', 404);
             }
@@ -2914,6 +2967,9 @@ final class BankPostingService
             $this->enqueueBankEmbedding($supplierId, $txId);
             return $entryId;
         } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             if ($ownTx && $pdo->inTransaction()) {
                 $pdo->rollBack();
             }
@@ -2998,91 +3054,82 @@ final class BankPostingService
      */
     public function postManual(int $supplierId, int $txId, array $input, array $meta): array
     {
-        $tx = $this->loadTx($txId);
-        if ($tx === null) {
-            throw new PostingException('not_found', 'Transakce nenalezena.', 404);
-        }
-        // Tenant hranice: volající supplier je ZNÁMÝ (session), takže se vlastnictví
-        // NEODVOZUJE z čísla účtu. resolveSupplierCandidates() je nástroj pro opačnou
-        // úlohu (kdo je vlastník neznámé tx) a při kolizi account_canonical vrací víc
-        // firem — `in_array` pak pustil kteroukoli z nich. Rozhoduje výhradně
-        // {@see BankStatementOwnershipResolver}: bs.supplier_id, a jen u legacy výpisů
-        // bez něj jednoznačná shoda účtu (fail-closed při dvou a více kandidátech).
-        if (!$this->txOwnedBySupplier($txId, $supplierId)) {
-            throw new PostingException('not_found', 'Transakce nepatří této firmě.', 404);
-        }
-        if ($this->supplierMode($supplierId) !== 'double_entry') {
-            throw new PostingException('not_double_entry', 'Firma nevede podvojné účetnictví.');
-        }
-        if ((string) ($tx['source'] ?? 'statement') !== 'statement') {
-            throw new PostingException('email_notice_provisional', 'Avízo se neúčtuje.');
-        }
-        // Ruční zaúčtování cizí měny povolené — automatika ji odmítá (pravidla pracují s CZK),
-        // ale člověk s doklady v ruce ji zaúčtovat umí a jinak by pohyb visel navždy.
-        $this->assertPostableTx($tx, allowForeign: true);
-        $existing = $this->journal->findBySource($supplierId, 'bank', $txId);
-        if ($existing !== null && ($existing['reversed_by'] ?? null) === null) {
-            throw new PostingException('already_posted', 'Transakce už je zaúčtovaná.', 409);
-        }
-
-        $signedAmount  = (float) $tx['amount'];
-        $currency      = strtoupper($this->effectiveCurrency($tx));
-        $foreignAmount = round(abs($signedAmount), 2);
-        $fxRate        = $currency === 'CZK'
-            ? null
-            : $this->paymentRateForDay($supplierId, $currency, (string) $tx['posted_at']);
-        $absAmount     = $fxRate === null ? $foreignAmount : round($foreignAmount * $fxRate, 2);
-
-        $rawLines = $input['lines'] ?? null;
-        if (is_array($rawLines) && $rawLines !== []) {
-            // Pravidlo z rozúčtování nelze založit: multi-line smí saldokonta (viz manualLines),
-            // pravidlo ne (H2) — jinak by se přes tuhle cestu dal blacklist obejít.
-            if (isset($input['create_rule']) && is_array($input['create_rule']) && $input['create_rule'] !== []) {
-                throw new PostingException('validation_failed',
-                    'Z rozúčtování na víc řádků nelze založit pravidlo — pravidlo dává smysl jen u dvojice MD/D.');
-            }
-            if (!empty($input['amounts_in_foreign'])) {
-                if ($fxRate === null) {
-                    throw new PostingException('validation_failed', 'Částky v cizí měně jde zadat jen u cizoměnového pohybu.');
-                }
-                $lines = $this->foreignManualLines($rawLines, $signedAmount, $absAmount, $currency, $fxRate, $foreignAmount);
-            } else {
-                $lines = $this->manualLines($rawLines, $signedAmount, $absAmount, $currency, $fxRate, $foreignAmount);
-            }
-            [$debit, $credit] = $this->primaryPair($lines, $signedAmount);
-        } else {
-            $debit  = trim((string) ($input['debit_account_code'] ?? ''));
-            $credit = trim((string) ($input['credit_account_code'] ?? ''));
-            if ($debit === '' || $credit === '') {
-                throw new PostingException('validation_failed', 'Zadej kontaci MD/D nebo řádky rozúčtování.');
-            }
-            // Saldokonto se tu — na rozdíl od pravidel (H2) — NEzakazuje. Zákaz mířil na
-            // automatiku a do dvojice MD/D se dostal jen souběhem s R6 guardem; ruční
-            // rozúčtování na víc řádků saldokonta odjakživa smí ({@see manualLines}) a
-            // vzniká z něj TÝŽ zápis, takže zákaz nic nechránil — jen z nabídky vyřízl
-            // celé 311/321/…, takže našeptávač po napsání „311" nenabídl ani 311.100.
-            $this->assertBankSide($signedAmount, $debit, $credit);
-            $lines = $fxRate === null
-                ? [
-                    $this->line($debit, 'debit', $absAmount),
-                    $this->line($credit, 'credit', $absAmount),
-                ]
-                : [
-                    $this->withFxTrace($this->line($debit, 'debit', $absAmount), $currency, $fxRate, $foreignAmount),
-                    $this->withFxTrace($this->line($credit, 'credit', $absAmount), $currency, $fxRate, $foreignAmount),
-                ];
-        }
-
-        $description = isset($input['description']) && trim((string) $input['description']) !== ''
-            ? trim((string) $input['description'])
-            : $this->entryDescription($tx);
-
         $pdo = $this->db->pdo();
         $ownTx = !$pdo->inTransaction();
         if ($ownTx) {
             $pdo->beginTransaction();
         }
         try {
+            $tx = $this->lockTransaction($supplierId, $txId);
+            if ($tx === null) {
+                throw new PostingException('not_found', 'Transakce nenalezena.', 404);
+            }
+            if ($this->supplierMode($supplierId) !== 'double_entry') {
+                throw new PostingException('not_double_entry', 'Firma nevede podvojné účetnictví.');
+            }
+            if ((string) ($tx['source'] ?? 'statement') !== 'statement') {
+                throw new PostingException('email_notice_provisional', 'Avízo se neúčtuje.');
+            }
+            // Ruční zaúčtování cizí měny povolené — automatika ji odmítá (pravidla pracují s CZK),
+            // ale člověk s doklady v ruce ji zaúčtovat umí a jinak by pohyb visel navždy.
+            $this->assertPostableTx($tx, allowForeign: true);
+            $existing = $this->journal->findBySource($supplierId, 'bank', $txId);
+            if ($existing !== null && ($existing['reversed_by'] ?? null) === null) {
+                throw new PostingException('already_posted', 'Transakce už je zaúčtovaná.', 409);
+            }
+
+            $signedAmount  = (float) $tx['amount'];
+            $currency      = strtoupper($this->effectiveCurrency($tx));
+            $foreignAmount = round(abs($signedAmount), 2);
+            $fxRate        = $currency === 'CZK'
+                ? null
+                : $this->paymentRateForDay($supplierId, $currency, (string) $tx['posted_at']);
+            $absAmount     = $fxRate === null ? $foreignAmount : round($foreignAmount * $fxRate, 2);
+
+            $rawLines = $input['lines'] ?? null;
+            if (is_array($rawLines) && $rawLines !== []) {
+                // Pravidlo z rozúčtování nelze založit: multi-line smí saldokonta (viz manualLines),
+                // pravidlo ne (H2) — jinak by se přes tuhle cestu dal blacklist obejít.
+                if (isset($input['create_rule']) && is_array($input['create_rule']) && $input['create_rule'] !== []) {
+                    throw new PostingException('validation_failed',
+                        'Z rozúčtování na víc řádků nelze založit pravidlo — pravidlo dává smysl jen u dvojice MD/D.');
+                }
+                if (!empty($input['amounts_in_foreign'])) {
+                    if ($fxRate === null) {
+                        throw new PostingException('validation_failed', 'Částky v cizí měně jde zadat jen u cizoměnového pohybu.');
+                    }
+                    $lines = $this->foreignManualLines($rawLines, $signedAmount, $absAmount, $currency, $fxRate, $foreignAmount);
+                } else {
+                    $lines = $this->manualLines($rawLines, $signedAmount, $absAmount, $currency, $fxRate, $foreignAmount);
+                }
+                [$debit, $credit] = $this->primaryPair($lines, $signedAmount);
+            } else {
+                $debit  = trim((string) ($input['debit_account_code'] ?? ''));
+                $credit = trim((string) ($input['credit_account_code'] ?? ''));
+                if ($debit === '' || $credit === '') {
+                    throw new PostingException('validation_failed', 'Zadej kontaci MD/D nebo řádky rozúčtování.');
+                }
+                // Saldokonto se tu — na rozdíl od pravidel (H2) — NEzakazuje. Zákaz mířil na
+                // automatiku a do dvojice MD/D se dostal jen souběhem s R6 guardem; ruční
+                // rozúčtování na víc řádků saldokonta odjakživa smí ({@see manualLines}) a
+                // vzniká z něj TÝŽ zápis, takže zákaz nic nechránil — jen z nabídky vyřízl
+                // celé 311/321/…, takže našeptávač po napsání „311" nenabídl ani 311.100.
+                $this->assertBankSide($signedAmount, $debit, $credit);
+                $lines = $fxRate === null
+                    ? [
+                        $this->line($debit, 'debit', $absAmount),
+                        $this->line($credit, 'credit', $absAmount),
+                    ]
+                    : [
+                        $this->withFxTrace($this->line($debit, 'debit', $absAmount), $currency, $fxRate, $foreignAmount),
+                        $this->withFxTrace($this->line($credit, 'credit', $absAmount), $currency, $fxRate, $foreignAmount),
+                    ];
+            }
+
+            $description = isset($input['description']) && trim((string) $input['description']) !== ''
+                ? trim((string) $input['description'])
+                : $this->entryDescription($tx);
+
             $pending = $this->suggestions->pendingForTx($supplierId, $txId);
             // Bankovní noha patří na analytiku vlastního účtu výpisu (#35) — stejně jako
             // u automatiky i schvalování návrhu. Ruční zaúčtování jako jediné tenhle krok
@@ -3132,6 +3179,9 @@ final class BankPostingService
                 $pdo->commit();
             }
         } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             if ($ownTx && $pdo->inTransaction()) {
                 $pdo->rollBack();
             }
@@ -3165,10 +3215,10 @@ final class BankPostingService
      * @param list<array<string,mixed>> $rawLines
      * @return list<array{account_code:string, side:string, amount:float}>
      */
-    public function prepareRepostLines(int $supplierId, int $txId, array $rawLines): array
+    public function prepareRepostLines(int $supplierId, int $txId, array $rawLines, bool $currentRead = false): array
     {
-        $tx = $this->loadTx($txId);
-        if ($tx === null || !$this->txOwnedBySupplier($txId, $supplierId)) {
+        $tx = $currentRead ? $this->lockTransaction($supplierId, $txId) : $this->loadTx($txId);
+        if ($tx === null || (!$currentRead && !$this->txOwnedBySupplier($txId, $supplierId))) {
             throw new PostingException('not_found', 'Transakce nenalezena.', 404);
         }
         if ($this->supplierMode($supplierId) !== 'double_entry') {
@@ -3177,7 +3227,7 @@ final class BankPostingService
         if ((string) ($tx['source'] ?? 'statement') !== 'statement') {
             throw new PostingException('email_notice_provisional', 'Avízo se neúčtuje.');
         }
-        $this->assertPostableTx($tx, allowForeign: true);
+        $this->assertPostableTx($tx, allowForeign: true, currentRead: $currentRead);
 
         $signedAmount  = (float) $tx['amount'];
         $currency      = strtoupper($this->effectiveCurrency($tx));
@@ -3205,6 +3255,9 @@ final class BankPostingService
             $pdo->beginTransaction();
         }
         try {
+            if ($this->lockTransaction($supplierId, $txId) === null) {
+                throw new PostingException('not_found', 'Transakce nenalezena.', 404);
+            }
             $scheduleId = $this->suggestions->scheduleIdForTx($supplierId, $txId);
             $existing = $this->journal->findBySource($supplierId, 'bank', $txId);
             if ($existing === null || ($existing['reversed_by'] ?? null) !== null) {
@@ -3256,6 +3309,9 @@ final class BankPostingService
             }
             return $reversalId;
         } catch (\Throwable $e) {
+            if (TransactionFailure::rollbackIfAborted($pdo, $e)) {
+                throw $e;
+            }
             if ($ownTx && $pdo->inTransaction()) {
                 $pdo->rollBack();
             }
@@ -3435,8 +3491,10 @@ final class BankPostingService
         try {
             $this->aiSuggestions?->metric($supplierId, $source, $metric);
             $this->aiKillSwitch?->evaluate($supplierId, $source);
-        } catch (\Throwable) {
-            // Účetní rozhodnutí nesmí selhat kvůli pomocné AI telemetrii.
+        } catch (\Throwable $failure) {
+            if (TransactionFailure::rollbackIfAborted($this->db->pdo(), $failure)) {
+                throw $failure;
+            }
         }
     }
 
@@ -3548,7 +3606,10 @@ final class BankPostingService
     {
         try {
             $this->embeddingWriter?->enqueueFromDecision($supplierId, 'bank_transaction', $txId);
-        } catch (\Throwable) {
+        } catch (\Throwable $failure) {
+            if (TransactionFailure::rollbackIfAborted($this->db->pdo(), $failure)) {
+                throw $failure;
+            }
         }
     }
 
@@ -3772,10 +3833,10 @@ final class BankPostingService
     }
 
     /** @param array<string,mixed> $tx */
-    private function assertPostableTx(array $tx, bool $allowForeign = false): void
+    private function assertPostableTx(array $tx, bool $allowForeign = false, bool $currentRead = true): void
     {
         ($this->payrollEvidence ?? new PayrollBankEvidenceGuard($this->db))
-            ->assertAvailableForBankPosting((int) $tx['id']);
+            ->assertAvailableForBankPosting((int) $tx['id'], $currentRead);
         if ((string) $tx['match_status'] === 'ignored') {
             throw new PostingException('transaction_ignored', 'Ignorovanou transakci nelze účtovat.');
         }
@@ -4258,8 +4319,15 @@ final class BankPostingService
      */
     public function repostMatchedInPlace(int $supplierId, int $txId, ?int $userId = null): int
     {
-        $tx = $this->loadTx($txId);
-        if ($tx === null || !$this->txOwnedBySupplier($txId, $supplierId)) {
+        return (new DimensionPeriodGuard($this->db))->transaction(
+            fn (): int => $this->repostMatchedInPlaceLocked($supplierId, $txId, $userId),
+        );
+    }
+
+    private function repostMatchedInPlaceLocked(int $supplierId, int $txId, ?int $userId = null): int
+    {
+        $tx = $this->lockTransaction($supplierId, $txId);
+        if ($tx === null) {
             throw new PostingException('not_found', 'Transakce nenalezena.', 404);
         }
         $live = $this->journal->findBySource($supplierId, 'bank', $txId);
@@ -4496,22 +4564,21 @@ final class BankPostingService
     // ── data access ─────────────────────────────────────────────────────────────
 
     /** @return array<string,mixed>|null */
+    public function lockStatement(int $supplierId, int $statementId): ?array
+    {
+        return (new BankTransactionContext($this->db))->statement($supplierId, $statementId);
+    }
+
+    /** @return array<string,mixed>|null */
+    public function lockTransaction(int $supplierId, int $txId): ?array
+    {
+        return (new BankTransactionContext($this->db))->lock($supplierId, $txId);
+    }
+
+    /** @return array<string,mixed>|null */
     private function loadTx(int $txId): ?array
     {
-        $stmt = $this->db->pdo()->prepare(
-            'SELECT bt.*, bs.supplier_id AS statement_supplier_id,
-                    bs.account_number AS recipient_account, bs.bank_code AS recipient_bank,
-                    bs.currency AS statement_currency,
-                    (EXISTS (SELECT 1 FROM invoice_payments ip WHERE ip.bank_transaction_id = bt.id)
-                     OR EXISTS (SELECT 1 FROM payment_matches pm WHERE pm.bank_transaction_id = bt.id))
-                        AS has_explicit_allocation
-               FROM bank_transactions bt
-               JOIN bank_statements   bs ON bs.id = bt.statement_id
-              WHERE bt.id = ?'
-        );
-        $stmt->execute([$txId]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        return $row === false ? null : $row;
+        return (new BankTransactionContext($this->db))->find($txId);
     }
 
     /**
@@ -4521,20 +4588,9 @@ final class BankPostingService
      * sdílený s ostatními bankovními cestami ({@see BankStatementOwnershipResolver}),
      * takže „vidím výpis" a „smím z něj účtovat" nemůžou rozejít.
      */
-    private function txOwnedBySupplier(int $txId, int $supplierId): bool
+    private function txOwnedBySupplier(int $txId, int $supplierId, bool $currentRead = false): bool
     {
-        if ($txId <= 0 || $supplierId <= 0) {
-            return false;
-        }
-        $stmt = $this->db->pdo()->prepare(
-            'SELECT 1
-               FROM bank_transactions bt
-               JOIN bank_statements bs ON bs.id = bt.statement_id
-              WHERE bt.id = ? AND ' . BankStatementOwnershipResolver::sql('bs') . ' LIMIT 1'
-        );
-        $stmt->execute(array_merge([$txId], BankStatementOwnershipResolver::params($supplierId)));
-
-        return $stmt->fetchColumn() !== false;
+        return (new BankStatementOwnershipResolver($this->db))->transactionOwned($txId, $supplierId, $currentRead);
     }
 
     /**

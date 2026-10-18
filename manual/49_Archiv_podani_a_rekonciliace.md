@@ -182,6 +182,8 @@ pracují **nad celým archivem**, ne jen nad zobrazenou stránkou.
 Změna filtru i hledání vás vždy vrátí na první stránku. Záznamy jsou řazené od
 nejnovějšího.
 
+Řádek (na mobilu karta), jehož detail je otevřený, zůstává v seznamu zvýrazněný; otevření jiného detailu zvýraznění přesune a zavření detailu ho odstraní.
+
 > [!TIP]
 > **Souhrnné dlaždice nahoře jsou vědomě jiné číslo než počet ve stránkování.** Počet u stránkování odpovídá tomu, co jste vyfiltrovali. Dlaždice se počítají nad celým viditelným archivem, protože slouží k navigaci. Kdyby se počítaly ze stránky, tvrdily by „2 problémy", i když jich je třicet o dvě stránky dál. Kdyby se vázaly na filtr, ztratily by smysl.
 

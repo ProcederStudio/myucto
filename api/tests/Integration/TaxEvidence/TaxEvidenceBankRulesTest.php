@@ -6,6 +6,7 @@ namespace MyInvoice\Tests\Integration\TaxEvidence;
 
 use MyInvoice\Service\TaxEvidence\TaxEvidenceBankRules;
 use PHPUnit\Framework\Attributes\Group;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Pravidla bankovních pohybů v daňové evidenci (issue #140, migrace 1990).
@@ -63,11 +64,121 @@ final class TaxEvidenceBankRulesTest extends CashJournalTestCase
         self::assertSame(0, $this->rules->apply($this->supplierId)['applied'], 'mimo daňovou evidenci nic');
     }
 
+    public static function accountCriteria(): iterable
+    {
+        yield 'bank only' => ['*/5050'];
+        yield 'account and bank' => ['1000000005/5050'];
+    }
+
+    #[DataProvider('accountCriteria')]
+    public function testRuleUsesBankCodeFromStatement(string $criterion): void
+    {
+        $st = $this->statement($this->supplierId, $this->accountA);
+        $matching = $this->bankTxFrom($st, -100.0, '1000000005', 'Test banky');
+        $other = $this->bankTxFrom($st, -100.0, '1000000005', 'Jiná banka');
+        $update = $this->db->pdo()->prepare('UPDATE bank_transactions SET counterparty_bank = ? WHERE id = ?');
+        $update->execute(['5050', $matching]);
+        $update->execute(['0100', $other]);
+        $this->createRule(['name' => 'Banka', 'counterparty_account' => $criterion, 'action_ignore' => true]);
+
+        self::assertSame(['applied' => 1, 'ignored' => 1, 'classified' => 0], $this->rules->apply($this->supplierId));
+        self::assertSame('ignored', $this->scalar('SELECT match_status FROM bank_transactions WHERE id = ?', [$matching]));
+        self::assertSame('unmatched', $this->scalar('SELECT match_status FROM bank_transactions WHERE id = ?', [$other]));
+    }
+
     public function testValidationRequiresCriterionAndAction(): void
     {
         $v = TaxEvidenceBankRules::validate(['name' => 'Prázdné']);
         self::assertArrayHasKey('criteria', $v['errors']);
         self::assertArrayHasKey('action', $v['errors']);
+    }
+
+    public function testConstantSymbolIsPersistedListedUpdatedAndCleared(): void
+    {
+        $id = $this->createRule(['name' => 'KS', 'constant_symbol' => '0308', 'action_ignore' => true]);
+        self::assertSame('0308', $this->rules->find($this->supplierId, $id)['constant_symbol']);
+        self::assertSame('0308', $this->rules->list($this->supplierId)[0]['constant_symbol']);
+
+        $updated = TaxEvidenceBankRules::validate(['name' => 'Nový KS', 'constant_symbol' => '0000', 'action_ignore' => true]);
+        self::assertSame([], $updated['errors']);
+        self::assertTrue($this->rules->update($this->supplierId, $id, $updated['data']));
+        self::assertSame('0000', $this->rules->find($this->supplierId, $id)['constant_symbol']);
+
+        $cleared = TaxEvidenceBankRules::validate(['name' => 'Bez KS', 'text_contains' => 'poplatek', 'action_ignore' => true]);
+        self::assertSame([], $cleared['errors']);
+        self::assertTrue($this->rules->update($this->supplierId, $id, $cleared['data']));
+        self::assertNull($this->rules->list($this->supplierId)[0]['constant_symbol']);
+    }
+
+    public function testConstantSymbolOnlyRuleUsesTransactionSymbolAndCountsHits(): void
+    {
+        $st = $this->statement($this->supplierId, $this->accountA);
+        $matching = [];
+        $unmatched = [];
+        foreach (['0308', '308', '0558', null, '', 'abc', '03 08'] as $symbol) {
+            $tx = $this->bankTxFrom($st, -100.0, '', 'Test KS');
+            $this->db->pdo()->prepare('UPDATE bank_transactions SET constant_symbol = ? WHERE id = ?')->execute([$symbol, $tx]);
+            if (in_array($symbol, ['0308', '308'], true)) {
+                $matching[] = $tx;
+            } else {
+                $unmatched[] = $tx;
+            }
+        }
+        $id = $this->createRule(['name' => 'KS', 'constant_symbol' => '0308', 'action_ignore' => true,
+            'tax_bucket' => 'expense_taxable']);
+
+        self::assertSame(['applied' => 2, 'ignored' => 2, 'classified' => 2], $this->rules->apply($this->supplierId, $st, $this->userId));
+        foreach ($matching as $tx) {
+            self::assertSame('ignored', $this->scalar('SELECT match_status FROM bank_transactions WHERE id = ?', [$tx]));
+            self::assertSame('expense_taxable', $this->scalar(
+                'SELECT tax_bucket FROM de_movement_classification WHERE supplier_id = ? AND bank_transaction_id = ?',
+                [$this->supplierId, $tx],
+            ));
+        }
+        foreach ($unmatched as $tx) {
+            self::assertSame('unmatched', $this->scalar('SELECT match_status FROM bank_transactions WHERE id = ?', [$tx]));
+        }
+        self::assertSame(2, $this->rules->find($this->supplierId, $id)['hit_count']);
+        self::assertNotNull($this->rules->find($this->supplierId, $id)['last_hit_at']);
+        self::assertSame(0, $this->rules->apply($this->supplierId)['applied'], 'zařazené pohyby se podruhé nemění');
+    }
+
+    public function testZeroConstantSymbolDoesNotMatchMissingSymbol(): void
+    {
+        $st = $this->statement($this->supplierId, $this->accountA);
+        $zero = $this->bankTxFrom($st, -100.0, '', 'Nulový KS');
+        $missing = $this->bankTxFrom($st, -100.0, '', 'Bez KS');
+        $this->db->pdo()->prepare('UPDATE bank_transactions SET constant_symbol = ? WHERE id = ?')->execute(['0', $zero]);
+        $this->createRule(['name' => 'Nulový KS', 'constant_symbol' => '0000', 'action_ignore' => true]);
+
+        self::assertSame(['applied' => 1, 'ignored' => 1, 'classified' => 0], $this->rules->apply($this->supplierId));
+        self::assertSame('ignored', $this->scalar('SELECT match_status FROM bank_transactions WHERE id = ?', [$zero]));
+        self::assertSame('unmatched', $this->scalar('SELECT match_status FROM bank_transactions WHERE id = ?', [$missing]));
+    }
+
+    public function testConstantSymbolRespectsSupplierScopeManualClassificationAndMatchedStatus(): void
+    {
+        $st = $this->statement($this->supplierId, $this->accountA);
+        $manual = $this->bankTxFrom($st, -100.0, '', 'Ručně zařazený');
+        $matched = $this->bankTxFrom($st, -100.0, '', 'Spárovaný');
+        $otherSupplier = $this->cloneSupplier('tax_evidence', true);
+        $this->currencyRow($otherSupplier, 'CZK', '1000000005', '2010');
+        $other = $this->bankTxFrom($this->statement($otherSupplier, '1000000005'), -100.0, '', 'Jiná firma');
+        $update = $this->db->pdo()->prepare('UPDATE bank_transactions SET constant_symbol = ? WHERE id = ?');
+        foreach ([$manual, $matched, $other] as $tx) {
+            $update->execute(['0308', $tx]);
+        }
+        $this->classifyOverride($this->supplierId, 'bank', $manual, 'private');
+        $this->db->pdo()->prepare("UPDATE bank_transactions SET match_status = 'auto_exact' WHERE id = ?")->execute([$matched]);
+        $this->createRule(['name' => 'KS', 'constant_symbol' => '0308', 'action_ignore' => true, 'tax_bucket' => 'expense_taxable']);
+
+        self::assertSame(['applied' => 0, 'ignored' => 0, 'classified' => 0], $this->rules->apply($this->supplierId));
+        self::assertSame('private', $this->scalar(
+            'SELECT tax_bucket FROM de_movement_classification WHERE supplier_id = ? AND bank_transaction_id = ?',
+            [$this->supplierId, $manual],
+        ));
+        self::assertSame('auto_exact', $this->scalar('SELECT match_status FROM bank_transactions WHERE id = ?', [$matched]));
+        self::assertSame('unmatched', $this->scalar('SELECT match_status FROM bank_transactions WHERE id = ?', [$other]));
     }
 
     /** @param array<string,mixed> $body */

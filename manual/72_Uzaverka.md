@@ -118,7 +118,7 @@ Nebyl-li v období žádný odpisovaný majetek, krok se přeskočí sám.
 Krok se zpřístupní až po zahájení uzávěrky. Zobrazí přecenění cizoměnových položek kurzem ČNB k rozvahovému
 dni (§ 24 odst. 6 a 7 zákona o účetnictví, ČÚS 006).
 
-1. V části **Saldokonto** zkontrolujte tabulku otevřených cizoměnových vydaných (FV) a přijatých (FP) faktur: zbývá v cizí měně, kurz dokladu, kurz ČNB a vypočtený rozdíl (zeleně kladný, červeně záporný). Nad tabulkou je pro každou měnu použitý kurz ČNB a datum; pokud se ke dni nenašel platný kurz a použil se náhradní, zobrazí se u měny varovná ikona.
+1. V části **Saldokonto** zkontrolujte tabulku cizoměnových vydaných (FV) a přijatých (FP) faktur: zbývá v cizí měně, kurz dokladu a kurz ČNB. Změna ocenění od dokladu, přecenění přenesené z minulých let a skutečný zisk nebo ztráta tohoto roku mají samostatné sloupce. Zelená označuje zisk běžného roku, červená ztrátu; změna korunové hodnoty závazku sama o sobě není zisk. Nad tabulkou je pro každou měnu použitý kurz ČNB a datum; pokud se ke dni nenašel platný kurz a použil se náhradní, zobrazí se u měny varovná ikona.
 2. V části **Devizové účty a valutové pokladny** doplňte řádky: účet z osnovy, měna, **Zůstatek v cizí měně**. Tlačítkem **Přidat řádek pokladny** přidáte řádek, křížkem ho odeberete. Aplikace nabízí i návrhy zůstatků z posledních bankovních výpisů, účet osnovy ale doplňte ručně (výpis nese jen číslo účtu banky).
 3. Cizoměnové zůstatky účtů **378** a **379** (například eurová záloha od faktora) aplikace přecení sama z účetního deníku. Zobrazí je v samostatné tabulce jen pro čtení. Bere jen řádky v dané měně, korunové pohyby na týchž účtech se nepřeceňují. Tyto účty do devizových účtů nezadávejte, aplikace je tam odmítne.
 4. Klikněte na **Přepočítat návrh** (náhled bez zaúčtování).
@@ -127,10 +127,14 @@ dni (§ 24 odst. 6 a 7 zákona o účetnictví, ČÚS 006).
 
 Administrátor může přecenění vzít zpět tlačítkem **Zrušit přecenění** (smaže zaúčtovaný zápis).
 
+Saldokontní kurzové zisky a ztráty se počítají pro jednotlivé doložené účetní případy. Zisk jedné faktury se při účtování nezapočítává proti ztrátě jiné faktury. Dobropis se posuzuje spolu s původním dokladem, pokud je doložena jejich vazba a stejná protistrana. Přecenění zachovává středisko, projekt i úplné dimenze zdrojového zápisu. Při pokračování z minulého období se odečte pouze prokazatelně přenesené přecenění. Program kontroluje uložený rozpis, účetní zápis, případné storno a návaznost uzavření a otevření knih. Pokud podklady nesouhlasí nebo chybí, přecenění zastaví s konkrétním důvodem; uzavřené knihy automaticky nemění.
+
 **Jak poznáte, že je hotovo:** Aplikace ohlásí **Kurzové rozdíly byly zaúčtovány** a krok je potvrzený.
 
 Pokud se v nastavení nevytváří storno přecenění na začátku nového roku, následující přecenění dopočítá jen
 rozdíl proti již zaúčtované účetní hodnotě; předchozí kurzový rozdíl se proto neúčtuje podruhé.
+
+U cizoměnových pohledávek a závazků se otevřená částka určuje v měně dokladu z doložených úhrad a zúčtovaných záloh. Bankovní párování a samostatná evidence téže platby se nezapočítávají dvakrát. Rozporné vazby, storno platby s ponechanou vazbou nebo nedoložitelné rozdělení zálohy vyžadují opravu evidence před přeceněním. Samotný historický údaj o zaplacení se použije jen bez konkrétní evidence úhrad; pokud evidence existuje, má přednost a rozdíl je uveden jako upozornění.
 
 ### 72.4.4 Kroky 4 a 5: Dohadné položky a časové rozlišení
 
@@ -291,6 +295,11 @@ se smažou, opět s auditní stopou).
 
 **Jak poznáte, že je hotovo:** Aplikace ohlásí **Nový rok byl otevřen**.
 
+Zůstatky rozvahových účtů se přenášejí včetně dimenzí, středisek a projektů. Zachovají se kombinace více
+dimenzí i částky procentních rozpadů po haléřích. Přenáší se také nenulová salda jednotlivých hodnot,
+i když je celý účet v součtu nulový. Následující uzávěrka vychází z počátečních stavů tohoto roku,
+stejně jako účetní sestavy.
+
 Administrátor může krok vrátit tlačítkem **Vzít zpět otevření roku**.
 
 #### Převzaté počáteční stavy
@@ -310,8 +319,9 @@ ukáže jeden ze stavů:
 
 Porovnává se účet po účtu: konečné stavy rozvahových účtů a výsledek hospodaření na účtu 431 (tak, jak by je krok
 zaúčtoval) proti součtu převzatých otevíracích zápisů. Rozvažné účty 70x se vynechávají a účet 431 se srovnává
-za syntetiku, takže nevadí, když převzaté stavy vedou výsledek hospodaření na analytice. Dokud nejsou uzavřené
-knihy, je porovnání jen předběžné.
+za syntetiku, takže nevadí, když převzaté stavy vedou výsledek hospodaření na analytice. Kontroluje se také
+členění po dimenzích, střediscích a projektech. Shodná celková částka účtu bez odpovídajícího členění
+nestačí k automatickému převzetí. Dokud nejsou uzavřené knihy, je porovnání jen předběžné.
 
 Při rozdílu máte dvě cesty. Buď rozdíl dohledáte a opravíte (v uzavíraném roce nebo v převzatém zápisu), nebo
 použijete **Nahradit převzaté stavy vypočtenými**. Náhrada vyžaduje **povinný důvod** (**Důvod náhrady**), převzaté

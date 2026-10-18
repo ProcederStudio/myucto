@@ -155,7 +155,7 @@ const unitOpen = ref(false)
 function newUnit() {
   Object.assign(unitDraft, {
     id: undefined, code: '', label_cs: '', label_en: '',
-    is_default: false, display_order: 0, _new: true,
+    is_default: false, display_order: 0, quantity_decimals: null, _new: true,
   })
   unitOpen.value = true
 }
@@ -1162,6 +1162,7 @@ watch(tab, (newTab) => {
               <th class="px-3 py-2 text-left font-medium">{{ t('codebooks.name_en') }}</th>
               <th class="px-3 py-2 text-center font-medium">{{ t('codebooks.is_default') }}</th>
               <th class="px-3 py-2 text-center font-medium">{{ t('codebooks.display_order') }}</th>
+              <th class="px-3 py-2 text-center font-medium">{{ t('codebooks.quantity_decimals') }}</th>
               <th class="px-3 py-2 w-32"></th>
             </tr>
           </thead>
@@ -1172,6 +1173,7 @@ watch(tab, (newTab) => {
               <td class="px-3 py-2 text-neutral-500">{{ u.label_en }}</td>
               <td class="px-3 py-2 text-center"><span v-if="u.is_default" class="text-primary-600">✓</span></td>
               <td class="px-3 py-2 text-center font-mono text-xs">{{ u.display_order }}</td>
+              <td class="px-3 py-2 text-center font-mono text-xs">{{ u.quantity_decimals ?? '—' }}</td>
               <td class="px-3 py-2 text-right whitespace-nowrap">
                 <div class="flex items-center justify-end gap-1.5">
                   <button v-if="auth.isSuperadmin" @click="editUnit(u)" :class="btnOutlineSm('primary')">{{ t('common.edit') }}</button>
@@ -1197,6 +1199,9 @@ watch(tab, (newTab) => {
                 <span class="text-xs text-neutral-500">· {{ u.label_en }}</span>
               </div>
               <span v-if="u.is_default" class="text-primary-600 text-xs">✓ {{ t('codebooks.is_default') }}</span>
+            </div>
+            <div v-if="u.quantity_decimals != null" class="text-xs text-neutral-500">
+              {{ t('codebooks.quantity_decimals') }}: <span class="font-mono">{{ u.quantity_decimals }}</span>
             </div>
             <div class="flex justify-end gap-2">
               <button v-if="auth.isSuperadmin" @click="editUnit(u)" :class="btnOutline('primary')">
@@ -2166,6 +2171,15 @@ watch(tab, (newTab) => {
           <div>
             <label class="block text-sm font-medium mb-1">{{ t('codebooks.display_order') }}</label>
             <input v-model.number="unitDraft.display_order" type="number" class="w-full h-10 px-3 border border-neutral-300 rounded-md text-sm font-mono" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium mb-1">{{ t('codebooks.quantity_decimals') }}</label>
+            <select v-model="unitDraft.quantity_decimals" data-test="unit-quantity-decimals"
+              class="w-full h-10 px-3 border border-neutral-300 rounded-md text-sm bg-surface">
+              <option :value="null">{{ t('codebooks.quantity_decimals_unlimited') }}</option>
+              <option v-for="n in [0, 1, 2, 3]" :key="n" :value="n">{{ n }}</option>
+            </select>
+            <p class="mt-1 text-xs text-neutral-500">{{ t('codebooks.quantity_decimals_hint') }}</p>
           </div>
           <label class="flex items-center gap-2 text-sm">
             <input v-model="unitDraft.is_default" type="checkbox" class="rounded border-neutral-300 text-primary-600" />

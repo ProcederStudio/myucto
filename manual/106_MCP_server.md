@@ -722,8 +722,8 @@ Koncept, který asistent připravil, nemusíte opravovat ručně v editoru. Sta�
 | Nástroj | Co dělá |
 |---|---|
 | `update_invoice` | změní hlavičku: data, splatnost, měnu, jazyk, způsob úhrady, poznámky, zakázku, slevu, variabilní symbol |
-| `add_invoice_item` | přidá položku na konec nebo na zvolené místo |
-| `update_invoice_item` | změní jednu položku (text, množství, jednotku, cenu, sazbu DPH, časové rozlišení) |
+| `add_invoice_item` | přidá položku na konec nebo na zvolené místo; s `kind: "text"` přidá textový řádek jen s popisem |
+| `update_invoice_item` | změní jednu položku (text, množství, jednotku, cenu, sazbu DPH, časové rozlišení); u textového řádku jen text |
 | `remove_invoice_item` | odebere jednu položku, jen s potvrzením ([§ 106.8.9.4](#106894-potvrzovani-nevratnych-kroku)) |
 
 Platí přitom:
@@ -742,7 +742,8 @@ Platí přitom:
 - Součty a DPH spočítá aplikace; asistent vrátí upravený doklad.
 - **Upravit jde jen koncept.** Vystavenou fakturu asistent odmítne změnit,
   ta se opravuje dobropisem nebo stornem v aplikaci.
-- Jedinou položku dokladu odebrat nejde, doklad musí nějakou mít.
+- Jedinou položku dokladu odebrat nejde, doklad musí nějakou mít. Textové řádky se
+  mezi položky nepočítají ([§ 15.9.3](15_Faktura_editor.md#1593-polozky)).
 
 V režimu jen pro čtení se tyto nástroje nenabízejí; vyžadují token
 s oprávněním čtení a zápis.

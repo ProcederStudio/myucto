@@ -62,9 +62,12 @@ final class VarsymbolSeriesCollisionChecker
      */
     private function collectSeries(int $supplierId): array
     {
+        $simplifiedColumn = $this->db->hasColumn('supplier', 'simplified_number_format')
+            ? 'simplified_number_format' : 'NULL';
         $stmt = $this->db->pdo()->prepare(
-            'SELECT invoice_number_format, proforma_number_format, credit_note_number_format
-               FROM supplier WHERE id = ? LIMIT 1'
+            "SELECT invoice_number_format, proforma_number_format, credit_note_number_format,
+                    {$simplifiedColumn} AS simplified_number_format
+               FROM supplier WHERE id = ? LIMIT 1"
         );
         $stmt->execute([$supplierId]);
         $sup = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
@@ -80,6 +83,14 @@ final class VarsymbolSeriesCollisionChecker
             if ($tpl !== '') {
                 $series[] = self::side($type, $tpl);
             }
+        }
+
+        // Vlastní řada zjednodušených daňových dokladů (migrace 2037) je jen na úrovni
+        // firmy a bez šablony žádná není (doklady jdou do řady faktur). Její čísla jsou
+        // VS v téže tabulce `invoices`, takže se s ostatními řadami porovnává taky.
+        $simplifiedTpl = trim((string) ($sup['simplified_number_format'] ?? ''));
+        if ($simplifiedTpl !== '') {
+            $series[] = self::side(VarsymbolGenerator::SIMPLIFIED, $simplifiedTpl);
         }
 
         $stmt = $this->db->pdo()->prepare(
