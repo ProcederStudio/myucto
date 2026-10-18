@@ -67,6 +67,14 @@ describe('floating horizontal table controls', () => {
     expect(document.querySelector('[role="scrollbar"]')).toBeNull()
   })
 
+  it('keeps viewport controls outside the body container used by Chromium container queries', async () => {
+    await show()
+    const portal = track().parentElement!
+    expect(portal.hasAttribute('data-table-viewport-scrollbar-root')).toBe(true)
+    expect(portal.parentElement).toBe(document.documentElement)
+    expect(document.body.contains(portal)).toBe(false)
+  })
+
   it.each([
     ['ArrowLeft', 360], ['ArrowRight', 440], ['PageUp', 200], ['PageDown', 600], ['Home', 0], ['End', 800],
   ])('supports %s without scrolling the document', async (key, position) => {
@@ -160,7 +168,8 @@ describe('floating horizontal table controls', () => {
 
     await show(bar)
     expect(dialog.querySelector('[role="scrollbar"]')).toBeNull()
-    expect(track().parentElement).toBe(document.body)
+    expect(track().parentElement).toBe(document.querySelector('[data-table-viewport-scrollbar-root]'))
+    expect(document.body.contains(track())).toBe(false)
   })
 
   it('maps pointer movement through a scaled modal containing block', async () => {
@@ -180,6 +189,7 @@ describe('floating horizontal table controls', () => {
     await show()
     wrapper.unmount()
     expect(mock.destroy).toHaveBeenCalledOnce()
+    expect(document.querySelector('[data-table-viewport-scrollbar-root]')).toBeNull()
     expect(document.querySelector('[role="scrollbar"]')).toBeNull()
   })
 })

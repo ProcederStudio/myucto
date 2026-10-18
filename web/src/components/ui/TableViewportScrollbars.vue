@@ -9,6 +9,7 @@ import {
 
 const { t } = useI18n()
 const bars = shallowRef<TableViewportScrollBar[]>([])
+const viewportPortal = shallowRef<HTMLElement>()
 let controller: ReturnType<typeof installTableViewportScroll> | undefined
 let drag: { id: string; pointerId: number; startX: number; startScroll: number; scale: number; element: HTMLElement } | undefined
 
@@ -72,6 +73,12 @@ function keyDown(event: KeyboardEvent, bar: TableViewportScrollBar) {
 }
 
 onMounted(() => {
+  // Older Chromium makes body { container-type: inline-size } a containing
+  // block for fixed children. A sibling portal keeps viewport coordinates fixed
+  // while the body scrolls; semantic dialogs retain their accessible subtree.
+  viewportPortal.value = document.createElement('div')
+  viewportPortal.value.dataset.tableViewportScrollbarRoot = ''
+  document.documentElement.append(viewportPortal.value)
   controller = installTableViewportScroll({ onChange: value => {
     if (drag && !value.some(bar => bar.id === drag?.id)) endDrag()
     bars.value = value
@@ -81,11 +88,12 @@ onMounted(() => {
 onBeforeUnmount(() => {
   endDrag()
   controller?.destroy()
+  viewportPortal.value?.remove()
 })
 </script>
 
 <template>
-  <Teleport v-for="bar in bars" :key="bar.id" :to="bar.portalTarget ?? 'body'">
+  <Teleport v-for="bar in bars" :key="bar.id" :to="bar.portalTarget ?? viewportPortal!">
     <div
          data-table-viewport-scrollbar
          class="table-viewport-scrollbar"
