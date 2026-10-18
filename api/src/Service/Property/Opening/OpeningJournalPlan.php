@@ -14,7 +14,7 @@ final class OpeningJournalPlan
         $q = $this->db->pdo()->prepare('SELECT id FROM accounting_periods WHERE supplier_id=? AND starts_on<=? AND ends_on>=? ORDER BY starts_on,id FOR UPDATE');
         $q->execute([$supplier, $date, $date]);
         $period = (int) $q->fetchColumn();
-        $q = $this->db->pdo()->prepare('SELECT id,account_code,account_type,is_active FROM chart_of_accounts WHERE supplier_id=? ORDER BY id FOR UPDATE');
+        $q = $this->db->pdo()->prepare('SELECT id,account_code,account_type,is_active FROM ' . \MyInvoice\Repository\AccountDefinitionRepository::relation($date, $supplier, true) . ' a WHERE supplier_id=? ORDER BY id FOR UPDATE');
         $q->execute([$supplier]);
         $accounts = array_column($q->fetchAll(PDO::FETCH_ASSOC), null, 'account_code');
         $openingAccount=\MyInvoice\Service\Accounting\AccountRoleResolver::fromConnection($this->db)->forDate($supplier,$date)->account('closing.opening_balance');

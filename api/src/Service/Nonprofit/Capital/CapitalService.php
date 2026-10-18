@@ -204,7 +204,7 @@ final class CapitalService
         $q=$this->db->pdo()->prepare("SELECT v.id,t.system_key FROM dimension_values v JOIN dimension_types t ON t.supplier_id=v.supplier_id AND t.id=v.type_id WHERE v.supplier_id=? AND v.is_active=1 FOR UPDATE");$q->execute([$supplier]);$types=[];foreach($q->fetchAll(PDO::FETCH_ASSOC)as$row)$types[(int)$row['id']]=$row['system_key'];
         if(($types[$policy['revenue_tax_regime_id']]??null)!=='tax_regime')CapitalPolicy::invalid('Daňový režim výnosu není aktivní systémovou hodnotou této firmy.');
         foreach($policy['activity_kind_ids']as$id)if(($types[$id]??null)!=='activity_kind')CapitalPolicy::invalid('Druh činnosti není aktivní systémovou hodnotou této firmy.');
-        $q=$this->db->pdo()->prepare("SELECT account_code FROM chart_of_accounts WHERE supplier_id=? AND account_type='expense' AND is_active=1 FOR UPDATE");$q->execute([$supplier]);$codes=$q->fetchAll(PDO::FETCH_COLUMN);
+        $q=$this->db->pdo()->prepare('SELECT account_code FROM '.\MyInvoice\Repository\AccountDefinitionRepository::relation($policy['valid_from'],$supplier,true)." a WHERE supplier_id=? AND account_type='expense' AND is_active=1 FOR UPDATE");$q->execute([$supplier]);$codes=$q->fetchAll(PDO::FETCH_COLUMN);
         foreach($policy['account_prefixes']as$prefix){$found=false;foreach($codes as$code)if(str_starts_with($code,$prefix))$found=true;if(!$found)CapitalPolicy::invalid('Způsobilý nákladový účet není aktivní osnovou této firmy.');}
     }
     public function read(int $supplier):array

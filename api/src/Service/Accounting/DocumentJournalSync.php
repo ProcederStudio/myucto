@@ -139,6 +139,7 @@ final class DocumentJournalSync
             $lines = $sourceType === 'invoice'
                 ? $this->posting->buildFromInvoice($supplierId, $sourceId)
                 : $this->posting->buildFromPurchaseInvoice($supplierId, $sourceId, array_filter([
+                    'entry_date' => $today,
                     'debit_account_code' => $this->aiOverrides->debitOverrideForPurchase($supplierId, $sourceId),
                 ], static fn (mixed $value): bool => $value !== null));
             $postMeta = $meta;
@@ -183,6 +184,7 @@ final class DocumentJournalSync
         $lines = $sourceType === 'invoice'
             ? $this->posting->buildFromInvoice($supplierId, $sourceId)
             : $this->posting->buildFromPurchaseInvoice($supplierId, $sourceId, array_filter([
+                'entry_date' => $meta['entry_date'] ?? (string) $existing['entry_date'],
                 'debit_account_code' => $this->aiOverrides->debitOverrideForPurchase($supplierId, $sourceId),
             ], static fn (mixed $value): bool => $value !== null));
         $postMeta = $meta + [

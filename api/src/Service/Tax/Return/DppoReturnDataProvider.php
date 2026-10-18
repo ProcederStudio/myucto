@@ -296,7 +296,7 @@ final class DppoReturnDataProvider
                FROM journal_entry_lines l
                JOIN journal_entries e   ON e.id = l.entry_id
                " . JournalTaxOrigin::join() . "
-               JOIN chart_of_accounts a ON a.id = l.account_id
+               " . \MyInvoice\Repository\AccountDefinitionRepository::journalJoin($supplierId) . "
               WHERE l.supplier_id = ? AND e.posted_at IS NOT NULL
                 AND e.entry_date BETWEEN ? AND ?
                 AND " . JournalTaxOrigin::includedSql() . "
@@ -306,9 +306,19 @@ final class DppoReturnDataProvider
               ORDER BY turnover DESC"
         );
         $stmt->execute($params);
+        $groups = [];
+        foreach ($stmt->fetchAll() as $row) $groups[$row['account_code']][] = $row;
         $out = [];
-        foreach ($stmt->fetchAll() as $row) {
-            $amount = round((float) $row['turnover'], 2);
+        foreach ($groups as $rows) {
+            $row = $rows[0];
+            $total = $reviewable = 0.0;
+            foreach ($rows as $segment) {
+                $total += (float) $segment['turnover'];
+                if ($segment['tax_deductibility'] !== 'non_deductible') $reviewable += (float) $segment['turnover'];
+            }
+            $already = (int) round($reviewable * 100) === 0;
+            $amount = round($already ? $total : $reviewable, 2);
+            if (count($rows) > 1) $row['name'] = (new \MyInvoice\Repository\ChartOfAccountsRepository($this->db))->findByCode($supplierId, $row['account_code'], $endsOn)['name'] ?? $row['name'];
             if ((int) round($amount * 100) === 0) {
                 continue;
             }
@@ -318,7 +328,7 @@ final class DppoReturnDataProvider
                 'name' => (string) $row['name'],
                 'amount' => $amount,
                 'hint_key' => self::LIKELY_NONDEDUCTIBLE[$group] ?? 'taxReturn.suggest_other',
-                'already_non_deductible' => (string) $row['tax_deductibility'] === 'non_deductible',
+                'already_non_deductible' => $already,
             ];
         }
         return $out;

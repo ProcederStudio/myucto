@@ -28,6 +28,7 @@ final class DppoReturnDataProviderNewFieldsTest extends TestCase
         $this->pdo = new PDO('sqlite::memory:');
         $this->pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $this->createSchema();
+        \MyInvoice\Tests\Support\AccountDefinitionSqliteFixture::install($this->pdo);
 
         $config = $this->createStub(\MyInvoice\Infrastructure\Config\Config::class);
         $db = new Connection($config);
