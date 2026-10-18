@@ -14,8 +14,8 @@ final class ChartOfAccountsTemplate504Test extends TestCase
     public function testFullTemplateHasUniqueCodesValidRolesAndResolvedParents(): void
     {
         $accounts = array_column(ChartOfAccountsTemplate504::ACCOUNTS, null, 'code');
-        self::assertCount(175, $accounts);
-        self::assertSame(175, ChartOfAccountsTemplate504::count());
+        self::assertCount(183, $accounts);
+        self::assertSame(183, ChartOfAccountsTemplate504::count());
         $classes = [];
         foreach (ChartOfAccountsTemplate504::ACCOUNTS as $account) {
             $code = $account['code'];
@@ -73,6 +73,13 @@ final class ChartOfAccountsTemplate504Test extends TestCase
             ['543', 'expense', 'debit', ['UT:23']],
             ['546', 'expense', 'debit', ['UT:26']],
             ['955', 'liability', 'credit', ['US:17']],
+            ['955.100', 'liability', 'credit', ['US:17']],
+            ['324.200', 'liability', 'credit', ['US:24']],
+            ['549.900', 'expense', 'debit', ['UT:28']],
+            ['549.910', 'expense', 'debit', ['UT:28']],
+            ['518.200', 'expense', 'debit', ['UT:8']],
+            ['649.100', 'revenue', 'credit', ['UT:54']],
+            ['649.200', 'revenue', 'credit', ['UT:54']],
             ['379.910', 'liability', 'credit', ['US:38']],
             ['379.920', 'liability', 'credit', ['US:38']],
             ['082', 'asset', 'credit', ['UR:36']],

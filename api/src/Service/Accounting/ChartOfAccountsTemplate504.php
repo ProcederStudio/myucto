@@ -188,6 +188,14 @@ final class ChartOfAccountsTemplate504
         ['code' => '379.900', 'name' => 'Neidentifikované platby', 'type' => 'liability', 'normal_side' => 'credit', 'parent_code' => '379', 'report_rows' => ['US:38']],
         ['code' => '379.910', 'name' => 'Kredity a vratky vlastníků', 'type' => 'liability', 'normal_side' => 'credit', 'parent_code' => '379', 'report_rows' => ['US:38']],
         ['code' => '379.920', 'name' => 'Příjmy vlastníků ze společných částí', 'type' => 'liability', 'normal_side' => 'credit', 'parent_code' => '379', 'report_rows' => ['US:38']],
+        ['code' => '955.100', 'name' => 'Dlouhodobé zálohy na správu společných částí', 'type' => 'liability', 'normal_side' => 'credit', 'parent_code' => '955', 'report_rows' => ['US:17']],
+        ['code' => '324.110', 'name' => 'Zálohy na služby', 'type' => 'liability', 'normal_side' => 'credit', 'parent_code' => '324', 'report_rows' => ['US:24']],
+        ['code' => '324.200', 'name' => 'Zálohy na vlastní správu', 'type' => 'liability', 'normal_side' => 'credit', 'parent_code' => '324', 'report_rows' => ['US:24']],
+        ['code' => '549.900', 'name' => 'Opravy společných částí vlastníků', 'type' => 'expense', 'normal_side' => 'debit', 'parent_code' => '549', 'report_rows' => ['UT:28'], 'tax_assessment' => 'unassessed'],
+        ['code' => '549.910', 'name' => 'Technické zhodnocení společných částí vlastníků', 'type' => 'expense', 'normal_side' => 'debit', 'parent_code' => '549', 'report_rows' => ['UT:28'], 'tax_assessment' => 'unassessed'],
+        ['code' => '518.200', 'name' => 'Náklady vlastní správy', 'type' => 'expense', 'normal_side' => 'debit', 'parent_code' => '518', 'report_rows' => ['UT:8'], 'tax_assessment' => 'unassessed'],
+        ['code' => '649.100', 'name' => 'Krytí správy z dlouhodobých záloh', 'type' => 'revenue', 'normal_side' => 'credit', 'parent_code' => '649', 'report_rows' => ['UT:54'], 'tax_assessment' => 'unassessed'],
+        ['code' => '649.200', 'name' => 'Krytí vlastní správy ze záloh', 'type' => 'revenue', 'normal_side' => 'credit', 'parent_code' => '649', 'report_rows' => ['UT:54'], 'tax_assessment' => 'unassessed'],
         ['code' => '549.100', 'name' => 'Bankovní poplatky', 'type' => 'expense', 'normal_side' => 'debit', 'parent_code' => '549', 'report_rows' => ['UT:28'], 'tax_assessment' => 'unassessed'],
     ];
 

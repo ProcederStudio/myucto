@@ -662,6 +662,8 @@ final class RoutePermissionMap
         ['DELETE', '#^/api/accounting/ai-assistant/conversations/[0-9]+$#', 'accounting', AccessLevel::READ],
         ['POST', '#^/api/accounting/ai-assistant/messages/[0-9]+/applied$#', 'accounting', AccessLevel::READ],
         ['POST', '#^/api/accounting/joint-allocations/preview$#', 'accounting', AccessLevel::READ],
+        ['GET', '#^/api/property/funds(/|$)#', 'property', AccessLevel::READ],
+        ['POST', '#^/api/property/funds/(preview|commands)$#', 'property', AccessLevel::READ],
         ['GET', '#^/api/property/export$#', 'property.export', AccessLevel::WRITE],
         ['POST', '#^/api/property/(profile|objects/[0-9]+/revisions/[0-9]+/confirm)$#', 'property.registry.confirm', AccessLevel::WRITE],
         ['POST', '#^/api/property/charges/issues/batches/[0-9]+/post$#', 'property.charges.post', AccessLevel::WRITE],

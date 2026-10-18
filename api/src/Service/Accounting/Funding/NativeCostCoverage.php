@@ -28,6 +28,17 @@ final class NativeCostCoverage
             return ['covered_cents'=>min(max($direct,0),JournalLineAmount::signedCents($selected)),'ledger'=>$native,'eligible'=>$credits===[],'review_reasons'=>$credits===[]?[]:['native_purchase_credit_note'],'credit_notes'=>$credits];
         });
     }
+    public function financingCost(int $supplier,int $line):array
+    {
+        $guard=new DimensionPeriodGuard($this->db);
+        return $guard->transaction(function()use($guard,$supplier,$line):array{
+            $guard->lockPeriods($supplier);$proof=$this->forCost($supplier,$line);$cost=array_column($proof['ledger']['lines'],null,'id')[$line];
+            if($cost['dimension_splits']!==[])self::reject('Náklad vyžaduje samostatné doložené rozdělení před financováním.');
+            $q=$this->db->pdo()->prepare("SELECT t.id,t.system_key,v.id AS value_id,v.semantic_key FROM dimension_types t JOIN dimension_values v ON v.supplier_id=t.supplier_id AND v.type_id=t.id WHERE t.supplier_id=? AND t.system_key IN ('activity','activity_kind','tax_regime') FOR UPDATE");$q->execute([$supplier]);$found=[];
+            foreach($q->fetchAll(PDO::FETCH_ASSOC)as$row){$type=(int)$row['id'];if(($cost['dimensions'][$type]??null)!==(int)$row['value_id'])continue;$definition=\MyInvoice\Service\Accounting\Dimension\SystemDimensionCatalog::DEFINITIONS[$row['system_key']];if(($cost['dimension_origins'][$type]['origin']??'unknown')==='unknown'||$definition['values']!==[]&&!array_key_exists($row['semantic_key']??'',$definition['values']))self::reject('Náklad vyžaduje průkazné systémové zařazení činnosti a daně.');$found[$row['system_key']]=true;}
+            if(count($found)!==3)self::reject('Náklad vyžaduje úplné systémové zařazení činnosti a daně.');return $proof;
+        });
+    }
     public function income(int $supplier,int $line,array $prefixes=self::REVENUE_PREFIXES):array
     {
         return $this->incomeFact($supplier,$line,$prefixes,false);

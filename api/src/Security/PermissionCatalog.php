@@ -6,7 +6,7 @@ namespace MyInvoice\Security;
 
 final class PermissionCatalog
 {
-    public const VERSION = '2026-10-property-service-settlements-v1';
+    public const VERSION = '2026-10-property-funding-v1';
 
     /** @var list<string> */
     private const GROUPS = [
@@ -99,6 +99,8 @@ final class PermissionCatalog
             ['property.settlements.manage', 'property', 'Připravovat vyúčtování služeb SVJ', $staffOnly],
             ['property.settlements.post', 'property', 'Účtovat vyúčtování služeb SVJ', $staffOnly],
             ['property.settlements.reverse', 'property', 'Stornovat vyúčtování služeb SVJ', $staffOnly],
+            ['property.funds.post', 'property', 'Účtovat čerpání záloh a příjmy vlastníků SVJ', $staffOnly],
+            ['property.funds.reverse', 'property', 'Stornovat čerpání záloh a příjmy vlastníků SVJ', $staffOnly],
             ['property.opening.manage', 'property', 'Připravovat počáteční stavy SVJ', $staffOnly],
             ['property.opening.post', 'property', 'Potvrzovat počáteční stavy SVJ', $staffOnly],
             ['property.opening.revise', 'property', 'Revidovat a stornovat počáteční stavy SVJ', $staffOnly],
@@ -222,7 +224,7 @@ final class PermissionCatalog
                 // přidělí správce v editoru rolí, výchozí účetní ji nemá.
                 'invoices.edit_issued',
                 'accounting.periods.close', 'accounting.periods.manage',
-                'property.registry.confirm', 'property.receivables.confirm', 'property.charges.confirm', 'property.charges.reverse', 'property.payments.reverse', 'property.opening.revise', 'property.settlements.reverse',
+                'property.registry.confirm', 'property.receivables.confirm', 'property.charges.confirm', 'property.charges.reverse', 'property.payments.reverse', 'property.opening.revise', 'property.settlements.reverse', 'property.funds.reverse',
                 'settings.ai_provider', 'settings.bank_accounts', 'settings.branding',
                 'settings.company.write', 'settings.domains', 'utilities.import',
                 'payroll.settings', 'payroll.person.read_sensitive', 'payroll.approve',

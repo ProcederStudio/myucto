@@ -1031,7 +1031,8 @@
         "2047_supplier_person_title.sql",
         "2048_property_service_lifecycle.sql",
         "2049_property_service_lifecycle_commands.sql",
-        "2050_property_service_settlement_dossier_events.sql"
+        "2050_property_service_settlement_dossier_events.sql",
+        "2051_property_funding.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -6717,7 +6718,7 @@
                 "reversed_by": "bigint(20) unsigned NULL DEFAULT NULL",
                 "row_version": "int(10) unsigned NOT NULL DEFAULT 1",
                 "source_id": "bigint(20) unsigned NULL DEFAULT NULL",
-                "source_type": "enum('invoice','purchase_invoice','bank','cash','asset','manual','closing','opening','depreciation','asset_disposal','fx_revaluation','stock','provision','income_tax','profit_distribution','offset','small_asset_accrual','prepaid_expense_accrual','settlement','deferred_tax','payroll','vat_clearing','payroll_payment','gopay','card_settlement','card_writeoff','other_item','payroll_accident_insurance','payroll_travel','deferred_revenue_accrual','unit_charge','unit_payment','unit_payment_revision','property_service_settlement','property_service_lifecycle') NOT NULL DEFAULT 'manual'",
+                "source_type": "enum('invoice','purchase_invoice','bank','cash','asset','manual','closing','opening','depreciation','asset_disposal','fx_revaluation','stock','provision','income_tax','profit_distribution','offset','small_asset_accrual','prepaid_expense_accrual','settlement','deferred_tax','payroll','vat_clearing','payroll_payment','gopay','card_settlement','card_writeoff','other_item','payroll_accident_insurance','payroll_travel','deferred_revenue_accrual','unit_charge','unit_payment','unit_payment_revision','property_service_settlement','property_service_lifecycle','property_funding') NOT NULL DEFAULT 'manual'",
                 "supplier_id": "int(10) unsigned NOT NULL",
                 "updated_at": "timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE CURRENT_TIMESTAMP()"
             },
@@ -18606,6 +18607,124 @@
                 "fk_property_certificate_unit": "(supplier_id, unit_id) -> property_objects (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
             },
             "checks": {
+                "request_json": "json_valid(`request_json`)",
+                "snapshot_json": "json_valid(`snapshot_json`)"
+            }
+        },
+        "property_funding_claims": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "amount_cents": "bigint(20) unsigned NOT NULL",
+                "claim_role": "varchar(20) NOT NULL COLLATE ascii_bin",
+                "operation_id": "bigint(20) unsigned NOT NULL",
+                "source_id": "bigint(20) unsigned NOT NULL",
+                "source_kind": "varchar(20) NOT NULL COLLATE ascii_bin",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (supplier_id, operation_id, source_kind, source_id, claim_role)",
+                "ix_funding_claim_source": "BTREE (supplier_id, source_kind, source_id, claim_role)"
+            },
+            "foreign_keys": {
+                "property_funding_claims_ibfk_1": "(supplier_id, operation_id) -> property_funding_operations (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "CONSTRAINT_1": "`amount_cents` > 0"
+            }
+        },
+        "property_funding_effects": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "account_code": "varchar(50) NOT NULL",
+                "amount_cents": "bigint(20) NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "operation_id": "bigint(20) unsigned NOT NULL",
+                "parties_json": "longtext NULL DEFAULT NULL",
+                "source_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "source_kind": "varchar(20) NULL DEFAULT NULL COLLATE ascii_bin",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "unit_id": "bigint(20) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "ix_funding_effect_source": "BTREE (supplier_id, source_kind, source_id)",
+                "supplier_id": "BTREE (supplier_id, operation_id)",
+                "supplier_id_2": "BTREE (supplier_id, unit_id)",
+                "uq_funding_effect_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "property_funding_effects_ibfk_1": "(supplier_id, operation_id) -> property_funding_operations (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "property_funding_effects_ibfk_2": "(supplier_id, unit_id) -> property_objects (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "CONSTRAINT_1": "`amount_cents` <> 0",
+                "parties_json": "`parties_json` is null or json_valid(`parties_json`)"
+            }
+        },
+        "property_funding_heads": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "house_id": "bigint(20) unsigned NOT NULL",
+                "revision": "bigint(20) unsigned NOT NULL DEFAULT 0",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (supplier_id, house_id)"
+            },
+            "foreign_keys": {
+                "property_funding_heads_ibfk_1": "(supplier_id, house_id) -> property_objects (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": []
+        },
+        "property_funding_operations": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "accounting_date": "date NOT NULL",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "effective_at": "datetime(6) NOT NULL",
+                "house_id": "bigint(20) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "idempotency_key": "varchar(100) NOT NULL COLLATE ascii_bin",
+                "journal_entry_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "kind": "varchar(20) NOT NULL COLLATE ascii_bin",
+                "receipt_hash": "char(64) NULL DEFAULT NULL COLLATE ascii_bin",
+                "receipt_json": "longtext NULL DEFAULT NULL",
+                "recorded_at": "datetime(6) NOT NULL",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "request_json": "longtext NOT NULL",
+                "reversal_of": "bigint(20) unsigned NULL DEFAULT NULL",
+                "revision": "bigint(20) unsigned NOT NULL",
+                "snapshot_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "snapshot_json": "longtext NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "created_by": "BTREE (created_by)",
+                "journal_entry_id": "BTREE (journal_entry_id)",
+                "uq_funding_key": "UNIQUE BTREE (supplier_id, idempotency_key)",
+                "uq_funding_reversal": "UNIQUE BTREE (supplier_id, reversal_of)",
+                "uq_funding_revision": "UNIQUE BTREE (supplier_id, house_id, revision)",
+                "uq_funding_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "property_funding_operations_ibfk_1": "(supplier_id, house_id) -> property_objects (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "property_funding_operations_ibfk_2": "(supplier_id, reversal_of) -> property_funding_operations (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "property_funding_operations_ibfk_3": "(journal_entry_id) -> journal_entries (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "property_funding_operations_ibfk_4": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "CONSTRAINT_1": "`kind` in ('draw','income','transfer','payout','reverse')",
+                "CONSTRAINT_2": "`receipt_json` is null and `receipt_hash` is null and `journal_entry_id` is null or `receipt_json` is not null and `receipt_hash` is not null and `journal_entry_id` is not null",
+                "receipt_json": "`receipt_json` is null or json_valid(`receipt_json`)",
                 "request_json": "json_valid(`request_json`)",
                 "snapshot_json": "json_valid(`snapshot_json`)"
             }

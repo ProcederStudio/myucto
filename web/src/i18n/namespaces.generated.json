@@ -117,6 +117,7 @@
     "profile_signing",
     "project",
     "propertyCharges",
+    "propertyFunds",
     "propertyIssuance",
     "propertyOpening",
     "propertyPayments",
@@ -910,6 +911,10 @@
     ],
     "property-service-lifecycles": [
       "propertyServiceLifecycle"
+    ],
+    "property-funds": [
+      "propertyFunds",
+      "propertyRegistry"
     ],
     "property-openings": [
       "propertyOpening",

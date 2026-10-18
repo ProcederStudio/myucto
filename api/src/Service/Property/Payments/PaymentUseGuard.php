@@ -30,7 +30,7 @@ final class PaymentUseGuard
     }
     public static function entryReferenceSql():string
     {
-        return \MyInvoice\Service\Property\Services\Settlement\SettlementUseGuard::entryReferenceSql()." OR ".\MyInvoice\Service\Property\Opening\OpeningUseGuard::entryReferenceSql()." OR EXISTS (SELECT 1 FROM unit_payment_sources s WHERE s.supplier_id=e.supplier_id AND s.journal_entry_id=e.id FOR UPDATE)
+        return \MyInvoice\Service\Property\Funds\FundingUseGuard::entryReferenceSql()." OR ".\MyInvoice\Service\Property\Services\Settlement\SettlementUseGuard::entryReferenceSql()." OR ".\MyInvoice\Service\Property\Opening\OpeningUseGuard::entryReferenceSql()." OR EXISTS (SELECT 1 FROM unit_payment_sources s WHERE s.supplier_id=e.supplier_id AND s.journal_entry_id=e.id FOR UPDATE)
                 OR EXISTS (SELECT 1 FROM unit_payment_operations o WHERE o.supplier_id=e.supplier_id AND (o.journal_entry_id=e.id OR o.reversal_entry_id=e.id) FOR UPDATE)
                 OR EXISTS (SELECT 1 FROM unit_claim_accessory_receipts r WHERE r.supplier_id=e.supplier_id AND r.journal_entry_id=e.id FOR UPDATE)
                 OR EXISTS (SELECT 1 FROM unit_payment_source_revisions r WHERE r.supplier_id=e.supplier_id AND r.journal_entry_id=e.id FOR UPDATE)
@@ -38,7 +38,7 @@ final class PaymentUseGuard
     }
     public static function externalOpeningReferencesSql():string
     {
-        return "EXISTS (SELECT 1 FROM unit_payment_sources s WHERE s.supplier_id=e.supplier_id AND s.journal_entry_id=e.id FOR UPDATE)
+        return \MyInvoice\Service\Property\Funds\FundingUseGuard::entryReferenceSql()." OR EXISTS (SELECT 1 FROM unit_payment_sources s WHERE s.supplier_id=e.supplier_id AND s.journal_entry_id=e.id FOR UPDATE)
                 OR EXISTS (SELECT 1 FROM unit_payment_operations o WHERE o.supplier_id=e.supplier_id AND (o.journal_entry_id=e.id OR o.reversal_entry_id=e.id) FOR UPDATE)
                 OR EXISTS (SELECT 1 FROM unit_claim_accessory_receipts r WHERE r.supplier_id=e.supplier_id AND r.journal_entry_id=e.id AND r.opening_component_id IS NULL FOR UPDATE)
                 OR EXISTS (SELECT 1 FROM unit_payment_source_revisions r WHERE r.supplier_id=e.supplier_id AND r.journal_entry_id=e.id FOR UPDATE)
@@ -60,11 +60,14 @@ final class PaymentUseGuard
     public function assertSourceMutable(int $supplier,string $kind,int $id):void
     {
         (new PaymentLocks($this->db))->acquire($supplier);if(!in_array($kind,['bank','cash'],true))throw new \InvalidArgumentException('source_kind');
+        $this->fundingGuard(fn()=>\MyInvoice\Service\Property\Funds\FundingUseGuard::assertSourceUnclaimed($this->db,$supplier,$kind,$id));
         $q=$this->db->pdo()->prepare('SELECT id FROM unit_payment_sources WHERE supplier_id=? AND '.($kind==='bank'?'bank_transaction_id':'cash_document_id').'=? FOR UPDATE');$q->execute([$supplier,$id]);if($q->fetchColumn()!==false)self::reject();
     }
     public function assertBankStatementMutable(int $supplier,int $statement):void
     {
         (new PaymentLocks($this->db))->acquire($supplier);
+        $sources=$this->db->pdo()->prepare('SELECT t.id FROM bank_transactions t JOIN bank_statements b ON b.id=t.statement_id WHERE b.supplier_id=? AND b.id=? ORDER BY t.id FOR UPDATE');$sources->execute([$supplier,$statement]);
+        foreach($sources->fetchAll(PDO::FETCH_COLUMN) as $source)$this->fundingGuard(fn()=>\MyInvoice\Service\Property\Funds\FundingUseGuard::assertSourceUnclaimed($this->db,$supplier,'bank',(int)$source));
         $q=$this->db->pdo()->prepare('SELECT s.id FROM unit_payment_sources s JOIN bank_transactions t ON t.id=s.bank_transaction_id WHERE s.supplier_id=? AND t.statement_id=? ORDER BY s.id FOR UPDATE');
         $q->execute([$supplier,$statement]);if($q->fetchColumn()!==false)self::reject();
     }
@@ -72,6 +75,7 @@ final class PaymentUseGuard
     {
         (new PaymentLocks($this->db))->acquire($supplier);
         (new \MyInvoice\Service\Property\Services\Settlement\SettlementUseGuard($this->db))->assertChargeMutable($supplier,$charge);
+        $this->fundingGuard(fn()=>\MyInvoice\Service\Property\Funds\FundingUseGuard::assertChargeMutable($this->db,$supplier,$charge));
         $q=$this->db->pdo()->prepare("SELECT a.id FROM unit_payment_allocations a JOIN unit_payment_operations o ON o.supplier_id=a.supplier_id AND o.id=a.operation_id WHERE a.supplier_id=? AND a.charge_id=? AND o.status='posted' ORDER BY a.id FOR UPDATE");$q->execute([$supplier,$charge]);if($q->fetchColumn()!==false)self::reject();
         $q=$this->db->pdo()->prepare("SELECT id FROM unit_payment_corrections WHERE supplier_id=? AND adjustment_charge_id=? AND status='posted' ORDER BY id FOR UPDATE");$q->execute([$supplier,$charge]);if($q->fetchColumn()!==false)self::reject();
     }
@@ -87,9 +91,14 @@ final class PaymentUseGuard
         $negative=false;foreach($charge['snapshot']['lines'] as $line)if(bccomp($line['amount_cents'],'0',0)<0)$negative=true;if(!$negative)return;
         $seen=[];$next=$charge['previous_charge_id'];
         while($next!==null){if(isset($seen[$next]))PaymentException::reject('history_corrupt');$seen[$next]=true;
+            $this->fundingGuard(fn()=>\MyInvoice\Service\Property\Funds\FundingUseGuard::assertChargeMutable($this->db,$supplier,$next));
             $q=$this->db->pdo()->prepare('SELECT id FROM unit_payment_debts WHERE supplier_id=? AND charge_id=? ORDER BY id FOR UPDATE');$q->execute([$supplier,$next]);if($q->fetchColumn()!==false)PaymentException::reject('correction_owner_required');
             $next=$reader->find($supplier,$next,true)['previous_charge_id'];
         }
+    }
+    private function fundingGuard(callable $check):void
+    {
+        try{$check();}catch(\MyInvoice\Service\Property\Funds\FundingException $e){self::reject();}
     }
     private static function reject():never{PaymentException::reject('source_immutable');}
 }

@@ -364,6 +364,7 @@ export function createWorkspaceRoutes(): RouteRecordRaw[] {
       { path: 'property/charges', name: 'property-charges', component: () => import('@/views/PropertyChargesView.vue'), meta: { requiresSupplier: true } },
       { path: 'property/service-settlements/:id(\\d+)?', name: 'property-service-settlements', component: () => import('@/views/PropertySettlementsView.vue'), meta: { requiresSupplier: true } },
       { path: 'property/service-lifecycles', name: 'property-service-lifecycles', component: () => import('@/views/PropertyServiceLifecycleView.vue'), meta: { requiresSupplier: true } },
+      { path: 'property/funds', name: 'property-funds', component: () => import('@/views/PropertyFundsView.vue'), meta: { requiresSupplier: true } },
       { path: 'property/openings', name: 'property-openings', component: () => import('@/views/PropertyOpeningView.vue'), meta: { requiresSupplier: true } },
       { path: 'property/payments', name: 'property-payments', component: () => import('@/views/PropertyPaymentsView.vue'), meta: { requiresSupplier: true } },
       { path: 'property/charges/issues', name: 'property-charge-issues', component: () => import('@/views/PropertyChargeIssuanceView.vue'), meta: { requiresSupplier: true } },

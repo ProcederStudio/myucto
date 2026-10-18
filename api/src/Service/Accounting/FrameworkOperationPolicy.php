@@ -8,6 +8,10 @@ final class FrameworkOperationPolicy
 {
     public static function allows(AccountingRoleProfile $profile, string $operation, array $context = []): bool
     {
+        if(in_array($operation,['svj.common_part.repair','svj.common_part.improvement','svj.asset.repair','svj.asset.improvement'],true)) {
+            if($profile->framework!==AccountingFrameworkService::CZ_504||!is_string($context['evidence_ref']??null)||trim($context['evidence_ref'])==='')return false;
+            return str_starts_with($operation,'svj.common_part.')?($context['ownership']??null)==='owners_common_parts':in_array($context['ownership']??null,['svj_owned','documented_other_right'],true);
+        }
         if (!in_array($operation, ['profit_distribution', 'deferred_tax', 'reserve.other', 'reserve.income_tax', 'reserve.legal', 'provision.accounting', 'provision.legal'], true)) {
             throw new \InvalidArgumentException('Unknown framework operation: ' . $operation);
         }

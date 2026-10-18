@@ -40,7 +40,7 @@ trait ChargeIssuanceFixture
                 'notices'=>$code==='G12'?[]:[['component_id'=>$f['components']['WATER'],'notice'=>['mode'=>'initial','title_ref'=>'Synthetic advance decision']]]];
         }
         $accounts=[];
-        foreach($f['components'] as $code=>$id) $accounts[]=['component_id'=>$id,'receivable_account'=>'315','counter_account'=>$code==='LONG'?'955':'324',
+        foreach($f['components'] as $code=>$id) $accounts[]=['component_id'=>$id,'receivable_account'=>'315','counter_account'=>$code==='LONG'?'955':($code==='ADMIN'?'324.200':'324.110'),
             'basis_ref'=>'Synthetic accounting decision','settlement_due_on'=>$code==='LONG'?'2028-12-31':null,'dimensions'=>[]];
         $request=['version_id'=>$version['id'],'source_key'=>'SYNTHETIC-ANNUAL-2026','title'=>'prescription','issue_mode'=>'initial',
             'period_from'=>'2026-01-01','period_to'=>'2026-12-31','claim_origin_at'=>'2026-01-01T00:00:00+01:00',

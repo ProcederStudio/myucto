@@ -27,6 +27,12 @@ final class PropertyDimensionPolicy
         $this->assertWindow($supplierId, $start->format('Y-m-d\TH:i:sP'), $start->modify('+1 day')->format('Y-m-d\TH:i:sP'), $lines, $previousLines);
     }
 
+    public function assertFundingJournal(array $header,array $lines,Funds\FundingProof $proof):void
+    {
+        $carried=$proof->indices($this->db,$header,$lines);
+        $start=new \DateTimeImmutable($header['entry_date'],new \DateTimeZone('Europe/Prague'));
+        $this->assertWindow((int)$header['supplier_id'],$start->format(DATE_ATOM),$start->modify('+1 day')->format(DATE_ATOM),$lines,[],$carried);
+    }
     public function assertPaymentCarrierJournal(array $header, array $lines, Payments\PaymentHistoricalCarrierProof $proof): void
     {
         $carried = $proof->indices($this->db, $header, $lines);

@@ -13,16 +13,21 @@ final class J6FundingCapacity
     public function __construct(private readonly Connection $db,private readonly NonprofitTaxAssessmentRepository $assessments,private readonly NonprofitTaxSourceRepository $sources) {}
     public function claimedCost(int $supplier,int $line,?int $excludePeriod=null):string
     {
+        $total='0';foreach($this->costClaims($supplier,$line,$excludePeriod)as$claim)$total=bcadd($total,$claim['amount_cents'],0);return $total;
+    }
+    public function costClaims(int $supplier,int $line,?int $excludePeriod=null):array
+    {
         $guard=new DimensionPeriodGuard($this->db);
-        return $guard->transaction(function()use($guard,$supplier,$line,$excludePeriod):string{
-            $guard->lockPeriods($supplier);$total='0';
+        return $guard->transaction(function()use($guard,$supplier,$line,$excludePeriod):array{
+            $guard->lockPeriods($supplier);$claims=[];
             foreach($this->assessments->effectiveOtherPeriods($supplier,$excludePeriod??0,true)as$row){
                 if($row['status']!=='confirmed')continue;
                 $links=array_values(array_filter($row['assessment']['funding']??[],static fn(array $link):bool=>$link['cost_id']==='line:'.$line));
-                if($links===[])continue;$this->validateReceipt($supplier,$row);
+                if($links===[])continue;$this->validateReceipt($supplier,$row);$total='0';
                 foreach($links as$link){if(!is_int($link['amount_cents'])||$link['amount_cents']<=0)self::changed();$total=bcadd($total,(string)$link['amount_cents'],0);}
+                $claims[]=['assessment_id'=>$row['id'],'period_id'=>$row['period_id'],'cost_line_id'=>$line,'amount_cents'=>$total,'input_hash'=>$row['input_hash'],'request_hash'=>$row['request_hash'],'links'=>$links];
             }
-            return $total;
+            return $claims;
         });
     }
     public function costEnvelope(int $supplier,int $line,?int $excludePeriod=null):?array

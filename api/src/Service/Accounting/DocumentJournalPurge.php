@@ -124,6 +124,7 @@ final class DocumentJournalPurge
         foreach ($groups as $group) foreach ($group['entries'] as $entry) $entryIds[] = (int) $entry['id'];
         (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->assertPostingEntriesMutable($supplierId, $entryIds);
         (new \MyInvoice\Service\Accounting\Allocation\JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, $entryIds);
+        (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->assertEntriesMutable($supplierId, $entryIds);
         $deleted = [];
         $attachmentRows = [];
         $delete = $pdo->prepare('DELETE FROM journal_entries WHERE id = ? AND supplier_id = ?');

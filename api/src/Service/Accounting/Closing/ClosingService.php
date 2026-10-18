@@ -100,6 +100,7 @@ final class ClosingService
         'nonprofit_tax_assessment',
         'deferred_tax_assessment',
         'property_reconciliation',
+        'property_funding_reconciliation',
     ];
 
     /**
@@ -6117,6 +6118,8 @@ final class ClosingService
             $reconciliation = (new \MyInvoice\Service\Property\Receivables\PropertyReconciliation($this->db))->at($supplierId, $date);
             $checks[] = ['key' => 'property_reconciliation', 'severity' => 'error',
                 'ok' => $reconciliation['matches'] && $reconciliation['opening_import_coverage'] === 'complete', 'value' => $reconciliation];
+            $funding = (new \MyInvoice\Service\Property\Funds\FundingRead($this->db))->at($supplierId, null, $date);
+            $checks[] = ['key' => 'property_funding_reconciliation', 'severity' => 'error', 'ok' => $funding['matches'], 'value' => $funding];
         }
         return $checks;
     }

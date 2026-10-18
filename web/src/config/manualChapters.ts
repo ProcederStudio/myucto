@@ -3,6 +3,7 @@ import { PAYROLL_MANUAL_CHAPTERS } from '@/config/payrollManualChapters'
 export type ManualChapterRule = [RegExp, string]
 
 export const MANUAL_CHAPTERS: ManualChapterRule[] = [
+  [/^\/property\/funds(?:\/|$)/, '118_Zalohy_a_prijmy_vlastniku'],
   [/^\/property(?:\/|$)/, '116_Registr_domu_a_jednotek'],
   [/^\/imports\/money-s3(?:\/|$)/, '103_Prechod_z_Money_S3'],
   [/^\/imports\/pohoda(?:\/|$)/, '107_Prechod_z_POHODY'],

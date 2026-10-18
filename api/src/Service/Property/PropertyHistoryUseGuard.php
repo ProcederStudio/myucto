@@ -19,6 +19,7 @@ final class PropertyHistoryUseGuard
     public function clientHasHistory(int $supplierId, int $clientId, bool $currentRead = false): bool
     {
         foreach (['property_revision_members', 'property_revision_roles', 'unit_charge_parties', 'unit_credit_parties', 'property_claim_party_members'] as $table) if ($this->exists($table, 'supplier_id = ? AND client_id = ?', [$supplierId, $clientId], $currentRead)) return true;
+        if ($this->exists('property_funding_operations', "supplier_id = ? AND JSON_VALUE(request_json, '$.recipient_id') = ?", [$supplierId, $clientId], $currentRead)) return true;
         if ($this->exists('property_debt_certificates', "supplier_id = ? AND JSON_VALUE(request_json, '$.requester_id') = ?", [$supplierId, $clientId], $currentRead)) return true;
         if ($this->exists('unit_charge_notices', "supplier_id = ? AND EXISTS (
             SELECT 1 FROM JSON_TABLE(notice_json, '$.deliveries[*]' COLUMNS (recipient_id BIGINT PATH '$.recipient_id')) AS delivery

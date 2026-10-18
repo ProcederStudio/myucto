@@ -47,6 +47,7 @@ final class JournalEntryRepository
     public function insert(array $header, array $lines): int
     {
         \MyInvoice\Service\Property\Services\Settlement\SettlementUseGuard::assertGenericInsert($header);
+        \MyInvoice\Service\Property\Funds\FundingUseGuard::assertGenericInsert($header);
         $pdo = $this->db->pdo();
         $ownTx = !$pdo->inTransaction();
         if ($ownTx) {
@@ -120,6 +121,16 @@ final class JournalEntryRepository
         return $entry;
     }
 
+    public function insertPropertyFunding(\MyInvoice\Service\Property\Funds\FundingProof $proof):int
+    {
+        return(new DimensionPeriodGuard($this->db))->transaction(function()use($proof):int{
+            $journal=$proof->journal($this->db);
+            (new SystemDimensionWritePolicy($this->db))->assertPropertyFunding($journal['header'],$journal['lines'],$proof);
+            \MyInvoice\Service\Accounting\PostingService::assertBalanced($journal['lines']);
+            $entry=$journal['source_entry_id']===null?$this->persistJournal($journal['header'],$journal['lines']):$this->insertReversalLocked($journal['header'],$journal['lines'],$journal['source_entry_id']);
+            $proof->complete($this->db,$entry);return $entry;
+        });
+    }
     public function insertPropertyServiceLifecycle(\MyInvoice\Service\Property\Services\Settlement\ServiceLifecycleProof $proof):int
     {
         return(new DimensionPeriodGuard($this->db))->transaction(function()use($proof):int{
@@ -748,6 +759,8 @@ final class JournalEntryRepository
         try {
             (new \MyInvoice\Service\Property\Opening\OpeningUseGuard($this->db))->assertDescriptionMutable($supplierId, $id);
             (new \MyInvoice\Service\Property\Services\Settlement\SettlementUseGuard($this->db))->assertDescriptionMutable($supplierId,$id);
+            try { \MyInvoice\Service\Property\Funds\FundingUseGuard::assertEntriesMutable($this->db,$supplierId,[$id]); }
+            catch (\MyInvoice\Service\Property\Funds\FundingException $e) { throw new PostingException($e->errorCode,$e->getMessage(),$e->httpStatus,$e->details); }
             // Zamkni řádek zápisu + načti guard stav (vč. stavu jeho období) a row_version.
             $stmt = $pdo->prepare(
                 'SELECT je.description, je.source_type, je.reversed_by, je.posted_at,

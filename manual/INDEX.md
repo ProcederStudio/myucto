@@ -157,6 +157,7 @@ nasazuje). Zbytek je psaný pro běžného uživatele — bez programátorského
 99. [Elektronické podpisy](99_Elektronicke_podpisy.md)
 114. [Dimenze](114_Dimenze.md)
 116. [Registr domů a jednotek SVJ](116_Registr_domu_a_jednotek.md)
+118. [Zálohy na správu a příjmy vlastníků](118_Zalohy_a_prijmy_vlastniku.md)
 
 ### Systém
 
