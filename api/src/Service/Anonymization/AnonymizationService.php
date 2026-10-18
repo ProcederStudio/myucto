@@ -87,6 +87,11 @@ final class AnonymizationService
                 $securitiesDebtInputs = SecuritiesDebt504CloneScrubber::captureInputs($captureConnection);
                 $frameworkConversionInputs = FrameworkConversionCloneScrubber::captureInputs($captureConnection);
                 $capitalInputs = CapitalCloneScrubber::capture($captureConnection);
+                $dppoInputs = NonprofitDppoCloneScrubber::capture($captureConnection);
+                if ($dppoInputs['snapshots'] !== [] || $dppoInputs['sources'] !== [] || $dppoInputs['events'] !== []
+                    || $captureConnection->pdo()->query('SELECT 1 FROM nonprofit_tax_saving_commands LIMIT 1')->fetchColumn() !== false) {
+                    throw new \RuntimeException('Anonymizace finančního archivu DPPO 504 a daňových úspor není podporována. Zdrojová databáze zůstala zachovaná.');
+                }
                 $nonprofitInputs = NonprofitFundingCloneScrubber::capture($captureConnection);
             }
             finally { $captureConnection->close(); }
@@ -110,7 +115,8 @@ final class AnonymizationService
                 AccountDefinitionCloneScrubber::run($targetConnection, $this->scrubber);
                 FrameworkConversionCloneScrubber::run($targetConnection, $this->scrubber, $frameworkConversionInputs);
                 CapitalCloneScrubber::run($targetConnection, $this->scrubber, $capitalInputs);
-                NonprofitFundingCloneScrubber::run($targetConnection, $this->scrubber, $nonprofitInputs);
+                $legalHashes = NonprofitDppoCloneScrubber::runProfiles($targetConnection, $this->scrubber, $dppoInputs);
+                NonprofitFundingCloneScrubber::run($targetConnection, $this->scrubber, $nonprofitInputs, $legalHashes);
             } finally {
                 $targetConnection->close();
             }

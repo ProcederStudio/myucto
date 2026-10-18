@@ -315,6 +315,7 @@ final class GlobalSeedTables
         ...\MyInvoice\Service\Nonprofit\Capital\CapitalRepository::TABLES,
         ...\MyInvoice\Repository\Nonprofit\FundingRepository::TABLES,
         'nonprofit_tax_assessments',
+        'nonprofit_legal_profiles', 'nonprofit_tax_saving_sources', 'nonprofit_tax_saving_commands', 'nonprofit_tax_saving_events',
         'property_module_profiles', 'property_objects', 'property_revisions', 'property_revision_groups',
         'property_revision_members', 'property_revision_roles', 'property_revision_identifiers',
         'property_revision_services', 'property_audit',

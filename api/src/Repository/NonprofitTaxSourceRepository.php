@@ -137,6 +137,8 @@ final class NonprofitTaxSourceRepository
             'accounting_result_cents' => $accountingResult, 'ledger' => $ledger, 'dimensions' => $dimensions,
             'joint_projections' => $projections, 'source_references' => $references, 'neutral_line_ids' => array_keys($neutral),
             'funding_history' => $historical, 'funding_reference_sources' => $fundingReferences];
+        $snapshot += (new \MyInvoice\Service\Tax\Nonprofit\NonprofitLegalProfileService($this->db))->assessmentContext($supplierId, $periodId, $currentRead);
+        $snapshot = (new \MyInvoice\Service\Tax\Nonprofit\NonprofitSvjSourceFacts($this->db))->attach($supplierId, $snapshot);
         $snapshot['input_hash'] = NonprofitTaxRules::hash($snapshot);
         return $memo[$periodId] = $snapshot;
     }

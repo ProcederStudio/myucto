@@ -28,10 +28,7 @@ final class Statement504Builder
         $rows = $this->rows('UT');
         foreach ($values as &$column) {
             $column = $this->rollup($rows, $column);
-            $column[39] = $column[1];
-            $column[61] = $column[40];
-            $column[63] = $column[61] - $column[39];
-            $column[62] = $column[63] + $column[37];
+            $column = self::profitTotals($column);
         }
         unset($column);
         $out = [];
@@ -124,7 +121,7 @@ final class Statement504Builder
         return $out;
     }
 
-    private function rollup(array $rows, array $values): array
+    public function rollup(array $rows, array $values): array
     {
         $index = [];
         foreach ($rows as $row) {
@@ -150,6 +147,15 @@ final class Statement504Builder
             $values[49] = $values[1] + $values[10];
         }
         return $values;
+    }
+
+    public static function profitTotals(array $column): array
+    {
+        $column[39] = $column[1];
+        $column[61] = $column[40];
+        $column[63] = $column[61] - $column[39];
+        $column[62] = $column[63] + $column[37];
+        return $column;
     }
 
     private function rowMetadata(array $row): array

@@ -42,6 +42,7 @@ export const MANUAL_CHAPTERS: ManualChapterRule[] = [
   [/^\/reports\/shv(?:\/|$)/, '44_Souhrnne_hlaseni'],
   [/^\/reports\/oss(?:\/|$)/, '45_OSS'],
   [/^\/reports\/income-tax(?:\/|$)/, '43_Dan_z_prijmu'],
+  [/^\/accounting\/nonprofit-dppo(?:\/|$)/, '43_Dan_z_prijmu'],
   // Oznámení podle § 38da a § 38e je popsané v kapitole o dani z příjmů,
   // ne u mezd: mzdových příjmů se obě podání netýkají.
   [/^\/reports\/foreign-income(?:\/|$)/, '43_Dan_z_prijmu'],

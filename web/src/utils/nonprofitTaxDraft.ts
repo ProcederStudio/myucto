@@ -36,12 +36,16 @@ export interface AssessmentDraft {
 }
 const poolDraft = (pool: TaxPool): PoolDraft => ({ anchor: pool.anchor, members: [...pool.members], evidence: pool.evidence,
   review: !!pool.prior_period_review, reviewEvidence: pool.prior_period_review?.evidence ?? '', reviewBasis: pool.prior_period_review?.legal_basis ?? '', reviewAmount: centsText(pool.prior_period_review?.adjustment_cents) })
+export function legalProfileChoices(snapshot: TaxSnapshot | null): string[] {
+  if (snapshot?.legal_profile) return [snapshot.legal_profile.profile.kind]
+  return snapshot?.svj_module_proof?.length ? ['svj'] : ['narrow_vpp', 'broad_vpp', 'non_vpp', 'svj']
+}
 export function assessmentDraft(snapshot: TaxSnapshot, previous?: TaxAssessment): AssessmentDraft {
   const manual = snapshot.assessment_support?.automatic === false && snapshot.assessment_support.documented_manual
   const draft: AssessmentDraft = { ...(manual ? { method: previous?.method ? { ...previous.method } : { mode: 'documented_manual' as const, valid_from: snapshot.period.starts_on, valid_to: snapshot.period.ends_on, legal_basis: '', evidence: '' } } : {}), profile: previous ? { ...previous.profile } : { kind: '', evidence: '' }, activities: {}, decisions: {},
     funding: previous?.funding.map(link => ({ source_id: link.source_id, cost_id: link.cost_id, amount: centsText(link.amount_cents), evidence: link.evidence, overlap: centsText(link.deductible_funded_cents) })) ?? [],
     funding_sources: previous?.funding_sources?.map(poolDraft) ?? [], funding_costs: previous?.funding_costs?.map(poolDraft) ?? [] }
-  if (manual) draft.profile = { kind: 'documented', evidence: previous?.profile.evidence ?? '' }
+  if (manual) draft.profile = { kind: 'documented', evidence: previous?.profile.evidence ?? '', ...(previous?.profile.entity_kind ? { entity_kind: previous.profile.entity_kind } : {}) }
   for (const source of snapshot.sources) {
     if (source.activity_kind_id !== null) {
       const activity = previous?.activities[source.activity_kind_id]
@@ -83,6 +87,9 @@ export function assessmentPayload(draft: AssessmentDraft): TaxAssessment {
 
 export function validateManualAssessment(draft: AssessmentDraft, snapshot: TaxSnapshot): void {
   const method = draft.method
+  const identity = method ? draft.profile.entity_kind : draft.profile.kind
+  if ((snapshot.legal_profile || snapshot.svj_module_proof?.length) && identity && !legalProfileChoices(snapshot).includes(identity)) throw new Error('nonprofitTaxNative.profileConflict')
+  if (method && (snapshot.legal_profile || snapshot.svj_module_proof?.length) && !identity) throw new Error('nonprofitTaxNative.profileRequired')
   if (!method) return
   const fail = (key: string): never => { throw new Error(`nonprofitTax.manual.${key}`) }
   if (snapshot.assessment_support?.automatic !== false || !snapshot.assessment_support.documented_manual) fail('unsupported')

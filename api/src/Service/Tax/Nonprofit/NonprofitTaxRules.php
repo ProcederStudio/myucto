@@ -7,10 +7,10 @@ namespace MyInvoice\Service\Tax\Nonprofit;
 final class NonprofitTaxRules
 {
     public const VERSION = 'cz-nonprofit-assessment-2024-2026-v2';
-    public const PROFILES = ['narrow_vpp', 'broad_vpp', 'non_vpp'];
+    public const PROFILES = ['narrow_vpp', 'broad_vpp', 'non_vpp', 'svj'];
     public const AUTOMATIC_FROM = '2024-01-01';
     public const AUTOMATIC_TO = '2026-12-31';
-    public const REVENUE_TITLES = ['business', 'other_taxable', 'nonbusiness', 'rent', 'advertising', 'membership', 'gift', 'public_operating_grant', 'public_investment_grant', 'bank_interest'];
+    public const REVENUE_TITLES = ['business', 'other_taxable', 'nonbusiness', 'rent', 'advertising', 'membership', 'gift', 'public_operating_grant', 'public_investment_grant', 'bank_interest', 'svj_service_payment'];
 
     public static function assessment(array $assessment): void
     {
@@ -54,6 +54,7 @@ final class NonprofitTaxRules
     public static function documentedProfile(array $assessment, array $period): string
     {
         if (self::supportsPeriod($period)) self::invalid('Doložené ruční posouzení je určeno pouze pro období mimo ověřenou automatickou metodiku.');
+        if (isset($assessment['profile']['entity_kind']) && !in_array($assessment['profile']['entity_kind'], self::PROFILES, true)) self::invalid('Ruční právní postavení musí mít podporovanou doloženou identitu.');
         $method = $assessment['method'];
         if (($method['mode'] ?? null) !== 'documented_manual' || ($assessment['profile']['kind'] ?? null) !== 'documented') self::invalid('Ruční posouzení vyžaduje výslovnou doloženou metodu a postavení poplatníka.');
         self::evidence($assessment['profile']['evidence'] ?? null);
@@ -113,6 +114,7 @@ final class NonprofitTaxRules
             'public_operating_grant' => self::publicGrant($profile, $facts, false, $ordinary),
             'public_investment_grant' => self::publicGrant($profile, $facts, true, $ordinary),
             'bank_interest' => self::interest($profile, $facts, $ordinary),
+            'svj_service_payment' => $profile === 'svj' ? ['regime' => 'out_of_scope', 'method' => 'none', 'legal_basis' => 'zdp_18_2f_3'] : throw new NonprofitTaxAssessmentException('nonprofit_tax_facts_incomplete', 'Právní titul služby vyžaduje doložené SVJ.'),
             default => throw new NonprofitTaxAssessmentException('nonprofit_tax_facts_incomplete', 'Příjem nemá podporovaný a doložený právní titul.'),
         };
     }
@@ -129,7 +131,7 @@ final class NonprofitTaxRules
                 default => throw new NonprofitTaxAssessmentException('nonprofit_tax_facts_incomplete', 'Neosvobozený dar vyžaduje doloženou příslušnost příjmu k činnosti.'),
             };
         }
-        if ($profile === 'non_vpp' || ($facts['qualifying_purpose'] ?? null) !== true) self::invalid('Osvobození daru vyžaduje veřejně prospěšného poplatníka a doložený zákonný účel.');
+        if (!in_array($profile, ['narrow_vpp', 'broad_vpp'], true) || ($facts['qualifying_purpose'] ?? null) !== true) self::invalid('Osvobození daru vyžaduje veřejně prospěšného poplatníka a doložený zákonný účel.');
         self::evidence($facts['election_evidence'] ?? null);
         return ['regime' => 'exempt', 'method' => 'none', 'legal_basis' => 'zdp_19b_2b_1_3'];
     }
@@ -137,13 +139,14 @@ final class NonprofitTaxRules
     private static function membership(string $profile, array $facts, array $ordinary): array
     {
         if (!is_bool($facts['qualifying_membership'] ?? null)) self::invalid('Zákonné podmínky osvobození členského příspěvku musí být výslovně posouzené.');
-        return $facts['qualifying_membership'] && $profile !== 'non_vpp'
+        return $facts['qualifying_membership'] && in_array($profile, ['narrow_vpp', 'broad_vpp'], true)
             ? ['regime' => 'exempt', 'method' => 'none', 'legal_basis' => 'zdp_19_1a_2'] : $ordinary;
     }
 
     private static function publicGrant(string $profile, array $facts, bool $investment, array $ordinary): array
     {
         if (($facts['public_budget'] ?? null) !== true) self::invalid('Veřejný zdroj dotace musí být doložen.');
+        if ($profile === 'svj') return ['regime' => 'out_of_scope', 'method' => 'none', 'legal_basis' => 'zdp_18_2f_1'];
         if ($profile === 'narrow_vpp' || ($profile === 'broad_vpp' && $investment)) {
             return ['regime' => 'out_of_scope', 'method' => 'none', 'legal_basis' => $profile === 'narrow_vpp' ? 'zdp_18a_1b' : 'zdp_18a_5'];
         }
@@ -153,6 +156,7 @@ final class NonprofitTaxRules
     private static function interest(string $profile, array $facts, array $ordinary): array
     {
         if (($facts['domestic_bank_account'] ?? null) !== true) self::invalid('Bankovní srážkový režim vyžaduje doložený účet nebo vklad u tuzemské banky.');
+        if ($profile === 'svj') return ['regime' => 'subject', 'method' => 'final_withholding', 'legal_basis' => 'zdp_36_5b'];
         if ($profile !== 'narrow_vpp') return $ordinary;
         if (!array_key_exists('foundation_endowment', $facts) || !is_bool($facts['foundation_endowment'])) self::invalid('U úroku musí být doloženo, zda jde o nadační jistinu.');
         if ($facts['foundation_endowment']) {

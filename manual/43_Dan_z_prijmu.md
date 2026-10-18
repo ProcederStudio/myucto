@@ -791,6 +791,18 @@ ještě před podáním.
 | Fotovoltaika (§ 30b) a účetní odpisy majetku mimo zákonnou definici (§ 24 odst. 2 písm. v) | Upozornění u výroby elektřiny. Evidence majetku ty režimy nerozlišuje, příslušné řádky tabulky B zůstanou prázdné - doplňte je v EPO. |
 | Zvláštní příloha k ř. 62, Příloha A k ř. 40 | Slovní popis, ne dopočet. Aplikace na ně upozorňuje, text napíšete v EPO. |
 
+### 43.11.20 Právní profil organizace v režimu 504
+
+V nabídce Účetnictví otevřete **DPPO neziskové organizace** a vyberte účetní období.
+Právní profil obsahuje výslovně zvolené postavení poplatníka, druh organizace a doložené
+rozhodné skutečnosti. Oprávněný uživatel jej může potvrdit; předchozí potvrzení zůstávají
+v historii. Změna podkladů vyžaduje nové potvrzení profilu a příslušného daňového posouzení.
+
+Příprava finálního přiznání a elektronické podání DPPO pro rámec 504 jsou v aplikaci
+nedostupné. Obrazovka ukazuje příslušné omezení a podklady pro samostatné zpracování.
+Přehled daňových úspor zobrazuje doložené uložené záznamy podle oprávnění uživatele.
+Právní profily a interní podklady úspor jsou přístupné pouze v přihlášeném webovém rozhraní.
+
 ## 43.12 Související kapitoly
 
 - [Archiv podání a daňová rekonciliace](49_Archiv_podani_a_rekonciliace.md)

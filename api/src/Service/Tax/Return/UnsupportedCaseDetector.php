@@ -91,9 +91,14 @@ final class UnsupportedCaseDetector
             if (isset($podklady['accounting_decree'])) {
                 $supplier['tax_accounting_decree'] = $podklady['accounting_decree'];
             }
-            self::checkTaxpayerType($supplier, $nace, $findings);
-            self::checkAccountingDecree($supplier, $findings);
-            self::checkPublicBenefit($supplier, $nace, $findings);
+            $native504 = ($podklady['accounting_decree'] ?? null) === '504' && is_array($podklady['nonprofit_calculation'] ?? null);
+            if ($native504) {
+                \MyInvoice\Service\Tax\Nonprofit\NonprofitDppoStoredProof::assertCalculation($result, $podklady['nonprofit_calculation']);
+            } else {
+                self::checkTaxpayerType($supplier, $nace, $findings);
+                self::checkAccountingDecree($supplier, $findings);
+                self::checkPublicBenefit($supplier, $nace, $findings);
+            }
             self::checkInvestmentIncentive($supplier, $findings);
             self::checkAtadCfc($supplier, $findings);
             self::checkPeriodShape($podklady, $findings);

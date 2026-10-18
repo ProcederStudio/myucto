@@ -55,6 +55,7 @@ final class DppoReturnDataProvider
         private readonly ?LegalProvisionLedgerService $legalProvisions = null,
         // Nezaúčtované odpisy roku do projekce uzávěrky — volitelná ze stejného důvodu jako $closing.
         private readonly ?DepreciationPostingService $depreciationPreview = null,
+        private readonly ?\MyInvoice\Service\Tax\Nonprofit\NonprofitDppoDataProvider $nonprofit = null,
     ) {}
 
     /**
@@ -88,6 +89,10 @@ final class DppoReturnDataProvider
         $warnings = [];
         $bankAccounts = $this->bankAccounts($supplierId);
         $bankAccount = $this->pickBankAccount($bankAccounts, $inputs['bank_account_id'] ?? null, $warnings);
+        if ($decree === '504') {
+            if ($this->nonprofit === null) throw new TaxReturnException('nonprofit_dppo_provider_required', 'Výpočet504 vyžaduje úplný nativní zdroj podkladů.', 422);
+            return $this->nonprofit->gather($supplierId, $year, $inputs) + ['bank_accounts'=>$bankAccounts,'bank_account'=>$bankAccount];
+        }
         $period = $this->periods->findByYear($supplierId, $year);
         if ($period === null) {
             return [

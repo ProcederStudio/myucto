@@ -31,11 +31,11 @@ final class NonprofitFundingCloneScrubber
         }
         return ['flags'=>$flags,'reports'=>$reports];
     }
-    public static function run(Connection $db,TextScrubber $scrubber,array $captured):void
+    public static function run(Connection $db,TextScrubber $scrubber,array $captured,array $externalHashes=[]):void
     {
         $pdo=$db->pdo();
         if($pdo->inTransaction()||(int)$pdo->query('SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA=DATABASE()')->fetchColumn()!==0)throw new \LogicException('Nonprofit clone rewrite must precede trigger installation.');
-        $owner=new self($db,$scrubber);$foreignKeys=(int)$pdo->query('SELECT @@SESSION.foreign_key_checks')->fetchColumn();$pdo->exec('SET SESSION FOREIGN_KEY_CHECKS=0');$pdo->beginTransaction();
+        $owner=new self($db,$scrubber);$owner->hashes=$externalHashes;$foreignKeys=(int)$pdo->query('SELECT @@SESSION.foreign_key_checks')->fetchColumn();$pdo->exec('SET SESSION FOREIGN_KEY_CHECKS=0');$pdo->beginTransaction();
         try{$owner->rewrite($captured);$pdo->commit();}catch(\Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw $e;}finally{$pdo->exec('SET SESSION FOREIGN_KEY_CHECKS='.$foreignKeys);}
     }
     private function rewrite(array $captured):void
@@ -94,7 +94,7 @@ final class NonprofitFundingCloneScrubber
     }
     private function keys(array $data,string $parent=''):array
     {
-        $facts=['claim_exemption','qualifying_purpose','election_evidence','public_budget','domestic_bank_account','foundation_endowment','foundation_purpose_only','qualifying_membership','gross_interest_cents','withholding_cents','income_treatment','income_attribution_evidence'];
+        $facts=['claim_exemption','qualifying_purpose','election_evidence','public_budget','domestic_bank_account','foundation_endowment','foundation_purpose_only','qualifying_membership','gross_interest_cents','withholding_cents','income_treatment','income_attribution_evidence','saving_qualified_purpose'];
         $out=[];
         foreach($data as$key=>$value){
             $free=$parent==='cohorts'||($parent==='facts'&&!in_array((string)$key,$facts,true))||(is_string($key)&&preg_match('/^(?:[a-z][a-z0-9_]*|line:[1-9][0-9]*)$/D',$key)!==1);
@@ -109,7 +109,7 @@ final class NonprofitFundingCloneScrubber
         $keyed=$this->keys($data);$value=json_decode($this->scrubber->scrubJson(NonprofitTaxRules::canonicalJson($keyed)),true,flags:JSON_THROW_ON_ERROR);
         $restore=function(array $before,array $after,string $parent='')use(&$restore):array{
             foreach($before as$key=>$item){
-                if($parent==='facts'&&$key!=='income_treatment')continue;
+                if($parent==='facts'&&!in_array($key,['income_treatment','saving_qualified_purpose'],true))continue;
                 if(is_array($item)){$after[$key]=$restore($item,$after[$key],(string)$key);continue;}
                 if(!is_string($item)){$after[$key]=$item;continue;}
                 if(isset($this->hashes[$item])){$after[$key]=$this->hashes[$item];continue;}
@@ -118,7 +118,7 @@ final class NonprofitFundingCloneScrubber
                     ||preg_match('/^line:[1-9][0-9]*$/D',$item)===1
                     ||str_ends_with((string)$key,'_hash')
                     ||($key==='title'&&$decision)
-                    ||in_array($key,['kind','ruleset','regime','method','mode','scope','status','final_regime','final_method','tax_regime','activity','account_code','currency_code','fx_rate','assignment_origin','semantic_key','code','date','entry_date','document_date','starts_on','ends_on','valid_from','valid_to'],true)
+                    ||in_array($key,['kind','owner','entity_type','reduction_band','schema','ruleset','regime','method','mode','scope','status','final_regime','final_method','tax_regime','activity','account_code','currency_code','fx_rate','assignment_origin','semantic_key','code','date','entry_date','document_date','starts_on','ends_on','valid_from','valid_to'],true)
                     ||($key==='legal_basis'&&preg_match('/^zdp_[a-z0-9_]+$/D',$item)===1))$after[$key]=$item;
             }
             return $after;

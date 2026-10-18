@@ -37,7 +37,7 @@ final class CostCoverage
             $c=Bootstrap::buildContainer();$c->set(Connection::class,$this->db);
             try{$svj=(new FundingRepository($this->db))->costClaims($supplier,$line);}catch(FundingException $e){throw new PostingException($e->errorCode,$e->getMessage(),$e->httpStatus);}
             try{$capital=(new \MyInvoice\Service\Nonprofit\Capital\CapitalCapacity($this->db))->costClaims($supplier,$line);}catch(\MyInvoice\Service\Nonprofit\Capital\CapitalException $e){throw new PostingException($e->errorCode,$e->getMessage(),$e->httpStatus);}
-            $providers=['capital'=>$capital,'svj'=>$svj,'j6'=>$this->readJ6(fn()=>$c->get(J6FundingCapacity::class)->costClaims($supplier,$line,$context['j6_period_id']??null))];$total='0';foreach($providers as$claims)foreach($claims as$claim)$total=bcadd($total,$claim['amount_cents'],0);
+            $providers=['tax_saving'=>(new \MyInvoice\Service\Tax\Nonprofit\NonprofitTaxSavingsLedger($this->db))->costClaims($supplier,$line),'capital'=>$capital,'svj'=>$svj,'j6'=>$this->readJ6(fn()=>$c->get(J6FundingCapacity::class)->costClaims($supplier,$line,$context['j6_period_id']??null))];$total='0';foreach($providers as$claims)foreach($claims as$claim)$total=bcadd($total,$claim['amount_cents'],0);
             return ['claimed_cents'=>$total,'providers'=>$providers];
         });
     }

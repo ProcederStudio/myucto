@@ -74,10 +74,18 @@ final class J6FundingCapacity
         $guard=new DimensionPeriodGuard($this->db);
         $guard->transaction(function()use($guard,$supplier,$row):void{
             $guard->lockPeriods($supplier);
+            $this->assertHistoricalReceipt($supplier,$row);
+            $current=$this->sources->snapshot($supplier,$row['period_id'],true);if($current['findings']!==[]||!hash_equals($row['input_hash'],$current['input_hash']))self::changed();
+        });
+    }
+    public function assertHistoricalReceipt(int $supplier,array $row):void
+    {
+        $guard=new DimensionPeriodGuard($this->db);
+        $guard->transaction(function()use($guard,$supplier,$row):void{
+            $guard->lockPeriods($supplier);
             if($row['supplier_id']!==$supplier || $row['status']!=='confirmed' || ($row['snapshot']['supplier_id']??null)!==$supplier || (int)($row['snapshot']['period']['id']??0)!==$row['period_id'])self::changed();
             $input=$row['snapshot'];unset($input['input_hash']);$request=['action'=>'confirm','period_id'=>$row['period_id'],'assessment'=>$row['assessment'],'input_hash'=>$row['input_hash'],'reason'=>$row['reason'],'actor'=>$row['created_by'],'expected_assessment_id'=>$row['previous_id']];
             if($row['ruleset']!==NonprofitTaxRules::VERSION||NonprofitTaxRules::hash($input)!==$row['input_hash']||($row['snapshot']['input_hash']??null)!==$row['input_hash']||NonprofitTaxRules::hash($request)!==$row['request_hash']||NonprofitTaxRules::hash((new NonprofitTaxCalculator())->calculate($row['snapshot'],$row['assessment']))!==NonprofitTaxRules::hash($row['result']))self::changed();
-            $current=$this->sources->snapshot($supplier,$row['period_id'],true);if($current['findings']!==[]||!hash_equals($row['input_hash'],$current['input_hash']))self::changed();
         });
     }
     private function overcovered():never{throw new NonprofitTaxAssessmentException('nonprofit_funding_cost_overcovered','Součet potvrzeného financování převyšuje skutečný náklad po opravách a přímém krytí.',422);}

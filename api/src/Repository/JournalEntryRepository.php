@@ -618,6 +618,7 @@ final class JournalEntryRepository
         if ((new \MyInvoice\Service\Accounting\Closing\AssetReserveSourceUseGuard($this->db, $this))->assertEntryChange(
             (int) $header['supplier_id'], $id, $lines, $header['entry_date'], $header,
         )) return;
+        if ((new \MyInvoice\Service\Tax\Nonprofit\NonprofitTaxSavingUseGuard($this->db, $this))->assertEntryChange((int) $header['supplier_id'], $id, $lines, $header['entry_date'], $header)) return;
         if ((new \MyInvoice\Service\Nonprofit\Capital\CapitalUseGuard($this->db, $this))->assertEntryChange((int) $header['supplier_id'], $id, $lines, $header['entry_date'], $header)) return;
         (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->assertEntriesMutable((int) $header['supplier_id'], [$id]);
         if (($header['posted_at'] ?? null) !== null) (new \MyInvoice\Service\Accounting\Funding\NativeCostCoverage($this->db))->assertCreditNotePosting($header);
@@ -700,6 +701,7 @@ final class JournalEntryRepository
         }
         if ((new \MyInvoice\Service\Accounting\Closing\AssetReserveSourceUseGuard($this->db, $this))->assertEntryChange(
             $supplierId, $entryId, [...$retained, ...$addLines], $entry['entry_date'], $entry)) return;
+        if ((new \MyInvoice\Service\Tax\Nonprofit\NonprofitTaxSavingUseGuard($this->db, $this))->assertEntryChange($supplierId, $entryId, [...$retained, ...$addLines], $entry['entry_date'], $entry)) return;
         if ((new \MyInvoice\Service\Nonprofit\Capital\CapitalUseGuard($this->db, $this))->assertEntryChange($supplierId, $entryId, [...$retained, ...$addLines], $entry['entry_date'], $entry)) return;
         (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->assertEntriesMutable($supplierId, [$entryId]);
         (new SystemDimensionWritePolicy($this->db))->assertJournal($entry, [...$retained, ...$addLines], $retained);
@@ -871,6 +873,7 @@ final class JournalEntryRepository
                 return ['before' => $before, 'after' => $text, 'posted' => $posted, 'changed' => false];
             }
 
+            (new \MyInvoice\Service\Tax\Nonprofit\NonprofitTaxSavingUseGuard($this->db, $this))->assertEntriesMutable($supplierId, [$id]);
             (new \MyInvoice\Service\Nonprofit\Capital\CapitalUseGuard($this->db, $this))->assertEntriesMutable($supplierId, [$id]);
             $pdo->prepare(
                 'UPDATE journal_entries SET description = ?, row_version = row_version + 1
@@ -925,6 +928,12 @@ final class JournalEntryRepository
             (new JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, [$id]);
             if ($entry !== null && $entry['posted_at'] !== null
                 && (new \MyInvoice\Service\Accounting\Closing\AssetReserveSourceUseGuard($this->db, $this))->assertEntryChange(
+                    $supplierId, $id, $entry['lines'], $entry['entry_date'], $entry)) {
+                if ($ownTx) $pdo->commit();
+                return false;
+            }
+            if ($entry !== null && $entry['posted_at'] !== null
+                && (new \MyInvoice\Service\Tax\Nonprofit\NonprofitTaxSavingUseGuard($this->db, $this))->assertEntryChange(
                     $supplierId, $id, $entry['lines'], $entry['entry_date'], $entry)) {
                 if ($ownTx) $pdo->commit();
                 return false;

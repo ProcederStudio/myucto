@@ -124,6 +124,10 @@ final class AnonymizationPolicy
 
     /** @var array<string, array<string,string>> */
     public const COLUMNS = [
+        'nonprofit_legal_profiles' => ['profile_json'=>'keep','module_proof_json'=>'keep','reason'=>'keep','idempotency_key'=>'keep','request_hash'=>'keep','record_hash'=>'keep'],
+        'nonprofit_tax_saving_sources' => ['basis_json'=>'keep','record_hash'=>'keep'],
+        'nonprofit_tax_saving_commands' => ['idempotency_key'=>'keep','request_json'=>'keep','request_hash'=>'keep'],
+        'nonprofit_tax_saving_events' => ['parent_hash'=>'keep','proof_json'=>'keep','receipt_json'=>'keep','record_hash'=>'keep'],
         'nonprofit_tax_assessments' => ['status'=>'keep','reason'=>'keep','ruleset'=>'keep','input_hash'=>'keep','request_hash'=>'keep','idempotency_key'=>'keep','snapshot_json'=>'keep','assessment_json'=>'keep','result_json'=>'keep'],
         'nonprofit_capital_sources' => ['policy_json'=>'keep','basis_json'=>'keep','record_hash'=>'keep'],
         'nonprofit_capital_commands' => ['idempotency_key'=>'keep','request_json'=>'keep','request_hash'=>'keep'],

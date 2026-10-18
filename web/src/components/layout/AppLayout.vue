@@ -615,6 +615,7 @@ const navSections = computed<NavSection[]>(() => {
         { to: '/accounting/income-statement', label: t('nav.accounting_income_statement'), icon: ICONS.tax_income },
         { to: '/accounting/income-statement-by-function', label: t('nav.accounting_income_statement_by_function'), icon: ICONS.tax_income },
         ...(dimensionsEnabled ? [{ to: '/accounting/dimension-profit', label: t('nav.accounting_dimension_profit'), icon: ICONS.tax_income, permission: 'accounting' as PermissionKey }] : []),
+        { to: '/accounting/nonprofit-dppo', label: t('nonprofitDppo.title'), icon: ICONS.tax_income, permission: 'accounting' as PermissionKey },
         { to: '/accounting/statement-mapping', label: t('nav.accounting_statement_mapping'), icon: ICONS.codebooks, permission: 'accounting' },
           { to: '/accounting/securities/debt', label: t('securitiesDebt.title'), icon: ICONS.accounting, permission: 'accounting' as PermissionKey },
         { to: '/accounting/framework-conversion', label: conversionLabel('title'), icon: ICONS.accounting, permission: 'accounting' as PermissionKey },

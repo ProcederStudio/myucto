@@ -515,6 +515,7 @@ export function createWorkspaceRoutes(): RouteRecordRaw[] {
       { path: 'reports/vat-corrections', name: 'reports-vat-corrections', component: () => import('@/pages/reports/VatCorrections.vue') },
       { path: 'reports/shv',            name: 'reports-shv',        component: () => import('@/pages/reports/SouhrnneHlaseniReport.vue') },
       { path: 'reports/income-tax',     name: 'reports-income-tax', component: () => import('@/pages/reports/IncomeTaxReport.vue') },
+      { path: 'accounting/nonprofit-dppo', name: 'accounting-nonprofit-dppo', component: () => import('@/views/NonprofitDppoView.vue'), meta: { requiresDoubleEntry: true } },
       { path: 'reports/cnb-rate-audit', name: 'reports-cnb-rate-audit', component: () => import('@/pages/reports/CnbRateAudit.vue') },
       // FR3 (vendor audit 2026-08) — úplnost číselné řady vydaných dokladů (mezera = auditní signál pro FÚ).
       { path: 'reports/invoice-series-completeness', name: 'reports-invoice-series-completeness', component: () => import('@/pages/reports/InvoiceSeriesCompleteness.vue') },
