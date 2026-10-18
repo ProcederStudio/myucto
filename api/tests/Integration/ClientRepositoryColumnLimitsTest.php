@@ -86,7 +86,7 @@ final class ClientRepositoryColumnLimitsTest extends TestCase
 
         $row = $this->clients->find($id);
         self::assertNotNull($row);
-        self::assertSame('11000Praha', $row['zip']);
+        self::assertSame('11000', $row['zip']);
         self::assertNull($row['dic'], 'DIČ, které se nevejde ani po normalizaci, se zahodí.');
         self::assertSame(190, mb_strlen((string) $row['company_name']));
         self::assertSame(60, mb_strlen((string) $row['first_name']));
@@ -122,6 +122,6 @@ final class ClientRepositoryColumnLimitsTest extends TestCase
 
         $this->clients->update($id, ['zip' => 'AT-1230 Wien Liesing']);
 
-        self::assertSame('AT-1230Wie', $this->clients->find($id)['zip']);
+        self::assertSame('AT-1230', $this->clients->find($id)['zip']);
     }
 }

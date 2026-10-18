@@ -54,10 +54,11 @@ final class ClientFieldLimitsTest extends TestCase
         self::assertSame($data, ClientFieldLimits::fit($data));
     }
 
-    public function testFitStripsWhitespaceAndTruncatesZip(): void
+    public function testFitKeepsOnlyThePostalCodeFromTooLongZip(): void
     {
-        self::assertSame('11000Praha', ClientFieldLimits::fit(['zip' => '110 00 Praha 1'])['zip']);
-        self::assertSame('AT-1230Wie', ClientFieldLimits::fit(['zip' => "AT-1230\u{00A0}Wien"])['zip']);
+        self::assertSame('11000', ClientFieldLimits::fit(['zip' => '110 00 Praha 1'])['zip']);
+        self::assertSame('AT-1230', ClientFieldLimits::fit(['zip' => "AT-1230\u{00A0}Wien"])['zip']);
+        self::assertNull(ClientFieldLimits::fit(['zip' => 'neuvedeno na dokladu'])['zip']);
     }
 
     public function testFitNormalizesOrDropsDic(): void

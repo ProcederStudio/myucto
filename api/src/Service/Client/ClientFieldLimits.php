@@ -57,8 +57,8 @@ final class ClientFieldLimits
     /**
      * Hodnoty, které se vejdou, zůstávají beze změny. Identifikátory (IČO, DIČ) se
      * nejdřív normalizují; když se ani pak nevejdou, jsou zjevně špatně vytěžené
-     * a zahodí se, protože useknuté DIČ by vypadalo jako platné cizí DIČ. PSČ
-     * přijde o mezery a zkrátí se, ostatní texty se jen zkrátí.
+     * a zahodí se, protože useknuté DIČ by vypadalo jako platné cizí DIČ. Z PSČ
+     * zůstane jen samotné PSČ (viz fitZip), ostatní texty se jen zkrátí.
      *
      * @param array<string,mixed> $data
      * @return array<string,mixed>
@@ -77,7 +77,7 @@ final class ClientFieldLimits
             $data[$field] = match ($field) {
                 'dic'   => self::fitIdentifier($value, $max, '/^[A-Z]{2}[0-9A-Z]+$/'),
                 'ic'    => self::fitIdentifier($value, $max, '/^\d+$/'),
-                'zip'   => mb_substr(self::withoutWhitespace($value), 0, $max),
+                'zip'   => self::fitZip($value, $max),
                 default => mb_substr($value, 0, $max),
             };
         }
@@ -98,6 +98,26 @@ final class ClientFieldLimits
         }
         $normalized = strtoupper(preg_replace('/[.\-\/_]+/', '', $compact) ?? $compact);
         return mb_strlen($normalized) <= $max && preg_match($shape, $normalized) === 1 ? $normalized : null;
+    }
+
+    /**
+     * Delší PSČ z cizích dat bývá slepené s městem nebo zemí („AT-1230 Wien").
+     * Useknutí by z něj udělalo nesmysl, který se vejde, proto se vezme jen samotné
+     * PSČ (první skupina s číslicemi), a když ani to nejde, hodnota se zahodí.
+     */
+    private static function fitZip(string $value, int $max): ?string
+    {
+        $compact = self::withoutWhitespace($value);
+        if (mb_strlen($compact) <= $max) {
+            return $compact;
+        }
+        if (preg_match('/\b\d{3}\s?\d{2}\b/u', $value, $m) === 1) {
+            return self::withoutWhitespace($m[0]);
+        }
+        if (preg_match('/\b(?=[A-Z0-9-]*\d)[A-Z0-9-]{3,' . $max . '}\b/u', strtoupper($value), $m) === 1) {
+            return $m[0];
+        }
+        return null;
     }
 
     private static function withoutWhitespace(string $value): string
