@@ -369,10 +369,11 @@ final class StereoNxSourcePlan
             $base = 0;
             $tax = 0;
             foreach (['z', 's', 't'] as $slot) {
+                if (StereoNxRecapAmounts::isUnusedBucket($header, $slot)) continue;
                 $base += self::cents($header['ZaklDPH' . $slot] ?? null);
                 $tax += self::cents($header['DPH' . $slot] ?? null);
             }
-            $base += self::cents($header['BezDane'] ?? null);
+            if (!StereoNxRecapAmounts::isUnusedBucket($header, '0')) $base += self::cents($header['BezDane'] ?? null);
             if ($base !== $registered['base'] || $tax !== $registered['tax']
                 || ($registered['date_mismatch'] ?? false)) {
                 $doc['review_codes'][] = 'vat_register_mismatch';
@@ -543,8 +544,11 @@ final class StereoNxSourcePlan
             $value = $header[$field] ?? null;
             if ((!is_int($value) && !is_float($value)) || (float) $value !== 1.0) return false;
         }
-        foreach (['Zalohy', 'BezDane', 'ZaklDPHz', 'DPHz', 'ZaklDPHs', 'DPHs',
-            'ZaklDPHt', 'DPHt', 'Zaokrouhleni'] as $field) {
+        foreach (['z', 's', 't', '0'] as $slot) {
+            if (!StereoNxRecapAmounts::isUnusedBucket($header, $slot)) return false;
+        }
+        // Bez položek nelze NULL zaokrouhlení nezávisle doložit součtem; zůstává povinné.
+        foreach (['Zalohy', 'Zaokrouhleni'] as $field) {
             $value = $header[$field] ?? null;
             if ((!is_int($value) && !is_float($value)) || (float) $value !== 0.0) return false;
         }

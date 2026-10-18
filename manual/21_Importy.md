@@ -818,6 +818,11 @@ deník ve zdroji slouží ke kontrole fyzických pohybů, nevytváří druhou sa
 Přijaté faktury bez položek dostanou položky podle uložené rekapitulace sazeb DPH
 s původním popisem. Samovyměřená daň se nepřičítá k částce splatné dodavateli.
 
+Prázdné nepoužité sazby v rekapitulaci nevytvářejí položky. Nevyplněné
+zaokrouhlení lze převzít jako nulové jen při přesné shodě vypočteného součtu
+s celkem dokladu. Chybějící částka použité sazby nebo povinný celkový součet
+nadále vyžaduje opravu zdroje.
+
 Doklady s neurčenými příznaky DPH nebo cen, neurčenou protistranou či zemí,
 nesouladem kontrolní evidence nebo neověřeným datem se převezmou jako
 **koncepty**. Také vydaný doklad bez položek vyžaduje ruční kontrolu. Společný
