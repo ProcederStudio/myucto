@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace MyInvoice\Service\Bank;
 
+use PDO;
+
 /** Životní stav avíza nezávislý na párování a na existenci pozdějšího výpisu. */
 final class BankNoticeLifecycle
 {
@@ -22,5 +24,13 @@ final class BankNoticeLifecycle
         return "NOT ({$transactionAlias}.source IN ('email_notice','idoklad')"
             . " AND COALESCE({$transactionAlias}.ignore_origin, '') = '" . self::SUPERSEDED . "'"
             . " AND {$transactionAlias}.match_status IN ('unmatched','ignored'))";
+    }
+
+    /** Převzaté avízo pro jeden pohyb; automatické párování a návrhy ho přeskakují. */
+    public static function isSuperseded(PDO $pdo, int $transactionId): bool
+    {
+        $stmt = $pdo->prepare('SELECT 1 FROM bank_transactions bt WHERE bt.id = ? AND NOT ' . self::activeSql('bt'));
+        $stmt->execute([$transactionId]);
+        return $stmt->fetchColumn() !== false;
     }
 }

@@ -1268,6 +1268,7 @@ final class CrmAggregationService
             "SELECT bt.id FROM bank_transactions bt
                JOIN bank_statements bs ON bs.id = bt.statement_id
               WHERE bt.match_status = 'unmatched'
+                AND " . \MyInvoice\Service\Bank\BankNoticeLifecycle::activeSql('bt') . "
                 AND bt.amount > 0
                 AND bt.posted_at >= DATE_SUB(?, INTERVAL 90 DAY)
                 AND NOT " . \MyInvoice\Service\Bank\NonInvoiceBankTransactionScope::sql((int) $supplierId, 'bt.id') . "
@@ -3145,6 +3146,7 @@ final class CrmAggregationService
                     "SELECT bt.id FROM bank_transactions bt
                        JOIN bank_statements bs ON bs.id = bt.statement_id
                       WHERE bt.match_status = 'unmatched'
+                        AND " . \MyInvoice\Service\Bank\BankNoticeLifecycle::activeSql('bt') . "
                         AND bt.amount > 0
                         AND bt.posted_at >= DATE_SUB(?, INTERVAL 90 DAY)
                         AND NOT " . \MyInvoice\Service\Bank\NonInvoiceBankTransactionScope::sql((int) $supplierId, 'bt.id') . "

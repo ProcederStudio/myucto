@@ -6,6 +6,7 @@ namespace MyInvoice\Service\Bank\Match;
 
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Infrastructure\Database\TransactionFailure;
+use MyInvoice\Service\Bank\BankNoticeLifecycle;
 use MyInvoice\Service\Bank\BankTransactionContext;
 use MyInvoice\Service\Bank\AccountNumberNormalizer;
 use MyInvoice\Service\Invoice\InvoicePaymentService;
@@ -46,6 +47,14 @@ final class MatchSuggestionService
         $tx = $this->loadTransaction($transactionId);
         if ($tx === null || (int) $tx['supplier_id'] <= 0) return $matchResult;
         $supplierId = (int) $tx['supplier_id'];
+        // Avízo převzaté výpisem už úhradu nenese; nový návrh by ji založil podruhé.
+        if (BankNoticeLifecycle::isSuperseded($this->db->pdo(), $transactionId)) {
+            $this->db->pdo()->prepare(
+                "UPDATE bank_match_suggestions SET status = 'superseded', updated_at = NOW()
+                  WHERE supplier_id = ? AND bank_transaction_id = ? AND status = 'pending'"
+            )->execute([$supplierId, $transactionId]);
+            return $matchResult;
+        }
         if (($matchResult['status'] ?? 'unmatched') !== 'unmatched') {
             $this->recordTargets($supplierId, $tx, $matchResult, false);
             $this->db->pdo()->prepare(
@@ -140,6 +149,7 @@ final class MatchSuggestionService
                JOIN bank_transactions bt ON bt.id = s.bank_transaction_id
                JOIN bank_statements bs ON bs.id = bt.statement_id
               WHERE " . \MyInvoice\Service\Bank\StatementTransactionScope::sql($statementId) . " AND s.supplier_id = ? AND s.status = 'pending'
+                AND " . BankNoticeLifecycle::activeSql('bt') . "
                 AND " . \MyInvoice\Repository\BankStatementOwnershipResolver::sqlForColumn('s.supplier_id') . "
               ORDER BY s.created_at, s.id"
         );
@@ -180,7 +190,7 @@ final class MatchSuggestionService
                 throw new MatchSuggestionException('candidate_out_of_range', 'Vybraný kandidát neexistuje.', 422);
             }
             if ((int) $suggestion['bank_transaction_id'] !== $transactionId) throw new MatchSuggestionException('not_found', 'Návrh nebyl nalezen.', 404);
-            if ((string) $tx['match_status'] !== 'unmatched') {
+            if ((string) $tx['match_status'] !== 'unmatched' || BankNoticeLifecycle::isSuperseded($pdo, $transactionId)) {
                 $pdo->prepare("UPDATE bank_match_suggestions SET status = 'superseded', updated_at = NOW() WHERE id = ?")
                     ->execute([$suggestionId]);
                 $pdo->commit();

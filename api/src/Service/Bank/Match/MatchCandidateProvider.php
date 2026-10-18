@@ -31,6 +31,7 @@ final class MatchCandidateProvider
     public function candidatesFor(int $supplierId, array $tx): array
     {
         if ($supplierId <= 0 || (int) ($tx['id'] ?? 0) <= 0) return [];
+        if (\MyInvoice\Service\Bank\BankNoticeLifecycle::isSuperseded($this->db->pdo(), (int) $tx['id'])) return [];
         $amount = abs((float) ($tx['amount'] ?? 0.0));
         if ($amount <= 0.0) return [];
         $incoming = (float) $tx['amount'] > 0.0;

@@ -26,6 +26,7 @@ use MyInvoice\Service\Bank\StatementReconciliationException;
 use MyInvoice\Service\Bank\StatementImporter;
 use MyInvoice\Service\Bank\StatementProcessingState;
 use MyInvoice\Service\Bank\StatementTransactionScope;
+use MyInvoice\Service\Bank\BankNoticeLifecycle;
 use MyInvoice\Service\Bank\BankTransactionPostingScope;
 use MyInvoice\Service\Bank\NonInvoiceBankTransactionScope;
 use MyInvoice\Service\Bank\BankTransactionReleaseException;
@@ -921,10 +922,12 @@ final class BankStatementAction
                     " . StatementTransactionScope::countSql('bs.id', 'cbt') . " AS transaction_count,
                     " . StatementTransactionScope::countSql('bs.id', 'mbt', "mbt.match_status IN ('auto_exact', 'auto_partial', 'manual')") . " AS matched_count,
                     " . StatementTransactionScope::countSql('bs.id', 'nbt', "nbt.match_status = 'unmatched' AND "
+                        . BankNoticeLifecycle::activeSql('nbt') . " AND "
                         . \MyInvoice\Service\Bank\NonInvoiceBankTransactionScope::sql($sid, 'nbt.id')) . " AS non_invoice_count,
                     (bs.file_content IS NOT NULL) AS has_file,
                     (bs.pdf_content IS NOT NULL) AS has_pdf, bs.pdf_name,
-                    " . StatementTransactionScope::countSql('bs.id', 'ibt', "ibt.match_status = 'ignored'") . " AS ignored_count,
+                    " . StatementTransactionScope::countSql('bs.id', 'ibt', "ibt.match_status = 'ignored' AND " . BankNoticeLifecycle::activeSql('ibt')) . " AS ignored_count,
+                    " . StatementTransactionScope::countSql('bs.id', 'sbt', 'NOT ' . BankNoticeLifecycle::activeSql('sbt')) . " AS superseded_count,
                     " . StatementTransactionScope::countSql('bs.id', 'ubt', "ubt.source = 'statement'
                         AND ubt.match_status <> 'ignored' AND NOT " . BankTransactionPostingScope::existsSql($sid, 'ubt.id')) . " AS unposted_count,
                     " . StatementTransactionScope::countSql('bs.id', 'pbt', StatementProcessingState::failedSql('pbt')) . " AS unprocessed_count,
@@ -970,6 +973,7 @@ final class BankStatementAction
             $r['matched_count'] = (int) $r['matched_count'];
             $r['non_invoice_count'] = (int) $r['non_invoice_count'];
             $r['ignored_count'] = (int) $r['ignored_count'];
+            $r['superseded_count'] = (int) $r['superseded_count'];
             $r['unposted_count'] = (int) $r['unposted_count'];
             $r['unprocessed_count'] = (int) $r['unprocessed_count'];
             $r['processing_failed'] = $r['unprocessed_count'] > 0;
@@ -1778,7 +1782,8 @@ final class BankStatementAction
             $txWhere .= ' AND bt.match_status = ?';
             $txParams[] = $statusFilter;
             if ($statusFilter === 'unmatched') {
-                $txWhere .= ' AND NOT ' . NonInvoiceBankTransactionScope::sql($sid, 'bt.id');
+                $txWhere .= ' AND ' . BankNoticeLifecycle::activeSql('bt')
+                    . ' AND NOT ' . NonInvoiceBankTransactionScope::sql($sid, 'bt.id');
             }
         }
         if ($postingFilter !== '') {
@@ -1803,7 +1808,8 @@ final class BankStatementAction
         // LIMIT/OFFSET inlinujeme jako validované inty (vzor StockItemRepository::list) —
         // native prepared statements neumí LIMIT/OFFSET s parametrem typu string.
         $txStmt = $this->db->pdo()->prepare(
-            'SELECT bt.*, i.id AS matched_invoice_id, i.varsymbol AS matched_varsymbol, i.amount_to_pay AS matched_invoice_amount,
+            'SELECT bt.*, (NOT ' . BankNoticeLifecycle::activeSql('bt') . ') AS notice_superseded,
+                    i.id AS matched_invoice_id, i.varsymbol AS matched_varsymbol, i.amount_to_pay AS matched_invoice_amount,
                     i.client_id, c.company_name AS matched_client_name,
                     p.id AS matched_purchase_invoice_id,
                     COALESCE(NULLIF(p.vendor_invoice_number, \'\'), p.varsymbol) AS matched_purchase_ref,
@@ -1869,6 +1875,7 @@ final class BankStatementAction
             $t['card'] = $cardByTx[(int) $t['id']] ?? null;
             $t['id'] = (int) $t['id'];
             $t['amount'] = (float) $t['amount'];
+            $t['notice_superseded'] = (bool) $t['notice_superseded'];
             $t['balance'] = isset($t['balance']) ? (float) $t['balance'] : null;
             $t['matched_invoice_id'] = $t['matched_invoice_id'] !== null ? (int) $t['matched_invoice_id'] : null;
             $t['matched_purchase_invoice_id'] = $t['matched_purchase_invoice_id'] !== null ? (int) $t['matched_purchase_invoice_id'] : null;
@@ -1893,11 +1900,13 @@ final class BankStatementAction
         $s['api_evidence'] = $monthlyEvidence->isEvidence($id);
         $s['transactions'] = $this->clientAccess->redactTransactions($request, $transactions);
         $summary = $this->db->pdo()->query(
-            "SELECT COUNT(*) AS total, SUM(bt.match_status IN ('auto_exact', 'auto_partial', 'manual')) AS matched
+            "SELECT COUNT(*) AS total, SUM(bt.match_status IN ('auto_exact', 'auto_partial', 'manual')) AS matched,
+                    SUM(NOT " . BankNoticeLifecycle::activeSql('bt') . ") AS superseded
              FROM bank_transactions bt WHERE " . StatementTransactionScope::sql($id)
         )->fetch(\PDO::FETCH_ASSOC);
         $s['transaction_count'] = (int) $summary['total'];
         $s['matched_count'] = (int) $summary['matched'];
+        $s['superseded_count'] = (int) $summary['superseded'];
         // Stránkování transakcí — FE dělá „Načíst další" (viz `transactions_meta.pages`).
         // `transaction_count` v hlavičce zůstává CELKOVÝ počet transakcí výpisu (bez filtru).
         $s['transactions_meta'] = Pagination::meta($txTotal, $p['page'], $p['per_page']);
@@ -4638,6 +4647,7 @@ final class BankStatementAction
         $txs = $pdo->prepare(
             "SELECT bt.id FROM bank_transactions bt
               WHERE " . StatementTransactionScope::sql($statementId) . "
+                AND " . BankNoticeLifecycle::activeSql('bt') . "
                 AND (bt.match_status IN ('unmatched', 'auto_partial')
                     OR (bt.match_status = 'auto_exact' AND EXISTS (
                         SELECT 1 FROM invoices i WHERE i.id = bt.matched_invoice_id

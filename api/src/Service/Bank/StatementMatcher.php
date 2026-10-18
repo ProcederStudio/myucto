@@ -586,6 +586,11 @@ final class StatementMatcher
             }
             return $this->recordedResult($transactionId, $row, $repaired);
         }
+        // Úhradu z avíza převzal oficiální výpis. Automat ho znovu nepáruje (rematch
+        // avízového výpisu by založil druhou úhradu); ruční spárování zůstává možné.
+        if (BankNoticeLifecycle::isSuperseded($pdo, $transactionId)) {
+            return ['status' => $storedStatus, 'reason' => 'notice_superseded', 'already_recorded' => true];
+        }
         if (($taken = $this->takenElsewhereReason($pdo, $transactionId)) !== null) {
             return ['status' => 'unmatched', 'reason' => $taken];
         }

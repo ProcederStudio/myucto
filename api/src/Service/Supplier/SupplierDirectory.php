@@ -288,6 +288,7 @@ final class SupplierDirectory
                JOIN bank_transactions bt
                  ON bt.statement_id = bs.id
                 AND bt.match_status = 'unmatched'
+                AND " . \MyInvoice\Service\Bank\BankNoticeLifecycle::activeSql('bt') . "
                 AND bt.amount > 0
                 AND bt.posted_at >= DATE_SUB(?, INTERVAL 90 DAY)
                 AND NOT " . NonInvoiceBankTransactionScope::sql('s.id', 'bt.id') . "
