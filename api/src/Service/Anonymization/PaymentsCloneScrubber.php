@@ -51,7 +51,7 @@ final class PaymentsCloneScrubber
             $suppliers=array_values(array_unique(array_merge(...array_values(array_map(fn($data)=>array_column($data,'supplier_id'),$rows)))));sort($suppliers,SORT_NUMERIC);
             foreach($suppliers as $supplier)(new PaymentLocks($this->db))->acquire((int)$supplier);
             foreach($rows['unit_payment_sources'] as $r)(new PaymentSourceProof($this->db))->current((int)$r['supplier_id'],$r['bank_transaction_id']!==null?'bank':'cash',(int)($r['bank_transaction_id']??$r['cash_document_id']));
-            foreach($rows['unit_payment_debts'] as $r)(new DebtRepository($this->db))->current((int)$r['supplier_id'],(int)$r['id']);
+            foreach($suppliers as $supplier)(new DebtRepository($this->db))->allCurrent((int)$supplier);
             foreach($suppliers as $supplier)(new \MyInvoice\Service\Property\Payments\CorrectionHistory($this->db))->current((int)$supplier);
             foreach($rows['unit_payment_operations'] as $r){
                 $snapshot=$this->references($this->text(self::decode($r['snapshot_json'])));

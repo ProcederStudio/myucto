@@ -88,20 +88,21 @@ final class IssuanceRepository
         $reader=new IssuanceReadRepository($this->db); $batch=$reader->batch($supplier,$batchId,true);
         $ids=array_column($batch['charges'],'id'); sort($ids,SORT_NUMERIC);
         if($ids!==array_keys($expected)) self::conflict();
-        $done=true;
+        $done=true;$proofs=[];
         $proof=new IssuanceJournalProof($this->db);
         foreach($batch['charges'] as $charge) {
             if($charge['status']==='posted'&&in_array($expected[$charge['id']],[$charge['row_version'],$charge['row_version']-1],true)) {
-                $proof->assertEntry($supplier,$charge['journal_entry_id'],$charge);
+                $proofs[]=['entry_id'=>$charge['journal_entry_id'],'charge'=>$charge,'reversal'=>false];
                 continue;
             }
             if(in_array($charge['status'],['cancelled','reversed'],true)&&$charge['row_version']===$expected[$charge['id']]) {
-                if($charge['status']==='reversed') $proof->assertEntry($supplier,$charge['reversal_entry_id'],$charge,true);
+                if($charge['status']==='reversed') $proofs[]=['entry_id'=>$charge['reversal_entry_id'],'charge'=>$charge,'reversal'=>true];
                 continue;
             }
             if($charge['status']!=='draft'||$charge['row_version']!==$expected[$charge['id']]) self::conflict();
             $done=false;
         }
+        if($proofs!==[]) $proof->assertEntries($supplier,$proofs);
         if($done) return $batch;
         (new PropertyProfileRepository($this->db))->assertEnabledLocked($supplier,self::instant());
         $version=(new ChargeReadRepository($this->db))->find($supplier,$batch['version_id'],true);
@@ -121,13 +122,14 @@ final class IssuanceRepository
                 ['entry_date'=>$charge['accounting_date'],'document_date'=>$documentDate,'document_no'=>'P-'.$charge['id'],
                     'description'=>'Předpis '.$charge['snapshot']['registry']['revision']['state']['unit_no'].' / '.$charge['period_from'],
                     'posted_by'=>$actor,'user_id'=>$actor]);
-            $proof->assertEntry($supplier,$entry,$charge);
+            $proofs[]=['entry_id'=>$entry,'charge'=>$charge,'reversal'=>false];
             $stmt=$this->db->pdo()->prepare("UPDATE unit_charges SET status='posted',journal_entry_id=?,row_version=row_version+1 WHERE supplier_id=? AND id=? AND status='draft' AND row_version=?");
             $stmt->execute([$entry,$supplier,$charge['id'],$charge['row_version']]); if($stmt->rowCount()!==1) self::conflict();
             if($charge['previous_charge_id']!==null) $this->adjustment($supplier,$charge['previous_charge_id'],$charge['id'],$charge['issue_mode'],$entry,
                 $charge['snapshot']['issued_at'],['new_charge_id'=>$charge['id'],'snapshot_hash'=>$charge['snapshot_hash']], 'issue-'.$charge['id'],$actor);
             $this->audit($supplier,$batchId,$charge['id'],'posted',['journal_entry_id'=>$entry,'snapshot_hash'=>$charge['snapshot_hash']],$actor,self::now());
         }
+        $proof->assertEntries($supplier,$proofs);
         return $reader->batch($supplier,$batchId,true);
     }
 

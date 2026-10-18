@@ -21,7 +21,8 @@ final class OpeningCloneScrubber
         foreach($pdo->query('SELECT * FROM property_opening_components ORDER BY supplier_id,id FOR UPDATE')->fetchAll(PDO::FETCH_ASSOC) as $row){$fact=$text(self::decode($row,'fact'));$this->update('property_opening_components',$row,['fact_json'=>self::json($fact),'fact_hash'=>$map($row['fact_hash'],$fact)]);}
         foreach($pdo->query('SELECT * FROM property_opening_parties ORDER BY supplier_id,item_id,group_key,client_id FOR UPDATE')->fetchAll(PDO::FETCH_ASSOC) as $row){$fact=$text(json_decode($row['fact_json'],true,flags:JSON_THROW_ON_ERROR));$q=$pdo->prepare('UPDATE property_opening_parties SET fact_json=? WHERE supplier_id=? AND item_id=? AND group_key=? AND client_id=?');$q->execute([self::json($fact),$row['supplier_id'],$row['item_id'],$row['group_key'],$row['client_id']]);}
         foreach($pdo->query('SELECT * FROM property_opening_states ORDER BY supplier_id,item_id FOR UPDATE')->fetchAll(PDO::FETCH_ASSOC) as $row){$value=$text($row);$q=$pdo->prepare('UPDATE property_opening_states SET purpose_ref=?,counterpart_ref=? WHERE supplier_id=? AND item_id=?');$q->execute([$value['purpose_ref'],$value['counterpart_ref'],$row['supplier_id'],$row['item_id']]);}
-        foreach($items as $item)(new OpeningReadProof($this->db))->item((int)$item['supplier_id'],(int)$item['id'],true);
+        $supplierItems=[];foreach($items as $item)$supplierItems[(int)$item['supplier_id']][]=(int)$item['id'];
+        foreach($supplierItems as $supplier=>$ids)(new OpeningReadProof($this->db))->items($supplier,$ids,true);
     }
     private function transform(array $node,int $supplier,array $registryMap,callable $text):array
     {
