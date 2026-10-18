@@ -31073,6 +31073,340 @@ paths:
           $ref: '#/components/responses/ValidationFailed'
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /api/v1/property/catalog/service-lifecycles:
+    get:
+      tags:
+      - Accounting
+      operationId: propertyAccountingLifecycleList
+      summary: Ověřené aktuální účetní případy služeb
+      description: Vyžaduje property READ a tenant scope. Pouze čtení. Null estimate/final
+        znamená neurčené, nikoli nulu. incomplete/pending se zachovává. Stránky jsou
+        samostatná native current čtení.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - name: after_id
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+        description: next_after_id ze stejné firmy a přesně stejných filtrů; neplatný
+          či cizí anchor vrací 409.
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 25
+      - name: unit_id
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      - name: service_id
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      - name: known_at
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Lifecycle a S7 nemají historický knowledge SSOT; každá nenulová
+          hodnota vrací 409.
+      responses:
+        '200':
+          description: Redigovaný native výsledek.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PropertyAccountingLifecyclePage'
+        '403':
+          description: Chybí READ grant nebo tokenový scope.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Objekt nebo scope není dostupný v této firmě.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Neplatný proof nebo cursor; nepodporovaný known_at.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Neplatný dotaz nebo datum.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/property/catalog/service-lifecycles/{id}:
+    get:
+      tags:
+      - Accounting
+      operationId: propertyAccountingLifecycleDetail
+      summary: Ověřený aktuální případ služby
+      description: Vyžaduje property READ a tenant scope. Pouze čtení. Jen technické
+        identity událostí; žádné request, evidence, actor, origin snapshot nebo kontakty.
+        Chybějící/corrupt native proof selže uzavřeně.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      - name: known_at
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Lifecycle a S7 nemají historický knowledge SSOT; každá nenulová
+          hodnota vrací 409.
+      responses:
+        '200':
+          description: Redigovaný native výsledek.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PropertyAccountingLifecycleDetail'
+        '403':
+          description: Chybí READ grant nebo tokenový scope.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Objekt nebo scope není dostupný v této firmě.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Neplatný proof nebo cursor; nepodporovaný known_at.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Neplatný dotaz nebo datum.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/property/catalog/service-lifecycles/reconciliation:
+    get:
+      tags:
+      - Accounting
+      operationId: propertyAccountingServiceReconciliation
+      summary: Nezávislá rekonciliace služeb k datu
+      description: Vyžaduje property READ a tenant scope. Pouze čtení. Čte native S3/S6/S8/lifecycle
+        a hlavní deník. Ponechte coverage, findings a matches, i když částky vypadají
+        nulové. Znalost je aktuální; known_at není podporován.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - name: date
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date
+      - name: unit_id
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      - name: service_id
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      - name: known_at
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Lifecycle a S7 nemají historický knowledge SSOT; každá nenulová
+          hodnota vrací 409.
+      responses:
+        '200':
+          description: Redigovaný native výsledek.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PropertyAccountingServiceReconciliation'
+        '403':
+          description: Chybí READ grant nebo tokenový scope.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Objekt nebo scope není dostupný v této firmě.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Neplatný proof nebo cursor; nepodporovaný known_at.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Neplatný dotaz nebo datum.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/property/catalog/funds/operations:
+    get:
+      tags:
+      - Accounting
+      operationId: propertyAccountingFundOperations
+      summary: Ověřené operace financování vlastníků
+      description: Vyžaduje property READ a tenant scope. Pouze čtení. Podepsané haléře
+        a native technické effect pointers. reverse zrcadlí ověřenou face amount původní
+        operace; dostupná kapacita se zde neodvozuje. Nevrací personální či právní podklady.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - name: house_id
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      - name: after_id
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+        description: next_after_id ze stejné firmy a přesně stejných filtrů; neplatný
+          či cizí anchor vrací 409.
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 25
+      responses:
+        '200':
+          description: Redigovaný native výsledek.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PropertyAccountingFundOperationPage'
+        '403':
+          description: Chybí READ grant nebo tokenový scope.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Objekt nebo scope není dostupný v této firmě.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Neplatný proof nebo cursor; nepodporovaný known_at.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Neplatný dotaz nebo datum.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/property/catalog/funds/balances:
+    get:
+      tags:
+      - Accounting
+      operationId: propertyAccountingFundBalances
+      summary: Zůstatky financování vlastníků a native ledger
+      description: Vyžaduje property READ a tenant scope. Pouze čtení. Bez filtru zahrne
+        celou firmu včetně nepropojených zápisů. matches=false a unregistered_line_ids
+        znamenají, že součty nejsou úplně pokryté. coverage označuje rozsah native zdrojů,
+        ne potvrzení celé finanční pozice. known_at respektuje skutečný posted/recorded
+        cutoff vlastníka.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - name: date
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date
+      - name: house_id
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      - name: unit_id
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+      - name: known_at
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date-time
+      responses:
+        '200':
+          description: Redigovaný native výsledek.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PropertyAccountingFundBalances'
+        '403':
+          description: Chybí READ grant nebo tokenový scope.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Objekt nebo scope není dostupný v této firmě.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Neplatný proof nebo cursor; nepodporovaný known_at.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Neplatný dotaz nebo datum.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
 components:
   securitySchemes:
     BearerAuth:
@@ -31165,6 +31499,529 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
 
   schemas:
+    PropertyAccountingCents:
+      type: string
+      pattern: ^-?(0|[1-9][0-9]*)$
+      description: Přesná podepsaná částka v haléřích. Neurčená částka se nepřevádí na
+        nulu.
+    PropertyAccountingAmountMap:
+      type: object
+      additionalProperties:
+        $ref: '#/components/schemas/PropertyAccountingCents'
+    PropertyAccountingNestedAmountMap:
+      type: object
+      additionalProperties:
+        $ref: '#/components/schemas/PropertyAccountingAmountMap'
+    PropertyAccountingUnitServiceAmountMap:
+      type: object
+      additionalProperties:
+        $ref: '#/components/schemas/PropertyAccountingNestedAmountMap'
+    PropertyAccountingFinding:
+      type: object
+      additionalProperties: false
+      required:
+      - code
+      properties:
+        code:
+          type: string
+        case_id:
+          type: integer
+          minimum: 1
+        event_id:
+          type: integer
+          minimum: 1
+        line_id:
+          type: integer
+          minimum: 1
+        unit_id:
+          type: integer
+          minimum: 1
+        service_id:
+          type: integer
+          minimum: 1
+        accounting_date:
+          type: string
+          format: date
+          nullable: true
+    PropertyAccountingEvent:
+      type: object
+      additionalProperties: false
+      required:
+      - event_id
+      - kind
+      - accounting_date
+      - journal_entry_id
+      properties:
+        event_id:
+          type: integer
+          minimum: 1
+        kind:
+          type: string
+        accounting_date:
+          type: string
+          format: date
+          nullable: true
+        journal_entry_id:
+          type: integer
+          minimum: 1
+          nullable: true
+    PropertyAccountingLifecycle:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - unit_id
+      - service_id
+      - period_from
+      - period_to
+      - policy
+      - service_cost_account
+      - currency
+      - knowledge_basis
+      - known_at
+      - phase
+      - estimate_cents
+      - final_cents
+      - final_cost_line_id
+      - incomplete
+      - pending
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        unit_id:
+          type: integer
+          minimum: 1
+        service_id:
+          type: integer
+          minimum: 1
+        period_from:
+          type: string
+          format: date
+        period_to:
+          type: string
+          format: date
+        policy:
+          type: string
+          enum:
+          - service_balance_sheet
+          - service_profit_and_loss
+        service_cost_account:
+          type: string
+        currency:
+          type: string
+          enum:
+          - CZK
+        knowledge_basis:
+          type: string
+          enum:
+          - current_ledger
+        known_at:
+          type: string
+          nullable: true
+          description: Aktuální znalost; pro lifecycle a služby je vždy null.
+        phase:
+          type: string
+          enum:
+          - pending
+          - estimated
+          - partially_unwound
+          - unwound
+          - finalized
+        estimate_cents:
+          type: string
+          nullable: true
+          pattern: ^-?(0|[1-9][0-9]*)$
+        final_cents:
+          type: string
+          nullable: true
+          pattern: ^-?(0|[1-9][0-9]*)$
+        final_cost_line_id:
+          type: integer
+          minimum: 1
+          nullable: true
+        incomplete:
+          type: boolean
+        pending:
+          type: array
+          items:
+            $ref: '#/components/schemas/PropertyAccountingFinding'
+    PropertyAccountingLifecycleDetail:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - unit_id
+      - service_id
+      - period_from
+      - period_to
+      - policy
+      - service_cost_account
+      - currency
+      - knowledge_basis
+      - known_at
+      - phase
+      - estimate_cents
+      - final_cents
+      - final_cost_line_id
+      - incomplete
+      - pending
+      - events
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        unit_id:
+          type: integer
+          minimum: 1
+        service_id:
+          type: integer
+          minimum: 1
+        period_from:
+          type: string
+          format: date
+        period_to:
+          type: string
+          format: date
+        policy:
+          type: string
+          enum:
+          - service_balance_sheet
+          - service_profit_and_loss
+        service_cost_account:
+          type: string
+        currency:
+          type: string
+          enum:
+          - CZK
+        knowledge_basis:
+          type: string
+          enum:
+          - current_ledger
+        known_at:
+          type: string
+          nullable: true
+          description: Aktuální znalost; pro lifecycle a služby je vždy null.
+        phase:
+          type: string
+          enum:
+          - pending
+          - estimated
+          - partially_unwound
+          - unwound
+          - finalized
+        estimate_cents:
+          type: string
+          nullable: true
+          pattern: ^-?(0|[1-9][0-9]*)$
+        final_cents:
+          type: string
+          nullable: true
+          pattern: ^-?(0|[1-9][0-9]*)$
+        final_cost_line_id:
+          type: integer
+          minimum: 1
+          nullable: true
+        incomplete:
+          type: boolean
+        pending:
+          type: array
+          items:
+            $ref: '#/components/schemas/PropertyAccountingFinding'
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/PropertyAccountingEvent'
+    PropertyAccountingLifecyclePage:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - next_after_id
+      - incomplete
+      - knowledge_basis
+      - known_at
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PropertyAccountingLifecycle'
+        next_after_id:
+          type: integer
+          minimum: 1
+          nullable: true
+        incomplete:
+          type: boolean
+        knowledge_basis:
+          type: string
+          enum:
+          - current_ledger
+        known_at:
+          type: string
+          nullable: true
+          description: Aktuální znalost; pro lifecycle a služby je vždy null.
+    PropertyAccountingServiceReconciliation:
+      type: object
+      additionalProperties: false
+      required:
+      - unit_id
+      - service_id
+      - accounting_date
+      - period_from
+      - known_at
+      - knowledge_basis
+      - view
+      - coverage
+      - matches
+      - unregistered_line_ids
+      - verified_carry_entry_ids
+      - source_line_ids
+      - currency
+      - findings
+      - totals
+      - ledger_totals
+      - unit_service_balances
+      - ledger_unit_service_balances
+      - differences
+      - component_totals
+      properties:
+        unit_id:
+          type: integer
+          minimum: 1
+          nullable: true
+        service_id:
+          type: integer
+          minimum: 1
+          nullable: true
+        accounting_date:
+          type: string
+          format: date
+        period_from:
+          type: string
+          format: date
+        known_at:
+          type: string
+          nullable: true
+          description: Aktuální znalost; pro lifecycle a služby je vždy null.
+        knowledge_basis:
+          type: string
+          enum:
+          - current_ledger
+        view:
+          type: string
+          enum:
+          - before_closing
+        coverage:
+          type: string
+          enum:
+          - complete
+          - incomplete
+        matches:
+          type: boolean
+        unregistered_line_ids:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+        verified_carry_entry_ids:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+        source_line_ids:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+        currency:
+          type: string
+          enum:
+          - CZK
+        findings:
+          type: array
+          items:
+            $ref: '#/components/schemas/PropertyAccountingFinding'
+        totals:
+          $ref: '#/components/schemas/PropertyAccountingAmountMap'
+        ledger_totals:
+          $ref: '#/components/schemas/PropertyAccountingAmountMap'
+        unit_service_balances:
+          $ref: '#/components/schemas/PropertyAccountingUnitServiceAmountMap'
+        ledger_unit_service_balances:
+          $ref: '#/components/schemas/PropertyAccountingUnitServiceAmountMap'
+        differences:
+          $ref: '#/components/schemas/PropertyAccountingUnitServiceAmountMap'
+        component_totals:
+          $ref: '#/components/schemas/PropertyAccountingNestedAmountMap'
+    PropertyAccountingFundEffect:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - unit_id
+      - account_code
+      - source_kind
+      - source_id
+      - amount_cents
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        unit_id:
+          type: integer
+          minimum: 1
+        account_code:
+          type: string
+        source_kind:
+          type: string
+          nullable: true
+        source_id:
+          type: integer
+          minimum: 1
+          nullable: true
+        amount_cents:
+          $ref: '#/components/schemas/PropertyAccountingCents'
+    PropertyAccountingFundOperation:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - house_id
+      - kind
+      - accounting_date
+      - journal_entry_id
+      - reversal_of
+      - amount_cents
+      - currency
+      - status
+      - effects
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        house_id:
+          type: integer
+          minimum: 1
+        kind:
+          type: string
+          enum:
+          - draw
+          - income
+          - transfer
+          - payout
+          - reverse
+        accounting_date:
+          type: string
+          format: date
+        journal_entry_id:
+          type: integer
+          minimum: 1
+        reversal_of:
+          type: integer
+          minimum: 1
+          nullable: true
+        amount_cents:
+          $ref: '#/components/schemas/PropertyAccountingCents'
+        currency:
+          type: string
+          enum:
+          - CZK
+        status:
+          type: string
+          enum:
+          - active
+          - reversed
+        effects:
+          type: array
+          items:
+            $ref: '#/components/schemas/PropertyAccountingFundEffect'
+    PropertyAccountingFundOperationPage:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - next_after_id
+      - incomplete
+      - knowledge_basis
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PropertyAccountingFundOperation'
+        next_after_id:
+          type: integer
+          minimum: 1
+          nullable: true
+        incomplete:
+          type: boolean
+        knowledge_basis:
+          type: string
+          enum:
+          - current_ledger
+    PropertyAccountingFundBalances:
+      type: object
+      additionalProperties: false
+      required:
+      - house_id
+      - unit_id
+      - accounting_date
+      - known_at
+      - knowledge_basis
+      - coverage
+      - matches
+      - unregistered_line_ids
+      - currency
+      - totals
+      - ledger_totals
+      - unit_balances
+      - differences
+      - component_totals
+      properties:
+        house_id:
+          type: integer
+          minimum: 1
+          nullable: true
+        unit_id:
+          type: integer
+          minimum: 1
+          nullable: true
+        accounting_date:
+          type: string
+          format: date
+        known_at:
+          type: string
+          nullable: true
+          description: Native posted/recorded cutoff, nikoli rekonstrukce soukromých podkladů.
+        knowledge_basis:
+          type: string
+          enum:
+          - current_ledger
+          - posted_and_recorded_at_cutoff
+        coverage:
+          type: string
+          enum:
+          - typed_opening_issued_and_funding_events
+        matches:
+          type: boolean
+        unregistered_line_ids:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+        currency:
+          type: string
+          enum:
+          - CZK
+        totals:
+          $ref: '#/components/schemas/PropertyAccountingAmountMap'
+        ledger_totals:
+          $ref: '#/components/schemas/PropertyAccountingAmountMap'
+        unit_balances:
+          $ref: '#/components/schemas/PropertyAccountingNestedAmountMap'
+        differences:
+          $ref: '#/components/schemas/PropertyAccountingNestedAmountMap'
+        component_totals:
+          $ref: '#/components/schemas/PropertyAccountingNestedAmountMap'
     PropertySaldoPage:
       type: object
       additionalProperties: false

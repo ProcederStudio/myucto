@@ -1296,3 +1296,9 @@ i podvrhnout, a token v hlavičce je to první, co útočník získá.
 - [Sklad](37_Sklad.md)
 - [Dimenze](114_Dimenze.md)
 - [Řešení problémů](999_Reseni_problemu.md)
+
+## Čtecí nástroje služeb a financování vlastníků
+
+`list_property_service_lifecycles` a `get_property_service_lifecycle` čtou ověřené účetní případy služby. `property_service_reconciliation` porovnává native podklady s hlavním deníkem k výslovnému datu. Jejich znalost je současná a historický `known_at` se nenabízí.
+
+`list_property_fund_operations` čte operace financování vlastníků včetně storen. `property_fund_balances` vrací doložené zůstatky, ledger a rozdíly k datu; volitelný `known_at` omezuje skutečně zaznamenané a zaúčtované podklady. Částky, neúplnost a nepokryté řádky zachovejte. Žádný z těchto nástrojů nepotvrzuje právní titul ani neprovádí účetní nebo platební operaci.

@@ -40,6 +40,7 @@
  */
 
 import { DIMENSION_TOOLS, DIMENSION_FILTER, dimensionQuery } from './dimension-tools.mjs';
+import { PROPERTY_ACCOUNTING_READ_TOOLS } from './property-accounting-read-tools.mjs';
 import { AUDIT_TOOLS } from './audit-tools.mjs';
 import {
   INVOICE_TOOLS, PAYMENT_SCHEDULE_INPUT, withPaymentSchedule, checkCreatedSchedule,
@@ -632,6 +633,7 @@ function codebookTools({ names, titles, descriptions, path, fields, required, li
 
 export const TOOLS = [
   ...DIMENSION_TOOLS,
+  ...PROPERTY_ACCOUNTING_READ_TOOLS,
   ...AUDIT_TOOLS,
   ...INVOICE_TOOLS,
   ...PURCHASE_TOOLS,
