@@ -456,6 +456,8 @@ final class StereoNxSourcePlan
                 }
                 $direction = $row['SmerPlatby'] ?? null;
                 if (!in_array($direction, ['P', 'V'], true)) throw new StereoNxException('movement_direction', 'Neznámý směr pohybu.');
+                // Daňová evidence odvozuje daňové sloupce z pohybů; záporné částky
+                // zde vyžadují vlastní ověření. Účetní převod zachovává původní kontace.
                 if (self::cents($row['Castka'] ?? null) < 0) throw new StereoNxException('movement_negative_amount', 'Směr a částka peněžního pohybu nejsou jednoznačné.');
                 if ($type === 'bank' && trim((string) ($row['MenaCizi'] ?? '')) !== '') {
                     throw new StereoNxException('bank_foreign_currency', 'Cizoměnový bankovní pohyb vyžaduje samostatné mapování.');

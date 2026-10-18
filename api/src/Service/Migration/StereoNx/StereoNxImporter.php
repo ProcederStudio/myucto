@@ -921,8 +921,10 @@ final class StereoNxImporter
         $docId = $ctx['ids'][$kind][(string) ($record['document_key'] ?? '')] ?? null;
         $movementId = $ctx['ids'][$movementType][(string) ($record['movement_key'] ?? '')] ?? null;
         if ($docId === null || $movementId === null) throw new StereoNxException('payment_target_missing', 'Úhrada odkazuje na chybějící doklad nebo pohyb.');
-        $amount = abs($this->money($record['amount'] ?? null));
-        if ($amount < 0.005) throw new StereoNxException('payment_amount_invalid', 'Úhrada nemá kladnou částku.');
+        $amount = $this->money($record['amount'] ?? null);
+        if (abs($amount) < 0.005 || ($amount < 0 && ($movementType !== 'bank' || $kind !== 'purchase'))) {
+            throw new StereoNxException('payment_amount_invalid', 'Úhrada má nulovou nebo nepodporovanou zápornou částku.');
+        }
         $existing = $this->mapped($ctx, $mapKind, $key, $hash);
         if ($existing !== null) {
             $this->validateExistingPayment($ctx['supplier_id'], $kind, $movementType, $docId, $movementId, $amount, $existing);

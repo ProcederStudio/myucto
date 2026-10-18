@@ -860,6 +860,12 @@ faktur se zachovají při úplné shodě s rekapitulací DPH. Neověřené typy,
 záloh a daňové členění zůstávají konceptem s konkrétním důvodem kontroly; nejde
 automaticky o stornované doklady.
 
+Záporné bankovní výdaje zachovávají svůj finanční dopad a vazbu na původní
+kontace. U přijatých dokladů se rozlišuje úhrada záporného dokladu a snížení
+dřívější úhrady běžné faktury; kontrola saldokonta používá čistý součet včetně
+vratek. Záporné snížení úhrady vydané faktury nebo pokladní úhrady zůstává
+spolu s ostatními úhradami téhož dokladu k ruční kontrole.
+
 Cizoměnové faktury s doloženou měnou a kurzem se převezmou; neověřené členění DPH
 zůstává konceptem. Potřebné měny musí existovat v Nastavení měn cílové firmy.
 Zdrojový účetní deník neobsahuje cizoměnové částky, proto se přebírá v CZK. Před
