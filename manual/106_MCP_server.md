@@ -1289,6 +1289,13 @@ vypnout přes `MYUCTO_INSECURE_TLS=1`. Server na to při startu hlasitě upozorn
 Na produkci to nepoužívejte: bez ověření certifikátu jde spojení odposlechnout
 i podvrhnout, a token v hlavičce je to první, co útočník získá.
 
+Granty a dary zpřístupňují pouze čtecí nástroje `list_nonprofit_funding`
+a `get_nonprofit_funding`. Investiční zdroje a fondy zpřístupňují
+`list_nonprofit_capital`, `get_nonprofit_capital` a
+`list_nonprofit_capital_events`. Zobrazují nativní zaznamenané částky a
+číselné vazby bez osobních a právních textů. Zachovávají `null` a výslovné
+neúplné pending pokrytí. Nemění účetnictví a nepotvrzují finanční operace.
+
 ## 106.9 Související kapitoly
 
 - [REST API](104_API.md) - tokeny, limity a práva

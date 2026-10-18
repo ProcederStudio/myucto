@@ -153,6 +153,8 @@ final class ApiScopeMiddleware implements MiddlewareInterface
      * @var list<string>
      */
     private const BEARER_SESSION_ONLY = [
+        '#^/api/accounting/nonprofit-(funding|capital)(/|$)#',
+        '#^/api/accounting/periods/[0-9]+/nonprofit-(funding|capital)/choices$#',
         '#^/api/eshop/bulk(/|$)#',
         '#^/api/accounting/payroll(/|$)#',
         '#^/api/accounting/reports/payroll-sheet$#',

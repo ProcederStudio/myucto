@@ -39,6 +39,7 @@
  *                      (viz {@see confirmed}) a hlásí se jako destructiveHint.
  */
 
+import { NONPROFIT_RESOURCE_TOOLS } from './nonprofit-resource-tools.mjs';
 import { DIMENSION_TOOLS, DIMENSION_FILTER, dimensionQuery } from './dimension-tools.mjs';
 import { AUDIT_TOOLS } from './audit-tools.mjs';
 import {
@@ -631,6 +632,7 @@ function codebookTools({ names, titles, descriptions, path, fields, required, li
 }
 
 export const TOOLS = [
+  ...NONPROFIT_RESOURCE_TOOLS,
   ...DIMENSION_TOOLS,
   ...AUDIT_TOOLS,
   ...INVOICE_TOOLS,
