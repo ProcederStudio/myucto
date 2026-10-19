@@ -12,6 +12,7 @@ use MyInvoice\Service\Accounting\PostingException;
 use MyInvoice\Service\Invoice\InvoicePaymentService;
 use MyInvoice\Service\Invoice\RefundDocument;
 use MyInvoice\Service\PurchaseInvoice\AdvanceCoveredPaidStatus;
+use MyInvoice\Service\PurchaseInvoice\PurchasePaidStatusRestore;
 use PDO;
 
 /**
@@ -48,6 +49,7 @@ final class BankTransactionReleaseService
         private readonly InvoicePaymentService $payments,
         private readonly BankPostingService $bankPosting,
         private readonly AutoPostingPolicyService $policy,
+        private readonly PurchasePaidStatusRestore $paidStatusRestore,
     ) {}
 
     /**
@@ -217,6 +219,9 @@ final class BankTransactionReleaseService
         $pdo->prepare('DELETE FROM payment_matches WHERE bank_transaction_id = ? AND supplier_id = ?')
             ->execute([$txId, $supplierId]);
         $this->restorePurchaseInvoices($pdo, $supplierId, $purchaseInvoiceIds, $postedAt);
+        if ((float) ($tx['amount'] ?? 0) > 0) {
+            $this->paidStatusRestore->afterRefundRemoved($supplierId, $purchaseInvoiceIds);
+        }
         // Konečná faktura krytá zálohou přestává být uhrazená spolu se zálohou.
         (new AdvanceCoveredPaidStatus($this->db))->afterPaymentsChanged($supplierId, $purchaseInvoiceIds);
         $this->restoreRefundDocuments($pdo, $supplierId, $refundInvoiceIds, $postedAt);

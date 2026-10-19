@@ -202,6 +202,7 @@ final class BankIgnoreNoteTest extends TestCase
             $posting,
             // Zrušení párování se politiky automatiky neptá (jen předběžná kontrola smazání výpisu).
             (new \ReflectionClass(\MyInvoice\Service\Accounting\AutoPostingPolicyService::class))->newInstanceWithoutConstructor(),
+            new \MyInvoice\Service\PurchaseInvoice\PurchasePaidStatusRestore($db, new \MyInvoice\Service\PurchaseInvoice\AdvanceCoveredPaidStatus($db)),
         ));
         $matchReflection = new \ReflectionClass(\MyInvoice\Service\Bank\Match\MatchSuggestionService::class);
         $reflection->getProperty('matchV2')->setValue($action, $matchReflection->newInstanceWithoutConstructor());
