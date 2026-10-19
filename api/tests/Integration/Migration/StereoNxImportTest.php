@@ -670,6 +670,41 @@ final class StereoNxImportTest extends TestCase
         self::assertSame('', iterator_to_array(StereoNxBackup::open(StereoNxUploads::archive($this->supplierId, $token), 0, self::PASSWORD)->rows('LFirmaUc'), false)[0]['DoklRada']);
     }
 
+    public function testUnavailableReportStorageDoesNotFailFinishedJob(): void
+    {
+        $this->backup();
+        $bytes = file_get_contents($this->tmp . '/backup.zip');
+        $token = $this->json($this->call('init', ['file_name' => 'synthetic.zip', 'size' => strlen($bytes)]))['token'];
+        $this->tokens[] = $token;
+        self::assertSame(200, $this->chunk($token, 0, $bytes)->getStatusCode());
+        self::assertSame(200, $this->call('complete', [], $token)->getStatusCode());
+        // Soubor místo adresáře reportů: trvalou kopii protokolu nejde uložit.
+        $blocked = \MyInvoice\Infrastructure\Config\RuntimePaths::storage('import-jobs/' . $this->supplierId . '/reports');
+        if (!is_dir(dirname($blocked))) mkdir(dirname($blocked), 0700, true);
+        file_put_contents($blocked, 'synthetic');
+        try {
+            $started = $this->call('run', ['company' => 0, 'password' => self::PASSWORD, 'mode' => 'dry_run'], $token);
+            self::assertSame(202, $started->getStatusCode(), (string) $started->getBody());
+            $jobId = (int) $this->json($started)['job_id'];
+            $container = Bootstrap::buildContainer();
+            $container->get(StereoNxImportJobService::class)->run($jobId);
+            $jobs = $container->get(ImportJobRepository::class);
+            $job = $jobs->find($jobId, $this->supplierId);
+            self::assertSame('completed', $job['status'], (string) ($job['last_error'] ?? ''));
+            self::assertNull($job['result_path']);
+            $result = $this->action->result($this->request([]), (new ResponseFactory())->createResponse(), ['token' => $token, 'id' => (string) $jobId]);
+            self::assertSame(200, $result->getStatusCode(), (string) $result->getBody());
+            self::assertTrue($this->json($result)['report']['ok']);
+        } finally {
+            unlink($blocked);
+            @rmdir(dirname($blocked));
+        }
+        $this->action->result($this->request([]), (new ResponseFactory())->createResponse(), ['token' => $token, 'id' => (string) $jobId]);
+        $job = Bootstrap::buildContainer()->get(ImportJobRepository::class)->find($jobId, $this->supplierId);
+        self::assertSame('import-jobs/' . $this->supplierId . '/reports/stereo-nx-' . $jobId . '.json', $job['result_path']);
+        $this->runReportPaths[] = $job['result_path'];
+    }
+
     public function testCompanyProfileAppliesSelectedFieldsAndKeepsSettingsAuthorization(): void
     {
         $this->backup();

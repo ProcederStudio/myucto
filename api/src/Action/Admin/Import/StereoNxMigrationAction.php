@@ -370,8 +370,13 @@ final class StereoNxMigrationAction
                 $this->owner($sid, $token, $uid);
                 $report = StereoNxUploads::result($sid, $token, (int) $job['id']);
                 if ($report !== null) {
-                    $stored = $this->runReports->save($sid, (int) $job['id'], $report);
-                    $this->jobs->setResult((int) $job['id'], $stored['path'], $stored['name'], $stored['size'], $stored['mime']);
+                    try {
+                        $stored = $this->runReports->save($sid, (int) $job['id'], $report);
+                        $this->jobs->setResult((int) $job['id'], $stored['path'], $stored['name'], $stored['size'], $stored['mime']);
+                    } catch (StereoNxException $e) {
+                        // Výsledek je načtený; nepovedená trvalá kopie se zkusí při dalším čtení.
+                        $this->log->warning('Stereo NX run report copy failed', ['job_id' => (int) $job['id'], 'code' => $e->errorCode]);
+                    }
                 }
             }
         }

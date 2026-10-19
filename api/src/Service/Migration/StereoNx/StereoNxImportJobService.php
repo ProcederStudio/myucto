@@ -152,8 +152,14 @@ final class StereoNxImportJobService extends AbstractImportJobService
                 }
                 StereoNxUploads::save($supplierId, $token, $locked);
                 StereoNxUploads::saveResult($supplierId, $token, $jobId, $report);
-                $stored = $this->runReports->save($supplierId, $jobId, $report);
-                $this->jobs->setResult($jobId, $stored['path'], $stored['name'], $stored['size'], $stored['mime']);
+                try {
+                    $stored = $this->runReports->save($supplierId, $jobId, $report);
+                    $this->jobs->setResult($jobId, $stored['path'], $stored['name'], $stored['size'], $stored['mime']);
+                } catch (StereoNxException $e) {
+                    // Převod je už zapsaný a výsledek leží u nahrané zálohy; trvalou kopii
+                    // doplní první čtení výsledku. Chyba kopie nesmí z převodu udělat selhání.
+                    $this->jobs->appendLog($jobId, $e->getMessage());
+                }
                 return $report;
             });
         } catch (StereoNxException $e) {
