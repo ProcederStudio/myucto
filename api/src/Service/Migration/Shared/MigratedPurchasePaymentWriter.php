@@ -91,6 +91,17 @@ final class MigratedPurchasePaymentWriter
                 // úhradě nesmí legacy fallback statusu paid skrýt úplnou vratku.
                 $full = ($paid > 0.0 || abs((float) $row['total']) < 0.005)
                     && FxPaymentSettlement::settlesRemaining(0.0, (float) $row['remaining'] * $sign, 'CZK', 1.0, 'CZK');
+                // Stav odvozujeme zde, protože nativní pravidla nejdou zavolat dávkově:
+                // StatementMatcher píše „uhrazeno" přímo při párování a návrat
+                // (BankTransactionReleaseService::restorePurchaseInvoices, AdvanceCoveredPaidStatus::syncFinal)
+                // je privátní a po jednom dokladu. Kritéria jsou stejná: plná úhrada podle
+                // FxPaymentSettlement, návrat na booked jen s živým zaúčtováním, jinak received.
+                // Odlišnosti jsou záměrné: převod sem posílá jen své nové nebo dotčené doklady,
+                // které zakládá jako received a „uhrazeno" jim nastavuje jen tento výpočet. Proto
+                // ho po vratce vrací bez kontroly paid_at (nativní návrat tím chrání ručně
+                // zadané datum úhrady, převzatý doklad žádné ruční nemá) a paid_at
+                // bere i příjmový pokladní doklad, aby měl datum i dobropis vyplacený hotově
+                // (AdvanceCoveredPaidStatus::lastPaymentDate bere jen výdaje).
                 $status = (string) $row['status'];
                 if ($status !== 'draft') {
                     $status = $full ? 'paid' : ($status === 'paid' ? ((bool) $row['has_posting'] ? 'booked' : 'received') : $status);
