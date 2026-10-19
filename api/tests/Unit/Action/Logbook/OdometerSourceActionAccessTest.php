@@ -56,6 +56,20 @@ final class OdometerSourceActionAccessTest extends TestCase
         self::assertSame(403, $response->getStatusCode());
     }
 
+    /** @return iterable<string, array{string}> */
+    public static function reads(): iterable
+    {
+        foreach (['catalog', 'status'] as $method) yield $method => [$method];
+    }
+
+    #[DataProvider('reads')]
+    public function testApiTokenCannotReadConnection(string $method): void
+    {
+        $response = $this->action()->$method($this->request('bearer', 2), new Response(), ['id' => '1']);
+
+        self::assertSame(403, $response->getStatusCode());
+    }
+
     private function action(): OdometerSourceAction
     {
         // Bez závislostí: odmítnutí musí přijít dřív, než je akce potřebuje.

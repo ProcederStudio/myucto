@@ -42,7 +42,8 @@ final class OdometerSourceAction
 
     public function catalog(Request $request, Response $response): Response
     {
-        return Json::ok($response, $this->service->catalog());
+        return $this->denied($request, $response, false)
+            ?? Json::ok($response, $this->service->catalog())->withHeader('Cache-Control', 'no-store');
     }
 
     public function status(Request $request, Response $response, array $args): Response
@@ -120,12 +121,8 @@ final class OdometerSourceAction
     /** @param callable(int,int):Response $handler */
     private function run(Request $request, Response $response, array $args, bool $write, callable $handler): Response
     {
-        if (!RequestAuthorization::isSessionAuth($request)) {
-            return Json::error($response, 'forbidden', 'Automatický stav tachometru lze spravovat jen po přihlášení v aplikaci.', 403);
-        }
-        if ($write && !RequestAuthorization::canManageOdometerSources($request)) {
-            return Json::error($response, 'forbidden', 'Na správu automatického stavu tachometru nemáte oprávnění.', 403);
-        }
+        $denied = $this->denied($request, $response, $write);
+        if ($denied !== null) return $denied;
         $supplierId = SupplierGuard::currentId($request);
         $carId = (int) ($args['id'] ?? 0);
         if ($this->cars->find($carId, $supplierId) === null) {
@@ -144,6 +141,17 @@ final class OdometerSourceAction
             };
             return Json::error($response, $e->errorCode, $e->getMessage(), $status)->withHeader('Cache-Control', 'no-store');
         }
+    }
+
+    private function denied(Request $request, Response $response, bool $write): ?Response
+    {
+        if (!RequestAuthorization::isSessionAuth($request)) {
+            return Json::error($response, 'forbidden', 'Automatický stav tachometru lze spravovat jen po přihlášení v aplikaci.', 403);
+        }
+        if ($write && !RequestAuthorization::canManageOdometerSources($request)) {
+            return Json::error($response, 'forbidden', 'Na správu automatického stavu tachometru nemáte oprávnění.', 403);
+        }
+        return null;
     }
 
     private static function positiveInt(mixed $value): ?int
