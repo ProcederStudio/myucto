@@ -15,6 +15,7 @@ use MyInvoice\Service\Submission\Channel\SubmissionChannelException;
 use MyInvoice\Service\Submission\DefaultSubmissionArtifactResolver;
 use MyInvoice\Service\Tax\Return\AccountingDecreeService;
 use MyInvoice\Service\Tax\Return\DppoReturnDataProvider;
+use MyInvoice\Service\Tax\Return\Dppo504CapabilityService;
 use MyInvoice\Service\Tax\Return\TaxReturnException;
 use MyInvoice\Service\Tax\Return\TaxReturnService;
 use MyInvoice\Tests\Support\IsolatedSupplierTrait;
@@ -69,7 +70,7 @@ final class DppoAccountingFrameworkGateTest extends TestCase
 
     public function testDirectProviderRejects504BeforeCollecting500LedgerData(): void
     {
-        $this->expectGate(fn () => $this->provider->gather($this->supplierId, 2027));
+        $this->expectGate(fn () => $this->provider->gather($this->supplierId, 2027),'nonprofit_dppo_ruleset_not_supported');
     }
 
     public static function operations(): array
@@ -92,7 +93,7 @@ final class DppoAccountingFrameworkGateTest extends TestCase
             'finalize', 'reopen' => [...$args, 1, null],
             default => $args,
         };
-        $this->expectGate(fn () => $this->service->$method(...$args));
+        $this->expectGate(fn () => $this->service->$method(...$args),'nonprofit_dppo_ruleset_not_supported');
         self::assertSame(1, $returns->find($this->supplierId, 2027, 'po')['row_version']);
     }
 
@@ -114,12 +115,12 @@ final class DppoAccountingFrameworkGateTest extends TestCase
         self::assertSame('501', $decrees->assertDppoSupported($this->supplierId, 2027));
         $this->db->pdo()->prepare("UPDATE supplier SET tax_accounting_decree = '504' WHERE id = ?")
             ->execute([$this->supplierId]);
-        $this->expectGate(fn () => $decrees->assertDppoSupported($this->supplierId, 2027));
+        $this->expectGate(fn () => $decrees->assertDppoSupported($this->supplierId, 2027),'nonprofit_dppo_accounting_mode_required');
     }
 
     public function testMissingPeriodDoesNotBypassFrameworkGuard(): void
     {
-        $this->expectGate(fn () => $this->provider->gather($this->supplierId, 2028));
+        $this->expectGate(fn () => $this->provider->gather($this->supplierId, 2028),'nonprofit_dppo_period_required');
     }
 
     public function test504InsidePeriodCannotHideBetween500Endpoints(): void
@@ -129,12 +130,12 @@ final class DppoAccountingFrameworkGateTest extends TestCase
         $decrees = new AccountingDecreeService($this->db);
         self::assertSame('500', $decrees->forDate($this->supplierId, '2025-07-01'));
         self::assertSame('500', $decrees->forDate($this->supplierId, '2026-06-30'));
-        $this->expectGate(fn () => $this->provider->gather($this->supplierId, 2026));
-        $this->expectGate(fn () => $this->service->buildXml($this->supplierId, 2026, 'po'));
+        $this->expectGate(fn () => $this->provider->gather($this->supplierId, 2026),'nonprofit_dppo_mixed_framework');
+        $this->expectGate(fn () => $this->service->buildXml($this->supplierId, 2026, 'po'),'nonprofit_dppo_mixed_framework');
         $this->expectGate(fn () => $decrees->assertDppoSubmissionSupported($this->supplierId, [
             'form_code' => 'dppdp9', 'period_year' => 2026,
             'xml_content' => '<Pisemnost><DPPDP9><VetaD zdobd_od="1.7.2025" zdobd_do="30.6.2026" uv_vyhl="500"/></DPPDP9></Pisemnost>',
-        ]));
+        ]),'nonprofit_dppo_mixed_framework');
     }
 
     public function testHistoricalModeChangeInside504FrameworkCannotHideBetweenManual500Endpoints(): void
@@ -152,7 +153,7 @@ final class DppoAccountingFrameworkGateTest extends TestCase
             ->execute([$this->supplierId, $this->supplierId]);
         self::assertSame('500', $decrees->forDate($this->supplierId, '2025-07-01'));
         self::assertSame('500', $decrees->forDate($this->supplierId, '2026-06-30'));
-        $this->expectGate(fn () => $decrees->assertDppoSupported($this->supplierId, 2026));
+        $this->expectGate(fn () => $decrees->assertDppoSupported($this->supplierId, 2026),'nonprofit_dppo_mixed_framework');
     }
 
     public function testHistorical500DraftXmlIsByteIdenticalAfterCurrent504AndManualDecreeChange(): void
@@ -170,7 +171,7 @@ final class DppoAccountingFrameworkGateTest extends TestCase
 
     public function testRejected504DoesNotCreateDraft(): void
     {
-        $this->expectGate(fn () => $this->service->getReturn($this->supplierId, 2027, 'po', null));
+        $this->expectGate(fn () => $this->service->getReturn($this->supplierId, 2027, 'po', null),'nonprofit_dppo_ruleset_not_supported');
         self::assertNull((new TaxReturnRepository($this->db))->find($this->supplierId, 2027, 'po'));
     }
 
@@ -184,7 +185,7 @@ final class DppoAccountingFrameworkGateTest extends TestCase
             if ($method === 'getReturn') {
                 $args[] = null;
             }
-            $this->expectGate(fn () => $this->service->$method(...$args));
+            $this->expectGate(fn () => $this->service->$method(...$args),'nonprofit_dppo_ruleset_not_supported');
         }
     }
 
@@ -212,7 +213,7 @@ final class DppoAccountingFrameworkGateTest extends TestCase
     #[DataProvider('submissionChannels')]
     public function testArchived504CannotBeSentThroughAnyChannel(string $channel): void
     {
-        $xml = '<Pisemnost><DPPDP9><VetaD zdobd_od="01.07.2026" zdobd_do="30.06.2027" uv_vyhl="500"/></DPPDP9></Pisemnost>';
+        $xml = '<Pisemnost><DPPDP9><VetaD zdobd_od="01.07.2026" zdobd_do="30.06.2027" uv_vyhl="504" typ_dapdpp="A"/></DPPDP9></Pisemnost>';
         $id = (new TaxSubmissionRepository($this->db))->archive($this->supplierId, 'dppdp9', 2026, null, null, $xml, [], 'passed', [], null);
         try {
             if ($channel === 'direct') {
@@ -225,7 +226,7 @@ final class DppoAccountingFrameworkGateTest extends TestCase
             }
             self::fail('Archivované DPPO 504 nesmí být odesláno.');
         } catch (EpoSubmissionException|SubmissionChannelException $e) {
-            self::assertSame('dppo_accounting_framework_not_supported', $e->errorCode);
+            self::assertSame('nonprofit_dppo_ruleset_not_supported', $e->errorCode);
             self::assertSame(422, $e->httpStatus);
         }
     }
@@ -241,7 +242,7 @@ final class DppoAccountingFrameworkGateTest extends TestCase
 
     public function testRejectedQueued504IsFailedWithoutLeavingSendingState(): void
     {
-        $xml = '<Pisemnost><DPPDP9><VetaD zdobd_od="01.07.2026" zdobd_do="30.06.2027" uv_vyhl="500"/></DPPDP9></Pisemnost>';
+        $xml = '<Pisemnost><DPPDP9><VetaD zdobd_od="01.07.2026" zdobd_do="30.06.2027" uv_vyhl="504" typ_dapdpp="A"/></DPPDP9></Pisemnost>';
         $artifactId = (new TaxSubmissionRepository($this->db))->archive($this->supplierId, 'dppdp9', 2027, null, null, $xml, [], 'passed', [], null);
         $userId = (int) $this->db->pdo()->query('SELECT id FROM users ORDER BY id LIMIT 1')->fetchColumn();
         $outbox = new \MyInvoice\Repository\Submission\SubmissionOutboxRepository($this->db);
@@ -261,7 +262,7 @@ final class DppoAccountingFrameworkGateTest extends TestCase
         $result = $service->confirmAndSend($this->supplierId, $id, $userId, $context);
         self::assertFalse($result['dispatched']);
         self::assertSame('failed', $result['row']['dispatch_state']);
-        self::assertSame('dppo_accounting_framework_not_supported', $result['row']['last_error_code']);
+        self::assertSame('nonprofit_dppo_ruleset_not_supported', $result['row']['last_error_code']);
         self::assertSame('failed', $outbox->find($this->supplierId, $id)['dispatch_state']);
         self::assertFalse($service->confirmAndSend($this->supplierId, $id, $userId, $context)['dispatched']);
         $attempts = $this->db->pdo()->prepare('SELECT COUNT(*) FROM submission_outbox_attempts WHERE supplier_id = ? AND outbox_id = ?');
@@ -276,16 +277,25 @@ final class DppoAccountingFrameworkGateTest extends TestCase
 
         self::assertNull($obligations->dppoForecastForYear($this->supplierId, 2027, '2028-01-01', '2028-12-31'));
         self::assertSame([], $obligations->taxForecasts($this->supplierId, '2028-01-01', '2028-12-31'));
-        $this->expectGate(fn () => $this->service->getReturn($this->supplierId, 2027, 'po', null));
+        $this->expectGate(fn () => $this->service->getReturn($this->supplierId, 2027, 'po', null),'nonprofit_dppo_ruleset_not_supported');
     }
 
-    private function expectGate(callable $operation): void
+    public function test2026CalendarPeriodAllowsComputeButFinalizationCapabilityFails422():void
+    {
+        $pdo=$this->db->pdo();$pdo->prepare('DELETE FROM accounting_periods WHERE supplier_id=?')->execute([$this->supplierId]);$pdo->prepare('DELETE FROM supplier_accounting_frameworks WHERE supplier_id=?')->execute([$this->supplierId]);$pdo->prepare("INSERT INTO supplier_accounting_frameworks(supplier_id,effective_from,accounting_framework)VALUES(?,'1900-01-01','cz_504')")->execute([$this->supplierId]);$pdo->prepare("INSERT INTO accounting_periods(supplier_id,fiscal_year,starts_on,ends_on,status)VALUES(?,2026,'2026-01-01','2026-12-31','open')")->execute([$this->supplierId]);
+        $decrees=new AccountingDecreeService($this->db);self::assertSame('504',$decrees->assertDppoSupported($this->supplierId,2026,Dppo504CapabilityService::COMPUTE));$row=(new TaxReturnRepository($this->db))->create($this->supplierId,2026,'po',[],null);$this->expectGate(fn()=>$this->service->finalize($this->supplierId,2026,'po',$row['row_version'],null),'nonprofit_dppo_form_period_not_supported');self::assertSame('draft',(new TaxReturnRepository($this->db))->find($this->supplierId,2026,'po')['status']);
+    }
+
+    public function testUnsafeStaticActivationRemainsClosed():void
+    {$this->expectGate(fn()=>AccountingDecreeService::assertSupportedDecree('504'),'dppo_accounting_framework_not_supported');}
+
+    private function expectGate(callable $operation,string $expectedCode): void
     {
         try {
             $operation();
             self::fail('DPPO 504 musí být odmítnuto.');
         } catch (TaxReturnException $e) {
-            self::assertSame('dppo_accounting_framework_not_supported', $e->errorCode);
+            self::assertSame($expectedCode, $e->errorCode);
             self::assertSame(422, $e->httpStatus);
         }
     }

@@ -149,10 +149,14 @@ final class Statement504ConsumersTest extends TestCase
     public function testAppendixRejectsDated504EvenWithManual500(): void
     {
         $this->pdo->prepare("UPDATE supplier SET tax_accounting_decree = '500' WHERE id = ?")->execute([$this->supplier]);
-        $this->expectException(\MyInvoice\Service\Tax\Return\TaxReturnException::class);
-        $this->expectExceptionMessage('Výpočet, export a podání DPPO podle vyhlášky 504');
-        Bootstrap::buildContainer()->get(\MyInvoice\Service\Accounting\Reports\StatementOverrideSuggester::class)
-            ->appAppendix($this->supplier, $this->period);
+        try {
+            Bootstrap::buildContainer()->get(\MyInvoice\Service\Accounting\Reports\StatementOverrideSuggester::class)
+                ->appAppendix($this->supplier, $this->period);
+            self::fail('Ruční vyhláška 500 nesmí obejít důkaz nativního XML 504.');
+        } catch (\MyInvoice\Service\Tax\Return\TaxReturnException $e) {
+            self::assertSame('nonprofit_dppo_stored_proof_invalid', $e->errorCode);
+            self::assertSame(422, $e->httpStatus);
+        }
     }
 
     public function testAppendixHistorical500IsUnchangedByLater504AndManual504(): void

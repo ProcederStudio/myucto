@@ -1507,7 +1507,9 @@ final class SettingsAction
         $row['accounting_framework']     = $this->accountingFramework->forDate($id, date('Y-m-d'));
         $row['accounting_framework_history'] = $this->accountingFramework->history($id);
         $row['tax_accounting_decree_effective'] = $this->accountingDecree->forDate($id, date('Y-m-d'));
-        $row['tax_accounting_decree_is_derived'] = $this->accountingModes->forDate($id, date('Y-m-d')) === 'double_entry';
+        $accountingMode = $this->accountingModes->forDate($id, date('Y-m-d'));
+        $row['tax_accounting_decree_is_derived'] = $accountingMode === 'double_entry';
+        $row['accounting_profile_recommendation'] = \MyInvoice\Service\Accounting\LegalFormProfileRecommendation::forLegalForm($row['legal_form'] ?? null, $accountingMode);
         $row['is_vat_payer']             = (bool) $row['is_vat_payer'];
         // Uložený CZ-NACE přeložený přes číselník ČINNOSTI — UI z něj pozná, že kód
         // sice existuje, ale po přechodu na NACE rev. 2.1 (1. 1. 2026) už EXPIROVAL

@@ -7,7 +7,7 @@ namespace MyInvoice\Tests\Integration\Tax\Return;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\TaxConstantsRepository;
 use MyInvoice\Repository\TaxReturnRepository;
-use MyInvoice\Service\Tax\Return\{TaxLossService, TaxReturnService, TaxReturnException};
+use MyInvoice\Service\Tax\Return\{TaxLossPeriodProof, TaxLossService, TaxReturnService, TaxReturnException};
 use MyInvoice\Tests\Integration\Tax\DppoFinalSnapshotAuditTest;
 use PHPUnit\Framework\TestCase;
 
@@ -166,6 +166,17 @@ final class TaxReturnLossAllocationTest extends TestCase
         self::assertSame([], $this->applications());
     }
 
+    public function testNative500FiscalYearLossReplacementAndReopenKeepLegacyUnknownPeriodProof(): void
+    {
+        $this->db->pdo()->prepare("UPDATE accounting_periods SET starts_on='2048-07-01',ends_on='2049-06-30' WHERE supplier_id=? AND fiscal_year=2049")->execute([$this->supplierId]);
+        (new \ReflectionMethod($this->fixture,'postEntry'))->invoke($this->fixture,'2049-06-01',[['518','debit',2000000],['321','credit',2000000]]);
+        $draft=$this->returns->getReturn($this->supplierId,2049,'po',$this->userId);self::assertLessThan(0,$draft['computed']['summary']['base']);
+        $this->returns->finalize($this->supplierId,2049,'po',$draft['return']['row_version'],$this->userId);
+        $corrective=$this->returns->getReturn($this->supplierId,2049,'po',$this->userId,'opravne');$corrective=$this->returns->finalize($this->supplierId,2049,'po',$corrective['return']['row_version'],$this->userId,'opravne');
+        $reopened=$this->returns->reopen($this->supplierId,2049,'po',$corrective['return']['row_version'],$this->userId,'opravne');self::assertSame('draft',$reopened['return']['status']);
+        $q=$this->db->pdo()->prepare('SELECT period_proof_kind,period_proof_hash,source_return_id FROM tax_losses WHERE supplier_id=? AND taxpayer_type="po" AND origin_year=2049');$q->execute([$this->supplierId]);self::assertSame(['period_proof_kind'=>null,'period_proof_hash'=>null,'source_return_id'=>$this->owner()],$q->fetch(\PDO::FETCH_ASSOC));
+    }
+
     public function testNativeOriginLossCannotOverwriteAnotherYearsSourceOwner(): void
     {
         $foreignYear = (new TaxReturnRepository($this->db))->create($this->supplierId, 2048, 'po', [], $this->userId);
@@ -185,11 +196,89 @@ final class TaxReturnLossAllocationTest extends TestCase
         catch (TaxReturnException $e) { self::assertSame('loss_allocation_period_unsupported', $e->errorCode); }
         self::assertSame($before, $this->state());
     }
+
+    public function testFutureApplicationDoesNotRewriteHistoricalDppoAppendixCard(): void
+    {
+        $lossId = $this->nativeLoss(2024, 100000);
+        $period = ['starts_on' => '2025-01-01', 'ends_on' => '2025-12-31'];
+        $before = $this->losses()->dppoAppendixCard($this->supplierId, 2025, $period, 20000, 0);
+        $this->db->pdo()->prepare('INSERT INTO tax_loss_applications(supplier_id,taxpayer_type,loss_id,applied_year,applied_return_id,amount) VALUES(?,?,?,?,?,?)')
+            ->execute([$this->supplierId, 'po', $lossId, 2026, null, 10000]);
+        $after = $this->losses()->dppoAppendixCard($this->supplierId, 2025, $period, 20000, 0);
+
+        self::assertSame($before, $after);
+        self::assertSame('0', $after['rows'][0]['applied_before_cents']);
+        self::assertSame('8000000', $after['rows'][0]['remaining_cents']);
+    }
+
+    public function testDppoAppendixUsesFutureNativeLossForCarrybackWithinSharedLimit(): void
+    {
+        $lossId = $this->nativeLoss(2026, 40000000);
+        $this->db->pdo()->prepare('INSERT INTO tax_loss_applications(supplier_id,taxpayer_type,loss_id,applied_year,applied_return_id,amount) VALUES(?,?,?,?,?,?)')
+            ->execute([$this->supplierId, 'po', $lossId, 2024, null, 5000000]);
+        $card = $this->losses()->dppoAppendixCard(
+            $this->supplierId,
+            2025,
+            ['starts_on' => '2025-01-01', 'ends_on' => '2025-12-31'],
+            25000000,
+            0,
+        );
+
+        self::assertSame($lossId, $card['rows'][0]['loss_id']);
+        self::assertSame('500000000', $card['rows'][0]['applied_before_cents']);
+        self::assertSame('2500000000', $card['rows'][0]['applied_cents']);
+        self::assertSame('1000000000', $card['rows'][0]['remaining_cents']);
+        try {
+            $this->losses()->dppoAppendixCard(
+                $this->supplierId,
+                2025,
+                ['starts_on' => '2025-01-01', 'ends_on' => '2025-12-31'],
+                25000001,
+                0,
+            );
+            self::fail('Carryback above the remaining statutory cap entered appendix E.');
+        } catch (TaxReturnException $e) {
+            self::assertSame('loss_allocation_insufficient', $e->errorCode);
+        }
+    }
+
+    public function testFutureOpeningLossCannotFakeExactCarrybackPeriod(): void
+    {
+        $this->losses()->registerOpeningLoss($this->supplierId, 'po', 2026, 100000);
+        try {
+            $this->losses()->dppoAppendixCard(
+                $this->supplierId,
+                2025,
+                ['starts_on' => '2025-01-01', 'ends_on' => '2025-12-31'],
+                50000,
+                0,
+            );
+            self::fail('Carryback appendix accepted a year-only opening loss.');
+        } catch (TaxReturnException $e) {
+            self::assertSame('loss_appendix_period_proof_required', $e->errorCode);
+        }
+    }
     private function owner(string $variant = 'radne'): int
     { return (int) (new TaxReturnRepository($this->db))->find($this->supplierId, 2049, 'po', $variant)['id']; }
 
     private function losses(): TaxLossService
     { return new TaxLossService($this->db, new TaxConstantsRepository($this->db)); }
+
+    private function nativeLoss(int $year, float $amount): int
+    {
+        $source = (new TaxReturnRepository($this->db))->create($this->supplierId, $year, 'po', [], $this->userId);
+        $proof = TaxLossPeriodProof::native(
+            $this->supplierId,
+            'po',
+            $year,
+            ['starts_on' => sprintf('%04d-01-01', $year), 'ends_on' => sprintf('%04d-12-31', $year)],
+            $amount,
+            (int) $source['id'],
+        );
+        $this->db->pdo()->prepare('INSERT INTO tax_losses(supplier_id,taxpayer_type,origin_year,origin_starts_on,origin_ends_on,period_proof_kind,period_proof_hash,amount,source_return_id) VALUES(?,?,?,?,?,?,?,?,?)')
+            ->execute([$this->supplierId, 'po', $year, $proof['starts_on'], $proof['ends_on'], $proof['kind'], $proof['proof_hash'], $amount, $source['id']]);
+        return (int) $this->db->pdo()->lastInsertId();
+    }
 
     private function draft(float $amount, string $variant = 'radne'): array
     {

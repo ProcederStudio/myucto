@@ -16,6 +16,7 @@ use MyInvoice\Service\Accounting\Allocation\JointAllocationAudit;
 use MyInvoice\Service\Accounting\Allocation\JointAllocationException;
 use MyInvoice\Service\Accounting\Allocation\JointAllocationUseGuard;
 use MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard;
+use MyInvoice\Service\Nonprofit\Membership\MembershipUseGuard;
 use MyInvoice\Service\Property\Charges\Issuance\IssuanceReversalIntent;
 use MyInvoice\Service\Accounting\Closing\Fx504JournalProof;
 use PDO;
@@ -479,6 +480,7 @@ final class JournalEntryRepository
         if (!$pdo->inTransaction()) {
             throw new \LogicException('Journal persistence requires a transaction.');
         }
+        (new MembershipUseGuard($this->db))->assertHeaderOwner($header);
         if (($header['posted_at'] ?? null) !== null) (new \MyInvoice\Service\Accounting\Funding\NativeCostCoverage($this->db))->assertCreditNotePosting($header);
         $pdo->prepare(
             'INSERT INTO journal_entries
@@ -552,6 +554,7 @@ final class JournalEntryRepository
     private function insertReversalLocked(array $header, array $lines, int $sourceEntryId): int
     {
         $supplierId = (int) $header['supplier_id'];
+        (new MembershipUseGuard($this->db))->assertEntriesMutable($supplierId, [$sourceEntryId]);
         (new \MyInvoice\Service\Accounting\Closing\SecuritiesDebt504UseGuard($this->db))->assertEntriesMutable($supplierId, [$sourceEntryId]);
         $source = $this->currentEntryForDimensionWrite($sourceEntryId, $supplierId);
         (new JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, [$sourceEntryId]);
@@ -609,6 +612,8 @@ final class JournalEntryRepository
      */
     public function replace(int $id, array $header, array $lines): void
     {
+        (new MembershipUseGuard($this->db))->assertHeaderOwner($header);
+        (new MembershipUseGuard($this->db))->assertEntriesMutable((int) $header['supplier_id'], [$id]);
         (new IssuanceUseGuard($this->db))->assertPostingEntriesMutable((int) $header['supplier_id'], [$id]);
         $previous = $this->currentEntryForDimensionWrite($id, (int) $header['supplier_id']);
         (new JointAllocationUseGuard($this->db))->assertEntriesMutable((int) $header['supplier_id'], [$id]);
@@ -685,6 +690,7 @@ final class JournalEntryRepository
      */
     public function replaceSomeLines(int $entryId, int $supplierId, int $expectedRowVersion, array $removeLineIds, array $addLines): void
     {
+        (new MembershipUseGuard($this->db))->assertEntriesMutable($supplierId, [$entryId]);
         (new IssuanceUseGuard($this->db))->assertPostingEntriesMutable($supplierId, [$entryId]);
         $entry = $this->currentEntryForDimensionWrite($entryId, $supplierId);
         (new JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, [$entryId]);
@@ -754,6 +760,7 @@ final class JournalEntryRepository
 
     private function deleteLines(int $entryId, int $supplierId): void
     {
+        (new MembershipUseGuard($this->db))->assertEntriesMutable($supplierId, [$entryId]);
         (new IssuanceUseGuard($this->db))->assertPostingEntriesMutable($supplierId, [$entryId]);
         $this->db->pdo()->prepare('DELETE FROM journal_entry_lines WHERE entry_id = ? AND supplier_id = ?')->execute([$entryId, $supplierId]);
     }
@@ -925,6 +932,11 @@ final class JournalEntryRepository
         try {
             (new IssuanceUseGuard($this->db))->assertPostingEntriesMutable($supplierId, [$id]);
             $entry = $this->currentEntryForDimensionWrite($id, $supplierId);
+            if ($entry !== null && $entry['source_type'] === 'nonprofit_membership' && $entry['posted_at'] !== null) {
+                if ($ownTx) $pdo->commit();
+                return false;
+            }
+            (new MembershipUseGuard($this->db))->assertEntriesMutable($supplierId, [$id]);
             (new JointAllocationUseGuard($this->db))->assertEntriesMutable($supplierId, [$id]);
             if ($entry !== null && $entry['posted_at'] !== null
                 && (new \MyInvoice\Service\Accounting\Closing\AssetReserveSourceUseGuard($this->db, $this))->assertEntryChange(
@@ -1012,6 +1024,7 @@ final class JournalEntryRepository
 
     private function setReversedByLocked(int $id, int $supplierId, int $reversalEntryId): bool
     {
+        (new MembershipUseGuard($this->db))->assertEntriesMutable($supplierId, [$id, $reversalEntryId]);
         $stmt = $this->db->pdo()->prepare(
             'UPDATE journal_entries SET reversed_by = ?
               WHERE id = ? AND supplier_id = ? AND reversed_by IS NULL'
@@ -1051,6 +1064,7 @@ final class JournalEntryRepository
 
     private function detachSourceLocked(int $entryId, int $supplierId): bool
     {
+        (new MembershipUseGuard($this->db))->assertEntriesMutable($supplierId, [$entryId]);
         $stmt = $this->db->pdo()->prepare(
             'UPDATE journal_entries SET source_id = NULL WHERE id = ? AND supplier_id = ?'
         );

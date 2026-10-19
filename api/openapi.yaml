@@ -37660,8 +37660,33 @@ components:
             can_edit_reduction: { type: boolean }
             session_only: { type: boolean }
             native_dppo: { type: boolean }
+            calculation_ready: { type: boolean, description: Právní profil a aktuální podklady J6 dovolují nativní výpočet; finalizace může být kvůli oficiálnímu formuláři nedostupná. }
             filing_ready: { type: boolean }
+            operations:
+              type: object
+              description: Podpora operací pro skutečný interval období a připnutou verzi formuláře; nenahrazuje oprávnění ani kontrolu aktuálních podkladů při provedení.
+              properties:
+                compute: { $ref: '#/components/schemas/NonprofitDppoOperationCapability' }
+                finalize: { $ref: '#/components/schemas/NonprofitDppoOperationCapability' }
+                export_xml: { $ref: '#/components/schemas/NonprofitDppoOperationCapability' }
+                submit: { $ref: '#/components/schemas/NonprofitDppoOperationCapability' }
+            form_manifest:
+              type: object
+              properties:
+                form_code: { type: string }
+                form_version: { type: string }
+                form_date: { type: string, format: date }
+                xsd_sha256: { type: string }
+                xsd_verified: { type: boolean }
+                official_source: { type: string, format: uri }
             preparation_findings: { type: array, items: { type: object } }
+    NonprofitDppoOperationCapability:
+      type: object
+      required: [allowed, code, message]
+      properties:
+        allowed: { type: boolean }
+        code: { type: string, nullable: true }
+        message: { type: string, nullable: true }
     NonprofitTaxSavingsRead:
       type: object
       properties:
@@ -44960,6 +44985,24 @@ components:
         na `GET /api/settings/currencies`. (Pozn.: response obsahuje i další
         sloupce mimo tento výčet — branding, integrace, payment-thanks ap.)
       properties:
+        accounting_profile_recommendation:
+          type: object
+          readOnly: true
+          additionalProperties: false
+          required: [entity_profile, accounting_framework, public_benefit_taxpayer]
+          description: Poradní profil podle evidované právní formy a účinného způsobu vedení účetnictví.
+            Nemění rámec ani jeho historii. Právní forma sama nepotvrzuje veřejnou prospěšnost
+            ani osvobození; u rozpoznaného SVJ je public_benefit_taxpayer false, jinak null.
+          properties:
+            entity_profile:
+              type: string
+              enum: [nonprofit, svj, unknown]
+            accounting_framework:
+              type: [string, "null"]
+              enum: [cz_504, null]
+            public_benefit_taxpayer:
+              type: [boolean, "null"]
+              enum: [false, null]
         legal_form:
           type: [string, "null"]
           pattern: '^\d{3}$'

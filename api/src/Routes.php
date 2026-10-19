@@ -2947,6 +2947,14 @@ final class Routes
             $g->post('/periods/{id:[0-9]+}/nonprofit-funding/confirm', [\MyInvoice\Action\Nonprofit\FundingAction::class, 'confirm']);
             $g->get('/periods/{id:[0-9]+}/nonprofit-legal-profile', [\MyInvoice\Action\Accounting\Closing\NonprofitDppoAction::class, 'profile']);
             $g->post('/periods/{id:[0-9]+}/nonprofit-legal-profile/confirm', [\MyInvoice\Action\Accounting\Closing\NonprofitDppoAction::class, 'confirmProfile']);
+            $g->get('/nonprofit-membership/members', [\MyInvoice\Action\Nonprofit\MembershipAction::class, 'members']);
+            $g->get('/nonprofit-membership/members/{id:[0-9]+}', [\MyInvoice\Action\Nonprofit\MembershipAction::class, 'member']);
+            $g->get('/nonprofit-membership/claims/{id:[0-9]+}', [\MyInvoice\Action\Nonprofit\MembershipAction::class, 'claim']);
+            $g->get('/periods/{id:[0-9]+}/nonprofit-membership/reconciliation', [\MyInvoice\Action\Nonprofit\MembershipAction::class, 'reconciliation']);
+            $g->post('/nonprofit-membership/members', [\MyInvoice\Action\Nonprofit\MembershipAction::class, 'createMember']);
+            $g->post('/nonprofit-membership/members/{id:[0-9]+}/revisions', [\MyInvoice\Action\Nonprofit\MembershipAction::class, 'appendRevision']);
+            $g->post('/nonprofit-membership/charges/preview', [\MyInvoice\Action\Nonprofit\MembershipAction::class, 'preview']);
+            $g->post('/nonprofit-membership/charges/confirm', [\MyInvoice\Action\Nonprofit\MembershipAction::class, 'confirm']);
             $g->get('/nonprofit-tax-savings', [\MyInvoice\Action\Accounting\Closing\NonprofitDppoAction::class, 'savings']);
             $g->post('/nonprofit-tax-savings/sources/{id:[0-9]+}/preview', [\MyInvoice\Action\Accounting\Closing\NonprofitDppoAction::class, 'previewUse']);
             $g->post('/nonprofit-tax-savings/sources/{id:[0-9]+}/confirm', [\MyInvoice\Action\Accounting\Closing\NonprofitDppoAction::class, 'confirmUse']);

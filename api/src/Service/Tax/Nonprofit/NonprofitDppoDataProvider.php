@@ -27,12 +27,14 @@ final class NonprofitDppoDataProvider
             if($assessment===null||$assessment['status']!=='confirmed')throw new TaxReturnException('nonprofit_dppo_assessment_required','DPPO 504 vyžaduje aktuální potvrzené posouzení J6.',422);
             $this->fundingCapacity->assertCurrentReceipt($supplier,$assessment);
             if($assessment['result']['profile']!==$legal['profile']['kind'])throw new TaxReturnException('nonprofit_dppo_profile_conflict','Posouzení J6 nesouhlasí s právním profilem období.',409);
+            $j6Receipt=NonprofitDppoJ6Receipt::capture($period,$snapshot,$assessment);
             $elections=$inputs['nonprofit']??[];if(!is_array($elections))$this->invalid();
             $bridge=(new NonprofitDppoClassificationBridge())->build($assessment['result'],$elections['documented_lines']??[]);
             $adjustments=$this->adjustments($supplier,$period,$assessment,$elections['adjustments']??[]);
             $savingDue=(new NonprofitTaxSavingsLedger($this->db))->due($supplier,(int)$period['id']);
             $context=NonprofitDppoComputation::seal(['schema'=>NonprofitDppoLegalRules::VERSION,'legal_profile'=>$legal,
                 'assessment'=>['id'=>$assessment['id'],'period_id'=>$assessment['period_id'],'input_hash'=>$assessment['input_hash'],'request_hash'=>$assessment['request_hash'],'result'=>$assessment['result']],
+                'j6_receipt'=>$j6Receipt,
                 'bridge'=>$bridge,'adjustments'=>$adjustments,'unused_reduction_addback_kc'=>$savingDue['addback_kc'],'saving_due'=>$savingDue,
                 'elections_hash'=>NonprofitTaxRules::hash($elections)]);
             $result=['accounting_decree'=>'504','period'=>['id'=>(int)$period['id'],'fiscal_year'=>$fiscalYear,'starts_on'=>$period['starts_on'],'ends_on'=>$period['ends_on']],
@@ -40,9 +42,9 @@ final class NonprofitDppoDataProvider
                 'depreciation_by_group'=>['tangible'=>[],'intangible'=>0.0,'unclassified'=>0.0],
                 'disposal_nondeductible_residual'=>0.0,'disposal_tax_increase'=>0.0,'disposal_tax_decrease'=>0.0,'disposal_decrease_groups'=>[],'disposals'=>[],
                 'securities_cost_excess'=>0.0,'securities_sale'=>[],'closing_projection'=>null,'suggestions'=>['addbacks'=>[],'deductions'=>[]],
-                'warnings'=>[],'nonprofit'=>$context,
+                'warnings'=>[],'nonprofit'=>$context,'j6_receipt'=>$j6Receipt,
                 'source_manifest'=>['accounting_decree'=>'504','period'=>['id'=>(int)$period['id'],'starts_on'=>$period['starts_on'],'ends_on'=>$period['ends_on']],
-                    'legal_profile'=>$legal,'assessment_id'=>$assessment['id'],'input_hash'=>$assessment['input_hash'],'request_hash'=>$assessment['request_hash'],'nonprofit_proof_hash'=>$context['proof_hash'],'saving_due'=>$savingDue,'adjustments'=>$adjustments]];
+                    'legal_profile'=>$legal,'assessment_id'=>$assessment['id'],'input_hash'=>$assessment['input_hash'],'request_hash'=>$assessment['request_hash'],'j6_receipt_hash'=>$j6Receipt['receipt_hash'],'nonprofit_proof_hash'=>$context['proof_hash'],'saving_due'=>$savingDue,'adjustments'=>$adjustments]];
             $balance=$this->statements->balanceSheet($supplier,(int)$period['id'],$period['ends_on'],'full');
             $income=$this->statements->incomeStatement($supplier,(int)$period['id'],$period['ends_on'],'full');
             $incomeRows=array_column($income['rows'],null,'adis_row');

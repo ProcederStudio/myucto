@@ -568,7 +568,8 @@ final class DppoXmlBuilder
             (string) ($meta['zdobd_od'] ?? sprintf('01.01.%04d', $year)),
             $zdobdDo,
         );
-        $vetaD->setAttribute('p_pr_2od', (string) (($vetaE !== null ? 1 : 0) + ($vetaF !== null ? 1 : 0) + ($vetaG !== null ? 1 : 0)));
+        $lossAppendix=$this->buildLossAppendix($dom,$calc,$appendix['loss_appendix']??null);
+        $vetaD->setAttribute('p_pr_2od', (string) (($vetaE !== null ? 1 : 0) + ($vetaF !== null ? 1 : 0) + ($vetaG !== null ? 1 : 0) + ($lossAppendix!==[]?1:0)));
 
         // sam_pr — počet samostatných příloh. VetaA (přehled transakcí se spojenými osobami)
         // NENÍ ani „příloha II. oddílu" (p_pr_2od výše — to jsou tabulky a)-j) VetaE/F/G/…,
@@ -617,6 +618,8 @@ final class DppoXmlBuilder
         if ($vetaG !== null) {
             $root->appendChild($vetaG);
         }
+
+        foreach($lossAppendix as$element)$root->appendChild($element);
 
         // ── VetaM — příloha č. 1 II. oddílu, tabulka H (rozčlenění slev na dani, ř. 300).
         // Mapování řádků tabulky H (XSD anotace `dppdp9_epo2.xsd` u atributů + Pokyny
@@ -2237,6 +2240,14 @@ final class DppoXmlBuilder
         }
 
         return (float) (TaxConstants::forYear($year)['corporate_tax_rate'] ?? 0.21);
+    }
+
+    private function buildLossAppendix(\DOMDocument $dom,array $calc,mixed $card):array
+    {
+        if($card===null)return[];if(!is_array($card))throw new TaxReturnException('loss_appendix_proof_invalid','Příloha E nemá platný zmrazený podklad.',409);
+        $base=(float)($calc['summary']['base']??0);DppoLossAppendix::verify($card,(float)($calc['summary']['loss_applied']??0),$base<0?round(-$base,2):0.0);if(($card['rows']??[])===[])return[];$elements=[];
+        $projection=DppoLossAppendix::xmlProjection($card);foreach($projection['rows']as$row){$v=$dom->createElement('VetaV');foreach($row as$name=>$value)$v->setAttribute($name,$value);$elements[]=$v;}
+        $total=$dom->createElement('VetaI');foreach($projection['totals']as$name=>$value)$total->setAttribute($name,$value);$elements[]=$total;return$elements;
     }
 
     /** ISO YYYY-MM-DD → dd.mm.rrrr (EPO dateInMultiFormat, shodně se zdobd_od/do); '' když neplatné. */

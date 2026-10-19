@@ -124,6 +124,12 @@ final class AnonymizationPolicy
 
     /** @var array<string, array<string,string>> */
     public const COLUMNS = [
+        'nonprofit_members' => ['member_number'=>'keep'],
+        'nonprofit_member_revisions' => ['legal_basis_json'=>'keep','request_json'=>'keep','idempotency_key'=>'keep','request_hash'=>'keep','parent_hash'=>'keep','record_hash'=>'keep'],
+        'nonprofit_membership_charge_cases' => ['title_key'=>'keep'],
+        'nonprofit_membership_charge_commands' => ['idempotency_key'=>'keep','request_json'=>'keep','request_hash'=>'keep'],
+        'nonprofit_membership_charge_operations' => ['preview_hash'=>'keep','proof_json'=>'keep','receipt_json'=>'keep','parent_hash'=>'keep','record_hash'=>'keep'],
+        'nonprofit_membership_charge_claims' => ['record_hash'=>'keep'],
         'nonprofit_legal_profiles' => ['profile_json'=>'keep','module_proof_json'=>'keep','reason'=>'keep','idempotency_key'=>'keep','request_hash'=>'keep','record_hash'=>'keep'],
         'nonprofit_tax_saving_sources' => ['basis_json'=>'keep','record_hash'=>'keep'],
         'nonprofit_tax_saving_commands' => ['idempotency_key'=>'keep','request_json'=>'keep','request_hash'=>'keep'],
@@ -158,6 +164,7 @@ final class AnonymizationPolicy
         'unit_charge_evidence_events' => ['kind' => 'keep', 'request_json' => 'keep', 'request_hash' => 'keep', 'idempotency_key' => 'keep'],
         'unit_charge_issue_audit' => ['action' => 'keep', 'payload_json' => 'keep', 'payload_hash' => 'keep'],
         'unit_payment_sources' => ['direction' => 'keep', 'currency_code' => 'keep', 'receipt_hash' => 'keep', 'receipt_json' => 'keep'],
+        'tax_losses' => ['period_proof_kind' => 'keep', 'period_proof_hash' => 'keep'],
         'unit_payment_operations' => ['idempotency_key' => 'keep', 'kind' => 'keep', 'request_hash' => 'keep', 'request_json' => 'keep', 'snapshot_hash' => 'keep', 'snapshot_json' => 'keep', 'status' => 'keep'],
         'unit_claim_accessory_receipts' => ['component' => 'keep', 'receipt_hash' => 'keep', 'receipt_json' => 'keep'],
         'unit_payment_allocations' => ['allocation_json' => 'keep', 'liability_group' => 'keep'],

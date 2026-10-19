@@ -230,9 +230,13 @@ final class JointAllocationFoundationTest extends TestCase
         }
         $journal = Bootstrap::buildContainer()->get(JournalEntryRepository::class);
         $before = (int) $pdo->query("SHOW SESSION STATUS LIKE 'Com_select'")->fetch()['Value'];
+        $journal->insert(['supplier_id' => $this->supplier, 'period_id' => $this->period, 'entry_date' => '2096-05-31', 'source_type' => 'manual'], array_slice($lines, 0, 2));
+        $pairQueries = (int) $pdo->query("SHOW SESSION STATUS LIKE 'Com_select'")->fetch()['Value'] - $before;
+        $before = (int) $pdo->query("SHOW SESSION STATUS LIKE 'Com_select'")->fetch()['Value'];
         $entry = $journal->insert(['supplier_id' => $this->supplier, 'period_id' => $this->period, 'entry_date' => '2096-06-01', 'source_type' => 'manual'], $lines);
         $queries = (int) $pdo->query("SHOW SESSION STATUS LIKE 'Com_select'")->fetch()['Value'] - $before;
-        self::assertLessThanOrEqual(17, $queries, 'Current conversion context, targeted issued membership and line-to-entry proof must be batched once for all 1000 rows.');
+        self::assertSame($pairQueries + 1, $queries, 'The membership owner guard must add only the second 500-line batch, not a query per line.');
+        self::assertLessThanOrEqual(19, $queries, 'Current conversion context, issued membership ownership and line-to-entry proof must stay bounded for all 1000 rows.');
         $stmt = $pdo->prepare("SELECT COUNT(*), SUM(IF(l.side = 'debit', l.amount, -l.amount)) FROM journal_entry_lines l
             JOIN journal_entry_line_dimensions d ON d.line_id = l.id AND d.supplier_id = l.supplier_id
             WHERE l.entry_id = ? AND d.dimension_type_id = ? AND d.dimension_value_id = ? AND d.assignment_origin = 'explicit'");

@@ -311,6 +311,7 @@ final class GlobalSeedTables
      * @var list<string>
      */
     public const RESET_KEEP_USERS_SUPPLIER_WIPES = [
+        ...\MyInvoice\Service\Nonprofit\Membership\MembershipUseGuard::TABLES,
         ...\MyInvoice\Service\Property\Funds\FundingUseGuard::TABLES,
         ...\MyInvoice\Service\Accounting\Conversion\FrameworkConversionResetCleanup::TABLES,
         \MyInvoice\Service\Anonymization\ServiceLifecycleCloneScrubber::COMMANDS, ...\MyInvoice\Service\Anonymization\ServiceLifecycleCloneScrubber::TABLES,

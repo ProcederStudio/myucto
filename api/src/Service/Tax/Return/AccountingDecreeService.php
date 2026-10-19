@@ -36,34 +36,43 @@ final class AccountingDecreeService
         return $this->forDate($supplierId, (string) ($period['starts_on'] ?? sprintf('%04d-01-01', $year)));
     }
 
-    public function assertDppoSupported(int $supplierId, int $year): string
+    public function assertDppoSupported(int $supplierId, int $year, string $operation = Dppo504CapabilityService::COMPUTE): string
     {
         $period = (new AccountingPeriodRepository($this->db))->findByYear($supplierId, $year);
         return $this->assertDppoPeriodSupported(
             $supplierId,
             (string) ($period['starts_on'] ?? sprintf('%04d-01-01', $year)),
             (string) ($period['ends_on'] ?? sprintf('%04d-12-31', $year)),
+            $operation,
         );
     }
 
-    public function assertDppoPeriodSupported(int $supplierId, string $startsOn, string $endsOn): string
+    public function assertDppoPeriodSupported(int $supplierId, string $startsOn, string $endsOn, string $operation = Dppo504CapabilityService::COMPUTE, string $returnType = 'A'): string
     {
         $decree = $this->forDate($supplierId, $startsOn);
-        self::assertSupportedDecree($decree);
-        self::assertSupportedDecree($this->forDate($supplierId, $endsOn));
         $dates = [$startsOn, $endsOn, ...(new AccountingModeRepository($this->db))->effectiveDatesBetween($supplierId, $startsOn, $endsOn)];
         foreach ((new AccountingFrameworkRepository($this->db))->listForTenant($supplierId) as $row) if ($row['effective_from'] > $startsOn && $row['effective_from'] < $endsOn) $dates[] = $row['effective_from'];
-        foreach (array_unique($dates) as $date) self::assertSupportedDecree($this->forDate($supplierId, $date));
         foreach (array_unique($dates) as $date) if ($this->forDate($supplierId, $date) !== $decree) throw new TaxReturnException('nonprofit_dppo_mixed_framework', 'DPPO vyžaduje stejný účetní rámec v celém skutečném zdaňovacím období.', 422);
         if ($decree === '504') {
             foreach (array_unique($dates) as $date) if ((new AccountingModeRepository($this->db))->forDate($supplierId, $date) !== 'double_entry') throw new TaxReturnException('nonprofit_dppo_accounting_mode_required', 'Nativní504 vyžaduje podvojné účetnictví v celém skutečném období.',422);
             $q=$this->db->pdo()->prepare('SELECT id FROM accounting_periods WHERE supplier_id=? AND starts_on=? AND ends_on=?');$q->execute([$supplierId,$startsOn,$endsOn]);
             if ($q->fetchColumn() === false) throw new TaxReturnException('nonprofit_dppo_period_required', 'DPPO504 vyžaduje celé skutečné účetní období.',422);
+            (new Dppo504CapabilityService())->assert($operation, $startsOn, $endsOn, $returnType);
         } else self::assertSupportedDecree($decree);
         return $decree;
     }
 
     public function assertDppoSubmissionSupported(int $supplierId, array $submission, bool $requireCurrent = false): void
+    {
+        $this->assertDppoArtifactSupported($supplierId, $submission, Dppo504CapabilityService::SUBMIT, $requireCurrent);
+    }
+
+    public function assertDppoExportSupported(int $supplierId, array $submission, bool $requireCurrent = false): void
+    {
+        $this->assertDppoArtifactSupported($supplierId, $submission, Dppo504CapabilityService::EXPORT_XML, $requireCurrent);
+    }
+
+    private function assertDppoArtifactSupported(int $supplierId, array $submission, string $operation, bool $requireCurrent): void
     {
         if (strtolower((string) ($submission['form_code'] ?? '')) !== 'dppdp9') {
             return;
@@ -79,20 +88,25 @@ final class AccountingDecreeService
         }
         $header = $loaded ? (new \DOMXPath($dom))->query('/Pisemnost/DPPDP9/VetaD')?->item(0) : null;
         if ($header instanceof \DOMElement) {
+            $declaredDecree = $header->getAttribute('uv_vyhl');
+            $startsOn = $this->xmlDate($header->getAttribute('zdobd_od'));
+            $endsOn = $this->xmlDate($header->getAttribute('zdobd_do'));
+            if ($startsOn !== null && $this->forDate($supplierId, $startsOn) !== $declaredDecree) {
+                throw new TaxReturnException('dppo_accounting_framework_not_supported', 'Účetní rámec v DPPO neodpovídá rámci platnému pro skutečné zdaňovací období.', 422);
+            }
             if ($header->getAttribute('uv_vyhl') === '504') {
-                self::assertSupportedDecree('504');
+                if ($startsOn === null || $endsOn === null) throw new TaxReturnException('nonprofit_dppo_period_required', 'DPPO 504 vyžaduje platný skutečný interval účetního období.', 422);
+                $this->assertDppoPeriodSupported($supplierId, $startsOn, $endsOn, $operation, $header->getAttribute('typ_dapdpp') ?: 'A');
                 (new \MyInvoice\Service\Tax\Nonprofit\NonprofitDppoFilingGate($this->db))->submission($supplierId, $submission, $requireCurrent);
                 return;
             }
             self::assertSupportedDecree($header->getAttribute('uv_vyhl'));
-            $startsOn = $this->xmlDate($header->getAttribute('zdobd_od'));
-            $endsOn = $this->xmlDate($header->getAttribute('zdobd_do'));
             if ($startsOn !== null && $endsOn !== null) {
                 $this->assertDppoPeriodSupported($supplierId, $startsOn, $endsOn);
                 return;
             }
         }
-        $this->assertDppoSupported($supplierId, (int) $submission['period_year']);
+        $this->assertDppoSupported($supplierId, (int) $submission['period_year'], $operation);
     }
 
     private function xmlDate(string $date): ?string

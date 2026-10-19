@@ -79,6 +79,31 @@ final class SupplierAccountingDecreeTest extends TestCase
         self::assertFalse($data['tax_accounting_decree_is_derived']);
     }
 
+    public function testLegalFormRecommendationDoesNotChangeFrameworkOrInferTaxExemption(): void
+    {
+        $this->setState('double_entry', '500', 'cz_500');
+        foreach (['117', '118', '141', '161', '706', '736', '145', '112'] as $legalForm) {
+            $this->db->pdo()->prepare('UPDATE supplier SET legal_form=? WHERE id=?')->execute([$legalForm, $this->supplierId]);
+            $data = $this->read();
+            $expected = $legalForm === '145'
+                ? ['entity_profile' => 'svj', 'accounting_framework' => 'cz_504', 'public_benefit_taxpayer' => false]
+                : ($legalForm === '112'
+                    ? ['entity_profile' => 'unknown', 'accounting_framework' => null, 'public_benefit_taxpayer' => null]
+                    : ['entity_profile' => 'nonprofit', 'accounting_framework' => 'cz_504', 'public_benefit_taxpayer' => null]);
+            self::assertSame($expected, $data['accounting_profile_recommendation']);
+            self::assertSame('cz_500', $data['accounting_framework']);
+            self::assertCount(1, $data['accounting_framework_history']);
+        }
+    }
+
+    public function testRecommendationUsesEffectiveAccountingModeHistory(): void
+    {
+        $this->setState('double_entry', '500', 'cz_500');
+        $this->db->pdo()->prepare("UPDATE supplier SET legal_form='706' WHERE id=?")->execute([$this->supplierId]);
+        $this->db->pdo()->prepare("INSERT INTO supplier_accounting_modes (supplier_id, effective_from, accounting_mode) VALUES (?, '1900-01-01', 'tax_evidence')")->execute([$this->supplierId]);
+        self::assertSame(['entity_profile' => 'nonprofit', 'accounting_framework' => null, 'public_benefit_taxpayer' => null], $this->read()['accounting_profile_recommendation']);
+    }
+
     public function testForeignSupplierRemainsHiddenFromBoundToken(): void
     {
         $request = (new ServerRequestFactory())->createServerRequest('GET', '/api/suppliers/' . $this->otherSupplierId)

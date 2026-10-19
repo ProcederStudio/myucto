@@ -5,7 +5,7 @@ namespace MyInvoice\Service\Tax\Nonprofit;
 
 use MyInvoice\Bootstrap;
 use MyInvoice\Infrastructure\Database\Connection;
-use MyInvoice\Repository\{AccountingPeriodRepository,TaxConstantsRepository,TaxReturnRepository};
+use MyInvoice\Repository\{AccountingPeriodRepository,TaxReturnRepository};
 use MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard;
 use MyInvoice\Service\Property\Payments\PaymentLocks;
 use MyInvoice\Service\Tax\Return\{TaxReturnException,TaxReturnService};
@@ -26,10 +26,8 @@ final class NonprofitDppoFilingGate
             if($requireCurrent){
                 $returns=new TaxReturnRepository($this->db);$effective=$returns->findLastFinalized($supplier,(int)$period['fiscal_year'],'po');
                 if($effective===null||(int)$effective['final_snapshot_id']!==(int)$stored['id'])throw new TaxReturnException('nonprofit_dppo_filing_snapshot_stale','K podání vyberte aktuální finální přiznání příslušného období.',409);
-                $c=Bootstrap::buildContainer();$c->set(Connection::class,$this->db);$inputs=(array)$effective['inputs'];$data=$c->get(\MyInvoice\Service\Tax\Return\DppoReturnDataProvider::class)->gather($supplier,(int)$period['fiscal_year'],$inputs);
-                $constants=$c->get(TaxConstantsRepository::class)->forExactYear((int)$period['fiscal_year']);$entity=$c->get(TaxReturnService::class)->nonprofitEntityProof($supplier,(int)$period['id']);
-                $current=NonprofitDppoStoredProof::capture($data,$inputs,$constants,$entity);
-                if(!hash_equals($proof['filing_proof_hash'],$current['filing_proof_hash']))throw new TaxReturnException('nonprofit_dppo_filing_sources_changed','Účetní nebo právní podklady se po finalizaci změnily. Zkontrolujte a znovu potvrďte přiznání.',409);
+                $c=Bootstrap::buildContainer();$c->set(Connection::class,$this->db);$inputs=(array)$effective['inputs'];$current=$c->get(TaxReturnService::class)->currentNonprofitProof($supplier,(int)$period['fiscal_year'],$inputs);
+                if(!hash_equals($proof['comparison_hash'],NonprofitDppoStoredProof::comparisonHash($current,$proof['comparison_profile'])))throw new TaxReturnException('nonprofit_dppo_filing_sources_changed','Účetní nebo právní podklady se po finalizaci změnily. Zkontrolujte a znovu potvrďte přiznání.',409);
             }
             return$proof+['snapshot_id'=>(int)$stored['id']];
         });

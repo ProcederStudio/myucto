@@ -24,6 +24,7 @@ final class NonprofitDppoStoredArchiveGuardTest extends TestCase
         $data=$this->container->get(\MyInvoice\Service\Tax\Nonprofit\NonprofitDppoDataProvider::class)->gather($this->supplier,2026,$inputs);
         $constants=\MyInvoice\Service\Tax\TaxConstants::forYear(2026);
         $computed=(new \MyInvoice\Service\Tax\Return\DppoReturnCalculator())->compute($data,$inputs,$constants);
+        $data['loss_appendix']=\MyInvoice\Service\Tax\Return\DppoLossAppendix::build($this->supplier,'po',2026,$data['period'],[],0,0,5);$data['source_manifest']['loss_appendix_hash']=$data['loss_appendix']['proof_hash'];
         $record=NonprofitDppoStoredProof::capture($data,$inputs,$constants,$this->container->get(TaxReturnService::class)->nonprofitEntityProof($this->supplier,$this->period));
         $manifest=$data['source_manifest']+['nonprofit_filing_proof_hash'=>$record['filing_proof_hash'],'nonprofit_data_manifest_hash'=>\MyInvoice\Service\Tax\Nonprofit\NonprofitTaxRules::hash($data['source_manifest'])];
         $snapshot=['computed'=>$computed,'podklady'=>['accounting_decree'=>'504','period'=>$data['period'],'nonprofit_calculation'=>$record]];
@@ -111,10 +112,9 @@ final class NonprofitDppoStoredArchiveGuardTest extends TestCase
         finally{$pdo->exec('DROP TEMPORARY TABLE nonprofit_tax_saving_cost_bindings');}
         self::assertCount(1,(new \MyInvoice\Service\Tax\Nonprofit\NonprofitTaxSavingsLedger($this->db))->events($this->supplier,$source['id']));
     }
-    public function testPublicTaxReturnRemainsClosedWithValidSavedArchive():void
+    public function testPublicTaxReturnReadsValidSavedArchive():void
     {
         $this->savingFixture();
-        try{$this->container->get(TaxReturnService::class)->getReturn($this->supplier,2026,'po',$this->actor);self::fail('The public 504 guard was lifted');}
-        catch(TaxReturnException $e){self::assertSame('dppo_accounting_framework_not_supported',$e->errorCode);}
+        self::assertSame('final',$this->container->get(TaxReturnService::class)->getReturn($this->supplier,2026,'po',$this->actor)['return']['status']);
     }
 }
