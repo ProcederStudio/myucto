@@ -13388,7 +13388,7 @@ paths:
         - { in: query, name: page, schema: { type: integer, default: 1 } }
         - { in: query, name: per_page, schema: { type: integer, default: 50, maximum: 200 } }
       responses:
-        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/AssetCard' } }, total: { type: integer } } } } } }
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/AssetListItem' } }, total: { type: integer } } } } } }
         '422': { $ref: '#/components/responses/ValidationFailed' }
     post:
       tags: [Accounting]
@@ -13703,7 +13703,7 @@ paths:
       operationId: previewAssetPlanRevision
       summary: Náhled revize zbývajícího odpisového plánu
       description: >-
-        Vyžaduje assets.write. Jen převzatý plán majetku v užívání; změna odhadu
+        Vyžaduje assets.depreciation na úrovni WRITE; právo assets.write nestačí. Jen převzatý plán majetku v užívání; změna odhadu
         od aktuálního nebo budoucího měsíce, bez účetních zápisů. Původní plán
         zůstává auditním podkladem. Potvrzené odpisy a uzamčená či uzavíraná
         období v celém dotčeném horizontu revizi blokují. Uložení znovu ověří
@@ -13737,7 +13737,7 @@ paths:
       operationId: reviseAssetPlan
       summary: Uložení revize zbývajícího odpisového plánu
       description: >-
-        Vyžaduje assets.write. Jen převzatý plán majetku v užívání; změna odhadu
+        Vyžaduje assets.depreciation na úrovni WRITE; právo assets.write nestačí. Jen převzatý plán majetku v užívání; změna odhadu
         od aktuálního nebo budoucího měsíce, bez účetních zápisů. Původní plán
         zůstává auditním podkladem. Potvrzené odpisy a uzamčená či uzavíraná
         období v celém dotčeném horizontu revizi blokují. Uložení znovu ověří
@@ -30239,20 +30239,30 @@ components:
           description: Zisk nebo ztráta běžného období v Kč po odečtení carrying_before; kladná hodnota znamená zisk.
           type: string
           pattern: ^-?[0-9]+\.[0-9]{2}$
-    AssetCard:
+    AssetCardBase:
       type: object
       properties:
         id: { type: integer }
         inventory_number: { type: string }
         name: { type: string }
-        imported_depreciation_plan:
-          readOnly: true
-          oneOf:
-            - $ref: '#/components/schemas/ImportedDepreciationPlan'
-            - type: 'null'
-          description: >-
-            Přesný budoucí plán ověřeného importu, null u nativních karet.
-            Historie zůstává v počátečních oprávkách; plán sám nevytváří účetní zápisy.
+    AssetListItem:
+      description: Karta v seznamu bez převzatého odpisového plánu a historie jeho revizí.
+      allOf:
+        - $ref: '#/components/schemas/AssetCardBase'
+    AssetCard:
+      description: Detail karty; převzatý plán a jeho historie se vrací jen v detailu.
+      allOf:
+        - $ref: '#/components/schemas/AssetCardBase'
+        - type: object
+          properties:
+            imported_depreciation_plan:
+              readOnly: true
+              oneOf:
+                - $ref: '#/components/schemas/ImportedDepreciationPlan'
+                - type: 'null'
+              description: >-
+                Přesný budoucí plán ověřeného importu, null u nativních karet.
+                Historie zůstává v počátečních oprávkách; plán sám nevytváří účetní zápisy.
     AssetDepreciationRow:
       type: object
       properties:

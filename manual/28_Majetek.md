@@ -325,7 +325,9 @@ Plán se počítá průběžně: minulé roky vycházejí z potvrzených a zaú�
 parametrů karty. Změníte-li parametr, který ovlivňuje výpočet (například přidáte technické zhodnocení), plán pro nepotvrzené roky
 se přepočítá okamžitě.
 
-**Převzatý odpisový plán.** Ověřený import může u nehmotného majetku pořízeného od roku 2021
+**Převzatý odpisový plán.** Tato podpora je určena pro podvojné účetnictví. V daňové evidenci
+se převzatý plán nepoužije; karta s tímto plánem vyžaduje účet oprávek.
+Ověřený import může u nehmotného majetku pořízeného od roku 2021
 převzít přesné budoucí měsíční účetní částky a shodné roční daňové součty. Řádky mají označení
 **Převzatý plán** a měsíční rozpis zachovává i rozdílnou poslední splátku. Historické odpisy
 zůstávají v počátečních oprávkách; import je znovu neúčtuje. Zaúčtování roku pracuje s převzatými
@@ -340,7 +342,7 @@ historické měsíce počátečních oprávek. U vyřazení již zaúčtovaného
 odpisy souhlasit se zkráceným plánem; před vrácením takového vyřazení je třeba odstranit potvrzený
 odpis, který by odporoval obnovenému celému roku.
 
-**Revize převzatého plánu.** U karty ve stavu **V užívání** může uživatel s právem zápisu
+**Revize převzatého plánu.** U karty ve stavu **V užívání** může uživatel s oprávněním ke správě odpisů
 změnit odhad zbývající doby používání. Revize slouží pro odůvodněnou změnu účetního odhadu;
 opravy minulých chyb ani technické zhodnocení se tímto postupem neprovádějí.
 

@@ -78,7 +78,7 @@ final class DepreciationAction
 
     private function revision(Request $request, Response $response, array $args, bool $save): Response
     {
-        if (!$this->requirePermission($request, $response, 'assets.write', AccessLevel::WRITE, $err)) return $err;
+        if (!$this->requirePermission($request, $response, 'assets.depreciation', AccessLevel::WRITE, $err)) return $err;
         $userId = $this->userId($request);
         if ($userId === null) return Json::error($response, 'forbidden', 'Revize vyžaduje přihlášeného uživatele.', 403);
         try {

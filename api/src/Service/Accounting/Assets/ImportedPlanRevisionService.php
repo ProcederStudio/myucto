@@ -8,9 +8,9 @@ use MyInvoice\Http\IsoDate;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Infrastructure\Database\TransactionFailure;
 use MyInvoice\Repository\AssetRepository;
+use MyInvoice\Repository\AccountingPeriodRepository;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard;
-use MyInvoice\Service\Accounting\FiscalCalendar;
 use Psr\Clock\ClockInterface;
 use PDO;
 
@@ -35,7 +35,6 @@ final class ImportedPlanRevisionService
         $pdo = $this->db->pdo();
         return TransactionFailure::retrying($pdo, fn (): array => (new DimensionPeriodGuard($this->db))->transaction(
             function () use ($supplierId, $id, $input, $userId): array {
-                (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
                 $prepared = $this->prepare($supplierId, $id, $input, $userId, true);
                 $this->assets->update($supplierId, $id, ['imported_depreciation_plan' => $prepared['plan']]);
                 $this->logger->log('asset.plan_revised', $userId, 'asset', $id,
@@ -58,9 +57,10 @@ final class ImportedPlanRevisionService
         }
         $suffix = $locking ? ' FOR UPDATE' : '';
         $pdo = $this->db->pdo();
-        $query = $pdo->prepare('SELECT fiscal_year_start_month FROM supplier WHERE id = ?' . $suffix);
-        $query->execute([$supplierId]);
-        $startMonth = (int) $query->fetchColumn();
+        $snapshot = (new AccountingPeriodRepository($this->db))->fiscalCalendarSnapshot($supplierId, $locking);
+        $calendar = $snapshot['calendar'];
+        $periods = $snapshot['periods'];
+        $calendarFingerprint = $snapshot['fingerprint'];
         $asset = $locking ? $this->assets->findForUpdate($supplierId, $id) : $this->assets->find($supplierId, $id);
         if ($asset === null) throw new AssetException('not_found', 'Majetek nenalezen.', 404);
         if ($asset['status'] !== 'in_use' || $asset['imported_depreciation_plan'] === null) {
@@ -70,15 +70,6 @@ final class ImportedPlanRevisionService
         $history = $plan['revisions'] ?? [];
         if ($input['expected_revision'] !== count($history)) $this->stale();
         if (count($history) >= 1000) throw new AssetException('validation_failed', 'Plán dosáhl nejvyššího počtu 1000 revizí.');
-        $query = $pdo->prepare('SELECT fiscal_year, starts_on, ends_on, status FROM accounting_periods WHERE supplier_id = ? ORDER BY starts_on, id' . $suffix);
-        $query->execute([$supplierId]);
-        $periods = $query->fetchAll(PDO::FETCH_ASSOC);
-        $calendar = FiscalCalendar::forPeriods($periods);
-        if ($calendar->isCalendar()) $calendar = new FiscalCalendar($startMonth >= 1 && $startMonth <= 12 ? $startMonth : 1);
-        $calendarFingerprint = hash('sha256', json_encode([
-            'supplier_start_month' => $startMonth,
-            'periods' => array_map(static fn (array $p): array => [(int) $p['fiscal_year'], (string) $p['starts_on'], (string) $p['ends_on']], $periods),
-        ], JSON_THROW_ON_ERROR));
         if ($locking && (($input['expected_calendar_start_month'] ?? null) !== $calendar->startMonth()
             || ($input['expected_calendar_fingerprint'] ?? null) !== $calendarFingerprint)) $this->stale();
         $query = $pdo->prepare('SELECT * FROM depreciation_entries WHERE supplier_id = ? AND asset_id = ? ORDER BY kind, fiscal_year' . $suffix);

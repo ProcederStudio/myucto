@@ -72,7 +72,6 @@ export interface Asset {
   acc_useful_life_months: number | null
   acc_method: AccMethod
   acc_residual_value: number
-  readonly imported_depreciation_plan?: ImportedDepreciationPlan | null
   created_at: string
   updated_at: string
 }
@@ -129,6 +128,7 @@ export interface DepreciationEntry {
 }
 
 export interface AssetDetail extends Asset {
+  readonly imported_depreciation_plan?: ImportedDepreciationPlan | null
   improvements?: AssetImprovement[]
   entries?: DepreciationEntry[]
   improvements_total?: number

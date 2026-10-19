@@ -6,13 +6,13 @@ import AssetDetailPage from '../AssetDetail.vue'
 import AssetPlanRevisionModal from '@/components/accounting/AssetPlanRevisionModal.vue'
 
 const m = vi.hoisted(() => ({
-  previewRevision: vi.fn(), revise: vi.fn(), assetWrite: true, get: vi.fn(), plan: vi.fn(), update: vi.fn(), create: vi.fn(), putIntoUse: vi.fn(),
+  previewRevision: vi.fn(), revise: vi.fn(), assetWrite: true, depreciationLevel: 2, get: vi.fn(), plan: vi.fn(), update: vi.fn(), create: vi.fn(), putIntoUse: vi.fn(),
   push: vi.fn(), error: vi.fn(), success: vi.fn(), warning: vi.fn(),
   mode: 'double_entry', loadDimensions: vi.fn(), saveDimensions: vi.fn(),
 }))
 vi.mock('@/api/assets', () => ({ assetsApi: { previewRevision: m.previewRevision, revise: m.revise, get: m.get, plan: m.plan, update: m.update, create: m.create, putIntoUse: m.putIntoUse } }))
 vi.mock('@/api/accounting', () => ({ accountingApi: { listAccounts: async () => [] } }))
-vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ canWrite: (permission: string) => permission === 'assets.write' ? m.assetWrite : true }) }))
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ canWrite: (permission: string) => permission === 'assets.write' ? m.assetWrite : permission === 'assets.depreciation' ? m.depreciationLevel >= 2 : true }) }))
 vi.mock('@/stores/supplier', () => ({ useSupplierStore: () => ({ currentSupplier: { accounting_mode: m.mode } }) }))
 vi.mock('@/composables/useToast', () => ({ useToast: () => ({ error: m.error, success: m.success, warning: m.warning }) }))
 vi.mock('@/composables/useFormat', () => ({ formatMoney: (value: unknown) => String(value), formatDate: (value: unknown) => String(value), formatMonth: (value: unknown) => String(value), formatDateTime: (value: unknown) => String(value), formatMoneyMinor: (value: unknown) => `minor:${value}` }))
@@ -66,6 +66,7 @@ beforeEach(() => {
   vi.resetAllMocks()
   m.mode = 'double_entry'
   m.assetWrite = true
+  m.depreciationLevel = 2
   m.get.mockResolvedValue(asset())
   m.plan.mockResolvedValue(plan)
   m.update.mockResolvedValue({ asset: asset(), warnings: [] })
@@ -73,8 +74,26 @@ beforeEach(() => {
 })
 
 describe('Imported asset plan UI', () => {
+  it.each([
+    [true, 0, false], [false, 2, true], [true, 1, false], [false, 1, false],
+  ])('gates revision by depreciation WRITE independently of card writes (cards=%s depreciation=%s)', async (cards, depreciation, allowed) => {
+    m.assetWrite = cards
+    m.depreciationLevel = depreciation
+    m.previewRevision.mockResolvedValue(revisionPreview())
+    const wrapper = await detail()
+    expect(wrapper.find('[data-action="revise_plan"]').exists()).toBe(allowed)
+    if (allowed) {
+      await wrapper.get('[data-action="revise_plan"]').trigger('click')
+      await revisionForm(wrapper)
+      await wrapper.get('[data-testid="revision-form"]').trigger('submit')
+      await flushPromises()
+      expect(m.previewRevision).toHaveBeenCalledOnce()
+    } else expect(m.previewRevision).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it.each(['no_permission', 'native', 'draft', 'disposed'])('hides controlled revision for %s while preserving read access', async variant => {
-    if (variant === 'no_permission') m.assetWrite = false
+    if (variant === 'no_permission') m.depreciationLevel = 0
     if (variant === 'native') m.get.mockResolvedValue(asset({ imported_depreciation_plan: null }))
     if (variant === 'draft' || variant === 'disposed') m.get.mockResolvedValue(asset({ status: variant }))
     const wrapper = await detail()

@@ -145,7 +145,14 @@ final class AssetService
         // kartu (CWE-639, externí report 2026-08 R2 — třída, kterou sweep u /assets minul).
         // Stejně vazba vyřazení na zápis deníku a účet souhrnné karty: píší je jen
         // disposeFromJournal() a AccountSummaryCardService.
+        // Identita a auditní pole vrácená detailem nejsou vstup editace. Jejich
+        // zopakování ve formuláři nesmí záviset na JSON typu (např. id jako string).
         unset(
+            $data['id'],
+            $data['supplier_id'],
+            $data['created_by'],
+            $data['created_at'],
+            $data['updated_at'],
             $data['status'],
             $data['disposal_date'],
             $data['disposal_type'],
@@ -1574,6 +1581,9 @@ final class AssetService
         $card['opening_tax_amount'] = round((float) $card['opening_tax_amount'], 2);
         $card['opening_acc_months'] = max(0, (int) $card['opening_acc_months']);
         $card['opening_acc_amount'] = round((float) $card['opening_acc_amount'], 2);
+        $card['co_ownership_share'] = $card['co_ownership_share'] === null || $card['co_ownership_share'] === ''
+            ? null
+            : round((float) $card['co_ownership_share'], 2);
         $card['acc_useful_life_months'] = $card['acc_useful_life_months'] === null || $card['acc_useful_life_months'] === ''
             ? null
             : (int) $card['acc_useful_life_months'];
