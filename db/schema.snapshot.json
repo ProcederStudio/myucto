@@ -1012,7 +1012,8 @@
         "2055_activity_log_deferred_seal.sql",
         "2056_price_list_role_permissions.sql",
         "2057_operational_settings_role_permissions.sql",
-        "2058_logbook_trip_templates_odometer_readings.sql"
+        "2058_logbook_trip_templates_odometer_readings.sql",
+        "2059_asset_imported_depreciation_plan.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -2056,6 +2057,7 @@
                 "disposal_price": "decimal(14,2) NULL DEFAULT NULL",
                 "disposal_type": "enum('sold','liquidated','donated','damaged') NULL DEFAULT NULL",
                 "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "imported_depreciation_plan": "longtext NULL DEFAULT NULL COLLATE utf8mb4_bin",
                 "input_price": "decimal(14,2) NOT NULL",
                 "inventory_number": "varchar(30) NOT NULL",
                 "is_first_owner": "tinyint(1) NOT NULL DEFAULT 0",
@@ -2095,7 +2097,9 @@
                 "fk_assets_sale_invoice": "(sale_invoice_id) -> invoices (id) ON UPDATE RESTRICT ON DELETE SET NULL",
                 "fk_assets_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE"
             },
-            "checks": []
+            "checks": {
+                "imported_depreciation_plan": "json_valid(`imported_depreciation_plan`)"
+            }
         },
         "attachment_checks": {
             "type": "BASE TABLE",
