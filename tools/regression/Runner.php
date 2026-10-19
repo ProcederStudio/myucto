@@ -139,11 +139,19 @@ final class Runner
         $bytes += strlen((string) stream_get_contents($pipes[1])) + strlen((string) stream_get_contents($pipes[2]));
         fclose($pipes[1]);
         fclose($pipes[2]);
-        proc_close($process);
+        $exitCode = (int) $status['exitcode'];
+        $closedCode = proc_close($process);
+        if ($exitCode < 0) {
+            $exitCode = $closedCode;
+        }
         if ($status['running'] || $bytes > 0 || !is_file($request['response'])) {
             return ['status' => 'error', 'error' => $status['running'] ? 'worker_timeout' : 'worker_output_or_fatal'];
         }
-        return json_decode((string) file_get_contents($request['response']), true, 512, JSON_THROW_ON_ERROR);
+        $response = json_decode((string) file_get_contents($request['response']), true, 512, JSON_THROW_ON_ERROR);
+        if ($exitCode !== 0 && ($response['status'] ?? null) === 'ok') {
+            return ['status' => 'error', 'error' => 'worker_exit_failed'];
+        }
+        return $response;
     }
 
     private static function compare(array $options): int
