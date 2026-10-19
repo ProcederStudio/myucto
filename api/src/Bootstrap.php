@@ -1175,6 +1175,7 @@ final class Bootstrap
             \MyInvoice\Service\OAuth\OAuthCallbackRegistry::class => fn (ContainerInterface $c)
                 => new \MyInvoice\Service\OAuth\OAuthCallbackRegistry([
                     $c->get(\MyInvoice\Service\Logbook\OdometerSource\OdometerOAuthCallbackHandler::class),
+                    $c->get(\MyInvoice\Service\Bank\Connector\BankOAuthCallbackHandler::class),
                 ]),
             \MyInvoice\Service\Bank\Connector\CsasApiClient::class => fn (ContainerInterface $c)
                 => new \MyInvoice\Service\Bank\Connector\CsasApiClient(
