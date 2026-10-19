@@ -21,6 +21,8 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import { appIsoDate } from '@/utils/date'
 import DateInput from '@/components/ui/DateInput.vue'
 import DocumentDimensionsPanel from '@/components/dimensions/DocumentDimensionsPanel.vue'
+import AssetPlanRevisionModal from '@/components/accounting/AssetPlanRevisionModal.vue'
+import ImportedAssetPlanAudit from '@/components/accounting/ImportedAssetPlanAudit.vue'
 
 const { t } = useI18n()
 const auth = useAuthStore()
@@ -40,6 +42,24 @@ const asset = ref<AssetDetail | null>(null)
 const importedPlan = computed(() => asset.value?.imported_depreciation_plan ?? null)
 const plan = ref<DepreciationPlan | null>(null)
 const loading = ref(false)
+const showRevision = ref(false)
+const canRevisePlan = computed(() => !!importedPlan.value && asset.value?.status === 'in_use' && auth.canWrite('assets.write'))
+const latestRevision = computed(() => importedPlan.value?.revisions?.at(-1))
+const effectiveUsefulLife = computed(() => {
+  const summary = plan.value?.asset_summary
+  if (summary && 'effective_acc_useful_life_months' in summary) return summary.effective_acc_useful_life_months
+  return latestRevision.value ? null : asset.value?.acc_useful_life_months ?? null
+})
+async function revisionSaved(): Promise<void> {
+  showRevision.value = false
+  await load()
+}
+async function refreshRevision(): Promise<void> {
+  showRevision.value = false
+  await load()
+  if (canRevisePlan.value) showRevision.value = true
+}
+
 
 async function load() {
   loading.value = true
@@ -327,6 +347,15 @@ const assetActions = computed<ActionItem[]>(() => {
       run: openPutIntoUse,
     },
     {
+      key: 'revise_plan',
+      label: t('accounting.assets.revision.title'),
+      icon: 'cycle',
+      tier: 'primary',
+      variant: 'warning',
+      show: canRevisePlan.value,
+      run: () => { showRevision.value = true },
+    },
+    {
       key: 'improvement',
       label: t('accounting.assets.lifecycle.improvement'),
       icon: 'plus',
@@ -498,7 +527,10 @@ const yearOptions = computed(() => {
         <h2 class="font-semibold">{{ t('accounting.assets.imported_plan.title') }}</h2>
         <p class="mt-1">{{ t('accounting.assets.imported_plan.source', { program: importedPlan.source_program, tax: importedPlan.source_tax_method, accounting: importedPlan.source_accounting_method }) }}</p>
         <p class="mt-1">{{ t('accounting.assets.imported_plan.locked_hint') }}</p>
+        <p v-if="latestRevision" class="mt-2 font-medium">{{ t('accounting.assets.revision.latest', { revision: latestRevision.revision, month: formatMonth(latestRevision.effective_from), months: latestRevision.remaining_months }) }}</p>
       </div>
+      <ImportedAssetPlanAudit v-if="importedPlan" :plan="importedPlan" :original-useful-life="asset.acc_useful_life_months" />
+      <AssetPlanRevisionModal v-if="showRevision && asset && canRevisePlan" :asset="asset" @close="showRevision = false" @saved="revisionSaved" @refresh="refreshRevision" />
 
       <!-- Vyřazení info -->
       <div v-if="asset.status === 'disposed'" class="bg-warning-50 border border-warning-500/30 rounded-lg p-3 mb-4 text-sm">
@@ -564,9 +596,9 @@ const yearOptions = computed(() => {
             <span class="text-xs text-neutral-500 block">{{ t('accounting.assets.fields.acc_method') }}</span>
             {{ t(`accounting.assets.accMethod.${asset.acc_method ?? 'straight_line'}`) }}
           </div>
-          <div v-if="asset.accumulated_account_code && asset.acc_method !== 'by_tax'">
+          <div v-if="asset.accumulated_account_code && asset.acc_method !== 'by_tax'" data-testid="asset-effective-useful-life">
             <span class="text-xs text-neutral-500 block">{{ t('accounting.assets.fields.acc_useful_life_months') }}</span>
-            {{ asset.acc_useful_life_months ?? '—' }}
+            {{ effectiveUsefulLife ?? '—' }}
           </div>
           <div v-if="asset.purchase_invoice_id">
             <span class="text-xs text-neutral-500 block">{{ t('accounting.assets.fields.purchase_invoice') }}</span>

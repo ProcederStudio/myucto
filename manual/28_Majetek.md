@@ -331,13 +331,35 @@ převzít přesné budoucí měsíční účetní částky a shodné roční da�
 zůstávají v počátečních oprávkách; import je znovu neúčtuje. Zaúčtování roku pracuje s převzatými
 částkami a je opakovatelné bez duplicitních zápisů.
 
-U této karty lze upravit inventární číslo, název a popis. Částky, účty, data, metody, životnost
-ani počáteční oprávky měnit nelze; nejsou dostupná technická zhodnocení, přerušení ani ruční
-přepis odpisu. Koncept lze zařadit s původním datem bez nového zápisu pořízení. Vyřazení zachová
-přesné částky do měsíce vyřazení a jeho vrácení obnoví původní plán. Vyřazení nesmí zasáhnout
+V běžné editaci této karty lze upravit inventární číslo, název a popis. Částky, účty, data,
+metody ani počáteční oprávky se touto cestou nemění. Budoucí odpisy lze změnit řízenou revizí
+plánu v detailu karty. Technická zhodnocení, přerušení ani ruční přepis odpisu nejsou dostupné.
+Koncept lze zařadit s původním datem bez nového zápisu pořízení. Vyřazení zachová
+přesné částky platného plánu do měsíce vyřazení a jeho vrácení obnoví plán včetně revizí. Vyřazení nesmí zasáhnout
 historické měsíce počátečních oprávek. U vyřazení již zaúčtovaného ručně v deníku musí potvrzené
 odpisy souhlasit se zkráceným plánem; před vrácením takového vyřazení je třeba odstranit potvrzený
 odpis, který by odporoval obnovenému celému roku.
+
+**Revize převzatého plánu.** U karty ve stavu **V užívání** může uživatel s právem zápisu
+změnit odhad zbývající doby používání. Revize slouží pro odůvodněnou změnu účetního odhadu;
+opravy minulých chyb ani technické zhodnocení se tímto postupem neprovádějí.
+
+1. V detailu karty otevřete revizi plánu.
+2. Zadejte měsíc účinnosti, novou zbývající dobu v měsících a důvod změny.
+3. Zobrazte náhled a porovnejte dosavadní a navržené měsíční částky i roční součty.
+4. Potvrďte uložení. Po změně vstupů je nutné náhled zobrazit znovu.
+
+Částky před účinností zůstanou zachované. Zbývající částka se rozloží rovnoměrně do zadaného
+počtu měsíců; rozdíl ze zaokrouhlení se vyrovná v posledním měsíci. Daňové částky odpovídají
+součtům účetních měsíců podle účetního období firmy. Revize nevytváří zápisy do deníku.
+Účinnost nesmí předcházet aktuálnímu měsíci ani předchozí revizi. Revize nesmí měnit potvrzené
+ani zaúčtované odpisy a nesmí zasáhnout uzavírané, uzavřené nebo uzamčené období.
+Dotčená účetní období musejí odpovídat běžným hranicím kalendářního nebo hospodářského roku;
+revize přechodových zkrácených či prodloužených období není dostupná.
+
+Původní převzatý plán zůstává dohledatelný. Historie revizí obsahuje účinnost, důvod, autora
+a čas uložení; další revize předchozí záznamy nemaže. Pokud mezitím plán změnil jiný uživatel,
+je potřeba načíst aktuální kartu a znovu zkontrolovat náhled.
 
 ### 28.12.5 Zařazení do užívání a mazání karty
 

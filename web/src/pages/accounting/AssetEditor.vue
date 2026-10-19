@@ -471,7 +471,7 @@ const lockedTitle = computed(() => t(importedPlan.value ? 'accounting.assets.imp
       <section v-if="deNeedsMonths" class="bg-surface border border-neutral-200 rounded-lg shadow-sm p-4">
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
-            <label :class="labelCls">{{ t('accounting.assets.fields.intangible_months_de') }} *</label>
+            <label :class="labelCls">{{ t(importedPlan ? 'accounting.assets.revision.original_life_label' : 'accounting.assets.fields.intangible_months_de') }}<template v-if="!importedPlan"> *</template></label>
             <input v-model.number="form.acc_useful_life_months" :disabled="!!importedPlan" type="number" min="1" step="1" :class="inputCls" />
           </div>
         </div>
@@ -490,7 +490,7 @@ const lockedTitle = computed(() => t(importedPlan.value ? 'accounting.assets.imp
           </div>
           <template v-if="!isAccByTax">
             <div>
-              <label :class="labelCls">{{ t('accounting.assets.fields.acc_useful_life_months') }} *</label>
+              <label :class="labelCls">{{ t(importedPlan ? 'accounting.assets.revision.original_life_label' : 'accounting.assets.fields.acc_useful_life_months') }}<template v-if="!importedPlan"> *</template></label>
               <input v-model.number="form.acc_useful_life_months" :disabled="!!importedPlan" type="number" min="1" step="1" :class="inputCls" />
             </div>
             <div>

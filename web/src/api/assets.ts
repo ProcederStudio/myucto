@@ -14,6 +14,17 @@ export type FirstYearIncrease = 'none' | 'p10' | 'p15' | 'p20'
 export type AccMethod = 'straight_line' | 'by_tax'
 export type DisposalType = 'sold' | 'liquidated' | 'donated' | 'damaged'
 
+export interface ImportedPlanRevision {
+  revision: number
+  effective_from: string
+  remaining_months: number
+  remaining_amount_cents: number
+  reason: string
+  user_id: number
+  created_at: string
+  fiscal_start_month: number
+}
+
 export interface ImportedDepreciationPlan {
   version: 1
   source_program: string
@@ -21,6 +32,7 @@ export interface ImportedDepreciationPlan {
   source_accounting_method: string
   accounting: Array<{ month: string; amount_cents: number }>
   tax: Array<{ fiscal_year: number; amount_cents: number }>
+  revisions?: ImportedPlanRevision[]
 }
 
 export interface Asset {
@@ -210,6 +222,7 @@ export interface DepreciationPlanRow {
 }
 
 export interface AssetSummary {
+  readonly effective_acc_useful_life_months?: number | null
   input_price: number
   increased_input_price: number
   tax_residual: number
@@ -221,6 +234,29 @@ export interface DepreciationPlan {
   asset_summary: AssetSummary
   tax: DepreciationPlanRow[]
   accounting: DepreciationPlanRow[]
+}
+
+export interface AssetRevisionPayload {
+  effective_from: string
+  remaining_months: number
+  reason: string
+  expected_revision: number
+}
+
+export interface AssetRevisionPreview {
+  revision: number
+  effective_from: string
+  remaining_months: number
+  remaining_amount: number
+  calendar_start_month: number
+  calendar_fingerprint: string
+  before: DepreciationPlan
+  after: DepreciationPlan
+}
+
+export interface AssetRevisionSavePayload extends AssetRevisionPayload {
+  expected_calendar_start_month: number
+  expected_calendar_fingerprint: string
 }
 
 export interface BookYearResult {
@@ -260,6 +296,10 @@ export interface AccountSummaryResult {
 }
 
 export const assetsApi = {
+  previewRevision: (id: number, payload: AssetRevisionPayload) =>
+    api.post<AssetRevisionPreview>(`/accounting/assets/${id}/depreciation/revision/preview`, payload).then(r => r.data),
+  revise: (id: number, payload: AssetRevisionSavePayload) =>
+    api.post<AssetSaveResult>(`/accounting/assets/${id}/depreciation/revision`, payload).then(r => r.data),
   list: (filters?: { status?: AssetStatus | ''; q?: string; page?: number; per_page?: number }) => {
     const params: Record<string, string | number> = {}
     if (filters?.status) params.status = filters.status
