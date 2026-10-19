@@ -1174,6 +1174,12 @@ final class Bootstrap
                 => new \MyInvoice\Service\Logbook\OdometerSource\OdometerSourceRegistry([
                     $c->get(\MyInvoice\Service\Logbook\OdometerSource\Bmw\BmwCarDataProvider::class),
                 ]),
+            // Handlery společného OAuth callbacku (/api/oauth/callback); nová doména se přidá sem.
+            \MyInvoice\Service\OAuth\OAuthCallbackRegistry::class => fn (ContainerInterface $c)
+                => new \MyInvoice\Service\OAuth\OAuthCallbackRegistry([
+                    $c->get(\MyInvoice\Service\Logbook\OdometerSource\OdometerOAuthCallbackHandler::class),
+                    $c->get(\MyInvoice\Service\Bank\Connector\BankOAuthCallbackHandler::class),
+                ]),
             \MyInvoice\Service\Bank\Connector\CsasApiClient::class => fn (ContainerInterface $c)
                 => new \MyInvoice\Service\Bank\Connector\CsasApiClient(
                     $c->get(\MyInvoice\Service\Bank\Connector\BankHttpClientFactory::class)->create('csas'),

@@ -9,9 +9,10 @@ use MyInvoice\Service\Auth\SecretEncryption;
 /**
  * Šifrované přístupy zdrojů stavu tachometru (vzor {@see \MyInvoice\Service\Bank\Connector\CsasCredentialVault}).
  *
- * Přístupy i rozpracované přihlášení se ukládají jen jako context-bound enc:v2 ciphertext.
- * Kontext i obálka váží data na firmu, napojení (účet u zdroje) a zdroj; obsah `data`
- * je plochá mapa řetězců a čísel, jejíž význam zná jen zdroj.
+ * Přístupy se ukládají jen jako context-bound enc:v2 ciphertext. Kontext i obálka váží
+ * data na firmu, napojení (účet u zdroje) a zdroj; obsah `data` je plochá mapa řetězců
+ * a čísel, jejíž význam zná jen zdroj. Rozpracované přihlášení šifruje společná vrstva
+ * OAuth klienta ({@see \MyInvoice\Service\OAuth\OAuthClientFlow}).
  */
 final class OdometerSourceVault
 {
@@ -37,18 +38,6 @@ final class OdometerSourceVault
     public function openCredentials(int $supplierId, int $accountId, string $provider, #[\SensitiveParameter] string $ciphertext): array
     {
         return $this->open(self::context($supplierId, $accountId, $provider, 'credentials'), $supplierId, $accountId, $provider, $ciphertext);
-    }
-
-    /** @param array<string,string|int> $pending */
-    public function sealPending(int $supplierId, int $accountId, string $provider, #[\SensitiveParameter] array $pending): string
-    {
-        return $this->seal(self::context($supplierId, $accountId, $provider, 'pending'), $supplierId, $accountId, $provider, $pending);
-    }
-
-    /** @return array<string,string|int> */
-    public function openPending(int $supplierId, int $accountId, string $provider, #[\SensitiveParameter] string $ciphertext): array
-    {
-        return $this->open(self::context($supplierId, $accountId, $provider, 'pending'), $supplierId, $accountId, $provider, $ciphertext);
     }
 
     /** Kontext šifry: firma + napojení (účet u zdroje) + zdroj + druh dat. */

@@ -43,8 +43,9 @@ final class ConnectStep
     }
 
     /**
-     * Callback route pro návrat ze služby (ověří `state` proti `pending_state_hash`) zatím
-     * chybí a přijde s issue #218. Do té doby žádný zdroj tento krok nevrací.
+     * Návrat ze služby jde na společný callback (`ConnectContext::$redirectUri`), který kód
+     * uloží k rozpracovanému přihlášení; zdroj ho dostane v dalším {@see OdometerSourceProvider::continueConnect()}
+     * ve vstupu `code` spolu s `code_verifier`.
      *
      * @param array<string,string|int> $pending
      */

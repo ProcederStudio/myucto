@@ -51,7 +51,7 @@ final class CsasApiClient
             'response_type' => 'code', 'client_id' => $this->value($credentials, 'client_id'),
             'redirect_uri' => $this->value($credentials, 'redirect_uri'), 'scope' => 'siblings.accounts',
             'access_type' => 'offline', 'prompt' => 'consent', 'state' => $state,
-            'code_challenge' => rtrim(strtr(base64_encode(hash('sha256', $this->value($credentials, 'code_verifier'), true)), '+/', '-_'), '='),
+            'code_challenge' => \MyInvoice\Service\OAuth\Pkce::challenge($this->value($credentials, 'code_verifier')),
             'code_challenge_method' => 'S256',
         ], '', '&', PHP_QUERY_RFC3986);
     }

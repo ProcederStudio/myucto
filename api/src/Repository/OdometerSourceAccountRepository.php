@@ -27,11 +27,14 @@ final class OdometerSourceAccountRepository
         return $row === false ? null : $this->cast($row);
     }
 
-    /** Řádek včetně ciphertextů — jen pro službu, nikdy do odpovědi API. */
+    /**
+     * Řádek včetně ciphertextu přístupů a hashe state rozpracovaného přihlášení
+     * (klíč do oauth_sessions) — jen pro službu, nikdy do odpovědi API.
+     */
     public function findWithSecrets(int $supplierId, int $id): ?array
     {
         $stmt = $this->db->pdo()->prepare(
-            'SELECT ' . self::PUBLIC_COLUMNS . ', credentials_ciphertext, pending_ciphertext
+            'SELECT ' . self::PUBLIC_COLUMNS . ', credentials_ciphertext, pending_state_hash
                FROM odometer_source_accounts WHERE supplier_id = ? AND id = ?'
         );
         $stmt->execute([$supplierId, $id]);
@@ -39,7 +42,7 @@ final class OdometerSourceAccountRepository
         if ($row === false) return null;
         return $this->cast($row) + [
             'credentials_ciphertext' => $row['credentials_ciphertext'],
-            'pending_ciphertext'     => $row['pending_ciphertext'],
+            'pending_state_hash'     => $row['pending_state_hash'] !== null ? (string) $row['pending_state_hash'] : null,
         ];
     }
 
@@ -48,7 +51,7 @@ final class OdometerSourceAccountRepository
     {
         $stmt = $this->db->pdo()->prepare(
             'SELECT id FROM odometer_source_accounts
-              WHERE supplier_id = ? AND pending_car_id = ? AND pending_ciphertext IS NOT NULL
+              WHERE supplier_id = ? AND pending_car_id = ? AND pending_state_hash IS NOT NULL
               ORDER BY id DESC LIMIT 1'
         );
         $stmt->execute([$supplierId, $carId]);
@@ -96,22 +99,16 @@ final class OdometerSourceAccountRepository
     {
         $this->db->pdo()->prepare(
             'UPDATE odometer_source_accounts
-                SET pending_state_hash = ?, pending_car_id = ?, pending_expires_at = ?, pending_ciphertext = NULL
+                SET pending_state_hash = ?, pending_car_id = ?, pending_expires_at = ?
               WHERE supplier_id = ? AND id = ?'
         )->execute([$stateHash, $carId, $expiresAt, $supplierId, $id]);
-    }
-
-    public function updatePending(int $supplierId, int $id, string $pendingCiphertext): void
-    {
-        $this->db->pdo()->prepare('UPDATE odometer_source_accounts SET pending_ciphertext = ? WHERE supplier_id = ? AND id = ?')
-            ->execute([$pendingCiphertext, $supplierId, $id]);
     }
 
     public function activate(int $supplierId, int $id, string $credentialsCiphertext): void
     {
         $this->db->pdo()->prepare(
             "UPDATE odometer_source_accounts
-                SET status = 'active', credentials_ciphertext = ?, pending_ciphertext = NULL, pending_state_hash = NULL,
+                SET status = 'active', credentials_ciphertext = ?, pending_state_hash = NULL,
                     pending_car_id = NULL, pending_expires_at = NULL, last_sync_error_code = NULL
               WHERE supplier_id = ? AND id = ?"
         )->execute([$credentialsCiphertext, $supplierId, $id]);
@@ -153,7 +150,7 @@ final class OdometerSourceAccountRepository
             ->execute([$supplierId, $id]);
         $pdo->prepare(
             'UPDATE odometer_source_accounts
-                SET pending_ciphertext = NULL, pending_state_hash = NULL, pending_car_id = NULL, pending_expires_at = NULL
+                SET pending_state_hash = NULL, pending_car_id = NULL, pending_expires_at = NULL
               WHERE supplier_id = ? AND id = ?'
         )->execute([$supplierId, $id]);
     }
@@ -192,7 +189,7 @@ final class OdometerSourceAccountRepository
     {
         $this->db->pdo()->prepare(
             "UPDATE odometer_source_accounts
-                SET status = 'disconnected', credentials_ciphertext = NULL, pending_ciphertext = NULL,
+                SET status = 'disconnected', credentials_ciphertext = NULL,
                     pending_state_hash = NULL, pending_car_id = NULL, pending_expires_at = NULL
               WHERE supplier_id = ? AND id = ?"
         )->execute([$supplierId, $id]);

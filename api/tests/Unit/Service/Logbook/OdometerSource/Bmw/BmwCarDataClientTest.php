@@ -11,6 +11,7 @@ use GuzzleHttp\Middleware;
 use GuzzleHttp\Psr7\Response;
 use MyInvoice\Service\Logbook\OdometerSource\Bmw\BmwCarDataClient;
 use MyInvoice\Service\Logbook\OdometerSource\OdometerSourceException;
+use MyInvoice\Service\OAuth\Pkce;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -28,7 +29,7 @@ final class BmwCarDataClientTest extends TestCase
             'device_code' => 'synthetic-device', 'user_code' => 'ABCD1234',
             'verification_uri' => 'https://customer.bmwgroup.com/oneid/link', 'interval' => 5, 'expires_in' => 300,
         ]))]);
-        $verifier = BmwCarDataClient::newCodeVerifier();
+        $verifier = Pkce::verifier();
 
         $result = $client->requestDeviceCode(self::CLIENT_ID, $verifier);
 

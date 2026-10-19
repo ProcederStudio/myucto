@@ -15,7 +15,8 @@ use MyInvoice\Service\Logbook\OdometerSource\OdometerSourceVehicle;
 
 /**
  * BMW CarData: uživatel si v portálu MyBMW založí CarData Client (client ID) a přihlásí
- * ho ke službě CarData API; připojení pak proběhne přes Device Code Flow.
+ * ho ke službě CarData API; připojení pak proběhne přes Device Code Flow s PKCE ze
+ * společné vrstvy OAuth klienta (verifier drží jádro, ne rozpracované přihlášení zdroje).
  *
  * Přístupy: client_id, access_token, refresh_token, access_expires_at a container_id
  * (kontejner s klíčem travelledDistance; zakládá se při prvním načtení).
@@ -26,7 +27,7 @@ final class BmwCarDataProvider implements OdometerSourceProvider
 {
     public const CODE = 'bmw_cardata';
     private const CREDENTIAL_KEYS = ['client_id', 'access_token', 'refresh_token', 'access_expires_at'];
-    private const PENDING_KEYS = ['client_id', 'device_code', 'code_verifier', 'interval'];
+    private const PENDING_KEYS = ['client_id', 'device_code', 'interval'];
 
     public function __construct(private readonly BmwCarDataClient $api) {}
 
@@ -48,18 +49,24 @@ final class BmwCarDataProvider implements OdometerSourceProvider
         if (!BmwCarDataClient::isValidClientId($clientId)) {
             throw new OdometerSourceException(OdometerSourceException::INVALID_INPUT, 'Client ID má tvar UUID, zkopírujte ho z portálu MyBMW.');
         }
-        $verifier = BmwCarDataClient::newCodeVerifier();
-        $code = $this->api->requestDeviceCode($clientId, $verifier);
+        if ($context->codeVerifier === null) {
+            throw new OdometerSourceException(OdometerSourceException::INVALID_RESPONSE, 'Přihlášení k BMW vyžaduje PKCE.');
+        }
+        $code = $this->api->requestDeviceCode($clientId, $context->codeVerifier);
         return ConnectStep::deviceCode($code['user_code'], $code['verification_url'], $code['interval'], $code['expires_in'], [
-            'client_id' => $clientId, 'device_code' => $code['device_code'], 'code_verifier' => $verifier, 'interval' => $code['interval'],
+            'client_id' => $clientId, 'device_code' => $code['device_code'], 'interval' => $code['interval'],
         ]);
     }
 
     public function continueConnect(#[\SensitiveParameter] array $pending, #[\SensitiveParameter] array $input): ConnectStep
     {
         $this->require($pending, self::PENDING_KEYS);
+        $verifier = (string) ($input['code_verifier'] ?? '');
+        if ($verifier === '') {
+            throw new OdometerSourceException(OdometerSourceException::EXPIRED, 'Přihlášení k BMW vypršelo, začněte znovu.');
+        }
         try {
-            $tokens = $this->api->pollToken((string) $pending['client_id'], (string) $pending['device_code'], (string) $pending['code_verifier']);
+            $tokens = $this->api->pollToken((string) $pending['client_id'], (string) $pending['device_code'], $verifier);
         } catch (OdometerSourceException $e) {
             $interval = (int) $pending['interval'];
             if ($e->errorCode === BmwCarDataClient::AUTHORIZATION_PENDING) return ConnectStep::waiting($interval);
@@ -99,16 +106,23 @@ final class BmwCarDataProvider implements OdometerSourceProvider
         return $value === null ? null : new OdometerSample($value['value'], $value['unit'], $value['at']);
     }
 
-    /** Platný access token; propadlý obnoví — BMW přitom vždy vydá nový refresh token. */
+    /**
+     * Platný access token; propadlý obnoví pod zámkem napojení — BMW přitom vždy vydá nový
+     * refresh token a starý zneplatní, jádro ho proto uloží dřív, než se použije.
+     */
     private function accessToken(OdometerSourceSession $session): string
     {
-        $credentials = $session->credentials();
-        $this->require($credentials, self::CREDENTIAL_KEYS);
-        if ((int) $credentials['access_expires_at'] > time() + 300) return (string) $credentials['access_token'];
-        $tokens = $this->api->refresh((string) $credentials['client_id'], (string) $credentials['refresh_token']);
-        $session->update(['access_token' => $tokens['access_token'], 'refresh_token' => $tokens['refresh_token'],
-            'access_expires_at' => time() + $tokens['expires_in']] + $credentials);
-        return $tokens['access_token'];
+        $this->require($session->credentials(), self::CREDENTIAL_KEYS);
+        $credentials = $session->refresh(
+            static fn (array $c): bool => (int) ($c['access_expires_at'] ?? 0) > time() + 300,
+            function (array $c): array {
+                $this->require($c, self::CREDENTIAL_KEYS);
+                $tokens = $this->api->refresh((string) $c['client_id'], (string) $c['refresh_token']);
+                return ['access_token' => $tokens['access_token'], 'refresh_token' => $tokens['refresh_token'],
+                    'access_expires_at' => time() + $tokens['expires_in']] + $c;
+            },
+        );
+        return (string) $credentials['access_token'];
     }
 
     private function newContainer(OdometerSourceSession $session, #[\SensitiveParameter] string $token): string

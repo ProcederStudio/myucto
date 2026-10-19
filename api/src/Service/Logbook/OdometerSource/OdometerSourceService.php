@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace MyInvoice\Service\Logbook\OdometerSource;
 
-use MyInvoice\Infrastructure\Database\Connection;
-use MyInvoice\Infrastructure\Database\NamedLockName;
 use MyInvoice\Repository\CarRepository;
 use MyInvoice\Repository\OdometerReadingRepository;
 use MyInvoice\Repository\OdometerSourceAccountRepository;
 use MyInvoice\Repository\OdometerSourceCarRepository;
+use MyInvoice\Service\OAuth\OAuthCallback;
+use MyInvoice\Service\OAuth\OAuthClientFlow;
+use MyInvoice\Service\OAuth\OAuthException;
+use MyInvoice\Service\OAuth\OAuthSession;
 
 /**
  * Automatický stav tachometru: napojení na účet u zdroje, přiřazení aut a denní načtení
@@ -22,15 +24,21 @@ use MyInvoice\Repository\OdometerSourceCarRepository;
  *
  * Jádro je pro všechny zdroje stejné; konkrétní služba je jen {@see OdometerSourceProvider}.
  * Připojení: {@see startConnect()} vrátí krok pro UI ({@see ConnectStep}), {@see continueConnect()}
- * se ptá, jestli uživatel přihlášení u služby dokončil. Vše, co používá přístupy účtu,
+ * se ptá, jestli uživatel přihlášení u služby dokončil. State, PKCE a rozpracované přihlášení
+ * drží společná vrstva OAuth klienta ({@see OAuthClientFlow}, doména {@see OAUTH_DOMAIN});
+ * návrat přesměrováním přijme {@see receiveCallback()}. Vše, co používá přístupy účtu,
  * běží pod zámkem účtu.
  */
 final class OdometerSourceService
 {
+    public const OAUTH_DOMAIN = 'odometer';
+    private const LOCK_SCOPE = 'odometer-source';
+    private const REDIRECT_POLL_INTERVAL = 5;
+
     public function __construct(
-        private readonly Connection $db,
         private readonly OdometerSourceRegistry $providers,
         private readonly OdometerSourceVault $vault,
+        private readonly OAuthClientFlow $flow,
         private readonly OdometerSourceAccountRepository $accounts,
         private readonly OdometerSourceCarRepository $assignments,
         private readonly CarRepository $cars,
@@ -77,14 +85,15 @@ final class OdometerSourceService
         $provider = $this->providers->get($providerCode);
         $this->vault->assertKeyAvailable();
 
-        $state = bin2hex(random_bytes(32));
-        $step = $provider->startConnect(self::stringInput($input), new ConnectContext($state));
+        $authorization = $this->flow->authorize();
+        $step = $provider->startConnect(self::stringInput($input),
+            new ConnectContext($authorization->state, $this->redirectUri(), $authorization->codeVerifier));
         $expiresAt = date('Y-m-d H:i:s', time() + ($step->expiresIn ?? 60));
         $this->accounts->deleteStalePending($supplierId, $carId);
         if ($accountId !== null) {
-            $this->accounts->beginReauth($supplierId, $accountId, $carId, hash('sha256', $state), $expiresAt);
+            $this->accounts->beginReauth($supplierId, $accountId, $carId, $authorization->stateHash(), $expiresAt);
         } else {
-            $accountId = $this->accounts->createPending($supplierId, $provider->code(), $carId, hash('sha256', $state), $expiresAt, $userId);
+            $accountId = $this->accounts->createPending($supplierId, $provider->code(), $carId, $authorization->stateHash(), $expiresAt, $userId);
         }
 
         if ($step->type === ConnectStep::CONNECTED && $step->credentials !== null) {
@@ -93,13 +102,50 @@ final class OdometerSourceService
             return $this->withLock($accountId, fn (): array =>
                 $this->finishConnect($supplierId, $carId, $accountId, $provider, $credentials, $userId));
         }
-        // REDIRECT: callback pro návrat ze služby, který ověří `pending_state_hash`, přijde s issue #218.
         if ($step->pending === null || $step->expiresIn === null || !in_array($step->type, [ConnectStep::DEVICE_CODE, ConnectStep::REDIRECT], true)) {
             $this->accounts->clearPending($supplierId, $accountId);
             throw new OdometerSourceException(OdometerSourceException::INVALID_RESPONSE, 'Zdroj nevrátil postup připojení.');
         }
-        $this->accounts->updatePending($supplierId, $accountId, $this->vault->sealPending($supplierId, $accountId, $provider->code(), $step->pending));
+        if ($userId === null) {
+            $this->accounts->clearPending($supplierId, $accountId);
+            throw new OdometerSourceException(OdometerSourceException::INVALID_INPUT, 'Přihlášení ke službě zahajuje přihlášený uživatel.');
+        }
+        try {
+            $this->flow->store($authorization, $supplierId, $userId, self::OAUTH_DOMAIN, $provider->code(), $accountId,
+                $step->type === ConnectStep::REDIRECT ? OAuthClientFlow::FLOW_REDIRECT : OAuthClientFlow::FLOW_DEVICE_CODE,
+                ['pending' => $step->pending], $step->expiresIn);
+        } catch (OAuthException $e) {
+            $this->accounts->clearPending($supplierId, $accountId);
+            throw self::fromOAuth($e);
+        }
         return ['state' => $step->type] + $step->display;
+    }
+
+    /**
+     * Návrat ze služby na společný callback: kód (nebo odmítnutí) uloží k rozpracovanému
+     * přihlášení, vymění ho až {@see continueConnect()} pod zámkem účtu. Callback přijde
+     * v jiné záložce; dialog, který přihlášení zahájil, se mezitím dál ptá.
+     *
+     * @return int|null auto, ze kterého se připojení zahájilo
+     */
+    public function receiveCallback(OAuthCallback $callback): ?int
+    {
+        $supplierId = $callback->supplierId();
+        $accountId = (int) $callback->session['subject_id'];
+        return $this->withLock($accountId, function () use ($callback, $supplierId, $accountId): ?int {
+            $session = $this->flow->claim($callback->state, $supplierId, $callback->userId(), self::OAUTH_DOMAIN,
+                (string) $callback->session['provider'])
+                ?? throw new OdometerSourceException(OdometerSourceException::EXPIRED, 'Přihlášení vypršelo, začněte znovu.');
+            $row = $this->accounts->findWithSecrets($supplierId, $accountId);
+            if ($row === null || $row['pending_state_hash'] !== $session->stateHash || $session->flow !== OAuthClientFlow::FLOW_REDIRECT) {
+                $this->flow->finish($session, false, 'no_pending_connect');
+                throw new OdometerSourceException('no_pending_connect', 'Připojení nebylo zahájeno.');
+            }
+            $code = $callback->code;
+            $valid = $callback->error === null && $code !== '' && strlen($code) <= 4096 && preg_match('/[\x00-\x20\x7f]/', $code) !== 1;
+            $this->flow->update($session, ($valid ? ['code' => $code] : ['error' => $callback->error ?? 'invalid_request']) + $session->secret);
+            return $row['pending_car_id'];
+        });
     }
 
     /**
@@ -122,7 +168,7 @@ final class OdometerSourceService
         // Rozpracované přihlášení znovu pod zámkem — souběžný dotaz ho mohl mezitím dokončit.
         $row = $this->accounts->findPendingForCar($supplierId, $carId) === $accountId
             ? $this->accounts->findWithSecrets($supplierId, $accountId) : null;
-        if ($row === null || $row['pending_ciphertext'] === null) {
+        if ($row === null || $row['pending_state_hash'] === null) {
             throw new OdometerSourceException('no_pending_connect', 'Připojení nebylo zahájeno.');
         }
         if ($row['pending_expires_at'] !== null && strtotime($row['pending_expires_at']) < time()) {
@@ -130,26 +176,85 @@ final class OdometerSourceService
             throw new OdometerSourceException(OdometerSourceException::EXPIRED, 'Přihlášení vypršelo, začněte znovu.');
         }
         $provider = $this->providers->get($row['provider']);
-        $pending = $this->vault->openPending($supplierId, $row['id'], $provider->code(), $row['pending_ciphertext']);
         try {
-            $step = $provider->continueConnect($pending, self::stringInput($input));
+            $session = $this->flow->open($row['pending_state_hash'], $supplierId, (int) $userId, self::OAUTH_DOMAIN, $provider->code(), $row['id']);
+        } catch (OAuthException) {
+            // Nečitelné rozpracované přihlášení už nikdo nedokončí.
+            $this->accounts->clearPending($supplierId, $row['id']);
+            throw new OdometerSourceException('no_pending_connect', 'Připojení nebylo zahájeno.');
+        }
+        // Přihlášení jiného uživatele (nebo už ukončené) se nedotkne: dokončit ho smí jen ten, kdo ho zahájil.
+        if ($session === null) throw new OdometerSourceException('no_pending_connect', 'Připojení nebylo zahájeno.');
+        $secret = $session->secret;
+        // Přístupy, které služba už vydala, ale jejich uložení minule selhalo: znovu se o ně nežádá.
+        if (is_array($secret['credentials'] ?? null)) {
+            return $this->finishConnect($supplierId, $carId, $row['id'], $provider, $secret['credentials'], $userId, $session);
+        }
+        if (isset($secret['error'])) {
+            $this->abandon($supplierId, $row['id'], $session, OdometerSourceException::ACCESS_DENIED);
+            throw new OdometerSourceException(OdometerSourceException::ACCESS_DENIED, 'Přihlášení u služby nebylo povoleno.');
+        }
+        $code = is_string($secret['code'] ?? null) ? $secret['code'] : null;
+        if ($session->flow === OAuthClientFlow::FLOW_REDIRECT && $code === null) {
+            if (isset($secret['code_used'])) {
+                // Kód je jednorázový a minulá výměna se nepovedla: přihlášení je třeba zopakovat.
+                $this->abandon($supplierId, $row['id'], $session, OdometerSourceException::EXPIRED);
+                throw new OdometerSourceException(OdometerSourceException::EXPIRED, 'Přihlášení vypršelo, začněte znovu.');
+            }
+            return ['state' => ConnectStep::WAITING, 'interval' => self::REDIRECT_POLL_INTERVAL];
+        }
+        if ($code !== null) {
+            // Kód z tajemství zmizí před výměnou, aby se po přechodné chybě neposílal znovu.
+            unset($secret['code']);
+            $session = $this->flow->update($session, ['code_used' => 1] + $secret);
+            $secret = $session->secret;
+        }
+        // Kód a PKCE verifier dodává jen jádro, vstup z dialogu je nepřebije.
+        $input = array_filter(['code' => $code, 'code_verifier' => $session->codeVerifier], static fn (?string $v): bool => $v !== null)
+            + array_diff_key(self::stringInput($input), ['code' => true, 'code_verifier' => true]);
+        try {
+            $step = $provider->continueConnect(is_array($secret['pending'] ?? null) ? $secret['pending'] : [], $input);
         } catch (OdometerSourceException $e) {
             if (in_array($e->errorCode, [OdometerSourceException::ACCESS_DENIED, OdometerSourceException::EXPIRED,
                 OdometerSourceException::INVALID_INPUT], true)) {
-                $this->accounts->clearPending($supplierId, $row['id']);
+                $this->abandon($supplierId, $row['id'], $session, $e->errorCode);
             }
             throw $e;
         }
         if ($step->type === ConnectStep::WAITING) {
             if ($step->pending !== null) {
-                $this->accounts->updatePending($supplierId, $row['id'], $this->vault->sealPending($supplierId, $row['id'], $provider->code(), $step->pending));
+                $this->flow->update($session, ['pending' => $step->pending] + $secret);
             }
             return ['state' => ConnectStep::WAITING, 'interval' => (int) ($step->display['interval'] ?? 5)];
         }
         if ($step->type !== ConnectStep::CONNECTED || $step->credentials === null) {
             throw new OdometerSourceException(OdometerSourceException::INVALID_RESPONSE, 'Zdroj vrátil neočekávaný krok připojení.');
         }
-        return $this->finishConnect($supplierId, $carId, $row['id'], $provider, $step->credentials, $userId);
+        // Vydané přístupy se nejdřív uloží k rozpracovanému přihlášení: služba je už nevydá
+        // znovu (device code i kód jsou spotřebované), takže nesmí zmizet, kdyby uložení k účtu selhalo.
+        $session = $this->flow->update($session, ['credentials' => $step->credentials] + $secret);
+        return $this->finishConnect($supplierId, $carId, $row['id'], $provider, $step->credentials, $userId, $session);
+    }
+
+    private function abandon(int $supplierId, int $accountId, OAuthSession $session, string $errorCode): void
+    {
+        $this->flow->finish($session, false, $errorCode);
+        $this->accounts->clearPending($supplierId, $accountId);
+    }
+
+    /** Společný callback pro zdroje s přesměrováním; bez platného app.url ho nabídnout nejde. */
+    private function redirectUri(): ?string
+    {
+        try {
+            return $this->flow->callbackUrl();
+        } catch (OAuthException) {
+            return null;
+        }
+    }
+
+    private static function fromOAuth(OAuthException $e): OdometerSourceException
+    {
+        return new OdometerSourceException($e->errorCode, $e->getMessage());
     }
 
     /** Přiřadí auto k už připojenému účtu firmy (stejné přihlášení, žádné nové tokeny). */
@@ -269,12 +374,15 @@ final class OdometerSourceService
      * ty předchozí zneplatní a návrat zpět by účet odřízl. Účet bez aut je platný stav
      * (dialog ho nabídne k přiřazení), selhání přiřazení proto aktivaci neruší.
      *
+     * Rozpracované přihlášení (`$session`) se uzavře až po uložení přístupů k účtu.
+     *
      * @param array<string,string|int> $credentials
      */
     private function finishConnect(int $supplierId, int $carId, int $accountId, OdometerSourceProvider $provider,
-        #[\SensitiveParameter] array $credentials, ?int $userId): array
+        #[\SensitiveParameter] array $credentials, ?int $userId, ?OAuthSession $session = null): array
     {
         $this->accounts->activate($supplierId, $accountId, $this->vault->sealCredentials($supplierId, $accountId, $provider->code(), $credentials));
+        if ($session !== null) $this->flow->finish($session, true);
         try {
             return $this->assignFromAccount($supplierId, $carId, $this->activeAccount($supplierId, $accountId), $userId);
         } catch (OdometerSourceException $e) {
@@ -390,8 +498,9 @@ final class OdometerSourceService
     }
 
     /**
-     * Session nad uloženými přístupy účtu: změněné přístupy (rotace tokenu) se hned uloží,
-     * volání služby se započítají do denního limitu účtu.
+     * Session nad uloženými přístupy účtu: změněné přístupy se hned uloží, obnova tokenu
+     * běží přes {@see OAuthClientFlow::rotate()} pod zámkem účtu, volání služby se
+     * započítají do denního limitu účtu.
      */
     private function session(array $row): OdometerSourceSession
     {
@@ -399,17 +508,30 @@ final class OdometerSourceService
         $accountId = $row['id'];
         $provider = $row['provider'];
         $limit = $this->providers->get($provider)->definition()->dailyCallLimit;
+        $persist = function (array $credentials) use ($supplierId, $accountId, $provider): bool {
+            return $this->accounts->rotateCredentials($supplierId, $accountId,
+                $this->vault->sealCredentials($supplierId, $accountId, $provider, $credentials));
+        };
         return new OdometerSourceSession(
             $this->vault->openCredentials($supplierId, $accountId, $provider, (string) $row['credentials_ciphertext']),
-            function (array $credentials) use ($supplierId, $accountId, $provider): void {
-                if (!$this->accounts->rotateCredentials($supplierId, $accountId,
-                    $this->vault->sealCredentials($supplierId, $accountId, $provider, $credentials))) {
+            function (array $credentials) use ($persist): void {
+                if (!$persist($credentials)) {
                     throw new OdometerSourceException('credential_rotation_failed', 'Obnovený přístup ke zdroji nelze uložit.');
                 }
             },
             function (int $calls) use ($supplierId, $accountId, $limit): void {
                 if (!$this->accounts->spendCalls($supplierId, $accountId, max(1, $calls), $limit, gmdate('Y-m-d'))) {
                     throw new OdometerSourceException(OdometerSourceException::RATE_LIMITED, 'Denní limit dotazů služby je vyčerpaný.');
+                }
+            },
+            function (callable $isFresh, callable $refresh) use ($supplierId, $accountId, $provider, $persist): array {
+                try {
+                    return $this->flow->rotate(self::LOCK_SCOPE, $accountId,
+                        fn (): array => $this->vault->openCredentials($supplierId, $accountId, $provider,
+                            (string) ($this->accounts->findWithSecrets($supplierId, $accountId)['credentials_ciphertext'] ?? '')),
+                        $isFresh, $refresh, $persist, self::busy(...));
+                } catch (OAuthException $e) {
+                    throw self::fromOAuth($e);
                 }
             },
         );
@@ -482,18 +604,11 @@ final class OdometerSourceService
 
     private function withLock(int $accountId, callable $callback): mixed
     {
-        $pdo = $this->db->pdo();
-        $name = NamedLockName::for($this->db, 'odometer-source', $accountId);
-        $stmt = $pdo->prepare('SELECT GET_LOCK(?, 10)');
-        $stmt->execute([$name]);
-        if ((int) $stmt->fetchColumn() !== 1) throw new OdometerSourceException('connection_busy', 'Načítání stavu tachometru už probíhá.');
-        try {
-            return $callback();
-        } finally {
-            try {
-                $pdo->prepare('SELECT RELEASE_LOCK(?)')->execute([$name]);
-            } catch (\Throwable) {
-            }
-        }
+        return $this->flow->withConnectionLock(self::LOCK_SCOPE, $accountId, $callback, self::busy(...));
+    }
+
+    private static function busy(): OdometerSourceException
+    {
+        return new OdometerSourceException('connection_busy', 'Načítání stavu tachometru už probíhá.');
     }
 }
