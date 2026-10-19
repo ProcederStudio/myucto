@@ -33,7 +33,7 @@ final class ClearingCells
         return array_values($cells);
     }
 
-    public static function consume(array $cells, array $consumed, string $amount, ?array $selection): array
+    public static function consume(array $cells, array $consumed, string $amount, ?array $selection, array $nativeConsumed = [], bool $pinned = false): array
     {
         self::amount($amount);
         $available = self::available($cells, $consumed);
@@ -45,12 +45,29 @@ final class ClearingCells
         $result = [];
         $sum = '0';
         foreach ($selection as $part) {
-            if (!is_array($part) || array_diff(array_keys($part), ['key', 'amount_cents']) !== []) self::reject('clearing_selection_invalid');
+            if (!is_array($part) || array_diff(array_keys($part), ['key', 'amount_cents', 'native_minor']) !== []) self::reject('clearing_selection_invalid');
             $key = self::key($part['key'] ?? null);
             $partAmount = self::amount($part['amount_cents'] ?? null);
             if (isset($result[$key]) || !array_key_exists($key, $available)) self::reject('clearing_selection_invalid', ['cell_key' => $key]);
             if (bccomp($partAmount, $available[$key], 0) > 0) self::reject('clearing_capacity', ['cell_key' => $key, 'available_cents' => $available[$key], 'requested_cents' => $partAmount]);
-            $result[$key] = ['key' => $key, 'amount_cents' => $partAmount];
+            $selected = ['key' => $key, 'amount_cents' => $partAmount];
+            $cell = null;
+            foreach ($cells as $candidate) if (($candidate['key'] ?? null) === $key) { $cell = $candidate; break; }
+            $native = self::native($cell, $consumed[$key] ?? '0', $nativeConsumed[$key] ?? '0', $partAmount, $pinned);
+            if ($native === null) {
+                if (array_key_exists('native_minor', $part)) self::reject('clearing_selection_invalid', ['cell_key' => $key]);
+            } else {
+                if (array_key_exists('native_minor', $part)) {
+                    $selectedNative = self::amount($part['native_minor']);
+                    if ((!$pinned && $selectedNative !== $native['amount']) || bccomp($selectedNative, bcsub($native['total'], $native['used'], 0), 0) > 0) self::reject('clearing_selection_invalid', ['cell_key' => $key]);
+                    $native = $selectedNative;
+                } else {
+                    if ($pinned) self::reject('clearing_selection_invalid', ['cell_key' => $key]);
+                    $native = $native['amount'];
+                }
+                $selected['native_minor'] = $native;
+            }
+            $result[$key] = $selected;
             $sum = bcadd($sum, $partAmount, 0);
         }
         if ($sum !== $amount) self::reject('clearing_selection_margin', ['requested_cents' => $amount, 'selected_cents' => $sum]);
@@ -83,6 +100,33 @@ final class ClearingCells
     {
         if (!is_string($value) || !preg_match('/^[A-Za-z][A-Za-z0-9_.-]{0,79}$/D', $value)) self::reject('clearing_cell_key_invalid');
         return $value;
+    }
+
+    private static function native(?array $cell, string $used, string $nativeUsed, string $part, bool $pinned): ?array
+    {
+        $line = $cell['line'] ?? null;
+        if (!is_array($line)) return null;
+        $currency = $line['currency_code'] ?? null;
+        $foreign = $line['amount_foreign'] ?? null;
+        $rate = $line['fx_rate'] ?? null;
+        if ($currency === null && $foreign === null && $rate === null) return null;
+        if (!is_string($currency) || $currency === 'CZK' || !is_string($foreign) || !is_string($rate)) self::reject('clearing_fx_invalid');
+        $totalNative = bcmul(\MyInvoice\Service\Accounting\JournalLineAmount::decimal($foreign), '100', 0);
+        $totalCzk = self::amount($cell['amount_cents'] ?? null);
+        $nativeUsed = self::amount($nativeUsed, true);
+        if (bccomp($nativeUsed, $totalNative, 0) > 0) self::reject('clearing_capacity_corrupt', ['cell_key' => $cell['key']]);
+        $afterCzk = bcadd($used, $part, 0);
+        $native = $afterCzk === $totalCzk ? bcsub($totalNative, $nativeUsed, 0) : bcsub(self::ratio($totalNative, $afterCzk, $totalCzk), $nativeUsed, 0);
+        if (!$pinned && bccomp($native, '0', 0) <= 0) self::reject('clearing_fx_unrepresentable', ['cell_key' => $cell['key']]);
+        return ['amount' => $native, 'used' => $nativeUsed, 'total' => $totalNative];
+    }
+
+    private static function ratio(string $totalNative, string $czk, string $totalCzk): string
+    {
+        $numerator = bcmul($totalNative, $czk, 0);
+        $quotient = bcdiv($numerator, $totalCzk, 0);
+        $remainder = bcmod($numerator, $totalCzk, 0);
+        return bccomp(bcmul($remainder, '2', 0), $totalCzk, 0) >= 0 ? bcadd($quotient, '1', 0) : $quotient;
     }
 
     private static function reject(string $code, array $details = []): never

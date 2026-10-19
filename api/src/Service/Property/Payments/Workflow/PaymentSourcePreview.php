@@ -56,7 +56,8 @@ final class PaymentSourcePreview
                 'dimension_origins' => $origins, 'dimension_split_origins' => [],
             ]];
         }
-        return ['id' => null, 'version' => 0, 'consumed_cents' => '0', 'available_cents' => $this->facts['amount_cents'], 'receipt' => $receipt, 'cell_consumed' => []];
+        return ['id' => null, 'version' => 0, 'consumed_cents' => '0', 'available_cents' => $this->facts['amount_cents'],
+            'consumed_native_minor' => null, 'available_native_minor' => null, 'receipt' => $receipt, 'cell_consumed' => [], 'cell_native_consumed' => []];
     }
 
     public static function clearingLines(array $source, string $amount, ?array $selection): array
@@ -72,7 +73,7 @@ final class PaymentSourcePreview
             if (!isset($source['cell_consumed']) || !is_array($source['cell_consumed'])) PaymentException::reject('clearing_capacity_corrupt');
             $used = $source['cell_consumed'];
         }
-        $selected = ClearingCells::consume($cells, $used, $amount, $selection);
+        $selected = ClearingCells::consume($cells, $used, $amount, $selection, $source['cell_native_consumed'] ?? []);
         $byKey = array_column($cells, null, 'key');
         $lines = [];
         foreach ($selected as $part) {
@@ -80,6 +81,7 @@ final class PaymentSourcePreview
             unset($line['id']);
             $line['side'] = $receipt['direction'] === 'in' ? 'debit' : 'credit';
             $line['amount'] = bcdiv($part['amount_cents'], '100', 2);
+            if (isset($part['native_minor'])) $line['amount_foreign'] = bcdiv($part['native_minor'], '100', 2);
             $lines[] = $line;
         }
         return ['lines' => $lines, 'selection' => $selected];

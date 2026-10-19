@@ -9,6 +9,7 @@ use MyInvoice\Service\Property\Payments\PaymentException;
 final class PaymentWorkflowCapacity
 {
     private array $cellUsed;
+    private array $cellNativeUsed;
     private array $used = [];
     private array $limits = [];
     private array $refundCounts = [];
@@ -16,14 +17,16 @@ final class PaymentWorkflowCapacity
     public function __construct(private readonly array $source)
     {
         $this->cellUsed = $source['cell_consumed'] ?? ['original' => $source['consumed_cents']];
+        $this->cellNativeUsed = $source['cell_native_consumed'] ?? [];
     }
 
     public function add(array $snapshot, array $request): array
     {
         $receipt = $this->source['receipt'];
         $cells = $this->source['clearing_cells'] ?? $receipt['clearing_cells'] ?? [['key' => 'original', 'amount_cents' => $receipt['amount_cents']]];
-        foreach (ClearingCells::consume($cells, $this->cellUsed, $request['amount_cents'], $snapshot['clearing_selection'] ?? null) as $part) {
+        foreach (ClearingCells::consume($cells, $this->cellUsed, $request['amount_cents'], $snapshot['clearing_selection'] ?? null, $this->cellNativeUsed) as $part) {
             $this->cellUsed[$part['key']] = bcadd($this->cellUsed[$part['key']] ?? '0', $part['amount_cents'], 0);
+            if (isset($part['native_minor'])) $this->cellNativeUsed[$part['key']] = bcadd($this->cellNativeUsed[$part['key']] ?? '0', $part['native_minor'], 0);
         }
         $details = [];
         foreach ($snapshot['debt_receipts'] ?? [] as $detail) $details[$detail['debt']['id']] = $detail;
