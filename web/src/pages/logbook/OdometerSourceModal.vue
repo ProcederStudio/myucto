@@ -16,8 +16,8 @@ const auth = useAuthStore()
 const props = defineProps<{ car: Car }>()
 const emit = defineEmits<{ close: []; changed: [] }>()
 
+/** Celou správu napojení včetně odpojení server povoluje s právem zápisu do knihy jízd. */
 const canWrite = computed(() => auth.canWrite('logbook.write'))
-const canDelete = computed(() => auth.canWrite('logbook.delete'))
 
 const loading = ref(true)
 const busy = ref(false)
@@ -385,7 +385,7 @@ function close() {
 
         <div class="flex flex-wrap justify-end gap-2 pt-2 border-t border-neutral-100">
           <template v-if="step === 'status' && canWrite">
-            <button v-if="canDelete" type="button" @click="disconnect" :disabled="busy" :class="btnOutline('danger')" class="whitespace-nowrap">
+            <button type="button" @click="disconnect" :disabled="busy" :class="btnOutline('danger')" class="whitespace-nowrap">
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" :d="ICONS.trash" /></svg>
               {{ t('logbook.odosrc_disconnect') }}
             </button>
