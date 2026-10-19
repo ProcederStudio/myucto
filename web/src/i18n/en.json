@@ -1059,7 +1059,7 @@
     "odosrc_hint": "the odometer is read from the manufacturer service once a day",
     "odosrc_badge_active": "Odometer",
     "odosrc_badge_error": "Odometer: error",
-    "odosrc_badge_warning": "Odometer: mismatch",
+    "odosrc_badge_warning": "Odometer: warning",
     "odosrc_source": "Source",
     "odosrc_pick": "Choose the service to read the odometer from:",
     "odosrc_pick_account": "Use an account that is already connected:",

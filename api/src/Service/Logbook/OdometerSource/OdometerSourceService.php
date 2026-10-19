@@ -27,8 +27,6 @@ use MyInvoice\Repository\OdometerSourceCarRepository;
  */
 final class OdometerSourceService
 {
-    private const REGRESSION = 'odometer_regression';
-
     public function __construct(
         private readonly Connection $db,
         private readonly OdometerSourceRegistry $providers,
@@ -195,8 +193,9 @@ final class OdometerSourceService
 
     /**
      * Denní běh přes všechny účty. Chyba účtu (přístup, limit) se zapíše k účtu a jeho další
-     * auta se nezkoušejí; chyba auta neovlivní ostatní auta. Nenavazující stav se přeskočí
-     * jako varování u auta, ne jako chyba.
+     * auta se nezkoušejí; chyba auta neovlivní ostatní auta. Přechodný stav auta (zatím bez
+     * dat, nenavazující stav) je varování u auta, ne chyba
+     * ({@see OdometerSourceException::isVehicleWarning()}).
      *
      * @return array{processed:int, succeeded:int, warnings:int, errors:int, details:list<array{account_id:int, car_id:?int, error_code:string}>}
      */
@@ -215,7 +214,7 @@ final class OdometerSourceService
                             $summary['succeeded']++;
                         } catch (OdometerSourceException $e) {
                             if (!$e->concernsVehicleOnly()) throw $e;
-                            $summary[$e->errorCode === self::REGRESSION ? 'warnings' : 'errors']++;
+                            $summary[$e->isVehicleWarning() ? 'warnings' : 'errors']++;
                             $summary['details'][] = ['account_id' => $account['id'], 'car_id' => $car['car_id'], 'error_code' => $e->errorCode];
                         }
                     }
@@ -343,7 +342,7 @@ final class OdometerSourceService
         } catch (OdometerSourceException $e) {
             if ($e->concernsVehicleOnly()) {
                 $this->assignments->recordProblem($account['supplier_id'], $car['id'],
-                    $e->errorCode === self::REGRESSION ? 'warning' : 'error', $e->errorCode);
+                    $e->isVehicleWarning() ? 'warning' : 'error', $e->errorCode);
             }
             throw $e;
         }
@@ -358,7 +357,7 @@ final class OdometerSourceService
         $date = $at->format('Y-m-d');
         $bounds = $this->readings->bounds($supplierId, $car['car_id'], $date);
         if (($bounds['before'] !== null && $km < $bounds['before']) || ($bounds['after'] !== null && $km > $bounds['after'])) {
-            throw new OdometerSourceException(self::REGRESSION, 'Stav tachometru z auta nenavazuje na zapsané stavy a jízdy.');
+            throw new OdometerSourceException(OdometerSourceException::REGRESSION,'Stav tachometru z auta nenavazuje na zapsané stavy a jízdy.');
         }
         $this->readings->upsert($supplierId, ['car_id' => $car['car_id'], 'reading_date' => $date,
             'reading_time' => $at->format('H:i'), 'odometer' => $km, 'source' => $account['provider']], null);

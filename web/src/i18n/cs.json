@@ -1059,7 +1059,7 @@
     "odosrc_hint": "stav tachometru se jednou denně načte ze služby výrobce",
     "odosrc_badge_active": "Tachometr",
     "odosrc_badge_error": "Tachometr: chyba",
-    "odosrc_badge_warning": "Tachometr: nenavazuje",
+    "odosrc_badge_warning": "Tachometr: upozornění",
     "odosrc_source": "Zdroj",
     "odosrc_pick": "Vyberte službu, ze které se bude stav tachometru načítat:",
     "odosrc_pick_account": "Použít účet, který už je připojený:",

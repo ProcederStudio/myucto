@@ -288,11 +288,11 @@ final class OdometerSourceSyncTest extends TestCase
 
         $summary = $this->service->syncAll();
 
-        self::assertSame([3, 1, 2], [$summary['processed'], $summary['succeeded'], $summary['errors']], json_encode($summary));
+        self::assertSame([3, 1, 1, 1], [$summary['processed'], $summary['succeeded'], $summary['warnings'], $summary['errors']], json_encode($summary));
         self::assertSame(['error', OdometerSourceException::REAUTH_REQUIRED], $this->accountState($brokenAccount));
         self::assertSame([], $this->readings($brokenSibling));
         self::assertSame(['active', null], $this->accountState($fineAccount));
-        self::assertSame(['error', OdometerSourceException::NO_DATA], $this->carState($silent));
+        self::assertSame(['warning', OdometerSourceException::NO_DATA], $this->carState($silent));
         self::assertSame(['success', null], $this->carState($fine));
         self::assertSame('error', $this->carListStatus($brokenSibling));
     }
@@ -321,8 +321,29 @@ final class OdometerSourceSyncTest extends TestCase
         $account = $this->connectedAccount($this->supplierA, [$car => self::VIN]);
 
         $this->assertFails(OdometerSourceException::NO_DATA, fn () => $this->service->sync($this->supplierA, $car));
-        self::assertSame(['error', OdometerSourceException::NO_DATA], $this->carState($car));
+        self::assertSame(['warning', OdometerSourceException::NO_DATA], $this->carState($car));
         self::assertSame(['active', null], $this->accountState($account));
+    }
+
+    public function testDailyRunWithOnlyMissingDataEndsWithoutErrorWhileRevokedVehicleIsAnError(): void
+    {
+        $silent = $this->carWithStart($this->supplierA, 'TST0027', 1000, '2099-03-01');
+        $revoked = $this->carWithStart($this->supplierA, 'TST0028', 1000, '2099-03-01');
+        $this->connectedAccount($this->supplierA, [$silent => 'REF-SILENT']);
+
+        $summary = $this->service->syncAll();
+
+        self::assertSame([1, 0, 1, 0], [$summary['processed'], $summary['succeeded'], $summary['warnings'], $summary['errors']], json_encode($summary));
+        self::assertSame('warning', $this->carListStatus($silent));
+
+        $this->connectedAccount($this->supplierA, [$revoked => 'REF-REVOKED']);
+        $this->source->failFor['REF-REVOKED'] = OdometerSourceException::VEHICLE_NOT_PERMITTED;
+
+        $summary = $this->service->syncAll();
+
+        self::assertSame([2, 0, 1, 1], [$summary['processed'], $summary['succeeded'], $summary['warnings'], $summary['errors']], json_encode($summary));
+        self::assertSame(['error', OdometerSourceException::VEHICLE_NOT_PERMITTED], $this->carState($revoked));
+        self::assertSame('error', $this->carListStatus($revoked));
     }
 
     public function testDisconnectingTheLastCarDisconnectsTheAccount(): void

@@ -270,8 +270,8 @@ souhrn je vyexportovaný.
 | Štítek **Tachometr: chyba** a **Přihlášení ke službě vypršelo** | Stav se nenačetl déle než dva týdny, nebo bylo u BMW přihlášení zrušeno | Otevřete **Tachometr** u kteréhokoli auta účtu a klikněte na **Připojit znovu**. Ostatní auta účtu se tím opraví také |
 | **K tomuto autu nemáte v BMW CarData přístup** | V aplikaci My BMW nejste hlavní uživatel auta | Požádejte hlavního uživatele, ať auto připojí on, nebo vás udělá hlavním uživatelem |
 | **Vyčerpán denní limit dotazů BMW (50).** | Příliš mnoho ručních načtení za den | Počkejte do dalšího dne. Denní načtení ve 3:30 proběhne samo |
-| **Auto zatím stav tachometru neodeslalo.** | Auto po připojení ještě nepřeneslo data | Načtěte stav znovu po jízdě nebo po zamknutí auta |
-| Štítek **Tachometr: nenavazuje** a **Stav tachometru z auta nenavazuje na zapsané jízdy a stavy.** | Některá zapsaná jízda nebo stav má vyšší tachometr, než ukazuje auto. Stav se přeskočil | Opravte tachometr u dotčené jízdy nebo stavu. Další den se stav načte znovu |
+| Štítek **Tachometr: upozornění** a **Auto zatím stav tachometru neodeslalo.** | Auto po připojení ještě nepřeneslo data | Načtěte stav znovu po jízdě nebo po zamknutí auta |
+| Štítek **Tachometr: upozornění** a **Stav tachometru z auta nenavazuje na zapsané jízdy a stavy.** | Některá zapsaná jízda nebo stav má vyšší tachometr, než ukazuje auto. Stav se přeskočil | Opravte tachometr u dotčené jízdy nebo stavu. Další den se stav načte znovu |
 
 ## 36.8 Podrobnosti a pravidla
 
@@ -549,8 +549,10 @@ Tlačítko **Načíst teď** v dialogu **Tachometr** načte stav hned.
 - Na den připadá jeden automatický stav. Další načtení téhož dne ho přepíše. Ručně
   zapsaný stav téhož dne zůstává vedle něj a pro **Km k doplnění** platí ten ruční.
 - Stav nižší než konec dřívější jízdy nebo dřívější stav, případně vyšší než pozdější
-  stav, se neuloží. U auta se ukáže varování **Tachometr: nenavazuje** a další den se
-  stav zkusí znovu.
+  stav, se neuloží. U auta se ukáže varování **Tachometr: upozornění** a další den se
+  stav zkusí znovu. Stejně se označí auto, které stav tachometru zatím neodeslalo.
+  Varování denní načtení nepovažuje za chybu, štítek **Tachometr: chyba** znamená, že je
+  potřeba zásah (nové přihlášení, oprávnění k autu u služby).
 - Stav v mílích se převede na kilometry.
 - BMW CarData povoluje 50 dotazů denně za účet. Denní načtení spotřebuje jeden na auto,
   připojení prvního auta tři, dalšího dva. Kolik je dnes použito, ukazuje dialog **Tachometr**.

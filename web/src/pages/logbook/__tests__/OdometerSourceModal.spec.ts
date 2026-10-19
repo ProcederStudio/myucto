@@ -191,12 +191,23 @@ describe('OdometerSourceModal.vue', () => {
     await flushPromises()
 
     expect(w.find('.bg-warning-50').text()).toContain('logbook.odosrc_err.odometer_regression')
+    expect(w.find('.bg-warning-50').text()).toContain('logbook.odosrc_warning_hint')
     await button(w, 'logbook.odosrc_sync').trigger('click')
     await flushPromises()
 
     expect(m.odometerSourceSync).toHaveBeenCalledWith(3)
     expect(w.find('.bg-warning-50').exists()).toBe(false)
     expect(w.emitted('changed')).toHaveLength(1)
+  })
+
+  it('shows missing data as a warning without the hint about trips', async () => {
+    m.odometerSourceStatus.mockResolvedValue({ ...connected, car: { ...assigned, last_sync_status: 'warning', last_sync_error_code: 'no_odometer_data' } })
+    const w = mount(OdometerSourceModal, { props: { car } })
+    await flushPromises()
+
+    expect(w.find('.bg-danger-50').exists()).toBe(false)
+    expect(w.find('.bg-warning-50').text()).toContain('no_odometer_data')
+    expect(w.find('.bg-warning-50').text()).not.toContain('logbook.odosrc_warning_hint')
   })
 
   it('prefers the source-specific error text over the generic one', async () => {

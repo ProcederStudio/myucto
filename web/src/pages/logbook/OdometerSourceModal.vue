@@ -279,7 +279,8 @@ function close() {
             {{ errorFor(assigned.last_sync_error_code, undefined, account.provider) }}
           </div>
           <div v-else-if="assigned.last_sync_status === 'warning'" class="rounded-md border border-warning-500/40 bg-warning-50 px-3 py-2 text-sm text-warning-700">
-            {{ errorFor(assigned.last_sync_error_code, undefined, account.provider) }} {{ t('logbook.odosrc_warning_hint') }}
+            {{ errorFor(assigned.last_sync_error_code, undefined, account.provider) }}
+            <template v-if="assigned.last_sync_error_code === 'odometer_regression'">{{ t('logbook.odosrc_warning_hint') }}</template>
           </div>
           <p v-if="siblingCars.length" class="text-sm text-neutral-600">{{ t('logbook.odosrc_shared', { cars: siblingCars.join(', ') }) }}</p>
           <p class="text-xs text-neutral-500">

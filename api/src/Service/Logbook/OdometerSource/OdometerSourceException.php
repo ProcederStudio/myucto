@@ -28,10 +28,19 @@ final class OdometerSourceException extends \RuntimeException
     public const VEHICLE_NOT_PERMITTED = 'vehicle_not_permitted';
     /** Auto zatím stav tachometru neodeslalo. */
     public const NO_DATA               = 'no_odometer_data';
+    /** Stav z auta nenavazuje na zapsané stavy a jízdy; přeskočí se. */
+    public const REGRESSION            = 'odometer_regression';
     public const UNKNOWN_PROVIDER      = 'unknown_provider';
 
     /** Chyby jednoho auta; ostatní chyby se týkají celého účtu u zdroje a další auta účtu se nezkoušejí. */
-    private const VEHICLE_SCOPED = [self::VEHICLE_NOT_PERMITTED, self::NO_DATA, 'odometer_regression'];
+    private const VEHICLE_SCOPED = [self::VEHICLE_NOT_PERMITTED, self::NO_DATA, self::REGRESSION];
+
+    /**
+     * Přechodné stavy auta, které se samy srovnají (auto ještě neodeslalo data, stav nenavazuje
+     * na ručně zapsané jízdy): varování u auta, denní běh kvůli nim neskončí chybou. Odebrané
+     * oprávnění k autu je trvalé a bez zásahu uživatele se nespraví, proto zůstává chybou auta.
+     */
+    private const VEHICLE_WARNINGS = [self::NO_DATA, self::REGRESSION];
 
     public function __construct(
         public readonly string $errorCode,
@@ -44,5 +53,10 @@ final class OdometerSourceException extends \RuntimeException
     public function concernsVehicleOnly(): bool
     {
         return in_array($this->errorCode, self::VEHICLE_SCOPED, true);
+    }
+
+    public function isVehicleWarning(): bool
+    {
+        return in_array($this->errorCode, self::VEHICLE_WARNINGS, true);
     }
 }
