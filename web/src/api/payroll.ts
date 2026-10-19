@@ -3212,6 +3212,10 @@ export interface PayrollSubmissionQueueItem {
     mode: PayrollSubmissionDispatchMode
     /** Druhý rovnocenný kanál, když existuje (JMHZ jde VREP i datovkou). */
     alternate_mode: PayrollSubmissionDispatchMode | null
+    /** Kudy podání odejde bez volby: primární, je-li připravený, jinak alternativní. */
+    default_mode: PayrollSubmissionDispatchMode
+    /** Připravené kanály, mezi kterými účetní volí (VREP jen se zvoleným certifikátem). */
+    modes: PayrollSubmissionDispatchMode[]
     dispatchable: boolean
     /** Celá věta, proč odeslat nejde. Vyplněná právě když `dispatchable` je `false`. */
     blocked_reason: string | null
@@ -3441,6 +3445,8 @@ export interface PayrollMonthlyChecklistItem {
   dispatchable: boolean
   /** Kudy podání odejde frontou; `null` u řádků bez podání. */
   dispatch_mode: PayrollSubmissionDispatchMode | null
+  /** Připravené kanály, mezi kterými účetní volí; výchozí je `dispatch_mode`. */
+  dispatch_modes?: PayrollSubmissionDispatchMode[]
   dispatch: PayrollMonthlyChecklistDispatch | null
   /** Splněno doručením do schránky úřadu, který výsledek neposílá (PPZ, HOZ). */
   fulfilled_by_delivery: boolean
@@ -8288,7 +8294,7 @@ export const payrollApi = {
    */
   dispatchSubmissionBatch: (
     environment: PayrollRegzelEnvironment,
-    items: { submission_id: number; idempotency_key: string }[],
+    items: { submission_id: number; idempotency_key: string; mode?: PayrollSubmissionDispatchMode }[],
   ) =>
     api.post<PayrollSubmissionQueueBatchResult>(
       '/payroll/submissions/queue/dispatch',
