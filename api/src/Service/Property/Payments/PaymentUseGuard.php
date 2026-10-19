@@ -96,6 +96,24 @@ final class PaymentUseGuard
             $next=$reader->find($supplier,$next,true)['previous_charge_id'];
         }
     }
+    public function assertPositiveChargePostingBatchAllowed(int $supplier,array $charges):void
+    {
+        (new PaymentLocks($this->db))->acquire($supplier);
+        if(!$this->db->pdo()->inTransaction()||$charges===[])throw new \LogicException('Positive charge posting batch requires owner locks.');
+        $expected=[];
+        foreach($charges as $charge){
+            $id=(int)($charge['id']??0);
+            if($id<1||(int)($charge['supplier_id']??0)!==$supplier||isset($expected[$id]))throw new \LogicException('Invalid positive charge posting batch.');
+            foreach($charge['snapshot']['lines']??[] as $line)if(bccomp((string)$line['amount_cents'],'0',0)<0)throw new \LogicException('Negative charge requires scalar posting guard.');
+            $expected[$id]=[(int)$charge['row_version'],(string)$charge['snapshot_hash']];
+        }
+        ksort($expected,SORT_NUMERIC);$actual=[];$ids=array_keys($expected);
+        foreach(array_chunk($ids,500)as$chunk){$marks=implode(',',array_fill(0,count($chunk),'?'));
+            $q=$this->db->pdo()->prepare('SELECT id,row_version,snapshot_hash FROM unit_charges WHERE supplier_id=? AND id IN ('.$marks.') ORDER BY id FOR UPDATE');
+            $q->execute([$supplier,...$chunk]);foreach($q->fetchAll(PDO::FETCH_ASSOC)as$row)$actual[(int)$row['id']]=[(int)$row['row_version'],(string)$row['snapshot_hash']];
+        }
+        if($actual!==$expected)throw new \LogicException('Positive charge posting batch changed after current read.');
+    }
     private function fundingGuard(callable $check):void
     {
         try{$check();}catch(\MyInvoice\Service\Property\Funds\FundingException $e){self::reject();}

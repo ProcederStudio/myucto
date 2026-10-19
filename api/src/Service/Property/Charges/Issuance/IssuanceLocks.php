@@ -32,4 +32,10 @@ final class IssuanceLocks
         if($framework->forDateForUpdate($supplier,$date)!==AccountingFrameworkService::CZ_504)
             throw new IssuanceException('property_charge_issue_framework_required','Předpis SVJ vyžaduje k účetnímu datu rámec podle vyhlášky 504.',409);
     }
+
+    public function assertFrameworks(int $supplier,array $dates):void
+    {
+        $dates=array_values(array_unique(array_map('strval',$dates)));sort($dates,SORT_STRING);
+        foreach($dates as$date)$this->assertFramework($supplier,$date);
+    }
 }

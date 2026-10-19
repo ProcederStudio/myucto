@@ -25,6 +25,7 @@ use MyInvoice\Service\Accounting\Product\IssuedDiscountAllocation;
 use MyInvoice\Service\Accounting\Product\ProductPostingDefaults;
 use MyInvoice\Service\ActivityLogger;
 use MyInvoice\Service\Payroll\Payment\PayrollBankEvidenceGuard;
+use MyInvoice\Service\Property\Charges\Issuance\IssuancePostingBatchContext;
 use MyInvoice\Service\Report\VatLedgerService;
 use PDO;
 
@@ -268,11 +269,103 @@ final class PostingService
         );
     }
 
+    public function preflightPropertyIssuanceBatch(int $supplierId, array $documents): IssuancePostingBatchContext
+    {
+        $pdo = $this->db->pdo();
+        if (!$pdo->inTransaction() || $documents === []) {
+            throw new \LogicException('Property issuance batch preflight requires an owning transaction.');
+        }
+        $periodStatuses = (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+        (new SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
+        (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->lockContext($supplierId);
+        (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->acquire($supplierId);
+        $lockedUntil = $this->lockedUntilForUpdate($supplierId);
+        $dates = [];
+        $ids = [];
+        foreach ($documents as $document) {
+            $sourceId = (int) ($document['source_id'] ?? 0);
+            $lines = $document['lines'] ?? null;
+            $meta = $document['meta'] ?? null;
+            $entryDate = is_array($meta) ? (string) ($meta['entry_date'] ?? '') : '';
+            if ($sourceId < 1 || !is_array($lines) || $lines === [] || !is_array($meta) || $entryDate === '' || isset($ids[$sourceId])) {
+                throw new \LogicException('Invalid property issuance batch document.');
+            }
+            if ($lockedUntil !== null && $entryDate <= $lockedUntil) {
+                throw new PostingException('date_locked', 'Datum účetního případu ' . $entryDate . ' je uzamčené k ' . $lockedUntil
+                    . ' (podané daňové přiznání / ruční zámek období) — do zamčeného data nelze účtovat. Zámek posuň v nastavení účetnictví (jen admin).');
+            }
+            $dates[$entryDate] = true;
+            $ids[$sourceId] = true;
+        }
+        $sourceIds = array_keys($ids);
+        sort($sourceIds, SORT_NUMERIC);
+        foreach (array_chunk($sourceIds, 500) as $chunk) {
+            $marks = implode(',', array_fill(0, count($chunk), '?'));
+            $stmt = $pdo->prepare("SELECT source_id FROM journal_entries WHERE supplier_id=? AND source_type='unit_charge' AND source_id IN ({$marks}) AND posted_at IS NOT NULL AND reversed_by IS NULL ORDER BY source_id FOR UPDATE");
+            $stmt->execute([$supplierId, ...$chunk]);
+            if ($stmt->fetchColumn() !== false) throw new \LogicException('Property issuance batch source already has an active journal entry.');
+        }
+        $periods = [];
+        foreach (array_keys($dates) as $entryDate) {
+            $period = $this->periods->findForDateForUpdate($supplierId, $entryDate);
+            if ($period === null) {
+                $this->provisioner()->ensureOpenPeriodForDate($supplierId, $entryDate, AccountingPeriodProvisioner::REASON_POSTING, null);
+                $period = $this->periods->findForDateForUpdate($supplierId, $entryDate);
+            }
+            if ($period === null) throw self::noPeriodException($entryDate, 'Pro datum ' . $entryDate . ' neexistuje účetní období.');
+            if ($period['status'] !== 'open') {
+                throw new PostingException('period_not_open', 'Účetní období ' . $period['fiscal_year'] . ' je ve stavu "' . $period['status'] . '" — do uzavřeného období nelze účtovat (§35 ZoÚ).');
+            }
+            $periodStatuses[(int) $period['id']] = (string) $period['status'];
+            $periods[$entryDate] = $period;
+        }
+        $prepared = [];
+        foreach ($documents as $document) {
+            $sourceId = (int) $document['source_id'];
+            $meta = $document['meta'];
+            $entryDate = (string) $meta['entry_date'];
+            $resolved = $this->prepareDocumentLines($supplierId, 'unit_charge', $sourceId, $document['lines'], $entryDate, true);
+            $prepared[] = [
+                'source_id' => $sourceId,
+                'entry_date' => $entryDate,
+                'period' => $periods[$entryDate],
+                'request_hash' => IssuancePostingBatchContext::requestHash($supplierId, $sourceId, $document['lines'], $meta),
+                'resolved_hash' => \MyInvoice\Service\Property\PropertyInput::hash($resolved),
+                'resolved_lines' => $resolved,
+                'header' => [
+                    'period_id' => (int) $periods[$entryDate]['id'],
+                    'document_date' => $meta['document_date'] ?? null,
+                    'document_no' => $meta['document_no'] ?? null,
+                    'description' => $meta['description'] ?? null,
+                    'posted_by' => $meta['posted_by'] ?? null,
+                ],
+            ];
+        }
+        foreach (array_keys($dates) as $entryDate) {
+            $lines = [];
+            foreach ($prepared as $document) if ($document['entry_date'] === $entryDate) array_push($lines, ...$document['resolved_lines']);
+            (new SystemDimensionWritePolicy($this->db))->assertJournal([
+                'supplier_id' => $supplierId,
+                'period_id' => (int) $periods[$entryDate]['id'],
+                'entry_date' => $entryDate,
+                'source_type' => 'unit_charge',
+                'source_id' => null,
+                'posted_at' => date('Y-m-d H:i:s'),
+            ], $lines);
+        }
+        return IssuancePostingBatchContext::begin($this->db, $supplierId, $periodStatuses, $lockedUntil, $prepared);
+    }
+
+    public function postPropertyIssuanceBatchDocument(IssuancePostingBatchContext $context, int $supplierId, int $sourceId, array $lines, array $meta): int
+    {
+        return $this->postDocumentOnce($supplierId, 'unit_charge', $sourceId, $lines, $meta, $context);
+    }
+
     /**
      * @param list<array{account_code:string, side:'debit'|'credit', amount:float|int|string, cost_center?:?string}> $lines
      * @param array<string,mixed> $meta
      */
-    private function postDocumentOnce(int $supplierId, string $sourceType, ?int $sourceId, array $lines, array $meta): int
+    private function postDocumentOnce(int $supplierId, string $sourceType, ?int $sourceId, array $lines, array $meta, ?IssuancePostingBatchContext $batchContext = null): int
     {
         if ($lines === []) {
             throw new PostingException('empty_entry', 'Účetní zápis nemá žádné řádky.');
@@ -309,14 +402,19 @@ final class PostingService
             $pdo->beginTransaction();
         }
         try {
-            $periodStatuses = (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
-            (new SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
-        (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->lockContext($supplierId);
-            (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->acquire($supplierId);
+            $batchDocument = $batchContext?->claim($this->db, $supplierId, (int) $sourceId, $lines, $meta);
+            if ($batchContext === null) {
+                $periodStatuses = (new DimensionPeriodGuard($this->db))->lockPeriods($supplierId);
+                (new SystemDimensionWritePolicy($this->db))->lockContext($supplierId);
+                (new \MyInvoice\Service\Property\Charges\Issuance\IssuanceUseGuard($this->db))->lockContext($supplierId);
+                (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->acquire($supplierId);
+            } else {
+                $periodStatuses = $batchContext->periodStatuses($this->db);
+            }
             if ($sourceType === 'bank' && $sourceId !== null) {
                 (new PayrollBankEvidenceGuard($this->db))->assertAvailableForBankPosting($sourceId);
             }
-            $period = $this->periods->findForDateForUpdate($supplierId, $entryDate);
+            $period = $batchDocument['period'] ?? $this->periods->findForDateForUpdate($supplierId, $entryDate);
             if ($period === null) {
                 // Chybějící období (zapomenutý přelom roku, naimportovaná historie) se
                 // založí otevřené — jediné pravidlo pro to má
@@ -354,7 +452,7 @@ final class PostingService
             // podané DPH a to se tím nemění. Flag `tax_neutral_rewrite` nastavuje výhradně
             // DocumentRepostService a sám nic nepovolí — podmínky se ověřují znovu níž,
             // pod zámkem řádku zápisu (assertTaxNeutralRewrite).
-            $lockedUntil = $this->lockedUntilForUpdate($supplierId);
+            $lockedUntil = $batchContext?->lockedUntil($this->db) ?? $this->lockedUntilForUpdate($supplierId);
             $dateLocked = $lockedUntil !== null && $entryDate <= $lockedUntil;
             $taxNeutralRewrite = $dateLocked && !empty($meta['tax_neutral_rewrite']);
             if ($dateLocked && !$taxNeutralRewrite) {
@@ -366,7 +464,7 @@ final class PostingService
                 );
             }
 
-            $resolved = $this->prepareDocumentLines($supplierId, $sourceType, $sourceId, $lines, $entryDate, true);
+            $resolved = $batchDocument['resolved_lines'] ?? $this->prepareDocumentLines($supplierId, $sourceType, $sourceId, $lines, $entryDate, true);
 
             // Přeúčtování ručními řádky přebírá aktuální stopu i ze stornovaného zdroje.
             // Čtení patří až za zámky období a nastavení, stejně jako ostatní čtení deníku.
@@ -411,6 +509,7 @@ final class PostingService
                 'posted_at'     => $posted ? ($meta['posted_at'] ?? date('Y-m-d H:i:s')) : null,
                 'posted_by'     => $postedBy,
             ];
+            if ($batchContext !== null) $header['issuance_posting_batch_context'] = $batchContext;
 
             // Idempotence se ptá na AKTIVNÍ zápis dokladu (migrace 1752). Stornovaný
             // zápis se úmyslně NEBERE: §35 ZoÚ opravuje po stornu novým zápisem, ne
@@ -424,6 +523,7 @@ final class PostingService
                 : null;
 
             if ($existing !== null) {
+                if ($batchContext !== null) throw new \LogicException('Property issuance batch source changed after preflight.');
                 if ($sourceType === 'payroll') {
                     throw new PostingException(
                         'payroll_rewrite_forbidden',
@@ -518,6 +618,8 @@ final class PostingService
                 $meta['user_agent'] ?? null,
                 $supplierId,
             );
+
+            if ($batchContext !== null) $batchContext->complete($this->db, (int) $sourceId);
 
             if ($ownTx) {
                 $pdo->commit();

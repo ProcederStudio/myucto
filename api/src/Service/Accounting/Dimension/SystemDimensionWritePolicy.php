@@ -36,7 +36,12 @@ final class SystemDimensionWritePolicy
 
     public function assertJournal(array $header, array $lines, array $previousLines = []): void
     {
+        $context = $header['issuance_posting_batch_context'] ?? null;
+        if ($context !== null && !$context instanceof \MyInvoice\Service\Property\Charges\Issuance\IssuancePostingBatchContext) {
+            throw new \LogicException('Invalid issuance posting batch capability.');
+        }
         $this->assertJournalCore($header, $lines, $previousLines);
+        $context?->assertJournalAfterCore($this->db, $header, $lines, $previousLines);
     }
 
     public function assertPropertyPaymentCarrierJournal(array $header, array $lines, \MyInvoice\Service\Property\Payments\PaymentHistoricalCarrierProof $proof): void

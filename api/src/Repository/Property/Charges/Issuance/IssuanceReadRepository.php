@@ -37,6 +37,60 @@ final class IssuanceReadRepository
         } while($count===500);
     }
 
+    public function previewHistory(int $supplier,array $request,bool $current=false):array
+    {
+        $cteLock=$this->lock($current);$unitIds=array_values(array_unique(array_map('intval',array_column($request['units'],'unit_id'))));sort($unitIds,SORT_NUMERIC);
+        if($unitIds===[])return ['source'=>[],'targets'=>[],'families'=>[]];
+        $source=[];$targetIds=[];$families=[];
+        foreach(array_chunk($unitIds,500)as$chunk){
+            $marks=implode(',',array_fill(0,count($chunk),'?'));
+            $stmt=$this->db->pdo()->prepare('SELECT * FROM unit_charges FORCE INDEX (uq_issue_charge_revision) WHERE supplier_id=? AND unit_id IN ('.$marks.') AND source_key=? ORDER BY unit_id,revision_no,id'.$this->lock($current));
+            $stmt->execute([$supplier,...$chunk,$request['source_key']]);$rows=array_map($this->decodeCharge(...),$stmt->fetchAll(PDO::FETCH_ASSOC));$this->assertMaterialized($supplier,$rows,$current);array_push($source,...$rows);
+            $stmt=$this->db->pdo()->prepare("WITH ranked AS (
+                SELECT c.id,ROW_NUMBER() OVER (PARTITION BY c.unit_id,l.component_id ORDER BY c.period_from DESC,c.id DESC) position
+                FROM unit_charges c FORCE INDEX (idx_unit_charge_preview_target)
+                JOIN unit_charge_lines l ON l.supplier_id=c.supplier_id AND l.charge_id=c.id
+                WHERE c.supplier_id=? AND c.unit_id IN ({$marks}) AND c.status IN ('draft','posted','reversed') AND c.period_from<=?{$cteLock}
+            ) SELECT id FROM ranked WHERE position=1 ORDER BY id");
+            $stmt->execute([$supplier,...$chunk,$request['period_from']]);foreach($stmt->fetchAll(PDO::FETCH_COLUMN)as$id)$targetIds[(int)$id]=true;
+            $stmt=$this->db->pdo()->prepare("WITH ordered AS (
+                SELECT c.id,c.unit_id,c.source_key,c.revision_no,c.previous_charge_id,c.period_from,c.period_to,c.status,c.row_version,c.snapshot_json,
+                    ROW_NUMBER() OVER (PARTITION BY c.unit_id,c.source_key ORDER BY c.revision_no,c.id) position,
+                    COUNT(*) OVER (PARTITION BY c.unit_id,c.source_key) family_count,
+                    LAG(c.id) OVER (PARTITION BY c.unit_id,c.source_key ORDER BY c.revision_no,c.id) prior_id
+                FROM unit_charges c FORCE INDEX (uq_issue_charge_revision)
+                WHERE c.supplier_id=? AND c.unit_id IN ({$marks}){$cteLock}
+            ) SELECT unit_id,source_key,
+                MAX(CASE WHEN position=1 THEN id END) root_charge_id,
+                MAX(CASE WHEN position=family_count THEN id END) latest_charge_id,
+                MAX(CASE WHEN position=family_count THEN revision_no END) latest_revision,
+                MAX(CASE WHEN position=family_count THEN status END) latest_status,
+                MAX(CASE WHEN position=family_count THEN row_version END) latest_row_version,
+                MAX(CASE WHEN position=1 THEN CAST(JSON_EXTRACT(snapshot_json,'$.case_identity') AS CHAR) END) case_identity_json,
+                MAX(CASE WHEN position=1 THEN CAST(JSON_EXTRACT(snapshot_json,'$.case_distinction') AS CHAR) END) case_distinction_json,
+                COUNT(DISTINCT COALESCE(CAST(JSON_EXTRACT(snapshot_json,'$.case_identity') AS CHAR),'__missing__')) identity_variants,
+                COUNT(DISTINCT COALESCE(CAST(JSON_EXTRACT(snapshot_json,'$.case_distinction') AS CHAR),'__missing__')) distinction_variants,
+                MIN(CASE WHEN revision_no=position AND ((position=1 AND previous_charge_id IS NULL) OR (position>1 AND previous_charge_id=prior_id)) THEN 1 ELSE 0 END) chain_valid,
+                MAX(CASE WHEN period_from<=? AND period_to>=? THEN 1 ELSE 0 END) period_overlap
+            FROM ordered GROUP BY unit_id,source_key ORDER BY unit_id,source_key");
+            $stmt->execute([$supplier,...$chunk,$request['period_to'],$request['period_from']]);
+            foreach($stmt->fetchAll(PDO::FETCH_ASSOC)as$row){
+                if(!(bool)$row['chain_valid']||(int)$row['identity_variants']!==1||(int)$row['distinction_variants']!==1)self::corrupt();
+                $identity=$row['case_identity_json']===null?null:json_decode($row['case_identity_json'],true,flags:JSON_THROW_ON_ERROR);
+                $distinction=$row['case_distinction_json']===null?null:json_decode($row['case_distinction_json'],true,flags:JSON_THROW_ON_ERROR);
+                if($identity!==null&&\MyInvoice\Service\Property\Charges\Issuance\IssuanceCaseIdentity::normalize($identity)!==$identity)self::corrupt();
+                if($distinction!==null&&\MyInvoice\Service\Property\Charges\Issuance\IssuanceCaseIdentity::distinction($distinction)!==$distinction)self::corrupt();
+                $families[]=['supplier_id'=>$supplier,'unit_id'=>(int)$row['unit_id'],'source_key'=>$row['source_key'],
+                    'root_charge_id'=>(int)$row['root_charge_id'],'case_identity'=>$identity,'case_distinction'=>$distinction,
+                    'identity_status'=>$identity===null?'legacy_unclassified':'explicit','latest_charge_id'=>(int)$row['latest_charge_id'],
+                    'latest_revision'=>(int)$row['latest_revision'],'status'=>$row['latest_status'],'row_version'=>(int)$row['latest_row_version'],
+                    'periods'=>(bool)$row['period_overlap']?[[$request['period_from'],$request['period_to']]]:[]];
+            }
+        }
+        $targets=$targetIds==[]?[]:array_values($this->findMany($supplier,array_keys($targetIds),$current));
+        return ['source'=>$source,'targets'=>$targets,'families'=>$families];
+    }
+
     public function find(int $supplier,int $id,bool $current = false): array
     {
         return $this->findMany($supplier,[$id],$current)[$id];
