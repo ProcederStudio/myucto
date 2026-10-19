@@ -1013,8 +1013,8 @@
         "2056_price_list_role_permissions.sql",
         "2057_operational_settings_role_permissions.sql",
         "2058_logbook_trip_templates_odometer_readings.sql",
-        "2059_asset_imported_depreciation_plan.sql",
-        "2060_logbook_odometer_sources.sql"
+        "2070_asset_imported_depreciation_plan.sql",
+        "2071_logbook_odometer_sources.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
