@@ -39229,7 +39229,7 @@ components:
         odometer_source_status:
           type: [string, "null"]
           enum: [active, warning, error, null]
-          description: "Stav automatického stavu tachometru auta (jen v seznamu aut): active = načítá se, warning = poslední stav nenavazoval na jízdy a byl přeskočen, error = chyba auta nebo účtu u zdroje; null = auto není přiřazené k účtu u zdroje."
+          description: "Stav automatického stavu tachometru auta (jen v seznamu aut): active = načítá se, warning = přechodný stav auta (stav nenavazoval na jízdy a byl přeskočen, nebo ho auto zatím neodeslalo), error = chyba auta nebo účtu u zdroje vyžadující zásah; null = auto není přiřazené k účtu u zdroje."
         driver_employee_id: { type: [integer, "null"], description: Řidič — zaměstnanec firmy }
         driver_name: { type: [string, "null"] }
         usage_mode: { type: string, enum: [business, private, mixed], description: 'Režim užívání: jen firemní / soukromé vozidlo / smíšené' }
