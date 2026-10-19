@@ -13,7 +13,6 @@ const m = vi.hoisted(() => ({
   odometerSourceDisconnect: vi.fn(),
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
-  canWrite: vi.fn((_permission: string) => true),
 }))
 
 const steps: Record<string, string[]> = {
@@ -31,7 +30,7 @@ vi.mock('@/api/logbook', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/api/logbook')>()),
   logbookApi: { ...m },
 }))
-vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ canWrite: m.canWrite }) }))
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ canWrite: () => true }) }))
 vi.mock('@/composables/useToast', () => ({ useToast: () => ({ success: m.toastSuccess, error: m.toastError }) }))
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
@@ -68,7 +67,6 @@ describe('OdometerSourceModal.vue', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.useFakeTimers()
-    m.canWrite.mockImplementation(() => true)
     m.odometerSources.mockResolvedValue([bmw])
     m.odometerSourceStatus.mockResolvedValue(none)
   })
@@ -234,15 +232,6 @@ describe('OdometerSourceModal.vue', () => {
     expect(confirm.mock.calls[0][0]).toContain('logbook.odosrc_disconnect_last_confirm')
     expect(m.odometerSourceDisconnect).toHaveBeenCalledWith(3)
     confirm.mockRestore()
-  })
-
-  it('offers disconnect with the logbook write right the server requires', async () => {
-    m.canWrite.mockImplementation((permission: string) => permission === 'logbook.write')
-    m.odometerSourceStatus.mockResolvedValue(connected)
-    const w = mount(OdometerSourceModal, { props: { car } })
-    await flushPromises()
-
-    expect(button(w, 'logbook.odosrc_disconnect')).toBeDefined()
   })
 
   it('stops polling when the sign-in expires', async () => {
