@@ -761,7 +761,8 @@ onMounted(load)
 // Po odeslání v jiném okně (datová schránka, fronta) se obsah jen zašedne
 // a přepíše; rozbalený detail ani rozdělaná akce se nezavírají.
 useWindowRefresh('*', load, () => !loading.value && expandedId.value === null && settlingId.value === null
-  && sendingHealthKey.value === null && !healthBatchBusy.value && externalFilingItem.value === null)
+  && sendingHealthKey.value === null && !healthBatchBusy.value && externalFilingItem.value === null
+  && healthBatchTransport.value === null)
 </script>
 
 <template>

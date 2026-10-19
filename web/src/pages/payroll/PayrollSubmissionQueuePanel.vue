@@ -493,7 +493,7 @@ void load()
 // Podání připravené nebo odeslané v jiném okně (měsíční přehled, datová
 // schránka) mění frontu; dávka a zahazování se nepřepisují pod rukama.
 useWindowRefresh('*', () => load(true), () => !loading.value && batch.value === null
-  && abandoning.value === null && !sweeping.value)
+  && abandoning.value === null && !sweeping.value && isdsPending.value === null)
 </script>
 
 <template>
