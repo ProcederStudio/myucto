@@ -9,6 +9,9 @@ use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Infrastructure\Database\NamedLockName;
 use MyInvoice\Repository\BankConnectionRepository;
 use MyInvoice\Repository\CsasOAuthRepository;
+use MyInvoice\Repository\KbPlusOAuthRepository;
+use MyInvoice\Service\Bank\Connector\KbPlusApiClient;
+use MyInvoice\Service\Bank\Connector\KbPlusCredentialVault;
 use MyInvoice\Service\Auth\SecretEncryption;
 use MyInvoice\Service\Bank\Connector\CsasApiClient;
 use MyInvoice\Service\Bank\Connector\CsasCredentialVault;
@@ -92,6 +95,38 @@ final class BankTokenRotationTest extends TestCase
         self::assertSame([['synthetic-refresh-1', 1]], $calls, 'Obnova jednou a pod zámkem napojení.');
         self::assertSame(['synthetic-refresh-2', 'synthetic-refresh-2'], [$first['refresh_token'], $second['refresh_token']]);
         self::assertSame('synthetic-refresh-2', $vault->decode($this->stored($connectionId, CsasCredentialVault::context($this->supplierId, $connectionId)))['refresh_token']);
+    }
+
+    public function testKbPlusRefreshRunsUnderConnectionLockAndConcurrentRequestReusesRotatedToken(): void
+    {
+        $connectionId = $this->connection('0100', 'kb_plus');
+        $credentials = ['version' => 1, 'supplier_id' => $this->supplierId, 'connection_id' => $connectionId,
+            'oauth_api_key' => 'synthetic-oauth-key', 'adaa_api_key' => 'synthetic-adaa-key', 'batchda_api_key' => '',
+            'client_id' => 'synthetic-client', 'client_secret' => 'synthetic-secret', 'redirect_uri' => 'https://example.invalid/callback',
+            'scope' => 'adaa', 'refresh_token' => 'synthetic-refresh-1', 'access_token' => 'synthetic-access-1',
+            'access_expires_at' => time() - 1, 'account_id' => 'synthetic-account', 'account_iban' => 'CZ0401000000191000000005',
+            'account_currency' => 'CZK', 'call_guard_key' => str_repeat('g', 43)];
+        $api = $this->createStub(KbPlusApiClient::class);
+        $lock = NamedLockName::for($this->db, 'bank-token', $this->supplierId . ':' . $connectionId);
+        $calls = [];
+        $api->method('refreshAccessToken')->willReturnCallback(function (array $c) use ($lock, &$calls): array {
+            $stmt = $this->pdo->prepare('SELECT IS_USED_LOCK(?) = CONNECTION_ID()');
+            $stmt->execute([$lock]);
+            $calls[] = [$c['refresh_token'], (int) $stmt->fetchColumn()];
+            return ['access_token' => 'synthetic-access-2', 'token_type' => 'Bearer', 'expires_in' => 300, 'scope' => 'adaa',
+                'refresh_token' => 'synthetic-refresh-2'];
+        });
+        $vault = new KbPlusCredentialVault($api, new KbPlusOAuthRepository($this->db), $this->container->get(SecretEncryption::class),
+            $this->container->get(OAuthClientFlow::class));
+        $stale = $vault->encode($credentials);
+        $this->store($connectionId, $stale, KbPlusCredentialVault::context($this->supplierId, $connectionId));
+
+        $first = $vault->access($stale);
+        $second = $vault->access($stale);
+
+        self::assertSame([['synthetic-refresh-1', 1]], $calls, 'Obnova jednou a pod zámkem napojení.');
+        self::assertSame(['synthetic-access-2', 'synthetic-access-2'], [$first['access_token'], $second['access_token']]);
+        self::assertSame('synthetic-refresh-2', $vault->decode($this->stored($connectionId, KbPlusCredentialVault::context($this->supplierId, $connectionId)))['refresh_token']);
     }
 
     private function connection(string $bankCode, string $provider): int

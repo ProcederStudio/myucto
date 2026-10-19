@@ -155,6 +155,18 @@ final class KbPlusOAuthRepository
         return $value === false ? null : (int) $value;
     }
 
+    /** Aktuálně uložený přístup napojení (ciphertext); null, když napojení přístup nemá. */
+    public function connectionCredential(int $supplierId, int $connectionId): ?string
+    {
+        $stmt = $this->db->pdo()->prepare(
+            "SELECT token_ciphertext FROM bank_connections
+              WHERE supplier_id = ? AND id = ? AND provider = 'kb_plus' AND token_ciphertext IS NOT NULL"
+        );
+        $stmt->execute([$supplierId, $connectionId]);
+        $value = $stmt->fetchColumn();
+        return $value === false ? null : (string) $value;
+    }
+
     public function replaceConnectionCredential(
         int $supplierId,
         int $connectionId,
