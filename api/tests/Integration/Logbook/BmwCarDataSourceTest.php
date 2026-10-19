@@ -91,7 +91,7 @@ final class BmwCarDataSourceTest extends TestCase
         self::assertSame(self::CLIENT_ID, $form['client_id']);
 
         $this->bmw->append(new Response(400, [], json_encode(['error' => 'slow_down'])));
-        self::assertSame(['state' => 'waiting', 'interval' => 10], $this->service->continueConnect($this->supplierA, $car));
+        self::assertSame(['state' => 'waiting', 'interval' => 10], $this->service->continueConnect($this->supplierA, $car, [], $this->userId));
 
         $this->bmw->append(
             $this->tokens('synthetic-access-1', 'synthetic-refresh-1'),
@@ -99,7 +99,7 @@ final class BmwCarDataSourceTest extends TestCase
             new Response(201, [], json_encode(['containerId' => 'CONTAINER0001'])),
             $this->odometer('1087', '2099-03-02T10:00:00Z'),
         );
-        $result = $this->service->continueConnect($this->supplierA, $car);
+        $result = $this->service->continueConnect($this->supplierA, $car, [], $this->userId);
 
         self::assertSame(['connected', self::VIN, 1087], [$result['state'], $result['car']['vehicle_ref'], $result['car']['last_odometer']]);
         parse_str((string) $this->history[2]['request']->getBody(), $poll);

@@ -127,7 +127,9 @@ final class OAuthClientFlowTest extends TestCase
         self::assertNull($this->flow->claim($auth->state, $this->supplierA, $this->userId, 'odometer', 'test_provider'));
         self::assertNull($this->flow->claim($auth->state, $this->supplierA, $this->userId, 'bank', 'other_provider'));
         self::assertNull($this->flow->claim($auth->state, $this->supplierA, $this->userId, 'bank', 'test_provider', 'registration'));
-        self::assertNull($this->flow->open($auth->stateHash(), $this->supplierB, 'bank', 'test_provider', 3));
+        self::assertNull($this->flow->open($auth->stateHash(), $this->supplierB, $this->userId, 'bank', 'test_provider', 3));
+        self::assertNull($this->flow->open($auth->stateHash(), $this->supplierA, $this->userId + 100000, 'bank', 'test_provider', 3));
+        self::assertNotNull($this->flow->open($auth->stateHash(), $this->supplierA, $this->userId, 'bank', 'test_provider', 3));
 
         self::assertNotNull($this->claim($auth->state), 'Odmítnuté pokusy nesmí přihlášení spotřebovat.');
     }
@@ -203,7 +205,7 @@ final class OAuthClientFlowTest extends TestCase
 
         $errors = [];
         foreach ([OAuthException::AUTHORIZATION_PENDING, OAuthException::SLOW_DOWN] as $expected) {
-            $session = $this->flow->open($auth->stateHash(), $this->supplierA, 'odometer', 'test_provider', 3);
+            $session = $this->flow->open($auth->stateHash(), $this->supplierA, $this->userId, 'odometer', 'test_provider', 3);
             try {
                 $client->pollDeviceCode($config, (string) $session->secret['device_code'], $session->codeVerifier);
             } catch (OAuthException $e) {
@@ -213,7 +215,7 @@ final class OAuthClientFlowTest extends TestCase
         }
         self::assertSame([OAuthException::AUTHORIZATION_PENDING, OAuthException::SLOW_DOWN], $errors);
 
-        $session = $this->flow->open($auth->stateHash(), $this->supplierA, 'odometer', 'test_provider', 3);
+        $session = $this->flow->open($auth->stateHash(), $this->supplierA, $this->userId, 'odometer', 'test_provider', 3);
         self::assertSame(15, $session->secret['interval']);
         $tokens = $client->pollDeviceCode($config, (string) $session->secret['device_code'], $session->codeVerifier);
         parse_str((string) $this->history[3]['request']->getBody(), $poll);
@@ -221,7 +223,7 @@ final class OAuthClientFlowTest extends TestCase
             [$poll['grant_type'], $poll['device_code'], $poll['code_verifier']]);
         self::assertSame('synthetic-refresh', $tokens->refreshToken);
         $this->flow->finish($session, true);
-        self::assertNull($this->flow->open($auth->stateHash(), $this->supplierA, 'odometer', 'test_provider', 3));
+        self::assertNull($this->flow->open($auth->stateHash(), $this->supplierA, $this->userId, 'odometer', 'test_provider', 3));
     }
 
     public function testRotatedRefreshTokenIsStoredBeforeItIsUsed(): void

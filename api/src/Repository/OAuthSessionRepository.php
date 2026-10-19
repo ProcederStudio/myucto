@@ -73,12 +73,15 @@ final class OAuthSessionRepository
         return $this->withSecret($stateHash, $supplierId, "status = 'processing'");
     }
 
-    /** Rozpracované přihlášení napojení (čeká nebo už má výsledek callbacku) včetně ciphertextu. */
-    public function open(string $stateHash, int $supplierId, string $domain, string $provider, int $subjectId): ?array
+    /**
+     * Rozpracované přihlášení napojení (čeká nebo už má výsledek callbacku) včetně ciphertextu,
+     * jen pro uživatele, který ho zahájil.
+     */
+    public function open(string $stateHash, int $supplierId, int $userId, string $domain, string $provider, int $subjectId): ?array
     {
         $row = $this->withSecret($stateHash, $supplierId, "status IN ('pending','processing')");
-        return $row !== null && $row['domain'] === $domain && $row['provider'] === $provider && $row['subject_id'] === $subjectId
-            ? $row : null;
+        return $row !== null && $row['user_id'] === $userId && $row['domain'] === $domain && $row['provider'] === $provider
+            && $row['subject_id'] === $subjectId ? $row : null;
     }
 
     /** Nové tajemství rozpracovaného přihlášení (polling device code, výsledek callbacku). */

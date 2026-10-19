@@ -89,14 +89,14 @@ final class OdometerSourceSyncTest extends TestCase
         self::assertStringStartsWith('enc:v2:', $session['secret_ciphertext']);
         self::assertStringNotContainsString('synthetic-device', $session['secret_ciphertext']);
 
-        self::assertSame(['state' => 'waiting', 'interval' => 5], $this->service->continueConnect($this->supplierA, $car));
+        self::assertSame(['state' => 'waiting', 'interval' => 5], $this->service->continueConnect($this->supplierA, $car, [], $this->userId));
         self::assertSame([['key' => 'synthetic-key', 'device' => 'synthetic-device']], $this->source->pendingSeen);
         self::assertSame($this->source->contexts[0]->codeVerifier, $this->source->inputSeen[0]['code_verifier']);
 
         $this->source->approved = true;
         // 23:30 UTC je v Praze už další den — stav patří k místnímu datu.
         $this->source->samples[self::VIN] = new OdometerSample(1087, OdometerSample::UNIT_KM, new \DateTimeImmutable('2099-03-02T23:30:00Z'));
-        $result = $this->service->continueConnect($this->supplierA, $car);
+        $result = $this->service->continueConnect($this->supplierA, $car, [], $this->userId);
 
         self::assertSame('connected', $result['state']);
         self::assertSame([self::VIN, 1087, FakeOdometerSource::CODE, 'active'], [$result['car']['vehicle_ref'],
@@ -127,7 +127,7 @@ final class OdometerSourceSyncTest extends TestCase
 
         // Bez návratu ze služby se zdroje vůbec neptá; kód z dialogu se nepoužije.
         self::assertSame(['state' => 'waiting', 'interval' => 5],
-            $this->service->continueConnect($this->supplierA, $car, ['code' => 'forged-code']));
+            $this->service->continueConnect($this->supplierA, $car, ['code' => 'forged-code'], $this->userId));
         self::assertSame([], $this->source->inputSeen);
 
         $this->assertFails(OdometerSourceException::EXPIRED, fn () => $this->service->receiveCallback(
@@ -136,10 +136,61 @@ final class OdometerSourceSyncTest extends TestCase
         $this->assertFails(OdometerSourceException::EXPIRED,
             fn () => $this->service->receiveCallback($this->oauthCallback($context->state, 'replayed-code')));
 
-        $result = $this->service->continueConnect($this->supplierA, $car, ['code' => 'forged-code', 'code_verifier' => 'forged']);
+        $result = $this->service->continueConnect($this->supplierA, $car, ['code' => 'forged-code', 'code_verifier' => 'forged'], $this->userId);
 
         self::assertSame('connected', $result['state']);
         self::assertSame([['code' => 'synthetic-code', 'code_verifier' => $context->codeVerifier]], $this->source->inputSeen);
+    }
+
+    public function testUsedCodeIsNotSentAgainAfterTransientExchangeFailure(): void
+    {
+        $car = $this->carWithStart($this->supplierA, 'TST0044', 1000, '2099-03-01');
+        $this->source->redirect = true;
+        $this->source->approved = true;
+        $this->service->startConnect($this->supplierA, $car, FakeOdometerSource::CODE, ['key' => 'synthetic-key'], $this->userId);
+        $this->service->receiveCallback($this->oauthCallback($this->source->contexts[0]->state, 'synthetic-code'));
+        $this->source->failNextContinue = OdometerSourceException::REMOTE_UNAVAILABLE;
+
+        $this->assertFails(OdometerSourceException::REMOTE_UNAVAILABLE,
+            fn () => $this->service->continueConnect($this->supplierA, $car, [], $this->userId));
+        $this->assertFails(OdometerSourceException::EXPIRED,
+            fn () => $this->service->continueConnect($this->supplierA, $car, [], $this->userId));
+
+        self::assertCount(1, $this->source->inputSeen, 'Jednorázový kód se nesmí poslat službě podruhé.');
+        self::assertSame(0, $this->accountCount($this->supplierA));
+    }
+
+    public function testIssuedCredentialsSurviveFailedStoreAndAreNotRequestedAgain(): void
+    {
+        $car = $this->carWithStart($this->supplierA, 'TST0045', 1000, '2099-03-01');
+        $this->service->startConnect($this->supplierA, $car, FakeOdometerSource::CODE, ['key' => 'synthetic-key'], $this->userId);
+        $hash = $this->accountRow($this->supplierA)['pending_state_hash'];
+        $this->source->approved = true;
+        // Přístup, který nejde uložit k účtu (vault ho odmítne).
+        $this->source->connectedCredentials = ['token' => 'not storable'];
+
+        $this->assertFails(OdometerSourceException::REAUTH_REQUIRED,
+            fn () => $this->service->continueConnect($this->supplierA, $car, [], $this->userId));
+        $session = $this->flow->open($hash, $this->supplierA, $this->userId, 'odometer', FakeOdometerSource::CODE,
+            (int) $this->accountRow($this->supplierA)['id']);
+        self::assertSame(['token' => 'not storable'], $session?->secret['credentials'], 'Vydané přístupy se nesmí ztratit.');
+
+        $this->assertFails(OdometerSourceException::REAUTH_REQUIRED,
+            fn () => $this->service->continueConnect($this->supplierA, $car, [], $this->userId));
+        self::assertCount(1, $this->source->pendingSeen, 'Služba se o přístupy podruhé neptá.');
+    }
+
+    public function testOnlyTheUserWhoStartedTheLoginCanContinueIt(): void
+    {
+        $car = $this->carWithStart($this->supplierA, 'TST0046', 1000, '2099-03-01');
+        $this->service->startConnect($this->supplierA, $car, FakeOdometerSource::CODE, ['key' => 'synthetic-key'], $this->userId);
+        $this->source->approved = true;
+
+        $this->assertFails('no_pending_connect', fn () => $this->service->continueConnect($this->supplierA, $car, [], $this->userId + 100000));
+        $this->assertFails('no_pending_connect', fn () => $this->service->continueConnect($this->supplierA, $car));
+        self::assertSame([], $this->source->pendingSeen);
+
+        self::assertSame('connected', $this->service->continueConnect($this->supplierA, $car, [], $this->userId)['state']);
     }
 
     public function testDeclinedRedirectLoginEndsPendingConnect(): void
@@ -150,7 +201,7 @@ final class OdometerSourceSyncTest extends TestCase
 
         $this->service->receiveCallback($this->oauthCallback($this->source->contexts[0]->state, '', $this->supplierA, $this->userId, 'access_denied'));
 
-        $this->assertFails(OdometerSourceException::ACCESS_DENIED, fn () => $this->service->continueConnect($this->supplierA, $car));
+        $this->assertFails(OdometerSourceException::ACCESS_DENIED, fn () => $this->service->continueConnect($this->supplierA, $car, [], $this->userId));
         self::assertSame([], $this->source->inputSeen);
         self::assertSame(0, $this->accountCount($this->supplierA));
     }
@@ -163,7 +214,7 @@ final class OdometerSourceSyncTest extends TestCase
 
         $this->assertFails(OdometerSourceException::EXPIRED, fn () => $this->service->receiveCallback(
             $this->oauthCallback($this->source->contexts[0]->state, 'synthetic-code', $this->supplierB)));
-        self::assertSame(['state' => 'waiting', 'interval' => 5], $this->service->continueConnect($this->supplierA, $car));
+        self::assertSame(['state' => 'waiting', 'interval' => 5], $this->service->continueConnect($this->supplierA, $car, [], $this->userId));
     }
 
     private function oauthCallback(string $state, string $code, ?int $supplierId = null, ?int $userId = null, ?string $error = null): OAuthCallback
@@ -190,8 +241,8 @@ final class OdometerSourceSyncTest extends TestCase
         $this->service->startConnect($this->supplierA, $car, FakeOdometerSource::CODE, ['key' => 'synthetic-key'], $this->userId);
         $this->source->slowDown = true;
 
-        self::assertSame(['state' => 'waiting', 'interval' => 10], $this->service->continueConnect($this->supplierA, $car));
-        $this->service->continueConnect($this->supplierA, $car);
+        self::assertSame(['state' => 'waiting', 'interval' => 10], $this->service->continueConnect($this->supplierA, $car, [], $this->userId));
+        $this->service->continueConnect($this->supplierA, $car, [], $this->userId);
 
         self::assertSame('slow', $this->source->pendingSeen[1]['device']);
     }
@@ -208,7 +259,7 @@ final class OdometerSourceSyncTest extends TestCase
             $held = (int) $stmt->fetchColumn();
         };
 
-        $this->service->continueConnect($this->supplierA, $car);
+        $this->service->continueConnect($this->supplierA, $car, [], $this->userId);
 
         self::assertSame(1, $held, 'Dva souběžné dotazy by jinak vyměnily tentýž kód za tokeny dvakrát.');
     }
@@ -220,7 +271,7 @@ final class OdometerSourceSyncTest extends TestCase
         $this->source->approved = true;
         $this->service->startConnect($this->supplierA, $car, FakeOdometerSource::CODE, ['key' => 'synthetic-key'], $this->userId);
 
-        $result = $this->service->continueConnect($this->supplierA, $car);
+        $result = $this->service->continueConnect($this->supplierA, $car, [], $this->userId);
 
         self::assertSame('select_vehicle', $result['state']);
         self::assertSame(['REF-A', 'REF-B'], array_column($result['vehicles'], 'ref'));
@@ -246,7 +297,7 @@ final class OdometerSourceSyncTest extends TestCase
         $foreign = $this->carWithStart($this->supplierB, 'TST0016', 1000, '2099-03-01', 'WBA00000000000001');
 
         $this->service->startConnect($this->supplierA, $byVin, FakeOdometerSource::CODE, ['key' => 'synthetic-key'], $this->userId);
-        $this->service->continueConnect($this->supplierA, $byVin);
+        $this->service->continueConnect($this->supplierA, $byVin, [], $this->userId);
 
         $status = $this->service->status($this->supplierA, $byVin);
         self::assertSame('REF-B', $status['car']['vehicle_ref']);
@@ -266,7 +317,7 @@ final class OdometerSourceSyncTest extends TestCase
         $this->source->approved = true;
         $this->source->rotateTo = 'synthetic-token-2';
         $this->service->startConnect($this->supplierA, $first, FakeOdometerSource::CODE, ['key' => 'synthetic-key'], $this->userId);
-        $account = $this->service->continueConnect($this->supplierA, $first)['account']['id'];
+        $account = $this->service->continueConnect($this->supplierA, $first, [], $this->userId)['account']['id'];
 
         $result = $this->service->attach($this->supplierA, $second, $account, $this->userId);
 
@@ -285,7 +336,7 @@ final class OdometerSourceSyncTest extends TestCase
 
         // Druhé přihlášení k témuž účtu u služby z jiného auta.
         $this->service->startConnect($this->supplierA, $second, FakeOdometerSource::CODE, ['key' => 'synthetic-key'], $this->userId);
-        $this->assertFails('vehicle_taken', fn () => $this->service->continueConnect($this->supplierA, $second));
+        $this->assertFails('vehicle_taken', fn () => $this->service->continueConnect($this->supplierA, $second, [], $this->userId));
 
         self::assertNull($this->service->status($this->supplierA, $second)['car']);
         self::assertSame(['disconnected', null], [$this->accountRow($this->supplierA)['status'], $this->accountRow($this->supplierA)['credentials_ciphertext']]);
@@ -300,8 +351,8 @@ final class OdometerSourceSyncTest extends TestCase
         $this->service->startConnect($this->supplierA, $car, FakeOdometerSource::CODE, ['key' => 'synthetic-key'], $this->userId);
         $this->source->denied = true;
 
-        $this->assertFails(OdometerSourceException::ACCESS_DENIED, fn () => $this->service->continueConnect($this->supplierA, $car));
-        $this->assertFails('no_pending_connect', fn () => $this->service->continueConnect($this->supplierA, $car));
+        $this->assertFails(OdometerSourceException::ACCESS_DENIED, fn () => $this->service->continueConnect($this->supplierA, $car, [], $this->userId));
+        $this->assertFails('no_pending_connect', fn () => $this->service->continueConnect($this->supplierA, $car, [], $this->userId));
         self::assertSame(0, $this->accountCount($this->supplierA));
     }
 
@@ -313,7 +364,7 @@ final class OdometerSourceSyncTest extends TestCase
         $this->source->approved = true;
 
         $this->service->startConnect($this->supplierA, $car, 'ignored', ['key' => 'synthetic-key'], $this->userId, $account);
-        $result = $this->service->continueConnect($this->supplierA, $car);
+        $result = $this->service->continueConnect($this->supplierA, $car, [], $this->userId);
 
         self::assertSame(['connected', $account, 'active'], [$result['state'], $result['account']['id'], $result['account']['status']]);
         self::assertSame(1, $this->accountCount($this->supplierA));

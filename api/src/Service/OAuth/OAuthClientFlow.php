@@ -139,10 +139,14 @@ final class OAuthClientFlow
         }
     }
 
-    /** Rozpracované přihlášení napojení (polling device code, výsledek callbacku), ještě nedokončené. */
-    public function open(string $stateHash, int $supplierId, string $domain, string $provider, int $subjectId): ?OAuthSession
+    /**
+     * Rozpracované přihlášení napojení (polling device code, výsledek callbacku), ještě
+     * nedokončené. Pokračovat smí jen uživatel, který přihlášení zahájil, stejně jako u callbacku.
+     */
+    public function open(string $stateHash, int $supplierId, int $userId, string $domain, string $provider, int $subjectId): ?OAuthSession
     {
-        $row = $this->sessions->open($stateHash, $supplierId, $domain, $provider, $subjectId);
+        if ($userId < 1) return null;
+        $row = $this->sessions->open($stateHash, $supplierId, $userId, $domain, $provider, $subjectId);
         return $row === null ? null : $this->session($row);
     }
 

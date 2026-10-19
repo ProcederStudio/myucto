@@ -15,7 +15,7 @@
 --
 --   odometer_source_accounts.pending_ciphertext  rozpracované přihlášení zdroje stavu
 --                   tachometru je nově v oauth_sessions; `pending_state_hash` zůstává
---                   jako klíč do oauth_sessions. Sloupec zatím nebyl vydaný (migrace 2060),
+--                   jako klíč do oauth_sessions. Sloupec zatím nebyl vydaný (migrace 2071),
 --                   takže se ruší bez převodu dat.
 --
 -- Idempotence: CREATE TABLE IF NOT EXISTS, DROP COLUMN IF EXISTS.

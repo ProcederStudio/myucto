@@ -6,6 +6,7 @@ namespace MyInvoice\Service\OAuth;
 
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Security\CrossSupplierAuthorization;
+use MyInvoice\Security\RequestAuthorization;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Log\LoggerInterface;
 
@@ -54,7 +55,9 @@ final class OAuthCallbackDispatcher
             return null;
         }
         $scoped = $this->suppliers->scopedRequest($request, $session['supplier_id']);
-        if ($scoped === null || !$handler->allows($scoped)) {
+        // Napojení na externí služby jsou interní správa firmy; klientský portál je nedokončí
+        // ani tehdy, kdyby mu role omylem dala právo, které handler žádá.
+        if ($scoped === null || RequestAuthorization::isClientType($scoped) || !$handler->allows($scoped)) {
             $this->log('forbidden', $query, $session);
             return $handler->failureLocation($session, 'forbidden');
         }

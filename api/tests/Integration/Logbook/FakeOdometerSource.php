@@ -46,6 +46,10 @@ final class FakeOdometerSource implements OdometerSourceProvider
     public ?\Closure $onContinue = null;
     /** Před čtením obnovit propadlý token `synthetic-token-1` přes OdometerSourceSession::refresh(). */
     public bool $refreshOnRead = false;
+    /** Přístupy vydané po přihlášení (výchozí synthetic-token-1). */
+    public ?array $connectedCredentials = null;
+    /** Kód chyby, kterou vyhodí příští dotaz na dokončení přihlášení (jednorázově). */
+    public ?string $failNextContinue = null;
     public int $refreshes = 0;
     /** Zavolá se před obnovou tokenu (souběžný požadavek mezitím token obnovil). */
     public ?\Closure $beforeRefresh = null;
@@ -80,12 +84,17 @@ final class FakeOdometerSource implements OdometerSourceProvider
         $this->pendingSeen[] = $pending;
         $this->inputSeen[] = $input;
         if ($this->onContinue !== null) ($this->onContinue)();
+        if ($this->failNextContinue !== null) {
+            $code = $this->failNextContinue;
+            $this->failNextContinue = null;
+            throw new OdometerSourceException($code);
+        }
         if ($this->denied) throw new OdometerSourceException(OdometerSourceException::ACCESS_DENIED);
         if ($this->slowDown) {
             $this->slowDown = false;
             return ConnectStep::waiting(10, ['device' => 'slow'] + $pending);
         }
-        return $this->approved ? ConnectStep::connected(['token' => 'synthetic-token-1']) : ConnectStep::waiting(5);
+        return $this->approved ? ConnectStep::connected($this->connectedCredentials ?? ['token' => 'synthetic-token-1']) : ConnectStep::waiting(5);
     }
 
     public function vehicles(OdometerSourceSession $session): array
