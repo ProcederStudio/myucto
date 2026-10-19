@@ -159,6 +159,81 @@ final class StereoNxRunReportStoreTest extends TestCase
         self::assertFileExists($outsideDir . '/stereo-nx-45.json');
     }
 
+    public function testLinkedStorageRootKeepsReportsSavedExportedAndPurged(): void
+    {
+        $volume = $this->root . '/volume';
+        mkdir($volume, 0700);
+        $link = RuntimePaths::storage();
+        $this->linkDirectory($volume, $link);
+        try {
+            $store = new StereoNxRunReportStore();
+            $stored = $store->save(123, 45, ['ok' => true]);
+            self::assertFileExists($volume . '/' . $stored['path']);
+            self::assertSame(['ok' => true], $store->read(123, 45, $stored['path']));
+            $legacyPath = 'import-jobs/123/reports/46.json';
+            file_put_contents($volume . '/' . $legacyPath, '{"summary":{"synthetic":1}}');
+            $files = $this->exportReports([
+                ['id' => 45, 'result_path' => $stored['path']], ['id' => 46, 'result_path' => $legacyPath],
+            ]);
+            self::assertSame([$stored['path'], $legacyPath], array_column($files, 'storage_path'));
+            self::assertSame(['prilohy/importy/stereo-nx-45.json', 'prilohy/importy/46.json'], array_column($files, 'entry'));
+            ImportJobReportFiles::purge(['id' => 46, 'supplier_id' => 123, 'result_path' => $legacyPath]);
+            self::assertFileDoesNotExist($volume . '/' . $legacyPath);
+            self::assertFileExists($volume . '/' . $stored['path']);
+        } finally {
+            $this->unlinkDirectory($link);
+        }
+    }
+
+    public function testLinkInsideLinkedStorageRootPointingOutsideIsRejected(): void
+    {
+        $volume = $this->root . '/volume';
+        mkdir($volume, 0700);
+        $link = RuntimePaths::storage();
+        $this->linkDirectory($volume, $link);
+        $outside = $this->root . '/outside-reports';
+        mkdir($outside, 0700);
+        file_put_contents($outside . '/stereo-nx-45.json', '{"ok":true}');
+        file_put_contents($outside . '/46.json', '{"ok":true}');
+        mkdir($volume . '/import-jobs/123', 0700, true);
+        $reports = $volume . '/import-jobs/123/reports';
+        $this->linkDirectory($outside, $reports);
+        try {
+            $rows = [
+                ['id' => 45, 'result_path' => 'import-jobs/123/reports/stereo-nx-45.json'],
+                ['id' => 46, 'result_path' => 'import-jobs/123/reports/46.json'],
+            ];
+            self::assertNull((new StereoNxRunReportStore())->read(123, 45, $rows[0]['result_path']));
+            self::assertSame([], $this->exportReports($rows));
+            foreach ($rows as $row) ImportJobReportFiles::purge($row + ['supplier_id' => 123]);
+            self::assertFileExists($outside . '/stereo-nx-45.json');
+            self::assertFileExists($outside . '/46.json');
+        } finally {
+            $this->unlinkDirectory($reports);
+            $this->unlinkDirectory($link);
+        }
+    }
+
+    /** Na Windows junction (nevyžaduje oprávnění pro symlinky), jinde symbolický odkaz. */
+    private function linkDirectory(string $target, string $link): void
+    {
+        if (PHP_OS_FAMILY === 'Windows') {
+            exec('mklink /J ' . escapeshellarg(str_replace('/', '\\', $link)) . ' '
+                . escapeshellarg(str_replace('/', '\\', $target)) . ' 2>NUL', $output, $code);
+            if ($code !== 0) self::markTestSkipped('Junction nelze na tomto systému vytvořit.');
+            return;
+        }
+        if (!function_exists('symlink') || !@symlink($target, $link)) {
+            self::markTestSkipped('Symbolický odkaz nelze na tomto systému vytvořit.');
+        }
+    }
+
+    private function unlinkDirectory(string $link): void
+    {
+        if (PHP_OS_FAMILY === 'Windows') @rmdir($link);
+        else @unlink($link);
+    }
+
     /** @param list<array{id:int,result_path:string}> $rows */
     private function exportReports(array $rows): array
     {

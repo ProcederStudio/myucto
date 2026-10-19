@@ -77,8 +77,8 @@ final class StereoNxRunReportStore
 
     private function directory(int $supplierId, bool $create): ?string
     {
+        // Kořen úložiště smí být symlink či junction na jiný svazek (stejně jako u ImportJobReportFiles).
         $root = RuntimePaths::storage();
-        if (is_link($root)) return null;
         if (!is_dir($root) && (!$create || !@mkdir($root, 0700, true)) && !is_dir($root)) return null;
         $base = realpath($root);
         if ($base === false) return null;

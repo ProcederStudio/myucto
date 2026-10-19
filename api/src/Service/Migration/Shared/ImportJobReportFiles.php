@@ -19,8 +19,9 @@ final class ImportJobReportFiles
         if ($supplierId < 1 || $jobId < 1 || !in_array($relative, [
             self::relativePath($supplierId, $jobId), self::relativePath($supplierId, $jobId, true),
         ], true)) return null;
+        // Kořen úložiště (storage/ nebo MYINVOICE_DATA_DIR) smí být symlink či junction na jiný
+        // svazek; realpath ho rozbalí. Odkazy uvnitř úložiště odmítáme a cíl musí ležet pod kořenem.
         $root = RuntimePaths::storage();
-        if (is_link($root)) return null;
         $base = realpath($root);
         if ($base === false) return null;
         $path = $root;
