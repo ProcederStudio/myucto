@@ -67,6 +67,13 @@ php tools/generateManualHtml.php
 - Migrace se eviduje **podle názvu souboru** (`migrations.filename`), takže přejmenování ji spustí znovu. Právě proto musí být idempotentní. Přečíslovat jde jen migraci, která ještě není nasazená u zákazníků; u nasazené se číslo nemění nikdy.
 - **Po každé nové migraci přegeneruj otisk struktury** `db/schema.snapshot.json` z čisté databáze postavené z migrací (`api/bin/schema-snapshot.php`, postup v jeho hlavičce). Podle otisku kontroluje Diagnostika strukturu databáze instalací; hlídá to `SchemaSnapshotCoverageTest` a v CI `check-schema.php --strict`.
 
+### SQL a objem dat
+- Dotaz nad tabulkami, které rostou s provozem (doklady a jejich řádky, účetní a peněžní deník, bankovní pohyby, skladové pohyby, audit, dokumenty), musí obstát i nad miliony řádků. Plán ověř přes `EXPLAIN`: `type: ALL` nebo `rows` blízko velikosti tabulky znamená chybu.
+- `WHERE` začíná omezením na firmu a jde po existujícím složeném indexu. Nová cesta filtrování nebo řazení přidá index ve stejné migraci.
+- Sloupec v `WHERE` a `JOIN` nebal do funkce (`YEAR()`, `DATE()`, `CAST`, `COLLATE`). Období piš jako rozsah `datum >= ? AND datum < ?`. `LIKE '%…'` použij jen s další podmínkou, která výběr zúží.
+- Žádné dotazy v cyklu (N+1). Načti data jedním dotazem přes `IN` nebo `JOIN`.
+- Nefiltruj v PHP, co umí udělat databáze. Seznamy stránkuj, exporty a přepočty zpracovávej po dávkách nebo proudem. Celý rok dokladů nesmí skončit v jednom PHP poli.
+
 ### i18n
 - Veškeré nové UI texty přes `t()` z vue-i18n — **nikdy** natvrdo česky/anglicky v šablonách. Vždy doplň **obě** locale (`web/src/i18n/cs.json` i `en.json`).
 - Pole/seznamy překladů přes `tm()` + `rt()` — `t()` pole stringifikuje.
