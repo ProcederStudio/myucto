@@ -10,10 +10,12 @@ use MyInvoice\Service\Migration\StereoNx\StereoNxAccountingPayments;
 use MyInvoice\Service\Migration\StereoNx\StereoNxSourcePlan;
 use MyInvoice\Service\Migration\StereoNx\StereoNxException;
 use MyInvoice\Tests\Fixtures\StereoNx\SyntheticNx1Archive;
+use MyInvoice\Tests\Fixtures\StereoNx\SyntheticStereoNxTables;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 require_once __DIR__ . '/../../../../Fixtures/StereoNx/SyntheticNx1Archive.php';
+require_once __DIR__ . '/../../../../Fixtures/StereoNx/SyntheticStereoNxTables.php';
 
 final class StereoNxBankAccountSeriesTest extends TestCase
 {
@@ -44,13 +46,32 @@ final class StereoNxBankAccountSeriesTest extends TestCase
     public static function unsafeMappings(): array
     {
         return [
+            'duplicate explicit mapping' => [[self::account('B'), self::account('B')], [['DoklRada' => 'B']]],
+            'duplicate without statements' => [[self::account('B'), self::account('B')], []],
+        ];
+    }
+
+    #[DataProvider('unresolvedMappings')]
+    public function testUnresolvedSeriesNeverGuessAnAccountOrBlockOtherAccountingRecords(array $accounts, array $statements): void
+    {
+        $plan = StereoNxBankAccountSeries::plan($accounts, $statements);
+        self::assertFalse($plan['ambiguous']);
+        self::assertFalse($plan['requires_confirmation']);
+        self::assertSame([], $plan['assignments']);
+    }
+
+    public static function unresolvedMappings(): array
+    {
+        return [
+            'mapped and unmatched series' => [[self::account('A'), self::account('B')], [['DoklRada' => 'A'], ['DoklRada' => 'C']]],
+            'unused blank account' => [[self::account('A'), self::account('B'), self::account()], [['DoklRada' => 'A'], ['DoklRada' => 'C']]],
             'two accounts' => [[self::account(), self::account()], [['DoklRada' => 'B']]],
             'two series' => [[self::account()], [['DoklRada' => 'B'], ['DoklRada' => 'C']]],
             'existing mapping cannot change' => [[self::account('C')], [['DoklRada' => 'B']]],
-            'duplicate explicit mapping' => [[self::account('B'), self::account('B')], [['DoklRada' => 'B']]],
             'one missing among multiple accounts' => [[self::account('C'), self::account()], [['DoklRada' => 'B']]],
             'no account' => [[], [['DoklRada' => 'B']]],
             'statement has no series' => [[self::account()], [['DoklRada' => '']]],
+            'blank statement alongside mapped statement' => [[self::account('A'), self::account('B')], [['DoklRada' => 'A'], ['DoklRada' => '']]],
             'blank account placeholder' => [[['DoklRada' => '', 'NazevUctu' => '']], [['DoklRada' => 'B']]],
         ];
     }
@@ -124,7 +145,7 @@ final class StereoNxBankAccountSeriesTest extends TestCase
         $path = tempnam(sys_get_temp_dir(), 'stereo-series-');
         try {
             SyntheticNx1Archive::write($path,
-                ['LFirmaUc' => [self::account(), self::account()], 'CBanka' => [['DoklRada' => 'B']]],
+                ['LFirmaUc' => [self::account('B'), self::account('B')], 'CBanka' => [['DoklRada' => 'B']]],
                 ['ico' => '00000000', 'dic' => '', 'name' => 'Syntetická firma', 'vat_payer' => false]);
             $backup = StereoNxBackup::open($path, 0);
             self::assertTrue($backup->bankAccountSeriesPlan()['ambiguous']);
@@ -156,6 +177,74 @@ final class StereoNxBankAccountSeriesTest extends TestCase
                 } catch (StereoNxException $e) {
                     self::assertSame('bank_account_series_confirmation_required', $e->errorCode);
                 }
+            }
+        } finally {
+            unlink($path);
+        }
+    }
+
+    #[DataProvider('blankStatementPresence')]
+    public function testSkippedBlankSeriesMovementCannotAuthorizePartialPaymentGroup(bool $withHeader): void
+    {
+        $tables = SyntheticStereoNxTables::tables();
+        $tables['LFirmaUc'] = [self::account('A'), self::account('B')];
+        $tables['CBanka'][0]['DoklRada'] = 'A';
+        $tables['CBanka'][0]['Kurz'] = $tables['CBanka'][0]['KurzMn'] = 1.0;
+        if ($withHeader) $tables['CBanka'][] = array_replace($tables['CBanka'][0], ['DoklRada' => '', 'Doklad' => 'SYN-BLANK']);
+        foreach (['CBankap', 'CPokl'] as $table) {
+            foreach ($tables[$table] as &$row) {
+                if ($table === 'CBankap') $row['DoklRada'] = 'A';
+                $row['Kurz'] = $row['KurzMn'] = 1.0;
+                $row['CastkaVlastni'] = $row['Castka'];
+                $row['DPHz'] = $row['DPHs'] = $row['DPHt'] = 0.0;
+            }
+            unset($row);
+        }
+        foreach ($tables['Cpz'] as &$row) $row['Agenda'] = $row['DoklSRada'];
+        unset($row);
+        foreach ($tables['CPZZ'] as &$row) $row['Mena'] = 'Kč';
+        unset($row);
+        $tables['CBankap'][0]['Castka'] = $tables['CBankap'][0]['CastkaVlastni'] = 100.0;
+        $tables['CBankap'][] = array_replace($tables['CBankap'][0],
+            ['DoklRada' => '', 'Klic' => 6, 'Castka' => 21.0, 'CastkaVlastni' => 21.0]);
+        $path = tempnam(sys_get_temp_dir(), 'stereo-series-payment-');
+        try {
+            SyntheticNx1Archive::write($path, $tables, SyntheticStereoNxTables::identity());
+            $module = (new \ReflectionClass(StereoNxAccountingPayments::class))->newInstanceWithoutConstructor();
+            $plan = $module->prepare(StereoNxBackup::open($path, 0));
+            self::assertSame($withHeader ? 1 : 0, $plan['counts']['skipped_bank_account_statements']);
+            self::assertSame(1, $plan['counts']['skipped_bank_transactions']);
+            self::assertNotContains('issued', array_column($plan['records']['payments'], 'document_kind'));
+            self::assertCount(2, $plan['records']['payments']);
+            self::assertContains('bank_account_unresolved', array_column($plan['warnings'], 'code'));
+            self::assertNotContains('bank_currency_unresolved', array_column($plan['warnings'], 'code'));
+            $warnings = array_values(array_filter($plan['warnings'], static fn (array $w): bool => $w['code'] === 'bank_account_unresolved'));
+            self::assertSame($withHeader ? 2 : 1, $warnings[0]['count']);
+        } finally {
+            unlink($path);
+        }
+    }
+
+    public static function blankStatementPresence(): array
+    {
+        return ['blank header and linked movement' => [true], 'orphan linked movement without series' => [false]];
+    }
+
+    public function testTaxEvidenceStillRequiresVerifiedStatementAccount(): void
+    {
+        $tables = SyntheticStereoNxTables::tables();
+        $tables['LFirmaUc'] = [self::account('A'), self::account('B')];
+        $tables['CBanka'][0]['DoklRada'] = 'C';
+        $path = tempnam(sys_get_temp_dir(), 'stereo-series-tax-');
+        try {
+            SyntheticNx1Archive::write($path, $tables, SyntheticStereoNxTables::identity());
+            $backup = StereoNxBackup::open($path, 0);
+            $backup->assertBankAccountSeriesReady();
+            try {
+                StereoNxSourcePlan::build($backup, true);
+                self::fail('Daňová evidence nesmí vytvořit peněžní deník bez ověřené vazby na účet.');
+            } catch (StereoNxException $e) {
+                self::assertSame('bank_statement_identity', $e->errorCode);
             }
         } finally {
             unlink($path);

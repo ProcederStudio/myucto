@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Service\Migration\StereoNx;
 
 use MyInvoice\Infrastructure\Config\RuntimePaths;
+use MyInvoice\Service\Migration\Shared\ImportJobReportFiles;
 
 /** Protokol patří dokončenému jobu a zůstává dostupný i po odstranění vstupní zálohy. */
 final class StereoNxRunReportStore
@@ -71,7 +72,7 @@ final class StereoNxRunReportStore
 
     private function relativePath(int $supplierId, int $jobId): string
     {
-        return 'import-jobs/' . $supplierId . '/reports/stereo-nx-' . $jobId . '.json';
+        return ImportJobReportFiles::relativePath($supplierId, $jobId, true);
     }
 
     private function directory(int $supplierId, bool $create): ?string

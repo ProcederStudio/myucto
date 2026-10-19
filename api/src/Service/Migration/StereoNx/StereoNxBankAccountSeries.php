@@ -56,8 +56,9 @@ final class StereoNxBankAccountSeries
             $assignments[] = ['account_index' => 0, 'account_label' => $label, 'series' => $unmatched[0]];
         }
         return ['requires_confirmation' => $assignments !== [],
-            'ambiguous' => $statements !== [] && ($duplicate || $invalidStatement
-                || ($unmatched !== [] && $assignments === [])),
+            // Nepokryté řady účetní převod přeskočí s varováním. Duplicitní vazba
+            // vlastních účtů by naopak mohla přiřadit pohyb nesprávnému účtu.
+            'ambiguous' => $duplicate,
             'assignments' => $assignments, 'missing_accounts' => $missing, 'unmatched_series' => $unmatched];
     }
 }

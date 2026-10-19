@@ -44,30 +44,26 @@ final class StereoNxAccountingPayments
         $warnings = [];
         $statements = [];
         $statementByPhysical = [];
-        $statementSkipReason = [];
         $sourceDates = [];
         $usedAccounts = [];
         $skippedStatements = 0;
         $skippedAccountStatements = 0;
         foreach ($read('CBanka') as $row) {
-            $series = self::required($row, 'DoklRada');
+            $series = trim((string) ($row['DoklRada'] ?? ''));
             $statementDate = self::date($row, 'KdyVystaveno');
             $sourceDates[] = $statementDate;
+            if (!isset($accountsBySeries[$series])) {
+                $skippedAccountStatements++;
+                continue;
+            }
             $year = (string) $calendar->fiscalYearOfDate($statementDate);
             $physical = self::key([$year, $series, self::required($row, 'DoklCislo')]);
             $key = self::key([$year, $series, self::required($row, 'DoklCislo')]);
             if (isset($statementByPhysical[$physical])) {
                 throw new StereoNxException('bank_statement_identity', 'Bankovní výpis nemá jednoznačnou identitu.');
             }
-            if (!isset($accountsBySeries[$series])) {
-                $statementByPhysical[$physical] = null;
-                $statementSkipReason[$physical] = 'account';
-                $skippedAccountStatements++;
-                continue;
-            }
             if (!self::domesticRate($row)) {
                 $statementByPhysical[$physical] = null;
-                $statementSkipReason[$physical] = 'currency';
                 $skippedStatements++;
                 continue;
             }
@@ -99,14 +95,21 @@ final class StereoNxAccountingPayments
         $skippedBankCurrency = 0;
         $skippedBankAccount = 0;
         foreach ($read('CBankap') as $row) {
-            $physical = self::key([(string) $calendar->fiscalYearOfDate(self::date($row, 'KdyUcPripad')),
+            $movementDate = self::date($row, 'KdyUcPripad');
+            $sourceDates[] = $movementDate;
+            $series = trim((string) ($row['DoklRada'] ?? ''));
+            if (!isset($accountsBySeries[$series])) {
+                if (($bare = self::optionalDocumentKey($row)) !== null) $excludedPaymentGroups[$bare] = true;
+                $skippedBankAccount++;
+                $skippedBank++;
+                continue;
+            }
+            $physical = self::key([(string) $calendar->fiscalYearOfDate($movementDate),
                 self::required($row, 'DoklRada'), self::required($row, 'DoklCislo')]);
-            $sourceDates[] = self::date($row, 'KdyUcPripad');
             $statementKey = $statementByPhysical[$physical] ?? null;
             if ($statementKey === null) {
                 if (($bare = self::optionalDocumentKey($row)) !== null) $excludedPaymentGroups[$bare] = true;
-                if (($statementSkipReason[$physical] ?? null) === 'account') $skippedBankAccount++;
-                else $skippedBankCurrency++;
+                $skippedBankCurrency++;
                 $skippedBank++;
                 continue;
             }
@@ -259,9 +262,9 @@ final class StereoNxAccountingPayments
                 'message' => 'Cizoměnové bankovní záznamy bez kódu měny nebyly převedeny.',
                 'count' => $skippedStatements + $skippedBankCurrency];
         }
-        if ($skippedAccountStatements > 0) {
+        if ($skippedAccountStatements > 0 || $skippedBankAccount > 0) {
             $warnings[] = ['level' => 'warning', 'code' => 'bank_account_unresolved',
-                'message' => 'Bankovní výpis bez jednoznačné vazby na vlastní účet nebyl převeden.',
+                'message' => 'Bankovní výpisy a pohyby bez jednoznačné vazby na vlastní účet nebyly převedeny.',
                 'count' => $skippedAccountStatements + $skippedBankAccount];
         }
         if ($skippedCash > 0) {

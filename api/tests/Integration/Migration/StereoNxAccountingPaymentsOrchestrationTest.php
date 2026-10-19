@@ -165,7 +165,7 @@ final class StereoNxAccountingPaymentsOrchestrationTest extends TestCase
         self::assertSame([
             ['amount' => '121.00', 'bank_amount' => '121.00', 'paid' => '121.0000'],
             ['amount' => '100.00', 'bank_amount' => '-100.00', 'paid' => '79.0000'],
-            ['amount' => '-21.00', 'bank_amount' => '21.00', 'paid' => '79.0000'],
+            ['amount' => '21.00', 'bank_amount' => '21.00', 'paid' => '79.0000'],
         ], $query->fetchAll(\PDO::FETCH_ASSOC));
         $lines = $pdo->prepare("SELECT a.account_code, l.side, l.signed_amount
             FROM journal_entry_lines l JOIN journal_entries e ON e.id=l.entry_id

@@ -802,6 +802,10 @@ pro převod; původní zálohu nemění a přiřazení zůstane uvedené v proto
 Změna této volby vyžaduje novou zkoušku nanečisto. Při více možných účtech,
 řadách nebo rozporném nastavení se vazba neodhaduje: doplňte správné řady
 účtů ve Stereo NX a nahrajte novou zálohu.
+U podvojného účetnictví výpis bez odpovídajícího vlastního účtu, včetně
+výpisu s prázdnou řadou, převod ostatních dat nezastaví. Výpis a jeho pohyby
+se nepřevedou a protokol je uvede s upozorněním. Duplicitní řada vlastních
+účtů převod blokuje; přiřazení řady jedinému účtu stále vyžaduje potvrzení.
 
 Zkouška i převod běží na pozadí, průvodce průběžně ukazuje stav a druhý převod
 téže firmy se nespustí, dokud první neskončí. Název ZIPu nemusí odpovídat všem
@@ -825,6 +829,8 @@ importu, včetně neúspěšného běhu. PDF obsahuje všechny uvedené počty v
 zprávy, důvody ruční kontroly a rekonciliaci; není omezené filtrem tabulky.
 Protokol zůstává dostupný i po odstranění nahraného ZIPu. Zkouška nanečisto
 v PDF zřetelně označuje plánovaný zápis, nikoli vytvořené záznamy.
+Uložený protokol je součástí exportu instance a jeho obnovy. Smazáním úlohy
+ze seznamu se odstraní také její uložený protokol.
 
 #### 21.9.15.1 Daňová evidence
 
@@ -886,6 +892,13 @@ kontace. U přijatých dokladů se rozlišuje úhrada záporného dokladu a sní
 dřívější úhrady běžné faktury; kontrola saldokonta používá čistý součet včetně
 vratek. Záporné snížení úhrady vydané faktury nebo pokladní úhrady zůstává
 spolu s ostatními úhradami téhož dokladu k ruční kontrole.
+
+Automatické párování úhrad vyžaduje také jednoznačnou hlavičku příslušné
+vydané nebo přijaté faktury ve stejném účetním roce a shodu součtu celé skupiny
+plateb se zdrojovou uhrazenou částkou. Samotná shoda jedné platby nestačí.
+Pokud se tyto podklady neshodují nebo část skupiny nelze převést, zůstane
+celá skupina k ruční kontrole. Týká se to i úhrad zálohových dokladů;
+neověřená část skupiny se automaticky nespáruje.
 
 Cizoměnové faktury s doloženou měnou a kurzem se převezmou; neověřené členění DPH
 zůstává konceptem. Potřebné měny musí existovat v Nastavení měn cílové firmy.

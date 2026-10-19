@@ -14,6 +14,7 @@ use MyInvoice\Service\Migration\Shared\BankAccountRegistrar;
 use MyInvoice\Service\Migration\Shared\ForeignCurrencyTakeover;
 use MyInvoice\Service\Migration\Shared\MigrationHomeCurrency;
 use MyInvoice\Service\Migration\Shared\MigratedPaymentWriter;
+use MyInvoice\Service\Migration\Shared\MigratedPurchasePaymentWriter;
 use MyInvoice\Service\Migration\Shared\MigratedCashNumber;
 use MyInvoice\Service\Migration\Shared\MigratedDocumentItem;
 use MyInvoice\Service\Migration\Shared\MigratedDocumentWriter;
@@ -66,6 +67,7 @@ final class StereoNxImporter
     private readonly MigrationVatRateLookup $rates;
     private readonly MigrationHomeCurrency $homeCurrency;
     private readonly MigratedPaymentWriter $payments;
+    private readonly MigratedPurchasePaymentWriter $purchasePayments;
     private readonly MigratedCashNumber $cashNumbers;
 
     public function __construct(
@@ -83,6 +85,7 @@ final class StereoNxImporter
         $this->rates = new MigrationVatRateLookup($db);
         $this->homeCurrency = new MigrationHomeCurrency($db);
         $this->payments = new MigratedPaymentWriter($db);
+        $this->purchasePayments = new MigratedPurchasePaymentWriter($db);
         $this->cashNumbers = new MigratedCashNumber($db);
     }
 
@@ -935,8 +938,10 @@ final class StereoNxImporter
             return;
         }
         try {
-            $linkId = $this->payments->attach($ctx['supplier_id'], $ctx['user_id'], $kind, $movementType,
-                $docId, $movementId, $amount);
+            $linkId = $kind === 'purchase' && $movementType === 'bank'
+                ? $this->purchasePayments->attachBank($ctx['supplier_id'], $ctx['user_id'], $docId, $movementId, abs($amount))
+                : $this->payments->attach($ctx['supplier_id'], $ctx['user_id'], $kind, $movementType,
+                    $docId, $movementId, $amount);
         } catch (\InvalidArgumentException $e) {
             if ($e->getMessage() === 'cash_payment_ambiguous') {
                 throw new StereoNxException('cash_payment_ambiguous', 'Pokladní pohyb nelze jednoznačně spárovat s dokladem.');
@@ -963,7 +968,7 @@ final class StereoNxImporter
             $column = $kind === 'issued' ? 'invoice_id' : 'purchase_invoice_id';
             $stmt = $this->db->pdo()->prepare("SELECT 1 FROM payment_matches WHERE id = ? AND supplier_id = ?
                 AND bank_transaction_id = ? AND {$column} = ? AND ABS(amount - ?) < 0.01");
-            $stmt->execute([$mappedId, $supplierId, $movementId, $docId, $amount]);
+            $stmt->execute([$mappedId, $supplierId, $movementId, $docId, $kind === 'purchase' ? abs($amount) : $amount]);
             if ($stmt->fetchColumn() === false) throw new StereoNxException('mapped_payment_changed', 'Dříve převedená úhrada byla změněna nebo odstraněna.');
             if ($kind === 'issued') {
                 $stmt = $this->db->pdo()->prepare('SELECT 1 FROM invoice_payments WHERE supplier_id = ?
@@ -1022,8 +1027,19 @@ final class StereoNxImporter
     {
         $this->payments->refreshBalances($ctx['supplier_id'],
             [...array_values($ctx['new_documents']['issued']), ...array_values($ctx['touched_documents']['issued'])],
-            [...array_values($ctx['new_documents']['purchase']), ...array_values($ctx['touched_documents']['purchase'])],
-            [...array_values($ctx['new_statements']), ...array_values($ctx['touched_statements'])]);
+            [], [...array_values($ctx['new_statements']), ...array_values($ctx['touched_statements'])]);
+        $purchases = array_values(array_unique([
+            ...array_values($ctx['new_documents']['purchase']), ...array_values($ctx['touched_documents']['purchase']),
+        ]));
+        try {
+            $this->purchasePayments->refreshBalances($ctx['supplier_id'], $purchases);
+        } catch (\InvalidArgumentException $e) {
+            throw match ($e->getMessage()) {
+                'payment_target_missing' => new StereoNxException('payment_target_missing', 'Převáděný závazek nepatří vybrané firmě.'),
+                'payment_currency_unverified' => new StereoNxException('payment_currency_unverified', 'Úhrada závazku nemá ověřenou měnu.'),
+                default => $e,
+            };
+        }
     }
 
     /** Stejná kontrola otisku a vlastnictví pro doklad i jeho následné úhrady. */
