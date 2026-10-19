@@ -6,21 +6,21 @@ namespace MyInvoice\Service\Property\Payments;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\Property\Payments\{PaymentRepository,CreditSetoffRepository};
 use MyInvoice\Service\Property\PropertyInput;
-use MyInvoice\Service\Property\Payments\Workflow\{PaymentSourcePreview,PaymentWorkflowJournalPlan};
+use MyInvoice\Service\Property\Payments\Workflow\{PaymentSourcePreview,PaymentSourceProjection,PaymentWorkflowJournalPlan};
 
 final class PaymentHistoricalCarrierProof
 {
     private readonly string $savepoint;
     private readonly array $expectedJournal;
     private function __construct(private readonly Connection $db,private readonly PaymentRepository|CreditSetoffRepository $owner,
-        private readonly int $supplier,private readonly array $request,private readonly ?PaymentSourcePreview $prospective,
+        private readonly int $supplier,private readonly array $request,private readonly PaymentSourcePreview|PaymentSourceProjection|null $prospective,
         private readonly ?int $operationId,private readonly array $snapshot)
     {
         $this->expectedJournal=$this->resolve($snapshot);
         $this->savepoint='payment_carrier_'.bin2hex(random_bytes(10));
         $db->pdo()->exec('SAVEPOINT '.$this->savepoint);
     }
-    public static function fromCurrentPayment(Connection $db,PaymentRepository $owner,int $supplier,array $request,?PaymentSourcePreview $prospective=null):self
+    public static function fromCurrentPayment(Connection $db,PaymentRepository $owner,int $supplier,array $request,PaymentSourcePreview|PaymentSourceProjection|null $prospective=null):self
     {
         $snapshot=$owner->currentCarrierSnapshot($db,$supplier,$request,$prospective);
         return new self($db,$owner,$supplier,$request,$prospective,null,$snapshot);
@@ -100,6 +100,11 @@ final class PaymentHistoricalCarrierProof
             ||(substr($source['account_code'],0,3)==='379'&&!in_array($source['account_code'],['379.900','379.910'],true))
             ||$line['side']===$source['side']||bccomp($line['amount'],'0',2)<=0||bccomp($line['amount'],$source['amount'],2)>0)return false;
         $a=PaymentJournalProof::canonicalLines([$line])[0];$b=PaymentJournalProof::canonicalLines([$source])[0];unset($a['side'],$a['amount'],$b['side'],$b['amount']);
+        if($b['currency_code']!==null){
+            if($a['currency_code']!==$b['currency_code']||$a['fx_rate']!==$b['fx_rate']||$a['amount_foreign']===null||$b['amount_foreign']===null
+                ||bccomp($a['amount_foreign'],'0',2)<=0||bccomp($a['amount_foreign'],$b['amount_foreign'],2)>0)return false;
+            unset($a['amount_foreign'],$b['amount_foreign']);
+        }
         return PropertyInput::hash($a)===PropertyInput::hash($b);
     }
     private static function header(array $header):array

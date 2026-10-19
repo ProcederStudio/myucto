@@ -83,4 +83,16 @@ final class ClearingCellsTest extends TestCase
         $this->expectException(PaymentException::class);
         ClearingCells::normalize('100', [['key' => 'a', 'amount_cents' => '99', 'dimensions' => []]]);
     }
+
+    public function testPinnedNativePartSurvivesEarlierReversalAndFinalPartConsumesExactResidual(): void
+    {
+        $cells = [['key' => 'fx', 'amount_cents' => '2467', 'line' => [
+            'currency_code' => 'EUR', 'amount_foreign' => '1.00', 'fx_rate' => '24.666000',
+        ]]];
+        $remaining = ClearingCells::consume($cells, [], '1234', [['key' => 'fx', 'amount_cents' => '1234', 'native_minor' => '50']], [], true);
+        self::assertSame('50', $remaining[0]['native_minor']);
+        $replacement = ClearingCells::consume($cells, ['fx' => '1234'], '1233', [['key' => 'fx', 'amount_cents' => '1233']], ['fx' => '50']);
+        self::assertSame('50', $replacement[0]['native_minor']);
+        self::assertSame('100', bcadd($remaining[0]['native_minor'], $replacement[0]['native_minor'], 0));
+    }
 }

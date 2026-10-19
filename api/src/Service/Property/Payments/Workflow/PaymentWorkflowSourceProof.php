@@ -48,17 +48,20 @@ final class PaymentWorkflowSourceProof
             $revision = (new ClearingRevisionHistory($this->db))->current($supplier, $stored, $receipt);
             $cells = $revision['clearing_cells'];
             if ($revision['revision_id'] === null) $revision = [];
-            $q = $this->db->pdo()->prepare("SELECT amount_cents,snapshot_json,snapshot_hash FROM unit_payment_operations WHERE supplier_id=? AND source_id=? AND status='posted' AND kind IN ('allocation','refund') ORDER BY id FOR UPDATE");
+            $q = $this->db->pdo()->prepare("SELECT source_amount_cents,source_native_minor,snapshot_json,snapshot_hash FROM unit_payment_operations WHERE supplier_id=? AND source_id=? AND status='posted' AND kind IN ('allocation','refund') ORDER BY id FOR UPDATE");
             $q->execute([$supplier, $stored['id']]);
             foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $operation) {
                 $snapshot = json_decode($operation['snapshot_json'], true, flags: JSON_THROW_ON_ERROR);
-                if (!hash_equals($operation['snapshot_hash'], PropertyInput::hash($snapshot)) || !isset($snapshot['clearing_selection'])) PaymentException::reject('source_capacity_corrupt');
-                foreach (ClearingCells::consume($cells, $cellUsed, $operation['amount_cents'], $snapshot['clearing_selection']) as $part) $cellUsed[$part['key']] = bcadd($cellUsed[$part['key']] ?? '0', $part['amount_cents'], 0);
-                $used = bcadd($used, $operation['amount_cents'], 0);
+                if (!hash_equals($operation['snapshot_hash'], PropertyInput::hash($snapshot)) || !isset($snapshot['clearing_selection'])
+                    || $operation['source_amount_cents'] === null || $operation['source_native_minor'] !== null) PaymentException::reject('source_capacity_corrupt');
+                foreach (ClearingCells::consume($cells, $cellUsed, $operation['source_amount_cents'], $snapshot['clearing_selection']) as $part) $cellUsed[$part['key']] = bcadd($cellUsed[$part['key']] ?? '0', $part['amount_cents'], 0);
+                $used = bcadd($used, $operation['source_amount_cents'], 0);
             }
-            if ($used !== $stored['consumed_cents'] || $stored['amount_cents'] !== $cents || $stored['direction'] !== $direction || (int) $stored['journal_entry_id'] !== $ledger['entry']['id']) PaymentException::reject('source_capacity_corrupt');
+            if ($used !== $stored['consumed_cents'] || $stored['amount_cents'] !== $cents || $stored['direction'] !== $direction || (int) $stored['journal_entry_id'] !== $ledger['entry']['id']
+                || $stored['currency_code'] !== 'CZK' || $stored['native_amount_minor'] !== null || $stored['consumed_native_minor'] !== null || $stored['fx_rate'] !== null) PaymentException::reject('source_capacity_corrupt');
         }
         return ['receipt' => $receipt, 'id' => $stored ? (int) $stored['id'] : null, 'version' => $stored ? (int) $stored['row_version'] : 0,
-            'consumed_cents' => $used, 'available_cents' => bcsub($cents, $used, 0), 'cell_consumed' => $cellUsed] + $revision;
+            'consumed_cents' => $used, 'available_cents' => bcsub($cents, $used, 0), 'consumed_native_minor' => null,
+            'available_native_minor' => null, 'cell_consumed' => $cellUsed, 'cell_native_consumed' => []] + $revision;
     }
 }
