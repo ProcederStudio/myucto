@@ -837,6 +837,24 @@ rok nebo zkrácené období s přílohou ztrát vyžaduje samostatné zpracován
 Přehled daňových úspor zobrazuje doložené uložené záznamy podle oprávnění uživatele.
 Právní profily a interní podklady úspor jsou přístupné pouze v přihlášeném webovém rozhraní.
 
+Pracovní plocha pro posouzení neziskové organizace načítá podklady po stránkách. Nejprve
+zobrazí pouze souhrn zdrojů a potvrzenou historii. Koncept otevřete výslovně po volbě
+právního profilu a jeho důkazu; teprve potom procházíte účetní řádky, rozhodnutí,
+činnosti a vazby použitých prostředků. Další stránka se načte jen po stisknutí tlačítka,
+takže ani dlouhé účetní období nestahuje celý rok do prohlížeče.
+
+Každé uložení posune revizi konceptu. Staré stránkovací odkazy a starý náhled tím
+pozbudou platnost. Náhled slouží ke kontrole rozhodnutí, výsledku, pokrytí a doloženého
+použití prostředků. Potvrzení výsledek náhledu slepě nepřebírá: znovu načte aktuální
+účetní podklady, ověří poslední potvrzené posouzení a až poté vytvoří neměnný záznam.
+Pokud po odeslání není kvůli přerušení spojení zřejmý výsledek, obrazovka nabídne
+opakování přesně stejného požadavku bez vzniku dvojí revize.
+
+Potvrzenou historii lze opět procházet po stránkách. U každé revize otevřete její
+neměnné zdroje a výsledkové části nebo stáhnete proudový NDJSON export. Hláška o starší
+historii vyžadující převod znamená, že ji musí oprávněný uživatel nejprve výslovně
+převést; samotné zobrazení žádný převod ani jiný zápis nespouští.
+
 U SVJ jsou doložené příspěvky vlastníků na správu domu a pozemku a úhrady služeb
 vedeny odděleně jako příjmy mimo předmět daně. Toto zařazení nelze změnit ani ručním
 posouzením historického období. Původ příspěvků musí navazovat na skutečný předpis

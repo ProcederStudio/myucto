@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "e9e46a629d49e529eab8d8b96a751787",
+    "content-hash": "1d252873fc50d169bb314be8d8848ead",
     "packages": [
         {
             "name": "blondak/nx1-reader",
@@ -11071,6 +11071,7 @@
         "ext-openssl": "*",
         "ext-pdo": "*",
         "ext-pdo_mysql": "*",
+        "ext-pdo_sqlite": "*",
         "ext-simplexml": "*",
         "ext-xmlreader": "*",
         "ext-zip": "*",

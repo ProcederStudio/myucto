@@ -42,7 +42,7 @@ final class EnvironmentCheckService
      */
     public const REQUIRED_EXTENSIONS = [
         'bcmath', 'ctype', 'dom', 'fileinfo', 'filter', 'gd', 'iconv', 'json',
-        'libxml', 'mbstring', 'openssl', 'pdo', 'pdo_mysql', 'SimpleXML',
+        'libxml', 'mbstring', 'openssl', 'pdo', 'pdo_mysql', 'pdo_sqlite', 'SimpleXML',
         'xmlreader', 'zip', 'zlib',
     ];
 

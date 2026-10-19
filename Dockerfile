@@ -62,7 +62,7 @@ COPY --from=mlocati/php-extension-installer:latest /usr/bin/install-php-extensio
 # poppler-utils = `pdftoppm`, záložní cesta k obrázkům stránek PDF pro vision modely
 # v Ollamě (PdfPageRasterizer) — parita s Dockerfile.alpine.
 RUN install-php-extensions \
-        pdo_mysql gd mbstring intl zip opcache exif bcmath redis sodium soap imagick \
+        pdo_mysql pdo_sqlite gd mbstring intl zip opcache exif bcmath redis sodium soap imagick \
  && apt-get update \
  && apt-get install -y --no-install-recommends tini cron mariadb-client libstdc++6 poppler-utils \
  && if [ "$INSTALL_RSVG" = "1" ]; then \
