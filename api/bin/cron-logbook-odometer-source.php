@@ -35,8 +35,10 @@ try {
         $summary['errors'] > 0 ? 'Stav tachometru se u některých aut nepodařilo načíst.' : null,
     );
     exit($summary['errors'] > 0 ? 1 : 0);
-} catch (Throwable) {
-    $run->finish('error', [], 'Načtení stavu tachometru z aut selhalo.');
-    fwrite(STDERR, "[odometer-source] načtení selhalo.\n");
+} catch (Throwable $e) {
+    // Zpráva výjimky z HTTP klienta může nést odpověď služby i s tokeny, do logu jde jen třída a kód.
+    $error = ['error_class' => $e::class, 'error_code' => $e->getCode()];
+    $run->finish('error', $error, 'Načtení stavu tachometru z aut selhalo.');
+    fwrite(STDERR, '[odometer-source] načtení selhalo: ' . $e::class . ' (' . $e->getCode() . ")\n");
     exit(1);
 }

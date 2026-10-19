@@ -36,6 +36,8 @@ final class FakeOdometerSource implements OdometerSourceProvider
     public array $samples = [];
     /** @var array<string,string> */
     public array $failFor = [];
+    /** Neočekávaná chyba při čtení (např. z HTTP klienta). */
+    public ?\Throwable $crash = null;
 
     public function __construct()
     {
@@ -81,6 +83,7 @@ final class FakeOdometerSource implements OdometerSourceProvider
         $session->spendCalls();
         $this->reads++;
         $this->credentialsSeen[] = $session->credentials();
+        if ($this->crash !== null) throw $this->crash;
         if (isset($this->failFor[$vehicleRef])) throw new OdometerSourceException($this->failFor[$vehicleRef]);
         if ($this->rotateTo !== null) {
             $session->update(['token' => $this->rotateTo]);

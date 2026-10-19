@@ -197,7 +197,7 @@ final class OdometerSourceService
      * dat, nenavazující stav) je varování u auta, ne chyba
      * ({@see OdometerSourceException::isVehicleWarning()}).
      *
-     * @return array{processed:int, succeeded:int, warnings:int, errors:int, details:list<array{account_id:int, car_id:?int, error_code:string}>}
+     * @return array{processed:int, succeeded:int, warnings:int, errors:int, details:list<array{account_id:int, car_id:?int, error_code:string, error_class?:string}>}
      */
     public function syncAll(): array
     {
@@ -224,7 +224,10 @@ final class OdometerSourceService
                 $code = $e instanceof OdometerSourceException ? $e->errorCode : 'internal_error';
                 if ($code !== 'connection_busy') $this->accounts->recordSyncError($account['supplier_id'], $account['id'], $code);
                 $summary['errors']++;
-                $summary['details'][] = ['account_id' => $account['id'], 'car_id' => null, 'error_code' => $code];
+                $detail = ['account_id' => $account['id'], 'car_id' => null, 'error_code' => $code];
+                // Neočekávaná chyba: jen třída, zpráva může nést odpověď služby.
+                if ($code === 'internal_error') $detail['error_class'] = $e::class;
+                $summary['details'][] = $detail;
             }
         }
         return $summary;

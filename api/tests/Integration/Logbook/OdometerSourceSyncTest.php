@@ -325,6 +325,19 @@ final class OdometerSourceSyncTest extends TestCase
         self::assertSame(['active', null], $this->accountState($account));
     }
 
+    public function testUnexpectedFailureReportsOnlyItsClass(): void
+    {
+        $car = $this->carWithStart($this->supplierA, 'TST0029', 1000, '2099-03-01');
+        $account = $this->connectedAccount($this->supplierA, [$car => self::VIN]);
+        $this->source->crash = new \RuntimeException('HTTP 401 {"access_token":"synthetic-secret"}');
+
+        $summary = $this->service->syncAll();
+
+        self::assertSame([['account_id' => $account, 'car_id' => null, 'error_code' => 'internal_error',
+            'error_class' => \RuntimeException::class]], $summary['details']);
+        self::assertStringNotContainsString('synthetic-secret', (string) json_encode($summary));
+    }
+
     public function testDailyRunWithOnlyMissingDataEndsWithoutErrorWhileRevokedVehicleIsAnError(): void
     {
         $silent = $this->carWithStart($this->supplierA, 'TST0027', 1000, '2099-03-01');
