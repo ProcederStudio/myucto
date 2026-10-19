@@ -57,6 +57,7 @@ má vždy přednost před oběma.
 | `cron-backup-personnel.{cmd,sh}` | ZIP personálních spisů zaměstnanců (`storage/payroll-personnel/`) do `storage/backup/{dbname}-personnel-YYYY-MM-DD.zip`, stejná retention. Záměrně oddělené od mzdové zálohy i od Dokumentů (soukromá data). Soubory jsou šifrované klíčem zaměstnance, obnovují se spolu s dumpem databáze, pro člověka přikládá `MANIFEST.csv` |
 | `cron-bank-scan.{cmd,sh}` | Auto-import nových GPC výpisů z `private/bank-incoming/` + matching plateb na faktury |
 | `cron-bank-connections.{cmd,sh}` | Načtení výpisů a pohybů z aktivních přímých bankovních konektorů do společného importu a párování; ČSOB současně kontroluje výpisy GPC a průběžná avíza BBF, opakované pohyby deduplikuje |
+| `cron-logbook-odometer-source.{cmd,sh}` | Denní stav tachometru z aut napojených na zdroj automatického stavu tachometru do Knihy jízd (podklad pro km k doplnění); zároveň udržuje přihlášení u služby, které by jinak propadlo |
 | `cron-bank-email-notices.{cmd,sh}` | IMAP polling bankovních e-mailových avíz, parsování plateb a matching na faktury (konfigurace v **Admin → Bankovní účty**) |
 | `cron-scan-purchase-inbox.{cmd,sh}` | Import nových přijatých dokladů z nastaveného inbox adresáře |
 | `cron-payment-thanks.{cmd,sh}` | Každou minutu zpracuje poděkování za potvrzené úhrady a odložené e-maily; během otevřené účetní transakce se nic neodesílá |
@@ -149,6 +150,7 @@ při přidání nové citlivé cesty rozšiř seznam v něm i tady.
 | `cron-backup-personnel` | 1× denně | 02:45 (po mzdách) |
 | `cron-bank-scan` | každých 15–30 minut | `*/30 * * * *` |
 | `cron-bank-connections` | každých 15 minut (jen když je zapnutý aspoň jeden konektor; KB+ se sám stahuje nejvýš jednou za 61 minut) | `*/15 * * * *` |
+| `cron-logbook-odometer-source` | 1× denně (jen když je napojené aspoň jedno auto) | 03:30 |
 | `cron-bank-email-notices` | každých 30 minut (jen když je zapnutá aspoň jedna IMAP schránka) | `*/30 * * * *` |
 | `cron-scan-purchase-inbox` | každých 10 minut | `*/10 * * * *` |
 | `cron-payment-thanks` | každou minutu | `* * * * *` |
@@ -245,6 +247,7 @@ schtasks /create /tn "MyUcto BackupPayroll" /tr "C:\inetpub\wwwroot\myucto.cz\cm
 schtasks /create /tn "MyUcto BackupPersonnel" /tr "C:\inetpub\wwwroot\myucto.cz\cmd\cron-backup-personnel.cmd" /sc daily /st 02:45 /ru SYSTEM
 schtasks /create /tn "MyUcto BankScan"  /tr "C:\inetpub\wwwroot\myucto.cz\cmd\cron-bank-scan.cmd"      /sc minute /mo 30 /ru SYSTEM
 schtasks /create /tn "MyUcto BankConnections" /tr "C:\inetpub\wwwroot\myucto.cz\cmd\cron-bank-connections.cmd" /sc minute /mo 15 /ru SYSTEM
+schtasks /create /tn "MyUcto OdometerSource" /tr "C:\inetpub\wwwroot\myucto.cz\cmd\cron-logbook-odometer-source.cmd" /sc daily /st 03:30 /ru SYSTEM
 schtasks /create /tn "MyUcto BankEmailNotices" /tr "C:\inetpub\wwwroot\myucto.cz\cmd\cron-bank-email-notices.cmd" /sc minute /mo 30 /ru SYSTEM
 schtasks /create /tn "MyUcto PurchaseInbox" /tr "C:\inetpub\wwwroot\myucto.cz\cmd\cron-scan-purchase-inbox.cmd" /sc minute /mo 10 /ru SYSTEM
 schtasks /create /tn "MyUcto PaymentThanks" /tr "C:\inetpub\wwwroot\myucto.cz\cmd\cron-payment-thanks.cmd" /sc minute /mo 1 /ru SYSTEM
@@ -317,6 +320,7 @@ Edituj `crontab -e` (nebo `/etc/cron.d/myucto`):
  45  2  *   *   *    /var/www/myucto.cz/cmd/cron-backup-personnel.sh
 */30 *  *   *   *    /var/www/myucto.cz/cmd/cron-bank-scan.sh
 */15 *  *   *   *    /var/www/myucto.cz/cmd/cron-bank-connections.sh
+ 30  3  *   *   *    /var/www/myucto.cz/cmd/cron-logbook-odometer-source.sh
 */30 *  *   *   *    /var/www/myucto.cz/cmd/cron-bank-email-notices.sh
 */10 *  *   *   *    /var/www/myucto.cz/cmd/cron-scan-purchase-inbox.sh
  *  *  *   *   *    /var/www/myucto.cz/cmd/cron-payment-thanks.sh

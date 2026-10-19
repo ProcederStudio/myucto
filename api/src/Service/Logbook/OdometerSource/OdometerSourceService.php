@@ -1,0 +1,476 @@
+<?php
+
+declare(strict_types=1);
+
+namespace MyInvoice\Service\Logbook\OdometerSource;
+
+use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Infrastructure\Database\NamedLockName;
+use MyInvoice\Repository\CarRepository;
+use MyInvoice\Repository\OdometerReadingRepository;
+use MyInvoice\Repository\OdometerSourceAccountRepository;
+use MyInvoice\Repository\OdometerSourceCarRepository;
+
+/**
+ * Automatický stav tachometru: napojení na účet u zdroje, přiřazení aut a denní načtení
+ * stavu do odometer_readings (zdroj = kód provideru). Neevidované km mezi stavy pak Kniha
+ * jízd nabídne k doplnění ({@see \MyInvoice\Service\Logbook\OdometerGapCalculator}).
+ *
+ * Napojení je účet u zdroje, ne auto: jedno přihlášení obvykle pokryje víc aut a jeden
+ * řetěz rotujících refresh tokenů nesmí mít dvě kopie. Auta účtu se přiřazují k autům
+ * knihy jízd podle VIN.
+ *
+ * Jádro je pro všechny zdroje stejné; konkrétní služba je jen {@see OdometerSourceProvider}.
+ * Připojení: {@see startConnect()} vrátí krok pro UI ({@see ConnectStep}), {@see continueConnect()}
+ * se ptá, jestli uživatel přihlášení u služby dokončil. Vše, co používá přístupy účtu,
+ * běží pod zámkem účtu.
+ */
+final class OdometerSourceService
+{
+    private const REGRESSION = 'odometer_regression';
+
+    public function __construct(
+        private readonly Connection $db,
+        private readonly OdometerSourceRegistry $providers,
+        private readonly OdometerSourceVault $vault,
+        private readonly OdometerSourceAccountRepository $accounts,
+        private readonly OdometerSourceCarRepository $assignments,
+        private readonly CarRepository $cars,
+        private readonly OdometerReadingRepository $readings,
+    ) {}
+
+    /** @return list<array<string,mixed>> */
+    public function catalog(): array
+    {
+        return $this->providers->catalog();
+    }
+
+    /**
+     * Stav auta pro dialog: přiřazení, jeho účet a připojené účty firmy k výběru.
+     *
+     * @return array{car:?array<string,mixed>, account:?array<string,mixed>, accounts:list<array<string,mixed>>}
+     */
+    public function status(int $supplierId, int $carId): array
+    {
+        $accounts = $this->accounts->listConnected($supplierId);
+        $cars = $this->assignments->listForAccounts($supplierId, array_column($accounts, 'id'));
+        $accounts = array_map(fn (array $a): array => $this->publicAccount($a, $cars[$a['id']] ?? []), $accounts);
+        $car = $this->assignments->findForCar($supplierId, $carId);
+        $account = null;
+        foreach ($accounts as $a) {
+            if ($car !== null && $a['id'] === $car['account_id']) $account = $a;
+        }
+        return ['car' => $account !== null ? $car : null, 'account' => $account, 'accounts' => $accounts];
+    }
+
+    /**
+     * Zahájí přihlášení k novému účtu, nebo znovu k existujícímu (`$accountId`, propadlý přístup).
+     *
+     * @param array<string,mixed> $input hodnoty formuláře zdroje
+     * @return array<string,mixed> krok pro UI: {state, …display}
+     */
+    public function startConnect(int $supplierId, int $carId, string $providerCode, #[\SensitiveParameter] array $input,
+        ?int $userId, ?int $accountId = null): array
+    {
+        $this->requireCar($supplierId, $carId);
+        if ($accountId !== null) {
+            $providerCode = $this->requireAccount($supplierId, $accountId)['provider'];
+        }
+        $provider = $this->providers->get($providerCode);
+        $this->vault->assertKeyAvailable();
+
+        $state = bin2hex(random_bytes(32));
+        $step = $provider->startConnect(self::stringInput($input), new ConnectContext($state));
+        $expiresAt = date('Y-m-d H:i:s', time() + ($step->expiresIn ?? 60));
+        $this->accounts->deleteStalePending($supplierId, $carId);
+        if ($accountId !== null) {
+            $this->accounts->beginReauth($supplierId, $accountId, $carId, hash('sha256', $state), $expiresAt);
+        } else {
+            $accountId = $this->accounts->createPending($supplierId, $provider->code(), $carId, hash('sha256', $state), $expiresAt, $userId);
+        }
+
+        if ($step->type === ConnectStep::CONNECTED && $step->credentials !== null) {
+            // Zdroj bez interaktivního přihlášení (např. API klíč): rovnou aktivovat.
+            return $this->finishConnect($supplierId, $carId, $accountId, $provider, $step->credentials, $userId);
+        }
+        if ($step->pending === null || $step->expiresIn === null || !in_array($step->type, [ConnectStep::DEVICE_CODE, ConnectStep::REDIRECT], true)) {
+            $this->accounts->clearPending($supplierId, $accountId);
+            throw new OdometerSourceException(OdometerSourceException::INVALID_RESPONSE, 'Zdroj nevrátil postup připojení.');
+        }
+        $this->accounts->updatePending($supplierId, $accountId, $this->vault->sealPending($supplierId, $accountId, $provider->code(), $step->pending));
+        return ['state' => $step->type] + $step->display;
+    }
+
+    /**
+     * Jeden dotaz, jestli uživatel přihlášení u služby dokončil.
+     *
+     * @param array<string,mixed> $input
+     * @return array<string,mixed> {state:'waiting', interval} | {state:'select_vehicle', account_id, vehicles} | {state:'connected', …status}
+     */
+    public function continueConnect(int $supplierId, int $carId, #[\SensitiveParameter] array $input = [], ?int $userId = null): array
+    {
+        $accountId = $this->accounts->findPendingForCar($supplierId, $carId);
+        $row = $accountId !== null ? $this->accounts->findWithSecrets($supplierId, $accountId) : null;
+        if ($row === null || $row['pending_ciphertext'] === null) {
+            throw new OdometerSourceException('no_pending_connect', 'Připojení nebylo zahájeno.');
+        }
+        if ($row['pending_expires_at'] !== null && strtotime($row['pending_expires_at']) < time()) {
+            $this->accounts->clearPending($supplierId, $row['id']);
+            throw new OdometerSourceException(OdometerSourceException::EXPIRED, 'Přihlášení vypršelo, začněte znovu.');
+        }
+        $provider = $this->providers->get($row['provider']);
+        $pending = $this->vault->openPending($supplierId, $row['id'], $provider->code(), $row['pending_ciphertext']);
+        try {
+            $step = $provider->continueConnect($pending, self::stringInput($input));
+        } catch (OdometerSourceException $e) {
+            if (in_array($e->errorCode, [OdometerSourceException::ACCESS_DENIED, OdometerSourceException::EXPIRED,
+                OdometerSourceException::INVALID_INPUT], true)) {
+                $this->accounts->clearPending($supplierId, $row['id']);
+            }
+            throw $e;
+        }
+        if ($step->type === ConnectStep::WAITING) {
+            if ($step->pending !== null) {
+                $this->accounts->updatePending($supplierId, $row['id'], $this->vault->sealPending($supplierId, $row['id'], $provider->code(), $step->pending));
+            }
+            return ['state' => ConnectStep::WAITING, 'interval' => (int) ($step->display['interval'] ?? 5)];
+        }
+        if ($step->type !== ConnectStep::CONNECTED || $step->credentials === null) {
+            throw new OdometerSourceException(OdometerSourceException::INVALID_RESPONSE, 'Zdroj vrátil neočekávaný krok připojení.');
+        }
+        return $this->finishConnect($supplierId, $carId, $row['id'], $provider, $step->credentials, $userId);
+    }
+
+    /** Přiřadí auto k už připojenému účtu firmy (stejné přihlášení, žádné nové tokeny). */
+    public function attach(int $supplierId, int $carId, int $accountId, ?int $userId): array
+    {
+        $this->requireCar($supplierId, $carId);
+        return $this->withLock($accountId, fn (): array =>
+            $this->assignFromAccount($supplierId, $carId, $this->activeAccount($supplierId, $accountId), $userId));
+    }
+
+    /** Výběr auta účtu, když spárování podle VIN není jednoznačné. */
+    public function selectVehicle(int $supplierId, int $carId, int $accountId, string $vehicleRef, ?int $userId): array
+    {
+        $vehicleRef = trim($vehicleRef);
+        $this->requireCar($supplierId, $carId);
+        return $this->withLock($accountId, function () use ($supplierId, $carId, $accountId, $vehicleRef, $userId): array {
+            $row = $this->activeAccount($supplierId, $accountId);
+            $session = $this->session($row);
+            $refs = array_map(static fn (OdometerSourceVehicle $v): string => $v->ref,
+                $this->providers->get($row['provider'])->vehicles($session));
+            if ($vehicleRef === '' || !in_array($vehicleRef, $refs, true)) {
+                throw new OdometerSourceException(OdometerSourceException::VEHICLE_NOT_PERMITTED, 'Toto auto k účtu nepatří.');
+            }
+            $this->assign($supplierId, $carId, $row['id'], $vehicleRef, $userId);
+            $this->firstSync($row, $session, $carId);
+            return ['state' => ConnectStep::CONNECTED] + $this->status($supplierId, $carId);
+        });
+    }
+
+    /**
+     * Načte aktuální stav tachometru auta a zapíše ho jako stav dne, kdy ho auto odeslalo.
+     *
+     * @return array{odometer:int, reading_date:string, reading_time:string}
+     */
+    public function sync(int $supplierId, int $carId): array
+    {
+        $car = $this->assignments->findForCar($supplierId, $carId)
+            ?? throw new OdometerSourceException('not_connected', 'Auto není připojené ke zdroji stavu tachometru.');
+        return $this->withLock($car['account_id'], function () use ($supplierId, $carId): array {
+            // Přiřazení znovu pod zámkem — mezitím mohlo být auto odpojené.
+            $car = $this->assignments->findForCar($supplierId, $carId)
+                ?? throw new OdometerSourceException('not_connected', 'Auto není připojené ke zdroji stavu tachometru.');
+            $row = $this->activeAccount($supplierId, $car['account_id']);
+            try {
+                $reading = $this->syncCar($row, $this->session($row), $car);
+            } catch (OdometerSourceException $e) {
+                if (!$e->concernsVehicleOnly()) $this->accounts->recordSyncError($supplierId, $row['id'], $e->errorCode);
+                throw $e;
+            }
+            $this->accounts->recordSyncSuccess($supplierId, $row['id']);
+            return $reading;
+        });
+    }
+
+    /**
+     * Denní běh přes všechny účty. Chyba účtu (přístup, limit) se zapíše k účtu a jeho další
+     * auta se nezkoušejí; chyba auta neovlivní ostatní auta. Nenavazující stav se přeskočí
+     * jako varování u auta, ne jako chyba.
+     *
+     * @return array{processed:int, succeeded:int, warnings:int, errors:int, details:list<array{account_id:int, car_id:?int, error_code:string}>}
+     */
+    public function syncAll(): array
+    {
+        $summary = ['processed' => 0, 'succeeded' => 0, 'warnings' => 0, 'errors' => 0, 'details' => []];
+        foreach ($this->accounts->listSyncable() as $account) {
+            try {
+                $this->withLock($account['id'], function () use ($account, &$summary): void {
+                    $row = $this->activeAccount($account['supplier_id'], $account['id']);
+                    $session = $this->session($row);
+                    foreach ($this->assignments->listForAccount($account['supplier_id'], $account['id']) as $car) {
+                        $summary['processed']++;
+                        try {
+                            $this->syncCar($row, $session, $car);
+                            $summary['succeeded']++;
+                        } catch (OdometerSourceException $e) {
+                            if (!$e->concernsVehicleOnly()) throw $e;
+                            $summary[$e->errorCode === self::REGRESSION ? 'warnings' : 'errors']++;
+                            $summary['details'][] = ['account_id' => $account['id'], 'car_id' => $car['car_id'], 'error_code' => $e->errorCode];
+                        }
+                    }
+                    $this->accounts->recordSyncSuccess($account['supplier_id'], $account['id']);
+                });
+            } catch (\Throwable $e) {
+                $code = $e instanceof OdometerSourceException ? $e->errorCode : 'internal_error';
+                if ($code !== 'connection_busy') $this->accounts->recordSyncError($account['supplier_id'], $account['id'], $code);
+                $summary['errors']++;
+                $summary['details'][] = ['account_id' => $account['id'], 'car_id' => null, 'error_code' => $code];
+            }
+        }
+        return $summary;
+    }
+
+    /** Odpojí auto; poslední auto účtu odpojí i účet (smaže přístupy). Stavy tachometru zůstávají. */
+    public function disconnect(int $supplierId, int $carId): bool
+    {
+        $car = $this->assignments->findForCar($supplierId, $carId);
+        if ($car === null) return false;
+        return $this->withLock($car['account_id'], function () use ($supplierId, $carId, $car): bool {
+            if (!$this->assignments->unassign($supplierId, $carId)) return false;
+            if ($this->assignments->listForAccount($supplierId, $car['account_id']) === []) {
+                $this->accounts->disconnect($supplierId, $car['account_id']);
+            }
+            return true;
+        });
+    }
+
+    /** @param array<string,string|int> $credentials */
+    private function finishConnect(int $supplierId, int $carId, int $accountId, OdometerSourceProvider $provider,
+        #[\SensitiveParameter] array $credentials, ?int $userId): array
+    {
+        return $this->withLock($accountId, function () use ($supplierId, $carId, $accountId, $provider, $credentials, $userId): array {
+            $this->accounts->activate($supplierId, $accountId, $this->vault->sealCredentials($supplierId, $accountId, $provider->code(), $credentials));
+            try {
+                return $this->assignFromAccount($supplierId, $carId, $this->activeAccount($supplierId, $accountId), $userId);
+            } catch (OdometerSourceException $e) {
+                // Druhé přihlášení k už připojenému účtu: auta patří prvnímu napojení, nové bez aut zahodit.
+                if ($e->errorCode === 'vehicle_taken' && $this->assignments->listForAccount($supplierId, $accountId) === []) {
+                    $this->accounts->disconnect($supplierId, $accountId);
+                }
+                throw $e;
+            }
+        });
+    }
+
+    /**
+     * Přiřadí auto podle aut účtu; ostatní auta firmy se shodným VIN přiřadí rovnou.
+     * Volá se pod zámkem účtu.
+     */
+    private function assignFromAccount(int $supplierId, int $carId, array $row, ?int $userId): array
+    {
+        $session = $this->session($row);
+        $vehicles = $this->providers->get($row['provider'])->vehicles($session);
+        $current = $this->assignments->findForCar($supplierId, $carId);
+        $taken = $this->assignments->takenVehicles($supplierId, $row['provider']);
+        $free = array_values(array_filter($vehicles, static fn (OdometerSourceVehicle $v): bool =>
+            !isset($taken[$v->ref]) || $taken[$v->ref] === $carId));
+
+        $refs = array_map(static fn (OdometerSourceVehicle $v): string => $v->ref, $vehicles);
+        $vehicleRef = $current !== null && $current['account_id'] === $row['id'] && in_array($current['vehicle_ref'], $refs, true)
+            ? $current['vehicle_ref']
+            : $this->pickVehicle($supplierId, $carId, $free);
+        if ($vehicleRef === null && $free === []) {
+            throw new OdometerSourceException('vehicle_taken', 'Auta tohoto účtu už jsou přiřazená k jiným autům.');
+        }
+        $this->assignOtherCarsByVin($supplierId, $carId, $row['id'], $free, $vehicleRef, $userId);
+        if ($vehicleRef === null) {
+            return ['state' => 'select_vehicle', 'account_id' => $row['id'],
+                'vehicles' => array_map(static fn (OdometerSourceVehicle $v): array => $v->toArray(), $free)];
+        }
+        $this->assign($supplierId, $carId, $row['id'], $vehicleRef, $userId);
+        $this->firstSync($row, $session, $carId);
+        return ['state' => ConnectStep::CONNECTED] + $this->status($supplierId, $carId);
+    }
+
+    /** První načtení hned po přiřazení: chyba se uloží ke stavu, přiřazení ale platí. */
+    private function firstSync(array $row, OdometerSourceSession $session, int $carId): void
+    {
+        try {
+            $this->syncCar($row, $session, (array) $this->assignments->findForCar($row['supplier_id'], $carId));
+            $this->accounts->recordSyncSuccess($row['supplier_id'], $row['id']);
+        } catch (OdometerSourceException $e) {
+            if (!$e->concernsVehicleOnly()) $this->accounts->recordSyncError($row['supplier_id'], $row['id'], $e->errorCode);
+        }
+    }
+
+    /** @param list<OdometerSourceVehicle> $free */
+    private function assignOtherCarsByVin(int $supplierId, int $carId, int $accountId, array $free, ?string $usedRef, ?int $userId): void
+    {
+        $byVin = [];
+        foreach ($free as $vehicle) {
+            if ($vehicle->vin !== null && $vehicle->ref !== $usedRef) $byVin[self::normalizeVin($vehicle->vin)] = $vehicle->ref;
+        }
+        if ($byVin === []) return;
+        $assigned = array_flip($this->assignments->assignedCarIds($supplierId));
+        foreach ($this->cars->listForTenant($supplierId) as $car) {
+            $vin = self::normalizeVin((string) ($car['vin'] ?? ''));
+            if ((int) $car['id'] === $carId || isset($assigned[(int) $car['id']]) || $vin === '' || !isset($byVin[$vin])) continue;
+            $this->assignments->assign($supplierId, $accountId, (int) $car['id'], $byVin[$vin], $userId);
+        }
+    }
+
+    private function assign(int $supplierId, int $carId, int $accountId, string $vehicleRef, ?int $userId): void
+    {
+        $previous = $this->assignments->findForCar($supplierId, $carId);
+        if (!$this->assignments->assign($supplierId, $accountId, $carId, $vehicleRef, $userId)) {
+            throw new OdometerSourceException('vehicle_taken', 'Toto auto účtu už je přiřazené k jinému autu.');
+        }
+        // Auto přešlo na jiný účet: původní účet bez aut se odpojí.
+        if ($previous !== null && $previous['account_id'] !== $accountId
+            && $this->assignments->listForAccount($supplierId, $previous['account_id']) === []) {
+            $this->accounts->disconnect($supplierId, $previous['account_id']);
+        }
+    }
+
+    /** Načte a zapíše stav jednoho auta; volá se pod zámkem účtu. */
+    private function syncCar(array $account, OdometerSourceSession $session, array $car): array
+    {
+        try {
+            $sample = $this->providers->get($account['provider'])->readOdometer($session, $car['vehicle_ref']);
+            if ($sample === null) throw new OdometerSourceException(OdometerSourceException::NO_DATA, 'Auto zatím stav tachometru neodeslalo.');
+            return $this->store($account, $car, $sample);
+        } catch (OdometerSourceException $e) {
+            if ($e->concernsVehicleOnly()) {
+                $this->assignments->recordProblem($account['supplier_id'], $car['id'],
+                    $e->errorCode === self::REGRESSION ? 'warning' : 'error', $e->errorCode);
+            }
+            throw $e;
+        }
+    }
+
+    /** Převod na km a místní datum, kontrola návaznosti a zápis stavu dne. */
+    private function store(array $account, array $car, OdometerSample $sample): array
+    {
+        $supplierId = $account['supplier_id'];
+        $km = $sample->km();
+        $at = $sample->at->setTimezone(new \DateTimeZone(date_default_timezone_get()));
+        $date = $at->format('Y-m-d');
+        $bounds = $this->readings->bounds($supplierId, $car['car_id'], $date);
+        if (($bounds['before'] !== null && $km < $bounds['before']) || ($bounds['after'] !== null && $km > $bounds['after'])) {
+            throw new OdometerSourceException(self::REGRESSION, 'Stav tachometru z auta nenavazuje na zapsané stavy a jízdy.');
+        }
+        $this->readings->upsert($supplierId, ['car_id' => $car['car_id'], 'reading_date' => $date,
+            'reading_time' => $at->format('H:i'), 'odometer' => $km, 'source' => $account['provider']], null);
+        $this->assignments->recordSuccess($supplierId, $car['id'], $km, $at->format('Y-m-d H:i:s'));
+        return ['odometer' => $km, 'reading_date' => $date, 'reading_time' => $at->format('H:i')];
+    }
+
+    /**
+     * Session nad uloženými přístupy účtu: změněné přístupy (rotace tokenu) se hned uloží,
+     * volání služby se započítají do denního limitu účtu.
+     */
+    private function session(array $row): OdometerSourceSession
+    {
+        $supplierId = $row['supplier_id'];
+        $accountId = $row['id'];
+        $provider = $row['provider'];
+        $limit = $this->providers->get($provider)->definition()->dailyCallLimit;
+        return new OdometerSourceSession(
+            $this->vault->openCredentials($supplierId, $accountId, $provider, (string) $row['credentials_ciphertext']),
+            function (array $credentials) use ($supplierId, $accountId, $provider): void {
+                if (!$this->accounts->rotateCredentials($supplierId, $accountId,
+                    $this->vault->sealCredentials($supplierId, $accountId, $provider, $credentials))) {
+                    throw new OdometerSourceException('credential_rotation_failed', 'Obnovený přístup ke zdroji nelze uložit.');
+                }
+            },
+            function (int $calls) use ($supplierId, $accountId, $limit): void {
+                if (!$this->accounts->spendCalls($supplierId, $accountId, max(1, $calls), $limit, gmdate('Y-m-d'))) {
+                    throw new OdometerSourceException(OdometerSourceException::RATE_LIMITED, 'Denní limit dotazů služby je vyčerpaný.');
+                }
+            },
+        );
+    }
+
+    /**
+     * Auto ke spárování: shoda VIN s kartou auta; bez VIN v kartě jediné primární auto,
+     * případně jediné auto účtu.
+     *
+     * @param list<OdometerSourceVehicle> $vehicles
+     */
+    private function pickVehicle(int $supplierId, int $carId, array $vehicles): ?string
+    {
+        $carVin = self::normalizeVin((string) ($this->requireCar($supplierId, $carId)['vin'] ?? ''));
+        foreach ($vehicles as $vehicle) {
+            if ($carVin !== '' && $vehicle->vin !== null && self::normalizeVin($vehicle->vin) === $carVin) return $vehicle->ref;
+        }
+        if ($carVin !== '') return null;
+        $primary = array_values(array_filter($vehicles, static fn (OdometerSourceVehicle $v): bool => $v->primary));
+        if (count($primary) === 1) return $primary[0]->ref;
+        return count($vehicles) === 1 ? $vehicles[0]->ref : null;
+    }
+
+    private function publicAccount(array $account, array $cars): array
+    {
+        $definition = $this->providers->has($account['provider']) ? $this->providers->get($account['provider'])->definition() : null;
+        return [
+            'id'                   => $account['id'],
+            'provider'             => $account['provider'],
+            'status'               => $account['status'],
+            'last_sync_at'         => $account['last_sync_at'],
+            'last_sync_error_code' => $account['last_sync_error_code'],
+            'calls_today'          => $account['calls_today'],
+            'daily_call_limit'     => $definition?->dailyCallLimit,
+            'cars'                 => array_map(static fn (array $c): array => ['car_id' => $c['car_id'],
+                'registration' => $c['registration'], 'name' => $c['name']], $cars),
+        ];
+    }
+
+    private function activeAccount(int $supplierId, int $accountId): array
+    {
+        $row = $this->accounts->findWithSecrets($supplierId, $accountId);
+        if ($row === null || $row['credentials_ciphertext'] === null || !in_array($row['status'], ['active', 'error'], true)) {
+            throw new OdometerSourceException('not_connected', 'Účet není připojený ke zdroji stavu tachometru.');
+        }
+        return $row;
+    }
+
+    private function requireAccount(int $supplierId, int $accountId): array
+    {
+        return $this->accounts->find($supplierId, $accountId)
+            ?? throw new OdometerSourceException('not_connected', 'Účet není připojený ke zdroji stavu tachometru.');
+    }
+
+    private function requireCar(int $supplierId, int $carId): array
+    {
+        return $this->cars->find($carId, $supplierId) ?? throw new OdometerSourceException('car_not_found', 'Auto nenalezeno.');
+    }
+
+    private static function normalizeVin(string $vin): string
+    {
+        return strtoupper((string) preg_replace('/\s+/', '', $vin));
+    }
+
+    /** @return array<string,string> */
+    private static function stringInput(#[\SensitiveParameter] array $input): array
+    {
+        return array_map(static fn ($v): string => is_scalar($v) ? (string) $v : '', $input);
+    }
+
+    private function withLock(int $accountId, callable $callback): mixed
+    {
+        $pdo = $this->db->pdo();
+        $name = NamedLockName::for($this->db, 'odometer-source', $accountId);
+        $stmt = $pdo->prepare('SELECT GET_LOCK(?, 10)');
+        $stmt->execute([$name]);
+        if ((int) $stmt->fetchColumn() !== 1) throw new OdometerSourceException('connection_busy', 'Načítání stavu tachometru už probíhá.');
+        try {
+            return $callback();
+        } finally {
+            try {
+                $pdo->prepare('SELECT RELEASE_LOCK(?)')->execute([$name]);
+            } catch (\Throwable) {
+            }
+        }
+    }
+}

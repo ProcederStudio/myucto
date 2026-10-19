@@ -230,6 +230,15 @@ $sessionActions = [
     'MyInvoice\\Action\\PurchaseInvoice\\Approval\\PurchaseInvoiceApprovalAction::cancel',
     // Přehled firem ve správě firem - interní, akce odmítá bearer token.
     'MyInvoice\\Action\\Settings\\SettingsAction::supplierDirectory',
+    // Automatický stav tachometru — přihlášení u služby je osobní krok, akce odmítá bearer token.
+    'MyInvoice\\Action\\Logbook\\OdometerSourceAction::catalog',
+    'MyInvoice\\Action\\Logbook\\OdometerSourceAction::status',
+    'MyInvoice\\Action\\Logbook\\OdometerSourceAction::connect',
+    'MyInvoice\\Action\\Logbook\\OdometerSourceAction::continue',
+    'MyInvoice\\Action\\Logbook\\OdometerSourceAction::attach',
+    'MyInvoice\\Action\\Logbook\\OdometerSourceAction::selectVehicle',
+    'MyInvoice\\Action\\Logbook\\OdometerSourceAction::sync',
+    'MyInvoice\\Action\\Logbook\\OdometerSourceAction::disconnect',
 ];
 $isSessionAction = static fn (array $route): bool => in_array($route['action'], $sessionActions, true);
 
