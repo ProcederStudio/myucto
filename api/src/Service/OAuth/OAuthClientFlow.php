@@ -32,6 +32,8 @@ final class OAuthClientFlow
     public const FLOW_DEVICE_CODE = 'device_code';
     public const STAGE_OAUTH      = 'oauth';
     public const CALLBACK_PATH    = '/api/oauth/callback';
+    public const STATE_HEX        = 'hex';
+    public const STATE_BASE64URL  = 'base64url';
 
     private const ENVELOPE_KEYS = ['version', 'supplier_id', 'domain', 'provider', 'subject_id', 'verifier', 'data'];
     private const MAX_TTL = 86400;
@@ -67,15 +69,25 @@ final class OAuthClientFlow
         return $this->appUrl(self::CALLBACK_PATH);
     }
 
-    public function authorize(bool $pkce = true): OAuthAuthorization
+    /**
+     * Nový state (256 bitů) a PKCE verifier. Tvar state volí poskytovatel podle toho, co
+     * jeho server přijímá: hex (64 znaků), nebo base64url (43 znaků).
+     */
+    public function authorize(bool $pkce = true, string $stateFormat = self::STATE_HEX): OAuthAuthorization
     {
-        return new OAuthAuthorization(bin2hex(random_bytes(32)), $pkce ? Pkce::verifier() : null);
+        $random = random_bytes(32);
+        $state = match ($stateFormat) {
+            self::STATE_HEX => bin2hex($random),
+            self::STATE_BASE64URL => rtrim(strtr(base64_encode($random), '+/', '-_'), '='),
+            default => throw new OAuthException(OAuthException::INVALID_REQUEST, 'Neznámý tvar state.'),
+        };
+        return new OAuthAuthorization($state, $pkce ? Pkce::verifier() : null);
     }
 
     /** Hash state z návratu; null, když state nemá tvar, který vrstva vydává. */
     public static function stateHash(#[\SensitiveParameter] string $state): ?string
     {
-        return preg_match('/^[a-f0-9]{64}$/D', $state) === 1 ? hash('sha256', $state) : null;
+        return preg_match('/^(?:[a-f0-9]{64}|[A-Za-z0-9_-]{43})$/D', $state) === 1 ? hash('sha256', $state) : null;
     }
 
     /**

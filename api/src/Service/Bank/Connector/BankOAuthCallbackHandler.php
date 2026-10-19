@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MyInvoice\Service\Bank\Connector;
 
+use MyInvoice\Infrastructure\Config\Config;
 use MyInvoice\Security\AccessLevel;
 use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Service\OAuth\OAuthCallback;
@@ -21,6 +22,8 @@ final class BankOAuthCallbackHandler implements OAuthCallbackHandler
 
     public function __construct(
         private readonly CsasOnboardingService $csas,
+        private readonly KbPlusOnboardingService $kbPlus,
+        private readonly Config $config,
         private readonly LoggerInterface $logger,
     ) {}
 
@@ -41,6 +44,7 @@ final class BankOAuthCallbackHandler implements OAuthCallbackHandler
         try {
             return match ($provider) {
                 CsasOnboardingService::PROVIDER => self::csasLocation('connected', $this->csas->completeCallback($callback)),
+                KbPlusOnboardingService::PROVIDER => self::kbPlusLocation($this->baseUrl(), 'connected', $this->kbPlus->completeCallback($callback)),
                 default => throw new BankConnectorOperationException('provider_not_supported'),
             };
         } catch (BankConnectorOperationException $e) {
@@ -58,6 +62,7 @@ final class BankOAuthCallbackHandler implements OAuthCallbackHandler
     {
         return match ($session['provider'] ?? null) {
             CsasOnboardingService::PROVIDER => self::csasLocation('error'),
+            KbPlusOnboardingService::PROVIDER => self::kbPlusLocation($this->baseUrl(), 'error', (int) ($session['subject_id'] ?? 0), $errorCode),
             default => '/bank?' . http_build_query(['tab' => 'accounts']),
         };
     }
@@ -67,5 +72,37 @@ final class BankOAuthCallbackHandler implements OAuthCallbackHandler
     {
         return '/bank?' . http_build_query(['tab' => 'accounts', 'csas' => $status]
             + ($currencyId !== null ? ['currency_id' => $currencyId] : []));
+    }
+
+    /** Návrat na Banku po připojení KB+ (stejný tvar jako před společnou vrstvou). */
+    public static function kbPlusLocation(string $baseUrl, string $status, ?int $currencyId, ?string $errorCode = null): string
+    {
+        $query = ['tab' => 'accounts', 'kb_plus' => $status];
+        if ($currencyId !== null && $currencyId > 0) {
+            $query['currency_id'] = $currencyId;
+        }
+        if ($errorCode !== null && preg_match('/^[a-z0-9_]{1,80}$/D', $errorCode)) {
+            $query['code'] = $errorCode;
+        }
+        return $baseUrl . '/bank?' . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+    }
+
+    /** Veřejná adresa aplikace pro návrat z KB+; bez platné app.url relativní cesta. */
+    public static function appBaseUrl(Config $config): string
+    {
+        $base = rtrim((string) $config->get('app.url', ''), '/');
+        $parts = parse_url($base);
+        if (($parts['scheme'] ?? null) !== 'https' || !isset($parts['host'])
+            || isset($parts['query']) || isset($parts['fragment']) || isset($parts['user']) || isset($parts['pass'])
+            || (isset($parts['path']) && $parts['path'] !== '' && $parts['path'] !== '/')
+        ) {
+            return '';
+        }
+        return $base;
+    }
+
+    private function baseUrl(): string
+    {
+        return self::appBaseUrl($this->config);
     }
 }

@@ -6,7 +6,9 @@ namespace MyInvoice\Tests\Integration\Bank;
 
 use MyInvoice\Action\OAuth\OAuthCallbackAction;
 use MyInvoice\Action\Settings\CsasOnboardingAction;
+use MyInvoice\Action\Settings\KbPlusOnboardingAction;
 use MyInvoice\Bootstrap;
+use MyInvoice\Infrastructure\Config\Config;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Middleware\SupplierScopeMiddleware;
@@ -129,12 +131,57 @@ final class BankOAuthCallbackAliasTest extends TestCase
         self::assertSame('pending', $this->sharedRow($state)[0]);
     }
 
-    private function sharedLogin(string $provider): string
+    public function testKbPlusConsentFromSharedFlowGoesThroughTheRegisteredKbCallback(): void
+    {
+        $guard = str_repeat('g', 43);
+        $this->coolDown($guard);
+        $state = $this->sharedLogin('kb_plus', ['call_guard_key' => $guard, 'state' => 'x']);
+
+        $response = $this->container->get(KbPlusOnboardingAction::class)->oauthCallback($this->request($state), new Response());
+
+        self::assertStringEndsWith('/bank?tab=accounts&kb_plus=error&currency_id=' . $this->currencyId . '&code=bank_rate_limited',
+            $response->getHeaderLine('Location'));
+        self::assertSame(['failed', 'bank_rate_limited', ''], $this->sharedRow($state));
+    }
+
+    public function testKbPlusConsentStartedBeforeTheSharedLayerStillFinishes(): void
+    {
+        $guard = str_repeat('h', 43);
+        $this->coolDown($guard);
+        $state = str_repeat('k', 43);
+        $hash = hash('sha256', $state);
+        $ciphertext = $this->container->get(SecretEncryption::class)->encryptFor((string) json_encode(['call_guard_key' => $guard,
+            'client_id' => 'synthetic-client', 'client_secret' => 'synthetic-secret', 'state' => $state]),
+            sprintf('kb-plus-oauth:supplier:%d:currency:%d:user:%d:state:%s:stage:oauth', $this->supplierId, $this->currencyId, $this->user['id'], $hash));
+        $this->pdo->prepare("INSERT INTO bank_oauth_sessions (state_hash, supplier_id, currency_id, user_id, provider, stage, secret_ciphertext, expires_at)
+            VALUES (?, ?, ?, ?, 'kb_plus', 'oauth', ?, TIMESTAMPADD(SECOND, 300, CURRENT_TIMESTAMP(6)))")
+            ->execute([$hash, $this->supplierId, $this->currencyId, $this->user['id'], $ciphertext]);
+
+        $response = $this->container->get(KbPlusOnboardingAction::class)->oauthCallback($this->request($state), new Response());
+
+        self::assertStringEndsWith('&code=bank_rate_limited', $response->getHeaderLine('Location'));
+        $stmt = $this->pdo->prepare('SELECT status, error_code FROM bank_oauth_sessions WHERE state_hash = ?');
+        $stmt->execute([$hash]);
+        self::assertSame(['status' => 'failed', 'error_code' => 'bank_rate_limited'], $stmt->fetch(PDO::FETCH_ASSOC));
+    }
+
+    /** Ochrana proti opakovanému volání banky zastaví dokončení dřív, než by se volala KB. */
+    private function coolDown(string $callGuardKey): void
+    {
+        $key = base64_decode((string) $this->container->get(Config::class)->get('app.secret_encryption_key', ''), true);
+        if ($key === false || strlen($key) !== 32) {
+            self::markTestSkipped('Chybí šifrovací klíč aplikace.');
+        }
+        $this->pdo->prepare('INSERT INTO bank_connector_cooldowns (credential_hash, last_called_at) VALUES (?, CURRENT_TIMESTAMP(6))
+            ON DUPLICATE KEY UPDATE last_called_at = CURRENT_TIMESTAMP(6)')->execute([hash_hmac('sha256', $callGuardKey, $key)]);
+    }
+
+    private function sharedLogin(string $provider, array $secret = []): string
     {
         $flow = $this->container->get(OAuthClientFlow::class);
-        $authorization = $flow->authorize();
+        $authorization = $flow->authorize($provider === 'csas', $provider === 'csas' ? OAuthClientFlow::STATE_HEX : OAuthClientFlow::STATE_BASE64URL);
         $flow->store($authorization, $this->supplierId, (int) $this->user['id'], 'bank', $provider, $this->currencyId,
-            OAuthClientFlow::FLOW_REDIRECT, ['api_key' => 'synthetic-key', 'client_id' => 'synthetic-client',
+            OAuthClientFlow::FLOW_REDIRECT, $secret + ['api_key' => 'synthetic-key', 'client_id' => 'synthetic-client',
                 'client_secret' => 'synthetic-secret', 'redirect_uri' => 'https://example.invalid/callback'], 600);
         return $authorization->state;
     }
