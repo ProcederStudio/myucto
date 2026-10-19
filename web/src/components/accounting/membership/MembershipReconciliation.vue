@@ -2,13 +2,14 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import ActionBar, { type ActionItem } from '@/components/ui/ActionBar.vue'
+import { formInput as field, formLabel } from '@/components/ui/formStyles'
 import type { AccountingPeriod } from '@/api/accounting'
 import { membershipApi, type ReconciliationTotals } from '@/api/nonprofitMembership'
 import { errorMessage, formatCents } from './membershipFormat'
 
 const props = defineProps<{ supplier: number; periods: AccountingPeriod[] }>()
 const { t, locale } = useI18n()
-const field = 'w-full rounded border bg-surface px-3 py-2'
+
 const period = ref(0)
 const data = ref<ReconciliationTotals | null>(null)
 const busy = ref(false)
@@ -54,8 +55,8 @@ const actions = computed<ActionItem[]>(() => [
   <details class="rounded-lg border bg-surface p-4" data-section="reconciliation">
     <summary class="cursor-pointer font-semibold">{{ t('nonprofitMembership.reconcileTitle') }}</summary>
     <div class="mt-3 space-y-3">
-      <p class="text-sm text-muted">{{ t('nonprofitMembership.reconcileHelp') }}</p>
-      <label class="block max-w-lg">{{ t('nonprofitMembership.accountingPeriod') }}
+      <p class="text-sm text-neutral-500">{{ t('nonprofitMembership.reconcileHelp') }}</p>
+      <label :class="[formLabel, 'max-w-lg']">{{ t('nonprofitMembership.accountingPeriod') }}
         <select v-model.number="period" :class="field" data-field="reconcile-period">
           <option :value="0">{{ t('nonprofitMembership.choose') }}</option>
           <option v-for="p in periods" :key="p.id" :value="p.id">{{ p.starts_on }} - {{ p.ends_on }}</option>
@@ -68,7 +69,7 @@ const actions = computed<ActionItem[]>(() => [
           {{ t(data.status === 'balanced' && data.proof_complete ? 'nonprofitMembership.reconcileBalanced' : 'nonprofitMembership.reconcileMismatch') }}
         </p>
         <dl class="grid gap-3 sm:grid-cols-4">
-          <div v-for="[key, value] in rows" :key="key"><dt class="text-sm text-muted">{{ t(`nonprofitMembership.reconcile_${key}`) }}</dt><dd>{{ value }}</dd></div>
+          <div v-for="[key, value] in rows" :key="key"><dt class="text-sm text-neutral-500">{{ t(`nonprofitMembership.reconcile_${key}`) }}</dt><dd>{{ value }}</dd></div>
         </dl>
         <p v-if="!data.proof_complete" class="text-sm text-warning-700">{{ t('nonprofitMembership.reconcileIncomplete') }}</p>
       </div>

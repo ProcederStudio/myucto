@@ -2,6 +2,7 @@
 import { computed, onActivated, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import ActionBar, { type ActionItem } from '@/components/ui/ActionBar.vue'
+import { formInput as field, formLabel } from '@/components/ui/formStyles'
 import ClientSearchSelect from '@/components/ui/ClientSearchSelect.vue'
 import { btnOutline, ICONS } from '@/components/ui/buttonStyles'
 import { accountingApi, type AccountingPeriod } from '@/api/accounting'
@@ -14,7 +15,7 @@ import MembershipReconciliation from './MembershipReconciliation.vue'
 
 const props = defineProps<{ supplier: number; canManage: boolean }>()
 const { t } = useI18n()
-const field = 'w-full rounded border bg-surface px-3 py-2'
+
 
 const members = ref<MemberRow[]>([])
 const nextAfter = ref<number | null>(null)
@@ -113,20 +114,20 @@ const createActions = computed<ActionItem[]>(() => [
 <template>
   <div class="space-y-5">
     <h1 class="text-xl font-semibold">{{ t('nonprofitMembership.title') }}</h1>
-    <p class="text-sm text-muted">{{ t('nonprofitMembership.help') }}</p>
-    <p v-if="!canManage" role="status" class="text-sm text-muted" data-section="readonly">{{ t('nonprofitMembership.readonly') }}</p>
+    <p class="text-sm text-neutral-500">{{ t('nonprofitMembership.help') }}</p>
+    <p v-if="!canManage" role="status" class="text-sm text-neutral-500" data-section="readonly">{{ t('nonprofitMembership.readonly') }}</p>
     <p v-if="error" role="alert" class="rounded border border-danger-300 p-3" data-section="workspace-error">{{ error }}</p>
     <p v-if="notice" role="status" class="text-sm text-success-700" data-section="workspace-notice">{{ notice }}</p>
     <ActionBar :actions="actions" />
 
     <section v-if="canManage" class="space-y-3 rounded-lg border bg-surface p-4" data-section="create-member">
       <h2 class="font-semibold">{{ t('nonprofitMembership.createTitle') }}</h2>
-      <p class="text-sm text-muted">{{ t('nonprofitMembership.createHelp') }}</p>
+      <p class="text-sm text-neutral-500">{{ t('nonprofitMembership.createHelp') }}</p>
       <fieldset :disabled="creating" class="grid gap-3 sm:grid-cols-2">
         <label>{{ t('nonprofitMembership.client') }}
           <ClientSearchSelect v-model="clientId" :selected-label="clientLabel || null" data-field="member-client" @selected="chooseClient" />
         </label>
-        <label>{{ t('nonprofitMembership.memberNumber') }}<input v-model="memberNumber" :class="field" maxlength="80" data-field="member-number" /></label>
+        <label :class="formLabel">{{ t('nonprofitMembership.memberNumber') }}<input v-model="memberNumber" :class="field" maxlength="80" data-field="member-number" /></label>
       </fieldset>
       <ActionBar :actions="createActions" />
     </section>
@@ -135,7 +136,7 @@ const createActions = computed<ActionItem[]>(() => [
 
     <section class="space-y-3" data-section="members">
       <h2 class="font-semibold">{{ t('nonprofitMembership.members') }}</h2>
-      <p v-if="!members.length && !loading" class="text-sm text-muted" data-section="members-empty">{{ t('nonprofitMembership.membersEmpty') }}</p>
+      <p v-if="!members.length && !loading" class="text-sm text-neutral-500" data-section="members-empty">{{ t('nonprofitMembership.membersEmpty') }}</p>
       <div v-for="row in members" :key="row.id" class="flex flex-wrap items-center justify-between gap-3 rounded border bg-surface p-3" data-section="member-row" :data-member="row.id">
         <div class="space-y-1 text-sm">
           <p class="font-medium">{{ row.member_number }} · {{ labelOf(row) }}</p>

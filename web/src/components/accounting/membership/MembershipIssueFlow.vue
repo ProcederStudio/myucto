@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import ActionBar, { type ActionItem } from '@/components/ui/ActionBar.vue'
 import DateInput from '@/components/ui/DateInput.vue'
+import { formDateInput as dateInput, formInput as field, formLabel, formTextarea as textarea } from '@/components/ui/formStyles'
 import SearchableSelect from '@/components/ui/SearchableSelect.vue'
 import { accountingApi, type AccountingPeriod, type ChartAccount } from '@/api/accounting'
 import type { DimensionOverview } from '@/api/dimensions'
@@ -22,7 +23,7 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ done: []; close: []; lock: [locked: boolean] }>()
 const { t, locale } = useI18n()
-const field = 'w-full rounded border bg-surface px-3 py-2'
+
 const inputForm = ref<HTMLFormElement | null>(null)
 
 const form = reactive({
@@ -267,10 +268,10 @@ const actions = computed<ActionItem[]>(() => [
 <template>
   <section class="space-y-4 rounded-lg border bg-surface p-4" data-section="issue-flow">
     <h3 class="font-semibold">{{ t('nonprofitMembership.issueTitle') }} · {{ member.member_number }} · {{ member.label }}</h3>
-    <p class="text-sm text-muted">{{ t('nonprofitMembership.issueHelp') }}</p>
+    <p class="text-sm text-neutral-500">{{ t('nonprofitMembership.issueHelp') }}</p>
     <p v-if="commit.error.value" role="alert" class="rounded border border-danger-300 p-3 text-sm" data-section="issue-error">{{ commit.error.value }}</p>
     <p v-if="accountsError" role="alert" class="text-sm text-danger-700">{{ t('nonprofitMembership.accountsError') }}</p>
-    <p v-if="classState === 'loading'" class="text-sm text-muted" data-section="classification-loading">{{ t('nonprofitMembership.classificationLoading') }}</p>
+    <p v-if="classState === 'loading'" class="text-sm text-neutral-500" data-section="classification-loading">{{ t('nonprofitMembership.classificationLoading') }}</p>
     <div v-else-if="classState === 'error'" class="flex flex-wrap items-center gap-3" data-section="classification-error">
       <p role="alert" class="text-sm text-danger-700">{{ t('nonprofitMembership.classificationError') }}</p>
       <ActionBar v-if="canManage" :actions="retryActions" />
@@ -278,7 +279,7 @@ const actions = computed<ActionItem[]>(() => [
     <p v-else-if="classState === 'ready' && !classificationAxesOk" role="alert" class="text-sm text-warning-700" data-section="classification-missing">{{ t('nonprofitMembership.classificationMissing') }}</p>
     <form ref="inputForm" @submit.prevent="runPreview" @input="commit.touch">
     <fieldset :disabled="commit.locked.value" class="grid gap-3 sm:grid-cols-2">
-      <label>{{ t('nonprofitMembership.accountingPeriod') }}
+      <label :class="formLabel">{{ t('nonprofitMembership.accountingPeriod') }}
         <select v-model.number="form.periodId" :class="field" data-field="issue-period">
           <option :value="0">{{ t('nonprofitMembership.choose') }}</option>
           <option v-for="p in openPeriods" :key="p.id" :value="p.id">{{ p.starts_on }} - {{ p.ends_on }}</option>
@@ -294,33 +295,33 @@ const actions = computed<ActionItem[]>(() => [
         </p>
         <p v-else-if="profileState === 'ready'" class="text-warning-700">{{ t('nonprofitMembership.profileMissing') }}</p>
       </div>
-      <label>{{ t('nonprofitMembership.accountingDate') }}<DateInput v-model="form.accountingDate" required :min="chosenPeriod?.starts_on" :max="chosenPeriod?.ends_on" data-field="accounting-date" /></label>
-      <label>{{ t('nonprofitMembership.dueDate') }}<DateInput v-model="form.dueDate" required data-field="due-date" /></label>
-      <label>{{ t('nonprofitMembership.periodFrom') }}<DateInput v-model="form.periodFrom" required data-field="period-from" /></label>
-      <label>{{ t('nonprofitMembership.periodTo') }}<DateInput v-model="form.periodTo" required data-field="period-to" /></label>
+      <label :class="formLabel">{{ t('nonprofitMembership.accountingDate') }}<DateInput :class="dateInput" v-model="form.accountingDate" required :min="chosenPeriod?.starts_on" :max="chosenPeriod?.ends_on" data-field="accounting-date" /></label>
+      <label :class="formLabel">{{ t('nonprofitMembership.dueDate') }}<DateInput :class="dateInput" v-model="form.dueDate" required data-field="due-date" /></label>
+      <label :class="formLabel">{{ t('nonprofitMembership.periodFrom') }}<DateInput :class="dateInput" v-model="form.periodFrom" required data-field="period-from" /></label>
+      <label :class="formLabel">{{ t('nonprofitMembership.periodTo') }}<DateInput :class="dateInput" v-model="form.periodTo" required data-field="period-to" /></label>
       <p v-if="form.accountingDate && revisionAtDate && revisionAtDate.status !== 'active'" class="text-sm text-warning-700 sm:col-span-2" data-section="issue-status-warning">{{ t('nonprofitMembership.issueMemberNotActive', { status: t(`nonprofitMembership.status_${revisionAtDate.status}`) }) }}</p>
       <p v-else-if="form.accountingDate && isIsoDate(form.accountingDate) && !revisionAtDate" class="text-sm text-warning-700 sm:col-span-2" data-section="issue-status-warning">{{ t('nonprofitMembership.issueMemberNoRevision') }}</p>
-      <label>{{ t('nonprofitMembership.titleKey') }}<input v-model="form.titleKey" :class="field" maxlength="80" data-field="title-key" /></label>
-      <label>{{ t('nonprofitMembership.amount') }}<input v-model="form.amount" inputmode="decimal" :class="field" data-field="amount" /></label>
-      <label>{{ t('nonprofitMembership.receivableAccount') }}
+      <label :class="formLabel">{{ t('nonprofitMembership.titleKey') }}<input v-model="form.titleKey" :class="field" maxlength="80" data-field="title-key" /></label>
+      <label :class="formLabel">{{ t('nonprofitMembership.amount') }}<input v-model="form.amount" inputmode="decimal" :class="field" data-field="amount" /></label>
+      <label :class="formLabel">{{ t('nonprofitMembership.receivableAccount') }}
         <SearchableSelect v-model="form.receivable" :options="receivableOptions" :disabled="commit.locked.value" :placeholder="t('nonprofitMembership.chooseAccount')" :aria-label="t('nonprofitMembership.receivableAccount')" data-field="receivable" />
       </label>
-      <label>{{ t('nonprofitMembership.revenueAccount') }}
+      <label :class="formLabel">{{ t('nonprofitMembership.revenueAccount') }}
         <SearchableSelect v-model="form.revenue" :options="revenueOptions" :disabled="commit.locked.value" :placeholder="t('nonprofitMembership.chooseAccount')" :aria-label="t('nonprofitMembership.revenueAccount')" data-field="revenue" />
       </label>
-      <label>{{ t('nonprofitMembership.classificationActivity') }}
+      <label :class="formLabel">{{ t('nonprofitMembership.classificationActivity') }}
         <SearchableSelect v-model="form.activityValueId" :options="activityOptions" :disabled="commit.locked.value || classificationBusy" :placeholder="t('nonprofitMembership.classificationChoose')" :aria-label="t('nonprofitMembership.classificationActivity')" data-field="activity" />
       </label>
-      <label>{{ t('nonprofitMembership.classificationKind') }}
+      <label :class="formLabel">{{ t('nonprofitMembership.classificationKind') }}
         <SearchableSelect v-model="form.activityKindValueId" :options="kindOptions" :disabled="commit.locked.value || classificationBusy" :placeholder="t('nonprofitMembership.classificationChoose')" :aria-label="t('nonprofitMembership.classificationKind')" data-field="activity-kind" />
       </label>
-      <label>{{ t('nonprofitMembership.classificationTaxRegime') }}
+      <label :class="formLabel">{{ t('nonprofitMembership.classificationTaxRegime') }}
         <SearchableSelect v-model="form.taxRegimeValueId" :options="taxRegimeOptions" :disabled="commit.locked.value || classificationBusy" :placeholder="t('nonprofitMembership.classificationChoose')" :aria-label="t('nonprofitMembership.classificationTaxRegime')" data-field="tax-regime" />
       </label>
-      <p class="text-sm text-muted sm:col-span-2" data-section="classification-help">{{ t('nonprofitMembership.classificationHelp') }}</p>
-      <label class="sm:col-span-2">{{ t('nonprofitMembership.titleReference') }}<input v-model="form.titleReference" :class="field" maxlength="2000" data-field="title-reference" /></label>
-      <label class="sm:col-span-2">{{ t('nonprofitMembership.evidence') }}<textarea v-model="form.evidence" :class="field" maxlength="2000" data-field="evidence" /></label>
-      <label class="sm:col-span-2">{{ t('nonprofitMembership.reason') }}<textarea v-model="form.reason" :class="field" maxlength="2000" data-field="reason" /></label>
+      <p class="text-sm text-neutral-500 sm:col-span-2" data-section="classification-help">{{ t('nonprofitMembership.classificationHelp') }}</p>
+      <label :class="[formLabel, 'sm:col-span-2']">{{ t('nonprofitMembership.titleReference') }}<input v-model="form.titleReference" :class="field" maxlength="2000" data-field="title-reference" /></label>
+      <label :class="[formLabel, 'sm:col-span-2']">{{ t('nonprofitMembership.evidence') }}<textarea v-model="form.evidence" :class="textarea" maxlength="2000" data-field="evidence" /></label>
+      <label :class="[formLabel, 'sm:col-span-2']">{{ t('nonprofitMembership.reason') }}<textarea v-model="form.reason" :class="textarea" maxlength="2000" data-field="reason" /></label>
       <label class="flex items-start gap-2 sm:col-span-2"><input v-model="form.nonreciprocal" type="checkbox" data-field="nonreciprocal" /><span>{{ t('nonprofitMembership.nonreciprocal') }}</span></label>
     </fieldset>
     </form>
@@ -328,17 +329,17 @@ const actions = computed<ActionItem[]>(() => [
     <ActionBar v-if="canManage && !commit.review.value" :actions="actions" />
     <div v-if="commit.review.value && frozenRequest" class="space-y-3 rounded border p-3" data-section="issue-preview">
       <h4 class="font-semibold">{{ t('nonprofitMembership.reviewTitle') }}</h4>
-      <p class="text-sm text-muted">{{ t('nonprofitMembership.advisory') }}</p>
+      <p class="text-sm text-neutral-500">{{ t('nonprofitMembership.advisory') }}</p>
       <dl class="grid gap-3 sm:grid-cols-3">
-        <div><dt class="text-sm text-muted">{{ t('nonprofitMembership.titleKey') }}</dt><dd>{{ frozenRequest.title_key }}</dd></div>
-        <div><dt class="text-sm text-muted">{{ t('nonprofitMembership.periodFrom') }} - {{ t('nonprofitMembership.periodTo') }}</dt><dd>{{ frozenRequest.period_from }} - {{ frozenRequest.period_to }}</dd></div>
-        <div><dt class="text-sm text-muted">{{ t('nonprofitMembership.amount') }}</dt><dd data-field="review-amount">{{ money(frozenRequest.amount) }}</dd></div>
-        <div><dt class="text-sm text-muted">{{ t('nonprofitMembership.accountingDate') }}</dt><dd>{{ frozenRequest.accounting_date }}</dd></div>
-        <div><dt class="text-sm text-muted">{{ t('nonprofitMembership.dueDate') }}</dt><dd>{{ frozenRequest.due_date }}</dd></div>
-        <div><dt class="text-sm text-muted">{{ t('nonprofitMembership.caseVersion') }}</dt><dd>{{ commit.review.value.expected_case_version === 0 ? t('nonprofitMembership.caseNew') : t('nonprofitMembership.caseExisting', { version: commit.review.value.expected_case_version }) }}</dd></div>
+        <div><dt class="text-sm text-neutral-500">{{ t('nonprofitMembership.titleKey') }}</dt><dd>{{ frozenRequest.title_key }}</dd></div>
+        <div><dt class="text-sm text-neutral-500">{{ t('nonprofitMembership.periodFrom') }} - {{ t('nonprofitMembership.periodTo') }}</dt><dd>{{ frozenRequest.period_from }} - {{ frozenRequest.period_to }}</dd></div>
+        <div><dt class="text-sm text-neutral-500">{{ t('nonprofitMembership.amount') }}</dt><dd data-field="review-amount">{{ money(frozenRequest.amount) }}</dd></div>
+        <div><dt class="text-sm text-neutral-500">{{ t('nonprofitMembership.accountingDate') }}</dt><dd>{{ frozenRequest.accounting_date }}</dd></div>
+        <div><dt class="text-sm text-neutral-500">{{ t('nonprofitMembership.dueDate') }}</dt><dd>{{ frozenRequest.due_date }}</dd></div>
+        <div><dt class="text-sm text-neutral-500">{{ t('nonprofitMembership.caseVersion') }}</dt><dd>{{ commit.review.value.expected_case_version === 0 ? t('nonprofitMembership.caseNew') : t('nonprofitMembership.caseExisting', { version: commit.review.value.expected_case_version }) }}</dd></div>
       </dl>
       <table class="w-full text-sm" data-section="issue-plan">
-        <thead><tr class="text-left text-muted"><th>{{ t('nonprofitMembership.side') }}</th><th>{{ t('nonprofitMembership.account') }}</th><th class="text-right">{{ t('nonprofitMembership.amount') }}</th></tr></thead>
+        <thead><tr class="text-left text-neutral-500"><th>{{ t('nonprofitMembership.side') }}</th><th>{{ t('nonprofitMembership.account') }}</th><th class="text-right">{{ t('nonprofitMembership.amount') }}</th></tr></thead>
         <tbody>
           <tr v-for="(line, index) in commit.review.value.journal_plan || []" :key="index">
             <td>{{ line.side === 'debit' ? t('nonprofitMembership.debit') : t('nonprofitMembership.credit') }}</td>
@@ -351,18 +352,18 @@ const actions = computed<ActionItem[]>(() => [
         <h5 class="text-sm font-medium">{{ t('nonprofitMembership.classificationReviewTitle') }}</h5>
         <dl v-if="classificationRows.length" class="grid gap-3 sm:grid-cols-3">
           <div v-for="row in classificationRows" :key="row.key" :data-row="row.key">
-            <dt class="text-sm text-muted">{{ row.label }}</dt>
+            <dt class="text-sm text-neutral-500">{{ row.label }}</dt>
             <dd data-part="value">{{ row.value }}</dd>
-            <dd class="text-sm text-muted" data-part="note">{{ row.note }} · {{ row.origin }}</dd>
+            <dd class="text-sm text-neutral-500" data-part="note">{{ row.note }} · {{ row.origin }}</dd>
           </div>
         </dl>
         <p v-else class="text-sm text-warning-700" data-section="classification-proof-missing">{{ t('nonprofitMembership.classificationProofMissing') }}</p>
-        <p class="text-sm text-muted" data-section="classification-tax-advisory">{{ t('nonprofitMembership.classificationTaxAdvisory') }}</p>
+        <p class="text-sm text-neutral-500" data-section="classification-tax-advisory">{{ t('nonprofitMembership.classificationTaxAdvisory') }}</p>
       </div>
       <p v-if="commit.review.value.proof?.member_revision" class="text-sm">{{ t('nonprofitMembership.proofRevision', { no: commit.review.value.proof.member_revision.revision_no, from: commit.review.value.proof.member_revision.effective_from }) }}</p>
       <p v-if="commit.review.value.proof?.legal_profile" class="text-sm">{{ t('nonprofitMembership.proofProfile', { id: commit.review.value.proof.legal_profile.id }) }}</p>
       <p v-if="profileMismatch" class="text-sm text-warning-700" data-section="profile-mismatch">{{ t('nonprofitMembership.profileMismatch') }}</p>
-      <p class="text-sm text-muted">{{ t('nonprofitMembership.taxUnclassified') }}</p>
+      <p class="text-sm text-neutral-500">{{ t('nonprofitMembership.taxUnclassified') }}</p>
       <MembershipConfirmBar
         v-model:acknowledged="commit.acknowledged.value"
         :busy="commit.busy.value" :uncertain="commit.uncertain.value" :can-manage="canManage"

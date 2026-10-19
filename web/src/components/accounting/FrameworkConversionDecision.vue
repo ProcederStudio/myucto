@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import ActionBar, { type ActionItem } from '@/components/ui/ActionBar.vue'
 import DateInput from '@/components/ui/DateInput.vue'
+import { formDateInput as dateInput, formInput as input, formLabel, formTextarea as textarea } from '@/components/ui/formStyles'
 import { frameworkConversionMessages } from './frameworkConversionMessages'
 import { frameworkConversionApi as api, type DecisionChoices, type DecisionCommand, type ConversionReview } from '@/api/frameworkConversion'
 const props = defineProps<{ supplier: number; conversion: number; enabled: boolean }>()
@@ -44,9 +45,9 @@ const actions = computed<ActionItem[]>(() => preview.value ? [{ key: 'confirm-de
 <template>
  <section class="space-y-4 rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900" data-section="decision">
   <h2 class="text-lg font-semibold">{{ label('decision') }}</h2><p v-if="error" role="alert">{{ error }}</p><p v-if="done" role="status">{{ label('done') }}</p>
-  <div class="flex flex-wrap items-end gap-3"><label>{{ label('decisionDate') }}<DateInput v-model="date" data-field="decision-date" /></label><ActionBar :actions="[{ key: 'load-decision', label: label('loadDecision'), icon: 'search', variant: 'neutral', disabled: busy || !date, run: load }]" /></div>
-  <template v-if="choices"><label class="block">{{ label('authority') }}<input v-model="authority" data-field="authority" class="input w-full" maxlength="1000" /></label><label class="block">{{ label('decisionReference') }}<textarea v-model="reference" data-field="decision-reference" class="input w-full" maxlength="1000" /></label>
-   <div v-for="cell in choices.cells" :key="cell.key" class="flex flex-wrap items-end gap-3"><span>{{ cell.account_code }} · {{ (cell.available_cents / 100).toFixed(2) }} CZK</span><label>{{ label('role') }}<select v-model="roles[cell.key]" data-field="decision-role" class="input"><option value="">{{ label('choose') }}</option><option v-for="role in choices.target_roles" :key="role.role" :value="role.role">{{ label('retained') }}</option></select></label></div>
+  <div class="flex flex-wrap items-end gap-3"><label :class="formLabel">{{ label('decisionDate') }}<DateInput :class="dateInput" v-model="date" data-field="decision-date" /></label><ActionBar :actions="[{ key: 'load-decision', label: label('loadDecision'), icon: 'search', variant: 'neutral', disabled: busy || !date, run: load }]" /></div>
+  <template v-if="choices"><label :class="formLabel">{{ label('authority') }}<input v-model="authority" data-field="authority" :class="input" maxlength="1000" /></label><label :class="formLabel">{{ label('decisionReference') }}<textarea v-model="reference" data-field="decision-reference" :class="textarea" maxlength="1000" /></label>
+   <div v-for="cell in choices.cells" :key="cell.key" class="flex flex-wrap items-end gap-3"><span>{{ cell.account_code }} · {{ (cell.available_cents / 100).toFixed(2) }} CZK</span><label :class="formLabel">{{ label('role') }}<select v-model="roles[cell.key]" data-field="decision-role" :class="input"><option value="">{{ label('choose') }}</option><option v-for="role in choices.target_roles" :key="role.role" :value="role.role">{{ label('retained') }}</option></select></label></div>
    <div v-if="preview" data-section="decision-preview"><p v-for="(line,index) in preview.plan.lines" :key="index">{{ line.account_code }} · {{ label(line.side) }} · {{ line.amount }} CZK</p><label class="flex gap-2"><input v-model="ack" data-field="decision-ack" type="checkbox" />{{ label('acknowledgement') }}</label></div><ActionBar :actions="actions" />
   </template>
  </section>

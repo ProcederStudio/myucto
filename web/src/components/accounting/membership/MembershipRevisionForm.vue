@@ -3,6 +3,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import ActionBar, { type ActionItem } from '@/components/ui/ActionBar.vue'
 import DateInput from '@/components/ui/DateInput.vue'
+import { formDateInput as dateInput, formInput as field, formLabel, formTextarea as textarea } from '@/components/ui/formStyles'
 import { membershipApi, type MemberIdentity, type MemberRevision, type MemberRevisionInput, type MemberStatus } from '@/api/nonprofitMembership'
 import { isIsoDate, lastRevision } from './membershipFormat'
 import MembershipConfirmBar from './MembershipConfirmBar.vue'
@@ -13,7 +14,7 @@ interface RevisionCommand { member: number; body: MemberRevisionInput }
 const props = defineProps<{ supplier: number; canManage: boolean; member: MemberIdentity; history: MemberRevision[] }>()
 const emit = defineEmits<{ done: []; lock: [locked: boolean] }>()
 const { t } = useI18n()
-const field = 'w-full rounded border bg-surface px-3 py-2'
+
 const inputForm = ref<HTMLFormElement | null>(null)
 
 const form = reactive({ status: 'active' as MemberStatus, effectiveFrom: '', reference: '', evidence: '' })
@@ -70,20 +71,20 @@ const actions = computed<ActionItem[]>(() => [
 <template>
   <section class="space-y-4 rounded-lg border bg-surface p-4" data-section="revision-form">
     <h3 class="font-semibold">{{ t('nonprofitMembership.revisionTitle') }}</h3>
-    <p class="text-sm text-muted">{{ t('nonprofitMembership.revisionHelp') }}</p>
+    <p class="text-sm text-neutral-500">{{ t('nonprofitMembership.revisionHelp') }}</p>
     <p v-if="notice" role="status" class="text-sm text-success-700">{{ notice }}</p>
     <p v-if="commit.error.value" role="alert" class="rounded border border-danger-300 p-3 text-sm">{{ commit.error.value }}</p>
     <form ref="inputForm" @submit.prevent="review" @input="commit.touch">
     <fieldset :disabled="commit.locked.value" class="grid gap-3 sm:grid-cols-2">
-      <label>{{ t('nonprofitMembership.revisionStatus') }}
+      <label :class="formLabel">{{ t('nonprofitMembership.revisionStatus') }}
         <select v-model="form.status" :class="field" data-field="rev-status">
           <option v-for="status in statuses" :key="status" :value="status">{{ t(`nonprofitMembership.status_${status}`) }}</option>
         </select>
       </label>
-      <label>{{ t('nonprofitMembership.effectiveFrom') }}<DateInput v-model="form.effectiveFrom" required data-field="rev-from" /></label>
+      <label :class="formLabel">{{ t('nonprofitMembership.effectiveFrom') }}<DateInput :class="dateInput" v-model="form.effectiveFrom" required data-field="rev-from" /></label>
       <p class="text-sm sm:col-span-2">{{ t('nonprofitMembership.legalBasisFixed') }}</p>
-      <label class="sm:col-span-2">{{ t('nonprofitMembership.reference') }}<input v-model="form.reference" :class="field" maxlength="1000" data-field="rev-reference" /></label>
-      <label class="sm:col-span-2">{{ t('nonprofitMembership.evidence') }}<textarea v-model="form.evidence" :class="field" maxlength="2000" data-field="rev-evidence" /></label>
+      <label :class="[formLabel, 'sm:col-span-2']">{{ t('nonprofitMembership.reference') }}<input v-model="form.reference" :class="field" maxlength="1000" data-field="rev-reference" /></label>
+      <label :class="[formLabel, 'sm:col-span-2']">{{ t('nonprofitMembership.evidence') }}<textarea v-model="form.evidence" :class="textarea" maxlength="2000" data-field="rev-evidence" /></label>
     </fieldset>
     </form>
     <p v-if="invalid && (form.effectiveFrom || form.reference || form.evidence)" class="text-sm text-warning-700" data-section="rev-invalid">{{ invalid }}</p>
@@ -91,12 +92,12 @@ const actions = computed<ActionItem[]>(() => [
     <div v-if="commit.review.value" class="space-y-3 rounded border p-3" data-section="rev-preview">
       <h4 class="font-semibold">{{ t('nonprofitMembership.revisionReview') }}</h4>
       <dl class="grid gap-3 sm:grid-cols-3">
-        <div><dt class="text-sm text-muted">{{ t('nonprofitMembership.revisionStatus') }}</dt><dd>{{ t(`nonprofitMembership.status_${commit.review.value.body.status}`) }}</dd></div>
-        <div><dt class="text-sm text-muted">{{ t('nonprofitMembership.effectiveFrom') }}</dt><dd>{{ commit.review.value.body.effective_from }}</dd></div>
-        <div><dt class="text-sm text-muted">{{ t('nonprofitMembership.expectedRevision') }}</dt><dd>{{ commit.review.value.body.expected_revision }}</dd></div>
+        <div><dt class="text-sm text-neutral-500">{{ t('nonprofitMembership.revisionStatus') }}</dt><dd>{{ t(`nonprofitMembership.status_${commit.review.value.body.status}`) }}</dd></div>
+        <div><dt class="text-sm text-neutral-500">{{ t('nonprofitMembership.effectiveFrom') }}</dt><dd>{{ commit.review.value.body.effective_from }}</dd></div>
+        <div><dt class="text-sm text-neutral-500">{{ t('nonprofitMembership.expectedRevision') }}</dt><dd>{{ commit.review.value.body.expected_revision }}</dd></div>
       </dl>
       <p class="text-sm">{{ commit.review.value.body.legal_basis.reference }}</p>
-      <p class="text-sm text-muted">{{ commit.review.value.body.legal_basis.evidence }}</p>
+      <p class="text-sm text-neutral-500">{{ commit.review.value.body.legal_basis.evidence }}</p>
       <MembershipConfirmBar
         v-model:acknowledged="commit.acknowledged.value"
         :busy="commit.busy.value" :uncertain="commit.uncertain.value" :can-manage="canManage"

@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import ActionBar, { type ActionItem } from '@/components/ui/ActionBar.vue'
+import { formInput as input, formLabel, formTextarea as textarea } from '@/components/ui/formStyles'
 import { nonprofitDppoApi as api } from '@/api/nonprofitDppo'
 import type { NonprofitDppoState } from '@/api/nonprofitDppoTypes'
 const props = defineProps<{ supplier: number; state: NonprofitDppoState; canEdit: boolean }>()
@@ -31,8 +32,8 @@ const actions = computed<ActionItem[]>(() => [{ key: 'save-reduction', label: t(
 </script>
 <template>
  <section class="space-y-3 rounded border p-4">
-  <h3 class="font-semibold">{{ t('nonprofitDppo.reduction') }}</h3><p class="text-sm text-muted">{{ t('nonprofitDppo.reductionHelp') }}</p><p v-if="error" role="alert" class="text-danger">{{ error }}</p>
-  <fieldset :disabled="!editable || busy || uncertain" class="grid gap-3 sm:grid-cols-2"><label>{{ t('nonprofitDppo.reductionAmount') }}<input v-model="reduction" data-field="reduction" inputmode="numeric" class="w-full rounded border bg-surface px-3 py-2" /></label><label>{{ t('nonprofitDppo.reductionEvidence') }}<textarea v-model="evidence" data-field="reduction-evidence" class="w-full rounded border bg-surface px-3 py-2" /></label></fieldset>
+  <h3 class="font-semibold">{{ t('nonprofitDppo.reduction') }}</h3><p class="text-sm text-neutral-500">{{ t('nonprofitDppo.reductionHelp') }}</p><p v-if="error" role="alert" class="text-danger">{{ error }}</p>
+  <fieldset :disabled="!editable || busy || uncertain" class="grid gap-3 sm:grid-cols-2"><label :class="formLabel">{{ t('nonprofitDppo.reductionAmount') }}<input v-model="reduction" data-field="reduction" inputmode="numeric" :class="input" /></label><label :class="formLabel">{{ t('nonprofitDppo.reductionEvidence') }}<textarea v-model="evidence" data-field="reduction-evidence" :class="textarea" /></label></fieldset>
   <ActionBar :actions="actions" />
  </section>
 </template>

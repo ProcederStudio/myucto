@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import ActionBar, { type ActionItem } from '@/components/ui/ActionBar.vue'
 import DateInput from '@/components/ui/DateInput.vue'
+import { formDateInput as dateInput, formInput as field, formLabel, formTextarea as textarea } from '@/components/ui/formStyles'
 import type { AccountingPeriod } from '@/api/accounting'
 import { membershipApi, type ClaimRow, type MembershipConfirmBody, type MembershipPreview } from '@/api/nonprofitMembership'
 import { appIsoDate } from '@/utils/date'
@@ -18,7 +19,7 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ done: []; close: []; lock: [locked: boolean] }>()
 const { t, locale } = useI18n()
-const field = 'w-full rounded border bg-surface px-3 py-2'
+
 const inputForm = ref<HTMLFormElement | null>(null)
 
 const form = reactive({ periodId: 0, accountingDate: '', reason: '' })
@@ -92,38 +93,38 @@ const actions = computed<ActionItem[]>(() => [
 <template>
   <section class="space-y-4 rounded-lg border bg-surface p-4" data-section="reverse-flow">
     <h3 class="font-semibold">{{ t('nonprofitMembership.reverseTitle') }} · {{ member.member_number }} · {{ member.label }}</h3>
-    <p class="text-sm text-muted">{{ t('nonprofitMembership.reverseHelp') }}</p>
+    <p class="text-sm text-neutral-500">{{ t('nonprofitMembership.reverseHelp') }}</p>
     <dl class="grid gap-3 sm:grid-cols-4" data-section="reverse-claim">
-      <div><dt class="text-sm text-muted">{{ t('nonprofitMembership.titleKey') }}</dt><dd>{{ claim.title_key }}</dd></div>
-      <div><dt class="text-sm text-muted">{{ t('nonprofitMembership.periodFrom') }} - {{ t('nonprofitMembership.periodTo') }}</dt><dd>{{ claim.period_from }} - {{ claim.period_to }}</dd></div>
-      <div><dt class="text-sm text-muted">{{ t('nonprofitMembership.amount') }}</dt><dd>{{ formatCents(claim.amount_cents, locale) }}</dd></div>
-      <div><dt class="text-sm text-muted">{{ t('nonprofitMembership.accountingDate') }}</dt><dd>{{ claim.accounting_date }}</dd></div>
+      <div><dt class="text-sm text-neutral-500">{{ t('nonprofitMembership.titleKey') }}</dt><dd>{{ claim.title_key }}</dd></div>
+      <div><dt class="text-sm text-neutral-500">{{ t('nonprofitMembership.periodFrom') }} - {{ t('nonprofitMembership.periodTo') }}</dt><dd>{{ claim.period_from }} - {{ claim.period_to }}</dd></div>
+      <div><dt class="text-sm text-neutral-500">{{ t('nonprofitMembership.amount') }}</dt><dd>{{ formatCents(claim.amount_cents, locale) }}</dd></div>
+      <div><dt class="text-sm text-neutral-500">{{ t('nonprofitMembership.accountingDate') }}</dt><dd>{{ claim.accounting_date }}</dd></div>
     </dl>
     <MembershipSettlement :settlement="claim.settlement" :amount-cents="claim.amount_cents" />
     <p v-if="commit.error.value" role="alert" class="rounded border border-danger-300 p-3 text-sm" data-section="reverse-error">{{ commit.error.value }}</p>
     <form ref="inputForm" @submit.prevent="runPreview" @input="commit.touch">
     <fieldset :disabled="commit.locked.value" class="grid gap-3 sm:grid-cols-2">
-      <label>{{ t('nonprofitMembership.accountingPeriod') }}
+      <label :class="formLabel">{{ t('nonprofitMembership.accountingPeriod') }}
         <select v-model.number="form.periodId" :class="field" data-field="reverse-period">
           <option :value="0">{{ t('nonprofitMembership.choose') }}</option>
           <option v-for="p in openPeriods" :key="p.id" :value="p.id">{{ p.starts_on }} - {{ p.ends_on }}</option>
         </select>
       </label>
-      <label>{{ t('nonprofitMembership.reverseDate') }}<DateInput v-model="form.accountingDate" required :min="chosenPeriod?.starts_on" :max="chosenPeriod?.ends_on" data-field="reverse-date" /></label>
-      <label class="sm:col-span-2">{{ t('nonprofitMembership.reverseReason') }}<textarea v-model="form.reason" :class="field" maxlength="2000" data-field="reverse-reason" /></label>
+      <label :class="formLabel">{{ t('nonprofitMembership.reverseDate') }}<DateInput :class="dateInput" v-model="form.accountingDate" required :min="chosenPeriod?.starts_on" :max="chosenPeriod?.ends_on" data-field="reverse-date" /></label>
+      <label :class="[formLabel, 'sm:col-span-2']">{{ t('nonprofitMembership.reverseReason') }}<textarea v-model="form.reason" :class="textarea" maxlength="2000" data-field="reverse-reason" /></label>
     </fieldset>
     </form>
     <ActionBar v-if="canManage && !commit.review.value" :actions="actions" />
     <div v-if="commit.review.value && frozenRequest" class="space-y-3 rounded border p-3" data-section="reverse-preview">
       <h4 class="font-semibold">{{ t('nonprofitMembership.reviewTitle') }}</h4>
-      <p class="text-sm text-muted">{{ t('nonprofitMembership.advisory') }}</p>
+      <p class="text-sm text-neutral-500">{{ t('nonprofitMembership.advisory') }}</p>
       <dl class="grid gap-3 sm:grid-cols-3">
-        <div><dt class="text-sm text-muted">{{ t('nonprofitMembership.reverseDate') }}</dt><dd>{{ frozenRequest.accounting_date }}</dd></div>
-        <div v-if="commit.review.value.target_period"><dt class="text-sm text-muted">{{ t('nonprofitMembership.accountingPeriod') }}</dt><dd>{{ commit.review.value.target_period.starts_on }} - {{ commit.review.value.target_period.ends_on }}</dd></div>
-        <div><dt class="text-sm text-muted">{{ t('nonprofitMembership.caseVersion') }}</dt><dd>{{ t('nonprofitMembership.caseExisting', { version: commit.review.value.expected_case_version }) }}</dd></div>
+        <div><dt class="text-sm text-neutral-500">{{ t('nonprofitMembership.reverseDate') }}</dt><dd>{{ frozenRequest.accounting_date }}</dd></div>
+        <div v-if="commit.review.value.target_period"><dt class="text-sm text-neutral-500">{{ t('nonprofitMembership.accountingPeriod') }}</dt><dd>{{ commit.review.value.target_period.starts_on }} - {{ commit.review.value.target_period.ends_on }}</dd></div>
+        <div><dt class="text-sm text-neutral-500">{{ t('nonprofitMembership.caseVersion') }}</dt><dd>{{ t('nonprofitMembership.caseExisting', { version: commit.review.value.expected_case_version }) }}</dd></div>
       </dl>
       <table v-if="accounts?.receivable && accounts?.revenue" class="w-full text-sm" data-section="reverse-plan">
-        <thead><tr class="text-left text-muted"><th>{{ t('nonprofitMembership.side') }}</th><th>{{ t('nonprofitMembership.account') }}</th><th class="text-right">{{ t('nonprofitMembership.amount') }}</th></tr></thead>
+        <thead><tr class="text-left text-neutral-500"><th>{{ t('nonprofitMembership.side') }}</th><th>{{ t('nonprofitMembership.account') }}</th><th class="text-right">{{ t('nonprofitMembership.amount') }}</th></tr></thead>
         <tbody>
           <tr><td>{{ t('nonprofitMembership.debit') }}</td><td>{{ accounts.revenue.account_code }} {{ accounts.revenue.name }}</td><td class="text-right">{{ formatCents(claim.amount_cents, locale) }}</td></tr>
           <tr><td>{{ t('nonprofitMembership.credit') }}</td><td>{{ accounts.receivable.account_code }} {{ accounts.receivable.name }}</td><td class="text-right">{{ formatCents(claim.amount_cents, locale) }}</td></tr>

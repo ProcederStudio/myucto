@@ -108,7 +108,7 @@ const actions = computed<ActionItem[]>(() => [
     <p v-if="notice" role="status" class="text-sm text-success-700" data-section="detail-notice">{{ notice }}</p>
 
     <div v-if="identity" class="space-y-2" data-section="member-status">
-      <p class="text-sm text-muted">{{ t('nonprofitMembership.clientRef', { client: label, id: identity.client_id }) }}</p>
+      <p class="text-sm text-neutral-500">{{ t('nonprofitMembership.clientRef', { client: label, id: identity.client_id }) }}</p>
       <p v-if="current" data-field="status-today">
         {{ t('nonprofitMembership.statusToday', { date: today }) }}:
         <strong>{{ t(`nonprofitMembership.status_${current.status}`) }}</strong>
@@ -122,7 +122,7 @@ const actions = computed<ActionItem[]>(() => [
 
     <div class="space-y-2" data-section="history">
       <h3 class="font-semibold">{{ t('nonprofitMembership.history') }}</h3>
-      <p v-if="identity && !history.length" class="text-sm text-muted">{{ t('nonprofitMembership.historyEmpty') }}</p>
+      <p v-if="identity && !history.length" class="text-sm text-neutral-500">{{ t('nonprofitMembership.historyEmpty') }}</p>
       <div v-for="revision in history" :key="revision.id" class="space-y-1 rounded border p-3 text-sm" data-section="history-row">
         <div class="flex flex-wrap items-center gap-2">
           <span class="font-medium">#{{ revision.revision_no }}</span>
@@ -132,7 +132,7 @@ const actions = computed<ActionItem[]>(() => [
           <span v-else-if="revision.effective_from > today" class="rounded bg-warning-50 px-2 py-0.5 text-warning-700">{{ t('nonprofitMembership.notYetValid') }}</span>
         </div>
         <p>{{ revision.legal_basis.reference }}</p>
-        <p class="text-muted">{{ revision.legal_basis.evidence }}</p>
+        <p class="text-neutral-500">{{ revision.legal_basis.evidence }}</p>
       </div>
     </div>
 
@@ -156,19 +156,19 @@ const actions = computed<ActionItem[]>(() => [
 
     <div class="space-y-3" data-section="claims">
       <h3 class="font-semibold">{{ t('nonprofitMembership.claims') }}</h3>
-      <p class="text-sm text-muted">{{ t('nonprofitMembership.claimsHelp') }}</p>
+      <p class="text-sm text-neutral-500">{{ t('nonprofitMembership.claimsHelp') }}</p>
       <dl class="grid gap-3 sm:grid-cols-3" data-section="claims-summary">
-        <div><dt class="text-sm text-muted">{{ t('nonprofitMembership.sumIssued') }}</dt><dd data-field="sum-issued">{{ formatCents(issued, locale) }}</dd></div>
-        <div><dt class="text-sm text-muted">{{ t('nonprofitMembership.sumProvenOpen') }}</dt><dd data-field="sum-proven-open">{{ formatCents(provenOpen, locale) }}</dd></div>
-        <div><dt class="text-sm text-muted">{{ t('nonprofitMembership.sumUnproven') }}</dt><dd data-field="sum-unproven">{{ unproven }}</dd></div>
+        <div><dt class="text-sm text-neutral-500">{{ t('nonprofitMembership.sumIssued') }}</dt><dd data-field="sum-issued">{{ formatCents(issued, locale) }}</dd></div>
+        <div><dt class="text-sm text-neutral-500">{{ t('nonprofitMembership.sumProvenOpen') }}</dt><dd data-field="sum-proven-open">{{ formatCents(provenOpen, locale) }}</dd></div>
+        <div><dt class="text-sm text-neutral-500">{{ t('nonprofitMembership.sumUnproven') }}</dt><dd data-field="sum-unproven">{{ unproven }}</dd></div>
       </dl>
       <p v-if="unproven" class="text-sm text-warning-700" data-section="unproven-note">{{ t('nonprofitMembership.unprovenNote') }}</p>
-      <p v-if="nextAfter !== null" class="text-sm text-muted" data-section="partial-note">{{ t('nonprofitMembership.partialSummary') }}</p>
-      <p v-if="identity && !claims.length && !loading" class="text-sm text-muted">{{ t('nonprofitMembership.claimsEmpty') }}</p>
+      <p v-if="nextAfter !== null" class="text-sm text-neutral-500" data-section="partial-note">{{ t('nonprofitMembership.partialSummary') }}</p>
+      <p v-if="identity && !claims.length && !loading" class="text-sm text-neutral-500">{{ t('nonprofitMembership.claimsEmpty') }}</p>
       <div v-for="claim in claims" :key="claim.claim_id" class="grid gap-3 rounded border p-3 sm:grid-cols-[1fr_1fr_auto]" data-section="claim-row" :data-claim="claim.claim_id">
         <div class="space-y-1 text-sm">
           <p class="font-medium">{{ claim.title_key }}</p>
-          <p class="text-muted">{{ claim.period_from }} - {{ claim.period_to }}</p>
+          <p class="text-neutral-500">{{ claim.period_from }} - {{ claim.period_to }}</p>
           <p>{{ formatCents(claim.amount_cents, locale) }} · {{ t('nonprofitMembership.accountingDate') }} {{ claim.accounting_date }} · {{ t('nonprofitMembership.dueDate') }} {{ claim.due_date }}</p>
         </div>
         <MembershipSettlement :settlement="claim.settlement" :amount-cents="claim.amount_cents" />

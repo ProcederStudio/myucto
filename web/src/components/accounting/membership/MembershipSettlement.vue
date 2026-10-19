@@ -28,6 +28,6 @@ const proven = computed(() => props.settlement.paid_cents !== null && props.sett
       {{ t('nonprofitMembership.paid') }}: {{ formatCents(settlement.paid_cents!, locale) }} · {{ t('nonprofitMembership.openAmount') }}:{{ formatCents(settlement.open_cents!, locale) }}
     </p>
     <p v-else-if="status !== 'reversed'" class="text-warning-700" data-field="settlement-unknown">{{ t('nonprofitMembership.paymentUnknown') }}</p>
-    <p class="text-muted">{{ t(`nonprofitMembership.evidence_${evidence}`) }}</p>
+    <p class="text-neutral-500">{{ t(`nonprofitMembership.evidence_${evidence}`) }}</p>
   </div>
 </template>
