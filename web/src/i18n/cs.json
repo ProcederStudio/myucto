@@ -16634,6 +16634,7 @@
       "delete_depreciation_confirm": "Opravdu smazat zápis odpisu #{id}? Nevytvoří se protizápis; smaže se účetní odpis a odpovídající potvrzený daňový odpis nejnovějšího roku.",
       "depreciation_deleted": "Zápis odpisu i řádky odpisového plánu byly smazány.",
       "extras_title": "Poznámky a doklady",
+      "source_documents": "Dokumenty zdrojového dokladu",
       "attachments": "Přílohy",
       "att_add": "Přidat přílohu",
       "att_drop": "Přetáhněte soubory sem nebo klikněte na Přidat přílohu",
@@ -22652,6 +22653,7 @@
     "create_purchase_submit": "Vytvořit koncept",
     "documents_action": "Dokumenty",
     "documents_hide": "Skrýt dokumenty",
+    "journal_documents": "Dokumenty zápisu v deníku",
     "dimensions_action": "Dimenze",
     "dimensions_hide": "Skrýt dimenze",
     "note": {

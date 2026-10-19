@@ -16634,6 +16634,7 @@
       "delete_depreciation_confirm": "Really delete depreciation entry #{id}? No reversal will be created; the accounting depreciation and the matching confirmed tax depreciation for the latest year will be deleted.",
       "depreciation_deleted": "The depreciation entry and depreciation-plan rows were deleted.",
       "extras_title": "Notes and documents",
+      "source_documents": "Source document files",
       "attachments": "Attachments",
       "att_add": "Add attachment",
       "att_drop": "Drop files here or click Add attachment",
@@ -22652,6 +22653,7 @@
     "create_purchase_submit": "Create draft",
     "documents_action": "Documents",
     "documents_hide": "Hide documents",
+    "journal_documents": "Journal entry documents",
     "dimensions_action": "Dimensions",
     "dimensions_hide": "Hide dimensions",
     "note": {
