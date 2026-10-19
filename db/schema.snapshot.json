@@ -1014,7 +1014,8 @@
         "2057_operational_settings_role_permissions.sql",
         "2058_logbook_trip_templates_odometer_readings.sql",
         "2070_asset_imported_depreciation_plan.sql",
-        "2071_logbook_odometer_sources.sql"
+        "2071_logbook_odometer_sources.sql",
+        "2072_oauth_sessions.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -7374,6 +7375,40 @@
                 "sent_to": "json_valid(`sent_to`)"
             }
         },
+        "oauth_sessions": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "consumed_at": "datetime(6) NULL DEFAULT NULL",
+                "created_at": "datetime(6) NOT NULL DEFAULT current_timestamp(6)",
+                "domain": "varchar(32) NOT NULL",
+                "error_code": "varchar(80) NULL DEFAULT NULL",
+                "expires_at": "datetime(6) NOT NULL",
+                "flow": "enum('redirect','device_code') NOT NULL",
+                "provider": "varchar(32) NOT NULL",
+                "secret_ciphertext": "mediumtext NOT NULL",
+                "stage": "varchar(32) NOT NULL DEFAULT 'oauth'",
+                "state_hash": "char(64) NOT NULL",
+                "status": "enum('pending','processing','completed','failed') NOT NULL DEFAULT 'pending'",
+                "subject_id": "int(10) unsigned NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "updated_at": "datetime(6) NOT NULL DEFAULT current_timestamp(6) ON UPDATE CURRENT_TIMESTAMP(6)",
+                "user_id": "bigint(20) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (state_hash)",
+                "fk_oauth_session_user": "BTREE (user_id)",
+                "idx_oauth_session_expiry": "BTREE (expires_at)",
+                "idx_oauth_session_subject": "BTREE (supplier_id, domain, provider, subject_id, created_at)",
+                "idx_oauth_session_user": "BTREE (supplier_id, user_id, domain, provider, stage, status)"
+            },
+            "foreign_keys": {
+                "fk_oauth_session_supplier": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE CASCADE",
+                "fk_oauth_session_user": "(user_id) -> users (id) ON UPDATE RESTRICT ON DELETE CASCADE"
+            },
+            "checks": []
+        },
         "odometer_readings": {
             "type": "BASE TABLE",
             "engine": "InnoDB",
@@ -7418,7 +7453,6 @@
                 "last_sync_error_code": "varchar(64) NULL DEFAULT NULL",
                 "last_sync_status": "enum('success','error') NULL DEFAULT NULL",
                 "pending_car_id": "int(10) unsigned NULL DEFAULT NULL",
-                "pending_ciphertext": "text NULL DEFAULT NULL",
                 "pending_expires_at": "datetime NULL DEFAULT NULL",
                 "pending_state_hash": "char(64) NULL DEFAULT NULL",
                 "provider": "varchar(32) NOT NULL",
