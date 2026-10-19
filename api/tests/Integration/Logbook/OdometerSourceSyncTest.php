@@ -6,7 +6,9 @@ namespace MyInvoice\Tests\Integration\Logbook;
 
 use MyInvoice\Infrastructure\Config\Config;
 use MyInvoice\Infrastructure\Database\NamedLockName;
+use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Repository\CarRepository;
+use MyInvoice\Repository\OAuthSessionRepository;
 use MyInvoice\Repository\OdometerReadingRepository;
 use MyInvoice\Repository\OdometerSourceAccountRepository;
 use MyInvoice\Repository\OdometerSourceCarRepository;
@@ -18,7 +20,10 @@ use MyInvoice\Service\Logbook\OdometerSource\OdometerSourceRegistry;
 use MyInvoice\Service\Logbook\OdometerSource\OdometerSourceService;
 use MyInvoice\Service\Logbook\OdometerSource\OdometerSourceVault;
 use MyInvoice\Service\Logbook\OdometerSource\OdometerSourceVehicle;
+use MyInvoice\Service\OAuth\OAuthCallback;
+use MyInvoice\Service\OAuth\OAuthClientFlow;
 use PHPUnit\Framework\Attributes\Group;
+use Slim\Psr7\Factory\ServerRequestFactory;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -34,6 +39,7 @@ final class OdometerSourceSyncTest extends TestCase
     private const VIN = 'WBA00000000000001';
 
     private FakeOdometerSource $source;
+    private OAuthClientFlow $flow;
     private OdometerSourceService $service;
     private OdometerSourceVault $vault;
     private OdometerSourceAccountRepository $accounts;
@@ -49,10 +55,13 @@ final class OdometerSourceSyncTest extends TestCase
         $registry = new OdometerSourceRegistry([$this->source]);
         $this->accounts = new OdometerSourceAccountRepository($this->db);
         $this->readingRepository = new OdometerReadingRepository($this->db, $registry);
-        $this->vault = new OdometerSourceVault(new SecretEncryption(new Config(['app' => [
+        $secrets = new SecretEncryption(new Config(['app' => [
             'pepper' => 'synthetic-pepper', 'secret_encryption_key' => base64_encode(str_repeat('k', 32)),
-        ]])));
-        $this->service = new OdometerSourceService($this->db, $registry, $this->vault, $this->accounts,
+        ]]));
+        $this->vault = new OdometerSourceVault($secrets);
+        $this->flow = new OAuthClientFlow(new OAuthSessionRepository($this->db), $secrets, $this->db,
+            new Config(['app' => ['url' => 'https://example.test']]));
+        $this->service = new OdometerSourceService($registry, $this->vault, $this->flow, $this->accounts,
             new OdometerSourceCarRepository($this->db), new CarRepository($this->db), $this->readingRepository);
     }
 
@@ -71,13 +80,18 @@ final class OdometerSourceSyncTest extends TestCase
             'interval' => 5, 'expires_in' => 300], $start);
         $pending = $this->accountRow($this->supplierA);
         self::assertSame('pending', $pending['status']);
-        self::assertStringNotContainsString('synthetic-device', (string) $pending['pending_ciphertext']);
-        // state generuje jádro; v DB je jen jeho hash.
+        // state a PKCE generuje společná vrstva; v DB je jen hash state a šifrované přihlášení.
         self::assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $this->source->contexts[0]->state);
         self::assertSame(hash('sha256', $this->source->contexts[0]->state), $pending['pending_state_hash']);
+        $session = $this->oauthRow($pending['pending_state_hash']);
+        self::assertSame(['odometer', FakeOdometerSource::CODE, (int) $pending['id'], 'device_code', 'pending'],
+            [$session['domain'], $session['provider'], (int) $session['subject_id'], $session['flow'], $session['status']]);
+        self::assertStringStartsWith('enc:v2:', $session['secret_ciphertext']);
+        self::assertStringNotContainsString('synthetic-device', $session['secret_ciphertext']);
 
         self::assertSame(['state' => 'waiting', 'interval' => 5], $this->service->continueConnect($this->supplierA, $car));
         self::assertSame([['key' => 'synthetic-key', 'device' => 'synthetic-device']], $this->source->pendingSeen);
+        self::assertSame($this->source->contexts[0]->codeVerifier, $this->source->inputSeen[0]['code_verifier']);
 
         $this->source->approved = true;
         // 23:30 UTC je v Praze už další den — stav patří k místnímu datu.
@@ -94,8 +108,80 @@ final class OdometerSourceSyncTest extends TestCase
         $stored = $this->accountRow($this->supplierA);
         self::assertStringStartsWith('enc:v2:', $stored['credentials_ciphertext']);
         self::assertStringNotContainsString('synthetic-token', $stored['credentials_ciphertext']);
-        self::assertNull($stored['pending_ciphertext']);
         self::assertNull($stored['pending_state_hash']);
+        self::assertSame(['completed', ''], [$this->oauthRow($pending['pending_state_hash'])['status'],
+            $this->oauthRow($pending['pending_state_hash'])['secret_ciphertext']]);
+    }
+
+    public function testRedirectLoginTakesCodeOnlyFromCallbackOfTheSameUser(): void
+    {
+        $car = $this->carWithStart($this->supplierA, 'TST0040', 1000, '2099-03-01');
+        $this->source->redirect = true;
+        $this->source->approved = true;
+
+        $start = $this->service->startConnect($this->supplierA, $car, FakeOdometerSource::CODE, ['key' => 'synthetic-key'], $this->userId);
+        $context = $this->source->contexts[0];
+        self::assertSame('redirect', $start['state']);
+        self::assertSame('https://example.test/api/oauth/callback', $context->redirectUri);
+        self::assertNotNull($context->codeChallenge());
+
+        // Bez návratu ze služby se zdroje vůbec neptá; kód z dialogu se nepoužije.
+        self::assertSame(['state' => 'waiting', 'interval' => 5],
+            $this->service->continueConnect($this->supplierA, $car, ['code' => 'forged-code']));
+        self::assertSame([], $this->source->inputSeen);
+
+        $this->assertFails(OdometerSourceException::EXPIRED, fn () => $this->service->receiveCallback(
+            $this->oauthCallback($context->state, 'synthetic-code', $this->supplierA, $this->userId + 100000)));
+        self::assertSame($car, $this->service->receiveCallback($this->oauthCallback($context->state, 'synthetic-code')));
+        $this->assertFails(OdometerSourceException::EXPIRED,
+            fn () => $this->service->receiveCallback($this->oauthCallback($context->state, 'replayed-code')));
+
+        $result = $this->service->continueConnect($this->supplierA, $car, ['code' => 'forged-code', 'code_verifier' => 'forged']);
+
+        self::assertSame('connected', $result['state']);
+        self::assertSame([['code' => 'synthetic-code', 'code_verifier' => $context->codeVerifier]], $this->source->inputSeen);
+    }
+
+    public function testDeclinedRedirectLoginEndsPendingConnect(): void
+    {
+        $car = $this->carWithStart($this->supplierA, 'TST0041', 1000, '2099-03-01');
+        $this->source->redirect = true;
+        $this->service->startConnect($this->supplierA, $car, FakeOdometerSource::CODE, ['key' => 'synthetic-key'], $this->userId);
+
+        $this->service->receiveCallback($this->oauthCallback($this->source->contexts[0]->state, '', $this->supplierA, $this->userId, 'access_denied'));
+
+        $this->assertFails(OdometerSourceException::ACCESS_DENIED, fn () => $this->service->continueConnect($this->supplierA, $car));
+        self::assertSame([], $this->source->inputSeen);
+        self::assertSame(0, $this->accountCount($this->supplierA));
+    }
+
+    public function testCallbackOfAnotherSupplierCannotDeliverCode(): void
+    {
+        $car = $this->carWithStart($this->supplierA, 'TST0042', 1000, '2099-03-01');
+        $this->source->redirect = true;
+        $this->service->startConnect($this->supplierA, $car, FakeOdometerSource::CODE, ['key' => 'synthetic-key'], $this->userId);
+
+        $this->assertFails(OdometerSourceException::EXPIRED, fn () => $this->service->receiveCallback(
+            $this->oauthCallback($this->source->contexts[0]->state, 'synthetic-code', $this->supplierB)));
+        self::assertSame(['state' => 'waiting', 'interval' => 5], $this->service->continueConnect($this->supplierA, $car));
+    }
+
+    private function oauthCallback(string $state, string $code, ?int $supplierId = null, ?int $userId = null, ?string $error = null): OAuthCallback
+    {
+        $session = $this->flow->find($state);
+        $session['supplier_id'] = $supplierId ?? $this->supplierA;
+        $session['user_id'] = $userId ?? $this->userId;
+        $request = (new ServerRequestFactory())->createServerRequest('GET', '/api/oauth/callback')
+            ->withAttribute(AuthMiddleware::ATTR_USER, ['id' => $session['user_id']]);
+        return new OAuthCallback($session, $state, $code, $error, ['state' => $state, 'code' => $code], $request);
+    }
+
+    /** @return array<string,mixed> */
+    private function oauthRow(string $hash): array
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM oauth_sessions WHERE state_hash = ?');
+        $stmt->execute([$hash]);
+        return $stmt->fetch(\PDO::FETCH_ASSOC);
     }
 
     public function testChangedPendingStateIsStoredForNextPoll(): void
@@ -246,6 +332,30 @@ final class OdometerSourceSyncTest extends TestCase
         self::assertSame(1, $summary['succeeded'], json_encode($summary));
         self::assertSame('synthetic-token-2', $this->credentials($account)['token']);
         self::assertSame([['2099-03-05', '11:00', 1200, FakeOdometerSource::CODE]], $this->readings($car));
+    }
+
+    public function testRefreshedTokenIsStoredAndConcurrentRotationIsNotRepeated(): void
+    {
+        $car = $this->carWithStart($this->supplierA, 'TST0043', 1000, '2099-03-01');
+        $account = $this->connectedAccount($this->supplierA, [$car => self::VIN]);
+        $this->source->refreshOnRead = true;
+        $this->source->samples[self::VIN] = new OdometerSample(1100, OdometerSample::UNIT_KM, new \DateTimeImmutable('2099-03-05T10:00:00Z'));
+
+        $this->service->sync($this->supplierA, $car);
+        self::assertSame([1, 'synthetic-token-refreshed'], [$this->source->refreshes, $this->credentials($account)['token']]);
+
+        // Souběžný požadavek obnovil token mezi načtením přístupů a obnovou: pod zámkem se
+        // přístupy načtou znovu a rotující refresh token se nepoužije podruhé.
+        $this->accounts->activate($this->supplierA, $account,
+            $this->vault->sealCredentials($this->supplierA, $account, FakeOdometerSource::CODE, ['token' => 'synthetic-token-1']));
+        $this->source->beforeRefresh = function () use ($account): void {
+            $this->accounts->rotateCredentials($this->supplierA, $account,
+                $this->vault->sealCredentials($this->supplierA, $account, FakeOdometerSource::CODE, ['token' => 'synthetic-token-2']));
+        };
+        $this->service->sync($this->supplierA, $car);
+
+        self::assertSame(1, $this->source->refreshes);
+        self::assertSame('synthetic-token-2', end($this->source->credentialsSeen)['token']);
     }
 
     public function testMilesAreConvertedToKilometres(): void
@@ -499,7 +609,7 @@ final class OdometerSourceSyncTest extends TestCase
     /** @return array<string,mixed> */
     private function accountRow(int $supplierId): array
     {
-        $stmt = $this->pdo->prepare('SELECT id, status, credentials_ciphertext, pending_ciphertext, pending_state_hash FROM odometer_source_accounts WHERE supplier_id = ? ORDER BY id DESC LIMIT 1');
+        $stmt = $this->pdo->prepare('SELECT id, status, credentials_ciphertext, pending_state_hash FROM odometer_source_accounts WHERE supplier_id = ? ORDER BY id DESC LIMIT 1');
         $stmt->execute([$supplierId]);
         return $stmt->fetch(\PDO::FETCH_ASSOC);
     }

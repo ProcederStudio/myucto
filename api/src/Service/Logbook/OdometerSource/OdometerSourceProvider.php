@@ -27,7 +27,8 @@ interface OdometerSourceProvider
 
     /**
      * Zahájí připojení z hodnot formuláře (klíče dle {@see OdometerSourceDefinition::$fields}).
-     * Zdroj s OAuth přesměrováním předá službě `$context->state`; vlastní state negeneruje.
+     * Zdroj s OAuth předá službě `$context->state` a PKCE z kontextu; vlastní state ani
+     * verifier negeneruje.
      *
      * @param array<string,string> $input
      */
@@ -35,6 +36,7 @@ interface OdometerSourceProvider
 
     /**
      * Pokračuje v rozpracovaném připojení (polling device code, návrat z OAuth, …).
+     * Jádro do vstupu doplní `code_verifier` a po návratu přesměrováním `code`.
      *
      * @param array<string,string|int> $pending data z předchozího {@see ConnectStep::$pending}
      * @param array<string,string>     $input

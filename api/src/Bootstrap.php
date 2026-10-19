@@ -1174,6 +1174,7 @@ final class Bootstrap
             // Handlery společného OAuth callbacku (/api/oauth/callback); nová doména se přidá sem.
             \MyInvoice\Service\OAuth\OAuthCallbackRegistry::class => fn (ContainerInterface $c)
                 => new \MyInvoice\Service\OAuth\OAuthCallbackRegistry([
+                    $c->get(\MyInvoice\Service\Logbook\OdometerSource\OdometerOAuthCallbackHandler::class),
                 ]),
             \MyInvoice\Service\Bank\Connector\CsasApiClient::class => fn (ContainerInterface $c)
                 => new \MyInvoice\Service\Bank\Connector\CsasApiClient(

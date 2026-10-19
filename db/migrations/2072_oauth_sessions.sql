@@ -13,7 +13,12 @@
 -- Rozpracovaná připojení v bank_oauth_sessions z doby před migrací dobíhají přes
 -- původní čtení (CSAS a KB+), tabulka proto zůstává.
 --
--- Idempotence: CREATE TABLE IF NOT EXISTS.
+--   odometer_source_accounts.pending_ciphertext  rozpracované přihlášení zdroje stavu
+--                   tachometru je nově v oauth_sessions; `pending_state_hash` zůstává
+--                   jako klíč do oauth_sessions. Sloupec zatím nebyl vydaný (migrace 2060),
+--                   takže se ruší bez převodu dat.
+--
+-- Idempotence: CREATE TABLE IF NOT EXISTS, DROP COLUMN IF EXISTS.
 
 SET NAMES utf8mb4;
 
@@ -41,3 +46,6 @@ CREATE TABLE IF NOT EXISTS oauth_sessions (
     CONSTRAINT fk_oauth_session_supplier FOREIGN KEY (supplier_id) REFERENCES supplier(id) ON DELETE CASCADE,
     CONSTRAINT fk_oauth_session_user     FOREIGN KEY (user_id)     REFERENCES users(id)    ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE odometer_source_accounts
+    DROP COLUMN IF EXISTS pending_ciphertext;

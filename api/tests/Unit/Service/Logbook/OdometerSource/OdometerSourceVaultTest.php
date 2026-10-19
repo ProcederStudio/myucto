@@ -48,14 +48,6 @@ final class OdometerSourceVaultTest extends TestCase
         $this->vault->openCredentials($supplierId, $connectionId, $provider, $sealed);
     }
 
-    public function testPendingIsNotInterchangeableWithCredentials(): void
-    {
-        $sealed = $this->vault->sealPending(1, 2, 'fake_source', ['device' => 'synthetic-device']);
-
-        $this->expectException(OdometerSourceException::class);
-        $this->vault->openCredentials(1, 2, 'fake_source', $sealed);
-    }
-
     /** @return iterable<string, array{array<mixed>}> */
     public static function invalidData(): iterable
     {

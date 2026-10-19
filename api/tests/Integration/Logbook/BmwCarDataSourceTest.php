@@ -11,6 +11,7 @@ use GuzzleHttp\Middleware;
 use GuzzleHttp\Psr7\Response;
 use MyInvoice\Infrastructure\Config\Config;
 use MyInvoice\Repository\CarRepository;
+use MyInvoice\Repository\OAuthSessionRepository;
 use MyInvoice\Repository\OdometerReadingRepository;
 use MyInvoice\Repository\OdometerSourceAccountRepository;
 use MyInvoice\Repository\OdometerSourceCarRepository;
@@ -21,6 +22,8 @@ use MyInvoice\Service\Logbook\OdometerSource\OdometerSourceException;
 use MyInvoice\Service\Logbook\OdometerSource\OdometerSourceRegistry;
 use MyInvoice\Service\Logbook\OdometerSource\OdometerSourceService;
 use MyInvoice\Service\Logbook\OdometerSource\OdometerSourceVault;
+use MyInvoice\Service\OAuth\OAuthClientFlow;
+use MyInvoice\Service\OAuth\Pkce;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 
@@ -56,10 +59,13 @@ final class BmwCarDataSourceTest extends TestCase
         $provider = new BmwCarDataProvider(new BmwCarDataClient(new Client(['handler' => $stack])));
         $registry = new OdometerSourceRegistry([$provider]);
         $this->accounts = new OdometerSourceAccountRepository($this->db);
-        $this->vault = new OdometerSourceVault(new SecretEncryption(new Config(['app' => [
+        $secrets = new SecretEncryption(new Config(['app' => [
             'pepper' => 'synthetic-pepper', 'secret_encryption_key' => base64_encode(str_repeat('k', 32)),
-        ]])));
-        $this->service = new OdometerSourceService($this->db, $registry, $this->vault, $this->accounts,
+        ]]));
+        $this->vault = new OdometerSourceVault($secrets);
+        $flow = new OAuthClientFlow(new OAuthSessionRepository($this->db), $secrets, $this->db,
+            new Config(['app' => ['url' => 'https://example.test']]));
+        $this->service = new OdometerSourceService($registry, $this->vault, $flow, $this->accounts,
             new OdometerSourceCarRepository($this->db), new CarRepository($this->db), new OdometerReadingRepository($this->db, $registry));
     }
 
@@ -98,6 +104,8 @@ final class BmwCarDataSourceTest extends TestCase
         self::assertSame(['connected', self::VIN, 1087], [$result['state'], $result['car']['vehicle_ref'], $result['car']['last_odometer']]);
         parse_str((string) $this->history[2]['request']->getBody(), $poll);
         self::assertSame('synthetic-device', $poll['device_code']);
+        // PKCE ze společné vrstvy: verifier k výzvě z device code drží jádro mimo data zdroje.
+        self::assertSame($form['code_challenge'], Pkce::challenge($poll['code_verifier']));
         self::assertSame(['synthetic-access-1', 'CONTAINER0001'], [$this->credentials($car)['access_token'], $this->credentials($car)['container_id']]);
         // Do limitu BMW jdou jen volání CarData API (auta, kontejner, stav), ne přihlášení.
         self::assertSame([3, 50], [$result['account']['calls_today'], $result['account']['daily_call_limit']]);

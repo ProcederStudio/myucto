@@ -16,9 +16,6 @@ final class Pkce
 
     public static function challenge(#[\SensitiveParameter] string $verifier): string
     {
-        if (!self::isValidVerifier($verifier)) {
-            throw new OAuthException(OAuthException::INVALID_REQUEST, 'Neplatný PKCE verifier.');
-        }
         return rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
     }
 

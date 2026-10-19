@@ -7,11 +7,18 @@ namespace MyInvoice\Service\Logbook\OdometerSource\Bmw;
 use GuzzleHttp\ClientInterface;
 use MyInvoice\Service\Logbook\OdometerSource\OdometerSample;
 use MyInvoice\Service\Logbook\OdometerSource\OdometerSourceException;
+use MyInvoice\Service\OAuth\OAuthDeviceAuthorization;
+use MyInvoice\Service\OAuth\OAuthException;
+use MyInvoice\Service\OAuth\OAuthProviderConfig;
+use MyInvoice\Service\OAuth\OAuthTokenClient;
+use MyInvoice\Service\OAuth\OAuthTokenSet;
+use MyInvoice\Service\OAuth\Pkce;
 use Psr\Http\Message\ResponseInterface;
 
 /**
  * Klient BMW CarData (customer API, EU). Přihlášení přes OAuth Device Code Flow s PKCE
- * (RFC 8628), čtení stavu tachometru přes REST telematicData s vlastním kontejnerem.
+ * (RFC 8628) běží přes společnou vrstvu OAuth klienta ({@see OAuthTokenClient}), čtení
+ * stavu tachometru přes REST telematicData s vlastním kontejnerem.
  *
  * Limity služby: access token platí hodinu, refresh token dva týdny a při každém
  * obnovení se mění (nový je nutné uložit), REST API povoluje 50 volání denně.
@@ -31,17 +38,12 @@ final class BmwCarDataClient
     public const CONTAINER_INVALID     = 'container_invalid';
     public const CONTAINER_LIMIT       = 'container_limit';
 
+    private readonly OAuthTokenClient $oauth;
+
     public function __construct(private readonly ClientInterface $http,
-        private readonly \Psr\Log\LoggerInterface $logger = new \Psr\Log\NullLogger()) {}
-
-    public static function newCodeVerifier(): string
+        private readonly \Psr\Log\LoggerInterface $logger = new \Psr\Log\NullLogger())
     {
-        return rtrim(strtr(base64_encode(random_bytes(48)), '+/', '-_'), '=');
-    }
-
-    public static function codeChallenge(#[\SensitiveParameter] string $verifier): string
-    {
-        return rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
+        $this->oauth = new OAuthTokenClient($http, $logger, 'bmw_cardata');
     }
 
     public static function isValidClientId(string $clientId): bool
@@ -59,24 +61,19 @@ final class BmwCarDataClient
      */
     public function requestDeviceCode(string $clientId, #[\SensitiveParameter] string $codeVerifier): array
     {
-        if (!self::isValidClientId($clientId)) throw new OdometerSourceException(OdometerSourceException::INVALID_INPUT, 'Neplatné client ID.');
-        [$status, $data] = $this->request('POST', self::AUTH_BASE_URL . '/device/code', ['form_params' => [
-            'client_id' => $clientId, 'response_type' => 'device_code', 'scope' => self::SCOPE,
-            'code_challenge' => self::codeChallenge($codeVerifier), 'code_challenge_method' => 'S256',
-        ]], 'device_code');
-        if ($status !== 200) throw $this->authError($status, $data);
-        $uri = $this->str($data, 'verification_uri');
+        $code = $this->oauthCall(fn (): OAuthDeviceAuthorization =>
+            $this->oauth->requestDeviceCode($this->config($clientId), Pkce::challenge($codeVerifier)));
+        $uri = $code->verificationUri;
         $parts = parse_url($uri);
         if (($parts['scheme'] ?? '') !== 'https' || !preg_match('/(^|\.)bmwgroup\.com$/D', (string) ($parts['host'] ?? ''))) {
             throw $this->invalid();
         }
-        $userCode = $this->str($data, 'user_code');
         return [
-            'device_code'      => $this->str($data, 'device_code'),
-            'user_code'        => $userCode,
-            'verification_url' => $uri . (str_contains($uri, '?') ? '&' : '?') . 'user_code=' . rawurlencode($userCode),
-            'interval'         => $this->int($data, 'interval', 1, 60, 5),
-            'expires_in'       => $this->int($data, 'expires_in', 30, 3600, 300),
+            'device_code'      => $code->deviceCode,
+            'user_code'        => $code->userCode,
+            'verification_url' => $uri . (str_contains($uri, '?') ? '&' : '?') . 'user_code=' . rawurlencode($code->userCode),
+            'interval'         => $code->interval,
+            'expires_in'       => $code->expiresIn,
         ];
     }
 
@@ -88,16 +85,15 @@ final class BmwCarDataClient
      */
     public function pollToken(string $clientId, #[\SensitiveParameter] string $deviceCode, #[\SensitiveParameter] string $codeVerifier): array
     {
-        return $this->tokens('poll', [
-            'client_id' => $clientId, 'device_code' => $deviceCode, 'code_verifier' => $codeVerifier,
-            'grant_type' => 'urn:ietf:params:oauth:grant-type:device_code',
-        ]);
+        return $this->tokens(fn (OAuthProviderConfig $config): OAuthTokenSet => $this->oauth->pollDeviceCode($config, $deviceCode, $codeVerifier),
+            $clientId, false);
     }
 
     /** @return array{access_token:string, refresh_token:string, expires_in:int} */
     public function refresh(string $clientId, #[\SensitiveParameter] string $refreshToken): array
     {
-        return $this->tokens('refresh', ['client_id' => $clientId, 'refresh_token' => $refreshToken, 'grant_type' => 'refresh_token']);
+        return $this->tokens(fn (OAuthProviderConfig $config): OAuthTokenSet => $this->oauth->refresh($config, $refreshToken),
+            $clientId, true);
     }
 
     /** @return list<array{vin:string, primary:bool}> */
@@ -163,26 +159,62 @@ final class BmwCarDataClient
         return ['value' => $value, 'unit' => $unit, 'at' => $at];
     }
 
-    /** @return array{access_token:string, refresh_token:string, expires_in:int} */
-    private function tokens(string $operation, #[\SensitiveParameter] array $form): array
+    /** Autorizační server BMW pro společnou vrstvu OAuth klienta. */
+    private function config(string $clientId): OAuthProviderConfig
     {
-        if (!self::isValidClientId((string) $form['client_id'])) throw new OdometerSourceException(OdometerSourceException::INVALID_INPUT, 'Neplatné client ID.');
-        [$status, $data] = $this->request('POST', self::AUTH_BASE_URL . '/token', ['form_params' => $form], 'token_' . $operation);
-        if ($status !== 200) {
-            $error = $this->authError($status, $data);
+        if (!self::isValidClientId($clientId)) throw new OdometerSourceException(OdometerSourceException::INVALID_INPUT, 'Neplatné client ID.');
+        return new OAuthProviderConfig($clientId, self::AUTH_BASE_URL . '/token', null, self::AUTH_BASE_URL . '/device/code',
+            self::SCOPE, null, [], ['response_type' => 'device_code']);
+    }
+
+    /**
+     * @param callable(OAuthProviderConfig):OAuthTokenSet $call
+     * @return array{access_token:string, refresh_token:string, expires_in:int}
+     */
+    private function tokens(callable $call, string $clientId, bool $refresh): array
+    {
+        $config = $this->config($clientId);
+        try {
+            $tokens = $this->oauthCall(fn (): OAuthTokenSet => $call($config));
+        } catch (OdometerSourceException $e) {
             // Při obnovení znamená odmítnutí propadlý nebo zneplatněný refresh token.
-            if ($operation === 'refresh' && in_array($error->errorCode, [OdometerSourceException::REMOTE_ERROR,
-                OdometerSourceException::INVALID_INPUT, OdometerSourceException::EXPIRED], true) && $status < 500) {
-                throw new OdometerSourceException(OdometerSourceException::REAUTH_REQUIRED, 'Přihlášení k BMW vypršelo, připojte auto znovu.', $status);
+            if ($refresh && in_array($e->errorCode, [OdometerSourceException::REMOTE_ERROR,
+                OdometerSourceException::INVALID_INPUT, OdometerSourceException::EXPIRED], true) && ($e->httpStatus ?? 500) < 500) {
+                throw new OdometerSourceException(OdometerSourceException::REAUTH_REQUIRED, 'Přihlášení k BMW vypršelo, připojte auto znovu.', $e->httpStatus);
             }
-            throw $error;
+            throw $e;
         }
-        if (strcasecmp((string) ($data['token_type'] ?? 'Bearer'), 'Bearer') !== 0) throw $this->invalid();
-        return [
-            'access_token'  => $this->str($data, 'access_token'),
-            'refresh_token' => $this->str($data, 'refresh_token'),
-            'expires_in'    => $this->int($data, 'expires_in', 60, 86400, 3600),
-        ];
+        // BMW při každé obnově vydá nový refresh token; odpověď bez něj je neplatná.
+        if ($tokens->refreshToken === null) throw $this->invalid();
+        return ['access_token' => $tokens->accessToken, 'refresh_token' => $tokens->refreshToken, 'expires_in' => $tokens->expiresIn];
+    }
+
+    /**
+     * Chyby společné vrstvy převede na kódy zdroje.
+     *
+     * @template T
+     * @param callable():T $call
+     * @return T
+     */
+    private function oauthCall(callable $call): mixed
+    {
+        try {
+            return $call();
+        } catch (OAuthException $e) {
+            throw match ($e->errorCode) {
+                OAuthException::REMOTE_UNAVAILABLE => new OdometerSourceException(OdometerSourceException::REMOTE_UNAVAILABLE, 'BMW CarData není dostupné.'),
+                OAuthException::INVALID_RESPONSE   => $this->invalid(),
+                default => new OdometerSourceException(match ($e->errorCode) {
+                    OAuthException::AUTHORIZATION_PENDING => self::AUTHORIZATION_PENDING,
+                    OAuthException::SLOW_DOWN             => self::SLOW_DOWN,
+                    OAuthException::ACCESS_DENIED         => OdometerSourceException::ACCESS_DENIED,
+                    OAuthException::EXPIRED_TOKEN         => OdometerSourceException::EXPIRED,
+                    OAuthException::INVALID_CLIENT        => OdometerSourceException::INVALID_INPUT,
+                    OAuthException::RATE_LIMITED          => OdometerSourceException::RATE_LIMITED,
+                    default                               => OdometerSourceException::REMOTE_ERROR,
+                }, 'Přihlášení k BMW se nepodařilo.', $e->httpStatus),
+            };
+        }
     }
 
     private function api(string $method, string $path, #[\SensitiveParameter] string $accessToken, array $options, string $operation): array
@@ -199,18 +231,6 @@ final class BmwCarDataClient
             in_array($code, ['CU-102', 'CU-103'], true), $status === 401 => OdometerSourceException::TOKEN_INVALID,
             default => OdometerSourceException::REMOTE_ERROR,
         }, 'BMW CarData požadavek odmítlo.', $status);
-    }
-
-    private function authError(int $status, array $data): OdometerSourceException
-    {
-        return new OdometerSourceException(match ((string) ($data['error'] ?? '')) {
-            'authorization_pending' => self::AUTHORIZATION_PENDING,
-            'slow_down'             => self::SLOW_DOWN,
-            'access_denied'         => OdometerSourceException::ACCESS_DENIED,
-            'expired_token'         => OdometerSourceException::EXPIRED,
-            'invalid_client'        => OdometerSourceException::INVALID_INPUT,
-            default => $status === 429 ? OdometerSourceException::RATE_LIMITED : OdometerSourceException::REMOTE_ERROR,
-        }, 'Přihlášení k BMW se nepodařilo.', $status);
     }
 
     /** @return array{0:int, 1:array<mixed>} */
@@ -250,21 +270,6 @@ final class BmwCarDataClient
             if ($status < 200 || $status >= 300) return [];
             throw $this->invalid();
         }
-    }
-
-    private function str(array $data, string $key): string
-    {
-        $value = $data[$key] ?? null;
-        if (!is_string($value) || $value === '' || strlen($value) > 16384 || preg_match('/[\x00-\x20\x7f]/', $value)) throw $this->invalid();
-        return $value;
-    }
-
-    private function int(array $data, string $key, int $min, int $max, int $default): int
-    {
-        $value = $data[$key] ?? $default;
-        if (is_string($value) && ctype_digit($value)) $value = (int) $value;
-        if (!is_int($value)) throw $this->invalid();
-        return max($min, min($max, $value));
     }
 
     private function invalid(): OdometerSourceException

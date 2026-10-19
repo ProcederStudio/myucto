@@ -173,7 +173,7 @@ final class AnonymizationPolicy
         'bank_transfer_matches' => ['currency' => 'keep'],
         'branding_profiles' => ['accent_color' => 'keep', 'display_name' => 'party_name', 'email' => 'email', 'email_footer' => 'text', 'logo_path' => 'file_path', 'name' => 'text', 'phone' => 'phone', 'reply_to' => 'email', 'tagline' => 'text', 'web' => 'web'],
         'card_clearing_settings' => ['clearing_synthetic' => 'keep'],
-        'odometer_source_accounts' => ['credentials_ciphertext' => 'wipe', 'last_sync_error_code' => 'keep', 'pending_ciphertext' => 'wipe', 'pending_state_hash' => 'wipe', 'provider' => 'keep'],
+        'odometer_source_accounts' => ['credentials_ciphertext' => 'wipe', 'last_sync_error_code' => 'keep', 'pending_state_hash' => 'wipe', 'provider' => 'keep'],
         'odometer_source_cars' => ['last_sync_error_code' => 'keep', 'vehicle_ref' => 'shape'],
         'cars' => ['brand' => 'keep', 'model' => 'keep', 'name' => 'text', 'note' => 'text', 'registration' => 'shape', 'vin' => 'shape'],
         'cash_document_vat_lines' => ['vat_classification_code' => 'keep'],

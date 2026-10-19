@@ -21,6 +21,8 @@ final class FakeOdometerSource implements OdometerSourceProvider
     public bool $approved = false;
     public bool $slowDown = false;
     public bool $denied = false;
+    /** Přihlášení přesměrováním na službu (OAuth) místo device code. */
+    public bool $redirect = false;
     public ?string $rotateTo = null;
     public int $reads = 0;
     public ?int $dailyLimit = null;
@@ -30,6 +32,8 @@ final class FakeOdometerSource implements OdometerSourceProvider
     public array $credentialsSeen = [];
     /** @var list<array<string,string|int>> */
     public array $pendingSeen = [];
+    /** @var list<array<string,string>> vstup dalšího kroku přihlášení (včetně code a code_verifier od jádra) */
+    public array $inputSeen = [];
     /** @var list<OdometerSourceVehicle> */
     public array $vehicles;
     /** @var array<string,OdometerSample> */
@@ -40,6 +44,11 @@ final class FakeOdometerSource implements OdometerSourceProvider
     public ?\Throwable $crash = null;
     /** Zavolá se při každém dotazu na dokončení přihlášení (kontrola zámku). */
     public ?\Closure $onContinue = null;
+    /** Před čtením obnovit propadlý token `synthetic-token-1` přes OdometerSourceSession::refresh(). */
+    public bool $refreshOnRead = false;
+    public int $refreshes = 0;
+    /** Zavolá se před obnovou tokenu (souběžný požadavek mezitím token obnovil). */
+    public ?\Closure $beforeRefresh = null;
 
     public function __construct()
     {
@@ -59,6 +68,9 @@ final class FakeOdometerSource implements OdometerSourceProvider
     public function startConnect(array $input, ConnectContext $context): ConnectStep
     {
         $this->contexts[] = $context;
+        if ($this->redirect) {
+            return ConnectStep::redirect('https://login.example.test/authorize?state=' . $context->state, 300, ['key' => $input['key']]);
+        }
         return ConnectStep::deviceCode('ABCD1234', 'https://login.example.test/link', 5, 300,
             ['key' => $input['key'], 'device' => 'synthetic-device']);
     }
@@ -66,6 +78,7 @@ final class FakeOdometerSource implements OdometerSourceProvider
     public function continueConnect(array $pending, array $input): ConnectStep
     {
         $this->pendingSeen[] = $pending;
+        $this->inputSeen[] = $input;
         if ($this->onContinue !== null) ($this->onContinue)();
         if ($this->denied) throw new OdometerSourceException(OdometerSourceException::ACCESS_DENIED);
         if ($this->slowDown) {
@@ -85,6 +98,13 @@ final class FakeOdometerSource implements OdometerSourceProvider
     {
         $session->spendCalls();
         $this->reads++;
+        if ($this->refreshOnRead) {
+            if ($this->beforeRefresh !== null) ($this->beforeRefresh)();
+            $session->refresh(static fn (array $c): bool => ($c['token'] ?? '') !== 'synthetic-token-1', function (array $c): array {
+                $this->refreshes++;
+                return ['token' => 'synthetic-token-refreshed'];
+            });
+        }
         $this->credentialsSeen[] = $session->credentials();
         if ($this->crash !== null) throw $this->crash;
         if (isset($this->failFor[$vehicleRef])) throw new OdometerSourceException($this->failFor[$vehicleRef]);
