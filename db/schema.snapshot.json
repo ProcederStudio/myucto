@@ -1044,7 +1044,12 @@
         "2060_accounting_framework_conversion.sql",
         "2061_nonprofit_dppo_profiles_savings.sql",
         "2062_nonprofit_tax_saving_cost_bindings.sql",
-        "2063_property_funds_role_defaults.sql"
+        "2063_property_funds_role_defaults.sql",
+        "2064_property_payment_fx_sources.sql",
+        "2065_tax_loss_period_proof.sql",
+        "2066_nonprofit_membership.sql",
+        "2067_nonprofit_tax_snapshot_manifests.sql",
+        "2068_nonprofit_tax_snapshot_line_locator.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -7059,7 +7064,7 @@
                 "reversed_by": "bigint(20) unsigned NULL DEFAULT NULL",
                 "row_version": "int(10) unsigned NOT NULL DEFAULT 1",
                 "source_id": "bigint(20) unsigned NULL DEFAULT NULL",
-                "source_type": "enum('invoice','purchase_invoice','bank','cash','asset','manual','closing','opening','depreciation','asset_disposal','fx_revaluation','stock','provision','income_tax','profit_distribution','offset','small_asset_accrual','prepaid_expense_accrual','settlement','deferred_tax','payroll','vat_clearing','payroll_payment','gopay','card_settlement','card_writeoff','other_item','payroll_accident_insurance','payroll_travel','deferred_revenue_accrual','unit_charge','unit_payment','unit_payment_revision','property_service_settlement','property_service_lifecycle','property_funding','nonprofit_capital') NOT NULL DEFAULT 'manual'",
+                "source_type": "enum('invoice','purchase_invoice','bank','cash','asset','manual','closing','opening','depreciation','asset_disposal','fx_revaluation','stock','provision','income_tax','profit_distribution','offset','small_asset_accrual','prepaid_expense_accrual','settlement','deferred_tax','payroll','vat_clearing','payroll_payment','gopay','card_settlement','card_writeoff','other_item','payroll_accident_insurance','payroll_travel','deferred_revenue_accrual','unit_charge','unit_payment','unit_payment_revision','property_service_settlement','property_service_lifecycle','property_funding','nonprofit_capital','nonprofit_membership') NOT NULL DEFAULT 'manual'",
                 "supplier_id": "int(10) unsigned NOT NULL",
                 "updated_at": "timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE CURRENT_TIMESTAMP()"
             },
@@ -8113,6 +8118,249 @@
                 "profile_json": "json_valid(`profile_json`)"
             }
         },
+        "nonprofit_member_revisions": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "created_at": "datetime(6) NOT NULL DEFAULT current_timestamp(6)",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "effective_from": "date NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "idempotency_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "legal_basis_json": "longtext NOT NULL",
+                "member_id": "bigint(20) unsigned NOT NULL",
+                "parent_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "previous_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "record_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "request_json": "longtext NOT NULL",
+                "revision_no": "int(10) unsigned NOT NULL",
+                "status": "enum('active','suspended','ended') NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "created_by": "BTREE (created_by)",
+                "ix_nmr_effective_lookup": "BTREE (supplier_id, member_id, effective_from, id)",
+                "supplier_id": "BTREE (supplier_id, member_id, previous_id)",
+                "uq_nmr_chain": "UNIQUE BTREE (supplier_id, member_id, id)",
+                "uq_nmr_effective": "UNIQUE BTREE (supplier_id, member_id, effective_from)",
+                "uq_nmr_key": "UNIQUE BTREE (supplier_id, idempotency_key)",
+                "uq_nmr_revision": "UNIQUE BTREE (supplier_id, member_id, revision_no)",
+                "uq_nmr_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "nonprofit_member_revisions_ibfk_1": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_member_revisions_ibfk_2": "(supplier_id, member_id) -> nonprofit_members (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_member_revisions_ibfk_3": "(supplier_id, member_id, previous_id) -> nonprofit_member_revisions (supplier_id, member_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_member_revisions_ibfk_4": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "CONSTRAINT_1": "`revision_no` > 0",
+                "legal_basis_json": "json_valid(`legal_basis_json`)",
+                "request_json": "json_valid(`request_json`)"
+            }
+        },
+        "nonprofit_members": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "client_id": "bigint(20) unsigned NOT NULL",
+                "created_at": "datetime(6) NOT NULL DEFAULT current_timestamp(6)",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "member_number": "varchar(80) NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "created_by": "BTREE (created_by)",
+                "uq_nm_client": "UNIQUE BTREE (supplier_id, client_id)",
+                "uq_nm_number": "UNIQUE BTREE (supplier_id, member_number)",
+                "uq_nm_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "nonprofit_members_ibfk_1": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_members_ibfk_2": "(supplier_id, client_id) -> clients (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_members_ibfk_3": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": []
+        },
+        "nonprofit_membership_charge_cases": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "created_at": "datetime(6) NOT NULL DEFAULT current_timestamp(6)",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "head_operation_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "member_id": "bigint(20) unsigned NOT NULL",
+                "period_from": "date NOT NULL",
+                "period_to": "date NOT NULL",
+                "row_version": "int(10) unsigned NOT NULL DEFAULT 1",
+                "supplier_id": "int(10) unsigned NOT NULL",
+                "title_key": "varchar(80) NOT NULL COLLATE ascii_bin"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "created_by": "BTREE (created_by)",
+                "fk_nmcc_head": "BTREE (supplier_id, id, head_operation_id)",
+                "ix_nmcc_overlap": "BTREE (supplier_id, member_id, title_key, period_from, period_to, id)",
+                "uq_nmcc_identity": "UNIQUE BTREE (supplier_id, member_id, title_key, period_from, period_to)",
+                "uq_nmcc_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "fk_nmcc_head": "(supplier_id, id, head_operation_id) -> nonprofit_membership_charge_operations (supplier_id, case_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_membership_charge_cases_ibfk_1": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_membership_charge_cases_ibfk_2": "(supplier_id, member_id) -> nonprofit_members (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_membership_charge_cases_ibfk_3": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "CONSTRAINT_1": "`period_from` <= `period_to`",
+                "CONSTRAINT_2": "`row_version` > 0"
+            }
+        },
+        "nonprofit_membership_charge_claims": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "amount_cents": "bigint(20) unsigned NOT NULL",
+                "case_id": "bigint(20) unsigned NOT NULL",
+                "client_id": "bigint(20) unsigned NOT NULL",
+                "created_at": "datetime(6) NOT NULL DEFAULT current_timestamp(6)",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "kind": "enum('issue','reversal') NOT NULL",
+                "member_id": "bigint(20) unsigned NOT NULL",
+                "operation_id": "bigint(20) unsigned NOT NULL",
+                "original_claim_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "record_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "ix_nmclaim_client": "BTREE (supplier_id, client_id, id)",
+                "ix_nmclaim_member": "BTREE (supplier_id, member_id, id)",
+                "supplier_id": "BTREE (supplier_id, case_id)",
+                "uq_nmclaim_operation": "UNIQUE BTREE (supplier_id, operation_id)",
+                "uq_nmclaim_reverse": "UNIQUE BTREE (supplier_id, original_claim_id)",
+                "uq_nmclaim_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "nonprofit_membership_charge_claims_ibfk_1": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_membership_charge_claims_ibfk_2": "(supplier_id, case_id) -> nonprofit_membership_charge_cases (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_membership_charge_claims_ibfk_3": "(supplier_id, operation_id) -> nonprofit_membership_charge_operations (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_membership_charge_claims_ibfk_4": "(supplier_id, original_claim_id) -> nonprofit_membership_charge_claims (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_membership_charge_claims_ibfk_5": "(supplier_id, member_id) -> nonprofit_members (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_membership_charge_claims_ibfk_6": "(supplier_id, client_id) -> clients (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "CONSTRAINT_1": "`amount_cents` > 0",
+                "CONSTRAINT_2": "`kind` = 'issue' and `original_claim_id` is null or `kind` = 'reversal' and `original_claim_id` is not null"
+            }
+        },
+        "nonprofit_membership_charge_commands": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "created_at": "datetime(6) NOT NULL DEFAULT current_timestamp(6)",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "idempotency_key": "varchar(80) NOT NULL COLLATE ascii_bin",
+                "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "request_json": "longtext NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "created_by": "BTREE (created_by)",
+                "uq_nmcmd_key": "UNIQUE BTREE (supplier_id, idempotency_key)",
+                "uq_nmcmd_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "nonprofit_membership_charge_commands_ibfk_1": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_membership_charge_commands_ibfk_2": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "request_json": "json_valid(`request_json`)"
+            }
+        },
+        "nonprofit_membership_charge_operations": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "accounting_date": "date NOT NULL",
+                "accounting_period_id": "bigint(20) unsigned NOT NULL",
+                "amount_cents": "bigint(20) unsigned NOT NULL",
+                "case_id": "bigint(20) unsigned NOT NULL",
+                "command_id": "bigint(20) unsigned NOT NULL",
+                "created_at": "datetime(6) NOT NULL DEFAULT current_timestamp(6)",
+                "created_by": "bigint(20) unsigned NOT NULL",
+                "due_date": "date NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "journal_entry_id": "bigint(20) unsigned NOT NULL",
+                "legal_profile_id": "bigint(20) unsigned NOT NULL",
+                "member_revision_id": "bigint(20) unsigned NOT NULL",
+                "operation": "enum('issue','reverse') NOT NULL",
+                "original_operation_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "parent_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "preview_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "previous_operation_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "proof_json": "longtext NOT NULL",
+                "receipt_json": "longtext NOT NULL",
+                "receivable_account_id": "bigint(20) unsigned NOT NULL",
+                "receivable_line_id": "bigint(20) unsigned NOT NULL",
+                "record_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "revenue_account_id": "bigint(20) unsigned NOT NULL",
+                "revenue_line_id": "bigint(20) unsigned NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "created_by": "BTREE (created_by)",
+                "ix_nmop_period": "BTREE (supplier_id, accounting_period_id, operation, id)",
+                "supplier_id": "BTREE (supplier_id, case_id, previous_operation_id)",
+                "supplier_id_2": "BTREE (supplier_id, case_id, original_operation_id)",
+                "supplier_id_3": "BTREE (supplier_id, member_revision_id)",
+                "supplier_id_4": "BTREE (supplier_id, legal_profile_id)",
+                "supplier_id_5": "BTREE (supplier_id, receivable_account_id)",
+                "supplier_id_6": "BTREE (supplier_id, revenue_account_id)",
+                "uq_nmop_case": "UNIQUE BTREE (supplier_id, case_id, id)",
+                "uq_nmop_command": "UNIQUE BTREE (supplier_id, command_id)",
+                "uq_nmop_journal": "UNIQUE BTREE (supplier_id, journal_entry_id)",
+                "uq_nmop_receivable_line": "UNIQUE BTREE (supplier_id, receivable_line_id)",
+                "uq_nmop_revenue_line": "UNIQUE BTREE (supplier_id, revenue_line_id)",
+                "uq_nmop_reverse": "UNIQUE BTREE (supplier_id, original_operation_id)",
+                "uq_nmop_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "nonprofit_membership_charge_operations_ibfk_1": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_membership_charge_operations_ibfk_10": "(supplier_id, revenue_account_id) -> chart_of_accounts (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_membership_charge_operations_ibfk_11": "(supplier_id, journal_entry_id) -> journal_entries (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_membership_charge_operations_ibfk_12": "(supplier_id, receivable_line_id) -> journal_entry_lines (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_membership_charge_operations_ibfk_13": "(supplier_id, revenue_line_id) -> journal_entry_lines (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_membership_charge_operations_ibfk_14": "(created_by) -> users (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_membership_charge_operations_ibfk_2": "(supplier_id, case_id) -> nonprofit_membership_charge_cases (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_membership_charge_operations_ibfk_3": "(supplier_id, command_id) -> nonprofit_membership_charge_commands (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_membership_charge_operations_ibfk_4": "(supplier_id, case_id, previous_operation_id) -> nonprofit_membership_charge_operations (supplier_id, case_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_membership_charge_operations_ibfk_5": "(supplier_id, case_id, original_operation_id) -> nonprofit_membership_charge_operations (supplier_id, case_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_membership_charge_operations_ibfk_6": "(supplier_id, member_revision_id) -> nonprofit_member_revisions (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_membership_charge_operations_ibfk_7": "(supplier_id, legal_profile_id) -> nonprofit_legal_profiles (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_membership_charge_operations_ibfk_8": "(supplier_id, accounting_period_id) -> accounting_periods (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_membership_charge_operations_ibfk_9": "(supplier_id, receivable_account_id) -> chart_of_accounts (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "CONSTRAINT_1": "`amount_cents` > 0",
+                "CONSTRAINT_2": "`operation` = 'issue' and `original_operation_id` is null or `operation` = 'reverse' and `original_operation_id` is not null",
+                "proof_json": "json_valid(`proof_json`)",
+                "receipt_json": "json_valid(`receipt_json`)"
+            }
+        },
         "nonprofit_tax_assessments": {
             "type": "BASE TABLE",
             "engine": "InnoDB",
@@ -8287,6 +8535,114 @@
             "checks": {
                 "CONSTRAINT_1": "`reduction_kc` > 0",
                 "basis_json": "json_valid(`basis_json`)"
+            }
+        },
+        "nonprofit_tax_snapshot_chunks": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "chunk_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "created_at": "datetime(6) NOT NULL DEFAULT current_timestamp(6)",
+                "first_cursor_json": "varchar(190) NULL DEFAULT NULL COLLATE ascii_bin",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "last_cursor_json": "varchar(190) NULL DEFAULT NULL COLLATE ascii_bin",
+                "payload_json": "longtext NOT NULL",
+                "row_count": "smallint(5) unsigned NOT NULL",
+                "schema_version": "varchar(64) NOT NULL COLLATE ascii_bin",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "uq_ntsc_content": "UNIQUE BTREE (supplier_id, schema_version, chunk_hash)",
+                "uq_ntsc_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "nonprofit_tax_snapshot_chunks_ibfk_1": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "CONSTRAINT_1": "`row_count` <= 500",
+                "first_cursor_json": "`first_cursor_json` is null or json_valid(`first_cursor_json`)",
+                "last_cursor_json": "`last_cursor_json` is null or json_valid(`last_cursor_json`)",
+                "payload_json": "json_valid(`payload_json`)"
+            }
+        },
+        "nonprofit_tax_snapshot_line_locator": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "entry_date": "date NOT NULL",
+                "entry_id": "bigint(20) unsigned NOT NULL",
+                "line_id": "bigint(20) unsigned NOT NULL",
+                "period_id": "bigint(20) unsigned NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (supplier_id, period_id, entry_date, entry_id, line_id)",
+                "supplier_id": "BTREE (supplier_id, entry_id)",
+                "uq_ntsll_line": "UNIQUE BTREE (supplier_id, line_id)"
+            },
+            "foreign_keys": {
+                "nonprofit_tax_snapshot_line_locator_ibfk_1": "(supplier_id, period_id) -> accounting_periods (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_tax_snapshot_line_locator_ibfk_2": "(supplier_id, entry_id) -> journal_entries (supplier_id, id) ON UPDATE RESTRICT ON DELETE CASCADE",
+                "nonprofit_tax_snapshot_line_locator_ibfk_3": "(supplier_id, line_id) -> journal_entry_lines (supplier_id, id) ON UPDATE RESTRICT ON DELETE CASCADE"
+            },
+            "checks": []
+        },
+        "nonprofit_tax_snapshot_manifest_chunks": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "chunk_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "chunk_id": "bigint(20) unsigned NOT NULL",
+                "manifest_id": "bigint(20) unsigned NOT NULL",
+                "ordinal": "int(10) unsigned NOT NULL",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (supplier_id, manifest_id, ordinal)",
+                "ix_ntsmc_chunk": "BTREE (supplier_id, chunk_id)"
+            },
+            "foreign_keys": {
+                "nonprofit_tax_snapshot_manifest_chunks_ibfk_1": "(supplier_id, manifest_id) -> nonprofit_tax_snapshot_manifests (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_tax_snapshot_manifest_chunks_ibfk_2": "(supplier_id, chunk_id) -> nonprofit_tax_snapshot_chunks (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": []
+        },
+        "nonprofit_tax_snapshot_manifests": {
+            "type": "BASE TABLE",
+            "engine": "InnoDB",
+            "collation": "utf8mb4_unicode_ci",
+            "columns": {
+                "captured_at": "datetime(6) NOT NULL DEFAULT current_timestamp(6)",
+                "chunk_count": "int(10) unsigned NOT NULL",
+                "finding_count": "bigint(20) unsigned NOT NULL",
+                "header_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "header_json": "longtext NOT NULL",
+                "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+                "input_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "membership_fact_count": "bigint(20) unsigned NOT NULL DEFAULT 0",
+                "period_id": "bigint(20) unsigned NOT NULL",
+                "root_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "row_count": "bigint(20) unsigned NOT NULL",
+                "ruleset": "varchar(128) NOT NULL COLLATE ascii_bin",
+                "schema_version": "varchar(64) NOT NULL COLLATE ascii_bin",
+                "supplier_id": "int(10) unsigned NOT NULL"
+            },
+            "indexes": {
+                "PRIMARY": "UNIQUE BTREE (id)",
+                "ix_ntsm_period": "BTREE (supplier_id, period_id, id)",
+                "uq_ntsm_content": "UNIQUE BTREE (supplier_id, schema_version, input_hash)",
+                "uq_ntsm_tenant": "UNIQUE BTREE (supplier_id, id)"
+            },
+            "foreign_keys": {
+                "nonprofit_tax_snapshot_manifests_ibfk_1": "(supplier_id) -> supplier (id) ON UPDATE RESTRICT ON DELETE RESTRICT",
+                "nonprofit_tax_snapshot_manifests_ibfk_2": "(supplier_id, period_id) -> accounting_periods (supplier_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT"
+            },
+            "checks": {
+                "header_json": "json_valid(`header_json`)"
             }
         },
         "odometer_readings": {
@@ -24540,7 +24896,11 @@
                 "amount": "decimal(14,2) NOT NULL DEFAULT 0.00",
                 "created_at": "timestamp NOT NULL DEFAULT current_timestamp()",
                 "id": "int(10) unsigned NOT NULL AUTO_INCREMENT",
+                "origin_ends_on": "date NULL DEFAULT NULL",
+                "origin_starts_on": "date NULL DEFAULT NULL",
                 "origin_year": "smallint(5) unsigned NOT NULL",
+                "period_proof_hash": "char(64) NULL DEFAULT NULL",
+                "period_proof_kind": "varchar(32) NULL DEFAULT NULL",
                 "source_return_id": "int(10) unsigned NULL DEFAULT NULL",
                 "supplier_id": "int(10) unsigned NOT NULL",
                 "taxpayer_type": "enum('fo','po') NOT NULL",
@@ -24548,6 +24908,7 @@
             },
             "indexes": {
                 "PRIMARY": "UNIQUE BTREE (id)",
+                "idx_tax_loss_period": "BTREE (supplier_id, taxpayer_type, origin_starts_on, origin_ends_on)",
                 "idx_tax_loss_supplier": "BTREE (supplier_id, taxpayer_type)",
                 "uq_tax_loss": "UNIQUE BTREE (supplier_id, taxpayer_type, origin_year)"
             },
@@ -25959,7 +26320,9 @@
                 "row_version": "int(10) unsigned NOT NULL DEFAULT 1",
                 "snapshot_hash": "char(64) NOT NULL COLLATE ascii_bin",
                 "snapshot_json": "longtext NOT NULL",
+                "source_amount_cents": "decimal(30,0) NULL DEFAULT NULL",
                 "source_id": "bigint(20) unsigned NULL DEFAULT NULL",
+                "source_native_minor": "decimal(30,0) NULL DEFAULT NULL",
                 "status": "varchar(16) NOT NULL DEFAULT 'pending'",
                 "supplier_id": "int(10) unsigned NOT NULL"
             },
@@ -25968,7 +26331,7 @@
                 "fk_unit_payment_operation_actor": "BTREE (created_by)",
                 "fk_unit_payment_operation_original": "BTREE (supplier_id, original_operation_id)",
                 "fk_unit_payment_operation_reverse": "BTREE (supplier_id, reversal_entry_id)",
-                "fk_unit_payment_operation_source": "BTREE (supplier_id, source_id)",
+                "idx_unit_payment_operations_source_order": "BTREE (supplier_id, source_id, status, id, kind)",
                 "ix_unit_payment_read_source": "BTREE (supplier_id, read_source_entry_id, id)",
                 "uq_unit_payment_operation_journal": "UNIQUE BTREE (supplier_id, journal_entry_id)",
                 "uq_unit_payment_operation_tenant": "UNIQUE BTREE (supplier_id, id)",
@@ -25984,6 +26347,7 @@
             },
             "checks": {
                 "chk_unit_payment_operation": "`amount_cents` > 0 and `kind` in ('allocation','refund','setoff','reversal','correction') and `status` in ('pending','posted','reversed')",
+                "chk_unit_payment_source_values": "`kind` in ('allocation','refund') and `source_id` is not null and `source_amount_cents` > 0 or `kind` not in ('allocation','refund') and `source_amount_cents` is null and `source_native_minor` is null",
                 "request_json": "json_valid(`request_json`)",
                 "snapshot_json": "json_valid(`snapshot_json`)"
             }
@@ -26086,9 +26450,13 @@
                 "bank_transaction_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "cash_document_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "consumed_cents": "decimal(30,0) NOT NULL DEFAULT 0",
+                "consumed_native_minor": "decimal(30,0) NULL DEFAULT NULL",
+                "currency_code": "char(3) NOT NULL DEFAULT 'CZK' COLLATE ascii_bin",
                 "direction": "varchar(3) NOT NULL",
+                "fx_rate": "decimal(18,6) NULL DEFAULT NULL",
                 "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
                 "journal_entry_id": "bigint(20) unsigned NOT NULL",
+                "native_amount_minor": "decimal(30,0) NULL DEFAULT NULL",
                 "receipt_hash": "char(64) NOT NULL COLLATE ascii_bin",
                 "receipt_json": "longtext NOT NULL",
                 "row_version": "int(10) unsigned NOT NULL DEFAULT 1",
@@ -26109,7 +26477,7 @@
             },
             "checks": {
                 "chk_unit_payment_one_source": "`bank_transaction_id` is null <> (`cash_document_id` is null)",
-                "chk_unit_payment_source_amount": "`amount_cents` > 0 and `consumed_cents` >= 0 and `consumed_cents` <= `amount_cents` and `direction` in ('in','out')",
+                "chk_unit_payment_source_amount": "`amount_cents` > 0 and `consumed_cents` >= 0 and `consumed_cents` <= `amount_cents` and `direction` in ('in','out') and (`currency_code` = 'CZK' and `native_amount_minor` is null and `consumed_native_minor` is null and `fx_rate` is null or `currency_code` <> 'CZK' and `native_amount_minor` > 0 and `consumed_native_minor` >= 0 and `consumed_native_minor` <= `native_amount_minor` and `fx_rate` > 0)",
                 "receipt_json": "json_valid(`receipt_json`)"
             }
         },
@@ -26995,16 +27363,35 @@
         "trg_nfr_insert": "BEFORE INSERT ON nonprofit_funding_revisions #8ef193715bd5844a87d770d92e7eb9b550d9c2eb",
         "trg_nlp_immutable_delete": "BEFORE DELETE ON nonprofit_legal_profiles #14114d6f757030293ceadac8f5ac999e5e0188fa",
         "trg_nlp_immutable_update": "BEFORE UPDATE ON nonprofit_legal_profiles #14114d6f757030293ceadac8f5ac999e5e0188fa",
+        "trg_nm_immutable_delete": "BEFORE DELETE ON nonprofit_members #b6e16ca403b6b8a607604546967555ea319ac4e1",
+        "trg_nm_immutable_update": "BEFORE UPDATE ON nonprofit_members #b6e16ca403b6b8a607604546967555ea319ac4e1",
+        "trg_nmcc_guard_update": "BEFORE UPDATE ON nonprofit_membership_charge_cases #6c2a7a4e0c545851941b22f2f96d111a5263b2f5",
+        "trg_nmcc_immutable_delete": "BEFORE DELETE ON nonprofit_membership_charge_cases #b6e16ca403b6b8a607604546967555ea319ac4e1",
+        "trg_nmclaim_immutable_delete": "BEFORE DELETE ON nonprofit_membership_charge_claims #b6e16ca403b6b8a607604546967555ea319ac4e1",
+        "trg_nmclaim_immutable_update": "BEFORE UPDATE ON nonprofit_membership_charge_claims #b6e16ca403b6b8a607604546967555ea319ac4e1",
+        "trg_nmcmd_immutable_delete": "BEFORE DELETE ON nonprofit_membership_charge_commands #b6e16ca403b6b8a607604546967555ea319ac4e1",
+        "trg_nmcmd_immutable_update": "BEFORE UPDATE ON nonprofit_membership_charge_commands #b6e16ca403b6b8a607604546967555ea319ac4e1",
+        "trg_nmop_immutable_delete": "BEFORE DELETE ON nonprofit_membership_charge_operations #b6e16ca403b6b8a607604546967555ea319ac4e1",
+        "trg_nmop_immutable_update": "BEFORE UPDATE ON nonprofit_membership_charge_operations #b6e16ca403b6b8a607604546967555ea319ac4e1",
+        "trg_nmr_immutable_delete": "BEFORE DELETE ON nonprofit_member_revisions #b6e16ca403b6b8a607604546967555ea319ac4e1",
+        "trg_nmr_immutable_update": "BEFORE UPDATE ON nonprofit_member_revisions #b6e16ca403b6b8a607604546967555ea319ac4e1",
         "trg_nonprofit_tax_immutable_delete": "BEFORE DELETE ON nonprofit_tax_assessments #f38c1e13859ea670801b2496d566bdd872f4cb06",
         "trg_nonprofit_tax_immutable_update": "BEFORE UPDATE ON nonprofit_tax_assessments #f38c1e13859ea670801b2496d566bdd872f4cb06",
         "trg_nonprofit_tax_insert": "BEFORE INSERT ON nonprofit_tax_assessments #4e66f08f4b1f04a9c040cdde16a122b7ffcc8f1b",
-        "trg_ntsc_immutable_delete": "BEFORE DELETE ON nonprofit_tax_saving_commands #14114d6f757030293ceadac8f5ac999e5e0188fa",
-        "trg_ntsc_immutable_update": "BEFORE UPDATE ON nonprofit_tax_saving_commands #14114d6f757030293ceadac8f5ac999e5e0188fa",
+        "trg_ntsc_immutable_delete": "BEFORE DELETE ON nonprofit_tax_snapshot_chunks #bd57372e367b28dbfb1c90e12abcd884ca256df9",
+        "trg_ntsc_immutable_update": "BEFORE UPDATE ON nonprofit_tax_snapshot_chunks #bd57372e367b28dbfb1c90e12abcd884ca256df9",
         "trg_ntscb_immutable_update": "BEFORE UPDATE ON nonprofit_tax_saving_cost_bindings #14114d6f757030293ceadac8f5ac999e5e0188fa",
         "trg_ntscb_native_insert": "BEFORE INSERT ON nonprofit_tax_saving_cost_bindings #92a9ba735ef3fd2a5ca4c334030c18b926df65f4",
         "trg_ntscb_reverse_delete": "BEFORE DELETE ON nonprofit_tax_saving_cost_bindings #f4cbd4427ae4c18d47c80a9b88c8cd27ba1399e2",
         "trg_ntse_immutable_delete": "BEFORE DELETE ON nonprofit_tax_saving_events #14114d6f757030293ceadac8f5ac999e5e0188fa",
         "trg_ntse_immutable_update": "BEFORE UPDATE ON nonprofit_tax_saving_events #14114d6f757030293ceadac8f5ac999e5e0188fa",
+        "trg_ntsll_entry_update": "AFTER UPDATE ON journal_entries #89baf9a98aedbbce43324a4fd7b09bfcbfed4086",
+        "trg_ntsll_line_insert": "AFTER INSERT ON journal_entry_lines #54ec5764278e2c19f8a504b37737881b7c1f461f",
+        "trg_ntsll_line_update": "AFTER UPDATE ON journal_entry_lines #293247d9bac4590bd053a8a681a054eca5b64c52",
+        "trg_ntsm_immutable_delete": "BEFORE DELETE ON nonprofit_tax_snapshot_manifests #bd57372e367b28dbfb1c90e12abcd884ca256df9",
+        "trg_ntsm_immutable_update": "BEFORE UPDATE ON nonprofit_tax_snapshot_manifests #bd57372e367b28dbfb1c90e12abcd884ca256df9",
+        "trg_ntsmc_immutable_delete": "BEFORE DELETE ON nonprofit_tax_snapshot_manifest_chunks #bd57372e367b28dbfb1c90e12abcd884ca256df9",
+        "trg_ntsmc_immutable_update": "BEFORE UPDATE ON nonprofit_tax_snapshot_manifest_chunks #bd57372e367b28dbfb1c90e12abcd884ca256df9",
         "trg_ntss_immutable_delete": "BEFORE DELETE ON nonprofit_tax_saving_sources #14114d6f757030293ceadac8f5ac999e5e0188fa",
         "trg_ntss_immutable_update": "BEFORE UPDATE ON nonprofit_tax_saving_sources #14114d6f757030293ceadac8f5ac999e5e0188fa",
         "trg_oss_filing_evidence_no_delete": "BEFORE DELETE ON oss_filing_evidence #4307481f6d74af201895e7a19831c30cc145081f",
@@ -27360,7 +27747,7 @@
         "unit_payment_exports_immutable_delete": "BEFORE DELETE ON unit_payment_exports #30ec2cdc03c150f6f34ebc9dafff6088323234c1",
         "unit_payment_exports_immutable_update": "BEFORE UPDATE ON unit_payment_exports #30ec2cdc03c150f6f34ebc9dafff6088323234c1",
         "unit_payment_operations_immutable_delete": "BEFORE DELETE ON unit_payment_operations #c504061195b9df06cb80f0f5716c48353216dfdf",
-        "unit_payment_operations_immutable_update": "BEFORE UPDATE ON unit_payment_operations #90d841c78ba0fc5d0ea438310f6e1bb83d8da803",
+        "unit_payment_operations_immutable_update": "BEFORE UPDATE ON unit_payment_operations #90054ed46e5251e733811d584dedb81ef9714c5e",
         "unit_payment_reliefs_immutable_delete": "BEFORE DELETE ON unit_payment_reliefs #c504061195b9df06cb80f0f5716c48353216dfdf",
         "unit_payment_reliefs_immutable_update": "BEFORE UPDATE ON unit_payment_reliefs #c504061195b9df06cb80f0f5716c48353216dfdf",
         "unit_payment_source_heads_guard_delete": "BEFORE DELETE ON unit_payment_source_heads #e1539b73fcf8ec2d0a2fcab779a035542c328594",
@@ -27368,7 +27755,7 @@
         "unit_payment_source_revisions_guard_delete": "BEFORE DELETE ON unit_payment_source_revisions #0692169b5fa108ec1d7bb46be3c62cf505ea1ef3",
         "unit_payment_source_revisions_guard_update": "BEFORE UPDATE ON unit_payment_source_revisions #22d0b00f8ecd17d9a631688f8c5fb791f5f5e265",
         "unit_payment_sources_immutable_delete": "BEFORE DELETE ON unit_payment_sources #c504061195b9df06cb80f0f5716c48353216dfdf",
-        "unit_payment_sources_immutable_update": "BEFORE UPDATE ON unit_payment_sources #e579841023ab595cd4e561a547dab0dafd74d13f",
+        "unit_payment_sources_immutable_update": "BEFORE UPDATE ON unit_payment_sources #50278289ec0eedac02f7baaa710fe8f59724c924",
         "unit_payment_workflow_operations_guard_delete": "BEFORE DELETE ON unit_payment_workflow_operations #52d265ff331451863ce1d367c1f20806577c415a",
         "unit_payment_workflow_operations_guard_update": "BEFORE UPDATE ON unit_payment_workflow_operations #52d265ff331451863ce1d367c1f20806577c415a",
         "unit_payment_workflows_guard_delete": "BEFORE DELETE ON unit_payment_workflows #52d265ff331451863ce1d367c1f20806577c415a",
