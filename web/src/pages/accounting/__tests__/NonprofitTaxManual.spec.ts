@@ -2,65 +2,79 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import Page from '@/pages/accounting/NonprofitTaxAssessment.vue'
-const mocks = vi.hoisted(() => ({ read: vi.fn(), history: vi.fn(), preview: vi.fn(), confirm: vi.fn(), withdraw: vi.fn(), export: vi.fn(), document: vi.fn(), can: vi.fn() }))
-vi.mock('@/api/nonprofitTax', () => ({ nonprofitTaxApi: mocks }))
+
+const mocks = vi.hoisted(() => ({
+  currentSource: vi.fn(), history: vi.fn(), openDraft: vi.fn(), draftSource: vi.fn(), getDraft: vi.fn(),
+  resetDraft: vi.fn(), decisions: vi.fn(), activities: vi.fn(), fundingPools: vi.fn(), fundingLinks: vi.fn(),
+  fundingMembers: vi.fn(), patchDecisions: vi.fn(), patchActivities: vi.fn(), patchFundingPools: vi.fn(),
+  patchFundingLinks: vi.fn(), patchFundingMembers: vi.fn(), preview: vi.fn(), previewPage: vi.fn(),
+  confirm: vi.fn(), assessment: vi.fn(), frozenSource: vi.fn(), frozenPage: vi.fn(), export: vi.fn(), can: vi.fn(),
+}))
+vi.mock('@/api/nonprofitTaxJ6', () => ({ nonprofitTaxJ6Api: mocks }))
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: { id: '7' } }) }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ can: mocks.can }) }))
-vi.mock('@/composables/useToast', () => ({ useToast: () => ({ success: vi.fn() }) }))
-vi.mock('@/workspace/supplierContext', () => ({ requestSupplierId: () => '22' }))
+vi.mock('@/stores/supplier', () => ({ useSupplierStore: () => ({ currentSupplierId: 22, domainLocked: true }) }))
 vi.mock('@/api/errors', () => ({ apiErrorMessage: (error: Error) => error.message }))
-const snapshot = { period: { id: 7, fiscal_year: 2027, starts_on: '2027-01-01', ends_on: '2027-12-31' }, assessment_support: { automatic: false, documented_manual: true, automatic_from: '2024-01-01', automatic_to: '2026-12-31' }, input_hash: 'manual-hash', findings: [], funding_reference_sources: {}, accounting_result_cents: 7900, sources: [{ id: 'line:1', line_id: 1, account_code: '644', date: '2027-01-01', kind: 'revenue', amount_cents: 7900, activity_kind_id: null, activity: null, tax_regime: 'subject', mandatory_non_deductible: false, axes: [], origin: { line_id: 1, type: 'manual', id: null } }] }
-const result = { assessment_method: 'documented_manual', accounting_result_cents: 7900, excluded_revenue_cents: 7900, cost_addbacks_cents: 0, assessed_result_cents: 0, activities: [], rows: [], funding_usage: [], external_adjustments: [] }
-const ActionBar = defineComponent({ props: ['actions'], template: '<div><template v-for="action in actions" :key="action.key"><button type="button" v-if="action.show !== false" :data-action="action.key" :disabled="action.disabled" @click="action.run">{{ action.label }}</button></template></div>' })
-const DateInput = defineComponent({ props: ['modelValue', 'required', 'min', 'max', 'readonly'], emits: ['update:modelValue'], template: '<input type="date" :value="modelValue" :required="required" :min="min" :max="max" :readonly="readonly" @input="$emit(\'update:modelValue\', $event.target.value)" />' })
-function render() { return mount(Page, { attachTo: document.body, global: { stubs: { ActionBar, FundingEditor: true, DateInput } } }) }
+
+const header = {
+  header: { schema: 'nonprofit-j6-source.v2', scope: 'current-period-source', supplier_id: 22, period_id: 7,
+    period: { id: 7, fiscal_year: 2027, starts_on: '2027-01-01', ends_on: '2027-12-31' }, frameworks: [],
+    ruleset: 'j6-2027', funding_history_mode: 'paged_assessment_graph_v1', source_fact_schemas: {} },
+  input_hash: 'a'.repeat(64), root_hash: 'b'.repeat(64), row_count: 1, finding_count: 0, chunk_count: 1,
+}
+const draft = { id: 11, supplier_id: 22, period_id: 7, revision_no: 1, source_manifest_id: 13,
+  source_input_hash: 'a'.repeat(64), header: { profile: { kind: 'documented', evidence: 'Evidence' } },
+  created_by: 3, created_at: '2027-01-02T00:00:00Z', updated_at: '2027-01-02T00:00:00Z' }
+const envelope = { draft, capabilities: { can_edit: true, can_preview: true, can_confirm: true, source_complete: true, reason_code: null } }
+const ActionBar = defineComponent({ props: ['actions'], template: '<div><button v-for="action in actions" :key="action.key" :data-action="action.key" :disabled="action.disabled" @click="action.run">{{ action.label }}</button></div>' })
+function render() { return mount(Page, { global: { stubs: { ActionBar } } }) }
+
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.can.mockReturnValue(true)
-  mocks.read.mockResolvedValue({ snapshot, latest: null })
-  mocks.history.mockResolvedValue([])
-  mocks.preview.mockResolvedValue({ snapshot, result, previous_assessment_id: null })
-  mocks.confirm.mockResolvedValue({ id: 10 })
+  mocks.currentSource.mockResolvedValue(header)
+  mocks.history.mockResolvedValue({ rows: [], after: null })
+  mocks.openDraft.mockResolvedValue(envelope)
+  mocks.draftSource.mockResolvedValue({ draft, rows: [], findings: [], after: null })
 })
-describe('manual assessment page', () => {
-  it('shows missing evidence, then previews and confirms a complete manual decision without inferred account classification', async () => {
+
+describe('documented manual J6 draft', () => {
+  it('binds the method to the exact accounting period without sending a client source hash', async () => {
     const wrapper = render()
     await flushPromises()
-    expect(wrapper.get('[data-test="manual-method"]').text()).toContain('nonprofitTax.manual.notice')
-    expect((wrapper.get('[data-test="final-regime"]').element as HTMLSelectElement).value).toBe('')
-    await wrapper.get('[data-action="preview"]').trigger('click')
-    await flushPromises()
-    expect(mocks.preview).not.toHaveBeenCalled()
-    expect(wrapper.get('[role="alert"]').text()).toBe('nonprofitTax.manual.invalidForm')
-    await wrapper.get('[data-test="method-legal-basis"]').setValue('Applicable legal provisions')
-    await wrapper.get('[data-test="method-evidence"]').setValue('Period-specific legal assessment')
+    await wrapper.get('[data-test="profile-kind"]').setValue('documented')
     await wrapper.get('[data-test="profile-evidence"]').setValue('Documented organization facts')
-    const article = wrapper.get('article')
-    const field = (label: string, selector: string) => article.findAll('label').find(row => row.text().startsWith(label))!.get(selector)
-    await field('nonprofitTax.legalTitle', 'select').setValue('bank_interest')
-    await wrapper.get('[data-test="final-regime"]').setValue('subject')
-    await wrapper.get('[data-test="final-method"]').setValue('final_withholding')
-    await field('nonprofitTax.legalBasis', 'input').setValue('Documented withholding rule')
-    await field('nonprofitTax.facts.gross_interest_cents', 'input').setValue('100.00')
-    await field('nonprofitTax.facts.withholding_cents', 'input').setValue('21.00')
-    await field('nonprofitTax.evidence', 'textarea').setValue('Synthetic bank certificate')
-    await wrapper.get('[data-action="preview"]').trigger('click')
-    await flushPromises()
-    expect(mocks.preview).toHaveBeenCalledWith(7, expect.objectContaining({ method: expect.objectContaining({ mode: 'documented_manual', valid_from: '2027-01-01', valid_to: '2027-12-31' }), profile: { kind: 'documented', evidence: 'Documented organization facts' }, decisions: { 'line:1': expect.objectContaining({ final_regime: 'subject', final_method: 'final_withholding', facts: { gross_interest_cents: 10000, withholding_cents: 2100 } }) } }))
-    expect(wrapper.get('[data-test="manual-result"]').text()).toBe('nonprofitTax.manual.resultNotice')
-    const reason = wrapper.findAll('label').find(row => row.text().startsWith('nonprofitTax.reason'))!
-    await reason.get('textarea').setValue('Own evidenced conclusion')
     await wrapper.get('input[type="checkbox"]').setValue(true)
-    await wrapper.get('[data-action="confirm"]').trigger('click')
+    const textareas = wrapper.findAll('textarea')
+    await textareas[1]!.setValue('Applicable provisions')
+    await textareas[2]!.setValue('Period-specific assessment')
+    await wrapper.get('[data-action="open"]').trigger('click')
     await flushPromises()
-    expect(mocks.confirm).toHaveBeenCalledWith(7, expect.objectContaining({ input_hash: 'manual-hash', assessment: expect.objectContaining({ method: expect.objectContaining({ mode: 'documented_manual' }) }) }))
+    expect(mocks.openDraft).toHaveBeenCalledWith(22, 7, {
+      profile: { kind: 'documented', evidence: 'Documented organization facts' },
+      method: { mode: 'documented_manual', valid_from: '2027-01-01', valid_to: '2027-12-31',
+        legal_basis: 'Applicable provisions', evidence: 'Period-specific assessment' },
+    })
+    expect(mocks.openDraft.mock.calls[0]![2]).not.toHaveProperty('source_input_hash')
+    wrapper.unmount()
   })
-  it('does not expose the manual method when automatic rules support the period', async () => {
-    mocks.read.mockResolvedValue({ snapshot: { ...snapshot, assessment_support: { ...snapshot.assessment_support, automatic: true } }, latest: null })
+
+  it('fails closed when an opaque cursor belongs to an older revision', async () => {
+    mocks.openDraft.mockResolvedValue(envelope)
+    mocks.draftSource
+      .mockResolvedValueOnce({ draft, rows: [], findings: [], after: 'opaque-next' })
+      .mockRejectedValueOnce({ response: { status: 409, data: { error: { code: 'nonprofit_tax_cursor_stale' } } } })
     const wrapper = render()
     await flushPromises()
-    expect(wrapper.find('[data-test="manual-method"]').exists()).toBe(false)
-    expect(wrapper.find('[data-test="final-regime"]').exists()).toBe(false)
+    await wrapper.get('[data-test="profile-kind"]').setValue('documented')
+    await wrapper.get('[data-test="profile-evidence"]').setValue('Evidence')
+    await wrapper.get('[data-action="open"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-test="source-next"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('nonprofitTaxJ6.errors.nonprofit_tax_cursor_stale')
+    expect(wrapper.text()).toContain('nonprofitTaxJ6.stale')
+    wrapper.unmount()
   })
 })

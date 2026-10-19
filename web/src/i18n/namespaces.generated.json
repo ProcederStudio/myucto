@@ -99,6 +99,7 @@
     "monthly_report",
     "myucto_import",
     "nonprofitTax",
+    "nonprofitTaxJ6",
     "nonprofitTaxNative",
     "oss_rates",
     "other_items",
@@ -676,8 +677,7 @@
       "dimensions"
     ],
     "accounting-nonprofit-tax": [
-      "nonprofitTax",
-      "nonprofitTaxNative"
+      "nonprofitTaxJ6"
     ],
     "accounting-statement-mapping": [
       "settings"
