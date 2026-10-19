@@ -110,9 +110,28 @@ final class DatabaseCloner
      */
     public function copyTables(array $plan, string $target, callable $log): void
     {
-        $source = $plan['source'];
         $this->pdo->exec('CREATE DATABASE ' . self::quote($target)
             . ' CHARACTER SET ' . $plan['charset'] . ' COLLATE ' . $plan['collation']);
+        $this->copyTableContents($plan, $target, $log);
+    }
+
+    /**
+     * @param array{source:string, charset:string, collation:string, tables: array<string, array{ddl:string, columns:string}>} $plan
+     * @param callable(string):void $log
+     */
+    public function copyTablesIntoOwnedTarget(array $plan, OwnedCloneTarget $target, callable $log): void
+    {
+        $target->assertOwned();
+        $this->copyTableContents($plan, $target->name(), $log);
+    }
+
+    /**
+     * @param array{source:string, tables: array<string, array{ddl:string, columns:string}>} $plan
+     * @param callable(string):void $log
+     */
+    private function copyTableContents(array $plan, string $target, callable $log): void
+    {
+        $source = $plan['source'];
         $this->pdo->exec('USE ' . self::quote($target));
         $this->pdo->exec('SET SESSION FOREIGN_KEY_CHECKS = 0');
         foreach ($plan['tables'] as $name => $table) {

@@ -61,7 +61,8 @@ final class TaxLossService
         foreach ($rows as $r) {
             $remaining = round((float) $r['amount'] - (float) $r['applied'], 2);
             $originYear = (int) $r['origin_year'];
-            $forward = $remaining > 0 && $originYear >= $year - $carryYears && $originYear <= $year - 1;
+            $eligible = TaxLossAllocationPlan::eligibleOrigin($originYear, $year, $carryYears, $carrybackYears);
+            $forward = $remaining > 0 && $originYear < $year && $eligible;
 
             // Zpětné uplatnění: ztráta vznikla POZDĚJI než rok, do kterého se odečítá,
             // nejvýš však o `carrybackYears` období — a jen do zbývajícího stropu 30 mil.
@@ -69,7 +70,7 @@ final class TaxLossService
                 ? round(max(0.0, $carrybackLimit - $this->carriedBackTotal($supplierId, $type, $originYear)), 2)
                 : 0.0;
             $backward = $remaining > 0 && $carrybackYears > 0
-                && $originYear > $year && $originYear <= $year + $carrybackYears
+                && $originYear > $year && $eligible
                 && $carrybackRoom > 0;
 
             if ($forward) {
@@ -104,6 +105,21 @@ final class TaxLossService
             'carryback_years' => $carrybackYears,
             'carryback_limit' => $carrybackLimit,
         ];
+    }
+
+    public function dppoAppendixCard(int $supplierId, int $year, array $period, float $requested, float $yearLoss): array
+    {
+        $constants=$this->constants->forExactYear($year,true);$carryYears=(int)($constants['tax_loss_carry_years']??0);$carrybackYears=(int)($constants['tax_loss_carryback_years']??0);$carrybackLimit=(float)($constants['tax_loss_carryback_limit']??0);
+        $q=$this->db->pdo()->prepare('SELECT tl.id,tl.origin_year,tl.origin_starts_on,tl.origin_ends_on,tl.period_proof_kind,tl.period_proof_hash,tl.amount,tl.source_return_id,
+                COALESCE(SUM(CASE WHEN a.applied_year<? THEN a.amount ELSE 0 END),0) AS applied_before_period,
+                COALESCE(SUM(CASE WHEN a.applied_year<>? THEN a.amount ELSE 0 END),0) AS applied,
+                COALESCE(SUM(CASE WHEN a.applied_year<tl.origin_year AND a.applied_year<>? THEN a.amount ELSE 0 END),0) AS carried_back
+            FROM tax_losses tl LEFT JOIN tax_loss_applications a ON a.loss_id=tl.id
+            WHERE tl.supplier_id=? AND tl.taxpayer_type=? AND tl.origin_year>=? AND tl.origin_year<=? AND tl.origin_year<>?
+            GROUP BY tl.id,tl.origin_year,tl.origin_starts_on,tl.origin_ends_on,tl.period_proof_kind,tl.period_proof_hash,tl.amount,tl.source_return_id
+            ORDER BY tl.origin_year,tl.id');
+        $q->execute([$year,$year,$year,$supplierId,'po',$year-$carryYears,$year+$carrybackYears,$year]);
+        return DppoLossAppendix::build($supplierId,'po',$year,$period,$q->fetchAll(\PDO::FETCH_ASSOC),$requested,$yearLoss,$carryYears,$carrybackYears,$carrybackLimit);
     }
 
     /** Dosud zpětně uplatněná část ztráty daného roku (applied_year < origin_year). */
@@ -303,7 +319,7 @@ final class TaxLossService
         $effective = (new \MyInvoice\Repository\TaxReturnRepository($this->db))->findLastFinalized($supplierId, $year, $type, null, true);
         if (($effective === null ? null : (int) $effective['id']) !== $previousOwnerId) $this->ownerChanged();
         if ($nextOwnerId !== null && (!isset($owners[$nextOwnerId]) || (int) $owners[$nextOwnerId]['year'] !== $year)) $this->ownerChanged();
-        $q = $pdo->prepare('SELECT id,origin_year,amount,source_return_id FROM tax_losses WHERE supplier_id=? AND taxpayer_type=? ORDER BY origin_year,id FOR UPDATE');
+        $q = $pdo->prepare('SELECT id,origin_year,origin_starts_on,origin_ends_on,period_proof_kind,period_proof_hash,amount,source_return_id FROM tax_losses WHERE supplier_id=? AND taxpayer_type=? ORDER BY origin_year,id FOR UPDATE');
         $q->execute([$supplierId, $type]); $losses = $q->fetchAll(\PDO::FETCH_ASSOC);
         $q = $pdo->prepare('SELECT a.* FROM tax_loss_applications a JOIN tax_losses l ON l.id=a.loss_id WHERE (l.supplier_id=? AND l.taxpayer_type=?) OR (a.supplier_id=? AND a.taxpayer_type=?) ORDER BY a.id FOR UPDATE');
         $q->execute([$supplierId, $type, $supplierId, $type]); $applications = $q->fetchAll(\PDO::FETCH_ASSOC);
@@ -335,7 +351,7 @@ final class TaxLossService
             $q->execute([$supplierId]); $periods = $q->fetchAll(\PDO::FETCH_ASSOC);
             foreach ($losses as $loss) {
                 $origin = (int) $loss['origin_year'];
-                if ($origin === $year || $origin < $year - (int) $constants['tax_loss_carry_years'] || $origin > $year + (int) $constants['tax_loss_carryback_years'] || bccomp(TaxLossAllocationPlan::cents($loss['amount']), TaxLossAllocationPlan::cents($loss['applied']), 0) <= 0) continue;
+                if (!TaxLossAllocationPlan::eligibleOrigin($origin, $year, (int) $constants['tax_loss_carry_years'], (int) $constants['tax_loss_carryback_years']) || bccomp(TaxLossAllocationPlan::cents($loss['amount']), TaxLossAllocationPlan::cents($loss['applied']), 0) <= 0) continue;
                 if ($origin > $year && sprintf('%04d-12-31', $origin) < '2020-06-30') $this->unsupportedPeriod();
                 $this->assertCalendarChain($type, $year, $loss, $owners, $periods);
             }
@@ -363,9 +379,9 @@ final class TaxLossService
         $plan['chunks'] = array_values($chunks); return $plan;
     }
 
-    public function reconcileExact(array $plan, float $yearLoss): void
+    public function reconcileExact(array $plan, float $yearLoss, ?array $originPeriod = null): void
     {
-        (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->transaction(function () use ($plan, $yearLoss): void {
+        (new \MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard($this->db))->transaction(function () use ($plan, $yearLoss, $originPeriod): void {
             $actual = $this->allocationPlan($plan['supplier_id'], $plan['taxpayer_type'], $plan['year'], (float) TaxLossAllocationPlan::amount($plan['requested_cents']), $plan['previous_owner_id'], $plan['next_owner_id']);
             if ($actual !== $plan) $this->ownerChanged();
             $this->assertExact($plan);
@@ -381,8 +397,9 @@ final class TaxLossService
             }
             $this->assertLossAmountCanBeSet($plan['supplier_id'], $plan['taxpayer_type'], $plan['year'], $yearLoss);
             if ($yearLoss > 0) {
-                $pdo->prepare('INSERT INTO tax_losses(supplier_id,taxpayer_type,origin_year,amount,source_return_id)VALUES(?,?,?,?,?) ON DUPLICATE KEY UPDATE amount=VALUES(amount),source_return_id=VALUES(source_return_id)')
-                    ->execute([$plan['supplier_id'], $plan['taxpayer_type'], $plan['year'], round($yearLoss, 2), $plan['next_owner_id']]);
+                $proof=$originPeriod===null?null:TaxLossPeriodProof::native($plan['supplier_id'],$plan['taxpayer_type'],$plan['year'],$originPeriod,$yearLoss,$plan['next_owner_id']);
+                $pdo->prepare('INSERT INTO tax_losses(supplier_id,taxpayer_type,origin_year,origin_starts_on,origin_ends_on,period_proof_kind,period_proof_hash,amount,source_return_id)VALUES(?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE origin_starts_on=VALUES(origin_starts_on),origin_ends_on=VALUES(origin_ends_on),period_proof_kind=VALUES(period_proof_kind),period_proof_hash=VALUES(period_proof_hash),amount=VALUES(amount),source_return_id=VALUES(source_return_id)')
+                    ->execute([$plan['supplier_id'],$plan['taxpayer_type'],$plan['year'],$proof['starts_on']??null,$proof['ends_on']??null,$proof['kind']??null,$proof['proof_hash']??null,round($yearLoss,2),$plan['next_owner_id']]);
             } else {
                 $pdo->prepare('DELETE FROM tax_losses WHERE supplier_id=? AND taxpayer_type=? AND origin_year=? AND NOT EXISTS(SELECT 1 FROM tax_loss_applications a WHERE a.loss_id=tax_losses.id)')
                     ->execute([$plan['supplier_id'], $plan['taxpayer_type'], $plan['year']]);

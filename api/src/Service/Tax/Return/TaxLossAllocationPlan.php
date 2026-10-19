@@ -14,7 +14,7 @@ final class TaxLossAllocationPlan
         $available = '0'; $left = $requestedCents; $chunks = [];
         foreach ($rows as $row) {
             $origin = (int) $row['origin_year'];
-            if ($origin === $year || $origin < $year - $carryYears || $origin > $year + $carrybackYears) continue;
+            if (!self::eligibleOrigin($origin, $year, $carryYears, $carrybackYears)) continue;
             $remaining = bcsub(self::cents($row['amount']), self::cents($row['applied']), 0);
             if ($origin > $year) {
                 $room = bcsub(self::cents($carrybackLimit), self::cents($row['carried_back']), 0);
@@ -29,6 +29,13 @@ final class TaxLossAllocationPlan
             }
         }
         return ['requested_cents' => $requestedCents, 'available_cents' => $available, 'allocated_cents' => bcsub($requestedCents, $left, 0), 'unallocated_cents' => $left, 'chunks' => $chunks];
+    }
+
+    public static function eligibleOrigin(int $originYear, int $appliedYear, int $carryYears, int $carrybackYears): bool
+    {
+        return $originYear !== $appliedYear
+            && $originYear >= $appliedYear - $carryYears
+            && $originYear <= $appliedYear + $carrybackYears;
     }
 
     public static function cents(float|string $amount): string

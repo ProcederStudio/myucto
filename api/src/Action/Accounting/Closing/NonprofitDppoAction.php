@@ -10,7 +10,7 @@ use MyInvoice\Security\AccessLevel;
 use MyInvoice\Security\RequestAuthorization;
 use MyInvoice\Service\Accounting\PostingException;
 use MyInvoice\Service\Tax\Nonprofit\{NonprofitLegalProfileService,NonprofitTaxSavingsService,NonprofitDppoDataProvider,NonprofitTaxAssessmentException};
-use MyInvoice\Service\Tax\Return\{AccountingDecreeService,TaxReturnException};
+use MyInvoice\Service\Tax\Return\{AccountingDecreeService,Dppo504CapabilityService,TaxReturnException};
 use MyInvoice\Infrastructure\Database\Connection;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -24,8 +24,21 @@ final class NonprofitDppoAction
     public function profile(Request $q,Response $r,array $args):Response
     {
         return$this->handle($q,$r,false,function(int$s)use($q,$args):array{
-            $result=$this->profiles->read($s,$this->id($args,'id'));$caps=$this->capabilities($q)+['native_dppo'=>false,'filing_ready'=>false,'preparation_findings'=>[]];
-            try{if((new AccountingDecreeService($this->db))->assertDppoSupported($s,(int)$result['period']['fiscal_year'])!=='504')throw new TaxReturnException('nonprofit_legal_profile_framework_required','DPPO 504 vyžaduje stejný účetní rámec v celém období.',422);$caps['native_dppo']=true;$this->provider->gather($s,(int)$result['period']['fiscal_year']);$caps['filing_ready']=true;}
+            $result=$this->profiles->read($s,$this->id($args,'id'));
+            $operations=(new Dppo504CapabilityService())->capabilities($result['period']['starts_on'],$result['period']['ends_on']);
+            $manifest=$operations['manifest'];unset($operations['manifest']);
+            $caps=$this->capabilities($q)+['native_dppo'=>false,'calculation_ready'=>false,'filing_ready'=>false,
+                'operations'=>$operations,'form_manifest'=>$manifest,'preparation_findings'=>[]];
+            try{
+                if((new AccountingDecreeService($this->db))->assertDppoSupported($s,(int)$result['period']['fiscal_year'])!=='504'){
+                    foreach($caps['operations']as&$operation)$operation=['allowed'=>false,'code'=>'nonprofit_legal_profile_framework_required','message'=>'DPPO 504 vyžaduje stejný účetní rámec v celém období.'];unset($operation);
+                    throw new TaxReturnException('nonprofit_legal_profile_framework_required','DPPO 504 vyžaduje stejný účetní rámec v celém období.',422);
+                }
+                $caps['native_dppo']=$operations['compute']['allowed'];
+                $this->provider->gather($s,(int)$result['period']['fiscal_year']);
+                $caps['calculation_ready']=true;$caps['filing_ready']=$operations['finalize']['allowed'];
+                if(!$caps['filing_ready'])$caps['preparation_findings'][]=['code'=>$operations['finalize']['code'],'message'=>$operations['finalize']['message']];
+            }
             catch(TaxReturnException|NonprofitTaxAssessmentException $e){$caps['preparation_findings'][]=['code'=>$e->errorCode,'message'=>$e->getMessage()];}
             return$result+['capabilities'=>$caps];
         });

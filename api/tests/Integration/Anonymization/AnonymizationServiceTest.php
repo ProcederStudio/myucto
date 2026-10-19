@@ -145,11 +145,32 @@ final class AnonymizationServiceTest extends TestCase
             $service->run(new AnonymizationOptions(source: $this->source, target: $this->target, replace: true), static function (): void {});
             self::fail('Databázi bez značky anonymizované kopie přepsat nesmí.');
         } catch (\RuntimeException $e) {
-            self::assertStringContainsString('není anonymizovaná kopie', $e->getMessage());
+            self::assertStringContainsString('není dokončená anonymizovaná kopie', $e->getMessage());
         }
 
         $this->expectException(\InvalidArgumentException::class);
         $service->run(new AnonymizationOptions(source: $this->source, target: (string) $this->config->get('db.name')), static function (): void {});
+    }
+
+    public function testReplaceRejectsForgedCloneMarkerAndPreservesTarget(): void
+    {
+        $this->server->exec('CREATE DATABASE ' . DatabaseCloner::quote($this->source));
+        $this->server->exec('CREATE DATABASE ' . DatabaseCloner::quote($this->target));
+        $this->server->exec('CREATE TABLE ' . DatabaseCloner::quote($this->target) . '.app_meta (k VARCHAR(100) PRIMARY KEY, v LONGTEXT NOT NULL)');
+        $this->server->prepare('INSERT INTO ' . DatabaseCloner::quote($this->target) . '.app_meta (k, v) VALUES (?, ?)')
+            ->execute([AnonymizationService::MARKER_KEY, 'foreign-marker']);
+
+        try {
+            (new AnonymizationService($this->config))->run(
+                new AnonymizationOptions(source: $this->source, target: $this->target, replace: true),
+                static function (): void {},
+            );
+            self::fail('Cizí text pod marker klíčem nesmí autorizovat DROP databáze.');
+        } catch (\RuntimeException $e) {
+            self::assertStringContainsString('není dokončená anonymizovaná kopie', $e->getMessage());
+        }
+
+        self::assertSame('foreign-marker', $this->scalar($this->target, "SELECT v FROM app_meta WHERE k = 'anonymized_clone'"));
     }
 
     private function seedSource(): void

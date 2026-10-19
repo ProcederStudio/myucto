@@ -100,6 +100,11 @@ final class PaymentHistoricalCarrierProof
             ||(substr($source['account_code'],0,3)==='379'&&!in_array($source['account_code'],['379.900','379.910'],true))
             ||$line['side']===$source['side']||bccomp($line['amount'],'0',2)<=0||bccomp($line['amount'],$source['amount'],2)>0)return false;
         $a=PaymentJournalProof::canonicalLines([$line])[0];$b=PaymentJournalProof::canonicalLines([$source])[0];unset($a['side'],$a['amount'],$b['side'],$b['amount']);
+        if($b['currency_code']!==null){
+            if($a['currency_code']!==$b['currency_code']||$a['fx_rate']!==$b['fx_rate']||$a['amount_foreign']===null||$b['amount_foreign']===null
+                ||bccomp($a['amount_foreign'],'0',2)<=0||bccomp($a['amount_foreign'],$b['amount_foreign'],2)>0)return false;
+            unset($a['amount_foreign'],$b['amount_foreign']);
+        }
         return PropertyInput::hash($a)===PropertyInput::hash($b);
     }
     private static function header(array $header):array

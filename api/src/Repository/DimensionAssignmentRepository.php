@@ -312,6 +312,7 @@ final class DimensionAssignmentRepository
     {
         $current = $this->lineSplits($supplierId, [$lineId], $this->db->pdo()->inTransaction())[$lineId] ?? [];
         if (self::sameSplits($current, $splits)) return false;
+        (new \MyInvoice\Service\Nonprofit\Membership\MembershipUseGuard($this->db))->assertLinesMutable($supplierId, [$lineId]);
         (new IssuanceUseGuard($this->db))->assertDimensionLinesMutable($supplierId, [$lineId]);
         (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->assertLinesMutable($supplierId, [$lineId]);
         (new JointAllocationUseGuard($this->db))->assertLinesMutable($supplierId, [$lineId]);
@@ -331,6 +332,7 @@ final class DimensionAssignmentRepository
     {
         if ($splits === []) return;
         (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $lineId, $splits, $origins): void {
+            (new \MyInvoice\Service\Nonprofit\Membership\MembershipUseGuard($this->db))->assertLinesMutable($supplierId, [$lineId]);
             (new \MyInvoice\Service\Property\Payments\PaymentUseGuard($this->db))->assertAssignmentInsertsMutable($supplierId, [$lineId]);
             $this->insertLineSplitsLocked($supplierId, $lineId, $splits, $origins);
         });
@@ -479,6 +481,7 @@ final class DimensionAssignmentRepository
         ksort($dims);
         $dims = array_map('intval', $dims);
         if ($current === $dims) return false;
+        (new \MyInvoice\Service\Nonprofit\Membership\MembershipUseGuard($this->db))->assertLinesMutable($supplierId, [$lineId]);
         (new IssuanceUseGuard($this->db))->assertDimensionLinesMutable($supplierId, [$lineId]);
         (new \MyInvoice\Service\Property\Payments\Workflow\PaymentMutationContext($this->db))->assertLinesMutable($supplierId, [$lineId]);
         (new JointAllocationUseGuard($this->db))->assertLinesMutable($supplierId, [$lineId]);
@@ -497,6 +500,7 @@ final class DimensionAssignmentRepository
     {
         if ($dims === []) return;
         (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $lineId, $dims, $origins): void {
+            (new \MyInvoice\Service\Nonprofit\Membership\MembershipUseGuard($this->db))->assertLinesMutable($supplierId, [$lineId]);
             (new \MyInvoice\Service\Property\Payments\PaymentUseGuard($this->db))->assertAssignmentInsertsMutable($supplierId, [$lineId]);
             $this->insertLineDimensionsLocked($supplierId, $lineId, $dims, $origins);
         });
@@ -507,6 +511,7 @@ final class DimensionAssignmentRepository
         $lines = array_filter($lines, static fn (array $line): bool => !empty($line['dimensions']) || !empty($line['dimension_splits']));
         if ($lines === []) return;
         (new DimensionPeriodGuard($this->db))->transaction(function () use ($supplierId, $lines): void {
+            (new \MyInvoice\Service\Nonprofit\Membership\MembershipUseGuard($this->db))->assertLinesMutable($supplierId, array_keys($lines));
             (new \MyInvoice\Service\Property\Payments\PaymentUseGuard($this->db))->assertAssignmentInsertsMutable($supplierId, array_keys($lines));
             foreach ($lines as $lineId => $line) {
                 $this->insertLineDimensionsLocked($supplierId, (int) $lineId, $line['dimensions'] ?? [], $line['dimension_origins'] ?? []);
@@ -619,3 +624,4 @@ final class DimensionAssignmentRepository
         }
     }
 }
+

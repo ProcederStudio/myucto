@@ -13,22 +13,38 @@ final class NonprofitDppoClassificationBridge
         foreach($documentedLines as $documented)if(!is_array($documented))self::invalid();
         $lines=array_fill_keys([10,40,100,101,109,110,120],'0');$seen=[];$excluded='0';$costs='0';$details=[];
         foreach($result['rows'] as $row){
-            if(!is_array($row))self::invalid();$id=$row['id']??null;if(!is_string($id)||$id===''||isset($seen[$id]))self::invalid();$seen[$id]=true;
-            $amount=self::cents($row['amount_cents']??null);$adjustment=self::cents($row['adjustment_cents']??null);
-            if(($row['kind']??null)==='expense'){
-                $deductible=self::cents($row['deductible_cents']??null);if(bcsub($amount,$deductible,0)!==$adjustment)self::invalid();
-                $lines[10]=bcsub($lines[10],$amount,0);$lines[40]=bcadd($lines[40],$adjustment,0);$costs=bcadd($costs,$adjustment,0);$line=40;
-            }elseif(($row['kind']??null)==='revenue'){
-                $lines[10]=bcadd($lines[10],$amount,0);$line=$this->revenueLine($row,$documentedLines[$id]??null);
-                $expected=$line===null?'0':bcsub('0',$amount,0);if($adjustment!==$expected)self::invalid();
-                if($line!==null){$lines[$line]=bcadd($lines[$line],$amount,0);$excluded=bcadd($excluded,$amount,0);}
-            }else self::invalid();
-            $details[]=['source_id'=>$id,'line'=>$line,'amount_cents'=>(int)($line===40?$adjustment:$amount)];
+            if(!is_array($row))self::invalid();$projection=$this->projectRow($row,$documentedLines[$row['id']??'']??null);$id=$projection['source_id'];if(isset($seen[$id]))self::invalid();$seen[$id]=true;
+            $lines[10]=bcadd($lines[10],$projection['line_10_delta'],0);
+            if($projection['line']!==null){$lines[$projection['line']]=bcadd($lines[$projection['line']],$projection['line_delta'],0);}
+            $excluded=bcadd($excluded,$projection['excluded_delta'],0);$costs=bcadd($costs,$projection['cost_delta'],0);$details[]=$projection['detail'];
         }
         if(array_diff_key($documentedLines,$seen)!==[])self::invalid();
-        foreach(['accounting_result_cents'=>$lines[10],'excluded_revenue_cents'=>$excluded,'cost_addbacks_cents'=>$costs,'assessed_result_cents'=>bcadd(bcsub($lines[10],$excluded,0),$costs,0)] as $key=>$value)if(self::cents($result[$key]??null)!==$value)self::invalid();
+        $this->assertTotals($result,$lines[10],$excluded,$costs);
         foreach($lines as &$amount)$amount=(int)self::cents($this->integer($amount));unset($amount);
         return ['line_cents'=>$lines,'source_lines'=>$details,'external_adjustments'=>$result['external_adjustments']??[],'scope'=>'classification_only','general_adjustments_included'=>false];
+    }
+
+    /** @return array{source_id:string,line:?int,line_10_delta:string,line_delta:string,excluded_delta:string,cost_delta:string,taxable:bool,detail:array{source_id:string,line:?int,amount_cents:int}} */
+    public function projectRow(array $row,?array $documented=null):array
+    {
+        $id=$row['id']??null;if(!is_string($id)||$id==='')self::invalid();
+        $amount=self::cents($row['amount_cents']??null);$adjustment=self::cents($row['adjustment_cents']??null);
+        if(($row['kind']??null)==='expense'){
+            $deductible=self::cents($row['deductible_cents']??null);if(bcsub($amount,$deductible,0)!==$adjustment)self::invalid();
+            $line=40;$line10=bcsub('0',$amount,0);$lineDelta=$adjustment;$excluded='0';$cost=$adjustment;$taxable=false;
+        }elseif(($row['kind']??null)==='revenue'){
+            $line=$this->revenueLine($row,$documented);$expected=$line===null?'0':bcsub('0',$amount,0);if($adjustment!==$expected)self::invalid();
+            $line10=$amount;$lineDelta=$line===null?'0':$amount;$excluded=$line===null?'0':$amount;$cost='0';
+            $taxable=$line===null&&($row['classification']['regime']??null)==='subject'&&($row['classification']['method']??null)==='return'&&$amount!=='0';
+        }else self::invalid();
+        return['source_id'=>$id,'line'=>$line,'line_10_delta'=>$line10,'line_delta'=>$lineDelta,'excluded_delta'=>$excluded,'cost_delta'=>$cost,'taxable'=>$taxable,
+            'detail'=>['source_id'=>$id,'line'=>$line,'amount_cents'=>(int)($line===40?$adjustment:$amount)]];
+    }
+
+    public function assertTotals(array $result,string $accounting,string $excluded,string $costs):void
+    {
+        foreach(['accounting_result_cents'=>$accounting,'excluded_revenue_cents'=>$excluded,'cost_addbacks_cents'=>$costs,
+            'assessed_result_cents'=>bcadd(bcsub($accounting,$excluded,0),$costs,0)]as$key=>$value)if(self::cents($result[$key]??null)!==$value)self::invalid();
     }
 
     private function revenueLine(array $row,?array $documented):?int

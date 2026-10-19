@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MyInvoice\Repository;
 
 use MyInvoice\Infrastructure\Database\Connection;
+use MyInvoice\Service\Submission\AnonymizedCloneSubmissionProvenance;
 use PDO;
 
 final class TaxSubmissionEpoRepository
@@ -165,6 +166,7 @@ final class TaxSubmissionEpoRepository
         ?int $userId,
         string $environment,
     ): int {
+        (new AnonymizedCloneSubmissionProvenance($this->db))->assertDispatchable($supplierId, $submissionId);
         $environment = $this->normalizeEnvironment($environment);
         $stmt = $this->db->pdo()->prepare(
             'INSERT INTO tax_submission_attempts

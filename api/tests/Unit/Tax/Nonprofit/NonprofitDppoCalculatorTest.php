@@ -5,8 +5,10 @@ namespace MyInvoice\Tests\Unit\Tax\Nonprofit;
 use MyInvoice\Service\Tax\Nonprofit\NonprofitDppoComputation;
 use MyInvoice\Service\Tax\Nonprofit\NonprofitDppoClassificationBridge;
 use MyInvoice\Service\Tax\Nonprofit\NonprofitDppoLegalRules;
+use MyInvoice\Service\Tax\Nonprofit\NonprofitDppoJ6Receipt;
 use MyInvoice\Service\Tax\Nonprofit\NonprofitTaxRules;
 use MyInvoice\Service\Tax\Return\DppoReturnCalculator;
+use MyInvoice\Service\Tax\Return\DppoLossAppendix;
 use MyInvoice\Service\Tax\Return\TaxReturnException;
 use MyInvoice\Service\Tax\TaxConstants;
 use PHPUnit\Framework\TestCase;
@@ -19,7 +21,8 @@ final class NonprofitDppoCalculatorTest extends TestCase
         $rows=[['id'=>'income','kind'=>'revenue','amount_cents'=>$income,'adjustment_cents'=>0,'classification'=>['regime'=>'subject','method'=>'return','legal_basis'=>'zdp_18']]];
         if($expense!==0)$rows[]=['id'=>'expense','kind'=>'expense','amount_cents'=>$expense,'deductible_cents'=>$deductible,'adjustment_cents'=>$expense-$deductible,'classification'=>['regime'=>'subject','method'=>'cost','legal_basis'=>'zdp_24']];
         $result=['profile'=>$kind,'rows'=>$rows,'ruleset'=>NonprofitTaxRules::VERSION,'scope'=>'classification_bridge_before_general_adjustments','accounting_result_cents'=>$income-$expense,'cost_addbacks_cents'=>$expense-$deductible,'excluded_revenue_cents'=>0,'assessed_result_cents'=>$income-$deductible];
-        return ['accounting_decree'=>'504','vh'=>($income-$expense)/100,'non_deductible_costs'=>999999,'depreciation'=>['tax'=>9999999,'accounting'=>1],'period'=>['starts_on'=>'2026-01-01','ends_on'=>'2026-12-31'],'nonprofit'=>NonprofitDppoComputation::seal(['schema'=>NonprofitDppoLegalRules::VERSION,'legal_profile'=>['id'=>1,'record_hash'=>str_repeat('a',64),'profile'=>$profile],'assessment'=>['id'=>1,'result'=>$result,'input_hash'=>str_repeat('b',64)],'bridge'=>(new NonprofitDppoClassificationBridge())->build($result),'elections_hash'=>NonprofitTaxRules::hash($inputs['nonprofit']??[]),'adjustments'=>[],'unused_reduction_addback_kc'=>0])];
+        $period=['id'=>1,'fiscal_year'=>2026,'starts_on'=>'2026-01-01','ends_on'=>'2026-12-31'];$inputHash=str_repeat('b',64);$assessment=['id'=>1,'status'=>'confirmed','ruleset'=>NonprofitTaxRules::VERSION,'period_id'=>1,'input_hash'=>$inputHash,'request_hash'=>str_repeat('c',64),'snapshot'=>['input_hash'=>$inputHash],'assessment'=>['profile'=>$kind],'result'=>$result];$receipt=NonprofitDppoJ6Receipt::capture($period,['input_hash'=>$inputHash],$assessment);$bridge=(new NonprofitDppoClassificationBridge())->build($result);
+        $lossAppendix=DppoLossAppendix::build(1,'po',2026,$period,[],0,0,5);return ['accounting_decree'=>'504','vh'=>($income-$expense)/100,'non_deductible_costs'=>999999,'depreciation'=>['tax'=>9999999,'accounting'=>1],'period'=>$period,'j6_receipt'=>$receipt,'loss_appendix'=>$lossAppendix,'source_manifest'=>['j6_receipt_hash'=>$receipt['receipt_hash'],'loss_appendix_hash'=>$lossAppendix['proof_hash']],'nonprofit'=>NonprofitDppoComputation::seal(['schema'=>NonprofitDppoLegalRules::VERSION,'legal_profile'=>['id'=>1,'record_hash'=>str_repeat('a',64),'profile'=>$profile],'assessment'=>['id'=>1,'result'=>$result,'input_hash'=>$inputHash],'j6_receipt'=>$receipt,'bridge'=>$bridge,'elections_hash'=>NonprofitTaxRules::hash($inputs['nonprofit']??[]),'adjustments'=>[],'unused_reduction_addback_kc'=>0])];
     }
     private function compute(array $inputs=[],string $kind='narrow_vpp',int $income=80000000,int $expense=0,int $deductible=0):array
     {return(new DppoReturnCalculator())->compute($this->data($inputs,$kind,$income,$expense,$deductible),$inputs,TaxConstants::forYear(2026));}

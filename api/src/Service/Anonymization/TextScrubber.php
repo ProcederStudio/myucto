@@ -143,6 +143,24 @@ final class TextScrubber
         return is_string($encoded) ? $encoded : $this->scrub($json);
     }
 
+    public function scrubJsonValue(int|string|null $key, mixed $node): mixed
+    {
+        $strategy = $key === null ? null : (self::JSON_KEYS[self::normalizeKey((string) $key)] ?? null);
+        if (is_int($node) && $strategy !== null && in_array($strategy, ['ico', 'zip', 'phone', 'bank_account', 'birth_number'], true)) {
+            $new = $this->byStrategy($strategy, (string) $node);
+            if ($new === (string) $node) {
+                return $node;
+            }
+
+            return ctype_digit($new) ? (int) $new : $new;
+        }
+        if (!is_string($node) || $node === '') {
+            return $node;
+        }
+
+        return $strategy !== null ? $this->byStrategy($strategy, $node) : $this->scrub($node);
+    }
+
     public function byStrategy(string $strategy, string $value): string
     {
         return match ($strategy) {
@@ -202,21 +220,7 @@ final class TextScrubber
 
             return $node;
         }
-        $strategy = $key === null ? null : (self::JSON_KEYS[self::normalizeKey($key)] ?? null);
-        if (is_int($node) && $strategy !== null && in_array($strategy, ['ico', 'zip', 'phone', 'bank_account', 'birth_number'], true)) {
-            $new = $this->byStrategy($strategy, (string) $node);
-            if ($new !== (string) $node) {
-                $changed = true;
-
-                return ctype_digit($new) ? (int) $new : $new;
-            }
-
-            return $node;
-        }
-        if (!is_string($node) || $node === '') {
-            return $node;
-        }
-        $new = $strategy !== null ? $this->byStrategy($strategy, $node) : $this->scrub($node);
+        $new = $this->scrubJsonValue($key, $node);
         if ($new !== $node) {
             $changed = true;
         }

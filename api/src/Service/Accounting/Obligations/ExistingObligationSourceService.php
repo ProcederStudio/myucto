@@ -430,7 +430,7 @@ final class ExistingObligationSourceService
         try {
             $preview = $this->taxReturns->balanceDueReadOnly($supplierId, $year, 'po');
         } catch (TaxReturnException $e) {
-            if ($e->errorCode !== 'dppo_accounting_framework_not_supported') {
+            if (!in_array($e->errorCode, ['dppo_accounting_framework_not_supported','nonprofit_dppo_ruleset_not_supported'], true)) {
                 throw $e;
             }
             return null;

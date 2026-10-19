@@ -77,6 +77,24 @@ final class NonprofitDppoCloneScrubber
         return$walk($data,$after);
     }
 
+    /** @param list<int|string> $path */
+    public static function transformScalar(TextScrubber $scrubber,array $path,mixed $value,?FinancialCloneHashResolver $hashes=null):mixed
+    {
+        $field=(string)($path[array_key_last($path)]??'');$parent=(string)($path[count($path)-2]??'');
+        if(!is_string($value))return$scrubber->scrubJsonValue($field,$value);
+        $hashField=str_ends_with($field,'_hash')||in_array($field,['source_sha256','xml_sha256','hash'],true);
+        if($hashField&&$hashes!==null&&preg_match('/^[a-f0-9]{64}$/D',$value)===1){$replacement=$hashes->resolve($value);if($replacement!==null)return$replacement;}
+        $amountField=in_array($field,['amount','amount_foreign','fx_rate'],true)||str_ends_with($field,'_cents')||str_ends_with($field,'_kc');
+        $dateField=in_array($field,['date','entry_date','document_date','starts_on','ends_on','effective_from','effective_to','created_at','posted_at'],true);
+        if(($hashField&&preg_match('/^[a-f0-9]{64}$/D',$value)===1)
+            ||($amountField&&preg_match('/^-?[0-9]+(?:\.[0-9]+)?$/D',$value)===1)
+            ||($dateField&&preg_match('/^[0-9]{4}-[0-9]{2}-[0-9]{2}(?:[T ][0-9:.+Z-]+)?$/D',$value)===1)
+            ||in_array($field,['kind','owner','entity_type','ruleset','reduction_band','regime','method','mode','scope','status','final_regime','final_method','tax_regime','activity','account_code','currency_code','assignment_origin','semantic_key','saving_qualified_purpose','income_treatment'],true)
+            ||in_array($parent,['account_prefixes','source_members','allowed_purposes'],true)
+            ||($field==='legal_basis'&&preg_match('/^(?:zdp|zou|vyhl)_[a-z0-9_]+$/D',$value)===1))return$value;
+        return$scrubber->scrubJsonValue($field,$value);
+    }
+
     private static function assertClonePhase(Connection $db):void
     {
         if($db->pdo()->inTransaction()||(int)$db->pdo()->query('SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA=DATABASE()')->fetchColumn()!==0)throw new \LogicException('DPPO clone must run before trigger installation outside an active transaction.');

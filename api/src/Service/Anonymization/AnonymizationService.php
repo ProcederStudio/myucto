@@ -66,20 +66,27 @@ final class AnonymizationService
         $started = microtime(true);
         $this->assertNames($options);
         $pdo = $this->serverPdo();
-        $this->prepareTarget($pdo, $options, $log);
+        $ownedTarget = OwnedCloneTarget::acquire($pdo, $options->target);
+        try {
+            $this->prepareTarget($pdo, $options, $log);
 
-        $log('Kontrola pokrytí struktury politikou anonymizace…');
-        $problems = $this->coverageProblems($pdo, $options->source);
-        if ($problems !== []) {
-            throw new \RuntimeException("Politika anonymizace nepokrývá strukturu zdrojové databáze:\n  " . implode("\n  ", $problems));
+            $log('Kontrola pokrytí struktury politikou anonymizace…');
+            $problems = $this->coverageProblems($pdo, $options->source);
+            if ($problems !== []) {
+                throw new \RuntimeException("Politika anonymizace nepokrývá strukturu zdrojové databáze:\n  " . implode("\n  ", $problems));
+            }
+
+            $cloner = new DatabaseCloner($pdo);
+            $plan = $cloner->plan($options->source);
+            $log(sprintf('Kopíruji %d tabulek do %s…', count($plan['tables']), $options->target));
+        } catch (\Throwable $e) {
+            $ownedTarget->release();
+            throw $e;
         }
 
-        $cloner = new DatabaseCloner($pdo);
-        $plan = $cloner->plan($options->source);
-        $log(sprintf('Kopíruji %d tabulek do %s…', count($plan['tables']), $options->target));
-
         try {
-            $cloner->copyTables($plan, $options->target, $log);
+            $ownedTarget->create($plan['charset'], $plan['collation']);
+            $cloner->copyTablesIntoOwnedTarget($plan, $ownedTarget, $log);
             $captureConnection = Connection::withoutSharedTestConnection(fn () => new Connection($this->targetConfig($options->target)));
             try {
                 $payrollInputs = PayrollCostCenterCloneScrubber::capture($captureConnection);
@@ -87,6 +94,14 @@ final class AnonymizationService
                 $securitiesDebtInputs = SecuritiesDebt504CloneScrubber::captureInputs($captureConnection);
                 $frameworkConversionInputs = FrameworkConversionCloneScrubber::captureInputs($captureConnection);
                 $capitalInputs = CapitalCloneScrubber::capture($captureConnection);
+                $financialCapture = (new FinancialArchiveCloneCoordinator())->capture($captureConnection);
+                try {
+                    if ($financialCapture->archiveCount() > 0) {
+                        $financialCapture->assertComplete();
+                    }
+                } finally {
+                    $financialCapture->drop();
+                }
                 $dppoInputs = NonprofitDppoCloneScrubber::capture($captureConnection);
                 if ($dppoInputs['snapshots'] !== [] || $dppoInputs['sources'] !== [] || $dppoInputs['events'] !== []
                     || $captureConnection->pdo()->query('SELECT 1 FROM nonprofit_tax_saving_commands LIMIT 1')->fetchColumn() !== false
@@ -131,9 +146,21 @@ final class AnonymizationService
                 self::MARKER_KEY,
                 (string) json_encode(['created_at' => gmdate('c'), 'tool' => 'anonymize-clone'], JSON_UNESCAPED_SLASHES),
             ]);
+            $ownedTarget->complete();
         } catch (\Throwable $e) {
-            $pdo->exec('DROP DATABASE IF EXISTS ' . DatabaseCloner::quote($options->target));
+            try {
+                $ownedTarget->dropIfOwned();
+            } catch (\Throwable $cleanupError) {
+                throw new \RuntimeException(
+                    'Cílovou databázi nelze bezpečně odstranit: ' . $cleanupError->getMessage()
+                    . ' Původní chyba: ' . $e->getMessage(),
+                    0,
+                    $e,
+                );
+            }
             throw $e;
+        } finally {
+            $ownedTarget->release();
         }
 
         $report['leaks'] = $this->leakCheck($pdo, $options);
@@ -160,7 +187,7 @@ final class AnonymizationService
      * @param callable(string):void $log
      * @return array{truncated:int, changed_rows:array<string,int>, dictionary:int}
      */
-    private function anonymize(PDO $pdo, AnonymizationOptions $options, callable $log): array
+    private function anonymize(PDO $pdo, AnonymizationOptions $options, callable $log, ?CloneProtectedRows $protectedRows = null): array
     {
         $secret = $options->seed !== null && $options->seed !== ''
             ? hash('sha256', 'myucto-anonymize:' . $options->seed, true)
@@ -199,7 +226,7 @@ final class AnonymizationService
                 if ($selected === []) {
                     continue;
                 }
-                $count = $this->processTable($pdo, $scrubber, $table, $selected, $meta[$table] ?? [], $keys[$table] ?? []);
+                $count = $this->processTable($pdo, $scrubber, $table, $selected, $meta[$table] ?? [], $keys[$table] ?? [], $protectedRows);
                 if ($count > 0) {
                     $changed[$table] = ($changed[$table] ?? 0) + $count;
                 }
@@ -218,7 +245,15 @@ final class AnonymizationService
      * @param array<string, array{nullable:bool, type:string, max:?int, json:bool}> $meta
      * @param list<array{name:string, integer:bool}> $primaryKey
      */
-    private function processTable(PDO $pdo, TextScrubber $scrubber, string $table, array $columns, array $meta, array $primaryKey): int
+    private function processTable(
+        PDO $pdo,
+        TextScrubber $scrubber,
+        string $table,
+        array $columns,
+        array $meta,
+        array $primaryKey,
+        ?CloneProtectedRows $protectedRows = null,
+    ): int
     {
         if ($primaryKey === []) {
             throw new \RuntimeException("Tabulka {$table} nemá primární klíč — nelze ji pseudonymizovat po řádcích.");
@@ -261,10 +296,15 @@ final class AnonymizationService
         );
         while (true) {
             if ($keyset) {
-                $sql = "SELECT {$selectSql} FROM " . DatabaseCloner::quote($table)
-                    . ($last === null ? '' : ' WHERE ' . $order . ' > ' . (int) $last)
-                    . " ORDER BY {$order} LIMIT " . self::PAGE;
-                $rows = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+                $protectedTable = FinancialArchiveProtectedTable::tryFrom($table);
+                if ($protectedRows !== null && $protectedTable !== null) {
+                    $rows = $protectedRows->selectUnprotectedPage($protectedTable, $select, $last === null ? null : (int) $last, self::PAGE);
+                } else {
+                    $sql = "SELECT {$selectSql} FROM " . DatabaseCloner::quote($table)
+                        . ($last === null ? '' : ' WHERE ' . $order . ' > ' . (int) $last)
+                        . " ORDER BY {$order} LIMIT " . self::PAGE;
+                    $rows = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+                }
             } else {
                 $rows = array_shift($pending) ?? [];
             }
@@ -595,8 +635,19 @@ final class AnonymizationService
         } catch (\Throwable) {
             $marker = false;
         }
-        if ($marker === false || $marker === null) {
-            throw new \RuntimeException("Cílová databáze {$options->target} není anonymizovaná kopie (chybí značka " . self::MARKER_KEY . ') — nepřepíšu ji.');
+        $completed = null;
+        if (is_string($marker)) {
+            try {
+                $completed = json_decode($marker, true, 16, JSON_THROW_ON_ERROR);
+            } catch (\JsonException) {
+                $completed = null;
+            }
+        }
+        if (!is_array($completed)
+            || ($completed['tool'] ?? null) !== 'anonymize-clone'
+            || !is_string($completed['created_at'] ?? null)
+            || strtotime($completed['created_at']) === false) {
+            throw new \RuntimeException("Cílová databáze {$options->target} není dokončená anonymizovaná kopie — nepřepíšu ji.");
         }
         $log("Odstraňuji předchozí anonymizovanou kopii {$options->target}…");
         $pdo->exec('DROP DATABASE ' . DatabaseCloner::quote($options->target));

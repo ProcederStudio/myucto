@@ -25,7 +25,8 @@ final class PaymentWorkflowAction
         return $this->run($request, $response, 'property', false, function (int $supplier) use ($request): array {
             $query = $request->getQueryParams();
             $id = filter_var($query['id'] ?? null, FILTER_VALIDATE_INT);
-            return $this->read->source($supplier, (string) ($query['kind'] ?? ''), PropertyInput::id($id, 'id'));
+            $kind = (string) ($query['kind'] ?? '');
+            return $this->read->source($supplier, $kind, PropertyInput::id($id, 'id'), $this->can($request, $kind === 'bank' ? 'bank.post' : 'cash.document.write'));
         });
     }
 

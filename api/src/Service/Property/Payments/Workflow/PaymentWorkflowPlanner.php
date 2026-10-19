@@ -49,7 +49,7 @@ final class PaymentWorkflowPlanner
         if (bccomp($total, $sourceState['available_cents'], 0) > 0) PaymentException::reject('source_capacity');
         $snapshot = ['request' => $request, 'source' => $facts, 'cells' => $source->cells, 'native' => $native, 'parts' => $plans,
             'settled_cents' => $total, 'available_cents' => bcsub($sourceState['available_cents'], $total, 0)];
-        return ['status' => 'ready', 'source' => ['kind' => $facts['kind'], 'id' => $facts['id'], 'date' => $facts['date'], 'amount_cents' => $facts['amount_cents'], 'currency' => 'CZK'],
+        return ['status' => 'ready', 'source' => ['kind' => $facts['kind'], 'id' => $facts['id'], 'date' => $facts['date'], 'amount_cents' => $facts['amount_cents'], 'currency' => $facts['currency'], 'native' => $facts['native']],
             'source_etag' => $facts['source_etag'], 'preview_hash' => PropertyInput::hash($snapshot), 'snapshot' => $snapshot];
     }
 }
