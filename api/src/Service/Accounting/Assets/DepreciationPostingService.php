@@ -72,7 +72,6 @@ final class DepreciationPostingService
             'errors' => [],
         ];
 
-        $calendar = $this->supplierCalendar($supplierId);
         [$periodStart, $periodEnd] = $this->bookingWindow($supplierId, $fiscalYear, $taxEvidence);
 
         $pdo = $this->db->pdo();
@@ -85,7 +84,7 @@ final class DepreciationPostingService
                 // v autocommitu.
                 [$bookedSomething, $accAmount, $taxAmount] = TransactionFailure::retrying(
                     $pdo,
-                    fn (): array => $this->bookAsset($supplierId, $assetId, $fiscalYear, $calendar, $periodEnd, $taxEvidence, $meta, $allowClosingPeriod),
+                    fn (): array => $this->bookAsset($supplierId, $assetId, $fiscalYear, $periodEnd, $taxEvidence, $meta, $allowClosingPeriod),
                 );
                 if ($bookedSomething) {
                     $result['booked']++;
@@ -130,7 +129,6 @@ final class DepreciationPostingService
         int $supplierId,
         int $assetId,
         int $fiscalYear,
-        FiscalCalendar $calendar,
         string $periodEnd,
         bool $taxEvidence,
         array $meta,
