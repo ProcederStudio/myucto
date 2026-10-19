@@ -751,4 +751,35 @@ describe('workspace window manager', () => {
     expect(document.querySelectorAll('[data-workspace-window]')).toHaveLength(0)
     expect(harness.errors).toEqual([])
   })
+
+  it('rozešle zápis z hlavního dokumentu všem oknům aktuální firmy, i zaparkovaným', async () => {
+    vi.spyOn(HTMLIFrameElement.prototype, 'src', 'set').mockImplementation(() => undefined)
+    const harness = createHarness({ frames: true, supplier: { id: 1, name: 'Firma A' } })
+    harness.attachPane('primary')
+    await harness.manager.open('/editor/1', 'primary')
+    await harness.manager.open('/editor/2', 'primary')
+    const frames = [...document.querySelectorAll<HTMLIFrameElement>('iframe')]
+    expect(frames).toHaveLength(2)
+    const posts = frames.map((frame, index) => {
+      const post = vi.spyOn(frame.contentWindow!, 'postMessage').mockImplementation(() => undefined)
+      window.dispatchEvent(new MessageEvent('message', { origin: window.location.origin, source: frame.contentWindow,
+        data: { type: 'myucto-window-ready', id: harness.store.windows[1 - index]!.id } }))
+      return post
+    })
+    for (const post of posts) post.mockClear()
+
+    window.dispatchEvent(new CustomEvent('myucto:data-mutation', { detail: { resource: '../settings' } }))
+    for (const post of posts) expect(post).not.toHaveBeenCalled()
+
+    window.dispatchEvent(new CustomEvent('myucto:data-mutation', { detail: { resource: 'settings' } }))
+    for (const post of posts) {
+      expect(post).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ invalidation: { supplierId: 1, resource: 'settings' } }), window.location.origin)
+    }
+
+    harness.destroy()
+    activeHarness = null
+    for (const post of posts) post.mockClear()
+    window.dispatchEvent(new CustomEvent('myucto:data-mutation', { detail: { resource: 'settings' } }))
+    for (const post of posts) expect(post).not.toHaveBeenCalled()
+  })
 })

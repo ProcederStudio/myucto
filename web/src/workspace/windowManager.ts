@@ -456,6 +456,19 @@ export function createWindowManager(options: WindowManagerOptions): WorkspaceWin
     if (active && !displaying) recordVisit(active.state.id)
   }, { flush: 'sync' })
 
+  // Zápis z hlavního dokumentu (např. nastavení firmy mimo okna) se rozešle
+  // oknům aktuální firmy stejně jako zápis z jiného okna.
+  function shellMutation(event: Event): void {
+    const detail = (event as CustomEvent<unknown>).detail
+    const name = detail && typeof detail === 'object' ? (detail as Record<string, unknown>).resource : undefined
+    const supplierId = options.currentSupplier?.().id ?? 0
+    if (typeof name !== 'string' || !/^[a-z0-9-]+$/.test(name) || supplierId <= 0) return
+    for (const runtime of runtimes.values()) {
+      if (runtime.state.supplierId === supplierId) runtime.surface?.invalidate(supplierId, name)
+    }
+  }
+  window.addEventListener('myucto:data-mutation', shellMutation)
+
   function reconcile(): void {
     for (const runtime of runtimes.values()) {
       if (runtime.state.paneId && !workspace.panes.some(pane => pane.id === runtime.state.paneId)) park(runtime)
@@ -557,6 +570,7 @@ export function createWindowManager(options: WindowManagerOptions): WorkspaceWin
     destroy: () => {
       destroyed = true
       stopActivity()
+      window.removeEventListener('myucto:data-mutation', shellMutation)
       surfaceObserver?.disconnect()
       reset()
       parking.remove()

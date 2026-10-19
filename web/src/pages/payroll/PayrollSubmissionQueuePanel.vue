@@ -49,6 +49,7 @@ import { formatDate, formatDateTime, formatPeriod, formatUtcDateTime } from '@/c
 import ProductionSendConfirmDialog from '@/components/payroll/ProductionSendConfirmDialog.vue'
 import PayrollPossiblyDeliveredNotice from '@/components/payroll/PayrollPossiblyDeliveredNotice.vue'
 import { useProductionSendConfirm } from '@/composables/useProductionSendConfirm'
+import { useWindowRefresh } from '@/composables/useWindowRefresh'
 
 const props = defineProps<{ environment: PayrollRegzelEnvironment }>()
 const emit = defineEmits<{ 'update:environment': [PayrollRegzelEnvironment] }>()
@@ -117,9 +118,15 @@ const environmentModel = computed({
   set: (value: PayrollRegzelEnvironment) => emit('update:environment', value),
 })
 
-async function load(): Promise<void> {
-  loading.value = true
-  error.value = ''
+/**
+ * `silent` = obnova na pozadí po změně v jiném okně: seznam zůstane vidět
+ * a chyba se jen předá dál, ať se obnova zkusí při dalším návratu.
+ */
+async function load(silent = false): Promise<void> {
+  if (!silent) {
+    loading.value = true
+    error.value = ''
+  }
   try {
     const response = await payrollApi.submissionQueue(props.environment, {
       limit: PAGE_SIZE,
@@ -141,11 +148,12 @@ async function load(): Promise<void> {
       [...selected.value].filter(id => stillSelectable.has(id)),
     )
   } catch (exception) {
+    if (silent) throw exception
     error.value = apiErrorMessage(exception, t('payroll.submissions.queue.load_failed'))
     items.value = []
     total.value = 0
   } finally {
-    loading.value = false
+    if (!silent) loading.value = false
   }
 }
 
@@ -416,6 +424,10 @@ watch([agendaFilter, sort], () => {
 })
 
 void load()
+// Podání připravené nebo odeslané v jiném okně (měsíční přehled, datová
+// schránka) mění frontu; dávka a zahazování se nepřepisují pod rukama.
+useWindowRefresh('*', () => load(true), () => !loading.value && batch.value === null
+  && abandoning.value === null && !sweeping.value)
 </script>
 
 <template>
@@ -452,7 +464,7 @@ void load()
               : t('payroll.submissions.queue.sweep') }}
           </span>
         </button>
-        <button type="button" :class="btnOutlineSm('neutral')" :disabled="loading" @click="load">
+        <button type="button" :class="btnOutlineSm('neutral')" :disabled="loading" @click="load()">
           <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path :d="ICONS.cycle" />
           </svg>
