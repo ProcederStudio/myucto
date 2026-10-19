@@ -204,6 +204,17 @@ final class CronPreflight
         ');
     }
 
+    /** Je aspoň jedno auto přiřazené k účtu u zdroje stavu tachometru s uloženým přístupem? */
+    public static function hasOdometerSourceConnections(PDO $pdo): bool
+    {
+        return self::probe($pdo, "
+            SELECT 1 FROM odometer_source_accounts a
+             WHERE a.status IN ('active','error') AND a.credentials_ciphertext IS NOT NULL
+               AND EXISTS (SELECT 1 FROM odometer_source_cars c WHERE c.account_id = a.id)
+             LIMIT 1
+        ");
+    }
+
     /**
      * Leží něco ve frontě mzdových dokumentů?
      *

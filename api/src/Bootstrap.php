@@ -1164,6 +1164,13 @@ final class Bootstrap
                     $c->get(\MyInvoice\Service\Bank\Connector\BankHttpClientFactory::class)->create('kb_plus'),
                     $c->get(ClockInterface::class),
                     $c->get(\MyInvoice\Service\Bank\Connector\BankHttpClientFactory::class)->diagnosticLogger()),
+            \MyInvoice\Service\Logbook\OdometerSource\Bmw\BmwCarDataClient::class => fn (ContainerInterface $c)
+                => new \MyInvoice\Service\Logbook\OdometerSource\Bmw\BmwCarDataClient(new \GuzzleHttp\Client()),
+            // Zdroje automatického stavu tachometru; nový zdroj se přidá sem.
+            \MyInvoice\Service\Logbook\OdometerSource\OdometerSourceRegistry::class => fn (ContainerInterface $c)
+                => new \MyInvoice\Service\Logbook\OdometerSource\OdometerSourceRegistry([
+                    $c->get(\MyInvoice\Service\Logbook\OdometerSource\Bmw\BmwCarDataProvider::class),
+                ]),
             \MyInvoice\Service\Bank\Connector\CsasApiClient::class => fn (ContainerInterface $c)
                 => new \MyInvoice\Service\Bank\Connector\CsasApiClient(
                     $c->get(\MyInvoice\Service\Bank\Connector\BankHttpClientFactory::class)->create('csas'),

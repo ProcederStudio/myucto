@@ -329,6 +329,7 @@ final class GlobalSeedTables
         'bank_posting_suggestions', 'bank_statements', 'bank_transaction_imports', 'bank_transactions',
         'bank_notice_ignore_transfers',
         'bank_transfer_matches',
+        'odometer_source_accounts', 'odometer_source_cars',
         'cars',
         'cash_document_vat_lines', 'cash_documents', 'cash_journal_notes', 'cash_registers',
         'catalog_job_items', 'catalog_job_lanes', 'catalog_jobs',

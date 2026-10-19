@@ -501,6 +501,7 @@ instalaci mají co dělat. Úloha je **neaktivní** a jako zaseklá se nehlásí
 | `cron-bank-scan`, `cron-scan-purchase-inbox` | není nastavený adresář, který skenují |
 | `cron-bank-connections` | neexistuje zapnuté bankovní napojení |
 | `cron-bank-email-notices` | není zapnutá IMAP schránka bankovních avíz |
+| `cron-logbook-odometer-source` | není žádné auto napojené na zdroj automatického stavu tachometru |
 | `cron-catalog-worker` | nečeká katalogová úloha (sklad, ceník, import) a není napojený e-shop |
 | `cron-epo-status` | nečeká žádné přímé podání EPO na stav |
 | `cron-jmhz-poll` | nejsou zapnuté mzdy, nebo žádné mzdové podání nečeká na protokol ČSSZ |

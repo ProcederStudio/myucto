@@ -39456,6 +39456,10 @@ components:
         last_odometer: { type: [integer, "null"], description: Poslední známý stav tachometru (z jízd) }
         trips_count: { type: [integer, "null"] }
         fuelings_count: { type: [integer, "null"] }
+        odometer_source_status:
+          type: [string, "null"]
+          enum: [active, warning, error, null]
+          description: "Stav automatického stavu tachometru auta (jen v seznamu aut): active = načítá se, warning = přechodný stav auta (stav nenavazoval na jízdy a byl přeskočen, nebo ho auto zatím neodeslalo), error = chyba auta nebo účtu u zdroje vyžadující zásah; null = auto není přiřazené k účtu u zdroje."
         driver_employee_id: { type: [integer, "null"], description: Řidič — zaměstnanec firmy }
         driver_name: { type: [string, "null"] }
         usage_mode: { type: string, enum: [business, private, mixed], description: 'Režim užívání: jen firemní / soukromé vozidlo / smíšené' }
@@ -39632,7 +39636,7 @@ components:
         reading_date: { type: string, format: date }
         reading_time: { type: [string, "null"] }
         odometer: { type: integer }
-        source: { type: string, enum: [manual] }
+        source: { type: string, enum: [manual, bmw_cardata], description: "manual = ruční zápis, ostatní = denní stav ze zdroje automatického stavu tachometru (bmw_cardata = BMW CarData)" }
         note: { type: [string, "null"] }
         created_at: { type: string }
     OdometerReadingInput:
