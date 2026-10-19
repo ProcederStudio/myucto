@@ -76,6 +76,7 @@ final class CashDocumentService
         private readonly VatStatusService $vatStatus,
         private readonly InvoicePdfRenderer $invoicePdf,
         private readonly \MyInvoice\Service\Accounting\AdvanceSettlementSync $advanceSettlement,
+        private readonly \MyInvoice\Service\PurchaseInvoice\PurchasePaidStatusRestore $paidStatusRestore,
     ) {}
 
     /**
@@ -296,7 +297,7 @@ final class CashDocumentService
                 $this->documents->setInvoicePaymentId($supplierId, $id, null);
             }
             $this->reopenRefund($supplierId, $doc);
-            if ($doc['purpose'] === 'purchase_payment' && $doc['purchase_invoice_id'] !== null) {
+            if ($doc['purpose'] === 'purchase_payment' && $doc['purchase_invoice_id'] !== null && $doc['doc_type'] !== 'in') {
                 // Stejné pravidlo jako u storna: PF zpět do stavu před úhradou dle
                 // tvaru dokladu (zaúčtovaný → 'booked', journal-free DE → 'received').
                 $this->purchaseInvoices->setStatus(
@@ -321,6 +322,7 @@ final class CashDocumentService
 
             $docNumber = self::nullableString($doc['doc_number'] ?? null);
             $this->documents->deleteDocument($supplierId, $id);
+            $this->restorePaidAfterRefundRemoved($supplierId, $doc);
             $this->syncAdvanceCoveredStatus($supplierId, $doc);
 
             if ($ownTx) {
@@ -511,7 +513,7 @@ final class CashDocumentService
                 $this->documents->setInvoicePaymentId($supplierId, $id, null);
             }
             $this->reopenRefund($supplierId, $doc);
-            if ($doc['purpose'] === 'purchase_payment' && $doc['purchase_invoice_id'] !== null) {
+            if ($doc['purpose'] === 'purchase_payment' && $doc['purchase_invoice_id'] !== null && $doc['doc_type'] !== 'in') {
                 // PF vrátit do stavu PŘED úhradou dle tvaru dokladu: zaúčtovaný (journal) byl
                 // 'booked', journal-free (daňová evidence, PF se neúčtuje) byl 'received'.
                 $this->purchaseInvoices->setStatus(
@@ -527,6 +529,7 @@ final class CashDocumentService
                 $this->documents->markReversed($supplierId, $id, $reversalId);
                 $this->advanceSettlement->afterCashDocument($supplierId, $doc, $userId);
             }
+            $this->restorePaidAfterRefundRemoved($supplierId, $doc);
             $this->syncAdvanceCoveredStatus($supplierId, $doc);
 
             $warnings = $this->collectReversalWarnings($supplierId, $doc, $reversalId, $entryDate);
@@ -910,6 +913,23 @@ final class CashDocumentService
         if (($doc['purpose'] ?? null) === 'purchase_payment' && ($doc['purchase_invoice_id'] ?? null) !== null) {
             (new \MyInvoice\Service\PurchaseInvoice\AdvanceCoveredPaidStatus($this->db))
                 ->afterPaymentsChanged($supplierId, [(int) $doc['purchase_invoice_id']]);
+        }
+    }
+
+    /**
+     * Zrušená pokladní vratka k přijaté faktuře úhradu zvyšuje: plně krytá faktura se
+     * vrací do „uhrazeno" stejně jako po odpárování bankovní vratky. Stav před vratkou
+     * nastavením „booked"/„received" vrátit nejde, faktura mohla být uhrazená i předtím.
+     * Koncept vratky úhradu nesnižoval, jeho smazání stav nemění.
+     *
+     * @param array<string,mixed> $doc stav dokladu PŘED stornem/smazáním
+     */
+    private function restorePaidAfterRefundRemoved(int $supplierId, array $doc): void
+    {
+        if (($doc['status'] ?? null) === 'posted'
+            && ($doc['purpose'] ?? null) === 'purchase_payment' && ($doc['doc_type'] ?? null) === 'in'
+            && ($doc['purchase_invoice_id'] ?? null) !== null) {
+            $this->paidStatusRestore->afterRefundRemoved($supplierId, [(int) $doc['purchase_invoice_id']]);
         }
     }
 
