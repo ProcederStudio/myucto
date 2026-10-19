@@ -524,7 +524,7 @@ const navSections = computed<NavSection[]>(() => {
         ...(auth.isSuperadmin ? [{ to: '/portal/purchase-invoice-submissions', label: t('nav.submit_documents'), icon: ICONS.documents, permission: 'documents.submit' as PermissionKey }] : []),
         { to: '/documents/scan-attach', label: t('scan_attach.nav'), icon: ICONS.documents, permission: 'documents.upload' },
         { to: '/logbook', label: t('nav.logbook'), icon: ICONS.logbook, newTo: '/logbook?tab=trips&new=trip' },
-        { to: '/property/registry', label: t('nav.property_registry'), icon: ICONS.property, permission: 'property' as PermissionKey },
+        { to: '/property/registry', label: t('nav.property_registry'), icon: ICONS.property, permission: 'property' as PermissionKey, dividerBefore: true },
         { to: '/property/charges', label: t('nav.property_charges'), icon: ICONS.property, permission: 'property' as PermissionKey },
         { to: '/property/charges/issues', label: t('nav.property_issuance'), icon: ICONS.property, permission: 'property' as PermissionKey },
         { to: '/property/service-settlements', label: t('nav.property_settlements'), icon: ICONS.payment_orders, permission: 'property' as PermissionKey },
