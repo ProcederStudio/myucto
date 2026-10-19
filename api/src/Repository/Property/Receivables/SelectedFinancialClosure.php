@@ -11,10 +11,15 @@ final class SelectedFinancialClosure
     public function __construct(private readonly Connection $db){}
     public function current(int $supplier,array $debtIds):array
     {
+        return $this->currentForSources($supplier,$debtIds,[]);
+    }
+    public function currentForSources(int $supplier,array $debtIds,array $chargeIds):array
+    {
         if(!$this->db->pdo()->inTransaction())throw new \LogicException('Selected financial history requires owner transaction.');
         foreach($debtIds as $id)PropertyInput::id($id,'debt_id');
+        foreach($chargeIds as $id)PropertyInput::id($id,'charge_id');
         (new PaymentLocks($this->db))->acquire($supplier);
-        $sets=['debts'=>array_fill_keys($debtIds,true),'charges'=>[],'lines'=>[],'allocations'=>[],'operations'=>[],'corrections'=>[],'credits'=>[],'reservations'=>[]];$rows=[];
+        $sets=['debts'=>array_fill_keys($debtIds,true),'charges'=>array_fill_keys($chargeIds,true),'lines'=>[],'allocations'=>[],'operations'=>[],'corrections'=>[],'credits'=>[],'reservations'=>[]];$rows=[];
         do{
             $before=array_map('count',$sets);
             $rows['unit_payment_debts']=$this->select($supplier,'unit_payment_debts',['id'=>$sets['debts'],'charge_id'=>$sets['charges']]);

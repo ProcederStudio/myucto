@@ -35,8 +35,16 @@ final class FinancialHistoryRepository
     }
     public function readForDebts(int $supplier,array $debtIds):array
     {
-        $closure=(new SelectedFinancialClosure($this->db))->current($supplier,$debtIds);
-        (new \MyInvoice\Repository\Property\Payments\DebtRepository($this->db))->currentMany($supplier,$closure['debt_ids']);
+        return $this->readForSources($supplier,$debtIds,[]);
+    }
+    public function readForCharges(int $supplier,array $chargeIds,array $debtIds=[]):array
+    {
+        return $this->readForSources($supplier,$debtIds,$chargeIds);
+    }
+    private function readForSources(int $supplier,array $debtIds,array $chargeIds):array
+    {
+        $closure=(new SelectedFinancialClosure($this->db))->currentForSources($supplier,$debtIds,$chargeIds);
+        if($closure['debt_ids']!==[])(new \MyInvoice\Repository\Property\Payments\DebtRepository($this->db))->currentMany($supplier,$closure['debt_ids']);
         $charges=(new \MyInvoice\Repository\Property\Charges\Issuance\IssuanceReadRepository($this->db))->findMany($supplier,$closure['charge_ids'],true);
         $result=$this->project($charges,fn(string $table)=>$closure['rows'][$table]??[],false,true,$supplier);
         $this->assertOperationLedgers($supplier,$closure['rows']['unit_payment_operations']);

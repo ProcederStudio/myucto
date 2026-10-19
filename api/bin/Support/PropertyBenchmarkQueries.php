@@ -15,6 +15,12 @@ final class PropertyBenchmarkQueries
         $key=hash('sha256',$sql);$this->queries[$key]??=['sql'=>$sql,'parameters'=>$parameters,'calls'=>0,'total_ms'=>0.0,'max_ms'=>0.0];$q=&$this->queries[$key];$q['calls']++;$q['total_ms']+=$ms;
         if($ms>=$q['max_ms']){$q['max_ms']=$ms;$q['parameters']=$parameters;}
     }
+    public function summary():array
+    {
+        $calls=0;$total=0.0;$max=0;
+        foreach($this->queries as $query){$calls+=$query['calls'];$total+=$query['total_ms'];$max=max($max,$query['calls']);}
+        return ['distinct_selects'=>count($this->queries),'recorded_select_calls'=>$calls,'recorded_total_ms'=>$total,'max_calls_per_sql'=>$max];
+    }
     public function plans(PDO $pdo,int $limit=12):array
     {
         $queries=array_values($this->queries);usort($queries,static fn($a,$b)=>$b['total_ms']<=>$a['total_ms']);$out=[];
