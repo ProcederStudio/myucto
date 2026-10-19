@@ -12284,6 +12284,37 @@
     "removeCell": "Odebrat buňku",
     "requestFailed": "Operaci se nepodařilo dokončit. Zkuste ji znovu.",
     "resolveWithKey": "Doplnit úplné buňky v novém klíči",
+    "revenueProposal": {
+      "amountCzk": "{amount} Kč",
+      "apply": "Převzít návrh do formuláře",
+      "applyNeedsWeighted": "Návrh jde převzít jen u způsobu rozdělení „Váhy úplných kombinací“.",
+      "applyNoAdditionalAxes": "Návrh obsahuje jen tři společné osy. Před převzetím odškrtněte další zachované dimenze.",
+      "cellCount": "Počet navržených buněk",
+      "errors": {
+        "failed": "Návrh se nepodařilo načíst. Zkuste to znovu.",
+        "rejected": "Návrh nelze pro zadané období nebo účetní rámec sestavit. Zkontrolujte rozsah dat."
+      },
+      "fetch": "Načíst návrh z výnosů",
+      "from": "Zdrojové výnosy od",
+      "help": "Návrh vychází pouze ze zaúčtovaných výnosů ve zvoleném období zdrojových zápisů. Je to pomůcka pro vaše rozhodnutí, nikoli daňové ani právní ověření správnosti rozdělení. Načtení návrhu nic nemění ani neukládá.",
+      "invalidRange": "Zadejte platné datum od a do; datum od nesmí být pozdější než datum do.",
+      "manualReview": "Převzetím se pouze přepíší buňky ve formuláři výše a nastaví podklad Výnosy. Návrh je nutné ručně zkontrolovat a teprve poté uložit tlačítkem Uložit neměnnou verzi.",
+      "netRevenue": "Čisté zaúčtované výnosy",
+      "reasons": {
+        "negative_cell": "Některá buňka by měla zápornou hodnotu, návrh nelze použít.",
+        "no_revenue": "V období nejsou žádné zaúčtované výnosy.",
+        "split_dimensions": "Některé výnosy jsou rozdělené mezi více hodnot dimenze, návrh nelze sestavit.",
+        "system_dimensions_missing": "Chybí systémové dimenze (činnost, druh činnosti nebo daňový režim).",
+        "too_many_cells": "Návrh by měl příliš mnoho buněk.",
+        "unclassified_revenue": "Část výnosů nemá vyplněné všechny tři společné osy.",
+        "unknown": "Návrh nelze použít z neznámého důvodu."
+      },
+      "sourceLines": "Počet zdrojových řádků",
+      "title": "Návrh vah z výnosů (pomocný)",
+      "to": "Zdrojové výnosy do",
+      "unclassifiedAmount": "Částka nezařazených výnosů",
+      "unclassifiedLines": "Počet nezařazených řádků"
+    },
     "saveVersion": "Uložit neměnnou verzi",
     "search": "Doklad, popis nebo účet",
     "sides": {

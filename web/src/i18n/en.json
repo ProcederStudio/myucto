@@ -12284,6 +12284,37 @@
     "removeCell": "Remove cell",
     "requestFailed": "The operation could not be completed. Please try again.",
     "resolveWithKey": "Complete the joint cells in a new key",
+    "revenueProposal": {
+      "amountCzk": "CZK {amount}",
+      "apply": "Apply proposal to the form",
+      "applyNeedsWeighted": "The proposal can only be applied with the \"Weights of full combinations\" allocation mode.",
+      "applyNoAdditionalAxes": "The proposal contains only the three joint axes. Clear the other retained dimensions before applying it.",
+      "cellCount": "Proposed cells",
+      "errors": {
+        "failed": "The proposal could not be loaded. Please try again.",
+        "rejected": "A proposal cannot be built for the entered period or accounting framework. Check the date range."
+      },
+      "fetch": "Load proposal from revenue",
+      "from": "Source revenue from",
+      "help": "The proposal is based only on posted revenue in the chosen period of source entries. It is an aid for your decision, not a tax or legal validation of the allocation. Loading a proposal changes and saves nothing.",
+      "invalidRange": "Enter valid from and to dates; the from date must not be later than the to date.",
+      "manualReview": "Applying only overwrites the cells in the form above and sets the Revenue basis. Review the proposal manually and only then save it with Save immutable version.",
+      "netRevenue": "Net posted revenue",
+      "reasons": {
+        "negative_cell": "A cell would have a negative value, so the proposal cannot be used.",
+        "no_revenue": "There is no posted revenue in the period.",
+        "split_dimensions": "Some revenue is split across several dimension values, so a proposal cannot be built.",
+        "system_dimensions_missing": "System dimensions (activity, activity kind or tax treatment) are missing.",
+        "too_many_cells": "The proposal would have too many cells.",
+        "unclassified_revenue": "Part of the revenue does not have all three joint axes filled in.",
+        "unknown": "The proposal cannot be used for an unknown reason."
+      },
+      "sourceLines": "Source lines",
+      "title": "Weight proposal from revenue (advisory)",
+      "to": "Source revenue to",
+      "unclassifiedAmount": "Unclassified revenue amount",
+      "unclassifiedLines": "Unclassified lines"
+    },
     "saveVersion": "Save immutable version",
     "search": "Document, description or account",
     "sides": {

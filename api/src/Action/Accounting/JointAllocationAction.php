@@ -37,6 +37,13 @@ final class JointAllocationAction
             (new \MyInvoice\Service\Accounting\Allocation\JointAllocationCandidateService($this->db))->list($supplierId, $request->getQueryParams()));
     }
 
+    public function revenueProposal(Request $request, Response $response): Response
+    {
+        $query = $request->getQueryParams();
+        return $this->run($request, $response, false, fn (int $supplierId): array =>
+            (new \MyInvoice\Service\Accounting\Allocation\JointRevenueProposalService($this->db))->build($supplierId, $query['from'] ?? null, $query['to'] ?? null));
+    }
+
     public function batches(Request $request, Response $response): Response
     {
         return $this->run($request, $response, false, fn (int $supplierId): array => (new JointAllocationReadRepository($this->db))->list(

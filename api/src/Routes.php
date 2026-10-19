@@ -2806,6 +2806,7 @@ final class Routes
             $g->post('/joint-allocations/keys',                   [\MyInvoice\Action\Accounting\JointAllocationAction::class, 'createKey']);
             $g->post('/joint-allocations/keys/{id:[0-9]+}/versions', [\MyInvoice\Action\Accounting\JointAllocationAction::class, 'createVersion']);
             $g->get('/joint-allocations/candidates',              [\MyInvoice\Action\Accounting\JointAllocationAction::class, 'candidates']);
+            $g->get('/joint-allocations/revenue-proposal',        [\MyInvoice\Action\Accounting\JointAllocationAction::class, 'revenueProposal']);
             $g->post('/joint-allocations/preview',                [\MyInvoice\Action\Accounting\JointAllocationAction::class, 'preview']);
             $g->post('/joint-allocations/apply',                  [\MyInvoice\Action\Accounting\JointAllocationAction::class, 'apply']);
             $g->get('/joint-allocations/batches',                 [\MyInvoice\Action\Accounting\JointAllocationAction::class, 'batches']);

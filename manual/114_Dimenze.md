@@ -883,7 +883,7 @@ Stránka **Účetní nástroje → Společné alokace** zachovává doložené s
 kombinace činnosti, druhu činnosti, předběžného daňového zařazení a případných
 dalších dimenzí. Přeúčtování patří do otevřeného a nezamčeného období rámce 504.
 Zdroj může pocházet i z uzavřeného období stejného rámce; jeho účetní zápis se
-nepřepisuje. Rámec 504 zatím nelze v nastavení firmy aktivovat.
+nepřepisuje.
 
 1. Založte klíč s kódem, názvem, vysvětlením a účinností. Datum **Do** je první
    den, kdy verze již neplatí. Verze jsou neměnné a jejich intervaly se nesmějí
@@ -900,6 +900,19 @@ nepřepisuje. Rámec 504 zatím nelze v nastavení firmy aktivovat.
    předmět daně.
 4. Vyplňte důvod a potvrďte zaúčtování. Aplikace znovu ověří aktuální zdroje,
    klíč, otevřené období a shodu náhledu. Změněný podklad vyžaduje nový náhled.
+
+Při tvorbě váženého klíče lze načíst **Návrh vah podle výnosů**. Zdrojové
+období je samostatné a oba jeho krajní dny jsou zahrnuté. Návrh sčítá
+zaúčtované výnosové řádky po celých trojicích systémových dimenzí, včetně
+účetního účinku storen. Technický uzávěrkový převod ani jeho storno do
+výnosů nevstupují. Chybějící členění, nezávislé procentní rozpady, záporné
+váhy nebo více než 200 kombinací převzetí návrhu zablokují.
+
+Načtení návrhu formulář nemění. Tlačítko **Převzít návrh do formuláře**
+nahradí kombinace a nastaví podklad Výnosy; platnost klíče a vysvětlení
+ponechá. Převzetí vyžaduje vážený režim bez dalších dimenzí. Zkontrolujte
+vhodnost poměru a doplňte vysvětlení, potom verzi samostatně uložte.
+Návrh nepotvrzuje daňovou ani právní správnost zvoleného rozdělení.
 
 Historie obsahuje neměnné podklady, odkaz do deníku, audit a případné storno.
 Použitý zdroj ani vytvořený alokační zápis nelze ručně změnit či smazat.

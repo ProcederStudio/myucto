@@ -1208,6 +1208,43 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/JointAllocationListedVersion'
+  /api/v1/accounting/joint-allocations/revenue-proposal:
+    get:
+      tags:
+      - Accounting
+      summary: Návrh vah společné alokace podle výnosů
+      description: Pouze čtení s oprávněním accounting a rámcem 504 v celém zdrojovém období.
+        Agreguje zaúčtované čisté výnosy podle tří systémových os včetně záporných oprav.
+        Neúplné členění, rozpady dimenzí, záporné skupiny nebo více než 200 kladných skupin
+        vrátí důvody odmítnutí a prázdné cells. Výsledek vyžaduje věcnou kontrolu a ruční
+        potvrzení; nevytváří klíč ani účetní zápis.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - name: from
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date
+        description: První den zdrojového období včetně.
+      - name: to
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date
+        description: Poslední den zdrojového období včetně.
+      responses:
+        '200':
+          description: Poradní návrh nebo doložené důvody, proč jej nelze sestavit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JointRevenueProposal'
+        '403':
+          description: Chybí oprávnění ke čtení účetnictví.
+        '422':
+          description: Neplatný interval nebo účetní rámec.
   /api/v1/accounting/joint-allocations/candidates:
     get:
       tags:
@@ -35522,6 +35559,60 @@ components:
             additionalProperties: true
           - type: array
             maxItems: 0
+    JointRevenueProposal:
+      type: object
+      additionalProperties: false
+      required: [basis, date_from, date_to, net_revenue_cents, source_lines, unclassified_lines,
+        unclassified_amount_cents, cells, can_propose, reason_codes, verification_scope,
+        requires_manual_confirmation, mutations_performed, proposal_hash]
+      properties:
+        basis:
+          type: string
+          enum: [revenue]
+        date_from:
+          type: string
+          format: date
+        date_to:
+          type: string
+          format: date
+        net_revenue_cents:
+          type: string
+          pattern: '^-?\d+$'
+        source_lines:
+          type: integer
+          minimum: 0
+        unclassified_lines:
+          type: integer
+          minimum: 0
+        unclassified_amount_cents:
+          type: string
+          pattern: '^-?\d+$'
+        cells:
+          type: array
+          maxItems: 200
+          items:
+            $ref: '#/components/schemas/JointAllocationCell'
+        can_propose:
+          type: boolean
+        reason_codes:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum: [system_dimensions_missing, unclassified_revenue, split_dimensions,
+              negative_cell, too_many_cells, no_revenue]
+        verification_scope:
+          type: string
+          enum: [posted_revenue_aggregates]
+        requires_manual_confirmation:
+          type: boolean
+          enum: [true]
+        mutations_performed:
+          type: boolean
+          enum: [false]
+        proposal_hash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
     JointAllocationCell:
       type: object
       required:
