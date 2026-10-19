@@ -2808,6 +2808,8 @@ final class Routes
             $g->delete('/assets/{id:[0-9]+}/improvements/{impId:[0-9]+}', [AssetLifecycleAction::class, 'deleteImprovement']);
             $g->post  ('/assets/{id:[0-9]+}/dispose',               [AssetLifecycleAction::class, 'dispose']);
             $g->post  ('/assets/{id:[0-9]+}/dispose/revert',        [AssetLifecycleAction::class, 'revertDisposal']);
+            $g->post('/assets/{id:[0-9]+}/depreciation/revision/preview', [DepreciationAction::class, 'previewRevision']);
+            $g->post('/assets/{id:[0-9]+}/depreciation/revision', [DepreciationAction::class, 'revise']);
             $g->post  ('/assets/{id:[0-9]+}/depreciation/pause',    [DepreciationAction::class, 'pause']);
             $g->delete('/assets/{id:[0-9]+}/depreciation/pause/{year:[0-9]+}', [DepreciationAction::class, 'unpause']);
             $g->post  ('/assets/{id:[0-9]+}/depreciation/tax-override', [DepreciationAction::class, 'overrideTax']);

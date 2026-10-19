@@ -503,6 +503,7 @@ final class AssetsApiTest extends TestCase
 
         $plan = $this->call($this->depreciationAction, 'plan', 'GET', 'accountant', ['id' => (string) $assetId]);
         $accountingByYear = array_column($plan['body']['accounting'], null, 'fiscal_year');
+        self::assertSame((int) $accounting['id'], (int) $accountingByYear[self::YEAR]['depreciation_entry_id']);
         self::assertSame($entryId, (int) $accountingByYear[self::YEAR]['journal_entry_id']);
 
         $deleted = $this->call($this->journalAction, 'delete', 'DELETE', 'accountant', ['id' => (string) $entryId]);
@@ -603,6 +604,25 @@ final class AssetsApiTest extends TestCase
         $byId2 = array_column($res2['body'], null, 'id');
         self::assertArrayHasKey($purchaseId, $byId2, 'PF zůstává v kandidátech (víc karet povoleno).');
         self::assertTrue((bool) $byId2[$purchaseId]['has_asset'], 'Po založení karty has_asset=true.');
+    }
+
+    public function testRevisionEndpointsRequireWriteAndEnforceTenantAndPlanKind(): void
+    {
+        $created = $this->call($this->assetAction, 'create', 'POST', 'accountant', [], $this->cardPayload('SYN-REVISION-API'));
+        self::assertSame(201, $created['status']);
+        $args = ['id' => (string) $created['body']['asset']['id']];
+        $input = ['effective_from' => '2099-01', 'remaining_months' => 12, 'reason' => 'Nový odhad', 'expected_revision' => 0];
+        foreach (['previewRevision', 'revise'] as $method) {
+            self::assertSame(403, $this->call($this->depreciationAction, $method, 'POST', 'readonly', $args, $input)['status']);
+            $response = $this->call($this->depreciationAction, $method, 'POST', 'accountant', $args, $input);
+            self::assertSame(422, $response['status']);
+            self::assertSame('imported_plan_revision_not_allowed', $response['body']['error']['code']);
+        }
+        $oldSupplier = $this->supplierId;
+        $this->supplierId = $this->cloneSupplier('double_entry');
+        try {
+            self::assertSame(404, $this->call($this->depreciationAction, 'previewRevision', 'POST', 'accountant', $args, $input)['status']);
+        } finally { $this->supplierId = $oldSupplier; }
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────

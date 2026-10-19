@@ -424,6 +424,7 @@ final class DepreciationPostingService
         $confirmed = [];
         foreach ($this->entries->forAsset((int) $asset['id']) as $e) {
             $confirmed[] = [
+                ...$e,
                 'fiscal_year' => (int) $e['fiscal_year'],
                 'kind' => (string) $e['kind'],
                 'amount' => (float) $e['amount'],

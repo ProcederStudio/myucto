@@ -87,6 +87,80 @@ final class ImportedDepreciationPlanTest extends TestCase
         (new DepreciationCalculator())->plan($this->context('2097-12-15'), 'by_accounting', 'straight_line');
     }
 
+    public function testRevisionPreservesPrefixAndAllocatesLastCentToFinalMonth(): void
+    {
+        $source = $this->source();
+        $source['revisions'] = [[
+            'revision' => 1, 'effective_from' => '2098-02', 'remaining_months' => 3,
+            'remaining_amount_cents' => 2701000, 'reason' => 'Nový odhad využití softwaru',
+            'user_id' => 7, 'created_at' => '2098-01-15T10:00:00+00:00', 'fiscal_start_month' => 1,
+        ]];
+        $plan = (new DepreciationCalculator())->plan($this->context(null, $source), 'by_accounting', 'straight_line');
+        self::assertSame([8990.0, 9003.33, 9003.33, 9003.34], array_column($plan['accounting'][0]['months'], 'amount'));
+        self::assertSame(36000.0, $plan['tax'][0]['amount']);
+        self::assertSame(903000, $source['accounting'][3]['amount_cents'], 'Původní poslední měsíc zůstává auditním podkladem.');
+    }
+
+    public function testRepeatedRevisionKeepsEarlierRevisedMonthsAndExactAnnualSums(): void
+    {
+        $source = $this->source();
+        $source['revisions'] = [$this->revision(1, '2098-02', 14, 2701000), $this->revision(2, '2099-02', 3, 385864)];
+        $plan = (new DepreciationCalculator())->plan($this->context(null, $source), 'by_accounting', 'straight_line');
+        self::assertSame([30212.08, 5787.92], array_column($plan['accounting'], 'amount'));
+        self::assertSame([1929.28, 1286.21, 1286.21, 1286.22], array_column($plan['accounting'][1]['months'], 'amount'));
+        self::assertSame(array_column($plan['accounting'], 'amount'), array_column($plan['tax'], 'amount'));
+        self::assertSame(0.0, $plan['tax'][1]['residual_end']);
+    }
+
+    public function testRevisionCrossesNonCalendarFiscalBoundaryExactly(): void
+    {
+        $source = $this->source();
+        foreach ($source['accounting'] as $i => &$row) $row['month'] = sprintf('2097-%02d', 8 + $i);
+        unset($row);
+        $source['tax'][0]['fiscal_year'] = 2097;
+        $source['revisions'] = [$this->revision(1, '2097-09', 14, 2701000, 8)];
+        $ctx = new DepreciationContext(96000.0, null, 'none', false, false, false,
+            '2096-03-05', null, 20, 0.0, 2, 60000.0, 16, 60000.0, [], [], new FiscalCalendar(8), $source);
+        $plan = (new DepreciationCalculator())->plan($ctx, 'by_accounting', 'straight_line');
+        self::assertSame([2097, 2098], array_column($plan['tax'], 'fiscal_year'));
+        self::assertSame([30212.08, 5787.92], array_column($plan['tax'], 'amount'));
+        self::assertSame('2098-08', $plan['accounting'][1]['months'][0]['month']);
+    }
+
+    public function testMalformedRevisionHistoryCannotChangeAmountOrCalendar(): void
+    {
+        foreach (['amount', 'order', 'calendar', 'month', 'reason', 'actor'] as $case) {
+            $source = $this->source();
+            $revision = $this->revision(1, '2098-02', 3, 2701000);
+            if ($case === 'amount') $revision['remaining_amount_cents']++;
+            if ($case === 'order') $revision['revision'] = 2;
+            if ($case === 'calendar') $revision['fiscal_start_month'] = 8;
+            if ($case === 'month') $revision['effective_from'] = '2098-13';
+            if ($case === 'reason') $revision['reason'] = ' ';
+            if ($case === 'actor') $revision['user_id'] = 0;
+            $source['revisions'] = [$revision];
+            try {
+                (new DepreciationCalculator())->plan($this->context(null, $source), 'by_accounting', 'straight_line');
+                self::fail('Invalid revision accepted: ' . $case);
+            } catch (AssetException $e) { self::assertSame('imported_plan_invalid', $e->errorCode); }
+        }
+    }
+
+    public function testRevisionHistoryIsBounded(): void
+    {
+        $source = $this->source();
+        $source['revisions'] = array_fill(0, 1001, $this->revision(1, '2098-02', 3, 2701000));
+        $this->expectException(AssetException::class);
+        (new DepreciationCalculator())->plan($this->context(null, $source), 'by_accounting', 'straight_line');
+    }
+
+    private function revision(int $number, string $from, int $months, int $amount, int $fiscalStart = 1): array
+    {
+        return ['revision' => $number, 'effective_from' => $from, 'remaining_months' => $months,
+            'remaining_amount_cents' => $amount, 'reason' => 'Změna odhadu budoucího využití',
+            'user_id' => 7, 'created_at' => '2097-01-15T10:00:00+00:00', 'fiscal_start_month' => $fiscalStart];
+    }
+
     private function context(?string $disposal = null, ?array $source = null, array $confirmed = []): DepreciationContext
     {
         return new DepreciationContext(96000.0, null, 'none', false, false, false,

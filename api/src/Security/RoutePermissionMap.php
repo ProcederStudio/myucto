@@ -758,6 +758,7 @@ final class RoutePermissionMap
         ['*', '#^/api/accounting/cash-registers/[0-9]+/(close|lock)$#', 'cash.close', AccessLevel::WRITE],
         ['*', '#^/api/accounting/cash-(documents|registers)(/|$)#', 'cash', AccessLevel::WRITE],
         ['GET', '#^/api/accounting/assets(/|$)#', 'assets', AccessLevel::READ],
+        ['POST', '#^/api/accounting/assets/[0-9]+/depreciation/revision(?:/preview)?$#', 'assets.write', AccessLevel::WRITE],
         ['*', '#^/api/accounting/assets/[0-9]+/(depreciation|improvements)(/|$)#', 'assets.depreciation', AccessLevel::WRITE],
         ['*', '#^/api/accounting/assets/[0-9]+/(dispose|sale)$#', 'assets.dispose', AccessLevel::WRITE],
         ['*', '#^/api/accounting/assets(/|$)#', 'assets.write', AccessLevel::WRITE],

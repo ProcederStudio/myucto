@@ -84,6 +84,9 @@ final class AssetService
     public function createImported(int $supplierId, array $data, array $plan, array $meta = []): array
     {
         self::assertNoImportedPlanInput($data);
+        if (array_key_exists('revisions', $plan)) {
+            throw new AssetException('imported_plan_invalid', 'Import nesmí podvrhnout historii revizí.');
+        }
         return $this->createCard($supplierId, $data + ['imported_depreciation_plan' => $plan], $meta);
     }
 
@@ -162,7 +165,11 @@ final class AssetService
         $this->assertLocks($existing, $card, $data);
         [$card, $warnings] = $this->validateCard($supplierId, $card, false);
 
-        unset($card['created_by']);
+        unset($card['created_by'], $card['imported_depreciation_plan']);
+        if (($existing['imported_depreciation_plan'] ?? null) !== null) {
+            // Starý snapshot karty nesmí přepsat souběžnou revizi ani vyřazení.
+            $card = array_intersect_key($card, $data, array_flip(['inventory_number', 'name', 'description']));
+        }
         try {
             $this->assets->update($supplierId, $id, $card);
         } catch (\PDOException $e) {
@@ -1411,7 +1418,7 @@ final class AssetService
      * Plán odpisů on-the-fly (R11): minulost z potvrzených řádků, budoucnost
      * dopočtená strategií A2.
      *
-     * @return array{asset_summary: array<string,float>, tax: list<array<string,mixed>>, accounting: list<array<string,mixed>>}
+     * @return array{asset_summary: array<string,float|int|null>, tax: list<array<string,mixed>>, accounting: list<array<string,mixed>>}
      */
     public function plan(int $supplierId, int $id): array
     {
@@ -1419,16 +1426,23 @@ final class AssetService
         if ($asset === null) {
             throw new AssetException('not_found', 'Majetek nenalezen.', 404);
         }
-        $ctx = $this->depreciationPosting->buildContext($asset);
+        return $this->planForAsset($asset);
+    }
+
+    /** Stejná prezentace plánu pro uloženou kartu i nezapsaný náhled revize. */
+    public function planForAsset(array $asset, ?DepreciationContext $context = null): array
+    {
+        $supplierId = (int) $asset['supplier_id'];
+        $ctx = $context ?? $this->depreciationPosting->buildContext($asset);
         $plan = $this->calculator->plan($ctx, (string) $asset['tax_method'], (string) $asset['acc_method']);
 
         $impTotal = 0.0;
-        foreach ($this->assets->improvements($id) as $imp) {
+        foreach ($ctx->improvements as $imp) {
             $impTotal += (float) $imp['amount'];
         }
         $taxFull = 0.0;
         $accAmount = 0.0;
-        $materialized = $this->entries->forAsset($id);
+        $materialized = $ctx->confirmedEntries;
         $byKindYear = [];
         $journalByYear = [];
         foreach ($materialized as $e) {
@@ -1437,10 +1451,14 @@ final class AssetService
                 $taxFull += (float) $e['full_amount'];
             } else {
                 $accAmount += (float) $e['amount'];
-                $journal = $this->journal->findBySource($supplierId, 'depreciation', (int) $e['id']);
-                if ($journal !== null && $journal['reversed_by'] === null) {
-                    $journalByYear[(int) $e['fiscal_year']] = (int) $journal['id'];
-                }
+            }
+        }
+        $ids = array_column(array_filter($materialized, static fn (array $e): bool => $e['kind'] === 'accounting'), 'id');
+        $journals = $this->journal->latestBySourceIds($supplierId, 'depreciation', $ids);
+        foreach ($materialized as $entry) {
+            $journal = $journals[(int) $entry['id']] ?? null;
+            if ($entry['kind'] === 'accounting' && $journal !== null && $journal['reversed_by'] === null) {
+                $journalByYear[(int) $entry['fiscal_year']] = (int) $journal['id'];
             }
         }
         foreach (['tax', 'accounting'] as $kind) {
@@ -1466,6 +1484,8 @@ final class AssetService
 
         return [
             'asset_summary' => [
+                'effective_acc_useful_life_months' => $ctx->importedPlan === null ? $ctx->accUsefulLifeMonths
+                    : $ctx->openingAccMonths + count(ImportedDepreciationPlan::accounting($ctx)),
                 'input_price' => (float) $asset['input_price'],
                 'increased_input_price' => $increased,
                 'tax_residual' => round($increased - (float) $asset['opening_tax_amount'] - $taxFull, 2),

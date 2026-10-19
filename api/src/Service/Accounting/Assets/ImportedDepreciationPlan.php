@@ -48,6 +48,7 @@ final class ImportedDepreciationPlan
             $tax[$previous] = $row['amount_cents'];
         }
         if ($tax !== $years) self::invalid();
+        self::applyRevisions($plan, $ctx);
         return $plan;
     }
 
@@ -57,7 +58,7 @@ final class ImportedDepreciationPlan
         $plan = self::validate($ctx->importedPlan ?? [], $ctx);
         self::assertDisposalDate($ctx);
         $byYear = [];
-        foreach ($plan['accounting'] as $month) {
+        foreach (self::applyRevisions($plan, $ctx) as $month) {
             if ($ctx->disposalDate !== null && $month['month'] > substr($ctx->disposalDate, 0, 7)) break;
             $year = $ctx->calendar->fiscalYearOfMonthIndex(self::monthIndex($month['month']));
             $byYear[$year][] = $month;
@@ -85,6 +86,55 @@ final class ImportedDepreciationPlan
             $remaining -= $amount;
         }
         return $out;
+    }
+
+    /** Účinný měsíční plán; původní převzaté řádky ani historii nemění. */
+    public static function accounting(DepreciationContext $ctx): array
+    {
+        return self::applyRevisions(self::validate($ctx->importedPlan ?? [], $ctx), $ctx);
+    }
+
+    private static function applyRevisions(array $plan, DepreciationContext $ctx): array
+    {
+        $rows = $plan['accounting'];
+        $history = $plan['revisions'] ?? [];
+        if (!is_array($history) || !array_is_list($history) || count($history) > 1000) self::invalid();
+        $previous = '';
+        foreach ($history as $index => $revision) {
+            if (!is_array($revision) || ($revision['revision'] ?? null) !== $index + 1
+                || !is_string($revision['effective_from'] ?? null)
+                || !\MyInvoice\Http\IsoDate::isValid($revision['effective_from'] . '-01')
+                || $revision['effective_from'] < $previous
+                || !is_int($revision['remaining_months'] ?? null) || $revision['remaining_months'] < 1 || $revision['remaining_months'] > 3000
+                || !is_string($revision['reason'] ?? null) || trim($revision['reason']) === '' || mb_strlen($revision['reason']) > 2000
+                || !is_int($revision['user_id'] ?? null) || $revision['user_id'] < 1
+                || !is_string($revision['created_at'] ?? null)
+                || !preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/D', $revision['created_at'])
+                || !\MyInvoice\Http\IsoDate::isValid(substr($revision['created_at'], 0, 10))
+                || ($revision['fiscal_start_month'] ?? null) !== $ctx->calendar->startMonth()) self::invalid();
+            $prefix = [];
+            $remaining = 0;
+            $found = false;
+            foreach ($rows as $row) {
+                if ($row['month'] < $revision['effective_from']) $prefix[] = $row;
+                else $remaining += $row['amount_cents'];
+                if ($row['month'] === $revision['effective_from']) $found = true;
+            }
+            if (!$found || $remaining <= 0 || ($revision['remaining_amount_cents'] ?? null) !== $remaining
+                || count($prefix) + $revision['remaining_months'] + $ctx->openingAccMonths > 3000) self::invalid();
+            $monthly = intdiv($remaining, $revision['remaining_months']);
+            $start = self::monthIndex($revision['effective_from']);
+            for ($i = 0; $i < $revision['remaining_months']; $i++) {
+                $month = $start + $i;
+                if (intdiv($month, 12) > 9999) self::invalid();
+                $prefix[] = ['month' => sprintf('%04d-%02d', intdiv($month, 12), $month % 12 + 1),
+                    'amount_cents' => $i === $revision['remaining_months'] - 1
+                        ? $remaining - $monthly * ($revision['remaining_months'] - 1) : $monthly];
+            }
+            $rows = $prefix;
+            $previous = $revision['effective_from'];
+        }
+        return $rows;
     }
 
     public static function assertDisposalDate(DepreciationContext $ctx): void
