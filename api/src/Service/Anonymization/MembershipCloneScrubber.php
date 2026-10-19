@@ -7,6 +7,7 @@ namespace MyInvoice\Service\Anonymization;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Repository\AccountDefinitionRepository;
 use MyInvoice\Repository\Nonprofit\Membership\MembershipChargeRepository;
+use MyInvoice\Repository\Nonprofit\Membership\MembershipRepository;
 use MyInvoice\Service\Nonprofit\Membership\MembershipClassification;
 use MyInvoice\Service\Nonprofit\Membership\MembershipJournalPlan;
 use MyInvoice\Service\Nonprofit\Membership\MembershipJournalProof;
@@ -128,7 +129,7 @@ final class MembershipCloneScrubber
                 $row['idempotency_key'] = 'clone-membership-revision-' . $row['id'];
                 $row['request_hash'] = NonprofitTaxRules::hash($row['request']);
                 $row['parent_hash'] = $state['record_hash'] ?? str_repeat('0', 64);
-                $row['record_hash'] = NonprofitTaxRules::hash(self::revisionRecord($row));
+                $row['record_hash'] = NonprofitTaxRules::hash(MembershipRepository::revisionRecord($row));
                 $updates[] = ['id' => $row['id'], 'legal_basis_json' => NonprofitTaxRules::canonicalJson($row['legal_basis']),
                     'request_json' => NonprofitTaxRules::canonicalJson($row['request']), 'idempotency_key' => $row['idempotency_key'],
                     'request_hash' => $row['request_hash'], 'parent_hash' => $row['parent_hash'], 'record_hash' => $row['record_hash']];
@@ -456,7 +457,7 @@ final class MembershipCloneScrubber
             || ($previous !== null && $row['effective_from'] <= $previous['effective_from'])
             || !hash_equals($row['parent_hash'], $previous['record_hash'] ?? str_repeat('0', 64))
             || !hash_equals($row['request_hash'], NonprofitTaxRules::hash($row['request']))
-            || !hash_equals($row['record_hash'], NonprofitTaxRules::hash(self::revisionRecord($row)))) {
+            || !hash_equals($row['record_hash'], NonprofitTaxRules::hash(MembershipRepository::revisionRecord($row)))) {
             throw new \LogicException('Membership clone revision history is invalid.');
         }
     }
@@ -731,15 +732,8 @@ final class MembershipCloneScrubber
     {
         foreach (['id', 'supplier_id', 'case_id', 'operation_id', 'member_id', 'client_id', 'amount_cents'] as $field) $row[$field] = (int) $row[$field];
         $row['original_claim_id'] = $row['original_claim_id'] === null ? null : (int) $row['original_claim_id'];
-        $record = array_intersect_key($row, array_flip(['supplier_id', 'case_id', 'operation_id', 'original_claim_id', 'member_id', 'client_id', 'kind', 'amount_cents']));
-        if (!hash_equals($row['record_hash'], NonprofitTaxRules::hash($record))) throw new \LogicException('Membership clone claim hash is invalid.');
+        if (!hash_equals($row['record_hash'], NonprofitTaxRules::hash(MembershipChargeRepository::claimRecord($row)))) throw new \LogicException('Membership clone claim hash is invalid.');
         return $row;
-    }
-
-    private static function revisionRecord(array $row): array
-    {
-        return array_intersect_key($row, array_flip(['supplier_id', 'member_id', 'revision_no', 'previous_id', 'effective_from', 'status',
-            'legal_basis', 'request', 'idempotency_key', 'request_hash', 'parent_hash', 'created_by']));
     }
 
     private static function operationRecord(array $row): array
@@ -796,11 +790,11 @@ final class MembershipCloneScrubber
     private static function financialHash(PDO $pdo): string
     {
         $tables = [
-            'nonprofit_members' => ['id', 'supplier_id', 'client_id', 'created_by', 'created_at'],
-            'nonprofit_member_revisions' => ['id', 'supplier_id', 'member_id', 'revision_no', 'previous_id', 'effective_from', 'status', 'created_by', 'created_at'],
+            'nonprofit_members' => ['id', 'supplier_id', 'client_id', 'created_by', 'created_at', 'recorded_at_utc'],
+            'nonprofit_member_revisions' => ['id', 'supplier_id', 'member_id', 'revision_no', 'previous_id', 'effective_from', 'status', 'created_by', 'created_at', 'recorded_at_utc'],
             'nonprofit_membership_charge_cases' => ['id', 'supplier_id', 'member_id', 'title_key', 'period_from', 'period_to', 'head_operation_id', 'row_version', 'created_by', 'created_at'],
             'nonprofit_membership_charge_operations' => ['id', 'supplier_id', 'case_id', 'command_id', 'operation', 'previous_operation_id', 'original_operation_id', 'member_revision_id', 'legal_profile_id', 'accounting_period_id', 'accounting_date', 'due_date', 'amount_cents', 'receivable_account_id', 'revenue_account_id', 'journal_entry_id', 'receivable_line_id', 'revenue_line_id', 'receipt_json', 'created_by', 'created_at'],
-            'nonprofit_membership_charge_claims' => ['id', 'supplier_id', 'case_id', 'operation_id', 'original_claim_id', 'member_id', 'client_id', 'kind', 'amount_cents', 'created_at'],
+            'nonprofit_membership_charge_claims' => ['id', 'supplier_id', 'case_id', 'operation_id', 'original_claim_id', 'member_id', 'client_id', 'kind', 'amount_cents', 'created_at', 'recorded_at_utc'],
         ];
         $hash = str_repeat('0', 64);
         foreach ($tables as $table => $columns) {

@@ -694,6 +694,7 @@ final class RoutePermissionMap
         ['POST', '#^/api/property/payments/(operations/[0-9]+/reverse|corrections/[0-9]+/reverse)$#', 'property.payments.reverse', AccessLevel::WRITE],
         ['GET', '#^/api/property(/|$)#', 'property', AccessLevel::READ],
         ['*', '#^/api/property(/|$)#', 'property.registry.manage', AccessLevel::WRITE],
+        ['GET', '#^/api/accounting/catalog/nonprofit-membership/(roles|receivables)(/[0-9]+)?$#', 'accounting', AccessLevel::READ],
         ['GET', '#^/api/accounting/nonprofit-capital$#', 'accounting', AccessLevel::READ],
         ['GET', '#^/api/accounting/periods/[0-9]+/nonprofit-capital/choices$#', 'accounting', AccessLevel::READ],
         ['POST', '#^/api/accounting/nonprofit-capital/(preview|confirm)$#', 'accounting.periods.close', AccessLevel::WRITE],

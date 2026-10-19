@@ -87,13 +87,29 @@ final class MembershipCloneScrubberTest extends TestCase
 
             [$smallCapture, $smallQueries] = $this->captureWithQueryCount($target);
             if ($smallCapture instanceof MembershipCloneCapture) $smallCapture->cleanup();
+            $lastExtra = null;
             for ($index = 1; $index <= 4; ++$index) {
                 $extra = $this->chargeRequest($memberId);
                 $extra['title_key'] = 'extra-' . $index;
                 $extra['reason'] = 'Private batch charge ' . $index;
                 $extraPreview = $charges->previewIssue($supplier, $extra);
-                $charges->confirmIssue($supplier, $extra, $extraPreview['expected_case_version'], $extraPreview['preview_hash'], 'private-extra-' . $index, $actor);
+                $lastExtra = $charges->confirmIssue($supplier, $extra, $extraPreview['expected_case_version'], $extraPreview['preview_hash'], 'private-extra-' . $index, $actor);
             }
+            self::assertIsArray($lastExtra);
+            $proofRepository = new MembershipRepository($target);
+            $legacyHistory = $proofRepository->history($supplier, $memberId);
+            $legacyRevision = $legacyHistory[array_key_last($legacyHistory)];
+            $legacyRevision['recorded_at_utc'] = null;
+            $legacyRevisionHash = NonprofitTaxRules::hash(MembershipRepository::revisionRecord($legacyRevision));
+            $target->pdo()->prepare('UPDATE nonprofit_member_revisions SET recorded_at_utc=NULL,record_hash=? WHERE supplier_id=? AND id=?')
+                ->execute([$legacyRevisionHash, $supplier, $legacyRevision['id']]);
+            $proofCharges = new MembershipChargeRepository($target);
+            $legacyClaim = $proofCharges->claimForOperation($supplier, $lastExtra['operation']['id']);
+            self::assertNotNull($legacyClaim);
+            $legacyClaim['recorded_at_utc'] = null;
+            $legacyClaimHash = NonprofitTaxRules::hash(MembershipChargeRepository::claimRecord($legacyClaim));
+            $target->pdo()->prepare('UPDATE nonprofit_membership_charge_claims SET recorded_at_utc=NULL,record_hash=? WHERE supplier_id=? AND id=?')
+                ->execute([$legacyClaimHash, $supplier, $legacyClaim['id']]);
             [$membershipCapture, $manyQueries] = $this->captureWithQueryCount($target);
             self::assertLessThanOrEqual($smallQueries + 8, $manyQueries,
                 'Capture acquired per-operation queries: one=' . $smallQueries . ', many=' . $manyQueries);
@@ -109,6 +125,8 @@ final class MembershipCloneScrubberTest extends TestCase
             $history = $repository->history($supplier, $memberId);
             self::assertCount(4, $history);
             self::assertSame(['active', 'suspended', 'active', 'ended'], array_column($history, 'status'));
+            self::assertNotNull($history[0]['recorded_at_utc']);
+            self::assertNull($history[array_key_last($history)]['recorded_at_utc']);
             self::assertSame('clone-member-' . $memberId, $repository->member($supplier, $memberId)['member_number']);
             $chargeRepository = new MembershipChargeRepository($target);
             $operation = $chargeRepository->operation($supplier, $issued['operation']['id']);
@@ -142,6 +160,9 @@ final class MembershipCloneScrubberTest extends TestCase
             $reversalClaim = $chargeRepository->claimForOperation($supplier, $reversal['id']);
             self::assertSame(2750000, $claim['amount_cents']);
             self::assertSame($claim['id'], $reversalClaim['original_claim_id']);
+            $clonedLegacyClaim = $chargeRepository->claimForOperation($supplier, $lastExtra['operation']['id']);
+            self::assertNotNull($clonedLegacyClaim);
+            self::assertNull($clonedLegacyClaim['recorded_at_utc']);
             self::assertSame($period, $operation['accounting_period_id']);
             $json = NonprofitTaxRules::canonicalJson(['history' => $history, 'operation' => $operation, 'reversal' => $reversal]);
             self::assertStringNotContainsString('private-member@example.test', $json);

@@ -33,3 +33,11 @@ Kontrola vybraného účetního období porovnává členské pohledávky, potvr
 Storno zahajte z konkrétní pohledávky. Zvolte účetní datum v otevřeném období a doložte důvod. Náhled vychází z původní potvrzené operace. Po výslovném potvrzení vznikne navazující storno; původní pohledávka i její historie zůstávají dohledatelné.
 
 Při nejistém výsledku odeslání obnovte přehled nebo opakujte stejný zmrazený požadavek. Stejný požadavek se stejným identifikátorem nevytvoří druhý předpis. Před založením nového požadavku ověřte, zda se původní operace již nezapsala.
+
+## 120.5 Čtení přes veřejné API a MCP
+
+Kurátorované katalogy členských rolí a pohledávek jsou dostupné s oprávněním ke čtení účetnictví také přes API token a MCP. Seznamy i detaily používají stejnou obálku; stránka obsahuje nejvýše 100 záznamů a pokračovací kurzor je vázaný na firmu a filtry. Výstup neobsahuje jména, členská čísla, právní podklady ani interní otisky a aktéry.
+
+U členských rolí zadejte rozhodné datum `as_of` a případně okamžik tehdejší znalosti `known_at`. Pokud jej vynecháte, připne jej první stránka. Později zaznamenaná revize tak nezmění navazující stránky téhož čtení. U pohledávek se čte aktuální účetní stav a doložená nativní bankovní nebo pokladní párování; historický okamžik úhrad se nepřijímá. Neprokázané úhrady a otevřené částky zůstávají `null`. Katalog sám nepotvrzuje osvobození příjmu ani oprávnění k finanční operaci.
+
+Historické role vyžadují průkazný okamžik zaznamenání. Pokud jej starší záznam nemá doložený, časový katalog vrátí chybu místo odhadování časové zóny nebo vynechání člena. U pohledávky může být čas zaznamenání `null` se stavem `unproven`; ověření její částky a účetních podkladů tím zůstává samostatné. Původní časové údaje se při aktualizaci ani anonymizované kopii nepřepočítávají odhadem.

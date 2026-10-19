@@ -214,7 +214,6 @@ final class MembershipChargeService
         $operation = $this->charges->operationForCommand($supplier, $command['id'], true)
             ?? throw new MembershipException('nonprofit_membership_command_incomplete', 'Uložený požadavek nemá průkaznou finanční operaci.', 409);
         $this->assertStoredProof($operation);
-        (new MembershipJournalProof($this->db))->assertOperation($operation);
         $case = $this->charges->caseById($supplier, $operation['case_id'], true);
         if ($case === null) throw new MembershipException('nonprofit_membership_case_changed', 'Účetní případ uložené operace nebyl nalezen.', 409);
         return ['case' => $case, 'operation' => $operation, 'idempotent_replay' => true];
@@ -222,23 +221,7 @@ final class MembershipChargeService
 
     private function assertStoredProof(array $operation, bool $current = true): void
     {
-        $proof = $operation['proof'];
-        (new MembershipClassification($this->db))->assertStored((int) $operation['supplier_id'], $proof['classification'] ?? [], $current);
-        $revision = $this->members->revision((int) $operation['supplier_id'], (int) $proof['member']['id'], (int) $operation['member_revision_id'], $current);
-        if ($revision === null || !hash_equals($revision['record_hash'], (string) ($proof['member_revision']['record_hash'] ?? ''))
-            || ($proof['member_revision']['legal_basis']['organisation_form'] ?? null) !== 'association'
-            || ($proof['member_revision']['legal_basis']['relationship'] ?? null) !== 'nonreciprocal_membership') {
-            throw new MembershipException('nonprofit_membership_member_proof_changed', 'Zachycený členský podklad není průkazný.', 409);
-        }
-        $legal = null;
-        foreach ((new NonprofitLegalProfileService($this->db))->history((int) $operation['supplier_id'], (int) $proof['accounting_period']['id'], $current) as $row) {
-            if ($row['id'] === $operation['legal_profile_id']) $legal = $row;
-        }
-        if ($legal === null || !hash_equals($legal['record_hash'], (string) ($proof['legal_profile']['record_hash'] ?? ''))
-            || ($proof['legal_profile']['profile']['entity_type'] ?? null) !== 'association'
-            || ($proof['legal_title']['relationship'] ?? null) !== 'nonreciprocal_membership') {
-            throw new MembershipException('nonprofit_membership_legal_proof_changed', 'Zachycený právní podklad není průkazný.', 409);
-        }
+        (new MembershipStoredProof($this->db, $this->members))->assertMany((int) $operation['supplier_id'], [$operation], $current);
     }
 
     private function period(int $supplier, string $date, bool $current): array

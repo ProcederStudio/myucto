@@ -6,6 +6,7 @@ namespace MyInvoice\Repository\Nonprofit\Membership;
 
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Service\Nonprofit\Membership\MembershipException;
+use MyInvoice\Service\Nonprofit\Membership\MembershipRecordedTime;
 use MyInvoice\Service\Nonprofit\Membership\MembershipRevisionTimeline;
 use MyInvoice\Service\Tax\Nonprofit\NonprofitTaxRules;
 use PDO;
@@ -64,8 +65,9 @@ final class MembershipRepository
 
     public function insertMember(int $supplier, int $client, string $number, int $actor): array
     {
-        $q = $this->db->pdo()->prepare('INSERT INTO nonprofit_members(supplier_id,client_id,member_number,created_by) VALUES(?,?,?,?)');
-        $q->execute([$supplier, $client, $number, $actor]);
+        $recordedAt = MembershipRecordedTime::nowSql();
+        $q = $this->db->pdo()->prepare('INSERT INTO nonprofit_members(supplier_id,client_id,member_number,created_by,created_at,recorded_at_utc) VALUES(?,?,?,?,?,?)');
+        $q->execute([$supplier, $client, $number, $actor, $recordedAt, $recordedAt]);
         return $this->member($supplier, (int) $this->db->pdo()->lastInsertId(), true)
             ?? throw new \LogicException('Inserted member disappeared.');
     }
@@ -82,7 +84,7 @@ final class MembershipRepository
             if ($row['revision_no'] !== ($previous['revision_no'] ?? 0) + 1 || $row['previous_id'] !== ($previous['id'] ?? null)
                 || !hash_equals($row['parent_hash'], $previous['record_hash'] ?? str_repeat('0', 64))
                 || !hash_equals($row['request_hash'], NonprofitTaxRules::hash($row['request']))
-                || !hash_equals($row['record_hash'], NonprofitTaxRules::hash($this->revisionRecord($row)))) {
+                || !hash_equals($row['record_hash'], NonprofitTaxRules::hash(self::revisionRecord($row)))) {
                 throw new MembershipException('nonprofit_membership_revision_corrupt', 'Historie členství není průkazná.', 409);
             }
             $rows[] = $row;
@@ -90,6 +92,93 @@ final class MembershipRepository
         }
         MembershipRevisionTimeline::intervals($rows);
         return $rows;
+    }
+
+    public function historiesMany(int $supplier, array $memberIds, ?string $knownAtSql = null): array
+    {
+        $memberIds = array_values(array_unique(array_map('intval', $memberIds)));
+        if ($supplier <= 0 || $memberIds === [] || count($memberIds) > 500 || min($memberIds) <= 0) throw new \InvalidArgumentException('Membership history batch must contain one tenant and 1-500 members.');
+        $marks = implode(',', array_fill(0, count($memberIds), '?'));
+        if ($knownAtSql !== null) $this->assertRecordedTimeProven($supplier, $memberIds);
+        $known = $knownAtSql === null ? '' : ' AND (recorded_at_utc<=? OR recorded_at_utc IS NULL)';
+        $q = $this->db->pdo()->prepare("SELECT * FROM nonprofit_member_revisions WHERE supplier_id=? AND member_id IN ({$marks}){$known} ORDER BY member_id,revision_no,id");
+        $params = [$supplier, ...$memberIds];
+        if ($knownAtSql !== null) $params[] = $knownAtSql;
+        $q->execute($params);
+        $groups = array_fill_keys($memberIds, []);
+        foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $raw) {
+            if ($knownAtSql !== null && $raw['recorded_at_utc'] === null) $this->recordedTimeUnproven();
+            $groups[(int) $raw['member_id']][] = $this->revisionRow($raw);
+        }
+        foreach ($groups as $member => $rows) $groups[$member] = $this->validateHistory($rows);
+        return $groups;
+    }
+
+    public function effectiveMany(int $supplier, array $memberIds, string $asOf, string $knownAtSql): array
+    {
+        MembershipRevisionTimeline::date($asOf);
+        $this->assertRecordedTimeProven($supplier, $memberIds);
+        $state = $this->scanVerified($supplier, $memberIds, $knownAtSql, null, $asOf);
+        $out = [];
+        foreach ($state as $member => $item) {
+            if ($item['effective'] === null) continue;
+            $row = $item['effective'];
+            $row['effective_to'] = $item['next_effective'];
+            $out[$member] = $row;
+        }
+        return $out;
+    }
+
+    public function revisionsMany(int $supplier, array $memberRevisionIds): array
+    {
+        $memberIds = array_keys($memberRevisionIds);
+        $targets = [];
+        foreach ($memberRevisionIds as $member => $revisions) {
+            if (!is_int($member) || $member <= 0 || !is_array($revisions) || $revisions === []) throw new \InvalidArgumentException('Membership revision targets are invalid.');
+            foreach ($revisions as $revision) {
+                if (!is_int($revision) || $revision <= 0) throw new \InvalidArgumentException('Membership revision targets are invalid.');
+                $targets[$member][$revision] = true;
+            }
+        }
+        $state = $this->scanVerified($supplier, $memberIds, null, $targets, null);
+        $out = [];
+        foreach ($targets as $member => $revisions) {
+            foreach ($revisions as $revision => $_) {
+                $row = $state[$member]['target'][$revision] ?? null;
+                if ($row === null) throw new MembershipException('nonprofit_membership_member_proof_changed', 'Zachycený členský podklad není průkazný.', 409);
+                $out[$revision] = $row;
+            }
+        }
+        return $out;
+    }
+
+    public function publicMembersPage(int $supplier, string $asOf, string $knownAtSql, int $afterId, int $limit): array
+    {
+        $limit = max(1, min(101, $limit));
+        $q = $this->db->pdo()->prepare("SELECT m.id,m.client_id,m.recorded_at_utc
+            FROM nonprofit_members m FORCE INDEX(uq_nm_tenant)
+            WHERE m.supplier_id=? AND m.id>?
+              AND (m.recorded_at_utc<=? OR m.recorded_at_utc IS NULL)
+              AND EXISTS(SELECT 1 FROM nonprofit_member_revisions r FORCE INDEX(ix_nmr_effective_lookup)
+                          WHERE r.supplier_id=m.supplier_id AND r.member_id=m.id AND r.effective_from<=?
+                            AND (r.recorded_at_utc<=? OR r.recorded_at_utc IS NULL))
+            ORDER BY m.id LIMIT {$limit}");
+        $q->execute([$supplier, max(0, $afterId), $knownAtSql, $asOf, $knownAtSql]);
+        $rows = $q->fetchAll(PDO::FETCH_ASSOC);
+        if ($rows !== []) $this->assertRecordedTimeProven($supplier, array_map('intval', array_column($rows, 'id')));
+        return array_map(static fn (array $row): array => ['id' => (int) $row['id'], 'client_id' => (int) $row['client_id'],
+            'recorded_at_utc' => $row['recorded_at_utc']], $rows);
+    }
+
+    public function publicMember(int $supplier, int $member, string $knownAtSql): ?array
+    {
+        $q = $this->db->pdo()->prepare('SELECT id,client_id,recorded_at_utc FROM nonprofit_members WHERE supplier_id=? AND id=?');
+        $q->execute([$supplier, $member]);
+        $row = $q->fetch(PDO::FETCH_ASSOC);
+        if ($row === false) return null;
+        if ($row['recorded_at_utc'] === null) $this->recordedTimeUnproven();
+        if ($row['recorded_at_utc'] > $knownAtSql) return null;
+        return ['id' => (int) $row['id'], 'client_id' => (int) $row['client_id'], 'recorded_at_utc' => $row['recorded_at_utc']];
     }
 
     public function revisionByKey(int $supplier, string $key, bool $currentRead = false): ?array
@@ -111,19 +200,22 @@ final class MembershipRepository
 
     public function appendRevision(array $row): array
     {
-        $record = $this->revisionRecord($row);
+        $row['recorded_at_utc'] = MembershipRecordedTime::nowSql();
+        $record = self::revisionRecord($row);
         $row['record_hash'] = NonprofitTaxRules::hash($record);
-        $q = $this->db->pdo()->prepare('INSERT INTO nonprofit_member_revisions(supplier_id,member_id,revision_no,previous_id,effective_from,status,legal_basis_json,request_json,idempotency_key,request_hash,parent_hash,record_hash,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)');
+        $q = $this->db->pdo()->prepare('INSERT INTO nonprofit_member_revisions(supplier_id,member_id,revision_no,previous_id,effective_from,status,legal_basis_json,request_json,idempotency_key,request_hash,parent_hash,record_hash,created_by,created_at,recorded_at_utc) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
         $q->execute([$row['supplier_id'], $row['member_id'], $row['revision_no'], $row['previous_id'], $row['effective_from'], $row['status'],
-            NonprofitTaxRules::canonicalJson($row['legal_basis']), NonprofitTaxRules::canonicalJson($row['request']), $row['idempotency_key'], $row['request_hash'], $row['parent_hash'], $row['record_hash'], $row['created_by']]);
+            NonprofitTaxRules::canonicalJson($row['legal_basis']), NonprofitTaxRules::canonicalJson($row['request']), $row['idempotency_key'], $row['request_hash'], $row['parent_hash'], $row['record_hash'], $row['created_by'], $row['recorded_at_utc'], $row['recorded_at_utc']]);
         return $this->revision((int) $row['supplier_id'], (int) $row['member_id'], (int) $this->db->pdo()->lastInsertId(), true)
             ?? throw new \LogicException('Inserted membership revision disappeared.');
     }
 
-    public function revisionRecord(array $row): array
+    public static function revisionRecord(array $row): array
     {
-        return array_intersect_key($row, array_flip(['supplier_id', 'member_id', 'revision_no', 'previous_id', 'effective_from', 'status', 'legal_basis',
+        $record = array_intersect_key($row, array_flip(['supplier_id', 'member_id', 'revision_no', 'previous_id', 'effective_from', 'status', 'legal_basis',
             'request', 'idempotency_key', 'request_hash', 'parent_hash', 'created_by']));
+        if (($row['recorded_at_utc'] ?? null) !== null) $record['recorded_at_utc'] = $row['recorded_at_utc'];
+        return $record;
     }
 
     private function revisionRow(array $row): array
@@ -135,6 +227,84 @@ final class MembershipRepository
             unset($row[$field . '_json']);
         }
         return $row;
+    }
+
+    private function validateHistory(array $rows): array
+    {
+        $previous = null;
+        foreach ($rows as $row) {
+            if ($row['revision_no'] !== ($previous['revision_no'] ?? 0) + 1 || $row['previous_id'] !== ($previous['id'] ?? null)
+                || !hash_equals($row['parent_hash'], $previous['record_hash'] ?? str_repeat('0', 64))
+                || !hash_equals($row['request_hash'], NonprofitTaxRules::hash($row['request']))
+                || !hash_equals($row['record_hash'], NonprofitTaxRules::hash(self::revisionRecord($row)))) {
+                throw new MembershipException('nonprofit_membership_revision_corrupt', 'Historie členství není průkazná.', 409);
+            }
+            $previous = $row;
+        }
+        MembershipRevisionTimeline::intervals($rows);
+        return $rows;
+    }
+
+    private function scanVerified(int $supplier, array $memberIds, ?string $knownAtSql, ?array $targets, ?string $asOf): array
+    {
+        $memberIds = array_values(array_unique(array_map('intval', $memberIds)));
+        if ($supplier <= 0 || $memberIds === [] || count($memberIds) > 500 || min($memberIds) <= 0) throw new \InvalidArgumentException('Membership revision scan must contain one tenant and 1-500 members.');
+        $marks = implode(',', array_fill(0, count($memberIds), '?'));
+        $known = $knownAtSql === null ? '' : ' AND (recorded_at_utc<=? OR recorded_at_utc IS NULL)';
+        $cursorMember = null;
+        $cursorId = 0;
+        $state = [];
+        foreach ($memberIds as $member) $state[$member] = ['previous' => null, 'effective' => null, 'next_effective' => null, 'target' => []];
+        do {
+            $after = $cursorMember === null ? '' : ' AND (member_id>? OR (member_id=? AND id>?))';
+            $q = $this->db->pdo()->prepare("SELECT * FROM nonprofit_member_revisions FORCE INDEX(uq_nmr_chain) WHERE supplier_id=? AND member_id IN ({$marks}){$after}{$known} ORDER BY supplier_id,member_id,id LIMIT 500");
+            $params = [$supplier, ...$memberIds];
+            if ($cursorMember !== null) array_push($params, $cursorMember, $cursorMember, $cursorId);
+            if ($knownAtSql !== null) $params[] = $knownAtSql;
+            $q->execute($params);
+            $batch = $q->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($batch as $raw) {
+                if ($knownAtSql !== null && $raw['recorded_at_utc'] === null) $this->recordedTimeUnproven();
+                $row = $this->revisionRow($raw);
+                $member = $row['member_id'];
+                $previous = $state[$member]['previous'];
+                if ($row['revision_no'] !== ($previous['revision_no'] ?? 0) + 1 || $row['previous_id'] !== ($previous['id'] ?? null)
+                    || !hash_equals($row['parent_hash'], $previous['record_hash'] ?? str_repeat('0', 64))
+                    || !hash_equals($row['request_hash'], NonprofitTaxRules::hash($row['request']))
+                || !hash_equals($row['record_hash'], NonprofitTaxRules::hash(self::revisionRecord($row)))) {
+                    throw new MembershipException('nonprofit_membership_revision_corrupt', 'Historie členství není průkazná.', 409);
+                }
+                MembershipRevisionTimeline::date($row['effective_from']);
+                if ($targets !== null && isset($targets[$member][$row['id']])) $state[$member]['target'][$row['id']] = $row;
+                if ($asOf !== null) {
+                    if ($row['effective_from'] <= $asOf && ($state[$member]['effective'] === null || $row['effective_from'] > $state[$member]['effective']['effective_from'])) {
+                        $state[$member]['effective'] = $row;
+                    } elseif ($row['effective_from'] > $asOf
+                        && ($state[$member]['next_effective'] === null || $row['effective_from'] < $state[$member]['next_effective'])) {
+                        $state[$member]['next_effective'] = $row['effective_from'];
+                    }
+                }
+                $state[$member]['previous'] = $row;
+                $cursorMember = $member;
+                $cursorId = $row['id'];
+            }
+        } while (count($batch) === 500);
+        return $state;
+    }
+
+    private function assertRecordedTimeProven(int $supplier, array $memberIds): void
+    {
+        $memberIds = array_values(array_unique(array_map('intval', $memberIds)));
+        if ($memberIds === [] || count($memberIds) > 500 || min($memberIds) <= 0) throw new \InvalidArgumentException('Membership recorded-time batch must contain 1-500 members.');
+        $marks = implode(',', array_fill(0, count($memberIds), '?'));
+        $q = $this->db->pdo()->prepare("SELECT id FROM nonprofit_members FORCE INDEX(uq_nm_tenant) WHERE supplier_id=? AND id IN ({$marks}) AND recorded_at_utc IS NULL LIMIT 1");
+        $q->execute([$supplier, ...$memberIds]);
+        if ($q->fetchColumn() !== false) $this->recordedTimeUnproven();
+    }
+
+    private function recordedTimeUnproven(): never
+    {
+        throw new MembershipException('nonprofit_membership_recorded_time_unproven', 'Historický čas záznamu členství nemá průkazný UTC základ.', 409);
     }
 
     private function memberRow(array $row): array

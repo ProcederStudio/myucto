@@ -16,6 +16,7 @@ use MyInvoice\Service\Accounting\Dimension\SystemDimensionCatalog;
 use MyInvoice\Service\Accounting\PostingService;
 use MyInvoice\Service\Nonprofit\Membership\MembershipChargeService;
 use MyInvoice\Service\Nonprofit\Membership\MembershipMemberService;
+use MyInvoice\Service\Nonprofit\Membership\MembershipPublicCatalog;
 use MyInvoice\Service\Nonprofit\Membership\MembershipReceivablePaymentAdapter;
 use MyInvoice\Service\Nonprofit\Membership\MembershipReconciliationService;
 use MyInvoice\Service\Tax\Nonprofit\NonprofitLegalProfileService;
@@ -412,6 +413,65 @@ final class MembershipNativeTest extends TestCase
         self::assertLessThanOrEqual(3, $many);
     }
 
+    public function testPublicRoleUsesOnlyRevisionsRecordedByKnownAt(): void
+    {
+        $member = $this->member('M-PUBLIC-TIME', 'public-time');
+        $q = $this->pdo->prepare('SELECT recorded_at_utc FROM nonprofit_member_revisions WHERE supplier_id=? AND member_id=? AND revision_no=1');
+        $q->execute([$this->supplier, $member['id']]);
+        $known = str_replace(' ', 'T', (string) $q->fetchColumn()) . 'Z';
+        $this->pdo->query('SELECT SLEEP(0.01)');
+        $this->members->appendRevision($this->supplier, $member['id'], [
+            'status' => 'suspended', 'effective_from' => '2026-06-01', 'expected_revision' => 1,
+            'idempotency_key' => 'member-public-time-suspended', 'legal_basis' => $this->basis('Synthetic later recorded suspension'),
+        ], $this->actor);
+        $catalog = $this->catalog();
+
+        $historical = $catalog->roles($this->supplier, '2026-07-01', $known, null, 25, $member['id']);
+        $current = $catalog->roles($this->supplier, '2026-07-01', null, null, 25, $member['id']);
+
+        self::assertSame('active', $historical['items'][0]['status']);
+        self::assertNull($historical['items'][0]['effective_to']);
+        self::assertSame('suspended', $current['items'][0]['status']);
+        self::assertSame('verified', $historical['items'][0]['proof_status']);
+        self::assertSame('proven_utc', $historical['items'][0]['recorded_time_status']);
+        self::assertArrayNotHasKey('member_number', $historical['items'][0]);
+        self::assertArrayNotHasKey('legal_basis', $historical['items'][0]);
+    }
+
+    public function testPublicReceivableUsesStoredProofAndKeepsUnprovenSettlementNull(): void
+    {
+        $member = $this->member('M-PUBLIC-CLAIM', 'public-claim');
+        $issued = $this->issue($member['id'], 'public-claim');
+        $claim = (int) $this->pdo->query('SELECT id FROM nonprofit_membership_charge_claims WHERE operation_id=' . (int) $issued['operation']['id'])->fetchColumn();
+
+        $response = $this->catalog()->receivables($this->supplier, $member['id'], null, 25);
+        $detail = $this->catalog()->receivables($this->supplier, null, null, 25, $claim);
+
+        self::assertCount(1, $response['items']);
+        self::assertSame($response['items'][0], $detail['items'][0]);
+        self::assertSame('unreconciled', $detail['items'][0]['settlement']['status']);
+        self::assertNull($detail['items'][0]['settlement']['paid_cents']);
+        self::assertNull($detail['items'][0]['settlement']['open_cents']);
+        self::assertSame('proven_utc', $detail['items'][0]['recorded_time_status']);
+        self::assertStringEndsWith('Z', $detail['items'][0]['recorded_at']);
+        self::assertSame('verified', $detail['items'][0]['proof_status']);
+        foreach (['member_number', 'name', 'evidence', 'request_json', 'idempotency_key', 'record_hash'] as $forbidden) {
+            self::assertArrayNotHasKey($forbidden, $detail['items'][0]);
+        }
+    }
+
+    public function testPublicReceivableProofUsesConstantQueriesWithinPage(): void
+    {
+        $member = $this->member('M-PUBLIC-BATCH', 'public-batch');
+        $this->issueTitle($member['id'], 'public-batch-1', 'public-batch-1');
+        $one = $this->selectQueries(fn (): array => $this->catalog()->receivables($this->supplier, $member['id'], null, 100));
+        for ($index = 2; $index <= 6; ++$index) $this->issueTitle($member['id'], 'public-batch-' . $index, 'public-batch-' . $index);
+        $many = $this->selectQueries(fn (): array => $this->catalog()->receivables($this->supplier, $member['id'], null, 100));
+
+        self::assertSame($one, $many);
+        self::assertLessThanOrEqual(14, $many);
+    }
+
     private function member(string $number, string $key): array
     {
         $currency = (int) $this->pdo->query('SELECT id FROM currencies ORDER BY id LIMIT 1')->fetchColumn();
@@ -423,6 +483,11 @@ final class MembershipNativeTest extends TestCase
             'idempotency_key' => 'member-' . $key, 'legal_basis' => $this->basis('Synthetic member evidence ' . $key),
         ], $this->actor);
         return $member;
+    }
+
+    private function catalog(): MembershipPublicCatalog
+    {
+        return new MembershipPublicCatalog($this->db, new MembershipRepository($this->db), new MembershipChargeRepository($this->db), $this->balances);
     }
 
     private function basis(string $evidence): array

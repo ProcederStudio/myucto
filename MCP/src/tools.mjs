@@ -41,7 +41,9 @@
 
 import { ACCOUNTING_CONTEXT_TOOLS } from './accounting-context-tools.mjs';
 import { PROPERTY_ACCOUNTING_READ_TOOLS } from './property-accounting-read-tools.mjs';
+import { PROPERTY_UNIT_LEGAL_ROLE_TOOLS } from './property-unit-legal-role-tools.mjs';
 import { NONPROFIT_RESOURCE_TOOLS } from './nonprofit-resource-tools.mjs';
+import { NONPROFIT_MEMBERSHIP_READ_TOOLS } from './nonprofit-membership-read-tools.mjs';
 import { DIMENSION_TOOLS, DIMENSION_FILTER, dimensionQuery } from './dimension-tools.mjs';
 import { AUDIT_TOOLS } from './audit-tools.mjs';
 import {
@@ -636,7 +638,9 @@ function codebookTools({ names, titles, descriptions, path, fields, required, li
 export const TOOLS = [
   ...ACCOUNTING_CONTEXT_TOOLS,
   ...PROPERTY_ACCOUNTING_READ_TOOLS,
+  ...PROPERTY_UNIT_LEGAL_ROLE_TOOLS,
   ...NONPROFIT_RESOURCE_TOOLS,
+  ...NONPROFIT_MEMBERSHIP_READ_TOOLS,
   ...DIMENSION_TOOLS,
   ...AUDIT_TOOLS,
   ...INVOICE_TOOLS,

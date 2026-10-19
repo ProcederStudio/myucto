@@ -49,6 +49,7 @@ final class ApiScopeMiddleware implements MiddlewareInterface
      * @var list<string>
      */
     private const BEARER_ALLOWED = [
+        '#^/api/property/catalog/unit-legal-roles(/[0-9]+)?$#',
         '#^/api/property/catalog/openings$#',
         '#^/api/property/catalog/service-settlements(/[0-9]+(/current)?)?$#',
         '#^/api/property/catalog/service-lifecycles(/(?:[0-9]+|reconciliation))?$#',

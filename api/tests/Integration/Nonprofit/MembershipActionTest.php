@@ -5,14 +5,19 @@ declare(strict_types=1);
 namespace MyInvoice\Tests\Integration\Nonprofit;
 
 use MyInvoice\Action\Nonprofit\MembershipAction;
+use MyInvoice\Action\Nonprofit\Catalog\MembershipResourceCatalogAction;
 use MyInvoice\Bootstrap;
 use MyInvoice\Infrastructure\Database\Connection;
 use MyInvoice\Middleware\AuthMiddleware;
 use MyInvoice\Middleware\SupplierScopeMiddleware;
 use MyInvoice\Repository\AccountingPeriodRepository;
+use MyInvoice\Repository\Nonprofit\Membership\MembershipBalanceRepository;
+use MyInvoice\Repository\Nonprofit\Membership\MembershipChargeRepository;
+use MyInvoice\Repository\Nonprofit\Membership\MembershipRepository;
 use MyInvoice\Security\EffectiveRole;
 use MyInvoice\Service\Accounting\Dimension\SystemDimensionCatalog;
 use MyInvoice\Service\Accounting\PostingService;
+use MyInvoice\Service\Nonprofit\Membership\MembershipPublicCatalog;
 use MyInvoice\Service\Tax\Nonprofit\NonprofitLegalProfileService;
 use PDO;
 use PHPUnit\Framework\TestCase;
@@ -24,6 +29,7 @@ final class MembershipActionTest extends TestCase
     private Connection $db;
     private PDO $pdo;
     private MembershipAction $action;
+    private MembershipResourceCatalogAction $publicAction;
     private int $supplier;
     private int $period;
     private int $actor;
@@ -66,6 +72,8 @@ final class MembershipActionTest extends TestCase
             ->execute([$this->supplier, $currency]);
         $this->client = (int) $this->pdo->lastInsertId();
         $this->action = new MembershipAction($this->db, $container->get(PostingService::class));
+        $this->publicAction = new MembershipResourceCatalogAction(new MembershipPublicCatalog($this->db,
+            new MembershipRepository($this->db), new MembershipChargeRepository($this->db), new MembershipBalanceRepository($this->db)));
     }
 
     protected function tearDown(): void
@@ -106,6 +114,21 @@ final class MembershipActionTest extends TestCase
             'expected_case_version' => $preview['expected_case_version'], 'preview_hash' => $preview['preview_hash'], 'idempotency_key' => 'membership-action-issue']);
         self::assertSame(200, $status);
         self::assertFalse($confirmed['idempotent_replay']);
+
+        [$status, $publicRole] = $this->publicCall('roles', ['as_of' => '2026-06-30'], ['member_id' => (string) $member['id']]);
+        self::assertSame(200, $status);
+        self::assertSame($member['id'], $publicRole['items'][0]['member_id']);
+        self::assertSame('proven_utc', $publicRole['items'][0]['recorded_time_status']);
+        self::assertStringEndsWith('Z', $publicRole['items'][0]['recorded_at']);
+        self::assertArrayNotHasKey('member_number', $publicRole['items'][0]);
+        $claimId = (int) $this->pdo->query('SELECT id FROM nonprofit_membership_charge_claims WHERE operation_id=' . (int) $confirmed['operation']['id'])->fetchColumn();
+        [$status, $publicClaim] = $this->publicCall('receivables', [], ['claim_id' => (string) $claimId]);
+        self::assertSame(200, $status);
+        self::assertNull($publicClaim['items'][0]['settlement']['open_cents']);
+        self::assertSame('proven_utc', $publicClaim['items'][0]['recorded_time_status']);
+        self::assertStringEndsWith('Z', $publicClaim['items'][0]['recorded_at']);
+        [$status] = $this->publicCall('roles', ['as_of' => '2026-06-30'], ['member_id' => (string) $member['id']], []);
+        self::assertSame(403, $status);
 
         [$status, $detail] = $this->call('GET', 'member', null, ['id' => (string) $member['id']], ['accounting' => 1], 'session');
         self::assertSame(200, $status);
@@ -159,6 +182,18 @@ final class MembershipActionTest extends TestCase
             ->withAttribute('auth.effective_role', new EffectiveRole(501, 'Synthetic membership role', 'staff', true, $permissions));
         if ($body !== null) $request = $request->withParsedBody($body);
         $response = $this->action->{$method}($request, new Response(), $args);
+        return [$response->getStatusCode(), json_decode((string) $response->getBody(), true, flags: JSON_THROW_ON_ERROR)];
+    }
+
+    private function publicCall(string $method, array $query, array $args, array $permissions = ['accounting' => 1]): array
+    {
+        $request = (new ServerRequestFactory())->createServerRequest('GET', '/api/v1/accounting/catalog/nonprofit-membership/' . $method)
+            ->withQueryParams($query)
+            ->withAttribute(SupplierScopeMiddleware::ATTR_CURRENT_ID, $this->supplier)
+            ->withAttribute(AuthMiddleware::ATTR_METHOD, 'bearer')
+            ->withAttribute(AuthMiddleware::ATTR_USER, ['id' => $this->actor, 'role' => 'accountant'])
+            ->withAttribute('auth.effective_role', new EffectiveRole(502, 'Synthetic public catalog role', 'staff', true, $permissions));
+        $response = $this->publicAction->{$method}($request, new Response(), $args);
         return [$response->getStatusCode(), json_decode((string) $response->getBody(), true, flags: JSON_THROW_ON_ERROR)];
     }
 }

@@ -12,7 +12,10 @@ final class MembershipReconciliationService
 
     public function memberBalance(int $supplier, int $member, int $afterClaimId = 0, int $limit = 100): array
     {
-        $claims = $this->balances->claimsForMember($supplier, $member, $afterClaimId, $limit);
+        $limit = max(1, min(100, $limit));
+        $claims = $this->balances->claimsForMember($supplier, $member, $afterClaimId, $limit + 1);
+        $more = count($claims) > $limit;
+        if ($more) $claims = array_slice($claims, 0, $limit);
         $evidence = $this->balances->pairingEvidence($supplier, $claims);
         $rows = [];
         $activeClaimCents = 0;
@@ -31,7 +34,7 @@ final class MembershipReconciliationService
             'page_proven_open_cents' => $provenOpenCents,
             'page_unreconciled_count' => $unreconciled,
             'items' => $rows,
-            'next_after_claim_id' => count($claims) === $limit ? $claims[array_key_last($claims)]['claim_id'] : null,
+            'next_after_claim_id' => $more ? $claims[array_key_last($claims)]['claim_id'] : null,
         ];
     }
 

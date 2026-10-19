@@ -1048,7 +1048,8 @@
         "2064_property_payment_fx_sources.sql",
         "2065_tax_loss_period_proof.sql",
         "2066_nonprofit_membership.sql",
-        "2067_property_issuance_preview_index.sql"
+        "2067_property_issuance_preview_index.sql",
+        "2068_membership_recorded_at_utc.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -8132,6 +8133,7 @@
                 "parent_hash": "char(64) NOT NULL COLLATE ascii_bin",
                 "previous_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "record_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "recorded_at_utc": "datetime(6) NULL DEFAULT NULL",
                 "request_hash": "char(64) NOT NULL COLLATE ascii_bin",
                 "request_json": "longtext NOT NULL",
                 "revision_no": "int(10) unsigned NOT NULL",
@@ -8171,6 +8173,7 @@
                 "created_by": "bigint(20) unsigned NOT NULL",
                 "id": "bigint(20) unsigned NOT NULL AUTO_INCREMENT",
                 "member_number": "varchar(80) NOT NULL",
+                "recorded_at_utc": "datetime(6) NULL DEFAULT NULL",
                 "supplier_id": "int(10) unsigned NOT NULL"
             },
             "indexes": {
@@ -8237,6 +8240,7 @@
                 "operation_id": "bigint(20) unsigned NOT NULL",
                 "original_claim_id": "bigint(20) unsigned NULL DEFAULT NULL",
                 "record_hash": "char(64) NOT NULL COLLATE ascii_bin",
+                "recorded_at_utc": "datetime(6) NULL DEFAULT NULL",
                 "supplier_id": "int(10) unsigned NOT NULL"
             },
             "indexes": {

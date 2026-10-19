@@ -15,9 +15,29 @@ use Slim\Psr7\Factory\ServerRequestFactory;
 
 final class ApiScopeMiddlewareTest extends TestCase
 {
+    public function testMembershipCatalogTokenReadsRegisteredAccountingRoutesOnly(): void
+    {
+        $app = \Slim\Factory\AppFactory::create();
+        \MyInvoice\Routes::register($app);
+        foreach (['roles', 'roles/7', 'receivables', 'receivables/7'] as $resource) {
+            $path = '/api/accounting/catalog/nonprofit-membership/' . $resource;
+            $routing = $app->getRouteResolver()->computeRoutingResults($path, 'GET');
+            self::assertSame(\Slim\Routing\RoutingResults::FOUND, $routing->getRouteStatus());
+            $permission = (new \MyInvoice\Security\RoutePermissionMap())->match('GET', $path);
+            self::assertSame('accounting', $permission->key);
+            self::assertSame(\MyInvoice\Security\AccessLevel::READ, $permission->minimum);
+            foreach (['read', 'read_write'] as $scope) {
+                self::assertSame(204, $this->middleware()->process($this->bearer('GET', $path, $scope), $this->okHandler())->getStatusCode());
+                foreach (['POST', 'PUT', 'PATCH', 'DELETE'] as $method) {
+                    self::assertSame(403, $this->middleware()->process($this->bearer($method, $path, $scope), $this->okHandler())->getStatusCode());
+                }
+            }
+        }
+    }
+
     public function testPropertyTokenReadsOnlyCuratedCatalogAndNeverChangesRegistry(): void
     {
-        foreach (['profile', 'summary', 'houses', 'units', 'services'] as $resource) {
+        foreach (['profile', 'summary', 'houses', 'units', 'services', 'unit-legal-roles', 'unit-legal-roles/7'] as $resource) {
             $path = '/api/property/catalog/' . $resource;
             self::assertSame(204, $this->middleware()->process($this->bearer('GET', $path, 'read'), $this->okHandler())->getStatusCode());
             self::assertSame(403, $this->middleware()->process($this->bearer('POST', $path, 'read_write'), $this->okHandler())->getStatusCode());

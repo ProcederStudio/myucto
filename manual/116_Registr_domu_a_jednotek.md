@@ -314,3 +314,11 @@ Měsíční kontrola a precheck účetní uzávěrky porovnávají hrubé pohled
 Kontrola služeb porovnává předpisy záloh, doložené počáteční stavy, dohady, konečné náklady, vyúčtování a jejich storna s hlavní knihou k účetnímu datu. Rozvahové pohyby sleduje od jejich vzniku, výsledkové pohyby v příslušném účetním období. Nedokončená operace nebo řádek bez doloženého zdroje znamenají neúplnou evidenci i při nulovém čistém rozdílu a blokují uzavření knih. Tato kontrola pracuje s aktuálně evidovanými podklady.
 
 Účetní tvorba a rozpuštění rezervy na opravy s ověřeným aktivním zdrojem se nezahrnují do skutečných nákladů služeb. Systém ověří původní rozhodnutí, částky a účetní návaznosti; nesoulad podkladů kontrolu zastaví.
+
+### Historické právní role přes API a MCP
+
+Katalog právních rolí jednotek nabízí stránkované čtení se dvěma povinnými okamžiky: `as_of` určuje účinnost a `known_at` stav tehdejší znalosti. Dostupný je seznam i detail jednotky. Oba vracejí stejnou obálku; stránka obsahuje nejvýše 100 jednotek a pokračovací kurzor je vázaný na firmu a oba okamžiky.
+
+Výstup uvádí identifikátory jednotky, domu a revize, skupiny vlastníků s přesnými podíly, identifikátory osob z adresáře a doložené delegované role. Neobsahuje jména, označení jednotek, právní podklady ani interní otisky a aktéry. Stav důkazu a upozornění na nevyřešenou revizi zůstávají součástí výstupu. Katalog vyžaduje oprávnění ke čtení evidence domů a jednotek; dostupný je také přes API token a nástroje MCP `list_property_unit_legal_roles` a `get_property_unit_legal_role`.
+
+Historická role sama nepotvrzuje finanční nárok ani oprávnění k úhradě, započtení či vratce. Tyto operace vyžadují vlastní doložený titul a samostatné oprávnění.

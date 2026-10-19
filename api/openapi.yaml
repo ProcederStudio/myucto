@@ -975,6 +975,100 @@ paths:
                 $ref: '#/components/schemas/PropertyCatalogProfile'
         '403':
           $ref: '#/components/responses/Forbidden'
+  /api/v1/property/catalog/unit-legal-roles:
+    get:
+      tags:
+      - Accounting
+      summary: Stránkovaný katalog historických právních rolí jednotek
+      description: Pouze čtení s oprávněním property. Ověřuje nativní revizní řetězec a materiální role k rozhodnému
+        okamžiku a okamžiku tehdejší znalosti. Vrací pouze identifikátory, přesné podíly, role a stav důkazu. Nevrací
+        jména, označení jednotek ani právní podklady. Výsledek neopravňuje k finanční ani právní mutaci. Detail používá
+        stejnou obálku jako seznam.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - in: query
+        name: as_of
+        required: true
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: known_at
+        required: true
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: cursor
+        schema:
+          type: string
+        description: Neprůhledný kurzor vázaný na firmu a oba okamžiky.
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 25
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PropertyLegalRolePage'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Jednotka nebyla v kontextu firmy a okamžiku znalosti nalezena.
+        '409':
+          description: Nativní revizní řetězec nebo materiální role nelze ověřit.
+        '422':
+          description: Neplatné okamžiky, identifikátor, filtr nebo kurzor.
+  /api/v1/property/catalog/unit-legal-roles/{unit_id}:
+    get:
+      tags:
+      - Accounting
+      summary: Historické právní role jednotky
+      description: Pouze čtení s oprávněním property. Ověřuje nativní revizní řetězec a materiální role k rozhodnému
+        okamžiku a okamžiku tehdejší znalosti. Vrací pouze identifikátory, přesné podíly, role a stav důkazu. Nevrací
+        jména, označení jednotek ani právní podklady. Výsledek neopravňuje k finanční ani právní mutaci. Detail používá
+        stejnou obálku jako seznam.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - in: path
+        name: unit_id
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      - in: query
+        name: as_of
+        required: true
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: known_at
+        required: true
+        schema:
+          type: string
+          format: date-time
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PropertyLegalRolePage'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Jednotka nebyla v kontextu firmy a okamžiku znalosti nalezena.
+        '409':
+          description: Nativní revizní řetězec nebo materiální role nelze ověřit.
+        '422':
+          description: Neplatné okamžiky, identifikátor, filtr nebo kurzor.
   /api/v1/property/catalog/{kind}:
     get:
       tags:
@@ -1050,6 +1144,172 @@ paths:
                 $ref: '#/components/schemas/PropertyCatalogSummary'
         '403':
           $ref: '#/components/responses/Forbidden'
+  /api/v1/accounting/catalog/nonprofit-membership/roles:
+    get:
+      tags:
+      - Accounting
+      summary: Kurátorované historické členské role
+      description: Pouze čtení s oprávněním accounting. Bez jmen, členských čísel, právních podkladů a interních otisků.
+        Výsledek neopravňuje k finanční mutaci. Detail vrací stejnou obálku jako seznam. Role se ověřují k účinnosti
+        a okamžiku tehdejší znalosti.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - in: query
+        name: as_of
+        required: true
+        schema:
+          type: string
+          format: date
+      - in: query
+        name: known_at
+        schema:
+          type: string
+          format: date-time
+        description: Okamžik tehdejší znalosti. Při vynechání jej určí první stránka a připne pokračovací kurzor.
+      - in: query
+        name: cursor
+        schema:
+          type: string
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 25
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NonprofitMembershipRolePage'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Záznam v kontextu firmy a filtru neexistuje.
+        '409':
+          description: Nativní podklady se nepodařilo ověřit.
+        '422':
+          description: Neplatný filtr nebo kurzor.
+  /api/v1/accounting/catalog/nonprofit-membership/roles/{member_id}:
+    get:
+      tags:
+      - Accounting
+      summary: Kurátorované historické členské role
+      description: Pouze čtení s oprávněním accounting. Bez jmen, členských čísel, právních podkladů a interních otisků.
+        Výsledek neopravňuje k finanční mutaci. Detail vrací stejnou obálku jako seznam. Role se ověřují k účinnosti
+        a okamžiku tehdejší znalosti.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - in: path
+        name: member_id
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      - in: query
+        name: as_of
+        required: true
+        schema:
+          type: string
+          format: date
+      - in: query
+        name: known_at
+        schema:
+          type: string
+          format: date-time
+        description: Okamžik tehdejší znalosti. Při vynechání jej určí první stránka a připne pokračovací kurzor.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NonprofitMembershipRolePage'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Záznam v kontextu firmy a filtru neexistuje.
+        '409':
+          description: Nativní podklady se nepodařilo ověřit.
+        '422':
+          description: Neplatný filtr nebo kurzor.
+  /api/v1/accounting/catalog/nonprofit-membership/receivables:
+    get:
+      tags:
+      - Accounting
+      summary: Kurátorované členské pohledávky
+      description: Pouze čtení s oprávněním accounting. Bez jmen, členských čísel, právních podkladů a interních otisků.
+        Výsledek neopravňuje k finanční mutaci. Detail vrací stejnou obálku jako seznam. Úhrady vycházejí pouze ze
+        současných nativních bankovních a pokladních párování. Neprokázané částky zůstávají null. Historické datum
+        úhrad se nepřijímá.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - in: query
+        name: member_id
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      - in: query
+        name: cursor
+        schema:
+          type: string
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 25
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NonprofitMembershipReceivablePage'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Záznam v kontextu firmy a filtru neexistuje.
+        '409':
+          description: Nativní podklady se nepodařilo ověřit.
+        '422':
+          description: Neplatný filtr nebo kurzor.
+  /api/v1/accounting/catalog/nonprofit-membership/receivables/{claim_id}:
+    get:
+      tags:
+      - Accounting
+      summary: Kurátorované členské pohledávky
+      description: Pouze čtení s oprávněním accounting. Bez jmen, členských čísel, právních podkladů a interních otisků.
+        Výsledek neopravňuje k finanční mutaci. Detail vrací stejnou obálku jako seznam. Úhrady vycházejí pouze ze
+        současných nativních bankovních a pokladních párování. Neprokázané částky zůstávají null. Historické datum
+        úhrad se nepřijímá.
+      parameters:
+      - $ref: '#/components/parameters/SupplierIdHeader'
+      - in: path
+        name: claim_id
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NonprofitMembershipReceivablePage'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Záznam v kontextu firmy a filtru neexistuje.
+        '409':
+          description: Nativní podklady se nepodařilo ověřit.
+        '422':
+          description: Neplatný filtr nebo kurzor.
   /api/v1/accounting/periods/{id}/nonprofit-legal-profile:
     get:
       tags: [Accounting]
@@ -41388,7 +41648,7 @@ components:
           - 'null'
         source_type:
           type: string
-          enum: [invoice, purchase_invoice, bank, cash, asset, manual, closing, opening, depreciation, asset_disposal, fx_revaluation, stock, provision, income_tax, profit_distribution, offset, small_asset_accrual, prepaid_expense_accrual, settlement, deferred_tax, payroll, vat_clearing, unit_charge, payroll_payment, gopay, card_settlement, card_writeoff, other_item, payroll_accident_insurance, payroll_travel, deferred_revenue_accrual, unit_payment, unit_payment_revision, property_service_settlement, property_service_lifecycle, property_funding, nonprofit_capital]
+          enum: [invoice, purchase_invoice, bank, cash, asset, manual, closing, opening, depreciation, asset_disposal, fx_revaluation, stock, provision, income_tax, profit_distribution, offset, small_asset_accrual, prepaid_expense_accrual, settlement, deferred_tax, payroll, vat_clearing, unit_charge, payroll_payment, gopay, card_settlement, card_writeoff, other_item, payroll_accident_insurance, payroll_travel, deferred_revenue_accrual, unit_payment, unit_payment_revision, property_service_settlement, property_service_lifecycle, property_funding, nonprofit_capital, nonprofit_membership]
           description: Původ zápisu. Doména odpovídá sloupci `journal_entries.source_type` v aktuálním otisku migrací.
         source_id:
           type:
@@ -59385,3 +59645,438 @@ components:
         scope:
           type: string
           const: opening_journals_only
+    PropertyLegalRoleOwnershipGroup:
+      type: object
+      additionalProperties: false
+      required:
+      - ownership_group_id
+      - kind
+      - share
+      - member_ids
+      properties:
+        ownership_group_id:
+          type: integer
+          minimum: 1
+        kind:
+          type: string
+          enum:
+          - single
+          - coownership_share
+          - marital_community
+        share:
+          type: object
+          additionalProperties: false
+          required:
+          - num
+          - den
+          properties:
+            num:
+              type: string
+              pattern: ^[0-9]+$
+            den:
+              type: string
+              pattern: ^[1-9][0-9]*$
+        member_ids:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+          description: Identifikátory osob v adresáři klientů.
+    PropertyLegalRoleDelegation:
+      type: object
+      additionalProperties: false
+      required:
+      - role_id
+      - client_id
+      - role
+      - scopes
+      properties:
+        role_id:
+          type: integer
+          minimum: 1
+        client_id:
+          type: integer
+          minimum: 1
+        role:
+          type: string
+          enum:
+          - payer
+          - representative
+          - delivery
+        scopes:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum:
+            - communication
+            - delivery
+            - voting
+            - payment_instruction
+            - setoff
+            - refund_instruction
+    PropertyLegalRoleItem:
+      type: object
+      additionalProperties: false
+      required:
+      - unit_id
+      - house_id
+      - revision_id
+      - revision_no
+      - effective_from
+      - effective_to
+      - recorded_at
+      - active
+      - ownership_groups
+      - delegated_roles
+      - pending_revision_count
+      - ownership_review_required
+      - role_proof_status
+      - verified_revision_count
+      properties:
+        unit_id:
+          type: integer
+          minimum: 1
+        house_id:
+          type: integer
+          minimum: 1
+        revision_id:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+        revision_no:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+        effective_from:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        effective_to:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        recorded_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        active:
+          type:
+          - boolean
+          - 'null'
+        ownership_groups:
+          type: array
+          items:
+            $ref: '#/components/schemas/PropertyLegalRoleOwnershipGroup'
+        delegated_roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/PropertyLegalRoleDelegation'
+        pending_revision_count:
+          type: integer
+          minimum: 0
+        ownership_review_required:
+          type: boolean
+        role_proof_status:
+          type: string
+          enum:
+          - verified
+          - unavailable
+        verified_revision_count:
+          type: integer
+          minimum: 0
+    PropertyLegalRolePage:
+      type: object
+      additionalProperties: false
+      required:
+      - as_of
+      - known_at
+      - items
+      - next_cursor
+      - proof_basis
+      - financial_authorization
+      properties:
+        as_of:
+          type: string
+          format: date-time
+        known_at:
+          type: string
+          format: date-time
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/PropertyLegalRoleItem'
+        next_cursor:
+          type:
+          - string
+          - 'null'
+        proof_basis:
+          type: string
+          const: native_append_only_revision_chain_and_materialized_roles
+        financial_authorization:
+          type: boolean
+          const: false
+    NonprofitMembershipRoleItem:
+      type: object
+      additionalProperties: false
+      required:
+      - member_id
+      - client_id
+      - revision_id
+      - revision_no
+      - previous_revision_id
+      - role
+      - status
+      - effective_from
+      - effective_to
+      - recorded_at
+      - proof_status
+      - recorded_time_status
+      properties:
+        member_id:
+          type: integer
+          minimum: 1
+        client_id:
+          type: integer
+          minimum: 1
+        revision_id:
+          type: integer
+          minimum: 1
+        revision_no:
+          type: integer
+          minimum: 1
+        previous_revision_id:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+        role:
+          type: string
+          const: association_member
+        status:
+          type: string
+          enum:
+          - active
+          - suspended
+          - ended
+        effective_from:
+          type: string
+          format: date
+        effective_to:
+          type:
+          - string
+          - 'null'
+          format: date
+        recorded_at:
+          type: string
+          format: date-time
+        proof_status:
+          type: string
+          const: verified
+        recorded_time_status:
+          type: string
+          const: proven_utc
+    NonprofitMembershipReceivableSettlement:
+      type: object
+      additionalProperties: false
+      required:
+      - status
+      - paid_cents
+      - open_cents
+      - pairing_id
+      properties:
+        status:
+          type: string
+          enum:
+          - reversed
+          - ambiguous
+          - unreconciled
+          - settled
+          - partially_settled
+        paid_cents:
+          type:
+          - string
+          - 'null'
+          pattern: ^-?(?:0|[1-9][0-9]*)$
+        open_cents:
+          type:
+          - string
+          - 'null'
+          pattern: ^-?(?:0|[1-9][0-9]*)$
+        pairing_id:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+    NonprofitMembershipReceivableItem:
+      type: object
+      additionalProperties: false
+      required:
+      - claim_id
+      - case_id
+      - operation_id
+      - member_id
+      - client_id
+      - member_revision_id
+      - legal_profile_id
+      - accounting_period_id
+      - journal_entry_id
+      - receivable_line_id
+      - revenue_line_id
+      - accounting_date
+      - due_date
+      - period_from
+      - period_to
+      - amount_cents
+      - reversal_claim_id
+      - settlement
+      - recorded_at
+      - proof_status
+      - knowledge
+      - recorded_time_status
+      properties:
+        claim_id:
+          type: integer
+          minimum: 1
+        case_id:
+          type: integer
+          minimum: 1
+        operation_id:
+          type: integer
+          minimum: 1
+        member_id:
+          type: integer
+          minimum: 1
+        client_id:
+          type: integer
+          minimum: 1
+        member_revision_id:
+          type: integer
+          minimum: 1
+        legal_profile_id:
+          type: integer
+          minimum: 1
+        accounting_period_id:
+          type: integer
+          minimum: 1
+        journal_entry_id:
+          type: integer
+          minimum: 1
+        receivable_line_id:
+          type: integer
+          minimum: 1
+        revenue_line_id:
+          type: integer
+          minimum: 1
+        accounting_date:
+          type: string
+          format: date
+        due_date:
+          type: string
+          format: date
+        period_from:
+          type: string
+          format: date
+        period_to:
+          type: string
+          format: date
+        amount_cents:
+          type: string
+          pattern: ^-?(?:0|[1-9][0-9]*)$
+        reversal_claim_id:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+        settlement:
+          $ref: '#/components/schemas/NonprofitMembershipReceivableSettlement'
+        recorded_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        proof_status:
+          type: string
+          const: verified
+        knowledge:
+          type: string
+          const: current_native_pairings
+        recorded_time_status:
+          type: string
+          enum:
+          - proven_utc
+          - unproven
+    NonprofitMembershipRolePage:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - next_cursor
+      - proof_status
+      - financial_authorization
+      - as_of
+      - known_at
+      - temporal_basis
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/NonprofitMembershipRoleItem'
+        next_cursor:
+          type:
+          - string
+          - 'null'
+        proof_status:
+          type: string
+          const: verified
+        financial_authorization:
+          type: boolean
+          const: false
+        as_of:
+          type: string
+          format: date
+        known_at:
+          type: string
+          format: date-time
+        temporal_basis:
+          type: string
+          const: effective_as_of_and_recorded_by_known_at
+    NonprofitMembershipReceivablePage:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - next_cursor
+      - proof_status
+      - financial_authorization
+      - knowledge
+      - settlement_coverage
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/NonprofitMembershipReceivableItem'
+        next_cursor:
+          type:
+          - string
+          - 'null'
+        proof_status:
+          type: string
+          const: verified
+        financial_authorization:
+          type: boolean
+          const: false
+        knowledge:
+          type: string
+          const: current_ledger_and_native_pairings
+        settlement_coverage:
+          type: string
+          const: native_bank_cash_pairings_only

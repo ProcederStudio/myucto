@@ -2558,6 +2558,8 @@ final class Routes
             $g->post('/charges/versions', [\MyInvoice\Action\Property\Charges\ChargeAction::class, 'saveVersion']);
             $g->get('/catalog/profile', [\MyInvoice\Action\Property\PropertyAction::class, 'catalogProfile']);
             $g->get('/catalog/summary', [\MyInvoice\Action\Property\PropertyAction::class, 'summary']);
+            $g->get('/catalog/unit-legal-roles', [\MyInvoice\Action\Property\Catalog\PropertyLegalRoleCatalogAction::class, 'list']);
+            $g->get('/catalog/unit-legal-roles/{unit_id:[0-9]+}', [\MyInvoice\Action\Property\Catalog\PropertyLegalRoleCatalogAction::class, 'detail']);
             $g->get('/catalog/{kind:houses|units|services}', [\MyInvoice\Action\Property\PropertyAction::class, 'catalogList']);
             $g->get('/profile', [\MyInvoice\Action\Property\PropertyAction::class, 'profile']);
             $g->post('/profile', [\MyInvoice\Action\Property\PropertyAction::class, 'saveProfile']);
@@ -2576,6 +2578,10 @@ final class Routes
         // Vše tenant-scoped (ATTR_CURRENT_ID). Zápisy = účetní|admin, GET = readonly+;
         // změna stavu období = admin (PermissionMiddleware + guard v Action).
         $app->group('/api/accounting', function ($g) {
+            $g->get('/catalog/nonprofit-membership/roles', [\MyInvoice\Action\Nonprofit\Catalog\MembershipResourceCatalogAction::class, 'roles']);
+            $g->get('/catalog/nonprofit-membership/roles/{member_id:[0-9]+}', [\MyInvoice\Action\Nonprofit\Catalog\MembershipResourceCatalogAction::class, 'roles']);
+            $g->get('/catalog/nonprofit-membership/receivables', [\MyInvoice\Action\Nonprofit\Catalog\MembershipResourceCatalogAction::class, 'receivables']);
+            $g->get('/catalog/nonprofit-membership/receivables/{claim_id:[0-9]+}', [\MyInvoice\Action\Nonprofit\Catalog\MembershipResourceCatalogAction::class, 'receivables']);
             $g->get('/catalog/context', [\MyInvoice\Action\Accounting\Catalog\AccountingContextAction::class, 'get']);
             $g->get('/catalog/nonprofit-funding', [\MyInvoice\Action\Nonprofit\Catalog\NonprofitResourceCatalogAction::class, 'funding']);
             $g->get('/catalog/nonprofit-funding/{id:[0-9]+}', [\MyInvoice\Action\Nonprofit\Catalog\NonprofitResourceCatalogAction::class, 'funding']);
