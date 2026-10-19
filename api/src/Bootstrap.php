@@ -227,6 +227,9 @@ final class Bootstrap
                 )->constructorParameter(
                     'awaitingRuns',
                     \DI\get(\MyInvoice\Service\Payroll\Submission\PayrollAwaitingRunDutyService::class),
+                )->constructorParameter(
+                    'signingProfiles',
+                    \DI\get(\MyInvoice\Repository\Payroll\PayrollSigningProfileRepository::class),
                 ),
             \MyInvoice\Service\Payroll\Submission\Sickness\SicknessCaseFromAbsenceService::class =>
                 \DI\autowire()->constructorParameter(

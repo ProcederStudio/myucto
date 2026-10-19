@@ -1910,6 +1910,12 @@
     "refresh_failed": "Rozsah se nepodařilo aktualizovat. Zkuste to prosím za chvíli."
   },
   "payroll": {
+    "dispatch_mode": {
+      "label": "Odeslat přes",
+      "vrep": "VREP ČSSZ (podpisový certifikát)",
+      "isds": "Datovou schránku",
+      "fallback": "Podpisový certifikát pro VREP není zvolený, podání odejde datovou schránkou."
+    },
     "production_send": {
       "title": "Odeslání do ostrého prostředí",
       "irreversible": "Podání odejde skutečnému úřadu a vzít zpět už nepůjde.",
@@ -7651,17 +7657,12 @@
           "prepare_all": "Jen připravit vše ({count})",
           "prepare_all_summary": "Připraveno podání: {prepared}. Nepovedlo se: {failed}. Nic se neodeslalo.",
           "working": "Připravuji a odesílám…",
-          "bar_hint": "Za tento měsíc čeká na odeslání {count} podání. Nepřipravená se připraví ze schválené revize mzdového běhu, pak jedním potvrzením odejdou: JMHZ přes VREP ČSSZ, přehledy pojišťovnám do datových schránek.",
+          "bar_hint": "Za tento měsíc čeká na odeslání {count} podání. Nepřipravená se připraví ze schválené revize mzdového běhu, pak jedním potvrzením odejdou: JMHZ přes VREP ČSSZ, je-li zvolený podpisový certifikát, jinak datovou schránkou; přehledy pojišťovnám do datových schránek. Způsob přihlášení k datové schránce zvolíte při odeslání.",
           "bar_nothing": "Všechno připravené už odešlo.",
           "confirm": "Odeslat {count} podání do ostrého prostředí úřadů?",
           "channel_vrep": "VREP ČSSZ (certifikát)",
           "channel_isds": "datová schránka",
           "summary": "Předáno úřadům: {sent}. Do datových schránek připraveno: {databox}. Nepovedlo se: {failed}.",
-          "mobile_key_hint": "Zprávy do datových schránek ({count}) odešlete jedním potvrzením Mobilního klíče - každá jde do schránky své pojišťovny nebo úřadu.",
-          "gateway_hint": "Odesílací brána schvaluje každý koncept v datové schránce zvlášť ({count}). Jedním potvrzením pro všechny zprávy odešlete jen Mobilním klíčem - nastavíte ho v Datové schránce.",
-          "gateway_action": "Schválit koncept v datovce {current}/{total}",
-          "manual_hint": "Zprávy ({count}) čekají v odchozí frontě datové schránky k ručnímu odeslání.",
-          "open_databox": "Otevřít datovou schránku",
           "databox_sent": "Odesláno do datových schránek: {sent}. Nepovedlo se: {failed}.",
           "receipts_following": "Doručenky se v téže relaci Mobilního klíče dotahují samy (několik minut). Přehled pojišťovně je podaný doručením do její schránky.",
           "load_receipts_count": "Načíst doručenky ({count})",
@@ -8385,6 +8386,7 @@
           "select": "Vybrat k hromadnému odeslání",
           "selected": "Vybráno: {count}",
           "action": "Odeslat vybraná podání ({count}) Mobilním klíčem",
+          "send_isds": "Odeslat vybraná podání ({count}) datovou schránkou",
           "intro": "V jedné relaci Mobilního klíče odešlete najednou {count} vybraných podání - jedno potvrzení v mobilu stačí na všechna.",
           "sent_summary": "Odesláno {dispatched} z {total} vybraných podání. Zkontrolujte stav u těch, které se neodeslaly."
         },
@@ -8725,6 +8727,8 @@
         "send_selected": "Odeslat vybrané ({count})",
         "batch_progress": "Odesílám… {done} z {total}",
         "batch_summary": "Odesláno {sent}, selhalo {failed}.",
+        "isds_pending_title": "Dokončete odeslání datovou schránkou",
+        "isds_continue": "Odeslat datovkou",
         "filter_agenda": "Agenda",
         "filter_all": "Všechny agendy",
         "sort": "Řadit",
@@ -29959,6 +29963,14 @@
       "notDispatched": "Přihlášení proběhlo, ale zpráva se neodeslala. Zkontrolujte její stav v odchozích podáních.",
       "forbidden": "Odesílat datovou schránkou smí jen uživatel s oprávněním k elektronickým podpisům a datové schránce. Požádejte správce o oprávnění, nebo zprávu odešlete ručně z odchozích podání.",
       "openOutbox": "Otevřít v odchozích podáních",
+      "batch": {
+        "intro": "Vybraná podání ({count}) odešlete jedním přihlášením. Každé jde do schránky svého úřadu nebo pojišťovny.",
+        "gatewayUnavailable": "Odesílací brána schvaluje každý koncept v datové schránce zvlášť, pro hromadné odeslání ji proto nenabízíme. Zvolte jiný způsob, nebo zprávy odešlete jednotlivě.",
+        "submit": "Odeslat {count} podání",
+        "certificateConfirm": "Potvrzuji odeslání {count} zpráv systémovým certifikátem firmy.",
+        "sentSummary": "Odesláno {dispatched} z {total} podání.",
+        "failed": "Podání se nepodařilo odeslat."
+      },
       "gateway": {
         "title": "Odesílací brána",
         "description": "Aplikace připraví zprávu jako koncept ve vaší datové schránce. Přihlásíte se a odeslání schválíte přímo v ISDS.",

@@ -1910,6 +1910,12 @@
     "refresh_failed": "Could not refresh the limits. Please try again shortly."
   },
   "payroll": {
+    "dispatch_mode": {
+      "label": "Send via",
+      "vrep": "CSSZ VREP (signing certificate)",
+      "isds": "Data box",
+      "fallback": "No signing certificate is selected for VREP, so the submission goes via the data box."
+    },
     "production_send": {
       "title": "Send to production",
       "irreversible": "The submission goes to the real authority and cannot be taken back.",
@@ -7651,17 +7657,12 @@
           "prepare_all": "Prepare all only ({count})",
           "prepare_all_summary": "Submissions prepared: {prepared}. Failed: {failed}. Nothing was sent.",
           "working": "Preparing and sending…",
-          "bar_hint": "{count} submissions are waiting to be sent for this month. Unprepared ones are prepared from the approved payroll run revision, then sent with one confirmation: JMHZ via the CSSA VREP, insurer overviews to data boxes.",
+          "bar_hint": "{count} submissions are waiting to be sent for this month. Unprepared ones are prepared from the approved payroll run revision, then sent with one confirmation: JMHZ via the CSSA VREP if a signing certificate is selected, otherwise via the data box; insurer overviews to data boxes. You choose how to sign in to the data box when sending.",
           "bar_nothing": "Everything prepared has been sent.",
           "confirm": "Send {count} submissions to the authorities' production environment?",
           "channel_vrep": "CSSA VREP (certificate)",
           "channel_isds": "data box",
           "summary": "Handed over to authorities: {sent}. Queued for data boxes: {databox}. Failed: {failed}.",
-          "mobile_key_hint": "Send the data box messages ({count}) with a single Mobile Key confirmation — each goes to the data box of its insurer or authority.",
-          "gateway_hint": "The sending gateway approves every draft in the data box separately ({count}). Only the Mobile Key sends all messages with one confirmation — set it up under Data box.",
-          "gateway_action": "Approve draft in data box {current}/{total}",
-          "manual_hint": "Messages ({count}) are waiting in the data box outbox to be sent manually.",
-          "open_databox": "Open data box",
           "databox_sent": "Sent to data boxes: {sent}. Failed: {failed}.",
           "receipts_following": "Delivery receipts are being fetched in the same Mobile Key session (a few minutes). An insurer overview is filed by delivery to the insurer's data box.",
           "load_receipts_count": "Load delivery receipts ({count})",
@@ -8385,6 +8386,7 @@
           "select": "Select for bulk sending",
           "selected": "Selected: {count}",
           "action": "Send selected filings ({count}) via Mobile Key",
+          "send_isds": "Send selected filings ({count}) via data box",
           "intro": "One Mobile Key session sends all {count} selected filings at once — a single confirmation in the app covers them all.",
           "sent_summary": "Sent {dispatched} of {total} selected filings. Check the status of any that were not sent."
         },
@@ -8725,6 +8727,8 @@
         "send_selected": "Send selected ({count})",
         "batch_progress": "Sending… {done} of {total}",
         "batch_summary": "Sent {sent}, failed {failed}.",
+        "isds_pending_title": "Finish sending via the data box",
+        "isds_continue": "Send via data box",
         "filter_agenda": "Agenda",
         "filter_all": "All agendas",
         "sort": "Sort",
@@ -29959,6 +29963,14 @@
       "notDispatched": "Sign-in succeeded, but the message was not sent. Check its status in the outgoing submissions.",
       "forbidden": "Only users with the electronic signatures and data box permission can send via the data box. Ask an administrator for the permission, or send the message manually from the outgoing submissions.",
       "openOutbox": "Open in outgoing submissions",
+      "batch": {
+        "intro": "Send the selected submissions ({count}) with a single sign-in. Each goes to the data box of its authority or insurer.",
+        "gatewayUnavailable": "The sending gateway approves every draft in the data box separately, so it is not offered for bulk sending. Choose another method, or send the messages one by one.",
+        "submit": "Send {count} submissions",
+        "certificateConfirm": "I confirm sending {count} messages with the company system certificate.",
+        "sentSummary": "Sent {dispatched} of {total} submissions.",
+        "failed": "The submissions could not be sent."
+      },
       "gateway": {
         "title": "Sending gateway",
         "description": "The application prepares the message as a draft in your data box. You sign in and approve the sending directly in ISDS.",
