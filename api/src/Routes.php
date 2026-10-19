@@ -3505,6 +3505,12 @@ final class Routes
         // přihlášení k ISDS není vázané na jedno konkrétní podání.
         $app->post   ('/api/submissions/outbox/mobile-key/start-batch',   [\MyInvoice\Action\Submission\SubmissionOutboxAction::class, 'mobileKeyStartBatch']);
         $app->post   ('/api/submissions/outbox/mobile-key/confirm-batch', [\MyInvoice\Action\Submission\SubmissionOutboxAction::class, 'mobileKeyConfirmBatch']);
+        // Dávka ostatními způsoby přihlášení: jedno zadání údajů (heslo, SMS
+        // kód, potvrzení certifikátu) pro všechna vybraná podání.
+        $app->post   ('/api/submissions/outbox/password-send-batch',    [\MyInvoice\Action\Submission\SubmissionOutboxAction::class, 'passwordSendBatch']);
+        $app->post   ('/api/submissions/outbox/certificate-send-batch', [\MyInvoice\Action\Submission\SubmissionOutboxAction::class, 'certificateSendBatch']);
+        $app->post   ('/api/submissions/outbox/sms/start-batch',        [\MyInvoice\Action\Submission\SubmissionOutboxAction::class, 'smsStartBatch']);
+        $app->post   ('/api/submissions/outbox/sms/complete-batch',     [\MyInvoice\Action\Submission\SubmissionOutboxAction::class, 'smsCompleteBatch']);
         $app->post   ('/api/submissions/outbox/{id:[0-9]+}/resolve',  [\MyInvoice\Action\Submission\SubmissionOutboxAction::class, 'resolve']);
         $app->post   ('/api/submissions/outbox/{id:[0-9]+}/cancel',   [\MyInvoice\Action\Submission\SubmissionOutboxAction::class, 'cancel']);
         // Trvalé smazání ZRUŠENÉ zprávy, která nikdy neopustila aplikaci.
