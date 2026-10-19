@@ -502,8 +502,27 @@ final class JournalEntryRepository
     }
 
     /**
-     * Existující zápis pro zdrojový doklad (idempotence zaúčtování).
+     * Poslední zápisy pro dávku zdrojů bez dotazu pro každý rok odpisů.
      */
+    public function latestBySourceIds(int $supplierId, string $sourceType, array $sourceIds): array
+    {
+        if ($sourceIds === []) return [];
+        $placeholders = implode(',', array_fill(0, count($sourceIds), '?'));
+        $stmt = $this->db->pdo()->prepare(
+            "WITH ranked AS (
+                SELECT id, source_id, reversed_by,
+                       ROW_NUMBER() OVER (PARTITION BY source_id ORDER BY id DESC) AS position
+                  FROM journal_entries
+                 WHERE supplier_id = ? AND source_type = ? AND source_id IN ($placeholders)
+            ) SELECT id, source_id, reversed_by FROM ranked WHERE position = 1"
+        );
+        $stmt->execute([$supplierId, $sourceType, ...$sourceIds]);
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) $out[(int) $row['source_id']] = $row;
+        return $out;
+    }
+
+    /** Existující zápis pro zdrojový doklad (idempotence zaúčtování). */
     public function findBySource(int $supplierId, string $sourceType, int $sourceId): ?array
     {
         $stmt = $this->db->pdo()->prepare(

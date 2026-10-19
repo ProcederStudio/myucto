@@ -143,7 +143,7 @@ final class AnonymizationPolicy
         'ai_suggestions' => ['input_hash' => 'keep', 'model' => 'keep', 'payload_json' => 'json', 'prompt_version' => 'keep', 'provider' => 'keep', 'reasoning' => 'text'],
         'app_meta' => ['k' => 'keep', 'v' => 'keep'],
         'asset_improvements' => ['description' => 'text'],
-        'assets' => ['accumulated_account_code' => 'keep', 'acquisition_account_code' => 'keep', 'asset_account_code' => 'keep', 'depreciator_note' => 'text', 'description' => 'text', 'inventory_number' => 'keep', 'name' => 'text', 'summary_account_code' => 'keep'],
+        'assets' => ['accumulated_account_code' => 'keep', 'acquisition_account_code' => 'keep', 'asset_account_code' => 'keep', 'depreciator_note' => 'text', 'description' => 'text', 'imported_depreciation_plan' => 'json', 'inventory_number' => 'keep', 'name' => 'text', 'summary_account_code' => 'keep'],
         'attachment_checks' => ['ack_fingerprint' => 'keep', 'ack_reason' => 'text', 'entity_type' => 'keep', 'findings' => 'json', 'fingerprint' => 'keep', 'sha256' => 'keep'],
         'auto_posting_policy' => ['operation_type' => 'keep'],
         'automation_recommendation_items' => ['payload' => 'json', 'recommendation_id' => 'keep', 'recommendation_type' => 'keep'],
