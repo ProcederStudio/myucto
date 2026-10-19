@@ -1109,7 +1109,24 @@
       "remote_unavailable": "The service is not responding, try again later.",
       "encryption_key_unavailable": "The application has no encryption key set (app.secret_encryption_key)."
     },
-    "odosrc_providers": {},
+    "odosrc_providers": {
+      "bmw_cardata": {
+        "short": "BMW",
+        "description": "BMW cars linked to your My BMW app account as the primary user.",
+        "steps": [
+          "In the MyBMW portal open CarData and click “Create CarData Client”.",
+          "Subscribe the client to the “CarData API” service and wait about a minute.",
+          "Copy the client ID and paste it here. Then you will sign in at BMW."
+        ],
+        "field_client_id": "Client ID",
+        "err": {
+          "invalid_input": "The client ID was not accepted. Check it in the MyBMW portal and that the CarData API service is enabled.",
+          "rate_limited": "BMW daily request limit (50) reached. Try again tomorrow.",
+          "vehicle_not_permitted": "You have no BMW CarData access to this car (you must be the primary user).",
+          "container_limit": "Too many containers in BMW CarData. Delete unused ones in the MyBMW portal."
+        }
+      }
+    },
     "tab_templates": "Regular trips",
     "templates_hint": "Trips you drive repeatedly. A regular trip fills in a new trip or the missing kilometres from the odometer reading in one click.",
     "no_templates": "You have no regular trips yet.",

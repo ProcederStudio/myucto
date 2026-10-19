@@ -39406,7 +39406,7 @@ components:
         reading_date: { type: string, format: date }
         reading_time: { type: [string, "null"] }
         odometer: { type: integer }
-        source: { type: string, enum: [manual], description: "manual = ruční zápis, ostatní = denní stav ze zdroje automatického stavu tachometru (kód zdroje)" }
+        source: { type: string, enum: [manual, bmw_cardata], description: "manual = ruční zápis, ostatní = denní stav ze zdroje automatického stavu tachometru (bmw_cardata = BMW CarData)" }
         note: { type: [string, "null"] }
         created_at: { type: string }
     OdometerReadingInput:

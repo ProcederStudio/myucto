@@ -1109,7 +1109,24 @@
       "remote_unavailable": "Služba teď neodpovídá, zkuste to později.",
       "encryption_key_unavailable": "Aplikace nemá nastavený šifrovací klíč (app.secret_encryption_key)."
     },
-    "odosrc_providers": {},
+    "odosrc_providers": {
+      "bmw_cardata": {
+        "short": "BMW",
+        "description": "Auta BMW, ke kterým máte účet v aplikaci My BMW jako hlavní uživatel.",
+        "steps": [
+          "V portálu MyBMW otevřete CarData a klikněte na „Create CarData Client“.",
+          "U klienta zapněte službu „CarData API“ a počkejte asi minutu.",
+          "Zkopírujte client ID a vložte ho sem. Pak se v dalším kroku přihlásíte u BMW."
+        ],
+        "field_client_id": "Client ID",
+        "err": {
+          "invalid_input": "Client ID nebylo přijato. Zkontrolujte ho v portálu MyBMW a že je zapnutá služba CarData API.",
+          "rate_limited": "Vyčerpán denní limit dotazů BMW (50). Zkuste to zítra.",
+          "vehicle_not_permitted": "K tomuto autu nemáte v BMW CarData přístup (musíte být hlavní uživatel).",
+          "container_limit": "V BMW CarData je moc kontejnerů. Smažte nepoužívané v portálu MyBMW."
+        }
+      }
+    },
     "tab_templates": "Pravidelné cesty",
     "templates_hint": "Cesty, které jezdíte opakovaně. Z pravidelné cesty se jedním klikem vyplní nová jízda i doplnění km podle stavu tachometru.",
     "no_templates": "Zatím nemáte žádnou pravidelnou cestu.",

@@ -57,7 +57,7 @@ má vždy přednost před oběma.
 | `cron-backup-personnel.{cmd,sh}` | ZIP personálních spisů zaměstnanců (`storage/payroll-personnel/`) do `storage/backup/{dbname}-personnel-YYYY-MM-DD.zip`, stejná retention. Záměrně oddělené od mzdové zálohy i od Dokumentů (soukromá data). Soubory jsou šifrované klíčem zaměstnance, obnovují se spolu s dumpem databáze, pro člověka přikládá `MANIFEST.csv` |
 | `cron-bank-scan.{cmd,sh}` | Auto-import nových GPC výpisů z `private/bank-incoming/` + matching plateb na faktury |
 | `cron-bank-connections.{cmd,sh}` | Načtení výpisů a pohybů z aktivních přímých bankovních konektorů do společného importu a párování; ČSOB současně kontroluje výpisy GPC a průběžná avíza BBF, opakované pohyby deduplikuje |
-| `cron-logbook-odometer-source.{cmd,sh}` | Denní stav tachometru z aut napojených na zdroj automatického stavu tachometru do Knihy jízd (podklad pro km k doplnění); zároveň udržuje přihlášení u služby, které by jinak propadlo |
+| `cron-logbook-odometer-source.{cmd,sh}` | Denní stav tachometru z aut napojených na zdroj automatického stavu tachometru (BMW CarData, …) do Knihy jízd (podklad pro km k doplnění); zároveň udržuje přihlášení u služby, které by jinak propadlo (BMW po 14 dnech) |
 | `cron-bank-email-notices.{cmd,sh}` | IMAP polling bankovních e-mailových avíz, parsování plateb a matching na faktury (konfigurace v **Admin → Bankovní účty**) |
 | `cron-scan-purchase-inbox.{cmd,sh}` | Import nových přijatých dokladů z nastaveného inbox adresáře |
 | `cron-payment-thanks.{cmd,sh}` | Každou minutu zpracuje poděkování za potvrzené úhrady a odložené e-maily; během otevřené účetní transakce se nic neodesílá |
