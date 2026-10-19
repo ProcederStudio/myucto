@@ -27,6 +27,19 @@ final class PropertyDimensionPolicy
         $this->assertWindow($supplierId, $start->format('Y-m-d\TH:i:sP'), $start->modify('+1 day')->format('Y-m-d\TH:i:sP'), $lines, $previousLines);
     }
 
+    public function assertAccountingDateBatch(int $supplierId,array $documents):void
+    {
+        $byDate=[];
+        foreach($documents as$document){
+            $date=(string)($document['accounting_date']??'');$lines=$document['lines']??null;
+            if($date===''||!is_array($lines)||$lines===[])throw new \LogicException('Invalid property dimension batch.');
+            $byDate[$date]??=[];
+            array_push($byDate[$date],...$lines);
+        }
+        ksort($byDate,SORT_STRING);
+        foreach($byDate as$date=>$lines)$this->assertAccountingDate($supplierId,$date,$lines);
+    }
+
     public function assertNonprofitCapitalJournal(array $header,array $lines,\MyInvoice\Service\Nonprofit\Capital\CapitalJournalProof $proof):void
     {
         $carried=$proof->indices($this->db,$header,$lines);$date=(string)$header['entry_date'];

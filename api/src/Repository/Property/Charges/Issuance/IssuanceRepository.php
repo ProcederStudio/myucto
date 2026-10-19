@@ -107,30 +107,50 @@ final class IssuanceRepository
         (new PropertyProfileRepository($this->db))->assertEnabledLocked($supplier,self::instant());
         $version=(new ChargeReadRepository($this->db))->find($supplier,$batch['version_id'],true);
         if($version['preview_hash']!==$batch['snapshot']['version_preview_hash']) IssuanceReadRepository::corrupt();
-        $proof=new IssuanceJournalProof($this->db);
-        foreach($batch['charges'] as $charge) {
+        $proof=new IssuanceJournalProof($this->db);$batchContext=null;$postingDocuments=[];$positive=$correction===null;$drafts=[];
+        foreach($batch['charges']as$charge)if($charge['status']==='draft'){
+            $document=$this->postingDocument($charge,$actor);$postingDocuments[$charge['id']]=$document;$drafts[]=$charge;
+            foreach($charge['snapshot']['lines']as$line)if(bccomp($line['amount_cents'],'0',0)<0)$positive=false;
+        }
+        if($positive&&$postingDocuments!==[]){
+            (new \MyInvoice\Service\Property\Payments\PaymentUseGuard($this->db))->assertPositiveChargePostingBatchAllowed($supplier,$drafts);
+            $locks->assertFrameworks($supplier,array_column($drafts,'accounting_date'));
+            (new PropertyDimensionPolicy($this->db))->assertAccountingDateBatch($supplier,array_map(static fn(array $charge,array $document):array=>[
+                'accounting_date'=>$charge['accounting_date'],'lines'=>$document['lines']],$drafts,array_values($postingDocuments)));
+            $batchContext=$this->posting->preflightPropertyIssuanceBatch($supplier,array_values($postingDocuments));
+        }
+        try{foreach($batch['charges'] as $charge) {
             if($charge['status']!=='draft') continue;
-            if($correction===null){
-                try{(new \MyInvoice\Service\Property\Payments\PaymentUseGuard($this->db))->assertChargePostingAllowed($supplier,$charge['id']);}
-                catch(\MyInvoice\Service\Property\Payments\PaymentException $e){throw new IssuanceException($e->errorCode,$e->getMessage(),$e->httpStatus,$e->details);}
-            }else $correction->assertCharge($this->db,$charge);
-            $locks->assertFramework($supplier,$charge['accounting_date']);
-            $lines=IssuanceJournalProof::lines($charge);
-            (new PropertyDimensionPolicy($this->db))->assertAccountingDate($supplier,$charge['accounting_date'],$lines);
-            $documentDate=(new \DateTimeImmutable($charge['snapshot']['issued_at']))->setTimezone(new \DateTimeZone('Europe/Prague'))->format('Y-m-d');
-            $entry=$this->posting->postDocument($supplier,'unit_charge',$charge['id'],$lines,
-                ['entry_date'=>$charge['accounting_date'],'document_date'=>$documentDate,'document_no'=>'P-'.$charge['id'],
-                    'description'=>'Předpis '.$charge['snapshot']['registry']['revision']['state']['unit_no'].' / '.$charge['period_from'],
-                    'posted_by'=>$actor,'user_id'=>$actor]);
+            $document=$postingDocuments[$charge['id']];$lines=$document['lines'];
+            if($batchContext===null){
+                if($correction===null){
+                    try{(new \MyInvoice\Service\Property\Payments\PaymentUseGuard($this->db))->assertChargePostingAllowed($supplier,$charge['id']);}
+                    catch(\MyInvoice\Service\Property\Payments\PaymentException $e){throw new IssuanceException($e->errorCode,$e->getMessage(),$e->httpStatus,$e->details);}
+                }else $correction->assertCharge($this->db,$charge);
+                $locks->assertFramework($supplier,$charge['accounting_date']);
+                (new PropertyDimensionPolicy($this->db))->assertAccountingDate($supplier,$charge['accounting_date'],$lines);
+            }
+            $entry=$batchContext===null
+                ?$this->posting->postDocument($supplier,'unit_charge',$charge['id'],$lines,$document['meta'])
+                :$this->posting->postPropertyIssuanceBatchDocument($batchContext,$supplier,$charge['id'],$lines,$document['meta']);
             $proofs[]=['entry_id'=>$entry,'charge'=>$charge,'reversal'=>false];
             $stmt=$this->db->pdo()->prepare("UPDATE unit_charges SET status='posted',journal_entry_id=?,row_version=row_version+1 WHERE supplier_id=? AND id=? AND status='draft' AND row_version=?");
             $stmt->execute([$entry,$supplier,$charge['id'],$charge['row_version']]); if($stmt->rowCount()!==1) self::conflict();
             if($charge['previous_charge_id']!==null) $this->adjustment($supplier,$charge['previous_charge_id'],$charge['id'],$charge['issue_mode'],$entry,
                 $charge['snapshot']['issued_at'],['new_charge_id'=>$charge['id'],'snapshot_hash'=>$charge['snapshot_hash']], 'issue-'.$charge['id'],$actor);
             $this->audit($supplier,$batchId,$charge['id'],'posted',['journal_entry_id'=>$entry,'snapshot_hash'=>$charge['snapshot_hash']],$actor,self::now());
-        }
+        }}finally{$batchContext?->close();}
         $proof->assertEntries($supplier,$proofs);
         return $reader->batch($supplier,$batchId,true);
+    }
+
+    private function postingDocument(array $charge,int $actor):array
+    {
+        $documentDate=(new \DateTimeImmutable($charge['snapshot']['issued_at']))->setTimezone(new \DateTimeZone('Europe/Prague'))->format('Y-m-d');
+        return ['source_id'=>$charge['id'],'lines'=>IssuanceJournalProof::lines($charge),'meta'=>[
+            'entry_date'=>$charge['accounting_date'],'document_date'=>$documentDate,'document_no'=>'P-'.$charge['id'],
+            'description'=>'Předpis '.$charge['snapshot']['registry']['revision']['state']['unit_no'].' / '.$charge['period_from'],
+            'posted_by'=>$actor,'user_id'=>$actor]];
     }
 
     public function reverse(int $supplier,int $chargeId,array $input,int $actor): array

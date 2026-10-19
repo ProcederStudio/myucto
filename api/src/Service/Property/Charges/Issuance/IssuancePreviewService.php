@@ -47,7 +47,8 @@ final class IssuancePreviewService
             throw new IssuanceException('property_charge_issue_registry_unproven','Dům není v rozhodném okamžiku aktivní.',409);
         $profile=(new PropertyProfileRepository($this->db))->at($supplier,$request['issued_at'],$current);
         if(!($profile['enabled']??false)) throw new IssuanceException('property_charge_issue_profile_required','Nový předpis vyžaduje účinný potvrzený profil SVJ.',409);
-        $previewHistory=new IssuancePreviewHistory((new IssuanceReadRepository($this->db))->stream($supplier,$current),$request);
+        $history=(new IssuanceReadRepository($this->db))->previewHistory($supplier,$request,$current);
+        $previewHistory=new IssuancePreviewHistory($history['source'],$request,$history['families'],$history['targets']);
         $clientIds=[];
         foreach($request['units'] as $unit) {
             foreach($unit['liability_groups'] as $group) foreach($group['members']??[] as $id) $clientIds[]=$id;

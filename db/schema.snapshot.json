@@ -1047,7 +1047,8 @@
         "2063_property_funds_role_defaults.sql",
         "2064_property_payment_fx_sources.sql",
         "2065_tax_loss_period_proof.sql",
-        "2066_nonprofit_membership.sql"
+        "2066_nonprofit_membership.sql",
+        "2067_property_issuance_preview_index.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -25742,6 +25743,7 @@
             "indexes": {
                 "PRIMARY": "UNIQUE BTREE (id)",
                 "fk_issue_charge_previous": "BTREE (supplier_id, previous_charge_id)",
+                "idx_unit_charge_preview_target": "BTREE (supplier_id, unit_id, period_from, status, id)",
                 "ix_unit_charge_read_unit": "BTREE (supplier_id, read_unit_id, id)",
                 "uq_issue_charge_batch_unit": "UNIQUE BTREE (supplier_id, batch_id, unit_id)",
                 "uq_issue_charge_journal": "UNIQUE BTREE (supplier_id, journal_entry_id)",

@@ -15,9 +15,15 @@ final class IssuancePreviewHistory
     private array $families=[];
     private array $targets=[];
 
-    public function __construct(iterable $charges,array $request)
+    public function __construct(iterable $charges,array $request,?array $families=null,?iterable $targets=null)
     {
         $units=array_fill_keys(array_column($request['units'],'unit_id'),true);
+        if($families!==null&&$targets!==null){
+            foreach($charges as$charge)if(isset($units[$charge['unit_id']]))$this->rememberHistory($charge);
+            foreach($targets as$charge)if(isset($units[$charge['unit_id']]))ServiceNoticePolicy::rememberTarget($this->targets,$charge,$request['period_from']);
+            foreach($families as$family)if(isset($units[$family['unit_id']]))$this->families[$family['unit_id']][]=$family;
+            return;
+        }
         $observed=(function() use($charges,$request,$units): \Generator {
             foreach($charges as $charge) {
                 if(isset($units[$charge['unit_id']])) {
