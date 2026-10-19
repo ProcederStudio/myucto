@@ -22,7 +22,7 @@ final class NonprofitDppoArchiveBuilder
             'typ_zo'=>TaxPeriodShape::typZo(TaxPeriodShape::classify($period['starts_on'],$period['ends_on'])),
             'net_turnover_annual_kc'=>$data['net_turnover_annual_kc'],
         ]);
-        $appendix=$data['statements']+['settings'=>$entity['settings'],'category'=>['scope'=>'full']];
+        $appendix=$data['statements']+['settings'=>$entity['settings'],'category'=>['scope'=>'full'],'loss_appendix'=>$data['loss_appendix']??null];
         $appendix['statement_notes_attachment']=[
             'content'=>$this->notesPdf->render(['notes'=>$notes,'entity'=>$entity['entity_header'],'period'=>['starts_on'=>$period['starts_on'],'ends_on'=>$period['ends_on']]]),
             'filename'=>sprintf('priloha-ucetni-zaverky-%d.pdf',$year),'label'=>sprintf('Příloha v účetní závěrce za rok %d (vyhl. 504/2002 Sb.)',$year),

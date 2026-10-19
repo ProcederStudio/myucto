@@ -1044,7 +1044,8 @@
         "2060_accounting_framework_conversion.sql",
         "2061_nonprofit_dppo_profiles_savings.sql",
         "2062_nonprofit_tax_saving_cost_bindings.sql",
-        "2063_property_funds_role_defaults.sql"
+        "2063_property_funds_role_defaults.sql",
+        "2064_tax_loss_period_proof.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -24540,7 +24541,11 @@
                 "amount": "decimal(14,2) NOT NULL DEFAULT 0.00",
                 "created_at": "timestamp NOT NULL DEFAULT current_timestamp()",
                 "id": "int(10) unsigned NOT NULL AUTO_INCREMENT",
+                "origin_ends_on": "date NULL DEFAULT NULL",
+                "origin_starts_on": "date NULL DEFAULT NULL",
                 "origin_year": "smallint(5) unsigned NOT NULL",
+                "period_proof_hash": "char(64) NULL DEFAULT NULL",
+                "period_proof_kind": "varchar(32) NULL DEFAULT NULL",
                 "source_return_id": "int(10) unsigned NULL DEFAULT NULL",
                 "supplier_id": "int(10) unsigned NOT NULL",
                 "taxpayer_type": "enum('fo','po') NOT NULL",
@@ -24548,6 +24553,7 @@
             },
             "indexes": {
                 "PRIMARY": "UNIQUE BTREE (id)",
+                "idx_tax_loss_period": "BTREE (supplier_id, taxpayer_type, origin_starts_on, origin_ends_on)",
                 "idx_tax_loss_supplier": "BTREE (supplier_id, taxpayer_type)",
                 "uq_tax_loss": "UNIQUE BTREE (supplier_id, taxpayer_type, origin_year)"
             },

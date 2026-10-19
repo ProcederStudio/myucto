@@ -86,7 +86,7 @@ final readonly class DefaultSubmissionArtifactResolver implements SubmissionArti
         }
 
         try {
-            (new \MyInvoice\Service\Tax\Return\AccountingDecreeService($this->db))->assertDppoSubmissionSupported($supplierId, $row);
+            (new \MyInvoice\Service\Tax\Return\AccountingDecreeService($this->db))->assertDppoSubmissionSupported($supplierId, $row, true);
         } catch (\MyInvoice\Service\Tax\Return\TaxReturnException $e) {
             throw new \MyInvoice\Service\Submission\Channel\SubmissionChannelException($e->errorCode, $e->getMessage(), $e->httpStatus);
         }

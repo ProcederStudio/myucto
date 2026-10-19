@@ -37,6 +37,7 @@ final class NonprofitAnnualConstantsWorkflowTest extends TestCase
             $data = $container->get(\MyInvoice\Service\Tax\Nonprofit\NonprofitDppoDataProvider::class)->gather($supplier, 2026, $inputs);
             $capturedConstants = $legacy ? array_replace(\MyInvoice\Service\Tax\TaxConstants::forYear(2026), ['nonprofit_reduction_rate' => 0.30, 'nonprofit_reduction_min' => 300000, 'nonprofit_reduction_max' => 1000000, 'nonprofit_reduction_university_min' => 1000000, 'nonprofit_reduction_university_max' => 3000000]) : $constants->forExactYear(2026);
             $computed = (new \MyInvoice\Service\Tax\Return\DppoReturnCalculator())->compute($data, $inputs, $capturedConstants);
+            $data['loss_appendix']=\MyInvoice\Service\Tax\Return\DppoLossAppendix::build($supplier,'po',2026,$data['period'],[],0,0,5);$data['source_manifest']['loss_appendix_hash']=$data['loss_appendix']['proof_hash'];
             $entity = $container->get(TaxReturnService::class)->nonprofitEntityProof($supplier, $period);
             if ($legacy) {
                 foreach (array_keys(\MyInvoice\Service\Tax\Nonprofit\NonprofitDppoReduction::configuration($capturedConstants)) as $key) unset($capturedConstants[$key]);
@@ -49,7 +50,8 @@ final class NonprofitAnnualConstantsWorkflowTest extends TestCase
             $snapshot = ['computed' => $computed, 'podklady' => ['accounting_decree' => '504', 'period' => $data['period'], 'nonprofit_calculation' => $record]];
             $built = $container->get(\MyInvoice\Service\Tax\Nonprofit\NonprofitDppoArchiveBuilder::class)->build($record, $computed);
             self::assertSame('passed', (new \MyInvoice\Service\Validation\XmlSchemaValidator())->validate($built['xml'], 'dppdp9')['status']);
-            \MyInvoice\Service\Tax\Nonprofit\NonprofitDppoStoredProof::verify($snapshot, $manifest, $built['xml']);
+            $verified = \MyInvoice\Service\Tax\Nonprofit\NonprofitDppoStoredProof::verify($snapshot, $manifest, $built['xml']);
+            self::assertSame($legacy ? 'legacy' : 'v3', $verified['comparison_profile']);
             $repo = new \MyInvoice\Repository\TaxReturnRepository($db);
             $row = $repo->create($supplier, 2026, 'po', $inputs, $actor);
             $snapshotId = $repo->createSnapshot($row['id'], $supplier, $snapshot, $manifest, $built['xml'], 'passed', [], $actor);
@@ -68,12 +70,7 @@ final class NonprofitAnnualConstantsWorkflowTest extends TestCase
             self::assertSame($before, $ledger->source($supplier, $before['id']));
             self::assertSame($storedBefore, $repo->snapshot($supplier, $snapshotId));
             self::assertSame($legacy ? null : 500000, $storedBefore['snapshot_json']['podklady']['nonprofit_calculation']['constants']['nonprofit_reduction_max'] ?? null);
-            try {
-                $container->get(TaxReturnService::class)->getReturn($supplier, 2026, 'po', $actor);
-                self::fail('The 504 public guard was lifted');
-            } catch (\MyInvoice\Service\Tax\Return\TaxReturnException $e) {
-                self::assertSame('dppo_accounting_framework_not_supported', $e->errorCode);
-            }
+            self::assertSame('final',$container->get(TaxReturnService::class)->getReturn($supplier,2026,'po',$actor)['return']['status']);
             self::assertTrue($db->pdo()->inTransaction());
         } finally {
             (new \ReflectionMethod($fixture, 'tearDown'))->invoke($fixture);
