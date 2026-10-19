@@ -223,6 +223,18 @@ final class CronCatalog
                 'critical' => false,
             ],
             [
+                // Denně ve 3:30 — po půlnočním (UTC) obnovení denních limitů volání služeb.
+                // Denní běh zároveň udržuje přihlášení, které by u služeb s rotujícím tokenem propadlo.
+                'script' => 'cron-logbook-odometer-source',
+                'requires_usage' => CronJobGate::USAGE_ODOMETER_SOURCE,
+                'recommended' => 'daily_0330',
+                'linux_cron' => '30 3 * * *',
+                'windows_schtasks' => '/sc daily /st 03:30',
+                'max_age_hours' => 36,
+                'weekdays_only' => false,
+                'critical' => false,
+            ],
+            [
                 'script' => 'cron-scan-purchase-inbox',
                 'recommended' => 'every_10_min',
                 'linux_cron' => '*/10 * * * *',

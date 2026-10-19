@@ -3779,6 +3779,14 @@ final class Routes
         $app->get   ('/api/logbook/cars/{id:[0-9]+}',     [\MyInvoice\Action\Logbook\CarsAction::class, 'get']);
         $app->put   ('/api/logbook/cars/{id:[0-9]+}',     [\MyInvoice\Action\Logbook\CarsAction::class, 'update']);
         $app->delete('/api/logbook/cars/{id:[0-9]+}',     [\MyInvoice\Action\Logbook\CarsAction::class, 'delete']);
+        $app->get   ('/api/logbook/odometer-sources',                                  [\MyInvoice\Action\Logbook\OdometerSourceAction::class, 'catalog']);
+        $app->get   ('/api/logbook/cars/{id:[0-9]+}/odometer-source',                  [\MyInvoice\Action\Logbook\OdometerSourceAction::class, 'status']);
+        $app->post  ('/api/logbook/cars/{id:[0-9]+}/odometer-source/connect',          [\MyInvoice\Action\Logbook\OdometerSourceAction::class, 'connect']);
+        $app->post  ('/api/logbook/cars/{id:[0-9]+}/odometer-source/connect/continue', [\MyInvoice\Action\Logbook\OdometerSourceAction::class, 'continue']);
+        $app->post  ('/api/logbook/cars/{id:[0-9]+}/odometer-source/attach',           [\MyInvoice\Action\Logbook\OdometerSourceAction::class, 'attach']);
+        $app->post  ('/api/logbook/cars/{id:[0-9]+}/odometer-source/vehicle',          [\MyInvoice\Action\Logbook\OdometerSourceAction::class, 'selectVehicle']);
+        $app->post  ('/api/logbook/cars/{id:[0-9]+}/odometer-source/sync',             [\MyInvoice\Action\Logbook\OdometerSourceAction::class, 'sync']);
+        $app->delete('/api/logbook/cars/{id:[0-9]+}/odometer-source',                  [\MyInvoice\Action\Logbook\OdometerSourceAction::class, 'disconnect']);
 
         // Platební karty firmy + platby kartou bez dokladu. Specifické cesty PŘED /{id}.
         $app->get   ('/api/payment-cards',                                          [\MyInvoice\Action\Bank\PaymentCardAction::class, 'list']);

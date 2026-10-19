@@ -151,6 +151,15 @@ final class RequestAuthorization
         return self::isCompanyAdmin($request);
     }
 
+    /**
+     * Správa automatického stavu tachometru (připojení účtu u zdroje, přiřazení aut, načtení):
+     * patří k práci s knihou jízd, ne k administraci integrací.
+     */
+    public static function canManageOdometerSources(Request $request): bool
+    {
+        return self::allows($request, 'logbook.write', AccessLevel::WRITE);
+    }
+
     public static function allows(
         Request $request,
         string $permission,
