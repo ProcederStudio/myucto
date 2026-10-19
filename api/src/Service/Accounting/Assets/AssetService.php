@@ -93,6 +93,9 @@ final class AssetService
     private function createCard(int $supplierId, array $data, array $meta): array
     {
         $card = $this->normalize($data, null);
+        if ($card['imported_depreciation_plan'] !== null && !$this->supportsImportedPlan($supplierId)) {
+            throw new AssetException('imported_plan_invalid', 'Převzatý odpisový plán lze vést jen ve firmě s podvojným účetnictvím.');
+        }
         [$card, $warnings] = $this->validateCard($supplierId, $card, true);
         if ($card['imported_depreciation_plan'] !== null) {
             if ($card['kind'] !== 'intangible' || $card['tax_method'] !== 'by_accounting'
@@ -628,7 +631,7 @@ final class AssetService
             $assetView = $asset;
             $assetView['disposal_date'] = $date;
             $ctx = $this->depreciationPosting->buildContext($assetView);
-            $this->assertDisposalChronology($supplierId, $asset, $ctx, $year);
+            $this->assertDisposalChronology($asset, $ctx, $year);
 
             // 1) účetní odpis roku vyřazení do měsíce vyřazení (včetně) — R6
             if ($asset['accumulated_account_code'] !== null) {
@@ -816,7 +819,7 @@ final class AssetService
             $assetView = $lockedAsset;
             $assetView['disposal_date'] = $date;
             $ctx = $this->depreciationPosting->buildContext($assetView);
-            $this->assertDisposalChronology($supplierId, $lockedAsset, $ctx, $year);
+            $this->assertDisposalChronology($lockedAsset, $ctx, $year);
             if ($ctx->importedPlan !== null) {
                 // Tato cesta účetní deník nepřepisuje; jiný již potvrzený roční
                 // odpis musí účetní nejprve opravit, jinak by karta ztratila soulad.
@@ -897,7 +900,7 @@ final class AssetService
             $assetView = $asset;
             $assetView['disposal_date'] = $date;
             $ctx = $this->depreciationPosting->buildContext($assetView);
-            $this->assertDisposalChronology($supplierId, $asset, $ctx, $year);
+            $this->assertDisposalChronology($asset, $ctx, $year);
 
             $existingTax = $this->entries->findYear($id, 'tax', $year);
             if ($existingTax === null || (!$existingTax['is_paused'] && !DepreciationEntryRepository::isOverridden($existingTax))) {
@@ -2018,6 +2021,18 @@ final class AssetService
         return $this->taxEvidenceCache[$supplierId];
     }
 
+    /**
+     * Převzatý odpisový plán (import i jeho revize) má smysl jen v podvojném účetnictví:
+     * nese měsíční účetní odpisy, které daňová evidence nevede. Čte aktuální režim bez
+     * memo, aby revize po změně režimu nevycházela ze staršího stavu.
+     */
+    public function supportsImportedPlan(int $supplierId): bool
+    {
+        $stmt = $this->db->pdo()->prepare('SELECT accounting_mode FROM supplier WHERE id = ?');
+        $stmt->execute([$supplierId]);
+        return $stmt->fetchColumn() === 'double_entry';
+    }
+
     /** Rok s dokončenou roční uzávěrkou daňové evidence se už nemění. */
     private function assertTaxEvidenceYearOpen(int $supplierId, int $year): void
     {
@@ -2088,7 +2103,6 @@ final class AssetService
 
     /** Vyřazení nesmí přeskočit nepotvrzený rok ani ponechat odpisy po datu vyřazení. */
     private function assertDisposalChronology(
-        int $supplierId,
         array $asset,
         DepreciationContext $ctx,
         int $year,
@@ -2105,7 +2119,6 @@ final class AssetService
             }
         }
 
-        $calendar = $this->supplierCalendar($supplierId);
         $systemStartYear = $ctx->firstSystemYear($year);
         $priorYear = $year - 1;
         if ($priorYear < $systemStartYear

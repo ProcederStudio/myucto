@@ -92,8 +92,9 @@ describe('Imported asset plan UI', () => {
     wrapper.unmount()
   })
 
-  it.each(['no_permission', 'native', 'draft', 'disposed'])('hides controlled revision for %s while preserving read access', async variant => {
+  it.each(['no_permission', 'native', 'draft', 'disposed', 'tax_evidence'])('hides controlled revision for %s while preserving read access', async variant => {
     if (variant === 'no_permission') m.depreciationLevel = 0
+    if (variant === 'tax_evidence') m.mode = 'tax_evidence'
     if (variant === 'native') m.get.mockResolvedValue(asset({ imported_depreciation_plan: null }))
     if (variant === 'draft' || variant === 'disposed') m.get.mockResolvedValue(asset({ status: variant }))
     const wrapper = await detail()

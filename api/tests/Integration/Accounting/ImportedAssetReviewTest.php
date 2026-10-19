@@ -150,7 +150,7 @@ final class ImportedAssetReviewTest extends TestCase
     {
         $container = Bootstrap::buildContainer();
         $revisions = new ImportedPlanRevisionService($this->db, $this->repository, $this->service,
-            new MockClock('2098-01-15T10:00:00+00:00'), $container->get(ActivityLogger::class));
+            $container->get(AccountingPeriodRepository::class), new MockClock('2098-01-15T10:00:00+00:00'), $container->get(ActivityLogger::class));
         $input = ['effective_from' => '2098-01', 'remaining_months' => 14,
             'reason' => 'Syntetický nový odhad pro hromadnou sestavu', 'expected_revision' => 0];
         $preview = $revisions->preview($this->supplier, $this->asset, $input, $this->actor);

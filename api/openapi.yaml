@@ -13703,7 +13703,8 @@ paths:
       operationId: previewAssetPlanRevision
       summary: Náhled revize zbývajícího odpisového plánu
       description: >-
-        Vyžaduje assets.depreciation na úrovni WRITE; právo assets.write nestačí. Jen převzatý plán majetku v užívání; změna odhadu
+        Vyžaduje assets.depreciation na úrovni WRITE; právo assets.write nestačí. Jen převzatý plán majetku v užívání ve firmě s podvojným účetnictvím
+        (jinak 422 imported_plan_revision_not_allowed); změna odhadu
         od aktuálního nebo budoucího měsíce, bez účetních zápisů. Původní plán
         zůstává auditním podkladem. Potvrzené odpisy a uzamčená či uzavíraná
         období v celém dotčeném horizontu revizi blokují. Uložení znovu ověří
@@ -13737,7 +13738,8 @@ paths:
       operationId: reviseAssetPlan
       summary: Uložení revize zbývajícího odpisového plánu
       description: >-
-        Vyžaduje assets.depreciation na úrovni WRITE; právo assets.write nestačí. Jen převzatý plán majetku v užívání; změna odhadu
+        Vyžaduje assets.depreciation na úrovni WRITE; právo assets.write nestačí. Jen převzatý plán majetku v užívání ve firmě s podvojným účetnictvím
+        (jinak 422 imported_plan_revision_not_allowed); změna odhadu
         od aktuálního nebo budoucího měsíce, bez účetních zápisů. Původní plán
         zůstává auditním podkladem. Potvrzené odpisy a uzamčená či uzavíraná
         období v celém dotčeném horizontu revizi blokují. Uložení znovu ověří

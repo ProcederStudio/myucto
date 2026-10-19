@@ -116,6 +116,15 @@ final class ImportedAssetPlanTest extends TestCase
         self::assertSame(17980.0, $this->service->plan($this->supplier, $id)['accounting'][0]['amount']);
     }
 
+    public function testTaxEvidenceSupplierCannotImportPlan(): void
+    {
+        $this->db->pdo()->prepare("UPDATE supplier SET accounting_mode = 'tax_evidence' WHERE id = ?")->execute([$this->supplier]);
+        $this->reject(fn () => $this->service->createImported($this->supplier, $this->card(), $this->source()), 'imported_plan_invalid');
+        $count = $this->db->pdo()->prepare("SELECT COUNT(*) FROM assets WHERE supplier_id = ? AND inventory_number = 'SYN-IMPORTED-1'");
+        $count->execute([$this->supplier]);
+        self::assertSame(0, (int) $count->fetchColumn());
+    }
+
     private function assertExactPlan(int $id): void
     {
         $plan = $this->service->plan($this->supplier, $id);

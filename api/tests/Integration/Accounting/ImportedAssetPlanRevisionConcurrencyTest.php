@@ -78,9 +78,9 @@ final class ImportedAssetPlanRevisionConcurrencyTest extends TestCase
             public function now(): \DateTimeImmutable { return new \DateTimeImmutable('2098-01-15T12:00:00+01:00'); }
         };
         $this->revisionsA = new ImportedPlanRevisionService($this->dbA, $a->get(AssetRepository::class),
-            $this->assetsA, $clock, $a->get(ActivityLogger::class));
+            $this->assetsA, $a->get(AccountingPeriodRepository::class), $clock, $a->get(ActivityLogger::class));
         $this->revisionsB = new ImportedPlanRevisionService($this->dbB, $b->get(AssetRepository::class),
-            $this->assetsB, $clock, $b->get(ActivityLogger::class));
+            $this->assetsB, $b->get(AccountingPeriodRepository::class), $clock, $b->get(ActivityLogger::class));
         $created = $this->assetsA->createImported($this->supplier, [
             'inventory_number' => 'SYN-REVISION-CONCURRENT', 'name' => 'Syntetická licence pro souběh',
             'kind' => 'intangible', 'asset_account_code' => '013', 'accumulated_account_code' => '073',

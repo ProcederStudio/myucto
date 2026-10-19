@@ -43,7 +43,7 @@ const importedPlan = computed(() => asset.value?.imported_depreciation_plan ?? n
 const plan = ref<DepreciationPlan | null>(null)
 const loading = ref(false)
 const showRevision = ref(false)
-const canRevisePlan = computed(() => !!importedPlan.value && asset.value?.status === 'in_use' && auth.canWrite('assets.depreciation'))
+const canRevisePlan = computed(() => !!importedPlan.value && !isTaxEvidence.value && asset.value?.status === 'in_use' && auth.canWrite('assets.depreciation'))
 const latestRevision = computed(() => importedPlan.value?.revisions?.at(-1))
 const effectiveUsefulLife = computed(() => {
   const summary = plan.value?.asset_summary

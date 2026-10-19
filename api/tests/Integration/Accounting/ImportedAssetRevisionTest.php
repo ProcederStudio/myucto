@@ -42,7 +42,7 @@ final class ImportedAssetRevisionTest extends TestCase
         $this->posting = $container->get(DepreciationPostingService::class);
         $this->entries = $container->get(DepreciationEntryRepository::class);
         $this->journal = $container->get(JournalEntryRepository::class);
-        $this->revisions = new ImportedPlanRevisionService($this->db, $container->get(AssetRepository::class), $this->service, new MockClock('2098-01-15T10:00:00+00:00'), $container->get(ActivityLogger::class));
+        $this->revisions = new ImportedPlanRevisionService($this->db, $container->get(AssetRepository::class), $this->service, $container->get(AccountingPeriodRepository::class), new MockClock('2098-01-15T10:00:00+00:00'), $container->get(ActivityLogger::class));
         $this->supplier = (int) $this->db->pdo()->query('SELECT id FROM supplier ORDER BY id LIMIT 1')->fetchColumn();
         self::assertGreaterThan(0, $this->supplier, 'Test requires a seeded test tenant.');
         $this->db->pdo()->beginTransaction();
@@ -141,7 +141,7 @@ final class ImportedAssetRevisionTest extends TestCase
             public function log(string $action, ?int $userId = null, ?string $entityType = null, ?int $entityId = null, ?array $payload = null, ?string $ip = null, ?string $userAgent = null, ?int $supplierId = null): void
             { throw new \RuntimeException('Synthetic audit failure'); }
         };
-        $service = new ImportedPlanRevisionService($this->db, new AssetRepository($this->db), $this->service, new MockClock('2098-01-15'), $logger);
+        $service = new ImportedPlanRevisionService($this->db, new AssetRepository($this->db), $this->service, new AccountingPeriodRepository($this->db), new MockClock('2098-01-15'), $logger);
         $preview = $service->preview($this->supplier, $id, $this->input(), $this->actor);
         try {
             $service->revise($this->supplier, $id, $this->input() + $this->snapshot($preview), $this->actor);
@@ -156,6 +156,19 @@ final class ImportedAssetRevisionTest extends TestCase
         $id = (int) $this->service->createImported($this->supplier, $this->card(), $this->source())['asset']['id'];
         $this->reject(fn () => $this->revisions->preview($this->supplier, $id, array_replace($this->input(), ['effective_from' => '2097-12']), $this->actor), 'imported_plan_revision_not_allowed');
         $this->reject(fn () => $this->revisions->preview($this->supplier + 1000000, $id, $this->input(), $this->actor), 'not_found');
+    }
+
+    public function testTaxEvidenceSupplierCannotReviseImportedPlan(): void
+    {
+        $id = (int) $this->service->createImported($this->supplier, $this->card(), $this->source())['asset']['id'];
+        $preview = $this->revisions->preview($this->supplier, $id, $this->input(), $this->actor);
+        // Změna režimu po importu: revize se nesmí provést ani v náhledu, ani při uložení.
+        $this->db->pdo()->prepare("UPDATE supplier SET accounting_mode = 'tax_evidence' WHERE id = ?")->execute([$this->supplier]);
+        $revisions = new ImportedPlanRevisionService($this->db, new AssetRepository($this->db), $this->service,
+            new AccountingPeriodRepository($this->db), new MockClock('2098-01-15T10:00:00+00:00'), new ActivityLogger($this->db));
+        $this->reject(fn () => $revisions->preview($this->supplier, $id, $this->input(), $this->actor), 'imported_plan_revision_not_allowed');
+        $this->reject(fn () => $revisions->revise($this->supplier, $id, $this->input() + $this->snapshot($preview), $this->actor), 'imported_plan_revision_not_allowed');
+        self::assertSame($this->source(), $this->service->get($this->supplier, $id)['imported_depreciation_plan']);
     }
 
     public function testMetadataEditCannotOverwriteCompletedConcurrentRevisionOrLifecycle(): void

@@ -21,6 +21,7 @@ final class ImportedPlanRevisionService
         private readonly Connection $db,
         private readonly AssetRepository $assets,
         private readonly AssetService $service,
+        private readonly AccountingPeriodRepository $periods,
         private readonly ClockInterface $clock,
         private readonly ActivityLogger $logger,
     ) {}
@@ -57,7 +58,7 @@ final class ImportedPlanRevisionService
         }
         $suffix = $locking ? ' FOR UPDATE' : '';
         $pdo = $this->db->pdo();
-        $snapshot = (new AccountingPeriodRepository($this->db))->fiscalCalendarSnapshot($supplierId, $locking);
+        $snapshot = $this->periods->fiscalCalendarSnapshot($supplierId, $locking);
         $calendar = $snapshot['calendar'];
         $periods = $snapshot['periods'];
         $calendarFingerprint = $snapshot['fingerprint'];
@@ -65,6 +66,9 @@ final class ImportedPlanRevisionService
         if ($asset === null) throw new AssetException('not_found', 'Majetek nenalezen.', 404);
         if ($asset['status'] !== 'in_use' || $asset['imported_depreciation_plan'] === null) {
             throw new AssetException('imported_plan_revision_not_allowed', 'Revizi lze provést jen u převzatého plánu majetku v užívání.');
+        }
+        if (!$this->service->supportsImportedPlan($supplierId)) {
+            throw new AssetException('imported_plan_revision_not_allowed', 'Revizi převzatého plánu lze provést jen ve firmě s podvojným účetnictvím.');
         }
         $plan = $asset['imported_depreciation_plan'];
         $history = $plan['revisions'] ?? [];
@@ -109,9 +113,6 @@ final class ImportedPlanRevisionService
         $query->execute([$supplierId]);
         $lockedUntil = $query->fetchColumn();
         if (is_string($lockedUntil) && $lockedUntil >= $from . '-01') $this->locked();
-        $query = $pdo->prepare("SELECT year FROM tax_evidence_closings WHERE supplier_id = ? AND year >= ? AND year <= ? AND status = 'final'" . $suffix);
-        $query->execute([$supplierId, $firstYear, $lastYear]);
-        if ($query->fetchColumn() !== false) $this->locked();
         $revision = ['revision' => count($history) + 1, 'effective_from' => $from, 'remaining_months' => $months,
             'remaining_amount_cents' => $remaining, 'reason' => trim($reason), 'user_id' => $userId,
             'created_at' => $this->clock->now()->format(DATE_ATOM), 'fiscal_start_month' => $calendar->startMonth()];

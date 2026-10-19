@@ -58,7 +58,7 @@ final class ImportedPlanCalendarSnapshotTest extends TestCase
         $a->get(ChartOfAccountsSeeder::class)->seedForSupplier($this->supplier);
         $this->assets = $a->get(AssetService::class);
         $this->revisions = new ImportedPlanRevisionService($this->dbA, $a->get(AssetRepository::class), $this->assets,
-            new MockClock('2098-10-15'), $a->get(ActivityLogger::class));
+            $this->periodsA, new MockClock('2098-10-15'), $a->get(ActivityLogger::class));
     }
 
     protected function tearDown(): void
