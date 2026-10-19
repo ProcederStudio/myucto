@@ -17,14 +17,7 @@ final class FundingRepository
         $out = []; $previous = [];
         foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $row) {
             $key = $row['source_key'];
-            foreach (['id','supplier_id','period_id','provider_id','revision_no','created_by','assessment_id'] as $field) $row[$field] = (int)$row[$field];
-            $row['previous_id'] = $row['previous_id'] === null ? null : (int)$row['previous_id'];
-            $row['policy'] = json_decode($row['policy_json'],true,flags:JSON_THROW_ON_ERROR);
-            $row['basis'] = json_decode($row['basis_json'],true,flags:JSON_THROW_ON_ERROR);
-            $row['request']=json_decode($row['request_json'],true,flags:JSON_THROW_ON_ERROR);
-            unset($row['policy_json'],$row['basis_json'],$row['request_json']);
-            if ($row['revision_no'] !== ($previous[$key]['revision_no'] ?? 0)+1 || $row['previous_id'] !== ($previous[$key]['id'] ?? null)
-                || $row['parent_hash'] !== ($previous[$key]['record_hash'] ?? str_repeat('0',64)) || !hash_equals($row['record_hash'],self::recordHash($row)) || !hash_equals($row['request_hash'],NonprofitTaxRules::hash($row['request']))) FundingPolicy::invalid('Historie účelového zdroje není průkazná.','nonprofit_funding_integrity');
+            $row = self::verifiedRevision($row, $previous[$key] ?? null);
             $previous[$key] = $row; $out[]=$row;
         }
         return $out;
@@ -49,5 +42,17 @@ final class FundingRepository
     public static function recordHash(array $row): string
     {
         return NonprofitTaxRules::hash(array_intersect_key($row,array_flip(['supplier_id','period_id','source_key','revision_no','previous_id','parent_hash','provider_id','assessment_id','policy','basis','reason','idempotency_key','request_hash','created_by','request'])));
+    }
+    public static function verifiedRevision(array $row, ?array $previous): array
+    {
+        foreach (['id','supplier_id','period_id','provider_id','revision_no','created_by','assessment_id'] as $field) $row[$field] = (int)$row[$field];
+        $row['previous_id'] = $row['previous_id'] === null ? null : (int)$row['previous_id'];
+        $row['policy'] = json_decode($row['policy_json'],true,flags:JSON_THROW_ON_ERROR);
+        $row['basis'] = json_decode($row['basis_json'],true,flags:JSON_THROW_ON_ERROR);
+        $row['request']=json_decode($row['request_json'],true,flags:JSON_THROW_ON_ERROR);
+        unset($row['policy_json'],$row['basis_json'],$row['request_json']);
+        if ($row['revision_no'] !== ($previous['revision_no'] ?? 0)+1 || $row['previous_id'] !== ($previous['id'] ?? null)
+            || $row['parent_hash'] !== ($previous['record_hash'] ?? str_repeat('0',64)) || !hash_equals($row['record_hash'],self::recordHash($row)) || !hash_equals($row['request_hash'],NonprofitTaxRules::hash($row['request']))) FundingPolicy::invalid('Historie účelového zdroje není průkazná.','nonprofit_funding_integrity');
+        return $row;
     }
 }

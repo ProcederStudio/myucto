@@ -3,43 +3,18 @@
 declare(strict_types=1);
 namespace MyInvoice\Service\Nonprofit\Catalog;
 use MyInvoice\Infrastructure\Database\Connection;
-use MyInvoice\Repository\Nonprofit\FundingRepository;
 use MyInvoice\Service\Accounting\Dimension\DimensionPeriodGuard;
-use MyInvoice\Service\Nonprofit\Funding\FundingService;
 use MyInvoice\Service\Nonprofit\Capital\CapitalService;
 use MyInvoice\Service\Tax\Nonprofit\NonprofitTaxAssessmentException;
 
 final class NonprofitResourceCatalog
 {
-    public function __construct(private readonly Connection $db,private readonly FundingService $funding,private readonly FundingRepository $fundingHistory) {}
+    public function __construct(private readonly Connection $db,private readonly FundingCatalogRead $funding) {}
 
     public function funding(int $supplier,int $after=0,int $limit=25,?int $id=null): array
     {
         return $this->snapshot($supplier,function()use($supplier,$after,$limit,$id):array{
-            $native=$this->funding->read($supplier);$first=[];
-            foreach($this->fundingHistory->all($supplier)as$row)$first[$row['source_key']]??=$row['id'];
-            $items=[];
-            foreach($native['sources']as$report){
-                $revision=$report['revision'];$policy=$revision['policy'];$public=$first[$report['source_key']];
-                $items[$public]=[
-                    'id'=>$public,'current_revision_id'=>$revision['id'],'revision_no'=>$revision['revision_no'],'previous_revision_id'=>$revision['previous_id'],
-                    'period_id'=>$revision['period_id'],'assessment_id'=>$revision['assessment_id'],'kind'=>$policy['kind'],'provider_client_id'=>$revision['provider_id'],
-                    'valid_from'=>$policy['valid_from'],'valid_to'=>$policy['valid_to'],'activity_kind_ids'=>$policy['activity_kind_ids'],'account_prefixes'=>$policy['account_prefixes'],
-                    'recognized_cents'=>$this->cents($report['recognized_cents']),'budget_cents'=>$this->cents($report['budget_cents']),
-                    'used_cents'=>$this->cents($report['drawdown_cents']),'budget_remaining_cents'=>$this->cents($report['budget_remaining_cents']),'available_cents'=>$this->cents($report['available_cents']),
-                    'source_current'=>$report['source_current'],'proof_status'=>$report['source_current']?'current':'incomplete','usage_count'=>count($report['uses']),
-                ];
-            }
-            $findings=[];
-            foreach($native['findings']as$finding){
-                $code=$finding['code'];
-                if(!in_array($code,['funding_source_not_current','funding_assessment_not_current'],true))$code='native_funding_incomplete';
-                $out=['code'=>$code];
-                if(isset($finding['source_key'],$first[$finding['source_key']]))$out['source_id']=$first[$finding['source_key']];
-                foreach(['assessment_id','period_id']as$field)if(isset($finding[$field]))$out[$field]=(int)$finding[$field];
-                $findings[]=$out;
-            }
-            return $this->result($items,$after,$limit,$id,'current_confirmed_nonprofit_tax_assessments',$findings,['usage_links'=>'not_exposed','native_complete'=>(bool)$native['complete']]);
+            return $this->funding->read($supplier,$after,$limit,$id);
         });
     }
 

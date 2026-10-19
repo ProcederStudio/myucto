@@ -1049,7 +1049,8 @@
         "2065_tax_loss_period_proof.sql",
         "2066_nonprofit_membership.sql",
         "2067_property_issuance_preview_index.sql",
-        "2068_membership_recorded_at_utc.sql"
+        "2068_membership_recorded_at_utc.sql",
+        "2069_nonprofit_funding_catalog_first_revision.sql"
     ],
     "tables": {
         "abra_flexi_connections": {
@@ -8058,6 +8059,7 @@
                 "fk_nfr_period": "BTREE (supplier_id, period_id)",
                 "fk_nfr_previous": "BTREE (supplier_id, source_key, previous_id)",
                 "fk_nfr_provider": "BTREE (supplier_id, provider_id)",
+                "ix_nfr_catalog_first": "BTREE (supplier_id, revision_no, id)",
                 "uq_nfr_chain": "UNIQUE BTREE (supplier_id, source_key, id)",
                 "uq_nfr_revision": "UNIQUE BTREE (supplier_id, source_key, revision_no)",
                 "uq_nfr_tenant": "UNIQUE BTREE (supplier_id, id)",

@@ -32001,21 +32001,7 @@ paths:
       tags:
       - Accounting
       summary: Potvrzené účelové granty a dary
-      description: 'Pouze accounting READ. Současné zaznamenané hodnoty přebírá kanonický
-        native owner bez přepočtu peněžních pravidel. FundingService::read ověřuje aktuální
-        J6 receipts; první revision ID je stabilní veřejné ID zdroje, current_revision_id
-        dokládá aktuální revizi. source_key, title/purpose/evidence a podrobný usage
-        graph se nevracejí. source_current=false zachovává available_cents=null. Nativní
-        neúplnost je oddělená od aktuálnosti revize. Provider je pouze tenant client
-        ID, nikoli jméno ani právně odvozený party profil. Volné texty, osoby, aktéři,
-        policy/request/snapshot/receipt JSON a finanční hashe se nevracejí. pending_coverage=not_assessed
-        a complete=false jsou výslovné: chybí kanonický pending reader, prázdná stránka
-        není důkaz nulových čekajících operací ani úplné finanční pozice. Paginace nevynechává
-        neúplné zaznamenané zdroje; prázdná poslední stránka má next_cursor=null. Každý
-        request má vlastní native owner transakci s period-first locks, nejde o atomický
-        snapshot více stránek. Částky jsou stringy centů, null a záporné nativní zůstatky
-        zůstávají zachované; výstup neopravňuje k finanční mutaci. Historické date/as_of/known_at
-        nejsou podporované.'
+      description: Pouze accounting READ. Stránkovaný katalog zaznamenaných metadat grantů a darů ověřuje návaznost a otisky revizí vybraných zdrojů. ID první revize je stabilní veřejné ID, current_revision_id označuje poslední zaznamenanou revizi. Ověřený řetězec nedokládá aktuální rozhodnutí o účelu, způsobilost, skutečné použití ani daňový režim. source_current, usage_count a částky použití jsou null; purpose_decision=unknown, usage_links=not_available a eligibility=not_assessed. Provider je pouze tenant client ID. Osobní údaje, volné texty, interní hashe a celé podklady se nevracejí. Každá stránka má vlastní transakční čtení a limit nejvýše 100 zdrojů. Částky jsou přesné řetězce haléřů. Výstup neopravňuje k finanční mutaci. Historické date/as_of/known_at nejsou podporované.
       parameters:
       - $ref: '#/components/parameters/SupplierIdHeader'
       - name: after_id
@@ -32083,21 +32069,7 @@ paths:
       tags:
       - Accounting
       summary: Potvrzené účelové granty a dary
-      description: 'Pouze accounting READ. Současné zaznamenané hodnoty přebírá kanonický
-        native owner bez přepočtu peněžních pravidel. FundingService::read ověřuje aktuální
-        J6 receipts; první revision ID je stabilní veřejné ID zdroje, current_revision_id
-        dokládá aktuální revizi. source_key, title/purpose/evidence a podrobný usage
-        graph se nevracejí. source_current=false zachovává available_cents=null. Nativní
-        neúplnost je oddělená od aktuálnosti revize. Provider je pouze tenant client
-        ID, nikoli jméno ani právně odvozený party profil. Volné texty, osoby, aktéři,
-        policy/request/snapshot/receipt JSON a finanční hashe se nevracejí. pending_coverage=not_assessed
-        a complete=false jsou výslovné: chybí kanonický pending reader, prázdná stránka
-        není důkaz nulových čekajících operací ani úplné finanční pozice. Paginace nevynechává
-        neúplné zaznamenané zdroje; prázdná poslední stránka má next_cursor=null. Každý
-        request má vlastní native owner transakci s period-first locks, nejde o atomický
-        snapshot více stránek. Částky jsou stringy centů, null a záporné nativní zůstatky
-        zůstávají zachované; výstup neopravňuje k finanční mutaci. Historické date/as_of/known_at
-        nejsou podporované.'
+      description: Pouze accounting READ. Stránkovaný katalog zaznamenaných metadat grantů a darů ověřuje návaznost a otisky revizí vybraných zdrojů. ID první revize je stabilní veřejné ID, current_revision_id označuje poslední zaznamenanou revizi. Ověřený řetězec nedokládá aktuální rozhodnutí o účelu, způsobilost, skutečné použití ani daňový režim. source_current, usage_count a částky použití jsou null; purpose_decision=unknown, usage_links=not_available a eligibility=not_assessed. Provider je pouze tenant client ID. Osobní údaje, volné texty, interní hashe a celé podklady se nevracejí. Každá stránka má vlastní transakční čtení a limit nejvýše 100 zdrojů. Částky jsou přesné řetězce haléřů. Výstup neopravňuje k finanční mutaci. Historické date/as_of/known_at nejsou podporované.
       parameters:
       - $ref: '#/components/parameters/SupplierIdHeader'
       - name: id
@@ -33023,6 +32995,8 @@ components:
           - funding_source_not_current
           - funding_assessment_not_current
           - native_funding_incomplete
+          - purpose_decision_coverage_unknown
+          - funding_usage_links_not_available
         source_id:
           type: integer
           minimum: 1
@@ -33054,13 +33028,24 @@ components:
           type: boolean
         usage_links:
           type: string
-          const: not_exposed
+          enum:
+          - not_exposed
+          - not_available
         recorded_sources_verified:
           type: boolean
           const: true
         recorded_events_verified:
           type: boolean
           const: true
+        revision_history:
+          type: string
+          const: verified
+        purpose_decision:
+          type: string
+          const: unknown
+        eligibility:
+          type: string
+          const: not_assessed
     NonprofitFundingCatalogSource:
       type: object
       additionalProperties: false
@@ -33156,14 +33141,17 @@ components:
           - 'null'
           pattern: ^-?[0-9]+$
         source_current:
-          type: boolean
+          type:
+          - boolean
+          - 'null'
         proof_status:
           type: string
           enum:
-          - current
-          - incomplete
+          - recorded_chain_verified
         usage_count:
-          type: integer
+          type:
+          - integer
+          - 'null'
           minimum: 0
     NonprofitCapitalCatalogSource:
       type: object
@@ -33334,9 +33322,7 @@ components:
           const: canonical_owner_transaction
         provenance:
           type: string
-          enum:
-          - current_confirmed_nonprofit_tax_assessments
-          - current_canonical_capital_ledger
+          const: recorded_funding_revision_chain
         coverage:
           $ref: '#/components/schemas/NonprofitCatalogCoverage'
         financial_authorization:
@@ -33363,9 +33349,7 @@ components:
           const: canonical_owner_transaction
         provenance:
           type: string
-          enum:
-          - current_confirmed_nonprofit_tax_assessments
-          - current_canonical_capital_ledger
+          const: recorded_funding_revision_chain
         coverage:
           $ref: '#/components/schemas/NonprofitCatalogCoverage'
         financial_authorization:
